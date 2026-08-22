@@ -34,6 +34,7 @@ import { VariantPriceConsole } from '@/components/master-set/VariantPriceConsole
 import { PerLineErrors } from '@/components/master-set/PerLineErrors';
 import { localUid } from '@/components/master-set/capture';
 import { QuickAddSection, type QuickAddTarget } from './QuickAdd';
+import { QuickRemoveSection } from './QuickRemove';
 import { ItemDetailModal } from './ItemDetailModal';
 
 /**
@@ -141,10 +142,15 @@ export function VariantDrawer(props: VariantDrawerProps) {
 
   // Estado vacío = invitación a dar de alta: la sección de alta abre desplegada.
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickRemoveOpen, setQuickRemoveOpen] = useState(false);
   const emptyKnown = pieces.data != null && rows.length === 0;
   useEffect(() => {
     if (emptyKnown) setQuickAddOpen(true);
   }, [emptyKnown]);
+
+  // Conteo VISIBLE de piezas ajustables para la baja rápida (P-29): las filas ya vienen filtradas
+  // a ownerType=platform por el query; aquí sumo solo las que el backend deja ajustar (in_stock|listed).
+  const removableCount = rows.filter((r) => r.status === 'in_stock' || r.status === 'listed').length;
 
   const [pricesOpen, setPricesOpen] = useState(isSuperAdmin);
   const [highlighted, setHighlighted] = useState<string[]>(highlightFolio ? [highlightFolio] : []);
@@ -236,6 +242,16 @@ export function VariantDrawer(props: VariantDrawerProps) {
               {t('addGraded')}
             </Button>
           )}
+          {/* Baja rápida (P-29): simétrica al alta rápida; solo raw/sellado (graded no la lleva). */}
+          {quickAddTarget && (
+            <Button
+              variant="secondary"
+              onClick={() => setQuickRemoveOpen((v) => !v)}
+              aria-expanded={quickRemoveOpen}
+            >
+              {t('removeQuick')}
+            </Button>
+          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -253,6 +269,22 @@ export function VariantDrawer(props: VariantDrawerProps) {
                   onChanged?.();
                 }}
               />
+            )}
+
+            {/* Baja rápida (P-29): da de baja N piezas de la variante de un golpe. */}
+            {quickRemoveOpen && quickAddTarget && (
+              <section className="flex flex-col gap-3 border-t border-border pt-4">
+                <h3 className="text-h3">{t('removeQuick')}</h3>
+                <QuickRemoveSection
+                  target={quickAddTarget}
+                  removableCount={removableCount}
+                  onToast={onToast}
+                  onRemoved={() => {
+                    void pieces.refetch();
+                    onChanged?.();
+                  }}
+                />
+              </section>
             )}
 
             {/* Sección «Precios» (P-18) — colapsable; NO existe para sellado (cadena H-1). */}

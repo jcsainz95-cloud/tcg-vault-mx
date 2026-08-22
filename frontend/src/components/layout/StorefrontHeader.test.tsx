@@ -9,8 +9,10 @@ import type { UserDTO } from '@/types/contract';
 // El header usa next-intl navigation (usePathname/useRouter/Link), que requiere el
 // router de Next. Lo mockeamos para aislar la lógica de sesión del header.
 const push = vi.fn();
+// Mutable para poder simular la ruta activa (P-28: el carrito de compra se oculta en /buylist).
+let mockPathname = '/';
 vi.mock('@/i18n/navigation', () => ({
-  usePathname: () => '/',
+  usePathname: () => mockPathname,
   useRouter: () => ({ push }),
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
@@ -33,6 +35,7 @@ describe('StorefrontHeader — sesión', () => {
     setToken(null);
     setStoredUser(null);
     window.localStorage.clear();
+    mockPathname = '/';
   });
 
   it('sin sesión muestra "Iniciar sesión" y NO el logout', () => {
@@ -96,6 +99,21 @@ describe('StorefrontHeader — sesión', () => {
     const vault = await screen.findByRole('link', { name: 'Mi bóveda' });
     expect(vault).toHaveAttribute('href', '/vault');
     expect(screen.getByRole('link', { name: 'Mis órdenes' })).toHaveAttribute('href', '/orders');
+  });
+
+  it('P-28: fuera del flujo de venta muestra el carrito de compra en el header', () => {
+    mockPathname = '/catalog';
+    renderWithIntl(<StorefrontHeader />, 'es');
+    const cart = screen.getByRole('link', { name: /Carrito/ });
+    expect(cart).toHaveAttribute('href', '/checkout');
+  });
+
+  it('P-28: en /buylist (Vender) OCULTA el carrito de compra del header (queda solo el FAB de venta)', () => {
+    mockPathname = '/buylist';
+    renderWithIntl(<StorefrontHeader />, 'es');
+    // El único "carrito" en la página de Vender debe ser el FAB de venta (fuera del header),
+    // así "CARRITO 1" (compra) ya no compite con el "5" del cotizador.
+    expect(screen.queryByRole('link', { name: /Carrito/ })).toBeNull();
   });
 
   it('TL-C1: expone su altura real como `--app-header-h` en el contenedor del layout (y la limpia al desmontar)', () => {

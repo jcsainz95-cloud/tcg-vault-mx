@@ -1,6 +1,8 @@
 import { config } from './config';
 import {
   apiRequest,
+  requestBlob,
+  type BlobResponse,
   ApiClientError,
   setToken,
   setRefreshToken,
@@ -89,7 +91,6 @@ import type {
   IneUploadKeys,
   KycInfoDTO,
   FxDTO,
-  PriceProvider,
   PriceIngestResponse,
   PendingPriceEntryDTO,
   PendingPriceContext,
@@ -131,6 +132,8 @@ import type {
   AdminVaultListResponse,
   InventoryAdjustmentRequest,
   InventoryAdjustmentResponse,
+  BulkRemoveInventoryRequest,
+  BulkRemoveInventoryResponse,
   // v1.28 Stream B (P-17/18/19/20/22/24/25): inventario M1 operable.
   VariantControlsRequest,
   VariantControlsResponse,
@@ -182,7 +185,7 @@ function translateFixtureError(e: unknown): unknown {
     return new ApiClientError(404, { code: 'NOT_FOUND', message: e.message });
   }
   if (e instanceof fx.ApiFixtureError) {
-    return new ApiClientError(e.status, { code: e.code, message: e.message });
+    return new ApiClientError(e.status, { code: e.code, message: e.message, details: e.details });
   }
   return e;
 }
@@ -2173,6 +2176,78 @@ export async function createInventoryAdjustment(
   }
 }
 
+/**
+ * P-29 «baja rápida»: da de baja N piezas de UNA variante de un golpe (atajo simétrico al alta
+ * rápida por lote). Consume `POST /admin/inventory/items/bulk-remove` (backend implementado). La
+ * baja es ATÓMICA: o baja las `quantity` completas o ninguna (422 INSUFFICIENT_STOCK con
+ * `{ available, requested }`); `reason` (enum) y `note` (texto libre no-vacío) son OBLIGATORIOS.
+ * `batchKey?` (v1.35): idempotencia por intento — mismo batchKey tras un reintento → replay de la
+ * respuesta guardada (`idempotentReplay:true`), cierra el «encogimiento fantasma». El front además
+ * valida contra el conteo visible (barrera de UI).
+ */
+export async function bulkRemoveInventory(
+  payload: BulkRemoveInventoryRequest,
+): Promise<BulkRemoveInventoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<BulkRemoveInventoryResponse>('/admin/inventory/items/bulk-remove', {
+      method: 'POST',
+      body: payload,
+    });
+  }
+  try {
+    return await delay(fx.mockBulkRemove(payload));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * P-31 «Exportar a Excel»: descarga el .xlsx del inventario M1 con el filtro/set actual (si
+ * aplica). Consume `GET /admin/inventory/export.xlsx` (backend implementado): binario xlsx con
+ * `Content-Disposition: attachment; filename="inventario-YYYY-MM-DD.xlsx"`. Devuelve el Blob + el
+ * `filename` sugerido (o null); el caller dispara la descarga usando ese nombre o el suyo propio.
+ */
+export interface InventoryExportFilters {
+  setId?: string;
+  status?: InventoryStatus;
+  productType?: ProductType;
+  finish?: Finish;
+  q?: string;
+}
+export async function exportAdminInventoryXlsx(
+  filters: InventoryExportFilters = {},
+): Promise<BlobResponse> {
+  if (!config.useMocks) {
+    return requestBlob('/admin/inventory/export.xlsx', {
+      query: {
+        setId: filters.setId,
+        status: filters.status,
+        productType: filters.productType,
+        finish: filters.finish,
+        q: filters.q,
+      },
+    });
+  }
+  // MOCK: genera un Blob con el tipo MIME de xlsx para que el front ejercite la ruta blob →
+  // descarga sin backend (el contenido NO es un xlsx válido: es demo). Sin Content-Disposition en
+  // el mock ⇒ `filename: null` ⇒ el caller cae a su propio nombre.
+  const rows = fx.mockInventory
+    .filter((i) => (filters.setId ? i.card.setId === filters.setId : true))
+    .filter((i) => (filters.status ? i.status === filters.status : true))
+    .filter((i) => (filters.productType ? i.productType === filters.productType : true))
+    .map((i) => `${i.folio}\t${i.card.name}\t${i.productType}\t${i.status}`);
+  const body = ['folio\tcarta\ttipo\testado', ...rows].join('\n');
+  return delay(
+    {
+      blob: new Blob([body], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+      filename: null,
+    },
+    150,
+  );
+}
+
 export async function getLocations(): Promise<VaultLocationDTO[]> {
   if (!config.useMocks) {
     const res = await apiRequest<{ data: VaultLocationDTO[] }>('/admin/locations');
@@ -2832,23 +2907,10 @@ export async function triggerPriceIngest(
 }
 
 /**
- * Lee el dial `priceProvider` (proveedor de la ingesta masiva de precios) reusando el endpoint
- * de settings existente (contrato §M10 · GET /admin/settings, v1.14-price-ingest). Devuelve
- * `undefined` si el backend aún no lo expone.
+ * P-33: `getPriceProvider`/`updatePriceProvider` (dial del proveedor de respaldo) se retiraron
+ * junto con su UI (PriceProviderSection). El setting `priceProvider` sigue existiendo en el
+ * backend (SettingsDTO.priceProvider) con PPT fijo como respaldo, sin control desde el frontend.
  */
-export async function getPriceProvider(): Promise<PriceProvider | undefined> {
-  const settings = await getSettings();
-  return settings.priceProvider;
-}
-
-/**
- * Actualiza el dial `priceProvider` vía PUT PARCIAL de settings (contrato §M10 ·
- * PUT /admin/settings { priceProvider }, v1.14-price-ingest). Sin redeploy; auditado
- * (`settings.update`). Palanca de rollback del proveedor de ingest.
- */
-export async function updatePriceProvider(priceProvider: PriceProvider): Promise<SettingsDTO> {
-  return updateSettings({ priceProvider });
-}
 
 /**
  * Rarezas distintas del catálogo sincronizado UNIDAS a las reglas de buylist, para

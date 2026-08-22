@@ -5,7 +5,6 @@ import { useCatalogSync } from './sections/useCatalogSync';
 import { PriceIngestSection } from './sections/PriceIngestSection';
 import { PendingQueueSection } from './sections/PendingQueueSection';
 import { FxSection } from './sections/FxSection';
-import { PriceProviderSection } from './sections/PriceProviderSection';
 import { BuylistRulesSection } from './sections/BuylistRulesSection';
 import { SalesRulesSection } from './sections/SalesRulesSection';
 import { SealedSpreadsSection } from './sections/SealedSpreadsSection';
@@ -37,8 +36,9 @@ export function M2View() {
       {/* Sección 3 · FX */}
       <FxSection />
 
-      {/* Sección 3b · proveedor de precios + ingesta masiva (v1.14-price-ingest) */}
-      <PriceProviderSection />
+      {/* P-33: la Sección 3b («proveedor de respaldo») se RETIRÓ del panel por decisión del
+          humano — TCGCSV sigue primario y PPT queda fijo como respaldo en el backend, sin
+          control en UI. La ingesta a mano vive en la Sección 1 (PriceIngestSection). */}
 
       {/* Sección 4 · precio de buylist en DOS EJES + «Unificar rarezas» (v1.29, §4.28d) */}
       <BuylistRulesSection />

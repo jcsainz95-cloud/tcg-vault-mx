@@ -75,6 +75,8 @@ import type {
   AdminVaultListResponse,
   InventoryAdjustmentRequest,
   InventoryAdjustmentResponse,
+  BulkRemoveInventoryRequest,
+  BulkRemoveInventoryResponse,
   BatchCreateInventoryRequest,
   BatchCreateInventoryResponse,
   BatchInventoryLineResult,
@@ -1588,6 +1590,7 @@ export class ApiFixtureError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -1673,6 +1676,82 @@ export function mockCreateAdjustment(req: InventoryAdjustmentRequest): Inventory
     idempotentReplay: false,
   };
 }
+
+/**
+ * POST /admin/inventory/items/bulk-remove (P-29, backend implementado). Da de baja N piezas
+ * ajustables de UNA variante (carta + acabado, o carta + sellado) de un golpe. Selecciona piezas
+ * platform con status ∈ {in_stock, listed} de esa variante y las saca por `reason` (perdida → lost;
+ * danada → damaged; error_captura → withdrawn). ATÓMICO: si hay menos disponibles que `quantity`,
+ * NO baja ninguna y lanza 422 INSUFFICIENT_STOCK con `{ available, requested }`.
+ */
+export function mockBulkRemove(req: BulkRemoveInventoryRequest): BulkRemoveInventoryResponse {
+  const card = mockCards.find((c) => c.id === req.cardId);
+  if (!card) throw new ApiFixtureError(404, 'NOT_FOUND', 'card not found');
+  if (!Number.isInteger(req.quantity) || req.quantity < 1) {
+    throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'quantity must be >= 1');
+  }
+  // `note` es OBLIGATORIA y no-vacía (backend `@IsString() note!`): sin ella ⇒ 400 (refleja la
+  // llamada real, no la enmascara).
+  if (typeof req.note !== 'string' || req.note.trim() === '') {
+    throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'note is required');
+  }
+  // Idempotencia por batchKey (v1.35, kind='bulk_remove'): un replay del mismo batchKey NO re-baja;
+  // devuelve la respuesta guardada con idempotentReplay:true (cierra el «encogimiento fantasma»).
+  if (req.batchKey) {
+    const prior = mockBulkRemoveStore.get(req.batchKey);
+    if (prior) return { ...prior, idempotentReplay: true };
+  }
+  const productType = req.productType ?? 'raw';
+  const reason = req.reason;
+  const toStatus: InventoryStatus =
+    reason === 'perdida' ? 'lost' : reason === 'danada' ? 'damaged' : 'withdrawn';
+
+  const candidates = mockInventory.filter(
+    (i) =>
+      i.card.id === req.cardId &&
+      i.ownerType === 'platform' &&
+      (i.status === 'in_stock' || i.status === 'listed') &&
+      i.productType === productType &&
+      (productType === 'raw'
+        ? (i.finish ?? 'normal') === req.finish
+        : req.sealedCondition == null || (i.sealedCondition ?? 'mint') === req.sealedCondition),
+  );
+  // ATÓMICO: si no alcanzan, no se baja ninguna (money-safe, misma barrera que el backend).
+  if (candidates.length < req.quantity) {
+    throw new ApiFixtureError(422, 'INSUFFICIENT_STOCK', 'not enough adjustable pieces', {
+      available: candidates.length,
+      requested: req.quantity,
+    });
+  }
+  const toRemove = candidates.slice(0, req.quantity);
+  const folios: string[] = [];
+  const inventoryItemIds: string[] = [];
+  const adjustmentIds: string[] = [];
+  for (const piece of toRemove) {
+    const fromStatus = piece.status;
+    piece.status = toStatus;
+    pushMockMovement(piece.id, { fromStatus, toStatus, reason: 'adjustment', note: `bulk-remove:${reason}` });
+    folios.push(piece.folio);
+    inventoryItemIds.push(piece.id);
+    adjustmentIds.push(`adj-${Math.random().toString(36).slice(2, 8)}`);
+  }
+  const res: BulkRemoveInventoryResponse = {
+    ...(req.batchKey ? { batchKey: req.batchKey } : {}),
+    idempotentReplay: false,
+    removed: toRemove.length,
+    requested: req.quantity,
+    reason,
+    toStatus,
+    inventoryItemIds,
+    folios,
+    adjustmentIds,
+  };
+  if (req.batchKey) mockBulkRemoveStore.set(req.batchKey, res);
+  return res;
+}
+
+// Idempotencia de baja rápida: batchKey → resultado guardado (replay sin re-bajar, contrato §M1 v1.35).
+const mockBulkRemoveStore = new Map<string, BulkRemoveInventoryResponse>();
 
 // Idempotencia de lote: batchKey → resultado guardado (replay sin re-crear, contrato §M1).
 const mockBatchStore = new Map<string, BatchCreateInventoryResponse>();

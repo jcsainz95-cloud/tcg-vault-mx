@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { SetValueService, SET_VALUE_RULE } from '../src/modules/catalog/set-value.service';
+import { BASE_CARD_REF_WHERE } from '../src/modules/pricing/pricing.service';
 import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -11,6 +12,29 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
  * resolveFeaturedSet (cascada env → snapshot → releaseDate → null), valueHistory (change y estados
  * vacíos), set-price-sync (NO filtra bóveda + escalate=false) y los endpoints con/sin snapshots.
  */
+
+/**
+ * P-32: construye una fila de PriceReference con los campos que `computeSetValue` selecciona y que
+ * el desempate determinista `isBetterRef` necesita (capturedDate, source, cardProductId). Defaults
+ * seguros para los tests que solo se fijan en el valor/dedupe por carta.
+ */
+function ref(partial: {
+  cardId: string;
+  priceMxnCents: number;
+  capturedDate: Date;
+  source?: string;
+  cardProductId?: string | null;
+  priceUsdCents?: number | null;
+  isManualOverride?: boolean;
+}) {
+  return {
+    priceUsdCents: null,
+    isManualOverride: false,
+    source: 'tcgcsv_singles',
+    cardProductId: null,
+    ...partial,
+  };
+}
 
 function buildService(prisma: any, config: Partial<ConfigService> = {}) {
   const cfg = { get: jest.fn().mockReturnValue(undefined), ...config } as unknown as ConfigService;
@@ -30,12 +54,12 @@ describe('SetValueService.computeSetValue — SEC-A1, batch sin N+1', () => {
         findMany: jest.fn().mockResolvedValue([{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }]),
       },
       priceReference: {
-        // Orden capturedDate DESC (como pide el service). c1 tiene 2 filas → gana la primera (más
-        // reciente); c3 no tiene precio → se excluye del total pero cuenta en totalCardCount.
+        // Orden capturedDate DESC (como pide el service). c1 tiene 2 filas → gana la MÁS RECIENTE por
+        // el desempate determinista; c3 no tiene precio → se excluye del total pero cuenta en total.
         findMany: jest.fn().mockResolvedValue([
-          { cardId: 'c1', priceMxnCents: 5000 }, // más reciente de c1
-          { cardId: 'c2', priceMxnCents: 3000 },
-          { cardId: 'c1', priceMxnCents: 4000 }, // vieja de c1 → NO se suma (dedupe)
+          ref({ cardId: 'c1', priceMxnCents: 5000, capturedDate: new Date('2026-08-15') }), // reciente
+          ref({ cardId: 'c2', priceMxnCents: 3000, capturedDate: new Date('2026-08-15') }),
+          ref({ cardId: 'c1', priceMxnCents: 4000, capturedDate: new Date('2026-08-10') }), // vieja → NO
         ]),
       },
     };
@@ -58,6 +82,28 @@ describe('SetValueService.computeSetValue — SEC-A1, batch sin N+1', () => {
       finish: SET_VALUE_RULE.finish,
     });
     expect(where.cardId).toEqual({ in: ['c1', 'c2', 'c3'] });
+    // P-32: EXCLUYE deck_exclusive/promo — el where lleva el filtro compartido BASE_CARD_REF_WHERE.
+    expect(where.OR).toEqual(BASE_CARD_REF_WHERE.OR);
+  });
+
+  it('P-32: excluye deck_exclusive/promo y toma el precio del set_base (no el producto separado)', async () => {
+    // c1 tiene, el MISMO día, la fila del set_base (tcgcsv_singles, cardProductId set) y la genérica
+    // (pokemontcg.io, cardProductId=null). El desempate determinista (fuente) elige el set_base. La
+    // fila de deck_exclusive/promo ya NO llega aquí (BASE_CARD_REF_WHERE la filtra en la query).
+    const prisma: any = {
+      card: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }]) },
+      priceReference: {
+        findMany: jest.fn().mockResolvedValue([
+          ref({ cardId: 'c1', priceMxnCents: 5200, capturedDate: new Date('2026-08-15'), source: 'tcgcsv_singles', cardProductId: 'prod-base' }),
+          ref({ cardId: 'c1', priceMxnCents: 4900, capturedDate: new Date('2026-08-15'), source: 'pokemontcg_io', cardProductId: null }),
+        ]),
+      },
+    };
+    const svc = buildService(prisma);
+    const res = await svc.computeSetValue('set1');
+    // Gana el set_base (tcgcsv_singles > pokemontcg.io por precedencia de fuente), NO 4900 ni una suma.
+    expect(res.totalValueMxnCents).toBe(5200);
+    expect(res.pricedCardCount).toBe(1);
   });
 
   it('set sin cartas → todo en cero, sin consultar referencias', async () => {
@@ -189,15 +235,33 @@ describe('SetValueService.valueHistory — points + change', () => {
     expect(res.change.direction).toBe('up');
   });
 
-  it('primer valor 0 → pct null; rango inválido cae a 1m', async () => {
+  it('P-32: base semilla (0 → 1 carta priceada) NO es base válida → sin cambio (flat/null), no un % absurdo', async () => {
+    // Regresión P-32: antes esto daba direction 'up' comparando contra un snapshot semilla; el %
+    // resultante era irreal. Ahora un snapshot con cobertura ínfima vs el último no es base válida.
     const svc = withSnapshots([
       { asOfDate: new Date('2026-08-01'), totalValueMxnCents: 0, pricedCardCount: 0 },
       { asOfDate: new Date('2026-08-15'), totalValueMxnCents: 10000, pricedCardCount: 1 },
     ]);
     const res = await svc.valueHistory('set1', 'bogus');
-    expect(res.range).toBe('1m');
-    expect(res.change.pct).toBeNull();
+    expect(res.range).toBe('1m'); // rango inválido cae a 1m
+    expect(res.change).toEqual({ absMxnCents: 0, pct: null, direction: 'flat' });
+  });
+
+  it('P-32: snapshot SEMILLA (1/180 priceadas, valor ínfimo) NO infla el %; base = punto comparable', async () => {
+    // Reproduce el bug: día 1 con 1 carta priceada (MX$10) y luego el set completo. El % debe medirse
+    // contra un punto con cobertura comparable (no el semilla), evitando el +157,463% reportado.
+    const svc = withSnapshots([
+      { asOfDate: new Date('2026-07-01'), totalValueMxnCents: 1000, pricedCardCount: 1 }, // semilla
+      { asOfDate: new Date('2026-08-01'), totalValueMxnCents: 1500000, pricedCardCount: 180 },
+      { asOfDate: new Date('2026-08-15'), totalValueMxnCents: 1575632, pricedCardCount: 182 },
+    ]);
+    const res = await svc.valueHistory('set1', 'all');
+    // Base = 2026-08-01 (180 >= ceil(182/2)=91); NO el semilla del 2026-07-01 (1 < 91).
+    expect(res.change.absMxnCents).toBe(75632); // 1575632 - 1500000
+    expect(res.change.pct).toBe(5.04); // round(75632/1500000*100, 2)
     expect(res.change.direction).toBe('up');
+    // NADA cerca del +157,463% del bug.
+    expect(res.change.pct!).toBeLessThan(100);
   });
 });
 
@@ -257,7 +321,9 @@ describe('SetValueSnapshotJobService — upsert idempotente por día', () => {
       cardSet: { findUnique: jest.fn().mockResolvedValue(set) },
       card: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }, { id: 'c2' }]) },
       priceReference: {
-        findMany: jest.fn().mockResolvedValue([{ cardId: 'c1', priceMxnCents: 700 }]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([ref({ cardId: 'c1', priceMxnCents: 700, capturedDate: new Date('2026-08-15') })]),
       },
       setValueSnapshot: { upsert: jest.fn(async ({ create }: any) => create) },
     };

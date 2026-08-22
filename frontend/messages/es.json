@@ -1293,19 +1293,6 @@
         "savedBufferOnly": "Colchón actualizado; se conservó la tasa vigente."
       },
       "priceIngest": {
-        "title": "Ingesta masiva de precios",
-        "subtitle": "Refresca los precios de TODO el catálogo por lotes (un job por set) desde el proveedor seleccionado. Es la vía principal de precios; corre 1–2 veces al día y también puedes dispararla a mano.",
-        "primarySourceLabel": "Fuente primaria",
-        "primarySourceValue": "TCGCSV",
-        "primarySourceHint": "Siempre se intenta primero.",
-        "fallbackLabel": "Proveedor de respaldo (fallback)",
-        "providerOptions": {
-          "pokemontcg_io": "pokemontcg.io",
-          "pokemonpricetracker": "PokemonPriceTracker"
-        },
-        "fallbackHint": "TCGCSV es la fuente primaria y siempre se usa primero; este proveedor solo cubre lo que TCGCSV no tenga (p. ej. gradeadas o cartas sin precio en TCGCSV).",
-        "precedenceHint": "Precedencia: TCGCSV (primario) → respaldo: {fallback} → override manual (máxima).",
-        "providerSaved": "Proveedor de respaldo actualizado.",
         "trigger": "Actualizar precios ahora",
         "triggerHint": "Encola la ingesta masiva (equivale a la corrida programada); se procesa set por set, en segundo plano.",
         "queued": "Ingesta de precios encolada; se procesa en segundo plano.",
@@ -1763,6 +1750,12 @@
       },
       "publishAllCta": "Publicar todo…",
       "batchAddCta": "Alta por lote",
+      "exportXlsx": {
+        "cta": "Exportar a Excel",
+        "loading": "Exportando…",
+        "error": "No se pudo exportar el inventario. Intenta de nuevo.",
+        "success": "Inventario exportado."
+      },
       "sealedTab": {
         "search": "Buscar set",
         "searchPlaceholder": "Nombre del set",
@@ -1888,6 +1881,25 @@
       "partialSummary": "{created} creadas · {failed} rechazadas.",
       "replay": "Reintento idempotente (no se duplicó)."
     },
+    "quickRemove": {
+      "title": "Baja rápida",
+      "available": "{count} piezas disponibles para dar de baja.",
+      "noneRemovable": "No hay piezas en stock o publicadas que dar de baja en esta variante.",
+      "qty": "Cantidad a dar de baja",
+      "qtyMinus": "Restar uno",
+      "qtyPlus": "Sumar uno",
+      "reasonLabel": "Motivo de la baja",
+      "noteLabel": "Nota de la baja",
+      "noteHint": "Obligatoria: describe el motivo (queda en bitácora).",
+      "noteRequired": "La nota es obligatoria.",
+      "cta": "Dar de baja {count}",
+      "confirmBody": "Se darán de baja {count} piezas del inventario. Esta acción queda en bitácora.",
+      "confirmCta": "Confirmar baja de {count}",
+      "cancel": "Cancelar",
+      "loading": "Dando de baja…",
+      "success": "{count} piezas dadas de baja.",
+      "insufficientStock": "Ya no hay suficientes piezas ajustables ({available} disponibles). Actualiza y vuelve a intentar."
+    },
     "publishAll": {
       "title": "Publicar todo el inventario",
       "body": "Se publicarán todas las piezas en stock que tengan precio resoluble.",
@@ -1917,6 +1929,7 @@
       "close": "Cerrar",
       "pieces": "Piezas ({count})",
       "addQuick": "Alta rápida",
+      "removeQuick": "Baja rápida",
       "addGraded": "Agregar gradeada…",
       "prices": "Precios",
       "collapse": "Ocultar",

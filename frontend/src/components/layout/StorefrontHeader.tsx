@@ -50,6 +50,14 @@ export function StorefrontHeader() {
   const displayName = user?.name || user?.email || '';
   const { count } = useCart();
 
+  // P-28: en el flujo de VENTA (`/buylist`) coexisten DOS carritos distintos —el de COMPRA
+  // (este botón del header, `useCart` → /checkout) y el de VENTA/cotización (FAB flotante,
+  // `useSellCart` en BuylistView)—. Mostrar ambos con contadores diferentes ("CARRITO 1" vs
+  // "5") confunde: se lee como un mismo carrito descuadrado. En la página de Vender ocultamos
+  // el carrito de compra para dejar UN SOLO carrito en pantalla (el de venta); el de compra no
+  // se pierde (vive en localStorage) y reaparece en el resto de la tienda.
+  const onSellFlow = pathname.startsWith('/buylist');
+
   // TL-C1: expone la ALTURA REAL del header como var CSS `--app-header-h` en el contenedor
   // del layout del storefront (el padre inmediato del header). Los sticky de las vistas
   // (p. ej. la barra de filtros del binder en modo quoter, §18.1) se anclan DEBAJO del
@@ -162,13 +170,16 @@ export function StorefrontHeader() {
             </Link>
           )}
 
-          <Link
-            href="/checkout"
-            className="hidden items-center gap-2 border border-text px-3.5 py-2.5 text-[11px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg lg:inline-flex"
-          >
-            {t('cart')}
-            <span className="tabular font-mono">{count}</span>
-          </Link>
+          {/* P-28: oculto en el flujo de venta (ver `onSellFlow`). */}
+          {!onSellFlow && (
+            <Link
+              href="/checkout"
+              className="hidden items-center gap-2 border border-text px-3.5 py-2.5 text-[11px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg lg:inline-flex"
+            >
+              {t('cart')}
+              <span className="tabular font-mono">{count}</span>
+            </Link>
+          )}
 
           <button
             type="button"
@@ -195,14 +206,17 @@ export function StorefrontHeader() {
                 {l.label}
               </Link>
             ))}
-            <Link
-              href="/checkout"
-              onClick={() => setOpen(false)}
-              className="flex items-center justify-between border-b border-border py-4 text-sm font-medium uppercase tracking-label text-text"
-            >
-              {t('cart')}
-              <span className="tabular font-mono text-muted">{count}</span>
-            </Link>
+            {/* P-28: oculto en el flujo de venta (ver `onSellFlow`). */}
+            {!onSellFlow && (
+              <Link
+                href="/checkout"
+                onClick={() => setOpen(false)}
+                className="flex items-center justify-between border-b border-border py-4 text-sm font-medium uppercase tracking-label text-text"
+              >
+                {t('cart')}
+                <span className="tabular font-mono text-muted">{count}</span>
+              </Link>
+            )}
             {authed ? (
               <>
                 <span className="truncate border-b border-border py-4 text-sm text-muted">{displayName}</span>

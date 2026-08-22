@@ -79,6 +79,12 @@ export const ErrorCode = {
   // error_captura; una reserved/vendida/en-custodia/enviada o ya terminal se resuelve por su
   // flujo dueño (M3/M4/`mark`), no por ajuste. 422.
   ITEM_NOT_ADJUSTABLE: 'ITEM_NOT_ADJUSTABLE',
+  // P-29 (baja rápida por cantidad): POST /admin/inventory/items/bulk-remove pidió dar de baja
+  // N piezas de un (cardId, finish[, condición]) pero solo hay M < N piezas ajustables
+  // (ownerType=platform ∧ status ∈ {in_stock, listed}). No se baja NADA (atómico): «no bajar más
+  // de las que hay». `details.available`/`details.requested`. 422. PENDIENTE de formalizar en
+  // API_CONTRACT por el arquitecto (patrón de los códigos M1 dedicados de arriba).
+  INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
 
   // Payments / Stripe
   AMOUNT_TOO_LOW: 'AMOUNT_TOO_LOW', // B2: por debajo del mínimo de Stripe MX

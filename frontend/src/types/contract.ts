@@ -1229,6 +1229,40 @@ export interface InventoryAdjustmentResponse {
   idempotentReplay: boolean;
 }
 
+// ===== P-29 «baja rápida» — POST /admin/inventory/items/bulk-remove (backend implementado) =====
+// Da de baja N piezas de UNA misma variante (carta + acabado, o carta + sellado) de un golpe, como
+// atajo SIMÉTRICO al alta rápida por lote (POST .../items/batch). La operación es ATÓMICA: o baja
+// las `quantity` completas o no baja ninguna (422 INSUFFICIENT_STOCK con `{ available, requested }`).
+// `reason` es OBLIGATORIO (encontrada NO aplica a una baja). `note` es OBLIGATORIO y no-vacío
+// (motivo/nota de texto libre de la baja; sin él ⇒ 400 VALIDATION_ERROR). `batchKey?` (v1.35) da
+// idempotencia: mismo batchKey tras un reintento → NO re-baja; el replay devuelve la respuesta
+// original guardada con `idempotentReplay:true` (mismo 200). Sin batchKey → idempotentReplay:false.
+export type RemoveReason = 'perdida' | 'danada' | 'error_captura';
+
+export interface BulkRemoveInventoryRequest {
+  cardId: string;
+  finish: Finish;
+  quantity: number;
+  reason: RemoveReason;
+  note: string;
+  batchKey?: string;
+  productType?: 'raw' | 'sealed';
+  rawCondition?: RawCondition;
+  sealedCondition?: SealedCondition;
+}
+
+export interface BulkRemoveInventoryResponse {
+  batchKey?: string;
+  idempotentReplay: boolean;
+  removed: number;
+  requested: number;
+  reason: RemoveReason;
+  toStatus: InventoryStatus;
+  inventoryItemIds: string[];
+  folios: string[];
+  adjustmentIds: string[];
+}
+
 // ----- Alta por LOTE (POST /admin/inventory/items/batch) -----
 // Una línea = una intención de alta; `qty` (default 1) es un ATAJO que el backend expande a N
 // InventoryItem (N piezas físicas, N folios) para bulk raw/sellado. graded → qty forzado a 1.

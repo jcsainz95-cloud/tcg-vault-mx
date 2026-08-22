@@ -1293,19 +1293,6 @@
         "savedBufferOnly": "Buffer updated; kept the current rate."
       },
       "priceIngest": {
-        "title": "Bulk price ingest",
-        "subtitle": "Refreshes prices for the WHOLE catalog in batches (one job per set) from the selected provider. It's the primary pricing path; it runs 1–2 times a day and you can also trigger it manually.",
-        "primarySourceLabel": "Primary source",
-        "primarySourceValue": "TCGCSV",
-        "primarySourceHint": "Always tried first.",
-        "fallbackLabel": "Fallback price provider",
-        "providerOptions": {
-          "pokemontcg_io": "pokemontcg.io",
-          "pokemonpricetracker": "PokemonPriceTracker"
-        },
-        "fallbackHint": "TCGCSV is the primary source and is always tried first; this provider only covers what TCGCSV lacks (e.g. graded cards or cards without a TCGCSV price).",
-        "precedenceHint": "Precedence: TCGCSV (primary) → fallback: {fallback} → manual override (highest).",
-        "providerSaved": "Fallback provider updated.",
         "trigger": "Refresh prices now",
         "triggerHint": "Queues the bulk ingest (same as the scheduled run); processed set by set, in the background.",
         "queued": "Price ingest queued; processing in the background.",
@@ -1763,6 +1750,12 @@
       },
       "publishAllCta": "Publish all…",
       "batchAddCta": "Batch intake",
+      "exportXlsx": {
+        "cta": "Export to Excel",
+        "loading": "Exporting…",
+        "error": "Inventory export failed. Please try again.",
+        "success": "Inventory exported."
+      },
       "sealedTab": {
         "search": "Search set",
         "searchPlaceholder": "Set name",
@@ -1888,6 +1881,25 @@
       "partialSummary": "{created} created · {failed} rejected.",
       "replay": "Idempotent retry (nothing duplicated)."
     },
+    "quickRemove": {
+      "title": "Quick removal",
+      "available": "{count} pieces available to remove.",
+      "noneRemovable": "No in-stock or listed pieces to remove for this variant.",
+      "qty": "Quantity to remove",
+      "qtyMinus": "Subtract one",
+      "qtyPlus": "Add one",
+      "reasonLabel": "Removal reason",
+      "noteLabel": "Removal note",
+      "noteHint": "Required: describe the reason (kept in the audit log).",
+      "noteRequired": "The note is required.",
+      "cta": "Remove {count}",
+      "confirmBody": "{count} pieces will be removed from inventory. This action is recorded in the audit log.",
+      "confirmCta": "Confirm removal of {count}",
+      "cancel": "Cancel",
+      "loading": "Removing…",
+      "success": "{count} pieces removed.",
+      "insufficientStock": "There aren't enough adjustable pieces anymore ({available} available). Refresh and try again."
+    },
     "publishAll": {
       "title": "Publish the whole inventory",
       "body": "All in-stock pieces with a resolvable price will be published.",
@@ -1917,6 +1929,7 @@
       "close": "Close",
       "pieces": "Pieces ({count})",
       "addQuick": "Quick intake",
+      "removeQuick": "Quick removal",
       "addGraded": "Add graded…",
       "prices": "Prices",
       "collapse": "Hide",

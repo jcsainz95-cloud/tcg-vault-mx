@@ -4,6 +4,129 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-P29/P31. Baja rápida por cantidad + Export de inventario a Excel (2026-08-22, `fix/variant-composition-regression`)
+
+> Solo `backend/` (módulo `inventory` + un error code en `common/` + dep `exceljs`). Cambios
+> **ADITIVOS y MONEY-SAFE**. Gate: **1471/1471** verde (1452 previos + 19 nuevos). Ambos endpoints
+> quedan **PENDIENTES de formalizar en `API_CONTRACT` por el arquitecto** (patrón §M1 vigente).
+
+### P-29 — Baja rápida por CANTIDAD (nuevo endpoint)
+
+`POST /admin/inventory/items/bulk-remove` · roles `vault_operator` + `super_admin` (mismo controller M1).
+
+**Por qué un endpoint nuevo (no reuso directo):** el camino de baja por-pieza YA existe
+(`POST /admin/inventory/adjustments` con `reason ∈ {perdida, danada, error_captura}` → un
+`inventoryItemId` concreto; y `POST /admin/inventory/items/:id/mark`). Lo que faltaba es dar de baja
+**N piezas de un golpe** de un (cardId, finish[, condición]) sin ir pieza por pieza. `bulk-remove`
+**reusa la semántica** de `adjustExisting` (mismo mapeo de motivos, mismo guardarraíl, mismo rastro
+triple) pero **selecciona las N piezas server-side**.
+
+**Request body** (`BulkRemoveRequestDto`):
+- `cardId: string` (req), `finish: Finish` (req: `normal|reverse_holo|holofoil|first_edition_holofoil`),
+- `quantity: int ≥1` (req, tope `MAX_BATCH_QTY=500`), `reason: perdida|danada|error_captura` (req),
+- `note: string` (req, no-vacía — paridad con la baja por-pieza),
+- filtros OPCIONALES para desambiguar la casilla: `productType?`, `rawCondition?` (`NM`), `sealedCondition?`.
+
+**Selección de las «N más apropiadas»:** solo piezas `ownerType=platform` en `{in_stock, listed}`
+(mismo allowlist `ADJUSTABLE_ORIGIN_STATUSES` que el ajuste), ordenadas **`in_stock` antes que
+`listed`** (baja primero lo NO publicado → menos disrupción del storefront) y dentro de cada status la
+**más antigua (FIFO por `createdAt`)**. `take: quantity`.
+
+**Motivos → status:** `perdida→lost`, `danada→damaged`, `error_captura→withdrawn` (idéntico a
+`adjustExisting`). Registro **triple por pieza**: `InventoryMovement(reason=adjustment)` +
+`InventoryAdjustment` (M-24) en la MISMA `$transaction`; el `AuditLog action=inventory.bulk_remove`
+lo escribe el controller (con `requested`/`removed`/`folios`/`adjustmentIds`).
+
+**Atómico / «no bajar más de las que hay»:** si hay **menos** piezas ajustables que `quantity` →
+`422 INSUFFICIENT_STOCK` con `details.{available, requested}` y **NO se baja ninguna**. Guardia
+atómica de status (updateMany condicionado + `count`, patrón BE-45): una carrera que saque una pieza
+del allowlist entre la lectura y la escritura → `422 ITEM_NOT_ADJUSTABLE` + rollback (nunca pisa una
+reserva de checkout con lost/damaged).
+
+**Money-safe:** NO toca precios (`listPriceCents`, referencias, overrides) ni crea/reversa órdenes;
+solo transiciona `status` (baja de stock). Jamás escribe `reserved`/`listed` → no vende ni publica.
+
+**Response 200** (`BulkRemoveResponse`): `{ batchKey?, idempotentReplay, removed, requested, reason,
+toStatus, inventoryItemIds[], folios[], adjustmentIds[] }` (arrays 1:1). En el camino feliz
+`removed === requested` siempre.
+
+**Nuevo error code:** `INSUFFICIENT_STOCK` (422) en `src/common/error-codes.ts` — formalizado en
+API_CONTRACT §0/§M1 (v1.34).
+
+#### Idempotencia por `batchKey` (v1.35, H1 — cierre del «encogimiento fantasma»)
+
+`bulk-remove` gana **paridad total** con `adjustFound` (`InventoryAdjustmentRequest.encontrada`,
+v1.20.1/BE-47) y `publish-all`. Copiado tal cual el mecanismo `InventoryBatch` (M-21):
+
+- **DTO:** `batchKey?: string` opcional (`@IsOptional() @IsString()`). `note` sigue **obligatoria**
+  (`@IsString() @IsNotEmpty() note!: string`; el servicio además rechaza whitespace → 400). NO se relajó.
+- **Persistencia:** `InventoryBatch` con **`kind='bulk_remove'`** (nuevo valor). `kind` es una columna
+  **`TEXT` libre** (no enum de BD, sin `CHECK`) → **añadir el valor NO requiere migración** (mismo
+  precedente que `publish_all` en v1.28; se actualizó solo el comentario del schema). Ver `TECH_DEBT.md`
+  BE-BR1/BE-BR2.
+- **Mecanismo (idéntico a `adjustFound`):** fast-path replay (batchKey ya persistido →
+  `replayBulkRemove` devuelve el `resultJson` guardado + `idempotentReplay: true`, mismo `200`, **sin**
+  transicionar status ni escribir un segundo lote de movimientos/ajustes) · claim
+  `inventoryBatch.create({ id: batchKey, kind: 'bulk_remove' })` **PRIMERO** dentro de la `$transaction`
+  (la unique constraint del id es la guardia de concurrencia; P2002 → replay del ganador) · un fallo
+  posterior (`INSUFFICIENT_STOCK`/TOCTOU) hace **rollback del claim** → un reintento con la misma key
+  vuelve a intentar limpio (no se «quema» el batchKey). Sin `batchKey` ⇒ `idempotentReplay: false`.
+- **Response:** se anteponen `batchKey?` (presente solo si vino en el request) e `idempotentReplay`.
+- **Auditoría:** el controller añade `batchKey` + `idempotentReplay` a `AuditLog
+  action=inventory.bulk_remove`.
+- **Comentario falso corregido (H1):** el docstring de `bulkRemove` afirmaba/implicaba que la
+  **atomicidad + el estado de carga** cubrían el doble submit. Es **FALSO**: la atomicidad solo garantiza
+  consistencia DENTRO de una ejecución (o baja las N o ninguna); lo que evita re-bajar OTRAS N piezas en
+  un reintento es la **idempotencia por `batchKey`**. El docstring ahora lo describe correctamente.
+- **Tests:** `test/inventory.bulk-remove.spec.ts` +4 (replay devuelve el guardado sin re-bajar; claim
+  `kind='bulk_remove'` primero + resultJson como fuente del replay; fallo no quema el batchKey;
+  concurrencia P2002 → replay del ganador). **Suite: 15/15 verde** (11 previos + 4 nuevos); inventario
+  completo **160/160**; typecheck limpio.
+
+### P-31 — Export de inventario a Excel (nuevo endpoint)
+
+`GET /admin/inventory/export.xlsx?setId=&productType=` · roles `vault_operator` + `super_admin`.
+
+**Librería:** **`exceljs` ^4.4.0** (añadida a `backend/package.json`; genera `.xlsx` OOXML real, trae
+su propio empaquetador ZIP, sin binarios nativos). Se prefirió `.xlsx` real (lo pidió el humano) sobre
+CSV.
+
+**Alcance / grano:** **por PIEZA (una fila por folio)** — el modelo es folio-por-pieza, así el
+operador ve cada copia con su ubicación/costo/cert/estado. Scope = inventario de **plataforma**
+(`ownerType=platform`); las piezas en custodia de clientes NO se exportan (no son inventario propio).
+Filtros opcionales: `setId` (id LOCAL de `CardSet`) y `productType` (validado contra el enum → 400).
+
+**Columnas** (orden fijo, `INVENTORY_EXPORT_COLUMNS`): Folio · Carta · Set · Número · Rareza · Tipo ·
+Acabado · Condición · Certificado · Cantidad(=1) · Estado · Ubicación · Origen · Costo MXN · Precio
+mercado MXN · Precio compra MXN · Precio venta MXN.
+
+**Semántica money-safe de las columnas de dinero (todo STORED, sin derivar ni inventar):**
+- **Costo** = `acquisitionCostCents`.
+- **Precio mercado** = `PriceReference` de la variante del item (`getReferencesBatch`, MXN al FX vivo;
+  sellado por `sealed:tcg:<productId>`). Ref `pending` → vacío.
+- **Precio compra** = override de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, M-30). **NO**
+  recomputa la regla del cotizador por rareza (eso sería inventar). Vacío si no hay override.
+- **Precio venta** = precio manual POR PIEZA (`listPriceCents`) ó, en su defecto, el override de VENTA
+  (`sellOverrideCents`). **NO** deriva mercado×markup. Vacío si ninguno.
+- **Regla dura:** sin dato → **celda VACÍA** (nunca `0`). `centsToMxn(null) = null`.
+
+Consultas EN LOTE (sin N+1): `getReferencesBatch` + un `variantPriceOverride.findMany` por `cardId`.
+
+**Respuesta:** binario con `Content-Type:
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` y
+`Content-Disposition: attachment; filename="inventario-YYYY-MM-DD.xlsx"` (+ `Content-Length`).
+Controller usa `@Res()` directo (no passthrough) — no hay interceptor global que envuelva la respuesta.
+
+### Tests (P-29 + P-31)
+`test/inventory.bulk-remove.spec.ts` (baja N; motivos→status; selección/orden/filtros;
+`INSUFFICIENT_STOCK` sin escribir; TOCTOU; money-safe; **idempotencia por `batchKey` v1.35**; auditoría
+del controller) y `test/inventory.export-xlsx.spec.ts` (firma ZIP + re-lectura ExcelJS de
+encabezados/valores; celda vacía sin precio; precios stored en MXN; ref pending vacía; filtros al where;
+graded/sealed; cabeceras de descarga). **bulk-remove 15/15 (11 previos + 4 de idempotencia); export
+verde.**
+
+---
+
 ## 0-P27. Master set combinado (sets multi-parte) — P-27 (2026-08-22, `fix/variant-composition-regression`)
 
 > Solo `backend/`. Cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**. Implementa ARCHITECTURE §4.31
@@ -6233,3 +6356,66 @@ availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapsh
   sus tests unitarios.
 - **Gates:** `npm run typecheck` limpio · `npm run lint` 0 warnings · `npm test` → **149 suites / 1406 tests
   VERDE** (el test único de observabilidad se dividió en dos sub-casos camino-feliz/anomalía: 1405 → 1406).
+
+## P-32 · Valor del «set destacado» del home mal (regresión M-31) (rama `fix/variant-composition-regression`, 2026-08-22)
+> El hero mostraba «Pitch Black · Valor de mercado» ≈ **MX$15,756.32 con +157,463%** — absurdo. Fix
+> **solo cálculo, SIN cambio de contrato**: el shape de `SetValueHistoryResponse` (set/range/points/change)
+> es idéntico; solo cambia CÓMO se computan `points[].valueMxnCents` y `change`.
+
+### De dónde salía el número mal (dos bugs, ambos regresión de M-31 «1 carta ↔ N productos»)
+- **(A) Valor inflado — `SetValueService.computeSetValue` no filtraba por producto.** M-31 metió
+  `PriceReference.cardProductId` y su `@@unique` ahora incluye ese eje: una misma `Card` puede tener VARIAS
+  filas `raw:NM:normal` el mismo día — la del `set_base` **y** las de `deck_exclusive`/`promo` (productos
+  VENDIBLES SEPARADOS con su propio precio; su valor NO es «la carta de set»). `computeSetValue` seguía con
+  la query pre-M-31: `findMany` por `cardId/productType/gradeKey/finish` **sin** `BASE_CARD_REF_WHERE`, y
+  dedupe «la primera por `capturedDate desc`». Resultado: por carta podía colarse el precio de un producto
+  ajeno (Deck Exclusive de alto valor / ancla de sellado), inflando la Σ. M-31 **sí** blindó `getReference`
+  y `getReferencesBatch` con `BASE_CARD_REF_WHERE` + desempate `isBetterRef`, pero **omitió esta ruta**
+  (`computeSetValue` precede a M-31, último commit `be858cb`; el diff de M-31 nunca la tocó).
+- **(B) % irreal — base semilla en `valueHistory`.** El `change.pct` comparaba `points[0]` contra el último
+  punto sin mirar cobertura. Cuando la serie apenas se sembraba (día 1 con **1** carta priceada ≈ MX$10) y
+  luego el set entero, `first!==0` ⇒ pct = (last−first)/first·100 = **cifra astronómica** (el +157,463%).
+
+### Fix exacto (archivo:línea)
+- **`backend/src/modules/pricing/pricing.service.ts`:** se EXPORTAN los helpers money-safe de M-31 para
+  reusarlos (antes module-private): `BASE_CARD_REF_WHERE` (L45), `RefRow` (L78), `isBetterRef` (L116),
+  `pickBestRef` (L131). Sin cambio de lógica; solo visibilidad.
+- **`backend/src/modules/catalog/set-value.service.ts` › `computeSetValue` (L~150-225):** la query añade
+  `...BASE_CARD_REF_WHERE` (excluye `deck_exclusive`/`promo`; incluye `set_base`/`other` y el legacy
+  `cardProductId=null`), selecciona `source/capturedDate/cardProductId`, ordena
+  `[capturedDate desc, cardProductId nulls last]` y elige la MEJOR ref **por carta** con `isBetterRef`
+  (fecha → fuente → variante resuelta → cuid), **no** «la primera vista». Mismo criterio que el resto de la
+  valuación (§4.27f) ⇒ escritura (`set-price-sync`) y lectura no divergen.
+- **`backend/src/modules/catalog/set-value.service.ts` › `valueHistory` (L~232-264) + const
+  `MIN_BASE_COVERAGE_FRACTION=0.5`:** la base del `%` es el snapshot MÁS ANTIGUO del rango con `valor>0` y
+  `pricedCardCount >= ceil(0.5 × pricedCardCount del último punto)`. Si no existe (solo el último punto tiene
+  cobertura real, p. ej. serie recién sembrada) ⇒ `change` = `{ absMxnCents:0, pct:null, direction:'flat' }`
+  (**«sin cambio» honesto, nunca una cifra absurda**). El caso `first===0` queda cubierto por `valor>0`.
+
+### Money-safe: cómo se tratan las cartas sin precio en la Σ
+- Una carta **sin `PriceReference` base** vigente **NO entra** al total y **NO cuenta como 0**: se refleja en
+  `pricedCardCount < totalCardCount` (cobertura honesta), nunca inventa ni deflacta. Sin ninguna carta
+  priceada ⇒ `totalValueMxnCents=0`, y el hero degrada a «—»/vacío (el front ya distingue `points` vacío).
+- La base del `%` es de **VALOR** (`valueMxnCents>0`), no de conteo; el `MIN_BASE_COVERAGE_FRACTION` solo
+  descarta snapshots-semilla para que el `%` compare canastas comparables, sin tocar la Σ.
+
+### Contrato
+- **NO se tocó** `docs/API_CONTRACT.md` ni el shape de respuesta. Mismo `SetValueHistoryResponse`. No fue
+  necesario pasar por el arquitecto (solo corrección de cálculo). El job `set-price-sync` sigue preciando el
+  set destacado con `SET_VALUE_RULE` (raw/raw:NM/normal) vía `syncCardPrice` (`cardProductId=null`), que la
+  lectura ya acepta por el brazo `cardProductId:null` de `BASE_CARD_REF_WHERE`.
+
+### Tests (`backend/test/set-value.spec.ts`)
+- Nuevo: `computeSetValue` con `set_base` (tcgcsv_singles) vs genérica (pokemontcg.io) el mismo día ⇒ gana el
+  `set_base` por precedencia de fuente (no la genérica ni una suma); y aserción de que el `where` lleva
+  `BASE_CARD_REF_WHERE.OR` (excluye deck_exclusive/promo).
+- Nuevo: serie con snapshot SEMILLA (1/180 priceadas, MX$10) + set completo ⇒ `pct` razonable (5.04%, base =
+  el punto comparable), `< 100%`, **jamás** el +157,463%.
+- Ajustado: el viejo caso «primer valor 0 → direction up» ahora es «base semilla ⇒ sin cambio (flat/null)»
+  (la semántica corregida: un semilla no es base válida).
+- Ajustados los mocks de `priceReference.findMany` para incluir `capturedDate/source/cardProductId` (los
+  insumos del nuevo desempate); helper `ref()` con defaults seguros.
+
+### Gates (local)
+- `npx tsc --noEmit` limpio · `npx eslint` (archivos tocados) 0 warnings · `npx nest build` exit 0 ·
+  `npx jest` → **155 suites / 1452 tests VERDE** (set-value: 21/21).
