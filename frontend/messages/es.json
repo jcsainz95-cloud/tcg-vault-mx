@@ -426,6 +426,13 @@
     "quoterAddAria": "Agregar {name} ({finish}) a la venta · {price}",
     "quoterPending": "Precio pendiente",
     "quoterUnavailable": "No disponible",
+    "productKind": {
+      "set_base": "Set",
+      "deck_exclusive": "Deck Exclusive",
+      "promo": "Promo",
+      "other": "Otro"
+    },
+    "separateProductAria": "{name} ({kind}, {finish}) · {price}",
     "adjust": {
       "title": "Ajuste por levantamiento físico",
       "reasonLabel": "Motivo",
@@ -1319,11 +1326,15 @@
         "syncAllForceConfirmCta": "Sí, re-sincronizar todo"
       },
       "buylistRules": {
-        "title": "Precio de buylist por rareza",
-        "subtitle": "Define una regla por rareza oficial: monto fijo (MX$) o porcentaje (% de la referencia). Las rarezas sin regla usan el fallback. Surte efecto sin redeploy y queda auditado.",
+        "title": "Precio de buylist por rareza y acabado",
+        "subtitle": "Define reglas en dos ejes: por rareza canónica de la carta y por acabado de la variante (holo / reverse holo). Cada regla es monto fijo (MX$) o porcentaje (% de la referencia). Sin regla se usa el fallback. Surte efecto sin redeploy y queda auditado.",
+        "rarityAxis": "Reglas por rareza",
+        "finishAxis": "Reglas por acabado",
+        "finishAxisHint": "Aplican al acabado de la variante. Sin regla propia, el acabado hereda la regla de su rareza.",
         "fallbackLabel": "Fallback (%)",
         "fallbackHint": "Se aplica a las rarezas sin regla explícita (nuevas o no configuradas).",
         "rarity": "Rareza",
+        "finish": "Acabado",
         "cardCount": "Cartas",
         "mode": "Modo",
         "value": "Valor",
@@ -1332,6 +1343,12 @@
         "valuePct": "Porcentaje",
         "modeFor": "Modo para {rarity}",
         "valueFor": "Valor para {rarity}",
+        "modeForFinish": "Modo del acabado {finish}",
+        "valueForFinish": "Valor del acabado {finish}",
+        "premium": "Premium",
+        "unmapped": "Sin mapear",
+        "inherit": "Hereda rareza",
+        "inheritPlaceholder": "Hereda rareza",
         "modeLabel": {
           "fixed": "Fijo (MX$)",
           "pct": "Porcentaje (%)"
@@ -1345,11 +1362,15 @@
         "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar."
       },
       "salesRules": {
-        "title": "Reglas de precio de VENTA por rareza",
-        "subtitle": "Define una regla de venta por rareza oficial: monto fijo (MX$, actúa como piso) o porcentaje (% sobre mercado). Las rarezas sin regla usan el fallback. Reemplaza el markup global único. Surte efecto sin redeploy y queda auditado.",
+        "title": "Reglas de precio de VENTA por rareza y acabado",
+        "subtitle": "Define reglas de venta en dos ejes: por rareza canónica y por acabado. Cada regla es monto fijo (MX$, actúa como piso) o porcentaje (% sobre mercado). Sin regla se usa el fallback. Reemplaza el markup global único. Surte efecto sin redeploy y queda auditado.",
+        "rarityAxis": "Reglas por rareza",
+        "finishAxis": "Reglas por acabado",
+        "finishAxisHint": "Aplican al acabado de la variante. Sin regla propia, el acabado hereda la regla de su rareza.",
         "fallbackLabel": "Fallback (% sobre mercado)",
         "fallbackHint": "Se aplica a las rarezas sin regla explícita (nuevas o no configuradas). Es un markup arriba de mercado.",
         "rarity": "Rareza",
+        "finish": "Acabado",
         "cardCount": "Cartas",
         "mode": "Modo",
         "value": "Valor",
@@ -1358,6 +1379,12 @@
         "valuePct": "% sobre mercado",
         "modeFor": "Modo para {rarity}",
         "valueFor": "Valor para {rarity}",
+        "modeForFinish": "Modo del acabado {finish}",
+        "valueForFinish": "Valor del acabado {finish}",
+        "premium": "Premium",
+        "unmapped": "Sin mapear",
+        "inherit": "Hereda rareza",
+        "inheritPlaceholder": "Hereda rareza",
         "modeLabel": {
           "fixed": "Fijo / piso (MX$)",
           "pct": "% sobre mercado"

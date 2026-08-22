@@ -20,7 +20,13 @@ import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
-import { AcquisitionRuleSource, BuylistRule, quoteAcquisitionForFinish } from '../../common/money';
+import {
+  AcquisitionRuleSource,
+  BuylistRule,
+  PriceRuleSet,
+  toPriceRuleSet,
+  quoteAcquisitionForFinish,
+} from '../../common/money';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
@@ -212,7 +218,7 @@ export class BuylistService {
     productType: ProductType,
     rawCondition: RawCondition | undefined,
     finish: Finish | undefined,
-    rules: Record<string, BuylistRule>,
+    rules: PriceRuleSet<BuylistRule>,
     fallbackPct: number,
     // v1.28 (P-18/P-22, §4.26b): fila M-30 de la variante, pre-cargada por el caller (single o en
     // lote). `null`/omitida = sin control ⇒ cadena de reglas de SIEMPRE, sin cambio.
@@ -258,12 +264,14 @@ export class BuylistService {
    * v1.28: `PricingService.loadBuylistRules()` lee las MISMAS claves para la consola/binder — si
    * cambia el formato del dial, cambian juntos (misma SettingKey, misma forma).
    */
-  async buylistRules(): Promise<{ rules: Record<string, BuylistRule>; fallbackPct: number }> {
-    const raw = (await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES)) as
-      | Record<string, BuylistRule>
-      | null;
+  async buylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
     const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    return { rules: raw ?? {}, fallbackPct };
+    // v1.29 (§4.28d): `PriceRuleSet` de DOS EJES (migra el legacy plano on-read).
+    const rules = toPriceRuleSet<BuylistRule>(
+      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
+      fallbackPct,
+    );
+    return { rules, fallbackPct };
   }
 
   /**

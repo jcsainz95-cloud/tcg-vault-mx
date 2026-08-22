@@ -444,9 +444,11 @@ describe('PriceIngestService — scope PPT (pptSetId + 2020/inventario/rares + d
   });
 
   it('set VIEJO partial → SOLO persiste cartas permitidas (inventario ∪ rares), filtra el bulk', async () => {
-    // Catálogo: c1 rara, c2 common (bulk), c3 common pero con inventario.
+    // Catálogo: c1 rara/chase, c2 common (bulk), c3 common pero con inventario.
+    // v1.29 (§4.28e): «premium» unificado (buylist) ⇒ «Rare Holo» plano ya NO cuenta como chase; se
+    // usa una rareza premium inequívoca («Rare Secret») para el caso «rara en scope de set viejo».
     const cards = [
-      { id: 'c1', number: '1', rarity: 'Rare Holo' },
+      { id: 'c1', number: '1', rarity: 'Rare Secret' },
       { id: 'c2', number: '2', rarity: 'Common' },
       { id: 'c3', number: '3', rarity: 'Common' },
     ];
@@ -540,9 +542,15 @@ describe('PriceIngestService — scope PPT (pptSetId + 2020/inventario/rares + d
 });
 
 describe('PricingService.persistMarketReference — generalizado (source + moneda USD/MXN)', () => {
+  // v1.29 (M-31): la clave gana `cardProductId`; el fallback (cardProductId=null) usa findFirst +
+  // create/update (Prisma no tipa null en la clave compuesta). Los tests asertan sobre create.data.
   function pricingSvc(existing: unknown) {
     const prisma: any = {
-      priceReference: { findUnique: jest.fn(async () => existing), upsert: jest.fn(async () => ({})) },
+      priceReference: {
+        findFirst: jest.fn(async () => existing),
+        create: jest.fn(async () => ({})),
+        update: jest.fn(async () => ({})),
+      },
     };
     const svc = new PricingService(prisma as PrismaService, {} as any, {} as any, {} as any, {} as any, {} as any);
     return { svc, prisma };
@@ -553,8 +561,8 @@ describe('PricingService.persistMarketReference — generalizado (source + moned
     await svc.persistMarketReference(
       'c1', 'holofoil', { marketCents: 1000, currency: 'USD', source: 'pokemonpricetracker' }, { rate: 18, bufferPct: 10 },
     );
-    const arg = prisma.priceReference.upsert.mock.calls[0][0];
-    expect(arg.create).toMatchObject({
+    const arg = prisma.priceReference.create.mock.calls[0][0];
+    expect(arg.data).toMatchObject({
       cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil',
       source: 'pokemonpricetracker',
       priceUsdCents: 1000,
@@ -569,8 +577,8 @@ describe('PricingService.persistMarketReference — generalizado (source + moned
     await svc.persistMarketReference(
       'c1', 'normal', { marketCents: 5000, currency: 'MXN', source: 'pokemonpricetracker' }, { rate: 18, bufferPct: 10 },
     );
-    const arg = prisma.priceReference.upsert.mock.calls[0][0];
-    expect(arg.create).toMatchObject({
+    const arg = prisma.priceReference.create.mock.calls[0][0];
+    expect(arg.data).toMatchObject({
       source: 'pokemonpricetracker',
       priceMxnCents: 5000, // sin ×FX
       priceUsdCents: null,
@@ -579,12 +587,13 @@ describe('PricingService.persistMarketReference — generalizado (source + moned
     });
   });
 
-  it('respeta el override manual del admin (fila de hoy isManualOverride=true → NO upsert)', async () => {
+  it('respeta el override manual del admin (fila de hoy isManualOverride=true → NO escribe)', async () => {
     const { svc, prisma } = pricingSvc({ isManualOverride: true, priceMxnCents: 999 });
     await svc.persistMarketReference(
       'c1', 'normal', { marketCents: 500, currency: 'USD', source: 'pokemonpricetracker' }, { rate: 18, bufferPct: 0 },
     );
-    expect(prisma.priceReference.upsert).not.toHaveBeenCalled();
+    expect(prisma.priceReference.create).not.toHaveBeenCalled();
+    expect(prisma.priceReference.update).not.toHaveBeenCalled();
   });
 });
 

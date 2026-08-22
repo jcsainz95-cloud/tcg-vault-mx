@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
+import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -162,6 +162,20 @@ export interface MasterSetCardCellDTO {
   // variante del acabado base (`= variants[0].marketReferenceMxnCents`, costo cero: mismo batch)
   // para lectores rezagados; retiro en la siguiente rev de contrato.
   marketReferenceMxnCents?: number | null;
+  // v1.29 (§4.27i / API_CONTRACT §DTOs) — productos SEPARADOS de la carta (`deck_exclusive`/`promo`),
+  // cada uno con su `productId`, `kind`, `name`, `finishes` y precio POR VARIANTE en MXN (o `null`).
+  // Los `set_base` ya están en `variants`; estos NO fusionan sus acabados con la carta de set (§4.27e).
+  // Ausente/[] cuando la carta no tiene productos separados (el caso común).
+  separateProducts?: CardProductDTO[];
+}
+
+/** v1.29 (§4.27i) — un producto TCGplayer vendible/cotizable aparte bajo la carta. */
+export interface CardProductDTO {
+  productId: number;
+  kind: CardProductKind;
+  name: string;
+  finishes: Finish[];
+  prices: { finish: Finish; marketReferenceMxnCents: number | null; capturedDate?: string | null }[];
 }
 
 export interface MasterSetBinderResponse {
@@ -466,6 +480,10 @@ export class MasterSetService {
     );
     const marketRefs = await this.pricing.getReferencesBatch(universeKeys);
 
+    // v1.29 (§4.27i): productos SEPARADOS (deck_exclusive/promo) por carta EN LOTE (sin N+1), con su
+    // precio por variante. Se exponen aparte de la carta de set (no fusionan acabados, §4.27e).
+    const separateByCard = await this.pricing.getSeparateProductsByCard(cardIds);
+
     // v1.28 (P-18, §4.26b): la CONSOLA `pricing?` por variante — SOLO scope `platform` (M1). Reglas
     // de compra/venta izadas UNA vez + overrides M-30 en UNA query (mismo lote del universo); la
     // referencia reusa `marketRefs` (mismo batch). En scopes de cliente NO se computa ni viaja.
@@ -554,6 +572,22 @@ export class MasterSetService {
           coveredVariantCount: variants.filter((v) => v.covered).length,
           variants,
           marketReferenceMxnCents,
+          // v1.29 (§4.27i): SOLO si la carta tiene productos separados (el caso común: ausente).
+          ...(separateByCard.has(c.id)
+            ? {
+                separateProducts: separateByCard.get(c.id)!.map((p) => ({
+                  productId: p.productId,
+                  kind: p.kind,
+                  name: p.name,
+                  finishes: p.finishes,
+                  prices: p.prices.map((pr) => ({
+                    finish: pr.finish,
+                    marketReferenceMxnCents: pr.marketReferenceMxnCents,
+                    ...(pr.capturedDate != null ? { capturedDate: pr.capturedDate } : {}),
+                  })),
+                })),
+              }
+            : {}),
         };
       });
 

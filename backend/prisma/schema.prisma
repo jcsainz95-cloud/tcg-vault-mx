@@ -190,6 +190,22 @@ enum PriceSource {
   // v1.19-sealed-tcgcsv (M-23): referencia de mercado del SELLADO vía TCGCSV
   // (espejo diario de precios de TCGplayer). ARCHITECTURE §4.19.
   tcgcsv
+  // v1.29 (M-31, §4.27f): PRIMARIO de precio de SINGLES por variante (por CardProduct+acabado),
+  // leído del `marketPrice` de TCGCSV por `subTypeName`. Distinto de `tcgcsv` (sellado, sub-tipo
+  // Normal). PPT/pokemontcg.io quedan como FALLBACK. Ver ARCHITECTURE §4.27.
+  tcgcsv_singles
+}
+
+// v1.29 (M-31, ARCHITECTURE §4.27b): naturaleza del producto TCGplayer bajo una MISMA carta de
+// colección. Una `Card` (identidad = externalId pokemontcg.io) agrupa N `CardProduct`, uno por
+// `productId`. `set_base` es el producto de set «normal» (el que hoy ancla `Card.tcgplayerId`);
+// `deck_exclusive`/`promo` son productos VENDIBLES/COTIZABLES aparte con su propio precio;
+// `other` = no clasificable por nombre (fail-safe; se trata como set_base para el binder).
+enum CardProductKind {
+  set_base
+  deck_exclusive
+  promo
+  other
 }
 
 enum KycStatus {
@@ -285,17 +301,17 @@ model User {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  kycProfile         KycProfile?
-  billingProfile     BillingProfile?
-  addresses          Address[]
-  orders             Order[]
-  shipmentRequests   ShipmentRequest[]
-  sellRequests       SellRequest[]
-  disputes           Dispute[]
-  ownedItems         InventoryItem[]     @relation("OwnerUser")
-  portfolioSnapshots PortfolioSnapshot[]
+  kycProfile                 KycProfile?
+  billingProfile             BillingProfile?
+  addresses                  Address[]
+  orders                     Order[]
+  shipmentRequests           ShipmentRequest[]
+  sellRequests               SellRequest[]
+  disputes                   Dispute[]
+  ownedItems                 InventoryItem[]             @relation("OwnerUser")
+  portfolioSnapshots         PortfolioSnapshot[]
   // v1.5 (M-17): tokens de verificación de correo / reset de contraseña (un solo uso, hash en BD).
-  authTokens         AuthToken[]
+  authTokens                 AuthToken[]
   // v1.23-sealed-sales (M-28): suscripciones restock del usuario (FK opcional; onDelete SetNull).
   sealedRestockSubscriptions SealedRestockSubscription[]
 
@@ -387,18 +403,18 @@ model CardSet {
 }
 
 model Card {
-  id                String   @id @default(uuid())
-  externalId        String   @unique
-  setId             String
-  set               CardSet  @relation(fields: [setId], references: [id])
-  name              String
-  number            String
-  rarity            String?
-  supertype         String?
-  subtypes          Json?
-  imageSmallUrl     String?
-  imageLargeUrl     String?
-  tcgplayerId       String?
+  id                     String   @id @default(uuid())
+  externalId             String   @unique
+  setId                  String
+  set                    CardSet  @relation(fields: [setId], references: [id])
+  name                   String
+  number                 String
+  rarity                 String?
+  supertype              String?
+  subtypes               Json?
+  imageSmallUrl          String?
+  imageLargeUrl          String?
+  tcgplayerId            String?
   // v1.6-finish (M-18): acabados en que existe esta carta, derivados de las llaves de
   // `tcgplayer.prices` al importar (ARCHITECTURE §3.7). SIGUE siendo 1 fila por externalId
   // (el @unique NO cambia; esto es un array en la MISMA fila). Filas históricas → [normal]
@@ -410,7 +426,7 @@ model Card {
   // recomputable = orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']. Su ÚNICO
   // escritor es `catalog.FinishReconciler.reconcile(cardIds)`. Sigue siendo la lista blanca SEC-A1
   // y el universo de casillas del binder; su FORMA no cambia (Finish[], no vacía, FINISH_ORDER).
-  availableFinishes Finish[] @default([normal])
+  availableFinishes      Finish[] @default([normal])
   // v1.22-1 (M-27, §4.22g) — INTERNA (no se expone en DTO). «Opinión del catálogo» = Señal A ∪ B
   // del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida
   // para SOBREVIVIR a un 502 de la fuente. La escribe `catalog-sync.upsertCards` con la semántica
@@ -431,30 +447,62 @@ model Card {
   // (first-import/`--force`) por REEMPLAZO SOLO para cartas joineadas (money-safe: una carta no
   // joineada conserva su valor previo). Una impresión aquí SIN PriceReference es «pendiente», nunca
   // dropeada. Backfill M-29: = availableFinishes.
-  structuralFinishes Finish[] @default([])
+  structuralFinishes     Finish[] @default([])
+  // v1.29 (M-31, §4.28c) — rareza CANÓNICA derivada de `rarity` crudo por `normalizeRarity` en el
+  // INGEST. `Card.rarity` CRUDO se conserva (procedencia); ESTE campo lo consumen precios (lookup de
+  // reglas por rareza) y el admin (`groupBy(['rarityCanonical'])`). Nullable (backfill M-31). La
+  // FORMA de las reglas es de dos ejes: rareza sale de la carta, finish del CardProduct (§4.28d).
+  rarityCanonical        String?
   // v1.22-variantes-orden (M-26, §4.22b): claves DERIVADAS de `number` (String) para el ORDEN
   // NATURAL en BD. `number` sigue siendo la fuente de verdad; si divergen, se recalculan de él.
   // Puro numérico → numberSort = entero (clamp 999_999) y numberPrefix = ''. Con prefijo
   // alfabético (TG12/SV107) → numberPrefix = las letras y numberSort = 1_000_000 + parte numérica
   // (promos/subsets al final). El default 1_000_000 deja cualquier fila no backfilleada AL FINAL.
-  numberSort        Int      @default(1000000)
-  numberPrefix      String   @default("")
-  createdAt         DateTime @default(now())
+  numberSort             Int      @default(1000000)
+  numberPrefix           String   @default("")
+  createdAt              DateTime @default(now())
 
-  inventoryItems   InventoryItem[]
-  priceReferences  PriceReference[]
-  pendingPrices    PendingPriceEntry[]
-  sellRequestItems SellRequestItem[]
+  inventoryItems             InventoryItem[]
+  priceReferences            PriceReference[]
+  pendingPrices              PendingPriceEntry[]
+  sellRequestItems           SellRequestItem[]
   // v1.23-sealed-sales (M-28): suscripciones «avísame cuando vuelva» ancladas a esta carta.
   sealedRestockSubscriptions SealedRestockSubscription[]
   // v1.28 (M-30, §4.26a): controles de precio por (carta, variante[, grado]) — consola P-18/P-22.
-  variantPriceOverrides VariantPriceOverride[]
+  variantPriceOverrides      VariantPriceOverride[]
+  // v1.29 (M-31, §4.27b): productos TCGplayer bajo esta carta (uno por productId). Navegación Prisma.
+  cardProducts               CardProduct[]
 
   @@index([setId])
   @@index([name])
   @@index([rarity])
   // M-26: sirve el ORDER BY del binder y de `GET /buylist/cards` con `setId` (§4.22b).
   @@index([setId, numberPrefix, numberSort])
+}
+
+// v1.29 (M-31, ARCHITECTURE §4.27b) — UN producto TCGplayer (== un `productId`) bajo una carta de
+// colección. El `productId` de TCGplayer es la CLAVE de emparejamiento (NUNCA el número de colección):
+// una `Card` agrupa N `CardProduct`. Los `set_base` alimentan `Card.availableFinishes` y las variants
+// del binder; los `deck_exclusive`/`promo` se exponen como productos vendibles/cotizables SEPARADOS
+// (nunca funden sus acabados con la carta de set). `finishes` se lee EXACTO de los `subTypeName` de
+// ESTE producto (deriveStructuralFinishes; desconocido ⇒ OMITIDO); jamás se unen con los de otro
+// productId → el `normal` fantasma es imposible por construcción. Reemplaza a `Card.structuralFinishes`
+// (que queda MUERTA, se dropea en migración posterior).
+model CardProduct {
+  id                 String          @id @default(uuid())
+  cardId             String
+  card               Card            @relation(fields: [cardId], references: [id])
+  tcgplayerProductId Int             @unique
+  kind               CardProductKind @default(set_base)
+  name               String
+  finishes           Finish[]        @default([])
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  priceReferences PriceReference[]
+
+  @@index([cardId])
+  @@index([cardId, kind])
 }
 
 // ============================= INVENTORY / VAULT =============================
@@ -630,27 +678,35 @@ model VariantPriceOverride {
 }
 
 model PriceReference {
-  id               String      @id @default(uuid())
+  id               String       @id @default(uuid())
   cardId           String
-  card             Card        @relation(fields: [cardId], references: [id])
+  card             Card         @relation(fields: [cardId], references: [id])
   productType      ProductType
   gradeKey         String
   // v1.6-finish (M-18): acabado ORTOGONAL a gradeKey (que sigue describiendo condición/grado).
   // Añadido a la clave única: `normal` y `reverse_holo` de la misma carta tienen referencia de
   // precio DISTINTA (una fila por día por acabado). El provider guarda el precio POR acabado
   // (`tcgplayer.prices[finish].market`), no "el primer market disponible". ARCHITECTURE §3.2/§4.1.
-  finish           Finish      @default(normal)
+  finish           Finish       @default(normal)
   source           PriceSource
+  // v1.29 (M-31, §4.27b): FK NULLABLE al producto TCGplayer. Se PUEBLA para singles (precio POR
+  // producto+acabado, source=tcgcsv_singles) y queda NULL para graded/sealed y para el fallback
+  // PPT/pokemontcg.io. Entra a la `@@unique` para que dos productos de la MISMA carta que expongan
+  // el MISMO Finish (p. ej. set_base holofoil y una promo holofoil) no colisionen. Para
+  // cardProductId=null la clave se comporta como antes de M-31.
+  cardProductId    String?
+  cardProduct      CardProduct? @relation(fields: [cardProductId], references: [id])
   priceUsdCents    Int?
-  fxRate           Decimal?    @db.Decimal(12, 6)
-  fxBufferPct      Decimal?    @db.Decimal(6, 3)
+  fxRate           Decimal?     @db.Decimal(12, 6)
+  fxBufferPct      Decimal?     @db.Decimal(6, 3)
   priceMxnCents    Int
-  capturedDate     DateTime    @db.Date
-  isManualOverride Boolean     @default(false)
-  createdAt        DateTime    @default(now())
+  capturedDate     DateTime     @db.Date
+  isManualOverride Boolean      @default(false)
+  createdAt        DateTime     @default(now())
 
-  @@unique([cardId, productType, gradeKey, finish, capturedDate])
+  @@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId])
   @@index([cardId])
+  @@index([cardProductId])
 }
 
 model PendingPriceEntry {

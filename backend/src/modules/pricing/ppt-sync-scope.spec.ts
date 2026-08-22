@@ -73,8 +73,12 @@ describe('isPremiumRarity — refinamiento PO: SOLO chase/premium (no bulk, no r
     }
   });
 
-  it('CAVEAT cross-era: "Rare Holo" (Charizard Base) SÍ es premium', () => {
-    expect(isPremiumRarity('Rare Holo')).toBe(true);
+  // v1.29 (§4.28e): «premium» se UNIFICÓ a UNA sola definición (catálogo canónico) al servicio del
+  // pricing buylist, donde «Rare Holo» plano NO es premium (es holo de bulk). Con TCGCSV gratis como
+  // fuente PRIMARIA de singles, racionar la API de paga dejó de ser el driver de este gate, así que
+  // «Rare Holo» ya NO entra al scope `partial` por su rareza (lo cubre el re-sync TCGCSV / el inventario).
+  it('v1.29: "Rare Holo" plano NO es premium bajo la definición unificada (buylist)', () => {
+    expect(isPremiumRarity('Rare Holo')).toBe(false);
   });
 
   it('null/desconocida → NO premium (el inventario es la red de seguridad)', () => {

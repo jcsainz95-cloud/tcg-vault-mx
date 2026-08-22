@@ -426,6 +426,13 @@
     "quoterAddAria": "Add {name} ({finish}) to the sale · {price}",
     "quoterPending": "Price pending",
     "quoterUnavailable": "Not available",
+    "productKind": {
+      "set_base": "Set",
+      "deck_exclusive": "Deck Exclusive",
+      "promo": "Promo",
+      "other": "Other"
+    },
+    "separateProductAria": "{name} ({kind}, {finish}) · {price}",
     "adjust": {
       "title": "Physical count adjustment",
       "reasonLabel": "Reason",
@@ -1319,11 +1326,15 @@
         "syncAllForceConfirmCta": "Yes, re-sync everything"
       },
       "buylistRules": {
-        "title": "Buylist price by rarity",
-        "subtitle": "Define a rule per official rarity: fixed amount (MX$) or percentage (% of reference). Rarities without a rule use the fallback. Takes effect without redeploy and is audited.",
+        "title": "Buylist price by rarity and finish",
+        "subtitle": "Define rules on two axes: by the card's canonical rarity and by the variant's finish (holo / reverse holo). Each rule is a fixed amount (MX$) or a percentage (% of reference). Without a rule the fallback applies. Takes effect without redeploy and is audited.",
+        "rarityAxis": "Rules by rarity",
+        "finishAxis": "Rules by finish",
+        "finishAxisHint": "Apply to the variant's finish. Without its own rule, the finish inherits its rarity's rule.",
         "fallbackLabel": "Fallback (%)",
         "fallbackHint": "Applies to rarities without an explicit rule (new or unconfigured).",
         "rarity": "Rarity",
+        "finish": "Finish",
         "cardCount": "Cards",
         "mode": "Mode",
         "value": "Value",
@@ -1332,6 +1343,12 @@
         "valuePct": "Percentage",
         "modeFor": "Mode for {rarity}",
         "valueFor": "Value for {rarity}",
+        "modeForFinish": "Mode for finish {finish}",
+        "valueForFinish": "Value for finish {finish}",
+        "premium": "Premium",
+        "unmapped": "Unmapped",
+        "inherit": "Inherits rarity",
+        "inheritPlaceholder": "Inherits rarity",
         "modeLabel": {
           "fixed": "Fixed (MX$)",
           "pct": "Percentage (%)"
@@ -1345,11 +1362,15 @@
         "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing."
       },
       "salesRules": {
-        "title": "Sale price rules by rarity",
-        "subtitle": "Define a sale rule per official rarity: fixed amount (MX$, acts as a floor) or percentage (% over market). Rarities without a rule use the fallback. Replaces the single global markup. Takes effect without redeploy and is audited.",
+        "title": "Sale price rules by rarity and finish",
+        "subtitle": "Define sale rules on two axes: by canonical rarity and by finish. Each rule is a fixed amount (MX$, acts as a floor) or a percentage (% over market). Without a rule the fallback applies. Replaces the single global markup. Takes effect without redeploy and is audited.",
+        "rarityAxis": "Rules by rarity",
+        "finishAxis": "Rules by finish",
+        "finishAxisHint": "Apply to the variant's finish. Without its own rule, the finish inherits its rarity's rule.",
         "fallbackLabel": "Fallback (% over market)",
         "fallbackHint": "Applies to rarities without an explicit rule (new or unconfigured). It is a markup above market.",
         "rarity": "Rarity",
+        "finish": "Finish",
         "cardCount": "Cards",
         "mode": "Mode",
         "value": "Value",
@@ -1358,6 +1379,12 @@
         "valuePct": "% over market",
         "modeFor": "Mode for {rarity}",
         "valueFor": "Value for {rarity}",
+        "modeForFinish": "Mode for finish {finish}",
+        "valueForFinish": "Value for finish {finish}",
+        "premium": "Premium",
+        "unmapped": "Unmapped",
+        "inherit": "Inherits rarity",
+        "inheritPlaceholder": "Inherits rarity",
         "modeLabel": {
           "fixed": "Fixed / floor (MX$)",
           "pct": "% over market"

@@ -19,7 +19,9 @@ import { computeSalePriceForRarity, SalesRule } from '../src/common/money';
  */
 
 const SELL_RULES: Record<string, SalesRule> = { Common: { mode: 'fixed', value: 500 } };
-const SALES_CTX = { rules: SELL_RULES, fallbackPct: 15 };
+// v1.29 (§4.28d): el ctx de reglas es un PriceRuleSet de dos ejes (Common → rarityRules).
+const SELL_RULE_SET = { rarityRules: { Common: { mode: 'fixed' as const, value: 500 } }, finishRules: {}, fallbackPct: 15 };
+const SALES_CTX = { rules: SELL_RULE_SET, fallbackPct: 15 };
 
 const CARD = {
   id: 'c1',
@@ -98,8 +100,9 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
       return m;
     }),
     loadSalesRules: jest.fn(async () => SALES_CTX),
-    loadBuylistRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 50 } }, fallbackPct: 40 })),
+    loadBuylistRules: jest.fn(async () => ({ rules: { rarityRules: { Common: { mode: 'fixed', value: 50 } }, finishRules: {}, fallbackPct: 40 }, fallbackPct: 40 })),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false })),
+    getSeparateProductsByCard: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     computeSalePriceForItem: jest.fn(async (item: { rarity: string | null; finish: never }, refCents: number | null, controls?: never) =>
       computeSalePriceForRarity(item.rarity, item.finish, refCents, SELL_RULES, 15, controls),

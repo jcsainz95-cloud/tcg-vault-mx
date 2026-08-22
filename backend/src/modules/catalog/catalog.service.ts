@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
-import { computeSalePriceForRarity, SalesRule } from '../../common/money';
+import { computeSalePriceForRarity, SalesRule, PriceRuleSet } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 
@@ -176,7 +176,7 @@ export class CatalogService {
       // venta izadas una vez) para evitar el N+1 de referencias/settings. Opcional: sin él el método
       // resuelve todo por sí mismo (uso single).
       reference?: PriceInfo;
-      salesRules?: { rules: Record<string, SalesRule>; fallbackPct: number };
+      salesRules?: { rules: PriceRuleSet<SalesRule>; fallbackPct: number };
       // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
       // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
       sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };

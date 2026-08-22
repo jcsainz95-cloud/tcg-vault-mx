@@ -15,6 +15,7 @@ import {
 import type {
   BuylistQuoteItemDTO,
   BuylistBatchQuoteResultDTO,
+  CardProductDTO,
   Finish,
   MasterSetBinderResponse,
   MasterSetCardCellDTO,
@@ -39,6 +40,22 @@ import { VariantPricingCompact } from './VariantPriceConsole';
 import type { MasterSetViewMode } from './mode';
 
 type PieceFilter = 'all' | 'with' | 'gaps';
+
+/**
+ * v1.29 (§4.27): la rejilla plana mezcla DOS clases de teja:
+ * - `variant`: una impresión (carta+acabado) del set base (universo `variants[]`).
+ * - `product`: un producto vendible SEPARADO (Deck Exclusive/promo) de la carta, con su PROPIO
+ *   precio por acabado. NO se fusiona en la carta base; NO cuenta para la completitud del set.
+ */
+type BinderTileItem =
+  | { kind: 'variant'; cell: MasterSetCardCellDTO; variant: MasterSetVariantDTO }
+  | {
+      kind: 'product';
+      cell: MasterSetCardCellDTO;
+      product: CardProductDTO;
+      finish: Finish;
+      priceCents: number | null;
+    };
 
 interface Props {
   mode: MasterSetViewMode;
@@ -136,6 +153,11 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<MasterSetBin
       expectedVariantCount: availableFinishes.length,
       coveredVariantCount: variants.filter((v) => v.covered).length,
       variants,
+      // v1.29 (§4.27): productos vendibles SEPARADOS (Deck Exclusives/promo) — el cotizador los
+      // propaga tal cual del CardDTO; se pintan como su propio producto con su propio precio.
+      ...(c.separateProducts && c.separateProducts.length > 0
+        ? { separateProducts: c.separateProducts }
+        : {}),
     };
   });
 
@@ -200,14 +222,28 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
       return true;
     };
     const sortedCells = [...all.filter(cellMatches)].sort(compareCardNumber);
-    const out: { cell: MasterSetCardCellDTO; variant: MasterSetVariantDTO }[] = [];
+    const out: BinderTileItem[] = [];
     for (const cell of sortedCells) {
       for (const variant of displayedVariants(cell)) {
         // Filtros por TARJETA (acabado): con/sin huecos y acabado ahora deciden a nivel impresión.
         if (finishFilter && variant.finish !== finishFilter) continue;
         if (!isQuoter && pieceFilter === 'with' && !variant.covered) continue;
         if (!isQuoter && pieceFilter === 'gaps' && variant.covered) continue;
-        out.push({ cell, variant });
+        out.push({ kind: 'variant', cell, variant });
+      }
+      // v1.29 (§4.27): los productos SEPARADOS (Deck Exclusives/promo) de la carta son productos
+      // vendibles PROPIOS (NO se fusionan en la carta base). Se pintan como tejas aparte, una por
+      // (producto, acabado), con su propio precio. No participan de la completitud (expected/covered)
+      // ni del filtro con/sin huecos (no son variantes de inventario), así que solo se listan cuando
+      // el filtro de piezas es "todos"; el filtro de acabado SÍ aplica.
+      for (const product of cell.separateProducts ?? []) {
+        if (!isQuoter && pieceFilter !== 'all') continue;
+        for (const finish of FINISH_ORDER.filter((f) => product.finishes.includes(f))) {
+          if (finishFilter && finish !== finishFilter) continue;
+          const priceCents =
+            product.prices.find((p) => p.finish === finish)?.marketReferenceMxnCents ?? null;
+          out.push({ kind: 'product', cell, product, finish, priceCents });
+        }
       }
     }
     return out;
@@ -346,21 +382,39 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
               className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
               aria-label={t('binderGridLabel')}
             >
-              {tiles.map(({ cell, variant }) => (
-                <li key={`${cell.cardId}:${variant.finish}`} className="min-w-0">
-                  {isQuoter ? (
-                    <QuoterTile cell={cell} variant={variant} onAdd={() => onAddVariant?.(cell, variant)} />
-                  ) : (
-                    <BinderTile
-                      cell={cell}
-                      variant={variant}
-                      onOpen={() =>
-                        onOpenVariant ? onOpenVariant(cell, variant) : onOpenCell(cell)
-                      }
+              {tiles.map((tile) =>
+                tile.kind === 'product' ? (
+                  <li
+                    key={`${tile.cell.cardId}:sp:${tile.product.productId}:${tile.finish}`}
+                    className="min-w-0"
+                  >
+                    <SeparateProductTile
+                      cell={tile.cell}
+                      product={tile.product}
+                      finish={tile.finish}
+                      priceCents={tile.priceCents}
                     />
-                  )}
-                </li>
-              ))}
+                  </li>
+                ) : (
+                  <li key={`${tile.cell.cardId}:${tile.variant.finish}`} className="min-w-0">
+                    {isQuoter ? (
+                      <QuoterTile
+                        cell={tile.cell}
+                        variant={tile.variant}
+                        onAdd={() => onAddVariant?.(tile.cell, tile.variant)}
+                      />
+                    ) : (
+                      <BinderTile
+                        cell={tile.cell}
+                        variant={tile.variant}
+                        onOpen={() =>
+                          onOpenVariant ? onOpenVariant(tile.cell, tile.variant) : onOpenCell(tile.cell)
+                        }
+                      />
+                    )}
+                  </li>
+                ),
+              )}
             </ul>
           ))}
       </QueryState>
@@ -569,6 +623,77 @@ function QuoterTile({
           {t('quoterAdd')}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * v1.29 (§4.27) — teja de un PRODUCTO SEPARADO (Deck Exclusive/promo) de la carta. Es un producto
+ * vendible PROPIO con su propio `productId` y su propio precio por acabado: NO se fusiona en la
+ * carta base ni cuenta para la completitud del set. Comparte la imagen de la carta pero se rotula
+ * con su tipo de producto (Deck Exclusive / Promo). Money-safe: precio ausente → "—" (nunca $0).
+ *
+ * Es de PRESENTACIÓN (no cotizable/agregable in-situ): el contrato del cotizador/carrito está
+ * keyeado por (cardId, finish), no por `productId`, así que un producto separado no puede cotizarse
+ * ni agregarse como línea distinta con el contrato v1.29 (ver salvedad reportada al arquitecto).
+ */
+function SeparateProductTile({
+  cell,
+  product,
+  finish,
+  priceCents,
+}: {
+  cell: MasterSetCardCellDTO;
+  product: CardProductDTO;
+  finish: Finish;
+  priceCents: number | null;
+}) {
+  const t = useTranslations('masterSet');
+  const tFinish = useTranslations('finish');
+  const locale = useLocale() as AppLocale;
+  const finishLabel = tFinish(finish);
+  const kindLabel = t(`productKind.${product.kind}`);
+  const price = priceCents != null ? formatMoneyCents(priceCents, locale) : null;
+  return (
+    <div
+      className="flex h-full flex-col"
+      aria-label={t('separateProductAria', {
+        name: product.name,
+        kind: kindLabel,
+        finish: finishLabel,
+        price: price ?? t('marketPending'),
+      })}
+    >
+      {/* FinishBand (§16.6): banda superior de 3px — canal de color; el texto lo porta la etiqueta. */}
+      <FinishBand finish={finish} />
+      <span className="relative block">
+        <CardImage src={cell.imageSmallUrl} alt={`${product.name} · ${finishLabel}`} />
+        {/* Distintivo de PRODUCTO APARTE con scrim de tinta (§7.2b): separa visualmente del set base. */}
+        <span className="absolute left-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]">
+          {kindLabel}
+        </span>
+      </span>
+      <p lang="en" className="mt-2.5 line-clamp-2 font-serif text-[15px] leading-tight text-text">
+        {product.name}
+      </p>
+      <p className="mt-1 font-mono text-[10px] uppercase leading-snug tracking-wide text-muted">
+        <span className="tabular-nums">#{cell.number}</span>
+        <span aria-hidden> · </span>
+        <span className="text-text">{kindLabel}</span>
+        <span aria-hidden> · </span>
+        <span className="text-text">{finishLabel}</span>
+      </p>
+      {/* Precio de mercado PROPIO del producto (money-safe: "—" cuando no hay precio, nunca $0). */}
+      <span className="mt-2 flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted">
+        <span>{t('marketLabel')}</span>
+        {price != null ? (
+          <span className="tabular-nums normal-case tracking-normal text-text">{price}</span>
+        ) : (
+          <span className="text-accent" title={t('marketPending')}>
+            {t('marketPendingShort')}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

@@ -17,7 +17,8 @@ import {
   validateSealedSpreadFallback,
   validateFxManualOverrideRate,
 } from '../settings/settings.constants';
-import { BuylistRule, SalesRule } from '../../common/money';
+import { BuylistRule, SalesRule, PriceRuleSet, toPriceRuleSet } from '../../common/money';
+import { rarityInfo } from '../../common/rarity-catalog';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PriceSyncJobService } from '../../jobs/price-sync.service';
@@ -58,15 +59,22 @@ class RarityMapDto {
   entries!: { rarity: string; category: string }[];
 }
 
-/** v1.3.1: reemplaza la tabla completa de reglas de buylist por rareza (+ fallback opcional). */
+/**
+ * v1.29 (§4.28d): reemplaza la tabla de reglas de buylist en DOS EJES `PriceRuleSet`
+ * (`rarityRules` por rareza canónica + `finishRules` por acabado) + fallback opcional. La validación
+ * fina (mode/value/rango/keys de finish) la hace `validateBuylistRules` (acepta también el mapa plano
+ * legacy durante la transición).
+ */
 class BuylistRulesDto {
-  @IsObject() rules!: Record<string, BuylistRule>;
+  @IsOptional() @IsObject() rarityRules?: Record<string, BuylistRule>;
+  @IsOptional() @IsObject() finishRules?: Record<string, BuylistRule>;
   @IsOptional() @IsNumber() fallbackPct?: number;
 }
 
-/** v1.13-sales-pricing: reemplaza la tabla completa de reglas de VENTA por rareza (+ fallback opcional). */
+/** v1.29 (§4.28d): reemplaza la tabla de reglas de VENTA en DOS EJES `PriceRuleSet` (+ fallback opcional). */
 class SalesRulesDto {
-  @IsObject() rules!: Record<string, SalesRule>;
+  @IsOptional() @IsObject() rarityRules?: Record<string, SalesRule>;
+  @IsOptional() @IsObject() finishRules?: Record<string, SalesRule>;
   @IsOptional() @IsNumber() fallbackPct?: number;
 }
 
@@ -223,35 +231,39 @@ export class PricingController {
 
   // ---------------- Precio de buylist por RAREZA (v1.3.1, §E.1) ----------------
 
-  /** Lee la tabla cruda de reglas + fallback. API_CONTRACT §M2. */
-  private async readBuylistRules(): Promise<{ rules: Record<string, BuylistRule>; fallbackPct: number }> {
-    const rules =
-      ((await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES)) as Record<string, BuylistRule> | null) ??
-      {};
+  /**
+   * v1.29 (§4.28d) — Lee el `PriceRuleSet` de DOS EJES + fallback (migra el legacy plano on-read).
+   * `rarityRules` se keyea por rareza canónica; `finishRules` por el enum Finish. API_CONTRACT §M2.
+   */
+  private async readBuylistRuleSet(): Promise<PriceRuleSet<BuylistRule>> {
     const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    return { rules, fallbackPct };
+    return toPriceRuleSet<BuylistRule>(
+      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
+      fallbackPct,
+    );
   }
 
   @Get('buylist-rules')
   async getBuylistRules() {
-    return this.readBuylistRules();
+    return this.readBuylistRuleSet();
   }
 
   /**
-   * Reemplaza la tabla de reglas y/o el fallback. Validación estricta (mode/value/rango) →
-   * 422 VALIDATION_ERROR. Surte efecto sin redeploy (criterio 12b). Auditado (before/after).
+   * v1.29 (§4.28d) — Reemplaza el `PriceRuleSet` de DOS EJES y/o el fallback. Validación estricta
+   * (mode/value/rango, keys de finish) → 422 VALIDATION_ERROR. Surte efecto sin redeploy. Auditado.
    */
   @Put('buylist-rules')
   async putBuylistRules(@Body() dto: BuylistRulesDto, @CurrentUser('id') userId: string) {
-    const rulesErr = validateBuylistRules(dto.rules);
+    const ruleSet = { rarityRules: dto.rarityRules ?? {}, finishRules: dto.finishRules ?? {} };
+    const rulesErr = validateBuylistRules(ruleSet);
     if (rulesErr) throw BusinessException.validation('VALIDATION_ERROR', rulesErr, { field: 'rules' });
     if (dto.fallbackPct !== undefined) {
       const fbErr = validateFallbackPct(dto.fallbackPct);
       if (fbErr) throw BusinessException.validation('VALIDATION_ERROR', fbErr, { field: 'fallbackPct' });
     }
 
-    const before = await this.readBuylistRules();
-    const rulesJson = dto.rules as unknown as Prisma.InputJsonValue;
+    const before = await this.readBuylistRuleSet();
+    const rulesJson = ruleSet as unknown as Prisma.InputJsonValue;
     await this.prisma.configSetting.upsert({
       where: { key: SettingKey.BUYLIST_PRICE_RULES },
       create: { key: SettingKey.BUYLIST_PRICE_RULES, valueJson: rulesJson, updatedBy: userId },
@@ -264,7 +276,7 @@ export class PricingController {
         update: { valueJson: dto.fallbackPct, updatedBy: userId },
       });
     }
-    const after = await this.readBuylistRules();
+    const after = await this.readBuylistRuleSet();
     await this.audit.log({
       actorUserId: userId,
       action: 'pricing.buylist_rules.update',
@@ -276,30 +288,57 @@ export class PricingController {
   }
 
   /**
-   * Rarezas distintas del catálogo sincronizado, unidas a sus reglas (para poblar el editor M2).
-   * Devuelve rarezas con regla explícita y rarezas del catálogo aún sin regla (muestran el fallback).
-   * Ordenado por cardCount desc. API_CONTRACT §M2.
+   * v1.29 (§4.28c) — Rarezas CANÓNICAS del catálogo (`groupBy(['rarityCanonical'])`) unidas a sus
+   * reglas de rareza (para poblar el editor M2). Cada entrada: `canonical` (key editable), `raw` (una
+   * forma cruda observada), `premium` (del catálogo canónico), `mapped` (false = unmapped → fallback),
+   * `cardCount`, `rule`, `source`. `rarity` = alias DEPRECADO de `canonical`. Ordenado por cardCount desc.
    */
   @Get('rarities')
   async rarities() {
-    const { rules, fallbackPct } = await this.readBuylistRules();
+    const ruleSet = await this.readBuylistRuleSet();
+    return this.buildRaritiesResponse(ruleSet);
+  }
+
+  /**
+   * Construye la respuesta de `rarities`/`sales-rarities`: agrupa por `rarityCanonical`, junta una
+   * forma cruda representativa (para diagnóstico) y resuelve la regla de RAREZA (`rarityRules`).
+   */
+  private async buildRaritiesResponse(ruleSet: PriceRuleSet<BuylistRule | SalesRule>) {
+    // Agrupa por la CANÓNICA (§4.28c: empate 1:1 con las keys del admin) + una forma cruda por canónica.
     const grouped = await this.prisma.card.groupBy({
-      by: ['rarity'],
+      by: ['rarityCanonical', 'rarity'],
       _count: { _all: true },
     });
-    const rarities = grouped
-      .filter((g): g is { rarity: string; _count: { _all: number } } => g.rarity != null)
-      .map((g) => {
-        const explicit = rules[g.rarity];
+    const byCanonical = new Map<
+      string,
+      { canonical: string; raw: string | null; cardCount: number }
+    >();
+    for (const g of grouped) {
+      const canonical = g.rarityCanonical;
+      if (canonical == null) continue;
+      const acc = byCanonical.get(canonical) ?? { canonical, raw: g.rarity ?? null, cardCount: 0 };
+      acc.cardCount += g._count._all;
+      if (acc.raw == null && g.rarity != null) acc.raw = g.rarity;
+      byCanonical.set(canonical, acc);
+    }
+    const rarities = [...byCanonical.values()]
+      .map((r) => {
+        const explicit = ruleSet.rarityRules[r.canonical];
+        const info = rarityInfo(r.canonical);
         return {
-          rarity: g.rarity,
-          cardCount: g._count._all,
-          rule: explicit ?? { mode: 'pct' as const, value: fallbackPct },
+          canonical: r.canonical,
+          // `rarity` conservado como ALIAS de `canonical` (compat, DEPRECADO).
+          rarity: r.canonical,
+          raw: r.raw,
+          premium: info.premium,
+          mapped: info.mapped,
+          cardCount: r.cardCount,
+          rule: explicit ?? { mode: 'pct' as const, value: ruleSet.fallbackPct },
           source: explicit ? ('rule' as const) : ('fallback' as const),
         };
       })
       .sort((a, b) => b.cardCount - a.cardCount);
-    return { fallbackPct, rarities };
+    return { fallbackPct: ruleSet.fallbackPct, rarities };
   }
 
   // ---------------- Precio de VENTA por RAREZA (v1.13-sales-pricing, §4.14c) ----------------
@@ -307,17 +346,18 @@ export class PricingController {
   // OJO semántica: en venta `pct` = markup ARRIBA de mercado (no % de la referencia como en buylist);
   // la matemática vive en money.computeSalePriceForRarity — aquí solo se lee/escribe la tabla cruda.
 
-  /** Lee la tabla cruda de reglas de VENTA + fallback. API_CONTRACT §M2. */
-  private async readSalesRules(): Promise<{ rules: Record<string, SalesRule>; fallbackPct: number }> {
-    const rules =
-      ((await this.settings.getRaw(SettingKey.SALES_PRICE_RULES)) as Record<string, SalesRule> | null) ?? {};
+  /** v1.29 (§4.28d) — Lee el `PriceRuleSet` de VENTA (dos ejes; migra el legacy plano). API_CONTRACT §M2. */
+  private async readSalesRuleSet(): Promise<PriceRuleSet<SalesRule>> {
     const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
-    return { rules, fallbackPct };
+    return toPriceRuleSet<SalesRule>(
+      await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
+      fallbackPct,
+    );
   }
 
   @Get('sales-rules')
   async getSalesRules() {
-    return this.readSalesRules();
+    return this.readSalesRuleSet();
   }
 
   /**
@@ -326,15 +366,16 @@ export class PricingController {
    */
   @Put('sales-rules')
   async putSalesRules(@Body() dto: SalesRulesDto, @CurrentUser('id') userId: string) {
-    const rulesErr = validateSalesRules(dto.rules);
+    const ruleSet = { rarityRules: dto.rarityRules ?? {}, finishRules: dto.finishRules ?? {} };
+    const rulesErr = validateSalesRules(ruleSet);
     if (rulesErr) throw BusinessException.validation('VALIDATION_ERROR', rulesErr, { field: 'rules' });
     if (dto.fallbackPct !== undefined) {
       const fbErr = validateSalesFallbackPct(dto.fallbackPct);
       if (fbErr) throw BusinessException.validation('VALIDATION_ERROR', fbErr, { field: 'fallbackPct' });
     }
 
-    const before = await this.readSalesRules();
-    const rulesJson = dto.rules as unknown as Prisma.InputJsonValue;
+    const before = await this.readSalesRuleSet();
+    const rulesJson = ruleSet as unknown as Prisma.InputJsonValue;
     await this.prisma.configSetting.upsert({
       where: { key: SettingKey.SALES_PRICE_RULES },
       create: { key: SettingKey.SALES_PRICE_RULES, valueJson: rulesJson, updatedBy: userId },
@@ -347,7 +388,7 @@ export class PricingController {
         update: { valueJson: dto.fallbackPct, updatedBy: userId },
       });
     }
-    const after = await this.readSalesRules();
+    const after = await this.readSalesRuleSet();
     await this.audit.log({
       actorUserId: userId,
       action: 'pricing.sales_rules.update',
@@ -365,24 +406,9 @@ export class PricingController {
    */
   @Get('sales-rarities')
   async salesRarities() {
-    const { rules, fallbackPct } = await this.readSalesRules();
-    const grouped = await this.prisma.card.groupBy({
-      by: ['rarity'],
-      _count: { _all: true },
-    });
-    const rarities = grouped
-      .filter((g): g is { rarity: string; _count: { _all: number } } => g.rarity != null)
-      .map((g) => {
-        const explicit = rules[g.rarity];
-        return {
-          rarity: g.rarity,
-          cardCount: g._count._all,
-          rule: explicit ?? { mode: 'pct' as const, value: fallbackPct },
-          source: explicit ? ('rule' as const) : ('fallback' as const),
-        };
-      })
-      .sort((a, b) => b.cardCount - a.cardCount);
-    return { fallbackPct, rarities };
+    // v1.29 (§4.28c): eco de ventas — mismo agrupado por `rarityCanonical` que `rarities`.
+    const ruleSet = await this.readSalesRuleSet();
+    return this.buildRaritiesResponse(ruleSet);
   }
 
   // ---------------- Spreads de venta del SELLADO (v1.23-sealed-sales, §4.23c) ----------------

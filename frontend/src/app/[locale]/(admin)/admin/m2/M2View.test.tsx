@@ -407,22 +407,23 @@ describe('M2View · Catálogo y precios', () => {
     expect((await s.findAllByText('Common')).length).toBeGreaterThan(0);
   });
 
-  it('editar el valor de una regla fija (Common) y guardar envía updateBuylistRules en centavos', async () => {
+  it('editar el valor de una regla fija (Common) y guardar envía updateBuylistRules en el eje rarityRules (centavos)', async () => {
     const spy = vi
       .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rules: {}, fallbackPct: 40 });
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza/);
+    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
     const valueInput = await s.findByLabelText('Valor para Common');
     // 1 peso → 100 centavos.
     fireEvent.change(valueInput, { target: { value: '1' } });
     fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // v1.29 dos ejes: la rareza va en `rarityRules`, no en un mapa plano `rules`.
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
         fallbackPct: 40,
-        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 100 } }),
+        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 100 } }),
       }),
     );
     expect(await screen.findByText('Reglas de buylist guardadas.')).toBeInTheDocument();
@@ -431,9 +432,9 @@ describe('M2View · Catálogo y precios', () => {
   it('editar el fallback % y guardar envía el nuevo fallbackPct', async () => {
     const spy = vi
       .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rules: {}, fallbackPct: 55 });
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 55 });
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza/);
+    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
     const fallback = await s.findByLabelText('Fallback (%)');
     fireEvent.change(fallback, { target: { value: '55' } });
     fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
@@ -442,46 +443,74 @@ describe('M2View · Catálogo y precios', () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 55 }));
   });
 
-  it('cambiar el modo de una rareza en fallback a fijo la promueve a regla explícita', async () => {
+  it('cambiar el modo de una rareza en fallback a fijo la promueve a regla explícita del eje rarityRules', async () => {
     const spy = vi
       .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rules: {}, fallbackPct: 40 });
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza/);
+    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
     // Rare Holo no tiene regla explícita (fallback pct); cambiar su modo a fijo.
     const modeSelect = await s.findByLabelText('Modo para Rare Holo');
     fireEvent.change(modeSelect, { target: { value: 'fixed' } });
     fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as { rules: Record<string, { mode: string }> };
-    expect(arg.rules['Rare Holo'].mode).toBe('fixed');
+    const arg = spy.mock.calls[0][0] as { rarityRules: Record<string, { mode: string }> };
+    expect(arg.rarityRules['Rare Holo'].mode).toBe('fixed');
   });
 
-  it('INV-1: guardar buylist tras editar Common PRESERVA una regla SINTÉTICA no editada (Holo) que viene de getBuylistRules', async () => {
-    // La tabla CRUDA del servidor tiene la clave sintética "Holo" (NO es Card.rarity → NO aparece
-    // en /rarities). Antes se reconstruía `serverRules` desde la vista de rarezas y el PUT (reemplazo
-    // total) borraba "Holo". Ahora el merge parte de la tabla cruda y la conserva.
+  // ---- v1.29 dos ejes: reglas por ACABADO (retira el parche INV-1) ----
+  it('DOS EJES: editar una regla de ACABADO (Reverse Holo) la guarda en finishRules, SIN tocar rarityRules', async () => {
+    // El eje de acabado reemplaza la vieja key sintética "Reverse Holo" del mapa plano (INV-1).
+    // El seed del mock trae finishRules.reverse_holo = { fixed, 150 } → el campo muestra "1.5".
+    const spy = vi
+      .spyOn(api, 'updateBuylistRules')
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
+    const finishInput = (await s.findByLabelText('Valor del acabado Reverse Holo')) as HTMLInputElement;
+    // 2 pesos → 200 centavos, en el eje de ACABADO.
+    fireEvent.change(finishInput, { target: { value: '2' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const arg = spy.mock.calls[0][0] as {
+      rarityRules: Record<string, unknown>;
+      finishRules: Record<string, { mode: string; value: number }>;
+    };
+    // La regla del acabado va en el EJE finishRules (keyeado por el enum Finish)…
+    expect(arg.finishRules.reverse_holo).toEqual({ mode: 'fixed', value: 200 });
+    // …y NO se cuela como una "rareza" en el eje de rareza (limpieza que motiva retirar INV-1).
+    expect(arg.rarityRules['Reverse Holo']).toBeUndefined();
+    expect(arg.rarityRules.reverse_holo).toBeUndefined();
+  });
+
+  it('DOS EJES: guardar tras editar SOLO la rareza Common PRESERVA la regla de acabado del servidor (finishRules)', async () => {
+    // El merge parte del PriceRuleSet del servidor (ambos ejes): editar un eje no borra el otro.
+    // Ya no hay que rescatar a mano una key sintética (INV-1 retirado).
     vi.spyOn(api, 'getBuylistRules').mockResolvedValue({
-      rules: {
-        Common: { mode: 'fixed', value: 50 },
-        Holo: { mode: 'fixed', value: 1000 },
-      },
+      rarityRules: { Common: { mode: 'fixed', value: 50 } },
+      finishRules: { holofoil: { mode: 'fixed', value: 1000 } },
       fallbackPct: 40,
     });
-    const spy = vi.spyOn(api, 'updateBuylistRules').mockResolvedValue({ rules: {}, fallbackPct: 40 });
+    const spy = vi
+      .spyOn(api, 'updateBuylistRules')
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza/);
+    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
     const valueInput = await s.findByLabelText('Valor para Common');
     fireEvent.change(valueInput, { target: { value: '1' } });
     fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as { rules: Record<string, { mode: string; value: number }> };
-    // La clave sintética NO editada sobrevive al guardado…
-    expect(arg.rules.Holo).toEqual({ mode: 'fixed', value: 1000 });
-    // …y la rareza editada (Common) se aplica encima (1 peso → 100 centavos).
-    expect(arg.rules.Common).toEqual({ mode: 'fixed', value: 100 });
+    const arg = spy.mock.calls[0][0] as {
+      rarityRules: Record<string, { mode: string; value: number }>;
+      finishRules: Record<string, { mode: string; value: number }>;
+    };
+    // La regla de ACABADO del servidor sobrevive al guardado (no revierte a fallback → no cae a pending)…
+    expect(arg.finishRules.holofoil).toEqual({ mode: 'fixed', value: 1000 });
+    // …y la rareza editada (Common) se aplica en su propio eje (1 peso → 100 centavos).
+    expect(arg.rarityRules.Common).toEqual({ mode: 'fixed', value: 100 });
   });
 
   // ---- Editor de precio de VENTA por rareza (v1.13-sales-pricing) ----
@@ -494,8 +523,10 @@ describe('M2View · Catálogo y precios', () => {
     expect(s.getByText(/precio de venta = mercado × \(1 \+ %\)/)).toBeInTheDocument();
   });
 
-  it('editar el valor de una regla fija de venta (Common) y guardar envía updateSalesRules en centavos', async () => {
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+  it('editar el valor de una regla fija de venta (Common) y guardar envía updateSalesRules en el eje rarityRules (centavos)', async () => {
+    const spy = vi
+      .spyOn(api, 'updateSalesRules')
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
     renderWithProviders(<M2View />, 'es');
     const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
     const valueInput = await s.findByLabelText('Valor para Common');
@@ -507,14 +538,16 @@ describe('M2View · Catálogo y precios', () => {
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
         fallbackPct: 15,
-        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 2000 } }),
+        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 2000 } }),
       }),
     );
     expect(await screen.findByText('Reglas de venta guardadas.')).toBeInTheDocument();
   });
 
   it('editar el fallback de venta acepta pct > 100 (markup sin tope en 100) y lo envía', async () => {
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 250 });
+    const spy = vi
+      .spyOn(api, 'updateSalesRules')
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 250 });
     renderWithProviders(<M2View />, 'es');
     const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
     const fallback = await s.findByLabelText('Fallback (% sobre mercado)');
@@ -526,19 +559,17 @@ describe('M2View · Catálogo y precios', () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 250 }));
   });
 
-  it('INV-1: guardar VENTA tras editar Common PRESERVA la regla SINTÉTICA "Holo" que viene de getSalesRules', async () => {
-    // Seed real de venta: la clave "Holo" es sintética (§4.14b) y NO es Card.rarity → NO llega en
-    // /sales-rarities. El bug: al reconstruir desde la vista de rarezas, el PUT (reemplazo total)
-    // descartaba "Holo" y las cartas holo revertían a fallback / caían a pending. El merge cruda
-    // la conserva.
+  it('DOS EJES VENTA: guardar tras editar Common PRESERVA la regla de ACABADO del servidor (finishRules)', async () => {
+    // v1.29: la vieja key sintética "Holo" (INV-1) se separa en el eje de ACABADO (finishRules).
+    // El merge parte del PriceRuleSet del servidor (ambos ejes) → editar la rareza no borra el acabado.
     vi.spyOn(api, 'getSalesRules').mockResolvedValue({
-      rules: {
-        Common: { mode: 'fixed', value: 500 },
-        Holo: { mode: 'fixed', value: 1000 },
-      },
+      rarityRules: { Common: { mode: 'fixed', value: 500 } },
+      finishRules: { holofoil: { mode: 'fixed', value: 1000 } },
       fallbackPct: 15,
     });
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    const spy = vi
+      .spyOn(api, 'updateSalesRules')
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
     renderWithProviders(<M2View />, 'es');
     const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
     const valueInput = await s.findByLabelText('Valor para Common');
@@ -547,11 +578,31 @@ describe('M2View · Catálogo y precios', () => {
     fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as { rules: Record<string, { mode: string; value: number }> };
-    // La clave sintética "Holo" sobrevive al guardado (no revierte a fallback → no cae a pending)…
-    expect(arg.rules.Holo).toEqual({ mode: 'fixed', value: 1000 });
-    // …y la rareza editada (Common) se aplica encima.
-    expect(arg.rules.Common).toEqual({ mode: 'fixed', value: 2000 });
+    const arg = spy.mock.calls[0][0] as {
+      rarityRules: Record<string, { mode: string; value: number }>;
+      finishRules: Record<string, { mode: string; value: number }>;
+    };
+    // La regla de ACABADO del servidor sobrevive (no revierte a fallback → no cae a pending)…
+    expect(arg.finishRules.holofoil).toEqual({ mode: 'fixed', value: 1000 });
+    // …y la rareza editada (Common) se aplica en su propio eje.
+    expect(arg.rarityRules.Common).toEqual({ mode: 'fixed', value: 2000 });
+  });
+
+  it('DOS EJES VENTA: editar el ACABADO Reverse Holo lo guarda en finishRules (markup sobre mercado)', async () => {
+    const spy = vi
+      .spyOn(api, 'updateSalesRules')
+      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    // El eje de acabado usa el mismo control fixed/pct; el seed trae reverse_holo fixed 1000 → "10".
+    const finishInput = (await s.findByLabelText('Valor del acabado Reverse Holo')) as HTMLInputElement;
+    fireEvent.change(finishInput, { target: { value: '25' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const arg = spy.mock.calls[0][0] as { finishRules: Record<string, { mode: string; value: number }> };
+    // 25 pesos → 2500 centavos, en el eje de ACABADO (no en rareza).
+    expect(arg.finishRules.reverse_holo).toEqual({ mode: 'fixed', value: 2500 });
   });
 
   it('INV-1 robustez: si getSalesRules FALLA, Guardar queda DESHABILITADO (no no-op silencioso) y se explica por qué', async () => {
@@ -583,7 +634,7 @@ describe('M2View · Catálogo y precios', () => {
   // cada keystroke). Estos usan `userEvent.type` carácter a carácter.
   it('P-1: teclear un decimal ("12.50") en Valor para Common lo CONSERVA, habilita Guardar y envía 1250 centavos', async () => {
     const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
     renderWithProviders(<M2View />, 'es');
     const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
     const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
@@ -603,7 +654,7 @@ describe('M2View · Catálogo y precios', () => {
     // 12.50 pesos → 1250 centavos (no 1250 pesos ni un 100× de sobreprecio).
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
-        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 1250 } }),
+        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 1250 } }),
       }),
     );
   });
@@ -634,7 +685,7 @@ describe('M2View · Catálogo y precios', () => {
   // ---- S-P1-1 (SECURITY): un valor con MÚLTIPLES PUNTOS o VACÍO no puede colar un MX$0 ----
   it('S-P1-1: teclear "1.2.3" en Valor para Common deja UN SOLO punto ("1.23") y Guardar NO envía 0', async () => {
     const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
     renderWithProviders(<M2View />, 'es');
     const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
     const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
@@ -650,16 +701,16 @@ describe('M2View · Catálogo y precios', () => {
     // 1.23 pesos → 123 centavos; jamás 0 (giveaway) por el multi-punto.
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
-        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 123 } }),
+        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 123 } }),
       }),
     );
-    const arg = spy.mock.calls[0][0] as { rules: Record<string, { value: number }> };
-    expect(arg.rules.Common.value).not.toBe(0);
+    const arg = spy.mock.calls[0][0] as { rarityRules: Record<string, { value: number }> };
+    expect(arg.rarityRules.Common.value).not.toBe(0);
   });
 
   it('S-P1-1: VACIAR Valor para Common (regla tocada, vacía) DESHABILITA Guardar → no persiste {fixed,0}', async () => {
     const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
     renderWithProviders(<M2View />, 'es');
     const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
     const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;

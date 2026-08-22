@@ -67,7 +67,7 @@ function buildHarness() {
     {} as PokemonPriceTrackerProvider,
     {} as PokeTraceProvider,
   );
-  jest.spyOn(pricing, 'loadSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+  jest.spyOn(pricing, 'loadSalesRules').mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 });
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false } as any);
 
   // Referencia observada por getReferencesBatch — mutable para simular el efecto del reprecio fresco.

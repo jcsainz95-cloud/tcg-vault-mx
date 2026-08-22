@@ -17,6 +17,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import {
   SalesRule,
+  PriceRuleSet,
   computeAportacionCostCents,
   computeSalePriceForRarity,
 } from '../../common/money';
@@ -105,7 +106,7 @@ export const PUBLISH_ALL_FAILURES_CAP = 200;
  * `bulkPublish` y `publishAll` — el pipeline por-pieza es IDÉNTICO por contrato (§4.26c).
  */
 interface PublishPricingCtx {
-  rules: Record<string, SalesRule>;
+  rules: PriceRuleSet<SalesRule>;
   fallbackPct: number;
   sealed: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
   refs: Map<string, PriceInfo>;

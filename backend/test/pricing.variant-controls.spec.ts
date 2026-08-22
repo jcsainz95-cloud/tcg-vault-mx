@@ -21,8 +21,15 @@ const CARD = {
   availableFinishes: ['normal', 'reverse_holo'],
 };
 
-const BUY = { rules: { Common: { mode: 'fixed' as const, value: 50 } }, fallbackPct: 40 };
-const SELL = { rules: { Common: { mode: 'fixed' as const, value: 500 } }, fallbackPct: 15 };
+// v1.29 (§4.28d): PriceRuleSet de dos ejes (Common → rarityRules).
+const BUY = {
+  rules: { rarityRules: { Common: { mode: 'fixed' as const, value: 50 } }, finishRules: {}, fallbackPct: 40 },
+  fallbackPct: 40,
+};
+const SELL = {
+  rules: { rarityRules: { Common: { mode: 'fixed' as const, value: 500 } }, finishRules: {}, fallbackPct: 15 },
+  fallbackPct: 15,
+};
 
 function overrideRow(over: Record<string, unknown> = {}) {
   return {

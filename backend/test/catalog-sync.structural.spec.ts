@@ -154,7 +154,7 @@ describe('CatalogSyncService.sync single — resolver estructural con force (P-1
   const settings = (): SettingsService =>
     ({ getString: jest.fn(async () => '2024/01/01') } as unknown as SettingsService);
   const reconciler = () => ({ reconcile: jest.fn(async () => 0) });
-  const resolver = () => ({ resolveStructuralFinishesForSet: jest.fn(async () => ({ groupId: 1407, joined: 1, updated: 1, unjoined: 0 })) });
+  const resolver = () => ({ resolveCardProductsForSet: jest.fn(async () => ({ groupId: 1407, joined: 1, updated: 1, unjoined: 0 })) });
 
   function client(): PokemonTcgIoClient {
     const card = {
@@ -176,7 +176,7 @@ describe('CatalogSyncService.sync single — resolver estructural con force (P-1
 
     await svc.sync('sv8', undefined, true);
 
-    expect(res.resolveStructuralFinishesForSet).toHaveBeenCalledWith('local-sv8');
+    expect(res.resolveCardProductsForSet).toHaveBeenCalledWith('local-sv8');
   });
 
   it('sin force y NO first-import ⇒ NO corre el resolver (comportamiento previo exacto, retrocompatible)', async () => {
@@ -186,7 +186,7 @@ describe('CatalogSyncService.sync single — resolver estructural con force (P-1
 
     await svc.sync('sv8');
 
-    expect(res.resolveStructuralFinishesForSet).not.toHaveBeenCalled();
+    expect(res.resolveCardProductsForSet).not.toHaveBeenCalled();
   });
 
   it('first-import (el set no tenía cartas) ⇒ corre el resolver aun sin force (paridad con importSet)', async () => {
@@ -196,12 +196,12 @@ describe('CatalogSyncService.sync single — resolver estructural con force (P-1
 
     await svc.sync('sv8');
 
-    expect(res.resolveStructuralFinishesForSet).toHaveBeenCalledWith('local-sv8');
+    expect(res.resolveCardProductsForSet).toHaveBeenCalledWith('local-sv8');
   });
 
   it('BEST-EFFORT money-safe: el resolver falla ⇒ se loguea y el import NO aborta (setsQueued=1)', async () => {
     const prisma = buildPrisma(5);
-    const res = { resolveStructuralFinishesForSet: jest.fn(async () => { throw new Error('TCGCSV 502'); }) };
+    const res = { resolveCardProductsForSet: jest.fn(async () => { throw new Error('TCGCSV 502'); }) };
     const svc = new CatalogSyncService(prisma as PrismaService, client(), settings(), reconciler() as any, res as any);
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
 

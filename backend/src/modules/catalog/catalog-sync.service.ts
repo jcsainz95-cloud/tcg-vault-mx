@@ -7,8 +7,9 @@ import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.c
 import { yearFromReleaseDate } from './catalog.service';
 import { deriveAvailableFinishes } from '../pricing/pricing.types';
 import { deriveNumberParts } from '../../common/card-order';
+import { normalizeRarity } from '../../common/rarity-catalog';
 import { FinishReconciler } from './finish-reconciler.service';
-import { StructuralFinishResolverService } from './structural-finish-resolver.service';
+import { CardProductResolverService } from './card-product-resolver.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -41,10 +42,10 @@ export class CatalogSyncService {
     // v1.22-1 (§4.22g): `upsertCards` escribe `catalogFinishes` y DELEGA la escritura de
     // `availableFinishes` al ÚNICO escritor (FinishReconciler); ya no la escribe inline.
     private readonly finishReconciler: FinishReconciler,
-    // v1.26 (§4.24a): resolver de la composición ESTRUCTURAL desde TCGCSV, invocado como paso de
+    // v1.29 (§4.27d): resolver de «1 carta ↔ N productos» desde TCGCSV, invocado como paso de
     // `importSet` (first-import/`--force`). @Optional: los tests unitarios que ejercitan solo el
     // sync single/metadata pueden construir el servicio sin él (no se invoca en esa ruta).
-    @Optional() private readonly structuralResolver?: StructuralFinishResolverService,
+    @Optional() private readonly cardProductResolver?: CardProductResolverService,
   ) {}
 
   /**
@@ -303,12 +304,12 @@ export class CatalogSyncService {
     // first-import = el set local no tenía NINGUNA carta antes de este import. Solo se calcula
     // cuando el resolver está cableado (los tests de sync/metadata lo construyen sin él).
     const firstImport =
-      this.structuralResolver != null
+      this.cardProductResolver != null
         ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
         : false;
     const cardCount = await this.importCardsForSet(rs.id, localSet.id);
     if (firstImport || opts.force === true) {
-      await this.runStructuralResolver(localSet.id, rs.id);
+      await this.runCardProductResolver(localSet.id, rs.id);
     }
     return { imported: true, cardCount };
   }
@@ -332,13 +333,13 @@ export class CatalogSyncService {
     // first-import = el set local no tenía NINGUNA carta antes de este import (mismo criterio que
     // `importSet`); solo se calcula cuando el resolver está cableado (tests de metadata sin él).
     const firstImport =
-      this.structuralResolver != null
+      this.cardProductResolver != null
         ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
         : false;
     let cardCount = await this.upsertCards(first.data, localSet.id);
     cardCount += await this.importRemainingPages(setId, localSet.id, first);
     if (firstImport || opts.force === true) {
-      await this.runStructuralResolver(localSet.id, setId);
+      await this.runCardProductResolver(localSet.id, setId);
     }
     return { imported: true, cardCount };
   }
@@ -349,10 +350,10 @@ export class CatalogSyncService {
    * aborta el import (las cartas conservan su `structuralFinishes` seed/previo). No-op si el
    * resolver no está cableado (`@Optional`, tests de metadata).
    */
-  private async runStructuralResolver(localSetId: string, setExternalId: string): Promise<void> {
-    if (this.structuralResolver == null) return;
+  private async runCardProductResolver(localSetId: string, setExternalId: string): Promise<void> {
+    if (this.cardProductResolver == null) return;
     try {
-      await this.structuralResolver.resolveStructuralFinishesForSet(localSetId);
+      await this.cardProductResolver.resolveCardProductsForSet(localSetId);
     } catch (e) {
       this.logger.warn(
         `importSet: resolver estructural TCGCSV falló para ${setExternalId} (${(e as Error).message}); ` +
@@ -462,6 +463,10 @@ export class CatalogSyncService {
         numberSort: parts.numberSort,
         numberPrefix: parts.prefix,
         rarity: c.rarity ?? null,
+        // v1.29 (§4.28c): `rarity` CRUDO se conserva (procedencia); `rarityCanonical` DERIVADO en el
+        // ingest empata 1:1 con las keys que el admin edita en las reglas por rareza. Lo consumen
+        // precios (lookup) y el `groupBy(['rarityCanonical'])` del admin.
+        rarityCanonical: normalizeRarity(c.rarity),
         supertype: c.supertype ?? null,
         subtypes: c.subtypes ?? undefined,
         imageSmallUrl: c.images?.small ?? null,

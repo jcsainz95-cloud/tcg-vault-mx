@@ -68,10 +68,10 @@ import type {
   AcquisitionType,
   InventoryStatus,
   BuylistRule,
-  BuylistRulesDTO,
+  PriceRuleSet,
   BuylistRaritiesResponse,
   SalesRule,
-  SalesRulesDTO,
+  SalesPriceRuleSet,
   SalesRaritiesResponse,
   BreakdownDTO,
   PortfolioRange,
@@ -2776,26 +2776,31 @@ export async function getBuylistRarities(): Promise<BuylistRaritiesResponse> {
   return delay(fx.mockBuylistRarities());
 }
 
-/** Tabla cruda de reglas + fallback (contrato GET /admin/pricing/buylist-rules, v1.3.1). */
-export async function getBuylistRules(): Promise<BuylistRulesDTO> {
-  if (!config.useMocks) return apiRequest<BuylistRulesDTO>('/admin/pricing/buylist-rules');
-  return delay({ rules: fx.mockBuylistRules, fallbackPct: fx.mockBuylistFallbackPct });
+/**
+ * PriceRuleSet de buylist: reglas por RAREZA CANÓNICA + reglas por ACABADO + fallback (contrato
+ * GET /admin/pricing/buylist-rules, v1.29 dos ejes). Reemplaza el mapa plano `{ rules, fallbackPct }`
+ * (que mezclaba rareza y acabado con keys sintéticas "Holo"/"Reverse Holo" — parche INV-1 retirado).
+ */
+export async function getBuylistRules(): Promise<PriceRuleSet> {
+  if (!config.useMocks) return apiRequest<PriceRuleSet>('/admin/pricing/buylist-rules');
+  return delay(fx.getMockBuylistRuleSet());
 }
 
 /**
- * Reemplaza la tabla de reglas y/o el fallback (contrato PUT /admin/pricing/buylist-rules).
- * Validación server-side: mode ∈ {fixed,pct}; fixed → value entero ≥ 0 (centavos);
- * pct/fallback → número en [0,100]. Auditado (M10). Surte efecto sin redeploy.
+ * Reemplaza el PriceRuleSet de buylist (reglas por rareza + por acabado + fallback) — contrato PUT
+ * /admin/pricing/buylist-rules (v1.29). Validación server-side: mode ∈ {fixed,pct}; fixed → value
+ * entero ≥ 0 (centavos); pct/fallback → número en [0,100]. Auditado (M10). Surte efecto sin redeploy.
  */
 export async function updateBuylistRules(input: {
-  rules: Record<string, BuylistRule>;
+  rarityRules: Record<string, BuylistRule>;
+  finishRules: Partial<Record<Finish, BuylistRule>>;
   fallbackPct?: number;
-}): Promise<BuylistRulesDTO> {
+}): Promise<PriceRuleSet> {
   if (!config.useMocks) {
-    return apiRequest<BuylistRulesDTO>('/admin/pricing/buylist-rules', { method: 'PUT', body: input });
+    return apiRequest<PriceRuleSet>('/admin/pricing/buylist-rules', { method: 'PUT', body: input });
   }
-  fx.setMockBuylistRules(input.rules, input.fallbackPct);
-  return delay({ rules: fx.mockBuylistRules, fallbackPct: fx.mockBuylistFallbackPct });
+  fx.setMockBuylistRuleSet(input.rarityRules, input.finishRules, input.fallbackPct);
+  return delay(fx.getMockBuylistRuleSet());
 }
 
 /**
@@ -2809,27 +2814,28 @@ export async function getSalesRarities(): Promise<SalesRaritiesResponse> {
   return delay(fx.mockSalesRarities());
 }
 
-/** Tabla cruda de reglas de VENTA + fallback (contrato GET /admin/pricing/sales-rules, v1.13). */
-export async function getSalesRules(): Promise<SalesRulesDTO> {
-  if (!config.useMocks) return apiRequest<SalesRulesDTO>('/admin/pricing/sales-rules');
-  return delay({ rules: fx.mockSalesRules, fallbackPct: fx.mockSalesFallbackPct });
+/** PriceRuleSet de VENTA (rareza canónica + acabado + fallback) — contrato GET /admin/pricing/sales-rules (v1.29). */
+export async function getSalesRules(): Promise<SalesPriceRuleSet> {
+  if (!config.useMocks) return apiRequest<SalesPriceRuleSet>('/admin/pricing/sales-rules');
+  return delay(fx.getMockSalesRuleSet());
 }
 
 /**
- * Reemplaza la tabla de reglas de VENTA y/o el fallback (contrato PUT /admin/pricing/sales-rules).
- * Validación server-side: mode ∈ {fixed,pct}; fixed → value entero ≥ 0 (centavos, PISO);
- * pct/fallback → número en [0,1000] (markup ARRIBA de mercado; puede >100% a diferencia del pct
- * de buylist). Auditado (M10). Surte efecto sin redeploy.
+ * Reemplaza el PriceRuleSet de VENTA (reglas por rareza + por acabado + fallback) — contrato PUT
+ * /admin/pricing/sales-rules (v1.29). Validación server-side: mode ∈ {fixed,pct}; fixed → value
+ * entero ≥ 0 (centavos, PISO); pct/fallback → número en [0,1000] (markup ARRIBA de mercado; puede
+ * >100% a diferencia del pct de buylist). Auditado (M10). Surte efecto sin redeploy.
  */
 export async function updateSalesRules(input: {
-  rules: Record<string, SalesRule>;
+  rarityRules: Record<string, SalesRule>;
+  finishRules: Partial<Record<Finish, SalesRule>>;
   fallbackPct?: number;
-}): Promise<SalesRulesDTO> {
+}): Promise<SalesPriceRuleSet> {
   if (!config.useMocks) {
-    return apiRequest<SalesRulesDTO>('/admin/pricing/sales-rules', { method: 'PUT', body: input });
+    return apiRequest<SalesPriceRuleSet>('/admin/pricing/sales-rules', { method: 'PUT', body: input });
   }
-  fx.setMockSalesRules(input.rules, input.fallbackPct);
-  return delay({ rules: fx.mockSalesRules, fallbackPct: fx.mockSalesFallbackPct });
+  fx.setMockSalesRuleSet(input.rarityRules, input.finishRules, input.fallbackPct);
+  return delay(fx.getMockSalesRuleSet());
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */

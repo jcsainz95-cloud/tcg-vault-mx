@@ -4,6 +4,88 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0. v1.29-tcgcsv-productos-por-variante — «1 carta ↔ N productos» + rareza canónica (M-31)
+
+> Implementa ARCHITECTURE §4.27 / §4.28 y el Changelog v1.29 de API_CONTRACT. Rama
+> `fix/variant-composition-regression`. Todo ADITIVO/money-safe; NO se dropea ninguna columna.
+
+**Qué cambió (resumen para otros roles):**
+- **Composición por `productId` EXACTO (mata el fantasma).** Se retiró `unionStructuralFinishesByCardNumber`
+  (unión por número — el bug de 3 rondas) y `StructuralFinishResolverService`. Entran
+  `deriveCardProductsFromTcgcsv` (agrupa por `productId`, `tcgcsv-singles.provider.ts`) y
+  `CardProductResolverService` (`catalog/card-product-resolver.service.ts`). `Card.availableFinishes`
+  se DERIVA DIRECTO de `⋃ CardProduct.finishes (set_base/other)` — sin heurística `isPremiumRarity`
+  ni resta de `normal`. La energía especial de Pitch Black queda en **2 casillas** (holofoil,
+  reverse_holo), no 3. Los `deck_exclusive`/`promo` NO fusionan sus acabados: se exponen como
+  **productos vendibles separados** (`MasterSetCardCellDTO.separateProducts: CardProductDTO[]`).
+- **Precio por VARIANTE desde TCGCSV (fuente primaria).** El resolver persiste una `PriceReference`
+  por `(cardProduct, finish)` con `source=tcgcsv_singles`, leyendo `marketPrice` por `subTypeName` y
+  convirtiendo USD→MXN con el **módulo Banxico existente** (`FxService.getCurrent` + `usdToMxnCents`,
+  no se inventó FX). PPT baja a **fallback** (`persistMarketReference` con `cardProductId=null`).
+  Precedencia de fuente: override manual > `tcgcsv_singles` > `tcgcsv` (sellado) > PPT > pokemontcg.io.
+  **Money-safe DURO:** variante sin precio ⇒ celda `null`/«—» + PRICE_PENDING, JAMÁS 0.
+- **Catálogo canónico de rarezas** (`common/rarity-catalog.ts`): `CANONICAL_RARITIES`, `normalizeRarity`,
+  `isPremiumCanonicalRarity`. `Card.rarityCanonical` se puebla en el ingest; el admin
+  (`GET /admin/pricing/rarities` y su eco de ventas) agrupa por `rarityCanonical` (empate 1:1 con las
+  keys que edita). **UNA sola definición de «premium»**: se retiraron `PREMIUM_RARITY_PATTERNS`
+  (money.ts) y `PREMIUM_RARITY_TERMS` (ppt-sync-scope.ts); ambos DELEGAN en el catálogo.
+- **Reglas de precio en DOS EJES** (§4.28d): `PriceRuleSet { rarityRules, finishRules, fallbackPct }`
+  reemplaza el mapa plano que mezclaba rareza y acabado. `GET/PUT /admin/pricing/buylist-rules` y
+  `sales-rules` sirven/guardan la nueva forma; el legacy plano se **migra on-read** (`toPriceRuleSet`,
+  `money.ts`), así que la config de prod existente sigue funcionando sin intervención.
+
+**Migración M-31** (`prisma/migrations/20260822120000_m31_card_products_rarity_canonical/`):
+- Enum `CardProductKind`; tabla `CardProduct` (unique por `tcgplayerProductId`, FK→Card);
+  `PriceReference.cardProductId String?` + FK; `PriceSource += tcgcsv_singles`; `Card.rarityCanonical String?`.
+- La `@@unique` de `PriceReference` pasa a `[cardId, productType, gradeKey, finish, capturedDate, cardProductId]`.
+- **Backfills:** `CardProduct` set_base desde `Card.tcgplayerId` numérico + `structuralFinishes`;
+  `rarityCanonical` sembrado con el `rarity` CRUDO (transitorio money-safe; el normalizador fino corre
+  en el re-sync por set / el data-migration).
+- **NO aplicada contra prod** (ni ninguna BD): solo generada + `prisma generate`. Aplicar con
+  `prisma migrate deploy` en el deploy (devops).
+
+**Salvedad Prisma / índice (IMPORTANTE para devops):** el índice único de `PriceReference` se crea con
+`NULLS NOT DISTINCT` (**requiere PostgreSQL 15+**) para que las filas con `cardProductId=NULL`
+(graded/sealed/fallback PPT) mantengan «un renglón/día como hoy». Además, como el runtime de Prisma
+**no tipa `null` en la clave compuesta**, los upserts del camino NULL (`persistMarketReference`,
+`persistSealedMarketReference`, `manualOverride`, `syncCardPrice`) se hicieron con `findFirst` +
+`create`/`update` (el resolver de singles, con `cardProductId` no-null, sí usa el upsert compuesto).
+Si el motor fuera **< PG15**, sustituir el índice por uno normal y confiar en la invariante de upsert
+a nivel de aplicación (ya vigente). Ver §0.1 (deuda) y la migración.
+
+**Deuda (para `TECH_DEBT.md`, a petición del techlead — dueño = backend):**
+- Dropear las columnas MUERTAS `Card.structuralFinishes` / `catalogFinishes` / `pricedFinishesSnapshot`
+  en una migración POSTERIOR, tras validar en prod (se conservan en M-31 por reversibilidad).
+- Retirar `Card.tcgplayerId` (DEPRECADO, reemplazado por `CardProduct.tcgplayerProductId`) y el campo
+  `displayFinishes` del contrato (= `availableFinishes`) en la siguiente rev de front.
+- Proceso «añadir rareza nueva al catálogo canónico» (R-5): una rareza no mapeada entra `unmapped`
+  (fallback pct, visible al admin) hasta agregarla a `CANONICAL_RARITIES`.
+
+**Riesgos / pendientes abiertos (necesitan validación con egress o decisión del arquitecto):**
+- **R-1 (no verificable sin egress):** ¿el producto «Deck Exclusives» cae en el MISMO `groupId` TCGCSV
+  del set? El resolver solo fetchea el grupo del set. Si TCGplayer lo coloca en OTRO grupo, hay que
+  ampliar el fetch a grupos hermanos. **Se decide con el `--force` de Pitch Black (groupId 24688) en
+  staging.** Reversible; documentado. Hasta confirmarlo, un Deck Exclusive en otro grupo quedaría sin
+  colgar (money-safe: no rompe nada, solo no aparece como producto separado).
+- **Consecuencia de unificar «premium» (R-4, cerrado por el PO = UN atributo):** `ppt-sync-scope`
+  ya NO clasifica «Rare Holo» plano como premium (sigue la semántica de buylist de money.ts). Efecto:
+  algunos holos de set VIEJO que antes entraban al scope `partial` de PPT por su rareza ahora dependen
+  de tener inventario activo; los cubre el re-sync TCGCSV (fuente primaria gratis). Sin impacto de dinero.
+
+## 0.1 Estado de gates v1.29 (para QA/techlead)
+
+- `npm run build` (nest build): **OK**.
+- `npx tsc --noEmit`: **0 errores**.
+- `npm run lint` (eslint): **0 errores, 0 warnings**.
+- `npx jest`: **149 suites / 1395 tests — todos verdes** (incluye los nuevos:
+  `card-product-resolver.spec`, `tcgcsv-singles.provider.spec` (derive+kind+fantasma),
+  `finish-reconciler.spec` (deriva de CardProduct), reglas de dos ejes y rarezas canónicas en
+  `pricing.buylist-rules.spec`/`pricing.sales-rules.spec`, unificación de premium en `ppt-sync-scope.spec`).
+- Validación barata exigida por el PO (§4.27h): el resolver corre por-set vía
+  `POST /admin/catalog/sync {setId, force:true}` — **NO ejecutado contra prod** (sin egress a
+  tcgcsv.com en dev/CI); cubierto por tests con las fixtures `test/fixtures/tcgcsv/` y fixtures inline
+  del caso Pitch Black (2 productos que comparten número ⇒ sin fantasma).
+
 ## 1. Cómo correr
 
 ```bash

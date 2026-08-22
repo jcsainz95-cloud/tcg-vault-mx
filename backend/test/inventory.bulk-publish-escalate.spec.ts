@@ -72,6 +72,10 @@ function buildHarness() {
     // v1.28 (P-18): sin filas M-30 por default (comportamiento previo).
     variantPriceOverride: { findMany: jest.fn(async () => []) },
     priceReference: {
+      // v1.29 (M-31): manualOverride usa findFirst + create/update (cardProductId=null).
+      findFirst: jest.fn(async () => null),
+      create: jest.fn(async () => ({ id: `ref-${++refSeq}` })),
+      update: jest.fn(async () => ({ id: `ref-${refSeq}` })),
       upsert: jest.fn(async () => ({ id: `ref-${++refSeq}` })),
     },
     pendingPriceEntry: {
@@ -117,7 +121,7 @@ function buildHarness() {
     {} as PokeTraceProvider,
   );
   // Stubs de acceso a datos izados una vez por bulkPublish (el resto de métodos corre REAL).
-  jest.spyOn(pricing, 'loadSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+  jest.spyOn(pricing, 'loadSalesRules').mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 });
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,

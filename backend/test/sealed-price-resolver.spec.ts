@@ -195,7 +195,7 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
     } as any;
 
     const pricingInv = new PricingService(prismaInv, {} as any, {} as any, {} as any, {} as any, {} as any);
-    jest.spyOn(pricingInv, 'loadSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    jest.spyOn(pricingInv, 'loadSalesRules').mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 });
     jest.spyOn(pricingInv, 'loadSealedSpreads').mockResolvedValue(CTX_ON);
     jest
       .spyOn(pricingInv, 'getReferencesBatch')

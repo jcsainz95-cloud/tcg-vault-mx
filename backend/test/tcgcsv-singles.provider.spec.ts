@@ -2,7 +2,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
   TcgcsvCatalogClient,
-  unionStructuralFinishesByCardNumber,
+  deriveCardProductsFromTcgcsv,
+  classifyCardProductKind,
 } from '../src/modules/pricing/providers/tcgcsv-singles.provider';
 import {
   deriveStructuralFinishes,
@@ -95,56 +96,87 @@ describe('tcgcsvSubTypeToFinish / deriveStructuralFinishes (§4.24a paso 4) — 
   });
 });
 
-describe('unionStructuralFinishesByCardNumber (§4.24a paso 3) — GROUP-BY-CARTA contra FIXTURES REALES (Surging Sparks sv8)', () => {
-  it('une subTypeName por número de carta; Pikachu ex 057/191 (DR, Holofoil) ⇒ [holofoil] SIN normal fantasma', () => {
-    const products = (fixture('products-23821.json') as { results: any[] }).results.map(mapProduct);
-    const prices = (fixture('prices-23821.json') as { results: any[] }).results.map(mapPrice);
-    const union = unionStructuralFinishesByCardNumber(products, prices);
-
-    // El secret/single premium de UNA impresión: SOLO holofoil, sin `normal` de relleno (VAR-1).
-    expect(union.get('057/191')?.finishes).toEqual(['holofoil']);
-    expect(union.get('057/191')?.finishes).not.toContain('normal');
-    // Alolan Exeggutor ex 167/191: solo Reverse Holofoil.
-    expect(union.get('167/191')?.finishes).toEqual(['reverse_holo']);
-    // Los productos SELLADOS (sin Number) NO producen ninguna entrada de carta.
-    expect(union.has('057/191') && union.has('167/191')).toBe(true);
-    expect(union.size).toBe(2);
+describe('classifyCardProductKind (§4.27d) — heurística de STRING (no de rareza)', () => {
+  it('«Deck Exclusive(s)» ⇒ deck_exclusive', () => {
+    expect(classifyCardProductKind('Voltaic Lightning Energy - Deck Exclusives')).toBe('deck_exclusive');
+    expect(classifyCardProductKind('Charizard ex (Deck Exclusive)')).toBe('deck_exclusive');
+  });
+  it('«Promo»/«Staff»/«League»/«Prerelease»/«Jumbo» ⇒ promo', () => {
+    expect(classifyCardProductKind('Pikachu - Staff Prerelease Promo')).toBe('promo');
+    expect(classifyCardProductKind('Mewtwo League Promo')).toBe('promo');
+    expect(classifyCardProductKind('Jumbo Charizard')).toBe('promo');
+  });
+  it('single de set normal ⇒ set_base; nombre vacío ⇒ other (fail-safe)', () => {
+    expect(classifyCardProductKind('Pikachu ex - 057/191')).toBe('set_base');
+    expect(classifyCardProductKind('')).toBe('other');
+    expect(classifyCardProductKind(null)).toBe('other');
   });
 });
 
-describe('unionStructuralFinishesByCardNumber (§4.24a paso 3) — casos del open-question (S-D1) + estructura≠precio (S-D2)', () => {
-  const products = (fixture('products-structural-sv8.json') as { results: any[] }).results.map(mapProduct);
-  const prices = (fixture('prices-structural-sv8.json') as { results: any[] }).results.map(mapPrice);
-  const union = unionStructuralFinishesByCardNumber(products, prices);
+describe('deriveCardProductsFromTcgcsv (§4.27d) — AGRUPA POR productId contra FIXTURES REALES (Surging Sparks sv8)', () => {
+  it('un CardProduct por productId; Pikachu ex 593245 ⇒ [holofoil] SIN normal fantasma; precio por variante', () => {
+    const products = (fixture('products-23821.json') as { results: any[] }).results.map(mapProduct);
+    const prices = (fixture('prices-23821.json') as { results: any[] }).results.map(mapPrice);
+    const derived = deriveCardProductsFromTcgcsv(products, prices);
+    const byId = new Map(derived.map((d) => [d.productId, d]));
 
-  it('representación A — productIds SEPARADOS por impresión, MISMO número ⇒ se UNEN (025/191 ⇒ [normal, reverse_holo])', () => {
-    expect(union.get('025/191')?.finishes).toEqual(['normal', 'reverse_holo']);
-    expect(union.get('025/191')?.productIds.sort()).toEqual([700001, 700002]);
+    expect(byId.get(593245)?.finishes).toEqual(['holofoil']);
+    expect(byId.get(593245)?.finishes).not.toContain('normal');
+    expect(byId.get(593245)?.kind).toBe('set_base');
+    // Precio por variante leído del marketPrice del producto (ya no se TIRA).
+    expect(byId.get(593245)?.pricesByFinish).toEqual([{ finish: 'holofoil', marketPrice: expect.any(Number) }]);
+    // Alolan Exeggutor ex 593301: solo Reverse Holofoil.
+    expect(byId.get(593301)?.finishes).toEqual(['reverse_holo']);
+  });
+});
+
+describe('deriveCardProductsFromTcgcsv (§4.27d) — el FANTASMA es imposible: 2 productos comparten número', () => {
+  // Caso Pitch Black (§4.27a): la energía especial se vende como DOS productos con el MISMO número:
+  //  - 704841 = producto de set con {Holofoil, Reverse Holofoil}
+  //  - 707029 = «Deck Exclusives non-holo» con {Normal}, precio PROPIO
+  // La unión por NÚMERO (bug viejo) le atribuía un `normal` fantasma a la carta de set (3 casillas).
+  // Con derive-por-productId son DOS CardProduct: la carta de set NO fusiona el `normal` del deck excl.
+  const products: any[] = [
+    { productId: 704841, name: 'Voltaic Lightning Energy - 084/084', number: '084/084' },
+    { productId: 707029, name: 'Voltaic Lightning Energy - Deck Exclusives', number: '084/084' },
+  ];
+  const prices: any[] = [
+    { productId: 704841, subTypeName: 'Holofoil', marketPrice: 0.5 },
+    { productId: 704841, subTypeName: 'Reverse Holofoil', marketPrice: 0.75 },
+    { productId: 707029, subTypeName: 'Normal', marketPrice: 1.25 },
+  ];
+  const derived = deriveCardProductsFromTcgcsv(products, prices);
+  const byId = new Map(derived.map((d) => [d.productId, d]));
+
+  it('el producto de set (704841) ⇒ EXACTAMENTE 2 acabados [holofoil, reverse_holo], NO 3 (sin normal fantasma)', () => {
+    expect(byId.get(704841)?.finishes).toEqual(['reverse_holo', 'holofoil']);
+    expect(byId.get(704841)?.finishes).not.toContain('normal');
+    expect(byId.get(704841)?.kind).toBe('set_base');
   });
 
-  it('estructura ≠ precio: la fila Normal de 025/191 tiene marketPrice:null y AÚN ASÍ aporta el `normal`', () => {
-    // 700001 (Normal) tiene marketPrice:null en la fixture; el union igual incluye `normal`.
-    expect(prices.find((r) => r.productId === 700001)?.marketPrice).toBeNull();
-    expect(union.get('025/191')?.finishes).toContain('normal');
+  it('el Deck Exclusive (707029) es un CardProduct APARTE (kind=deck_exclusive) con SU propio `normal` + precio', () => {
+    expect(byId.get(707029)?.kind).toBe('deck_exclusive');
+    expect(byId.get(707029)?.finishes).toEqual(['normal']);
+    expect(byId.get(707029)?.pricesByFinish).toEqual([{ finish: 'normal', marketPrice: 1.25 }]);
+  });
+});
+
+describe('deriveCardProductsFromTcgcsv (§4.27e) — estructura ≠ precio + anti-invención', () => {
+  it('marketPrice:null declara el acabado (estructura) pero NO produce precio (money-safe)', () => {
+    const products: any[] = [{ productId: 900, name: 'Card - 001/100', number: '001/100' }];
+    const prices: any[] = [{ productId: 900, subTypeName: 'Normal', marketPrice: null }];
+    const derived = deriveCardProductsFromTcgcsv(products, prices);
+    expect(derived[0].finishes).toEqual(['normal']); // el acabado EXISTE (estructura)
+    // pricesByFinish conserva la variante con marketPrice:null (estructura); el RESOLVER es quien NO
+    // escribe PriceReference cuando el precio es null/≤0 (la celda queda «—»/PRICE_PENDING).
+    expect(derived[0].pricesByFinish).toEqual([{ finish: 'normal', marketPrice: null }]);
   });
 
-  it('representación B — VARIAS filas bajo UN productId (030/191) ⇒ se UNEN ([normal, reverse_holo])', () => {
-    expect(union.get('030/191')?.finishes).toEqual(['normal', 'reverse_holo']);
-    expect(union.get('030/191')?.productIds).toEqual([700003]);
-  });
-
-  it('subTypeName DESCONOCIDO se OMITE, los conocidos sobreviven (099/191: Normal + "Poké Ball…" ⇒ [normal])', () => {
-    expect(union.get('099/191')?.finishes).toEqual(['normal']);
-  });
-
-  it('carta con SOLO subTypeName desconocido (100/191) ⇒ NO entra al mapa (nada mapeable que escribir)', () => {
-    expect(union.has('100/191')).toBe(false);
-  });
-
-  it('fila de precio de un producto SELLADO (sin Number, 800001) NO aporta estructura a ninguna carta', () => {
-    // Ninguna entrada del mapa contiene el productId 800001.
-    const anyHas800001 = [...union.values()].some((v) => v.productIds.includes(800001));
-    expect(anyHas800001).toBe(false);
+  it('producto con SOLO subTypeName desconocido ⇒ se OMITE del resultado (nada que colgar)', () => {
+    const products: any[] = [{ productId: 901, name: 'Card - 002/100', number: '002/100' }];
+    const prices: any[] = [{ productId: 901, subTypeName: 'Poké Ball Reverse Holofoil', marketPrice: 3 }];
+    const derived = deriveCardProductsFromTcgcsv(products, prices);
+    expect(derived.find((d) => d.productId === 901)).toBeUndefined();
   });
 });
 

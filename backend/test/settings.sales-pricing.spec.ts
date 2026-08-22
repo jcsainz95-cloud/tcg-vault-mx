@@ -13,12 +13,16 @@ import {
  * v1.13-sales-pricing (§4.14a) — seed y validadores de las reglas de VENTA por rareza.
  */
 describe('sales pricing settings — seed (§4.14a)', () => {
-  it('SALES_PRICE_RULES siembra el ejemplo del humano (Common $5, Uncommon/Holo/Reverse $10 fijos)', () => {
+  it('v1.29 (§4.28d): SALES_PRICE_RULES siembra en DOS EJES (Common/Uncommon por rareza; Holo/Reverse por acabado)', () => {
     expect(SETTING_DEFAULTS[SettingKey.SALES_PRICE_RULES]).toEqual({
-      Common: { mode: 'fixed', value: 500 },
-      Uncommon: { mode: 'fixed', value: 1000 },
-      Holo: { mode: 'fixed', value: 1000 },
-      'Reverse Holo': { mode: 'fixed', value: 1000 },
+      rarityRules: {
+        Common: { mode: 'fixed', value: 500 },
+        Uncommon: { mode: 'fixed', value: 1000 },
+      },
+      finishRules: {
+        holofoil: { mode: 'fixed', value: 1000 },
+        reverse_holo: { mode: 'fixed', value: 1000 },
+      },
     });
   });
 

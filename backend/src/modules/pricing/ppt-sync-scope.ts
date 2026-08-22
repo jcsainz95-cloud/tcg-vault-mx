@@ -1,4 +1,7 @@
 import { CardSet } from '@prisma/client';
+// v1.29 (§4.28e): la ÚNICA definición de «premium» vive en el catálogo canónico. Este módulo DELEGA
+// (se RETIRA `PREMIUM_RARITY_TERMS`, que divergía de la de money.ts). Una sola verdad en el sistema.
+import { isPremiumCanonicalRarity } from '../../common/rarity-catalog';
 
 /**
  * ppt-sync-scope.ts — REGLA DE SCOPE del PO para la ingesta de precios de PokemonPriceTracker
@@ -64,48 +67,19 @@ export function isModernSet(set: Pick<CardSet, 'releaseDate'>): boolean {
  * (InventoryItem activo) entra por esa vía sin importar la rareza; solo se descarta lo que NO
  * tenemos y cuya rareza no reconocemos como premium (no vale el gasto de un crédito a ciegas).
  */
-const PREMIUM_RARITY_TERMS: ReadonlyArray<string> = [
-  'holo', // Rare Holo (premium en eras viejas: Charizard Base) y todo holo EX/GX/V
-  'ultra', // Rare Ultra (Full Art)
-  'secret', // Rare Secret / Gold Secret
-  'rainbow', // Rare Rainbow (Hyper Rare)
-  'gold', // Gold Rare
-  'hyper', // Hyper Rare
-  'illustration', // Illustration Rare / Special Illustration Rare
-  'shiny', // Rare Shiny / Shiny Rare
-  'shining', // Shining (Shining Charizard, etc.)
-  'amazing', // Amazing Rare
-  'radiant', // Radiant Rare
-  'prime', // Rare Prime
-  'break', // Rare BREAK
-  'legend', // LEGEND
-  'lvx', // Lv.X (normalizado)
-  'levelx', // Level X (alias)
-  'prism', // Prism Star
-  'mega', // Mega (M) EX
-];
-
-/** Rarezas explícitamente NO-premium (bulk + rare normal), normalizadas (minúsculas, sin no-alnum). */
-const NON_PREMIUM_RARITIES = new Set<string>(['common', 'uncommon', 'rare', 'rarenormal']);
-
-/** Familia ex/EX/GX/V/VMAX/VSTAR/V-UNION como PALABRA (evita falsos positivos por substring). */
-const PREMIUM_RARITY_WORDS = /\b(ex|gx|v|vmax|vstar|v-?union|v-?max|v-?star)\b/;
-
 /**
- * ¿La rareza es PREMIUM/CHASE (incluible en un set viejo) según el umbral documentado del PO?
- * (Antes se llamaba `isRareRarity` con una deny-list inclusiva; ahora es un allow-list de premium.)
+ * ¿La rareza es PREMIUM/CHASE (incluible en un set viejo) según la ÚNICA definición del sistema?
+ *
+ * v1.29 (§4.28e): DELEGA en `isPremiumCanonicalRarity` (catálogo canónico). Se RETIRAN
+ * `PREMIUM_RARITY_TERMS`/`PREMIUM_RARITY_WORDS` (divergían de money.ts: p. ej. clasificaban «Rare
+ * Holo» como premium mientras money.ts NO). Con TCGCSV gratis como fuente PRIMARIA de singles
+ * (§4.27), racionar la API de paga dejó de ser el driver de este gate — de ahí que una sola verdad
+ * (la del pricing buylist) baste. Consecuencia documentada: algunos holos de set viejo que antes
+ * entraban al scope `partial` por su rareza ahora dependen de tener inventario activo; los cubre el
+ * re-sync TCGCSV por set. Ver BACKEND_NOTES.
  */
 export function isPremiumRarity(rarity: string | null | undefined): boolean {
-  if (rarity == null) return false;
-  const r = rarity.toLowerCase();
-  const norm = r.replace(/[^a-z0-9]/g, '');
-  if (norm === '') return false;
-  // Reverse holo es ACABADO, no tier → nunca incluye por eso (guard defensivo).
-  if (norm.includes('reverse')) return false;
-  // Bulk + rare normal → excluidos.
-  if (NON_PREMIUM_RARITIES.has(norm)) return false;
-  if (PREMIUM_RARITY_TERMS.some((t) => norm.includes(t))) return true;
-  return PREMIUM_RARITY_WORDS.test(r);
+  return isPremiumCanonicalRarity(rarity ?? null);
 }
 
 /**

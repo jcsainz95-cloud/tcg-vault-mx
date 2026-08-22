@@ -2,6 +2,7 @@ import { Finish, VariantPriceOverride } from '@prisma/client';
 import {
   BuylistRule,
   SalesRule,
+  PriceRuleSet,
   computeSalePriceForRarity,
   quoteAcquisitionForFinish,
 } from '../../common/money';
@@ -21,10 +22,10 @@ import {
  * proyecta al DTO del contrato, sin duplicar cuerpos.
  */
 
-/** Contexto de reglas izado UNA vez por request (pago mínimo BE-25). */
+/** Contexto de reglas izado UNA vez por request (pago mínimo BE-25). v1.29: dos ejes (§4.28d). */
 export interface VariantPricingRulesCtx {
-  buy: { rules: Record<string, BuylistRule>; fallbackPct: number };
-  sell: { rules: Record<string, SalesRule>; fallbackPct: number };
+  buy: { rules: PriceRuleSet<BuylistRule>; fallbackPct: number };
+  sell: { rules: PriceRuleSet<SalesRule>; fallbackPct: number };
 }
 
 /** API_CONTRACT §DTOs (v1.28) — VariantPricingDTO. */
