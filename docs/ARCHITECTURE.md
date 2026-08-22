@@ -2,7 +2,38 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.28.1-stream-b-precision (MVP, plataforma en producción). Fecha: 2026-08-21. Stream B «Inventario Master Set» (P-19 + P-18 + P-17 + P-24 + P-25 + P-20 + P-22 de `PENDIENTES.md`).
+> Estado: v1.29-sealed-product-p26 (MVP, plataforma en producción). Fecha: 2026-08-22. Rama `feature/sealed-product-p26` — Sellado como producto de primera clase (PROJECT §L / P-26).
+>
+> **Changelog v1.29-sealed-product-p26 (2026-08-22, rama `feature/sealed-product-p26`) — SELLADO COMO PRODUCTO DE
+> PRIMERA CLASE (PROJECT §L, CA-P26-1..17).** Convierte el sellado de una capa card-first (item sellado anclado a
+> `Card`, nombre heredado, mapeo TCGCSV por pieza, precios atados al ingest de singles) en un **producto propio con
+> catálogo, identidad, job de precios separado y UI de admin**. **NO reabre §K/v1.6** (solo venta, precio derivado
+> por spread, condición propia, destino, portafolio, flags): cambia identidad + catálogo + mecánica de precios, no
+> el modelo de precio ni las reglas comerciales. Spec completa en **§4.27**; migración **M-31** en §11; contrato en
+> API_CONTRACT (Changelog v1.29). Resumen:
+> - **Catálogo propio `SealedProduct`** (tabla nueva, §4.27b): identidad tomada de **TCGCSV** (`tcgplayerProductId`
+>   `@unique`, `tcgplayerGroupId`, `name`, `imageUrl` PROPIOS, `sealedSubtype`, `setId?` best-effort). El operador
+>   **elige de la lista ingerida** (no teclea nombre/imagen). Análogo a `Card` pero para producto cerrado.
+> - **Precio de mercado en tabla propia `SealedPriceReference`** (§4.27d), keyed por `(sealedProductId, capturedDate)`
+>   — SEPARADA de `PriceReference` (singles). El precio de venta se sigue derivando con la pura
+>   `computeSealedSalePrice` (§4.23/§K), ahora alimentada por esta tabla; precedencia intacta
+>   `override (listPriceCents) > mercado×spread(subtype) > mercado×spread(global) > PRICE_PENDING`.
+> - **⭐ Job de precios de sellado SEPARADO y corto** (§4.27e): `POST /admin/sealed/prices/refresh` (super_admin,
+>   bajo demanda), barre solo `DISTINCT SealedProduct.tcgplayerGroupId` (decenas), no toca el price-ingest de
+>   singles, corre en segundos, síncrono/awaited. Fail-closed por el dial `sealed_price_source`; money-safe (sin
+>   precio ⇒ PRICE_PENDING, no publica; nunca borra precios previos ante fallo del remoto).
+> - **Enum `SealedSubtype` += `upc`** (§4.27a): seis definitivos `box (Booster Box) | etb | upc | bundle | tin |
+>   blister`. Semilla de spread **UPC 20%** en `sealed_spread_pct_by_subtype` (resto §K intacto).
+> - **`InventoryItem` rewired** (§4.27c): `cardId` pasa a **nullable**, `sealedProductId String?` FK nueva. Sellado
+>   nuevo = `cardId=null, sealedProductId≠null`; raw/graded = `cardId≠null, sealedProductId=null` (invariante de
+>   aplicación). `InventoryItem.tcgplayerProductId/tcgplayerGroupId/sealedSubtype` quedan **DEPRECADOS** (la
+>   identidad y el mapeo viven en `SealedProduct`); nada nuevo los escribe.
+> - **Empezar limpio** (§4.27g): NO se migra el sellado viejo anclado a cartas; se descarta/recaptura con el modelo
+>   nuevo. Sin backfill de `sealedProductId`. Los `PriceReference` sellados legacy (`sealed:tcg:<id>` sobre un
+>   `cardId`) quedan huérfanos/inertes (informativos, ignorados por los nuevos read-models).
+> - **Módulo propio `sealed`** (§4.27f, stream «Catálogo y precios»): ingesta de catálogo, browse TCGCSV, job de
+>   precios y read-model del catálogo. Admin `/admin/sealed`. La alta/publish de piezas siguen en `inventory`
+>   (stream «Inventario y vault») pero ahora referencian `sealedProductId`.
 >
 > **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin schema, sin
 > endpoints nuevos):** (1) **B-1 resuelto:** §4.26e alineado con §4.26a y BL-1 — `bountyAcquiredQty` cuenta SOLO
@@ -1319,6 +1350,13 @@ Notas de coherencia:
 - **Política de compra NM-only (buylist):** "Solo compramos cartas en Near Mint (NM); si al recibir/verificar no está en NM, no se compra." Copy visible en cotizador, guía de envío y términos (front). Carta recibida no-NM → `rechazada` (no se paga) → devolución 7 días a costo del usuario, abandono a 30 días; **una carta abandonada no-NM NO entra al inventario vendible** (se segrega/descarta). No existe grado distinto de NM que registrar; el "no-NM" es un resultado de verificación que **rechaza** el item, no un valor de `rawCondition`.
 
 ### 3.6 Sellado como línea de venta (productType=sealed)
+
+> ⚠️ **SUPERSEDE parcial por §4.27 (v1.29-sealed-product-p26):** la **identidad** (nombre/imagen propios) y el
+> **catálogo** del sellado dejan de heredarse de un `Card` ancla y pasan a la tabla `SealedProduct` (§4.27b); la
+> **referencia de mercado** pasa de `PriceReference`-por-carta a `SealedPriceReference` (§4.27d); el enum gana `upc`
+> (§4.27a). Las **reglas comerciales de §K/§4.23** (solo venta, precio derivado por spread, condición propia,
+> destino, portafolio, flags) NO cambian. Los párrafos abajo describen el modelo card-first ANTERIOR; para lo nuevo,
+> ver §4.27.
 
 - El sellado es una **línea de venta de primera clase** en Compra, distinta de raw/graded.
 - **Sin `rawCondition`, sin `gradingCompany`/`gradeValue`, sin rareza** (no aplica taxonomía de carta individual). Puede referenciar un `Card`/`CardSet` para nombre/imagen del producto, pero no lleva condición ni rareza.
@@ -4895,6 +4933,266 @@ es la de §4.23 — `(cardId ancla, sealedSubtype, tcgplayerProductId, sealedCon
 
 ---
 
+### 4.27 Sellado como producto de primera clase (P-26, v1.29-sealed-product-p26)
+
+> **Fuente:** PROJECT §L + «Decisiones resueltas — P-26 (v1.7.1)» (CA-P26-1..17). **NO reabre §K/v1.6** (§4.23):
+> solo venta, precio derivado por spread, condición propia (`sealedCondition`), destino recibir/bóveda,
+> valuación/tendencia de portafolio y flags (tendencia/restock) siguen EXACTAMENTE igual. P-26 cambia **identidad +
+> catálogo + mecánica de precios**, no el modelo de precio ni las reglas comerciales.
+>
+> **Problema que cierra (verificado en código v1.28):** hoy un item sellado es `InventoryItem(productType='sealed')`
+> anclado a un `Card` (FK `cardId` NOT NULL); su nombre visible es `Card.name` («[nombre de una carta] · ETB»), su
+> imagen es la de la carta, su subtipo no incluye UPC, su mapeo a TCGCSV (`InventoryItem.tcgplayerProductId`) se
+> cura pieza por pieza sin pantalla propia, y su precio de mercado se refresca dentro del ingest de singles.
+
+#### 4.27a Enum de subtipos — seis definitivos (CA-P26-4/5)
+
+`enum SealedSubtype { box | etb | upc | bundle | tin | blister }` — se **añade `upc`** (Ultra Premium Collection) al
+enum existente `box|etb|bundle|tin|blister`. Migración **aditiva** (agregar valor de enum es seguro con la app
+corriendo). Etiquetas legibles en i18n del front: `box`=«Booster Box», `etb`=«Elite Trainer Box», `upc`=«Ultra
+Premium Collection», `bundle`=«Booster Bundle», `tin`=«Tin», `blister`=«Blister». Premium/Special Collection y
+booster pack suelto quedan **fuera de alcance** (CA-P26-5): el enum NO los contempla ahora.
+
+- **Spread por subtipo (CA-P26-6):** `SEALED_SPREAD_PCT_BY_SUBTYPE` gana la semilla **`upc: 20`**; el resto §K
+  intacto (`box 18 / etb 22 / bundle 25 / tin 30 / blister 35`, fallback global `25`). Se actualiza
+  `SEALED_SUBTYPE_KEYS` (validador `validateSealedSpreads`, `settings.constants.ts`) para incluir `upc`. Sin regla
+  de subtipo ⇒ fallback global (comportamiento §4.23 sin cambios).
+
+#### 4.27b Catálogo propio: `SealedProduct` (tabla nueva) — CA-P26-1/2/3
+
+El sellado gana un **catálogo de primera clase**, análogo a `Card` pero de producto cerrado. Su identidad la
+provee **TCGCSV** (misma fuente que §K); el operador **elige de la lista ingerida** (no teclea nombre/imagen).
+
+```prisma
+model SealedProduct {
+  id                 String        @id @default(uuid())
+  // Identidad TCGCSV = clave natural. @unique: un producto de TCGplayer = una fila de catálogo.
+  tcgplayerProductId Int           @unique
+  // Grupo TCGCSV (≈ set/expansión). REQUERIDO: el fetch de precios de TCGCSV es POR GRUPO (§4.27e).
+  tcgplayerGroupId   Int
+  name               String        // nombre PROPIO del producto (p.ej. "Surging Sparks Elite Trainer Box")
+  cleanName          String?       // `cleanName` de TCGCSV (búsqueda/orden)
+  imageUrl           String?       // imagen PROPIA del producto (remota, TCGCSV/TCGplayer). NO se sube a R2.
+  sealedSubtype      SealedSubtype // AUTORITATIVO del subtipo (ya no se lee de InventoryItem)
+  // Enlace best-effort a nuestro CardSet, para agrupar el catálogo "por set" (§4.27f). Nullable:
+  // un grupo TCGCSV no siempre casa 1:1 con un CardSet local; sin match → null (el catálogo sigue
+  // navegable por grupo/nombre). Resuelto al importar por nombre normalizado del grupo.
+  setId              String?
+  set                CardSet?      @relation(fields: [setId], references: [id])
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  inventoryItems   InventoryItem[]
+  priceReferences  SealedPriceReference[]
+
+  @@index([sealedSubtype])
+  @@index([setId])
+  @@index([tcgplayerGroupId]) // sirve el DISTINCT groupId del job de precios (§4.27e)
+}
+```
+
+- **CA-P26-3 — subtipo desde TCGCSV con confirmación del operador:** al importar, el subtipo se **sugiere** por
+  heurística sobre `name` (`"Elite Trainer Box"→etb`, `"Booster Box"→box`, `"Ultra Premium Collection"→upc`,
+  `"Booster Bundle"→bundle`, `"Tin"→tin`, `"Blister"→blister`) y el operador **confirma/corrige** en el alta
+  (el DTO de import lleva `sealedSubtype` explícito; la heurística solo prellena la UI). Nunca se inventa: si la
+  heurística no reconoce el nombre, el operador debe elegir el subtipo (requerido).
+- **Identidad, no inventario:** `SealedProduct` es catálogo (qué productos existen), NO existencias. Las
+  existencias siguen en `InventoryItem` (una fila por pieza física), ahora ligadas por `sealedProductId`.
+
+#### 4.27c `InventoryItem` rewired — `cardId` nullable + `sealedProductId`
+
+```prisma
+model InventoryItem {
+  // ...
+  cardId          String?        // ⚠️ AHORA NULLABLE (era NOT NULL). Sealed nuevo → null.
+  card            Card?          @relation(fields: [cardId], references: [id])
+  sealedProductId String?        // FK NUEVA → SealedProduct. Sealed nuevo → poblado.
+  sealedProduct   SealedProduct? @relation(fields: [sealedProductId], references: [id])
+  // ...
+}
+```
+
+- **Invariante de aplicación (no constraint de BD, patrón del proyecto):**
+  - `productType='sealed'` ⇒ `sealedProductId != null` **y** `cardId == null`.
+  - `productType ∈ {raw, graded}` ⇒ `cardId != null` **y** `sealedProductId == null`.
+  El backend valida esto en `validateProductShape` (alta) y lo asume en los read-models.
+- **Blast radius de `cardId` nullable (⚠️ el punto delicado):** hoy múltiples call-sites hacen
+  `include: { card: ... }` y leen `item.card.name`/`item.card.imageSmallUrl` asumiendo no-null. Con sellado
+  first-class, para una pieza sellada `item.card` será `null` y el nombre/imagen salen de `item.sealedProduct`.
+  Backend debe auditar y ramificar por `productType` en: `catalog.toListingDTO`, `orders`/`OrderItem.cardSnapshot`,
+  `vault` (holdings + pestaña sellado), `sealed-catalog.service` (grid público), `sealed-graded.service` (pestaña
+  admin), `portfolio-snapshot`. Regla única: **para sellado el nombre/imagen SIEMPRE vienen de `SealedProduct`;
+  para raw/graded, de `Card`** (sin cambios). Este es el mayor trabajo de la feature — ver reparto §4.27h.
+- **Columnas DEPRECADAS en `InventoryItem` (se conservan, nada nuevo las escribe):**
+  - `tcgplayerProductId` / `tcgplayerGroupId` — el mapeo a TCGCSV vive ahora en `SealedProduct`. Legacy.
+  - `sealedSubtype` — la fuente autoritativa pasa a `SealedProduct.sealedSubtype`. Legacy (los read-models leen del
+    producto). Se mantiene la columna para filas viejas hasta su retiro.
+  - `sealedCondition` **NO** se deprecia: es condición POR PIEZA (§K, §4.23i), sigue en `InventoryItem`.
+
+#### 4.27d Precio de mercado: `SealedPriceReference` (tabla propia) — money-safe
+
+El mercado del sellado deja de escribirse en `PriceReference` (keyed por `cardId`, ya sin sentido sin ancla) y pasa
+a una tabla dedicada, alineada a `SealedProduct`:
+
+```prisma
+model SealedPriceReference {
+  id               String        @id @default(uuid())
+  sealedProductId  String
+  sealedProduct    SealedProduct @relation(fields: [sealedProductId], references: [id], onDelete: Cascade)
+  source           PriceSource   // 'tcgcsv' (job) | 'manual' (override de MERCADO del admin, informativo)
+  priceUsdCents    Int?
+  fxRate           Decimal?      @db.Decimal(12, 6)
+  fxBufferPct      Decimal?      @db.Decimal(6, 3)
+  priceMxnCents    Int
+  capturedDate     DateTime      @db.Date
+  isManualOverride Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+
+  @@unique([sealedProductId, capturedDate])
+  @@index([sealedProductId])
+}
+```
+
+- **Por qué tabla propia y no reusar `PriceReference`:** (1) `PriceReference.cardId` es FK NOT NULL a `Card`; el
+  sellado first-class no tiene carta. (2) Aísla el sellado de la tabla enorme de singles (millones de filas) — el
+  job separado (§4.27e) escribe decenas de filas sin tocar la ruta caliente de singles. (3) La serie diaria por
+  `capturedDate` alimenta la tendencia de sellado (§4.23, flag) directamente por `sealedProductId`.
+- **Precio de VENTA — precedencia §K INTACTA:** se sigue derivando con la pura `computeSealedSalePrice`, ahora
+  alimentada por `SealedPriceReference` en vez de por `PriceReference`-por-carta:
+  `override manual (InventoryItem.listPriceCents, > 0) > mercado×spread(sealedProduct.sealedSubtype) >
+  mercado×spread(global) > sin mercado y sin override ⇒ PRICE_PENDING (no publica)`.
+  El resolver único (`resolveSealedSalePrice`, §4.23d/H-1) recibe `{ listPriceCents, sealedSubtype }` donde
+  `sealedSubtype` ahora sale de `SealedProduct`, y el `marketMxnCents` gateado por el dial sale de
+  `SealedPriceReference`. **SEC-A1:** todo server-side; nada del DTO del cliente entra al precio.
+- **Gate por dial `sealed_price_source` (§4.23a) sin cambios:** con `off`, el mercado queda INERTE (aunque haya
+  filas en `SealedPriceReference`) y el precio de venta solo puede venir del override manual — igual que hoy.
+
+#### 4.27e ⭐ Job de precios de sellado SEPARADO y corto (CA-P26-7/8/9/10)
+
+Endpoint `POST /api/v1/admin/sealed/prices/refresh` (`super_admin`), **bajo demanda**, síncrono y awaited:
+
+1. Lee el dial `sealed_price_source` **fail-closed**. Si `off` ⇒ responde `{ enabled:false, ... }` y **no hace
+   nada** (money-safe; no borra ni escribe precios).
+2. Carga el **FX snapshot UNA vez** por corrida (§4.15f).
+3. `SELECT DISTINCT tcgplayerGroupId FROM SealedProduct` (decenas de grupos, no miles de cartas). **No** barre
+   `Card`/singles; **no** dispara `PriceIngestService`.
+4. Por grupo: reusa el provider existente `TcgcsvSealedBulkProvider.fetchSealedPricesForGroup(groupId)` (host fijo
+   anti-SSRF, categoría Pokémon=3, money-safe: ante fallo devuelve lo acumulado, nunca lanza). Indexa por
+   `productId`.
+5. Por cada `SealedProduct` del grupo con fila remota: `upsert SealedPriceReference` (respeta `isManualOverride`:
+   no clobbea el override de MERCADO del admin). Sin fila remota ⇒ el producto queda sin mercado hoy (stale/null,
+   inocuo; cuenta como PRICE_PENDING si tampoco hay override).
+6. Devuelve resumen `{ enabled, groups, priced, unmatched, usedFallbackMid, skipped, pricePendingCount,
+   durationMs, refreshedAt }` (CA-P26-10: precio y `updatedAt` visibles por producto vía `GET /admin/sealed/catalog`).
+
+- **Objetivo de tiempo (CA-P26-8):** universo del MVP = decenas de productos ⇒ del orden de **segundos a pocos
+  minutos**. Como es awaited, si crece el universo se puede mover a job en background sin cambiar contrato (mejora
+  futura). **Corrida programada propia = mejora futura** (CA-P26-9), no requerida; el existente job diario se
+  rewirea para iterar `SealedProduct` (opcional) o se deja apagado.
+- **Reemplaza** el algoritmo de `SealedPriceIngestService` (que iteraba `InventoryItem.tcgplayerGroupId` y escribía
+  `PriceReference` por `cardId`): ahora itera `SealedProduct` y escribe `SealedPriceReference`. El provider TCGCSV
+  y su seguridad se reusan sin cambios.
+
+#### 4.27f Módulo propio `sealed` + admin `/admin/sealed` (CA-P26-2/11/12/13/14/15/16/17)
+
+Nuevo módulo backend **`backend/src/modules/sealed/`** (stream «Catálogo y precios»), dueño del catálogo de sellado:
+
+- **Ingesta de catálogo (browse + import):**
+  - `GET /admin/sealed/tcgcsv/groups` y `GET /admin/sealed/tcgcsv/groups/:groupId/products` — **proxy read-only**
+    server-side (reusa `TcgcsvSealedBulkProvider.listGroups/listSealedProducts`; el navegador nunca habla con
+    tcgcsv.com). Mismo patrón que el explorador §4.19/§M2 actual.
+  - `POST /admin/sealed/catalog/import` — el operador selecciona productos de la lista y crea `SealedProduct`
+    (upsert por `tcgplayerProductId`): copia `name`/`cleanName`/`imageUrl` de TCGCSV, fija `tcgplayerGroupId`,
+    `sealedSubtype` (confirmado por el operador, §4.27b) y resuelve `setId?` best-effort. **No** hay captura manual
+    de nombre/imagen (CA-P26-2).
+- **Read-model del catálogo:**
+  - `GET /admin/sealed/catalog` — lista los `SealedProduct` con su **precio de mercado actual** (última
+    `SealedPriceReference`), `updatedAt`, subtipo, set y un flag `pricePending` (sin mercado y sin override en
+    inventario) — CA-P26-10/16. Agrupado por set (análogo al master set, decisión del humano).
+  - `PATCH /admin/sealed/catalog/:id` — corrige `sealedSubtype`, `setId` o re-vincula el `imageUrl`/producto
+    TCGCSV (la «pantalla de mapeo» CA-P26-15, que ya no se teclea a mano pero se puede ver/corregir).
+  - `DELETE /admin/sealed/catalog/:id` — retira una entrada del catálogo solo si no hay `InventoryItem` que la
+    referencie (si hay, 409 `SEALED_PRODUCT_IN_USE`).
+- **Refresco de precios:** `POST /admin/sealed/prices/refresh` (§4.27e) — el botón «actualizar precios de sellado»
+  del admin (CA-P26-14: operable desde UI, no solo API).
+- **Override manual de mercado (CA-P26-17):** `PUT /admin/sealed/catalog/:id/market-override` fija una
+  `SealedPriceReference(source='manual', isManualOverride=true)` del día — informativa, máxima precedencia sobre el
+  mercado TCGCSV. El override de **venta** por pieza sigue siendo `InventoryItem.listPriceCents` (§K, máxima
+  precedencia global). Ambos coexisten con la semántica de §4.27d.
+- **Alta/publish de piezas (siguen en `inventory`, stream «Inventario y vault»):**
+  - `POST /admin/inventory/items` (+ `/batch`) para sellado: `{ productType:'sealed', sealedProductId,
+    sealedCondition, acquisitionType∈{aportacion_en_especie, compra}, ... }` — **sin `cardId`, sin nombre/imagen**
+    (CA-P26-11/13). Origen **nunca `client_purchase`** (no hay buylist de sellado, §K). Costo de aportación:
+    `referencia (SealedPriceReference) × % vigente`; aprovisionamiento: costo real capturado.
+  - `POST /admin/inventory/publish-all { productType:'sealed', setId? }` (P-19): publica todo lo `in_stock` con
+    precio resuelto (override o mercado×spread); los `PRICE_PENDING` **no** se publican (CA-P26-12/16).
+- **Frontend admin:** `frontend/src/app/[locale]/(admin)/sealed/` — catálogo propio (no una pestaña colgada del
+  inventario de cartas, decisión del humano): browse/import desde TCGCSV, lista de catálogo por set con precio +
+  `updatedAt` + botón refrescar precios, corrección de subtipo/mapeo/override. La pestaña «Sellado» de M1 por set
+  (§4.26g) se conserva para existencias; el **catálogo** es la superficie nueva de `/admin/sealed`.
+
+#### 4.27g Empezar limpio + deprecación (CA-P26 «fuera de alcance»)
+
+- **No hay migración de datos del sellado viejo.** El sellado viejo (items con `cardId` + `productType='sealed'`)
+  se **descarta o recaptura** contra `SealedProduct`. La migración M-31 solo redefine esquema; **no** backfillea
+  `sealedProductId` ni convierte filas.
+- **`PriceReference` sellados legacy** (`gradeKey='sealed:tcg:<id>'` o `'sealed'` sobre un `cardId`) quedan
+  huérfanos/inertes: informativos, ignorados por los nuevos read-models (que leen `SealedPriceReference`). No se
+  borran (money-safe: no tocar dinero histórico).
+- **`sealedMarketGradeKey` / `persistSealedMarketReference` / `SealedMappingService`** (curación por pieza) quedan
+  **DEPRECADOS**: reemplazados por `SealedPriceReference` + el catálogo de `SealedProduct`. Se retiran cuando el
+  frontend nuevo esté en producción (no se borran en el mismo PR para no romper el read-model viejo durante la
+  transición). Anotar en `docs/TECH_DEBT.md` la limpieza pendiente.
+- **`SealedRestockSubscription`** (flag off) gana `sealedProductId String?` y su `cardId` pasa a nullable; el
+  emparejamiento restock se rehace por `sealedProductId` (mejora futura; el flag sigue off, cambio mínimo de
+  esquema para no dejar el modelo inconsistente).
+
+#### 4.27h Reparto de trabajo, zonas compartidas y locks
+
+| Frente | Dueño | Rutas | Depende de |
+|---|---|---|---|
+| **Schema M-31** (SealedProduct, SealedPriceReference, enum `+upc`, `InventoryItem.cardId?`+`sealedProductId`, restock) | backend (bajo lock del arquitecto) | `backend/prisma/schema.prisma` (**ZONA COMPARTIDA — lock exclusivo de este stream durante la ventana**) | — (arranca primero) |
+| **Módulo `sealed`** (catálogo: ingest, browse, read-model, price-refresh, override mercado) | backend | `backend/src/modules/sealed/**` (nuevo) | M-31 |
+| **Job de precios sellado** (§4.27e) | backend | `backend/src/modules/sealed/**`, `backend/src/jobs/**` | M-31, provider TCGCSV existente |
+| **Rewire read-models** (cardId nullable: catalog listing, orders snapshot, vault, portfolio, sealed-graded) | backend | `catalog/`, `orders/`, `vault/`, `inventory/sealed-graded.service.ts` | M-31 |
+| **Alta/publish de piezas sellado** | backend | `inventory/` | M-31, módulo `sealed` |
+| **Settings** (`upc` spread seed + `SEALED_SUBTYPE_KEYS`) | backend | `backend/src/modules/settings/` (**ZONA COMPARTIDA**) | — |
+| **Contrato** (§4.27 endpoints + DTOs + enum) | arquitecto (este doc) | `docs/API_CONTRACT.md` (**ZONA COMPARTIDA**) | — |
+| **Admin `/admin/sealed`** (catálogo, import, refresco, corrección) | frontend | `frontend/src/app/[locale]/(admin)/sealed/**`, `frontend/src/lib/`, `frontend/src/hooks/` | contrato |
+| **Storefront sellado** (grid/ficha con identidad propia) | frontend | `frontend/src/app/[locale]/(storefront)/**` | contrato |
+| **E2E** | backend (integración) + frontend (Playwright) | `backend/test/`, `frontend/e2e/` | todo |
+| **CI / seed / env** | devops | `scripts/`, `docker-compose*`, `.github/workflows/` | — |
+
+**Zonas compartidas y su lock (aprendizaje de la fricción histórica):**
+- `backend/prisma/schema.prisma`, `backend/src/common/` (`money.ts`, error-codes), `backend/src/modules/settings/`
+  y `docs/API_CONTRACT.md` son **zonas compartidas**: durante esta ventana **solo este stream** las toca. El
+  orquestador serializa M-31 frente a cualquier otro stream (regla de oro CLAUDE.md). Cualquier cambio adicional de
+  contrato o schema pasa por el **arquitecto** antes (regla 9).
+- `common/money.ts`: `computeSealedSalePrice` **no cambia de firma**; solo cambia quién la alimenta (mercado desde
+  `SealedPriceReference`). Si hiciera falta tocarla, pasa por el arquitecto.
+- `common/error-codes.ts`: añadir `SEALED_PRODUCT_IN_USE` (409), `SEALED_PRODUCT_NOT_FOUND` (404) y confirmar
+  `UPSTREAM_ERROR` (502, hoy casteado en el controller §4.19). Es zona compartida: backend lo hace en el mismo PR.
+
+#### 4.27i Orden interno sugerido de implementación
+
+1. **M-31 (schema)** primero, bajo lock: enum `+upc`, `SealedProduct`, `SealedPriceReference`,
+   `InventoryItem.cardId?`+`sealedProductId`, restock `sealedProductId?`. `prisma migrate` + regenerar cliente.
+2. **Settings**: semilla `upc:20` + `SEALED_SUBTYPE_KEYS += upc` (aditivo, no rompe nada).
+3. **Módulo `sealed` — catálogo**: browse TCGCSV (reusa provider) + `import` (crea `SealedProduct`) + read-model
+   `GET /admin/sealed/catalog`. Sin precios aún.
+4. **Job de precios** (§4.27e): `SealedPriceReference` upsert + `POST /admin/sealed/prices/refresh`. Money-safe y
+   fail-closed. Aquí ya se ve precio de mercado en el catálogo.
+5. **Rewire read-models** (cardId nullable): ramificar por `productType` para leer identidad de `SealedProduct` en
+   catalog listing, storefront sellado, orders snapshot, vault, portfolio, sealed-graded. Guardarraíl: tests que
+   prueben `item.card == null` para sellado.
+6. **Alta/publish de piezas** con `sealedProductId` (inventory) + override de venta por pieza + publish-all sellado.
+7. **Override de mercado** (`market-override`) + corrección de catálogo (`PATCH`).
+8. **Frontend** admin `/admin/sealed` y storefront, en paralelo desde el paso 3 (contra el contrato).
+9. **E2E**: alta sellado desde catálogo → refrescar precios → publicar → aparece en Compra con nombre/imagen
+   propios; PRICE_PENDING no se publica; dial `off` no mueve precios.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -5476,6 +5774,28 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.29-sealed-product-p26 (nueva — M-31: sellado como producto de primera clase)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-31** frente a cualquier otro stream que
+toque el schema. **Proyecto greenfield sin backfill**; el sellado viejo se descarta/recaptura (§4.27g), NO se migra.
+La única parte NO puramente aditiva es `InventoryItem.cardId` → nullable (ver nota). Spec en §4.27.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-31 | `enum SealedSubtype` | `+ upc` | Alter enum (add value) | Seguro con la app corriendo. Seis definitivos `box\|etb\|upc\|bundle\|tin\|blister` (§4.27a). |
+| M-31 | `model SealedProduct` | Tabla nueva | Create table | `id`, `tcgplayerProductId Int @unique`, `tcgplayerGroupId Int`, `name`, `cleanName?`, `imageUrl?`, `sealedSubtype SealedSubtype`, `setId? String` (FK `CardSet`, nullable best-effort), `createdAt`, `updatedAt`. Índices `@@index([sealedSubtype])`, `@@index([setId])`, `@@index([tcgplayerGroupId])`. Relaciones inversas `inventoryItems`, `priceReferences`. |
+| M-31 | `model SealedPriceReference` | Tabla nueva | Create table | `id`, `sealedProductId` (FK, `onDelete: Cascade`), `source PriceSource`, `priceUsdCents?`, `fxRate? Decimal(12,6)`, `fxBufferPct? Decimal(6,3)`, `priceMxnCents Int`, `capturedDate Date`, `isManualOverride Boolean @default(false)`, `createdAt`. `@@unique([sealedProductId, capturedDate])`, `@@index([sealedProductId])`. |
+| M-31 | `InventoryItem.cardId` | `String` → `String?` (nullable) + relación opcional | Alter column (drop NOT NULL) | ⚠️ Sellado first-class no tiene ancla de carta. Invariante de aplicación (§4.27c): sealed ⇒ `cardId=null`; raw/graded ⇒ `cardId≠null`. Sin backfill (greenfield). |
+| M-31 | `InventoryItem.sealedProductId` | Columna + FK nuevas | Alter table (add column) | `sealedProductId String?` FK → `SealedProduct`. Aditiva. |
+| M-31 | `CardSet.sealedProducts` | Relación inversa nueva | (misma migración) | Solo navegación Prisma; sin columna física en `CardSet`. |
+| M-31 | `SealedRestockSubscription.sealedProductId` / `.cardId` | `+ sealedProductId String?`; `cardId` → nullable | Alter table | Flag off; re-key del restock a producto (§4.27g). Cambio mínimo para consistencia. |
+
+> **DEPRECADO por M-31 (se conserva, nada nuevo lo escribe):** `InventoryItem.tcgplayerProductId`,
+> `InventoryItem.tcgplayerGroupId` (el mapeo TCGCSV vive en `SealedProduct`) y `InventoryItem.sealedSubtype` (la
+> fuente autoritativa es `SealedProduct.sealedSubtype`). `sealedCondition` **NO** se deprecia (condición por pieza,
+> §K). Los `PriceReference` sellados legacy quedan inertes (no se borran). Limpieza del código muerto
+> (`SealedMappingService`, `sealedMarketGradeKey`, `persistSealedMarketReference`) va a `docs/TECH_DEBT.md`.
 
 ### v1.28-stream-b-inventario-master-set (nueva — M-30: overrides y bounty por carta+variante)
 

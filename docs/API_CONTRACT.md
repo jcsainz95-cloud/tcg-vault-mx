@@ -2,7 +2,31 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-21 (rev v1.28.1-stream-b-precision).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.29-sealed-product-p26).
+>
+> **Changelog v1.29-sealed-product-p26 (2026-08-22, rama `feature/sealed-product-p26`) — SELLADO COMO PRODUCTO DE
+> PRIMERA CLASE (PROJECT §L / CA-P26-1..17; ARCHITECTURE §4.27).** El sellado gana catálogo propio, identidad
+> (nombre/imagen desde TCGCSV), job de precios separado y UI de admin. **NO reabre §K/v1.6** (solo venta, spread,
+> condición, destino, portafolio, flags). Cambios de contrato:
+> - **Enum `SealedSubtype` += `upc`** (seis definitivos). `SealedProduct.sealedSubtype` es la fuente autoritativa.
+> - **NUEVA §M-Sealed (`/admin/sealed`, super_admin salvo lo indicado):** catálogo propio de sellado —
+>   `GET /admin/sealed/tcgcsv/groups` y `.../groups/:groupId/products` (explorador proxy read-only, host fijo
+>   anti-SSRF); `POST /admin/sealed/catalog/import` (crea `SealedProduct` desde TCGCSV; sin captura manual de
+>   nombre/imagen); `GET /admin/sealed/catalog` (lista con precio de mercado + `updatedAt` + `pricePending`);
+>   `PATCH /admin/sealed/catalog/:id` (corrige subtipo/set/vínculo — «pantalla de mapeo» CA-P26-15);
+>   `DELETE /admin/sealed/catalog/:id`; `PUT /admin/sealed/catalog/:id/market-override` (override de MERCADO,
+>   informativo); **⭐ `POST /admin/sealed/prices/refresh`** (job de precios SEPARADO, bajo demanda, decenas de
+>   productos, segundos; fail-closed por dial `sealed_price_source`; money-safe).
+> - **§M1 alta/publish de sellado (aditivo):** `POST /admin/inventory/items` (+ `/batch`) para `productType='sealed'`
+>   toma **`sealedProductId`** (NO `cardId`, NO nombre/imagen); origen ∈ {`aportacion_en_especie`,`compra`}, nunca
+>   `client_purchase`. `POST /admin/inventory/publish-all {productType:'sealed', setId?}` publica lo que tiene precio
+>   resuelto; PRICE_PENDING no se publica.
+> - **DTOs nuevos:** `TcgcsvGroupRefDTO`, `TcgcsvProductRefDTO`, `SealedProductDTO`, `SealedProductImportDTO`,
+>   `SealedPriceRefreshResultDTO`. **Los DTOs públicos de sellado** (`SealedGroupDTO`/ficha, `vault/sealed`) toman
+>   `productName`/`imageUrl` de `SealedProduct` (ya no de `Card`).
+> - **Errores nuevos:** `404 SEALED_PRODUCT_NOT_FOUND`, `409 SEALED_PRODUCT_IN_USE`; se ratifica `502 UPSTREAM_ERROR`.
+> - **DEPRECADO:** §M2 curación por pieza `/admin/pricing/sealed/*` (`unmapped`, `items/:id/mapping`) queda superseded
+>   por §M-Sealed; se conserva durante la transición y se retira cuando el frontend nuevo esté en producción.
 >
 > **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin endpoints
 > nuevos):** (1) **§M2 `variant-controls` / conteo de bounty:** `bountyAcquiredQty` cuenta SOLO ítems
@@ -932,6 +956,14 @@
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **`422 ITEM_NOT_PUBLISHABLE` (v1.16.1):** en `POST /admin/inventory/items/bulk-publish`, la pieza está en un status de origen **no publicable**. Solo `{in_stock, listed}` son publicables (`in_stock` → publica; `listed` → no-op idempotente). Cualquier otro (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`) → **`ITEM_NOT_PUBLISHABLE`** por-línea. **Guardarraíl anti double-sell:** una pieza reservada/vendida/en-custodia/enviada no puede re-listarse. Distinto de `PRICE_PENDING` (precio no resuelto). Ver §M1 y ARCHITECTURE §4.17b.
+- **`404 SEALED_PRODUCT_NOT_FOUND` (v1.29 / P-26):** el `:id` de `SealedProduct` no existe (`PATCH`/`DELETE`/
+  `market-override` de §M-Sealed, o `sealedProductId` inexistente en el alta de una pieza sellada). Ver §M-Sealed.
+- **`409 SEALED_PRODUCT_IN_USE` (v1.29 / P-26):** `DELETE /admin/sealed/catalog/:id` sobre un `SealedProduct` que
+  aún tiene `InventoryItem` que lo referencian. Guardarraíl: primero recapturar/retirar esas piezas. Ver §M-Sealed.
+- **`502 UPSTREAM_ERROR` (v1.19; ratificado v1.29):** el explorador TCGCSV (proxy read-only §M-Sealed / §M2) no
+  obtiene respuesta válida del remoto (host fijo `https://tcgcsv.com`). No afecta nada local; se reintenta. El job
+  de precios (`POST /admin/sealed/prices/refresh`) **no** propaga este error (money-safe: devuelve el resumen con lo
+  que sí bajó y no borra precios previos).
 - **`422 ITEM_NOT_IN_CUSTODY` (v1.17.1):** en `POST /shipments`, se intenta retirar un item cuyo `status` **no es `in_custody`** — típicamente ya `withdrawn` (retiro entregado, terminal), o cualquier otro estado no custodiable. **Guardarraíl anti doble-retiro/doble-cobro:** un item ya entregado (`withdrawn`) **NO** es re-elegible para un nuevo retiro aunque conserve `ownershipStatus='settled'` (histórico). Comparte criterio con el flag de lectura `HoldingDTO.withdrawable` (§3): read y write usan la **misma** regla de elegibilidad. Distinto de `422 ITEM_NOT_SETTLED` (aún `pending`, no liquidado) y de `409 ITEM_IN_ANOTHER_SHIPMENT` (ya tiene envío activo). Ver §5 y ARCHITECTURE §3.3.
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
@@ -948,7 +980,7 @@ Locale              = es | en
 ProductType         = graded | sealed | raw
 RawCondition        = NM                                 // v1.1: ÚNICO valor (se eliminan LP|MP|HP|DMG). Migración.
 Finish              = normal | reverse_holo | holofoil | first_edition_holofoil // v1.6-finish: acabado/versión de carta (mapeo de tcgplayer.prices, ARCHITECTURE §3.7). graded/sealed = normal.
-SealedSubtype       = box | etb | bundle | tin | blister // v1.1: subtipo opcional del sellado
+SealedSubtype       = box | etb | upc | bundle | tin | blister // v1.29 (P-26): +upc. Seis definitivos. box="Booster Box", etb="Elite Trainer Box", upc="Ultra Premium Collection", bundle="Booster Bundle", tin, blister. AUTORITATIVO en SealedProduct.sealedSubtype (§M-Sealed).
 AuthProvider        = local | google                     // v1.1: proveedor de autenticación del User
 AuthTokenType       = email_verification | password_reset // v1.5: token de un solo uso (hash en BD); verificación 24h, reset 1h
 GradingCompany      = PSA | CGC
@@ -1347,6 +1379,36 @@ VaultSealedResponse = { data: VaultSealedGroupDTO[], totalValueMxnCents: number,
 // mercado por presentación; `fallbackPct` = spread global de respaldo (sin subtype o subtype sin regla). Semántica de
 // pct = markup sobre mercado (como ventas §4.14, NO "% de la referencia" del buylist). Rango [0, 1000].
 SealedSpreadsDTO = { spreadPctBySubtype: { [subtype in SealedSubtype]?: number }, fallbackPct: number }
+// ===== v1.29 (P-26): sellado como producto de primera clase (ARCHITECTURE §4.27) =====
+// SUPERSEDE parcial de los DTOs de arriba: para producto sellado, `productName`/`imageUrl` salen ahora de
+// SealedProduct (no de Card). `card` deja de ser obligatorio en las tarjetas de sellado (para piezas nuevas
+// item.card == null). Se conservan las claves `productName`/`imageUrl` (mismo shape observable para el front);
+// SealedGroupDTO.card / VaultSealedGroupDTO.card pasan a OPCIONALES (presentes solo para sellado legacy anclado
+// a carta). `sealedSubtype` viene de SealedProduct.sealedSubtype.
+SealedGroupDTO       += { card?: CardDTO, sealedProductId?: string }   // card ahora opcional; +sealedProductId
+VaultSealedGroupDTO  += { card?: CardDTO, sealedProductId?: string }
+// Explorador TCGCSV (proxy read-only server-side). GET /admin/sealed/tcgcsv/groups[?q=] y .../:groupId/products[?q=].
+TcgcsvGroupRefDTO    = { groupId: number, name: string, abbreviation?: string, publishedOn?: string }
+TcgcsvProductRefDTO  = { productId: number, name: string, cleanName?: string, imageUrl?: string,
+                         suggestedSubtype: SealedSubtype | null }  // subtipo sugerido por heurística sobre `name` (§4.27b); null si no reconocido
+// Entrada de import (POST /admin/sealed/catalog/import). El operador confirma `sealedSubtype` (requerido; la
+// heurística solo prellena). `setId?` best-effort. Upsert por tcgplayerProductId (idempotente).
+SealedProductImportDTO = { tcgplayerProductId: number, tcgplayerGroupId: number, sealedSubtype: SealedSubtype,
+                           name: string, cleanName?: string, imageUrl?: string, setId?: string }
+// Fila del catálogo propio (GET /admin/sealed/catalog + respuesta de import/patch). `marketMxnCents`/`marketSource`/
+// `capturedDate` = última SealedPriceReference (null si sin mercado). `pricePending` = sin mercado (dial off o sin
+// ingest) y sin override de venta en inventario ⇒ NO publicable (CA-P26-16). `inStockCount`/`listedCount` = piezas.
+SealedProductDTO     = { id: string, tcgplayerProductId: number, tcgplayerGroupId: number, name: string,
+                         cleanName: string | null, imageUrl: string | null, sealedSubtype: SealedSubtype,
+                         set: SetRefDTO | null, marketMxnCents: number | null, marketSource: PriceSource | null,
+                         capturedDate: string | null, pricePending: boolean, inStockCount: number,
+                         listedCount: number, updatedAt: string, currency: "MXN" }
+SealedProductListResponse = { data: SealedProductDTO[], page: number, pageSize: number, total: number,
+                              pricePendingTotal: number }  // pricePendingTotal = badge de catálogo sin precio
+// Resultado del ⭐ job de precios de sellado (POST /admin/sealed/prices/refresh). `enabled=false` ⇒ dial off, no-op.
+SealedPriceRefreshResultDTO = { enabled: boolean, groups: number, priced: number, unmatched: number,
+                                usedFallbackMid: number, skipped: number, pricePendingCount: number,
+                                durationMs: number, refreshedAt: string }
 ```
 
 ---
@@ -2842,7 +2904,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 ### M1 — Inventario y bóveda (`vault_operator+`)
 - `POST /api/v1/admin/inventory/items` — alta de item.
-  Req: `{ cardId, productType, rawCondition?, finish?, sealedSubtype?, sealedCondition?, gradingCompany?, gradeValue?, certNumber?, locationId?, acquisitionType, acquisitionPct?, acquisitionCostCents?, listPriceCents?, sourceSellRequestItemId? }`
+  Req: `{ cardId?, sealedProductId?, productType, rawCondition?, finish?, sealedSubtype?, sealedCondition?, gradingCompany?, gradeValue?, certNumber?, locationId?, acquisitionType, acquisitionPct?, acquisitionCostCents?, listPriceCents?, sourceSellRequestItemId? }`
+  - **v1.29 (P-26) — sellado first-class:** para `productType='sealed'` el alta toma **`sealedProductId`** (del
+    catálogo §M-Sealed) y **NO** `cardId` (nombre/imagen salen de `SealedProduct`, no se teclean). Invariante:
+    sealed ⇒ `sealedProductId` presente y `cardId` ausente (`422 VALIDATION_ERROR` si se invierte); raw/graded ⇒
+    `cardId` presente y `sealedProductId` ausente. `sealedSubtype` del item queda **DEPRECADO** (la fuente es
+    `SealedProduct.sealedSubtype`); si se envía, se ignora. Origen ∈ {`aportacion_en_especie`, `compra`} —
+    **nunca `client_purchase`** (no hay buylist de sellado). Costo de aportación = `referencia
+    (SealedPriceReference) × pct`.
   - **`locationId?` OPCIONAL (v1.28/P-19 — alineación de contrato; el DTO backend ya lo trataba opcional):** una
     pieza puede nacer **sin ubicación** (la bóveda física la definirá el humano después, nota P-17). Aplica igual
     a `items/batch` y a `adjustments(encontrada)`. **`acquisitionCostCents?`** (ya existente en el DTO, ahora
@@ -3300,7 +3369,11 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
   > **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (**no persistido**). Si el proceso se **reinicia** a mitad del barrido, el estado se **pierde** (vuelve a `running:false`, `jobId:null`) y hay que **re-llamar** `sync-all`. Ligado al cableado pendiente de BullMQ — ver Desviación **DEV-1** en ARCHITECTURE §9.
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 
-#### Referencia de mercado del SELLADO vía TCGCSV (v1.19-sealed-tcgcsv — NUEVO, `super_admin`)
+#### Referencia de mercado del SELLADO vía TCGCSV (v1.19-sealed-tcgcsv — `super_admin`)
+> ⚠️ **DEPRECADO por §M-Sealed (v1.29 / P-26):** esta familia curaba el mapeo **por pieza** (`InventoryItem.tcgplayerProductId`)
+> del modelo card-first. Con el catálogo propio `SealedProduct` (§M-Sealed), la identidad y el mapeo a TCGCSV son
+> **intrínsecos al catálogo** (no se curan por pieza). Se **conserva durante la transición** y se retira cuando el
+> frontend nuevo (`/admin/sealed`) esté en producción. Endpoints nuevos: ver **§M-Sealed** abajo.
 > El sellado se sigue **vendiendo** con precio manual en MXN (PROJECT 3e, sin cambio). Esta familia da al admin un
 > **valor de referencia informativo** desde **TCGCSV** (espejo diario de precios de TCGplayer, host fijo
 > `https://tcgcsv.com`, sin API key) y la **curación manual** del mapeo item sellado ↔ `productId` de TCGplayer.
@@ -3333,6 +3406,71 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     valores no enteros/negativos). **Auditado** (`AuditLog action=pricing.sealed_mapping.update`, con `before`/`after`).
   - **No** valida contra TCGCSV en el request (la curación debe funcionar sin red al remoto); un `productId` erróneo
     simplemente no matchea filas en el siguiente ingest (referencia queda `null`/stale — inocuo, informativo).
+
+## §M-Sealed. Catálogo propio de sellado — `/admin/sealed` (v1.29 / P-26, `super_admin`)
+
+> **Fuente:** PROJECT §L (CA-P26-1..17); ARCHITECTURE §4.27. El sellado gana un **catálogo de primera clase**
+> (`SealedProduct`), con identidad (nombre/imagen) **ingerida desde TCGCSV**, un **job de precios separado y corto**,
+> y UI de admin propia. Autorización: **todos `super_admin`** (tocan el catálogo y el dinero de referencia). El
+> explorador TCGCSV es **proxy read-only server-side** (host fijo `https://tcgcsv.com`, categoría Pokémon=3
+> constante, anti-SSRF; el navegador nunca habla con el remoto). Money-safe: sin precio de mercado ni override ⇒
+> `pricePending=true` ⇒ **no se publica**.
+
+**Explorar TCGCSV (elegir de la lista, CA-P26-2/3)**
+- `GET /api/v1/admin/sealed/tcgcsv/groups` — grupos TCGCSV (≈ sets/expansiones). Query `?q=` (filtro por nombre).
+  Res `200`: `{ data: TcgcsvGroupRefDTO[] }`. Err `502 UPSTREAM_ERROR`.
+- `GET /api/v1/admin/sealed/tcgcsv/groups/:groupId/products` — productos **SELLADOS** del grupo (el proxy filtra
+  singles por heurística de `extendedData`). `:groupId` **entero positivo** o `400 VALIDATION_ERROR`. Query `?q=`.
+  Cada `TcgcsvProductRefDTO` trae `suggestedSubtype` (heurística sobre `name`, §4.27b; `null` si no reconocido — el
+  operador debe elegir). Res `200`: `{ data: TcgcsvProductRefDTO[] }`. Err `400`, `502 UPSTREAM_ERROR`.
+
+**Catálogo propio (crear / listar / corregir)**
+- `POST /api/v1/admin/sealed/catalog/import` — crea/actualiza un `SealedProduct` desde TCGCSV (**sin captura manual
+  de nombre/imagen**, CA-P26-2). **Upsert idempotente por `tcgplayerProductId`.**
+  Req `SealedProductImportDTO` (`sealedSubtype` REQUERIDO — confirmado por el operador; `setId?` best-effort).
+  Res `201`: `SealedProductDTO`. Err `422 VALIDATION_ERROR` (subtipo inválido; ids no enteros positivos).
+  **Auditado** (`AuditLog action=sealed.catalog.import`).
+- `GET /api/v1/admin/sealed/catalog` — lista el catálogo con precio de mercado + `updatedAt` + `pricePending`
+  (CA-P26-10/16). Query `?setId=&sealedSubtype=&q=&pricePending=&page=&pageSize=&sort=` (`sort ∈
+  {newest, name, price_desc}`). Res `200`: `SealedProductListResponse` (incluye `pricePendingTotal`, badge del
+  catálogo sin precio).
+- `PATCH /api/v1/admin/sealed/catalog/:id` — corrige `sealedSubtype`, `setId` o re-vincula `imageUrl` / producto
+  TCGCSV (la «pantalla de mapeo» CA-P26-15: ver/corregir el vínculo desde la UI). Req parcial
+  `{ sealedSubtype?, setId?, imageUrl? }`. Res `200`: `SealedProductDTO`. Err `404 SEALED_PRODUCT_NOT_FOUND`,
+  `422 VALIDATION_ERROR`. **Auditado** (`sealed.catalog.update`, before/after).
+- `DELETE /api/v1/admin/sealed/catalog/:id` — retira una entrada del catálogo. Solo si **no** hay `InventoryItem`
+  que la referencie. Res `204`. Err `404 SEALED_PRODUCT_NOT_FOUND`, `409 SEALED_PRODUCT_IN_USE` (hay piezas ligadas
+  — primero recapturarlas/retirarlas). **Auditado** (`sealed.catalog.delete`).
+
+**Precio de mercado del sellado operable desde admin (CA-P26-14/17)**
+- `PUT /api/v1/admin/sealed/catalog/:id/market-override` — fija un override de **MERCADO** del sellado (informativo,
+  máxima precedencia sobre TCGCSV; ≠ override de VENTA por pieza `listPriceCents`). Crea/actualiza una
+  `SealedPriceReference(source='manual', isManualOverride=true, capturedDate=hoy)`.
+  Req `{ marketMxnCents: number | null }` (`null` = quita el override del día → vuelve a mandar TCGCSV).
+  Res `200`: `SealedProductDTO`. Err `404 SEALED_PRODUCT_NOT_FOUND`, `422 VALIDATION_ERROR` (entero ≥ 0).
+  **Auditado** (`sealed.market_override.update`, before/after).
+- `POST /api/v1/admin/sealed/prices/refresh` — **⭐ job de precios de sellado SEPARADO** (CA-P26-7/8/9/10). Refresca
+  el mercado de **solo** los `SealedProduct` (decenas), **sin** correr el price-ingest de singles y **sin** esperar
+  la ventana diaria. **Síncrono/awaited**, del orden de **segundos a pocos minutos**. Barre `DISTINCT
+  SealedProduct.tcgplayerGroupId`, fetch por grupo (provider TCGCSV, money-safe: ante fallo no borra precios),
+  upsert `SealedPriceReference` respetando `isManualOverride`. **Fail-closed por el dial `sealed_price_source`**:
+  con `off` responde `{ enabled:false, ... }` y **no hace nada**.
+  Req: `{}` (opcional `{ groupId?: number }` para acotar a un grupo — verificación/depuración).
+  Res `200`: `SealedPriceRefreshResultDTO`. **Auditado** (`sealed.prices.refresh`, con el resumen).
+  > **money-safe:** los productos sin fila remota quedan sin mercado hoy (stale/null, inocuo); si además no tienen
+  > override de venta, cuentan en `pricePendingCount` y **no se publican**.
+
+**Alta y publicación de piezas selladas (§M1, aditivo — `vault_operator+`)**
+- `POST /api/v1/admin/inventory/items` (+ `/batch`) para `productType='sealed'`: toma **`sealedProductId`** (NO
+  `cardId`, NO nombre/imagen — CA-P26-11/13) + `sealedCondition` (default `mint`) + `acquisitionType ∈
+  {aportacion_en_especie, compra}` (**nunca `client_purchase`**, no hay buylist de sellado). Costo de aportación =
+  `referencia (SealedPriceReference) × % vigente`; aprovisionamiento = costo capturado. Err `422 VALIDATION_ERROR`
+  (`sealedProductId` ausente/ inexistente para sealed; `cardId` presente para sealed; subtipo/condición inválidos).
+- `POST /api/v1/admin/inventory/publish-all { productType:'sealed', setId?, batchKey? }` (P-19) — publica todo lo
+  `in_stock` con **precio resuelto** (override de venta o mercado×spread); los `PRICE_PENDING` **no** se publican
+  (CA-P26-12/16). Mismo shape de respuesta que el publish-all §M1.
+
+---
 
 #### Spreads de VENTA del SELLADO (v1.23-sealed-sales — NUEVO backend; editor M2, `super_admin`)
 > **Análogo a las reglas de venta por rareza** (arriba), pero keyeado por **presentación** (`SealedSubtype`) para el
