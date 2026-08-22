@@ -4768,3 +4768,66 @@ front trabaja contra el **shape del contrato** (mocks marcados). Sin cambios de 
 ### Gates de la ronda
 `typecheck` (tsc --noEmit) ✓ · `next lint` ✓ (0 warnings) · `vitest run` **548/548** (70 archivos;
 +6 nuevos de esta ronda) ✓ · `next build` ✓.
+
+## Botón BATCH «Refrescar variantes + precios de TODO (solo TCGCSV)» en M2 (2026-08-22, rama `fix/variant-composition-regression`)
+
+Botón GLOBAL en la sección «Sync de catálogo» de M2 (`(admin)/admin/m2/M2View.tsx`), junto a
+Backfill / Importar sets nuevos / Re-sincronizar todo (forzar). Corre el mismo trabajo que la
+acción por-set «Variantes + precios (solo TCGCSV)» (P-13) pero sobre **TODO el catálogo ya
+importado**: repuebla variantes/acabados + precios desde **TCGCSV**, **sin re-importar cartas** y
+**sin pokemontcg.io**. Sirve para backfillear la composición/precios del catálogo cuando
+pokemontcg.io está caído.
+
+> **Actualización (reconciliación con backend): el batch es ASÍNCRONO.** El backend implementó
+> `refresh-variants-all` fire-and-forget (POST 202) con un endpoint de STATUS PROPIO para
+> progreso/resumen. La sección de abajo refleja ese contrato final.
+
+### Contrato consumido (modelo ASÍNCRONO)
+- `POST /api/v1/admin/catalog/refresh-variants-all`, body `{ force? }` (solo se manda `force` cuando
+  es `true`; body mínimo por defecto). **Responde HTTP 202** con `{ jobId, setsQueued, remaining }` —
+  **NO** trae el resumen; solo arranca el barrido. Tipo `RefreshVariantsAllResponse` (redefinido a ese
+  shape).
+- `GET /api/v1/admin/catalog/refresh-variants-status` → `{ running, jobId, total, done, startedAt,
+  finishedAt, summary }`, donde `summary = { setsTotal, setsOk, setsFailed, cardProductsUpserted,
+  pricesUpserted, pending, failures: [{ setId, code, message }] }` (o `null` mientras no haya
+  terminado ningún batch). Es el STATUS PROPIO del batch, **distinto** del `sync-status` de sync-all.
+  Tipos `RefreshVariantsStatusResponse`, `RefreshVariantsSummary`, `RefreshVariantsAllFailure` en
+  `frontend/src/types/contract.ts`. Wire `refreshVariantsAll()` + `getRefreshVariantsStatus()` en
+  `frontend/src/lib/api.ts`; **mock async** en `fixtures.ts` (`startMockRefreshVariantsAll` arranca el
+  estado en memoria; `readMockRefreshVariantsStatus` avanza `done` en cada lectura y al completar
+  apaga `running` y adjunta el `summary` con **un** set fallido + `pending>0` para el reflejo money-safe).
+- **Progreso:** se POLLEA `getRefreshVariantsStatus` (**NO** `sync-status`) cada 3 s mientras `running`,
+  más una **ventana de gracia** `refreshAllDispatched` tras el POST (hasta que asome `running`, patrón
+  N-14 de precios; caduca sola a 30 s). La MISMA barra accesible `SyncProgress` pinta `done/total` con
+  labels propios `catalog.refreshVariantsAllSweep*`. `remote-sets` refresca cada 5 s mientras corre.
+
+### UX / comportamiento
+- **Confirmación** (operación masiva) por `Modal` — calca el modal de «Re-sincronizar todo (forzar)».
+- **Progreso** en vivo desde el status del batch; banner "corriendo" mientras `batchBusy`
+  (`POST pending || refreshAllDispatched || running`).
+- **Resumen honesto** al terminar (leído del `summary` del status, **no** del POST): si
+  `setsFailed>0 || pending>0` → Banner `warning` («resultado parcial»), si no → `success`. Muestra
+  `setsOk/setsTotal`, productos, precios, pendientes y la **lista legible de `failures`** (nombre del
+  set resuelto vía `remote-sets` + `setId` + motivo). Un `useEffect` gatillado por `finishedAt`
+  invalida `remote-sets` + `pending-prices` al terminar.
+- **Serialización:** `batchBusy` deshabilita las demás operaciones de catálogo (per-set vía
+  `otherPerSetPending`; globales Backfill/Importar/Re-sync vía `disabled`) y el propio botón se
+  deshabilita si **otra** operación de catálogo está en curso (`catalogBusy && !batchBusy`).
+  `useKeepSessionAlive(catalogBusy)` mantiene viva la sesión durante toda la corrida.
+- **Ayuda:** el `hint` deja claro que **NO** re-importa cartas ni usa pokemontcg.io; que es para
+  backfillear composición/precios del catálogo ya importado.
+- i18n en `messages/{es,en}.json` bajo `admin.m2.catalog.refreshVariantsAll*` (sin hardcode).
+
+### Desalineación con el contrato (solicitud al arquitecto)
+- Los endpoints `refresh-variants-all` / `refresh-variants-status` **no están en
+  `docs/API_CONTRACT.md`** todavía (implementados contra el contrato reconciliado con backend).
+  **Petición al arquitecto:** formalizar ambos: `POST /admin/catalog/refresh-variants-all` (body
+  `{ force? }` → 202 `RefreshVariantsAllResponse`) y `GET /admin/catalog/refresh-variants-status`
+  (`RefreshVariantsStatusResponse` con el `summary` agregado). Si backend ajusta nombres de endpoint
+  o de campos, se alinea en un solo punto: `api.ts` + `contract.ts` (+ mock en `fixtures.ts`).
+
+### Gates de la ronda
+`tsc --noEmit` ✓ · `eslint` (archivos tocados) ✓ · `vitest run` **564/564** (70 archivos; +5 tests
+del flujo batch async: POST 202 solo arranca + resumen desde el STATUS PROPIO, barra de progreso
+done/total desde status, cancelar no llama, `failures`/pendientes parcial money-safe, error de arranque
+legible) ✓ · `next build` ✓.

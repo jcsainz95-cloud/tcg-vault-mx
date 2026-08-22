@@ -170,7 +170,9 @@ export class CatalogSyncService {
    *      PRICE_PENDING/«—», jamás 0).
    *
    * Errores:
-   *   - set no en BD (o sin cartas) ⇒ `SET_NOT_IMPORTED` (404) accionable — NO se intenta importar.
+   *   - set no en BD (o sin cartas) ⇒ `SET_NOT_IMPORTED` (409 CONFLICT) accionable — NO se intenta
+   *     importar. Se usa 409 (no 404) a propósito: el front trata 404/405 como "endpoint no
+   *     desplegado" (`isEndpointMissing`) y confundiría un SET_NOT_IMPORTED real con eso (ver :208).
    *   - TCGCSV caído (401/403/5xx/red/parse) ⇒ `UPSTREAM_ERROR` (502) accionable, money-safe
    *     (el resolver hace TODO el fetch ANTES de cualquier escritura ⇒ un fallo remoto no borra ni
    *     escribe nada; se conserva lo previo). Nunca un 500 crudo.
@@ -340,6 +342,83 @@ export class CatalogSyncService {
   }
 
   /**
+   * M-35 — estado observable del barrido `refresh-variants-all` (para
+   * `GET /admin/catalog/refresh-variants-status`). MISMO patrón que `syncAllStatus`: vive en
+   * memoria del proceso, da progreso HONESTO `done/total` en SETS y un momento claro de "terminó"
+   * (`running=false` + `finishedAt`), SIN llamar a NINGÚN upstream en cada poll. `running` sirve de
+   * single-flight contra sí mismo. Además acumula el RESUMEN agregado del barrido
+   * (`summary`), que el front lee al terminar.
+   *
+   * `summary` es **null hasta que arranca el primer barrido** (contrato
+   * `RefreshVariantsStatusResponse.summary: RefreshVariantsSummary | null`): con el backend recién
+   * levantado y NINGÚN batch disparado, el front NO debe pintar un banner "Listo — 0/0" falso. En
+   * cuanto un barrido arranca (`refreshVariantsAll`) o corre (`runRefreshVariantsAll`) se
+   * inicializa a ceros y se va poblando; ya no vuelve a null (expone el último barrido).
+   */
+  private refreshVariantsAllStatus: {
+    running: boolean;
+    jobId: string | null;
+    total: number;
+    done: number;
+    startedAt: string | null;
+    finishedAt: string | null;
+    summary: {
+      setsTotal: number;
+      setsOk: number;
+      setsFailed: number;
+      cardProductsUpserted: number;
+      pricesUpserted: number;
+      pending: number;
+      failures: { setId: string; code: string; message: string }[];
+    } | null;
+  } = {
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    summary: null,
+  };
+
+  /** Resumen agregado en ceros (arranque de un barrido). */
+  private static emptyRefreshVariantsSummary(): {
+    setsTotal: number;
+    setsOk: number;
+    setsFailed: number;
+    cardProductsUpserted: number;
+    pricesUpserted: number;
+    pending: number;
+    failures: { setId: string; code: string; message: string }[];
+  } {
+    return {
+      setsTotal: 0,
+      setsOk: 0,
+      setsFailed: 0,
+      cardProductsUpserted: 0,
+      pricesUpserted: 0,
+      pending: 0,
+      failures: [],
+    };
+  }
+
+  /**
+   * GET /admin/catalog/refresh-variants-status — progreso + resumen agregado del barrido
+   * `refresh-variants-all` en curso (o del último). Pensado para POLLING desde el front (igual que
+   * `sync-status`): NO se audita (evita inundar AuditLog) y NO llama a ningún upstream.
+   */
+  getRefreshVariantsAllStatus() {
+    const { summary } = this.refreshVariantsAllStatus;
+    return {
+      ...this.refreshVariantsAllStatus,
+      // null hasta que arranca el primer barrido (contrato): sin batch disparado NO se expone un
+      // summary en ceros (evita el banner "Listo — 0/0" falso en M2 con el backend recién levantado).
+      summary:
+        summary == null ? null : { ...summary, failures: [...summary.failures] },
+    };
+  }
+
+  /**
    * POST /admin/catalog/sync-all (v1.3, NUEVO) — importa TODO el catálogo (todos los sets
    * remotos, sin frontera de fecha) para la Opción 1 del cotizador. API_CONTRACT §M2.
    *
@@ -423,6 +502,126 @@ export class CatalogSyncService {
       }
     }
     this.logger.log(`sync-all: barrido de ${sets.length} sets completado.`);
+  }
+
+  /**
+   * Delay (ms) entre sets del barrido `refresh-variants-all` — respeto a tcgcsv.com (no martillear).
+   * Configurable por env `CATALOG_REFRESH_VARIANTS_BATCH_DELAY_MS`; default 250ms. El User-Agent ya
+   * lo pone el cliente TCGCSV.
+   */
+  private readonly refreshVariantsBatchDelayMs =
+    Number(process.env.CATALOG_REFRESH_VARIANTS_BATCH_DELAY_MS ?? '') || 250;
+
+  /** setTimeout-based sleep aislado (protected) para poder neutralizarlo/espiarlo en tests. */
+  protected async sleep(ms: number): Promise<void> {
+    if (ms <= 0) return;
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
+  /**
+   * POST /admin/catalog/refresh-variants-all (M-35) — versión BATCH del `refresh-variants`: corre,
+   * sobre TODOS los sets YA IMPORTADOS (los que tienen cartas en BD), el MISMO refresh solo-TCGCSV
+   * por-set (`refreshVariants`). Backfillea el catálogo viejo (fantasma pre-M-31) SIN tocar
+   * pokemontcg.io — ni siquiera para LISTAR sets: la lista sale de BD local.
+   *
+   * NO bloqueante (MISMO modelo que `sync-all`): calcula los sets importados con una consulta local
+   * rápida, lanza el barrido en SEGUNDO PLANO (fire-and-forget) y retorna 202 de inmediato con
+   * `{ jobId, setsQueued, remaining }`. El progreso + resumen agregado se observan por
+   * `GET /admin/catalog/refresh-variants-status` (keep-alive del front, igual que `sync-status`).
+   *
+   * Single-flight: mientras `running` es true no se lanza otro barrido (reporta lo que hay).
+   *
+   * `force` se acepta por SIMETRÍA con `refresh-variants`/`sync-all`; este camino SIEMPRE re-resuelve
+   * por completo (queda registrado en auditoría). No altera el comportamiento hoy.
+   */
+  async refreshVariantsAll(
+    options: { force?: boolean } = {},
+  ): Promise<{ jobId: string; setsQueued: number; remaining: number }> {
+    const force = options.force ?? false;
+    // Lista de sets IMPORTADOS desde BD LOCAL (jamás pokemontcg.io): set con ≥1 carta.
+    const local = await this.prisma.cardSet.findMany({
+      select: { externalId: true, _count: { select: { cards: true } } },
+    });
+    const importedExternalIds = local
+      .filter((s) => s._count.cards > 0)
+      .map((s) => s.externalId);
+    const jobId = `catalog-refresh-variants-all-${Date.now()}`;
+
+    if (this.refreshVariantsAllStatus.running) {
+      // Ya hay un barrido en curso → no lanzamos otro; reportamos lo que falta.
+      return { jobId, setsQueued: 0, remaining: importedExternalIds.length };
+    }
+
+    const batch = [...importedExternalIds];
+    // Publica el estado observable ANTES de lanzar: jobId/total/startedAt se fijan aquí; `done` y el
+    // `summary` avanzan por set en runRefreshVariantsAll; `running`/`finishedAt` se cierran en el
+    // finally. Así el front pinta una barra honesta done/total y ve el resumen al terminar.
+    this.refreshVariantsAllStatus = {
+      running: true,
+      jobId,
+      total: batch.length,
+      done: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      // Arranca el summary (ya no null): setsTotal fijo aquí; el resto lo suma runRefreshVariantsAll.
+      summary: { ...CatalogSyncService.emptyRefreshVariantsSummary(), setsTotal: batch.length },
+    };
+    // Fire-and-forget: el request NO espera a que se refresquen todos los sets.
+    void this.runRefreshVariantsAll(batch, force).finally(() => {
+      this.refreshVariantsAllStatus.running = false;
+      this.refreshVariantsAllStatus.finishedAt = new Date().toISOString();
+    });
+    return { jobId, setsQueued: batch.length, remaining: 0 };
+  }
+
+  /**
+   * Barrido en segundo plano de `refresh-variants-all`: refresca cada set secuencialmente reusando
+   * el MISMO `refreshVariants` por-set (SOLO TCGCSV), con delay entre sets (respeto a tcgcsv.com).
+   *
+   * RESILIENTE POR-SET: el fallo de UN set (502 UPSTREAM_ERROR de TCGCSV, grupo no espejado,
+   * SET_NOT_IMPORTED por carrera, etc.) NO aborta el barrido — se captura, se acumula en
+   * `summary.failures` y se sigue con el siguiente. Money-safe intacto: `refreshVariants` hace TODO
+   * el fetch TCGCSV ANTES de escribir; un fallo remoto no borra ni escribe nada.
+   */
+  async runRefreshVariantsAll(setExternalIds: string[], force = false): Promise<void> {
+    // Asegura el summary (normalmente lo arranca `refreshVariantsAll`; si se invoca este barrido
+    // directamente —p. ej. en tests— lo inicializa en ceros para no operar sobre null).
+    const summary = (this.refreshVariantsAllStatus.summary ??=
+      CatalogSyncService.emptyRefreshVariantsSummary());
+    for (let i = 0; i < setExternalIds.length; i++) {
+      const setId = setExternalIds[i];
+      try {
+        const res = await this.refreshVariants(setId, force);
+        summary.setsOk += 1;
+        summary.cardProductsUpserted += res.cardProductsUpserted;
+        summary.pricesUpserted += res.pricesUpserted;
+        summary.pending += res.pending;
+      } catch (e) {
+        const code =
+          e instanceof BusinessException ? String(e.code) : ('UPSTREAM_ERROR' as string);
+        summary.setsFailed += 1;
+        summary.failures.push({
+          setId,
+          code,
+          message: (e as Error).message,
+        });
+        this.logger.warn(
+          `refresh-variants-all: set ${setId} falló (${code}): ${(e as Error).message} — ` +
+            `NO aborta el barrido, sigue con el siguiente (money-safe).`,
+        );
+      } finally {
+        // Avanza el progreso por set intentado (éxito o fallo) → barra honesta done/total.
+        this.refreshVariantsAllStatus.done += 1;
+      }
+      // Delay entre sets (no tras el último): respeto a tcgcsv.com.
+      if (i < setExternalIds.length - 1) {
+        await this.sleep(this.refreshVariantsBatchDelayMs);
+      }
+    }
+    this.logger.log(
+      `refresh-variants-all: barrido de ${setExternalIds.length} sets completado ` +
+        `(ok=${summary.setsOk}, failed=${summary.setsFailed}).`,
+    );
   }
 
   // ---------------- helpers ----------------

@@ -2,7 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.30-buylist-quote-por-producto).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.31-refresh-variants-tcgcsv).
+>
+> **Changelog v1.31-refresh-variants-tcgcsv (2026-08-22, arquitecto — FORMALIZACIÓN de lo YA implementado;
+> cierra incumplimiento de DoD «docs al día» reportado por QA):** cambios **ADITIVOS y RETROCOMPATIBLES**,
+> money-safe (variante sin precio ⇒ `PRICE_PENDING`/«—» = `null`; **jamás 0**). Formaliza en §M2 la familia de
+> **backfill solo-TCGCSV** que el frontend ya consume pero **no estaba documentada** (backend la describió en
+> `BACKEND_NOTES.md` §0-bis M-34 y §0-quater M-35). Enmarca dentro de la decisión de ARCHITECTURE §4.27–§4.30
+> (TCGCSV = fuente de **estructura + precio**; estos endpoints son la operación de **reparación de variantes**
+> —el `normal` fantasma pre-M-31— **sin tocar pokemontcg.io**, para poder arreglar sets ya importados aunque
+> pokemontcg.io esté caído). Endpoints nuevos:
+> - **`POST /admin/catalog/refresh-variants` (M-34, `super_admin`, 200):** refresca variantes (finishes) + precios
+>   de UN set ya importado, SOLO TCGCSV. Hermano acotado de `sync {setId, force:true}` que **NO** llama a
+>   pokemontcg.io. Ver §M2.
+> - **`POST /admin/catalog/refresh-variants-all` (M-35, `super_admin`, 202):** versión BATCH del anterior sobre
+>   **todos** los sets importados (universo desde BD local), fire-and-forget, resiliente por-set. Ver §M2.
+> - **`GET /admin/catalog/refresh-variants-status` (M-35, `super_admin`, 200):** progreso + `summary` agregado del
+>   batch, para polling (mismo mecanismo que `sync-status`). Ver §M2.
+> - **Códigos de error documentados:** `502 UPSTREAM_ERROR` (fuente externa TCGCSV no disponible) y **`409
+>   SET_NOT_IMPORTED`** (el set no está importado en BD) — ver §Convenciones/Errores. **Follow-up de backend
+>   (no bloquea, zona compartida):** ambos viven hoy por cast `as ErrorCodeType`; falta añadirlos al enum central
+>   `common/error-codes.ts` y quitar los casts. El contrato ya los declara normativos.
 >
 > **Changelog v1.30-buylist-quote-por-producto (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend
 > implementan):** cambios **ADITIVOS y RETROCOMPATIBLES**, money-safe (PRICE_PENDING y «—» = `null` preservados;
@@ -995,6 +1015,25 @@
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
+- **`502 UPSTREAM_ERROR` (transversal; formalizado v1.31):** una **fuente externa** de datos no está disponible o
+  devolvió un payload inválido (timeout/red, 401/403/5xx, o parse fallido). Aplica a **TCGCSV** (`https://tcgcsv.com`,
+  espejo de precios/estructura de TCGplayer) y a **pokemontcg.io** (metadata de cartas). **No** es un `500` crudo: el
+  backend **remapea** el fallo remoto a `502` con mensaje accionable ("Fuente TCGCSV/pokemontcg.io no disponible;
+  reintenta en unos minutos"). **Money-safe:** el resolver hace **todo** el fetch remoto **ANTES** de cualquier
+  escritura, así que un fallo upstream **no escribe ni borra nada** local (se conserva lo previo). Endpoints que lo
+  emiten: familia TCGCSV del sellado (§M2 `groups`/`products`), `sync`/`sync-all` (pokemontcg.io) y la familia
+  **refresh-variants** (§M2, TCGCSV — M-34/M-35). En el **batch** `refresh-variants-all` **NO** se propaga como HTTP:
+  se captura por-set y se reporta en `summary.failures[].code`. **Follow-up backend (no bloquea):** hoy en uso por cast
+  `as ErrorCodeType` en `sealed-pricing.controller.ts` y `catalog-sync.service.ts`; pendiente añadirlo al enum central
+  `common/error-codes.ts` (zona compartida) y quitar los casts.
+- **`409 SET_NOT_IMPORTED` (v1.31, refresh-variants M-34):** se intentó refrescar variantes/precios de un set que
+  **NO** existe en BD, o existe pero **sin cartas**. La reparación solo-TCGCSV **no importa** el set (no llama a
+  pokemontcg.io); el mensaje es accionable: "impórtalo primero con `POST /admin/catalog/sync`". **Se usa `409` (no
+  `404`) a propósito:** el frontend trata `404/405` como "endpoint no desplegado" (`isEndpointMissing`), así que un
+  `SET_NOT_IMPORTED` real con `404` se confundiría con "endpoint faltante". `409` (Conflict: no se puede refrescar
+  porque el set no está importado) deja backend y frontend alineados. Lo emite `POST /admin/catalog/refresh-variants`;
+  en el batch se captura por-set y va a `summary.failures[].code`. **Mismo follow-up de enum central** que
+  `UPSTREAM_ERROR`.
 - **`422 REQUEST_HAS_NON_REJECTED_ITEMS` (v1.24-buylist-request-reject):** en `POST /admin/buylist/:id/reject` (botón «Rechazar solicitud» de M5), la solicitud tiene **al menos un ítem no-rechazado** (`itemStatus != "rechazada"` — p. ej. `aprobada`, `convertida_inventario`, `verificacion`). El cierre explícito es una operación **segura y mínima**: cierra la solicitud **sólo** cuando ya no queda ítem vivo, por lo que rechaza el intento en vez de rechazar ítems en cascada (eso es cherry-pick por-ítem, `PATCH /admin/buylist/items/:itemId/decision`). `details: { nonRejectedItemStatuses: SellItemStatus[] }` (los status vivos encontrados, para que el front explique qué falta cerrar). Distinto de `404 NOT_FOUND` (solicitud inexistente). Ver §M5 y ARCHITECTURE §4.18(g).
 - **Acceso `public` vs `guest` (v1.21):** `public` sigue significando **sin token** (decorador `@Public()` del backend, respetado por `JwtAuthGuard`). Los endpoints de invitado son `public` **por construcción** y además **rechazan** una sesión válida (`409 ALREADY_AUTHENTICATED`): un usuario con cuenta compra por `/checkout/session`, un invitado por `/checkout/guest/session`. **No hay endpoint que sirva a los dos.** Simétricamente, ningún endpoint `customer` acepta un token de seguimiento como credencial: el `OrderAccessToken` **no** es una sesión, no otorga rol y solo lee **un** pedido.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
@@ -3434,6 +3473,98 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
     - **`startedAt: string | null`** — ISO-8601; cuándo arrancó el barrido actual/último.
     - **`finishedAt: string | null`** — ISO-8601; se **setea al terminar** (cuando `running` pasa a `false`). `null` mientras `running` o antes del primer barrido.
   > **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (**no persistido**). Si el proceso se **reinicia** a mitad del barrido, el estado se **pierde** (vuelve a `running:false`, `jobId:null`) y hay que **re-llamar** `sync-all`. Ligado al cableado pendiente de BullMQ — ver Desviación **DEV-1** en ARCHITECTURE §9.
+#### Reparación de variantes + precios solo-TCGCSV (v1.31 — NUEVO, `super_admin`) — backfill del `normal` fantasma sin pokemontcg.io
+> **Contexto (ARCHITECTURE §4.27–§4.30).** TCGCSV es la fuente de **estructura + precio** de las variantes (finishes)
+> por `productId` exacto. El `sync {setId, force:true}` **encadena** re-fetch de metadata desde **pokemontcg.io** con
+> el resolver estructural TCGCSV; durante un outage de pokemontcg.io (502) ese encadenamiento **bloquea** arreglar la
+> composición de un set que YA está importado (el `normal` fantasma pre-M-31). Esta familia **desacopla** el refresco
+> de variantes/precios (TCGCSV) del re-fetch de cartas: opera **solo** sobre las `Card` ya en BD y **NUNCA** llama a
+> pokemontcg.io — ni siquiera para listar sets (la lista sale de BD local). Es la operación de **backfill/reparación**.
+> **Money-safe (transversal):** el resolver hace TODO el fetch TCGCSV **antes** de escribir; un fallo remoto no borra
+> ni escribe nada. Toda variante (producto×acabado) **sin precio de mercado** ⇒ `pending`/«—» (`null`), **jamás 0**.
+
+- `POST /api/v1/admin/catalog/refresh-variants` — **(M-34)** refresca **variantes (finishes) + precios** de UN set
+  **ya importado**, usando **SOLO TCGCSV** (no toca pokemontcg.io). Hermano acotado de `sync {setId, force:true}` que
+  omite la fase pokemontcg.io. **Auditado** (`AuditLog action=catalog.refresh_variants`, `entityType=CardSet`, con los
+  contadores + `force`).
+  Req: `{ setId: string, force?: boolean = false }`.
+  - **`setId` (REQUERIDO):** **`externalId`** del set (id de pokemontcg.io, p. ej. `"me05"`). **Debe cumplir
+    `^[a-z0-9]+(-[a-z0-9]+)*$`** (mismo `SET_ID_PATTERN` que `sync`); si no, `422 VALIDATION_ERROR` **antes** de tocar
+    BD/red.
+  - **`force` (opcional, default `false`):** aceptado por **simetría** con `sync`/`sync-all` y para el mismo botón del
+    front; hoy **no altera** el comportamiento (este camino ES, por definición, un refresco forzado: **siempre**
+    re-resuelve por completo, no hay gate de first-import). Queda registrado en auditoría; reservado para un futuro modo
+    "solo si stale".
+  - Res `200`: `{ ok: boolean, setId: string, cardsProcessed: number, cardProductsUpserted: number, pricesUpserted:
+    number, pending: number, tcgcsvReachable: boolean }`.
+    - **`cardsProcessed`** — # de `Card` locales del set (universo procesado).
+    - **`cardProductsUpserted`** — `CardProduct` upserteados (unidos por `productId` **exacto** — jamás por número, así
+      el `normal` fantasma es imposible).
+    - **`pricesUpserted`** — `PriceReference` (`source=tcgcsv_singles`) escritos (`marketPrice > 0`).
+    - **`pending`** — variantes (producto×acabado) **sin** precio ⇒ «—»/`PRICE_PENDING` (**jamás 0**).
+    - **`tcgcsvReachable`** — si la fuente respondió en esta corrida.
+  - Err:
+    - `422 VALIDATION_ERROR` — `setId` con formato inválido (no calza `SET_ID_PATTERN`).
+    - `409 SET_NOT_IMPORTED` — el set no existe en BD, o existe **sin cartas**. **No** se intenta importar (mensaje:
+      "impórtalo primero con `POST /admin/catalog/sync`"). Ver §Errores (por qué **409 y no 404**).
+    - `502 UPSTREAM_ERROR` — TCGCSV no responde (401/403/5xx/red/parse). **Money-safe:** el fetch ocurre íntegro antes
+      de escribir, así que un fallo remoto no muta nada local.
+  - **Blindaje (test):** `backend/test/catalog-refresh-variants.spec.ts` espía **todos** los métodos de
+    `PokemonTcgIoClient` y verifica en cada caso que **no se invocan**.
+- `POST /api/v1/admin/catalog/refresh-variants-all` — **(M-35)** versión **BATCH** del anterior: corre el **mismo**
+  refresh solo-TCGCSV sobre **TODOS los sets importados** (universo = `CardSet` de **BD local** con `cards > 0`; **no**
+  sale de pokemontcg.io ni de TCGCSV). **Truly-async / fire-and-forget** (mismo patrón que `sync-all`): encola y
+  **retorna de inmediato** (`202`). **Respetuoso con TCGCSV** (delay entre sets, env
+  `CATALOG_REFRESH_VARIANTS_BATCH_DELAY_MS`, default 250ms) y **resiliente por-set** (el fallo de un set —502, grupo no
+  espejado, `SET_NOT_IMPORTED` por carrera— **NO aborta** el barrido: se acumula en `summary.failures`). **Auditado**
+  (`AuditLog action=catalog.refresh_variants_all`, `entityType=CardSet`, con `jobId/setsQueued/remaining/force`).
+  Req: `{ force?: boolean = false }` (también acepta `?force=true` por query, igual que `sync-all`/`backfill`). Semántica
+  de `force` idéntica a la del por-set (aceptado por simetría; hoy no altera el comportamiento).
+  Res `202`: `{ jobId: string, setsQueued: number, remaining: number }`.
+    - **`jobId`** — formato `catalog-refresh-variants-all-<epoch>`.
+    - **`setsQueued`** — # de sets importados (`cards > 0`) encolados en este barrido.
+    - **`remaining`** — `0` cuando se encolan todos; `>0` solo si **ya había un barrido en curso** (single-flight →
+      `setsQueued:0`, `remaining=<pendientes>`). El single-flight es **independiente** del de `sync-all` (estados
+      separados; pueden solaparse, pues este solo toca TCGCSV).
+- `GET /api/v1/admin/catalog/refresh-variants-status` — **(M-35)** progreso + **resumen agregado** del batch, para
+  **polling/keep-alive** del front (hermano de `sync-status`). **Read-only**, **NO auditado**, **NO** llama a ningún
+  upstream (lee estado **en memoria del proceso**). `@Roles(super_admin)`.
+  Res `200`:
+  ```jsonc
+  {
+    "running": false,          // true mientras el barrido corre; single-flight contra sí mismo
+    "jobId": "catalog-refresh-variants-all-1690000000000",
+    "total": 37,               // sets a procesar (barra honesta done/total en SETS)
+    "done": 37,                // sets INTENTADOS (éxito o fallo)
+    "startedAt": "2026-08-22T18:00:00.000Z",
+    "finishedAt": "2026-08-22T18:04:00.000Z",  // null mientras running=true; se fija al terminar
+    "summary": {
+      "setsTotal": 37,
+      "setsOk": 35,
+      "setsFailed": 2,
+      "cardProductsUpserted": 1234,   // suma de los sets OK
+      "pricesUpserted": 2100,         // suma de los sets OK
+      "pending": 180,                 // suma de variantes sin precio ⇒ «—»/PRICE_PENDING (jamás 0)
+      "failures": [
+        { "setId": "base1", "code": "UPSTREAM_ERROR", "message": "Fuente TCGCSV no disponible; ..." }
+      ]
+    }
+  }
+  ```
+    - **`running: boolean`** — hay un barrido activo.
+    - **`jobId: string | null`** — id del barrido actual/último (`catalog-refresh-variants-all-<epoch>`); `null` si nunca
+      corrió desde el arranque del proceso.
+    - **`total: number`** — sets a procesar; **`done: number`** — sets ya intentados (éxito **o** fallo). Barra = `done/total`.
+    - **`startedAt` / `finishedAt`** — ISO-8601; `finishedAt` se fija al terminar (`null` mientras `running`).
+    - **`summary`** — **`null`** hasta que termine el **primer** batch; luego el objeto agregado de arriba.
+      `failures[].code` es el `code` de la `BusinessException` por-set (típicamente `UPSTREAM_ERROR` o
+      `SET_NOT_IMPORTED`) — en el batch **no** se propagan como HTTP.
+  > **Uso en el front (mismo patrón que `sync-all`):** dispara el `POST` (`202`), luego pollea
+  > `refresh-variants-status` con keep-alive hasta `running=false` y lee el `summary` para el veredicto.
+  > **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (no persistido). Si el proceso se reinicia a
+  > mitad del barrido, el estado se **pierde** (vuelve a `running:false`) y hay que re-llamar. Mismo límite que
+  > `sync-status` — ver Desviación **DEV-1** en ARCHITECTURE §9.
+
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 
 #### Referencia de mercado del SELLADO vía TCGCSV (v1.19-sealed-tcgcsv — NUEVO, `super_admin`)

@@ -1052,3 +1052,162 @@ describe('M2 · «Refrescar variantes + precios (solo TCGCSV)» por set (P-13)',
     expect(btn).toBeDisabled();
   });
 });
+
+/**
+ * RV-ALL: el botón GLOBAL «Refrescar variantes + precios de TODO (solo TCGCSV)» corre el batch sobre
+ * TODO el catálogo YA importado. Es ASÍNCRONO: POST /admin/catalog/refresh-variants-all responde 202
+ * `{ jobId, setsQueued, remaining }` (solo arranca) y el progreso/resumen se leen por su STATUS PROPIO
+ * GET /admin/catalog/refresh-variants-status (NO el sync-status de sync-all). Pide confirmación (es
+ * masivo); al terminar el status trae un RESUMEN AGREGADO honesto (sets ok/fallidos, productos,
+ * precios, pendientes y la lista legible de `failures`).
+ */
+describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (RV-ALL)', () => {
+  // Estado inicial del status (sin batch previo): nada que mostrar en el montaje.
+  const idleStatus = {
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    summary: null,
+  } as const;
+
+  it('POST 202 solo arranca; confirmar dispara refreshVariantsAll y el STATUS PROPIO trae el resumen', async () => {
+    const postSpy = vi
+      .spyOn(api, 'refreshVariantsAll')
+      .mockResolvedValue({ jobId: 'rv-1', setsQueued: 12, remaining: 0 });
+    // 1ª lectura (montaje): sin summary. Tras disparar: status terminal con el resumen agregado.
+    vi.spyOn(api, 'getRefreshVariantsStatus')
+      .mockResolvedValueOnce({ ...idleStatus })
+      .mockResolvedValue({
+        running: false,
+        jobId: 'rv-1',
+        total: 12,
+        done: 12,
+        startedAt: '2026-08-22T00:00:00.000Z',
+        finishedAt: '2026-08-22T00:05:00.000Z',
+        summary: {
+          setsTotal: 12,
+          setsOk: 12,
+          setsFailed: 0,
+          cardProductsUpserted: 3200,
+          pricesUpserted: 3200,
+          pending: 0,
+          failures: [],
+        },
+      });
+    renderWithProviders(<M2View />, 'es');
+
+    // Picar el botón NO llama de inmediato: abre el modal de confirmación (operación masiva).
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+    );
+    expect(
+      await screen.findByRole('dialog', {
+        name: /Refrescar variantes \+ precios de TODO el catálogo \(solo TCGCSV\)/,
+      }),
+    ).toBeInTheDocument();
+    expect(postSpy).not.toHaveBeenCalled();
+
+    // Confirmar dispara el POST del batch SIN forzar (body mínimo).
+    fireEvent.click(screen.getByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
+    await waitFor(() => expect(postSpy).toHaveBeenCalledTimes(1));
+
+    // El resumen NO viene del POST: se lee del STATUS PROPIO tras terminar (sets ok/total + productos + precios).
+    expect(
+      await screen.findByText(
+        /12\/12 set\(s\) refrescados · 3200 producto\(s\)\/variante\(s\) actualizados · 3200 precio\(s\) actualizados\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/refrescados desde TCGCSV/)).toBeInTheDocument();
+  });
+
+  it('pinta la barra de progreso done/total desde el STATUS PROPIO cuando reporta running', async () => {
+    vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({
+      running: true,
+      jobId: 'rv-2',
+      total: 12,
+      done: 4,
+      startedAt: '2026-08-22T00:00:00.000Z',
+      finishedAt: null,
+      summary: null,
+    });
+    renderWithProviders(<M2View />, 'es');
+
+    // Progreso honesto done/total (4/12 = 33%) desde el endpoint de status del batch (no sync-status).
+    expect(await screen.findByText(/Refrescando catálogo desde TCGCSV… 4\/12 sets/)).toBeInTheDocument();
+    expect(screen.getByText('33%')).toBeInTheDocument();
+  });
+
+  it('cancelar la confirmación no llama al endpoint', async () => {
+    const spy = vi.spyOn(api, 'refreshVariantsAll');
+    vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({ ...idleStatus });
+    renderWithProviders(<M2View />, 'es');
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: /Refrescar variantes \+ precios de TODO el catálogo \(solo TCGCSV\)/,
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Cancelar/ }));
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('money-safe: sets fallidos y pendientes del summary se reflejan honestos (warning) con la lista de failures', async () => {
+    vi.spyOn(api, 'refreshVariantsAll').mockResolvedValue({ jobId: 'rv-3', setsQueued: 12, remaining: 0 });
+    vi.spyOn(api, 'getRefreshVariantsStatus')
+      .mockResolvedValueOnce({ ...idleStatus })
+      .mockResolvedValue({
+        running: false,
+        jobId: 'rv-3',
+        total: 12,
+        done: 12,
+        startedAt: '2026-08-22T00:00:00.000Z',
+        finishedAt: '2026-08-22T00:05:00.000Z',
+        summary: {
+          setsTotal: 12,
+          setsOk: 11,
+          setsFailed: 1,
+          cardProductsUpserted: 2900,
+          pricesUpserted: 2850,
+          pending: 50,
+          failures: [{ setId: 'sv08', code: 'UPSTREAM_ERROR', message: 'TCGCSV no respondió para este set' }],
+        },
+      });
+    renderWithProviders(<M2View />, 'es');
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
+
+    // Resultado PARCIAL + conteo real de pendientes (no se inventa que todo quedó con precio).
+    expect(await screen.findByText(/resultado parcial/)).toBeInTheDocument();
+    expect(screen.getByText(/50 producto\(s\) quedaron sin precio/)).toBeInTheDocument();
+    // Lista honesta de fallidos: título con el conteo + set (nombre resuelto) con su motivo legible.
+    expect(screen.getByText(/1 set\(s\) fallaron y NO se refrescaron:/)).toBeInTheDocument();
+    expect(screen.getByText(/TCGCSV no respondió para este set/)).toBeInTheDocument();
+    // El setId se muestra para poder identificarlo aunque no resuelva a nombre.
+    expect(screen.getByText(/\(sv08\)/)).toBeInTheDocument();
+  });
+
+  it('un error al ARRANCAR el batch (POST) se muestra legible (banner danger) y NO rompe la pantalla', async () => {
+    vi.spyOn(api, 'refreshVariantsAll').mockRejectedValue(
+      new ApiClientError(502, { code: 'UPSTREAM_ERROR', message: 'tcgcsv down' }),
+    );
+    vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({ ...idleStatus });
+    renderWithProviders(<M2View />, 'es');
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
+
+    expect(await screen.findByText(/No se pudo refrescar el catálogo completo desde TCGCSV\./)).toBeInTheDocument();
+    // La vista sigue viva (el encabezado M2 sigue presente).
+    expect(screen.getByRole('heading', { level: 1, name: /Catálogo y precios/ })).toBeInTheDocument();
+  });
+});

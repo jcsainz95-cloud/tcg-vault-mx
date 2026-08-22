@@ -1691,6 +1691,66 @@ export interface RefreshVariantsResponse {
   tcgcsvReachable: boolean;
 }
 
+// POST /admin/catalog/refresh-variants-all — BATCH de refresh-variants (SOLO TCGCSV) sobre TODOS los
+// sets ya importados. Corre el mismo trabajo que refresh-variants por-set (variantes/acabados +
+// precios desde TCGCSV, SIN re-importar cartas y SIN pokemontcg.io) sobre el catálogo completo. Es
+// ASÍNCRONO (fire-and-forget): el POST responde 202 y SOLO arranca el barrido. Body { force? }. El
+// progreso y el RESUMEN se leen aparte por GET /admin/catalog/refresh-variants-status (poll).
+export interface RefreshVariantsAllResponse {
+  /** id del job del barrido arrancado. */
+  jobId: string;
+  /** sets encolados en el barrido (todos los importados). */
+  setsQueued: number;
+  /** sets que quedan por procesar (típicamente 0 al encolar todo de una). */
+  remaining: number;
+}
+
+// Un set que falla (p. ej. UPSTREAM_ERROR de TCGCSV) NO tumba a los demás: sale en `failures`.
+export interface RefreshVariantsAllFailure {
+  /** id del set que falló. */
+  setId: string;
+  /** código de error del contrato (p. ej. UPSTREAM_ERROR, SET_NOT_IMPORTED). */
+  code: string;
+  /** mensaje legible del fallo (para pintarlo tal cual). */
+  message: string;
+}
+
+// Resumen AGREGADO del batch (dentro del status, presente al terminar). Money-safe: `pending` y
+// `failures` reflejan honestamente lo que TCGCSV no trajo / los sets que fallaron.
+export interface RefreshVariantsSummary {
+  /** sets procesados en el batch (todos los importados). */
+  setsTotal: number;
+  /** sets refrescados con éxito. */
+  setsOk: number;
+  /** sets que fallaron (detalle en `failures`). */
+  setsFailed: number;
+  /** productos de carta (variantes/acabados) insertados o actualizados desde TCGCSV (agregado). */
+  cardProductsUpserted: number;
+  /** precios de referencia insertados o actualizados desde TCGCSV (agregado). */
+  pricesUpserted: number;
+  /** productos que quedaron SIN precio (TCGCSV no lo trajo) → siguen en la cola de pendientes (agregado). */
+  pending: number;
+  /** sets que fallaron, con su motivo legible (lista honesta; vacía = todos OK). */
+  failures: RefreshVariantsAllFailure[];
+}
+
+// GET /admin/catalog/refresh-variants-status — progreso + resumen del batch refresh-variants-all en
+// curso (o del último). Endpoint STATUS PROPIO del batch (NO el `sync-status` de sync-all). Se POLLEA
+// desde M2 hasta `running=false`; al terminar trae el `summary` agregado. `summary` = null mientras no
+// haya terminado ningún batch (o corre uno sin resultado aún).
+export interface RefreshVariantsStatusResponse {
+  running: boolean;
+  jobId: string | null;
+  /** sets a procesar en el barrido actual/último. */
+  total: number;
+  /** sets ya procesados (éxito o fallo) → barra de progreso done/total. */
+  done: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** resumen agregado del último barrido terminado (null si aún no hay). */
+  summary: RefreshVariantsSummary | null;
+}
+
 // GET /admin/catalog/sync-status — progreso del barrido `sync-all` en curso (o del último).
 // Estado en memoria del proceso (no persistido); para POLLING desde M2 sin llamar a pokemontcg.io.
 export interface CatalogSyncStatusResponse {

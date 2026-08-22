@@ -314,17 +314,21 @@
 > Aprobado por **techlead** CON DEUDA ANOTADA. Dos ítems del código de catálogo (`catalog-sync.service.ts`),
 > dueño **backend**. No bloqueantes; registrados a petición del techlead sin tocar código de producción.
 
-### BE-11 · Estado de `sync-status` en memoria; restart silencioso
-- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAllStatus` (`{running,total,done,startedAt,finishedAt}`).
-  Dependencia: **devops/BullMQ (DEV-1)**.
-- **Estado actual:** el estado observable del barrido `sync-all` vive **en memoria del proceso**. Si el proceso
-  se reinicia a mitad del barrido, el estado vuelve a `{running:false,total:0}`, la barra de progreso de M2
-  desaparece y `finishedAt` **nunca** se setea → el operador puede creer que "terminó" cuando quedan sets
-  pendientes; el progreso `done/total` se pierde y no se reanuda solo (hay que **re-llamar** `sync-all`).
+### BE-11 · Estado de `sync-status`/`refresh-variants-status` en memoria; restart silencioso
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAllStatus` **y** `refreshVariantsAllStatus`
+  (ambos `{running,jobId,total,done,startedAt,finishedAt}`; el segundo con `summary` agregado). Dependencia:
+  **devops/BullMQ (DEV-1)**. *(Alcance ampliado en `fix/variant-composition-regression` (M-35): el barrido
+  `refresh-variants-all` calca EXACTAMENTE el modelo de `sync-all` y comparte esta misma deuda — mismo estado
+  en memoria por-proceso, mismo `running` que queda colgado tras restart, mismo single-flight per-proceso.)*
+- **Estado actual:** el estado observable de los barridos `sync-all` **y** `refresh-variants-all` vive **en
+  memoria del proceso**. Si el proceso se reinicia a mitad del barrido, el estado vuelve a
+  `{running:false,total:0}` (en `refresh-variants-all` además `summary` regresa a `null`), la barra de progreso
+  de M2 desaparece y `finishedAt` **nunca** se setea → el operador puede creer que "terminó" cuando quedan sets
+  pendientes; el progreso `done/total` se pierde y no se reanuda solo (hay que **re-llamar** el barrido).
 - **Impacto:** medio. Aceptable como MVP (documentado en el propio código y en ARCHITECTURE DEV-1). No hay
-  fuga de datos ni doble importación (el upsert por `externalId` es idempotente y el barrido es resumible).
+  fuga de datos ni doble importación (el upsert por `externalId` es idempotente y ambos barridos son resumibles).
 - **Disparador:** al **cablear BullMQ** para catálogo (misma familia que D1/DEV-1). Solución: progreso
-  **persistido** en la cola + reintentos con backoff → cierra este ítem y el D1.
+  **persistido** en la cola + reintentos con backoff → cierra este ítem (para ambos barridos) y el D1.
 
 ### BE-12 · `.finally` muta `this.syncAllStatus` por referencia (seguro solo por el single-flight)
 - **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAll`/`runSyncAll` (el `.finally` del
@@ -449,16 +453,21 @@
   (particionado) / DEV-1.
 
 ### BE-21 · single-flight solo en memoria del proceso; el disparo manual evade la cola
-- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAllStatus.running` (~:234) +
-  `src/modules/catalog/admin-jobs.controller.ts:150` (`POST /admin/jobs/catalog-price-sync`).
-- **Estado actual:** `syncAllStatus.running` es estado **en memoria**; el disparo manual corre `syncAll()`
-  **in-process en el web dyno**, saltándose el worker BullMQ. En multi-instancia, un disparo manual puede
-  solaparse con el programado → **dos re-syncs concurrentes** → doble carga y agotamiento del rate-limit
-  (429). Idempotente: no corrompe datos.
-- **Impacto:** medio bajo condiciones multi-instancia: doble carga sobre pokemontcg.io y 429. Aceptable en
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAllStatus.running` **y**
+  `refreshVariantsAllStatus.running` +
+  `src/modules/catalog/admin-jobs.controller.ts:150` (`POST /admin/jobs/catalog-price-sync`). *(Alcance
+  ampliado en `fix/variant-composition-regression` (M-35): `refresh-variants-all` usa su propio `running`
+  como single-flight **per-proceso**, idéntico al de `sync-all` — misma limitación.)*
+- **Estado actual:** `syncAllStatus.running` (y `refreshVariantsAllStatus.running`) es estado **en memoria**;
+  el disparo manual corre `syncAll()`/`refreshVariantsAll()` **in-process en el web dyno**, saltándose el
+  worker BullMQ. En multi-instancia, un disparo manual puede solaparse con otro → **dos barridos concurrentes**
+  del mismo tipo → doble carga y agotamiento del rate-limit del upstream (429 pokemontcg.io / tcgcsv.com).
+  Idempotente: no corrompe datos.
+- **Impacto:** medio bajo condiciones multi-instancia: doble carga sobre el upstream y 429. Aceptable en
   instancia única (el single-flight en memoria basta).
 - **Disparador:** **multi-instancia o al cablear BullMQ para catálogo.** Mitigación: encolar también el
-  disparo manual, o lock en Redis (`SET NX`). Familia DEV-1/BE-11/BE-12.
+  disparo manual, o lock en Redis (`SET NX`). Familia DEV-1/BE-11/BE-12. Ver también **BE-77** (los dos
+  barridos NO son mutuamente exclusivos entre sí, solo dentro de su propio tipo).
 
 ### BE-22 · `persistMarketReference` guard `isManualOverride` es TOCTOU (Baja)
 - **Dónde:** `src/modules/pricing/pricing.service.ts:228-254`.
@@ -2510,6 +2519,44 @@
   `pptSetId`-numérico y el caché en memoria. **Owners:** **devops** registra S-D1/2/3 tras la primera corrida
   Railway; el **arquitecto** decide si/ cuándo materializar `tcgplayerGroupId` (toca `schema.prisma` → zona
   compartida). Mitigación intermedia: verificar el nombre del grupo también en la rama numérica S-D3.
+
+### BE-77 · `sync-all` y `refresh-variants-all` NO son mutuamente exclusivos server-side (Baja) — `fix/variant-composition-regression` (M-35)
+- **Dónde:** `backend/src/modules/catalog/catalog-sync.service.ts` → `syncAllStatus.running` y
+  `refreshVariantsAllStatus.running` son flags **separados**; cada barrido solo se serializa contra **sí
+  mismo** (single-flight per-tipo). El `FinishReconciler.reconcile` es el punto común: `sync-all` lo llama
+  al (re)importar cartas y `refresh-variants-all` lo llama al reconciliar `availableFinishes` desde
+  `CardProduct`.
+- **Estado actual:** hoy los DOS barridos **no** se pueden solapar en la práctica porque **el frontend los
+  serializa** (M2 no deja disparar uno con el otro corriendo). Server-side, en cambio, un cliente que pegue
+  directo a la API puede lanzar `sync-all` y `refresh-variants-all` a la vez: ambos pasan sus respectivos
+  single-flight (flags distintos) y pueden reconciliar **las mismas cartas** concurrentemente → contención /
+  last-write-wins en `FinishReconciler` (familia de BE-68, race read-compute-write). Idempotente: no corrompe
+  dinero ni duplica registros; el peor caso es un `availableFinishes` transitoriamente pisado que la siguiente
+  corrida corrige.
+- **Impacto:** bajo hoy (la serialización del front lo neutraliza en el flujo normal); latente si se opera por
+  API directa o en multi-instancia.
+- **Disparador:** **multi-instancia, disparo por API fuera del front, o al cablear BullMQ.** Dirección: un
+  **flag/lock compartido** entre ambos barridos (o serializar los dos contra un mismo mutex/Redis `SET NX`),
+  de modo que sean mutuamente exclusivos también server-side. Familia DEV-1/BE-11/BE-21/BE-68.
+
+### BE-78 · Tres copias del patrón "sweep en memoria + single-flight + fire-and-forget" (Media, refactor)
+- **Dónde:** `backend/src/modules/catalog/catalog-sync.service.ts` (`sync-all` → `syncAllStatus`/`runSyncAll`
+  y `refresh-variants-all` → `refreshVariantsAllStatus`/`runRefreshVariantsAll`) y el barrido masivo de
+  precios (`price-sync`, `PriceSyncStatusResponse`).
+- **Estado actual:** el MISMO patrón está **copiado tres veces**: un objeto de estado en memoria
+  `{running,jobId,total,done,startedAt,finishedAt(,summary)}`, un guard `if (running) return` como
+  single-flight, un lanzamiento `void run().finally(() => { running=false; finishedAt=... })` fire-and-forget,
+  y un getter que devuelve una copia del estado para polling. Cada copia arrastra por separado las mismas
+  deudas (BE-11 restart silencioso, BE-12 cierre por referencia, BE-21 single-flight per-proceso). Divergen
+  en detalles menores (p. ej. `refresh-variants-all` añade `summary` nullable; `price-sync` añade presupuesto
+  del proveedor), lo que multiplica la superficie de bugs sutiles al tocar uno y no los otros.
+- **Impacto:** medio de mantenibilidad (no de correctness): un fix o endurecimiento (persistencia, lock
+  compartido, jobId-check en el `finally`) hay que aplicarlo 3 veces y es fácil olvidar una.
+- **Disparador / dirección:** **al cablear BullMQ (DEV-1/BE-11).** Extraer un helper reutilizable
+  `InMemorySweep` (estado + single-flight + fire-and-forget + getter de status) parametrizado por el trabajo
+  por-ítem y el acumulador de `summary`, y hacer que los tres barridos lo consuman. Pagar **junto con
+  DEV-1/BE-11** cuando se persista el progreso en la cola (el refactor y la migración a BullMQ tocan el mismo
+  código).
 
 ### Stream A v1.27 (P-13/P-15/P-12) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
 

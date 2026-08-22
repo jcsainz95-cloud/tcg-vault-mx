@@ -1342,7 +1342,22 @@
         "sweepDone": "Sync complete: {total} set(s) processed.",
         "syncAllForceConfirmTitle": "Re-sync the entire catalog (force)",
         "syncAllForceConfirmBody": "This reprocesses the ENTIRE catalog, including already imported sets, to repopulate metadata, cards and variants/finishes. It does NOT repopulate prices (use \"Update prices now\" or the per-set \"Full sync\"). It's a heavy operation that may take a while. Continue?",
-        "syncAllForceConfirmCta": "Yes, re-sync everything"
+        "syncAllForceConfirmCta": "Yes, re-sync everything",
+        "refreshVariantsAll": "Refresh variants + prices for EVERYTHING (TCGCSV only)",
+        "refreshVariantsAllHint": "\"Refresh variants + prices for EVERYTHING (TCGCSV only)\" runs the same refresh as the per-set action, but across the ENTIRE already-imported catalog: it repopulates variants/finishes and prices using TCGCSV alone. It does NOT re-import cards and does NOT depend on pokemontcg.io. Use it to backfill the whole catalog's composition and prices when pokemontcg.io is unavailable. Progress shows in the catalog sync bar.",
+        "refreshVariantsAllRunning": "Refreshing the ENTIRE catalog's variants and prices from TCGCSV… it does not re-import cards or use pokemontcg.io. It runs in the background; progress shows in the bar below and may take several minutes.",
+        "refreshVariantsAllSweepRunning": "Refreshing catalog from TCGCSV… {done}/{total} sets.",
+        "refreshVariantsAllSweepRunningHint": "Runs in the background; you can keep working. Progress and the list update automatically.",
+        "refreshVariantsAllSweepDone": "Variants + prices refresh complete: {total} set(s) processed.",
+        "refreshVariantsAllSummary": "{setsOk}/{setsTotal} set(s) refreshed · {products} product(s)/variant(s) updated · {prices} price(s) updated.",
+        "refreshVariantsAllDone": "The entire catalog's variants + prices were refreshed from TCGCSV.",
+        "refreshVariantsAllPartial": "Full-catalog refresh from TCGCSV finished with a partial result.",
+        "refreshVariantsAllPending": "{pending} product(s) were left without a price and remain in the pending queue.",
+        "refreshVariantsAllFailuresTitle": "{count} set(s) failed and were NOT refreshed:",
+        "refreshVariantsAllError": "Could not refresh the entire catalog from TCGCSV.",
+        "refreshVariantsAllConfirmTitle": "Refresh variants + prices for the ENTIRE catalog (TCGCSV only)",
+        "refreshVariantsAllConfirmBody": "This refreshes the variants/finishes and prices of ALL already-imported sets using TCGCSV alone. It does NOT re-import cards and does NOT use pokemontcg.io. It's a massive operation that may take several minutes and runs across the whole catalog. Continue?",
+        "refreshVariantsAllConfirmCta": "Yes, refresh the whole catalog"
       },
       "buylistRules": {
         "title": "Buylist price by rarity and finish",
