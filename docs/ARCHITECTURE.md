@@ -2,7 +2,12 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.29-tcgcsv-productos-por-variante (MVP, plataforma en producción). Fecha: 2026-08-22. Rework de la derivación de composición y precio de variantes de singles: **1 carta ↔ N productos TCGplayer** por `productId` EXACTO, TCGCSV como fuente ÚNICA de estructura + precio por variante, PPT en fallback. Spec normativa en §4.27; migración **M-31** (§11).
+> Estado: v1.30-buylist-quote-por-producto (MVP, plataforma en producción). Fecha: 2026-08-22. La línea de
+> cotización/venta del buylist gana `productId?` OPCIONAL para apuntar a un `CardProduct` separado (Deck Exclusive/
+> promo) con su propio precio, sin fusionarse con la carta de set. ADITIVO/retrocompatible; reusa M-31 para leer
+> precios; migración aditiva menor **M-32** (§11). Spec normativa en §4.29. **Base previa:** v1.29 (rework de
+> composición y precio de variantes de singles: **1 carta ↔ N productos TCGplayer** por `productId` EXACTO, TCGCSV
+> fuente ÚNICA de estructura + precio por variante, PPT en fallback; §4.27; migración **M-31**, §11).
 >
 > **Changelog v1.29-tcgcsv-productos-por-variante (2026-08-22, arquitecto — DISEÑO EN PAPEL, backend implementa):**
 > Corrige la causa raíz de las variantes fantasma que ha regresado 3 veces: hoy el modelo asume **1 carta = 1 producto
@@ -5517,6 +5522,82 @@ crear ni borrar casillas — solo afecta a QUÉ regla de precio engancha.
 
 ---
 
+### 4.29 Línea de buylist por `productId` — cotizar/vender un `CardProduct` separado (v1.30, NORMATIVO)
+
+> **Propósito.** Cerrar el hueco que el front detectó tras v1.29 (§4.27): la presentación ya expone los **productos
+> separados** (`separateProducts: CardProductDTO[]`, `kind ∈ {deck_exclusive, promo}`), pero la **línea de
+> cotización/venta** del buylist se identificaba SOLO por `(cardId, finish)` — `BuylistQuoteItemDTO` no tenía cómo
+> apuntar a un `productId`. Por eso un producto separado (Deck Exclusive «Voltaic Lightning Energy 084/084», productId
+> **707029**, distinto del set_base **704841** que comparte el número 084/084) **no podía cotizarse ni ir al carrito
+> como línea propia** sin fusionarse con la carta de set. El PO confirmó que SÍ quiere operarlos como su propio
+> producto, con su propio precio. Cambio **ADITIVO y RETROCOMPATIBLE**; reusa el modelo M-31 (§4.27b), no toca §4.27/
+> §4.28 en su sustancia (esta sección solo AÑADE una llave a la línea de buylist).
+
+#### (a) Qué se añade (contrato)
+
+`productId?: number` OPCIONAL en la **línea** de buylist — es el **mismo** `productId` de TCGplayer que el front ya
+recibe en `CardProductDTO.productId` (`separateProducts`), es decir `CardProduct.tcgplayerProductId`, **no** el UUID
+interno `CardProduct.id`. Se añade en (ver API_CONTRACT §DTOs y §M5):
+
+- `BuylistQuoteItemDTO` (batch `POST /buylist/quote/batch`) y `Req` de `POST /buylist/quote` (por-carta) — **entrada**.
+- `BuylistQuotePayload` (respuesta por-carta y por-ítem del batch) — **eco**.
+- `items[]` de `POST /buylist/requests` y `SellItemDTO` — **entrada + snapshot**.
+
+#### (b) Regla de resolución (server-side, SEC-A1 intacto)
+
+| `productId` | Identidad de la línea | Whitelist de acabado | Referencia de mercado | Regla de precio |
+|---|---|---|---|---|
+| **ausente** (default) | producto de **set_base** por `(cardId, finish)` — **comportamiento v1.29 idéntico** | `Card.availableFinishes` | `PriceReference` de `(cardId, raw, raw:NM, finish)` como hoy | `rarityCanonical(carta) × finish` (§4.28d) |
+| **presente** | ESE `CardProduct` (resuelto por `tcgplayerProductId == productId`) | **`CardProduct.finishes`** | `PriceReference` filtrada por **ese `cardProductId`** (precio propio del producto, §4.27b/e) | `rarityCanonical(carta) × finish del producto` |
+
+- **Resolución del acabado con `productId`:** el `finish` se valida contra `CardProduct.finishes`. Si se **omite** y el
+  producto tiene **un solo** acabado ⇒ se default-ea a ese; con **>1** acabado ⇒ `finish` es **obligatorio** (falta o
+  no pertenece ⇒ `FINISH_NOT_AVAILABLE`). El producto ya define su(s) acabado(s); el cliente no puede inventar uno.
+- **La rareza NO cambia de fuente:** sale de la carta (`rarityCanonical`), no del producto — encaja con `PriceRuleSet`
+  (§4.28d): rareza-de-la-carta selecciona `rarityRules`, acabado-del-producto selecciona `finishRules`. El gate premium
+  (`isPremiumRarity`) y toda la derivación server-side del monto siguen idénticos (el cliente jamás manda el monto).
+- **Ancla exacta:** el `productId` → `CardProduct` → `PriceReference.cardProductId` es el MISMO eje que M-31 metió en
+  la `@@unique [cardId, productType, gradeKey, finish, capturedDate, cardProductId]` (§4.27b). Por eso dos productos de
+  la misma carta con el mismo `Finish` (p. ej. set_base `holofoil` y promo `holofoil`) resuelven a precios DISTINTOS
+  sin colisión.
+
+#### (c) Money-safe y validación (guards H1/H2/H3 + MoneyOutGuard intactos)
+
+- **Producto sin precio en ninguna fuente** ⇒ `quote.status="precio_pendiente"` / `quotedPriceCents=null` / celda «—»
+  — **jamás 0** (misma invariante H1/H2/H3 de §4.27e). Una regla `fixed` siempre cotiza; una `pct` sin referencia del
+  producto cae en `precio_pendiente`, exactamente como el set_base.
+- **`productId` inexistente** ⇒ `PRODUCT_NOT_FOUND` (batch: `ok:false` por-ítem; por-carta/`requests`: `422`).
+- **`productId` que NO cuelga del `cardId`** ⇒ `PRODUCT_CARD_MISMATCH` — **rechazo validado, NUNCA fusión silenciosa**
+  con la carta de set (un `productId` de otra carta no se «reinterpreta» como el set_base del `cardId` enviado).
+- **El pago no se debilita:** `POST /buylist/quote[/batch]` sigue siendo READ-ONLY y anónimo (no persiste, no escala);
+  la creación de solicitud escala una línea sin precio a `PendingPriceEntry` (con su `cardProductId`, ver (d)); el pago
+  SPEI sigue tras **`MoneyOutGuard`** (`super_admin`) y no puede liquidar una línea en `precio_pendiente`.
+
+#### (d) Unicidad de línea y persistencia (migración ADITIVA M-32)
+
+- **Llave lógica de la línea:** gana `productId` → **`(cardId, finish, productId ?? base)`**. Dos líneas que comparten
+  `(cardId, finish)` pero difieren en `productId` son **DISTINTAS**: no se fusionan ni deduplican (el modelo de buylist
+  ya es **una línea por carta física**, §4.16b, sin `qty`). `productId` ausente = línea `base` (set_base). En el batch,
+  la llave de **correlación** sigue siendo el `index` 0-based (ya robusta a repeticiones).
+- **Persistencia (M-32, aditiva, nullable — análoga a como v1.6-finish añadió `SellRequestItem.finish` en M-19):**
+  - `SellRequestItem.cardProductId Int?` — snapshot del `tcgplayerProductId` cotizado; se propaga al `InventoryItem`
+    al convertir en M5 (la pieza queda ligada a ESE producto, no al set_base). `null` = línea de set_base.
+  - `PendingPriceEntry.cardProductId Int?` — entra a la clave lógica de la cola: una entrada de producto separado NO se
+    resuelve al fijar el precio del set_base (money-safe; misma doctrina que `finish` en v1.8-ronda-c). `null` = base.
+  - **No** se dropea nada; filas viejas quedan con `cardProductId = null` = set_base (retrocompatible).
+- La **lectura de precios** no necesita migración: reusa `PriceReference.cardProductId` de M-31. La resolución de
+  `CardProduct` por `tcgplayerProductId` reusa el `@unique` ya existente (§4.27b).
+
+#### (e) Alcance y no-alcance
+
+- **En alcance:** la **línea de buylist** (cotizador público + solicitud autenticada + su proyección `SellItemDTO`).
+- **Fuera de alcance (y por qué):** el **carrito de storefront** (compra cliente→plataforma) NO necesita este campo —
+  se identifica por `inventoryItemId` (pieza física), que YA es un producto concreto; su precio de venta se resuelve
+  por el `PriceReference.cardProductId` de la pieza (M-31), sin tocar el contrato de checkout. `MasterSetVariantDTO`,
+  `separateProducts` y la valuación de bóveda tampoco cambian de forma (v1.29 ya los cubre).
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -6103,6 +6184,24 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.30-buylist-quote-por-producto (nueva — M-32: línea de buylist por `productId`)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-32** frente a cualquier otro stream que toque
+el schema. Es **aditiva pura** (dos columnas nuevas nullable; sin tablas, sin enums, sin backfill, sin `DROP`): filas
+viejas quedan con `cardProductId = null` = línea de set_base (retrocompatible). Segura con la app corriendo. La
+**resolución de precios NO necesita migración**: reusa `CardProduct` + `PriceReference.cardProductId` de M-31 (§4.27b).
+Spec en §4.29.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-32 | `SellRequestItem.cardProductId Int?` | Columna nueva nullable | Add column | Snapshot del `tcgplayerProductId` cotizado cuando la línea es un producto separado (deck_exclusive/promo, §4.29). Se propaga al `InventoryItem` al convertir (M5). `null` = línea de set_base. Análoga a `SellRequestItem.finish` (M-19). |
+| M-32 | `PendingPriceEntry.cardProductId Int?` | Columna nueva nullable | Add column | Entra a la clave lógica de la cola de precio pendiente: resolver el set_base NO cierra la del Deck Exclusive (money-safe, §4.29d). `null` = base. |
+
+> **Sin cambios** en `CardProduct`/`PriceReference` (M-31 ya los deja listos), ni en `InventoryItem` (la pieza
+> convertida hereda el `cardProductId` del `SellRequestItem` vía el flujo M5; si el backend decide materializarlo como
+> columna propia de `InventoryItem`, sería una sub-decisión aditiva a anotar en `TECH_DEBT.md`, no la exige el
+> contrato). El **carrito de storefront no cambia** (se identifica por `inventoryItemId`, §4.29e).
 
 ### v1.29-tcgcsv-productos-por-variante (nueva — M-31: 1 carta ↔ N productos + rareza canónica)
 
