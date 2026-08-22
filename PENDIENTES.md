@@ -479,6 +479,27 @@ Del lado del humano (cuando pueda):
 
 ---
 
+### P-27 · Sets multi-parte se muestran separados (Celebrations = 25 en vez de 50)
+- **Observado por el humano (2026-08-22):** Celebrations (25 aniversario) muestra **25 cartas cuando son 50**.
+  Confirmado escenario **A**: ambas partes SÍ están importadas pero como **sets separados** — el principal
+  `cel25` (25) y la **Classic Collection `cel25c`** (25, los reprints tipo Charizard Base Set). No falta
+  data; es **presentación/modelo**.
+- **Causa raíz:** en pokemontcg.io Celebrations son **dos set-ids distintos**. Nuestro código solo maneja
+  subsets con **prefijo dentro del mismo set** (TG/GG/SV → al final, `card-order.ts`), NO subsets que son
+  un **set-id propio**. No hay relación padre↔subset ni agrupación de display.
+- **NO es regresión** del fix de variantes (M-31..M-35); es un tema de catálogo independiente.
+- **Patrón, no caso único:** afecta a varios sets de aniversario/especiales (Celebrations Classic Collection,
+  "Shiny Vault" con id propio tipo Shining Fates `swsh45sv` / Hidden Fates `sma`, etc.). Resolver el modelo,
+  no parchar Celebrations.
+- **Decisión de producto pendiente (del humano):** ¿"Celebrations" se ve como **un master set de 50**
+  (principal + Classic Collection juntos, quizá con separador visual) o separados-pero-enlazados? ¿Mapa
+  padre→subset? ¿Impacto en precio/inventario/bóveda (a qué "set" pertenece cada carta)?
+- **Roles:** product-owner (aterriza requisito en PROJECT.md → aprobación humano) → arquitecto (modelo
+  padre/subset + contrato del master-set combinado) → backend + frontend. **Registrado como pendiente
+  2026-08-22 por decisión del humano** (no frenar el rollout de variantes en curso).
+
+---
+
 ## En curso / Hecho (referencia)
 - **Gráfica pública de valor de set** — hecha y desplegada; falta encenderla con datos (runbook `DEVOPS_NOTES §17`).
 - **Fix de seguridad (cifrado INE) + reparación de CI** — ✅ fusionado a `main`. Deuda de CI (poda de imagen

@@ -55,10 +55,6 @@ class FxDto {
   @IsOptional() @IsInt() @Min(0) bufferPct?: number;
 }
 
-class RarityMapDto {
-  entries!: { rarity: string; category: string }[];
-}
-
 /**
  * v1.29 (§4.28d): reemplaza la tabla de reglas de buylist en DOS EJES `PriceRuleSet`
  * (`rarityRules` por rareza canónica + `finishRules` por acabado) + fallback opcional. La validación
@@ -124,6 +120,13 @@ export class PricingController {
     private readonly variantControls: VariantControlsService,
   ) {}
 
+  /**
+   * @deprecated (v1.30) — «sync de precios (bóveda)» del UI M2. El front lo retira. NO se borra
+   * todavía porque `PriceSyncJobService.run()` sigue siendo el ejecutable del job PROGRAMADO
+   * `price-sync` (BullMQ, cron `15 6 * * *`, ver `scheduler.service.ts`), que SÍ depende del servicio.
+   * Solo el DISPARO MANUAL por este endpoint (`.enqueue`) queda deprecado; retirarlo definitivamente es
+   * follow-up del arquitecto una vez confirmado que ningún cliente lo llama. Ver docs/BACKEND_NOTES.md.
+   */
   @Post('sync')
   async sync(@Body() dto: SyncDto, @CurrentUser('id') userId: string) {
     const result = await this.priceSync.enqueue(dto.scope ?? 'all_vault', dto.cardIds);
@@ -200,33 +203,6 @@ export class PricingController {
   @Get('card/:cardId')
   history(@Param('cardId') cardId: string) {
     return this.pricing.priceHistory(cardId);
-  }
-
-  /**
-   * API_CONTRACT §M2: el GET usa el MISMO envelope que el body del PUT,
-   * `{ entries: [{ rarity, category }, ...] }` — NO un `Record<string,string>` plano.
-   * Internamente la config se persiste como mapa; aquí se proyecta a `entries`.
-   */
-  @Get('rarity-map')
-  async getRarityMap() {
-    const raw = (await this.settings.getRaw(SettingKey.RARITY_MAP)) as Record<string, string> | null;
-    const map = raw ?? {};
-    const entries = Object.entries(map).map(([rarity, category]) => ({ rarity, category }));
-    return { entries };
-  }
-
-  @Put('rarity-map')
-  async putRarityMap(@Body() dto: RarityMapDto, @CurrentUser('id') userId: string) {
-    const map: Record<string, string> = {};
-    for (const e of dto.entries) map[e.rarity] = e.category;
-    await this.prisma.configSetting.upsert({
-      where: { key: SettingKey.RARITY_MAP },
-      create: { key: SettingKey.RARITY_MAP, valueJson: map, updatedBy: userId },
-      update: { valueJson: map, updatedBy: userId },
-    });
-    await this.audit.log({ actorUserId: userId, action: 'pricing.rarity_map.update' });
-    const entries = Object.entries(map).map(([rarity, category]) => ({ rarity, category }));
-    return { entries };
   }
 
   // ---------------- Precio de buylist por RAREZA (v1.3.1, §E.1) ----------------

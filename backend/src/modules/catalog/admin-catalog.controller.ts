@@ -84,6 +84,34 @@ export class AdminCatalogController {
     return this.sync.getSyncStatus();
   }
 
+  /**
+   * POST /admin/catalog/unify-rarities — backfill LOCAL de `Card.rarityCanonical` (money-safe).
+   * Re-deriva `rarityCanonical = normalizeRarity(rarity)` para toda carta con `rarity != null` (repara
+   * la regresión M-31 que fragmentaba el editor de reglas). NUNCA llama a pokemontcg.io/TCGCSV y NO
+   * toca precios/`PriceReference`/composición — SOLO reescribe una columna derivada de columna local.
+   * Síncrono (200) porque es un UPDATE de UNA columna con universo de rarezas distintas = decenas;
+   * idempotente (segunda corrida = 0 updates). Auditado (`catalog.unify_rarities`). super_admin (hereda
+   * el @Roles del controller). Ver `CatalogSyncService.unifyRarities` y docs/BACKEND_NOTES.md.
+   */
+  @Post('unify-rarities')
+  @HttpCode(200)
+  async unifyRarities(@CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.sync.unifyRarities();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'catalog.unify_rarities',
+      entityType: 'Card',
+      after: {
+        cardsProcessed: res.cardsProcessed,
+        cardsUpdated: res.cardsUpdated,
+        distinctCanonical: res.distinctCanonical,
+        unmappedCount: res.unmapped.length,
+      },
+    });
+    return res;
+  }
+
   @Post('sync')
   @HttpCode(202)
   async doSync(@Body() dto: SyncDto, @CurrentUser() user: { id: string; role: Role }) {

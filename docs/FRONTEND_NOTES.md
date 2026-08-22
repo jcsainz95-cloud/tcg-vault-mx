@@ -4,6 +4,111 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §20 · Master Set combinado multi-parte (P-27, v1.33) (2026-08-22, branch `fix/variant-composition-regression`)
+
+Implementa la parte FRONTEND de P-27 contra el contrato **v1.33-master-set-multipart** y ARCHITECTURE
+§4.31. Un set multi-parte (Celebrations `cel25` + Classic Collection `cel25c` = 50) se presenta como **UN
+master combinado**. **Todo aditivo/retrocompatible**: un set de una sola parte **no cambia**. Money-safe:
+el mapa es solo presentación; el front nunca lo trata como fuente de verdad (lee `partSetId`/`parts` del
+DTO, no re-llavea nada).
+
+- **Tipos nuevos (`src/types/contract.ts`, aditivos):** `SetPartDTO`; `MasterSetCardCellDTO += { partSetId?,
+  partLabel? }`; `MasterSetBinderResponse += { parts?, canonicalSetId? }`; `MasterSetSummaryDTO += {
+  partSetIds? }`; `CardSetDTO += { partSetIds? }` (para el plegado de dropdowns). Todos opcionales.
+- **Binder combinado (`MasterSetBinder.tsx`):** cuando la respuesta trae `parts`, las celdas se agrupan por
+  `partSetId` en **secciones por bloque** (principal primero, luego cada subset en su `order`) con un
+  **separador** `PartSeparator` (etiqueta mono en versalitas + la regla del sistema `--rule` + subtotal de
+  cartas del bloque — sin cajas ni sombras, DESIGN_SYSTEM §2.2). El re-orden en cliente pasó de
+  `compareCardNumber` a **`(partOrder, compareCardNumber)`** para que los bloques no se intercalen (la
+  colisión de numeración entre partes —dos "#1"— queda separada por bloque, §4.31f). **Sin `parts`** ⇒ una
+  sola sección **sin encabezado** ⇒ render idéntico a hoy.
+- **Completitud (encabezado «cubiertas/esperadas · %»):** se sigue derivando de `cells` (suma de
+  expected/coveredVariantCount). Como el fan-in ya trae las celdas de todas las partes, el encabezado
+  refleja las **50** sin código extra. Money-safe visual intacto (sin precio → "—", nunca $0).
+- **`canonicalSetId` (navegación):** si el binder se pidió por un **subset**, el backend normaliza al
+  principal y devuelve `canonicalSetId`. El binder toma el **nombre del principal** (`data.set.name`) para
+  el título y notifica `onCanonicalResolved`; `MasterSetPanel` **canoniza `selectedSet`** (id+nombre del
+  master) para que la selección/estado —y cualquier URL derivada— apunte al set combinado (evita el binder
+  roto de 25). En un state-driven panel no hay `router.replace`; el estado ES la fuente de la vista.
+- **Índice / dropdowns (entrada combinada ÚNICA):** el mock de `mockMasterSetIndex` **pliega** el subset en
+  la fila del principal (suma agregados → 50, recomputa %, añade `partSetIds`, excluye el subset como fila).
+  `MasterSetIndex.tsx` pinta un badge **«Combinado»** cuando `partSetIds.length > 1`. Los dropdowns de
+  **Compra** (`getSets`/`GET /catalog/sets`) y **cotizador** (`listBuylistSets`/`GET /buylist/sets`) usan
+  `foldSetsForDropdown` (Celebrations una vez, con `partSetIds`); `searchBuylistCards`/`GET /buylist/cards`
+  **expande** `setId` del principal a `IN partSetIds` (`expandSetIdFilter`) para listar las cartas de todas
+  las partes. **CA-71:** si el principal no está importado, el subset **no** se pliega (queda como su set).
+- **Mock (`src/lib/mock/fixtures.ts`):** mapa curado `MASTER_SET_GROUPS` (espeja
+  `backend/src/config/master-set-groups.ts`) + helpers (`masterPartSetIds`, `normalizeMasterSetId`,
+  `expandSetIdFilter`, `foldSetsForDropdown`). Sets `cel25`/`cel25c` + 25 cartas holofoil por parte
+  (numeración colisiona a propósito). `mockMasterSetBinder` hace fan-in por partes con `partSetId`/`parts`/
+  `canonicalSetId`; `SET_PRINTED_TOTAL` = 25 por parte → binder combinado reporta Σ = 50.
+- **Gates:** `tsc --noEmit` limpio, `eslint` limpio, `next build` OK, `vitest run` **572 verdes** (568
+  base + 4 nuevos en `MasterSet.test.tsx`: binder combinado 50 con separador; set de una sola parte sin
+  cambio; plegado del índice/dropdown con entrada combinada única; navegación por `canonicalSetId`).
+- **Desalineaciones con el contrato:** ninguna. Los DTOs consumidos (`parts`, `partSetId`/`partLabel`,
+  `canonicalSetId`, `partSetIds`) coinciden con el shape v1.33 (§DTOs líneas 1388-1416). El backend implementa
+  el mismo contrato en paralelo; los tipos/mocks del front están listos para conmutar a `useMocks=false`.
+
+## §19 · Reorganización del panel M2 (catálogo/precios) + «Unificar rarezas» (2026-08-22, branch `fix/variant-composition-regression`)
+
+Implementa `DESIGN_SYSTEM.md §19` (v1.9). Reordena las 9 acciones de import/precio de `M2View.tsx` en
+**tres grupos con peso decreciente**, ancla el nuevo **«Unificar rarezas»** al editor de reglas por
+rareza, retira lo muerto/legacy y reencuadra el selector de proveedor. **Cero cambios de contrato**
+salvo el endpoint aditivo de unify (ya especificado por backend en `BACKEND_NOTES §0-ter`).
+
+- **Tres grupos (`M2View.tsx`), debajo de los editores de precio:**
+  - **G1 «Datos (rápido · TCGCSV)»** — `<section role="group" aria-labelledby>` destacado (eyebrow +
+    h2 + subtítulo con la garantía «funcionan siempre»). Acción global **F** (`refreshVariantsAll`,
+    `secondary`, confirmación) con etiqueta corta `catalog.refreshVariantsAllShort`; el «(solo TCGCSV)»
+    se movió del botón al subtítulo del grupo. **La tabla de sets ÚNICA vive aquí** (anclada a Datos): su
+    acción por-fila **primaria es I** (`refreshVariants`, `catalog.refreshVariantsShort`). El feedback
+    de las acciones por-fila (I y H) se pinta junto a la tabla para que sea visible.
+  - **G2 «Catálogo (cartas nuevas · usa fuente de catálogo)»** — `role="group"` con **Banner `info`
+    persistente** (`groups.catalog.sourceWarning`, `role=status`) que avisa la dependencia de
+    pokemontcg.io. Acciones globales **D** (`syncAll`) + **C** (`backfill`). Acción por-fila **G**
+    (`catalogSync`, «Importar/Re-sincronizar»), secundaria. **Degradación reactiva (§19.3):** ante
+    fuente no disponible (404/405) el warning ahora **reencamina a Datos** (`groups.catalog.sourceDownReroute`).
+  - **G3 «Avanzado»** — `<details>` nativo **plegado por defecto** (`groups.advanced.summary`). Contiene
+    la global **E** (`syncAllForce`, confirmación). La por-fila **H** (`fullSync`) se movió a un menú
+    overflow **«Más ▾»** por-fila (`RowMoreMenu`, `aria-haspopup="menu"` + `aria-expanded`, `Esc`/click
+    fuera cierran y devuelven foco; H es un `menuitem` con label completo). Su feedback se pinta en G1
+    (junto a la tabla) para que no quede oculto tras el `<details>`.
+  - **Orden por-fila:** I (1ª) → G (2ª) → H (overflow), reflejando la jerarquía de grupos.
+- **«Unificar rarezas» (§19.5):** botón `secondary sm` (`Wand2`) **en el encabezado del editor de reglas
+  de buylist** (Sección 4), no en Datos — el «por qué» solo se entiende viendo la lista fragmentada que
+  limpia. Confirmación one-shot (modal). Consume `POST /admin/catalog/unify-rarities` (200, sin body) →
+  `{ ok, cardsProcessed, cardsUpdated, distinctCanonical, unmapped: [{ raw, canonical, count }] }`
+  (`UnifyRaritiesResponse` en `contract.ts`; wrapper `unifyRarities()` + mock en `api.ts`). Muestra un
+  **resumen honesto** (cuántas actualizó + lista de `unmapped` para que el operador sepa qué añadir al
+  catálogo canónico). Al éxito **invalida** `buylist-rarities`, `sales-rarities`, `buylist-rules`,
+  `sales-rules` para recomponer el editor sin duplicados. Money-safe: local, one-shot, no toca precios.
+- **Retirados (§19.6):** sección **B** «Sync de precios de bóveda» (`syncMutation`/`sync.launch`) — se
+  eliminó el UI, el wrapper `syncPricing` y el tipo `PricingSyncResponse` (backend deja el endpoint
+  `@deprecated`, no lo borra: su servicio es compartido con el cron `price-sync`). Restos de **`rarity-map`**
+  (`RarityMapEntryDTO` en `contract.ts`, `mockRarityMap`/`setMockRarityMap` en fixtures, claves i18n
+  `admin.m2.rarityMap.*` y `admin.m2.sync.*` + `advancedOps.*`). Verificado que nada más los consumía.
+- **Selector de proveedor (§19.7):** fila fija no editable **«FUENTE PRIMARIA: TCGCSV»** + Select
+  reetiquetado **«Proveedor de respaldo (fallback)»** + línea de **precedencia** «TCGCSV (primario) →
+  respaldo: {selección} → override manual». Sin cambio de contrato (el dial `priceProvider` y sus
+  valores no cambian). Claves nuevas `priceIngest.{primarySourceLabel,primarySourceValue,
+  primarySourceHint,fallbackLabel,fallbackHint,precedenceHint}`; `providerLabel`/`providerHint` retiradas.
+- **Estados/accesibilidad (§19.8/§19.9):** se conserva la serialización (`catalogBusy`/`batchBusy`/
+  `otherPerSetPending`) y el keep-alive; confirmaciones para E, F y Unificar rarezas; `role="group"` por
+  grupo, `<details>` para Avanzado, kebab con `aria-haspopup="menu"`; **motivos de deshabilitado en
+  `aria-describedby`** (spans `sr-only` `m2-reason-needs-import` / `m2-reason-busy` + `title`).
+- **i18n:** claves nuevas `admin.m2.groups.*`, `admin.m2.unifyRarities.*`, short labels de botón
+  (`catalog.refreshVariantsShort/refreshVariantsAllShort/fullSyncMenuItem/rowMoreAria`), `catalog.setsEmpty`,
+  `catalog.busyReason`. Paridad ES/EN verificada (`i18n-parity.test.ts` verde).
+- **Gates:** `tsc --noEmit` ✅ · `next lint` ✅ (0 warnings) · `vitest run` ✅ **568/568** (M2 67/67, con
+  tests nuevos/ajustados: grupos renderizados, «Unificar rarezas» dispara el endpoint + muestra `unmapped`
+  + invalida rarezas, B/rarity-map ausentes, selector reencuadrado, H en menú «Más», F con etiqueta corta)
+  · `next build` ✅.
+- **Solicitud al arquitecto (no bloqueante):** el endpoint `POST /admin/catalog/unify-rarities` está
+  implementado por backend pero **aún no formalizado en `docs/API_CONTRACT.md`** (backend lo dejó anotado
+  en `BACKEND_NOTES §0-ter` como «pendiente de formalizar»). El front ya lo consume con el shape descrito;
+  conviene que el arquitecto lo incorpore al contrato oficial. También queda pendiente (§19.11) la señal
+  de salud de la fuente de catálogo (`source-health`) para volver el banner de G2 proactivo en vez de reactivo.
+
 ## P-13 · «Refrescar variantes + precios (solo TCGCSV)» por set en M2 (2026-08-22, branch `fix/variant-composition-regression`)
 
 Tercera acción por-fila en el **Sync de catálogo** de M2 que refresca variantes/acabados y precios
@@ -4831,3 +4936,71 @@ pokemontcg.io está caído.
 del flujo batch async: POST 202 solo arranca + resumen desde el STATUS PROPIO, barra de progreso
 done/total desde status, cancelar no llama, `failures`/pendientes parcial money-safe, error de arranque
 legible) ✓ · `next build` ✓.
+
+## TD-1 · Refactor de `M2View.tsx` (monolito → secciones) — refactor PURO (2026-08-22, rama `fix/variant-composition-regression`)
+
+Paga la deuda **TD-1** (y de paso **FE-14**): `M2View.tsx` era un monolito de **2.235 líneas** con ~20
+hooks y editores inline clonados. Se partió en componentes por sección **sin cambiar comportamiento, UX,
+i18n, accesibilidad ni disparos de endpoint** — es refactor de ESTRUCTURA, no de features. `M2View.tsx`
+quedó como **orquestador de 56 líneas**.
+
+### Qué se extrajo (`frontend/src/app/[locale]/(admin)/admin/m2/sections/`)
+- **`shared.tsx`** — helpers money-safe (`pesosToCents`, `sanitizeDecimalInput`, `isSaveableRuleValue`,
+  `isEndpointMissing`), constantes (`RULE_MODES`, `SALES_RULE_MODES`, `PRICE_PROVIDERS`, `SEALED_SUBTYPES`,
+  `FINISH_RULE_KEYS`) y los componentes ya-extraídos `SyncProgress` / `RowMoreMenu` (movidos tal cual).
+- **`PriceIngestSection.tsx`** — Sección 1 «Actualizar precios» (disparo del ingest + barra de progreso del
+  barrido de PRECIOS). Presentacional; consume el hook compartido.
+- **`PendingQueueSection.tsx`** — Sección 2 (cola pendiente en dos buckets venta/compra) **+ el modal de
+  override manual**. Dueña de sus queries `['pending-prices', ...]` y su mutación de override.
+- **`FxSection.tsx`** — Sección 3 (FX: tasa/colchón + override + refresco Banxico). Autocontenida.
+- **`PriceProviderSection.tsx`** — Sección 3b (selector de proveedor de respaldo del ingest, §19.7).
+- **`BuylistRulesSection.tsx`** — Sección 4 (reglas de compra, modelo NUMÉRICO) **+ «Unificar rarezas»
+  anclado a este editor (§19.5) y su modal de confirmación**. Renderiza `<RuleAxisEditor>`.
+- **`SalesRulesSection.tsx`** — Sección 5 (reglas de venta, modelo TEXTO-CRUDO + validación S-P1-1).
+  Renderiza `<RuleAxisEditor>`.
+- **`SealedSpreadsSection.tsx`** — Sección 5b (spreads de venta del sellado por presentación).
+- **`CatalogSyncSection.tsx`** — los 3 grupos §19 (Datos/Catálogo/Avanzado) + tabla ÚNICA de sets (jerarquía
+  por-fila I→G→H con `RowMoreMenu`) + los spans sr-only de motivos + los modales de re-sync forzado y
+  refresh-variants-all. Presentacional; consume el hook compartido.
+
+### Dedup clave: `<RuleAxisEditor>` (colapsa los clones buylist↔venta)
+Los editores de compra y venta eran clones ~1:1 del patrón **dos ejes (rareza canónica + acabado) con
+borrador/efectivo/fallback**. Se extrajo un `RuleAxisEditor` **presentacional** que contiene SOLO la
+estructura visual común (input de fallback, cabeceras + listas de ambos ejes, Select modo + Input valor +
+Badge origen por fila, save/cancel, banners de reglas-no-disponibles/guardado/error). Las diferencias de
+comportamiento que NO se pueden unificar sin cambiar semántica se mantienen en cada sección vía
+**view-models de fila** (`RuleAxisRarityRow` / `RuleAxisFinishRow`) y callbacks:
+- **buylist** guarda el valor **numérico** (centavos si `fixed`, número si `pct`), usa `.replace(/[^0-9.]/g,'')`
+  y **PRESERVA** el valor al cambiar de modo; sin `pctHint` ni validación de vacío.
+- **venta** guarda el valor como **texto crudo**, usa `sanitizeDecimalInput`, **LIMPIA** el valor al cambiar
+  de modo, muestra `pctHint` y bloquea Guardar si hay un vacío/NaN (S-P1-1, `showInvalidBanner`).
+El botón «Unificar rarezas» se conservó **anclado al editor de rarezas de compra** (§19.5), dentro de
+`BuylistRulesSection` (no se movió al `RuleAxisEditor`). El prop `t` se pasa con scope `admin.m2.buylistRules`
+o `admin.m2.salesRules` (comparten las mismas keys); es válido porque el proyecto no usa el tipado estricto
+de mensajes de next-intl (`t` acepta `string`).
+
+### Estado acoplado precio↔catálogo: hook `useCatalogSync`
+La Sección 1 (precios) y `CatalogSyncSection` comparten estado por diseño y **no** son separables en dos
+árboles de estado sin cambiar comportamiento: el «Sync completo» por-fila del catálogo dispara el barrido de
+PRECIOS (`justDispatched` + `priceSyncStatus.refetch`), y `catalogBusy` —que gobierna `useKeepSessionAlive`—
+agrega el barrido de precios Y todas las operaciones de catálogo. Todo ese estado (queries de status con sus
+`refetchInterval`, ventanas de gracia N-14, mutaciones, `catalogBusy`/`batchBusy`, keep-alive, invalidaciones)
+se centralizó en el hook **`useCatalogSync`**, llamado UNA vez en `M2View` y pasado como prop a las dos
+secciones. Así la serialización y las invalidaciones quedan **EXACTAS**. Las invalidaciones cross-sección
+(override→`pending-prices`, ingest/refresh→`pending-prices`, unify→rarezas/reglas compra+venta) siguen
+funcionando porque el `QueryClient` es compartido; cada sección es dueña de sus propias queries por clave.
+
+### Orden DOM y modales
+El orden de render se conservó idéntico (h1 → S1 → S2 → S3 → S3b → S4 → S5 → S5b → grupos catálogo). Los
+modales (override, unify, force, refresh-all) se movieron DENTRO de la sección dueña de su estado; como el
+componente `Modal` solo monta cuando `open` y los tests los localizan por rol/texto, no hay cambio observable.
+
+### Cero-cambio-de-comportamiento (cómo se garantizó)
+Se copió el JSX **verbatim** (classNames, textos, `{' '}`, `aria-*`, `role`, ids `m2-reason-*`), se
+preservaron las claves de query y las invalidaciones exactas, y **no se modificó ningún test**. La red de
+seguridad son los **67 tests conductuales** de `M2View.test.tsx` (que importan `{ M2View }` e interactúan por
+rol/texto) + el resto de la suite.
+
+### Gates
+`tsc --noEmit` ✓ · `next lint` sin warnings/errores ✓ · `next build` ✓ · `vitest run` **568/568** verdes
+(70 archivos; M2View.test.tsx **67/67**), **sin modificar los tests**. `M2View.tsx`: **2.235 → 56 líneas**.

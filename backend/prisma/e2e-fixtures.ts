@@ -31,9 +31,11 @@ export const E2E_ORDER_SET = {
 } as const;
 
 /**
- * Cartas del catálogo sintético. `rarity` mapea a categoría de buylist vía el
- * RARITY_MAP por defecto (Common→comun, Reverse Holo→reverse_holo, Rare Holo/Rare
- * Secret→ex_plus). `refNmCents` es la referencia (valor de mercado) para raw:NM.
+ * Cartas del catálogo sintético. `rarity` (crudo) se colapsa a su rareza canónica vía
+ * `normalizeRarity` (catálogo canónico de rarezas) y esa canónica es la key con la que el
+ * buylist elige regla en `BUYLIST_PRICE_RULES` (o cae al fallback por %). Aquí: Common→comun,
+ * Reverse Holo→reverse_holo, Rare Holo/Rare Secret→ex_plus. `refNmCents` es la referencia
+ * (valor de mercado) para raw:NM.
  *
  * v1.22-variantes-orden (§4.22e) — `availableFinishes` se siembra SIEMPRE de forma EXPLÍCITA:
  * depender del `@default([normal])` del schema es justo lo que hacía que el bug del PO (una sola

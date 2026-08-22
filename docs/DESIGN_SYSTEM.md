@@ -106,6 +106,20 @@
 > consumida por componentes compartidos con elementos sticky, fallback `0px`), nacida en la ronda de
 > corrección TL-C1 y hasta ahora documentada solo en FRONTEND_NOTES. Regla derivada: **no se
 > hardcodean alturas de header en componentes compartidos.** Sin tokens visuales nuevos.
+>
+> **Añadido v1.9 (reorganización del panel M2 — catálogo/precios) → ver §19.** El panel de M2
+> (`M2View.tsx`) acumulaba **9 acciones de import/precio** en pilas planas de botones `secondary`
+> idénticos, sin jerarquía: el operador no distinguía lo que **siempre funciona** (TCGCSV, local) de
+> lo que **depende de una fuente que se cae** (pokemontcg.io). §19 reorganiza esas acciones en tres
+> grupos con jerarquía visible — **Datos (rápido · TCGCSV)** destacado arriba, **Catálogo (cartas
+> nuevas · fuente de catálogo)** con aviso de dependencia, y **Avanzado** (colapsable, plegado) —,
+> añade el mantenimiento one-shot **«Unificar rarezas»** anclado al editor de reglas por rareza,
+> **retira** la acción legacy «Lanzar sync de precios (bóveda)» y el `rarity-map` muerto, y **reencuadra
+> el selector de proveedor** para que refleje que **TCGCSV es el primario** y el dial elige solo el
+> **respaldo**. §19 es **aditiva**: **cero tokens nuevos** (reusa reglas/aire de §4.3, botones de §6.1,
+> patrones de §8, colapsable/`<details>` semántico), no cambia el contrato de datos y solo reordena,
+> reetiqueta y agrupa acciones ya existentes. Una solicitud abierta al arquitecto (señal de salud de
+> la fuente de catálogo) queda anotada como **no bloqueante** (§19.9).
 
 ---
 
@@ -2941,3 +2955,308 @@ de graded/sealed (densidad §18.2). **Nada de esto toca contrato ni backend.**
    cerrado, y que el FAB no tape la última fila (padding §18.1.4); smoke E2E de los flujos tocados:
    agregar desde teja → badge del FAB incrementa → drawer muestra la línea con su `FinishMark` →
    enviar solicitud sigue funcionando igual.
+
+---
+
+## 19. Reorganización del panel M2 — catálogo/precios (v1.9)
+
+> Pantalla: `/admin/m2` (`frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx`, super_admin).
+> Esta sección define SOLO **jerarquía, agrupación, etiquetas/microcopy, estados, confirmaciones y
+> accesibilidad** de las **acciones de import/precio** del panel. **No cambia el contrato** (mismos
+> endpoints, mismos DTOs), **no introduce tokens nuevos** (reusa §4.3 reglas+aire, §6.1 botones, §8
+> patrones) y **no toca** los editores de reglas de precio (buylist §4, venta §5, spreads de sellado,
+> FX, cola de precio pendiente) salvo para **anclar** ahí el nuevo «Unificar rarezas» (§19.5). Decisión
+> del humano ya tomada: **limpieza «recomendada»**.
+
+### 19.0 El problema (diagnóstico)
+
+Hoy M2 apila **9 acciones de sync/import/precio** como botones `secondary` visualmente idénticos, sin
+comunicar la distinción crítica para el operador: **qué funciona siempre** (TCGCSV / local, no dependen
+de una fuente externa que se cae) vs. **qué depende de la fuente de catálogo** (pokemontcg.io, que puede
+estar caída). El resultado es parálisis: ante «arreglar un set fantasma» el operador no sabe cuál de los
+cuatro botones globales + tres por-set tocar. La reorganización cifra esa distinción en la **jerarquía
+visual**.
+
+**Mapa de las 9 acciones → código actual → destino v1.9:**
+
+| # | Acción (hoy) | Handler en `M2View` | Fuente | Destino v1.9 |
+|---|---|---|---|---|
+| A | Actualizar precios ahora | `ingestMutation` (`priceIngest.trigger`) | TCGCSV prim. / PPT fallback | **Grupo 1 · Datos** — acción destacada (se queda arriba) |
+| F | Refrescar variantes + precios de TODO (solo TCGCSV) | `refreshVariantsAllMutation` (`catalog.refreshVariantsAll`) | TCGCSV | **Grupo 1 · Datos** (global) |
+| I | Variantes + precios (solo TCGCSV) por-set | `refreshVariantsMutation` (`catalog.refreshVariants`) | TCGCSV | **Grupo 1 · Datos** — acción **primaria por-fila** |
+| D | Importar sets nuevos | `syncAllMutation` (`catalog.syncAll`) | pokemontcg.io | **Grupo 2 · Catálogo** (global) |
+| G | Importar/Re-sincronizar por-set | `catalogSyncMutation` (`catalog.import`/`resync`) | pokemontcg.io | **Grupo 2 · Catálogo** — por-fila (secundaria) |
+| C | Backfill (siguiente lote) | `backfillMutation` (`catalog.backfill`) | pokemontcg.io | **Grupo 2 · Catálogo** (global) |
+| E | Re-sincronizar todo (forzar) | `syncAllForceMutation` (`catalog.syncAllForce`) | pokemontcg.io | **Grupo 3 · Avanzado** (colapsado) |
+| H | Sync completo por-set | `fullSyncMutation` (`catalog.fullSync`) | pokemontcg.io + TCGCSV | **Grupo 3 · Avanzado** — overflow por-fila |
+| B | Lanzar sync de precios (bóveda) | `syncMutation` (`sync.launch`) | legacy | **RETIRADO** (§19.6) |
+| — | «Unificar rarezas» (NUEVO) | one-shot backfill `rarityCanonical` | local, sin red externa | **Anclado al editor de reglas por rareza** (§19.5) |
+| — | `rarity-map` (muerto) | — | — | **RETIRADO** (§19.6) |
+
+### 19.1 Jerarquía visual y layout de la zona de operaciones
+
+La zona de operaciones de datos/catálogo se reordena en **tres bloques con peso decreciente**, separados
+por **reglas** (líneas `--color-border`) y **aire**, no por cajas ni sombras (§4.3). El orden de lectura
+es exactamente la escala de riesgo/frecuencia: lo seguro y frecuente arriba, lo peligroso y raro abajo y
+oculto.
+
+```
+┌─ (se mantiene tal cual) ────────────────────────────────┐
+│  h1  «Catálogo y precios»                               │
+│  ▸ Actualizar precios ahora   [A · Button primary lg]   │  ← acción destacada, ya es primary
+│    (progreso, avisos de límite diario…)                 │
+├─ (editores de reglas de precio — SIN CAMBIOS de §19) ───┤
+│  Cola precio pendiente · FX · Proveedor(§19.7) ·        │
+│  Reglas buylist(+Unificar rarezas §19.5) · Reglas venta │
+│  · Spreads de sellado                                    │
+├─ GRUPO 1 · DATOS (rápido · TCGCSV) ─────────────────────┤  ← eyebrow + h2, borde superior
+│  «Funcionan siempre; no dependen de fuentes externas»   │
+│  [F · Refrescar variantes+precios de TODO] (secondary)  │
+│  + tabla de sets (acción por-fila primaria = I)          │
+├─ GRUPO 2 · CATÁLOGO (cartas nuevas · fuente de catálogo)┤  ← eyebrow + h2
+│  ⚠ Banner: dependen de pokemontcg.io; si está caída…    │
+│  [D · Importar sets nuevos] [C · Backfill] (secondary)   │
+│  + acción por-fila secundaria en la misma tabla = G      │
+├─ GRUPO 3 · AVANZADO  ▸ (colapsable, plegado) ───────────┤  ← <details> cerrado por defecto
+│  [E · Re-sincronizar todo (forzar)]                      │
+│  + overflow por-fila = H (Sync completo)                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **La acción destacada A no se toca:** sigue siendo el `Button` `primary` `lg` con `Zap` al tope del
+  panel (§6.1). Es «lo que el operador hace a diario». Los grupos 1–3 viven **debajo** de los editores
+  de precio, reemplazando la actual «Operaciones avanzadas» + «Sync de catálogo» + «Sync de bóveda».
+- **Encabezado de grupo:** `eyebrow` mono (§3.2, `uppercase tracking-[0.18em]`) con el rótulo corto
+  (`DATOS` / `CATÁLOGO` / `AVANZADO`) + `h2` serif con el título largo entre paréntesis, y un `text-sm
+  muted` de una línea que explica la **garantía del grupo** (siempre funciona / depende de fuente / raro
+  y pesado). El grupo se envuelve en `<section role="group" aria-labelledby>` para que el rótulo nombre
+  al conjunto de botones.
+- **Una sola tabla de sets, compartida por los grupos 1 y 2.** No se duplica la tabla: la fila de cada
+  set expone sus acciones con jerarquía interna (§19.4). Los encabezados de grupo 1 y 2 preceden a la
+  tabla; la tabla se ancla visualmente al grupo 1 (Datos) porque su acción **primaria por-fila es I**
+  (la segura). G y H son secundaria/overflow en la misma fila.
+
+### 19.2 Grupo 1 — «Datos (rápido · TCGCSV)» (destacado)
+
+El grupo de mayor peso después de A. Comunica **confianza operativa**: estas acciones repueblan
+variantes/acabados y precios desde **TCGCSV** y **no dependen de pokemontcg.io**, así que **funcionan
+aunque la fuente de catálogo esté caída**. Es el camino recomendado para «arreglar un set fantasma»
+(variantes/precios faltantes) sin bloquearse por una caída externa.
+
+- **Rótulo:** eyebrow `DATOS` + h2 «Datos (rápido · TCGCSV)».
+- **Subtítulo (microcopy, ES):** «Refrescan variantes, acabados y precios desde TCGCSV. **Funcionan
+  siempre**, aunque la fuente de catálogo (pokemontcg.io) esté caída. Es lo que necesitas para reparar
+  variantes o precios faltantes de un set ya importado.»
+  **EN:** «Refresh variants, finishes and prices from TCGCSV. **Always work**, even if the catalog
+  source (pokemontcg.io) is down. This is what you need to fix missing variants or prices on an already
+  imported set.»
+- **Acción global F** (`refreshVariantsAll`): `Button` `secondary` con `RefreshCw`. **Masiva →
+  confirmación** (modal existente, §19.8). Barra de progreso `SyncProgress` (ya accesible, §8) debajo.
+- **Acción por-fila I** (`refreshVariants`): es la **acción primaria de cada fila de set** (ver §19.4):
+  primer botón, más a la vista. Requiere el set ya importado (si no, deshabilitado con motivo en
+  `title`, como hoy: `SET_NOT_IMPORTED`).
+- **Etiquetas cortas sugeridas** (el nombre largo satura): F → «Refrescar variantes + precios (todo)»,
+  I → «Variantes + precios». El «(solo TCGCSV)» se mueve del botón al **subtítulo del grupo** (ya no
+  hace falta repetirlo en cada botón: el grupo entero es TCGCSV).
+
+### 19.3 Grupo 2 — «Catálogo (cartas nuevas · usa fuente de catálogo)»
+
+Se **conserva** porque es el **único camino para crear cartas nuevas** (importar sets/cartas desde
+pokemontcg.io), pero se de-enfatiza respecto al grupo 1 y se marca su dependencia externa de forma
+inequívoca.
+
+- **Rótulo:** eyebrow `CATÁLOGO` + h2 «Catálogo (cartas nuevas · usa fuente de catálogo)».
+- **Aviso de dependencia (obligatorio):** `Banner` `variant="info"` **persistente** al inicio del grupo
+  (no un error; es una advertencia de contexto). Microcopy ES: «Estas acciones traen **cartas nuevas**
+  desde la fuente de catálogo (pokemontcg.io). Si la fuente está **caída o limitada**, pueden fallar o
+  no traer nada — usa el grupo **Datos** para refrescar variantes y precios mientras tanto.» EN: «These
+  actions import **new cards** from the catalog source (pokemontcg.io). If the source is **down or rate
+  limited**, they may fail or import nothing — use the **Data** group to refresh variants and prices in
+  the meantime.»
+- **Degradación ante fuente caída (§8.1 error/vacío):** cuando una acción del grupo falla por fuente no
+  disponible (hoy: 404/405 → `syncAllUnavailable`; timeouts/5xx → error real), el resultado se muestra
+  como `Banner` `warning` **dentro del grupo** con copy que **reencamina al grupo Datos**
+  («pokemontcg.io no respondió; los precios/variantes que sí puedes actualizar están en **Datos** ↑»).
+  El `Banner` de error real (5xx/rate limit) mantiene su código/mensaje (§8.1). *La detección
+  persistente «la fuente está caída» antes de intentar requiere una señal de salud del backend — ver
+  §19.9, no bloqueante; hasta entonces la degradación es reactiva (al fallar).*
+- **Acciones globales D y C:** `Button` `secondary`. D (`syncAll`, «Importar sets nuevos») con `Layers`;
+  C (`backfill`, «Backfill (siguiente lote)») con `DownloadCloud`. Sin confirmación (no son
+  destructivas: importan incrementos).
+- **Acción por-fila G** (`catalogSync`, «Importar/Re-sincronizar»): **secundaria** en la fila (§19.4),
+  después de I.
+
+### 19.4 Acciones por-fila de la tabla de sets (jerarquía dentro de la fila)
+
+La tabla de sets (`setColumns`) es **una sola** y sus tres acciones por-fila (I, G, H) se ordenan
+reflejando los grupos, para que la fila «hable» la misma jerarquía que los bloques globales:
+
+| Orden en la fila | Acción | Variante de botón | Grupo | Notas |
+|---|---|---|---|---|
+| 1.ª (primaria) | **I** «Variantes + precios» | `secondary` (peso visual alto: primera, con icono `RefreshCw`) | Datos | Deshabilitada si `!imported` (motivo en `title`). Es la reparación segura. |
+| 2.ª | **G** «Importar / Re-sincronizar» | `secondary` (neutra) | Catálogo | Etiqueta según `imported`: «Importar» / «Re-sincronizar». |
+| overflow | **H** «Sync completo» | dentro de menú **«Más ▾»** (o `ghost` con `aria-label`), rotulado como avanzado | Avanzado | Pesado y solapado con I; roto sin pokemontcg.io. Se saca del renglón principal para no invitar a usarlo por default. |
+
+- **Por qué H a overflow y no a un `<details>` por fila:** una fila no puede colapsar cómodamente en una
+  tabla densa; un **menú «Más»** por fila (patrón kebab, `aria-haspopup="menu"`, foco y flechas) esconde
+  H sin romper la retícula y mantiene la promesa «Avanzado = plegado por defecto».
+- **Serialización (sin cambios):** las tres acciones por-fila siguen serializadas entre sí y con los
+  batches globales (`otherPerSetPending`, `batchBusy`); cualquiera en curso deshabilita las demás con el
+  botón en `loading`. Ver §19.8.
+- **Móvil (< md):** la fila colapsa a tarjeta apilada (patrón §16); I queda como botón full-width
+  primario de la tarjeta, G debajo, H dentro del «Más».
+
+### 19.5 «Unificar rarezas» — dónde va y microcopy
+
+**Ubicación recomendada: anclado al editor de reglas de precio por rareza** (Sección 4 buylist /
+Sección 5 venta), como una **acción de mantenimiento** en el encabezado de ese bloque — NO en el grupo
+Datos.
+
+- **Por qué ahí y no en Datos:** el «por qué» de esta acción solo se entiende **mirando la lista de
+  rarezas fragmentada** del editor (varias filas que deberían ser una: «Rare Holo» / «rare holo» /
+  variantes sin canonizar inflan el editor). El *information scent* correcto es colocar el remedio junto
+  al síntoma. En el grupo Datos (sync masivo) el operador lo leería como «otro barrido» y no ataría su
+  efecto —limpiar el editor— con la causa. Se **rechaza** la alternativa «grupo Datos» por eso, aunque
+  técnicamente sea local/money-safe.
+- **Forma:** botón `secondary` `sm` con icono `Layers`/`Wand` (decorativo, `aria-hidden`), rotulado
+  **«Unificar rarezas»**, en la barra de encabezado del editor de reglas por rareza (junto al título de
+  la Sección 4), con un `text-xs muted` de una línea al lado.
+- **Confirmación (one-shot, money-safe):** modal ligero (§7.6) — no es destructivo pero **muta
+  `rarityCanonical` en todo el catálogo**, así que se confirma para dejar claro el alcance.
+- **Microcopy (ES):**
+  - Botón: «Unificar rarezas»
+  - Ayuda inline: «Agrupa las rarezas fragmentadas del catálogo en su forma canónica. **Acción única, no
+    cambia precios.**»
+  - Modal título: «Unificar rarezas del catálogo»
+  - Modal cuerpo: «Reasigna la **rareza canónica** de todas las cartas para colapsar duplicados y
+    variantes de escritura en una sola rareza. **Es una operación local de una sola pasada: no consulta
+    fuentes externas y NO modifica ningún precio ni regla.** Después, el editor de reglas por rareza
+    mostrará una fila por rareza real, sin duplicados.»
+  - CTA: «Unificar rarezas» · Cancelar
+  - Éxito (`Banner` success): «Rarezas unificadas. El editor ya refleja las rarezas canónicas.»
+  - En curso: botón `loading` con label «Unificando…».
+- **Microcopy (EN):** Button «Merge rarities» · Help «Groups fragmented catalog rarities into their
+  canonical form. **One-time action, does not change prices.**» · Modal title «Merge catalog rarities» ·
+  Body «Reassigns the **canonical rarity** of every card to collapse duplicates and spelling variants
+  into a single rarity. **This is a local one-shot operation: it queries no external source and changes
+  NO price or rule.** Afterwards the per-rarity rules editor shows one row per real rarity, without
+  duplicates.» · CTA «Merge rarities» · Success «Rarities merged. The editor now reflects canonical
+  rarities.»
+- **Tras el éxito:** invalidar las queries del editor (`buylist-rarities`, `sales-rarities`) para que la
+  lista se recomponga sin duplicados — el efecto visible que justifica el botón.
+
+### 19.6 Retirados del panel
+
+- **B «Lanzar sync de precios (bóveda)»** (`syncMutation` / `sync.launch`): **se elimina** la sección
+  entera «Sync de precios de bóveda». Es legacy y redundante con **A** (que ya actualiza precios con
+  TCGCSV primario). Retirar sus claves i18n `admin.m2.sync.*` (§19.10).
+- **`rarity-map` (muerto):** desaparece cualquier resto del antiguo mapeo rareza→categoría/`rarityMap`
+  del panel (superado por el editor de dos ejes v1.29). Retirar sus claves i18n si quedaran.
+- Regla: al retirar B y `rarity-map`, **no** queda un hueco visual; los grupos 1–3 ocupan la zona que
+  antes era «Operaciones avanzadas» + «Sync de bóveda» + «Sync de catálogo».
+
+### 19.7 Selector de proveedor de precios — reencuadre
+
+El `Select` actual (`priceProvider`, opciones `pokemontcg_io` / `pokemonpricetracker`) **da a entender
+que la fuente de precios es pokemontcg.io/PPT**, cuando en realidad **TCGCSV es el primario** de la
+ingesta (A) y el dial solo elige el **respaldo** (usado cuando TCGCSV no tiene precio / para gradeadas).
+El reencuadre honesto:
+
+- **No se oculta el selector** (el dial es real y necesario para el fallback/gradeadas), pero se
+  **reetiqueta y contextualiza** para reflejar la precedencia verdadera.
+- **Fila fija de primario (no editable):** encima del selector, una línea de solo lectura que muestra el
+  primario inmutable: `eyebrow` «FUENTE PRIMARIA» + valor `TCGCSV` (mono) + `text-xs muted` «Siempre se
+  intenta primero». Así el operador ve que TCGCSV manda, aunque no aparezca en el `Select`.
+- **Reetiquetar el `Select`:** de «Proveedor de precios» → **«Proveedor de respaldo (fallback)»**.
+- **Línea de precedencia** bajo el control (`text-xs muted`): «Precedencia: **TCGCSV (primario)** →
+  respaldo: {selección} → override manual (máxima).» — coherente con la precedencia money-safe de
+  PROJECT.md (§ Fuentes de precio) sin inventarla.
+- **Microcopy (ES):** label «Proveedor de respaldo (fallback)» · hint «TCGCSV es la fuente primaria y
+  siempre se usa primero; este proveedor solo cubre lo que TCGCSV no tenga (p. ej. gradeadas o cartas
+  sin precio en TCGCSV).» **EN:** «Fallback price provider» · «TCGCSV is the primary source and is
+  always tried first; this provider only covers what TCGCSV lacks (e.g. graded cards or cards without a
+  TCGCSV price).»
+- **Sin cambio de contrato:** el dial y sus valores no cambian; solo cambia cómo se **presenta** (label,
+  fila de primario, línea de precedencia). Si más adelante se quisiera exponer TCGCSV como opción real
+  del dial, es una **solicitud al arquitecto** (§19.9), no un cambio de diseño.
+
+### 19.8 Estados, confirmaciones y feedback
+
+- **Deshabilitado durante barridos:** se conserva la lógica actual (`catalogBusy` / `batchBusy` /
+  `otherPerSetPending`): cualquier barrido global o por-set en curso deja las demás acciones
+  `disabled` y la activa en `loading`; el `keep-alive` de sesión sigue atado a `catalogBusy`. En cada
+  grupo, cuando algo corre, los botones de **otros** grupos también se deshabilitan (una operación de
+  catálogo a la vez) con el motivo en `title`/`aria-describedby` («Espera a que termine el barrido en
+  curso»).
+- **Confirmaciones para acciones masivas (§7.6, modales ya existentes):**
+  - **E «Re-sincronizar todo (forzar)»** — confirmación obligatoria (pesada; reprocesa todo el
+    catálogo). Modal ya existe (`syncAllForceConfirm*`).
+  - **F «Refrescar variantes + precios de TODO»** — confirmación obligatoria (masiva). Modal ya existe
+    (`refreshVariantsAllConfirm*`).
+  - **«Unificar rarezas»** — confirmación (§19.5), one-shot money-safe.
+  - D, C, G, I: **sin** confirmación (incrementales o reparación segura acotada a un set).
+- **Feedback honesto (sin cambios de §8.1):** progreso real (`SyncProgress`, `role="progressbar"`),
+  resúmenes agregados con tono `warning` cuando algo quedó parcial (`setsFailed>0` / `pending>0`), lista
+  de sets fallidos legible, avisos de límite diario del proveedor. Nada de «202 cosmético».
+- **Estado vacío de la tabla de sets:** si no hay sets, `EmptyState` (§8.1) que invita a usar D
+  «Importar sets nuevos» (grupo Catálogo) como primer paso.
+
+### 19.9 Accesibilidad
+
+- **Grupos como landmarks lógicos:** cada grupo es `<section role="group" aria-labelledby="…">` con el
+  encabezado (eyebrow + h2) como etiqueta; el aviso de dependencia del grupo Catálogo va en `role=
+  "status"` (no interrumpe).
+- **Colapsable «Avanzado»:** implementar con `<details>`/`<summary>` nativo **plegado por defecto**
+  (`aria-expanded` implícito, operable por teclado sin JS) o un botón con `aria-expanded`/`aria-controls`
+  si se requiere animación; el foco entra al contenido al abrir. El rótulo `summary` deja claro el peso:
+  «Avanzado — operaciones pesadas (re-sincronización completa)».
+- **Menú «Más ▾» por-fila:** `aria-haspopup="menu"`, foco y navegación por flechas, `Esc` cierra, el
+  foco vuelve al disparador; H dentro es un `menuitem` con label completo.
+- **Botones icono-solo:** ninguno queda sin texto; los iconos de acción son decorativos (`aria-hidden`)
+  salvo el kebab, que lleva `aria-label` «Más acciones para {set}».
+- **Motivos de deshabilitado anunciados:** cuando I está deshabilitada por `!imported`, o cuando algo
+  está bloqueado por un barrido, el motivo va en `title` **y** `aria-describedby` (no solo color/tooltip).
+- **Contraste:** sin pares nuevos — todo reusa tinta/papel/accent ya verificados (§10). Los botones
+  `secondary` sobre papel y los banners `info`/`warning` (texto coloreado sobre papel) cumplen AA.
+- **Orden de tabulación:** A (arriba) → editores de precio → grupo Datos (F → tabla: por fila I → G →
+  Más) → grupo Catálogo (D → C) → Avanzado (summary → E). Coherente con la jerarquía visual.
+
+### 19.10 i18n — claves (propiedad de frontend)
+
+Nuevas (`admin.m2.*`):
+- `groups.data.{title,subtitle}` — «Datos (rápido · TCGCSV)» + garantía «funcionan siempre».
+- `groups.catalog.{title,subtitle,sourceWarning,sourceDownReroute}` — título + aviso de dependencia +
+  copy de reencaminar a Datos cuando la fuente falla.
+- `groups.advanced.{summary,subtitle}` — rótulo del `<details>` (reutiliza/renombra `advancedOps.*`).
+- `unifyRarities.{button,hint,confirmTitle,confirmBody,confirmCta,running,done}` (§19.5).
+- `priceIngest.{primarySourceLabel,primarySourceValue,primarySourceHint,fallbackLabel,fallbackHint,
+  precedenceHint}` — reencuadre del selector (§19.7). El label previo `providerLabel` pasa a
+  `fallbackLabel`.
+- Etiquetas cortas de botón: `catalog.refreshVariantsAllShort` («Refrescar variantes + precios (todo)»),
+  `catalog.refreshVariantsShort` («Variantes + precios»), `catalog.fullSyncMenuItem` («Sync completo»),
+  `catalog.rowMoreAria` («Más acciones para {name}»).
+
+Retiradas:
+- `admin.m2.sync.*` (sección de sync de bóveda B, §19.6) y cualquier clave `rarityMap`/`rarity-map`.
+
+Recordatorio §9: los rótulos ES son ~15–30% más largos; los encabezados de grupo y los `summary` deben
+envolver sin romper el layout (usar las etiquetas cortas de botón arriba para no desbordar la fila de la
+tabla en `md`).
+
+### 19.11 Notas para otros roles (no bloquean el diseño)
+
+1. **Solicitud al arquitecto — señal de salud de la fuente de catálogo (deseable, no requerida):** hoy
+   «pokemontcg.io está caída» solo se sabe **al fallar** una acción del grupo Catálogo (reactivo). Un
+   indicador de salud (p. ej. `GET /admin/catalog/source-health` o un campo en el sync-status) permitiría
+   **avisar/deshabilitar proactivamente** el grupo Catálogo y su banner antes de intentar. El diseño
+   actual funciona sin él (degradación reactiva §19.3); si el arquitecto lo expone, el banner del grupo
+   pasa de estático a estado real. Se registra como mejora para product-owner/arquitecto.
+2. **Sin cambios de contrato ni de datos:** §19 solo reordena, reetiqueta y agrupa acciones y endpoints
+   ya existentes; «Unificar rarezas» usa el backfill local de `rarityCanonical` (ya contemplado por el
+   editor de dos ejes v1.29). Si «Unificar rarezas» necesitara un endpoint dedicado, es una solicitud a
+   backend/arquitecto (el diseño no asume su forma, solo su efecto: money-safe, local, one-shot).
+3. **QA visual sugerido:** (a) con pokemontcg.io simulada caída, verificar que A + grupo Datos (F, I)
+   siguen operables y que el grupo Catálogo muestra el reencaminar a Datos; (b) que «Avanzado» arranca
+   plegado y E solo aparece al expandir; (c) que «Unificar rarezas» no altera ningún precio (diff de
+   reglas antes/después = 0) y colapsa duplicados del editor; (d) que ninguna acción global queda
+   habilitada mientras otra corre.

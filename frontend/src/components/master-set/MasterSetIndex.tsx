@@ -166,8 +166,14 @@ export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
                       className="flex w-full flex-col gap-3 border border-border bg-surface p-4 text-left transition-colors hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none"
                     >
                       <div className="flex flex-col gap-0.5">
-                        <span lang="en" className="text-h3">
+                        <span lang="en" className="flex items-center gap-2 text-h3">
                           {s.name}
+                          {/* v1.33 (P-27): master COMBINADO (principal + subset(s) plegados en UNA fila). */}
+                          {s.partSetIds && s.partSetIds.length > 1 && (
+                            <span className="border border-border-strong px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted">
+                              {t('combinedBadge')}
+                            </span>
+                          )}
                         </span>
                         <span lang="en" className="font-mono text-xs text-muted">
                           {[s.series, s.year].filter(Boolean).join(' · ')}

@@ -2,7 +2,53 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.31-refresh-variants-tcgcsv).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.33-master-set-multipart).
+>
+> **Changelog v1.33-master-set-multipart (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan.
+> P-27, PROJECT §L, criterios 65–72, decisiones D1–D5):** cambios **ADITIVOS y RETROCOMPATIBLES**, **money-safe**.
+> Un set multi-parte (principal + subset(s) con id propio: Celebrations `cel25` + Classic Collection `cel25c` = 50) se
+> presenta como **UN master set combinado**, con separador/etiqueta por subset. **SOLO presentación**: cada carta
+> conserva su set-id de origen; precio/inventario/bóveda operan por set-id real, sin cambio de dato. Ver ARCHITECTURE §4.31.
+> - **Dónde vive el mapa:** constante curada `backend/src/config/master-set-groups.ts` (padre→subset por `externalId`
+>   de pokemontcg.io), **NO** columna de schema ni tabla — sin migración, extensible sin tocar código de presentación
+>   (CA-69). Arranca con `cel25`→`cel25c` (label "Classic Collection"); candidatos Shiny Vault (Shining Fates
+>   `swsh45`→`swsh45sv`, Hidden Fates `sm115`→`sma`) **sujetos a validación de backend contra el catálogo real**.
+> - **Binder `GET /admin/inventory/master-sets/:setId`** (y `GET /vault/master-sets/:setId`,
+>   `GET /admin/vaults/:userId/master-sets/:setId` — **heredan** el fan-in por el read model único §4.20): fan-in de
+>   `Card WHERE setId IN partSetIds`; `set` = principal; bloque principal primero, luego cada subset (orden natural
+>   dentro del bloque); `catalogCardCount`/`printedTotal` = **Σ de las partes** (Celebrations = 50). **Aditivo:**
+>   `MasterSetBinderResponse += { parts?: SetPartDTO[], canonicalSetId? }` y `MasterSetCardCellDTO += { partSetId?,
+>   partLabel? }`. Pedir el binder por un **subset** (`cel25c`) **normaliza a su principal** y devuelve `canonicalSetId`
+>   (el front actualiza la URL; no más binder roto de 25).
+> - **Índice `GET /admin/inventory/master-sets`** (y vault): los subset se **pliegan** en la fila del principal y sus
+>   agregados se **suman** sobre `partSetIds`; los subset **no** aparecen como filas propias. **Aditivo:**
+>   `MasterSetSummaryDTO += { partSetIds?: string[] }`. Sin N+1 (se agrupan por set-id canónico los resultados de las
+>   agregaciones fijas ya existentes).
+> - **Storefront:** `GET /catalog/sets` **pliega** el subset (Celebrations una vez) y gana `partSetIds?`;
+>   `GET /catalog/cards?setId=<principal>` **expande** a `setId IN partSetIds` (aditivo, solo sets mapeados) respetando
+>   la Regla de Compra (solo se lista lo que tiene precio). Gráfica de valor de set suma partes (derivado, opcional).
+> - **Money-safe (CA-68/CA-72):** el mapa es **solo lectura de presentación**, jamás fuente de verdad; ninguna ruta de
+>   escritura/dinero (batch, bulk-publish, adjustments, órdenes, pricing, sync, buylist) lo consulta. `scopeWhere` y las
+>   agregaciones filtran por `cardId` (llaveado a su set real). Verificable: precio/folio/titularidad de una `cel25c`
+>   idénticos con y sin grupo.
+> - **Casos borde:** N subsets (`subsets[]`); subset sin su principal → no se pliega (se muestra como su set, sin 500,
+>   CA-71). Sin enum nuevo, sin migración, sin cambio de rutas.
+>
+> **Changelog v1.32-unify-rarities (2026-08-22, arquitecto — FORMALIZACIÓN de lo YA implementado; cierra dos
+> hallazgos de QA sobre el contrato, DoD «docs al día»):** cambios **ADITIVOS y RETROCOMPATIBLES**, money-safe.
+> - **Formaliza `POST /admin/catalog/unify-rarities`** (backend ya lo implementó; `BACKEND_NOTES.md` §0-ter) en la
+>   familia de backfill de §M2, enmarcado en ARCHITECTURE §4.28 (catálogo canónico de rarezas). `@Roles(super_admin)`,
+>   **síncrono 200**, sin body relevante. Res: `{ ok, cardsProcessed, cardsUpdated, distinctCanonical, unmapped:[{ raw,
+>   canonical, count }] }`. Semántica: **backfill idempotente** que reescribe `Card.rarityCanonical = normalizeRarity(
+>   rarity)` desde la columna **LOCAL** `rarity` (sin pokemontcg.io **ni** TCGCSV), **money-safe** (única columna
+>   escrita = `rarityCanonical`; NO toca `PriceReference`/precios/composición). `unmapped` = rarezas crudas sin entrada
+>   en `CANONICAL_RARITIES` (para saber cuáles añadir al catálogo canónico). Ver §M2.
+> - **`GET/PUT /admin/pricing/rarity-map` → RETIRADOS** (antes «DEPRECADOS… se conservan hasta su retiro»): el código
+>   ya los **retiró** junto con el setting `RARITY_MAP` (`BACKEND_NOTES.md` §0-quater). Reemplazados por
+>   `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES` (§4.28d) + el catálogo canónico (§4.28c) y su endpoint `rarities`. Ver §M2/pricing.
+> - **Follow-up de backend (recordatorio, no bloquea, zona compartida):** `UPSTREAM_ERROR` y `SET_NOT_IMPORTED` viven
+>   hoy por cast `as ErrorCodeType`; falta añadirlos al enum central `common/error-codes.ts` y quitar los casts (tarea
+>   de backend en su turno de zona compartida). El contrato ya los declara normativos (§Errores).
 >
 > **Changelog v1.31-refresh-variants-tcgcsv (2026-08-22, arquitecto — FORMALIZACIÓN de lo YA implementado;
 > cierra incumplimiento de DoD «docs al día» reportado por QA):** cambios **ADITIVOS y RETROCOMPATIBLES**,
@@ -1339,6 +1385,35 @@ CardProductDTO = { productId: number, kind: "set_base" | "deck_exclusive" | "pro
 MasterSetCardCellDTO += { separateProducts?: CardProductDTO[] }
 MasterSetIndexResponse  += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
 MasterSetBinderResponse += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
+// ===== v1.33-master-set-multipart (P-27, PROJECT §L / ARCHITECTURE §4.31): MASTER SET COMBINADO =====
+// Un set multi-parte (principal + subset(s) con id propio) se presenta como UN master set combinado (Celebrations
+// cel25 + Classic Collection cel25c = 50). SOLO presentación: cada Card/celda/pieza conserva su set-id REAL; el
+// mapa padre→subset (constante curada backend/src/config/master-set-groups.ts) NUNCA es fuente de verdad ni toca
+// precio/inventario/bóveda (money-safe, CA-68/CA-72). Todos los campos abajo son ADITIVOS y OPCIONALES: un set
+// normal (sin grupo) los OMITE y su comportamiento v1.20 no cambia (retrocompat total).
+// `parts` presente SOLO cuando el set es un master COMBINADO (≥2 partes); una entrada por parte (principal + cada
+// subset importado), en orden de bloque (principal isPrimary=true order=0; subsets por su `order`). `label` = la
+// etiqueta del separador ("Classic Collection"); en el principal `label` = su propio `name`. `catalogCardCount` de
+// la parte = nº de Card de ESE set-id (para que el front pueda mostrar el desglose por bloque).
+SetPartDTO = { setId: string, name: string, label?: string, isPrimary: boolean, order: number,
+               catalogCardCount: number }
+// `partSetId`/`partLabel` en la celda: a qué parte REAL pertenece la carta (su CardSet local) y la etiqueta del
+// bloque. Presentes SOLO en un master combinado (cuando `parts` viene); el front agrupa las celdas por `partSetId`
+// y pinta el separador con `partLabel`. En un set normal se OMITEN (la celda es del único set). NO cambian la
+// identidad: `cardId` sigue llaveado a su set real — money-safe.
+MasterSetCardCellDTO += { partSetId?: string, partLabel?: string }
+// Binder de un master combinado: `set` = SetRefDTO del PRINCIPAL (nombre del master = "Celebrations", D4);
+// `catalogCardCount`/`printedTotal` = Σ de TODAS las partes (Celebrations = 50, D5/CA-67); `cells` fan-in de todas
+// las partes, bloque del principal primero y luego cada subset, orden natural DENTRO del bloque. `canonicalSetId`
+// presente SOLO cuando el `:setId` pedido era un SUBSET y se normalizó a su principal (el front actualiza la URL;
+// evita el binder roto de 25 al abrir cel25c). En un set normal ambos se omiten.
+MasterSetBinderResponse += { parts?: SetPartDTO[], canonicalSetId?: string }
+// Índice: los subset de un grupo se PLIEGAN en la fila del principal (no aparecen como filas propias) y TODOS los
+// agregados (catalogCardCount, catalogVariantCount, distinctCardsOwned, distinctVariantsOwned, totalPieces) se SUMAN
+// sobre las partes; completionPct/variantCompletionPct se recomputan sobre esos totales (→ 50). `partSetIds` = los
+// set-ids REALES plegados (principal + subsets); presente SOLO en masters combinados. CA-70: N subsets, suma todas.
+// CA-71: si el principal NO está importado, el subset NO se pliega (aparece como su propio set, sin romper el conteo).
+MasterSetSummaryDTO += { partSetIds?: string[] }
 // ----- Lista de clientes con bóveda (GET /admin/vaults) -----
 // totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia del ACABADO de cada pieza
 // (PriceReference vigente); piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
@@ -1584,6 +1659,11 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
 - `rarity`: valor **tal cual pokemontcg.io** (taxonomía abierta; usar los valores de `GET /catalog/facets`).
 - `productType`: `raw | graded | sealed`. `condition`: para raw solo `NM`.
 - `finish` (v1.6-finish, opcional): `normal | reverse_holo | holofoil | first_edition_holofoil`; filtra por `InventoryItem.finish`. Valor inválido → `400 VALIDATION_ERROR`.
+- `setId` — **v1.33 (P-27):** si el `setId` es el **principal** de un master combinado (mapa
+  `config/master-set-groups.ts`), el filtro **expande** a `setId IN partSetIds` (incluye el inventario publicado de
+  todas las partes, p. ej. `cel25` + `cel25c`). ADITIVO: para un set normal el filtro es idéntico a hoy. Se respeta la
+  **Regla de Compra**: agrupar **no** publica cartas sin precio (solo se listan las ya `sellable`). Money-safe: cada
+  `ListingDTO` sigue llaveado a su `Card`/set real.
 - `sort`: `price_asc | price_desc | newest` (opcional).
 Res `200`: `{ data: ListingDTO[], page, pageSize, total }`. Todos los `ListingDTO` devueltos tienen `sellable=true` y `salePriceCents != null`.
 
@@ -1601,7 +1681,7 @@ Res `200`:
 }
 ```
 - `rarities`: `distinct` de `Card.rarity` sobre inventario publicado, **espejando pokemontcg.io tal cual** (lista **NO** cerrada).
-- `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**.
+- `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**. **v1.33 (P-27):** igual que `GET /catalog/sets`, un subset de un master combinado se **pliega** en su principal (Celebrations una vez) y la entrada gana `partSetIds?` (aditivo/opcional).
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
 
@@ -1613,6 +1693,10 @@ Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / si
 
 ### GET /api/v1/catalog/sets — `public`
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
+- **v1.33 (P-27) — master set combinado:** un `setId` **subset** de un grupo (mapa `config/master-set-groups.ts`) se
+  **pliega** en su **principal**: Celebrations aparece **una** sola vez (no dos entradas `cel25`/`cel25c`). La entrada
+  combinada gana `partSetIds?: string[]` (los set-ids reales que agrupa) para que el front filtre por todas las partes.
+  ADITIVO/opcional (los sets normales lo omiten). Solo presentación; el subset sigue siendo un `CardSet` real.
 
 ### GET /api/v1/catalog/featured-set/value-history — `public`  (v1.9-set-chart — gráfica del hero)
 Serie temporal del **valor de mercado agregado del set destacado** (estilo acciones), para el hero de la home
@@ -1765,6 +1849,11 @@ Err `401`.
 Binder del set sobre MI bóveda: **mismo shape** que el binder admin (`MasterSetBinderResponse` + extensiones v1.20),
 `scope="user_vault"`, `cells` en el **mismo orden natural** por número. `:setId` = id LOCAL del `CardSet` (funciona
 para CUALQUIER set del catálogo, tenga o no piezas el usuario: las celdas/variantes sin piezas son sus faltantes).
+- **v1.33 (P-27) — hereda el master set combinado:** por usar el **mismo** `MasterSetService`, esta vista (y la admin
+  `GET /admin/vaults/:userId/master-sets/:setId`) aplican el mismo fan-in que el binder M1 (`parts`, `partSetId`/
+  `partLabel`, `canonicalSetId`, conteos = Σ de partes). Si el cliente tiene cartas de ambas partes, se ven bajo el
+  mismo master. `buyable` sigue resolviéndose por `(cardId, finish)` — no depende del grupo. **La valuación del
+  portafolio no cambia** (cada carta se valúa con la `PriceReference` de su acabado/su set-id real; money-safe).
 - **Completitud por variante:** cada celda expone `variants[]` (universo = `Card.availableFinishes`) con `covered`
   por acabado; los contadores «X/Y» del front cuentan **variantes** (`coveredVariantCount`/`expectedVariantCount` y
   los agregados del set), no cartas.
@@ -3037,9 +3126,22 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - **Sin N+1 (patrón `set-value.service.ts`):** query fija — (1) página de `CardSet`; (2) `Card.groupBy({ by:[setId] })`
     para `catalogCardCount`; (3) **una** agregación (raw SQL `GROUP BY c."setId"`) sobre `InventoryItem ⋈ Card` para
     `totalPieces` + `distinctCardsOwned` de los `setId` de la página. `year` se deriva de `releaseDate` (yyyy/MM/dd).
+  - **v1.33 (P-27) — master set combinado:** los `setId` **subset** de un grupo (mapa
+    `config/master-set-groups.ts`) se **pliegan** en la fila del **principal** y sus agregados se **suman** sobre
+    `partSetIds`; el subset **no** aparece como fila propia. La fila combinada trae `partSetIds` (§DTOs). Sigue O(1)
+    queries (se agrupan por set-id canónico los resultados de las agregaciones ya existentes). **Money-safe:** solo
+    lectura; ninguna escritura consulta el mapa.
 - `GET /api/v1/admin/inventory/master-sets/:setId` — **(NUEVO)** binder del set: una celda por carta del catálogo.
   `:setId` = id LOCAL del `CardSet` (no `externalId`). Res `200` (`MasterSetBinderResponse`): `{ set, printedTotal,
   catalogCardCount, cells: MasterSetCardCellDTO[] }`, `cells` en **ORDEN NATURAL por número** (ver nota).
+  - **v1.33 (P-27) — master set combinado (ARCHITECTURE §4.31b):** si `:setId` es el **principal** de un grupo, el
+    binder hace **fan-in** de todas las partes (`Card WHERE setId IN partSetIds`): `set` = el principal (nombre del
+    master), `catalogCardCount`/`printedTotal` = **Σ de las partes** (Celebrations = 50), `cells` en bloque del
+    principal primero y luego cada subset (orden natural dentro del bloque). Cada celda trae `partSetId`/`partLabel`
+    (§DTOs) y el binder trae `parts[]`. Si `:setId` es un **subset**, se **normaliza a su principal** y la respuesta
+    trae `canonicalSetId` (el front actualiza la URL). Un set normal (sin grupo) responde igual que v1.20 (sin
+    `parts`/`partSetId`). **Money-safe:** cada `Card`/pieza conserva su set-id real; `scopeWhere` y las agregaciones
+    no cambian (filtran por `cardId`).
   - **Orden natural (obligatorio) — v1.16.1 CORREGIDO:** `Card.number` es **String** → el orden lexicográfico rompe
     ("10" < "2", "TG12" mal ubicado). El backend produce el orden correcto: **(1)** las cartas con `number`
     **puramente numérico** (`number ~ '^[0-9]+$'`) primero, ordenadas por su **valor entero**; **(2)** los
@@ -3372,10 +3474,13 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **rareza canónica**; `finishRules` keyeadas por el enum **`Finish`**. El seed migra las keys `Holo`/`Reverse Holo`
   > a `finishRules[holofoil]`/`finishRules[reverse_holo]` y canonicaliza las demás; reproduce EXACTAMENTE el negocio
   > vigente. La validación de `Rule` (`mode ∈ {fixed,pct}`, rangos) no cambia. **Auditado**, sin redeploy.
-- **DEPRECADOS (v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` — la cotización ya **no** los usa; se
-  conservan como no-op/legacy hasta su retiro (v1.29 confirma el retiro: el normalizador `rawRarity→canonical` de
-  §4.28c sustituye su rol; `RARITY_MAP` sale con el catálogo canónico en producción). El editor nuevo consume
-  `rarities` + `buylist-rules`.
+- **RETIRADOS (v1.32; deprecados desde v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` **ya no existen** — el
+  código los **retiró** junto con el setting `RARITY_MAP` (backend, rama `fix/variant-composition-regression`,
+  `BACKEND_NOTES.md` §0-quater). Fueron **reemplazados** por `BUYLIST_PRICE_RULES` / `SALES_PRICE_RULES` (reglas en dos
+  ejes §4.28d) + el **catálogo canónico de rarezas** (§4.28c, normalizador `rawRarity→canonical`) y su endpoint de
+  lectura `GET /admin/pricing/rarities` (+ `sales-rarities`). El editor nuevo consume `rarities` + `buylist-rules`.
+  Filas `ConfigSetting key='rarity_map'` que existan en BD quedan huérfanas e inertes (nadie las lee); no requieren
+  migración y los deploys nuevos ya no las siembran.
 
 #### Precio de VENTA por RAREZA (v1.13-sales-pricing — NUEVO backend; editor M2)
 > **Análogo al de buylist** (arriba), pero para el **precio de VENTA** (lo que se cobra en Compra/checkout).
@@ -3564,6 +3669,45 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
   > **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (no persistido). Si el proceso se reinicia a
   > mitad del barrido, el estado se **pierde** (vuelve a `running:false`) y hay que re-llamar. Mismo límite que
   > `sync-status` — ver Desviación **DEV-1** en ARCHITECTURE §9.
+
+#### Backfill LOCAL de `rarityCanonical` (v1.32 — NUEVO, `super_admin`) — normaliza rarezas sin upstream, money-safe
+> **Contexto (ARCHITECTURE §4.28 — catálogo canónico de rarezas).** La migración **M-31** sembró
+> `Card.rarityCanonical = rarity` **CRUDO** (sin normalizar), de modo que el `groupBy(['rarityCanonical','rarity'])`
+> que alimenta los editores de reglas (`GET /admin/pricing/rarities` y `/sales-rarities`) mostraba la **misma** rareza
+> **fragmentada/duplicada** (`rare holo`, `Rare Holo`, `RARE HOLO` como filas separadas). Este endpoint es el
+> **backfill idempotente** que reescribe `Card.rarityCanonical = normalizeRarity(rarity)` a partir de la columna
+> **LOCAL** `rarity`. Hermano de la familia de reparación de arriba, pero **puramente local**: **NUNCA** llama a
+> pokemontcg.io **ni** a TCGCSV. **El dinero no se toca** — el pricing ya re-normaliza la rareza al cotizar
+> (`money.ts`); lo roto era **solo** la UX del agrupado en el editor.
+> **Money-safe (garantía dura):** la **única** columna que escribe es `Card.rarityCanonical`. **NO** toca
+> `PriceReference`, precios, `PendingPriceEntry` ni la composición de variantes/acabados; ningún monto cambia.
+
+- `POST /api/v1/admin/catalog/unify-rarities` — **(M2, `super_admin`, síncrono `200`)** recorre TODAS las `Card` con
+  `rarity != null` y reescribe `rarityCanonical = normalizeRarity(rarity)` (función **PURA** de
+  `common/rarity-catalog.ts`, catálogo `CANONICAL_RARITIES`). **Síncrono e idempotente** (no fire-and-forget): emite
+  **un `updateMany` por rareza cruda divergente** (no un UPDATE por carta); en la 2ª corrida no hay filas divergentes
+  ⇒ **0 writes, 0 updates**. **Auditado** (`AuditLog action=catalog.unify_rarities`, `entityType='Card'`, con los
+  contadores).
+  Req: **sin body relevante** (sin parámetros).
+  Res `200`:
+  ```jsonc
+  {
+    "ok": true,
+    "cardsProcessed": 12000,   // # de Card con rarity != null (universo recorrido)
+    "cardsUpdated": 3400,      // # de Card cuyo rarityCanonical DIFERÍA y se corrigió (0 en 2ª corrida)
+    "distinctCanonical": 21,   // # de rarezas canónicas DISTINTAS resultantes
+    "unmapped": [              // rarezas cuya forma CRUDA no tiene entrada en CANONICAL_RARITIES
+      { "raw": "Galaxy Foil", "canonical": "Galaxy Foil", "count": 40 }
+    ]
+  }
+  ```
+  - **`unmapped`** = rarezas crudas **sin** entrada en el catálogo canónico (`CANONICAL_RARITIES`); `canonical` es el
+    pass-through Title-case. Sirve para que el operador sepa qué rarezas **añadir** a `rarity-catalog.ts` (§4.28). Es
+    money-safe: una rareza sin entrada canónica **cae al fallback pct** (predecible y auditable, **nunca 0**), así que
+    su ausencia no rompe precios — solo la deja fuera de las reglas explícitas hasta que se agregue.
+  - Sin errores de negocio propios (no depende de fuentes externas). Guardas de rol/auth estándar (`super_admin`).
+  - **Relación con la familia de arriba:** aquella (`refresh-variants*`) repara **variantes + precios** desde **TCGCSV**;
+    esta repara **solo la rareza canónica** desde columna **LOCAL**. Ninguna llama a pokemontcg.io.
 
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 

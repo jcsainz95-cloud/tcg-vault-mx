@@ -345,6 +345,12 @@ export interface CardSetDTO {
   releaseDate?: string;
   // v1.1: año derivado de releaseDate (para el filtro "Nombre (2024)").
   year?: number;
+  // v1.33-master-set-multipart (P-27, aditivo/opcional): en `GET /catalog/sets` y `GET /buylist/sets`
+  // un subset de un master combinado (Classic Collection `cel25c`) se PLIEGA en la fila del principal
+  // (Celebrations aparece UNA sola vez) y esa entrada gana `partSetIds` = los set-ids REALES que agrupa
+  // (principal + subsets). Presente SOLO en masters combinados; el dropdown filtra por TODAS las partes.
+  // Un set normal lo omite (comportamiento previo intacto).
+  partSetIds?: string[];
 }
 
 // v1.1: facetas dinámicas de "Compra" (contrato GET /catalog/facets).
@@ -799,6 +805,13 @@ export interface MasterSetSummaryDTO {
   catalogVariantCount: number;
   distinctVariantsOwned: number;
   variantCompletionPct: number | null;
+  // v1.33-master-set-multipart (P-27, §4.31c, aditivo/opcional): en el índice los subset de un grupo
+  // se PLIEGAN en la fila del principal (no aparecen como filas propias) y TODOS los agregados
+  // (catalogCardCount, catalogVariantCount, distinctCardsOwned, distinctVariantsOwned, totalPieces) se
+  // SUMAN sobre las partes; completionPct/variantCompletionPct se recomputan sobre esos totales (→ 50).
+  // `partSetIds` = los set-ids REALES plegados (principal + subsets); presente SOLO en masters
+  // combinados. Un set normal lo omite. Sirve para que el front marque "combinado" / filtre por partes.
+  partSetIds?: string[];
 }
 
 // Ordenamiento del índice (contrato §M1). `release_desc` es el default.
@@ -1000,6 +1013,28 @@ export interface MasterSetCardCellDTO {
   // tiene productos separados (el caso común). Cada uno se pinta como SU PROPIO producto con su
   // propio precio por acabado; NO se fusionan en la carta base.
   separateProducts?: CardProductDTO[];
+  // ===== v1.33-master-set-multipart (P-27, §4.31, aditivo/opcional) =====
+  // A qué parte REAL pertenece esta carta (su `CardSet` local: `cel25` o `cel25c`) y la etiqueta del
+  // bloque ("Classic Collection"). Presentes SOLO en un master COMBINADO (cuando el binder trae `parts`);
+  // el front agrupa las celdas por `partSetId` y pinta el separador con `partLabel`. En un set normal se
+  // OMITEN (la celda es del único set). NO cambian la identidad: `cardId` sigue llaveado a su set real
+  // (money-safe). Ver ARCHITECTURE §4.31b.
+  partSetId?: string;
+  partLabel?: string;
+}
+
+// v1.33-master-set-multipart (P-27, §4.31): una PARTE de un master combinado (principal o subset).
+// El binder trae una entrada por parte importada, en orden de bloque (principal `isPrimary=true`,
+// `order=0`; subsets por su `order`). `label` = etiqueta del separador ("Classic Collection"); en el
+// principal `label` = su propio `name`. `catalogCardCount` = nº de Card de ESE set-id (desglose por
+// bloque). Presente SOLO en masters combinados (≥2 partes).
+export interface SetPartDTO {
+  setId: string;
+  name: string;
+  label?: string;
+  isPrimary: boolean;
+  order: number;
+  catalogCardCount: number;
 }
 
 export interface MasterSetBinderResponse {
@@ -1010,6 +1045,16 @@ export interface MasterSetBinderResponse {
   // v1.20 (aditivo): scope de la agregación + dueño (solo user_vault).
   scope: MasterSetScope;
   owner?: VaultOwnerRefDTO;
+  // ===== v1.33-master-set-multipart (P-27, §4.31, aditivo/opcional) =====
+  // `parts` presente SOLO cuando el set es un master COMBINADO (≥2 partes): una entrada por parte,
+  // en orden de bloque. `set` = SetRefDTO del PRINCIPAL (nombre del master = "Celebrations"), y
+  // `catalogCardCount`/`printedTotal` = Σ de TODAS las partes (Celebrations = 50). Las celdas llegan
+  // con `partSetId`/`partLabel` y en orden de bloque (principal primero, luego cada subset; orden
+  // natural DENTRO del bloque). `canonicalSetId` presente SOLO cuando el `:setId` pedido era un SUBSET
+  // y se normalizó a su principal (el front actualiza la URL/navegación; evita el binder roto de 25).
+  // Un set normal omite ambos. Ver ARCHITECTURE §4.31b.
+  parts?: SetPartDTO[];
+  canonicalSetId?: string;
 }
 
 // ===== v1.28 Stream B (P-19): POST /admin/inventory/publish-all =====
@@ -1475,13 +1520,6 @@ export interface PendingPriceEntryDTO {
   card?: { id: string; name: string; number: string; setName: string };
 }
 
-// GET/PUT /admin/pricing/rarity-map: tabla rareza→categoría de buylist.
-// DEPRECADO v1.3.1: la cotización ya no la usa; reemplazada por buylist-rules.
-export interface RarityMapEntryDTO {
-  rarity: string;
-  category: BuylistCategory;
-}
-
 // ---- M2: precio de buylist por RAREZA + ACABADO (contrato §M2; v1.29 dos ejes) ----
 // v1.29 (§4.28d): las reglas dejan de ser un mapa plano que MEZCLABA rareza y acabado (el parche
 // INV-1 del front con keys sintéticas "Holo"/"Reverse Holo"). Pasan a `PriceRuleSet` con DOS ejes
@@ -1633,10 +1671,21 @@ export interface PriceHistoryEntryDTO {
   isManualOverride: boolean;
 }
 
-// POST /admin/pricing/sync → dispara/encola el sync diario de bóveda.
-export interface PricingSyncResponse {
-  jobId: string;
-  queued: number;
+// POST /admin/catalog/unify-rarities → backfill LOCAL de `Card.rarityCanonical` (§19.5 / BACKEND_NOTES
+// §0-ter). Money-safe: NUNCA llama a pokemontcg.io/TCGCSV, no toca precios ni reglas; solo re-normaliza
+// la rareza canónica del catálogo para colapsar duplicados/variantes de escritura en el editor de reglas.
+// `unmapped` = rarezas crudas sin entrada en el catálogo canónico (el operador ve cuáles añadir).
+export interface UnifyRaritiesUnmappedEntry {
+  raw: string;
+  canonical: string;
+  count: number;
+}
+export interface UnifyRaritiesResponse {
+  ok: true;
+  cardsProcessed: number;
+  cardsUpdated: number;
+  distinctCanonical: number;
+  unmapped: UnifyRaritiesUnmappedEntry[];
 }
 
 // GET /admin/catalog/remote-sets: sets remotos de pokemontcg.io con estado local.

@@ -31,6 +31,21 @@ export const ErrorCode = {
 
   // Catalog / pricing
   PRICE_PENDING: 'PRICE_PENDING',
+  // v1.31 (formalizado; §Convenciones/Errores del contrato): una FUENTE EXTERNA de datos no está
+  // disponible o devolvió payload inválido (timeout/red, 401/403/5xx, parse fallido). Aplica a TCGCSV
+  // (espejo de precios/estructura de TCGplayer) y a pokemontcg.io (metadata). NO es un 500 crudo: el
+  // backend remapea el fallo remoto a 502 con mensaje accionable. Money-safe (todo el fetch ocurre
+  // ANTES de escribir). Emisores: familia TCGCSV del sellado (§M2 groups/products), sync/sync-all
+  // (pokemontcg.io) y la familia refresh-variants (§M2 — M-34/M-35). En el batch refresh-variants-all
+  // NO se propaga como HTTP: se captura por-set y va a summary.failures[].code. 502.
+  UPSTREAM_ERROR: 'UPSTREAM_ERROR',
+  // v1.31 (formalizado; refresh-variants M-34): se intentó refrescar variantes/precios de un set que NO
+  // existe en BD, o existe pero SIN cartas. La reparación solo-TCGCSV NO importa el set (no llama a
+  // pokemontcg.io); mensaje accionable ("impórtalo primero con POST /admin/catalog/sync"). Se usa 409
+  // (no 404) a propósito: el front trata 404/405 como "endpoint no desplegado" (isEndpointMissing) y un
+  // SET_NOT_IMPORTED real con 404 se confundiría con eso. Lo emite POST /admin/catalog/refresh-variants;
+  // en el batch se captura por-set y va a summary.failures[].code. 409.
+  SET_NOT_IMPORTED: 'SET_NOT_IMPORTED',
   // v1.6-finish: el `finish` enviado no está en Card.availableFinishes (SEC-A1). 422.
   // Afecta POST /buylist/quote, POST /buylist/requests, POST /admin/inventory/items.
   FINISH_NOT_AVAILABLE: 'FINISH_NOT_AVAILABLE',

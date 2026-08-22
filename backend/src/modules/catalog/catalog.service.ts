@@ -5,6 +5,10 @@ import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { computeSalePriceForRarity, SalesRule, PriceRuleSet } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
+// v1.33 (P-27, §4.31d): master set combinado en el STOREFRONT. `GET /catalog/sets`+`/facets` PLIEGAN
+// el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
+// presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
+import { MASTER_SET_GROUPS, partExternalIds } from '../../config/master-set-groups';
 
 // Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
 // fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
@@ -292,6 +296,94 @@ export class CatalogService {
     return value;
   }
 
+  /**
+   * v1.33 (P-27, §4.31d) — expande el filtro `setId` de Compra cuando el id es el PRINCIPAL de un
+   * master combinado: devuelve `{ in: partSetIds }` (set-ids locales reales de las partes importadas,
+   * ≥2) para listar el inventario de todas las partes. Para un set normal, un subset, o un principal
+   * con <2 partes importadas → devuelve el `setId` tal cual (comportamiento v1.20). Money-safe: solo
+   * amplía el WHERE de lectura; cada `ListingDTO` sigue llaveado a su `Card`/set real.
+   */
+  private async expandSetIdFilter(setId: string): Promise<string | { in: string[] }> {
+    if (MASTER_SET_GROUPS.length === 0) return setId;
+    const set = await this.prisma.cardSet.findUnique({
+      where: { id: setId },
+      select: { externalId: true },
+    });
+    if (!set) return setId; // id desconocido → sin cambio (mismo resultado que hoy).
+    const partExt = partExternalIds(set.externalId); // [] si no es principal de ningún grupo
+    if (partExt.length < 2) return setId; // set normal / subset / principal sin subsets → sin expandir.
+    const parts = await this.prisma.cardSet.findMany({
+      where: { externalId: { in: partExt } },
+      select: { id: true },
+    });
+    const ids = parts.map((p) => p.id);
+    return ids.length >= 2 ? { in: ids } : setId; // requiere ≥2 partes importadas para combinar.
+  }
+
+  /**
+   * v1.33 (P-27, §4.31d) — PLIEGA los subset de cada master combinado en su principal para el dropdown
+   * de Compra (`/catalog/sets` y `/catalog/facets`): el principal aparece UNA vez y gana `partSetIds?`
+   * (los set-ids reales agrupados) para que el filtro cubra todas las partes. Si el principal no está
+   * entre los sets publicados pero sí importado, se trae para nombrar la entrada combinada. CA-71: si
+   * el principal no existe importado, el subset NO se pliega (queda como su propio set). Money-safe:
+   * solo re-agrupa metadatos de presentación; jamás publica cartas sin precio ni re-llavea nada.
+   */
+  private async foldStorefrontSets(
+    entries: {
+      id: string;
+      externalId: string;
+      name: string;
+      series: string | null;
+      releaseDate: string | null;
+      year: number | null;
+      partSetIds?: string[];
+    }[],
+  ): Promise<typeof entries> {
+    if (MASTER_SET_GROUPS.length === 0) return entries;
+    const byExternal = new Map(entries.map((e) => [e.externalId, e]));
+    const active = MASTER_SET_GROUPS.map((g) => ({
+      g,
+      subsetsPresent: g.subsets.filter((s) => byExternal.has(s.externalId)),
+    })).filter((x) => x.subsetsPresent.length > 0);
+    if (active.length === 0) return entries;
+
+    // Principales necesarios que NO están entre los sets publicados (hay que traerlos para el nombre).
+    const missingPrimaryExt = [
+      ...new Set(active.map((x) => x.g.primary).filter((ext) => !byExternal.has(ext))),
+    ];
+    const fetchedPrimaries = missingPrimaryExt.length
+      ? await this.prisma.cardSet.findMany({
+          where: { externalId: { in: missingPrimaryExt } },
+          select: { id: true, externalId: true, name: true, series: true, releaseDate: true },
+        })
+      : [];
+    const primaryByExt = new Map(fetchedPrimaries.map((s) => [s.externalId, s]));
+
+    const removed = new Set<string>();
+    const added: typeof entries = [];
+    for (const { g, subsetsPresent } of active) {
+      let primaryEntry = byExternal.get(g.primary);
+      if (!primaryEntry) {
+        const fetched = primaryByExt.get(g.primary);
+        if (!fetched) continue; // CA-71: principal no importado → no se pliega.
+        primaryEntry = {
+          id: fetched.id,
+          externalId: fetched.externalId,
+          name: fetched.name,
+          series: fetched.series ?? null,
+          releaseDate: fetched.releaseDate ?? null,
+          year: yearFromReleaseDate(fetched.releaseDate),
+        };
+        byExternal.set(g.primary, primaryEntry);
+        added.push(primaryEntry);
+      }
+      const subsetIds = subsetsPresent.map((s) => byExternal.get(s.externalId)!.id);
+      primaryEntry.partSetIds = [primaryEntry.id, ...subsetIds];
+      for (const s of subsetsPresent) removed.add(byExternal.get(s.externalId)!.id);
+    }
+    return [...entries, ...added].filter((e) => !removed.has(e.id));
+  }
+
   async listCards(q: {
     q?: string;
     setId?: string;
@@ -316,7 +408,11 @@ export class CatalogService {
     if (q.finish) extra.finish = this.validateEnum('finish', q.finish, FINISHES) as never;
     if (q.sealedSubtype) extra.sealedSubtype = this.validateEnum('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES) as never;
     const cardWhere: Prisma.CardWhereInput = {};
-    if (q.setId) cardWhere.setId = q.setId;
+    // v1.33 (P-27, §4.31d): si `setId` es el PRINCIPAL de un master combinado, EXPANDE a
+    // `setId IN partSetIds` (incluye el inventario publicado de todas las partes: cel25 + cel25c).
+    // Aditivo: para un set normal el filtro es idéntico a hoy. La Regla de Compra se respeta —
+    // `fetchSellable` sigue listando SOLO lo `sellable` (agrupar no publica cartas sin precio).
+    if (q.setId) cardWhere.setId = await this.expandSetIdFilter(q.setId);
     if (q.rarity) cardWhere.rarity = q.rarity;
     if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
     if (Object.keys(cardWhere).length) extra.card = cardWhere;
@@ -355,14 +451,34 @@ export class CatalogService {
       ...new Set(rows.map((r) => r.item.sealedSubtype).filter((x): x is NonNullable<typeof x> => Boolean(x))),
     ];
 
-    const setMap = new Map<string, { id: string; name: string; releaseDate: string | null; year: number | null }>();
+    const setMap = new Map<
+      string,
+      { id: string; externalId: string; name: string; series: string | null; releaseDate: string | null; year: number | null }
+    >();
     for (const { item } of rows) {
       const s = item.card.set;
       if (s && !setMap.has(s.id)) {
-        setMap.set(s.id, { id: s.id, name: s.name, releaseDate: s.releaseDate ?? null, year: yearFromReleaseDate(s.releaseDate) });
+        setMap.set(s.id, {
+          id: s.id,
+          externalId: s.externalId,
+          name: s.name,
+          series: s.series ?? null,
+          releaseDate: s.releaseDate ?? null,
+          year: yearFromReleaseDate(s.releaseDate),
+        });
       }
     }
-    const sets = [...setMap.values()].sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+    // v1.33 (P-27, §4.31d): pliega el subset en su principal (Celebrations una vez) + `partSetIds?`.
+    const folded = await this.foldStorefrontSets([...setMap.values()]);
+    const sets = folded
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        releaseDate: s.releaseDate,
+        year: s.year,
+        ...(s.partSetIds ? { partSetIds: s.partSetIds } : {}),
+      }))
+      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
 
     const prices = rows.map((r) => r.dto.salePriceCents ?? 0);
     return {
@@ -493,13 +609,14 @@ export class CatalogService {
     const rows = await this.fetchSellable(this.publishedWhere());
     const setMap = new Map<
       string,
-      { id: string; name: string; series: string | null; releaseDate: string | null; year: number | null }
+      { id: string; externalId: string; name: string; series: string | null; releaseDate: string | null; year: number | null }
     >();
     for (const { item } of rows) {
       const s = item.card.set;
       if (s && !setMap.has(s.id)) {
         setMap.set(s.id, {
           id: s.id,
+          externalId: s.externalId,
           name: s.name,
           series: s.series ?? null,
           releaseDate: s.releaseDate ?? null,
@@ -507,7 +624,18 @@ export class CatalogService {
         });
       }
     }
-    const data = [...setMap.values()].sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+    // v1.33 (P-27, §4.31d): pliega el subset en su principal (Celebrations una vez) + `partSetIds?`.
+    const folded = await this.foldStorefrontSets([...setMap.values()]);
+    const data = folded
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        series: s.series,
+        releaseDate: s.releaseDate,
+        year: s.year,
+        ...(s.partSetIds ? { partSetIds: s.partSetIds } : {}),
+      }))
+      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
     return { data };
   }
 }

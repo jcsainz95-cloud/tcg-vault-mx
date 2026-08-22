@@ -1,37 +1,19 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import type { ErrorCodeType } from '../../common/error-codes';
+import { ErrorCode } from '../../common/error-codes';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.client';
 import { yearFromReleaseDate } from './catalog.service';
 import { deriveAvailableFinishes } from '../pricing/pricing.types';
 import { deriveNumberParts } from '../../common/card-order';
-import { normalizeRarity } from '../../common/rarity-catalog';
+import { normalizeRarity, isRarityMapped } from '../../common/rarity-catalog';
 import { FinishReconciler } from './finish-reconciler.service';
 import { CardProductResolverService } from './card-product-resolver.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-/**
- * `UPSTREAM_ERROR` (502) es el MISMO patrón vigente del explorador de sellado
- * (`sealed-pricing.controller.ts`): está en el contrato (§M2) pero aún no en
- * `common/error-codes.ts` (zona compartida serializada a otro stream). Se tipa aquí por cast;
- * formalizarlo en `ErrorCode` es un follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
- */
-const UPSTREAM_ERROR = 'UPSTREAM_ERROR' as ErrorCodeType;
-/**
- * M-34 — `SET_NOT_IMPORTED` (409 Conflict): el `refresh-variants` recibió un set que NO está en BD (o
- * sin cartas). Este camino NUNCA importa desde pokemontcg.io, así que no puede "traerlo": exige que el
- * set ya exista. Se usa **409 (no 404)** a propósito: el frontend trata 404/405 como "endpoint no
- * desplegado" (`isEndpointMissing`), así que un `SET_NOT_IMPORTED` real con 404 se confundiría con
- * "endpoint faltante". 409 es defendible (conflicto: no se puede refrescar porque el set no está
- * importado) y deja backend+frontend alineados. Mismo patrón de tipado por cast que `UPSTREAM_ERROR`
- * (no está aún en `common/error-codes.ts`, zona compartida de otro stream); formalizarlo en `ErrorCode`
- * + `API_CONTRACT.md` es follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
- */
-const SET_NOT_IMPORTED = 'SET_NOT_IMPORTED' as ErrorCodeType;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
 
@@ -66,6 +48,89 @@ export class CatalogSyncService {
     // sync single/metadata pueden construir el servicio sin él (no se invoca en esa ruta).
     @Optional() private readonly cardProductResolver?: CardProductResolverService,
   ) {}
+
+  /**
+   * POST /admin/catalog/unify-rarities — backfill LOCAL de `Card.rarityCanonical` (§4.28c). Re-deriva
+   * `rarityCanonical = normalizeRarity(rarity)` para TODA carta con `rarity != null`. Cierra la
+   * regresión de la migración M-31 (sembró `rarityCanonical = rarity` CRUDO), que fragmentaba el
+   * agrupado `groupBy(['rarityCanonical'])` del editor de reglas.
+   *
+   * Money-safe: NUNCA llama a pokemontcg.io ni a TCGCSV (es un UPDATE derivado de la columna LOCAL
+   * `rarity`); NO toca `PriceReference`, precios, ni composición de variantes — SOLO reescribe
+   * `rarityCanonical`. El pricing ya re-normaliza al vuelo (money.ts), así que los montos no cambian:
+   * esto solo repara la UX del editor.
+   *
+   * Síncrono e idempotente: agrega el estado por `groupBy(['rarity','rarityCanonical'])` (el universo
+   * de rarezas distintas es de decenas), escribe SOLO las rarezas crudas con al menos una fila
+   * divergente y en la segunda corrida no hace ningún UPDATE. `unmapped` lista las rarezas cuya forma
+   * cruda NO tiene entrada en el catálogo canónico (`CANONICAL_RARITIES`) → candidatas a añadir.
+   */
+  async unifyRarities(): Promise<{
+    ok: boolean;
+    cardsProcessed: number;
+    cardsUpdated: number;
+    distinctCanonical: number;
+    unmapped: { raw: string; canonical: string; count: number }[];
+  }> {
+    const groups = await this.prisma.card.groupBy({
+      by: ['rarity', 'rarityCanonical'],
+      where: { rarity: { not: null } },
+      _count: { _all: true },
+    });
+
+    let cardsProcessed = 0;
+    let cardsUpdated = 0;
+    const canonicalSet = new Set<string>();
+    // raw → { canonical, count, needsUpdate }: agrega los conteos por rareza cruda y marca si alguna
+    // fila difiere del canónico esperado (para escribir SOLO donde haga falta).
+    const byRaw = new Map<string, { canonical: string; count: number; needsUpdate: boolean }>();
+    const unmappedByRaw = new Map<string, { canonical: string; count: number }>();
+
+    for (const g of groups) {
+      const raw = g.rarity;
+      if (raw == null) continue; // filtrado por el where, defensivo
+      const count = g._count._all;
+      cardsProcessed += count;
+      // `rarity` no vacía ⇒ normalizeRarity nunca devuelve null; el guard es defensivo.
+      const canonical = normalizeRarity(raw);
+      if (canonical == null) continue;
+      canonicalSet.add(canonical);
+
+      const acc = byRaw.get(raw) ?? { canonical, count: 0, needsUpdate: false };
+      acc.count += count;
+      if (g.rarityCanonical !== canonical) {
+        acc.needsUpdate = true;
+        cardsUpdated += count;
+      }
+      byRaw.set(raw, acc);
+
+      if (!isRarityMapped(raw)) {
+        const u = unmappedByRaw.get(raw) ?? { canonical, count: 0 };
+        u.count += count;
+        unmappedByRaw.set(raw, u);
+      }
+    }
+
+    // Escribe SOLO las rarezas crudas divergentes. El `NOT` filtra las filas ya correctas (e incluye
+    // las de `rarityCanonical = null`); NO toca ninguna otra columna → money-safe.
+    for (const [raw, info] of byRaw) {
+      if (!info.needsUpdate) continue;
+      await this.prisma.card.updateMany({
+        where: { rarity: raw, NOT: { rarityCanonical: info.canonical } },
+        data: { rarityCanonical: info.canonical },
+      });
+    }
+
+    const unmapped = [...unmappedByRaw.entries()]
+      .map(([raw, u]) => ({ raw, canonical: u.canonical, count: u.count }))
+      .sort((a, b) => b.count - a.count);
+
+    this.logger.log(
+      `unify-rarities: ${cardsProcessed} cartas, ${cardsUpdated} actualizadas, ` +
+        `${canonicalSet.size} canónicas distintas, ${unmapped.length} rarezas unmapped.`,
+    );
+    return { ok: true, cardsProcessed, cardsUpdated, distinctCanonical: canonicalSet.size, unmapped };
+  }
 
   /**
    * GET /admin/catalog/remote-sets — lista remota + estado local (imported/cardCount).
@@ -206,7 +271,7 @@ export class CatalogSyncService {
       // 409 (no 404) a propósito: el front trata 404/405 como "endpoint no desplegado"
       // (`isEndpointMissing`); un SET_NOT_IMPORTED real con 404 se confundiría con eso.
       throw new BusinessException(
-        SET_NOT_IMPORTED,
+        ErrorCode.SET_NOT_IMPORTED,
         HttpStatus.CONFLICT,
         `El set "${setId}" no está importado en BD (sin cartas). Impórtalo primero con ` +
           `POST /admin/catalog/sync; este camino NO llama a pokemontcg.io.`,
@@ -216,7 +281,7 @@ export class CatalogSyncService {
       // No debería pasar en prod (el resolver está cableado en CatalogModule). @Optional es solo
       // para los tests de metadata que construyen el sync sin él.
       throw new BusinessException(
-        'INTERNAL' as ErrorCodeType,
+        ErrorCode.INTERNAL,
         HttpStatus.INTERNAL_SERVER_ERROR,
         'CardProductResolver no está cableado; no se puede refrescar variantes.',
       );
@@ -269,7 +334,7 @@ export class CatalogSyncService {
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       throw new BusinessException(
-        UPSTREAM_ERROR,
+        ErrorCode.UPSTREAM_ERROR,
         HttpStatus.BAD_GATEWAY,
         `Fuente TCGCSV no disponible; reintenta en unos minutos (${(e as Error).message})`,
       );
@@ -598,7 +663,7 @@ export class CatalogSyncService {
         summary.pending += res.pending;
       } catch (e) {
         const code =
-          e instanceof BusinessException ? String(e.code) : ('UPSTREAM_ERROR' as string);
+          e instanceof BusinessException ? String(e.code) : String(ErrorCode.UPSTREAM_ERROR);
         summary.setsFailed += 1;
         summary.failures.push({
           setId,
@@ -705,7 +770,7 @@ export class CatalogSyncService {
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       throw new BusinessException(
-        UPSTREAM_ERROR,
+        ErrorCode.UPSTREAM_ERROR,
         HttpStatus.BAD_GATEWAY,
         `Fuente pokemontcg.io no disponible (HTTP 5xx); reintenta en unos minutos (${(e as Error).message})`,
       );

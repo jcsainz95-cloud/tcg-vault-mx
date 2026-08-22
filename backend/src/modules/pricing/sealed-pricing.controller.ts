@@ -5,18 +5,10 @@ import { Allow, IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
-import type { ErrorCodeType } from '../../common/error-codes';
+import { ErrorCode } from '../../common/error-codes';
 import { AuditService } from '../audit/audit.service';
 import { SealedMappingService } from './sealed-mapping.service';
 import { TcgcsvSealedBulkProvider } from './providers/tcgcsv-sealed.provider';
-
-/**
- * `UPSTREAM_ERROR` (502) está en el contrato (§M2, explorador TCGCSV) pero aún no en
- * `common/error-codes.ts` (zona compartida serializada a otro stream en esta ventana).
- * Se tipa aquí por cast; añadirlo a `ErrorCode` es un follow-up de 1 línea
- * (ver docs/BACKEND_NOTES.md §v1.19).
- */
-const UPSTREAM_ERROR = 'UPSTREAM_ERROR' as ErrorCodeType;
 
 /**
  * PUT /admin/pricing/sealed/items/:itemId/mapping (API_CONTRACT §M2).
@@ -71,7 +63,7 @@ export class SealedPricingController {
       return { data };
     } catch (e) {
       throw new BusinessException(
-        UPSTREAM_ERROR,
+        ErrorCode.UPSTREAM_ERROR,
         HttpStatus.BAD_GATEWAY,
         `TCGCSV upstream error: ${(e as Error).message}`,
       );
@@ -105,7 +97,7 @@ export class SealedPricingController {
       return { data };
     } catch (e) {
       throw new BusinessException(
-        UPSTREAM_ERROR,
+        ErrorCode.UPSTREAM_ERROR,
         HttpStatus.BAD_GATEWAY,
         `TCGCSV upstream error: ${(e as Error).message}`,
       );

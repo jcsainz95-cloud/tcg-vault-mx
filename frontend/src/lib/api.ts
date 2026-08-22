@@ -95,7 +95,6 @@ import type {
   PendingPriceContext,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
-  PricingSyncResponse,
   CatalogSyncResponse,
   CatalogBackfillResponse,
   CatalogSyncAllResponse,
@@ -104,6 +103,7 @@ import type {
   RefreshVariantsStatusResponse,
   CatalogSyncStatusResponse,
   PriceSyncStatusResponse,
+  UnifyRaritiesResponse,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
   AdminCreatedUserDTO,
@@ -270,7 +270,9 @@ export async function getSets(): Promise<CardSetDTO[]> {
     const res = await apiRequest<{ data: CardSetDTO[] }>('/catalog/sets');
     return res.data;
   }
-  return delay(fx.mockSets);
+  // v1.33 (P-27, §4.31d): el backend pliega el subset de un master combinado en el principal
+  // (Celebrations una vez, con `partSetIds`). El mock reproduce ese plegado para el dropdown de Compra.
+  return delay(fx.foldSetsForDropdown(fx.mockSets));
 }
 
 export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
@@ -939,7 +941,9 @@ export async function listBuylistSets(): Promise<CardSetDTO[]> {
     const res = await apiRequest<{ data: CardSetDTO[] }>('/buylist/sets');
     return res.data;
   }
-  return delay(fx.mockSets);
+  // v1.33 (P-27, §4.31d): el subset de un master combinado se pliega en el principal (una entrada
+  // combinada única en el dropdown del cotizador); esa entrada trae `partSetIds` para expandir el filtro.
+  return delay(fx.foldSetsForDropdown(fx.mockSets));
 }
 
 export interface BuylistCardsFilters {
@@ -971,7 +975,12 @@ export async function searchBuylistCards(
   }
   // MOCK: busca sobre todo el catálogo (mockCards), no solo la vitrina de Compra.
   let data = [...fx.mockCards];
-  if (filters.setId) data = data.filter((c) => c.setId === filters.setId);
+  // v1.33 (P-27, §4.31d): pedir por el principal de un master combinado EXPANDE a `setId IN partSetIds`
+  // (Celebrations lista las cartas de cel25 + cel25c); un set normal filtra por su único id.
+  if (filters.setId) {
+    const ids = new Set(fx.expandSetIdFilter(filters.setId));
+    data = data.filter((c) => ids.has(c.setId));
+  }
   if (filters.q) {
     const q = filters.q.toLowerCase();
     data = data.filter(
@@ -2685,15 +2694,27 @@ export async function resolveDispute(id: string, input: ResolveDisputeInput): Pr
 }
 
 // ---------- Admin M2 · Catálogo y precios (contrato §M2) ----------
-/** Dispara/encola el sync diario de precios de bóveda (contrato POST /admin/pricing/sync). */
-export async function syncPricing(input: {
-  scope?: 'all_vault' | 'cardIds';
-  cardIds?: string[];
-} = {}): Promise<PricingSyncResponse> {
+/**
+ * Unifica las rarezas canónicas del catálogo (contrato POST /admin/catalog/unify-rarities; §19.5 /
+ * BACKEND_NOTES §0-ter). Backfill LOCAL de `Card.rarityCanonical`: money-safe, síncrono e idempotente.
+ * NUNCA llama a pokemontcg.io/TCGCSV y NO modifica precios ni reglas — solo colapsa duplicados/variantes
+ * de escritura para que el editor de reglas por rareza muestre una fila por rareza real. Devuelve un
+ * resumen honesto (cuántas cartas procesó/actualizó, cuántas canónicas distintas quedaron y la lista de
+ * rarezas `unmapped` sin entrada en el catálogo canónico, para que el operador sepa cuáles añadir).
+ */
+export async function unifyRarities(): Promise<UnifyRaritiesResponse> {
   if (!config.useMocks) {
-    return apiRequest<PricingSyncResponse>('/admin/pricing/sync', { method: 'POST', body: input });
+    return apiRequest<UnifyRaritiesResponse>('/admin/catalog/unify-rarities', { method: 'POST' });
   }
-  return delay({ jobId: mockJobId(), queued: fx.mockListings.length });
+  // MOCK: simula una primera pasada que corrige duplicados y deja una rareza cruda sin mapear, para
+  // ejercitar el resumen honesto (cartas actualizadas + lista de `unmapped` accionable).
+  return delay({
+    ok: true,
+    cardsProcessed: 12000,
+    cardsUpdated: 3400,
+    distinctCanonical: 21,
+    unmapped: [{ raw: 'Galaxy Foil', canonical: 'Galaxy Foil', count: 40 }],
+  });
 }
 
 /**
