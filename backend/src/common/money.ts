@@ -4,6 +4,10 @@
  *
  * Toda cantidad es un entero de centavos MXN. No se usan floats para persistir dinero.
  */
+// v1.29 (§4.28): la ÚNICA verdad de «premium» y la normalización de rareza viven en el catálogo
+// canónico (pure, sin infra) — money.ts las CONSUME (no duplica regex). El lookup de reglas normaliza
+// AMBOS lados (rareza y key) para empatar 1:1 con la forma canónica del ingest.
+import { isPremiumCanonicalRarity, normalizeRarity } from './rarity-catalog';
 
 /**
  * BE-27 (money-safety): techo Int32 de Postgres. Toda columna `*Cents` persistible es `Int`, cuyo
@@ -162,51 +166,20 @@ export function isHoloRarity(rarity: string | null): boolean {
 }
 
 /**
- * Fase 0.1 — Clasificador de rareza PREMIUM (chase / alto valor).
+ * Fase 0.1 / v1.29 (§4.28e) — Clasificador de rareza PREMIUM (chase / alto valor).
  *
  * Regla de negocio del humano: SOLO Common/Uncommon y el "holo/reverse común" son precio FIJO de
  * bulk; todo lo más raro es un % arriba de MERCADO. Una rareza premium por tanto NUNCA debe poder
- * caer al bin fijo barato de bulk (la clave sintética "Holo" ni ninguna regla `fixed` de bulk):
- * debe resolver por su PROPIA regla explícita o, en su defecto, al fallback pct (% de mercado).
+ * caer al bin fijo barato de bulk: debe resolver por su PROPIA regla explícita o, en su defecto, al
+ * fallback pct (% de mercado).
  *
- * Matching robusto por substrings/tokens representativos, case-insensitive (la taxonomía de
- * pokemontcg.io es abierta). Cubre: Illustration Rare, Special Illustration Rare, Ultra Rare,
- * Double Rare (= ex), Rare Secret/Rainbow/Hyper/Gold, Full Art, Alternate Art, Amazing Rare,
- * Radiant, Shiny, Trainer Gallery, Character/Super Rare, Prism Star, y las Rare Holo
- * V/VMAX/VSTAR/EX/GX. Se prefiere sobre-incluir (una carta barata clasificada premium solo pasa a
- * "% de mercado", inocuo) que sub-incluir (una chase tratada como bulk = pérdida de dinero).
- *
- * NO premium (excluidas a propósito): Common, Uncommon, Rare (no-holo), Rare Holo (plano),
- * Reverse Holo — el bulk legítimo.
- */
-const PREMIUM_RARITY_PATTERNS: RegExp[] = [
-  /illustration/, // Illustration Rare, Special Illustration Rare
-  /ultra\s*rare/, // Ultra Rare (full art)
-  /double\s*rare/, // Double Rare (ex, era Scarlet & Violet)
-  /secret/, // Rare Secret, Secret Rare
-  /rainbow/, // Rainbow Rare
-  /hyper/, // Hyper Rare
-  /full\s*art/, // Full Art
-  /alt(ernate)?\s*art/, // Alternate Art / Alt Art
-  /special/, // Special Illustration Rare, etc.
-  /amazing/, // Amazing Rare
-  /radiant/, // Radiant
-  /shiny/, // Rare Shiny / Shiny Ultra Rare
-  /trainer\s*gallery/, // Trainer Gallery
-  /character/, // Character Rare / Super Rare
-  /gold/, // Gold (secret) Rare
-  /prism/, // Prism Star
-  /\b(v|vmax|vstar|vunion|v-union|ex|gx)\b/, // V-series y EX/GX como tokens sueltos (p. ej. "Rare Holo VMAX")
-];
-
-/**
- * Fase 0.1 — true si la rareza es "chase"/alto valor y por tanto debe cotizar por su propia regla
- * explícita o por el fallback pct (% de mercado), NUNCA por el bin fijo barato de bulk.
+ * v1.29: DELEGA en la ÚNICA definición del catálogo canónico (`isPremiumCanonicalRarity`,
+ * `common/rarity-catalog.ts`). Se RETIRA `PREMIUM_RARITY_PATTERNS` (que divergía de la de
+ * `ppt-sync-scope.ts`); ahora hay UNA sola verdad de «premium» en todo el sistema (§4.28e). Los
+ * verdictos en conflicto («Rare Holo» = NO premium, «Double Rare» = SÍ premium) los fija el catálogo.
  */
 export function isPremiumRarity(rarity: string | null): boolean {
-  if (rarity == null) return false;
-  const s = rarity.toLowerCase();
-  return PREMIUM_RARITY_PATTERNS.some((re) => re.test(s));
+  return isPremiumCanonicalRarity(rarity);
 }
 
 /**
@@ -248,6 +221,163 @@ export function ruleKeyCandidates(rarity: string | null, finish: Finish): string
     default:
       return [];
   }
+}
+
+// ============================================================================
+// v1.29 (§4.28d) — REGLAS DE PRECIO EN DOS EJES: rareza (de la carta) × acabado (de la variante).
+// Reemplaza el mapa PLANO que mezclaba keys de rareza (`Common`) con keys SINTÉTICAS por-acabado
+// (`Holo`/`Reverse Holo`, parcheadas a mano en el front INV-1). `rarityRules` se keyea por la RAREZA
+// CANÓNICA; `finishRules` por el enum `Finish`. La precedencia CONSERVA la semántica de negocio
+// vigente de `ruleKeyCandidates` (sin colisión de strings). Money-safe: rareza sin regla → fallback pct.
+// ============================================================================
+export interface PriceRuleSet<R extends BuylistRule | SalesRule = BuylistRule> {
+  rarityRules: Record<string, R>; // eje RAREZA (de la carta), keyeado por rareza canónica
+  finishRules: Partial<Record<Finish, R>>; // eje ACABADO (de la variante), keyeado por enum Finish
+  fallbackPct: number;
+}
+
+/** ¿El objeto es un `PriceRuleSet` (dos ejes) y no un mapa plano legacy `Record<rarity, Rule>`? */
+export function isPriceRuleSet(v: unknown): v is PriceRuleSet<BuylistRule | SalesRule> {
+  return (
+    v != null &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    'rarityRules' in (v as object) &&
+    'finishRules' in (v as object)
+  );
+}
+
+/** Normaliza para el lookup case/espacio-insensible (empate 1:1 con la forma canónica del ingest). */
+function normRuleKey(raw: string): string {
+  return raw.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * v1.29 (§4.28d) — construye un `PriceRuleSet` desde el valor almacenado, MIGRANDO EL LEGACY on-read:
+ *  - si `raw` ya es dos ejes (`{ rarityRules, finishRules }`) → se usa tal cual;
+ *  - si `raw` es el mapa PLANO legacy → se PARTE: `Holo`→`finishRules.holofoil`, `Reverse Holo`→
+ *    `finishRules.reverse_holo`; el resto → `rarityRules` con su key CANONICALIZADA. Reproduce EXACTO
+ *    el negocio vigente (§E.1). `fallbackPct` viene del dial separado (money-safe: rareza sin regla → fallback).
+ */
+export function toPriceRuleSet<R extends BuylistRule | SalesRule>(
+  raw: unknown,
+  fallbackPct: number,
+): PriceRuleSet<R> {
+  if (isPriceRuleSet(raw)) {
+    const rs = raw as PriceRuleSet<R>;
+    return {
+      rarityRules: rs.rarityRules ?? {},
+      finishRules: rs.finishRules ?? {},
+      fallbackPct: typeof rs.fallbackPct === 'number' ? rs.fallbackPct : fallbackPct,
+    };
+  }
+  const flat =
+    raw != null && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, R>) : {};
+  const rarityRules: Record<string, R> = {};
+  const finishRules: Partial<Record<Finish, R>> = {};
+  for (const [k, v] of Object.entries(flat)) {
+    const nk = normRuleKey(k);
+    if (nk === 'holo' || nk === 'holofoil') finishRules.holofoil = v;
+    else if (nk === 'reverseholo' || nk === 'reverseholofoil') finishRules.reverse_holo = v;
+    else if (nk === '1steditionholofoil' || nk === 'firsteditionholofoil')
+      finishRules.first_edition_holofoil = v;
+    else rarityRules[normalizeRarity(k) ?? k] = v;
+  }
+  return { rarityRules, finishRules, fallbackPct };
+}
+
+/** Regla de FINISH para el acabado dado (1st-ed holo hereda la de holofoil si no tiene propia). */
+function finishRuleFor<R extends BuylistRule | SalesRule>(
+  finish: Finish,
+  set: PriceRuleSet<R>,
+): R | undefined {
+  switch (finish) {
+    case 'reverse_holo':
+      return set.finishRules.reverse_holo;
+    case 'holofoil':
+      return set.finishRules.holofoil;
+    case 'first_edition_holofoil':
+      return set.finishRules.first_edition_holofoil ?? set.finishRules.holofoil;
+    default:
+      return undefined; // `normal` no tiene eje de acabado
+  }
+}
+
+/**
+ * §4.28d — resolver de DOS EJES. Espeja EXACTAMENTE `ruleKeyCandidates` sin fabricar keys sintéticas:
+ *  - `normal`        → regla de RAREZA (canónica) o fallback.
+ *  - `reverse_holo`  → regla de ACABADO `finishRules.reverse_holo` o fallback (NUNCA usa rareza).
+ *  - `holofoil`/1st  → premium ⇒ regla de RAREZA o fallback (jamás el bin de acabado de bulk);
+ *                      no-premium & holo (p. ej. «Rare Holo») ⇒ rareza ?? finishRule ?? fallback;
+ *                      no-premium & no-holo (Common/Uncommon) ⇒ finishRule (% del market holofoil) o fallback.
+ * La rareza se NORMALIZA a canónica antes del lookup (§4.28c, «cinturón y tirantes»).
+ */
+function resolveTwoAxisRule<R extends BuylistRule | SalesRule>(
+  rarity: string | null,
+  finish: Finish,
+  set: PriceRuleSet<R>,
+): R | null {
+  const canonical = normalizeRarity(rarity);
+  const rarityRule = lookupRarityRule(set.rarityRules, canonical);
+  const premium = isPremiumCanonicalRarity(rarity);
+  switch (finish) {
+    case 'reverse_holo':
+      return finishRuleFor(finish, set) ?? null;
+    case 'holofoil':
+    case 'first_edition_holofoil':
+      if (premium) return rarityRule ?? null;
+      if (isHoloRarity(canonical)) return rarityRule ?? finishRuleFor(finish, set) ?? null;
+      return finishRuleFor(finish, set) ?? null;
+    case 'normal':
+      return rarityRule ?? null;
+    default:
+      return null;
+  }
+}
+
+/** Busca la regla por rareza CANÓNICA (exacta primero, luego normalizada — case/espacio-insensible). */
+function lookupRarityRule<R extends BuylistRule | SalesRule>(
+  rarityRules: Record<string, R>,
+  canonical: string | null,
+): R | undefined {
+  if (canonical == null) return undefined;
+  if (rarityRules[canonical] != null) return rarityRules[canonical];
+  const target = normRuleKey(canonical);
+  for (const [k, v] of Object.entries(rarityRules)) {
+    if (normRuleKey(k) === target) return v;
+  }
+  return undefined;
+}
+
+/**
+ * Resuelve la regla efectiva `(rarity, finish)` sobre CUALQUIERA de las dos formas de tabla:
+ *  - `PriceRuleSet` (dos ejes, PRODUCCIÓN v1.29) → `resolveTwoAxisRule`.
+ *  - `Record<string, Rule>` (mapa PLANO legacy / tests) → `ruleKeyCandidates` + lookup normalizado.
+ * Devuelve `{ rule, ruleSource }`; sin regla explícita ⇒ `{ pct fallbackPct, 'fallback' }`.
+ */
+function resolveRuleForFinish<R extends BuylistRule | SalesRule>(
+  rarity: string | null,
+  finish: Finish,
+  rules: PriceRuleSet<R> | Record<string, R>,
+  fallbackPct: number,
+): { rule: R | BuylistRule; ruleSource: 'rule' | 'fallback' } {
+  if (isPriceRuleSet(rules)) {
+    const rule = resolveTwoAxisRule(rarity, finish, rules as PriceRuleSet<R>);
+    return rule != null ? { rule, ruleSource: 'rule' } : { rule: { mode: 'pct', value: fallbackPct }, ruleSource: 'fallback' };
+  }
+  // Mapa PLANO legacy: candidatos sintéticos + lookup exacto y normalizado (§4.28c).
+  const flat = rules as Record<string, R>;
+  const candidates = ruleKeyCandidates(rarity, finish);
+  for (const k of candidates) {
+    if (flat[k] != null) return { rule: flat[k], ruleSource: 'rule' };
+  }
+  for (const c of candidates) {
+    const target = normRuleKey(c);
+    for (const [k, v] of Object.entries(flat)) {
+      if (normRuleKey(k) === target) return { rule: v, ruleSource: 'rule' };
+    }
+  }
+  return { rule: { mode: 'pct', value: fallbackPct }, ruleSource: 'fallback' };
 }
 
 /** Aplica una regla ya resuelta (misma lógica que quoteAcquisition §4.2). */
@@ -292,7 +422,8 @@ export function quoteAcquisitionForFinish(
   rarity: string | null,
   finish: Finish,
   referenceMxnCentsForFinish: number | null,
-  rules: Record<string, BuylistRule>,
+  // v1.29 (§4.28d): acepta el `PriceRuleSet` de DOS EJES (producción) o el mapa PLANO legacy (tests).
+  rules: PriceRuleSet<BuylistRule> | Record<string, BuylistRule>,
   fallbackPct: number,
   controls?: VariantPriceControls | null,
 ): AcquisitionQuote {
@@ -304,12 +435,9 @@ export function quoteAcquisitionForFinish(
   if (controls?.buyOverrideCents != null && controls.buyOverrideCents > 0) {
     return applyRule({ mode: 'fixed', value: controls.buyOverrideCents }, 'override', referenceMxnCentsForFinish);
   }
-  // 3./4. Cadena de reglas de SIEMPRE (sin control por variante, nada cambia).
-  const candidates = ruleKeyCandidates(rarity, finish);
-  const hitKey = candidates.find((k) => rules[k] != null);
-  const rule: BuylistRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
-  const ruleSource: 'rule' | 'fallback' = hitKey ? 'rule' : 'fallback';
-  return applyRule(rule, ruleSource, referenceMxnCentsForFinish);
+  // 3./4. Cadena de reglas de SIEMPRE (dos ejes o plano; misma semántica de negocio).
+  const { rule, ruleSource } = resolveRuleForFinish(rarity, finish, rules, fallbackPct);
+  return applyRule(rule as BuylistRule, ruleSource, referenceMxnCentsForFinish);
 }
 
 /**
@@ -374,7 +502,8 @@ export function computeSalePriceForRarity(
   rarity: string | null,
   finish: Finish,
   referenceMxnCents: number | null,
-  rules: Record<string, SalesRule>,
+  // v1.29 (§4.28d): acepta el `PriceRuleSet` de DOS EJES (producción) o el mapa PLANO legacy (tests).
+  rules: PriceRuleSet<SalesRule> | Record<string, SalesRule>,
   fallbackPct: number,
   controls?: VariantPriceControls | null,
 ): SalePriceResult {
@@ -387,10 +516,10 @@ export function computeSalePriceForRarity(
       ruleSource: 'override',
     };
   }
-  const candidates = ruleKeyCandidates(rarity, finish); // REUSA §4.2.1 (gate premium)
-  const hitKey = candidates.find((k) => rules[k] != null);
-  const rule: SalesRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
-  const ruleSource: 'rule' | 'fallback' = hitKey ? 'rule' : 'fallback';
+  // §4.28d — dos ejes o plano; hereda el gate premium (§4.2.1) vía la misma precedencia.
+  const resolved = resolveRuleForFinish(rarity, finish, rules, fallbackPct);
+  const rule: SalesRule = resolved.rule as SalesRule;
+  const ruleSource: 'rule' | 'fallback' = resolved.ruleSource;
 
   if (rule.mode === 'fixed') {
     // PISO fijo en centavos; NO depende de la referencia → siempre 'priced'.

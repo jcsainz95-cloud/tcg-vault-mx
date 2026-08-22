@@ -7,17 +7,17 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PriceSyncJobService } from '../src/jobs/price-sync.service';
 
 /**
- * v1.3.1 (§E.1, API_CONTRACT §M2) — editor de precio de buylist por RAREZA:
- *  - GET/PUT /admin/pricing/buylist-rules (tabla + fallback), validado y auditado.
- *  - GET /admin/pricing/rarities (rarezas distintas del catálogo unidas a las reglas).
+ * v1.29 (§4.28d, API_CONTRACT §M2) — editor de precio de buylist en DOS EJES `PriceRuleSet`:
+ *  - GET/PUT /admin/pricing/buylist-rules ({ rarityRules, finishRules, fallbackPct }), validado y auditado.
+ *  - GET /admin/pricing/rarities agrupa por `rarityCanonical` (canonical/raw/premium/mapped).
  */
 function build(opts: {
-  rules?: Record<string, { mode: string; value: number }>;
+  rules?: unknown;
   fallbackPct?: number;
-  grouped?: { rarity: string | null; _count: { _all: number } }[];
+  grouped?: { rarityCanonical: string | null; rarity: string | null; _count: { _all: number } }[];
 }) {
   const stored = {
-    buylist_price_rules: opts.rules ?? { Common: { mode: 'fixed', value: 50 } },
+    buylist_price_rules: opts.rules ?? { rarityRules: { Common: { mode: 'fixed', value: 50 } }, finishRules: {} },
     buylist_price_fallback_pct: opts.fallbackPct ?? 40,
   };
   const settings = {
@@ -37,42 +37,50 @@ function build(opts: {
     prisma,
     {} as PriceSyncJobService,
     {} as any,
-    {} as any, // v1.28: VariantControlsService (no usado en estos tests)
+    {} as any,
   );
   return { controller, prisma, audit, settings };
 }
 
-describe('PricingController.buylist-rules — GET/PUT', () => {
-  it('GET devuelve { rules, fallbackPct }', async () => {
+describe('PricingController.buylist-rules — GET/PUT (dos ejes §4.28d)', () => {
+  it('GET devuelve el PriceRuleSet { rarityRules, finishRules, fallbackPct }', async () => {
+    const { controller } = build({
+      rules: { rarityRules: { Common: { mode: 'fixed', value: 50 } }, finishRules: { reverse_holo: { mode: 'fixed', value: 150 } } },
+      fallbackPct: 40,
+    });
+    const res: any = await controller.getBuylistRules();
+    expect(res).toEqual({
+      rarityRules: { Common: { mode: 'fixed', value: 50 } },
+      finishRules: { reverse_holo: { mode: 'fixed', value: 150 } },
+      fallbackPct: 40,
+    });
+  });
+
+  it('GET migra el mapa PLANO legacy a dos ejes on-read (Reverse Holo → finishRules.reverse_holo)', async () => {
     const { controller } = build({
       rules: { Common: { mode: 'fixed', value: 50 }, 'Reverse Holo': { mode: 'fixed', value: 150 } },
       fallbackPct: 40,
     });
     const res: any = await controller.getBuylistRules();
-    expect(res).toEqual({
-      rules: { Common: { mode: 'fixed', value: 50 }, 'Reverse Holo': { mode: 'fixed', value: 150 } },
-      fallbackPct: 40,
-    });
+    expect(res.rarityRules).toEqual({ Common: { mode: 'fixed', value: 50 } });
+    expect(res.finishRules).toEqual({ reverse_holo: { mode: 'fixed', value: 150 } });
   });
 
-  it('PUT válido persiste rules + fallback, audita y devuelve el shape', async () => {
+  it('PUT válido persiste rules + fallback, audita y devuelve el PriceRuleSet', async () => {
     const { controller, prisma, audit } = build({});
-    const dto = { rules: { 'Illustration Rare': { mode: 'pct', value: 45 } }, fallbackPct: 40 } as any;
+    const dto = { rarityRules: { 'Illustration Rare': { mode: 'pct', value: 45 } }, finishRules: {}, fallbackPct: 40 } as any;
     const res: any = await controller.putBuylistRules(dto, 'admin_1');
-    // Persiste ambas keys.
     const upserts = (prisma.configSetting.upsert as jest.Mock).mock.calls.map((c) => c[0].where.key);
-    expect(upserts).toEqual(
-      expect.arrayContaining(['buylist_price_rules', 'buylist_price_fallback_pct']),
-    );
-    // Auditado con la acción del contrato.
+    expect(upserts).toEqual(expect.arrayContaining(['buylist_price_rules', 'buylist_price_fallback_pct']));
     expect((audit.log as jest.Mock).mock.calls[0][0].action).toBe('pricing.buylist_rules.update');
-    expect(res).toHaveProperty('rules');
+    expect(res).toHaveProperty('rarityRules');
+    expect(res).toHaveProperty('finishRules');
     expect(res).toHaveProperty('fallbackPct');
   });
 
   it('PUT sin fallback solo persiste rules (no toca el fallback)', async () => {
     const { controller, prisma } = build({});
-    await controller.putBuylistRules({ rules: { Common: { mode: 'fixed', value: 50 } } } as any, 'admin_1');
+    await controller.putBuylistRules({ rarityRules: { Common: { mode: 'fixed', value: 50 } }, finishRules: {} } as any, 'admin_1');
     const keys = (prisma.configSetting.upsert as jest.Mock).mock.calls.map((c) => c[0].where.key);
     expect(keys).toEqual(['buylist_price_rules']);
   });
@@ -80,46 +88,48 @@ describe('PricingController.buylist-rules — GET/PUT', () => {
   it('PUT rechaza mode inválido → 422 VALIDATION_ERROR (no persiste)', async () => {
     const { controller, prisma } = build({});
     await expect(
-      controller.putBuylistRules({ rules: { X: { mode: 'percent', value: 10 } } } as any, 'a'),
+      controller.putBuylistRules({ rarityRules: { X: { mode: 'percent', value: 10 } }, finishRules: {} } as any, 'a'),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(prisma.configSetting.upsert).not.toHaveBeenCalled();
   });
 
-  it('PUT rechaza pct fuera de [0,100] y fixed negativo', async () => {
+  it('PUT rechaza pct fuera de [0,100], fixed negativo y key de finish inválida', async () => {
     const { controller } = build({});
     await expect(
-      controller.putBuylistRules({ rules: { X: { mode: 'pct', value: 140 } } } as any, 'a'),
+      controller.putBuylistRules({ rarityRules: { X: { mode: 'pct', value: 140 } }, finishRules: {} } as any, 'a'),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(
-      controller.putBuylistRules({ rules: { X: { mode: 'fixed', value: -5 } } } as any, 'a'),
+      controller.putBuylistRules({ rarityRules: { X: { mode: 'fixed', value: -5 } }, finishRules: {} } as any, 'a'),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(
+      controller.putBuylistRules({ rarityRules: {}, finishRules: { bogus: { mode: 'fixed', value: 1 } } } as any, 'a'),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   it('PUT rechaza fallbackPct fuera de rango', async () => {
     const { controller } = build({});
     await expect(
-      controller.putBuylistRules({ rules: {}, fallbackPct: 200 } as any, 'a'),
+      controller.putBuylistRules({ rarityRules: {}, finishRules: {}, fallbackPct: 200 } as any, 'a'),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 });
 
-describe('PricingController.rarities — catálogo unido a reglas', () => {
-  it('une rarezas del catálogo con reglas/fallback, ordena por cardCount desc y omite null', async () => {
+describe('PricingController.rarities — catálogo canónico unido a reglas (§4.28c)', () => {
+  it('agrupa por rarityCanonical con premium/mapped, ordena por cardCount desc y omite null', async () => {
     const { controller } = build({
-      rules: { Common: { mode: 'fixed', value: 50 } },
+      rules: { rarityRules: { Common: { mode: 'fixed', value: 50 } }, finishRules: {} },
       fallbackPct: 40,
       grouped: [
-        { rarity: 'Illustration Rare', _count: { _all: 87 } },
-        { rarity: 'Common', _count: { _all: 1234 } },
-        { rarity: null, _count: { _all: 5 } },
+        { rarityCanonical: 'Illustration Rare', rarity: 'Illustration Rare', _count: { _all: 87 } },
+        { rarityCanonical: 'Common', rarity: 'Common', _count: { _all: 1234 } },
+        { rarityCanonical: null, rarity: null, _count: { _all: 5 } },
       ],
     });
     const res: any = await controller.rarities();
     expect(res.fallbackPct).toBe(40);
-    // Ordenado por cardCount desc; sin la rareza null.
     expect(res.rarities).toEqual([
-      { rarity: 'Common', cardCount: 1234, rule: { mode: 'fixed', value: 50 }, source: 'rule' },
-      { rarity: 'Illustration Rare', cardCount: 87, rule: { mode: 'pct', value: 40 }, source: 'fallback' },
+      { canonical: 'Common', rarity: 'Common', raw: 'Common', premium: false, mapped: true, cardCount: 1234, rule: { mode: 'fixed', value: 50 }, source: 'rule' },
+      { canonical: 'Illustration Rare', rarity: 'Illustration Rare', raw: 'Illustration Rare', premium: true, mapped: true, cardCount: 87, rule: { mode: 'pct', value: 40 }, source: 'fallback' },
     ]);
   });
 });

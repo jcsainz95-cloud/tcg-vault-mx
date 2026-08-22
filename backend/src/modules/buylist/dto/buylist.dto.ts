@@ -44,6 +44,12 @@ export class PublicQuoteDto {
   // v1.6-finish: acabado cotizado (default normal). Se valida server-side contra
   // card.availableFinishes (SEC-A1); fuera de la lista → 422 FINISH_NOT_AVAILABLE.
   @IsOptional() @IsIn(FINISHES) finish?: Finish;
+  // v1.30 (§4.29): `productId` OPCIONAL/ADITIVO = TCGplayer productId (== CardProduct.tcgplayerProductId,
+  // el MISMO que el front recibió en CardProductDTO.productId / separateProducts), NO el UUID interno.
+  // Presente ⇒ la línea es ESE producto separado (acabado ∈ CardProduct.finishes; referencia por su
+  // cardProductId). Ausente ⇒ set_base por (cardId, finish). productId inexistente → 422 PRODUCT_NOT_FOUND;
+  // que no cuelga del cardId → 422 PRODUCT_CARD_MISMATCH (se resuelven server-side). Entero positivo.
+  @IsOptional() @IsInt() @Min(1) productId?: number;
 }
 
 /**
@@ -56,6 +62,9 @@ export class BuylistQuoteItemDto {
   @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
   @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
   @IsOptional() @IsIn(FINISHES) finish?: Finish;
+  // v1.30 (§4.29): productId OPCIONAL por-ítem (misma semántica que el quote por-carta). Presente ⇒ la
+  // línea es ESE CardProduct separado; errores por-ítem PRODUCT_NOT_FOUND / PRODUCT_CARD_MISMATCH (ok:false).
+  @IsOptional() @IsInt() @Min(1) productId?: number;
 }
 
 /**
@@ -78,6 +87,12 @@ export class RequestItemDto {
   @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
   // v1.6-finish: acabado del item (default normal), validado contra card.availableFinishes.
   @IsOptional() @IsIn(FINISHES) finish?: Finish;
+  // v1.30 (§4.29): productId OPCIONAL/ADITIVO. Presente ⇒ la línea es ESE CardProduct separado — se
+  // snapshotea en SellRequestItem.cardProductId (== productId TCGplayer) y al convertir a inventario la
+  // pieza queda ligada a ese producto. Dos ítems con mismo (cardId, finish) y distinto productId son
+  // líneas físicas DISTINTAS. productId inexistente → 422 PRODUCT_NOT_FOUND; que no cuelga → 422
+  // PRODUCT_CARD_MISMATCH. Entero positivo.
+  @IsOptional() @IsInt() @Min(1) productId?: number;
   // v1.3.1: `category` REMOVIDO. El backend deriva la regla server-side de Card.rarity (SEC-A1);
   // un `category` que envíe el cliente lo descarta el ValidationPipe (whitelist).
 }

@@ -26,6 +26,11 @@ export interface QuoterCardRef {
  * v1.6-finish: la IDENTIDAD de línea es (cardId + productType + finish): la MISMA
  * carta en distinto acabado es una línea distinta; la MISMA (carta, tipo, acabado)
  * incrementa la cantidad en vez de duplicar (dedup — hallazgo menor de QA).
+ *
+ * v1.30 (§4.29): la identidad gana `productId` → (cardId + productType + finish + productId ?? base).
+ * Un PRODUCTO SEPARADO (deck_exclusive/promo) es su propia línea con su propio precio: dos líneas
+ * con el mismo (cardId, finish) pero distinto `productId` son DISTINTAS y NO se fusionan; una carta
+ * base (sin productId) sigue igual que hoy. `card.name` guarda el nombre del PRODUCTO cuando aplica.
  */
 export interface CartLine {
   id: string;
@@ -33,6 +38,11 @@ export interface CartLine {
   productType: ProductType;
   rawCondition?: RawCondition;
   finish: Finish;
+  /**
+   * v1.30 (§4.29): TCGplayer `productId` cuando la línea es un producto separado; ausente = línea
+   * de set_base. Entra a la llave de dedup y viaja a POST /buylist/requests.
+   */
+  productId?: number;
   quote: BuylistQuoteResponse;
   quantity: number;
 }
@@ -43,12 +53,18 @@ export type NewCartLine = Omit<CartLine, 'id' | 'quantity'>;
 let lineSeq = 0;
 
 /**
- * Merge con dedup por (cardId + productType + finish): la misma línea suma cantidad,
- * una combinación nueva agrega línea. Reusado por el add por-acabado y por el bulk.
+ * Merge con dedup por (cardId + productType + finish + productId ?? base): la misma línea suma
+ * cantidad, una combinación nueva agrega línea. v1.30 (§4.29): dos líneas con el mismo
+ * (cardId, finish) pero distinto `productId` NO se fusionan (producto separado = línea propia).
+ * Reusado por el add por-acabado y por el bulk.
  */
 function mergeCartLine(prev: CartLine[], line: NewCartLine): CartLine[] {
   const idx = prev.findIndex(
-    (l) => l.card.id === line.card.id && l.productType === line.productType && l.finish === line.finish,
+    (l) =>
+      l.card.id === line.card.id &&
+      l.productType === line.productType &&
+      l.finish === line.finish &&
+      (l.productId ?? null) === (line.productId ?? null),
   );
   if (idx >= 0) {
     return prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l));
@@ -129,6 +145,8 @@ export function useSellCart() {
           rawCondition: l.rawCondition,
           // v1.6-finish: cada item lleva su acabado; el backend snapshotea SellRequestItem.finish.
           finish: l.finish,
+          // v1.30 (§4.29): línea de producto separado → viaja su productId (snapshot server-side).
+          ...(l.productId != null ? { productId: l.productId } : {}),
         })),
       ),
     [cart],

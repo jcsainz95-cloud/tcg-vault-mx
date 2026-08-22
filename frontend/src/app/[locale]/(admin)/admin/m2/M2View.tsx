@@ -40,6 +40,7 @@ import type {
   SalesRuleMode,
   PriceProvider,
   SealedSubtype,
+  Finish,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -62,6 +63,10 @@ const SALES_RULE_MODES: SalesRuleMode[] = ['fixed', 'pct'];
 const PRICE_PROVIDERS: PriceProvider[] = ['pokemontcg_io', 'pokemonpricetracker'];
 // v1.23-sealed-sales: presentaciones del sellado con spread editable (§M2 sealed-spreads).
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
+// v1.29 (§4.28d): acabados que tienen su PROPIO eje de regla (finishRules). `normal` NO lleva
+// finish-rule (usa la rareza), por eso queda fuera. Reemplazan las viejas keys sintéticas
+// "Holo"/"Reverse Holo" del mapa plano (parche INV-1 retirado).
+const FINISH_RULE_KEYS: Finish[] = ['reverse_holo', 'holofoil', 'first_edition_holofoil'];
 
 /** Convierte pesos (texto) a centavos enteros. */
 function pesosToCents(value: string): number {
@@ -150,6 +155,7 @@ export function M2View() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
   const tSub = useTranslations('status.sealedSubtype');
+  const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage();
@@ -327,49 +333,64 @@ export function M2View() {
     },
   });
 
-  // --- Sección 4: precio de buylist por RAREZA (v1.3.1) ---
+  // --- Sección 4: precio de buylist en DOS EJES (v1.29, §4.28d) — retira el parche INV-1 ---
+  // Antes las reglas eran un mapa plano que MEZCLABA rareza y acabado: el editor tenía que
+  // preservar a mano las keys SINTÉTICAS "Holo"/"Reverse Holo" de la tabla cruda (parche INV-1)
+  // porque no aparecían en `rarities` (=groupBy(Card.rarity)) y el PUT (reemplazo total) las
+  // borraba. Con el contrato v1.29 esto se separa LIMPIO en un `PriceRuleSet` de dos ejes:
+  //  - `rarityRules`: regla por RAREZA CANÓNICA de la carta (empatan 1:1 con `rarities`).
+  //  - `finishRules`: regla por ACABADO de la variante (reverse_holo/holofoil/1st ed).
+  // El merge del guardado parte del PriceRuleSet del servidor (que YA trae ambos ejes) y aplica el
+  // borrador encima: ningún eje pisa al otro y no hay keys sintéticas que rescatar.
   const rarities = useQuery({ queryKey: ['buylist-rarities'], queryFn: getBuylistRarities });
-  // INV-1 (money-safe): tabla CRUDA COMPLETA de reglas del servidor (TODAS las claves, incluidas
-  // las SINTÉTICAS del resolver por acabado —"Holo"/"Reverse Holo"— que NO son Card.rarity y por
-  // eso NO aparecen en `rarities` = groupBy(Card.rarity)). El PUT hace REEMPLAZO TOTAL de la tabla,
-  // así que el merge del guardado debe partir de ESTA base cruda, no de la vista de rarezas, o las
-  // claves sintéticas se perderían en cada Guardar (cartas holo/reverse revertían a fallback/pending).
   const buylistRules = useQuery({ queryKey: ['buylist-rules'], queryFn: getBuylistRules });
-  // Borrador de reglas explícitas editadas por el admin (por rareza) + fallback editado.
+  // Borradores por EJE: reglas por rareza canónica + reglas por acabado + fallback.
   const [ruleDraft, setRuleDraft] = useState<Record<string, BuylistRule>>({});
+  const [finishRuleDraft, setFinishRuleDraft] = useState<Partial<Record<Finish, BuylistRule>>>({});
   const [fallbackDraft, setFallbackDraft] = useState<string | null>(null);
   const rulesMutation = useMutation({
-    mutationFn: (payload: { rules: Record<string, BuylistRule>; fallbackPct: number }) =>
-      updateBuylistRules(payload),
+    mutationFn: (payload: {
+      rarityRules: Record<string, BuylistRule>;
+      finishRules: Partial<Record<Finish, BuylistRule>>;
+      fallbackPct: number;
+    }) => updateBuylistRules(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['buylist-rarities'] });
       qc.invalidateQueries({ queryKey: ['buylist-rules'] });
       setRuleDraft({});
+      setFinishRuleDraft({});
       setFallbackDraft(null);
     },
   });
 
   const serverFallback = rarities.data?.fallbackPct ?? 40;
   const effectiveFallback = fallbackDraft ?? String(serverFallback);
-  // Regla efectiva mostrada por fila: borrador > regla explícita del servidor > fallback.
+  // Regla efectiva de una RAREZA: borrador > regla explícita del servidor > fallback.
   function effectiveRule(rarity: string, serverRule: BuylistRule, source: 'rule' | 'fallback'): BuylistRule {
     if (ruleDraft[rarity]) return ruleDraft[rarity];
     if (source === 'rule') return serverRule;
     return { mode: 'pct', value: Number(effectiveFallback) || 0 };
   }
+  // Regla efectiva de un ACABADO: borrador > regla explícita del servidor. Sin regla = HEREDA la
+  // rareza (no hay finish-rule): la fila lo indica y su valor de edición arranca vacío.
+  function effectiveFinishRule(finish: Finish): { rule: BuylistRule | null; hasRule: boolean } {
+    if (finishRuleDraft[finish]) return { rule: finishRuleDraft[finish]!, hasRule: true };
+    const server = buylistRules.data?.finishRules[finish];
+    if (server) return { rule: server, hasRule: true };
+    return { rule: null, hasRule: false };
+  }
   const rulesDirty =
     Object.keys(ruleDraft).length > 0 ||
+    Object.keys(finishRuleDraft).length > 0 ||
     (fallbackDraft != null && fallbackDraft !== String(serverFallback));
 
   function saveRules() {
-    // INV-1: money-safe. Sin la tabla CRUDA no guardamos: partir de la vista de rarezas
-    // (solo Card.rarity) descartaría las claves SINTÉTICAS y REEMPLAZARÍA la tabla sin ellas.
+    // Sin el PriceRuleSet del servidor no guardamos: el merge parte de él (dos ejes) para que el
+    // REEMPLAZO TOTAL del PUT preserve lo no editado. (Ya no hay keys sintéticas que rescatar.)
     if (!buylistRules.data) return;
-    // Parte de TODAS las claves crudas del servidor (incluidas sintéticas y rarezas fuera del
-    // catálogo actual) y aplica el borrador encima. Así el REEMPLAZO TOTAL del PUT preserva todo
-    // lo no editado; las rarezas dejadas en fallback siguen sin regla explícita.
     rulesMutation.mutate({
-      rules: { ...buylistRules.data.rules, ...ruleDraft },
+      rarityRules: { ...buylistRules.data.rarityRules, ...ruleDraft },
+      finishRules: { ...buylistRules.data.finishRules, ...finishRuleDraft },
       fallbackPct: Number(effectiveFallback) || 0,
     });
   }
@@ -379,24 +400,29 @@ export function M2View() {
   // mercado (precio = mercado × (1 + %)), no "% de la referencia"; y `fixed` es un PISO.
   // El validador de venta permite pct hasta 1000 (no topa en 100).
   const salesRarities = useQuery({ queryKey: ['sales-rarities'], queryFn: getSalesRarities });
-  // INV-1 (money-safe): tabla CRUDA COMPLETA de reglas de VENTA del servidor. El seed incluye la
-  // clave SINTÉTICA "Holo" (§4.14b) que NO es Card.rarity → NO aparece en `salesRarities`
-  // (groupBy(Card.rarity)). El merge del guardado parte de esta base para no perderla en el
-  // REEMPLAZO TOTAL del PUT (cartas holo/reverse revertían a fallback y caían a pending).
+  // v1.29 (§4.28d): mismo PriceRuleSet de dos ejes que buylist (rareza canónica + acabado). El
+  // parche INV-1 (rescatar la key sintética "Holo" de la tabla cruda) queda RETIRADO: el eje de
+  // acabado es ahora explícito. El merge del guardado parte del PriceRuleSet del servidor.
   const salesRules = useQuery({ queryKey: ['sales-rules'], queryFn: getSalesRules });
-  // Borrador por rareza: el `value` se guarda como TEXTO CRUDO (igual que salesFallbackDraft /
-  // spreadDraft) para permitir edición parcial/decimal/vaciado ("12.50", "", "12."). Se castea a
-  // número (centavos si fixed, pct si pct) SOLO al guardar en saveSalesRules. Guardar un número
-  // re-derivado en cada tecla rompía el punto decimal y el vaciado ("no puedo picar").
+  // Borrador por rareza / por acabado: el `value` se guarda como TEXTO CRUDO (permite edición
+  // parcial/decimal/vaciado "12.50","","12."). Se castea a número (centavos si fixed, pct si pct)
+  // SOLO al guardar. Re-derivar un número en cada tecla rompía el punto decimal y el vaciado.
   const [salesRuleDraft, setSalesRuleDraft] = useState<Record<string, { mode: SalesRuleMode; value: string }>>({});
+  const [salesFinishRuleDraft, setSalesFinishRuleDraft] = useState<
+    Partial<Record<Finish, { mode: SalesRuleMode; value: string }>>
+  >({});
   const [salesFallbackDraft, setSalesFallbackDraft] = useState<string | null>(null);
   const salesRulesMutation = useMutation({
-    mutationFn: (payload: { rules: Record<string, SalesRule>; fallbackPct: number }) =>
-      updateSalesRules(payload),
+    mutationFn: (payload: {
+      rarityRules: Record<string, SalesRule>;
+      finishRules: Partial<Record<Finish, SalesRule>>;
+      fallbackPct: number;
+    }) => updateSalesRules(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sales-rarities'] });
       qc.invalidateQueries({ queryKey: ['sales-rules'] });
       setSalesRuleDraft({});
+      setSalesFinishRuleDraft({});
       setSalesFallbackDraft(null);
     },
   });
@@ -407,8 +433,7 @@ export function M2View() {
   function salesRuleToRaw(rule: SalesRule): string {
     return rule.mode === 'fixed' ? String(rule.value / 100) : String(rule.value);
   }
-  // Regla efectiva (con `value` en TEXTO CRUDO) por fila: borrador > regla explícita del servidor >
-  // fallback. El input lee este `value` literal (no un número re-derivado) → editable/decimal/vaciable.
+  // Regla efectiva de una RAREZA (value en TEXTO CRUDO): borrador > regla del servidor > fallback.
   function salesEffectiveRule(
     rarity: string,
     serverRule: SalesRule,
@@ -419,41 +444,61 @@ export function M2View() {
     if (source === 'rule') return { mode: serverRule.mode, value: salesRuleToRaw(serverRule) };
     return { mode: 'pct', value: salesEffectiveFallback };
   }
+  // Regla efectiva de un ACABADO: borrador > regla del servidor. Sin regla = HEREDA la rareza.
+  function salesEffectiveFinishRule(
+    finish: Finish,
+  ): { mode: SalesRuleMode; value: string; hasRule: boolean } {
+    const draft = salesFinishRuleDraft[finish];
+    if (draft) return { ...draft, hasRule: true };
+    const server = salesRules.data?.finishRules[finish];
+    if (server) return { mode: server.mode, value: salesRuleToRaw(server), hasRule: true };
+    return { mode: 'fixed', value: '', hasRule: false };
+  }
   const salesRulesDirty =
     Object.keys(salesRuleDraft).length > 0 ||
+    Object.keys(salesFinishRuleDraft).length > 0 ||
     (salesFallbackDraft != null && salesFallbackDraft !== String(salesServerFallback));
-  // S-P1-1 (money-safe): alguna regla TOCADA tiene valor vacío/mal formado → NO es guardable.
-  // Bloquea Guardar (patrón de validación ya usado en la Sección 5) para que un vacío/NaN nunca
-  // se persista como 0 (fixed 0 = MX$0.00 → carta regalada; el server acepta 0 y no da 422).
-  const salesDraftInvalid = Object.values(salesRuleDraft).some((d) => !isSaveableRuleValue(d.value));
+  // S-P1-1 (money-safe): alguna regla TOCADA (rareza o acabado) tiene valor vacío/mal formado → NO
+  // es guardable. Bloquea Guardar para que un vacío/NaN nunca se persista como 0 (fixed 0 = MX$0.00
+  // → carta regalada; el server acepta 0 y no da 422).
+  const salesDraftInvalid =
+    Object.values(salesRuleDraft).some((d) => !isSaveableRuleValue(d.value)) ||
+    Object.values(salesFinishRuleDraft).some((d) => d != null && !isSaveableRuleValue(d.value));
 
   // S-L1 (money-safe): el override de precio (Fijar precio) publica el ítem a este valor. Un vacío
   // o mal formado ("1.2.3") castea a NaN→0 vía pesosToCents y publicaría a MX$0. Mismo guard que
   // salesRules: solo es fijable un valor no vacío que parsea a número finito → si no, se bloquea.
   const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue);
 
+  // Castea un borrador CRUDO de venta a la regla numérica del contrato (fixed: pesos→centavos;
+  // pct: número topado a [0,1000]). Money-safe: omite valores vacíos/mal formados (nunca 0).
+  function castSalesDraft(d: { mode: SalesRuleMode; value: string }): SalesRule | null {
+    if (!isSaveableRuleValue(d.value)) return null;
+    const value =
+      d.mode === 'fixed'
+        ? Math.max(0, pesosToCents(d.value))
+        : Math.min(1000, Math.max(0, Number(d.value) || 0));
+    return { mode: d.mode, value };
+  }
+
   function saveSalesRules() {
-    // INV-1: money-safe. Base = tabla CRUDA COMPLETA (incluye la clave sintética "Holo" y cualquier
-    // rareza fuera del catálogo actual); el borrador se aplica encima. Sin la cruda no guardamos
-    // para no borrar claves sintéticas en el REEMPLAZO TOTAL del PUT.
+    // Sin el PriceRuleSet del servidor no guardamos: el merge parte de él (dos ejes) para que el
+    // REEMPLAZO TOTAL del PUT preserve lo no editado. (Ya no hay key sintética "Holo" que rescatar.)
     if (!salesRules.data) return;
-    // Castea el borrador CRUDO a la regla numérica del contrato SOLO aquí (fixed: pesos→centavos;
-    // pct: número). Guarda ligera de rangos del servidor (fixed ≥ 0; pct 0–1000) para no mandar
-    // basura, sin bloquear entrada legítima mientras se teclea.
-    const draftRules: Record<string, SalesRule> = {};
+    const draftRarityRules: Record<string, SalesRule> = {};
     for (const [rarity, d] of Object.entries(salesRuleDraft)) {
-      // S-P1-1: defensa en profundidad — jamás persistir una regla vacía/mal formada como 0.
-      // El botón Guardar ya se deshabilita con `salesDraftInvalid`, pero si llegara aquí, se OMITE
-      // (no se envía 0). Casteo a número solo sobre valores ya validados como finitos.
-      if (!isSaveableRuleValue(d.value)) continue;
-      const value =
-        d.mode === 'fixed'
-          ? Math.max(0, pesosToCents(d.value))
-          : Math.min(1000, Math.max(0, Number(d.value) || 0));
-      draftRules[rarity] = { mode: d.mode, value };
+      const rule = castSalesDraft(d);
+      if (rule) draftRarityRules[rarity] = rule;
+    }
+    const draftFinishRules: Partial<Record<Finish, SalesRule>> = {};
+    for (const [finish, d] of Object.entries(salesFinishRuleDraft)) {
+      if (!d) continue;
+      const rule = castSalesDraft(d);
+      if (rule) draftFinishRules[finish as Finish] = rule;
     }
     salesRulesMutation.mutate({
-      rules: { ...salesRules.data.rules, ...draftRules },
+      rarityRules: { ...salesRules.data.rarityRules, ...draftRarityRules },
+      finishRules: { ...salesRules.data.finishRules, ...draftFinishRules },
       fallbackPct: Number(salesEffectiveFallback) || 0,
     });
   }
@@ -929,7 +974,7 @@ export function M2View() {
         </div>
       </section>
 
-      {/* Sección 4: precio de buylist por RAREZA (v1.3.1) */}
+      {/* Sección 4: precio de buylist en DOS EJES — rareza canónica + acabado (v1.29, §4.28d) */}
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('buylistRules.title')}</h2>
         <p className="text-sm text-muted">{t('buylistRules.subtitle')}</p>
@@ -958,6 +1003,10 @@ export function M2View() {
                 <p className="text-xs text-muted">{t('buylistRules.fallbackHint')}</p>
               </div>
 
+              {/* EJE 1 — reglas por RAREZA CANÓNICA (empatan 1:1 con las cartas del catálogo). */}
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                {t('buylistRules.rarityAxis')}
+              </p>
               <ul className="flex flex-col divide-y divide-border">
                 <li className="hidden gap-3 py-2 text-xs uppercase tracking-wide text-muted md:grid md:grid-cols-[1fr_auto_auto_auto_auto]">
                   <span>{t('buylistRules.rarity')}</span>
@@ -967,30 +1016,40 @@ export function M2View() {
                   <span>{t('buylistRules.source')}</span>
                 </li>
                 {rarities.data.rarities.map((row) => {
-                  const rule = effectiveRule(row.rarity, row.rule, row.source);
-                  const edited = !!ruleDraft[row.rarity];
+                  const rule = effectiveRule(row.canonical, row.rule, row.source);
+                  const edited = !!ruleDraft[row.canonical];
                   const effectiveSource: 'rule' | 'fallback' = edited ? 'rule' : row.source;
                   return (
                     <li
-                      key={row.rarity}
+                      key={row.canonical}
                       className="grid grid-cols-2 items-end gap-3 py-3 md:grid-cols-[1fr_auto_auto_auto_auto]"
                     >
-                      <span className="text-sm font-medium" lang="en">{row.rarity}</span>
+                      <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                        <span lang="en">{row.canonical}</span>
+                        {/* v1.29: atributo `premium` del catálogo canónico (§4.28e). */}
+                        {row.premium && (
+                          <Badge tone="accent" shape="outline">{t('buylistRules.premium')}</Badge>
+                        )}
+                        {/* v1.29: rareza `unmapped` (aún sin forma canónica) → cae al fallback pct. */}
+                        {row.mapped === false && (
+                          <Badge tone="warning" shape="outline">{t('buylistRules.unmapped')}</Badge>
+                        )}
+                      </span>
                       <span className="tabular text-right text-sm text-muted">{row.cardCount}</span>
                       <Select
                         label={t('buylistRules.mode')}
-                        aria-label={t('buylistRules.modeFor', { rarity: row.rarity })}
+                        aria-label={t('buylistRules.modeFor', { rarity: row.canonical })}
                         className="w-32"
                         options={RULE_MODES.map((m) => ({ value: m, label: t(`buylistRules.modeLabel.${m}`) }))}
                         value={rule.mode}
                         onChange={(e) => {
                           const mode = e.target.value as BuylistRuleMode;
-                          setRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode, value: rule.value } }));
+                          setRuleDraft((prev) => ({ ...prev, [row.canonical]: { mode, value: rule.value } }));
                         }}
                       />
                       <Input
                         label={rule.mode === 'fixed' ? t('buylistRules.valueMxn') : t('buylistRules.valuePct')}
-                        aria-label={t('buylistRules.valueFor', { rarity: row.rarity })}
+                        aria-label={t('buylistRules.valueFor', { rarity: row.canonical })}
                         type="text"
                         inputMode="decimal"
                         prefix={rule.mode === 'fixed' ? 'MX$' : undefined}
@@ -1000,11 +1059,72 @@ export function M2View() {
                         onChange={(e) => {
                           const raw = e.target.value.replace(/[^0-9.]/g, '');
                           const value = rule.mode === 'fixed' ? pesosToCents(raw) : Number(raw) || 0;
-                          setRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode: rule.mode, value } }));
+                          setRuleDraft((prev) => ({ ...prev, [row.canonical]: { mode: rule.mode, value } }));
                         }}
                       />
                       <Badge tone={effectiveSource === 'rule' ? 'info' : 'neutral'} shape="outline">
                         {t(`buylistRules.sourceLabel.${effectiveSource}`)}
+                      </Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* EJE 2 — reglas por ACABADO (reverse holo / holofoil / 1st ed). Reemplazan las viejas
+                  keys sintéticas "Holo"/"Reverse Holo"; sin regla, el acabado HEREDA la de la rareza. */}
+              <p className="mt-2 border-t border-border pt-4 text-xs font-semibold uppercase tracking-wide text-muted">
+                {t('buylistRules.finishAxis')}
+              </p>
+              <p className="text-xs text-muted">{t('buylistRules.finishAxisHint')}</p>
+              <ul className="flex flex-col divide-y divide-border">
+                <li className="hidden gap-3 py-2 text-xs uppercase tracking-wide text-muted md:grid md:grid-cols-[1fr_auto_auto_auto]">
+                  <span>{t('buylistRules.finish')}</span>
+                  <span>{t('buylistRules.mode')}</span>
+                  <span>{t('buylistRules.value')}</span>
+                  <span>{t('buylistRules.source')}</span>
+                </li>
+                {FINISH_RULE_KEYS.map((finish) => {
+                  const { rule, hasRule } = effectiveFinishRule(finish);
+                  const mode: BuylistRuleMode = rule?.mode ?? 'fixed';
+                  const finishLabel = tFinish(finish);
+                  return (
+                    <li
+                      key={finish}
+                      className="grid grid-cols-2 items-end gap-3 py-3 md:grid-cols-[1fr_auto_auto_auto]"
+                    >
+                      <span className="text-sm font-medium">{finishLabel}</span>
+                      <Select
+                        label={t('buylistRules.mode')}
+                        aria-label={t('buylistRules.modeForFinish', { finish: finishLabel })}
+                        className="w-32"
+                        options={RULE_MODES.map((m) => ({ value: m, label: t(`buylistRules.modeLabel.${m}`) }))}
+                        value={mode}
+                        onChange={(e) => {
+                          const newMode = e.target.value as BuylistRuleMode;
+                          setFinishRuleDraft((prev) => ({
+                            ...prev,
+                            [finish]: { mode: newMode, value: rule?.value ?? 0 },
+                          }));
+                        }}
+                      />
+                      <Input
+                        label={mode === 'fixed' ? t('buylistRules.valueMxn') : t('buylistRules.valuePct')}
+                        aria-label={t('buylistRules.valueForFinish', { finish: finishLabel })}
+                        type="text"
+                        inputMode="decimal"
+                        prefix={mode === 'fixed' ? 'MX$' : undefined}
+                        suffix={mode === 'pct' ? '%' : undefined}
+                        placeholder={t('buylistRules.inheritPlaceholder')}
+                        className="w-32"
+                        value={rule ? (mode === 'fixed' ? String(rule.value / 100) : String(rule.value)) : ''}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9.]/g, '');
+                          const value = mode === 'fixed' ? pesosToCents(raw) : Number(raw) || 0;
+                          setFinishRuleDraft((prev) => ({ ...prev, [finish]: { mode, value } }));
+                        }}
+                      />
+                      <Badge tone={hasRule ? 'info' : 'neutral'} shape="outline">
+                        {hasRule ? t('buylistRules.sourceLabel.rule') : t('buylistRules.inherit')}
                       </Badge>
                     </li>
                   );
@@ -1090,6 +1210,10 @@ export function M2View() {
                 <p className="text-xs text-muted">{t('salesRules.fallbackHint')}</p>
               </div>
 
+              {/* EJE 1 — reglas de VENTA por RAREZA CANÓNICA. */}
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                {t('salesRules.rarityAxis')}
+              </p>
               <ul className="flex flex-col divide-y divide-border">
                 <li className="hidden gap-3 py-2 text-xs uppercase tracking-wide text-muted md:grid md:grid-cols-[1fr_auto_auto_auto_auto]">
                   <span>{t('salesRules.rarity')}</span>
@@ -1099,19 +1223,27 @@ export function M2View() {
                   <span>{t('salesRules.source')}</span>
                 </li>
                 {salesRarities.data.rarities.map((row) => {
-                  const rule = salesEffectiveRule(row.rarity, row.rule, row.source);
-                  const edited = !!salesRuleDraft[row.rarity];
+                  const rule = salesEffectiveRule(row.canonical, row.rule, row.source);
+                  const edited = !!salesRuleDraft[row.canonical];
                   const effectiveSource: 'rule' | 'fallback' = edited ? 'rule' : row.source;
                   return (
                     <li
-                      key={row.rarity}
+                      key={row.canonical}
                       className="grid grid-cols-2 items-end gap-3 py-3 md:grid-cols-[1fr_auto_auto_auto_auto]"
                     >
-                      <span className="text-sm font-medium" lang="en">{row.rarity}</span>
+                      <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                        <span lang="en">{row.canonical}</span>
+                        {row.premium && (
+                          <Badge tone="accent" shape="outline">{t('salesRules.premium')}</Badge>
+                        )}
+                        {row.mapped === false && (
+                          <Badge tone="warning" shape="outline">{t('salesRules.unmapped')}</Badge>
+                        )}
+                      </span>
                       <span className="tabular text-right text-sm text-muted">{row.cardCount}</span>
                       <Select
                         label={t('salesRules.mode')}
-                        aria-label={t('salesRules.modeFor', { rarity: row.rarity })}
+                        aria-label={t('salesRules.modeFor', { rarity: row.canonical })}
                         className="w-32"
                         options={SALES_RULE_MODES.map((m) => ({ value: m, label: t(`salesRules.modeLabel.${m}`) }))}
                         value={rule.mode}
@@ -1119,12 +1251,12 @@ export function M2View() {
                           const mode = e.target.value as SalesRuleMode;
                           // Money-safe: NO arrastrar el valor entre semánticas (centavos fijos ↔ %):
                           // un 500¢ fijo no debe volverse 500%, ni un 15% volverse $0.15. Se limpia.
-                          setSalesRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode, value: '' } }));
+                          setSalesRuleDraft((prev) => ({ ...prev, [row.canonical]: { mode, value: '' } }));
                         }}
                       />
                       <Input
                         label={rule.mode === 'fixed' ? t('salesRules.valueMxn') : t('salesRules.valuePct')}
-                        aria-label={t('salesRules.valueFor', { rarity: row.rarity })}
+                        aria-label={t('salesRules.valueFor', { rarity: row.canonical })}
                         type="text"
                         inputMode="decimal"
                         prefix={rule.mode === 'fixed' ? 'MX$' : undefined}
@@ -1134,12 +1266,70 @@ export function M2View() {
                         onChange={(e) =>
                           setSalesRuleDraft((prev) => ({
                             ...prev,
-                            [row.rarity]: { mode: rule.mode, value: sanitizeDecimalInput(e.target.value) },
+                            [row.canonical]: { mode: rule.mode, value: sanitizeDecimalInput(e.target.value) },
                           }))
                         }
                       />
                       <Badge tone={effectiveSource === 'rule' ? 'info' : 'neutral'} shape="outline">
                         {t(`salesRules.sourceLabel.${effectiveSource}`)}
+                      </Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* EJE 2 — reglas de VENTA por ACABADO (reverse holo / holofoil / 1st ed). Sin regla,
+                  el acabado HEREDA la de la rareza. Reemplaza la key sintética "Holo" (INV-1). */}
+              <p className="mt-2 border-t border-border pt-4 text-xs font-semibold uppercase tracking-wide text-muted">
+                {t('salesRules.finishAxis')}
+              </p>
+              <p className="text-xs text-muted">{t('salesRules.finishAxisHint')}</p>
+              <ul className="flex flex-col divide-y divide-border">
+                <li className="hidden gap-3 py-2 text-xs uppercase tracking-wide text-muted md:grid md:grid-cols-[1fr_auto_auto_auto]">
+                  <span>{t('salesRules.finish')}</span>
+                  <span>{t('salesRules.mode')}</span>
+                  <span>{t('salesRules.value')}</span>
+                  <span>{t('salesRules.source')}</span>
+                </li>
+                {FINISH_RULE_KEYS.map((finish) => {
+                  const rule = salesEffectiveFinishRule(finish);
+                  const finishLabel = tFinish(finish);
+                  return (
+                    <li
+                      key={finish}
+                      className="grid grid-cols-2 items-end gap-3 py-3 md:grid-cols-[1fr_auto_auto_auto]"
+                    >
+                      <span className="text-sm font-medium">{finishLabel}</span>
+                      <Select
+                        label={t('salesRules.mode')}
+                        aria-label={t('salesRules.modeForFinish', { finish: finishLabel })}
+                        className="w-32"
+                        options={SALES_RULE_MODES.map((m) => ({ value: m, label: t(`salesRules.modeLabel.${m}`) }))}
+                        value={rule.mode}
+                        onChange={(e) => {
+                          const mode = e.target.value as SalesRuleMode;
+                          setSalesFinishRuleDraft((prev) => ({ ...prev, [finish]: { mode, value: '' } }));
+                        }}
+                      />
+                      <Input
+                        label={rule.mode === 'fixed' ? t('salesRules.valueMxn') : t('salesRules.valuePct')}
+                        aria-label={t('salesRules.valueForFinish', { finish: finishLabel })}
+                        type="text"
+                        inputMode="decimal"
+                        prefix={rule.mode === 'fixed' ? 'MX$' : undefined}
+                        suffix={rule.mode === 'pct' ? '%' : undefined}
+                        placeholder={t('salesRules.inheritPlaceholder')}
+                        className="w-32"
+                        value={rule.value}
+                        onChange={(e) =>
+                          setSalesFinishRuleDraft((prev) => ({
+                            ...prev,
+                            [finish]: { mode: rule.mode, value: sanitizeDecimalInput(e.target.value) },
+                          }))
+                        }
+                      />
+                      <Badge tone={rule.hasRule ? 'info' : 'neutral'} shape="outline">
+                        {rule.hasRule ? t('salesRules.sourceLabel.rule') : t('salesRules.inherit')}
                       </Badge>
                     </li>
                   );

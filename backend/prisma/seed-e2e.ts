@@ -221,29 +221,33 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     priceMxnCents: number,
     finish: 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil' = 'normal',
   ) => {
-    await prisma.priceReference.upsert({
+    // v1.29 (M-31): la clave gana `cardProductId`; el seed usa el fallback null (findFirst + create).
+    const existing = await prisma.priceReference.findFirst({
       where: {
-        // v1.6-finish (M-18): la clave única incluye `finish`.
-        cardId_productType_gradeKey_finish_capturedDate: {
-          cardId: cardIds[cardExt],
-          productType,
-          gradeKey,
-          finish,
-          capturedDate: day,
-        },
-      },
-      create: {
         cardId: cardIds[cardExt],
         productType,
         gradeKey,
         finish,
-        source: 'manual',
-        priceMxnCents,
         capturedDate: day,
-        isManualOverride: true,
+        cardProductId: null,
       },
-      update: { priceMxnCents },
     });
+    if (existing) {
+      await prisma.priceReference.update({ where: { id: existing.id }, data: { priceMxnCents } });
+    } else {
+      await prisma.priceReference.create({
+        data: {
+          cardId: cardIds[cardExt],
+          productType,
+          gradeKey,
+          finish,
+          source: 'manual',
+          priceMxnCents,
+          capturedDate: day,
+          isManualOverride: true,
+        },
+      });
+    }
   };
   await priceRef(E2E_CARDS.charizard.externalId, 'raw', 'raw:NM', E2E_CARDS.charizard.refNmCents);
   await priceRef(E2E_CARDS.common.externalId, 'raw', 'raw:NM', E2E_CARDS.common.refNmCents);

@@ -211,6 +211,34 @@ describe('Master Set · Precio de mercado POR VARIANTE en el tile (P-15, v1.27)'
   });
 });
 
+describe('Master Set · Productos SEPARADOS (Deck Exclusives/promo, v1.29 §4.27)', () => {
+  it('el binder pinta el Deck Exclusive de Charizard como producto APARTE con su propio precio, y el promo sin precio como "—"', async () => {
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+
+    // Charizard (base1) trae separateProducts en fixtures: un Deck Exclusive (holofoil, con precio)
+    // y un promo (holofoil, sin precio). Se pintan como productos PROPIOS, no fusionados en la carta.
+    const deckName = await screen.findByText('Charizard (Deck Exclusive)');
+    const deckTile = deckName.closest('div')!;
+    // El tipo de producto se rotula (badge + renglón mono) y trae su propio precio de mercado.
+    expect(within(deckTile).getAllByText('Deck Exclusive').length).toBeGreaterThan(0);
+    expect(within(deckTile).getByText('MX$5,120.00')).toBeInTheDocument();
+
+    // El promo sin precio pinta "—" (money-safe), jamás un MX$0.00 inventado.
+    const promoTile = screen.getByText('Charizard (Promo)').closest('div')!;
+    expect(within(promoTile).getByText('—')).toBeInTheDocument();
+    expect(within(promoTile).queryByText(/MX\$0\.00/)).toBeNull();
+  });
+
+  it('una carta SIN productos separados (Pikachu) no pinta ningún producto aparte', async () => {
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    await screen.findByText('Charizard (Deck Exclusive)'); // binder cargado
+    expect(screen.queryByText(/Pikachu \(Deck Exclusive\)/)).toBeNull();
+    expect(screen.queryByText(/Pikachu \(Promo\)/)).toBeNull();
+  });
+});
+
 describe('Master Set · Carrito de captura por lote (#12, tolerante por-línea)', () => {
   it('acumula una línea y muestra resultado por-línea (ok + error) sin tumbar el resto', async () => {
     // Respuesta de lote con una línea creada y otra fallida (render tolerante).
@@ -712,8 +740,20 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     }));
   }
 
-  async function openQuoterSet() {
-    renderWithProviders(<MasterSetPanel mode="quoter" onAddToSellCart={vi.fn()} />, 'es');
+  async function openQuoterSet(
+    handlers: {
+      onAddToSellCart?: (...args: unknown[]) => void;
+      onAddProductToSellCart?: (...args: unknown[]) => void;
+    } = {},
+  ) {
+    renderWithProviders(
+      <MasterSetPanel
+        mode="quoter"
+        onAddToSellCart={handlers.onAddToSellCart ?? vi.fn()}
+        onAddProductToSellCart={handlers.onAddProductToSellCart}
+      />,
+      'es',
+    );
     fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Quoter' } });
     fireEvent.click(await screen.findByRole('button', { name: /Quoter Set/ }));
   }
@@ -833,6 +873,185 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     expect(
       screen.queryByRole('button', { name: /Single Finish Card \(Holofoil\)/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it('v1.29: una carta de ENERGÍA ESPECIAL (holofoil + reverse_holo, SIN normal) muestra EXACTAMENTE 2 casillas, no 3', async () => {
+    // Regresión del modelo por-producto (§4.27): el set base de una energía especial existe solo en
+    // holofoil y reverse holo — NUNCA el `normal` fantasma. El binder pinta UNA casilla por acabado
+    // REAL (availableFinishes), así que son 2, no 3.
+    mockOneSet();
+    const specialEnergy: CardDTO = {
+      id: 'c-special-energy',
+      externalId: 'quoter-se',
+      name: 'Reversal Energy',
+      number: '9',
+      rarity: 'Special Energy',
+      supertype: 'Energy',
+      subtypes: ['Special'],
+      setId: 'set-quoter',
+      setName: 'Quoter Set',
+      imageSmallUrl: '',
+      imageLargeUrl: '',
+      availableFinishes: ['holofoil', 'reverse_holo'],
+    };
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [specialEnergy],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    mockDeterministicQuotes();
+
+    await openQuoterSet();
+
+    // Exactamente 2 casillas cotizables (holofoil + reverse holo), cada una con su precio.
+    const addButtons = await screen.findAllByRole('button', { name: /Agregar Reversal Energy/ });
+    expect(addButtons).toHaveLength(2);
+    expect(
+      screen.getByRole('button', { name: /Agregar Reversal Energy \(Holofoil\)/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Agregar Reversal Energy \(Reverse Holo\)/ }),
+    ).toBeInTheDocument();
+    // NUNCA una tercera casilla "Normal" fantasma.
+    expect(
+      screen.queryByRole('button', { name: /Agregar Reversal Energy \(Normal\)/ }),
+    ).toBeNull();
+  });
+
+  /** Carta con productos SEPARADOS para los tests del cotizador (v1.30 §4.29). */
+  const IONO_WITH_SEPARATE: CardDTO = {
+    id: 'c-with-sep',
+    externalId: 'quoter-sep',
+    name: 'Iono',
+    number: '3',
+    rarity: 'Rare',
+    supertype: 'Trainer',
+    subtypes: [],
+    setId: 'set-quoter',
+    setName: 'Quoter Set',
+    imageSmallUrl: '',
+    imageLargeUrl: '',
+    availableFinishes: ['normal', 'reverse_holo'],
+    separateProducts: [
+      {
+        productId: 71001,
+        kind: 'deck_exclusive',
+        name: 'Iono (Deck Exclusive)',
+        finishes: ['holofoil'],
+        prices: [{ finish: 'holofoil', marketReferenceMxnCents: 34500 }],
+      },
+      {
+        productId: 71002,
+        kind: 'promo',
+        name: 'Iono (Promo)',
+        finishes: ['holofoil'],
+        prices: [{ finish: 'holofoil', marketReferenceMxnCents: null }],
+      },
+    ],
+  };
+
+  it('v1.30 (§4.29): un PRODUCTO SEPARADO (Deck Exclusive) es COTIZABLE en el cotizador como su propia línea con su propio estimado (no fusionado en la carta base)', async () => {
+    mockOneSet();
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [IONO_WITH_SEPARATE],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    mockDeterministicQuotes();
+
+    await openQuoterSet();
+
+    // La carta base sigue con SUS casillas cotizables (normal = MX$100.00)…
+    const normalBtn = await screen.findByRole('button', { name: /Agregar Iono \(Normal\)/ });
+    expect(normalBtn.getAttribute('aria-label')).toContain('MX$100.00');
+    // …y el Deck Exclusive aparece como PRODUCTO APARTE con su PROPIO botón «Agregar» y su PROPIO
+    // estimado de buylist (holofoil = MX$150.00, cotizado server-side por su productId).
+    const deckAdd = screen.getByRole('button', {
+      name: /Agregar Iono \(Deck Exclusive\) \(Deck Exclusive, Holofoil\) a la venta/,
+    });
+    expect(deckAdd.getAttribute('aria-label')).toContain('MX$150.00');
+    // El producto base NO absorbe el estimado del producto separado (no fusionado).
+    expect(normalBtn.getAttribute('aria-label')).not.toContain('MX$150.00');
+  });
+
+  it('v1.30 (§4.29): «Agregar» de un producto separado manda su productId al carrito de venta', async () => {
+    mockOneSet();
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [IONO_WITH_SEPARATE],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    mockDeterministicQuotes();
+    const onAddProduct = vi.fn();
+
+    await openQuoterSet({ onAddProductToSellCart: onAddProduct });
+
+    const deckAdd = await screen.findByRole('button', {
+      name: /Agregar Iono \(Deck Exclusive\) \(Deck Exclusive, Holofoil\) a la venta/,
+    });
+    await waitFor(() => expect(deckAdd).toBeEnabled());
+    fireEvent.click(deckAdd);
+
+    expect(onAddProduct).toHaveBeenCalledTimes(1);
+    const [cell, product, finish, quote] = onAddProduct.mock.calls[0];
+    expect(cell.cardId).toBe('c-with-sep');
+    expect(product.productId).toBe(71001);
+    expect(finish).toBe('holofoil');
+    // El eco del contrato: la cotización que viaja al carrito lleva el productId (§4.29).
+    expect(quote.productId).toBe(71001);
+    expect(quote.quote.quotedPriceCents).toBe(15000);
+  });
+
+  it('v1.30 (§4.29): PRODUCT_CARD_MISMATCH del backend se muestra como error de línea legible sin romper el binder', async () => {
+    mockOneSet();
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [IONO_WITH_SEPARATE],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    // El set_base cotiza OK; el ítem con productId (producto separado) sale ok:false por-ítem.
+    vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
+      results: items.map((it, index): BuylistBatchQuoteResultDTO => {
+        if (it.productId != null) {
+          return {
+            index,
+            cardId: it.cardId,
+            ok: false,
+            error: { code: 'PRODUCT_CARD_MISMATCH', message: 'Product does not belong to this card' },
+          };
+        }
+        return {
+          index,
+          cardId: it.cardId,
+          ok: true,
+          rarity: 'Rare',
+          finish: it.finish ?? 'normal',
+          appliedRule: { mode: 'fixed', value: 10000, source: 'rule' },
+          quote: { status: 'cotizada', quotedPriceCents: 10000, currency: 'MXN' },
+          referencePrice: { status: 'priced', priceMxnCents: 25000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT',
+        };
+      }),
+    }));
+    const onAddProduct = vi.fn();
+
+    await openQuoterSet({ onAddProductToSellCart: onAddProduct });
+
+    // La carta base cotiza normal (el lote NO se cae por el ítem inválido)…
+    expect(await screen.findByRole('button', { name: /Agregar Iono \(Normal\)/ })).toBeInTheDocument();
+    // …y la(s) teja(s) de producto separado muestran el error legible del contrato (uno por producto:
+    // deck_exclusive + promo) y su «Agregar» queda inhábil.
+    expect(screen.getAllByText('Este producto no corresponde a esta carta.').length).toBeGreaterThan(0);
+    const deckAdd = screen.getByRole('button', {
+      name: /Agregar Iono \(Deck Exclusive\) \(Deck Exclusive, Holofoil\) a la venta/,
+    });
+    expect(deckAdd).toBeDisabled();
+    fireEvent.click(deckAdd);
+    expect(onAddProduct).not.toHaveBeenCalled();
   });
 
   it('un set con 120 cartas (bug P-4a: el cotizador cortaba en 20 sin control) muestra TODAS, no solo la primera página', async () => {

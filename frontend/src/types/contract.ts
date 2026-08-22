@@ -133,6 +133,11 @@ export interface CardDTO {
   // el TIPO por resiliencia: si un endpoint aún no lo emite, el front usa `availableFinishes` como
   // fallback (helper `displayFinishesOf` en @/lib/finish). Nunca AÑADE acabados, solo resta.
   displayFinishes?: Finish[];
+  // v1.29 (§4.27): productos vendibles SEPARADOS (Deck Exclusives / promo) de esta carta, con su
+  // PROPIO precio por acabado. El cotizador (que compone el binder client-side desde
+  // `GET /buylist/cards`) los propaga a `MasterSetCardCellDTO.separateProducts`. Ausente/[] = la
+  // carta no tiene productos separados (caso común).
+  separateProducts?: CardProductDTO[];
 }
 
 export interface ListingDTO {
@@ -579,6 +584,9 @@ export interface BuylistRuleApplied {
 export interface BuylistQuoteResponse {
   rarity: string;
   finish: Finish;
+  // v1.30 (§4.29): eco del `productId` (TCGplayer) cuando se cotizó un PRODUCTO SEPARADO
+  // (deck_exclusive/promo, `separateProducts`). Ausente ⇒ línea de set_base (comportamiento v1.29).
+  productId?: number;
   appliedRule: BuylistRuleApplied;
   quote: {
     status: 'cotizada' | 'precio_pendiente';
@@ -597,6 +605,11 @@ export interface BuylistQuoteItemDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   finish?: Finish;
+  // v1.30 (§4.29, ADITIVO): el TCGplayer `productId` (== `CardProduct.tcgplayerProductId`, el MISMO
+  // que `CardProductDTO.productId` de `separateProducts`) cuando la línea es un PRODUCTO SEPARADO
+  // (deck_exclusive/promo). Presente ⇒ la línea es ESE producto (acabado ∈ `CardProduct.finishes`,
+  // referencia por ese `cardProductId`, precio PROPIO). Ausente ⇒ set_base por (cardId, finish).
+  productId?: number;
 }
 
 // Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta.
@@ -604,6 +617,8 @@ export interface BuylistQuoteItemDTO {
 export interface BuylistQuotePayload {
   rarity: string | null;
   finish: Finish;
+  // v1.30 (§4.29): eco del `productId` cotizado (snapshot). Ausente ⇒ línea de set_base.
+  productId?: number;
   appliedRule: BuylistRuleApplied;
   quote: {
     status: 'cotizada' | 'precio_pendiente';
@@ -616,14 +631,19 @@ export interface BuylistQuotePayload {
 
 // Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el
 // lote → HTTP 200). `index` = posición 0-based en el request items[] (llave de correlación robusta
-// ante cardId+finish repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND | FINISH_NOT_AVAILABLE.
+// ante cardId+finish+productId repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND |
+// FINISH_NOT_AVAILABLE | PRODUCT_NOT_FOUND (v1.30: productId inexistente) | PRODUCT_CARD_MISMATCH
+// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base).
 export type BuylistBatchQuoteResultDTO =
   | ({ index: number; cardId: string; ok: true } & BuylistQuotePayload)
   | {
       index: number;
       cardId: string;
       ok: false;
-      error: { code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE'; message: string };
+      error: {
+        code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+        message: string;
+      };
     };
 
 export interface BuylistBatchQuoteResponse {
@@ -640,6 +660,10 @@ export interface SellItemDTO {
   // v1.6-finish: snapshot del acabado aplicado en la cotización/solicitud. Determina la
   // regla y la referencia usadas; se propaga al InventoryItem al convertir (M5).
   finish: Finish;
+  // v1.30 (§4.29): snapshot del TCGplayer `productId` cuando el ítem es un PRODUCTO SEPARADO
+  // (deck_exclusive/promo). Se propaga al InventoryItem al convertir (M5, ligado a ESE producto,
+  // no al set_base). Ausente/null ⇒ línea de set_base (comportamiento actual, retrocompatible).
+  productId?: number;
   rarity?: string;
   appliedRule?: BuylistRuleApplied;
   quotedPriceCents?: number;
@@ -915,6 +939,26 @@ export interface MasterSetCellCountDTO {
   count: number;
 }
 
+// ===== v1.29 (ARCHITECTURE §4.27) — «1 carta ↔ N productos» =====
+// Un CardProductDTO = UN producto TCGplayer (== un productId) bajo esta carta. Los productos de
+// set (kind="set_base") ya alimentan `availableFinishes`/`variants` de la celda; los productos
+// kind ∈ {deck_exclusive, promo} se exponen APARTE (`separateProducts`) como productos
+// vendibles/cotizables PROPIOS con su PROPIO precio por acabado. `marketReferenceMxnCents` = null
+// cuando no hay precio en ninguna fuente ("—", NUNCA 0 inventado — money-safe, P-1).
+export type CardProductKind = 'set_base' | 'deck_exclusive' | 'promo' | 'other';
+export interface CardProductPriceDTO {
+  finish: Finish;
+  marketReferenceMxnCents: number | null;
+  capturedDate?: string | null;
+}
+export interface CardProductDTO {
+  productId: number;
+  kind: CardProductKind;
+  name: string;
+  finishes: Finish[];
+  prices: CardProductPriceDTO[];
+}
+
 export interface MasterSetCardCellDTO {
   cardId: string;
   number: string;
@@ -951,6 +995,11 @@ export interface MasterSetCardCellDTO {
   // el front NO debe leerlo más salvo como fallback temporal cuando la variante no trae el campo.
   // Se retira en la siguiente rev de contrato.
   marketReferenceMxnCents?: number | null;
+  // v1.29 (§4.27): productos vendibles SEPARADOS de esta carta — SOLO los kind ∈
+  // {deck_exclusive, promo} (los set_base ya están en `variants`). Ausente/[] cuando la carta no
+  // tiene productos separados (el caso común). Cada uno se pinta como SU PROPIO producto con su
+  // propio precio por acabado; NO se fusionan en la carta base.
+  separateProducts?: CardProductDTO[];
 }
 
 export interface MasterSetBinderResponse {
@@ -1433,15 +1482,29 @@ export interface RarityMapEntryDTO {
   category: BuylistCategory;
 }
 
-// ---- M2: precio de buylist por RAREZA (contrato §M2, v1.3.1) ----
-// GET /admin/pricing/buylist-rules → tabla cruda + fallback.
-export interface BuylistRulesDTO {
-  rules: Record<string, BuylistRule>;
+// ---- M2: precio de buylist por RAREZA + ACABADO (contrato §M2; v1.29 dos ejes) ----
+// v1.29 (§4.28d): las reglas dejan de ser un mapa plano que MEZCLABA rareza y acabado (el parche
+// INV-1 del front con keys sintéticas "Holo"/"Reverse Holo"). Pasan a `PriceRuleSet` con DOS ejes
+// LIMPIOS: `rarityRules` keyeadas por RAREZA CANÓNICA (de la carta) y `finishRules` keyeadas por el
+// enum `Finish` (acabado de la variante: reverse_holo / holofoil / first_edition_holofoil). El
+// `normal` NO lleva finish-rule (usa la rareza). Money-safe: rareza sin regla → fallback pct.
+// GET/PUT /admin/pricing/buylist-rules → PriceRuleSet.
+export interface PriceRuleSet {
+  rarityRules: Record<string, BuylistRule>;
+  finishRules: Partial<Record<Finish, BuylistRule>>;
   fallbackPct: number;
 }
-// GET /admin/pricing/rarities → rarezas distintas del catálogo unidas a las reglas
-// (para poblar el editor). Las rarezas sin regla explícita muestran source="fallback".
+// GET /admin/pricing/rarities → rarezas CANÓNICAS del catálogo (agrupadas por `Card.rarityCanonical`,
+// §4.28) unidas a las reglas (para poblar el eje de rareza del editor). Las rarezas sin regla
+// explícita muestran source="fallback". `canonical` = key editable; `raw` = una forma cruda
+// observada (diagnóstico); `premium` = atributo del catálogo canónico (§4.28e); `mapped=false` =
+// rareza `unmapped` aún sin entrada canónica (cae al fallback pct, visible para resolverla).
 export interface BuylistRarityRowDTO {
+  canonical: string;
+  raw?: string;
+  premium: boolean;
+  mapped: boolean;
+  // DEPRECADO v1.29: alias de `canonical` (compat). El editor usa `canonical`.
   rarity: string;
   cardCount: number;
   rule: BuylistRule;
@@ -1467,14 +1530,21 @@ export interface SalesRuleApplied {
   value: number;
   source: 'rule' | 'fallback';
 }
-// GET /admin/pricing/sales-rules → tabla cruda + fallback.
-export interface SalesRulesDTO {
-  rules: Record<string, SalesRule>;
+// GET/PUT /admin/pricing/sales-rules → PriceRuleSet de VENTA (v1.29, dos ejes; análogo a buylist).
+export interface SalesPriceRuleSet {
+  rarityRules: Record<string, SalesRule>;
+  finishRules: Partial<Record<Finish, SalesRule>>;
   fallbackPct: number;
 }
-// GET /admin/pricing/sales-rarities → rarezas distintas del catálogo unidas a las reglas de
-// venta (para poblar el editor). Las rarezas sin regla explícita muestran source="fallback".
+// GET /admin/pricing/sales-rarities → rarezas CANÓNICAS del catálogo unidas a las reglas de venta
+// (para poblar el eje de rareza del editor). Las rarezas sin regla explícita muestran
+// source="fallback". Mismos campos canónicos que BuylistRarityRowDTO (v1.29).
 export interface SalesRarityRowDTO {
+  canonical: string;
+  raw?: string;
+  premium: boolean;
+  mapped: boolean;
+  // DEPRECADO v1.29: alias de `canonical` (compat).
   rarity: string;
   cardCount: number;
   rule: SalesRule;

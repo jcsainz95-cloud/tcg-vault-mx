@@ -4,6 +4,55 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## v1.30 (§4.29 / M-32) · Cotizar/vender un producto SEPARADO como línea propia por `productId` (2026-08-22, branch `fix/variant-composition-regression`)
+
+Cierra el hueco que quedó tras v1.29 (§4.27): la **presentación** de productos separados
+(`separateProducts: CardProductDTO[]`, `kind ∈ {deck_exclusive, promo}`) ya existía (`SeparateProductTile`),
+pero la **línea de buylist** se identificaba solo por `(cardId, finish)` y no podía apuntar a un
+`productId` → un Deck Exclusive/promo no era cotizable ni agregable como su propia línea. El
+arquitecto cerró el contrato (v1.30, `productId?` aditivo) y aquí se cableó el FRONT.
+
+- **Tipos (`types/contract.ts`, aditivos):** `productId?: number` en `BuylistQuoteItemDTO` (entrada
+  del quote por-carta y del batch), en `BuylistQuoteResponse`/`BuylistQuotePayload` (eco) y en
+  `SellItemDTO` (snapshot). `BuylistBatchQuoteResultDTO.error.code` gana `PRODUCT_NOT_FOUND` y
+  `PRODUCT_CARD_MISMATCH`. `CreateSellRequestInput.items[]` y `BuylistRequestItem` ganan `productId?`.
+  Todo opcional/retrocompatible: una línea sin `productId` = set_base, comportamiento v1.29 intacto.
+- **Cotizador (`MasterSetBinder.tsx`, `mode="quoter"`):** `fetchQuoterBinder` ahora cotiza DOS clases
+  de línea en el mismo `POST /buylist/quote/batch`: el set_base por `(carta, acabado)` y CADA producto
+  separado por `(carta, productId, acabado)`. Como el `index` del batch no basta para correlacionar
+  (base holofoil y producto holofoil de la misma carta comparten cardId+finish), se lleva un arreglo
+  PARALELO de llaves con el `productId` incluido. Las cotizaciones de productos separados se guardan en
+  un mapa client-only `separateProductQuotes` (por `${cardId}:${productId}:${finish}`) anexado a la
+  respuesta del binder — misma doctrina que `variants[].quote` (no viaja del backend).
+- **`SeparateProductTile`:** en modos de inventario/bóveda sigue siendo PRESENTACIÓN (precio de
+  mercado propio, «—» sin precio). En `quoter` es COTIZABLE: pinta el ESTIMADO de buylist propio del
+  producto (server-side por su `productId`) + botón «Agregar» que lo manda al carrito como su LÍNEA
+  PROPIA. Money-safe: sin cotización OK el botón queda inhábil (nunca $0); una línea `precio_pendiente`
+  SÍ es agregable (el backend fija su monto al recibir, como el set_base).
+- **Carrito (`useSellCart.ts`):** la llave de dedup gana `productId` → `(cardId, productType, finish,
+  productId ?? base)`. Dos líneas con el mismo `(cardId, finish)` y distinto `productId` son DISTINTAS
+  (NO se fusionan); `requestItems` propaga el `productId` a `POST /buylist/requests`. El nombre de la
+  línea de un producto separado es el del PRODUCTO (p. ej. «Charizard (Deck Exclusive)»).
+- **Errores del contrato:** `PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH` se muestran como error de
+  LÍNEA legible en la teja (i18n `masterSet.separateProductErrorCode.*` + catálogo `error.*`), sin
+  romper el lote (en batch es error por-ítem; la carta base sigue cotizando).
+- **i18n:** nuevas cadenas en `messages/{es,en}.json` (`masterSet.separateProductAddAria`,
+  `separateProductError`, `separateProductErrorCode.*`; `error.PRODUCT_NOT_FOUND`,
+  `error.PRODUCT_CARD_MISMATCH`). Sin texto hardcodeado.
+- **Mocks (`lib/api.ts` + `lib/mock/fixtures.ts`):** `searchBuylistCards` ecoa `separateProducts` en
+  `CardDTO`; `resolveSeparateProduct(cardId, productId)` distingue ok/mismatch/not_found; el batch y el
+  quote por-carta cotizan el producto por su precio propio (pct sin referencia ⇒ `precio_pendiente`,
+  nunca 0). Matiz preservado: el **batch** valida el acabado base ∈ `availableFinishes`; el **quote
+  por-carta** no lo hacía (retrocompat de mock) — se conserva con un flag. La whitelist del PRODUCTO
+  (`CardProduct.finishes`) SIEMPRE se valida (contrato §4.29).
+- **Componentes COMPARTIDOS tocados** (`components/master-set/`, `lib/`, `hooks`-adyacentes): serializar
+  el merge con cualquier otro stream que toque esas zonas.
+- **Gates:** `tsc` limpio, `eslint .` limpio, `next build` ✓ compiled. Tests: **553 pasando** (548
+  previos + 5 nuevos; se actualizó 1 test v1.29 de presentación a la semántica cotizable v1.30).
+- **Sin bloqueos de contrato:** el shape v1.30 alcanzó para todo el flujo del front. El **carrito de
+  storefront (compra)** NO necesita `productId` (se identifica por `inventoryItemId`, §4.29e) — fuera
+  de alcance por diseño.
+
 ## Pulido precios/display (2026-08-19, branch `claude/pulido-precios-display`)
 
 Tres tareas independientes de pulido de UI/UX.
@@ -4597,3 +4646,87 @@ contrato, todo en `frontend/`):
 Gates de la ronda: `lint` ✓ · `typecheck` ✓ · `vitest` **542/542** (70 archivos; 536 previos + 6
 nuevos: 2 BuylistView TL-C2, 2 SellCartDrawer TL-C2, 1 StorefrontHeader TL-C1, 1 MasterSet TL-C1) ·
 `next build` ✓ · Playwright `buylist.spec.ts` en mock **12/12** ✓.
+
+## v1.29 — Productos por variante (TCGCSV) + reglas de precio de dos ejes (2026-08-22, branch `fix/variant-composition-regression`)
+
+Implementación **frontend** del diseño v1.29 aprobado (contrato `docs/API_CONTRACT.md` v1.29;
+ARCHITECTURE §4.27 «1 carta ↔ N productos» y §4.28 rareza canónica). Backend en paralelo; el
+front trabaja contra el **shape del contrato** (mocks marcados). Sin cambios de contrato.
+
+### 1. Binder Master Set + cotizador — productos SEPARADOS por variante (§4.27)
+- **Tipos (`types/contract.ts`):** nuevos `CardProductDTO` (`{ productId, kind, name, finishes[],
+  prices[] }`), `CardProductKind` (`set_base | deck_exclusive | promo | other`) y
+  `CardProductPriceDTO` (`{ finish, marketReferenceMxnCents: number|null, capturedDate? }`). Se
+  añade `separateProducts?: CardProductDTO[]` a **`MasterSetCardCellDTO`** y a **`CardDTO`** (el
+  cotizador compone el binder client-side desde `GET /buylist/cards`, así que el CardDTO propaga
+  los productos separados a la celda).
+- **`MasterSetBinder.tsx`:** la rejilla plana ahora mezcla dos clases de teja con un tipo
+  discriminado `BinderTileItem` (`variant` | `product`). Los productos `kind ∈ {deck_exclusive,
+  promo}` se pintan como **su propio producto** (`SeparateProductTile`, nuevo) con su nombre, un
+  distintivo de tipo de producto (badge + renglón mono) y su **propio precio por acabado** —
+  **NO fusionado** en la carta base. El set base sigue mostrando sus acabados reales
+  (`availableFinishes` = universo exacto TCGCSV: p. ej. energía especial → holofoil + reverse_holo,
+  **2 casillas, no 3**). Money-safe: precio ausente (`marketReferenceMxnCents == null`) → **"—"`**,
+  nunca `$0` inventado.
+  - Los productos separados **no participan de la completitud** del set (`expected/coveredVariantCount`
+    los ignoran, como el backend), coherente con «no fusionados». Tampoco entran al filtro con/sin
+    huecos (no son variantes de inventario) — solo se listan con el filtro de piezas en «todos»; el
+    filtro de acabado sí aplica.
+  - `SeparateProductTile` es de **presentación** (no cotizable/agregable in-situ): ver salvedad al
+    arquitecto abajo (el carrito/quote del cotizador está keyeado por `(cardId, finish)`, no por
+    `productId`).
+- **i18n:** `masterSet.productKind.{set_base,deck_exclusive,promo,other}` («Set», «Deck Exclusive»,
+  «Promo», «Otro») y `masterSet.separateProductAria` en `es.json`/`en.json`. Sin texto hardcodeado.
+- **`displayFinishes` DEPRECADO** por el contrato (= `availableFinishes`); el front lo sigue tolerando
+  vía `@/lib/finish` (fallback), retiro en la próxima rev.
+
+### 2. Editor de precios M2 — reglas de DOS EJES + retiro del parche INV-1 (§4.28d)
+- **Contrato nuevo `PriceRuleSet { rarityRules, finishRules, fallbackPct }`** (y su análogo de venta
+  `SalesPriceRuleSet`): las reglas dejan de ser un mapa plano que mezclaba rareza y acabado. Se
+  separan en **eje RAREZA** (keyeado por rareza **canónica** de la carta) y **eje ACABADO** (keyeado
+  por el enum `Finish`: `reverse_holo`, `holofoil`, `first_edition_holofoil`; `normal` no lleva
+  finish-rule → usa la rareza).
+- **`M2View.tsx`:** las secciones 4 (buylist) y 5 (venta) se reescriben en **dos subtablas** (una por
+  eje). El **parche INV-1** (preservar a mano las keys sintéticas `Holo`/`Reverse Holo` de la tabla
+  cruda, comentarios ~332-336/382-385/436-438) queda **RETIRADO**: el merge del guardado parte del
+  `PriceRuleSet` del servidor (que ya trae ambos ejes) y aplica el borrador por eje encima —
+  `updateBuylistRules({ rarityRules: {...srv, ...draft}, finishRules: {...srv, ...draft}, fallbackPct })`.
+  Ningún eje pisa al otro; no hay keys sintéticas que rescatar. Se conservan: fallbacks pct visibles
+  (buylist 40 / venta 15), los guards money-safe (S-P1-1: no persistir `MX$0`) y la UX de «guardar sin
+  perder reglas» (gate `!data`).
+- **Rarezas canónicas:** el eje de rareza itera `GET /admin/pricing/rarities` por **`row.canonical`**
+  (no un groupBy crudo) y muestra el atributo **`premium`** (badge accent) y, si aplica, **`unmapped`**
+  (badge warning). `BuylistRarityRowDTO`/`SalesRarityRowDTO` ganan `canonical`, `raw?`, `premium`,
+  `mapped`; `rarity` queda como alias DEPRECADO de `canonical`.
+- **Filas de acabado:** una fila por finish de `FINISH_RULE_KEYS`; sin regla propia el badge dice
+  «Hereda rareza» (no se persiste 0). aria-labels del eje de acabado usan «Valor/Modo **del acabado**
+  {finish}» para **no colisionar** con una rareza homónima (p. ej. Eevee rareza «Reverse Holo»).
+- **`api.ts` / mocks:** `get/updateBuylistRules` y `get/updateSalesRules` pasan a `PriceRuleSet`.
+  Fixtures: `mockBuylistRarityRules` + `mockBuylistFinishRules` (+ `getMock…RuleSet`/`setMock…RuleSet`);
+  `resolveBuylistRuleForFinish` resuelve con precedencia **finish-rule > rarity-rule > fallback**
+  (reproduce el negocio vigente: reverse_holo fijo $1.50; resto → fallback 40%). El seed migra las
+  viejas keys sintéticas a `finishRules`.
+
+### Tests
+- `MasterSet.test.tsx`: energía especial (holofoil+reverse_holo → **2 casillas exactas, no 3**);
+  Deck Exclusive como producto aparte con su propio precio (no fusionado); promo sin precio → «—»
+  (nunca `$0`); binder M1 pinta el Deck Exclusive/promo de Charizard desde fixtures; carta sin
+  productos separados no pinta ninguno.
+- `M2View.test.tsx`: los tests INV-1 (preservar «Holo» sintético) se **reemplazan** por tests de
+  dos ejes (editar el acabado va a `finishRules` sin tocar `rarityRules`; editar la rareza preserva
+  la regla de acabado del servidor). Actualizado el shape de `updateBuylist/SalesRules` a
+  `{ rarityRules, finishRules, fallbackPct }`.
+
+### Salvedad / solicitud al arquitecto (no bloqueante)
+- **Cotización/carrito de un producto separado:** el diseño pide que los Deck Exclusives/promo sean
+  «su propio producto **cotizable**». Hoy `POST /buylist/quote/batch` y el carrito de venta están
+  keyeados por **`(cardId, finish)`** (`BuylistQuoteItemDTO` no tiene `productId`), así que un producto
+  separado **no puede cotizarse ni agregarse como línea distinta** con el contrato v1.29 sin fusionarse
+  con la carta base. Por eso `SeparateProductTile` es **de presentación** (nombre + tipo + precio de
+  mercado propio), sin botón «Agregar». **Petición:** si se requiere cotizar/vender productos separados
+  como líneas propias, el contrato del quote/carrito necesita un identificador `productId` (opcional,
+  aditivo). Mientras tanto el front muestra el producto con su precio propio, money-safe.
+
+### Gates de la ronda
+`typecheck` (tsc --noEmit) ✓ · `next lint` ✓ (0 warnings) · `vitest run` **548/548** (70 archivos;
++6 nuevos de esta ronda) ✓ · `next build` ✓.

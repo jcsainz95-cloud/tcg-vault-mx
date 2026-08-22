@@ -1,17 +1,26 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
+import type { ErrorCodeType } from '../../common/error-codes';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.client';
 import { yearFromReleaseDate } from './catalog.service';
 import { deriveAvailableFinishes } from '../pricing/pricing.types';
 import { deriveNumberParts } from '../../common/card-order';
+import { normalizeRarity } from '../../common/rarity-catalog';
 import { FinishReconciler } from './finish-reconciler.service';
-import { StructuralFinishResolverService } from './structural-finish-resolver.service';
+import { CardProductResolverService } from './card-product-resolver.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/**
+ * `UPSTREAM_ERROR` (502) es el MISMO patrón vigente del explorador de sellado
+ * (`sealed-pricing.controller.ts`): está en el contrato (§M2) pero aún no en
+ * `common/error-codes.ts` (zona compartida serializada a otro stream). Se tipa aquí por cast;
+ * formalizarlo en `ErrorCode` es un follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
+ */
+const UPSTREAM_ERROR = 'UPSTREAM_ERROR' as ErrorCodeType;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
 
@@ -41,10 +50,10 @@ export class CatalogSyncService {
     // v1.22-1 (§4.22g): `upsertCards` escribe `catalogFinishes` y DELEGA la escritura de
     // `availableFinishes` al ÚNICO escritor (FinishReconciler); ya no la escribe inline.
     private readonly finishReconciler: FinishReconciler,
-    // v1.26 (§4.24a): resolver de la composición ESTRUCTURAL desde TCGCSV, invocado como paso de
+    // v1.29 (§4.27d): resolver de «1 carta ↔ N productos» desde TCGCSV, invocado como paso de
     // `importSet` (first-import/`--force`). @Optional: los tests unitarios que ejercitan solo el
     // sync single/metadata pueden construir el servicio sin él (no se invoca en esa ruta).
-    @Optional() private readonly structuralResolver?: StructuralFinishResolverService,
+    @Optional() private readonly cardProductResolver?: CardProductResolverService,
   ) {}
 
   /**
@@ -303,12 +312,12 @@ export class CatalogSyncService {
     // first-import = el set local no tenía NINGUNA carta antes de este import. Solo se calcula
     // cuando el resolver está cableado (los tests de sync/metadata lo construyen sin él).
     const firstImport =
-      this.structuralResolver != null
+      this.cardProductResolver != null
         ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
         : false;
     const cardCount = await this.importCardsForSet(rs.id, localSet.id);
     if (firstImport || opts.force === true) {
-      await this.runStructuralResolver(localSet.id, rs.id);
+      await this.runCardProductResolver(localSet.id, rs.id);
     }
     return { imported: true, cardCount };
   }
@@ -324,7 +333,7 @@ export class CatalogSyncService {
     setId: string,
     opts: { force?: boolean } = {},
   ): Promise<{ imported: boolean; cardCount: number }> {
-    const first = await this.client.getCardsBySet(setId, 1);
+    const first = await this.withUpstreamGuard(() => this.client.getCardsBySet(setId, 1));
     if (!first.data || first.data.length === 0) {
       return { imported: false, cardCount: 0 };
     }
@@ -332,13 +341,15 @@ export class CatalogSyncService {
     // first-import = el set local no tenía NINGUNA carta antes de este import (mismo criterio que
     // `importSet`); solo se calcula cuando el resolver está cableado (tests de metadata sin él).
     const firstImport =
-      this.structuralResolver != null
+      this.cardProductResolver != null
         ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
         : false;
     let cardCount = await this.upsertCards(first.data, localSet.id);
-    cardCount += await this.importRemainingPages(setId, localSet.id, first);
+    cardCount += await this.withUpstreamGuard(() =>
+      this.importRemainingPages(setId, localSet.id, first),
+    );
     if (firstImport || opts.force === true) {
-      await this.runStructuralResolver(localSet.id, setId);
+      await this.runCardProductResolver(localSet.id, setId);
     }
     return { imported: true, cardCount };
   }
@@ -349,10 +360,31 @@ export class CatalogSyncService {
    * aborta el import (las cartas conservan su `structuralFinishes` seed/previo). No-op si el
    * resolver no está cableado (`@Optional`, tests de metadata).
    */
-  private async runStructuralResolver(localSetId: string, setExternalId: string): Promise<void> {
-    if (this.structuralResolver == null) return;
+  /**
+   * Degradado elegante del fallo upstream de pokemontcg.io (bug prod): un 500/502 crudo del cliente
+   * (`Error: pokemontcg.io ... -> HTTP 5xx`) subía como **500 no manejado** ("Error del servidor"),
+   * a diferencia de `remoteSets()` que SÍ degrada. Aquí se remapea a un **502 BAD_GATEWAY**
+   * accionable (`UPSTREAM_ERROR`), replicando el patrón del explorador TCGCSV
+   * (`sealed-pricing.controller.ts`). Una `BusinessException` que ya venga (p. ej. VALIDATION_ERROR)
+   * se PRESERVA (no se re-envuelve). Money-safe: es fase de METADATA, no toca precios.
+   */
+  private async withUpstreamGuard<T>(op: () => Promise<T>): Promise<T> {
     try {
-      await this.structuralResolver.resolveStructuralFinishesForSet(localSetId);
+      return await op();
+    } catch (e) {
+      if (e instanceof BusinessException) throw e;
+      throw new BusinessException(
+        UPSTREAM_ERROR,
+        HttpStatus.BAD_GATEWAY,
+        `Fuente pokemontcg.io no disponible (HTTP 5xx); reintenta en unos minutos (${(e as Error).message})`,
+      );
+    }
+  }
+
+  private async runCardProductResolver(localSetId: string, setExternalId: string): Promise<void> {
+    if (this.cardProductResolver == null) return;
+    try {
+      await this.cardProductResolver.resolveCardProductsForSet(localSetId);
     } catch (e) {
       this.logger.warn(
         `importSet: resolver estructural TCGCSV falló para ${setExternalId} (${(e as Error).message}); ` +
@@ -425,9 +457,12 @@ export class CatalogSyncService {
    *   - UPDATE → la clave `catalogFinishes` se incluye SOLO si `derived !== null`; sin señal se OMITE
    *     y se CONSERVA lo previo (un payload/502 degradado no puede volver a clobbear a `['normal']`).
    * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute
-   * `availableFinishes = composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`
-   * de las cartas tocadas (§4.25e: la unión vuelve y se filtra `normal` si la rareza es premium;
-   * `catalogFinishes` write-only no compone).
+   * `availableFinishes` de las cartas tocadas. v1.29 (§4.27c) DEROGÓ la heurística
+   * `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`: el reconciliador YA
+   * NO une señales ni filtra `normal` por rareza premium. La lista blanca se DERIVA DIRECTO de la unión
+   * de `CardProduct.finishes` (kinds `set_base`/`other`) por productId exacto, `|| ['normal']`. Las
+   * columnas `structuralFinishes`/`catalogFinishes`/`pricedFinishesSnapshot` quedan MUERTAS (write-only,
+   * nadie las lee para componer).
    * Además puebla las claves de ORDEN NATURAL `numberSort`/`numberPrefix` (M-26, §4.22b) con
    * `deriveNumberParts` — la MISMA función que espeja el backfill SQL. Ya NO se puebla
    * `PriceReference` (WS-A §4.15g: este sync es SOLO metadata).
@@ -462,6 +497,10 @@ export class CatalogSyncService {
         numberSort: parts.numberSort,
         numberPrefix: parts.prefix,
         rarity: c.rarity ?? null,
+        // v1.29 (§4.28c): `rarity` CRUDO se conserva (procedencia); `rarityCanonical` DERIVADO en el
+        // ingest empata 1:1 con las keys que el admin edita en las reglas por rareza. Lo consumen
+        // precios (lookup) y el `groupBy(['rarityCanonical'])` del admin.
+        rarityCanonical: normalizeRarity(c.rarity),
         supertype: c.supertype ?? null,
         subtypes: c.subtypes ?? undefined,
         imageSmallUrl: c.images?.small ?? null,
@@ -495,9 +534,10 @@ export class CatalogSyncService {
         );
       }
     }
-    // §4.22g candado 4 + v1.27.1 §4.25e: `availableFinishes` la escribe SOLO el reconciliador, con
-    // `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)` — la unión
-    // vuelve, `normal` se filtra si la rareza es premium; `catalogFinishes` (write-only) no compone.
+    // v1.29 (§4.27c): `availableFinishes` la escribe SOLO el reconciliador, DERIVÁNDOLA de la unión de
+    // `CardProduct.finishes` (kinds set_base/other, por productId exacto) — SIN unir señales y SIN
+    // filtrar `normal` por rareza premium (la vieja `composeAvailableFinishes` quedó derogada;
+    // `catalogFinishes`/`structuralFinishes`/`pricedFinishesSnapshot` son columnas muertas write-only).
     // Aquí solo se garantiza que las cartas tocadas queden recompuestas.
     await this.finishReconciler.reconcile(touchedCardIds);
     if (noFinishSignal > 0) {

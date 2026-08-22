@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { Finish } from '@prisma/client';
+import { CardProductKind, Finish } from '@prisma/client';
 import {
   TcgcsvGroupRef,
   TcgcsvSingleProductRef,
   TcgcsvPriceRow,
   deriveStructuralFinishes,
+  tcgcsvSubTypeToFinish,
 } from '../pricing.types';
 import { TcgcsvHttpClient } from './tcgcsv-http.client';
 
@@ -112,51 +113,86 @@ function extractNumber(
 }
 
 /**
- * v1.26 (§4.24a, paso 3) — FUNCIÓN PURA del «AGRUPAR POR CARTA»: une los `subTypeName` de TODAS las
- * filas de precio que pertenecen a la MISMA CARTA, keyeadas por el NÚMERO de carta dentro del set
- * (`extendedData.Number`). ROBUSTA a las dos representaciones de TCGplayer (candado del open-question
- * S-D1): varias filas bajo UN `productId` O `productId`s SEPARADOS por impresión — ambas colapsan al
- * mismo número de carta.
- *
- * Reglas money-safe:
- *  - Estructura = PRESENCIA del `subTypeName`; una fila con `marketPrice: null` SIGUE aportando.
- *  - `subTypeName` desconocido/no mapeable ⇒ OMITIDO (anti-invención, `deriveStructuralFinishes`).
- *  - Una fila cuyo `productId` no corresponde a ningún producto con `Number` (p. ej. sellado) NO
- *    aporta señal (no hay carta a la que atribuirla).
- *
- * @returns `Map<cardNumber, { finishes, productIds }>` con `finishes` en orden canónico
- *   `FINISH_ORDER` y los `productId`s que contribuyeron (ancla/validación del join). Los números con
- *   0 acabados mapeables se OMITEN del mapa (nada que escribir).
+ * v1.29 (§4.27d) — Producto TCGplayer DERIVADO de la fuente: agrupado por `productId` EXACTO (NUNCA
+ * por número). Es la unidad que persiste `CardProduct` (una fila por productId).
  */
-export function unionStructuralFinishesByCardNumber(
+export interface DerivedCardProduct {
+  productId: number;
+  name: string;
+  /** `extendedData.Number` del producto (para enrutar a la carta local; NO funde acabados). */
+  number: string | null;
+  kind: CardProductKind;
+  /** Acabados de ESTE producto (mapeados de SUS subTypeName; desconocidos OMITIDOS). */
+  finishes: Finish[];
+  /** Precio por variante: `marketPrice` de ESTE producto por su `subTypeName→Finish`. */
+  pricesByFinish: { finish: Finish; marketPrice: number | null }[];
+}
+
+/**
+ * v1.29 (§4.27d) — clasifica el `kind` del producto por su NOMBRE (heurística de STRING, no de
+ * rareza), testeable con fixtures:
+ *  - contiene «Deck Exclusive(s)» ⇒ `deck_exclusive` (VENDIBLE/COTIZABLE aparte, precio propio);
+ *  - contiene «Promo»/«Staff»/«League»/«Prerelease»/«Jumbo» ⇒ `promo`;
+ *  - nombre vacío/degenerado ⇒ `other` (fail-safe conservador: se compone como set_base en el binder);
+ *  - en cualquier otro caso ⇒ `set_base` (el caso común de un single de set; §4.27d).
+ */
+export function classifyCardProductKind(name: string | null | undefined): CardProductKind {
+  const s = (name ?? '').toLowerCase();
+  if (s.trim() === '') return 'other';
+  if (s.includes('deck exclusive')) return 'deck_exclusive';
+  if (/\b(promo|staff|league|prerelease|pre-release|jumbo)\b/.test(s)) return 'promo';
+  return 'set_base';
+}
+
+/**
+ * v1.29 (§4.27d, paso 1) — FUNCIÓN PURA que REEMPLAZA a `unionStructuralFinishesByCardNumber` (el bug
+ * de tres rondas): agrupa POR `productId` (jamás por número), así el fantasma es IMPOSIBLE por
+ * construcción — nunca se cruza un `subTypeName` entre `productId`s distintos.
+ *
+ * Para cada `productId` produce `{ productId, name, number, kind, finishes, pricesByFinish }` donde
+ * `finishes = deriveStructuralFinishes(subTypeNames de ESE producto)` y `pricesByFinish` lleva el
+ * `marketPrice` de ESE producto por su acabado. Money-safe:
+ *  - Estructura = PRESENCIA del `subTypeName`; una fila con `marketPrice: null` SIGUE declarando el
+ *    acabado (estructura ≠ precio) pero NO produce fila de precio (§4.27e).
+ *  - `subTypeName` desconocido ⇒ OMITIDO (anti-invención); un producto con 0 acabados mapeables se
+ *    OMITE del resultado (nada que colgar).
+ */
+export function deriveCardProductsFromTcgcsv(
   products: TcgcsvSingleProductRef[],
   prices: TcgcsvPriceRow[],
-): Map<string, { finishes: Finish[]; productIds: number[] }> {
-  // productId → número de carta (solo productos que traen `Number`).
-  const numberByProduct = new Map<number, string>();
-  for (const p of products) {
-    if (p.number != null) numberByProduct.set(p.productId, p.number);
-  }
-
-  // número de carta → { subTypeNames vistos, productIds contribuyentes }.
-  const subtypesByNumber = new Map<string, { subs: string[]; productIds: Set<number> }>();
+): DerivedCardProduct[] {
+  // productId → filas de precio de ESE producto (subTypeName + marketPrice).
+  const pricesByProduct = new Map<number, TcgcsvPriceRow[]>();
   for (const row of prices) {
-    const number = numberByProduct.get(row.productId);
-    if (number == null) continue; // fila sin carta (sellado/otro): no aporta estructura
-    let acc = subtypesByNumber.get(number);
-    if (!acc) {
-      acc = { subs: [], productIds: new Set<number>() };
-      subtypesByNumber.set(number, acc);
-    }
-    if (row.subTypeName != null) acc.subs.push(row.subTypeName);
-    acc.productIds.add(row.productId);
+    const list = pricesByProduct.get(row.productId);
+    if (list) list.push(row);
+    else pricesByProduct.set(row.productId, [row]);
   }
 
-  const result = new Map<string, { finishes: Finish[]; productIds: number[] }>();
-  for (const [number, acc] of subtypesByNumber) {
-    const finishes = deriveStructuralFinishes(acc.subs); // mapea + omite desconocidos + ordena
-    if (finishes.length === 0) continue; // todos los subTypeName desconocidos ⇒ nada que escribir
-    result.set(number, { finishes, productIds: [...acc.productIds] });
+  const out: DerivedCardProduct[] = [];
+  for (const p of products) {
+    const priceRows = pricesByProduct.get(p.productId) ?? [];
+    // Acabados de ESTE producto (nunca de otro productId): estructura = presencia del subTypeName.
+    const subs = priceRows.map((r) => r.subTypeName);
+    const finishes = deriveStructuralFinishes(subs);
+    if (finishes.length === 0) continue; // ningún subTypeName mapeable ⇒ nada que colgar (money-safe)
+    // Precio por variante: marketPrice de ESTE producto por su subTypeName→Finish.
+    const pricesByFinish: { finish: Finish; marketPrice: number | null }[] = [];
+    const seen = new Set<Finish>();
+    for (const r of priceRows) {
+      const finish = tcgcsvSubTypeToFinish(r.subTypeName);
+      if (finish == null || seen.has(finish)) continue;
+      seen.add(finish);
+      pricesByFinish.push({ finish, marketPrice: r.marketPrice });
+    }
+    out.push({
+      productId: p.productId,
+      name: p.name,
+      number: p.number,
+      kind: classifyCardProductKind(p.name),
+      finishes,
+      pricesByFinish,
+    });
   }
-  return result;
+  return out;
 }

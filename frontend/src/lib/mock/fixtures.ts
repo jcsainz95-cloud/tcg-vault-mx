@@ -10,6 +10,7 @@
  */
 import type {
   CardDTO,
+  CardProductDTO,
   CardSetDTO,
   Finish,
   ListingDTO,
@@ -42,8 +43,10 @@ import type {
   RarityMapEntryDTO,
   BuylistRule,
   BuylistRaritiesResponse,
+  PriceRuleSet,
   SalesRule,
   SalesRaritiesResponse,
+  SalesPriceRuleSet,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   AdminUserSummaryDTO,
@@ -915,6 +918,55 @@ const MASTER_SET_PROMO_CELLS: Record<string, { cardId: string; number: string; n
   sv08: [{ cardId: 'c-sv08-tg12', number: 'TG12', name: 'Rayquaza (Trainer Gallery)', rarity: 'Trainer Gallery' }],
 };
 
+// v1.29 (§4.27) — «1 carta ↔ N productos». Productos vendibles SEPARADOS (Deck Exclusives / promo)
+// por cardId: NO se fusionan en la carta base, se pintan como su PROPIO producto con su propio
+// precio por acabado. Charizard (base1) trae un Deck Exclusive (holofoil, con precio) y un promo
+// sin precio (money-safe: marketReferenceMxnCents=null → "—", NUNCA 0 inventado).
+const MASTER_SET_SEPARATE_PRODUCTS: Record<string, CardProductDTO[]> = {
+  'c-charizard': [
+    {
+      productId: 90001,
+      kind: 'deck_exclusive',
+      name: 'Charizard (Deck Exclusive)',
+      finishes: ['holofoil'],
+      prices: [{ finish: 'holofoil', marketReferenceMxnCents: 512000, capturedDate: '2026-08-13' }],
+    },
+    {
+      productId: 90002,
+      kind: 'promo',
+      name: 'Charizard (Promo)',
+      finishes: ['holofoil'],
+      prices: [{ finish: 'holofoil', marketReferenceMxnCents: null }],
+    },
+  ],
+};
+
+/** Productos SEPARADOS (deck_exclusive/promo) de una carta por su cardId (v1.29). */
+export function mockSeparateProductsForCard(cardId: string): CardProductDTO[] | undefined {
+  return MASTER_SET_SEPARATE_PRODUCTS[cardId];
+}
+
+/**
+ * v1.30 (§4.29): resuelve un `productId` de TCGplayer contra los productos SEPARADOS del mock.
+ * - `ok`: el productId cuelga de ESTA carta → devuelve el CardProduct (para precio/acabado).
+ * - `mismatch`: el productId existe pero cuelga de OTRA carta → PRODUCT_CARD_MISMATCH (jamás
+ *   fusión silenciosa con el set_base del cardId enviado).
+ * - `not_found`: el productId no existe en ningún producto separado → PRODUCT_NOT_FOUND.
+ */
+export type SeparateProductResolution =
+  | { status: 'ok'; product: CardProductDTO }
+  | { status: 'mismatch' }
+  | { status: 'not_found' };
+
+export function resolveSeparateProduct(cardId: string, productId: number): SeparateProductResolution {
+  const onCard = (MASTER_SET_SEPARATE_PRODUCTS[cardId] ?? []).find((p) => p.productId === productId);
+  if (onCard) return { status: 'ok', product: onCard };
+  const existsElsewhere = Object.values(MASTER_SET_SEPARATE_PRODUCTS).some((list) =>
+    list.some((p) => p.productId === productId),
+  );
+  return existsElsewhere ? { status: 'mismatch' } : { status: 'not_found' };
+}
+
 // on-hand = pieza de PLATAFORMA que sigue en bóveda (contrato §M1: status NOT IN
 // withdrawn/shipped/delivered/lost/damaged). reserved/in_custody/picking SÍ son on-hand.
 const OFF_HAND: InventoryStatus[] = ['withdrawn', 'shipped', 'delivered', 'lost', 'damaged'];
@@ -1240,6 +1292,10 @@ export function mockMasterSetBinder(
         expectedVariantCount: variants.length,
         coveredVariantCount: variants.filter((v) => v.covered).length,
         variants,
+        // v1.29 (§4.27): productos vendibles SEPARADOS de esta carta (Deck Exclusives/promo).
+        ...(MASTER_SET_SEPARATE_PRODUCTS[c.cardId]
+          ? { separateProducts: MASTER_SET_SEPARATE_PRODUCTS[c.cardId] }
+          : {}),
         // DEPRECATED v1.27 (P-15): el campo de celda se conserva UNA versión como espejo de la
         // variante del acabado base (= variants[0].marketReferenceMxnCents), igual que el backend,
         // para lectores rezagados. El front ya NO lo lee (lee la variante); retiro en la próxima rev.
@@ -1685,45 +1741,60 @@ export function setMockRarityMap(entries: RarityMapEntryDTO[]) {
 }
 
 /**
- * Precio de buylist por RAREZA (v1.3.1). Seed que preserva el comportamiento vigente:
- * Common/Uncommon fijo $0.50, Reverse Holo fijo $1.50, resto = fallback 40% de la
- * referencia. `value` = centavos si mode=fixed; porcentaje [0,100] si mode=pct.
+ * Precio de buylist en DOS EJES (v1.29, §4.28d). `rarityRules` keyeadas por RAREZA CANÓNICA;
+ * `finishRules` keyeadas por el enum `Finish` (acabado). Seed que preserva el negocio vigente:
+ * Common/Uncommon fijo $0.50 (rareza), reverse_holo fijo $1.50 (acabado — antes la key sintética
+ * "Reverse Holo"), resto = fallback 40%. `value` = centavos si mode=fixed; % [0,100] si mode=pct.
+ * Sustituye el mapa plano `mockBuylistRules` que mezclaba rareza y acabado (parche INV-1 retirado).
  */
-export let mockBuylistRules: Record<string, BuylistRule> = {
+export let mockBuylistRarityRules: Record<string, BuylistRule> = {
   Common: { mode: 'fixed', value: 50 },
   Uncommon: { mode: 'fixed', value: 50 },
-  'Reverse Holo': { mode: 'fixed', value: 150 },
+};
+export let mockBuylistFinishRules: Partial<Record<Finish, BuylistRule>> = {
+  reverse_holo: { mode: 'fixed', value: 150 },
 };
 export let mockBuylistFallbackPct = 40;
-export function setMockBuylistRules(rules: Record<string, BuylistRule>, fallbackPct?: number) {
-  mockBuylistRules = rules;
+export function getMockBuylistRuleSet(): PriceRuleSet {
+  return {
+    rarityRules: mockBuylistRarityRules,
+    finishRules: mockBuylistFinishRules,
+    fallbackPct: mockBuylistFallbackPct,
+  };
+}
+export function setMockBuylistRuleSet(
+  rarityRules: Record<string, BuylistRule>,
+  finishRules: Partial<Record<Finish, BuylistRule>>,
+  fallbackPct?: number,
+) {
+  mockBuylistRarityRules = rarityRules;
+  mockBuylistFinishRules = finishRules;
   if (fallbackPct != null) mockBuylistFallbackPct = fallbackPct;
 }
 
-/** Resuelve la regla de una rareza: fila explícita o fallback (pct por defecto). */
+/** Resuelve la regla de una rareza (eje rareza): fila explícita o fallback (pct por defecto). */
 export function resolveBuylistRule(rarity: string): { rule: BuylistRule; source: 'rule' | 'fallback' } {
-  const explicit = mockBuylistRules[rarity];
+  const explicit = mockBuylistRarityRules[rarity];
   if (explicit) return { rule: explicit, source: 'rule' };
   return { rule: { mode: 'pct', value: mockBuylistFallbackPct }, source: 'fallback' };
 }
 
 /**
- * v1.6-finish: el ACABADO selecciona qué regla de rareza aplica (ARCHITECTURE §4.2.1):
- * - reverse_holo → regla "Reverse Holo".
- * - holofoil / first_edition_holofoil → rareza base si ya es holo (rarity contiene "holo"), si no "Holo".
- * - normal → rareza base.
- * El backend deriva esto server-side de (Card.rarity, finish) validado contra availableFinishes (SEC-A1).
+ * v1.29 (§4.28d): la resolución cruza DOS EJES con precedencia finish-rule > rarity-rule > fallback:
+ * - Acabado ≠ normal con regla de acabado (finishRules[finish]) → gana esa regla.
+ * - En cualquier otro caso → regla de RAREZA (o fallback).
+ * El backend deriva esto server-side de (Card.rarityCanonical, finish) validado contra
+ * availableFinishes (SEC-A1). Reemplaza el viejo mapeo por keys sintéticas "Holo"/"Reverse Holo".
  */
 export function resolveBuylistRuleForFinish(
   rarity: string,
   finish: Finish,
 ): { rule: BuylistRule; source: 'rule' | 'fallback' } {
-  let ruleKey = rarity;
-  if (finish === 'reverse_holo') ruleKey = 'Reverse Holo';
-  else if (finish === 'holofoil' || finish === 'first_edition_holofoil') {
-    ruleKey = /holo/i.test(rarity) ? rarity : 'Holo';
+  if (finish !== 'normal') {
+    const fr = mockBuylistFinishRules[finish];
+    if (fr) return { rule: fr, source: 'rule' };
   }
-  return resolveBuylistRule(ruleKey);
+  return resolveBuylistRule(rarity);
 }
 
 /**
@@ -1745,12 +1816,16 @@ export function mockBuylistRarities(): BuylistRaritiesResponse {
     if (!c.rarity) continue; // el sellado no lleva rareza
     counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
   }
-  // Incluir también rarezas con regla explícita aunque no estén en el catálogo mock.
-  for (const r of Object.keys(mockBuylistRules)) if (!counts.has(r)) counts.set(r, 0);
+  // Incluir también rarezas del EJE RAREZA con regla explícita aunque no estén en el catálogo mock.
+  // (Las reglas de ACABADO ya NO se cuelan aquí: viven en su propio eje — parche INV-1 retirado.)
+  for (const r of Object.keys(mockBuylistRarityRules)) if (!counts.has(r)) counts.set(r, 0);
   const rarities = [...counts.entries()]
     .map(([rarity, cardCount]) => {
       const { rule, source } = resolveBuylistRule(rarity);
-      return { rarity, cardCount, rule, source };
+      // v1.29: `canonical` = key editable (mock no canonicaliza → = rarity); `premium` heurístico
+      // de mock (todo lo que no es Common/Uncommon); `mapped` siempre true (viene del catálogo).
+      const premium = !/^(common|uncommon)$/i.test(rarity);
+      return { canonical: rarity, raw: rarity, premium, mapped: true, rarity, cardCount, rule, source };
     })
     .sort((a, b) => b.cardCount - a.cardCount);
   return { fallbackPct: mockBuylistFallbackPct, rarities };
@@ -1762,27 +1837,41 @@ export function mockBuylistRarities(): BuylistRaritiesResponse {
  * ([0,1000]) → salePrice = round(ref × (1 + value/100)). Reemplaza el markup global único
  * (salesMarkupPct, DEPRECADO). El fallback default de venta (15%) es menor que el de buylist.
  */
-export let mockSalesRules: Record<string, SalesRule> = {
+export let mockSalesRarityRules: Record<string, SalesRule> = {
   Common: { mode: 'fixed', value: 500 },
   Uncommon: { mode: 'fixed', value: 1000 },
-  'Reverse Holo': { mode: 'fixed', value: 1000 },
+};
+export let mockSalesFinishRules: Partial<Record<Finish, SalesRule>> = {
+  reverse_holo: { mode: 'fixed', value: 1000 },
 };
 export let mockSalesFallbackPct = 15;
-export function setMockSalesRules(rules: Record<string, SalesRule>, fallbackPct?: number) {
-  mockSalesRules = rules;
+export function getMockSalesRuleSet(): SalesPriceRuleSet {
+  return {
+    rarityRules: mockSalesRarityRules,
+    finishRules: mockSalesFinishRules,
+    fallbackPct: mockSalesFallbackPct,
+  };
+}
+export function setMockSalesRuleSet(
+  rarityRules: Record<string, SalesRule>,
+  finishRules: Partial<Record<Finish, SalesRule>>,
+  fallbackPct?: number,
+) {
+  mockSalesRarityRules = rarityRules;
+  mockSalesFinishRules = finishRules;
   if (fallbackPct != null) mockSalesFallbackPct = fallbackPct;
 }
 
-/** Resuelve la regla de venta de una rareza: fila explícita o fallback (pct por defecto). */
+/** Resuelve la regla de venta de una rareza (eje rareza): fila explícita o fallback (pct por defecto). */
 export function resolveSalesRule(rarity: string): { rule: SalesRule; source: 'rule' | 'fallback' } {
-  const explicit = mockSalesRules[rarity];
+  const explicit = mockSalesRarityRules[rarity];
   if (explicit) return { rule: explicit, source: 'rule' };
   return { rule: { mode: 'pct', value: mockSalesFallbackPct }, source: 'fallback' };
 }
 
 /**
- * Rarezas distintas del catálogo (mockCards) UNIDAS a las reglas de VENTA, ordenadas por
- * cardCount desc (contrato GET /admin/pricing/sales-rarities). Clon del de buylist.
+ * Rarezas CANÓNICAS del catálogo (mockCards) UNIDAS a las reglas de VENTA por rareza, ordenadas por
+ * cardCount desc (contrato GET /admin/pricing/sales-rarities, v1.29). Clon del de buylist.
  */
 export function mockSalesRarities(): SalesRaritiesResponse {
   const counts = new Map<string, number>();
@@ -1790,12 +1879,13 @@ export function mockSalesRarities(): SalesRaritiesResponse {
     if (!c.rarity) continue; // el sellado no lleva rareza
     counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
   }
-  // Incluir también rarezas con regla explícita aunque no estén en el catálogo mock.
-  for (const r of Object.keys(mockSalesRules)) if (!counts.has(r)) counts.set(r, 0);
+  // Incluir también rarezas del EJE RAREZA con regla explícita aunque no estén en el catálogo mock.
+  for (const r of Object.keys(mockSalesRarityRules)) if (!counts.has(r)) counts.set(r, 0);
   const rarities = [...counts.entries()]
     .map(([rarity, cardCount]) => {
       const { rule, source } = resolveSalesRule(rarity);
-      return { rarity, cardCount, rule, source };
+      const premium = !/^(common|uncommon)$/i.test(rarity);
+      return { canonical: rarity, raw: rarity, premium, mapped: true, rarity, cardCount, rule, source };
     })
     .sort((a, b) => b.cardCount - a.cardCount);
   return { fallbackPct: mockSalesFallbackPct, rarities };

@@ -35,7 +35,13 @@ export abstract class TcgcsvHttpClient {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const res = await fetch(`${this.baseUrl}${path}`, {
-        headers: { Accept: 'application/json' },
+        // User-Agent identificable: varias CDNs devuelven 401/403 al UA por defecto de
+        // Node/undici (en prod, tcgcsv.com/tcgplayer/3/24688/products dio HTTP 401 sin él).
+        // Afecta por igual a singles Y sellado (comparten este cliente base). Reversible.
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'tcg-vault-mx/1.0 (+https://tcghunt.mx)',
+        },
         redirect: 'error',
         signal: controller.signal,
       });

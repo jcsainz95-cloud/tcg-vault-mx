@@ -9,9 +9,9 @@ import { CatalogSyncService } from './catalog-sync.service';
 import { PokemonTcgIoClient } from './pokemontcg-io.client';
 import { PricingModule } from '../pricing/pricing.module';
 import { FinishReconcilerModule } from './finish-reconciler.module';
-// v1.26 (§4.24a): resolver de la composición ESTRUCTURAL desde TCGCSV + su cliente HTTP (hermano
-// del provider sellado). Viven en el módulo catalog porque el paso corre dentro de `importSet`.
-import { StructuralFinishResolverService } from './structural-finish-resolver.service';
+// v1.29 (§4.27d): resolver de «1 carta ↔ N productos» desde TCGCSV + su cliente HTTP (hermano del
+// provider sellado). Vive en el módulo catalog porque el paso corre dentro de `importSet`.
+import { CardProductResolverService } from './card-product-resolver.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
 import { SetPriceSyncJobService } from '../../jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../../jobs/set-value-snapshot.service';
@@ -28,8 +28,8 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     CatalogService,
     CatalogSyncService,
     PokemonTcgIoClient,
-    // v1.26 (§4.24a): TCGCSV structural resolver + su cliente HTTP (stateless).
-    StructuralFinishResolverService,
+    // v1.29 (§4.27d): TCGCSV card-product resolver + su cliente HTTP (stateless).
+    CardProductResolverService,
     TcgcsvCatalogClient,
     SetValueService,
     SealedCatalogService,

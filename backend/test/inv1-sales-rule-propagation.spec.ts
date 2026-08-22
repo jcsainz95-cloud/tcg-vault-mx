@@ -88,7 +88,7 @@ describe('INV-1 — propagación de SALES_PRICE_RULES a /catalog (Settings+Prici
 
     // Estado inicial = default sembrado (Common fixed 500) leído por el SettingsService real.
     const before = await pricing.loadSalesRules();
-    expect(before.rules['Common']).toEqual({ mode: 'fixed', value: 500 });
+    expect(before.rules.rarityRules['Common']).toEqual({ mode: 'fixed', value: 500 });
 
     const dto0 = await catalog.toListingDTO(item as any);
     expect(dto0.salePriceCents).toBe(500);
@@ -103,7 +103,7 @@ describe('INV-1 — propagación de SALES_PRICE_RULES a /catalog (Settings+Prici
     });
 
     const after = await pricing.loadSalesRules();
-    expect(after.rules['Common']).toEqual({ mode: 'fixed', value: 900 });
+    expect(after.rules.rarityRules['Common']).toEqual({ mode: 'fixed', value: 900 });
 
     const dto1 = await catalog.toListingDTO(item as any);
     expect(dto1.salePriceCents).toBe(900); // <-- el precio SE MOVIÓ: backend propaga.

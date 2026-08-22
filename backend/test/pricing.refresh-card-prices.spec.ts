@@ -38,11 +38,13 @@ function buildHarness(opts: {
       findMany: jest.fn(async ({ where }: any) => opts.cards.filter((c) => where.id.in.includes(c.id))),
     },
     priceReference: {
-      findUnique: jest.fn(async () => null),
-      upsert: jest.fn(async ({ create }: any) => {
-        upserts.push(create);
-        return { id: `ref-${upserts.length}`, ...create };
+      // v1.29 (M-31): persistMarketReference usa findFirst + create/update (cardProductId=null).
+      findFirst: jest.fn(async () => null),
+      create: jest.fn(async ({ data }: any) => {
+        upserts.push(data);
+        return { id: `ref-${upserts.length}`, ...data };
       }),
+      update: jest.fn(async ({ data }: any) => ({ id: 'ref-upd', ...data })),
     },
   };
 

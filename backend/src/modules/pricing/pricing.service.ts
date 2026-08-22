@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Card, Finish, PriceReference, ProductType, VariantPriceOverride } from '@prisma/client';
+import { Card, CardProduct, CardProductKind, Finish, PriceReference, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -22,6 +22,8 @@ import {
   usdToMxnCents,
   computeSalePriceForRarity,
   computeSealedSalePrice,
+  toPriceRuleSet,
+  PriceRuleSet,
   BuylistRule,
   SalePriceResult,
   SalesRule,
@@ -35,11 +37,124 @@ function today(): Date {
   return d;
 }
 
+/**
+ * v1.29 (M-31, §4.27f) — filtro de `PriceReference` para la referencia de la CARTA DE SET: incluye las
+ * filas legacy/fallback (`cardProductId=null`: PPT, pokemontcg.io, manual, sellado) y las del producto
+ * `set_base`/`other`; EXCLUYE las de `deck_exclusive`/`promo` (su precio vive en su producto separado).
+ */
+const BASE_CARD_REF_WHERE: Prisma.PriceReferenceWhereInput = {
+  OR: [
+    { cardProductId: null },
+    { cardProduct: { kind: { in: [CardProductKind.set_base, CardProductKind.other] } } },
+  ],
+};
+
+/**
+ * Columnas mínimas que necesita la valuación (incl. `source` para la precedencia §4.27f y
+ * `cardProductId` para el desempate DETERMINISTA money-safe de M-31, ver `isBetterRef`).
+ */
+const PRICE_REF_SELECT = {
+  cardId: true,
+  productType: true,
+  gradeKey: true,
+  finish: true,
+  priceMxnCents: true,
+  priceUsdCents: true,
+  isManualOverride: true,
+  source: true,
+  capturedDate: true,
+  cardProductId: true,
+} as const;
+
+/**
+ * Cota de candidatas a leer para el desempate por-clave (M-31, MAYOR-3). Por
+ * `(cardId, productType, gradeKey, finish, capturedDate)` dentro de `BASE_CARD_REF_WHERE` las filas
+ * solo difieren en `cardProductId` (null | set_base | other): un puñado por día. Bajo
+ * `orderBy capturedDate desc`, TODAS las filas del día más reciente (las únicas que pueden ganar)
+ * caen en el bloque inicial; 32 es una cota holgadísima que las cubre sin traer el histórico entero.
+ */
+const SAME_DAY_REF_CANDIDATES = 32;
+
+type RefRow = {
+  priceMxnCents: number;
+  priceUsdCents: number | null;
+  isManualOverride: boolean;
+  source: string;
+  capturedDate: Date;
+  cardProductId: string | null;
+};
+
+/**
+ * §4.27f — rango de precedencia de FUENTE (menor gana): override manual > tcgcsv_singles > tcgcsv
+ * (sellado) > PPT/PokeTrace > pokemontcg.io. Empata con «TCGCSV primario, PPT fallback» de singles.
+ */
+function sourceRank(source: string, isManualOverride: boolean): number {
+  if (isManualOverride || source === 'manual') return 0;
+  switch (source) {
+    case 'tcgcsv_singles':
+    case 'tcgcsv':
+      return 1;
+    case 'pokemonpricetracker':
+    case 'poketrace':
+      return 2;
+    case 'pokemontcg_io':
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+/**
+ * ¿`a` es MEJOR referencia que `b`? Precedencia TOTALMENTE DETERMINISTA (money-safe, M-31 MAYOR-3):
+ *   1. `capturedDate` más reciente.
+ *   2. A igual día, mejor precedencia de FUENTE (override > tcgcsv_singles > … , `sourceRank`).
+ *   3. A igual día y fuente, la fila de la VARIANTE RESUELTA (`cardProductId` no nulo, escrita por el
+ *      resolver de singles) gana sobre la genérica `cardProductId=null` del price-ingest (NULLS LAST).
+ *   4. Último criterio: orden lexicográfico del `cardProductId` (cuid), para que la elección sea
+ *      ESTABLE y REPRODUCIBLE ante un import forzado (`sync {force:true}`), no «cualquiera de las dos».
+ */
+function isBetterRef(a: RefRow, b: RefRow): boolean {
+  const at = a.capturedDate.getTime();
+  const bt = b.capturedDate.getTime();
+  if (at !== bt) return at > bt;
+  const ar = sourceRank(a.source, a.isManualOverride);
+  const br = sourceRank(b.source, b.isManualOverride);
+  if (ar !== br) return ar < br;
+  const acp = a.cardProductId;
+  const bcp = b.cardProductId;
+  if ((acp == null) !== (bcp == null)) return acp != null; // NULLS LAST: la variante resuelta gana.
+  if (acp != null && bcp != null && acp !== bcp) return acp < bcp;
+  return false;
+}
+
+/** Reduce un conjunto de candidatas a la MEJOR según `isBetterRef` (desempate determinista). */
+function pickBestRef<T extends RefRow>(rows: T[]): T | null {
+  let best: T | null = null;
+  for (const r of rows) if (best == null || isBetterRef(r, best)) best = r;
+  return best;
+}
+
 export interface PriceInfo {
   status: 'priced' | 'pending';
   referenceMxnCents?: number;
   source?: PriceSourceStr;
   capturedDate?: string;
+}
+
+/** v1.29 (§4.27i) — precio por variante de un producto separado (CardProductDTO.prices). */
+export interface CardProductPriceRow {
+  finish: Finish;
+  marketReferenceMxnCents: number | null;
+  capturedDate: string | null;
+}
+
+/** v1.29 (§4.27i) — CardProductDTO server-side (deck_exclusive/promo) para `separateProducts`. */
+export interface CardProductInfo {
+  productId: number;
+  kind: CardProductKind;
+  name: string;
+  finishes: Finish[];
+  prices: CardProductPriceRow[];
 }
 
 /**
@@ -160,10 +275,63 @@ export class PricingService {
     gradeKey: string,
     finish: Finish = 'normal',
   ): Promise<PriceInfo> {
-    const ref = await this.prisma.priceReference.findFirst({
-      where: { cardId, productType, gradeKey, finish },
-      orderBy: { capturedDate: 'desc' },
+    // v1.29 (M-31, §4.27f): la referencia de la CARTA DE SET considera SOLO filas del set_base/other
+    // (o legacy `cardProductId=null`); NUNCA una fila de deck_exclusive/promo (ese precio vive en su
+    // producto separado).
+    // M-31 MAYOR-3 (money-safe): el price-ingest diario escribe una fila `cardProductId=null` y el
+    // resolver de singles escribe otra `cardProductId=<set_base>` el MISMO día; ambas pueden coexistir
+    // (p. ej. un `sync {force:true}`). `capturedDate desc` a secas es NO determinista para ese empate,
+    // así que NO se toma «la primera del orden»: se leen las candidatas del día y se elige la mejor con
+    // `isBetterRef` (fuente → cardProductId NULLS LAST → cuid), estable y reproducible.
+    const rows = await this.prisma.priceReference.findMany({
+      where: { cardId, productType, gradeKey, finish, ...BASE_CARD_REF_WHERE },
+      orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
+      select: PRICE_REF_SELECT,
+      take: SAME_DAY_REF_CANDIDATES,
     });
+    const ref = pickBestRef(rows);
+    if (!ref) return { status: 'pending' };
+    const fx = await this.fxSnapshotSafe();
+    return {
+      status: 'priced',
+      referenceMxnCents: this.liveMxnCents(ref, fx),
+      source: ref.source as PriceSourceStr,
+      capturedDate: ref.capturedDate.toISOString().slice(0, 10),
+    };
+  }
+
+  /**
+   * v1.30 (M-32, §4.29) — Resuelve un `CardProduct` por su `tcgplayerProductId` (== el productId que
+   * el front recibió en `CardProductDTO.productId`/`separateProducts`, NO el UUID interno). Lectura pura:
+   * devuelve la fila o `null` (el caller decide el error PRODUCT_NOT_FOUND / valida que cuelgue del
+   * cardId → PRODUCT_CARD_MISMATCH). Reusa el `@unique tcgplayerProductId` de M-31 (§4.27b).
+   */
+  async findCardProductByTcgId(tcgplayerProductId: number): Promise<CardProduct | null> {
+    return this.prisma.cardProduct.findUnique({ where: { tcgplayerProductId } });
+  }
+
+  /**
+   * v1.30 (M-32, §4.29b) — Referencia de mercado de un producto SEPARADO: `PriceReference` filtrada por
+   * ESE `cardProductId` (UUID interno de M-31), no por (cardId, finish) del set_base. Su precio propio
+   * (source `tcgcsv_singles` primario, override/PPT si aplica). Sin fila ⇒ `pending` («—», nunca 0,
+   * misma invariante H1/H2/H3). FX recalculada al vuelo como en `getReference`.
+   */
+  async getReferenceByCardProduct(
+    cardProductInternalId: string,
+    productType: ProductType,
+    gradeKey: string,
+    finish: Finish = 'normal',
+  ): Promise<PriceInfo> {
+    // M-31 MAYOR-3 (money-safe): mismo desempate DETERMINISTA que `getReference`. Aquí todas las filas
+    // comparten `cardProductId`, así que el empate que importa es a igual día por FUENTE (p. ej. un
+    // override manual vs tcgcsv_singles del mismo día): se elige con `isBetterRef`, no «la primera».
+    const rows = await this.prisma.priceReference.findMany({
+      where: { cardProductId: cardProductInternalId, productType, gradeKey, finish },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+      take: SAME_DAY_REF_CANDIDATES,
+    });
+    const ref = pickBestRef(rows);
     if (!ref) return { status: 'pending' };
     const fx = await this.fxSnapshotSafe();
     return {
@@ -197,26 +365,24 @@ export class PricingService {
         productType: { in: [...new Set(items.map((i) => i.productType))] },
         gradeKey: { in: [...new Set(items.map((i) => i.gradeKey))] },
         finish: { in: [...new Set(items.map((i) => i.finish))] },
+        // v1.29 (M-31, §4.27f): excluye filas de deck_exclusive/promo del precio de la carta de set.
+        ...BASE_CARD_REF_WHERE,
       },
       orderBy: { capturedDate: 'desc' },
-      select: {
-        cardId: true,
-        productType: true,
-        gradeKey: true,
-        finish: true,
-        priceMxnCents: true,
-        // v1.x-fx-live: necesarios para recalcular el MXN vigente de referencias de mercado en USD.
-        priceUsdCents: true,
-        isManualOverride: true,
-        source: true,
-        capturedDate: true,
-      },
+      select: PRICE_REF_SELECT,
     });
     // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
     const fx = await this.fxSnapshotSafe();
+    // v1.29: agrupa por clave y elige la MEJOR fila por precedencia (override > tcgcsv_singles > PPT),
+    // no simplemente «la primera del orden desc» (que podía mezclar fuentes del mismo día).
+    const bestByKey = new Map<string, (typeof rows)[number]>();
     for (const r of rows) {
       const k = keyOf(r);
-      if (!wanted.has(k) || map.has(k)) continue; // primera vista = más reciente (orden desc)
+      if (!wanted.has(k)) continue;
+      const cur = bestByKey.get(k);
+      if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);
+    }
+    for (const [k, r] of bestByKey) {
       map.set(k, {
         status: 'priced',
         referenceMxnCents: this.liveMxnCents(r, fx),
@@ -248,6 +414,8 @@ export class PricingService {
         productType: 'raw',
         gradeKey: 'raw:NM',
         priceMxnCents: { gt: 0 },
+        // v1.29 (M-31): un precio de deck_exclusive/promo NO cuenta como precio de la carta de set.
+        ...BASE_CARD_REF_WHERE,
       },
       select: { cardId: true, finish: true },
       distinct: ['cardId', 'finish'],
@@ -261,6 +429,63 @@ export class PricingService {
       s.add(r.finish);
     }
     return map;
+  }
+
+  /**
+   * v1.29 (M-31, §4.27i) — Productos SEPARADOS (`deck_exclusive`/`promo`) por carta EN LOTE (sin N+1),
+   * con su precio POR VARIANTE resuelto (source tcgcsv_singles primero, USD→MXN vigente). Alimenta
+   * `MasterSetCardCellDTO.separateProducts` (CardProductDTO). Un acabado sin precio ⇒
+   * `marketReferenceMxnCents: null` («—», nunca 0). Cartas sin productos separados NO aparecen en el Map.
+   */
+  async getSeparateProductsByCard(cardIds: string[]): Promise<Map<string, CardProductInfo[]>> {
+    const out = new Map<string, CardProductInfo[]>();
+    const ids = [...new Set(cardIds)];
+    if (ids.length === 0) return out;
+
+    const products = await this.prisma.cardProduct.findMany({
+      where: { cardId: { in: ids }, kind: { in: ['deck_exclusive', 'promo'] } },
+      select: { id: true, cardId: true, tcgplayerProductId: true, kind: true, name: true, finishes: true },
+      orderBy: { tcgplayerProductId: 'asc' },
+    });
+    if (products.length === 0) return out;
+
+    const productIds = products.map((p) => p.id);
+    const refs = await this.prisma.priceReference.findMany({
+      where: { cardProductId: { in: productIds }, productType: 'raw', gradeKey: 'raw:NM' },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT, // incluye `cardProductId` (M-31 MAYOR-3).
+    });
+    // Mejor fila por (cardProductId, finish) según precedencia §4.27f.
+    const bestByPf = new Map<string, RefRow>();
+    for (const r of refs) {
+      const k = `${r.cardProductId}|${r.finish}`;
+      const cur = bestByPf.get(k);
+      if (cur == null || isBetterRef(r, cur)) bestByPf.set(k, r);
+    }
+    const fx = await this.fxSnapshotSafe();
+
+    for (const p of products) {
+      const prices = (p.finishes as Finish[]).map((finish) => {
+        const r = bestByPf.get(`${p.id}|${finish}`);
+        const priced = r != null && r.priceMxnCents > 0;
+        return {
+          finish,
+          marketReferenceMxnCents: priced ? this.liveMxnCents(r as RefRow, fx) : null,
+          capturedDate: priced ? (r as RefRow).capturedDate.toISOString().slice(0, 10) : null,
+        };
+      });
+      const info: CardProductInfo = {
+        productId: p.tcgplayerProductId,
+        kind: p.kind,
+        name: p.name,
+        finishes: p.finishes as Finish[],
+        prices,
+      };
+      const list = out.get(p.cardId);
+      if (list) list.push(info);
+      else out.set(p.cardId, [info]);
+    }
+    return out;
   }
 
   /**
@@ -316,11 +541,13 @@ export class PricingService {
    * semántica de precio es la matemática compartida en `money.ts`; si cambia el formato del dial,
    * ambos reads cambian juntos.
    */
-  async loadBuylistRules(): Promise<{ rules: Record<string, BuylistRule>; fallbackPct: number }> {
-    const rules =
-      ((await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES)) as Record<string, BuylistRule> | null) ??
-      {};
+  async loadBuylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
     const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
+    // v1.29 (§4.28d): `rules` es un `PriceRuleSet` de DOS EJES (migra el legacy plano on-read).
+    const rules = toPriceRuleSet<BuylistRule>(
+      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
+      fallbackPct,
+    );
     return { rules, fallbackPct };
   }
 
@@ -329,10 +556,13 @@ export class PricingService {
    * lecturas por request (en vez de 2 lecturas de settings por ítem). Lo usan `bulk-publish` y
    * `fetchSellable` con `computeSalePriceForRarity` (pura) para evitar el N+1 de settings.
    */
-  async loadSalesRules(): Promise<{ rules: Record<string, SalesRule>; fallbackPct: number }> {
-    const rules =
-      ((await this.settings.getRaw(SettingKey.SALES_PRICE_RULES)) as Record<string, SalesRule> | null) ?? {};
+  async loadSalesRules(): Promise<{ rules: PriceRuleSet<SalesRule>; fallbackPct: number }> {
     const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
+    // v1.29 (§4.28d): `rules` es un `PriceRuleSet` de DOS EJES (migra el legacy plano on-read).
+    const rules = toPriceRuleSet<SalesRule>(
+      await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
+      fallbackPct,
+    );
     return { rules, fallbackPct };
   }
 
@@ -456,15 +686,16 @@ export class PricingService {
     escalate = true,
   ): Promise<PriceInfo> {
     // Cache diario: ¿ya hay fila de hoy para ESTE acabado?
-    const existing = await this.prisma.priceReference.findUnique({
+    // v1.29 (M-31): esta ruta (graded/sealed/market genérico) escribe con `cardProductId=null`. Como
+    // Prisma no tipa `null` en la clave compuesta, la lectura del día usa `findFirst` con el filtro.
+    const existing = await this.prisma.priceReference.findFirst({
       where: {
-        cardId_productType_gradeKey_finish_capturedDate: {
-          cardId: card.id,
-          productType,
-          gradeKey,
-          finish,
-          capturedDate: today(),
-        },
+        cardId: card.id,
+        productType,
+        gradeKey,
+        finish,
+        capturedDate: today(),
+        cardProductId: null,
       },
     });
     if (existing) {
@@ -538,16 +769,21 @@ export class PricingService {
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
     refId?: string,
     finish: Finish = 'normal',
+    // v1.30 (M-32, §4.29d): productId TCGplayer cuando la línea es un producto SEPARADO. Entra a la
+    // clave LÓGICA de dedupe — una entrada de deck_exclusive/promo NO se resuelve al fijar el precio del
+    // set_base (money-safe). `null` (default) = base; deja intactos todos los llamadores previos.
+    cardProductId: number | null = null,
   ): Promise<string> {
     // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
-    // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, status='open')`.
+    // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, cardProductId,
+    // status='open')` — v1.30 añade `cardProductId` a la clave (§4.29d).
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, status: 'open' },
     });
     if (open) return open.id;
     const created = await this.prisma.pendingPriceEntry.create({
-      data: { cardId, productType, gradeKey, finish, context, refId, status: 'open' },
+      data: { cardId, productType, gradeKey, finish, cardProductId, context, refId, status: 'open' },
     });
     return created.id;
   }
@@ -576,20 +812,18 @@ export class PricingService {
     finish: Finish,
     market: { marketCents: number; currency: 'USD' | 'MXN'; source: PriceSourceStr },
     fx: { rate: number; bufferPct: number },
+    // v1.29 (M-31, §4.27f): el fallback PPT de singles y las gradeadas escriben con `cardProductId=null`
+    // (el PRIMARIO tcgcsv_singles por producto lo escribe el CardProductResolver con su cardProductId).
+    cardProductId: string | null = null,
   ): Promise<void> {
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
-    const key = {
-      cardId_productType_gradeKey_finish_capturedDate: {
-        cardId,
-        productType,
-        gradeKey,
-        finish,
-        capturedDate,
-      },
-    };
-    const existing = await this.prisma.priceReference.findUnique({ where: key });
+    // v1.29 (M-31): `cardProductId` es `null` en este fallback (PPT/graded). Prisma no tipa `null` en
+    // la clave compuesta ⇒ findFirst + update-by-id/create (invariante de un renglón/día por app).
+    const existing = await this.prisma.priceReference.findFirst({
+      where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId },
+    });
     // No clobbea el override manual del admin (§4.1): si hay override de hoy, se respeta.
     if (existing?.isManualOverride) return;
     const isUsd = market.currency === 'USD';
@@ -607,11 +841,21 @@ export class PricingService {
       priceMxnCents,
       isManualOverride: false,
     };
-    await this.prisma.priceReference.upsert({
-      where: key,
-      create: { cardId, productType, gradeKey, finish, capturedDate, ...data },
-      update: data,
-    });
+    if (existing) {
+      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
+    } else {
+      await this.prisma.priceReference.create({
+        data: {
+          cardId,
+          productType,
+          gradeKey,
+          finish,
+          capturedDate,
+          ...(cardProductId != null ? { cardProductId } : {}),
+          ...data,
+        },
+      });
+    }
   }
 
   /**
@@ -728,16 +972,10 @@ export class PricingService {
     const gradeKey = sealedMarketGradeKey(tcgplayerProductId);
     const finish: Finish = 'normal';
     const capturedDate = today();
-    const key = {
-      cardId_productType_gradeKey_finish_capturedDate: {
-        cardId: anchorCardId,
-        productType,
-        gradeKey,
-        finish,
-        capturedDate,
-      },
-    };
-    const existing = await this.prisma.priceReference.findUnique({ where: key });
+    // v1.29 (M-31): sellado no usa CardProduct ⇒ `cardProductId=null` (findFirst + update/create).
+    const existing = await this.prisma.priceReference.findFirst({
+      where: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
+    });
     // No clobbea el override manual del admin (paridad con persistMarketReference, §4.1).
     if (existing?.isManualOverride) return;
     const priceMxnCents = usdToMxnCents(market.marketCents, fx.rate, fx.bufferPct);
@@ -749,11 +987,13 @@ export class PricingService {
       priceMxnCents,
       isManualOverride: false,
     };
-    await this.prisma.priceReference.upsert({
-      where: key,
-      create: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, ...data },
-      update: data,
-    });
+    if (existing) {
+      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
+    } else {
+      await this.prisma.priceReference.create({
+        data: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, ...data },
+      });
+    }
   }
 
   /** Override manual del admin (respaldo siempre disponible). Resuelve pendientes. */
@@ -764,28 +1004,30 @@ export class PricingService {
     priceMxnCents: number,
     finish: Finish = 'normal',
   ): Promise<PriceReference> {
-    const ref = await this.prisma.priceReference.upsert({
-      where: {
-        cardId_productType_gradeKey_finish_capturedDate: {
-          cardId,
-          productType,
-          gradeKey,
-          finish,
-          capturedDate: today(),
-        },
-      },
-      create: {
-        cardId,
-        productType,
-        gradeKey,
-        finish,
-        source: 'manual',
-        priceMxnCents,
-        capturedDate: today(),
-        isManualOverride: true,
-      },
-      update: { source: 'manual', priceMxnCents, isManualOverride: true },
+    // v1.29 (M-31): el override manual de MERCADO se guarda con `cardProductId=null` (el precio
+    // por-producto es del TCGCSV de singles; el override del admin es genérico por carta). findFirst +
+    // update-by-id/create (Prisma no tipa `null` en la clave compuesta).
+    const cap = today();
+    const prior = await this.prisma.priceReference.findFirst({
+      where: { cardId, productType, gradeKey, finish, capturedDate: cap, cardProductId: null },
     });
+    const ref = prior
+      ? await this.prisma.priceReference.update({
+          where: { id: prior.id },
+          data: { source: 'manual', priceMxnCents, isManualOverride: true },
+        })
+      : await this.prisma.priceReference.create({
+          data: {
+            cardId,
+            productType,
+            gradeKey,
+            finish,
+            source: 'manual',
+            priceMxnCents,
+            capturedDate: cap,
+            isManualOverride: true,
+          },
+        });
     // v1.8-ronda-c FIX: resuelve SOLO el pendiente de ESTE acabado. Antes el where omitía
     // `finish`, así que un override de `normal` cerraba también el pendiente de `holofoil`.
     await this.prisma.pendingPriceEntry.updateMany({

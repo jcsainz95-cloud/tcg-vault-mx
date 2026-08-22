@@ -27,8 +27,10 @@ describe('PricingService.persistSealedMarketReference — hermano money-safe (§
   function build(existing: { isManualOverride: boolean } | null) {
     const prisma = {
       priceReference: {
-        findUnique: jest.fn().mockResolvedValue(existing),
-        upsert: jest.fn().mockResolvedValue({}),
+        // v1.29 (M-31): persistSealedMarketReference usa findFirst + create/update (cardProductId=null).
+        findFirst: jest.fn().mockResolvedValue(existing),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
       },
     } as unknown as PrismaService;
     const svc = new PricingService(
@@ -47,14 +49,17 @@ describe('PricingService.persistSealedMarketReference — hermano money-safe (§
     // 23850¢ USD × 20 × 1.03 = 491,310¢ MXN (usdToMxnCents redondea).
     await svc.persistSealedMarketReference('card-1', 610894, { marketCents: 23850 }, FX);
 
-    const upsert = (prisma.priceReference.upsert as jest.Mock).mock.calls[0][0];
-    expect(upsert.where.cardId_productType_gradeKey_finish_capturedDate).toMatchObject({
+    // v1.29 (M-31): findFirst identifica el renglón del día; al no existir, se crea con create.data.
+    const ff = (prisma.priceReference.findFirst as jest.Mock).mock.calls[0][0];
+    expect(ff.where).toMatchObject({
       cardId: 'card-1',
       productType: 'sealed',
       gradeKey: 'sealed:tcg:610894',
       finish: 'normal',
+      cardProductId: null,
     });
-    expect(upsert.create).toMatchObject({
+    const create = (prisma.priceReference.create as jest.Mock).mock.calls[0][0];
+    expect(create.data).toMatchObject({
       source: 'tcgcsv',
       priceUsdCents: 23850,
       fxRate: 20,
@@ -62,13 +67,13 @@ describe('PricingService.persistSealedMarketReference — hermano money-safe (§
       priceMxnCents: 491310,
       isManualOverride: false,
     });
-    expect(upsert.update).toMatchObject({ source: 'tcgcsv', priceMxnCents: 491310 });
   });
 
   it('NO clobbea el override manual del día (isManualOverride=true → skip)', async () => {
     const { svc, prisma } = build({ isManualOverride: true });
     await svc.persistSealedMarketReference('card-1', 610894, { marketCents: 100 }, FX);
-    expect(prisma.priceReference.upsert).not.toHaveBeenCalled();
+    expect(prisma.priceReference.create).not.toHaveBeenCalled();
+    expect(prisma.priceReference.update).not.toHaveBeenCalled();
   });
 });
 

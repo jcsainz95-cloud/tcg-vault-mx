@@ -1,8 +1,15 @@
 import { Card, CardSet, Finish, PriceSource, ProductType } from '@prisma/client';
 import { orderFinishes } from '../../common/card-order';
 
-// v1.19-sealed-tcgcsv: += 'tcgcsv' (fuente de la referencia de mercado del SELLADO, M-23).
-export type PriceSourceStr = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
+// v1.19-sealed-tcgcsv: += 'tcgcsv' (referencia de mercado del SELLADO, M-23).
+// v1.29 (M-31): += 'tcgcsv_singles' (PRIMARIO de precio de singles por variante, §4.27f).
+export type PriceSourceStr =
+  | 'pokemontcg_io'
+  | 'pokemonpricetracker'
+  | 'poketrace'
+  | 'manual'
+  | 'tcgcsv'
+  | 'tcgcsv_singles';
 
 /**
  * v1.6-finish — mapeo Finish → llave de `tcgplayer.prices` (inverso de ARCHITECTURE §3.7).

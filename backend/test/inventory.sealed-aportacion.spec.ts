@@ -60,6 +60,16 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
             r.finish === where.finish,
         ) ?? null,
       ),
+      // M-31 MAYOR-3: getReference ahora lee con findMany + desempate determinista (pickBestRef).
+      findMany: jest.fn(async ({ where }: any) =>
+        priceRefs.filter(
+          (r) =>
+            r.cardId === where.cardId &&
+            r.productType === where.productType &&
+            r.gradeKey === where.gradeKey &&
+            r.finish === where.finish,
+        ),
+      ),
     },
     pendingPriceEntry: {
       findFirst: jest.fn(async () => null),

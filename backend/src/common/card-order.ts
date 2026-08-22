@@ -1,5 +1,4 @@
-import { Finish, Prisma } from '@prisma/client';
-import { isPremiumRarity } from './money';
+import { CardProductKind, Finish, Prisma } from '@prisma/client';
 
 /**
  * card-order.ts (v1.22-variantes-orden) — ORDEN CANÓNICO de cartas y acabados.
@@ -44,108 +43,54 @@ export function orderFinishes(finishes: Iterable<Finish>): Finish[] {
 }
 
 /**
- * v1.27.1 (P-13-fix, ARCHITECTURE §4.25e) — FUNCIÓN PURA de la COMPOSICIÓN de la que deriva
- * `Card.availableFinishes`. **La unión vuelve, el fantasma no.**
+ * v1.29 (ARCHITECTURE §4.27c) — FUNCIÓN PURA de la que deriva `Card.availableFinishes`: la lista
+ * blanca SEC-A1 se lee DIRECTO de los productos de la carta (sin heurística), **matando el fantasma
+ * por construcción**. Deroga `composeAvailableFinishes` (unión `structural ∪ snapshot − {normal|premium}`)
+ * y `computeDisplayFinishes`/N-15.
  *
- * Historia: v1.22/§4.22g introdujo la unión `structural ∪ pricedFinishesSnapshot`; v1.26/§4.24a
- * cambió la entrada estructural a `Card.structuralFinishes` (TCGCSV autoritativo). v1.27/§4.25a-1
- * DEROGÓ la unión («solo structural») — pero eso CAUSÓ UNA REGRESIÓN EN PRODUCCIÓN (set Pitch
- * Black): los COMUNES perdieron su reverse holo legítimo (que en sets recién salidos SOLO vive en
- * `pricedFinishesSnapshot`, no en `structuralFinishes`) y las ex conservaron un `normal` fantasma
- * STALE (sembrado por M-29) que la fórmula «solo structural» no limpiaba. Fórmula VIGENTE
- * (§4.25e, NORMATIVA, deroga §4.25a-1):
+ *   availableFinishes(card) := orderFinishes( ⋃ { p.finishes : p ∈ CardProduct(card),
+ *                                                  p.kind ∈ {set_base, other} } )  ||  ['normal']
  *
- *   availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot)
- *                                       − { normal | isPremiumRarity(rarity) } )  ||  ['normal']
+ *  - Solo los productos `set_base`/`other` componen la carta de set. Los `deck_exclusive`/`promo` son
+ *    PRODUCTOS VENDIBLES SEPARADOS (§4.27e); sus acabados NUNCA se funden con la carta base — por eso
+ *    la energía especial queda EXACTA (holofoil + reverse_holo = 2 casillas, NO 3): el `normal`
+ *    fantasma ya no puede aparecer porque el producto de set nunca trajo `Normal` en sus `subTypeName`.
+ *  - NO se resta `normal` por rareza: si el set_base no trae `Normal`, `normal` simplemente no está.
+ *    El filtro heurístico `isPremiumRarity` desaparece de la composición (sigue vivo SOLO en el
+ *    pricing buylist).
+ *  - Fallback `['normal']` fail-closed (§4.27c): mejor «falta una casilla» que «sobra una falsa» —
+ *    una carta legacy sin productos resueltos da `422 FINISH_NOT_AVAILABLE` hasta el re-sync forzado.
  *
- * En tres pasos:
- *  1. UNIÓN `structuralFinishes ∪ pricedFinishesSnapshot` — recupera el reverse holo legítimo del
- *     común, que en sets nuevos SOLO trae el proveedor de precios (Señal C, barrido por-impresión).
- *  2. RESTA `normal` SI `isPremiumRarity(rarity) === true` — una carta premium (ex/Double Rare,
- *     Ultra/Secret/Illustration/Hyper/Rainbow/Gold Rare, V/VMAX/VSTAR/ex/GX, etc.) NUNCA existe en
- *     `normal`; un `normal` en su composición es SIEMPRE fantasma (venga del snapshot envenenado,
- *     del structural STALE de M-29 o del seed pokemontcg.io). Filtro ESTRUCTURAL por rareza, en la
- *     composición misma — NO por precio (no es N-15/`computeDisplayFinishes`).
- *  3. `orderFinishes` (dedup + `FINISH_ORDER`) + fallback `|| ['normal']` si la resta deja el
- *     conjunto vacío (energía básica común sin datos estructurales ni de precio).
- *
- *  - `structuralFinishes` — «¿qué impresiones físicas existen?» (TCGCSV `subTypeName`; seed inicial
- *    desde pokemontcg.io en CREATE). Estructura ≠ precio: una impresión sin `PriceReference` sigue
- *    contando (whitelist la admite ⇒ vendible tras precio), nunca se dropea ni se inventa.
- *  - `pricedFinishesSnapshot` — VUELVE a componer (§4.25e). La escribe `price-ingest` (Señal C, modo
- *    lista); el modo `forced` de `fetchPrintings` NO debe alimentarla (defensa en profundidad,
- *    §4.25a-2). El log `pricedNotStructural` del reconciliador se conserva como observabilidad del
- *    drift proveedor↔estructura.
- *
- * `isPremiumRarity` se REUSA de `common/money.ts` (MISMO clasificador chase del buylist Fase 0.1 y
- * del resolver de reglas por rareza — una sola definición de «premium» en todo el sistema, sin
- * duplicar patrones). `isPremiumRarity(null) === false` ⇒ **rareza null/desconocida NO filtra
- * `normal`** (fail-safe conservador: mejor conservar una casilla dudosa que borrar una legítima por
- * no clasificar la rareza).
- *
- * Fallback `['normal']` (opción b de §4.25a-3, ELEGIDA): conservador y fail-closed para dinero —
- * mejor «falta una casilla» que «sobra una falsa»; una carta legacy sin resolver TCGCSV da
- * `422 FINISH_NOT_AVAILABLE` al cotizar un acabado no declarado, hasta el re-sync forzado.
- *
- * Determinista y RECOMPUTABLE: quitar un acabado de la entrada y recomputar lo ELIMINA (no es
- * monótona-creciente — así se limpian los fantasmas ya materializados). Nunca vacía. Vive junto a
- * `orderFinishes` (sin DI) para reusarse desde el `FinishReconciler`, los seeds y los tests.
- *
- * El ÚNICO escritor de `Card.availableFinishes` (`catalog.FinishReconciler`) la usa; `price-ingest`,
- * `catalog-sync` y el resolver TCGCSV escriben SU columna de entrada y NUNCA `availableFinishes`.
+ * Determinista y RECOMPUTABLE (no monótona: recomputar con menos productos ELIMINA casillas fantasma
+ * ya materializadas). El ÚNICO escritor de `Card.availableFinishes` (`catalog.FinishReconciler`) la usa.
  */
-export function composeAvailableFinishes(
-  structuralFinishes: Iterable<Finish>,
-  pricedFinishesSnapshot: Iterable<Finish>,
-  rarity: string | null,
+export function deriveAvailableFinishesFromProducts(
+  products: Iterable<{ kind: CardProductKind; finishes: Finish[] }>,
 ): Finish[] {
-  const union = new Set<Finish>(structuralFinishes);
-  for (const f of pricedFinishesSnapshot) union.add(f);
-  // Filtro ESTRUCTURAL por rareza: una premium NUNCA existe en `normal` ⇒ es fantasma (§4.25e-1).
-  if (isPremiumRarity(rarity)) union.delete('normal');
+  const union = new Set<Finish>();
+  for (const p of products) {
+    // set_base y other componen la carta de set; deck_exclusive/promo son productos aparte (§4.27c/e).
+    if (p.kind === 'set_base' || p.kind === 'other') {
+      for (const f of p.finishes) union.add(f);
+    }
+  }
   const ordered = orderFinishes(union);
   return ordered.length > 0 ? ordered : ['normal'];
 }
 
 /**
- * v1.22-2 / N-15 (ARCHITECTURE §4.22a-6) — `displayFinishes`: acabados que el FRONT PINTA como
- * casillas/tarjetas. Campo DERIVADO de DISPLAY, **separado** de la whitelist SEC-A1
- * `availableFinishes` (que sigue validando `finish` y derivando el monto server-side). Función PURA,
- * money-safe: SOLO RESTA acabados espurios, JAMÁS AÑADE (imposible que N-15 invente nada).
- *
- *   pricedFinishes := { f ∈ availableFinishes : hasPricedRef(card, f) }
- *   displayFinishes(card) :=
- *     if isPremiumRarity(rarity) === true  AND  pricedFinishes ≠ ∅:
- *          orderFinishes(pricedFinishes)   // premium de 1 impresión: SOLO acabados con market>0
- *     else:
- *          availableFinishes               // DEFAULT: sin supresión (comportamiento actual)
- *
- * Invariantes GARANTIZADAS por construcción:
- *  - `displayFinishes ⊆ availableFinishes` (el resultado se FILTRA de `availableFinishes`).
- *  - NUNCA vacío (≥ 1): la salvaguarda anti-cero-casillas devuelve `availableFinishes` si
- *    `pricedFinishes = ∅` (premium totalmente pendiente no se suprime — nunca deja una celda sin casillas).
- *  - Orden canónico `FINISH_ORDER` (se emite `orderFinishes(availableFinishes)`).
- *
- * `isPremiumRarity` se REUSA de `common/money.ts` (mismo clasificador chase del buylist Fase 0.1);
- * `isPremiumRarity(null) === false` ⇒ rareza null/desconocida ⇒ sin supresión. NO se inventa
- * `reverse_holo` por rareza (VAR-1 §9 intacto): la rareza es SOLO *gate* para ocultar, nunca para añadir.
- *
- * @param pricedFinishes conjunto de acabados con `hasPricedRef` (PriceReference raw/`raw:NM`,
- *   `priceMxnCents > 0`); el mismo por-acabado que resuelve `referenceValue`/quote. Puede incluir
- *   acabados fuera de `availableFinishes` — la intersección la hace el filtro (subset garantizado).
+ * v1.29 (§4.27c) — `displayFinishes` queda DEPRECADO: como ya no hay casilla espuria que ocultar tras
+ * §4.27, `displayFinishes := availableFinishes` SIEMPRE (sin supresión N-15). Se conserva como shim
+ * PURO para los callers de contrato (DTO) hasta el retiro del campo en la siguiente rev de front.
+ * Ignora `rarity`/`pricedFinishes` a propósito (la supresión heurística fue el síntoma, no la cura).
  */
 export function computeDisplayFinishes(
-  rarity: string | null,
+  _rarity: string | null,
   availableFinishes: Finish[] | null | undefined,
-  pricedFinishes: Iterable<Finish>,
+  _pricedFinishes: Iterable<Finish>,
 ): Finish[] {
   const ordered = orderFinishes(availableFinishes ?? []);
-  const base: Finish[] = ordered.length > 0 ? ordered : ['normal'];
-  if (!isPremiumRarity(rarity)) return base;
-  const pricedSet = new Set<Finish>(pricedFinishes);
-  const priced = base.filter((f) => pricedSet.has(f));
-  // Salvaguarda anti-cero-casillas: premium sin ningún acabado priceado ⇒ NO se suprime.
-  return priced.length > 0 ? priced : base;
+  return ordered.length > 0 ? ordered : ['normal'];
 }
 
 /**

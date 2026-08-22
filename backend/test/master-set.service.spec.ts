@@ -62,6 +62,7 @@ function buildPricing(over: any = {}) {
     // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
     loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
+    getSeparateProductsByCard: jest.fn(async () => new Map()),
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),

@@ -23,6 +23,10 @@ function build() {
   const findManyCalls: any[] = [];
   const prisma: any = {
     priceReference: {
+      // v1.29 (M-31): manualOverride usa findFirst + create/update (cardProductId=null).
+      findFirst: jest.fn(async () => null),
+      create: jest.fn(async () => ({ id: 'ref-1' })),
+      update: jest.fn(async () => ({ id: 'ref-1' })),
       upsert: jest.fn(async () => ({ id: 'ref-1' })),
     },
     pendingPriceEntry: {

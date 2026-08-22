@@ -100,22 +100,32 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SEALED_PRICE_SOURCE]: 'off',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
-  // v1.3.1 (§E.1): seed que PRESERVA el negocio vigente (Common/Uncommon $0.50 fijo, Reverse
-  // Holo $1.50 fijo, todo lo demás → fallback 40% de la referencia). value = centavos si fixed.
+  // v1.29 (§4.28d): seed en DOS EJES que PRESERVA el negocio vigente. Antes plano
+  // (Common/Uncommon $0.50 fijo, Reverse Holo $1.50 fijo, resto → fallback 40%); la key sintética
+  // «Reverse Holo» (que era un ACABADO, no rareza) migra a `finishRules.reverse_holo`; Common/Uncommon
+  // (rarezas) a `rarityRules`. `fallbackPct` vive en el dial separado BUYLIST_PRICE_FALLBACK_PCT.
   [SettingKey.BUYLIST_PRICE_RULES]: {
-    Common: { mode: 'fixed', value: 50 },
-    Uncommon: { mode: 'fixed', value: 50 },
-    'Reverse Holo': { mode: 'fixed', value: 150 },
+    rarityRules: {
+      Common: { mode: 'fixed', value: 50 },
+      Uncommon: { mode: 'fixed', value: 50 },
+    },
+    finishRules: {
+      reverse_holo: { mode: 'fixed', value: 150 },
+    },
   },
   [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: 40,
-  // v1.13-sales-pricing (§4.14a): seed que reproduce el ejemplo del humano (Common $5, Uncommon $10,
-  // holo/reverse $10 FIJOS; todo lo más raro cae al fallback = market × (1 + 15/100)). value = centavos
-  // si fixed. Las claves "Holo"/"Reverse Holo" son sintéticas del resolver por acabado (§4.2.1/§4.14b).
+  // v1.29 (§4.28d): seed en DOS EJES que reproduce el ejemplo del humano (Common $5, Uncommon $10 por
+  // RAREZA; holo/reverse $10 FIJOS por ACABADO; el resto cae al fallback = market × (1 + 15/100)). Las
+  // keys sintéticas «Holo»/«Reverse Holo» migran a `finishRules.holofoil`/`finishRules.reverse_holo`.
   [SettingKey.SALES_PRICE_RULES]: {
-    Common: { mode: 'fixed', value: 500 },
-    Uncommon: { mode: 'fixed', value: 1000 },
-    Holo: { mode: 'fixed', value: 1000 },
-    'Reverse Holo': { mode: 'fixed', value: 1000 },
+    rarityRules: {
+      Common: { mode: 'fixed', value: 500 },
+      Uncommon: { mode: 'fixed', value: 1000 },
+    },
+    finishRules: {
+      holofoil: { mode: 'fixed', value: 1000 },
+      reverse_holo: { mode: 'fixed', value: 1000 },
+    },
   },
   // Default 15 = iguala EXACTAMENTE el SALES_MARKUP_PCT vigente → preserva el precio de venta actual
   // (market × 1.15) para toda rareza que caiga al fallback. Solo el piso de bulk cambia.
@@ -187,15 +197,54 @@ export function isValidBuylistRule(v: unknown): boolean {
   return false;
 }
 
-/** Valida el mapa completo `buylist_price_rules` (objeto, cada entrada una regla válida). */
+/** v1.29 (§4.28d): acabados válidos como key de `finishRules` (enum Finish). */
+export const FINISH_RULE_KEYS = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
+
+/**
+ * v1.29 (§4.28d) — valida un `PriceRuleSet` de DOS EJES `{ rarityRules, finishRules, fallbackPct? }`.
+ * `ruleOk` valida UNA regla (buylist o venta). `rarityRules` = objeto por rareza; `finishRules` =
+ * objeto por acabado (key ∈ enum Finish). Money-safe: rechaza formas/keys/valores inválidos → 422.
+ */
+export function validatePriceRuleSet(v: unknown, ruleOk: (r: unknown) => boolean, pctHint: string): string | null {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+    return 'must be an object { rarityRules, finishRules, fallbackPct? }';
+  }
+  const set = v as { rarityRules?: unknown; finishRules?: unknown };
+  const rr = set.rarityRules;
+  if (rr === undefined || rr === null || typeof rr !== 'object' || Array.isArray(rr)) {
+    return 'rarityRules must be an object map { [canonicalRarity]: { mode, value } }';
+  }
+  for (const [rarity, rule] of Object.entries(rr as Record<string, unknown>)) {
+    if (!ruleOk(rule)) return `invalid rarityRule for "${rarity}": ${pctHint}`;
+  }
+  const fr = set.finishRules;
+  if (fr === undefined || fr === null || typeof fr !== 'object' || Array.isArray(fr)) {
+    return 'finishRules must be an object map { [finish]: { mode, value } }';
+  }
+  for (const [finish, rule] of Object.entries(fr as Record<string, unknown>)) {
+    if (!FINISH_RULE_KEYS.includes(finish)) {
+      return `invalid finishRule key "${finish}": must be one of ${FINISH_RULE_KEYS.join('|')}`;
+    }
+    if (!ruleOk(rule)) return `invalid finishRule for "${finish}": ${pctHint}`;
+  }
+  return null;
+}
+
+/**
+ * Valida la tabla `buylist_price_rules`. v1.29 (§4.28d): acepta el `PriceRuleSet` de DOS EJES
+ * (`{ rarityRules, finishRules }`, forma NUEVA) o el mapa PLANO legacy (`{ [rarity]: rule }`,
+ * compat/transición). Cada regla: fixed→entero [0,FIXED_CENTS_MAX] cents · pct→número [0,100].
+ */
 export function validateBuylistRules(v: unknown): string | null {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-    return 'must be an object map { [rarity]: { mode, value } }';
+    return 'must be an object map or PriceRuleSet { rarityRules, finishRules }';
+  }
+  const hint = `fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,100]`;
+  if ('rarityRules' in (v as object) || 'finishRules' in (v as object)) {
+    return validatePriceRuleSet(v, isValidBuylistRule, hint);
   }
   for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
-    if (!isValidBuylistRule(rule)) {
-      return `invalid rule for rarity "${rarity}": fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,100]`;
-    }
+    if (!isValidBuylistRule(rule)) return `invalid rule for rarity "${rarity}": ${hint}`;
   }
   return null;
 }
@@ -227,15 +276,21 @@ export function isValidSalesRule(v: unknown): boolean {
   return false;
 }
 
-/** Valida el mapa completo `sales_price_rules` (objeto, cada entrada una regla de venta válida). */
+/**
+ * Valida la tabla `sales_price_rules`. v1.29 (§4.28d): acepta el `PriceRuleSet` de DOS EJES
+ * (forma NUEVA) o el mapa PLANO legacy. Cada regla: fixed→entero [0,FIXED_CENTS_MAX] cents ·
+ * pct→número [0,SALES_PCT_MAX] (markup arriba de mercado).
+ */
 export function validateSalesRules(v: unknown): string | null {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-    return 'must be an object map { [rarity]: { mode, value } }';
+    return 'must be an object map or PriceRuleSet { rarityRules, finishRules }';
+  }
+  const hint = `fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,${SALES_PCT_MAX}]`;
+  if ('rarityRules' in (v as object) || 'finishRules' in (v as object)) {
+    return validatePriceRuleSet(v, isValidSalesRule, hint);
   }
   for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
-    if (!isValidSalesRule(rule)) {
-      return `invalid rule for rarity "${rarity}": fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,${SALES_PCT_MAX}]`;
-    }
+    if (!isValidSalesRule(rule)) return `invalid rule for rarity "${rarity}": ${hint}`;
   }
   return null;
 }

@@ -2694,3 +2694,146 @@ Notas para frontend (importantes):
 - **humano:** todos los pasos `[HUMANO]` de §25.4–§25.6 (DNS, Vercel, Railway, R2, OAuth, Resend,
   Email Routing, Stripe branding, Search Console) — nadie más tiene acceso a esos dashboards
   (cf. §23.1: la sesión no tiene tokens ni egress a prod).
+
+---
+
+## 26. Promoción a prod del stream de composición de variantes (M-31 v1.29 + M-32 v1.30) — 2026-08-22
+
+> **Rama:** `fix/variant-composition-regression` @ `31a893b` (ya en `origin`). **Autorización del dueño:**
+> desplegar a PROD para validar **UN set (Pitch Black / ME05)** antes del re-sync completo. QA + techlead
+> aprobados; los 3 MAYOR del techlead cerrados en `31a893b`.
+>
+> **VEREDICTO DE ESTA SESIÓN devops: NO SE DESPLEGÓ — PÁRATE controlado.** El pipeline está preparado y
+> todas las precondiciones *verificables desde aquí* pasan, pero **el egress a prod está bloqueado por
+> política** (proxy responde `403 CONNECT` a `tcg-vault-mx-production.up.railway.app` y `www.tcgvaultmx.com`,
+> confirmado en `$HTTPS_PROXY/__agentproxy/status` → `recentRelayFailures`). Por tanto **no puedo (a)
+> confirmar que la Postgres de prod es ≥15 en vivo ni (b) verificar salud post-deploy**. El runbook de
+> CLAUDE.md/este stream exige parar sin desplegar si no se puede verificar salud → se entrega el push y la
+> verificación al humano/orquestador, que sí tiene los dashboards. GitHub **sí** es alcanzable (el merge y el
+> push son ejecutables; lo que no es verificable es el resultado del deploy).
+
+### 26.1 Estado de ramas (verificado con git)
+
+| Rama | Commit | Nota |
+|---|---|---|
+| `origin/main` | `3b9d16f` | Base actual de prod (Railway/Vercel auto-deploy desde `main`, ver §26.3). |
+| `fix/variant-composition-regression` | `31a893b` | `origin/main` + 5 commits (M-31, M-32, fix 3-MAYOR, 2 docs de arquitectura). |
+| `origin/production` | `b33db22` | Rama-registro de releases (merges `main → production`); su contenido ⊆ `fix`. |
+| `main` **local** | `e52425e` | **STALE** — no usar. Está detrás de `origin/main`; se descarta a favor de `origin/main`. |
+
+- **El merge `fix → main` es un FAST-FORWARD LIMPIO:** `origin/main` (`3b9d16f`) es **ancestro directo** de
+  `fix` (`git rev-list origin/main..fix` = 5; `fix..origin/main` = 0). **No hay conflictos, no se descarta
+  trabajo ajeno.** Los 5 commits que aporta `fix` son exactamente: `9dfa2cb`+`505e6ac` (docs de contrato
+  v1.29/v1.30), `421967f` (M-31), `774293e` (M-32), `31a893b` (cierre 3 MAYOR). Todo el trabajo de otros
+  streams (§4.25e, Stream C, rebrand P-21) **ya está** dentro de `fix` porque `fix` se ramificó de la punta
+  de `origin/main`.
+- **NO se ejecutó el merge ni el push desde esta sesión** (push = deploy no verificable). Local `main` se
+  dejó intacto.
+
+### 26.2 Precondiciones de seguridad del cambio — verificadas
+
+- **Migraciones aditivas + backfill (verificado leyendo el SQL):**
+  - **M-31** `20260822120000_m31_card_products_rarity_canonical` — `CREATE TYPE`, `CREATE TABLE CardProduct`,
+    columnas nullable nuevas (`Card.rarityCanonical`, `PriceReference.cardProductId`), enum value nuevo, y
+    **BACKFILL** (`UPDATE Card SET rarityCanonical=rarity`; `INSERT CardProduct` desde `tcgplayerId` +
+    `structuralFinishes`/`availableFinishes`). **No dropea columnas de datos** (las viejas quedan muertas,
+    conservadas para reversibilidad). Efecto: al aplicarse, cada carta **conserva su composición actual**;
+    el fantasma solo se corrige en el set que se re-sincronice.
+  - **M-32** `20260822130000_m32_sell_item_card_product_id` — aditiva (`SellRequestItem.cardProductId`,
+    `PendingPriceEntry.cardProductId`).
+- **⚠️ REQUISITO DURO Postgres ≥ 15:** M-31 crea el índice único `PriceReference_variant_capturedDate_key`
+  con **`NULLS NOT DISTINCT`** (feature de **PG15+**). Docs de infra dicen Railway Postgres **16** (§1,
+  HANDOFF §3) → cumpliría, **pero no pude consultarlo en vivo** (egress bloqueado). **El humano DEBE
+  confirmar PG≥15 antes del push.** Si fuese <15, `migrate deploy` falla en M-31 (ver §26.4, falla
+  atómica y segura).
+- **Orden migración-antes-de-servir: GARANTIZADO por el `CMD` del `Dockerfile.backend`:**
+  `CMD ["sh","-c","node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]`.
+  Prisma corre **`migrate deploy` a completitud ANTES** de que Nest escuche. El código nuevo (que lee
+  `CardProduct`/`rarityCanonical`) **nunca** sirve antes de que M-31/M-32 existan. No hace falta paso manual.
+  `healthcheckTimeout: 300` en `railway.json` da holgura para el `migrate deploy` del arranque.
+
+### 26.3 Flujo REAL de promoción a prod (confírmalo antes de pushear)
+
+- **Mecanismo vigente según docs (HANDOFF §3, §23.2):** **Railway (backend) y Vercel (frontend)
+  auto-despliegan desde `main`** vía sus integraciones de Git nativas. `Dockerfile.backend` corre
+  `prisma migrate deploy` en el arranque. **El CD de GitHub Actions (`deploy.yml`) NO corre solo** (§16.4,
+  solo `workflow_dispatch`) y es redundante.
+- **⚠️ DISCREPANCIA a resolver por el humano:** existe la rama `origin/production` con commits
+  `release: … main → production`. La premisa de esta tarea era "PR `main`→`production` dispara el deploy",
+  pero las notas del repo dicen que **el disparador es `main`**. **Antes de pushear, el humano DEBE
+  confirmar en los dashboards de Railway y Vercel cuál es la *Production/Deploy Branch* que observan hoy**
+  (Railway: servicio `backend` → Settings → Source/Branch; Vercel: Project → Settings → Git → Production
+  Branch). Pushear a la rama equivocada o a las dos a la vez causa deploy nulo o **deploy duplicado**.
+- **Pasos del deploy (a ejecutar por el humano/orquestador con visibilidad de prod):**
+  1. `git fetch origin && git checkout main && git reset --hard origin/main` (parte de la punta remota, no
+     del `main` local stale).
+  2. `git merge --ff-only origin/fix/variant-composition-regression` → debe ser fast-forward (si no lo es,
+     PARAR: alguien movió `main`; re-evaluar).
+  3. **Snapshot/PITR de la Postgres de prod ANTES de pushear** (regla de oro §7: datos primero).
+  4. `git push origin main` **(esto dispara el deploy)** — o merge a `production` si ése resultó ser el
+     branch observado (§26.3, discrepancia).
+  5. Verificar salud (§26.5) **antes** de disparar el sync por-set.
+
+### 26.4 Rollback (la migración es aditiva → rollback = redeploy del commit anterior)
+
+| Escenario | Acción |
+|---|---|
+| **App nueva rota / regresión** | Railway (servicio `backend` → Deployments → **Redeploy** el deploy de `3b9d16f`) y Vercel (Deployments → **Promote to Production** el build previo). Alternativa Git: `git revert` del merge y push. |
+| **Datos** | **No se requiere restaurar DB para revertir el código.** M-31/M-32 son **aditivas**: sus columnas/tablas (`CardProduct`, `rarityCanonical`, `*.cardProductId`) quedan y son inertes para el resolver viejo (las columnas legacy `structuralFinishes`/`catalogFinishes`/`pricedFinishesSnapshot` se conservaron a propósito para reversibilidad — ver cabecera de la M-31). Solo se restaura del snapshot (§26.3 paso 3) si hubiera corrupción de datos, no por un rollback de código. |
+| **PG < 15 (falla de migración)** | `migrate deploy` falla en M-31 **dentro de su transacción** (Prisma envuelve cada migración) → **rollback atómico de M-31**, el contenedor sale ≠0, Railway reintenta (`ON_FAILURE`, max 10) y **mantiene activo el deploy anterior** (`3b9d16f`). Prod sigue sirviendo el código viejo. Corregir: subir Postgres a ≥15 o aplicar el fallback de índice normal (BACKEND_NOTES M-31, es cambio de **rol backend**). |
+
+### 26.5 Verificación de salud post-deploy (a ejecutar por quien tenga egress a prod)
+
+1. `GET https://tcg-vault-mx-production.up.railway.app/api/v1/health` → `200`, componente Redis `up`.
+2. Railway → `backend` → Deployments: último **Success** en el commit `31a893b` (o el sha que reporte).
+3. **Migración aplicada** (en la consola de Postgres de Railway):
+   - `SELECT COUNT(*) FROM "CardProduct";` → > 0 (backfill corrió).
+   - `SELECT 1 FROM information_schema.columns WHERE table_name='Card' AND column_name='rarityCanonical';` → 1 fila.
+   - `SELECT indexname FROM pg_indexes WHERE indexname='PriceReference_variant_capturedDate_key';` → 1 fila.
+   - `SELECT migration_name FROM "_prisma_migrations" WHERE migration_name IN ('20260822120000_m31_card_products_rarity_canonical','20260822130000_m32_sell_item_card_product_id') AND finished_at IS NOT NULL;` → 2 filas.
+4. Frontend sirve: `GET https://www.tcgvaultmx.com` → `200`.
+
+### 26.6 REQUEST EXACTO del sync forzado de UN set (Pitch Black / ME05) — NO correr `sync-all`
+
+> **NO usar `POST /admin/catalog/sync-all {force:true}`** (ése re-sincroniza TODO el catálogo). Para un solo
+> set se usa `POST /admin/catalog/sync` con `{ setId, force:true }` (verificado en
+> `backend/src/modules/catalog/admin-catalog.controller.ts:70` → `catalog-sync.service.ts:109` `sync()`).
+
+- **Método / URL:** `POST https://tcg-vault-mx-production.up.railway.app/api/v1/admin/catalog/sync`
+- **Auth:** JWT de **`super_admin`** en `Authorization: Bearer <accessToken>`. Obtenerlo con
+  `POST /api/v1/auth/login` `{ "email": "<SEED_ADMIN_EMAIL>", "password": "<SEED_ADMIN_PASSWORD>" }` →
+  campo `accessToken` de la respuesta.
+- **Headers:** `Content-Type: application/json` + el `Authorization` de arriba.
+- **Body:** `{ "setId": "<externalId-pokemontcg.io-de-Pitch-Black>", "force": true }` → responde **202**;
+  progreso en `GET /api/v1/admin/catalog/sync-status`.
+
+**⚠️ El `setId` que espera el endpoint NO es `24688`.** El código valida `setId` con
+`SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/` y lo interpola en `q=set.id:<setId>` contra **pokemontcg.io**
+(`catalog-sync.service.ts`). Es el **`externalId` de pokemontcg.io** del set (string en minúsculas), NO el
+uuid interno ni el numérico de TCGplayer. **`24688` es el `pptSetId`** (`CardSet.pptSetId`), que el resolver
+TCGCSV usa **internamente** como `groupId` (`card-product-resolver.service.ts:199-202`: si `pptSetId` es
+entero, `groupId = pptSetId`). Es decir: das el `externalId` al endpoint, y el resolver por dentro usa
+`24688` para leer la composición exacta desde TCGCSV.
+
+**Cómo obtener el `externalId` real de Pitch Black / ME05** (elige una; requiere prod):
+- **Vía BD (más directa):** en la Postgres de Railway →
+  `SELECT "externalId","name","ptcgoCode","pptSetId" FROM "CardSet" WHERE "pptSetId"='24688' OR "ptcgoCode"='ME05' OR "name" ILIKE '%pitch black%';`
+  → usa el valor de la columna `externalId` como `setId`.
+- **Vía API:** `GET /api/v1/admin/catalog/remote-sets` (super_admin) lista los sets remotos de pokemontcg.io
+  (`id` + `name`); localiza el de Pitch Black y usa su `id`.
+
+> **Precondición del sync por-set:** este endpoint primero trae las cartas del set desde **pokemontcg.io**
+> por `externalId`; si Pitch Black/ME05 aún **no existe en pokemontcg.io**, el `sync` por `externalId` no
+> importará cartas y el resolver TCGCSV no correrá por esta vía (hallazgo a validar con backend/PO). En ese
+> caso el set debe existir en la BD con su `pptSetId=24688` y el re-populado de composición se dispara por el
+> resolver — coordinar con **backend** antes de asumir que este request basta. El re-sync es **idempotente y
+> money-safe** (§24.3): repuebla composición/precios de SINGLES, no borra `PriceReference` ni dinero.
+
+### 26.7 Resumen del handoff (qué falta y de quién es)
+
+- **[HUMANO/orquestador con dashboards]** Confirmar branch observado (§26.3), confirmar **PG≥15**, snapshot
+  de DB, `git push` del FF `fix→main` (o a `production`), verificar salud (§26.5), y disparar el request
+  por-set (§26.6). Todo esto es lo único pendiente; el pipeline y el orden de migración ya están listos y
+  son seguros.
+- **[backend]** Solo si (a) PG<15 en prod (fallback de índice de la M-31) o (b) el set ME05 no está en
+  pokemontcg.io y el sync por `externalId` no dispara el resolver: es decisión/código de backend, no de devops.

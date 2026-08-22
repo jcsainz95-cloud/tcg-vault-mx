@@ -2,7 +2,57 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-21 (rev v1.28.1-stream-b-precision).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.30-buylist-quote-por-producto).
+>
+> **Changelog v1.30-buylist-quote-por-producto (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend
+> implementan):** cambios **ADITIVOS y RETROCOMPATIBLES**, money-safe (PRICE_PENDING y «—» = `null` preservados;
+> guards H1/H2/H3 + MoneyOutGuard intactos). Cierra el hueco detectado por el front tras v1.29: la línea de
+> cotización/venta de buylist se identificaba SOLO por `(cardId, finish)`, así que un **producto separado**
+> (`CardProduct` `kind ∈ {deck_exclusive, promo}` — p. ej. «Voltaic Lightning Energy 084/084 Deck Exclusives»,
+> productId TCGplayer **707029**, distinto del set_base **704841** que comparte número 084/084) **no podía cotizarse
+> ni ir al carrito como LÍNEA PROPIA** sin fusionarse con la carta de set. Spec en ARCHITECTURE §4.29 (referencia a
+> §4.27/§4.28). **Resolución** = reusa `CardProduct` + `PriceReference.cardProductId` de M-31 (§4.27b), sin migración
+> nueva para leer precios. **Persistencia** = una migración ADITIVA menor **M-32** (`SellRequestItem.cardProductId?` +
+> `PendingPriceEntry.cardProductId?`, ambas nullable), análoga a como v1.6-finish añadió `SellRequestItem.finish`
+> (M-19). Nada se dropea; clientes/filas viejos con `cardProductId = null` = línea de set_base.
+> - **(1) `productId?: number` OPCIONAL y ADITIVO** en la LÍNEA de buylist: `BuylistQuoteItemDTO` (batch
+>   `POST /buylist/quote/batch`), `Req` de `POST /buylist/quote` (por-carta), y `items[]` de
+>   `POST /buylist/requests`. Es el **mismo `productId`** que el front ya recibe en `CardProductDTO.productId`
+>   (`separateProducts`, v1.29) — el TCGplayer `productId` (== `CardProduct.tcgplayerProductId`), NO el UUID interno.
+> - **(2) Eco en la RESPUESTA:** `BuylistQuotePayload` (por-carta y por-ítem del batch) y `SellItemDTO` ganan
+>   **`productId?: number`** (snapshot del producto cotizado; ausente ⇒ línea de set_base, comportamiento actual).
+> - **(3) Semántica de resolución (NORMATIVA §4.29):** **con `productId`** → la línea es ESE `CardProduct` concreto;
+>   whitelist de acabado = `CardProduct.finishes` (no `Card.availableFinishes`); la referencia de mercado se lee de
+>   `PriceReference` filtrada por ese `cardProductId` (precio propio del producto). **Sin `productId`** → EXACTAMENTE
+>   el comportamiento de hoy: producto de set por `(cardId, finish)` (clientes viejos no cambian). La **rareza** sigue
+>   saliendo de la carta (`rarityCanonical`), el **acabado** del producto — encaja con `PriceRuleSet` (§4.28d).
+> - **(4) Validación money-safe:** `productId` inexistente ⇒ **`PRODUCT_NOT_FOUND`**; `productId` que NO cuelga del
+>   `cardId` ⇒ **`PRODUCT_CARD_MISMATCH`** (rechazo validado, **jamás fusión silenciosa** con la carta base);
+>   `finish` fuera de `CardProduct.finishes` ⇒ **`FINISH_NOT_AVAILABLE`**. Producto sin precio en ninguna fuente ⇒
+>   `precio_pendiente` / «—» (`null`), **nunca 0**; el pago sigue bloqueado por MoneyOutGuard hasta que el dueño lo
+>   fije. En el batch, los tres son errores **por-ítem** (`ok:false`, no tumban el lote); en por-carta/`requests` son
+>   `422`.
+> - **(5) Unicidad de línea:** la llave lógica de la línea gana `productId` → **`(cardId, finish, productId ?? base)`**.
+>   Dos líneas con el mismo `(cardId, finish)` pero distinto `productId` son **DISTINTAS** (no se fusionan/deduplican);
+>   `productId` ausente = la línea `base` (set_base). Espeja el `@@unique … cardProductId` de `PriceReference` (M-31,
+>   §4.27b). El `index` 0-based del batch sigue siendo la llave de correlación (ya robusta a repeticiones). Detalle
+>   abajo en §DTOs y §M5.
+>
+> **Changelog v1.29-tcgcsv-productos-por-variante (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend
+> implementan):** cambios ADITIVOS y money-safe (PRICE_PENDING y «—» = `null` preservados). Spec en ARCHITECTURE
+> §4.27 (composición+precio por `productId`) y §4.28 (rareza canónica). (1) **Producto vendible separado
+> («Deck Exclusives»/promo):** `MasterSetCardCellDTO` y el cotizador ganan `separateProducts?: CardProductDTO[]` — los
+> `CardProduct` de `kind ∈ {deck_exclusive, promo}` de la carta, cada uno con su `productId`, `kind`, `name`,
+> `finishes[]` y precio por variante (`marketReferenceMxnCents | null`). (2) **`availableFinishes` y
+> `variants[].marketReferenceMxnCents` no cambian de FORMA** pero ahora son EXACTOS (leídos por producto desde TCGCSV,
+> sin fantasma). (3) **`displayFinishes` queda DEPRECADO** (= `availableFinishes`; ya no hay casilla espuria que
+> ocultar; retiro en la siguiente rev de front). (4) **Precio de singles:** referencia = TCGCSV primario (USD→MXN vía
+> FX Banxico existente) › PPT fallback › «—» + PRICE_PENDING; `PriceSource` gana `tcgcsv_singles`. (5) **Rareza
+> canónica:** `GET /admin/pricing/rarities` (y su eco de ventas) agrupan por `rarityCanonical` (no por `rarity` crudo)
+> y devuelven `{ canonical, raw?, premium, rule?, source }`; las reglas se editan en DOS ejes
+> `PriceRuleSet { rarityRules, finishRules, fallbackPct }` (separa rareza-de-la-carta de acabado-de-la-variante;
+> retira el parche INV-1 del front con keys sintéticas `Holo`/`Reverse Holo`). Rareza sin regla → fallback pct
+> predecible y auditable, nunca 0. Detalle abajo en §DTOs y §M2.
 >
 > **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin endpoints
 > nuevos):** (1) **§M2 `variant-controls` / conteo de bounty:** `bountyAcquiredQty` cuenta SOLO ítems
@@ -1090,17 +1140,27 @@ SalesRule         = { mode: SalesRuleMode, value: number }
 SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fallback" }
 // v1.15-buylist-batch-clabe: cotización en LOTE (POST /buylist/quote/batch). READ-ONLY. SIN `qty` — el modelo es
 // UNA línea por carta física (ARCHITECTURE §4.16b). Espeja EXACTAMENTE los campos del quote por-carta (PublicQuoteDto).
-BuylistQuoteItemDTO = { cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish }
+// v1.30: `productId?` (number = TCGplayer productId == CardProduct.tcgplayerProductId; el MISMO que el front recibió
+//   en CardProductDTO.productId / separateProducts). OPCIONAL/ADITIVO. Presente ⇒ la línea es ESE CardProduct concreto
+//   (acabado ∈ CardProduct.finishes; referencia leída de PriceReference filtrada por ese cardProductId). Ausente ⇒
+//   producto de set por (cardId, finish) — comportamiento v1.29 intacto (clientes viejos no cambian). Ver §4.29.
+BuylistQuoteItemDTO = { cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish,
+                        productId?: number }
 // Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta (BuylistQuoteResponse).
-BuylistQuotePayload = { rarity: string | null, finish: Finish, appliedRule: BuylistRuleApplied,
+// v1.30: `productId?` = eco del producto cotizado (snapshot). Ausente ⇒ línea de set_base. La `rarity` sigue siendo la
+//   de la carta (rarityCanonical) y el `finish` el del producto; ambos derivan la regla server-side (SEC-A1).
+BuylistQuotePayload = { rarity: string | null, finish: Finish, productId?: number, appliedRule: BuylistRuleApplied,
                         quote: { status: "cotizada" | "precio_pendiente", quotedPriceCents: number | null, currency: "MXN" },
                         referencePrice: { status: "priced" | "pending", priceMxnCents?: number },
                         paymentNotice: "PAY_AFTER_RECEIPT" }
 // Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el lote → HTTP 200).
-// `index` = posición 0-based en el request `items[]` (llave de correlación robusta ante cardId+finish repetidos).
+// `index` = posición 0-based en el request `items[]` (llave de correlación robusta ante cardId+finish+productId repetidos).
+// v1.30: `error.code` gana `PRODUCT_NOT_FOUND` (productId inexistente) y `PRODUCT_CARD_MISMATCH` (productId no cuelga
+//   del cardId → rechazo validado, NUNCA fusión silenciosa con la carta base).
 BuylistBatchQuoteResultDTO =
     | ({ index: number, cardId: string, ok: true } & BuylistQuotePayload)
-    | { index: number, cardId: string, ok: false, error: { code: "NOT_FOUND" | "FINISH_NOT_AVAILABLE", message: string } }
+    | { index: number, cardId: string, ok: false,
+        error: { code: "NOT_FOUND" | "FINISH_NOT_AVAILABLE" | "PRODUCT_NOT_FOUND" | "PRODUCT_CARD_MISMATCH", message: string } }
 BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
 // ===== v1.16-master-set: Master Set + inventario a escala (§M1) =====
 // Fila del índice de sets (GET /admin/inventory/master-sets). Agregación SOLO de inventario de PLATAFORMA
@@ -1227,6 +1287,17 @@ MasterSetSummaryDTO  += { catalogVariantCount: number, distinctVariantsOwned: nu
                           variantCompletionPct: number | null }
 MasterSetCardCellDTO += { expectedVariantCount: number, coveredVariantCount: number,
                           variants: MasterSetVariantDTO[] }
+// v1.29 (ARCHITECTURE §4.27) — «1 carta ↔ N productos». CardProductDTO = un producto TCGplayer (== un productId)
+// bajo esta carta. Los productos de set (kind=set_base) alimentan availableFinishes/variants; los kind ∈
+// {deck_exclusive, promo} se exponen APARTE como productos vendibles/cotizables propios con su PROPIO precio.
+// marketReferenceMxnCents por acabado = null cuando no hay precio en ninguna fuente («—», nunca 0). displayFinishes
+// queda DEPRECADO (= availableFinishes; ya no hay casilla espuria que ocultar tras §4.27).
+CardProductDTO = { productId: number, kind: "set_base" | "deck_exclusive" | "promo" | "other", name: string,
+                   finishes: Finish[],
+                   prices: { finish: Finish, marketReferenceMxnCents: number | null, capturedDate?: string | null }[] }
+// separateProducts = SOLO los kind ∈ {deck_exclusive, promo} de la carta (los set_base ya están en variants).
+// Ausente/[] cuando la carta no tiene productos separados (el caso común).
+MasterSetCardCellDTO += { separateProducts?: CardProductDTO[] }
 MasterSetIndexResponse  += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
 MasterSetBinderResponse += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
 // ----- Lista de clientes con bóveda (GET /admin/vaults) -----
@@ -2573,9 +2644,21 @@ Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y ve
 > resultado sea `precio_pendiente` (se retiró el `escalatePending` de Fase 0.2; cierra BE-16). Con el catálogo ya
 > priceado (§4.13a), el `referencePrice` casi siempre sale `priced`. La escalada a `PendingPriceEntry` ocurre solo en
 > `POST /buylist/requests` (autenticado). Mismo shape que antes.
-Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish }`
+Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish, productId?: number }`
 - **`finish` (v1.6-finish, opcional, default `normal`):** debe pertenecer a `Card.availableFinishes`; si no →
   `422 FINISH_NOT_AVAILABLE`. El front lo puebla del `CardDTO.availableFinishes` de la carta elegida.
+- **`productId` (v1.30, opcional, ADITIVO):** cuando el vendedor cotiza un **producto separado** (`separateProducts`
+  de la celda, v1.29 — Deck Exclusive/promo con su propio productId), lo envía aquí. Semántica (§4.29):
+  - **Presente** → la línea es ESE `CardProduct` (server resuelve `CardProduct.tcgplayerProductId == productId`);
+    el `finish` se valida contra **`CardProduct.finishes`** (NO `Card.availableFinishes`) y, si se omite y el producto
+    tiene un solo acabado, se **default-ea a ese**; con >1 acabado, `finish` es obligatorio (si falta o no pertenece →
+    `422 FINISH_NOT_AVAILABLE`). La **referencia de mercado** se lee de la `PriceReference` filtrada por ese
+    `cardProductId` (precio propio del producto), no la del set_base.
+  - **Ausente** → comportamiento v1.29 (set_base por `(cardId, finish)`), sin cambio.
+  - **`422 PRODUCT_NOT_FOUND`** si el `productId` no existe; **`422 PRODUCT_CARD_MISMATCH`** si existe pero no cuelga
+    del `cardId` (rechazo validado, jamás fusión silenciosa). Producto sin precio ⇒ `precio_pendiente`/«—», nunca 0.
+  - La respuesta ecoa `productId` (`BuylistQuotePayload.productId`). La **rareza** sigue saliendo de la carta y el
+    **acabado** del producto; la regla se deriva server-side (SEC-A1, gate premium intacto).
 Res `200`:
 ```json
 { "rarity": "Common", "finish": "reverse_holo",
@@ -2639,12 +2722,19 @@ Cotiza **N cartas en 1 request** (colapsa el fan-out del cotizador: hoy el grid 
 Cada ítem se resuelve **igual** que `POST /buylist/quote` (misma función de precio: rareza+acabado server-side, **gate
 premium**, `BUYLIST_PRICE_RULES` + fallback, referencia por acabado, FX ya bakeada en `PriceReference`). SEC-A1
 intacto.
-Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType, rawCondition?, finish? }`
+Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType, rawCondition?, finish?, productId? }`
 (mismos campos que el quote por-carta; **sin `qty`** — el modelo es una línea por carta física, ARCHITECTURE §4.16b).
 - **Límites:** `items` **no vacío**; **máx `50`** ítems por request (`BUYLIST_QUOTE_BATCH_MAX`). Vacío o sobre-cap →
   `400 VALIDATION_ERROR`. Cuenta como **1** request contra el throttle público.
-- **`finish?`** (default `normal`): se valida por-ítem contra `Card.availableFinishes`; si no pertenece, **ese ítem**
-  sale `ok:false` con `error.code="FINISH_NOT_AVAILABLE"` (no tumba el lote).
+- **`finish?`** (default `normal`): se valida por-ítem contra `Card.availableFinishes` (o `CardProduct.finishes` si el
+  ítem trae `productId`); si no pertenece, **ese ítem** sale `ok:false` con `error.code="FINISH_NOT_AVAILABLE"` (no
+  tumba el lote).
+- **`productId?`** (v1.30, ADITIVO): por-ítem, misma semántica que el quote por-carta (§4.29). Presente ⇒ la línea es
+  ese `CardProduct` (acabado ∈ `CardProduct.finishes`; referencia por `cardProductId`); ausente ⇒ set_base por
+  `(cardId, finish)`. Errores por-ítem `ok:false`: `PRODUCT_NOT_FOUND` (productId inexistente), `PRODUCT_CARD_MISMATCH`
+  (no cuelga del cardId). Producto sin precio ⇒ ítem `ok:true` con `quote.status="precio_pendiente"` / `null` (nunca 0).
+  El payload `ok:true` ecoa `productId`. **Unicidad:** dos ítems con el mismo `(cardId, finish)` pero distinto
+  `productId` son líneas DISTINTAS; el front NO debe deduplicarlas. La llave de correlación sigue siendo `index`.
 Res `200` (`BuylistBatchQuoteResponse`): **errores por-ítem** — una carta inválida NO afecta a las demás; el HTTP
 global es `200`. `index` = posición 0-based en `items[]` (llave de correlación); `cardId` se ecoa.
 ```json
@@ -2671,9 +2761,10 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
   `referencePrice`, `paymentNotice`). `quote.status="precio_pendiente"` cuando la regla es `pct` y falta la referencia
   del acabado (igual que por-carta; el "precio pendiente" es de adquisición/back-office, **nunca** se muestra como
   precio al comprador — aquí es un vendedor cotizando).
-- **`ok:false`** → `error.code ∈ { NOT_FOUND (carta inexistente), FINISH_NOT_AVAILABLE (acabado fuera de
-  availableFinishes) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería
-  como `404`/`422`, aquí **por-ítem**.
+- **`ok:false`** → `error.code ∈ { NOT_FOUND (carta inexistente), FINISH_NOT_AVAILABLE (acabado fuera de la whitelist
+  aplicable), PRODUCT_NOT_FOUND (v1.30 — productId inexistente), PRODUCT_CARD_MISMATCH (v1.30 — productId no cuelga del
+  cardId) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
+  `404`/`422`, aquí **por-ítem**.
 Err (nivel request, no por-ítem): `400 VALIDATION_ERROR` (items vacío / > 50 / ítem malformado), `429 RATE_LIMITED`.
 Nota: el batch es **anónimo/público** como el quote por-carta; la creación de la solicitud (con topes/KYC/CLABE)
 sigue siendo el paso autenticado `POST /buylist/requests`.
@@ -2703,7 +2794,7 @@ Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
 
 ### POST /api/v1/buylist/requests — `customer`
 Crea la solicitud; valida topes/KYC.
-Req: `{ items: [{ cardId, productType, rawCondition?, finish? }], clabe?: string, ineUploadKeys?: { front, back } }`
+Req: `{ items: [{ cardId, productType, rawCondition?, finish?, productId? }], clabe?: string, ineUploadKeys?: { front, back } }`
 > **v1.15 — `clabe` OPCIONAL + fallback server-side (PII):** `clabe` deja de ser obligatoria. Resolución server-side:
 > - **`clabe` presente** → comportamiento actual: valida formato (18 dígitos → `422 CLABE_INVALID`) y **nombre propio**
 >   contra la CLABE en archivo por blind-index (`422 CLABE_NOT_OWN_NAME` si no coincide); se cifra/persiste.
@@ -2722,10 +2813,23 @@ Req: `{ items: [{ cardId, productType, rawCondition?, finish? }], clabe?: string
 > **v1.6-finish:** cada item lleva `finish?` (default `normal`, validado ∈ `card.availableFinishes`); se
 > **snapshotea** en `SellRequestItem.finish` y se propaga al `InventoryItem` al convertir (M5). El monto se deriva
 > por `(rarity, finish)` server-side.
+> **v1.30 (§4.29):** cada item lleva `productId?` OPCIONAL. Presente ⇒ la línea es ESE `CardProduct`
+> (`separateProducts`): el `finish` se valida contra `CardProduct.finishes`, la referencia se lee por ese
+> `cardProductId`, y el monto se deriva por `(rarityCanonical de la carta, finish del producto)` server-side (SEC-A1
+> intacto). Se **snapshotea** en `SellRequestItem.cardProductId` (== el productId TCGplayer) y al convertir a
+> inventario (M5) el `InventoryItem` queda ligado a ESE producto (no al set_base). Ausente ⇒ set_base por
+> `(cardId, finish)`, comportamiento actual. **Unicidad:** dos items con el mismo `(cardId, finish)` y distinto
+> `productId` son líneas físicas DISTINTAS (una por carta física, §4.16b) — no se colapsan. `productId` inexistente ⇒
+> `422 PRODUCT_NOT_FOUND`; que no cuelgue del `cardId` ⇒ `422 PRODUCT_CARD_MISMATCH` (jamás fusión silenciosa). Un
+> item de producto separado sin referencia queda en `precio_pendiente` (escala a `PendingPriceEntry` por
+> `(cardId, productType, gradeKey, finish, cardProductId)`) — nunca 0; el pago SPEI sigue tras MoneyOutGuard.
 Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: boolean, items: SellItemDTO[] }` (**no** incluye la CLABE, ni enmascarada ni en claro).
 Err:
 - **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` y `POST /buylist/quote/batch` **no** se bloquean)
-- **`422 FINISH_NOT_AVAILABLE`** (v1.6 — algún `finish` no está en `Card.availableFinishes` de su carta)
+- **`422 FINISH_NOT_AVAILABLE`** (v1.6 — algún `finish` no está en la whitelist aplicable: `Card.availableFinishes`, o
+  `CardProduct.finishes` si el item trae `productId`)
+- **`422 PRODUCT_NOT_FOUND`** (v1.30 — algún `productId` no existe)
+- **`422 PRODUCT_CARD_MISMATCH`** (v1.30 — algún `productId` no cuelga del `cardId` de su item)
 - `422 BUYLIST_LIMIT_EXCEEDED` (details: `{ scope: "per_request" | "per_month", capCents, wouldBeCents }`)
 - `422 INE_REQUIRED` (supera el tope configurado y no hay INE ni en el request ni en archivo)
 - **`422 CLABE_REQUIRED`** (v1.15 — sin `clabe` en el body y sin CLABE en archivo)
@@ -3189,20 +3293,32 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 > Reemplaza `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
 > referencia)** + un **fallback %** para rarezas sin regla. Toda edición se **audita** (M10). Ver ARCHITECTURE §4.2.
 
-- `GET /api/v1/admin/pricing/rarities` — **(NUEVO)** lista las **rarezas distintas del catálogo sincronizado**
-  (`distinct Card.rarity`) **unidas** a las reglas configuradas, para poblar el editor. Devuelve tanto rarezas
-  con regla explícita como rarezas del catálogo aún sin regla (que muestran el fallback).
+- `GET /api/v1/admin/pricing/rarities` — **(NUEVO)** lista las **rarezas CANÓNICAS del catálogo sincronizado**
+  **unidas** a las reglas configuradas, para poblar el editor. Devuelve tanto rarezas con regla explícita como
+  rarezas del catálogo aún sin regla (que muestran el fallback).
+  > **v1.29 (ARCHITECTURE §4.28):** agrupa por **`Card.rarityCanonical`** (no por `Card.rarity` crudo) ⇒ la lista que
+  > el admin edita empata **1:1** con la forma canónica que produce el ingest. Cada entrada añade `raw?` (una forma
+  > cruda observada, para diagnóstico), `canonical` (la key editable), `premium` (del catálogo canónico, §4.28e) y
+  > `mapped` (`false` = rareza `unmapped` aún sin entrada en el catálogo canónico → cae al fallback pct de forma
+  > predecible; visible para que el admin la resuelva). El campo `rarity` se conserva como ALIAS de `canonical`
+  > (compat) y queda DEPRECADO.
   Res `200`:
   ```json
   { "fallbackPct": 40,
     "rarities": [
-      { "rarity": "Common",           "cardCount": 1234, "rule": { "mode": "fixed", "value": 50  }, "source": "rule" },
-      { "rarity": "Illustration Rare", "cardCount": 87,   "rule": { "mode": "pct",   "value": 40  }, "source": "fallback" }
+      { "canonical": "Common",           "raw": "Common",           "premium": false, "mapped": true,  "cardCount": 1234, "rule": { "mode": "fixed", "value": 50 }, "source": "rule" },
+      { "canonical": "Illustration Rare", "raw": "Illustration Rare", "premium": true,  "mapped": true,  "cardCount": 87,   "rule": { "mode": "pct",   "value": 40 }, "source": "fallback" }
     ] }
   ```
-  - `cardCount` = nº de cartas del catálogo con esa rareza. `source="rule"` si hay fila explícita en
-    `BUYLIST_PRICE_RULES`; `source="fallback"` si la rareza existe en el catálogo pero aún no tiene regla (muestra
+  - `cardCount` = nº de cartas del catálogo con esa rareza canónica. `source="rule"` si hay fila explícita en
+    `rarityRules`; `source="fallback"` si la rareza existe en el catálogo pero aún no tiene regla (muestra
     `{ mode:"pct", value: fallbackPct }`). Ordenado por `cardCount` desc (rarezas más frecuentes primero).
+  - **Reglas en DOS ejes (v1.29, §4.28d):** las reglas dejan de ser un mapa plano que mezcla rareza y acabado. Pasan a
+    `PriceRuleSet { rarityRules: { [canonicalRarity]: Rule }, finishRules: { [finish]: Rule }, fallbackPct }`. El eje
+    `finishRules` (keyeado por el enum `Finish`: `reverse_holo`, `holofoil`, `first_edition_holofoil`) **reemplaza** las
+    keys sintéticas `Holo`/`Reverse Holo` del mapa plano y **retira el parche INV-1 del front**. La precedencia de
+    resolución (finish-rule vs rarity-rule vs fallback) conserva la semántica de negocio vigente. Money-safe: rareza sin
+    regla → fallback pct predecible y auditable, nunca 0.
 - `GET /api/v1/admin/pricing/buylist-rules` — **(NUEVO)** lee la tabla cruda + fallback.
   Res `200`: `{ rules: { [rarity: string]: BuylistRule }, fallbackPct: number }`
   (ej. `{ "rules": { "Common": { "mode":"fixed","value":50 }, "Reverse Holo": { "mode":"fixed","value":150 } }, "fallbackPct": 40 }`).
@@ -3212,8 +3328,15 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     **número en `[0, 100]`**; `fallbackPct` **número en `[0, 100]`**. `rules` debe ser objeto (no array).
   - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.buylist_rules.update`, con
     `before`/`after`). **Surte efecto sin redeploy** (criterio 12b). Err `422 VALIDATION_ERROR` (modo/valor/rango inválidos).
+  > **v1.29 (§4.28d) — dos ejes:** `buylist-rules` (y su análogo de ventas) evolucionan de `{ rules, fallbackPct }`
+  > (mapa plano rareza∪acabado) a `PriceRuleSet { rarityRules, finishRules, fallbackPct }`. `rarityRules` keyeadas por
+  > **rareza canónica**; `finishRules` keyeadas por el enum **`Finish`**. El seed migra las keys `Holo`/`Reverse Holo`
+  > a `finishRules[holofoil]`/`finishRules[reverse_holo]` y canonicaliza las demás; reproduce EXACTAMENTE el negocio
+  > vigente. La validación de `Rule` (`mode ∈ {fixed,pct}`, rangos) no cambia. **Auditado**, sin redeploy.
 - **DEPRECADOS (v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` — la cotización ya **no** los usa; se
-  conservan como no-op/legacy hasta su retiro. El editor nuevo consume `rarities` + `buylist-rules`.
+  conservan como no-op/legacy hasta su retiro (v1.29 confirma el retiro: el normalizador `rawRarity→canonical` de
+  §4.28c sustituye su rol; `RARITY_MAP` sale con el catálogo canónico en producción). El editor nuevo consume
+  `rarities` + `buylist-rules`.
 
 #### Precio de VENTA por RAREZA (v1.13-sales-pricing — NUEVO backend; editor M2)
 > **Análogo al de buylist** (arriba), pero para el **precio de VENTA** (lo que se cobra en Compra/checkout).
@@ -3784,7 +3907,11 @@ OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, set
 // devolución a costo del usuario) y `abandonDeadlineAt` (= rejectedAt + 30d) se DERIVAN server-side al proyectar
 // (no son columnas). Ítems rechazados antes de M-22 (sin rejectedAt): los 4 campos null. Un ítem `rechazada` tiene
 // SIEMPRE approvedPriceCents=null (invariante: no suma en approvedTotalCents).
-SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Finish,
+// v1.30: `productId?` (number = TCGplayer productId == CardProduct.tcgplayerProductId) = snapshot del producto
+// cotizado cuando la línea es un producto separado (deck_exclusive/promo, §4.29). Ausente ⇒ línea de set_base
+// (comportamiento actual). El front lo usa para etiquetar la línea («Deck Exclusive») y para no colapsar dos líneas
+// que comparten (cardId, finish) con distinto productId.
+SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Finish, productId?: number,
                      rarity?: string, appliedRule?: BuylistRuleApplied,
                      quotedPriceCents?, approvedPriceCents?, itemStatus: SellItemStatus, inventoryItemId?,
                      rejectedAt?: string, rejectionReason?: string,
@@ -3802,7 +3929,12 @@ RejectedSellItemDTO = { id, sellRequestId, seller: AdminSellerRef, card: CardDTO
                         abandonDeadlineAt: string | null }
 // v1.8-ronda-c: `finish` añadido a la clave de la cola. `normal` y `holofoil` de la misma carta sin precio son
 // entradas SEPARADAS; resolver el override de un acabado NO cierra las de los demás. Modelo Prisma real (M-19).
-PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, context, status: "open"|"resolved", createdAt }
+// v1.30 (§4.29, M-32 aditiva): `cardProductId?` (number = TCGplayer productId) entra a la clave lógica cuando la
+// entrada nace de un producto separado (deck_exclusive/promo): dos entradas con el mismo (cardId, finish) y distinto
+// cardProductId son SEPARADAS — resolver el precio del set_base NO cierra la del Deck Exclusive (money-safe). `null`
+// (ausente) = entrada de set_base, comportamiento actual.
+PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, cardProductId?: number, context,
+                     status: "open"|"resolved", createdAt }
 // v1.8-ronda-c (BE-10): resumen de un item en la bóveda del usuario para la ficha 360° admin (GET /admin/users/:id).
 // `referenceValue` reusa el MISMO PriceInfo por-acabado que HoldingDTO (§3); items sin precio → status="pending".
 // Es una PROYECCIÓN (no tabla): no migra. Antes traía solo { inventoryItemId, folio, card, ownershipStatus }.
