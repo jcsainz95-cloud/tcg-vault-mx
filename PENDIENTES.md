@@ -55,7 +55,28 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 - **Roles:** backend (corregir la fuente del valor del set = Σ referencias de mercado de las cartas,
   y el cálculo del % de cambio) + devops (encender datos/serie histórica).
 
-### P-23 · Vender «meta decks» completos (bundles ready-to-play) — investigación hecha, falta aterrizar
+### Pendiente del humano · Razón social para el footer
+- El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
+  social para `footer.legalEntity` (check pre-existente del rebrand P-21). Solo dato del humano; el
+  cableado i18n ya está.
+
+---
+
+## Nuevas ideas (aún NO en construcción — falta aterrizar con el humano)
+
+### Idea · «Hunter Pulls» — mini-foro de pulls de la comunidad
+- **Idea del humano (2026-08-22):** un **mini-foro** muy sencillo donde la gente pueda **subir qué
+  pull hizo con nosotros** (posts con foto/descripción) y otros puedan **comentar**. Todo muy simple.
+- **Requisito duro:** solo participan **usuarios registrados con nosotros** (postear y comentar exige
+  cuenta). Encaja con el lenguaje de marca «cacería» (TCG HUNT 🎯).
+- **Por aterrizar con product-owner:** alcance mínimo (post = imagen + texto corto + carta/set
+  opcional; comentarios planos; sin votos/hilos anidados al inicio); moderación (¿quién aprueba?,
+  reporte de abuso); qué se puede subir (foto propia del pull, ¿ligada a una compra/pedido real con
+  nosotros o libre?); privacidad/derechos de imagen. Anti-spam básico.
+- **Roles:** product-owner (aterriza) → arquitecto (modelo posts/comentarios + moderación + storage de
+  imágenes) → backend + frontend + ux-ui. Nuevo módulo (community/social).
+
+### Idea · Vender «meta decks» completos (bundles ready-to-play) — investigación hecha, falta aterrizar
 - **Idea del humano:** apartado «Compra tu deck» — publicar los decks meta del mes como bundle
   completo, armados con nuestras cartas sueltas.
 - **✅ Investigación hecha (2026-08-22):** meta Estándar post-rotación (Dragapult ex/Dusknoir el #1;
@@ -70,13 +91,44 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
   completa o se permite parcial? ¿precio = suma de singles con ajuste o fijo por arquetipo? ¿energías
   básicas/fundas incluidas? ¿se actualiza al rotar el meta?
 - **Roles:** product-owner aterriza con el humano → arquitecto/backend/frontend cuando esté definido.
-- **Depende de:** inventario profundo de sueltas + precios sanos (ya listo); se conecta con los
-  bounties (P-22, ya en prod) para comprar lo que falta para completar decks.
 
-### Pendiente del humano · Razón social para el footer
-- El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
-  social para `footer.legalEntity` (check pre-existente del rebrand P-21). Solo dato del humano; el
-  cableado i18n ya está.
+### P-33 · Quitar el selector de «proveedor de respaldo» de Ingesta de precios
+- **Decisión del humano (2026-08-22): QUITARLO.** La ingesta («Actualizar precios ahora») se queda;
+  el **selector de proveedor de respaldo** se **retira del panel**. TCGCSV sigue siendo primario y PPT
+  queda fijo como único respaldo en la precedencia del backend (sin control en UI). Mantener/limpiar la
+  línea informativa «FUENTE PRIMARIA TCGCSV → respaldo PPT» según encaje.
+- **Roles:** frontend (retira el `Select` de proveedor de M2 + su wrapper/estado si queda huérfano;
+  el dial de settings puede quedar con default PPT sin exponerlo).
+
+---
+
+## Nuevas ideas (aún NO en construcción — falta aterrizar con el humano)
+
+### Idea · «Hunter Pulls» — mini-foro de pulls de la comunidad
+- **Idea del humano (2026-08-22):** un **mini-foro** muy sencillo donde la gente pueda **subir qué
+  pull hizo con nosotros** (posts con foto/descripción) y otros puedan **comentar**. Todo muy simple.
+- **Requisito duro:** solo participan **usuarios registrados con nosotros** (postear y comentar exige
+  cuenta). Encaja con el lenguaje de marca «cacería» (TCG HUNT 🎯).
+- **Por aterrizar con product-owner:** alcance mínimo (post = imagen + texto corto + carta/set
+  opcional; comentarios planos; sin votos/hilos anidados al inicio); moderación (¿quién aprueba?,
+  reporte de abuso); qué se puede subir (¿ligado a una compra/pedido real con nosotros o libre?);
+  privacidad/derechos de imagen; anti-spam básico.
+- **Roles:** product-owner (aterriza) → arquitecto (modelo posts/comentarios + moderación + storage de
+  imágenes) → backend + frontend + ux-ui. Nuevo módulo (community/social).
+
+### Idea · Vender «meta decks» completos (bundles ready-to-play) — investigación hecha, falta aterrizar
+- **Idea del humano:** apartado «Compra tu deck» — publicar los decks meta del mes como bundle
+  completo, armados con nuestras cartas sueltas.
+- **✅ Investigación hecha (2026-08-22):** meta Estándar post-rotación (Dragapult ex/Dusknoir el #1;
+  Clefairy Box campeón NAIC; Slowking, Mega Lucario, Gholdengo; budget Crustle / Team Rocket's
+  Mewtwo). Al jugador competitivo NO le importa la variante (juega la más barata legal; evitar reverse
+  combadas). Pricing: suma de singles propios + premium 8–15% transparente, nunca con descuento;
+  incluir energías básicas. Hueco de mercado claro en MX. Modelar como kit/BOM sobre `inventory` con
+  stock verificado antes de mostrar «disponible».
+- **⚠ Timing:** lanzar DESPUÉS de Worlds 2026 (28–30 ago), con el meta post-Worlds.
+- **Preguntas de producto a definir con el humano:** ¿deck solo si el inventario surte la lista
+  completa o parcial? ¿precio = suma de singles con ajuste o fijo por arquetipo? ¿energías/fundas?
+- **Roles:** product-owner aterriza con el humano → arquitecto/backend/frontend cuando esté definido.
 
 ---
 
