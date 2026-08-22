@@ -36,6 +36,14 @@ class SyncAllDto {
   @IsOptional() @IsBoolean() force?: boolean;
 }
 
+/**
+ * M-35 — body de `POST /admin/catalog/refresh-variants-all` (versión BATCH del refresh solo-TCGCSV).
+ * `force` opcional (simetría con `refresh-variants`/`sync-all`).
+ */
+class RefreshVariantsAllDto {
+  @IsOptional() @IsBoolean() force?: boolean;
+}
+
 /** Normaliza `force` desde body ({force:true}) o query (?force=true) → boolean. */
 function parseForce(bodyForce: boolean | undefined, queryForce: string | undefined): boolean {
   if (bodyForce != null) return bodyForce;
@@ -129,6 +137,42 @@ export class AdminCatalogController {
         tcgcsvReachable: res.tcgcsvReachable,
         force,
       },
+    });
+    return res;
+  }
+
+  /**
+   * GET /admin/catalog/refresh-variants-status (M-35) — progreso + resumen agregado del barrido
+   * `refresh-variants-all` en curso (o del último). Pensado para POLLING desde el front (igual que
+   * `sync-status`): por eso NO se audita (evita inundar AuditLog) y NO llama a ningún upstream.
+   */
+  @Get('refresh-variants-status')
+  refreshVariantsStatus() {
+    return this.sync.getRefreshVariantsAllStatus();
+  }
+
+  /**
+   * M-35 — POST /admin/catalog/refresh-variants-all — versión BATCH del `refresh-variants`: corre,
+   * sobre TODOS los sets YA IMPORTADOS (los que tienen cartas en BD), el MISMO refresh solo-TCGCSV
+   * por-set. NUNCA llama a pokemontcg.io (ni para listar sets). NO bloqueante (mismo modelo que
+   * `sync-all`): 202 inmediato, progreso/resumen por `GET /admin/catalog/refresh-variants-status`.
+   * Auditado (`catalog.refresh_variants_all`). Ver `CatalogSyncService.refreshVariantsAll`.
+   */
+  @Post('refresh-variants-all')
+  @HttpCode(202)
+  async refreshVariantsAll(
+    @Body() dto: RefreshVariantsAllDto,
+    @Query('force') queryForce: string | undefined,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const force = parseForce(dto.force, queryForce);
+    const res = await this.sync.refreshVariantsAll({ force });
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'catalog.refresh_variants_all',
+      entityType: 'CardSet',
+      after: { jobId: res.jobId, setsQueued: res.setsQueued, remaining: res.remaining, force },
     });
     return res;
   }

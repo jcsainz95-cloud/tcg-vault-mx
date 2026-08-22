@@ -104,6 +104,132 @@ NO toca pokemontcg.io: opera sobre las `Card` existentes en BD y solo habla con 
 `jest` **152 suites / 1423 tests verdes** (1416 previos + 7 nuevos). No se despliega (lo coordina el
 orquestador).
 
+## 0-quater. M-35 — `POST /admin/catalog/refresh-variants-all`: versión BATCH del refresh solo-TCGCSV (backfill del catálogo viejo)
+
+> Rama `fix/variant-composition-regression`. Endpoint admin NUEVO, aditivo, **money-safe**. Solo
+> `backend/`. Es la versión BATCH del `refresh-variants` (§0-bis, M-34): corre, sobre **TODOS los
+> sets ya importados**, el MISMO refresh solo-TCGCSV por-set, para backfillear el catálogo viejo que
+> arrastra el `normal` fantasma pre-M-31. **NUNCA toca pokemontcg.io** — ni siquiera para listar
+> sets (la lista sale de BD local). Réplica del modelo de ejecución/progreso de `sync-all`.
+
+**Motivo.** El `refresh-variants` por-set (M-34) arregla UN set a la vez; hay decenas de sets viejos
+importados con el `normal` fantasma. Este batch los recorre TODOS en un solo disparo, respetuoso con
+tcgcsv.com (delay entre sets) y **resiliente por-set** (el fallo de un set no aborta el barrido).
+
+### Firma exacta (pendiente de formalizar en `API_CONTRACT.md` por el arquitecto)
+- **Ruta:** `POST /api/v1/admin/catalog/refresh-variants-all`
+- **Auth/rol:** `@Roles(super_admin)`. Auditado (`AuditLog action=catalog.refresh_variants_all`,
+  entityType `CardSet`, con `jobId/setsQueued/remaining/force`).
+- **HTTP de éxito:** `202` (NO bloqueante, fire-and-forget — MISMO patrón que `sync-all`).
+- **Body:**
+  ```jsonc
+  {
+    "force": false   // OPCIONAL, default false. Aceptado por simetría con refresh-variants/sync-all.
+  }
+  ```
+  (También acepta `?force=true` por query, igual que `sync-all`/`backfill`.)
+- **Respuesta 202 (encolado, igual shape que `sync-all`):**
+  ```jsonc
+  {
+    "jobId": "catalog-refresh-variants-all-1690000000000",
+    "setsQueued": 37,   // # de sets importados (cards>0) encolados en este barrido
+    "remaining": 0      // 0: se encolan todos; >0 solo si ya había un barrido en curso (single-flight)
+  }
+  ```
+
+### Progreso + resumen agregado (MISMO mecanismo que `sync-all`)
+- **Ruta:** `GET /api/v1/admin/catalog/refresh-variants-status` — HERMANO de `GET .../sync-status`.
+  Pensado para POLLING/keep-alive del front: **NO se audita** y **NO llama a ningún upstream** (lee
+  estado en memoria del proceso). `@Roles(super_admin)`.
+- **Respuesta:**
+  ```jsonc
+  {
+    "running": false,          // true mientras el barrido corre; single-flight contra sí mismo
+    "jobId": "catalog-refresh-variants-all-1690000000000",
+    "total": 37,               // sets a procesar (barra honesta done/total en SETS)
+    "done": 37,                // sets INTENTADOS (éxito o fallo)
+    "startedAt": "2026-08-22T...Z",
+    "finishedAt": "2026-08-22T...Z",   // null mientras running=true; se fija al terminar
+    // summary === null hasta que ARRANCA el primer barrido (backend recién levantado, ningún batch
+    // disparado). En cuanto un barrido arranca/corre se puebla (ceros → agregado) y ya no vuelve a null.
+    "summary": {
+      "setsTotal": 37,
+      "setsOk": 35,
+      "setsFailed": 2,
+      "cardProductsUpserted": 1234,   // suma de los sets OK
+      "pricesUpserted": 2100,         // suma de los sets OK
+      "pending": 180,                 // suma de variantes sin precio ⇒ «—»/PRICE_PENDING (jamás 0)
+      "failures": [
+        { "setId": "base1", "code": "UPSTREAM_ERROR", "message": "Fuente TCGCSV no disponible; ..." }
+      ]
+    }
+  }
+  ```
+- El front consume esto igual que `sync-all`: dispara el `POST` (202), luego hace poll de
+  `refresh-variants-status` con keep-alive hasta `running=false`, y lee el `summary` para el veredicto.
+
+### Comportamiento
+- **Universo = sets IMPORTADOS de BD local:** `cardSet.findMany` filtrado a `_count.cards > 0`. La
+  lista de sets **NO** sale de pokemontcg.io ni de TCGCSV: es puramente local.
+- **Reusa `refreshVariants(externalId, force)` por-set** (no se duplicó lógica): el mismo camino
+  M-34 (resolver TCGCSV → FinishReconciler → precio por variante, money-safe, guard `withTcgcsvGuard`).
+- **Pausado/respetuoso con TCGCSV:** delay entre sets (no tras el último), configurable por env
+  `CATALOG_REFRESH_VARIANTS_BATCH_DELAY_MS` (default **250ms**). El User-Agent ya lo pone el cliente.
+- **Resiliente por-set:** cada set se ejecuta en su try/catch. Un fallo (502 UPSTREAM_ERROR de TCGCSV,
+  grupo no espejado, SET_NOT_IMPORTED por carrera) **NO aborta** el barrido: se captura el `code` (de la
+  `BusinessException`) + `message`, se acumula en `summary.failures`, se loguea `warn` y se sigue.
+- **Single-flight:** mientras `running=true` un segundo `POST` no lanza otro barrido (devuelve
+  `setsQueued:0`, `remaining=<pendientes>`). Independiente del single-flight de `sync-all` (estados
+  separados; se pueden solapar pues este solo toca TCGCSV).
+- **Money-safe intacto:** cada set delega en `refreshVariants`/resolver, que hace TODO el fetch TCGCSV
+  ANTES de escribir; un fallo remoto no borra ni escribe nada. Variante sin precio ⇒ `pending`/«—», jamás 0.
+- **`summary` null hasta el primer barrido (fix QA M-35, `fix/variant-composition-regression`):** el estado
+  arranca con `summary: null` y `getRefreshVariantsAllStatus()` lo expone tal cual mientras NINGÚN batch se
+  haya disparado (contrato `RefreshVariantsStatusResponse.summary: RefreshVariantsSummary | null`, alineado
+  al mock del front). Así, con el backend recién levantado, M2 **no** pinta un banner verde falso
+  «Listo — 0/0 sets». En cuanto un barrido arranca (`refreshVariantsAll` fija `summary` en ceros con
+  `setsTotal`) o corre (`runRefreshVariantsAll` lo inicializa si se invoca directo) el `summary` queda
+  poblado y ya no vuelve a null: expone el progreso/último barrido. Blindado por el test
+  `summary === null hasta que termina un batch; poblado después del barrido`.
+
+### Confirmación: NO llama a pokemontcg.io
+- Ni `refreshVariantsAll` (lista desde BD) ni `runRefreshVariantsAll` (delega en `refreshVariants`)
+  invocan `PokemonTcgIoClient`. Su único upstream es TCGCSV (vía el resolver).
+- **Test que lo blinda:** `backend/test/catalog-refresh-variants-all.spec.ts` espía **todos** los
+  métodos del `PokemonTcgIoClient` y verifica en CADA caso (encolado, single-flight, barrido con set
+  que falla, resumen agregado, delay, progreso, money-safe/pending, groupId nulo) que **no se invocan**.
+
+**⚠️ PENDIENTE PARA EL ARQUITECTO — formalizar en el contrato.**
+- Formalizar `POST /admin/catalog/refresh-variants-all` + `GET /admin/catalog/refresh-variants-status`
+  (ruta/body/respuesta 202/progreso/errores de arriba) en `API_CONTRACT.md` §M2, para que **frontend**
+  los consuma. Backend NO toca `API_CONTRACT.md` (regla 9). Mismos códigos por-set que M-34
+  (`UPSTREAM_ERROR`/`SET_NOT_IMPORTED`, aún pendientes en `common/error-codes.ts`) — aquí NO se propagan
+  como HTTP: se capturan por-set y se reportan en `summary.failures`.
+
+**Archivos tocados (solo `backend/`):**
+- `src/modules/catalog/catalog-sync.service.ts` — estado `refreshVariantsAllStatus` +
+  `getRefreshVariantsAllStatus()` + `refreshVariantsAll()` + `runRefreshVariantsAll()` + `sleep()`
+  protegido + const de delay. Reusa `refreshVariants` (M-34) sin duplicar.
+- `src/modules/catalog/admin-catalog.controller.ts` — endpoints `refresh-variants-all` (202, auditado)
+  y `refresh-variants-status` (GET, no auditado) + `RefreshVariantsAllDto`.
+- `test/catalog-refresh-variants-all.spec.ts` — 9 tests (8 iniciales + 1 del `summary` null, fix QA).
+
+**Fix QA M-35 (rama `fix/variant-composition-regression`):**
+- **Bloqueante — `summary` null hasta el primer batch:** `refreshVariantsAllStatus.summary` ahora arranca
+  en `null` (antes se inicializaba en ceros); `getRefreshVariantsAllStatus()` expone `null` mientras no haya
+  arrancado ningún barrido y el objeto poblado una vez arranca/corre uno (helper
+  `emptyRefreshVariantsSummary()` centraliza el objeto en ceros). Test nuevo lo blinda.
+- **Menor — JSDoc:** el header de `refreshVariants` (~:173) decía `SET_NOT_IMPORTED (404)` pero el código
+  lanza **409 CONFLICT** a propósito (:208, para no colisionar con `isEndpointMissing` del front); JSDoc
+  corregido a 409 con la razón.
+- **Deuda registrada en `TECH_DEBT.md`:** BE-11 y BE-21 ampliadas para nombrar también
+  `refreshVariantsAllStatus`; **BE-77** (los dos barridos no son mutuamente exclusivos server-side, solo el
+  front los serializa) y **BE-78** (tres copias del patrón sweep-en-memoria → extraer `InMemorySweep`).
+
+**Gates (números reales, tras el fix QA):** `tsc --noEmit` OK · `eslint` OK · `nest build` OK ·
+`jest` **153 suites / 1432 tests verdes** (1431 previos + 1 nuevo del `summary` null). No se despliega
+(lo coordina el orquestador).
+
 ## 0-ter. fix/variant-composition-regression — robustez del sync por-set ante fallos de fuentes externas
 
 > Rama `fix/variant-composition-regression`. Dos arreglos de **bajo riesgo**, reversibles y

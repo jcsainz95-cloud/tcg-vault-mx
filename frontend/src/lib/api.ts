@@ -100,6 +100,8 @@ import type {
   CatalogBackfillResponse,
   CatalogSyncAllResponse,
   RefreshVariantsResponse,
+  RefreshVariantsAllResponse,
+  RefreshVariantsStatusResponse,
   CatalogSyncStatusResponse,
   PriceSyncStatusResponse,
   AdminUserSummaryDTO,
@@ -3009,6 +3011,43 @@ export async function refreshVariants(input: {
     pending: cards > 0 ? 1 : 0,
     tcgcsvReachable: true,
   });
+}
+
+/**
+ * BATCH de refresh-variants (contrato POST /admin/catalog/refresh-variants-all { force? }): corre el
+ * mismo trabajo que `refreshVariants` por-set (repuebla variantes/acabados + precios desde TCGCSV,
+ * SIN re-importar cartas y SIN pokemontcg.io) sobre TODOS los sets ya importados. Es ASÍNCRONO
+ * (fire-and-forget): responde 202 con `{ jobId, setsQueued, remaining }` y SOLO arranca el barrido.
+ * El progreso y el RESUMEN se leen aparte por `getRefreshVariantsStatus` (poll).
+ */
+export async function refreshVariantsAll(
+  input: { force?: boolean } = {},
+): Promise<RefreshVariantsAllResponse> {
+  if (!config.useMocks) {
+    // `force` solo se manda cuando es true (retrocompatible: body mínimo por defecto).
+    const body = input.force ? { force: true } : {};
+    return apiRequest<RefreshVariantsAllResponse>('/admin/catalog/refresh-variants-all', {
+      method: 'POST',
+      body,
+    });
+  }
+  // MOCK (modelo async): arranca el barrido en el estado en memoria de fixtures y devuelve el 202.
+  return delay(fx.startMockRefreshVariantsAll());
+}
+
+/**
+ * Progreso + resumen del batch refresh-variants-all (contrato GET /admin/catalog/refresh-variants-status).
+ * Endpoint STATUS PROPIO del batch (NO el `sync-status` de sync-all). Se POLLEA desde M2 hasta
+ * `running=false`; al terminar trae el `summary` agregado (sets ok/fallidos, productos, precios,
+ * pendientes, lista de `failures`). No llama a TCGCSV/pokemontcg.io, así que pollearlo no cuesta.
+ */
+export async function getRefreshVariantsStatus(): Promise<RefreshVariantsStatusResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RefreshVariantsStatusResponse>('/admin/catalog/refresh-variants-status');
+  }
+  // MOCK (modelo async): cada lectura avanza el barrido; al completarlo apaga running y adjunta el
+  // summary agregado (con UN set fallido y pending>0 para ejercitar el reflejo money-safe honesto).
+  return delay(fx.readMockRefreshVariantsStatus());
 }
 
 /**

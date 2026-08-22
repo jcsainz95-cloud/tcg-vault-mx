@@ -1342,7 +1342,22 @@
         "sweepDone": "Sincronización completada: {total} set(s) procesados.",
         "syncAllForceConfirmTitle": "Re-sincronizar todo el catálogo (forzar)",
         "syncAllForceConfirmBody": "Esto reprocesa TODO el catálogo, incluidos los sets ya importados, para repoblar metadata, cartas y variantes/acabados. NO repuebla precios (usa «Actualizar precios ahora» o el «Sync completo» por set). Es una operación pesada que puede tardar bastante. ¿Continuar?",
-        "syncAllForceConfirmCta": "Sí, re-sincronizar todo"
+        "syncAllForceConfirmCta": "Sí, re-sincronizar todo",
+        "refreshVariantsAll": "Refrescar variantes + precios de TODO (solo TCGCSV)",
+        "refreshVariantsAllHint": "«Refrescar variantes + precios de TODO (solo TCGCSV)» corre el mismo refresco que la acción por set, pero sobre TODO el catálogo YA importado: repuebla variantes/acabados y precios usando únicamente TCGCSV. NO re-importa cartas ni depende de pokemontcg.io. Úsalo para backfillear la composición y los precios de todo el catálogo cuando pokemontcg.io no está disponible. El avance se ve en la barra de sincronización de catálogo.",
+        "refreshVariantsAllRunning": "Refrescando variantes y precios de TODO el catálogo desde TCGCSV… no re-importa cartas ni usa pokemontcg.io. Corre en segundo plano; el avance se ve en la barra de abajo y puede tardar varios minutos.",
+        "refreshVariantsAllSweepRunning": "Refrescando catálogo desde TCGCSV… {done}/{total} sets.",
+        "refreshVariantsAllSweepRunningHint": "Corre en segundo plano; puedes seguir trabajando. El avance y la lista se actualizan solos.",
+        "refreshVariantsAllSweepDone": "Refresco de variantes + precios completado: {total} set(s) procesados.",
+        "refreshVariantsAllSummary": "{setsOk}/{setsTotal} set(s) refrescados · {products} producto(s)/variante(s) actualizados · {prices} precio(s) actualizados.",
+        "refreshVariantsAllDone": "Variantes + precios de TODO el catálogo refrescados desde TCGCSV.",
+        "refreshVariantsAllPartial": "Refresco de TODO el catálogo desde TCGCSV con resultado parcial.",
+        "refreshVariantsAllPending": "{pending} producto(s) quedaron sin precio y siguen en la cola de pendientes.",
+        "refreshVariantsAllFailuresTitle": "{count} set(s) fallaron y NO se refrescaron:",
+        "refreshVariantsAllError": "No se pudo refrescar el catálogo completo desde TCGCSV.",
+        "refreshVariantsAllConfirmTitle": "Refrescar variantes + precios de TODO el catálogo (solo TCGCSV)",
+        "refreshVariantsAllConfirmBody": "Esto refresca las variantes/acabados y los precios de TODOS los sets ya importados usando únicamente TCGCSV. NO re-importa cartas ni usa pokemontcg.io. Es una operación masiva que puede tardar varios minutos y correr sobre todo el catálogo. ¿Continuar?",
+        "refreshVariantsAllConfirmCta": "Sí, refrescar todo el catálogo"
       },
       "buylistRules": {
         "title": "Precio de buylist por rareza y acabado",

@@ -48,6 +48,9 @@ import type {
   SalesRaritiesResponse,
   SalesPriceRuleSet,
   RemoteSetDTO,
+  RefreshVariantsAllResponse,
+  RefreshVariantsStatusResponse,
+  RefreshVariantsSummary,
   PriceHistoryEntryDTO,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
@@ -1899,6 +1902,94 @@ export const mockRemoteSets: RemoteSetDTO[] = [
   { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', printedTotal: 198, imported: false, cardCount: 0 },
   { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', printedTotal: 102, imported: true, cardCount: 102 },
 ];
+
+// ---- BATCH refresh-variants-all (modelo ASÍNCRONO): estado en memoria del barrido ----
+// El POST /admin/catalog/refresh-variants-all (mock) lo arranca; GET /refresh-variants-status lo
+// reporta y cada lectura avanza `done` hasta completar, momento en que apaga `running` y adjunta el
+// `summary` agregado. Demo money-safe: simula UN set fallido (UPSTREAM_ERROR) y pending>0.
+interface MockRefreshVariantsBatch {
+  running: boolean;
+  jobId: string | null;
+  total: number;
+  done: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  summary: RefreshVariantsSummary | null;
+}
+let mockRefreshVariantsBatch: MockRefreshVariantsBatch = {
+  running: false,
+  jobId: null,
+  total: 0,
+  done: 0,
+  startedAt: null,
+  finishedAt: null,
+  summary: null,
+};
+
+/** Calcula el resumen agregado del barrido sobre los sets importados (con 1 fallo + pending). */
+function computeMockRefreshVariantsSummary(): RefreshVariantsSummary {
+  const imported = mockRemoteSets.filter((s) => s.imported);
+  const failures =
+    imported.length > 0
+      ? [
+          {
+            setId: imported[imported.length - 1].id,
+            code: 'UPSTREAM_ERROR',
+            message: 'TCGCSV no respondió para este set',
+          },
+        ]
+      : [];
+  const okSets = imported.filter((s) => !failures.some((f) => f.setId === s.id));
+  const cardProductsUpserted = okSets.reduce((sum, s) => sum + Math.round((s.cardCount ?? 0) * 1.4), 0);
+  // Un pendiente por set OK (TCGCSV no siempre trae todos los precios) → resultado parcial honesto.
+  const pending = okSets.length;
+  return {
+    setsTotal: imported.length,
+    setsOk: okSets.length,
+    setsFailed: failures.length,
+    cardProductsUpserted,
+    pricesUpserted: Math.max(0, cardProductsUpserted - pending),
+    pending,
+    failures,
+  };
+}
+
+/** POST mock: arranca el barrido (202) y devuelve `{ jobId, setsQueued, remaining }`. */
+export function startMockRefreshVariantsAll(): RefreshVariantsAllResponse {
+  const imported = mockRemoteSets.filter((s) => s.imported);
+  const jobId = `refresh-variants-all-${Math.floor(Math.random() * 9000 + 1000)}`;
+  mockRefreshVariantsBatch = {
+    running: true,
+    jobId,
+    total: imported.length,
+    done: 0,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    summary: null,
+  };
+  return { jobId, setsQueued: imported.length, remaining: 0 };
+}
+
+/** GET mock: avanza el barrido; al completar apaga running y adjunta el summary agregado. */
+export function readMockRefreshVariantsStatus(): RefreshVariantsStatusResponse {
+  const b = mockRefreshVariantsBatch;
+  if (b.running) {
+    // Avanza el progreso; cuando alcanza el total, termina y publica el resumen.
+    const nextDone = Math.min(b.total, b.done + Math.max(1, Math.ceil(b.total / 3)));
+    if (nextDone >= b.total) {
+      mockRefreshVariantsBatch = {
+        ...b,
+        running: false,
+        done: b.total,
+        finishedAt: new Date().toISOString(),
+        summary: computeMockRefreshVariantsSummary(),
+      };
+    } else {
+      mockRefreshVariantsBatch = { ...b, done: nextDone };
+    }
+  }
+  return { ...mockRefreshVariantsBatch };
+}
 
 /** Historial de precios por fecha/fuente (contrato GET /admin/pricing/card/:id). SUPUESTO de shape. */
 export function mockPriceHistory(cardId: string): PriceHistoryEntryDTO[] {

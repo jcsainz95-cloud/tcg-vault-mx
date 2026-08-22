@@ -30,6 +30,8 @@ import {
   backfillCatalog,
   syncAllCatalog,
   refreshVariants,
+  refreshVariantsAll,
+  getRefreshVariantsStatus,
   getSyncStatus,
 } from '@/lib/api';
 import type {
@@ -562,6 +564,7 @@ export function M2View() {
   // pedía el operador: "saber que acabó"). El endpoint puede no existir aún en backend
   // (404/405): en ese caso no se pinta la barra (retry:false + isError → nada). No llama
   // a pokemontcg.io, así que pollearlo no consume rate-limit.
+  const [refreshAllConfirmOpen, setRefreshAllConfirmOpen] = useState(false);
   const syncStatus = useQuery({
     queryKey: ['catalog-sync-status'],
     queryFn: getSyncStatus,
@@ -570,11 +573,47 @@ export function M2View() {
   });
   const isSweeping = syncStatus.data?.running ?? false;
 
+  // RV-ALL: el batch «Refrescar variantes + precios de TODO» es ASÍNCRONO. El POST solo lo arranca
+  // (202); el progreso y el resumen se leen por su STATUS PROPIO GET /refresh-variants-status (NO el
+  // sync-status de sync-all). Se POLLEA cada 3 s mientras `running`, o durante una ventana de gracia
+  // tras disparar (hasta que el backend reporte `running:true`), calcando el patrón N-14 de precios.
+  const [refreshAllDispatched, setRefreshAllDispatched] = useState(false);
+  const refreshVariantsStatus = useQuery({
+    queryKey: ['refresh-variants-status'],
+    queryFn: getRefreshVariantsStatus,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.running || refreshAllDispatched ? 3000 : false,
+  });
+  const batchRunning = refreshVariantsStatus.data?.running ?? false;
+
+  // Suelta la bandera de gracia en cuanto el status refleja el batch disparado: bien porque ya está
+  // `running` (a partir de ahí el poll lo gobierna `running`), bien porque terminó tan rápido que
+  // llegó directo con `summary` (evita que el banner "corriendo" conviva con el resumen final).
+  useEffect(() => {
+    if (
+      refreshAllDispatched &&
+      (refreshVariantsStatus.data?.running || refreshVariantsStatus.data?.summary)
+    ) {
+      setRefreshAllDispatched(false);
+    }
+  }, [refreshAllDispatched, refreshVariantsStatus.data?.running, refreshVariantsStatus.data?.summary]);
+
+  // Red anti-poll-infinito: si tras disparar nunca asoma `running` (terminó tan rápido que no lo
+  // vimos, o no encoló nada), la gracia caduca sola.
+  useEffect(() => {
+    if (!refreshAllDispatched) return;
+    const timer = setTimeout(() => setRefreshAllDispatched(false), 30000);
+    return () => clearTimeout(timer);
+  }, [refreshAllDispatched]);
+
   // Mientras hay un barrido en curso, refresca la tabla (cardCount/imported avanzan solos).
   const remoteSets = useQuery({
     queryKey: ['remote-sets'],
     queryFn: getRemoteSets,
-    refetchInterval: isSweeping ? 5000 : false,
+    // Refresca la tabla mientras hay un barrido (sync-all) o el batch de variantes en curso:
+    // cardCount/imported avanzan solos.
+    refetchInterval: isSweeping || batchRunning ? 5000 : false,
   });
   const catalogSyncMutation = useMutation({
     mutationFn: (setId?: string) => syncCatalog(setId ? { setId } : {}),
@@ -651,6 +690,40 @@ export function M2View() {
     },
   });
 
+  // --- RV-ALL: «Refrescar variantes + precios de TODO» usando SOLO TCGCSV (batch, sin pokemontcg.io) ---
+  // Corre el mismo trabajo que el refresh por-set (variantes/acabados + precios desde TCGCSV, SIN
+  // re-importar cartas ni depender de pokemontcg.io) sobre TODO el catálogo YA importado. Es ASÍNCRONO
+  // (POST /admin/catalog/refresh-variants-all → 202 { jobId, setsQueued, remaining }): el POST solo lo
+  // arranca; el progreso y el RESUMEN AGREGADO honesto (sets ok/fallidos, productos, precios,
+  // pendientes, `failures`) se leen por su STATUS PROPIO (poll de refreshVariantsStatus). Masivo →
+  // confirmación (modal). Al disparar arranca YA el poll (refetch + ventana de gracia, patrón N-14).
+  const refreshVariantsAllMutation = useMutation({
+    mutationFn: () => refreshVariantsAll(),
+    onSuccess: () => {
+      setRefreshAllDispatched(true);
+      void refreshVariantsStatus.refetch();
+      // El batch repuebla variantes + PriceReference de TODO el catálogo → refresca la tabla; la cola
+      // de pendientes se invalida al terminar (cuando el status reporta running:false).
+      qc.invalidateQueries({ queryKey: ['remote-sets'] });
+    },
+  });
+
+  // Cuando el batch TERMINA (running pasa a false teniendo un summary), refresca la tabla y la cola de
+  // pendientes: el barrido repobló variantes/precios y pudo resolver/mover pendientes.
+  const batchFinishedAt = refreshVariantsStatus.data?.finishedAt ?? null;
+  useEffect(() => {
+    if (!batchRunning && refreshVariantsStatus.data?.summary) {
+      qc.invalidateQueries({ queryKey: ['remote-sets'] });
+      qc.invalidateQueries({ queryKey: ['pending-prices'] });
+    }
+    // Se dispara al cambiar `finishedAt` (un batch nuevo terminó), no en cada poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchFinishedAt]);
+
+  // El batch async está OCUPADO desde que se dispara (POST) hasta que su STATUS PROPIO reporta
+  // running:false — aunque el POST 202 ya haya vuelto. Gobierna loading/serialización/keep-alive.
+  const batchBusy = refreshVariantsAllMutation.isPending || refreshAllDispatched || batchRunning;
+
   // El operador mira el barrido de catálogo (o espera un backfill/sync por set, que son
   // requests síncronos largos) SIN interactuar → sin esto, el auto-logout por inactividad
   // (5 min) lo sacaría a mitad de la operación. Mientras haya una operación de catálogo en
@@ -664,7 +737,8 @@ export function M2View() {
     syncAllMutation.isPending ||
     syncAllForceMutation.isPending ||
     fullSyncMutation.isPending ||
-    refreshVariantsMutation.isPending;
+    refreshVariantsMutation.isPending ||
+    batchBusy;
   useKeepSessionAlive(catalogBusy);
 
   const setColumns: Column<RemoteSetDTO>[] = [
@@ -707,10 +781,12 @@ export function M2View() {
         const rowRefreshing =
           refreshVariantsMutation.isPending && refreshVariantsMutation.variables?.id === s.id;
         // Serialización de las operaciones por-set (una a la vez): cualquiera bloquea a las demás.
+        // El batch global «Refrescar variantes + precios de TODO» también las bloquea (RV-ALL).
         const otherPerSetPending =
           (catalogSyncMutation.isPending && !rowSyncing) ||
           (fullSyncMutation.isPending && !rowFullSyncing) ||
-          (refreshVariantsMutation.isPending && !rowRefreshing);
+          (refreshVariantsMutation.isPending && !rowRefreshing) ||
+          batchBusy;
         return (
           <div className="flex flex-wrap justify-end gap-2">
             <Button
@@ -1576,18 +1652,41 @@ export function M2View() {
         <p className="text-sm text-muted">{t('catalog.subtitle')}</p>
         <p className="text-xs text-muted">{t('catalog.syncHint')}</p>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" loading={backfillMutation.isPending} onClick={() => backfillMutation.mutate()}>
+          <Button
+            variant="secondary"
+            loading={backfillMutation.isPending}
+            disabled={batchBusy}
+            onClick={() => backfillMutation.mutate()}
+          >
             <DownloadCloud size={18} /> {t('catalog.backfill')}
           </Button>
-          <Button variant="secondary" loading={syncAllMutation.isPending} onClick={() => syncAllMutation.mutate()}>
+          <Button
+            variant="secondary"
+            loading={syncAllMutation.isPending}
+            disabled={batchBusy}
+            onClick={() => syncAllMutation.mutate()}
+          >
             <Layers size={18} /> {t('catalog.syncAll')}
           </Button>
           <Button
             variant="secondary"
             loading={syncAllForceMutation.isPending}
+            disabled={batchBusy}
             onClick={() => setForceConfirmOpen(true)}
           >
             <RefreshCw size={18} /> {t('catalog.syncAllForce')}
+          </Button>
+          {/* RV-ALL: batch global — refresca variantes/acabados + precios de TODO el catálogo importado
+              usando SOLO TCGCSV (NO re-importa cartas, NO usa pokemontcg.io). Async: el POST arranca y
+              el progreso/resumen se leen por su STATUS PROPIO. Masivo → confirmación. Se serializa con
+              las demás operaciones de catálogo (se deshabilita si OTRA está en curso). */}
+          <Button
+            variant="secondary"
+            loading={batchBusy}
+            disabled={catalogBusy && !batchBusy}
+            onClick={() => setRefreshAllConfirmOpen(true)}
+          >
+            <RefreshCw size={18} /> {t('catalog.refreshVariantsAll')}
           </Button>
         </div>
         {/* Diferencia ligera vs. pesada: "Importar sets nuevos" (force:false) trae solo los
@@ -1598,6 +1697,8 @@ export function M2View() {
         <p className="text-xs text-muted">{t('catalog.fullSyncHint')}</p>
         {/* P-13: la tercera acción por fila (solo TCGCSV) — NO re-importa cartas ni usa pokemontcg.io. */}
         <p className="text-xs text-muted">{t('catalog.refreshVariantsHint')}</p>
+        {/* RV-ALL: el batch global (solo TCGCSV) — mismo trabajo sobre TODO el catálogo importado. */}
+        <p className="text-xs text-muted">{t('catalog.refreshVariantsAllHint')}</p>
         {/* Feedback del sync por set (Importar / Re-sincronizar) */}
         {catalogSyncMutation.isPending && (
           <Banner variant="info" role="status">{t('catalog.syncRunning')}</Banner>
@@ -1664,6 +1765,80 @@ export function M2View() {
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>
             {t('catalog.refreshVariantsError', { name: refreshVariantsMutation.variables?.name ?? '' })}{' '}
             {getError(refreshVariantsMutation.error)}
+          </Banner>
+        )}
+        {/* RV-ALL: feedback del batch global «Refrescar variantes + precios de TODO (solo TCGCSV)».
+            El POST solo arranca (202); el progreso y el resumen vienen del STATUS PROPIO (poll). */}
+        {batchBusy && (
+          <Banner variant="info" role="status">{t('catalog.refreshVariantsAllRunning')}</Banner>
+        )}
+        {/* Barra de progreso done/total del batch (poll de refresh-variants-status). Reusa el mismo
+            SyncProgress accesible que sync-all / precios, con labels propios del batch. */}
+        {refreshVariantsStatus.data &&
+          (refreshVariantsStatus.data.running || refreshVariantsStatus.data.total > 0) && (
+            <SyncProgress
+              running={refreshVariantsStatus.data.running}
+              done={refreshVariantsStatus.data.done}
+              total={refreshVariantsStatus.data.total}
+              labels={{
+                running: t('catalog.refreshVariantsAllSweepRunning', {
+                  done: Math.min(refreshVariantsStatus.data.done, refreshVariantsStatus.data.total),
+                  total: refreshVariantsStatus.data.total,
+                }),
+                runningHint: t('catalog.refreshVariantsAllSweepRunningHint'),
+                done: t('catalog.refreshVariantsAllSweepDone', { total: refreshVariantsStatus.data.total }),
+              }}
+            />
+          )}
+        {/* Resumen AGREGADO honesto al terminar (del `summary` del status, no del POST). Solo cuando el
+            batch NO corre y hay summary. Money-safe: setsFailed>0 o pending>0 → warning (no "todo listo"). */}
+        {!batchRunning &&
+          refreshVariantsStatus.data?.summary &&
+          (() => {
+            const r = refreshVariantsStatus.data!.summary!;
+            const partial = r.setsFailed > 0 || r.pending > 0;
+            return (
+              <Banner variant={partial ? 'warning' : 'success'} role="status">
+                <span className="font-medium">
+                  {partial
+                    ? t('catalog.refreshVariantsAllPartial')
+                    : t('catalog.refreshVariantsAllDone')}
+                </span>{' '}
+                {t('catalog.refreshVariantsAllSummary', {
+                  setsOk: r.setsOk,
+                  setsTotal: r.setsTotal,
+                  products: r.cardProductsUpserted,
+                  prices: r.pricesUpserted,
+                })}
+                {r.pending > 0 && ' ' + t('catalog.refreshVariantsAllPending', { pending: r.pending })}
+                {/* Lista honesta de sets fallidos (setId + motivo legible), sin tumbar el resto. */}
+                {r.failures.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    <p className="font-medium">
+                      {t('catalog.refreshVariantsAllFailuresTitle', { count: r.setsFailed })}
+                    </p>
+                    <ul className="list-disc pl-5">
+                      {r.failures.map((f) => {
+                        const name = remoteSets.data?.find((s) => s.id === f.setId)?.name ?? f.setId;
+                        return (
+                          <li key={f.setId}>
+                            <span lang="en" className="font-medium">{name}</span>{' '}
+                            <span className="tabular text-muted">({f.setId})</span> —{' '}
+                            {f.message || f.code}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </Banner>
+            );
+          })()}
+        {/* Fallo al ARRANCAR el batch (POST !=202). El barrido en sí reporta sus fallos por-set en
+            `summary.failures`; esto cubre solo el arranque. */}
+        {refreshVariantsAllMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+            {t('catalog.refreshVariantsAllError')} {getError(refreshVariantsAllMutation.error)}
           </Banner>
         )}
         {catalogSyncMutation.isSuccess && (
@@ -1830,6 +2005,31 @@ export function M2View() {
         }
       >
         <p className="text-sm text-muted">{t('catalog.syncAllForceConfirmBody')}</p>
+      </Modal>
+
+      {/* RV-ALL: confirmación del batch «Refrescar variantes + precios de TODO (solo TCGCSV)» (masivo) */}
+      <Modal
+        open={refreshAllConfirmOpen}
+        onClose={() => setRefreshAllConfirmOpen(false)}
+        title={t('catalog.refreshVariantsAllConfirmTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRefreshAllConfirmOpen(false)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              loading={refreshVariantsAllMutation.isPending}
+              onClick={() => {
+                setRefreshAllConfirmOpen(false);
+                refreshVariantsAllMutation.mutate();
+              }}
+            >
+              {t('catalog.refreshVariantsAllConfirmCta')}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">{t('catalog.refreshVariantsAllConfirmBody')}</p>
       </Modal>
     </div>
   );
