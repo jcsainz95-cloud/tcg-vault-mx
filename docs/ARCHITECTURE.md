@@ -2,7 +2,60 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.28.1-stream-b-precision (MVP, plataforma en producción). Fecha: 2026-08-21. Stream B «Inventario Master Set» (P-19 + P-18 + P-17 + P-24 + P-25 + P-20 + P-22 de `PENDIENTES.md`).
+> Estado: v1.29-tcgcsv-productos-por-variante (MVP, plataforma en producción). Fecha: 2026-08-22. Rework de la derivación de composición y precio de variantes de singles: **1 carta ↔ N productos TCGplayer** por `productId` EXACTO, TCGCSV como fuente ÚNICA de estructura + precio por variante, PPT en fallback. Spec normativa en §4.27; migración **M-31** (§11).
+>
+> **Changelog v1.29-tcgcsv-productos-por-variante (2026-08-22, arquitecto — DISEÑO EN PAPEL, backend implementa):**
+> Corrige la causa raíz de las variantes fantasma que ha regresado 3 veces: hoy el modelo asume **1 carta = 1 producto
+> TCGplayer** (`Card.tcgplayerId` escalar, `schema.prisma:401`) y `unionStructuralFinishesByCardNumber`
+> (`tcgcsv-singles.provider.ts:131-162`) une los `subTypeName` de **productos distintos** que comparten número de
+> colección → pega un `normal` FANTASMA a la carta de set (caso confirmado Pitch Black ME05 groupId 24688: producto de
+> set 704841 `{Holofoil, Reverse Holofoil}` + producto «Deck Exclusives» 707029 `{Normal}` con precio propio). Se
+> reconstruyó 3 veces con heurísticas (`composeAvailableFinishes` en `common/card-order.ts:97`, `isPremiumRarity` en
+> `common/money.ts:206`) en vez de leer la composición de la fuente. **Decisión del PO (aprobada, NO se re-litiga):**
+> (1) modelar **1 carta ↔ N productos** emparejando por **`productId` EXACTO** (nunca por número); la composición de
+> acabados de cada producto se LEE de la fuente, sin reglas de rareza; (2) **TCGCSV = fuente ÚNICA** de estructura Y
+> precio POR VARIANTE de singles (ya trae `marketPrice` por `subTypeName`; patrón de persistir dinero desde TCGCSV ya
+> existe para sellado, `tcgcsv-sealed.provider.ts:159-176`, aquí se generaliza a POR VARIANTE); (3) los productos
+> «Deck Exclusives»/promo son **productos vendibles/cotizables propios** con su propio precio — se modelan y muestran
+> como producto separado, no se fusionan ni se descartan; (4) **FX USD→MXN reusa el módulo Banxico existente**
+> (`FxService`, `pricing/fx.service.ts` + `usdToMxnCents`, `common/money.ts:613`) — no se inventa FX nuevo; (5) **PPT
+> baja a fallback**: solo se usa cuando TCGCSV no tiene precio de esa variante. **Componentes que se RETIRAN por
+> diseño** (los deroga esta rev; backend los borra en su implementación, el arquitecto no toca código):
+> `unionStructuralFinishesByCardNumber`, `composeAvailableFinishes`, `computeDisplayFinishes`, el uso de
+> `isPremiumRarity` en la COMPOSICIÓN (sigue vivo SOLO para el pricing del buylist), `StructuralFinishResolverService`
+> (se reescribe como `CardProductResolverService`), y las columnas internas `structuralFinishes` / `catalogFinishes` /
+> `pricedFinishesSnapshot` (quedan muertas; se dropean en migración posterior). **Migración M-31** (§11): tabla nueva
+> `CardProduct` + enum `CardProductKind` + `PriceReference.cardProductId?` + `PriceReference.source = tcgcsv_singles`.
+> **Invariantes money-safe intactas:** variante sin precio en NINGUNA fuente ⇒ celda `null`/«—» y `PRICE_PENDING`,
+> jamás un 0 inventado (`master-set.service.ts:82-84`); la composición es la PRESENCIA del producto/`subTypeName`, no la
+> existencia de precio. **Validación barata por-set ANTES del re-sync completo (~1.5h):** `POST /admin/catalog/sync
+> {setId, force:true}` (P-12 §4.25c) corre el nuevo resolver en segundos sobre Pitch Black; criterio observable en el
+> binder: energías especiales en **2 casillas (holofoil, reverse_holo), no 3**; «Deck Exclusives» visible como su
+> propio producto; precios por variante REALES y «—» honesto donde no haya. Contrato en API_CONTRACT (Changelog
+> v1.29). **Riesgo abierto R-1:** confirmar en implementación si el producto «Deck Exclusives» cae en el MISMO
+> groupId TCGCSV del set (24688) — el diseño lo asume; si cae en otro grupo, el resolver debe ampliar el fetch (ver
+> §4.27 «Riesgos»).
+>
+> **Además (misma rev, §4.28) — catálogo canónico de rarezas.** Requisito del PO: «que las rarezas de las cartas
+> empaten con lo que tenemos registrado en precios admin». Causa raíz: `Card.rarity` se guarda CRUDO de pokemontcg.io
+> sin normalizar (`catalog-sync.service.ts:464`) y las reglas del admin (`BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES`,
+> `settings.constants.ts:105-119`) se resuelven por match EXACTO case-sensitive (`money.ts:309`, sin `toLowerCase`/
+> `trim`); el admin hereda las rarezas por `groupBy(['rarity'])` (`pricing.controller.ts:286-289`), así que una regla
+> solo engancha si la key es byte-idéntica; si no, cae al fallback pct (40/15) en silencio. Diseño: (1) **catálogo
+> canónico y autoritativo `CANONICAL_RARITIES`** (dato compartido en `common/`, key canónica = la key que edita el
+> admin, con `aliases` y atributo `premium`); (2) normalizador puro **`normalizeRarity(raw)→canonical`** aplicado en el
+> INGEST a un campo derivado nuevo **`Card.rarityCanonical`** (M-31), en el ADMIN (`groupBy(['rarityCanonical'])`) y en
+> el LOOKUP (normaliza ambos lados) ⇒ empate 1:1; el deprecado `RARITY_MAP` (`settings.constants.ts:132-144`,
+> desconectado :57-58) se retira; (3) **separar el eje RAREZA (carta) del eje ACABADO/finish (variante)** en las reglas
+> — hoy el mapa plano mezcla keys de rareza con keys sintéticas `Holo`/`Reverse Holo` (`settings.constants.ts:108,117,
+> 118`) parcheadas a mano en el front (`M2View.tsx:332-336`, INV-1); pasa a `PriceRuleSet { rarityRules, finishRules,
+> fallbackPct }` (encaja con §4.27: finish del producto, rareza de la carta); (4) **UNA sola definición de premium**
+> sobre la rareza canónica (atributo `premium` del catálogo), retirando las DOS divergentes que hoy dan verdictos
+> OPUESTOS sobre el mismo string — `money.ts:206` (`PREMIUM_RARITY_PATTERNS`) vs `ppt-sync-scope.ts:98`
+> (`PREMIUM_RARITY_TERMS`): discrepan en «Rare Holo» (ppt=premium, money=NO) y «Double Rare» (money=premium, ppt=NO),
+> pese a que `card-order.ts:80,129` afirma «una sola definición». Money-safe: rareza sin regla → fallback pct predecible
+> y auditable, nunca 0. **Decisión abierta R-4:** ¿un solo `premium` o dos predicados nombrados
+> (`isChaseForPricing`/`isWorthPaidLookup`) sobre el mismo catálogo? Contrato en API_CONTRACT (Changelog v1.29).
 >
 > **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin schema, sin
 > endpoints nuevos):** (1) **B-1 resuelto:** §4.26e alineado con §4.26a y BL-1 — `bountyAcquiredQty` cuenta SOLO
@@ -5069,6 +5122,401 @@ es la de §4.23 — `(cardId ancla, sealedSubtype, tcgplayerProductId, sealedCon
 
 ---
 
+### 4.27 Composición y precio de variantes desde TCGCSV por `productId` — «1 carta ↔ N productos» (v1.29, NORMATIVO)
+
+> **Propósito.** Reemplazar la derivación HEURÍSTICA de la composición de acabados (y su precio) por una **lectura
+> directa de la fuente**: cada carta del catálogo se compone de **N productos TCGplayer** (uno por `productId`), y de
+> cada producto se leen sus `subTypeName` (acabados) y su `marketPrice` POR sub-tipo. El objetivo del PO, literal:
+> «que con cada release aprendamos su composición leyéndola de la fuente, no adivinándola embonándola a nuestro
+> framework». Esta sección **deroga** §4.24a (unión por número), §4.25a/§4.25e (fórmula `composeAvailableFinishes`
+> con filtro `isPremiumRarity`) y §4.22a-6/N-15 (`computeDisplayFinishes`) en lo que toca a la composición de singles.
+> Todo lo demás (buylist por rareza, sellado, gradeadas, overrides M-30) queda intacto.
+
+#### (a) La causa raíz (diagnóstico, con evidencia)
+
+Hoy `Card.tcgplayerId String?` (`schema.prisma:401`) modela **1 carta = 1 producto**. La realidad TCGplayer es **1
+número de colección ↔ N productos** dentro del mismo set. Caso confirmado — Pitch Black (ME05, groupId TCGCSV 24688),
+«Voltaic Lightning Energy 084/084»:
+
+- producto **704841** = producto de set, `subTypes {Holofoil, Reverse Holofoil}`.
+- producto **707029** = «Deck Exclusives non-holo», `subType {Normal}`, con **precio propio distinto**.
+
+`unionStructuralFinishesByCardNumber` (`tcgcsv-singles.provider.ts:131-162`) agrupa por **NÚMERO** de colección across
+productos y **une** los `subTypeName` de AMBOS → le atribuye un `normal` FANTASMA a la carta de set. En el binder Master
+Set eso pinta una casilla `normal` inexistente (la energía especial se ve **3 veces** en vez de 2), y PPT en modo
+`fetchPrintings` le replica un precio a esa casilla. La regresión ha vuelto 3 veces porque se reconstruye con
+heurísticas (`composeAvailableFinishes`, `isPremiumRarity`) en vez de leer la composición de la fuente.
+
+#### (b) Modelo de datos nuevo (schema Prisma — backend implementa; migración **M-31**, §11)
+
+**Principio:** el `productId` de TCGplayer es la CLAVE de emparejamiento (nunca el número de colección). Una carta del
+catálogo (`Card`, identidad = `externalId` de pokemontcg.io) agrupa **N** filas `CardProduct`, una por `productId`.
+
+```prisma
+// Enum nuevo — naturaleza del producto TCGplayer bajo una misma carta de colección.
+enum CardProductKind {
+  set_base        // producto de set «normal» (el que hoy ancla Card.tcgplayerId)
+  deck_exclusive  // «Deck Exclusives», precon, gift set… VENDIBLE/COTIZABLE aparte, precio propio
+  promo           // promo/staff/league con su propio productId
+  other           // no clasificable por nombre (fail-safe; se trata como set_base para el binder salvo señal)
+}
+
+// Tabla nueva — UN producto TCGplayer (== un productId) bajo una carta de colección.
+model CardProduct {
+  id                 String          @id @default(uuid())
+  cardId             String
+  card               Card            @relation(fields: [cardId], references: [id])
+  tcgplayerProductId Int             @unique   // productId EXACTO de TCGplayer/TCGCSV — ancla del join
+  kind               CardProductKind @default(set_base)
+  name               String          // nombre TCGCSV del producto (para clasificar kind y mostrar el producto separado)
+  // Acabados de ESTE producto, leídos de SUS subTypeName (mapeados con deriveStructuralFinishes;
+  // subTypeName desconocido ⇒ OMITIDO, anti-invención). NUNCA se unen con los de otro productId.
+  finishes           Finish[]        @default([])
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  priceReferences    PriceReference[]
+
+  @@index([cardId])
+  @@index([cardId, kind])
+}
+```
+
+Cambios en tablas existentes (aditivos):
+
+- **`Card.tcgplayerId`** → **DEPRECADO** (se conserva por compatibilidad y como respaldo del backfill; deja de ser la
+  fuente de verdad del producto — la reemplaza `CardProduct.tcgplayerProductId`). No se dropea en M-31 (reversibilidad).
+- **`Card.cardProducts CardProduct[]`** — relación inversa nueva (solo navegación Prisma).
+- **`PriceReference.cardProductId String?`** (+ `cardProduct CardProduct?`): FK nullable. Se **puebla para singles**
+  (precio POR producto+acabado) y queda **`null`** para graded/sealed (que no usan `CardProduct`). La `@@unique` pasa
+  a **`[cardId, productType, gradeKey, finish, capturedDate, cardProductId]`** (añade `cardProductId` al final).
+  Racional: dos productos de la MISMA carta podrían, en teoría, exponer el MISMO `Finish` (p. ej. set_base con
+  `holofoil` y una promo `holofoil` de la misma carta) con precios distintos; el `cardProductId` en la clave evita la
+  colisión y hace del `productId` el ancla exacta. Para graded/sealed (`cardProductId = null`) la clave se comporta
+  como hoy.
+- **`enum PriceSource`** gana **`tcgcsv_singles`** (primario de singles; distinto de `tcgcsv`, que sigue siendo el del
+  sellado). PPT (`pokemonpricetracker`) y pokemontcg.io (`pokemontcg_io`) quedan como valores de FALLBACK.
+
+**Columnas que quedan MUERTAS** (no se dropean en M-31 — se retiran en migración posterior, ver «Riesgos»):
+`Card.structuralFinishes`, `Card.catalogFinishes`, `Card.pricedFinishesSnapshot`. Su función la absorbe
+`CardProduct.finishes` (leído exacto de la fuente).
+
+#### (c) `Card.availableFinishes`: sigue siendo la lista blanca SEC-A1, pero DERIVADA de `CardProduct` (sin heurística)
+
+`availableFinishes` continúa siendo la **whitelist** contra la que el backend valida cualquier `finish` (SEC-A1) y el
+universo de casillas del binder. Cambia SU DERIVACIÓN: deja de calcularse con `composeAvailableFinishes(structural ∪
+snapshot − {normal|premium})` y pasa a leerse de los productos de la carta:
+
+```
+availableFinishes(card) := orderFinishes( ⋃ { p.finishes : p ∈ CardProduct(card), p.kind ∈ {set_base, other} } )
+                           ||  ['normal']     // fallback fail-closed si el set base no resolvió (legacy)
+```
+
+- **NO** se resta `normal` por `isPremiumRarity`: si el producto de set no trae `Normal` en sus `subTypeName`, `normal`
+  simplemente **no aparece** (no hay fantasma que limpiar). El filtro heurístico deja de existir.
+- Los productos **`deck_exclusive`/`promo`** NO entran en `availableFinishes` de la carta de set: se exponen como
+  **producto vendible separado** (ver (e)). Así la casilla del binder de la carta de set queda EXACTA (energía especial
+  = holofoil + reverse_holo = 2 casillas), y el Deck Exclusive vive como su propio producto con su propio precio.
+- **`displayFinishes` se retira**: como ya no hay casillas espurias que ocultar, `displayFinishes := availableFinishes`
+  siempre. El DTO conserva el campo por compatibilidad de contrato (= `availableFinishes`), marcado **DEPRECADO** en
+  API_CONTRACT (retiro en la siguiente rev de front). El front deja de necesitar la supresión N-15.
+
+**El ÚNICO escritor** de `availableFinishes` sigue siendo un reconciliador de catálogo (el `FinishReconciler`
+simplificado: recomputa desde `CardProduct.finishes`, sin unión con snapshot). `price-ingest` nunca lo escribe.
+
+#### (d) Nuevo flujo de derivación de composición + precio (reemplaza el resolver estructural)
+
+Se **retira** `StructuralFinishResolverService` y `unionStructuralFinishesByCardNumber`. Los sustituye:
+
+1. **Función pura `deriveCardProductsFromTcgcsv(products, prices)`** (reemplaza a `unionStructuralFinishesByCardNumber`).
+   Agrupa **por `productId`** (NUNCA por número): para cada `productId` produce
+   `{ productId, name, number, finishes, pricesBySubType }` donde `finishes = deriveStructuralFinishes(subTypeNames de
+   ESE producto)` y `pricesBySubType[subType] = marketPrice` de ESE producto. **Nunca** cruza `subTypeName` entre
+   `productId`s distintos → el fantasma es imposible por construcción. `kind` se infiere del `name`: contiene «Deck
+   Exclusive(s)» ⇒ `deck_exclusive`; «Promo»/«Staff»/«League» ⇒ `promo`; si no ⇒ `set_base`. (Regla de clasificación
+   por nombre, no por rareza; documentada y testeable con fixtures.)
+2. **`CardProductResolverService`** (reemplaza al resolver estructural; se invoca como PASO de
+   `catalog-sync.importSet`, GATEADO a first-import o `--force`, igual que hoy §4.25c — NUNCA en price-ingest):
+   - Resuelve el `groupId` TCGCSV del set (misma lógica S-D3: `CardSet.pptSetId` entero == groupId; si no, match
+     ÚNICO por nombre vía `listGroups()`), **sin cambios**.
+   - Fetch de productos (`getProducts`) y precios (`getPrices`) del grupo — API existente de `TcgcsvCatalogClient`,
+     **sin cambios**.
+   - `deriveCardProductsFromTcgcsv(...)` → registros por `productId`.
+   - **Join por `productId` EXACTO a la carta local:** ancla preferente = un `Card` cuyo `tcgplayerId == productId`
+     (set_base ya poblado por M-29). Para `productId`s SIN ancla directa (típico: Deck Exclusives, o set_base aún no
+     poblado), se **empareja por número de colección normalizado** (`normalizeCardNumber`) SOLO para localizar el
+     `Card` DUEÑO — pero el `CardProduct` se crea con SU `productId` y SU `kind`; el número solo enruta a qué carta
+     colgar el producto, **no** funde acabados. Ambigüedad (varias cartas al mismo número) ⇒ se OMITE ese producto
+     (money-safe, log de observabilidad).
+   - **Upsert de `CardProduct`** por `tcgplayerProductId` (REEMPLAZO de `finishes`, money-safe: un producto no
+     resuelto conserva su valor previo). **Persistir precio POR VARIANTE** (ver (e)) y **recomputar
+     `availableFinishes`** de las cartas tocadas vía el `FinishReconciler` simplificado.
+
+**Componentes retirados vs. que entran:**
+
+| Se RETIRA (deroga esta rev; backend borra el código) | Entra / sustituye |
+|---|---|
+| `unionStructuralFinishesByCardNumber` (unión por número — el bug) | `deriveCardProductsFromTcgcsv` (agrupa por `productId`) |
+| `StructuralFinishResolverService` | `CardProductResolverService` |
+| `composeAvailableFinishes` (`card-order.ts:97`) + `isPremiumRarity` en composición | derivación directa `⋃ CardProduct.finishes (set_base)` |
+| `computeDisplayFinishes` (`card-order.ts:137`) / N-15 | `displayFinishes := availableFinishes` (sin supresión) |
+| Columnas `structuralFinishes` / `catalogFinishes` / `pricedFinishesSnapshot` | `CardProduct.finishes` (leído exacto de la fuente) |
+| PPT como fuente PRIMARIA de precio de singles | TCGCSV primario; PPT solo fallback (ver (f)) |
+
+> `isPremiumRarity` (`money.ts:206`) NO se borra: sigue vivo para el **pricing del buylist** (`ruleKeyCandidates`,
+> `money.ts:228`) — ahí es una regla de negocio legítima. Solo se retira su uso en la COMPOSICIÓN de acabados.
+
+#### (e) Precio POR VARIANTE desde TCGCSV + FX Banxico (reuso, no se inventa FX)
+
+El patrón «leer `marketPrice` de TCGCSV y persistirlo como dinero» ya existe para sellado
+(`tcgcsv-sealed.provider.ts:159-176`, solo sub-tipo `Normal`). Aquí se **generaliza a POR VARIANTE**: para cada
+`(CardProduct, subType→Finish)` con `marketPrice` numérico > 0:
+
+- **Conversión USD→MXN reusando el módulo Banxico existente** — `FxService` (`pricing/fx.service.ts`): una llamada
+  `fx.getCurrent()` por corrida (snapshot `{rate, bufferPct}`, patrón §4.15f) y `usdToMxnCents(marketUsdCents, rate,
+  bufferPct)` (`common/money.ts:613`). Banxico SIE (serie SF63528, job `fx-refresh`) + colchón `fx_buffer_pct` +
+  override manual `fx_manual_override_rate` — TODO reutilizado tal cual (§3.2 FxRate). **No** se crea FX nuevo.
+- Se **upsert** una fila `PriceReference` por `(cardId, productType='raw', gradeKey='raw:NM', finish, capturedDate=hoy,
+  cardProductId)` con `source='tcgcsv_singles'`, `priceUsdCents`, `fxRate`, `fxBufferPct`, `priceMxnCents`. Es el mismo
+  contenedor de precio de mercado que hoy alimenta el binder (`marketReferenceMxnCents`) y la valuación de bóveda
+  (`liveMxnCents`), ahora poblado por variante desde la fuente única.
+- **`marketPrice` ausente/`null`/≤0 ⇒ NO se escribe fila** (estructura ≠ precio): el `CardProduct.finishes` ya declaró
+  la variante como EXISTENTE; su celda queda «—» (null) y entra a `PRICE_PENDING` por (carta, finish) — la invariante
+  H1/H2/H3 money-safe intacta (`master-set.service.ts:82-84`). **Prohibido el fallback `marketPrice→midPrice` para
+  singles** (sigue vigente §4.19d: ese fallback es SOLO informativo del sellado).
+
+#### (f) PPT como fallback (orden de precedencia de precio de singles)
+
+Precedencia de la **referencia de mercado** por `(carta, variante)` (de mayor a menor), money-safe:
+
+```
+override manual de MERCADO (PriceReference.isManualOverride / M2)
+  > TCGCSV marketPrice de ESA variante (source=tcgcsv_singles)         ← PRIMARIO
+  > PPT market de esa (carta, finish) (source=pokemonpricetracker)     ← FALLBACK solo si TCGCSV no tiene precio
+  > (pokemontcg.io, si aplica, como último recurso informativo)
+  > sin precio en ninguna fuente ⇒ celda «—» (null) + PRICE_PENDING     ← NUNCA 0 inventado
+```
+
+- **PPT baja a redundancia/fallback (versión gratis):** el barrido de PPT SOLO escribe `PriceReference` de una variante
+  cuando NO existe fila `tcgcsv_singles` fresca de esa variante en la ventana del día. Deja de ser el escritor primario.
+- El precio de **VENTA** (referencia × (1+markup)) y los **overrides de compra/venta** (`VariantPriceOverride`, M-30,
+  §4.26b) se resuelven IGUAL que hoy, sobre la referencia ya elegida por esta precedencia. Sin cambios.
+- **Sellado y gradeadas NO cambian:** el sellado sigue en `tcgcsv` sub-tipo `Normal` (§4.19); las gradeadas en PPT/
+  PokeTrace (§4.20). Esta sección es SOLO singles (`productType='raw'`).
+
+#### (g) Migración M-31 y qué pasa con M-29 / los `*Finishes` existentes
+
+Ver §11 (tabla M-31). Resumen de la transición:
+
+- **Backfill de `CardProduct`:** por cada `Card` con `tcgplayerId` numérico, crear un `CardProduct(kind=set_base,
+  tcgplayerProductId=Int(tcgplayerId), name=Card.name, finishes = Card.structuralFinishes ?? Card.availableFinishes)`.
+  Esto preserva la composición ya materializada por **M-29** como semilla del set_base; el `--force` por set la
+  REEMPLAZA con la lectura exacta de la fuente (donde el fantasma desaparece y aparecen los Deck Exclusives como
+  productos propios).
+- **`availableFinishes`** queda igual en forma (Finish[], no vacía, `FINISH_ORDER`); cambia su ORIGEN al recomputarse
+  desde `CardProduct`. Tras el re-sync por set, los `normal` fantasma de las premium desaparecen SIN el filtro
+  `isPremiumRarity` (porque el producto de set nunca trajo `Normal`).
+- **`structuralFinishes` / `catalogFinishes` / `pricedFinishesSnapshot`** quedan MUERTAS (dejan de leerse). No se
+  dropean en M-31 (reversibilidad: si hay que revertir el deploy, el resolver viejo aún las encuentra). Se dropean en
+  una migración posterior una vez validado en prod.
+- **`PriceReference` existentes** (source PPT/pokemontcg.io) siguen válidas: quedan con `cardProductId = null` hasta que
+  el re-sync por set las re-emita como `tcgcsv_singles` con su `cardProductId`. La precedencia (f) hace que la fila
+  TCGCSV, cuando exista, gane; la PPT queda como fallback. **Ninguna fila se borra** (money-safe: no se pierde precio).
+
+#### (h) Plan de verificación barato (por-set, ANTES del re-sync completo ~1.5h)
+
+El resolver corre como paso de `importSet` gateado a `--force`, así que **la validación por-set ya está soportada**
+por `POST /admin/catalog/sync {setId, force:true}` (P-12, §4.25c) — segundos, no la corrida completa. Secuencia
+exigida por el PO:
+
+1. Deploy de M-31 + código nuevo (sin dropear columnas muertas).
+2. `POST /admin/catalog/sync {setId: <Pitch Black>, force:true}` — corre `CardProductResolverService` sobre el grupo
+   24688 en segundos.
+3. **Criterios de aceptación observables en el binder Master Set de Pitch Black:**
+   - Las energías especiales (p. ej. «Voltaic Lightning Energy 084/084») muestran **2 casillas** (`holofoil`,
+     `reverse_holo`), **no 3** — el `normal` fantasma desapareció.
+   - El producto **«Deck Exclusives»** (707029) aparece como **su propio producto vendible/cotizable** con su
+     precio propio, separado de la carta de set.
+   - Los precios se muestran **por variante, reales** (TCGCSV marketPrice → MXN Banxico), y **«—» honesto** donde la
+     fuente no trae precio (nunca 0).
+4. Solo tras validar Pitch Black se autoriza el **re-sync completo** (`sync-all {force:true}`) para propagar a todos
+   los sets.
+
+#### (i) Impacto en el contrato de API
+
+Ver API_CONTRACT (Changelog v1.29). En una línea: `MasterSetCardCellDTO` y el cotizador ganan un arreglo
+`separateProducts: CardProductDTO[]` (los `deck_exclusive`/`promo` de la carta, cada uno con su `productId`, `kind`,
+`name`, `finishes` y precio por variante en MXN o `null`); `availableFinishes`/`variants[].marketReferenceMxnCents` no
+cambian de forma pero ahora son EXACTOS; `displayFinishes` queda DEPRECADO (= `availableFinishes`). Todo aditivo y
+money-safe (PRICE_PENDING, «—» = null preservados).
+
+#### (j) Riesgos y deuda (abiertos, para confirmar en implementación)
+
+- **R-1 (a confirmar en implementación):** ¿el producto «Deck Exclusives» 707029 cae en el MISMO `groupId` TCGCSV del
+  set (24688)? El diseño lo ASUME (el resolver solo fetchea el grupo del set). Si TCGplayer lo coloca en OTRO grupo
+  (p. ej. un grupo «Deck Exclusives» aparte), el resolver debe ampliar el fetch a grupos hermanos — se decide con la
+  evidencia del `--force` de Pitch Black. **Reversible.**
+- **R-2:** clasificación de `kind` por NOMBRE (substring) es heurística de STRING (no de rareza); un nombre atípico
+  puede caer en `other` y colgarse al binder como set_base. Fail-safe conservador (mejor una casilla de más visible que
+  un producto perdido); revisable con fixtures reales por set. **Reversible.**
+- **R-3:** el join por número normalizado para productos SIN ancla `tcgplayerId` hereda la ambigüedad de números
+  repetidos; se OMITE ante ambigüedad (money-safe) — puede dejar un Deck Exclusive sin colgar hasta poblar su ancla.
+  Observabilidad por log. **Reversible.**
+- **Deuda:** dropear las columnas muertas (`structuralFinishes`/`catalogFinishes`/`pricedFinishesSnapshot`) en
+  migración posterior tras validar prod; retirar el campo `displayFinishes` del contrato en la siguiente rev de front.
+  Anotar en `TECH_DEBT.md` (a petición del techlead; lo escribe el rol dueño del código).
+
+---
+
+### 4.28 Catálogo canónico de rarezas — que la rareza del ingest empate 1:1 con las reglas de precio del admin (v1.29, NORMATIVO)
+
+> **Propósito.** Requisito del dueño: «que las rarezas de las cartas empaten con lo que tenemos registrado en precios
+> admin». Hoy no empatan de forma fiable: `Card.rarity` guarda el **string CRUDO de pokemontcg.io SIN normalizar** y las
+> reglas de precio del admin se resuelven por **match EXACTO case-sensitive** contra ese string. Cualquier discrepancia
+> (mayúsculas, espacios, alias) cae al **fallback pct silenciosamente**. Esta sección define un **catálogo canónico y
+> autoritativo de rarezas**, compartido por catálogo, ingest y reglas de precio, para que toda rareza que produce el
+> ingest tenga forma canónica que empate 1:1 con las keys que el admin edita. Encaja con §4.27: el **finish sale del
+> producto (`CardProduct`), la rareza sale de la carta (`Card`)** — dos ejes limpios.
+
+#### (a) La causa raíz (diagnóstico, con evidencia)
+
+- `Card.rarity` se escribe **crudo** desde pokemontcg.io, sin normalizar: `catalog-sync.service.ts:464`
+  (`rarity: c.rarity ?? null`); taxonomía «String libre / abierta» (`schema.prisma:396`). **No existe capa de
+  normalización.**
+- Las reglas del admin (`BUYLIST_PRICE_RULES` / `SALES_PRICE_RULES` en `ConfigSetting`,
+  `settings.constants.ts:105-119`) se resuelven por **match EXACTO case-sensitive** de key de objeto contra ese string
+  crudo: `money.ts:309` — `candidates.find((k) => rules[k] != null)`, **sin `toLowerCase`/`trim`**.
+- El admin **NO captura rarezas a mano**: las hereda del catálogo vía `prisma.card.groupBy(['rarity'])`
+  (`pricing.controller.ts:286-289` y el eco de ventas). Así, una regla solo «engancha» si la key es **byte-idéntica**
+  al string de pokemontcg.io; si no, cae al fallback (`BUYLIST_PRICE_FALLBACK_PCT=40`, `SALES_PRICE_FALLBACK_PCT=15`,
+  `settings.constants.ts:110,122`) **sin aviso**.
+- El candidato existente **`RARITY_MAP`** (`settings.constants.ts:132-144`, endpoint `rarity-map`
+  `pricing.controller.ts:202-222`) está **DEPRECADO y desconectado** de la cotización (`settings.constants.ts:57-58`);
+  mapea a 3 categorías internas (`comun`/`reverse_holo`/`ex_plus`), no al eje de reglas por rareza vigente.
+
+#### (b) Catálogo canónico de rarezas (fuente única, compartida)
+
+Se define **`CANONICAL_RARITIES`** — un catálogo **cerrado y versionado** en `backend/src/common/` (zona compartida),
+la ÚNICA lista autoritativa de rarezas del sistema. Cada entrada es DATO (no regex dispersa):
+
+```ts
+// backend/src/common/rarity-catalog.ts (backend implementa; el arquitecto define la forma y la semántica)
+interface CanonicalRarity {
+  key: string;        // etiqueta canónica EXACTA = la key que el admin edita en las reglas (p. ej. "Rare Holo")
+  premium: boolean;   // ← ÚNICA definición de «premium/chase» del sistema (ver (e))
+  aliases: string[];  // formas NORMALIZADAS de pokemontcg.io que colapsan a esta canónica
+}
+```
+
+- La `key` canónica es **la misma cadena** con la que el admin edita `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES` ⇒ empate
+  1:1 por construcción.
+- `premium` vive en el CATÁLOGO (dato auditable), no en una regex — de él sale la unificación de (e).
+- El seed inicial cubre las rarezas modernas y clásicas que ya usa el negocio (Common, Uncommon, Rare, Rare Holo,
+  Reverse Holo, Double Rare, Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, Secret Rare, etc.),
+  reproduciendo el comportamiento de negocio vigente (los defaults de §E.1: Common/Uncommon fijo, el resto → fallback
+  pct). **Money-safe:** una rareza sin regla explícita sigue cayendo al fallback pct de forma **predecible y
+  auditable** — nunca un 0 inventado.
+
+#### (c) Normalizador `rawRarity → canonicalRarity` y DÓNDE se aplica
+
+Función pura **`normalizeRarity(raw: string | null): string | null`** (reemplaza el rol que RARITY_MAP nunca cumplió
+para la cotización):
+
+1. Forma normalizada: `lowercase` + `trim` + colapsar espacios + quitar no-alfanuméricos → clave de búsqueda.
+2. Busca esa clave en los `aliases` del catálogo ⇒ devuelve la `key` canónica.
+3. **Rareza no mapeada** (alias desconocido): devuelve una canónica **pass-through** (Title-case de la forma
+   normalizada) y la MARCA como `unmapped` (observabilidad) para que el admin la vea y le asigne regla; entretanto cae
+   al fallback pct predecible. **Nunca** se descarta ni se inventa precio.
+
+**Puntos de aplicación (los tres, defensa en profundidad):**
+
+- **INGEST (autoritativo):** en `upsertCards` (`catalog-sync.service.ts:464`) se sigue guardando `Card.rarity` CRUDO
+  (procedencia), y se escribe **un campo derivado nuevo `Card.rarityCanonical String?` = `normalizeRarity(c.rarity)`**
+  (migración **M-31**, §11). Es el campo que consumen precios y admin.
+- **ADMIN (la lista que el dueño edita):** `GET /admin/pricing/rarities` (y su eco de ventas) agrupan por
+  **`rarityCanonical`** (no por `rarity` crudo) — `pricing.controller.ts:286` cambia `by: ['rarity']` → `by:
+  ['rarityCanonical']`. Así la lista editable es EXACTAMENTE el conjunto canónico que produce el ingest ⇒ empate 1:1.
+- **LOOKUP (cinturón y tirantes):** el resolver de reglas usa `rarityCanonical` como entrada; además el `find` de
+  `money.ts:309` normaliza AMBOS lados (key de regla y rareza) antes de comparar, para que una regla legacy con key
+  cruda siga enganchando durante la transición. Cuando ambos lados son canónicos el match es directo.
+
+#### (d) Separar el eje RAREZA (carta) del eje ACABADO/finish (variante) en las reglas de precio
+
+Hoy las reglas son un `Record<string, Rule>` **plano** que MEZCLA keys de rareza (`Common`, `Uncommon`) con keys
+**sintéticas por-acabado** (`Holo`, `Reverse Holo`) que fabrica `ruleKeyCandidates` (`money.ts:228-251`). Esas keys
+sintéticas **no son valores de `Card.rarity`** (`settings.constants.ts:108,117,118`) y están **parcheadas a mano en el
+front** para no perderlas (`M2View.tsx:332-336,382-385,436-438`, INV-1). Con §4.27 (el finish sale del `CardProduct`,
+la rareza de la `Card`) esto se separa limpio en **dos ejes explícitos**:
+
+```ts
+interface PriceRuleSet {
+  rarityRules: Record<string /* CanonicalRarity.key */, Rule>;  // eje RAREZA (de la carta)
+  finishRules: Partial<Record<Finish, Rule>>;                    // eje ACABADO (de la variante/producto)
+  fallbackPct: number;
+}
+```
+
+- `rarityRules` keyeadas por **canónica** (Common, Uncommon, Rare Holo…). `finishRules` keyeadas por el **enum
+  `Finish`** (`reverse_holo`, `holofoil`…) — ya no por las cadenas sintéticas «Holo»/«Reverse Holo».
+- **Precedencia del resolver (misma semántica de negocio que hoy, sin colisión de strings):** para
+  `(canonicalRarity, finish)` — si `finish ∈ {reverse_holo, holofoil, first_edition_holofoil}` y existe `finishRules[finish]`,
+  aplica esa (salvo que la rareza sea `premium`, que cotiza por su `rarityRule`/fallback pct sobre el market de ese
+  acabado — la regla de `money.ts:238` se conserva); si no, aplica `rarityRules[canonicalRarity]`; si no, `fallbackPct`.
+  `ruleKeyCandidates` deja de fabricar keys sintéticas: pasa a devolver «¿regla de finish o de rareza?» sobre los dos
+  mapas.
+- **Retira el parche del front** (INV-1, `M2View.tsx`): con el eje de acabado explícito, el M2 edita `finishRules` como
+  su propia sección, sin inyectar keys sintéticas manualmente.
+- **Migración de datos (seed):** el `PriceRuleSet` inicial se obtiene partiendo el mapa plano actual — las keys `Holo`/
+  `Reverse Holo` migran a `finishRules[holofoil]`/`finishRules[reverse_holo]`; el resto migra a `rarityRules` con su key
+  canonicalizada. Reproduce EXACTAMENTE el resultado de negocio vigente (§E.1). Money-safe: rareza sin regla → fallback.
+
+#### (e) Una sola definición de «premium» (retira las DOS divergentes)
+
+Hoy hay **dos `isPremiumRarity` que dan verdictos OPUESTOS** sobre el mismo string:
+
+| String | `money.ts:206` (`PREMIUM_RARITY_PATTERNS`) | `ppt-sync-scope.ts:98` (`PREMIUM_RARITY_TERMS`) |
+|---|---|---|
+| `Rare Holo` | **NO** premium (no hay patrón `holo`) | **SÍ** premium (`'holo' ∈ TERMS`) |
+| `Double Rare` | **SÍ** premium (`/double\s*rare/`) | **NO** premium (no está en TERMS) |
+
+`card-order.ts:80,129` AFIRMA «una sola definición de premium en todo el sistema», pero está **roto**. Diseño:
+
+- **La verdad de «premium» es el atributo `premium` del catálogo canónico (b)** — DATO, no regex. Una sola función
+  **`isPremiumCanonicalRarity(canonicalKey): boolean`** lee ese atributo. Se define sobre la **rareza normalizada**, así
+  que un mismo string produce SIEMPRE el mismo verdicto en todo el sistema.
+- **Se RETIRAN** `PREMIUM_RARITY_PATTERNS` (`money.ts:182-200`) y `PREMIUM_RARITY_TERMS` (`ppt-sync-scope.ts:67-86`).
+  Ambos call-sites pasan a leer el catálogo.
+- **Los dos verdictos en conflicto** (`Rare Holo`, `Double Rare`) los resuelve el catálogo con UN valor por rareza
+  (decisión de negocio del PO, a fijar en el seed). **Salvedad honesta:** los dos usos ORIGINALES perseguían preguntas
+  distintas — `money.ts` = «¿cotiza por % en vez del bin fijo barato de bulk?» (gate de pricing del buylist);
+  `ppt-sync-scope.ts` = «¿vale gastar un crédito de API de paga para preciar esta carta en un set viejo?» (gate de
+  presupuesto de sync). Si el negocio confirma que necesitan UMBRALES distintos, NO se recrean dos regex secretas: se
+  definen como **predicados NOMBRADOS y documentados** sobre el catálogo canónico (p. ej. `isChaseForPricing` vs
+  `isWorthPaidLookup`), cada uno como una **lista explícita de canónicas** sobre la misma fuente — nunca dos
+  `isPremiumRarity` divergentes. **Decisión abierta R-4** (ver (g)): confirmar si es UN premium o dos umbrales
+  nombrados.
+
+#### (f) Migración M-31 (parte rareza) y money-safe
+
+Ver §11 (M-31). En resumen: `Card.rarityCanonical String?` nueva (nullable), backfill `UPDATE "Card" SET
+"rarityCanonical" = normalizeRarity("rarity")` (el backend corre el normalizador en el data-migration); `Card.rarity`
+CRUDO se conserva (procedencia). El seed de reglas migra a `PriceRuleSet` (rarity/finish). **Invariante money-safe
+intacta:** rareza sin regla explícita → fallback pct **predecible y auditable** (no un 0); la composición y el precio de
+variante de §4.27 no dependen de la rareza (el finish sale del producto), así que la normalización de rareza NO puede
+crear ni borrar casillas — solo afecta a QUÉ regla de precio engancha.
+
+#### (g) Riesgos y deuda (abiertos)
+
+- **R-4:** ¿«premium» es un solo atributo del catálogo, o dos predicados nombrados (`isChaseForPricing` vs
+  `isWorthPaidLookup`)? Decisión de negocio del PO; el diseño soporta ambas sin recrear regex. **Reversible.**
+- **R-5:** el seed del catálogo canónico debe cubrir las rarezas realmente presentes; una rareza nueva de un release
+  futuro entra como `unmapped` (fallback pct) hasta que se añada al catálogo — comportamiento predecible, visible al
+  admin. Anotar en `TECH_DEBT.md` el proceso de «añadir rareza nueva al catálogo».
+- **Deuda:** retirar definitivamente `RARITY_MAP` y el endpoint `rarity-map` (ya deprecados) una vez el catálogo
+  canónico esté en producción; retirar el parche INV-1 del front. A petición del techlead, lo anota el rol dueño.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -5655,6 +6103,30 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.29-tcgcsv-productos-por-variante (nueva — M-31: 1 carta ↔ N productos + rareza canónica)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-31** frente a cualquier otro stream que toque
+el schema. Es **aditiva** (tabla nueva `CardProduct` + enum `CardProductKind` + columnas nuevas nullable + un valor de
+enum + backfills `UPDATE`); **no** dropea columnas (las muertas de §4.27 se retiran en migración POSTERIOR, por
+reversibilidad). Segura con la app corriendo: hasta que el código nuevo despliegue nadie lee las columnas nuevas; el
+resolver por-set (`--force`) las puebla de forma determinista y money-safe. Spec en §4.27 (productos/variante) y §4.28
+(rareza canónica).
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-31 | `enum CardProductKind { set_base, deck_exclusive, promo, other }` | Enum nuevo | Create type | Naturaleza del producto TCGplayer bajo una carta de colección (§4.27b). |
+| M-31 | `model CardProduct` | Tabla nueva | Create table | `id`, `cardId` (FK), `tcgplayerProductId Int @unique` (ancla del join por productId EXACTO), `kind CardProductKind @default(set_base)`, `name String`, `finishes Finish[] @default([])` (subTypes de ESTE producto; nunca unidos con otro productId), `createdAt`, `updatedAt`. `@@index([cardId])`, `@@index([cardId, kind])`. **Backfill:** por cada `Card` con `tcgplayerId` numérico → 1 fila `set_base` con `finishes = structuralFinishes ?? availableFinishes` (semilla; el `--force` por set la REEMPLAZA con la lectura exacta de TCGCSV). |
+| M-31 | `Card.cardProducts CardProduct[]` | Relación inversa | (misma migración) | Solo navegación Prisma. |
+| M-31 | `Card.tcgplayerId` (ya existe) | **DEPRECADO** (no se dropea) | (n/a) | Reemplazado por `CardProduct.tcgplayerProductId`; se conserva como respaldo del backfill y reversibilidad. |
+| M-31 | `PriceReference.cardProductId String?` (+ relación) | Columna nueva nullable + FK | Add column | Se puebla para singles (precio por producto+acabado); `null` para graded/sealed. La `@@unique` pasa a `[cardId, productType, gradeKey, finish, capturedDate, cardProductId]` (§4.27b). |
+| M-31 | `enum PriceSource` += `tcgcsv_singles` | Valor de enum nuevo | Alter type add value | Primario de singles (distinto de `tcgcsv`, que es sellado). PPT/pokemontcg.io = fallback (§4.27f). |
+| M-31 | `Card.rarityCanonical String?` | Columna nueva nullable | Add column + backfill | `= normalizeRarity(Card.rarity)` (§4.28c). `Card.rarity` CRUDO se conserva (procedencia). **Backfill:** el backend corre el normalizador sobre las filas existentes. La consumen precios y el `groupBy` del admin. |
+
+> **Columnas que quedan MUERTAS (no se dropean en M-31, §4.27g):** `Card.structuralFinishes`, `Card.catalogFinishes`,
+> `Card.pricedFinishesSnapshot`. Se retiran en migración posterior tras validar en prod. **Sin cambios** en
+> `VariantPriceOverride` (M-30), `InventoryItem`, `Order`. El `PriceRuleSet { rarityRules, finishRules }` (§4.28d) es
+> reforma de la FORMA del valor JSON en `ConfigSetting` (dato, no schema) — migración de datos del seed, no de tabla.
 
 ### v1.28-stream-b-inventario-master-set (nueva — M-30: overrides y bounty por carta+variante)
 

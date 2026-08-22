@@ -2,7 +2,23 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-21 (rev v1.28.1-stream-b-precision).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.29-tcgcsv-productos-por-variante).
+>
+> **Changelog v1.29-tcgcsv-productos-por-variante (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend
+> implementan):** cambios ADITIVOS y money-safe (PRICE_PENDING y «—» = `null` preservados). Spec en ARCHITECTURE
+> §4.27 (composición+precio por `productId`) y §4.28 (rareza canónica). (1) **Producto vendible separado
+> («Deck Exclusives»/promo):** `MasterSetCardCellDTO` y el cotizador ganan `separateProducts?: CardProductDTO[]` — los
+> `CardProduct` de `kind ∈ {deck_exclusive, promo}` de la carta, cada uno con su `productId`, `kind`, `name`,
+> `finishes[]` y precio por variante (`marketReferenceMxnCents | null`). (2) **`availableFinishes` y
+> `variants[].marketReferenceMxnCents` no cambian de FORMA** pero ahora son EXACTOS (leídos por producto desde TCGCSV,
+> sin fantasma). (3) **`displayFinishes` queda DEPRECADO** (= `availableFinishes`; ya no hay casilla espuria que
+> ocultar; retiro en la siguiente rev de front). (4) **Precio de singles:** referencia = TCGCSV primario (USD→MXN vía
+> FX Banxico existente) › PPT fallback › «—» + PRICE_PENDING; `PriceSource` gana `tcgcsv_singles`. (5) **Rareza
+> canónica:** `GET /admin/pricing/rarities` (y su eco de ventas) agrupan por `rarityCanonical` (no por `rarity` crudo)
+> y devuelven `{ canonical, raw?, premium, rule?, source }`; las reglas se editan en DOS ejes
+> `PriceRuleSet { rarityRules, finishRules, fallbackPct }` (separa rareza-de-la-carta de acabado-de-la-variante;
+> retira el parche INV-1 del front con keys sintéticas `Holo`/`Reverse Holo`). Rareza sin regla → fallback pct
+> predecible y auditable, nunca 0. Detalle abajo en §DTOs y §M2.
 >
 > **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin endpoints
 > nuevos):** (1) **§M2 `variant-controls` / conteo de bounty:** `bountyAcquiredQty` cuenta SOLO ítems
@@ -1227,6 +1243,17 @@ MasterSetSummaryDTO  += { catalogVariantCount: number, distinctVariantsOwned: nu
                           variantCompletionPct: number | null }
 MasterSetCardCellDTO += { expectedVariantCount: number, coveredVariantCount: number,
                           variants: MasterSetVariantDTO[] }
+// v1.29 (ARCHITECTURE §4.27) — «1 carta ↔ N productos». CardProductDTO = un producto TCGplayer (== un productId)
+// bajo esta carta. Los productos de set (kind=set_base) alimentan availableFinishes/variants; los kind ∈
+// {deck_exclusive, promo} se exponen APARTE como productos vendibles/cotizables propios con su PROPIO precio.
+// marketReferenceMxnCents por acabado = null cuando no hay precio en ninguna fuente («—», nunca 0). displayFinishes
+// queda DEPRECADO (= availableFinishes; ya no hay casilla espuria que ocultar tras §4.27).
+CardProductDTO = { productId: number, kind: "set_base" | "deck_exclusive" | "promo" | "other", name: string,
+                   finishes: Finish[],
+                   prices: { finish: Finish, marketReferenceMxnCents: number | null, capturedDate?: string | null }[] }
+// separateProducts = SOLO los kind ∈ {deck_exclusive, promo} de la carta (los set_base ya están en variants).
+// Ausente/[] cuando la carta no tiene productos separados (el caso común).
+MasterSetCardCellDTO += { separateProducts?: CardProductDTO[] }
 MasterSetIndexResponse  += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
 MasterSetBinderResponse += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
 // ----- Lista de clientes con bóveda (GET /admin/vaults) -----
@@ -3189,20 +3216,32 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 > Reemplaza `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
 > referencia)** + un **fallback %** para rarezas sin regla. Toda edición se **audita** (M10). Ver ARCHITECTURE §4.2.
 
-- `GET /api/v1/admin/pricing/rarities` — **(NUEVO)** lista las **rarezas distintas del catálogo sincronizado**
-  (`distinct Card.rarity`) **unidas** a las reglas configuradas, para poblar el editor. Devuelve tanto rarezas
-  con regla explícita como rarezas del catálogo aún sin regla (que muestran el fallback).
+- `GET /api/v1/admin/pricing/rarities` — **(NUEVO)** lista las **rarezas CANÓNICAS del catálogo sincronizado**
+  **unidas** a las reglas configuradas, para poblar el editor. Devuelve tanto rarezas con regla explícita como
+  rarezas del catálogo aún sin regla (que muestran el fallback).
+  > **v1.29 (ARCHITECTURE §4.28):** agrupa por **`Card.rarityCanonical`** (no por `Card.rarity` crudo) ⇒ la lista que
+  > el admin edita empata **1:1** con la forma canónica que produce el ingest. Cada entrada añade `raw?` (una forma
+  > cruda observada, para diagnóstico), `canonical` (la key editable), `premium` (del catálogo canónico, §4.28e) y
+  > `mapped` (`false` = rareza `unmapped` aún sin entrada en el catálogo canónico → cae al fallback pct de forma
+  > predecible; visible para que el admin la resuelva). El campo `rarity` se conserva como ALIAS de `canonical`
+  > (compat) y queda DEPRECADO.
   Res `200`:
   ```json
   { "fallbackPct": 40,
     "rarities": [
-      { "rarity": "Common",           "cardCount": 1234, "rule": { "mode": "fixed", "value": 50  }, "source": "rule" },
-      { "rarity": "Illustration Rare", "cardCount": 87,   "rule": { "mode": "pct",   "value": 40  }, "source": "fallback" }
+      { "canonical": "Common",           "raw": "Common",           "premium": false, "mapped": true,  "cardCount": 1234, "rule": { "mode": "fixed", "value": 50 }, "source": "rule" },
+      { "canonical": "Illustration Rare", "raw": "Illustration Rare", "premium": true,  "mapped": true,  "cardCount": 87,   "rule": { "mode": "pct",   "value": 40 }, "source": "fallback" }
     ] }
   ```
-  - `cardCount` = nº de cartas del catálogo con esa rareza. `source="rule"` si hay fila explícita en
-    `BUYLIST_PRICE_RULES`; `source="fallback"` si la rareza existe en el catálogo pero aún no tiene regla (muestra
+  - `cardCount` = nº de cartas del catálogo con esa rareza canónica. `source="rule"` si hay fila explícita en
+    `rarityRules`; `source="fallback"` si la rareza existe en el catálogo pero aún no tiene regla (muestra
     `{ mode:"pct", value: fallbackPct }`). Ordenado por `cardCount` desc (rarezas más frecuentes primero).
+  - **Reglas en DOS ejes (v1.29, §4.28d):** las reglas dejan de ser un mapa plano que mezcla rareza y acabado. Pasan a
+    `PriceRuleSet { rarityRules: { [canonicalRarity]: Rule }, finishRules: { [finish]: Rule }, fallbackPct }`. El eje
+    `finishRules` (keyeado por el enum `Finish`: `reverse_holo`, `holofoil`, `first_edition_holofoil`) **reemplaza** las
+    keys sintéticas `Holo`/`Reverse Holo` del mapa plano y **retira el parche INV-1 del front**. La precedencia de
+    resolución (finish-rule vs rarity-rule vs fallback) conserva la semántica de negocio vigente. Money-safe: rareza sin
+    regla → fallback pct predecible y auditable, nunca 0.
 - `GET /api/v1/admin/pricing/buylist-rules` — **(NUEVO)** lee la tabla cruda + fallback.
   Res `200`: `{ rules: { [rarity: string]: BuylistRule }, fallbackPct: number }`
   (ej. `{ "rules": { "Common": { "mode":"fixed","value":50 }, "Reverse Holo": { "mode":"fixed","value":150 } }, "fallbackPct": 40 }`).
@@ -3212,8 +3251,15 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     **número en `[0, 100]`**; `fallbackPct` **número en `[0, 100]`**. `rules` debe ser objeto (no array).
   - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.buylist_rules.update`, con
     `before`/`after`). **Surte efecto sin redeploy** (criterio 12b). Err `422 VALIDATION_ERROR` (modo/valor/rango inválidos).
+  > **v1.29 (§4.28d) — dos ejes:** `buylist-rules` (y su análogo de ventas) evolucionan de `{ rules, fallbackPct }`
+  > (mapa plano rareza∪acabado) a `PriceRuleSet { rarityRules, finishRules, fallbackPct }`. `rarityRules` keyeadas por
+  > **rareza canónica**; `finishRules` keyeadas por el enum **`Finish`**. El seed migra las keys `Holo`/`Reverse Holo`
+  > a `finishRules[holofoil]`/`finishRules[reverse_holo]` y canonicaliza las demás; reproduce EXACTAMENTE el negocio
+  > vigente. La validación de `Rule` (`mode ∈ {fixed,pct}`, rangos) no cambia. **Auditado**, sin redeploy.
 - **DEPRECADOS (v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` — la cotización ya **no** los usa; se
-  conservan como no-op/legacy hasta su retiro. El editor nuevo consume `rarities` + `buylist-rules`.
+  conservan como no-op/legacy hasta su retiro (v1.29 confirma el retiro: el normalizador `rawRarity→canonical` de
+  §4.28c sustituye su rol; `RARITY_MAP` sale con el catálogo canónico en producción). El editor nuevo consume
+  `rarities` + `buylist-rules`.
 
 #### Precio de VENTA por RAREZA (v1.13-sales-pricing — NUEVO backend; editor M2)
 > **Análogo al de buylist** (arriba), pero para el **precio de VENTA** (lo que se cobra en Compra/checkout).
