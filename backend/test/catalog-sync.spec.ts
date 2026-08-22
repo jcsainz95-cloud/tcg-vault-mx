@@ -1,4 +1,5 @@
 import { CatalogSyncService, SET_ID_PATTERN } from '../src/modules/catalog/catalog-sync.service';
+import { BusinessException } from '../src/common/business.exception';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PokemonTcgIoClient } from '../src/modules/catalog/pokemontcg-io.client';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -91,6 +92,24 @@ describe('CatalogSyncService.sync — set puntual, upsert idempotente', () => {
     expect(prisma.card.upsert).toHaveBeenCalledTimes(4);
     const allCardWheres = prisma.card.upsert.mock.calls.map((c: any) => c[0].where.externalId);
     expect(allCardWheres).toEqual(['sv8-1', 'sv8-2', 'sv8-1', 'sv8-2']);
+  });
+
+  it('fallo upstream de pokemontcg.io (HTTP 5xx) → 502 UPSTREAM_ERROR accionable (no 500 crudo)', async () => {
+    const prisma = buildPrisma();
+    // El cliente lanza un Error crudo como el real (`pokemontcg.io ... -> HTTP 500`).
+    const client = {
+      getCardsBySet: jest.fn(async () => {
+        throw new Error('pokemontcg.io /cards?q=set.id:sv8 -> HTTP 500');
+      }),
+      getSets: jest.fn(),
+    } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
+
+    // Degradado elegante: 502 BAD_GATEWAY con code UPSTREAM_ERROR, no un 500 no manejado.
+    const err = await svc.sync('sv8').catch((e) => e);
+    expect(err).toBeInstanceOf(BusinessException);
+    expect((err as BusinessException).code).toBe('UPSTREAM_ERROR');
+    expect((err as BusinessException).getStatus()).toBe(502);
   });
 
   it('setId remoto sin cartas → setsQueued 0 (no importado)', async () => {

@@ -4,6 +4,49 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-ter. fix/variant-composition-regression — robustez del sync por-set ante fallos de fuentes externas
+
+> Rama `fix/variant-composition-regression`. Dos arreglos de **bajo riesgo**, reversibles y
+> **money-safe** (fase de METADATA, no tocan precios). Solo `backend/`. Diagnóstico previo con
+> archivo:línea.
+
+**FIX 1 — `User-Agent` identificable en el cliente HTTP base de TCGCSV.**
+- Archivo: `backend/src/modules/pricing/providers/tcgcsv-http.client.ts` (método `getJson`, ~línea 37).
+- Antes: la request a `tcgcsv.com/tcgplayer/...` mandaba **solo** `Accept: application/json` y NINGÚN
+  `User-Agent` → varias CDNs devuelven 401/403 al UA por defecto de Node/undici. En prod,
+  `tcgcsv.com/tcgplayer/3/24688/products` devolvió **HTTP 401**.
+- Ahora: `headers: { Accept: 'application/json', 'User-Agent': 'tcg-vault-mx/1.0 (+https://tcghunt.mx)' }`.
+- Alcance: este cliente es la **base COMPARTIDA** de singles Y sellado (`TcgcsvCatalogClient` +
+  `TcgcsvSealedBulkProvider`), así que el UA aplica por igual a ambos — es lo correcto. Sin cambio de
+  seguridad (host fijo, `redirect:'error'`, timeout, anti-SSRF intactos).
+
+**FIX 2 — degradado elegante del 5xx de pokemontcg.io en el sync single (500 crudo → 502 accionable).**
+- Archivo: `backend/src/modules/catalog/catalog-sync.service.ts`, método `importSetByExternalId`
+  (llamado por `sync(setId)` — el botón por-set de M2).
+- Antes: cuando pokemontcg.io caía (HTTP 500/502), el `Error` crudo del cliente
+  (`pokemontcg.io ... -> HTTP 5xx`) subía **sin manejar** y salía como **500 "Error del servidor"**, a
+  diferencia de `remoteSets()` que SÍ degrada.
+- Ahora: nuevo helper privado `withUpstreamGuard<T>()` envuelve las dos llamadas upstream
+  (`client.getCardsBySet(setId, 1)` y `importRemainingPages(...)`) y remapea cualquier fallo NO-Business a
+  `BusinessException(UPSTREAM_ERROR, HttpStatus.BAD_GATEWAY /* 502 */, "Fuente pokemontcg.io no disponible
+  (HTTP 5xx); reintenta en unos minutos (...)")`. Una `BusinessException` que ya venga (p. ej.
+  `VALIDATION_ERROR` del setId) se **PRESERVA** (no se re-envuelve). Money-safe: es fase de metadata.
+- Test añadido: `backend/test/catalog-sync.spec.ts` — «fallo upstream de pokemontcg.io (HTTP 5xx) → 502
+  UPSTREAM_ERROR accionable»: el cliente lanza `Error('... -> HTTP 500')` y se verifica
+  `BusinessException` con `code=UPSTREAM_ERROR` y `getStatus()===502` (no 500 crudo).
+
+**⚠️ PENDIENTE PARA EL ARQUITECTO — formalizar `UPSTREAM_ERROR` en el enum central.**
+- `UPSTREAM_ERROR` (502) YA está en el contrato (§M2, explorador TCGCSV) y en uso vigente en
+  `sealed-pricing.controller.ts` mediante el **mismo patrón** `const UPSTREAM_ERROR = 'UPSTREAM_ERROR' as
+  ErrorCodeType`. Aquí se replicó ese cast en `catalog-sync.service.ts` para NO cambiar el contrato ni la
+  zona compartida `common/error-codes.ts` desde este hotfix. **Follow-up de 1 línea**: añadir
+  `UPSTREAM_ERROR` a `ErrorCode` en `common/error-codes.ts` y quitar los dos casts (sealed + catalog-sync).
+  No bloquea el hotfix.
+
+**Gates (números reales, esta rama):** `tsc --noEmit` OK · `eslint` OK · `nest build` OK ·
+`jest` **151 suites / 1415 tests verdes** (1414 previos + 1 nuevo). No se despliega (lo coordina el
+orquestador).
+
 ## 0-bis. v1.30-buylist-quote-por-producto — LÍNEA de buylist por `productId` (M-32)
 
 > Implementa ARCHITECTURE §4.29 y el Changelog v1.30 de API_CONTRACT. Rama

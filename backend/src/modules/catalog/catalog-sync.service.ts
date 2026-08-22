@@ -1,6 +1,7 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
+import type { ErrorCodeType } from '../../common/error-codes';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.client';
@@ -13,6 +14,13 @@ import { CardProductResolverService } from './card-product-resolver.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/**
+ * `UPSTREAM_ERROR` (502) es el MISMO patrón vigente del explorador de sellado
+ * (`sealed-pricing.controller.ts`): está en el contrato (§M2) pero aún no en
+ * `common/error-codes.ts` (zona compartida serializada a otro stream). Se tipa aquí por cast;
+ * formalizarlo en `ErrorCode` es un follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
+ */
+const UPSTREAM_ERROR = 'UPSTREAM_ERROR' as ErrorCodeType;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
 
@@ -325,7 +333,7 @@ export class CatalogSyncService {
     setId: string,
     opts: { force?: boolean } = {},
   ): Promise<{ imported: boolean; cardCount: number }> {
-    const first = await this.client.getCardsBySet(setId, 1);
+    const first = await this.withUpstreamGuard(() => this.client.getCardsBySet(setId, 1));
     if (!first.data || first.data.length === 0) {
       return { imported: false, cardCount: 0 };
     }
@@ -337,7 +345,9 @@ export class CatalogSyncService {
         ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
         : false;
     let cardCount = await this.upsertCards(first.data, localSet.id);
-    cardCount += await this.importRemainingPages(setId, localSet.id, first);
+    cardCount += await this.withUpstreamGuard(() =>
+      this.importRemainingPages(setId, localSet.id, first),
+    );
     if (firstImport || opts.force === true) {
       await this.runCardProductResolver(localSet.id, setId);
     }
@@ -350,6 +360,27 @@ export class CatalogSyncService {
    * aborta el import (las cartas conservan su `structuralFinishes` seed/previo). No-op si el
    * resolver no está cableado (`@Optional`, tests de metadata).
    */
+  /**
+   * Degradado elegante del fallo upstream de pokemontcg.io (bug prod): un 500/502 crudo del cliente
+   * (`Error: pokemontcg.io ... -> HTTP 5xx`) subía como **500 no manejado** ("Error del servidor"),
+   * a diferencia de `remoteSets()` que SÍ degrada. Aquí se remapea a un **502 BAD_GATEWAY**
+   * accionable (`UPSTREAM_ERROR`), replicando el patrón del explorador TCGCSV
+   * (`sealed-pricing.controller.ts`). Una `BusinessException` que ya venga (p. ej. VALIDATION_ERROR)
+   * se PRESERVA (no se re-envuelve). Money-safe: es fase de METADATA, no toca precios.
+   */
+  private async withUpstreamGuard<T>(op: () => Promise<T>): Promise<T> {
+    try {
+      return await op();
+    } catch (e) {
+      if (e instanceof BusinessException) throw e;
+      throw new BusinessException(
+        UPSTREAM_ERROR,
+        HttpStatus.BAD_GATEWAY,
+        `Fuente pokemontcg.io no disponible (HTTP 5xx); reintenta en unos minutos (${(e as Error).message})`,
+      );
+    }
+  }
+
   private async runCardProductResolver(localSetId: string, setExternalId: string): Promise<void> {
     if (this.cardProductResolver == null) return;
     try {
