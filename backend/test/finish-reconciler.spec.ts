@@ -16,7 +16,9 @@ import {
  *   availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot)
  *                                       − { normal | isPremiumRarity(rarity) } ) || ['normal']
  *
- * El log `pricedNotStructural` se conserva como OBSERVABILIDAD del drift proveedor↔estructura.
+ * La observabilidad del drift proveedor↔estructura se parte por señal: el acabado del snapshot que
+ * SÍ compone (camino feliz, reverse recuperado) va a `debug` (`snapshotRecovered`); solo el que la
+ * composición DESCARTA (anómalo, `normal` fantasma en premium) va a `warn` (`pricedNotStructural`).
  * Estas pruebas cubren: (1) la FUNCIÓN PURA (los 6 worked examples de §4.25e con los datos REALES de
  * Pitch Black); (2) el ÚNICO escritor `FinishReconciler` (común recupera reverse del snapshot, ex
  * pierde el `normal` stale, secret rare nunca `normal`, fallback vacío ⇒ `['normal']`, lee rareza y
@@ -170,26 +172,55 @@ describe('FinishReconciler — ÚNICO escritor de Card.availableFinishes (§4.25
     });
   });
 
-  it('OBSERVABILIDAD (§4.25e): snapshot ∖ structural ≠ ∅ ⇒ log `pricedNotStructural` (aunque el snapshot ahora componga)', async () => {
+  it('OBSERVABILIDAD (§4.25e) camino feliz: snapshot ∖ structural que SÍ compone ⇒ `debug` (snapshotRecovered), NO `warn`', async () => {
     // struct=[holofoil], snap=[holofoil,reverse_holo] en un común ⇒ availableFinishes recomputado =
     // [reverse_holo, holofoil] (orden canónico). Ya está en su valor ⇒ idempotente; el reverse (no
-    // estructural) se loguea como drift.
+    // estructural) SÍ compone ⇒ es el reverse recuperado (§4.25e): se traza a `debug`, no ensucia `warn`.
     const prisma = prismaMock([
       { id: 'db-drift', rarity: 'Common', structuralFinishes: ['holofoil'], pricedFinishesSnapshot: ['holofoil', 'reverse_holo'], availableFinishes: ['reverse_holo', 'holofoil'] },
     ]);
     const reconciler = new FinishReconciler(prisma);
     const warnSpy = jest.spyOn((reconciler as any).logger, 'warn').mockImplementation(() => {});
+    const debugSpy = jest.spyOn((reconciler as any).logger, 'debug').mockImplementation(() => {});
 
     const changed = await reconciler.reconcile(['db-drift']);
 
-    // availableFinishes ya está en su valor recomputado ⇒ idempotente, pero el drift queda logueado.
+    // availableFinishes ya está en su valor recomputado ⇒ idempotente; el reverse recuperado va a debug.
     expect(changed).toBe(0);
     expect((prisma as any).card.update).not.toHaveBeenCalled();
-    const logged = warnSpy.mock.calls.map(([m]) => String(m)).join('\n');
-    expect(logged).toContain('pricedNotStructural');
-    expect(logged).toContain('db-drift:reverse_holo');
-    expect(logged).not.toContain('db-drift:holofoil'); // holofoil SÍ es estructural: no es drift
+    const debugged = debugSpy.mock.calls.map(([m]) => String(m)).join('\n');
+    expect(debugged).toContain('snapshotRecovered');
+    expect(debugged).toContain('db-drift:reverse_holo');
+    expect(debugged).not.toContain('db-drift:holofoil'); // holofoil SÍ es estructural: no es drift
+    // El camino feliz NO debe emitir warn (no hay acabado descartado por la composición).
+    expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+
+  it('OBSERVABILIDAD (§4.25e) anomalía: snapshot trae `normal` fantasma en premium ⇒ la composición lo DESCARTA ⇒ `warn` (pricedNotStructural)', async () => {
+    // struct=[holofoil], snap=[holofoil,normal] en una premium ⇒ el `normal` (no estructural) NO
+    // compone (filtro §4.25e-1) ⇒ drift genuino proveedor↔estructura: se emite a `warn`.
+    const prisma = prismaMock([
+      { id: 'db-ghost', rarity: 'Double Rare', structuralFinishes: ['holofoil'], pricedFinishesSnapshot: ['holofoil', 'normal'], availableFinishes: ['holofoil'] },
+    ]);
+    const reconciler = new FinishReconciler(prisma);
+    const warnSpy = jest.spyOn((reconciler as any).logger, 'warn').mockImplementation(() => {});
+    const debugSpy = jest.spyOn((reconciler as any).logger, 'debug').mockImplementation(() => {});
+
+    const changed = await reconciler.reconcile(['db-ghost']);
+
+    // availableFinishes=[holofoil] ya es el valor recomputado (el normal se filtra) ⇒ idempotente.
+    expect(changed).toBe(0);
+    const warned = warnSpy.mock.calls.map(([m]) => String(m)).join('\n');
+    expect(warned).toContain('pricedNotStructural');
+    expect(warned).toContain('db-ghost:normal'); // descartado por la composición ⇒ anómalo ⇒ warn
+    expect(warned).not.toContain('db-ghost:holofoil'); // holofoil SÍ es estructural: no es drift
+    // El `normal` fantasma NO es camino feliz: no debe aparecer en debug.
+    const debugged = debugSpy.mock.calls.map(([m]) => String(m)).join('\n');
+    expect(debugged).not.toContain('db-ghost:normal');
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
   });
 
   it('IDEMPOTENTE: si el valor recomputado ya coincide, NO escribe (cero writes)', async () => {

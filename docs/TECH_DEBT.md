@@ -2958,3 +2958,77 @@
   `<QuotedAmount>`/`formatQuoted` compartido en la propia carpeta de la ruta (no en `components/`
   globales: es zona compartida y el uso es local a buylist), y que los 3 archivos lo consuman —
   incluida la condición del total, definida una sola vez.
+
+### Fix `fix/variant-composition-regression` (§4.25e) — deuda del veredicto techlead (2026-08-22, no bloqueante)
+
+> Del gate techlead del **fix de la regresión de composición de variantes** (la unión `structural ∪
+> pricedFinishesSnapshot` VUELVE, menos `normal` cuando la rareza es premium — §4.25e, deroga §4.25a-1).
+> Veredicto **APROBADO con deuda anotada**. La lógica de composición ya pasó gate y NO se toca aquí. Los
+> ítems `VC-D*` de abajo son no bloqueantes; dueño **backend** o **arquitecto** donde se anota. Registrados
+> a petición del techlead sin tocar la lógica de composición. Detalle del arreglo del log en
+> `docs/BACKEND_NOTES.md`.
+
+### VC-D1 · Mensaje `pricedNotStructural` contradictorio bajo §4.25e — RESUELTA (este commit)
+- **Dónde:** `backend/src/modules/catalog/finish-reconciler.service.ts` (`reconcile`, bloque de logging).
+- **Estado (2026-08-22):** **resuelta.** El `logger.warn` previo decía que el snapshot «NO compone la lista
+  blanca (§4.25a); es drift proveedor↔estructura» — texto FALSO bajo §4.25e (con el fix el snapshot SÍ
+  compone; es lo que recupera el reverse holo del común) y que además se disparaba en el **camino feliz**
+  (cada común de set nuevo logueaba su reverse recuperado como «drift» → ruido inútil en `warn`). Fix
+  (solo logging, sin tocar la composición): la observabilidad `snapshot ∖ structural` se parte por SEÑAL en
+  dos buckets — (a) acabado que **SÍ compone** (camino feliz, reverse recuperado) ⇒ traza a **`debug`**
+  (`snapshotRecovered`), no ensucia `warn`; (b) acabado que la composición **DESCARTÓ** (anómalo, hoy
+  `normal` fantasma en rareza premium filtrado por §4.25e-1) ⇒ **`warn`** (`pricedNotStructural`) con texto
+  veraz. Tests actualizados en `test/finish-reconciler.spec.ts` (camino feliz→debug + caso anómalo→warn).
+  Entrada conservada como registro histórico/trazabilidad.
+
+### VC-D2 · La afirmación «el único acabado colado de más es normal-en-premium» deja fuera dos clases residuales (Media, arquitecto)
+- **Dónde:** doctrina de §4.25e (contrato/arquitectura) vs. `composeAvailableFinishes`
+  (`backend/src/common/card-order.ts`) + `isPremiumRarity` (`backend/src/common/money.ts`).
+- **Estado actual:** el filtro estructural de §4.25e solo quita `normal` cuando `isPremiumRarity(rarity)`.
+  La afirmación «el único acabado colado de más es el `normal`-en-premium» deja fuera **dos clases
+  residuales pre-existentes** (NO regresión de este fix):
+  - **Clase A — `normal` fantasma en rareza holo-only NO-premium:** rarezas holo-only que `isPremiumRarity`
+    **no** cubre (p.ej. `Rare Holo` plano, `ACE SPEC Rare`, `LV.X`, `Prime`, `BREAK`) que arrastran un
+    `normal` STALE de M-29 en cartas que **NO** joinean TCGCSV. Como no son «premium» por el proxy de
+    rareza, el filtro no las limpia → conservan la casilla `normal` fantasma.
+  - **Clase B — fantasma NO-normal desde el snapshot:** un `holofoil`/`reverse` espurio inyectado por el
+    snapshot que el filtro (solo-`normal`) **no** toca. Mitigado hoy por el gate de escritura del snapshot
+    (`market>0 && verified && !forced`), no por la composición.
+- **Impacto:** medio (correctness de whitelist / SEC-A1). Ambas clases materializan una casilla vendible de
+  más; acotadas hoy por los gates aguas arriba, pero la doctrina las declara imposibles cuando no lo son.
+- **Disparador:** al endurecer la whitelist o antes de ampliar el catálogo a eras/rarezas holo-only antiguas.
+  Dirección: **documentar por qué no ocurren** (invariantes aguas arriba que las neutralizan) **o sustituir
+  el proxy de rareza por un invariante estructural** (no «premium ⇒ sin normal», sino «holo-only ⇒ sin
+  normal»). **Enrutar al arquitecto** (define la taxonomía/doctrina §4.25e).
+
+### VC-D3 · `isPremiumRarity` tiene 3 dueños con asimetrías de costo distintas (Media, arquitecto/backend)
+- **Dónde:** `backend/src/common/money.ts` → `PREMIUM_RARITY_PATTERNS` / `isPremiumRarity`, consumido por:
+  buylist (Fase 0.1, `ruleKeyCandidates`), N-15 display (`computeDisplayFinishes`) y el filtro de whitelist
+  (`composeAvailableFinishes`, §4.25e).
+- **Estado actual:** el mismo clasificador alimenta 3 rutas con **asimetrías de costo opuestas**: en
+  **buylist** sobre-incluir es inocuo/costo acotado (a lo sumo paga % de mercado de más); en **N-15 display**
+  es benigno (solo oculta casillas sin precio); pero en el **filtro whitelist** sobre-incluir **BORRA** la
+  casilla `normal` (quita un acabado vendible). Un cambio de patrones motivado por buylist (p.ej. ampliar
+  para cotizar mejor una chase) puede, **en silencio**, alterar la whitelist y borrar un `normal` legítimo.
+- **Impacto:** medio/latente. Correctness OK hoy; el riesgo es un cambio de patrón bien intencionado en un
+  consumidor que regrese otro sin señal del compilador ni de un test.
+- **Disparador:** **al próximo toque de `PREMIUM_RARITY_PATTERNS`.** Dirección: (1) **test de invariante**
+  «premium ⇒ sin `normal` legítimo» (tabla de rarezas premium reales que NUNCA existen en `normal`) que
+  falle si un patrón nuevo captura una rareza que sí tiene `normal`; (2) **advertencia** en la definición de
+  `PREMIUM_RARITY_PATTERNS` de que la función tiene 3 dueños con costos asimétricos (el de whitelist borra).
+  Coordinar **arquitecto** (taxonomía) + **backend** (test/comentario).
+
+### VC-D4 · Doctrina money-safe contradictoria en los comentarios de `card-order.ts` (Baja, backend)
+- **Dónde:** `backend/src/common/card-order.ts` → `composeAvailableFinishes` (comentarios del fallback
+  `|| ['normal']` y de la rama `isPremiumRarity(null) === false`).
+- **Estado actual:** los comentarios justifican **dos cosas opuestas con la misma etiqueta «fail-closed»**:
+  el fallback `|| ['normal']` se defiende como «mejor que falte una casilla a que sobre una falsa» (fail-closed
+  = **sub**-incluir), mientras la rama `rarity=null` se defiende como lo contrario, «conservar la casilla
+  dudosa» (= **sobre**-incluir el `normal`). Ambas son correctas en su contexto, pero el texto no aclara
+  **cuál doctrina aplica dónde** ni por qué difieren (una es «conjunto vacío ⇒ semilla mínima»; la otra es
+  «no clasifico la rareza ⇒ no me atrevo a borrar»).
+- **Impacto:** nulo funcional; solo claridad. Un lector puede creer que hay una contradicción de diseño.
+- **Disparador:** **próximo toque de `card-order.ts`.** Dirección: aclarar en cada comentario el eje de la
+  decisión — fallback = «nunca emitir whitelist vacía» (materializa una casilla mínima recomputable); rama
+  `null` = «sin rareza no hay evidencia para borrar un `normal` posiblemente legítimo» — de modo que quede
+  explícito que no compiten (aplican a fases distintas de la composición).

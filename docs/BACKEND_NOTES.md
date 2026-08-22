@@ -5532,3 +5532,29 @@ availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapsh
 - `npm test` → **149 suites / 1405 tests VERDE**.
 - `npm run test:integration` (setup §8, `E2E_STRICT_INFRA=true`) → **9 suites / 124 tests VERDE**
   (incl. `infra-smoke` con S3 real).
+
+### Cierre del gate techlead — arreglo del log contradictorio (2026-08-22, solo logging)
+> Techlead APROBÓ el fix CON DEUDA y pidió, antes de merge, corregir el mensaje del log (barato). Solo se
+> tocó el **logging** del reconciliador; la lógica de composición (ya aprobada) NO cambió.
+- **Problema:** el `logger.warn` de `pricedNotStructural` decía que el snapshot «NO compone la lista blanca
+  (§4.25a); es drift proveedor↔estructura». Bajo §4.25e eso es **falso** (el snapshot SÍ compone: es lo que
+  recupera el reverse holo del común) y además se disparaba en el **camino feliz** — cada común de set nuevo
+  logueaba su reverse recuperado como «drift» → spam inútil en `warn`.
+- **Fix (`finish-reconciler.service.ts`, `reconcile`):** la observabilidad `snapshot ∖ structural` se parte
+  por SEÑAL en dos buckets:
+  - **`snapshotRecovered` → `logger.debug`:** el acabado del snapshot sin respaldo estructural que **SÍ
+    compone** (`f ∈ next`) — camino feliz esperado (§4.25e recupera el reverse del común); trazado a `debug`
+    para no ensuciar `warn`.
+  - **`pricedNotStructural` → `logger.warn`:** el acabado del snapshot sin respaldo estructural que la
+    composición **DESCARTÓ** (`f ∉ next`, hoy `normal` fantasma en rareza premium filtrado por §4.25e-1) —
+    drift genuino proveedor↔estructura, con texto veraz.
+- **Tests (`test/finish-reconciler.spec.ts`):** la prueba de observabilidad se dividió en dos — (1) camino
+  feliz (común con reverse en snapshot) ⇒ `debug`/`snapshotRecovered` y `warn` NO llamado; (2) anomalía
+  (`normal` fantasma en `Double Rare`) ⇒ `warn`/`pricedNotStructural`. Comentario del header actualizado.
+- **Deuda del veredicto** registrada en `docs/TECH_DEBT.md`: VC-D1 (este arreglo, RESUELTA), VC-D2 (dos
+  clases residuales fuera de la doctrina §4.25e → arquitecto), VC-D3 (`isPremiumRarity` con 3 dueños
+  asimétricos → arquitecto/backend), VC-D4 (aclarar doctrina money-safe en comentarios de `card-order.ts`).
+- **Integración:** NO se re-corrió — no se tocó lógica de negocio ni endpoints, solo nivel/texto de logs y
+  sus tests unitarios.
+- **Gates:** `npm run typecheck` limpio · `npm run lint` 0 warnings · `npm test` → **149 suites / 1406 tests
+  VERDE** (el test único de observabilidad se dividió en dos sub-casos camino-feliz/anomalía: 1405 → 1406).
