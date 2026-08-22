@@ -4436,3 +4436,164 @@ i18n: `common.appName` = «TCG HUNT», nuevas `brand.name/domain/homeAria` y `fo
 
 Verificación: `tsc --noEmit` limpio; lint limpio; vitest 526/526 (520 previos + 6 del logo);
 Playwright `inventory-stream-b.spec.ts` + `admin.spec.ts` 13/13.
+
+## Stream C · Cotizador v2 (P-14 + P-16, DESIGN_SYSTEM §18 v1.8) — 2026-08-21
+
+El cotizador público (`/buylist`) se redistribuye según §18: el carrito lateral fijo de 360px
+desaparece y se convierte en drawer flotante disparado por un FAB con contador; la grilla
+recupera todo el ancho con la MISMA densidad del binder M1; el distintivo de variante (P-14)
+llega al cotizador reutilizando `FinishMark`/`FinishBand` §16.6 TAL CUAL (cero forks). Sin
+cambio de contrato (§18.11.1): todo el dato ya existía.
+
+### Componentes NUEVOS
+- **`components/domain/SellCartFab.tsx`** (§18.4a): botón `fixed` abajo-derecha (56×56, radio 0,
+  sin sombra, tinta/papel, borde strong), icono `shopping-cart` 20px; badge contador cuadrado en
+  accent (`#B31217` por token) mono `tabular-nums`, cap visual `99+`, **omitido con carrito
+  vacío** (el FAB permanece: da acceso a los requisitos de venta). `aria-haspopup="dialog"` +
+  `aria-expanded` + `aria-label` dinámico (`buylist.cartFab.ariaWithCount/ariaEmpty`); el badge
+  es `aria-hidden` (la cifra viaja en el label). SIN animación al agregar (§17.3); el anuncio lo
+  hace el `role="status"` existente (`addedLine`). z-40 (bajo el drawer z-50, sobre el sticky z-10).
+- **`components/domain/SellCartDrawer.tsx`** (§18.4b): contenedor que ENVUELVE el contenido del
+  antiguo `<aside>` (no lo reescribe; recibe `children`). `≥lg` sheet derecho 400px
+  (min 360/max 440, `border-l border-border-strong`, alto completo); `<lg` bottom sheet ~92vh
+  (patrón `VariantDrawer` §16.4). `role="dialog"` + `aria-modal` + **focus trap propio**
+  (Tab/Shift+Tab ciclan; el `Modal` base no trae trap) + Esc cierra + clic en overlay cierra +
+  botón cerrar 44px; al cerrar el foco **regresa al FAB** (`returnFocusRef`). Encabezado fijo
+  (eyebrow CARRITO DE VENTA + conteo + cerrar primero en el orden de foco); contenido scrolleable.
+
+### Modificados (sin cambiar API pública)
+- **`BuylistView.tsx`**: layout de UNA columna (fuera el `lg:grid-cols-[1fr_360px]` y el toggle
+  textual `cartHide/cartShow`); `<main>` con `pb-24` (el FAB no tapa la última fila); FAB al
+  final del contenido (orden de foco §18.8, sin tabindex positivos); abrir el modal de solicitud
+  CIERRA el drawer (un solo focus trap activo — criterio permitido por §18.4b); el CTA de
+  `BountyCard` sigue siendo la ÚNICA vía que abre el drawer al agregar; grid plano de
+  graded/sealed alineado a la escala del binder (`2→3(sm)→4(lg)→5(xl)`, retirado el `2xl:6`);
+  skeletons §18.6 con la retícula final (`CardSkeleton` ×10) en la carga del grid plano; líneas
+  del carrito y resumen del modal con `<FinishMark />` (banda 3px + etiqueta mono) en vez del
+  texto plano del acabado.
+- **`MasterSetBinder.tsx`**: `QuoterTile` gana la `FinishBand` §16.6 como primer elemento
+  (idéntica a `BinderTile`; `normal` sin banda) y el precio estimado sube de 13px a
+  **`text-[15px]` mono en TINTA** (el verde «Pagamos» queda exclusivo del `BountyCard` §16.7c);
+  fila de filtros locales del binder **sticky en `≥lg` SOLO en modo quoter** (`top-0`, fondo
+  papel, `border-b`, z-10); skeletons de carga con la retícula final (aplica a todos los modos
+  del binder — misma retícula, cero costo).
+- **i18n** (`messages/es,en.json`): nuevas `buylist.cartFab.{ariaWithCount,ariaEmpty}` y
+  `buylist.cartDrawer.{ariaLabel,close}`; **eliminadas** `buylist.cartShow`/`cartHide` (el toggle
+  ya no existe). Paridad ES/EN verde.
+
+### Tests
+- Nuevos: `SellCartFab.test.tsx` (4: vacío sin badge + aria, contador aria-hidden, cap 99+,
+  expanded/click) y `SellCartDrawer.test.tsx` (5: cerrado=nada, dialog+aria+encabezado+foco
+  inicial, Esc/overlay/cerrar (y no clic interno), focus trap Tab/Shift+Tab, retorno de foco al
+  FAB al cerrar).
+- `BuylistView.test.tsx` actualizado al drawer: helper `openCart()` (clic al FAB) antes de todo
+  assert de contenido del carrito; test del toggle colapsable reescrito como FAB→drawer (drawer
+  cerrado por defecto, vacío útil con requisitos, cierre regresa foco); nuevos asserts: agregar
+  desde grilla NO abre el drawer, contador del FAB por PIEZAS, FinishMark en línea del carrito Y
+  en resumen del modal. 41 tests del archivo en verde.
+- Playwright `e2e/buylist.spec.ts`: helper `openCart(page)` inyectado en los flujos que tocaban
+  el carrito lateral (selectores sin cambio: el contenido es el mismo, ahora dentro del dialog);
+  smoke NUEVO §18.11.3 (teja → badge FAB sube sin abrir drawer → drawer con `finish-band`
+  reverse + etiqueta → cerrar regresa foco al FAB) — verde en mock. Los **8 fallos preexistentes
+  de este spec** (describen el grid plano raw pre-v1.21, fallan ANTES del carrito en
+  `searchFor`) siguen igual: no se arreglaron ni se empeoraron (siguen siendo del triage
+  pendiente pre-release, junto con `master-set.spec.ts:88` — verificado corriendo buylist: 8
+  failed/4 passed; master-set+inventory-stream-b+admin: 1 failed (el :88 preexistente)/15 passed).
+
+### Decisiones / desviaciones de §18 (menores, anotadas)
+1. **Copy del aria del FAB:** §18.4a ejemplifica «Carrito de venta, 3 cartas»; se usó
+   `{count} carta(s)` para mantener la convención SIN plural ICU del catálogo (el helper i18n de
+   los E2E no resuelve ICU y `cartCount` ya usa ese estilo). Solo afecta al aria-label.
+2. **Skeletons del binder en todos los modos:** §18.6 pide skeletons en el quoter; la retícula
+   es compartida con M1/bóvedas, así que el `loading` del `QueryState` del binder aplica a todos
+   los modos (mismo layout, sin spinner de página en ninguno).
+3. **Al abrir el modal de solicitud se CIERRA el drawer** (§18.4b deja el criterio a frontend:
+   «cierra o se apila… solo un focus trap activo»): cerrar es más simple y el resumen del modal
+   repite las líneas con su FinishMark.
+4. **`buylist.cartDrawer.ariaLabel` interpola `{count}`** («Carrito de venta (N)») tal como pide
+   §18.4b; con carrito vacío queda «(0)» (el drawer vacío sigue siendo útil).
+5. La idea `source:"bounty"` en el quote público (§18.11.2) NO se implementó (registrada para
+   product-owner/arquitecto, no asumida).
+
+Gates: `lint` ✓ · `typecheck` ✓ · `vitest` **536/536** (70 archivos; 526 previos + 9 nuevos de
+FAB/drawer + 1 neto en BuylistView) · `next build` ✓.
+
+## Stream C · Ronda de corrección del gate (TL-C1/C2/C3 + SC-D2) — 2026-08-21
+
+QA aprobó; techlead rechazó con tres hallazgos mayores, cerrados en esta ronda (sin cambio de
+contrato, todo en `frontend/`):
+
+### TL-C1 · Sticky del binder tapado por el header del storefront
+- **Bug:** la barra de filtros del quoter (`MasterSetBinder`, modo quoter) era `lg:sticky lg:top-0
+  z-10`, pero `StorefrontHeader` es `sticky top-0 z-40` opaco (~72px) → la barra quedaba escondida
+  detrás del header al scrollear.
+- **Fix (indicación del techlead):** el offset sale de la **altura real** del header vía var CSS por
+  layout. `StorefrontHeader` mide su propio alto (`ResizeObserver`, cubre `py-4 ↔ lg:py-[22px]`, wrap
+  y menú móvil) y expone `--app-header-h` en su **padre inmediato** (el wrapper del layout del
+  storefront; se limpia al desmontar). El binder usa `lg:top-[var(--app-header-h,0px)]` — fallback
+  `0px` para shells que no la definan (en modos no-quoter el sticky no se activa; si el binder
+  necesitara sticky bajo el AdminShell, ese shell expondría su propia var). **Nada de `top-[72px]`
+  hardcodeado en el componente compartido.**
+- **Tests (jsdom no pinta sticky → se asserta el mecanismo):** `StorefrontHeader.test.tsx` (la var
+  queda en px en el contenedor y se limpia al desmontar) y `MasterSet.test.tsx` (la barra del quoter
+  lleva `lg:top-[var(--app-header-h,0px)]` y NO `lg:top-0`).
+
+### TL-C2 · El focus trap del drawer se desenganchaba al desmontarse el elemento enfocado
+- **Bug:** el trap vivía solo en `onKeyDown` del panel; al pulsar «Quitar» en la última línea o
+  «Vaciar carrito», React desmonta el botón enfocado, el foco cae a `<body>` (sin evento — la spec no
+  dispara blur/focus al remover el nodo activo) y Tab se escapaba detrás del scrim con el diálogo
+  abierto.
+- **Fix (opción b del techlead, `SellCartDrawer.tsx`):** dos guards mientras `open`:
+  (1) **`focusin` a nivel `document`** — si el foco aterriza fuera del panel (Tab escapado desde
+  `<body>`, focus programático), se reenfoca el panel; (2) **re-verificación tras cada commit**
+  (efecto sin deps) — cubre la caída silenciosa a `<body>` por desmonte, que no emite `focusin`. El
+  trap de Tab interno queda igual. Ambos guards se desactivan con el drawer cerrado y son inocuos en
+  el cierre (el ref del panel ya es null cuando el retorno de foco al FAB dispara `focusin`).
+- **Tests de regresión (obligatorio del techlead):** `BuylistView.test.tsx` — enfocar «Quitar» de la
+  única línea → click → el foco queda DENTRO del diálogo (ídem «Vaciar carrito»);
+  `SellCartDrawer.test.tsx` — focusin fuera → reenfoque, y desmonte del hijo enfocado → foco al panel.
+
+### TL-C3 · Extracción FE-13 de BuylistView (compromiso «sin tercer aplazamiento»)
+- Extracción **mecánica, sin cambio de comportamiento**, por la costura trazada por el techlead, a la
+  misma carpeta de la ruta (no a zonas compartidas):
+  - **`useSellCart.ts`** (151 líneas): `CartLine`/`QuoterCardRef`/`mergeCartLine` + cantidades +
+    `expandedLines` + totales derivados (`totalEstimatedCents`, `pendingCardCount`, `cartCount`,
+    `requestItems`). Handlers estables (`useCallback` + setState funcional).
+  - **`SellCartContents.tsx`** (274 líneas): el bloque entre `<SellCartDrawer>` y `</SellCartDrawer>`
+    (requisitos → líneas → total → CTA → vaciar), con `QuoteRow` y `ruleText`. Recibe `cart`, `sellReq`
+    y handlers; el submit lo delega al dueño (cerrar drawer + abrir modal, §18.4b).
+  - **`MyRequestsSection.tsx`** (206 líneas): "Mis solicitudes" + respuesta al ajuste (F5). Dueña de su
+    query `['sell-requests']` (la MISMA key que invalida BuylistView al crear solicitud) y de
+    `respondSellRequest`.
+  - `BuylistView.tsx`: 1253 → **787 líneas** (orquestador: filtros, grid graded/sealed, bulk, binder
+    quoter, bounty, modal de solicitud). MasterSetBinder, flujo bulk y gating KYC **sin tocar** (solo
+    movidos de sitio donde la costura lo exigía).
+- **Red de seguridad:** los 41 tests conductuales de `BuylistView.test.tsx` pasan idénticos antes y
+  después de la extracción (verificado en dos corridas: post-extracción 86/86 de las 4 suites tocadas;
+  final 92/92 con los 6 tests nuevos de TL-C1/TL-C2).
+- **Nits pagados al pasar:** `<div>` sin función alrededor de `SellRequirementsPanel` eliminado;
+  indentación del bloque movido normalizada (consecuencia de la extracción); `expandedLines` se PODA al
+  quitar una línea y se resetea al vaciar (antes acumulaba entradas huérfanas).
+- **SC-D3 parcial:** `addFromMasterSet` ahora es `useCallback` sobre los handlers estables del hook
+  (identidad estable hacia `MasterSetPanel`); el `memo` de tiles queda como deuda SC-D3 con disparador
+  «lag al teclear cantidades en set grande».
+
+### SC-D2 · E2E `buylist.spec.ts`: 8 tests muertos migrados (0 rojos de reposo)
+- Los 8 casos que asumían el grid plano en raw (pre-v1.21) se migraron sin inventar cobertura falsa:
+  grid plano/bulk → **graded** (helpers `selectGraded`/`searchFor`/`addGradedCard`); acabados
+  raw/pendiente/KYC → **binder quoter** (`openBaseSet`/`addFromBinder`, fixtures Base Set). El smoke
+  `@real vender` descubre por graded y clica la primera fila **habilitada** (fixtures holofoil-only no
+  cotizan graded en mock → fila deshabilitada por-ítem, correcta). **Estado final en mock: 12 passed /
+  0 failed** (antes 8 failed / 4 passed). `master-set.spec.ts` re-verificado: 2 passed (el fallo :88
+  reportado en el gate ya no reproduce). Pendiente anotado en TECH_DEBT SC-D2: en real, el smoke de
+  vender valida ahora la ruta graded.
+
+### Deuda registrada (docs/TECH_DEBT.md)
+- **FE-13 → RESUELTA** (esta ronda). Nuevas: **SC-D1** (cuarto shell de diálogo a mano + scrim en
+  cuarta copia — NO se implementó el primitivo en este stream, por indicación del techlead), **SC-D2**
+  (resuelta, con pendiente @real anotado), **SC-D3** (memo de tiles, parcialmente pagada), **SC-D4**
+  (~10 ramas por modo en MasterSetBinder → objeto de capacidades cuando llegue la próxima rama).
+
+Gates de la ronda: `lint` ✓ · `typecheck` ✓ · `vitest` **542/542** (70 archivos; 536 previos + 6
+nuevos: 2 BuylistView TL-C2, 2 SellCartDrawer TL-C2, 1 StorefrontHeader TL-C1, 1 MasterSet TL-C1) ·
+`next build` ✓ · Playwright `buylist.spec.ts` en mock **12/12** ✓.

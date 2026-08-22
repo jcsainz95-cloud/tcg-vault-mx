@@ -1,16 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import {
-  batchQuote,
-  BUYLIST_QUOTE_BATCH_MAX,
-  getSellRequests,
-  listBuylistSets,
-  respondSellRequest,
-  searchBuylistCards,
-} from '@/lib/api';
+import { batchQuote, BUYLIST_QUOTE_BATCH_MAX, listBuylistSets, searchBuylistCards } from '@/lib/api';
 import type {
   ProductType,
   CardDTO,
@@ -30,16 +23,12 @@ import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
-import { BuylistKycForm, type BuylistRequestItem } from '@/components/domain/BuylistKycForm';
-import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
+import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
 import { useSellRequirements } from '@/hooks/useSellRequirements';
-import { Link } from '@/i18n/navigation';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
-import { useBuylistSteps } from '@/lib/pipelines';
+import { CardSkeleton } from '@/components/ui/Skeleton';
 import { FINISH_ORDER } from '@/lib/finish';
 import { cn } from '@/lib/cn';
 // v1.21-cotizador-master-set: en `raw` el grid es el binder COMPARTIDO de Master Set
@@ -49,6 +38,16 @@ import { cn } from '@/lib/cn';
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 // v1.28 (P-22): vitrina «Top Bounties» arriba de la página Vender, antes del selector de set.
 import { TopBountiesShelf } from '@/components/domain/TopBountiesShelf';
+// v1.29 Stream C (P-16, §18.4): el carrito deja de ser columna lateral — FAB + drawer flotante.
+import { SellCartFab } from '@/components/domain/SellCartFab';
+import { SellCartDrawer } from '@/components/domain/SellCartDrawer';
+// v1.29 Stream C (P-14, §18.5): las líneas del resumen usan el FinishMark compartido.
+import { FinishMark } from '@/components/domain/FinishMark';
+// TL-C3 (FE-13): el estado del carrito, el contenido del drawer y "Mis solicitudes" viven
+// en módulos propios (extracción mecánica, sin cambio de comportamiento).
+import { useSellCart } from './useSellCart';
+import { SellCartContents } from './SellCartContents';
+import { MyRequestsSection } from './MyRequestsSection';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 
@@ -61,59 +60,6 @@ function firstAvailableFinish(card: CardDTO): Finish {
 
 /** Llave del índice de cotizaciones del grid: una entrada por (carta, acabado). */
 const quoteMapKey = (cardId: string, finish: Finish) => `${cardId}:${finish}`;
-
-/**
- * Referencia mínima de carta que necesita el carrito (nombre + id para el submit). `raw`
- * la puebla desde `MasterSetCardCellDTO` (binder de Master Set, sin los campos de catálogo
- * que no usa el carrito: setName/rarity/subtypes/…); graded/sealed siguen viniendo del
- * `CardDTO` completo del picker plano — un `CardDTO` cumple esta forma sin cambios.
- */
-interface QuoterCardRef {
-  id: string;
-  name: string;
-  number: string;
-  imageSmallUrl?: string;
-}
-
-/**
- * Una línea del carrito de venta. Snapshotea el ESTIMADO de la cotización
- * (`quote`) que se le muestra al usuario; el monto autoritativo lo re-deriva el
- * backend al crear la solicitud (SEC-A1). `quantity` se expande a N entradas de
- * `items` al enviar (el modelo es 1 item por carta física).
- *
- * v1.6-finish: la IDENTIDAD de línea es (cardId + productType + finish): la MISMA
- * carta en distinto acabado es una línea distinta; la MISMA (carta, tipo, acabado)
- * incrementa la cantidad en vez de duplicar (dedup — hallazgo menor de QA).
- */
-interface CartLine {
-  id: string;
-  card: QuoterCardRef;
-  productType: ProductType;
-  rawCondition?: RawCondition;
-  finish: Finish;
-  quote: BuylistQuoteResponse;
-  quantity: number;
-}
-
-let lineSeq = 0;
-
-/**
- * Merge con dedup por (cardId + productType + finish): la misma línea suma cantidad,
- * una combinación nueva agrega línea. Reusado por el add por-acabado y por el bulk.
- */
-function mergeCartLine(
-  prev: CartLine[],
-  line: Omit<CartLine, 'id' | 'quantity'>,
-): CartLine[] {
-  const idx = prev.findIndex(
-    (l) => l.card.id === line.card.id && l.productType === line.productType && l.finish === line.finish,
-  );
-  if (idx >= 0) {
-    return prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l));
-  }
-  lineSeq += 1;
-  return [...prev, { id: `line-${lineSeq}`, ...line, quantity: 1 }];
-}
 
 /**
  * Convierte un resultado batch `ok:true` en el `BuylistQuoteResponse` que consume el carrito.
@@ -159,33 +105,10 @@ function FinishEstimate({
 }
 
 /**
- * Renglón de detalle: concepto a la izquierda, dato a la derecha.
- * `lang` va en el propio contenedor del dato (los nombres y rarezas de catálogo son EN).
- */
-function QuoteRow({
-  label,
-  lang,
-  children,
-}: {
-  label: string;
-  lang?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 text-[12px] text-muted last:border-b-0">
-      <span>{label}</span>
-      <span lang={lang} className="text-right text-text">
-        {children}
-      </span>
-    </div>
-  );
-}
-
-/**
  * Rediseño "grid protagonista" (2026-08-17):
  * - El grid de resultados usa TODO el ancho/alto disponible (scroll natural de página,
  *   sin scroll interno artificial); los filtros (set + búsqueda + tipo) viven en una
- *   barra encima y el carrito de venta en una columna lateral colapsable.
+ *   barra encima y el carrito de venta en un drawer flotante (P-16, §18.4).
  * - Ya NO hay panel "COTIZACIÓN" ni selección intermedia: cada carta lista sus ACABADOS
  *   (`availableFinishes`) con su estimado server-side, y el clic en un acabado la agrega
  *   DIRECTO al carrito. La transparencia vive en el detalle expandible de cada línea
@@ -193,14 +116,18 @@ function QuoteRow({
  * - El bulk (multi-selección) se conserva: agrega las seleccionadas (acabado por defecto)
  *   reusando las cotizaciones ya cargadas del grid (cero requests extra).
  * - "Mis solicitudes" nunca muestra error sin sesión: sin sesión la sección invita a
- *   iniciar sesión en tono informativo (y no consulta el endpoint).
+ *   iniciar sesión en tono informativo (y no consulta el endpoint) — ver MyRequestsSection.
+ *
+ * TL-C3 (FE-13): esta vista quedó como ORQUESTADOR — el estado del carrito vive en
+ * `useSellCart`, el contenido del drawer en `SellCartContents` y "Mis solicitudes" en
+ * `MyRequestsSection` (misma carpeta de la ruta; extracción mecánica sin cambio de
+ * comportamiento, respaldada por los tests conductuales de BuylistView.test.tsx).
  */
 export function BuylistView() {
   const t = useTranslations('buylist');
   const tCommon = useTranslations('common');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
-  const buylistSteps = useBuylistSteps();
   const queryClient = useQueryClient();
 
   // --- Barra de filtros: búsqueda real sobre TODO el catálogo (contrato §6, v1.3) ---
@@ -213,10 +140,26 @@ export function BuylistView() {
   const [requestOpen, setRequestOpen] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
-  // --- Carrito de venta: varias cartas en UNA sola solicitud; columna colapsable ---
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [cartOpen, setCartOpen] = useState(true);
-  const [expandedLines, setExpandedLines] = useState<Record<string, boolean>>({});
+  // --- Carrito de venta: varias cartas en UNA sola solicitud. P-16 (§18.4): vive en un
+  // DRAWER flotante disparado por el FAB (cerrado por defecto; agregar desde la grilla NO
+  // lo abre — solo el CTA de bounty, intención explícita de vender ESA carta). Al cerrar,
+  // el foco regresa al FAB (returnFocusRef). Estado y totales: useSellCart (TL-C3). ---
+  const {
+    cart,
+    expandedLines,
+    addLine,
+    addLines,
+    setQuantity,
+    removeLine,
+    clearCart,
+    toggleLineDetail,
+    totalEstimatedCents,
+    pendingCardCount,
+    cartCount,
+    requestItems,
+  } = useSellCart();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const fabRef = useRef<HTMLButtonElement>(null);
   const [lastAdded, setLastAdded] = useState<{ name: string; label: string } | null>(null);
 
   // --- Bulk: multi-selección en los resultados de búsqueda ---
@@ -315,15 +258,13 @@ export function BuylistView() {
   function addFromGrid(card: CardDTO, finish: Finish) {
     const result = quoteFor(card.id, finish);
     if (!result?.ok) return;
-    setCart((prev) =>
-      mergeCartLine(prev, {
-        card,
-        productType,
-        rawCondition: productType === 'raw' ? 'NM' : undefined,
-        finish: result.finish,
-        quote: batchResultToQuote(result),
-      }),
-    );
+    addLine({
+      card,
+      productType,
+      rawCondition: productType === 'raw' ? 'NM' : undefined,
+      finish: result.finish,
+      quote: batchResultToQuote(result),
+    });
     setLastAdded({ name: card.name, label: rowLabel(finish) });
     setBulkNotice(null);
   }
@@ -333,29 +274,32 @@ export function BuylistView() {
    * cotización resuelta (`variant.quote`, batch client-side de MasterSetBinder) — se agrega
    * DIRECTO al carrito, mismo patrón que `addFromGrid`. Casillas sin cotización resuelta
    * quedan deshabilitadas en el binder (nunca deberían disparar este handler).
+   * SC-D3: `useCallback` (los handlers del hook ya son estables) para no regalarle al binder
+   * una identidad nueva por render — prepara el `memo` de tiles si algún día hace falta.
    */
-  function addFromMasterSet(cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) {
-    if (!variant.quote) return;
-    const quote: BuylistQuoteResponse = {
-      rarity: variant.quote.rarity ?? '',
-      finish: variant.finish,
-      appliedRule: variant.quote.appliedRule,
-      quote: { status: variant.quote.status, quotedPriceCents: variant.quote.quotedPriceCents, currency: 'MXN' },
-      referencePrice: variant.quote.referencePrice,
-      paymentNotice: 'PAY_AFTER_RECEIPT',
-    };
-    setCart((prev) =>
-      mergeCartLine(prev, {
+  const addFromMasterSet = useCallback(
+    (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => {
+      if (!variant.quote) return;
+      const quote: BuylistQuoteResponse = {
+        rarity: variant.quote.rarity ?? '',
+        finish: variant.finish,
+        appliedRule: variant.quote.appliedRule,
+        quote: { status: variant.quote.status, quotedPriceCents: variant.quote.quotedPriceCents, currency: 'MXN' },
+        referencePrice: variant.quote.referencePrice,
+        paymentNotice: 'PAY_AFTER_RECEIPT',
+      };
+      addLine({
         card: { id: cell.cardId, name: cell.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl },
         productType: 'raw',
         rawCondition: 'NM',
         finish: variant.finish,
         quote,
-      }),
-    );
-    setLastAdded({ name: cell.name, label: tFinish(variant.finish) });
-    setBulkNotice(null);
-  }
+      });
+      setLastAdded({ name: cell.name, label: tFinish(variant.finish) });
+      setBulkNotice(null);
+    },
+    [addLine, tFinish],
+  );
 
   /**
    * v1.28 (P-22) · CTA «Cotizar esta carta» de un BountyCard: cotiza ESA (carta, acabado)
@@ -373,21 +317,20 @@ export function BuylistView() {
     onSuccess: ({ bounty, result }) => {
       if (!result?.ok) return;
       setProductType('raw');
-      setCart((prev) =>
-        mergeCartLine(prev, {
-          card: {
-            id: bounty.cardId,
-            name: bounty.name,
-            number: bounty.number,
-            imageSmallUrl: bounty.imageSmallUrl,
-          },
-          productType: 'raw',
-          rawCondition: 'NM',
-          finish: result.finish,
-          quote: batchResultToQuote(result),
-        }),
-      );
-      setCartOpen(true);
+      addLine({
+        card: {
+          id: bounty.cardId,
+          name: bounty.name,
+          number: bounty.number,
+          imageSmallUrl: bounty.imageSmallUrl,
+        },
+        productType: 'raw',
+        rawCondition: 'NM',
+        finish: result.finish,
+        quote: batchResultToQuote(result),
+      });
+      // Excepción de §18.4a: el CTA de bounty SÍ abre el drawer (intención explícita).
+      setDrawerOpen(true);
       setLastAdded({ name: bounty.name, label: tFinish(bounty.finish) });
       setBulkNotice(null);
     },
@@ -420,18 +363,14 @@ export function BuylistView() {
       if (r?.ok) okEntries.push({ card, result: r });
       else failed += 1;
     }
-    setCart((prev) =>
-      okEntries.reduce(
-        (acc, { card, result }) =>
-          mergeCartLine(acc, {
-            card,
-            productType,
-            rawCondition: productType === 'raw' ? 'NM' : undefined,
-            finish: result.finish,
-            quote: batchResultToQuote(result),
-          }),
-        prev,
-      ),
+    addLines(
+      okEntries.map(({ card, result }) => ({
+        card,
+        productType,
+        rawCondition: productType === 'raw' ? ('NM' as RawCondition) : undefined,
+        finish: result.finish,
+        quote: batchResultToQuote(result),
+      })),
     );
     setBulkAddedCount(okEntries.length);
     setBulkFailedCount(failed);
@@ -440,82 +379,12 @@ export function BuylistView() {
     setLastAdded(null);
   }
 
-  function setQuantity(lineId: string, quantity: number) {
-    const clean = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1;
-    setCart((prev) => prev.map((l) => (l.id === lineId ? { ...l, quantity: clean } : l)));
-  }
-
-  function removeLine(lineId: string) {
-    setCart((prev) => prev.filter((l) => l.id !== lineId));
-  }
-
-  function toggleLineDetail(lineId: string) {
-    setExpandedLines((prev) => ({ ...prev, [lineId]: !prev[lineId] }));
-  }
-
-  /** Regla aplicada legible ("40% de referencia" / "MX$1.50 fijo"), resuelta server-side. */
-  function ruleText(rule: BuylistQuoteResponse['appliedRule']): string {
-    return rule.mode === 'fixed'
-      ? t('ruleFixed', { amount: formatMoneyCents(rule.value, locale) })
-      : t('rulePct', { pct: rule.value });
-  }
-
-  // Total ESTIMADO: suma quotedPriceCents × cantidad. Las líneas en precio
-  // pendiente no aportan (el backend fija su monto al recibir) y se EXPLICAN
-  // debajo del total en vez de sumar MX$0.00 en silencio.
-  const totalEstimatedCents = useMemo(
-    () => cart.reduce((sum, l) => sum + (l.quote.quote.quotedPriceCents ?? 0) * l.quantity, 0),
-    [cart],
-  );
-  const pendingCardCount = useMemo(
-    () =>
-      cart
-        .filter((l) => l.quote.quote.status === 'precio_pendiente')
-        .reduce((n, l) => n + l.quantity, 0),
-    [cart],
-  );
-
-  const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
   const bulkCount = Object.keys(bulkSelected).length;
 
   // Gating de cuenta ANTES de llenar todo (guards del contrato §6): sesión, correo
   // verificado, CLABE registrada e INE esperado por topes. El bloqueo real es server-side;
   // aquí solo se comunica temprano para que el 403 no sea la primera noticia.
   const sellReq = useSellRequirements(totalEstimatedCents);
-
-  // Expansión cantidad → items: N entradas por línea (1 item por carta física).
-  const requestItems: BuylistRequestItem[] = useMemo(
-    () =>
-      cart.flatMap((l) =>
-        Array.from({ length: l.quantity }, () => ({
-          cardId: l.card.id,
-          productType: l.productType,
-          rawCondition: l.rawCondition,
-          // v1.6-finish: cada item lleva su acabado; el backend snapshotea SellRequestItem.finish.
-          finish: l.finish,
-        })),
-      ),
-    [cart],
-  );
-
-  // "Mis solicitudes" SOLO se consulta con sesión: sin sesión no hay request (y por
-  // tanto nunca un estado de error) — la sección muestra una invitación neutra.
-  const requestsEnabled = sellReq.ready && sellReq.isAuthenticated;
-  const requests = useQuery({
-    queryKey: ['sell-requests'],
-    queryFn: getSellRequests,
-    enabled: requestsEnabled,
-  });
-
-  // F5 · Responder un AJUSTE de venta (contrato §6 · POST /buylist/requests/:id/respond).
-  // El cliente acepta/rechaza el precio ajustado por el admin; al éxito refresca la lista.
-  const respondMutation = useMutation({
-    mutationFn: ({ id, decision }: { id: string; decision: 'accept' | 'decline' }) =>
-      respondSellRequest(id, decision),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
-    },
-  });
 
   return (
     <div className="grid lg:grid-cols-[40px_1fr]">
@@ -547,11 +416,12 @@ export function BuylistView() {
             no hay bounties activos o el endpoint falla (vitrina, no bloquea la venta). */}
         <TopBountiesShelf onQuote={(b) => bountyQuote.mutate(b)} />
 
-        {/* Barra de filtros: set + búsqueda + tipo, con el toggle del carrito al extremo.
-            En `raw` el binder Master Set (mode="quoter") trae SU PROPIO "Buscar set" (índice)
-            y "Buscar carta" (dentro del set elegido) — ver MasterSetIndex/MasterSetBinder;
-            este filtro plano de set+texto queda para graded/sealed (sin variantes por acabado,
-            fuera del modelo de casillas de Master Set). */}
+        {/* Barra de filtros ADELGAZADA (P-16, §18.1.3): el toggle textual del carrito
+            desaparece (lo sustituye el FAB §18.4). En `raw` el binder Master Set
+            (mode="quoter") trae SU PROPIO "Buscar set" (índice) y "Buscar carta" (dentro
+            del set elegido) — ver MasterSetIndex/MasterSetBinder; este filtro plano de
+            set+texto queda para graded/sealed (sin variantes por acabado, fuera del modelo
+            de casillas de Master Set). */}
         <div className="gutter flex flex-wrap items-end gap-x-8 gap-y-6 border-b border-border pb-7 pt-6">
           {productType !== 'raw' && (
             <>
@@ -604,20 +474,11 @@ export function BuylistView() {
               }}
             />
           </div>
-          <button
-            type="button"
-            aria-expanded={cartOpen}
-            onClick={() => setCartOpen((v) => !v)}
-            className="ml-auto pb-3 font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
-          >
-            {cartOpen ? t('cartHide') : t('cartShow', { count: cartCount })}
-          </button>
         </div>
 
-        <div className={cn('grid', cartOpen && 'lg:grid-cols-[minmax(0,1fr)_360px]')}>
-          {/* El grid de resultados es el protagonista: todo el ancho/alto disponible,
-              scroll natural de página (sin caja con scroll interno). */}
-          <main className="gutter min-w-0 pb-12 pt-8">
+        {/* P-16 (§18.1.4): la grilla es la única columna, a TODO el ancho. `pb-24` para que
+            el FAB fijo nunca tape la última fila de tejas. */}
+        <main className="gutter min-w-0 pb-24 pt-8">
             {lastAdded && (
               <p role="status" className="mb-3 font-mono text-[11px] text-success">
                 {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
@@ -695,6 +556,14 @@ export function BuylistView() {
                     isError={cardsResult.isError}
                     error={cardsResult.error}
                     onRetry={() => cardsResult.refetch()}
+                    /* §18.6: skeletons con la MISMA retícula final; sin spinner de página. */
+                    loading={
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                        {Array.from({ length: 10 }, (_, i) => (
+                          <CardSkeleton key={i} />
+                        ))}
+                      </div>
+                    }
                   >
                     {cardsResult.data &&
                       (cardsResult.data.data.length === 0 ? (
@@ -702,7 +571,10 @@ export function BuylistView() {
                       ) : (
                         <ul
                           aria-label={t('searchResults')}
-                          className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
+                          /* §18.2: el grid plano de graded/sealed se ALINEA a la escala del
+                             binder M1 (2→3→4→5); se retira el 2xl:6 y md:4/xl:5 pasa a
+                             lg:4/xl:5 — la teja grande ES el objetivo, no meter columnas. */
+                          className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                         >
                           {cardsResult.data.data.map((card) => (
                             <li key={card.id} className="relative min-w-0">
@@ -764,205 +636,40 @@ export function BuylistView() {
                 </div>
               </>
             )}
-          </main>
+        </main>
 
-          {/* Carrito de venta: columna lateral colapsable (el grid manda). */}
-          {cartOpen && (
-            <aside className="gutter min-w-0 self-start border-t border-border pb-11 pt-8 lg:sticky lg:top-0 lg:border-l lg:border-t-0">
-              <div className="flex items-center justify-between">
-                <h2 className="eyebrow">{t('cartTitle')}</h2>
-                {cartCount > 0 && <span className="eyebrow">{t('cartCount', { count: cartCount })}</span>}
-              </div>
-
-              {/* Requisitos de cuenta SIEMPRE visibles (aun con carrito vacío): el usuario
-                  sabe QUÉ le falta antes de llenar todo (sesión / correo / CLABE / INE). */}
-              <div className="mt-5">
-                <SellRequirementsPanel req={sellReq} />
-              </div>
-
-              {cart.length === 0 ? (
-                <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
-              ) : (
-                <>
-                  <ul className="mt-4">
-                    {cart.map((l) => {
-                      const pending = l.quote.quote.status === 'precio_pendiente';
-                      const unitCents = l.quote.quote.quotedPriceCents ?? 0;
-                      const detailOpen = !!expandedLines[l.id];
-                      return (
-                        <li key={l.id} className="border-b border-border py-3">
-                          <div className="flex items-baseline justify-between gap-3">
-                            <p lang="en" className="min-w-0 truncate text-sm text-text">
-                              {l.card.name}
-                            </p>
-                            <span className="tabular shrink-0 text-sm font-medium text-text">
-                              {/* Honesto: una línea pendiente NO muestra MX$0.00. */}
-                              {pending ? (
-                                <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
-                              ) : (
-                                formatMoneyCents(unitCents * l.quantity, locale)
-                              )}
-                            </span>
-                          </div>
-                          <p className="mt-1 font-mono text-[10px] text-muted">
-                            <span className="text-muted">{t('cartItemEstimate')}: </span>
-                            {pending ? (
-                              <span className="text-accent">{t('linePending')}</span>
-                            ) : (
-                              <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
-                            )}
-                            {' · '}
-                            <span lang="en">{tFinish(l.finish)}</span>
-                            {' · ×'}
-                            <span className="tabular">{l.quantity}</span>
-                          </p>
-                          <div className="mt-2 flex items-center gap-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                aria-label={t('decreaseQty')}
-                                disabled={l.quantity <= 1}
-                                onClick={() => setQuantity(l.id, l.quantity - 1)}
-                                className="font-mono text-sm text-muted hover:text-text disabled:opacity-40"
-                              >
-                                −
-                              </button>
-                              {/* Cantidad con input numérico: vender 20 iguales sin 20 clics. */}
-                              <input
-                                type="number"
-                                min={1}
-                                inputMode="numeric"
-                                aria-label={t('quantityFor', { name: l.card.name })}
-                                value={l.quantity}
-                                onChange={(e) => setQuantity(l.id, Number.parseInt(e.target.value, 10))}
-                                className="w-14 border-b border-border-strong bg-transparent py-0.5 text-center font-mono text-xs text-text outline-none focus-visible:shadow-focus"
-                              />
-                              <button
-                                type="button"
-                                aria-label={t('increaseQty')}
-                                onClick={() => setQuantity(l.id, l.quantity + 1)}
-                                className="font-mono text-sm text-muted hover:text-text"
-                              >
-                                +
-                              </button>
-                            </div>
-                            {/* Detalle expandible: la transparencia de la cotización vive aquí
-                                (valor de referencia / regla aplicada / acabado / pendiente). */}
-                            <button
-                              type="button"
-                              aria-expanded={detailOpen}
-                              onClick={() => toggleLineDetail(l.id)}
-                              className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
-                            >
-                              {detailOpen ? t('lineDetailHide') : t('lineDetailShow')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeLine(l.id)}
-                              className="ml-auto font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
-                            >
-                              {t('removeLine')}
-                            </button>
-                          </div>
-                          {detailOpen && (
-                            <div className="mt-3 border-l border-border-strong pl-4">
-                              {l.quote.rarity && (
-                                <QuoteRow label={t('rarityLabel')} lang="en">
-                                  {l.quote.rarity}
-                                </QuoteRow>
-                              )}
-                              <QuoteRow label={tFinish('label')}>{tFinish(l.quote.finish)}</QuoteRow>
-                              {l.quote.referencePrice.status === 'priced' && (
-                                <QuoteRow label={t('referencePrice')}>
-                                  <span className="tabular">
-                                    {formatMoneyCents(l.quote.referencePrice.priceMxnCents ?? 0, locale)}
-                                  </span>
-                                </QuoteRow>
-                              )}
-                              {/* Regla aplicada, resuelta server-side por el acabado. */}
-                              <QuoteRow label={t('appliedRuleLabel')}>{ruleText(l.quote.appliedRule)}</QuoteRow>
-                              {pending && (
-                                <p className="rule-note mt-3 text-[12px] leading-[1.7] text-muted">
-                                  {t('pricePendingNotice')}
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-
-                  <div className="flex items-baseline justify-between gap-3 py-4">
-                    <span className="text-[13px] font-medium text-text">{t('totalEstimated')}</span>
-                    {/* Si TODO el carrito está pendiente, el total no es MX$0.00: es pendiente. */}
-                    {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-                      <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
-                    ) : (
-                      <span className="tabular text-[22px] font-medium leading-none text-text">
-                        {formatMoneyCents(totalEstimatedCents, locale)}
-                      </span>
-                    )}
-                  </div>
-                  {pendingCardCount > 0 && (
-                    <p className="mb-3 font-mono text-[11px] leading-[1.6] text-muted">
-                      {t('totalPendingNote', { count: pendingCardCount })}
-                    </p>
-                  )}
-
-                  {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir. */}
-                  <p className="font-mono text-[11px] leading-[1.6] text-muted">{t('estimateNote')}</p>
-
-                  {sellReq.ready && !sellReq.isAuthenticated ? (
-                    /* Sin sesión: el envío se sustituye por el CTA de entrar/crear cuenta
-                       (el guard devolvería 401/403; mejor decirlo aquí). */
-                    <div className="mt-5 flex flex-col gap-3">
-                      <Link
-                        href="/login"
-                        className="inline-flex min-h-[44px] w-full items-center justify-center bg-primary px-6 text-[11px] font-medium uppercase tracking-label text-primary-fg"
-                      >
-                        {t('loginCta')}
-                      </Link>
-                      <Link
-                        href="/register"
-                        className="inline-flex min-h-[44px] w-full items-center justify-center border border-border-strong px-6 text-[11px] font-medium uppercase tracking-label text-text hover:border-text"
-                      >
-                        {t('registerCta')}
-                      </Link>
-                    </div>
-                  ) : (
-                    <>
-                      <Button
-                        variant="accent"
-                        className="mt-5 w-full"
-                        disabled={cart.length === 0 || !sellReq.canSubmit}
-                        aria-describedby={sellReq.emailBlocked ? 'sell-blocked-reason' : undefined}
-                        onClick={() => {
-                          setCreatedId(null);
-                          setRequestOpen(true);
-                        }}
-                      >
-                        {t('sendRequestCta', { count: cartCount })}
-                      </Button>
-                      {sellReq.emailBlocked && (
-                        /* Explica POR QUÉ el botón está deshabilitado (el reenvío vive en el panel). */
-                        <p
-                          id="sell-blocked-reason"
-                          className="mt-3 font-mono text-[11px] leading-[1.6] text-accent"
-                        >
-                          {t('submitBlockedEmail')}
-                        </p>
-                      )}
-                    </>
-                  )}
-                  <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => setCart([])}>
-                    {t('clearCart')}
-                  </Button>
-                </>
-              )}
-            </aside>
-          )}
-        </div>
+        {/* Carrito de venta = DRAWER flotante (P-16, §18.4b): el contenido (requisitos →
+            líneas → total → CTA → vaciar) vive en SellCartContents (TL-C3). El encabezado
+            (eyebrow + conteo + cerrar) lo pinta el propio drawer. */}
+        <SellCartDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          ariaLabel={t('cartDrawer.ariaLabel', { count: cartCount })}
+          title={t('cartTitle')}
+          countLabel={cartCount > 0 ? t('cartCount', { count: cartCount }) : null}
+          closeLabel={t('cartDrawer.close')}
+          returnFocusRef={fabRef}
+        >
+          <SellCartContents
+            cart={cart}
+            sellReq={sellReq}
+            expandedLines={expandedLines}
+            totalEstimatedCents={totalEstimatedCents}
+            pendingCardCount={pendingCardCount}
+            cartCount={cartCount}
+            onSetQuantity={setQuantity}
+            onRemoveLine={removeLine}
+            onToggleLineDetail={toggleLineDetail}
+            onClearCart={clearCart}
+            onSubmit={() => {
+              setCreatedId(null);
+              // Un solo focus trap activo (§18.4b): abrir el modal de solicitud
+              // cierra el drawer (el resumen del modal repite las líneas).
+              setDrawerOpen(false);
+              setRequestOpen(true);
+            }}
+          />
+        </SellCartDrawer>
 
         {/* Política NM-only (PROJECT §E/H, AC 3d) + copy de confianza (EDITABLE): quién paga
             el envío, tiempos de verificación/pago SPEI y vigencia (ver FRONTEND_NOTES). */}
@@ -983,158 +690,14 @@ export function BuylistView() {
           </p>
         )}
 
-        {/* Mis solicitudes: sin sesión NUNCA muestra error — invita a iniciar sesión
-            en tono informativo (y no consulta el endpoint). */}
-        <section className="gutter border-t border-border pb-14 pt-10">
-          <h2 className="font-serif text-[22px] leading-tight text-text lg:text-[28px]">{t('myRequests')}</h2>
-          <div className="mt-6">
-            {!sellReq.ready ? null : !sellReq.isAuthenticated ? (
-              <div className="max-w-[560px]">
-                <p className="text-[13px] leading-[1.7] text-muted">{t('requestsLoginInvite')}</p>
-                <Link
-                  href="/login"
-                  className="mt-4 inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
-                >
-                  {t('loginCta')}
-                </Link>
-              </div>
-            ) : (
-              <QueryState
-                isLoading={requests.isLoading}
-                isError={requests.isError}
-                error={requests.error}
-                onRetry={() => requests.refetch()}
-              >
-                {(requests.data?.length ?? 0) === 0 ? (
-                  <EmptyState title={t('noRequests')} />
-                ) : (
-                  requests.data!.map((r) => {
-                    const hasPendingItems = r.items.some((it) => it.quotedPriceCents == null);
-                    // F5: `ajustada` es item-level (no request-level) → se detecta por ítem.
-                    const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada');
-                    const hasAdjustedItems = adjustedItems.length > 0;
-                    const adjustedTotalCents = adjustedItems.reduce(
-                      (s, it) => s + (it.approvedPriceCents ?? 0),
-                      0,
-                    );
-                    const responding =
-                      respondMutation.isPending && respondMutation.variables?.id === r.sellRequestId;
-                    return (
-                      <div key={r.sellRequestId} className="border-t border-border py-6">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <span className="flex items-center gap-3">
-                            <span className="tabular font-mono text-[13px] text-text">{r.sellRequestId}</span>
-                            <StatusBadge domain="sellRequest" value={r.status} />
-                          </span>
-                          <span className="tabular text-sm font-medium text-text">
-                            {formatMoneyCents(r.quotedTotalCents, locale)}
-                          </span>
-                        </div>
+        {/* Mis solicitudes (extraída en TL-C3): sin sesión NUNCA muestra error — invita a
+            iniciar sesión en tono informativo (y no consulta el endpoint). */}
+        <MyRequestsSection ready={sellReq.ready} isAuthenticated={sellReq.isAuthenticated} />
 
-                        <div className="mt-5">
-                          <PipelineStepper
-                            steps={buylistSteps}
-                            current={r.status}
-                            errored={r.status === 'rechazada' || r.status === 'abandonada'}
-                          />
-                        </div>
-
-                        <div className="mt-5">
-                          {r.items.map((it) => (
-                            <div
-                              key={it.id}
-                              className="flex items-center justify-between gap-3 border-b border-border py-2.5 text-sm last:border-b-0"
-                            >
-                              <span lang="en" className="text-text">
-                                {it.card.name}
-                              </span>
-                              <span className="flex items-center gap-4">
-                                {/* Ajustada: el precio vigente es el ajustado (approvedPriceCents),
-                                    con el original tachado para que el cliente compare. */}
-                                {it.itemStatus === 'ajustada' && it.approvedPriceCents != null ? (
-                                  <span className="flex items-center gap-2">
-                                    {it.quotedPriceCents != null && (
-                                      <span className="tabular text-[11px] text-muted line-through">
-                                        {formatMoneyCents(it.quotedPriceCents, locale)}
-                                      </span>
-                                    )}
-                                    <span className="tabular font-medium text-text">
-                                      {formatMoneyCents(it.approvedPriceCents, locale)}
-                                    </span>
-                                  </span>
-                                ) : it.quotedPriceCents == null ? (
-                                  /* Honesto: sin cotización NO se muestra MX$0.00. */
-                                  <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
-                                ) : (
-                                  <span className="tabular text-muted">
-                                    {formatMoneyCents(it.quotedPriceCents, locale)}
-                                  </span>
-                                )}
-                                <StatusBadge domain="sellItem" value={it.itemStatus} />
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* F5: bloque de respuesta al AJUSTE — visible solo con ítems `ajustada`. */}
-                        {hasAdjustedItems && (
-                          <div className="mt-5 border border-accent/40 bg-accent/5 p-4">
-                            <p className="eyebrow text-accent">{t('adjust.title')}</p>
-                            <p className="mt-2 text-[13px] leading-[1.6] text-text">
-                              {t('adjust.body')}
-                            </p>
-                            <p className="mt-3 flex items-baseline justify-between gap-3 text-sm">
-                              <span className="text-muted">{t('adjust.newTotal')}</span>
-                              <span className="tabular font-medium text-text">
-                                {formatMoneyCents(adjustedTotalCents, locale)}
-                              </span>
-                            </p>
-                            {respondMutation.isError &&
-                              respondMutation.variables?.id === r.sellRequestId && (
-                                <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
-                                  {t('adjust.error')}
-                                </p>
-                              )}
-                            <div className="mt-4 flex gap-3">
-                              <Button
-                                size="sm"
-                                loading={responding && respondMutation.variables?.decision === 'accept'}
-                                disabled={responding}
-                                onClick={() =>
-                                  respondMutation.mutate({ id: r.sellRequestId, decision: 'accept' })
-                                }
-                              >
-                                {t('adjust.accept')}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-accent"
-                                loading={responding && respondMutation.variables?.decision === 'decline'}
-                                disabled={responding}
-                                onClick={() =>
-                                  respondMutation.mutate({ id: r.sellRequestId, decision: 'decline' })
-                                }
-                              >
-                                {t('adjust.decline')}
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-
-                        {hasPendingItems && (
-                          <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">
-                            {t('requestPendingNote')}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </QueryState>
-            )}
-          </div>
-        </section>
+        {/* FAB del carrito (§18.4a): fijo abajo-derecha, en el flujo de tabulación DESPUÉS
+            del contenido principal (§18.8, sin tabindex positivos). Siempre presente (vacío
+            da acceso a los requisitos de venta); el badge se omite con carrito vacío. */}
+        <SellCartFab ref={fabRef} count={cartCount} open={drawerOpen} onClick={() => setDrawerOpen(true)} />
       </div>
 
       <Modal open={guideOpen} onClose={() => setGuideOpen(false)} title={t('shippingGuideLink')}>
@@ -1157,11 +720,16 @@ export function BuylistView() {
                       key={l.id}
                       className="flex items-baseline justify-between gap-3 border-b border-border py-2 text-sm"
                     >
-                      <span className="min-w-0 truncate text-text">
-                        <span lang="en">{l.card.name}</span>
-                        <span className="ml-2 font-mono text-[10px] text-muted">
-                          ×{l.quantity} · {tFinish(l.finish)}
+                      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-text">
+                        <span lang="en" className="min-w-0 truncate">
+                          {l.card.name}
                         </span>
+                        <span className="font-mono text-[10px] text-muted">
+                          ×{l.quantity}
+                        </span>
+                        {/* P-14 (§18.5): mismo FinishMark que en el carrito — la decisión de
+                            venta se confirma viendo la variante con el mismo lenguaje. */}
+                        <FinishMark finish={l.finish} className="translate-y-[1px]" />
                       </span>
                       <span className="tabular shrink-0">
                         {pending ? (
@@ -1204,7 +772,7 @@ export function BuylistView() {
               onCreated={(sellRequestId) => {
                 setCreatedId(sellRequestId);
                 setRequestOpen(false);
-                setCart([]);
+                clearCart();
                 setLastAdded(null);
                 void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
                 // La solicitud pudo registrar la CLABE en KYC → refresca el checklist.

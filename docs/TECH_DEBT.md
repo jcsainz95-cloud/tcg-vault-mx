@@ -1344,7 +1344,16 @@
   batch quote (una llamada por página) y cambiar el bulk a **parcial-tolerante** (agregar lo que sí cotizó,
   reportar lo que falló).
 
-### FE-13 · `BuylistView.tsx` creció (1115 líneas) — pide extracción de hooks/subcomponentes (techlead)
+### FE-13 · `BuylistView.tsx` creció (1115 líneas) — pide extracción de hooks/subcomponentes (techlead) — RESUELTA (ronda de corrección Stream C, 2026-08-21)
+- **Estado:** **RESUELTA** en la ronda de corrección del gate Stream C (hallazgo TL-C3: tercer toque sin
+  pagar el compromiso «sin tercer aplazamiento»). Extracción MECÁNICA, sin cambio de comportamiento, a la
+  misma carpeta de la ruta: `useSellCart.ts` (carrito + `mergeCartLine` + cantidades + `expandedLines` +
+  totales derivados, handlers estables con `useCallback`), `SellCartContents.tsx` (contenido del drawer:
+  requisitos → líneas → total → CTA → vaciar, con `QuoteRow`/`ruleText`) y `MyRequestsSection.tsx`
+  ("Mis solicitudes" + mutación de respuesta al ajuste F5, dueña de su query `['sell-requests']`).
+  `BuylistView.tsx` quedó como orquestador (787 líneas). Red de seguridad: los 41 tests conductuales de
+  `BuylistView.test.tsx` pasan idénticos antes y después (43 tras los 2 nuevos de TL-C2). El registro
+  original queda abajo para trazabilidad.
 - **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` (1115 líneas, medido
   2026-08-17; antes ~960).
 - **Estado actual:** el archivo concentra carrito de venta, selección bulk, cotización por resultado, "Mis
@@ -2866,3 +2875,86 @@
   `security/README.md` › «Guardia anti-producción». Registrada aquí para trazabilidad del veredicto
   techlead (mismo criterio que SB-D8); **no queda deuda viva** de este hallazgo. Owner: **devops**.
   Prioridad original: **baja**.
+
+### Ronda de corrección Stream C (Cotizador v2) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
+
+> Del gate del **Stream C · Cotizador v2** (QA aprobó; techlead rechazó con TL-C1/C2/C3, corregidos en la
+> ronda — ver `docs/FRONTEND_NOTES.md` § «Stream C · ronda de corrección»). Ítems de deuda señalados por
+> el techlead, dueño **frontend**. Numeración `SC-D*` (Stream C).
+
+### SC-D1 · Cuarto shell de diálogo a mano con garantías divergentes (Media)
+- **Dónde:** `frontend/src/components/domain/SellCartDrawer.tsx` vs `components/ui/Modal.tsx` vs
+  `components/master-set/CellDrawer.tsx`/`VariantDrawer` — cada uno implementa su propio contenedor de
+  diálogo (overlay + Esc + retorno de foco), con GARANTÍAS distintas: solo SellCartDrawer trae focus
+  trap completo + guard de focusin (TL-C2); el scrim `rgba(26,26,24,.55)` vive hardcodeado en una
+  **cuarta copia**.
+- **Impacto:** medio (a11y/mantenibilidad): un fix de foco/scroll aplicado a un shell no llega a los
+  demás (el propio TL-C2 se corrigió SOLO en SellCartDrawer); el token del scrim no existe.
+- **Disparador:** el **siguiente diálogo nuevo** o el **primer bug de scroll/portal en móvil**.
+  Dirección: primitivo `useDialogShell`/`<Dialog>` en `components/ui/` (trap + Esc + overlay + retorno
+  de foco + guard TL-C2 una sola vez) + token `bg-scrim` en el DS (coordinar nombre con ux-ui). NO se
+  implementó en este stream (decisión explícita del techlead: fuera de alcance de la ronda).
+
+### SC-D2 · 8 tests muertos en `e2e/buylist.spec.ts` (grid plano raw pre-v1.21) — RESUELTA (ronda de corrección Stream C, 2026-08-21)
+- **Dónde:** `frontend/e2e/buylist.spec.ts` — 8 casos asumían el grid plano en `raw` (helpers
+  `searchFor`/`addCard` sobre «Buscar carta» del filtro plano), muerto desde v1.21 (raw = binder Master
+  Set). Normalizaban el rojo: 8 failed / 4 passed de reposo en mock.
+- **Estado:** **RESUELTA** en la ronda (opción barata sugerida por techlead, sin `test.fixme` ni
+  cobertura falsa): los casos de comportamiento del grid plano/bulk se migraron a **`graded`**
+  (seleccionan «Tipo de producto» primero — el grid plano vive ahí ahora) y los casos de acabados raw
+  (línea por acabado, precio pendiente de Zapdos, KYC) al **binder quoter** (helpers
+  `openBaseSet`/`addFromBinder`, mismos fixtures). `addFirstSellableCard` (@real) descubre por graded y
+  clica la primera fila **habilitada** (una carta holofoil-only no cotiza graded en mock →
+  FINISH_NOT_AVAILABLE por-ítem, fila deshabilitada sin tumbar el grid). Estado final verificado en
+  mock: **12 passed / 0 failed** (antes 4/8). El pendiente que dejó esta migración (el smoke `@real`
+  ya no cubre la ruta raw contra staging) se extrajo como ítem abierto propio: ver **SC-D5**.
+
+### SC-D3 · Re-render de la grilla completa del quoter en cada interacción del carrito (Baja-Media)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` (`addFromMasterSet`) y
+  `frontend/src/components/master-set/MasterSetBinder.tsx` (`QuoterTile`/`BinderTile` sin `memo`).
+- **Estado actual:** **preparada (handler estable); sin efecto de perf hasta memoizar las tejas
+  (QuoterTile/BinderTile)**. En la ronda TL-C3 `addFromMasterSet` quedó como `useCallback` sobre
+  handlers estables de `useSellCart` — pero es un paso *preparatorio*: no hay `memo(` en
+  `frontend/src/components/master-set/` (verificado por techlead), así que hoy NO evita ningún
+  re-render; cualquier estado que cambie arriba sigue re-renderizando las N tejas del set.
+- **Impacto:** bajo-medio (solo perf percibida en sets grandes; sin bug funcional).
+- **Disparador:** **lag al teclear cantidades en un set grande** (200+ tejas). Acción: `React.memo` en
+  `QuoterTile`/`BinderTile` (sus props ya son estables tras esta ronda) y perfilar antes/después.
+
+### SC-D4 · `MasterSetBinder` acumula ~10 ramas por modo (Baja)
+- **Dónde:** `frontend/src/components/master-set/MasterSetBinder.tsx` — condicionales `isQuoter`/
+  `mode === 'user_vault_admin'`/etc. regados por fetch, filtros, contadores, sticky y tiles.
+- **Estado actual:** el binder compartido decide por modo en ~10 puntos distintos; cada modo nuevo
+  (P-17 sumó `onOpenVariant`) agrega otra rama transversal. Aún legible, pero la próxima rama cruza el
+  umbral.
+- **Impacto:** bajo (mantenibilidad del componente compartido más cargado del proyecto).
+- **Disparador:** **la próxima rama por modo** que se necesite. Dirección: objeto de **capacidades por
+  modo** (`{ sticky, completion, secretFilter, pieceFilter, nameFilter, addToCart, … }` derivado de
+  `MasterSetViewMode` en `mode.ts`) y que el JSX pregunte por capacidad, no por modo.
+
+### SC-D5 · El smoke `@real vender` ya no valida la ruta raw contra staging (extraído de SC-D2)
+- **Dónde:** `frontend/e2e/buylist.spec.ts` → `addFirstSellableCard` (flujo `@real`). Dueño: **frontend**.
+- **Estado actual:** tras la migración de SC-D2, el descubridor del smoke `@real` selecciona **graded**
+  y clica la primera fila habilitada del grid plano. En consecuencia, contra staging **ya no se valida
+  la ruta raw** (binder Master Set) — que es la ruta **principal del producto desde v1.21**. La
+  cobertura raw existe solo en mock (helpers `openBaseSet`/`addFromBinder`); el E2E real ejercita
+  únicamente la ruta graded.
+- **Impacto:** hueco de cobertura E2E real en el flujo crítico de venta: una regresión que solo se
+  manifieste en la ruta raw contra el stack real pasaría el smoke en verde.
+- **Disparador:** **antes del cierre de release / cuando el seed real cotice el binder.** Acción:
+  extender el descubridor `@real` (o añadir un caso) que cotice por el binder raw contra staging; si el
+  seed real no cotiza raw, ajustar el seed (coordinar con backend/devops) o el descubridor. Ref: SC-D2.
+
+### SC-D6 · Regla de dinero «pendiente ≠ MX$0.00» duplicada en 3 archivos de la ruta buylist (Media)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/` — la lógica de presentación de un monto
+  pendiente vive copiada en 3 archivos: `SellCartContents.tsx:107-121`, `BuylistView.tsx:735-753` y
+  `MyRequestsSection.tsx:121-139`; además la condición del total (`totalEstimatedCents === 0 &&
+  pendingCardCount > 0`) es **copia exacta** en 2 sitios: `SellCartContents.tsx:211` y
+  `BuylistView.tsx:747`. Dueño: **frontend**.
+- **Impacto:** medio — es un **invariante de dinero visible**: si se cambia el criterio de «cuándo un
+  monto es pendiente» (o su formato) en un sitio y no en los otros, el usuario ve un **total mentiroso**
+  (p. ej. MX$0.00 donde debería decir «pendiente») según la pantalla en la que esté.
+- **Disparador:** **el próximo toque a cómo se muestra un monto pendiente.** Dirección: extraer un
+  `<QuotedAmount>`/`formatQuoted` compartido en la propia carpeta de la ruta (no en `components/`
+  globales: es zona compartida y el uso es local a buylist), y que los 3 archivos lo consuman —
+  incluida la condición del total, definida una sola vez.

@@ -97,4 +97,15 @@ describe('StorefrontHeader — sesión', () => {
     expect(vault).toHaveAttribute('href', '/vault');
     expect(screen.getByRole('link', { name: 'Mis órdenes' })).toHaveAttribute('href', '/orders');
   });
+
+  it('TL-C1: expone su altura real como `--app-header-h` en el contenedor del layout (y la limpia al desmontar)', () => {
+    // jsdom no pinta layout (offsetHeight=0), así que se asserta el MECANISMO: la var CSS
+    // queda definida en px sobre el padre inmediato del header (el wrapper del layout del
+    // storefront) — es lo que consume el sticky del binder quoter vía
+    // `lg:top-[var(--app-header-h,0px)]` para no quedar tapado por el header (z-40 opaco).
+    const { container, unmount } = renderWithIntl(<StorefrontHeader />, 'es');
+    expect(container.style.getPropertyValue('--app-header-h')).toMatch(/^\d+px$/);
+    unmount();
+    expect(container.style.getPropertyValue('--app-header-h')).toBe('');
+  });
 });

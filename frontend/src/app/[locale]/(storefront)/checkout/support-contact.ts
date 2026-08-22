@@ -11,4 +11,4 @@
  * valor NORMATIVO que el propio contrato fija para ese campo, centralizado aquí para que
  * cambiarlo sea una sola línea. Solicitud registrada en docs/FRONTEND_NOTES.md.
  */
-export const SUPPORT_CONTACT_FALLBACK = 'soporte@tcgvaultmx.com';
+export const SUPPORT_CONTACT_FALLBACK = 'soporte@tcghunt.mx';

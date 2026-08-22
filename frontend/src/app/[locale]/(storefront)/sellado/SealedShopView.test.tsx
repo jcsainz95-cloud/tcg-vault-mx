@@ -40,10 +40,17 @@ describe('SealedShopView · grid y conteos', () => {
     expect(screen.getByText('3 productos')).toBeInTheDocument();
   });
 
-  it('muestra el call-out mailto anti-buylist a contacto@tcgvaultmx.com', async () => {
+  it('el mailto del call-out apunta al MISMO buzón que menciona el cuerpo (sin divergencia)', async () => {
     renderWithProviders(<SealedShopView />, 'es');
     const cta = await screen.findByRole('link', { name: 'Escríbenos' });
-    expect(cta).toHaveAttribute('href', 'mailto:contacto@tcgvaultmx.com');
+
+    // El href debe usar el correo que el usuario LEE en el cuerpo: se extrae del copy y se cruza.
+    const href = cta.getAttribute('href') ?? '';
+    const email = href.replace(/^mailto:/, '');
+    expect(email).toMatch(/^[\w.+-]+@[\w.-]+\.\w+$/);
+
+    const body = screen.getByText(/Escríbenos a .+ con fotos/);
+    expect(body).toHaveTextContent(email);
   });
 });
 
