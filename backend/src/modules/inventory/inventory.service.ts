@@ -12,7 +12,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
-import { sealedMarketGradeKey } from '../pricing/pricing.types';
+import { buildGradeKey, sealedMarketGradeKey } from '../pricing/pricing.types';
+import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import {
@@ -25,6 +26,7 @@ import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
   BulkPublishRequest,
+  BulkRemoveRequestDto,
   CreateItemDto,
   CreateLocationDto,
   InventoryAdjustmentRequestDto,
@@ -170,6 +172,52 @@ export interface InventoryAdjustmentResponse {
   toStatus: InventoryStatus;
   idempotentReplay: boolean;
 }
+
+/**
+ * P-29 — respuesta de la baja rápida por cantidad (POST /admin/inventory/items/bulk-remove).
+ * `removed === requested` SIEMPRE en el camino feliz (la operación es atómica: o baja las N o
+ * lanza 422 INSUFFICIENT_STOCK sin bajar ninguna). Los arrays van alineados 1:1 (una fila
+ * InventoryAdjustment + un InventoryMovement por pieza dada de baja).
+ *
+ * v1.35 — `batchKey?` (presente SOLO si vino en el request) + `idempotentReplay`: `true` SOLO cuando
+ * un `batchKey` ya procesado repite la respuesta guardada (mismo `200`, sin re-bajar); `false` en todo
+ * procesamiento nuevo (y siempre `false` sin `batchKey`). Paridad total con `InventoryAdjustmentResponse`.
+ */
+export interface BulkRemoveResponse {
+  batchKey?: string;
+  idempotentReplay: boolean;
+  removed: number;
+  requested: number;
+  reason: AdjustmentReason;
+  toStatus: InventoryStatus;
+  inventoryItemIds: string[];
+  folios: string[];
+  adjustmentIds: string[];
+}
+
+/**
+ * P-31 — columnas del export de inventario a .xlsx (una fila por PIEZA/folio). El orden fija el
+ * layout de la hoja. `key` mapea a la fila que arma `buildExportRows`.
+ */
+export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: string; width: number }> = [
+  { header: 'Folio', key: 'folio', width: 14 },
+  { header: 'Carta', key: 'card', width: 28 },
+  { header: 'Set', key: 'set', width: 26 },
+  { header: 'Número', key: 'number', width: 10 },
+  { header: 'Rareza', key: 'rarity', width: 18 },
+  { header: 'Tipo', key: 'productType', width: 10 },
+  { header: 'Acabado', key: 'finish', width: 20 },
+  { header: 'Condición', key: 'condition', width: 20 },
+  { header: 'Certificado', key: 'certNumber', width: 16 },
+  { header: 'Cantidad', key: 'quantity', width: 10 },
+  { header: 'Estado', key: 'status', width: 12 },
+  { header: 'Ubicación', key: 'location', width: 18 },
+  { header: 'Origen', key: 'origin', width: 20 },
+  { header: 'Costo MXN', key: 'costMxn', width: 12 },
+  { header: 'Precio mercado MXN', key: 'marketMxn', width: 18 },
+  { header: 'Precio compra MXN', key: 'buyMxn', width: 18 },
+  { header: 'Precio venta MXN', key: 'sellMxn', width: 18 },
+];
 
 @Injectable()
 export class InventoryService {
@@ -1441,6 +1489,331 @@ export class InventoryService {
       toStatus,
       idempotentReplay: false,
     };
+  }
+
+  // ---------------- P-29 §baja rápida — baja por CANTIDAD ----------------
+
+  /**
+   * P-29 — baja rápida de `quantity` piezas de un (cardId, finish[, condición]) de un golpe.
+   *
+   * Selección server-side de las piezas MÁS APROPIADAS: solo `ownerType=platform` en
+   * `{in_stock, listed}` (mismo guardarraíl que el ajuste por-pieza `adjustExisting`), priorizando
+   * `in_stock` antes que `listed` (baja primero lo NO publicado → menos disrupción del storefront) y,
+   * dentro de cada status, la MÁS ANTIGUA (FIFO por `createdAt`). Reusa el mapeo de motivos del
+   * ajuste (`perdida→lost | danada→damaged | error_captura→withdrawn`).
+   *
+   * Money-safe: NO toca precios (ni `listPriceCents` ni referencias) ni crea/reversa órdenes; solo
+   * transiciona el `status` y registra el rastro TRIPLE por pieza (InventoryMovement reason=adjustment
+   * + InventoryAdjustment M-24; el AuditLog lo escribe el controller). Nunca escribe `reserved`/`listed`
+   * → no vende ni publica.
+   *
+   * Atómico: si hay MENOS piezas ajustables que `quantity` → 422 INSUFFICIENT_STOCK y NO se baja
+   * ninguna («no bajar más de las que hay»). La guardia atómica de status (updateMany condicionado +
+   * count, patrón BE-45) cierra la ventana TOCTOU: una carrera que saque una pieza del allowlist entre
+   * la lectura y la escritura da 422 y rollback (no se pisa una reserva de checkout con lost/damaged).
+   *
+   * v1.35 — idempotencia opcional por `batchKey` (H1), MISMO mecanismo `InventoryBatch` (M-21) que
+   * `adjustFound`/`publish-all`, con `kind='bulk_remove'`:
+   *  - fast-path: `batchKey` ya persistido → respuesta ORIGINAL guardada + `idempotentReplay: true`
+   *    (mismo `200`), SIN transicionar status ni escribir un segundo lote de ajustes/movimientos.
+   *  - claim `inventoryBatch.create({ id: batchKey })` PRIMERO dentro de la `$transaction`: la unique
+   *    constraint es la guardia de concurrencia (P2002 → replay del ganador, no re-baja) y un fallo
+   *    posterior (INSUFFICIENT_STOCK / TOCTOU) hace rollback del claim → un reintento limpio vuelve a
+   *    intentar (no se «quema» el batchKey por un fallo transitorio).
+   *
+   * IMPORTANTE (corrección del comentario previo, H1): la ATOMICIDAD por sí sola NO cubre el doble
+   * submit ni el reintento tras un timeout ambiguo — solo garantiza la consistencia DENTRO de una
+   * ejecución (o baja las N o ninguna). Lo que evita el «encogimiento fantasma» de un reintento (bajar
+   * OTRAS N piezas) es la idempotencia por `batchKey`; el estado de carga del front es best-effort y no
+   * es una garantía del backend. Sin `batchKey` cada llamada es un procesamiento nuevo.
+   */
+  async bulkRemove(dto: BulkRemoveRequestDto, actorUserId: string): Promise<BulkRemoveResponse> {
+    if (!dto.note || dto.note.trim() === '') {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'bulk-remove requires a note');
+    }
+    const quantity = dto.quantity;
+    const reason = dto.reason as AdjustmentReason;
+    const toStatus: InventoryStatus =
+      dto.reason === 'perdida' ? 'lost' : dto.reason === 'danada' ? 'damaged' : 'withdrawn';
+
+    // Fast-path replay: si el batchKey YA está persistido (committed) con su resultado, se repite la
+    // respuesta original SIN re-bajar (mismo criterio que adjustFound; cierra el «encogimiento fantasma»).
+    if (dto.batchKey) {
+      const existing = await this.prisma.inventoryBatch.findUnique({
+        where: { id: dto.batchKey },
+      });
+      if (existing) return this.replayBulkRemove(existing);
+    }
+
+    const where: Prisma.InventoryItemWhereInput = {
+      cardId: dto.cardId,
+      finish: dto.finish,
+      ownerType: 'platform',
+      status: { in: [...ADJUSTABLE_ORIGIN_STATUSES] },
+    };
+    if (dto.productType) where.productType = dto.productType;
+    if (dto.rawCondition) where.rawCondition = dto.rawCondition;
+    if (dto.sealedCondition) where.sealedCondition = dto.sealedCondition;
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // v1.35 — claim atómico del batchKey PRIMERO (guardia de concurrencia, patrón adjustFound). Un
+        // fallo posterior (INSUFFICIENT_STOCK / TOCTOU) hace rollback de este claim junto con todo lo
+        // demás → un reintento con la misma key vuelve a intentar limpio.
+        if (dto.batchKey) {
+          await tx.inventoryBatch.create({
+            data: {
+              id: dto.batchKey,
+              actorUserId,
+              kind: 'bulk_remove',
+              requested: quantity,
+              createdItems: 0,
+              failedLines: 0,
+              resultJson: {} as unknown as Prisma.InputJsonValue,
+            },
+          });
+        }
+        // `take: quantity` con orden in_stock→listed / FIFO: si devuelve < quantity, es que NO hay más
+        // ajustables (el take es un tope superior) → available === candidates.length. No hace falta un
+        // count aparte.
+        const candidates = await tx.inventoryItem.findMany({
+          where,
+          orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+          take: quantity,
+          select: { id: true, folio: true, status: true },
+        });
+        if (candidates.length < quantity) {
+          throw BusinessException.validation(
+            'INSUFFICIENT_STOCK',
+            `only ${candidates.length} adjustable piece(s) available for (card ${dto.cardId}, finish ${dto.finish}); requested ${quantity}`,
+            { available: candidates.length, requested: quantity },
+          );
+        }
+        const ids = candidates.map((c) => c.id);
+        // Guardia ATÓMICA (BE-45): transiciona SOLO las piezas que siguen siendo ajustables. Un count
+        // menor = alguna salió del allowlist en la carrera → 422 + rollback (no baja parcial silenciosa).
+        const claimed = await tx.inventoryItem.updateMany({
+          where: {
+            id: { in: ids },
+            ownerType: 'platform',
+            status: { in: [...ADJUSTABLE_ORIGIN_STATUSES] },
+          },
+          data: { status: toStatus },
+        });
+        if (claimed.count !== ids.length) {
+          throw BusinessException.validation(
+            'ITEM_NOT_ADJUSTABLE',
+            'some pieces are no longer adjustable (concurrent status transition); retry',
+            { claimed: claimed.count, requested: quantity },
+          );
+        }
+        const inventoryItemIds: string[] = [];
+        const folios: string[] = [];
+        const adjustmentIds: string[] = [];
+        for (const c of candidates) {
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: c.id,
+              fromStatus: c.status,
+              toStatus,
+              reason: MovementReason.adjustment,
+              actorUserId,
+              note: dto.note,
+            },
+          });
+          const adj = await tx.inventoryAdjustment.create({
+            data: {
+              inventoryItemId: c.id,
+              reason,
+              fromStatus: c.status,
+              toStatus,
+              actorUserId,
+              note: dto.note,
+            },
+          });
+          inventoryItemIds.push(c.id);
+          folios.push(c.folio);
+          adjustmentIds.push(adj.id);
+        }
+        const out: BulkRemoveResponse = {
+          ...(dto.batchKey ? { batchKey: dto.batchKey } : {}),
+          idempotentReplay: false,
+          removed: ids.length,
+          requested: quantity,
+          reason,
+          toStatus,
+          inventoryItemIds,
+          folios,
+          adjustmentIds,
+        };
+        // Finaliza el claim con la respuesta ORIGINAL (fuente del replay idempotente).
+        if (dto.batchKey) {
+          await tx.inventoryBatch.update({
+            where: { id: dto.batchKey },
+            data: {
+              createdItems: inventoryItemIds.length,
+              resultJson: out as unknown as Prisma.InputJsonValue,
+            },
+          });
+        }
+        return out;
+      });
+    } catch (e) {
+      // P2002 en el claim = otra corrida ganó la carrera por este batchKey → replay (no re-baja).
+      if (dto.batchKey && (e as { code?: string })?.code === 'P2002') {
+        const winner = await this.prisma.inventoryBatch.findUnique({
+          where: { id: dto.batchKey },
+        });
+        if (winner) return this.replayBulkRemove(winner);
+        // Carrera extrema (la ganadora aún no commitea su claim visible): pide reintento.
+        throw BusinessException.conflict('CONFLICT', 'bulk-remove is being processed; retry');
+      }
+      throw e;
+    }
+  }
+
+  /** Reconstruye la respuesta idempotente de la baja rápida desde el InventoryBatch persistido. */
+  private replayBulkRemove(existing: { resultJson: unknown }): BulkRemoveResponse {
+    const stored = existing.resultJson as BulkRemoveResponse;
+    return { ...stored, idempotentReplay: true };
+  }
+
+  // ---------------- P-31 §export — inventario a .xlsx ----------------
+
+  /**
+   * P-31 — genera un .xlsx del inventario de PLATAFORMA (una fila por PIEZA/folio; el modelo es
+   * folio-por-pieza, así el operador ve cada copia con su ubicación/costo/cert). Filtros OPCIONALES:
+   * `setId` (id LOCAL del CardSet) y `productType`. Devuelve un Buffer que el controller manda con
+   * cabeceras de descarga.
+   *
+   * Money-safe: exporta el DATO TAL CUAL, sin inventar ni recalcular. Sin precio → celda VACÍA (nunca
+   * 0). Definición de las columnas de dinero (todo STORED, sin derivar):
+   *  - «Precio mercado» = `PriceReference` de la variante del item (mercado del día, MXN al FX vivo).
+   *  - «Precio compra»  = override de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, M-30);
+   *     NO recomputa la regla del cotizador por rareza (eso sería inventar). Vacío si no hay override.
+   *  - «Precio venta»   = precio manual POR PIEZA (`listPriceCents`) ó, en su defecto, el override de
+   *     VENTA de la variante (`sellOverrideCents`). NO deriva mercado×markup. Vacío si ninguno.
+   */
+  async exportInventoryXlsx(filters: {
+    setId?: string;
+    productType?: ProductType;
+  }): Promise<Buffer> {
+    const where: Prisma.InventoryItemWhereInput = { ownerType: 'platform' };
+    if (filters.productType) where.productType = filters.productType;
+    if (filters.setId) where.card = { setId: filters.setId };
+
+    const items = await this.prisma.inventoryItem.findMany({
+      where,
+      include: { card: { include: { set: true } }, location: true },
+      orderBy: [{ card: { setId: 'asc' } }, { folio: 'asc' }],
+    });
+
+    // Referencias de mercado EN LOTE (sin N+1) — misma llave que getReferencesBatch.
+    const refKeyOf = (i: {
+      cardId: string;
+      productType: ProductType;
+      finish: Finish;
+      gradeKey: string;
+    }) => `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+    const refReqs = items.map((it) => ({
+      cardId: it.cardId,
+      productType: it.productType,
+      finish: it.finish,
+      gradeKey: this.exportGradeKey(it),
+    }));
+    const refs = refReqs.length
+      ? await this.pricing.getReferencesBatch(refReqs)
+      : new Map<string, PriceInfo>();
+
+    // Overrides M-30 (compra/venta) EN LOTE por (cardId, productType, gradeKey, finish).
+    const cardIds = [...new Set(items.map((it) => it.cardId))];
+    const overrides = cardIds.length
+      ? await this.prisma.variantPriceOverride.findMany({ where: { cardId: { in: cardIds } } })
+      : [];
+    const ovByKey = new Map<string, VariantPriceOverride>();
+    for (const o of overrides) {
+      ovByKey.set(`${o.cardId}|${o.productType}|${o.gradeKey}|${o.finish}`, o);
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'TCG HUNT';
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet('Inventario');
+    sheet.columns = INVENTORY_EXPORT_COLUMNS.map((c) => ({
+      header: c.header,
+      key: c.key,
+      width: c.width,
+    }));
+    sheet.getRow(1).font = { bold: true };
+
+    for (let idx = 0; idx < items.length; idx++) {
+      const it = items[idx];
+      const market = refs.get(refKeyOf(refReqs[idx]));
+      const ov = ovByKey.get(`${it.cardId}|${it.productType}|${this.exportGradeKey(it)}|${it.finish}`);
+      const marketCents =
+        market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
+      const buyCents = ov?.buyOverrideCents ?? null;
+      const sellCents = it.listPriceCents ?? ov?.sellOverrideCents ?? null;
+      sheet.addRow({
+        folio: it.folio,
+        card: it.card?.name ?? '',
+        set: it.card?.set?.name ?? '',
+        number: it.card?.number ?? '',
+        rarity: it.card?.rarity ?? '',
+        productType: it.productType,
+        finish: it.finish,
+        condition: this.exportCondition(it),
+        certNumber: it.certNumber ?? '',
+        quantity: 1,
+        status: it.status,
+        location: it.location?.label ?? '',
+        origin: it.acquisitionType,
+        costMxn: this.centsToMxn(it.acquisitionCostCents),
+        marketMxn: this.centsToMxn(marketCents),
+        buyMxn: this.centsToMxn(buyCents),
+        sellMxn: this.centsToMxn(sellCents),
+      });
+    }
+
+    // exceljs devuelve un ArrayBuffer-like; normalizamos a Buffer para res.send.
+    const out = await workbook.xlsx.writeBuffer();
+    return Buffer.from(out as ArrayBuffer);
+  }
+
+  /** gradeKey del item para casar `PriceReference`/`VariantPriceOverride` (sellado → clave de mercado). */
+  private exportGradeKey(it: {
+    productType: ProductType;
+    rawCondition: string | null;
+    gradingCompany: string | null;
+    gradeValue: string | null;
+    tcgplayerProductId: number | null;
+  }): string {
+    if (it.productType === 'sealed' && it.tcgplayerProductId != null) {
+      return sealedMarketGradeKey(it.tcgplayerProductId);
+    }
+    return buildGradeKey(it);
+  }
+
+  /** Condición legible por tipo: raw→rawCondition, sealed→sealedCondition, graded→empresa+grado. */
+  private exportCondition(it: {
+    productType: ProductType;
+    rawCondition: string | null;
+    sealedCondition: string | null;
+    gradingCompany: string | null;
+    gradeValue: string | null;
+  }): string {
+    if (it.productType === 'raw') return it.rawCondition ?? '';
+    if (it.productType === 'sealed') return it.sealedCondition ?? '';
+    if (it.productType === 'graded') {
+      return [it.gradingCompany, it.gradeValue].filter(Boolean).join(' ');
+    }
+    return '';
+  }
+
+  /** Cents → número MXN (2 decimales) o `null` para celda VACÍA (money-safe: sin precio ≠ 0). */
+  private centsToMxn(cents: number | null | undefined): number | null {
+    if (cents == null) return null;
+    return Math.round(cents) / 100;
   }
 
   // ---------------- Locations ----------------

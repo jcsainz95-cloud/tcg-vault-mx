@@ -4,6 +4,77 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §22 · P-29 (baja rápida de inventario) + P-31 (exportar inventario a Excel) — M1 admin (2026-08-22, branch `fix/variant-composition-regression`)
+
+### P-29 · Baja rápida en el drawer del Master Set (simétrica al alta rápida)
+
+**Qué se agregó:** un control de baja por cantidad en el `VariantDrawer` (drill-down por variante de M1),
+simétrico al `QuickAddSection` (P-19). Da de baja **N piezas de la misma variante** (carta + acabado, o
+carta + sellado) de un golpe, con **confirmación simple** de dos pasos (sin modal).
+
+**Componente:** `frontend/src/app/[locale]/(admin)/admin/m1/QuickRemove.tsx` (`QuickRemoveSection`).
+- Stepper de cantidad + Select de motivo de merma **OBLIGATORIO** (reusa `masterSet.adjust.reason`:
+  perdida/danada/error_captura, default `perdida`, elegido antes de confirmar) + CTA `destructive` con
+  confirmación inline (dos pasos, sin modal).
+- **Money-safe (doble barrera):** el stepper se **capa al conteo VISIBLE** de piezas ajustables
+  (`removableCount`, prop) — «Sumar uno» se deshabilita en el tope y `qtyNum` clampa a `removableCount`; con
+  `removableCount===0` se muestra el vacío y **no hay CTA**. El backend es la barrera dura.
+- **Anti doble-submit:** la baja es **ATÓMICA** en el backend + el botón queda `loading`/`disabled` mientras
+  corre. **No se manda `batchKey`** (no hay idempotencia por clave; no hace falta).
+
+**Wiring (`VariantDrawer.tsx`):** botón secundario **«Baja rápida»** en la fila de CTA (solo raw/sellado, no
+graded — `quickAddTarget` null en graded), que despliega la sección. `removableCount` se deriva de las filas
+ya cargadas (`rows`, filtradas a `ownerType=platform` por el query): `status ∈ {in_stock, listed}`. Al éxito
+refresca `pieces.refetch()` + `onChanged()` (agregados del binder).
+
+**Endpoint consumido (backend YA implementado — shape reconciliado):**
+`POST /admin/inventory/items/bulk-remove` con
+`{ cardId, finish, quantity, reason, note?, productType?, rawCondition?, sealedCondition? }` (`reason`
+**requerido** ∈ perdida|danada|error_captura) →
+`{ removed, requested, reason, toStatus, inventoryItemIds[], folios[], adjustmentIds[] }`.
+- **ATÓMICO:** o baja las `quantity` completas o ninguna. Errores manejados legibles:
+  `422 INSUFFICIENT_STOCK { available, requested }` (carrera; muestra las disponibles) y
+  `422 ITEM_NOT_ADJUSTABLE`.
+- API `bulkRemoveInventory` (`api.ts`), mock `mockBulkRemove` (`fixtures.ts`: atómico — si faltan piezas
+  lanza `INSUFFICIENT_STOCK` con `{ available, requested }` sin bajar nada). `ApiFixtureError` ganó un campo
+  `details?` y `translateFixtureError` lo propaga, para que el mock reproduzca `INSUFFICIENT_STOCK` con datos.
+
+### P-31 · «Exportar a Excel» en M1
+
+**Qué se agregó:** botón **«Exportar a Excel»** en la toolbar de M1 (junto a «Publicar todo…» y «Alta por
+lote»), en `M1View.tsx`. Descarga el `.xlsx` del inventario con el **filtro/set actual**: `setId` del binder
+abierto (solo pestaña Master Set) + `productType` por pestaña (`sealed`/`graded`).
+
+- **blob → descarga:** helper `triggerBlobDownload` (objectURL → `<a download>` → revoke). El nombre lo dicta
+  el **backend por `Content-Disposition`** (`inventario-YYYY-MM-DD.xlsx`), que `requestBlob` parsea y devuelve
+  como `filename`; si no viniera, cae al nombre propio `inventario-tcghunt-YYYYMMDD.xlsx` (`exportFilename`).
+- **Estados:** botón con `loading` («Exportando…») + `disabled`; error → toast `danger` legible
+  (`exportXlsx.error`); éxito → toast `success`.
+- **Endpoint consumido (backend YA implementado):** `GET /admin/inventory/export.xlsx`
+  (query `setId/status/productType/finish/q`) → binario xlsx. API `exportAdminInventoryXlsx` (`api.ts`)
+  devuelve `{ blob, filename }` vía el helper `requestBlob` de `api-client.ts` (fetch binario autenticado, sin
+  interceptor de refresh; errores → mismo `ApiClientError`; parsea `filename`/`filename*` del
+  `Content-Disposition`). Mock genera un blob con MIME de xlsx (contenido demo) y `filename: null`.
+
+### i18n
+Nuevas claves en `messages/{es,en}.json`: `admin.quickRemove.*` (incl. `insufficientStock`),
+`admin.drawer.removeQuick`, `admin.inventory.exportXlsx.*`. `error.ITEM_NOT_ADJUSTABLE` ya existía y se reusa.
+
+### Reconciliación con el backend (2026-08-22)
+Ambos endpoints los **implementó el backend**; el front se alineó a sus shapes EXACTOS (backend = fuente):
+- **P-29:** se quitó `sealedSubtype`, `batchKey` y todo el manejo de `idempotentReplay` (la baja es atómica);
+  `reason` pasó a **obligatorio**; el resumen se lee de `{ removed, requested, folios }`; se añadió el manejo
+  legible de `INSUFFICIENT_STOCK`/`ITEM_NOT_ADJUSTABLE`. La rama «baja parcial» se eliminó (imposible con la
+  atomicidad: en 200 siempre `removed === requested`).
+- **P-31:** `requestBlob`/`exportAdminInventoryXlsx` devuelven `{ blob, filename }`; el front usa el
+  `filename` del `Content-Disposition` del backend y sólo cae a su nombre propio si no viene.
+
+### Gates
+`tsc --noEmit` ✓ · `next lint` sin warnings/errores ✓ · `next build` ✓ · `vitest run` **584/584** verdes
+(71 archivos), incluidos los nuevos: `QuickRemove.test.tsx` (7) y P-31 en `M1View.test.tsx` (3, total 25).
+
+---
+
 ## §21 · P-28 (dos carritos en «Vender») + P-33 (retiro del selector de proveedor de respaldo) (2026-08-22, branch `fix/variant-composition-regression`)
 
 ### P-28 · Los dos carritos de «Vender» ya no compiten
@@ -5062,3 +5133,30 @@ rol/texto) + el resto de la suite.
 ### Gates
 `tsc --noEmit` ✓ · `next lint` sin warnings/errores ✓ · `next build` ✓ · `vitest run` **568/568** verdes
 (70 archivos; M2View.test.tsx **67/67**), **sin modificar los tests**. `M2View.tsx`: **2.235 → 56 líneas**.
+
+---
+
+## P-29 baja rápida — `note` obligatorio + idempotencia `batchKey` (v1.35-inventory-bulk-remove-idempotency)
+
+QA rechazó la baja rápida por un bug BLOQUEANTE: `QuickRemove.tsx` no enviaba `note`, que el backend
+exige (`@IsString() note!`) ⇒ toda llamada REAL caía en `400 VALIDATION_ERROR`; los tests pasaban solo
+porque los mocks omitían `note` (lo enmascaraban). El contrato subió a v1.35 y se cerró así:
+
+- **`note` OBLIGATORIO (texto libre):** nuevo campo `Input` de nota en el control (`admin.quickRemove.noteLabel`),
+  validado no-vacío (`note.trim() !== ''`). El CTA «Dar de baja» se **deshabilita** con la nota vacía (barrera
+  de UI; el backend es la barrera dura). Es ADICIONAL al `reason` enum (perdida/danada/error_captura), que ya
+  existía — son dos campos distintos y **ambos** viajan en el request.
+- **Idempotencia `batchKey`:** se replica el patrón EXACTO de `QuickAdd`/`adjustFound` — `batchKeyRef` +
+  `ensureBatchKey()` con `localUid('qrem')`: la key se genera **una vez por intento**, se **reusa en el
+  reintento del mismo submit** (backend lo trata idempotente = replay, no re-baja otras N piezas ⇒ cierra el
+  «encogimiento fantasma»), y **rota tras un éxito**. `idempotentReplay` de la respuesta se consume sin romper
+  el tipado (no se pinta).
+- **`contract.ts`** (espejo del contrato): `BulkRemoveInventoryRequest.note` pasó de opcional a **requerido** y
+  ganó `batchKey?: string`; `BulkRemoveInventoryResponse` ganó `batchKey?: string` e `idempotentReplay: boolean`.
+- **Mock (`fixtures.ts`):** `mockBulkRemove` ahora **valida `note` no-vacía** (400 si falta — refleja la llamada
+  real, ya no la enmascara), aplica idempotencia por `batchKey` (`mockBulkRemoveStore`, replay con
+  `idempotentReplay:true`) y devuelve `batchKey`/`idempotentReplay`.
+- **Tests:** los mocks/asserts ahora mandan y verifican `note` (no-vacía) y `batchKey` en el body; nuevo test de
+  «CTA deshabilitado sin nota» y de «reintento del mismo submit reusa la batchKey». Suite **586/586** ✓,
+  `tsc --noEmit` ✓, `next build` ✓.
+- **Money-safe:** la baja solo transiciona `status`; no toca precios (garantía del backend, inalterada).

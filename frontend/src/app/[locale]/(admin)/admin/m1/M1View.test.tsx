@@ -409,6 +409,61 @@ describe('M1View · Ubicaciones de bóveda (capacidad conservada)', () => {
   });
 });
 
+describe('M1View · Exportar a Excel (P-31)', () => {
+  it('descarga el .xlsx del set/tab actual (blob → descarga) y avisa con toast', async () => {
+    const blob = new Blob(['x'], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const exportSpy = vi
+      .spyOn(api, 'exportAdminInventoryXlsx')
+      .mockResolvedValue({ blob, filename: null });
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:mock') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: /Exportar a Excel/ }));
+
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledTimes(1));
+    // Master Set sin set abierto → sin filtro de set ni de tipo.
+    expect(exportSpy).toHaveBeenCalledWith({ setId: undefined, productType: undefined });
+    // La descarga se disparó (blob → objectURL → <a download> click).
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledWith(blob));
+    expect(clickSpy).toHaveBeenCalled();
+    expect(await screen.findByText('Inventario exportado.')).toBeInTheDocument();
+  });
+
+  it('en la pestaña Gradeadas exporta filtrando por productType=graded', async () => {
+    const exportSpy = vi.spyOn(api, 'exportAdminInventoryXlsx').mockResolvedValue({
+      blob: new Blob(['x'], { type: 'application/octet-stream' }),
+      filename: null,
+    });
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:mock') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('tab', { name: 'Gradeadas' }));
+    fireEvent.click(screen.getByRole('button', { name: /Exportar a Excel/ }));
+
+    await waitFor(() =>
+      expect(exportSpy).toHaveBeenCalledWith({ setId: undefined, productType: 'graded' }),
+    );
+  });
+
+  it('un error de exportación se comunica legible (toast) sin descargar', async () => {
+    vi.spyOn(api, 'exportAdminInventoryXlsx').mockRejectedValue(
+      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
+    );
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: /Exportar a Excel/ }));
+
+    expect(
+      await screen.findByText('No se pudo exportar el inventario. Intenta de nuevo.'),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('M1View · Pestañas Sellado y Gradeadas (P-25 / P-20)', () => {
   it('Sellado: índice por set con piezas/listadas/valor y badge de no-mapeados', async () => {
     renderWithProviders(<M1View />, 'es');

@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { Search, Plus, Megaphone, MapPin } from 'lucide-react';
-import { getAdminInventory, getLocations } from '@/lib/api';
+import { Search, Plus, Megaphone, MapPin, FileSpreadsheet } from 'lucide-react';
+import { getAdminInventory, getLocations, exportAdminInventoryXlsx } from '@/lib/api';
 import type {
   Finish,
   GradedInventoryGroupDTO,
@@ -49,6 +49,26 @@ function initialTab(): M1Tab {
   if (typeof window === 'undefined') return 'masterSet';
   const q = new URLSearchParams(window.location.search).get('tab');
   return q === 'sealed' || q === 'graded' ? q : 'masterSet';
+}
+
+/** Nombre de archivo de la exportación (P-31): `inventario-tcghunt-YYYYMMDD.xlsx`. */
+function exportFilename(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `inventario-tcghunt-${y}${m}${d}.xlsx`;
+}
+
+/** Dispara la descarga de un Blob en el navegador (blob → objectURL → <a download> → revoke). */
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /** Estado del drill-down abierto (desde teja, folio, grupo sellado o grupo gradeado). */
@@ -113,6 +133,24 @@ export function M1View() {
       setDrawer(drawerFromItem(item));
     },
   });
+  // P-31 «Exportar a Excel»: descarga el .xlsx con el filtro/set actual (set del binder + tipo por
+  // pestaña) y dispara la descarga (blob → archivo). Estado de carga/error legible en el botón.
+  const exportXlsx = useMutation({
+    mutationFn: () =>
+      exportAdminInventoryXlsx({
+        setId: tab === 'masterSet' ? currentSet?.setId : undefined,
+        productType: tab === 'sealed' ? 'sealed' : tab === 'graded' ? 'graded' : undefined,
+      }),
+    onSuccess: ({ blob, filename }) => {
+      // Usa el nombre que sugiera el backend (Content-Disposition); si no vino, el nuestro.
+      triggerBlobDownload(blob, filename ?? exportFilename());
+      pushToast({ variant: 'success', title: t('title'), message: tInv('exportXlsx.success') });
+    },
+    onError: () => {
+      pushToast({ variant: 'danger', title: t('title'), message: tInv('exportXlsx.error') });
+    },
+  });
+
   function submitFolio() {
     const folio = folioInput.trim();
     if (!folio) return;
@@ -266,6 +304,16 @@ export function M1View() {
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setPublishAllOpen(true)}>
             <Megaphone size={16} /> {tInv('publishAllCta')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => exportXlsx.mutate()}
+            loading={exportXlsx.isPending}
+            disabled={exportXlsx.isPending}
+          >
+            <FileSpreadsheet size={16} />{' '}
+            {exportXlsx.isPending ? tInv('exportXlsx.loading') : tInv('exportXlsx.cta')}
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setAddOpen(true)}>
             <Plus size={16} /> {tInv('batchAddCta')}

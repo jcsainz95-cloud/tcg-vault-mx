@@ -1750,6 +1750,12 @@
       },
       "publishAllCta": "Publish all…",
       "batchAddCta": "Batch intake",
+      "exportXlsx": {
+        "cta": "Export to Excel",
+        "loading": "Exporting…",
+        "error": "Inventory export failed. Please try again.",
+        "success": "Inventory exported."
+      },
       "sealedTab": {
         "search": "Search set",
         "searchPlaceholder": "Set name",
@@ -1875,6 +1881,25 @@
       "partialSummary": "{created} created · {failed} rejected.",
       "replay": "Idempotent retry (nothing duplicated)."
     },
+    "quickRemove": {
+      "title": "Quick removal",
+      "available": "{count} pieces available to remove.",
+      "noneRemovable": "No in-stock or listed pieces to remove for this variant.",
+      "qty": "Quantity to remove",
+      "qtyMinus": "Subtract one",
+      "qtyPlus": "Add one",
+      "reasonLabel": "Removal reason",
+      "noteLabel": "Removal note",
+      "noteHint": "Required: describe the reason (kept in the audit log).",
+      "noteRequired": "The note is required.",
+      "cta": "Remove {count}",
+      "confirmBody": "{count} pieces will be removed from inventory. This action is recorded in the audit log.",
+      "confirmCta": "Confirm removal of {count}",
+      "cancel": "Cancel",
+      "loading": "Removing…",
+      "success": "{count} pieces removed.",
+      "insufficientStock": "There aren't enough adjustable pieces anymore ({available} available). Refresh and try again."
+    },
     "publishAll": {
       "title": "Publish the whole inventory",
       "body": "All in-stock pieces with a resolvable price will be published.",
@@ -1904,6 +1929,7 @@
       "close": "Close",
       "pieces": "Pieces ({count})",
       "addQuick": "Quick intake",
+      "removeQuick": "Quick removal",
       "addGraded": "Add graded…",
       "prices": "Prices",
       "collapse": "Hide",

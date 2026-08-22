@@ -637,7 +637,10 @@ model InventoryAdjustment {
 model InventoryBatch {
   id           String   @id // = batchKey (idempotency key)
   actorUserId  String?
-  kind         String // 'create' | 'publish' | 'adjust' (v1.20.1: idempotencia del ajuste `encontrada`)
+  kind         String // 'create' | 'publish' | 'adjust' | 'publish_all' | 'bulk_remove' — free-form TEXT
+  // (NO es enum de BD; sin CHECK). v1.20.1: idempotencia del ajuste `encontrada`; v1.28: 'publish_all';
+  // v1.35 (H1): 'bulk_remove' (idempotencia de la baja rápida por cantidad, §M1). Añadir un valor NO
+  // requiere migración — es una columna TEXT libre (mismo precedente que 'publish_all', sin migración).
   requested    Int
   createdItems Int
   failedLines  Int

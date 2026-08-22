@@ -22,6 +22,7 @@ import { BusinessException } from '../../common/business.exception';
 import {
   BatchCreateInventoryRequest,
   BulkPublishRequest,
+  BulkRemoveRequestDto,
   CreateItemDto,
   CreateLocationDto,
   InventoryAdjustmentRequestDto,
@@ -218,6 +219,80 @@ export class InventoryController {
     });
     res.status(dto.reason === 'encontrada' && !out.idempotentReplay ? 201 : 200);
     return out;
+  }
+
+  /**
+   * P-29 — POST /admin/inventory/items/bulk-remove: baja rápida de N piezas de un (cardId, finish
+   * [, condición]) de un golpe (merma/venta manual/corrección). Reusa la semántica de baja por-pieza
+   * de `/adjustments` seleccionando server-side las N piezas más apropiadas. Money-safe (no toca
+   * precios) y atómico (no baja más de las que hay → 422 INSUFFICIENT_STOCK). AUDITADO
+   * (`inventory.bulk_remove`, con `batchKey`). Idempotente por `batchKey` opcional (v1.35, H1): un
+   * reintento con la misma key devuelve la respuesta original (`idempotentReplay: true`, mismo `200`)
+   * sin re-bajar. Formalizado en API_CONTRACT §M1 (v1.34/v1.35).
+   */
+  @Post('inventory/items/bulk-remove')
+  @HttpCode(200)
+  async bulkRemove(
+    @Body() dto: BulkRemoveRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const out = await this.inventory.bulkRemove(dto, user.id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.bulk_remove',
+      entityType: 'InventoryAdjustment',
+      entityId: out.adjustmentIds[0],
+      after: {
+        // v1.35 — `batchKey` en la bitácora (paridad con adjustFound/publish-all); `idempotentReplay`
+        // distingue un replay idempotente de una baja nueva en el rastro de auditoría.
+        batchKey: out.batchKey,
+        idempotentReplay: out.idempotentReplay,
+        cardId: dto.cardId,
+        finish: dto.finish,
+        reason: out.reason,
+        toStatus: out.toStatus,
+        requested: out.requested,
+        removed: out.removed,
+        adjustmentIds: out.adjustmentIds,
+        inventoryItemIds: out.inventoryItemIds,
+        folios: out.folios,
+        note: dto.note,
+      },
+    });
+    return out;
+  }
+
+  /**
+   * P-31 — GET /admin/inventory/export.xlsx: descarga el inventario de plataforma a Excel (.xlsx real,
+   * una fila por PIEZA/folio). Filtros opcionales `?setId=&productType=`. Money-safe: exporta el dato
+   * tal cual (sin precio → celda vacía). Devuelve el binario con cabeceras de descarga.
+   */
+  @Get('inventory/export.xlsx')
+  async exportXlsx(
+    @Res() res: Response,
+    @Query('setId') setId?: string,
+    @Query('productType') productType?: string,
+  ) {
+    if (productType != null && !PRODUCT_TYPE_FILTER_VALUES.includes(productType)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `invalid productType '${productType}'`,
+        { productType, allowed: PRODUCT_TYPE_FILTER_VALUES },
+      );
+    }
+    const buffer = await this.inventory.exportInventoryXlsx({
+      setId: setId || undefined,
+      productType: productType as ProductType | undefined,
+    });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="inventario-${stamp}.xlsx"`);
+    res.setHeader('Content-Length', String(buffer.length));
+    res.send(buffer);
   }
 
   @Post('inventory/items')

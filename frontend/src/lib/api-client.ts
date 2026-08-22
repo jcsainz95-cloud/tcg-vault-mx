@@ -127,6 +127,61 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   return requestWithRefresh<T>(path, opts, true);
 }
 
+export interface BlobResponse {
+  blob: Blob;
+  /** Nombre sugerido por el backend (Content-Disposition), o null si no vino. */
+  filename: string | null;
+}
+
+/** Extrae el `filename` de una cabecera Content-Disposition (soporta `filename` y `filename*`). */
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const star = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^["']|["']$/g, ''));
+    } catch {
+      /* cae al filename plano */
+    }
+  }
+  const plain = /filename=(?:"([^"]+)"|([^;]+))/i.exec(header);
+  if (plain) return (plain[1] ?? plain[2] ?? '').trim() || null;
+  return null;
+}
+
+/**
+ * Descarga binaria autenticada (p. ej. `GET /admin/inventory/export.xlsx`, P-31). Devuelve el
+ * Blob + el `filename` que sugiera el backend por Content-Disposition (para que el caller lo use
+ * y sólo caiga a un nombre propio si no viene). No usa el interceptor de refresh (una exportación
+ * puntual no justifica reintento de token); un 401 u otro no-ok se traduce al MISMO
+ * `ApiClientError` que el resto (el error se lee del JSON de error si el backend lo manda).
+ */
+export async function requestBlob(path: string, opts: RequestOptions = {}): Promise<BlobResponse> {
+  const url = new URL(config.apiBaseUrl + path);
+  if (opts.query) {
+    for (const [k, v] of Object.entries(opts.query)) {
+      if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
+    }
+  }
+  const token = getToken();
+  const res = await fetch(url.toString(), {
+    method: opts.method ?? 'GET',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...opts.headers,
+    },
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    const err: ApiError = payload?.error ?? { code: 'INTERNAL', message: 'Unexpected error' };
+    throw new ApiClientError(res.status, err);
+  }
+  return {
+    blob: await res.blob(),
+    filename: parseContentDispositionFilename(res.headers.get('Content-Disposition')),
+  };
+}
+
 /**
  * Núcleo de apiRequest con interceptor de refresh (WS-B). `allowRefresh` habilita el
  * ciclo 401 → refresh → reintento; el reintento se hace con `allowRefresh=false` para

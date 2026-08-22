@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Max,
@@ -187,6 +188,42 @@ export class AdjustmentFoundItemInput {
   @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
+}
+
+// ===== P-29 — Baja rápida por CANTIDAD (POST /admin/inventory/items/bulk-remove) =====
+
+/**
+ * P-29 (baja rápida): da de baja las `quantity` piezas MÁS APROPIADAS de un (cardId, finish
+ * [, condición]) de un golpe — el equivalente a «Alta rápida» para RESTAR. Reusa la semántica de
+ * baja por-pieza de `POST /admin/inventory/adjustments` (motivos `perdida|danada|error_captura`)
+ * pero seleccionando N piezas server-side en vez de operar un `inventoryItemId` concreto.
+ *
+ * Money-safe: NO inventa ni recalcula precios; solo transiciona el `status` de la pieza (baja de
+ * stock por merma/venta manual/corrección) y deja el historial de dinero intacto. La selección solo
+ * toca piezas `ownerType=platform` en `{in_stock, listed}` (mismo guardarraíl que el ajuste). Si hay
+ * menos piezas que las pedidas → 422 INSUFFICIENT_STOCK y NO se baja ninguna (atómico).
+ *
+ * v1.35 — `batchKey?` opcional: MISMA idempotencia que `adjustFound` (`InventoryAdjustmentRequest.
+ * encontrada`, v1.20.1/BE-47) y `publish-all` (`InventoryBatch` M-21, `kind='bulk_remove'`). Un
+ * reintento con la misma key devuelve la respuesta original guardada (`idempotentReplay: true`) SIN
+ * re-bajar N piezas — cierra el «encogimiento fantasma» del inventario. Formalizado en API_CONTRACT
+ * §M1 (v1.34/v1.35).
+ */
+export class BulkRemoveRequestDto {
+  @IsString() cardId!: string;
+  @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil']) finish!: Finish;
+  @IsInt() @Min(1) @Max(MAX_BATCH_QTY) quantity!: number;
+  @IsIn(['perdida', 'danada', 'error_captura']) reason!: 'perdida' | 'danada' | 'error_captura';
+  // Obligatoria (paridad con la baja por-pieza `adjustExisting`); `@IsNotEmpty` rechaza el string
+  // vacío en el ValidationPipe y el servicio además rechaza blancos (whitespace) → 400. NO es opcional.
+  @IsString() @IsNotEmpty() note!: string;
+  // v1.35 — idempotency key generado por el cliente (anti doble-submit / anti reintento-fantasma tras
+  // timeout ambiguo). Persistido en InventoryBatch (kind='bulk_remove'); replay → respuesta original.
+  @IsOptional() @IsString() batchKey?: string;
+  // Filtros OPCIONALES para desambiguar la casilla (cardId, finish, condición) del drawer M1.
+  @IsOptional() @IsIn(['graded', 'sealed', 'raw']) productType?: ProductType;
+  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
 }
 
 /**

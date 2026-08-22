@@ -25,6 +25,117 @@
 - **Impacto:** bajo; con config legítima el clamp unitario no debería dispararse. Si se disparara, no deja rastro (posible bug aguas arriba enmascarado).
 - **Disparador:** si aparece un `AMOUNT_TOO_LARGE` en producción o se endurece la observabilidad de dinero, emitir señal (warn/audit) desde el caller que persiste cuando `clampCents` realmente recorte; y endurecer el manejo del secreto del webhook. Ref: `docs/SECURITY_NOTES.md` (MS-3/MS-5).
 
+### Deuda del pase P-29 idempotencia (v1.35, cluster 2 inventario — hallazgos techlead, no bloqueante, aceptada)
+
+> Pase `fix/variant-composition-regression` (2026-08-22): se cerró **H1 MAYOR** (idempotencia por
+> `batchKey` en `bulk-remove`, paridad con `adjustFound`) — ya **corregido con tests**, no figura como
+> deuda. Lo de abajo son los ítems **menores no bloqueantes** que quedaron del mismo pase.
+
+#### BE-BR1 (= techlead H4; el fast-path sin filtro por `kind` = H3) · `InventoryBatch.kind` es TEXT libre sin enum/CHECK (hardening de idempotencia)
+- **Dueño:** backend (schema es zona compartida → cambio pasa por arquitecto). **Severidad:** Baja (aceptada).
+- **Deuda:** `InventoryBatch.kind` (`schema.prisma`) es `String`/`TEXT NOT NULL` **sin** `CHECK` ni enum
+  Prisma; hoy admite cualquier string. Los valores válidos (`create | publish | adjust | publish_all |
+  bulk_remove`) viven solo en el comentario del schema y en el código. Un `kind` mal escrito no lo atrapa
+  la BD. Además, el mecanismo de idempotencia **no filtra por `kind` en el fast-path de `bulk-remove`**
+  (a diferencia de `publishAll`, que sí verifica `existing.kind !== 'publish_all'` → 409): un `batchKey`
+  reutilizado por accidente entre `bulk-remove` y otro tipo de lote haría replay del `resultJson` ajeno.
+  En la práctica el `batchKey` lo genera el cliente por-operación (UUID) y no colisiona entre tipos.
+- **Impacto:** bajo; requiere que el front reuse deliberadamente un `batchKey` de otro endpoint (no ocurre
+  con UUIDs por-operación). No toca dinero (la baja solo transiciona `status`).
+- **Disparador:** al endurecer la familia de idempotencia por lote, (a) migrar `kind` a un enum Prisma o
+  añadir un `CHECK` (decisión del arquitecto por ser schema/zona compartida) y (b) alinear el fast-path de
+  `bulk-remove` con `publishAll` (verificar `kind === 'bulk_remove'` antes de replay-ear → 409 si no).
+
+#### BE-BR2 · Sin migración para el valor `bulk_remove` — decisión documentada (no es deuda de código)
+- **Dueño:** backend. **Severidad:** N/A (nota de trazabilidad).
+- **Contexto:** el contrato v1.35 y el brief de tarea pedían «añadir `bulk_remove` al enum `kind` con su
+  migración (p. ej. M-37)». **No aplica migración**: `kind` es una columna `TEXT` libre (no enum de BD, sin
+  `CHECK`); añadir un valor **no genera DDL** (mismo precedente que `publish_all`, añadido en v1.28 sin
+  migración). Solo se actualizó el comentario del schema. Se registra aquí para que el arquitecto lo sepa
+  al valorar BE-BR1 (si se decide enum/CHECK, **ahí sí** habrá una migración numerada).
+
+#### Re-enumeración techlead H2–H8 (cluster 2 inventario, veredicto APROBADO CON DEUDA)
+
+> Transcripción de los hallazgos menores no bloqueantes que el techlead re-enumeró tras el gate.
+> **H3** y **H4** son la misma familia que **BE-BR1/BE-BR2** de arriba (se referencian, no se duplican).
+> Todos anclan en `backend/` salvo el componente de schema de **H4**, que es zona compartida `prisma/`
+> → decisión del arquitecto (pero la entrada de deuda vive aquí porque el código es de backend).
+
+##### H2 · Andamiaje de idempotencia copypasteado en 4 copias (sin helper compartido)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+- **Deuda:** el andamiaje `fast-path → claim-first → P2002 → replay` (más el `replayX` que castea
+  `resultJson`) está **copypasteado en 4 copias** — `batchCreate`, `adjustFound`, `bulkRemove`,
+  `publishAll` — sin un helper compartido tipo `withIdempotentBatch(kind, key, fn)`. Un cambio de
+  semántica obliga a tocar los 4 sitios en sincronía. Ruta: `backend/src/modules/inventory/inventory.service.ts`.
+- **No-bloqueante:** la duplicación es **correcta y uniforme** hoy; el riesgo es de **evolución futura**
+  (divergencia al editar una copia y no las otras), no de corrección actual.
+- **Disparador:** al próximo cambio de semántica de idempotencia por lote, extraer
+  `withIdempotentBatch(kind, key, fn)` y hacer que las 4 rutas lo consuman.
+
+##### H3 · Fast-path de replay en `bulkRemove` y `adjustFound` no filtra por `kind` (= parte de BE-BR1)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Ref:** ver **BE-BR1** arriba.
+- **Deuda:** a diferencia de `publishAll` (que valida `existing.kind` → 409 si no coincide), el fast-path
+  de `bulkRemove` y `adjustFound` **no filtra por `kind`** antes de hacer replay, y castea `resultJson` a
+  un tipo potencialmente ajeno (cross-replay teórico). Ruta: `inventory.service.ts`.
+- **No-bloqueante:** riesgo práctico **despreciable** — los prefijos de key son disjuntos
+  (`qrem`/`qadd`/`adj`/`puball`…) y no hay ruta de header `Idempotency-Key` en bulk-remove.
+- **Disparador:** al endurecer la familia de idempotencia (junto con H4/BE-BR1), verificar
+  `kind === 'bulk_remove'` / `kind === 'adjust'` antes de replay-ear → 409 si no coincide.
+
+##### H4 · `InventoryBatch.kind` es TEXT libre sin enum/CHECK (= BE-BR1; schema → arquitecto)
+- **Dueño:** backend + **arquitecto** (el cambio de schema vive en zona compartida `prisma/`). **Severidad:** Baja (aceptada). **Ref:** ver **BE-BR1/BE-BR2** arriba.
+- **Deuda:** `InventoryBatch.kind` es `TEXT` libre **sin enum ni `CHECK`**; no hay guardia a nivel BD contra
+  un `kind` inválido o una colisión. Endurecer a enum Prisma / `CHECK` **y** filtrar por `kind` en el
+  fast-path (H3). Ruta: `backend/prisma/schema.prisma` + `inventory.service.ts`.
+- **Cambio de schema → arquitecto:** modificar `prisma/schema.prisma` es zona compartida; **la decisión de
+  migrar a enum/CHECK es del arquitecto** (regla 9). La entrada de deuda vive en TECH_DEBT porque el código
+  (`inventory.service.ts`) es de backend.
+- **No-bloqueante:** la idempotencia **funciona hoy** sobre `TEXT`; la falta de guardia de BD no rompe nada
+  con los `batchKey` UUID por-operación que genera el cliente.
+
+##### H5 · `replayBulkRemove` / `replayAdjustment` hacen blind-cast de `resultJson` (sin validar shape ni versión)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** `replayBulkRemove` y `replayAdjustment` hacen **blind-cast** de `resultJson` sin validar el
+  shape ni una versión; si el shape de respuesta evoluciona, los batches viejos **replayarían una forma
+  stale en silencio**. Rutas: `inventory.service.ts` (~1676-1679 y ~1402-1405).
+- **No-bloqueante:** el shape de respuesta es **estable hoy**; no hay migración de forma en vuelo.
+- **Disparador:** al cambiar el shape del `resultJson`, versionar el payload y validar (o rechazar) shapes
+  previos en el replay.
+
+##### H6 · `exportInventoryXlsx` hace `findMany` sin cota ni streaming (workbook en memoria)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+- **Deuda:** `exportInventoryXlsx` hace un `findMany` **sin cota ni streaming** y arma el workbook completo
+  **en memoria** (todo el inventario). Escala mal conforme crece el inventario (memoria/latencia). Ruta:
+  `inventory.service.ts` (~1697-1781).
+- **No-bloqueante:** el **volumen actual está OK**; no es un problema a la escala presente.
+- **Disparador:** al crecer el inventario (o ante presión de memoria en el export), paginar/streamear la
+  consulta y escribir el workbook por chunks.
+
+##### H7 · El filtro `setId` del export no se valida (devuelve export vacío en silencio)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** el filtro `setId` del export **no se valida**: un `setId` inexistente devuelve un **export vacío
+  en silencio**, inconsistente con `publishAll`/bulk-ops que responden **400** ante un `setId` desconocido.
+  Rutas: `inventory.controller.ts` (~271-296) / `inventory.service.ts`.
+- **No-bloqueante:** **no corrompe datos**; solo produce una **UX inconsistente** (silencio vs. 400).
+- **Disparador:** al alinear la validación de filtros del export, validar `setId` y responder 400 ante
+  valores desconocidos (paridad con `publishAll`/bulk-ops).
+
+##### H8 · `workbook.creator = 'TCG HUNT'` — marca obsoleta en la metadata del `.xlsx`
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** trivial (una línea).
+- **Deuda:** `workbook.creator = 'TCG HUNT'` graba una **marca obsoleta** en la metadata del `.xlsx`; la
+  marca vigente es la del proyecto actual. Ruta: `inventory.service.ts` (~1739).
+- **No-bloqueante:** **cosmético**; no afecta datos ni comportamiento.
+- **Disparador:** pagar en el próximo toque del módulo (cambio de una sola línea).
+
+#### QA-BR1 (hallazgo MENOR de QA) · el test de bulk-remove no ejercita el rollback real del claim
+- **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test).
+- **Deuda:** el test `inventory.bulk-remove.spec.ts` «un fallo no quema el batchKey» **no prueba el rollback
+  real** porque la `$transaction` está **mockeada**; el caso no ejercita la reversión del claim tras un
+  `INSUFFICIENT_STOCK`. Rutas: `backend/test/inventory.bulk-remove.spec.ts` + e2e.
+- **No-bloqueante:** el comportamiento en producción es correcto; falta cobertura de integración real.
+- **Disparador:** asegurar que el **e2e con BD real** ejercite el rollback del claim tras `INSUFFICIENT_STOCK`
+  (que el `batchKey` no quede quemado tras el fallo transaccional real).
+
 ### CI-1 · CI en rojo por tests env-sensibles (REDIS_URL) — RESUELTO (2026-08-16)
 - **Dueño:** backend. **Estado:** **RESUELTO** (solo cambio de tests; producción intacta).
 - **Síntoma:** el job `backend` del workflow **CI** estaba en rojo en **toda la historia** del repo

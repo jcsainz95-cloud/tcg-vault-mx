@@ -2,7 +2,42 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.33-master-set-multipart).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.35-inventory-bulk-remove-idempotency).
+>
+> **Changelog v1.35-inventory-bulk-remove-idempotency (2026-08-22, arquitecto — PRECISIÓN enrutada por QA/techlead
+> (hallazgo MAYOR, Cluster 2); cambios ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE):** dos aclaraciones sobre
+> `POST /admin/inventory/items/bulk-remove` (P-29), para dejar el contrato idéntico a lo que backend debe exponer y
+> frontend consumir:
+> - **`note` es OBLIGATORIO (no opcional).** El DTO backend lo declara `@IsString() note!: string` y el
+>   `ValidationPipe` global rechaza la llamada sin él (`400 VALIDATION_ERROR`). Se reafirma `note` como campo
+>   **requerido** (string no-vacía, motivo/nota de la baja) en el request, la prosa y los errores; **no** aparece
+>   como opcional en ningún punto del endpoint.
+> - **Idempotencia por `batchKey` (cierra el «encogimiento fantasma»).** `bulk-remove` acepta ahora un `batchKey`
+>   con la **MISMA forma y semántica** que su hermano `adjustFound` (`InventoryAdjustmentRequest.encontrada`, v1.20.1,
+>   BE-47) y que `publish-all`: `batchKey?` **opcional**, persistido en `InventoryBatch` (M-21) con
+>   `kind='bulk_remove'`. Un reintento tras un timeout ambiguo con el mismo `batchKey` **NO** vuelve a dar de baja
+>   otras N piezas: el replay **devuelve el resultado guardado** de la primera ejecución con `idempotentReplay: true`
+>   (mismo `200`), sin tocar status ni escribir un segundo lote de ajustes. Se añade `batchKey?` +
+>   `idempotentReplay: boolean` al `BulkRemoveResponse`. El front DEBE enviarlo desde el diálogo de baja (anti
+>   doble-submit / anti reintento-fantasma).
+>
+> **Changelog v1.34-inventory-bulk-remove-export (2026-08-22, arquitecto — FORMALIZACIÓN de lo YA implementado por
+> backend; `BACKEND_NOTES.md` §0-P29/P31. DoD «docs al día»):** cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**.
+> Formaliza en §M1 (Stream B) dos endpoints nuevos del módulo `inventory` (P-29/P-31 de `PENDIENTES.md`), ambos
+> `vault_operator` + `super_admin`:
+> - **`POST /admin/inventory/items/bulk-remove` (P-29)** — baja rápida por **CANTIDAD**: da de baja **N piezas de un
+>   golpe** de un `(cardId, finish[, condición])` sin ir pieza por pieza. **Reusa el pipeline de ajustes M-24** (mismo
+>   mapeo de motivos `perdida→lost`/`danada→damaged`/`error_captura→withdrawn`, mismo allowlist, mismo rastro triple);
+>   lo nuevo es que **selecciona server-side** las N piezas (`in_stock` antes que `listed`, FIFO por `createdAt`).
+>   **Money-safe:** solo transiciona `status` (baja de stock); **NO** toca precios/órdenes ni escribe `reserved`/`listed`
+>   (no vende ni publica). **Atómico:** si hay menos piezas ajustables que `quantity` ⇒ `422 INSUFFICIENT_STOCK` y **no
+>   baja ninguna**. Rastro triple por pieza (`InventoryMovement` + `InventoryAdjustment` + `AuditLog
+>   action=inventory.bulk_remove`).
+> - **`GET /admin/inventory/export.xlsx` (P-31)** — export del inventario de **plataforma** a **`.xlsx` real** (OOXML,
+>   lib `exceljs`), **una fila por folio/pieza**. Filtros opcionales `setId`/`productType`. **Money-safe:** todas las
+>   columnas de dinero son **STORED** (costo, mercado, compra, venta), sin derivar ni inventar; **sin dato ⇒ celda VACÍA,
+>   nunca `0`**. Respuesta binaria con cabeceras de descarga (`Content-Disposition: attachment`).
+> - **Nuevo código de error `422 INSUFFICIENT_STOCK`** (§Errores) — ya en el enum central `common/error-codes.ts`.
 >
 > **Changelog v1.33-master-set-multipart (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan.
 > P-27, PROJECT §L, criterios 65–72, decisiones D1–D5):** cambios **ADITIVOS y RETROCOMPATIBLES**, **money-safe**.
@@ -1059,6 +1094,7 @@
 - **`422 ITEM_NOT_PUBLISHABLE` (v1.16.1):** en `POST /admin/inventory/items/bulk-publish`, la pieza está en un status de origen **no publicable**. Solo `{in_stock, listed}` son publicables (`in_stock` → publica; `listed` → no-op idempotente). Cualquier otro (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`) → **`ITEM_NOT_PUBLISHABLE`** por-línea. **Guardarraíl anti double-sell:** una pieza reservada/vendida/en-custodia/enviada no puede re-listarse. Distinto de `PRICE_PENDING` (precio no resuelto). Ver §M1 y ARCHITECTURE §4.17b.
 - **`422 ITEM_NOT_IN_CUSTODY` (v1.17.1):** en `POST /shipments`, se intenta retirar un item cuyo `status` **no es `in_custody`** — típicamente ya `withdrawn` (retiro entregado, terminal), o cualquier otro estado no custodiable. **Guardarraíl anti doble-retiro/doble-cobro:** un item ya entregado (`withdrawn`) **NO** es re-elegible para un nuevo retiro aunque conserve `ownershipStatus='settled'` (histórico). Comparte criterio con el flag de lectura `HoldingDTO.withdrawable` (§3): read y write usan la **misma** regla de elegibilidad. Distinto de `422 ITEM_NOT_SETTLED` (aún `pending`, no liquidado) y de `409 ITEM_IN_ANOTHER_SHIPMENT` (ya tiene envío activo). Ver §5 y ARCHITECTURE §3.3.
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
+- **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
 - **`502 UPSTREAM_ERROR` (transversal; formalizado v1.31):** una **fuente externa** de datos no está disponible o
@@ -1481,6 +1517,21 @@ BulkPublishLineResult =
     | { index: number, inventoryItemId: string, ok: true, status: "listed", salePriceCents: number, priceSource: "manual" | "derived" }
     | { index: number, inventoryItemId: string, ok: false, error: { code: string, message: string }, pendingPriceEntryId?: string }
 BulkPublishResponse = { summary: { requested: number, published: number, failedLines: number }, results: BulkPublishLineResult[] }
+// ----- Baja rápida por CANTIDAD (POST /admin/inventory/items/bulk-remove) — P-29, §M1 -----
+// Da de baja N piezas de un (cardId, finish[, condición]) seleccionadas server-side (in_stock antes que listed;
+// FIFO por createdAt; take = quantity). `note` es OBLIGATORIA (@IsString() note!: string; sin ella → 400). Motivo →
+// status: perdida→lost · danada→damaged · error_captura→withdrawn (NO acepta `encontrada`). Atómico: menos piezas
+// ajustables que quantity → 422 INSUFFICIENT_STOCK y NO baja ninguna. Money-safe: solo transiciona status.
+// `batchKey?` (v1.35): MISMA idempotencia que adjustFound/publish-all (InventoryBatch M-21, kind='bulk_remove').
+// Mismo batchKey tras un reintento → NO re-baja; el replay devuelve la respuesta original guardada con
+// idempotentReplay:true (mismo 200). Sin batchKey → idempotentReplay:false. Cierra el «encogimiento fantasma».
+BulkRemoveRequest = { cardId: string, finish: Finish, quantity: number /* int 1..500 (MAX_BATCH_QTY) */,
+                      reason: "perdida" | "danada" | "error_captura", note: string /* REQUERIDO, no-vacío */,
+                      batchKey?: string,
+                      productType?: ProductType, rawCondition?: RawCondition, sealedCondition?: SealedCondition }
+BulkRemoveResponse = { batchKey?: string, idempotentReplay: boolean, removed: number, requested: number,
+                       reason: AdjustmentReason, toStatus: InventoryStatus, inventoryItemIds: string[],
+                       folios: string[], adjustmentIds: string[] }   // arrays alineados 1:1
 // Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe.
 // "SIN IVA" = el fee NO agrega una línea de IVA de PRODUCTO (no se vuelve a gravar la venta). Internamente
 // el gross-up SÍ cubre el IVA que Stripe MX cobra sobre SU comisión (dial stripe_fee_iva_pct, ver ARCHITECTURE §5.1).
@@ -3382,6 +3433,73 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - **Valor del inventario en M1 (P-24):** las tarjetas de resumen consumen `GET /admin/finance/inventory-value`
   (§M7, extendido con `breakdown` — sigue **`super_admin`**); el front las omite para `vault_operator`
   (coherente con el enmascaramiento del dashboard; sin fuga por API).
+
+#### Baja rápida por cantidad + Export a Excel (v1.34, P-29/P-31) — `vault_operator+`
+> P-29 + P-31 de `PENDIENTES.md`. Formaliza lo YA implementado (`BACKEND_NOTES.md` §0-P29/P31). Ambos endpoints en el
+> mismo controller M1 (`vault_operator` + `super_admin`). **ADITIVOS y MONEY-SAFE.**
+
+- `POST /api/v1/admin/inventory/items/bulk-remove` — **(NUEVO, P-29)** baja rápida por **CANTIDAD**: da de baja
+  **N piezas de un golpe** de un `(cardId, finish[, condición])` sin ir pieza por pieza. Complementa la baja
+  por-pieza (`POST /admin/inventory/adjustments` con un `inventoryItemId`) **reusando su semántica** (mismo mapeo de
+  motivos, mismo guardarraíl, mismo rastro triple M-24) pero **seleccionando las N piezas server-side**.
+  Req (`BulkRemoveRequest`):
+  - `cardId: string` (req), `finish: Finish` (req: `normal | reverse_holo | holofoil | first_edition_holofoil`),
+  - `quantity: int ≥ 1` (req; tope `MAX_BATCH_QTY = 500`),
+  - `reason: perdida | danada | error_captura` (req) — **subconjunto** de los motivos de `adjustments`; **NO** acepta
+    `encontrada` (eso es alta, no baja),
+  - `note: string` (**REQUERIDO**, no-vacía — motivo/nota de la baja; paridad con la baja por-pieza `adjustments`).
+    El DTO backend lo declara `@IsString() note!: string`; **sin `note` ⇒ `400 VALIDATION_ERROR`** (lo rechaza el
+    `ValidationPipe` global). **No** es opcional,
+  - `batchKey?: string` (**idempotency key generado por el cliente**, OPCIONAL — MISMA forma y semántica que
+    `adjustFound` (`InventoryAdjustmentRequest.encontrada`, v1.20.1/BE-47) y `publish-all`; ver bullet
+    «Idempotencia» abajo). El front DEBE enviarlo desde el diálogo de baja (anti doble-submit / anti
+    reintento-fantasma tras timeout ambiguo),
+  - filtros OPCIONALES para desambiguar la casilla: `productType?`, `rawCondition?` (p. ej. `NM`), `sealedCondition?`.
+  - **Selección server-side de las «N más apropiadas»:** solo piezas `ownerType=platform` con status ∈
+    `{in_stock, listed}` (mismo allowlist que el ajuste), ordenadas **`in_stock` antes que `listed`** (baja primero lo
+    NO publicado ⇒ menos disrupción del storefront) y dentro de cada status la **más antigua (FIFO por `createdAt`)**; `take: quantity`.
+  - **Motivo → status:** `perdida → lost`, `danada → damaged`, `error_captura → withdrawn` (idéntico a `adjustments`).
+  - **Atómico / «no bajar más de las que hay»:** si hay **menos** piezas ajustables que `quantity` ⇒
+    `422 INSUFFICIENT_STOCK` (`details: { available, requested }`) y **NO se baja ninguna**. Guardia atómica de status
+    (updateMany condicionado + `count`): una carrera que saque una pieza del allowlist entre la lectura y la escritura
+    ⇒ `422 ITEM_NOT_ADJUSTABLE` + rollback (nunca pisa una reserva de checkout con lost/damaged).
+  - **Money-safe:** solo transiciona `status` (baja de stock); **NO** toca precios (`listPriceCents`, referencias,
+    overrides) ni crea/reversa órdenes; **jamás** escribe `reserved`/`listed` (no vende ni publica). No es dinero
+    saliente (sin `MoneyOutGuard`).
+  - **Idempotencia (`batchKey?`) — cierra el «encogimiento fantasma»:** MISMO mecanismo que `adjustFound`
+    (`encontrada`, v1.20.1) y `publish-all` — `InventoryBatch` (M-21) con **`kind='bulk_remove'`**. Un reintento tras
+    un timeout ambiguo con el MISMO `batchKey` **NO** vuelve a dar de baja otras N piezas (evita el encogimiento
+    fantasma del inventario): el replay **devuelve la respuesta original guardada** de la primera ejecución con
+    `idempotentReplay: true` (mismo `200`), **sin** transicionar status ni escribir un segundo lote de ajustes. Sin
+    `batchKey` (u omitido) cada llamada es un procesamiento nuevo (`idempotentReplay: false`). Semántica idéntica a la
+    documentada para `adjustFound`.
+  - **Rastro triple por pieza (obligatorio):** `InventoryMovement(reason=adjustment)` + `InventoryAdjustment` (M-24,
+    con `reason`/`fromStatus`/`toStatus`/`actorUserId`/`note`) en la MISMA `$transaction` + `AuditLog
+    action=inventory.bulk_remove` (con `batchKey`/`requested`/`removed`/`folios`/`adjustmentIds`) que escribe el
+    controller.
+  - Res `200` (`BulkRemoveResponse`): `{ batchKey?, idempotentReplay: boolean, removed, requested, reason, toStatus,
+    inventoryItemIds: string[], folios: string[], adjustmentIds: string[] }` (arrays alineados 1:1; en el camino feliz
+    `removed === requested`; `idempotentReplay:true` ⇒ es el replay de un `batchKey` ya procesado, no una nueva baja).
+  - Err `400 VALIDATION_ERROR` (`reason` fuera de `{perdida,danada,error_captura}`; `quantity < 1` o `> 500`; `note`
+    ausente o vacía; `finish` inválido), `403`, `404 NOT_FOUND` (carta inexistente), `422 INSUFFICIENT_STOCK`,
+    `422 ITEM_NOT_ADJUSTABLE` (carrera TOCTOU). Ver ARCHITECTURE §4.20e.
+- `GET /api/v1/admin/inventory/export.xlsx` — **(NUEVO, P-31)** export del inventario de **plataforma**
+  (`ownerType=platform`; piezas en custodia de clientes NO se exportan) a un `.xlsx` real (OOXML, lib `exceljs`),
+  con grano **una fila por folio/pieza**. Query OPCIONAL `?setId=&productType=` (y otros filtros que el backend
+  soporte); `setId` = id LOCAL de `CardSet`; `productType` validado contra el enum (⇒ `400`).
+  - **Columnas (orden fijo, `INVENTORY_EXPORT_COLUMNS`):** Folio · Carta · Set · Número · Rareza · Tipo · Acabado ·
+    Condición · Certificado · Cantidad (= 1) · Estado · Ubicación · Origen · Costo MXN · Precio mercado MXN · Precio
+    compra MXN · Precio venta MXN.
+  - **Money-safe (todas las columnas de dinero son STORED, sin derivar ni inventar):** Costo = `acquisitionCostCents`;
+    Precio mercado = `PriceReference` de la variante (MXN al FX vivo; ref `pending` ⇒ vacío); Precio compra = override
+    de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, sin recomputar la regla del cotizador); Precio venta =
+    `listPriceCents` por pieza o, en su defecto, `sellOverrideCents` (sin derivar mercado×markup). **Regla dura: sin
+    dato ⇒ celda VACÍA, nunca `0`** (`centsToMxn(null) = null`). Consultas EN LOTE (sin N+1).
+  - Res `200` **binario**: `Content-Type:
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+    `Content-Disposition: attachment; filename="inventario-YYYY-MM-DD.xlsx"` (+ `Content-Length`). El controller usa
+    `@Res()` directo (no lo envuelve el interceptor global de respuesta).
+  - Err `400 VALIDATION_ERROR` (`productType` fuera del enum), `403`.
 
 ### M2 — Catálogo y precios (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.
