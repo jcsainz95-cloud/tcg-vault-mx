@@ -46,6 +46,10 @@ import type {
   SalesRule,
   SalesRaritiesResponse,
   SalesPriceRuleSet,
+  TierId,
+  TieredRuleSet,
+  UpdateTiersRequest,
+  TierMapResponse,
   RemoteSetDTO,
   RefreshVariantsAllResponse,
   RefreshVariantsStatusResponse,
@@ -2161,6 +2165,131 @@ export function mockSalesRarities(): SalesRaritiesResponse {
     })
     .sort((a, b) => b.cardCount - a.cardCount);
   return { fallbackPct: mockSalesFallbackPct, rarities };
+}
+
+// ==== M2: PRICING POR TIERS (v1.37-pricing-tiers, contrato §M2, P-34) ====
+// Seed que reproduce el negocio vigente (defaults v1.9 LOCKED): 5 tiers T0–T4, compra/venta por
+// tier, eje acabado y fallbacks. Un mapa rareza canónica → tier COMPARTIDO por compra y venta. El
+// mock preserva el invariante money-safe (premium → tier de compra `pct`, nunca `fixed`).
+export const MOCK_TIER_META: { id: TierId; name: string; premium: boolean }[] = [
+  { id: 'T0', name: 'Bulk', premium: false },
+  { id: 'T1', name: 'Uncommon / Reverse', premium: false },
+  { id: 'T2', name: 'Rare / Holo', premium: false },
+  { id: 'T3', name: 'Premium / Chase', premium: true },
+  { id: 'T4', name: 'Ultra / Grail', premium: true },
+];
+let mockTierBuy: Record<TierId, BuylistRule> = {
+  T0: { mode: 'fixed', value: 50 },
+  T1: { mode: 'fixed', value: 150 },
+  T2: { mode: 'pct', value: 25 },
+  T3: { mode: 'pct', value: 40 },
+  T4: { mode: 'pct', value: 40 },
+};
+let mockTierSell: Record<TierId, SalesRule> = {
+  T0: { mode: 'fixed', value: 500 },
+  T1: { mode: 'fixed', value: 1000 },
+  T2: { mode: 'pct', value: 15 },
+  T3: { mode: 'pct', value: 15 },
+  T4: { mode: 'pct', value: 15 },
+};
+let mockTierFinishBuy: Partial<Record<Finish, BuylistRule>> = {
+  reverse_holo: { mode: 'fixed', value: 150 },
+};
+let mockTierFinishSell: Partial<Record<Finish, SalesRule>> = {
+  reverse_holo: { mode: 'fixed', value: 1500 },
+};
+const mockTierFallback = { buy: 40, sell: 15 };
+// Mapa rareza canónica → tier (Opción B, editable por el dueño). Premium (T3/T4) solo caen en tiers
+// de compra `pct`; Common/Uncommon/Reverse/Rare/Holo en tiers de compra fija/`pct` bajo.
+let mockTierMap: Record<string, TierId> = {
+  Common: 'T0',
+  Uncommon: 'T1',
+  'Reverse Holo': 'T1',
+  'Rare Holo': 'T2',
+  'Holo Rare': 'T2',
+  'Illustration Rare': 'T3',
+  'Special Illustration Rare': 'T3',
+  'Ultra Rare': 'T4',
+};
+// Rarezas premium del catálogo canónico (mock): chase/ultra. Common/Uncommon/Reverse/Rare/Holo NO
+// son premium (pueden caer en tiers de compra fija sin violar el invariante).
+const MOCK_PREMIUM_RARITIES = new Set([
+  'Illustration Rare',
+  'Special Illustration Rare',
+  'Ultra Rare',
+  'Hyper Rare',
+  'Mega Hyper Rare',
+  'Secret Rare',
+  'Rare Secret',
+  'Rare Rainbow',
+  'Rare ACE',
+  'Amazing Rare',
+  'Black White Rare',
+  'Mega Attack Rare',
+]);
+function isMockPremiumRarity(rarity: string): boolean {
+  return MOCK_PREMIUM_RARITIES.has(rarity);
+}
+function tierRarityCounts(): Record<TierId, number> {
+  const counts: Record<TierId, number> = { T0: 0, T1: 0, T2: 0, T3: 0, T4: 0 };
+  for (const tid of Object.values(mockTierMap)) counts[tid] += 1;
+  return counts;
+}
+export function getMockTieredRuleSet(): TieredRuleSet {
+  const counts = tierRarityCounts();
+  return {
+    tiers: MOCK_TIER_META.map((m) => ({
+      id: m.id,
+      name: m.name,
+      premium: m.premium,
+      buy: mockTierBuy[m.id],
+      sell: mockTierSell[m.id],
+      rarityCount: counts[m.id],
+    })),
+    finishRules: { buy: mockTierFinishBuy, sell: mockTierFinishSell },
+    fallbackPct: { ...mockTierFallback },
+  };
+}
+export function setMockTieredRuleSet(input: UpdateTiersRequest): TieredRuleSet {
+  for (const t of input.tiers) {
+    mockTierBuy[t.id] = t.buy;
+    mockTierSell[t.id] = t.sell;
+  }
+  if (input.finishRules?.buy) mockTierFinishBuy = input.finishRules.buy;
+  if (input.finishRules?.sell) mockTierFinishSell = input.finishRules.sell;
+  if (input.fallbackPct?.buy != null) mockTierFallback.buy = input.fallbackPct.buy;
+  if (input.fallbackPct?.sell != null) mockTierFallback.sell = input.fallbackPct.sell;
+  return getMockTieredRuleSet();
+}
+export function getMockTierMap(): TierMapResponse {
+  const counts = new Map<string, number>();
+  for (const c of mockCards) {
+    if (!c.rarity) continue; // el sellado no lleva rareza
+    counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
+  }
+  // Incluir rarezas con asignación explícita aunque no estén en el catálogo mock.
+  for (const r of Object.keys(mockTierMap)) if (!counts.has(r)) counts.set(r, 0);
+  const rarities = [...counts.entries()]
+    .map(([canonical, cardCount]) => {
+      const tierId = mockTierMap[canonical] ?? null;
+      return {
+        canonical,
+        premium: isMockPremiumRarity(canonical),
+        mapped: true,
+        cardCount,
+        tierId,
+        source: (tierId ? 'map' : 'fallback') as 'map' | 'fallback',
+      };
+    })
+    .sort((a, b) => b.cardCount - a.cardCount);
+  return {
+    tiers: MOCK_TIER_META.map((m) => ({ id: m.id, name: m.name, premium: m.premium })),
+    rarities,
+  };
+}
+export function setMockTierMap(assignments: Record<string, TierId>): TierMapResponse {
+  for (const [k, v] of Object.entries(assignments)) mockTierMap[k] = v;
+  return getMockTierMap();
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */

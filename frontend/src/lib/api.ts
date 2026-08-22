@@ -75,6 +75,10 @@ import type {
   SalesRule,
   SalesPriceRuleSet,
   SalesRaritiesResponse,
+  TieredRuleSet,
+  UpdateTiersRequest,
+  TierMapResponse,
+  UpdateTierMapRequest,
   BreakdownDTO,
   PortfolioRange,
   PortfolioHistoryResponse,
@@ -3008,6 +3012,56 @@ export async function updateSalesRules(input: {
   }
   fx.setMockSalesRuleSet(input.rarityRules, input.finishRules, input.fallbackPct);
   return delay(fx.getMockSalesRuleSet());
+}
+
+// ==== M2: PRICING POR TIERS (v1.37-pricing-tiers, contrato §M2, P-34) ====
+
+/**
+ * Los 5 tiers T0–T4 con su regla de COMPRA (buylist) y VENTA + el eje acabado (finishRules) y los
+ * fallbacks, por eje (contrato GET /admin/pricing/tiers). Read-only. `name`/`premium`/`rarityCount`
+ * son informativos (taxonomía LOCKED); el editor solo edita los VALORES de las reglas.
+ */
+export async function getPricingTiers(): Promise<TieredRuleSet> {
+  if (!config.useMocks) return apiRequest<TieredRuleSet>('/admin/pricing/tiers');
+  return delay(fx.getMockTieredRuleSet());
+}
+
+/**
+ * Reemplaza los VALORES de las 5 reglas (buy y sell) + eje acabado + fallbacks (contrato PUT
+ * /admin/pricing/tiers). Validación server-side: mode ∈ {fixed,pct}; fixed → centavos ≥ 0; buy pct
+ * ∈ [0,100]; sell pct ∈ [0,1000]. Invariante money-safe: la regla de COMPRA de un tier con rarezas
+ * `premium` mapeadas no puede ser `fixed` ⇒ 422 PREMIUM_RARITY_FIXED_TIER (con los pares
+ * infractores). Auditado (M10). Surte efecto sin redeploy.
+ */
+export async function updatePricingTiers(input: UpdateTiersRequest): Promise<TieredRuleSet> {
+  if (!config.useMocks) {
+    return apiRequest<TieredRuleSet>('/admin/pricing/tiers', { method: 'PUT', body: input });
+  }
+  return delay(fx.setMockTieredRuleSet(input));
+}
+
+/**
+ * El mapa rareza canónica → tier unido al catálogo (contrato GET /admin/pricing/tier-map), para
+ * poblar el asignador. Muestra rarezas mapeadas y rarezas del catálogo aún sin mapear (tierId:null
+ * + source:'fallback' → cotizan por el fallback pct, money-safe). Ordenado por cardCount desc.
+ */
+export async function getPricingTierMap(): Promise<TierMapResponse> {
+  if (!config.useMocks) return apiRequest<TierMapResponse>('/admin/pricing/tier-map');
+  return delay(fx.getMockTierMap());
+}
+
+/**
+ * Reasigna rarezas a tiers (contrato PUT /admin/pricing/tier-map). Patch PARCIAL: solo las rarezas a
+ * cambiar. Validación: TierId ∈ {T0..T4} (422 VALIDATION_ERROR); cada key debe ser una rareza
+ * canónica del catálogo (422 UNKNOWN_RARITY); invariante de refinamiento (422
+ * PREMIUM_RARITY_FIXED_TIER: una rareza premium no puede caer en un tier de compra `fixed`).
+ * Auditado (M10). Surte efecto sin redeploy.
+ */
+export async function updatePricingTierMap(input: UpdateTierMapRequest): Promise<TierMapResponse> {
+  if (!config.useMocks) {
+    return apiRequest<TierMapResponse>('/admin/pricing/tier-map', { method: 'PUT', body: input });
+  }
+  return delay(fx.setMockTierMap(input.assignments));
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */

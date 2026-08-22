@@ -5160,3 +5160,54 @@ porque los mocks omitían `note` (lo enmascaraban). El contrato subió a v1.35 y
   «CTA deshabilitado sin nota» y de «reintento del mismo submit reusa la batchKey». Suite **586/586** ✓,
   `tsc --noEmit` ✓, `next build` ✓.
 - **Money-safe:** la baja solo transiciona `status`; no toca precios (garantía del backend, inalterada).
+
+---
+
+## P-35 — Alta dedicada de producto SELLADO (`SealedAddFlow`, contrato v1.36-sealed-alta, §16.8a)
+
+**Problema corregido:** la pestaña «Sellado» caía en `AddItemModal` (buscador de CARTAS sobre singles),
+etiquetando un single como «sellado» (money-unsafe, sin mapeo TCGCSV). Ahora el alta de sellado es un flujo
+dedicado que elige un PRODUCTO sellado real.
+
+**Componentes nuevos (todos en `frontend/src/app/[locale]/(admin)/admin/m1/`, sin tocar storefront ni la capa
+visual compartida `frontend/src/components/`):**
+- `SealedAddFlow.tsx` — asistente modal ancho de 2 pasos (stepper mono `PASO 1/2 DE 2`, `Esc` cierra, foco
+  inicial). Modal ancho LOCAL a M1 (`max-w-3xl`); no se reescribió el `Modal` compartido (es `max-w-md`).
+  Paso 0 selector de set (Combobox con año, `listBuylistSets`; se salta con `presetSet`) → Paso 1 grid →
+  Paso 2 `QuickAddSection` (P-19) + subtipo/condición. Camino de respaldo honesto (fuente 502 o vacío
+  legítimo): mini-form manual con banner `info` de excepción → nace SIN mapeo (`PRICE_PENDING` visible).
+- `SealedProductGrid.tsx` (`SealedProductGrid` + `SealedProductTile` + `SealedProductGridSkeleton`) — grid
+  `role="listbox"` con `option`s navegables (flechas + Home/End), foco visible, `aria-selected`, `aria-label`
+  por teja. Imagen `aspect-[5/7] object-contain` sobre pozo con fallback textual mono (nunca un roto).
+  Money-safe por teja: precio `MERCADO` o pill **`SIN PRECIO DE MERCADO`** (nunca `MX$ 0.00`).
+
+**Contrato consumido:** `GET /admin/inventory/sealed-catalog?setId=&groupId?=&q=` → `SealedCatalogResponse`
+(`getSealedCatalog` en `lib/api.ts`, con mock `mockSealedCatalog`). El alta reusa
+`POST /admin/inventory/items/batch` con `batchKey` idempotente por operación; cada línea envía
+`{ cardId:<anchorCardId>, productType:'sealed', sealedSubtype, sealedCondition, finish:'normal',
+tcgplayerProductId, tcgplayerGroupId, sealedImageUrl, sealedProductName, qty, acquisition* }`. La pieza NACE
+MAPEADA (productId+groupId JUNTOS) ⇒ la aportación valúa en el acto (`marketRef` null ⇒ tarjeta Aportación
+deshabilitada, heredado de QuickAddSection §16.5a2).
+
+**Cambios en `contract.ts`:** `BatchInventoryItemInput` gana `tcgplayerProductId/tcgplayerGroupId/
+sealedImageUrl/sealedProductName` (v1.36); nuevos `SealedCatalogProductDTO` y `SealedCatalogResponse`.
+`QuickAddTarget` gana los 4 campos aditivos de sellado (se reenvían al batch solo si productId+groupId están).
+
+**Retirado:** `AddItemModal` ya NO ofrece `productType='sealed'` (`PRODUCT_TYPES = ['raw','graded']`); se
+eliminó su rama de subtipo/condición/listPrice. La pestaña Sellado y su estado vacío ahora abren
+`SealedAddFlow` (CTA `Agregar sellado`), no `AddItemModal`. `Agregar otra presentación` en el detalle de set
+abre el flujo con el set precargado.
+
+**i18n:** `admin.sealedAdd.*` (es/en) según §16.10; el paso 2 reusa `admin.quickAdd.*` y
+`status.sealedSubtype.*`/`status.sealedCondition.*`.
+
+**Tests:** `SealedAddFlow.test.tsx` (grid + money-safe pill; aportación deshabilitada sin mercado; envío del
+alta con identidad TCGCSV + cardId ancla; 502 con banner/retry/respaldo; vacío legítimo + respaldo sin mapeo).
+Suite **591/591** ✓, `tsc --noEmit` ✓, `next lint` ✓, `next build` ✓.
+
+**Solicitud al arquitecto (no bloqueante):** el camino de respaldo en el caso **502 UPSTREAM_ERROR** no tiene
+`anchorCardId` (el cuerpo de error no lo trae), así que la captura manual solo puede anclarse en respuestas
+`200` (incluido `groupResolved:false`). Si se quiere permitir captura manual anclada aun con la fuente caída,
+el contrato tendría que exponer el `anchorCardId` del set por otra vía (p. ej. incluirlo en el 502 o un
+endpoint ligero de ancla por `setId`). Mientras tanto, el 502 ofrece **Reintentar** + el respaldo, y el
+respaldo con ancla queda operativo en el vacío legítimo (`200`).

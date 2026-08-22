@@ -96,7 +96,8 @@ export const CANONICAL_RARITIES: CanonicalRarity[] = [
     premium: true,
     aliases: ['specialillustrationrare', 'rarespecialillustration'],
   },
-  { key: 'Hyper Rare', premium: true, aliases: ['hyperrare', 'rarerainbow', 'rainbowrare'] },
+  // v1.37 (§4.33e, P-34): +alias `megahyperrare` — `normalizeRarity('Mega Hyper Rare') → "Hyper Rare"` → T4.
+  { key: 'Hyper Rare', premium: true, aliases: ['hyperrare', 'rarerainbow', 'rainbowrare', 'megahyperrare'] },
   { key: 'Secret Rare', premium: true, aliases: ['secretrare', 'raresecret', 'goldsecretrare'] },
   { key: 'Gold Rare', premium: true, aliases: ['goldrare', 'raregold'] },
   { key: 'Shiny Rare', premium: true, aliases: ['shinyrare', 'rareshiny', 'shinyultrarare'] },
@@ -113,6 +114,11 @@ export const CANONICAL_RARITIES: CanonicalRarity[] = [
   { key: 'LEGEND', premium: true, aliases: ['legend', 'rarelegend'] },
   { key: 'Rare ACE', premium: true, aliases: ['rareace', 'acespecrare'] },
   { key: 'Trainer Gallery Rare Holo', premium: true, aliases: ['trainergalleryrareholo'] },
+  // v1.37 (§4.33e, P-34): +2 canónicas PREMIUM que cerraban `unmapped` money-losing. `MEGA_ATTACK_RARE`
+  // (snake_case; `normKey` lo colapsa a `megaattackrare`) → "Mega Rare" → T3; `Black White Rare` → T3.
+  // Con `premium:true` DEJAN de cotizar al bin de acabado holo barato de bulk (FIX de dinero §4.33f).
+  { key: 'Mega Rare', premium: true, aliases: ['megaattackrare', 'megarare'] },
+  { key: 'Black White Rare', premium: true, aliases: ['blackwhiterare'] },
 ];
 
 /** Índice `aliasNormalizado → CanonicalRarity`, más la `key` canónica normalizada como alias. */

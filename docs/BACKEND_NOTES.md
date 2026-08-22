@@ -4,6 +4,83 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-P35. Alta dedicada de producto SELLADO con imagen de API (2026-08-22, v1.36-sealed-alta)
+
+> Stream «Inventario y vault». Implementa el changelog **v1.36-sealed-alta** del contrato (§M1 +
+> DTOs `SealedCatalogProductDTO`/`SealedCatalogResponse` + 4 campos aditivos de `BatchInventoryItemInput`)
+> y ARCHITECTURE §4.32. Cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**. Gate backend:
+> **1518/1518** verde (1478 previos + 40 nuevos). De paso se saldan **H7** y **H8** del mismo módulo.
+
+### Migración M-37 (schema, `prisma/` — zona compartida serializada)
+`prisma/migrations/20260822160000_m37_sealed_alta/` — **3 columnas nullable, ADITIVAS, sin backfill**:
+- `CardSet.tcgcsvGroupId Int?` — grupo TCGCSV **curado por set**; resuelve el listado (set → productos
+  sellados de la API). `null` ⇒ fallback por hermanos ya mapeados.
+- `InventoryItem.sealedImageUrl String?` + `InventoryItem.sealedProductName String?` — imagen/nombre del
+  producto sellado **desde la API**, **display-only**, money-safe (jamás fijan precio). `null` ⇒ el
+  display cae a la `Card` ancla (arregla que el sellado muestre la **caja**, no el single ancla).
+- Las columnas de MAPEO (`InventoryItem.tcgplayerProductId/tcgplayerGroupId`) **ya existían** (M-23): el
+  alta solo las **puebla**.
+
+### `GET /admin/inventory/sealed-catalog?setId=&groupId?=&q?=` (`vault_operator+`)
+Nuevo endpoint en el controller M1 → `SealedCatalogAdminService` (`modules/inventory/sealed-catalog-admin.service.ts`).
+- **Reusa** el `TcgcsvSealedBulkProvider` de M2 (proxy read-only server-side; host fijo anti-SSRF +
+  categoría Pokémon=3 en el cliente base). Se **exportó** desde `PricingModule` para inyectarlo sin
+  duplicar el cliente. El navegador NUNCA habla con tcgcsv.com. **Autorización:** el explorador de
+  curación M2 es `super_admin`; ESTE es `vault_operator+` (alta M1) — ampliación deliberada §4.32c.
+- **Resolución set → grupo (precedencia §4.32b):** `groupId` query (override) > `CardSet.tcgcsvGroupId` >
+  `DISTINCT tcgplayerGroupId` de hermanos sellados ya mapeados del set. Exactamente uno ⇒ se usa; cero o
+  varios (sin `CardSet.tcgcsvGroupId`) ⇒ `groupResolved:false` + `data:[]` (el front ofrece fijar el grupo).
+- **`anchorCardId`:** Card representativa del set = menor `(numberPrefix, numberSort)`. El alta la reenvía
+  como `cardId` (satisface `InventoryItem.cardId` NOT NULL). El operador **nunca** elige un single como ancla.
+- **`marketRef` (money-safe, INFORMATIVO):** `marketPrice` TCGCSV del grupo (USD) → `usdToMxnCents` con
+  FX+colchón (`FxService.getCurrent()` **una vez** por request). **Sin precio en la fuente ⇒ `null`
+  (pendiente/«—»), NUNCA `0`.** No fija venta ni costo. **Sin N+1:** 1 llamada de productos + 1 de precios.
+- **`sealedSubtype` inferido** por heurística de nombre (`inferSealedSubtype`, exportada y testeada):
+  ETB→`etb`, Booster Box→`box`, Bundle→`bundle`, Tin→`tin`, Blister/Sleeved/Checklane→`blister`; `null`
+  si no se infiere (el operador lo elige al alta).
+- **Errores:** `400 VALIDATION_ERROR` (setId ausente / groupId no entero positivo — en el controller),
+  `404 NOT_FOUND` (set inexistente), `502 UPSTREAM_ERROR` (TCGCSV caído — `listSealedProducts` lanza; los
+  precios NUNCA lanzan, devuelven lo acumulado ⇒ productos sin precio salen con `marketRef:null`).
+
+### Alta de sellado — SIN endpoint nuevo: `POST /admin/inventory/items[/batch]`
+`BatchInventoryItemInput` + `CreateItemDto` ganan 4 campos aditivos, **SOLO** `productType='sealed'`
+(ignorados en raw/graded):
+- `tcgplayerProductId?` + `tcgplayerGroupId?` — se fijan **JUNTOS**; XOR (uno sin el otro) → **422
+  VALIDATION_ERROR** (por-línea en el lote). Presentes ⇒ la pieza **NACE MAPEADA** (pobla las columnas
+  M-23) ⇒ la **aportación de sellado valúa EN EL ACTO** por `sealed:tcg:<productId>` **directo** (sin
+  inferir hermanos; `resolveSealedAportacionMarket(bornMappedProductId)`). Sin mercado/override ⇒ **422
+  PRICE_PENDING** por línea (jamás 0), como hoy. Sellado SIN mapeo conserva la inferencia por hermanos.
+- `sealedImageUrl?` + `sealedProductName?` — la imagen se **VALIDA server-side** contra el host allowlist
+  (`modules/inventory/sealed-image-host.ts`: solo `https:` + host EXACTO/subdominio de `tcgplayer.com` o
+  `tcgcsv.com`, sin `http:`/`data:`/`javascript:`/userinfo). Inválida/omitida ⇒ `null` (fallback a la
+  `Card` ancla). Anti stored-XSS. `sealedProductName` se persiste tal cual (vacío ⇒ null).
+- **Idempotencia** por `batchKey` (`InventoryBatch` `kind='create'`) sin cambios; tolerancia por-línea
+  intacta. Los campos se persisten en `buildItemData` (single y lote comparten el mismo builder).
+- **Autorización (nota para seguridad):** que un `vault_operator` fije el mapeo TCGCSV al alta es una
+  ampliación deliberada (§4.32c); el `productId` viene del listado que el server sirvió, la valuación
+  sigue server-side (SEC-A1) y el alta queda auditada (`inventory.batch_create`).
+
+### Deuda saldada de paso (mismo archivo, `inventory.service.ts`)
+- **H7** — el export (`exportInventoryXlsx`) ahora **valida `setId`** contra `CardSet` ANTES de consultar:
+  id desconocido → **400 VALIDATION_ERROR** (paridad con `publishAll`/bulk-ops; ya no export vacío en
+  silencio). **RESUELTA** en `docs/TECH_DEBT.md`.
+- **H8** — `workbook.creator = 'TCG Vault MX'` (marca **vigente**, PROJECT.md), reemplaza la obsoleta
+  `'TCG HUNT'`. **RESUELTA** en `docs/TECH_DEBT.md`.
+
+### Tests nuevos (40)
+- `test/inventory.sealed-catalog.spec.ts` — listado sellado (no singles), `imageUrl`, `marketRef`
+  (pending⇒null nunca 0, colchón FX), precedencia de resolución de grupo, `groupResolved:false`, 404/502,
+  sin N+1, heurística de subtipo, y las 400 del controller.
+- `test/inventory.sealed-alta.spec.ts` — nace mapeada + valúa; money-safe (sin mercado ⇒ 422 PRICE_PENDING);
+  XOR del mapeo ⇒ 422; campos ignorados en raw; host allowlist (evil/http/data/js/userinfo ⇒ null);
+  batch tolerante + idempotencia por `batchKey`.
+- `test/inventory.export-xlsx.spec.ts` — +H7 (setId inexistente ⇒ 400; existente aplica filtro) y +H8
+  (`workbook.creator`).
+
+### Diferido (SB-D5, §4.32d)
+La entidad `SealedProduct` de catálogo (cura de raíz del ancla-a-single) **NO** se hace aquí; M-37 es el
+puente mínimo. SB-D5 **permanece abierta** (ver `docs/TECH_DEBT.md`).
+
 ## 0-P29/P31. Baja rápida por cantidad + Export de inventario a Excel (2026-08-22, `fix/variant-composition-regression`)
 
 > Solo `backend/` (módulo `inventory` + un error code en `common/` + dep `exceljs`). Cambios

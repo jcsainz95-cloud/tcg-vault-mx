@@ -30,6 +30,7 @@ import {
   SealedSpreadResult,
   VariantPriceControls,
 } from '../../common/money';
+import { TierId } from '../../common/pricing-tiers';
 
 function today(): Date {
   const d = new Date();
@@ -543,12 +544,26 @@ export class PricingService {
    */
   async loadBuylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
     const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    // v1.29 (§4.28d): `rules` es un `PriceRuleSet` de DOS EJES (migra el legacy plano on-read).
+    // v1.37 (§4.33c): iza también PRICING_TIER_MAP y DERIVA el `PriceRuleSet` efectivo si el setting trae
+    // el shape por tiers (post-M-38); compat on-read con `{ rarityRules, ... }`/plano (§4.28d) sin el mapa.
+    const tierMap = await this.loadTierMap();
     const rules = toPriceRuleSet<BuylistRule>(
       await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
       fallbackPct,
+      tierMap,
     );
     return { rules, fallbackPct };
+  }
+
+  /**
+   * v1.37 (§4.33b/c) — iza el mapa COMPARTIDO `PRICING_TIER_MAP` (`Record<canonicalRarity, TierId>`) para
+   * derivar el `PriceRuleSet` efectivo (compra y venta lo comparten). Rareza ausente ⇒ sin entrada ⇒
+   * fallbackPct (money-safe). Forma degenerada del setting ⇒ `{}` (todo al fallback, nunca $0).
+   */
+  async loadTierMap(): Promise<Record<string, TierId>> {
+    const raw = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
+    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    return raw as Record<string, TierId>;
   }
 
   /**
@@ -558,10 +573,13 @@ export class PricingService {
    */
   async loadSalesRules(): Promise<{ rules: PriceRuleSet<SalesRule>; fallbackPct: number }> {
     const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
-    // v1.29 (§4.28d): `rules` es un `PriceRuleSet` de DOS EJES (migra el legacy plano on-read).
+    // v1.37 (§4.33c): DERIVA el `PriceRuleSet` efectivo desde (tierRules × PRICING_TIER_MAP) si el setting
+    // trae el shape por tiers; compat on-read con `{ rarityRules, ... }`/plano (§4.28d).
+    const tierMap = await this.loadTierMap();
     const rules = toPriceRuleSet<SalesRule>(
       await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
       fallbackPct,
+      tierMap,
     );
     return { rules, fallbackPct };
   }

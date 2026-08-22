@@ -129,21 +129,38 @@ describe('SealedAddFlow (P-35, §16.8a) · alta dedicada de sellado', () => {
     });
   });
 
-  it('camino de respaldo (fuente TCGCSV caída, 502): banner + captura manual marcada como excepción, sin mapeo', async () => {
+  it('error 502 UPSTREAM: banner accionable + Reintentar + ofrece el camino de respaldo (no se cae del todo)', async () => {
     vi.spyOn(api, 'getSealedCatalog').mockRejectedValue(
       new (await import('@/lib/api-client')).ApiClientError(502, {
         code: 'UPSTREAM_ERROR',
         message: 'down',
       }),
     );
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/fuente TCGCSV no disponible/);
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Capturar sin catálogo de producto' }),
+    ).toBeInTheDocument();
+  });
+
+  it('vacío legítimo + respaldo: captura manual marcada como excepción, anclada y SIN mapeo (PRICE_PENDING honesto)', async () => {
+    // groupResolved:false ⇒ vacío legítimo (200 con anchorCardId), no error.
+    vi.spyOn(api, 'getSealedCatalog').mockResolvedValue({
+      ...CATALOG,
+      groupResolved: false,
+      data: [],
+    });
     const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000600']));
     renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
 
-    // Banner de fuente caída + enlace al respaldo.
-    expect(await screen.findByRole('alert')).toHaveTextContent(/fuente TCGCSV no disponible/);
-    fireEvent.click(screen.getByRole('button', { name: 'Capturar sin catálogo de producto' }));
+    expect(
+      await screen.findByText('Este set no tiene producto sellado en la fuente.'),
+    ).toBeInTheDocument();
 
-    // Aviso money-safe explícito + nombre manual requerido.
+    // Camino de respaldo: mini-form manual marcado como excepción.
+    fireEvent.click(screen.getByRole('button', { name: 'Capturar sin catálogo de producto' }));
     expect(screen.getByText(/quedará sin precio de mercado/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Nombre del producto'), {
       target: { value: 'ETB manual sin catálogo' },
@@ -156,7 +173,7 @@ describe('SealedAddFlow (P-35, §16.8a) · alta dedicada de sellado', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const item = spy.mock.calls[0][0].items[0];
     expect(item).toMatchObject({
-      cardId: 'c-sealed-sv08-box',
+      cardId: 'c-sealed-sv08-box', // ancla del set (200 trae anchorCardId aunque el grupo no resuelva)
       productType: 'sealed',
       sealedProductName: 'ETB manual sin catálogo',
       acquisitionType: 'compra',
@@ -164,19 +181,5 @@ describe('SealedAddFlow (P-35, §16.8a) · alta dedicada de sellado', () => {
     // Nace SIN mapeo (respaldo honesto): no lleva identidad TCGCSV.
     expect(item).not.toHaveProperty('tcgplayerProductId');
     expect(item).not.toHaveProperty('tcgplayerGroupId');
-  });
-
-  it('vacío legítimo (set sin sellado en la fuente): muestra el mensaje y ofrece el respaldo, sin error', async () => {
-    vi.spyOn(api, 'getSealedCatalog').mockResolvedValue({
-      ...CATALOG,
-      groupResolved: false,
-      data: [],
-    });
-    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
-
-    expect(
-      await screen.findByText('Este set no tiene producto sellado en la fuente.'),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Capturar sin catálogo de producto' })).toBeInTheDocument();
   });
 });
