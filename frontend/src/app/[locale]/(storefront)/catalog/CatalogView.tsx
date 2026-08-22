@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
+import type { ReadonlyURLSearchParams } from 'next/navigation';
 import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } from '@/lib/api';
-import type { ListingDTO } from '@/types/contract';
+import type { Finish, ListingDTO, SealedSubtype } from '@/types/contract';
+import { FINISH_ORDER } from '@/lib/finish';
 import { useCart } from '@/lib/cart';
 import { useRouter } from '@/i18n/navigation';
 import { ShopFilters } from '@/components/domain/ShopFilters';
@@ -44,11 +46,12 @@ export function CatalogView() {
   const cart = useCart();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const gradedTab = searchParams?.get('type') === 'graded';
+  // La pestaña Gradeadas usa ?type=graded; los enlaces del Home usan ?productType=graded.
+  const gradedTab =
+    searchParams?.get('type') === 'graded' || searchParams?.get('productType') === 'graded';
 
-  const [filters, setFilters] = useState<CatalogFilters>(() =>
-    gradedTab ? { productType: 'graded' } : {},
-  );
+  // Los filtros se inicializan desde la URL (enlaces del Home: ?setId=, ?productType=…).
+  const [filters, setFilters] = useState<CatalogFilters>(() => parseUrlFilters(searchParams));
   const [sheetOpen, setSheetOpen] = useState(false);
   // Toast de confirmación al agregar (timestamp del último add; 0 = oculto).
   // N-17: además del toast, cada teja refleja «En el carrito» derivado del store.
@@ -57,16 +60,26 @@ export function CatalogView() {
   // Ancla del scroll al paginar: la barra de resultados, no el tope de la página.
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // URL → filtros: navegar entre pestañas (Sueltas ↔ Gradeadas) aplica/retira el filtro.
+  // URL → filtros: navegar entre pestañas (Sueltas ↔ Gradeadas), back/forward o
+  // enlaces internos con query MERGEA los filtros presentes en la URL sobre el
+  // estado (sin borrar lo elegido en el panel) y retira `graded` al salir de la
+  // pestaña. El ref evita re-aplicar en renders sin cambio real de URL (p. ej.
+  // tras el router.replace de updateFilters, que ya dejó el estado correcto).
+  const urlKey = searchParams?.toString() ?? '';
+  const prevUrlKey = useRef(urlKey);
   useEffect(() => {
+    if (prevUrlKey.current === urlKey) return;
+    prevUrlKey.current = urlKey;
+    const fromUrl = parseUrlFilters(searchParams);
     setFilters((f) => {
-      if (gradedTab && f.productType !== 'graded')
-        return { ...f, productType: 'graded', sealedSubtype: undefined, page: undefined };
-      if (!gradedTab && f.productType === 'graded')
-        return { ...f, productType: undefined, page: undefined };
-      return f;
+      const next: CatalogFilters = { ...f, ...fromUrl, page: undefined };
+      if (!gradedTab && f.productType === 'graded' && fromUrl.productType == null)
+        next.productType = undefined;
+      if (next.productType !== 'sealed') next.sealedSubtype = undefined;
+      return next;
     });
-  }, [gradedTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlKey]);
 
   /**
    * Todo cambio de filtro u orden pasa por aquí: resetea la página (el
@@ -273,6 +286,38 @@ export function CatalogView() {
       <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
     </div>
   );
+}
+
+const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
+
+/**
+ * Filtros iniciales desde la URL (enlaces del Home: `?setId=<id>`,
+ * `?productType=graded`; la pestaña Gradeadas usa `?type=graded`). Solo se
+ * mapean los filtros del estado con equivalente trivial en query; los valores
+ * de enum se validan contra sus listas — un parámetro inválido se ignora.
+ */
+function parseUrlFilters(sp: ReadonlyURLSearchParams | null): CatalogFilters {
+  if (!sp) return {};
+  const f: CatalogFilters = {};
+  const setId = sp.get('setId');
+  if (setId) f.setId = setId;
+  const q = sp.get('q');
+  if (q) f.q = q;
+  const pt = sp.get('productType') ?? (sp.get('type') === 'graded' ? 'graded' : null);
+  if (pt === 'raw' || pt === 'graded' || pt === 'sealed') f.productType = pt;
+  const finish = sp.get('finish');
+  if (finish && (FINISH_ORDER as string[]).includes(finish)) f.finish = finish as Finish;
+  const sub = sp.get('sealedSubtype');
+  if (f.productType === 'sealed' && sub && (SEALED_SUBTYPES as string[]).includes(sub))
+    f.sealedSubtype = sub as SealedSubtype;
+  const rarity = sp.get('rarity');
+  if (rarity) {
+    const list = rarity.split(',').map((r) => r.trim()).filter(Boolean);
+    if (list.length) f.rarity = list;
+  }
+  const sort = sp.get('sort');
+  if (sort === 'newest' || sort === 'price_asc' || sort === 'price_desc') f.sort = sort;
+  return f;
 }
 
 // Construye los chips removibles del estado de filtros activo.

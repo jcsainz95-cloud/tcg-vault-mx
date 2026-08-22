@@ -14,14 +14,17 @@ vi.mock('@/i18n/navigation', () => ({
   ),
 }));
 
-// StoreTabs y CatalogView leen ?type=graded con useSearchParams (pestaña Gradeadas).
+// StoreTabs y CatalogView leen la query con useSearchParams (pestaña Gradeadas
+// ?type=graded y enlaces del Home ?setId=/?productType=). Holder mutable por test.
+const { urlParams } = vi.hoisted(() => ({ urlParams: { current: new URLSearchParams() } }));
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => urlParams.current,
 }));
 
 beforeEach(() => {
   vi.restoreAllMocks();
   window.localStorage.clear();
+  urlParams.current = new URLSearchParams();
 });
 
 /**
@@ -43,5 +46,29 @@ describe('CatalogView · toast de confirmación al agregar', () => {
     expect(screen.getByRole('link', { name: 'Ver carrito' })).toHaveAttribute('href', '/checkout');
     // Formato v2 del carrito: { ids, updatedAt } (expiración a 30 días).
     expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toHaveLength(1);
+  });
+});
+
+/**
+ * Los enlaces del Home llegan con query (?setId=<id>, ?productType=graded):
+ * la vista inicializa sus filtros desde la URL al montar y los pinta como
+ * chips removibles (mismo estado que si se hubieran elegido en el panel).
+ */
+describe('CatalogView · filtros iniciales desde la URL (enlaces del Home)', () => {
+  it('?setId= y ?productType=graded se aplican al montar (chips activos)', async () => {
+    urlParams.current = new URLSearchParams('setId=base1&productType=graded');
+    renderWithProviders(<CatalogView />, 'es');
+
+    // Chips removibles de los dos filtros que vinieron en la URL.
+    expect(await screen.findByRole('button', { name: /base1/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /graded/ })).toBeInTheDocument();
+  });
+
+  it('un productType inválido en la URL se ignora (sin chip, sin romper)', async () => {
+    urlParams.current = new URLSearchParams('productType=oro');
+    renderWithProviders(<CatalogView />, 'es');
+
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+    expect(screen.queryByRole('button', { name: /oro/ })).toBeNull();
   });
 });

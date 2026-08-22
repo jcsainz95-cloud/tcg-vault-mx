@@ -19,7 +19,9 @@ export function StoreTabs() {
   const t = useTranslations('storeTabs');
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const graded = searchParams?.get('type') === 'graded';
+  // La pestaña usa ?type=graded; los enlaces del Home llegan con ?productType=graded.
+  const graded =
+    searchParams?.get('type') === 'graded' || searchParams?.get('productType') === 'graded';
   const inCatalog = pathname.startsWith('/catalog');
 
   const tabs = [

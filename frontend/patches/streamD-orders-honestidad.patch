@@ -1,0 +1,227 @@
+diff --git a/frontend/src/app/[locale]/(storefront)/orders/OrdersView.tsx b/frontend/src/app/[locale]/(storefront)/orders/OrdersView.tsx
+index 84fb808..69f42ff 100644
+--- a/frontend/src/app/[locale]/(storefront)/orders/OrdersView.tsx
++++ b/frontend/src/app/[locale]/(storefront)/orders/OrdersView.tsx
+@@ -1,7 +1,9 @@
+ 'use client';
+ 
+-import { useQuery } from '@tanstack/react-query';
++import { useState } from 'react';
++import { keepPreviousData, useQuery } from '@tanstack/react-query';
+ import { useLocale, useTranslations } from 'next-intl';
++import { ArrowLeft, ArrowRight } from 'lucide-react';
+ import { getOrders } from '@/lib/api';
+ import type { AppLocale } from '@/i18n/routing';
+ import { formatMoneyCents, formatDate } from '@/lib/format';
+@@ -20,7 +22,18 @@ import type { OrderSummaryDTO } from '@/types/contract';
+ export function OrdersView() {
+   const t = useTranslations('orders');
+   const locale = useLocale() as AppLocale;
+-  const query = useQuery({ queryKey: ['orders'], queryFn: getOrders });
++  // Paginación server-side (contrato §4 · GET /orders → { data, page, pageSize, total }, 20/página).
++  // `keepPreviousData` evita el flash de vacío al cambiar de página.
++  const [page, setPage] = useState(1);
++  const query = useQuery({
++    queryKey: ['orders', page],
++    queryFn: () => getOrders(page),
++    placeholderData: keepPreviousData,
++  });
++  const totalPages =
++    query.data && query.data.pageSize > 0
++      ? Math.max(1, Math.ceil(query.data.total / query.data.pageSize))
++      : 1;
+ 
+   const columns: Column<OrderSummaryDTO>[] = [
+     {
+@@ -56,7 +69,38 @@ export function OrdersView() {
+         {(query.data?.data.length ?? 0) === 0 ? (
+           <EmptyState title={t('noOrders')} />
+         ) : (
+-          <DataTable columns={columns} rows={query.data!.data} rowKey={(o) => o.id} />
++          <>
++            <DataTable columns={columns} rows={query.data!.data} rowKey={(o) => o.id} />
++            {/* Paginador sobrio (papel/tinta): números mono tabulares y flechas cuadradas con regla de 1px, sin radius. */}
++            {totalPages > 1 && (
++              <nav
++                aria-label={t('pagination')}
++                className="mt-6 flex items-center justify-between border-t border-border pt-4"
++              >
++                <button
++                  type="button"
++                  aria-label={t('prevPage')}
++                  disabled={page <= 1}
++                  onClick={() => setPage((p) => Math.max(1, p - 1))}
++                  className="flex h-9 w-9 items-center justify-center border border-text text-text transition-colors hover:bg-text hover:text-primary-fg disabled:cursor-not-allowed disabled:border-border-strong disabled:bg-transparent disabled:text-muted"
++                >
++                  <ArrowLeft size={14} aria-hidden />
++                </button>
++                <span className="tabular font-mono text-[11px] text-muted">
++                  {t('pageInfo', { page: query.data!.page, totalPages })}
++                </span>
++                <button
++                  type="button"
++                  aria-label={t('nextPage')}
++                  disabled={page >= totalPages}
++                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
++                  className="flex h-9 w-9 items-center justify-center border border-text text-text transition-colors hover:bg-text hover:text-primary-fg disabled:cursor-not-allowed disabled:border-border-strong disabled:bg-transparent disabled:text-muted"
++                >
++                  <ArrowRight size={14} aria-hidden />
++                </button>
++              </nav>
++            )}
++          </>
+         )}
+       </QueryState>
+     </div>
+diff --git a/frontend/src/app/[locale]/(storefront)/orders/[orderId]/OrderDetailView.tsx b/frontend/src/app/[locale]/(storefront)/orders/[orderId]/OrderDetailView.tsx
+index 7a41032..0f312e4 100644
+--- a/frontend/src/app/[locale]/(storefront)/orders/[orderId]/OrderDetailView.tsx
++++ b/frontend/src/app/[locale]/(storefront)/orders/[orderId]/OrderDetailView.tsx
+@@ -1,15 +1,16 @@
+ 'use client';
+ 
+-import { useState } from 'react';
+-import { useQuery } from '@tanstack/react-query';
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+ import { useLocale, useTranslations } from 'next-intl';
+-import { getOrder } from '@/lib/api';
++import { getOrder, requestOrderInvoice } from '@/lib/api';
++import type { OrderDetailDTO } from '@/types/contract';
+ import type { AppLocale } from '@/i18n/routing';
+ import { formatMoneyCents, formatDate } from '@/lib/format';
+ import { CardImage } from '@/components/ui/CardImage';
+ import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
+ import { StatusBadge } from '@/components/ui/StatusBadge';
+ import { Button } from '@/components/ui/Button';
++import { Banner } from '@/components/ui/Banner';
+ import { QueryState } from '@/components/ui/QueryState';
+ 
+ /**
+@@ -21,9 +22,21 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
+   const t = useTranslations('orders');
+   const tc = useTranslations('checkout');
+   const locale = useLocale() as AppLocale;
+-  const [requested, setRequested] = useState(false);
++  const queryClient = useQueryClient();
+   const query = useQuery({ queryKey: ['order', orderId], queryFn: () => getOrder(orderId) });
+ 
++  // Contrato §4 · POST /orders/:orderId/request-invoice (CFDI sin PAC en MVP: marca la orden;
++  // los datos fiscales van por correo). Al confirmar, se refleja en la caché de la orden para
++  // que el estado persista igual que si viniera del backend (`invoiceRequested=true`).
++  const invoiceMutation = useMutation({
++    mutationFn: () => requestOrderInvoice(orderId),
++    onSuccess: () => {
++      queryClient.setQueryData<OrderDetailDTO>(['order', orderId], (old) =>
++        old ? { ...old, invoiceRequested: true } : old,
++      );
++    },
++  });
++
+   return (
+     <QueryState
+       isLoading={query.isLoading}
+@@ -77,13 +90,28 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
+                 </span>
+               </div>
+ 
+-              {requested || query.data.invoiceRequested ? (
+-                <p className="mt-4 font-mono text-[11px] leading-relaxed text-muted">{tc('cfdiNotice')}</p>
++              {query.data.invoiceRequested ? (
++                <>
++                  <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.06em] text-text" role="status">
++                    {t('invoiceRequested')}
++                  </p>
++                  <p className="mt-3.5 font-mono text-[11px] leading-relaxed text-muted">{tc('cfdiNotice')}</p>
++                </>
+               ) : (
+                 <>
+-                  <Button variant="secondary" className="mt-4 w-full" onClick={() => setRequested(true)}>
++                  <Button
++                    variant="secondary"
++                    className="mt-4 w-full"
++                    loading={invoiceMutation.isPending}
++                    onClick={() => invoiceMutation.mutate()}
++                  >
+                     {t('requestInvoice')}
+                   </Button>
++                  {invoiceMutation.isError && (
++                    <Banner variant="danger" role="alert" className="mt-3.5">
++                      {t('invoiceError')}
++                    </Banner>
++                  )}
+                   <p className="mt-3.5 font-mono text-[11px] leading-relaxed text-muted">{tc('cfdiNotice')}</p>
+                 </>
+               )}
+diff --git a/frontend/src/lib/api.ts b/frontend/src/lib/api.ts
+index dc22bdb..85b9c5c 100644
+--- a/frontend/src/lib/api.ts
++++ b/frontend/src/lib/api.ts
+@@ -20,6 +20,7 @@ import type {
+   HoldingsResponse,
+   OrderSummaryDTO,
+   OrderDetailDTO,
++  RequestInvoiceResponse,
+   CheckoutQuoteResponse,
+   CheckoutSessionResponse,
+   AddressDTO,
+@@ -623,9 +624,12 @@ export async function createCheckoutSession(
+   });
+ }
+ 
+-export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
+-  if (!config.useMocks) return apiRequest<Paginated<OrderSummaryDTO>>('/orders');
+-  return delay({ data: fx.mockOrders, page: 1, pageSize: 20, total: fx.mockOrders.length });
++/** Historial de órdenes paginado (contrato §4 · GET /orders → `{ data, page, pageSize, total }`; el backend pagina a 20 por default). */
++export async function getOrders(page = 1): Promise<Paginated<OrderSummaryDTO>> {
++  if (!config.useMocks) {
++    return apiRequest<Paginated<OrderSummaryDTO>>('/orders', { query: { page } });
++  }
++  return delay(paginate(fx.mockOrders, { page }));
+ }
+ 
+ export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
+@@ -633,6 +637,25 @@ export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
+   return delay({ ...fx.mockOrderDetail, id: orderId });
+ }
+ 
++/**
++ * Solicita la factura CFDI de una orden (contrato §4 · POST /orders/:orderId/request-invoice,
++ * `customer`). CFDI sin PAC en MVP: NO timbra; el backend marca `invoiceRequested=true` y la
++ * instrucción (`SEND_FISCAL_DATA_BY_EMAIL`) es enviar los datos fiscales por correo (timbrado
++ * manual; real = fase 2). Req = `{}` (usa el BillingProfile en archivo).
++ */
++export async function requestOrderInvoice(orderId: string): Promise<RequestInvoiceResponse> {
++  if (!config.useMocks) {
++    return apiRequest<RequestInvoiceResponse>(`/orders/${orderId}/request-invoice`, {
++      method: 'POST',
++      body: {},
++    });
++  }
++  // MOCK: persiste en el fixture para que un refetch de getOrder siga reportando la solicitud
++  // (misma semántica que el backend real: la marca vive en la orden).
++  fx.mockOrderDetail.invoiceRequested = true;
++  return delay({ orderId, invoiceRequested: true, instructions: 'SEND_FISCAL_DATA_BY_EMAIL' });
++}
++
+ // ---------- Direcciones (contrato §1 — envío, solo MX) ----------
+ export interface AddressInput {
+   line1: string;
+diff --git a/frontend/src/types/contract.ts b/frontend/src/types/contract.ts
+index 08fcf27..fb3ba2d 100644
+--- a/frontend/src/types/contract.ts
++++ b/frontend/src/types/contract.ts
+@@ -474,6 +474,14 @@ export interface OrderDetailDTO {
+   stripePaymentIntentId?: string;
+ }
+ 
++// POST /orders/:orderId/request-invoice (contrato §4). CFDI sin PAC en MVP: NO timbra;
++// marca la orden como "factura solicitada" y la vía es enviar los datos fiscales por correo.
++export interface RequestInvoiceResponse {
++  orderId: string;
++  invoiceRequested: true;
++  instructions: 'SEND_FISCAL_DATA_BY_EMAIL';
++}
++
+ // ---- Retiros / envíos (contrato §5) ----
+ export interface ShipmentQuoteResponse {
+   breakdown: BreakdownDTO;

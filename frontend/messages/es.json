@@ -791,12 +791,7 @@
     "items": "Artículos",
     "requestInvoice": "Solicitar factura",
     "invoiceRequested": "Factura solicitada",
-    "invoiceError": "No pudimos registrar tu solicitud de factura. Intenta de nuevo.",
-    "cfdiStatusLabel": "Factura",
-    "pagination": "Paginación de órdenes",
-    "pageInfo": "Página {page} de {totalPages}",
-    "prevPage": "Página anterior",
-    "nextPage": "Página siguiente"
+    "cfdiStatusLabel": "Factura"
   },
   "legal": {
     "title": "Términos y política",

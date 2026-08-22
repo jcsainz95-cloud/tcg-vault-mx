@@ -791,12 +791,7 @@
     "items": "Items",
     "requestInvoice": "Request invoice",
     "invoiceRequested": "Invoice requested",
-    "invoiceError": "We couldn't register your invoice request. Please try again.",
-    "cfdiStatusLabel": "Invoice",
-    "pagination": "Orders pagination",
-    "pageInfo": "Page {page} of {totalPages}",
-    "prevPage": "Previous page",
-    "nextPage": "Next page"
+    "cfdiStatusLabel": "Invoice"
   },
   "legal": {
     "title": "Terms & policy",
