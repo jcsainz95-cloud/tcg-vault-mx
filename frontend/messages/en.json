@@ -2280,7 +2280,6 @@
     "title": "Sealed",
     "subtitle": "Factory-sealed product: boxes, ETBs, bundles and more. Sale only.",
     "badge": "Sealed",
-    "available": "{count, plural, =0 {Sold out} one {# available} other {# available}}",
     "fromPrice": "From",
     "withoutIva": "without VAT",
     "resultsCount": "{count, plural, =0 {No products} one {# product} other {# products}}",

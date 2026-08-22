@@ -3382,3 +3382,19 @@
   storefront quedó en `(storefront)/_shared/PendingPriceLabel.tsx` (R2, color accent §16.4/§20.13);
   la **consolidación final va en `PriceTag`** (que hoy pinta su propia variante) cuando se serialice
   la zona compartida — mismo disparador que MK-D1.
+
+#### MK-D8 · `CatalogView` sin test de regresión del debounce/reset de página (Baja, frontend)
+- **Dónde:** `catalog/CatalogView.tsx` — la interacción debounce de búsqueda (300 ms, R5) + reset de
+  página no tiene test de regresión. **Borde conocido:** pulsar «Limpiar filtros» dentro de la
+  ventana de 300 ms no limpia el input de búsqueda y el término pendiente entra como filtro después.
+- **Impacto:** bajo (borde de UX poco frecuente; sin test, una regresión pasaría inadvertida).
+- **Remedio:** limpiar `searchTerm` cuando el caller pasa filtros vacíos + test de regresión del
+  debounce/reset.
+- **Disparador:** próximo toque al catálogo.
+
+#### MK-D9 · `StockBadge` sin prop `size` (Baja, frontend)
+- **Dónde:** `(storefront)/_shared/StockBadge.tsx` — no expone tamaño; `SealedDetailView` pelea con
+  las clases responsivas vía `className`.
+- **Impacto:** bajo (override frágil de clases en un consumidor).
+- **Remedio:** agregar `size?: 'sm' | 'md'` al componente y retirar el override.
+- **Disparador:** cuando aparezca la próxima variante de tamaño del distintivo.

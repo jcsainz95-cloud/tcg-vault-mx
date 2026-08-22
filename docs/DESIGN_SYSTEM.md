@@ -3441,13 +3441,14 @@ es el único bloque de la home con fondo distinto al papel (jerarquía por tono,
 ### 20.6 Distintivos de stock — y regla money-safe
 
 Etiqueta **mono, `uppercase`, 10px (9px en móvil), tracking `0.10–0.12em`**, siempre texto plano
-coloreado sobre el fondo (sin caja, §2.1). Tres formas:
+coloreado sobre el fondo (sin caja, §2.1). Cuatro formas:
 
 | Distintivo | Color | Cuándo |
 |---|---|---|
 | **«QUEDA 1»** | `--color-accent` `#B31217` | La pieza es única (urgencia honesta) |
 | **«N EN STOCK»** | `--color-success` (vivo `#4A7345`) | Existen N ≥ 2 copias reales equivalentes |
 | **«ÚLTIMO»** | `--color-text-muted` `#6E695E` | Última unidad de un producto que tuvo varias (sellado) |
+| **«AGOTADO»** | `--color-text-muted` `#6E695E` | Sellado con `availableCount: 0` (conteo real del backend) |
 
 **Regla money-safe (dura):** el distintivo solo muestra **datos reales del backend**.
 - En el **catálogo actual el modelo es 1 publicación = 1 copia**: el distintivo veraz por defecto es
@@ -3637,7 +3638,8 @@ Convención `home.*` / `storefront.*` (ES de referencia; EN a cargo de frontend,
 - `home.bounties.{title,lead,viewAll,colCard,colCondition,colPay,colWanted}`
 - `home.vaultSteps.{title,kicker,step1Title,step1Body,…}` (3 pasos)
 - `home.sellBand.{label,title,lead,cta}`
-- `stock.{lastOne,inStock,lastUnit}` — «Queda 1» / «{n} en stock» / «Último» (formato de `{n}` según
+- `stock.{lastOne,inStock,lastUnit,soldOut}` — «Queda 1» / «{n} en stock» / «Último» / «Agotado»
+  (formato de `{n}` según
   convención del proyecto, sin ICU — §18.4a)
 - `footer.{line,terms}` · `pagination.{pageOf,prevAria,nextAria,announce}`
 

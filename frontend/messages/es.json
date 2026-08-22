@@ -2280,7 +2280,6 @@
     "title": "Sellado",
     "subtitle": "Producto cerrado de fábrica: cajas, ETB, bundles y más. Solo venta.",
     "badge": "Sellado",
-    "available": "{count, plural, =0 {Agotado} one {# disponible} other {# disponibles}}",
     "fromPrice": "Desde",
     "withoutIva": "sin IVA",
     "resultsCount": "{count, plural, =0 {Sin productos} one {# producto} other {# productos}}",
