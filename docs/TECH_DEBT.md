@@ -190,6 +190,38 @@
   en la misma K» (grupo = mínimo, `units[]` completo cheapest-first) y «H4 · sort + paginación sobre grupos»
   (price_asc/desc correctos, `total` = nº de grupos, cobertura completa sin duplicados entre páginas).
 
+> **Hallazgos de FRONTEND del pase P-30 (storefront).** IDs `FE-1`/`FE-2` **acotados a este pase P-30**
+> (no confundir con el `FE-1`/`FE-2` histórico del makeover más abajo en este documento). Dueño **frontend**.
+
+#### FE-1 (P-30 storefront) · Regresión visual: el badge de singles con stock 1 pintaba «Último» en vez de «Queda 1» — RESUELTO (2026-08-22)
+- **Dueño:** frontend. **Severidad:** Baja (regresión visual, no dinero). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** la adaptación P-30 conectó las tejas de **singles** (catálogo, gradeadas, Home,
+  detalle) a `stockVariantFromCount(count)`, que mapea `count===1 → 'lastUnit'` («Último», muted). Ese
+  mapeador es el del **sellado**. El rediseño (DS §20.6) manda para singles con 1 pieza la variante
+  `unique` («Queda 1», accent): con el modelo agrupado de P-30, `stockCount===1` = «1 disponible ahora
+  mismo» (no «última de varias»). La regresión dejó **huérfana** la variante `unique` + la clave
+  `stock.lastOne` y contradecía el docstring de `CatalogView` (que sigue prometiendo «Queda 1»).
+- **Fix:** nuevo mapeador `stockVariantForSingle(count)` en `StockBadge.tsx` (`0→soldOut`, `1→unique`,
+  `N≥2→count`); las tejas de singles (`CatalogTile`, `GradedShelf`, `FeaturedCarousel`, `CardDetailView`)
+  lo consumen. El sellado (`SealedShelf`, `SealedShopView`, `SealedDetailView`) mantiene
+  `stockVariantFromCount` (`1→lastUnit`) — DS §20.6 reserva «Último» **para sellado**. Resultado:
+  `unique`/`stock.lastOne` des-huérfanos **y** `lastUnit`/`stock.lastUnit` conservados (sin huérfanos en
+  ninguna dirección). Test `_shared/StockBadge.test.tsx` afirma `stockCount===1 → «Queda 1»` (unique) y el
+  contraste con sellado (`→ «Último»`). Suites (593) + `tsc` + `next build` verdes.
+
+#### FE-2 (P-30 storefront) · Los singles agrupados no comunican «desde» mientras el sellado sí (gatillada por backend H1)
+- **Dueño:** frontend. **Severidad:** Baja (aceptada, consistencia de presentación — no dinero). **Estado:** **PENDIENTE (bloqueada por H1/arquitecto)**.
+- **Deuda:** en el modelo agrupado, el precio del grupo de singles es un **PISO «desde»** (el mínimo del
+  grupo), pero la teja lo pinta como cifra pelada, mientras el **sellado** sí comunica la semántica «desde»
+  (`fromPriceCents` + «sin IVA»). Asimetría de presentación entre familias equivalentes.
+- **No-bloqueante (money-safe):** no hay fuga de dinero — el cobro real se re-cotiza por `inventoryItemId`
+  en checkout; es solo consistencia de UI.
+- **Disparador:** depende del backend **H1** (rename `GroupedListingDTO.salePriceCents → fromPriceCents`,
+  que **pasa por el arquitecto**, regla 9, zona compartida `docs/API_CONTRACT.md`). Cuando el contrato
+  alinee el naming, el frontend reflejará en singles el mismo trato «desde»/sin IVA que el sellado, al
+  menos cuando `stockCount>1` (con `stockCount===1` la teja ya dice «Queda 1» y «desde» pierde sentido).
+  Ruta: `frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx` (+ tejas de singles homólogas).
+
 ### CI-1 · CI en rojo por tests env-sensibles (REDIS_URL) — RESUELTO (2026-08-16)
 - **Dueño:** backend. **Estado:** **RESUELTO** (solo cambio de tests; producción intacta).
 - **Síntoma:** el job `backend` del workflow **CI** estaba en rojo en **toda la historia** del repo

@@ -12,7 +12,7 @@ import { CardImage } from '@/components/ui/CardImage';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { QueryState } from '@/components/ui/QueryState';
 import { Shelf } from '../_shared/Shelf';
-import { StockBadge, stockVariantFromCount } from '../_shared/StockBadge';
+import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { cn } from '@/lib/cn';
 
@@ -46,7 +46,7 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingDTO; locale: A
  * más caras del inventario publicado (el backend ordena por salePriceCents server-side).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
  * §20.3). v1.38-grouped-listings (P-30): la fuente (GET /catalog/cards) es AGRUPADA, así que
- * cada teja es un `GroupedListingDTO` con `stockCount` real (badge Último / N en stock).
+ * cada teja es un `GroupedListingDTO` con `stockCount` real (badge Queda 1 / N en stock).
  */
 export function FeaturedCarousel() {
   const t = useTranslations('home');
@@ -163,7 +163,7 @@ export function FeaturedCarousel() {
                       </div>
                       <div className="shrink-0 lg:text-right">
                         <TilePrice l={l} locale={locale} big />
-                        <StockBadge variant={stockVariantFromCount(l.stockCount)} count={l.stockCount} className="mt-1.5" />
+                        <StockBadge variant={stockVariantForSingle(l.stockCount)} count={l.stockCount} className="mt-1.5" />
                       </div>
                     </div>
                   </Link>
@@ -187,7 +187,7 @@ export function FeaturedCarousel() {
                       {tileMeta(l)}
                     </p>
                     <TilePrice l={l} locale={locale} />
-                    <StockBadge variant={stockVariantFromCount(l.stockCount)} count={l.stockCount} className="mt-1.5" />
+                    <StockBadge variant={stockVariantForSingle(l.stockCount)} count={l.stockCount} className="mt-1.5" />
                   </Link>
                 ),
               )}

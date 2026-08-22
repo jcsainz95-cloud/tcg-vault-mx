@@ -14,7 +14,7 @@ import { CartAddedToast } from '../CartAddedToast';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { PendingPriceLabel } from '../../_shared/PendingPriceLabel';
-import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
+import { StockBadge, stockVariantForSingle } from '../../_shared/StockBadge';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
@@ -273,8 +273,8 @@ function Detail({
                       ) : (
                         <PendingPriceLabel hint className="text-[11px] leading-normal tracking-[0.06em]" />
                       )}
-                      {/* Stock REAL del grupo (§20.6): Último / N en stock (agotado no llega del backend). */}
-                      <StockBadge variant={stockVariantFromCount(g.stockCount)} count={g.stockCount} />
+                      {/* Stock REAL del grupo (§20.6): Queda 1 / N en stock (agotado no llega del backend). */}
+                      <StockBadge variant={stockVariantForSingle(g.stockCount)} count={g.stockCount} />
                     </div>
                   </div>
                   <InstanceCta groupUnits={groupUnits} cartIds={cartIds} onAdd={onAdd} />

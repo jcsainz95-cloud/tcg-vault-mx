@@ -5641,3 +5641,38 @@ retiraron los tests de los editores por rareza eliminados.
 **Solicitud al arquitecto:** ninguna — el contrato v1.37-pricing-tiers cubre los 4 endpoints, los shapes
 (`TieredRuleSet`, `TierMapRowDTO`) y ambos 422 con `details.offending`. No se necesitaron mocks fuera de
 contrato ni campos nuevos.
+
+---
+
+## FE-1 (P-30 storefront) · Badge de singles: restaurado «Queda 1» (2026-08-22)
+
+Regresión visual del rediseño marcada por QA + techlead en la adaptación P-30. Las tejas de **singles**
+consumían `stockVariantFromCount` (mapeador del **sellado**: `count===1 → 'lastUnit'` = «Último»), lo que
+contradecía DS §20.6 y el docstring de `CatalogView` («Queda 1»). Con el modelo agrupado de P-30
+`stockCount===1` = «1 disponible ahora mismo» → variante `unique` («Queda 1», accent).
+
+**Decisión de diseño (por qué DOS mapeadores y no uno):** `count===1` diverge por familia en DS §20.6 —
+en singles es `unique` («Queda 1»), en sellado es `lastUnit` («Último», última de varias). Por eso se
+introdujo `stockVariantForSingle(count)` (`0→soldOut`, `1→unique`, `N≥2→count`) junto al ya existente
+`stockVariantFromCount` (sellado, `1→lastUnit`), en `_shared/StockBadge.tsx`.
+
+- **Consumen `stockVariantForSingle`:** `CatalogTile`, `_home/GradedShelf`, `_home/FeaturedCarousel`,
+  `catalog/[cardId]/CardDetailView`.
+- **Siguen en `stockVariantFromCount` (sellado):** `_home/SealedShelf`, `sellado/SealedShopView`,
+  `sellado/[inventoryItemId]/SealedDetailView`.
+- **`lastUnit` se CONSERVA** (no se retiró): DS §20.6 la reserva para sellado. Ambas claves i18n quedan
+  usadas — `stock.lastOne` («Queda 1») des-huérfana por singles, `stock.lastUnit` («Último») por sellado.
+  Sin huérfanos en ninguna dirección. (No existe clave `home.lastOne`; la referida en el hallazgo es
+  `stock.lastOne`.)
+- El docstring de `CatalogView` («Queda 1» literal) **ya era correcto**; tras el fix el código concuerda,
+  no requirió cambio. Se corrigieron comentarios «Último / N en stock» → «Queda 1 / N en stock» en las
+  tejas de singles.
+
+Test nuevo `_shared/StockBadge.test.tsx` (8 casos): afirma `stockCount===1 → «Queda 1»` (unique) para
+singles y el contraste `availableCount===1 → «Último»` (lastUnit) para sellado.
+
+**Verde:** `vitest run` **73 archivos / 593 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
+**FE-2 registrada** en `TECH_DEBT.md` (Baja, dueño frontend, bloqueada por backend **H1**/arquitecto):
+alinear el trato «desde»/sin IVA en singles cuando el rename `salePriceCents→fromPriceCents` llegue por
+contrato. **FE-1 marcada RESUELTO.**

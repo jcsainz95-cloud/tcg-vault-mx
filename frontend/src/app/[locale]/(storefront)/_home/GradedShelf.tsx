@@ -10,7 +10,7 @@ import { CardImage } from '@/components/ui/CardImage';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { QueryState } from '@/components/ui/QueryState';
 import { Shelf } from '../_shared/Shelf';
-import { StockBadge, stockVariantFromCount } from '../_shared/StockBadge';
+import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 
 /**
@@ -18,7 +18,7 @@ import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
  * grupo. Vitrina: vacía ⇒ no se renderiza.
  *
  * v1.38-grouped-listings (P-30): la fuente (GET /catalog/cards) es AGRUPADA — cada teja es un
- * `GroupedListingDTO` con `stockCount` real (badge Último / N en stock). El `certNumber` es POR
+ * `GroupedListingDTO` con `stockCount` real (badge Queda 1 / N en stock). El `certNumber` es POR
  * SLAB (vive en units[] de la ficha), no a nivel de grupo, así que la vitrina ya no lo pinta.
  *
  * El link «Ver todas las gradeadas» lleva ?productType=graded: CatalogView inicializa
@@ -85,7 +85,7 @@ export function GradedShelf() {
                 ) : (
                   <PendingPriceLabel className="mt-3 block" />
                 )}
-                <StockBadge variant={stockVariantFromCount(l.stockCount)} count={l.stockCount} className="mt-2" />
+                <StockBadge variant={stockVariantForSingle(l.stockCount)} count={l.stockCount} className="mt-2" />
               </Link>
             ))}
           </div>

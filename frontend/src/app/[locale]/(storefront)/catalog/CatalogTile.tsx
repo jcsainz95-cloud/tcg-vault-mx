@@ -8,7 +8,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
-import { StockBadge, stockVariantFromCount } from '../_shared/StockBadge';
+import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { cn } from '@/lib/cn';
 
@@ -27,7 +27,7 @@ export interface CatalogTileProps {
  *
  * v1.38-grouped-listings (P-30): una teja = UNA publicación agrupada (GroupedListingDTO),
  * no una copia física. `stockCount` es el conteo REAL del grupo (money-safe): el badge lo
- * traduce a su variante canónica (Último / N en stock / Agotado). El add-to-cart usa
+ * traduce a su variante canónica (Queda 1 / N en stock / Agotado). El add-to-cart usa
  * `representativeInventoryItemId` (la pieza más barata; el carrito sigue por-pieza).
  *
  * Vive aquí (no en ListingCard) porque `frontend/src/components/` es zona
@@ -81,10 +81,10 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
         <PendingPriceLabel className="mt-2.5 block" />
       )}
 
-      {/* Distintivo de stock REAL del grupo (§20.6): Último / N en stock (agotado no llega del backend). */}
+      {/* Distintivo de stock REAL del grupo (§20.6): Queda 1 / N en stock (agotado no llega del backend). */}
       {sellable && (
         <StockBadge
-          variant={stockVariantFromCount(listing.stockCount)}
+          variant={stockVariantForSingle(listing.stockCount)}
           count={listing.stockCount}
           className="mt-2"
         />
