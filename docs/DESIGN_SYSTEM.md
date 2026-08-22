@@ -106,6 +106,19 @@
 > consumida por componentes compartidos con elementos sticky, fallback `0px`), nacida en la ronda de
 > corrección TL-C1 y hasta ahora documentada solo en FRONTEND_NOTES. Regla derivada: **no se
 > hardcodean alturas de header en componentes compartidos.** Sin tokens visuales nuevos.
+>
+> **Añadido v1.9 (P-26 — sellado como producto de primera clase) → ver §19.** El sellado gana **identidad
+> propia** (nombre e imagen del producto, ingeridos de TCGCSV — ya no "[nombre de una carta] · ETB") y un
+> **catálogo/módulo de admin propio** (`/admin/sealed`), análogo al Master Set pero de producto cerrado.
+> §19 diseña: (1) el **catálogo de sellado** admin con su **explorador TCGCSV read-only** (buscar grupo →
+> producto → confirmar subtipo → importar) y el **⭐ botón de refresco de precios de sellado** propio, corto
+> y honesto (separado del sync de cartas); (2) **alta y publicación** de piezas selladas eligiendo del
+> catálogo (sin teclear IDs, sin ancla a carta) con el mismo `QuickAddSection`/publish-all de §16;
+> (3) la **pantalla de mapeo** para ver/corregir subtipo o vínculo TCGCSV; (4) el **storefront del sellado**
+> con su identidad real; (5) el **sexto subtipo `upc`** (Ultra Premium Collection) y sus claves i18n. §19 es
+> aditiva: **cero tokens nuevos**, cero elementos gráficos nuevos; reutiliza `QuickAddSection` (§16.5),
+> `PublishAllDialog` (§16.5c), `VariantDrawer` (§16.4), la tarjeta SELLADO (§7.1b) y la regla de dinero
+> honesto (§7.3). **No** reabre §K/v1.6 (reglas comerciales de sellado) ni el rebrand §17.
 
 ---
 
@@ -2941,3 +2954,386 @@ de graded/sealed (densidad §18.2). **Nada de esto toca contrato ni backend.**
    cerrado, y que el FAB no tape la última fila (padding §18.1.4); smoke E2E de los flujos tocados:
    agregar desde teja → badge del FAB incrementa → drawer muestra la línea con su `FinishMark` →
    enviar solicitud sigue funcionando igual.
+
+---
+
+## 19. Sellado como producto de primera clase — P-26 (v1.9)
+
+> Fuente funcional: `PROJECT.md §L` (CA-P26-1..17), `ARCHITECTURE.md §4.27` y `API_CONTRACT.md §M-Sealed`
+> (v1.29). Esta sección define SOLO el **cómo se ve y se opera**; los endpoints/DTOs son los del contrato
+> (no se inventan). Reutiliza tokens, tipografía y componentes existentes (§2–§8, §16). Roles: **todo
+> `/admin/sealed` es `super_admin`** (toca catálogo y dinero de referencia); el **alta/publicación de piezas
+> selladas** (§19.4) es `vault_operator+` (vive en M1). El front esconde por rol, el guard impone.
+
+### 19.0 Principios de esta feature
+
+1. **El sellado tiene identidad propia.** En Compra, bóveda y back-office un producto sellado se muestra con
+   **su** nombre (p. ej. "Surging Sparks Elite Trainer Box") y **su** imagen de producto (`SealedProduct.name`
+   / `imageUrl`), **nunca** como "[nombre de una carta] · ETB" (CA-P26-1). Regla dura para el front: para
+   `productType='sealed'`, nombre e imagen SIEMPRE salen de `SealedProduct` (o de las claves `productName`/
+   `imageUrl` de los DTOs públicos), jamás de `card` (que para sellado nuevo es `null`).
+2. **No se teclean identificadores.** El operador **elige de una lista** (explorador TCGCSV) — nunca escribe
+   `tcgplayerProductId`, ni nombre, ni imagen (CA-P26-2/13). El único dato que confirma con la mano es el
+   **subtipo** (la heurística solo lo prellena).
+3. **Dinero honesto (§7.3), money-safe.** Sin precio de mercado ni override ⇒ `pricePending=true` ⇒ **estado
+   "Precio pendiente"** y **NO se publica**. Nunca `$0`, nunca `—` mudo: el "—" siempre lleva el estado
+   explícito. El refresco de precios reporta resultado **honesto** (actualizados / sin precio / cuándo).
+4. **El sellado es un módulo aparte, no una pestaña del inventario de cartas** (decisión del humano). El
+   **catálogo** vive en `/admin/sealed` (§19.1–§19.3); el **inventario** (piezas físicas) sigue en M1
+   pestaña «Sellado» (§16.8), que en v1.9 pasa a apuntar contra este catálogo (§19.4).
+
+### 19.1 `/admin/sealed` — catálogo de sellado propio (`SealedCatalogView`)
+
+Página nueva en el shell admin (entrada de nav lateral **`Sellado`**, icono `package` de lucide, bajo
+«Inventario»). Es el "Master Set del producto cerrado": lista el catálogo `SealedProduct` propio.
+
+**Layout vertical** (gutter/grid §4.4):
+
+1. **Header de módulo:** `h1` serif **"Catálogo de sellado"** + subtítulo `text-sm muted`:
+   `Productos cerrados con identidad propia (nombre, imagen y precio de mercado desde TCGCSV).`
+2. **Toolbar de acciones** (derecha, orden de jerarquía):
+   - `primary` **`Importar de TCGCSV`** → abre el explorador (§19.2). Es la acción de "dar de alta un
+     producto al catálogo".
+   - `secondary` **`⭐ Refrescar precios`** → dispara el job de precios de sellado (§19.3). Icono
+     `refresh-cw` de lucide 16px a la izquierda (decorativo).
+   - (No hay "Publicar todo" aquí: publicar es de piezas de inventario, vive en M1 §16.5c / §19.4.)
+3. **Barra de filtros** (izquierda, `sm:` en fila; wrap en móvil) — mapean a la query de
+   `GET /admin/sealed/catalog`:
+   - **Buscador `q`** (`Input` con lupa, 260px): `Buscar producto (nombre)`.
+   - **Select `sealedSubtype`** (§6.3): `Todos los subtipos` + los seis (§19.6).
+   - **Select `setId`** (Combobox si es largo): `Todos los sets`.
+   - **Toggle/Select `pricePending`**: `Todos` / `Solo sin precio` (mapea `pricePending=true`).
+   - **Select `sort`**: `Más recientes` (`newest`, default) · `Nombre` (`name`) · `Precio ↓` (`price_desc`).
+4. **Badge de cola sin precio:** cuando `pricePendingTotal > 0`, a la derecha de los filtros un contador
+   enlazado `text-xs` **warning** (bermellón): `12 sin precio` → aplica el filtro `pricePending=true` (no
+   navega a otra página; es un atajo de filtro). Con `0` se omite.
+5. **La lista** (§19.1a).
+
+#### 19.1a Lista del catálogo — `SealedCatalogTable`
+
+Consume `GET /admin/sealed/catalog` → `SealedProductListResponse` (`SealedProductDTO[]` + paginación +
+`pricePendingTotal`). Patrón: **grid de tarjetas** en desktop (más legible por la imagen de producto) que
+degrada a **filas** en móvil. Cada card/fila consume un `SealedProductDTO`.
+
+**Anatomía de la `SealedProductCard`** (reutiliza la piel de la tarjeta SELLADO §7.1b):
+1. **Imagen de producto** (`imageUrl`) en contenedor `aspect-[5/7]`, **`object-contain` sobre `surface-2`**
+   (las cajas no son 5:7; no recortar — §7.1b). Skeleton al cargar; fallback si la URL remota falla
+   (placeholder con `name`, nunca roto). `alt` = `name`. Si `imageUrl == null`: placeholder con icono
+   `package` + `Sin imagen`.
+2. **Nombre propio** (`name`, EN, `text-sm/base semibold`, `line-clamp-2`, `lang="en"`). Es la identidad —
+   nunca un nombre de carta.
+3. **Fila de metadatos** (bajo el nombre): pill `Sellado` (info) + **pill de subtipo** (`sealedSubtype` →
+   etiqueta §19.6: `ETB`, `Booster Box`, `UPC`…) + set (`set.name` si `set != null`, si no
+   `text-xs muted` `Set sin vincular`).
+4. **Precio de mercado** (`marketMxnCents`):
+   - Con precio: cifra `text-base mono tabular-nums` `MX$ 1,250.00` + segunda línea `text-xs muted`:
+     `Mercado · 20 ago 2026` (`marketSource` + `capturedDate`). Si `marketSource='manual'` añade sufijo
+     mono **`·M`** en tinta (`title`: `Precio de mercado manual (override)`), coherente con §16.3a.
+   - **`pricePending=true`:** en vez de cifra, el badge **`PRECIO PENDIENTE`** (warning outline, versalitas,
+     §7.3) + `text-xs muted`: `Sin precio de mercado — no se publica.` Nunca `$0`.
+5. **Conteos de inventario** (mono, `text-xs muted`): `3 en stock · 1 listada` (`inStockCount` /
+   `listedCount`). Con ambos en 0: `Sin piezas en inventario` (el producto existe en catálogo aunque no
+   haya existencias — identidad ≠ inventario, §4.27b).
+6. **Menú de acciones** (kebab 44px o botones `ghost` en la card):
+   - **`Ver / corregir`** → abre el panel de mapeo (§19.5).
+   - **`Alta rápida`** → abre el `QuickAddSection` de piezas para este producto (§19.4). (Atajo; el flujo
+     canónico de piezas también vive en M1 §16.8.)
+   - **`Eliminar`** (`destructive`, confirmación §7.6) → `DELETE /admin/sealed/catalog/:id`. Si el backend
+     responde `409 SEALED_PRODUCT_IN_USE`: banner danger anclado (no toast): `No se puede eliminar: hay
+     piezas de este producto en inventario. Retíralas o recaptúralas primero.`
+
+**Estados de la lista:** loading = grid de skeletons (imagen + 3 barras, retícula compartida §18.6);
+error = banner danger + `Reintentar`; **vacío** (catálogo sin productos) = estado vacío editorial (§8):
+título `Aún no hay productos en el catálogo de sellado.` + cuerpo `Importa productos cerrados desde TCGCSV
+para empezar a capturar y publicar.` + CTA `primary` `Importar de TCGCSV`.
+
+### 19.2 Explorador TCGCSV read-only + importar (`TcgcsvImportDialog`)
+
+Modal/drawer (sheet lateral 560px `≥ lg`, bottom-sheet en móvil; radio 0, overlay de tinta, focus trap,
+`Esc` cierra — §7.6). Es un **explorador de solo lectura** (el proxy es server-side, anti-SSRF; el
+navegador nunca habla con el remoto). Flujo en **tres pasos con migas** (`Grupo › Producto › Confirmar`):
+
+**Paso 1 — Elegir grupo (set/expansión).** `GET /admin/sealed/tcgcsv/groups?q=`.
+- Buscador `q` arriba (`Buscar expansión (nombre)`, debounce). Lista de `TcgcsvGroupRefDTO`: cada fila =
+  `name` (`text-sm`) + `abbreviation` (mono, `text-xs muted`) + `publishedOn` (fecha, `text-xs muted`).
+- Clic en una fila avanza al paso 2. **Nunca se muestra el `groupId` crudo** como protagonista (va en
+  `title`/dato técnico); el operador reconoce por nombre.
+
+**Paso 2 — Elegir producto sellado.** `GET /admin/sealed/tcgcsv/groups/:groupId/products?q=` (el proxy ya
+filtra singles). Lista de `TcgcsvProductRefDTO` como filas ricas:
+- **Miniatura** (`imageUrl`, `object-contain` 48×64 sobre `surface-2`) + **`name`** (EN) + `cleanName`
+  (`text-xs muted` si difiere).
+- **Subtipo sugerido:** pill del `suggestedSubtype` (§19.6) con sufijo `text-xs muted` `sugerido`. Si
+  `suggestedSubtype == null`: pill vacío/neutro `Subtipo por confirmar` (bermillón outline) — la heurística
+  no reconoció el nombre y el operador **deberá elegir** (CA-P26-3).
+- **Estado "ya en catálogo":** si `productId` ya existe como `SealedProduct` (el front lo sabe cruzando con
+  el catálogo cargado, o el reimport es idempotente), la fila muestra badge `YA IMPORTADO` (success, sutil)
+  y el CTA pasa a `Re-importar` (upsert idempotente por `tcgplayerProductId`). No bloquea.
+- Clic en `Importar` (o en la fila) avanza al paso 3.
+
+**Paso 3 — Confirmar subtipo e importar.** Ficha de confirmación del producto elegido:
+- Imagen grande + nombre + grupo (read-only, no editables — vienen de TCGCSV).
+- **Selector de subtipo (REQUERIDO):** segmented/Select con los seis (§19.6), **prellenado** con
+  `suggestedSubtype` cuando existe; **sin preselección** cuando es `null` (el operador debe elegir; el CTA
+  queda deshabilitado hasta que haya subtipo). Helper `text-xs muted`: `Confirma la presentación del
+  producto. Determina su spread de precio de venta.`
+- (Opcional, avanzado) **Vínculo de set local** `setId`: normalmente el backend lo resuelve best-effort al
+  importar; el explorador NO lo pide (se corrige después en §19.5 si hace falta). No añadir fricción aquí.
+- CTA `primary` **`Importar al catálogo`** → `POST /admin/sealed/catalog/import` con `SealedProductImportDTO`
+  (`tcgplayerProductId`, `tcgplayerGroupId`, `sealedSubtype`, `name`, `cleanName?`, `imageUrl?` — todos
+  tomados del `TcgcsvProductRefDTO`, salvo `sealedSubtype` que confirma el operador). `loading` =
+  `Importando…`, bloquea doble envío.
+- **Resultado:** éxito → toast `"{name}" importado al catálogo.` + el modal ofrece
+  `Importar otro` (vuelve al paso 2, mismo grupo) / `Cerrar` (refresca la lista §19.1a, card nueva
+  resaltada 3s). Error `422 VALIDATION_ERROR` → banner danger inline en el paso 3 (`Subtipo inválido` /
+  `Producto inválido`), no cierra el modal.
+
+**Estado de upstream caído (`502 UPSTREAM_ERROR`), en pasos 1/2:** banner `danger` dentro del modal
+(no toast): `No se pudo consultar TCGCSV en este momento. Inténtalo de nuevo en unos minutos.` + botón
+`Reintentar`. El modal permanece abierto y usable (no se pierde el paso). Es un fallo de proveedor, no del
+operador — copy tranquilizador, sin culpa.
+
+**Accesibilidad:** las migas son `aria-label="Paso {n} de 3"`; cada fila de lista es un botón real con
+`aria-label` legible (`Surging Sparks Elite Trainer Box, subtipo sugerido ETB`); foco visible §8.2; al
+avanzar de paso el foco va al encabezado del paso nuevo.
+
+### 19.3 ⭐ Refresco de precios de sellado — `SealedPriceRefreshButton` + `SealedPriceRefreshResult`
+
+**El diferenciador que pidió el humano:** un botón **propio, corto y honesto**, separado del sync de
+cartas. Dispara `POST /admin/sealed/prices/refresh` (síncrono/awaited, segundos a pocos minutos, solo
+decenas de productos — NUNCA el barrido de miles de cartas).
+
+**Disparo** (toolbar §19.1.2, `secondary` `⭐ Refrescar precios`):
+- **Confirmación ligera** (no es dinero-out, pero mueve la referencia de todo el catálogo): popover/modal
+  corto: `Actualiza el precio de mercado de todos los productos sellados desde TCGCSV. No corre el sync de
+  cartas. Suele tardar segundos.` + botones `Cancelar` / `primary` `Refrescar ahora`.
+- **Durante:** el botón entra en `loading` con label **`Refrescando precios…`** (`aria-busy`, bloquea
+  reenvío); opcionalmente barra indeterminada fina bajo la toolbar. NO se bloquea el resto de la página
+  (el operador puede seguir leyendo el catálogo).
+
+**Resultado — panel honesto** (`SealedPriceRefreshResultDTO`), se muestra como **banner/resumen persistente
+bajo la toolbar** (no un toast que se va): cuatro-a-seis renglones mono `tabular-nums`, más un titular:
+- **Dial apagado** (`enabled=false`): el refresco **no hizo nada** — banner `info` (no error):
+  `La fuente de precios de sellado está apagada (dial "sealed_price_source" = off). No se actualizó ningún
+  precio.` Sin cifras. (Es una decisión de configuración, no un fallo — money-safe fail-closed.)
+- **Dial activo** (`enabled=true`): titular success/info según haya o no `priced>0`, con el desglose:
+  ```
+  Actualizados        24   (priced)
+  Sin coincidencia     3   (unmatched)   → Ver sin precio
+  Con fallback         2   (usedFallbackMid)
+  Omitidos             1   (skipped)
+  Sin precio (total)   3   (pricePendingCount) → Ver pendientes
+  Grupos consultados   5   ·  1.8 s (durationMs)
+  ```
+  - `refreshedAt` se muestra como timestamp legible al pie: `Actualizado el 22 ago 2026, 14:32` (mono).
+  - **`Sin coincidencia`** y **`Sin precio (total)`** > 0 se pintan en **bermellón** y enlazan al filtro
+    `pricePending=true` de la lista (§19.1.4) — para atender lo que quedó `PRICE_PENDING` (CA-P26-10/16).
+  - `Con fallback` (`usedFallbackMid`) lleva `title`: `Se usó el punto medio del rango por falta de precio
+    de mercado directo.` (informativo, no error).
+- **Tras el resultado, la lista §19.1a se refresca** (los `marketMxnCents`/`capturedDate` nuevos, y los
+  productos que pasaron a/desde `pricePending`).
+- **Error de red/servidor** (no `enabled:false`, sino fallo del request): banner `danger`:
+  `No se pudo completar el refresco de precios. Los precios anteriores se conservan intactos.` (money-safe:
+  ante fallo el backend no borra precios) + `Reintentar`.
+
+**Distinción visual del sync de cartas:** este botón y su resultado **nunca** se mezclan con el price-ingest
+de singles (que vive en su propia pantalla de operaciones). El copy siempre recuerda "productos sellados" /
+"no corre el sync de cartas" para que el operador tenga claro que es la carga corta y separada (CA-P26-7).
+
+### 19.4 Alta y publicación de piezas selladas (M1, `vault_operator+`)
+
+**No es una pantalla nueva:** reutiliza el `QuickAddSection` (§16.5) y el `PublishAllDialog` (§16.5c), y
+vive en la **pestaña «Sellado» de M1** (§16.8) — que en v1.9 se **re-cablea contra el catálogo propio**.
+Lo único que cambia respecto a §16.8 es el **origen de la identidad** (catálogo `SealedProduct`, no ancla a
+carta) y que ya **no hay "sin mapeo"** en el sentido viejo (el producto nace mapeado desde TCGCSV).
+
+**(a) Elegir el producto — sin teclear IDs, sin ancla a carta.** El alta de una pieza sellada parte de un
+`SealedProduct` del catálogo. Dos caminos, ambos sin fricción:
+- Desde **`/admin/sealed`** (§19.1a), acción `Alta rápida` de una card → abre el `QuickAddSection` para
+  **ese** producto (contexto ya fijado; no hay que elegir producto).
+- Desde **M1 pestaña «Sellado»** (§16.8), lista por set/grupo → `Alta rápida` de un grupo (idéntico).
+- El header del `QuickAddSection` para sellado muestra la **identidad del producto**: miniatura
+  (`object-contain`) + `name` + pills `Sellado` + subtipo (§19.6). **Nunca** un nombre de carta.
+
+**(b) Formulario — mismo `QuickAddSection` §16.5a, adaptado a sellado:**
+1. **Cantidad:** stepper `− [ 3 ] +` (sí aplica a sellado — a diferencia de gradeadas; §16.5a1).
+2. **Adquisición:** las dos tarjetas-radio de §16.5a2, con la restricción de dominio:
+   **`Comprar`** (aprovisionamiento, `acquisitionType=compra`) o **`Aportación`**
+   (`acquisitionType=aportacion_en_especie`). **`client_purchase` NO existe** para sellado (no hay buylist
+   de sellado, §K) — la UI solo ofrece esos dos, nunca un tercero.
+   - `Comprar`: input de dinero **prellenado** con el costo sugerido si lo hay (mercado), editable; siempre
+     válido con precio capturado.
+   - `Aportación`: valor **mostrado, no editable** = precio de mercado del producto (`marketMxnCents`), sin
+     porcentaje visible. **Si `marketMxnCents == null` / `pricePending`:** la tarjeta `Aportación` se
+     **deshabilita** (opacidad 45%) con pill `PRECIO PENDIENTE` y texto `Sin precio de mercado — refresca
+     los precios de sellado o fija un override antes de aportar.` (enlace a §19.3 / §19.5). El error se
+     preempta; el servidor sigue siendo la autoridad.
+3. **CTA `primary` `Dar de alta al inventario`** → `POST /admin/inventory/items` (o `/batch`) con
+   **`sealedProductId`** (NO `cardId`, NO nombre/imagen) + `sealedCondition` (default `mint`) +
+   `acquisitionType`. Resultado **por-ítem** con folios (§16.5b), banner honesto en fallo.
+   - Copy específico para `422 VALIDATION_ERROR` con `sealedProductId` ausente/inexistente:
+     `No se pudo dar de alta: el producto de sellado no existe en el catálogo. Refresca la página.`
+
+**(c) Condición del sellado** (`sealedCondition`, §K, sin efecto en precio): mismo control que hoy — Select
+o segmented con `Mint` / `Detalle menor en caja` (badges versalitas `MINT` / `DAÑO MENOR DE CAJA`, §2.4).
+Se captura en el alta y es editable en el drill-down de la pieza (§16.4).
+
+**(d) Publicar — `PublishAllDialog` §16.5c, alcance «Solo sellado».** El selector de alcance del publish-all
+ya contempla `Solo sellado` (§16.5c1) → `POST /admin/inventory/publish-all { productType:'sealed', setId? }`.
+Se publica todo lo `in_stock` con **precio resuelto** (override de venta o mercado×spread); los
+`PRICE_PENDING` **no se publican** y aparecen en el renglón `Sin precio` del resultado (§16.5c2), enlazado a
+la lista filtrada §19.1.4. Sin cambios de patrón: se reutiliza el diálogo y su resumen honesto tal cual.
+
+**(e) Publicar un solo producto:** desde la card del catálogo (§19.1a) o el grupo de M1, la acción
+`Publicar` hace el bulk de los folios de ese producto (el "publicar piezas de esta carta/producto"
+existente, §16.4.4). Un producto en `pricePending` muestra el CTA `Publicar` **deshabilitado** con
+`title`: `Sin precio resoluble — no se puede publicar.`
+
+### 19.5 Corrección de mapeo / subtipo — `SealedMappingPanel` (CA-P26-15/17)
+
+La heurística de TCGCSV puede equivocarse (subtipo mal sugerido) o el `setId` best-effort puede fallar; y el
+mapeo a la fuente de precio, aunque **resuelto de origen** al importar, necesita **pantalla para ver y
+corregir** (CA-P26-15). Panel lateral (sheet 480px `≥ lg` / bottom-sheet móvil, §7.6), disparado por
+`Ver / corregir` (§19.1a). Consume el `SealedProductDTO` de la card.
+
+**Anatomía (orden vertical):**
+1. **Header identidad:** imagen (`object-contain`) + `name` (read-only) + `text-xs muted` técnico:
+   `TCGplayer #{tcgplayerProductId} · grupo #{tcgplayerGroupId}` (mono, informativo — es el vínculo a la
+   fuente de precio; se muestra para transparencia, no es editable a mano).
+2. **Sección «Presentación» (subtipo):** Select/segmented con los seis (§19.6), valor actual
+   `sealedSubtype`. Guardar → `PATCH /admin/sealed/catalog/:id { sealedSubtype }`. Helper: `Corrige la
+   presentación si la detección automática se equivocó. Cambia el spread de precio de venta aplicable.`
+3. **Sección «Set»:** Combobox de sets locales, valor actual `set` (o `Sin vincular`). Guardar →
+   `PATCH … { setId }`. Helper: `Agrupa el producto en el catálogo por expansión. Best-effort; puedes
+   dejarlo sin vincular.`
+4. **Sección «Imagen» (re-vínculo):** muestra la `imageUrl` actual; campo para pegar una URL alterna (el
+   contrato permite `PATCH … { imageUrl }`). Uso excepcional (la imagen viene de TCGCSV); helper: `Solo si
+   la imagen del producto no carga o es incorrecta. No se suben archivos.` (coherente con §5 / CA-P26 fuera
+   de alcance: no hay upload de imagen de producto).
+5. **Sección «Precio de mercado» (override, CA-P26-17):** el override de MERCADO (informativo, máxima
+   precedencia sobre TCGCSV; ≠ override de VENTA por pieza):
+   - Estado actual: `marketMxnCents` + `marketSource` (`MERCADO TCGCSV` / `MERCADO MANUAL`, versalitas) +
+     `capturedDate`. Si `pricePending`: badge `PRECIO PENDIENTE`.
+   - Input de dinero (`MX$`, `inputmode="decimal"`) + `Guardar override` →
+     `PUT /admin/sealed/catalog/:id/market-override { marketMxnCents }`. Vaciar el campo y guardar envía
+     `{ marketMxnCents: null }` → **quita el override**, vuelve a mandar TCGCSV (enlace visible
+     `Quitar override manual` cuando `marketSource='manual'`).
+   - Nota de dinero al pie (§7.6): `El override de mercado pisa el precio de TCGCSV · queda en bitácora.`
+6. **Validación/errores:** `422 VALIDATION_ERROR` → mensaje inline por campo; `404
+   SEALED_PRODUCT_NOT_FOUND` (el producto fue borrado en otra sesión) → banner + cerrar panel + refrescar
+   lista. Guardado exitoso: toast por sección (`Presentación actualizada.` / `Override de mercado
+   guardado.`) + refresco de la card.
+
+> **Distinción clara de los dos "override":** el de **MERCADO** (aquí, `market-override`, informativo) NO es
+> el de **VENTA por pieza** (`InventoryItem.listPriceCents`, §16.3b/§16.4). El panel lo dice en el helper:
+> `Este es el precio de MERCADO (referencia). El precio de VENTA se fija por pieza en el inventario.`
+
+### 19.6 Subtipos de sellado — etiquetas y claves i18n (los seis definitivos)
+
+Enum del contrato `SealedSubtype = box | etb | upc | bundle | tin | blister`. Etiquetas legibles ES/EN
+(el **dato es un enum del contrato, no se traduce el producto**; solo su etiqueta de presentación):
+
+| enum | Etiqueta ES/EN (pill/Select) | Clave i18n |
+|---|---|---|
+| `etb` | **Elite Trainer Box (ETB)** | `status.sealedSubtype.etb` |
+| `box` | **Booster Box** | `status.sealedSubtype.box` |
+| `upc` | **Ultra Premium Collection (UPC)** ← NUEVO v1.9 | `status.sealedSubtype.upc` |
+| `bundle` | **Booster Bundle** | `status.sealedSubtype.bundle` |
+| `tin` | **Tin** | `status.sealedSubtype.tin` |
+| `blister` | **Blister** | `status.sealedSubtype.blister` |
+
+- **`upc` es la única clave nueva** de subtipo; extiende `status.sealedSubtype.{box,etb,bundle,tin,blister}`
+  ya existente (§7.1b/§16.10). En pills compactos puede usarse la forma corta (`ETB`, `UPC`) con el nombre
+  completo en `title`/`aria-label`; en Select/confirmación se usa el nombre completo.
+- No entran **Premium/Special Collection** ni **booster pack suelto** (CA-P26-5, fuera de alcance): el Select
+  de subtipo ofrece **exactamente seis** opciones, ni una más.
+
+### 19.7 Storefront del sellado con identidad propia (Compra + ficha + bóveda)
+
+El comprador ve el sellado con **su** nombre e imagen reales. No es una pantalla nueva: se **reutiliza la
+tarjeta SELLADO (§7.1b) y la ficha de sellado existente**, cambiando solo el ORIGEN de la identidad.
+
+**(a) Regla única de identidad (para todo el storefront).** Para `productType='sealed'`, `productName` e
+`imageUrl` de los DTOs públicos (`SealedGroupDTO`, `SealedGroupDetailResponse`, `VaultSealedGroupDTO`,
+`ListingDTO`) salen de `SealedProduct`. **`card` puede ser `null`** (sellado nuevo P-26) — el front **no
+debe asumir `card` no-null** ni construir el nombre como "[card.name] · subtipo". Si por compat un DTO trae
+`card` (sellado legacy anclado), **igual gana `productName`/`imageUrl`**. Regla de oro: **nunca componer el
+nombre visible a partir de una carta.**
+
+**(b) Tarjeta SELLADO en Compra** (`ListingCard` variante sellado, §7.1b) — sin cambios de piel, con la
+identidad nueva:
+- **Imagen** = `imageUrl` del producto (`object-contain` sobre `surface-2` si no es 5:7). Fallback con
+  `productName` si la remota falla.
+- **Nombre** = `productName` (p. ej. "Surging Sparks Elite Trainer Box"), EN, `lang="en"`.
+- **Fila de calidad** (bajo la imagen, §7.1b): pill `Sellado` + pill de **subtipo** (`sealedSubtype` →
+  §19.6). Sin condición/rareza montada sobre el arte.
+- **Precio** = `fromPriceCents` («Desde MX$…» cuando hay varias piezas) + "sin IVA". Como todo Compra, solo
+  lista sellado publicado con precio (§7.1 regla dura): la tarjeta **nunca** aparece sin cifra ni con "precio
+  pendiente" en Compra.
+- **Filtro de subtipo** en el catálogo (`?sealedSubtype=`, §7.16/facetas): las facetas ya lo exponen; la UI
+  añade `upc` a las opciones del filtro (§19.6).
+
+**(c) Ficha de sellado** (`SealedGroupDetailResponse`, `/catalog/sealed/:id`) — la ficha existente, con
+identidad propia:
+- **Hero:** imagen grande del producto (`imageUrl`, `object-contain`) + `h1` serif = `productName` +
+  fila de pills `Sellado` + subtipo (§19.6) + condición (`sealedCondition` → `MINT` / `DAÑO MENOR DE CAJA`).
+  **Nunca** un nombre de carta ni "[carta] · ETB".
+- **Precio + cantidad:** desde `listings: ListingDTO[]` (piezas del mismo grupo, más baratas primero) — el
+  comprador elige cantidad (carrito por-pieza), como hoy. Precio con "sin IVA".
+- **Tendencia / restock:** los bloques existentes gateados por `trendEnabled` / `restockEnabled` (flags
+  §M10) — sin cambios; si apagados, no se muestran.
+- **Sin ancla a carta:** se elimina cualquier "ver la carta" o número de carta en la ficha de sellado (no
+  aplica al producto cerrado).
+
+**(d) Bóveda — pestaña «Sellado»** (`VaultSealedResponse`): cada `VaultSealedGroupDTO` se muestra con
+`productName` + `imageUrl` propios + subtipo (§19.6) + `count` + desglose de titularidad
+(`PENDIENTE`/`LIQUIDADA`, §2.4) + valor de mercado (`marketValue`; piezas sin mercado excluidas del total y
+contadas en `pendingPriceCount`, §7.3). Identidad propia igual que Compra; nunca nombre de carta.
+
+### 19.8 i18n — claves nuevas (propiedad de frontend)
+
+- **Nav / catálogo admin:** `admin.sealed.nav` («Sellado») · `admin.sealed.catalog.{title,subtitle,
+  importCta,refreshCta,empty.title,empty.body,pricePendingBadge}` · `admin.sealed.filters.{q,subtype,set,
+  pricePending.all,pricePending.only,sort.newest,sort.name,sort.priceDesc}`.
+- **Card del catálogo:** `admin.sealed.card.{setUnlinked,noImage,inStock,listed,noPieces,pricePending,
+  marketAt,view,quickAdd,delete,inUseError}`.
+- **Explorador/importar:** `admin.sealed.import.{step1,step2,step3,searchGroup,searchProduct,suggested,
+  subtypeToConfirm,alreadyImported,reimport,confirmSubtype,subtypeHelper,importCta,importing,importAnother,
+  close,successToast,upstreamError,retry}`.
+- **Refresco de precios:** `admin.sealed.refresh.{confirmTitle,confirmBody,confirmCta,loading,result.updated,
+  result.unmatched,result.fallback,result.skipped,result.pendingTotal,result.groups,result.at,result.seePending,
+  disabledDial,networkError,retry}`.
+- **Mapeo/corrección:** `admin.sealed.mapping.{presentation,presentationHelper,set,setHelper,image,imageHelper,
+  market,marketHelper,marketOverrideSave,marketOverrideRemove,marketNote,twoOverridesNote,saved.presentation,
+  saved.market,notFound}`.
+- **Alta de piezas selladas:** reutiliza `admin.quickAdd.*` (§16.10) tal cual; solo añade
+  `admin.quickAdd.sealed.{productNotFoundError,contribPendingBlocked}` para el copy específico de sellado.
+- **Subtipo nuevo:** `status.sealedSubtype.upc` (única clave de enum nueva; §19.6).
+- **Storefront:** reutiliza las claves de sellado existentes (`status.sealedSubtype.*`, ficha, bóveda); no
+  se introduce copy nuevo salvo `upc`.
+
+Reglas: dinero con `Intl` + `tabular-nums` (§9.3); ids TCGCSV en mono, no traducidos; contenedores
+dimensionados para ES (§9.4 — `Ultra Premium Collection`, `Importar al catálogo` y `Refrescando precios…`
+son las cadenas largas a probar). Nombres de producto y de set en EN (no se traducen, §6.5).
+
+### 19.9 Notas para otros roles (no bloquean el diseño)
+
+1. **Sin solicitudes de contrato:** §19 se implementa 100% con `§M-Sealed` (v1.29) y los patrones §16 ya
+   existentes; ningún endpoint ni DTO nuevo. Todo lo que la UI muestra (precio+fecha+estado del refresco,
+   subtipo sugerido, conteos, `pricePending`) ya está en los DTOs del contrato.
+2. **Sin dry-run de refresco:** como en publish-all (§16.11.1), el refresco de precios no tiene preview; la
+   honestidad va en el **resultado** (§19.3), no en una estimación previa. Si el humano quisiera "cuántos se
+   actualizarán antes de correr", sería un `dryRun`; petición registrada, no asumida.
+3. **Migración limpia (CA-P26 fuera de alcance):** no se diseña UI para "migrar sellado viejo anclado a
+   carta" — se empieza limpio (el viejo se descarta/recaptura con este modelo). Si en producción quedaran
+   piezas legacy con `card != null` y sin `sealedProduct`, el front las tolera con la regla 19.7a (si hay
+   `productName`/`imageUrl` los usa; si solo hay `card`, cae al legacy) sin pantalla de migración dedicada.
+4. **Deprecación de M2 sellado:** la vieja curación por pieza (`/admin/pricing/sealed/*`, "no mapeados") queda
+   superseded por §19; el front nuevo NO la implementa. Mientras conviva en backend (transición), la pestaña
+   «Sellado» de M1 (§16.8) apunta a este catálogo, no a la cola vieja de `unmapped`.
+5. **QA visual sugerido:** verificar que en Compra/ficha/bóveda un ETB nuevo se muestre con nombre e imagen
+   propios (nunca "[carta] · ETB"); que `upc` aparezca en filtro, pills y Select con las seis opciones
+   exactas; que el refresco con dial `off` muestre el banner `info` (no error) y no toque precios; y que un
+   producto `pricePending` no se publique ni ofrezca "Aportación". Smoke E2E: importar de TCGCSV → confirmar
+   subtipo → alta de 1 pieza (compra) → refrescar precios → publicar «Solo sellado» → verlo en Compra con su
+   identidad.
