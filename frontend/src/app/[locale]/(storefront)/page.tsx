@@ -1,256 +1,175 @@
 'use client';
 
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useLocale, useTranslations } from 'next-intl';
-import { getCatalog, getHoldings } from '@/lib/api';
-import type { AppLocale } from '@/i18n/routing';
-import type { HoldingDTO } from '@/types/contract';
-import { formatMoneyCents } from '@/lib/format';
+import { useTranslations } from 'next-intl';
+import { getCatalogFacets, getHoldings } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Link } from '@/i18n/navigation';
-import { CardImage } from '@/components/ui/CardImage';
-import { PortfolioGlance, FeaturedSetGlance } from '@/components/domain/PortfolioTrendChart';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { Button } from '@/components/ui/Button';
-
-const FEATURED = 4;
+import { PortfolioGlance } from '@/components/domain/PortfolioTrendChart';
+import { useHomeQuoter, HomeQuoterPanel } from './_home/HomeQuoter';
+import { FeaturedCarousel } from './_home/FeaturedCarousel';
+import { SealedShelf } from './_home/SealedShelf';
+import { GradedShelf } from './_home/GradedShelf';
+import { BountyBoard } from './_home/BountyBoard';
 
 /**
- * Home en la dirección 5a: la home no vende, informa. Abre con la promesa y el
- * valor de tu bóveda —cifra, tendencia y reparto por set— y solo después enseña
- * catálogo. Etiquetas verticales al margen, reglas finísimas y un solo bermellón.
+ * Home del storefront — makeover 1a «Conservadora» (papel y tinta, rojo con avaricia).
+ * Orden del artboard: hero + cotizador → piezas destacadas → sellado → gradeadas →
+ * bounties (condicional) → cómo funciona la bóveda → banda de tinta del buylist.
  *
- * Dos piezas del mockup NO se implementaron porque el contrato no las respalda y
- * fabricarlas sería inventar datos de mercado:
- *  - el ticker de movimientos por carta (no hay variación por carta en el contrato,
- *    solo `change` del portafolio completo en /vault/portfolio/history);
- *  - el "avance de sets" 89/102 (CardSetDTO no expone cuántas cartas tiene un set).
- * En su lugar, el panel reparte el valor por set, que sí se deriva de holdings.
- * Si el backend expone esos datos, aquí es donde entran.
+ * Piezas del diseño ajustadas por honestidad de datos (ver FRONTEND_NOTES):
+ *  - los chips «Sets buscados» salen de GET /catalog/facets (sets con inventario real);
+ *  - el cotizador del hero cotiza CONTRA el server (SEC-A1): búsqueda /buylist/cards +
+ *    /buylist/quote; «Continuar mi cotización» navega a /buylist (llevar el estado al
+ *    useSellCart de BuylistView tocaría el módulo buylist — fuera de este makeover);
+ *  - «Queda 1» en catálogo de sueltas/gradeadas es literal (1 publicación = 1 copia);
+ *    el stock agregado real solo existe en sellado (availableCount).
+ *
+ * Funcionalidad previa conservada: con sesión, el vistazo del portafolio
+ * (PortfolioGlance) vive en una banda propia bajo el header — el diseño 1a no la
+ * dibuja, pero es el gancho del usuario recurrente. FeaturedSetGlance (§7.18, rama
+ * anónima) se RETIRA de la home: su lugar lo ocupa el cotizador del hero.
  */
 export default function HomePage() {
   const t = useTranslations('home');
-  const tv = useTranslations('vault');
-  const tc = useTranslations('common');
-  const tn = useTranslations('nav');
-  const locale = useLocale() as AppLocale;
   const { isAuthenticated, ready } = useSession();
   const authed = ready && isAuthenticated;
 
+  // Fallback de cifra para el glance (misma fuente que la home anterior).
   const holdings = useQuery({ queryKey: ['holdings'], queryFn: getHoldings, enabled: authed });
-  // Destacadas = las MÁS CARAS del inventario real. El backend ordena por
-  // salePriceCents sobre el set completo ANTES de paginar y solo devuelve
-  // sellables con precio (excluye precio-pendiente), así que pedimos las 4 de
-  // mayor precio. queryKey propio para no colisionar con la caché del catálogo.
-  const catalog = useQuery({
-    queryKey: ['catalog', { home: true, sort: 'price_desc' }],
-    queryFn: () => getCatalog({ sort: 'price_desc', pageSize: FEATURED }),
+  // Chips del hero: sets REALES con inventario publicado (facetas de Compra).
+  const facets = useQuery({
+    queryKey: ['catalog-facets'],
+    queryFn: getCatalogFacets,
+    staleTime: 5 * 60_000,
+    retry: false,
   });
+  const heroSets = (facets.data?.sets ?? []).slice(0, 4);
 
-  // Valor por set del portafolio: misma derivación que en Mi bóveda (suma de
-  // referenceMxnCents por set; las pendientes sin valor no aportan).
-  const setValues = useMemo(() => {
-    const byId = new Map<string, { setId: string; setName: string; valueCents: number }>();
-    for (const h of (holdings.data?.data ?? []) as HoldingDTO[]) {
-      const g = byId.get(h.card.setId) ?? { setId: h.card.setId, setName: h.card.setName, valueCents: 0 };
-      g.valueCents += h.referenceValue.referenceMxnCents ?? 0;
-      byId.set(h.card.setId, g);
-    }
-    const rows = [...byId.values()].sort((a, b) => b.valueCents - a.valueCents).slice(0, 3);
-    const max = rows[0]?.valueCents ?? 0;
-    return rows.map((r) => ({ ...r, share: max > 0 ? r.valueCents / max : 0 }));
-  }, [holdings.data]);
-
-  const featured = (catalog.data?.data ?? []).filter((l) => l.sellable).slice(0, FEATURED);
+  // Estado del mini-cotizador IZADO aquí: el panel se pinta en la columna del hero (lg)
+  // y como sección propia (móvil) compartiendo las mismas líneas.
+  const quoter = useHomeQuoter();
 
   return (
     <div>
-      <div className="grid lg:grid-cols-[40px_1fr_1fr]">
-        {/* Etiqueta vertical al margen: marca la sección sin un fondo de color. */}
-        <div className="hidden justify-center border-r border-border py-9 lg:flex">
-          <span aria-hidden className="vertical-label text-xs uppercase text-muted">
-            {t('vaultLabel')}
-          </span>
+      {/* Banda del portafolio para sesión iniciada (funcionalidad conservada). */}
+      {authed && (
+        <div className="gutter flex flex-col gap-4 border-b border-border py-6 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <span className="eyebrow">{t('yourVault')}</span>
+            <div className="mt-3">
+              <PortfolioGlance fallbackCents={holdings.data?.portfolio.totalValueMxnCents} />
+            </div>
+          </div>
+          <Link
+            href="/vault"
+            className="shrink-0 self-start border-b border-accent pb-1.5 text-[11px] font-medium uppercase tracking-label text-text sm:self-end"
+          >
+            {t('vaultLink')}
+          </Link>
         </div>
+      )}
 
-        <div className="gutter border-b border-border py-14 lg:border-b-0 lg:border-r lg:px-12 lg:py-[88px]">
-          <h1 className="font-serif text-[34px] leading-[1.24] tracking-[-0.005em] text-text lg:text-[58px] lg:leading-[1.14]">
+      {/* Hero 2 columnas: promesa + cotizador (el cotizador baja a sección propia en móvil). */}
+      <div className="grid border-b border-border lg:grid-cols-[1fr_392px]">
+        <div className="gutter py-10 lg:border-r lg:border-border lg:py-[52px] lg:pr-12">
+          <span className="eyebrow">{t('heroKicker')}</span>
+          <h1 className="mt-4 max-w-[660px] font-serif text-[31px] leading-[1.22] tracking-[-0.005em] text-text [text-wrap:pretty] lg:mt-[18px] lg:text-[50px] lg:leading-[1.14]">
             {t('heroTitle')}
           </h1>
-          <p className="mt-5 max-w-[460px] text-base leading-[1.75] text-muted lg:mt-7">
+          <p className="mt-4 max-w-[470px] text-[15px] leading-[1.7] text-muted lg:mt-5 lg:text-base lg:leading-[1.75]">
             {t('heroSubtitle')}
           </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-7 lg:mt-12">
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-7 lg:mt-8">
             <Link
               href="/catalog"
-              className="inline-flex h-[54px] items-center justify-center bg-primary px-8 text-xs font-medium uppercase tracking-[0.18em] text-primary-fg hover:bg-primary-hover"
+              className="inline-flex h-[54px] items-center justify-center bg-primary px-[30px] text-[11px] font-medium uppercase tracking-[0.18em] text-primary-fg hover:bg-primary-hover"
             >
               {t('ctaShop')}
             </Link>
-            {/* Link subrayado alineado al CENTRO del botón: en sm el padding vertical es simétrico
-                (pt = pb) para que su texto quede a la misma altura que el texto del botón negro. */}
             <Link
-              href="/buylist"
-              className="inline-flex h-[54px] items-center justify-center border border-text px-8 text-xs font-medium uppercase tracking-[0.18em] text-text sm:h-auto sm:border-0 sm:border-b sm:border-accent sm:px-0 sm:py-1.5"
+              href="/sellado"
+              className="inline-flex h-[54px] items-center justify-center border border-text px-8 text-[11px] font-medium uppercase tracking-label text-text sm:h-auto sm:border-0 sm:border-b sm:border-accent sm:px-0 sm:py-1.5"
             >
-              {t('ctaBuylist')}
+              {t('ctaSealed')}
             </Link>
           </div>
-        </div>
-
-        {/* Panel de bóveda: cifras reales del portafolio, o la promesa si no hay sesión. */}
-        <div className="flex flex-col border-b border-border">
-          <div className="gutter flex items-center justify-between border-b border-border py-3.5">
-            <span className="eyebrow">{t('yourVault')}</span>
-            <span className="eyebrow">MXN · {tc('withoutIva')}</span>
-          </div>
-
-          {authed ? (
-            <>
-              <div className="gutter border-b border-border py-9">
-                <PortfolioGlance fallbackCents={holdings.data?.portfolio.totalValueMxnCents} />
-              </div>
-              <div className="gutter py-7">
-                <div className="eyebrow">{tv('valueBySet')}</div>
-                <div className="mt-5 flex flex-col gap-5">
-                  {holdings.isLoading && <Skeleton className="h-16 w-full" />}
-                  {holdings.isError && (
-                    <div className="rule-note py-1">
-                      <p className="text-sm font-medium text-accent">{tc('errorTitle')}</p>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="mt-3"
-                        onClick={() => holdings.refetch()}
-                      >
-                        {tc('retry')}
-                      </Button>
-                    </div>
-                  )}
-                  {setValues.map((s) => (
-                    <div key={s.setId}>
-                      <div className="flex justify-between text-[13px] text-text">
-                        <span lang="en">{s.setName}</span>
-                        <span className="tabular font-mono text-[11px] text-muted">
-                          {formatMoneyCents(s.valueCents, locale)}
-                        </span>
-                      </div>
-                      {/* La regla mide la proporción del set frente al de mayor valor. */}
-                      <div className="mt-2.5 h-px bg-border-strong">
-                        <div
-                          className="h-px bg-text"
-                          style={{ width: `${Math.round(s.share * 100)}%` }}
-                          aria-hidden
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="gutter flex flex-1 flex-col py-9">
-              {/* §7.18: la gráfica de mercado del set destacado ENCABEZA el panel (el gancho
-                  para el visitante anónimo); degrada a null si no hay set / historial / error,
-                  y entonces el panel cae a su forma previa (líneas de confianza + "Entrar"). */}
-              <FeaturedSetGlance />
-              {/* Las 3 líneas de confianza se podan a 2 (custodia + precio real; la de
-                  autenticación se omite por espacio para no empujar el CTA fuera de vista). */}
-              <div className="mt-9 flex flex-col">
-                {[t('trustCustody'), t('trustPrice')].map((line, i) => (
-                  <p
-                    key={i}
-                    className="border-b border-border py-4 text-[15px] leading-relaxed text-text first:pt-0 last:border-b-0"
-                  >
-                    {line}
-                  </p>
-                ))}
-              </div>
-              {/* mt-auto ancla la invitación al pie de la columna: sin sesión el panel
-                  se queda corto frente al hero y colgaba en el aire. */}
-              <Link
-                href="/login"
-                className="mt-auto self-start border-b border-accent pb-1.5 pt-8 text-xs font-medium uppercase tracking-label text-text"
-              >
-                {tn('login')}
-              </Link>
+          {/* Chips de sets reales; sin dato razonable, no se pintan (honestidad). */}
+          {heroSets.length > 0 && (
+            <div className="mt-8 hidden flex-wrap items-baseline gap-x-3.5 gap-y-2.5 sm:flex">
+              <span className="eyebrow">{t('setsWanted')}</span>
+              {heroSets.map((s) => (
+                <Link
+                  key={s.id}
+                  href={`/catalog?setId=${encodeURIComponent(s.id)}`}
+                  lang="en"
+                  className="border-b border-border-strong pb-0.5 text-[13px] leading-none text-text hover:border-accent"
+                >
+                  {s.name}
+                </Link>
+              ))}
             </div>
           )}
         </div>
-      </div>
 
-      {/* Catálogo después de los números: la numeración en bermellón ordena la lectura. */}
-      <div className="gutter flex flex-col gap-3 pb-6 pt-14 sm:flex-row sm:items-baseline sm:justify-between lg:pt-16">
-        <h2 className="font-serif text-2xl leading-tight text-text lg:text-[30px]">
-          {t('featuredTitle')}
-        </h2>
-        <Link
-          href="/catalog"
-          className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted hover:text-text"
-        >
-          {t('viewAllCatalog')}
-        </Link>
-      </div>
-      {catalog.isError ? (
-        <div className="gutter pb-16 lg:pb-20">
-          <div className="rule-note py-1">
-            <p className="text-sm font-medium text-accent">{tc('errorTitle')}</p>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="mt-3"
-              onClick={() => catalog.refetch()}
-            >
-              {tc('retry')}
-            </Button>
-          </div>
+        <div className="hidden lg:flex">
+          <HomeQuoterPanel state={quoter} />
         </div>
-      ) : (
-      <div className="gutter grid grid-cols-2 gap-6 pb-16 lg:grid-cols-4 lg:gap-10 lg:pb-20">
-        {catalog.isLoading &&
-          Array.from({ length: FEATURED }).map((_, i) => (
-            <Skeleton key={i} className="aspect-[5/7] w-full" />
-          ))}
-        {featured.map((l, i) => (
-          <Link key={l.inventoryItemId} href={`/catalog/${l.card.id}`} className="block">
-            <CardImage src={l.card.imageSmallUrl} alt={l.card.name} />
-            <div className="mt-4 flex items-baseline gap-2">
-              <span className="font-mono text-[10px] leading-none text-accent">
-                {String(i + 1).padStart(2, '0')}
-              </span>
-              <p className="font-serif text-base font-medium leading-snug text-text" lang="en">
-                {l.card.name}
-              </p>
-            </div>
-            <p className="mt-1.5 font-mono text-[11px] leading-snug text-muted" lang="en">
-              {l.card.setName} · #{l.card.number}
-            </p>
-            <p className="tabular mt-3 text-[17px] font-medium leading-none text-text">
-              {l.salePriceCents != null ? formatMoneyCents(l.salePriceCents, locale) : '—'}
-            </p>
-          </Link>
-        ))}
       </div>
-      )}
 
-      {/* Banda de tinta: el buylist cierra la home con el único botón bermellón. */}
+      <FeaturedCarousel />
+
+      {/* Cotizador como sección propia en móvil (artboard 390px). */}
+      <div className="border-t border-border lg:hidden">
+        <HomeQuoterPanel state={quoter} withTrust={false} />
+      </div>
+
+      <SealedShelf />
+      <GradedShelf />
+      <BountyBoard />
+
+      {/* Cómo funciona la bóveda: 3 pasos estáticos. */}
+      <section className="gutter border-t border-border pb-12 pt-10 lg:pb-14 lg:pt-12" aria-label={t('how.title')}>
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
+          <h2 className="font-serif text-[22px] leading-tight text-text lg:text-[29px]">
+            {t('how.title')}
+          </h2>
+          <span className="eyebrow">{t('how.tag')}</span>
+        </div>
+        <div className="mt-7 grid gap-7 sm:grid-cols-3 sm:gap-8 lg:mt-8 lg:gap-10">
+          {([1, 2, 3] as const).map((n) => (
+            <div key={n} className="border-t-2 border-text pt-4">
+              <span className="font-mono text-[11px] leading-none text-accent">
+                {`0${n}`}
+              </span>
+              <p className="mt-2.5 font-serif text-lg leading-snug text-text lg:text-xl">
+                {t(`how.step${n}Title`)}
+              </p>
+              <p className="mt-2.5 text-sm leading-[1.7] text-muted">{t(`how.step${n}Body`)}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Banda de tinta: el buylist cierra la home con el único botón rojo. */}
       <div className="grid bg-ink lg:grid-cols-[40px_1fr_auto] lg:items-center">
         <div className="hidden justify-center self-stretch border-r border-on-ink-rule py-9 lg:flex">
           <span aria-hidden className="vertical-label text-xs uppercase text-on-ink-muted">
             {t('buylistLabel')}
           </span>
         </div>
-        <div className="gutter py-12 lg:px-12 lg:py-14">
-          <h2 className="font-serif text-[26px] leading-tight text-on-ink lg:text-[34px]">
+        <div className="gutter py-10 lg:px-12 lg:py-[52px]">
+          <h2 className="font-serif text-[24px] leading-tight text-on-ink lg:text-[33px]">
             {t('sellTitle')}
           </h2>
-          <p className="mt-4 max-w-[460px] text-[15px] leading-[1.7] text-on-ink-nav">{t('sellBody')}</p>
+          <p className="mt-3.5 max-w-[470px] text-[15px] leading-[1.7] text-on-ink-nav">
+            {t('sellBody')}
+          </p>
         </div>
-        <div className="gutter pb-12 lg:px-12 lg:py-14">
+        <div className="gutter pb-10 lg:px-12 lg:py-[52px]">
           <Link
             href="/buylist"
-            className="inline-flex h-[54px] items-center justify-center whitespace-nowrap bg-accent px-8 text-xs font-medium uppercase tracking-[0.18em] text-accent-fg hover:brightness-95"
+            className="inline-flex h-[54px] w-full items-center justify-center whitespace-nowrap bg-accent px-8 text-[11px] font-medium uppercase tracking-[0.18em] text-accent-fg hover:brightness-95 sm:w-auto"
           >
             {t('sellCta')}
           </Link>

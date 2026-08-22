@@ -162,12 +162,20 @@ function Detail({
             <>
               {/* Ficha en dos columnas: precio de venta contra valor de mercado. */}
               <div className="mt-9 grid border-t border-border sm:grid-cols-2">
-                <Fact label={tcat('salePrice')} note={tc('withoutIva')}>
-                  <span className="tabular text-3xl font-medium leading-none text-text">
-                    {primary.salePriceCents != null
-                      ? formatMoneyCents(primary.salePriceCents, locale)
-                      : tcat('notForSale')}
-                  </span>
+                <Fact
+                  label={tcat('salePrice')}
+                  note={primary.salePriceCents != null ? tc('withoutIva') : undefined}
+                >
+                  {primary.salePriceCents != null ? (
+                    <span className="tabular text-3xl font-medium leading-none text-text">
+                      {formatMoneyCents(primary.salePriceCents, locale)}
+                    </span>
+                  ) : (
+                    // Sin precio: «precio pendiente» honesto, jamás MX$0.00 (§7.3).
+                    <span className="font-mono text-[13px] uppercase leading-none tracking-[0.06em] text-accent">
+                      {tprice('pendingLabel')}
+                    </span>
+                  )}
                 </Fact>
                 <Fact
                   label={tcat('marketValue')}
@@ -181,13 +189,18 @@ function Detail({
                   </span>
                 </Fact>
                 <Fact label={t('condition')}>
-                  <span className="text-base text-text">
-                    {primary.productType === 'raw'
-                      ? tcat('condition.nm.label')
-                      : primary.productType === 'graded'
-                        ? `${primary.gradingCompany ?? ''} ${primary.gradeValue ?? ''}`.trim()
+                  {primary.productType === 'graded' ? (
+                    // Chip de grado (artboard Ficha): borde de tinta, mono «PSA 9».
+                    <span className="inline-flex items-center border border-text px-2.5 py-1.5 font-mono text-[13px] leading-none tracking-[0.06em] text-text">
+                      {`${primary.gradingCompany ?? ''} ${primary.gradeValue ?? ''}`.trim()}
+                    </span>
+                  ) : (
+                    <span className="text-base text-text">
+                      {primary.productType === 'raw'
+                        ? tcat('condition.nm.label')
                         : t('productType.sealed')}
-                  </span>
+                    </span>
+                  )}
                 </Fact>
                 <Fact label={tFinish('label')} className="sm:border-l sm:pl-7">
                   <span className="text-base text-text">{tFinish(primary.finish)}</span>

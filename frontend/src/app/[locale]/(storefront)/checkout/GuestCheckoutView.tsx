@@ -210,7 +210,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   return (
     <div>
-      <div className="gutter pb-6 pt-10 lg:pt-[46px]">
+      <div className="gutter pb-7 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
       </div>
 
@@ -244,34 +244,36 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
               </div>
 
               {/* Los renglones del carrito siempre visibles: el motivo de la compra no desaparece. */}
+              {/* Líneas del carrito (artboard): miniatura grande, serif + mono y precio
+                  tabular a la derecha; «Quitar» bajo la meta. */}
               <ul className="pt-2">
                 {query.data.items.map((item) => (
                   <li
                     key={item.inventoryItemId}
-                    className="flex items-center gap-5 border-b border-border py-4"
+                    className="flex items-start gap-4 border-b border-border py-5 sm:gap-5"
                   >
-                    <div className="w-14 shrink-0">
+                    <div className="w-16 shrink-0 sm:w-[92px]">
                       <CardImage src={item.card.imageSmallUrl} alt={item.card.name} className="p-1" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-serif text-[17px] font-medium leading-tight text-text" lang="en">
+                      <p className="truncate font-serif text-[17px] leading-tight text-text sm:text-[19px]" lang="en">
                         {item.card.name}
                       </p>
                       <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en">
                         {item.card.setName} · #{item.card.number}
                       </p>
+                      <button
+                        type="button"
+                        aria-label={t('removeItem')}
+                        onClick={() => cart.remove(item.inventoryItemId)}
+                        className="mt-3.5 font-mono text-[11px] text-muted hover:text-accent"
+                      >
+                        {t('removeItem')}
+                      </button>
                     </div>
-                    <span className="tabular text-[17px] font-medium text-text">
+                    <span className="tabular shrink-0 text-right text-[17px] font-medium text-text sm:text-[19px]">
                       {formatMoneyCents(item.unitPriceCents, locale)}
                     </span>
-                    <button
-                      type="button"
-                      aria-label={t('removeItem')}
-                      onClick={() => cart.remove(item.inventoryItemId)}
-                      className="shrink-0 pl-3 font-mono text-[11px] text-muted hover:text-accent"
-                    >
-                      {t('removeItem')}
-                    </button>
                   </li>
                 ))}
               </ul>
@@ -315,7 +317,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
             </div>
 
             <aside className="gutter h-fit pb-14 pt-8 lg:px-10">
-              <h2 className="eyebrow">{t('summary')}</h2>
+              {/* Artboard: cabecera «Resumen» con regla fuerte de cierre. */}
+              <h2 className="eyebrow border-b border-border-strong pb-4 text-text">{t('summary')}</h2>
               <div className="mt-5">
                 <AmountBreakdown
                   breakdown={activeBreakdown ?? query.data.breakdown}
@@ -366,7 +369,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                     disabled={!!payBlockedReason}
                     aria-describedby={payBlockedReason ? 'pay-blocked-note' : undefined}
                     onClick={pay}
-                    className="mt-5 w-full"
+                    className="mt-5 min-h-[54px] w-full tracking-eyebrow"
                   >
                     {creating
                       ? t('preparing')

@@ -38,19 +38,19 @@ describe('StorefrontHeader — sesión', () => {
     mockPathname = '/';
   });
 
-  it('sin sesión muestra "Iniciar sesión" y NO el logout', () => {
+  it('sin sesión muestra "Mi cuenta" (→ /login) y NO el logout', () => {
     renderWithIntl(<StorefrontHeader />, 'es');
-    expect(screen.getAllByText('Iniciar sesión').length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: 'Mi cuenta' })).toHaveAttribute('href', '/login');
     expect(screen.queryByText('Cerrar sesión')).not.toBeInTheDocument();
   });
 
-  it('con sesión muestra el perfil (nombre) y "Cerrar sesión" en vez de "Iniciar sesión"', async () => {
+  it('con sesión muestra el perfil (nombre) y "Cerrar sesión" en vez de "Mi cuenta"', async () => {
     setStoredUser(user);
     renderWithIntl(<StorefrontHeader />, 'es');
 
     await waitFor(() => expect(screen.getByText('Ash Ketchum')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /Cerrar sesión/ })).toBeInTheDocument();
-    expect(screen.queryByText('Iniciar sesión')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mi cuenta')).not.toBeInTheDocument();
   });
 
   it('cae al email cuando el usuario no tiene nombre', async () => {
@@ -59,14 +59,14 @@ describe('StorefrontHeader — sesión', () => {
     await waitFor(() => expect(screen.getByText('ash@example.com')).toBeInTheDocument());
   });
 
-  it('al cerrar sesión limpia el estado y vuelve a "Iniciar sesión" (reactivo, sin recargar)', async () => {
+  it('al cerrar sesión limpia el estado y vuelve a "Mi cuenta" (reactivo, sin recargar)', async () => {
     setStoredUser(user);
     renderWithIntl(<StorefrontHeader />, 'es');
 
     const logoutBtn = await screen.findByRole('button', { name: /Cerrar sesión/ });
     fireEvent.click(logoutBtn);
 
-    await waitFor(() => expect(screen.getAllByText('Iniciar sesión').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('Mi cuenta').length).toBeGreaterThan(0));
     expect(screen.queryByText('Ash Ketchum')).not.toBeInTheDocument();
     expect(push).toHaveBeenCalledWith('/');
   });
@@ -83,11 +83,12 @@ describe('StorefrontHeader — sesión', () => {
     expect(vender).toHaveAttribute('href', '/buylist');
   });
 
-  it('sin sesión el nav público solo muestra Tienda y Vender (oculta bóveda y órdenes)', () => {
+  it('sin sesión el nav público muestra Comprar, Vender y Mi cuenta (oculta bóveda y órdenes)', () => {
     renderWithIntl(<StorefrontHeader />, 'es');
-    // "Tienda" agrupa Cartas sueltas + Producto sellado; apunta a /catalog por default.
-    expect(screen.getByRole('link', { name: 'Tienda' })).toHaveAttribute('href', '/catalog');
+    // "Comprar" agrupa Cartas sueltas + Producto sellado; apunta a /catalog por default.
+    expect(screen.getByRole('link', { name: 'Comprar' })).toHaveAttribute('href', '/catalog');
     expect(screen.getByRole('link', { name: 'Vender' })).toHaveAttribute('href', '/buylist');
+    expect(screen.getByRole('link', { name: 'Mi cuenta' })).toHaveAttribute('href', '/login');
     // Áreas privadas: no visibles para el público (P-13).
     expect(screen.queryByRole('link', { name: 'Mi bóveda' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Mis órdenes' })).not.toBeInTheDocument();

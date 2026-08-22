@@ -18,6 +18,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { SealedValueTrend } from './SealedValueTrend';
 import { SealedRestockForm } from './SealedRestockForm';
+import { StockBadge } from '../StockBadge';
 
 /**
  * Ficha del producto SELLADO (contrato §2-S · GET /catalog/sealed/:inventoryItemId). Selección de
@@ -164,8 +165,10 @@ function Detail({
             </div>
           </div>
 
-          {/* Disponibilidad + selección de cantidad (por-pieza). */}
-          <p className="mt-7 font-mono text-[13px] text-text">{t('available', { count: available })}</p>
+          {/* Disponibilidad real del endpoint («N en stock»/«Último»/«Agotado») + cantidad por-pieza. */}
+          <div className="mt-7">
+            <StockBadge count={available} className="text-[11px]" />
+          </div>
 
           <div className="mt-4 flex items-center gap-4">
             <div className="flex items-center border border-border-strong">

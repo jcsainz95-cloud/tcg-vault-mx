@@ -6,12 +6,17 @@ import { CatalogView } from './CatalogView';
 // Aisla la vista del router de Next (mismo patrón que BuylistView.test).
 vi.mock('@/i18n/navigation', () => ({
   usePathname: () => '/',
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
     </a>
   ),
+}));
+
+// StoreTabs y CatalogView leen ?type=graded con useSearchParams (pestaña Gradeadas).
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 beforeEach(() => {
@@ -20,18 +25,18 @@ beforeEach(() => {
 });
 
 /**
- * Feedback al agregar desde la vitrina: el botón del card vive en ListingCard
- * (zona compartida de otro stream, sin prop de estado «en carrito»), así que
- * la confirmación de la vitrina es el toast (DESIGN_SYSTEM §7.5).
+ * Feedback al agregar desde la vitrina: el CTA vive en la teja propia de la
+ * vista (CatalogTile, makeover 1a) y la confirmación es el toast (§7.5) +
+ * el estado «En el carrito» de la teja (N-17).
  */
 describe('CatalogView · toast de confirmación al agregar', () => {
-  it('clic en «Agregar» guarda la pieza y muestra el toast con enlace al carrito', async () => {
+  it('clic en «Añadir al carrito» guarda la pieza y muestra el toast con enlace al carrito', async () => {
     renderWithProviders(<CatalogView />, 'es');
 
     // La región aria-live existe desde el inicio, vacía.
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
 
-    const addButtons = await screen.findAllByRole('button', { name: 'Agregar' });
+    const addButtons = await screen.findAllByRole('button', { name: 'Añadir al carrito' });
     fireEvent.click(addButtons[0]);
 
     expect(screen.getByRole('status')).toHaveTextContent('Agregado al carrito');

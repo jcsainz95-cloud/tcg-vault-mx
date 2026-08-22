@@ -23,8 +23,9 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
             sesión → /login?next=… (modo real). Inerte en mock/demo. */}
         <PrivateRouteGuard>{children}</PrivateRouteGuard>
       </main>
+      {/* Makeover 1a: footer mono de UNA línea, py 26px como el artboard. */}
       <footer className="border-t border-border">
-        <div className="mx-auto max-w-7xl px-5 py-8 sm:px-6 lg:px-8">
+        <div className="gutter mx-auto max-w-7xl py-[26px]">
           <Footer />
         </div>
       </footer>

@@ -80,13 +80,14 @@ export function StorefrontHeader() {
     };
   }, []);
 
-  // Nav por sesión (P-13): el público solo ve "Compra" y "Vender". "Mi Bóveda" y
-  // "Mis Órdenes" son áreas privadas y se muestran solo con sesión (authed). Como
-  // `authed` depende de `ready`, en SSR/hidratación se pinta el nav público —idéntico
-  // al render de servidor— y las pestañas privadas aparecen al montar la sesión.
+  // Nav por sesión (P-13) en el orden del makeover 1a: «Comprar / Vender / Mi cuenta».
+  // El público ve Comprar, Vender y Mi cuenta (→ /login); con sesión, "Mi cuenta" se
+  // sustituye por las áreas privadas (Mi bóveda / Mis órdenes / Mis retiros) + el bloque
+  // de perfil. Como `authed` depende de `ready`, en SSR/hidratación se pinta el nav
+  // público —idéntico al render de servidor— y las pestañas privadas aparecen al montar.
   const links: { href: string; label: string; match?: string[] }[] = [
-    // "Tienda" agrupa Cartas sueltas (/catalog) y Producto sellado (/sellado): activa en ambas.
-    { href: '/catalog', label: t('store'), match: ['/catalog', '/sellado'] },
+    // "Comprar" agrupa Cartas sueltas (/catalog) y Producto sellado (/sellado): activa en ambas.
+    { href: '/catalog', label: t('buy'), match: ['/catalog', '/sellado', '/compra'] },
     { href: '/buylist', label: t('buylist') },
     ...(authed
       ? [
@@ -94,7 +95,7 @@ export function StorefrontHeader() {
           { href: '/orders', label: t('orders') },
           { href: '/shipments', label: t('shipments') },
         ]
-      : []),
+      : [{ href: '/login', label: t('myAccount') }]),
   ];
 
   async function onLogout() {
@@ -118,7 +119,7 @@ export function StorefrontHeader() {
           <Wordmark />
         </Link>
 
-        <nav className="hidden items-center gap-[30px] lg:flex">
+        <nav className="hidden items-center gap-[26px] lg:flex">
           {links.map((l) => {
             const active = (l.match ?? [l.href]).some((p) => pathname.startsWith(p));
             return (
@@ -145,7 +146,9 @@ export function StorefrontHeader() {
             <LocaleToggle />
           </div>
 
-          {authed ? (
+          {/* Makeover 1a: el acceso anónimo vive en el nav como "Mi cuenta" (→ /login);
+              con sesión se conserva el bloque de perfil (nombre + Cerrar sesión). */}
+          {authed && (
             <div className="hidden items-center gap-5 lg:flex">
               <span
                 className="max-w-[12rem] truncate text-[11px] font-medium uppercase tracking-label text-text"
@@ -161,13 +164,6 @@ export function StorefrontHeader() {
                 {t('logout')}
               </button>
             </div>
-          ) : (
-            <Link
-              href="/login"
-              className="hidden text-[11px] font-medium uppercase tracking-label text-text lg:inline"
-            >
-              {t('login')}
-            </Link>
           )}
 
           {/* P-28: oculto en el flujo de venta (ver `onSellFlow`). */}
@@ -217,7 +213,8 @@ export function StorefrontHeader() {
                 <span className="tabular font-mono text-muted">{count}</span>
               </Link>
             )}
-            {authed ? (
+            {/* Anónimo: "Mi cuenta" ya vive en `links` (→ /login); no se duplica aquí. */}
+            {authed && (
               <>
                 <span className="truncate border-b border-border py-4 text-sm text-muted">{displayName}</span>
                 <button
@@ -228,14 +225,6 @@ export function StorefrontHeader() {
                   {t('logout')}
                 </button>
               </>
-            ) : (
-              <Link
-                href="/login"
-                onClick={() => setOpen(false)}
-                className="border-b border-border py-4 text-sm font-medium uppercase tracking-label text-text"
-              >
-                {t('login')}
-              </Link>
             )}
             <div className="py-4">
               <LocaleToggle />

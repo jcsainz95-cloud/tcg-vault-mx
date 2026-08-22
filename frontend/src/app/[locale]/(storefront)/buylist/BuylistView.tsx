@@ -709,6 +709,13 @@ export function BuylistView() {
             <p className="mt-2">{t('trustPayment')}</p>
             <p className="mt-2">{t('trustValidity')}</p>
           </div>
+
+          {/* Makeover 1a (artboard 2b): la guía de envío seguro también vive INLINE al pie
+              de la página (retícula 01–04 a cuatro columnas), además del modal del hero. */}
+          <div className="mt-8">
+            <h2 className="eyebrow">{t('shippingGuideLink')}</h2>
+            <SafeShippingGuide columns={4} className="mt-4" />
+          </div>
         </section>
 
         {createdId && (
