@@ -2,7 +2,42 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.36-sealed-alta).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.37-pricing-tiers).
+>
+> **Changelog v1.37-pricing-tiers (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-34,
+> PROJECT §M v1.9 LOCKED, ARCHITECTURE §4.33):** el editor de precios de M2 pasa de «una fila por CADA rareza
+> canónica» (~30) a «una fila por `tier`» (**5 tiers T0–T4**) + un **mapa rareza canónica → tier** compartido por
+> compra y venta. Cambios **MONEY-SAFE**; la naturaleza de la regla (`fixed`/`pct`), la precedencia y el eje `finish`
+> **no cambian** (los tiers solo re-expresan el eje rareza de `PriceRuleSet`, §4.28d). **Único cambio intencional:
+> T2 (Rare/Holo) → `pct` 25%.**
+> - **`GET /admin/pricing/tiers` (NUEVO, `super_admin`, §M2) — lee los 5 tiers con su regla de COMPRA y VENTA + el eje
+>   acabado (`finishRules`) + fallbacks.** Res `{ tiers: TierRuleDTO[5], finishRules:{ buy, sell }, fallbackPct:{ buy,
+>   sell } }`. Cada `TierRuleDTO = { id:'T0'..'T4', name, premium, buy: Rule, sell: Rule, rarityCount }`. `name`/
+>   `premium` son taxonomía LOCKED (`common/pricing-tiers.ts`), NO editables. Read-only, no muta.
+> - **`PUT /admin/pricing/tiers` (NUEVO, `super_admin`) — reemplaza los VALORES de las 5 reglas (buy y sell) + eje
+>   acabado + fallbacks.** Req `{ tiers:[{id, buy, sell}], finishRules?:{buy?,sell?}, fallbackPct?:{buy?,sell?} }`.
+>   `name`/`premium` se ignoran si vienen. Valida el **invariante de refinamiento** (§4.33d) contra el mapa vigente:
+>   un tier con reglas de compra `fixed` no puede tener rareza premium mapeada ⇒ `422 PREMIUM_RARITY_FIXED_TIER`.
+>   Cambiar la regla de un tier **repricia todas** sus rarezas (criterio 74). **Auditado**, sin redeploy.
+> - **`GET /admin/pricing/tier-map` (NUEVO, `super_admin`) — el mapa rareza canónica → tier**, unido al catálogo.
+>   Res `{ tiers:[{id,name,premium}], rarities: TierMapRowDTO[] }`; cada fila `{ canonical, premium, mapped, cardCount,
+>   tierId|null, source:'map'|'fallback' }`. `tierId:null` = rareza del catálogo sin mapear ⇒ cae al fallback pct.
+> - **`PUT /admin/pricing/tier-map` (NUEVO, `super_admin`) — reasigna rarezas a tiers** (Opción B, editable por el
+>   dueño). Req `{ assignments: { [canonical]: TierId } }` (patch parcial). Valida el **invariante de refinamiento**
+>   (una rareza premium a un tier de compra `fixed` ⇒ `422 PREMIUM_RARITY_FIXED_TIER`, con los pares infractores) y
+>   que `TierId ∈ {T0..T4}` (`422 VALIDATION_ERROR`). **Auditado**, sin redeploy.
+> - **DEPRECADOS/superseded:** `GET/PUT /admin/pricing/buylist-rules` y `/sales-rules` (mapa plano rareza→regla, §4.28d)
+>   quedan **superseded por `/tiers` + `/tier-map`**. Los `GET` pueden mantenerse como lectura del `PriceRuleSet`
+>   **efectivo** (derivado de tiers×mapa, §4.33c) durante la transición; los `PUT` se **retiran**. `GET
+>   /admin/pricing/rarities` (+ `/sales-rarities`) ganan `tierId` + `source` y su `rule` refleja la regla RESUELTA vía
+>   tier (retrocompatibles).
+> - **Persistencia (migración M-38 — DATA/seed, SIN DDL) — para backend:** NO hay cambio de schema Prisma. Nuevo
+>   `SettingKey` `PRICING_TIER_MAP` (`pricing_tier_map`, mapa compartido); RESHAPE de `BUYLIST_PRICE_RULES`/
+>   `SALES_PRICE_RULES` de `{ rarityRules, ... }` a `{ tierRules, finishRules, fallbackPct }`; nueva constante
+>   `common/pricing-tiers.ts`; +2 canónicas premium y +1 alias en `common/rarity-catalog.ts` (cierre de las `unmapped`
+>   Mega Hyper Rare→T4, `MEGA_ATTACK_RARE`/Black White Rare→T3); backfill de `Card.rarityCanonical` de esas rarezas.
+>   Ver ARCHITECTURE §4.33 + §11 (M-38). **Nota T2/Uncommon:** T2 baja de 40%→25% (LOCKED); el mapa sube **Uncommon**
+>   de compra $0.50→$1.50 (T1) — bandera para PO (DEV-tiers-1, §4.33g), reversible sin código.
 >
 > **Changelog v1.36-sealed-alta (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-35,
 > PROJECT §K/§F-M1, decisión v1.6 «Sellado»):** cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**. Resuelve el
@@ -1129,6 +1164,17 @@
 - **`422 ITEM_NOT_IN_CUSTODY` (v1.17.1):** en `POST /shipments`, se intenta retirar un item cuyo `status` **no es `in_custody`** — típicamente ya `withdrawn` (retiro entregado, terminal), o cualquier otro estado no custodiable. **Guardarraíl anti doble-retiro/doble-cobro:** un item ya entregado (`withdrawn`) **NO** es re-elegible para un nuevo retiro aunque conserve `ownershipStatus='settled'` (histórico). Comparte criterio con el flag de lectura `HoldingDTO.withdrawable` (§3): read y write usan la **misma** regla de elegibilidad. Distinto de `422 ITEM_NOT_SETTLED` (aún `pending`, no liquidado) y de `409 ITEM_IN_ANOTHER_SHIPMENT` (ya tiene envío activo). Ver §5 y ARCHITECTURE §3.3.
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
+- **`422 PREMIUM_RARITY_FIXED_TIER` (v1.37, pricing por tiers, P-34):** en `PUT /admin/pricing/tier-map` o `PUT
+  /admin/pricing/tiers`, la edición dejaría una rareza `premium:true` (catálogo canónico, §4.28e) resolviendo en un tier
+  cuya regla de **COMPRA** es `fixed` (con el seed: T0/T1). **Guardarraíl money-safe (refinamiento estricto, ARCHITECTURE
+  §4.33d):** una carta chase jamás puede cotizar al bin fijo barato de bulk, **aunque el dueño edite el mapa**. El
+  invariante se valida sobre el producto (tiers × mapa) completo, por eso lo emiten **ambos** PUT. `details: { offending:
+  [{ rarity: string, tierId: string }] }` (los pares infractores, para que el front los marque). El eje de VENTA no lo
+  dispara (un `fixed` de venta es un piso, no un bin de compra). Ya en el enum central `common/error-codes.ts`.
+- **`422 UNKNOWN_RARITY` (v1.37, pricing por tiers, P-34):** en `PUT /admin/pricing/tier-map`, una key de `assignments`
+  **no** es una rareza canónica del catálogo (§4.28c). Money-safe: el mapa solo asigna tiers a rarezas conocidas; una key
+  desconocida se rechaza en vez de crear una entrada muerta. Distinto de `422 VALIDATION_ERROR` (`TierId` fuera de
+  `{T0..T4}` o body mal formado). Ver §M2 «Pricing por TIERS».
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
 - **`502 UPSTREAM_ERROR` (transversal; formalizado v1.31):** una **fuente externa** de datos no está disponible o
@@ -3652,8 +3698,79 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate?, bufferPct? }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
   - **`rate?` opcional (v1.14-price-ingest, #13):** si se **omite** `rate`, la llamada actualiza **solo** el colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (`fx_manual_override_rate`) → la tasa **automática de Banxico sigue activa**. Antes exigía ambos, así que subir solo el colchón congelaba la tasa sin querer. El colchón **aplica en cada ingest de precios** (USD→MXN con FX+buffer, ARCHITECTURE §4.15f). **Vía recomendada sin cambiar este endpoint:** editar el colchón por `PUT /admin/settings { fxBufferPct }` (parcial, ya soportado). **Nota para frontend (M2):** exponer un guardado del colchón independiente del `rate`.
-#### Precio de buylist por RAREZA (v1.3.1 — NUEVO backend; editor M2)
-> Reemplaza `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
+#### Pricing por TIERS (v1.37 — NUEVO; editor M2, `super_admin`) — SUPERSEDE el editor por rareza
+> **P-34, PROJECT §M v1.9 LOCKED, ARCHITECTURE §4.33.** El editor pasa de «una fila por CADA rareza canónica» (~30) a
+> «una fila por `tier`» (**5 tiers T0–T4**) + un **mapa rareza canónica → tier** compartido por compra y venta. La
+> naturaleza de la regla (`fixed` MX$ centavos / `pct`), la precedencia money-safe y el **eje `finish`** (`finishRules`)
+> **no cambian**: los tiers solo re-expresan el **eje rareza** de `PriceRuleSet` (§4.28d). Toda edición se **audita**
+> (M10) y **surte efecto sin redeploy**. `Rule = { mode:'fixed'|'pct', value:number }` (buy `pct`=% de la referencia;
+> sell `pct`=markup arriba de mercado, §4.14b).
+
+- `GET /api/v1/admin/pricing/tiers` — **(NUEVO)** lee los 5 tiers (regla de COMPRA y VENTA), el eje acabado y los
+  fallbacks. Read-only.
+  Res `200`:
+  ```json
+  { "tiers": [
+      { "id":"T0", "name":"Bulk",               "premium":false, "buy":{"mode":"fixed","value":50},  "sell":{"mode":"fixed","value":500},  "rarityCount":1 },
+      { "id":"T1", "name":"Uncommon / Reverse",  "premium":false, "buy":{"mode":"fixed","value":150}, "sell":{"mode":"fixed","value":1000}, "rarityCount":3 },
+      { "id":"T2", "name":"Rare / Holo",         "premium":false, "buy":{"mode":"pct","value":25},    "sell":{"mode":"pct","value":15},     "rarityCount":2 },
+      { "id":"T3", "name":"Premium / Chase",     "premium":true,  "buy":{"mode":"pct","value":40},    "sell":{"mode":"pct","value":15},     "rarityCount":19 },
+      { "id":"T4", "name":"Ultra / Grail",       "premium":true,  "buy":{"mode":"pct","value":40},    "sell":{"mode":"pct","value":15},     "rarityCount":4 }
+    ],
+    "finishRules": { "buy":  { "reverse_holo":{"mode":"fixed","value":150} },
+                     "sell": { "reverse_holo":{"mode":"fixed","value":1500} } },
+    "fallbackPct": { "buy": 40, "sell": 15 } }
+  ```
+  - `id`/`name`/`premium` = taxonomía **LOCKED** (`common/pricing-tiers.ts`); NO editables. `rarityCount` = nº de
+    rarezas canónicas mapeadas a ese tier (informativo). `finishRules` keyeadas por el enum `Finish` (§4.28d), eje
+    ACABADO **sin cambio**; `buy`/`sell` separan los dos juegos de valores. Valores de venta = reproducen el markup
+    vigente (backend confirma los pisos exactos de T0/T1, ARCHITECTURE §4.33e).
+- `PUT /api/v1/admin/pricing/tiers` — **(NUEVO)** reemplaza los VALORES de las 5 reglas (buy y sell), el eje acabado y
+  los fallbacks.
+  Req: `{ tiers: [{ id: TierId, buy: Rule, sell: Rule }], finishRules?: { buy?, sell? }, fallbackPct?: { buy?, sell? } }`.
+  - **`name`/`premium` se ignoran** si vienen (taxonomía LOCKED). Deben venir las 5 filas (`T0..T4`).
+  - **Validación:** `mode ∈ {fixed, pct}`; `fixed` → `value` **entero ≥ 0** (centavos); buy `pct` → `value` en `[0,100]`;
+    sell `pct` → `value` en `[0,1000]` (markup, puede >100%, `SALES_PCT_MAX`); `fallbackPct` en su rango respectivo.
+  - **Invariante de refinamiento (money-safe, §4.33d):** se valida contra el **mapa vigente**. Poner la regla de
+    **COMPRA** de un tier en `fixed` cuando ese tier tiene alguna rareza `premium:true` mapeada ⇒ **rechazo**. (El eje
+    de VENTA no entra al invariante: un `fixed` de venta es un piso, no un bin de compra.)
+  - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.tiers.update`, before/after). **Sin
+    redeploy.** Cambiar la regla de un tier **repricia todas** las rarezas mapeadas a él (criterio 74).
+  - Err `422 VALIDATION_ERROR` (modo/valor/rango/filas); `422 PREMIUM_RARITY_FIXED_TIER` (una rareza premium quedaría en
+    un tier de compra `fixed`; el body lista los pares `(rarity, tierId)` infractores).
+- `GET /api/v1/admin/pricing/tier-map` — **(NUEVO)** el **mapa rareza canónica → tier**, unido al catálogo canónico
+  (§4.28c) para poblar el editor de asignación. Muestra rarezas mapeadas y rarezas del catálogo aún sin mapear.
+  Res `200`:
+  ```json
+  { "tiers": [ { "id":"T0","name":"Bulk","premium":false }, { "id":"T4","name":"Ultra / Grail","premium":true } ],
+    "rarities": [
+      { "canonical":"Common",            "premium":false, "mapped":true, "cardCount":5326, "tierId":"T0", "source":"map" },
+      { "canonical":"Rare Holo",         "premium":false, "mapped":true, "cardCount":1617, "tierId":"T2", "source":"map" },
+      { "canonical":"Illustration Rare", "premium":true,  "mapped":true, "cardCount":87,   "tierId":"T3", "source":"map" },
+      { "canonical":"Some New Rarity",   "premium":true,  "mapped":false,"cardCount":3,    "tierId":null, "source":"fallback" }
+    ] }
+  ```
+  - `premium` = del catálogo canónico (§4.28e, DATO). `mapped=false` = rareza `unmapped` (sin entrada en el catálogo
+    canónico). `tierId:null` + `source:"fallback"` = rareza del catálogo **sin entrada en `PRICING_TIER_MAP`** ⇒ cotiza
+    por el **tier por defecto = `pct` de fallback** (money-safe, nunca $0/bin fijo). Ordenado por `cardCount` desc.
+- `PUT /api/v1/admin/pricing/tier-map` — **(NUEVO)** reasigna rarezas a tiers (Opción B, editable por el dueño).
+  Req: `{ assignments: { [canonical: string]: TierId } }` (patch **parcial**: solo las rarezas a cambiar).
+  - **Validación:** `TierId ∈ {T0,T1,T2,T3,T4}` (`422 VALIDATION_ERROR`). Cada `canonical` debe ser una key canónica del
+    catálogo (§4.28); una key desconocida ⇒ `422 UNKNOWN_RARITY`.
+  - **Invariante de refinamiento (money-safe, §4.33d):** una rareza con `premium:true` no puede asignarse a un tier cuya
+    regla de **COMPRA** sea `fixed` (con el seed: no puede caer en T0/T1) ⇒ **rechazo** con los pares infractores.
+  - Res `200`: mismo shape que `GET /admin/pricing/tier-map`. **Auditado** (`AuditLog action=pricing.tier_map.update`,
+    before/after). **Sin redeploy.** Err `422 VALIDATION_ERROR`, `422 UNKNOWN_RARITY`, `422 PREMIUM_RARITY_FIXED_TIER`.
+- **SUPERSEDED por los tiers:** `GET/PUT /api/v1/admin/pricing/buylist-rules` y `/sales-rules` (mapa plano rareza→regla,
+  §4.28d). Los **`PUT` se retiran** (el eje rareza ya no se edita por rareza suelta, sino por tier). Los **`GET` pueden
+  conservarse** como lectura del `PriceRuleSet` **efectivo** derivado de `tiers × tier-map` (§4.33c) durante la
+  transición, o retirarse. `GET /admin/pricing/rarities` (+ `/sales-rarities`) **se conservan** y ganan `tierId` +
+  `source:'map'|'fallback'`; su `rule` refleja la regla **RESUELTA vía tier** (retrocompatible). El editor nuevo consume
+  `/tiers` + `/tier-map`.
+
+#### Precio de buylist por RAREZA (v1.3.1 — DEPRECADO por §4.33/v1.37; ver «Pricing por TIERS» arriba)
+> **DEPRECADO (v1.37):** superseded por el editor por `tier` (arriba). Se conserva para procedencia. Reemplazó
+> `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
 > referencia)** + un **fallback %** para rarezas sin regla. Toda edición se **audita** (M10). Ver ARCHITECTURE §4.2.
 
 - `GET /api/v1/admin/pricing/rarities` — **(NUEVO)** lista las **rarezas CANÓNICAS del catálogo sincronizado**
