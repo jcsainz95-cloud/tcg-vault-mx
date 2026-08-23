@@ -2,6 +2,16 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+> Rev v1.42-sealed-identity-everywhere (2026-08-23, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan.
+> Escalada regla 9 del gate E2E pre-publicación; 3 incoherencias de identidad/conteo del sellado). Dictamen: los 3
+> APROBADOS, ADITIVOS y money-safe. **BLOQ-3** — el master-set binder cuenta **SOLO singles**, EXCLUYE `productType='sealed'`
+> (alinea con H9; deroga la nota «cualquier productType» de §4.20b y la cláusula «fuera de alcance §4.20b» de §4.23g/M1);
+> **resuelve WS-IV-1/WS-IV-2 (§10) para sellado** por mandato explícito del humano (matar «Tropius» en todas las vistas +
+> inventario limpio). **BLOQ-2a** — `HoldingDTO` gana la cascada de display de sellado (§4.34a) para no pintar la caja como
+> la carta ancla. **BLOQ-2b** — `PendingPriceEntry` gana `sealedProductId` + display y la clave de la cola discrimina por
+> `sealedProductId` (ETB y blíster no colapsan). Migración **M-40** (§11, aditiva nullable). Contrato en API_CONTRACT
+> (Changelog v1.42-sealed-identity-everywhere). Detalle normativo: §4.20b, §4.20d, §4.23g, §4.34a, §10, §11. **Base previa:**
+> v1.38-grouped-listings.
 > Estado: v1.38-grouped-listings (MVP, plataforma en producción). Fecha: 2026-08-22. **DISEÑO EN PAPEL (backend/frontend
 > implementan; el arquitecto no toca código). P-30 — publicación ÚNICA por carta/variante/condición con STOCK:** el
 > catálogo de singles (`GET /catalog/cards*`) pasa de «un `ListingDTO` por copia física» a **`GroupedListingDTO`
@@ -3251,9 +3261,16 @@ agregación** y las **omisiones por permiso**. Contrato: `API_CONTRACT.md` Chang
     acabado — deja de haber cartas de dos variantes que se muestran con una sola casilla.
 - **Drift:** una pieza cuyo `finish` ya no esté en `availableFinishes` se muestra en `countsByFinish` (es una pieza
   real) pero **no** cuenta en expected/covered — evita `covered > expected` y deja visible la inconsistencia.
-- **Nota (comportamiento v1.16 conservado):** la cobertura cuenta piezas de **cualquier** `productType` del
-  `(cardId, finish)` (graded/sealed mapean a `finish=normal` por §3.7). Cambiarlo a "solo raw" sería decisión de
-  producto (pregunta abierta WS-IV-1, §10).
+- **Nota (v1.42 — BLOQ-3, DEROGA el comportamiento v1.16 SOLO para sellado):** el binder es la colección de **singles**.
+  La cobertura/conteo (`countsByFinish`/`totalCount` de la celda, `count`/`covered` de la variante y sus agregados X/Y, y
+  `distinctCardsOwned`/`totalPieces`/`completionPct` del índice) cuentan **SOLO singles** (`productType ∈ {raw, graded}`) —
+  **`productType='sealed'` se EXCLUYE** en los 4 scopes del binder (M1 plataforma, bóveda admin (ii), «Mi bóveda» (iii)).
+  Un ETB anclado a Charizard ya **no** infla a Charizard como `finish=normal` ni marca su variante `covered`. Alinea con
+  **H9** (el sellado ya se excluye del catálogo de singles): el sellado vive en sus superficies dedicadas (M1 › «Sellado»
+  = `sealed-sets` §4.26g; bóveda › «Sellado» = `/vault/sealed`). **Esto RESUELVE la pregunta abierta WS-IV-1 (§10) para el
+  sellado**, por mandato explícito del humano (matar «Tropius» en todas las vistas). `graded` **sigue contando** (un slab es
+  una copia real del single de esa `cardId`; WS-IV-1 permanece abierta solo para graded). Es un filtro más en la MISMA
+  agregación (`productType != 'sealed'`), sin cambio de shape ni de queries por request.
 - **Costo de cómputo:** los campos nuevos salen de las MISMAS agregaciones v1.16 (`groupBy [cardId, finish]`) +
   `availableFinishes` ya presente en la query de cartas; el índice suma una agregación de `Σ|availableFinishes|`
   por set (raw SQL sobre `Card`). Sigue O(1) queries por request.
@@ -3267,7 +3284,9 @@ piezas sin precio se excluyen del total y se cuentan en `pendingPriceCount`. Ide
 
 **#### 4.20d Faltantes comprables (`buyable`, solo vista (iii)).**
 Para las variantes `covered=false` del binder del cliente, **una** query adicional resuelve por `(cardId, finish)`
-la pieza de plataforma `status='listed'` con **menor precio de venta** (mismo criterio de precio de la ficha §4.9:
+la pieza de plataforma `status='listed'` con **menor precio de venta** — **v1.42 (BLOQ-3b): SOLO un single**
+(`productType ∈ {raw, graded}`; **sellado EXCLUIDO** — ya no se ofrece un ETB sellado para llenar la casilla de un single,
+mata «Tropius» en el faltante; resuelve WS-IV-2 para sellado). Mismo criterio de precio de la ficha §4.9:
 `listPriceCents` override o derivado por reglas de venta §4.14 — el binder expone el `salePriceCents` ya resuelto;
 si el precio no resuelve, esa pieza no es buyable). El CTA del front lleva a la ficha
 (`GET /catalog/listings/:inventoryItemId`) y al **checkout normal** — el binder **no** crea órdenes ni reservas.
@@ -4404,9 +4423,11 @@ las piezas selladas del usuario** por grupo (mismo criterio de (e)) con conteo y
   mercado (unmapped / sin ingest) se **excluyen** del total y se cuentan en `pendingPriceCount`. Muestra imagen,
   `sealedCondition`, `count` (y desglose `pending|settled`), `marketValue` por pieza y `totalMarketValueMxnCents`.
 - **Omisiones por scope (regla dura §4.20):** nunca ubicación/costo/folio; `email` del owner solo en la vista admin.
-- **Nota de coexistencia:** las piezas selladas **siguen** apareciendo en `GET /vault/holdings` (por-pieza) y en el
-  binder master-set como `finish=normal` (comportamiento pre-existente §4.20b — **fuera de alcance** cambiarlo). La
-  pestaña «Sellado» es la superficie **dedicada** y agrupada. *(SUP-4: con `sealedMarketRef` ahora poblado, el sellado
+- **Nota de coexistencia (ACTUALIZADA v1.42):** las piezas selladas **siguen** apareciendo en `GET /vault/holdings`
+  (por-pieza) **pero con su propia identidad** (`sealedProductName`/`sealedImageUrl`, cascada §4.34a; BLOQ-2a — ya NO se
+  pintan como la carta ancla). En el binder master-set **quedan EXCLUIDAS** (no cuentan como `finish=normal`; BLOQ-3, §4.20b).
+  La cláusula previa «pre-existente §4.20b — fuera de alcance cambiarlo» queda **DEROGADA** (era anterior al módulo
+  `SealedProduct`/P-38, §4.34). La pestaña «Sellado» es la superficie **dedicada** y agrupada. *(SUP-4: con `sealedMarketRef` ahora poblado, el sellado
   entra a la valuación del portafolio general; se recomienda incluirlo en el snapshot de tendencia — es una holding
   más priceada. PO confirma.)*
 
@@ -6159,6 +6180,13 @@ Los deltas M-37 son el **puente mínimo** money-safe hasta entonces.
   `sealedImageUrl`/`sealedProductName` → `Card` ancla (legacy). La `cardId` ancla se **mantiene** (NOT NULL sigue): deja
   de ser identidad y pasa a ser solo pertenencia al set + fallback de imagen; el guardarraíl H9 sigue excluyendo el
   sellado de la vista de singles.
+  - **v1.42 (BLOQ-2a/2b) — la cascada aplica en TODAS las superficies de sellado, cerrando «Tropius»:** además de
+    `/vault/sealed`, grid público (`SealedGroupDTO`) y `sealed-sets` (`SealedInventoryGroupDTO`), la cascada §4.34a se
+    aplica ahora en **`HoldingDTO`** (`GET /vault/holdings` gana `sealedProductId`/`sealedProductName`/`sealedImageUrl`/
+    `sealedSubtype`/`sealedCondition`, resueltos server-side, presentes solo en sellado) y en **`PendingPriceEntry`** (cola
+    M2 gana `sealedProductId`+display; la clave de la cola discrimina por `sealedProductId` para que ETB y blíster no
+    colapsen). Ambos aditivos/retrocompatibles y money-safe (display/identidad, no dinero). Contrato: API_CONTRACT
+    Changelog v1.42. Migración de la cola: **M-40** (§11).
 
 - **Valuación money-safe (SIN cambio de doctrina):** la referencia de mercado autoritativa del sellado sigue siendo la
   cadena H-1 `PriceReference` clave `sealed:tcg:<productId>` (§4.19d); `SealedProduct.marketUsdCents` es una **caché de
@@ -6236,7 +6264,20 @@ promo — p. ej. los de **Mega Evolution**, o «Black Star Promos»). Un modelo 
   si viene `sealedProductId` mandan los derivados. `qty`+`batchKey` = misma idempotencia (M-21).
 - **Precio EN VIVO al alta:** al crear la pieza el backend resuelve mercado en ESE momento — `sealed-price` on-demand del
   `productId` (una llamada TCGCSV) → fallback a la última `PriceReference sealed:tcg:<productId>` / `marketUsdCents` →
-  `null`. La aportación valúa por ese mercado (`mercado × pct`, server-side, SEC-A1).
+  `null`. **Gateado por el dial `sealedPriceSource` (§4.23, H-1):** con el dial `off` (seed, fail-closed) el mercado
+  efectivo del alta es `null` aunque exista caché. La aportación valúa por ese mercado gateado (`mercado × pct`,
+  server-side, SEC-A1).
+- **Preview coherente con el alta (v1.41, IMP-1) — un solo mercado autoritativo:** el gate E2E encontró un dead-end
+  porque el preview del alta (`SealedAddFlow`) y la valuación del alta usaban **dos** nociones distintas de mercado del
+  sellado. `SealedProductDTO.marketRef` es una referencia **INFORMATIVA ungated** (live→caché) y NO debe decidir la UI;
+  el frontend la usaba para ocultar el campo manual mientras el backend valuaba con la referencia **gateada** por el
+  dial → `PRICE_PENDING` sin salida. **Norma:** `GET /admin/inventory/sealed-products` expone además
+  **`effectiveMarketCents`** = el mercado del sellado resuelto con la **MISMA** función H-1 gateada por `sealedPriceSource`
+  que decide la valuación del alta. Invariante money-safe: `effectiveMarketCents == null` ⟺ el alta queda en
+  `PRICE_PENDING` y ACEPTA `manualMarketMxnCents`; `!= null` ⟺ el alta valúa con él y RECHAZA el manual
+  (`MANUAL_MARKET_NOT_ALLOWED`). El backend calcula `effectiveMarketCents` reutilizando el resolver del alta (no una
+  segunda ruta) para que ambos NO puedan divergir; el frontend keyea la visibilidad del campo manual en él, jamás en
+  `marketRef`. Ver API_CONTRACT §M1 (`GET /admin/inventory/sealed-products`) y changelog v1.41-sealed-effective-market.
 - **Fallback MANUAL money-safe:** si live+caché son `null`, la línea NO se inventa 0: dos salidas honestas — (a) sin
   override ⇒ `422 PRICE_PENDING` por línea (queda pendiente, curable); (b) **override manual explícito** `manualMarketMxnCents?`
   en la línea (solo cuando el mercado resuelto es null) ⇒ se usa como referencia, **auditado**
@@ -6890,13 +6931,13 @@ este documento y con `API_CONTRACT.md`.
 
 ### Preguntas abiertas (v1.20-master-set-everywhere — WS «Inventario y vault»)
 > No bloquean el diseño (defaults propuestos y **normados en el contrato**); se listan para veto/ajuste del humano.
-- **WS-IV-1 — ¿Qué `productType` cubre una casilla?** Default (conserva v1.16): **cualquier** pieza del
-  `(cardId, finish)` cubre la variante (graded/sealed mapean a `finish=normal`, §3.7). Alternativa de producto:
-  solo `raw` cuenta para el master set (una gradeada no "llena" la casilla de la carta raw). Cambiarlo es un filtro
-  más en la agregación, sin cambio de shape.
-- **WS-IV-2 — `buyable` = pieza `listed` más barata del `(cardId, finish)`, cualquier `productType`.** ¿Se
-  restringe a `raw` (coherente con WS-IV-1) o se deja abierto (el cliente ve la opción más barata y decide en la
-  ficha)? Default: abierto.
+- **WS-IV-1 — ¿Qué `productType` cubre una casilla? — RESUELTA PARCIALMENTE (v1.42, BLOQ-3):** `productType='sealed'`
+  **NO** cubre ni cuenta en el binder (se EXCLUYE en los 4 scopes; alinea con H9; mandato explícito del humano de matar
+  «Tropius»). `graded` **sigue contando** (un slab es una copia real del single de esa `cardId`). El sub-caso «¿graded
+  llena la casilla de la raw?» **permanece abierto** (default histórico: sí cuenta). Ver §4.20b.
+- **WS-IV-2 — `buyable` — RESUELTA PARCIALMENTE (v1.42, BLOQ-3b):** `buyable` resuelve **solo singles**
+  (`productType ∈ {raw, graded}`); **sellado EXCLUIDO** (ya no ofrece un ETB para llenar la casilla de un single). Entre
+  singles se deja **abierto** (el cliente ve la opción más barata: raw o graded). Ver §4.20d.
 - **WS-IV-3 — `encontrada` con costo por aportación (default `aportacion_en_especie`, 70%).** ¿Correcto que una
   pieza hallada en el levantamiento se cargue como aportación en especie del dueño (afecta P&L/base de costo), o
   debe pedirse `acquisitionType` explícito siempre? Default: `aportacion_en_especie` si se omite.
@@ -7146,6 +7187,21 @@ sellados **sin** mapeo quedan `sealedProductId=null` para re-curar (cero adivina
 > **Backfill (data, no DDL):** (6) `SealedSetGroup(set_main)` desde cada `CardSet.tcgcsvGroupId != null`; (7) `SealedProduct`
 > por cada `(tcgplayerProductId, tcgplayerGroupId)` distinto de items sellados **mapeados** + `UPDATE InventoryItem.sealedProductId`
 > (cura ETB→Tropius); (8) sellados **sin** mapeo → `sealedProductId=null` + reporte de reconciliación. Ver §4.34e.
+
+### v1.42-sealed-identity-everywhere (nueva — M-40: identidad de sellado en la cola de precio pendiente, BLOQ-2b)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador **serializa M-40**. Es **aditiva y reversible** (una columna
+FK nullable; sin `DROP`, sin backfill). Segura con la app corriendo. Las columnas de conteo del binder (BLOQ-3) y los
+campos de display de `HoldingDTO` (BLOQ-2a) **NO requieren migración** (son filtros de agregación y proyección en lectura,
+reusando `InventoryItem.sealedProductId`/snapshot M-37 ya existentes). Solo la cola persistida `PendingPriceEntry` migra.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-40 | `PendingPriceEntry.sealedProductId String?` | Columna nueva nullable (FK) | Add column | FK → `SealedProduct` (`onDelete: SetNull`), index. **Identidad de sellado** que ENTRA a la clave lógica de dedup/escalada de la cola: dos pendientes con igual `(cardId, gradeKey, finish)` y distinto `sealedProductId` son SEPARADAS (ETB ≠ blíster; antes colapsaban bajo `gradeKey='sealed'`). Solo `productType='sealed'` (regla de aplicación). `null` para singles y para sellado legacy sin ligar. Money-safe: sin precio ⇒ pendiente, JAMÁS 0. `sealedProductName`/`sealedSubtype` del DTO se DERIVAN (join cascada §4.34a), no se persisten aquí. |
+
+> **Sin backfill obligatorio:** las entradas `open` existentes de sellado quedan con `sealedProductId=null` (comportamiento
+> actual); las nuevas y las re-escaladas se pueblan desde el `InventoryItem.sealedProductId` de la pieza que las origina.
+> Residual pre-P-38 (sellado sin ligar) se cura en M2 — sigue pendiente, nunca 0.
 
 ### v1.30-buylist-quote-por-producto (nueva — M-32: línea de buylist por `productId`)
 
