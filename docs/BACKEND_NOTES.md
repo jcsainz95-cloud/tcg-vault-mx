@@ -4,6 +4,51 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.3 BUG DE DINERO: el barrido por-impresión de PPT aplanaba el mercado a todos los acabados (2026-08-23)
+
+> Rama `fix/variant-composition-regression`. BUG money-critical confirmado: el barrido de precios mostraba
+> el MISMO `market` en `normal`=`reverse_holo`=`holofoil` de una misma carta. Fix interno del provider PPT,
+> **sin cambio de contrato**. Money-safe reforzado: acabado sin precio propio ⇒ **pendiente/«—»**, jamás el
+> precio de otro acabado.
+
+- **CONFIRMACIÓN — ¿la API v2 de PPT expone un `market` DISTINTO por impresión (`?printing=`)? NO.** El shape
+  real v2 (documentado en el propio provider, L104-107, y usado por el modo LISTA y por `mapFreshEntry`) es
+  `prices = { market, primaryPrinting, low, lastUpdated }`: **un solo `market`**, el de la impresión PRIMARIA
+  de la carta, **invariante al `?printing=`**. No hay un `market` por impresión en ninguna parte del payload.
+  Por tanto el modo `fetchPrintings` es **estructuralmente incapaz** de producir precio por-acabado real: las
+  3 pasadas (Normal/Reverse Holofoil/Holofoil) traen el mismo `prices.market`.
+- **Causa raíz.** `PokemonPriceTrackerBulkProvider.mapEntry`, rama `forced` (modo por-impresión), atribuía
+  `e['prices'].market` (nivel carta = primaria) a la **ETIQUETA del request** (`forced.label`). Como las 3
+  pasadas traen el mismo market, las 3 filas `PriceReference` (`normal`/`reverse_holo`/`holofoil`) quedaban
+  con el MISMO precio. La fuente por-acabado correcta (TCGCSV `tcgcsv_singles`, `CardProductResolverService`,
+  precedencia §4.27f `sourceRank=1` sobre PPT `sourceRank=2`) **solo corre en import/`--force`, no en el
+  barrido diario** → en el sweep diario ganaban las filas aplanadas de PPT.
+- **Fix aplicado (`backend/src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts`, rama `forced`
+  de `mapEntry`, antes L560-564).** El market SIEMPRE pertenece a `prices.primaryPrinting`, así que ahora solo
+  se emite fila cuando la impresión primaria REAL de la carta (leída del dato, no de la etiqueta) **coincide**
+  con la etiqueta barrida — ese es el único acabado cuyo precio PPT conoce. Los demás acabados **NO se emiten**
+  (quedan pendientes/«—»), NUNCA con el precio de otra impresión. Sin `primaryPrinting` legible ⇒ no se emite
+  nada. Nuevo helper `extractPrimaryPrinting`. Las filas emitidas siguen `forcedPrinting: true` /
+  `finishAliasVerified: false` (excluidas del `pricedFinishesSnapshot`, §4.25a-2 — sin cambio).
+- **Test que enmascaraba (`pokemonpricetracker-bulk.fix-ppt.spec.ts`, caso (3), antes L84-109).** Hardcodeaba
+  3 markets distintos (1/2/3) por impresión — suposición FALSA que la API real no cumple. Reescrito: las 3
+  pasadas devuelven el MISMO market con `primaryPrinting` de la carta; se afirma que **NO se aplana** (solo la
+  primaria recibe precio; las otras quedan pendientes). Añadidos (3-money) [primaria Normal ⇒ solo `normal`,
+  reverse/holo pendientes] y (3-nomarket) [sin `primaryPrinting` ⇒ 0 filas]. Suite 1685/1685 verde, `tsc` limpio.
+- **⚠️ PARA EL ARQUITECTO (regla 9, decisión de estrategia de FUENTE — NO asumida).** Este fix detiene el
+  aplanamiento (money-safe), pero deja el barrido diario **sin fuente que pueble el precio por-acabado de
+  reverse/holo**: hoy `tcgcsv_singles` (la fuente por-acabado con precedencia) solo corre en import/`--force`,
+  no en el sweep diario (`PriceIngestService.ingestAll`). Consecuencia esperada tras el deploy: reverse/holo
+  de cartas cuya única corrida reciente fue el sweep quedarán en **PRICE_PENDING** hasta el próximo
+  import/`--force` (correcto y fail-closed, pero puede ampliar la cola de pendientes). **Decisiones que
+  requieren al arquitecto:** (a) ¿correr `CardProductResolverService`/`tcgcsv_singles` dentro del sweep diario
+  de singles (o un job hermano) para que el precio por-acabado se refresque a diario?; (b) ¿mantener el modo
+  `fetchPrintings` de PPT, que ahora cuesta ~3× por set para producir a lo sumo 1 fila (la primaria, que el
+  modo LISTA ya da a 1× costo) — o desactivarlo (dial `POKEMONPRICETRACKER_FETCH_PRINTINGS`) por redundante?
+  La §4.25a-2 de `ARCHITECTURE.md` asume que `fetchPrintings` «produce la `PriceReference` propia de la
+  reverse» — premisa que este hallazgo **contradice** (la API no da market por impresión); conviene corregir
+  esa sección. No toqué el dial ni el flujo de fuentes (fuera de mi autoridad).
+
 ## 0.2 Fix name-match de grupos sellados: tolerancia al prefijo de código de TCGCSV (2026-08-23)
 
 > Rama `fix/variant-composition-regression`. BUG confirmado: sets reales NO auto-resolvían su grupo de

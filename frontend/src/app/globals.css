@@ -71,6 +71,17 @@
   --color-info-bg: transparent;
   --color-neutral-warm: #9a6c57;
 
+  /*
+   * Acento de ACABADO (§16.6) — banda de 3px de la teja, color ESTRICTO por finish
+   * (fuente única: FinishBand). Spec del humano 2026-08 (PENDIENTE de ratificar por
+   * ux-ui en DESIGN_SYSTEM §16.6): reverse_holo = ROJO de marca; holofoil = AZUL.
+   * El azul es un token NUEVO: no existía azul en la paleta (paper/tinta/rojo/verde),
+   * elegido apagado/acero para no romper el aire cálido vintage. Contraste vs el rojo
+   * de marca #B31217: par rojo/azul (seguro para daltonismo, distinto del rojo/verde).
+   */
+  --color-finish-reverse: var(--color-accent); /* #b31217 rojo de marca */
+  --color-finish-holo: #1f5c8f; /* azul acero — NUEVO, pendiente de ratificar */
+
   /* Paneles de tinta: hero de auth y sidebar del back-office. */
   --color-ink: #1a1a18;
   --color-on-ink: #f4f1ea;
