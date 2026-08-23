@@ -67,17 +67,23 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
-#### P-46 · El botón «Sincronizar» del alta de sellado no descarga presentaciones (prod)
-- **Reportado por el humano:** en «Agregar producto sellado», al elegir un set (ej. **Pitch Black 2026**)
-  sale «Aún no descargamos las presentaciones de este set» con «0 presentaciones · 0 con precio · 0
-  pendientes». El botón **SINCRONIZAR** **no funciona** (no descarga nada). Sin presentaciones no se puede
-  dar de alta sellado por selección.
-- **Contexto:** la sync pega a `POST /admin/inventory/sealed-products/sync` → tcgcsv.com. En el E2E local
-  degradaba **limpio** (502 UPSTREAM por el proxy del sandbox que bloquea tcgcsv.com). En **prod** hay que
-  determinar por qué no jala: (a) ¿Railway tiene **egress real a tcgcsv.com**?, (b) ¿qué **error** sale en
-  los logs al pulsar Sincronizar?, (c) ¿el botón **dispara** la llamada (Network) o no hace nada (frontend)?
-- **Rol:** por confirmar según los logs — **devops** (egress/config de red) y/o **backend** (endpoint sync)
-  y/o **frontend** (si el botón no dispara). Diagnóstico primero.
+#### P-46 · Sincronizar sellado devuelve «0 presentaciones»: el set no resuelve grupo TCGCSV (prod)
+- **Reportado por el humano:** al Sincronizar sellado de **Pitch Black (2026)** (y Chaos Rising) sale «0
+  presentaciones». **El botón SÍ funciona** — la sync corre.
+- **Causa raíz (logs prod 2026-08-23):** `sealed-products/sync: set Pitch Black ... **sin grupo resoluble
+  (ni curado ni name-match)** → nada que sincronizar (money-safe: no se adivina)`. El set no está vinculado
+  a su **grupo de TCGCSV** (`tcgcsvGroupId`): ni curado a mano ni por name-match. Sin grupo no hay
+  presentaciones que bajar. (Egress a tcgcsv.com OK — no hubo 502/UPSTREAM.)
+- **A resolver:**
+  1. **UX gap (frontend):** cuando la sync devuelve 0 por «sin grupo resoluble», el modal solo dice «0
+     presentaciones» sin guiar → el humano cree que está roto. Debe explicar «no hubo match; vincula el
+     grupo a mano» y ofrecer el **SealedGroupLinker** («curar grupos»).
+  2. **Mapeo (backend/humano):** confirmar si «Pitch Black»/«Chaos Rising» existen como grupo de sellado en
+     TCGCSV; si sí, revisar por qué el **name-match** no empata (¿demasiado estricto? ¿nombre distinto en
+     TCGCSV?) — backend. Si no existen en TCGCSV, es esperado (esos sets no tienen sellado ahí) y se registra.
+  3. Mientras: el humano puede **curar el grupo a mano** con el linker, o dar de alta sellado con **precio
+     manual** (flujo P-38 ya soporta manual).
+- **Rol:** frontend (UX del modal) + backend (name-match) — diagnóstico primero.
 
 #### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
 - Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
