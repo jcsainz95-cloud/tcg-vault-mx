@@ -2013,7 +2013,8 @@
         "sublabel": "Recorded at market value:",
         "pendingPill": "Price pending",
         "pendingBlocked": "No market value — set this variant's price first.",
-        "pendingBlockedAdmin": "No market value — set it in the Prices section and try again."
+        "pendingBlockedAdmin": "No market value — set it in the Prices section and try again.",
+        "pendingBlockedInline": "No market value — enter the manual price above to enable it."
       },
       "cta": "Add to inventory",
       "loading": "Adding…",
@@ -2180,7 +2181,7 @@
         "label": "Manual market price (MX$)",
         "mustBePositive": "Must be greater than 0.",
         "auditNotice": "This is an audited override: it is logged under your name and feeds this piece's valuation.",
-        "pendingIfEmpty": "Without a manual price, the contribution will stay pending.",
+        "pendingIfEmpty": "Without a manual market price, the contribution is disabled; enter it above to enable it.",
         "suggestion": "Informative reference (last known): {amount}. Does not set the price."
       }
     }

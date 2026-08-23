@@ -6011,3 +6011,51 @@ antes leía el escalar `cell.totalCount`, que podía quedar rezagado respecto a 
 ### Verde
 `tsc --noEmit` ✓ · `vitest run` **78 archivos / 616 tests** ✓ (incluye test nuevo de regresión IMP-1) ·
 `next build` ✓.
+
+## Gate E2E pre-publicación — fixes (rama `fix/variant-composition-regression`)
+
+### IMP-A — el stepper del carrito de venta ya no revienta la página con cantidades absurdas
+`src/app/[locale]/(storefront)/buylist/useSellCart.ts`: teclear un número gigante (p. ej.
+`646180157000000004`) en «Cantidad de {carta}» llegaba crudo hasta `requestItems`
+(`Array.from({ length: l.quantity }, …)`, L159) y lanzaba `RangeError: Invalid array length`
+(los arrays JS topan en 2³²−1) → «Application error», pantalla blanca. Fix money-safe (el monto lo
+re-deriva el backend; esto es robustez de UI):
+- Nuevo `MAX_LINE_QUANTITY = 999` (tope defensivo — no hay límite de stock explícito en el cotizador)
+  y helper `clampQuantity(n)` → entero en `[1, 999]`, `NaN`→1.
+- `setQuantity` clampa (cubre input numérico y botones ±, todos pasan por ahí), `mergeCartLine`
+  clampa el `+1`, y `requestItems` clampa el `length` como última barrera. El `<input>` de
+  `SellCartContents.tsx` gana `max={MAX_LINE_QUANTITY}`.
+- Test de regresión en `BuylistView.test.tsx` («una cantidad gigante … se clampa al tope (999)»):
+  el change no lanza, la vista sigue montada y la cantidad queda en 999.
+
+### IMP-B — pagar antes de convertir ya no atora la carta en «Cerradas»
+`src/app/[locale]/(admin)/admin/m5/M5View.tsx`: la rama «Cerradas» (~L675) renderizaba los ítems
+read-only «sin acciones», así que tras «PAGAR POR SPEI» (solicitud → `pagada`) desaparecía «Convertir
+a inventario» aunque el ítem siguiera `aprobada` y el backend SÍ lo permita (el guard de
+`POST /admin/buylist/items/:id/convert-to-inventory` mira el `itemStatus`, no el estado de la
+solicitud; contrato §M5 líneas 4694/4699: solo `aprobada` convierte). Fix:
+- En «Cerradas», cada ítem con `itemStatus === 'aprobada'` (pagada la solicitud pero NO convertido)
+  ofrece el botón «Convertir a inventario», que dispara el `convertMutation` existente (sin endpoints
+  nuevos). Los `convertida_inventario`/`rechazada` no lo muestran (badge de estado ya los distingue).
+- `convertMutation.onSuccess` ahora invalida también `['admin-buylist-closed']` para repintar el ítem
+  como convertido sin recargar.
+- Tests de regresión en `M5View.test.tsx`: (a) solicitud `pagada` con ítem `aprobada` → aparece el
+  botón y el clic llama `convertBuylistItemToInventory('sr-c9-i')`; (b) ítem `rechazada` en «Cerradas»
+  → NO ofrece convertir.
+
+### Menores (display)
+- **Quick-add de sellado (aportación bloqueada):** `QuickAddSection` es compartido entre el quick-add de
+  variante M1 (sin campo manual inline → «fíjalo en la sección Precios») y el add-flow de sellado (con
+  campo manual INLINE). Se agregó prop `hasInlineManualField` a `QuickAddSection`
+  (`m1/QuickAdd.tsx`); `SealedAddFlow.tsx` la pasa como `showManualField`. Nuevo copy
+  `admin.quickAdd.contrib.pendingBlockedInline` (es+en): apunta al campo manual de arriba en vez de
+  mandar a otra sección. El hint `admin.sealedAdd.manualMarket.pendingIfEmpty` se realineó: ya no dice
+  «la aportación quedará pendiente de precio» (contradecía la radio deshabilitada) sino que la aportación
+  queda DESHABILITADA hasta capturar el precio manual de arriba.
+- **Cola pendiente M2 pintaba «… #4» en sellado:** `m2/sections/PendingQueueSection.tsx` (ambas columnas
+  venta/compra): el `#número` era el de la CARTA ANCLA, no de la pieza de sellado. Ahora solo se pinta
+  para `productType !== 'sealed'`.
+
+### Verde (gate pre-publicación)
+`tsc --noEmit` ✓ · `vitest run` **78 archivos / 619 tests** ✓ (incluye los 3 tests nuevos de regresión
+IMP-A/IMP-B) · `next build` ✓.

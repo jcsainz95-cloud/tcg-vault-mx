@@ -50,6 +50,22 @@ export interface CartLine {
 /** Línea entrante (sin id/cantidad: los asigna el merge con dedup). */
 export type NewCartLine = Omit<CartLine, 'id' | 'quantity'>;
 
+/**
+ * Tope defensivo de cantidad por línea. No hay un límite de stock explícito en el
+ * cotizador (la venta es 1 item por carta física y el monto lo re-deriva el backend),
+ * así que este cap protege la UI de valores absurdos: sin él, `Array.from({ length })`
+ * en `requestItems` revienta con `RangeError: Invalid array length` (arrays JS topan en
+ * 2³²−1) y la página entera muere («Application error»). 999 cartas físicas iguales en
+ * una sola línea de venta es ya muy por encima de cualquier caso real. IMP-A.
+ */
+export const MAX_LINE_QUANTITY = 999;
+
+/** Normaliza una cantidad tecleada/derivada a un entero sano en [1, MAX_LINE_QUANTITY]. */
+export function clampQuantity(quantity: number): number {
+  if (!Number.isFinite(quantity)) return 1;
+  return Math.min(MAX_LINE_QUANTITY, Math.max(1, Math.floor(quantity)));
+}
+
 let lineSeq = 0;
 
 /**
@@ -67,7 +83,10 @@ function mergeCartLine(prev: CartLine[], line: NewCartLine): CartLine[] {
       (l.productId ?? null) === (line.productId ?? null),
   );
   if (idx >= 0) {
-    return prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l));
+    // IMP-A: aun sumando de a 1, mantén la cantidad dentro del tope defensivo.
+    return prev.map((l, i) =>
+      i === idx ? { ...l, quantity: clampQuantity(l.quantity + 1) } : l,
+    );
   }
   lineSeq += 1;
   return [...prev, { id: `line-${lineSeq}`, ...line, quantity: 1 }];
@@ -94,7 +113,9 @@ export function useSellCart() {
   }, []);
 
   const setQuantity = useCallback((lineId: string, quantity: number) => {
-    const clean = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1;
+    // IMP-A: clampa a [1, MAX_LINE_QUANTITY]. Un valor gigante tecleado en el stepper
+    // llegaba crudo hasta `requestItems` (Array.from length) y mataba la página.
+    const clean = clampQuantity(quantity);
     setCart((prev) => prev.map((l) => (l.id === lineId ? { ...l, quantity: clean } : l)));
   }, []);
 
@@ -156,7 +177,9 @@ export function useSellCart() {
   const requestItems: BuylistRequestItem[] = useMemo(
     () =>
       cart.flatMap((l) =>
-        Array.from({ length: l.quantity }, () => ({
+        // IMP-A: `length` SIEMPRE clampado — última barrera contra `RangeError:
+        // Invalid array length` si una cantidad absurda llegara por cualquier vía.
+        Array.from({ length: clampQuantity(l.quantity) }, () => ({
           cardId: l.card.id,
           productType: l.productType,
           rawCondition: l.rawCondition,

@@ -63,6 +63,12 @@ export interface QuickAddProps {
   /** Refresca lista de piezas/agregados; recibe los folios creados (resaltado 3s). */
   onCreated?: (folios: string[]) => void;
   onToast?: (msg: string) => void;
+  /**
+   * El contenedor ofrece un campo de precio manual INLINE (add-flow de sellado). Cambia el copy
+   * de la aportación bloqueada: en vez de mandar a «la sección Precios», apunta al campo de arriba.
+   * Sin esto (quick-add de variante M1) el mensaje sigue enviando a Precios. Menor de display.
+   */
+  hasInlineManualField?: boolean;
 }
 
 type AcqPath = 'compra' | 'aportacion';
@@ -82,6 +88,7 @@ export function QuickAddSection({
   marketRefCents,
   onCreated,
   onToast,
+  hasInlineManualField = false,
 }: QuickAddProps) {
   const t = useTranslations('admin.quickAdd');
   const tRoot = useTranslations();
@@ -323,7 +330,11 @@ export function QuickAddSection({
           <span className="text-xs text-muted">{t('contrib.sublabel')}</span>
           {contribBlocked ? (
             <span className="text-xs text-accent">
-              {isSuperAdmin ? t('contrib.pendingBlockedAdmin') : t('contrib.pendingBlocked')}
+              {isSuperAdmin
+                ? hasInlineManualField
+                  ? t('contrib.pendingBlockedInline')
+                  : t('contrib.pendingBlockedAdmin')
+                : t('contrib.pendingBlocked')}
             </span>
           ) : (
             <span className="font-mono tabular-nums text-base text-text">

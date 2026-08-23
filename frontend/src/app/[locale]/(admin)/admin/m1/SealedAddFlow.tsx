@@ -420,6 +420,9 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                   buyEffectiveCents={null}
                   buySource={null}
                   marketRefCents={resolvedMarketCents}
+                  // El add-flow tiene el campo de precio manual INLINE (arriba): el copy de la
+                  // aportación bloqueada apunta a ESE campo, no a la «sección Precios». Menor display.
+                  hasInlineManualField={showManualField}
                   onToast={onToast}
                   onCreated={(folios) => {
                     setCreatedOnce(true);
@@ -427,7 +430,9 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                   }}
                 />
 
-                {/* Money-safe visible: sin precio manual, la aportación quedará pendiente. */}
+                {/* Money-safe visible: sin precio manual la aportación queda DESHABILITADA (la radio
+                    de Aportación se bloquea); el hint apunta al campo manual de arriba, no a otra
+                    sección — coherente con `contrib.pendingBlockedInline`. */}
                 {gatedMarketCents == null && !manualValid && (
                   <p className="text-xs text-muted">{t('manualMarket.pendingIfEmpty')}</p>
                 )}

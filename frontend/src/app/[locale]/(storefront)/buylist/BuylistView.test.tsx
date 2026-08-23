@@ -305,6 +305,26 @@ describe('BuylistView · carrito de venta', () => {
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
   });
 
+  // IMP-A (regresión): un número absurdo en el stepper reventaba TODA la página con
+  // `RangeError: Invalid array length` (Array.from({ length }) en requestItems). Ahora la
+  // cantidad se clampa a MAX_LINE_QUANTITY (999) y la vista sigue viva.
+  it('una cantidad gigante en el stepper NO crashea: se clampa al tope (999)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    expect(() =>
+      fireEvent.change(screen.getByLabelText('Cantidad de Charizard'), {
+        target: { value: '646180157000000004' },
+      }),
+    ).not.toThrow();
+
+    // La página sigue montada (no «Application error») y la cantidad quedó topada en 999.
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (999)' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Cantidad de Charizard')).toHaveValue(999);
+  });
+
   it('agrega varias cartas distintas y las envía en una sola solicitud', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');

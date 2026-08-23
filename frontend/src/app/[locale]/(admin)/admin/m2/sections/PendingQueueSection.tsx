@@ -83,7 +83,11 @@ export function PendingQueueSection() {
       render: (e) => (
         <span lang="en">
           {pendingDisplayName(e)}
-          {e.card?.number ? <span className="tabular text-muted"> #{e.card.number}</span> : null}
+          {/* Menor display: el `#número` es el de la CARTA ANCLA, no de la pieza de sellado
+              (una ETB no tiene «#4»). Solo se pinta para piezas NO selladas. */}
+          {e.productType !== 'sealed' && e.card?.number ? (
+            <span className="tabular text-muted"> #{e.card.number}</span>
+          ) : null}
         </span>
       ),
     },
@@ -116,7 +120,11 @@ export function PendingQueueSection() {
       render: (e) => (
         <span lang="en">
           {pendingDisplayName(e)}
-          {e.card?.number ? <span className="tabular text-muted"> #{e.card.number}</span> : null}
+          {/* Menor display: el `#número` es el de la CARTA ANCLA, no de la pieza de sellado
+              (una ETB no tiene «#4»). Solo se pinta para piezas NO selladas. */}
+          {e.productType !== 'sealed' && e.card?.number ? (
+            <span className="tabular text-muted"> #{e.card.number}</span>
+          ) : null}
         </span>
       ),
     },

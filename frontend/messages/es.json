@@ -2013,7 +2013,8 @@
         "sublabel": "Se registra a valor de mercado:",
         "pendingPill": "Precio pendiente",
         "pendingBlocked": "Sin valor de mercado — fija primero el precio de esta variante.",
-        "pendingBlockedAdmin": "Sin valor de mercado — fíjalo en la sección Precios y vuelve a intentar."
+        "pendingBlockedAdmin": "Sin valor de mercado — fíjalo en la sección Precios y vuelve a intentar.",
+        "pendingBlockedInline": "Sin valor de mercado — captura el precio manual de arriba para habilitarla."
       },
       "cta": "Dar de alta al inventario",
       "loading": "Dando de alta…",
@@ -2180,7 +2181,7 @@
         "label": "Precio de mercado manual (MX$)",
         "mustBePositive": "Debe ser mayor a 0.",
         "auditNotice": "Es un override auditado: queda registrado a tu nombre y alimenta la valuación de esta pieza.",
-        "pendingIfEmpty": "Sin precio manual, la aportación quedará pendiente de precio.",
+        "pendingIfEmpty": "Sin precio de mercado manual, la aportación queda deshabilitada; captúralo arriba para habilitarla.",
         "suggestion": "Referencia informativa (última conocida): {amount}. No fija el precio."
       }
     }

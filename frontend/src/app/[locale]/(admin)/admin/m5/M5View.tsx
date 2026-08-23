@@ -261,13 +261,18 @@ export function M5View() {
   const convertMutation = useMutation({
     mutationFn: (vars: { requestId: string; itemId: string }) =>
       convertBuylistItemToInventory(vars.itemId),
-    onSuccess: (d, vars) =>
+    onSuccess: (d, vars) => {
+      // IMP-B: la conversión puede dispararse desde la pestaña «Cerradas» (solicitud
+      // pagada, ítem `aprobada`) → invalida también esa query para que el ítem se
+      // repinte como `convertida_inventario` sin recargar la página.
+      void qc.invalidateQueries({ queryKey: ['admin-buylist-closed'] });
       ok(
         vars.requestId,
         d.alreadyConverted
           ? t('feedback.alreadyConverted')
           : t('feedback.converted', { folio: d.folio ?? d.inventoryItemId ?? '' }),
-      ),
+      );
+    },
     onError: (e, vars) => fail(vars.requestId, e),
   });
 
@@ -672,30 +677,50 @@ export function M5View() {
                           )}
                         </div>
                       </div>
-                      {/* Resumen read-only de los ítems (etapa terminal: sin acciones). */}
+                      {/* Resumen de los ítems. IMP-B: la solicitud cerrada/pagada es terminal a
+                          NIVEL SOLICITUD, pero un ítem `aprobada` y NO convertido sigue siendo
+                          convertible a inventario (el guard del backend mira el `itemStatus`, no el
+                          estado de la solicitud: `convert-to-inventory` exige solo `aprobada`). El
+                          orden natural pagar→convertir dejaba la carta atorada al desaparecer el
+                          botón. Se ofrece la acción por-ítem cuando el backend aún la permite. */}
                       <div className="flex flex-col gap-1">
-                        {req.items.map((it) => (
-                          <div key={it.id} className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                            <span className="font-medium text-text" lang="en">
-                              {it.card.name}
-                            </span>
-                            <FinishBadge finish={it.finish} productType={it.productType} />
-                            <StatusBadge domain="sellItem" value={it.itemStatus} />
-                            <span
-                              className={cn(
-                                'tabular',
-                                it.itemStatus === 'rechazada' && 'line-through',
-                              )}
-                            >
-                              {formatMoneyCents(it.quotedPriceCents ?? 0, locale)}
-                            </span>
-                            {it.approvedPriceCents != null && (
-                              <span className="tabular text-success">
-                                {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                        {req.items.map((it) => {
+                          const stillConvertible = it.itemStatus === 'aprobada';
+                          const convertPending =
+                            convertMutation.isPending && convertMutation.variables?.itemId === it.id;
+                          return (
+                            <div key={it.id} className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                              <span className="font-medium text-text" lang="en">
+                                {it.card.name}
                               </span>
-                            )}
-                          </div>
-                        ))}
+                              <FinishBadge finish={it.finish} productType={it.productType} />
+                              <StatusBadge domain="sellItem" value={it.itemStatus} />
+                              <span
+                                className={cn(
+                                  'tabular',
+                                  it.itemStatus === 'rechazada' && 'line-through',
+                                )}
+                              >
+                                {formatMoneyCents(it.quotedPriceCents ?? 0, locale)}
+                              </span>
+                              {it.approvedPriceCents != null && (
+                                <span className="tabular text-success">
+                                  {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                                </span>
+                              )}
+                              {stillConvertible && (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  loading={convertPending}
+                                  onClick={() => convertMutation.mutate({ requestId: req.id, itemId: it.id })}
+                                >
+                                  {t('convert')}
+                                </Button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
