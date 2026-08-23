@@ -3745,3 +3745,43 @@
   rediseño que vive JUNTO a `RarityLabel` en `components/domain` es **`FinishMark`** (`FinishLabel` es una etiqueta
   local del storefront en `_shared/`). Drift de referencia.
 - **Fix:** corregida la referencia a **`FinishMark`** en ambos sitios.
+
+### Merge stream «Inventario y vault» / sellado (`fix/variant-composition-regression`, HEAD `9b6a81b`, 2026-08-23) — deuda del veredicto techlead (APROBADO CON DEUDA ANOTADA, no bloqueante)
+
+> Tres hallazgos **menores no bloqueantes** (todos dueño **backend**) que el techlead aceptó al aprobar el
+> merge del stream de inventario/sellado. Ninguno bloquea; se anotan con archivo:línea para quien los tome.
+
+#### D-1 · Cascada de display de sellado (§4.34a) duplicada e YA DIVERGENTE pese a existir helper (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (mantenibilidad; **solo display, no dinero**).
+- **Deuda:** `backend/src/modules/vault/vault.service.ts:30` define `resolveSealedDisplay(...)` y su comentario
+  afirma que es el «MISMO resolver» que usan las 4 vistas — **es inexacto**. `catalog/sealed-catalog.service.ts:103-104`
+  e `inventory/sealed-graded.service.ts:334-335` **inline** la misma cascada de fallback en vez de importar el
+  helper, y **ya DIVERGEN**: graded usa `card?.name ?? ''` como último eslabón, mientras
+  `sealed-product.service.ts:695` usa `` `Sealed #${productId}` ``. El orden de fallback vive hoy en 4 sitios
+  distintos que pueden seguir separándose.
+- **Por qué importa:** el nombre mostrado del sellado puede diferir entre catálogo, vault, graded y producto
+  para la misma pieza (inconsistencia visible de UI). No toca dinero.
+- **Disparador / dirección de fix:** subir `resolveSealedDisplay` a `backend/src/common/` (o a `pricing`) y que
+  los **4 builders** lo consuman; el orden de fallback queda en un solo sitio, eliminando la divergencia.
+
+#### D-2 · `resolveAnchorCardId` duplicado verbatim (byte-a-byte), money-adjacent (Baja hoy, prioridad de extracción, backend)
+- **Dueño:** backend. **Severidad:** Baja hoy, pero **money-adjacent** → prioridad de extracción.
+- **Deuda:** `resolveAnchorCardId` es **idéntico byte-a-byte** en `inventory.service.ts:515` y
+  `sealed-product.service.ts:260`. El invariante de dinero de **IMP-1** («`effectiveMarketCents == null` ⟺ el
+  alta acepta el precio manual») depende de que **ambas copias ordenen igual** (`orderBy [numberPrefix, numberSort]`).
+- **Por qué importa:** **correcto hoy**, pero si una copia cambia el `orderBy` sin la otra, reaparece el
+  dead-end de IMP-1 (o su inverso): una pieza podría quedar sin poder aceptar el manual, o aceptarlo cuando no
+  debe. Al tocar dinero, el riesgo de divergencia es más caro que el de D-1.
+- **Disparador / dirección de fix:** extraer a un helper compartido (`common/`) **antes** de que alguien edite
+  una de las dos copias, para que el `orderBy` del ancla viva en un único sitio.
+
+#### D-3 · Saneo de `PendingPriceEntry` legacy (clave vieja) no automatizado (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (no bloquea publicar; filas huérfanas de ruido en M2).
+- **Deuda:** el fix de la cola M2 (commit `9b6a81b`) **detiene la creación** de filas legacy nuevas, pero las
+  entradas ya escritas con la clave vieja (`gradeKey='sealed'`, `sealedProductId=null`) por altas previas al fix
+  quedan `open` **para siempre**: `manualOverride` (`pricing.service.ts:1099`, que matchea por `gradeKey`) nunca
+  las cierra con la clave de mercado. El propio código lo reconoce como residual en `pricing.service.ts:823`.
+- **Por qué importa:** impacto bajo — la pieza **sí se publica** por la entrada de mercado; las legacy solo
+  quedan como filas huérfanas `open` que ensucian la cola M2. No bloquea nada.
+- **Disparador / dirección de fix:** script de saneo **idempotente** (o barrido puntual) que remapee/cierre las
+  entradas legacy huérfanas pertenecientes a piezas con `sealedProductId`.
