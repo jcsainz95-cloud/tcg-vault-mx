@@ -191,9 +191,13 @@ const pricingMock = (opts: { sourceOn?: boolean; refsByKey?: Record<string, numb
       }
       return map;
     }),
-    // Réplica exacta del gate H-1 real (gateSealedMarketCents): dial + priced.
-    gateSealedMarketCents: (ref: any, sourceOn: boolean) =>
-      sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
+    // Réplica exacta del gate H-1 real (gateSealedMarketCents, v1.43/IMP-C): el override manual de
+    // mercado (source='manual'/isManualOverride) sobrevive al dial; la fuente automática se gatea.
+    gateSealedMarketCents: (ref: any, sourceOn: boolean) => {
+      if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+      if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+      return sourceOn ? ref.referenceMxnCents : null;
+    },
   }) as any;
 
 const svcOf = (prisma: any, provider: any, fx = fxMock(), pricing = pricingMock()) =>

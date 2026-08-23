@@ -88,8 +88,11 @@ function build(opts: {
     // H-1 (v1.24): resolver ÚNICO del sellado. El mock NO reimplementa la lógica: el gate es la misma
     // expresión trivial del método real y `resolveSealedSalePrice` DELEGA en la pura real
     // `computeSealedSalePrice` (sin riesgo de divergencia silenciosa si la pura cambia).
-    gateSealedMarketCents: (ref: any, sourceOn: boolean) =>
-      sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
+    gateSealedMarketCents: (ref: any, sourceOn: boolean) => {
+      if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+      if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+      return sourceOn ? ref.referenceMxnCents : null;
+    },
     resolveSealedSalePrice: (item: any, ref: any, ctx: any) =>
       computeSealedSalePrice(
         item.listPriceCents,

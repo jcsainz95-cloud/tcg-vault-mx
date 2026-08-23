@@ -71,8 +71,11 @@ function build(items: any[], refs: Map<string, any>) {
       fallbackPct: 25,
       sourceOn: true,
     })),
-    gateSealedMarketCents: (ref: any, sourceOn: boolean) =>
-      sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
+    gateSealedMarketCents: (ref: any, sourceOn: boolean) => {
+      if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+      if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+      return sourceOn ? ref.referenceMxnCents : null;
+    },
   } as unknown as PricingService;
   return { prisma, pricing, svc: new VaultService(prisma, pricing) };
 }

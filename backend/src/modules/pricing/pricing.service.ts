@@ -143,6 +143,10 @@ export interface PriceInfo {
   status: 'priced' | 'pending';
   referenceMxnCents?: number;
   source?: PriceSourceStr;
+  // v1.43 (IMP-C, §4.23a): discriminante del override manual de MERCADO. `manualOverride()` siempre
+  // escribe `source='manual'` (por eso `source` basta), pero se expone el flag explícito para que el
+  // gate H-1 (`gateSealedMarketCents`) case el predicado normativo sin depender solo del string.
+  isManualOverride?: boolean;
   capturedDate?: string;
 }
 
@@ -301,6 +305,7 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
+      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -343,6 +348,7 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
+      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -394,6 +400,7 @@ export class PricingService {
         status: 'priced',
         referenceMxnCents: this.liveMxnCents(r, fx),
         source: r.source as PriceSourceStr,
+        isManualOverride: r.isManualOverride,
         capturedDate: r.capturedDate.toISOString().slice(0, 10),
       });
     }
@@ -638,15 +645,26 @@ export class PricingService {
 
   /**
    * v1.24-sealed-dedup (H-1) — GATE money-safe del MERCADO del sellado: UNA sola fuente de verdad
-   * para «¿cuánto mercado cuenta?». El `sealedMarketRef` (TCGCSV) solo aporta con el dial ENCENDIDO
-   * (`sourceOn`) y con una fila `priced` (referenceMxnCents no-null). Con el dial `off` el mercado
-   * queda INERTE (§4.23a) y devuelve `null`. Antes este predicado estaba copiado en catálogo, Compra,
-   * grid, bulk-publish y valuación (H-1: 4-5 copias divergentes).
+   * para «¿cuánto mercado cuenta?». El `sealedMarketRef` solo cuenta con una fila `priced`
+   * (`referenceMxnCents` no-null). Antes este predicado estaba copiado en catálogo, Compra, grid,
+   * bulk-publish y valuación (H-1: 4-5 copias divergentes).
+   *
+   * v1.43 (IMP-C, §4.23a — pseudocódigo normativo) — el dial `sealedPriceSource` gobierna **solo la
+   * FUENTE AUTOMÁTICA de mercado** (`source='tcgcsv'`). Un **override manual de mercado**
+   * (`isManualOverride=true` / `source='manual'`, «FIJAR PRECIO») es una decisión humana explícita y
+   * **NO lo gatea el dial**: devuelve su `referenceMxnCents` con `sourceOn` sea `true` o `false`. La
+   * fuente automática sigue gateada: con el dial `off` queda INERTE (`null`, fail-closed). Antes del
+   * fix el gate anulaba TODO mercado con `sourceOn=false` (incluido el override manual) ⇒ un sellado
+   * con «FIJAR PRECIO» y dial `off` re-caía en `PRICE_PENDING` y re-creaba el pendiente en cada
+   * re-publicación (bucle IMP-C cola↔publicar). Money-safe intacto: sin override manual y sin mercado
+   * de fuente aplicable ⇒ `null` ⇒ (sin `listPriceCents`) `PRICE_PENDING`, nunca 0.
    */
   gateSealedMarketCents(ref: PriceInfo | undefined | null, sourceOn: boolean): number | null {
-    return sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null
-      ? ref.referenceMxnCents
-      : null;
+    if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+    // Override manual de mercado: sobrevive al dial (decisión humana explícita, máxima precedencia §K).
+    if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+    // Mercado de fuente automática (tcgcsv): gateado por el dial.
+    return sourceOn ? ref.referenceMxnCents : null;
   }
 
   /**

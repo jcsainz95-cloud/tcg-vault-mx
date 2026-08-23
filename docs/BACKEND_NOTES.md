@@ -5647,9 +5647,13 @@ El seed los siembra automáticamente (loop `SETTING_DEFAULTS` en `seed.ts`/`seed
 - **`PricingService`** gana `loadSealedSpreads()` (iza spreads + `sourceOn` = dial `sealedPriceSource===tcgcsv`,
   una lectura por request), `sealedMarketGradeKeyForItem(item)`, `getSealedMarketRef(item)`,
   `computeSealedSalePriceForItem(item, marketCents)`.
-- **Gating por dial:** el `sealedMarketRef` solo cuenta como mercado si `sourceOn` (dial `tcgcsv`). Con
-  `off`, el sellado solo se vende con **override** (retro-compatible con hoy; §4.23a). Se aplica en los
-  3 call-sites.
+- **Gating por dial (fraseo corregido en v1.43 / IMP-C — ver §52.9):** el dial `sealedPriceSource`
+  gobierna **solo la FUENTE AUTOMÁTICA de mercado** (`source='tcgcsv'`): con `off` ese mercado queda
+  inerte (`gate → null`, fail-closed). **NO** aplica a un **override manual de mercado**
+  (`isManualOverride`/`source='manual'`, «FIJAR PRECIO»), que es decisión humana y sobrevive al dial.
+  Es decir, con el dial `off` el sellado se vende con (a) el **override de venta por pieza**
+  (`listPriceCents`) **o** (b) el **override manual de mercado**×spread — **no** solo con `listPriceCents`.
+  Se aplica en los 3 call-sites vía el gate único `gateSealedMarketCents` (H-1).
 - **Call-sites ramificados por `productType==='sealed'`** (mismo patrón §4.14d):
   `catalog.service.toListingDTO` (grid/Compra), `orders.service.salePriceOf` (checkout → `422 PRICE_PENDING`
   si no resuelve) e `inventory.service.bulkPublish` (§M1; la rama sealed **ya no exige** `listPriceCents`).
@@ -7091,3 +7095,45 @@ indica que prod tiene el shape **plano pristine** (3 claves), por lo que se espe
   25%×1.2M = 300000 = umbral, preservando el intent del test), y tope por solicitud (13×25000 = 325000 > cap).
 - `E2E_CARDS.highvalue.refNmCents` en `backend/prisma/e2e-fixtures.ts`: 750000 → **1200000** (para conservar
   el umbral INE exacto bajo 25%). `highvalue` solo se usa en `buylist.e2e-spec.ts` (sin ripple).
+
+## v1.43 (IMP-C) — el override manual de mercado del sellado SOBREVIVE al dial `off` (`gateSealedMarketCents`) (rama `fix/variant-composition-regression`, 2026-08-23)
+
+**Escalada por regla 9 (arquitecto dictaminó en el contrato v1.43, §M2/§M10; norma en ARCHITECTURE §4.23a con
+pseudocódigo).** Corrige el fraseo viejo de §52.3 («con off solo se vende con override [de venta]»): el dial
+gobierna **solo la FUENTE AUTOMÁTICA** (`source='tcgcsv'`), no el override manual de mercado.
+
+- **Síntoma (bucle cola↔publicar, gate E2E):** con `sealedPriceSource=off`, publicar un sellado sin precio
+  escalaba a `PRICE_PENDING`. El admin fijaba «FIJAR PRECIO» (override manual de mercado, `PriceReference
+  isManualOverride=true`/`source='manual'` en `sealed:tcg:<productId>`) y vaciaba la cola. Pero **re-publicar
+  volvía a `PRICE_PENDING` y RE-CREABA la entrada** — el gate `gateSealedMarketCents` anulaba **todo** mercado
+  con `sourceOn=false`, incluido el override manual.
+- **Causa raíz (H-1, una sola línea de verdad):** `gateSealedMarketCents(ref, sourceOn)` devolvía
+  `sourceOn && priced && cents!=null ? cents : null` — no distinguía la fuente. Como es la **única** fuente de
+  verdad que consumen los 4 call-sites, el bug se manifestaba en los 4.
+- **Fix — predicado corregido (`pricing.service.ts`, ~L646):**
+  - Antes: `return sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;`
+  - Después (pseudocódigo normativo §4.23a):
+    ```
+    if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+    if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents; // override manual: sobrevive al dial
+    return sourceOn ? ref.referenceMxnCents : null;                                             // fuente automática: gateada por el dial
+    ```
+- **Discriminante en `PriceInfo`:** ya exponía `source?` (y `manualOverride()` siempre escribe `source='manual'`,
+  así que `source` basta). Se añadió además `isManualOverride?: boolean` a `PriceInfo` y se pobló en
+  `getReference`/`getReferenceByCardProduct`/`getReferencesBatch` (el `PRICE_REF_SELECT` ya lo traía) para casar
+  el pseudocódigo literal. **Sin migración** (lógica pura; el flag ya vivía en `PriceReference`).
+- **4 consumidores arreglados de golpe** (comparten el gate H-1): `catalog.service.toListingDTO`,
+  `orders.service.salePriceOf`, `sealed-catalog.service.loadPricedSealed` (grid) e
+  `inventory.service.bulkPublish`. (También `vault.service.sealedTab` y `resolveSealedAportacionMarket`, que ya
+  llamaban el mismo gate.)
+- **Precedencia §K intacta:** override de VENTA por pieza (`listPriceCents`) verbatim #1 > override manual de
+  MERCADO (#2/#3, alimenta `mercado×spread`) > mercado automático (gateado por el dial). Money-safe: sin
+  `listPriceCents`, sin override manual y sin mercado automático aplicable ⇒ `PRICE_PENDING`, **nunca 0**.
+- **Tests (`test/sealed-price-resolver.spec.ts`):** (1) unitario del gate con los 4 combos
+  `{manual, tcgcsv} × {sourceOn true/false}` (manual sobrevive en ambos; tcgcsv solo con `on`) + variante
+  «solo `source='manual'` sin `isManualOverride`»; (2) **bucle cerrado** con prisma COMPARTIDO real entre
+  `PricingService` e `InventoryService`: dial `off` → `bulkPublish` sellado sin precio → `PRICE_PENDING`
+  (1 pendiente open) → `manualOverride` (resuelve el pendiente) → re-`bulkPublish` → `sellable`/`ok:true`,
+  `salePriceCents=118000` (=100000×1.18, nunca 0), **sin re-crear el pendiente** (`create` no se re-llama).
+  Los mocks-réplica del gate en `test/{catalog,sealed-catalog,sealed-product.service,vault-sealed}.spec.ts` se
+  actualizaron al nuevo predicado (seguían siendo «réplica exacta»).
