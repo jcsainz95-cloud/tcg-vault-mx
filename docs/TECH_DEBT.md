@@ -2943,7 +2943,18 @@
   + referencias al **inicio del lote** (batch por `cardId IN (...)` + map en memoria), mismo patrón
   que `getReferencesBatch`.
 
-### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (RESUELTA v1.39/M-39, P-38)
+### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (RESUELTA v1.39/M-39 + display cliente H-P38-1, P-38)
+- **Estado:** **RESUELTA DE PUNTA A PUNTA** — modelo + alta (v1.39/M-39) **y display de cliente cableado en
+  H-P38-1**. La cura de raíz (entidad `SealedProduct`, snapshot M-37) llegó al modelo/alta en M-39, pero el
+  techlead detectó en P-38 (**H-P38-1**) que las **superficies de cliente** seguían pintando el single ancla
+  («Tropius») en vez de la identidad real del `SealedProduct`. **H-P38-1 (backend, RESUELTA):** se cableó la
+  cascada de display de §4.34a (`SealedProduct` vivo → snapshot congelado `sealedProductName`/`sealedImageUrl`
+  de M-37 → `Card` ancla) en los **dos DTO-builders de cliente**: `catalog/sealed-catalog.service.ts`
+  (`toGroupDTO`, grid + ficha de Compra) y `vault/vault.service.ts` (`sealedTab`, grid de bóveda sellada).
+  Ambos usan `sealedProductName ?? card.name` e `sealedImageUrl ?? card.imageSmallUrl` (snapshot congelado,
+  estable y money-safe: solo display, no toca precios ni valuación). Tests: `test/sealed-catalog.spec.ts` y
+  `test/vault-sealed.spec.ts` («H-P38-1: el display usa la IDENTIDAD del SealedProduct, NO el single ancla»).
+  El guardarraíl H9 (singles excluyen sellado) y el agrupado por producto+condición quedan intactos.
 - **✅ RESUELTA (CURA DE RAÍZ) — v1.39-sealed-product-module (M-39, P-38, ARCHITECTURE §4.34):** se
   materializó la entidad de catálogo **`SealedProduct`** (identidad propia por presentación sellada de un
   set, llaveada por `tcgplayerProductId @unique`) + la tabla de enlace **`SealedSetGroup`** (1 set → N
@@ -2983,6 +2994,48 @@
   por hermanos **sigue viva** solo para altas de sellado SIN mapeo (compatibilidad). La **entidad
   `SealedProduct` de catálogo** (cura de raíz del ancla-a-single) queda **DIFERIDA** explícitamente
   (ARCHITECTURE §4.32d): NO se hizo en este cambio. SB-D5 **permanece abierta** (Media).
+
+### H-P38-2 · Override manual escribe `PriceReference`/audit fuera de la transacción del batch (Media, money) (backend)
+- **Dueño:** backend. **Severidad:** Media (money). **Estado:** ABIERTA (no bloqueante; enrutada por techlead en P-38).
+- **Síntoma:** dentro del `$transaction` del batch de alta, el override manual escribe `PriceReference` y el
+  registro de auditoría con `this.prisma` (cliente NO transaccional) en vez del `tx` del batch. Si el batch
+  hace **rollback**, esas escrituras del override **quedan huérfanas** (persisten aunque el alta se revierta):
+  referencia de precio y/o audit sin item padre → inconsistencia money.
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:745` (usar el cliente `tx` del `$transaction`
+  en vez de `this.prisma` para las escrituras del override dentro del batch).
+- **Disparador:** próximo toque al alta/override de inventario. Fix: propagar `tx` a la escritura de
+  `PriceReference`/audit del override.
+
+### H-P38-3 · `subtype` sin match cae a `'collection'` en vez de `→ null` (spec) (arquitecto + backend)
+- **Dueño:** **arquitecto** (decisión de spec) + backend (implementación). **Severidad:** Media. **Estado:** ABIERTA.
+- **Síntoma:** al derivar el `sealedSubtype` desde TCGCSV, un subtype **sin match** resuelve a `'collection'`
+  cuando la spec dice **`→ null`**. Divergencia código↔contrato; puede etiquetar mal presentaciones no
+  reconocidas. Ruta: lógica de mapeo de subtype (`sealed-subtype.ts` / `sealed-product.service.ts`).
+- **Disparador:** el arquitecto confirma el valor canónico (`null` vs `'collection'`) en el contrato; backend
+  ajusta el default del mapeo.
+
+### H-P38-4 · Check-then-create no atómico en `upsertSealedProduct`/`ensureSetGroup`/`linkGroup` (backend)
+- **Dueño:** backend. **Severidad:** Media (concurrencia). **Estado:** ABIERTA.
+- **Síntoma:** los helpers `upsertSealedProduct`, `ensureSetGroup` y `linkGroup` hacen **check-then-create**
+  (findFirst/findUnique seguido de create) sin atomicidad → bajo concurrencia (dos syncs/altas simultáneos)
+  pueden intentar crear el mismo registro y romper por unique, o duplicar el enlace. Ruta:
+  `backend/src/modules/inventory/sealed-product.service.ts`.
+- **Disparador:** próximo toque al módulo de sellado. Fix: `upsert` atómico / `create … onConflict` /
+  `$transaction` con unique constraint como guardia.
+
+### H-P38-5 · Frontend manda `cardId = SealedProduct.id` como relleno (frontend)
+- **Dueño:** **frontend**. **Severidad:** Media. **Estado:** ABIERTA (enrutada al dueño frontend).
+- **Síntoma:** el cliente de captura envía `cardId` poblado con el `SealedProduct.id` como valor de relleno
+  (placeholder) cuando debería mandar la identidad correcta (o dejar que el backend derive la `cardId` ancla
+  desde `sealedProductId`). Riesgo de confundir identidades en el alta. Fix: enviar `sealedProductId` y no
+  reutilizar su id como `cardId`.
+
+### H-P38-6 · Nota de migración `ADD VALUE` (enum) para el runbook de devops (devops)
+- **Dueño:** **devops**. **Severidad:** Baja (operacional). **Estado:** ABIERTA (nota de runbook).
+- **Síntoma/nota:** la migración de sellado usa `ALTER TYPE … ADD VALUE` (nuevo valor de enum). `ADD VALUE`
+  **no corre dentro de un bloque transaccional** en Postgres y el nuevo valor no es usable en la misma
+  transacción que lo agrega → documentar en el runbook de deploy (orden de migración + verificación) para
+  evitar fallos de despliegue/rollback. Fix: nota en `docs/DEVOPS_NOTES.md` (runbook de migración de enums).
 
 ### H9 · Ancla-a-single (P-35) expone sellado en la ficha del single — MITIGADA por guardarraíl `productType` (ligada a SB-D5) (backend + arquitecto)
 - **Dueño:** backend (guardarraíl) + **arquitecto** (ubicación final del filtro). **Severidad:** Media.

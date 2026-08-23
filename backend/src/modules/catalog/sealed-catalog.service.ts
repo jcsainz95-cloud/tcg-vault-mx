@@ -96,9 +96,12 @@ export class SealedCatalogService {
     return {
       representativeItemId: item.id,
       card: toCardDTO(item.card),
-      // TCGCSV no persiste imagen propia → se usa la imagen de catálogo de la Card (remota, pokemontcg.io).
-      productName: item.card.name,
-      imageUrl: item.card.imageSmallUrl ?? null,
+      // H-P38-1 (§4.34a): el display de sellado resuelve en CASCADA la identidad real del `SealedProduct`
+      // → snapshot congelado por-pieza (`sealedProductName`/`sealedImageUrl`, M-37) → `Card` ancla. El
+      // snapshot es fuente estable y money-safe (solo display; no toca precios); así el grid pinta
+      // «… Elite Trainer Box» con su imagen y NO el single ancla («Tropius»).
+      productName: item.sealedProductName ?? item.card.name,
+      imageUrl: item.sealedImageUrl ?? item.card.imageSmallUrl ?? null,
       sealedSubtype: (item.sealedSubtype ?? null) as SealedSubtype | null,
       sealedCondition: (item.sealedCondition ?? 'mint') as SealedCondition,
       availableCount: members.length,

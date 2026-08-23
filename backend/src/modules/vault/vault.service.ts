@@ -287,8 +287,11 @@ export class VaultService {
       else pendingPriceCount += count; // piezas sin mercado EXCLUIDAS del total y CONTADAS (§3)
       return {
         card: toCardDTO(rep.card, pricedByCard.get(rep.cardId)),
-        productName: rep.card.name,
-        imageUrl: rep.card.imageSmallUrl ?? null,
+        // H-P38-1 (§4.34a): cascada de display de sellado — `SealedProduct` (identidad viva) → snapshot
+        // congelado por-pieza (`sealedProductName`/`sealedImageUrl`, M-37) → `Card` ancla. Money-safe:
+        // solo display; la valuación de arriba no cambia. El grid de bóveda pinta el ETB real, no «Tropius».
+        productName: rep.sealedProductName ?? rep.card.name,
+        imageUrl: rep.sealedImageUrl ?? rep.card.imageSmallUrl ?? null,
         sealedSubtype: (rep.sealedSubtype ?? null) as SealedSubtype | null,
         sealedCondition: (rep.sealedCondition ?? 'mint') as SealedCondition,
         count,

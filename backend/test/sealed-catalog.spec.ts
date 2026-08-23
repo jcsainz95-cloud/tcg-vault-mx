@@ -46,6 +46,10 @@ function sealedItem(over: Partial<any> = {}) {
     listPriceCents: null,
     tcgplayerProductId: null,
     ownershipStatus: null,
+    // M-37 snapshot congelado por-pieza (identidad real del SealedProduct); null → cae a la Card ancla.
+    sealedProductName: null,
+    sealedImageUrl: null,
+    sealedProductId: null,
     createdAt: new Date('2026-08-01T00:00:00Z'),
     card: card(),
     ...over,
@@ -127,6 +131,47 @@ describe('SealedCatalogService.listSealed — grid agregado por producto+condici
     expect(g.priceSource).toBe('override');
     expect(g.sealedCondition).toBe('mint');
     expect(g.imageUrl).toBe('https://img/small.png');
+  });
+
+  it('H-P38-1: el display usa la IDENTIDAD del SealedProduct (snapshot), NO el single ancla («Tropius»)', async () => {
+    // La Card ancla es un single («Tropius»); el snapshot M-37 congela la identidad real del ETB.
+    const items = [
+      sealedItem({
+        id: 'a',
+        tcgplayerProductId: 100,
+        sealedSubtype: 'etb',
+        listPriceCents: 80000,
+        sealedProductName: 'Surging Sparks Elite Trainer Box',
+        sealedImageUrl: 'https://img/etb.png',
+        card: card({ name: 'Tropius', imageSmallUrl: 'https://img/tropius.png' }),
+      }),
+    ];
+    const { svc } = build({ items });
+    const res = await svc.listSealed({ page: 1, pageSize: 20 });
+    expect(res.total).toBe(1);
+    const g = res.data[0];
+    expect(g.productName).toBe('Surging Sparks Elite Trainer Box');
+    expect(g.imageUrl).toBe('https://img/etb.png');
+    // Guardarraíl: jamás el nombre/imagen del single ancla.
+    expect(g.productName).not.toBe('Tropius');
+    expect(g.imageUrl).not.toBe('https://img/tropius.png');
+  });
+
+  it('H-P38-1: sin snapshot (legacy) el display CAE a la Card ancla (fallback de cascada)', async () => {
+    const items = [
+      sealedItem({
+        id: 'a',
+        tcgplayerProductId: 100,
+        listPriceCents: 50000,
+        sealedProductName: null,
+        sealedImageUrl: null,
+        card: card({ name: 'Booster Box', imageSmallUrl: 'https://img/bb.png' }),
+      }),
+    ];
+    const { svc } = build({ items });
+    const res = await svc.listSealed({ page: 1, pageSize: 20 });
+    expect(res.data[0].productName).toBe('Booster Box');
+    expect(res.data[0].imageUrl).toBe('https://img/bb.png');
   });
 
   it('la CONDICIÓN separa grupos (mint y minor_box_damage del mismo producto → 2 tarjetas)', async () => {
