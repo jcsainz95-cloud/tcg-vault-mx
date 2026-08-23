@@ -5714,3 +5714,52 @@ no cambia, CTA «Dar de baja 1» operativo) y multi-pieza (3 → + sube 1→3 y 
 − baja 3→1 y se deshabilita en el piso).
 
 **Verde:** `vitest run` **73 archivos / 595 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
+---
+
+## P-39 · Imagen de alta resolución en superficies prominentes + P-40 · Acabado visible
+
+Ambos ajustes son **aditivos** sobre el rediseño ya mergeado (no rediseño): conservan tokens,
+tipografía y layout del makeover.
+
+### P-39 · `imageLargeUrl` en las vistas prominentes (fallback a `imageSmallUrl`)
+El contrato **ya** expone las dos URLs en `CardDTO` (`imageSmallUrl`, `imageLargeUrl`), y
+`GroupedListingDTO.card` es un `CardDTO`, así que ambas ya viajaban al front. No hubo cambio de
+contrato ni de tipos.
+
+- **Featured del home (`_home/FeaturedCarousel.tsx`):** las DOS tejas (hero grande y las numeradas
+  secundarias) pasan de `imageSmallUrl` a `imageLargeUrl ?? imageSmallUrl`. Son piezas de showcase
+  prominentes, no un grid denso.
+- **Ficha de la carta (`catalog/[cardId]/CardDetailView.tsx`):** ya usaba `imageLargeUrl`; se añadió
+  el fallback `?? imageSmallUrl` por robustez (nunca imagen rota si el backend emite null).
+- **Grid del catálogo (`catalog/CatalogTile.tsx`): se CONSERVA `imageSmallUrl`.**
+  **Decisión small/large (documentada):** el grid del catálogo es **denso** (muchas tejas por
+  viewport); mantener la imagen chica ahorra ancho de banda y acelera el primer render. La alta
+  resolución se reserva para superficies prominentes (featured y ficha). Comentario in-code en la teja.
+- **Fallback:** en featured y ficha se usa `imageLargeUrl ?? imageSmallUrl` (si `imageLargeUrl` es
+  null cae a la chica). `eslint` (solo `next/core-web-vitals`) no marca el `??` sobre tipo no-nulo.
+
+### P-40 · Etiqueta legible de acabado (Normal / Reverse Holo / Holofoil)
+- Las claves i18n **ya existían** (`finish.normal`, `finish.reverse_holo`, `finish.holofoil`, etc. en
+  `messages/{es,en}.json`); no se agregó nada a los mensajes.
+- **Nuevo componente `_shared/FinishLabel.tsx`:** etiqueta discreta (renglón mono muted, NO pastilla
+  con caja — respeta la dirección 5a del rediseño que sustituyó las pastillas por texto mono).
+  Devuelve `null` para `productType === 'sealed'` (sellado no tiene acabado de carta); defensivo,
+  porque `GroupedListingDTO.productType` es `raw|graded` por contrato.
+- **Featured (`FeaturedCarousel.tsx`): era el único hueco real** — las tejas no mostraban acabado.
+  Se añadió `<FinishLabel>` en ambas tejas.
+- **Catálogo (`CatalogTile.tsx`) y ficha (`CardDetailView.tsx`): YA mostraban el acabado** y se
+  dejaron como estaban para no duplicar/ensuciar:
+  - `CatalogTile` lo pinta vía `ListingSpec` (`RAW · NM · HOLOFOIL`, último segmento i18n).
+  - `CardDetailView` lo pinta vía el `Fact` «Acabado» (primario) y el `ListingSpec` de cada grupo.
+  No se tocó `ListingSpec` (vive en `components/domain/`, zona compartida de otros streams).
+
+### Tests añadidos
+- `_home/FeaturedCarousel.test.tsx` (nuevo): hero pinta `imageLargeUrl`; fallback a `imageSmallUrl`
+  cuando `imageLargeUrl` es null; etiqueta de acabado (Reverse Holo / Holofoil) presente.
+- `catalog/CatalogTile.test.tsx` (nuevo): el grid conserva `imageSmallUrl`; el acabado (Holofoil /
+  Reverse Holo) aparece en la ficha técnica de la teja.
+
+**Money-safe:** cambios puramente de display; no se tocan precios ni lógica de carrito.
+
+**Verde:** `vitest run` **75 archivos / 601 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.

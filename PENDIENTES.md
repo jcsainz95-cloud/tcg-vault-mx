@@ -75,6 +75,16 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 - **Cierre:** basta **click fuera del pop-up** (en el backdrop) para cerrarlo (+ Esc por a11y).
 - **Roles:** frontend (modal de detalle, reusa `imageLargeUrl` de P-39). **Va junto con P-42** (misma
   interacción de la carta en el cotizador), respetando el design system del rediseño.
+### P-44 · Mostrar la RAREZA en todas las vistas de binder/catálogo
+- **Pedido del humano (2026-08-23, prod):** en todas las vistas de binder/catálogo, mostrar la **rareza**
+  de la carta (Illustration Rare, Full Art, Special Illustration Rare, Hyper Rare…), no solo el acabado.
+  Hoy las tejas muestran `#num · ACABADO` pero no la rareza.
+- **Alcance:** catálogo storefront (`CatalogTile`), cotizador, ficha, binder admin (M1/Master Set). El
+  `CardDTO` ya trae `rarity`; verificar que todas las tejas lo reciben (si alguna usa un DTO sin rareza,
+  pequeño add de backend). Va con P-40 (misma familia de etiqueta en la teja).
+- **Roles:** frontend (+ backend si falta exponer rarity en algún DTO). Respetar el visual del rediseño.
+
+### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
   social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.
 

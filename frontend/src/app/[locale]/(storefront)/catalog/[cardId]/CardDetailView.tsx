@@ -176,8 +176,9 @@ function Detail({
       <div className="grid lg:grid-cols-2">
         {/* El arte contra su pozo de papel, a media pantalla. */}
         <div className="flex items-center justify-center border-b border-border bg-surface-2 px-6 py-10 lg:border-b-0 lg:border-r lg:px-11 lg:py-14">
-          {/* imagen de catálogo remota de pokemontcg.io (v1.2, sin fotos propias) */}
-          <CardImage src={card.imageLargeUrl} alt={card.name} className="w-full max-w-[420px] bg-transparent p-0" />
+          {/* imagen de catálogo remota de pokemontcg.io (v1.2, sin fotos propias).
+              P-39: la ficha es una vista prominente ⇒ alta resolución; fallback a la chica si null. */}
+          <CardImage src={card.imageLargeUrl ?? card.imageSmallUrl} alt={card.name} className="w-full max-w-[420px] bg-transparent p-0" />
         </div>
 
         <div className="gutter py-10 lg:py-14">

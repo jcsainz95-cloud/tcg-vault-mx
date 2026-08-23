@@ -14,6 +14,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Shelf } from '../_shared/Shelf';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
+import { FinishLabel } from '../_shared/FinishLabel';
 import { cn } from '@/lib/cn';
 
 const FEATURED = 8;
@@ -151,7 +152,8 @@ export function FeaturedCarousel() {
                     href={`/catalog/${l.card.id}`}
                     className="w-[236px] shrink-0 snap-start lg:w-[400px]"
                   >
-                    <CardImage src={l.card.imageSmallUrl} alt={l.card.name} />
+                    {/* P-39: teja destacada grande ⇒ imagen de alta resolución (fallback a la chica si null). */}
+                    <CardImage src={l.card.imageLargeUrl ?? l.card.imageSmallUrl} alt={l.card.name} />
                     <div className="mt-3 flex flex-col gap-2 lg:mt-[18px] lg:flex-row lg:items-end lg:justify-between lg:gap-5">
                       <div className="min-w-0">
                         <p lang="en" className="font-serif text-[17px] leading-[1.25] text-text lg:text-[26px] lg:leading-[1.2]">
@@ -160,6 +162,8 @@ export function FeaturedCarousel() {
                         <p lang="en" className="mt-2 font-mono text-[11px] leading-snug text-muted">
                           {tileMeta(l)}
                         </p>
+                        {/* P-40: acabado legible (Normal / Reverse Holo / Holofoil); sellado no aplica (grupos = raw|graded). */}
+                        <FinishLabel finish={l.finish} productType={l.productType} className="mt-2" />
                       </div>
                       <div className="shrink-0 lg:text-right">
                         <TilePrice l={l} locale={locale} big />
@@ -173,7 +177,8 @@ export function FeaturedCarousel() {
                     href={`/catalog/${l.card.id}`}
                     className="w-[160px] shrink-0 snap-start lg:w-[268px]"
                   >
-                    <CardImage src={l.card.imageSmallUrl} alt={l.card.name} />
+                    {/* P-39: teja destacada (showcase prominente, no grid denso) ⇒ alta resolución con fallback. */}
+                    <CardImage src={l.card.imageLargeUrl ?? l.card.imageSmallUrl} alt={l.card.name} />
                     <div className="mt-3 flex items-baseline gap-2 lg:mt-[15px]">
                       {/* Numeración decorativa/orientadora (§20.3): el orden real lo da el DOM. */}
                       <span aria-hidden className="font-mono text-[10px] leading-none text-accent">
@@ -186,6 +191,8 @@ export function FeaturedCarousel() {
                     <p lang="en" className="mt-1.5 font-mono text-[11px] leading-snug text-muted">
                       {tileMeta(l)}
                     </p>
+                    {/* P-40: acabado legible bajo el renglón mono de set · número. */}
+                    <FinishLabel finish={l.finish} productType={l.productType} className="mt-1.5" />
                     <TilePrice l={l} locale={locale} />
                     <StockBadge variant={stockVariantForSingle(l.stockCount)} count={l.stockCount} className="mt-1.5" />
                   </Link>

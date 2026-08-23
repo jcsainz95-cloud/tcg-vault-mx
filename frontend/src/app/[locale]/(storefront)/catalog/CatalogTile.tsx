@@ -49,7 +49,10 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
   return (
     <div className="flex flex-col">
       <Link href={href} className="block">
-        {/* imagen de catálogo remota (v1.2, sin fotos propias); sellado usa object-contain */}
+        {/* imagen de catálogo remota (v1.2, sin fotos propias); sellado usa object-contain.
+            P-39: el grid del catálogo es DENSO (muchas tejas por viewport) ⇒ se conserva la
+            imagen CHICA (imageSmallUrl) por performance/ancho de banda. La alta resolución se
+            reserva para superficies prominentes (featured del home y ficha de la carta). */}
         <CardImage src={card.imageSmallUrl} alt={card.name} />
       </Link>
 
