@@ -18,6 +18,51 @@ function pricingStub(): PricingService {
   } as unknown as PricingService;
 }
 
+/**
+ * v1.40 (Enmienda B, P-41) — resuelve UNA clave del `orderBy` de Prisma contra una fila: baja por la
+ * relación (`{ set: { releaseDate: ... } }`) hasta topar con el sentido (`'asc'|'desc'`) o con la forma
+ * `{ sort, nulls }` (usada por el desempate por set más nuevo).
+ */
+function resolveOrderKey(row: any, key: any): { val: any; dir: 1 | -1; nullsLast: boolean } {
+  let node: any = key;
+  let val: any = row;
+  while (node && typeof node === 'object' && !('sort' in node)) {
+    const prop = Object.keys(node)[0];
+    val = val == null ? null : val[prop];
+    node = node[prop];
+  }
+  if (node && typeof node === 'object' && 'sort' in node) {
+    return { val, dir: node.sort === 'desc' ? -1 : 1, nullsLast: node.nulls === 'last' };
+  }
+  return { val, dir: node === 'desc' ? -1 : 1, nullsLast: false };
+}
+
+/**
+ * Aplicador MÍNIMO y ESTABLE del `orderBy` de Prisma para PROBAR el orden de extremo a extremo a
+ * través de `searchAllCards` con un stub (Prisma haría este sort en la BD). Honra `nulls: 'last'`
+ * para la clave que lo declare. Así el test verifica el RESULTADO (qué carta sale primero), no solo
+ * la forma del `orderBy`.
+ */
+function applyOrderBy<T>(rows: T[], orderBy: any[]): T[] {
+  return rows
+    .map((r, i) => [r, i] as [T, number])
+    .sort(([a, ia], [b, ib]) => {
+      for (const key of orderBy) {
+        const ka = resolveOrderKey(a, key);
+        const kb = resolveOrderKey(b, key);
+        if (ka.val == null || kb.val == null) {
+          if (ka.val == null && kb.val == null) continue;
+          if (ka.val == null) return ka.nullsLast ? 1 : -1;
+          return ka.nullsLast ? -1 : 1;
+        }
+        if (ka.val < kb.val) return -ka.dir;
+        if (ka.val > kb.val) return ka.dir;
+      }
+      return ia - ib; // desempate estable (orden de entrada)
+    })
+    .map(([r]) => r);
+}
+
 function cardRow(over: Partial<any> = {}) {
   return {
     id: 'c1',
@@ -109,7 +154,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
     ]);
   });
 
-  it('sin setId → orden GLOBAL normativo (name, setId, numberPrefix, numberSort, id) en la BD', async () => {
+  it('sin setId → orden GLOBAL normativo (name, set.releaseDate desc nulls-last, numberPrefix, numberSort, id)', async () => {
     let capturedArgs: any;
     const prisma: any = {
       card: {
@@ -123,16 +168,55 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
     const svc = new CatalogService(prisma as PrismaService, pricingStub());
     await svc.searchAllCards({ q: 'pika', page: 1, pageSize: 20 });
 
-    // v1.22 (§4.22b): búsqueda de texto en varios sets → nombre primero, natural dentro; el
-    // {id:'asc'} final es el desempate TOTAL que hace determinista la paginación.
+    // v1.40 (§4.22b, Enmienda B): búsqueda de texto en varios sets → nombre primero; el desempate tras
+    // `name` pasa de `{ setId: 'asc' }` (uuid ALEATORIO) a `{ set: { releaseDate: 'desc', nulls: 'last' } }`
+    // ⇒ set más nuevo primero, `releaseDate = null` al final. El `{ id: 'asc' }` final sigue siendo el
+    // desempate TOTAL que hace determinista la paginación.
     expect(capturedArgs.orderBy).toEqual(CARD_ORDER_BY_GLOBAL);
     expect(capturedArgs.orderBy).toEqual([
       { name: 'asc' },
-      { setId: 'asc' },
+      { set: { releaseDate: { sort: 'desc', nulls: 'last' } } },
       { numberPrefix: 'asc' },
       { numberSort: 'asc' },
       { id: 'asc' },
     ]);
+  });
+
+  it('N variantes del mismo nombre en sets con releaseDate distinta → la del set MÁS RECIENTE sale primero', async () => {
+    // 3 «Tropius» reimpresas en sets con fechas distintas (orden de entrada deliberadamente barajado).
+    const rows = [
+      cardRow({ id: 'trop-old', name: 'Tropius', number: '5', numberPrefix: '', numberSort: 5, setId: 'ex-old', set: { id: 'ex-old', name: 'EmeraldOld', releaseDate: '2005/05/09' } }),
+      cardRow({ id: 'trop-new', name: 'Tropius', number: '7', numberPrefix: '', numberSort: 7, setId: 'sv8', set: { id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' } }),
+      cardRow({ id: 'trop-mid', name: 'Tropius', number: '3', numberPrefix: '', numberSort: 3, setId: 'swsh1', set: { id: 'swsh1', name: 'Sword & Shield', releaseDate: '2020/02/07' } }),
+    ];
+    const prisma: any = {
+      card: {
+        findMany: jest.fn(async (args: any) => applyOrderBy(rows, args.orderBy)),
+        count: jest.fn(async () => rows.length),
+      },
+    };
+    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const res = await svc.searchAllCards({ q: 'tropius', page: 1, pageSize: 20 });
+    // Mismo `name` → decide `set.releaseDate` desc: 2024 > 2020 > 2005. La impresión nueva encabeza.
+    expect(res.data.map((c) => c.id)).toEqual(['trop-new', 'trop-mid', 'trop-old']);
+  });
+
+  it('una variante en un set con releaseDate=null queda al FINAL del grupo del mismo nombre', async () => {
+    const rows = [
+      cardRow({ id: 'trop-null', name: 'Tropius', number: '9', numberPrefix: '', numberSort: 9, setId: 'promo', set: { id: 'promo', name: 'Promos', releaseDate: null } }),
+      cardRow({ id: 'trop-new', name: 'Tropius', number: '7', numberPrefix: '', numberSort: 7, setId: 'sv8', set: { id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' } }),
+      cardRow({ id: 'trop-old', name: 'Tropius', number: '5', numberPrefix: '', numberSort: 5, setId: 'ex-old', set: { id: 'ex-old', name: 'EmeraldOld', releaseDate: '2005/05/09' } }),
+    ];
+    const prisma: any = {
+      card: {
+        findMany: jest.fn(async (args: any) => applyOrderBy(rows, args.orderBy)),
+        count: jest.fn(async () => rows.length),
+      },
+    };
+    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const res = await svc.searchAllCards({ q: 'tropius', page: 1, pageSize: 20 });
+    // `nulls: 'last'` ⇒ el set sin fecha va al FINAL, aun teniendo el número más alto.
+    expect(res.data.map((c) => c.id)).toEqual(['trop-new', 'trop-old', 'trop-null']);
   });
 
   it('sin filtros → where vacío (todo el catálogo), skip 0', async () => {
