@@ -8,6 +8,7 @@ import { PricingService } from './pricing.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
+import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
 import { orderFinishes } from '../../common/card-order';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper } from './ppt-set-mapper.service';
@@ -147,12 +148,23 @@ export class PriceIngestService {
     // WS-A fix-ppt: resuelve `CardSet.pptSetId` (causa raíz #1) y lee los diales de scope/throttle.
     private readonly pptSetMapper: PptSetMapper,
     private readonly config: ConfigService,
+    // v1.44 (P-47, §4.35): PRIMARIO del barrido de singles por-acabado desde TCGCSV `tcgcsv_singles`.
+    // Opcional en el constructor para no forzar la actualización de los mocks de tests que no lo usan
+    // (dial != 'tcgcsv_singles' nunca lo dereferencia); en DI real SIEMPRE se inyecta.
+    private readonly tcgcsvSinglesBulk?: TcgcsvSinglesBulkPriceProvider,
   ) {}
 
   /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
   async providerFor(): Promise<BulkPriceProvider> {
     const wanted = await this.settings.getString(SettingKey.PRICE_PROVIDER);
-    const providers: BulkPriceProvider[] = [this.pptBulk, this.tcgIoBulk];
+    // v1.44 (§4.35): `tcgcsv_singles` entra como opción PRIMARIA del barrido. Se filtra `undefined`
+    // (mocks de tests que no inyectan el provider) para no reventar el `.find`.
+    const candidates: Array<BulkPriceProvider | undefined> = [
+      this.pptBulk,
+      this.tcgIoBulk,
+      this.tcgcsvSinglesBulk,
+    ];
+    const providers = candidates.filter((p): p is BulkPriceProvider => p != null);
     const chosen = providers.find((p) => p.source === wanted);
     if (!chosen) {
       this.logger.warn(`PRICE_PROVIDER="${wanted}" desconocido → fallback a pokemontcg_io (legacy).`);
@@ -317,6 +329,13 @@ export class PriceIngestService {
     opts: { manual?: boolean } = {},
   ): Promise<IngestSetResult> {
     const provider = await this.providerFor();
+    // v1.44 (P-47, §4.35): el PRIMARIO de singles reprecia SOLO por-acabado (marketPrice de TCGCSV por
+    // CardProduct+finish) y NO re-resuelve estructura. Va por un camino DEDICADO, keyed por
+    // `cardProductId`, que NO comparte el colapso `(cardId, finish)` ni el bloque snapshot/reconcile
+    // del flujo PPT/pokemontcg.io (ese bloque tocaría estructura; §4.35 lo prohíbe a diario).
+    if (provider.source === 'tcgcsv_singles') {
+      return this.ingestSinglesForSet(set, provider, fx);
+    }
     const input = await this.buildFetchInput(provider, set, opts.manual === true);
     if (input === 'skip') {
       // Set viejo sin inventario activo ni rares (scope PO): no se pide nada (ahorra créditos).
@@ -444,6 +463,70 @@ export class PriceIngestService {
       dailyLimited: result.dailyLimited,
       scope,
       dailyRemaining: result.dailyRemaining ?? null,
+    };
+  }
+
+  /**
+   * v1.44 (P-47, §4.35) — barrido DIARIO de PRECIO por-acabado de singles desde TCGCSV
+   * `tcgcsv_singles`. El provider ya hizo el join EXACTO por `CardProduct.tcgplayerProductId` y
+   * devuelve una fila por `(cardProductId, finish, marketCents>0)`; aquí SOLO se upsertea la
+   * `PriceReference` keyed por `cardProductId` (source `tcgcsv_singles`, FX del snapshot), respetando
+   * `isManualOverride` (lo garantiza `persistMarketReference`).
+   *
+   * SEPARACIÓN ESTRUCTURA ↔ PRECIO (§4.35a): NO escribe `CardProduct.finishes` ni
+   * `Card.availableFinishes`, NO toca `pricedFinishesSnapshot`, NO llama al `FinishReconciler`. La
+   * composición sigue GATEADA a import/`--force` (§4.27d). Money-safe: un acabado sin `marketPrice`
+   * fresco en TCGCSV NO produce fila (el provider ya lo omitió) ⇒ queda «—»/PRICE_PENDING, jamás el
+   * precio de otro acabado ni un 0. La precedencia §4.27f (`sourceRank`/`isBetterRef`) hace que la
+   * fila `tcgcsv_singles` (con `cardProductId`) gane sobre cualquier residuo de PPT (`cardProductId=null`).
+   */
+  private async ingestSinglesForSet(
+    set: CardSet,
+    provider: BulkPriceProvider,
+    fx: FxSnapshot,
+  ): Promise<IngestSetResult> {
+    const result = await provider.fetchPricesForSet({ set });
+    const touchedCards = new Set<string>();
+    let priced = 0;
+    let skipped = result.skipped;
+    for (const row of result.rows) {
+      // Defensa en profundidad: el provider de singles SIEMPRE puebla ambos; sin ellos no se escribe
+      // (nunca una `PriceReference` huérfana ni una variante sin su `cardProductId` money-safe).
+      if (!row.cardId || !row.cardProductId) {
+        skipped += 1;
+        continue;
+      }
+      if (!(row.marketCents > 0)) {
+        skipped += 1;
+        continue;
+      }
+      await this.pricing.persistMarketReference(
+        row.cardId,
+        row.finish,
+        { marketCents: row.marketCents, currency: row.currency, source: 'tcgcsv_singles' },
+        fx,
+        row.cardProductId,
+      );
+      touchedCards.add(row.cardId);
+      priced += 1;
+    }
+    this.logger.log(
+      `price-ingest-set(${set.externalId}, tcgcsv_singles): ${touchedCards.size} cartas, ${priced} ` +
+        `refs por-acabado (keyed por cardProduct), ${skipped} omitidas` +
+        `${result.requestOk ? '' : ' [fetch FALLÓ → 0 filas, precios previos STALE]'}. ` +
+        `Estructura NO re-resuelta (§4.35).`,
+    );
+    return {
+      setId: set.id,
+      setExternalId: set.externalId,
+      provider: provider.source,
+      cardCount: touchedCards.size,
+      priced,
+      unresolved: 0,
+      skipped,
+      dailyLimited: false,
+      scope: 'full',
+      dailyRemaining: null,
     };
   }
 

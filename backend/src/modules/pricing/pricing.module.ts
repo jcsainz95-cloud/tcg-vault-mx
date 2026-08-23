@@ -15,6 +15,11 @@ import { FxRefreshJobService } from '../../jobs/fx-refresh.service';
 import { PokemonTcgIoClient } from '../catalog/pokemontcg-io.client';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
+// v1.44 (P-47, §4.35): PRIMARIO del barrido de singles por-acabado desde TCGCSV `tcgcsv_singles`.
+// Reusa `TcgcsvCatalogClient` (cliente anti-SSRF compartido; stateless, instancia propia como el
+// resto de clientes de este módulo — no crea ciclo con CatalogModule).
+import { TcgcsvCatalogClient } from './providers/tcgcsv-singles.provider';
+import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
 // WS-A fix-ppt (2026-08-19): cliente HTTP con throttle + resolvedor de `CardSet.pptSetId`.
 import { PptApiClient } from './providers/ppt-api.client';
 import { PptSetMapper } from './ppt-set-mapper.service';
@@ -57,6 +62,9 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
     PptSetMapper,
     PokemonPriceTrackerBulkProvider,
     PokemonTcgIoBulkProvider,
+    // v1.44 (P-47, §4.35): provider primario de singles por-acabado + su cliente TCGCSV.
+    TcgcsvCatalogClient,
+    TcgcsvSinglesBulkPriceProvider,
     PriceIngestService,
     PriceIngestJobService,
     // v1.19-sealed-tcgcsv (§4.19): adapter + ingest + curación del mapeo + su job (mismo

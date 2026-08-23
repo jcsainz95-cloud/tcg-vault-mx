@@ -4,6 +4,70 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.2 P-47 (§4.35, v1.44): el barrido diario reprecia por-acabado desde TCGCSV `tcgcsv_singles` (2026-08-23)
+
+> Rama `fix/variant-composition-regression`. Continúa el fix P-47 de 0.3: tras cerrar el aplanamiento de PPT,
+> el barrido diario quedó **sin fuente por-acabado** (PPT solo produce la impresión primaria). Implementa el
+> dictamen del arquitecto (**§4.35**, contrato **v1.44**): el barrido pasa a repreciar **por-acabado** desde
+> **TCGCSV `tcgcsv_singles`**. **Money-critical. Sin migración** (M-31 ya trae `cardProductId`/`tcgcsv_singles`).
+> **Sin cambio de forma de contrato.** No toqué config/env (eso es de devops: `PRICE_PROVIDER=tcgcsv_singles`,
+> `POKEMONPRICETRACKER_FETCH_PRINTINGS=false` en staging→prod).
+
+**Qué se implementó (todo en `backend/`):**
+
+- **Provider nuevo `TcgcsvSinglesBulkPriceProvider`** (`backend/src/modules/pricing/providers/tcgcsv-singles-bulk.provider.ts`),
+  `implements BulkPriceProvider`, `source='tcgcsv_singles'`. `fetchPricesForSet({set})`: resuelve el `groupId`
+  TCGCSV (S-D3: `pptSetId` entero → groupId; si no, match ÚNICO por nombre), hace `getProducts`+`getPrices`,
+  `deriveCardProductsFromTcgcsv(...)`, y hace el **join EXACTO por `CardProduct.tcgplayerProductId`** (lee
+  `cardProduct.findMany`, NUNCA escribe estructura). Emite un `BulkPriceRow` por `(cardProductId, finish,
+  marketCents>0)` con `cardId`/`cardProductId` ya resueltos (campos nuevos opcionales en `BulkPriceRow`,
+  poblados **solo** por este provider). Money-safe: `marketPrice` null/≤0 ⇒ **omite** la fila (jamás el precio
+  de otro acabado, jamás 0); `subTypeName` desconocido ⇒ omitido (`deriveCardProductsFromTcgcsv`); `productId`
+  sin `CardProduct` local (estructura no resuelta) ⇒ omitido (dependencia §4.35b: primero `--force` del set);
+  fallo remoto ⇒ `requestOk:false` + 0 filas (precios previos **STALE**, no se borran).
+- **Registro en `providerFor()`/`PRICE_PROVIDER`** (`price-ingest.service.ts`): `tcgcsv_singles` entra a la
+  lista de providers (con filtro anti-`undefined` para los mocks de tests que no lo inyectan) y a
+  `PRICE_PROVIDER_VALUES` (`settings.constants.ts`). **El default del seed sigue en `pokemontcg_io`** — el flip
+  del dial es de devops. El provider se registra en `PricingModule` (+ su `TcgcsvCatalogClient`, cliente
+  anti-SSRF compartido, stateless).
+- **Camino DEDICADO `ingestSinglesForSet`** (`price-ingest.service.ts`): cuando `providerFor().source ===
+  'tcgcsv_singles'`, el barrido va por un método propio que **solo repreciar** — upsert de `PriceReference`
+  keyed por `cardProductId` vía `persistMarketReference(cardId, finish, {..., source:'tcgcsv_singles'}, fx,
+  cardProductId)`, FX Banxico del snapshot (USD→MXN+colchón), respetando `isManualOverride`. **NO** comparte el
+  colapso `(cardId, finish)` del flujo PPT (que perdería la granularidad por-producto de M-31) ni el bloque
+  `pricedFinishesSnapshot`+`FinishReconciler`. **NO** escribe `CardProduct.finishes`/`Card.availableFinishes`
+  (la ESTRUCTURA sigue gateada a import/`--force`, §4.27d).
+
+**Precedencia (§4.27f, confirmada, sin cambios):** `sourceRank` ya pone `tcgcsv_singles=1` (sobre PPT=2) e
+`isBetterRef` prefiere la fila con `cardProductId` no nulo. Como el reprecio TCGCSV escribe con `cardProductId`
+y PPT escribe con `cardProductId=null`, **la fila por-acabado de TCGCSV gana** sobre cualquier residuo de PPT.
+Así «PPT LIST fallback-only» se cumple por PRECEDENCIA de lectura: donde TCGCSV tiene precio, gana; PPT solo
+«se ve» donde TCGCSV no tiene fila.
+
+**Decisión de mecanismo (para techlead/QA):** el arquitecto ofreció dos vías equivalentes (§4.35b): (A) swap de
+provider en `price-ingest`, o (B) job hermano tipo `sealed-price-ingest`. Elegí **(A)** (recomendación del
+arquitecto + requisito «registrar en `providerFor()`»), PERO con un **branch dedicado** dentro de `ingestForSet`
+en vez de reusar el pipeline PPT. Razón money-safe: el pipeline PPT agrupa por `(cardId, finish)` y correría el
+bloque de estructura (`snapshot`+`reconcile`) a diario; ambos son incorrectos para singles (M-31 necesita
+granularidad por `cardProductId`, y §4.35 prohíbe re-resolver estructura a diario). El branch dedicado deja el
+flujo PPT/pokemontcg.io **100% intacto** (cero regresión) y aísla el reprecio por-cardProduct.
+
+**Tests (nuevos):**
+- `backend/test/tcgcsv-singles-bulk.provider.spec.ts` (8 casos): 3 acabados con markets DISTINTOS ⇒ 3 filas con
+  su precio; acabado sin precio (null/0) ⇒ omitido (no copia); `subTypeName` desconocido ⇒ omitido; 2 productos
+  de la misma carta ⇒ `cardProductId` distinto; producto sin `CardProduct` ⇒ omitido; fallo remoto ⇒
+  `requestOk:false`; groupId por `pptSetId` y por nombre.
+- `backend/test/price-ingest.singles.spec.ts` (9 casos): dial → provider primario; 3 upserts keyed por
+  `cardProductId` con `source='tcgcsv_singles'`+FX; **NO** escribe `availableFinishes`/snapshot ni reconcilia;
+  productos distintos de la misma carta no colisionan; fila sin `cardProductId`/`marketCents≤0` ⇒ omitida;
+  fetch fallido ⇒ nada persiste; `persistMarketReference` con `cardProductId`: FX+colchón, source correcto,
+  **override manual NO se pisa**.
+- Suite backend completa: **1701/1701 verde**, `tsc --noEmit` limpio.
+
+**No es hueco, es la separación (§4.35b):** un set **nunca resuelto** bajo M-31 se queda en PPT/`PRICE_PENDING`
+hasta un `POST /admin/catalog/sync {setId, force:true}` (runbook de devops, §4.27h) — el reprecio diario solo
+cotiza variantes cuya `CardProduct` ya existe.
+
 ## 0.3 BUG DE DINERO: el barrido por-impresión de PPT aplanaba el mercado a todos los acabados (2026-08-23)
 
 > Rama `fix/variant-composition-regression`. BUG money-critical confirmado: el barrido de precios mostraba
