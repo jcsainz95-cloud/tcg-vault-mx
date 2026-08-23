@@ -92,6 +92,7 @@ import type {
   SealedGroupDTO,
   SealedGroupDetailResponse,
   GradedEstimateDTO,
+  GradedEstimateConfigDTO,
   GroupedListingDTO,
   GroupedListingDetailResponse,
   VaultSealedResponse,
@@ -490,6 +491,42 @@ export const mockGradedEstimatesByCardId: Record<string, GradedEstimateDTO[]> = 
 
 /** Dial `highlightGrades` del servidor: qué grados pinta el badge (hoy, una sola cifra). */
 const mockGradingHighlightGrades = ['10'];
+
+/**
+ * MOCK del recurso de config `GET/PUT /admin/pricing/graded-estimates` (§M2). Los escalones son el
+ * seed de PROJECT §N.2.1 en centavos: contiguos `[min, max)`, arrancando en 0 y con el ÚLTIMO
+ * abierto (`maxValueMxnCents: null`). `enabled` es ESPEJO del dial M10 (se edita en M10, no aquí).
+ */
+export let mockGradedEstimateConfig: GradedEstimateConfigDTO = {
+  enabled: true,
+  grades: ['10', '9'],
+  highlightGrades: [...mockGradingHighlightGrades],
+  freshnessDays: 30,
+  minUpsidePct: 30,
+  gradingCostTiers: [
+    { minValueMxnCents: 0, maxValueMxnCents: 200_000, costMxnCents: 70_000 },
+    { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },
+    { minValueMxnCents: 500_000, maxValueMxnCents: 1_000_000, costMxnCents: 180_000 },
+    { minValueMxnCents: 1_000_000, maxValueMxnCents: 2_000_000, costMxnCents: 300_000 },
+    { minValueMxnCents: 2_000_000, maxValueMxnCents: 5_000_000, costMxnCents: 600_000 },
+    { minValueMxnCents: 5_000_000, maxValueMxnCents: null, costMxnCents: 1_200_000 },
+  ],
+};
+
+/**
+ * Aplica un PUT parcial al mock. Reproduce las dos cosas del contrato que la UI debe respetar:
+ * `gradingCostTiers` se **reemplaza completo** y `enabled` se **ignora** (vive en M10). La
+ * validación I1–I7 es SERVER-SIDE: el mock no la simula (el editor la previene en cliente y el
+ * backend real la aplica de verdad).
+ */
+export function setMockGradedEstimateConfig(patch: Partial<GradedEstimateConfigDTO>) {
+  const { enabled: _ignored, ...rest } = patch;
+  mockGradedEstimateConfig = {
+    ...mockGradedEstimateConfig,
+    ...rest,
+    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+  };
+}
 
 /** Resultado del gate de ROI (server-side) + orden `sort=grading_showcase`, ya resuelto. */
 export const mockGradingShowcaseCardIds = ['c-blastoise', 'c-pikachu-ir'];
@@ -2753,6 +2790,11 @@ export let mockSettings: SettingsDTO = {
   // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
   priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
+  // v1.44-graded-estimate: interruptor maestro del gancho (contrato §M10; **seed real = `off`**,
+  // fail-closed). MOCK: el fixture lo representa YA ENCENDIDO —como un staging donde el dueño lo
+  // prendió— para poder ejercitar las tres superficies sin backend. El gate y el interruptor son
+  // SERVER-SIDE y no se simulan: apagarlo aquí desde M10 no apaga las cifras del mock.
+  gradedEstimatesEnabled: 'on',
 };
 export function setMockSettings(patch: Partial<SettingsDTO>) {
   mockSettings = { ...mockSettings, ...patch };

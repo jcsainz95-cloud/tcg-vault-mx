@@ -192,16 +192,17 @@
       "eyebrow": "ESTIMATED VALUE IF GRADED",
       "updatedAt": "ESTIMATE · {date}",
       "ifGradesLabel": "IF IT GRADES",
-      "provenance": "Market values for that card as already graded by third parties. We have not assessed this copy.",
+      "microNotice": "<b>Illustrative</b> market figure (what that card has sold for once graded by third parties). <b>We have not assessed this card's condition</b> and guarantee no grade; grading and its cost are on you.",
       "hypotheticalGradeAria": "Hypothetical grade: {company} {grade}. This card is not graded."
     },
     "gradingBadge": {
-      "eyebrow": "ESTIMATED IF GRADED",
-      "figure": "{company} {grade} <approx>≈</approx> {amount}",
+      "figure": "At {company} {grade} it is worth <approx>≈</approx> {amount}",
+      "figureShort": "{company} {grade} <approx>≈</approx> {amount}",
+      "microNotice": "<b>Illustrative</b>; <b>we haven't assessed this card</b>.",
       "approx": "approximately"
     },
     "gradingNote": {
-      "callSr": "See footnote: illustrative market figure; we have not assessed this card's condition.",
+      "callSr": "See footnote.",
       "label": "NOTE ON THE ESTIMATED VALUE IF GRADED",
       "headline": "ILLUSTRATIVE INFORMATION ONLY. THIS IS NOT AN APPRAISAL OF THIS CARD.",
       "p1": "<b>The PSA 10 / PSA 9 figures are market reference data for that card model as graded by third parties.</b> They are shown to illustrate how the market behaves — nothing more.",

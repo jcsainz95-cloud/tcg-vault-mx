@@ -7,8 +7,9 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { Fact } from '../Fact';
-import { blockEstimatesOf, latestCapturedDate } from './estimates';
-import { GradingNoteCall, useGradingFootnote } from './GradingFootnote';
+import { blockEstimatesOf, oldestCapturedDate } from './estimates';
+import { useGradingFootnote } from './GradingFootnote';
+import { GradingMicroNotice } from './GradingMicroNotice';
 import { HypotheticalGradeChip } from './HypotheticalGradeChip';
 
 /**
@@ -22,7 +23,8 @@ import { HypotheticalGradeChip } from './HypotheticalGradeChip';
  *    tachado. Y nunca entra en la retícula de precio existente (mismo grid = misma categoría).
  *  - **R1, cero tokens nuevos**: las cifras van en tinta (`text-text`) y las etiquetas en muted. El
  *    único elemento con acento es la llamada `*`.
- *  - **R3**: sin nota al pie en la página (contexto ausente) el bloque **no se pinta**.
+ *  - **R3**: micro-aviso VISIBLE + llamada + nota al pie, las tres bajo la MISMA condición. Sin nota
+ *    al pie en la página (contexto ausente) el bloque **no se pinta**.
  *  - **R4**: sin dato, no hay contenedor, ni encabezado, ni regla huérfana, ni skeleton.
  *  - **R5**: aquí no hay multiplicador, ganancia, costo de gradeo ni margen — ni cifra ni palabra.
  *
@@ -46,24 +48,25 @@ export function GradingEstimateBlock({
   // R3.(3) + R4: sin nota que hospede la cifra, o sin cifra, no se renderiza NADA.
   if (!anchors || !items) return null;
 
-  const captured = latestCapturedDate(items);
+  const captured = oldestCapturedDate(items);
   const capturedLabel = captured ? formatDate(captured, locale) : undefined;
 
   return (
     <section aria-labelledby={eyebrowId} className={cn('border-t border-text', className)}>
-      {/* Eyebrows enfrentados (§20.2.1): la LLAMADA vive en el izquierdo, pegada a la ETIQUETA
-          del gancho — no se repite por cifra (§21.4a). */}
+      {/* Eyebrows enfrentados (§20.2.1). La LLAMADA ya NO vive aquí: cierra el micro-aviso de
+          abajo (§21.4a, corrección de QA) — es lo que convierte el aviso en «hay más abajo». */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pt-4">
         <h2 id={eyebrowId} className="eyebrow">
           {t('eyebrow')}
-          <GradingNoteCall variant="link" />
         </h2>
         {capturedLabel && <span className="eyebrow">{t('updatedAt', { date: capturedLabel })}</span>}
       </div>
 
-      {/* Misma retícula de dos columnas de la ficha; en móvil las celdas apilan solas (Fact). */}
+      {/* Misma retícula de dos columnas de la ficha; en móvil las celdas apilan solas (Fact).
+          §21.7: con UNA sola cifra la retícula COLAPSA a una columna a ancho completo — nada de
+          media retícula vacía ni de un `border-b` a mitad de ancho. */}
       <div
-        className="grid sm:grid-cols-2"
+        className={cn('grid', items.length > 1 && 'sm:grid-cols-2')}
         // Asociación redundante para que la ayuda técnica pueda leer el aviso completo desde la
         // cifra, sin navegar (§21.9).
         aria-describedby={anchors.noteId}
@@ -93,10 +96,13 @@ export function GradingEstimateBlock({
         ))}
       </div>
 
-      {/* Renglón de procedencia: de dónde sale la cifra Y que no evaluamos esta pieza (§21.3). */}
-      <p className="mt-3 max-w-[560px] font-mono text-[11px] leading-[1.5] text-muted">
-        {t('provenance')}
-      </p>
+      {/* MICRO-AVISO (R3.1, §21.4c) — sustituye al viejo «renglón de procedencia», que cargaba la
+          idea 2 pero NO la idea 1 y por eso no cumplía §N.5. Aquí cabe la versión corta completa:
+          de dónde sale la cifra (inciso), que es ILUSTRATIVA y que NO evaluamos esta carta. */}
+      <GradingMicroNotice
+        namespace="catalog.gradingEstimate"
+        className="mt-3 max-w-[560px] text-[12px] leading-[1.6]"
+      />
     </section>
   );
 }

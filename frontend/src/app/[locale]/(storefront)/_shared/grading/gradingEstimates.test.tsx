@@ -1,11 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
+import { expectVisibleMicroNotice, sightedText } from '@/test/grading';
 import type { GradedEstimateDTO, GroupedListingDTO } from '@/types/contract';
 import {
   badgeEstimatesOf,
   blockEstimatesOf,
-  latestCapturedDate,
+  oldestCapturedDate,
   pageHasGradingFigures,
   renderableEstimates,
 } from './estimates';
@@ -95,13 +96,18 @@ describe('gancho de grading · predicados (contrato v1.44: presencia ⇔ elegibi
     expect(pageHasGradingFigures([listing(), listing({ gradingHighlight: [est('10', 290_000)] })])).toBe(true);
   });
 
-  it('la fecha de refresco es la MÁS RECIENTE, iterando (no `list[0]`)', () => {
+  /**
+   * D5 (techlead): un solo rótulo cubre TODAS las cifras del bloque, así que la fecha honesta es la
+   * MÁS ANTIGUA. Con la más reciente, un PSA 10 de hoy junto a un PSA 9 de hace un mes rotularía
+   * ambos como «hoy» — afirmar de más en una superficie con exposición legal.
+   */
+  it('la fecha de refresco es la MÁS ANTIGUA (conservadora), iterando (no `list[0]`)', () => {
     const items = [
-      est('10', 290_000, { estimate: { status: 'priced', referenceMxnCents: 290_000, capturedDate: '2026-08-20' } }),
-      est('9', 145_000, { estimate: { status: 'priced', referenceMxnCents: 145_000, capturedDate: '2026-08-22' } }),
+      est('10', 290_000, { estimate: { status: 'priced', referenceMxnCents: 290_000, capturedDate: '2026-08-22' } }),
+      est('9', 145_000, { estimate: { status: 'priced', referenceMxnCents: 145_000, capturedDate: '2026-07-24' } }),
     ];
-    expect(latestCapturedDate(items)).toBe('2026-08-22');
-    expect(latestCapturedDate([est('10', 1, { estimate: { status: 'priced', referenceMxnCents: 1 } })])).toBeUndefined();
+    expect(oldestCapturedDate(items)).toBe('2026-07-24');
+    expect(oldestCapturedDate([est('10', 1, { estimate: { status: 'priced', referenceMxnCents: 1 } })])).toBeUndefined();
   });
 });
 
@@ -125,7 +131,8 @@ describe('§21 R3 · acoplamiento llamada ↔ nota al pie (fail-closed)', () => 
       </GradingFootnoteBoundary>,
       'es',
     );
-    expect(screen.queryByText(/ESTIMADO SI SE GRADEA/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/En PSA 10 vale/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no evaluamos esta carta/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
   });
 
@@ -164,6 +171,7 @@ describe('§21.3 · bloque de la ficha', () => {
     expect(screen.getByText('MX$1,450.00')).toBeInTheDocument();
     expect(screen.getAllByText('SI SALE')).toHaveLength(2);
     expect(screen.getByText('PSA 10')).toBeInTheDocument();
+    // D5: la fecha rotulada es la MÁS ANTIGUA de las dos cifras (aquí ambas son 22 ago).
     expect(screen.getByText('ESTIMADO · 22 ago 2026')).toBeInTheDocument();
     // El grado se anuncia como HIPOTÉTICO (§21.9), nunca como un slab.
     expect(
@@ -178,20 +186,51 @@ describe('§21.3 · bloque de la ficha', () => {
   });
 
   /**
-   * PROJECT §N.3(1) y §N.4 (que MANDAN sobre el contrato y sobre DESIGN_SYSTEM, ver CLAUDE.md ›
-   * Regla de conflicto): «si solo existe uno de los dos grados, se muestra el que exista» / la ficha
-   * «se muestra lo que haya (PSA 10 y/o PSA 9)». El contrato v1.44 lo confirma: «una carta con
-   * PSA 10 y sin PSA 9 emite un arreglo de un elemento».
-   * ⚠️ §21.7 de DESIGN_SYSTEM dice lo contrario («falta PSA 9 ⇒ Nada» en la ficha) y lo justifica
-   * citando §N.4, que en realidad dice «lo que haya». Discrepancia reportada a PO/ux-ui; mientras
-   * tanto se aplica la fuente de mayor autoridad, que además es la degradación que §21.7 ya
-   * describe como contingencia («se pinta la celda que exista en la misma retícula»).
+   * Un solo grado disponible es el comportamiento NORMAL y especificado de la ficha: PROJECT
+   * §N.3(1)/§N.4 («se muestra lo que haya»), contrato v1.44 y —desde su corrección— DESIGN_SYSTEM
+   * §21.7, que además fija la forma: la retícula COLAPSA a una columna a ancho completo (D6).
    */
-  it('un solo grado con dato pinta SU celda (PROJECT §N.3(1)); ver discrepancia con §21.7', () => {
-    renderBlock([est('10', 290_000)]);
+  it('un solo grado con dato pinta SU celda y la retícula COLAPSA a una columna (§21.7)', () => {
+    const { container } = renderBlock([est('10', 290_000)]);
     expect(screen.getAllByText('SI SALE')).toHaveLength(1);
     expect(screen.getByText('MX$2,900.00')).toBeInTheDocument();
     expect(screen.queryByText('PSA 9')).not.toBeInTheDocument();
+    // Sin `sm:grid-cols-2` no queda media retícula vacía ni un `sm:border-l` huérfano.
+    const grid = container.querySelector('section > div.grid')!;
+    expect(grid.className).not.toContain('sm:grid-cols-2');
+    expect(container.querySelector('.sm\\:border-l')).toBeNull();
+  });
+
+  it('con DOS grados la retícula sí es de dos columnas (misma del bloque de precio)', () => {
+    const { container } = renderBlock([est('10', 290_000), est('9', 145_000)]);
+    const grid = container.querySelector('section > div.grid')!;
+    expect(grid.className).toContain('sm:grid-cols-2');
+  });
+
+  /** EL BLOQUEANTE DE QA, en la ficha: el aviso sobrevive a ocultar todo lo `sr-only`. */
+  it('R3.1 · micro-aviso VISIBLE con las dos ideas, y la llamada `*` lo CIERRA (no el eyebrow)', () => {
+    const { container } = renderBlock([est('10', 290_000), est('9', 145_000)]);
+    expectVisibleMicroNotice(container as HTMLElement, 'es');
+
+    const notice = screen.getByText(/No evaluamos el estado de esta carta/i).closest('p')!;
+    expect(notice.className).not.toContain('sr-only');
+    // El asterisco vive al final del aviso y aquí SÍ es un enlace a la nota (§21.4a).
+    const call = notice.querySelector('sup')!;
+    expect(call.querySelector('a')).toHaveAttribute('href', '#nota-estimado');
+    // El eyebrow se quedó sin llamada.
+    const eyebrow = screen.getByText('VALOR ESTIMADO SI SE GRADEA');
+    expect(eyebrow.querySelector('sup')).toBeNull();
+  });
+
+  it('el aviso NO se abrevia por haber una cifra menos (§21.7)', () => {
+    const { container } = renderBlock([est('9', 145_000)]);
+    expectVisibleMicroNotice(container as HTMLElement, 'es');
+    // La etiqueta nombra el grado que ES: una ficha de un solo grado nunca es ambigua…
+    expect(screen.getByText('PSA 9')).toBeInTheDocument();
+    // …y NADA anuncia la ausencia del otro DENTRO del bloque (§N.4: el hueco tampoco se dibuja).
+    // La nota al pie sí nombra ambos grados: es el texto legal, no una celda vacía.
+    const block = container.querySelector('section:not([id])') as HTMLElement;
+    expect(sightedText(block)).not.toMatch(/PSA 10|sin dato|—/);
   });
 
   it('R5 · no aparece NINGUNA pieza del cálculo (ganancia, multiplicador, costo, margen, ROI)', () => {

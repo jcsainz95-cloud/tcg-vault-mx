@@ -101,8 +101,9 @@ describe('CatalogView · §21.4b nota al pie de Compra', () => {
     renderWithProviders(<CatalogView />, 'es');
     await screen.findAllByRole('button', { name: 'Añadir al carrito' });
 
-    // Los fixtures traen cartas destacadas (gate de ROI resuelto server-side).
-    expect(screen.getAllByText('ESTIMADO SI SE GRADEA').length).toBeGreaterThan(0);
+    // Los fixtures traen cartas destacadas (gate de ROI resuelto server-side). Cada cifra lleva su
+    // micro-aviso VISIBLE (R3.1): es el portador del aviso en el listado, donde nadie baja al pie.
+    expect(screen.getAllByText(/no evaluamos esta carta/i).length).toBeGreaterThan(0);
     expect(document.getElementById('nota-estimado')).toBeInTheDocument();
     expect(screen.getByText(/INFORMACIÓN ILUSTRATIVA/)).toBeInTheDocument();
     // La nota cierra con el enlace de regreso a los resultados (viaje de ida y vuelta).
@@ -114,7 +115,7 @@ describe('CatalogView · §21.4b nota al pie de Compra', () => {
     renderWithProviders(<CatalogView />, 'es');
     await screen.findAllByRole('button', { name: 'Añadir al carrito' });
 
-    expect(screen.queryByText('ESTIMADO SI SE GRADEA')).not.toBeInTheDocument();
+    expect(screen.queryByText(/no evaluamos esta carta/i)).not.toBeInTheDocument();
     expect(document.getElementById('nota-estimado')).toBeNull();
     expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
   });

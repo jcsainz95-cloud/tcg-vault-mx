@@ -2340,6 +2340,60 @@ export interface SettingsDTO {
    */
   priceProvider?: PriceProvider;
   catalogSyncFromDate: string;
+  /**
+   * v1.44-graded-estimate (§M10): **interruptor maestro del «gancho de grading»**
+   * (`graded_estimates_enabled`, enum `on | off`, **seed `off` fail-closed**). Con `off` el backend
+   * ni siquiera evalúa: `GET /catalog/cards*` no emite `gradingHighlight` ni `gradedEstimates`.
+   * Opcional en el tipo porque un backend anterior al v1.44 lo omite (la UI lo trata como `off`).
+   *
+   * **Encenderlo publica una afirmación comercial** cuyo disclaimer (§N.5) todavía espera el visto
+   * bueno del humano: la UI de M10 lo advierte de forma explícita antes de guardar.
+   */
+  gradedEstimatesEnabled?: OnOff;
+}
+
+/** Diales de tipo interruptor del contrato (`on | off`). */
+export type OnOff = 'on' | 'off';
+
+// ---- M2: config del «gancho de grading» (contrato §M2 `GET/PUT /admin/pricing/graded-estimates`) ----
+/**
+ * Un escalón de `gradingCostTiers`: rango **[min, max)** de VALOR DECLARADO de la carta (centavos
+ * MXN) → **costo de gradeo** puerta a puerta (cuota PSA + envío internacional + retorno asegurado +
+ * manejo), NO la cuota pelona (criterio 92(d)).
+ *
+ * `maxValueMxnCents: null` = **escalón final abierto** («de X en adelante»). El contrato exige
+ * `costMxnCents ≥ 1`: **jamás 0** — un costo subestimado es exactamente lo que promocionaría una
+ * carta en la que el comprador pierde dinero (§N.4).
+ */
+export interface GradingCostTierDTO {
+  minValueMxnCents: number;
+  maxValueMxnCents: number | null;
+  costMxnCents: number;
+}
+
+/**
+ * Config completa del gancho. **Nada de esto viaja al cliente**: gobierna qué grados se muestran,
+ * cuándo un dato deja de ser fresco y qué cartas se promocionan (gate de ROI sobre PSA 9).
+ *
+ * `enabled` es **espejo READ-ONLY** del dial M10 `gradedEstimatesEnabled` (se edita en
+ * `PUT /admin/settings`, no aquí; el `PUT` de este recurso lo IGNORA si viene).
+ */
+export interface GradedEstimateConfigDTO {
+  enabled: boolean;
+  grades: string[];
+  highlightGrades: string[];
+  freshnessDays: number;
+  minUpsidePct: number;
+  gradingCostTiers: GradingCostTierDTO[];
+}
+
+/** Body del `PUT`: parcial por campo; `gradingCostTiers` se REEMPLAZA COMPLETO cuando viene. */
+export interface GradedEstimateConfigInput {
+  grades?: string[];
+  highlightGrades?: string[];
+  freshnessDays?: number;
+  minUpsidePct?: number;
+  gradingCostTiers?: GradingCostTierDTO[];
 }
 
 export interface AuditLogDTO {

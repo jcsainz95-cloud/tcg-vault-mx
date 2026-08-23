@@ -91,8 +91,9 @@ describe('GradingGemsShelf · §21.6 vitrina «Joyas para gradear»', () => {
     expect(await screen.findByText('ILUSTRATIVO · NO EVALUAMOS LA PIEZA')).toBeInTheDocument();
     const subtitle = screen.getByText(/Cartas sin gradear/);
     expect(subtitle.textContent).not.toMatch(/margen|ROI|vale la pena|ganancia|inversión|garantiz/i);
-    // Cada entrada es la teja de Compra CON su badge, sin variación.
-    expect(screen.getByText('ESTIMADO SI SE GRADEA')).toBeInTheDocument();
+    // Cada entrada es la teja de Compra CON su badge y su MICRO-AVISO visible, sin variación: el
+    // kicker es refuerzo, NO sustituye al aviso de ninguna teja (§21.6 / R3.1).
+    expect(screen.getByText(/no evaluamos esta carta/i)).toBeInTheDocument();
   });
 
   it('sin cartas elegibles la vitrina COMPLETA no existe (ni encabezado, ni kicker, ni regla)', async () => {

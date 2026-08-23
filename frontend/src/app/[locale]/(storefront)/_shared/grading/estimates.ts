@@ -86,16 +86,23 @@ export function pageHasGradingFigures(
 }
 
 /**
- * Fecha del último refresco a mostrar en el eyebrow derecho del bloque (§21.3). Se toma la MÁS
- * RECIENTE de las cifras pintadas iterando el arreglo (nunca `list[0].estimate.capturedDate`).
- * `undefined` ⇒ el eyebrow de fecha no se pinta (nunca un guion ni una fecha inventada).
+ * Fecha del refresco a mostrar en el eyebrow derecho del bloque (§21.3). Se itera el arreglo (nunca
+ * `list[0].estimate.capturedDate`) y se toma **la MÁS ANTIGUA** de las cifras que efectivamente se
+ * pintan. `undefined` ⇒ el eyebrow de fecha no se pinta (nunca un guion ni una fecha inventada).
+ *
+ * **Por qué la más antigua y no la más reciente (deuda D5 del techlead, corregida).** Una sola
+ * fecha rotula **todas** las cifras del bloque. Con PSA 10 capturado hoy y PSA 9 hace 29 días, la
+ * más reciente diría «hoy» y estaría **cubriendo un dato de casi un mes** — en una superficie con
+ * exposición legal eso es afirmar de más. La más antigua es la lectura **conservadora** (ninguna
+ * cifra es más vieja que lo que dice el rótulo) y además coincide con el criterio del backend, que
+ * evalúa la frescura contra la captura más antigua.
  */
-export function latestCapturedDate(list: readonly GradedEstimateDTO[]): string | undefined {
-  let latest: string | undefined;
+export function oldestCapturedDate(list: readonly GradedEstimateDTO[]): string | undefined {
+  let oldest: string | undefined;
   for (const e of list) {
     const d = e.estimate?.capturedDate;
     if (!d) continue;
-    if (latest === undefined || d > latest) latest = d;
+    if (oldest === undefined || d < oldest) oldest = d;
   }
-  return latest;
+  return oldest;
 }

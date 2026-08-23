@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { expectVisibleMicroNotice } from '@/test/grading';
 import { CardDetailView } from './CardDetailView';
 import * as api from '@/lib/api';
 import type {
@@ -240,10 +241,11 @@ describe('CardDetailView · §21.3 «valor estimado si se gradea»', () => {
     // La llamada de la FICHA sí es un enlace al pie (la de la teja no: sería un ancla anidada).
     const call = document.getElementById('llamada-estimado')!.querySelector('a')!;
     expect(call).toHaveAttribute('href', '#nota-estimado');
-    expect(call).toHaveAttribute(
-      'aria-label',
-      'Ver nota al pie: cifra ilustrativa de mercado; no evaluamos el estado de esta carta.',
-    );
+    // Con el micro-aviso VISIBLE delante, el texto accesible de la llamada no duplica las dos
+    // ideas (§21.11): el lector de pantalla ya las oyó como texto real, en orden.
+    expect(call).toHaveAttribute('aria-label', 'Ver nota al pie.');
+    // …y el aviso adyacente está, visible, en el mismo párrafo que la llamada (R3.1).
+    expectVisibleMicroNotice(document.body, 'es');
   });
 
   it('R4 · sin `gradedEstimates` no se pinta nada: ni bloque, ni nota al pie, ni «pendiente»', async () => {
