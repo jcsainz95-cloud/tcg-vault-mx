@@ -2258,7 +2258,6 @@ export interface SettingsDTO {
   salesMarkupPct: number;
   stripeFeePct: number;
   stripeFeeFixedCents: number;
-  stripeFeeIvaPct: number;
   buylistCapPerRequestCents: number;
   buylistCapPerMonthCents: number;
   ineThresholdCents: number;

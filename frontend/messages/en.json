@@ -1742,7 +1742,6 @@
           "repoCapPerCardCents": "Repurchase cap per card",
           "stripeFeePct": "Stripe fee",
           "stripeFeeFixedCents": "Stripe fixed fee",
-          "stripeFeeIvaPct": "VAT on Stripe fee",
           "pricingProviderRaw": "Per-card reference provider (raw)",
           "pricingProviderGraded": "Per-card reference provider (graded)",
           "pricingProviderSealed": "Per-card reference provider (sealed)",

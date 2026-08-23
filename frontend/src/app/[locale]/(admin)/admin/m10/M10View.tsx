@@ -53,7 +53,6 @@ const DIALS: DialSpec[] = [
   { key: 'repoCapPerCardCents', kind: 'cents' },
   { key: 'stripeFeePct', kind: 'pct' },
   { key: 'stripeFeeFixedCents', kind: 'cents' },
-  { key: 'stripeFeeIvaPct', kind: 'fraction' },
   { key: 'pricingProviderRaw', kind: 'provider' },
   { key: 'pricingProviderGraded', kind: 'provider' },
   { key: 'pricingProviderSealed', kind: 'provider' },

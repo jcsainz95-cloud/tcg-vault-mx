@@ -2631,7 +2631,6 @@ export let mockSettings: SettingsDTO = {
   salesMarkupPct: 10,
   stripeFeePct: 3.6,
   stripeFeeFixedCents: 300,
-  stripeFeeIvaPct: 0.16,
   buylistCapPerRequestCents: 300000,
   buylistCapPerMonthCents: 1000000,
   ineThresholdCents: 300000,

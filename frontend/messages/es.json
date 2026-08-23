@@ -1742,7 +1742,6 @@
           "repoCapPerCardCents": "Tope de reposición por carta",
           "stripeFeePct": "Comisión Stripe",
           "stripeFeeFixedCents": "Comisión Stripe fija",
-          "stripeFeeIvaPct": "IVA sobre comisión Stripe",
           "pricingProviderRaw": "Proveedor de referencia por-carta (raw)",
           "pricingProviderGraded": "Proveedor de referencia por-carta (graded)",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
