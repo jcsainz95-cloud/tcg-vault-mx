@@ -629,6 +629,10 @@ export class MasterSetService implements OnModuleInit {
         -- [BE-46] Lista on-hand interpolada desde NOT_ON_HAND (fuente única de verdad, misma que
         -- scopeWhere/admin-vaults); el ::text castea el enum para comparar con los parámetros.
         AND ii.status::text NOT IN (${Prisma.join(NOT_ON_HAND)})
+        -- v1.42 (BLOQ-3, 4.20b): el binder cuenta SOLO SINGLES -> excluye productType='sealed' de piezas/
+        -- cartas/variantes distintas. graded SIGUE contando (copia real del single). El sellado vive en su
+        -- pestana dedicada (sealed-sets); catalogCardCount (denominador) NO cambia (no se toca aqui).
+        AND ii."productType"::text <> 'sealed'
         AND c."setId" IN (${Prisma.join(setIds)})
       GROUP BY c."setId"
     `);
@@ -707,7 +711,10 @@ export class MasterSetService implements OnModuleInit {
     const grouped = cardIds.length
       ? await this.prisma.inventoryItem.groupBy({
           by: ['cardId', 'finish'],
-          where: { cardId: { in: cardIds }, ...this.scopeWhere(scope) },
+          // v1.42 (BLOQ-3, §4.20b): countsByFinish/totalCount cuentan SOLO SINGLES — un ETB sellado anclado
+          // a esta carta ya NO la infla como `finish=normal`. `graded` sigue contando. Sellado → pestaña
+          // dedicada. El filtro va aquí (no en scopeWhere, usado por otras rutas) para no cambiar otros scopes.
+          where: { cardId: { in: cardIds }, productType: { not: 'sealed' }, ...this.scopeWhere(scope) },
           _count: { _all: true },
         })
       : [];
@@ -930,6 +937,10 @@ export class MasterSetService implements OnModuleInit {
       where: {
         ownerType: 'platform',
         status: 'listed',
+        // v1.42 (BLOQ-3b, §4.20d): `buyable` resuelve SOLO SINGLES — ya no ofrece un ETB sellado para
+        // llenar la casilla de un single (mata «Tropius» en el faltante). `graded` sigue siendo buyable.
+        // SEC-A1 intacto: solo cambia QUÉ piezas son elegibles; salePriceCents sigue server-side.
+        productType: { not: 'sealed' },
         cardId: { in: [...new Set(pairs.map((p) => p.cardId))] },
       },
       include: { card: true },

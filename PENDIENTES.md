@@ -5,20 +5,61 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 
 ---
 
-## Listo en `main` — esperando «publica» (NO en producción aún)
+## Listo en `main` — esperando «publica»
 
-Doble veredicto por-stream aprobado (QA + techlead); mergeado a `main`. Se despliega a producción
-solo cuando el humano diga **«publica»**.
+Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega a producción con «publica».
 
-- **P-30** · Publicación **ÚNICA por carta con stock** (ya no una publicación por copia) → modelo de
-  listing agrupado por `(cardId, productType, gradeKey, finish)` con `stockCount`, agregación en lectura
-  **sin migración** (`GroupedListingDTO`, contrato **v1.38**). Una teja «N disponibles» en vez de N
-  copias; add-to-cart por `units[]` cheapest-first (re-cotiza por pieza en checkout). Money-safe (precio
-  de grupo = mínimo/«desde», sin precio → pendiente, nunca 0). Frontend adaptado **sobre el rediseño**
-  (badge «Queda 1» para singles). Deuda: FE-2 «desde»/sin-IVA (ligada a H1) y H1-H4 backend en `TECH_DEBT`.
-- **Rediseño makeover 1a del storefront** → nueva capa visual del catálogo/home/ficha (componentes
-  `_shared/`, `StockBadge` con variante «Agotado», a11y/perf). Doble veredicto propio de su sesión.
-  Deuda registrada MK-D1…MK-D9 en `TECH_DEBT`.
+- **Endurecimiento inventario/sellado (2026-08-23, doble veredicto QA+techlead APROBADO + E2E ciclo completo):**
+  El gate E2E pre-publicación (stack levantado, 63+ capturas) verificó operativo de punta a punta: comprar
+  (settle certificado por suite de integración con webhook Stripe firmado; pago real staging-only), vender
+  (buylist con CLABE cifrada), **admin intake→publicar** (venta→SPEI→inventario a costo real→«N+1 en stock»),
+  y **subir sellado**→publicar→visible en Compra. Cierres: **BLOQ-1** (el alta por lote perdía el costo de
+  compra → P&L; ya persiste), **BLOQ-2/2a/2b** (regresión «Tropius» muerta en M1›Sellado, «Mis piezas» y
+  cola M2), **BLOQ-3** (el binder cuenta solo singles; el sellado no infla conteos), **IMP-1** (alta sellado
+  sin dead-end vía `effectiveMarketCents` gateado), **IMP-2** (badge en vivo), **IMP-A** (cotizador ya no
+  crashea por cantidad absurda), **IMP-B** (M5 deja convertir tras pagar), **IMP-C** (el override manual del
+  sellado sobrevive al dial off; bucle roto), **IMP-D** (el **T2=25%** de P-34 entra en vigor vía reshape de
+  datos), y la **cola M2 del sellado a 1 sola fila resoluble** por pieza. Contratos **v1.41/v1.42/v1.43**,
+  **migración M-40** (`PendingPriceEntry.sealedProductId`, aditiva). Money-safe en todo el recorrido (sin
+  precio → pendiente, nunca $0). *(Deuda no bloqueante anotada: D-1 cascada display duplicada, D-2
+  `resolveAnchorCardId` duplicado money-adjacent, D-3 saneo de pendientes legacy.)*
+
+- **Deuda saldada (2026-08-23, doble veredicto QA+techlead APROBADO):** backend H-P38-4 (upsert atómico
+  del sync sellado), P-34 H5 (`mega`/`blackwhite` premium), P-34 H4 (invariante premium→pct testeado),
+  **P-30 H2 cierre completo** (productores y consumidores comparten `variantKey()` + guard de round-trip);
+  frontend H-P38-5 (alta sellado sin `cardId` falso), Cotizador H1/H3/H4 (layout CSS, sombreado «En el
+  carrito» en teja separada, doc drift). Todo display/UX/refactor, money-safe, sin cambio de contrato.
+  *(Deuda aún diferida: MK-D6, FE-2 «desde $X», DEUDA-tiers-3, P-30 H3, P-34 H3, SB-D3 (~6 sitios
+  hand-rolled de otros módulos), deps + hardening auth B-1/B-2/B-5, re-seed snapshots, M-1 aceptado.)*
+
+- **P-38** · **Módulo `SealedProduct`** (cura raíz de SB-D5): descarga presentaciones por set (ETB/UPC/
+  Booster Bundle/box/blíster), alta = **seleccionar** con identidad real (adiós «Tropius sealed»), sync
+  **1 set→N grupos** (absorbe promos/colecciones), precio en vivo + **manual** (vault_operator, auditado),
+  soft-delete. **Migración M-39 + backfill** que cura el ETB→Tropius. Cascada de display cableada en
+  Compra/Bóveda (H-P38-1). Contrato v1.39.1. *(Deuda no-bloqueante H-P38-2..6 en TECH_DEBT; precio manual
+  por vault_operator marcado para fase de seguridad por release.)*
+- **P-37** · IVA a **un solo dial**: se retira `STRIPE_FEE_IVA_PCT`; el gross-up de Stripe deriva de
+  `IVA_PCT/100` (idéntico al centavo). Contrato v1.40. Money-safe.
+- **P-41** · cotizador del home surtía `pageSize:5` (Pitch Black quedaba fuera) → **pageSize 20 + «ver
+  más»**; + **orden global por `set.releaseDate desc`** (sets nuevos primero, ya no uuid aleatorio).
+- **P-42** · cotizador: **carrito fijo a la derecha** en desktop (sticky) + **sombreado** «En el carrito».
+- **P-43** · click en la carta → **pop-up de detalle** con imagen grande (cierra por backdrop + Esc).
+- **P-44** · **rareza** visible en tejas de catálogo/cotizador/ficha/binder admin+bóveda.
+- **P-39/P-40** · foto HD en el featured/ficha + etiqueta de **acabado**.
+- **P-36** · stepper de baja rápida: botones disabled ya no se ven «encendidos» al hover.
+
+**Al publicar (devops/Railway) — runbook en `DEVOPS_NOTES.md §27`, orquestado por `scripts/post-deploy.sh`
+(idempotente; PARA si el reshape detecta BD de precios editada a mano):**
+1. `prisma migrate deploy` → **M-39** (SealedProduct) + **M-40** (`PendingPriceEntry.sealedProductId`), aditivas.
+2. `ts-node prisma/backfill-m39-sealed-product.ts` — cura ETB→Tropius (idempotente).
+3. `ts-node prisma/backfill-p34-tiered-pricing.ts` — **reshape de tiers T2=25%** (money-crítico; si imprime
+   «⚠ ACCIÓN REQUERIDA» → PARAR y escalar al humano para el mapeo a mano).
+4. `unify-rarities` (cosmético del editor M2, pendiente de P-34).
+5. *(D-3, no bloqueante)* si aparecen filas de sellado huérfanas en la cola M2 de altas previas al fix →
+   barrido puntual (deuda backend registrada).
+6. Por cada set: «Sincronizar» trae presentaciones (requiere egress real a `tcgcsv.com`).
+> **Antes del deploy:** snapshot/PITR de la Postgres de prod (única vía de rollback fino del dinero del paso 3).
+> **Rollback:** migraciones aditivas → redeploy del commit anterior; backfills idempotentes/no destructivos.
 
 ---
 
@@ -70,6 +111,10 @@ solo cuando el humano diga **«publica»**.
 
 ## Hecho (referencia breve — todo en producción)
 
+- **P-30** publicación única por carta con stock (`GroupedListingDTO` v1.38, una teja «N disponibles»,
+  add-to-cart por pieza, sin migración) + **rediseño makeover 1a** del storefront (nueva capa visual,
+  `StockBadge` con «Agotado»/«Queda 1») — publicados a producción (`e258da0`). Deuda H1-H4/FE-2/MK-D1..D9
+  en `TECH_DEBT`.
 - **P-35** alta dedicada de sellado (imagen de API, M-37), **P-34** pricing por 5 tiers (editor M2,
   invariante premium→pct, T2 a 25%, fix de dinero de las sin-mapear; Uncommon compra $0.50→$1.50), **H9**
   sellado fuera de la vista de singles — publicados a producción (`75ef123`). *(Pendiente devops:

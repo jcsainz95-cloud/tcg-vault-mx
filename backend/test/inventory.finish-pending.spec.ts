@@ -28,6 +28,7 @@ const settings = { getNumber: jest.fn().mockResolvedValue(70) } as unknown as Se
 function buildPrisma() {
   const created: any[] = [];
   const prisma: any = {
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
     card: {
       findUnique: jest.fn().mockResolvedValue({
         id: 'c1',
@@ -69,6 +70,9 @@ describe('InventoryService.createItem — escalado de pendiente con el finish de
       'inventory',
       undefined,
       'holofoil',
+      // v1.30 (cardProductId) y v1.42 (sealedProductId, BLOQ-2b): null para un raw (identidad de sellado N/A).
+      null,
+      null,
     );
     // También consultó la referencia del ACABADO del alta, no la de normal.
     expect(pricing.getReference).toHaveBeenCalledWith('c1', 'raw', 'raw:NM', 'holofoil');

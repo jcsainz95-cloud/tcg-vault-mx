@@ -61,7 +61,7 @@ export const E2E_CARDS = {
   // DOS casillas ESTRUCTURALES (§4.25a): TCGCSV resolvió ambas; PPT confirma el reverse con precio (snapshot = observabilidad).
   reverse: { externalId: 'e2e-reverse', name: 'E2E Reverse Bird', number: '17', rarity: 'Reverse Holo', refNmCents: 3000, availableFinishes: ['normal', 'reverse_holo'], catalogFinishes: ['normal'], structuralFinishes: ['normal', 'reverse_holo'], pricedFinishesSnapshot: ['reverse_holo'] }, // reverse_holo — DOS casillas (§4.22c), sostenidas por la ESTRUCTURA
   graded: { externalId: 'e2e-graded', name: 'E2E Graded Star', number: '20', rarity: 'Rare Holo', refPsa10Cents: 500000, availableFinishes: ['normal'] }, // graded PSA10
-  highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 750000, availableFinishes: ['normal'] }, // ex_plus, quote 0.4×=300000 = umbral INE
+  highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 1200000, availableFinishes: ['normal'] }, // Rare Holo → T2 25%; quote 0.25×1200000=300000 = umbral INE (P-34)
   nopref: { externalId: 'e2e-nopref', name: 'E2E No Price', number: '99', rarity: 'Rare Secret', availableFinishes: ['normal'] }, // ex_plus SIN referencia → precio pendiente
 } as const;
 

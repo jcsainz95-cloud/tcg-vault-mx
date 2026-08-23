@@ -10,10 +10,9 @@ export const SettingKey = {
   SALES_MARKUP_PCT: 'sales_markup_pct',
   STRIPE_FEE_PCT: 'stripe_fee_pct',
   STRIPE_FEE_FIXED_CENTS: 'stripe_fee_fixed_cents',
-  // C1/D4: IVA (fracción) que Stripe MX cobra SOBRE su comisión. El gross-up lo incluye
-  // para que la plataforma netee íntegro subtotal+IVA. v1.1: el contrato §M10 lo lista en
-  // el DTO de settings, así que se expone en SETTING_DTO_MAP (`stripeFeeIvaPct`).
-  STRIPE_FEE_IVA_PCT: 'stripe_fee_iva_pct',
+  // v1.40 (Enmienda A, P-37): el dial `STRIPE_FEE_IVA_PCT` se RETIRA. El IVA que Stripe MX cobra
+  // sobre su comisión se deriva ahora de `IVA_PCT` (fuente única; ver settings.service.getStripeFee).
+  // La clave de BD `stripe_fee_iva_pct` queda deprecada e inerte (nadie la lee); sin migración.
   BUYLIST_CAP_PER_REQUEST_CENTS: 'buylist_cap_per_request_cents',
   BUYLIST_CAP_PER_MONTH_CENTS: 'buylist_cap_per_month_cents',
   INE_THRESHOLD_CENTS: 'ine_threshold_cents',
@@ -80,7 +79,7 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SALES_MARKUP_PCT]: 15, // markup de venta configurable
   [SettingKey.STRIPE_FEE_PCT]: 0.036, // 3.6% tarifa MX Stripe (fracción)
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: 300, // MX$3.00 fija
-  [SettingKey.STRIPE_FEE_IVA_PCT]: 0.16, // C1: IVA 16% sobre la comisión de Stripe MX (fracción)
+  // v1.40 (P-37): STRIPE_FEE_IVA_PCT retirado — el IVA de la comisión Stripe deriva de IVA_PCT (16 ⇒ 0.16).
   [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: 300000, // MX$3,000
   [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: 1000000, // MX$10,000
   [SettingKey.INE_THRESHOLD_CENTS]: 300000, // = tope por solicitud
@@ -468,8 +467,7 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // stripe_fee_pct es una FRACCIÓN en [0,1); si fuera >= 1 el gross-up dividiría por <= 0.
   [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
-  // IVA de la comisión Stripe: fracción en [0,1) (0.16 = 16%).
-  [SettingKey.STRIPE_FEE_IVA_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),
+  // v1.40 (P-37): STRIPE_FEE_IVA_PCT retirado (deriva de IVA_PCT); ya no hay validador para esa key.
   [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.INE_THRESHOLD_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
@@ -524,9 +522,8 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   salesMarkupPct: SettingKey.SALES_MARKUP_PCT,
   stripeFeePct: SettingKey.STRIPE_FEE_PCT,
   stripeFeeFixedCents: SettingKey.STRIPE_FEE_FIXED_CENTS,
-  // D4 (v1.1): el contrato §M10 ya lista `stripeFeeIvaPct` en el DTO de settings; se expone
-  // aquí como los demás diales (validador de rango: fracción [0,1)).
-  stripeFeeIvaPct: SettingKey.STRIPE_FEE_IVA_PCT,
+  // v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA del DTO de §M10. Ya no se expone en GET ni
+  // se acepta en PUT (una key `stripeFeeIvaPct` en el body cae en 422 como cualquier key desconocida).
   buylistCapPerRequestCents: SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS,
   buylistCapPerMonthCents: SettingKey.BUYLIST_CAP_PER_MONTH_CENTS,
   ineThresholdCents: SettingKey.INE_THRESHOLD_CENTS,

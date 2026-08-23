@@ -1,6 +1,76 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════
+     PASE P-38 — SealedProduct + precio manual de sellado (2026-08-23) — se antepone;
+     el contenido histórico (v1.28, Stream C, etc.) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# PASE P-38 — Precio manual de sellado (fix `d408769`) · 2026-08-23 · VEREDICTO de seguridad
+
+> **Rol:** seguridad (blue team / AppSec). Consolido el RE-TEST del pentester (`docs/PENTEST_NOTES.md`,
+> «RE-TEST FOCALIZADO — P-38 … fix d408769») contra el código, valido cada cierre con mi propio análisis
+> y emito veredicto. **NO corrijo código:** cada residual se rutea a su rol dueño.
+> **Modo:** revisión **estática** dirigida de `inventory.service.ts`, `pricing.service.ts`,
+> `audit.service.ts`, `dto/inventory.dto.ts` + suite jest del pentester (verde: 50/50 specs de sellado,
+> 321/321 en inventory+pricing+audit). Sin stack HTTP vivo → live-fire por endpoint = [PoC-pendiente-DAST].
+> **Commit revisado:** `d408769` (H-1 atomicidad + H-2 exigir sealedProductId + M-2 cap acquisitionPct).
+
+## 0. Resumen ejecutivo
+
+**Los 2 ALTOS (H-1, H-2) y el M-2 del path de precio manual de sellado están CERRADOS y lo confirmo por
+revisión independiente. SIN Críticos ni Altos abiertos. → VEREDICTO: APROBADO.** El patrón deferred-write
+del override es atómico y sin camino residual de auto-commit; el gate de identidad por `sealedProductId`
+validado impide anclar dinero a un productId arbitrario del cliente; las cotas anti-overflow/anti-abuso
+están en su lugar. El `tx?` opcional añadido a `pricing.manualOverride`/`audit.log` no abrió otro hueco.
+
+| Severidad | # ABIERTO (P-38) | Estado |
+|---|---|---|
+| **Crítica** | 0 | — |
+| **Alta** | 0 | **H-1 y H-2 CERRADOS** (verificados en código + tests) |
+| **Media** | 0 nuevos | **M-2 CERRADO**; M-1 (residual de negocio) = **riesgo aceptado-auditado**; deps = carryover |
+| **Baja** | 0 nuevos | L-1/L-2 previos sin cambio (abiertos, no bloqueantes) |
+
+## 1. Cierres verificados (revisión estática independiente)
+- **H-1 (atomicidad) CERRADO:** `resolveSealedMarketForAlta` solo valida y devuelve descriptor;
+  `applySealedManualOverride(ov, actorUserId, tx)` exige `tx` y escribe override+audit dentro de la tx;
+  `createItem`/`batchCreate` envuelven creación+override en `$transaction` con el override **tras** crear la
+  pieza; `pricing.manualOverride`/`audit.log` usan `tx ?? this.prisma` en **ambas** escrituras. Sin huérfano.
+- **H-2 (identidad) CERRADO:** gate `manualMarketMxnCents != null && sealedProductId == null → 422`;
+  `sealedProductId` solo no-null desde `SealedProduct` activo; ids sueltos del cliente ignorados (SEC-A1).
+- **M-2 CERRADO:** `@Max(MAX_APORTACION_PCT=100)` en las 3 DTO (cierra también R-2 de v1.28).
+- El `tx?` opcional no debilitó otros llamadores (`PricingController.override` conserva auto-commit).
+- Higiene (no hallazgo): `manualMarketMxnCents` sin `@Min` a nivel DTO; el gate de servicio `>0` lo cubre.
+
+## 2. M-1 residual — RIESGO ACEPTADO-AUDITADO
+Decisión del humano (v1.39.1): precio manual de sellado por `vault_operator+`. Aceptado con controles
+compensatorios verificados (H-1/H-2 cerrados, `@Max(100M)`, `@Max(100)` acquisitionPct, `>0`, «solo llena
+hueco null / jamás pisa mercado vivo», auditoría `inventory.sealed_manual_market`, sin cash-out — el dinero
+saliente sigue siendo money-out `super_admin`). **Endurecimiento recomendado (no bloqueante):** banda de
+cordura relativa al mercado comparable + revisión periódica del log de overrides; elevar a 4-ojos ante
+primer indicio de abuso. Dueño: backend (banda) / seguridad (monitoreo).
+
+## 3. Carryover no bloqueante (0 críticos/altos) — ruteado
+deps `@nestjs/core` (Media, devops), L-1 imagen display sin sanitizar (backend/frontend), L-2 dial off
+reescribe override (backend), B-1 timing forgot-password (backend), B-2 linking Google a privilegiadas
+(backend), B-5 token en query-string (frontend), R-3 lectura de estrategia por vault_operator (diseño),
+MS-1/MS-2 idempotency shipments/refund (backend), B-3 Int32 (arquitecto).
+
+## 4. Banderas para el humano
+- **Pre-dinero-real (no bloqueante de P-38):** DAST en staging autorizado del alta de sellado por HTTP
+  (con/ sin `sealedProductId`, y fallo de BD a mitad del `$transaction` verificando cero override huérfano)
+  + concurrencia de checkout de sellado único. Antes de operar dinero real a escala: pentest de tercero.
+- **PII/custodia:** validaciones legales de custodia + INE/CLABE (AML SPEI) siguen siendo bandera legal del
+  humano; P-38 no las toca.
+
+## 5. VEREDICTO DE SEGURIDAD de P-38 — **APROBADO**
+0 Críticos · 0 Altos · 0 Medios nuevos · 0 Bajos nuevos. Umbral DoD cumplido (sin críticos/altos abiertos).
+**Mínimo para mantener el APROBADO:** ningún cambio futuro reintroduce escritura del override fuera de la tx,
+ni acepta `manualMarketMxnCents` sin `sealedProductId` validado, ni retira las cotas `@Max`. Cualquier
+cambio a `inventory`/`pricing`/`audit` o al contrato re-abre este gate.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
      PASE v1.28 — RELEASE (2026-08-21) — se antepone; el contenido histórico se conserva íntegro abajo.
      ════════════════════════════════════════════════════════════════════════════════════════ -->
 
@@ -3179,3 +3249,45 @@ backend por las rutas de buylist (mantener el payload sin precios); cualquier ca
 `backend/src/modules/buylist/`, `orders`, `payments` o al contrato re-abre el gate server-side.
 
 — SEGURIDAD (blue team / AppSec), 2026-08-21
+
+---
+
+# VEREDICTO DE SEGURIDAD — RELEASE lote inventario/sellado (`920260e..29a5e97`) · 2026-08-23
+> Autor: seguridad (blue team / AppSec). Insumo: `PENTEST_NOTES.md` › «PASE RELEASE — lote inventario/sellado … 2026-08-23» (0 críticos, 0 altos).
+> Modo: revisión estática del diff + verificación por lectura de código (sin stack vivo; los ítems de runtime quedan para DAST en staging). Gate de deploy: regla 10 (tercer veredicto).
+
+## 1. Consolidación de hallazgos (pentester + revisión AppSec)
+
+| ID | Sev | Área | Ubicación | Estado verificación | Rol dueño | Clasificación |
+|---|---|---|---|---|---|---|
+| N-0 | Media | deps (carryover) | `@nestjs/core ^10.4.4` (GHSA-36xv-jgw5-4q75) | **Confirmado**: `npm audit --omit=dev` = 2 moderate, 0 high/critical | devops | no-bloqueante-aceptado |
+| N-1 | Baja | money ($0 latente) | `inventory.dto.ts:90,157`; gate `pricing.service.ts:663` | **Confirmado**: sin `@Min`; gate compara `== null`, no `<=0`. **Inalcanzable hoy** (guard servicio `:580` `>0` + endpoint `OverrideDto @Min(1)` `:52`) | backend | a-corregir-antes-de-prod (recomendado) |
+| N-2 | Baja | money (overflow P&L) | `inventory.dto.ts:70,146` | **Confirmado**: `acquisitionCostCents` sin `@Max`; insider `vault_operator`, sin cash-out | backend / arquitecto (BigInt agregados) | a-corregir-antes-de-prod (recomendado) |
+| N-3 | Baja | resolución pendientes | `pricing.service.ts:1099-1102` | **Confirmado**: `updateMany` sin `sealedProductId`. Alcance = sellado **legacy** `gradeKey='sealed'`, solo endpoint standalone `super_admin` | backend | no-bloqueante-aceptado |
+| N-5 | Info/negocio | override «sticky» | `sourceRank:96` / `gateSealedMarketCents:664` | **Confirmado y RATIFICADO** | — | ratificado (sin acción) |
+
+### Re-verificación de los 2 ALTOS de P-38 (H-1/H-2) — siguen CERRADOS
+- **H-1 (atomicidad):** `applySealedManualOverride:611` exige `tx`; `createItem`/`batchCreate` envuelven el override en `$transaction`; `manualOverride` usa `db = tx ?? this.prisma`. **No reaparece.**
+- **H-2 (anclaje sin `sealedProductId`):** doble-guardia `resolveCreation:396` + `resolveSealedMarketForAlta:549-554` → 422. **No reaparece.**
+- **IMP-C**: nace por el mismo camino validado (sealedProductId + `>0` + `@Max 100M` + auditoría + tx); `gateSealedMarketCents` resolver ÚNICO ⇒ storefront == checkout. **No reabre H-1/H-2.**
+- **IDOR/fuga sellado:** holdings/`/vault/sealed`/binder scoped por `ownerUserId` del JWT (check `!== userId → FORBIDDEN` en `detail`). Cola M2 `super_admin`-only. **Sin IDOR ni fuga.**
+
+## 2. Ratificación de N-5 (override «sticky») — RATIFICADO como diseño
+Money-safe e intención de diseño (PROJECT.md §K: override manual = máxima precedencia). Un override es precio humano explícito `>0`, rol-restringido (`vault_operator+`, auditado) y `super_admin` para limpiarlo. Un dato pegajoso nunca degrada a precio inseguro. Matiz operativo (no de seguridad): `isBetterRef` prioriza `capturedDate`, así que un tcgcsv más nuevo puede ganar al día siguiente.
+
+## 3. Clasificación de N-1/N-2 (money-adjacent)
+DoD se RECHAZA solo con críticos/altos abiertos → **0/0 → umbral no se activa**. N-1 y N-2 **NO bloquean**; recomendación AppSec fuerte: fast-follow inmediato (fixes triviales). N-0/N-3 = deuda aceptada con disparador (§ notas). 
+
+## 4. Banderas para el humano
+- Agendar **DAST en staging** (alta sellado + dial off por HTTP; fallo de BD a mitad de `$transaction`; override legacy `gradeKey='sealed'`; authz negativa en tiers/spreads; N-2 costo gigante) antes de volumen de dinero real; considerar pentest de tercero + bug bounty.
+- Carryover no del lote (no bloquean): B-1, B-2, B-5, R-3, JWT en localStorage. Registrados.
+- Custodia/PII sin regresión: CLABE/RFC/INE AES-256-GCM + enmascarado; el sellado no introdujo money-out ni PII.
+
+## 5. VEREDICTO: **APROBADO-CON-CONDICIONES** (gate de seguridad VERDE)
+- «publica» NO bloqueado: 0 críticos, 0 altos; H-1/H-2 cerrados. Umbral DoD CUMPLIDO.
+- Condiciones (post-deploy, no bloquean promoción): (1) N-1/N-2 en fast-follow backend o aceptadas-registradas con disparadores; (2) N-0 en backlog devops (NestJS 11); (3) DAST en staging agendado antes de volumen real.
+- Mínimo para APROBADO liso: cerrar N-1 y N-2.
+
+_Nota de orquestación (2026-08-23): N-1/N-2/N-3 cerradas en fast-follow backend ANTES del deploy (commit `5fe3cac`, suite 170/1670 verde). **N-2** `@Max` en `acquisitionCostCents` (overflow P&L cerrado). **N-1 substancia** el gate `gateSealedMarketCents` rechaza `<=0` ($0 latente cerrado). **N-3** el resolver acepta `sealedProductId` en el `where`. **N-1 parte 1** (`@Min(1)` en el DTO) deliberadamente NO aplicada: contradiría el contrato (`≤0 → 422 VALIDATION_ERROR`, regla de negocio ya entregada por el guard de servicio); el $0 lo cierra el gate. N-0 (deps) queda en backlog devops; DAST staging agendado antes de volumen real. (Persistido por el orquestador; el agente seguridad no tiene Write.)_
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23

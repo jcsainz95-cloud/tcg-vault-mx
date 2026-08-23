@@ -27,6 +27,15 @@ import { pesosToCents, sanitizeDecimalInput, isSaveableRuleValue } from './share
  * el precio de compra on-request es un WRITE del stream buylist, acoplado a INE/AML — FUERA DE
  * ALCANCE de M2; aquí solo se muestra). Incluye el modal de override manual de precio.
  */
+
+// v1.42 (BLOQ-2b): nombre a mostrar de un pendiente. Para sellado usa `sealedProductName` (el operador
+// ve «ETB …», no la carta ancla); ETB y blíster del mismo set son entradas SEPARADAS por `sealedProductId`.
+// raw/graded caen a la carta. Residual money-safe: sellado legacy sin nombre cae a la carta ancla.
+function pendingDisplayName(e: PendingPriceEntryDTO): string {
+  if (e.productType === 'sealed' && e.sealedProductName) return e.sealedProductName;
+  return e.cardName ?? e.card?.name ?? e.cardId;
+}
+
 export function PendingQueueSection() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
@@ -73,8 +82,12 @@ export function PendingQueueSection() {
       header: t('pending.card'),
       render: (e) => (
         <span lang="en">
-          {e.cardName ?? e.card?.name ?? e.cardId}
-          {e.card?.number ? <span className="tabular text-muted"> #{e.card.number}</span> : null}
+          {pendingDisplayName(e)}
+          {/* Menor display: el `#número` es el de la CARTA ANCLA, no de la pieza de sellado
+              (una ETB no tiene «#4»). Solo se pinta para piezas NO selladas. */}
+          {e.productType !== 'sealed' && e.card?.number ? (
+            <span className="tabular text-muted"> #{e.card.number}</span>
+          ) : null}
         </span>
       ),
     },
@@ -106,8 +119,12 @@ export function PendingQueueSection() {
       header: t('pending.card'),
       render: (e) => (
         <span lang="en">
-          {e.cardName ?? e.card?.name ?? e.cardId}
-          {e.card?.number ? <span className="tabular text-muted"> #{e.card.number}</span> : null}
+          {pendingDisplayName(e)}
+          {/* Menor display: el `#número` es el de la CARTA ANCLA, no de la pieza de sellado
+              (una ETB no tiene «#4»). Solo se pinta para piezas NO selladas. */}
+          {e.productType !== 'sealed' && e.card?.number ? (
+            <span className="tabular text-muted"> #{e.card.number}</span>
+          ) : null}
         </span>
       ),
     },
@@ -223,7 +240,7 @@ export function PendingQueueSection() {
           {overrideTarget && (
             <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
               <span lang="en" className="font-medium text-text">
-                {overrideTarget.cardName ?? overrideTarget.card?.name ?? overrideTarget.cardId}
+                {pendingDisplayName(overrideTarget)}
               </span>
               <span className="tabular">{overrideTarget.gradeKey}</span>
               {/* El override fija el precio de ESTE acabado (v1.8: cola por acabado). */}

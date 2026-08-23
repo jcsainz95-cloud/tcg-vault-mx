@@ -36,6 +36,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish';
 import { FinishBand } from '@/components/domain/FinishMark';
+import { RarityLabel } from '@/components/domain/RarityLabel';
+import { CardDetailModal } from '@/components/domain/CardDetailModal';
 import { cn } from '@/lib/cn';
 import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 import { VariantPricingCompact } from './VariantPriceConsole';
@@ -70,6 +72,12 @@ type BinderTileItem =
  */
 interface QuoterBinderResponse extends MasterSetBinderResponse {
   separateProductQuotes?: Record<string, BuylistBatchQuoteResultDTO>;
+  // P-43 (client-only, SOLO quoter): imagen GRANDE por carta para el pop-up de detalle. El binder
+  // Master Set (MasterSetCardCellDTO) solo lleva `imageSmallUrl`, pero el cotizador compone las
+  // celdas desde `GET /buylist/cards` (CardDTO SÍ trae `imageLargeUrl`), así que la propagamos por
+  // este mapa aparte sin tocar el DTO del contrato. Ausente en modos no-quoter (el detalle usa la
+  // imagen chica como fallback).
+  imageLargeByCardId?: Record<string, string>;
 }
 const separateQuoteKey = (cardId: string, productId: number, finish: Finish) =>
   `${cardId}:${productId}:${finish}`;
@@ -106,6 +114,12 @@ interface Props {
    * actualice la selección/URL al set canónico (evita el binder roto de 25 al abrir un subset).
    */
   onCanonicalResolved?: (canonical: { setId: string; name: string }) => void;
+  /**
+   * P-42 · SOLO modo `quoter`: ¿esta (carta, acabado) ya está en el carrito de venta? Si viene, la
+   * teja del cotizador se SOMBREA/destaca como «ya está en el carro». La identidad la maneja el
+   * carrito (useSellCart) — el binder solo consulta. `productId` distingue productos separados.
+   */
+  isInCart?: (cardId: string, finish: Finish, productId?: number) => boolean;
 }
 
 /**
@@ -220,6 +234,12 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinder
     };
   });
 
+  // P-43: imagen grande por carta para el pop-up de detalle (client-only, ver QuoterBinderResponse).
+  const imageLargeByCardId: Record<string, string> = {};
+  for (const c of cards) {
+    if (c.imageLargeUrl) imageLargeByCardId[c.id] = c.imageLargeUrl;
+  }
+
   return {
     set: { id: set.setId, name: set.name, series: set.series, releaseDate: set.releaseDate },
     printedTotal: set.printedTotal ?? null,
@@ -227,6 +247,7 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinder
     cells,
     scope: 'platform',
     separateProductQuotes,
+    imageLargeByCardId,
   };
 }
 
@@ -251,7 +272,7 @@ function fetchBinder(
  * `availableFinishes`, orden canónico: normal a la izquierda, reverse holo a la derecha); el
  * contador «X/Y» cuenta variantes. Prohibida la casilla de relleno.
  */
-export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant, onAddProduct, onOpenVariant, onCanonicalResolved }: Props) {
+export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant, onAddProduct, onOpenVariant, onCanonicalResolved, isInCart }: Props) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const isQuoter = mode === 'quoter';
@@ -514,6 +535,10 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                           priceCents={tile.priceCents}
                           isQuoter={isQuoter}
                           quoteResult={tile.quoteResult}
+                          // P-42: MISMA identidad que las tejas de variante base, pero con
+                          // `productId` (un producto separado es una LÍNEA propia del carrito). Así el
+                          // sombreado «En el carrito» es consistente en TODAS las tejas del cotizador.
+                          inCart={isInCart?.(tile.cell.cardId, tile.finish, tile.product.productId)}
                           onAdd={
                             onAddProduct
                               ? (quote) => onAddProduct(tile.cell, tile.product, tile.finish, quote)
@@ -527,6 +552,8 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                           <QuoterTile
                             cell={tile.cell}
                             variant={tile.variant}
+                            imageLargeUrl={binder.data?.imageLargeByCardId?.[tile.cell.cardId]}
+                            inCart={isInCart?.(tile.cell.cardId, tile.variant.finish)}
                             onAdd={() => onAddVariant?.(tile.cell, tile.variant)}
                           />
                         ) : (
@@ -590,6 +617,8 @@ function TileHeader({
   dimmed,
   dashed,
   showTotalCount,
+  onImageClick,
+  imageAriaLabel,
 }: {
   cell: MasterSetCardCellDTO;
   finishLabel: string;
@@ -602,17 +631,44 @@ function TileHeader({
    * responde "tengo N de esta carta". El on-hand no aplica al cotizador → allí NO se pasa este flag.
    */
   showTotalCount?: boolean;
+  /**
+   * P-43 (SOLO cotizador): click en la IMAGEN abre el pop-up de detalle. Cuando viene, el arte se
+   * envuelve en un `<button>` (el binder admin NO lo pasa: allí la teja ENTERA ya es un botón y
+   * anidar botones sería HTML inválido). AGREGAR sigue siendo su propia acción, aparte de este click.
+   */
+  onImageClick?: () => void;
+  imageAriaLabel?: string;
 }) {
   const t = useTranslations('masterSet');
-  const hasTotal = !!showTotalCount && cell.totalCount > 0;
+  // IMP-2 (v1.42): el total on-hand por carta se DERIVA de `countsByFinish` (que por contrato SUMA a
+  // `totalCount`), la MISMA fuente de la respuesta con la que cada tarjeta decide su conteo/«HUECO».
+  // Así el badge no puede quedar «1 EN TOTAL» mientras las tejas ya muestran HUECO: al bajar la última
+  // pieza, la suma cae a 0 y el badge desaparece SIN recargar (antes leía el escalar `cell.totalCount`,
+  // que podía quedar rezagado respecto a los conteos por acabado ya refrescados).
+  const cardTotal = cell.countsByFinish.reduce((sum, c) => sum + c.count, 0);
+  const hasTotal = !!showTotalCount && cardTotal > 0;
+  const art = (
+    <CardImage
+      src={cell.imageSmallUrl}
+      alt={`${cell.name} · ${finishLabel}`}
+      className={`${dashed ? 'border border-dashed border-border-strong' : ''} ${dimmed ? 'opacity-40' : ''}`}
+    />
+  );
   return (
     <>
       <span className="relative block">
-        <CardImage
-          src={cell.imageSmallUrl}
-          alt={`${cell.name} · ${finishLabel}`}
-          className={`${dashed ? 'border border-dashed border-border-strong' : ''} ${dimmed ? 'opacity-40' : ''}`}
-        />
+        {onImageClick ? (
+          <button
+            type="button"
+            onClick={onImageClick}
+            aria-label={imageAriaLabel}
+            className="block w-full focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            {art}
+          </button>
+        ) : (
+          art
+        )}
         {/* Badge secret rare (solo display) con scrim de tinta (§7.2b). */}
         {cell.isSecretRare && (
           <span className="absolute right-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]">
@@ -624,9 +680,9 @@ function TileHeader({
         {hasTotal && (
           <span
             className="absolute left-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono tabular-nums text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]"
-            title={t('cardTotalCountAria', { count: cell.totalCount })}
+            title={t('cardTotalCountAria', { count: cardTotal })}
           >
-            {t('cardTotalCount', { count: cell.totalCount })}
+            {t('cardTotalCount', { count: cardTotal })}
           </span>
         )}
       </span>
@@ -639,6 +695,9 @@ function TileHeader({
         <span aria-hidden> · </span>
         <span className="text-text">{finishLabel}</span>
       </p>
+      {/* P-44: rareza junto al acabado (Illustration Rare, Full Art, Hyper Rare…). Discreta,
+          mono muted; se omite sola sin rareza. Comparte teja con el binder admin M1 y las bóvedas. */}
+      <RarityLabel rarity={cell.rarity} className="mt-1" />
     </>
   );
 }
@@ -734,27 +793,48 @@ function QuoterTile({
   cell,
   variant,
   onAdd,
+  imageLargeUrl,
+  inCart,
 }: {
   cell: MasterSetCardCellDTO;
   variant: MasterSetVariantDTO;
   onAdd: () => void;
+  /** P-43: imagen grande (client-only del cotizador) para el pop-up de detalle; fallback a la chica. */
+  imageLargeUrl?: string;
+  /** P-42: ¿esta (carta, acabado) ya está en el carrito? → teja sombreada/destacada. */
+  inCart?: boolean;
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
+  const [detailOpen, setDetailOpen] = useState(false);
   const finishLabel = tFinish(variant.finish);
   const pending = variant.quote?.status === 'precio_pendiente';
   const price =
     variant.quote?.quotedPriceCents != null ? formatMoneyCents(variant.quote.quotedPriceCents, locale) : null;
   return (
-    <div className="flex h-full flex-col">
+    <div
+      // P-42: sombreado «ya está en el carro» — pozo de papel + regla de tinta discreta. Doble canal:
+      // la banda visual la acompaña la etiqueta textual de abajo (data-in-cart para pruebas).
+      data-in-cart={inCart ? 'true' : undefined}
+      className={cn(
+        'flex h-full flex-col',
+        inCart && 'bg-surface-2 shadow-[inset_0_0_0_1px_var(--color-border-strong)]',
+      )}
+    >
       {/* P-14 (§18.3): el quoter adopta el FinishMark/FinishBand de §16.6 EXACTAMENTE como
           BinderTile — banda de 3px (canal color, decorativa); el texto lo porta la etiqueta
           de acabado del TileHeader (doble canal, nunca banda sin texto). */}
       <FinishBand finish={variant.finish} />
       {/* §18.2: precio estimado como héroe secundario (15px, mono, TINTA — el verde
-          «Pagamos» queda exclusivo del BountyCard §16.7c: esto es estimado, no promesa). */}
-      <TileHeader cell={cell} finishLabel={finishLabel} />
+          «Pagamos» queda exclusivo del BountyCard §16.7c: esto es estimado, no promesa).
+          P-43: el arte es clickeable → pop-up de detalle (imagen grande + datos). */}
+      <TileHeader
+        cell={cell}
+        finishLabel={finishLabel}
+        onImageClick={() => setDetailOpen(true)}
+        imageAriaLabel={t('quoterDetailAria', { name: cell.name, finish: finishLabel })}
+      />
       <p className="mt-2 font-mono tabular-nums text-[15px] text-text">
         {pending ? (
           <span className="text-accent">{t('quoterPending')}</span>
@@ -762,6 +842,12 @@ function QuoterTile({
           price ?? <span className="text-accent">{t('quoterUnavailable')}</span>
         )}
       </p>
+      {/* P-42: marca textual «En el carrito» (doble canal del sombreado). */}
+      {inCart && (
+        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.06em] text-success">
+          {t('quoterInCart')}
+        </p>
+      )}
       <div className="mt-auto pt-2.5">
         <Button
           variant="secondary"
@@ -778,6 +864,22 @@ function QuoterTile({
           {t('quoterAdd')}
         </Button>
       </div>
+
+      <CardDetailModal
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        card={{
+          name: cell.name,
+          number: cell.number,
+          rarity: cell.rarity,
+          productType: 'raw',
+          imageLargeUrl,
+          imageSmallUrl: cell.imageSmallUrl,
+        }}
+        finish={variant.finish}
+        priceCents={variant.quote?.quotedPriceCents ?? undefined}
+        pricePending={pending}
+      />
     </div>
   );
 }
@@ -802,6 +904,7 @@ function SeparateProductTile({
   priceCents,
   isQuoter,
   quoteResult,
+  inCart,
   onAdd,
 }: {
   cell: MasterSetCardCellDTO;
@@ -810,6 +913,8 @@ function SeparateProductTile({
   priceCents: number | null;
   isQuoter?: boolean;
   quoteResult?: BuylistBatchQuoteResultDTO;
+  /** P-42 (SOLO quoter): ¿este producto separado (por su `productId`) ya está en el carrito? → teja sombreada. */
+  inCart?: boolean;
   onAdd?: (quote: BuylistQuoteResponse) => void;
 }) {
   const t = useTranslations('masterSet');
@@ -828,7 +933,14 @@ function SeparateProductTile({
 
   return (
     <div
-      className="flex h-full flex-col"
+      // P-42: sombreado «ya está en el carro» IDÉNTICO al de QuoterTile (pozo de papel + regla de
+      // tinta discreta). Doble canal: la banda visual la acompaña la etiqueta textual de abajo
+      // (`data-in-cart` para pruebas). Solo aplica en quoter (fuera del quoter `inCart` es undefined).
+      data-in-cart={inCart ? 'true' : undefined}
+      className={cn(
+        'flex h-full flex-col',
+        inCart && 'bg-surface-2 shadow-[inset_0_0_0_1px_var(--color-border-strong)]',
+      )}
       aria-label={t('separateProductAria', {
         name: product.name,
         kind: kindLabel,
@@ -872,6 +984,12 @@ function SeparateProductTile({
           {quoteError && (
             <p role="alert" className="mt-1 font-mono text-[10px] leading-snug text-accent">
               {t(`separateProductErrorCode.${quoteError}`)}
+            </p>
+          )}
+          {/* P-42: marca textual «En el carrito» (doble canal del sombreado), idéntica a QuoterTile. */}
+          {inCart && (
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.06em] text-success">
+              {t('quoterInCart')}
             </p>
           )}
           <div className="mt-auto pt-2.5">

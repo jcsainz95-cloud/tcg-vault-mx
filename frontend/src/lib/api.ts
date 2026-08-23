@@ -147,6 +147,14 @@ import type {
   SealedSetsResponse,
   SealedSetDetailResponse,
   SealedCatalogResponse,
+  // v1.39 (P-38): entidad `SealedProduct` persistida — alta dedicada de sellado.
+  SealedProductListResponse,
+  SealedSyncRequest,
+  SealedSyncResultDTO,
+  SealedSyncCandidatesResponse,
+  SealedSetGroupLinkRequest,
+  SealedSetGroupDTO,
+  SealedGroupKind,
   GradedInventoryResponse,
   PublicBountiesResponse,
   // v1.21-guest-checkout (contrato §4-G) — sección aditiva al final del archivo.
@@ -2091,6 +2099,100 @@ export async function getSealedCatalog(params: {
   }
   try {
     return await delay(fx.mockSealedCatalog(params));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Presentaciones selladas PERSISTIDAS de un set (contrato §M1 v1.39 · P-38 ·
+ * GET /admin/inventory/sealed-products, `vault_operator+`) — la FUENTE del alta dedicada. Lee la
+ * entidad `SealedProduct` (identidad propia, no anclada a un single). El front particiona `data`
+ * en DOS secciones por `origin` («Del set» / «Promos/colecciones»). Money-safe: `marketRef=null`
+ * (nunca 0). `needsSync=true` ⇒ catálogo vacío (el front ofrece «Sincronizar», super_admin).
+ */
+export async function listSealedProducts(params: {
+  setId: string;
+  q?: string;
+  origin?: SealedGroupKind;
+  principalOnly?: boolean;
+}): Promise<SealedProductListResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedProductListResponse>('/admin/inventory/sealed-products', {
+      query: {
+        setId: params.setId,
+        q: params.q,
+        origin: params.origin,
+        principalOnly: params.principalOnly ? 'true' : undefined,
+      },
+    });
+  }
+  try {
+    return await delay(fx.mockSealedProducts(params));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Sincronizar el catálogo de sellado de un set (contrato §M1 v1.39 · P-38 ·
+ * POST /admin/inventory/sealed-products/sync, `super_admin`). Descarga las presentaciones desde
+ * TCGCSV y las persiste como `SealedProduct`. Money-safe: nunca fabrica precio ni toca inventario.
+ * Devuelve `SealedSyncResultDTO` con el resumen HONESTO (con precio / pendientes de precio).
+ */
+export async function syncSealedProducts(
+  req: SealedSyncRequest,
+): Promise<SealedSyncResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSyncResultDTO>('/admin/inventory/sealed-products/sync', {
+      method: 'POST',
+      body: req,
+    });
+  }
+  try {
+    return await delay(fx.mockSyncSealedProducts(req));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Grupos TCGCSV candidatos por name-match (contrato §M1 v1.39 · P-38 ·
+ * GET /admin/inventory/sealed-products/sync/candidates, `super_admin`) — curación de grupos
+ * promo/colección. Cada candidato trae `matchScore` (confianza) y `alreadyLinked`.
+ */
+export async function getSealedSyncCandidates(params: {
+  setId: string;
+}): Promise<SealedSyncCandidatesResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSyncCandidatesResponse>(
+      '/admin/inventory/sealed-products/sync/candidates',
+      { query: { setId: params.setId } },
+    );
+  }
+  try {
+    return await delay(fx.mockSealedSyncCandidates(params));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Enlazar un grupo TCGCSV extra (promo/colección) a un set (contrato §M1 v1.39 · P-38 ·
+ * POST /admin/inventory/sealed-sets/:setId/groups, `super_admin`). 1 set → N grupos.
+ */
+export async function linkSealedSetGroup(
+  setId: string,
+  req: SealedSetGroupLinkRequest,
+): Promise<SealedSetGroupDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSetGroupDTO>(
+      `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/groups`,
+      { method: 'POST', body: req },
+    );
+  }
+  try {
+    return await delay(fx.mockLinkSealedSetGroup(setId, req));
   } catch (e) {
     throw translateFixtureError(e);
   }

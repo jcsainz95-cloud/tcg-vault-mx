@@ -126,7 +126,8 @@ describe('PricingService.pendingQueue — trae la carta y propaga el finish', ()
     await svc.pendingQueue();
     expect(findManyCalls).toHaveLength(1);
     expect(findManyCalls[0].where).toMatchObject({ status: 'open' });
-    expect(findManyCalls[0].include).toEqual({ card: { include: { set: true } } });
+    // v1.42 (BLOQ-2b): la cola incluye `sealedProduct` para resolver la identidad de display del sellado.
+    expect(findManyCalls[0].include).toEqual({ card: { include: { set: true } }, sealedProduct: true });
   });
 
   it('cada entrada expone cardName, card{name,number,setName} y finish', async () => {

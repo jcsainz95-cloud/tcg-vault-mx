@@ -19,6 +19,13 @@
 > Ver **§18** (metadata/manual), **§19** (ingest, horarios, orden `fx-refresh → price-ingest`, flip runbook con
 > `MARKET_FORMAT`, rollback por dial) y el bloque de precios/scheduling de `.env.example`. El **scheduler** y
 > `env.validation.ts` los cabla **backend** (devops no toca `backend/`).
+>
+> **Actualización 2026-08-23 (D-4 — cierre techlead, regla 10):** el release
+> `fix/variant-composition-regression` @ `9b6a81b` trae **cambios de DATOS** que `migrate deploy` NO cubre
+> solo (reshape de tiers **P-34 T2=25%** + cura del sellado **M-39/M-40**). La **secuencia exacta
+> post-deploy**, su idempotencia, qué hacer si falla y el **rollback** quedan en **§27**, y el orquestador
+> idempotente **`scripts/post-deploy.sh`** los corre en orden y **PARA ante «ACCIÓN REQUERIDA»** del reshape
+> money-crítico. Ver **§27**.
 
 ---
 
@@ -2837,3 +2844,130 @@ entero, `groupId = pptSetId`). Es decir: das el `externalId` al endpoint, y el r
   son seguros.
 - **[backend]** Solo si (a) PG<15 en prod (fallback de índice de la M-31) o (b) el set ME05 no está en
   pokemontcg.io y el sync por `externalId` no dispara el resolver: es decisión/código de backend, no de devops.
+
+---
+
+## 27. Runbook de release — SECUENCIA POST-DEPLOY money-crítica (M-39/M-40 + reshape P-34) — 2026-08-23
+
+> **Rama:** `fix/variant-composition-regression` @ `9b6a81b`. **Origen:** el techlead marcó **D-4** — el
+> script money-crítico de **reshape de tiers (P-34 T2=25%)** **no estaba en el runbook de deploy** y la
+> **regla 10** de `CLAUDE.md` exige cerrarlo ANTES de prod. Esta sección cablea la **secuencia exacta
+> post-deploy** para que nadie la olvide, y su rollback.
+>
+> **Por qué NO basta `migrate deploy`:** este release trae **cambios de DATOS** que las migraciones NO
+> cubren solas. Son **scripts idempotentes post-migración** (reshape de reglas de precio + cura del
+> sellado). Sin el paso 3, la decisión money **T2 Rare/Holo = 25%** de P-34 queda **silenciosamente inerte
+> en prod** (el compat on-read cae al fallback 40%). Orden y money-safety: ver abajo.
+>
+> **Orquestador:** `scripts/post-deploy.sh` (idempotente) ejecuta los pasos automatizables EN ORDEN y
+> **PARA** si el paso 3 imprime «ACCIÓN REQUERIDA». Es la forma recomendada de correr esto.
+
+### 27.1 Cuándo corre y con qué se ejecuta
+
+- **Cuándo:** **DESPUÉS** de que el contenedor de backend arrancó y aplicó `prisma migrate deploy` (el
+  `CMD` del `Dockerfile.backend` lo garantiza antes de servir — §26.2), y **ANTES** de anunciar que P-34
+  está vigente / abrir el release. Salud primero (§27.5), luego la secuencia.
+- **Con qué:** patrón §11.F — el env de Railway se inyecta y la DB de prod se alcanza por red. Desde la
+  **raíz del repo** (con `cd backend && npm ci` hecho: se necesita `ts-node` + `@prisma/client` locales):
+  ```bash
+  railway run --service backend --environment production bash scripts/post-deploy.sh
+  ```
+  O directamente contra una DB objetivo: `DATABASE_URL='postgres://…' bash scripts/post-deploy.sh`.
+- **Idempotente:** seguro correrlo varias veces. Money-safe: los scripts **nunca** escriben $0 ni regla
+  vacía; ante divergencia **no tocan dinero** y escalan.
+
+### 27.2 La secuencia EXACTA (comando · idempotencia · si falla)
+
+| # | Paso | Comando exacto | Idempotencia | Si falla / qué hacer |
+|---|---|---|---|---|
+| 1 | **Migraciones** M-39 (`SealedProduct`) + M-40 (`PendingPriceEntry.sealedProductId`, FK nullable `onDelete SET NULL`). Ambas **aditivas**. | `npx prisma migrate deploy` (ya corre al arrancar el contenedor; el orquestador la re-verifica salvo `SKIP_MIGRATE=1`) | No-op si ya aplicaron (`_prisma_migrations`). | Falla atómica dentro de su tx → Railway mantiene el deploy anterior. Rollback = redeploy del commit previo (§27.4). |
+| 2 | **Backfill M-39** — cura el **ETB→Tropius** (deriva `SealedProduct` de items ya mapeados y liga `sealedProductId`). | `npx ts-node prisma/backfill-m39-sealed-product.ts` | `upsert` + solo liga items sin FK ⇒ 2ª corrida no duplica. | Reimprime reconciliación de sellados **SIN MAPEO** (quedan `null`, no bloquea). Si el script sale ≠0, revisar log y re-correr; no es destructivo. |
+| 3 | **Backfill P-34 — RESHAPE de tiers (T2=25%). MONEY-CRÍTICO.** Migra las reglas legacy plano/dos-ejes al shape tiered canónico. | `npx ts-node prisma/backfill-p34-tiered-pricing.ts` | Ve `tierRules` ⇒ NO-OP. Nunca escribe $0. | **Si imprime «⚠ ACCIÓN REQUERIDA»** (una tabla de M2 fue editada a mano y DIVERGE del default): **NO la toca (money-safe)** → **PARAR y escalar al humano/arquitecto** para definir el mapeo rareza→tier a mano. **El release NO se anuncia** hasta cerrarlo. `post-deploy.sh` **para solo** ante ese texto. |
+| 4 | **unify-rarities** — pendiente **cosmético** de P-34 (re-deriva `Card.rarityCanonical`). Es endpoint HTTP, no script de DB. | `curl -X POST "$ADMIN_BASE_URL/admin/catalog/unify-rarities" -H "Authorization: Bearer <super_admin_JWT>" -H "Content-Type: application/json"` | Idempotente (2ª corrida = 0 updates). | Cosmético: **NO bloquea**. Reintentar a mano cuando se tenga JWT. El orquestador lo dispara solo si se le pasan `ADMIN_BASE_URL` + `ADMIN_JWT`. |
+| 5 | **Nota de saneo legacy (deuda D-3)** — filas pendientes de sellado duplicadas/huérfanas (`gradeKey='sealed'` sin `sealedProductId`) de altas previas al fix. | *(barrido puntual, registrado en `TECH_DEBT`/`BACKEND_NOTES`)* | — | **Deuda de rol BACKEND, NO devops. NO bloquea el deploy.** Solo se observa en la cola de precio pendiente de M2 y se enruta a backend. |
+| 6 | **Sincronizar sellado por set** — «Sincronizar» trae presentaciones de sellado desde **tcgcsv.com** (egress real; en local/CI daba **403**). | Back-office M2 «Sincronizar» por set, o el endpoint por-set con super_admin (ver §26.6). | Idempotente / money-safe (repuebla presentaciones y precio; no borra `PriceReference`). | Requiere egress a tcgcsv.com. Si da 403/timeout, es red/egress: reintentar desde un entorno con salida a Internet; no altera dinero existente. |
+
+**Regla de oro de esta secuencia:** el paso 3 es la razón de ser de D-4. Correrlo tras `migrate deploy` y
+**ANTES del anuncio**; si escala a «ACCIÓN REQUERIDA», el release espera. Los pasos 4–6 no bloquean el
+deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es deuda de backend).
+
+### 27.3 Precondiciones de seguridad del cambio (verificadas leyendo el SQL)
+
+- **M-39** `20260823120000_m39_sealed_product`: **ADITIVA y reversible** — dos tablas nuevas
+  (`SealedProduct`, `SealedSetGroup`), enum nuevo `SealedGroupKind`, dos valores apendados a `SealedSubtype`
+  (`ADD VALUE IF NOT EXISTS`), y una columna FK **nullable** (`InventoryItem.sealedProductId`). **Sin `DROP`,
+  sin backfill destructivo.** El backfill de datos vive APARTE (paso 2) porque `ALTER TYPE ADD VALUE` no se
+  puede USAR en su propia tx y la derivación necesita la heurística `inferSealedSubtype`.
+- **M-40** `20260823130000_m40_pending_sealed_product`: **ADITIVA** — `PendingPriceEntry.sealedProductId`
+  (FK **nullable**, índice, FK **`onDelete: SET NULL`**). Sin `DROP`, sin backfill obligatorio. Un pendiente
+  de sellado sin `sealedProductId` queda `null` y **sigue el comportamiento previo: SIEMPRE pendiente, JAMÁS
+  $0** (money-safe).
+- **Orden migración-antes-de-servir:** garantizado por el `CMD` de `Dockerfile.backend`
+  (`… migrate deploy && node dist/main.js`). El código nuevo nunca sirve antes de que M-39/M-40 existan.
+- **Money-safety del reshape P-34:** el script sólo reemplaza tablas que coinciden **byte-a-byte** con los
+  defaults «pristine» sembrados en su día (nunca editadas a mano). Si una diverge, **no la toca** y escala.
+
+### 27.4 Rollback (migraciones aditivas ⇒ rollback = redeploy del commit anterior)
+
+| Escenario | Acción |
+|---|---|
+| **App nueva rota / regresión** | Railway (`backend` → Deployments → **Redeploy** el deploy previo bueno) y Vercel (Deployments → **Promote to Production** el build previo). Alternativa Git: `git revert` del merge + push. |
+| **Datos (código)** | **No se restaura la DB para revertir el código.** M-39/M-40 son **aditivas**: sus tablas/columnas (`SealedProduct`, `SealedSetGroup`, `*.sealedProductId`) quedan **inertes** para el código viejo. Solo se restaura del snapshot si hubiera **corrupción de datos**, no por un rollback de código. |
+| **Reshape P-34 aplicado y se quiere revertir el dinero** | Los backfills son **idempotentes y NO destructivos**, pero el paso 3 **reescribe** `buylist_price_rules` / `sale_price_rules` al shape tiered. Para volver al valor exacto previo: **restaurar esas dos filas de `ConfigSetting` desde el snapshot pre-deploy** (por eso el snapshot del paso 3 de §27.5). El compat on-read lee ambos shapes, así que el código viejo tolera el shape tiered si sólo se revierte código. |
+| **Backfill M-39 a revertir** | No destructivo (solo crea `SealedProduct` y liga FKs nullable). Revertir código deja esas filas inertes; no requiere acción de datos. |
+| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway reintiene y **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
+
+> Orden de oro (§7): **datos primero** (snapshot antes de migrar y antes del paso 3), luego código.
+
+### 27.5 Orden operativo end-to-end (lo que ejecuta el humano/orquestador con egress a prod)
+
+1. **Snapshot / PITR** de la Postgres de prod (Railway → Postgres → Backups → *Create backup*). **Cubre las
+   dos filas de `ConfigSetting` que toca el paso 3** (única vía de rollback fino del dinero — §27.4).
+2. Deploy del backend (Railway auto-deploy desde `main`, o §26.3): al arrancar corre `migrate deploy`
+   (M-39 + M-40).
+3. **Verificar salud** (§27.6) antes de tocar datos.
+4. Correr la secuencia post-deploy:
+   `railway run --service backend --environment production bash scripts/post-deploy.sh`
+   — **si para en «ACCIÓN REQUERIDA» (paso 3): escalar al humano/arquitecto y NO anunciar** el release.
+5. Paso 6 (sync de sellado por set) desde un entorno con egress a tcgcsv.com.
+6. Anunciar el release / crear el tag sólo cuando 1–5 estén verdes.
+
+### 27.6 Verificación post-deploy (a ejecutar por quien tenga egress a prod)
+
+1. `GET /api/v1/health` → `200` (componente Redis `up`). En Railway el servicio queda *Active/healthy*.
+2. **Migraciones aplicadas** (consola de Postgres de Railway):
+   ```sql
+   SELECT migration_name FROM "_prisma_migrations"
+   WHERE migration_name IN ('20260823120000_m39_sealed_product','20260823130000_m40_pending_sealed_product')
+     AND finished_at IS NOT NULL;               -- → 2 filas
+   SELECT 1 FROM information_schema.columns
+   WHERE table_name='PendingPriceEntry' AND column_name='sealedProductId';  -- → 1 fila
+   SELECT COUNT(*) FROM "SealedProduct";        -- → ≥ 0 (backfill M-39 corrió; >0 si había sellado mapeado)
+   ```
+3. **Reshape P-34 aplicado** (money-check): en M2, la regla efectiva de COMPRA para **Rare / Rare Holo**
+   debe ser **25% (pct)**, no el fallback 40%. El propio reporte del paso 3 imprime el ANTES→DESPUÉS por
+   rareza; confirmar que aparece `Rare: 40% → 25%  ← CAMBIA` (o que ya estaba en 25% = idempotente).
+   Verificación por DB:
+   ```sql
+   SELECT key, "valueJson" FROM "ConfigSetting"
+   WHERE key IN ('buylist_price_rules','sale_price_rules','pricing_tier_map');  -- shape tiered (tierRules)
+   ```
+4. Frontend sirve: `GET https://<dominio-front>` → `200`.
+
+### 27.7 Cableado en CI/orquestador — qué se añadió (cierre de D-4)
+
+- **`scripts/post-deploy.sh`** (nuevo, propiedad devops): orquestador **idempotente** que corre los pasos 1–3
+  en orden, **captura la salida del paso 3 y PARA con exit ≠0 si aparece «ACCIÓN REQUERIDA»** (money-safe),
+  dispara el paso 4 (unify-rarities) por HTTP si se le pasan `ADMIN_BASE_URL`/`ADMIN_JWT` (si no, imprime la
+  instrucción manual), e imprime las notas de los pasos 5 y 6. `set -euo pipefail`; ofusca el password del
+  DSN al loguear.
+- **`docs/DEVOPS_NOTES.md` §27** (este bloque): secuencia exacta, cuándo, idempotencia, qué hacer si falla y
+  **rollback documentado** (DoD).
+- **No se toca `deploy.yml`:** los backfills de DATOS **no** se cablean como job automático de CD porque el
+  paso 3 puede requerir **decisión humana** (dinero) y se corre **contra la DB de prod** tras verificar salud.
+  Automatizarlo a ciegas violaría la money-safety y la regla 10. El orquestador humano lo dispara con
+  `railway run` (patrón §11.F) siguiendo §27.5.
+
+> **Límites (devops):** esta sección y `scripts/post-deploy.sh` NO modifican `backend/`, `frontend/` ni el
+> contrato. El paso 5 (saneo legacy D-3) es de **rol backend**; si el paso 3 escala a «ACCIÓN REQUERIDA», el
+> mapeo rareza→tier a mano lo decide **humano/arquitecto**, no devops.

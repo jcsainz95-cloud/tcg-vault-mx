@@ -1,6 +1,7 @@
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { BusinessException } from '../src/common/business.exception';
+import { grossUpTotal } from '../src/common/money';
 
 /**
  * Fix correctness #2: PUT /admin/settings valida cada dial por tipo+rango, rechaza
@@ -157,33 +158,61 @@ describe('SettingsService.getAllDto — expone catalogSyncFromDate', () => {
 });
 
 /**
- * D4 (alinear con contrato §M10): `stripeFeeIvaPct` es un dial de primera clase del DTO de
- * settings (GET/PUT /admin/settings). Se expone en getAllDto y se valida como fracción [0,1).
+ * v1.40 (Enmienda A, P-37): `IVA_PCT` es la FUENTE ÚNICA del IVA. El dial redundante
+ * `stripeFeeIvaPct` se RETIRA del DTO de §M10: ya no se expone en GET, y un PUT con esa key
+ * cae en 422 (key desconocida). El IVA que Stripe MX cobra sobre su comisión se DERIVA de
+ * `ivaPct` (`ivaPct/100`) dentro del gross-up — idéntico al centavo (16 ⇒ 0.16).
  */
-describe('SettingsService — stripeFeeIvaPct (D4)', () => {
-  it('getAllDto expone stripeFeeIvaPct con su default 0.16 cuando no hay fila', async () => {
+describe('SettingsService — stripeFeeIvaPct retirado del DTO (v1.40 P-37)', () => {
+  it('getAllDto NO expone stripeFeeIvaPct', async () => {
     const prisma = { configSetting: { findUnique: jest.fn().mockResolvedValue(null) } };
     const service = new SettingsService(prisma as unknown as PrismaService);
     const dto = await service.getAllDto();
-    expect(dto).toHaveProperty('stripeFeeIvaPct', 0.16);
+    expect(dto).not.toHaveProperty('stripeFeeIvaPct');
   });
 
-  it('update acepta un stripeFeeIvaPct válido (fracción) y lo persiste con su key de DB', async () => {
+  it('update rechaza la key stripeFeeIvaPct con 422 (key desconocida) y no persiste', async () => {
     const prisma: any = { configSetting: { upsert: jest.fn().mockResolvedValue({}) } };
     const service = new SettingsService(prisma as unknown as PrismaService);
-    const applied = await service.update({ stripeFeeIvaPct: 0.08 });
-    expect(applied).toEqual({ stripeFeeIvaPct: 0.08 });
-    expect(prisma.configSetting.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { key: 'stripe_fee_iva_pct' } }),
-    );
-  });
-
-  it('update rechaza stripeFeeIvaPct >= 1 (fuera de rango) con 422', async () => {
-    const prisma: any = { configSetting: { upsert: jest.fn().mockResolvedValue({}) } };
-    const service = new SettingsService(prisma as unknown as PrismaService);
-    await expect(service.update({ stripeFeeIvaPct: 1 })).rejects.toMatchObject({
+    await expect(service.update({ stripeFeeIvaPct: 0.08 })).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
     expect(prisma.configSetting.upsert).not.toHaveBeenCalled();
+  });
+
+  it('getStripeFee deriva stripeFeeIvaPct de ivaPct (16 ⇒ 0.16), NUNCA de la fila vieja ni 0', async () => {
+    // Solo hay fila para iva_pct=16; stripe_fee_iva_pct NO se lee (aunque existiera, es inerte).
+    const prisma = {
+      configSetting: {
+        findUnique: jest.fn().mockImplementation(({ where }: { where: { key: string } }) =>
+          where.key === 'iva_pct'
+            ? Promise.resolve({ key: where.key, valueJson: 16 })
+            : Promise.resolve(null),
+        ),
+      },
+    };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    const fee = await service.getStripeFee();
+    expect(fee.stripeFeeIvaPct).toBe(0.16);
+    // La key deprecada nunca se consulta en el gross-up.
+    const consultedKeys = (prisma.configSetting.findUnique as jest.Mock).mock.calls.map(
+      (c) => c[0].where.key,
+    );
+    expect(consultedKeys).not.toContain('stripe_fee_iva_pct');
+  });
+
+  it('smoke gross-up: con ivaPct=16 el neteo es IDÉNTICO al del antiguo 0.16', async () => {
+    const prisma = { configSetting: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    const fee = await service.getStripeFee(); // deriva stripeFeeIvaPct = 16/100 = 0.16
+    const baseCents = 116000; // subtotal 100000 + IVA 16000
+    const derived = grossUpTotal(baseCents, fee);
+    // Referencia: exactamente el gross-up con el 0.16 hardcodeado de antes (misma matemática).
+    const legacy = grossUpTotal(baseCents, {
+      stripePct: fee.stripePct,
+      stripeFixedCents: fee.stripeFixedCents,
+      stripeFeeIvaPct: 0.16,
+    });
+    expect(derived).toBe(legacy);
   });
 });

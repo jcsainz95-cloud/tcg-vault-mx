@@ -25,10 +25,10 @@ import {
   TierId,
   isTierId,
   getTier,
+  premiumFixedOffenders,
 } from '../../common/pricing-tiers';
 import {
   rarityInfo,
-  isPremiumCanonicalRarity,
   isRarityMapped,
   normalizeRarity,
 } from '../../common/rarity-catalog';
@@ -395,12 +395,9 @@ export class PricingController {
     tierMap: Record<string, TierId>,
     buyTierRules: Partial<Record<TierId, BuylistRule>>,
   ): { rarity: string; tierId: TierId }[] {
-    const out: { rarity: string; tierId: TierId }[] = [];
-    for (const [rarity, tierId] of Object.entries(tierMap)) {
-      const rule = isTierId(tierId) ? buyTierRules[tierId] : undefined;
-      if (rule?.mode === 'fixed' && isPremiumCanonicalRarity(rarity)) out.push({ rarity, tierId });
-    }
-    return out;
+    // P-34 H4 (TECH_DEBT): la lógica del invariante vive en `common/pricing-tiers.ts` (exportada para
+    // unit-test directo sobre el seed); el controller solo delega. Comportamiento idéntico.
+    return premiumFixedOffenders(tierMap, buyTierRules);
   }
 
   /** Construye la respuesta de `GET /admin/pricing/tiers` (mismo shape que devuelve el PUT). */

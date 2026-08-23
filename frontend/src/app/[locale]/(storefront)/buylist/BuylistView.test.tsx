@@ -217,11 +217,14 @@ describe('BuylistView · detalle expandible por línea', () => {
     openCart();
 
     fireEvent.click(screen.getByRole('button', { name: 'Detalle del estimado' }));
-    expect(screen.getByText('Valor de referencia')).toBeInTheDocument();
-    expect(screen.getByText('MX$48,500.00')).toBeInTheDocument();
-    expect(screen.getByText('Regla aplicada')).toBeInTheDocument();
-    expect(screen.getByText('40% de referencia')).toBeInTheDocument();
-    expect(screen.getByText('Rare Holo')).toBeInTheDocument();
+    // P-44: la rareza ahora también se pinta en las tejas del binder → se acota el assert de
+    // «Rare Holo» al diálogo del carrito (el detalle de la línea) para no chocar con las tejas.
+    const cartDialog = screen.getByRole('dialog', { name: 'Carrito de venta (1)' });
+    expect(within(cartDialog).getByText('Valor de referencia')).toBeInTheDocument();
+    expect(within(cartDialog).getByText('MX$48,500.00')).toBeInTheDocument();
+    expect(within(cartDialog).getByText('Regla aplicada')).toBeInTheDocument();
+    expect(within(cartDialog).getByText('40% de referencia')).toBeInTheDocument();
+    expect(within(cartDialog).getByText('Rare Holo')).toBeInTheDocument();
 
     // El toggle colapsa de vuelta.
     fireEvent.click(screen.getByRole('button', { name: 'Ocultar detalle' }));
@@ -300,6 +303,26 @@ describe('BuylistView · carrito de venta', () => {
     // Un valor inválido (< 1) se normaliza a 1.
     fireEvent.change(screen.getByLabelText('Cantidad de Charizard'), { target: { value: '0' } });
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
+  });
+
+  // IMP-A (regresión): un número absurdo en el stepper reventaba TODA la página con
+  // `RangeError: Invalid array length` (Array.from({ length }) en requestItems). Ahora la
+  // cantidad se clampa a MAX_LINE_QUANTITY (999) y la vista sigue viva.
+  it('una cantidad gigante en el stepper NO crashea: se clampa al tope (999)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    expect(() =>
+      fireEvent.change(screen.getByLabelText('Cantidad de Charizard'), {
+        target: { value: '646180157000000004' },
+      }),
+    ).not.toThrow();
+
+    // La página sigue montada (no «Application error») y la cantidad quedó topada en 999.
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (999)' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Cantidad de Charizard')).toHaveValue(999);
   });
 
   it('agrega varias cartas distintas y las envía en una sola solicitud', async () => {
@@ -997,5 +1020,112 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
     const items = spy.mock.calls[0][0].items;
     expect(items).toHaveLength(1);
     expect(items[0].productId).toBeUndefined();
+  });
+});
+
+/**
+ * P-42 · el carrito de venta en DESKTOP es un PANEL FIJO a la par del grid (no un drawer que
+ * abre/cierra). El layout se decide con `matchMedia('(min-width: 1024px)')`; en jsdom el poly
+ * devuelve `matches:false` (móvil) salvo que el test lo mockee a `true`.
+ */
+describe('BuylistView · P-42 carrito fijo (desktop) + sombreado', () => {
+  /** Fuerza el media query de desktop; devuelve un restaurador. */
+  function forceDesktop(): () => void {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('min-width: 1024px'),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    return () => {
+      window.matchMedia = original;
+    };
+  }
+
+  it('en desktop el carrito se ve SIEMPRE lado a lado (sin FAB ni drawer): total y CTA visibles sin abrir nada', async () => {
+    const restore = forceDesktop();
+    try {
+      asVerifiedCustomer();
+      renderWithProviders(<BuylistView />, 'es');
+      await addCard('Charizard');
+
+      // No hay FAB ni drawer en desktop: el carrito es un panel persistente.
+      expect(screen.queryByTestId('sell-cart-fab')).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      // El total y el CTA de enviar están a la vista SIN necesidad de abrir el carrito.
+      expect(screen.getByText('Total estimado')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('tras AGREGAR, la teja de esa (carta, acabado) se destaca como «En el carrito» (sombreado)', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await openBaseSet();
+    // Antes de agregar, ninguna teja está marcada.
+    expect(screen.queryByText('En el carrito')).not.toBeInTheDocument();
+
+    await addCard('Charizard'); // acabado Normal
+    // La teja del acabado agregado queda marcada (doble canal: texto + data-in-cart).
+    expect(screen.getAllByText('En el carrito').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-in-cart="true"]')).not.toBeNull();
+  });
+});
+
+/**
+ * P-43 · click en la teja (imagen, no «AGREGAR») abre un pop-up de detalle con imagen grande y
+ * datos; cierra con click fuera (backdrop) y Esc. AGREGAR sigue siendo su propia acción.
+ */
+describe('BuylistView · P-43 pop-up de detalle de la carta', () => {
+  it('click en el arte abre el modal de detalle (rareza visible) y cierra con click fuera (backdrop)', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await openBaseSet();
+
+    // El detalle es su PROPIO disparador, distinto del botón «Agregar».
+    const detailBtn = await screen.findByRole('button', {
+      name: 'Ver detalle de Charizard (Normal)',
+    });
+    fireEvent.click(detailBtn);
+
+    const dialog = await screen.findByRole('dialog');
+    // El detalle muestra la rareza de la carta (P-44) dentro del modal.
+    expect(within(dialog).getByText('Rare Holo')).toBeInTheDocument();
+
+    // Cierra con click FUERA (backdrop = el overlay que envuelve al diálogo).
+    const overlay = dialog.parentElement as HTMLElement;
+    fireEvent.click(overlay);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('el modal de detalle también cierra con Esc (a11y)', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await openBaseSet();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver detalle de Charizard (Normal)' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+});
+
+/**
+ * P-44 · la rareza se muestra en las tejas del cotizador (junto al acabado). El binder comparte
+ * teja con el admin M1 / Master Set, así que la rareza aparece en todas.
+ */
+describe('BuylistView · P-44 rareza en las tejas', () => {
+  it('las tejas del cotizador raw muestran la rareza de la carta (Rare Holo)', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await openBaseSet();
+    await screen.findByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ });
+    // La rareza se pinta en las tejas (una por acabado de Charizard).
+    expect(screen.getAllByText('Rare Holo').length).toBeGreaterThan(0);
   });
 });

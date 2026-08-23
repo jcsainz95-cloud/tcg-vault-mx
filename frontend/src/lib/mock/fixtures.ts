@@ -581,6 +581,11 @@ export const mockHoldings: HoldingDTO[] = [
     card: cardById('c-sealed-sv08-box'),
     productType: 'sealed',
     sealedSubtype: 'box',
+    // v1.42 (BLOQ-2a): identidad RESUELTA server-side — el cliente ve la CAJA sellada, no el single ancla.
+    sealedProductId: 'sp-sv08-box',
+    sealedProductName: 'Surging Sparks Booster Box',
+    sealedImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590412_in_1000x1000.jpg',
+    sealedCondition: 'mint',
     finish: 'normal',
     ownershipStatus: 'settled',
     status: 'in_custody',
@@ -1291,13 +1296,15 @@ export const mockSelfVaultOwner: VaultOwnerRefDTO = { userId: 'u-mock', name: 'C
 // Piezas del scope: plataforma = mockInventory on-hand; user_vault = holdings del usuario
 // que siguen "en bóveda" (status NOT IN OFF_HAND; ambas titularidades pending|settled).
 function piecesOfScope(scope: MockMasterSetScope): ScopePiece[] {
+  // v1.42 (BLOQ-3): el binder es la colección de SINGLES — `productType='sealed'` se EXCLUYE de los
+  // conteos/completitud (el sellado vive en su propia superficie «Sellado», no anclado como single).
   if (scope.kind === 'platform') {
     return mockInventory
-      .filter(isOnHand)
+      .filter((i) => isOnHand(i) && i.productType !== 'sealed')
       .map((i) => ({ cardId: i.card.id, setId: i.card.setId, number: i.card.number, finish: (i.finish ?? 'normal') as Finish }));
   }
   return scope.holdings
-    .filter((h) => !OFF_HAND.includes(h.status))
+    .filter((h) => !OFF_HAND.includes(h.status) && h.productType !== 'sealed')
     .map((h) => ({ cardId: h.card.id, setId: h.card.setId, number: h.card.number, finish: (h.finish ?? 'normal') as Finish }));
 }
 
@@ -1724,7 +1731,7 @@ export function mockCreateAdjustment(req: InventoryAdjustmentRequest): Inventory
     }
     // acquisitionType default aportacion_en_especie → PRICE_PENDING si no hay referencia (paridad alta).
     const acq = item.acquisitionType ?? 'aportacion_en_especie';
-    if (acq === 'aportacion_en_especie' && mockReferenceByCardId[item.cardId] == null) {
+    if (acq === 'aportacion_en_especie' && mockReferenceByCardId[card.id] == null) {
       throw new ApiFixtureError(422, 'PRICE_PENDING', 'no reference for aportacion');
     }
     const qty = item.productType === 'graded' ? 1 : item.qty ?? 1;
@@ -1861,6 +1868,49 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
   let createdItems = 0;
   let failedLines = 0;
   const results: BatchInventoryLineResult[] = req.items.map((line, index) => {
+    // v1.39 (P-38): sellado por IDENTIDAD (`sealedProductId`) — el backend DERIVA la Card ancla y el
+    // mercado desde el SealedProduct; el cliente NO manda cardId. Money-safe: manual solo llena el hueco.
+    if (line.productType === 'sealed' && line.sealedProductId) {
+      const sp = Object.values(MOCK_SEALED_PRODUCTS)
+        .flat()
+        .find((p) => p.id === line.sealedProductId);
+      if (!sp) {
+        failedLines += 1;
+        return { index, ok: false, error: { code: 'SEALED_PRODUCT_NOT_FOUND', message: 'sealed product not found or inactive' } };
+      }
+      // v1.41 (IMP-1): el gate es sobre el mercado AUTORITATIVO GATEADO (== SealedProductDTO.
+      // effectiveMarketCents), NO sobre `marketRef` (caché informativo). Con dial off ⇒ null ⇒ el
+      // manual es aceptado; con mercado gateado presente ⇒ el manual → MANUAL_MARKET_NOT_ALLOWED.
+      const gatedMarket = mockEffectiveMarketCents(sp);
+      const manual = line.manualMarketMxnCents;
+      if (manual != null) {
+        if (gatedMarket != null) {
+          failedLines += 1;
+          return { index, ok: false, error: { code: 'MANUAL_MARKET_NOT_ALLOWED', message: 'market already resolved' } };
+        }
+        if (manual <= 0) {
+          failedLines += 1;
+          return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'manual market must be > 0' } };
+        }
+      }
+      const resolvedMarket = gatedMarket ?? (manual != null && manual > 0 ? manual : null);
+      // Aportación sin mercado resuelto (ni vivo ni manual) → precio pendiente (money-safe, nunca 0).
+      if (line.acquisitionType === 'aportacion_en_especie' && resolvedMarket == null) {
+        failedLines += 1;
+        return { index, ok: false, error: { code: 'PRICE_PENDING', message: 'no market for aportacion' } };
+      }
+      const qty = line.qty ?? 1;
+      const base = mockInventory.length + createdItems + 1;
+      const folios: string[] = [];
+      const inventoryItemIds: string[] = [];
+      for (let k = 0; k < qty; k++) {
+        const seq = String(base + k).padStart(6, '0');
+        folios.push(`INV-${seq}`);
+        inventoryItemIds.push(`inv-batch-${seq}`);
+      }
+      createdItems += qty;
+      return { index, ok: true, folios, inventoryItemIds };
+    }
     const card = mockCards.find((c) => c.id === line.cardId);
     // Validaciones por-línea (reflejan el backend; una línea inválida NO tumba las demás).
     if (!card) {
@@ -1885,7 +1935,7 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       return { index, ok: false, error: { code: 'FINISH_NOT_AVAILABLE', message: 'finish not available' } };
     }
     // Aportación en especie sin referencia → precio pendiente (cola del dueño).
-    if (line.acquisitionType === 'aportacion_en_especie' && mockReferenceByCardId[line.cardId] == null) {
+    if (line.acquisitionType === 'aportacion_en_especie' && mockReferenceByCardId[card.id] == null) {
       failedLines += 1;
       return { index, ok: false, error: { code: 'PRICE_PENDING', message: 'no reference for aportacion' } };
     }
@@ -2103,6 +2153,37 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
     createdAt: '2026-08-13T09:15:00Z',
     cardName: 'Machamp',
     card: { id: 'c-machamp', name: 'Machamp', number: '8', setName: 'Base Set' },
+  },
+  // v1.42 (BLOQ-2b): dos presentaciones selladas del MISMO set (ETB vs blíster) — entradas SEPARADAS
+  // por `sealedProductId` (antes colapsaban bajo el gradeKey legacy 'sealed'). El operador ve el nombre
+  // del sellado, no la carta ancla; resolver el override de una NO cierra la otra.
+  {
+    id: 'ppe-3',
+    cardId: 'c-sealed-sv08-box',
+    productType: 'sealed',
+    gradeKey: 'sealed:tcg:590413',
+    finish: 'normal',
+    context: 'inventory',
+    status: 'open',
+    createdAt: '2026-08-20T10:00:00Z',
+    sealedProductId: 'sp-sv08-bundle',
+    sealedProductName: 'Surging Sparks Booster Bundle',
+    sealedSubtype: 'bundle',
+    card: { id: 'c-sealed-sv08-box', name: 'Surging Sparks', number: '', setName: 'Surging Sparks' },
+  },
+  {
+    id: 'ppe-4',
+    cardId: 'c-sealed-sv08-box',
+    productType: 'sealed',
+    gradeKey: 'sealed:tcg:590420',
+    finish: 'normal',
+    context: 'inventory',
+    status: 'open',
+    createdAt: '2026-08-20T10:05:00Z',
+    sealedProductId: 'sp-sv08-mega-blister',
+    sealedProductName: 'Mega Evolution Blister',
+    sealedSubtype: 'blister',
+    card: { id: 'c-sealed-sv08-box', name: 'Surging Sparks', number: '', setName: 'Surging Sparks' },
   },
 ];
 export function resolveMockPending(id: string) {
@@ -2591,7 +2672,6 @@ export let mockSettings: SettingsDTO = {
   salesMarkupPct: 10,
   stripeFeePct: 3.6,
   stripeFeeFixedCents: 300,
-  stripeFeeIvaPct: 0.16,
   buylistCapPerRequestCents: 300000,
   buylistCapPerMonthCents: 1000000,
   ineThresholdCents: 300000,
@@ -3292,6 +3372,280 @@ export function mockSealedCatalog(params: {
     anchorCardId: entry.anchorCardId,
     data: products,
   };
+}
+
+// ---- P-38: alta dedicada de sellado — entidad `SealedProduct` PERSISTIDA por set ----
+// MOCK: presentaciones selladas persistidas por set (`SealedProductDTO`). Money-safe: `marketRef=null`
+// cuando la fuente no trae precio (NUNCA 0). Sets sin fila ⇒ needsSync:true (el front ofrece «Sincronizar»).
+// v1.41 (IMP-1): el seed lleva `marketRef` (informativo); `effectiveMarketCents` (autoritativo, gateado
+// por el dial) se DERIVA en `mockSealedProducts` — así el mock reproduce el gate real del backend.
+type MockSealedProduct = Omit<import('@/types/contract').SealedProductDTO, 'effectiveMarketCents'>;
+type MockSealedSetGroup = import('@/types/contract').SealedSetGroupDTO;
+
+// v1.41 (IMP-1): estado MOCK del dial `sealedPriceSource` (§M10). Con 'tcgcsv' el mercado gateado sigue
+// a `marketRef`; con 'off' TODO `effectiveMarketCents` cae a null (fail-closed) aunque `marketRef` tenga
+// caché — reproduce el dead-end que IMP-1 corrige. Cambia a 'off' para ejercitar el camino manual.
+const MOCK_SEALED_PRICE_SOURCE: import('@/types/contract').SealedPriceSource = 'tcgcsv';
+
+// Deriva el mercado AUTORITATIVO gateado (money-safe: sin precio o dial off ⇒ null, NUNCA 0).
+function mockEffectiveMarketCents(sp: MockSealedProduct): number | null {
+  if (MOCK_SEALED_PRICE_SOURCE === 'off') return null;
+  return sp.marketRef?.status === 'priced' ? sp.marketRef.referenceMxnCents ?? null : null;
+}
+
+const MOCK_SEALED_PRODUCTS: Record<string, MockSealedProduct[]> = {
+  sv08: [
+    {
+      id: 'sp-sv08-etb',
+      setId: 'sv08',
+      tcgplayerProductId: 590411,
+      tcgplayerGroupId: 23966,
+      name: 'Surging Sparks Elite Trainer Box',
+      cleanName: 'Surging Sparks Elite Trainer Box',
+      subtype: 'etb',
+      subtypeInferred: false,
+      isPrincipal: true,
+      origin: 'set_main',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590411_in_1000x1000.jpg',
+      marketRef: { status: 'priced', referenceMxnCents: 125_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+    },
+    {
+      id: 'sp-sv08-box',
+      setId: 'sv08',
+      tcgplayerProductId: 590412,
+      tcgplayerGroupId: 23966,
+      name: 'Surging Sparks Booster Box',
+      cleanName: 'Surging Sparks Booster Box',
+      subtype: 'box',
+      subtypeInferred: false,
+      isPrincipal: true,
+      origin: 'set_main',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590412_in_1000x1000.jpg',
+      marketRef: { status: 'priced', referenceMxnCents: 320_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+    },
+    {
+      id: 'sp-sv08-upc',
+      setId: 'sv08',
+      tcgplayerProductId: 590410,
+      tcgplayerGroupId: 23966,
+      name: 'Surging Sparks Ultra Premium Collection',
+      cleanName: 'Surging Sparks Ultra Premium Collection',
+      subtype: 'upc',
+      subtypeInferred: false,
+      isPrincipal: true,
+      origin: 'set_main',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590410_in_1000x1000.jpg',
+      marketRef: { status: 'priced', referenceMxnCents: 210_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+    },
+    {
+      // Sin precio en la fuente ⇒ marketRef null (money-safe): seleccionable, pero requiere precio manual.
+      id: 'sp-sv08-bundle',
+      setId: 'sv08',
+      tcgplayerProductId: 590413,
+      tcgplayerGroupId: 23966,
+      name: 'Surging Sparks Booster Bundle',
+      cleanName: 'Surging Sparks Booster Bundle',
+      subtype: 'bundle',
+      subtypeInferred: false,
+      isPrincipal: false,
+      origin: 'set_main',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590413_in_1000x1000.jpg',
+      marketRef: null,
+    },
+    {
+      // Subtipo inferido por heurística (afijo tenue en la teja) — promos/colecciones.
+      id: 'sp-sv08-mega-blister',
+      setId: 'sv08',
+      tcgplayerProductId: 590420,
+      tcgplayerGroupId: 24010,
+      name: 'Mega Evolution Blister',
+      cleanName: 'Mega Evolution Blister',
+      subtype: 'blister',
+      subtypeInferred: true,
+      isPrincipal: false,
+      origin: 'promo_collection',
+      imageUrl: null,
+      marketRef: { status: 'priced', referenceMxnCents: 18_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+    },
+  ],
+  sv06: [
+    {
+      id: 'sp-sv06-etb',
+      setId: 'sv06',
+      tcgplayerProductId: 570123,
+      tcgplayerGroupId: 23821,
+      name: 'Twilight Masquerade Elite Trainer Box',
+      cleanName: 'Twilight Masquerade Elite Trainer Box',
+      subtype: 'etb',
+      subtypeInferred: false,
+      isPrincipal: true,
+      origin: 'set_main',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/570123_in_1000x1000.jpg',
+      marketRef: { status: 'priced', referenceMxnCents: 110_000, source: 'tcgcsv', capturedDate: '2026-08-19' },
+    },
+  ],
+};
+
+const MOCK_SEALED_GROUPS: Record<string, MockSealedSetGroup[]> = {
+  sv08: [
+    { id: 'ssg-sv08-main', setId: 'sv08', tcgplayerGroupId: 23966, kind: 'set_main', label: 'Surging Sparks' },
+    { id: 'ssg-sv08-mega', setId: 'sv08', tcgplayerGroupId: 24010, kind: 'promo_collection', label: 'Mega Evolution' },
+  ],
+  sv06: [
+    { id: 'ssg-sv06-main', setId: 'sv06', tcgplayerGroupId: 23821, kind: 'set_main', label: 'Twilight Masquerade' },
+  ],
+};
+
+const SORT_ORDER: Record<import('@/types/contract').SealedSubtype, number> = {
+  upc: 0,
+  etb: 1,
+  box: 2,
+  bundle: 3,
+  tin: 4,
+  blister: 5,
+  collection: 6,
+};
+
+function sortSealedProducts(list: MockSealedProduct[]): MockSealedProduct[] {
+  return [...list].sort((a, b) => {
+    if (a.isPrincipal !== b.isPrincipal) return a.isPrincipal ? -1 : 1;
+    if (SORT_ORDER[a.subtype] !== SORT_ORDER[b.subtype]) return SORT_ORDER[a.subtype] - SORT_ORDER[b.subtype];
+    return (a.cleanName ?? a.name).localeCompare(b.cleanName ?? b.name);
+  });
+}
+
+export function mockSealedProducts(params: {
+  setId: string;
+  q?: string;
+  origin?: import('@/types/contract').SealedGroupKind;
+  principalOnly?: boolean;
+}): import('@/types/contract').SealedProductListResponse {
+  const set = mockSets.find((s) => s.id === params.setId);
+  if (!set) throw new ApiFixtureNotFound(`CardSet ${params.setId} not found`);
+  const setRef = { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate };
+  const groups = MOCK_SEALED_GROUPS[params.setId] ?? [];
+  const seed = MOCK_SEALED_PRODUCTS[params.setId];
+  // Set aún sin catálogo descargado ⇒ needsSync:true (el front ofrece «Sincronizar»).
+  if (!seed) {
+    return { set: setRef, needsSync: true, groups, sealedPriceSource: MOCK_SEALED_PRICE_SOURCE, data: [] };
+  }
+  let data = seed;
+  if (params.origin) data = data.filter((p) => p.origin === params.origin);
+  if (params.principalOnly) data = data.filter((p) => p.isPrincipal);
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    data = data.filter((p) => (p.cleanName ?? p.name).toLowerCase().includes(q));
+  }
+  // v1.41 (IMP-1): inyecta `effectiveMarketCents` (gateado) por producto + `sealedPriceSource` en la
+  // respuesta. El front keyea la UI del alta en `effectiveMarketCents`, no en `marketRef`.
+  const out = sortSealedProducts(data).map((p) => ({
+    ...p,
+    effectiveMarketCents: mockEffectiveMarketCents(p),
+  }));
+  return {
+    set: setRef,
+    needsSync: false,
+    groups,
+    sealedPriceSource: MOCK_SEALED_PRICE_SOURCE,
+    data: out,
+  };
+}
+
+export function mockSyncSealedProducts(
+  req: import('@/types/contract').SealedSyncRequest,
+): import('@/types/contract').SealedSyncResultDTO {
+  const setId = req.setId;
+  if (setId && setId === 'base1') {
+    throw new ApiFixtureError(502, 'UPSTREAM_ERROR', 'TCGCSV upstream not available');
+  }
+  // MOCK: si el set no tiene seed, lo «poblamos» con una presentación mínima para que el re-list muestre datos.
+  if (setId && !MOCK_SEALED_PRODUCTS[setId]) {
+    const set = mockSets.find((s) => s.id === setId);
+    if (!set) throw new ApiFixtureNotFound(`CardSet ${setId} not found`);
+    MOCK_SEALED_PRODUCTS[setId] = [
+      {
+        id: `sp-${setId}-etb`,
+        setId,
+        tcgplayerProductId: 900000,
+        tcgplayerGroupId: 99000,
+        name: `${set.name} Elite Trainer Box`,
+        cleanName: `${set.name} Elite Trainer Box`,
+        subtype: 'etb',
+        subtypeInferred: false,
+        isPrincipal: true,
+        origin: 'set_main',
+        imageUrl: null,
+        marketRef: { status: 'priced', referenceMxnCents: 120_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+      },
+      {
+        id: `sp-${setId}-bundle`,
+        setId,
+        tcgplayerProductId: 900001,
+        tcgplayerGroupId: 99000,
+        name: `${set.name} Booster Bundle`,
+        cleanName: `${set.name} Booster Bundle`,
+        subtype: 'bundle',
+        subtypeInferred: false,
+        isPrincipal: false,
+        origin: 'set_main',
+        imageUrl: null,
+        marketRef: null,
+      },
+    ];
+    if (!MOCK_SEALED_GROUPS[setId]) {
+      MOCK_SEALED_GROUPS[setId] = [
+        { id: `ssg-${setId}-main`, setId, tcgplayerGroupId: 99000, kind: 'set_main', label: set.name },
+      ];
+    }
+  }
+  const products = setId ? MOCK_SEALED_PRODUCTS[setId] ?? [] : [];
+  const priced = products.filter((p) => p.marketRef != null).length;
+  return {
+    setsSynced: 1,
+    groupsPopulated: req.groupIds?.length ?? 0,
+    productsUpserted: products.length,
+    productsDeactivated: 0,
+    pricedCount: priced,
+    pendingPriceCount: products.length - priced,
+  };
+}
+
+export function mockSealedSyncCandidates(params: {
+  setId: string;
+}): import('@/types/contract').SealedSyncCandidatesResponse {
+  const set = mockSets.find((s) => s.id === params.setId);
+  if (!set) throw new ApiFixtureNotFound(`CardSet ${params.setId} not found`);
+  const setRef = { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate };
+  const linked = new Set((MOCK_SEALED_GROUPS[params.setId] ?? []).map((g) => g.tcgplayerGroupId));
+  return {
+    set: setRef,
+    candidates: [
+      { tcgplayerGroupId: 24010, name: `${set.name} Mega Evolution`, publishedOn: '2026-08-01', alreadyLinked: linked.has(24010), matchScore: 0.92 },
+      { tcgplayerGroupId: 24055, name: `${set.name} Promo Blisters`, publishedOn: '2026-07-15', alreadyLinked: linked.has(24055), matchScore: 0.61 },
+      { tcgplayerGroupId: 24099, name: 'Scarlet & Violet Promos', publishedOn: '2026-06-10', alreadyLinked: linked.has(24099), matchScore: 0.28 },
+    ],
+  };
+}
+
+export function mockLinkSealedSetGroup(
+  setId: string,
+  req: import('@/types/contract').SealedSetGroupLinkRequest,
+): import('@/types/contract').SealedSetGroupDTO {
+  const set = mockSets.find((s) => s.id === setId);
+  if (!set) throw new ApiFixtureNotFound(`CardSet ${setId} not found`);
+  const groups = MOCK_SEALED_GROUPS[setId] ?? (MOCK_SEALED_GROUPS[setId] = []);
+  if (groups.some((g) => g.tcgplayerGroupId === req.tcgplayerGroupId)) {
+    throw new ApiFixtureError(409, 'CONFLICT', 'group already linked');
+  }
+  const created: MockSealedSetGroup = {
+    id: `ssg-${setId}-${req.tcgplayerGroupId}`,
+    setId,
+    tcgplayerGroupId: req.tcgplayerGroupId,
+    kind: req.kind,
+    label: 'Grupo enlazado',
+  };
+  groups.push(created);
+  return created;
 }
 
 // ---- P-20: pestaña «Gradeadas» ----

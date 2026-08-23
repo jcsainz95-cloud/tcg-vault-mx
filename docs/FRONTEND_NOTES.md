@@ -4,6 +4,129 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21)
+
+> Rama `fix/variant-composition-regression`. El humano decidió publicar SIN razón social por ahora.
+> El literal placeholder **«[Razón social pendiente]»** NO puede verse en producción.
+
+- **Problema:** el footer del storefront (`(storefront)/layout.tsx`, `Footer()`) renderizaba
+  `«TCG HUNT · tcghunt.mx · © {año} {footer.legalEntity}»` con `footer.legalEntity` =
+  `[Razón social pendiente]` (es) / `[Legal entity pending]` (en), dejando el placeholder visible.
+- **Fix data-driven:** nuevo helper puro `resolveLegalEntity(raw)` en
+  `frontend/src/app/[locale]/(storefront)/footer.ts`. Devuelve `null` cuando el valor es
+  vacío/en blanco o está envuelto en corchetes (convención de placeholder de los archivos de
+  mensajes), y el string recortado en caso contrario. `Footer()` (`layout.tsx:58`) omite la razón
+  social cuando el helper devuelve `null`: el footer queda «TCG HUNT · tcghunt.mx · © {año}»,
+  coherente y sin texto colgando (la marca «TCG HUNT» ya abre la línea, no hay «©» huérfano).
+- **Comportamiento futuro:** cuando el humano cargue una razón social real (sin corchetes) en
+  `messages/*.json` → `common.footer.legalEntity`, aparece automáticamente, sin cambios de código.
+- **Mensajes intactos:** `messages/es.json`/`en.json` conservan el placeholder entre corchetes como
+  marcador de intención; el resolver lo neutraliza en runtime. No toqué el contrato ni el backend.
+- **Cobertura:** `footerLegalEntity.test.ts` (3 casos: vacío/blanco/undefined/null → null;
+  placeholders es/en → null; razón social real recortada). tsc `--noEmit`, `npm test`
+  (622 passed) y `next build` verdes.
+
+## Pase de deuda técnica frontend (2026-08-23) — cotizador H1/H3/H4 + H-P38-5
+
+> Pago de deuda **segura y de display/UX** (money-safe intacto). Detalle en `docs/TECH_DEBT.md`
+> (marcados RESUELTOS). Rediseño visual conservado.
+
+- **Cotizador H3 — sombreado «En el carrito» en TODAS las tejas** (`components/master-set/MasterSetBinder.tsx`).
+  La teja de **producto separado** (`SeparateProductTile`, deck_exclusive/promo) no recibía `inCart`, así que
+  un producto separado ya agregado no se sombreaba (las variantes base sí). Ahora se le propaga `inCart` con
+  la MISMA identidad que el carrito: `isInCart(cardId, finish, productId)` — con `productId` (una línea propia).
+  Se reusa EXACTO el sombreado de `QuoterTile` (`bg-surface-2` + `shadow-[inset_0_0_0_1px_var(--color-border-strong)]`
+  + `data-in-cart` + etiqueta textual `quoterInCart` en `text-success`). Solo aplica en quoter (fuera del quoter
+  `inCart` es undefined). Sin cambio de contrato.
+- **Cotizador H1 — flash de layout en desktop** (`buylist/BuylistView.tsx`). El carrito era JS-driven
+  (`useMediaQuery('(min-width:1024px)')`), first-paint móvil que saltaba a 2 columnas al hidratar (layout shift
+  visible de la columna `main`). Mitigación: la ESTRUCTURA de 2 columnas se declara por CSS
+  (`lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start`, mismo umbral 1024px que `isDesktopCart`), NO por
+  JS. El track de 360px queda RESERVADO desde el first-paint en desktop, así `main` nace con su ancho final y no
+  refluye. **Trade-off aceptado:** el CONTENIDO del carrito (`<aside>` / FAB+drawer) sigue siendo un ÚNICO render
+  JS-driven (`isDesktopCart`) para NO duplicar estado/foco ni el focus-trap; por eso en desktop el `<aside>` aparece
+  al hidratar dentro de la columna ya reservada (rellena el hueco, sin reflujo de `main`), y el FAB móvil es `fixed`
+  (fuera del flujo del grid), de modo que su breve aparición pre-hidratación tampoco desplaza el layout. El fix
+  limpio del todo (SSR-aware del viewport, o extraer el carrito) implicaría reestructurar de más → mitigación mínima.
+- **Cotizador H4 — doc drift** (`components/domain/RarityLabel.tsx` + este archivo). El comentario decía «gemelo de
+  `FinishLabel`»; el hermano canónico del rediseño que vive junto a `RarityLabel` en `components/domain` es
+  **`FinishMark`**. Corregido en ambos sitios.
+- **H-P38-5 — no reusar `SealedProduct.id` como `cardId` de relleno** (`admin/m1/SealedAddFlow.tsx` +
+  `QuickAdd.tsx`). El alta de sellado por identidad enviaba `cardId: selected.id` (un `SealedProduct.id`) como
+  placeholder de tipo, confiando en que el batch lo ignora. Ahora **NO se envía cardId** (se omite): con
+  `sealedProductId` el backend deriva la Card ancla. `QuickAddTarget.cardId` pasó a **opcional** (`cardId?: string`,
+  ya opcional en `BatchInventoryItemInput` del contrato); el mutation ya omitía cardId bajo identidad sellada, así
+  que el alta sigue funcionando idéntica. Sin cambio de contrato.
+
+## §38 · P-38 — alta de sellado con entidad real `SealedProduct` (2026-08-23, contrato v1.39.1, DS §16.8a)
+
+**Qué se hizo:** evolucionar el `SealedAddFlow` de P-35 para que el alta de producto sellado nazca con
+**identidad real** (`SealedProduct` persistido, no un ancla a un single del set) y sea **money-safe** de
+raíz. Se **retira el camino money-unsafe** «capturar sin catálogo» de P-35 (nacía SIN MAPEO). Todo en
+`frontend/`; el alta vive en `(admin)/admin/m1/`. Aditivo al design system — **cero tokens nuevos**.
+
+**Componentes (m1):**
+- **`SealedProductPicker.tsx` (NUEVO)** — reemplaza el grid único `SealedProductGrid` (eliminado). Paso 1
+  en **DOS SECCIONES `<section>` por `origin`**: «Del set» (`set_main`) primero y «Promos/colecciones»
+  (`promo_collection`) después. Cada sección tiene `<h3>` + contador + su propio `role="listbox"`;
+  selección única en todo el paso (un solo `sealedProductId` viaja al paso 2). Orden interno lo entrega el
+  server (§4.34c: `isPrincipal desc`, `sortOrder`, `name`). Exporta la **teja evolucionada
+  `SealedProductTile`**: imagen real + pozo/fallback, nombre (`cleanName`), pill de subtipo (incl. **UPC**
+  y **collection**, con afijo tenue `·` + `title` si `subtypeInferred`), **badge «Principal»**, referencia
+  money-safe (`marketRef` o pill `SIN PRECIO DE MERCADO`, **nunca 0**; seleccionable aun sin precio).
+- **`SealedManualMarketField.tsx` (NUEVO)** — precio de mercado MANUAL en el paso 2. Input de dinero
+  **abierto vacío** (jamás 0/sugerido), valida `>0`, aviso de **override auditado**. El flujo solo lo
+  renderiza cuando `marketRef` es null **y** el usuario es **`vault_operator+`**; mapea a
+  `manualMarketMxnCents`.
+- **`SealedGroupLinker.tsx` (NUEVO, `super_admin`)** — curación de grupos promo/colección: lista
+  `GET .../sync/candidates` con medidor de confianza (`matchScore` → alta/media/baja, nunca cifra cruda) y
+  estado «Ya enlazado»; `POST .../sealed-sets/:setId/groups` (`kind:"promo_collection"`) → dispara re-sync.
+- **`SealedAddFlow.tsx` (EVOLUCIONADO)** — orquesta: set → `listSealedProducts` → picker (con buscador `q`
+  server-side + toggle «Solo principales» → `principalOnly`) → paso 2. Estado **«Sincronizar»**
+  (`needsSync`): CTA `Sincronizar` **solo `super_admin`** (loading sin cerrar el modal, resumen honesto del
+  `SealedSyncResultDTO` «12 presentaciones · 9 con precio · 3 pendientes», nunca «0»); para
+  `vault_operator` copy sin botón muerto. Alta reusa `QuickAddSection` con `sealedProductId` (+
+  `manualMarketMxnCents` cuando aplica).
+- **`QuickAdd.tsx` (AJUSTADO)** — `QuickAddTarget` gana `sealedProductId?` y `manualMarketMxnCents?`. Con
+  `sealedProductId` la línea del batch **omite `cardId`** (el backend deriva la Card ancla) y **no** manda
+  los 4 campos M-37 sueltos (deprecados). Otras superficies que reusan `QuickAddSection` (raw, detalle de
+  set) **no cambian** (siguen mandando `cardId`).
+
+**Endpoints consumidos (nuevos en `lib/api.ts`):** `listSealedProducts`, `syncSealedProducts`,
+`getSealedSyncCandidates`, `linkSealedSetGroup`. Alta = `batchCreateItems` (`POST .../items/batch`) con
+`sealedProductId` + `batchKey` (+ `manualMarketMxnCents?`).
+
+**`types/contract.ts`:** `SealedSubtype` += `upc`/`collection`; nuevos `SealedGroupKind`,
+`SealedProductDTO`, `SealedSetGroupDTO`, `SealedProductListResponse`, `TcgcsvGroupCandidateDTO`,
+`SealedSyncCandidatesResponse`, `SealedSyncRequest`, `SealedSyncResultDTO`, `SealedSetGroupLinkRequest`;
+`BatchInventoryItemInput` gana `sealedProductId?`/`manualMarketMxnCents?` y `cardId` pasa a opcional.
+
+**i18n (es/en):** `admin.sealedAdd.{section.*,sync.*,linker.*,manualMarket.*,principalOnly,principalBadge,
+subtypeInferredHint,legitEmpty,legitEmptyHint,sectionEmpty}` · `status.sealedSubtype.{upc,collection}` ·
+`error.{SEALED_PRODUCT_NOT_FOUND,MANUAL_MARKET_NOT_ALLOWED}`. Se retiraron las claves del camino de
+respaldo P-35 (`fallbackLink/fallbackNotice/fallbackProductName/noProducts*`).
+
+**Money-safe:** sin precio → pill/pendiente/manual, **jamás 0**; el override manual solo llena el hueco
+`null` (con mercado vivo el campo no se ofrece; el backend responde `422 MANUAL_MARKET_NOT_ALLOWED`); sin
+manual, la aportación queda `PRICE_PENDING` con helper que lo anticipa. Mocks (`lib/mock/fixtures.ts`)
+actualizados para los 4 endpoints y para que `mockBatchCreate` derive por `sealedProductId` y aplique las
+reglas de `manualMarketMxnCents`/`SEALED_PRODUCT_NOT_FOUND`.
+
+**El alta nace con identidad real (no ancla-a-single):** la línea del batch viaja **sin `cardId`** y con
+`sealedProductId` → el backend deriva Card ancla + mapeo + imagen/nombre/subtipo del `SealedProduct` y
+congela el snapshot (la pieza nace «ETB Surging Sparks», no la Tropius). Verificado por test.
+
+**Tests añadidos:** `SealedAddFlow.test.tsx` (reescrito, 7): 2 secciones por `origin` con orden fijo, teja
+money-safe (precio/pill/badge, nunca 0), sync solo `super_admin` con resumen honesto + copy sin botón para
+`vault_operator`, alta manda `sealedProductId` (sin `cardId`), precio manual `vault_operator` solo si
+`marketRef` null (valida `>0` → `manualMarketMxnCents`) y NO aparece con mercado vivo. `SealedGroupLinker.
+test.tsx` (nuevo, 1): candidatos con confianza + enlace → re-sync.
+
+**Sin solicitudes al arquitecto:** el contrato v1.39.1 cubre todos los datos/pantallas. No se tocó
+`backend/` ni `docs/API_CONTRACT.md`.
+
+**Verde:** `vitest run` **78 archivos / 615 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
 ## §23 · P-30 (publicación única agrupada con stock) — storefront «Compra» al shape AGRUPADO (2026-08-22, contrato v1.38-grouped-listings)
 
 **Qué se hizo:** casar el catálogo del rediseño (que consumía `ListingDTO` por-copia) con el shape
@@ -5676,3 +5799,285 @@ singles y el contraste `availableCount===1 → «Último»` (lastUnit) para sell
 **FE-2 registrada** en `TECH_DEBT.md` (Baja, dueño frontend, bloqueada por backend **H1**/arquitecto):
 alinear el trato «desde»/sin IVA en singles cuando el rename `salePriceCents→fromPriceCents` llegue por
 contrato. **FE-1 marcada RESUELTO.**
+
+---
+
+## P-36 · Fix stepper «Baja rápida» (QuickRemove) — bug reportado en prod
+
+**Síntoma:** en «Baja rápida» del inventario admin (M1), los botones +/− de «CANTIDAD A DAR DE BAJA»
+no cambiaban el número (carta con «1 piezas disponibles»).
+
+**Causa raíz = caso (b), NO bug funcional.** Con `removableCount=1` el stepper queda topado en `[1,1]`
+(min=max=1): ambos botones **deben** ser no-op y ya llevaban el atributo `disabled`. El
+incremento/decremento funciona correctamente para `removableCount≥2` (cubierto por tests), y
+`removableCount` está **bien calculado**: sale de `VariantDrawer` como
+`rows.filter(status ∈ {in_stock,listed}).length` sobre piezas `ownerType=platform`; cada
+`InventoryItemDTO` es UNA pieza física (no hay campo `quantity` que sumar), y el filtro respeta el
+contrato (§ «solo platform + in_stock|listed son ajustables»). Es decir: la carta de la captura
+**realmente** tiene 1 pieza ajustable → 1 es correcto.
+
+**El defecto real era de UI:** los botones deshabilitados conservaban `hover:bg-surface-2`, que en
+Tailwind se dispara al pasar el cursor **aunque** el botón esté `disabled` → el botón se «encendía»
+bajo el puntero y se leía como *clickeable-pero-muerto*. El humano lo interpretó como «no responden».
+
+**Cambio (`QuickRemove.tsx`, ambos botones):**
+- `hover:bg-surface-2` → `enabled:hover:bg-surface-2` (el hover solo aplica cuando NO está disabled).
+- Estado disabled más evidente: `disabled:border-border disabled:bg-surface-2 disabled:text-muted`
+  (además del `disabled:opacity-45 disabled:cursor-not-allowed` que ya existía) + `aria-disabled`.
+- Lógica del stepper intacta (ya era correcta): + sube hasta `removableCount`, − baja hasta 1.
+
+**Money-safe intacto:** el envío sigue exigiendo `note` no-vacía + `batchKey` idempotente; el stepper
+sigue capado a `removableCount`. No se tocó `removableCount` (estaba bien).
+
+**Nota de borde (no bug):** `getAdminInventory` pide `pageSize:100`; una variante con >100 piezas
+subcontaría `removableCount` — dirección **money-safe** (nunca ofrece bajar de más). Sin acción.
+
+**Tests añadidos** (`QuickRemove.test.tsx`): caso P-36 (1 pieza → ambos botones `disabled`, el número
+no cambia, CTA «Dar de baja 1» operativo) y multi-pieza (3 → + sube 1→3 y se deshabilita en el tope;
+− baja 3→1 y se deshabilita en el piso).
+
+**Verde:** `vitest run` **73 archivos / 595 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
+---
+
+## P-39 · Imagen de alta resolución en superficies prominentes + P-40 · Acabado visible
+
+Ambos ajustes son **aditivos** sobre el rediseño ya mergeado (no rediseño): conservan tokens,
+tipografía y layout del makeover.
+
+### P-39 · `imageLargeUrl` en las vistas prominentes (fallback a `imageSmallUrl`)
+El contrato **ya** expone las dos URLs en `CardDTO` (`imageSmallUrl`, `imageLargeUrl`), y
+`GroupedListingDTO.card` es un `CardDTO`, así que ambas ya viajaban al front. No hubo cambio de
+contrato ni de tipos.
+
+- **Featured del home (`_home/FeaturedCarousel.tsx`):** las DOS tejas (hero grande y las numeradas
+  secundarias) pasan de `imageSmallUrl` a `imageLargeUrl ?? imageSmallUrl`. Son piezas de showcase
+  prominentes, no un grid denso.
+- **Ficha de la carta (`catalog/[cardId]/CardDetailView.tsx`):** ya usaba `imageLargeUrl`; se añadió
+  el fallback `?? imageSmallUrl` por robustez (nunca imagen rota si el backend emite null).
+- **Grid del catálogo (`catalog/CatalogTile.tsx`): se CONSERVA `imageSmallUrl`.**
+  **Decisión small/large (documentada):** el grid del catálogo es **denso** (muchas tejas por
+  viewport); mantener la imagen chica ahorra ancho de banda y acelera el primer render. La alta
+  resolución se reserva para superficies prominentes (featured y ficha). Comentario in-code en la teja.
+- **Fallback:** en featured y ficha se usa `imageLargeUrl ?? imageSmallUrl` (si `imageLargeUrl` es
+  null cae a la chica). `eslint` (solo `next/core-web-vitals`) no marca el `??` sobre tipo no-nulo.
+
+### P-40 · Etiqueta legible de acabado (Normal / Reverse Holo / Holofoil)
+- Las claves i18n **ya existían** (`finish.normal`, `finish.reverse_holo`, `finish.holofoil`, etc. en
+  `messages/{es,en}.json`); no se agregó nada a los mensajes.
+- **Nuevo componente `_shared/FinishLabel.tsx`:** etiqueta discreta (renglón mono muted, NO pastilla
+  con caja — respeta la dirección 5a del rediseño que sustituyó las pastillas por texto mono).
+  Devuelve `null` para `productType === 'sealed'` (sellado no tiene acabado de carta); defensivo,
+  porque `GroupedListingDTO.productType` es `raw|graded` por contrato.
+- **Featured (`FeaturedCarousel.tsx`): era el único hueco real** — las tejas no mostraban acabado.
+  Se añadió `<FinishLabel>` en ambas tejas.
+- **Catálogo (`CatalogTile.tsx`) y ficha (`CardDetailView.tsx`): YA mostraban el acabado** y se
+  dejaron como estaban para no duplicar/ensuciar:
+  - `CatalogTile` lo pinta vía `ListingSpec` (`RAW · NM · HOLOFOIL`, último segmento i18n).
+  - `CardDetailView` lo pinta vía el `Fact` «Acabado» (primario) y el `ListingSpec` de cada grupo.
+  No se tocó `ListingSpec` (vive en `components/domain/`, zona compartida de otros streams).
+
+### Tests añadidos
+- `_home/FeaturedCarousel.test.tsx` (nuevo): hero pinta `imageLargeUrl`; fallback a `imageSmallUrl`
+  cuando `imageLargeUrl` es null; etiqueta de acabado (Reverse Holo / Holofoil) presente.
+- `catalog/CatalogTile.test.tsx` (nuevo): el grid conserva `imageSmallUrl`; el acabado (Holofoil /
+  Reverse Holo) aparece en la ficha técnica de la teja.
+
+**Money-safe:** cambios puramente de display; no se tocan precios ni lógica de carrito.
+
+**Verde:** `vitest run` **75 archivos / 601 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
+---
+
+## P-41…P-44 · Ajustes de UX del storefront (cotizador/catálogo) — un solo pase
+
+Cuatro cambios ADITIVOS/de comportamiento; se conserva el visual del rediseño ya mergeado.
+Solo `frontend/`. Money-safe: todo display/UX — no se tocan precios ni la cotización (los montos
+siguen viniendo del server; la UI solo los MUESTRA).
+
+### P-41 · Cotizador del home surtía corto (fix rápido)
+- `_home/HomeQuoter.tsx`: la búsqueda del mini-cotizador pasó de `pageSize: 5` → **`20`**. Con 5,
+  un nombre con muchas variantes (p. ej. 6 Tropius, «Pitch Black») dejaba fuera cartas de forma
+  arbitraria (el corte desempataba por uuid de set). Sin cambio de backend/contrato.
+- Se añadió el affordance **«Ver más en el cotizador»** (link `/buylist`) al pie del desplegable de
+  resultados, para nombres con aún más variantes.
+
+### P-42 · Carrito de venta fijo (desktop) + sombreado de lo agregado
+- **Layout (`buylist/BuylistView.tsx`):** en **desktop (≥1024px)** el carrito de venta es un
+  **PANEL FIJO a la derecha, a la par del grid** (2 columnas persistentes, `sticky`), reusando
+  EXACTAMENTE el mismo `SellCartContents` que el drawer. En **móvil** se conserva el sheet (FAB +
+  `SellCartDrawer`). La decisión de layout es **JS-driven** (`useMediaQuery('(min-width:1024px)')`,
+  hook nuevo en `hooks/useMediaQuery.ts`): así el carrito se renderiza **UNA sola vez** (sin DOM ni
+  focus-trap duplicados por breakpoints CSS). En jsdom `matchMedia` devuelve `matches:false`, por lo
+  que la suite existente sigue corriendo la variante MÓVIL (FAB+drawer) sin cambios.
+- **Sombreado:** `useSellCart` expone un predicado estable **`isInCart(cardId, productType, finish,
+  productId?)`** (misma identidad que el dedup del carrito, sin la cantidad). Tras AGREGAR:
+  - **grid raw (binder Master Set, `QuoterTile`):** la teja de esa (carta, acabado) se destaca
+    (pozo de papel + regla de tinta) con la marca textual **«En el carrito»** (doble canal;
+    `data-in-cart="true"` para pruebas). Se propaga `isInCart` por `MasterSetPanel → MasterSetBinder
+    → QuoterTile` (prop opcional, solo modo `quoter`).
+  - **grid plano (graded/sealed, `BuylistView`):** la teja se sombrea si CUALQUIER acabado está en
+    el carro; además la fila del acabado agregado marca `✓` en lugar de `+`.
+
+### P-43 · Click en la carta → pop-up de detalle
+- Componente nuevo **`components/domain/CardDetailModal.tsx`** (reusa el `Modal` §7.6 → cierra por
+  **backdrop + Esc + botón**, con foco/aria-modal). Muestra **imagen grande** (`imageLargeUrl` con
+  fallback a `imageSmallUrl`) + datos (nombre, set·#, acabado, rareza, precio estimado). AGREGAR
+  sigue siendo su propia acción, aparte del click de detalle (el arte es su propio `<button>`).
+- **Cableado:** grid raw (`QuoterTile`, modal por teja) y grid plano (`BuylistView`, estado
+  `detailCard` único). `TileHeader` (binder compartido) ganó `onImageClick` opcional: SOLO el
+  cotizador lo pasa; el binder admin/bóveda NO (allí la teja entera ya es `<button>` → evita botón
+  anidado).
+- **Nota de imagen grande en el binder:** `MasterSetCardCellDTO` no lleva `imageLargeUrl`, pero el
+  binder del cotizador se compone client-side desde `GET /buylist/cards` (`CardDTO` SÍ la trae), así
+  que se propaga por un mapa client-only `imageLargeByCardId` en `QuoterBinderResponse` (sin tocar el
+  DTO del contrato). En modos no-quoter no aplica (usarían la imagen chica como fallback).
+
+### P-44 · Rareza en las tejas
+- Componente nuevo **`components/domain/RarityLabel.tsx`** (gemelo de `FinishMark`: mono muted, sin
+  pastilla; vive en `components/domain` junto al `FinishMark` canónico del rediseño). El VALOR de rareza es taxonomía ABIERTA de pokemontcg.io → se pinta crudo con
+  `lang="en"` (no se traduce); lo único i18n es el prefijo accesible (`catalog.rarityAria` →
+  «Rareza: …»). Devuelve `null` para sellado o rareza vacía.
+- **Cableado:** `CatalogTile` (catálogo), grid plano del cotizador (`BuylistView`) y `TileHeader`
+  del binder — este último COMPARTIDO, así que la rareza aparece también en el **binder admin M1 y
+  las bóvedas** (lo pedido por P-44). Se lee de `CardDTO.rarity` / `MasterSetCardCellDTO.rarity`
+  (ambos ya presentes en el contrato — **ningún DTO tuvo que cambiar**).
+
+### DTOs y contrato
+- **Todos los DTOs necesarios ya traían `rarity`, `imageLargeUrl`/`imageSmallUrl`** — no hubo que
+  editar `docs/API_CONTRACT.md` ni `types/contract.ts` para datos. **Sin solicitudes al arquitecto.**
+- Único matiz reportable (no bloqueante): el binder Master Set (`MasterSetCardCellDTO`) no expone
+  `imageLargeUrl`; en el cotizador se resolvió client-side (ver P-43). Si en el futuro se quiere la
+  imagen grande en el detalle del binder de INVENTARIO (M1/bóveda), habría que sumarla al DTO —
+  eso sí pasaría por el arquitecto.
+
+### Tests añadidos/ajustados
+- `_home/HomeQuoter.test.tsx` (nuevo): la búsqueda pide `pageSize: 20`; affordance «Ver más» → `/buylist`.
+- `buylist/BuylistView.test.tsx`: P-42 carrito fijo en desktop (mock `matchMedia` → sin FAB/drawer,
+  total y CTA visibles sin abrir nada) + sombreado «En el carrito»; P-43 modal abre por click en el
+  arte y cierra por backdrop y por Esc; P-44 rareza visible en tejas. Se acotó un assert previo de
+  «Rare Holo» al diálogo del carrito (ahora la rareza también vive en las tejas).
+- `components/domain/RarityLabel.test.tsx` (nuevo): valor crudo + aria localizado; null en sellado y
+  en rareza vacía.
+- `catalog/CatalogTile.test.tsx`: rareza visible con aria «Rareza: Rare Holo».
+
+**Verde:** `vitest run` **77 archivos / 612 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
+---
+
+## Pase v1.41/v1.42 — sellado con identidad real + regresión de composición de variantes (rama `fix/variant-composition-regression`)
+
+Consume los campos nuevos del contrato v1.41 (IMP-1) y v1.42 (BLOQ-2a/2b/3, menores) y cierra los
+hallazgos del gate E2E. Todo confinado a `frontend/`. Money-safe respetado: sin precio ⇒ «pendiente»/«—»,
+NUNCA $0.
+
+### Tipos (espejo del contrato) — `src/types/contract.ts`
+- +`SealedPriceSource = 'tcgcsv' | 'off'` (dial §M10).
+- `SealedProductDTO` +`effectiveMarketCents: number | null` (autoritativo, gateado por `sealedPriceSource`);
+  `marketRef` reetiquetado como INFORMATIVO.
+- `SealedProductListResponse` +`sealedPriceSource`.
+- `HoldingDTO` +`sealedProductId?/sealedProductName?/sealedImageUrl?/sealedCondition?` (solo sealed; display
+  ya RESUELTO server-side por la cascada §4.34a).
+- `PendingPriceEntryDTO` +`sealedProductId?/sealedProductName?/sealedSubtype?` (solo sealed).
+
+### IMP-1 (v1.41) — dead-end del alta de sellado eliminado
+`src/app/[locale]/(admin)/admin/m1/SealedAddFlow.tsx`
+- La visibilidad del campo manual y el copy «valor de mercado» ahora KEYEAN en
+  `selected.effectiveMarketCents` (autoritativo, gateado), no en `marketRef`/caché (`liveMarketCents`
+  eliminado):
+  - `gatedMarketCents = selected?.effectiveMarketCents ?? null` (~L175).
+  - `showManualField = selected != null && gatedMarketCents == null && canManualMarket` (~L188).
+  - `resolvedMarketCents = gatedMarketCents ?? (manualValid ? manualCents : null)` → pasa a
+    `QuickAddSection.marketRefCents` (~L186, L419).
+  - `manualMarketMxnCents` viaja solo si `gatedMarketCents == null && manualValid` (~L414).
+  - `SelectedSummary` recibe `gatedMarketCents` y pinta el chip de mercado desde ese valor (~L370, L512).
+  - `marketRef` queda como sugerencia informativa opcional cuando no hay mercado gateado, vía nuevo prop
+    `suggestionCents`/`locale` de `SealedManualMarketField.tsx` (+ i18n `admin.sealedAdd.manualMarket.suggestion`).
+- Invariante logrado: lo que la UI ofrece == lo que el backend acepta (con dial `off`, `effectiveMarketCents`
+  es null ⇒ muestra manual; nunca promete un mercado que daría 422). Regresión cubierta por test nuevo
+  «IMP-1 (dead-end): dial off …» en `SealedAddFlow.test.tsx`.
+
+### BLOQ-2a (v1.42) — «Mis piezas» del cliente con identidad real del sellado
+`src/app/[locale]/(storefront)/vault/VaultView.tsx` (~L280): para `productType==='sealed'`,
+`displayName = sealedProductName ?? card.name`, `displayImage = sealedImageUrl ?? card.imageSmallUrl`.
+raw/graded intactos. Mock: holding sealed `inv-1008` ganó identidad (`sealedProductName`/`sealedImageUrl`/…).
+
+### BLOQ-2b (v1.42) — cola M2 muestra el nombre del sellado
+`src/app/[locale]/(admin)/admin/m2/sections/PendingQueueSection.tsx`: helper `pendingDisplayName(e)` usa
+`sealedProductName` para sealed; se aplica en ambas columnas (venta/compra) y en el modal de override.
+Mock: entradas `ppe-3`/`ppe-4` (ETB vs blíster del mismo set) como pendientes SEPARADOS por `sealedProductId`.
+
+### BLOQ-3 (v1.42) — el binder no muestra sellado como single
+Mock `piecesOfScope` (fixtures) ahora EXCLUYE `productType==='sealed'` de los conteos del binder (platform y
+user_vault), alineado con el backend. La UI del binder es data-driven (variants/countsByFinish) y no cuelga
+tejas de sellado; el sellado se ve solo en M1›«Sellado» y bóveda›«Sellado».
+
+### IMP-2 — badge «N EN TOTAL» ya no queda stale tras la baja
+`src/components/master-set/MasterSetBinder.tsx` (`TileHeader`): el total por carta se DERIVA de
+`countsByFinish` (que por contrato suma a `totalCount`), la misma fuente de la respuesta con la que cada
+teja decide su conteo/«HUECO». Al bajar la última pieza, la suma cae a 0 y el badge desaparece sin recargar;
+antes leía el escalar `cell.totalCount`, que podía quedar rezagado respecto a los conteos por acabado.
+
+### Menores (display)
+- M1›Sellado›lista de sets: se quitó el UUID interno pegado al nombre (`SealedTab.tsx` ~L106; solo el nombre).
+- Badge «N SIN MAPEO» → «N sin precio» y enlace «Cola de no mapeados» → «Cola de precios pendientes»
+  (i18n `admin.inventory.sealedTab.unmappedBadge`/`unmappedQueue`, es+en) — el dato cuenta piezas SIN PRECIO,
+  no sin mapeo.
+- Hero de «Compra»: «N piezas disponibles» → «N publicaciones disponibles» (i18n `catalog.piecesAvailable`,
+  es+en) — el total es de publicaciones agrupadas (GroupedListing), no de piezas físicas.
+- Ruido 401 en navegación admin: `src/lib/api-client.ts` gana REFRESH PROACTIVO — decodifica el `exp` del
+  access JWT (`isAccessTokenExpired`, sin validar firma) y, si venció y hay refresh token, renueva ANTES de
+  disparar la request (single-flight), evitando el 401 garantizado y su ruido en consola en cada navegación.
+  El fallback reactivo 401→refresh→retry queda intacto. Causa raíz acotada en el cliente de API.
+
+### Verde
+`tsc --noEmit` ✓ · `vitest run` **78 archivos / 616 tests** ✓ (incluye test nuevo de regresión IMP-1) ·
+`next build` ✓.
+
+## Gate E2E pre-publicación — fixes (rama `fix/variant-composition-regression`)
+
+### IMP-A — el stepper del carrito de venta ya no revienta la página con cantidades absurdas
+`src/app/[locale]/(storefront)/buylist/useSellCart.ts`: teclear un número gigante (p. ej.
+`646180157000000004`) en «Cantidad de {carta}» llegaba crudo hasta `requestItems`
+(`Array.from({ length: l.quantity }, …)`, L159) y lanzaba `RangeError: Invalid array length`
+(los arrays JS topan en 2³²−1) → «Application error», pantalla blanca. Fix money-safe (el monto lo
+re-deriva el backend; esto es robustez de UI):
+- Nuevo `MAX_LINE_QUANTITY = 999` (tope defensivo — no hay límite de stock explícito en el cotizador)
+  y helper `clampQuantity(n)` → entero en `[1, 999]`, `NaN`→1.
+- `setQuantity` clampa (cubre input numérico y botones ±, todos pasan por ahí), `mergeCartLine`
+  clampa el `+1`, y `requestItems` clampa el `length` como última barrera. El `<input>` de
+  `SellCartContents.tsx` gana `max={MAX_LINE_QUANTITY}`.
+- Test de regresión en `BuylistView.test.tsx` («una cantidad gigante … se clampa al tope (999)»):
+  el change no lanza, la vista sigue montada y la cantidad queda en 999.
+
+### IMP-B — pagar antes de convertir ya no atora la carta en «Cerradas»
+`src/app/[locale]/(admin)/admin/m5/M5View.tsx`: la rama «Cerradas» (~L675) renderizaba los ítems
+read-only «sin acciones», así que tras «PAGAR POR SPEI» (solicitud → `pagada`) desaparecía «Convertir
+a inventario» aunque el ítem siguiera `aprobada` y el backend SÍ lo permita (el guard de
+`POST /admin/buylist/items/:id/convert-to-inventory` mira el `itemStatus`, no el estado de la
+solicitud; contrato §M5 líneas 4694/4699: solo `aprobada` convierte). Fix:
+- En «Cerradas», cada ítem con `itemStatus === 'aprobada'` (pagada la solicitud pero NO convertido)
+  ofrece el botón «Convertir a inventario», que dispara el `convertMutation` existente (sin endpoints
+  nuevos). Los `convertida_inventario`/`rechazada` no lo muestran (badge de estado ya los distingue).
+- `convertMutation.onSuccess` ahora invalida también `['admin-buylist-closed']` para repintar el ítem
+  como convertido sin recargar.
+- Tests de regresión en `M5View.test.tsx`: (a) solicitud `pagada` con ítem `aprobada` → aparece el
+  botón y el clic llama `convertBuylistItemToInventory('sr-c9-i')`; (b) ítem `rechazada` en «Cerradas»
+  → NO ofrece convertir.
+
+### Menores (display)
+- **Quick-add de sellado (aportación bloqueada):** `QuickAddSection` es compartido entre el quick-add de
+  variante M1 (sin campo manual inline → «fíjalo en la sección Precios») y el add-flow de sellado (con
+  campo manual INLINE). Se agregó prop `hasInlineManualField` a `QuickAddSection`
+  (`m1/QuickAdd.tsx`); `SealedAddFlow.tsx` la pasa como `showManualField`. Nuevo copy
+  `admin.quickAdd.contrib.pendingBlockedInline` (es+en): apunta al campo manual de arriba en vez de
+  mandar a otra sección. El hint `admin.sealedAdd.manualMarket.pendingIfEmpty` se realineó: ya no dice
+  «la aportación quedará pendiente de precio» (contradecía la radio deshabilitada) sino que la aportación
+  queda DESHABILITADA hasta capturar el precio manual de arriba.
+- **Cola pendiente M2 pintaba «… #4» en sellado:** `m2/sections/PendingQueueSection.tsx` (ambas columnas
+  venta/compra): el `#número` era el de la CARTA ANCLA, no de la pieza de sellado. Ahora solo se pinta
+  para `productType !== 'sealed'`.
+
+### Verde (gate pre-publicación)
+`tsc --noEmit` ✓ · `vitest run` **78 archivos / 619 tests** ✓ (incluye los 3 tests nuevos de regresión
+IMP-A/IMP-B) · `next build` ✓.

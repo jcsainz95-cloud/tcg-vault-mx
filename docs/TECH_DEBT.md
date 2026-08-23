@@ -159,8 +159,27 @@
 - **Disparador:** cuando el arquitecto alinee el naming de precios de grupo en el contrato; backend renombra
   el campo del DTO de `buildGroups` en el mismo pase.
 
-#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled en 3 sitios (riesgo de drift)
-- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled (riesgo de drift) — RESUELTO COMPLETO (2026-08-23)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo. **Estado:** **RESUELTO COMPLETO** (ya no parcial).
+- **Fix parcial (2026-08-23, consumidores):** extraído el helper único `variantKey({cardId, productType, gradeKey, finish})` en
+  `backend/src/common/variant-key.ts` (produce EXACTAMENTE el mismo string `cardId|productType|gradeKey|finish`)
+  y reusado en los **3 CONSUMIDORES** de `catalog.service.ts` (`variantOverride` en `fetchSellable`, `refFromBatch`,
+  `buildGroups`).
+- **Cierre COMPLETO (2026-08-23, productores + eje sellado):** los **PRODUCTORES** de esos mismos mapas ahora también
+  llavean con `variantKey` — antes seguían con la interpolación hand-rolled, partiendo la fuente de drift en dos:
+  - `pricing.service.ts` `getReferencesBatch` (`keyOf`), `getVariantOverridesBatch` (`keyOf`) y el lookup single de
+    `getVariantOverride` → los 3 enrutados a `variantKey(...)` importado de `../../common/variant-key`.
+  - Eje SELLADO de `catalog.service.ts` (`refFromBatch` `:197`): el `refs.get(`${cardId}|sealed|${gk}|normal`)`
+    hand-rolled pasó a `variantKey({cardId, productType:'sealed', gradeKey:gk, finish:'normal'})`.
+  Byte-identidad verificada: `variantKey` produce EXACTAMENTE el mismo string, así que no se pierde ninguna
+  referencia/override (money-safe: es clave de map, un cambio de formato corrompería precio).
+- **Guard de round-trip (nuevo):** además del test del helper, `backend/test/tech-debt-backend.spec.ts` ejercita el
+  `PricingService` REAL (prisma mockeado): la fila que `getReferencesBatch`/`getVariantOverridesBatch` INDEXA en el
+  Map se recupera con `variantKey(mismas partes)` (lo que hace el consumidor) → se encuentra. Es el invariante que
+  de verdad protege contra el drift: **productor y consumidor comparten la misma fuente `variantKey`**, no solo que
+  el helper produzca X. Incluye el eje sellado. *(Nota: SB-D3 = otros ≥6 sitios hand-rolled en `buylist`/`inventory`/
+  `admin`/`vault`/`sealed-graded` — de OTROS módulos/streams — quedan FUERA de este ítem; siguen byte-idénticos y no
+  se rompen. Su migración es su propia entrada.)*
 - **Deuda:** la clave `K` = `${cardId}|${productType}|${gradeKey}|${finish}` está **escrita a mano en 3
   sitios** de `catalog.service.ts`: `~L177` (`variantOverride` en `fetchSellable`), `~L191` (`refFromBatch`) y
   `~L429` (`buildGroups`). Si la definición de `K` cambia (orden de campos, separador, componentes), hay que
@@ -2943,7 +2962,38 @@
   + referencias al **inicio del lote** (batch por `cardId IN (...)` + map en memoria), mismo patrón
   que `getReferencesBatch`.
 
-### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (Media, backend+arquitecto)
+### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (RESUELTA v1.39/M-39 + display cliente H-P38-1, P-38)
+- **Estado:** **RESUELTA DE PUNTA A PUNTA** — modelo + alta (v1.39/M-39) **y display de cliente cableado en
+  H-P38-1**. La cura de raíz (entidad `SealedProduct`, snapshot M-37) llegó al modelo/alta en M-39, pero el
+  techlead detectó en P-38 (**H-P38-1**) que las **superficies de cliente** seguían pintando el single ancla
+  («Tropius») en vez de la identidad real del `SealedProduct`. **H-P38-1 (backend, RESUELTA):** se cableó la
+  cascada de display de §4.34a (`SealedProduct` vivo → snapshot congelado `sealedProductName`/`sealedImageUrl`
+  de M-37 → `Card` ancla) en los **dos DTO-builders de cliente**: `catalog/sealed-catalog.service.ts`
+  (`toGroupDTO`, grid + ficha de Compra) y `vault/vault.service.ts` (`sealedTab`, grid de bóveda sellada).
+  Ambos usan `sealedProductName ?? card.name` e `sealedImageUrl ?? card.imageSmallUrl` (snapshot congelado,
+  estable y money-safe: solo display, no toca precios ni valuación). Tests: `test/sealed-catalog.spec.ts` y
+  `test/vault-sealed.spec.ts` («H-P38-1: el display usa la IDENTIDAD del SealedProduct, NO el single ancla»).
+  El guardarraíl H9 (singles excluyen sellado) y el agrupado por producto+condición quedan intactos.
+- **✅ RESUELTA (CURA DE RAÍZ) — v1.39-sealed-product-module (M-39, P-38, ARCHITECTURE §4.34):** se
+  materializó la entidad de catálogo **`SealedProduct`** (identidad propia por presentación sellada de un
+  set, llaveada por `tcgplayerProductId @unique`) + la tabla de enlace **`SealedSetGroup`** (1 set → N
+  grupos TCGCSV) + `InventoryItem.sealedProductId` (FK `onDelete: SetNull`). El alta pasa a **seleccionar**
+  un `SealedProduct` (`BatchInventoryItemInput.sealedProductId`): el backend DERIVA server-side la identidad
+  (ancla del set + mapeo + imagen/nombre/subtipo) → la pieza nace **«ETB …», NO anclada a Tropius**. Un
+  **sync** (`POST /admin/inventory/sealed-products/sync`) descarga las presentaciones desde TCGCSV y de paso
+  **puebla `CardSet.tcgcsvGroupId` + `SealedSetGroup`** por name-match SIN requerir un item previo — **rompe
+  el círculo vicioso** del hueco 1. El **backfill M-39** (`prisma/backfill-m39-sealed-product.ts`) deriva
+  `SealedProduct` de los items sellados YA MAPEADOS y liga su `sealedProductId` (**cura el ETB→Tropius
+  actual**); los SIN MAPEO quedan `null` + reporte de reconciliación (cero adivinación). La inferencia por
+  hermanos **sigue viva SOLO** como camino legacy/transición (sellado sin `sealedProductId`); ya no es la
+  fuente de verdad de la identidad. Ver `backend/src/modules/inventory/sealed-product.service.ts`,
+  `sealed-subtype.ts`, migración `20260823120000_m39_sealed_product`, tests
+  `backend/test/sealed-product.service.spec.ts` + `inventory.sealed-product-alta.spec.ts`.
+- **H9 (ancla-a-single en la ficha del single):** la cura de raíz elimina el ancla-a-single como
+  IDENTIDAD (ahora `sealedProductId`), pero la `cardId` ancla se **mantiene** (NOT NULL sigue) como
+  pertenencia al set + fallback de imagen; el guardarraíl `productType != 'sealed'` de la vista de singles
+  **sigue vigente** (H9 permanece MITIGADA — su retiro/reubicación es decisión del arquitecto).
+- **Contexto histórico (antes de M-39):**
 - **Dónde:** `backend/src/modules/inventory/inventory.service.ts:298-322` (inferencia del productId
   del GRUPO desde piezas hermanas ya mapeadas).
 - **Estado actual:** no existe una **entidad de producto sellado** en el modelo; el
@@ -2963,6 +3013,74 @@
   por hermanos **sigue viva** solo para altas de sellado SIN mapeo (compatibilidad). La **entidad
   `SealedProduct` de catálogo** (cura de raíz del ancla-a-single) queda **DIFERIDA** explícitamente
   (ARCHITECTURE §4.32d): NO se hizo en este cambio. SB-D5 **permanece abierta** (Media).
+
+### H-P38-2 · Override manual escribe `PriceReference`/audit fuera de la transacción del batch (money) (backend) — ✅ RESUELTA (fix de seguridad H-1)
+- **Dueño:** backend. **Severidad:** original Media; **REESCALADA a ALTO** por la fase de seguridad (P-38,
+  money-critical). **Estado:** ✅ **RESUELTA** — fix de seguridad **H-1** (atomicidad total del override).
+- **Síntoma (original):** dentro del `$transaction` del batch de alta, el override manual escribía
+  `PriceReference isManualOverride=true` (referencia global autoritativa, `sourceRank=0`,
+  `sealed:tcg:<productId>`) y su `AuditLog` con `this.prisma` (cliente NO transaccional). Consecuencia: el
+  override **auto-commiteaba** y **sobrevivía** aunque la línea fallara (`ok:false`) o el `$transaction`
+  hiciera rollback → **precio de dinero pinneado huérfano** (envenenamiento de precio global).
+- **Fix aplicado (H-1):** la escritura del override se **DIFIERE**. `resolveSealedMarketForAlta` ya no escribe:
+  VALIDA y devuelve un descriptor (`SealedManualOverride`). El caller (`createItem` / `batchCreate` por-línea)
+  aplica el override con `applySealedManualOverride(...)` **DENTRO de la misma `tx`** y **SOLO tras crear la
+  pieza**. `pricing.manualOverride(...)` y `audit.log(...)` aceptan ahora un `tx?: Prisma.TransactionClient`
+  opcional y lo usan cuando se les pasa. En el alta **single** se envolvió `alta + override` en un
+  `$transaction` propio (antes no tenía). Atomicidad total: sin override sin pieza, ni pieza sin su override;
+  un rollback o una línea fallida **revierten también el override** → jamás queda un `PriceReference
+  isManualOverride` huérfano. Money-safe intacto: sin precio → PRICE_PENDING (nunca 0), el override solo llena
+  hueco `null`, `>0`, auditado.
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts` (`resolveCreation`,
+  `resolveSealedMarketForAlta`, `applySealedManualOverride`, `createItem`, `batchCreate`);
+  `backend/src/modules/pricing/pricing.service.ts` (`manualOverride` con `tx`);
+  `backend/src/modules/audit/audit.service.ts` (`log` con `tx`).
+- **Tests:** `test/inventory.sealed-product-alta.spec.ts` (describe **H-1** — override participa del cliente
+  tx del alta single/lote; fallo de creación de pieza ⇒ sin override huérfano ni audit).
+
+### H-P38-3 · `subtype` sin match cae a `'collection'` en vez de `→ null` (spec) (arquitecto + backend)
+- **Dueño:** **arquitecto** (decisión de spec) + backend (implementación). **Severidad:** Media. **Estado:** ABIERTA.
+- **Síntoma:** al derivar el `sealedSubtype` desde TCGCSV, un subtype **sin match** resuelve a `'collection'`
+  cuando la spec dice **`→ null`**. Divergencia código↔contrato; puede etiquetar mal presentaciones no
+  reconocidas. Ruta: lógica de mapeo de subtype (`sealed-subtype.ts` / `sealed-product.service.ts`).
+- **Disparador:** el arquitecto confirma el valor canónico (`null` vs `'collection'`) en el contrato; backend
+  ajusta el default del mapeo.
+
+### H-P38-4 · Check-then-create no atómico en `upsertSealedProduct`/`ensureSetGroup`/`linkGroup` (backend) — RESUELTO (2026-08-23)
+- **Dueño:** backend. **Severidad:** Media (concurrencia). **Estado:** **RESUELTO**.
+- **Síntoma:** los helpers `upsertSealedProduct`, `ensureSetGroup` y `linkGroup` hacían **check-then-create**
+  (findUnique seguido de create) sin atomicidad → bajo concurrencia (dos syncs/altas simultáneos)
+  podían intentar crear el mismo registro y romper por unique, o duplicar el enlace. Ruta:
+  `backend/src/modules/inventory/sealed-product.service.ts`.
+- **Fix (2026-08-23):** patrón `create(...).catch(P2002 → converger)` (helper `isUniqueViolation`,
+  `Prisma.PrismaClientKnownRequestError.code === 'P2002'`). (1) `upsertSealedProduct`: si el `create` pierde
+  la carrera, relee por `tcgplayerProductId` y aplica el `update` (closure `applyUpdate`) **preservando la
+  semántica**: NO pisa un subtype curado por humano (`subtypeInferred=false`), refresca market/name/etc.,
+  money-safe (sin precio ⇒ `marketUsdCents` null, jamás 0). (2) `ensureSetGroup`: P2002 ⇒ devuelve `false`
+  (NO doble-cuenta `groupsPopulated`) y converge el label. (3) `linkGroup`: mantiene el pre-check `dup` (409
+  normal) y traduce el P2002 de la carrera al **mismo 409 CONFLICT** (semántica de enlace duplicado
+  preservada); el soft-delete acotado y el poblado de `CardSet.tcgcsvGroupId` quedan intactos. Un error
+  NO-P2002 se propaga (no se traga). Tests: `backend/test/sealed-product.service.spec.ts` (describe
+  «concurrencia atómica (H-P38-4)»: converge-sin-pisar-curado, error no-P2002 propaga, ensureSetGroup no
+  doble-cuenta, linkGroup carrera → 409).
+
+### H-P38-5 · Frontend manda `cardId = SealedProduct.id` como relleno (frontend) — **RESUELTA (2026-08-23)**
+- **Dueño:** **frontend**. **Severidad:** Media. **Estado:** **RESUELTA**.
+- **Síntoma:** el cliente de captura enviaba `cardId` poblado con el `SealedProduct.id` como valor de relleno
+  (placeholder) cuando debía dejar que el backend derive la `cardId` ancla desde `sealedProductId`. Riesgo de
+  confundir identidades en el alta.
+- **Fix (2026-08-23):** `SealedAddFlow.tsx` ya **no** pasa `cardId` en el `target` del alta de sellado (se omite,
+  antes `cardId: selected.id`). `QuickAddTarget.cardId` pasó a **opcional** (`cardId?: string`, ya opcional en
+  `BatchInventoryItemInput` del contrato v1.39). El mutation de `QuickAdd` ya omitía cardId bajo identidad sellada
+  (`usesSealedIdentity ? {} : { cardId }`), así que el alta funciona idéntica; ahora la identidad es inequívoca
+  (el backend deriva la Card ancla desde `sealedProductId`). Sin cambio de contrato.
+
+### H-P38-6 · Nota de migración `ADD VALUE` (enum) para el runbook de devops (devops)
+- **Dueño:** **devops**. **Severidad:** Baja (operacional). **Estado:** ABIERTA (nota de runbook).
+- **Síntoma/nota:** la migración de sellado usa `ALTER TYPE … ADD VALUE` (nuevo valor de enum). `ADD VALUE`
+  **no corre dentro de un bloque transaccional** en Postgres y el nuevo valor no es usable en la misma
+  transacción que lo agrega → documentar en el runbook de deploy (orden de migración + verificación) para
+  evitar fallos de despliegue/rollback. Fix: nota en `docs/DEVOPS_NOTES.md` (runbook de migración de enums).
 
 ### H9 · Ancla-a-single (P-35) expone sellado en la ficha del single — MITIGADA por guardarraíl `productType` (ligada a SB-D5) (backend + arquitecto)
 - **Dueño:** backend (guardarraíl) + **arquitecto** (ubicación final del filtro). **Severidad:** Media.
@@ -3555,29 +3673,29 @@
   los `ConfigSetting` de precio en prod → si solo hay tiered, eliminar la(s) rama(s) muerta(s) de
   `toPriceRuleSet`.
 
-### H4 · Seed `DEFAULT_SETTINGS` sin validación de invariante premium→pct en runtime (Baja, backend)
-- **Dónde:** `backend/src/modules/settings/settings.constants.ts` (`DEFAULT_SETTINGS`).
-- **Estado actual:** el seed `DEFAULT_SETTINGS` **no** se valida en runtime contra el invariante
-  premium→pct; hoy el seed **cumple** el invariante, pero nada lo afirma automáticamente.
-- **Impacto:** bajo; es un **guard contra ediciones futuras** del seed que pudieran violar el
-  invariante sin que ningún test lo detecte.
-- **No bloquea:** el seed actual cumple el invariante; la falta es de red de seguridad, no de
-  correctness hoy.
-- **Disparador:** próximo toque del seed. Dirección: añadir un **unit test** que afirme
-  `premiumFixedOffenders(seedMap, seedBuyTiers) === []` sobre el seed `DEFAULT_SETTINGS`.
+### H4 · Seed `DEFAULT_SETTINGS` sin validación de invariante premium→pct en runtime (Baja, backend) — RESUELTO (2026-08-23)
+- **Dónde:** `backend/src/modules/settings/settings.constants.ts` (`SETTING_DEFAULTS`). **Estado:** **RESUELTO**.
+- **Estado (histórico):** el seed **no** se afirmaba contra el invariante premium→pct; cumplía, pero nada
+  lo verificaba automáticamente.
+- **Fix (2026-08-23):** `premiumFixedOffenders` se **extrajo** del `PricingController` (antes privado) a
+  `backend/src/common/pricing-tiers.ts` como función pura exportada (lógica idéntica; el controller ahora
+  delega). Nuevo unit test en `backend/test/tech-debt-backend.spec.ts` afirma
+  `premiumFixedOffenders(seedMap, seedBuyTiers) === []` sobre el seed (`PRICING_TIER_MAP` +
+  `BUYLIST_PRICE_RULES.tierRules`), más sanity (detecta infractor si una premium se mapea a un tier fixed) y
+  el caso «tier sin regla de compra ⇒ no infractor». **El seed NO se tocó** (solo se añadió el test/guard).
 
-### H5 · `premiumByPattern` incompleto (falta `mega`/`blackwhite`) — clase R-5 money-losing latente (Media, backend)
-- **Dónde:** `backend/src/common/rarity-catalog.ts` → `premiumByPattern`.
-- **Estado actual:** `premiumByPattern` (rarity-catalog) **no incluye** el patrón `mega`/`blackwhite`.
-  Los 3 casos de hoy están cubiertos por **alias explícitos + seed**, así que hoy no hay fuga. Pero una
-  futura variante string tipo `"Mega X"` **no-alias** caería a `premium:false` → **bin holo barato**
-  (money-losing: se cotizaría/valuaría como no-premium una rareza premium).
-- **Impacto:** medio/latente (**clase R-5 money-losing**): la fuga solo se materializa ante una rareza
-  premium NUEVA no cubierta por alias; los casos actuales están cerrados.
-- **No bloquea:** los casos actuales están cubiertos por alias + seed; el endurecimiento es preventivo.
-- **Disparador:** al aparecer una variante premium por string no cubierta por alias (o al ampliar el
-  catálogo de rarezas). Dirección: **endurecer el patrón** `premiumByPattern` para reconocer
-  `mega`/`blackwhite` (y en general no depender solo de alias para clasificar premium).
+### H5 · `premiumByPattern` incompleto (falta `mega`/`blackwhite`) — clase R-5 money-losing latente (Media, backend) — RESUELTO (2026-08-23)
+- **Dónde:** `backend/src/common/rarity-catalog.ts` → `premiumByPattern`. **Estado:** **RESUELTO**.
+- **Estado (histórico):** `premiumByPattern` no incluía el patrón `mega`/`blackwhite`; una futura variante
+  string tipo `"Mega X"`/`"Black White Y"` **no-alias** caería a `premium:false` → bin holo barato
+  (money-losing clase R-5).
+- **Fix (2026-08-23):** añadidos los substrings `'mega'` y `'blackwhite'` a `PREMIUM_SUBSTRINGS`
+  (consistentes con las canónicas premium ya mapeadas: `MEGA_ATTACK_RARE`→Mega Rare y Black White Rare →
+  T3). Ahora una variante premium NUEVA no-alias resuelve a premium **por patrón** (sobre-incluir es inocuo:
+  cotiza por % de mercado; ya no cae al bin fijo barato). Sin cambio para las no-premium (Common/Uncommon/
+  Rare/Rare Holo siguen `false`). Tests en `backend/test/tech-debt-backend.spec.ts` («P-34 H5 …»):
+  `isPremiumCanonicalRarity('Mega Brilliant Rare')`/`('Black White Star Rare')` no-alias ⇒ `true`; canónicas
+  ya mapeadas siguen premium; no-premium intactas.
 
 ### H8 · Backfill `POST /admin/catalog/unify-rarities` debe correr post-deploy — divergencia cosmética hasta entonces (Baja, operativa — recordatorio para runbook de **devops**)
 - **Dónde:** operativa/runbook (no es código de `backend/`). Endpoint: `POST /admin/catalog/unify-rarities`.
@@ -3591,3 +3709,79 @@
   `POST /admin/catalog/unify-rarities` corre **tras el deploy** (para eliminar la divergencia cosmética
   del editor). Recordatorio enrutado a `docs/DEVOPS_NOTES.md`; el backend solo lo anota aquí (no toca
   runbook ni CI, que son de devops).
+
+### Pase de deuda de display/UX del cotizador (2026-08-23) — H1/H3/H4 (frontend)
+
+> Pago de deuda **segura y de valor**, dueño **frontend**. Todo es **display/UX** (money-safe intacto) y
+> conserva el visual del rediseño. Detalle en `docs/FRONTEND_NOTES.md` («Pase de deuda técnica frontend»).
+
+#### Cotizador H3 · La teja de PRODUCTO SEPARADO no se sombreaba «En el carrito» (lo pidió el humano) — **RESUELTA (2026-08-23)**
+- **Dónde:** `frontend/src/components/master-set/MasterSetBinder.tsx` (`SeparateProductTile` + su render ~L531).
+- **Síntoma:** las tejas de variante base (`QuoterTile`) recibían `inCart` y se sombreaban «ya en el carro», pero
+  la teja de **producto separado** (`SeparateProductTile`, deck_exclusive/promo) NO recibía la prop → un producto
+  separado ya agregado quedaba sin sombrear (inconsistencia visible en el cotizador).
+- **Fix:** se propaga `inCart` a `SeparateProductTile` con la MISMA identidad del carrito que las demás tejas,
+  añadiendo el `productId` (un producto separado es una LÍNEA propia): `isInCart?.(cardId, finish, productId)`.
+  Reusa EXACTO el sombreado de `QuoterTile` (`bg-surface-2` + `shadow-[inset_0_0_0_1px_var(--color-border-strong)]`
+  + `data-in-cart` + etiqueta textual `quoterInCart` en `text-success`, doble canal). Solo aplica en quoter
+  (fuera del quoter `inCart` es undefined). Sin cambio de contrato.
+
+#### Cotizador H1 · Flash de layout en desktop (carrito JS-driven) — **RESUELTA (mitigación mínima, 2026-08-23)**
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` (contenedor grid + `useMediaQuery`).
+- **Síntoma:** el carrito desktop se decidía 100% en JS (`useMediaQuery('(min-width:1024px)')`), first-paint móvil
+  que saltaba a 2 columnas al hidratar → layout shift visible de la columna `main`.
+- **Fix (mitigación mínima):** la ESTRUCTURA de 2 columnas se declara ahora por CSS
+  (`lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start`, mismo umbral 1024px que `isDesktopCart`), NO por
+  JS. El track de 360px queda reservado desde el first-paint en desktop ⇒ `main` nace con su ancho final y no
+  refluye. **Trade-off (aceptado):** el CONTENIDO del carrito (`<aside>` / FAB+drawer) SIGUE siendo un ÚNICO render
+  JS-driven (`isDesktopCart`) para no duplicar estado/foco ni el focus-trap; en desktop el `<aside>` aparece al
+  hidratar dentro de la columna ya reservada (rellena hueco, sin reflujo de `main`), y el FAB móvil es `fixed`
+  (fuera del flujo). El fix del todo (SSR-aware del viewport o extracción del carrito) reestructuraría de más;
+  se aplicó la mitigación mínima. Documentado en `docs/FRONTEND_NOTES.md`.
+
+#### Cotizador H4 · Doc drift «gemelo de FinishLabel» → `FinishMark` — **RESUELTA (2026-08-23)**
+- **Dónde:** comentario de `frontend/src/components/domain/RarityLabel.tsx` + `docs/FRONTEND_NOTES.md` (P-44).
+- **Síntoma:** el comentario describía `RarityLabel` como «gemela del `FinishLabel`»; el hermano canónico del
+  rediseño que vive JUNTO a `RarityLabel` en `components/domain` es **`FinishMark`** (`FinishLabel` es una etiqueta
+  local del storefront en `_shared/`). Drift de referencia.
+- **Fix:** corregida la referencia a **`FinishMark`** en ambos sitios.
+
+### Merge stream «Inventario y vault» / sellado (`fix/variant-composition-regression`, HEAD `9b6a81b`, 2026-08-23) — deuda del veredicto techlead (APROBADO CON DEUDA ANOTADA, no bloqueante)
+
+> Tres hallazgos **menores no bloqueantes** (todos dueño **backend**) que el techlead aceptó al aprobar el
+> merge del stream de inventario/sellado. Ninguno bloquea; se anotan con archivo:línea para quien los tome.
+
+#### D-1 · Cascada de display de sellado (§4.34a) duplicada e YA DIVERGENTE pese a existir helper (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (mantenibilidad; **solo display, no dinero**).
+- **Deuda:** `backend/src/modules/vault/vault.service.ts:30` define `resolveSealedDisplay(...)` y su comentario
+  afirma que es el «MISMO resolver» que usan las 4 vistas — **es inexacto**. `catalog/sealed-catalog.service.ts:103-104`
+  e `inventory/sealed-graded.service.ts:334-335` **inline** la misma cascada de fallback en vez de importar el
+  helper, y **ya DIVERGEN**: graded usa `card?.name ?? ''` como último eslabón, mientras
+  `sealed-product.service.ts:695` usa `` `Sealed #${productId}` ``. El orden de fallback vive hoy en 4 sitios
+  distintos que pueden seguir separándose.
+- **Por qué importa:** el nombre mostrado del sellado puede diferir entre catálogo, vault, graded y producto
+  para la misma pieza (inconsistencia visible de UI). No toca dinero.
+- **Disparador / dirección de fix:** subir `resolveSealedDisplay` a `backend/src/common/` (o a `pricing`) y que
+  los **4 builders** lo consuman; el orden de fallback queda en un solo sitio, eliminando la divergencia.
+
+#### D-2 · `resolveAnchorCardId` duplicado verbatim (byte-a-byte), money-adjacent (Baja hoy, prioridad de extracción, backend)
+- **Dueño:** backend. **Severidad:** Baja hoy, pero **money-adjacent** → prioridad de extracción.
+- **Deuda:** `resolveAnchorCardId` es **idéntico byte-a-byte** en `inventory.service.ts:515` y
+  `sealed-product.service.ts:260`. El invariante de dinero de **IMP-1** («`effectiveMarketCents == null` ⟺ el
+  alta acepta el precio manual») depende de que **ambas copias ordenen igual** (`orderBy [numberPrefix, numberSort]`).
+- **Por qué importa:** **correcto hoy**, pero si una copia cambia el `orderBy` sin la otra, reaparece el
+  dead-end de IMP-1 (o su inverso): una pieza podría quedar sin poder aceptar el manual, o aceptarlo cuando no
+  debe. Al tocar dinero, el riesgo de divergencia es más caro que el de D-1.
+- **Disparador / dirección de fix:** extraer a un helper compartido (`common/`) **antes** de que alguien edite
+  una de las dos copias, para que el `orderBy` del ancla viva en un único sitio.
+
+#### D-3 · Saneo de `PendingPriceEntry` legacy (clave vieja) no automatizado (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (no bloquea publicar; filas huérfanas de ruido en M2).
+- **Deuda:** el fix de la cola M2 (commit `9b6a81b`) **detiene la creación** de filas legacy nuevas, pero las
+  entradas ya escritas con la clave vieja (`gradeKey='sealed'`, `sealedProductId=null`) por altas previas al fix
+  quedan `open` **para siempre**: `manualOverride` (`pricing.service.ts:1099`, que matchea por `gradeKey`) nunca
+  las cierra con la clave de mercado. El propio código lo reconoce como residual en `pricing.service.ts:823`.
+- **Por qué importa:** impacto bajo — la pieza **sí se publica** por la entrada de mercado; las legacy solo
+  quedan como filas huérfanas `open` que ensucian la cola M2. No bloquea nada.
+- **Disparador / dirección de fix:** script de saneo **idempotente** (o barrido puntual) que remapee/cierre las
+  entradas legacy huérfanas pertenecientes a piezas con `sealedProductId`.

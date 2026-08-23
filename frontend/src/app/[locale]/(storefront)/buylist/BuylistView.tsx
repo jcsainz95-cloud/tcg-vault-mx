@@ -27,6 +27,9 @@ import { Modal } from '@/components/ui/Modal';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
 import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
 import { useSellRequirements } from '@/hooks/useSellRequirements';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { RarityLabel } from '@/components/domain/RarityLabel';
+import { CardDetailModal, type CardDetailModalCard } from '@/components/domain/CardDetailModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { CardSkeleton } from '@/components/ui/Skeleton';
@@ -158,11 +161,30 @@ export function BuylistView() {
     totalEstimatedCents,
     pendingCardCount,
     cartCount,
+    isInCart,
     requestItems,
   } = useSellCart();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const fabRef = useRef<HTMLButtonElement>(null);
   const [lastAdded, setLastAdded] = useState<{ name: string; label: string } | null>(null);
+
+  // P-42 · en DESKTOP (≥lg) el carrito es un PANEL FIJO a la par del grid (2 columnas persistentes),
+  // no un drawer que abre/cierra: siempre se ve lo que metes y el total. En móvil se conserva el
+  // sheet (FAB + drawer). Un solo render (JS-driven, no CSS duplicado) evita DOM/foco duplicado. En
+  // jsdom `matchMedia` devuelve `matches:false` → los tests corren la variante MÓVIL por defecto.
+  const isDesktopCart = useMediaQuery('(min-width: 1024px)');
+
+  // P-43 · carta seleccionada para el pop-up de detalle del GRID PLANO (graded/sealed). El grid del
+  // cotizador raw (binder Master Set) maneja su propio modal por teja (QuoterTile).
+  const [detailCard, setDetailCard] = useState<
+    { card: CardDetailModalCard; finish?: Finish; priceCents?: number | null; pending?: boolean } | null
+  >(null);
+
+  // P-42 · sombreado del grid raw (binder): la identidad del carrito es (cardId, 'raw', finish, productId).
+  const isInCartRaw = useCallback(
+    (cardId: string, finish: Finish, productId?: number) => isInCart(cardId, 'raw', finish, productId),
+    [isInCart],
+  );
 
   // --- Bulk: multi-selección en los resultados de búsqueda ---
   const [bulkSelected, setBulkSelected] = useState<Record<string, CardDTO>>({});
@@ -498,6 +520,19 @@ export function BuylistView() {
           </div>
         </div>
 
+        {/* P-42 · en DESKTOP el grid y el carrito conviven en 2 columnas persistentes (el carrito
+            fijo a la derecha, a la par del grid); en móvil el grid ocupa todo el ancho y el carrito
+            vive en el sheet (FAB + drawer, abajo).
+            H1 (anti-flash): la ESTRUCTURA de 2 columnas se declara por CSS (`lg:grid` = ≥1024px, el
+            MISMO umbral que `isDesktopCart`), NO por JS. Así el track de 360px queda RESERVADO desde
+            el first-paint en desktop y la columna del grid (main) nace con su ancho final — se elimina
+            el layout shift de main (antes: móvil full-width → salto a 2 columnas tras hidratar).
+            Trade-off (documentado en FRONTEND_NOTES): el CONTENIDO del carrito (`<aside>`) sigue siendo
+            un ÚNICO render JS-driven (`isDesktopCart`) para no duplicar estado/foco ni el focus-trap;
+            por eso, en desktop, el aside aparece al hidratar DENTRO de la columna ya reservada (rellena
+            hueco, sin reflujo de main). El FAB móvil es `fixed` (fuera del flujo del grid), así que su
+            breve aparición pre-hidratación tampoco desplaza el layout. */}
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
         {/* P-16 (§18.1.4): la grilla es la única columna, a TODO el ancho. `pb-24` para que
             el FAB fijo nunca tape la última fila de tejas. */}
         <main className="gutter min-w-0 pb-24 pt-8">
@@ -514,6 +549,7 @@ export function BuylistView() {
                 mode="quoter"
                 onAddToSellCart={addFromMasterSet}
                 onAddProductToSellCart={addFromMasterSetProduct}
+                isInCart={isInCartRaw}
               />
             ) : !hasSearch ? (
               <EmptyState title={t('searchHint')} />
@@ -602,8 +638,24 @@ export function BuylistView() {
                              lg:4/xl:5 — la teja grande ES el objetivo, no meter columnas. */
                           className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                         >
-                          {cardsResult.data.data.map((card) => (
-                            <li key={card.id} className="relative min-w-0">
+                          {cardsResult.data.data.map((card) => {
+                            const finishes = tileFinishes(card);
+                            // P-42: la teja se destaca si CUALQUIER acabado de esta carta ya está en el carro.
+                            const anyInCart = finishes.some((f) => isInCart(card.id, productType, f));
+                            // P-43: al clicar el arte, el detalle muestra el acabado/precio SOLO cuando la
+                            // carta tiene un único acabado (graded/sealed cotizan siempre en `normal`); con
+                            // varios acabados el detalle queda a nivel carta (los precios ya están en las filas).
+                            const soleFinish = finishes.length === 1 ? finishes[0] : undefined;
+                            const soleResult = soleFinish ? quoteFor(card.id, soleFinish) : undefined;
+                            return (
+                            <li
+                              key={card.id}
+                              data-in-cart={anyInCart ? 'true' : undefined}
+                              className={cn(
+                                'relative min-w-0',
+                                anyInCart && 'bg-surface-2 shadow-[inset_0_0_0_1px_var(--color-border-strong)]',
+                              )}
+                            >
                               {/* Multi-selección (bulk): checkbox FUERA de las filas de acabado. */}
                               <input
                                 type="checkbox"
@@ -612,7 +664,36 @@ export function BuylistView() {
                                 onChange={() => toggleBulk(card)}
                                 className="absolute left-1.5 top-1.5 z-10 h-4 w-4 accent-accent focus-visible:shadow-focus"
                               />
-                              <CardImage src={card.imageSmallUrl} alt={card.name} className="p-1.5" />
+                              {/* P-43: el arte abre el pop-up de detalle (imagen grande + datos);
+                                  AGREGAR sigue siendo su propia acción (las filas de abajo). */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDetailCard({
+                                    card: {
+                                      name: card.name,
+                                      setName: card.setName,
+                                      number: card.number,
+                                      rarity: card.rarity,
+                                      productType,
+                                      imageLargeUrl: card.imageLargeUrl,
+                                      imageSmallUrl: card.imageSmallUrl,
+                                    },
+                                    finish: soleFinish,
+                                    priceCents:
+                                      soleResult?.ok && soleResult.quote.status !== 'precio_pendiente'
+                                        ? soleResult.quote.quotedPriceCents
+                                        : undefined,
+                                    pending: soleResult?.ok
+                                      ? soleResult.quote.status === 'precio_pendiente'
+                                      : undefined,
+                                  })
+                                }
+                                aria-label={t('viewDetailAria', { name: card.name })}
+                                className="block w-full focus-visible:shadow-focus focus-visible:outline-none"
+                              >
+                                <CardImage src={card.imageSmallUrl} alt={card.name} className="p-1.5" />
+                              </button>
                               <p lang="en" className="mt-2.5 truncate text-[13px] text-text">
                                 {card.name}
                               </p>
@@ -620,11 +701,19 @@ export function BuylistView() {
                                 {card.setName}
                                 {card.number && ` · #${card.number}`}
                               </p>
+                              {/* P-44: rareza junto al acabado (se omite sola en sellado o sin rareza). */}
+                              <RarityLabel rarity={card.rarity} productType={productType} className="mt-1 block" />
+                              {anyInCart && (
+                                <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.06em] text-success">
+                                  {t('tileInCart')}
+                                </p>
+                              )}
                               {/* Una fila por acabado disponible: estimado propio y agregable
                                   por separado (clic = directo al carrito). */}
                               <ul className="mt-2.5">
-                                {tileFinishes(card).map((finish) => {
+                                {finishes.map((finish) => {
                                   const result = quoteFor(card.id, finish);
+                                  const finishInCart = isInCart(card.id, productType, finish);
                                   return (
                                     <li key={finish}>
                                       <button
@@ -635,7 +724,10 @@ export function BuylistView() {
                                           name: card.name,
                                           finish: rowLabel(finish),
                                         })}
-                                        className="group flex w-full items-center justify-between gap-2 border-b border-border py-2 text-left disabled:cursor-not-allowed"
+                                        className={cn(
+                                          'group flex w-full items-center justify-between gap-2 border-b border-border py-2 text-left disabled:cursor-not-allowed',
+                                          finishInCart && 'bg-surface-2',
+                                        )}
                                       >
                                         <span className="truncate font-mono text-[10px] uppercase tracking-[0.06em] text-muted group-hover:text-text">
                                           {rowLabel(finish)}
@@ -646,7 +738,7 @@ export function BuylistView() {
                                             aria-hidden
                                             className={cn('text-accent', !result?.ok && 'opacity-40')}
                                           >
-                                            +
+                                            {finishInCart ? '✓' : '+'}
                                           </span>
                                         </span>
                                       </button>
@@ -655,7 +747,8 @@ export function BuylistView() {
                                 })}
                               </ul>
                             </li>
-                          ))}
+                            );
+                          })}
                         </ul>
                       ))}
                   </QueryState>
@@ -664,9 +757,45 @@ export function BuylistView() {
             )}
         </main>
 
+        {/* P-42 · DESKTOP: carrito de venta como PANEL FIJO a la derecha, pegajoso, a la par del
+            grid (siempre visible: lo que metes y el total). Reusa EXACTAMENTE el mismo
+            SellCartContents que el drawer móvil. */}
+        {isDesktopCart && (
+          <aside
+            aria-label={t('cartDrawer.ariaLabel', { count: cartCount })}
+            className="sticky top-4 max-h-[calc(100vh-2rem)] self-start overflow-y-auto border-l border-border px-5 pb-8"
+          >
+            <div className="flex items-baseline gap-3 border-b border-border py-3">
+              <h2 className="eyebrow">{t('cartTitle')}</h2>
+              {cartCount > 0 && <span className="eyebrow">{t('cartCount', { count: cartCount })}</span>}
+            </div>
+            <div className="pt-4">
+              <SellCartContents
+                cart={cart}
+                sellReq={sellReq}
+                expandedLines={expandedLines}
+                totalEstimatedCents={totalEstimatedCents}
+                pendingCardCount={pendingCardCount}
+                cartCount={cartCount}
+                onSetQuantity={setQuantity}
+                onRemoveLine={removeLine}
+                onToggleLineDetail={toggleLineDetail}
+                onClearCart={clearCart}
+                onSubmit={() => {
+                  setCreatedId(null);
+                  setRequestOpen(true);
+                }}
+              />
+            </div>
+          </aside>
+        )}
+        </div>
+
         {/* Carrito de venta = DRAWER flotante (P-16, §18.4b): el contenido (requisitos →
             líneas → total → CTA → vaciar) vive en SellCartContents (TL-C3). El encabezado
-            (eyebrow + conteo + cerrar) lo pinta el propio drawer. */}
+            (eyebrow + conteo + cerrar) lo pinta el propio drawer. En DESKTOP el carrito es el
+            panel fijo de arriba, así que el drawer (y su FAB) SOLO se montan en móvil. */}
+        {!isDesktopCart && (
         <SellCartDrawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
@@ -696,6 +825,7 @@ export function BuylistView() {
             }}
           />
         </SellCartDrawer>
+        )}
 
         {/* Política NM-only (PROJECT §E/H, AC 3d) + copy de confianza (EDITABLE): quién paga
             el envío, tiempos de verificación/pago SPEI y vigencia (ver FRONTEND_NOTES). */}
@@ -729,13 +859,27 @@ export function BuylistView() {
 
         {/* FAB del carrito (§18.4a): fijo abajo-derecha, en el flujo de tabulación DESPUÉS
             del contenido principal (§18.8, sin tabindex positivos). Siempre presente (vacío
-            da acceso a los requisitos de venta); el badge se omite con carrito vacío. */}
-        <SellCartFab ref={fabRef} count={cartCount} open={drawerOpen} onClick={() => setDrawerOpen(true)} />
+            da acceso a los requisitos de venta); el badge se omite con carrito vacío. P-42: en
+            DESKTOP el carrito es el panel fijo lateral, así que el FAB SOLO se monta en móvil. */}
+        {!isDesktopCart && (
+          <SellCartFab ref={fabRef} count={cartCount} open={drawerOpen} onClick={() => setDrawerOpen(true)} />
+        )}
       </div>
 
       <Modal open={guideOpen} onClose={() => setGuideOpen(false)} title={t('shippingGuideLink')}>
         <SafeShippingGuide onUnderstood={() => setGuideOpen(false)} />
       </Modal>
+
+      {/* P-43 · pop-up de detalle del GRID PLANO (graded/sealed): imagen grande + datos. Cierra
+          por backdrop/Esc (Modal §7.6). El grid raw (binder) tiene su propio modal por teja. */}
+      <CardDetailModal
+        open={detailCard != null}
+        onClose={() => setDetailCard(null)}
+        card={detailCard?.card ?? null}
+        finish={detailCard?.finish}
+        priceCents={detailCard?.priceCents}
+        pricePending={detailCard?.pending}
+      />
 
       <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title={t('requestTitle')}>
         {requestItems.length > 0 && (

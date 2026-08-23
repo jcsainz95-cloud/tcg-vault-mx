@@ -4,6 +4,191 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.0 Regresión del gate E2E pre-publicación de inventario (2026-08-23) — 2 BLOQ resueltos + 1 escalado al arquitecto
+
+> Rama `fix/variant-composition-regression`. El gate E2E marcó 3 bloqueantes de dinero/identidad en el
+> módulo inventario. **BLOQ-1 y BLOQ-2 (parte primaria) corregidos** (fixes de implementación conformes al
+> contrato). **BLOQ-3 y las partes secundarias de BLOQ-2 NO se tocan: contradicen cláusulas «fuera de alcance
+> cambiarlo» del contrato/ARCHITECTURE → requieren decisión del arquitecto (regla 9)** — ver «Discrepancias».
+> Gate: **suite backend completa VERDE** (164 suites / 1625 tests), `tsc --noEmit` limpio.
+
+- **BLOQ-1 (DINERO) — el alta por lote perdía `acquisitionCostCents`.** `BatchInventoryItemInput` no declaraba
+  el campo (`backend/src/modules/inventory/dto/inventory.dto.ts:146`), así que con `ValidationPipe({whitelist:true})`
+  el costo enviado por el cliente se borraba en silencio y toda pieza de lote (QuickAdd / sellado con «Comprar»)
+  nacía con `acquisitionCostCents = NULL`. **Fix:** se añadió `@IsOptional() @IsInt() @Min(0) acquisitionCostCents?`
+  con las MISMAS reglas que `CreateItemDto` (`@Min(0)`: un costo 0 es legítimo — promo/regalo — a diferencia de un
+  precio de venta). El path de servicio ya leía (`resolveCommon`, `inventory.service.ts:365-366`) y persistía
+  (`buildItemData` `:748`, resultado de lote `:861`) el campo; solo faltaba el decorador del DTO. Money-safe: NO se
+  inventa costo alguno; sin costo el campo sigue `null`. **Cubierto por** `backend/test/inventory.batch.spec.ts`
+  (`[BLOQ-1] persiste acquisitionCostCents…`, `…=0 se persiste como 0`, y 2 casos de validación del DTO que afirman
+  que el campo queda whitelisted y no se borra).
+
+- **BLOQ-2 (IDENTIDAD «Tropius») — el sellado se pintaba con nombre/imagen de la carta ancla en M1.**
+  `sealed-graded.service.ts` (`sealedSetDetail`, antes `:297`) construía `productName` SOLO desde `Card.name`,
+  saltándose la cascada de display del contrato (§4.34a / §M1 v1.36 L187-188: `sealedProductName ?? card.name`,
+  `sealedImageUrl ?? card.imageSmallUrl ?? null`). **Fix:** se traen `sealedProductName`/`sealedImageUrl` al
+  `groupBy` (snapshot por-identidad, sin N+1) y `imageSmallUrl` de la carta al `select`; el DTO
+  `SealedInventoryGroupDTO` aplica ahora la MISMA cascada exacta que `sealed-catalog.service.ts`/`vault.service.ts`
+  y **gana `imageSmallUrl`** (que el contrato §M1 v1.28.1 L3723 ya exigía y faltaba en el código). Money-safe:
+  cambio de display puro; conteos y valuación intactos (las filas se re-colapsan por la identidad §4.23).
+  **Cubierto por** `backend/test/inventory.sealed-graded-tabs.spec.ts` (`cascada de display: sealedProductName…
+  ganan a la Card ancla`, y el caso de fallback money-safe sin snapshot).
+  - **Vistas de bóveda del cliente/admin YA estaban bien:** `/vault/sealed` (`vault.service.ts:293-294`, cascada) y
+    `/admin/vaults/:userId/sealed` (`admin-vaults.service.ts:54` reusa `sealedTab` — fuente única). No requerían
+    cambio. Los otros dos síntomas que reportó el gate (ver Discrepancias) NO son este código.
+
+### 0.0.b BLOQ (DINERO) — doble fila «FIJAR PRECIO» en la cola M2 del sellado (2026-08-23, `fix/variant-composition-regression`)
+
+> Bug de dinero **pre-existente** (no lo introdujo esta rama). Fix de IMPLEMENTACIÓN conforme a v1.42/v1.43
+> (§4.34a / §4.23a); NO cambia contrato. Suite backend completa **VERDE** (169 suites / 1661 tests),
+> `tsc --noEmit` limpio.
+
+- **Causa raíz confirmada:** subir un sellado SIN `listPriceCents` generaba **dos** `PendingPriceEntry` open para
+  la MISMA pieza:
+  - El **alta** (`inventory.service.ts` `createItem`, bloque `sealedNeedsEscalate`) escalaba con el gradeKey
+    LEGACY `'sealed'` (de `gradeKeyFor`) y SIN `sealedProductId` → llamada de 6 args.
+  - El **publish** (`resolvePublishSalePrice`, ~`:1135`) escala con la clave de MERCADO `sealed:tcg:<productId>` +
+    `sealedProductId` → llamada de 8 args.
+  - Como la clave de dedupe de `escalatePending` es `(cardId, productType, gradeKey, finish, cardProductId,
+    sealedProductId, status)`, las dos difieren en `gradeKey` **y** `sealedProductId` → NO colapsan → 2 filas.
+  - El resolver del sellado (`resolvePublishSalePrice` `:1128-1129`, `getSealedMarketRef` `:641`) consume
+    `sealed:tcg:<productId>`, NO el legacy `'sealed'`. Y «FIJAR PRECIO» (`POST /admin/pricing/override`,
+    `pricing.controller.ts:180`) escribe el `PriceReference` con el `gradeKey` de la fila M2 elegida. Si el admin
+    fijaba sobre la fila legacy `'sealed'`, el override quedaba en un gradeKey que el resolver **ignora** → la pieza
+    seguía impublicable (dinero parado + confusión: el admin creía haber fijado el precio).
+
+- **Fix (1 archivo de lógica):** `backend/src/modules/inventory/inventory.service.ts`, `createItem` (bloque
+  `sealedNeedsEscalate`, ~`:275`). La escalación del ALTA ahora unifica su firma con la del publish: computa
+  `pendingGradeKey = sealedMarketGradeKey(r.sealedMapping.tcgplayerProductId)` cuando la pieza está mapeada, y pasa
+  `finish='normal'`, `cardProductId=null` y `sealedProductId=r.sealedProductId`. Así alta y publish producen la
+  MISMA clave lógica → **UNA sola** entrada resoluble por `(item / sealedProductId / clave de mercado)`, la que el
+  resolver SÍ consume. Sellado LEGACY sin mapeo (sin `tcgplayerProductId`) cae de forma segura a `gradeKey='sealed'`
+  con `sealedProductId=null` — comportamiento previo preservado, sin duplicar.
+- **La ruta de APORTACIÓN ya estaba bien** (escalaba con `sealedPendingGradeKey`=clave de mercado + `sealedProductId`
+  desde BLOQ-2b): esta ruta y el bloque `sealedNeedsEscalate` son mutuamente excluyentes (la aportación sin mercado
+  lanza `PRICE_PENDING` desde `resolveCreation` antes de llegar al bloque). Solo el path COMPRA sin `listPrice`
+  disparaba el legacy.
+- **Money-safe intacto:** sin `listPriceCents`, sin override manual y sin mercado ⇒ **una (1)** entrada
+  `PRICE_PENDING`, jamás 0. Fijar el override manual sobre esa entrada (misma clave `sealed:tcg:<id>`) publica la
+  pieza (precio derivado `mercado×spread`, `>0`).
+- **Saneo de datos:** NO se incluyó script. Riesgo bajo/acotado y no trivialmente idempotente sin conocer el estado
+  real de staging (habría que casar cada `PendingPriceEntry gradeKey='sealed'` con la pieza `sealedProductId` viva y
+  su `tcgplayerProductId`, re-mapear al gradeKey de mercado y cerrar/mover sin inventar precios). **Runbook de saneo
+  manual** (para pendientes legacy YA existentes de piezas con `sealedProductId`): por cada
+  `PendingPriceEntry status='open' AND gradeKey='sealed'` cuya pieza asociada tenga `sealedProductId` (y por ende
+  `tcgplayerProductId`), (a) fijar el precio a través de la fila **resoluble** `sealed:tcg:<tcgplayerProductId>` (la
+  que crea el publish) — nunca sobre la legacy — y (b) marcar la fila legacy como `resolved`/descartada. Declarado
+  como **deuda menor NO bloqueante** (no re-crea filas nuevas tras el fix; solo limpia residuos previos). Se anota a
+  petición del techlead en `docs/TECH_DEBT.md` si procede.
+- **Tests (NUEVO `backend/test/inventory.sealed-pending-dedup.spec.ts`, `escalatePending` REAL + dedupe completa):**
+  - alta (compra) sin `listPrice` con `sealedProductId` → **exactamente 1** pendiente open con
+    `gradeKey='sealed:tcg:777'` + `sealedProductId='sp-etb'` (afirma `!= 'sealed'`).
+  - tras `bulkPublish` de esa pieza → sigue **1** (no 2); `pendingPriceEntry.create` llamado 1 sola vez; la línea
+    devuelve `PRICE_PENDING` + el `pendingPriceEntryId` de esa única fila.
+  - `manualOverride` sobre esa entrada (misma clave) → la resuelve (cola open = 0) y el re-`bulkPublish` publica
+    (`ok:true`, `status:'listed'`, `priceSource:'derived'`, `salePriceCents>0`).
+  - caso legacy sin `sealedProductId` (mapeado por `tcgplayerProductId` del cliente): escala con `sealed:tcg:<id>` +
+    `sealedProductId=null`, 1 sola fila, money-safe.
+  - `test/inventory.sealed.spec.ts` (legacy unmapped) actualizado: la aserción de `escalatePending` ahora espera los
+    dos trailing args `null, null` (firma unificada; gradeKey sigue `'sealed'` — comportamiento preservado).
+
+### Discrepancias con el contrato — ESCALADAS AL ARQUITECTO (no implementadas; regla 9)
+
+Tres puntos del gate resultan **cambios de contrato**, no fixes de implementación: el código ACTUAL ya cumple
+lo que el contrato/ARCHITECTURE declaran, y esos documentos marcan explícitamente el comportamiento pedido como
+**«fuera de alcance cambiarlo»**. No los toqué (no puedo «arreglar» el contrato por mi cuenta):
+
+- **BLOQ-3 (CONTEO) — «excluir `productType='sealed'` de los conteos del master-set binder».** El contrato
+  **API_CONTRACT §M1 (nota de coexistencia v1.23, L2302-2303)** y **ARCHITECTURE §4.20b (L4407-4408)** dicen
+  textualmente: *«las piezas selladas siguen apareciendo en `GET /vault/holdings` (por-pieza) y en el binder
+  master-set como `finish=normal` (comportamiento pre-existente §4.20b — **fuera de alcance cambiarlo**)»*. La
+  **regla H9** que cita el hallazgo aplica SOLO al **catálogo de singles** (`GET /catalog/cards`/`facets`,
+  guardarraíl `CatalogService.singlesPublishedWhere`, TECH_DEBT H9/SB-D5), **no** al binder. Por tanto excluir el
+  sellado del binder (`MasterSetService.binder`/`aggregateInventoryBySet`, `master-set.service.ts`) **contradice el
+  contrato**. → Arquitecto: decidir si el binder debe excluir sellado y actualizar §4.20b + la nota v1.23. Backend
+  implementa en cuanto el contrato lo permita (el filtro es un `AND productType != 'sealed'` acotado, análogo a H9).
+
+- **BLOQ-2 secundario (a) — «Mis piezas» del cliente muestra el sellado como la carta ancla.** «Mis piezas» =
+  `GET /vault/holdings` (front `VaultView.tsx:289-292` pinta `h.card.name`/`h.card.imageSmallUrl` directo). El
+  `HoldingDTO` (contrato L2216-2222) **no tiene** campo de display de sellado, y la MISMA nota v1.23/§4.20b lo
+  declara «fuera de alcance cambiarlo». Exponer el nombre/imagen del sellado aquí exige **añadir campos al
+  HoldingDTO** → cambio de contrato. → Arquitecto.
+
+- **BLOQ-2 secundario (b) — la cola de precio pendiente de M2 etiqueta «E2E Charizard #4 · sealed».** La cola
+  (`PricingService.pendingQueue`, `pricing.service.ts:1080`) devuelve `card {name,number,setName}` de la carta
+  ancla; el `PendingPriceEntry` (contrato L4821) **no porta identidad de sellado** y su `gradeKey` para un sellado
+  SIN mapear es el legacy `'sealed'` (sin `productId`), por lo que **ETB y blíster del mismo set anclados a la
+  misma carta colapsan en UNA entrada** → es **ambiguo** qué nombre mostrar sin un campo nuevo. Esto es
+  exactamente el terreno de **SB-D5** (entidad `SealedProduct` diferida). Resolverlo requiere que el arquitecto
+  defina cómo `PendingPriceEntry` lleva la identidad del sellado → cambio de contrato/schema. → Arquitecto.
+  *(Money-safe entretanto: es solo un label; ningún precio se inventa.)*
+
+## 0. Pago de deuda técnica backend (2026-08-23) — 4 ítems RESUELTOS, money-safe intacto
+
+> Pase de deuda (solo `backend/`). Cierra `H-P38-4`, `P-34 H4`, `P-34 H5`, `P-30 H2` de `TECH_DEBT.md`.
+> Sin cambio de contrato ni de schema; sin cambio de comportamiento money-safe. Gate: **suite unit+contrato
+> completa VERDE** (164 suites / 1615 tests), typecheck y lint limpios.
+
+- **`variantKey(...)` (NUEVO helper compartido)** — `backend/src/common/variant-key.ts`. Única definición de
+  la clave de variante `K = cardId|productType|gradeKey|finish`; reusada en los 3 call-sites de
+  `catalog.service.ts` (antes hand-rolled). Mismo string exacto. Otros roles: si necesitan la clave de
+  agrupación de variantes, **importar `variantKey`** en vez de interpolar a mano (evita drift). *(Los ≥6
+  sitios de SB-D3 siguen abiertos: este pase solo tocó los 3 de `catalog.service.ts`.)*
+- **P-30 H2 · cierre COMPLETO (2026-08-23) — productores + eje sellado + guard de round-trip.** El pase
+  anterior migró solo los CONSUMIDORES (`catalog.service`); los PRODUCTORES de esos mismos mapas seguían con
+  la clave hand-rolled, partiendo la fuente de drift en dos. Ahora productor y consumidor comparten **una sola**
+  `variantKey()`:
+  - `pricing.service.ts`: `getReferencesBatch` (`keyOf`), `getVariantOverridesBatch` (`keyOf`) y el lookup
+    single de `getVariantOverride` enrutados a `variantKey(...)` (import de `../../common/variant-key`).
+  - `catalog.service.ts` `refFromBatch` (`:197`): el eje SELLADO `refs.get(`${cardId}|sealed|${gk}|normal`)`
+    hand-rolled pasó a `variantKey({cardId, productType:'sealed', gradeKey:gk, finish:'normal'})`.
+  - **Byte-identidad garantizada:** `variantKey` emite EXACTAMENTE el mismo string ⇒ ningún override/referencia
+    se pierde (money-safe: es clave de map). **No se tocó cálculo de montos ni contrato.**
+  - **Guard de round-trip** en `backend/test/tech-debt-backend.spec.ts`: ejercita el `PricingService` REAL con
+    prisma mockeado y comprueba que la clave con que el batch INDEXA el Map se recupera con
+    `variantKey(mismas partes)` (lo que hace el consumidor) — productor y consumidor comparten fuente. Incluye
+    el eje sellado. QA: es el invariante real anti-drift (no solo «el helper produce X»).
+- **`premiumFixedOffenders(...)` reubicado** — de `PricingController` (privado) a
+  `backend/src/common/pricing-tiers.ts` (exportado, lógica idéntica; el controller delega). Es el invariante
+  money-safe §4.33d (premium→pct de COMPRA). Ahora unit-testeable directo sobre el seed.
+- **`rarity-catalog.premiumByPattern`**: +patrones `mega`/`blackwhite` (red money-safe R-5). Una variante
+  string premium NUEVA no-alias ya no cae al bin holo barato.
+- **`sealed-product.service`**: `upsertSealedProduct`/`ensureSetGroup`/`linkGroup` ahora atómicos frente a
+  concurrencia (`create(...).catch(P2002 → converger)`); semántica preservada (subtype curado no se pisa,
+  `linkGroup` duplicado sigue 409, soft-delete acotado intacto).
+
+## 0-P37/P41. IVA a un solo dial + orden global por set más nuevo (2026-08-23, v1.40)
+
+> Stream «Catálogo y precios». Dos enmiendas del contrato **v1.40** (P-37 y P-41-mejora), disjuntas y
+> money-safe. Solo `backend/`. No hay cambio de schema. Gate: `settings.validation`, `buylist-catalog`,
+> `money` y `money.direct-ship` **verde**; typecheck limpio en los archivos tocados. (Nota: hay 2 suites
+> rojas PRE-EXISTENTES del stream de inventario/sellado —`sealed-price-ingest`, `inventory.sealed`— por
+> `prisma.sealedProduct`/`TcgcsvGroupRef`; **ajenas a estos cambios**, no las toqué.)
+
+### A) P-37 — `IVA_PCT` es la fuente ÚNICA del IVA (se retira `STRIPE_FEE_IVA_PCT`)
+- **`settings.service.ts` `getStripeFee()`** — `stripeFeeIvaPct` deja de leer el dial propio y se DERIVA:
+  `(await getNumber(IVA_PCT)) / 100`. Con `IVA_PCT = 16` ⇒ `0.16`, **idéntico al centavo** al valor previo;
+  `money.ts`/`grossUpTotal`/`StripeFeeConfig` **no se tocaron** (solo cambia de dónde sale el 0.16).
+- **`settings.constants.ts`** — se elimina `STRIPE_FEE_IVA_PCT` de `SettingKey`, `SETTING_DEFAULTS`,
+  `SETTING_VALIDATORS` y `SETTING_DTO_MAP`. Efecto de contrato (§M10): ya **no se expone en `GET`** y un
+  `PUT { stripeFeeIvaPct }` cae en **422** (key desconocida, flujo existente). **Sin migración**: la fila
+  de BD `stripe_fee_iva_pct`, si existe, queda **inerte** — el gross-up nunca la lee ni cae a 0.
+- **QA/frontend:** el DTO de M10 pierde `stripeFeeIvaPct`; la UI de settings debe retirar ese dial (frontend).
+
+### B) P-41-mejora — desempate global por SET MÁS NUEVO
+- **`common/card-order.ts` `CARD_ORDER_BY_GLOBAL`** — tras `name asc`, el desempate pasa de
+  `{ setId: 'asc' }` (uuid aleatorio) a `{ set: { releaseDate: { sort: 'desc', nulls: 'last' } } }`:
+  varias variantes del mismo nombre → sale primero la del set con `releaseDate` más reciente; un set con
+  `releaseDate = null` queda al final del grupo. `{ id: 'asc' }` sigue como desempate total (paginación
+  determinista). **`CARD_ORDER_BY_IN_SET` NO cambia** (binder/master-set intactos, inventario no tocado).
+- **Consumo:** `catalog.service.searchAllCards` usa la constante tal cual (transparente). Prisma añade el
+  JOIN a `CardSet` SOLO para ordenar (sin `include`). `CardSet.releaseDate` es `String? yyyy/MM/dd`
+  zero-padded ⇒ el sort desc lexicográfico coincide con el cronológico.
+- **Rendimiento (no bloqueante):** ordenar por columna de la relación NO usa el índice
+  `@@index([setId, numberPrefix, numberSort])`. Índice de apoyo (p. ej. sobre `CardSet.releaseDate`, o un
+  índice compuesto) **a evaluar si el plan lo pide** (ya referenciado en ARCHITECTURE §4.22b). No se
+  implementó aquí. Candidato a `TECH_DEBT.md` a petición del techlead (no lo escribo por propiedad de archivo).
+
 ## 0-P30. Publicación ÚNICA por carta con STOCK — singles agrupados (2026-08-22, v1.38-grouped-listings)
 
 > Stream «Catálogo y precios». Implementa el changelog **v1.38-grouped-listings** del contrato (§DTOs
@@ -5517,9 +5702,13 @@ El seed los siembra automáticamente (loop `SETTING_DEFAULTS` en `seed.ts`/`seed
 - **`PricingService`** gana `loadSealedSpreads()` (iza spreads + `sourceOn` = dial `sealedPriceSource===tcgcsv`,
   una lectura por request), `sealedMarketGradeKeyForItem(item)`, `getSealedMarketRef(item)`,
   `computeSealedSalePriceForItem(item, marketCents)`.
-- **Gating por dial:** el `sealedMarketRef` solo cuenta como mercado si `sourceOn` (dial `tcgcsv`). Con
-  `off`, el sellado solo se vende con **override** (retro-compatible con hoy; §4.23a). Se aplica en los
-  3 call-sites.
+- **Gating por dial (fraseo corregido en v1.43 / IMP-C — ver §52.9):** el dial `sealedPriceSource`
+  gobierna **solo la FUENTE AUTOMÁTICA de mercado** (`source='tcgcsv'`): con `off` ese mercado queda
+  inerte (`gate → null`, fail-closed). **NO** aplica a un **override manual de mercado**
+  (`isManualOverride`/`source='manual'`, «FIJAR PRECIO»), que es decisión humana y sobrevive al dial.
+  Es decir, con el dial `off` el sellado se vende con (a) el **override de venta por pieza**
+  (`listPriceCents`) **o** (b) el **override manual de mercado**×spread — **no** solo con `listPriceCents`.
+  Se aplica en los 3 call-sites vía el gate único `gateSealedMarketCents` (H-1).
 - **Call-sites ramificados por `productType==='sealed'`** (mismo patrón §4.14d):
   `catalog.service.toListingDTO` (grid/Compra), `orders.service.salePriceOf` (checkout → `422 PRICE_PENDING`
   si no resuelve) e `inventory.service.bulkPublish` (§M1; la rama sealed **ya no exige** `listPriceCents`).
@@ -6667,3 +6856,401 @@ availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapsh
 ### Gates (local)
 - `npx tsc --noEmit` limpio · `npx eslint` (archivos tocados) 0 warnings · `npx nest build` exit 0 ·
   `npx jest` → **155 suites / 1452 tests VERDE** (set-value: 21/21).
+
+---
+
+## v1.39-sealed-product-module (M-39, P-38) — entidad `SealedProduct`, cura de raíz de SB-D5 (2026-08-23)
+
+**Contexto.** El alta de sellado anclaba cada presentación a un single representativo del set (puente P-35)
+→ «Tropius #1 · sealed» + «SIN MAPEO». Tres huecos: (1) `CardSet.tcgcsvGroupId` no lo escribía nadie
+(círculo vicioso: para resolver el grupo hacía falta un sellado ya mapeado); (2) UPC no existía; (3) sin
+concepto de «principales». M-39 materializa la entidad de catálogo `SealedProduct` (diferida en §4.32d/SB-D5)
+contra el contrato **v1.39.1** y ARCHITECTURE **§4.34 + §11 (M-39)**. **NO se tocó `docs/API_CONTRACT.md`.**
+
+### Migración — `20260823120000_m39_sealed_product` (aditiva y reversible)
+- `ALTER TYPE "SealedSubtype" ADD VALUE 'upc'`, `'collection'` (idempotente `IF NOT EXISTS`; se APENDAN).
+- `CREATE TYPE "SealedGroupKind" ('set_main','promo_collection')`.
+- `CREATE TABLE "SealedSetGroup"` (`@@unique(setId,tcgplayerGroupId)`, index `setId`, FK→CardSet CASCADE).
+- `CREATE TABLE "SealedProduct"` (§4.34a: `tcgplayerProductId @unique`, `setId` FK, `tcgplayerGroupId`,
+  `name/cleanName`, `subtype`, `subtypeInferred`, `isPrincipal`, `origin`, `imageUrl?`, `marketUsdCents?`+
+  `marketUpdatedAt?`, `active`; index `setId`/`tcgplayerGroupId`).
+- `ALTER TABLE "InventoryItem" ADD "sealedProductId"` (FK nullable, **`onDelete: SetNull`**, index).
+- **PASO 6 en SQL:** siembra `SealedSetGroup(kind=set_main)` desde `CardSet.tcgcsvGroupId != null`
+  (`ON CONFLICT DO NOTHING`). Usa solo el enum NUEVO `SealedGroupKind` (usable en su tx de creación); NO usa
+  `upc`/`collection` (un valor AÑADIDO a un enum previo no puede usarse en su misma tx).
+- **Backfill de datos (pasos 7-8) → `prisma/backfill-m39-sealed-product.ts`** (idempotente; corre TRAS
+  aplicar la migración): deriva `SealedProduct` de items sellados **YA MAPEADOS** y liga `sealedProductId`
+  (**cura el ETB→Tropius**); los **SIN MAPEO** (`tcgplayerProductId` null) quedan `sealedProductId=null` +
+  **reporte de reconciliación** (cero adivinación; JAMÁS fabrica precio → `marketUsdCents=null`).
+- `backend/prisma/` es **zona compartida** → migración serializada por el orquestador.
+
+### Cómo el backfill cura el caso actual (ETB→Tropius)
+El ETB actual está en `InventoryItem` como `productType='sealed'`, `tcgplayerProductId=<pid>` (mapeado por
+P-35) pero anclado a la carta Tropius y sin identidad. El backfill: (a) crea un `SealedProduct` con
+`name=sealedProductName` («… Elite Trainer Box»), `setId` = set de la carta ancla, `subtype='etb'`,
+`marketUsdCents=null`; (b) `UPDATE InventoryItem SET sealedProductId=<sp>` para todas las piezas de ese
+`tcgplayerProductId`. La pieza queda ligada a su **presentación real**; el display en cascada
+(`SealedProduct` vivo → snapshot → ancla) ya no muestra «Tropius». Los «SIN MAPEO» se re-curan con el nuevo
+flujo (sync del set → seleccionar el `SealedProduct` → re-alta).
+
+### Endpoints (todos bajo `/admin`, controller `InventoryController`)
+- `GET /admin/inventory/sealed-products?setId=&q&origin&principalOnly` (**vault_operator+**) →
+  `SealedProductListResponse`. Lee los `SealedProduct` **persistidos** (active=true), ordenados
+  `(isPrincipal desc, sortOrder asc, name asc)` (§4.34c), cada uno con `marketRef` money-safe
+  **live TCGCSV → caché `marketUsdCents` → null (NUNCA 0)**; `needsSync=true` si el set no tiene catálogo;
+  `groups` = `SealedSetGroup` del set (para separar «Del set» / «Promos/colecciones» por `origin`).
+- `POST /admin/inventory/sealed-products/sync` (**super_admin**, auditado `inventory.sealed_products_sync`)
+  `{ setId? | all?, groupIds? }` → `SealedSyncResultDTO`. Resuelve grupos (`SealedSetGroup` ∪ `groupIds`
+  como `promo_collection` ∪ **name-match del `set_main` si falta**) → por grupo `listSealedProducts`
+  (descarta singles) → `inferSealedSubtype` → **upsert `SealedProduct`** por `tcgplayerProductId` → asegura
+  `SealedSetGroup` → **puebla `CardSet.tcgcsvGroupId`** si null. Soft-delete de los que ya no aparecen.
+- `GET /admin/inventory/sealed-products/sync/candidates?setId=` (**super_admin**) → grupos TCGCSV candidatos
+  por name-match (`matchScore` + `alreadyLinked`).
+- `POST /admin/inventory/sealed-sets/:setId/groups` (**super_admin**, 201, auditado) `{ tcgplayerGroupId,
+  kind }` → enlaza un grupo extra (1 set → N grupos); grupo ya enlazado → 409.
+- **Alta = SELECCIONAR** (sin endpoint nuevo): `POST /admin/inventory/items/batch` gana
+  `BatchInventoryItemInput.sealedProductId?` (identidad; el backend deriva `cardId` ancla + mapeo + imagen/
+  nombre/subtipo del `SealedProduct` y congela el snapshot; `cardId` pasa a opcional) + `manualMarketMxnCents?`.
+  Errores: `422 SEALED_PRODUCT_NOT_FOUND`, `422 MANUAL_MARKET_NOT_ALLOWED`.
+
+### Alta por `sealedProductId` + precio manual money-safe (§4.34d, decisión humano v1.39.1)
+- `deriveFromSealedProduct` (SEC-A1): con `sealedProductId` el cliente NO manda identidad ni montos; se
+  derivan del `SealedProduct` persistido → la pieza **nace con identidad correcta** (los 4 campos M-37
+  sueltos se IGNORAN). Inexistente/inactivo → **422 SEALED_PRODUCT_NOT_FOUND**.
+- **Mercado al alta / fallback manual** (`resolveSealedMarketForAlta`): mercado autoritativo = caché H-1
+  `PriceReference sealed:tcg:<productId>` gateada por el dial `sealedPriceSource`. **Money-safe:**
+  - mercado resuelto + `manualMarketMxnCents` → **422 MANUAL_MARKET_NOT_ALLOWED** (el override solo llena
+    el hueco, JAMÁS pisa un mercado vivo; **NO** se dispara por rol);
+  - mercado null + `manualMarketMxnCents>0` → override AUDITADO (`AuditLog inventory.sealed_manual_market`)
+    + persistido como `PriceReference isManualOverride=true`; la aportación valúa por ese valor;
+  - `manualMarketMxnCents ≤ 0` → **422 VALIDATION_ERROR** (nunca 0);
+  - sin override y sin mercado → **422 PRICE_PENDING** (nunca 0).
+  - **Permiso `vault_operator+`** (decisión del humano): la autorización vive en el controller (rol de
+    clase); el servicio no gatea por rol. **⚠ Input de dinero por operador → marcado para la fase de
+    seguridad por release.**
+- **Nota de diseño money-safe (deuda menor aceptada):** el «precio EN VIVO al alta» se resuelve por la
+  caché H-1 (poblada por el sync + `sealed-price-ingest`, no por un fetch HTTP dentro de la transacción de
+  alta — evita pool-starvation). Nunca fabrica precio. Un producto recién sincronizado ya tiene su
+  `PriceReference`/`marketUsdCents` fresco; un hueco cae a manual/PRICE_PENDING. Registrado como SB-D-live
+  (Baja) si se quisiera un fetch on-demand estricto.
+
+### `sealed-price-ingest` enriquecido (§4.34a)
+Barre ahora **items mapeados ∪ `SealedProduct` ACTIVOS** (`listMappedGroupIds` une ambas fuentes). Para un
+`SealedProduct` sin inventario, ancla el precio a la **carta ancla del set** (menor `numberPrefix/numberSort`)
+y refresca la caché `SealedProduct.marketUsdCents` (display; la autoridad sigue siendo `PriceReference`). Un
+item mapeado GANA el dedupe por `productId` (usa su `cardId`).
+
+### `inferSealedSubtype` + `SEALED_SUBTYPE_META` (`sealed-subtype.ts`, canónico)
+Orden normativo §4.34c: **upc** (antes de etb/collection) → etb → bundle → box → tin → blister →
+**collection** (Premium/Special/`\bbox\b` genérico) → null. `sortOrder` `upc=0…collection=6`; principales =
+`box,etb,upc,bundle`. `sealed-catalog-admin.service.ts` (DEPRECADO) re-exporta esta fuente única.
+
+### Gates (local)
+- `npx tsc --noEmit` limpio · `npx jest` → **163 suites / 1589 tests VERDE** (nuevos:
+  `sealed-product.service.spec.ts` 29, `inventory.sealed-product-alta.spec.ts` 8, +2 en
+  `sealed-price-ingest.spec.ts`). Sin regresiones en las suites de sellado/inventario previas.
+
+## Fase de seguridad P-38 — fix de 2 ALTOS + 1 MEDIO en el precio manual del sellado (2026-08-23)
+Enrutados por la fase de seguridad (blanco: precio de dinero del sellado). Solo `backend/`. Contrato intacto
+(v1.39.1/v1.40 sin cambios). `npx tsc --noEmit` limpio · `npx jest` → **163 suites / 1603 tests VERDE**.
+
+### H-1 (ALTO, money) — atomicidad total del override manual → RESUELTA
+- **Problema:** el override (`PriceReference isManualOverride=true`, referencia global autoritativa
+  `sealed:tcg:<productId>`) y su `AuditLog` se escribían con `this.prisma` (NO transaccional) DENTRO del
+  `$transaction` del lote → auto-commit que **sobrevivía** a una línea fallida (`ok:false`) o a un rollback
+  del `$transaction` → precio de dinero pinneado **huérfano**.
+- **Fix (deferred-write, per-línea):** `resolveSealedMarketForAlta` ya NO escribe: **valida** y devuelve un
+  descriptor `SealedManualOverride`. El caller aplica el override con `applySealedManualOverride(ov, actor,
+  tx)` **dentro de la misma `tx`** y **SOLO tras crear la pieza** (en `batchCreate`, al final de la línea,
+  tras `tx.inventoryItem.create`; en `createItem`, ahora envuelto en su propio `$transaction`).
+  `pricing.manualOverride(...)` y `audit.log(...)` aceptan un **`tx?: Prisma.TransactionClient`** opcional
+  (default `this.prisma` — sin cambio de comportamiento para el resto de llamadores).
+- **Garantía:** sin override sin pieza, ni pieza sin su override; un fallo/rollback revierte AMBOS. El valor
+  del override se usa igual para valuar la aportación (no depende del write). Money-safe intacto.
+
+### H-2 (ALTO) — override solo con `sealedProductId` validado → RESUELTA
+- **Problema:** `manualMarketMxnCents` se aceptaba por el path **legacy** (`tcgplayerProductId`+
+  `tcgplayerGroupId` del cliente) sin validar un `SealedProduct` activo → el override se anclaba a un
+  `productId` **arbitrario del cliente**, saltándose `SEALED_PRODUCT_NOT_FOUND`/SEC-A1.
+- **Fix:** gate en `resolveCreation` — `manualMarketMxnCents != null && sealedProductId == null` → **422
+  MANUAL_MARKET_NOT_ALLOWED** (incluye el path legacy). El override SOLO procede cuando la identidad viene de
+  un `sealedProductId` validado (SealedProduct activo, cuyo `tcgplayerProductId` deriva server-side el ancla).
+  El alta normal sin override no se ve afectada por ningún path.
+
+### M-2 (MEDIO) — `acquisitionPct` con `@Max` → RESUELTA
+- `dto/inventory.dto.ts`: `acquisitionPct?` pasa de `@IsInt() @Min(0)` a **`@Min(0) @Max(MAX_APORTACION_PCT=100)`**
+  en los 3 DTOs (single/batch/update). Un `vault_operator` ya no puede inflar el costo de aportación
+  (costo = referencia × pct/100) por encima del 100%.
+
+### Tests de seguridad añadidos
+- `inventory.sealed-product-alta.spec.ts` — describe **H-1** (override participa del cliente tx en single y
+  lote; fallo de creación de pieza ⇒ sin `PriceReference isManualOverride` huérfano ni audit) y **H-2**
+  (`manualMarketMxnCents` sin/con-legacy `sealedProductId` → 422 sin escribir override; con `sealedProductId`
+  válido sí procede, anclado al productId derivado).
+- `inventory.batch.spec.ts` — **M-2** (`acquisitionPct > 100` y `< 0` → error de validación del DTO).
+- Nota de tests: `pricing.manualOverride`/`audit.log` reciben ahora un 6º/2º arg (`tx`); los harness de alta
+  single mockean `$transaction: (fn) => fn(prisma)`.
+
+---
+
+## v1.42 (BLOQ-3/3b/2a/2b) + v1.41 (IMP-1) — identidad de sellado en todas las vistas (rama `fix/variant-composition-regression`)
+
+Pase ADITIVO, RETROCOMPATIBLE y MONEY-SAFE (ningún monto cambia; sin precio ⇒ null/pendiente, JAMÁS 0).
+Contrato: `API_CONTRACT.md` changelog v1.41-sealed-effective-market + v1.42-sealed-identity-everywhere;
+ARCHITECTURE §4.20b/§4.20d/§4.23g/§4.34a/§11. Suite completa: `npm test` → **167 suites / 1644 tests PASS**;
+`tsc --noEmit` limpio.
+
+### IMP-1 (v1.41) — `effectiveMarketCents` gateado en el alta de sellado
+- `sealed-product.service.ts`:
+  - `SealedProductDTO` gana **`effectiveMarketCents: number | null`** (AUTORITATIVO, gateado por el dial
+    `sealedPriceSource`); `marketRef` queda reetiquetado como INFORMATIVO (ungated). `SealedProductListResponse`
+    gana **`sealedPriceSource: SealedPriceSource`** (`'tcgcsv'|'off'`, una vez por respuesta). Nuevo `type
+    SealedPriceSource` local (no es enum de BD).
+  - `listSealedProducts` inyecta `PricingService` y computa `effectiveMarketCents` con la **MISMA** cadena H-1
+    que decide `PRICE_PENDING` en el alta (`getReferencesBatch` sobre `(anchorCardId, 'sealed',
+    'sealed:tcg:<productId>', 'normal')` → `gateSealedMarketCents(ref, sourceOn)`), NO una segunda ruta. El
+    ancla se resuelve con `resolveAnchorCardId` (menor `numberPrefix`/`numberSort`), idéntico al alta. Un lote
+    de referencias (sin N+1). `sealedPriceSource = sourceOn ? 'tcgcsv' : 'off'`.
+  - Invariante verificado: `effectiveMarketCents == null` ⟺ dial off / sin mapeo / sin fila H-1 ⟺ el alta
+    acepta `manualMarketMxnCents`. Sin ancla (set sin cartas) ⇒ null (money-safe).
+  - **Endpoint DEPRECADO `sealed-catalog`:** NO se tocó. Devuelve `SealedCatalogResponse`/`SealedCatalogProductDTO`
+    (shape propio, NO `SealedProductDTO`); §DTOs solo añade `effectiveMarketCents` a `SealedProductDTO`. Se deja
+    intacto para no alterar un shape fuera de §DTOs; el front usa `sealed-products` para el campo gateado.
+- Tests: `test/sealed-product.service.spec.ts` describe «v1.41 (IMP-1)» — dial off → `effectiveMarketCents`
+  null aunque `marketRef` traiga caché; dial on + ref gateada → ese valor; dial on sin ingest → null.
+
+### BLOQ-3/3b (v1.42) — el binder de master set cuenta SOLO singles
+- `master-set.service.ts`:
+  - `aggregateInventoryBySet` (raw SQL del índice, 4 scopes): `AND ii."productType"::text <> 'sealed'`.
+  - `binder` `groupBy` de piezas: `where` gana `productType: { not: 'sealed' }` (filtro en el groupBy, NO en
+    `scopeWhere`, para no afectar otras rutas que reusan el scope).
+  - `resolveBuyables` `findMany` (BLOQ-3b): `where` gana `productType: { not: 'sealed' }` — un ETB sellado ya
+    no llena la casilla `buyable` de un single. `graded` SIGUE contando/siendo buyable. `catalogCardCount`
+    (denominador) NO cambia. SEC-A1 intacto (`salePriceCents` sigue server-side).
+- Tests: `test/master-set.sealed-exclusion.spec.ts` — groupBy filtra sealed; el ETB anclado no infla ni marca
+  covered; el SQL del índice interpola la exclusión; `buyable` filtra sealed y un graded sí es buyable.
+
+### BLOQ-2a (v1.42) — `GET /vault/holdings` pinta el sellado con identidad real
+- `vault.service.ts`:
+  - Nuevo helper `resolveSealedDisplay(item)` = cascada §4.34a (snapshot `sealedProductName`/`sealedImageUrl`
+    → `Card.name`/`imageSmallUrl`). `holdings` lo usa para poblar, SOLO en `productType='sealed'`,
+    `sealedProductId`/`sealedProductName`/`sealedImageUrl`/`sealedSubtype`/`sealedCondition` (ausentes en
+    raw/graded). `sealedTab` (`/vault/sealed`) se refactorizó para usar el MISMO helper (no se duplica la
+    regla). Display-only: `referenceValue`/portafolio intactos (sin query extra — las columnas ya vienen en
+    el item). Nota: se reusa la cascada snapshot→Card tal como en `/vault/sealed`; NO se introduce una segunda
+    ruta que lea el `SealedProduct` vivo (evita divergencia, lección IMP-1).
+- Tests: `test/vault.holdings-sealed-identity.spec.ts` — sellado pinta el ETB (no «Tropius»); legacy sin
+  snapshot cae a `Card.name`/imagen; raw NO trae campos de sellado.
+
+### BLOQ-2b (v1.42) — cola M2 con identidad de sellado + migración M-40
+- **Migración `20260823130000_m40_pending_sealed_product`** (aditiva/reversible, patrón M-39): columna
+  `PendingPriceEntry.sealedProductId TEXT` nullable + índice + FK → `SealedProduct` `ON DELETE SET NULL`.
+  `schema.prisma`: `PendingPriceEntry` gana `sealedProductId String?` + relación `sealedProduct`
+  (`onDelete: SetNull`) + `@@index([sealedProductId])`; `SealedProduct` gana la relación inversa
+  `pendingPriceEntries`. `prisma validate` OK; `prisma generate` OK (no se pudo correr `migrate diff` por falta
+  de BD en el entorno, pero el SQL sigue la convención M-39 y el schema valida).
+- `pricing.service.ts`:
+  - `escalatePending` gana 8º parámetro `sealedProductId: string | null = null`, que entra a la CLAVE de dedupe
+    (`findFirst`) y a la fila creada — dos pendientes con igual `(cardId, gradeKey, finish)` y distinto
+    `sealedProductId` (ETB vs blíster) quedan SEPARADAS. Residual money-safe: legacy sin `sealedProductId`
+    colapsa bajo `gradeKey='sealed'` hasta curarse; siempre pendiente, nunca 0.
+  - `pendingQueue` incluye `sealedProduct` en el `findMany` y, SOLO para `productType='sealed'`, expone
+    `sealedProductId` + `sealedProductName` (cascada §4.34a: `sealedProduct.name` → `Card.name`) +
+    `sealedSubtype`. `sealedProductId` es columna del modelo → se espeja también en raw/graded como null
+    (mismo comportamiento que `cardProductId`); los campos RESUELTOS (name/subtype) solo se añaden en sellado.
+- `inventory.service.ts`: los 4 call-sites de `escalatePending` de SELLADO propagan el `sealedProductId`
+  (`r.sealedProductId` en batch/single-adjust, la var local en el path de aportación, `item.sealedProductId`
+  en `resolvePublishSalePrice`); el call-site raw/graded queda con `null`.
+- Tests: `test/pricing.sealed-pending.spec.ts` — dedupe por `sealedProductId` (ETB≠blíster no colapsan);
+  `pendingQueue` muestra «ETB …» (no «sealed»/ancla); legacy sin FK cae a `Card.name`; raw sin campos resueltos.
+- Tests actualizados por firma aditiva: `test/inventory.finish-pending.spec.ts` (escalatePending ahora con
+  `null, null` finales) y `test/pricing.finish-pending.spec.ts` (include gana `sealedProduct: true`).
+
+### Discrepancias / decisiones para el arquitecto
+- **`sealed-catalog` (deprecado):** el changelog v1.41 dice que «hereda la misma regla si aún se usa», pero
+  §DTOs solo añade `effectiveMarketCents` a `SealedProductDTO`, no a `SealedCatalogProductDTO` (shape distinto).
+  Decisión tomada: NO alterar el shape del endpoint deprecado; el front debe leer el campo gateado de
+  `sealed-products`. Si se requiere el campo también en el alias deprecado, es una decisión de contrato del
+  arquitecto (no la asumo). Sin bloqueo: el endpoint vivo cumple IMP-1.
+
+---
+
+## Backfill P-34 / M-38 — reshape de reglas de precio legacy → tiered (money-safe, idempotente)
+
+**Archivo:** `backend/prisma/backfill-p34-tiered-pricing.ts`
+**Rama:** `fix/variant-composition-regression`
+
+### Problema (regresión detectada por el gate E2E)
+La decisión de dinero de **P-34** —bajar la COMPRA de `Rare`/`Rare Holo` del fallback 40% al **T2 = 25%**—
+quedó **silenciosamente inerte** en BDs existentes (incluida prod). Causa raíz: `ConfigSetting.buylist_price_rules`
+conserva el **shape LEGACY PLANO** (`{"Common":…, "Uncommon":…, "Reverse Holo":…}`) que el seed sembró en el
+primer deploy; el seed hace `upsert({ update: {} })` (no pisa lo existente) y **no había migración de datos**
+del reshape a tiers (M-38). El compat on-read (`money.toPriceRuleSet`) reproduce EXACTO el negocio viejo:
+`Rare`/`Rare Holo` no están en el mapa plano ⇒ caen al fallback 40%, nunca al T2 25%. Verificado en E2E:
+quote Charizard (Rare Holo) = 40% `source:fallback`.
+
+### Qué hace el script (por `buylist_price_rules` y `sale_price_rules`)
+1. **Idempotente:** si el valor YA está en shape tiered (`{ tierRules }`) ⇒ **NO-OP**.
+2. **Pristine ⇒ reshape:** si el valor es LEGACY (plano o dos-ejes) e **idéntico** (comparación
+   order-independent) al **default original** que se sembró en su día (nunca editado a mano) ⇒ lo reemplaza
+   por el shape **TIERED CANÓNICO vigente** (`SETTING_DEFAULTS`), que es la decisión LOCKED del humano
+   (P-34 T2=25% + DEV-tiers-1 T1=$1.50). Money-safe: escribe el seed aprobado, nunca deja una regla en 0/vacía.
+3. **Divergente ⇒ NO se toca:** si el valor LEGACY **diverge** del pristine (editado a mano en M2), la
+   colapsación rareza→tier es AMBIGUA (dinero). El script **lo deja intacto** (comportamiento sin cambio =
+   money-safe) y lo REPORTA como **«ACCIÓN REQUERIDA — revisión humana»** (escalar al arquitecto/humano).
+4. **`pricing_tier_map`:** clave NUEVA de v1.37 que BDs viejas no tienen; sin ella un `tierRules` no resuelve
+   (rareza sin tier ⇒ fallback). Si falta, la crea con el mapa canónico; si existe, la respeta.
+
+**Defaults «pristine» reconocidos** (constantes históricas, ya no en el código — fuente git `a8c40c4` plano /
+`421967f` dos-ejes):
+- buylist plano: `{Common:fixed 50, Uncommon:fixed 50, "Reverse Holo":fixed 150}`
+- buylist dos-ejes: `{rarityRules:{Common:50,Uncommon:50}, finishRules:{reverse_holo:150}}`
+- sales plano: `{Common:500, Uncommon:1000, Holo:1000, "Reverse Holo":1000}`
+- sales dos-ejes: `{rarityRules:{Common:500,Uncommon:1000}, finishRules:{holofoil:1000,reverse_holo:1000}}`
+
+### Reshape de dinero (reporte de auditoría) — solo BDs PRISTINE
+El script imprime, por rareza, la regla efectiva ANTES→DESPUÉS (derivada con el MISMO `toPriceRuleSet` de
+producción). Sobre una BD pristine el reshape introduce **exactamente dos cambios de dinero**, ambos parte
+del seed LOCKED aprobado:
+- **`Rare` / `Rare Holo` (T2): 40% → 25%** — *pagamos MENOS* (decisión P-34, el objetivo de este fix).
+- **`Uncommon` (T1): $0.50 → $1.50 fixed** — *pagamos MÁS* (bandera PO **DEV-tiers-1**, bundleada en el seed).
+- Sin cambio: `Common` (T0 $0.50), `Reverse Holo` (acabado $1.50), premium T3/T4 (40% = fallback vigente).
+- **Sales:** reshape money-**neutral** (T0 $5 / T1 $10 pisos = legacy; T2/T3/T4 = pct 15 = fallback 15 vigente;
+  acabados holo/reverse $10 = legacy). Se reshapea solo por consistencia de shape (editor M2 tiered + tier-map).
+
+> Nota para el humano/devops: el objetivo comunicado fue «T2 = 25%», pero el mapa canónico de P-34 **también**
+> sube `Uncommon` a $1.50 (DEV-tiers-1). Es la misma tabla aprobada en el seed; se aplica junta. Si se quisiera
+> desacoplar, es decisión del arquitecto (no la asumí).
+
+### Cómo correrlo (runbook devops)
+```bash
+# Requiere DATABASE_URL apuntando a la BD objetivo + migraciones aplicadas.
+cd backend
+npx prisma migrate deploy            # asegura schema al día
+npx ts-node prisma/backfill-p34-tiered-pricing.ts
+```
+- Correr **después** del deploy del código v1.37+ y **antes** de anunciar que P-34 está vigente.
+- **Seguro correrlo varias veces** (idempotente). Revisar el reporte impreso; si aparece
+  «⚠ ACCIÓN REQUERIDA» para alguna tabla (BD con reglas editadas a mano), **no continuar**: escalar el
+  reshape rareza→tier al arquitecto/humano (dinero) antes de tocar esa tabla.
+- Rollback: no muta datos transaccionales, solo `ConfigSetting`. Para revertir una tabla concreta, restaurar
+  su `valueJson` anterior desde backup (el reporte del run deja el before/after por rareza para auditoría).
+
+### Ambigüedad de negocio pendiente (para el arquitecto/humano)
+El caso **BD-divergente** (reglas editadas a mano) NO se migra automáticamente porque el shape tiered no puede
+expresar divergencias per-rareza dentro de un mismo tier. Política actual del script: **no tocar + reportar**.
+Si prod resulta estar divergente, se necesita decisión humana del mapeo legacy→tier a mano. El diagnóstico E2E
+indica que prod tiene el shape **plano pristine** (3 claves), por lo que se espera la ruta limpia (reshape).
+
+### Tests
+- `backend/test/pricing.p34-reshape.spec.ts` — unit del planner puro `planSettingReshape` (7 casos: tiered→no-op,
+  plano/dos-ejes pristine→reshape, order-independent, divergente→skip, extra-key→skip, ausente→missing). VERDE.
+- `backend/test/integration/buylist.e2e-spec.ts` — actualizado a T2=25% para Rare Holo (Charizard): quote
+  `pct 25 source:rule`, `quotedTotalCents = 0.25×ref`, umbral INE (`highvalue` ref subida a $12,000 para que
+  25%×1.2M = 300000 = umbral, preservando el intent del test), y tope por solicitud (13×25000 = 325000 > cap).
+- `E2E_CARDS.highvalue.refNmCents` en `backend/prisma/e2e-fixtures.ts`: 750000 → **1200000** (para conservar
+  el umbral INE exacto bajo 25%). `highvalue` solo se usa en `buylist.e2e-spec.ts` (sin ripple).
+
+## v1.43 (IMP-C) — el override manual de mercado del sellado SOBREVIVE al dial `off` (`gateSealedMarketCents`) (rama `fix/variant-composition-regression`, 2026-08-23)
+
+**Escalada por regla 9 (arquitecto dictaminó en el contrato v1.43, §M2/§M10; norma en ARCHITECTURE §4.23a con
+pseudocódigo).** Corrige el fraseo viejo de §52.3 («con off solo se vende con override [de venta]»): el dial
+gobierna **solo la FUENTE AUTOMÁTICA** (`source='tcgcsv'`), no el override manual de mercado.
+
+- **Síntoma (bucle cola↔publicar, gate E2E):** con `sealedPriceSource=off`, publicar un sellado sin precio
+  escalaba a `PRICE_PENDING`. El admin fijaba «FIJAR PRECIO» (override manual de mercado, `PriceReference
+  isManualOverride=true`/`source='manual'` en `sealed:tcg:<productId>`) y vaciaba la cola. Pero **re-publicar
+  volvía a `PRICE_PENDING` y RE-CREABA la entrada** — el gate `gateSealedMarketCents` anulaba **todo** mercado
+  con `sourceOn=false`, incluido el override manual.
+- **Causa raíz (H-1, una sola línea de verdad):** `gateSealedMarketCents(ref, sourceOn)` devolvía
+  `sourceOn && priced && cents!=null ? cents : null` — no distinguía la fuente. Como es la **única** fuente de
+  verdad que consumen los 4 call-sites, el bug se manifestaba en los 4.
+- **Fix — predicado corregido (`pricing.service.ts`, ~L646):**
+  - Antes: `return sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;`
+  - Después (pseudocódigo normativo §4.23a):
+    ```
+    if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+    if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents; // override manual: sobrevive al dial
+    return sourceOn ? ref.referenceMxnCents : null;                                             // fuente automática: gateada por el dial
+    ```
+- **Discriminante en `PriceInfo`:** ya exponía `source?` (y `manualOverride()` siempre escribe `source='manual'`,
+  así que `source` basta). Se añadió además `isManualOverride?: boolean` a `PriceInfo` y se pobló en
+  `getReference`/`getReferenceByCardProduct`/`getReferencesBatch` (el `PRICE_REF_SELECT` ya lo traía) para casar
+  el pseudocódigo literal. **Sin migración** (lógica pura; el flag ya vivía en `PriceReference`).
+- **4 consumidores arreglados de golpe** (comparten el gate H-1): `catalog.service.toListingDTO`,
+  `orders.service.salePriceOf`, `sealed-catalog.service.loadPricedSealed` (grid) e
+  `inventory.service.bulkPublish`. (También `vault.service.sealedTab` y `resolveSealedAportacionMarket`, que ya
+  llamaban el mismo gate.)
+- **Precedencia §K intacta:** override de VENTA por pieza (`listPriceCents`) verbatim #1 > override manual de
+  MERCADO (#2/#3, alimenta `mercado×spread`) > mercado automático (gateado por el dial). Money-safe: sin
+  `listPriceCents`, sin override manual y sin mercado automático aplicable ⇒ `PRICE_PENDING`, **nunca 0**.
+- **Tests (`test/sealed-price-resolver.spec.ts`):** (1) unitario del gate con los 4 combos
+  `{manual, tcgcsv} × {sourceOn true/false}` (manual sobrevive en ambos; tcgcsv solo con `on`) + variante
+  «solo `source='manual'` sin `isManualOverride`»; (2) **bucle cerrado** con prisma COMPARTIDO real entre
+  `PricingService` e `InventoryService`: dial `off` → `bulkPublish` sellado sin precio → `PRICE_PENDING`
+  (1 pendiente open) → `manualOverride` (resuelve el pendiente) → re-`bulkPublish` → `sellable`/`ok:true`,
+  `salePriceCents=118000` (=100000×1.18, nunca 0), **sin re-crear el pendiente** (`create` no se re-llama).
+  Los mocks-réplica del gate en `test/{catalog,sealed-catalog,sealed-product.service,vault-sealed}.spec.ts` se
+  actualizaron al nuevo predicado (seguían siendo «réplica exacta»).
+
+---
+
+## Fast-follow de seguridad — hallazgos money-adjacent N-1 / N-2 / N-3 (pre-deploy)
+
+> Cierre de 3 hallazgos **bajos** que seguridad marcó money-adjacent (hoy inalcanzables por guards, pero
+> tocan $0 y P&L → se cierran antes del deploy). Todo confinado a `backend/`. Money-safe. Suite verde
+> (170 suites / 1670 tests) + `tsc --noEmit` limpio.
+
+### N-1 · $0 latente en el precio manual del sellado — **parte 2 aplicada; parte 1 BLOQUEADA (contrato)**
+- **Parte 2 (APLICADA) — endurecimiento del gate.** `pricing.service.ts` `gateSealedMarketCents` (~L662):
+  el predicado ahora rechaza también `referenceMxnCents <= 0`, no solo `null`:
+  `if (ref?.status !== 'priced' || ref.referenceMxnCents == null || ref.referenceMxnCents <= 0) return null;`
+  Así, aunque una fila `isManualOverride` tuviera `priceMxnCents=0` (dato legacy/migración/ruta futura), el
+  gate devuelve `null` (⇒ `PRICE_PENDING`) y `computeSealedSalePrice` **jamás** produce un $0 publicado —
+  ni siquiera por el ramo del override manual que por lo demás sobrevive al dial. Money-safe.
+  **Test:** `test/sealed-price-resolver.spec.ts` — override manual con `referenceMxnCents=0` → `null` (dial
+  on y off); ref priced con centavos negativos → `null`.
+- **Parte 1 (NO aplicada — rozaba el contrato, ver «Discrepancias»).** Añadir `@Min(1)` a
+  `manualMarketMxnCents` (`CreateItemDto`/`BatchInventoryItemInput`) **cambiaría el status HTTP de ≤0 de
+  `422` a `400`**, en contra de `API_CONTRACT` (que fija `≤0 → 422 VALIDATION_ERROR`) y de un comentario de
+  diseño deliberado en el DTO. El $0 ya está cerrado por el guard de servicio (422) + la parte 2 del gate.
+  Requiere decisión del arquitecto (ver abajo).
+
+### N-2 · `acquisitionCostCents` sin `@Max` → overflow de P&L — **APLICADA**
+- `inventory/dto/inventory.dto.ts`: `acquisitionCostCents` en `CreateItemDto` (~L74) y en
+  `BatchInventoryItemInput` (~L150) ahora es `@Min(0) @Max(MAX_LIST_PRICE_CENTS)`.
+- **Cota elegida:** `MAX_LIST_PRICE_CENTS = 100_000_000` (MX$1,000,000/pieza) — la **misma** cota que ya
+  gobierna el dinero manual (`listPriceCents`). Coherente y con margen holgado frente al slab/box más caro,
+  lejos de Int32 (2^31). Evita que un `vault_operator` inyecte un costo cercano a Int32 que desborde los
+  agregados de P&L (`costo × qty`). `@Min(0)` se mantiene: un **costo 0 es legítimo** (promo/regalo).
+- **Test:** `test/inventory.batch.spec.ts` — acepta `acquisitionCostCents = MAX_LIST_PRICE_CENTS`, rechaza
+  `MAX_LIST_PRICE_CENTS + 1` (propiedad `acquisitionCostCents`), en **ambos** DTOs (batch + `CreateItemDto`).
+
+### N-3 · resolución de pendientes sin `sealedProductId` — **APLICADA (capacidad + guard)**
+- `pricing.service.ts` `manualOverride` (~L1099): el `pendingPriceEntry.updateMany` ganó un parámetro
+  OPCIONAL `pending?: { sealedProductId?; cardProductId? }`. Cuando el caller aporta la identidad, esas
+  claves entran al `where` (paridad con la clave de dedupe de `escalatePending`), de modo que un override de
+  sellado **legacy** (`gradeKey='sealed'` compartido) cierra **solo** la entrada correspondiente y no todas
+  las identidades que comparten `(cardId,'sealed',finish)`.
+- **Retrocompat / caso mapeado intacto:** con `pending` ausente (default), el `where` NO se restringe —
+  comportamiento previo idéntico. El **caso mapeado** (`gradeKey='sealed:tcg:<id>'`) ya segrega por
+  `gradeKey`, así que no necesita la identidad; los callers actuales (override standalone del controller y
+  `applySealedManualOverride` del alta) **no se tocaron** → cero regresión (verificado: los tests del alta
+  y del dedup mapeado siguen verdes, incl. `toHaveBeenCalledWith` de 6 args).
+- **Límite conocido (no bloqueante):** el endpoint standalone `POST /admin/pricing/override` (`OverrideDto`)
+  **no transporta** `sealedProductId`, así que la resolución precisa del caso *legacy vía ese endpoint*
+  requeriría añadir `sealedProductId?` al `OverrideDto` — **cambio de contrato** (arquitecto). El fix deja la
+  capacidad lista en el servicio; ningún caller la necesita hoy salvo un futuro flujo legacy-consciente.
+- **Test:** `test/pricing.manual-override-dedup.spec.ts` — con prisma en memoria que **honra** el filtro
+  `sealedProductId`: dos pendientes legacy `sp-etb`/`sp-blister` bajo `(c1,'sealed',normal)` → un override con
+  `{sealedProductId:'sp-etb'}` cierra SOLO `sp-etb` (el blíster sigue `open`); sin identidad → `where` sin
+  `sealedProductId` (retrocompat); caso mapeado (`sealed:tcg:777` vs `:888`) segregado por `gradeKey`.
+
+### Discrepancia con el contrato que necesita decisión del arquitecto
+- **N-1 parte 1 (`manualMarketMxnCents` `@Min(1)`):** `API_CONTRACT.md` (§DTOs, la línea del fallback manual)
+  fija explícitamente `manualMarketMxnCents … > 0 (≤0 → 422 VALIDATION_ERROR)` — un **422 de regla de
+  negocio**, resuelto hoy por el guard de `resolveSealedMarketForAlta` (`'manualMarketMxnCents must be > 0'`)
+  y con test que lo asevera (`inventory.sealed-product-alta.spec.ts`). Un `@Min(1)` en el DTO lo movería a un
+  **400 del `ValidationPipe`**. No lo apliqué (el $0 ya está cerrado por el guard + N-1 parte 2). Si el
+  arquitecto quiere el `@Min(1)` defensivo, debe decidir el trade-off `422 → 400` y actualizar el contrato;
+  entonces el backend lo cablea.

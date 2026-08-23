@@ -9,6 +9,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { EditorialLink } from '../_shared/EditorialLink';
+import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 
 /**
@@ -62,7 +63,12 @@ export function useHomeQuoter(): HomeQuoterState {
   const q = debounced.trim();
   const search = useQuery({
     queryKey: ['home-quoter-search', q],
-    queryFn: () => searchBuylistCards({ q, pageSize: 5 }),
+    // P-41: con `pageSize: 5` un nombre con muchas variantes (p. ej. 6 Tropius) dejaba fuera
+    // cartas de forma ARBITRARIA (el corte de 5 desempata por uuid de set), por lo que
+    // «Pitch Black» y similares nunca aparecían. Subimos a 20 (misma página que /buylist) para
+    // surtir todas las variantes comunes; si aun así se corta, el affordance «ver más» lleva al
+    // cotizador completo. Sin cambio de backend/contrato.
+    queryFn: () => searchBuylistCards({ q, pageSize: 20 }),
     enabled: q.length >= 2,
     staleTime: 60_000,
     retry: false,
@@ -217,6 +223,20 @@ export function HomeQuoterPanel({
                   </button>
                 </li>
               ))}
+              {/* P-41: affordance «ver más» — el mini-cotizador muestra hasta 20 coincidencias;
+                  para nombres con aún más variantes, el cotizador completo (/buylist) las lista
+                  todas. onMouseDown preventDefault para no cerrar el desplegable antes de navegar. */}
+              {!searching && results.length > 0 && (
+                <li className="border-t border-border">
+                  <Link
+                    href="/buylist"
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="block px-3.5 py-2.5 font-mono text-[10px] uppercase tracking-label text-muted hover:bg-surface-2 hover:text-text"
+                  >
+                    {t('quoter.viewMore')}
+                  </Link>
+                </li>
+              )}
             </ul>
           )}
         </div>

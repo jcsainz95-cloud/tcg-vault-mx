@@ -283,13 +283,20 @@ export function VaultView() {
                     // deshabilitado distingue "en retiro" (envío activo) de "no liquidada".
                     const inWithdrawal = h.shipmentState !== null;
                     const disabledHint = inWithdrawal ? t('inWithdrawalHint') : t('onlySettled');
+                    // v1.42 (BLOQ-2a): para sellado la identidad REAL viene RESUELTA server-side; se pinta
+                    // la CAJA (sealedProductName/sealedImageUrl), no el single ancla («Charizard/Tropius»).
+                    // raw/graded caen a la carta. Cascada money-safe: nombre nunca null (termina en card.name).
+                    const isSealed = h.productType === 'sealed';
+                    const displayName = (isSealed ? h.sealedProductName : undefined) ?? h.card.name;
+                    const displayImage =
+                      (isSealed ? h.sealedImageUrl : undefined) ?? h.card.imageSmallUrl;
                     return (
                       <li key={h.inventoryItemId} className="flex min-w-0 flex-col">
                         {/* imagen de catálogo remota (v1.2, sin fotos propias) */}
-                        <CardImage src={h.card.imageSmallUrl} alt={h.card.name} className="p-1.5" />
+                        <CardImage src={displayImage} alt={displayName} className="p-1.5" />
 
                         <p className="mt-2.5 truncate font-serif text-[15px] leading-[1.3] text-text" lang="en">
-                          {h.card.name}
+                          {displayName}
                         </p>
                         {/* v1.6-finish: acabado del holding; el portafolio valúa contra ese acabado. */}
                         <ListingSpec

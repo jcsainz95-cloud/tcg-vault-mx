@@ -8,6 +8,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
+import { RarityLabel } from '@/components/domain/RarityLabel';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { cn } from '@/lib/cn';
@@ -49,7 +50,10 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
   return (
     <div className="flex flex-col">
       <Link href={href} className="block">
-        {/* imagen de catálogo remota (v1.2, sin fotos propias); sellado usa object-contain */}
+        {/* imagen de catálogo remota (v1.2, sin fotos propias); sellado usa object-contain.
+            P-39: el grid del catálogo es DENSO (muchas tejas por viewport) ⇒ se conserva la
+            imagen CHICA (imageSmallUrl) por performance/ancho de banda. La alta resolución se
+            reserva para superficies prominentes (featured del home y ficha de la carta). */}
         <CardImage src={card.imageSmallUrl} alt={card.name} />
       </Link>
 
@@ -71,6 +75,10 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
         compact
         className="mt-2 text-muted"
       />
+
+      {/* P-44: rareza junto al acabado (Illustration Rare, Full Art, Hyper Rare…). Discreta,
+          mono muted; se omite sola en sellado o sin rareza (RarityLabel). */}
+      <RarityLabel rarity={card.rarity} productType={listing.productType} className="mt-1.5" />
 
       {/* Precio «desde» del grupo: cifra tabular en sans; sin precio JAMÁS $0 — pendiente honesto (§7.3). */}
       {listing.salePriceCents != null ? (

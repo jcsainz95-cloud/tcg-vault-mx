@@ -10,6 +10,7 @@ import { Link } from '@/i18n/navigation';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
 import type { CartLine } from './useSellCart';
+import { MAX_LINE_QUANTITY } from './useSellCart';
 
 /**
  * Renglón de detalle: concepto a la izquierda, dato a la derecha.
@@ -143,9 +144,12 @@ export function SellCartContents({
                       <input
                         type="number"
                         min={1}
+                        max={MAX_LINE_QUANTITY}
                         inputMode="numeric"
                         aria-label={t('quantityFor', { name: l.card.name })}
                         value={l.quantity}
+                        // IMP-A: onSetQuantity clampa a [1, MAX_LINE_QUANTITY]; un valor
+                        // gigante ya no llega a `Array.from({ length })` ni revienta la página.
                         onChange={(e) => onSetQuantity(l.id, Number.parseInt(e.target.value, 10))}
                         className="w-14 border-b border-border-strong bg-transparent py-0.5 text-center font-mono text-xs text-text outline-none focus-visible:shadow-focus"
                       />

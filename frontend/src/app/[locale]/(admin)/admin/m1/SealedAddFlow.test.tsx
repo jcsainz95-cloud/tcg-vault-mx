@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { SealedAddFlow } from './SealedAddFlow';
-import type { SealedCatalogResponse } from '@/types/contract';
+import type {
+  SealedProductListResponse,
+  SealedProductDTO,
+} from '@/types/contract';
 import * as api from '@/lib/api';
 
-const roleState = vi.hoisted(() => ({ role: 'super_admin' }));
+const roleState = vi.hoisted(() => ({ role: 'super_admin' as string }));
 vi.mock('@/lib/role', () => ({
   useRole: () => ({
     role: roleState.role,
@@ -15,38 +18,61 @@ vi.mock('@/lib/role', () => ({
   }),
 }));
 
-vi.mock('@/i18n/navigation', () => ({
-  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
-    <a href={typeof href === 'string' ? href : '#'} {...rest}>
-      {children}
-    </a>
-  ),
-}));
+// Presentaciones: DEL SET (etb con mercado, bundle SIN mercado) + PROMO (blíster con mercado, inferido).
+const ETB: SealedProductDTO = {
+  id: 'sp-etb',
+  setId: 'sv08',
+  tcgplayerProductId: 590411,
+  tcgplayerGroupId: 23966,
+  name: 'Surging Sparks Elite Trainer Box',
+  cleanName: 'Surging Sparks Elite Trainer Box',
+  subtype: 'etb',
+  subtypeInferred: false,
+  isPrincipal: true,
+  origin: 'set_main',
+  imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590411.jpg',
+  marketRef: { status: 'priced', referenceMxnCents: 125_000, source: 'tcgcsv' },
+  // v1.41 (IMP-1): mercado GATEADO presente (dial tcgcsv) ⇒ el alta registra a valor de mercado; manual oculto.
+  effectiveMarketCents: 125_000,
+};
+const BUNDLE: SealedProductDTO = {
+  id: 'sp-bundle',
+  setId: 'sv08',
+  tcgplayerProductId: 590413,
+  tcgplayerGroupId: 23966,
+  name: 'Surging Sparks Booster Bundle',
+  cleanName: 'Surging Sparks Booster Bundle',
+  subtype: 'bundle',
+  subtypeInferred: false,
+  isPrincipal: false,
+  origin: 'set_main',
+  imageUrl: null,
+  marketRef: null,
+  // v1.41 (IMP-1): sin mercado gateado ⇒ el alta acepta precio manual.
+  effectiveMarketCents: null,
+};
+const PROMO: SealedProductDTO = {
+  id: 'sp-promo',
+  setId: 'sv08',
+  tcgplayerProductId: 590420,
+  tcgplayerGroupId: 24010,
+  name: 'Mega Evolution Blister',
+  cleanName: 'Mega Evolution Blister',
+  subtype: 'blister',
+  subtypeInferred: true,
+  isPrincipal: false,
+  origin: 'promo_collection',
+  imageUrl: null,
+  marketRef: { status: 'priced', referenceMxnCents: 18_000, source: 'tcgcsv' },
+  effectiveMarketCents: 18_000,
+};
 
-// Catálogo mock: un ETB CON mercado y un Bundle SIN mercado (marketRef null → money-safe).
-const CATALOG: SealedCatalogResponse = {
+const LIST: SealedProductListResponse = {
   set: { id: 'sv08', name: 'Surging Sparks' },
-  tcgcsvGroupId: 23966,
-  groupResolved: true,
-  anchorCardId: 'c-sealed-sv08-box',
-  data: [
-    {
-      tcgplayerProductId: 590411,
-      name: 'Surging Sparks Elite Trainer Box',
-      cleanName: 'Surging Sparks Elite Trainer Box',
-      sealedSubtype: 'etb',
-      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590411.jpg',
-      marketRef: { status: 'priced', referenceMxnCents: 125_000, source: 'tcgcsv' },
-    },
-    {
-      tcgplayerProductId: 590413,
-      name: 'Surging Sparks Booster Bundle',
-      cleanName: 'Surging Sparks Booster Bundle',
-      sealedSubtype: 'bundle',
-      imageUrl: null,
-      marketRef: null,
-    },
-  ],
+  needsSync: false,
+  groups: [],
+  sealedPriceSource: 'tcgcsv',
+  data: [ETB, BUNDLE, PROMO],
 };
 
 function okBatch(folios: string[]) {
@@ -65,121 +91,182 @@ beforeEach(() => {
   roleState.role = 'super_admin';
 });
 
-describe('SealedAddFlow (P-35, §16.8a) · alta dedicada de sellado', () => {
-  it('paso 1: grid de PRODUCTOS con nombre + subtipo y referencia money-safe (precio / pill SIN PRECIO DE MERCADO, nunca 0)', async () => {
-    vi.spyOn(api, 'getSealedCatalog').mockResolvedValue(CATALOG);
-    renderWithProviders(
-      <SealedAddFlow open onClose={() => {}} presetSet={preset} />,
-      'es',
-    );
-
-    // Tejas de PRODUCTO sellado (no singles) como listbox de opciones.
-    const etb = await screen.findByRole('option', { name: /Elite Trainer Box/ });
-    expect(etb).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Booster Bundle/ })).toBeInTheDocument();
-
-    // Money-safe: el ETB muestra su precio de mercado; el Bundle sin mercado muestra la pill,
-    // JAMÁS MX$ 0.00.
-    expect(screen.getByText('MX$1,250.00')).toBeInTheDocument();
-    expect(screen.getByText('Sin precio de mercado')).toBeInTheDocument();
-    expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
-  });
-
-  it('sin mercado: la tarjeta Aportación queda DESHABILITADA con pill PRECIO PENDIENTE en el paso 2', async () => {
-    vi.spyOn(api, 'getSealedCatalog').mockResolvedValue(CATALOG);
+describe('SealedAddFlow (P-38, §16.8a) · alta dedicada de sellado con SealedProduct', () => {
+  it('paso 1: DOS SECCIONES por origin — «Del set» primero, «Promos/colecciones» después', async () => {
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(LIST);
     renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
 
-    // Elegir el Bundle (sin mercado) → Continuar.
-    fireEvent.click(await screen.findByRole('option', { name: /Booster Bundle/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    const fromSet = await screen.findByRole('region', { name: 'Del set' });
+    const promo = screen.getByRole('region', { name: 'Promos y colecciones' });
 
-    // Paso 2: aportación bloqueada (heredado de QuickAddSection §16.5a2).
-    const contribRadio = await screen.findByRole('radio', { name: /Aportación/ });
-    expect(contribRadio).toBeDisabled();
-    expect(screen.getByText('Precio pendiente')).toBeInTheDocument();
+    // Cada sección contiene sus productos por `origin`.
+    expect(fromSet).toBeInTheDocument();
+    expect(promo).toBeInTheDocument();
+    // «Del set» aparece ANTES que «Promos/colecciones» en el DOM (lo principal arriba).
+    expect(fromSet.compareDocumentPosition(promo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // El ETB (set_main) y el blíster (promo) caen en su sección respectiva.
+    expect(screen.getByRole('option', { name: /Elite Trainer Box/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Mega Evolution Blister/ })).toBeInTheDocument();
   });
 
-  it('alta con mercado: envía el batch con productType=sealed + identidad TCGCSV + campos de sellado + cardId ancla', async () => {
-    vi.spyOn(api, 'getSealedCatalog').mockResolvedValue(CATALOG);
+  it('teja money-safe: precio de mercado o pill SIN PRECIO DE MERCADO, badge Principal — NUNCA 0', async () => {
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(LIST);
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    expect(await screen.findByText('MX$1,250.00')).toBeInTheDocument();
+    // El bundle sin mercado muestra la pill (una en la teja), JAMÁS 0.
+    expect(screen.getAllByText('Sin precio de mercado').length).toBeGreaterThan(0);
+    expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
+    // El ETB es principal → badge (redundante con el orden).
+    expect(screen.getAllByText('Principal').length).toBeGreaterThan(0);
+    // La teja sin mercado sigue siendo seleccionable (option, no deshabilitada).
+    expect(screen.getByRole('option', { name: /Booster Bundle/ })).toBeEnabled();
+  });
+
+  it('sync: needsSync + super_admin → CTA Sincronizar; resumen HONESTO (nunca 0 en pendientes)', async () => {
+    const spy = vi
+      .spyOn(api, 'listSealedProducts')
+      .mockResolvedValueOnce({ ...LIST, needsSync: true, data: [] })
+      .mockResolvedValue(LIST);
+    const sync = vi.spyOn(api, 'syncSealedProducts').mockResolvedValue({
+      setsSynced: 1,
+      groupsPopulated: 0,
+      productsUpserted: 12,
+      productsDeactivated: 0,
+      pricedCount: 9,
+      pendingPriceCount: 3,
+    });
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    const cta = await screen.findByRole('button', { name: 'Sincronizar' });
+    fireEvent.click(cta);
+
+    await waitFor(() => expect(sync).toHaveBeenCalledWith({ setId: 'sv08' }));
+    // Resumen honesto: 12 · 9 · 3 pendientes (nunca «0»).
+    expect(
+      await screen.findByText('12 presentaciones · 9 con precio · 3 pendientes de precio'),
+    ).toBeInTheDocument();
+    expect(spy).toHaveBeenCalledTimes(2); // relee tras sincronizar
+  });
+
+  it('sync: vault_operator NO ve el botón (sin permiso) — copy honesto, sin botón muerto', async () => {
+    roleState.role = 'vault_operator';
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue({ ...LIST, needsSync: true, data: [] });
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    expect(
+      await screen.findByText(/Pídele a un administrador que lo sincronice/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sincronizar' })).not.toBeInTheDocument();
+  });
+
+  it('alta: manda sealedProductId (identidad real, NO cardId ancla) + campos de sellado', async () => {
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(LIST);
     const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000500']));
     renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
 
-    // Elegir el ETB (con mercado) → Continuar.
     fireEvent.click(await screen.findByRole('option', { name: /Elite Trainer Box/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
 
-    // Aportación habilitada (hay mercado) → dar de alta.
+    // Aportación habilitada (hay mercado vivo) → dar de alta.
     fireEvent.click(await screen.findByRole('radio', { name: /Aportación/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const { items, batchKey } = spy.mock.calls[0][0];
-    expect(batchKey).toBeTruthy();
-    expect(items[0]).toMatchObject({
-      cardId: 'c-sealed-sv08-box', // ancla del set (NO un single)
-      productType: 'sealed',
-      sealedSubtype: 'etb',
-      sealedCondition: 'mint',
-      tcgplayerProductId: 590411,
-      tcgplayerGroupId: 23966,
-      sealedImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590411.jpg',
-      sealedProductName: 'Surging Sparks Elite Trainer Box',
-      acquisitionType: 'aportacion_en_especie',
-      acquisitionPct: 100,
-    });
-  });
-
-  it('error 502 UPSTREAM: banner accionable + Reintentar + ofrece el camino de respaldo (no se cae del todo)', async () => {
-    vi.spyOn(api, 'getSealedCatalog').mockRejectedValue(
-      new (await import('@/lib/api-client')).ApiClientError(502, {
-        code: 'UPSTREAM_ERROR',
-        message: 'down',
-      }),
-    );
-    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(/fuente TCGCSV no disponible/);
-    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Capturar sin catálogo de producto' }),
-    ).toBeInTheDocument();
-  });
-
-  it('vacío legítimo + respaldo: captura manual marcada como excepción, anclada y SIN mapeo (PRICE_PENDING honesto)', async () => {
-    // groupResolved:false ⇒ vacío legítimo (200 con anchorCardId), no error.
-    vi.spyOn(api, 'getSealedCatalog').mockResolvedValue({
-      ...CATALOG,
-      groupResolved: false,
-      data: [],
-    });
-    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000600']));
-    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
-
-    expect(
-      await screen.findByText('Este set no tiene producto sellado en la fuente.'),
-    ).toBeInTheDocument();
-
-    // Camino de respaldo: mini-form manual marcado como excepción.
-    fireEvent.click(screen.getByRole('button', { name: 'Capturar sin catálogo de producto' }));
-    expect(screen.getByText(/quedará sin precio de mercado/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Nombre del producto'), {
-      target: { value: 'ETB manual sin catálogo' },
-    });
-
-    // Comprar con precio capturado (aportación bloqueada al no haber mercado).
-    fireEvent.change(screen.getByLabelText('Precio pagado (MXN)'), { target: { value: '900' } });
     fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const item = spy.mock.calls[0][0].items[0];
     expect(item).toMatchObject({
-      cardId: 'c-sealed-sv08-box', // ancla del set (200 trae anchorCardId aunque el grupo no resuelva)
       productType: 'sealed',
-      sealedProductName: 'ETB manual sin catálogo',
-      acquisitionType: 'compra',
+      sealedSubtype: 'etb',
+      sealedCondition: 'mint',
+      sealedProductId: 'sp-etb',
+      acquisitionType: 'aportacion_en_especie',
+      acquisitionPct: 100,
     });
-    // Nace SIN mapeo (respaldo honesto): no lleva identidad TCGCSV.
+    // La pieza NACE con identidad real, no anclada a un single: sin cardId ni campos M-37 sueltos.
+    expect(item).not.toHaveProperty('cardId');
     expect(item).not.toHaveProperty('tcgplayerProductId');
-    expect(item).not.toHaveProperty('tcgplayerGroupId');
+    expect(item).not.toHaveProperty('manualMarketMxnCents');
+  });
+
+  it('precio manual (vault_operator): SOLO cuando marketRef es null; valida >0 y mapea a manualMarketMxnCents', async () => {
+    roleState.role = 'vault_operator';
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(LIST);
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000600']));
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    // Elegir el Bundle (SIN mercado) → Continuar.
+    fireEvent.click(await screen.findByRole('option', { name: /Booster Bundle/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+
+    // El campo de precio manual aparece (marketRef null + vault_operator+).
+    const manual = await screen.findByLabelText('Precio de mercado manual (MX$)');
+    // Vacío por defecto (jamás 0 ni sugerido).
+    expect((manual as HTMLInputElement).value).toBe('');
+
+    // Captura un precio > 0 → rehabilita la aportación.
+    fireEvent.change(manual, { target: { value: '850' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /Aportación/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const item = spy.mock.calls[0][0].items[0];
+    expect(item).toMatchObject({
+      productType: 'sealed',
+      sealedProductId: 'sp-bundle',
+      manualMarketMxnCents: 85_000,
+    });
+  });
+
+  it('IMP-1 (dead-end): dial off ⇒ effectiveMarketCents null aunque marketRef traiga caché → MUESTRA el manual y NO promete valor de mercado', async () => {
+    roleState.role = 'vault_operator';
+    // Dial `off`: el mercado GATEADO es null en TODOS los productos, aunque `marketRef` traiga un valor
+    // de caché. La UI del alta debe keyear en `effectiveMarketCents` (autoritativo), NO en `marketRef`.
+    const OFF_LIST: SealedProductListResponse = {
+      ...LIST,
+      sealedPriceSource: 'off',
+      data: [
+        { ...ETB, effectiveMarketCents: null },
+        { ...BUNDLE, effectiveMarketCents: null },
+        { ...PROMO, effectiveMarketCents: null },
+      ],
+    };
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(OFF_LIST);
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000700']));
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    // El ETB tiene marketRef en caché (MX$1,250) pero SIN mercado gateado (dial off).
+    fireEvent.click(await screen.findByRole('option', { name: /Elite Trainer Box/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+
+    // Antes (dead-end): se ocultaba el manual y se prometía «valor de mercado: $X» keyeando en marketRef,
+    // pero el backend rechazaba con 422. Ahora el manual SÍ aparece (coherente con lo que el backend acepta).
+    const manual = await screen.findByLabelText('Precio de mercado manual (MX$)');
+    expect((manual as HTMLInputElement).value).toBe('');
+
+    // Captura un manual > 0 y da de alta como aportación → viaja manualMarketMxnCents (el backend lo acepta).
+    fireEvent.change(manual, { target: { value: '1300' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /Aportación/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items[0]).toMatchObject({
+      productType: 'sealed',
+      sealedProductId: 'sp-etb',
+      manualMarketMxnCents: 130_000,
+    });
+  });
+
+  it('precio manual: NO aparece cuando hay mercado vivo (no pisa un mercado ya resuelto)', async () => {
+    roleState.role = 'vault_operator';
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(LIST);
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    // El ETB tiene mercado vivo → el campo manual NO se ofrece.
+    fireEvent.click(await screen.findByRole('option', { name: /Elite Trainer Box/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+
+    await screen.findByRole('radio', { name: /Aportación/ });
+    expect(screen.queryByLabelText('Precio de mercado manual (MX$)')).not.toBeInTheDocument();
   });
 });

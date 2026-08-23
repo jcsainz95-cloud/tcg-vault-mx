@@ -26,6 +26,7 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
   let pendSeq = 0;
 
   const prisma: any = {
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
     card: {
       findUnique: jest.fn(async ({ where }: any) =>
         where.id === 'card-anchor'

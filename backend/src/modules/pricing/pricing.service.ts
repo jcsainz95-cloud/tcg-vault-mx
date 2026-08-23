@@ -31,6 +31,10 @@ import {
   VariantPriceControls,
 } from '../../common/money';
 import { TierId } from '../../common/pricing-tiers';
+// P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
+// Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
+// MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
+import { variantKey } from '../../common/variant-key';
 
 function today(): Date {
   const d = new Date();
@@ -139,6 +143,10 @@ export interface PriceInfo {
   status: 'priced' | 'pending';
   referenceMxnCents?: number;
   source?: PriceSourceStr;
+  // v1.43 (IMP-C, §4.23a): discriminante del override manual de MERCADO. `manualOverride()` siempre
+  // escribe `source='manual'` (por eso `source` basta), pero se expone el flag explícito para que el
+  // gate H-1 (`gateSealedMarketCents`) case el predicado normativo sin depender solo del string.
+  isManualOverride?: boolean;
   capturedDate?: string;
 }
 
@@ -297,6 +305,7 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
+      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -339,6 +348,7 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
+      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -357,8 +367,10 @@ export class PricingService {
   ): Promise<Map<string, PriceInfo>> {
     const map = new Map<string, PriceInfo>();
     if (items.length === 0) return map;
+    // P-30 H2: MISMA fuente de clave que el consumidor (`variantKey`). Producir e indexar el Map con el
+    // helper compartido garantiza que el `.get()` del consumidor caiga en la misma entrada (round-trip).
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
-      `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+      variantKey(i);
     const wanted = new Set(items.map(keyOf));
     const rows = await this.prisma.priceReference.findMany({
       where: {
@@ -388,6 +400,7 @@ export class PricingService {
         status: 'priced',
         referenceMxnCents: this.liveMxnCents(r, fx),
         source: r.source as PriceSourceStr,
+        isManualOverride: r.isManualOverride,
         capturedDate: r.capturedDate.toISOString().slice(0, 10),
       });
     }
@@ -502,8 +515,9 @@ export class PricingService {
   ): Promise<Map<string, VariantPriceOverride>> {
     const map = new Map<string, VariantPriceOverride>();
     if (items.length === 0) return map;
+    // P-30 H2: misma fuente de clave que el consumidor (`variantKey`), ver `getReferencesBatch`.
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
-      `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+      variantKey(i);
     const wanted = new Set(items.map(keyOf));
     const rows = await this.prisma.variantPriceOverride.findMany({
       where: {
@@ -531,7 +545,8 @@ export class PricingService {
     finish: Finish,
   ): Promise<VariantPriceOverride | null> {
     const map = await this.getVariantOverridesBatch([{ cardId, productType, gradeKey, finish }]);
-    return map.get(`${cardId}|${productType}|${gradeKey}|${finish}`) ?? null;
+    // P-30 H2: el lookup single usa el MISMO `variantKey` con que `getVariantOverridesBatch` indexó.
+    return map.get(variantKey({ cardId, productType, gradeKey, finish })) ?? null;
   }
 
   /**
@@ -630,15 +645,31 @@ export class PricingService {
 
   /**
    * v1.24-sealed-dedup (H-1) — GATE money-safe del MERCADO del sellado: UNA sola fuente de verdad
-   * para «¿cuánto mercado cuenta?». El `sealedMarketRef` (TCGCSV) solo aporta con el dial ENCENDIDO
-   * (`sourceOn`) y con una fila `priced` (referenceMxnCents no-null). Con el dial `off` el mercado
-   * queda INERTE (§4.23a) y devuelve `null`. Antes este predicado estaba copiado en catálogo, Compra,
-   * grid, bulk-publish y valuación (H-1: 4-5 copias divergentes).
+   * para «¿cuánto mercado cuenta?». El `sealedMarketRef` solo cuenta con una fila `priced`
+   * (`referenceMxnCents` no-null). Antes este predicado estaba copiado en catálogo, Compra, grid,
+   * bulk-publish y valuación (H-1: 4-5 copias divergentes).
+   *
+   * v1.43 (IMP-C, §4.23a — pseudocódigo normativo) — el dial `sealedPriceSource` gobierna **solo la
+   * FUENTE AUTOMÁTICA de mercado** (`source='tcgcsv'`). Un **override manual de mercado**
+   * (`isManualOverride=true` / `source='manual'`, «FIJAR PRECIO») es una decisión humana explícita y
+   * **NO lo gatea el dial**: devuelve su `referenceMxnCents` con `sourceOn` sea `true` o `false`. La
+   * fuente automática sigue gateada: con el dial `off` queda INERTE (`null`, fail-closed). Antes del
+   * fix el gate anulaba TODO mercado con `sourceOn=false` (incluido el override manual) ⇒ un sellado
+   * con «FIJAR PRECIO» y dial `off` re-caía en `PRICE_PENDING` y re-creaba el pendiente en cada
+   * re-publicación (bucle IMP-C cola↔publicar). Money-safe intacto: sin override manual y sin mercado
+   * de fuente aplicable ⇒ `null` ⇒ (sin `listPriceCents`) `PRICE_PENDING`, nunca 0.
    */
   gateSealedMarketCents(ref: PriceInfo | undefined | null, sourceOn: boolean): number | null {
-    return sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null
-      ? ref.referenceMxnCents
-      : null;
+    // SEC N-1 (money-safe): `<= 0` se trata como «sin mercado», IGUAL que `null`. Aunque una fila
+    // `isManualOverride` no debería nacer con `referenceMxnCents<=0` (los guards del alta/override lo
+    // rechazan), un dato legacy/migración/ruta futura con 0 NO debe colarse como mercado válido: el gate
+    // devuelve `null` (⇒ PRICE_PENDING) y `computeSealedSalePrice` jamás produce un $0 publicado.
+    if (ref?.status !== 'priced' || ref.referenceMxnCents == null || ref.referenceMxnCents <= 0)
+      return null;
+    // Override manual de mercado: sobrevive al dial (decisión humana explícita, máxima precedencia §K).
+    if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+    // Mercado de fuente automática (tcgcsv): gateado por el dial.
+    return sourceOn ? ref.referenceMxnCents : null;
   }
 
   /**
@@ -791,17 +822,32 @@ export class PricingService {
     // clave LÓGICA de dedupe — una entrada de deck_exclusive/promo NO se resuelve al fijar el precio del
     // set_base (money-safe). `null` (default) = base; deja intactos todos los llamadores previos.
     cardProductId: number | null = null,
+    // v1.42 (M-40, §4.34a / BLOQ-2b): identidad del SELLADO. Entra a la clave LÓGICA de dedupe (misma
+    // mecánica que `finish`/`cardProductId`): dos pendientes de sellado con distinto sealedProductId (ETB
+    // vs blíster) son SEPARADAS — resolver el override de uno NO cierra el otro (money-safe). `null`
+    // (default) = raw/graded o sellado legacy sin ligar (residual: colapsa bajo 'sealed' hasta curarse).
+    sealedProductId: string | null = null,
   ): Promise<string> {
     // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
     // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, cardProductId,
-    // status='open')` — v1.30 añade `cardProductId` a la clave (§4.29d).
+    // sealedProductId, status='open')` — v1.30 añade `cardProductId`; v1.42 (M-40) añade `sealedProductId`.
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, cardProductId, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
     });
     if (open) return open.id;
     const created = await this.prisma.pendingPriceEntry.create({
-      data: { cardId, productType, gradeKey, finish, cardProductId, context, refId, status: 'open' },
+      data: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        cardProductId,
+        sealedProductId,
+        context,
+        refId,
+        status: 'open',
+      },
     });
     return created.id;
   }
@@ -1021,20 +1067,34 @@ export class PricingService {
     gradeKey: string,
     priceMxnCents: number,
     finish: Finish = 'normal',
+    // H-1 (SEC): cliente transaccional OPCIONAL. Cuando el override se persiste como parte de una
+    // transacción mayor (p. ej. el alta de sellado con precio manual), el caller pasa el `tx` para que
+    // la escritura del `PriceReference isManualOverride` (y la resolución de pendientes) participe del
+    // MISMO commit/rollback que la creación de la pieza — sin este `tx` el override auto-commiteaba y
+    // sobrevivía a un rollback (precio de dinero pinneado huérfano). Ausente ⇒ comportamiento previo.
+    tx?: Prisma.TransactionClient,
+    // SEC N-3 (money-safe): claves LÓGICAS de dedupe del pendiente (paridad con `escalatePending`). Para
+    // sellado LEGACY (gradeKey='sealed' COMPARTIDO por varias identidades) el `updateMany` sin este filtro
+    // cerraría TODAS las entradas que comparten (cardId,'sealed',finish) — resolviendo pendientes ajenos.
+    // Cuando el caller conoce la identidad, restringe la resolución a la entrada correspondiente. El caso
+    // MAPEADO ya segrega por gradeKey='sealed:tcg:<id>', así que no lo necesita. `undefined` (default) o
+    // clave ausente ⇒ NO se restringe: retrocompat total del override standalone y de raw/graded.
+    pending?: { sealedProductId?: string | null; cardProductId?: number | null },
   ): Promise<PriceReference> {
+    const db = tx ?? this.prisma;
     // v1.29 (M-31): el override manual de MERCADO se guarda con `cardProductId=null` (el precio
     // por-producto es del TCGCSV de singles; el override del admin es genérico por carta). findFirst +
     // update-by-id/create (Prisma no tipa `null` en la clave compuesta).
     const cap = today();
-    const prior = await this.prisma.priceReference.findFirst({
+    const prior = await db.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, capturedDate: cap, cardProductId: null },
     });
     const ref = prior
-      ? await this.prisma.priceReference.update({
+      ? await db.priceReference.update({
           where: { id: prior.id },
           data: { source: 'manual', priceMxnCents, isManualOverride: true },
         })
-      : await this.prisma.priceReference.create({
+      : await db.priceReference.create({
           data: {
             cardId,
             productType,
@@ -1048,8 +1108,20 @@ export class PricingService {
         });
     // v1.8-ronda-c FIX: resuelve SOLO el pendiente de ESTE acabado. Antes el where omitía
     // `finish`, así que un override de `normal` cerraba también el pendiente de `holofoil`.
-    await this.prisma.pendingPriceEntry.updateMany({
-      where: { cardId, productType, gradeKey, finish, status: 'open' },
+    // SEC N-3: si el caller aporta la identidad (`sealedProductId`/`cardProductId`), se añade al where
+    // para cerrar SOLO la entrada correspondiente (clave de dedupe de `escalatePending`).
+    await db.pendingPriceEntry.updateMany({
+      where: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        status: 'open',
+        ...(pending?.sealedProductId !== undefined
+          ? { sealedProductId: pending.sealedProductId }
+          : {}),
+        ...(pending?.cardProductId !== undefined ? { cardProductId: pending.cardProductId } : {}),
+      },
       data: { status: 'resolved', resolvedPriceRefId: ref.id, resolvedAt: new Date() },
     });
     return ref;
@@ -1065,12 +1137,14 @@ export class PricingService {
   async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory') {
     // P-6 (§M2): filtro opcional por `context` para los dos buckets de M2 (VENTA=`inventory`,
     // COMPRA=`buylist` read-only). Sin arg → todos los pendientes (back-compat). Shape sin cambios.
+    // v1.42 (BLOQ-2b): `sealedProduct` para resolver la identidad de display de la cola (cascada §4.34a:
+    // SealedProduct vivo → snapshot ausente aquí → Card.name). Presente solo cuando la entrada trae FK.
     const rows = await this.prisma.pendingPriceEntry.findMany({
       where: { status: 'open', ...(context ? { context } : {}) },
       orderBy: { createdAt: 'asc' },
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, sealedProduct: true },
     });
-    const data = rows.map(({ card, ...entry }) => ({
+    const data = rows.map(({ card, sealedProduct, ...entry }) => ({
       ...entry,
       cardName: card.name,
       card: {
@@ -1079,6 +1153,16 @@ export class PricingService {
         number: card.number,
         setName: card.set.name,
       },
+      // v1.42 (BLOQ-2b, §4.34a): identidad de sellado presente SOLO para productType='sealed' (ausente en
+      // raw/graded). `sealedProductName` RESUELTO por la cascada (SealedProduct vivo → Card.name ancla) para
+      // que M2 muestre «ETB …», no «sealed» ambiguo. `sealedProductId`/`sealedSubtype` de la FK viva.
+      ...(entry.productType === 'sealed'
+        ? {
+            sealedProductId: entry.sealedProductId ?? null,
+            sealedProductName: sealedProduct?.name ?? card.name,
+            sealedSubtype: sealedProduct?.subtype ?? null,
+          }
+        : {}),
     }));
     return { data };
   }

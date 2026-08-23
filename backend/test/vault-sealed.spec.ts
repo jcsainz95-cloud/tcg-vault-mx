@@ -41,6 +41,10 @@ function piece(over: Partial<any> = {}) {
     finish: 'normal',
     tcgplayerProductId: 100,
     ownershipStatus: 'settled',
+    // M-37 snapshot congelado por-pieza (identidad real del SealedProduct); null → cae a la Card ancla.
+    sealedProductName: null,
+    sealedImageUrl: null,
+    sealedProductId: null,
     createdAt: new Date('2026-08-01T00:00:00Z'),
     card: card(),
     ...over,
@@ -67,8 +71,11 @@ function build(items: any[], refs: Map<string, any>) {
       fallbackPct: 25,
       sourceOn: true,
     })),
-    gateSealedMarketCents: (ref: any, sourceOn: boolean) =>
-      sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
+    gateSealedMarketCents: (ref: any, sourceOn: boolean) => {
+      if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+      if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+      return sourceOn ? ref.referenceMxnCents : null;
+    },
   } as unknown as PricingService;
   return { prisma, pricing, svc: new VaultService(prisma, pricing) };
 }
@@ -101,6 +108,40 @@ describe('VaultService.sealedTab — agregación + valuación de la bóveda sell
     expect(res.totalValueMxnCents).toBe(200000);
     expect(res.pendingPriceCount).toBe(1);
     expect(res.currency).toBe('MXN');
+  });
+
+  it('H-P38-1: el grid de bóveda usa la IDENTIDAD del SealedProduct (snapshot), NO el single ancla («Tropius»)', async () => {
+    const items = [
+      piece({
+        id: 'a',
+        tcgplayerProductId: 100,
+        sealedSubtype: 'etb',
+        sealedProductName: 'Surging Sparks Elite Trainer Box',
+        sealedImageUrl: 'https://img/etb.png',
+        card: card({ name: 'Tropius', imageSmallUrl: 'https://img/tropius.png' }),
+      }),
+    ];
+    const refs = new Map<string, any>([
+      ['c1|sealed|sealed:tcg:100|normal', { status: 'priced', referenceMxnCents: 100000 }],
+    ]);
+    const { svc } = build(items, refs);
+    const res = await svc.sealedTab('u1', {});
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].productName).toBe('Surging Sparks Elite Trainer Box');
+    expect(res.data[0].imageUrl).toBe('https://img/etb.png');
+    expect(res.data[0].productName).not.toBe('Tropius');
+    expect(res.data[0].imageUrl).not.toBe('https://img/tropius.png');
+  });
+
+  it('H-P38-1: sin snapshot (legacy) el grid de bóveda CAE a la Card ancla (fallback de cascada)', async () => {
+    const items = [piece({ id: 'a', tcgplayerProductId: 100, sealedProductName: null, sealedImageUrl: null })];
+    const refs = new Map<string, any>([
+      ['c1|sealed|sealed:tcg:100|normal', { status: 'priced', referenceMxnCents: 100000 }],
+    ]);
+    const { svc } = build(items, refs);
+    const res = await svc.sealedTab('u1', {});
+    expect(res.data[0].productName).toBe('Booster Box');
+    expect(res.data[0].imageUrl).toBe('https://img/s.png');
   });
 
   it('usa el filtro de status "en bóveda" (excluye withdrawn/shipped/delivered/lost/damaged)', async () => {

@@ -42,8 +42,17 @@ export interface SealedSetsIndexResponse {
 
 export interface SealedInventoryGroupDTO {
   cardId: string;
-  /** `Card.name` del ancla del grupo (§4.23: no existe catálogo de productos sellados). */
+  /**
+   * BLOQ-2 (fix H-P38-1, §4.34a / contrato §M1 v1.36 L187-188): cascada de display del sellado —
+   * snapshot congelado por-pieza `sealedProductName` → `Card.name` ancla. Antes leía SOLO `Card.name`
+   * y pintaba el nombre de la carta ancla («E2E Charizard») en vez del producto sellado real (ETB/blíster).
+   */
   productName: string;
+  /**
+   * BLOQ-2 (contrato §M1 v1.28.1 L3723-3724, ADITIVO): imagen de la teja — cascada `sealedImageUrl`
+   * (snapshot por-pieza) → `Card.imageSmallUrl` ancla → `null` honesto. Faltaba por completo en el DTO.
+   */
+  imageSmallUrl?: string | null;
   sealedSubtype: string | null;
   sealedCondition: SealedCondition;
   tcgplayerProductId: number | null;
@@ -223,7 +232,18 @@ export class SealedGradedInventoryService {
     if (!set) throw BusinessException.notFound('NOT_FOUND', 'CardSet not found');
 
     const grouped = await this.prisma.inventoryItem.groupBy({
-      by: ['cardId', 'sealedSubtype', 'tcgplayerProductId', 'sealedCondition', 'status'],
+      // BLOQ-2 (fix H-P38-1): `sealedProductName`/`sealedImageUrl` entran al groupBy para traer el
+      // snapshot de display por identidad SIN N+1. Las filas se re-colapsan por la identidad §4.23
+      // (los 4 campos de abajo), así que sumar los conteos mantiene los totales exactos.
+      by: [
+        'cardId',
+        'sealedSubtype',
+        'tcgplayerProductId',
+        'sealedCondition',
+        'status',
+        'sealedProductName',
+        'sealedImageUrl',
+      ],
       where: { ...this.sealedScope(), card: { setId } },
       _count: { _all: true, acquisitionCostCents: true },
       _sum: { acquisitionCostCents: true },
@@ -235,6 +255,10 @@ export class SealedGradedInventoryService {
       sealedSubtype: string | null;
       sealedCondition: SealedCondition;
       tcgplayerProductId: number | null;
+      // BLOQ-2: snapshot de display representativo del grupo (primer no-nulo visto). Consistente por
+      // identidad porque se deriva del mismo SealedProduct/mapeo al alta.
+      sealedProductName: string | null;
+      sealedImageUrl: string | null;
       inStock: number;
       listed: number;
       other: number;
@@ -252,6 +276,8 @@ export class SealedGradedInventoryService {
           // sealedCondition es NOT NULL para sealed desde M-28 (default mint); el ?? es defensivo.
           sealedCondition: (g.sealedCondition ?? 'mint') as SealedCondition,
           tcgplayerProductId: g.tcgplayerProductId,
+          sealedProductName: null,
+          sealedImageUrl: null,
           inStock: 0,
           listed: 0,
           other: 0,
@@ -259,6 +285,13 @@ export class SealedGradedInventoryService {
           costCount: 0,
         };
         byIdentity.set(key, agg);
+      }
+      // Primer snapshot no-nulo del grupo (display-only; no toca conteos ni dinero).
+      if (agg.sealedProductName == null && g.sealedProductName != null) {
+        agg.sealedProductName = g.sealedProductName;
+      }
+      if (agg.sealedImageUrl == null && g.sealedImageUrl != null) {
+        agg.sealedImageUrl = g.sealedImageUrl;
       }
       const count = g._count._all;
       if (g.status === 'in_stock') agg.inStock += count;
@@ -272,10 +305,11 @@ export class SealedGradedInventoryService {
     const cards = cardIds.length
       ? await this.prisma.card.findMany({
           where: { id: { in: cardIds } },
-          select: { id: true, name: true },
+          // BLOQ-2: `imageSmallUrl` para el fallback de imagen de la cascada de display.
+          select: { id: true, name: true, imageSmallUrl: true },
         })
       : [];
-    const nameByCard = new Map(cards.map((c) => [c.id, c.name]));
+    const cardById = new Map(cards.map((c) => [c.id, c]));
 
     const mapped = [...byIdentity.values()].filter((a) => a.tcgplayerProductId != null);
     const refs = await this.pricing.getReferencesBatch(
@@ -292,9 +326,13 @@ export class SealedGradedInventoryService {
         a.tcgplayerProductId != null
           ? refs.get(`${a.cardId}|sealed|${sealedMarketGradeKey(a.tcgplayerProductId)}|normal`)
           : undefined;
+      const card = cardById.get(a.cardId);
       return {
         cardId: a.cardId,
-        productName: nameByCard.get(a.cardId) ?? '',
+        // BLOQ-2 (cascada §4.34a): snapshot del sellado → nombre/imagen de la Card ancla. MISMO patrón
+        // exacto que sealed-catalog.service.ts / vault.service.ts (`sealedProductName ?? card.name`).
+        productName: a.sealedProductName ?? card?.name ?? '',
+        imageSmallUrl: a.sealedImageUrl ?? card?.imageSmallUrl ?? null,
         sealedSubtype: a.sealedSubtype,
         sealedCondition: a.sealedCondition,
         tcgplayerProductId: a.tcgplayerProductId,

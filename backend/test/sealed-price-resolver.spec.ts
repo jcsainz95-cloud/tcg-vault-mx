@@ -28,6 +28,15 @@ const CTX_ON = { spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: tru
 const CTX_OFF = { spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: false };
 const PRICED = { status: 'priced' as const, referenceMxnCents: 100000 };
 const PENDING = { status: 'pending' as const };
+// v1.43 (IMP-C): referencias de mercado por FUENTE. `tcgcsv` = ingest automático (gateado por dial);
+// `manual` = override humano «FIJAR PRECIO» (NO gateado por el dial).
+const TCGCSV = { status: 'priced' as const, referenceMxnCents: 100000, source: 'tcgcsv' as const };
+const MANUAL = {
+  status: 'priced' as const,
+  referenceMxnCents: 100000,
+  source: 'manual' as const,
+  isManualOverride: true,
+};
 
 describe('PricingService.gateSealedMarketCents — gate ÚNICO del mercado (dial + priced)', () => {
   it('dial ON + priced → referenceMxnCents', () => {
@@ -40,6 +49,47 @@ describe('PricingService.gateSealedMarketCents — gate ÚNICO del mercado (dial
     expect(realPricing().gateSealedMarketCents(PENDING, true)).toBeNull();
     expect(realPricing().gateSealedMarketCents(undefined, true)).toBeNull();
     expect(realPricing().gateSealedMarketCents(null, true)).toBeNull();
+  });
+
+  // SEC N-1 (money-safe): un ref override con referenceMxnCents=0 (dato legacy/migración) NO cuenta como
+  // mercado. El gate devuelve null (⇒ PRICE_PENDING), JAMÁS 0 — ni siquiera para el override manual que
+  // por lo demás sobrevive al dial. Cierra el $0 latente publicado.
+  it('ref override manual con referenceMxnCents=0 → null (NO 0), incluso con dial off', () => {
+    const zeroOverride = {
+      status: 'priced' as const,
+      referenceMxnCents: 0,
+      source: 'manual' as const,
+      isManualOverride: true,
+    };
+    expect(realPricing().gateSealedMarketCents(zeroOverride, false)).toBeNull();
+    expect(realPricing().gateSealedMarketCents(zeroOverride, true)).toBeNull();
+  });
+  it('ref priced con referenceMxnCents negativo → null (nunca precio negativo)', () => {
+    const neg = { status: 'priced' as const, referenceMxnCents: -100 };
+    expect(realPricing().gateSealedMarketCents(neg, true)).toBeNull();
+  });
+});
+
+// v1.43 (IMP-C, §4.23a) — el dial gobierna SOLO la fuente automática (tcgcsv). El override manual de
+// mercado sobrevive al dial. Los 4 combos {manual, tcgcsv} × {sourceOn true/false}:
+describe('PricingService.gateSealedMarketCents — v1.43 (IMP-C): fuente vs override manual × dial', () => {
+  const g = () => realPricing();
+
+  it('tcgcsv + dial ON → referenceMxnCents (mercado de fuente cuenta)', () => {
+    expect(g().gateSealedMarketCents(TCGCSV, true)).toBe(100000);
+  });
+  it('tcgcsv + dial OFF → null (mercado de fuente INERTE, fail-closed)', () => {
+    expect(g().gateSealedMarketCents(TCGCSV, false)).toBeNull();
+  });
+  it('manual + dial ON → referenceMxnCents (override sobrevive)', () => {
+    expect(g().gateSealedMarketCents(MANUAL, true)).toBe(100000);
+  });
+  it('manual + dial OFF → referenceMxnCents (override NO lo gatea el dial — arregla el bucle IMP-C)', () => {
+    expect(g().gateSealedMarketCents(MANUAL, false)).toBe(100000);
+  });
+  it('discrimina también por source="manual" aunque isManualOverride no venga en el PriceInfo', () => {
+    const manualBySourceOnly = { status: 'priced' as const, referenceMxnCents: 100000, source: 'manual' as const };
+    expect(g().gateSealedMarketCents(manualBySourceOnly, false)).toBe(100000);
   });
 });
 
@@ -218,5 +268,165 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
     expect(lineB.salePriceCents).toBe(EXPECTED);
     expect(lineB.priceSource).toBe('derived');
     expect(res.summary.published).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v1.43 (IMP-C) — BUCLE CERRADO cola↔publicar con el dial `off`. Reproduce el
+// síntoma reportado por el gate E2E y prueba que el fix lo mata:
+//   dial off → publicar sellado sin precio → PRICE_PENDING (se ESCALA a la cola)
+//   → «FIJAR PRECIO» (manualOverride, source='manual'/isManualOverride) → re-publicar
+//   USA el override (mercado×spread) y NO re-crea el pendiente, con sellable=true.
+// PricingService e InventoryService comparten el MISMO prisma (como en producción):
+// el override que escribe `manualOverride` lo LEE de vuelta el `getReferencesBatch`
+// REAL del segundo publish, y el gate H-1 lo deja pasar aunque `sourceOn=false`.
+// ---------------------------------------------------------------------------
+describe('H-1 v1.43 (IMP-C) — bucle cerrado: dial OFF + override manual mata el re-escalado', () => {
+  // matcher de cláusula `{ in: [...] }` | escalar | ausente
+  const matchIn = (clause: any, val: any) =>
+    clause == null ? true : clause.in != null ? clause.in.includes(val) : clause === val;
+
+  function makeSharedPrisma(item: any) {
+    const priceRefs: any[] = [];
+    const pending: any[] = [];
+    let seq = 0;
+    return {
+      _pending: pending,
+      inventoryItem: {
+        findMany: jest.fn(async ({ where }: any) => {
+          const ids = where?.id?.in;
+          return [item]
+            .filter((i) => (ids ? ids.includes(i.id) : true))
+            .map((i) => ({ ...i }));
+        }),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          if (item.id !== where.id) return { count: 0 };
+          const okStatus =
+            where.status?.in == null || where.status.in.includes(item.status);
+          if (item.ownerType !== where.ownerType || !okStatus) return { count: 0 };
+          Object.assign(item, data);
+          return { count: 1 };
+        }),
+      },
+      priceReference: {
+        findMany: jest.fn(async ({ where }: any) =>
+          priceRefs.filter(
+            (r) =>
+              matchIn(where.cardId, r.cardId) &&
+              matchIn(where.productType, r.productType) &&
+              matchIn(where.gradeKey, r.gradeKey) &&
+              matchIn(where.finish, r.finish),
+          ),
+        ),
+        findFirst: jest.fn(async ({ where }: any) =>
+          priceRefs.find(
+            (r) =>
+              r.cardId === where.cardId &&
+              r.productType === where.productType &&
+              r.gradeKey === where.gradeKey &&
+              r.finish === where.finish &&
+              (where.cardProductId === undefined ||
+                r.cardProductId === where.cardProductId),
+          ) ?? null,
+        ),
+        create: jest.fn(async ({ data }: any) => {
+          const row = {
+            id: `pr-${++seq}`,
+            cardProductId: null,
+            priceUsdCents: null,
+            isManualOverride: false,
+            ...data,
+          };
+          priceRefs.push(row);
+          return row;
+        }),
+        update: jest.fn(async ({ where, data }: any) => {
+          const row = priceRefs.find((r) => r.id === where.id);
+          Object.assign(row, data);
+          return row;
+        }),
+      },
+      pendingPriceEntry: {
+        findFirst: jest.fn(async ({ where }: any) =>
+          pending.find(
+            (p) =>
+              p.cardId === where.cardId &&
+              p.productType === where.productType &&
+              p.gradeKey === where.gradeKey &&
+              p.finish === where.finish &&
+              p.status === where.status &&
+              (where.cardProductId === undefined ||
+                p.cardProductId === (where.cardProductId ?? null)) &&
+              (where.sealedProductId === undefined ||
+                p.sealedProductId === (where.sealedProductId ?? null)),
+          ) ?? null,
+        ),
+        create: jest.fn(async ({ data }: any) => {
+          const row = { id: `pend-${++seq}`, cardProductId: null, sealedProductId: null, ...data };
+          pending.push(row);
+          return row;
+        }),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          let c = 0;
+          for (const p of pending) {
+            if (
+              p.cardId === where.cardId &&
+              p.productType === where.productType &&
+              p.gradeKey === where.gradeKey &&
+              p.finish === where.finish &&
+              p.status === where.status
+            ) {
+              Object.assign(p, data);
+              c++;
+            }
+          }
+          return { count: c };
+        }),
+      },
+    } as any;
+  }
+
+  it('publicar (dial off, sin precio)→PRICE_PENDING; FIJAR PRECIO; re-publicar→sellable sin re-escalar', async () => {
+    // Sellado MAPEADO (productId 100) SIN override de pieza (listPriceCents null) → deriva por mercado.
+    const item = sealedPiece({ listPriceCents: null, status: 'in_stock' });
+    const prisma = makeSharedPrisma(item);
+
+    const pricing = new PricingService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+    // Dial OFF (sourceOn=false): el mercado de FUENTE (tcgcsv) quedaría inerte; el override manual NO.
+    jest
+      .spyOn(pricing, 'loadSalesRules')
+      .mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 } as any);
+    jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue(CTX_OFF);
+    jest.spyOn(pricing, 'getVariantOverridesBatch').mockResolvedValue(new Map());
+
+    const inventory = new InventoryService(prisma, pricing, {} as any);
+    const publish = () =>
+      inventory.bulkPublish({ items: [{ inventoryItemId: item.id }] } as any, 'admin-1');
+
+    // 1) Publicar con dial off y SIN precio → PRICE_PENDING + escala a la cola (1 pendiente open).
+    const first = await publish();
+    expect(first.results[0].ok).toBe(false);
+    expect((first.results[0] as any).error.code).toBe('PRICE_PENDING');
+    expect(prisma.pendingPriceEntry.create).toHaveBeenCalledTimes(1);
+    expect(prisma._pending.filter((p: any) => p.status === 'open')).toHaveLength(1);
+    // La pieza NO se publicó (sigue in_stock).
+    expect(item.status).toBe('in_stock');
+
+    // 2) «FIJAR PRECIO»: override manual de MERCADO en la clave sealed:tcg:100 (source='manual').
+    await pricing.manualOverride(item.cardId, 'sealed', 'sealed:tcg:100', 100000, 'normal');
+    // El override resolvió el pendiente (0 open).
+    expect(prisma._pending.filter((p: any) => p.status === 'open')).toHaveLength(0);
+
+    // 3) Re-publicar: el override SOBREVIVE al dial off (gate H-1) → mercado×spread → sellable.
+    const createsBefore = prisma.pendingPriceEntry.create.mock.calls.length;
+    const second = await publish();
+    expect(second.results[0].ok).toBe(true);
+    expect((second.results[0] as any).salePriceCents).toBe(EXPECTED); // 100000×1.18, NUNCA 0
+    expect((second.results[0] as any).priceSource).toBe('derived');
+    expect(second.summary.published).toBe(1);
+    expect(item.status).toBe('listed');
+    // NO se re-creó el pendiente (bucle roto): create NO se llamó de nuevo.
+    expect(prisma.pendingPriceEntry.create.mock.calls.length).toBe(createsBefore);
+    expect(prisma._pending.filter((p: any) => p.status === 'open')).toHaveLength(0);
   });
 });

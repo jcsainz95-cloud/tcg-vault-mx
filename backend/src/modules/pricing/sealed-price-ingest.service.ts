@@ -54,16 +54,28 @@ export class SealedPriceIngestService {
     return dial === 'tcgcsv';
   }
 
-  /** Grupos TCGCSV distintos de los items sellados MAPEADOS (alcance minúsculo del job). */
+  /**
+   * Grupos TCGCSV distintos a barrer: los de items sellados MAPEADOS ∪ los de `SealedProduct` ACTIVOS
+   * (v1.39, §4.34a). La segunda fuente hace que un producto del catálogo tenga precio AUNQUE aún no
+   * haya inventario. Money-safe: solo determina QUÉ grupos consultar; nunca fabrica precio.
+   */
   async listMappedGroupIds(): Promise<number[]> {
-    const rows = await this.prisma.inventoryItem.findMany({
-      where: { productType: 'sealed', tcgplayerGroupId: { not: null }, tcgplayerProductId: { not: null } },
-      distinct: ['tcgplayerGroupId'],
-      select: { tcgplayerGroupId: true },
-    });
-    return rows
-      .map((r) => r.tcgplayerGroupId)
-      .filter((g): g is number => g != null);
+    const [mapped, catalog] = await Promise.all([
+      this.prisma.inventoryItem.findMany({
+        where: { productType: 'sealed', tcgplayerGroupId: { not: null }, tcgplayerProductId: { not: null } },
+        distinct: ['tcgplayerGroupId'],
+        select: { tcgplayerGroupId: true },
+      }),
+      this.prisma.sealedProduct.findMany({
+        where: { active: true },
+        distinct: ['tcgplayerGroupId'],
+        select: { tcgplayerGroupId: true },
+      }),
+    ]);
+    const ids = new Set<number>();
+    for (const r of mapped) if (r.tcgplayerGroupId != null) ids.add(r.tcgplayerGroupId);
+    for (const r of catalog) ids.add(r.tcgplayerGroupId);
+    return [...ids];
   }
 
   /**
@@ -99,9 +111,10 @@ export class SealedPriceIngestService {
     groupId: number,
     fx: FxSnapshot,
   ): Promise<Omit<SealedIngestRunResult, 'groups'>> {
-    // Pares DISTINTOS (anchorCardId, productId) mapeados de ESTE grupo. El anchorCardId es el
-    // cardId del item (el sellado se ancla a una Card para nombre/imagen, §3.6). Varias copias
-    // físicas del mismo producto ancladas a la misma Card = UN solo upsert (idempotente igual).
+    // Pares DISTINTOS (anchorCardId, productId) a valuar en ESTE grupo, de DOS fuentes (§4.34a):
+    //  (1) items sellados MAPEADOS (anchorCardId = cardId del item);
+    //  (2) `SealedProduct` ACTIVOS del grupo (anchorCardId = ancla del set, aunque no haya inventario).
+    // Varias entradas del mismo (cardId, productId) = UN solo upsert idempotente.
     const items = await this.prisma.inventoryItem.findMany({
       where: {
         productType: 'sealed',
@@ -111,8 +124,34 @@ export class SealedPriceIngestService {
       distinct: ['cardId', 'tcgplayerProductId'],
       select: { cardId: true, tcgplayerProductId: true },
     });
-    if (items.length === 0) {
-      this.logger.warn(`sealed-price-ingest: grupo ${groupId} sin items mapeados; se omite.`);
+    const catalog = await this.prisma.sealedProduct.findMany({
+      where: { active: true, tcgplayerGroupId: groupId },
+      select: { id: true, tcgplayerProductId: true, setId: true },
+    });
+
+    // Ancla del set por SealedProduct (cache por set): menor (numberPrefix, numberSort).
+    const anchorBySet = new Map<string, string | null>();
+    const pairs = new Map<number, string>(); // productId → anchorCardId (dedupe)
+    for (const it of items) pairs.set(it.tcgplayerProductId as number, it.cardId);
+    for (const sp of catalog) {
+      if (pairs.has(sp.tcgplayerProductId)) continue; // ya cubierto por un item mapeado
+      let anchor = anchorBySet.get(sp.setId);
+      if (anchor === undefined) {
+        const a = await this.prisma.card.findFirst({
+          where: { setId: sp.setId },
+          orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }],
+          select: { id: true },
+        });
+        anchor = a?.id ?? null;
+        anchorBySet.set(sp.setId, anchor);
+      }
+      if (anchor != null) pairs.set(sp.tcgplayerProductId, anchor);
+    }
+
+    if (pairs.size === 0) {
+      this.logger.warn(
+        `sealed-price-ingest: grupo ${groupId} sin items mapeados ni SealedProduct activos; se omite.`,
+      );
       return { priced: 0, usedFallbackMid: 0, skipped: 0, unmatched: 0 };
     }
 
@@ -123,21 +162,26 @@ export class SealedPriceIngestService {
     let priced = 0;
     let usedFallbackMid = 0;
     let unmatched = 0;
-    for (const item of items) {
-      const productId = item.tcgplayerProductId as number;
+    for (const [productId, anchorCardId] of pairs.entries()) {
       const row = byProductId.get(productId);
       if (!row) {
-        // Mapeo sin fila remota (productId erróneo o producto sin precio hoy): la referencia
-        // queda null/stale — inocuo e informativo (§4.19c). No se borra nada.
+        // productId sin fila remota (erróneo o producto sin precio hoy): la referencia queda
+        // null/stale — inocuo e informativo (§4.19c). No se borra nada.
         unmatched += 1;
         continue;
       }
       await this.pricing.persistSealedMarketReference(
-        item.cardId,
+        anchorCardId,
         productId,
         { marketCents: row.marketCents },
         fx,
       );
+      // v1.39: refresca la CACHÉ de display `SealedProduct.marketUsdCents` (money-safe: la autoridad
+      // sigue siendo PriceReference; esto es solo sugerencia para el listado de alta).
+      await this.prisma.sealedProduct.updateMany({
+        where: { tcgplayerProductId: productId, active: true },
+        data: { marketUsdCents: row.marketCents, marketUpdatedAt: new Date() },
+      });
       priced += 1;
       if (row.usedFallbackMid) usedFallbackMid += 1;
     }

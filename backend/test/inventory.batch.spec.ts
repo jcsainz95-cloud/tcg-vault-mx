@@ -9,6 +9,8 @@ import {
   BatchInventoryItemInput,
   BulkPublishLineInput,
   BulkPublishRequest,
+  CreateItemDto,
+  MAX_APORTACION_PCT,
   MAX_BATCH_QTY,
   MAX_LIST_PRICE_CENTS,
 } from '../src/modules/inventory/dto/inventory.dto';
@@ -126,6 +128,39 @@ describe('InventoryService.batchCreate — alta por lote', () => {
     expect(res.results[1]).toMatchObject({ index: 1, ok: false, error: { code: 'NOT_FOUND' } });
     expect(res.results[2]).toMatchObject({ index: 2, ok: true });
     expect(prisma.__createdItems).toHaveLength(2);
+  });
+
+  // BLOQ-1 (DINERO): el alta por lote debe PERSISTIR `acquisitionCostCents`. Antes faltaba en el DTO
+  // `BatchInventoryItemInput`, así que ValidationPipe({whitelist:true}) lo borraba en silencio y toda
+  // pieza dada de alta por lote (QuickAdd / sellado con «Comprar») nacía con costo NULL.
+  it('[BLOQ-1] persiste acquisitionCostCents de la línea (compra) — no queda NULL', async () => {
+    const prisma = buildPrisma();
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    const req: BatchCreateInventoryRequest = {
+      batchKey: 'cost1',
+      items: [
+        { cardId: 'c1', productType: 'raw', acquisitionType: 'compra', acquisitionCostCents: 80000, qty: 2 },
+      ],
+    };
+    const res = await svc.batchCreate(req, 'admin');
+    expect(res.results[0]).toMatchObject({ ok: true, acquisitionCostCents: 80000 });
+    // Las 2 piezas creadas guardan el costo en la fila (no undefined/null).
+    expect(prisma.__createdItems).toHaveLength(2);
+    for (const data of prisma.__createdItems) {
+      expect(data.acquisitionCostCents).toBe(80000);
+    }
+  });
+
+  // Un costo 0 es LEGÍTIMO (promo/regalo), a diferencia de un precio de venta → debe persistirse como 0.
+  it('[BLOQ-1] acquisitionCostCents=0 (promo/regalo) se persiste como 0, no se pierde', async () => {
+    const prisma = buildPrisma();
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    const res = await svc.batchCreate(
+      { batchKey: 'cost0', items: [{ cardId: 'c1', productType: 'raw', acquisitionType: 'compra', acquisitionCostCents: 0 }] },
+      'admin',
+    );
+    expect(res.results[0]).toMatchObject({ ok: true });
+    expect(prisma.__createdItems[0].acquisitionCostCents).toBe(0);
   });
 
   it('`qty` expande a N piezas con folios CONSECUTIVOS (una reserva nextFolios)', async () => {
@@ -425,6 +460,63 @@ describe('BatchInventoryItemInput — validación de qty y listPriceCents', () =
   it('[SEC-N3] rechaza listPriceCents por encima del @Max (Int32/overflow)', async () => {
     const errors = await validateLine({ listPriceCents: MAX_LIST_PRICE_CENTS + 1 });
     expect(errors.some((e) => e.property === 'listPriceCents')).toBe(true);
+  });
+
+  // M-2 (SEC): acquisitionPct con @Max de política — un vault_operator no puede inflar el costo de
+  // aportación (costo = referencia × pct/100) por encima del techo de negocio (100%).
+  it('acepta acquisitionPct en el límite de política (100)', async () => {
+    expect(await validateLine({ acquisitionPct: MAX_APORTACION_PCT })).toHaveLength(0);
+  });
+
+  it('[M-2] rechaza acquisitionPct por encima del @Max (inflado de costo de aportación)', async () => {
+    const errors = await validateLine({ acquisitionPct: MAX_APORTACION_PCT + 1 });
+    expect(errors.some((e) => e.property === 'acquisitionPct')).toBe(true);
+  });
+
+  it('[M-2] rechaza acquisitionPct negativo', async () => {
+    const errors = await validateLine({ acquisitionPct: -1 });
+    expect(errors.some((e) => e.property === 'acquisitionPct')).toBe(true);
+  });
+
+  // BLOQ-1 (DINERO): `acquisitionCostCents` DEBE estar decorado en el DTO para que el
+  // ValidationPipe({whitelist:true}) NO lo elimine. Un campo con decoradores queda whitelisted; sin
+  // ellos, whitelist lo borra en silencio (raíz del bug). Estos casos afirman las MISMAS reglas que
+  // CreateItemDto: opcional, entero, @Min(0) (un costo 0 es válido — promo/regalo).
+  it('[BLOQ-1] acepta acquisitionCostCents entero >= 0 (0 legítimo)', async () => {
+    expect(await validateLine({ acquisitionCostCents: 0 })).toHaveLength(0);
+    expect(await validateLine({ acquisitionCostCents: 80000 })).toHaveLength(0);
+  });
+
+  it('[BLOQ-1] rechaza acquisitionCostCents negativo y no-entero (queda whitelisted, no se borra)', async () => {
+    expect((await validateLine({ acquisitionCostCents: -1 })).some((e) => e.property === 'acquisitionCostCents')).toBe(true);
+    expect((await validateLine({ acquisitionCostCents: 1.5 })).some((e) => e.property === 'acquisitionCostCents')).toBe(true);
+  });
+
+  // SEC N-2 (money-safe): `acquisitionCostCents` con @Max (misma cota que el dinero manual) — un
+  // vault_operator no puede inyectar un costo cercano a Int32 que desborde los agregados de P&L.
+  it('[SEC-N2] acepta acquisitionCostCents en el límite (MAX_LIST_PRICE_CENTS)', async () => {
+    expect(await validateLine({ acquisitionCostCents: MAX_LIST_PRICE_CENTS })).toHaveLength(0);
+  });
+
+  it('[SEC-N2] rechaza acquisitionCostCents por encima del @Max (overflow de P&L)', async () => {
+    const errors = await validateLine({ acquisitionCostCents: MAX_LIST_PRICE_CENTS + 1 });
+    expect(errors.some((e) => e.property === 'acquisitionCostCents')).toBe(true);
+  });
+});
+
+// SEC N-2 (money-safe) — misma cota @Max en CreateItemDto.acquisitionCostCents (alta por-pieza).
+describe('CreateItemDto — @Max de acquisitionCostCents (SEC N-2)', () => {
+  const base = { cardId: 'c1', productType: 'raw', acquisitionType: 'compra' };
+  const validateItem = (over: any) => validate(plainToInstance(CreateItemDto, { ...base, ...over }));
+
+  it('acepta acquisitionCostCents en el límite y 0 (promo/regalo)', async () => {
+    expect(await validateItem({ acquisitionCostCents: 0 })).toHaveLength(0);
+    expect(await validateItem({ acquisitionCostCents: MAX_LIST_PRICE_CENTS })).toHaveLength(0);
+  });
+
+  it('rechaza acquisitionCostCents por encima del @Max', async () => {
+    const errors = await validateItem({ acquisitionCostCents: MAX_LIST_PRICE_CENTS + 1 });
+    expect(errors.some((e) => e.property === 'acquisitionCostCents')).toBe(true);
   });
 });
 

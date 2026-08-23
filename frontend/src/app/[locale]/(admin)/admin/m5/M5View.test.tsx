@@ -577,6 +577,67 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
     );
   });
 
+  // IMP-B (regresión): pagar ANTES de convertir movía la solicitud a «Cerradas» y el
+  // resumen read-only escondía «Convertir a inventario», atorando una carta `aprobada` que
+  // el backend SÍ deja convertir. Ahora el botón se ofrece por-ítem según el `itemStatus`.
+  it('«Cerradas»: un ítem aprobado NO convertido ofrece «Convertir a inventario» y lo dispara', async () => {
+    const paidWithApprovedItem = {
+      id: 'sr-c9',
+      userId: 'u-777',
+      seller: { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx' },
+      status: 'pagada' as const,
+      quotedTotalCents: 50200,
+      approvedTotalCents: 50200,
+      createdAt: '2026-08-01T00:00:00.000Z',
+      items: [
+        {
+          id: 'sr-c9-i',
+          card,
+          productType: 'raw' as const,
+          finish: 'normal' as const,
+          // Solicitud pagada, pero el ítem sigue `aprobada` (aún no convertido).
+          itemStatus: 'aprobada' as const,
+          quotedPriceCents: 50200,
+          approvedPriceCents: 50200,
+        },
+      ],
+    };
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [paidWithApprovedItem],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    const convertSpy = vi.spyOn(api, 'convertBuylistItemToInventory').mockResolvedValue({
+      inventoryItemId: 'inv-1',
+      folio: 'INV-000123',
+      alreadyConverted: false,
+    });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: /Cerradas/ }));
+    await screen.findByText('sr-c9');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Convertir a inventario' }));
+
+    await waitFor(() => expect(convertSpy).toHaveBeenCalledWith('sr-c9-i'));
+  });
+
+  it('«Cerradas»: un ítem rechazado NO ofrece «Convertir a inventario»', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [closedReq('sr-c1', 'rechazada')],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: /Cerradas/ }));
+    await screen.findByText('sr-c1');
+
+    expect(
+      screen.queryByRole('button', { name: 'Convertir a inventario' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('la paginación cambia de página (page en los params)', async () => {
     // total 60 con pageSize 25 → 3 páginas: se muestran los controles de paginación.
     const spy = vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({

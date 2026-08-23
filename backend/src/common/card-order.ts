@@ -160,10 +160,19 @@ export const CARD_ORDER_BY_IN_SET: Prisma.CardOrderByWithRelationInput[] = [
 /**
  * `orderBy` NORMATIVO SIN `setId` (búsqueda de texto sobre varios sets): nombre primero, orden
  * natural dentro. API_CONTRACT §6 / ARCHITECTURE §4.22b.
+ *
+ * v1.40 (Enmienda B, P-41-mejora) — DESEMPATE POR SET MÁS NUEVO: cuando varias cartas comparten el
+ * mismo `name` (la misma carta reimpresa en varios sets, p. ej. 6 «Tropius»), el segundo criterio pasa
+ * de `{ setId: 'asc' }` (uuid ALEATORIO ⇒ orden arbitrario, podía dejar la impresión nueva fuera del
+ * top-N) a `{ set: { releaseDate: 'desc', nulls: 'last' } }` ⇒ la impresión del set MÁS RECIENTE sale
+ * primero, y un set con `releaseDate = null` queda al FINAL del grupo de ese nombre. Prisma añade el
+ * JOIN a `CardSet` SOLO para ordenar (sin `include`; transparente para los callers). `CARD_ORDER_BY_IN_SET`
+ * NO cambia. Nota de rendimiento (TECH_DEBT): ordenar por columna de la relación no usa el índice
+ * `@@index([setId, ...])`; índice de apoyo a evaluar si el plan lo pide (ARCHITECTURE §4.22b).
  */
 export const CARD_ORDER_BY_GLOBAL: Prisma.CardOrderByWithRelationInput[] = [
   { name: 'asc' },
-  { setId: 'asc' },
+  { set: { releaseDate: { sort: 'desc', nulls: 'last' } } },
   { numberPrefix: 'asc' },
   { numberSort: 'asc' },
   { id: 'asc' },
