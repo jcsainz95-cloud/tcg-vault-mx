@@ -2424,6 +2424,51 @@
   guard de auth opcional que popule `userId` cuando haya sesión (sin romper el acceso anónimo ni la
   respuesta neutra anti-enumeración).
 
+### Deuda del pase P-47 parte 3 (rama `fix/variant-composition-regression`, techlead APROBADO CON DEUDA, 2026-08-23)
+
+> Ingesta de precios de singles vía TCGCSV. Los 3 ítems de abajo son **menores no bloqueantes**;
+> el camino singles lean está justificado por §4.35 del contrato. Dueño de los tres: **backend**.
+
+#### BE-76 · Dos caminos de ingesta divergentes (singles lean vs pipeline PPT) (Baja — mantenibilidad)
+- **Dónde:** dispatch en `src/modules/pricing/price-ingest.service.ts:336`
+  (`if (provider.source === 'tcgcsv_singles')`) → camino lean keyed por `cardProductId`
+  (`ingestSinglesForSet`, `price-ingest.service.ts:483-531`) **vs** el pipeline PPT/`pokemontcg_io`
+  (resolveCardId + colapso `(cardId, finish)` + snapshot + `FinishReconciler`).
+- **Estado actual:** justificado por **§4.35** (el provider TCGCSV singles ya viene keyed por producto, no
+  necesita resolución/colapso). Pero son **dos rutas paralelas** que pueden **driftar**: un 3er provider o
+  un cambio de semántica (FX, persistencia de snapshot) hay que aplicarlo en **dos sitios** en sincronía.
+- **Impacto:** bajo; correctness OK hoy. Riesgo de **evolución futura** (divergencia al editar una ruta y
+  no la otra).
+- **Disparador:** al añadir un 3er provider de ingesta o cambiar la semántica FX/persistencia compartida,
+  factorizar la parte común de ambos caminos (o documentar explícitamente qué diverge a propósito).
+
+#### BE-77 · `BulkPriceRow` acumula campos por-provider (unión disfrazada + campo muerto) (Baja)
+- **Dónde:** `src/modules/pricing/pricing.types.ts` (~`:214`/`:222`) y
+  `src/modules/pricing/tcgcsv-singles-bulk.provider.ts:131`.
+- **Estado actual:** el tipo compartido `BulkPriceRow` mezcla campos que solo usa **un** camino:
+  `cardId?`/`cardProductId?` los consume solo el camino singles; `finishAliasVerified`/`forcedPrinting`
+  solo el camino PPT. El tipo deriva de facto a una **unión de dos formas disfrazada** de un solo tipo con
+  opcionales. Además el provider TCGCSV setea `finishAliasVerified: true`
+  (`tcgcsv-singles-bulk.provider.ts:131`) en filas que **su propio camino nunca lee** → **campo muerto**.
+- **Impacto:** bajo; correctness OK. Legibilidad/seguridad de tipos: un opcional no señala qué camino lo
+  usa, y el campo muerto confunde.
+- **Disparador:** si aparece un **4º campo** por-provider, partir el tipo en `BulkPriceRow` (fila cruda, sin
+  resolver) **vs** `ResolvedSinglesRow` (fila ya keyed por producto), y limpiar el `finishAliasVerified`
+  muerto del provider TCGCSV.
+
+#### BE-78 · 9º param del constructor opcional (`tcgcsvSinglesBulk?`) — DI que en prod siempre se inyecta (Menor-a-moderada, money-relevante si se rompe DI)
+- **Dónde:** constructor de `src/modules/pricing/price-ingest.service.ts:154`
+  (`tcgcsvSinglesBulk?`); registro real en `src/modules/pricing/pricing.module.ts:66-67`.
+- **Estado actual:** la dependencia `tcgcsvSinglesBulk` **siempre se inyecta en prod** (está registrada en
+  `pricing.module.ts:66-67`); se dejó **opcional** en el constructor **solo para no tocar los mocks** de los
+  tests. Si alguien **olvida registrarla** y el dial de ingesta es `tcgcsv_singles`, `providerFor()` cae en
+  **silencio** al `pokemontcg_io` → elige el **provider equivocado**, y eso es **money-relevante** (los
+  precios de ingesta alimentan valuación/cotización).
+- **Impacto:** menor-a-moderada. No ocurre con la config actual (DI correcta), pero el fallo sería
+  **silencioso** y afecta dinero.
+- **Disparador:** hacer el parámetro **requerido** (quitar el `?`) y **actualizar los mocks** de los tests
+  que instancian el servicio, para que un fallo de DI reviente en arranque en vez de degradar en silencio.
+
 ---
 
 ## Frontend (dueño: frontend)
