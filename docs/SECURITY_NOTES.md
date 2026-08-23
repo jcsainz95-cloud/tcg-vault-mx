@@ -3249,3 +3249,45 @@ backend por las rutas de buylist (mantener el payload sin precios); cualquier ca
 `backend/src/modules/buylist/`, `orders`, `payments` o al contrato re-abre el gate server-side.
 
 — SEGURIDAD (blue team / AppSec), 2026-08-21
+
+---
+
+# VEREDICTO DE SEGURIDAD — RELEASE lote inventario/sellado (`920260e..29a5e97`) · 2026-08-23
+> Autor: seguridad (blue team / AppSec). Insumo: `PENTEST_NOTES.md` › «PASE RELEASE — lote inventario/sellado … 2026-08-23» (0 críticos, 0 altos).
+> Modo: revisión estática del diff + verificación por lectura de código (sin stack vivo; los ítems de runtime quedan para DAST en staging). Gate de deploy: regla 10 (tercer veredicto).
+
+## 1. Consolidación de hallazgos (pentester + revisión AppSec)
+
+| ID | Sev | Área | Ubicación | Estado verificación | Rol dueño | Clasificación |
+|---|---|---|---|---|---|---|
+| N-0 | Media | deps (carryover) | `@nestjs/core ^10.4.4` (GHSA-36xv-jgw5-4q75) | **Confirmado**: `npm audit --omit=dev` = 2 moderate, 0 high/critical | devops | no-bloqueante-aceptado |
+| N-1 | Baja | money ($0 latente) | `inventory.dto.ts:90,157`; gate `pricing.service.ts:663` | **Confirmado**: sin `@Min`; gate compara `== null`, no `<=0`. **Inalcanzable hoy** (guard servicio `:580` `>0` + endpoint `OverrideDto @Min(1)` `:52`) | backend | a-corregir-antes-de-prod (recomendado) |
+| N-2 | Baja | money (overflow P&L) | `inventory.dto.ts:70,146` | **Confirmado**: `acquisitionCostCents` sin `@Max`; insider `vault_operator`, sin cash-out | backend / arquitecto (BigInt agregados) | a-corregir-antes-de-prod (recomendado) |
+| N-3 | Baja | resolución pendientes | `pricing.service.ts:1099-1102` | **Confirmado**: `updateMany` sin `sealedProductId`. Alcance = sellado **legacy** `gradeKey='sealed'`, solo endpoint standalone `super_admin` | backend | no-bloqueante-aceptado |
+| N-5 | Info/negocio | override «sticky» | `sourceRank:96` / `gateSealedMarketCents:664` | **Confirmado y RATIFICADO** | — | ratificado (sin acción) |
+
+### Re-verificación de los 2 ALTOS de P-38 (H-1/H-2) — siguen CERRADOS
+- **H-1 (atomicidad):** `applySealedManualOverride:611` exige `tx`; `createItem`/`batchCreate` envuelven el override en `$transaction`; `manualOverride` usa `db = tx ?? this.prisma`. **No reaparece.**
+- **H-2 (anclaje sin `sealedProductId`):** doble-guardia `resolveCreation:396` + `resolveSealedMarketForAlta:549-554` → 422. **No reaparece.**
+- **IMP-C**: nace por el mismo camino validado (sealedProductId + `>0` + `@Max 100M` + auditoría + tx); `gateSealedMarketCents` resolver ÚNICO ⇒ storefront == checkout. **No reabre H-1/H-2.**
+- **IDOR/fuga sellado:** holdings/`/vault/sealed`/binder scoped por `ownerUserId` del JWT (check `!== userId → FORBIDDEN` en `detail`). Cola M2 `super_admin`-only. **Sin IDOR ni fuga.**
+
+## 2. Ratificación de N-5 (override «sticky») — RATIFICADO como diseño
+Money-safe e intención de diseño (PROJECT.md §K: override manual = máxima precedencia). Un override es precio humano explícito `>0`, rol-restringido (`vault_operator+`, auditado) y `super_admin` para limpiarlo. Un dato pegajoso nunca degrada a precio inseguro. Matiz operativo (no de seguridad): `isBetterRef` prioriza `capturedDate`, así que un tcgcsv más nuevo puede ganar al día siguiente.
+
+## 3. Clasificación de N-1/N-2 (money-adjacent)
+DoD se RECHAZA solo con críticos/altos abiertos → **0/0 → umbral no se activa**. N-1 y N-2 **NO bloquean**; recomendación AppSec fuerte: fast-follow inmediato (fixes triviales). N-0/N-3 = deuda aceptada con disparador (§ notas). 
+
+## 4. Banderas para el humano
+- Agendar **DAST en staging** (alta sellado + dial off por HTTP; fallo de BD a mitad de `$transaction`; override legacy `gradeKey='sealed'`; authz negativa en tiers/spreads; N-2 costo gigante) antes de volumen de dinero real; considerar pentest de tercero + bug bounty.
+- Carryover no del lote (no bloquean): B-1, B-2, B-5, R-3, JWT en localStorage. Registrados.
+- Custodia/PII sin regresión: CLABE/RFC/INE AES-256-GCM + enmascarado; el sellado no introdujo money-out ni PII.
+
+## 5. VEREDICTO: **APROBADO-CON-CONDICIONES** (gate de seguridad VERDE)
+- «publica» NO bloqueado: 0 críticos, 0 altos; H-1/H-2 cerrados. Umbral DoD CUMPLIDO.
+- Condiciones (post-deploy, no bloquean promoción): (1) N-1/N-2 en fast-follow backend o aceptadas-registradas con disparadores; (2) N-0 en backlog devops (NestJS 11); (3) DAST en staging agendado antes de volumen real.
+- Mínimo para APROBADO liso: cerrar N-1 y N-2.
+
+_Nota de orquestación (2026-08-23): N-1/N-2/N-3 enrutadas a backend como fast-follow ANTES del deploy (cierre elegido sobre aceptar-registrado, por tocar $0/P&L). (Persistido por el orquestador; el agente seguridad no tiene Write.)_
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23
