@@ -42,10 +42,11 @@ describe('api (rama mock, v1.1)', () => {
     expect(res.data.every((l) => l.card.rarity === 'Illustration Rare')).toBe(true);
   });
 
-  it('getCatalog nunca devuelve items "precio pendiente" (Compra = solo con precio)', async () => {
+  it('getCatalog nunca devuelve grupos "precio pendiente" ni agotados (Compra = con precio y stock)', async () => {
     const res = await getCatalog({});
     expect(res.data.length).toBeGreaterThan(0);
-    expect(res.data.every((l) => l.sellable && l.salePriceCents != null)).toBe(true);
+    // v1.38-grouped-listings: cada GRUPO trae stockCount≥1 (vivo) y salePriceCents del grupo (nunca 0).
+    expect(res.data.every((g) => g.stockCount >= 1 && g.salePriceCents > 0)).toBe(true);
   });
 
   it('getCatalog filtra por rango de precio (centavos)', async () => {
@@ -257,14 +258,15 @@ describe('api (rama mock) · M1 gestión de inventario (Ola 2)', () => {
 // ---- WS-F · flujos de dinero del cliente (rama MOCK) ----
 describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
   it('createCheckoutSession devuelve orderId, breakdown y stripe.clientSecret (contrato §4)', async () => {
-    // inv-2001 es un listing publicado con precio (fixtures de Compra).
-    const listing = (await getCatalog({})).data[0];
-    const res = await createCheckoutSession([listing.inventoryItemId]);
+    // v1.38-grouped-listings: el catálogo devuelve GRUPOS; el add-to-cart de 1 usa la pieza
+    // representativa (más barata). El carrito/checkout sigue por-pieza (inventoryItemId).
+    const group = (await getCatalog({})).data[0];
+    const res = await createCheckoutSession([group.representativeInventoryItemId]);
     expect(res.orderId).toMatch(/^ord-/);
     expect(res.stripe.clientSecret).toBeTruthy();
     expect(res.stripe.paymentIntentId).toBeTruthy();
     // El total = subtotal + IVA + fee (BreakdownDTO); mayor que el subtotal de la carta.
-    expect(res.breakdown.totalCents).toBeGreaterThan(listing.salePriceCents ?? 0);
+    expect(res.breakdown.totalCents).toBeGreaterThan(group.salePriceCents);
   });
 
   it('createShipment cobra el envío settled y devuelve clientSecret; MX-only y ITEM_NOT_SETTLED', async () => {

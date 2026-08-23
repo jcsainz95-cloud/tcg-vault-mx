@@ -376,6 +376,48 @@ export interface CardDetailResponse {
   listings: ListingDTO[];
 }
 
+// ===== v1.38-grouped-listings (P-30): publicación ÚNICA por carta/variante/condición con STOCK =====
+// GroupedListingDTO = UNA publicación agrupada de SINGLES (raw/graded) para "Compra". Reemplaza el
+// «un ListingDTO por copia física» de GET /catalog/cards*. Análogo de SealedGroupDTO para singles.
+//   * Clave de agrupación K = (cardId, productType, gradeKey, finish); gradeKey canónico "raw:NM" |
+//     "graded:PSA:10". Todas las piezas del grupo comparten UN salePriceCents y UNA referenceValue.
+//   * stockCount = nº de piezas VENDIBLES del grupo (siempre ≥1 en la respuesta; agotado ⇒ el grupo
+//     desaparece). El front lo usa para el badge «N disponibles» y para topar el carrito.
+//   * representativeInventoryItemId = pieza vendible MÁS BARATA (add-to-cart de 1 y key de la ficha).
+//   * salePriceCents = MÍNIMO del grupo (= el del representante). Money-safe: nunca 0 (una pieza sin
+//     precio no cuenta ni publica). certNumber es POR SLAB (distinto por pieza) ⇒ NO va aquí: se
+//     expone por pieza en `units[]` de la ficha. productType ∈ {raw, graded} — NUNCA sealed (H9).
+export interface GroupedListingDTO {
+  representativeInventoryItemId: string;
+  card: CardDTO;
+  productType: 'raw' | 'graded';
+  finish: Finish;
+  rawCondition?: RawCondition;
+  gradeKey: string;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  stockCount: number;
+  salePriceCents: number;
+  referenceValue: PriceInfo;
+  currency: 'MXN';
+}
+
+export interface GroupedListingListResponse {
+  data: GroupedListingDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+// Ficha (GET /catalog/cards/:cardId): los grupos vendibles de la carta + `units` = TODAS las piezas
+// vendibles por-pieza (ListingDTO, cheapest-first) para resolver el add-to-cart por `inventoryItemId`
+// (carrito por-pieza) y exponer el `certNumber` de cada slab en graded. `units` NO es la grilla.
+export interface GroupedListingDetailResponse {
+  card: CardDTO;
+  listings: GroupedListingDTO[];
+  units: ListingDTO[];
+}
+
 // ---- Bóveda / portafolio (contrato §3) ----
 export interface HoldingDTO {
   inventoryItemId: string;

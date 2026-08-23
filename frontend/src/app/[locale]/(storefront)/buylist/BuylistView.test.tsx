@@ -356,13 +356,13 @@ describe('BuylistView · carrito de venta', () => {
     expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
-  it('TL-C2: «Vaciar carrito» con el foco en el botón también deja el foco DENTRO del diálogo', async () => {
+  it('TL-C2: «Vaciar la lista» con el foco en el botón también deja el foco DENTRO del diálogo', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
     await addCard('Charizard');
     openCart();
 
-    const clear = screen.getByRole('button', { name: /Vaciar carrito/ });
+    const clear = screen.getByRole('button', { name: /Vaciar la lista/ });
     clear.focus();
     fireEvent.click(clear);
 
@@ -375,7 +375,7 @@ describe('BuylistView · carrito de venta', () => {
     renderWithProviders(<BuylistView />, 'es');
     await addCard('Charizard');
     openCart();
-    fireEvent.click(screen.getByRole('button', { name: /Vaciar carrito/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Vaciar la lista/ }));
     expect(
       screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.'),
     ).toBeInTheDocument();
@@ -817,7 +817,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     renderWithProviders(<BuylistView />, 'es');
     openCart();
 
-    expect(await screen.findByText('Requisitos para vender')).toBeInTheDocument();
+    expect(await screen.findByText('Requisitos para cobrar')).toBeInTheDocument();
     expect(
       await screen.findByText(/CLABE a tu nombre \(18 dígitos\): requisito/),
     ).toBeInTheDocument();

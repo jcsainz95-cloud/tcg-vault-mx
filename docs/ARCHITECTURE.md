@@ -2,7 +2,14 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.37-pricing-tiers (MVP, plataforma en producción). Fecha: 2026-08-22. **DISEÑO EN PAPEL (backend/frontend
+> Estado: v1.38-grouped-listings (MVP, plataforma en producción). Fecha: 2026-08-22. **DISEÑO EN PAPEL (backend/frontend
+> implementan; el arquitecto no toca código). P-30 — publicación ÚNICA por carta/variante/condición con STOCK:** el
+> catálogo de singles (`GET /catalog/cards*`) pasa de «un `ListingDTO` por copia física» a **`GroupedListingDTO`
+> agrupado por `(cardId, productType, gradeKey, finish)` con `stockCount`** (nueva **§4.9a**), reutilizando el patrón del
+> sellado (`SealedGroupDTO`). Vivo mientras `stockCount≥1`, agotado (no aparece) en 0. **Sin schema/migración** (grupo =
+> agregación en lectura; publicar/despublicar sigue por pieza y el stock derivado se recomputa). Contrato en
+> API_CONTRACT (Changelog v1.38-grouped-listings). Coordinación con el **rediseño visual del storefront** documentada en
+> §4.9a. **Base previa:** v1.37-pricing-tiers. **DISEÑO EN PAPEL (backend/frontend
 > implementan; el arquitecto no toca código). P-34, PROJECT §M v1.9 LOCKED.** El editor de precios de M2 pasa de «una
 > regla por CADA rareza canónica» (~30 filas) a «una regla por `tier`» (**5 tiers T0–T4**) + un **mapa rareza canónica →
 > tier** compartido por compra y venta. La **naturaleza de la regla no cambia** (`fixed` MX$ / `pct`), la **precedencia
@@ -1934,6 +1941,80 @@ Ingesta de **datos de catálogo** (Card/CardSet, en inglés, no se traduce). Ali
   - **rangos de precio** (min/max de `salePriceCents`) para el slider de precio.
 - **Filtros** del listado: `setId`, `rarity`, `productType` (raw NM | graded | sealed), **`finish` (v1.6-finish)**, rango de precio, y `condition` (para raw solo hay `NM`).
 - **Valuación por acabado (v1.6-finish):** `referenceValue`/`salePriceCents` de cada `ListingDTO` se calculan contra la `PriceReference` del **`InventoryItem.finish`** (no un precio único por carta). Dos copias de la misma carta con acabado distinto se listan como **entradas separadas** con su propio precio.
+
+### 4.9a Publicación ÚNICA por carta/variante/condición con STOCK (singles agrupados) — v1.38 (P-30)
+
+**Problema.** Hasta v1.37 `GET /catalog/cards` y `GET /catalog/cards/:cardId` devolvían **un `ListingDTO` por cada
+`InventoryItem`** (una fila por copia física). Tres Tropius raw NM en bóveda ⇒ tres publicaciones separadas en Compra
+(«01/02/03 Tropius · Pitch Black #1 · MX$15»). El requisito del humano: **UNA sola publicación** por carta/variante/
+condición, con **cantidad/stock**, viva mientras haya inventario y **agotada** cuando el stock llega a 0.
+
+**Decisión — el sellado ya resolvió esto; se generaliza a singles.** El sellado (v1.23-sealed-sales, §4.23e/§4.23i)
+ya expone un **catálogo AGREGADO** (`GET /catalog/sealed` → `SealedGroupDTO` con `availableCount`, agrupando piezas
+idénticas). P-30 aplica el **mismo patrón** a los **singles** (raw/graded) en `GET /catalog/cards*`. Quedan **dos
+catálogos agrupados paralelos** (singles y sellado), cada uno con su DTO; el guardarraíl **H9** (singles excluyen
+`productType='sealed'`, `singlesPublishedWhere`) sigue separándolos.
+
+**Clave de agrupación (exacta).** `K = (cardId, productType, gradeKey, finish)` donde `gradeKey = gradeKeyFor(item)`
+(canónico: `raw:NM` | `graded:PSA:10` | …, que encapsula condición/grado). Es **exactamente** la clave con la que
+`fetchSellable`/`toListingDTO` YA resuelven `salePriceCents` por pieza, y la de `PriceReference`/`VariantPriceOverride`
+(menos `capturedDate`/`cardProductId`). Consecuencia clave: **todas las piezas de un grupo comparten un único precio de
+venta y una única `referenceValue`** por construcción ⇒ «precio único de la variante» sin lógica extra. *(No se agrupa
+por `cardProductId`: la identidad M-31 por producto vive en `PriceReference`/buylist, no en `InventoryItem` de singles;
+el catálogo de singles resuelve precio por `(cardId, productType, gradeKey, finish)`, así que esa es la granularidad
+correcta y suficiente del grupo.)*
+
+**Derivación del stock (money-safe).** `stockCount` = nº de piezas del grupo que son **vendibles**: `ownerType=platform`
+AND `status='listed'` AND `sellable=true` AND `salePriceCents != null` (Regla de Compra §4.9). Una pieza **sin precio no
+cuenta ni publica** (nunca $0). El estado se **deriva del stock**, no se persiste:
+- `stockCount ≥ 1` ⇒ publicación **VIVA** (aparece en Compra).
+- `stockCount = 0` ⇒ **AGOTADA** ⇒ el grupo **no se emite** (desaparece de Compra). El invariante `stockCount≥1` en toda
+  fila devuelta ES la representación de «vivo»; no hay columna ni campo `status` de publicación (el stock es la única
+  fuente de verdad). *(Si en el futuro se quisiera pintar agotados como «temporalmente sin stock» en la ficha, sería un
+  parámetro nuevo `?includeSoldOut=` — fuera de alcance de P-30, money-safe por defecto: no se muestra lo que no hay.)*
+
+**Precio del grupo.** `salePriceCents` = **mínimo** de los `salePriceCents` de las piezas del grupo (= el del
+`representativeInventoryItemId`, la pieza vendible más barata). En el caso normal **todas** las piezas de `K` comparten
+precio (misma regla de venta por rareza/tier + mismo override de variante) y el mínimo = ese precio único. La **única**
+divergencia posible es un `InventoryItem.listPriceCents` **manual por pieza** distinto (§4.26b): entonces el grupo
+muestra el más barato primero (idéntico a `SealedGroupDTO.fromPriceCents`) y las piezas concretas siguen disponibles en
+`units[]` de la ficha. `referenceValue` (valor de mercado) es único por `K` (misma `PriceReference`).
+
+**Interacción con «publicar» (M1) — NO se crean N publicaciones.** No existe entidad «publicación»: el grupo es una
+**vista derivada en lectura**. Publicar/despublicar sigue siendo **por pieza** (flip de `InventoryItem.status` a/desde
+`listed`; alta/bulk-publish `InventoryBatch` kind `publish`/`publish_all`, sin cambio). El efecto en el catálogo:
+- Publicar N piezas de la misma `K` ⇒ `stockCount` del grupo **sube +N** (una sola fila, no N filas).
+- Despublicar / vender / retirar / mover una pieza fuera de `listed` ⇒ `stockCount` **baja −1** solo.
+- Cuando la última pieza `listed` de `K` sale ⇒ `stockCount=0` ⇒ el grupo desaparece (agotado).
+Todo esto es automático porque el stock se **recomputa en cada lectura**; **cero doble-escritura, cero drift, cero
+contador que reconciliar** (mismo principio money-safe que el resto del catálogo).
+
+**Schema — sin migración.** Se **prefiere agregación en query** sobre denormalizar. El grupo se computa con un **reduce
+en memoria** sobre el conjunto `sellable` que `fetchSellable` ya carga (idéntico coste al listado por-pieza actual, que
+también carga todo y pagina en memoria; el sellado agrupa igual). `gradeKey` es derivado en app (`gradeKeyFor`), no
+columna, por lo que el GROUP BY final ocurre en app, no en SQL puro. **No se añade columna `stockCount` ni tabla nueva.**
+El índice existente `@@index([cardId, finish, status])` (M-21) ya cubre la ficha (`GET /catalog/cards/:cardId`); para el
+listado global la reducción en memoria es aceptable en el MVP. *(Nota para backend, NO bloqueante: si el volumen de
+piezas `listed` crece, evaluar un índice de cobertura `(ownerType, status, cardId, productType, finish)` para acotar el
+fetch del listado; hoy no hace falta y NO hay migración asociada a P-30.)*
+
+**Contrato.** DTOs `GroupedListingDTO` / `GroupedListingListResponse` / `GroupedListingDetailResponse` (API_CONTRACT
+§DTOs). `GET /catalog/cards` → `{ data: GroupedListingDTO[], … }` (`total` = nº de grupos). `GET /catalog/cards/:cardId`
+→ `{ card, listings: GroupedListingDTO[], units: ListingDTO[] }`. `GET /catalog/listings/:inventoryItemId` y
+`GET /catalog/facets` **no cambian**. **Cambio de shape breaking** de `/catalog/cards*` — se hace ahora porque coincide
+con el **rediseño visual del storefront** (ver «Coordinación» abajo).
+
+**Coordinación con el rediseño visual del storefront (otra sesión).** Esta capa de datos NO toca render. El rediseño
+debe construir el catálogo de Compra contra el **shape agrupado final**, NO contra las N-copias actuales:
+- **Grilla/tarjetas y ficha de Compra ⇒ se construyen contra `GroupedListingDTO`** (una tarjeta por publicación única,
+  con badge «`stockCount` disponibles» y `salePriceCents` único). Fuentes: `GET /catalog/cards` (`data:
+  GroupedListingDTO[]`) y `GET /catalog/cards/:cardId` (`listings: GroupedListingDTO[]`).
+- **Add-to-cart sigue por `inventoryItemId`** (carrito por-pieza, §4-G, sin cambio): cantidad 1 ⇒
+  `representativeInventoryItemId`; cantidad > 1 ⇒ tomar N `inventoryItemId` distintos de `units[]` (ficha), cheapest-first,
+  hasta `stockCount`. El **re-quote del carrito** sigue usando `GET /catalog/listings/:inventoryItemId` (por-pieza).
+- **`units[]` NO es la grilla de navegación**: es SOLO el detalle por-pieza para resolver el carrito y (en graded) mostrar
+  el `certNumber` de cada slab. El rediseño NO debe pintar una tarjeta por `unit`.
+- **Facetas/filtros/sort** no cambian de forma (§4.9); aplican sobre el grupo.
 
 ### 4.10 Cotizador buylist sobre TODO el catálogo (Opción 1) — v1.3
 

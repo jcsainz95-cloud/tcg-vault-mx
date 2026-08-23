@@ -144,8 +144,10 @@ export function MyRequestsSection({ ready, isAuthenticated }: MyRequestsSectionP
                     </div>
 
                     {/* F5: bloque de respuesta al AJUSTE — visible solo con ítems `ajustada`. */}
+                    {/* Makeover 1a: el bloque de ajuste es una nota al margen con regla
+                        roja (rule-note), no una caja de color (sin rellenos, §2.1). */}
                     {hasAdjustedItems && (
-                      <div className="mt-5 border border-accent/40 bg-accent/5 p-4">
+                      <div className="rule-note mt-5 py-1">
                         <p className="eyebrow text-accent">{t('adjust.title')}</p>
                         <p className="mt-2 text-[13px] leading-[1.6] text-text">
                           {t('adjust.body')}

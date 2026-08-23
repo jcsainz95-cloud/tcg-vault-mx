@@ -32,10 +32,13 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
 
   return (
     <div>
-      <RarityFilter facets={facets} filters={filters} onChange={onChange} />
-
+      {/* Orden del artboard 2a: Set primero, luego rareza, tipo, acabado y precio. */}
       <FilterSection>
         <SetFilter facets={facets} filters={filters} onChange={onChange} />
+      </FilterSection>
+
+      <FilterSection>
+        <RarityFilter facets={facets} filters={filters} onChange={onChange} />
       </FilterSection>
 
       <FilterSection>
@@ -90,9 +93,9 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
   );
 }
 
-/** Bloque de filtro: regla fina arriba y aire, nunca una caja. */
+/** Bloque de filtro (artboard 2a): regla de énfasis arriba y aire, nunca una caja. */
 function FilterSection({ children }: { children: React.ReactNode }) {
-  return <div className="mt-8 border-t border-border pt-6">{children}</div>;
+  return <div className="mt-6 border-t border-border-strong pt-4">{children}</div>;
 }
 
 /** Buscador de bloque: solo la regla inferior, sin icono de lupa. */

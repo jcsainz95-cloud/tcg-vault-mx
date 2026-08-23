@@ -132,6 +132,20 @@
 > retícula (§18.6). Deja **una solicitud abierta al arquitecto** (endpoint de catálogo de sellado por `setId` +
 > mapear-al-crear con `tcgplayerProductId`; §16.8a y §16.11.4), **no bloqueante** (implementable con el
 > explorador TCGCSV de M2 ya existente).
+> **Añadido v2.0 (makeover del storefront — dirección 1a «Conservadora», Claude Design) → ver §20.**
+> Primera entrega formal de **Claude Design** codificada en este documento: el humano aprobó los
+> artboards 1a (home 1280 + 390) y 2a–2e (Comprar, Vender, Ficha, Carrito, Mi bóveda) y §20 extrae de
+> ellos los **patrones nuevos** del storefront: hero de home a **2 columnas** con panel **Cotizador**
+> embebido, carrusel **«Piezas destacadas»** con numeración mono roja, banda **«Producto sellado»**
+> sobre pozo con tejas horizontales, vitrina **«Cartas gradeadas»** 3:5 con chip de grado, los
+> **distintivos de stock** («Queda 1» / «N en stock» / «Último») con regla money-safe, la tabla
+> condicional de **bounties**, los **pasos numerados** con regla superior de tinta, la **banda oscura
+> CTA de buylist** con etiqueta vertical, el **footer mono de una línea**, la navegación del header
+> con **subrayado rojo 1px** en el link activo, un **paginador sobrio** para catálogo/pedidos y las
+> jerarquías **móviles a 390px**. §20 es **aditiva y cero tokens nuevos**: todo se compone con la
+> paleta §2/§17 (tinta `#1A1A18`, rojo TCG HUNT `#B31217`, verde vivo `#4A7345`), las reglas §4.3 y
+> las tres familias §3. Refina una convención tipográfica (precios display en sans 500 `tabular-nums`,
+> dinero operativo en mono — §20.14) sin tocar contrato ni flujos.
 
 ---
 
@@ -3430,3 +3444,385 @@ tabla en `md`).
    plegado y E solo aparece al expandir; (c) que «Unificar rarezas» no altera ningún precio (diff de
    reglas antes/después = 0) y colapsa duplicados del editor; (d) que ninguna acción global queda
    habilitada mientras otra corre.
+
+---
+
+## 20. Makeover del storefront — dirección 1a «Conservadora» (v2.0, Claude Design)
+
+> **Origen:** artboards de **Claude Design** aprobados por el humano — «TCGHunt Home Makeover»
+> (bloque **1a**, escritorio 1280 + móvil 390; la dirección 1b queda descartada) y «TCGHunt Comprar
+> y Vender» (2a Comprar, 2b Vender, 2c Ficha de carta, 2d Carrito y pago, 2e Mi bóveda). Esta sección
+> **codifica** esos artboards como spec versionada. Los nombres de cartas, precios, certs y conteos de
+> los artboards son **placeholders**: aquí se documenta el patrón, nunca los datos.
+>
+> **Regla de composición:** §20 introduce **cero tokens nuevos**. Todo se construye con los tokens
+> vivos de `globals.css` (§2.3 con los valores v1.7 de §17.2): tinta `--color-text`/`--color-primary`
+> `#1A1A18`, rojo TCG HUNT `--color-accent`/`--color-danger`/`--color-warning` `#B31217`, verde
+> `--color-success` (vivo `#4A7345`), papel `--color-bg`/`--color-surface` `#F4F1EA`, pozo
+> `--color-surface-2` `#EFEBE2`, reglas `--color-border` / `--color-border-strong`, panel de tinta
+> `--color-ink`/`--color-on-ink`/`--color-on-ink-muted`/`--color-on-ink-rule`. Radios 0 y sombras 0
+> (§4.2–§4.3) intactos; anillo de foco rojo obligatorio (§8.2).
+
+### 20.0 Alcance y relación con lo existente
+
+- **Qué cambia:** la **composición** del storefront (home nueva + restyle de Comprar/Vender/Ficha/
+  Carrito/Bóveda con estos mismos patrones). **Qué NO cambia:** flujos, contrato, datos, tokens.
+- Los artboards 2a–2e aplican patrones ya especificados (grilla de catálogo §4.4/§7.1, `ListingSpec`
+  mono §7.2b, tres precios y bounty §16, cotizador §18, portafolio §7.17) con la piel de §20; donde un
+  artboard matiza una regla previa, se dice explícitamente aquí (§20.14 precios, §20.2 tabs/locale).
+- **Micropatrones transversales del makeover** (aparecen en varios artboards, se nombran una vez):
+  - **Link editorial subrayado rojo:** texto 11px peso 500 `uppercase` tracking `0.14em`, tinta, con
+    `border-bottom: 1px solid var(--color-accent)` y `padding-bottom: 5–6px`. Es la acción secundaria
+    de marca del storefront («Producto sellado», «Continuar mi cotización», «Ver la buylist completa»).
+    Variante `muted` sin subrayado para links terciarios («Ver todo el catálogo»). Hover: el subrayado
+    pasa a tinta o el texto a `--color-accent`; focus: anillo estándar.
+  - **Nota al margen:** párrafo 13px `--color-text-muted` con `border-left: 2px solid
+    var(--color-accent)` y `padding-left: 14–16px` para avisos de confianza («El pago se hace después
+    de recibir y verificar…», «Todas las ventas son finales.»). Variante neutra con `border-left: 1px
+    var(--color-border-strong)` para notas informativas sin urgencia (factura, envío desde bóveda).
+  - **Eyebrow mono:** ya existente (§3.2) — 10px mono 500 `uppercase` tracking `0.18em` muted; el
+    makeover lo usa como encabezado de TODA subsección («Cotizador», «Filtros», «Resumen», «Tu lista»).
+  - **Placeholder de imagen:** mientras carga o falta imagen, fondo de rayas diagonales sutiles
+    (`repeating-linear-gradient(135deg)` alternando pozo y un paso más oscuro) — es **textura de
+    skeleton**, no un gradiente decorativo; no viola la regla de gradientes (§16.6/§17).
+
+### 20.1 Navegación del header del storefront
+
+Desktop (≥`lg`): barra de **74px**, `padding 0 32px`, `border-bottom` regla 1px.
+1. **Marca** a la izquierda: mira SVG 28px (§17.1) + wordmark Montserrat 700 18px tracking `0.04em`
+   `uppercase`.
+2. **Nav** alineada a la derecha, gap 26px. Links: **11px, peso 500, `uppercase`, tracking `0.14em`**.
+   - **Activo:** color tinta + `border-bottom: 1px solid var(--color-accent)` con `padding-bottom: 5px`.
+   - **Inactivo:** `--color-text-muted`, border transparente (reserva el espacio; no salta al activar).
+3. **Toggle de idioma — variante storefront:** texto **«ES / EN»** en mono 10px tracking `0.14em`
+   muted; el locale activo en tinta, separador `/` muted. Es una **variante tipográfica** del
+   `LocaleToggle` (§6.5): conserva su semántica (`role="group"`, `aria-pressed`, persistencia), cambia
+   solo la piel (sin segmented control con fondo en el storefront). El admin conserva §6.5 tal cual.
+4. **Carrito:** botón con `border: 1px solid var(--color-primary)`, `padding 9px 13px`, label 11px
+   `uppercase` tracking `0.14em` + **contador mono `tabular-nums`**. Con carrito vacío muestra `0`
+   (no se oculta). En checkout el header se simplifica: marca + rótulo mono «PAGO SEGURO · MXN SIN
+   IVA» a la derecha (sin nav — menos fugas en el momento de pagar).
+
+**Tabs de sección del storefront** (Cartas sueltas · Producto sellado · Gradeadas, artboard 2a): texto
+12px 500 `uppercase` tracking `0.14em`, activo con **`border-bottom: 2px solid var(--color-accent)`**.
+Matiz de §6.6: en el **storefront** el subrayado activo de tabs es **rojo** (coherente con la nav);
+en el **back-office** sigue siendo tinta (§6.6 sin cambios). Las tabs de la bóveda (2e) usan texto
+14px sin uppercase con subrayado 2px **tinta** — son navegación de contenido, no taxonomía de tienda.
+
+Móvil (<`lg`): header de **60px**, `padding 0 16px`: marca (mira 28px + wordmark 16px) + carrito
+compacto + **hamburguesa minimal** (dos reglas horizontales de 1px de tinta, 22px de ancho, gap 5px;
+es un `<button>` con `aria-label` y área táctil 44px). La nav completa vive en el menú desplegado.
+El header sigue exponiendo `--app-header-h` (§4.5).
+
+### 20.2 Hero de home a 2 columnas — claim editorial + panel «Cotizador»
+
+Grid desktop: **`1fr 392px`**, separadas por regla vertical 1px, `border-bottom` regla al cierre.
+
+**Columna izquierda — claim editorial** (`padding: 52px 48px 44px 32px`):
+1. Eyebrow mono («CARTAS POKÉMON · MÉXICO»).
+2. **H1 serif** (Zen Old Mincho 400): **50px / line-height 1.14 / tracking −0.005em**, `max-width
+   ~660px`, `text-wrap: pretty`. Tamaño de hero **solo para la home** (por encima de `text-display`
+   40px de §3.2); se implementa con arbitrary value o extensión local del scale — no es token nuevo.
+3. Lead 16px / 1.75 muted, `max-width ~470px`.
+4. Fila de CTAs (gap 28px): **CTA primario de tinta** — bloque `#1A1A18`, texto papel, **54px de
+   alto**, `padding 0 30px`, label 11px 500 `uppercase` tracking `0.18em` («Ver el catálogo») — +
+   **link editorial subrayado rojo** secundario («Producto sellado»).
+5. Fila «Sets buscados»: eyebrow mono + chips de texto 13px con `border-bottom` 1px
+   `--color-border-strong` (links a facetas de set; los nombres EN llevan `lang="en"`). Solo sets
+   reales con inventario — no decorar con sets vacíos.
+
+**Columna derecha — panel Cotizador** (embebido, sin borde propio: lo delimitan las reglas del grid):
+1. **Encabezado de panel:** fila `13px de padding vertical`, `border-bottom` regla, con dos eyebrows
+   mono enfrentados: **«COTIZADOR»** ⟷ **«MXN · SIN IVA»**.
+2. Título serif 26px («¿Cuánto vale lo que tienes?») + apoyo 14px muted.
+3. **Input con botón integrado:** contenedor de **46px** con `border: 1px solid var(--color-primary)`
+   (tinta, más fuerte que el input estándar §6.2 — es el CTA de la home); dentro, campo de búsqueda
+   (placeholder muted, 14–16px) y, pegado al borde derecho, **botón «AÑADIR»** como bloque de tinta
+   `align-self: stretch` (fondo `--color-primary`, texto papel, 10px 500 `uppercase` tracking
+   `0.14em`). Un solo control compuesto: el foco visible envuelve el conjunto; el botón es `<button>`
+   real. Conecta con el typeahead del cotizador §18 (mismos datos, mismo flujo).
+4. **Lista de líneas:** filas `justify-between` con `padding 11px 0` y regla inferior — nombre de
+   carta 13px (`lang="en"`) ⟷ **precio mono 12px `tabular-nums`**. Sin imagen: el panel es una
+   tabla de papel. Máximo ~3 líneas visibles; más líneas viven en `/buylist`.
+5. **Total:** fila final — eyebrow mono **«TE PAGAMOS»** ⟷ **cifra mono 19px `tabular-nums`**.
+6. **Link editorial subrayado rojo** «Continuar mi cotización» → `/buylist` (lleva las líneas
+   capturadas; el estado se comparte con el cotizador §18, no se duplica).
+7. **Pie de confianza** anclado abajo (`margin-top: auto`): dos renglones 14px separados por reglas
+   («Bóveda asegurada…», «Pago por transferencia en 24–48 h»).
+
+**Estados del panel:** vacío = input + copy de invitación (sin lista ni total: no se inventan cifras
+de ejemplo); con líneas = lista + total; precio pendiente en una línea = texto mono rojo «PENDIENTE»
+en lugar de cifra (§16.4). El panel **nunca** muestra montos si no hay precios de buylist reales.
+
+### 20.3 Carrusel «Piezas destacadas»
+
+Encabezado de sección: fila `justify-between` — **H2 serif 29px** («Piezas destacadas del catálogo»)
+⟷ link muted «Ver todo el catálogo» + **flechas cuadradas**.
+
+- **Flechas:** botones cuadrados de **38px** (radio 0), `border: 1px solid`; **habilitada** = borde
+  `--color-primary` (tinta) y glifo tinta; **deshabilitada/extremo** = borde `--color-border-strong`
+  y glifo muted, `disabled` real. Área táctil ampliada a 44px. `aria-label` «Anterior»/«Siguiente».
+- **Pista:** fila horizontal con gap 28px, `overflow` con scroll-snap (el carrusel degrada a scroll
+  horizontal nativo sin JS).
+- **Primera pieza — grande:** ancho **400px**, imagen **`aspect-[4/5]`** (encuadre editorial del arte;
+  la 5:7 canónica §5 sigue siendo la norma fuera del hero del carrusel). Debajo, fila `justify-between`:
+  nombre **serif 26px** + sublínea mono 11px muted (set · # · grado si aplica) ⟷ precio **25px sans
+  500 `tabular-nums`** alineado a la derecha + distintivo de stock (§20.6).
+- **Piezas siguientes:** ancho **268px**, imagen `aspect-[5/7]`. Anatomía: fila de título con
+  **numeración mono roja de dos dígitos** (`01`, `02`… mono 10px `--color-accent`) + nombre serif
+  16px; sublínea mono 11px muted; precio 17px sans 500 `tabular-nums`; distintivo de stock.
+- La numeración es **decorativa/orientadora** (`aria-hidden`); el orden real lo da el DOM.
+- **Contenido:** solo piezas publicadas con precio (regla dura §7.1); la selección «destacadas» es
+  curaduría o criterio de negocio, nunca placeholders.
+
+### 20.4 Sección «Producto sellado» — banda de pozo con tejas horizontales
+
+Banda de ancho completo sobre **`--color-surface-2`** (pozo), delimitada por reglas arriba/abajo —
+es el único bloque de la home con fondo distinto al papel (jerarquía por tono, §4.3).
+
+- Encabezado: H2 serif 29px («Producto sellado») ⟷ link muted «Ver todo el sellado».
+- **Tejas horizontales** en grid de **3 columnas** (gap 32px), cada teja con **`border-top: 1px solid
+  var(--color-border-strong)`** y `padding-top: 18px`:
+  1. **Thumb cuadrado de 88px** (la caja se centra con `object-contain` sobre el pozo, §7.1b — no se
+     recorta).
+  2. Columna de texto: **nombre serif 16px / 1.3** (`lang="en"`), **precio 16px sans 500
+     `tabular-nums`**, **distintivo de stock** (§20.6).
+- La teja completa es un link a la ficha; hover = leve énfasis de la regla superior (a tinta) y/o
+  `scale-[1.02]` del thumb; focus = anillo en toda la teja.
+
+### 20.5 Sección «Cartas gradeadas» — tejas 3:5 con chip de grado
+
+- Encabezado: H2 serif 29px («Cartas gradeadas») + **kicker mono** al lado: eyebrow **«PSA · BGS ·
+  CGC»**; a la derecha link muted «Ver todas las gradeadas». Debajo, apoyo 14px muted que ancla la
+  confianza («Slab sellado, grado y número de certificado verificados…»).
+- Grid de **4 columnas** (gap 32px). Anatomía de teja:
+  1. Imagen del slab **`aspect-[3/5]`** (el slab es más alto que la carta 5:7; mismo tratamiento de
+     placeholder/borde de §5).
+  2. **Fila de certificación** (bajo la imagen, fuera del arte — regla §7.2b): **chip de grado** con
+     `border: 1px solid var(--color-primary)` (tinta), `padding 4px 7px`, texto **mono 10px 500**
+     tracking `0.1em` («PSA 9», «BGS 9.5», «CGC 9») + **número de cert** mono 10px muted
+     («CERT 84021177» — dato real de `certNumber`, verificable; nunca placeholder).
+  3. Nombre serif 16px (`lang="en"`), sublínea mono 11px muted (set · #).
+  4. Precio 17px sans 500 `tabular-nums` + distintivo de stock (§20.6).
+- El chip de grado de §20.5 es la forma vitrina del `ListingSpec` (§7.2b): en listas densas se sigue
+  usando el renglón `GRADED · PSA 9 · CERT …`; en vitrina se separa chip + cert para jerarquía.
+
+### 20.6 Distintivos de stock — y regla money-safe
+
+Etiqueta **mono, `uppercase`, 10px (9px en móvil), tracking `0.10–0.12em`**, siempre texto plano
+coloreado sobre el fondo (sin caja, §2.1). Cuatro formas:
+
+| Distintivo | Color | Cuándo |
+|---|---|---|
+| **«QUEDA 1»** | `--color-accent` `#B31217` | La pieza es única (urgencia honesta) |
+| **«N EN STOCK»** | `--color-success` (vivo `#4A7345`) | Existen N ≥ 2 copias reales equivalentes |
+| **«ÚLTIMO»** | `--color-text-muted` `#6E695E` | Última unidad de un producto que tuvo varias (sellado) |
+| **«AGOTADO»** | `--color-text-muted` `#6E695E` | Sellado con `availableCount: 0` (conteo real del backend) |
+
+**Regla money-safe (dura):** el distintivo solo muestra **datos reales del backend**.
+- En el **catálogo actual el modelo es 1 publicación = 1 copia**: el distintivo veraz por defecto es
+  **«Queda 1»** (o ninguno). **Prohibido inventar agregados** («3 en stock») sumando publicaciones en
+  el cliente o mostrando conteos que el contrato no expone.
+- **«N EN STOCK»** solo se renderiza cuando el backend entrega un **conteo agregado real** (p. ej.
+  stock de sellado o publicaciones agrupadas por variante equivalente). Mientras ese dato no exista
+  en el contrato, la forma verde **no se usa en cartas sueltas**. *Solicitud anotada para
+  arquitecto/product-owner:* si se quiere la forma agregada en singles, el contrato debe exponer el
+  conteo por grupo equivalente (ver resumen final; no bloquea §20).
+- **«ÚLTIMO»** requiere igualmente conteo real (stock de sellado que llegó a 1).
+- El distintivo es **informativo**, no estado de dominio: no reemplaza a los badges de §2.4. Color +
+  texto siempre (el color es redundante, §2.4). En `aria-label` de la teja se incluye el texto.
+
+### 20.7 Tabla «Lo que más buscamos hoy» (bounties) — condicional
+
+Sección de la home que **solo se renderiza si hay bounties activos** (mismo dato que «Top Bounties»
+§16.7b; si la lista está vacía, la sección desaparece por completo — no hay estado vacío decorativo).
+
+- Encabezado: H2 serif 29px ⟷ link muted «Ver la buylist completa»; apoyo 14px muted («…pagamos por
+  encima del mercado. Precio del día, sin regateo.»).
+- **Tabla en grid `2fr 1fr 1fr 1fr`** (gap 20px):
+  - **Header row:** cuatro eyebrows mono muted — «CARTA», «CONDICIÓN», «PAGAMOS» (alineada a la
+    derecha), «BUSCADAS» (derecha) — cerrada con **regla fuerte** (`--color-border-strong`).
+  - **Filas** (`padding 15px 0`, regla 1px entre filas, `align-items: baseline`):
+    1. Nombre **serif 17px** (`lang="en"`, carta · set · #).
+    2. Condición en **mono 12px muted** («NM o mejor», «Cualquiera»).
+    3. **Cifra mono 15px `tabular-nums`** alineada a la derecha (lo que se paga — dato real del
+       bounty).
+    4. Cantidad buscada **mono 12px `tabular-nums` muted**, derecha (se omite la celda si el bounty
+       no define cupo).
+- Semántica: es una tabla de datos → `<table>` real (o grid con `role="table"`/`row`/`cell`) con
+  `<th scope="col">`; el orden de lectura coincide con el visual.
+- Cada fila enlaza al flujo de cotización con esa carta precargada (patrón «Cotizar esta carta» §16.7b).
+
+### 20.8 «Cómo funciona la bóveda» — pasos con regla superior de tinta
+
+- Encabezado: H2 serif 29px + kicker eyebrow mono («CUSTODIA ASEGURADA»).
+- **Grid de 3 pasos** (gap 40px), cada paso:
+  1. **`border-top: 2px solid var(--color-primary)`** (tinta — la regla gruesa marca el paso) +
+     `padding-top: 16px`.
+  2. **Número mono rojo** (`01`, `02`, `03` — mono 11px `--color-accent`, `aria-hidden`; la secuencia
+     real es una `<ol>`).
+  3. Título **serif 20px**, cuerpo 14px / 1.7 muted.
+- **Variante secundaria** (usada en «Guía de envío seguro», artboard 2b): 4 columnas, `border-top`
+  **1px regla normal**, título en **sans 14px 500** en vez de serif — misma gramática, un escalón
+  menos de jerarquía. Regla general: 2px tinta + serif para pasos de sección principal; 1px + sans
+  para listas de pasos utilitarias.
+
+### 20.9 Banda oscura CTA «Vender mis cartas»
+
+Bloque de ancho completo sobre **panel de tinta** (`--color-ink` `#1A1A18`, §2.2), en grid
+**`40px 1fr auto`**:
+
+1. **Columna de etiqueta vertical (40px):** texto **«Buylist»** en serif 12px, `writing-mode:
+   vertical-rl`, tracking `0.5em`, `uppercase`, color `--color-on-ink-muted` `#8A857A`; separada del
+   contenido por regla `--color-on-ink-rule`. Es decorativa (`aria-hidden`).
+2. **Contenido:** H2 serif 33px en `--color-on-ink` (papel) + apoyo 15px / 1.7 en `#A39D91`
+   (`--color-on-ink-nav`), `max-width ~470px`.
+3. **CTA:** botón **rojo** — fondo `--color-accent` `#B31217`, texto papel, **54px** de alto,
+   `padding 0 32px`, label 11px 500 `uppercase` tracking `0.18em` («Cotizar mi lista»). Es de los
+   poquísimos usos del rojo como **fondo** (variante `accent` §6.1); autorizado aquí porque es EL
+   CTA de negocio de la home. Hover: oscurecer ~6% hacia el vino; focus: anillo rojo con
+   `outline-offset` que lo despega del fondo oscuro (visible sobre tinta).
+
+El mismo botón rojo de 54px es el **CTA de pago** del checkout («Pagar $X» — artboard 2d): rojo =
+momento de dinero irreversible, siempre con el monto en el label (`tabular-nums`).
+
+### 20.10 Footer mono minimal
+
+Una sola línea, `padding 26px 32px` (20px en móvil), `border-top` regla:
+
+- Todo en **mono 11px (10px móvil), `uppercase`, tracking `0.14em`, `--color-text-muted`**.
+- Izquierda: `TCG HUNT · tcghunt.mx · © {año}` (el dominio en `text-transform: none`).
+- Derecha: links legales («Términos», y los que apliquen) con el mismo estilo; hover = tinta;
+  focus = anillo. En móvil se apilan o queda solo la línea de marca.
+- Sin columnas, sin sitemap, sin redes decorativas: el footer es un **colofón de imprenta**. Contraste
+  del muted sobre papel 4.9:1 (§10) — AA para este cuerpo.
+
+### 20.11 Patrones móviles (390px)
+
+Jerarquías compactas según los artboards móviles; mismas piezas, un escalón menos:
+
+| Patrón | Desktop → Móvil |
+|---|---|
+| Header (§20.1) | 74px → **60px**; nav → hamburguesa; carrito compacto (`padding 8px 11px`) |
+| Hero (§20.2) | 2 columnas → **apilado**: claim (H1 serif **31px / 1.22**) + CTA de tinta **a ancho completo (52px)**; el panel Cotizador baja como **sección propia** tras «Destacadas» (eyebrow «COTIZADOR» + título 23px + input 46px + 1–2 líneas + total 18px + link rojo) |
+| Carrusel (§20.3) | pieza grande 400→**236px** (nombre serif 17px, precio 17px), resto 268→**160px** (serif 14px, precio 15px); flechas 38→**32px**; H2 22px («Destacadas») |
+| Sellado (§20.4) | banda de pozo con **una teja** (thumb 70px, serif 14px) + eyebrow «SELLADO»; el resto vive en su vitrina |
+| Gradeadas (§20.5) | **teja horizontal única**: slab 76×120 + chip de grado 9px + cert 9px + serif 15px + precio 15px; eyebrow «GRADEADAS» + link «Ver todas» |
+| Bounties (§20.7) | tabla → **lista de 2 columnas**: nombre serif 14px ⟷ cifra mono 13px `tabular-nums` (sin columnas de condición/cupo; viven en `/buylist`) |
+| Banda oscura (§20.9) | **sin etiqueta vertical**; H2 24px, CTA rojo a ancho completo (50px) |
+| Footer (§20.10) | una línea 10px |
+| Catálogo (2a móvil) | tabs con labels cortas («Sueltas»); barra de **«FILTROS n»** (botón con contador mono **rojo** de filtros activos) + orden; grilla 2 col; CTA «Añadir» 44px |
+| Carrito (2d móvil) | líneas compactas (miniatura 64px); **total + CTA rojo** en bloque de pozo al final |
+| Bóveda (2e móvil) | KPI 32px + delta; grilla 2 col de piezas con folio y estado mono |
+
+Reglas fijas en móvil: cuerpo/inputs mínimo 16px (§3.2), objetivos táctiles 44px (los botones de
+42–44px de los artboards cumplen; los de 40px amplían área táctil), distintivos de stock bajan a 9px
+pero nunca menos.
+
+### 20.12 Paginador sobrio (catálogo / pedidos)
+
+El backend pagina a **20 por página**; los artboards muestran la forma compacta (`← 1 / 6 →`, 2a) y
+aquí se define el patrón completo, coherente con las flechas del carrusel (§20.3):
+
+- **Forma compacta (default, y única en móvil):** `[←] 1 / 6 [→]` centrado bajo la grilla —
+  flechas **cuadradas de 38px con borde** (mismas reglas §20.3: habilitada = borde tinta; deshabilitada
+  = borde `border-strong` + glifo muted + `disabled`), y en medio el indicador **mono 11px
+  `tabular-nums` muted** «{página} / {total}».
+- **Forma numerada (opcional, desktop con muchas páginas):** números de página en **mono 12px
+  `tabular-nums`**, gap 12px; la página actual en tinta con `border-bottom: 1px solid
+  var(--color-accent)` (mismo lenguaje que la nav §20.1) y `aria-current="page"`; el resto muted.
+  Elipsis mono `…` no interactiva. Flechas cuadradas en los extremos.
+- Accesibilidad: `<nav aria-label="Paginación">`; flechas con `aria-label`; área táctil 44px; tras
+  cambiar de página el foco va al inicio de la lista de resultados y se anuncia «Página {n} de {m}»
+  (`aria-live="polite"`). Con una sola página, el paginador **no se renderiza**.
+- Sustituye la forma visual de §6.6 *Pagination* en el storefront (el patrón de datos
+  `{page,pageSize,total}` del contrato no cambia); «Cargar más» sigue permitido en móvil donde ya
+  exista.
+
+### 20.13 Ficha, carrito y bóveda — matices del makeover (2c/2d/2e)
+
+Sin flujo nuevo; tres matices visuales que el frontend debe respetar al re-pielar:
+
+- **Ficha (2c):** retícula de datos en **celdas separadas por reglas** (grid 2 col con `border-left`/
+  `border-bottom` 1px): «Precio de venta» (30px sans 500) vs «Valor de mercado» (30px + fecha de
+  captura mono, §7.3) en celdas hermanas — nunca la referencia compite en tamaño con la venta en otra
+  jerarquía. **Fila de certificado copiable:** caja con borde `border-strong`, texto mono
+  `PSA 9 · CERT {n}` + acción mono roja «COPIAR» (con confirmación `aria-live` «Copiado»).
+  **Ejemplares disponibles:** lista de filas con `ListingSpec` mono + precio + CTA por fila
+  («Comprar» tinta / «En el carrito» outline / «No disponible» muted deshabilitado; el ejemplar sin
+  precio muestra el aviso mono rojo de §16.4, nunca $0).
+- **Carrito (2d):** líneas con miniatura 92×129 (5:7) o 92×92 (sellado), nombre serif 19px, spec mono
+  muted, «Quitar» mono muted; resumen con desglose (subtotal / IVA 16% / procesamiento) en filas con
+  reglas y **Total mono 26px**; CTA de pago **rojo** con monto (§20.9). El bloque «Guardar en mi
+  bóveda» es lista de beneficios con reglas + nota al margen roja «Todas las ventas son finales.»
+- **Bóveda (2e):** KPI del portafolio **44px sans 500 `tabular-nums`** + delta verde/rojo (§7.17);
+  aviso mono rojo «{n} piezas con precio pendiente» si aplica; teja de pieza = imagen 5:7 + nombre
+  serif 15px + `ListingSpec` mono + **folio mono** + fila precio ⟷ estado (LIQUIDADA verde /
+  EN RETIRO rojo / PENDIENTE muted) + botón «Retirar» (outline tinta habilitado; outline débil +
+  muted deshabilitado, con motivo en `title`/`aria-describedby`).
+
+### 20.14 Refinamiento tipográfico v2.0 — dos voces para el dinero
+
+El makeover matiza la regla «toda cifra en mono» (§3.1) con dos registros, ambos siempre con
+`tabular-nums`:
+
+| Registro | Familia / peso | Dónde |
+|---|---|---|
+| **Precio display** (etiqueta de precio de una pieza) | **Sans (Archivo) 500**, 15–30px | Tejas de vitrina, carrusel, ficha (venta/mercado), líneas de carrito, KPI del portafolio |
+| **Dinero operativo** (columnas, totales, desgloses) | **Mono (JetBrains Mono)**, 11–26px | Líneas y total del cotizador, tabla de bounties, resumen del carrito («Total»), «Te pagamos», folios, certs |
+
+Racional: el precio-etiqueta es *voz de la pieza* (convive con el serif del nombre); el dinero que se
+suma, compara o liquida es *voz de registro* y se queda en mono. Los folios, certs, estados y
+distintivos siguen siendo **siempre mono** (§3.1 sin cambios). Esta tabla es la referencia ante duda.
+
+### 20.15 Accesibilidad y contraste (verificación de los pares que §20 usa)
+
+Pares nuevos o intensamente usados (los demás ya están en §10/§17.2):
+
+| Par | Ratio | Veredicto |
+|---|---|---|
+| Rojo `#B31217` sobre papel `#F4F1EA` (distintivos, números, links) | **6.2:1** (§17.2) | AA (texto pequeño ✓) |
+| Rojo `#B31217` sobre pozo `#EFEBE2` (distintivos en banda sellado) | **5.9:1** | AA ✓ |
+| Verde `#4A7345` sobre papel (N en stock, «Liquidada») | **4.9:1** | AA ✓ |
+| Verde `#4A7345` sobre pozo | **4.6:1** | AA ✓ |
+| Muted `#6E695E` sobre pozo (subtítulos en banda sellado) | **4.6:1** | AA ✓ |
+| Papel sobre rojo `#B31217` (CTA rojo) | **6.2:1** | AA ✓ |
+| Papel sobre tinta / on-ink-muted sobre tinta (banda oscura) | ≥ 6.4:1 | AA ✓ (ya en §10) |
+
+Reglas de accesibilidad del makeover: numeración decorativa y etiqueta vertical `aria-hidden`
+(§20.3, §20.8, §20.9); los distintivos de stock y estados son **texto**, el color es redundante
+(§2.4); carrusel operable por teclado (flechas = botones reales, la pista es scrollable con
+`tabindex` según implementación estándar); tabla de bounties con semántica de tabla (§20.7);
+paginador con `aria-current` y anuncio de página (§20.12); foco visible rojo en TODO interactivo,
+incluida la banda oscura (offset sobre tinta, §20.9); labels mono en `uppercase` vía
+`text-transform` (el texto fuente conserva mayúsculas/minúsculas normales para lectores de pantalla).
+
+### 20.16 i18n — claves nuevas (propiedad de frontend) y notas
+
+Convención `home.*` / `storefront.*` (ES de referencia; EN a cargo de frontend, §9):
+- `home.hero.{eyebrow,title,lead,ctaCatalog,ctaSealed,setsLabel}`
+- `home.quoter.{title,lead,searchPlaceholder,add,payLabel,continue,trust1,trust2,pendingPrice}`
+- `home.featured.{title,titleMobile,viewAll,prevAria,nextAria}`
+- `home.sealed.{title,viewAll}` · `home.graded.{title,kicker,viewAll,lead,copyCert,copiedCert}`
+- `home.bounties.{title,lead,viewAll,colCard,colCondition,colPay,colWanted}`
+- `home.vaultSteps.{title,kicker,step1Title,step1Body,…}` (3 pasos)
+- `home.sellBand.{label,title,lead,cta}`
+- `stock.{lastOne,inStock,lastUnit,soldOut}` — «Queda 1» / «{n} en stock» / «Último» / «Agotado»
+  (formato de `{n}` según
+  convención del proyecto, sin ICU — §18.4a)
+- `footer.{line,terms}` · `pagination.{pageOf,prevAria,nextAria,announce}`
+
+Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los encabezados de panel
+(«COTIZADOR» ⟷ «MXN · SIN IVA») deben poder envolver o truncar con `title` sin romper la fila.
+
+**Notas a otros roles (no bloquean):**
+1. **Arquitecto/product-owner — conteo agregado de stock (deseable):** para poder usar «N EN STOCK»
+   en cartas sueltas, el contrato tendría que exponer el conteo real de publicaciones equivalentes
+   por variante (§20.6). Hoy el diseño es veraz sin él («Queda 1»/omitir).
+2. **Frontend:** el hero H1 50px y el aspect 4/5 de la pieza grande son valores del artboard
+   (arbitrary values, no tokens); el carrusel debe degradar a scroll-snap nativo; el estado del
+   cotizador de la home se comparte con `/buylist` (§18), no se duplica.
+3. **QA visual sugerido:** (a) home sin bounties → la sección §20.7 no existe en el DOM; (b) ningún
+   distintivo «N en stock» en singles mientras el contrato no exponga conteos; (c) foco visible
+   recorrible por toda la home incluida la banda oscura; (d) móvil 390: sin scroll horizontal
+   fantasma con el carrusel presente; (e) paginador ausente cuando `total ≤ pageSize`.

@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { CatalogView } from '../catalog/CatalogView';
 
 /**
@@ -6,5 +7,10 @@ import { CatalogView } from '../catalog/CatalogView';
  * alias evita romper enlaces que apunten a `/compra`.
  */
 export default function CompraPage() {
-  return <CatalogView />;
+  // useSearchParams (pestaña Gradeadas, ?type=graded) requiere Suspense en Next 15.
+  return (
+    <Suspense>
+      <CatalogView />
+    </Suspense>
+  );
 }

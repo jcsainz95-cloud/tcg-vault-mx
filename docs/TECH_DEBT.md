@@ -136,6 +136,92 @@
 - **Disparador:** asegurar que el **e2e con BD real** ejercite el rollback del claim tras `INSUFFICIENT_STOCK`
   (que el `batchKey` no quede quemado tras el fallo transaccional real).
 
+### Deuda del pase P-30 grouped-listings (v1.38, cluster «Catálogo y precios» — hallazgos techlead, no bloqueante, aceptada)
+
+> Pase `v1.38-grouped-listings` (2026-08-22): agrupación en LECTURA de las publicaciones de Compra por
+> `K = (cardId, productType, gradeKey, finish)` (ARCHITECTURE §4.9a). Gate: **QA APROBADO + techlead
+> APROBADO CON DEUDA**. Los cuatro hallazgos H1–H4 del techlead se registran aquí. Ninguno es de dinero:
+> el cobro real se re-cotiza siempre por `inventoryItemId` (el precio del grupo es un PISO informativo).
+
+#### H1 · `GroupedListingDTO.salePriceCents` colisiona en nombre y diverge de la semántica «desde» del sellado (toca contrato → arquitecto)
+- **Dueño:** backend (**solicita al arquitecto** — el fix toca `docs/API_CONTRACT.md`, zona compartida, regla 9). **Severidad:** Baja (aceptada). **Estado:** **PENDIENTE-DE-ARQUITECTO**.
+- **Deuda:** `GroupedListingDTO.salePriceCents` (precio del grupo = **mínimo** del grupo, un PISO «desde»)
+  **colisiona en nombre** con `ListingDTO.salePriceCents`, que es el precio **EXACTO por-pieza**, y **diverge**
+  del homólogo `SealedGroupDTO.fromPriceCents`, que sí nombra la semántica «desde». Un consumidor del contrato
+  puede leer el precio del grupo como si fuera exacto. Rutas: `backend/src/modules/catalog/catalog.service.ts`
+  (DTO de `buildGroups`) + `docs/API_CONTRACT.md` §DTOs.
+- **Toca contrato → solicitud al arquitecto (regla 9):** alinear nombre/semántica del campo (p. ej.
+  `fromPriceCents` como en el sellado, o un nombre que marque el PISO). **Backend NO ejecuta el rename por su
+  cuenta** — la decisión del nombre/forma del DTO es del arquitecto; esta entrada queda como solicitud abierta.
+- **No-bloqueante (money-safe):** no hay fuga de dinero — el cobro real se **re-cotiza por `inventoryItemId`**
+  en checkout; el precio del grupo es solo un piso de presentación. El defecto es de **consistencia
+  transversal** del contrato, no de corrección monetaria.
+- **Disparador:** cuando el arquitecto alinee el naming de precios de grupo en el contrato; backend renombra
+  el campo del DTO de `buildGroups` en el mismo pase.
+
+#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled en 3 sitios (riesgo de drift)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+- **Deuda:** la clave `K` = `${cardId}|${productType}|${gradeKey}|${finish}` está **escrita a mano en 3
+  sitios** de `catalog.service.ts`: `~L177` (`variantOverride` en `fetchSellable`), `~L191` (`refFromBatch`) y
+  `~L429` (`buildGroups`). Si la definición de `K` cambia (orden de campos, separador, componentes), hay que
+  tocar los 3 en sincronía o se produce **drift silencioso** (un grupo llaveado distinto de su override/ref).
+  Ruta: `backend/src/modules/catalog/catalog.service.ts`.
+- **No-bloqueante:** las 3 copias son **idénticas y correctas hoy**; el riesgo es de **evolución futura**.
+- **Disparador:** al próximo cambio de la forma de `K`, extraer un helper único `variantKey(item)` en
+  `pricing`/`common` y hacer que los 3 sitios lo consuman.
+
+#### H3 · Duplicación del andamiaje agrupar→ordenar→paginar y de `validateEnum` entre `CatalogService` y `SealedCatalogService`
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+- **Deuda:** el andamiaje **agrupar → ordenar → paginar** sobre grupos, y el helper `validateEnum`, están
+  **duplicados** entre `CatalogService` y `SealedCatalogService` (`validateEnum` aparece **verbatim** en
+  ambos). Un cambio de semántica obliga a tocar los dos servicios en sincronía. Rutas:
+  `backend/src/modules/catalog/catalog.service.ts` + `backend/src/modules/catalog/sealed-catalog.service.ts`.
+- **No-bloqueante:** las copias son **correctas y uniformes hoy**; el riesgo es de **divergencia futura**.
+- **Disparador:** al próximo cambio del andamiaje, extraer `sortAndPaginateGroups` / `groupBy` genéricos y
+  mover `validateEnum` a `common/`, y hacer que ambos servicios los consuman.
+
+#### H4 · Faltaban 2 tests de regresión de grupos (precio divergente + sort/paginación) — RESUELTO (2026-08-22)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** faltaban 2 tests de regresión sobre la agrupación de `buildGroups`: (a) grupo con
+  `listPriceCents` manual **divergente** en la misma `K` (el grupo muestra el mínimo como representante y
+  **todas** las piezas aparecen en `units[]`, cheapest-first) y (b) **sort + paginación** sobre grupos
+  (`price_asc`/`price_desc`, `total = nº de grupos`, sin repetir ni saltar grupos entre páginas).
+- **Fix:** añadidos en `backend/test/catalog.spec.ts` — «H4 · precio de grupo con `listPriceCents` divergente
+  en la misma K» (grupo = mínimo, `units[]` completo cheapest-first) y «H4 · sort + paginación sobre grupos»
+  (price_asc/desc correctos, `total` = nº de grupos, cobertura completa sin duplicados entre páginas).
+
+> **Hallazgos de FRONTEND del pase P-30 (storefront).** IDs `FE-1`/`FE-2` **acotados a este pase P-30**
+> (no confundir con el `FE-1`/`FE-2` histórico del makeover más abajo en este documento). Dueño **frontend**.
+
+#### FE-1 (P-30 storefront) · Regresión visual: el badge de singles con stock 1 pintaba «Último» en vez de «Queda 1» — RESUELTO (2026-08-22)
+- **Dueño:** frontend. **Severidad:** Baja (regresión visual, no dinero). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** la adaptación P-30 conectó las tejas de **singles** (catálogo, gradeadas, Home,
+  detalle) a `stockVariantFromCount(count)`, que mapea `count===1 → 'lastUnit'` («Último», muted). Ese
+  mapeador es el del **sellado**. El rediseño (DS §20.6) manda para singles con 1 pieza la variante
+  `unique` («Queda 1», accent): con el modelo agrupado de P-30, `stockCount===1` = «1 disponible ahora
+  mismo» (no «última de varias»). La regresión dejó **huérfana** la variante `unique` + la clave
+  `stock.lastOne` y contradecía el docstring de `CatalogView` (que sigue prometiendo «Queda 1»).
+- **Fix:** nuevo mapeador `stockVariantForSingle(count)` en `StockBadge.tsx` (`0→soldOut`, `1→unique`,
+  `N≥2→count`); las tejas de singles (`CatalogTile`, `GradedShelf`, `FeaturedCarousel`, `CardDetailView`)
+  lo consumen. El sellado (`SealedShelf`, `SealedShopView`, `SealedDetailView`) mantiene
+  `stockVariantFromCount` (`1→lastUnit`) — DS §20.6 reserva «Último» **para sellado**. Resultado:
+  `unique`/`stock.lastOne` des-huérfanos **y** `lastUnit`/`stock.lastUnit` conservados (sin huérfanos en
+  ninguna dirección). Test `_shared/StockBadge.test.tsx` afirma `stockCount===1 → «Queda 1»` (unique) y el
+  contraste con sellado (`→ «Último»`). Suites (593) + `tsc` + `next build` verdes.
+
+#### FE-2 (P-30 storefront) · Los singles agrupados no comunican «desde» mientras el sellado sí (gatillada por backend H1)
+- **Dueño:** frontend. **Severidad:** Baja (aceptada, consistencia de presentación — no dinero). **Estado:** **PENDIENTE (bloqueada por H1/arquitecto)**.
+- **Deuda:** en el modelo agrupado, el precio del grupo de singles es un **PISO «desde»** (el mínimo del
+  grupo), pero la teja lo pinta como cifra pelada, mientras el **sellado** sí comunica la semántica «desde»
+  (`fromPriceCents` + «sin IVA»). Asimetría de presentación entre familias equivalentes.
+- **No-bloqueante (money-safe):** no hay fuga de dinero — el cobro real se re-cotiza por `inventoryItemId`
+  en checkout; es solo consistencia de UI.
+- **Disparador:** depende del backend **H1** (rename `GroupedListingDTO.salePriceCents → fromPriceCents`,
+  que **pasa por el arquitecto**, regla 9, zona compartida `docs/API_CONTRACT.md`). Cuando el contrato
+  alinee el naming, el frontend reflejará en singles el mismo trato «desde»/sin IVA que el sellado, al
+  menos cuando `stockCount>1` (con `stockCount===1` la teja ya dice «Queda 1» y «desde» pierde sentido).
+  Ruta: `frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx` (+ tejas de singles homólogas).
+
 ### CI-1 · CI en rojo por tests env-sensibles (REDIS_URL) — RESUELTO (2026-08-16)
 - **Dueño:** backend. **Estado:** **RESUELTO** (solo cambio de tests; producción intacta).
 - **Síntoma:** el job `backend` del workflow **CI** estaba en rojo en **toda la historia** del repo
@@ -3356,6 +3442,96 @@
 - **Impacto:** mantenibilidad; cuatro sitios a tocar si cambia la regla de activación. Sin riesgo de comportamiento hoy (los tests cubren cada uno).
 - **Disparador:** al próximo cambio de la regla de agrupación. Dirección: extraer un helper compartido `resolveActiveGroups(presentExternalIds)` en la config y que los cuatro lo consuman. No urgente.
 
+### Makeover 1a storefront (2026-08-22) — pase de refactors R1–R5 (rama `claude/frontend-redesign-320uai`, dueño: frontend salvo indicado)
+
+> Registro pedido por el techlead junto al pase acotado de refactors del makeover 1a. Los refactors
+> obligatorios **R1–R5 quedaron ejecutados en esta misma rama** (StockBadge/PendingPriceLabel/Shelf/
+> EditorialLink únicos en `(storefront)/_shared/`, StoreTabs como `<nav>`+`aria-current`, debounce +
+> `keepPreviousData` en el catálogo) y NO figuran aquí. De los D-menores (D7), quedaron **corregidos
+> de paso**: año dinámico del footer, numeración del carrusel `aria-hidden`, semántica de tabla del
+> BountyBoard (`role="table"/row/columnheader/cell`), aria-label de quitar en chips de filtro,
+> `BUYLIST` literal → `buylist.verticalLabel`, y **D3** (Paginator movido a `_shared/` y paginación
+> real en `SealedShopView`). Lo de abajo es la deuda que QUEDA abierta.
+
+#### MK-D1 · Seis tejas de producto conviven con una `ListingCard` canónica muerta (Media, frontend)
+- **Dónde:** `CatalogTile`, teja grande/chica del `FeaturedCarousel`, teja de `GradedShelf`, teja de
+  `SealedShelf` (home), `SealedGroupTile` (sellado) — todas en `(storefront)/` — frente a
+  `frontend/src/components/domain/ListingCard.tsx` (canónica previa al makeover, hoy sin consumidor
+  del storefront).
+- **Impacto:** medio (mantenibilidad): la anatomía de teja (imagen + serif + renglón mono + precio +
+  distintivo) vive N veces; un matiz del DS hay que replicarlo. Se mitigó en este pase unificando
+  distintivo de stock y precio-pendiente, pero la teja completa sigue multiplicada.
+- **Disparador:** cuando el orquestador **serialice la zona compartida `frontend/src/components/`**
+  para este stream: consolidar una teja canónica ahí (o retirar `ListingCard` si se decide que la
+  teja vive por vista) — la decisión de dónde vive pasa por techlead/orquestador.
+
+#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.trustAuth/trustPrice/ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui)
+- **Dónde:** `frontend/src/components/domain/PortfolioTrendChart.tsx` (`FeaturedSetGlance`, retirado
+  de la home por el makeover; solo lo referencia su test) y claves i18n `home.trustAuth`,
+  `home.trustPrice`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*` (ES+EN) sin consumidor
+  de vista.
+- **Impacto:** bajo (código/copys muertos). `FeaturedSetGlance` está en zona compartida
+  `components/domain/` — su baja no puede ejecutarla este stream unilateralmente.
+- **Disparador:** decidir la **baja con ux-ui** (¿regresa el glance en alguna vista o se retira
+  §7.18?); al retirarlo, borrar componente + test + claves en el stream que tenga la zona compartida.
+
+#### MK-D4 · Chips de filtro del catálogo con etiquetas sin traducir (`productType`, acabado) (Baja, frontend)
+- **Dónde:** `catalog/CatalogView.tsx` → `buildChips`: el chip de `productType` pinta el valor crudo
+  del enum (`raw`/`graded`/`sealed`), y el de `finish` la etiqueta cruda (la localizada vive en el
+  panel de filtros). El nombre de set (QA-1) y los límites de precio (QA-2) ya se corrigieron.
+- **Impacto:** bajo (copy en inglés técnico en chips ES). El valor es correcto; solo falta la
+  etiqueta localizada (los catálogos i18n `finish.*` y tipos ya existen).
+- **Disparador:** próximo toque a `buildChips`; mapear a `t('finish.*')` / etiqueta de tipo.
+
+#### MK-D5 · Doble fuente de verdad de filtros del catálogo (URL vs estado) (Media, frontend)
+- **Dónde:** `catalog/CatalogView.tsx`: los filtros viven en `useState` y se MERGEAN desde la URL
+  (efecto sobre `urlKey` + `parseUrlFilters`), y solo `type=graded` se refleja de vuelta con
+  `router.replace`. El resto de filtros no viaja a la URL (no hay deep-link/back-forward completo), y
+  la sincronización bidireccional parcial es frágil (R5 añadió además el término debounced como
+  tercera pieza a coordinar).
+- **Impacto:** medio (UX de compartir/atrás-adelante + complejidad accidental creciente).
+- **Disparador:** a medio plazo, próximo trabajo mayor sobre el catálogo: hacer la **URL la fuente
+  única** (estado derivado de `searchParams`, cambios vía `router.replace` con scroll preservado).
+
+#### MK-D6 · `BuylistView` sigue siendo un monolito (~820 líneas) (Media, frontend)
+- **Dónde:** `buylist/BuylistView.tsx` (~821 líneas) pese a las extracciones previas (TL-C3:
+  `useSellCart`, `SellCartContents`, `MyRequestsSection`).
+- **Impacto:** medio (mantenibilidad; mismo patrón que el resuelto TD-1/M2View a menor escala).
+- **Disparador:** próximo trabajo sobre el módulo Vender. **Siguiente extracción acordada:** barra de
+  filtros (set/búsqueda por tipo) + grid de resultados a componentes propios de `buylist/`.
+
+#### MK-D7 · Menores restantes del veredicto (Baja, frontend)
+- **`SealedShelf` (home) usa `<img>` crudo** en vez de `CardImage` (thumb cuadrado con
+  `object-contain` propio); `CardImage` es compartido y hoy impone su proporción — alinear cuando se
+  toque la zona compartida (misma ventana que MK-D1).
+- **`HomeQuoter`:** `getBuylistQuote` con `.then/.catch` sin cancelación (una respuesta tardía puede
+  aterrizar tras quitar la línea; el guard por `key` mitiga duplicados, no estados zombis) y el
+  typeahead **sin patrón combobox ARIA** (`role="combobox"`/`listbox`/`aria-activedescendant`,
+  navegación con flechas). Disparador: próximo toque al cotizador del hero — migrar a
+  `useMutation`/AbortController y al combobox accesible (§6 del DS).
+- **Header de `/checkout` sin simplificar** según §20.1 («marca + rótulo mono PAGO SEGURO · MXN SIN
+  IVA, sin nav»): `StorefrontHeader` es zona compartida (`components/layout/`) — aplicar cuando se
+  serialice esa zona.
+- **`PriceTag` compartido (`components/ui/PriceTag.tsx`):** la señal «precio pendiente» canónica del
+  storefront quedó en `(storefront)/_shared/PendingPriceLabel.tsx` (R2, color accent §16.4/§20.13);
+  la **consolidación final va en `PriceTag`** (que hoy pinta su propia variante) cuando se serialice
+  la zona compartida — mismo disparador que MK-D1.
+
+#### MK-D8 · `CatalogView` sin test de regresión del debounce/reset de página (Baja, frontend)
+- **Dónde:** `catalog/CatalogView.tsx` — la interacción debounce de búsqueda (300 ms, R5) + reset de
+  página no tiene test de regresión. **Borde conocido:** pulsar «Limpiar filtros» dentro de la
+  ventana de 300 ms no limpia el input de búsqueda y el término pendiente entra como filtro después.
+- **Impacto:** bajo (borde de UX poco frecuente; sin test, una regresión pasaría inadvertida).
+- **Remedio:** limpiar `searchTerm` cuando el caller pasa filtros vacíos + test de regresión del
+  debounce/reset.
+- **Disparador:** próximo toque al catálogo.
+
+#### MK-D9 · `StockBadge` sin prop `size` (Baja, frontend)
+- **Dónde:** `(storefront)/_shared/StockBadge.tsx` — no expone tamaño; `SealedDetailView` pelea con
+  las clases responsivas vía `className`.
+- **Impacto:** bajo (override frágil de clases en un consumidor).
+- **Remedio:** agregar `size?: 'sm' | 'md'` al componente y retirar el override.
+- **Disparador:** cuando aparezca la próxima variante de tamaño del distintivo.
 ### Cluster P-34 (pricing por tiers) — deuda del veredicto techlead (2026-08-22, no bloqueante)
 
 > Deuda NO bloqueante que el techlead re-enumeró en el **Cluster P-34** (migración de pricing a

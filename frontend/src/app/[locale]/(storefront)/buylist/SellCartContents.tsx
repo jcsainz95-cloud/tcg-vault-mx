@@ -205,13 +205,16 @@ export function SellCartContents({
             })}
           </ul>
 
-          <div className="flex items-baseline justify-between gap-3 py-4">
-            <span className="text-[13px] font-medium text-text">{t('totalEstimated')}</span>
+          {/* Artboard 2b: etiqueta mono en versalitas y cifra héroe (26px) del total. */}
+          <div className="flex items-baseline justify-between gap-3 py-5">
+            <span className="font-mono text-[11px] font-medium uppercase tracking-eyebrow text-text">
+              {t('totalEstimated')}
+            </span>
             {/* Si TODO el carrito está pendiente, el total no es MX$0.00: es pendiente. */}
             {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
               <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
             ) : (
-              <span className="tabular text-[22px] font-medium leading-none text-text">
+              <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
                 {formatMoneyCents(totalEstimatedCents, locale)}
               </span>
             )}
@@ -222,8 +225,9 @@ export function SellCartContents({
             </p>
           )}
 
-          {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir. */}
-          <p className="font-mono text-[11px] leading-[1.6] text-muted">{t('estimateNote')}</p>
+          {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir.
+              Nota al margen con regla roja (artboard 2b), no un renglón mono suelto. */}
+          <p className="rule-note text-[13px] leading-[1.6] text-muted">{t('estimateNote')}</p>
 
           {sellReq.ready && !sellReq.isAuthenticated ? (
             /* Sin sesión: el envío se sustituye por el CTA de entrar/crear cuenta
@@ -244,9 +248,11 @@ export function SellCartContents({
             </div>
           ) : (
             <>
+              {/* Artboard 2b: «Enviar solicitud» es un bloque de TINTA (negro, 54px);
+                  el rojo queda reservado para el compromiso de pago del checkout. */}
               <Button
-                variant="accent"
-                className="mt-5 w-full"
+                variant="primary"
+                className="mt-5 min-h-[54px] w-full tracking-eyebrow"
                 disabled={cart.length === 0 || !sellReq.canSubmit}
                 aria-describedby={sellReq.emailBlocked ? 'sell-blocked-reason' : undefined}
                 onClick={onSubmit}
@@ -264,9 +270,19 @@ export function SellCartContents({
               )}
             </>
           )}
-          <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={onClearCart}>
+          {/* «Vaciar la lista»: acción terciaria como texto mono centrado (artboard 2b). */}
+          <button
+            type="button"
+            onClick={onClearCart}
+            className="mt-4 block min-h-[44px] w-full text-center font-mono text-[10px] uppercase tracking-[0.1em] text-muted hover:text-accent"
+          >
             {t('clearCart')}
-          </Button>
+          </button>
+
+          {/* Pie del carrito: cuándo y cómo se paga (mono en versalitas, artboard 2b). */}
+          <p className="mt-6 border-t border-border pt-4 font-mono text-[10px] uppercase leading-[1.7] tracking-[0.12em] text-muted">
+            {t('cartFooterNote')}
+          </p>
         </>
       )}
     </>

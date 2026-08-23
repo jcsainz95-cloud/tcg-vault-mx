@@ -10,39 +10,19 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 Doble veredicto por-stream aprobado (QA + techlead); mergeado a `main`. Se despliega a producción
 solo cuando el humano diga **«publica»**.
 
-- **P-35** · Alta dedicada de producto **SELLADO** con imagen de API → flujo `SealedAddFlow` de 2 pasos
-  en M1 (grid de productos sellados del set con imagen real, NO singles), endpoint
-  `GET /admin/inventory/sealed-catalog`, alta reusando `items/batch` con mapeo TCGCSV (nace mapeada,
-  valúa en el acto), allowlist de host anti-XSS. Retirado el sellado del buscador de cartas. Money-safe.
-  Migración **M-37** (3 columnas nullable). Contrato **v1.36**.
-- **P-34** · Pricing por **tiers** (5 tiers en vez de ~30 rarezas) → `common/pricing-tiers.ts`,
-  `TieredRuleSet` + `buildEffectiveRuleSet`, editor M2 (5 filas buy+sell + asignador rareza→tier),
-  invariante premium→pct (422). Sin-mapear corregidas a premium (fix de dinero). **T2 Rare/Holo a 25%**
-  (decisión del humano). Aplica a compra y venta. Sin DDL (M-38 = seed/data). Contrato **v1.37.1**.
-  *(Bandera: Uncommon sube compra $0.50→$1.50 al ir en T1 — reversible sin código; ver ARCHITECTURE §4.33g.)*
-- **H9** · Guardarraíl: el sellado ya no aparece en la ficha/listado público de **singles** (P-35 lo
-  volvía determinista en la carta ancla). Cura de raíz pendiente en SB-D5 (entidad `SealedProduct`).
-  *(Deuda: reconciliar el contrato de `/catalog/cards` + `facets` re: sealed — se coordina con el rediseño.)*
-
-**Backfill post-deploy (devops):** correr `POST /admin/catalog/unify-rarities` tras publicar P-34 para
-re-derivar `Card.rarityCanonical` de las canónicas nuevas (divergencia solo cosmética del editor; la
-cotización ya es correcta). Documentar en el runbook.
+- **P-30** · Publicación **ÚNICA por carta con stock** (ya no una publicación por copia) → modelo de
+  listing agrupado por `(cardId, productType, gradeKey, finish)` con `stockCount`, agregación en lectura
+  **sin migración** (`GroupedListingDTO`, contrato **v1.38**). Una teja «N disponibles» en vez de N
+  copias; add-to-cart por `units[]` cheapest-first (re-cotiza por pieza en checkout). Money-safe (precio
+  de grupo = mínimo/«desde», sin precio → pendiente, nunca 0). Frontend adaptado **sobre el rediseño**
+  (badge «Queda 1» para singles). Deuda: FE-2 «desde»/sin-IVA (ligada a H1) y H1-H4 backend en `TECH_DEBT`.
+- **Rediseño makeover 1a del storefront** → nueva capa visual del catálogo/home/ficha (componentes
+  `_shared/`, `StockBadge` con variante «Agotado», a11y/perf). Doble veredicto propio de su sesión.
+  Deuda registrada MK-D1…MK-D9 en `TECH_DEBT`.
 
 ---
 
 ## Abiertos
-
-### P-30 · Publicación ÚNICA por carta (con stock), no una publicación por cada copia
-- **Observado por el humano (2026-08-22):** al publicar, cada copia física genera una **publicación
-  separada** en el catálogo (Tropius aparece ×3: «01/02/03 Tropius · Pitch Black #1 · MX$15»).
-- **Qué debe ser:** **una sola publicación por carta/variante**, con **cantidad/stock**, viva
-  **mientras haya inventario** y agotada cuando el stock llega a 0 — no N publicaciones para N copias.
-- **Alcance:** modelo de listing agrupado por (carta, variante, condición) con stock; afecta storefront
-  (catálogo/home) y el «publicar» de inventario. Money-safe: solo publica lo que tiene precio.
-- **Relación:** toca la misma zona storefront que el **rediseño** en curso y que H9/SB-D5 — coordinar
-  para no reescribir el catálogo dos veces.
-- **Roles:** arquitecto (modelo/contrato del listing con stock) → backend + frontend. **Grande**
-  (toca schema/contrato + storefront + inventario): diseño primero, coordinado con el rediseño.
 
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
@@ -90,6 +70,10 @@ cotización ya es correcta). Documentar en el runbook.
 
 ## Hecho (referencia breve — todo en producción)
 
+- **P-35** alta dedicada de sellado (imagen de API, M-37), **P-34** pricing por 5 tiers (editor M2,
+  invariante premium→pct, T2 a 25%, fix de dinero de las sin-mapear; Uncommon compra $0.50→$1.50), **H9**
+  sellado fuera de la vista de singles — publicados a producción (`75ef123`). *(Pendiente devops:
+  `unify-rarities` post-deploy, solo cosmético del editor.)*
 - **P-28** carritos que no concordaban en Vender, **P-29** baja rápida de inventario (idempotente,
   money-safe), **P-31** export de inventario a Excel, **P-32** valor del set = Σ cartas (muere el
   +157,463%), **P-33** quitar selector de proveedor de respaldo — publicados a producción (`fcb07e1`).

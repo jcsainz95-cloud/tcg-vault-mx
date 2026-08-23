@@ -14,7 +14,8 @@ import * as fx from './mock/fixtures';
 import type {
   Paginated,
   ListingDTO,
-  CardDetailResponse,
+  GroupedListingListResponse,
+  GroupedListingDetailResponse,
   CardSetDTO,
   CatalogFacetsDTO,
   HoldingsResponse,
@@ -224,7 +225,15 @@ export interface CatalogFilters {
   pageSize?: number;
 }
 
-export async function getCatalog(filters: CatalogFilters = {}): Promise<Paginated<ListingDTO>> {
+/**
+ * v1.38-grouped-listings (P-30): GET /catalog/cards devuelve el shape AGRUPADO
+ * (`GroupedListingDTO[]`), UNA publicación por (carta, productType, gradeKey, finish) con
+ * `stockCount`, no una fila por copia física. `total` = nº de GRUPOS. El re-quote/cobro sigue
+ * siendo por-pieza (GET /catalog/listings/:inventoryItemId, sin cambio).
+ */
+export async function getCatalog(
+  filters: CatalogFilters = {},
+): Promise<GroupedListingListResponse> {
   if (!config.useMocks) {
     const query: Record<string, string | number | undefined> = {
       q: filters.q,
@@ -241,29 +250,31 @@ export async function getCatalog(filters: CatalogFilters = {}): Promise<Paginate
       page: filters.page,
       pageSize: filters.pageSize,
     };
-    return apiRequest<Paginated<ListingDTO>>('/catalog/cards', { query });
+    return apiRequest<GroupedListingListResponse>('/catalog/cards', { query });
   }
-  // Compra sólo lista inventario publicado con precio: los fixtures ya lo garantizan.
-  let data = [...fx.mockListings];
+  // MOCK: filtra las PIEZAS publicadas (raw/graded; el sellado tiene su propio catálogo, H9) y
+  // luego AGRUPA por (carta, productType, gradeKey, finish). Los filtros de precio/orden aplican
+  // sobre el GRUPO (§4.9): salePriceCents del grupo = el mínimo de sus piezas.
+  let pieces = [...fx.mockListings];
   if (filters.q) {
     const q = filters.q.toLowerCase();
-    data = data.filter((l) => l.card.name.toLowerCase().includes(q));
+    pieces = pieces.filter((l) => l.card.name.toLowerCase().includes(q));
   }
-  if (filters.setId) data = data.filter((l) => l.card.setId === filters.setId);
+  if (filters.setId) pieces = pieces.filter((l) => l.card.setId === filters.setId);
   if (filters.rarity && filters.rarity.length) {
     const set = new Set(filters.rarity);
-    data = data.filter((l) => set.has(l.card.rarity));
+    pieces = pieces.filter((l) => set.has(l.card.rarity));
   }
-  if (filters.productType) data = data.filter((l) => l.productType === filters.productType);
-  if (filters.condition) data = data.filter((l) => l.rawCondition === filters.condition);
-  if (filters.finish) data = data.filter((l) => l.finish === filters.finish);
-  if (filters.sealedSubtype) data = data.filter((l) => l.sealedSubtype === filters.sealedSubtype);
+  if (filters.productType) pieces = pieces.filter((l) => l.productType === filters.productType);
+  if (filters.condition) pieces = pieces.filter((l) => l.rawCondition === filters.condition);
+  if (filters.finish) pieces = pieces.filter((l) => l.finish === filters.finish);
+  let data = fx.groupMockListings(pieces);
   if (filters.minPriceCents != null)
-    data = data.filter((l) => (l.salePriceCents ?? 0) >= filters.minPriceCents!);
+    data = data.filter((g) => g.salePriceCents >= filters.minPriceCents!);
   if (filters.maxPriceCents != null)
-    data = data.filter((l) => (l.salePriceCents ?? 0) <= filters.maxPriceCents!);
-  if (filters.sort === 'price_asc') data.sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
-  if (filters.sort === 'price_desc') data.sort((a, b) => (b.salePriceCents ?? 0) - (a.salePriceCents ?? 0));
+    data = data.filter((g) => g.salePriceCents <= filters.maxPriceCents!);
+  if (filters.sort === 'price_asc') data.sort((a, b) => a.salePriceCents - b.salePriceCents);
+  if (filters.sort === 'price_desc') data.sort((a, b) => b.salePriceCents - a.salePriceCents);
   return delay({ data, page: 1, pageSize: 20, total: data.length });
 }
 
@@ -290,12 +301,19 @@ export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
   return delay(found);
 }
 
-export async function getCardDetail(cardId: string): Promise<CardDetailResponse> {
-  if (!config.useMocks) return apiRequest<CardDetailResponse>(`/catalog/cards/${cardId}`);
-  const listings = fx.mockListings.filter((l) => l.card.id === cardId);
-  const card = listings[0]?.card ?? fx.mockCards.find((c) => c.id === cardId);
-  if (!card) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Card not found' });
-  return delay({ card, listings });
+/**
+ * v1.38-grouped-listings (P-30): GET /catalog/cards/:cardId devuelve
+ * `{ card, listings: GroupedListingDTO[], units: ListingDTO[] }`. `listings` = grupos (la grilla de
+ * la ficha); `units` = piezas por-pieza (cheapest-first) para el add-to-cart por `inventoryItemId` y
+ * el `certNumber` de cada slab en graded.
+ */
+export async function getCardDetail(cardId: string): Promise<GroupedListingDetailResponse> {
+  if (!config.useMocks) return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`);
+  try {
+    return await delay(fx.mockGroupedDetail(cardId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 // ---------- Bóveda / portafolio ----------

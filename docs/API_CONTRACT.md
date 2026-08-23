@@ -2,7 +2,37 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.37.1-tiers-example-fix).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.38-grouped-listings).
+>
+> **Changelog v1.38-grouped-listings (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-30,
+> catálogo de singles agrupado por stock):** hoy `GET /catalog/cards` y `GET /catalog/cards/:cardId` devuelven **un
+> `ListingDTO` por CADA copia física** (`InventoryItem`): tres Tropius raw NM en bóveda ⇒ tres publicaciones separadas
+> («01/02/03 Tropius»). Se sustituye por **UNA publicación agrupada por `(carta, productType, gradeKey, finish)`** con
+> **`stockCount`** (nº de piezas vendibles), **precio único de la variante** y estado **vivo mientras `stockCount≥1`**
+> (agotado ⇒ **desaparece** de Compra, money-safe). Es el MISMO patrón ya probado del sellado (`GET /catalog/sealed` →
+> `SealedGroupDTO` con `availableCount`, v1.23-sealed-sales); ahora se aplica a los **singles** (raw/graded). **CAMBIO DE
+> SHAPE (breaking) de `/catalog/cards*`** — se coordina con el rediseño visual del storefront, que construye la grilla/
+> ficha contra el shape agrupado final (ver nota de coordinación abajo y ARCHITECTURE §4.9a). Detalle:
+> - **DTOs nuevos:** `GroupedListingDTO` (grupo con `representativeInventoryItemId`, `stockCount`, `salePriceCents` único,
+>   `referenceValue`, atributos de variante), `GroupedListingListResponse`, `GroupedListingDetailResponse`. Ver §DTOs.
+> - **`GET /catalog/cards`** (§2): `Res 200` pasa de `{ data: ListingDTO[], … }` a **`{ data: GroupedListingDTO[], … }`**;
+>   `total` = nº de **grupos** (no de piezas). Filtros/sort/paginación **sin cambio de forma** (aplican sobre el grupo:
+>   `salePriceCents` del grupo, `createdAt` de su pieza más nueva). Cada grupo devuelto tiene `stockCount≥1`.
+> - **`GET /catalog/cards/:cardId`** (§2): `Res 200` pasa de `{ card, listings: ListingDTO[] }` a
+>   **`{ card, listings: GroupedListingDTO[], units: ListingDTO[] }`**. `units` = TODAS las piezas vendibles de la carta
+>   (por-pieza, más baratas primero) SOLO para resolver el **add-to-cart por `inventoryItemId`** (el carrito sigue siendo
+>   por-pieza, §4/§4-G, sin cambio) — **NO** es la grilla de navegación. Espeja `SealedGroupDetailResponse.listings`.
+> - **`GET /catalog/listings/:inventoryItemId`** (§2): **SIN cambio** (sigue `ListingDTO` por-pieza; lo usa el re-quote del
+>   carrito, v1.21.3). **`GET /catalog/facets`**: **SIN cambio** (los `distinct`/rangos sobre el inventario publicado son
+>   idénticos con o sin agrupar; el precio del grupo = precio de sus piezas).
+> - **Clave de agrupación = clave de PRECIO** (`gradeKeyFor(item)` + `finish` + `productType` + `cardId`): exactamente la
+>   que hoy resuelve `salePriceCents` por pieza en `fetchSellable`/`toListingDTO` ⇒ **un solo precio por grupo** por
+>   construcción. `stockCount` = conteo de piezas `sellable` (money-safe: una pieza sin precio no cuenta ni publica).
+> - **Sin schema/migración:** el grupo es una **agregación en LECTURA** (reduce en memoria sobre el set `sellable`, como el
+>   sellado); NO hay contador denormalizado (cero doble-escritura / drift). Publicar/despublicar N piezas = flip de
+>   `status='listed'` por pieza (M1, sin cambio) ⇒ el `stockCount` **derivado** sube/baja solo. ARCHITECTURE §4.9a.
+> - **Sellado intacto:** `/catalog/sealed*` no cambia; H9 (singles excluyen `productType='sealed'`) sigue vigente — el
+>   catálogo de singles agrupa SOLO raw/graded, el sellado conserva su propio catálogo agrupado.
 >
 > **Changelog v1.37.1-tiers-example-fix (2026-08-22, arquitecto — CORRECCIÓN DE EJEMPLO, NO NORMATIVO. P-34,
 > DEUDA-tiers-2 / H7):** QA/techlead detectaron que el **ejemplo JSON ilustrativo** de `GET /admin/pricing/tiers`
@@ -1322,6 +1352,38 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
 ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sealedSubtype?, finish: Finish,
                  gradingCompany?, gradeValue?, certNumber?,
                  referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean }
+// ===== v1.38-grouped-listings (P-30): publicación ÚNICA por carta/variante/condición con STOCK =====
+// GroupedListingDTO = UNA publicación agrupada de SINGLES (raw/graded) para la sección "Compra". Reemplaza el
+// «un ListingDTO por copia física» de `GET /catalog/cards*`. Es el análogo de `SealedGroupDTO` (sellado) para singles.
+//   * CLAVE DE AGRUPACIÓN K = (cardId, productType, gradeKey, finish). gradeKey = `gradeKeyFor(item)` — canónico:
+//     "raw:NM" | "graded:PSA:10" | … (encapsula condición/grado). Es EXACTAMENTE la clave con la que hoy se resuelve
+//     `salePriceCents` por pieza (fetchSellable/toListingDTO) y la de `PriceReference`/`VariantPriceOverride` (menos
+//     `capturedDate`/`cardProductId`): por eso **todas las piezas de un grupo comparten un ÚNICO precio de venta**.
+//   * `stockCount` = nº de piezas VENDIBLES del grupo (`ownerType=platform`, `status=listed`, `sellable=true`,
+//     `salePriceCents!=null`). Money-safe: una pieza sin precio NO cuenta ni publica (nunca $0). En `/catalog/cards*`
+//     todo grupo devuelto tiene `stockCount≥1` (VIVO). Estado AGOTADO (stock 0) ⇒ el grupo **desaparece** de Compra
+//     (no se emite fila): el `stockCount≥1` en la respuesta ES el invariante «vivo». (No hay campo `status`: el stock
+//     es la única fuente de verdad; el front usa `stockCount` para el badge «N disponibles» y para topar el carrito.)
+//   * `representativeInventoryItemId` = pieza vendible MÁS BARATA del grupo (para add-to-cart de 1 y como key de la ficha).
+//   * `salePriceCents` = precio del grupo = MÍNIMO de sus piezas (= el del representante). En el caso normal TODAS las
+//     piezas comparten precio (misma K ⇒ misma regla/override de variante) y el mínimo = ese precio único. Divergencia
+//     SOLO si una pieza trae `listPriceCents` manual distinto (override POR PIEZA, §4.26b): entonces el grupo muestra el
+//     más barato primero (idéntico a `SealedGroupDTO.fromPriceCents`); las piezas siguen en `units[]` de la ficha.
+//   * `referenceValue` = valor de mercado de la variante (PriceInfo de la misma K); compartido por el grupo. Informativo.
+//   * rawCondition presente SOLO para raw ('NM'); gradingCompany/gradeValue presentes SOLO para graded (identidad de
+//     GRADO, compartida por el grupo). El `certNumber` es POR SLAB (distinto por pieza) ⇒ NO va a nivel de grupo: se
+//     expone por pieza en `units[]` de la ficha (el comprador verifica el cert del slab concreto que agrega al carrito).
+//   * productType ∈ {raw, graded} — NUNCA sealed (H9: el sellado tiene su propio catálogo agrupado, §2-S).
+GroupedListingDTO = { representativeInventoryItemId: string, card: CardDTO, productType: "raw" | "graded",
+                      finish: Finish, rawCondition?: RawCondition, gradeKey: string,
+                      gradingCompany?: GradingCompany, gradeValue?: string,
+                      stockCount: number, salePriceCents: number, referenceValue: PriceInfo, currency: "MXN" }
+GroupedListingListResponse = { data: GroupedListingDTO[], page: number, pageSize: number, total: number }
+// Ficha (GET /catalog/cards/:cardId): los grupos vendibles de esa carta + `units` = TODAS las piezas vendibles por-pieza
+// (cheapest-first) para que el front agregue hasta `stockCount` `inventoryItemId` DISTINTOS al carrito (por-pieza, §4-G).
+// Espeja `SealedGroupDetailResponse` (group+listings): la grilla se construye contra `listings` (grupos); `units` es SOLO
+// el detalle por-pieza para resolver el add-to-cart y (en graded) mostrar `certNumber` por slab.
+GroupedListingDetailResponse = { card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }
 // Punto de la serie de tendencia del portafolio (gráfica estilo acciones). estimated? = punto de backfill indicativo.
 PortfolioPointDTO = { date: string, valueMxnCents: number, costBasisMxnCents?: number, estimated?: boolean }
 // v1.9-set-chart: punto de la serie PÚBLICA del valor de mercado agregado de un SET (hero de la home).
@@ -1829,8 +1891,9 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
   todas las partes, p. ej. `cel25` + `cel25c`). ADITIVO: para un set normal el filtro es idéntico a hoy. Se respeta la
   **Regla de Compra**: agrupar **no** publica cartas sin precio (solo se listan las ya `sellable`). Money-safe: cada
   `ListingDTO` sigue llaveado a su `Card`/set real.
-- `sort`: `price_asc | price_desc | newest` (opcional).
-Res `200`: `{ data: ListingDTO[], page, pageSize, total }`. Todos los `ListingDTO` devueltos tienen `sellable=true` y `salePriceCents != null`.
+- `sort`: `price_asc | price_desc | newest` (opcional). Ordena por el **grupo**: `salePriceCents` del grupo; `newest` por la pieza más nueva del grupo (`createdAt` desc).
+- **v1.38-grouped-listings (P-30):** el listado es **AGRUPADO por publicación única** `(carta, productType, gradeKey, finish)`, no una fila por copia física. `minPriceCents`/`maxPriceCents` filtran sobre el `salePriceCents` del grupo; los filtros `condition`/`finish`/`rarity`/`productType`/`setId` **no cambian de forma** (acotan las piezas que entran a cada grupo).
+Res `200` (**v1.38, `GroupedListingListResponse`**): `{ data: GroupedListingDTO[], page, pageSize, total }`. `total` = nº de **grupos** (publicaciones únicas), no de piezas. Cada grupo trae `stockCount≥1` (vivo), `salePriceCents` único y `representativeInventoryItemId` (add-to-cart de 1). Un grupo AGOTADO (`stockCount=0`) **no aparece** (money-safe: solo se lista lo publicado con precio y stock). *(Antes de v1.38: `{ data: ListingDTO[], … }`, un ítem por copia física — Tropius ×3 salía 3 veces. **Cambio de shape breaking, coordinado con el rediseño del storefront**.)*
 
 ### GET /api/v1/catalog/facets — `public`  (v1.1 — facetas dinámicas de "Compra")
 Facetas calculadas **sobre el inventario publicado** (no sobre el catálogo completo), para poblar los filtros de Compra.
@@ -1851,10 +1914,14 @@ Res `200`:
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
 
 ### GET /api/v1/catalog/cards/:cardId — `public`
-Res `200`: `{ card: CardDTO, listings: ListingDTO[] }` (instancias físicas publicadas de la misma carta; solo `sellable=true` con precio).
+Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }`.
+- **`listings`** = las **publicaciones agrupadas** de esa carta (una por `(productType, gradeKey, finish)` con `stockCount≥1`, `salePriceCents` único). Es lo que el front pinta en la ficha. *(Antes de v1.38: `listings: ListingDTO[]` con una entrada por copia física.)*
+- **`units`** = TODAS las piezas vendibles de la carta **por-pieza** (`ListingDTO[]`, cheapest-first) — SOLO para resolver el **add-to-cart por `inventoryItemId`** (el carrito sigue siendo por-pieza, §4-G) y para exponer el `certNumber` de cada slab en graded. No es la grilla de navegación. Espeja `SealedGroupDetailResponse.listings`.
+- **Cambio breaking coordinado con el rediseño del storefront** (ver nota de coordinación en el Changelog v1.38 y ARCHITECTURE §4.9a).
 
 ### GET /api/v1/catalog/listings/:inventoryItemId — `public`
 Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / sin precio: no es visible en Compra).
+- **v1.38 (P-30):** **SIN cambio** — sigue devolviendo el `ListingDTO` **por pieza**. Lo consume el re-quote del carrito (v1.21.3, carrito = lista de `inventoryItemId`). La agrupación de P-30 vive SOLO en `GET /catalog/cards*` (navegación); la resolución por-pieza (carrito/checkout) es intacta.
 
 ### GET /api/v1/catalog/sets — `public`
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
@@ -1904,7 +1971,7 @@ venir vacía (`points: []`) hasta que se les active la captura diaria.
 
 **Nota de precio pendiente (v1.1):** un item en "precio pendiente" (`referenceValue.status="pending"` y sin `salePriceCents` por override) **NO aparece en Compra** (`GET /catalog/cards` lo excluye) — el comprador nunca lo ve. El estado "precio pendiente" vive solo en adquisición/buylist/back-office (M2/M5). Si por carrera un item deja de ser vendible entre listar y comprar, el checkout lo bloquea con `422 PRICE_PENDING` / `409 ITEM_UNAVAILABLE`. El `salePriceCents` visible al cliente es el precio de venta (referencia × (1+markup) u override); `referenceValue` es el valor de mercado informativo.
 
-**Sellado (v1.1 → actualizado v1.23):** los listings `productType=sealed` llevan `sealedSubtype?`, `sealedCondition?` y precio de venta **derivado** (`override > mercado TCGCSV × spread > PRICE_PENDING`, ARCHITECTURE §4.23b) — el precio manual pasa de único a **override de respaldo**. Como Compra solo lista lo que tiene precio, un sellado sin precio resuelto **no aparece** (money-safe). La ventana dedicada del sellado usa los endpoints agregados de §2-S; `GET /catalog/cards?productType=sealed` sigue devolviendo el listado **por pieza** sin cambios.
+**Sellado (v1.1 → actualizado v1.23 → v1.38):** el sellado tiene su **propio catálogo agrupado** en §2-S (`GET /catalog/sealed` → `SealedGroupDTO` con `availableCount`); su precio de venta es **derivado** (`override > mercado TCGCSV × spread > PRICE_PENDING`, ARCHITECTURE §4.23b). Como Compra solo lista lo que tiene precio, un sellado sin precio resuelto **no aparece** (money-safe). **Guardarraíl H9 (vigente):** `GET /catalog/cards*` es el catálogo de **singles** (raw/graded) y **excluye** `productType='sealed'` (`singlesPublishedWhere`); por eso `GET /catalog/cards?productType=sealed` devuelve **vacío** (el sellado se navega SOLO por §2-S). Con **v1.38-grouped-listings**, los singles de `/catalog/cards*` van **agrupados por stock** (`GroupedListingDTO`), simétrico al agrupado del sellado (`SealedGroupDTO`): dos catálogos agrupados paralelos, cada uno con su DTO.
 
 ---
 
@@ -4627,7 +4694,7 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
 
 **Coherencia v1.1 (2026-08-14):**
 - **Raw solo NM:** `RawCondition=NM` (único valor); el filtro `condition` para raw solo admite `NM`. Labels legibles ("Casi nueva (Near Mint)" / "Near Mint") viven en i18n del **front**, no en la API. Migración: ARCHITECTURE §11 (M-1).
-- **Compra = inventario publicado con precio:** `GET /catalog/cards` **excluye** pendientes/sin precio (el comprador nunca ve "precio pendiente"). Facetas dinámicas en `GET /catalog/facets`: `rarities` distinct de `Card.rarity` espejando pokemontcg.io (lista abierta), `sets` con `year` derivado, filtros por set/rareza/tipo/precio. La **ruta se mantiene** `/catalog/cards` (rótulo "Compra" en el front).
+- **Compra = inventario publicado con precio:** `GET /catalog/cards` **excluye** pendientes/sin precio (el comprador nunca ve "precio pendiente"). Facetas dinámicas en `GET /catalog/facets`: `rarities` distinct de `Card.rarity` espejando pokemontcg.io (lista abierta), `sets` con `year` derivado, filtros por set/rareza/tipo/precio. La **ruta se mantiene** `/catalog/cards` (rótulo "Compra" en el front). **v1.38-grouped-listings (P-30):** el listado de singles pasa a **publicación ÚNICA agrupada** por `(cardId, productType, gradeKey, finish)` con `stockCount` (`GroupedListingDTO`), vivo mientras `stockCount≥1` / agotado (ausente) en 0; agregación en lectura, sin schema. Ver ARCHITECTURE §4.9a.
 - **Sellado como línea de venta:** `productType=sealed`, `sealedSubtype?`, sin grade/rareza. Disputa de sellado = caja dañada/equivocada (evidencia por correo a soporte; ver Coherencia v1.2). **v1.19-sealed-tcgcsv:** referencia de mercado del sellado vía TCGCSV (`source=tcgcsv`, mapeo curado M-23, dial `sealedPriceSource` seed `off`). **⚠️ SUPERSEDIDO por v1.23-sealed-sales:** «precio manual MXN obligatorio para publicar» y «TCGCSV solo informativa» ya **no** rigen — el sellado se auto-precia por `mercado × spread` (override de respaldo), su condición `SealedCondition` es visible al comprador y su valor de mercado se expone. Ver la nota v1.23 arriba y ARCHITECTURE §4.23 (product-owner reconcilia PROJECT.md, SUP-1).
 - **Login Google:** `POST /auth/google` (mismo shape que `/login`); verificación server-side del ID token; `role` server-side (nunca del token); account-linking por email verificado; **no exime KYC**. Campos nuevos en `User` (migración M-3..M-7). Env `GOOGLE_CLIENT_ID` / `NEXT_PUBLIC_GOOGLE_CLIENT_ID`.
 - **Gráfica de portafolio:** `GET /vault/portfolio/history?range=...` sobre `PortfolioSnapshot` (modelo nuevo, migración M-8), escrito por job diario (BE-5). Backfill indicativo opcional marcado `estimated`.

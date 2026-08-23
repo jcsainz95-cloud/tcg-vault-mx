@@ -57,12 +57,15 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
 
       // El listado de Compra responde y toda fila publicada es vendible con precio resuelto
       // (invariante «solo se lista lo que tiene precio»), sin depender de qué página cae cada pieza.
+      // v1.38-grouped-listings (P-30): el listado es AGRUPADO (GroupedListingDTO) — toda fila es un GRUPO
+      // VIVO (stockCount≥1) con precio resuelto (>0) y un representante para add-to-cart de 1.
       const list = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.charizard.name)}&pageSize=20`);
       expect(list.status).toBe(200);
       expect((list.body.data as any[]).length).toBeGreaterThan(0);
       for (const l of list.body.data as any[]) {
-        expect(l.sellable).toBe(true);
+        expect(l.stockCount).toBeGreaterThanOrEqual(1);
         expect(l.salePriceCents).toBeGreaterThan(0);
+        expect(typeof l.representativeInventoryItemId).toBe('string');
       }
     });
 
