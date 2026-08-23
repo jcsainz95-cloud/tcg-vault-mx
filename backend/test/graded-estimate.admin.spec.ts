@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -368,6 +369,35 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
     ] as const) {
       expect(g[k]).toBeNull();
     }
+  });
+
+  it('GU-A8 — una clave PRESENTE-e-INVÁLIDA se refleja como `reason: FEATURE_OFF` (no como default silencioso)', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { ctrl } = wire([rawItem()], [psaRef('10', 900_000), psaRef('9', 500_000)], {
+      ...ON,
+      [SettingKey.GRADING_MIN_UPSIDE_PCT]: 'mucho', // edición fuera de banda
+    });
+    const res: any = await ctrl.preview('ca');
+    // El dial sigue `on` (el DTO no miente sobre el espejo de M10)…
+    expect(res.enabled).toBe(true);
+    // …y aun así NADA se destaca, con la razón accionable que exige §4.35d › Observabilidad.
+    expect(res.groups[0]).toMatchObject({ eligible: false, reason: 'FEATURE_OFF' });
+    // El `warn` del servidor es el que dice CUÁL clave y QUÉ invariante (el DTO no lo transporta).
+    expect(warn.mock.calls.some((c) => String(c[0]).includes(SettingKey.GRADING_MIN_UPSIDE_PCT))).toBe(true);
+    jest.restoreAllMocks();
+  });
+
+  it('GU-A8 — el `config` del preview conserva EXACTAMENTE la forma del contrato (sin flags internos)', async () => {
+    const { ctrl } = wire([rawItem()], [], ON);
+    const res: any = await ctrl.preview('ca');
+    expect(Object.keys(res.config).sort()).toEqual([
+      'enabled',
+      'freshnessDays',
+      'grades',
+      'gradingCostTiers',
+      'highlightGrades',
+      'minUpsidePct',
+    ]);
   });
 
   it('con el dial `off` el diagnóstico SIGUE respondiendo (reason FEATURE_OFF) y muestra la tabla vigente', async () => {

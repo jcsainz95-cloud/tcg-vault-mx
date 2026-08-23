@@ -21,9 +21,18 @@ import {
 
 const TODAY = '2026-08-23';
 
+/**
+ * Config sana. **v1.44.1 (GU-A8):** los tres interruptores son independientes en el TIPO —
+ * `enabled` (espejo del dial M10), `estimatesEnabled` (ficha) y `highlightEnabled` (teja/vitrina)— con
+ * el invariante `highlightEnabled ⇒ estimatesEnabled ⇒ enabled`. `cfg({enabled:false})` respeta ese
+ * invariante y apaga los tres, para que un test no pueda construir un estado imposible por descuido.
+ */
 function cfg(over: Partial<GradedEstimateConfig> = {}): GradedEstimateConfig {
+  const enabled = over.enabled ?? true;
   return {
-    enabled: true,
+    enabled,
+    estimatesEnabled: enabled,
+    highlightEnabled: enabled,
     grades: ['10', '9'],
     highlightGrades: ['10'],
     freshnessDays: 30,

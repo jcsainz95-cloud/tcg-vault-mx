@@ -29,10 +29,32 @@ export interface GradingCostTier {
   costMxnCents: number;
 }
 
-/** Config efectiva del gancho, izada UNA vez por request (patrón BE-25). */
+/**
+ * Config efectiva del gancho, izada UNA vez por request (patrón BE-25).
+ *
+ * **v1.44.1 (GU-A8, §4.35d) — TRES interruptores, no uno.** El fail-closed distingue *AUSENTE* de
+ * *PRESENTE-pero-INVÁLIDA*, y una clave inválida apaga **solo la superficie que gobierna**:
+ *
+ * | Flag | Qué apaga | Se pone en `false` por |
+ * |---|---|---|
+ * | `enabled` | — (es el **espejo** del dial M10; viaja al DTO de admin) | dial `graded_estimates_enabled != 'on'` |
+ * | `estimatesEnabled` | **ficha + teja + vitrina** (implica apagar todo) | dial `off`, o `grades`/`freshnessDays` **presente-e-inválida** |
+ * | `highlightEnabled` | **teja + vitrina** (la ficha sigue informando) | lo anterior, o `minUpsidePct`/`highlightGrades` **presente-e-inválida** |
+ *
+ * Invariante: `highlightEnabled ⇒ estimatesEnabled ⇒ enabled`. Los dos últimos son **internos**: el DTO
+ * del contrato (`GradedEstimateConfigDTO`) solo lleva `enabled` — ver `toGradedEstimateConfigDTO`.
+ */
 export interface GradedEstimateConfig {
-  /** Dial M10 `graded_estimates_enabled` (fail-closed, seed `off`). */
+  /**
+   * ESPEJO READ-ONLY del dial M10 `graded_estimates_enabled` (fail-closed, seed `off`). Es el `enabled`
+   * del DTO de admin; **no** lo apaga una clave corrupta (eso se refleja en el `reason` del preview y en
+   * el `warn`, §4.35d › Observabilidad), porque el contrato lo define como espejo del dial.
+   */
   enabled: boolean;
+  /** ¿La FICHA puede informar? Gobierna `selectGradedEstimates`. */
+  estimatesEnabled: boolean;
+  /** ¿La TEJA/VITRINA pueden promover? Gobierna `evaluateGradingHighlight`. Implica `estimatesEnabled`. */
+  highlightEnabled: boolean;
   /** Grados que la FICHA expone (seed `["10","9"]`). */
   grades: string[];
   /** Grados que el BADGE pinta (⊆ `grades`; seed `["10"]`). */
@@ -43,6 +65,28 @@ export interface GradedEstimateConfig {
   minUpsidePct: number;
   /** Tabla de escalones del gate de CURADURÍA. Vacía ⇒ nada se destaca. NO afecta la ficha. */
   gradingCostTiers: GradingCostTier[];
+}
+
+/** El `GradedEstimateConfigDTO` del contrato (§M2). Los flags internos de GU-A8 NO forman parte de él. */
+export type GradedEstimateConfigDTO = Omit<
+  GradedEstimateConfig,
+  'estimatesEnabled' | 'highlightEnabled'
+>;
+
+/**
+ * Proyección al DTO del contrato. **Existe para que añadir estado interno al resolver NO cambie la forma
+ * de `GET/PUT /admin/pricing/graded-estimates` ni del `config` del preview** (antes se devolvía el objeto
+ * interno tal cual, así que cualquier campo nuevo se filtraba al contrato sin querer).
+ */
+export function toGradedEstimateConfigDTO(cfg: GradedEstimateConfig): GradedEstimateConfigDTO {
+  return {
+    enabled: cfg.enabled,
+    grades: cfg.grades,
+    highlightGrades: cfg.highlightGrades,
+    freshnessDays: cfg.freshnessDays,
+    minUpsidePct: cfg.minUpsidePct,
+    gradingCostTiers: cfg.gradingCostTiers,
+  };
 }
 
 /** Un estimado por grado, ya resuelto a MXN. Deliberadamente SIN `source`/`isManualOverride` (§4.35g). */
@@ -373,7 +417,10 @@ export function selectGradedEstimates<T extends GradedEstimateInput>(input: {
   cfg: GradedEstimateConfig;
 }): T[] {
   const { productType, estimates, today, cfg } = input;
-  if (cfg.enabled !== true) return []; // 1. fail-closed (dial M10, seed off).
+  // 1. fail-closed: dial M10 `off` (seed) **o** GU-A8 — `grades`/`freshnessDays` PRESENTE-e-INVÁLIDA.
+  //    Sin un umbral de frescura confiable no se puede afirmar que una cifra esté vigente, así que la
+  //    ficha tampoco informa (§4.35d › «Alcance del apagado»).
+  if (cfg.estimatesEnabled !== true) return [];
   if (productType !== 'raw') return []; // 2. criterio 87: graded y sealed NUNCA.
   const out: T[] = [];
   for (const g of cfg.grades) {
@@ -441,7 +488,10 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     capturedDate,
   });
 
-  if (cfg.enabled !== true) return no('FEATURE_OFF');
+  // GU-A8 (§4.35d): apagado por dial M10 `off` **o** por una clave PRESENTE-e-INVÁLIDA que gobierne la
+  // promoción (`minUpsidePct`, `highlightGrades`) o la ficha (`grades`, `freshnessDays`). Un valor
+  // corrupto es evidencia de que la intención del admin se perdió: **no se adivina**, se apaga.
+  if (cfg.highlightEnabled !== true) return no('FEATURE_OFF');
   if (productType !== 'raw') return no('NOT_RAW');
   if (rawSalePriceCents == null || !isInt(rawSalePriceCents) || rawSalePriceCents <= 0) {
     return no('NOT_PUBLISHED'); // sin precio de venta no hay comparación posible.

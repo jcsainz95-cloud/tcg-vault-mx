@@ -214,6 +214,53 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(despues.body.gradedEstimates).toHaveLength(2);
   });
 
+  it('8b) GU-A8 — un `minUpsidePct` CORRUPTO por edición fuera de banda apaga la vitrina, no la ficha', async () => {
+    // Se restaura el umbral sano para que la carta VUELVA a estar destacada (si no, el test 8 ya la
+    // había sacado y esta prueba no discriminaría nada).
+    await h.api('PUT', '/admin/pricing/graded-estimates', {
+      token: adminToken,
+      json: { minUpsidePct: 30 },
+    });
+    const vitrinaSana = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
+    expect(vitrinaSana.body.data.find((g: any) => g.card.id === cardId)).toBeDefined();
+
+    // Edición FUERA DE BANDA (el `PUT` lo rechazaría con 422): SQL directo / restore parcial. Es el
+    // único camino que llega a este estado, y es exactamente cuando conviene ser paranoico (§4.35d).
+    await h.prisma.configSetting.upsert({
+      where: { key: 'grading_min_upside_pct' },
+      create: { key: 'grading_min_upside_pct', valueJson: 'mucho' },
+      update: { valueJson: 'mucho' },
+    });
+
+    // NO se cae al seed 30 (que habría vuelto a destacar la carta): nada se promociona.
+    const vitrina = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
+    expect(vitrina.status).toBe(200);
+    expect(vitrina.body.data.find((g: any) => g.card.id === cardId)).toBeUndefined();
+
+    const ficha = await h.api('GET', `/catalog/cards/${cardId}`);
+    const raw = ficha.body.listings.find((l: any) => l.productType === 'raw');
+    expect(raw.gradingHighlight).toBeUndefined(); // el badge desaparece…
+    expect(ficha.body.gradedEstimates).toHaveLength(2); // …pero la FICHA sigue informando (alcance)
+    expect(raw.salePriceCents).toBe(E2E_LIST_OVERRIDE_CENTS); // y ningún precio se movió
+
+    // El diagnóstico de admin lo explica con la razón accionable.
+    const preview = await h.api('GET', `/admin/pricing/graded-estimates/preview?cardId=${cardId}`, {
+      token: adminToken,
+    });
+    const g = preview.body.groups.find((x: any) => x.finish === 'normal');
+    expect(g).toMatchObject({ eligible: false, reason: 'FEATURE_OFF' });
+
+    // Un `PUT` válido vuelve a dejar la config sana (el camino de salida del operador).
+    const fix = await h.api('PUT', '/admin/pricing/graded-estimates', {
+      token: adminToken,
+      json: { minUpsidePct: 30 },
+    });
+    expect(fix.status).toBe(200);
+    expect(fix.body.minUpsidePct).toBe(30);
+    const vuelve = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
+    expect(vuelve.body.data.find((g2: any) => g2.card.id === cardId)).toBeDefined();
+  });
+
   it('9) apagar el dial deja el catálogo EXACTAMENTE como antes de la feature', async () => {
     await setDial('off');
     const ficha = await h.api('GET', `/catalog/cards/${cardId}`);

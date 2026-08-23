@@ -4,7 +4,11 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
-import { DEFAULT_GRADING_COST_TIERS } from '../src/common/graded-estimate';
+import { Logger } from '@nestjs/common';
+import {
+  DEFAULT_GRADING_COST_TIERS,
+  toGradedEstimateConfigDTO,
+} from '../src/common/graded-estimate';
 
 /**
  * v1.44-graded-estimate — COMPOSICIÓN del gancho en el storefront (ARCHITECTURE §4.35-0/c/e/f,
@@ -412,6 +416,81 @@ describe('Dial maestro `gradedEstimatesEnabled` (seed `off`, fail-closed) — §
     expect(on.data.map(strip)).toEqual(off.data.map(strip));
     expect(on.data[0].salePriceCents).toBe(100_000);
     expect(on.data[0].gradingHighlight).toBeDefined(); // …y el gancho SÍ apareció con el dial on
+  });
+});
+
+/**
+ * GU-A8 (§4.35d) — **alcance DIFERENCIADO del apagado**, verificado en la ruta de request completa.
+ * Una clave PRESENTE-e-INVÁLIDA apaga solo la superficie que gobierna:
+ *
+ * - `minUpsidePct` / `highlightGrades` → teja + vitrina (**la ficha sobrevive**)
+ * - `freshnessDays` / `grades`         → **también la ficha** (sin umbral fiable no se afirma «vigente»)
+ */
+describe('GU-A8 — una clave corrupta apaga SOLO su superficie (§4.35d)', () => {
+  beforeEach(() => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined));
+  afterEach(() => jest.restoreAllMocks());
+
+  const corrupt = (key: string, value: unknown) => ({ ...ON, [key]: value });
+
+  it('`minUpsidePct` corrupto: la FICHA sigue informando y la TEJA/VITRINA se apagan', async () => {
+    const { catalog } = wire(A_ITEMS, A_REFS, corrupt(SettingKey.GRADING_MIN_UPSIDE_PCT, 'mucho'));
+
+    const ficha: any = await catalog.getCard('ca');
+    expect(ficha.gradedEstimates).toHaveLength(2); // informar ≠ promover: la ficha NO depende del umbral
+    expect('gradingHighlight' in ficha.listings[0]).toBe(false);
+
+    const list: any = await catalog.listCards({ page: 1, pageSize: 20 });
+    expect('gradingHighlight' in list.data[0]).toBe(false);
+    const vitrina: any = await catalog.listCards({ page: 1, pageSize: 20, gradingHighlight: 'true' });
+    expect(vitrina).toMatchObject({ data: [], total: 0 });
+  });
+
+  it('el escenario del hallazgo: tabla VÁLIDA + umbral corrupto NO promociona con el seed 30', async () => {
+    // Con el seed 30 esta carta PASA el gate (umbral 364000 <= PSA9 500000). Si el resolver cayera al
+    // seed, la vitrina la mostraría — que es exactamente el «más permisivo que su intención» del P1.
+    const sano = wire(A_ITEMS, A_REFS, ON);
+    expect((await sano.catalog.listCards({ page: 1, pageSize: 20, gradingHighlight: 'true' })).total).toBe(1);
+
+    const roto = wire(A_ITEMS, A_REFS, corrupt(SettingKey.GRADING_MIN_UPSIDE_PCT, { pct: 200 }));
+    expect((await roto.catalog.listCards({ page: 1, pageSize: 20, gradingHighlight: 'true' })).total).toBe(0);
+  });
+
+  it('`freshnessDays` corrupto: se apagan LAS DOS superficies (incluida la ficha)', async () => {
+    const { catalog } = wire(A_ITEMS, A_REFS, corrupt(SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS, 0));
+    const ficha: any = await catalog.getCard('ca');
+    expect('gradedEstimates' in ficha).toBe(false); // ni una cifra: no se puede afirmar que esté vigente
+    expect('gradingHighlight' in ficha.listings[0]).toBe(false);
+  });
+
+  it('`grades` corrupto: se apagan LAS DOS superficies (incluida la ficha)', async () => {
+    const { catalog } = wire(A_ITEMS, A_REFS, corrupt(SettingKey.GRADED_ESTIMATE_GRADES, ['11']));
+    const ficha: any = await catalog.getCard('ca');
+    expect('gradedEstimates' in ficha).toBe(false);
+    expect('gradingHighlight' in ficha.listings[0]).toBe(false);
+  });
+
+  it('criterio 90 se mantiene: ninguna clave corrupta mueve un precio de venta', async () => {
+    for (const cfg of [
+      corrupt(SettingKey.GRADING_MIN_UPSIDE_PCT, 'mucho'),
+      corrupt(SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS, 0),
+      corrupt(SettingKey.GRADED_ESTIMATE_GRADES, ['11']),
+    ]) {
+      const list: any = await wire(A_ITEMS, A_REFS, cfg).catalog.listCards({ page: 1, pageSize: 20 });
+      expect(list.data[0].salePriceCents).toBe(100_000);
+    }
+  });
+
+  it('el DTO de admin NO filtra los flags internos de GU-A8 (la forma del contrato no cambia)', async () => {
+    const { pricing } = wire(A_ITEMS, A_REFS, ON);
+    const cfg = await pricing.loadGradedEstimateConfigForAdmin();
+    expect(Object.keys(toGradedEstimateConfigDTO(cfg)).sort()).toEqual([
+      'enabled',
+      'freshnessDays',
+      'grades',
+      'gradingCostTiers',
+      'highlightGrades',
+      'minUpsidePct',
+    ]);
   });
 });
 

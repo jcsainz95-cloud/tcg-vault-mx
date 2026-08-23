@@ -22,6 +22,7 @@ import {
   GradedEstimateConfig,
   GradingHighlightResult,
   selectGradedEstimates,
+  toGradedEstimateConfigDTO,
 } from '../../common/graded-estimate';
 
 // Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
@@ -869,8 +870,15 @@ export class CatalogService {
         };
       });
     // `config` = la config EFECTIVA (la misma que usa el resolver, ya saneada fail-closed): si el admin
-    // ve `gradingCostTiers: []` aquí, eso ES la explicación de por qué nada se destaca.
-    return { cardId, enabled: cfg.enabled, config: cfg, groups };
+    // ve `gradingCostTiers: []` aquí, eso ES la explicación de por qué nada se destaca. Se PROYECTA al
+    // DTO del contrato: los flags internos de GU-A8 no viajan (cuando apagan algo, el admin lo ve en el
+    // `reason: FEATURE_OFF` de cada grupo y en el `warn` del servidor, §4.35d › Observabilidad).
+    return {
+      cardId,
+      enabled: cfg.enabled,
+      config: toGradedEstimateConfigDTO(cfg),
+      groups,
+    };
   }
 
   async getListing(inventoryItemId: string) {

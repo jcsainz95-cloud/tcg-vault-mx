@@ -44,12 +44,11 @@ import { TierId } from '../../common/pricing-tiers';
 // vive en la pura `common/graded-estimate.ts`; aquí solo se IZA la config y se LEE el dato.
 import {
   DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
-  DEFAULT_GRADED_ESTIMATE_GRADES,
-  DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
   DEFAULT_GRADING_MIN_UPSIDE_PCT,
   GRADED_ESTIMATE_GRADE_KEYS,
   GradedEstimateConfig,
   sanitizeGradingCostTiers,
+  validateGradingCostTiers,
 } from '../../common/graded-estimate';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
@@ -208,15 +207,6 @@ export interface GradedEstimateRef {
   gradeKey: string;
   mxnCents: number;
   capturedDate: string;
-}
-
-/**
- * v1.44 — lista de grados saneada en LECTURA: si el valor persistido no cumple I7 (array ⊆ {"10","9"},
- * no vacío, sin duplicados) cae al seed. Es una LISTA, no dinero: su ausencia no puede producir un gate
- * optimista (§4.35d).
- */
-function sanitizeGradeList(raw: unknown, fallback: string[]): string[] {
-  return validateGradeList(raw) == null ? (raw as string[]) : [...fallback];
 }
 
 /** v1.29 (§4.27i) — precio por variante de un producto separado (CardProductDTO.prices). */
@@ -695,10 +685,19 @@ export class PricingService {
    *
    * 1. **Dial maestro primero:** con `graded_estimates_enabled != 'on'` se devuelve la config APAGADA
    *    (y el caller NO lee precios: con el dial `off` el backend «ni siquiera evalúa nada», §M10).
-   * 2. **La tabla de COSTO no tiene default de código:** clave **AUSENTE**, corrupta o que no cumple
-   *    I1–I5 ⇒ tabla VACÍA ⇒ nada se destaca (`NO_COST_TIER`). Jamás un costo asumido en 0. Los
-   *    umbrales y listas (`minUpsidePct`/`freshnessDays`/`grades`) SÍ caen a su seed: no son dinero y su
-   *    ausencia no puede producir un gate optimista (sin tabla no hay gate).
+   * 2. **`AUSENTE ≠ INVÁLIDA` (GU-A8, v1.44.1).** Tres estados por clave, no dos:
+   *
+   *    | Estado | `grading_cost_tiers` | `minUpsidePct` / `freshnessDays` / `grades` / `highlightGrades` |
+   *    |---|---|---|
+   *    | Válida | se usa | se usa |
+   *    | **AUSENTE** | tabla VACÍA ⇒ nada se destaca | **seed** (es el estado del primer deploy antes de M-41) |
+   *    | **PRESENTE pero INVÁLIDA** | tabla VACÍA ⇒ nada se destaca | **nada se destaca** (NO cae al seed) |
+   *
+   *    Un valor **corrupto** es evidencia de que la intención del admin **se perdió**, así que no se
+   *    adivina. Caer al seed sería *más permisivo que su intención, en silencio*: con la tabla válida y
+   *    `grading_min_upside_pct` corrupto, un 200 configurado se volvía el seed 30. Nunca hay default de
+   *    código para el COSTO, en ningún estado.
+   *
    *
    * **v1.44 R1 — por qué `getRawMany` y no `getRaw`:** `SettingsService.get()/getRaw()` hacen fallback a
    * `SETTING_DEFAULTS`, así que **no distinguen clave AUSENTE de clave presente con el valor del seed**.
@@ -718,6 +717,8 @@ export class PricingService {
     if (!gradedEstimatesEnabledFrom(raw)) {
       return {
         enabled: false,
+        estimatesEnabled: false,
+        highlightEnabled: false,
         grades: [],
         highlightGrades: [],
         freshnessDays: DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
@@ -744,44 +745,96 @@ export class PricingService {
     return this.buildGradedEstimateConfig(raw, gradedEstimatesEnabledFrom(raw));
   }
 
-  /** SANEA las 5 claves de config del gancho ya leídas (ver la doctrina fail-closed de arriba). */
+  /**
+   * SANEA las 5 claves de config del gancho ya leídas, aplicando la regla `AUSENTE ≠ INVÁLIDA`
+   * (GU-A8, §4.35d). Ver la tabla de tres estados en el docstring de `loadGradedEstimateConfig`.
+   *
+   * `enabled` es el ESPEJO del dial M10 y **no** lo apaga una clave corrupta (el contrato lo define
+   * así); lo que se apaga son `estimatesEnabled` / `highlightEnabled`, y el admin se entera por el
+   * `warn` y por el `reason: FEATURE_OFF` del preview.
+   */
   private buildGradedEstimateConfig(
     raw: Map<SettingKeyType, unknown>,
     enabled: boolean,
   ): GradedEstimateConfig {
-    // Umbrales y listas: clave ausente ⇒ su SEED de código (no son dinero, ver doctrina (2)).
-    const seeded = (key: SettingKeyType): unknown =>
-      raw.has(key) ? raw.get(key) : SETTING_DEFAULTS[key];
-    const gradesRaw = seeded(SettingKey.GRADED_ESTIMATE_GRADES);
-    const highlightRaw = seeded(SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES);
-    const freshRaw = seeded(SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS);
-    const minUpsideRaw = seeded(SettingKey.GRADING_MIN_UPSIDE_PCT);
-    // COSTO: se lee del Map SIN pasar por `seeded()`. Clave ausente ⇒ `undefined` ⇒ el saneador
-    // devuelve `[]`. Es la única clave del gancho que JAMÁS cae a un default de código (§4.35d).
-    const tiersRaw = raw.get(SettingKey.GRADING_COST_TIERS);
+    /**
+     * Resuelve UNA clave a sus tres estados. `invalid: true` significa **presente pero inválida**:
+     * el valor devuelto es el seed (para que el DTO de admin siga siendo mostrable y tipado), pero el
+     * caller **apaga la superficie** en vez de usarlo — que es justo lo contrario de caer al seed.
+     */
+    const resolve = <T>(
+      key: SettingKeyType,
+      validate: (v: unknown) => string | null,
+    ): { value: T; invalid: boolean } => {
+      const seed = SETTING_DEFAULTS[key] as T;
+      if (!raw.has(key)) return { value: seed, invalid: false }; // AUSENTE ⇒ seed (deliberado).
+      const stored = raw.get(key);
+      const err = validate(stored);
+      if (err == null) return { value: stored as T, invalid: false }; // VÁLIDA.
+      this.warnInvalidGradedEstimateKey(key, err); // PRESENTE pero INVÁLIDA ⇒ apagar, no adivinar.
+      return { value: seed, invalid: true };
+    };
 
-    const grades = sanitizeGradeList(gradesRaw, DEFAULT_GRADED_ESTIMATE_GRADES);
+    const gradesRes = resolve<string[]>(SettingKey.GRADED_ESTIMATE_GRADES, validateGradeList);
+    const highlightRes = resolve<string[]>(
+      SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+      validateGradeList,
+    );
+    const freshRes = resolve<number>(
+      SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
+      validateGradedEstimateFreshnessDays,
+    );
+    const minUpsideRes = resolve<number>(
+      SettingKey.GRADING_MIN_UPSIDE_PCT,
+      validateGradingMinUpsidePct,
+    );
+
+    // COSTO: se lee del Map SIN consultar `SETTING_DEFAULTS` en NINGÚN estado. Ausente ⇒ `undefined`,
+    // corrupta ⇒ el valor tal cual; el saneador devuelve `[]` en ambos casos (money-safe, §4.35d).
+    // Su corrupción NO necesita apagar nada: la tabla vacía ya produce `NO_COST_TIER`, que es un
+    // diagnóstico MÁS preciso que `FEATURE_OFF` y con el mismo efecto (nada se destaca).
+    const tiersRaw = raw.get(SettingKey.GRADING_COST_TIERS);
+    if (tiersRaw !== undefined) {
+      const tiersErr = validateGradingCostTiers(tiersRaw);
+      if (tiersErr) this.warnInvalidGradedEstimateKey(SettingKey.GRADING_COST_TIERS, tiersErr.message);
+    }
+
+    const grades = gradesRes.value;
     // `highlightGrades ⊆ grades` (I7) también EN LECTURA: si una edición fuera de banda dejó un grado
     // huérfano, el badge no puede pintar un grado que la ficha no expone.
-    const highlightGrades = sanitizeGradeList(
-      highlightRaw,
-      DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
-    ).filter((g) => grades.includes(g));
+    const highlightGrades = highlightRes.value.filter((g) => grades.includes(g));
+
+    // Alcance del apagado (§4.35d): `grades`/`freshnessDays` gobiernan TAMBIÉN la ficha — sin umbral de
+    // frescura confiable no se puede afirmar que una cifra esté vigente. `minUpsidePct`/`highlightGrades`
+    // solo gobiernan la promoción, así que la ficha sobrevive a su corrupción.
+    const estimatesEnabled = enabled && !gradesRes.invalid && !freshRes.invalid;
+    const highlightEnabled = estimatesEnabled && !minUpsideRes.invalid && !highlightRes.invalid;
+
     return {
       enabled,
+      estimatesEnabled,
+      highlightEnabled,
       grades,
       highlightGrades,
-      freshnessDays:
-        validateGradedEstimateFreshnessDays(freshRaw) == null
-          ? (freshRaw as number)
-          : DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
-      minUpsidePct:
-        validateGradingMinUpsidePct(minUpsideRaw) == null
-          ? (minUpsideRaw as number)
-          : DEFAULT_GRADING_MIN_UPSIDE_PCT,
-      // SIN default de código para el COSTO (money-safe): tabla inválida ⇒ [] ⇒ nada se destaca.
+      freshnessDays: freshRes.value,
+      minUpsidePct: minUpsideRes.value,
       gradingCostTiers: sanitizeGradingCostTiers(tiersRaw),
     };
+  }
+
+  /**
+   * GU-A8 › Observabilidad (OBLIGATORIA): una clave presente-e-inválida se loguea con `warn`
+   * identificando **la clave y el invariante violado**. Un apagado silencioso sería tan malo como el
+   * default silencioso que esta regla evita: el dueño debe poder enterarse de por qué se le vació la
+   * vitrina. Solo se dispara por edición **fuera de banda** (SQL directo, restore parcial, migración a
+   * medias) — el `PUT` de M2 rechaza lo inválido con `422`.
+   */
+  private warnInvalidGradedEstimateKey(key: SettingKeyType, invariant: string): void {
+    this.logger.warn(
+      `graded-estimate config: la clave '${key}' está PRESENTE pero es INVÁLIDA (${invariant}). ` +
+        'GU-A8 (§4.35d): NO se cae al seed — se apaga la superficie que gobierna. ' +
+        'Corrige el valor con PUT /admin/pricing/graded-estimates (o revisa la edición fuera de banda).',
+    );
   }
 
   /**

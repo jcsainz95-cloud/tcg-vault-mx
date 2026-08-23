@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -144,6 +145,9 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
     const { pricing, prisma } = wire();
     const cfg = await pricing.loadGradedEstimateConfig();
     expect(cfg.enabled).toBe(false);
+    // GU-A8: el dial apaga LOS TRES interruptores (invariante highlight ⇒ estimates ⇒ enabled).
+    expect(cfg.estimatesEnabled).toBe(false);
+    expect(cfg.highlightEnabled).toBe(false);
     expect(cfg.gradingCostTiers).toEqual([]);
     expect(cfg.grades).toEqual([]);
     // IMPORTANTE-2: UNA sola query de settings por request (las 6 claves en un `findMany`), no 6
@@ -176,6 +180,8 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
     const cfg = await pricing.loadGradedEstimateConfig();
     expect(cfg).toEqual({
       enabled: true,
+      estimatesEnabled: true,
+      highlightEnabled: true,
       grades: ['10', '9'],
       highlightGrades: ['10'],
       freshnessDays: 30,
@@ -201,20 +207,6 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
     }
   });
 
-  it('umbrales y listas inválidos SÍ caen a su seed (no son dinero; sin tabla no hay gate)', async () => {
-    const { pricing } = wire([], {
-      ...SEEDED_TIERS,
-      ...ON,
-      [SettingKey.GRADING_MIN_UPSIDE_PCT]: 'mucho',
-      [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]: 0,
-      [SettingKey.GRADED_ESTIMATE_GRADES]: ['11'],
-    });
-    const cfg = await pricing.loadGradedEstimateConfig();
-    expect(cfg.minUpsidePct).toBe(30);
-    expect(cfg.freshnessDays).toBe(30);
-    expect(cfg.grades).toEqual(['10', '9']);
-  });
-
   it('`highlightGrades ⊆ grades` también EN LECTURA (un badge huérfano no se pinta)', async () => {
     const { pricing } = wire([], {
       ...SEEDED_TIERS,
@@ -236,5 +228,140 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
   it('R1 — la variante de ADMIN muestra la config EFECTIVA: sin fila, el editor ve `[]`, no una tabla fantasma', async () => {
     const { pricing } = wire();
     expect((await pricing.loadGradedEstimateConfigForAdmin()).gradingCostTiers).toEqual([]);
+  });
+});
+
+/**
+ * GU-A8 (§4.35d, v1.44.1) — **`AUSENTE ≠ INVÁLIDA`**. La justificación vieja de la excepción de seed
+ * («sin tabla no hay gate») solo valía si AMBAS claves fallaban a la vez: con la tabla VÁLIDA y
+ * `grading_min_upside_pct` corrupto, un 200 configurado se volvía el seed 30 — **más permisivo que la
+ * intención del admin, en silencio, en la superficie que promociona**.
+ *
+ * | Estado | `grading_cost_tiers` | umbrales y listas |
+ * |---|---|---|
+ * | Válida | se usa | se usa |
+ * | AUSENTE | `[]` (nada se destaca) | **seed** |
+ * | PRESENTE pero INVÁLIDA | `[]` (nada se destaca) | **nada se destaca** (NO cae al seed) |
+ */
+describe('GU-A8 — AUSENTE ≠ INVÁLIDA: los tres estados de cada clave (§4.35d)', () => {
+  /** Valores que EXISTEN en la fila pero violan su invariante (solo llegan por edición fuera de banda). */
+  const INVALID = {
+    [SettingKey.GRADING_MIN_UPSIDE_PCT]: 'mucho',
+    [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]: 0, // fuera de [1,365]
+    [SettingKey.GRADED_ESTIMATE_GRADES]: ['11'], // fuera de {"10","9"}
+    [SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES]: ['8', '8'], // inválido + duplicado
+  } as const;
+
+  describe('estado AUSENTE ⇒ SEED (deliberado: es el primer deploy, antes de M-41)', () => {
+    it('sin ninguna fila de umbrales/listas, la config cae a su seed y TODO sigue vivo', async () => {
+      const { pricing } = wire([], { ...SEEDED_TIERS, ...ON });
+      const cfg = await pricing.loadGradedEstimateConfig();
+      expect(cfg).toMatchObject({
+        minUpsidePct: 30,
+        freshnessDays: 30,
+        grades: ['10', '9'],
+        highlightGrades: ['10'],
+        estimatesEnabled: true, // la ficha informa
+        highlightEnabled: true, // …y la vitrina promueve
+      });
+    });
+  });
+
+  describe('estado PRESENTE-pero-INVÁLIDA ⇒ nada se destaca (NO se adivina la intención)', () => {
+    it('`minUpsidePct` corrupto NO cae al seed 30: apaga la PROMOCIÓN y deja viva la FICHA', async () => {
+      const { pricing } = wire([], {
+        ...SEEDED_TIERS,
+        ...ON,
+        [SettingKey.GRADING_MIN_UPSIDE_PCT]: INVALID[SettingKey.GRADING_MIN_UPSIDE_PCT],
+      });
+      const cfg = await pricing.loadGradedEstimateConfig();
+      expect(cfg.highlightEnabled).toBe(false); // el gate NO corre con un umbral inventado
+      expect(cfg.estimatesEnabled).toBe(true); // …pero `minUpsidePct` no participa en la ficha
+      expect(cfg.enabled).toBe(true); // el ESPEJO del dial M10 no miente: el dial sigue `on`
+    });
+
+    it('`highlightGrades` corrupto apaga la PROMOCIÓN y deja viva la FICHA (no gobierna la ficha)', async () => {
+      const { pricing } = wire([], {
+        ...SEEDED_TIERS,
+        ...ON,
+        [SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES]:
+          INVALID[SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES],
+      });
+      const cfg = await pricing.loadGradedEstimateConfig();
+      expect(cfg.highlightEnabled).toBe(false);
+      expect(cfg.estimatesEnabled).toBe(true);
+    });
+
+    it('`freshnessDays` corrupto apaga TAMBIÉN la ficha (sin umbral fiable no se afirma «vigente»)', async () => {
+      const { pricing } = wire([], {
+        ...SEEDED_TIERS,
+        ...ON,
+        [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]:
+          INVALID[SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS],
+      });
+      const cfg = await pricing.loadGradedEstimateConfig();
+      expect(cfg.estimatesEnabled).toBe(false);
+      expect(cfg.highlightEnabled).toBe(false); // invariante: highlight ⇒ estimates
+    });
+
+    it('`grades` corrupto apaga TAMBIÉN la ficha (gobierna qué grados expone)', async () => {
+      const { pricing } = wire([], {
+        ...SEEDED_TIERS,
+        ...ON,
+        [SettingKey.GRADED_ESTIMATE_GRADES]: INVALID[SettingKey.GRADED_ESTIMATE_GRADES],
+      });
+      const cfg = await pricing.loadGradedEstimateConfig();
+      expect(cfg.estimatesEnabled).toBe(false);
+      expect(cfg.highlightEnabled).toBe(false);
+    });
+
+    it('el ESCENARIO del hallazgo: tabla VÁLIDA + `minUpsidePct` corrupto ⇒ el gate NO corre con 30', async () => {
+      // Antes de GU-A8 esto devolvía `minUpsidePct: 30` con la tabla buena ⇒ el gate corría MÁS
+      // permisivo que el 200 que el admin había configurado, y nadie se enteraba.
+      const { pricing } = wire([], {
+        ...SEEDED_TIERS,
+        ...ON,
+        [SettingKey.GRADING_MIN_UPSIDE_PCT]: { pct: 200 }, // shape equivocado (restore parcial)
+      });
+      const cfg = await pricing.loadGradedEstimateConfig();
+      expect(cfg.gradingCostTiers).toEqual(DEFAULT_GRADING_COST_TIERS); // la tabla SÍ es válida…
+      expect(cfg.highlightEnabled).toBe(false); // …y aun así no se destaca nada
+    });
+  });
+
+  describe('observabilidad OBLIGATORIA — un apagado silencioso sería tan malo como el default silencioso', () => {
+    const warnSpy = () =>
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('loguea `warn` con LA CLAVE y EL INVARIANTE violado', async () => {
+      const warn = warnSpy();
+      const { pricing } = wire([], {
+        ...SEEDED_TIERS,
+        ...ON,
+        [SettingKey.GRADING_MIN_UPSIDE_PCT]: 'mucho',
+      });
+      await pricing.loadGradedEstimateConfig();
+      const msgs = warn.mock.calls.map((c) => String(c[0]));
+      expect(msgs.some((m) => m.includes(SettingKey.GRADING_MIN_UPSIDE_PCT))).toBe(true);
+      expect(msgs.some((m) => m.includes('[0, 1000]'))).toBe(true); // el invariante, no solo «inválida»
+    });
+
+    it('una clave AUSENTE no genera ruido (el primer deploy no es una anomalía)', async () => {
+      const warn = warnSpy();
+      const { pricing } = wire([], { ...SEEDED_TIERS, ...ON }); // umbrales/listas ausentes
+      await pricing.loadGradedEstimateConfig();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('la tabla de costo PRESENTE pero corrupta también se loguea (aunque su reason sea NO_COST_TIER)', async () => {
+      const warn = warnSpy();
+      const { pricing } = wire([], { ...ON, [SettingKey.GRADING_COST_TIERS]: 'nope' });
+      await pricing.loadGradedEstimateConfig();
+      expect(warn.mock.calls.some((c) => String(c[0]).includes(SettingKey.GRADING_COST_TIERS))).toBe(
+        true,
+      );
+    });
   });
 });

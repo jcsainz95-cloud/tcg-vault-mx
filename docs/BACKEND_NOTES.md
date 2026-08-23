@@ -39,12 +39,20 @@ la MISMA fila que alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` de 
 - **`source` se omite SIEMPRE** en `GradedEstimateDTO.estimate` — y no por convención: el batch devuelve un tipo
   (`GradedEstimateRef`) que **no tiene** `source` ni `isManualOverride`, así que ninguna rama de composición puede
   bifurcar por origen. Fase 1 y fase 2 son **indistinguibles byte a byte** (test ejecutable, ver abajo).
-- **Money-safe:** `estimate.status` siempre `"priced"`; un estimado `<= 0` no existe; `costMxnCents >= 1` jamás 0;
-  **fail-closed on-read** — tabla de escalones **ausente**/corrupta/inválida ⇒ tratada como **vacía** ⇒
-  `NO_COST_TIER` ⇒ nada se destaca. `minUpsidePct`/`freshnessDays`/`grades` sí caen a su seed (no son dinero).
-  **El caso «clave AUSENTE» quedó realmente cubierto en la corrección R1** (ver «Correcciones post-revisión»):
-  antes la lectura pasaba por `SettingsService.get()`, que hace fallback a `SETTING_DEFAULTS` y por tanto NO
-  distinguía «no hay fila» de «hay fila con el seed».
+- **Money-safe:** `estimate.status` siempre `"priced"`; un estimado `<= 0` no existe; `costMxnCents >= 1` jamás 0.
+- **Fail-closed on-read — `AUSENTE ≠ INVÁLIDA` (GU-A8, v1.44.1).** El lector distingue **tres** estados por clave:
+
+  | Estado de la clave | `grading_cost_tiers` | `minUpsidePct` / `freshnessDays` / `grades` / `highlightGrades` |
+  |---|---|---|
+  | **Válida** | se usa | se usa |
+  | **AUSENTE** (nunca escrita) | `[]` ⇒ `NO_COST_TIER` ⇒ nada se destaca | **seed** (estado del primer deploy, antes de M-41) |
+  | **PRESENTE pero INVÁLIDA** | `[]` ⇒ nada se destaca | **nada se destaca** — NO cae al seed |
+
+  Un valor **corrupto es evidencia de que la intención del admin se perdió**, así que no se adivina. **Alcance
+  diferenciado del apagado:** `minUpsidePct`/`highlightGrades` inválidos apagan **teja + vitrina** y la **ficha
+  sobrevive**; `freshnessDays`/`grades` inválidos apagan **también la ficha** (sin umbral de frescura confiable no se
+  puede afirmar que una cifra esté vigente). El COSTO **nunca** tiene default de código, en ningún estado.
+  Ver «Correcciones post-revisión» para el porqué y los dos huecos que esto cerró (R1 y GU-A8).
 - **Escalones `[min, max)`** contiguos con último abierto (I1–I5), validados en **cada** `PUT` y **también al leer**.
 - **Doctrina (b) intacta:** las filas PSA no fijan `listPriceCents`, no publican inventario, no entran en
   `getPricedRawFinishesBatch`/`pricedFinishesSnapshot`/`availableFinishes`, no encolan `PendingPriceEntry`, no valúan
@@ -118,6 +126,34 @@ over-fetch combinatorio sobre la tabla más caliente. Filtra por `cardProductId:
 | **D3** | techlead | I7 duplicado: `gradeList()` del controller re-implementaba `validateGradeList()` de `settings.constants.ts`. | **Arreglado** (no anotado): el controller ahora **envuelve** el validador compartido y solo aporta la forma del error (422 + `details.field`). |
 | **D4** | techlead | El `PUT` escribía en un **bucle de `upsert` sin transacción** mientras esta nota prometía «todo-o-nada»; y el `before` auditado salía de la config **saneada**, así que auditar un valor corrupto registraba `[]` y perdía el forense. | **Arreglado** (no anotado): upserts dentro de `prisma.$transaction`, y la entrada de bitácora lleva `before.storedRaw` = los valores **tal cual estaban almacenados** (claves ausentes omitidas, corruptas intactas). |
 | **D1** | techlead | Instrumentación de fase 2 no implementada. | **Anotada en `docs/TECH_DEBT.md`** (ligada a BE-6). Sigue bloqueada por doctrina P-6; ver abajo. |
+| **GU-A8** | techlead (P1) → arquitecto (§4.35d rev v1.44.1) | La excepción de seed para los umbrales se justificaba con «sin tabla no hay gate», pero eso **solo vale si AMBAS claves fallan**. Con `grading_cost_tiers` **válida** y `grading_min_upside_pct` **corrupto**, el gate caía al seed **30** aunque el admin hubiera puesto **200**: más permisivo que su intención, **en silencio**, en la superficie que promociona. Igual con `freshnessDays` (un 7 configurado se volvía 30 y mostraba como vigente un dato ya rancio). | Implementada la regla normativa **`AUSENTE ≠ INVÁLIDA`** con sus tres estados (tabla arriba) y **alcance diferenciado del apagado**. Detalle de diseño abajo. |
+
+#### Cómo quedó implementado GU-A8 (para techlead/QA)
+
+- **Tres interruptores en `GradedEstimateConfig`, no uno**, con el invariante `highlightEnabled ⇒ estimatesEnabled ⇒
+  enabled`:
+  - **`enabled`** — sigue siendo el **ESPEJO READ-ONLY del dial M10**, tal como lo define el contrato. **Una clave
+    corrupta NO lo apaga**: si lo apagara, el DTO de admin mentiría sobre el estado del dial. El admin se entera por
+    el `warn` y por el `reason`.
+  - **`estimatesEnabled`** — gobierna `selectGradedEstimates` (**la ficha**). Falso con el dial `off` o con
+    `grades`/`freshnessDays` presente-e-inválida.
+  - **`highlightEnabled`** — gobierna `evaluateGradingHighlight` (**teja + vitrina**). Falso además con
+    `minUpsidePct`/`highlightGrades` presente-e-inválida.
+- **Los dos flags nuevos son INTERNOS y NO viajan al contrato.** `GradedEstimateConfigDTO` es una forma cerrada, así
+  que se añadió la proyección explícita **`toGradedEstimateConfigDTO()`**, aplicada en `GET`, en el `after`/`before`
+  del `PUT` y en el `config` del `/preview`. Antes esas tres superficies devolvían el objeto interno **tal cual**, así
+  que cualquier campo que el resolver ganara se filtraba al contrato sin querer; ahora no puede pasar (hay test que
+  fija las 6 claves exactas del DTO).
+- **`grading_cost_tiers` corrupta sigue produciendo `NO_COST_TIER`, no `FEATURE_OFF`** — mismo efecto (nada se
+  destaca) pero **diagnóstico más preciso** para el admin. También se loguea con `warn`.
+- **`warn` obligatorio** (`PricingService.warnInvalidGradedEstimateKey`) con **la clave y el invariante violado**, y
+  con la acción correctiva. **Una clave AUSENTE no loguea nada** (el primer deploy no es una anomalía). *Nota
+  operativa para devops:* la config no se memoiza entre requests, así que una clave corrupta emite un `warn` **por
+  request** mientras dure; es un estado de emergencia que solo se alcanza por edición fuera de banda y el ruido es la
+  señal deseada, pero conviene saberlo antes de que sorprenda en los logs.
+- **Este camino solo se alcanza por edición fuera de banda** (SQL directo, restore parcial, migración a medias): el
+  `PUT` de M2 rechaza lo inválido con `422`. Cubierto también en E2E (test **8b**), que corrompe la clave con
+  `prisma.configSetting.upsert` directo y verifica el alcance diferenciado contra la app real.
 
 ### NO implementado a propósito (pendiente de decisión)
 
@@ -156,10 +192,16 @@ Los seis se siembran solos por `SETTING_DEFAULTS` (`npm run seed` los hace `upse
   criterio 90 y el **test de indistinguibilidad** (`manual` vs `pokemonpricetracker` ⇒ JSON idéntico).
 - `test/graded-estimate.admin.spec.ts` — `GET/PUT/preview`: I1–I7 con código, todo-o-nada, auditoría
   (`pricing.graded_estimates.update`, before/after), `enabled` ignorado en el `PUT`, criterio 86 y los `reason`.
-- **Resultado local (tras las correcciones de QA/techlead, 2026-08-23):** `npm test` → **175 suites / 1771 tests,
-  todo verde** (antes de esta feature: 171/1679; antes de las correcciones: 175/1762). `npm run typecheck` limpio.
+- **GU-A8** añade en `batch.spec.ts` el bloque «AUSENTE ≠ INVÁLIDA» (los **tres estados** de cada clave + la
+  observabilidad: `warn` con clave e invariante, y **silencio** cuando la clave está ausente) y en
+  `composition.spec.ts` el bloque de **alcance diferenciado** sobre la ruta de request completa (`minUpsidePct`
+  corrupto ⇒ ficha viva / vitrina apagada; `freshnessDays` y `grades` corruptos ⇒ ambas apagadas), incluido el
+  **escenario del hallazgo** (tabla válida + umbral corrupto ⇒ NO promociona con el seed 30).
+- **Resultado local (tras las correcciones de QA/techlead + GU-A8, 2026-08-23):** `npm test` → **175 suites /
+  1790 tests, todo verde** (antes de esta feature: 171/1679; tras la primera ronda de correcciones: 175/1771).
+  `npm run typecheck` limpio; `npm run lint` con 0 errores y 1 warning **preexistente**.
   Nota: `test/inv1-sales-rule-propagation.spec.ts` necesitó añadir `configSetting.findMany` a su Prisma mock (la
-  config del gancho ya no usa `findUnique`); es el único spec ajeno al gancho que tocó la corrección.
+  config del gancho ya no usa `findUnique`); es el único spec ajeno al gancho que tocaron estas correcciones.
 
 ### E2E (para QA — requiere Postgres real)
 
@@ -169,9 +211,14 @@ override manual → dial `off` (nada se emite, vitrina `[]`) → dial `on` (fich
 vacía la vitrina **sin mover el precio de venta** → apagar el dial deja el catálogo como antes. Usa el fixture
 `E2E-LST-0002` (`e2e-common`, publicado a MX$600). Restaura el estado global (dial `off`, `minUpsidePct` 30, borra
 las filas PSA) en el `afterAll` porque la BD es compartida.
-**Ejecutada y VERDE (2026-08-23, tras el fix de la aserción)** contra Postgres + Redis reales:
+**+ test 8b (GU-A8):** corrompe `grading_min_upside_pct` con un **`prisma.configSetting.upsert` directo** (el único
+camino que llega a ese estado, porque el `PUT` da 422) y verifica el **alcance diferenciado** contra la app real —
+la vitrina se vacía y la ficha **sigue** mostrando sus dos cifras, ningún precio se mueve, el `/preview` responde
+`reason: FEATURE_OFF`— y luego **restaura** la config sana con un `PUT` válido (el camino de salida del operador).
+
+**Ejecutada y VERDE (2026-08-23, tras el fix de la aserción y GU-A8)** contra Postgres + Redis reales:
 `npx jest --config test/jest-integration.config.js --runInBand` → **11 suites / 136 tests, todo verde**
-(incluida `graded-estimate.e2e-spec.ts`). Correr con `npm run test:integration` tras `docker compose up -d` +
+(`graded-estimate.e2e-spec.ts`: **10 tests**). Correr con `npm run test:integration` tras `docker compose up -d` +
 `npm run seed:synthetic`; requiere `DATABASE_URL` y `REDIS_URL` en el entorno (`prisma migrate deploy` los exige).
 Sin MinIO levantado, `infra-smoke` **avisa y salta** el PUT real (no falla).
 

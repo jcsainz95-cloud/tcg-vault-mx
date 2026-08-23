@@ -11,6 +11,7 @@ import { CatalogService } from './catalog.service';
 import { SettingKey, validateGradeList } from '../settings/settings.constants';
 import {
   validateGradingCostTiers,
+  toGradedEstimateConfigDTO,
   GRADING_MIN_UPSIDE_PCT_MAX,
   GRADED_ESTIMATE_FRESHNESS_DAYS_MAX,
   GRADED_ESTIMATE_FRESHNESS_DAYS_MIN,
@@ -77,10 +78,14 @@ export class GradedEstimatesController {
   /**
    * `GET /admin/pricing/graded-estimates` — config EFECTIVA (la misma que usa el resolver, ya saneada
    * fail-closed). Read-only. `enabled` es el ESPEJO del dial M10 `gradedEstimatesEnabled`.
+   *
+   * **Se PROYECTA al `GradedEstimateConfigDTO` del contrato** (`toGradedEstimateConfigDTO`): los flags
+   * internos de GU-A8 (`estimatesEnabled`/`highlightEnabled`) **no** forman parte del DTO. Devolver el
+   * objeto interno tal cual filtraría al contrato cualquier estado que el resolver gane en el futuro.
    */
   @Get()
   async get() {
-    return this.pricing.loadGradedEstimateConfigForAdmin();
+    return toGradedEstimateConfigDTO(await this.pricing.loadGradedEstimateConfigForAdmin());
   }
 
   /**
@@ -184,7 +189,7 @@ export class GradedEstimatesController {
         }),
       ),
     );
-    const after = await this.pricing.loadGradedEstimateConfigForAdmin();
+    const after = toGradedEstimateConfigDTO(await this.pricing.loadGradedEstimateConfigForAdmin());
     await this.audit.log({
       actorUserId: userId,
       action: 'pricing.graded_estimates.update',
@@ -193,7 +198,7 @@ export class GradedEstimatesController {
       // cual estaban almacenados, con las claves AUSENTES omitidas y las corruptas intactas. Sin él, un
       // `grading_cost_tiers` corrupto se auditaba como `[]` y la bitácora perdía la evidencia de qué
       // había realmente antes de la edición (D4).
-      before: { ...before, storedRaw },
+      before: { ...toGradedEstimateConfigDTO(before), storedRaw },
       after,
     });
     return after;
