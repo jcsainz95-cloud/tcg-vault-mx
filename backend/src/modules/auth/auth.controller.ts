@@ -84,8 +84,8 @@ export class AuthController {
     return this.auth.verifyEmail(dto.token);
   }
 
-  // Público. SIEMPRE 200 (anti-enumeración). Rate-limit 3/h/IP (+ tope por email en servicio).
-  @Throttle({ default: { ttl: HOUR_MS, limit: 3 } })
+  // Público. SIEMPRE 200 (anti-enumeración). Rate-limit 10/h/IP (+ tope por email en servicio).
+  @Throttle({ default: { ttl: HOUR_MS, limit: 10 } })
   @Public()
   @Post('forgot-password')
   @HttpCode(200)

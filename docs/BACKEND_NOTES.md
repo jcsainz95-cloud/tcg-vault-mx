@@ -7343,3 +7343,9 @@ borradas/después por tabla.
 5. **`VariantPriceOverride` (overrides/bounties manuales):** las metí en el balde operativo (dinero), pero
    ojo: son trabajo MANUAL del admin y NO se repueblan por sync. "Como nueva" las quita; si el humano quiere
    conservarlas habría que sacarlas del balde operativo.
+
+## Cambios de configuración
+
+- **Rate-limit `POST /auth/forgot-password` subido 3→10/hora (2026-08-23, `auth.controller.ts:88`):** por
+  petición del humano (3/hora le bloqueaba las pruebas); ttl intacto en 1 hora. 10/hora sigue siendo tope
+  anti-abuso razonable. Candado en `test/auth.throttle.spec.ts` y comentario en `main.ts:34` actualizados.

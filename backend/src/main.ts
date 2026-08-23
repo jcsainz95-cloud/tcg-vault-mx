@@ -31,7 +31,7 @@ async function bootstrap() {
   // que se persiste en AuthToken, y la CLAVE de tracking del `ThrottlerGuard`) resuelven a la IP
   // del proxy — IDÉNTICA para TODOS los clientes. Efecto: cada `@Throttle` por-IP colapsa en un
   // ÚNICO cubo por-instancia compartido; el endpoint con la ventana más estrecha —
-  // `POST /auth/forgot-password` (@Throttle 3/HORA, auth.controller.ts) — se agota con tráfico
+  // `POST /auth/forgot-password` (@Throttle 10/HORA, auth.controller.ts) — se agota con tráfico
   // mínimo y responde 429 (que el front presenta como el 200 anti-enumeración genérico → el correo
   // NUNCA se intenta). `1` = un solo salto de proxy (el edge de Railway, sin Cloudflare delante del
   // backend — DEVOPS_NOTES §23.2/§25.3). Si devops mete otro proxy delante, ajustar el nº de saltos.
