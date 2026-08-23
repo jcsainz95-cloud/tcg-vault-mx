@@ -40,8 +40,11 @@ la MISMA fila que alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` de 
   (`GradedEstimateRef`) que **no tiene** `source` ni `isManualOverride`, así que ninguna rama de composición puede
   bifurcar por origen. Fase 1 y fase 2 son **indistinguibles byte a byte** (test ejecutable, ver abajo).
 - **Money-safe:** `estimate.status` siempre `"priced"`; un estimado `<= 0` no existe; `costMxnCents >= 1` jamás 0;
-  **fail-closed on-read** — tabla de escalones ausente/corrupta/inválida ⇒ tratada como **vacía** ⇒ `NO_COST_TIER`
-  ⇒ nada se destaca. `minUpsidePct`/`freshnessDays`/`grades` sí caen a su seed (no son dinero).
+  **fail-closed on-read** — tabla de escalones **ausente**/corrupta/inválida ⇒ tratada como **vacía** ⇒
+  `NO_COST_TIER` ⇒ nada se destaca. `minUpsidePct`/`freshnessDays`/`grades` sí caen a su seed (no son dinero).
+  **El caso «clave AUSENTE» quedó realmente cubierto en la corrección R1** (ver «Correcciones post-revisión»):
+  antes la lectura pasaba por `SettingsService.get()`, que hace fallback a `SETTING_DEFAULTS` y por tanto NO
+  distinguía «no hay fila» de «hay fila con el seed».
 - **Escalones `[min, max)`** contiguos con último abierto (I1–I5), validados en **cada** `PUT` y **también al leer**.
 - **Doctrina (b) intacta:** las filas PSA no fijan `listPriceCents`, no publican inventario, no entran en
   `getPricedRawFinishesBatch`/`pricedFinishesSnapshot`/`availableFinishes`, no encolan `PendingPriceEntry`, no valúan
@@ -50,14 +53,25 @@ la MISMA fila que alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` de 
   precios (**0 queries extra**), no se emite ninguno de los dos campos y `?gradingHighlight=true` ⇒ `{data:[],total:0}`.
   **Encenderlo publica una afirmación comercial**: requiere el visto bueno del humano sobre el disclaimer (§N.5).
 
-### Coste por request (invariante de diseño)
+### Coste por request (invariante de diseño) — **CIFRA CORREGIDA (IMPORTANTE-2)**
 
-| Superficie | Queries de precios añadidas |
+> ⚠️ **Para el arquitecto:** la cifra que `API_CONTRACT` publica («+1 query constante») **cuenta solo la query de
+> precios** e ignora las lecturas de settings, que también son queries del request. El número **real y medido**
+> es el de esta tabla. **Yo no edito el contrato** (regla 9): pido al arquitecto que corrija la cifra a
+> **+1 con el dial `off` / +2 con el dial `on`**.
+
+| Superficie | Queries TOTALES añadidas (settings + precios) |
 |---|---|
-| `GET /catalog/cards` (teja) y `?gradingHighlight=true` (vitrina) | **+1** constante (batch de los `cardId` distintos **raw**) |
-| `GET /catalog/cards/:cardId` (ficha) | **+1** constante |
-| Dial `off`, o sin piezas raw en el conjunto | **0** |
+| `GET /catalog/cards` (teja) y `?gradingHighlight=true` (vitrina), dial `on` | **+2** constantes (1 config + 1 batch) |
+| `GET /catalog/cards/:cardId` (ficha), dial `on` | **+2** constantes |
+| Dial `off`, o sin piezas raw en el conjunto | **+1** (solo la config; **0 queries de precios**) |
 | Resto del sistema (`/catalog/sealed*`, `/vault/*`, checkout, buylist, facets, sets) | **0** — no se tocaron |
+
+La **config de las 6 claves va en UNA sola query** (`SettingsService.getRawMany` → un `findMany` con
+`key IN (...)`). Antes eran **6** lecturas sueltas (1 `findUnique` del dial + 5 `getRaw()`, y `SettingsService`
+**no cachea**), es decir **+7 reales con el dial `on`** frente al «+1» publicado. Sigue siendo **O(1)** respecto
+del tamaño de la página, y hay test que lo mide contando **todas** las queries del request, no solo las de
+`productType='graded'` (`composition.spec.ts` › «IMPORTANTE-2»).
 
 El batch es **dedicado** (`getGradedEstimatesBatch`) y **no** reusa `getReferencesBatch`: ese método arma el `WHERE`
 como producto cartesiano de los conjuntos distintos y filtra en memoria, así que mezclar raw+graded provocaría
@@ -78,7 +92,9 @@ over-fetch combinatorio sobre la tabla más caliente. Filtra por `cardProductId:
    `gradingCostTiers: []`, **esa** es la explicación de por qué nada se destaca. La variante de admin lee la config
    completa **aunque el dial esté `off`** (si no, el editor de M2 no podría preparar la tabla antes de encender).
 4. **`PUT` con body vacío ⇒ `422 VALIDATION_ERROR`** (el contrato no lo especifica): un `PUT` que no cambia nada
-   sería un no-op auditado y confuso. Validación **todo-o-nada**: nada se escribe si algo falla.
+   sería un no-op auditado y confuso. Validación **todo-o-nada**: nada se escribe si algo falla — y desde la
+   corrección **D4** la ESCRITURA también es atómica (`prisma.$transaction` sobre los upserts; antes era un bucle
+   suelto que podía dejar la config a medias).
 5. **`highlightGrades ⊆ grades` se valida contra el ESTADO RESULTANTE** (mezcla de lo enviado con lo vigente), no
    solo contra el body: editar `grades` sin tocar `highlightGrades` no puede dejar un badge huérfano. También se
    aplica **en lectura**.
@@ -90,13 +106,27 @@ over-fetch combinatorio sobre la tabla más caliente. Filtra por `cardProductId:
 8. **El `/preview` sí lee el batch con el dial `off`** (devuelve `reason: FEATURE_OFF`): si no, el diagnóstico sería
    inútil justo en el estado por defecto. Es admin-only y read-only.
 
+### Correcciones post-revisión (QA rechazó / techlead aprobó con condiciones) — 2026-08-23
+
+| # | Origen | Qué estaba mal | Qué se hizo |
+|---|---|---|---|
+| **BLOQUEANTE** | QA | `graded-estimate.e2e-spec.ts:108` escaneaba `JSON.stringify(ficha.body)` **entero** buscando `isManualOverride`. El campo que encontraba vive en `listings[].referenceValue` / `units[].referenceValue` — el `PriceInfo` del precio **raw**, **pre-existente** (verificable en `origin/main`), no una fuga del gancho. | La aserción de INDISTINGUIBILIDAD se **acota a los dos campos del gancho** (`gradedEstimates` + los `gradingHighlight` de los grupos). Los insumos del gate (`netUpside`, `gradingCost`, `threshold`, `minUpsidePct`, `eligible`) **siguen escaneándose sobre el body completo**: esos tokens sí son exclusivos de la feature. Mismo patrón corregido en `composition.spec.ts` (donde pasaba **por accidente del fixture**: el precio raw estaba en `pending`, así que no había `source`), + un test nuevo con el precio raw **priceado** que demuestra que el body SÍ trae `isManualOverride` y el gancho NO. |
+| **R1** | techlead | El fail-closed **no cubría la clave AUSENTE**: `sanitizeGradingCostTiers` se alimentaba de `settings.getRaw()`, que hace fallback a `SETTING_DEFAULTS`, así que sin fila el resolver veía los 6 escalones del seed y **el gate corría normal** — contra `ARCHITECTURE §4.35d`, el docstring de `graded-estimate.ts` y esta misma nota. | **Camino (a): se corrige el CÓDIGO, no la doctrina.** Nuevo `SettingsService.getRawMany(keys)` que devuelve **solo las filas existentes** (una clave ausente no aparece en el `Map`). `grading_cost_tiers` se lee de ahí **sin** pasar por `SETTING_DEFAULTS` ⇒ ausente = `undefined` ⇒ tabla `[]`. **§4.35d ya dice esto, así que NO hace falta enmienda del arquitecto.** Impacto en prod: **nulo** (`prisma/seed.ts` siembra una fila por cada `SETTING_DEFAULTS`, así que la clave existe); lo que cambia es el caso degradado (BD sin seed / fila borrada). Test añadido: clave ausente ⇒ `[]`, tanto en el resolver como en la variante de admin. |
+| **R2** | techlead | `getCard` pasaba `productType: hasPublishedRawGroup ? 'raw' : 'graded'` — un **centinela** que mentía en un parámetro de dominio para forzar `[]`. | **Guarda explícita**: `grading && hasPublishedRawGroup ? … : []`, y la llamada pasa `productType: 'raw'` siempre. |
+| **MENOR-1** | QA | El umbral usaba `Math.ceil(costBase * (1 + pct/100))`. Con el default 30 no hay desviación, pero `minUpsidePct` admite `[0,1000]` y con p. ej. `pct=10, costBase=100000` el umbral exacto es 110000 y el cálculo daba **110001**: una carta cuyo PSA 9 **iguala** el umbral quedaba fuera, contra el «si y solo si ≥» del criterio 79. | **Aritmética entera**: se compara `psa9 × 100 >= costBase × (100 + pct)`. El `Math.ceil` sobrevive solo para el `thresholdMxnCents` del **diagnóstico de admin**, y ambos siguen coincidiendo por construcción. Tests: caso de **igualdad exacta** + barrido `pct × costBase × {umbral−1, umbral, umbral+1}` que comprueba que `eligible` y `thresholdMxnCents` nunca se contradicen. |
+| **IMPORTANTE-2** | QA | El «+1 query constante» publicado era en realidad **+7** con el dial `on` (1 `findUnique` + 5 `getRaw()` sin caché + el batch), y el test solo contaba las queries con `productType==='graded'`, así que no lo veía. | Se **colapsa la config a UNA query** (`getRawMany`, las 6 claves en un `findMany`): coste real **+1 con `off` / +2 con `on`**. Tests reescritos para contar **todas** las queries del request y medir el DELTA `on − off` a dos tamaños de página. **Pendiente del arquitecto: corregir la cifra en `API_CONTRACT`** (yo no lo edito). |
+| **D3** | techlead | I7 duplicado: `gradeList()` del controller re-implementaba `validateGradeList()` de `settings.constants.ts`. | **Arreglado** (no anotado): el controller ahora **envuelve** el validador compartido y solo aporta la forma del error (422 + `details.field`). |
+| **D4** | techlead | El `PUT` escribía en un **bucle de `upsert` sin transacción** mientras esta nota prometía «todo-o-nada»; y el `before` auditado salía de la config **saneada**, así que auditar un valor corrupto registraba `[]` y perdía el forense. | **Arreglado** (no anotado): upserts dentro de `prisma.$transaction`, y la entrada de bitácora lleva `before.storedRaw` = los valores **tal cual estaban almacenados** (claves ausentes omitidas, corruptas intactas). |
+| **D1** | techlead | Instrumentación de fase 2 no implementada. | **Anotada en `docs/TECH_DEBT.md`** (ligada a BE-6). Sigue bloqueada por doctrina P-6; ver abajo. |
+
 ### NO implementado a propósito (pendiente de decisión)
 
-- **Instrumentación de fase 2 (§4.35h, paso 1):** `POKEMONPRICETRACKER_INCLUDE_EBAY` y subir el truncate del log de
-  muestra de `800` → `4000` chars en `pokemonpricetracker-bulk.provider.ts:209`. El alcance de esta sesión excluía
-  explícitamente tocar los providers de PokemonPriceTracker. **Queda pendiente**: sin el truncate a 4000 la
-  observación de staging produce un **falso negativo** («el proveedor no manda PSA» cuando sí lo manda). Es cambio de
-  observabilidad, no de dinero. Que el orquestador decida si entra en esta rama o en la de fase 2.
+- **Instrumentación de fase 2 (§4.35h, paso 1) — D1, anotada en `docs/TECH_DEBT.md` y ligada a BE-6:**
+  `POKEMONPRICETRACKER_INCLUDE_EBAY` y subir el truncate del log de muestra de `800` → `4000` chars en
+  `pokemonpricetracker-bulk.provider.ts:209`. El alcance de esta sesión excluía explícitamente tocar los providers
+  de PokemonPriceTracker. **Detalle crítico:** con el truncate en **800** la observación de staging produce un
+  **falso negativo** («el proveedor no manda PSA» cuando sí lo manda) — o sea, **el gate que desbloquea la fase 2
+  está saboteado por ese número**. Es cambio de observabilidad, no de dinero.
 - **Ingest automático (fase 2 completa):** BLOQUEADO por doctrina P-6 (Gate 0 del 2026-08-23). No se escribió ni un
   parser. Cuando se desbloquee, **no cambia el contrato ni el frontend**: escribe la misma clave canónica.
 
@@ -126,8 +156,10 @@ Los seis se siembran solos por `SETTING_DEFAULTS` (`npm run seed` los hace `upse
   criterio 90 y el **test de indistinguibilidad** (`manual` vs `pokemonpricetracker` ⇒ JSON idéntico).
 - `test/graded-estimate.admin.spec.ts` — `GET/PUT/preview`: I1–I7 con código, todo-o-nada, auditoría
   (`pricing.graded_estimates.update`, before/after), `enabled` ignorado en el `PUT`, criterio 86 y los `reason`.
-- **Resultado local:** `npm test` → **175 suites / 1762 tests, todo verde** (antes de esta feature: 171/1679).
-  `npm run typecheck` y `npm run lint` limpios (queda 1 warning **preexistente** en `inventory.service.ts:336`).
+- **Resultado local (tras las correcciones de QA/techlead, 2026-08-23):** `npm test` → **175 suites / 1771 tests,
+  todo verde** (antes de esta feature: 171/1679; antes de las correcciones: 175/1762). `npm run typecheck` limpio.
+  Nota: `test/inv1-sales-rule-propagation.spec.ts` necesitó añadir `configSetting.findMany` a su Prisma mock (la
+  config del gancho ya no usa `findUnique`); es el único spec ajeno al gancho que tocó la corrección.
 
 ### E2E (para QA — requiere Postgres real)
 
@@ -137,8 +169,11 @@ override manual → dial `off` (nada se emite, vitrina `[]`) → dial `on` (fich
 vacía la vitrina **sin mover el precio de venta** → apagar el dial deja el catálogo como antes. Usa el fixture
 `E2E-LST-0002` (`e2e-common`, publicado a MX$600). Restaura el estado global (dial `off`, `minUpsidePct` 30, borra
 las filas PSA) en el `afterAll` porque la BD es compartida.
-**Ojo QA: no pudo ejecutarse en el entorno de desarrollo (sin Postgres disponible en el sandbox).** Correr con
-`npm run test:integration` tras `docker compose up -d` + `npm run seed:synthetic`.
+**Ejecutada y VERDE (2026-08-23, tras el fix de la aserción)** contra Postgres + Redis reales:
+`npx jest --config test/jest-integration.config.js --runInBand` → **11 suites / 136 tests, todo verde**
+(incluida `graded-estimate.e2e-spec.ts`). Correr con `npm run test:integration` tras `docker compose up -d` +
+`npm run seed:synthetic`; requiere `DATABASE_URL` y `REDIS_URL` en el entorno (`prisma migrate deploy` los exige).
+Sin MinIO levantado, `infra-smoke` **avisa y salta** el PUT real (no falla).
 
 ### Notas para frontend
 

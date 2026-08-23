@@ -568,10 +568,14 @@ export class CatalogService {
 
   /**
    * v1.44-graded-estimate (§4.35c) — iza el contexto del gancho para un conjunto YA materializado de
-   * piezas vendibles. Coste: **+1 query constante** (el batch dedicado sobre los `cardId` DISTINTOS de
-   * las filas **raw**), nunca una query por grupo.
+   * piezas vendibles.
    *
-   * Devuelve `null` —y NO hace ninguna query— cuando:
+   * **Coste REAL, medido (IMPORTANTE-2):** **+1 query con el dial `off`** (la lectura de config: las 6
+   * claves del gancho van en UN `findMany`, ver `PricingService.loadGradedEstimateConfig`) y **+2 con
+   * el dial `on`** (esa + el batch dedicado sobre los `cardId` DISTINTOS de las filas **raw**). Nunca
+   * una query por grupo ni por carta: es O(1) respecto del tamaño de la página.
+   *
+   * Devuelve `null` —y NO hace la query de precios— cuando:
    *  - el dial maestro está `off` (§M10: con `off` el backend «ni siquiera evalúa nada»), o
    *  - no hay ninguna pieza **raw** vendible en el conjunto (el gancho no aplica a graded ni a sealed,
    *    criterio 87).

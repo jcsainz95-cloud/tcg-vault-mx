@@ -695,8 +695,8 @@ export class PricingService {
    *
    * 1. **Dial maestro primero:** con `graded_estimates_enabled != 'on'` se devuelve la config APAGADA
    *    (y el caller NO lee precios: con el dial `off` el backend «ni siquiera evalúa nada», §M10).
-   * 2. **La tabla de COSTO no tiene default de código:** clave **ausente**/corrupta/que no cumple I1–I5
-   *    ⇒ tabla VACÍA ⇒ nada se destaca (`NO_COST_TIER`). Jamás un costo de gradeo asumido en 0. Los
+   * 2. **La tabla de COSTO no tiene default de código:** clave **AUSENTE**, corrupta o que no cumple
+   *    I1–I5 ⇒ tabla VACÍA ⇒ nada se destaca (`NO_COST_TIER`). Jamás un costo asumido en 0. Los
    *    umbrales y listas (`minUpsidePct`/`freshnessDays`/`grades`) SÍ caen a su seed: no son dinero y su
    *    ausencia no puede producir un gate optimista (sin tabla no hay gate).
    *

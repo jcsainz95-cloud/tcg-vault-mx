@@ -130,14 +130,28 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
   const configStore = new Map<string, unknown>(
     Object.entries({ [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS, ...config }),
   );
-  const priceRefFindMany = jest.fn(async (args: any) => refs.filter((r) => matchWhere(r, args.where)));
-  const invFindMany = jest.fn(async (args: any) => items.filter((i) => matchWhere(i, args.where)));
+  // IMPORTANTE-2: bitácora de TODAS las queries (no solo las de `productType='graded'`). Contar solo
+  // las del gancho ocultaba las lecturas de settings, que también son queries y también las paga el
+  // request: el «+1 constante» publicado se medía sobre un subconjunto.
+  const queryLog: string[] = [];
+  const q = <T extends (...args: any[]) => any>(name: string, fn: T) =>
+    jest.fn(async (...args: Parameters<T>) => {
+      queryLog.push(name);
+      return fn(...args);
+    });
+
+  const priceRefFindMany = q('priceReference.findMany', async (args: any) =>
+    refs.filter((r) => matchWhere(r, args.where)),
+  );
+  const invFindMany = q('inventoryItem.findMany', async (args: any) =>
+    items.filter((i) => matchWhere(i, args.where)),
+  );
   const prisma = {
     configSetting: {
-      findUnique: jest.fn(async ({ where: { key } }: any) =>
+      findUnique: q('configSetting.findUnique', async ({ where: { key } }: any) =>
         configStore.has(key) ? { key, valueJson: configStore.get(key) } : null,
       ),
-      findMany: jest.fn(async ({ where }: any) =>
+      findMany: q('configSetting.findMany', async ({ where }: any) =>
         (where.key.in as string[])
           .filter((k) => configStore.has(k))
           .map((k) => ({ key: k, valueJson: configStore.get(k) })),
@@ -148,18 +162,23 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
       }),
     },
     priceReference: { findMany: priceRefFindMany },
-    variantPriceOverride: { findMany: jest.fn(async () => []) },
+    variantPriceOverride: { findMany: q('variantPriceOverride.findMany', async () => []) },
     inventoryItem: { findMany: invFindMany },
     card: {
-      findUnique: jest.fn(async ({ where }: any) => items.find((i) => i.cardId === where.id)?.card ?? null),
+      findUnique: q('card.findUnique', async ({ where }: any) =>
+        items.find((i) => i.cardId === where.id)?.card ?? null,
+      ),
     },
-    cardSet: { findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+    cardSet: {
+      findUnique: q('cardSet.findUnique', async () => null),
+      findMany: q('cardSet.findMany', async () => []),
+    },
   } as unknown as PrismaService;
   const settings = new SettingsService(prisma);
   const fx = { getCurrent: jest.fn(async () => null) } as unknown as FxService;
   const pricing = new PricingService(prisma, settings, fx, {} as any, {} as any, {} as any);
   const catalog = new CatalogService(prisma, pricing);
-  return { catalog, pricing, prisma, priceRefFindMany, configStore };
+  return { catalog, pricing, prisma, priceRefFindMany, configStore, queryLog };
 }
 
 /** Dial maestro ENCENDIDO (en producción arranca en `off`, seed fail-closed). */
@@ -487,5 +506,68 @@ describe('Vitrina «Joyas para gradear» — `GET /catalog/cards` filtrado (§4.
     const gradedQueries = priceRefFindMany.mock.calls.filter((c: any) => c[0]?.where?.productType === 'graded');
     expect(gradedQueries).toHaveLength(1);
     expect(gradedQueries[0][0].where.cardId).toEqual({ in: ['c1', 'c2', 'c3', 'c4'] });
+  });
+
+  /**
+   * IMPORTANTE-2 — COSTE REAL del gancho, contando **TODAS** las queries del request (incluidas las de
+   * settings), no solo las de `productType='graded'`. Se mide como DELTA contra el mismo request con la
+   * feature inexistente, que es la cifra que el contrato debe publicar.
+   *
+   *   dial `off` ⇒ **+1** (la lectura de config: las 6 claves en UN `findMany`; cero queries de precios)
+   *   dial `on`  ⇒ **+2** (esa + el batch dedicado de estimados)
+   *
+   * Antes eran **+7** con `on` (1 `findUnique` del dial + 5 `getRaw()` sin caché + el batch), porque
+   * `SettingsService.get()` no cachea y cada clave iba en su propia query.
+   */
+  describe('IMPORTANTE-2 — coste medido sobre TODAS las queries, no solo las del gancho', () => {
+    const baseline = async () => {
+      // Línea base: sin dial `on` y sin ninguna clave del gancho en el store, la única query extra
+      // posible es la de config; se mide aparte para poder restarla.
+      const w = wire(items, refs, ON);
+      await w.catalog.listCards({ page: 1, pageSize: 20 });
+      return w.queryLog;
+    };
+
+    it('el listado con el dial `on` cuesta EXACTAMENTE 2 queries más que con la feature apagada+config', async () => {
+      const on = await baseline();
+      const off = wire(items, refs);
+      await off.catalog.listCards({ page: 1, pageSize: 20 });
+
+      const configOn = on.filter((k) => k.startsWith('configSetting')).length;
+      const configOff = off.queryLog.filter((k) => k.startsWith('configSetting')).length;
+      // La config del gancho es UNA query en ambos estados (las 6 claves en un solo `findMany`).
+      expect(on.filter((k) => k === 'configSetting.findMany')).toHaveLength(1);
+      expect(off.queryLog.filter((k) => k === 'configSetting.findMany')).toHaveLength(1);
+      expect(configOn).toBe(configOff);
+
+      // La ÚNICA diferencia en el total es el batch de estimados: +1 con `on`, 0 con `off`.
+      expect(on.length - off.queryLog.length).toBe(1);
+      expect(on.filter((k) => k === 'priceReference.findMany').length).toBe(
+        off.queryLog.filter((k) => k === 'priceReference.findMany').length + 1,
+      );
+    });
+
+    it('el SOBRECOSTE del gancho no crece con el tamaño de la página (O(1), 1 carta y 4 cuestan igual)', async () => {
+      // Se mide el DELTA `on − off` a dos tamaños. El total absoluto sí crece (la resolución de precio
+      // POR GRUPO es pre-existente y ajena a esta feature); lo que debe ser constante es el delta.
+      const delta = async (set: any[]) => {
+        const on = wire(set, refs, ON);
+        await on.catalog.listCards({ page: 1, pageSize: 20 });
+        const off = wire(set, refs);
+        await off.catalog.listCards({ page: 1, pageSize: 20 });
+        return on.queryLog.length - off.queryLog.length;
+      };
+      expect(await delta([items[0]])).toBe(1); // 1 carta
+      expect(await delta(items)).toBe(1); // 4 cartas ⇒ el MISMO sobrecoste
+    });
+
+    it('la FICHA cuesta lo mismo: 1 query de config + 1 batch (y 0 batch con el dial `off`)', async () => {
+      const on = wire(A_ITEMS, A_REFS, ON);
+      await on.catalog.getCard('ca');
+      const off = wire(A_ITEMS, A_REFS);
+      await off.catalog.getCard('ca');
+      expect(on.queryLog.filter((k) => k === 'configSetting.findMany')).toHaveLength(1);
+      expect(on.queryLog.length - off.queryLog.length).toBe(1);
+    });
   });
 });

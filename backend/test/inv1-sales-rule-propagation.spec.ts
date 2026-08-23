@@ -31,6 +31,13 @@ function makePrisma(item: any) {
       findUnique: jest.fn(async ({ where: { key } }: any) =>
         configStore.has(key) ? { key, valueJson: configStore.get(key) } : null,
       ),
+      // v1.44 (§4.35d): `SettingsService.getRawMany` lee VARIAS claves en una query y devuelve SOLO
+      // las filas EXISTENTES (una clave ausente no aparece — así se distingue de «presente con seed»).
+      findMany: jest.fn(async ({ where }: any) =>
+        (where.key.in as string[])
+          .filter((k) => configStore.has(k))
+          .map((k) => ({ key: k, valueJson: configStore.get(k) })),
+      ),
       upsert: jest.fn(async ({ where: { key }, create, update }: any) => {
         const valueJson = configStore.has(key) ? update.valueJson : create.valueJson;
         configStore.set(key, valueJson);

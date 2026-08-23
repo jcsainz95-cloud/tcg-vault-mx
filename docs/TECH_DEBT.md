@@ -351,6 +351,10 @@
   vendibles automáticamente. No rompe nada (la regla "nunca se descarta" aplica).
 - **Disparador:** cuando se contraten/confirmen las credenciales y el contrato de esos proveedores, o al
   subir a plan de pago. Solución: implementar `fetchPrice` real respetando el rate-limit del free tier.
+- **v1.44 (2026-08-23):** PokemonPriceTracker **ya está contratado** y el «gancho de grading» necesita sus
+  valores PSA. El **paso 0** para cerrar esta deuda por la vertiente PSA es **`BE-GE1`** (instrumentación de
+  fase 2): sin ella la observación de staging da un **falso negativo** y no hay evidencia del payload con la
+  que implementar el `fetchPrice` real. Ver `BE-GE1` al final de esta sección.
 
 ### BE-7 · Orden `pending` huérfana si Stripe falla tras confirmar la reserva
 - **Dónde:** `src/modules/orders/orders.service.ts` → `createSession` (crea Order+reserva en tx, luego
@@ -2423,6 +2427,37 @@
 - **Disparador:** al **encender** `sealed_restock_alerts` y querer ligar avisos a la cuenta. Solución:
   guard de auth opcional que popule `userId` cuando haya sesión (sin romper el acceso anónimo ni la
   respuesta neutra anti-enumeración).
+
+### Deuda del pase v1.44-graded-estimate («gancho de grading», rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-23)
+
+> Anotada a petición del **techlead** (veredicto: aprobado con dos correcciones obligatorias, **R1** y **R2**,
+> **ya ejecutadas** — ver `docs/BACKEND_NOTES.md` §0.2 › «Correcciones post-revisión»). De los cuatro ítems
+> menores que el techlead enumeró, **D3 y D4 se arreglaron en el mismo pase** (eran baratos) y **no figuran
+> como deuda abierta**; queda **BE-GE1** (= D1), que está bloqueada por doctrina, no por esfuerzo.
+
+#### BE-GE1 (= techlead D1) · Instrumentación de fase 2 del gancho no implementada — **el gate que la desbloquea está saboteado por un truncate de log** (Media)
+- **Dueño:** backend (el cambio vive en `src/modules/pricing/providers/`, que quedó **fuera del alcance** de
+  esta rama por decisión del orquestador). **Severidad:** Media (aceptada, **no** bloqueante de v1.44).
+  **Ligada a `BE-6` · «Providers de precio graded/sealed son stubs»**: BE-GE1 es literalmente el **paso 0**
+  para poder cerrar BE-6 en su vertiente PSA — sin la observación de staging no hay evidencia con la que
+  implementar el `fetchPrice` real de PokemonPriceTracker.
+- **Dónde:** `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts:209` (truncate del log de
+  muestra del payload) + la env `POKEMONPRICETRACKER_INCLUDE_EBAY`, sin cablear. ARCHITECTURE §4.35h, paso 1.
+- **Deuda:** la **fase 2** del gancho (ingest automático de los estimados PSA, hoy fijados a mano por el
+  admin) está bloqueada por **doctrina P-6** (Gate 0, 2026-08-23): no se escribe ni un parser hasta
+  **confirmar el payload real en staging**. Esa confirmación es precisamente lo que la instrumentación
+  produce, y **hoy no existe**.
+- **Impacto — el detalle crítico, que es lo que la hace Media y no Baja:** con el truncate en **800**
+  caracteres, la muestra del payload que se loguea **se corta antes de llegar a los bloques de grado**, así
+  que la observación de staging concluye **«el proveedor no manda PSA» cuando sí lo manda**. Es un **falso
+  negativo**: el gate que decide si la fase 2 es viable está midiendo mal, y con esa medición la fase 2 se
+  descartaría por una razón inexistente. Es deuda de **observabilidad**, no de dinero: no toca ningún monto,
+  ningún precio de venta ni el comportamiento visible (fase 1 y fase 2 son indistinguibles para el cliente).
+- **Disparador:** **antes de correr la observación de staging de fase 2** (es decir, antes de tomar cualquier
+  decisión sobre el ingest automático de PSA). Solución: subir el truncate de `800` → **`4000`** chars y
+  cablear `POKEMONPRICETRACKER_INCLUDE_EBAY`. Dos cambios de una línea; el trabajo real es la observación.
+  **Requiere que el orquestador/arquitecto asigne el módulo `pricing/providers` a un stream** (hoy fuera del
+  alcance de esta rama). Ref: `docs/BACKEND_NOTES.md` §0.2 › «NO implementado a propósito», `BE-6`.
 
 ---
 
