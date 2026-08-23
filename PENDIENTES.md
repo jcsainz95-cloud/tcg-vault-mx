@@ -7,82 +7,31 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 
 ## Listo en `main` — esperando «publica»
 
-- **P-36** · el stepper de «cantidad a dar de baja» ya no se ve muerto — botones `disabled` no se
-  encienden al hover (`enabled:hover:`) + estado disabled evidente + `aria-disabled`. La lógica ya era
-  correcta (la carta tenía 1 pieza → tope legítimo). QA aprobado.
+Doble veredicto por-stream aprobado; mergeado a `main` (`2cb33fa`). Se despliega a producción con «publica».
+
+- **P-38** · **Módulo `SealedProduct`** (cura raíz de SB-D5): descarga presentaciones por set (ETB/UPC/
+  Booster Bundle/box/blíster), alta = **seleccionar** con identidad real (adiós «Tropius sealed»), sync
+  **1 set→N grupos** (absorbe promos/colecciones), precio en vivo + **manual** (vault_operator, auditado),
+  soft-delete. **Migración M-39 + backfill** que cura el ETB→Tropius. Cascada de display cableada en
+  Compra/Bóveda (H-P38-1). Contrato v1.39.1. *(Deuda no-bloqueante H-P38-2..6 en TECH_DEBT; precio manual
+  por vault_operator marcado para fase de seguridad por release.)*
+- **P-37** · IVA a **un solo dial**: se retira `STRIPE_FEE_IVA_PCT`; el gross-up de Stripe deriva de
+  `IVA_PCT/100` (idéntico al centavo). Contrato v1.40. Money-safe.
+- **P-41** · cotizador del home surtía `pageSize:5` (Pitch Black quedaba fuera) → **pageSize 20 + «ver
+  más»**; + **orden global por `set.releaseDate desc`** (sets nuevos primero, ya no uuid aleatorio).
+- **P-42** · cotizador: **carrito fijo a la derecha** en desktop (sticky) + **sombreado** «En el carrito».
+- **P-43** · click en la carta → **pop-up de detalle** con imagen grande (cierra por backdrop + Esc).
+- **P-44** · **rareza** visible en tejas de catálogo/cotizador/ficha/binder admin+bóveda.
+- **P-39/P-40** · foto HD en el featured/ficha + etiqueta de **acabado**.
+- **P-36** · stepper de baja rápida: botones disabled ya no se ven «encendidos» al hover.
+
+**Al publicar (devops/Railway):** `migrate deploy` corre **M-39** (tablas nuevas aditivas), luego correr
+**`ts-node prisma/backfill-m39-sealed-product.ts`** (cura ETB→Tropius; idempotente), y el
+**`unify-rarities`** pendiente de P-34. Después, en cada set, «Sincronizar» trae sus presentaciones.
 
 ---
 
 ## Abiertos
-
-### P-37 · Redundancia del IVA en los diales de M10 (config)
-- **Encontrado con el humano (2026-08-23):** `IVA_PCT` (16, %) y `STRIPE_FEE_IVA_PCT` (0.16, fracción)
-  son el MISMO 16% de IVA en dos diales y dos formatos. Riesgo de drift money-unsafe (cambiar uno y no el
-  otro rompe el gross-up de Stripe). → consolidar a un solo dial de IVA del que Stripe derive.
-- **Roles:** arquitecto (DTO de settings) → backend + frontend. **Pendiente decisión del humano.**
-
-### P-38 · Módulo de producto SELLADO robusto (cura de raíz de SB-D5) — **GRANDE, diseño primero**
-- **Observado por el humano (2026-08-23, prod):** al dar de alta un **ETB** salió como **«Tropius #1 ·
-  sealed»** y «SIN MAPEO». Causa raíz: el alta de P-35 es un puente mínimo que **ancla el sellado a una
-  carta suelta representativa** (SB-D5) en vez de tener identidad propia de producto sellado.
-- **Qué pide el humano (4 piezas):**
-  1. **Módulo que descargue las presentaciones de sellado de cada set** (ETB, UPC, Booster Bundle, booster
-     box, blíster…) desde TCGCSV como **entidades reales `SealedProduct`** (no ancladas a un single).
-  2. **Alta = solo seleccionar** la presentación → entra al inventario con su identidad correcta.
-  3. **Precio en vivo** al dar de alta (busca en la fuente en ese momento).
-  4. **Fallback manual** si no encuentra precio.
-- **Alcance:** nueva entidad `SealedProduct` + módulo de sync + contrato + schema + flujo de alta + pricing.
-  Reemplaza el puente ancla-a-single de P-35. Money-safe: sin precio → pendiente/manual, nunca 0.
-- **Roles:** arquitecto (modelo `SealedProduct` + sync + contrato/schema) → backend + frontend + ux-ui.
-  **Grande**: diseño primero.
-
-### P-39 · Foto de baja resolución en «Piezas destacadas» del home
-- **Observado por el humano (2026-08-23, prod):** la imagen de la carta destacada en el home se ve de
-  baja calidad. El backend ya expone `imageSmallUrl` **y** `imageLargeUrl`; el featured usa la chica.
-- **Roles:** frontend — usar `imageLargeUrl` en el featured/vistas prominentes (grid denso puede seguir
-  con la chica por perf). Sin cambio de backend.
-
-### P-40 · Mostrar el tipo de acabado en las publicaciones
-- **Pedido del humano (2026-08-23):** que las publicaciones (tejas del catálogo/home) muestren el
-  **acabado** (Normal / Reverse Holo / Holofoil). El `GroupedListingDTO` ya trae `finish`; falta pintarlo.
-- **Roles:** frontend — añadir la etiqueta de acabado a las tejas, respetando el visual del rediseño.
-
-### P-41 · El Tropius de Pitch Black no aparece en el cotizador del home
-- **Observado por el humano (2026-08-23, prod):** al buscar «tropius» en el cotizador (buylist) del home,
-  salen Shining Fates/Cosmic Eclipse/Deoxys/Plasma Blast/Mysterious Treasures, **pero no el de Pitch
-  Black** — que sí está en el catálogo. La búsqueda del cotizador filtra distinto que el catálogo.
-- **Causa raíz (diagnosticada):** el mini-cotizador del home pide `pageSize: 5` (`HomeQuoter.tsx:66`).
-  Los ~6 Tropius empatan por `name`; el desempate es `setId` = **uuid aleatorio** → cuáles 5 salen es
-  arbitrario y Pitch Black cae en posición ≥6, fuera del corte. NO es frontera de sync/elegibilidad/índice.
-- **Fix inmediato (frontend):** subir `pageSize` del home a 20 + «ver más en /buylist». **Va en el batch
-  de cotizador (P-42/P-43).**
-- **Mejora opcional (arquitecto → backend):** `CARD_ORDER_BY_GLOBAL` desempata por uuid; ordenar por
-  `set.releaseDate desc` para priorizar sets nuevos/relevantes. Cambio de contrato (§6). **Pend. decisión.**
-
-### P-42 · Cotizador: carrito de venta fijo a la derecha + sombrear cartas ya agregadas
-- **Pedido del humano (2026-08-23, prod):** en el cotizador (Vender/buylist):
-  1. Al picar una carta, el **carrito de venta se despliega y se queda FIJO a la derecha, a la par del
-     grid** (no un drawer que se abre/cierra) — más funcional para ver qué metes y cuánto llevas.
-  2. Tras agregar una carta al carro, **sombrear/destacar** esa carta en el grid para distinguir cuáles
-     ya están agregadas.
-- **Roles:** frontend (`BuylistView.tsx`, `SellCartContents.tsx`), respetando el visual del rediseño.
-  Nota: encolado detrás de P-39/P-40 (comparten zona storefront + `messages`), para no pisar archivos.
-
-### P-43 · Click en la carta → pop-up con detalle e imagen grande legible
-- **Pedido del humano (2026-08-23, prod):** al hacer **click en la carta** (no en «AGREGAR»), abrir un
-  **pop-up/modal** con más detalle: imagen más grande para que el **texto de la carta se lea**. Distinto
-  de «AGREGAR» (que la mete al carrito). Aplica al grid del cotizador (y catálogo si aplica).
-- **Cierre:** basta **click fuera del pop-up** (en el backdrop) para cerrarlo (+ Esc por a11y).
-- **Roles:** frontend (modal de detalle, reusa `imageLargeUrl` de P-39). **Va junto con P-42** (misma
-  interacción de la carta en el cotizador), respetando el design system del rediseño.
-### P-44 · Mostrar la RAREZA en todas las vistas de binder/catálogo
-- **Pedido del humano (2026-08-23, prod):** en todas las vistas de binder/catálogo, mostrar la **rareza**
-  de la carta (Illustration Rare, Full Art, Special Illustration Rare, Hyper Rare…), no solo el acabado.
-  Hoy las tejas muestran `#num · ACABADO` pero no la rareza.
-- **Alcance:** catálogo storefront (`CatalogTile`), cotizador, ficha, binder admin (M1/Master Set). El
-  `CardDTO` ya trae `rarity`; verificar que todas las tejas lo reciben (si alguna usa un DTO sin rareza,
-  pequeño add de backend). Va con P-40 (misma familia de etiqueta en la teja).
-- **Roles:** frontend (+ backend si falta exponer rarity en algún DTO). Respetar el visual del rediseño.
 
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
