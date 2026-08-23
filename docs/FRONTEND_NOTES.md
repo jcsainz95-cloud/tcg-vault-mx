@@ -6121,3 +6121,66 @@ necesita cambio de DTO ni de backend.
 
 ### Verde (gate)
 `tsc --noEmit` ✓ · `vitest run` **80 archivos / 625 tests** ✓ · `next build` ✓.
+
+---
+
+## Consistencia del acento de acabado en las tejas del binder (Master Set) — spec humano 2026-08
+
+**Petición del humano:** la línea/acento de color en la parte superior de las tejas del binder
+(Master Set) debe ir **estrictamente por acabado (finish)** y ser CONSISTENTE en todas las vistas.
+Spec: **reverse_holo → ROJO**, **holofoil → AZUL**, **normal → sin banda (como estaba)**.
+
+### Causa de la inconsistencia reportada
+El acento es la banda de 3px de `FinishBand` (`frontend/src/components/domain/FinishMark.tsx`). En el
+código el color **ya dependía SOLO de `finish`** (no de la rareza, ni del orden, ni de la composición
+de variantes de la carta): cada teja del binder plano se expande con `displayedVariants` y pinta
+`<FinishBand finish={variant.finish} />` con su acabado propio. Es decir, NO había una rama por
+composición. La percepción de «el color cambia cuando la carta tiene holofoil y reverse holo» venía
+del mapeo de color en sí:
+- `reverse_holo` era un **GRADIENTE** 90° `neutral-warm (#9A6C57) → accent (#B31217)`: el color varía a
+  lo ancho de la banda según el tamaño de la teja, así que no leía como un rojo estable.
+- `holofoil` y `first_edition_holofoil` compartían la **MISMA tinta oscura** (`--color-ink`): dos foils
+  indistinguibles y ninguno azul.
+
+Al ver una carta con holofoil (banda oscura) y reverse holo (gradiente marrón→rojo) juntas, las dos
+bandas leían «muddy»/oscuras y el reverse «cambiaba de color» a lo ancho → percepción de inconsistencia.
+
+### Qué se cambió (dónde se centralizó)
+- **`frontend/src/components/domain/FinishMark.tsx`** — se centralizó el mapeo finish→color en UN solo
+  lugar: la constante `FINISH_BAND_BACKGROUND` (Record parcial por `Finish`), consumida por `FinishBand`
+  (que es la ÚNICA superficie que pinta el acento, usada por binder M1, bóveda cliente, bóveda admin,
+  cotizador, línea del carrito de venta, `TopBountiesShelf` y `VariantDrawer`). Ninguna vista tiene
+  lógica de color propia — todas heredan de aquí.
+  - `reverse_holo → var(--color-finish-reverse, var(--color-accent, #B31217))` (ROJO **sólido**, ya no
+    gradiente → color estable).
+  - `holofoil → var(--color-finish-holo, #1F5C8F)` (AZUL).
+  - `normal → sin banda` (sin cambio).
+  - `first_edition_holofoil → var(--color-ink)` (sin cambio: no es reverse ni holofoil).
+- **`frontend/src/app/globals.css`** — se añadieron dos tokens en `:root`:
+  - `--color-finish-reverse: var(--color-accent);` (alias del rojo de marca).
+  - `--color-finish-holo: #1f5c8f;` (**azul acero — TOKEN NUEVO**: no existía azul en la paleta
+    paper/tinta/rojo/verde; se eligió apagado/acero para no romper el aire cálido vintage).
+
+### Accesibilidad
+El acento es doble canal: la banda (decorativa, `aria-hidden`) va acompañada SIEMPRE de la etiqueta de
+acabado del `TileHeader` («REVERSE HOLO» / «HOLOFOIL»), así que el color no es el único canal. Rojo vs
+azul es además un par seguro para daltonismo (a diferencia de rojo/verde).
+
+### Tests
+- `frontend/src/components/domain/FinishMark.test.tsx`: reverse_holo → banda SÓLIDA roja (sin gradiente),
+  holofoil → banda azul (`--color-finish-holo`).
+- `frontend/src/components/master-set/MasterSetBinder.test.tsx`: nuevo describe de composición mixta —
+  una carta con normal + reverse_holo + holofoil a la vez pinta ROJO en la teja reverse y AZUL en la
+  holofoil (independiente de la composición); la teja normal no lleva banda.
+
+### ⚠️ Pendiente de ratificar por ux-ui (DESIGN_SYSTEM §16.6)
+El color es dominio de `DESIGN_SYSTEM.md`. Se implementó el spec del humano y se **añadió un token nuevo
+`--color-finish-holo` (azul #1F5C8F)** que NO existía en la paleta. **Falta ratificar en el sistema de
+diseño** (§16.6 y §17.2): (a) la convención finish→color (reverse=rojo sólido / holofoil=azul), (b) el
+retiro del gradiente reverse (§16.6 lo describía como «la única superficie con gradiente permitida» —
+esa nota del DS queda desactualizada) y (c) el valor/nombre del token azul. **No edité DESIGN_SYSTEM.md.**
+
+**Money-safe:** N/A — es solo color.
+
+### Verde (gate)
+`tsc --noEmit` ✓ · `vitest run` **80 archivos / 627 tests** ✓ · `next build` ✓.

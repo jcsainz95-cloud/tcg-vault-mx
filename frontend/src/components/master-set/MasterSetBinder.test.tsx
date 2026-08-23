@@ -120,3 +120,76 @@ describe('MasterSetBinder · badge on-hand POR ACABADO (regresión IMP-2)', () =
     expect(badges).toHaveLength(1);
   });
 });
+
+/**
+ * Consistencia visual del ACENTO por acabado (spec humano 2026-08): la banda de color de cada teja
+ * depende SOLO de su acabado — reverse_holo=ROJO, holofoil=AZUL— y NO cambia porque la carta tenga
+ * a la vez holofoil y reverse holo. Se prueba sobre una carta con AMBOS acabados (más normal).
+ */
+describe('MasterSetBinder · banda de acabado estrictamente por finish (independiente de la composición)', () => {
+  const multiFinishCell: MasterSetCardCellDTO = {
+    cardId: 'sv08-100',
+    number: '100',
+    name: 'Pikachu ex',
+    rarity: 'Double Rare',
+    imageSmallUrl: 'https://img.example/pikachu.png',
+    availableFinishes: ['normal', 'reverse_holo', 'holofoil'],
+    displayFinishes: ['normal', 'reverse_holo', 'holofoil'],
+    countsByFinish: [{ finish: 'holofoil', count: 1 }],
+    totalCount: 1,
+    isSecretRare: false,
+    expectedVariantCount: 3,
+    coveredVariantCount: 1,
+    variants: [
+      { finish: 'normal', count: 0, covered: false },
+      { finish: 'reverse_holo', count: 0, covered: false },
+      { finish: 'holofoil', count: 1, covered: true },
+    ],
+  };
+
+  const multiResponse: MasterSetBinderResponse = {
+    set: { id: 'sv08', name: 'Surging Sparks' },
+    printedTotal: 191,
+    catalogCardCount: 1,
+    cells: [multiFinishCell],
+    scope: 'platform',
+  };
+
+  beforeEach(() => {
+    vi.mocked(getMasterSetBinder).mockReset();
+    vi.mocked(getMasterSetBinder).mockResolvedValue(multiResponse);
+  });
+
+  function bandIn(tile: HTMLElement): HTMLElement {
+    const band = tile.querySelector('[data-testid="finish-band"]');
+    if (!(band instanceof HTMLElement)) throw new Error('teja sin banda de acabado');
+    return band;
+  }
+
+  it('reverse holo pinta ROJO y holofoil pinta AZUL en la MISMA carta (composición mixta)', async () => {
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} />,
+    );
+    await screen.findAllByText('Pikachu ex');
+
+    // La teja reverse holo lleva el ROJO de acabado; la holofoil, el AZUL — sin importar que la
+    // carta tenga AMBOS acabados a la vez.
+    const reverseBand = bandIn(tileFor('Reverse Holo'));
+    expect(reverseBand.getAttribute('data-finish')).toBe('reverse_holo');
+    expect(reverseBand.getAttribute('style')).toContain('var(--color-finish-reverse');
+    expect(reverseBand.getAttribute('style')).not.toContain('gradient');
+
+    const holoBand = bandIn(tileFor('Holofoil'));
+    expect(holoBand.getAttribute('data-finish')).toBe('holofoil');
+    expect(holoBand.getAttribute('style')).toContain('var(--color-finish-holo');
+  });
+
+  it('la teja NORMAL no lleva banda (acabado neutro, sin cambio)', async () => {
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} />,
+    );
+    await screen.findAllByText('Pikachu ex');
+    const normalTile = tileFor('Normal');
+    expect(normalTile.querySelector('[data-testid="finish-band"]')).toBeNull();
+  });
+});
