@@ -2,7 +2,64 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.43-sealed-manual-override-survives-dial).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.44-grading-upside).
+>
+> **Changelog v1.44-grading-upside (2026-08-23, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan.
+> PROJECT §N v2.0 «gancho de grading», rama `claude/psa-graded-card-value-gmhv5u`. Todo ADITIVO, RETROCOMPATIBLE y
+> MONEY-SAFE: ningún endpoint ni DTO existente cambia de forma o de tipo; solo se AÑADEN campos OPCIONALES, dos query
+> params, un recurso de diales M2 y un dial M10. Ningún monto de dinero real cambia. SIN migración de esquema
+> (M-41 = DATA/seed). ARCHITECTURE §4.35/§10/§11.**
+> - **Qué es:** sobre una carta **raw publicada**, el storefront muestra **cuánto valdría gradeada PSA 10 / PSA 9**
+>   frente a su **precio de venta raw actual**, en **tres superficies** — bloque comparativo en la **ficha**, **badge**
+>   en la teja de Compra y **vitrina «Joyas para gradear»** en el home. Es un **estimado informativo con disclaimer
+>   obligatorio**: **nunca** un precio de venta, una oferta, una promesa de grado ni un compromiso de recompra.
+> - **DTOs nuevos:** `GradingCostTierDTO`, `GradingUpsideDTO`, `GradedEstimateDTO`, `GradingUpsideConfigDTO`.
+>   **Campos nuevos:** `GroupedListingDTO += gradingUpside?` (nivel **grupo**: alimenta badge y vitrina) y
+>   `GroupedListingDetailResponse += gradedEstimates?` (nivel **carta**: provenance del bloque de la ficha).
+> - **REGLA DURA (presencia ⇔ elegibilidad).** **NO existe `eligible: boolean`.** Si falta **cualquier** insumo
+>   (estimado PSA 9, estimado PSA 10, precio de venta raw **o escalón de costo aplicable**), si el estimado está
+>   **rancio**, o si el **gate de ROI no se cumple**, el campo **NO SE EMITE** y el front **no renderiza nada**: nunca
+>   **$0**, nunca un guion `—`, nunca un rango inventado y —a diferencia del resto del sistema— **ni siquiera
+>   «precio pendiente»** (el estado pendiente es back-office, no un argumento de venta). Un `eligible:false` está
+>   **prohibido** porque invitaría a pintar un badge tachado/gris (criterio 82).
+> - **Gate de ROI sobre PSA 9, server-side (SEC-A1, decisión 41):**
+>   `elegible ⇔ estimadoPSA9 ≥ ceil((precioVentaRaw + gradingCost) × (1 + minUpsidePct/100))`, con **`gradingCost` =
+>   el ESCALÓN cuyo rango contiene el estimado PSA 10** (tabla `gradingCostTiers`). El **PSA 10 NO decide** la
+>   elegibilidad (es el premio mayor). El cliente **recibe el resultado ya evaluado**; puede recomputar el
+>   **multiplicador** para display, jamás la elegibilidad ni los montos. Un DTO manipulado no cambia nada.
+> - **Sin escalón, sin gancho:** tabla vacía, con hueco o mal editada ⇒ **no elegible**. **Jamás** se asume costo $0 ni
+>   se cae a un default silencioso. La tabla se valida **contigua y con escalón final abierto** en cada `PUT`.
+> - **Diales (M2, nuevo recurso):** `GET/PUT /api/v1/admin/pricing/grading-upside` — `gradingCostTiers` (tabla de
+>   escalones), `minUpsidePct` (30) y `freshnessDays` (30). Mismo patrón que `sealed-spreads` (JSON en `ConfigSetting`,
+>   `super_admin`, **auditado**, **sin redeploy**). **NO** se reusa `GET/PUT /admin/pricing/tiers` (taxonomía LOCKED de
+>   5 filas nombradas, invariante incompatible — ARCHITECTURE §4.35d/GU-A1).
+> - **Dial M10 nuevo:** `gradingUpsideEnabled` (`grading_upside_enabled`, `on|off`, **seed `off` fail-closed**). Con
+>   `off` el backend **ni siquiera evalúa el gate**: no emite `gradingUpside` ni `gradedEstimates`, y
+>   `?gradingUpside=true` devuelve `data: []`. Encenderlo en producción **requiere el visto bueno del humano** sobre el
+>   texto del disclaimer (§N.5, pregunta abierta v2.0 #1).
+> - **Vitrina = `GET /catalog/cards` filtrado**, no endpoint nuevo: `?gradingUpside=true&sort=grading_upside_desc`
+>   (orden por **upside neto sobre PSA 9**, desc). `data: []` **es** la señal de «no renderizar la vitrina completa».
+>   `sort=grading_upside_desc` sin el filtro ⇒ `400 GRADING_SORT_REQUIRES_FILTER` (fail-closed).
+> - **Fase 1 = MANUAL-FIRST, sin mecanismo de captura nuevo:** los estimados se fijan con el endpoint **ya existente**
+>   `POST /admin/pricing/override` (`productType:"graded"`, `gradeKey:"graded:PSA:10"|"graded:PSA:9"`, `finish`
+>   omitido ⇒ `normal`), que escribe **exactamente** las filas que el storefront lee. **Fase 2** (ingest automático
+>   PokemonPriceTracker) está **BLOQUEADA** por doctrina P-6 y **NO cambia este contrato** — ARCHITECTURE §4.35(h).
+> - **Indistinguibilidad fase 1 ⇄ fase 2 (criterio de éxito):** el campo **`source` NO se emite** en las superficies
+>   públicas del gancho (es el único que delataría el origen del número). Cambiar de manual a ingest **no toca ni el
+>   contrato ni el cliente**. Ver ARCHITECTURE §4.35(g).
+> - **Actualiza la DECISIÓN v1.28** (valor de mercado por grado, §M1 «Gradeadas»): sigue siendo **manual, sin proveedor
+>   automático** (P-6 revalidada), pero ese valor **deja de ser solo de back-office y pasa a alimentar el storefront**.
+>   Ver la nota **v1.44** en §M1 y en `POST /admin/pricing/override`.
+> - **Doctrina (informativa, no dinero):** las filas `graded:PSA:*` **no** fijan `listPriceCents`, **no** publican
+>   inventario, **no** entran en `availableFinishes`/`displayFinishes`, **no** encolan `PendingPriceEntry`, **no**
+>   valúan portafolio/P&L/inventario y **no** afectan el buylist. ARCHITECTURE §4.35(b) — es la trampa más fácil de
+>   pisar.
+> - **Sin N+1:** un **único** batch dedicado (`getGradedEstimatesBatch`) por request; **+1 query constante** en
+>   `/catalog/cards`, `/catalog/cards?gradingUpside=true` y `/catalog/cards/:cardId`; **0** en el resto.
+> - **Reparto:** **backend** (stream «Catálogo y precios», módulos `pricing`+`catalog`, común
+>   `backend/src/common/grading-upside.ts` NUEVO). **Frontend** (mismo stream): las tres superficies + i18n ES/EN del
+>   disclaimer. **El disclaimer NO viaja por la API** (es copy i18n del front, como el label de NM), pero **renderizar
+>   cualquier cifra sin él es un defecto bloqueante** (criterio 85).
 >
 > **Changelog v1.43-sealed-manual-override-survives-dial (2026-08-23, arquitecto — DISEÑO EN PAPEL; lo implementa
 > BACKEND. Escalada por regla 9 del gate E2E, issue IMP-C, rama `fix/variant-composition-regression`.
@@ -1599,6 +1656,81 @@ GroupedListingDTO = { representativeInventoryItemId: string, card: CardDTO, prod
                       gradingCompany?: GradingCompany, gradeValue?: string,
                       stockCount: number, salePriceCents: number, referenceValue: PriceInfo, currency: "MXN" }
 GroupedListingListResponse = { data: GroupedListingDTO[], page: number, pageSize: number, total: number }
+// ===== v1.44-graded-estimate (PROJECT §N v2.0 + REDUCCIÓN DE ALCANCE del humano 2026-08-23) =====
+// «Gancho de grading» — ARCHITECTURE §4.35. La superficie visible es la CIFRA por grado junto al precio («en PSA 10
+// vale tanto»). SIN multiplicador, SIN ganancia calculada, SIN comparativa de columnas: el humano los retiró
+// explícitamente. Por eso el contrato PÚBLICO **no transporta** `multiplier`, `upsideMxnCents`, `netUpside*`,
+// `gradingCost*` ni `minUpsidePct` — nadie los pinta, y un campo que nadie pinta es deuda.
+//
+// EL GATE DE ROI SOBREVIVE COMPLETO (con la tabla de escalones de §N.2.1) pero cambia de PAPEL: deja de ser
+// información al cliente y pasa a ser **criterio de CURADURÍA** — decide DÓNDE promocionamos activamente («calcúlalo
+// para que podamos ponerlo en la sección de destacado algo que valga la pena»). Eso parte el gancho en DOS campos con
+// reglas de emisión DISTINTAS, y esa distinción es lo único importante de esta sección:
+//
+//   | Campo               | Dónde vive                    | Superficie        | ¿Gate de ROI? |
+//   |---------------------|-------------------------------|-------------------|---------------|
+//   | `gradedEstimates`   | GroupedListingDetailResponse  | FICHA             | **NO** — se emite siempre que haya dato fresco |
+//   | `gradingHighlight`  | GroupedListingDTO             | TEJA + VITRINA    | **SÍ** — solo si el gate se cumple |
+//
+// Racional: la ficha es INFORMACIÓN para quien ya está viendo esa carta; la teja y la vitrina son PROMOCIÓN ACTIVA y
+// solo deben empujar lo que le conviene al comprador incluso saliendo PSA 9. **SEC-A1 sale REFORZADO**: el cliente ya
+// ni siquiera recibe los INSUMOS del cálculo (ganancia neta, escalón aplicado, razón), solo su resultado binario =
+// presencia del campo. Un DTO manipulado no puede reconstruir el gate porque los números no viajan.
+//
+// El estimado de UN grado. `estimate` reusa PriceInfo (NO se inventa otro tipo de dinero) con tres reglas NORMATIVAS:
+//   * `status` es SIEMPRE "priced" — un `pending` en un argumento de venta está PROHIBIDO (PROJECT §N.4). Si no hay
+//     dato, el elemento NO se emite; JAMÁS se emite un GradedEstimateDTO en estado pendiente.
+//   * `referenceMxnCents` y `capturedDate` SIEMPRE presentes (`capturedDate` = fecha del último refresco del dato).
+//   * `source` se OMITE SIEMPRE (y `isManualOverride` nunca viaja). Es la garantía técnica de que la FASE 1 (valor
+//     fijado a mano por el admin) y la FASE 2 (ingest automático) son INDISTINGUIBLES para el cliente — `source` es el
+//     único campo que delataría el origen. El admin sí lo ve en `GET /admin/pricing/card/:cardId` (§M2).
+// `gradeKey` es la clave canónica con la que el valor se fija/lee ("graded:PSA:10" | "graded:PSA:9"): key estable de
+// render/orden para el front, NO un dato que el cliente deba resolver.
+// MVP: `gradingCompany` siempre "PSA". `gradeValue` es un STRING abierto en el tipo, pero el servidor solo emite
+// "10" (y, si el humano lo reactiva, "9"): otras graduadoras y otros grados quedan fuera de alcance.
+GradedEstimateDTO = { gradingCompany: "PSA", gradeValue: string /* "10" | "9" */, gradeKey: string, estimate: PriceInfo }
+// EXTENSIÓN v1.44 (ADITIVA y OPCIONAL; `+=` = campo que se AÑADE al DTO existente, que no cambia de forma).
+// UN SOLO campo, en UN SOLO lugar: el ARREGLO de estimados por grado que el servidor decidió exponer para ESE grupo.
+//   * PRESENCIA ⇔ ELEGIBILIDAD. **No existe `eligible: boolean`** (invitaría a pintar un badge tachado/gris —
+//     criterio 82). Ausente u omitido ⇒ el front NO pinta NADA: ni contenedor, ni skeleton, ni "—", ni $0, ni
+//     "pendiente". PROHIBIDO cualquier `gradedEstimates?.[0]?.estimate.referenceMxnCents ?? 0`.
+//   * NUNCA se emite VACÍO (`[]`). Si no hay ningún grado que exponer, el campo se OMITE. `[]` sería un contenedor
+//     vacío que el front podría renderizar.
+//   * SOLO en grupos `productType:"raw"`. Una gradeada y un sellado NUNCA lo traen (criterio 87).
+//   * Vive a nivel de GRUPO (publicación agrupada) y no de carta ni de pieza: es el grano más fino en el que la
+//     elegibilidad PUEDE diferir (el filtro server-side puede comparar contra `salePriceCents`, que es del grupo), y
+//     es la MISMA teja que renderizan Compra, la ficha y la vitrina del home ⇒ un solo componente, cero drift.
+//   * ORDEN: grado descendente (PSA 10 primero). **El cliente DEBE iterar el arreglo leyendo `gradeValue`; tiene
+//     PROHIBIDO asumir `[0] === PSA 10` o que la longitud sea 1.** Es exactamente lo que permite añadir/quitar PSA 9
+//     (o cualquier grado) sin tocar el contrato ni el cliente.
+//   * MVP tras la reducción de alcance: el arreglo trae **un solo elemento, PSA 10**. Reactivar PSA 9 = una línea de
+//     configuración server-side, CERO cambio de contrato.
+//   * QUÉ NO TRAE, y es una decisión: no trae el precio raw (ya está en `salePriceCents` del mismo DTO), ni el
+//     multiplicador, ni la ganancia, ni el costo de gradeo, ni el umbral del filtro. Todo eso lo retiró el humano de
+//     la interfaz; el servidor lo usa —si aplica— SOLO para decidir si emite el campo, y no lo publica.
+GroupedListingDTO += { gradedEstimates?: GradedEstimateDTO[] }
+// ---- Config del gancho (GET/PUT /admin/pricing/graded-estimates, §M2). NADA de esto viaja al cliente. ----
+// `eligibility` es una UNIÓN DISCRIMINADA por `mode`. Es el punto donde vive la pregunta abierta GU-1 (§10): las tres
+// políticas posibles producen EXACTAMENTE el mismo DTO público (el campo se emite o no), así que elegir entre ellas es
+// CONFIGURACIÓN, no rediseño — el cliente no puede distinguirlas ni con el payload en la mano.
+//   * "roi_tiers" = gate de ROI sobre PSA 9 con tabla de escalones de costo (PROJECT §N.2/§N.2.1, seed vigente).
+//   * "ratio"     = umbral simple: se emite si `estimadoPSA10 >= minRatio × salePriceCents` (cero mantenimiento).
+//   * "none"      = se emite en toda carta raw publicada que tenga dato fresco (sin filtro de rentabilidad).
+// Un escalón de `gradingCostTiers` (solo relevante en mode "roi_tiers"): rango de VALOR DECLARADO → COSTO de gradeo en
+// MXN (cuota PSA + envío internacional + retorno asegurado a México + manejo). Intervalo SEMIABIERTO [min, max):
+//   * `maxValueMxnCents === null` SOLO en el ÚLTIMO escalón ("de X en adelante"); ningún otro puede ser null.
+//   * `tiers[i].maxValueMxnCents === tiers[i+1].minValueMxnCents` (contiguo, sin huecos ni solapes); `tiers[0].min === 0`.
+//   * `costMxnCents` entero >= 1 — JAMÁS 0 (un costo subestimado es exactamente lo que haría perder dinero al
+//     comprador). Semiabierto a propósito: con límites "$2,000 / $2,001" los centavos intermedios quedaban en un HUECO.
+GradingCostTierDTO = { minValueMxnCents: number, maxValueMxnCents: number | null, costMxnCents: number }
+GradedEstimateEligibility =
+    | { mode: "roi_tiers", minUpsidePct: number, gradingCostTiers: GradingCostTierDTO[] }
+    | { mode: "ratio",     minRatio: number }
+    | { mode: "none" }
+// `enabled` es un ESPEJO READ-ONLY del dial M10 `gradedEstimatesEnabled` (se edita en PUT /admin/settings, no aquí;
+// si viene en el PUT se IGNORA). `grades` = los grados que el servidor expone, en orden descendente.
+GradedEstimateConfigDTO = { enabled: boolean, grades: string[] /* ["10"] | ["10","9"] */,
+                            freshnessDays: number, eligibility: GradedEstimateEligibility }
 // Ficha (GET /catalog/cards/:cardId): los grupos vendibles de esa carta + `units` = TODAS las piezas vendibles por-pieza
 // (cheapest-first) para que el front agregue hasta `stockCount` `inventoryItemId` DISTINTOS al carrito (por-pieza, §4-G).
 // Espeja `SealedGroupDetailResponse` (group+listings): la grilla se construye contra `listings` (grupos); `units` es SOLO
@@ -2185,9 +2317,41 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
   todas las partes, p. ej. `cel25` + `cel25c`). ADITIVO: para un set normal el filtro es idéntico a hoy. Se respeta la
   **Regla de Compra**: agrupar **no** publica cartas sin precio (solo se listan las ya `sellable`). Money-safe: cada
   `ListingDTO` sigue llaveado a su `Card`/set real.
-- `sort`: `price_asc | price_desc | newest` (opcional). Ordena por el **grupo**: `salePriceCents` del grupo; `newest` por la pieza más nueva del grupo (`createdAt` desc).
+- `sort`: `price_asc | price_desc | newest` (opcional). Ordena por el **grupo**: `salePriceCents` del grupo; `newest` por la pieza más nueva del grupo (`createdAt` desc). **v1.44:** gana `grading_showcase` (ver abajo).
 - **v1.38-grouped-listings (P-30):** el listado es **AGRUPADO por publicación única** `(carta, productType, gradeKey, finish)`, no una fila por copia física. `minPriceCents`/`maxPriceCents` filtran sobre el `salePriceCents` del grupo; los filtros `condition`/`finish`/`rarity`/`productType`/`setId` **no cambian de forma** (acotan las piezas que entran a cada grupo).
+- **v1.44-graded-estimate (PROJECT §N.3, ADITIVO) — `?hasGradedEstimate=` y `?sort=grading_showcase`:** habilitan la
+  **vitrina «Joyas para gradear» del home** SIN endpoint nuevo. La vitrina es, literalmente, «cartas elegibles con
+  **su teja** y enlace a su ficha» (§N.3(3)) ⇒ es un **subconjunto ordenado de Compra**, con el **mismo**
+  `GroupedListingDTO` y por tanto el **mismo componente de teja y la misma cifra** — un endpoint aparte duplicaría la
+  ruta de composición y podría desincronizar la vitrina de Compra (justo lo que money-safe teme).
+  Ver ARCHITECTURE §4.35(f).
+  - `hasGradedEstimate` (opcional): **solo se acepta `true`**. Presente ⇒ devuelve **únicamente** los grupos que traen
+    `gradedEstimates`. Omitido ⇒ comportamiento idéntico a hoy (no filtra). Cualquier otro valor (`false`, `1`, `yes`)
+    ⇒ `400 VALIDATION_ERROR` (fail-closed: un `false` «filtrando lo no elegible» sería una superficie comercial
+    invertida que nadie pidió).
+  - `sort=grading_showcase`: **el orden de la vitrina lo resuelve el SERVIDOR y el nombre es deliberadamente neutro**
+    — no nombra el criterio. Así, cambiar el criterio comercial es un cambio server-side de **cero** impacto en el
+    contrato y en el cliente (el mismo motivo por el que el DTO ya no publica el multiplicador). Criterio **vigente**:
+    **mayor razón `estimadoPSA10 / salePriceCents` desc** — es literalmente la frase del humano («si compras esta que
+    no vale mucho sin gradear y la gradeas podría valer tanto más»), mientras que ordenar por el PSA 10 **absoluto**
+    llenaría la portada con las cartas **más caras de comprar**. **Desempate determinista** (paginación estable):
+    razón desc → `estimate.referenceMxnCents` desc → `representativeInventoryItemId` asc.
+  - **`sort=grading_showcase` SIN `hasGradedEstimate=true` ⇒ `400 VALIDATION_ERROR` código
+    `GRADING_SORT_REQUIRES_FILTER`.** Fail-closed: si se aceptara, los grupos **sin estimado** irían a la cola del
+    listado y la vitrina podría pintarlos al paginar.
+  - **Tamaño de la vitrina** = `pageSize` (el front del home pide **8**, §N.3(3) SUPUESTO); el default del endpoint no
+    cambia. **Cero cartas elegibles ⇒ `{ data: [], total: 0 }`, y ese `data: []` ES la señal normativa de «no renderizar
+    la vitrina completa»** (criterio 83): sin encabezado, sin placeholder, sin «próximamente».
+  - **Dial `gradedEstimatesEnabled=off` (§M10, seed `off`)** ⇒ ningún grupo trae `gradedEstimates` ⇒
+    `?hasGradedEstimate=true` devuelve `{ data: [], total: 0 }` (no es error: es la feature apagada).
+  - **Sin N+1:** el listado ya materializa y pagina en memoria; el gancho añade **+1 query constante** (batch de los
+    estimados de los `cardId` distintos), nunca una query por grupo. Ver ARCHITECTURE §4.35(c).
 Res `200` (**v1.38, `GroupedListingListResponse`**): `{ data: GroupedListingDTO[], page, pageSize, total }`. `total` = nº de **grupos** (publicaciones únicas), no de piezas. Cada grupo trae `stockCount≥1` (vivo), `salePriceCents` = mínimo/«desde» del grupo (el front rotula «desde» si `stockCount>1`, FE-2) y `representativeInventoryItemId` (add-to-cart de 1). Un grupo AGOTADO (`stockCount=0`) **no aparece** (money-safe: solo se lista lo publicado con precio y stock). *(Antes de v1.38: `{ data: ListingDTO[], … }`, un ítem por copia física — Tropius ×3 salía 3 veces. **Cambio de shape breaking, coordinado con el rediseño del storefront**.)*
+- **v1.44 (ADITIVO):** cada grupo puede traer **`gradedEstimates?: GradedEstimateDTO[]`** — **presente ⇔ elegible**
+  (§DTOs base). **Solo en grupos `productType:"raw"`.** Junto al precio, el front pinta la cifra de PSA 10 («en PSA 10
+  vale tanto») cuando está presente, y **la teja se ve exactamente como hoy** cuando no (criterio 82: **sin** badge
+  vacío, tachado, en gris ni placeholder). La cifra DEBE llevar su **llamada al disclaimer** (asterisco/nota al pie,
+  patrón que define **ux-ui** en `DESIGN_SYSTEM.md`) — renderizarla sin él es **defecto bloqueante** (criterio 85).
 
 ### GET /api/v1/catalog/facets — `public`  (v1.1 — facetas dinámicas de "Compra")
 Facetas calculadas **sobre el inventario publicado** (no sobre el catálogo completo), para poblar los filtros de Compra.
@@ -2208,14 +2372,38 @@ Res `200`:
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
 
 ### GET /api/v1/catalog/cards/:cardId — `public`
-Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }`.
+Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }`. **v1.44: SIN cambio de forma de la respuesta** — el gancho viaja dentro de `listings[i].gradedEstimates?` (ver abajo).
 - **`listings`** = las **publicaciones agrupadas** de esa carta (una por `(productType, gradeKey, finish)` con `stockCount≥1`, `salePriceCents` único). Es lo que el front pinta en la ficha. *(Antes de v1.38: `listings: ListingDTO[]` con una entrada por copia física.)*
 - **`units`** = TODAS las piezas vendibles de la carta **por-pieza** (`ListingDTO[]`, cheapest-first) — SOLO para resolver el **add-to-cart por `inventoryItemId`** (el carrito sigue siendo por-pieza, §4-G) y para exponer el `certNumber` de cada slab en graded. No es la grilla de navegación. Espeja `SealedGroupDetailResponse.listings`.
 - **Cambio breaking coordinado con el rediseño del storefront** (ver nota de coordinación en el Changelog v1.38 y ARCHITECTURE §4.9a).
+- **v1.44-grading-upside (ADITIVO) — el bloque comparativo de la ficha (§N.3(1)):** la respuesta gana
+  **`gradedEstimates?: GradedEstimateDTO[]`** en la **RAÍZ** (nivel **CARTA**, porque el estimado por grado es por
+  carta y no por acabado — ARCHITECTURE §4.35a) y cada `listings[i]` de `productType:"raw"` puede traer su
+  **`gradingUpside?`** (nivel **GRUPO**, porque el gate compara contra el precio del grupo).
+  - **Regla dura de emisión:** `gradedEstimates` se emite **SOLO si al menos un `listings[i].gradingUpside` está
+    presente**. **Nunca viaja solo** — si viajara sin gate, el front podría pintar la cifra de una carta **no elegible**
+    (criterio 79, «si y solo si»). Orden: **PSA 10 primero**, luego PSA 9.
+  - **Qué pinta el front con qué:** `listings[i].gradingUpside` trae **todo** lo necesario para el bloque comparativo
+    (precio raw, PSA 10, PSA 9, upside, multiplicador, **escalón de costo aplicado** y fecha de refresco);
+    `gradedEstimates` es la **provenance por grado** (cada cifra con su propio `capturedDate`), útil cuando la carta
+    tiene varios grupos raw elegibles (p. ej. `normal` y `reverse_holo`) y el bloque de estimados se muestra **una
+    sola vez** para la carta.
+  - **Consecuencia normativa asumida (ARCHITECTURE §4.35a):** una carta con dos acabados publicados tiene **un solo**
+    par de estimados pero **dos** precios raw ⇒ puede resultar **elegible en un acabado y no en el otro**. Es
+    deliberado y money-safe: nunca se inventa un estimado por acabado que la fuente no da.
+  - **Disclaimer COMPLETO obligatorio** en la ficha, visible en el propio bloque (no tras un enlace) — criterio 85. No
+    viaja por la API: es copy i18n del front.
+  - **`gradedEstimates` NUNCA aparece** para una carta sin grupos raw elegibles, para una **gradeada** o para un
+    **sellado** (§2-S), ni con el dial `gradingUpsideEnabled=off`.
 
 ### GET /api/v1/catalog/listings/:inventoryItemId — `public`
 Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / sin precio: no es visible en Compra).
 - **v1.38 (P-30):** **SIN cambio** — sigue devolviendo el `ListingDTO` **por pieza**. Lo consume el re-quote del carrito (v1.21.3, carrito = lista de `inventoryItemId`). La agrupación de P-30 vive SOLO en `GET /catalog/cards*` (navegación); la resolución por-pieza (carrito/checkout) es intacta.
+- **v1.44-grading-upside: SIN cambio, y es una decisión, no un olvido.** `ListingDTO` **NO** gana `gradingUpside`: el
+  gancho es una capa de **navegación/presentación**, no de compra. Meterlo en el DTO por-pieza lo pondría en la ruta del
+  **carrito y el checkout** —donde no pinta nada y solo añadiría superficie a un camino de dinero— y obligaría a
+  reevaluar el gate N veces por grupo sin ganar nada. El gancho vive **solo** en `GroupedListingDTO` y en
+  `gradedEstimates` de la ficha.
 
 ### GET /api/v1/catalog/sets — `public`
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
@@ -4046,12 +4234,32 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   capturedDate?: string | null, totalCostCents: number | null }` — `marketReferenceMxnCents` = `PriceReference`
   vigente de `(cardId, 'graded', 'graded:<company>:<grade>', 'normal')`, FX-recompute (típicamente **manual**, ver
   nota); `null` honesto si no hay. Drill-down a certs/folios = `items?cardId=&productType=graded`.
-  - **Valor de mercado por grado (DECISIÓN v1.28):** SIN proveedor automático en este stream (no verificado que el
-    proveedor exponga precios por grado — doctrina P-6: no construir sobre esquemas no confirmados). Se fija
-    MANUAL con el endpoint EXISTENTE `POST /admin/pricing/override` (`productType:"graded"`,
+  - **Valor de mercado por grado (DECISIÓN v1.28 — ACTUALIZADA en v1.44, ver abajo):** SIN proveedor automático en este
+    stream (no verificado que el proveedor exponga precios por grado — doctrina P-6: no construir sobre esquemas no
+    confirmados). Se fija MANUAL con el endpoint EXISTENTE `POST /admin/pricing/override` (`productType:"graded"`,
     `gradeKey:"graded:PSA:10"`, `finish` omitido). Si un proveedor futuro da precios por grado, entra por
     `price-ingest` sin cambiar este contrato. Los overrides de venta/compra P-18 aplican con `productType=graded`
     (misma tabla M-30, `finish=normal`).
+  - **ACTUALIZACIÓN v1.44-grading-upside — el mismo valor manual AHORA SE EXPONE AL STOREFRONT (§4.35, PROJECT §N):**
+    la **parte técnica de la decisión v1.28 sigue vigente y se REVALIDA**: **no hay proveedor automático** para el valor
+    por grado. La verificación del proveedor de 2026-08-23 (Gate 0, doctrina **P-6**) confirmó que PokemonPriceTracker
+    **sí** publica precios PSA pero (a) exige `includeEbay=true`, que **duplica el consumo de créditos**; (b) el
+    **shape del payload NO está confirmado** (la documentación del proveedor se contradice entre
+    `data[i].ebay.salesByGrade.psa10` —objeto— y `gradedPrices.psa10` —escalar—); y (c) **se desconoce** si el
+    parámetro combina con el barrido por set o exige **una petición por carta**. **Sigue sin construirse el ingest.**
+    **Lo que SÍ cambia:** esa `PriceReference` **deja de ser un dato exclusivo de back-office**. Con `gradeKey
+    'graded:PSA:10'` y `'graded:PSA:9'` es ahora **la fuente ÚNICA del «gancho de grading»** que se muestra al
+    comprador en Compra, la ficha y el home (§DTOs base `GradingUpsideDTO`/`GradedEstimateDTO`; §2). Tres
+    consecuencias **normativas** para quien opere M1/M2:
+    1. **Una sola fila, dos lectores.** La MISMA fila alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` (esta
+       pestaña) **y** el estimado público. Fijarla para el gancho **también** cambia lo que M1 muestra, y viceversa.
+       Es **deliberado** (es el mismo hecho de mercado) y **no mueve dinero** en ninguno de los dos lados. **No se debe
+       crear una clave paralela** para «separarlos»: duplicaría la verdad y obligaría a capturar dos veces.
+    2. **Fijar este valor es ahora una AFIRMACIÓN COMERCIAL PÚBLICA**, no una anotación interna. Está gobernada por el
+       gate de ROI, el disclaimer obligatorio y el dial `gradingUpsideEnabled` (§M10, seed `off`).
+    3. **No hace falta pieza física.** La FK de `PriceReference` es a `Card`: se puede fijar el estimado de una carta
+       **raw** de la que **no tenemos ningún slab**. Eso es precisamente el caso de uso de la fase 1 (§N.6: el humano
+       **cura a mano** sus cartas gancho). Ver ARCHITECTURE §4.35(a)/(b) y §4.35(h) para el plan de la fase 2.
 - **Valor del inventario en M1 (P-24):** las tarjetas de resumen consumen `GET /admin/finance/inventory-value`
   (§M7, extendido con `breakdown` — sigue **`super_admin`**); el front las omite para `vault_operator`
   (coherente con el enmascaramiento del dashboard; sin fuga por API).
@@ -4136,6 +4344,23 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - **`finish?` (v1.8-ronda-c, opcional, default `normal`):** `normal | reverse_holo | holofoil | first_edition_holofoil`. Fija/actualiza la `PriceReference` del acabado indicado y resuelve el pendiente de **ese** acabado; el pendiente de otros acabados de la misma carta **permanece abierto**. Omitirlo mantiene el comportamiento previo (`normal`). No debilita SEC-A1 (es un precio de referencia del admin, no un monto de cliente).
   - **v1.28 (P-20):** con `productType:"graded"` + `gradeKey:"graded:<company>:<grade>"` es la vía NORMATIVA para
     fijar el **valor de mercado por carta+grado** (pestaña Gradeadas de M1). Sin cambio de shape.
+  - **v1.44 (§N v2.0) — ES TAMBIÉN LA CAPTURA DE LA FASE 1 DEL «GANCHO DE GRADING». SIN CAMBIO DE SHAPE.** Con
+    `productType:"graded"` + `gradeKey:"graded:PSA:10"` / `"graded:PSA:9"` (+ `finish` **omitido** ⇒ `normal`), este
+    endpoint escribe **exactamente** las filas que el storefront lee para el gancho (§2, §DTOs base). **No se construye
+    ningún mecanismo de captura nuevo** (PROJECT §N.6, decisión 47). Notas normativas:
+    - **Recibe MXN directo** (`priceMxnCents`, entero **`≥ 1`** por la guardia L1 ya vigente): no hay FX en esta vía. En
+      la fase 2, el ingest escribiría USD+FX en la MISMA clave y `liveMxnCents` recomputaría — **el lector público es el
+      mismo y el DTO resultante es idéntico** (indistinguibilidad, ARCHITECTURE §4.35g).
+    - **`isManualOverride=true` / `source='manual'` ⇒ MÁXIMA PRECEDENCIA, también después de encender el ingest**
+      (§N.6). La resuelve `pickBestRef`/`isBetterRef` **dentro de la tabla**; ningún consumidor bifurca por origen.
+    - **NO hace falta que la carta tenga inventario gradeado**: la FK es a `Card`. Es el flujo de curaduría del humano.
+    - **NO crea `PendingPriceEntry`, y la AUSENCIA de estimado PSA NO es un «precio pendiente»** (sería inundar la cola
+      de M2 con todo el catálogo). Su comportamiento vigente de **resolver** el pendiente de la clave escrita, si
+      existiera, **no cambia**. ARCHITECTURE §4.35(b).
+    - **Efecto lateral consciente:** escribir aquí cambia también el `marketReferenceMxnCents` de M1 › Gradeadas (misma
+      fila, dos lectores — ver la nota v1.44 en §M1) y, si la carta raw está publicada y **pasa el gate**, **enciende
+      el gancho en las tres superficies públicas**. Es una afirmación comercial: el dial `gradingUpsideEnabled` (§M10)
+      es el interruptor maestro.
   - **v1.43 (IMP-C) — sellado + dial `off`:** con `productType:"sealed"` + `gradeKey:"sealed:tcg:<productId>"` esta es
     la vía «FIJAR PRECIO» de la cola de pendientes del sellado; persiste un **override manual de MERCADO** (`source=manual`,
     `isManualOverride=true`). **Ese override SOBREVIVE al dial `sealedPriceSource=off`** (el dial gatea solo el ingest
