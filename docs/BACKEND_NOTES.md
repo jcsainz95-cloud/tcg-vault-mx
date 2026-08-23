@@ -4,6 +4,36 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.2 Fix name-match de grupos sellados: tolerancia al prefijo de código de TCGCSV (2026-08-23)
+
+> Rama `fix/variant-composition-regression`. BUG confirmado: sets reales NO auto-resolvían su grupo de
+> TCGCSV, así que no bajaban presentaciones (boxes/ETB/etc.). Fix interno de resolución, **sin cambio de
+> contrato**.
+
+- **Causa raíz.** `matchScore` en `backend/src/modules/inventory/sealed-product.service.ts` comparaba el
+  nombre local vs el del grupo con `normalizeSetName` DIRECTO. TCGCSV nombra los grupos con **prefijo de
+  código de colección** («SV08: Pitch Black» → `sv08pitchblack`), mientras el catálogo local (pokemontcg.io)
+  NO («Pitch Black» → `pitchblack`). No empataban → caía a 0.5 (contención), por debajo del umbral 0.9 de
+  `bestSetMainMatch` → «sin grupo resoluble» → no se poblaba `set_main` ni presentaciones.
+- **Fix (`sealed-product.service.ts:782`, método `matchScore`).** `matchScore` ahora compara vía `setNameCandidates`
+  (reusado de `pricing/ppt-set-mapper.service.ts:145`, ya existente), que incluye el nombre completo Y —si
+  trae prefijo tipo `SV08:`/`ME05:`— también el nombre SIN prefijo. Exacto = intersección no vacía entre las
+  variantes del set local y las del grupo → mantiene la escala de año existente (1.0 mismo año / 0.9 sin año
+  confirmable / 0.7 año distinto); contención parcial sigue 0.5; sin match 0. No se duplicó normalización.
+- **Money-safe / no adivina (INTACTO).** `bestSetMainMatch` (`:803`) NO cambió: auto-resuelve el
+  `set_main` SOLO si el mejor score es **≥ 0.9 y ÚNICO en el tope**. El fix SUBE los matches legítimos
+  (mismo nombre, distinto prefijo) al rango auto-resoluble, pero si dos grupos empatan tras quitar prefijo
+  (base + reprint del mismo set, mismo año) → siguen empatados en el máximo → devuelve **null** (lo cura el
+  humano a mano). No inventa precios (eso va aparte).
+- **Efecto colateral (positivo).** El mismo `matchScore` alimenta el endpoint de candidatos
+  (`GET …/sync/candidates`, `:596`): la UI de curación ahora muestra el grupo prefijado con score real
+  (≥0.9) en vez de 0.5.
+- **Tests (`test/sealed-product.service.spec.ts`, describe «matchScore — tolerante al prefijo…»):**
+  (1) «Pitch Black» vs «SV08: Pitch Black» mismo año → score ≥0.9 y `sync` auto-puebla `tcgcsvGroupId`+`set_main`;
+  (2) sin prefijo: exacto+año=1.0, año distinto=0.7, contención=0.5 (comportamiento previo intacto);
+  (3) empate tras quitar prefijo (dos «… Pitch Black» mismo año) → NO auto-resuelve (`groupId` null);
+  (4) set inexistente en TCGCSV → 0 candidatos, sin auto-resolución. Suite backend 1683/1683 verde, `tsc --noEmit` limpio.
+
 ## 0.1 Incidente prod: forgot-password no entrega correo — `trust proxy` ausente (2026-08-23)
 
 > Rama `fix/variant-composition-regression`. El humano usó forgot-password en prod y NO llegó correo,
