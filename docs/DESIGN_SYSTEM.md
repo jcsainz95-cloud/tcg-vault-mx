@@ -4304,37 +4304,62 @@ Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con la
 
 ### 21.7 Estados — qué se renderiza y qué no
 
-**El gate de ROI ya no filtra las tres superficies por igual.** Es la consecuencia estructural del cambio 1:
-el cálculo dejó de mostrarse y pasó a **seleccionar**. La ficha muestra los valores **sin filtrar por
-gate** (es información sobre esa carta); el **badge y la vitrina llegan ya filtrados** por el backend (son
-**curaduría comercial**: solo donde gradear vale la pena). El cliente **nunca** ve el criterio, solo su
-resultado.
+**Las tres superficies no se filtran igual — y hay DOS ejes independientes.** Es la consecuencia
+estructural del cambio 1: el cálculo dejó de mostrarse y pasó a **seleccionar**.
+
+| Eje | Qué decide | Ficha | Teja / vitrina |
+|---|---|---|---|
+| **Existencia del dato** | qué cifras hay | pinta **lo que haya** | — |
+| **Gate de ROI** (§N.2) | si la carta se **promociona** | **no aplica** | **decide si aparece** |
+
+- La **ficha es información**: muestra **lo que haya (PSA 10 y/o PSA 9) y NO depende del gate** (§N.3(1),
+  §N.4 «Regla por superficie»). Contrato v1.44: *«PSA 10 sin PSA 9 emite un arreglo de un elemento»*.
+- La **teja y la vitrina son promoción**: llegan **ya filtradas** por el backend (§N.4). El cliente nunca
+  ve el criterio, solo su resultado (R5).
 
 | Situación (evaluada **server-side**, §N.4) | Ficha | Teja | Vitrina |
 |---|---|---|---|
-| PSA 10 + PSA 9, dato fresco, **gate cumplido** | **Bloque** (§21.3) | **Badge** (§21.5) | Entra |
-| PSA 10 + PSA 9, dato fresco, **gate NO cumplido** | **Bloque** (la ficha no filtra por gate) | **Nada** | No entra |
-| Falta **PSA 9** (aunque haya PSA 10) | **Nada** | Nada | No entra |
-| Falta **PSA 10** (aunque haya PSA 9) | **Nada** | Nada | No entra |
+| PSA 10 + PSA 9, dato fresco, **gate cumplido** | **Bloque, dos cifras** (§21.3) | **Badge** con PSA 10 (§21.5) | Entra |
+| PSA 10 + PSA 9, dato fresco, **gate NO cumplido** | **Bloque, dos cifras** (la ficha no está gateada) | **Nada** | No entra |
+| **Solo PSA 10** (sin PSA 9) | **Bloque, una cifra** (PSA 10) | **Nada** — el gate se evalúa sobre PSA 9 y sin él la carta **no es elegible** (§N.2) | No entra |
+| **Solo PSA 9** (sin PSA 10), gate cumplido | **Bloque, una cifra** (PSA 9) | **Nada** — el badge pinta el **estimado PSA 10** (§N.3(2)); sin esa cifra no hay badge, y **jamás se sustituye por otra** | No entra |
+| **Sin ningún estimado** | **Nada** | Nada | No entra |
 | **Dato rancio** (> umbral de frescura, §N.4) | Nada | Nada | No entra |
 | Carta no publicada / sin precio de venta | Nada (no hay ficha vendible) | La teja no existe | No entra |
 | Producto **gradeado** o **sellado** | Nunca | Nunca | Nunca |
 | Ninguna carta elegible en el sitio | — | — | **La vitrina entera no existe** |
 | La página no puede hospedar la nota al pie | **Nada** (R3.3) | Nada | No se renderiza |
 
-- **Siguen exigiéndose los dos grados.** §N.4 pide los insumos completos y el humano confirmó que **quiere
-  los dos**; con uno solo, el bloque no se pinta.
-  > *Contingencia, hoy NO se implementa:* si PO autorizara un bloque de un solo grado, la degradación es
-  > **inmediata y sin diseño nuevo** — se pinta la celda que exista en la misma retícula (`sm:grid-cols-2`,
-  > el `Fact` sobrante simplemente no se renderiza) y todo lo demás queda igual. Con la comparativa fuera,
-  > las cifras son independientes entre sí, así que ya no hay nada que se rompa. Requiere decisión de
-  > producto (§21.12).
+**Un solo grado disponible = comportamiento NORMAL y especificado de la ficha, no una contingencia.**
+*(Corrección: la versión anterior de §21.7 exigía los dos grados. Era **arrastre** de cuando el bloque era
+una comparativa de tres términos, donde faltar un término sí la rompía. Con dos cifras **independientes**
+no hay nada que se rompa, y `PROJECT.md` §N.3(1)/§N.4 y el contrato v1.44 coinciden en «se muestra lo que
+haya». Manda `PROJECT.md`; esta sección se alinea.)* Cómo se pinta:
+
+- La retícula **colapsa a una columna a ancho completo** (`grid-cols-1`): el `Fact` ausente sencillamente
+  no se renderiza, y **no queda media retícula vacía** ni un `sm:border-l` huérfano.
+- **La cifra solitaria toma el tamaño de cabecera** —22px (20px en móvil)— **sea PSA 10 o PSA 9**. El
+  escalón 22/17 de §21.1 existe para **ordenar dos pares**; con un solo par no hay nada que ordenar, y
+  dejarla en 17px la haría parecer un resto de algo que falta.
+- **La etiqueta nombra el grado que es** (`SI SALE PSA 9`) con su chip hipotético, así que una ficha de un
+  solo grado **nunca es ambigua**: no hay que explicar cuál falta, porque no se insinúa que falte.
+- **Nada indica la ausencia del otro grado.** Sin «—», sin celda gris, sin «PSA 10: sin dato», sin nota que
+  lo mencione. La regla money-safe se aplica al hueco igual que a la cifra: **una cifra que no existe no se
+  dibuja, y tampoco se anuncia que no existe** (§N.4).
+- Todo lo demás del bloque es idéntico: eyebrow, fecha, llamada `*`, renglón de procedencia y nota al pie.
+  El aviso **no se abrevia** por haber una cifra menos (R3).
+
+Reglas generales que siguen aplicando:
+
 - **«Nada» significa nada:** sin encabezado, sin regla superior huérfana, sin `<hr>`, sin celda vacía, sin
   espacio reservado y **sin el `PendingPriceLabel` de §7.3** — que sí es correcto en bóveda y back-office,
   pero está **prohibido** aquí (§N.4: «ni siquiera "pendiente"»).
-- **Verificación visual:** una carta no elegible y una elegible deben producir tejas **idénticas** salvo el
-  bloque del badge; sin diferencia de altura reservada, sin borde extra. Y una carta con ficha-con-bloque
-  pero **sin badge** (gate no cumplido) es un estado **normal y esperado**, no un bug.
+- **Verificación visual — tres estados que son correctos y suelen reportarse como bugs:**
+  1. Carta no elegible y carta elegible producen tejas **idénticas** salvo el bloque del badge; sin
+     diferencia de altura reservada, sin borde extra.
+  2. **Ficha con bloque pero carta sin badge** (gate no cumplido): **normal y esperado**.
+  3. **Ficha con bloque de una sola cifra** (solo PSA 10, o solo PSA 9): **normal y esperado**, y en ambos
+     casos sin badge ni entrada de vitrina.
 
 ### 21.8 Móvil 390px
 
@@ -4480,9 +4505,12 @@ poder envolver sin tocar tamaños.
    seis párrafos) **se puede tratar**: §21.4b lo hace escaneable con entradillas y, al vivir al pie, ya no
    estorba a nadie. La recomendación se mantiene pero **baja de prioridad**: si la revisión legal pudiera
    podarlo a titular + cuatro párrafos, se leería más; con el patrón de nota al pie ya no es urgente.
-4. **Product-owner — variante de un solo grado:** §N.4 la prohíbe hoy y §21.7 la respeta. Con la
-   comparativa fuera, la contingencia es **trivial de habilitar** (se pinta la celda que exista); sigue
-   sin implementarse hasta que haya decisión.
+4. **Ficha con un solo grado — RESUELTO, ya no es una solicitud abierta.** `PROJECT.md` §N.3(1)/§N.4 y el
+   contrato v1.44 fijan «se muestra lo que haya»; §21.7 estaba desalineada (arrastre de la comparativa) y
+   **se corrigió**: es el **comportamiento normal y especificado** de la ficha, con su forma de una sola
+   columna. Queda como supuesto abierto en `PROJECT.md` (pregunta 13 de v2.0) solo la **confirmación del
+   humano**; el diseño ya está definido para ambas respuestas —si el humano prefiriera exigir los dos
+   grados, se elimina un estado, no se rediseña nada.
 5. **Arquitecto — datos que §21 necesita del contrato (v1.43), ACTUALIZADO.** Se **reduce** lo que el
    cliente debe recibir, que es la mejor noticia de esta revisión:
    - **Sí:** estimado **PSA 10** y **PSA 9** en centavos MXN, **fecha de refresco**, y un **booleano de
