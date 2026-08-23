@@ -799,17 +799,32 @@ export class PricingService {
     // clave LÓGICA de dedupe — una entrada de deck_exclusive/promo NO se resuelve al fijar el precio del
     // set_base (money-safe). `null` (default) = base; deja intactos todos los llamadores previos.
     cardProductId: number | null = null,
+    // v1.42 (M-40, §4.34a / BLOQ-2b): identidad del SELLADO. Entra a la clave LÓGICA de dedupe (misma
+    // mecánica que `finish`/`cardProductId`): dos pendientes de sellado con distinto sealedProductId (ETB
+    // vs blíster) son SEPARADAS — resolver el override de uno NO cierra el otro (money-safe). `null`
+    // (default) = raw/graded o sellado legacy sin ligar (residual: colapsa bajo 'sealed' hasta curarse).
+    sealedProductId: string | null = null,
   ): Promise<string> {
     // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
     // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, cardProductId,
-    // status='open')` — v1.30 añade `cardProductId` a la clave (§4.29d).
+    // sealedProductId, status='open')` — v1.30 añade `cardProductId`; v1.42 (M-40) añade `sealedProductId`.
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, cardProductId, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
     });
     if (open) return open.id;
     const created = await this.prisma.pendingPriceEntry.create({
-      data: { cardId, productType, gradeKey, finish, cardProductId, context, refId, status: 'open' },
+      data: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        cardProductId,
+        sealedProductId,
+        context,
+        refId,
+        status: 'open',
+      },
     });
     return created.id;
   }
@@ -1080,12 +1095,14 @@ export class PricingService {
   async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory') {
     // P-6 (§M2): filtro opcional por `context` para los dos buckets de M2 (VENTA=`inventory`,
     // COMPRA=`buylist` read-only). Sin arg → todos los pendientes (back-compat). Shape sin cambios.
+    // v1.42 (BLOQ-2b): `sealedProduct` para resolver la identidad de display de la cola (cascada §4.34a:
+    // SealedProduct vivo → snapshot ausente aquí → Card.name). Presente solo cuando la entrada trae FK.
     const rows = await this.prisma.pendingPriceEntry.findMany({
       where: { status: 'open', ...(context ? { context } : {}) },
       orderBy: { createdAt: 'asc' },
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, sealedProduct: true },
     });
-    const data = rows.map(({ card, ...entry }) => ({
+    const data = rows.map(({ card, sealedProduct, ...entry }) => ({
       ...entry,
       cardName: card.name,
       card: {
@@ -1094,6 +1111,16 @@ export class PricingService {
         number: card.number,
         setName: card.set.name,
       },
+      // v1.42 (BLOQ-2b, §4.34a): identidad de sellado presente SOLO para productType='sealed' (ausente en
+      // raw/graded). `sealedProductName` RESUELTO por la cascada (SealedProduct vivo → Card.name ancla) para
+      // que M2 muestre «ETB …», no «sealed» ambiguo. `sealedProductId`/`sealedSubtype` de la FK viva.
+      ...(entry.productType === 'sealed'
+        ? {
+            sealedProductId: entry.sealedProductId ?? null,
+            sealedProductName: sealedProduct?.name ?? card.name,
+            sealedSubtype: sealedProduct?.subtype ?? null,
+          }
+        : {}),
     }));
     return { data };
   }

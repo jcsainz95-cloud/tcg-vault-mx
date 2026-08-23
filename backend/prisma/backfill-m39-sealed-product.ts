@@ -17,8 +17,9 @@ import { SealedProductService } from '../src/modules/inventory/sealed-product.se
 
 async function main() {
   const prisma = new PrismaClient();
-  // El backfill NO usa el provider TCGCSV ni FxService (no fabrica precio); se pasan stubs.
-  const svc = new SealedProductService(prisma as never, {} as never, {} as never);
+  // El backfill NO usa el provider TCGCSV, FxService ni PricingService (no fabrica precio ni resuelve
+  // `effectiveMarketCents`, que es del listado v1.41); se pasan stubs.
+  const svc = new SealedProductService(prisma as never, {} as never, {} as never, {} as never);
   try {
     const report = await svc.backfillFromInventory();
     // eslint-disable-next-line no-console

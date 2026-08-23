@@ -70,6 +70,9 @@ describe('InventoryService.createItem — escalado de pendiente con el finish de
       'inventory',
       undefined,
       'holofoil',
+      // v1.30 (cardProductId) y v1.42 (sealedProductId, BLOQ-2b): null para un raw (identidad de sellado N/A).
+      null,
+      null,
     );
     // También consultó la referencia del ACABADO del alta, no la de normal.
     expect(pricing.getReference).toHaveBeenCalledWith('c1', 'raw', 'raw:NM', 'holofoil');

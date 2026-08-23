@@ -169,8 +169,35 @@ function buildProvider(opts: {
 const fxMock = (rate = 20, bufferPct = 0) =>
   ({ getCurrent: jest.fn(async () => ({ rate, bufferPct, source: 'manual' as const, effectiveDate: '2026-08-23' })) } as unknown as FxService);
 
-const svcOf = (prisma: any, provider: any, fx = fxMock()) =>
-  new SealedProductService(prisma as PrismaService, provider, fx);
+/**
+ * v1.41 (IMP-1) — mock del PricingService que el listado usa para `effectiveMarketCents` (resolver H-1
+ * gateado). Por defecto el dial está OFF (`sourceOn=false`) ⇒ `effectiveMarketCents` null (money-safe,
+ * PRICE_PENDING) aunque `marketRef` traiga un valor de caché. `refsByKey` permite sembrar referencias H-1
+ * (`cardId|sealed|sealed:tcg:<productId>|normal` → cents) para el caso dial ON.
+ */
+const pricingMock = (opts: { sourceOn?: boolean; refsByKey?: Record<string, number> } = {}) =>
+  ({
+    loadSealedSpreads: jest.fn(async () => ({
+      spreadPctBySubtype: {},
+      fallbackPct: 0,
+      sourceOn: opts.sourceOn ?? false,
+    })),
+    getReferencesBatch: jest.fn(async (items: any[]) => {
+      const map = new Map<string, any>();
+      for (const i of items) {
+        const key = `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+        const cents = opts.refsByKey?.[key];
+        if (cents != null) map.set(key, { status: 'priced', referenceMxnCents: cents });
+      }
+      return map;
+    }),
+    // Réplica exacta del gate H-1 real (gateSealedMarketCents): dial + priced.
+    gateSealedMarketCents: (ref: any, sourceOn: boolean) =>
+      sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
+  }) as any;
+
+const svcOf = (prisma: any, provider: any, fx = fxMock(), pricing = pricingMock()) =>
+  new SealedProductService(prisma as PrismaService, provider, fx, pricing);
 
 // ===========================================================================
 describe('inferSealedSubtype — orden normativo §4.34c (upc antes de etb/collection)', () => {
@@ -367,6 +394,51 @@ describe('SealedProductService.listSealedProducts — orden §4.34c + marketRef 
   it('set inexistente → 404', async () => {
     const prisma = buildPrisma({ sets: [] });
     await expect(svcOf(prisma, buildProvider()).listSealedProducts({ setId: 'nope' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
+describe('v1.41 (IMP-1) — effectiveMarketCents gateado + sealedPriceSource (money-safe)', () => {
+  const SET = { id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: 100 };
+  // Ancla del set (menor numberPrefix/numberSort) — la MISMA que usa el alta para llavear el mercado.
+  const cards = [{ id: 'anchor-1', setId: 'set-1', numberPrefix: '', numberSort: 1 }];
+  const seedProducts = () => [
+    { id: 'a', setId: 'set-1', tcgplayerProductId: 1, tcgplayerGroupId: 100, name: 'Booster Box', subtype: 'box', subtypeInferred: true, isPrincipal: true, origin: 'set_main', imageUrl: null, marketUsdCents: 40000, active: true },
+  ];
+
+  it('dial OFF → effectiveMarketCents null AUNQUE marketRef tenga valor de caché; sealedPriceSource=off', async () => {
+    const prisma = buildPrisma({ sets: [{ ...SET }], cards, sealedProducts: seedProducts() });
+    // marketRef live/caché sí trae valor (informativo), pero la ref H-1 gateada está apagada.
+    const provider = buildProvider({ pricesByGroup: { 100: [{ tcgplayerProductId: 1, marketCents: 40000 }] } });
+    const pricing = pricingMock({
+      sourceOn: false,
+      refsByKey: { 'anchor-1|sealed|sealed:tcg:1|normal': 700000 }, // habría precio, pero el dial gatea
+    });
+    const res = await svcOf(prisma, provider, fxMock(20, 0), pricing).listSealedProducts({ setId: 'set-1' });
+    expect(res.sealedPriceSource).toBe('off');
+    // marketRef informativo presente…
+    expect(res.data[0].marketRef).toEqual({ status: 'priced', referenceMxnCents: 800000 });
+    // …pero el efectivo (autoritativo) es null (⟺ el alta aceptaría manualMarketMxnCents). JAMÁS 0.
+    expect(res.data[0].effectiveMarketCents).toBeNull();
+  });
+
+  it('dial ON + mercado gateado → effectiveMarketCents = ese valor; sealedPriceSource=tcgcsv', async () => {
+    const prisma = buildPrisma({ sets: [{ ...SET }], cards, sealedProducts: seedProducts() });
+    const provider = buildProvider({ pricesByGroup: { 100: [] } });
+    const pricing = pricingMock({
+      sourceOn: true,
+      refsByKey: { 'anchor-1|sealed|sealed:tcg:1|normal': 700000 },
+    });
+    const res = await svcOf(prisma, provider, fxMock(20, 0), pricing).listSealedProducts({ setId: 'set-1' });
+    expect(res.sealedPriceSource).toBe('tcgcsv');
+    expect(res.data[0].effectiveMarketCents).toBe(700000);
+  });
+
+  it('dial ON pero sin fila H-1 (sin ingest) → effectiveMarketCents null (pendiente, nunca 0)', async () => {
+    const prisma = buildPrisma({ sets: [{ ...SET }], cards, sealedProducts: seedProducts() });
+    const provider = buildProvider({ pricesByGroup: { 100: [{ tcgplayerProductId: 1, marketCents: 40000 }] } });
+    const pricing = pricingMock({ sourceOn: true, refsByKey: {} }); // sin referencia gateada
+    const res = await svcOf(prisma, provider, fxMock(20, 0), pricing).listSealedProducts({ setId: 'set-1' });
+    expect(res.data[0].effectiveMarketCents).toBeNull();
   });
 });
 

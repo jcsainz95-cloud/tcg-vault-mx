@@ -422,6 +422,7 @@ export class InventoryService {
       if (referenceCents == null) {
         // Tier 0 FIX: propaga el `finish` resuelto a la cola. Antes se omitía y el pendiente
         // quedaba en `normal` aunque el alta fuera holofoil (M-19: la cola es POR acabado).
+        // v1.42 (BLOQ-2b): propaga `sealedProductId` para que ETB y blíster no colapsen en la cola.
         await this.pricing.escalatePending(
           dto.cardId,
           dto.productType,
@@ -429,6 +430,8 @@ export class InventoryService {
           'inventory',
           undefined,
           finish,
+          null,
+          sealedProductId,
         );
         throw BusinessException.validation(
           'PRICE_PENDING',
@@ -817,6 +820,7 @@ export class InventoryService {
             }
             const r = await this.resolveCreation(line, actorUserId);
             if (r.sealedNeedsEscalate) {
+              // v1.42 (BLOQ-2b): `sealedProductId` a la clave de la cola (ETB y blíster no colapsan).
               await this.pricing.escalatePending(
                 r.card.id,
                 line.productType,
@@ -824,6 +828,8 @@ export class InventoryService {
                 'inventory',
                 undefined,
                 r.finish,
+                null,
+                r.sealedProductId,
               );
             }
             const folios = await this.prisma.nextFolios(qty);
@@ -1125,6 +1131,7 @@ export class InventoryService {
       if (sale.salePriceCents == null) {
         // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
         const pendingGradeKey = gk ?? this.pricing.gradeKeyFor(item);
+        // v1.42 (BLOQ-2b): `sealedProductId` de la pieza a la clave de la cola (ETB y blíster no colapsan).
         const pendingPriceEntryId = await this.pricing.escalatePending(
           item.cardId,
           'sealed',
@@ -1132,6 +1139,8 @@ export class InventoryService {
           'inventory',
           undefined,
           'normal',
+          null,
+          item.sealedProductId,
         );
         return {
           ok: false,
@@ -1662,6 +1671,7 @@ export class InventoryService {
     // claimea el batchKey → un reintento con la misma key vuelve a intentar limpio.
     const r = await this.resolveCreation(line);
     if (r.sealedNeedsEscalate) {
+      // v1.42 (BLOQ-2b): `sealedProductId` a la clave de la cola (ETB y blíster no colapsan).
       await this.pricing.escalatePending(
         r.card.id,
         line.productType,
@@ -1669,6 +1679,8 @@ export class InventoryService {
         'inventory',
         undefined,
         r.finish,
+        null,
+        r.sealedProductId,
       );
     }
     const folios = await this.prisma.nextFolios(qty);

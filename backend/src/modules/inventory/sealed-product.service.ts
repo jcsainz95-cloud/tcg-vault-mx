@@ -4,19 +4,32 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
 import { usdToMxnCents } from '../../common/money';
-import { PriceInfo } from '../pricing/pricing.service';
+import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { FxService } from '../pricing/fx.service';
 import { TcgcsvSealedBulkProvider } from '../pricing/providers/tcgcsv-sealed.provider';
-import { TcgcsvGroupRef } from '../pricing/pricing.types';
+import { TcgcsvGroupRef, sealedMarketGradeKey } from '../pricing/pricing.types';
 import { normalizeSetName } from '../pricing/ppt-set-mapper.service';
 import { releaseYear } from '../pricing/ppt-sync-scope';
 import { SetRefDTO } from './master-set.service';
 import { inferSealedSubtype, SEALED_SUBTYPE_META, SEALED_SORT_ORDER_FALLBACK } from './sealed-subtype';
 
 /**
+ * v1.41 (IMP-1) — valores del dial `sealedPriceSource` (§M10). NO es enum de BD; `off` = fail-closed.
+ * Espeja el contrato `SealedPriceSource = tcgcsv | off`.
+ */
+export type SealedPriceSource = 'tcgcsv' | 'off';
+
+/**
  * SealedProductDTO (API_CONTRACT §DTOs, v1.39) — presentación sellada REAL con IDENTIDAD PROPIA.
- * `marketRef` = valor de mercado INFORMATIVO (live TCGCSV → caché → null; MONEY-SAFE: sin precio ⇒
- * null, NUNCA 0). NO fija venta ni costo.
+ * v1.41 (IMP-1) — DOS valores de mercado, NO intercambiables (money-safe):
+ *   - `marketRef` = referencia INFORMATIVA (live TCGCSV → caché → null; MONEY-SAFE: sin precio ⇒ null,
+ *     NUNCA 0). NO gateada por el dial `sealedPriceSource`; solo sugerencia/decoración, NO decide UI.
+ *   - `effectiveMarketCents` = mercado AUTORITATIVO YA gateado por `sealedPriceSource` (resolver H-1
+ *     §4.23, la MISMA función que decide PRICE_PENDING en el alta): `null` ⟺ el backend valuaría esta
+ *     línea en PRICE_PENDING (dial `off`, sin mapeo o sin precio en la fuente gateada) ⟺ el alta ACEPTA
+ *     `manualMarketMxnCents`; `!= null` ⟺ el alta RECHAZA el override (422 MANUAL_MARKET_NOT_ALLOWED).
+ *     El front keyea la visibilidad del campo manual en ESTE campo, jamás en `marketRef`. Sin precio ⇒
+ *     null (pendiente), NUNCA 0.
  */
 export interface SealedProductDTO {
   id: string;
@@ -31,6 +44,8 @@ export interface SealedProductDTO {
   origin: SealedGroupKind;
   imageUrl: string | null;
   marketRef: PriceInfo | null;
+  // v1.41 (IMP-1): AUTORITATIVO, gateado por sealedPriceSource (resolver H-1 §4.23). MXN centavos.
+  effectiveMarketCents: number | null;
 }
 
 export interface SealedSetGroupDTO {
@@ -45,6 +60,9 @@ export interface SealedProductListResponse {
   set: SetRefDTO;
   needsSync: boolean;
   groups: SealedSetGroupDTO[];
+  // v1.41 (IMP-1): estado del dial (§M10) que gatea `effectiveMarketCents`; una vez por respuesta
+  // (para el copy del front: `off` ⇒ «la fuente de precio de sellado está apagada; captura el valor»).
+  sealedPriceSource: SealedPriceSource;
   data: SealedProductDTO[];
 }
 
@@ -125,6 +143,9 @@ export class SealedProductService {
     private readonly prisma: PrismaService,
     private readonly provider: TcgcsvSealedBulkProvider,
     private readonly fx: FxService,
+    // v1.41 (IMP-1): resolver H-1 gateado (getReferencesBatch + gateSealedMarketCents + loadSealedSpreads)
+    // — la MISMA función que decide PRICE_PENDING en el alta, para que `effectiveMarketCents` no diverja.
+    private readonly pricing: PricingService,
   ) {}
 
   // ============================ LISTADO (vault_operator+) ============================
@@ -193,8 +214,34 @@ export class SealedProductService {
     }
     const fx = await this.fx.getCurrent();
 
+    // v1.41 (IMP-1): `effectiveMarketCents` AUTORITATIVO — el mercado del sellado YA gateado por el dial
+    // `sealedPriceSource`, resuelto con la MISMA cadena H-1 que el alta (resolver ÚNICO, para no divergir):
+    //   ref = PriceReference(anchorCardId, 'sealed', 'sealed:tcg:<productId>', 'normal')
+    //   effectiveMarketCents = gateSealedMarketCents(ref, sourceOn)  // dial off/seed ⇒ null ⇒ PRICE_PENDING
+    // El ancla del set es la MISMA que usa el alta (`resolveAnchorCardId`: menor numberPrefix/numberSort),
+    // así que `effectiveMarketCents == null` ⟺ el alta acepta `manualMarketMxnCents`. Sin ancla (set sin
+    // cartas) ⇒ sin clave de mercado ⇒ null (money-safe). Un lote de referencias (sin N+1).
+    const { sourceOn } = await this.pricing.loadSealedSpreads();
+    const sealedPriceSource: SealedPriceSource = sourceOn ? 'tcgcsv' : 'off';
+    const anchorCardId = await this.resolveAnchorCardId(params.setId);
+    const effectiveByProductId = new Map<number, number | null>();
+    if (anchorCardId) {
+      const refs = await this.pricing.getReferencesBatch(
+        products.map((p) => ({
+          cardId: anchorCardId,
+          productType: 'sealed' as const,
+          gradeKey: sealedMarketGradeKey(p.tcgplayerProductId),
+          finish: 'normal' as const,
+        })),
+      );
+      for (const p of products) {
+        const ref = refs.get(`${anchorCardId}|sealed|${sealedMarketGradeKey(p.tcgplayerProductId)}|normal`);
+        effectiveByProductId.set(p.tcgplayerProductId, this.pricing.gateSealedMarketCents(ref, sourceOn));
+      }
+    }
+
     const data: SealedProductDTO[] = products
-      .map((p) => this.toProductDTO(p, liveUsdByProductId, fx))
+      .map((p) => this.toProductDTO(p, liveUsdByProductId, fx, effectiveByProductId))
       .sort(
         (a, b) =>
           Number(b.isPrincipal) - Number(a.isPrincipal) ||
@@ -202,13 +249,28 @@ export class SealedProductService {
           a.name.localeCompare(b.name),
       );
 
-    return { set: setRef, needsSync, groups, data };
+    return { set: setRef, needsSync, groups, sealedPriceSource, data };
+  }
+
+  /**
+   * v1.41 (IMP-1) — ancla representativa del set (menor `numberPrefix`/`numberSort`), la MISMA que usa el
+   * alta (`InventoryService.resolveAnchorCardId`) para llavear la referencia de mercado del sellado. `null`
+   * si el set no tiene cartas (⇒ sin clave de mercado ⇒ `effectiveMarketCents` null, money-safe).
+   */
+  private async resolveAnchorCardId(setId: string): Promise<string | null> {
+    const anchor = await this.prisma.card.findFirst({
+      where: { setId },
+      orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }],
+      select: { id: true },
+    });
+    return anchor?.id ?? null;
   }
 
   private toProductDTO(
     p: SealedProduct,
     liveUsdByProductId: Map<number, number>,
     fx: { rate: number; bufferPct: number },
+    effectiveByProductId: Map<number, number | null>,
   ): SealedProductDTO {
     const usdCents = liveUsdByProductId.get(p.tcgplayerProductId) ?? p.marketUsdCents ?? null;
     // MONEY-SAFE: sin precio en NINGUNA capa ⇒ marketRef null (pendiente/«—»), JAMÁS 0.
@@ -229,6 +291,8 @@ export class SealedProductService {
       origin: p.origin,
       imageUrl: p.imageUrl ?? null,
       marketRef,
+      // v1.41 (IMP-1): mercado gateado por el dial (null cuando el backend valuaría PRICE_PENDING).
+      effectiveMarketCents: effectiveByProductId.get(p.tcgplayerProductId) ?? null,
     };
   }
 

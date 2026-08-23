@@ -20,6 +20,24 @@ const ACTIVE_SHIPMENT_STAGES: ShipmentStatus[] = [
 const SEALED_SUBTYPE_SET = new Set<string>(['box', 'etb', 'bundle', 'tin', 'blister']);
 const SEALED_CONDITION_SET = new Set<string>(['mint', 'minor_box_damage']);
 
+/**
+ * v1.42 (BLOQ-2a / H-P38-1, §4.34a) — cascada de display del SELLADO, RESUELTA server-side: snapshot
+ * congelado por-pieza (`sealedProductName`/`sealedImageUrl`, M-37) → `Card` ancla. MISMO resolver que
+ * usa `/vault/sealed` (`sealedTab`), el grid público y `sealed-sets` (no se duplica la regla). Mata el
+ * patrón «Tropius»: la caja se pinta con su identidad real, no con la carta ancla. `name` nunca null (la
+ * cascada termina en `Card.name`, NOT NULL); `imageUrl` puede ser null (honesto). Money-safe: solo display.
+ */
+function resolveSealedDisplay(item: {
+  sealedProductName?: string | null;
+  sealedImageUrl?: string | null;
+  card: { name: string; imageSmallUrl?: string | null };
+}): { name: string; imageUrl: string | null } {
+  return {
+    name: item.sealedProductName ?? item.card.name,
+    imageUrl: item.sealedImageUrl ?? item.card.imageSmallUrl ?? null,
+  };
+}
+
 @Injectable()
 export class VaultService {
   constructor(
@@ -100,6 +118,22 @@ export class VaultService {
         item.ownershipStatus === 'settled' &&
         item.status === 'in_custody' &&
         shipmentState === null;
+      // v1.42 (BLOQ-2a, §4.34a): identidad de sellado presente SOLO para productType='sealed' (ausente en
+      // raw/graded; aditivo/retrocompatible). `card` se conserva (pertenencia al set + fallback). Reusa el
+      // MISMO resolver de cascada de `/vault/sealed` para no pintar la caja como la carta ancla («Tropius»).
+      const sealedFields =
+        item.productType === 'sealed'
+          ? (() => {
+              const disp = resolveSealedDisplay(item);
+              return {
+                sealedProductId: item.sealedProductId ?? null,
+                sealedProductName: disp.name,
+                sealedImageUrl: disp.imageUrl,
+                sealedSubtype: item.sealedSubtype ?? null,
+                sealedCondition: item.sealedCondition ?? null,
+              };
+            })()
+          : {};
       data.push({
         inventoryItemId: item.id,
         folio: item.folio,
@@ -117,6 +151,8 @@ export class VaultService {
         activeShipmentId,
         withdrawable,
         referenceValue,
+        // v1.42 (BLOQ-2a): campos de sellado (solo sealed; {} en raw/graded).
+        ...sealedFields,
       });
     }
     return {
@@ -285,13 +321,14 @@ export class VaultService {
       const totalMarketValueMxnCents = priced ? count * marketRef.referenceMxnCents! : null;
       if (priced) totalValueMxnCents += totalMarketValueMxnCents!;
       else pendingPriceCount += count; // piezas sin mercado EXCLUIDAS del total y CONTADAS (§3)
+      // H-P38-1 (§4.34a): cascada de display de sellado — snapshot congelado por-pieza
+      // (`sealedProductName`/`sealedImageUrl`, M-37) → `Card` ancla. Money-safe: solo display; la valuación
+      // de arriba no cambia. Resolver ÚNICO compartido con `holdings` (BLOQ-2a): el ETB real, no «Tropius».
+      const disp = resolveSealedDisplay(rep);
       return {
         card: toCardDTO(rep.card, pricedByCard.get(rep.cardId)),
-        // H-P38-1 (§4.34a): cascada de display de sellado — `SealedProduct` (identidad viva) → snapshot
-        // congelado por-pieza (`sealedProductName`/`sealedImageUrl`, M-37) → `Card` ancla. Money-safe:
-        // solo display; la valuación de arriba no cambia. El grid de bóveda pinta el ETB real, no «Tropius».
-        productName: rep.sealedProductName ?? rep.card.name,
-        imageUrl: rep.sealedImageUrl ?? rep.card.imageSmallUrl ?? null,
+        productName: disp.name,
+        imageUrl: disp.imageUrl,
         sealedSubtype: (rep.sealedSubtype ?? null) as SealedSubtype | null,
         sealedCondition: (rep.sealedCondition ?? 'mint') as SealedCondition,
         count,

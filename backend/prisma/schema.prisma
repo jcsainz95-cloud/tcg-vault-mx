@@ -475,6 +475,8 @@ model SealedProduct {
   updatedAt          DateTime        @updatedAt
 
   inventoryItems InventoryItem[]
+  // v1.42 (BLOQ-2b, M-40): pendientes de precio de sellado ligados a esta presentación (onDelete SetNull).
+  pendingPriceEntries PendingPriceEntry[]
 
   @@index([setId])
   @@index([tcgplayerGroupId])
@@ -825,6 +827,13 @@ model PendingPriceEntry {
   // cardId/productType/gradeKey/finish): resolver el precio del set_base NO cierra la del Deck
   // Exclusive (money-safe, misma doctrina que `finish` en M-19). `null` = base (retrocompatible).
   cardProductId      Int?
+  // v1.42 (BLOQ-2b, M-40): identidad de SELLADO. FK nullable → SealedProduct (onDelete SetNull). Entra a la
+  // clave LÓGICA de dedupe/escalada de la cola (junto a cardId/gradeKey/finish/cardProductId): dos pendientes
+  // de sellado con distinto sealedProductId (ETB vs blíster) son entradas SEPARADAS — resolver el override de
+  // uno NO cierra el otro (money-safe). `null` = raw/graded o sellado legacy sin ligar (residual: puede
+  // colapsar bajo gradeKey 'sealed' hasta curarse en M2; SIEMPRE pendiente, JAMÁS 0). ARCHITECTURE §11 (M-40).
+  sealedProductId    String?
+  sealedProduct      SealedProduct?      @relation(fields: [sealedProductId], references: [id], onDelete: SetNull)
   context            PendingPriceContext
   refId              String?
   status             PendingPriceStatus  @default(open)
@@ -833,6 +842,7 @@ model PendingPriceEntry {
   resolvedAt         DateTime?
 
   @@index([status])
+  @@index([sealedProductId])
 }
 
 model FxRate {

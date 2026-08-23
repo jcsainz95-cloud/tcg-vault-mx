@@ -6931,3 +6931,85 @@ Enrutados por la fase de seguridad (blanco: precio de dinero del sellado). Solo 
 - `inventory.batch.spec.ts` — **M-2** (`acquisitionPct > 100` y `< 0` → error de validación del DTO).
 - Nota de tests: `pricing.manualOverride`/`audit.log` reciben ahora un 6º/2º arg (`tx`); los harness de alta
   single mockean `$transaction: (fn) => fn(prisma)`.
+
+---
+
+## v1.42 (BLOQ-3/3b/2a/2b) + v1.41 (IMP-1) — identidad de sellado en todas las vistas (rama `fix/variant-composition-regression`)
+
+Pase ADITIVO, RETROCOMPATIBLE y MONEY-SAFE (ningún monto cambia; sin precio ⇒ null/pendiente, JAMÁS 0).
+Contrato: `API_CONTRACT.md` changelog v1.41-sealed-effective-market + v1.42-sealed-identity-everywhere;
+ARCHITECTURE §4.20b/§4.20d/§4.23g/§4.34a/§11. Suite completa: `npm test` → **167 suites / 1644 tests PASS**;
+`tsc --noEmit` limpio.
+
+### IMP-1 (v1.41) — `effectiveMarketCents` gateado en el alta de sellado
+- `sealed-product.service.ts`:
+  - `SealedProductDTO` gana **`effectiveMarketCents: number | null`** (AUTORITATIVO, gateado por el dial
+    `sealedPriceSource`); `marketRef` queda reetiquetado como INFORMATIVO (ungated). `SealedProductListResponse`
+    gana **`sealedPriceSource: SealedPriceSource`** (`'tcgcsv'|'off'`, una vez por respuesta). Nuevo `type
+    SealedPriceSource` local (no es enum de BD).
+  - `listSealedProducts` inyecta `PricingService` y computa `effectiveMarketCents` con la **MISMA** cadena H-1
+    que decide `PRICE_PENDING` en el alta (`getReferencesBatch` sobre `(anchorCardId, 'sealed',
+    'sealed:tcg:<productId>', 'normal')` → `gateSealedMarketCents(ref, sourceOn)`), NO una segunda ruta. El
+    ancla se resuelve con `resolveAnchorCardId` (menor `numberPrefix`/`numberSort`), idéntico al alta. Un lote
+    de referencias (sin N+1). `sealedPriceSource = sourceOn ? 'tcgcsv' : 'off'`.
+  - Invariante verificado: `effectiveMarketCents == null` ⟺ dial off / sin mapeo / sin fila H-1 ⟺ el alta
+    acepta `manualMarketMxnCents`. Sin ancla (set sin cartas) ⇒ null (money-safe).
+  - **Endpoint DEPRECADO `sealed-catalog`:** NO se tocó. Devuelve `SealedCatalogResponse`/`SealedCatalogProductDTO`
+    (shape propio, NO `SealedProductDTO`); §DTOs solo añade `effectiveMarketCents` a `SealedProductDTO`. Se deja
+    intacto para no alterar un shape fuera de §DTOs; el front usa `sealed-products` para el campo gateado.
+- Tests: `test/sealed-product.service.spec.ts` describe «v1.41 (IMP-1)» — dial off → `effectiveMarketCents`
+  null aunque `marketRef` traiga caché; dial on + ref gateada → ese valor; dial on sin ingest → null.
+
+### BLOQ-3/3b (v1.42) — el binder de master set cuenta SOLO singles
+- `master-set.service.ts`:
+  - `aggregateInventoryBySet` (raw SQL del índice, 4 scopes): `AND ii."productType"::text <> 'sealed'`.
+  - `binder` `groupBy` de piezas: `where` gana `productType: { not: 'sealed' }` (filtro en el groupBy, NO en
+    `scopeWhere`, para no afectar otras rutas que reusan el scope).
+  - `resolveBuyables` `findMany` (BLOQ-3b): `where` gana `productType: { not: 'sealed' }` — un ETB sellado ya
+    no llena la casilla `buyable` de un single. `graded` SIGUE contando/siendo buyable. `catalogCardCount`
+    (denominador) NO cambia. SEC-A1 intacto (`salePriceCents` sigue server-side).
+- Tests: `test/master-set.sealed-exclusion.spec.ts` — groupBy filtra sealed; el ETB anclado no infla ni marca
+  covered; el SQL del índice interpola la exclusión; `buyable` filtra sealed y un graded sí es buyable.
+
+### BLOQ-2a (v1.42) — `GET /vault/holdings` pinta el sellado con identidad real
+- `vault.service.ts`:
+  - Nuevo helper `resolveSealedDisplay(item)` = cascada §4.34a (snapshot `sealedProductName`/`sealedImageUrl`
+    → `Card.name`/`imageSmallUrl`). `holdings` lo usa para poblar, SOLO en `productType='sealed'`,
+    `sealedProductId`/`sealedProductName`/`sealedImageUrl`/`sealedSubtype`/`sealedCondition` (ausentes en
+    raw/graded). `sealedTab` (`/vault/sealed`) se refactorizó para usar el MISMO helper (no se duplica la
+    regla). Display-only: `referenceValue`/portafolio intactos (sin query extra — las columnas ya vienen en
+    el item). Nota: se reusa la cascada snapshot→Card tal como en `/vault/sealed`; NO se introduce una segunda
+    ruta que lea el `SealedProduct` vivo (evita divergencia, lección IMP-1).
+- Tests: `test/vault.holdings-sealed-identity.spec.ts` — sellado pinta el ETB (no «Tropius»); legacy sin
+  snapshot cae a `Card.name`/imagen; raw NO trae campos de sellado.
+
+### BLOQ-2b (v1.42) — cola M2 con identidad de sellado + migración M-40
+- **Migración `20260823130000_m40_pending_sealed_product`** (aditiva/reversible, patrón M-39): columna
+  `PendingPriceEntry.sealedProductId TEXT` nullable + índice + FK → `SealedProduct` `ON DELETE SET NULL`.
+  `schema.prisma`: `PendingPriceEntry` gana `sealedProductId String?` + relación `sealedProduct`
+  (`onDelete: SetNull`) + `@@index([sealedProductId])`; `SealedProduct` gana la relación inversa
+  `pendingPriceEntries`. `prisma validate` OK; `prisma generate` OK (no se pudo correr `migrate diff` por falta
+  de BD en el entorno, pero el SQL sigue la convención M-39 y el schema valida).
+- `pricing.service.ts`:
+  - `escalatePending` gana 8º parámetro `sealedProductId: string | null = null`, que entra a la CLAVE de dedupe
+    (`findFirst`) y a la fila creada — dos pendientes con igual `(cardId, gradeKey, finish)` y distinto
+    `sealedProductId` (ETB vs blíster) quedan SEPARADAS. Residual money-safe: legacy sin `sealedProductId`
+    colapsa bajo `gradeKey='sealed'` hasta curarse; siempre pendiente, nunca 0.
+  - `pendingQueue` incluye `sealedProduct` en el `findMany` y, SOLO para `productType='sealed'`, expone
+    `sealedProductId` + `sealedProductName` (cascada §4.34a: `sealedProduct.name` → `Card.name`) +
+    `sealedSubtype`. `sealedProductId` es columna del modelo → se espeja también en raw/graded como null
+    (mismo comportamiento que `cardProductId`); los campos RESUELTOS (name/subtype) solo se añaden en sellado.
+- `inventory.service.ts`: los 4 call-sites de `escalatePending` de SELLADO propagan el `sealedProductId`
+  (`r.sealedProductId` en batch/single-adjust, la var local en el path de aportación, `item.sealedProductId`
+  en `resolvePublishSalePrice`); el call-site raw/graded queda con `null`.
+- Tests: `test/pricing.sealed-pending.spec.ts` — dedupe por `sealedProductId` (ETB≠blíster no colapsan);
+  `pendingQueue` muestra «ETB …» (no «sealed»/ancla); legacy sin FK cae a `Card.name`; raw sin campos resueltos.
+- Tests actualizados por firma aditiva: `test/inventory.finish-pending.spec.ts` (escalatePending ahora con
+  `null, null` finales) y `test/pricing.finish-pending.spec.ts` (include gana `sealedProduct: true`).
+
+### Discrepancias / decisiones para el arquitecto
+- **`sealed-catalog` (deprecado):** el changelog v1.41 dice que «hereda la misma regla si aún se usa», pero
+  §DTOs solo añade `effectiveMarketCents` a `SealedProductDTO`, no a `SealedCatalogProductDTO` (shape distinto).
+  Decisión tomada: NO alterar el shape del endpoint deprecado; el front debe leer el campo gateado de
+  `sealed-products`. Si se requiere el campo también en el alias deprecado, es una decisión de contrato del
+  arquitecto (no la asumo). Sin bloqueo: el endpoint vivo cumple IMP-1.
