@@ -2,6 +2,19 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+> Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
+> DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
+> **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
+> (commit `35e948a`). **Decisión:** el barrido diario (`price-ingest`) pasa a **repreciar por-acabado desde TCGCSV
+> `tcgcsv_singles`** (fuente PRIMARIA por-variante, §4.27f) **sin re-resolver estructura** (la composición sigue gateada
+> a import/`--force`, §4.27d) — mismo patrón estructura↔precio del sellado (`sealed-price-ingest`, §4.19d). PPT baja a
+> **LIST fallback-only** y se **APAGA el modo `fetchPrintings`** (dial `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`: costaba
+> ~3× por set para producir a lo sumo la impresión primaria que LIST da a 1×). **Corrige §4.25a-2** (premisa FALSA: PPT v2
+> expone UN solo `market` invariante al `?printing=`; `fetchPrintings` nunca produjo la `PriceReference` propia de la
+> reverse). **Sin migración** (M-31 ya trae `cardProductId`/`tcgcsv_singles`), **sin cambio de forma de contrato**;
+> money-safe (acabado sin precio propio de fuente real ⇒ `PRICE_PENDING`/«—», JAMÁS el de otro acabado). Spec normativa:
+> **§4.35**; corrección in-situ en §4.25a-2. Eco de contrato en API_CONTRACT (Changelog v1.44-per-finish-price-source).
+> **Base previa:** v1.43-sealed-manual-override-survives-dial.
 > Rev v1.43-sealed-manual-override-survives-dial (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementa BACKEND). Escalada regla 9 del gate E2E, **issue IMP-C**. CLARIFICACIÓN de la precedencia
 > §K/§4.23a del sellado — corrige QUÉ gatea el dial `sealedPriceSource`: gobierna **solo la fuente AUTOMÁTICA de mercado
@@ -4779,6 +4792,15 @@ availableFinishes :=
 
 **2. `fetchPrintings` — precios sí, estructura jamás (NORMATIVO).** El barrido por impresión **se conserva para
 PRECIOS**: es exactamente lo que produce la `PriceReference` propia de la reverse (prerequisito de datos de P-15).
+
+> **⛔ PREMISA CORREGIDA v1.44 (P-47, §4.35).** La frase anterior —«`fetchPrintings` produce la `PriceReference` propia
+> de la reverse»— es **FALSA**. La **API v2 de PPT expone UN solo `market`** (impresión primaria), **invariante al
+> `?printing=`**: `fetchPrintings` nunca produjo un precio por-acabado de reverse/holo; en el modo forzado replicaba el
+> market primario a los 3 acabados (bug de dinero, corregido en `35e948a`). La `PriceReference` **propia por-acabado** la
+> produce **TCGCSV `tcgcsv_singles`** (§4.27e/f), no PPT. En consecuencia **§4.35 apaga `fetchPrintings`** (costaba ~3×
+> por set para, a lo sumo, la impresión primaria que el modo LISTA da a 1×) y el **barrido diario reprecia por-acabado
+> desde TCGCSV**. El resto de este punto (las filas `forced` NO escriben el snapshot; defensa en profundidad) queda como
+> registro histórico y **moot** al apagar el dial.
 Pero el finish atribuido por **etiqueta de request NO es evidencia estructural**: las filas del modo forzado
 (`forced`, `:554-556`) **NO deben escribirse en `pricedFinishesSnapshot`** ni marcarse como alias-VERIFICADO a efectos
 de la Señal C (hoy `finishAliasVerified` se computa sobre la propia etiqueta ⇒ se auto-verifica). Es defensa en
@@ -6570,6 +6592,111 @@ Con el seed, la cotización de **COMPRA** (finish `normal`) cambia SOLO en:
 - **Barrido de `unmapped` (implementación, §M.3):** además de los tres casos cerrados, backend recorre TODAS las rarezas
   distintas del catálogo real tras el sync y cierra las `unmapped` restantes con la MISMA política (premium por patrón
   ⇒ canónica+tier premium; jamás T0/T1). Tarea de implementación con política fijada, no hueco de producto.
+
+---
+
+### 4.35 Fuente de precio por-acabado en el barrido diario — TCGCSV `tcgcsv_singles` primario, PPT LIST fallback (v1.44, P-47, NORMATIVO)
+
+> **Escalada regla 9 (backend).** El fix money-safe de **P-47** (commit `35e948a`) corrigió el aplanamiento de PPT
+> `fetchPrintings`: la **API v2 de PPT expone UN solo `market`** (impresión primaria), **invariante al `?printing=`**, y el
+> modo forzado replicaba ese único market a los 3 acabados (normal/reverse_holo/holofoil). Ahora PPT solo escribe la
+> impresión primaria real; los demás acabados quedan `PRICE_PENDING`, **nunca** con el precio de otro. Money-safe y
+> cerrado. **Consecuencia abierta que este § resuelve:** el barrido diario (`PriceIngestService.ingestAll` / job
+> `price-ingest`) quedó **sin fuente que pueble el precio por-acabado** (reverse_holo/holofoil): PPT solo produce la
+> impresión primaria, y la fuente por-acabado correcta —**TCGCSV `tcgcsv_singles`** (`CardProductResolverService`, §4.27e/f,
+> con precedencia sobre PPT)— HOY solo corre en import/`--force`/refresh-variants, **NO en el barrido**. Sin decidir esto,
+> reverse/holo quedan en «—»/`PRICE_PENDING` hasta un sync manual por set. Base normativa previa: §4.27 (1 carta ↔ N
+> productos, TCGCSV fuente por-variante) y §4.15 (arnés del barrido). **Sin migración** (M-31 ya existe); **sin cambio de
+> forma de contrato**.
+
+#### (a) Dictamen — Opción (a) REFINADA: separar ESTRUCTURA de PRECIO; el barrido diario reprecia por-acabado desde TCGCSV
+
+**Elegida: Opción (a)**, con la separación estructura↔precio que ya distingue al sellado. El barrido diario pasa a
+refrescar el **precio por-acabado** leyéndolo de **TCGCSV `tcgcsv_singles`** (la fuente PRIMARIA por-variante que §4.27f
+ya declaró), **sin re-resolver la estructura**:
+
+- **ESTRUCTURA** (composición de variantes: `CardProduct.finishes`, `Card.availableFinishes`) **sigue GATEADA a
+  import/`--force`** vía `CardProductResolverService` (§4.27d) — **NO** corre a diario. La composición es estable; correr
+  el resolver estructural completo cada día sería caro y churn-earía la lista blanca SEC-A1 sin necesidad.
+- **PRECIO** (marketPrice por `(CardProduct, subType→Finish)`) **se refresca A DIARIO** en el barrido: upsert de
+  `PriceReference (cardId, 'raw', 'raw:NM', finish, capturedDate=hoy, cardProductId)` con `source='tcgcsv_singles'`, FX
+  Banxico aplicado (§4.27e), respetando `isManualOverride`. **NO** escribe `CardProduct.finishes` ni `availableFinishes`.
+
+Es EXACTAMENTE la separación que ya opera para el sellado: la estructura/mapeo del sellado es curada y el job
+`sealed-price-ingest` (§4.19d) solo **reprecia** a diario desde TCGCSV. §4.35 lleva el mismo patrón a los singles.
+
+**Por qué (a) y no (b).** La opción (b) —depender del refresh TCGCSV por set (manual/programado) para reverse/holo—
+deja esos acabados en «—» entre syncs y traslada trabajo money-relevante a una acción manual; en la práctica incumple
+PROJECT §A/§I (la valuación por-acabado de portafolio/venta/buylist usa el precio del **acabado específico** con
+**refresco diario**). (a) converge por diseño: cuando TCGCSV tiene el precio de la reverse, el barrido del día siguiente
+ya lo muestra con SU precio real. **Rechazada** también la lectura ingenua de (a) «correr el resolver estructural
+completo a diario»: mezcla estructura y precio, es cara y re-abre churn de la lista blanca; la estructura no cambia día
+a día.
+
+#### (b) Cableado recomendado — reusar la infra `price-ingest` con un provider TCGCSV singles primario
+
+El job `price-ingest` (parent + `price-ingest-set` child por set; BullMQ, idempotente, reanudable, FX-una-vez, §4.15c)
+ya es el arnés robusto del barrido. Se reusa tal cual; **solo cambia el PROVIDER primario**:
+
+- **Nuevo `TcgcsvSinglesBulkPriceProvider`** (implementa `BulkPriceProvider`, `source='tcgcsv_singles'`):
+  `fetchPricesForSet({set})` resuelve el `groupId` TCGCSV del set (misma lógica S-D3/§4.27d), hace `getProducts` +
+  `getPrices` del grupo y emite un `BulkPriceRow` por `(cardProductId, subType→Finish, marketCents>0)` — **keyed por
+  `cardProductId`** (join EXACTO a la carta vía `CardProduct.tcgplayerProductId`). Money-safe: `subType` desconocido o
+  `marketPrice ≤0/null` ⇒ **OMITE** la fila (nunca atribuye un precio a otro acabado); **no** escribe estructura.
+- **`PriceIngestService.providerFor()`** (dial `PRICE_PROVIDER`, §4.15b) gana el valor **`tcgcsv_singles`** como
+  **primario del barrido de singles**. El upsert de `PriceReference` incluye `cardProductId` y `source='tcgcsv_singles'`
+  (clave `@@unique … cardProductId`, M-31/§4.27b).
+- **PPT (modo LISTA) queda como FALLBACK-only** (no primario): en el barrido, PPT solo escribe la `PriceReference` de una
+  `(carta, finish)` cuando **NO** existe fila `tcgcsv_singles` fresca de esa variante en la ventana del día (precedencia
+  de ESCRITURA ya normada en §4.27f). Así reverse/holo obtienen su precio real de TCGCSV y PPT solo cubre el hueco de la
+  impresión primaria donde TCGCSV no tenga precio.
+
+**Dependencia explícita (no es hueco, es la separación de (a)):** el reprecio diario TCGCSV solo cotiza variantes cuya
+`CardProduct` **ya existe** (estructura resuelta en import/`--force`, §4.27d). Un set **nunca resuelto** bajo M-31 se
+queda en PPT-primario/`PRICE_PENDING` hasta correr `POST /admin/catalog/sync {setId, force:true}` **una** vez. Correr el
+`--force` de un set nuevo **antes** del primer barrido que lo cubra es el runbook (devops; §4.27h).
+
+> **Alternativa de mecanismo (equivalente; decide backend):** en vez del swap de provider en `price-ingest`, un job
+> hermano `tcgcsv-singles-price-ingest` calcado de `sealed-price-ingest` (§4.19d). **Recomendación del arquitecto:** el
+> swap de provider en `price-ingest` (reusa fan-out/reanudabilidad sin duplicar arnés). Backend elige; ambos cumplen (a).
+
+#### (c) `fetchPrintings` de PPT — APAGAR el dial (recomendación)
+
+**Recomendado: apagar `POKEMONPRICETRACKER_FETCH_PRINTINGS` (→ `false`).** Tras el fix P-47, el modo por-impresión cuesta
+**~3× requests por set** para producir, a lo sumo, la **misma fila de impresión primaria** que el modo LISTA da a **1×**
+(la API v2 de PPT no expone `market` por impresión). Con TCGCSV `tcgcsv_singles` como fuente por-acabado (b),
+`fetchPrintings` ya **no aporta nada** que otra fuente no dé más barato y mejor. PPT corre en modo LISTA (1×) como
+fallback de impresión primaria. **Acción de DEVOPS** (config/env; ver reparto (e)); reversible por dial.
+
+Money-safe: apagar el dial **no puede infravaluar** — el fix ya garantiza que un acabado sin precio propio real queda
+`PRICE_PENDING`/«—», jamás el precio de otro (§4.27e, invariante H1/H2/H3). El único efecto es dejar de gastar 3× en PPT.
+
+#### (d) Corrección de §4.25a-2 (premisa FALSA)
+
+§4.25a-2 afirmaba que el barrido por-impresión de PPT «es exactamente lo que produce la `PriceReference` propia de la
+reverse». **FALSO** (evidencia P-47): la API v2 de PPT expone **UN solo `market`** (impresión primaria), **invariante al
+`?printing=`**; `fetchPrintings` nunca produjo un precio por-acabado de reverse/holo — replicaba el market primario a los
+3 acabados (bug de dinero corregido en `35e948a`). La `PriceReference` **propia por-acabado** la produce **TCGCSV
+`tcgcsv_singles`** (§4.27e/f), no PPT. La corrección queda anotada in-situ en §4.25a-2 (callout ⛔ v1.44); el resto de esa
+subsección (filas `forced` no escriben el snapshot) queda como registro histórico y **moot** al apagar el dial (c).
+
+#### (e) Reparto (para el orquestador)
+
+- **backend** (WS «Catálogo y precios» — `modules/pricing` + `modules/catalog` + `jobs/`): (1) implementa
+  `TcgcsvSinglesBulkPriceProvider` (o el job hermano) que reprecia **por-acabado** desde TCGCSV, **keyed por
+  `cardProductId`**, `source='tcgcsv_singles'`, FX aplicado, respeta `isManualOverride`, **no** escribe estructura; (2)
+  registra `tcgcsv_singles` en `providerFor()`/`PRICE_PROVIDER`; (3) cablea PPT LIST como **fallback-only** en el barrido
+  (precedencia de escritura §4.27f); (4) tests money-safe: reverse/holo con precio TCGCSV ⇒ celda con SU precio; sin
+  precio en ninguna fuente ⇒ `PRICE_PENDING`/«—», nunca el de otro acabado. **Toca dinero → triple veredicto + gate de
+  seguridad por release.** Zona compartida (`common/`, registro de providers; `prisma` NO cambia — M-31 ya existe):
+  serializar en **un** solo stream.
+- **devops** (dials/env/scheduler): (1) `PRICE_PROVIDER=tcgcsv_singles` (primario del barrido de singles) en
+  staging→prod; (2) **`POKEMONPRICETRACKER_FETCH_PRINTINGS=false`** (apagar el modo 3×); (3) verificar orden del
+  scheduler: `fx-refresh` → barrido singles TCGCSV (tras la ventana de actualización TCGCSV, como `sealed-price-ingest`,
+  ~20:00 UTC) → `portfolio-snapshot`; (4) runbook: `--force` por set nuevo **antes** del primer barrido que lo cubra
+  (§4.27h). Documenta en `DEVOPS_NOTES.md`.
+- **arquitecto** (este §): dictamen + corrección §4.25a-2 + eco de contrato. Sin migración, sin cambio de forma de
+  contrato (solo notas/precedencia).
 
 ---
 

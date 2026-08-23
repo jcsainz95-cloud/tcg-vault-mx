@@ -2,7 +2,18 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.43-sealed-manual-override-survives-dial).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.44-per-finish-price-source).
+>
+> **Changelog v1.44-per-finish-price-source (2026-08-23, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS.
+> Escalada regla 9 (backend), issue P-47, rama `fix/variant-composition-regression`. NO cambia ningún shape de DTO ni
+> endpoint; solo precedencia de fuente de precio + notas. Money-safe, retrocompatible. ARCHITECTURE §4.35 / §4.27f /
+> corrección §4.25a-2.):** tras el fix del aplanamiento de PPT `fetchPrintings` (commit `35e948a`; la API v2 de PPT
+> expone UN solo `market`, invariante al `?printing=`), el **barrido diario `price-ingest` pasa a repreciar por-acabado
+> desde TCGCSV `tcgcsv_singles`** (fuente primaria por-variante, por `cardProductId`, §4.27e/f) **sin re-resolver
+> estructura** (gateada a import/`--force`, §4.27d). **PPT baja a LIST fallback-only** y **`fetchPrintings` se APAGA**
+> (dial devops `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`). Sin migración (M-31 ya trae `cardProductId`/`tcgcsv_singles`).
+> Eco en §M10-ops (job `price-ingest`) y en la nota de `variants[].marketReferenceMxnCents` (§DTOs). Money-safe: acabado
+> sin precio en ninguna fuente ⇒ `PRICE_PENDING`/«—», JAMÁS el de otro acabado.
 >
 > **Changelog v1.43-sealed-manual-override-survives-dial (2026-08-23, arquitecto — DISEÑO EN PAPEL; lo implementa
 > BACKEND. Escalada por regla 9 del gate E2E, issue IMP-C, rama `fix/variant-composition-regression`.
@@ -1752,8 +1763,12 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 //   presente solo cuando `marketReferenceMxnCents != null`; el front lo trata como decoración de frescura y
 //   tolera su ausencia. Aplica en los 3 scopes del binder (M1 plataforma, bóveda admin, "Mi bóveda") — misma
 //   agregación, solo lectura, no toca SEC-A1.
-//   ⚠️ Prerrequisito de DATOS (no de contrato): sin `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` en prod el
-//   proveedor emite UNA fila por carta (impresión primaria) y las reverse no tendrán referencia propia → "—".
+//   ⚠️ Prerrequisito de DATOS (no de contrato) — CORREGIDO v1.44 (P-47, ARCHITECTURE §4.35): el precio por-acabado
+//   (reverse_holo/holofoil) lo pobla el barrido diario desde **TCGCSV `tcgcsv_singles`** (`source='tcgcsv_singles'`,
+//   por `cardProductId`), NO PPT. La API v2 de PPT expone UN solo `market` (impresión primaria) invariante al
+//   `?printing=`, así que `fetchPrintings` nunca dio la referencia propia de la reverse (se APAGA:
+//   `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`; PPT queda como fallback LIST de la impresión primaria). Un acabado sin
+//   precio en NINGUNA fuente ⇒ referencia `null`/"—" + `PRICE_PENDING`, JAMÁS el precio de otro acabado.
 // v1.28 (P-18, ADITIVO): `pricing?` = la CONSOLA de precios de la variante (compra/venta: sugerido por regla,
 //   override vigente, efectivo resuelto + fuente; bounty P-22). Presente **SOLO en scope `platform`** (M1) — en
 //   `user_vault` y «Mi bóveda» se OMITE SIEMPRE (la estrategia de compra/bounty no se filtra al cliente; regla
@@ -4940,6 +4955,13 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 >   `{ job: "price-ingest", enqueued: boolean, jobId?: string }` (o `{ ..., scope: "set", setId }` si se pasó `setId`).
 >   **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto. Reemplaza a `catalog-price-sync` en el rol
 >   de pricing (abajo).
+>   **v1.44 (P-47, ARCHITECTURE §4.35):** el **provider PRIMARIO de singles del barrido pasa a `tcgcsv_singles`** —
+>   reprecia **por-acabado** desde TCGCSV (`PriceReference` con `source='tcgcsv_singles'`, por `cardProductId`; §4.27e/f),
+>   FX Banxico aplicado, respeta `isManualOverride`, **NO** escribe estructura (la composición sigue gateada a
+>   import/`--force`, §4.27d). **PPT (LIST) queda fallback-only** (escribe solo la impresión primaria donde no haya fila
+>   `tcgcsv_singles` fresca) y **`POKEMONPRICETRACKER_FETCH_PRINTINGS` se APAGA** (dial de devops). Sin cambio de forma
+>   del endpoint (mismo `202`; el provider lo selecciona el dial `PRICE_PROVIDER`). Money-safe: acabado sin precio en
+>   ninguna fuente ⇒ `PRICE_PENDING`/«—», jamás el de otro acabado.
 > - **`sealed-price-ingest`** *(v1.19-sealed-tcgcsv — NUEVO):* dispara la ingesta de la **referencia de mercado del
 >   SELLADO** vía TCGCSV (ARCHITECTURE §4.19d): grupos distintos de los items sellados **mapeados** → precios por grupo
 >   → USD→MXN con FX+colchón → upsert idempotente de `PriceReference` `(cardId ancla, 'sealed',
