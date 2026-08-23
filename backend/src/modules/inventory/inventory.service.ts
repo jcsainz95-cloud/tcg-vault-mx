@@ -272,14 +272,29 @@ export class InventoryService {
     // v1.1: sellado = precio SIEMPRE manual (MXN). Obligatorio para PUBLICAR: sin
     // listPriceCents el sellado queda "precio pendiente" (no aparece en Compra). Se escala
     // a la cola de precio pendiente para que el dueño lo fije (regla transversal).
+    // FIX (fix/variant-composition-regression): la escalación del ALTA debe usar la MISMA clave de
+    // MERCADO que el PUBLISH (`sealed:tcg:<productId>` + `sealedProductId`), NO el legacy `'sealed'`.
+    // Antes el alta escalaba con `r.gradeKey='sealed'` y sin `sealedProductId`, mientras el publish
+    // escala con `sealed:tcg:<productId>` + `sealedProductId` → DOS `PendingPriceEntry` open para la
+    // MISMA pieza (dos filas «FIJAR PRECIO» en M2). El resolver del sellado consume `sealed:tcg:<id>`
+    // (no el legacy), así que fijar precio sobre la fila legacy escribía una `PriceReference` que el
+    // resolver IGNORA → la pieza seguía impublicable. Unificando la clave, alta y publish DEDUPEAN en
+    // UNA sola entrada por `(item / sealedProductId / clave de mercado)`. Sellado legacy sin mapping
+    // (sin `tcgplayerProductId`) mantiene el comportamiento seguro: cae a `'sealed'`, sin duplicar.
     if (r.sealedNeedsEscalate) {
+      const pendingGradeKey =
+        r.sealedMapping.tcgplayerProductId != null
+          ? sealedMarketGradeKey(r.sealedMapping.tcgplayerProductId)
+          : r.gradeKey;
       await this.pricing.escalatePending(
         r.card.id,
         dto.productType,
-        r.gradeKey,
+        pendingGradeKey,
         'inventory',
         undefined,
-        r.finish,
+        'normal',
+        null,
+        r.sealedProductId,
       );
     }
 

@@ -69,6 +69,10 @@ describe('InventoryService.createItem — sellado', () => {
     const data = prisma.__created[0];
     expect(data.listPriceCents).toBeNull();
     // Tier 0: el alta pasa el `finish` resuelto (sealed → siempre `normal`) a la cola por acabado.
+    // fix/variant-composition-regression: la escalación del alta unifica su firma con la del publish
+    // (misma clave `(cardId, productType, gradeKey, finish, cardProductId, sealedProductId)`). Este
+    // sellado es LEGACY sin mapeo (sin tcgplayerProductId ni sealedProductId) → gradeKey cae a `'sealed'`
+    // y ambos trailing args van `null` (comportamiento seguro preservado; sin duplicar).
     expect(pricing.escalatePending).toHaveBeenCalledWith(
       'c1',
       'sealed',
@@ -76,6 +80,8 @@ describe('InventoryService.createItem — sellado', () => {
       'inventory',
       undefined,
       'normal',
+      null,
+      null,
     );
   });
 

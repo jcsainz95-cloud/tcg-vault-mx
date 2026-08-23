@@ -37,6 +37,61 @@
     `/admin/vaults/:userId/sealed` (`admin-vaults.service.ts:54` reusa `sealedTab` — fuente única). No requerían
     cambio. Los otros dos síntomas que reportó el gate (ver Discrepancias) NO son este código.
 
+### 0.0.b BLOQ (DINERO) — doble fila «FIJAR PRECIO» en la cola M2 del sellado (2026-08-23, `fix/variant-composition-regression`)
+
+> Bug de dinero **pre-existente** (no lo introdujo esta rama). Fix de IMPLEMENTACIÓN conforme a v1.42/v1.43
+> (§4.34a / §4.23a); NO cambia contrato. Suite backend completa **VERDE** (169 suites / 1661 tests),
+> `tsc --noEmit` limpio.
+
+- **Causa raíz confirmada:** subir un sellado SIN `listPriceCents` generaba **dos** `PendingPriceEntry` open para
+  la MISMA pieza:
+  - El **alta** (`inventory.service.ts` `createItem`, bloque `sealedNeedsEscalate`) escalaba con el gradeKey
+    LEGACY `'sealed'` (de `gradeKeyFor`) y SIN `sealedProductId` → llamada de 6 args.
+  - El **publish** (`resolvePublishSalePrice`, ~`:1135`) escala con la clave de MERCADO `sealed:tcg:<productId>` +
+    `sealedProductId` → llamada de 8 args.
+  - Como la clave de dedupe de `escalatePending` es `(cardId, productType, gradeKey, finish, cardProductId,
+    sealedProductId, status)`, las dos difieren en `gradeKey` **y** `sealedProductId` → NO colapsan → 2 filas.
+  - El resolver del sellado (`resolvePublishSalePrice` `:1128-1129`, `getSealedMarketRef` `:641`) consume
+    `sealed:tcg:<productId>`, NO el legacy `'sealed'`. Y «FIJAR PRECIO» (`POST /admin/pricing/override`,
+    `pricing.controller.ts:180`) escribe el `PriceReference` con el `gradeKey` de la fila M2 elegida. Si el admin
+    fijaba sobre la fila legacy `'sealed'`, el override quedaba en un gradeKey que el resolver **ignora** → la pieza
+    seguía impublicable (dinero parado + confusión: el admin creía haber fijado el precio).
+
+- **Fix (1 archivo de lógica):** `backend/src/modules/inventory/inventory.service.ts`, `createItem` (bloque
+  `sealedNeedsEscalate`, ~`:275`). La escalación del ALTA ahora unifica su firma con la del publish: computa
+  `pendingGradeKey = sealedMarketGradeKey(r.sealedMapping.tcgplayerProductId)` cuando la pieza está mapeada, y pasa
+  `finish='normal'`, `cardProductId=null` y `sealedProductId=r.sealedProductId`. Así alta y publish producen la
+  MISMA clave lógica → **UNA sola** entrada resoluble por `(item / sealedProductId / clave de mercado)`, la que el
+  resolver SÍ consume. Sellado LEGACY sin mapeo (sin `tcgplayerProductId`) cae de forma segura a `gradeKey='sealed'`
+  con `sealedProductId=null` — comportamiento previo preservado, sin duplicar.
+- **La ruta de APORTACIÓN ya estaba bien** (escalaba con `sealedPendingGradeKey`=clave de mercado + `sealedProductId`
+  desde BLOQ-2b): esta ruta y el bloque `sealedNeedsEscalate` son mutuamente excluyentes (la aportación sin mercado
+  lanza `PRICE_PENDING` desde `resolveCreation` antes de llegar al bloque). Solo el path COMPRA sin `listPrice`
+  disparaba el legacy.
+- **Money-safe intacto:** sin `listPriceCents`, sin override manual y sin mercado ⇒ **una (1)** entrada
+  `PRICE_PENDING`, jamás 0. Fijar el override manual sobre esa entrada (misma clave `sealed:tcg:<id>`) publica la
+  pieza (precio derivado `mercado×spread`, `>0`).
+- **Saneo de datos:** NO se incluyó script. Riesgo bajo/acotado y no trivialmente idempotente sin conocer el estado
+  real de staging (habría que casar cada `PendingPriceEntry gradeKey='sealed'` con la pieza `sealedProductId` viva y
+  su `tcgplayerProductId`, re-mapear al gradeKey de mercado y cerrar/mover sin inventar precios). **Runbook de saneo
+  manual** (para pendientes legacy YA existentes de piezas con `sealedProductId`): por cada
+  `PendingPriceEntry status='open' AND gradeKey='sealed'` cuya pieza asociada tenga `sealedProductId` (y por ende
+  `tcgplayerProductId`), (a) fijar el precio a través de la fila **resoluble** `sealed:tcg:<tcgplayerProductId>` (la
+  que crea el publish) — nunca sobre la legacy — y (b) marcar la fila legacy como `resolved`/descartada. Declarado
+  como **deuda menor NO bloqueante** (no re-crea filas nuevas tras el fix; solo limpia residuos previos). Se anota a
+  petición del techlead en `docs/TECH_DEBT.md` si procede.
+- **Tests (NUEVO `backend/test/inventory.sealed-pending-dedup.spec.ts`, `escalatePending` REAL + dedupe completa):**
+  - alta (compra) sin `listPrice` con `sealedProductId` → **exactamente 1** pendiente open con
+    `gradeKey='sealed:tcg:777'` + `sealedProductId='sp-etb'` (afirma `!= 'sealed'`).
+  - tras `bulkPublish` de esa pieza → sigue **1** (no 2); `pendingPriceEntry.create` llamado 1 sola vez; la línea
+    devuelve `PRICE_PENDING` + el `pendingPriceEntryId` de esa única fila.
+  - `manualOverride` sobre esa entrada (misma clave) → la resuelve (cola open = 0) y el re-`bulkPublish` publica
+    (`ok:true`, `status:'listed'`, `priceSource:'derived'`, `salePriceCents>0`).
+  - caso legacy sin `sealedProductId` (mapeado por `tcgplayerProductId` del cliente): escala con `sealed:tcg:<id>` +
+    `sealedProductId=null`, 1 sola fila, money-safe.
+  - `test/inventory.sealed.spec.ts` (legacy unmapped) actualizado: la aserción de `escalatePending` ahora espera los
+    dos trailing args `null, null` (firma unificada; gradeKey sigue `'sealed'` — comportamiento preservado).
+
 ### Discrepancias con el contrato — ESCALADAS AL ARQUITECTO (no implementadas; regla 9)
 
 Tres puntos del gate resultan **cambios de contrato**, no fixes de implementación: el código ACTUAL ya cumple
