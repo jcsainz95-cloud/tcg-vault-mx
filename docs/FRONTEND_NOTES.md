@@ -13,7 +13,7 @@
 ### Piezas nuevas
 | Archivo | Qué es |
 |---|---|
-| `(storefront)/_shared/grading/estimates.ts` | Predicados de render (`renderableEstimates`, `blockEstimatesOf`, `badgeEstimatesOf`, `pageHasGradingFigures`, `latestCapturedDate`). **Única** fuente de verdad de «¿hay cifra que pintar?». |
+| `(storefront)/_shared/grading/estimates.ts` | Predicados de render (`renderableEstimates`, `blockEstimatesOf`, `badgeEstimatesOf`, `pageHasGradingFigures`, `oldestCapturedDate`). **Única** fuente de verdad de «¿hay cifra que pintar?». |
 | `(storefront)/_shared/grading/GradingFootnote.tsx` | `GradingFootnoteBoundary` (contexto + nota), `GradingNoteCall` (la llamada `*`) y la nota al pie. |
 | `(storefront)/_shared/grading/GradingEstimateBlock.tsx` | Bloque de la ficha (§21.3). |
 | `(storefront)/_shared/grading/GradingEstimateBadge.tsx` | Badge de la teja / vitrina (§21.5). |
@@ -110,10 +110,106 @@ gate ni la ganancia: reproduce el **resultado** que el servidor ya resolvió. Co
 Blastoise / Pikachu IR (bloque + badge + vitrina), Milotic FA (**bloque sí, badge no** — estado
 normal de §21.7, no un bug), Eevee (un solo grado), Pikachu (sin estimados ⇒ nada).
 
-### Verde (gate pre-publicación)
+### Verde (gate pre-publicación — primera entrega)
 `tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **81 archivos / 653 tests** ✓ (33 nuevos) ·
 `next build` ✓. Nota: `page.test.tsx` del home necesitó `useRouter`/`usePathname` en su mock de
 `@/i18n/navigation` porque la vitrina reusa la teja de Compra.
+
+## Gancho de grading · RONDA DE CORRECCIÓN tras el rechazo de QA (2026-08-23)
+
+> Rama `claude/psa-graded-card-value-gmhv5u`. Cierra el **bloqueante de QA** (cifras estimadas sin
+> aviso visible), el **IMPORTANTE-1** (cero cobertura Playwright), **D2** (el humano no podía
+> encender ni configurar su propia feature) y la deuda **D5/D6/D7** del techlead. La raíz del
+> bloqueante era de diseño y **ya venía corregida**: se implementa `DESIGN_SYSTEM §21` en su
+> versión con el micro-aviso restaurado (commit `6569df6`).
+
+### 1. El bloqueante: micro-aviso VISIBLE, no `sr-only` (R3, §21.4c)
+Lo que QA capturó del DOM (`ESTIMADO SI SE GRADEA*` / `PSA 10 ≈ MX$29,000.00` **sin aviso visible**)
+ya no se puede producir, porque el aviso dejó de ser un detalle de cada superficie y pasó a ser **un
+componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
+
+- **`GradingMicroNotice` es el único portador del aviso** y **lleva la llamada `*` dentro**: aviso y
+  llamada son inseparables por construcción. No tiene prop para apagarse, ni variante corta que
+  pierda una idea, ni `truncate`/`line-clamp`. Fuera de una boundary de nota al pie devuelve `null`
+  —el mismo fail-closed que la cifra—, así que **no puede existir cifra sin aviso ni aviso huérfano**.
+- **La teja pierde el eyebrow** y su `sr-only`. «ESTIMADO» y «Ilustrativo» eran **la misma idea**, y
+  §N.5 exige que las dos ideas vivan **en el micro-aviso**: lo que sobraba era el eyebrow. El
+  condicional se incorporó a la cifra —`figure` «En PSA 10 vale ≈ {amount}» (`sm+`) y `figureShort`
+  «PSA 10 ≈ {amount}» (móvil)—, con lo que el aviso **cabe sin añadir un tercer renglón**.
+  Las dos longitudes se resuelven con `hidden sm:inline` / `sm:hidden` (el mismo patrón que ya usa el
+  CTA de la teja): solo una se renderiza a la vez, así que **no hay texto duplicado** para el lector
+  de pantalla.
+- **La ficha cambia `provenance` por `microNotice`**: el renglón viejo cargaba «no evaluamos esta
+  pieza» pero **no** «ilustrativo», y §N.5 anticipa ese fallo con todas sus letras. La procedencia se
+  conserva como inciso dentro del aviso. La **llamada `*` se movió del eyebrow al final del aviso**
+  (en la ficha es un enlace real al pie; en la teja, un `<sup>` — la teja entera ya es un enlace).
+- **`callSr` se acorta a «Ver nota al pie.»** (§21.11): con el aviso visible delante, duplicar las
+  dos ideas en el texto accesible las haría oírse dos veces seguidas.
+- **i18n:** nuevas `catalog.gradingEstimate.microNotice`, `catalog.gradingBadge.{figure,figureShort,
+  microNotice}`; retiradas `catalog.gradingEstimate.provenance` y `catalog.gradingBadge.eyebrow`.
+  Las dos ideas van en **tinta 500** con rich text (`<b>`), nunca partiendo la frase en dos claves.
+
+### 2. Deuda del techlead cerrada en código (D5, D6, D7)
+- **D5 — la fecha ahora es la MÁS ANTIGUA.** `latestCapturedDate` → **`oldestCapturedDate`**. Un solo
+  rótulo cubre todas las cifras del bloque: con PSA 10 de hoy y PSA 9 de hace 29 días, «hoy» estaría
+  **afirmando de más** sobre un dato de casi un mes. La lectura conservadora coincide además con el
+  criterio de frescura del backend.
+- **D6 — la retícula colapsa con un solo grado.** `grid sm:grid-cols-2` pasa a
+  `cn('grid', items.length > 1 && 'sm:grid-cols-2')`, tal como pide §21.7: sin media retícula vacía
+  ni `sm:border-l` huérfano. El test nuevo verifica **la retícula**, no solo el texto.
+- **D7 — nota obsoleta retirada.** La sección «Discrepancia REPORTADA» y el `⚠️` de
+  `gradingEstimates.test.tsx` desaparecen: §21.7 ya está alineada y el código era correcto.
+
+### 3. D2 — el dueño ya puede encender y configurar su feature (criterio 92(e))
+- **M10 · interruptor maestro:** `gradedEstimatesEnabled` entra en `DIALS` como dial **`onOff`**
+  (Select cerrado `off | on`, no texto libre) y viaja por el `PUT` parcial de siempre —**sin
+  redeploy y auditado**—. Un dial ausente en la respuesta se lee **`off`** (fail-closed, como el seed).
+- **La UI advierte lo que ese dial hace.** Encenderlo **publica una afirmación comercial** cuyo
+  disclaimer aún espera el visto bueno del humano: al tocarlo y dejarlo encendido aparece un aviso
+  `role="alert"` que lo dice, y que aclara que **no cambia ningún precio de venta, valuación ni
+  cotización** (criterio 90). Hay además una nota permanente que remite a M2 para el resto de la config.
+- **M2 · Sección 5c `GradedEstimatesSection`:** editor de los **escalones de costo de gradeo**, el
+  **margen mínimo** y la **frescura**, con el `enabled` como **espejo read-only** de M10.
+  **Los invariantes I1–I5 se cumplen por CONSTRUCCIÓN, no por regaño:** la tabla no pide `min` y `max`
+  por fila —así es como se producen huecos y solapes—, pide **una frontera por escalón**; el `min` se
+  **deriva** del `max` anterior, el primero es **0** y el último es **abierto**. No existe el campo que
+  rompería la contigüidad. El último escalón **no se puede borrar** (I1) y el costo se valida contra
+  **`≥ MX$0.01` y `≤ MX$100,000`** (I2): un costo en 0 promocionaría cartas en las que el comprador
+  pierde dinero, así que **bloquea el guardado** en vez de viajar al servidor.
+  La **fuente de verdad sigue siendo el backend**: los 422 (`GRADING_TIERS_EMPTY`,
+  `..._NOT_CONTIGUOUS`, `..._NOT_OPEN_ENDED`) tienen copy propio en `error.*` y se muestran
+  accionables, no como «error genérico».
+- **API/mocks:** `getGradedEstimateConfig` / `updateGradedEstimateConfig` (`enabled` **nunca** se
+  envía: se edita en M10) + `mockGradedEstimateConfig` con el seed de §N.2.1 en centavos.
+
+### 4. Playwright — `e2e/grading-estimate.spec.ts` (IMPORTANTE-1)
+Nueve smoke sobre las **tres superficies**, en modo mocks:
+
+- **Con dato se pinta / sin dato no se pinta nada:** ficha de Blastoise (dos cifras), Eevee (un solo
+  grado), Pikachu (sin estimados ⇒ ni bloque, ni nota, ni rastro), y Milotic ex —**ficha con bloque y
+  teja sin badge**, el estado normal de §21.7 que suele reportarse como bug—.
+- **El caso que QA pidió explícitamente:** se inyecta `.sr-only { display: none !important }` y se
+  comprueba que **el aviso sigue visible** en ficha, teja y vitrina; en el listado y en el home se
+  cuentan los avisos visibles contra las cifras, para que **ninguna quede huérfana en una retícula**.
+- **D8 (techlead), aserción transversal:** `expectFigureImpliesFootnote` afirma **cifra ⇔ nota al
+  pie** en cada escenario, en ambos sentidos (una nota huérfana también falla). La presencia de cifra
+  se detecta por marcas que **solo** produce el gancho (el glifo `≈` y el eyebrow del bloque) y
+  **nunca** por el micro-aviso: usarlo sería circular.
+- El helper `src/test/grading.ts` hace lo mismo en unitarios (`sightedText` retira los `sr-only` del
+  árbol antes de afirmar), así que el bloqueante está cubierto en los dos niveles.
+- **Aviso:** `e2e/catalog.spec.ts:36` («tarjeta de SELLADO») **ya fallaba en `origin/main`**; se
+  reconfirmó en esta rama y **no se tocó** (QA lo excluyó). Queda anotado como **F-17** en
+  `docs/TECH_DEBT.md`.
+
+### 5. Cero tokens nuevos (se mantiene)
+Ni un hex, ni un token nuevo, ni una caja. El micro-aviso es **sans muted** (§21.4c: es prosa, no una
+etiqueta) con las dos ideas en `text-text font-medium`; el acento sigue teniendo **un solo empleo**:
+la llamada `*` y su marcador en la nota.
+
+### Verde (gate de esta ronda)
+`tsc --noEmit` ✓ · `next lint` ✓ (0 warnings) · `vitest run` **82 archivos / 671 tests** ✓ ·
+`next build` ✓ · `playwright test e2e/grading-estimate.spec.ts` **9/9** ✓ ·
+`playwright test e2e/catalog.spec.ts` **9 passed / 1 failed** (el fallo preexistente F-17).
 
 ## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21)
 
