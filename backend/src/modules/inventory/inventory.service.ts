@@ -51,6 +51,19 @@ interface SealedItemMapping {
   sealedProductName: string | null;
 }
 
+/**
+ * H-1 (SEC) — descriptor DIFERIDO del override manual de mercado del SELLADO. `resolveCreation`
+ * SOLO lo VALIDA y lo devuelve; la escritura (`PriceReference isManualOverride=true` + `AuditLog`)
+ * se aplica en el caller DENTRO de la misma transacción del alta y SOLO tras crear la pieza, de modo
+ * que un rollback (o una línea fallida antes de crear el item) NUNCA deje un override huérfano.
+ */
+interface SealedManualOverride {
+  cardId: string;
+  gradeKey: string;
+  priceMxnCents: number;
+  tcgplayerProductId: number;
+}
+
 /** Resultado por línea del alta por lote (API_CONTRACT §DTOs — BatchInventoryLineResult). */
 type BatchLineResult =
   | { index: number; ok: true; folios: string[]; inventoryItemIds: string[]; acquisitionCostCents?: number }
@@ -271,18 +284,27 @@ export class InventoryService {
     }
 
     const folio = await this.prisma.nextFolio();
-    const item = await this.prisma.inventoryItem.create({
-      data: this.buildItemData(dto, r, folio),
-    });
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: item.id,
-        toLocationId: dto.locationId,
-        toStatus: 'in_stock',
-        reason: MovementReason.alta,
-        actorUserId,
-        note: dto.acquisitionType,
-      },
+    // H-1 (SEC): alta + override manual en UNA transacción. El override del sellado (si aplica) se
+    // persiste AQUÍ, tras crear la pieza y dentro de la misma tx → sin override sin pieza, ni pieza
+    // sin su override; un fallo revierte AMBOS (no queda `PriceReference isManualOverride` huérfano).
+    const item = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.inventoryItem.create({
+        data: this.buildItemData(dto, r, folio),
+      });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: created.id,
+          toLocationId: dto.locationId,
+          toStatus: 'in_stock',
+          reason: MovementReason.alta,
+          actorUserId,
+          note: dto.acquisitionType,
+        },
+      });
+      if (r.sealedManualOverride) {
+        await this.applySealedManualOverride(r.sealedManualOverride, actorUserId, tx);
+      }
+      return created;
     });
     return { id: item.id, folio: item.folio, status: item.status, acquisitionCostCents: r.acquisitionCostCents };
   }
@@ -309,6 +331,9 @@ export class InventoryService {
     // v1.39: subtipo RESUELTO (derivado del SealedProduct cuando se usa sealedProductId; si no, el del
     // DTO). buildItemData recibe la línea ORIGINAL, así que la identidad derivada viaja por aquí.
     sealedSubtype: SealedSubtype | null;
+    // H-1 (SEC): override manual de mercado VALIDADO pero NO escrito (se difiere al caller, dentro de
+    // la tx del alta, tras crear la pieza). null cuando no aplica override.
+    sealedManualOverride: SealedManualOverride | null;
   }> {
     // v1.39-sealed-product-module (M-39, P-38, §4.34d): si la línea trae `sealedProductId` (solo sealed),
     // el backend DERIVA server-side la identidad (cardId ancla del set + mapeo + imagen/nombre/subtipo)
@@ -348,8 +373,23 @@ export class InventoryService {
     // Solo se resuelve cuando hace falta: aportación (valúa el costo) o `manualMarketMxnCents` presente
     // (valida/persiste el override). Un sellado no-aportación sin override no toca el mercado al alta
     // (preserva el comportamiento previo: sin query extra).
+    // H-2 (SEC): el override manual de mercado (`manualMarketMxnCents`) SOLO se acepta cuando la
+    // identidad viene de un `sealedProductId` VALIDADO (SealedProduct activo, resuelto arriba por
+    // `deriveFromSealedProduct`). Sin `sealedProductId` —incluido el path legacy con el
+    // `tcgplayerProductId`+`tcgplayerGroupId` que envía el cliente— se rechaza: jamás se ancla un
+    // override de dinero a un productId ARBITRARIO del cliente saltándose SEALED_PRODUCT_NOT_FOUND/SEC-A1.
+    if (dto.manualMarketMxnCents != null && sealedProductId == null) {
+      throw BusinessException.validation(
+        'MANUAL_MARKET_NOT_ALLOWED',
+        'manualMarketMxnCents requires a validated sealedProductId',
+      );
+    }
+
     let sealedMarketCents: number | null = null;
     let sealedPendingGradeKey = gradeKey;
+    // H-1 (SEC): el override manual NO se persiste aquí. `resolveSealedMarketForAlta` VALIDA y devuelve
+    // un descriptor; la escritura se DIFIERE al caller, dentro de la misma tx del alta y tras crear la pieza.
+    let sealedManualOverride: SealedManualOverride | null = null;
     if (
       dto.productType === 'sealed' &&
       (dto.acquisitionType === 'aportacion_en_especie' || dto.manualMarketMxnCents != null)
@@ -358,10 +398,10 @@ export class InventoryService {
         dto,
         sealedMapping.tcgplayerProductId,
         dto.manualMarketMxnCents,
-        actorUserId,
       );
       sealedMarketCents = m.marketCents;
       sealedPendingGradeKey = m.pendingGradeKey;
+      sealedManualOverride = m.manualOverride;
     }
 
     if (dto.acquisitionType === 'aportacion_en_especie') {
@@ -410,6 +450,7 @@ export class InventoryService {
       sealedMapping,
       sealedProductId,
       sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
+      sealedManualOverride,
     };
   }
 
@@ -477,14 +518,20 @@ export class InventoryService {
     dto: { cardId?: string; sealedSubtype?: string | null },
     productId: number | null,
     manualMarketMxnCents: number | undefined,
-    actorUserId: string | undefined,
-  ): Promise<{ marketCents: number | null; pendingGradeKey: string }> {
+  ): Promise<{
+    marketCents: number | null;
+    pendingGradeKey: string;
+    // H-1 (SEC): descriptor del override VALIDADO pero NO escrito (lo persiste el caller en la tx del alta).
+    manualOverride: SealedManualOverride | null;
+  }> {
     // Sin mapeo (sellado legacy sin productId): no hay clave de mercado. El override manual no aplica
     // (no hay a qué anclarlo). Se conserva la inferencia por hermanos ya mapeados (comportamiento P-35).
+    // Nota H-2: con `sealedProductId` requerido para el override (gate en `resolveCreation`), este
+    // camino solo recibe `manualMarketMxnCents` si un SealedProduct activo NO tiene `tcgplayerProductId`.
     if (productId == null) {
       if (manualMarketMxnCents != null) {
         throw BusinessException.validation(
-          'VALIDATION_ERROR',
+          'MANUAL_MARKET_NOT_ALLOWED',
           'manualMarketMxnCents requires a mapped sealed product (use sealedProductId)',
         );
       }
@@ -492,7 +539,11 @@ export class InventoryService {
         { cardId: dto.cardId!, sealedSubtype: dto.sealedSubtype },
         null,
       );
-      return { marketCents: legacy.marketCents, pendingGradeKey: legacy.pendingGradeKey };
+      return {
+        marketCents: legacy.marketCents,
+        pendingGradeKey: legacy.pendingGradeKey,
+        manualOverride: null,
+      };
     }
 
     const marketGradeKey = sealedMarketGradeKey(productId);
@@ -514,32 +565,54 @@ export class InventoryService {
           'manualMarketMxnCents must be > 0',
         );
       }
-      // Override money-safe: persiste PriceReference isManualOverride=true (máxima precedencia) + AUDITA.
-      await this.pricing.manualOverride(
-        dto.cardId!,
-        'sealed',
-        marketGradeKey,
-        manualMarketMxnCents,
-        'normal',
-      );
-      if (this.audit) {
-        await this.audit.log({
+      // H-1 (SEC): override money-safe VALIDADO. NO se escribe aquí — se devuelve el descriptor para que
+      // el caller lo persista (PriceReference isManualOverride=true + AuditLog) DENTRO de la tx del alta,
+      // tras crear la pieza. El valor se usa de inmediato para valuar la aportación (no requiere el write).
+      return {
+        marketCents: manualMarketMxnCents,
+        pendingGradeKey: marketGradeKey,
+        manualOverride: {
+          cardId: dto.cardId!,
+          gradeKey: marketGradeKey,
+          priceMxnCents: manualMarketMxnCents,
+          tcgplayerProductId: productId,
+        },
+      };
+    }
+
+    return { marketCents: resolved, pendingGradeKey: marketGradeKey, manualOverride: null };
+  }
+
+  /**
+   * H-1 (SEC) — persiste el override manual de mercado del SELLADO DENTRO de la tx del alta, tras
+   * confirmar que la pieza se creó. Atomicidad total: un rollback de la tx revierte también el
+   * override, y una línea que falla antes de este punto nunca lo escribe → jamás queda un
+   * `PriceReference isManualOverride` huérfano sin pieza. Money-safe: el descriptor ya se validó
+   * (mercado null, `>0`) en `resolveSealedMarketForAlta`; aquí solo se escribe + audita, en la tx.
+   */
+  private async applySealedManualOverride(
+    ov: SealedManualOverride,
+    actorUserId: string | undefined,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    await this.pricing.manualOverride(ov.cardId, 'sealed', ov.gradeKey, ov.priceMxnCents, 'normal', tx);
+    if (this.audit) {
+      await this.audit.log(
+        {
           actorUserId,
           action: 'inventory.sealed_manual_market',
           entityType: 'SealedProduct',
-          entityId: String(productId),
+          entityId: String(ov.tcgplayerProductId),
           after: {
-            cardId: dto.cardId,
-            tcgplayerProductId: productId,
-            manualMarketMxnCents,
+            cardId: ov.cardId,
+            tcgplayerProductId: ov.tcgplayerProductId,
+            manualMarketMxnCents: ov.priceMxnCents,
             isManualOverride: true,
           },
-        });
-      }
-      return { marketCents: manualMarketMxnCents, pendingGradeKey: marketGradeKey };
+        },
+        tx,
+      );
     }
-
-    return { marketCents: resolved, pendingGradeKey: marketGradeKey };
   }
 
   /**
@@ -771,6 +844,14 @@ export class InventoryService {
               });
               inventoryItemIds.push(item.id);
               createdItems++;
+            }
+            // H-1 (SEC): el override manual del sellado se persiste AQUÍ, DENTRO de la tx del lote y
+            // SOLO tras crear la(s) pieza(s) de la línea. Si la línea falla antes (p. ej. la creación
+            // del item lanza), este punto no se alcanza y el override nunca se escribe; si el
+            // `$transaction` completo hace rollback, el override se revierte con todo el lote. Atómico:
+            // jamás queda un `PriceReference isManualOverride` huérfano de una línea `ok:false`.
+            if (r.sealedManualOverride) {
+              await this.applySealedManualOverride(r.sealedManualOverride, actorUserId, tx);
             }
             results.push({
               index,

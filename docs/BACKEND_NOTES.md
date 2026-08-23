@@ -6792,3 +6792,44 @@ Orden normativo §4.34c: **upc** (antes de etb/collection) → etb → bundle �
 - `npx tsc --noEmit` limpio · `npx jest` → **163 suites / 1589 tests VERDE** (nuevos:
   `sealed-product.service.spec.ts` 29, `inventory.sealed-product-alta.spec.ts` 8, +2 en
   `sealed-price-ingest.spec.ts`). Sin regresiones en las suites de sellado/inventario previas.
+
+## Fase de seguridad P-38 — fix de 2 ALTOS + 1 MEDIO en el precio manual del sellado (2026-08-23)
+Enrutados por la fase de seguridad (blanco: precio de dinero del sellado). Solo `backend/`. Contrato intacto
+(v1.39.1/v1.40 sin cambios). `npx tsc --noEmit` limpio · `npx jest` → **163 suites / 1603 tests VERDE**.
+
+### H-1 (ALTO, money) — atomicidad total del override manual → RESUELTA
+- **Problema:** el override (`PriceReference isManualOverride=true`, referencia global autoritativa
+  `sealed:tcg:<productId>`) y su `AuditLog` se escribían con `this.prisma` (NO transaccional) DENTRO del
+  `$transaction` del lote → auto-commit que **sobrevivía** a una línea fallida (`ok:false`) o a un rollback
+  del `$transaction` → precio de dinero pinneado **huérfano**.
+- **Fix (deferred-write, per-línea):** `resolveSealedMarketForAlta` ya NO escribe: **valida** y devuelve un
+  descriptor `SealedManualOverride`. El caller aplica el override con `applySealedManualOverride(ov, actor,
+  tx)` **dentro de la misma `tx`** y **SOLO tras crear la pieza** (en `batchCreate`, al final de la línea,
+  tras `tx.inventoryItem.create`; en `createItem`, ahora envuelto en su propio `$transaction`).
+  `pricing.manualOverride(...)` y `audit.log(...)` aceptan un **`tx?: Prisma.TransactionClient`** opcional
+  (default `this.prisma` — sin cambio de comportamiento para el resto de llamadores).
+- **Garantía:** sin override sin pieza, ni pieza sin su override; un fallo/rollback revierte AMBOS. El valor
+  del override se usa igual para valuar la aportación (no depende del write). Money-safe intacto.
+
+### H-2 (ALTO) — override solo con `sealedProductId` validado → RESUELTA
+- **Problema:** `manualMarketMxnCents` se aceptaba por el path **legacy** (`tcgplayerProductId`+
+  `tcgplayerGroupId` del cliente) sin validar un `SealedProduct` activo → el override se anclaba a un
+  `productId` **arbitrario del cliente**, saltándose `SEALED_PRODUCT_NOT_FOUND`/SEC-A1.
+- **Fix:** gate en `resolveCreation` — `manualMarketMxnCents != null && sealedProductId == null` → **422
+  MANUAL_MARKET_NOT_ALLOWED** (incluye el path legacy). El override SOLO procede cuando la identidad viene de
+  un `sealedProductId` validado (SealedProduct activo, cuyo `tcgplayerProductId` deriva server-side el ancla).
+  El alta normal sin override no se ve afectada por ningún path.
+
+### M-2 (MEDIO) — `acquisitionPct` con `@Max` → RESUELTA
+- `dto/inventory.dto.ts`: `acquisitionPct?` pasa de `@IsInt() @Min(0)` a **`@Min(0) @Max(MAX_APORTACION_PCT=100)`**
+  en los 3 DTOs (single/batch/update). Un `vault_operator` ya no puede inflar el costo de aportación
+  (costo = referencia × pct/100) por encima del 100%.
+
+### Tests de seguridad añadidos
+- `inventory.sealed-product-alta.spec.ts` — describe **H-1** (override participa del cliente tx en single y
+  lote; fallo de creación de pieza ⇒ sin `PriceReference isManualOverride` huérfano ni audit) y **H-2**
+  (`manualMarketMxnCents` sin/con-legacy `sealedProductId` → 422 sin escribir override; con `sealedProductId`
+  válido sí procede, anclado al productId derivado).
+- `inventory.batch.spec.ts` — **M-2** (`acquisitionPct > 100` y `< 0` → error de validación del DTO).
+- Nota de tests: `pricing.manualOverride`/`audit.log` reciben ahora un 6º/2º arg (`tx`); los harness de alta
+  single mockean `$transaction: (fn) => fn(prisma)`.

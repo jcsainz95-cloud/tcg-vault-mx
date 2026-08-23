@@ -39,8 +39,12 @@ export interface UserAuditEntryDTO {
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async log(entry: AuditEntry): Promise<void> {
-    await this.prisma.auditLog.create({
+  async log(entry: AuditEntry, tx?: Prisma.TransactionClient): Promise<void> {
+    // H-1 (SEC): cliente transaccional OPCIONAL. Cuando el evento auditado forma parte de una
+    // transacción mayor (p. ej. el override manual del sellado al alta), el caller pasa el `tx` para
+    // que la fila de bitácora participe del mismo commit/rollback que el cambio auditado. Ausente ⇒
+    // comportamiento previo (auto-commit por `this.prisma`).
+    await (tx ?? this.prisma).auditLog.create({
       data: {
         actorUserId: entry.actorUserId ?? null,
         actorRole: entry.actorRole ?? null,

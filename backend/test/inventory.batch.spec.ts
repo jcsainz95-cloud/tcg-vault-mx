@@ -9,6 +9,7 @@ import {
   BatchInventoryItemInput,
   BulkPublishLineInput,
   BulkPublishRequest,
+  MAX_APORTACION_PCT,
   MAX_BATCH_QTY,
   MAX_LIST_PRICE_CENTS,
 } from '../src/modules/inventory/dto/inventory.dto';
@@ -425,6 +426,22 @@ describe('BatchInventoryItemInput — validación de qty y listPriceCents', () =
   it('[SEC-N3] rechaza listPriceCents por encima del @Max (Int32/overflow)', async () => {
     const errors = await validateLine({ listPriceCents: MAX_LIST_PRICE_CENTS + 1 });
     expect(errors.some((e) => e.property === 'listPriceCents')).toBe(true);
+  });
+
+  // M-2 (SEC): acquisitionPct con @Max de política — un vault_operator no puede inflar el costo de
+  // aportación (costo = referencia × pct/100) por encima del techo de negocio (100%).
+  it('acepta acquisitionPct en el límite de política (100)', async () => {
+    expect(await validateLine({ acquisitionPct: MAX_APORTACION_PCT })).toHaveLength(0);
+  });
+
+  it('[M-2] rechaza acquisitionPct por encima del @Max (inflado de costo de aportación)', async () => {
+    const errors = await validateLine({ acquisitionPct: MAX_APORTACION_PCT + 1 });
+    expect(errors.some((e) => e.property === 'acquisitionPct')).toBe(true);
+  });
+
+  it('[M-2] rechaza acquisitionPct negativo', async () => {
+    const errors = await validateLine({ acquisitionPct: -1 });
+    expect(errors.some((e) => e.property === 'acquisitionPct')).toBe(true);
   });
 });
 

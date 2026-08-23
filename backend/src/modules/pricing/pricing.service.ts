@@ -1021,20 +1021,27 @@ export class PricingService {
     gradeKey: string,
     priceMxnCents: number,
     finish: Finish = 'normal',
+    // H-1 (SEC): cliente transaccional OPCIONAL. Cuando el override se persiste como parte de una
+    // transacción mayor (p. ej. el alta de sellado con precio manual), el caller pasa el `tx` para que
+    // la escritura del `PriceReference isManualOverride` (y la resolución de pendientes) participe del
+    // MISMO commit/rollback que la creación de la pieza — sin este `tx` el override auto-commiteaba y
+    // sobrevivía a un rollback (precio de dinero pinneado huérfano). Ausente ⇒ comportamiento previo.
+    tx?: Prisma.TransactionClient,
   ): Promise<PriceReference> {
+    const db = tx ?? this.prisma;
     // v1.29 (M-31): el override manual de MERCADO se guarda con `cardProductId=null` (el precio
     // por-producto es del TCGCSV de singles; el override del admin es genérico por carta). findFirst +
     // update-by-id/create (Prisma no tipa `null` en la clave compuesta).
     const cap = today();
-    const prior = await this.prisma.priceReference.findFirst({
+    const prior = await db.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, capturedDate: cap, cardProductId: null },
     });
     const ref = prior
-      ? await this.prisma.priceReference.update({
+      ? await db.priceReference.update({
           where: { id: prior.id },
           data: { source: 'manual', priceMxnCents, isManualOverride: true },
         })
-      : await this.prisma.priceReference.create({
+      : await db.priceReference.create({
           data: {
             cardId,
             productType,
@@ -1048,7 +1055,7 @@ export class PricingService {
         });
     // v1.8-ronda-c FIX: resuelve SOLO el pendiente de ESTE acabado. Antes el where omitía
     // `finish`, así que un override de `normal` cerraba también el pendiente de `holofoil`.
-    await this.prisma.pendingPriceEntry.updateMany({
+    await db.pendingPriceEntry.updateMany({
       where: { cardId, productType, gradeKey, finish, status: 'open' },
       data: { status: 'resolved', resolvedPriceRefId: ref.id, resolvedAt: new Date() },
     });

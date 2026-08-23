@@ -37,6 +37,13 @@ export const MAX_BATCH_QTY = 500;
  */
 export const MAX_LIST_PRICE_CENTS = 100_000_000;
 
+/**
+ * M-2 (SEC) — tope de política del % de aportación en especie. Sin `@Max`, un `vault_operator`
+ * podía inflar arbitrariamente el costo de aportación (costo = referencia × pct/100) desde el DTO.
+ * 100% (costo = referencia del día) es el techo de negocio para la aportación del dueño.
+ */
+export const MAX_APORTACION_PCT = 100;
+
 export class CreateItemDto {
   // v1.39 (P-38): OPCIONAL — REQUERIDO para raw/graded y sealed SIN sealedProductId; con
   // sealedProductId el backend lo DERIVA (ancla del set). Ausente donde se requiere → 422 en el servicio.
@@ -59,7 +66,7 @@ export class CreateItemDto {
   @IsOptional() @IsString() locationId?: string;
   // v1.2 (M-13): sin fotos de producto (frontPhotoKey/backPhotoKey/extraPhotoKeys eliminados).
   @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
-  @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) acquisitionCostCents?: number;
   // v1.1: precio manual MXN. Obligatorio para PUBLICAR el sellado (sin él no aparece en Compra).
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
@@ -131,7 +138,7 @@ export class BatchInventoryItemInput {
   @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsString() locationId?: string;
   @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
-  @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
   // v1.36-sealed-alta (M-37, P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados en
@@ -214,7 +221,7 @@ export class AdjustmentFoundItemInput {
   @IsOptional() @IsString() locationId?: string;
   @IsOptional() @IsIn(['aportacion_en_especie', 'buylist', 'compra'])
   acquisitionType?: AcquisitionType;
-  @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
 }

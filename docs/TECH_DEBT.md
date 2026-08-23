@@ -2995,16 +2995,29 @@
   `SealedProduct` de catálogo** (cura de raíz del ancla-a-single) queda **DIFERIDA** explícitamente
   (ARCHITECTURE §4.32d): NO se hizo en este cambio. SB-D5 **permanece abierta** (Media).
 
-### H-P38-2 · Override manual escribe `PriceReference`/audit fuera de la transacción del batch (Media, money) (backend)
-- **Dueño:** backend. **Severidad:** Media (money). **Estado:** ABIERTA (no bloqueante; enrutada por techlead en P-38).
-- **Síntoma:** dentro del `$transaction` del batch de alta, el override manual escribe `PriceReference` y el
-  registro de auditoría con `this.prisma` (cliente NO transaccional) en vez del `tx` del batch. Si el batch
-  hace **rollback**, esas escrituras del override **quedan huérfanas** (persisten aunque el alta se revierta):
-  referencia de precio y/o audit sin item padre → inconsistencia money.
-- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:745` (usar el cliente `tx` del `$transaction`
-  en vez de `this.prisma` para las escrituras del override dentro del batch).
-- **Disparador:** próximo toque al alta/override de inventario. Fix: propagar `tx` a la escritura de
-  `PriceReference`/audit del override.
+### H-P38-2 · Override manual escribe `PriceReference`/audit fuera de la transacción del batch (money) (backend) — ✅ RESUELTA (fix de seguridad H-1)
+- **Dueño:** backend. **Severidad:** original Media; **REESCALADA a ALTO** por la fase de seguridad (P-38,
+  money-critical). **Estado:** ✅ **RESUELTA** — fix de seguridad **H-1** (atomicidad total del override).
+- **Síntoma (original):** dentro del `$transaction` del batch de alta, el override manual escribía
+  `PriceReference isManualOverride=true` (referencia global autoritativa, `sourceRank=0`,
+  `sealed:tcg:<productId>`) y su `AuditLog` con `this.prisma` (cliente NO transaccional). Consecuencia: el
+  override **auto-commiteaba** y **sobrevivía** aunque la línea fallara (`ok:false`) o el `$transaction`
+  hiciera rollback → **precio de dinero pinneado huérfano** (envenenamiento de precio global).
+- **Fix aplicado (H-1):** la escritura del override se **DIFIERE**. `resolveSealedMarketForAlta` ya no escribe:
+  VALIDA y devuelve un descriptor (`SealedManualOverride`). El caller (`createItem` / `batchCreate` por-línea)
+  aplica el override con `applySealedManualOverride(...)` **DENTRO de la misma `tx`** y **SOLO tras crear la
+  pieza**. `pricing.manualOverride(...)` y `audit.log(...)` aceptan ahora un `tx?: Prisma.TransactionClient`
+  opcional y lo usan cuando se les pasa. En el alta **single** se envolvió `alta + override` en un
+  `$transaction` propio (antes no tenía). Atomicidad total: sin override sin pieza, ni pieza sin su override;
+  un rollback o una línea fallida **revierten también el override** → jamás queda un `PriceReference
+  isManualOverride` huérfano. Money-safe intacto: sin precio → PRICE_PENDING (nunca 0), el override solo llena
+  hueco `null`, `>0`, auditado.
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts` (`resolveCreation`,
+  `resolveSealedMarketForAlta`, `applySealedManualOverride`, `createItem`, `batchCreate`);
+  `backend/src/modules/pricing/pricing.service.ts` (`manualOverride` con `tx`);
+  `backend/src/modules/audit/audit.service.ts` (`log` con `tx`).
+- **Tests:** `test/inventory.sealed-product-alta.spec.ts` (describe **H-1** — override participa del cliente
+  tx del alta single/lote; fallo de creación de pieza ⇒ sin override huérfano ni audit).
 
 ### H-P38-3 · `subtype` sin match cae a `'collection'` en vez de `→ null` (spec) (arquitecto + backend)
 - **Dueño:** **arquitecto** (decisión de spec) + backend (implementación). **Severidad:** Media. **Estado:** ABIERTA.

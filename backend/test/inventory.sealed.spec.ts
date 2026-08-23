@@ -22,6 +22,7 @@ const settings = { getNumber: jest.fn() } as unknown as SettingsService;
 function buildPrisma() {
   const created: any[] = [];
   const prisma: any = {
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
     card: { findUnique: jest.fn().mockResolvedValue({ id: 'c1', rarity: null }) },
     nextFolio: jest.fn().mockResolvedValue('INV-000009'),
     inventoryItem: {

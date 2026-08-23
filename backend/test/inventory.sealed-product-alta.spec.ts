@@ -36,6 +36,9 @@ function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
   };
 
   const prisma: any = {
+    // H-1 (SEC): el alta single/lote corre en $transaction; el mock ejecuta el callback con el mismo
+    // prisma como cliente de tx (los writes usan los mismos jest.fn, incluido el override manual).
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
     sealedProduct: {
       findUnique: jest.fn(async ({ where }: any) =>
         where.id === SEALED_PRODUCT.id && SEALED_PRODUCT.active ? SEALED_PRODUCT : null,
@@ -88,8 +91,13 @@ function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
     },
     inventoryBatch: {
       findUnique: jest.fn(async () => null),
+      create: jest.fn(async () => ({})),
+      update: jest.fn(async () => ({})),
     },
     nextFolio: jest.fn(async () => `INV-00000${created.length + 1}`),
+    nextFolios: jest.fn(async (n: number) =>
+      Array.from({ length: n }, (_, i) => `INV-B${created.length + i + 1}`),
+    ),
   };
 
   const settings = { getNumber: jest.fn(async () => 100) } as unknown as SettingsService;
@@ -192,11 +200,13 @@ describe('fallback MANUAL money-safe (v1.39.1 — vault_operator+, auditado, gat
     // Persistió PriceReference isManualOverride=true con la clave de mercado del sellado.
     expect(h.overrides.some((o) => o.isManualOverride === true && o.gradeKey === 'sealed:tcg:777')).toBe(true);
     // Auditado con la acción normativa.
+    // H-1 (SEC): la auditoría corre DENTRO de la tx del alta → segundo arg = cliente transaccional.
     expect(h.auditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'inventory.sealed_manual_market',
         after: expect.objectContaining({ tcgplayerProductId: 777, manualMarketMxnCents: 150000, isManualOverride: true }),
       }),
+      expect.anything(),
     );
     expect(h.created[0].sealedProductId).toBe('sp-etb');
   });
@@ -230,6 +240,115 @@ describe('fallback MANUAL money-safe (v1.39.1 — vault_operator+, auditado, gat
     expect(res.acquisitionCostCents).toBe(42000);
     expect(h.auditLog).toHaveBeenCalledWith(
       expect.objectContaining({ actorUserId: 'vault-op-user', action: 'inventory.sealed_manual_market' }),
+      expect.anything(),
     );
+  });
+});
+
+/**
+ * H-1 (SEC · ALTO) — ATOMICIDAD del override manual del sellado. El override (`PriceReference
+ * isManualOverride=true` + `AuditLog`) se persiste DENTRO de la misma tx del alta y SOLO tras crear la
+ * pieza. Un fallo de creación (o un rollback del `$transaction`) NO debe dejar un override huérfano
+ * (precio de dinero pinneado sin pieza) — el envenenamiento de precio global que reportó el pentest.
+ */
+describe('H-1 — override manual atómico con el alta (no override huérfano)', () => {
+  it('single: la creación de la pieza corre en $transaction y el override participa del MISMO cliente tx', async () => {
+    const h = buildHarness({ sourceOn: true, withAudit: true }); // sin mercado → path override
+    const mo = jest.spyOn((h.svc as any).pricing, 'manualOverride');
+    await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1');
+    // El alta corrió en una transacción...
+    expect(h.prisma.$transaction).toHaveBeenCalledTimes(1);
+    // ...y el override se escribió con el cliente transaccional (6º arg presente ⇒ participa de la tx;
+    // un rollback lo revierte junto con la pieza).
+    expect(mo).toHaveBeenCalledWith('card-tropius', 'sealed', 'sealed:tcg:777', 150000, 'normal', expect.anything());
+    // La auditoría también corre con el cliente transaccional.
+    expect(h.auditLog).toHaveBeenCalledWith(expect.anything(), expect.anything());
+  });
+
+  it('single: si la creación de la pieza FALLA, NO se persiste el override ni se audita (sin huérfano)', async () => {
+    const h = buildHarness({ sourceOn: true, withAudit: true });
+    h.prisma.inventoryItem.create.mockImplementationOnce(async () => {
+      throw new Error('DB boom (post-resolución, pre-commit)');
+    });
+    await expect(h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1')).rejects.toThrow();
+    // El override se aplica DESPUÉS de crear la pieza → si la creación revienta, jamás se escribe.
+    expect(h.overrides.some((o) => o.isManualOverride === true)).toBe(false);
+    expect(h.auditLog).not.toHaveBeenCalled();
+    expect(h.created).toHaveLength(0);
+  });
+
+  it('batch: una línea cuya creación de pieza FALLA queda ok:false y NO deja override huérfano', async () => {
+    const h = buildHarness({ sourceOn: true, withAudit: true });
+    // La creación de la pieza revienta SOLO para esta línea (después de resolver/validar el override).
+    h.prisma.inventoryItem.create.mockImplementationOnce(async () => {
+      throw new Error('DB boom en la línea');
+    });
+    const res = await h.svc.batchCreate(
+      { batchKey: 'bk-h1', items: [line({ manualMarketMxnCents: 150000 }) as any] },
+      'op-1',
+    );
+    expect(res.results[0].ok).toBe(false);
+    // El override NO se escribió (se aplica tras crear la pieza; la línea falló antes) → sin huérfano.
+    expect(h.overrides.some((o) => o.isManualOverride === true)).toBe(false);
+    expect(h.auditLog).not.toHaveBeenCalled();
+  });
+
+  it('batch: en el camino feliz el override se escribe con el cliente transaccional del lote', async () => {
+    const h = buildHarness({ sourceOn: true, withAudit: true });
+    const mo = jest.spyOn((h.svc as any).pricing, 'manualOverride');
+    const res = await h.svc.batchCreate(
+      { batchKey: 'bk-h1-ok', items: [line({ manualMarketMxnCents: 150000 }) as any] },
+      'op-1',
+    );
+    expect(res.results[0].ok).toBe(true);
+    // Override escrito con el 6º arg (tx) ⇒ atómico con la creación de la pieza (rollback lo revierte).
+    expect(mo).toHaveBeenCalledWith('card-tropius', 'sealed', 'sealed:tcg:777', 150000, 'normal', expect.anything());
+  });
+});
+
+/**
+ * H-2 (SEC · ALTO) — el override manual (`manualMarketMxnCents`) SOLO se acepta cuando la identidad
+ * viene de un `sealedProductId` VALIDADO (SealedProduct activo). Sin él —incluido el path legacy con el
+ * `tcgplayerProductId`+`tcgplayerGroupId` que envía el cliente— se rechaza 422, sin anclar un override
+ * de dinero a un productId arbitrario (que se saltaría SEALED_PRODUCT_NOT_FOUND / SEC-A1).
+ */
+describe('H-2 — manualMarketMxnCents exige sealedProductId validado', () => {
+  const noSpid = (over: any = {}) => ({
+    productType: 'sealed' as const,
+    cardId: 'card-tropius',
+    acquisitionType: 'compra' as const,
+    ...over,
+  });
+
+  it('manualMarketMxnCents SIN sealedProductId → 422 MANUAL_MARKET_NOT_ALLOWED, sin override ni pieza', async () => {
+    const h = buildHarness({ sourceOn: true, withAudit: true });
+    await expect(
+      h.svc.createItem(noSpid({ manualMarketMxnCents: 500000 }) as any, 'op-1'),
+    ).rejects.toMatchObject({ code: 'MANUAL_MARKET_NOT_ALLOWED', status: 422 });
+    expect(h.overrides.some((o) => o.isManualOverride === true)).toBe(false);
+    expect(h.auditLog).not.toHaveBeenCalled();
+    expect(h.created).toHaveLength(0);
+  });
+
+  it('manualMarketMxnCents por el path LEGACY (tcgplayerProductId del cliente, sin sealedProductId) → 422, sin override', async () => {
+    const h = buildHarness({ sourceOn: true, withAudit: true });
+    await expect(
+      h.svc.createItem(
+        noSpid({ tcgplayerProductId: 424242, tcgplayerGroupId: 900, manualMarketMxnCents: 999999 }) as any,
+        'op-1',
+      ),
+    ).rejects.toMatchObject({ code: 'MANUAL_MARKET_NOT_ALLOWED', status: 422 });
+    // NUNCA se ancló un override al productId 424242 arbitrario del cliente.
+    expect(h.overrides.some((o) => o.gradeKey === 'sealed:tcg:424242')).toBe(false);
+    expect(h.overrides.some((o) => o.isManualOverride === true)).toBe(false);
+    expect(h.created).toHaveLength(0);
+  });
+
+  it('CON sealedProductId validado, el override SÍ procede (ancla derivada server-side, no del cliente)', async () => {
+    const h = buildHarness({ sourceOn: true, withAudit: true }); // sin mercado
+    const res = await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1');
+    expect(res.acquisitionCostCents).toBe(150000);
+    // El override quedó anclado al productId DERIVADO del SealedProduct (777), no a uno del cliente.
+    expect(h.overrides.some((o) => o.isManualOverride === true && o.gradeKey === 'sealed:tcg:777')).toBe(true);
   });
 });
