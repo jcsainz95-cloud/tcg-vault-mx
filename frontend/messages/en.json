@@ -1775,7 +1775,8 @@
           "pricingProviderRaw": "Per-card reference provider (raw)",
           "pricingProviderGraded": "Per-card reference provider (graded)",
           "pricingProviderSealed": "Per-card reference provider (sealed)",
-          "catalogSyncFromDate": "Catalog sync boundary"
+          "catalogSyncFromDate": "Catalog sync boundary",
+          "gradedEstimatesEnabled": "Estimated value if graded (hook)"
         },
         "units": {
           "cents": "in MXN pesos",
@@ -1783,6 +1784,15 @@
           "fraction": "fraction [0,1)",
           "int": "whole number",
           "text": "text"
+        },
+        "onOff": {
+          "on": "On",
+          "off": "Off"
+        },
+        "gradedEstimates": {
+          "note": "The master switch for «estimated value if graded» lives here; the grading cost tiers, the minimum upside, freshness and grades are edited in M2 · Catalog and pricing. While off, the storefront shows no estimated figure at all.",
+          "warningTitle": "This turns on a commercial claim",
+          "warning": "With this dial on, the storefront publishes estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer. That legal text has NOT been signed off by the owner (nor legally reviewed). Turn it on only if that decision has been made: it changes no sale price, valuation or quote, but it does change what the store claims."
         }
       },
       "audit": {

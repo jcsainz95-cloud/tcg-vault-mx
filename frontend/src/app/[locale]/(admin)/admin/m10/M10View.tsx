@@ -16,12 +16,15 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 
-type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider';
+type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
 interface DialSpec {
   key: keyof SettingsDTO;
   kind: DialKind;
 }
+
+/** Interruptores del contrato (`on | off`). Select cerrado: un typo no puede apagar una feature. */
+const ON_OFF_OPTIONS = ['off', 'on'] as const;
 
 /**
  * Proveedores válidos de referencia de precio POR-CARTA (contrato §M10 · `PriceSource`).
@@ -57,20 +60,28 @@ const DIALS: DialSpec[] = [
   { key: 'pricingProviderGraded', kind: 'provider' },
   { key: 'pricingProviderSealed', kind: 'provider' },
   { key: 'catalogSyncFromDate', kind: 'text' },
+  // v1.44-graded-estimate (§M10): interruptor MAESTRO del «gancho de grading». Seed `off`
+  // fail-closed. Sin este dial en la UI, la única forma de encender la feature era `curl` — que es
+  // exactamente lo que el criterio 92(e) («desde el back-office, sin redeploy, auditado») no acepta.
+  { key: 'gradedEstimatesEnabled', kind: 'onOff' },
 ];
+
+/** El dial que NO es un número más: encenderlo publica una afirmación comercial (ver aviso). */
+const GRADED_ESTIMATES_KEY: keyof SettingsDTO = 'gradedEstimatesEnabled';
 
 const PAGE_SIZE = 20;
 
 /** Convierte el valor del dial a texto de input (cents → pesos). */
 function toInputValue(kind: DialKind, value: number | string | undefined): string {
-  if (value == null) return '';
+  // Un interruptor ausente en la respuesta se lee como `off` (fail-closed, igual que el seed).
+  if (value == null) return kind === 'onOff' ? 'off' : '';
   if (kind === 'cents') return String(Number(value) / 100);
   return String(value);
 }
 
 /** Convierte el texto del input al valor del dial (pesos → cents). */
 function fromInputValue(kind: DialKind, text: string): number | string {
-  if (kind === 'text' || kind === 'provider') return text;
+  if (kind === 'text' || kind === 'provider' || kind === 'onOff') return text;
   const n = Number(text);
   if (kind === 'cents') return Math.round(n * 100);
   if (kind === 'int') return Math.round(n);
@@ -102,6 +113,13 @@ export function M10View() {
   }
 
   const dirtyKeys = Object.keys(draft);
+
+  // Valor EFECTIVO del interruptor del gancho (borrador si se tocó, si no el del servidor).
+  const gradedEstimatesOn =
+    currentText({ key: GRADED_ESTIMATES_KEY, kind: 'onOff' }) === 'on';
+  // Si el dueño acaba de TOCAR el interruptor y queda encendido, el aviso sube a `role="alert"`:
+  // ese es el momento de leerlo, no después de guardar.
+  const gradedEstimatesTurningOn = gradedEstimatesOn && GRADED_ESTIMATES_KEY in draft;
 
   function buildPatch(): Partial<SettingsDTO> {
     const patch: Record<string, number | string> = {};
@@ -159,11 +177,13 @@ export function M10View() {
             <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {DIALS.map((spec) =>
-                  spec.kind === 'provider' ? (
+                  spec.kind === 'provider' || spec.kind === 'onOff' ? (
                     <Select
                       key={spec.key}
                       label={t(`dials.labels.${spec.key}`)}
-                      options={PRICE_PROVIDER_OPTIONS.map((v) => ({ value: v, label: v }))}
+                      options={(spec.kind === 'onOff'
+                        ? ON_OFF_OPTIONS.map((v) => ({ value: v, label: t(`dials.onOff.${v}`) }))
+                        : PRICE_PROVIDER_OPTIONS.map((v) => ({ value: v, label: v })))}
                       value={currentText(spec)}
                       onChange={(e) =>
                         setDraft((prev) => ({ ...prev, [spec.key]: e.target.value }))
@@ -185,6 +205,24 @@ export function M10View() {
                   ),
                 )}
               </div>
+
+              {/* El «gancho de grading» NO es un dial más: encenderlo PUBLICA una afirmación
+                  comercial (§N) cuyo texto legal —el disclaimer de §N.5— todavía espera el visto
+                  bueno del humano. La UI lo dice antes de guardar, no después. El resto de su
+                  config (escalones de costo, margen mínimo, frescura, grados) vive en M2. */}
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-muted">{t('dials.gradedEstimates.note')}</p>
+                {gradedEstimatesOn && (
+                  <Banner
+                    variant="warning"
+                    role={gradedEstimatesTurningOn ? 'alert' : 'status'}
+                    title={t('dials.gradedEstimates.warningTitle')}
+                  >
+                    {t('dials.gradedEstimates.warning')}
+                  </Banner>
+                )}
+              </div>
+
               <div className="flex items-center gap-3">
                 <Button
                   disabled={dirtyKeys.length === 0}

@@ -8,6 +8,7 @@ import { FxSection } from './sections/FxSection';
 import { TierRulesSection } from './sections/TierRulesSection';
 import { TierMapSection } from './sections/TierMapSection';
 import { SealedSpreadsSection } from './sections/SealedSpreadsSection';
+import { GradedEstimatesSection } from './sections/GradedEstimatesSection';
 import { CatalogSyncSection } from './sections/CatalogSyncSection';
 
 /**
@@ -50,6 +51,10 @@ export function M2View() {
 
       {/* Sección 5b · spreads de VENTA del SELLADO por presentación (v1.23-sealed-sales) */}
       <SealedSpreadsSection />
+
+      {/* Sección 5c · config del «gancho de grading»: escalones de costo de gradeo + margen mínimo
+          + frescura (v1.44-graded-estimate, criterio 92(e)). El interruptor maestro vive en M10. */}
+      <GradedEstimatesSection />
 
       {/* §19 · los TRES grupos de sync de catálogo (Datos/Catálogo/Avanzado) + tabla de sets + modales */}
       <CatalogSyncSection catalog={catalog} />

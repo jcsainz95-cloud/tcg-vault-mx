@@ -67,6 +67,8 @@ import type {
   SealedGroupDetailResponse,
   VaultSealedResponse,
   SealedSpreadsDTO,
+  GradedEstimateConfigDTO,
+  GradedEstimateConfigInput,
   Finish,
   GradingCompany,
   AcquisitionType,
@@ -588,6 +590,47 @@ export async function updateSealedSpreads(input: SealedSpreadsDTO): Promise<Seal
   return delay({
     spreadPctBySubtype: { ...fx.mockSealedSpreads.spreadPctBySubtype },
     fallbackPct: fx.mockSealedSpreads.fallbackPct,
+  });
+}
+
+// ---------- Admin M2 · config del «gancho de grading» (contrato §M2, `super_admin`) ----------
+/**
+ * Config completa del gancho (contrato `GET /admin/pricing/graded-estimates`). **Nada de esto viaja
+ * al cliente**: es el gate de curaduría (escalones de costo + margen mínimo), la frescura y los
+ * grados. `enabled` llega como **espejo read-only** del dial M10.
+ */
+export async function getGradedEstimateConfig(): Promise<GradedEstimateConfigDTO> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateConfigDTO>('/admin/pricing/graded-estimates');
+  }
+  return delay({
+    ...fx.mockGradedEstimateConfig,
+    gradingCostTiers: fx.mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
+  });
+}
+
+/**
+ * Actualiza la config (contrato `PUT /admin/pricing/graded-estimates`). Body **parcial por campo**,
+ * salvo `gradingCostTiers`, que se **reemplaza COMPLETO** cuando viene: un patch por fila no puede
+ * validar contigüidad. `enabled` **no se envía nunca** (se edita en M10; el backend lo ignoraría).
+ *
+ * La validación I1–I7 (tabla no vacía, contigüidad sin huecos ni solapes, escalón final abierto,
+ * `costMxnCents ≥ 1`…) es **server-side y fail-closed**; el editor la previene en cliente para no
+ * gastar un viaje, pero **la fuente de verdad es el 422 del backend**, que se muestra tal cual.
+ */
+export async function updateGradedEstimateConfig(
+  input: GradedEstimateConfigInput,
+): Promise<GradedEstimateConfigDTO> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateConfigDTO>('/admin/pricing/graded-estimates', {
+      method: 'PUT',
+      body: input,
+    });
+  }
+  fx.setMockGradedEstimateConfig(input);
+  return delay({
+    ...fx.mockGradedEstimateConfig,
+    gradingCostTiers: fx.mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
   });
 }
 

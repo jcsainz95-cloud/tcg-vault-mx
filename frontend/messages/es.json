@@ -1775,7 +1775,8 @@
           "pricingProviderRaw": "Proveedor de referencia por-carta (raw)",
           "pricingProviderGraded": "Proveedor de referencia por-carta (graded)",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
-          "catalogSyncFromDate": "Frontera de sync de catálogo"
+          "catalogSyncFromDate": "Frontera de sync de catálogo",
+          "gradedEstimatesEnabled": "Valor estimado si se gradea (gancho)"
         },
         "units": {
           "cents": "en pesos MXN",
@@ -1783,6 +1784,15 @@
           "fraction": "fracción [0,1)",
           "int": "número entero",
           "text": "texto"
+        },
+        "onOff": {
+          "on": "Encendido",
+          "off": "Apagado"
+        },
+        "gradedEstimates": {
+          "note": "El interruptor maestro del «valor estimado si se gradea» vive aquí; los escalones de costo de gradeo, el margen mínimo, la frescura y los grados se editan en M2 · Catálogo y precios. Apagado, la tienda no muestra ninguna cifra estimada.",
+          "warningTitle": "Enciende una afirmación comercial",
+          "warning": "Con este dial encendido, la tienda publica cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer. Ese texto legal todavía NO tiene el visto bueno del dueño (ni revisión legal). Enciéndelo solo si esa decisión ya se tomó: no cambia ningún precio de venta, valuación ni cotización, pero sí lo que la tienda afirma."
         }
       },
       "audit": {
