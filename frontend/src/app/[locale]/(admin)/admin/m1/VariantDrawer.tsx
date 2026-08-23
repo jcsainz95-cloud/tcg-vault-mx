@@ -276,7 +276,10 @@ export function VariantDrawer(props: VariantDrawerProps) {
               <section className="flex flex-col gap-3 border-t border-border pt-4">
                 <h3 className="text-h3">{t('removeQuick')}</h3>
                 <QuickRemoveSection
-                  target={quickAddTarget}
+                  // `QuickAddTarget.cardId` es opcional (H-P38-5: el alta de sellado por identidad lo
+                  // omite), pero la BAJA rápida SIEMPRE opera una variante anclada a una Card real —
+                  // aquí `cardId` es el prop (string) del drawer, así que se re-afirma para el target.
+                  target={{ ...quickAddTarget, cardId }}
                   removableCount={removableCount}
                   onToast={onToast}
                   onRemoved={() => {

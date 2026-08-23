@@ -159,8 +159,14 @@
 - **Disparador:** cuando el arquitecto alinee el naming de precios de grupo en el contrato; backend renombra
   el campo del DTO de `buildGroups` en el mismo pase.
 
-#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled en 3 sitios (riesgo de drift)
-- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled en 3 sitios (riesgo de drift) — RESUELTO (2026-08-23)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo. **Estado:** **RESUELTO**.
+- **Fix (2026-08-23):** extraído el helper único `variantKey({cardId, productType, gradeKey, finish})` en
+  `backend/src/common/variant-key.ts` (produce EXACTAMENTE el mismo string `cardId|productType|gradeKey|finish`)
+  y reusado en los **3 sitios** de `catalog.service.ts` (`variantOverride` en `fetchSellable`, `refFromBatch`,
+  `buildGroups`). Sin cambio de comportamiento (misma clave); elimina el drift silencioso. Test del helper en
+  `backend/test/tech-debt-backend.spec.ts` («P-30 H2 · variantKey produce la clave K exacta»). *(Nota: los
+  ≥6 sitios de SB-D3 quedan FUERA de este pase — este cierre acota los 3 de `catalog.service.ts`.)*
 - **Deuda:** la clave `K` = `${cardId}|${productType}|${gradeKey}|${finish}` está **escrita a mano en 3
   sitios** de `catalog.service.ts`: `~L177` (`variantOverride` en `fetchSellable`), `~L191` (`refFromBatch`) y
   `~L429` (`buildGroups`). Si la definición de `K` cambia (orden de campos, separador, componentes), hay que
@@ -3027,21 +3033,34 @@
 - **Disparador:** el arquitecto confirma el valor canónico (`null` vs `'collection'`) en el contrato; backend
   ajusta el default del mapeo.
 
-### H-P38-4 · Check-then-create no atómico en `upsertSealedProduct`/`ensureSetGroup`/`linkGroup` (backend)
-- **Dueño:** backend. **Severidad:** Media (concurrencia). **Estado:** ABIERTA.
-- **Síntoma:** los helpers `upsertSealedProduct`, `ensureSetGroup` y `linkGroup` hacen **check-then-create**
-  (findFirst/findUnique seguido de create) sin atomicidad → bajo concurrencia (dos syncs/altas simultáneos)
-  pueden intentar crear el mismo registro y romper por unique, o duplicar el enlace. Ruta:
+### H-P38-4 · Check-then-create no atómico en `upsertSealedProduct`/`ensureSetGroup`/`linkGroup` (backend) — RESUELTO (2026-08-23)
+- **Dueño:** backend. **Severidad:** Media (concurrencia). **Estado:** **RESUELTO**.
+- **Síntoma:** los helpers `upsertSealedProduct`, `ensureSetGroup` y `linkGroup` hacían **check-then-create**
+  (findUnique seguido de create) sin atomicidad → bajo concurrencia (dos syncs/altas simultáneos)
+  podían intentar crear el mismo registro y romper por unique, o duplicar el enlace. Ruta:
   `backend/src/modules/inventory/sealed-product.service.ts`.
-- **Disparador:** próximo toque al módulo de sellado. Fix: `upsert` atómico / `create … onConflict` /
-  `$transaction` con unique constraint como guardia.
+- **Fix (2026-08-23):** patrón `create(...).catch(P2002 → converger)` (helper `isUniqueViolation`,
+  `Prisma.PrismaClientKnownRequestError.code === 'P2002'`). (1) `upsertSealedProduct`: si el `create` pierde
+  la carrera, relee por `tcgplayerProductId` y aplica el `update` (closure `applyUpdate`) **preservando la
+  semántica**: NO pisa un subtype curado por humano (`subtypeInferred=false`), refresca market/name/etc.,
+  money-safe (sin precio ⇒ `marketUsdCents` null, jamás 0). (2) `ensureSetGroup`: P2002 ⇒ devuelve `false`
+  (NO doble-cuenta `groupsPopulated`) y converge el label. (3) `linkGroup`: mantiene el pre-check `dup` (409
+  normal) y traduce el P2002 de la carrera al **mismo 409 CONFLICT** (semántica de enlace duplicado
+  preservada); el soft-delete acotado y el poblado de `CardSet.tcgcsvGroupId` quedan intactos. Un error
+  NO-P2002 se propaga (no se traga). Tests: `backend/test/sealed-product.service.spec.ts` (describe
+  «concurrencia atómica (H-P38-4)»: converge-sin-pisar-curado, error no-P2002 propaga, ensureSetGroup no
+  doble-cuenta, linkGroup carrera → 409).
 
-### H-P38-5 · Frontend manda `cardId = SealedProduct.id` como relleno (frontend)
-- **Dueño:** **frontend**. **Severidad:** Media. **Estado:** ABIERTA (enrutada al dueño frontend).
-- **Síntoma:** el cliente de captura envía `cardId` poblado con el `SealedProduct.id` como valor de relleno
-  (placeholder) cuando debería mandar la identidad correcta (o dejar que el backend derive la `cardId` ancla
-  desde `sealedProductId`). Riesgo de confundir identidades en el alta. Fix: enviar `sealedProductId` y no
-  reutilizar su id como `cardId`.
+### H-P38-5 · Frontend manda `cardId = SealedProduct.id` como relleno (frontend) — **RESUELTA (2026-08-23)**
+- **Dueño:** **frontend**. **Severidad:** Media. **Estado:** **RESUELTA**.
+- **Síntoma:** el cliente de captura enviaba `cardId` poblado con el `SealedProduct.id` como valor de relleno
+  (placeholder) cuando debía dejar que el backend derive la `cardId` ancla desde `sealedProductId`. Riesgo de
+  confundir identidades en el alta.
+- **Fix (2026-08-23):** `SealedAddFlow.tsx` ya **no** pasa `cardId` en el `target` del alta de sellado (se omite,
+  antes `cardId: selected.id`). `QuickAddTarget.cardId` pasó a **opcional** (`cardId?: string`, ya opcional en
+  `BatchInventoryItemInput` del contrato v1.39). El mutation de `QuickAdd` ya omitía cardId bajo identidad sellada
+  (`usesSealedIdentity ? {} : { cardId }`), así que el alta funciona idéntica; ahora la identidad es inequívoca
+  (el backend deriva la Card ancla desde `sealedProductId`). Sin cambio de contrato.
 
 ### H-P38-6 · Nota de migración `ADD VALUE` (enum) para el runbook de devops (devops)
 - **Dueño:** **devops**. **Severidad:** Baja (operacional). **Estado:** ABIERTA (nota de runbook).
@@ -3641,29 +3660,29 @@
   los `ConfigSetting` de precio en prod → si solo hay tiered, eliminar la(s) rama(s) muerta(s) de
   `toPriceRuleSet`.
 
-### H4 · Seed `DEFAULT_SETTINGS` sin validación de invariante premium→pct en runtime (Baja, backend)
-- **Dónde:** `backend/src/modules/settings/settings.constants.ts` (`DEFAULT_SETTINGS`).
-- **Estado actual:** el seed `DEFAULT_SETTINGS` **no** se valida en runtime contra el invariante
-  premium→pct; hoy el seed **cumple** el invariante, pero nada lo afirma automáticamente.
-- **Impacto:** bajo; es un **guard contra ediciones futuras** del seed que pudieran violar el
-  invariante sin que ningún test lo detecte.
-- **No bloquea:** el seed actual cumple el invariante; la falta es de red de seguridad, no de
-  correctness hoy.
-- **Disparador:** próximo toque del seed. Dirección: añadir un **unit test** que afirme
-  `premiumFixedOffenders(seedMap, seedBuyTiers) === []` sobre el seed `DEFAULT_SETTINGS`.
+### H4 · Seed `DEFAULT_SETTINGS` sin validación de invariante premium→pct en runtime (Baja, backend) — RESUELTO (2026-08-23)
+- **Dónde:** `backend/src/modules/settings/settings.constants.ts` (`SETTING_DEFAULTS`). **Estado:** **RESUELTO**.
+- **Estado (histórico):** el seed **no** se afirmaba contra el invariante premium→pct; cumplía, pero nada
+  lo verificaba automáticamente.
+- **Fix (2026-08-23):** `premiumFixedOffenders` se **extrajo** del `PricingController` (antes privado) a
+  `backend/src/common/pricing-tiers.ts` como función pura exportada (lógica idéntica; el controller ahora
+  delega). Nuevo unit test en `backend/test/tech-debt-backend.spec.ts` afirma
+  `premiumFixedOffenders(seedMap, seedBuyTiers) === []` sobre el seed (`PRICING_TIER_MAP` +
+  `BUYLIST_PRICE_RULES.tierRules`), más sanity (detecta infractor si una premium se mapea a un tier fixed) y
+  el caso «tier sin regla de compra ⇒ no infractor». **El seed NO se tocó** (solo se añadió el test/guard).
 
-### H5 · `premiumByPattern` incompleto (falta `mega`/`blackwhite`) — clase R-5 money-losing latente (Media, backend)
-- **Dónde:** `backend/src/common/rarity-catalog.ts` → `premiumByPattern`.
-- **Estado actual:** `premiumByPattern` (rarity-catalog) **no incluye** el patrón `mega`/`blackwhite`.
-  Los 3 casos de hoy están cubiertos por **alias explícitos + seed**, así que hoy no hay fuga. Pero una
-  futura variante string tipo `"Mega X"` **no-alias** caería a `premium:false` → **bin holo barato**
-  (money-losing: se cotizaría/valuaría como no-premium una rareza premium).
-- **Impacto:** medio/latente (**clase R-5 money-losing**): la fuga solo se materializa ante una rareza
-  premium NUEVA no cubierta por alias; los casos actuales están cerrados.
-- **No bloquea:** los casos actuales están cubiertos por alias + seed; el endurecimiento es preventivo.
-- **Disparador:** al aparecer una variante premium por string no cubierta por alias (o al ampliar el
-  catálogo de rarezas). Dirección: **endurecer el patrón** `premiumByPattern` para reconocer
-  `mega`/`blackwhite` (y en general no depender solo de alias para clasificar premium).
+### H5 · `premiumByPattern` incompleto (falta `mega`/`blackwhite`) — clase R-5 money-losing latente (Media, backend) — RESUELTO (2026-08-23)
+- **Dónde:** `backend/src/common/rarity-catalog.ts` → `premiumByPattern`. **Estado:** **RESUELTO**.
+- **Estado (histórico):** `premiumByPattern` no incluía el patrón `mega`/`blackwhite`; una futura variante
+  string tipo `"Mega X"`/`"Black White Y"` **no-alias** caería a `premium:false` → bin holo barato
+  (money-losing clase R-5).
+- **Fix (2026-08-23):** añadidos los substrings `'mega'` y `'blackwhite'` a `PREMIUM_SUBSTRINGS`
+  (consistentes con las canónicas premium ya mapeadas: `MEGA_ATTACK_RARE`→Mega Rare y Black White Rare →
+  T3). Ahora una variante premium NUEVA no-alias resuelve a premium **por patrón** (sobre-incluir es inocuo:
+  cotiza por % de mercado; ya no cae al bin fijo barato). Sin cambio para las no-premium (Common/Uncommon/
+  Rare/Rare Holo siguen `false`). Tests en `backend/test/tech-debt-backend.spec.ts` («P-34 H5 …»):
+  `isPremiumCanonicalRarity('Mega Brilliant Rare')`/`('Black White Star Rare')` no-alias ⇒ `true`; canónicas
+  ya mapeadas siguen premium; no-premium intactas.
 
 ### H8 · Backfill `POST /admin/catalog/unify-rarities` debe correr post-deploy — divergencia cosmética hasta entonces (Baja, operativa — recordatorio para runbook de **devops**)
 - **Dónde:** operativa/runbook (no es código de `backend/`). Endpoint: `POST /admin/catalog/unify-rarities`.
@@ -3677,3 +3696,39 @@
   `POST /admin/catalog/unify-rarities` corre **tras el deploy** (para eliminar la divergencia cosmética
   del editor). Recordatorio enrutado a `docs/DEVOPS_NOTES.md`; el backend solo lo anota aquí (no toca
   runbook ni CI, que son de devops).
+
+### Pase de deuda de display/UX del cotizador (2026-08-23) — H1/H3/H4 (frontend)
+
+> Pago de deuda **segura y de valor**, dueño **frontend**. Todo es **display/UX** (money-safe intacto) y
+> conserva el visual del rediseño. Detalle en `docs/FRONTEND_NOTES.md` («Pase de deuda técnica frontend»).
+
+#### Cotizador H3 · La teja de PRODUCTO SEPARADO no se sombreaba «En el carrito» (lo pidió el humano) — **RESUELTA (2026-08-23)**
+- **Dónde:** `frontend/src/components/master-set/MasterSetBinder.tsx` (`SeparateProductTile` + su render ~L531).
+- **Síntoma:** las tejas de variante base (`QuoterTile`) recibían `inCart` y se sombreaban «ya en el carro», pero
+  la teja de **producto separado** (`SeparateProductTile`, deck_exclusive/promo) NO recibía la prop → un producto
+  separado ya agregado quedaba sin sombrear (inconsistencia visible en el cotizador).
+- **Fix:** se propaga `inCart` a `SeparateProductTile` con la MISMA identidad del carrito que las demás tejas,
+  añadiendo el `productId` (un producto separado es una LÍNEA propia): `isInCart?.(cardId, finish, productId)`.
+  Reusa EXACTO el sombreado de `QuoterTile` (`bg-surface-2` + `shadow-[inset_0_0_0_1px_var(--color-border-strong)]`
+  + `data-in-cart` + etiqueta textual `quoterInCart` en `text-success`, doble canal). Solo aplica en quoter
+  (fuera del quoter `inCart` es undefined). Sin cambio de contrato.
+
+#### Cotizador H1 · Flash de layout en desktop (carrito JS-driven) — **RESUELTA (mitigación mínima, 2026-08-23)**
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` (contenedor grid + `useMediaQuery`).
+- **Síntoma:** el carrito desktop se decidía 100% en JS (`useMediaQuery('(min-width:1024px)')`), first-paint móvil
+  que saltaba a 2 columnas al hidratar → layout shift visible de la columna `main`.
+- **Fix (mitigación mínima):** la ESTRUCTURA de 2 columnas se declara ahora por CSS
+  (`lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start`, mismo umbral 1024px que `isDesktopCart`), NO por
+  JS. El track de 360px queda reservado desde el first-paint en desktop ⇒ `main` nace con su ancho final y no
+  refluye. **Trade-off (aceptado):** el CONTENIDO del carrito (`<aside>` / FAB+drawer) SIGUE siendo un ÚNICO render
+  JS-driven (`isDesktopCart`) para no duplicar estado/foco ni el focus-trap; en desktop el `<aside>` aparece al
+  hidratar dentro de la columna ya reservada (rellena hueco, sin reflujo de `main`), y el FAB móvil es `fixed`
+  (fuera del flujo). El fix del todo (SSR-aware del viewport o extracción del carrito) reestructuraría de más;
+  se aplicó la mitigación mínima. Documentado en `docs/FRONTEND_NOTES.md`.
+
+#### Cotizador H4 · Doc drift «gemelo de FinishLabel» → `FinishMark` — **RESUELTA (2026-08-23)**
+- **Dónde:** comentario de `frontend/src/components/domain/RarityLabel.tsx` + `docs/FRONTEND_NOTES.md` (P-44).
+- **Síntoma:** el comentario describía `RarityLabel` como «gemela del `FinishLabel`»; el hermano canónico del
+  rediseño que vive JUNTO a `RarityLabel` en `components/domain` es **`FinishMark`** (`FinishLabel` es una etiqueta
+  local del storefront en `_shared/`). Drift de referencia.
+- **Fix:** corregida la referencia a **`FinishMark`** en ambos sitios.

@@ -5,6 +5,9 @@ import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { computeSalePriceForRarity, SalesRule, PriceRuleSet } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
+// P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
+// antes interpolada a mano en 3 sitios de este archivo (riesgo de drift silencioso). Mismo string.
+import { variantKey } from '../../common/variant-key';
 // v1.33 (P-27, §4.31d): master set combinado en el STOREFRONT. `GET /catalog/sets`+`/facets` PLIEGAN
 // el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
 // presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
@@ -174,7 +177,12 @@ export class CatalogService {
           item.productType === 'sealed'
             ? null
             : variantOverrides.get(
-                `${item.cardId}|${item.productType}|${this.pricing.gradeKeyFor(item)}|${item.finish}`,
+                variantKey({
+                  cardId: item.cardId,
+                  productType: item.productType,
+                  gradeKey: this.pricing.gradeKeyFor(item),
+                  finish: item.finish,
+                }),
               ) ?? null,
       });
       if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
@@ -188,7 +196,14 @@ export class CatalogService {
       const gk = this.pricing.sealedMarketGradeKeyForItem(item);
       return gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
     }
-    return refs.get(`${item.cardId}|${item.productType}|${this.pricing.gradeKeyFor(item)}|${item.finish}`);
+    return refs.get(
+      variantKey({
+        cardId: item.cardId,
+        productType: item.productType,
+        gradeKey: this.pricing.gradeKeyFor(item),
+        finish: item.finish,
+      }),
+    );
   }
 
   /**
@@ -426,7 +441,12 @@ export class CatalogService {
   ) {
     const groups = new Map<string, typeof rows>();
     for (const r of rows) {
-      const k = `${r.item.cardId}|${r.item.productType}|${this.pricing.gradeKeyFor(r.item)}|${r.item.finish}`;
+      const k = variantKey({
+        cardId: r.item.cardId,
+        productType: r.item.productType,
+        gradeKey: this.pricing.gradeKeyFor(r.item),
+        finish: r.item.finish,
+      });
       const arr = groups.get(k);
       if (arr) arr.push(r);
       else groups.set(k, [r]);

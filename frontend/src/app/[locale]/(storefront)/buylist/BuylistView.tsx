@@ -522,9 +522,17 @@ export function BuylistView() {
 
         {/* P-42 · en DESKTOP el grid y el carrito conviven en 2 columnas persistentes (el carrito
             fijo a la derecha, a la par del grid); en móvil el grid ocupa todo el ancho y el carrito
-            vive en el sheet (FAB + drawer, abajo). El layout se decide en JS (isDesktopCart) para
-            renderizar el carrito UNA sola vez (sin DOM/foco duplicado por breakpoints CSS). */}
-        <div className={cn(isDesktopCart && 'grid grid-cols-[minmax(0,1fr)_360px] items-start')}>
+            vive en el sheet (FAB + drawer, abajo).
+            H1 (anti-flash): la ESTRUCTURA de 2 columnas se declara por CSS (`lg:grid` = ≥1024px, el
+            MISMO umbral que `isDesktopCart`), NO por JS. Así el track de 360px queda RESERVADO desde
+            el first-paint en desktop y la columna del grid (main) nace con su ancho final — se elimina
+            el layout shift de main (antes: móvil full-width → salto a 2 columnas tras hidratar).
+            Trade-off (documentado en FRONTEND_NOTES): el CONTENIDO del carrito (`<aside>`) sigue siendo
+            un ÚNICO render JS-driven (`isDesktopCart`) para no duplicar estado/foco ni el focus-trap;
+            por eso, en desktop, el aside aparece al hidratar DENTRO de la columna ya reservada (rellena
+            hueco, sin reflujo de main). El FAB móvil es `fixed` (fuera del flujo del grid), así que su
+            breve aparición pre-hidratación tampoco desplaza el layout. */}
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
         {/* P-16 (§18.1.4): la grilla es la única columna, a TODO el ancho. `pb-24` para que
             el FAB fijo nunca tape la última fila de tejas. */}
         <main className="gutter min-w-0 pb-24 pt-8">

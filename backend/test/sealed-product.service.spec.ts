@@ -1,8 +1,16 @@
+import { Prisma } from '@prisma/client';
 import { SealedProductService } from '../src/modules/inventory/sealed-product.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { TcgcsvSealedBulkProvider } from '../src/modules/pricing/providers/tcgcsv-sealed.provider';
 import { inferSealedSubtype, SEALED_SUBTYPE_META } from '../src/modules/inventory/sealed-subtype';
+
+/** Fabrica un error P2002 (violación UNIQUE) como el que lanza Prisma bajo una carrera de `create`. */
+const p2002 = () =>
+  new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: 'test',
+  });
 
 /**
  * v1.39-sealed-product-module (M-39, P-38 · ARCHITECTURE §4.34 · API_CONTRACT §M1) — SealedProductService.
@@ -400,6 +408,90 @@ describe('SealedProductService.syncCandidates / linkGroup', () => {
     });
     await expect(
       svcOf(prisma, buildProvider()).linkGroup('set-1', { tcgplayerGroupId: 200, kind: 'promo_collection' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 });
+  });
+});
+
+// ===========================================================================
+// H-P38-4 (TECH_DEBT): check-then-create → escritura ATÓMICA guardada contra P2002 bajo concurrencia.
+// Se simula la carrera: entre el findUnique (null) y el create de ESTA llamada, OTRO sync ya insertó la
+// misma fila (unique) → Prisma lanza P2002 → el perdedor CONVERGE en vez de romper.
+// ===========================================================================
+describe('SealedProductService — concurrencia atómica (H-P38-4)', () => {
+  const SET = { id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: 100 };
+
+  it('upsertSealedProduct: create pierde la carrera (P2002) → converge por update SIN pisar el subtype curado', async () => {
+    const prisma = buildPrisma({
+      sets: [{ ...SET }],
+      sealedSetGroups: [{ id: 'g1', setId: 'set-1', tcgplayerGroupId: 100, kind: 'set_main', label: null }],
+      sealedProducts: [],
+    });
+    const provider = buildProvider({
+      productsByGroup: { 100: [{ productId: 11, name: 'Booster Box' }] }, // el nombre inferiría 'box'
+      pricesByGroup: { 100: [{ tcgplayerProductId: 11, marketCents: 5000 }] },
+    });
+    const store = prisma._stores.sealedProducts;
+    // La carrera: el GANADOR insertó el row 11 (curado a 'tin' por un humano) justo antes de nuestro create.
+    (prisma.sealedProduct.create as jest.Mock).mockImplementationOnce(async () => {
+      store.push({
+        id: 'raced', setId: 'set-1', tcgplayerProductId: 11, tcgplayerGroupId: 100, name: 'Booster Box',
+        subtype: 'tin', subtypeInferred: false, isPrincipal: false, origin: 'set_main', imageUrl: null,
+        marketUsdCents: null, active: true,
+      });
+      throw p2002();
+    });
+
+    const res = await svcOf(prisma, provider).sync({ setId: 'set-1' });
+
+    // Converge: NO duplica (1 sola fila), el subtype CURADO 'tin' se preserva, y el market se actualiza.
+    expect(store).toHaveLength(1);
+    expect(store[0].subtype).toBe('tin');
+    expect(store[0].marketUsdCents).toBe(5000);
+    expect(res.productsUpserted).toBe(1);
+  });
+
+  it('upsertSealedProduct: un error NO-P2002 en create SÍ se propaga (no se traga)', async () => {
+    const prisma = buildPrisma({
+      sets: [{ ...SET }],
+      sealedSetGroups: [{ id: 'g1', setId: 'set-1', tcgplayerGroupId: 100, kind: 'set_main', label: null }],
+      sealedProducts: [],
+    });
+    const provider = buildProvider({ productsByGroup: { 100: [{ productId: 11, name: 'Booster Box' }] } });
+    (prisma.sealedProduct.create as jest.Mock).mockImplementationOnce(async () => {
+      throw new Error('db down');
+    });
+    await expect(svcOf(prisma, provider).sync({ setId: 'set-1' })).rejects.toThrow('db down');
+  });
+
+  it('ensureSetGroup: create pierde la carrera (P2002) → NO rompe y NO doble-cuenta groupsPopulated', async () => {
+    const prisma = buildPrisma({
+      sets: [{ ...SET, tcgcsvGroupId: 100 }],
+      sealedSetGroups: [], // sin grupos previos → ensureSetGroup intentará crear
+    });
+    const provider = buildProvider({ productsByGroup: { 100: [{ productId: 11, name: 'Booster Box' }] } });
+    const groupStore = prisma._stores.sealedSetGroups;
+    // La carrera: otro sync creó el SealedSetGroup(set_main, 100) justo antes de nuestro create.
+    (prisma.sealedSetGroup.create as jest.Mock).mockImplementationOnce(async () => {
+      groupStore.push({ id: 'g-raced', setId: 'set-1', tcgplayerGroupId: 100, kind: 'set_main', label: null });
+      throw p2002();
+    });
+
+    const res = await svcOf(prisma, provider).sync({ setId: 'set-1' });
+
+    // No rompe; el grupo existe una sola vez; ESTA llamada no lo contó como creado (lo creó el otro).
+    expect(groupStore.filter((g: any) => g.tcgplayerGroupId === 100)).toHaveLength(1);
+    expect(res.groupsPopulated).toBe(0);
+  });
+
+  it('linkGroup: create pierde la carrera (P2002) → se traduce al MISMO 409 CONFLICT', async () => {
+    // dup pre-check pasa (no hay fila), pero el create choca con una inserción concurrente → 409.
+    const prisma = buildPrisma({ sets: [{ ...SET, tcgcsvGroupId: null }], sealedSetGroups: [] });
+    const provider = buildProvider({ groups: [{ groupId: 300, name: 'PRE Promos' }] });
+    (prisma.sealedSetGroup.create as jest.Mock).mockImplementationOnce(async () => {
+      throw p2002();
+    });
+    await expect(
+      svcOf(prisma, provider).linkGroup('set-1', { tcgplayerGroupId: 300, kind: 'promo_collection' }),
     ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 });
   });
 });

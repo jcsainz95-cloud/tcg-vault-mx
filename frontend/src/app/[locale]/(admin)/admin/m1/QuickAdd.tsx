@@ -31,7 +31,10 @@ import { localUid } from '@/components/master-set/capture';
  */
 
 export interface QuickAddTarget {
-  cardId: string;
+  // v1.39 (P-38): OPCIONAL — requerido para raw/graded y para sealed SIN `sealedProductId`. Con
+  // `sealedProductId` el backend DERIVA la Card ancla, así que el alta por identidad NO envía cardId
+  // (H-P38-5: nunca reusar el `SealedProduct.id` como relleno de tipo — deja que el backend ancle).
+  cardId?: string;
   productType: 'raw' | 'sealed';
   finish: Finish;
   sealedSubtype?: SealedSubtype | null;

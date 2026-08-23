@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { SealedGroupKind, SealedProduct, SealedSubtype } from '@prisma/client';
+import { Prisma, SealedGroupKind, SealedProduct, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
@@ -95,6 +95,16 @@ function toSetRef(s: {
 /** sortOrder canónico del subtipo (§4.34c); fallback al final si el subtype no está en el mapa. */
 function sortOrderOf(subtype: SealedSubtype): number {
   return SEALED_SUBTYPE_META[subtype]?.sortOrder ?? SEALED_SORT_ORDER_FALLBACK;
+}
+
+/**
+ * H-P38-4 (TECH_DEBT): ¿el error es una violación de UNIQUE (Prisma P2002)? Bajo concurrencia dos
+ * syncs/altas simultáneos pueden perder la carrera del `create` de una fila con constraint unique
+ * (`SealedProduct.tcgplayerProductId`, `SealedSetGroup.setId_tcgplayerGroupId`); el perdedor recibe
+ * P2002 y converge en vez de romper. Money-safe: solo endurece la escritura, no toca precios.
+ */
+function isUniqueViolation(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
 }
 
 /**
@@ -400,14 +410,43 @@ export class SealedProductService {
     origin: SealedGroupKind;
     marketUsdCents: number | null;
   }): Promise<void> {
+    const inferred = inferSealedSubtype(input.name);
+    const now = new Date();
+
+    // UPDATE preservando la semántica: NO pisa un subtype curado por humano (subtypeInferred=false); si
+    // sigue inferido, lo refresca. Cerrado en un closure para reusarlo en la ruta normal y en la de carrera.
+    const applyUpdate = (row: SealedProduct) =>
+      this.prisma.sealedProduct.update({
+        where: { id: row.id },
+        data: {
+          setId: input.setId,
+          tcgplayerGroupId: input.tcgplayerGroupId,
+          name: input.name,
+          cleanName: input.cleanName,
+          origin: input.origin,
+          imageUrl: input.imageUrl,
+          ...(row.subtypeInferred && inferred ? { subtype: inferred } : {}),
+          marketUsdCents: input.marketUsdCents,
+          ...(input.marketUsdCents != null ? { marketUpdatedAt: now } : {}),
+          active: true,
+        },
+      });
+
     const existing = await this.prisma.sealedProduct.findUnique({
       where: { tcgplayerProductId: input.tcgplayerProductId },
     });
-    const inferred = inferSealedSubtype(input.name);
-    const now = new Date();
-    if (!existing) {
-      const subtype = inferred ?? 'collection'; // sin match → 'collection' (curable; jamás null en BD)
-      const meta = SEALED_SUBTYPE_META[subtype];
+    if (existing) {
+      await applyUpdate(existing);
+      return;
+    }
+
+    // H-P38-4 (TECH_DEBT): el `create` va guardado contra la carrera. Si entre el findUnique de arriba y
+    // este create OTRO sync insertó la MISMA `tcgplayerProductId` (unique), Prisma lanza P2002 → en vez de
+    // romper, releemos y CONVERGEMOS con el update (respetando el subtype curado). Money-safe: sin precio
+    // ⇒ marketUsdCents null, JAMÁS 0.
+    const subtype = inferred ?? 'collection'; // sin match → 'collection' (curable; jamás null en BD)
+    const meta = SEALED_SUBTYPE_META[subtype];
+    try {
       await this.prisma.sealedProduct.create({
         data: {
           setId: input.setId,
@@ -425,24 +464,13 @@ export class SealedProductService {
           active: true,
         },
       });
-      return;
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      const raced = await this.prisma.sealedProduct.findUnique({
+        where: { tcgplayerProductId: input.tcgplayerProductId },
+      });
+      if (raced) await applyUpdate(raced);
     }
-    await this.prisma.sealedProduct.update({
-      where: { id: existing.id },
-      data: {
-        setId: input.setId,
-        tcgplayerGroupId: input.tcgplayerGroupId,
-        name: input.name,
-        cleanName: input.cleanName,
-        origin: input.origin,
-        imageUrl: input.imageUrl,
-        // subtype curado por humano (subtypeInferred=false) NO se pisa; si sigue inferido, se refresca.
-        ...(existing.subtypeInferred && inferred ? { subtype: inferred } : {}),
-        marketUsdCents: input.marketUsdCents,
-        ...(input.marketUsdCents != null ? { marketUpdatedAt: now } : {}),
-        active: true,
-      },
-    });
   }
 
   /** Asegura una fila SealedSetGroup (idempotente por unique). Devuelve true si la CREÓ. */
@@ -461,10 +489,24 @@ export class SealedProductService {
       }
       return false;
     }
-    await this.prisma.sealedSetGroup.create({
-      data: { setId, tcgplayerGroupId, kind, label },
-    });
-    return true;
+    // H-P38-4 (TECH_DEBT): `create` guardado contra la carrera. Si otro sync creó el MISMO
+    // (setId, tcgplayerGroupId) (unique) entre el findUnique y este create, Prisma lanza P2002 → NO se
+    // creó por ESTA llamada (devuelve false, no doble-cuenta `groupsPopulated`) y converge el label.
+    try {
+      await this.prisma.sealedSetGroup.create({
+        data: { setId, tcgplayerGroupId, kind, label },
+      });
+      return true;
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      const raced = await this.prisma.sealedSetGroup.findUnique({
+        where: { setId_tcgplayerGroupId: { setId, tcgplayerGroupId } },
+      });
+      if (raced && label && raced.label !== label) {
+        await this.prisma.sealedSetGroup.update({ where: { id: raced.id }, data: { label } });
+      }
+      return false;
+    }
   }
 
   // ============================ CANDIDATES / LINK (super_admin) ============================
@@ -519,9 +561,20 @@ export class SealedProductService {
       /* money-safe: el enlace no depende del label */
     }
 
-    const row = await this.prisma.sealedSetGroup.create({
-      data: { setId, tcgplayerGroupId: body.tcgplayerGroupId, kind: body.kind, label },
-    });
+    // H-P38-4 (TECH_DEBT): el pre-check `dup` cubre el caso normal, pero bajo concurrencia dos linkGroup
+    // simultáneos pueden pasarlo ambos y chocar en el `create` (unique setId_tcgplayerGroupId). El
+    // perdedor recibe P2002 → se traduce al MISMO 409 CONFLICT (semántica preservada: enlace duplicado).
+    let row;
+    try {
+      row = await this.prisma.sealedSetGroup.create({
+        data: { setId, tcgplayerGroupId: body.tcgplayerGroupId, kind: body.kind, label },
+      });
+    } catch (e) {
+      if (isUniqueViolation(e)) {
+        throw BusinessException.conflict('CONFLICT', 'group already linked to this set');
+      }
+      throw e;
+    }
     if (body.kind === 'set_main' && set.tcgcsvGroupId == null) {
       await this.prisma.cardSet.update({
         where: { id: setId },

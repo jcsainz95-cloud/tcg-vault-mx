@@ -395,7 +395,9 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
 
                 <QuickAddSection
                   target={{
-                    cardId: selected.id, // ignorado en el batch (manda sealedProductId); placeholder de tipo
+                    // H-P38-5: NO se envía cardId — con `sealedProductId` el backend deriva la Card
+                    // ancla. Antes se mandaba `selected.id` (un SealedProduct.id) como relleno de tipo,
+                    // confiando en que el batch lo ignoraba; ahora se omite (identidad inequívoca).
                     productType: 'sealed',
                     finish: 'normal',
                     sealedSubtype: subtype,

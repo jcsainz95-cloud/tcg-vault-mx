@@ -61,6 +61,12 @@ const PREMIUM_SUBSTRINGS = [
   'character', // Character Rare / Super Rare
   'gold', // Gold (Secret) Rare
   'prism', // Prism Star
+  // H5 (P-34, TECH_DEBT): patrones que ANTES solo cubrían alias explícitos → una variante string NUEVA
+  // no-alias («Mega X», «Black White Y») caería a premium:false = bin holo barato (money-losing clase
+  // R-5). Consistentes con las canónicas premium ya mapeadas (`MEGA_ATTACK_RARE`→Mega Rare, Black White
+  // Rare → T3). Sobre-incluir premium es inocuo (cotiza por % de mercado); sub-incluir una chase pierde $.
+  'mega', // Mega Rare / Mega Hyper Rare / MEGA_ATTACK_RARE
+  'blackwhite', // Black White Rare (y variantes futuras «Black White …»)
 ];
 /** Familia V/EX/GX como TOKEN (sobre el string con espacios) para evitar falsos positivos. */
 const PREMIUM_WORDS = /\b(v|vmax|vstar|vunion|v-union|ex|gx)\b/;

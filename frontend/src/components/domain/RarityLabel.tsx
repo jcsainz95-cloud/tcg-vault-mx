@@ -6,7 +6,7 @@ import { cn } from '@/lib/cn';
 
 /**
  * Etiqueta discreta de la RAREZA de una carta (P-44): Illustration Rare, Full Art, Special
- * Illustration Rare, Hyper Rare… Gemela del `FinishLabel` — renglón mono muted, sin pastilla,
+ * Illustration Rare, Hyper Rare… Gemela del `FinishMark` — renglón mono muted, sin pastilla,
  * respeta la dirección del rediseño (el texto no compite con el arte). Vive en `components/domain`
  * (como `FinishMark`) para que la compartan la teja de catálogo, el cotizador y el binder Master Set.
  *

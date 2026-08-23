@@ -535,6 +535,10 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                           priceCents={tile.priceCents}
                           isQuoter={isQuoter}
                           quoteResult={tile.quoteResult}
+                          // P-42: MISMA identidad que las tejas de variante base, pero con
+                          // `productId` (un producto separado es una LÍNEA propia del carrito). Así el
+                          // sombreado «En el carrito» es consistente en TODAS las tejas del cotizador.
+                          inCart={isInCart?.(tile.cell.cardId, tile.finish, tile.product.productId)}
                           onAdd={
                             onAddProduct
                               ? (quote) => onAddProduct(tile.cell, tile.product, tile.finish, quote)
@@ -894,6 +898,7 @@ function SeparateProductTile({
   priceCents,
   isQuoter,
   quoteResult,
+  inCart,
   onAdd,
 }: {
   cell: MasterSetCardCellDTO;
@@ -902,6 +907,8 @@ function SeparateProductTile({
   priceCents: number | null;
   isQuoter?: boolean;
   quoteResult?: BuylistBatchQuoteResultDTO;
+  /** P-42 (SOLO quoter): ¿este producto separado (por su `productId`) ya está en el carrito? → teja sombreada. */
+  inCart?: boolean;
   onAdd?: (quote: BuylistQuoteResponse) => void;
 }) {
   const t = useTranslations('masterSet');
@@ -920,7 +927,14 @@ function SeparateProductTile({
 
   return (
     <div
-      className="flex h-full flex-col"
+      // P-42: sombreado «ya está en el carro» IDÉNTICO al de QuoterTile (pozo de papel + regla de
+      // tinta discreta). Doble canal: la banda visual la acompaña la etiqueta textual de abajo
+      // (`data-in-cart` para pruebas). Solo aplica en quoter (fuera del quoter `inCart` es undefined).
+      data-in-cart={inCart ? 'true' : undefined}
+      className={cn(
+        'flex h-full flex-col',
+        inCart && 'bg-surface-2 shadow-[inset_0_0_0_1px_var(--color-border-strong)]',
+      )}
       aria-label={t('separateProductAria', {
         name: product.name,
         kind: kindLabel,
@@ -964,6 +978,12 @@ function SeparateProductTile({
           {quoteError && (
             <p role="alert" className="mt-1 font-mono text-[10px] leading-snug text-accent">
               {t(`separateProductErrorCode.${quoteError}`)}
+            </p>
+          )}
+          {/* P-42: marca textual «En el carrito» (doble canal del sombreado), idéntica a QuoterTile. */}
+          {inCart && (
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.06em] text-success">
+              {t('quoterInCart')}
             </p>
           )}
           <div className="mt-auto pt-2.5">

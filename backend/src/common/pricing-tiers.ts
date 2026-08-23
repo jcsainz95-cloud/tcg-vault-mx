@@ -11,6 +11,8 @@
  * el invariante se valida sobre el MODO de la regla de compra vigente, no sobre esta etiqueta.
  */
 
+import { isPremiumCanonicalRarity } from './rarity-catalog';
+
 export type TierId = 'T0' | 'T1' | 'T2' | 'T3' | 'T4';
 
 export interface PricingTier {
@@ -44,4 +46,32 @@ export function isTierId(v: unknown): v is TierId {
 /** Devuelve el `PricingTier` de un id, o `undefined` si el id no es válido. */
 export function getTier(id: string): PricingTier | undefined {
   return BY_ID.get(id as TierId);
+}
+
+/** Un par `(rareza, tier)` que VIOLA el invariante money-safe premium→pct (§4.33d). */
+export interface PremiumFixedOffender {
+  rarity: string;
+  tierId: TierId;
+}
+
+/**
+ * §4.33d — pares `(rareza, tier)` que VIOLARÍAN el invariante money-safe: una rareza `premium:true`
+ * (catálogo canónico, §4.28e) mapeada a un tier cuya regla de COMPRA es `fixed`. Una rareza premium
+ * jamás debe cotizar al bin fijo barato de bulk, aunque el dueño edite el mapa/las reglas. Un tier SIN
+ * regla de compra (undefined) NO es infractor (cae al fallback pct = money-safe). El eje de venta NO
+ * entra al invariante (un `fixed` de venta es un piso, §4.33d).
+ *
+ * P-34 H4 (TECH_DEBT): extraído del `PricingController` (antes privado) a `common/` para poder afirmarlo
+ * como unit test directo sobre el seed `DEFAULT_SETTINGS` (guard anti-edición del seed). Lógica idéntica.
+ */
+export function premiumFixedOffenders(
+  tierMap: Record<string, TierId>,
+  buyTierRules: Partial<Record<TierId, { mode: string; value: number } | undefined>>,
+): PremiumFixedOffender[] {
+  const out: PremiumFixedOffender[] = [];
+  for (const [rarity, tierId] of Object.entries(tierMap)) {
+    const rule = isTierId(tierId) ? buyTierRules[tierId] : undefined;
+    if (rule?.mode === 'fixed' && isPremiumCanonicalRarity(rarity)) out.push({ rarity, tierId });
+  }
+  return out;
 }

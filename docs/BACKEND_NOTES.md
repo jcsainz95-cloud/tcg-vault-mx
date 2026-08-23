@@ -4,6 +4,26 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0. Pago de deuda técnica backend (2026-08-23) — 4 ítems RESUELTOS, money-safe intacto
+
+> Pase de deuda (solo `backend/`). Cierra `H-P38-4`, `P-34 H4`, `P-34 H5`, `P-30 H2` de `TECH_DEBT.md`.
+> Sin cambio de contrato ni de schema; sin cambio de comportamiento money-safe. Gate: **suite unit+contrato
+> completa VERDE** (164 suites / 1615 tests), typecheck y lint limpios.
+
+- **`variantKey(...)` (NUEVO helper compartido)** — `backend/src/common/variant-key.ts`. Única definición de
+  la clave de variante `K = cardId|productType|gradeKey|finish`; reusada en los 3 call-sites de
+  `catalog.service.ts` (antes hand-rolled). Mismo string exacto. Otros roles: si necesitan la clave de
+  agrupación de variantes, **importar `variantKey`** en vez de interpolar a mano (evita drift). *(Los ≥6
+  sitios de SB-D3 siguen abiertos: este pase solo tocó los 3 de `catalog.service.ts`.)*
+- **`premiumFixedOffenders(...)` reubicado** — de `PricingController` (privado) a
+  `backend/src/common/pricing-tiers.ts` (exportado, lógica idéntica; el controller delega). Es el invariante
+  money-safe §4.33d (premium→pct de COMPRA). Ahora unit-testeable directo sobre el seed.
+- **`rarity-catalog.premiumByPattern`**: +patrones `mega`/`blackwhite` (red money-safe R-5). Una variante
+  string premium NUEVA no-alias ya no cae al bin holo barato.
+- **`sealed-product.service`**: `upsertSealedProduct`/`ensureSetGroup`/`linkGroup` ahora atómicos frente a
+  concurrencia (`create(...).catch(P2002 → converger)`); semántica preservada (subtype curado no se pisa,
+  `linkGroup` duplicado sigue 409, soft-delete acotado intacto).
+
 ## 0-P37/P41. IVA a un solo dial + orden global por set más nuevo (2026-08-23, v1.40)
 
 > Stream «Catálogo y precios». Dos enmiendas del contrato **v1.40** (P-37 y P-41-mejora), disjuntas y

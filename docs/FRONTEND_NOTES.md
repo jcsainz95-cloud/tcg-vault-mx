@@ -4,6 +4,38 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Pase de deuda técnica frontend (2026-08-23) — cotizador H1/H3/H4 + H-P38-5
+
+> Pago de deuda **segura y de display/UX** (money-safe intacto). Detalle en `docs/TECH_DEBT.md`
+> (marcados RESUELTOS). Rediseño visual conservado.
+
+- **Cotizador H3 — sombreado «En el carrito» en TODAS las tejas** (`components/master-set/MasterSetBinder.tsx`).
+  La teja de **producto separado** (`SeparateProductTile`, deck_exclusive/promo) no recibía `inCart`, así que
+  un producto separado ya agregado no se sombreaba (las variantes base sí). Ahora se le propaga `inCart` con
+  la MISMA identidad que el carrito: `isInCart(cardId, finish, productId)` — con `productId` (una línea propia).
+  Se reusa EXACTO el sombreado de `QuoterTile` (`bg-surface-2` + `shadow-[inset_0_0_0_1px_var(--color-border-strong)]`
+  + `data-in-cart` + etiqueta textual `quoterInCart` en `text-success`). Solo aplica en quoter (fuera del quoter
+  `inCart` es undefined). Sin cambio de contrato.
+- **Cotizador H1 — flash de layout en desktop** (`buylist/BuylistView.tsx`). El carrito era JS-driven
+  (`useMediaQuery('(min-width:1024px)')`), first-paint móvil que saltaba a 2 columnas al hidratar (layout shift
+  visible de la columna `main`). Mitigación: la ESTRUCTURA de 2 columnas se declara por CSS
+  (`lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start`, mismo umbral 1024px que `isDesktopCart`), NO por
+  JS. El track de 360px queda RESERVADO desde el first-paint en desktop, así `main` nace con su ancho final y no
+  refluye. **Trade-off aceptado:** el CONTENIDO del carrito (`<aside>` / FAB+drawer) sigue siendo un ÚNICO render
+  JS-driven (`isDesktopCart`) para NO duplicar estado/foco ni el focus-trap; por eso en desktop el `<aside>` aparece
+  al hidratar dentro de la columna ya reservada (rellena el hueco, sin reflujo de `main`), y el FAB móvil es `fixed`
+  (fuera del flujo del grid), de modo que su breve aparición pre-hidratación tampoco desplaza el layout. El fix
+  limpio del todo (SSR-aware del viewport, o extraer el carrito) implicaría reestructurar de más → mitigación mínima.
+- **Cotizador H4 — doc drift** (`components/domain/RarityLabel.tsx` + este archivo). El comentario decía «gemelo de
+  `FinishLabel`»; el hermano canónico del rediseño que vive junto a `RarityLabel` en `components/domain` es
+  **`FinishMark`**. Corregido en ambos sitios.
+- **H-P38-5 — no reusar `SealedProduct.id` como `cardId` de relleno** (`admin/m1/SealedAddFlow.tsx` +
+  `QuickAdd.tsx`). El alta de sellado por identidad enviaba `cardId: selected.id` (un `SealedProduct.id`) como
+  placeholder de tipo, confiando en que el batch lo ignora. Ahora **NO se envía cardId** (se omite): con
+  `sealedProductId` el backend deriva la Card ancla. `QuickAddTarget.cardId` pasó a **opcional** (`cardId?: string`,
+  ya opcional en `BatchInventoryItemInput` del contrato); el mutation ya omitía cardId bajo identidad sellada, así
+  que el alta sigue funcionando idéntica. Sin cambio de contrato.
+
 ## §38 · P-38 — alta de sellado con entidad real `SealedProduct` (2026-08-23, contrato v1.39.1, DS §16.8a)
 
 **Qué se hizo:** evolucionar el `SealedAddFlow` de P-35 para que el alta de producto sellado nazca con
@@ -5880,8 +5912,8 @@ siguen viniendo del server; la UI solo los MUESTRA).
   DTO del contrato). En modos no-quoter no aplica (usarían la imagen chica como fallback).
 
 ### P-44 · Rareza en las tejas
-- Componente nuevo **`components/domain/RarityLabel.tsx`** (gemelo de `FinishLabel`: mono muted, sin
-  pastilla). El VALOR de rareza es taxonomía ABIERTA de pokemontcg.io → se pinta crudo con
+- Componente nuevo **`components/domain/RarityLabel.tsx`** (gemelo de `FinishMark`: mono muted, sin
+  pastilla; vive en `components/domain` junto al `FinishMark` canónico del rediseño). El VALOR de rareza es taxonomía ABIERTA de pokemontcg.io → se pinta crudo con
   `lang="en"` (no se traduce); lo único i18n es el prefijo accesible (`catalog.rarityAria` →
   «Rareza: …»). Devuelve `null` para sellado o rareza vacía.
 - **Cableado:** `CatalogTile` (catálogo), grid plano del cotizador (`BuylistView`) y `TileHeader`
