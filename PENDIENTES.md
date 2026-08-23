@@ -67,17 +67,26 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
-#### P-46 · El botón «Sincronizar» del alta de sellado no descarga presentaciones (prod)
-- **Reportado por el humano:** en «Agregar producto sellado», al elegir un set (ej. **Pitch Black 2026**)
-  sale «Aún no descargamos las presentaciones de este set» con «0 presentaciones · 0 con precio · 0
-  pendientes». El botón **SINCRONIZAR** **no funciona** (no descarga nada). Sin presentaciones no se puede
-  dar de alta sellado por selección.
-- **Contexto:** la sync pega a `POST /admin/inventory/sealed-products/sync` → tcgcsv.com. En el E2E local
-  degradaba **limpio** (502 UPSTREAM por el proxy del sandbox que bloquea tcgcsv.com). En **prod** hay que
-  determinar por qué no jala: (a) ¿Railway tiene **egress real a tcgcsv.com**?, (b) ¿qué **error** sale en
-  los logs al pulsar Sincronizar?, (c) ¿el botón **dispara** la llamada (Network) o no hace nada (frontend)?
-- **Rol:** por confirmar según los logs — **devops** (egress/config de red) y/o **backend** (endpoint sync)
-  y/o **frontend** (si el botón no dispara). Diagnóstico primero.
+#### P-46 · Sincronizar sellado devuelve «0 presentaciones»: el set no resuelve grupo TCGCSV (prod)
+- **Reportado por el humano:** al Sincronizar sellado de **Pitch Black (2026)** (y Chaos Rising) sale «0
+  presentaciones». **El botón SÍ funciona** — la sync corre.
+- **Causa raíz (logs prod 2026-08-23):** `sealed-products/sync: set Pitch Black ... **sin grupo resoluble
+  (ni curado ni name-match)** → nada que sincronizar (money-safe: no se adivina)`. El set no está vinculado
+  a su **grupo de TCGCSV** (`tcgcsvGroupId`): ni curado a mano ni por name-match. Sin grupo no hay
+  presentaciones que bajar. (Egress a tcgcsv.com OK — no hubo 502/UPSTREAM.)
+- **Causa confirmada (name-match backend):** `matchScore` en `sealed-product.service.ts:777` usa
+  `normalizeSetName` sobre el nombre directo, pero TCGCSV nombra los grupos con **prefijo de código**
+  («SV08: Pitch Black» → `sv08pitchblack`) vs el catálogo local («Pitch Black» → `pitchblack`) → no empatan
+  → 0.5 < umbral 0.9 → no auto-resuelve. Ya existe `setNameCandidates` (ppt-set-mapper:145) que quita ese
+  prefijo, pero `matchScore` no la usa. **Afecta a CUALQUIER set con prefijo en TCGCSV** (no solo Pitch Black).
+- **Fix (EN CURSO, backend):** `matchScore` tolerante al prefijo (reusa `setNameCandidates`) para que los
+  matches legítimos suban a ≥0.9 y auto-resuelvan; **conserva** la salvaguarda «≥0.9 Y único en el tope →
+  si empate, null (no adivina)». Con tests. Money-safe.
+- **Workaround inmediato (humano, super_admin):** M1 → Sellado → «Agregar producto sellado» → elegir set →
+  enlace «Curar/vincular grupo» (`SealedGroupLinker`) → elegir el candidato de TCGCSV (aparece con confianza
+  media) → «Vincular» → re-sync automático baja las presentaciones.
+- **Follow-up (frontend, no bloqueante):** UX del modal cuando la sync da 0 por «sin grupo resoluble» —
+  guiar explícitamente al linker en vez de solo mostrar «0 presentaciones».
 
 #### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
 - Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
