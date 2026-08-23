@@ -5,7 +5,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
 import { getCardDetail } from '@/lib/api';
-import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
+import type {
+  CardDTO,
+  GroupedListingDetailResponse,
+  GroupedListingDTO,
+  ListingDTO,
+} from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import { useCart } from '@/lib/cart';
@@ -15,6 +20,10 @@ import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { PendingPriceLabel } from '../../_shared/PendingPriceLabel';
 import { StockBadge, stockVariantForSingle } from '../../_shared/StockBadge';
+import { Fact } from '../../_shared/Fact';
+import { GradingEstimateBlock } from '../../_shared/grading/GradingEstimateBlock';
+import { blockEstimatesOf } from '../../_shared/grading/estimates';
+import { GradingFootnoteBoundary } from '../../_shared/grading/GradingFootnote';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
@@ -65,11 +74,14 @@ export function CardDetailView({ cardId }: { cardId: string }) {
       }
     >
       {query.data && (
-        <>
+        // §21 R3.(3): UN solo booleano gobierna la nota al pie y toda cifra estimada de esta página.
+        // La ficha NO está gateada por el ROI (contrato v1.44): se pinta lo que haya dato.
+        <GradingFootnoteBoundary active={blockEstimatesOf(query.data) !== null}>
           <Detail
             card={query.data.card}
             groups={query.data.listings}
             units={query.data.units}
+            detail={query.data}
             tab={tab}
             setTab={setTab}
             // Sin riesgo de mismatch SSR: useCart inicia `ids=[]` y lo puebla
@@ -82,30 +94,9 @@ export function CardDetailView({ cardId }: { cardId: string }) {
             }}
           />
           <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
-        </>
+        </GradingFootnoteBoundary>
       )}
     </QueryState>
-  );
-}
-
-/** Celda de la ficha: etiqueta mono arriba, dato debajo, reglas alrededor. */
-function Fact({
-  label,
-  children,
-  note,
-  className,
-}: {
-  label: string;
-  children: React.ReactNode;
-  note?: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn('border-b border-border py-6', className)}>
-      <div className="eyebrow">{label}</div>
-      <div className="mt-2.5">{children}</div>
-      {note && <div className="mt-2 font-mono text-[11px] leading-none text-muted">{note}</div>}
-    </div>
   );
 }
 
@@ -124,6 +115,7 @@ function Detail({
   card,
   groups,
   units,
+  detail,
   tab,
   setTab,
   cartIds,
@@ -132,6 +124,8 @@ function Detail({
   card: CardDTO;
   groups: GroupedListingDTO[];
   units: ListingDTO[];
+  /** v1.44: respuesta completa — `gradedEstimates` vive en la RAÍZ, no en los grupos. */
+  detail: GroupedListingDetailResponse;
   tab: 'description' | 'condition';
   setTab: (v: 'description' | 'condition') => void;
   cartIds: string[];
@@ -242,6 +236,11 @@ function Detail({
           )}
 
           <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">{t('referenceExplainer')}</p>
+
+          {/* «Gancho de grading» (§21.3): junto al precio, DESPUÉS del referenceExplainer —esa prosa
+              separa las dos zonas de dinero— y ANTES de «Ejemplares disponibles». Nunca dentro de la
+              retícula de precio: mismo grid sería la misma categoría que una cifra real (R2). */}
+          <GradingEstimateBlock detail={detail} className="mt-7" />
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. */}
           <h2 className="mt-10 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>

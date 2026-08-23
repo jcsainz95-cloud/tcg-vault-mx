@@ -90,3 +90,32 @@ describe('CatalogView · filtros iniciales desde la URL (enlaces del Home)', () 
     expect(screen.queryByRole('button', { name: /oro/ })).toBeNull();
   });
 });
+
+/**
+ * v1.44-graded-estimate · §21 R3: acoplamiento llamada ↔ nota al pie A NIVEL DE PÁGINA.
+ * «Ninguna cifra estimada en una página cuyo DOM no contenga la nota al pie, y ninguna nota
+ * huérfana»: la condición es UNA sola y se reevalúa al filtrar/paginar.
+ */
+describe('CatalogView · §21.4b nota al pie de Compra', () => {
+  it('si la página muestra ≥1 badge, la página renderiza su nota al pie completa', async () => {
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+
+    // Los fixtures traen cartas destacadas (gate de ROI resuelto server-side).
+    expect(screen.getAllByText('ESTIMADO SI SE GRADEA').length).toBeGreaterThan(0);
+    expect(document.getElementById('nota-estimado')).toBeInTheDocument();
+    expect(screen.getByText(/INFORMACIÓN ILUSTRATIVA/)).toBeInTheDocument();
+    // La nota cierra con el enlace de regreso a los resultados (viaje de ida y vuelta).
+    expect(document.getElementById('catalogo-resultados')).toBeInTheDocument();
+  });
+
+  it('una página SIN badges (pestaña Gradeadas) no pinta cifra ni nota: la condición es la misma', async () => {
+    urlParams.current = new URLSearchParams('type=graded');
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+
+    expect(screen.queryByText('ESTIMADO SI SE GRADEA')).not.toBeInTheDocument();
+    expect(document.getElementById('nota-estimado')).toBeNull();
+    expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
+  });
+});

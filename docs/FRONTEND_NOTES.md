@@ -4,6 +4,118 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## «Valor estimado si se gradea» — gancho de grading (2026-08-23, v1.44-graded-estimate / §21)
+
+> Rama `claude/psa-graded-card-value-gmhv5u`. Implementa PROJECT §N (v2.0), contrato
+> **v1.44-graded-estimate** y **DESIGN_SYSTEM §21**. Cambio **aditivo**: sin `gradedEstimates` /
+> `gradingHighlight` en la respuesta, todas las superficies se ven **exactamente como hoy**.
+
+### Piezas nuevas
+| Archivo | Qué es |
+|---|---|
+| `(storefront)/_shared/grading/estimates.ts` | Predicados de render (`renderableEstimates`, `blockEstimatesOf`, `badgeEstimatesOf`, `pageHasGradingFigures`, `latestCapturedDate`). **Única** fuente de verdad de «¿hay cifra que pintar?». |
+| `(storefront)/_shared/grading/GradingFootnote.tsx` | `GradingFootnoteBoundary` (contexto + nota), `GradingNoteCall` (la llamada `*`) y la nota al pie. |
+| `(storefront)/_shared/grading/GradingEstimateBlock.tsx` | Bloque de la ficha (§21.3). |
+| `(storefront)/_shared/grading/GradingEstimateBadge.tsx` | Badge de la teja / vitrina (§21.5). |
+| `(storefront)/_shared/grading/HypotheticalGradeChip.tsx` | Chip de grado hipotético, borde punteado (§21.2). |
+| `(storefront)/_home/GradingGemsShelf.tsx` | Vitrina «Joyas para gradear» + `useGradingGems()` (§21.6). |
+| `(storefront)/_shared/Fact.tsx` | La celda `Fact` de la ficha, **extraída tal cual** de `CardDetailView` para reusarla en el bloque. Único ensanchamiento: `label` pasa de `string` a `ReactNode` (la etiqueta del gancho lleva el chip). Cero cambio visual. |
+
+Tocados: `types/contract.ts` (espejo del contrato), `lib/api.ts` (`gradingHighlight` + `sort=grading_showcase`), `lib/mock/fixtures.ts`, `catalog/CatalogTile.tsx`, `catalog/CatalogView.tsx`, `catalog/[cardId]/CardDetailView.tsx`, `(storefront)/page.tsx`, `messages/{es,en}.json`.
+
+### Cómo se resolvió el acoplamiento llamada ↔ nota (§21 R3.3) — lo importante
+El requisito es que **un refactor no pueda dejar cifras huérfanas**. En vez de repetir la condición
+en cada sitio, hay **un solo booleano por página** que hace **dos cosas a la vez**:
+
+```tsx
+<GradingFootnoteContext.Provider value={active ? anchors : null}>
+  {children}
+  {active && <GradingEstimateNote />}
+</GradingFootnoteContext.Provider>
+```
+
+- **Toda** cifra (`GradingEstimateBlock`, `GradingEstimateBadge`) y la propia `GradingNoteCall`
+  **exigen el contexto**: sin boundary activa devuelven `null`. Mover un badge a una página que no
+  hospeda la nota **no produce una cifra sin aviso: produce nada** (fail-closed, la dirección
+  correcta del error en una superficie comercial).
+- El `active` de cada página se deriva **siempre** de los helpers de `estimates.ts`, nunca de una
+  regla copiada: ficha `blockEstimatesOf(detail) !== null`; Compra
+  `pageHasGradingFigures(catalogQuery.data?.data)` (se reevalúa al filtrar/paginar, §21.4b); home
+  `pageHasGradingFigures(gemsOf(gems.data))` — la **misma** query que alimenta la vitrina, deduplicada
+  por `queryKey`, así que vitrina y nota no pueden divergir.
+- El `Provider` se renderiza **siempre** (solo conmuta su valor): cambiar el tipo de nodo al paginar
+  desmontaría la vista y perdería el estado de filtros.
+- Enlace de regreso: la boundary recibe `returnToId` (ficha → la llamada, que ahí **sí** es enlace;
+  Compra → `#catalogo-resultados`; home → `#joyas-para-gradear`). Todos con
+  `scroll-mt-[calc(var(--app-header-h,0px)+16px)]`, nada de `top` hardcodeado.
+- Tests que lo fijan: `gradingEstimates.test.tsx` («fuera de una boundary activa, ninguna cifra se
+  pinta»), `CatalogView.test.tsx` (página con badges ⇒ nota; pestaña Gradeadas ⇒ ni cifra ni nota) y
+  `CardDetailView.test.tsx` (ficha con bloque ⇒ nota completa sin interacción).
+
+### Iteración por `gradeValue`, nunca por índice
+`GradedEstimateDTO[]` se recorre leyendo `gradeValue`/`gradingCompany`; **no hay ningún `[0]`** ni
+supuesto de longitud. Añadir o quitar un grado (diales `grades` / `highlightGrades`) **no toca el
+cliente**: el bloque pinta una celda por elemento y el badge un renglón por elemento. La única
+lectura posicional es **tipográfica** (la primera cifra es el premio mayor, §N.3/§21.1), que es
+justo lo que el diseño pide y no rompe si cambia el conjunto de grados.
+
+### Colores y tipografía — cero tokens nuevos
+- **Ningún hex literal** y **ningún token nuevo**. Solo utilidades ya mapeadas a tokens semánticos:
+  `text-text`, `text-muted`, `border-border`, `border-border-strong`, `border-text`, `text-accent`.
+  Por eso la trampa de §2.3 (que aún lista el bermellón retirado `#B44B3A` en vez del rojo TCG HUNT
+  vigente) es inocua: `text-accent` resuelve a `--color-accent` en runtime.
+- El acento tiene **un solo empleo**: la llamada `*` y su marcador en la nota (R1). Ninguna cifra,
+  etiqueta, fondo o borde del gancho lleva color. Sin verde de dinero, sin rojo de oferta, sin cajas.
+- Voz (R2): el precio de venta sigue en sans 500 30px; los estimados son **mono tabular** 22/17px
+  (20/16 móvil) en un contenedor aparte con su regla de tinta, y **el bloque no contiene ningún
+  precio real**.
+
+### Money-safe
+`renderableEstimates` descarta cualquier elemento sin `referenceMxnCents > 0` o con
+`status !== 'priced'`, y devuelve **`null`** (no `[]`) cuando no queda nada — así es imposible
+renderizar un contenedor vacío por descuido. Nunca `$0`, ni `—`, ni «pendiente», ni **skeleton**: la
+vitrina del home es la excepción ratificada a §8.1 (aparece resuelta o no aparece).
+
+### i18n
+Claves nuevas bajo `catalog.gradingEstimate`, `catalog.gradingBadge`, `catalog.gradingNote` y
+`home.gradingGems`, en ES y EN (el test de paridad las cubre). El disclaimer se pinta **una clave por
+párrafo con rich text** (`<b>` → `<strong>`), jamás concatenando. Dos desviaciones deliberadas del
+esquema de §21.11, ambas para poder copiar el texto aprobado **sin reescribirlo**:
+- **`p1…p6`** (no `p1…p5`): el texto de PROJECT §N.5 tiene **seis** párrafos y el humano lo quiso
+  íntegro; el diagrama de §21.4b omite el primero.
+- **Sin `psa10Label` / `psa9Label`**: serían claves por grado cableado, que contradicen la regla de
+  iteración del contrato. La etiqueta de celda es `ifGradesLabel` («SI SALE») + el chip, que ya
+  compone «SI SALE PSA 10» para cualquier grado que mande el servidor.
+- `catalog.gradingBadge.approx` es nueva y existe por accesibilidad: el glifo `≈` va `aria-hidden` y
+  su lectura («aproximadamente») viaja en `sr-only` dentro del mismo `t.rich` (§21.9).
+
+### Textos MARCADOR DE POSICIÓN (pendientes de PO — §21.12 nº2)
+`catalog.gradingEstimate.provenance` y `catalog.gradingNote.callSr` usan **los puntos de partida
+propuestos por ux-ui**. Son texto legal-comercial: los fija PO (idealmente con la misma revisión
+legal del disclaimer). Cambiarlos es editar `messages/{es,en}.json`, sin tocar código.
+
+### Discrepancia REPORTADA (no resuelta por frontend)
+`DESIGN_SYSTEM §21.7` dice que la ficha **no** se pinta si falta uno de los dos grados, y lo
+justifica citando `PROJECT §N.4`. Pero `PROJECT §N.3(1)` («si solo existe uno de los dos grados, se
+muestra el que exista») y el propio `§N.4` («Ficha → se muestra **lo que haya** (PSA 10 y/o PSA 9)»)
+dicen lo contrario, igual que el contrato v1.44 («una carta con PSA 10 y sin PSA 9 emite un arreglo
+de un elemento»). Por la **regla de conflicto** de `CLAUDE.md` (PROJECT manda sobre el contrato y
+sobre el código) se implementó «se pinta lo que haya» — que además es exactamente la degradación que
+§21.7 ya describe como contingencia («se pinta la celda que exista en la misma retícula»). Queda
+**abierto para PO/ux-ui**; revertirlo son tres líneas en `blockEstimatesOf`.
+
+### Mocks (`lib/mock/fixtures.ts`) — MOCK: pendiente de backend real
+`mockGradedEstimatesByCardId` (ficha, sin gatear), `mockGradingShowcaseCardIds` (lista **ya curada y
+ordenada** por el gate) y `mockGradingHighlightGrades` (dial del badge). El fixture **no calcula** el
+gate ni la ganancia: reproduce el **resultado** que el servidor ya resolvió. Cobertura de estados:
+Blastoise / Pikachu IR (bloque + badge + vitrina), Milotic FA (**bloque sí, badge no** — estado
+normal de §21.7, no un bug), Eevee (un solo grado), Pikachu (sin estimados ⇒ nada).
+
+### Verde (gate pre-publicación)
+`tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **81 archivos / 653 tests** ✓ (33 nuevos) ·
+`next build` ✓. Nota: `page.test.tsx` del home necesitó `useRouter`/`usePathname` en su mock de
+`@/i18n/navigation` porque la vitrina reusa la teja de Compra.
+
 ## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21)
 
 > Rama `fix/variant-composition-regression`. El humano decidió publicar SIN razón social por ahora.

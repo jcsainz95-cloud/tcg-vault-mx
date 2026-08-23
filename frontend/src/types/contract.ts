@@ -398,6 +398,24 @@ export interface CardDetailResponse {
 //   * salePriceCents = MÍNIMO del grupo (= el del representante). Money-safe: nunca 0 (una pieza sin
 //     precio no cuenta ni publica). certNumber es POR SLAB (distinto por pieza) ⇒ NO va aquí: se
 //     expone por pieza en `units[]` de la ficha. productType ∈ {raw, graded} — NUNCA sealed (H9).
+// ===== v1.44-graded-estimate (PROJECT §N v2.0): «gancho de grading» =====
+// El estimado de UN grado hipotético de una carta RAW. `estimate` reusa PriceInfo con tres reglas
+// NORMATIVAS del contrato: `status` es SIEMPRE "priced" (un `pending` en un argumento de venta está
+// PROHIBIDO); `referenceMxnCents` y `capturedDate` SIEMPRE presentes; `source` se OMITE SIEMPRE (es la
+// garantía técnica de que la fase manual y la fase de ingest automático son INDISTINGUIBLES para el
+// cliente). `gradeKey` es la clave canónica ("graded:PSA:10" | "graded:PSA:9"): key estable de render.
+//
+// `gradeValue` es un STRING ABIERTO a propósito, para que añadir/quitar un grado NO sea un cambio de
+// contrato ni de cliente. Por eso el front DEBE ITERAR leyendo `gradeValue` y tiene PROHIBIDO asumir
+// `[0] === PSA 10` o una longitud fija. Ver `_shared/grading/estimates.ts`.
+export interface GradedEstimateDTO {
+  gradingCompany: 'PSA';
+  /** "10" | "9" hoy; STRING abierto en el tipo (dial del servidor, no del cliente). */
+  gradeValue: string;
+  gradeKey: string;
+  estimate: PriceInfo;
+}
+
 export interface GroupedListingDTO {
   representativeInventoryItemId: string;
   card: CardDTO;
@@ -411,6 +429,14 @@ export interface GroupedListingDTO {
   salePriceCents: number;
   referenceValue: PriceInfo;
   currency: 'MXN';
+  // v1.44 (ADITIVO): MARCADOR DE CURADURÍA de la TEJA de Compra y de la VITRINA del home.
+  //   * PRESENCIA ⇔ ELEGIBILIDAD: se emite SOLO si el gate de ROI sobre PSA 9 se cumple (server-side).
+  //     No existe `eligible: boolean` y NUNCA llega vacío (`[]`); ausente ⇒ el front no pinta NADA
+  //     (ni contenedor, ni skeleton, ni «—», ni $0, ni «pendiente»).
+  //   * Contenido = los grados que el BADGE pinta (dial `highlightGrades`; hoy ["10"]). Es un arreglo
+  //     justamente para que añadir PSA 9 al badge sea editar un dial, sin tocar el cliente.
+  //   * Solo en grupos `productType:"raw"`.
+  gradingHighlight?: GradedEstimateDTO[];
 }
 
 export interface GroupedListingListResponse {
@@ -427,6 +453,14 @@ export interface GroupedListingDetailResponse {
   card: CardDTO;
   listings: GroupedListingDTO[];
   units: ListingDTO[];
+  // v1.44 (ADITIVO): estimados por grado de la FICHA, a nivel CARTA (no se cruzan con el acabado).
+  //   * NO va gateado por el ROI (decisión del humano): se emite siempre que haya dato fresco. Una
+  //     carta puede mostrar sus estimados en la ficha y NO estar destacada en Compra ni en el home —
+  //     es el comportamiento buscado (informar ≠ promover), no un bug.
+  //   * Los grados son INDEPENDIENTES entre sí: un grado sin dato o rancio no aparece en el arreglo.
+  //   * Sin ningún grado ⇒ el campo se OMITE (nunca `[]`).
+  //   * Los `listings[i]` traen SU PROPIO `gradingHighlight?` (gateado). Son campos distintos.
+  gradedEstimates?: GradedEstimateDTO[];
 }
 
 // ---- Bóveda / portafolio (contrato §3) ----

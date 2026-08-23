@@ -2,8 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 
-// Link de i18n → <a> plano para el render de prueba.
+// Link de i18n → <a> plano para el render de prueba. `useRouter`/`usePathname` también se stubean:
+// la vitrina «Joyas para gradear» (§21.6) reusa la teja de Compra, que navega al carrito.
 vi.mock('@/i18n/navigation', () => ({
+  usePathname: () => '/',
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}

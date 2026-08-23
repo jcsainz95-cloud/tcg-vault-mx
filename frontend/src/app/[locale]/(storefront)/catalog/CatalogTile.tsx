@@ -11,6 +11,7 @@ import { ListingSpec } from '@/components/domain/ListingSpec';
 import { RarityLabel } from '@/components/domain/RarityLabel';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
+import { GradingEstimateBadge } from '../_shared/grading/GradingEstimateBadge';
 import { cn } from '@/lib/cn';
 
 export interface CatalogTileProps {
@@ -97,6 +98,12 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
           className="mt-2"
         />
       )}
+
+      {/* «Gancho de grading» (§21.5): DESPUÉS del precio y del stock, ANTES del CTA — el orden de
+          lectura obligatorio es precio real → estimado → CTA. Presencia ⇔ elegibilidad: sin
+          `gradingHighlight` (o sin nota al pie en esta página) la teja se ve EXACTAMENTE como hoy,
+          sin badge vacío ni altura reservada (R4). */}
+      <GradingEstimateBadge listing={listing} />
 
       {/* mt-auto alinea el CTA abajo cuando las tejas de la fila difieren de altura */}
       <div className="mt-auto pt-3">

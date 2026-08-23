@@ -14,6 +14,7 @@ import * as fx from './mock/fixtures';
 import type {
   Paginated,
   ListingDTO,
+  GroupedListingDTO,
   GroupedListingListResponse,
   GroupedListingDetailResponse,
   CardSetDTO,
@@ -214,7 +215,9 @@ function mockTempPassword(): string {
 }
 
 // ---------- Catálogo / "Compra" (contrato §2) ----------
-export type CatalogSort = 'price_asc' | 'price_desc' | 'newest';
+// v1.44-graded-estimate: `grading_showcase` es un orden que RESUELVE EL SERVIDOR y cuyo nombre es
+// deliberadamente neutro (no nombra el criterio). Solo es válido junto a `gradingHighlight: true`.
+export type CatalogSort = 'price_asc' | 'price_desc' | 'newest' | 'grading_showcase';
 
 export interface CatalogFilters {
   q?: string;
@@ -231,6 +234,13 @@ export interface CatalogFilters {
   sort?: CatalogSort;
   page?: number;
   pageSize?: number;
+  /**
+   * v1.44-graded-estimate (§N.3(3)): vitrina «Joyas para gradear» del home. **Solo se acepta
+   * `true`** (fail-closed: un `false` «filtrando lo no destacado» sería una superficie comercial
+   * invertida). Presente ⇒ el servidor devuelve únicamente los grupos que pasan el gate de ROI.
+   * `data: []` ES la señal normativa de «no renderizar la vitrina completa».
+   */
+  gradingHighlight?: true;
 }
 
 /**
@@ -257,8 +267,19 @@ export async function getCatalog(
       sort: filters.sort,
       page: filters.page,
       pageSize: filters.pageSize,
+      // v1.44: solo se manda cuando es `true`; omitido ⇒ comportamiento idéntico a hoy.
+      gradingHighlight: filters.gradingHighlight ? 'true' : undefined,
     };
     return apiRequest<GroupedListingListResponse>('/catalog/cards', { query });
+  }
+  // v1.44 (paridad con el contrato): `sort=grading_showcase` SIN `gradingHighlight=true` es un
+  // 400 GRADING_SORT_REQUIRES_FILTER — si se aceptara, los grupos no destacados irían a la cola con
+  // clave de orden indefinida y la vitrina podría pintarlos al paginar.
+  if (filters.sort === 'grading_showcase' && !filters.gradingHighlight) {
+    throw new ApiClientError(400, {
+      code: 'GRADING_SORT_REQUIRES_FILTER',
+      message: 'sort=grading_showcase requires gradingHighlight=true',
+    });
   }
   // MOCK: filtra las PIEZAS publicadas (raw/graded; el sellado tiene su propio catálogo, H9) y
   // luego AGRUPA por (carta, productType, gradeKey, finish). Los filtros de precio/orden aplican
@@ -283,7 +304,26 @@ export async function getCatalog(
     data = data.filter((g) => g.salePriceCents <= filters.maxPriceCents!);
   if (filters.sort === 'price_asc') data.sort((a, b) => a.salePriceCents - b.salePriceCents);
   if (filters.sort === 'price_desc') data.sort((a, b) => b.salePriceCents - a.salePriceCents);
-  return delay({ data, page: 1, pageSize: 20, total: data.length });
+  // v1.44: la vitrina «Joyas para gradear» = subconjunto YA CURADO del catálogo (mismo DTO, misma
+  // teja). El filtro es la PRESENCIA del marcador; el orden lo dicta el fixture (lo resolvió el
+  // servidor). El cliente no reevalúa el gate ni deriva ganancia/costo alguno.
+  if (filters.gradingHighlight) {
+    data = data.filter((g) => !!g.gradingHighlight);
+    if (filters.sort === 'grading_showcase') {
+      const order = fx.mockGradingShowcaseCardIds;
+      const rank = (g: GroupedListingDTO) => {
+        const i = order.indexOf(g.card.id);
+        return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+      };
+      data.sort(
+        (a, b) =>
+          rank(a) - rank(b) ||
+          a.representativeInventoryItemId.localeCompare(b.representativeInventoryItemId),
+      );
+    }
+  }
+  const pageSize = filters.pageSize ?? 20;
+  return delay({ data: data.slice(0, pageSize), page: 1, pageSize, total: data.length });
 }
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets, v1.1). */

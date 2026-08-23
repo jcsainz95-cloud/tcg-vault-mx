@@ -3,7 +3,12 @@ import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { CardDetailView } from './CardDetailView';
 import * as api from '@/lib/api';
-import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
+import type {
+  CardDTO,
+  GradedEstimateDTO,
+  GroupedListingDTO,
+  ListingDTO,
+} from '@/types/contract';
 
 // El CTA «En el carrito» navega con el router de next-intl; se mockea para
 // aislar la vista y espiar la navegación (mismo patrón que BuylistView.test).
@@ -72,8 +77,17 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
   };
 }
 
-function mockDetail(listings: GroupedListingDTO[], units: ListingDTO[]) {
-  vi.spyOn(api, 'getCardDetail').mockResolvedValue({ card, listings, units });
+function mockDetail(
+  listings: GroupedListingDTO[],
+  units: ListingDTO[],
+  gradedEstimates?: GradedEstimateDTO[],
+) {
+  vi.spyOn(api, 'getCardDetail').mockResolvedValue({
+    card,
+    listings,
+    units,
+    ...(gradedEstimates ? { gradedEstimates } : {}),
+  });
 }
 
 /** Ficha con DOS variantes (dos grupos), cada una con una pieza: el CTA es por grupo. */
@@ -172,5 +186,93 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
     const disabledCta = await screen.findByRole('button', { name: 'No disponible' });
     expect(disabledCta).toBeDisabled();
     expect(screen.getAllByRole('button', { name: 'Comprar' })).toHaveLength(1);
+  });
+});
+
+// ===== v1.44-graded-estimate · bloque de la ficha + nota al pie (DESIGN_SYSTEM §21.3/§21.4) =====
+const est = (gradeValue: string, cents: number): GradedEstimateDTO => ({
+  gradingCompany: 'PSA',
+  gradeValue,
+  gradeKey: `graded:PSA:${gradeValue}`,
+  // El contrato OMITE `source` siempre: fase manual y fase automática son indistinguibles.
+  estimate: { status: 'priced', referenceMxnCents: cents, capturedDate: '2026-08-22' },
+});
+
+describe('CardDetailView · §21.3 «valor estimado si se gradea»', () => {
+  it('con `gradedEstimates` pinta el bloque junto al precio, con la fecha de refresco y su llamada', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).toBeInTheDocument();
+    expect(screen.getByText('MX$29,000.00')).toBeInTheDocument();
+    expect(screen.getByText('MX$14,500.00')).toBeInTheDocument();
+    expect(screen.getByText('ESTIMADO · 22 ago 2026')).toBeInTheDocument();
+    // Chip de grado HIPOTÉTICO (punteado, sin cert) y siempre tras el condicional «SI SALE».
+    expect(screen.getAllByText('SI SALE')).toHaveLength(2);
+    expect(
+      screen.getByText('Grado hipotético: PSA 10. Esta carta no está gradeada.'),
+    ).toBeInTheDocument();
+  });
+
+  it('el bloque va DESPUÉS del referenceExplainer y ANTES de «Ejemplares disponibles» (§21.3)', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    const block = (await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).closest('section')!;
+    const instances = screen.getByRole('heading', { name: 'Ejemplares disponibles' });
+    expect(block.compareDocumentPosition(instances) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // El bloque NO vive dentro de la retícula del precio real (mismo grid = misma categoría, R2).
+    expect(block.contains(screen.getByText('Precio de venta'))).toBe(false);
+  });
+
+  it('R3 · la ficha con bloque renderiza SIEMPRE la nota al pie completa, sin interacción', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findByText('VALOR ESTIMADO SI SE GRADEA');
+    const note = document.getElementById('nota-estimado')!;
+    expect(note).toBeInTheDocument();
+    expect(note.querySelector('details')).toBeNull();
+    expect(screen.getByText(/INFORMACIÓN ILUSTRATIVA/)).toBeInTheDocument();
+    // La llamada de la FICHA sí es un enlace al pie (la de la teja no: sería un ancla anidada).
+    const call = document.getElementById('llamada-estimado')!.querySelector('a')!;
+    expect(call).toHaveAttribute('href', '#nota-estimado');
+    expect(call).toHaveAttribute(
+      'aria-label',
+      'Ver nota al pie: cifra ilustrativa de mercado; no evaluamos el estado de esta carta.',
+    );
+  });
+
+  it('R4 · sin `gradedEstimates` no se pinta nada: ni bloque, ni nota al pie, ni «pendiente»', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findAllByRole('button', { name: 'Comprar' });
+    expect(screen.queryByText('VALOR ESTIMADO SI SE GRADEA')).not.toBeInTheDocument();
+    expect(document.getElementById('nota-estimado')).toBeNull();
+    expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
+  });
+
+  it('la ficha NO está gateada por el ROI: pinta el bloque aunque el grupo no traiga `gradingHighlight`', async () => {
+    // Estado NORMAL y esperado (§21.7): ficha con bloque y teja sin badge. No es un bug.
+    const { listings, units } = twoVariants();
+    expect(listings.every((l) => l.gradingHighlight === undefined)).toBe(true);
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).toBeInTheDocument();
+  });
+
+  it('R5 · la ficha no muestra ninguna pieza del cálculo (ganancia, multiplicador, costo, margen)', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    const { container } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findByText('VALOR ESTIMADO SI SE GRADEA');
+    expect(container.textContent).not.toMatch(/multiplic|ganancia|ROI|rendimiento|costo de grade/i);
   });
 });

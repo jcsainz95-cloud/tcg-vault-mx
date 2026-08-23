@@ -91,6 +91,7 @@ import type {
   SealedSubtype,
   SealedGroupDTO,
   SealedGroupDetailResponse,
+  GradedEstimateDTO,
   GroupedListingDTO,
   GroupedListingDetailResponse,
   VaultSealedResponse,
@@ -453,6 +454,59 @@ export const mockListings: ListingDTO[] = [
   },
 ];
 
+// ===== v1.44-graded-estimate: «gancho de grading» (PROJECT §N, contrato §DTOs base) =====
+// MOCK: pendiente de backend real. Reproduce lo que el SERVIDOR ya resolvió, nunca su cálculo:
+//   * `mockGradedEstimatesByCardId` = lo que la FICHA recibe (`gradedEstimates`, SIN gatear).
+//   * `mockGradingHighlightGrades` = los grados que el BADGE pinta (dial `highlightGrades`, hoy ["10"]).
+//   * `mockGradingShowcaseCardIds` = la lista YA CURADA Y ORDENADA por el gate de ROI (teja + vitrina).
+//     El orden es un dato del fixture, no un cálculo del cliente: la ganancia neta, el costo de gradeo
+//     y el margen NUNCA viajan ni se derivan aquí (§21 R5 / SEC-A1).
+// Cobertura deliberada de estados (§21.7):
+//   - c-blastoise / c-pikachu-ir → dos grados + destacadas (bloque en ficha + badge + vitrina).
+//   - c-milotic-fa → dos grados y NO destacada: ficha CON bloque y teja SIN badge. Estado NORMAL
+//     (la ficha informa, la teja promueve), no un bug.
+//   - c-eevee → un solo grado con dato (PROJECT §N.3(1): «se muestra el que exista»).
+//   - c-pikachu → sin estimados: no se pinta nada, en ninguna superficie.
+const gradedEstimate = (
+  gradeValue: string,
+  referenceMxnCents: number,
+  capturedDate = '2026-08-22',
+): GradedEstimateDTO => ({
+  gradingCompany: 'PSA',
+  gradeValue,
+  gradeKey: `graded:PSA:${gradeValue}`,
+  // `source` se OMITE SIEMPRE (contrato): es lo que hace INDISTINGUIBLE la fase manual de la
+  // automática para el cliente. `status` siempre "priced" — un `pending` está prohibido aquí.
+  estimate: { status: 'priced', referenceMxnCents, capturedDate },
+});
+
+export const mockGradedEstimatesByCardId: Record<string, GradedEstimateDTO[]> = {
+  // Orden: grado descendente (el servidor lo garantiza). El cliente NO debe depender de él.
+  'c-blastoise': [gradedEstimate('10', 2_900_000), gradedEstimate('9', 1_450_000)],
+  'c-pikachu-ir': [gradedEstimate('10', 1_250_000), gradedEstimate('9', 620_000)],
+  'c-milotic-fa': [gradedEstimate('10', 980_000), gradedEstimate('9', 300_000)],
+  'c-eevee': [gradedEstimate('10', 145_000)],
+};
+
+/** Dial `highlightGrades` del servidor: qué grados pinta el badge (hoy, una sola cifra). */
+const mockGradingHighlightGrades = ['10'];
+
+/** Resultado del gate de ROI (server-side) + orden `sort=grading_showcase`, ya resuelto. */
+export const mockGradingShowcaseCardIds = ['c-blastoise', 'c-pikachu-ir'];
+
+/**
+ * `gradingHighlight` de un grupo: presencia ⇔ el gate se cumplió. Solo raw, solo los grados del
+ * dial, y solo si esos grados tienen dato (money-safe: sin cifra no hay marcador).
+ */
+function mockGradingHighlightFor(g: GroupedListingDTO): GradedEstimateDTO[] | undefined {
+  if (g.productType !== 'raw') return undefined;
+  if (!mockGradingShowcaseCardIds.includes(g.card.id)) return undefined;
+  const all = mockGradedEstimatesByCardId[g.card.id] ?? [];
+  // Se ITERA leyendo gradeValue (nunca por índice).
+  const shown = all.filter((e) => mockGradingHighlightGrades.includes(e.gradeValue));
+  return shown.length > 0 ? shown : undefined;
+}
+
 // ===== v1.38-grouped-listings (P-30): agrupación de SINGLES para GET /catalog/cards* =====
 // gradeKey canónico (== gradeKeyFor del backend): "raw:NM" | "graded:PSA:9". Encapsula condición/grado.
 export function gradeKeyOf(l: ListingDTO): string {
@@ -487,7 +541,7 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   for (const bucket of map.values()) {
     const sorted = [...bucket].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
     const rep = sorted[0];
-    groups.push({
+    const group: GroupedListingDTO = {
       representativeInventoryItemId: rep.inventoryItemId,
       card: rep.card,
       productType: rep.productType as 'raw' | 'graded',
@@ -500,7 +554,11 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
       salePriceCents: rep.salePriceCents!,
       referenceValue: rep.referenceValue,
       currency: 'MXN',
-    });
+    };
+    // v1.44: ADITIVO y OPCIONAL. El campo se OMITE (no `[]`) cuando el gate no se cumple.
+    const highlight = mockGradingHighlightFor(group);
+    if (highlight) group.gradingHighlight = highlight;
+    groups.push(group);
   }
   return groups;
 }
@@ -517,7 +575,18 @@ export function mockGroupedDetail(cardId: string): GroupedListingDetailResponse 
   const card = cardUnits[0]?.card ?? mockCards.find((c) => c.id === cardId);
   if (!card) throw new ApiFixtureNotFound('Card not found');
   const units = [...cardUnits].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
-  return { card, listings: groupMockListings(cardUnits), units };
+  const listings = groupMockListings(cardUnits);
+  // v1.44: `gradedEstimates` vive en la RAÍZ (nivel CARTA) y NO va gateado por el ROI. Solo se emite
+  // si la carta tiene grupos RAW publicados; sin ningún grado, el campo se OMITE (nunca `[]`).
+  const estimates = listings.some((l) => l.productType === 'raw')
+    ? mockGradedEstimatesByCardId[card.id]
+    : undefined;
+  return {
+    card,
+    listings,
+    units,
+    ...(estimates && estimates.length > 0 ? { gradedEstimates: estimates } : {}),
+  };
 }
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets) — sobre lo publicado. */

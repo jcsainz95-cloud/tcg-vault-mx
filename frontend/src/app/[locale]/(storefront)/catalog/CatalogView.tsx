@@ -22,6 +22,8 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { CartAddedToast } from './CartAddedToast';
 import { CatalogTile } from './CatalogTile';
 import { Paginator } from '../_shared/Paginator';
+import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
+import { pageHasGradingFigures } from '../_shared/grading/estimates';
 
 const SORTS: CatalogSort[] = ['newest', 'price_asc', 'price_desc'];
 /** pageSize del contrato (§2, default del backend); solo para el fallback del total de páginas. */
@@ -170,7 +172,14 @@ export function CatalogView() {
   );
 
   return (
-    <div>
+    // §21.4b: la nota al pie de Compra se renderiza si LA PÁGINA ACTUAL muestra ≥ 1 badge, y se
+    // reevalúa al paginar/filtrar. §21 R3.(3): el MISMO booleano habilita las cifras (vía contexto)
+    // y la nota — no hay dos condiciones que puedan divergir en un refactor.
+    <GradingFootnoteBoundary
+      active={pageHasGradingFigures(catalogQuery.data?.data)}
+      returnToId="catalogo-resultados"
+    >
+      <div>
       {/* Encabezado (artboard 2a): eyebrow · título mincho · conteo mono a la línea base. */}
       <div className="gutter flex flex-col gap-4 pb-6 pt-9 sm:flex-row sm:items-end sm:justify-between lg:pt-10">
         <div>
@@ -222,7 +231,9 @@ export function CatalogView() {
           {/* Barra de resultados: conteo mono + chips removibles + orden (lg). */}
           <div
             ref={resultsRef}
-            className="gutter flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border py-4"
+            // Destino del enlace de regreso de la nota al pie (§21.4a): el viaje es de ida Y vuelta.
+            id="catalogo-resultados"
+            className="gutter flex flex-wrap items-center gap-x-4 gap-y-3 scroll-mt-[calc(var(--app-header-h,0px)+16px)] border-b border-border py-4"
           >
             <p className="tabular font-mono text-[11px] text-muted">
               {t('resultsCount', { count: total })}
@@ -314,7 +325,8 @@ export function CatalogView() {
       </Modal>
 
       <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
-    </div>
+      </div>
+    </GradingFootnoteBoundary>
   );
 }
 

@@ -12,6 +12,14 @@ import { FeaturedCarousel } from './_home/FeaturedCarousel';
 import { SealedShelf } from './_home/SealedShelf';
 import { GradedShelf } from './_home/GradedShelf';
 import { BountyBoard } from './_home/BountyBoard';
+import {
+  GRADING_GEMS_ID,
+  GradingGemsShelf,
+  gemsOf,
+  useGradingGems,
+} from './_home/GradingGemsShelf';
+import { GradingFootnoteBoundary } from './_shared/grading/GradingFootnote';
+import { pageHasGradingFigures } from './_shared/grading/estimates';
 
 /**
  * Home del storefront — makeover 1a «Conservadora» (papel y tinta, rojo con avaricia).
@@ -51,7 +59,16 @@ export default function HomePage() {
   // y como sección propia (móvil) compartiendo las mismas líneas.
   const quoter = useHomeQuoter();
 
+  // «Gancho de grading» (§21.6): la MISMA consulta que alimenta la vitrina decide si el home
+  // hospeda la nota al pie (TanStack la dedupe por queryKey). Si la vitrina no se renderiza,
+  // tampoco la nota; y sin nota, ninguna cifra puede pintarse (R3.3).
+  const gems = useGradingGems();
+
   return (
+    <GradingFootnoteBoundary
+      active={pageHasGradingFigures(gemsOf(gems.data))}
+      returnToId={GRADING_GEMS_ID}
+    >
     <div>
       {/* Banda del portafolio para sesión iniciada (funcionalidad conservada). */}
       {authed && (
@@ -125,6 +142,7 @@ export default function HomePage() {
 
       <SealedShelf />
       <GradedShelf />
+      <GradingGemsShelf />
       <BountyBoard />
 
       {/* Cómo funciona la bóveda: 3 pasos estáticos. */}
@@ -175,5 +193,6 @@ export default function HomePage() {
         </div>
       </div>
     </div>
+    </GradingFootnoteBoundary>
   );
 }
