@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
+import { DEFAULT_GRADING_COST_TIERS } from '../src/common/graded-estimate';
 
 /**
  * v1.44-graded-estimate — COMPOSICIÓN del gancho en el storefront (ARCHITECTURE §4.35-0/c/e/f,
@@ -123,13 +124,23 @@ function psaRef(cardId: string, gradeValue: '10' | '9', mxnCents: number, captur
 }
 
 function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
-  const configStore = new Map<string, unknown>(Object.entries(config));
+  // Estado SEMBRADO por defecto (`prisma/seed.ts` escribe una fila por cada `SETTING_DEFAULTS`). La
+  // clave del COSTO no tiene default de código: si la fila no existe, la tabla es VACÍA (R1, §4.35d),
+  // así que aquí se siembra explícitamente — un test de composición no debe depender de ese borde.
+  const configStore = new Map<string, unknown>(
+    Object.entries({ [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS, ...config }),
+  );
   const priceRefFindMany = jest.fn(async (args: any) => refs.filter((r) => matchWhere(r, args.where)));
   const invFindMany = jest.fn(async (args: any) => items.filter((i) => matchWhere(i, args.where)));
   const prisma = {
     configSetting: {
       findUnique: jest.fn(async ({ where: { key } }: any) =>
         configStore.has(key) ? { key, valueJson: configStore.get(key) } : null,
+      ),
+      findMany: jest.fn(async ({ where }: any) =>
+        (where.key.in as string[])
+          .filter((k) => configStore.has(k))
+          .map((k) => ({ key: k, valueJson: configStore.get(k) })),
       ),
       upsert: jest.fn(async ({ where: { key }, create, update }: any) => {
         configStore.set(key, configStore.has(key) ? update.valueJson : create.valueJson);
@@ -253,10 +264,47 @@ describe('Ficha vs teja — la partición INFORMAR ≠ PROMOVER (§4.35-0)', () 
   });
 });
 
+/**
+ * JSON de la **SUPERFICIE DEL GANCHO**: los dos únicos campos que esta feature añade al DTO público
+ * (`gradedEstimates` de la ficha + el `gradingHighlight` de cada grupo/teja).
+ *
+ * **Por qué acotar y no escanear el body entero** (fix de la aserción, QA-BLOQUEANTE): el resto del DTO
+ * lleva el `PriceInfo` del precio **RAW**, que expone `source`/`isManualOverride` desde antes de v1.44
+ * (`pricing.service.ts`, `getReference`). Escanear todo mezcla un campo PRE-EXISTENTE y legítimo con la
+ * fuga que esta prueba busca, y el resultado depende de si el fixture dejó el precio raw en `pending`
+ * (sin `source`) o en `priced` — un falso positivo/negativo según el escenario, no una garantía.
+ */
+function hookSurfaceJson(ficha: any, list: any): string {
+  return JSON.stringify({
+    gradedEstimates: ficha.gradedEstimates,
+    fichaHighlights: ficha.listings.map((l: any) => l.gradingHighlight),
+    tejaHighlights: list.data.map((g: any) => g.gradingHighlight),
+  });
+}
+
+/** Referencia RAW `raw:NM` PRICEADA: hace que el DTO lleve un `PriceInfo` con `source`/`isManualOverride`. */
+const rawRef = (cardId: string, mxnCents = 100_000) => ({
+  cardId,
+  productType: 'raw',
+  gradeKey: 'raw:NM',
+  finish: 'normal',
+  priceMxnCents: mxnCents,
+  priceUsdCents: null,
+  isManualOverride: true,
+  source: 'manual',
+  capturedDate: RECENT,
+  cardProductId: null,
+});
+
 describe('SEC-A1 — el cliente no recibe NINGÚN insumo del cálculo (§4.35e)', () => {
-  it('el JSON público no contiene multiplier / upside / costo / umbral / minUpsidePct / eligible / source', async () => {
+  it('la superficie del gancho no contiene multiplier / upside / costo / umbral / minUpsidePct / eligible / reason', async () => {
     const { catalog } = wire(A_ITEMS, A_REFS, ON);
-    const json = JSON.stringify([await catalog.getCard('ca'), await catalog.listCards({ page: 1, pageSize: 20 })]);
+    const ficha: any = await catalog.getCard('ca');
+    const list: any = await catalog.listCards({ page: 1, pageSize: 20 });
+
+    // (a) Los insumos del gate son tokens EXCLUSIVOS de esta feature: no pueden aparecer en NINGUNA
+    //     parte del DTO público, así que estos sí se escanean sobre el body completo.
+    const bodyJson = JSON.stringify([ficha, list]);
     for (const forbidden of [
       'multiplier',
       'upsideMxnCents',
@@ -266,11 +314,32 @@ describe('SEC-A1 — el cliente no recibe NINGÚN insumo del cálculo (§4.35e)'
       'threshold',
       'eligible',
       'reason',
-      'isManualOverride',
-      '"source"',
     ]) {
-      expect(json).not.toContain(forbidden);
+      expect(bodyJson).not.toContain(forbidden);
     }
+
+    // (b) `source`/`isManualOverride` NO son exclusivos: viven en el `PriceInfo` del precio raw desde
+    //     antes de v1.44. La garantía de INDISTINGUIBILIDAD (§4.35g) se verifica sobre la superficie
+    //     del gancho, que es donde delatarían fase 1 vs fase 2.
+    const hookJson = hookSurfaceJson(ficha, list);
+    expect(hookJson).not.toContain('isManualOverride');
+    expect(hookJson).not.toContain('"source"');
+  });
+
+  it('con el precio RAW PRICEADO el body SÍ trae `isManualOverride` (campo pre-existente) y el gancho NO', async () => {
+    // Este es el escenario que convertía la aserción vieja en un falso positivo latente: en cuanto el
+    // fixture deja de estar en `pending`, el body legítimamente contiene `isManualOverride`.
+    const { catalog } = wire(A_ITEMS, [...A_REFS, rawRef('ca')], ON);
+    const ficha: any = await catalog.getCard('ca');
+    const list: any = await catalog.listCards({ page: 1, pageSize: 20 });
+
+    expect(JSON.stringify(ficha)).toContain('isManualOverride'); // precio RAW, no el gancho
+    expect(ficha.listings[0].referenceValue).toMatchObject({ status: 'priced', isManualOverride: true });
+
+    const hookJson = hookSurfaceJson(ficha, list);
+    expect(hookJson).not.toContain('isManualOverride');
+    expect(hookJson).not.toContain('"source"');
+    expect(ficha.gradedEstimates).toHaveLength(2); // …y el gancho sigue emitiendo sus dos cifras
   });
 });
 

@@ -33,6 +33,26 @@ export class SettingsService {
     return String(await this.get<string>(key));
   }
 
+  /**
+   * v1.44 (R1, §4.35d) — Lee VARIOS diales en **UNA** query y devuelve un `Map` que contiene
+   * **SOLO las filas EXISTENTES**: una clave AUSENTE simplemente no aparece en el `Map`.
+   *
+   * Es lo que `get()`/`getRaw()` **no** pueden dar: ambos hacen fallback a `SETTING_DEFAULTS`, así que
+   * un lector no distingue «la fila no existe» de «la fila existe con el valor del seed». Esa distinción
+   * es obligatoria para cualquier dial FAIL-CLOSED que, por doctrina money-safe, **no puede tener default
+   * de código** (hoy: `grading_cost_tiers`, ARCHITECTURE §4.35d).
+   *
+   * Efecto secundario deseado: N claves ⇒ 1 query (en vez de N `findUnique`), que es como se ha izado
+   * la config del gancho por request.
+   */
+  async getRawMany(keys: readonly SettingKeyType[]): Promise<Map<SettingKeyType, unknown>> {
+    if (keys.length === 0) return new Map();
+    const rows = await this.prisma.configSetting.findMany({
+      where: { key: { in: [...new Set(keys)] } },
+    });
+    return new Map(rows.map((r) => [r.key as SettingKeyType, r.valueJson as unknown]));
+  }
+
   /** Config de comisión Stripe para el gross-up (ARCHITECTURE §5.1). */
   async getStripeFee(): Promise<StripeFeeConfig> {
     return {

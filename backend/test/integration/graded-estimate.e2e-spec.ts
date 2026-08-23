@@ -103,14 +103,25 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
       referenceMxnCents: PSA10_CENTS,
     });
     expect(ficha.body.gradedEstimates[0].estimate.capturedDate).toEqual(expect.any(String));
-    // INDISTINGUIBILIDAD (§4.35g): `source` NUNCA viaja — es lo único que delataría fase 1 vs fase 2.
+    // INDISTINGUIBILIDAD (§4.35g): `source`/`isManualOverride` NUNCA viajan EN EL GANCHO — es lo único
+    // que delataría fase 1 (manual) vs fase 2 (ingest).
     expect(ficha.body.gradedEstimates[0].estimate.source).toBeUndefined();
-    expect(JSON.stringify(ficha.body)).not.toContain('isManualOverride');
+    // La aserción se ACOTA a los dos campos del gancho a propósito: el resto de la ficha lleva el
+    // `PriceInfo` del precio RAW (`listings[].referenceValue`, `units[].referenceValue`), que expone
+    // `source`/`isManualOverride` desde antes de v1.44. Escanear el body entero mezclaba ese campo
+    // PRE-EXISTENTE y legítimo con la fuga que esta prueba busca.
+    const hookJson = JSON.stringify({
+      gradedEstimates: ficha.body.gradedEstimates,
+      gradingHighlight: ficha.body.listings.map((l: any) => l.gradingHighlight),
+    });
+    expect(hookJson).not.toContain('isManualOverride');
+    expect(hookJson).not.toContain('"source"');
 
     const raw = ficha.body.listings.find((l: any) => l.productType === 'raw');
     expect(raw.gradingHighlight).toHaveLength(1);
     expect(raw.gradingHighlight[0].gradeValue).toBe('10'); // el badge pinta UNA cifra
-    // SEC-A1: ni el umbral, ni el costo, ni la ganancia neta salen del servidor.
+    // SEC-A1: ni el umbral, ni el costo, ni la ganancia neta salen del servidor. Estos SÍ son tokens
+    // exclusivos del gancho, así que se escanean sobre el body COMPLETO (no pueden estar en ningún lado).
     for (const forbidden of ['netUpside', 'gradingCost', 'threshold', 'minUpsidePct', 'eligible']) {
       expect(JSON.stringify(ficha.body)).not.toContain(forbidden);
     }

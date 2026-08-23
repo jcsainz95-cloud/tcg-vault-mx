@@ -788,15 +788,21 @@ export class CatalogService {
     // curaduría NO se cumpla y la carta no salga destacada en Compra ni en el home: eso es exactamente
     // lo buscado, no una inconsistencia. Los grados son INDEPENDIENTES (PSA 10 sin PSA 9 ⇒ un elemento).
     // NUNCA aparece sin grupos RAW publicados (una gradeada o un sellado jamás lo traen, criterio 87).
+    // v1.44 R2: la ausencia de grupos raw publicados se resuelve con una GUARDA EXPLÍCITA, no pasando
+    // un `productType` falso a la pura. Inyectar `'graded'` como centinela funcionaba (el criterio 87
+    // hace que la pura devuelva `[]`), pero MENTÍA en un parámetro de dominio: una carta sin grupos raw
+    // publicados no es «graded», y en una función cuyo criterio es «graded y sealed NUNCA» ese atajo es
+    // justo el que el siguiente lector «arregla» y rompe.
     const hasPublishedRawGroup = listings.some((l) => l.productType === 'raw');
-    const gradedEstimates = grading
-      ? selectGradedEstimates<GradedEstimateRef>({
-          productType: hasPublishedRawGroup ? 'raw' : 'graded',
-          estimates: grading.byCard.get(cardId) ?? [],
-          today: grading.today,
-          cfg: grading.cfg,
-        }).map(toGradedEstimateDTO)
-      : [];
+    const gradedEstimates =
+      grading && hasPublishedRawGroup
+        ? selectGradedEstimates<GradedEstimateRef>({
+            productType: 'raw',
+            estimates: grading.byCard.get(cardId) ?? [],
+            today: grading.today,
+            cfg: grading.cfg,
+          }).map(toGradedEstimateDTO)
+        : [];
 
     return {
       card: toCardDTO(card, pricedByCard.get(cardId)),

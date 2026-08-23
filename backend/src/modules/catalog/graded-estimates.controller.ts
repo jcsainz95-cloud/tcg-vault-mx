@@ -8,14 +8,25 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PricingService } from '../pricing/pricing.service';
 import { CatalogService } from './catalog.service';
-import { SettingKey } from '../settings/settings.constants';
+import { SettingKey, validateGradeList } from '../settings/settings.constants';
 import {
   validateGradingCostTiers,
-  GRADED_ESTIMATE_GRADE_VALUES,
   GRADING_MIN_UPSIDE_PCT_MAX,
   GRADED_ESTIMATE_FRESHNESS_DAYS_MAX,
   GRADED_ESTIMATE_FRESHNESS_DAYS_MIN,
 } from '../../common/graded-estimate';
+
+/**
+ * Las 5 claves de M2 que gobierna este recurso (el dial maestro `graded_estimates_enabled` NO: se edita
+ * en `PUT /admin/settings`). Se usa para la foto forense `storedRaw` de la bitácora (D4).
+ */
+const GRADED_ESTIMATE_M2_KEYS = [
+  SettingKey.GRADED_ESTIMATE_GRADES,
+  SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+  SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
+  SettingKey.GRADING_MIN_UPSIDE_PCT,
+  SettingKey.GRADING_COST_TIERS,
+] as const;
 
 /**
  * v1.44-graded-estimate (§M2) — body de `PUT /admin/pricing/graded-estimates`. `@Allow()` (whitelist sin
@@ -89,6 +100,15 @@ export class GradedEstimatesController {
     // El subconjunto se valida contra el ESTADO RESULTANTE (mezcla de lo enviado y lo vigente), no solo
     // contra lo enviado: editar `grades` sin tocar `highlightGrades` no puede dejar un badge huérfano.
     const before = await this.pricing.loadGradedEstimateConfigForAdmin();
+    // D4 — foto FORENSE de lo ALMACENADO (sin sanear) para la bitácora: es lo único que permite
+    // reconstruir qué había realmente si el valor previo era corrupto o la fila no existía.
+    const storedRaw = Object.fromEntries(
+      (
+        await this.prisma.configSetting.findMany({
+          where: { key: { in: [...GRADED_ESTIMATE_M2_KEYS] } },
+        })
+      ).map((r) => [r.key, r.valueJson]),
+    );
     const grades = dto.grades !== undefined ? this.gradeList(dto.grades, 'grades') : before.grades;
     const highlightGrades =
       dto.highlightGrades !== undefined
@@ -152,19 +172,28 @@ export class GradedEstimatesController {
       );
     }
 
-    for (const w of writes) {
-      await this.prisma.configSetting.upsert({
-        where: { key: w.key },
-        create: { key: w.key, valueJson: w.value, updatedBy: userId },
-        update: { valueJson: w.value, updatedBy: userId },
-      });
-    }
+    // v1.44 D4 — TODO-O-NADA de verdad: los upserts van en UNA transacción. Antes era un bucle suelto,
+    // así que un fallo a media escritura (p. ej. `grades` sí y `gradingCostTiers` no) dejaba la config
+    // en un estado MIXTO que nadie pidió, mientras BACKEND_NOTES §0.2 nº4 prometía atomicidad.
+    await this.prisma.$transaction(
+      writes.map((w) =>
+        this.prisma.configSetting.upsert({
+          where: { key: w.key },
+          create: { key: w.key, valueJson: w.value, updatedBy: userId },
+          update: { valueJson: w.value, updatedBy: userId },
+        }),
+      ),
+    );
     const after = await this.pricing.loadGradedEstimateConfigForAdmin();
     await this.audit.log({
       actorUserId: userId,
       action: 'pricing.graded_estimates.update',
       entityType: 'ConfigSetting',
-      before,
+      // `before`/`after` son la config EFECTIVA (saneada). `storedRaw` es el FORENSE: los valores tal
+      // cual estaban almacenados, con las claves AUSENTES omitidas y las corruptas intactas. Sin él, un
+      // `grading_cost_tiers` corrupto se auditaba como `[]` y la bitácora perdía la evidencia de qué
+      // había realmente antes de la edición (D4).
+      before: { ...before, storedRaw },
       after,
     });
     return after;
@@ -185,30 +214,19 @@ export class GradedEstimatesController {
     return this.catalog.gradedEstimatePreview(cardId);
   }
 
-  /** I7 sobre UNA lista de grados. Lista CERRADA a propósito (§N.1: otros grados quedan fuera). */
+  /**
+   * I7 sobre UNA lista de grados. Lista CERRADA a propósito (§N.1: otros grados quedan fuera).
+   *
+   * v1.44 D3 — ENVUELVE el validador COMPARTIDO `validateGradeList` (`settings.constants.ts`, el mismo
+   * que aplica `PUT /admin/settings` y la lectura fail-closed). Antes esta función re-implementaba la
+   * regla completa: dos copias de la misma verdad que podían divergir en silencio. Lo único propio de
+   * este endpoint es la FORMA del error (422 con `details.field`), así que eso es lo único que queda
+   * aquí; el mensaje del validador se prefija con el campo para no perder contexto.
+   */
   private gradeList(v: unknown, field: string): string[] {
-    if (!Array.isArray(v) || v.length === 0) {
-      throw BusinessException.validation(
-        'VALIDATION_ERROR',
-        `${field} must be a non-empty array of grades (${GRADED_ESTIMATE_GRADE_VALUES.join('|')})`,
-        { field },
-      );
-    }
-    const seen = new Set<string>();
-    for (const g of v) {
-      if (typeof g !== 'string' || !GRADED_ESTIMATE_GRADE_VALUES.includes(g)) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `invalid grade "${String(g)}" in ${field}: must be one of ${GRADED_ESTIMATE_GRADE_VALUES.join('|')}`,
-          { field },
-        );
-      }
-      if (seen.has(g)) {
-        throw BusinessException.validation('VALIDATION_ERROR', `duplicate grade "${g}" in ${field}`, {
-          field,
-        });
-      }
-      seen.add(g);
+    const err = validateGradeList(v);
+    if (err) {
+      throw BusinessException.validation('VALIDATION_ERROR', `${field} ${err}`, { field });
     }
     return v as string[];
   }

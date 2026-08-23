@@ -41,6 +41,13 @@ function wire(rows: unknown[] = [], config: Record<string, unknown> = {}) {
       findUnique: jest.fn(async ({ where: { key } }: any) =>
         configStore.has(key) ? { key, valueJson: configStore.get(key) } : null,
       ),
+      // R1: `findMany` devuelve SOLO las filas EXISTENTES — una clave ausente del store simplemente no
+      // aparece, igual que en Postgres. Es lo que hace observable «ausente» vs «presente con el seed».
+      findMany: jest.fn(async ({ where }: any) =>
+        (where.key.in as string[])
+          .filter((k) => configStore.has(k))
+          .map((k) => ({ key: k, valueJson: configStore.get(k) })),
+      ),
       upsert: jest.fn(async ({ where: { key }, create, update }: any) => {
         configStore.set(key, configStore.has(key) ? update.valueJson : create.valueJson);
         return { key };
@@ -124,19 +131,48 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.35a/
   });
 });
 
+/**
+ * Estado SEMBRADO: `prisma/seed.ts` escribe UNA FILA por cada `SETTING_DEFAULTS`, así que en una BD
+ * sembrada la clave del costo EXISTE. Los tests que quieren probar el camino feliz la ponen explícita;
+ * los que prueban el fail-closed la DEJAN FUERA a propósito (R1: ausente ⇒ tabla vacía).
+ */
+const SEEDED_TIERS = { [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS };
+const ON = { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' };
+
 describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', () => {
-  it('con el dial `off` (seed) devuelve la config APAGADA sin leer nada más', async () => {
+  it('con el dial `off` (seed) devuelve la config APAGADA sin evaluar nada', async () => {
     const { pricing, prisma } = wire();
     const cfg = await pricing.loadGradedEstimateConfig();
     expect(cfg.enabled).toBe(false);
     expect(cfg.gradingCostTiers).toEqual([]);
     expect(cfg.grades).toEqual([]);
-    // UNA sola lectura de settings (la del dial maestro): con `off` el backend ni siquiera evalúa nada.
-    expect((prisma as any).configSetting.findUnique).toHaveBeenCalledTimes(1);
+    // IMPORTANTE-2: UNA sola query de settings por request (las 6 claves en un `findMany`), no 6
+    // lecturas sueltas. Con `off` el backend ni siquiera evalúa nada.
+    expect((prisma as any).configSetting.findMany).toHaveBeenCalledTimes(1);
+    expect((prisma as any).configSetting.findUnique).not.toHaveBeenCalled();
   });
 
-  it('con el dial `on` devuelve grados, frescura, umbral y la tabla del seed', async () => {
-    const { pricing } = wire([], { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' });
+  it('IMPORTANTE-2 — con el dial `on` la config sigue costando UNA sola query de settings', async () => {
+    const { pricing, prisma } = wire([], { ...SEEDED_TIERS, ...ON });
+    await pricing.loadGradedEstimateConfig();
+    expect((prisma as any).configSetting.findMany).toHaveBeenCalledTimes(1);
+    expect((prisma as any).configSetting.findUnique).not.toHaveBeenCalled();
+    // Las 6 claves del gancho (dial maestro + las 5 de M2) van en el MISMO `where.key.in`.
+    const keys = (prisma as any).configSetting.findMany.mock.calls[0][0].where.key.in;
+    expect(new Set(keys)).toEqual(
+      new Set([
+        SettingKey.GRADED_ESTIMATES_ENABLED,
+        SettingKey.GRADED_ESTIMATE_GRADES,
+        SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+        SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
+        SettingKey.GRADING_MIN_UPSIDE_PCT,
+        SettingKey.GRADING_COST_TIERS,
+      ]),
+    );
+  });
+
+  it('con el dial `on` y la tabla SEMBRADA devuelve grados, frescura, umbral y escalones', async () => {
+    const { pricing } = wire([], { ...SEEDED_TIERS, ...ON });
     const cfg = await pricing.loadGradedEstimateConfig();
     expect(cfg).toEqual({
       enabled: true,
@@ -148,19 +184,27 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
     });
   });
 
-  it('tabla de escalones CORRUPTA/ausente ⇒ [] (nada se destaca), JAMÁS un default de código', async () => {
+  it('R1 — clave `grading_cost_tiers` AUSENTE ⇒ tabla VACÍA (NO cae al seed de código)', async () => {
+    // El caso que el bucle de «corrupta» NO cubría: la fila no existe. `SettingsService.get()` haría
+    // fallback a `SETTING_DEFAULTS` y el gate correría con los 6 escalones; §4.35d dice lo contrario.
+    const { pricing } = wire([], ON);
+    expect((await pricing.loadGradedEstimateConfig()).gradingCostTiers).toEqual([]);
+    // …y el resto de la config SÍ cae a su seed (son umbrales/listas, no dinero).
+    const cfg = await pricing.loadGradedEstimateConfig();
+    expect(cfg).toMatchObject({ enabled: true, grades: ['10', '9'], minUpsidePct: 30, freshnessDays: 30 });
+  });
+
+  it('tabla de escalones PRESENTE pero corrupta ⇒ [] (nada se destaca), JAMÁS un default de código', async () => {
     for (const corrupta of [null, 'nope', [], [{ minValueMxnCents: 0, maxValueMxnCents: null, costMxnCents: 0 }]]) {
-      const { pricing } = wire([], {
-        [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on',
-        [SettingKey.GRADING_COST_TIERS]: corrupta,
-      });
+      const { pricing } = wire([], { ...ON, [SettingKey.GRADING_COST_TIERS]: corrupta });
       expect((await pricing.loadGradedEstimateConfig()).gradingCostTiers).toEqual([]);
     }
   });
 
   it('umbrales y listas inválidos SÍ caen a su seed (no son dinero; sin tabla no hay gate)', async () => {
     const { pricing } = wire([], {
-      [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on',
+      ...SEEDED_TIERS,
+      ...ON,
       [SettingKey.GRADING_MIN_UPSIDE_PCT]: 'mucho',
       [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]: 0,
       [SettingKey.GRADED_ESTIMATE_GRADES]: ['11'],
@@ -173,7 +217,8 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
 
   it('`highlightGrades ⊆ grades` también EN LECTURA (un badge huérfano no se pinta)', async () => {
     const { pricing } = wire([], {
-      [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on',
+      ...SEEDED_TIERS,
+      ...ON,
       [SettingKey.GRADED_ESTIMATE_GRADES]: ['9'],
       [SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES]: ['10'],
     });
@@ -181,10 +226,15 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
   });
 
   it('la variante de ADMIN lee la config COMPLETA aunque el dial esté apagado', async () => {
-    const { pricing } = wire();
+    const { pricing } = wire([], SEEDED_TIERS);
     const cfg = await pricing.loadGradedEstimateConfigForAdmin();
     expect(cfg.enabled).toBe(false); // espejo read-only del dial M10
     expect(cfg.grades).toEqual(['10', '9']);
     expect(cfg.gradingCostTiers).toEqual(DEFAULT_GRADING_COST_TIERS); // el editor de M2 SÍ los ve
+  });
+
+  it('R1 — la variante de ADMIN muestra la config EFECTIVA: sin fila, el editor ve `[]`, no una tabla fantasma', async () => {
+    const { pricing } = wire();
+    expect((await pricing.loadGradedEstimateConfigForAdmin()).gradingCostTiers).toEqual([]);
   });
 });

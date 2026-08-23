@@ -112,15 +112,27 @@ const psaRef = (gradeValue: '10' | '9', mxnCents: number, capturedDate = RECENT)
 });
 
 function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknown> = {}) {
-  const configStore = new Map<string, unknown>(Object.entries(config));
+  // Estado SEMBRADO por defecto: `prisma/seed.ts` escribe una fila por cada `SETTING_DEFAULTS`. La
+  // clave del COSTO no tiene default de CÓDIGO (R1, §4.35d): si la fila no existe la tabla es `[]`.
+  const configStore = new Map<string, unknown>(
+    Object.entries({ [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS, ...config }),
+  );
   const upsert = jest.fn(async ({ where: { key }, create, update }: any) => {
     configStore.set(key, configStore.has(key) ? update.valueJson : create.valueJson);
     return { key };
   });
   const prisma = {
+    // D4: el `PUT` escribe dentro de `$transaction`. El mock ejecuta las promesas que recibe (los
+    // upserts ya se construyeron), que es el comportamiento observable que importa aquí.
+    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
     configSetting: {
       findUnique: jest.fn(async ({ where: { key } }: any) =>
         configStore.has(key) ? { key, valueJson: configStore.get(key) } : null,
+      ),
+      findMany: jest.fn(async ({ where }: any) =>
+        (where.key.in as string[])
+          .filter((k) => configStore.has(k))
+          .map((k) => ({ key: k, valueJson: configStore.get(k) })),
       ),
       upsert,
     },
@@ -159,6 +171,12 @@ describe('GET /admin/pricing/graded-estimates', () => {
       minUpsidePct: 30,
       gradingCostTiers: DEFAULT_GRADING_COST_TIERS,
     });
+  });
+
+  it('R1 — con la fila `grading_cost_tiers` AUSENTE el editor ve `[]` (la config EFECTIVA, no una fantasma)', async () => {
+    const { ctrl, configStore } = wire();
+    configStore.delete(SettingKey.GRADING_COST_TIERS);
+    expect(await ctrl.get()).toMatchObject({ gradingCostTiers: [], grades: ['10', '9'] });
   });
 });
 
@@ -247,6 +265,25 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
         after: expect.objectContaining({ minUpsidePct: 60 }),
       }),
     );
+  });
+
+  it('D4 — los upserts van en UNA transacción (todo-o-nada de verdad, no un bucle suelto)', async () => {
+    const { ctrl, prisma, upsert } = wire();
+    await ctrl.put({ minUpsidePct: 60, freshnessDays: 15, grades: ['10', '9'] }, 'admin');
+    expect((prisma as any).$transaction).toHaveBeenCalledTimes(1);
+    expect((prisma as any).$transaction.mock.calls[0][0]).toHaveLength(3);
+    expect(upsert).toHaveBeenCalledTimes(3);
+  });
+
+  it('D4 — la bitácora conserva el FORENSE: `storedRaw` con el valor CORRUPTO tal cual estaba', async () => {
+    const corrupta = [{ minValueMxnCents: 0, maxValueMxnCents: null, costMxnCents: 0 }]; // I2: costo 0
+    const { ctrl, audit } = wire([], [], { [SettingKey.GRADING_COST_TIERS]: corrupta });
+    await ctrl.put({ minUpsidePct: 60 }, 'admin');
+    const entry = (audit.log as jest.Mock).mock.calls[0][0];
+    // La config EFECTIVA saneada dice `[]`…
+    expect(entry.before.gradingCostTiers).toEqual([]);
+    // …pero el forense conserva lo que había realmente (sin él, la evidencia se perdía).
+    expect(entry.before.storedRaw[SettingKey.GRADING_COST_TIERS]).toEqual(corrupta);
   });
 
   it('`enabled` en el body se IGNORA (el interruptor maestro se edita en M10)', async () => {

@@ -298,6 +298,55 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
     expect(r.eligible).toBe(false);
   });
 
+  it('MENOR-1 — umbral EXACTAMENTE entero: `psa9 === umbral` pasa (aritmética entera, sin deriva de flotante)', () => {
+    // `costBase = 30000 + 70000 = 100000`; con `minUpsidePct = 10` el umbral EXACTO es 110000.
+    // `100000 × (1 + 10/100)` da 110000.00000000001 en IEEE-754 ⇒ `ceil` = 110001 ⇒ la carta que
+    // IGUALA el umbral quedaba fuera, contra el «si y solo si >=» del criterio 79.
+    const tiers: GradingCostTier[] = [{ minValueMxnCents: 0, maxValueMxnCents: null, costMxnCents: 70_000 }];
+    const at = evaluateGradingHighlight({
+      productType: 'raw',
+      rawSalePriceCents: 30_000,
+      today: TODAY,
+      estimates: [est('10', 900_000), est('9', 110_000)],
+      cfg: cfg({ minUpsidePct: 10, gradingCostTiers: tiers }),
+    });
+    expect(at.thresholdMxnCents).toBe(110_000); // ni 110001
+    expect(at.eligible).toBe(true);
+
+    // …y un centavo por debajo sigue siendo BELOW_MIN_UPSIDE (el borde no se aflojó).
+    const below = evaluateGradingHighlight({
+      productType: 'raw',
+      rawSalePriceCents: 30_000,
+      today: TODAY,
+      estimates: [est('10', 900_000), est('9', 109_999)],
+      cfg: cfg({ minUpsidePct: 10, gradingCostTiers: tiers }),
+    });
+    expect(below.eligible).toBe(false);
+    expect(below.reason).toBe('BELOW_MIN_UPSIDE');
+  });
+
+  it('MENOR-1 — `eligible` y `thresholdMxnCents` NUNCA se contradicen (barrido de pct enteros)', () => {
+    const tiers: GradingCostTier[] = [{ minValueMxnCents: 0, maxValueMxnCents: null, costMxnCents: 70_000 }];
+    for (const pct of [0, 1, 5, 7, 10, 13, 30, 33, 100, 333, 1000]) {
+      for (const raw of [30_000, 100_001, 123_457]) {
+        const costBase = raw + 70_000;
+        const exacto = Math.ceil((costBase * (100 + pct)) / 100);
+        for (const psa9 of [exacto - 1, exacto, exacto + 1]) {
+          const r = evaluateGradingHighlight({
+            productType: 'raw',
+            rawSalePriceCents: raw,
+            today: TODAY,
+            estimates: [est('10', 900_000), est('9', psa9)],
+            cfg: cfg({ minUpsidePct: pct, gradingCostTiers: tiers }),
+          });
+          expect(r.thresholdMxnCents).toBe(exacto);
+          // El diagnóstico que ve el admin y la decisión del gate son la MISMA función escalón.
+          expect(r.eligible).toBe(psa9 >= exacto);
+        }
+      }
+    }
+  });
+
   it('el ESCALÓN lo resuelve el PSA 10 (valor declarado): dos cartas de valor distinto pagan distinto', () => {
     const barata = evaluateGradingHighlight({
       ...base,

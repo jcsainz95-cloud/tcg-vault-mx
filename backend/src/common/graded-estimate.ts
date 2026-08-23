@@ -392,13 +392,16 @@ export function selectGradedEstimates<T extends GradedEstimateInput>(input: {
  * 2 productType != raw  -> NOT_RAW          6 alguno rancio     -> STALE
  * 3 sin precio de venta -> NOT_PUBLISHED    7 sin escalón       -> NO_COST_TIER   (jamás costo 0)
  * 4 psa10 ausente/<=0   -> NO_PSA10         8 psa9 < umbral     -> BELOW_MIN_UPSIDE
- * umbral = ceil((rawSalePriceCents + tier.costMxnCents) × (1 + minUpsidePct/100))
+ * gate: psa9 × 100 >= (rawSalePriceCents + tier.costMxnCents) × (100 + minUpsidePct)   [entero]
  * ```
  *
  * - **Valor declarado = el estimado PSA 10** (§N.2.1): escenario más caro ⇒ escalón más alto ⇒ gate más
  *   estricto. Cambiarlo es UNA línea aquí y CERO cambio de contrato.
- * - **`Math.ceil`** en el umbral: redondea en la dirección que hace el gate MÁS estricto. Todo en enteros
- *   de centavos; prohibido flotante en la comparación.
+ * - **Aritmética ENTERA en el umbral** (MENOR-1): se compara `psa9 × 100 >= (rawSalePriceCents +
+ *   tier.costMxnCents) × (100 + minUpsidePct)`. Nada de `× (1 + pct/100)`: esa forma se pasaba un centavo
+ *   en ~157 000 combinaciones con umbral exacto entero (p. ej. `costBase=100000, pct=10`) y dejaba fuera
+ *   a la carta que iguala EXACTAMENTE el umbral, contra el «si y solo si >=» del criterio 79. El
+ *   `Math.ceil` sobrevive solo para el `thresholdMxnCents` que ve el DIAGNÓSTICO de admin.
  * - `highlight` = los `cfg.highlightGrades` con dato fresco y > 0 (hoy `['10']`). El gate SIEMPRE se
  *   evalúa con PSA 9 aunque PSA 9 no se pinte.
  */
@@ -453,7 +456,13 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   if (tier == null) return no('NO_COST_TIER'); // SIN ESCALÓN, SIN DESTACADO — jamás costo 0.
 
   const costBase = rawSalePriceCents + tier.costMxnCents;
-  const thresholdMxnCents = Math.ceil(costBase * (1 + cfg.minUpsidePct / 100));
+  // v1.44 MENOR-1 — ARITMÉTICA ENTERA. `costBase * (1 + pct/100)` introduce error de flotante: con
+  // `costBase=100000` y `pct=10` el umbral exacto es 110000 y esa expresión da 110000.00000000001, que
+  // `Math.ceil` sube a 110001 y deja FUERA a la carta cuyo PSA 9 iguala EXACTAMENTE el umbral — contra
+  // el «si y solo si >=» del criterio 79. Se escala por 100 (`pct` es un porcentaje) y se compara en la
+  // escala grande, donde con `pct` entero el producto es exacto (≤ 2.2e10 << 2^53).
+  const thresholdScaled = costBase * (100 + cfg.minUpsidePct); // = umbral × 100
+  const thresholdMxnCents = Math.ceil(thresholdScaled / 100); // solo para el DIAGNÓSTICO de admin
   const netUpsidePsa9MxnCents = psa9MxnCents - costBase;
   const base = {
     gradingCostTier: tier,
@@ -467,7 +476,9 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   };
   // Insumo del diagnóstico: `netUpsidePsa9MxnCents` puede ser <= 0 aquí (por eso NO se usa como prueba
   // de elegibilidad — la prueba es el UMBRAL).
-  if (psa9MxnCents < thresholdMxnCents) {
+  // La DECISIÓN usa la escala entera, no el `thresholdMxnCents` redondeado: `psa9 × 100 >= umbral × 100`
+  // ⟺ `psa9 >= ceil(umbral)` (psa9 es entero), así que el diagnóstico y el gate siguen coincidiendo.
+  if (psa9MxnCents * 100 < thresholdScaled) {
     return { eligible: false, reason: 'BELOW_MIN_UPSIDE', highlight: [], ...base };
   }
 

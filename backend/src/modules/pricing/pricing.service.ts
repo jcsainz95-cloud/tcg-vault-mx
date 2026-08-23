@@ -4,6 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   SettingKey,
+  SettingKeyType,
+  SETTING_DEFAULTS,
   // v1.44-graded-estimate (§4.35d): los MISMOS validadores que aplica el PUT de M2, reusados en la
   // lectura fail-closed de la config (un valor fuera de rango cae a su seed, nunca rompe el request).
   validateGradeList,
@@ -58,6 +60,30 @@ function today(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
   return d;
+}
+
+/**
+ * v1.44-graded-estimate (§4.35d) — las 6 claves del gancho: el dial maestro M10 + las 5 de M2. Se leen
+ * TODAS en una sola query (`SettingsService.getRawMany`) para que la config del gancho cueste **+1
+ * query constante** por request en vez de 6 lecturas sueltas (`SettingsService` no cachea).
+ */
+const GRADED_ESTIMATE_SETTING_KEYS = [
+  SettingKey.GRADED_ESTIMATES_ENABLED,
+  SettingKey.GRADED_ESTIMATE_GRADES,
+  SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+  SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
+  SettingKey.GRADING_MIN_UPSIDE_PCT,
+  SettingKey.GRADING_COST_TIERS,
+] as const satisfies readonly SettingKeyType[];
+
+/**
+ * Dial maestro M10 `graded_estimates_enabled` (seed `off`): SOLO el string `'on'` enciende. Clave
+ * ausente, `null`, `true`, `'ON'` o basura ⇒ APAGADO (fail-closed por construcción).
+ */
+function gradedEstimatesEnabledFrom(raw: Map<SettingKeyType, unknown>): boolean {
+  const key = SettingKey.GRADED_ESTIMATES_ENABLED;
+  const v = raw.has(key) ? raw.get(key) : SETTING_DEFAULTS[key];
+  return v === 'on';
 }
 
 /**
@@ -668,19 +694,28 @@ export class PricingService {
    * (espejo de `loadSealedSpreads`, pago mínimo de BE-25). Lectura FAIL-CLOSED en dos niveles:
    *
    * 1. **Dial maestro primero:** con `graded_estimates_enabled != 'on'` se devuelve la config APAGADA
-   *    **sin leer nada más** (una sola lectura de settings y CERO queries de precios: con el dial `off`
-   *    el backend «ni siquiera evalúa nada», §M10).
-   * 2. **La tabla de COSTO no tiene default de código:** clave ausente/corrupta/que no cumple I1–I5 ⇒
-   *    tabla VACÍA ⇒ nada se destaca (`NO_COST_TIER`). Jamás un costo de gradeo asumido en 0. Los
+   *    (y el caller NO lee precios: con el dial `off` el backend «ni siquiera evalúa nada», §M10).
+   * 2. **La tabla de COSTO no tiene default de código:** clave **ausente**/corrupta/que no cumple I1–I5
+   *    ⇒ tabla VACÍA ⇒ nada se destaca (`NO_COST_TIER`). Jamás un costo de gradeo asumido en 0. Los
    *    umbrales y listas (`minUpsidePct`/`freshnessDays`/`grades`) SÍ caen a su seed: no son dinero y su
    *    ausencia no puede producir un gate optimista (sin tabla no hay gate).
+   *
+   * **v1.44 R1 — por qué `getRawMany` y no `getRaw`:** `SettingsService.get()/getRaw()` hacen fallback a
+   * `SETTING_DEFAULTS`, así que **no distinguen clave AUSENTE de clave presente con el valor del seed**.
+   * Con `getRaw` la doctrina (2) era falsa para el caso «ausente»: el resolver veía la tabla completa de
+   * 6 escalones y el gate corría normal. `getRawMany` devuelve **solo las filas existentes**, que es la
+   * distinción que §4.35d exige. (En una BD sembrada — `prisma/seed.ts` escribe una fila por cada
+   * `SETTING_DEFAULTS` — el comportamiento observable no cambia; lo que cambia es el caso degradado.)
+   *
+   * **v1.44 IMPORTANTE-2 — coste real:** las 6 claves se leen en **UNA** query (antes: 1 `findUnique` del
+   * dial + 5 `getRaw()` sin caché = 6). El coste del gancho por request queda en **+1 query con el dial
+   * `off`** y **+2 con `on`** (esta + el batch de estimados de §4.35c). Sigue siendo O(1).
    */
   async loadGradedEstimateConfig(): Promise<GradedEstimateConfig> {
-    const enabled = await this.gradedEstimatesEnabled();
-    // Con el dial `off` NO se lee nada más: ni las otras 5 claves ni (en el caller) los precios. La
-    // config apagada es INERTE — con `grades`/`gradingCostTiers` vacíos, las puras devuelven `[]` y
+    const raw = await this.settings.getRawMany(GRADED_ESTIMATE_SETTING_KEYS);
+    // Config apagada INERTE — con `grades`/`gradingCostTiers` vacíos, las puras devuelven `[]` y
     // `FEATURE_OFF` aunque alguien las llamara por error.
-    if (!enabled) {
+    if (!gradedEstimatesEnabledFrom(raw)) {
       return {
         enabled: false,
         grades: [],
@@ -690,7 +725,7 @@ export class PricingService {
         gradingCostTiers: [],
       };
     }
-    return this.readGradedEstimateConfig(true);
+    return this.buildGradedEstimateConfig(raw, true);
   }
 
   /**
@@ -699,23 +734,31 @@ export class PricingService {
    * de M2 tiene que poder ver y editar los escalones antes de encender la feature, y el diagnóstico
    * tiene que poder explicar `FEATURE_OFF` mostrando la tabla vigente. `enabled` es el ESPEJO
    * READ-ONLY del dial M10 (se edita en `PUT /admin/settings`, no aquí).
+   *
+   * Devuelve la config **EFECTIVA** (la misma que ve el resolver): si la fila de `grading_cost_tiers`
+   * NO existe, el editor ve `[]` — que es exactamente lo que el gate aplicaría — y no una tabla
+   * fantasma que nadie escribió nunca.
    */
   async loadGradedEstimateConfigForAdmin(): Promise<GradedEstimateConfig> {
-    return this.readGradedEstimateConfig(await this.gradedEstimatesEnabled());
+    const raw = await this.settings.getRawMany(GRADED_ESTIMATE_SETTING_KEYS);
+    return this.buildGradedEstimateConfig(raw, gradedEstimatesEnabledFrom(raw));
   }
 
-  /** Dial maestro M10 `graded_estimates_enabled` (seed `off`): SOLO `'on'` enciende (fail-closed). */
-  private async gradedEstimatesEnabled(): Promise<boolean> {
-    return (await this.settings.getString(SettingKey.GRADED_ESTIMATES_ENABLED)) === 'on';
-  }
-
-  /** Lee las 5 claves de config del gancho y las SANEA (ver la doctrina fail-closed de arriba). */
-  private async readGradedEstimateConfig(enabled: boolean): Promise<GradedEstimateConfig> {
-    const gradesRaw = await this.settings.getRaw(SettingKey.GRADED_ESTIMATE_GRADES);
-    const highlightRaw = await this.settings.getRaw(SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES);
-    const freshRaw = await this.settings.getRaw(SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS);
-    const minUpsideRaw = await this.settings.getRaw(SettingKey.GRADING_MIN_UPSIDE_PCT);
-    const tiersRaw = await this.settings.getRaw(SettingKey.GRADING_COST_TIERS);
+  /** SANEA las 5 claves de config del gancho ya leídas (ver la doctrina fail-closed de arriba). */
+  private buildGradedEstimateConfig(
+    raw: Map<SettingKeyType, unknown>,
+    enabled: boolean,
+  ): GradedEstimateConfig {
+    // Umbrales y listas: clave ausente ⇒ su SEED de código (no son dinero, ver doctrina (2)).
+    const seeded = (key: SettingKeyType): unknown =>
+      raw.has(key) ? raw.get(key) : SETTING_DEFAULTS[key];
+    const gradesRaw = seeded(SettingKey.GRADED_ESTIMATE_GRADES);
+    const highlightRaw = seeded(SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES);
+    const freshRaw = seeded(SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS);
+    const minUpsideRaw = seeded(SettingKey.GRADING_MIN_UPSIDE_PCT);
+    // COSTO: se lee del Map SIN pasar por `seeded()`. Clave ausente ⇒ `undefined` ⇒ el saneador
+    // devuelve `[]`. Es la única clave del gancho que JAMÁS cae a un default de código (§4.35d).
+    const tiersRaw = raw.get(SettingKey.GRADING_COST_TIERS);
 
     const grades = sanitizeGradeList(gradesRaw, DEFAULT_GRADED_ESTIMATE_GRADES);
     // `highlightGrades ⊆ grades` (I7) también EN LECTURA: si una edición fuera de banda dejó un grado
