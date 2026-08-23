@@ -2,7 +2,47 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.38-grouped-listings).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.39-sealed-product-module).
+>
+> **Changelog v1.39-sealed-product-module (2026-08-23, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-38,
+> cura de raíz de SB-D5, ARCHITECTURE §4.34):** cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**. Materializa la
+> entidad de catálogo **`SealedProduct`** (diferida en §4.32d): cada presentación sellada de un set (ETB, **UPC**, Booster
+> Bundle, booster box, tin, blíster, colección) es una **fila real** con identidad propia, descargada de TCGCSV por un
+> **sync**, en vez de anclarse a un single representativo. Resuelve el defecto «ETB → Tropius #1 · SIN MAPEO»: el alta pasa
+> a **seleccionar** un `SealedProduct` y el `InventoryItem` lo referencia por FK (`sealedProductId`). El sync **puebla los
+> groupIds del set** (rompe el círculo vicioso: `CardSet.tcgcsvGroupId` ya no requiere un item previo).
+> - **`GET /admin/inventory/sealed-products` (NUEVO, `vault_operator+`, §M1) — listar las presentaciones selladas
+>   PERSISTIDAS de un set** (fuente del alta). Query `?setId=` (requerido) `&q?` `&origin?` (`set_main`|`promo_collection`)
+>   `&principalOnly?`. Res `SealedProductListResponse`: `{ set, needsSync, groups: SealedSetGroupDTO[], data:
+>   SealedProductDTO[] }`, ordenado (principales primero, §4.34c), cada producto con `marketRef: PriceInfo | null` (**live**:
+>   TCGCSV al vuelo → caché → **`null` money-safe, JAMÁS 0**). Catálogo vacío ⇒ `data:[]` + `needsSync:true`.
+>   **SUSTITUYE** a `GET /admin/inventory/sealed-catalog` (v1.36, §4.32a), que queda **DEPRECADO** (alias transitorio que
+>   lee la misma tabla; se retira en release posterior).
+> - **`POST /admin/inventory/sealed-products/sync` (NUEVO, `super_admin`) — descarga las presentaciones selladas del set
+>   (o de todos) desde TCGCSV y las persiste como `SealedProduct`, poblando de paso `CardSet.tcgcsvGroupId` + las filas
+>   `SealedSetGroup`.** Req `{ setId?, groupIds?, all? }`. Upsert por `tcgplayerProductId`; descarta singles; infiere
+>   subtipo (incl. **upc**); productos ausentes ⇒ `active=false`. **Money-safe:** nunca fabrica precio, nunca toca
+>   inventario/valuación. Res `SealedSyncResultDTO`.
+> - **`GET /admin/inventory/sealed-products/sync/candidates` (NUEVO, `super_admin`) — grupos TCGCSV candidatos por
+>   name-match** (bootstrap del `set_main` + localizar grupos `promo_collection`). Query `?setId=`. Res
+>   `{ set, candidates: TcgcsvGroupCandidateDTO[] }`.
+> - **`POST /admin/inventory/sealed-sets/:setId/groups` (NUEVO, `super_admin`) — enlaza un grupo TCGCSV extra
+>   (promo/colección) al set** (1 set → N grupos, §4.34b). Req `{ tcgplayerGroupId, kind }`. Res `SealedSetGroupDTO`.
+> - **Alta = SELECCIONAR — reusa `POST /admin/inventory/items/batch`.** `BatchInventoryItemInput` gana **`sealedProductId?`**
+>   (solo `sealed`): presente ⇒ el backend **deriva server-side** `cardId` (ancla), mapeo, imagen/nombre y subtipo desde el
+>   `SealedProduct`, congela el snapshot, y la pieza **nace con identidad correcta** («ETB …», no la Tropius). Precio **en
+>   vivo** al alta (TCGCSV on-demand → caché → null). **Fallback manual money-safe:** `manualMarketMxnCents?` por línea,
+>   aceptado SOLO cuando el mercado resuelto es `null`, `> 0`, **auditado**, **`super_admin`**; sin override ⇒
+>   `422 PRICE_PENDING`. **Nunca** 0. Los campos sueltos M-37 (`tcgplayerProductId`/`sealedImageUrl`/…) quedan
+>   **deprecados** (aceptados en transición; si viene `sealedProductId` mandan los derivados).
+> - **Enum `SealedSubtype` gana `upc` y `collection`** (hueco 2; Prisma + contrato). Catálogo + orden + «principales» en
+>   §4.34c. `inferSealedSubtype` reconoce UPC (antes que ETB/collection).
+> - **Deltas de schema (migración M-39, ADITIVA/reversible, money-safe) — para backend:** tablas nuevas `SealedProduct` y
+>   `SealedSetGroup` (enlace 1 set → N grupos), enum `SealedGroupKind`, `InventoryItem.sealedProductId String?` (FK), +2
+>   valores de enum. Backfill: siembra grupos desde `CardSet.tcgcsvGroupId`, deriva `SealedProduct` de items mapeados y liga
+>   `sealedProductId` (cura ETB→Tropius); sin-mapeo → null + reconciliación. Ver ARCHITECTURE §4.34e + §11 (M-39).
+> - **Errores nuevos:** `422 SEALED_PRODUCT_NOT_FOUND` (`sealedProductId` inexistente/inactivo), `422 MANUAL_MARKET_NOT_ALLOWED`
+>   (`manualMarketMxnCents` con mercado ya resuelto, o rol < super_admin). `422 PRICE_PENDING`/`VALIDATION_ERROR` sin cambio.
 >
 > **Changelog v1.38-grouped-listings (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-30,
 > catálogo de singles agrupado por stock):** hoy `GET /catalog/cards` y `GET /catalog/cards/:cardId` devuelven **un
@@ -1215,6 +1255,7 @@
   `{T0..T4}` o body mal formado). Ver §M2 «Pricing por TIERS».
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
+- **Códigos nuevos del módulo `SealedProduct` (v1.39, P-38):** `422 SEALED_PRODUCT_NOT_FOUND` (`BatchInventoryItemInput.sealedProductId` no existe o está `active=false`; money-safe: no se crea inventario contra una identidad inválida). `422 MANUAL_MARKET_NOT_ALLOWED` (`manualMarketMxnCents` enviado cuando el mercado en vivo/caché **ya** resuelve — el override solo aplica al hueco de precio —, **o** el rol es `< super_admin`; poblar un precio manual es un input de dinero). Reusa: `422 PRICE_PENDING` (sellado sin mercado y sin override manual), `422 VALIDATION_ERROR` (`manualMarketMxnCents ≤ 0`; `sealedProductId` en raw/graded; `sync` sin `setId` ni `all`), `409` (grupo ya enlazado en `sealed-sets/:setId/groups`), `502 UPSTREAM_ERROR` (sync/candidates/marketRef live). Ya en el enum central `common/error-codes.ts`.
 - **`502 UPSTREAM_ERROR` (transversal; formalizado v1.31):** una **fuente externa** de datos no está disponible o
   devolvió un payload inválido (timeout/red, 401/403/5xx, o parse fallido). Aplica a **TCGCSV** (`https://tcgcsv.com`,
   espejo de precios/estructura de TCGplayer) y a **pokemontcg.io** (metadata de cartas). **No** es un `500` crudo: el
@@ -1641,13 +1682,27 @@ InventoryAdjustmentResponse = { adjustmentIds: string[], reason: AdjustmentReaso
 //   sealedImageUrl? + sealedProductName? = imagen/nombre del producto sellado desde la API (TCGCSV). El backend los
 //     VALIDA contra el host allowlist de imágenes TCGplayer/TCGCSV antes de persistir (anti stored-XSS/URL arbitraria);
 //     inválidos/omitidos ⇒ null (fallback a la Card ancla). Display-only, money-safe (jamás fijan precio). Deltas M-37.
-BatchInventoryItemInput = { cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish,
+// v1.39 (P-38): `sealedProductId?` (solo sealed) = IDENTIDAD del sellado (FK → SealedProduct). RECOMENDADO — sustituye
+//   a los 4 campos M-37 sueltos, que quedan DEPRECADOS (aceptados en transición). Presente ⇒ el backend DERIVA
+//   server-side `cardId` (ancla del set), tcgplayerProductId/GroupId, sealedImageUrl/sealedProductName y sealedSubtype
+//   DESDE el SealedProduct (el cliente NO manda identidad ni montos) y congela el SNAPSHOT ⇒ la pieza nace con identidad
+//   correcta («ETB …», no la Tropius). Inexistente/inactivo → 422 SEALED_PRODUCT_NOT_FOUND. Si viene sealedProductId,
+//   los 4 campos sueltos se IGNORAN (mandan los derivados). `cardId` pasa a OPCIONAL: REQUERIDO para raw/graded y para
+//   sealed SIN `sealedProductId` (transición P-35); con `sealedProductId` el backend lo DERIVA (ancla del set) y el
+//   cliente puede omitirlo. Ausente donde se requiere → 422 VALIDATION_ERROR.
+// v1.39 (P-38): `manualMarketMxnCents?` (solo sealed, FALLBACK MANUAL money-safe) = mercado en MXN centavos aceptado SOLO
+//   cuando el precio EN VIVO (TCGCSV al alta) y la caché son null; `> 0` (≤0 → 422 VALIDATION_ERROR); requiere
+//   `super_admin` y AUDITADO (persiste PriceReference isManualOverride=true). Con mercado ya resuelto o rol < super_admin
+//   → 422 MANUAL_MARKET_NOT_ALLOWED. Sin override y sin mercado ⇒ 422 PRICE_PENDING (NUNCA se inventa 0).
+BatchInventoryItemInput = { cardId?: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish,
                             sealedSubtype?: SealedSubtype, sealedCondition?: SealedCondition, // v1.23: default mint (solo sealed)
                             gradingCompany?: GradingCompany, gradeValue?: string,
                             certNumber?: string, locationId?: string, acquisitionType: AcquisitionType,
                             acquisitionPct?: number, listPriceCents?: number, qty?: number,
-                            tcgplayerProductId?: number, tcgplayerGroupId?: number,  // v1.36 (P-35) — nace mapeada
-                            sealedImageUrl?: string, sealedProductName?: string }     // v1.36 (P-35) — imagen/nombre API
+                            sealedProductId?: string,                            // v1.39 (P-38) — IDENTIDAD (recomendado)
+                            manualMarketMxnCents?: number,                       // v1.39 (P-38) — fallback manual (super_admin)
+                            tcgplayerProductId?: number, tcgplayerGroupId?: number,  // v1.36 (P-35) — DEPRECADO si hay sealedProductId
+                            sealedImageUrl?: string, sealedProductName?: string }     // v1.36 (P-35) — DEPRECADO si hay sealedProductId
 BatchCreateInventoryRequest = { batchKey: string, items: BatchInventoryItemInput[] }   // cap items = 200
 // Resultado por línea: ok:true crea qty piezas (devuelve sus folios); ok:false trae el error de ESA línea
 // (NO tumba las demás → HTTP 200). `index` = posición 0-based en items[].
@@ -1772,6 +1827,41 @@ SealedCatalogProductDTO = { tcgplayerProductId: number, name: string, cleanName?
 // §4.32b) que el alta reenvía como `cardId` — el operador NUNCA elige un single como ancla del sellado.
 SealedCatalogResponse = { set: SetRefDTO, tcgcsvGroupId: number | null, groupResolved: boolean,
                           anchorCardId: string, data: SealedCatalogProductDTO[] }
+// ===== v1.39 (P-38): módulo de PRODUCTO SELLADO robusto — entidad SealedProduct persistida =====
+// enum SealedSubtype gana `upc` (Ultra Premium Collection) y `collection` (colecciones/cajas especiales).
+// SealedGroupKind = tipo de grupo TCGCSV asociado a un set: `set_main` (grupo principal, booster box/ETB/bundle…) |
+//   `promo_collection` (grupo APARTE de promo/colección — blísters/tins/colecciones promo, incl. Mega Evolution). Un
+//   set tiene 1 set_main + N promo_collection (§4.34b).
+SealedGroupKind = "set_main" | "promo_collection"
+// Presentación sellada REAL de un set, con IDENTIDAD PROPIA (NO anclada a un single). `tcgplayerProductId` = clave de
+// identidad (== productId TCGplayer; == clave de precio sealed:tcg:<productId>). `subtype` incl. `upc`; `subtypeInferred`
+// = true si se infirió por nombre, false si un humano lo curó. `isPrincipal` = presentación «cabecera» (§4.34c).
+// `origin` = de qué tipo de grupo provino. `marketRef` = valor de mercado INFORMATIVO (live TCGCSV → caché → null);
+// MONEY-SAFE: sin precio ⇒ null (pendiente/"—"), NUNCA 0. `imageUrl` = imagen de la API (null si no trae).
+SealedProductDTO = { id: string, setId: string, tcgplayerProductId: number, tcgplayerGroupId: number,
+                     name: string, cleanName?: string, subtype: SealedSubtype, subtypeInferred: boolean,
+                     isPrincipal: boolean, origin: SealedGroupKind, imageUrl: string | null,
+                     marketRef: PriceInfo | null }
+// Enlace set → grupo TCGCSV (1 set → N grupos). `label` = nombre del grupo en TCGCSV (curación/observabilidad).
+SealedSetGroupDTO = { id: string, setId: string, tcgplayerGroupId: number, kind: SealedGroupKind, label?: string }
+// Respuesta de GET /admin/inventory/sealed-products. `data` ordenado (principales primero: isPrincipal desc, sortOrder
+// asc, name asc; §4.34c). `groups` = grupos TCGCSV conocidos del set. `needsSync=true` ⇒ catálogo vacío (el front ofrece
+// «Sincronizar»). Los productos son los PERSISTIDOS (active=true) — NO una descarga en vivo (esa la hace el sync).
+SealedProductListResponse = { set: SetRefDTO, needsSync: boolean, groups: SealedSetGroupDTO[], data: SealedProductDTO[] }
+// Grupo TCGCSV candidato por name-match (GET .../sync/candidates). `alreadyLinked` = ya está en SealedSetGroup del set.
+// `matchScore` = confianza de la coincidencia nombre+año (0..1, orientativo para la UI de curación).
+TcgcsvGroupCandidateDTO = { tcgplayerGroupId: number, name: string, publishedOn?: string,
+                            alreadyLinked: boolean, matchScore: number }
+SealedSyncCandidatesResponse = { set: SetRefDTO, candidates: TcgcsvGroupCandidateDTO[] }
+// Req de POST /admin/inventory/sealed-products/sync. Uno de: `setId` (un set) | `all:true` (todos). `groupIds?` = grupos
+// extra a enlazar+sincronizar (promo/colección) además de los ya conocidos del set.
+SealedSyncRequest = { setId?: string, groupIds?: number[], all?: boolean }
+// Resultado del sync (money-safe: nunca fabrica precio, nunca toca inventario). `pricedCount` = productos con marketUsdCents
+// no-null; `pendingPriceCount` = sin precio en la fuente (null, honesto). `groupsPopulated` = groupIds nuevos escritos.
+SealedSyncResultDTO = { setsSynced: number, groupsPopulated: number, productsUpserted: number,
+                        productsDeactivated: number, pricedCount: number, pendingPriceCount: number }
+// Req de POST /admin/inventory/sealed-sets/:setId/groups — enlaza un grupo extra (promo/colección) al set.
+SealedSetGroupLinkRequest = { tcgplayerGroupId: number, kind: SealedGroupKind }
 ```
 
 ---
@@ -3622,7 +3712,54 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - Err `404 NOT_FOUND` (set inexistente), `400 VALIDATION_ERROR` (`setId` ausente / `groupId` no entero positivo),
     `502 UPSTREAM_ERROR` (TCGCSV no responde / payload inválido — no afecta nada local). **Sin N+1** (una llamada de
     productos + una de precios del grupo).
-- **Alta de inventario SELLADO (P-35) — SIN endpoint nuevo:** el front reusa **`POST /admin/inventory/items/batch`**
+  - **⚠ DEPRECADO (v1.39, P-38):** superado por `GET /admin/inventory/sealed-products` (lee `SealedProduct` persistidos).
+    Se conserva como alias transitorio (puede leer la misma tabla); se retira en release posterior.
+- `GET /api/v1/admin/inventory/sealed-products` — **(NUEVO, P-38)** listar las presentaciones selladas **PERSISTIDAS**
+  de un set (`SealedProduct`, `active=true`) — la FUENTE del alta dedicada de la pestaña «Sellado». `vault_operator+`.
+  Query: `?setId=<id LOCAL de CardSet>` (**requerido**) `&q?` (filtro por nombre) `&origin?=set_main|promo_collection`
+  `&principalOnly?=true` (solo presentaciones «cabecera»).
+  - **Orden (§4.34c):** principales primero — `(isPrincipal desc, sortOrder asc, name asc)`; `sortOrder` canónico
+    `upc=0, etb=1, box=2, bundle=3, tin=4, blister=5, collection=6`.
+  - **`marketRef` (money-safe, INFORMATIVO):** por producto — **live** (fetch TCGCSV del grupo al vuelo, USD→MXN con
+    FX+colchón) → fallback a `marketUsdCents` cacheado por el sync → **`null` (pendiente/«—»), JAMÁS `0`**. No fija venta
+    ni costo. **Sin N+1** (una llamada de precios por grupo distinto + join en memoria; FX una vez por request).
+  - **Catálogo vacío** (set sin `SealedProduct` aún) ⇒ `data:[]` + **`needsSync:true`** (el front ofrece «Sincronizar»,
+    `super_admin`). `groups` = grupos TCGCSV conocidos del set (`SealedSetGroup`).
+  - Res `200` (`SealedProductListResponse`): `{ set, needsSync, groups: SealedSetGroupDTO[], data: SealedProductDTO[] }`.
+  - Err `404 NOT_FOUND` (set), `400 VALIDATION_ERROR` (`setId` ausente/inválido), `502 UPSTREAM_ERROR` (precios live).
+- `POST /api/v1/admin/inventory/sealed-products/sync` — **(NUEVO, P-38)** descargar las presentaciones selladas de un set
+  (o de todos) desde TCGCSV y persistirlas como `SealedProduct`, **poblando de paso `CardSet.tcgcsvGroupId` + `SealedSetGroup`**
+  (rompe el círculo vicioso del grupo). **`super_admin`** (curación/escritura de catálogo).
+  - Req (`SealedSyncRequest`): `{ setId?, groupIds?, all? }` — uno de `setId` (un set) o `all:true` (todos); `groupIds?`
+    = grupos extra (promo/colección) a **enlazar + sincronizar** además de los ya conocidos del set.
+  - **Algoritmo:** resuelve los grupos del set (`SealedSetGroup` ∪ `groupIds` ∪ name-match del `set_main` si falta) →
+    por grupo `listSealedProducts` (**descarta singles**, incl. el single promo de un grupo `promo_collection`) →
+    `inferSealedSubtype` (incl. **upc**) → **upsert `SealedProduct`** por `tcgplayerProductId` (name/image/subtype-si-no-curado/
+    `marketUsdCents`) → asegura la fila `SealedSetGroup` (con su `kind`) → **puebla `CardSet.tcgcsvGroupId`** si era null.
+    Productos que ya no aparecen ⇒ `active=false` (soft; nunca borrado duro). **Money-safe:** nunca fabrica precio
+    (`marketUsdCents` null si TCGCSV no trae), nunca toca inventario/valuación existente.
+  - **Cadencia:** on-demand (botón «Sincronizar») + batch opcional `sealed-catalog-sync` (todos los sets, 1×/día,
+    ventana TCGCSV, single-flight, secuencial-awaited como `sealed-price-ingest`).
+  - Res `200` (`SealedSyncResultDTO`): `{ setsSynced, groupsPopulated, productsUpserted, productsDeactivated,
+    pricedCount, pendingPriceCount }`. Err `404 NOT_FOUND` (set), `400 VALIDATION_ERROR`, `502 UPSTREAM_ERROR`.
+- `GET /api/v1/admin/inventory/sealed-products/sync/candidates` — **(NUEVO, P-38)** grupos TCGCSV candidatos por
+  **name-match** contra el set (bootstrap del `set_main` sin item previo + localizar grupos `promo_collection` — Mega
+  Evolution/promos). **`super_admin`**. Query `?setId=` (**requerido**).
+  Res `200` (`SealedSyncCandidatesResponse`): `{ set, candidates: TcgcsvGroupCandidateDTO[] }` (con `alreadyLinked` +
+  `matchScore`). Err `404 NOT_FOUND`, `502 UPSTREAM_ERROR`.
+- `POST /api/v1/admin/inventory/sealed-sets/:setId/groups` — **(NUEVO, P-38)** enlazar un grupo TCGCSV **extra**
+  (promo/colección) al set (**1 set → N grupos**, §4.34b). **`super_admin`**.
+  Req (`SealedSetGroupLinkRequest`): `{ tcgplayerGroupId, kind }`. Res `201` (`SealedSetGroupDTO`).
+  Err `404 NOT_FOUND` (set), `409` (grupo ya enlazado), `400 VALIDATION_ERROR`.
+- **Alta de inventario SELLADO (P-38) — SIN endpoint nuevo:** el front reusa **`POST /admin/inventory/items/batch`** con
+  **`sealedProductId`** (identidad; el backend deriva `cardId` ancla + mapeo + imagen/nombre/subtipo del `SealedProduct` y
+  congela el snapshot ⇒ nace «ETB …», no Tropius). Precio **en vivo** al alta (TCGCSV → caché → null). **Fallback manual
+  money-safe:** `manualMarketMxnCents?` (solo si el mercado resuelto es null, `>0`, `super_admin`, auditado); sin override
+  ⇒ `422 PRICE_PENDING` (nunca 0). Errores nuevos: `422 SEALED_PRODUCT_NOT_FOUND`, `422 MANUAL_MARKET_NOT_ALLOWED`.
+  - **Nota transición:** los 4 campos sueltos M-37 (`tcgplayerProductId`/`tcgplayerGroupId`/`sealedImageUrl`/
+    `sealedProductName`) quedan **DEPRECADOS**; si viene `sealedProductId` se ignoran (mandan los derivados). El flujo P-35
+    (§4.32c, alta por mapeo suelto) sigue funcionando en transición.
+- **Alta de inventario SELLADO (P-35, legacy/transición) — SIN endpoint nuevo:** el front reusa **`POST /admin/inventory/items/batch`**
   (o el singular `POST /admin/inventory/items`) con líneas `sealed`. Desde `SealedCatalogProductDTO` + `anchorCardId`,
   cada línea = `{ cardId: <anchorCardId>, productType:"sealed", sealedSubtype:<elegido/inferido>, sealedCondition?,
   finish:"normal", qty, acquisitionType, acquisitionCostCents?/acquisitionPct?, tcgplayerProductId:<productId>,

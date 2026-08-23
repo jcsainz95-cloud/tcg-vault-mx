@@ -6080,6 +6080,14 @@ catálogo de sellado navegable. **Fuera de alcance de P-35** (es una tercera tax
 toca M-23/M-25/M-26/M-28 y el pricing). Se registra como **SB-D5** en `docs/TECH_DEBT.md` (backend, no bloqueante).
 Los deltas M-37 son el **puente mínimo** money-safe hasta entonces.
 
+> **➡ CURADO en P-38 / §4.34 (v1.39-sealed-product-module).** La entidad `SealedProduct` diferida aquí se materializa
+> en **§4.34**: identidad propia por set, sync desde TCGCSV que **puebla los groupIds del set** (rompe el círculo
+> vicioso del hueco 1), enum `SealedSubtype` con **`upc`**, y `InventoryItem.sealedProductId` como referencia de
+> identidad (en vez del ancla-a-single). Las columnas M-37 (`sealedImageUrl`/`sealedProductName`/mapeo M-23) se
+> conservan como **snapshot** por-pieza (display/valuación estables aunque el catálogo cambie); el guardarraíl H9
+> (`productType != 'sealed'` en la vista de singles) sigue vigente hasta el re-llaveo completo. SB-D5 se **cierra** al
+> mergear P-38 (ver TECH_DEBT).
+
 #### Reparto de trabajo (v1.36, P-35)
 - **Backend** (stream «Inventario y vault»): (1) migración M-37 (3 columnas nullable, zona compartida `prisma/`
   serializada); (2) `GET /admin/inventory/sealed-catalog` (resolución de grupo §4.32b + reuso del `TcgcsvClient` +
@@ -6098,6 +6106,180 @@ Los deltas M-37 son el **puente mínimo** money-safe hasta entonces.
   el estado «grupo no resuelto» y el selector cantidad + compra/aportación. Reusa el sistema de tejas §16.8.
 - **QA/techlead**: doble veredicto por stream. No es dinero saliente, pero **toca valuación** (aportación) → la fase de
   seguridad revisa la ampliación de autorización del mapeo (§4.32c) y el host allowlist de imágenes.
+
+---
+
+### 4.34 Módulo de PRODUCTO SELLADO robusto — entidad `SealedProduct` (v1.39, P-38, cura de raíz de SB-D5, NORMATIVO)
+
+> **Problema (confirmado por diagnóstico).** Al dar de alta un ETB salió como «Tropius #1 · sealed» y «SIN MAPEO».
+> El puente P-35 (§4.32) **ancla cada sellado a un single representativo** del set (para satisfacer `InventoryItem.cardId`
+> NOT NULL) y **no le da identidad propia**. Tres huecos concretos: (1) `CardSet.tcgcsvGroupId` **no lo escribe nadie**
+> (columna M-37 sin seed/ingest) → círculo vicioso: para resolver el grupo del set hace falta un sellado ya mapeado,
+> pero no puedes meter el primero → cae a captura manual anclada a un single → «SIN MAPEO»; (2) **UPC (Ultra Premium
+> Collection) no existe** en ninguna capa (enum, contrato, `inferSealedSubtype`); (3) no hay concepto de «productos
+> principales» — el listado vuelca el grupo entero o nada.
+>
+> **Cura de raíz.** Se materializa la entidad de catálogo **`SealedProduct`** (diferida en §4.32d/SB-D5): cada
+> presentación sellada de un set (ETB, UPC, Booster Bundle, booster box, tin, blíster…) es una **fila real** con
+> identidad propia, descargada de TCGCSV por un **sync**, no anclada a un single. El alta pasa a ser **seleccionar** un
+> `SealedProduct`; el `InventoryItem` lo referencia por FK (`sealedProductId`). El sync **puebla los groupIds del set**
+> como parte de su trabajo (rompe el hueco 1: el grupo se resuelve por name-match/curación, sin requerir un item previo).
+
+#### 4.34a Entidad `SealedProduct` y su relación con el inventario
+
+`SealedProduct` = **catálogo de presentaciones selladas por set**, fuente de verdad de la identidad del sellado
+(reemplaza la inferencia-por-hermanos y el ancla-a-single). Campos (schema en §11 / M-39):
+
+- `id` (uuid), `setId` (FK → `CardSet`), `tcgplayerProductId Int @unique` (**clave de identidad**, == productId de
+  TCGplayer/TCGCSV; también la clave de precio `sealed:tcg:<productId>` §4.19d), `tcgplayerGroupId Int` (grupo del que
+  provino; uno de los **N** grupos del set, §4.34b), `name`, `cleanName?`, `subtype: SealedSubtype` (incl. **`upc`**,
+  inferido al sync y **curable**), `subtypeInferred: Boolean` (true = heurística, false = curado por humano),
+  `isPrincipal: Boolean` (presentación «principal», §4.34c), `origin: SealedGroupKind` (`set_main` | `promo_collection`,
+  §4.34b), `imageUrl?` (imagen de la API), `marketUsdCents Int?` + `marketUpdatedAt DateTime?` (**último** precio de
+  mercado conocido en USD centavos, cacheado por el sync/ingest; **money-safe: `null` cuando TCGCSV no trae precio,
+  JAMÁS 0**), `active: Boolean @default(true)` (soft-delete si desaparece de TCGCSV; nunca se borra en duro para no
+  romper FKs de inventario/órdenes), `createdAt`/`updatedAt`.
+
+- **Relación con inventario:** `InventoryItem.sealedProductId String?` (FK → `SealedProduct`, nullable; **regla de
+  aplicación**: poblada solo para `productType='sealed'`). Es la **identidad** del sellado. Las columnas M-23/M-37
+  (`tcgplayerProductId`/`tcgplayerGroupId`/`sealedImageUrl`/`sealedProductName`/`sealedSubtype`/`sealedCondition`) se
+  **conservan como SNAPSHOT por-pieza**, congelado al alta: el display y la valuación de una pieza ya dada de alta **no
+  cambian** aunque el `SealedProduct` se re-sincronice, se renombre o se desactive (estabilidad money-safe). El display
+  de las superficies de sellado resuelve en cascada: **`SealedProduct` (vivo, si `sealedProductId`)** → snapshot
+  `sealedImageUrl`/`sealedProductName` → `Card` ancla (legacy). La `cardId` ancla se **mantiene** (NOT NULL sigue): deja
+  de ser identidad y pasa a ser solo pertenencia al set + fallback de imagen; el guardarraíl H9 sigue excluyendo el
+  sellado de la vista de singles.
+
+- **Valuación money-safe (SIN cambio de doctrina):** la referencia de mercado autoritativa del sellado sigue siendo la
+  cadena H-1 `PriceReference` clave `sealed:tcg:<productId>` (§4.19d); `SealedProduct.marketUsdCents` es una **caché de
+  display/sugerencia**, no autoridad de dinero. La aportación valúa `mercado × pct` server-side; sin mercado ⇒
+  `422 PRICE_PENDING` (o override manual auditado, §4.34d). El job `sealed-price-ingest` (§4.19d) gana una fuente extra
+  de grupos/productos a barrer: **los `SealedProduct` activos** (además de los items mapeados), de modo que un producto
+  del catálogo tenga precio aunque aún no haya inventario — sin fabricar dato (null si TCGCSV no trae precio).
+
+#### 4.34b Un set → **N grupos** TCGCSV (crítico: promos / colecciones, incl. Mega Evolution)
+
+Las presentaciones selladas de un set **no viven todas en un solo grupo** TCGCSV: el grupo **principal** del set
+(booster box, ETB, bundle…) + **grupos aparte** de «collections»/promos (donde suelen caer blísters, colecciones y tins
+promo — p. ej. los de **Mega Evolution**, o «Black Star Promos»). Un modelo `1 set → 1 tcgcsvGroupId` los dejaría fuera
+(el defecto de hoy). Por eso:
+
+- **Nueva tabla de enlace `SealedSetGroup`** `{ setId, tcgplayerGroupId, kind: SealedGroupKind, label? }` con
+  `@@unique([setId, tcgplayerGroupId])`. `kind = set_main` (grupo principal del set) | `promo_collection` (grupo de
+  promo/colección asociado). Un set puede tener **1 `set_main` + N `promo_collection`**.
+- **`CardSet.tcgcsvGroupId` se conserva** como puntero denormalizado al grupo `set_main` (retrocompat + resolución
+  rápida); su **fuente de verdad** pasa a ser `SealedSetGroup(kind=set_main)`. El sync los mantiene consistentes (escribe
+  ambos). Resuelve el **hueco 1**: el sync **puebla** `tcgcsvGroupId` + las filas `SealedSetGroup` a partir del
+  **name-match** de grupos TCGCSV contra el set (mismo patrón que `PptSetMapper`), **sin** requerir un item sellado
+  previo.
+- **PROMO-SINGLE ≠ PROMO-SELLADO (frontera del módulo).** Las cartas **promo sueltas** (un single promo SVP-XXX) **NO**
+  son `SealedProduct`: van al catálogo de **singles** (`Card`, rareza «Promo» ya mapeada en P-34) y en TCGCSV viven en
+  un grupo aparte tipo «Black Star Promos». El sync de `SealedProduct` **descarta singles** (heurística `extendedData`
+  `Number`/`Rarity`, §4.19b `looksLikeSingleCard`) **también** en los grupos `promo_collection`: de un grupo promo el
+  módulo absorbe **solo** lo sellado (blíster/colección/tin promo), nunca el single promo. La `origin` del producto
+  registra de qué tipo de grupo provino, para que la UI pueda agrupar/separar «del set» vs «promo/colección».
+
+#### 4.34c Subtipos robustos — enum con `upc`, catálogo y «principales»
+
+- **Enum `SealedSubtype` (Prisma + contrato) gana `upc` y `collection`:** `{ box, etb, upc, bundle, tin, blister,
+  collection }`. `upc` = Ultra Premium Collection (pedido explícito). `collection` = colecciones/cajas especiales
+  (Premium/Special Collection, V/ex Box, colecciones promo) que hoy caían a `null` o se colaban como `box`. `ALTER TYPE
+  ADD VALUE` es aditivo y seguro (§11/M-39); ningún valor existente cambia.
+- **`inferSealedSubtype(name)` — orden normativo (el orden IMPORTA):**
+  1. `ultra premium collection` | `\bupc\b` → **`upc`** (antes que ETB y collection, porque contiene «collection»).
+  2. `elite trainer box` | `\betb\b` → **`etb`**.
+  3. `booster bundle` | `\bbundle\b` → **`bundle`** (antes que box).
+  4. `booster box` | `booster case` → **`box`**.
+  5. `\btin\b` → **`tin`**.
+  6. `blister` | `sleeved booster` | `checklane` | `\b3[- ]?pack\b` → **`blister`**.
+  7. `premium collection` | `special collection` | `\bcollection\b` | `\bbox\b` (genérico) → **`collection`**.
+  8. sin match → **`null`** (el operador elige al curar; jamás se adivina de más). Conservadora como hoy.
+- **Principales (`isPrincipal`)** = presentaciones «cabecera» que el alta muestra primero: **`box, etb, upc, bundle`**.
+  Secundarias: `tin, blister, collection`. Default derivado del subtype por una constante `SEALED_SUBTYPE_META`
+  (`{ isPrincipal, sortOrder, label }`), **curable** por pieza (`SealedProduct.isPrincipal` es columna, el sync setea el
+  default y el humano puede overridear). **Orden de exposición del contrato:** por `(isPrincipal desc, sortOrder asc,
+  name asc)` — sortOrder canónico `upc=0, etb=1, box=2, bundle=3, tin=4, blister=5, collection=6`.
+
+#### 4.34d Contrato de alta — seleccionar `SealedProduct` + precio en vivo + fallback manual
+
+- **Listar presentaciones del set** — `GET /admin/inventory/sealed-products?setId=&q?&origin?&principalOnly?`
+  (`vault_operator+`): lee los `SealedProduct` **persistidos** (active=true) del set, ordenados §4.34c, cada uno con
+  `marketRef: PriceInfo | null` (**live**: fetch TCGCSV del grupo al vuelo → fallback a `marketUsdCents` cacheado →
+  `null` money-safe; USD→MXN con FX+colchón). Sustituye a `GET /admin/inventory/sealed-catalog` (§4.32a), que se marca
+  **DEPRECADO** (transición: puede mantenerse como alias que lee la misma tabla). Grupo/catálogo aún vacío ⇒
+  `data:[]` + `needsSync:true` (el front ofrece «Sincronizar»).
+- **Alta = seleccionar** — reusa `POST /admin/inventory/items/batch`. `BatchInventoryItemInput` gana **`sealedProductId?`**
+  (solo `sealed`). Presente ⇒ el backend **deriva server-side** `cardId` (ancla del set), `tcgplayerProductId`/`GroupId`,
+  `sealedImageUrl`/`sealedProductName`, `sealedSubtype` **desde el `SealedProduct`** (el cliente NO manda identidad ni
+  montos) y **congela el snapshot**. La pieza **nace con identidad correcta** («ETB Pitch Black», NO la carta Tropius).
+  Los campos sueltos M-37 (`tcgplayerProductId`/`sealedImageUrl`/…) quedan **aceptados pero deprecados** (transición);
+  si viene `sealedProductId` mandan los derivados. `qty`+`batchKey` = misma idempotencia (M-21).
+- **Precio EN VIVO al alta:** al crear la pieza el backend resuelve mercado en ESE momento — `sealed-price` on-demand del
+  `productId` (una llamada TCGCSV) → fallback a la última `PriceReference sealed:tcg:<productId>` / `marketUsdCents` →
+  `null`. La aportación valúa por ese mercado (`mercado × pct`, server-side, SEC-A1).
+- **Fallback MANUAL money-safe:** si live+caché son `null`, la línea NO se inventa 0: dos salidas honestas — (a) sin
+  override ⇒ `422 PRICE_PENDING` por línea (queda pendiente, curable); (b) **override manual explícito** `manualMarketMxnCents?`
+  en la línea (solo cuando el mercado resuelto es null) ⇒ se usa como referencia, **auditado**
+  (`AuditLog inventory.sealed_manual_market`) y persistido como `PriceReference isManualOverride=true`. **Nunca** default
+  0; `manualMarketMxnCents ≤ 0` ⇒ `422 VALIDATION_ERROR`. **Autorización:** poblar un precio manual es un input de
+  dinero — se restringe a `super_admin` (para `vault_operator` la línea sin mercado cae a `PRICE_PENDING`); a validar en
+  la fase de seguridad (ver preguntas abiertas).
+- **Sync (poblar catálogo + groupIds)** — `POST /admin/inventory/sealed-products/sync` (`super_admin`)
+  `{ setId?, groupIds?, all? }`: para el set (o todos), resuelve sus grupos (`SealedSetGroup` ∪ `groupIds` pasados ∪
+  name-match del `set_main` si falta), y por grupo: `listSealedProducts` (descarta singles) → `inferSealedSubtype` →
+  **upsert `SealedProduct`** por `tcgplayerProductId` (crea/actualiza name/image/subtype-si-no-curado/marketUsdCents) +
+  asegura la fila `SealedSetGroup` + **puebla `CardSet.tcgcsvGroupId`** si era null (del `set_main`). Productos que ya no
+  aparecen ⇒ `active=false` (soft). **Money-safe:** nunca fabrica precio (marketUsdCents null si TCGCSV no trae); nunca
+  toca inventario ni valuación existente. Cadencia: **on-demand** (botón «Sincronizar» al abrir el set / al no haber
+  catálogo) **+ batch** opcional `sealed-catalog-sync` (todos los sets, 1×/día, reusa la ventana TCGCSV ~20:00 UTC,
+  single-flight, secuencial-awaited como `sealed-price-ingest`).
+- **Descubrir/curar grupos** — `GET /admin/inventory/sealed-products/sync/candidates?setId=` (`super_admin`): lista
+  grupos TCGCSV candidatos por name-match (para bootstrap del `set_main` y para localizar grupos `promo_collection`);
+  y `POST /admin/inventory/sealed-sets/:setId/groups` `{ tcgplayerGroupId, kind }` enlaza un grupo extra (promo/colección)
+  al set. Solo lectura de catálogo / curación; jamás fija precio.
+
+#### 4.34e Migración M-39 y backfill (numerado, money-safe) — para backend
+
+Ver tabla §11 (M-39). Pasos:
+1. `ALTER TYPE SealedSubtype ADD VALUE 'upc'` y `'collection'` (aditivo, sin re-mapear valores).
+2. `CREATE TYPE SealedGroupKind AS ENUM ('set_main','promo_collection')`.
+3. `CREATE TABLE SealedSetGroup` (+ unique `(setId, tcgplayerGroupId)`, index `setId`).
+4. `CREATE TABLE SealedProduct` (+ unique `tcgplayerProductId`, index `setId`, index `tcgplayerGroupId`).
+5. `ALTER TABLE InventoryItem ADD COLUMN sealedProductId` (FK nullable, `onDelete: SetNull`; index).
+6. **Backfill grupos:** por cada `CardSet` con `tcgcsvGroupId != null` → `INSERT SealedSetGroup(kind=set_main)`.
+7. **Backfill catálogo desde inventario mapeado (cura del ETB→Tropius):** por cada `(tcgplayerProductId,
+   tcgplayerGroupId)` **distinto** de `InventoryItem` sealed **mapeados**, `upsert SealedProduct` con `name` =
+   `sealedProductName` (o re-fetch por productId), `imageUrl` = `sealedImageUrl`, `subtype` = `sealedSubtype` (o inferido),
+   `origin=set_main`, `marketUsdCents` = último de `sealed:tcg:<productId>` **o null** (jamás fabricado). Luego
+   `UPDATE InventoryItem SET sealedProductId = <ese SealedProduct>` para esas piezas. El ETB actual queda ligado a su
+   `SealedProduct` real («ETB …»), no a Tropius.
+8. **Sellados SIN mapeo** (los «SIN MAPEO», `tcgplayerProductId = null`): **no** se pueden backfillar sin adivinar →
+   `sealedProductId` queda `null` y se listan en un **reporte de reconciliación** (no un endpoint nuevo obligatorio; una
+   query admin) para re-curarlos con el nuevo flujo (sync del set → seleccionar el `SealedProduct` correcto → re-mapear
+   la pieza). Money-safe: cero adivinación.
+9. `CardSet.tcgcsvGroupId` **se conserva** (no se dropea): denormalización del `set_main`, mantenida por el sync.
+
+**Aditiva y reversible:** tablas nuevas + una columna FK nullable + dos valores de enum; sin `DROP`, sin backfill
+destructivo. Con la app corriendo. `backend/prisma/` es **zona compartida** → el orquestador **serializa M-39**.
+
+#### Reparto de trabajo (v1.39, P-38)
+- **Backend** (stream «Inventario y vault»): migración M-39 + backfill (pasos 1-8); modelos `SealedProduct`/`SealedSetGroup`;
+  servicio de sync (name-match + upsert + poblar groupIds, reuso de `TcgcsvSealedBulkProvider`, sin N+1); `GET
+  /admin/inventory/sealed-products` (live marketRef money-safe); alta por `sealedProductId` (derivación server-side +
+  snapshot + precio en vivo + fallback manual auditado); enriquecer `sealed-price-ingest` para barrer `SealedProduct`
+  activos; que los DTOs de display prefieran `SealedProduct`→snapshot→ancla. Tests: sync puebla `tcgcsvGroupId`+catálogo
+  sin item previo; UPC se infiere; un set con grupo promo trae sus sellados y descarta el single promo; alta nace con
+  identidad correcta (no Tropius); precio en vivo; sin precio ⇒ PRICE_PENDING (nunca 0); manual solo super_admin y >0;
+  backfill liga el ETB a su SealedProduct.
+- **Frontend** (`(admin)` inventario / captura): el modal de alta de la pestaña Sellado consume `GET
+  /admin/inventory/sealed-products` (tejas con imagen de API, subtipo incl. UPC, `marketRef`/«—», principales primero);
+  seleccionar producto + cantidad + compra/aportación; enviar `items/batch` con `sealedProductId` + `batchKey`. Estado
+  «catálogo vacío» ⇒ botón «Sincronizar» (`super_admin`); campo de precio manual (super_admin) cuando `marketRef` es null.
+- **ux-ui**: teja del `SealedProduct` (imagen, subtipo/UPC, badge principal, `marketRef`/«—»), agrupación «del set» vs
+  «promo/colección» (`origin`) — pendiente de la pregunta abierta al humano —, estado «sincronizar» y el input de precio
+  manual money-safe.
+- **QA/techlead/seguridad**: doble veredicto por stream + fase de seguridad (toca valuación por el precio en vivo y el
+  override manual → revisar autorización del manual y del sync, y el host allowlist de imágenes).
 
 ---
 
@@ -6916,7 +7098,28 @@ cae al fallback por hermanos mapeados). Segura con la app corriendo. Las columna
 > El refactor mayor —una **entidad `SealedProduct` de catálogo** llaveada por `tcgplayerProductId` (nombre/imagen/
 > subtipo/setId propios, con `InventoryItem.sealedProductId`)— queda **DIFERIDO** y se documenta como **SB-D5** en
 > `docs/TECH_DEBT.md` (§4.32d): resolvería de raíz el ancla-a-single, pero es una tercera taxonomía con sync propio
-> que toca M-23/M-25/M-26/M-28; **fuera de alcance** de este cambio.
+> que toca M-23/M-25/M-26/M-28; **fuera de alcance** de este cambio. **➡ Ejecutado en M-39 (v1.39, P-38).**
+
+### v1.39-sealed-product-module (nueva — M-39: entidad `SealedProduct`, cura de raíz de SB-D5, P-38)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador **serializa M-39**. Es **aditiva y reversible** (dos tablas
+nuevas + una columna FK nullable + dos valores de enum; sin `DROP`, sin backfill destructivo). Segura con la app
+corriendo. Backfill money-safe (pasos §4.34e): siembra `SealedSetGroup` desde `CardSet.tcgcsvGroupId`, deriva
+`SealedProduct` de los items sellados **mapeados** y liga `InventoryItem.sealedProductId` (cura el ETB→Tropius); los
+sellados **sin** mapeo quedan `sealedProductId=null` para re-curar (cero adivinación). Spec en §4.34.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-39 | `enum SealedSubtype += upc, collection` | Add enum values | `ALTER TYPE ADD VALUE` | `upc` = Ultra Premium Collection (hueco 2). `collection` = colecciones/cajas especiales. Aditivo; ningún valor existente cambia. |
+| M-39 | `enum SealedGroupKind { set_main, promo_collection }` | Enum nuevo | Create type | Tipo de grupo TCGCSV asociado a un set: principal vs promo/colección (§4.34b). Reusado por `SealedSetGroup.kind` y `SealedProduct.origin`. |
+| M-39 | `SealedSetGroup` | Tabla nueva | Create table | Enlace **1 set → N grupos** TCGCSV. `{ id, setId FK, tcgplayerGroupId, kind, label? }`, `@@unique([setId, tcgplayerGroupId])`, index `setId`. Fuente de verdad de los groupIds del set (Mega Evolution/promos incl.). |
+| M-39 | `SealedProduct` | Tabla nueva | Create table | Catálogo de presentaciones selladas por set (identidad propia). `{ id, setId FK, tcgplayerProductId @unique, tcgplayerGroupId, name, cleanName?, subtype, subtypeInferred, isPrincipal, origin, imageUrl?, marketUsdCents?, marketUpdatedAt?, active }`. Money-safe: `marketUsdCents` null cuando TCGCSV no trae precio, jamás 0. |
+| M-39 | `InventoryItem.sealedProductId String?` | Columna nueva nullable (FK) | Add column | FK → `SealedProduct` (`onDelete: SetNull`), index. **Identidad** del sellado (reemplaza el ancla-a-single). Solo `productType='sealed'` (regla de aplicación). Las columnas M-23/M-37 se conservan como **snapshot** por-pieza. |
+| M-39 | `CardSet.tcgcsvGroupId` | **Se conserva** (no drop) | — | Denormalización del grupo `set_main`; fuente de verdad pasa a `SealedSetGroup(kind=set_main)`, el sync mantiene ambos. |
+
+> **Backfill (data, no DDL):** (6) `SealedSetGroup(set_main)` desde cada `CardSet.tcgcsvGroupId != null`; (7) `SealedProduct`
+> por cada `(tcgplayerProductId, tcgplayerGroupId)` distinto de items sellados **mapeados** + `UPDATE InventoryItem.sealedProductId`
+> (cura ETB→Tropius); (8) sellados **sin** mapeo → `sealedProductId=null` + reporte de reconciliación. Ver §4.34e.
 
 ### v1.30-buylist-quote-por-producto (nueva — M-32: línea de buylist por `productId`)
 
