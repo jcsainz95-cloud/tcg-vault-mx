@@ -55,7 +55,22 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
   de buylist, o límite top-N)? ¿o Pitch Black no está en el índice que busca el cotizador?
 - **Roles:** backend (`buylist`/búsqueda) según diagnóstico.
 
-### Pendiente del humano · Razón social para el footer
+### P-42 · Cotizador: carrito de venta fijo a la derecha + sombrear cartas ya agregadas
+- **Pedido del humano (2026-08-23, prod):** en el cotizador (Vender/buylist):
+  1. Al picar una carta, el **carrito de venta se despliega y se queda FIJO a la derecha, a la par del
+     grid** (no un drawer que se abre/cierra) — más funcional para ver qué metes y cuánto llevas.
+  2. Tras agregar una carta al carro, **sombrear/destacar** esa carta en el grid para distinguir cuáles
+     ya están agregadas.
+- **Roles:** frontend (`BuylistView.tsx`, `SellCartContents.tsx`), respetando el visual del rediseño.
+  Nota: encolado detrás de P-39/P-40 (comparten zona storefront + `messages`), para no pisar archivos.
+
+### P-43 · Click en la carta → pop-up con detalle e imagen grande legible
+- **Pedido del humano (2026-08-23, prod):** al hacer **click en la carta** (no en «AGREGAR»), abrir un
+  **pop-up/modal** con más detalle: imagen más grande para que el **texto de la carta se lea**. Distinto
+  de «AGREGAR» (que la mete al carrito). Aplica al grid del cotizador (y catálogo si aplica).
+- **Cierre:** basta **click fuera del pop-up** (en el backdrop) para cerrarlo (+ Esc por a11y).
+- **Roles:** frontend (modal de detalle, reusa `imageLargeUrl` de P-39). **Va junto con P-42** (misma
+  interacción de la carta en el cotizador), respetando el design system del rediseño.
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
   social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.
 
