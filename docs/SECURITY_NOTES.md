@@ -3288,6 +3288,6 @@ DoD se RECHAZA solo con críticos/altos abiertos → **0/0 → umbral no se acti
 - Condiciones (post-deploy, no bloquean promoción): (1) N-1/N-2 en fast-follow backend o aceptadas-registradas con disparadores; (2) N-0 en backlog devops (NestJS 11); (3) DAST en staging agendado antes de volumen real.
 - Mínimo para APROBADO liso: cerrar N-1 y N-2.
 
-_Nota de orquestación (2026-08-23): N-1/N-2/N-3 enrutadas a backend como fast-follow ANTES del deploy (cierre elegido sobre aceptar-registrado, por tocar $0/P&L). (Persistido por el orquestador; el agente seguridad no tiene Write.)_
+_Nota de orquestación (2026-08-23): N-1/N-2/N-3 cerradas en fast-follow backend ANTES del deploy (commit `5fe3cac`, suite 170/1670 verde). **N-2** `@Max` en `acquisitionCostCents` (overflow P&L cerrado). **N-1 substancia** el gate `gateSealedMarketCents` rechaza `<=0` ($0 latente cerrado). **N-3** el resolver acepta `sealedProductId` en el `where`. **N-1 parte 1** (`@Min(1)` en el DTO) deliberadamente NO aplicada: contradiría el contrato (`≤0 → 422 VALIDATION_ERROR`, regla de negocio ya entregada por el guard de servicio); el $0 lo cierra el gate. N-0 (deps) queda en backlog devops; DAST staging agendado antes de volumen real. (Persistido por el orquestador; el agente seguridad no tiene Write.)_
 
 — SEGURIDAD (blue team / AppSec), 2026-08-23
