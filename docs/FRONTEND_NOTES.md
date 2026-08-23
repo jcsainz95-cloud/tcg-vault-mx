@@ -17,6 +17,7 @@
 | `(storefront)/_shared/grading/GradingFootnote.tsx` | `GradingFootnoteBoundary` (contexto + nota), `GradingNoteCall` (la llamada `*`) y la nota al pie. |
 | `(storefront)/_shared/grading/GradingEstimateBlock.tsx` | Bloque de la ficha (§21.3). |
 | `(storefront)/_shared/grading/GradingEstimateBadge.tsx` | Badge de la teja / vitrina (§21.5). |
+| `(storefront)/_shared/grading/GradingMicroNotice.tsx` | **El micro-aviso adyacente visible** (§21.4c) + su llamada `*`. Único portador del aviso en las tres superficies. |
 | `(storefront)/_shared/grading/HypotheticalGradeChip.tsx` | Chip de grado hipotético, borde punteado (§21.2). |
 | `(storefront)/_home/GradingGemsShelf.tsx` | Vitrina «Joyas para gradear» + `useGradingGems()` (§21.6). |
 | `(storefront)/_shared/Fact.tsx` | La celda `Fact` de la ficha, **extraída tal cual** de `CardDetailView` para reusarla en el bloque. Único ensanchamiento: `label` pasa de `string` a `ReactNode` (la etiqueta del gancho lleva el chip). Cero cambio visual. |
@@ -90,19 +91,17 @@ esquema de §21.11, ambas para poder copiar el texto aprobado **sin reescribirlo
   su lectura («aproximadamente») viaja en `sr-only` dentro del mismo `t.rich` (§21.9).
 
 ### Textos MARCADOR DE POSICIÓN (pendientes de PO — §21.12 nº2)
-`catalog.gradingEstimate.provenance` y `catalog.gradingNote.callSr` usan **los puntos de partida
-propuestos por ux-ui**. Son texto legal-comercial: los fija PO (idealmente con la misma revisión
-legal del disclaimer). Cambiarlos es editar `messages/{es,en}.json`, sin tocar código.
+Los dos `microNotice` (`catalog.gradingBadge.microNotice`, `catalog.gradingEstimate.microNotice`) y
+`catalog.gradingNote.callSr` usan **los textos propuestos por ux-ui en §21.11**, tomados a su vez de
+§N.5. Son texto legal-comercial: los fija PO (idealmente con la misma revisión legal del
+disclaimer). Cambiarlos es editar `messages/{es,en}.json`, sin tocar código.
 
-### Discrepancia REPORTADA (no resuelta por frontend)
-`DESIGN_SYSTEM §21.7` dice que la ficha **no** se pinta si falta uno de los dos grados, y lo
-justifica citando `PROJECT §N.4`. Pero `PROJECT §N.3(1)` («si solo existe uno de los dos grados, se
-muestra el que exista») y el propio `§N.4` («Ficha → se muestra **lo que haya** (PSA 10 y/o PSA 9)»)
-dicen lo contrario, igual que el contrato v1.44 («una carta con PSA 10 y sin PSA 9 emite un arreglo
-de un elemento»). Por la **regla de conflicto** de `CLAUDE.md` (PROJECT manda sobre el contrato y
-sobre el código) se implementó «se pinta lo que haya» — que además es exactamente la degradación que
-§21.7 ya describe como contingencia («se pinta la celda que exista en la misma retícula»). Queda
-**abierto para PO/ux-ui**; revertirlo son tres líneas en `blockEstimatesOf`.
+### Un solo grado disponible — RESUELTO (ya no hay discrepancia)
+La versión anterior de estas notas reportaba una discrepancia con §21.7 («falta un grado ⇒ nada» en
+la ficha). **Ya no existe:** ux-ui alineó §21.7 con `PROJECT §N.3(1)/§N.4` y el contrato v1.44 —
+«se muestra lo que haya»— y añadió la forma: con **una sola cifra la retícula colapsa a una
+columna** a ancho completo. El código ya hacía lo primero y ahora hace también lo segundo (ver
+«Ronda de corrección», D6). No queda nada abierto para PO/ux-ui por este punto.
 
 ### Mocks (`lib/mock/fixtures.ts`) — MOCK: pendiente de backend real
 `mockGradedEstimatesByCardId` (ficha, sin gatear), `mockGradingShowcaseCardIds` (lista **ya curada y

@@ -2660,6 +2660,36 @@
 - **Disparador:** que el PO confirme que quiere el indicador agregado en el binder. Acción: arquitecto define el
   campo aditivo en `docs/API_CONTRACT.md` §M1 (binder) → backend lo agrega a la agregación → frontend lo pinta.
 
+### F-17 · E2E `catalog.spec.ts:36` («tarjeta de SELLADO») falla desde antes del gancho de grading (Media)
+- **Dónde:** `frontend/e2e/catalog.spec.ts:36` — «tarjeta de SELLADO: badge "Sellado" + precio, sin
+  condición/rareza».
+- **Estado actual:** **rojo**, y **ya lo estaba en `origin/main`** (QA lo verificó en un worktree limpio; se
+  reconfirmó en la rama `claude/psa-graded-card-value-gmhv5u`: `9 passed / 1 failed`, siendo ese el único
+  fallo). **No es una regresión del gancho de grading**: la rama v2.0 no toca el filtro de tipo, la teja de
+  sellado ni sus fixtures — el spec nuevo `e2e/grading-estimate.spec.ts` corre **9/9 en verde** junto a él.
+- **Por qué NO se arregló en este pase:** QA lo excluyó explícitamente del alcance del rechazo («no es tuyo,
+  no lo arregles») y tocarlo mezclaría un fix de otro flujo con la corrección del bloqueante del disclaimer.
+- **Impacto:** medio — mientras siga rojo, la suite completa de Playwright no puede usarse como gate «todo
+  verde» sin una excepción anotada.
+- **Disparador:** el work stream dueño del **sellado** (o el pase de estabilización de E2E) debe diagnosticar
+  si lo que cambió es el copy del filtro, el fixture o la teja, y arreglar spec **o** producto según toque.
+
+### F-18 · El mock del storefront no simula el interruptor `gradedEstimatesEnabled` (Baja)
+- **Dónde:** `frontend/src/lib/mock/fixtures.ts` (`mockSettings.gradedEstimatesEnabled`, hoy `'on'`) frente a
+  `mockGradingHighlightFor` / `mockGroupedDetail`.
+- **Estado actual:** el dial existe en M10 y se guarda, pero **apagarlo en modo mock no apaga las cifras** del
+  storefront: el gate y el interruptor son **server-side** (contrato §M10: con `off` el backend ni siquiera
+  evalúa) y el fixture reproduce el **resultado** que el servidor ya resolvió, no su lógica. Por eso el mock se
+  publica **encendido** (como un staging donde el dueño ya lo prendió) y así las tres superficies son
+  coherentes entre sí. **El seed real sigue siendo `off`**, fail-closed.
+- **Por qué se dejó así:** cablear el dial al fixture haría que un E2E de admin que guarde M10 **apagara las
+  cifras para el resto de la suite** (servidor de dev compartido, `fullyParallel`), volviendo flaky a los
+  specs de catálogo y home. El acoplamiento costaría más de lo que aporta.
+- **Impacto:** bajo, y acotado al modo mock. La verificación del **criterio 90** (encender/apagar no cambia
+  precios, portafolio, buylist ni P&L) se hace contra el **backend real**, donde el dial sí gobierna.
+- **Disparador:** si QA quiere ejercitar el on/off end-to-end sin backend, wirear el dial en el fixture **y**
+  aislar el estado por test (p. ej. reset del módulo entre specs) en la misma tarea.
+
 ### Pase `pulido-precios-display` — deuda del pulido de display de precios (2026-08-19, no bloqueante)
 
 > Del stream `claude/pulido-precios-display` (referencia de mercado viva: `liveMxnCents` re-FX-eado al vuelo

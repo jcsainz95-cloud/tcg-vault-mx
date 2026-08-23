@@ -1577,6 +1577,46 @@
         "prereqHint": "The spread only produces a price if the product is mapped to TCGCSV and the sealed price source is on.",
         "saved": "Spreads saved."
       },
+      "gradedEstimates": {
+        "title": "Estimated value if graded · costs and curation",
+        "subtitle": "Decides which cards the grading hook promotes. None of this is shown to the customer: it only changes which cards carry a figure on the tiles and in the home showcase.",
+        "masterSwitch": "Master switch",
+        "masterSwitchHint": "Turned on and off in M10 · Config.",
+        "enabledOn": "On",
+        "enabledOff": "Off",
+        "offBanner": "The feature is off: you can set the table up, but the storefront will show no figure until you turn it on in M10.",
+        "tiers": {
+          "title": "Grading cost tiers",
+          "hint": "Total door-to-door cost for a buyer in Mexico (PSA fee + international shipping + insured return + handling), by card value. Tiers are contiguous by construction: each one starts where the previous ends, and the last one is open-ended so no card is left without a tier.",
+          "from": "From",
+          "to": "Up to",
+          "toFor": "End of tier {index}",
+          "cost": "Grading cost",
+          "costFor": "Grading cost of tier {index}",
+          "openEnded": "And above",
+          "add": "Add tier",
+          "remove": "Remove tier {index}",
+          "errors": {
+            "range": "The end of the tier must be greater than its start.",
+            "cost": "The cost must be at least MX$0.01 and at most MX$100,000. A cost of 0 would promote cards on which the buyer loses money."
+          }
+        },
+        "minUpside": {
+          "label": "Minimum upside",
+          "hint": "What must be left for the buyer above the total cost (card + grading) for the card to be worth promoting. Always evaluated on the PSA 9 estimate, the realistic scenario."
+        },
+        "freshness": {
+          "label": "Data freshness",
+          "hint": "Days after which an estimate is considered stale and stops being shown. Whole number between 1 and 365."
+        },
+        "grades": "Grades shown on the card page: {grades}. Grades painted by the tile badge: {highlight}. The gate is always evaluated on PSA 9, even if the badge shows PSA 10.",
+        "globalErrors": {
+          "minUpside": "The minimum upside must be a number between 0 and 1000.",
+          "freshness": "Freshness must be a whole number of days between 1 and 365."
+        },
+        "recalcHint": "Saving recomputes on the fly which cards are promoted (raising the upside or making a tier more expensive can empty the showcase). It touches no sale price, portfolio valuation or buylist quote. It is recorded in the M10 audit log.",
+        "saved": "Grading hook configuration saved."
+      },
       "tierRules": {
         "title": "Prices by tier (buy and sell)",
         "subtitle": "Five tiers T0–T4 group every rarity. Each tier defines its BUY (buylist) and SELL rule: a fixed amount (MX$) or a percentage. The rarity-to-tier map is edited below. Replaces the ~30 rules-by-rarity editor. Takes effect without redeploy and is audited.",
@@ -2373,7 +2413,10 @@
     "PREMIUM_RARITY_FIXED_TIER": "Could not save: a premium rarity would land on a fixed-buy tier.",
     "UNKNOWN_RARITY": "Unknown rarity: it is not in the canonical catalog.",
     "SEALED_PRODUCT_NOT_FOUND": "That sealed product no longer exists or is inactive; sync the catalog again.",
-    "MANUAL_MARKET_NOT_ALLOWED": "This presentation already has a market price; the manual price only applies when there is no market."
+    "MANUAL_MARKET_NOT_ALLOWED": "This presentation already has a market price; the manual price only applies when there is no market.",
+    "GRADING_TIERS_EMPTY": "The tier table cannot be left empty: with no tier, no card is promoted.",
+    "GRADING_TIERS_NOT_CONTIGUOUS": "Tiers must cover the whole range with no gaps or overlaps, starting at MX$0: check the end of each tier.",
+    "GRADING_TIERS_NOT_OPEN_ENDED": "The last tier must be open-ended («and above») and the only one without an end, so that no expensive card is left without a tier."
   },
   "payment": {
     "title": "Payment",
