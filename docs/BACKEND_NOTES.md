@@ -7254,3 +7254,61 @@ gobierna **solo la FUENTE AUTOMÁTICA** (`source='tcgcsv'`), no el override manu
   **400 del `ValidationPipe`**. No lo apliqué (el $0 ya está cerrado por el guard + N-1 parte 2). Si el
   arquitecto quiere el `@Min(1)` defensivo, debe decidir el trade-off `422 → 400` y actualizar el contrato;
   entonces el backend lo cablea.
+
+---
+
+## Herramienta de operador: `reset-db-keep-users.ts` (vaciar BD preservando usuarios)
+
+`backend/prisma/reset-db-keep-users.ts` — script FUERA del flujo de la app, para dejar la base
+"como nueva" PRESERVANDO la identidad de usuario. NO se ejecuta solo; es una herramienta manual de
+operador con triple guarda. Planificador puro testeado en `reset-db-keep-users.spec.ts` (8 casos verdes;
+`tsc --noEmit` limpio).
+
+### Clasificación de modelos en 3 baldes
+- **PRESERVAR (identidad de usuario) — NUNCA se borra:** `User`, `KycProfile` (KYC/INE/CLABE cifrada +
+  blind index), `BillingProfile` (RFC/CFDI), `Address`, `AuthToken` (verificación de correo / reset).
+  Más `ConfigSetting` (config crítica: spreads/tiers/flags/dinero; no se repuebla por sync → nunca se borra,
+  ni con `--wipe-catalog`). Sin estos el usuario no podría entrar ni operar.
+- **REFERENCIA/CATÁLOGO — se repuebla por "Sincronizar", CONSERVADO por defecto (`--wipe-catalog` opt-in):**
+  `CardSet`, `Card`, `CardProduct`, `SealedProduct`, `SealedSetGroup`, `FxRate`.
+- **OPERATIVO / DINERO — se vacía con `--execute`:** `InventoryItem`, `InventoryMovement`,
+  `InventoryAdjustment`, `InventoryBatch`, `Order`, `OrderItem`, `OrderAccessToken`, `ShipmentRequest`,
+  `ShipmentItem`, `SellRequest`, `SellRequestItem`, `Dispute`, `PriceReference`, `PendingPriceEntry`,
+  `VariantPriceOverride`, `PortfolioSnapshot`, `SetValueSnapshot`, `SealedRestockSubscription`,
+  `ProcessedStripeEvent`.
+  Detrás de flags separados (conservados por defecto): `AuditLog` (`--wipe-audit`), `VaultLocation`
+  (`--wipe-locations`, mapa físico de bóveda = config-infra).
+
+### Orden FK-seguro (hijos antes que padres)
+Operativo → (audit) → (locations) → (catálogo). El operativo va SIEMPRE primero porque todos los referrers
+del catálogo (PriceReference/PendingPriceEntry/SetValueSnapshot/SealedRestockSubscription/InventoryItem…)
+son operativos. Detalle en `OPERATIONAL_ORDER`/`CATALOG_ORDER` del script (con la FK y su `onDelete` anotados).
+
+### FKs a `User` (por qué preservar usuarios es seguro)
+`User` es SIEMPRE el lado PADRE; sólo borramos sus hijos/referrers, nunca la fila `User`.
+- `onDelete: Cascade` a User: `KycProfile`, `BillingProfile`, `Address`, `AuthToken`, `PortfolioSnapshot`
+  (no se disparan: no tocamos el padre).
+- `onDelete: Restrict` a User: `Order.userId`, `ShipmentRequest.userId`, `SellRequest.userId`,
+  `Dispute.userId` (sólo se violarían al borrar User; jamás lo hacemos).
+- `onDelete: SetNull` a User: `InventoryItem.ownerUserId`, `SealedRestockSubscription.userId`.
+
+### Triple guarda
+(a) env `CONFIRM_RESET=YES_I_HAVE_A_BACKUP`; (b) primer arg = nombre EXACTO de la BD, comparado contra el
+dbname de `DATABASE_URL` (aborta si difieren); (c) DRY-RUN por defecto con conteos por tabla — sólo
+`--execute` borra, dentro de una `$transaction` (todo o nada, timeout 5 min). Idempotente. Loguea antes/
+borradas/después por tabla.
+
+### Decisiones abiertas para el HUMANO (no las tomé yo)
+1. **Bóvedas/holdings de clientes = inventario en custodia.** No hay modelo `Holding`: las bóvedas son
+   `InventoryItem` con `ownerType='customer'`/`in_custody`. El default (vaciar TODO `InventoryItem`) BORRA
+   las cartas que los clientes tienen en custodia. Si "usuarios" debe incluir conservar sus holdings, es una
+   operación quirúrgica distinta (filtrar por `ownerType` y limpiar sólo movements/orderItems/disputes de
+   piezas de plataforma) que NO implementé — requeriría diseño del arquitecto. Hoy: "como nueva" = holdings
+   fuera.
+2. **Auditoría (`AuditLog`):** ¿se conserva o se borra? Default = CONSERVAR (opt-in `--wipe-audit`).
+3. **Catálogo:** ¿se borra o se repuebla por sync? Default = CONSERVAR (opt-in `--wipe-catalog`).
+4. **Ubicaciones de bóveda (`VaultLocation`):** el enunciado las listó como "operativo", pero son config-infra
+   (mapa físico), no dato de usuario ni dinero. Las dejé CONSERVADAS por defecto tras el flag `--wipe-locations`.
+5. **`VariantPriceOverride` (overrides/bounties manuales):** las metí en el balde operativo (dinero), pero
+   ojo: son trabajo MANUAL del admin y NO se repueblan por sync. "Como nueva" las quita; si el humano quiere
+   conservarlas habría que sacarlas del balde operativo.
