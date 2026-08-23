@@ -1703,8 +1703,10 @@ GroupedListingListResponse = { data: GroupedListingDTO[], page: number, pageSize
 //     único campo que delataría el origen. El admin sí lo ve en `GET /admin/pricing/card/:cardId` (§M2).
 // `gradeKey` es la clave canónica con la que el valor se fija/lee ("graded:PSA:10" | "graded:PSA:9"): key estable de
 // render/orden para el front, NO un dato que el cliente deba resolver.
-// MVP: `gradingCompany` siempre "PSA". `gradeValue` es un STRING abierto en el tipo, pero el servidor solo emite
-// "10" (y, si el humano lo reactiva, "9"): otras graduadoras y otros grados quedan fuera de alcance.
+// MVP: `gradingCompany` siempre "PSA". `gradeValue` es un STRING abierto en el TIPO —a propósito, para que añadir un
+// grado no sea un cambio de contrato— pero el servidor solo emite lo que digan los diales `grades`/`highlightGrades`:
+// hoy **"10" y "9"** en la ficha, **"10"** en el badge. Otras graduadoras (CGC/BGS/TAG) y otros grados (PSA <= 8)
+// quedan FUERA DE ALCANCE (§N.1).
 GradedEstimateDTO = { gradingCompany: "PSA", gradeValue: string /* "10" | "9" */, gradeKey: string, estimate: PriceInfo }
 // REGLAS COMUNES a los dos campos de abajo (ambos son ARREGLOS de GradedEstimateDTO — mismo tipo de elemento, mismo
 // helper de render en el front; lo único que difiere es la REGLA DE EMISIÓN):
@@ -1727,9 +1729,10 @@ GradedEstimateDTO = { gradingCompany: "PSA", gradeValue: string /* "10" | "9" */
 //     NO viaja: solo su consecuencia (el campo está o no está).
 //   * Vive a nivel de GRUPO y no de carta: el gate compara contra `salePriceCents`, que es del GRUPO. Una carta con
 //     `normal` y `reverse_holo` publicados puede quedar destacada en un acabado y no en el otro (§4.35a).
-//   * Contenido = los grados que el badge PINTA (`highlightGrades`, dial; hoy **["10"]** — el badge es «PSA 10 ≈
-//     MX$X», §N.3(2)). Es un subconjunto de los grados con dato; el gate SIEMPRE se evalúa con PSA 9 aunque PSA 9 no
-//     se pinte.
+//   * Contenido = los grados que el badge PINTA (`highlightGrades`, dial; hoy **["10"]**: el badge muestra UNA cifra,
+//     «en PSA 10 vale tanto»; el copy exacto lo define ux-ui). Es un SUBCONJUNTO de los grados con dato: el gate
+//     SIEMPRE se evalúa con PSA 9 aunque PSA 9 no se pinte. Añadir PSA 9 al badge = editar el dial, CERO cambio de
+//     contrato ni de cliente (por eso es un arreglo y no un escalar).
 GroupedListingDTO += { gradingHighlight?: GradedEstimateDTO[] }
 // `gradedEstimates` = INFORMACIÓN de la FICHA para quien ya está viendo esa carta. Vive en la RAÍZ de la respuesta de
 // la ficha (nivel CARTA: el estimado por grado es por carta y NO se cruza con el acabado — §4.35a).
@@ -4286,7 +4289,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     parámetro combina con el barrido por set o exige **una petición por carta**. **Sigue sin construirse el ingest.**
     **Lo que SÍ cambia:** esa `PriceReference` **deja de ser un dato exclusivo de back-office**. Con `gradeKey
     'graded:PSA:10'` y `'graded:PSA:9'` es ahora **la fuente ÚNICA del «gancho de grading»** que se muestra al
-    comprador en Compra, la ficha y el home (§DTOs base `GradingUpsideDTO`/`GradedEstimateDTO`; §2). Tres
+    comprador en Compra, la ficha y el home (§DTOs base `GradedEstimateDTO`; §2). Tres
     consecuencias **normativas** para quien opere M1/M2:
     1. **Una sola fila, dos lectores.** La MISMA fila alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` (esta
        pestaña) **y** el estimado público. Fijarla para el gancho **también** cambia lo que M1 muestra, y viceversa.
