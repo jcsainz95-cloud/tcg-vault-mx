@@ -139,7 +139,12 @@ export class BatchInventoryItemInput {
   @IsOptional() @IsString() locationId?: string;
   @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  // BLOQ-1 (fix regresión E2E DINERO): MISMAS reglas que CreateItemDto.acquisitionCostCents
+  // (opcional, entero, @Min(0)). Un COSTO 0 es legítimo (promo/regalo), a diferencia de un precio
+  // de venta; por eso @Min(0) y no @Min(1). Faltaba aquí → con ValidationPipe({whitelist:true}) el
+  // acquisitionCostCents del cliente se borraba en silencio y toda pieza de lote nacía con costo NULL.
+  @IsOptional() @IsInt() @Min(0) acquisitionCostCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
   // v1.36-sealed-alta (M-37, P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados en
   // raw/graded). Ver notas en CreateItemDto. Vienen del SealedCatalogProductDTO que el operador eligió.

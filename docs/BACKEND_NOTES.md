@@ -4,6 +4,70 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.0 Regresión del gate E2E pre-publicación de inventario (2026-08-23) — 2 BLOQ resueltos + 1 escalado al arquitecto
+
+> Rama `fix/variant-composition-regression`. El gate E2E marcó 3 bloqueantes de dinero/identidad en el
+> módulo inventario. **BLOQ-1 y BLOQ-2 (parte primaria) corregidos** (fixes de implementación conformes al
+> contrato). **BLOQ-3 y las partes secundarias de BLOQ-2 NO se tocan: contradicen cláusulas «fuera de alcance
+> cambiarlo» del contrato/ARCHITECTURE → requieren decisión del arquitecto (regla 9)** — ver «Discrepancias».
+> Gate: **suite backend completa VERDE** (164 suites / 1625 tests), `tsc --noEmit` limpio.
+
+- **BLOQ-1 (DINERO) — el alta por lote perdía `acquisitionCostCents`.** `BatchInventoryItemInput` no declaraba
+  el campo (`backend/src/modules/inventory/dto/inventory.dto.ts:146`), así que con `ValidationPipe({whitelist:true})`
+  el costo enviado por el cliente se borraba en silencio y toda pieza de lote (QuickAdd / sellado con «Comprar»)
+  nacía con `acquisitionCostCents = NULL`. **Fix:** se añadió `@IsOptional() @IsInt() @Min(0) acquisitionCostCents?`
+  con las MISMAS reglas que `CreateItemDto` (`@Min(0)`: un costo 0 es legítimo — promo/regalo — a diferencia de un
+  precio de venta). El path de servicio ya leía (`resolveCommon`, `inventory.service.ts:365-366`) y persistía
+  (`buildItemData` `:748`, resultado de lote `:861`) el campo; solo faltaba el decorador del DTO. Money-safe: NO se
+  inventa costo alguno; sin costo el campo sigue `null`. **Cubierto por** `backend/test/inventory.batch.spec.ts`
+  (`[BLOQ-1] persiste acquisitionCostCents…`, `…=0 se persiste como 0`, y 2 casos de validación del DTO que afirman
+  que el campo queda whitelisted y no se borra).
+
+- **BLOQ-2 (IDENTIDAD «Tropius») — el sellado se pintaba con nombre/imagen de la carta ancla en M1.**
+  `sealed-graded.service.ts` (`sealedSetDetail`, antes `:297`) construía `productName` SOLO desde `Card.name`,
+  saltándose la cascada de display del contrato (§4.34a / §M1 v1.36 L187-188: `sealedProductName ?? card.name`,
+  `sealedImageUrl ?? card.imageSmallUrl ?? null`). **Fix:** se traen `sealedProductName`/`sealedImageUrl` al
+  `groupBy` (snapshot por-identidad, sin N+1) y `imageSmallUrl` de la carta al `select`; el DTO
+  `SealedInventoryGroupDTO` aplica ahora la MISMA cascada exacta que `sealed-catalog.service.ts`/`vault.service.ts`
+  y **gana `imageSmallUrl`** (que el contrato §M1 v1.28.1 L3723 ya exigía y faltaba en el código). Money-safe:
+  cambio de display puro; conteos y valuación intactos (las filas se re-colapsan por la identidad §4.23).
+  **Cubierto por** `backend/test/inventory.sealed-graded-tabs.spec.ts` (`cascada de display: sealedProductName…
+  ganan a la Card ancla`, y el caso de fallback money-safe sin snapshot).
+  - **Vistas de bóveda del cliente/admin YA estaban bien:** `/vault/sealed` (`vault.service.ts:293-294`, cascada) y
+    `/admin/vaults/:userId/sealed` (`admin-vaults.service.ts:54` reusa `sealedTab` — fuente única). No requerían
+    cambio. Los otros dos síntomas que reportó el gate (ver Discrepancias) NO son este código.
+
+### Discrepancias con el contrato — ESCALADAS AL ARQUITECTO (no implementadas; regla 9)
+
+Tres puntos del gate resultan **cambios de contrato**, no fixes de implementación: el código ACTUAL ya cumple
+lo que el contrato/ARCHITECTURE declaran, y esos documentos marcan explícitamente el comportamiento pedido como
+**«fuera de alcance cambiarlo»**. No los toqué (no puedo «arreglar» el contrato por mi cuenta):
+
+- **BLOQ-3 (CONTEO) — «excluir `productType='sealed'` de los conteos del master-set binder».** El contrato
+  **API_CONTRACT §M1 (nota de coexistencia v1.23, L2302-2303)** y **ARCHITECTURE §4.20b (L4407-4408)** dicen
+  textualmente: *«las piezas selladas siguen apareciendo en `GET /vault/holdings` (por-pieza) y en el binder
+  master-set como `finish=normal` (comportamiento pre-existente §4.20b — **fuera de alcance cambiarlo**)»*. La
+  **regla H9** que cita el hallazgo aplica SOLO al **catálogo de singles** (`GET /catalog/cards`/`facets`,
+  guardarraíl `CatalogService.singlesPublishedWhere`, TECH_DEBT H9/SB-D5), **no** al binder. Por tanto excluir el
+  sellado del binder (`MasterSetService.binder`/`aggregateInventoryBySet`, `master-set.service.ts`) **contradice el
+  contrato**. → Arquitecto: decidir si el binder debe excluir sellado y actualizar §4.20b + la nota v1.23. Backend
+  implementa en cuanto el contrato lo permita (el filtro es un `AND productType != 'sealed'` acotado, análogo a H9).
+
+- **BLOQ-2 secundario (a) — «Mis piezas» del cliente muestra el sellado como la carta ancla.** «Mis piezas» =
+  `GET /vault/holdings` (front `VaultView.tsx:289-292` pinta `h.card.name`/`h.card.imageSmallUrl` directo). El
+  `HoldingDTO` (contrato L2216-2222) **no tiene** campo de display de sellado, y la MISMA nota v1.23/§4.20b lo
+  declara «fuera de alcance cambiarlo». Exponer el nombre/imagen del sellado aquí exige **añadir campos al
+  HoldingDTO** → cambio de contrato. → Arquitecto.
+
+- **BLOQ-2 secundario (b) — la cola de precio pendiente de M2 etiqueta «E2E Charizard #4 · sealed».** La cola
+  (`PricingService.pendingQueue`, `pricing.service.ts:1080`) devuelve `card {name,number,setName}` de la carta
+  ancla; el `PendingPriceEntry` (contrato L4821) **no porta identidad de sellado** y su `gradeKey` para un sellado
+  SIN mapear es el legacy `'sealed'` (sin `productId`), por lo que **ETB y blíster del mismo set anclados a la
+  misma carta colapsan en UNA entrada** → es **ambiguo** qué nombre mostrar sin un campo nuevo. Esto es
+  exactamente el terreno de **SB-D5** (entidad `SealedProduct` diferida). Resolverlo requiere que el arquitecto
+  defina cómo `PendingPriceEntry` lleva la identidad del sellado → cambio de contrato/schema. → Arquitecto.
+  *(Money-safe entretanto: es solo un label; ningún precio se inventa.)*
+
 ## 0. Pago de deuda técnica backend (2026-08-23) — 4 ítems RESUELTOS, money-safe intacto
 
 > Pase de deuda (solo `backend/`). Cierra `H-P38-4`, `P-34 H4`, `P-34 H5`, `P-30 H2` de `TECH_DEBT.md`.

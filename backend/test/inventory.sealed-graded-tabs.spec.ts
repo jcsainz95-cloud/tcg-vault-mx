@@ -174,6 +174,41 @@ describe('sealedSetDetail (P-25)', () => {
     });
   });
 
+  // BLOQ-2 (fix H-P38-1, cascada §4.34a / contrato §M1 v1.36 L187-188): el detalle del set debe
+  // pintar el nombre/imagen del PRODUCTO SELLADO (snapshot por-pieza) y NO la carta ancla.
+  it('cascada de display: sealedProductName/sealedImageUrl ganan a la Card ancla (no «Pikachu»)', async () => {
+    const h = buildHarness([
+      g({
+        sealedProductName: 'Pokémon 151 Elite Trainer Box',
+        sealedImageUrl: 'https://tcgcsv.com/etb.png',
+      }),
+      // Segunda fila del MISMO grupo (otro status) sin snapshot → no debe romper el representativo.
+      g({
+        status: 'listed',
+        sealedProductName: 'Pokémon 151 Elite Trainer Box',
+        sealedImageUrl: 'https://tcgcsv.com/etb.png',
+        _count: { _all: 1, acquisitionCostCents: 0 },
+        _sum: { acquisitionCostCents: null },
+      }),
+    ]);
+    const res = await h.svc.sealedSetDetail('set-1');
+    expect(res.groups).toHaveLength(1);
+    expect(res.groups[0]).toMatchObject({
+      cardId: 'c1',
+      productName: 'Pokémon 151 Elite Trainer Box', // NO 'Pikachu' (carta ancla)
+      imageSmallUrl: 'https://tcgcsv.com/etb.png',
+      counts: { inStock: 2, listed: 1, other: 0 },
+    });
+    expect(res.groups[0].productName).not.toBe('Pikachu');
+  });
+
+  // Sin snapshot (pieza legacy sin sealedProductName) → fallback money-safe a la Card ancla + imagen null.
+  it('cascada: sin snapshot cae a Card.name ancla e imagen null honesta', async () => {
+    const h = buildHarness([g()]); // g() no trae sealedProductName/sealedImageUrl
+    const res = await h.svc.sealedSetDetail('set-1');
+    expect(res.groups[0]).toMatchObject({ productName: 'Pikachu', imageSmallUrl: null });
+  });
+
   it('grupo NO mapeado: mapped=false, sealedMarketRef null y es un grupo SEPARADO (identidad §4.23)', async () => {
     const h = buildHarness([
       g(),
