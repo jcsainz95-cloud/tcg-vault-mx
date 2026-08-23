@@ -24,6 +24,14 @@ solo cuando el humano diga **«publica»**.
 
 ## Abiertos
 
+### P-36 · Los botones +/− de «cantidad a dar de baja» no responden (Baja rápida, M1)
+- **Observado por el humano (2026-08-23, prod):** en el panel «Baja rápida» del drawer del Master Set,
+  el stepper «− 1 +» de CANTIDAD A DAR DE BAJA no cambia el número (captura: Tropius #1 RAW NM, «1 piezas
+  disponibles»). A confirmar en diagnóstico: ¿bug real del stepper aun con >1 pieza, o topado a 1 pero se
+  ve clickeable-muerto (debería verse deshabilitado)?, y si `removableCount` está mal calculado.
+- **Roles:** frontend (`QuickRemove.tsx`, componente de P-29). Money-safe: nunca dar de baja más piezas
+  de las realmente disponibles.
+
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
   social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.
