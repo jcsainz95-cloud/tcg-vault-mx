@@ -57,6 +57,12 @@ interface Props {
    */
   onOpenVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
   onSetOpened?: (set: MasterSetSummaryDTO | null) => void;
+  /**
+   * P-42 · SOLO `quoter`: ¿esta (carta, acabado) ya está en el carrito de venta? Si viene, el binder
+   * sombrea/destaca esa teja. La identidad la maneja el carrito (useSellCart); el panel solo la
+   * propaga al binder.
+   */
+  isInCart?: (cardId: string, finish: Finish, productId?: number) => boolean;
 }
 
 /**
@@ -73,6 +79,7 @@ export function MasterSetPanel({
   onAddProductToSellCart,
   onOpenVariant,
   onSetOpened,
+  isInCart,
 }: Props) {
   const t = useTranslations('masterSet');
   const queryClient = useQueryClient();
@@ -202,6 +209,7 @@ export function MasterSetPanel({
           onAddVariant={onAddToSellCart}
           onAddProduct={onAddProductToSellCart}
           onOpenVariant={onOpenVariant}
+          isInCart={isInCart}
           onCanonicalResolved={(canonical) => {
             // v1.33 (P-27, §4.31b.6): el binder se abrió por un subset y el backend lo normalizó a su
             // principal. Canoniza la selección (id + nombre del master) para que la vista/estado —y

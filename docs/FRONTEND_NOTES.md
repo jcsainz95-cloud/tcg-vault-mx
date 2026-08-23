@@ -5763,3 +5763,79 @@ contrato ni de tipos.
 **Money-safe:** cambios puramente de display; no se tocan precios ni lógica de carrito.
 
 **Verde:** `vitest run` **75 archivos / 601 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
+---
+
+## P-41…P-44 · Ajustes de UX del storefront (cotizador/catálogo) — un solo pase
+
+Cuatro cambios ADITIVOS/de comportamiento; se conserva el visual del rediseño ya mergeado.
+Solo `frontend/`. Money-safe: todo display/UX — no se tocan precios ni la cotización (los montos
+siguen viniendo del server; la UI solo los MUESTRA).
+
+### P-41 · Cotizador del home surtía corto (fix rápido)
+- `_home/HomeQuoter.tsx`: la búsqueda del mini-cotizador pasó de `pageSize: 5` → **`20`**. Con 5,
+  un nombre con muchas variantes (p. ej. 6 Tropius, «Pitch Black») dejaba fuera cartas de forma
+  arbitraria (el corte desempataba por uuid de set). Sin cambio de backend/contrato.
+- Se añadió el affordance **«Ver más en el cotizador»** (link `/buylist`) al pie del desplegable de
+  resultados, para nombres con aún más variantes.
+
+### P-42 · Carrito de venta fijo (desktop) + sombreado de lo agregado
+- **Layout (`buylist/BuylistView.tsx`):** en **desktop (≥1024px)** el carrito de venta es un
+  **PANEL FIJO a la derecha, a la par del grid** (2 columnas persistentes, `sticky`), reusando
+  EXACTAMENTE el mismo `SellCartContents` que el drawer. En **móvil** se conserva el sheet (FAB +
+  `SellCartDrawer`). La decisión de layout es **JS-driven** (`useMediaQuery('(min-width:1024px)')`,
+  hook nuevo en `hooks/useMediaQuery.ts`): así el carrito se renderiza **UNA sola vez** (sin DOM ni
+  focus-trap duplicados por breakpoints CSS). En jsdom `matchMedia` devuelve `matches:false`, por lo
+  que la suite existente sigue corriendo la variante MÓVIL (FAB+drawer) sin cambios.
+- **Sombreado:** `useSellCart` expone un predicado estable **`isInCart(cardId, productType, finish,
+  productId?)`** (misma identidad que el dedup del carrito, sin la cantidad). Tras AGREGAR:
+  - **grid raw (binder Master Set, `QuoterTile`):** la teja de esa (carta, acabado) se destaca
+    (pozo de papel + regla de tinta) con la marca textual **«En el carrito»** (doble canal;
+    `data-in-cart="true"` para pruebas). Se propaga `isInCart` por `MasterSetPanel → MasterSetBinder
+    → QuoterTile` (prop opcional, solo modo `quoter`).
+  - **grid plano (graded/sealed, `BuylistView`):** la teja se sombrea si CUALQUIER acabado está en
+    el carro; además la fila del acabado agregado marca `✓` en lugar de `+`.
+
+### P-43 · Click en la carta → pop-up de detalle
+- Componente nuevo **`components/domain/CardDetailModal.tsx`** (reusa el `Modal` §7.6 → cierra por
+  **backdrop + Esc + botón**, con foco/aria-modal). Muestra **imagen grande** (`imageLargeUrl` con
+  fallback a `imageSmallUrl`) + datos (nombre, set·#, acabado, rareza, precio estimado). AGREGAR
+  sigue siendo su propia acción, aparte del click de detalle (el arte es su propio `<button>`).
+- **Cableado:** grid raw (`QuoterTile`, modal por teja) y grid plano (`BuylistView`, estado
+  `detailCard` único). `TileHeader` (binder compartido) ganó `onImageClick` opcional: SOLO el
+  cotizador lo pasa; el binder admin/bóveda NO (allí la teja entera ya es `<button>` → evita botón
+  anidado).
+- **Nota de imagen grande en el binder:** `MasterSetCardCellDTO` no lleva `imageLargeUrl`, pero el
+  binder del cotizador se compone client-side desde `GET /buylist/cards` (`CardDTO` SÍ la trae), así
+  que se propaga por un mapa client-only `imageLargeByCardId` en `QuoterBinderResponse` (sin tocar el
+  DTO del contrato). En modos no-quoter no aplica (usarían la imagen chica como fallback).
+
+### P-44 · Rareza en las tejas
+- Componente nuevo **`components/domain/RarityLabel.tsx`** (gemelo de `FinishLabel`: mono muted, sin
+  pastilla). El VALOR de rareza es taxonomía ABIERTA de pokemontcg.io → se pinta crudo con
+  `lang="en"` (no se traduce); lo único i18n es el prefijo accesible (`catalog.rarityAria` →
+  «Rareza: …»). Devuelve `null` para sellado o rareza vacía.
+- **Cableado:** `CatalogTile` (catálogo), grid plano del cotizador (`BuylistView`) y `TileHeader`
+  del binder — este último COMPARTIDO, así que la rareza aparece también en el **binder admin M1 y
+  las bóvedas** (lo pedido por P-44). Se lee de `CardDTO.rarity` / `MasterSetCardCellDTO.rarity`
+  (ambos ya presentes en el contrato — **ningún DTO tuvo que cambiar**).
+
+### DTOs y contrato
+- **Todos los DTOs necesarios ya traían `rarity`, `imageLargeUrl`/`imageSmallUrl`** — no hubo que
+  editar `docs/API_CONTRACT.md` ni `types/contract.ts` para datos. **Sin solicitudes al arquitecto.**
+- Único matiz reportable (no bloqueante): el binder Master Set (`MasterSetCardCellDTO`) no expone
+  `imageLargeUrl`; en el cotizador se resolvió client-side (ver P-43). Si en el futuro se quiere la
+  imagen grande en el detalle del binder de INVENTARIO (M1/bóveda), habría que sumarla al DTO —
+  eso sí pasaría por el arquitecto.
+
+### Tests añadidos/ajustados
+- `_home/HomeQuoter.test.tsx` (nuevo): la búsqueda pide `pageSize: 20`; affordance «Ver más» → `/buylist`.
+- `buylist/BuylistView.test.tsx`: P-42 carrito fijo en desktop (mock `matchMedia` → sin FAB/drawer,
+  total y CTA visibles sin abrir nada) + sombreado «En el carrito»; P-43 modal abre por click en el
+  arte y cierra por backdrop y por Esc; P-44 rareza visible en tejas. Se acotó un assert previo de
+  «Rare Holo» al diálogo del carrito (ahora la rareza también vive en las tejas).
+- `components/domain/RarityLabel.test.tsx` (nuevo): valor crudo + aria localizado; null en sellado y
+  en rareza vacía.
+- `catalog/CatalogTile.test.tsx`: rareza visible con aria «Rareza: Rare Holo».
+
+**Verde:** `vitest run` **77 archivos / 612 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.

@@ -98,7 +98,8 @@
       "quoteError": "No se pudo cotizar",
       "wePay": "Te pagamos",
       "remove": "Quitar {name}",
-      "continue": "Continuar mi cotización"
+      "continue": "Continuar mi cotización",
+      "viewMore": "Ver más en el cotizador"
     },
     "featuredTitle": "Piezas destacadas del catálogo",
     "featuredTitleShort": "Destacadas",
@@ -180,7 +181,8 @@
         "desc": "Como nueva; a lo mucho imperfecciones mínimas. Bordes limpios y superficie sin rayones notorios."
       }
     },
-    "removeFilter": "Quitar filtro {label}"
+    "removeFilter": "Quitar filtro {label}",
+    "rarityAria": "Rareza: {rarity}"
   },
   "shop": {
     "filtersTitle": "Filtros",
@@ -540,7 +542,9 @@
       "success": "Ajuste registrado ({folios}).",
       "noteError": "La nota es obligatoria para este motivo."
     },
-    "bountyBadge": "Bounty"
+    "bountyBadge": "Bounty",
+    "quoterDetailAria": "Ver detalle de {name} ({finish})",
+    "quoterInCart": "En el carrito"
   },
   "portfolio": {
     "trend": {
@@ -745,7 +749,9 @@
       "remaining": "Quedan {count}",
       "cta": "Cotizar esta carta",
       "badge": "Bounty"
-    }
+    },
+    "viewDetailAria": "Ver detalle de {name}",
+    "tileInCart": "En el carrito"
   },
   "finish": {
     "label": "Acabado",
@@ -2443,5 +2449,12 @@
       "pendingLabel": "Precio pendiente",
       "valuationNote": "Valuado al valor de mercado de referencia; las piezas sin mercado se excluyen del total."
     }
+  },
+  "cardDetail": {
+    "noImage": "Sin imagen",
+    "setAndNumber": "Set y número",
+    "rarity": "Rareza",
+    "estimate": "Estimado",
+    "pending": "Precio pendiente"
   }
 }

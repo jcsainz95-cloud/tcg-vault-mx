@@ -98,7 +98,8 @@
       "quoteError": "Could not quote",
       "wePay": "We pay you",
       "remove": "Remove {name}",
-      "continue": "Continue my quote"
+      "continue": "Continue my quote",
+      "viewMore": "See more in the quoter"
     },
     "featuredTitle": "Featured from the catalog",
     "featuredTitleShort": "Featured",
@@ -180,7 +181,8 @@
         "desc": "Like new; at most minimal imperfections. Clean edges and a surface free of notable scratches."
       }
     },
-    "removeFilter": "Remove filter {label}"
+    "removeFilter": "Remove filter {label}",
+    "rarityAria": "Rarity: {rarity}"
   },
   "shop": {
     "filtersTitle": "Filters",
@@ -540,7 +542,9 @@
       "success": "Adjustment recorded ({folios}).",
       "noteError": "A note is required for this reason."
     },
-    "bountyBadge": "Bounty"
+    "bountyBadge": "Bounty",
+    "quoterDetailAria": "View {name} ({finish}) details",
+    "quoterInCart": "In cart"
   },
   "portfolio": {
     "trend": {
@@ -745,7 +749,9 @@
       "remaining": "{count} left",
       "cta": "Quote this card",
       "badge": "Bounty"
-    }
+    },
+    "viewDetailAria": "View {name} details",
+    "tileInCart": "In cart"
   },
   "finish": {
     "label": "Finish",
@@ -2443,5 +2449,12 @@
       "pendingLabel": "Price pending",
       "valuationNote": "Valued at reference market value; pieces without a market price are excluded from the total."
     }
+  },
+  "cardDetail": {
+    "noImage": "No image",
+    "setAndNumber": "Set and number",
+    "rarity": "Rarity",
+    "estimate": "Estimate",
+    "pending": "Price pending"
   }
 }

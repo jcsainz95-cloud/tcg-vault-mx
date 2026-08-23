@@ -8,6 +8,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
+import { RarityLabel } from '@/components/domain/RarityLabel';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { cn } from '@/lib/cn';
@@ -74,6 +75,10 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
         compact
         className="mt-2 text-muted"
       />
+
+      {/* P-44: rareza junto al acabado (Illustration Rare, Full Art, Hyper Rare…). Discreta,
+          mono muted; se omite sola en sellado o sin rareza (RarityLabel). */}
+      <RarityLabel rarity={card.rarity} productType={listing.productType} className="mt-1.5" />
 
       {/* Precio «desde» del grupo: cifra tabular en sans; sin precio JAMÁS $0 — pendiente honesto (§7.3). */}
       {listing.salePriceCents != null ? (

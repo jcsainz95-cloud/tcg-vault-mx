@@ -73,3 +73,13 @@ describe('CatalogTile · P-40 acabado legible', () => {
     expect(screen.getByText(/Reverse Holo/)).toBeInTheDocument();
   });
 });
+
+describe('CatalogTile · P-44 rareza visible', () => {
+  it('muestra la rareza de la carta (Rare Holo) junto al acabado', () => {
+    renderWithIntl(<CatalogTile listing={listing()} inCart={false} onAdd={vi.fn()} />, 'es');
+    const rarity = screen.getByText('Rare Holo');
+    expect(rarity).toBeInTheDocument();
+    // Etiqueta discreta con prefijo accesible localizado (el valor no se traduce).
+    expect(rarity).toHaveAttribute('aria-label', 'Rareza: Rare Holo');
+  });
+});

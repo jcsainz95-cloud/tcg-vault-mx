@@ -135,6 +135,23 @@ export function useSellCart() {
   );
   const cartCount = useMemo(() => cart.reduce((n, l) => n + l.quantity, 0), [cart]);
 
+  // P-42 · sombreado del grid: llaves de identidad (misma que el dedup, sin la cantidad) de lo que
+  // YA está en el carro. El grid pregunta `isInCart(cardId, productType, finish, productId?)` para
+  // destacar la carta ya agregada. Incluye productType para no cruzar una línea raw:normal con una
+  // graded (que comparten cardId+finish) y productId para distinguir un producto separado.
+  const inCartKeys = useMemo(
+    () =>
+      new Set(
+        cart.map((l) => `${l.card.id}::${l.productType}::${l.finish}::${l.productId ?? ''}`),
+      ),
+    [cart],
+  );
+  const isInCart = useCallback(
+    (cardId: string, productType: ProductType, finish: Finish, productId?: number) =>
+      inCartKeys.has(`${cardId}::${productType}::${finish}::${productId ?? ''}`),
+    [inCartKeys],
+  );
+
   // Expansión cantidad → items: N entradas por línea (1 item por carta física).
   const requestItems: BuylistRequestItem[] = useMemo(
     () =>
@@ -164,6 +181,7 @@ export function useSellCart() {
     totalEstimatedCents,
     pendingCardCount,
     cartCount,
+    isInCart,
     requestItems,
   };
 }
