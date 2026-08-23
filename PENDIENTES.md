@@ -21,11 +21,20 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
   otro rompe el gross-up de Stripe). → consolidar a un solo dial de IVA del que Stripe derive.
 - **Roles:** arquitecto (DTO de settings) → backend + frontend. **Pendiente decisión del humano.**
 
-### P-38 · Alta de sellado debe sincronizar con el set y ofrecer ETB / UPC / Booster Bundle
-- **Pedido del humano (2026-08-23):** en la pantalla de alta de sellado (P-35, `SealedAddFlow`), al elegir
-  el set debe sincronizar con ese set y surtir sus productos sellados principales (ETB, UPC, Booster
-  Bundle). Hoy no los surte bien. **En diagnóstico** (¿resolución set→grupo TCGCSV? ¿inferencia de subtipo?).
-- **Roles:** backend (`sealed-catalog-admin.service`) + frontend (`SealedAddFlow`) según diagnóstico.
+### P-38 · Módulo de producto SELLADO robusto (cura de raíz de SB-D5) — **GRANDE, diseño primero**
+- **Observado por el humano (2026-08-23, prod):** al dar de alta un **ETB** salió como **«Tropius #1 ·
+  sealed»** y «SIN MAPEO». Causa raíz: el alta de P-35 es un puente mínimo que **ancla el sellado a una
+  carta suelta representativa** (SB-D5) en vez de tener identidad propia de producto sellado.
+- **Qué pide el humano (4 piezas):**
+  1. **Módulo que descargue las presentaciones de sellado de cada set** (ETB, UPC, Booster Bundle, booster
+     box, blíster…) desde TCGCSV como **entidades reales `SealedProduct`** (no ancladas a un single).
+  2. **Alta = solo seleccionar** la presentación → entra al inventario con su identidad correcta.
+  3. **Precio en vivo** al dar de alta (busca en la fuente en ese momento).
+  4. **Fallback manual** si no encuentra precio.
+- **Alcance:** nueva entidad `SealedProduct` + módulo de sync + contrato + schema + flujo de alta + pricing.
+  Reemplaza el puente ancla-a-single de P-35. Money-safe: sin precio → pendiente/manual, nunca 0.
+- **Roles:** arquitecto (modelo `SealedProduct` + sync + contrato/schema) → backend + frontend + ux-ui.
+  **Grande**: diseño primero.
 
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
