@@ -1442,10 +1442,17 @@ ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sea
 //     (no se emite fila): el `stockCount≥1` en la respuesta ES el invariante «vivo». (No hay campo `status`: el stock
 //     es la única fuente de verdad; el front usa `stockCount` para el badge «N disponibles» y para topar el carrito.)
 //   * `representativeInventoryItemId` = pieza vendible MÁS BARATA del grupo (para add-to-cart de 1 y como key de la ficha).
-//   * `salePriceCents` = precio del grupo = MÍNIMO de sus piezas (= el del representante). En el caso normal TODAS las
-//     piezas comparten precio (misma K ⇒ misma regla/override de variante) y el mínimo = ese precio único. Divergencia
-//     SOLO si una pieza trae `listPriceCents` manual distinto (override POR PIEZA, §4.26b): entonces el grupo muestra el
-//     más barato primero (idéntico a `SealedGroupDTO.fromPriceCents`); las piezas siguen en `units[]` de la ficha.
+//   * `salePriceCents` = **precio del grupo = MÍNIMO/«DESDE» de sus piezas** (= el del representante). SEMÁNTICA
+//     «desde», NO el precio exacto por-pieza. ⚠ NOMBRE COMPARTIDO, SEMÁNTICA DISTINTA: en `ListingDTO.salePriceCents`
+//     es el precio EXACTO de UNA copia física; aquí es el mínimo del grupo (el análogo de `SealedGroupDTO.fromPriceCents`
+//     en sellado). En el caso normal TODAS las piezas comparten precio (misma K ⇒ misma regla/override de variante) y el
+//     mínimo = ese precio único, así que «desde X» == «X». Divergencia SOLO si una pieza trae `listPriceCents` manual
+//     distinto (override POR PIEZA, §4.26b): entonces el grupo muestra el más barato primero (idéntico a
+//     `SealedGroupDTO.fromPriceCents`); las piezas siguen en `units[]` de la ficha, cada una con su `salePriceCents` exacto.
+//   * **FE-2 (display, frontend):** cuando `stockCount > 1`, el front debe rotular «desde $X» (no «$X» a secas), porque
+//     puede haber piezas más caras en `units[]`; con `stockCount == 1` muestra el precio a secas. Es tarea de display; el
+//     shape NO cambia. El rename `salePriceCents → fromPriceCents` (para igualar el nombre a la semántica «desde», como el
+//     sellado) queda como **deuda futura OPCIONAL** (breaking: contrato+backend+frontend) — no se hace pre-release por riesgo.
 //   * `referenceValue` = valor de mercado de la variante (PriceInfo de la misma K); compartido por el grupo. Informativo.
 //   * rawCondition presente SOLO para raw ('NM'); gradingCompany/gradeValue presentes SOLO para graded (identidad de
 //     GRADO, compartida por el grupo). El `certNumber` es POR SLAB (distinto por pieza) ⇒ NO va a nivel de grupo: se
@@ -1874,7 +1881,9 @@ SealedCatalogResponse = { set: SetRefDTO, tcgcsvGroupId: number | null, groupRes
 SealedGroupKind = "set_main" | "promo_collection"
 // Presentación sellada REAL de un set, con IDENTIDAD PROPIA (NO anclada a un single). `tcgplayerProductId` = clave de
 // identidad (== productId TCGplayer; == clave de precio sealed:tcg:<productId>). `subtype` incl. `upc`; `subtypeInferred`
-// = true si se infirió por nombre, false si un humano lo curó. `isPrincipal` = presentación «cabecera» (§4.34c).
+// = true si se infirió por nombre, false si un humano lo curó. `subtype` es SIEMPRE no-null (schema NOT NULL): un sellado
+// sin match de `inferSealedSubtype` cae al bucket `collection` con `subtypeInferred=true` (secundario, sortOrder=6, no
+// principal) — ver ARCHITECTURE §4.34c paso 8 (H-P38-3). `isPrincipal` = presentación «cabecera» (§4.34c).
 // `origin` = de qué tipo de grupo provino. `marketRef` = valor de mercado INFORMATIVO (live TCGCSV → caché → null);
 // MONEY-SAFE: sin precio ⇒ null (pendiente/"—"), NUNCA 0. `imageUrl` = imagen de la API (null si no trae).
 SealedProductDTO = { id: string, setId: string, tcgplayerProductId: number, tcgplayerGroupId: number,
@@ -2022,7 +2031,7 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
   `ListingDTO` sigue llaveado a su `Card`/set real.
 - `sort`: `price_asc | price_desc | newest` (opcional). Ordena por el **grupo**: `salePriceCents` del grupo; `newest` por la pieza más nueva del grupo (`createdAt` desc).
 - **v1.38-grouped-listings (P-30):** el listado es **AGRUPADO por publicación única** `(carta, productType, gradeKey, finish)`, no una fila por copia física. `minPriceCents`/`maxPriceCents` filtran sobre el `salePriceCents` del grupo; los filtros `condition`/`finish`/`rarity`/`productType`/`setId` **no cambian de forma** (acotan las piezas que entran a cada grupo).
-Res `200` (**v1.38, `GroupedListingListResponse`**): `{ data: GroupedListingDTO[], page, pageSize, total }`. `total` = nº de **grupos** (publicaciones únicas), no de piezas. Cada grupo trae `stockCount≥1` (vivo), `salePriceCents` único y `representativeInventoryItemId` (add-to-cart de 1). Un grupo AGOTADO (`stockCount=0`) **no aparece** (money-safe: solo se lista lo publicado con precio y stock). *(Antes de v1.38: `{ data: ListingDTO[], … }`, un ítem por copia física — Tropius ×3 salía 3 veces. **Cambio de shape breaking, coordinado con el rediseño del storefront**.)*
+Res `200` (**v1.38, `GroupedListingListResponse`**): `{ data: GroupedListingDTO[], page, pageSize, total }`. `total` = nº de **grupos** (publicaciones únicas), no de piezas. Cada grupo trae `stockCount≥1` (vivo), `salePriceCents` = mínimo/«desde» del grupo (el front rotula «desde» si `stockCount>1`, FE-2) y `representativeInventoryItemId` (add-to-cart de 1). Un grupo AGOTADO (`stockCount=0`) **no aparece** (money-safe: solo se lista lo publicado con precio y stock). *(Antes de v1.38: `{ data: ListingDTO[], … }`, un ítem por copia física — Tropius ×3 salía 3 veces. **Cambio de shape breaking, coordinado con el rediseño del storefront**.)*
 
 ### GET /api/v1/catalog/facets — `public`  (v1.1 — facetas dinámicas de "Compra")
 Facetas calculadas **sobre el inventario publicado** (no sobre el catálogo completo), para poblar los filtros de Compra.

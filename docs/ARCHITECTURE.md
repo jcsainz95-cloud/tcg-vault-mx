@@ -6193,8 +6193,9 @@ promo — p. ej. los de **Mega Evolution**, o «Black Star Promos»). Un modelo 
 
 - **Enum `SealedSubtype` (Prisma + contrato) gana `upc` y `collection`:** `{ box, etb, upc, bundle, tin, blister,
   collection }`. `upc` = Ultra Premium Collection (pedido explícito). `collection` = colecciones/cajas especiales
-  (Premium/Special Collection, V/ex Box, colecciones promo) que hoy caían a `null` o se colaban como `box`. `ALTER TYPE
-  ADD VALUE` es aditivo y seguro (§11/M-39); ningún valor existente cambia.
+  (Premium/Special Collection, V/ex Box, colecciones promo) que hoy caían a `null` o se colaban como `box`; es además el
+  **bucket genérico de fallback** para el sellado sin match (paso 8 abajo). `ALTER TYPE ADD VALUE` es aditivo y seguro
+  (§11/M-39); ningún valor existente cambia.
 - **`inferSealedSubtype(name)` — orden normativo (el orden IMPORTA):**
   1. `ultra premium collection` | `\bupc\b` → **`upc`** (antes que ETB y collection, porque contiene «collection»).
   2. `elite trainer box` | `\betb\b` → **`etb`**.
@@ -6203,7 +6204,13 @@ promo — p. ej. los de **Mega Evolution**, o «Black Star Promos»). Un modelo 
   5. `\btin\b` → **`tin`**.
   6. `blister` | `sleeved booster` | `checklane` | `\b3[- ]?pack\b` → **`blister`**.
   7. `premium collection` | `special collection` | `\bcollection\b` | `\bbox\b` (genérico) → **`collection`**.
-  8. sin match → **`null`** (el operador elige al curar; jamás se adivina de más). Conservadora como hoy.
+  8. **sin match → `collection` (inferido)** — fallback **money-safe y NOT-NULL-safe**: como `SealedProduct.subtype` es
+     NOT NULL (schema M-39), un sellado sin coincidencia se cataloga en el bucket genérico `collection` con
+     `subtypeInferred=true` (heurística, no curado). Queda como presentación **secundaria** (`isPrincipal=false`,
+     `sortOrder=6`, al **final** del orden §4.34c), nunca se «asciende» un desconocido a principal. El operador puede
+     recatalogarlo al curar (pasa a `subtypeInferred=false`). Conservadora: sin match ⇒ el subtipo menos comprometido,
+     no se adivina un principal. *(Resuelve H-P38-3: la prosa decía «sin match → null», imposible bajo el schema NOT
+     NULL; se ratifica `collection` inferido como lo canónico — el código ya lo hacía. Sin cambio de schema ni de shape.)*
 - **Principales (`isPrincipal`)** = presentaciones «cabecera» que el alta muestra primero: **`box, etb, upc, bundle`**.
   Secundarias: `tin, blister, collection`. Default derivado del subtype por una constante `SEALED_SUBTYPE_META`
   (`{ isPrincipal, sortOrder, label }`), **curable** por pieza (`SealedProduct.isPrincipal` es columna, el sync setea el
