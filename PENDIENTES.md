@@ -5,15 +5,27 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 
 ---
 
+## Listo en `main` — esperando «publica»
+
+- **P-36** · el stepper de «cantidad a dar de baja» ya no se ve muerto — botones `disabled` no se
+  encienden al hover (`enabled:hover:`) + estado disabled evidente + `aria-disabled`. La lógica ya era
+  correcta (la carta tenía 1 pieza → tope legítimo). QA aprobado.
+
+---
+
 ## Abiertos
 
-### P-36 · Los botones +/− de «cantidad a dar de baja» no responden (Baja rápida, M1)
-- **Observado por el humano (2026-08-23, prod):** en el panel «Baja rápida» del drawer del Master Set,
-  el stepper «− 1 +» de CANTIDAD A DAR DE BAJA no cambia el número (captura: Tropius #1 RAW NM, «1 piezas
-  disponibles»). A confirmar en diagnóstico: ¿bug real del stepper aun con >1 pieza, o topado a 1 pero se
-  ve clickeable-muerto (debería verse deshabilitado)?, y si `removableCount` está mal calculado.
-- **Roles:** frontend (`QuickRemove.tsx`, componente de P-29). Money-safe: nunca dar de baja más piezas
-  de las realmente disponibles.
+### P-37 · Redundancia del IVA en los diales de M10 (config)
+- **Encontrado con el humano (2026-08-23):** `IVA_PCT` (16, %) y `STRIPE_FEE_IVA_PCT` (0.16, fracción)
+  son el MISMO 16% de IVA en dos diales y dos formatos. Riesgo de drift money-unsafe (cambiar uno y no el
+  otro rompe el gross-up de Stripe). → consolidar a un solo dial de IVA del que Stripe derive.
+- **Roles:** arquitecto (DTO de settings) → backend + frontend. **Pendiente decisión del humano.**
+
+### P-38 · Alta de sellado debe sincronizar con el set y ofrecer ETB / UPC / Booster Bundle
+- **Pedido del humano (2026-08-23):** en la pantalla de alta de sellado (P-35, `SealedAddFlow`), al elegir
+  el set debe sincronizar con ese set y surtir sus productos sellados principales (ETB, UPC, Booster
+  Bundle). Hoy no los surte bien. **En diagnóstico** (¿resolución set→grupo TCGCSV? ¿inferencia de subtipo?).
+- **Roles:** backend (`sealed-catalog-admin.service`) + frontend (`SealedAddFlow`) según diagnóstico.
 
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
