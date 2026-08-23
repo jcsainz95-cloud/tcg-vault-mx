@@ -4,6 +4,37 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.1 Incidente prod: forgot-password no entrega correo — `trust proxy` ausente (2026-08-23)
+
+> Rama `fix/variant-composition-regression`. El humano usó forgot-password en prod y NO llegó correo,
+> mientras el correo de VERIFICACIÓN de registro SÍ le había llegado. Diagnóstico de raíz abajo.
+
+- **Transporte idéntico, no es el proveedor.** Verificación (`sendVerificationEmail`, `auth.service.ts:124`)
+  y reset (`forgotPassword`, `auth.service.ts:195`) usan el MISMO `MailService`→`MAIL_PORT` (Resend),
+  ambos **síncronos en-request**, sin cola/BullMQ. Si la verificación entrega, el proveedor/dominio/API key
+  funcionan. La diferencia está en los GATES de forgot-password, no en el envío.
+- **Causa raíz (código) — `trust proxy` no estaba seteado.** `main.ts` creaba la app sin `app.set('trust proxy', …)`.
+  Detrás del edge de Railway, Express ignora `X-Forwarded-For` → `req.ip` (y `@Ip()`, el `requestIp` que se
+  persiste en `AuthToken`, y la **clave de tracking del `ThrottlerGuard`**) resuelven a la IP del PROXY, igual
+  para todos los clientes. Cada `@Throttle` por-IP colapsa en un único cubo por-instancia. El endpoint con la
+  ventana más estrecha de la app — `POST /auth/forgot-password` = **@Throttle 3/HORA** (`auth.controller.ts:88`,
+  vs login 5/min) — se agota con tráfico mínimo y devuelve **429**, que el front presenta como el 200
+  anti-enumeración genérico → el correo de reset **nunca se intenta**. Explica por qué verificación (register
+  5/min, volumen bajo) funcionó y forgot-password no. **Fix:** `app.set('trust proxy', 1)` en `main.ts`
+  (1 salto = edge de Railway; sin Cloudflare delante del backend, DEVOPS_NOTES §23.2/§25.3). Corrige además la
+  exactitud de `AuthToken.requestIp` y del logging por IP.
+- **Multi-instancia (devops):** el storage del throttler es in-memory por instancia (`app.module.ts:38`). Con
+  varias instancias, cablear storage compartido (Redis) para que el límite sea global-consistente.
+- **Gates silenciosos secundarios de forgot-password** (por diseño, pero enmascaran fallos): sin-usuario
+  (`:196`), `status!==active` (`:198`), tope 3/h/email (`:199-200`), y el `try/catch` que traga el error de
+  Resend y responde 200 (`:211-213`). El `audit.log auth.password_reset_requested` se escribe DENTRO del try
+  DESPUÉS del envío (`:205`) → en fallo de envío NO queda rastro auditable, solo `logger.error` en Railway.
+  **Recomendación (no implementada, requiere criterio de arquitecto/seguridad):** registrar el intento y el
+  fallo de envío en AuditLog para que prod tenga señal consultable; y considerar un health-check de correo
+  (hoy `/health` solo cubre DB, `health.service.ts`).
+- **Tests:** `test/auth.throttle.spec.ts` fija el candado 3/hora de forgot-password (ventana más frágil).
+  Suite auth verde (20/20), `tsc --noEmit` limpio.
+
 ## 0.0 Regresión del gate E2E pre-publicación de inventario (2026-08-23) — 2 BLOQ resueltos + 1 escalado al arquitecto
 
 > Rama `fix/variant-composition-regression`. El gate E2E marcó 3 bloqueantes de dinero/identidad en el

@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { json } from 'express';
 import helmet from 'helmet';
@@ -23,7 +24,19 @@ function resolveCorsOrigins(): string[] {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
+
+  // trust proxy — REQUISITO detrás de un reverse proxy (Railway sirve el backend tras su edge/LB).
+  // Sin esto, Express ignora `X-Forwarded-For`: `req.ip` (y por tanto `@Ip()`, el `requestIp`
+  // que se persiste en AuthToken, y la CLAVE de tracking del `ThrottlerGuard`) resuelven a la IP
+  // del proxy — IDÉNTICA para TODOS los clientes. Efecto: cada `@Throttle` por-IP colapsa en un
+  // ÚNICO cubo por-instancia compartido; el endpoint con la ventana más estrecha —
+  // `POST /auth/forgot-password` (@Throttle 3/HORA, auth.controller.ts) — se agota con tráfico
+  // mínimo y responde 429 (que el front presenta como el 200 anti-enumeración genérico → el correo
+  // NUNCA se intenta). `1` = un solo salto de proxy (el edge de Railway, sin Cloudflare delante del
+  // backend — DEVOPS_NOTES §23.2/§25.3). Si devops mete otro proxy delante, ajustar el nº de saltos.
+  // Multi-instancia además exige storage compartido del throttler (Redis) — ver app.module.ts.
+  app.set('trust proxy', 1);
 
   // S-B4: cabeceras de seguridad (CSP por defecto, HSTS, noSniff, frameguard, etc.).
   app.use(helmet());

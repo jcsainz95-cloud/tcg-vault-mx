@@ -26,6 +26,16 @@ describe('Auth rate-limiting — SEC-C1', () => {
     expect(limit(AuthController.prototype.refresh)).toBe(20);
   });
 
+  // forgot-password tiene la VENTANA MÁS ESTRECHA de la app: 3 por HORA (ttl 3_600_000 ms),
+  // no por minuto. Es el endpoint más frágil si el tracker del throttler no distingue clientes:
+  // basta que la IP percibida colapse (proxy sin `trust proxy`, ver main.ts) para agotar el
+  // cubo con tráfico mínimo y devolver 429 (que el front muestra como el 200 anti-enumeración
+  // → el correo de reset nunca se intenta). Este candado documenta la fragilidad del límite.
+  it('forgot-password está limitado a 3 por HORA (ventana más estrecha de la app)', () => {
+    expect(limit(AuthController.prototype.forgotPassword)).toBe(3);
+    expect(ttl(AuthController.prototype.forgotPassword)).toBe(60 * 60 * 1000);
+  });
+
   it('el webhook de Stripe se exime del throttling global (@SkipThrottle)', () => {
     // SkipThrottle a nivel de clase → metadata THROTTLER:SKIPdefault=true en el constructor.
     const skip = Reflect.getMetadata('THROTTLER:SKIPdefault', WebhooksController);
