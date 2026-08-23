@@ -3291,3 +3291,12 @@ DoD se RECHAZA solo con críticos/altos abiertos → **0/0 → umbral no se acti
 _Nota de orquestación (2026-08-23): N-1/N-2/N-3 cerradas en fast-follow backend ANTES del deploy (commit `5fe3cac`, suite 170/1670 verde). **N-2** `@Max` en `acquisitionCostCents` (overflow P&L cerrado). **N-1 substancia** el gate `gateSealedMarketCents` rechaza `<=0` ($0 latente cerrado). **N-3** el resolver acepta `sealedProductId` en el `where`. **N-1 parte 1** (`@Min(1)` en el DTO) deliberadamente NO aplicada: contradiría el contrato (`≤0 → 422 VALIDATION_ERROR`, regla de negocio ya entregada por el guard de servicio); el $0 lo cierra el gate. N-0 (deps) queda en backlog devops; DAST staging agendado antes de volumen real. (Persistido por el orquestador; el agente seguridad no tiene Write.)_
 
 — SEGURIDAD (blue team / AppSec), 2026-08-23
+
+---
+
+**[SEC — hotfix `trust proxy`, commit `6e21a0c`, 2026-08-23] — APROBADO para prod.**
+`app.set('trust proxy', 1)` en `backend/src/main.ts`. Topología: Railway, 1 salto de edge, sin Cloudflare/dominio custom delante del backend (DEVOPS §23.2/§25.3). `1` = confianza de mínimo salto → `req.ip` = IP real anexada por el edge; el `X-Forwarded-For` del cliente se ignora → **no spoofeable** (a diferencia de `true`/nº alto). Restaura la discriminación por-IP del `ThrottlerGuard` (corrige el cubo global que agotaba `forgot-password 3/h` → 429 fantasma que impedía enviar el correo de recuperación) y da IP real a `AuthToken.requestIp`, `order-access-token.requestIp` y a la auditoría `money_out.blocked` (`money-out.guard.ts:40`). Sin consumidores de `req.secure/protocol/hostname`/cookies → sin efectos colaterales. Sin hallazgos críticos/altos; no bloquea deploy.
+**Deuda de seguridad aceptada (no bloqueante):** throttler in-memory por instancia. Hoy `numReplicas: 1` (railway.json) → límite por-IP correcto. **Disparador:** antes de `numReplicas > 1`, migrar throttler a store Redis compartido (`REDIS_URL` disponible). Dueño: backend (TECH_DEBT v15-D3 / §5).
+**Dependencia de topología:** si devops inserta otro proxy delante del backend, ajustar el nº de saltos de `trust proxy` (anotado en `main.ts`). (Persistido por el orquestador; el agente seguridad no tiene Write.)
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23 (hotfix trust proxy)
