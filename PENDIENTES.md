@@ -51,9 +51,13 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 - **Observado por el humano (2026-08-23, prod):** al buscar «tropius» en el cotizador (buylist) del home,
   salen Shining Fates/Cosmic Eclipse/Deoxys/Plasma Blast/Mysterious Treasures, **pero no el de Pitch
   Black** — que sí está en el catálogo. La búsqueda del cotizador filtra distinto que el catálogo.
-- **En diagnóstico:** ¿`searchBuylistCards` excluye Pitch Black (frontera de sync 2024/01/01, elegibilidad
-  de buylist, o límite top-N)? ¿o Pitch Black no está en el índice que busca el cotizador?
-- **Roles:** backend (`buylist`/búsqueda) según diagnóstico.
+- **Causa raíz (diagnosticada):** el mini-cotizador del home pide `pageSize: 5` (`HomeQuoter.tsx:66`).
+  Los ~6 Tropius empatan por `name`; el desempate es `setId` = **uuid aleatorio** → cuáles 5 salen es
+  arbitrario y Pitch Black cae en posición ≥6, fuera del corte. NO es frontera de sync/elegibilidad/índice.
+- **Fix inmediato (frontend):** subir `pageSize` del home a 20 + «ver más en /buylist». **Va en el batch
+  de cotizador (P-42/P-43).**
+- **Mejora opcional (arquitecto → backend):** `CARD_ORDER_BY_GLOBAL` desempata por uuid; ordenar por
+  `set.releaseDate desc` para priorizar sets nuevos/relevantes. Cambio de contrato (§6). **Pend. decisión.**
 
 ### P-42 · Cotizador: carrito de venta fijo a la derecha + sombrear cartas ya agregadas
 - **Pedido del humano (2026-08-23, prod):** en el cotizador (Vender/buylist):
