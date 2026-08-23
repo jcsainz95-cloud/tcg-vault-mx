@@ -19,8 +19,16 @@
 > manual ⇄ fase 2 ingest**). Feature flag `graded_estimates_enabled` **seed `off`** (fail-closed: el disclaimer §N.5 aún
 > espera el visto bueno legal del humano). La **fase 2** (ingest PokemonPriceTracker) queda **BLOQUEADA** por doctrina
 > **P-6** con plan condicional y gate de instrumentación en §4.35(h). Contrato en API_CONTRACT (Changelog
-> v1.44-graded-estimate). Detalle normativo: §4.35, §10, §11. **Base previa:**
-> v1.43-sealed-manual-override-survives-dial.
+> v1.44-graded-estimate). Detalle normativo: §4.35, §10, §11.
+> **Enmienda v1.44.1 (2026-08-23, post-gates QA+techlead):** (1) **fail-closed refinado — `AUSENTE ≠ INVÁLIDA`**: una
+> clave de config **presente pero corrupta** apaga el destacado (antes caía al seed, quedando **más permisiva que la
+> intención del admin, en silencio**) — §4.35(d), **corrección pendiente para backend**; (2) **coste de queries
+> corregido** a la cifra medida (**+1 dial `off` / +2 dial `on`**; la vieja «+1 constante» contaba solo la query de
+> precios) — §4.35(c); (3) §4.35(c) **retro-alimentada** a la firma implementada `Map<cardId, GradedEstimateRef[]>`,
+> que es mejor porque no hardcodea los grados y **no transporta `PriceInfo`** (la ausencia estructural de `source` es
+> lo que garantiza la indistinguibilidad de fases); (4) registradas dos decisiones de implementación para que no se
+> reviertan: endpoints en `CatalogModule` (anti-ciclo, **rutas del contrato sin cambio**) y `PUT` vacío ⇒ `422`.
+> Trazabilidad en §10 (GU-A8..A10). **Base previa:** v1.43-sealed-manual-override-survives-dial.
 > Rev v1.43-sealed-manual-override-survives-dial (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementa BACKEND). Escalada regla 9 del gate E2E, **issue IMP-C**. CLARIFICACIÓN de la precedencia
 > §K/§4.23a del sellado — corrige QUÉ gatea el dial `sealedPriceSource`: gobierna **solo la fuente AUTOMÁTICA de mercado
@@ -6705,24 +6713,26 @@ export interface GradedEstimateConfig {
   minUpsidePct: number;             // seed 30      (solo gate de curaduría)
   gradingCostTiers: GradingCostTier[]; //           (solo gate de curaduría)
 }
-export interface GradedEstimateInput { gradeValue: string; mxnCents: number; capturedDate: string /* YYYY-MM-DD */ }
+// Ref MÍNIMA del estimado. Se declara AQUÍ (common/) y `pricing.service.ts` la importa para tipar el retorno de
+// `getGradedEstimatesBatch` — UNA sola definición. Deliberadamente NO es un `PriceInfo`: ver el recuadro de abajo.
+export interface GradedEstimateRef { gradeValue: string; mxnCents: number; capturedDate: string /* YYYY-MM-DD */ }
 
 /** FICHA (SIN gate): los grados con dato FRESCO, orden desc. `[]` ⇒ el caller OMITE el campo (nunca emite []). */
 export function selectGradedEstimates(input: {
   productType: 'raw' | 'graded' | 'sealed';
-  estimates: GradedEstimateInput[];  // los que trajo el batch, por grado
+  estimates: GradedEstimateRef[];  // los que trajo el batch, por grado
   today: string; cfg: GradedEstimateConfig;
-}): GradedEstimateInput[];
+}): GradedEstimateRef[];
 
 /** TEJA/VITRINA (CON gate). Devuelve el resultado COMPLETO; el DTO público solo usa `eligible` + `highlight`.
  *  `netUpsidePsa9MxnCents` es la clave de ORDEN de la vitrina y el insumo del preview de admin — NO viaja al cliente. */
 export function evaluateGradingHighlight(input: {
   productType: 'raw' | 'graded' | 'sealed';
   rawSalePriceCents: number | null;
-  estimates: GradedEstimateInput[];
+  estimates: GradedEstimateRef[];
   today: string; cfg: GradedEstimateConfig;
 }): { eligible: boolean; reason?: HighlightReason;
-      highlight: GradedEstimateInput[];        // vacío si !eligible
+      highlight: GradedEstimateRef[];        // vacío si !eligible
       gradingCostTier: GradingCostTier | null; gradingCostMxnCents: number | null;
       thresholdMxnCents: number | null; netUpsidePsa9MxnCents: number | null };
 ```
@@ -6780,29 +6790,54 @@ default:
 
 ```ts
 // pricing.service.ts (aditivo; NO altera getReference/getReferencesBatch)
-getGradedEstimatesBatch(cardIds: string[]): Promise<Map<string, { psa10?: PriceInfo; psa9?: PriceInfo }>>
+/** Ref MÍNIMA del estimado: lo justo que necesitan las puras de (c). NO es un PriceInfo. */
+export interface GradedEstimateRef { gradeValue: string; mxnCents: number; capturedDate: string /* YYYY-MM-DD */ }
+
+getGradedEstimatesBatch(cardIds: string[]): Promise<Map<string, GradedEstimateRef[]>>
 ```
 
-**UNA** query: `where { cardId: { in }, productType: 'graded', gradeKey: { in: ['graded:PSA:10','graded:PSA:9'] },
+**UNA** query: `where { cardId: { in }, productType: 'graded', gradeKey: { in: <las claves de cfg.grades> },
 finish: 'normal', cardProductId: null }`, `orderBy capturedDate desc`, con el **mismo** desempate determinista
 (`pickBestRef`/`isBetterRef`) y el **mismo** recomputo FX (`liveMxnCents`) que `getReference`.
 
+> **Por qué la firma es `Map<cardId, GradedEstimateRef[]>` y NO `{ psa10?, psa9? }` (retro-alimentado desde la
+> implementación, P2 del techlead — la implementada es MEJOR y se adopta como normativa):**
+> 1. **No hardcodea los grados.** Un objeto con llaves `psa10`/`psa9` contradice el diseño entero, cuyo objetivo es que
+>    **añadir o quitar un grado sea editar un dial** (`grades`/`highlightGrades`, (d)) y no un cambio de tipo que se
+>    propaga por batch → puras → DTO. Con el arreglo, el `gradeKey: { in: … }` se **deriva de la config** y el resto del
+>    camino no se entera.
+> 2. **No transporta `PriceInfo`.** `PriceInfo` lleva `source` e `isManualOverride`; que esos campos **ni siquiera
+>    existan** en el tipo que cruza la frontera hacia las puras y el DTO es lo que hace la indistinguibilidad de fases
+>    (g) una propiedad **estructural**, no una disciplina que alguien deba recordar al serializar. Es la misma razón por
+>    la que las puras de (c) reciben `{ gradeValue, mxnCents, capturedDate }` y nada más.
+> 3. Alinea 1:1 con `selectGradedEstimates` / `evaluateGradingHighlight`, que ya consumen arreglos por grado.
+>
 > **Por qué un método DEDICADO y no reusar `getReferencesBatch`:** ese método construye el `WHERE` como **producto
 > cartesiano** de los conjuntos distintos (`cardId in … × productType in … × gradeKey in … × finish in …`) y filtra
 > después en memoria contra `wanted` (`pricing.service.ts:365-408`). Mezclar los ítems raw y graded en **una sola**
 > llamada haría que el SQL trajera `productType in ('raw','graded') × gradeKey in ('raw:NM','graded:PSA:10',
 > 'graded:PSA:9') × finish in (todos)` — un **over-fetch combinatorio** sobre la tabla más caliente del sistema.
-> Un método aparte cuesta **+1 query constante** por request y **no toca** la ruta de dinero del raw (riesgo de
-> regresión cero).
+> Un método aparte cuesta **una** query por request y **no toca** la ruta de dinero del raw (riesgo de regresión cero).
 
-**Coste por endpoint (invariante de diseño):**
+**Coste por endpoint (invariante de diseño; cifras MEDIDAS por QA tras el fix de memoización):**
 
-| Superficie | Queries añadidas | Nota |
-|---|---|---|
-| `GET /catalog/cards` (teja) | **+1** | batch sobre los `cardId` **distintos** de las filas raw vendibles que `fetchSellable` ya cargó. |
-| `GET /catalog/cards?gradingHighlight=true` (vitrina) | **+1** | `listCards` ya materializa, filtra y pagina **en memoria** (`catalog.service.ts:523-542`); filtrar por elegibilidad y ordenar por ganancia neta es en memoria sobre ese mismo conjunto. |
-| `GET /catalog/cards/:cardId` (ficha) | **+1** | batch de un solo `cardId`. |
-| `GET /catalog/sealed*`, `/vault/*`, checkout, buylist | **0** | no se tocan (doctrina (b)). |
+| Superficie | Dial `off` | Dial `on` | Nota |
+|---|---|---|---|
+| `GET /catalog/cards` (teja) | **+1** | **+2** | 1 = lectura **memoizada** de las 6 claves de config; 2ª = batch sobre los `cardId` **distintos** de las filas raw vendibles que `fetchSellable` ya cargó. |
+| `GET /catalog/cards?gradingHighlight=true` (vitrina) | **+1** | **+2** | `listCards` ya materializa, filtra y pagina **en memoria** (`catalog.service.ts:523-542`); filtrar por elegibilidad y ordenar por ganancia neta es en memoria sobre ese mismo conjunto. |
+| `GET /catalog/cards/:cardId` (ficha) | **+1** | **+2** | batch de un solo `cardId`. |
+| `GET /catalog/sealed*`, `/vault/*`, checkout, buylist | **0** | **0** | no se tocan (doctrina (b)). |
+
+> **Corrección tras el gate de QA (2026-08-23).** Esta rev publicaba «**+1 constante**» contando **solo** la query de
+> precios. QA midió **+7** con el dial `on`: `SettingsService.get()` **no memoizaba** y hacía un `findUnique` por cada
+> una de las **6 claves** de config. Backend lo corrigió izando las 6 en **una sola** query por request. **Regla
+> normativa que se deriva y que backend NO debe perder:** la config del gancho se lee **una vez por request** (patrón
+> BE-25) y **nunca** dentro del bucle de grupos; con el dial `off` se **corta antes** de tocar `PriceReference` (por eso
+> el coste baja a +1). **Los tests de coste deben contar TODAS las queries del request**, no solo las de graded —
+> contar un subconjunto fue exactamente lo que dejó pasar el +7.
+
+> **Nota de método para quien vuelva a tocar esto:** el coste es **constante** — no depende del nº de grupos, de cartas
+> de la página ni de acabados. Si una medición futura escala con `pageSize`, hay un N+1 nuevo y es un bloqueante.
 
 *(Recomendación no normativa para devops/backend: cache server-side corto —60–300 s— sobre la vitrina del home, mismo
 criterio que el hero de set, §4.12d. La config —4 `ConfigSetting`— se iza una vez por request; no se relee por grupo.)*
@@ -6883,10 +6918,55 @@ ni `gradingHighlight`, y `?gradingHighlight=true` devuelve `data: []`.
   contigüidad. Los demás campos sí son parciales.
 - **Auditado:** `AuditLog action=pricing.graded_estimates.update` con `before`/`after` (M10). **Recalcula el conjunto
   destacado al vuelo** (no hay materialización: el gate se evalúa en cada request) ⇒ criterio 86 se cumple sin job.
-- **Fail-closed on-read:** si la clave falta, está corrupta o **no cumple I1–I5** al leerla, el resolver trata la tabla
-  como **vacía** ⇒ **nada se destaca**. Jamás se cae a un default de código para el **costo** (PROJECT §N.4). *(La
-  excepción explícita: `minUpsidePct`/`freshnessDays`/`grades` ausentes SÍ caen a sus seeds — son umbrales/listas, no
-  dinero, y su ausencia no puede producir un gate optimista: sin tabla no hay gate.)*
+- **Fail-closed on-read — regla NORMATIVA: AUSENTE ≠ INVÁLIDA.** *(Refinada 2026-08-23 tras P1 del techlead; supersede
+  la redacción anterior de este bullet.)* El lector de config distingue **tres** estados por clave y los trata distinto:
+
+  | Estado de la clave | `grading_cost_tiers` | `grading_min_upside_pct`, `graded_estimate_freshness_days`, `grades`/`highlightGrades` |
+  |---|---|---|
+  | **Válida** | se usa | se usa |
+  | **AUSENTE** (nunca escrita) | **nada se destaca** | **seed** (30 / 30 / `["10","9"]` / `["10"]`) |
+  | **PRESENTE pero INVÁLIDA** (corrupta, fuera de rango, tipo equivocado, o incumple I1–I7) | **nada se destaca** | **nada se destaca** |
+
+  **Por qué la fila de «inválida» cambió** (hueco real que encontró el techlead y que **acepto**): la justificación
+  original —«su ausencia no puede producir un gate optimista porque sin tabla no hay gate»— **solo vale si AMBAS claves
+  están mal a la vez**. Con la tabla de escalones **válida** y `grading_min_upside_pct` **corrupto** por una edición
+  fuera de banda, el gate caería al **seed de 30** cuando el admin había puesto, digamos, **200**: **más permisivo que
+  su intención, en silencio, en la superficie que promociona**. Mismo patrón con `freshnessDays` (30 vs un 7
+  configurado): mostraría como fresco un dato que el dueño ya consideraba rancio. **Un valor corrupto es evidencia de
+  que la intención del admin se perdió**, así que no se adivina: se **apaga la promoción**.
+  - **AUSENTE sí cae a seed, y es deliberado:** es el estado del **primer deploy** antes de correr M-41. Tratar la
+    ausencia como fallo dejaría la feature inarrancable sin aportar seguridad (con el dial **`off`** de fábrica no hay
+    nada que proteger todavía).
+  - **Alcance del apagado:** una clave inválida apaga **el destacado** (teja + vitrina). Si la clave inválida es
+    `freshnessDays` o `grades` —que también gobiernan la ficha— **apaga también la ficha**, porque sin umbral de
+    frescura confiable no se puede afirmar que una cifra esté vigente. `minUpsidePct` y `grading_cost_tiers` inválidos
+    **NO** apagan la ficha (no participan en ella, ver el recuadro de separación de diales).
+  - **Nunca se cae a un default de código para el COSTO**, en ningún estado (PROJECT §N.4).
+  - **Observabilidad (obligatoria):** una clave presente-e-inválida se **loguea con `warn`** identificando la clave y el
+    invariante violado. Un apagado silencioso sería tan malo como el default silencioso que esta regla evita: el dueño
+    debe poder enterarse de por qué se le vació la vitrina. El diagnóstico de admin lo refleja con
+    `reason: "FEATURE_OFF"`.
+  - *(El **`PUT`** de M2 sigue rechazando lo inválido con su `422`, así que este camino solo se dispara por edición
+    fuera de banda —SQL directo, restore parcial, migración a medias—, que es exactamente cuando conviene ser
+    paranoico.)*
+
+**Alojamiento de los endpoints — `admin/pricing/graded-estimates*` viven en `CatalogModule`, NO en `PricingModule`**
+*(decisión de implementación de backend, RATIFICADA y elevada aquí para que nadie la «arregle» de vuelta; P3 del
+techlead).* Las **rutas del contrato no cambian** (`/api/v1/admin/pricing/graded-estimates[…]`): lo que cambia es en qué
+módulo Nest se declara el controller. **Motivo:** el resolver del gancho necesita la composición de grupos vendibles de
+`catalog` (`fetchSellable`/`buildGroups`) **y** el batch de `pricing`; declararlo en `PricingModule` crearía un **ciclo
+de dependencias `Pricing ↔ Catalog`**. `Catalog` ya depende de `Pricing` (dirección **única** y sana), así que el
+controller vive del lado que ya conoce a los dos. **Regla:** mover estos endpoints a `PricingModule` «por coherencia de
+nombre» **revive el ciclo** — si alguien quiere hacerlo, primero hay que extraer un módulo compartido, y eso pasa por
+el arquitecto (regla 9). La **ruta HTTP es la fuente de verdad del contrato**, no el módulo que la aloja.
+
+**`PUT /admin/pricing/graded-estimates` con body vacío ⇒ `422`** *(decisión de implementación de backend, RATIFICADA;
+P3 del techlead).* Un `PUT` con `{}` no toca ninguna clave: es **casi siempre** un bug del cliente (campo mal nombrado,
+serialización rota) y aceptarlo con `200` devolvería la config sin cambios, dando al operador la impresión de que
+**guardó** algo que no guardó — en un dial que gobierna una afirmación comercial. Se rechaza con
+`422 VALIDATION_ERROR`. **Es coherente con el precedente de `PUT /admin/fx`**, que también exige al menos uno de sus
+dos campos opcionales. No confundir con la parcialidad: el body **sigue siendo parcial** (se envían solo las claves a
+cambiar); lo que se prohíbe es que **no venga ninguna**.
 
 **Diagnóstico de curaduría — `GET /admin/pricing/graded-estimates/preview?cardId=` (`super_admin`, read-only).** Es el
 **único** lugar donde los insumos del gate se exponen, y su existencia es lo que permite que el DTO público sea tan
@@ -7397,6 +7477,32 @@ este documento y con `API_CONTRACT.md`.
 - **GU-A7 — el diagnóstico `.../graded-estimates/preview` es de ADMIN, no público.** Es la contrapartida necesaria de un
   DTO público tan chico: sin él, «fijé el valor y la carta no salió destacada» sería una caja negra para el humano que
   **cura a mano** (§N.6). Reusa los `reason` de la misma función pura, sin duplicar lógica. §4.35(d).
+
+**Correcciones post-gate (2026-08-23) — cerradas por el arquitecto tras QA y techlead:**
+
+- **GU-A8 (P1 del techlead, ACEPTADA — refina §4.35d) — `AUSENTE ≠ INVÁLIDA` en el fail-closed de config.** La
+  justificación original de la excepción de seed («sin tabla no hay gate») **solo valía si ambas claves fallaban a la
+  vez**: con la tabla válida y `grading_min_upside_pct` corrupto, el gate caía al seed 30 aunque el admin hubiera puesto
+  200 ⇒ **más permisivo que su intención, en silencio**. Regla nueva: **presente-pero-inválida ⇒ nada se destaca** (para
+  cualquier clave, no solo la tabla); **ausente ⇒ seed** (es el estado del primer deploy antes de M-41). Con `warn`
+  obligatorio: la vitrina no puede vaciarse en silencio. Tabla completa en §4.35(d). **→ backend debe implementar esta
+  corrección.**
+- **GU-A9 (P2 del techlead, ACEPTADA — el documento se retro-alimenta del código).** La firma implementada
+  `Map<cardId, GradedEstimateRef[]>` **supera** al `{ psa10?, psa9? }` que describía §4.35c: no hardcodea los grados
+  (el diseño entero quiere que añadir un grado sea editar un dial) y **no transporta `PriceInfo`**, cuya ausencia
+  **estructural** de `source`/`isManualOverride` es lo que hace la indistinguibilidad de fases (g) una propiedad del
+  tipo y no una disciplina. Documento actualizado a lo implementado; **sin cambio de código**.
+- **GU-A10 (P3, decisiones de implementación RATIFICADAS y elevadas del `BACKEND_NOTES` para que nadie las revierta):**
+  (a) los endpoints `admin/pricing/graded-estimates*` viven en **`CatalogModule`** para evitar el ciclo
+  `Pricing ↔ Catalog` — **las rutas del contrato no cambian**, y moverlos «por coherencia de nombre» revive el ciclo;
+  (b) **`PUT` con body vacío ⇒ `422`** (parcial ≠ vacío), mismo precedente que `PUT /admin/fx`. Ambas en §4.35(d).
+- **Coste de queries — cifra CORREGIDA.** El contrato publicaba «+1 constante» contando solo la query de precios. Real
+  medido: **+1 con el dial `off`, +2 con el `on`**. Corregido en §4.35(c) y en `API_CONTRACT` (changelog y §2). *(La
+  causa del +7 que midió QA —`SettingsService.get()` sin memoizar, 6 `findUnique`— ya la cerró backend.)*
+- **(R1 del techlead) — NO requirió enmienda de doctrina.** El fail-closed no cubría la clave ausente en el **código**
+  (caía a `SETTING_DEFAULTS`), contra lo que afirmaba §4.35d. Backend **corrigió el código, no la doctrina**, así que
+  §4.35d quedó literalmente verdadera y **no se tocó**. Es el desenlace correcto: cuando el código y el diseño
+  discrepan en una regla money-safe, se mueve el código.
 
 **Para el humano (con default aplicado; responder cuando pueda):**
 

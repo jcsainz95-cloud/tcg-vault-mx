@@ -2,7 +2,24 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.44-graded-estimate).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.44.1-graded-estimate).
+>
+> **Enmienda v1.44.1 (2026-08-23, arquitecto — post-gates QA + techlead). NO cambia ningún shape ni ninguna ruta;
+> corrige una cifra publicada y endurece una regla money-safe.**
+> - **Coste de queries CORREGIDO.** Esta rev publicaba «**+1 query constante**»; **la cifra real medida por QA es +1
+>   con el dial `off` y +2 con el dial `on`** (1 de config + 1 del batch de estimados). La vieja cifra contaba solo la
+>   query de precios e ignoraba la de config. *(QA midió **+7** en su momento porque `SettingsService.get()` no
+>   memoizaba y hacía un `findUnique` por cada una de las 6 claves; backend ya lo cerró izando las 6 en una query.)*
+>   Corregido abajo y en §2. **Los tests de coste deben contar TODAS las queries del request**, no solo las de graded.
+> - **Fail-closed endurecido — `AUSENTE ≠ INVÁLIDA` (P1 del techlead, aceptada).** Una clave de config **presente pero
+>   corrupta** (edición fuera de banda) **apaga el destacado** en vez de caer a su seed. Antes, con la tabla de
+>   escalones válida y `grading_min_upside_pct` corrupto, el gate caía al seed **30** aunque el admin hubiera puesto
+>   **200**: **más permisivo que su intención, en silencio, en la superficie que promociona**. **Ausente** (primer
+>   deploy) sigue cayendo a seed. Detalle en §M2 y ARCHITECTURE §4.35(d).
+> - **Dos decisiones de implementación registradas** para que nadie las revierta: los endpoints
+>   `admin/pricing/graded-estimates*` se declaran en **`CatalogModule`** (anti-ciclo `Pricing ↔ Catalog`; **las rutas de
+>   este contrato NO cambian**) y **`PUT` con body vacío ⇒ `422`** (parcial ≠ vacío; precedente `PUT /admin/fx`).
+> - **Sin cambios para frontend.** Ningún DTO, campo, query param ni código de error se altera.
 >
 > **Changelog v1.44-graded-estimate (2026-08-23, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan.
 > PROJECT §N v2.0 «gancho de grading» + **reducción de alcance del humano del 2026-08-23**, rama
@@ -70,8 +87,14 @@
 >   inventario, **no** entran en `availableFinishes`/`displayFinishes`, **no** encolan `PendingPriceEntry`, **no**
 >   valúan portafolio/P&L/inventario y **no** afectan el buylist. ARCHITECTURE §4.35(b) — es la trampa más fácil de
 >   pisar.
-> - **Sin N+1:** un **único** batch dedicado (`getGradedEstimatesBatch`) por request; **+1 query constante** en
->   `/catalog/cards`, `/catalog/cards?gradingHighlight=true` y `/catalog/cards/:cardId`; **0** en el resto.
+> - **Sin N+1 — coste MEDIDO (corregido tras el gate de QA):** un **único** batch dedicado
+>   (`getGradedEstimatesBatch`) por request. Coste **constante** en `/catalog/cards`,
+>   `/catalog/cards?gradingHighlight=true` y `/catalog/cards/:cardId`: **+1 query con el dial `off`** (solo la lectura
+>   memoizada de config, que corta antes de tocar precios) y **+2 con el dial `on`** (1 de config + 1 del batch de
+>   estimados). **0** en el resto de endpoints. *(La rev inicial publicaba «+1 constante»: contaba solo la query de
+>   precios e ignoraba la de config. QA midió **+7** con el dial `on` porque `SettingsService.get()` no memoizaba y
+>   hacía un `findUnique` por cada una de las 6 claves; backend lo corrigió izando las 6 en **una** query. El coste no
+>   depende del nº de grupos ni de cartas de la página.)*
 > - **Reparto:** **backend** (stream «Catálogo y precios», módulos `pricing`+`catalog`, común
 >   `backend/src/common/graded-estimate.ts` NUEVO). **Frontend** (mismo stream): las tres superficies + i18n ES/EN del
 >   disclaimer. **El disclaimer NO viaja por la API** (es copy i18n del front, como el label de NM) y su patrón de
@@ -2380,8 +2403,10 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
     la vitrina completa»** (criterio 83): sin encabezado, sin placeholder, sin «próximamente».
   - **Dial `gradedEstimatesEnabled=off` (§M10, seed `off`)** ⇒ ningún grupo trae `gradingHighlight` ⇒
     `?gradingHighlight=true` devuelve `{ data: [], total: 0 }` (no es error: es la feature apagada).
-  - **Sin N+1:** el listado ya materializa, filtra y pagina **en memoria**; el gancho añade **+1 query constante**
-    (batch de los estimados de los `cardId` distintos), nunca una query por grupo. Ver ARCHITECTURE §4.35(c).
+  - **Sin N+1 — coste MEDIDO:** el listado ya materializa, filtra y pagina **en memoria**; el gancho añade un coste
+    **constante** de **+1 query con el dial `off`** (la lectura memoizada de config, que corta antes de tocar precios)
+    y **+2 con el dial `on`** (1 de config + 1 del batch de estimados de los `cardId` distintos). **Nunca** una query
+    por grupo ni por carta. Ver ARCHITECTURE §4.35(c).
 Res `200` (**v1.38, `GroupedListingListResponse`**): `{ data: GroupedListingDTO[], page, pageSize, total }`. `total` = nº de **grupos** (publicaciones únicas), no de piezas. Cada grupo trae `stockCount≥1` (vivo), `salePriceCents` = mínimo/«desde» del grupo (el front rotula «desde» si `stockCount>1`, FE-2) y `representativeInventoryItemId` (add-to-cart de 1). Un grupo AGOTADO (`stockCount=0`) **no aparece** (money-safe: solo se lista lo publicado con precio y stock). *(Antes de v1.38: `{ data: ListingDTO[], … }`, un ítem por copia física — Tropius ×3 salía 3 veces. **Cambio de shape breaking, coordinado con el rediseño del storefront**.)*
 - **v1.44 (ADITIVO):** cada grupo puede traer **`gradingHighlight?: GradedEstimateDTO[]`** — **presente ⇔ el gate de ROI
   sobre PSA 9 se cumple** (§DTOs base). **Solo en grupos `productType:"raw"`.** Junto al precio, el front pinta la cifra
@@ -4865,6 +4890,12 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > 5 y valida el refinamiento premium; los escalones de costo son filas **añadibles/eliminables** que son **rangos** y
 > cuyo invariante es **contigüidad + escalón final abierto**. Dos validadores incompatibles no caben en un `PUT`.
 > **Los estimados NO se capturan aquí:** se fijan con `POST /admin/pricing/override` (arriba), fase 1 manual-first.
+> **⚠ Nota de implementación (normativa, v1.44):** estos tres endpoints se declaran en **`CatalogModule`**, no en
+> `PricingModule`, para evitar un **ciclo `Pricing ↔ Catalog`** (el resolver necesita la composición de grupos de
+> `catalog` y el batch de `pricing`; `Catalog → Pricing` ya es la dirección única y sana). **Las rutas son las de este
+> contrato y NO cambian** — la ruta HTTP es la fuente de verdad, no el módulo que la aloja. Moverlos a `PricingModule`
+> «por coherencia de nombre» **revive el ciclo**: requiere extraer un módulo compartido y pasa por el arquitecto
+> (regla 9). Ver ARCHITECTURE §4.35(d).
 
 - `GET /api/v1/admin/pricing/graded-estimates` — **(NUEVO)** lee la config completa. Read-only.
   Res `200` (`GradedEstimateConfigDTO`):
@@ -4895,6 +4926,11 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   **array `gradingCostTiers` se reemplaza COMPLETO** cuando viene (un patch por fila no puede validar contigüidad).
   Req: `{ grades?: string[], highlightGrades?: string[], freshnessDays?: number, minUpsidePct?: number,
   gradingCostTiers?: GradingCostTierDTO[] }`. **`enabled` se IGNORA** si viene (se edita en M10).
+  - **Body vacío (`{}`, o sin ninguna clave reconocida) ⇒ `422 VALIDATION_ERROR`.** El body es parcial, pero **debe
+    traer al menos un campo**: un `PUT` que no toca ninguna clave es casi siempre un bug del cliente (campo mal
+    nombrado, serialización rota), y responder `200` con la config sin cambios le haría creer al operador que
+    **guardó** algo que no guardó — en un dial que gobierna una afirmación comercial. Mismo precedente que
+    `PUT /admin/fx`, que exige al menos uno de sus dos campos opcionales.
   - **Validación (fail-closed, server-side, en CADA write):**
     | # | Invariante | Error |
     |---|---|---|
@@ -4911,10 +4947,16 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     `before`/`after`). **Sin redeploy.** **Recalcula el conjunto destacado al vuelo** (el gate se evalúa por request, no
     hay materialización) ⇒ subir `minUpsidePct` o encarecer un escalón **vacía la vitrina y quita los badges**, **sin
     tocar ningún precio de venta** (criterio 86).
-  - **Fail-closed on-read:** si la clave falta, está corrupta o **no cumple I1–I5** al leerla, el resolver trata la
-    tabla como **vacía** ⇒ **nada se destaca**. **Jamás** se cae a un default de código para el **costo**. *(Excepción
-    explícita: `minUpsidePct`/`freshnessDays`/`grades` ausentes SÍ caen a sus seeds — son umbrales/listas, no dinero, y
-    su ausencia no puede producir un gate optimista: sin tabla no hay gate.)*
+  - **Fail-closed on-read — `AUSENTE ≠ INVÁLIDA`** *(regla refinada 2026-08-23, P1 del techlead)*: el lector distingue
+    **tres** estados por clave. **Válida** ⇒ se usa. **Ausente** (nunca escrita, estado del primer deploy antes de
+    M-41) ⇒ `grading_cost_tiers` apaga el destacado; las demás caen a su **seed**. **Presente pero INVÁLIDA** (corrupta,
+    fuera de rango, o incumple I1–I7 por una edición fuera de banda) ⇒ **nada se destaca**, para **cualquiera** de las
+    claves — un valor corrupto es evidencia de que la intención del admin se perdió, y caer al seed sería **más
+    permisivo que esa intención, en silencio** (un `minUpsidePct` de 200 degradado a 30, o una frescura de 7 degradada a
+    30). Si la clave inválida es `freshnessDays` o `grades` —que también gobiernan la **ficha**— apaga **también** la
+    ficha. **Jamás** se cae a un default de código para el **costo**, en ningún estado. Toda clave presente-e-inválida
+    se **loguea con `warn`** (la vitrina no puede vaciarse en silencio) y el `preview` la reporta como `FEATURE_OFF`.
+    Detalle normativo y tabla completa en ARCHITECTURE §4.35(d).
 - `GET /api/v1/admin/pricing/graded-estimates/preview` — **(NUEVO, diagnóstico de CURADURÍA, `super_admin`,
   read-only)** responde **«¿por qué esta carta no está destacada?»**. Es el **único** lugar donde los insumos del gate
   se exponen: al **admin**, jamás al cliente. Pensado para el flujo real de fase 1 (el humano **cura a mano** sus
