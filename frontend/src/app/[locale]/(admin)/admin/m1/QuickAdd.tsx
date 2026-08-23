@@ -36,9 +36,14 @@ export interface QuickAddTarget {
   finish: Finish;
   sealedSubtype?: SealedSubtype | null;
   sealedCondition?: SealedCondition;
-  // v1.36 (P-35): identidad de producto TCGCSV para que el sellado NAZCA MAPEADO (alta dedicada
-  // §16.8a). Se fijan JUNTOS; ausentes ⇒ la pieza nace sin mapeo (comportamiento previo). Los
-  // campos de imagen/nombre son display-only (validados server-side).
+  // v1.39 (P-38): IDENTIDAD del sellado (FK → SealedProduct). Presente ⇒ la pieza NACE con identidad
+  // real (el backend deriva cardId ancla + mapeo + imagen/nombre/subtipo y congela snapshot); se OMITE
+  // el cardId ancla del cliente. Sustituye a los 4 campos M-37 sueltos (deprecados).
+  sealedProductId?: string;
+  // v1.39.1 (P-38): fallback MANUAL money-safe (MXN centavos) — SOLO se envía cuando el mercado vivo es
+  // null y el operador lo capturó (`> 0`). Auditado server-side; con mercado vivo → 422.
+  manualMarketMxnCents?: number | null;
+  // v1.36 (P-35, DEPRECADO si hay sealedProductId): identidad TCGCSV suelta. Se fijan JUNTOS.
   tcgplayerProductId?: number;
   tcgplayerGroupId?: number;
   sealedImageUrl?: string | null;
@@ -101,23 +106,37 @@ export function QuickAddSection({
 
   const submit = useMutation({
     mutationFn: () => {
+      // v1.39 (P-38): con IDENTIDAD (`sealedProductId`) el backend deriva la Card ancla ⇒ se OMITE
+      // el cardId del cliente (la pieza nace «ETB …», no un single). Los 4 campos M-37 sueltos quedan
+      // deprecados y solo se envían en el camino legacy (sin sealedProductId).
+      const usesSealedIdentity = target.productType === 'sealed' && !!target.sealedProductId;
       const line: BatchInventoryItemInput = {
-        cardId: target.cardId,
+        ...(usesSealedIdentity ? {} : { cardId: target.cardId }),
         productType: target.productType,
         ...(target.productType === 'raw'
           ? { rawCondition: 'NM' as const, finish: target.finish }
           : {
               ...(target.sealedSubtype ? { sealedSubtype: target.sealedSubtype } : {}),
               ...(target.sealedCondition ? { sealedCondition: target.sealedCondition } : {}),
-              // v1.36 (P-35): nace MAPEADA — productId + groupId se envían JUNTOS.
-              ...(target.tcgplayerProductId != null && target.tcgplayerGroupId != null
+              ...(usesSealedIdentity
                 ? {
-                    tcgplayerProductId: target.tcgplayerProductId,
-                    tcgplayerGroupId: target.tcgplayerGroupId,
+                    // Identidad real: FK al SealedProduct + fallback manual money-safe (si aplica).
+                    sealedProductId: target.sealedProductId,
+                    ...(target.manualMarketMxnCents != null && target.manualMarketMxnCents > 0
+                      ? { manualMarketMxnCents: target.manualMarketMxnCents }
+                      : {}),
                   }
-                : {}),
-              ...(target.sealedImageUrl ? { sealedImageUrl: target.sealedImageUrl } : {}),
-              ...(target.sealedProductName ? { sealedProductName: target.sealedProductName } : {}),
+                : {
+                    // Legacy P-35: nace MAPEADA — productId + groupId se envían JUNTOS.
+                    ...(target.tcgplayerProductId != null && target.tcgplayerGroupId != null
+                      ? {
+                          tcgplayerProductId: target.tcgplayerProductId,
+                          tcgplayerGroupId: target.tcgplayerGroupId,
+                        }
+                      : {}),
+                    ...(target.sealedImageUrl ? { sealedImageUrl: target.sealedImageUrl } : {}),
+                    ...(target.sealedProductName ? { sealedProductName: target.sealedProductName } : {}),
+                  }),
             }),
         qty: qtyNum,
         ...(path === 'compra'

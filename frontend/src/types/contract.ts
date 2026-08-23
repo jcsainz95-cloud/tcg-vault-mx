@@ -14,7 +14,15 @@ export type RawCondition = 'NM';
 // ARCHITECTURE §3.7). graded/sealed = normal. Es la lista blanca de Card.availableFinishes.
 export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
 // v1.1: subtipo opcional del sellado.
-export type SealedSubtype = 'box' | 'etb' | 'bundle' | 'tin' | 'blister';
+// v1.39 (P-38): +`upc` (Ultra Premium Collection) y +`collection` (colecciones/cajas especiales).
+export type SealedSubtype =
+  | 'box'
+  | 'etb'
+  | 'bundle'
+  | 'tin'
+  | 'blister'
+  | 'upc'
+  | 'collection';
 // v1.23-sealed-sales: condición SIMPLE del sellado, visible al comprador. Enum de BD
 // (InventoryItem.sealedCondition, default mint). No afecta precio (labels legibles vía i18n).
 export type SealedCondition = 'mint' | 'minor_box_damage';
@@ -1201,6 +1209,93 @@ export interface SealedCatalogResponse {
   data: SealedCatalogProductDTO[];
 }
 
+// ===== v1.39 (P-38): módulo de PRODUCTO SELLADO robusto — entidad `SealedProduct` persistida =====
+// Tipo de grupo TCGCSV asociado a un set: `set_main` (grupo principal — booster box/ETB/bundle/UPC…) |
+// `promo_collection` (grupo APARTE de promo/colección — blísters/tins/colecciones promo, incl. Mega
+// Evolution). Un set tiene 1 set_main + N promo_collection (§4.34b).
+export type SealedGroupKind = 'set_main' | 'promo_collection';
+
+// Presentación sellada REAL de un set, con IDENTIDAD PROPIA (NO anclada a un single). `tcgplayerProductId`
+// = clave de identidad (== productId TCGplayer). `subtype` incl. `upc`; `subtypeInferred` = true si se
+// infirió por nombre (false si un humano lo curó). `isPrincipal` = presentación «cabecera» (§4.34c).
+// `origin` = de qué tipo de grupo provino. `marketRef` = valor de mercado INFORMATIVO (live TCGCSV → caché
+// → null); MONEY-SAFE: sin precio ⇒ null (pendiente/«—»), NUNCA 0. `imageUrl` = imagen de la API (null si
+// no trae). El alta reenvía `id` como `sealedProductId` (el backend deriva identidad y congela snapshot).
+export interface SealedProductDTO {
+  id: string;
+  setId: string;
+  tcgplayerProductId: number;
+  tcgplayerGroupId: number;
+  name: string;
+  cleanName?: string;
+  subtype: SealedSubtype;
+  subtypeInferred: boolean;
+  isPrincipal: boolean;
+  origin: SealedGroupKind;
+  imageUrl: string | null;
+  marketRef: PriceInfo | null;
+}
+
+// Enlace set → grupo TCGCSV (1 set → N grupos). `label` = nombre del grupo en TCGCSV (curación/observabilidad).
+export interface SealedSetGroupDTO {
+  id: string;
+  setId: string;
+  tcgplayerGroupId: number;
+  kind: SealedGroupKind;
+  label?: string;
+}
+
+// Respuesta de GET /admin/inventory/sealed-products. `data` ordenado (principales primero: isPrincipal
+// desc, sortOrder asc, name asc; §4.34c). `groups` = grupos TCGCSV conocidos del set. `needsSync=true` ⇒
+// catálogo vacío (el front ofrece «Sincronizar»). Los productos son los PERSISTIDOS (active=true).
+export interface SealedProductListResponse {
+  set: SetRefDTO;
+  needsSync: boolean;
+  groups: SealedSetGroupDTO[];
+  data: SealedProductDTO[];
+}
+
+// Grupo TCGCSV candidato por name-match (GET .../sync/candidates). `alreadyLinked` = ya está en
+// SealedSetGroup del set. `matchScore` = confianza de la coincidencia nombre+año (0..1, orientativo).
+export interface TcgcsvGroupCandidateDTO {
+  tcgplayerGroupId: number;
+  name: string;
+  publishedOn?: string;
+  alreadyLinked: boolean;
+  matchScore: number;
+}
+
+export interface SealedSyncCandidatesResponse {
+  set: SetRefDTO;
+  candidates: TcgcsvGroupCandidateDTO[];
+}
+
+// Req de POST /admin/inventory/sealed-products/sync. Uno de: `setId` (un set) | `all:true` (todos).
+// `groupIds?` = grupos extra a enlazar+sincronizar (promo/colección) además de los ya conocidos del set.
+export interface SealedSyncRequest {
+  setId?: string;
+  groupIds?: number[];
+  all?: boolean;
+}
+
+// Resultado del sync (money-safe: nunca fabrica precio, nunca toca inventario). `pricedCount` = productos
+// con precio no-null; `pendingPriceCount` = sin precio en la fuente (null, honesto). `groupsPopulated` =
+// groupIds nuevos escritos.
+export interface SealedSyncResultDTO {
+  setsSynced: number;
+  groupsPopulated: number;
+  productsUpserted: number;
+  productsDeactivated: number;
+  pricedCount: number;
+  pendingPriceCount: number;
+}
+
+// Req de POST /admin/inventory/sealed-sets/:setId/groups — enlaza un grupo extra (promo/colección) al set.
+export interface SealedSetGroupLinkRequest {
+  tcgplayerGroupId: number;
+  kind: SealedGroupKind;
+}
+
 // ===== v1.28 Stream B (P-20): pestaña «Gradeadas» =====
 // GET /admin/inventory/graded — agregado por (cardId, gradingCompany, gradeValue).
 // `marketReferenceMxnCents` = PriceReference de (cardId,'graded','graded:<company>:<grade>',
@@ -1338,7 +1433,9 @@ export interface BulkRemoveInventoryResponse {
 // InventoryItem (N piezas físicas, N folios) para bulk raw/sellado. graded → qty forzado a 1.
 // Los demás campos = MISMOS que POST /admin/inventory/items.
 export interface BatchInventoryItemInput {
-  cardId: string;
+  // v1.39 (P-38): OPCIONAL — requerido para raw/graded y para sealed SIN `sealedProductId`; con
+  // `sealedProductId` el backend DERIVA la Card ancla y el cliente puede omitirlo.
+  cardId?: string;
   productType: ProductType;
   rawCondition?: RawCondition;
   finish?: Finish;
@@ -1365,9 +1462,19 @@ export interface BatchInventoryItemInput {
   tcgplayerGroupId?: number;
   // Imagen/nombre del producto sellado desde la API TCGCSV. El backend los VALIDA contra el host
   // allowlist antes de persistir (anti stored-XSS); inválidos/omitidos ⇒ null (fallback a la Card
-  // ancla). Display-only, money-safe (jamás fijan precio).
+  // ancla). Display-only, money-safe (jamás fijan precio). DEPRECADO si hay `sealedProductId`.
   sealedImageUrl?: string;
   sealedProductName?: string;
+  // v1.39 (P-38): IDENTIDAD del sellado (FK → SealedProduct). RECOMENDADO — sustituye a los 4 campos
+  // M-37 sueltos (que quedan DEPRECADOS). Presente ⇒ el backend DERIVA cardId ancla + tcgplayerProductId/
+  // GroupId + imagen/nombre/subtipo DESDE el SealedProduct y congela el snapshot (la pieza nace «ETB …»,
+  // no la Tropius). Inexistente/inactivo → 422 SEALED_PRODUCT_NOT_FOUND.
+  sealedProductId?: string;
+  // v1.39 (P-38) + v1.39.1: FALLBACK MANUAL money-safe (solo sealed). Mercado en MXN centavos aceptado
+  // SOLO cuando el precio en vivo/caché es null; `> 0` (≤0 → 422 VALIDATION_ERROR); AUDITADO. Permiso
+  // `vault_operator+`. Con mercado YA resuelto → 422 MANUAL_MARKET_NOT_ALLOWED (el override solo llena el
+  // hueco null, JAMÁS pisa un mercado vivo). Sin override y sin mercado ⇒ 422 PRICE_PENDING (nunca 0).
+  manualMarketMxnCents?: number;
 }
 
 // cap items = 200. También acepta header `Idempotency-Key` (equivalente a `batchKey`).

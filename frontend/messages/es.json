@@ -2130,21 +2130,59 @@
       "pickSetPlaceholder": "Elige un set para ver su producto sellado.",
       "gridLabel": "Productos sellados de {set}",
       "searchProducts": "Buscar producto",
+      "principalOnly": "Solo principales",
+      "principalBadge": "Principal",
+      "subtypeInferredHint": "Subtipo inferido, revisable",
       "marketRef": "Mercado",
       "noMarket": "Sin precio de mercado",
-      "noProducts": "Este set no tiene producto sellado en la fuente.",
-      "noProductsHint": "Si el producto existe pero no aparece, revisa la cola de no-mapeados (M2).",
-      "noProductsQueue": "Ir a la cola de no-mapeados (M2)",
-      "upstreamError": "No pudimos cargar el producto sellado (fuente TCGCSV no disponible). Reintenta en un momento.",
+      "sectionEmpty": "No hay presentaciones en esta sección.",
+      "legitEmpty": "Este set no tiene producto sellado en la fuente.",
+      "legitEmptyHint": "Si crees que falta un grupo (promos/colecciones), revisa los candidatos.",
+      "upstreamError": "No pudimos leer precios de mercado en vivo; se muestran las últimas referencias conocidas o «sin precio».",
       "retry": "Reintentar",
       "subtype": "Subtipo",
       "condition": "Condición del sellado",
       "conditionHint": "La condición no afecta el precio; solo describe la caja.",
       "addAnother": "Agregar otra presentación",
-      "fallbackLink": "Capturar sin catálogo de producto",
-      "fallbackNotice": "Sin catálogo de producto: esta pieza quedará sin precio de mercado hasta mapearla en M2.",
-      "fallbackProductName": "Nombre del producto",
-      "emptyBody": "Da de alta tu primer producto sellado con el flujo dedicado."
+      "emptyBody": "Da de alta tu primer producto sellado con el flujo dedicado.",
+      "section": {
+        "fromSet": "Del set",
+        "fromSetSub": "Box, ETB, UPC y bundles de {set}.",
+        "promoCollection": "Promos y colecciones",
+        "promoCollectionSub": "Blísters, tins y colecciones promo (incl. Mega Evolution)."
+      },
+      "sync": {
+        "title": "Aún no descargamos las presentaciones de este set.",
+        "body": "Sincroniza el catálogo de sellado desde la fuente para ver ETB, UPC, bundles y promos.",
+        "cta": "Sincronizar",
+        "loading": "Sincronizando…",
+        "resultSummary": "{products} presentaciones · {priced} con precio · {pending} pendientes de precio",
+        "pendingNote": "Las presentaciones sin precio quedan pendientes; nunca se valúan en 0.",
+        "error": "No pudimos sincronizar (fuente TCGCSV no disponible). Reintenta en un momento.",
+        "retry": "Reintentar",
+        "notAllowed": "Este set aún no tiene catálogo de sellado. Pídele a un administrador que lo sincronice."
+      },
+      "linker": {
+        "title": "Candidatos de grupos promo/colección",
+        "open": "Falta un grupo de promos/colecciones…",
+        "candidateName": "{name}",
+        "confidence": {
+          "high": "Coincidencia alta",
+          "mid": "Coincidencia media",
+          "low": "Coincidencia baja"
+        },
+        "alreadyLinked": "Ya enlazado",
+        "linkCta": "Enlazar como promo/colección",
+        "empty": "No encontramos grupos candidatos para este set."
+      },
+      "manualMarket": {
+        "eyebrow": "Precio de mercado pendiente",
+        "body": "Esta presentación no tiene precio de mercado. Puedes fijarlo manualmente para valuar la aportación.",
+        "label": "Precio de mercado manual (MX$)",
+        "mustBePositive": "Debe ser mayor a 0.",
+        "auditNotice": "Es un override auditado: queda registrado a tu nombre y alimenta la valuación de esta pieza.",
+        "pendingIfEmpty": "Sin precio manual, la aportación quedará pendiente de precio."
+      }
     }
   },
   "locale": {
@@ -2201,7 +2239,9 @@
       "etb": "ETB",
       "bundle": "Bundle",
       "tin": "Tin",
-      "blister": "Blister"
+      "blister": "Blister",
+      "upc": "UPC",
+      "collection": "Collection"
     },
     "dispute": {
       "abierta": "Abierta",
@@ -2290,7 +2330,9 @@
     "SET_NOT_IMPORTED": "Ese set aún no está importado; impórtalo antes de refrescar sus variantes.",
     "UPSTREAM_ERROR": "TCGCSV no está disponible en este momento. Inténtalo de nuevo en unos minutos.",
     "PREMIUM_RARITY_FIXED_TIER": "No se pudo guardar: una rareza premium quedaría en un tier de compra fija.",
-    "UNKNOWN_RARITY": "Rareza desconocida: no está en el catálogo canónico."
+    "UNKNOWN_RARITY": "Rareza desconocida: no está en el catálogo canónico.",
+    "SEALED_PRODUCT_NOT_FOUND": "Ese producto sellado ya no existe o está inactivo; vuelve a sincronizar el catálogo.",
+    "MANUAL_MARKET_NOT_ALLOWED": "Esta presentación ya tiene precio de mercado; el precio manual solo aplica cuando no hay mercado."
   },
   "payment": {
     "title": "Pago",

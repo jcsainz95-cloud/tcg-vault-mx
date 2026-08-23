@@ -4,6 +4,75 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §38 · P-38 — alta de sellado con entidad real `SealedProduct` (2026-08-23, contrato v1.39.1, DS §16.8a)
+
+**Qué se hizo:** evolucionar el `SealedAddFlow` de P-35 para que el alta de producto sellado nazca con
+**identidad real** (`SealedProduct` persistido, no un ancla a un single del set) y sea **money-safe** de
+raíz. Se **retira el camino money-unsafe** «capturar sin catálogo» de P-35 (nacía SIN MAPEO). Todo en
+`frontend/`; el alta vive en `(admin)/admin/m1/`. Aditivo al design system — **cero tokens nuevos**.
+
+**Componentes (m1):**
+- **`SealedProductPicker.tsx` (NUEVO)** — reemplaza el grid único `SealedProductGrid` (eliminado). Paso 1
+  en **DOS SECCIONES `<section>` por `origin`**: «Del set» (`set_main`) primero y «Promos/colecciones»
+  (`promo_collection`) después. Cada sección tiene `<h3>` + contador + su propio `role="listbox"`;
+  selección única en todo el paso (un solo `sealedProductId` viaja al paso 2). Orden interno lo entrega el
+  server (§4.34c: `isPrincipal desc`, `sortOrder`, `name`). Exporta la **teja evolucionada
+  `SealedProductTile`**: imagen real + pozo/fallback, nombre (`cleanName`), pill de subtipo (incl. **UPC**
+  y **collection**, con afijo tenue `·` + `title` si `subtypeInferred`), **badge «Principal»**, referencia
+  money-safe (`marketRef` o pill `SIN PRECIO DE MERCADO`, **nunca 0**; seleccionable aun sin precio).
+- **`SealedManualMarketField.tsx` (NUEVO)** — precio de mercado MANUAL en el paso 2. Input de dinero
+  **abierto vacío** (jamás 0/sugerido), valida `>0`, aviso de **override auditado**. El flujo solo lo
+  renderiza cuando `marketRef` es null **y** el usuario es **`vault_operator+`**; mapea a
+  `manualMarketMxnCents`.
+- **`SealedGroupLinker.tsx` (NUEVO, `super_admin`)** — curación de grupos promo/colección: lista
+  `GET .../sync/candidates` con medidor de confianza (`matchScore` → alta/media/baja, nunca cifra cruda) y
+  estado «Ya enlazado»; `POST .../sealed-sets/:setId/groups` (`kind:"promo_collection"`) → dispara re-sync.
+- **`SealedAddFlow.tsx` (EVOLUCIONADO)** — orquesta: set → `listSealedProducts` → picker (con buscador `q`
+  server-side + toggle «Solo principales» → `principalOnly`) → paso 2. Estado **«Sincronizar»**
+  (`needsSync`): CTA `Sincronizar` **solo `super_admin`** (loading sin cerrar el modal, resumen honesto del
+  `SealedSyncResultDTO` «12 presentaciones · 9 con precio · 3 pendientes», nunca «0»); para
+  `vault_operator` copy sin botón muerto. Alta reusa `QuickAddSection` con `sealedProductId` (+
+  `manualMarketMxnCents` cuando aplica).
+- **`QuickAdd.tsx` (AJUSTADO)** — `QuickAddTarget` gana `sealedProductId?` y `manualMarketMxnCents?`. Con
+  `sealedProductId` la línea del batch **omite `cardId`** (el backend deriva la Card ancla) y **no** manda
+  los 4 campos M-37 sueltos (deprecados). Otras superficies que reusan `QuickAddSection` (raw, detalle de
+  set) **no cambian** (siguen mandando `cardId`).
+
+**Endpoints consumidos (nuevos en `lib/api.ts`):** `listSealedProducts`, `syncSealedProducts`,
+`getSealedSyncCandidates`, `linkSealedSetGroup`. Alta = `batchCreateItems` (`POST .../items/batch`) con
+`sealedProductId` + `batchKey` (+ `manualMarketMxnCents?`).
+
+**`types/contract.ts`:** `SealedSubtype` += `upc`/`collection`; nuevos `SealedGroupKind`,
+`SealedProductDTO`, `SealedSetGroupDTO`, `SealedProductListResponse`, `TcgcsvGroupCandidateDTO`,
+`SealedSyncCandidatesResponse`, `SealedSyncRequest`, `SealedSyncResultDTO`, `SealedSetGroupLinkRequest`;
+`BatchInventoryItemInput` gana `sealedProductId?`/`manualMarketMxnCents?` y `cardId` pasa a opcional.
+
+**i18n (es/en):** `admin.sealedAdd.{section.*,sync.*,linker.*,manualMarket.*,principalOnly,principalBadge,
+subtypeInferredHint,legitEmpty,legitEmptyHint,sectionEmpty}` · `status.sealedSubtype.{upc,collection}` ·
+`error.{SEALED_PRODUCT_NOT_FOUND,MANUAL_MARKET_NOT_ALLOWED}`. Se retiraron las claves del camino de
+respaldo P-35 (`fallbackLink/fallbackNotice/fallbackProductName/noProducts*`).
+
+**Money-safe:** sin precio → pill/pendiente/manual, **jamás 0**; el override manual solo llena el hueco
+`null` (con mercado vivo el campo no se ofrece; el backend responde `422 MANUAL_MARKET_NOT_ALLOWED`); sin
+manual, la aportación queda `PRICE_PENDING` con helper que lo anticipa. Mocks (`lib/mock/fixtures.ts`)
+actualizados para los 4 endpoints y para que `mockBatchCreate` derive por `sealedProductId` y aplique las
+reglas de `manualMarketMxnCents`/`SEALED_PRODUCT_NOT_FOUND`.
+
+**El alta nace con identidad real (no ancla-a-single):** la línea del batch viaja **sin `cardId`** y con
+`sealedProductId` → el backend deriva Card ancla + mapeo + imagen/nombre/subtipo del `SealedProduct` y
+congela el snapshot (la pieza nace «ETB Surging Sparks», no la Tropius). Verificado por test.
+
+**Tests añadidos:** `SealedAddFlow.test.tsx` (reescrito, 7): 2 secciones por `origin` con orden fijo, teja
+money-safe (precio/pill/badge, nunca 0), sync solo `super_admin` con resumen honesto + copy sin botón para
+`vault_operator`, alta manda `sealedProductId` (sin `cardId`), precio manual `vault_operator` solo si
+`marketRef` null (valida `>0` → `manualMarketMxnCents`) y NO aparece con mercado vivo. `SealedGroupLinker.
+test.tsx` (nuevo, 1): candidatos con confianza + enlace → re-sync.
+
+**Sin solicitudes al arquitecto:** el contrato v1.39.1 cubre todos los datos/pantallas. No se tocó
+`backend/` ni `docs/API_CONTRACT.md`.
+
+**Verde:** `vitest run` **78 archivos / 615 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
 ## §23 · P-30 (publicación única agrupada con stock) — storefront «Compra» al shape AGRUPADO (2026-08-22, contrato v1.38-grouped-listings)
 
 **Qué se hizo:** casar el catálogo del rediseño (que consumía `ListingDTO` por-copia) con el shape
