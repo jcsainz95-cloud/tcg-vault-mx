@@ -1,6 +1,76 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════
+     PASE P-38 — SealedProduct + precio manual de sellado (2026-08-23) — se antepone;
+     el contenido histórico (v1.28, Stream C, etc.) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# PASE P-38 — Precio manual de sellado (fix `d408769`) · 2026-08-23 · VEREDICTO de seguridad
+
+> **Rol:** seguridad (blue team / AppSec). Consolido el RE-TEST del pentester (`docs/PENTEST_NOTES.md`,
+> «RE-TEST FOCALIZADO — P-38 … fix d408769») contra el código, valido cada cierre con mi propio análisis
+> y emito veredicto. **NO corrijo código:** cada residual se rutea a su rol dueño.
+> **Modo:** revisión **estática** dirigida de `inventory.service.ts`, `pricing.service.ts`,
+> `audit.service.ts`, `dto/inventory.dto.ts` + suite jest del pentester (verde: 50/50 specs de sellado,
+> 321/321 en inventory+pricing+audit). Sin stack HTTP vivo → live-fire por endpoint = [PoC-pendiente-DAST].
+> **Commit revisado:** `d408769` (H-1 atomicidad + H-2 exigir sealedProductId + M-2 cap acquisitionPct).
+
+## 0. Resumen ejecutivo
+
+**Los 2 ALTOS (H-1, H-2) y el M-2 del path de precio manual de sellado están CERRADOS y lo confirmo por
+revisión independiente. SIN Críticos ni Altos abiertos. → VEREDICTO: APROBADO.** El patrón deferred-write
+del override es atómico y sin camino residual de auto-commit; el gate de identidad por `sealedProductId`
+validado impide anclar dinero a un productId arbitrario del cliente; las cotas anti-overflow/anti-abuso
+están en su lugar. El `tx?` opcional añadido a `pricing.manualOverride`/`audit.log` no abrió otro hueco.
+
+| Severidad | # ABIERTO (P-38) | Estado |
+|---|---|---|
+| **Crítica** | 0 | — |
+| **Alta** | 0 | **H-1 y H-2 CERRADOS** (verificados en código + tests) |
+| **Media** | 0 nuevos | **M-2 CERRADO**; M-1 (residual de negocio) = **riesgo aceptado-auditado**; deps = carryover |
+| **Baja** | 0 nuevos | L-1/L-2 previos sin cambio (abiertos, no bloqueantes) |
+
+## 1. Cierres verificados (revisión estática independiente)
+- **H-1 (atomicidad) CERRADO:** `resolveSealedMarketForAlta` solo valida y devuelve descriptor;
+  `applySealedManualOverride(ov, actorUserId, tx)` exige `tx` y escribe override+audit dentro de la tx;
+  `createItem`/`batchCreate` envuelven creación+override en `$transaction` con el override **tras** crear la
+  pieza; `pricing.manualOverride`/`audit.log` usan `tx ?? this.prisma` en **ambas** escrituras. Sin huérfano.
+- **H-2 (identidad) CERRADO:** gate `manualMarketMxnCents != null && sealedProductId == null → 422`;
+  `sealedProductId` solo no-null desde `SealedProduct` activo; ids sueltos del cliente ignorados (SEC-A1).
+- **M-2 CERRADO:** `@Max(MAX_APORTACION_PCT=100)` en las 3 DTO (cierra también R-2 de v1.28).
+- El `tx?` opcional no debilitó otros llamadores (`PricingController.override` conserva auto-commit).
+- Higiene (no hallazgo): `manualMarketMxnCents` sin `@Min` a nivel DTO; el gate de servicio `>0` lo cubre.
+
+## 2. M-1 residual — RIESGO ACEPTADO-AUDITADO
+Decisión del humano (v1.39.1): precio manual de sellado por `vault_operator+`. Aceptado con controles
+compensatorios verificados (H-1/H-2 cerrados, `@Max(100M)`, `@Max(100)` acquisitionPct, `>0`, «solo llena
+hueco null / jamás pisa mercado vivo», auditoría `inventory.sealed_manual_market`, sin cash-out — el dinero
+saliente sigue siendo money-out `super_admin`). **Endurecimiento recomendado (no bloqueante):** banda de
+cordura relativa al mercado comparable + revisión periódica del log de overrides; elevar a 4-ojos ante
+primer indicio de abuso. Dueño: backend (banda) / seguridad (monitoreo).
+
+## 3. Carryover no bloqueante (0 críticos/altos) — ruteado
+deps `@nestjs/core` (Media, devops), L-1 imagen display sin sanitizar (backend/frontend), L-2 dial off
+reescribe override (backend), B-1 timing forgot-password (backend), B-2 linking Google a privilegiadas
+(backend), B-5 token en query-string (frontend), R-3 lectura de estrategia por vault_operator (diseño),
+MS-1/MS-2 idempotency shipments/refund (backend), B-3 Int32 (arquitecto).
+
+## 4. Banderas para el humano
+- **Pre-dinero-real (no bloqueante de P-38):** DAST en staging autorizado del alta de sellado por HTTP
+  (con/ sin `sealedProductId`, y fallo de BD a mitad del `$transaction` verificando cero override huérfano)
+  + concurrencia de checkout de sellado único. Antes de operar dinero real a escala: pentest de tercero.
+- **PII/custodia:** validaciones legales de custodia + INE/CLABE (AML SPEI) siguen siendo bandera legal del
+  humano; P-38 no las toca.
+
+## 5. VEREDICTO DE SEGURIDAD de P-38 — **APROBADO**
+0 Críticos · 0 Altos · 0 Medios nuevos · 0 Bajos nuevos. Umbral DoD cumplido (sin críticos/altos abiertos).
+**Mínimo para mantener el APROBADO:** ningún cambio futuro reintroduce escritura del override fuera de la tx,
+ni acepta `manualMarketMxnCents` sin `sealedProductId` validado, ni retira las cotas `@Max`. Cualquier
+cambio a `inventory`/`pricing`/`audit` o al contrato re-abre este gate.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
      PASE v1.28 — RELEASE (2026-08-21) — se antepone; el contenido histórico se conserva íntegro abajo.
      ════════════════════════════════════════════════════════════════════════════════════════ -->
 
