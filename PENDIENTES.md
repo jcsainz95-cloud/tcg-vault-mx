@@ -7,7 +7,15 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 
 ## Listo en `main` — esperando «publica»
 
-Doble veredicto por-stream aprobado; mergeado a `main` (`2cb33fa`). Se despliega a producción con «publica».
+Doble veredicto por-stream aprobado; mergeado a `main` (`a85fb22`). Se despliega a producción con «publica».
+
+- **Deuda saldada (2026-08-23, doble veredicto QA+techlead APROBADO):** backend H-P38-4 (upsert atómico
+  del sync sellado), P-34 H5 (`mega`/`blackwhite` premium), P-34 H4 (invariante premium→pct testeado),
+  **P-30 H2 cierre completo** (productores y consumidores comparten `variantKey()` + guard de round-trip);
+  frontend H-P38-5 (alta sellado sin `cardId` falso), Cotizador H1/H3/H4 (layout CSS, sombreado «En el
+  carrito» en teja separada, doc drift). Todo display/UX/refactor, money-safe, sin cambio de contrato.
+  *(Deuda aún diferida: MK-D6, FE-2 «desde $X», DEUDA-tiers-3, P-30 H3, P-34 H3, SB-D3 (~6 sitios
+  hand-rolled de otros módulos), deps + hardening auth B-1/B-2/B-5, re-seed snapshots, M-1 aceptado.)*
 
 - **P-38** · **Módulo `SealedProduct`** (cura raíz de SB-D5): descarga presentaciones por set (ETB/UPC/
   Booster Bundle/box/blíster), alta = **seleccionar** con identidad real (adiós «Tropius sealed»), sync
