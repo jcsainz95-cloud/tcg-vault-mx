@@ -121,17 +121,20 @@
 > reetiqueta y agrupa acciones ya existentes. Una solicitud abierta al arquitecto (señal de salud de
 > la fuente de catálogo) queda anotada como **no bloqueante** (§19.9).
 >
-> **Añadido v1.10 (P-35 — alta de producto SELLADO dedicada) → ver §16.8a.** La pestaña «Sellado» de M1
-> deja de reutilizar el **modal buscador de CARTAS** (que devolvía singles al elegir Tipo=Sellado) y estrena
-> un **flujo dedicado de 2 pasos** (`SealedAddFlow`): **paso 1 = grid de PRODUCTOS SELLADOS del set**
-> (`SealedProductGrid`/`SealedProductTile`, con imagen y nombre reales de la fuente de producto —ETB, booster
-> box, blíster—, **no singles**), **paso 2 = `QuickAddSection` §16.5 tal cual** (cantidad + Comprar/Aportación)
-> más subtipo y condición del sellado. Money-safe: producto **sin precio de mercado** muestra
-> **`SIN PRECIO DE MERCADO`/`—`** (nunca 0 ni precio inventado) y **deshabilita la aportación** (§16.5a2). §16.8a
-> es **aditiva**: **cero tokens nuevos**, reusa Modal/Select/Input/Banner/EmptyState/QueryState y el skeleton de
-> retícula (§18.6). Deja **una solicitud abierta al arquitecto** (endpoint de catálogo de sellado por `setId` +
-> mapear-al-crear con `tcgplayerProductId`; §16.8a y §16.11.4), **no bloqueante** (implementable con el
-> explorador TCGCSV de M2 ya existente).
+> **Añadido v1.10 (P-35) → evolucionado v1.39 (P-38 — entidad `SealedProduct`) → ver §16.8a.** La pestaña
+> «Sellado» de M1 estrena un **flujo dedicado de 2 pasos** (`SealedAddFlow`): **paso 1 = presentaciones
+> selladas del set** (con imagen y nombre reales, **no singles**), **paso 2 = `QuickAddSection` §16.5 tal
+> cual** (cantidad + Comprar/Aportación) más subtipo y condición. **P-38 (contrato v1.39.1) evoluciona el
+> paso 1**: cada presentación es una entidad real (`SealedProduct`) persistida por un **sync**, no un ancla a
+> single (cura del bug ETB→«Tropius · SIN MAPEO»). Cuatro cambios de UI: (1) el paso 1 se parte en **DOS
+> SECCIONES por `origin`** — «Del set» (`set_main`) y «Promos/colecciones» (`promo_collection`); (2) la teja
+> gana **subtipos `UPC` y `collection`** + **badge «Principal»**; (3) estado **«Sincronizar»** (`needsSync`)
+> con CTA `super_admin` + curación de grupos promo (`SealedGroupLinker`); (4) **input de precio MANUAL
+> auditado** (`vault_operator+`, v1.39.1) SOLO cuando `marketRef` es null — reemplaza el «capturar sin
+> catálogo» de P-35. Money-safe intacto: **`SIN PRECIO DE MERCADO`** (nunca 0 ni inventado) y aportación
+> bloqueada sin mercado vivo o manual. **Aditiva: cero tokens nuevos** (reusa Modal/Combobox/Select/Input/
+> Banner/EmptyState/QueryState/Switch/skeleton §18.6). La solicitud abierta de P-35 (catálogo por `setId` +
+> mapear-al-crear) **quedó resuelta** en §4.34/contrato v1.39.1.
 > **Añadido v2.0 (makeover del storefront — dirección 1a «Conservadora», Claude Design) → ver §20.**
 > Primera entrega formal de **Claude Design** codificada en este documento: el humano aprobó los
 > artboards 1a (home 1280 + 390) y 2a–2e (Comprar, Vender, Ficha, Carrito, Mi bóveda) y §20 extrae de
@@ -2318,21 +2321,35 @@ Análoga al Master Set pero de **piezas selladas** (no hay catálogo de sellado)
 - Estado vacío de la pestaña: `Sin producto sellado en inventario.` + CTA **`Agregar sellado`** (§16.8a — el
   flujo dedicado, NO el buscador de cartas).
 
-### 16.8a Alta de producto SELLADO — flujo dedicado (P-35)
+### 16.8a Alta de producto SELLADO — flujo dedicado (P-35 → **evolucionado en P-38**)
 
-> **Problema que corrige (reporte del humano):** hoy la pestaña «Sellado» no tiene alta propia y cae en el
-> **modal buscador de CARTAS** (`AddItemModal`, sobre `searchBuylistCards` = catálogo de singles de
-> pokemontcg.io). Al elegir set + Tipo=Sellado, los resultados siguen siendo **singles** (Tropius,
-> Grubbin…): se etiqueta una carta suelta como «sellado», lo cual es confuso y money-unsafe (queda sin
-> mapeo TCGCSV ⇒ sin precio de mercado). **La causa raíz es que el buscador de cartas NO es un catálogo de
-> producto sellado.** Un ETB, un booster box o un blíster **no son cartas**: son productos. Este flujo los
-> trata como lo que son.
+> **Evolución P-38 (contrato v1.39.1, ARCHITECTURE §4.34) — `SealedProduct` es una entidad real.** En P-35
+> el paso 1 leía una **descarga en vivo** de la fuente TCGCSV keyeada por grupo, y cada sellado se anclaba a
+> un single representativo del set (bug ETB→«Tropius #1 · sealed · SIN MAPEO»). P-38 **cura de raíz**: cada
+> presentación (ETB, **UPC**, Booster Bundle, box, tin, blíster, **collection**) es una **fila persistida**
+> (`SealedProduct`) con identidad propia, descargada por un **sync**. Cambian **cuatro** cosas de UI y **nada
+> más** del patrón:
+> 1. El paso 1 ya **no** es un grid único: se parte en **DOS SECCIONES por `origin`** — «Del set»
+>    (`set_main`) y «Promos/colecciones» (`promo_collection`) — **decisión del humano v1.39.1**.
+> 2. La teja gana **subtipos nuevos** (`UPC`, `collection`) y un **badge «Principal»**.
+> 3. Aparece el estado **«Sincronizar»** (`needsSync`) cuando el set aún no tiene catálogo descargado, más el
+>    flujo de **enlazar un grupo promo/colección**.
+> 4. El fallback money-safe deja de ser «capturar sin catálogo» y pasa a ser un **input de precio MANUAL**
+>    auditado, disponible para **`vault_operator+`** (decisión del humano v1.39.1), SOLO cuando `marketRef`
+>    es null.
 >
-> **Decisión de diseño:** el alta de sellado deja de reutilizar el buscador de cartas y estrena un
-> **selector/grid de PRODUCTOS SELLADOS del set** (con imagen y nombre reales de la fuente de producto), y
-> luego reusa **tal cual** el `QuickAddSection` §16.5 (cantidad + Comprar/Aportación) ya ratificado en
-> P-19. No inventa un patrón nuevo de alta: cambia **qué se elige** (producto, no single) y conserva **cómo
-> se da de alta** (las reglas simples de P-19).
+> La fuente ahora es `GET /admin/inventory/sealed-products?setId=&q?&origin?&principalOnly?`
+> (`SealedProductListResponse = { set, needsSync, groups: SealedSetGroupDTO[], data: SealedProductDTO[] }`);
+> el alta sigue reusando `POST /admin/inventory/items/batch` con **`sealedProductId`** (el backend deriva
+> identidad, imagen, nombre y subtipo, y congela el snapshot ⇒ la pieza nace «ETB Surging Sparks», no
+> Tropius). **Aditivo: cero tokens nuevos** — reusa Modal/Combobox/Select/Input/Banner/EmptyState y las pills
+> de subtipo/condición (§7.1b, §2.4).
+
+> **Problema que corrigió P-35 (contexto):** la pestaña «Sellado» caía en el **modal buscador de CARTAS**
+> (`AddItemModal` sobre singles de pokemontcg.io); al elegir Tipo=Sellado devolvía **singles** (Tropius,
+> Grubbin…). Un ETB, un booster box o un blíster **no son cartas**: son productos. Este flujo los trata como
+> lo que son. Se conserva la **decisión estructural** de P-35 (elegir un PRODUCTO, no un single; reusar
+> `QuickAddSection` §16.5 para el «cómo se da de alta»); P-38 solo sustituye la fuente por la entidad real.
 
 **Disparadores (todos abren el MISMO flujo, `SealedAddFlow`):**
 1. CTA `Agregar sellado` en el **header de la pestaña Sellado** (índice §16.8), siempre visible (junto al
@@ -2347,123 +2364,193 @@ casi a pantalla completa. Es un **asistente de 2 pasos** con un stepper textual 
 (reserva de alto estable, §9.4). Botón `Atrás` (ghost) vuelve al paso 1 conservando la selección.
 
 **Paso 0 — Set (solo si no viene precargado).** Reusa el **Combobox de sets con año** (§6.3, mismo de
-`AddItemModal`: `Surging Sparks (2024)`), buscable. Al elegir set se resuelve su expansión de producto
-(ver «Coordinación con el contrato») y se puebla el grid del paso 1. Sin set elegido, el grid muestra el
-placeholder `Elige un set para ver su producto sellado.`
+`AddItemModal`: `Surging Sparks (2024)`), buscable. Al elegir set se llama a `sealed-products?setId=` y se
+puebla el paso 1 con sus **secciones**. Sin set elegido, el paso 1 muestra el placeholder
+`Elige un set para ver su producto sellado.`
 
-**Paso 1 — Grid de PRODUCTOS SELLADOS del set (el corazón del fix) — `SealedProductGrid`.**
-Un grid de tejas de **producto sellado** (NO singles), densidad del binder recortada a alta: 2 col (móvil) →
-3 (sm) → 4 (lg). Cada teja es un **`<button role="option">`** dentro de un `role="listbox"`
-(`aria-label="Productos sellados de {set}"`), navegable por flechas, con foco visible (anillo bermellón,
-§8.2) y `aria-selected`. Anatomía de la teja (`SealedProductTile`):
-- **Imagen del producto** (la de la fuente de producto: `imageUrl` de TCGCSV; ver contrato). Contenedor
-  `aspect-[5/7]` con `object-contain` sobre **pozo** `surface-2` — las cajas son más cuadradas que una
-  carta y **no se recortan** (misma regla que §7.1b). `alt` = nombre del producto; **fallback** honesto si
-  la imagen remota no carga: bloque pozo con el `cleanName` centrado en mono (nunca un roto, §5).
-- **Nombre del producto** (`text-sm` medium, EN, `lang="en"`, `line-clamp-2`): p. ej.
-  `Surging Sparks Elite Trainer Box`. Se muestra `cleanName` si viene; si no, `name`.
-- **Pill de subtipo** (§7.1b, tono `info`, mono versalitas): `ETB` / `BOOSTER BOX` / `BUNDLE` / `TIN` /
-  `BLISTER`, derivado por heurística de la fuente. Si la fuente no permite inferirlo, la teja NO inventa
-  subtipo (queda sin pill; se captura en el paso 2).
-- **Referencia de mercado (money-safe):** renglón mono `tabular-nums` bajo el nombre. Con precio:
-  `MX$ 1,250.00` en `text-muted` con sufijo `MERCADO`. **Sin precio de mercado:** pill
+**Paso 1 — Presentaciones del set en DOS SECCIONES — `SealedProductPicker`.**
+El campo `origin` de cada `SealedProductDTO` **particiona** la lista en dos secciones apiladas (nunca dos
+grids sueltos sin encabezado). El orden entre secciones es fijo: **«Del set» primero, «Promos/colecciones»
+después** — lo principal arriba. Cada sección es un `<section>` con un encabezado propio (`<h3>` mono
+versalitas + contador) y su propio `role="listbox"`; la selección es **única en todo el paso** (una sola
+teja activa entre ambas secciones, un solo `sealedProductId` viaja al paso 2).
+
+- **Sección «Del set»** (`origin=set_main`) — encabezado `DEL SET · {n}`, subcopy `text-xs muted`
+  `Box, ETB, UPC y bundles de {set}.` Contiene el grupo principal del set. **Orden interno** por el contrato
+  (§4.34c): **principales primero** (`isPrincipal desc`), luego `sortOrder` canónico
+  (`upc=0, etb=1, box=2, bundle=3, tin=4, blister=5, collection=6`), luego `name`. Es decir, box/ETB/UPC/
+  bundle encabezan; tins/blísters/colecciones sueltas del mismo grupo caen después.
+- **Sección «Promos/colecciones»** (`origin=promo_collection`) — encabezado `PROMOS Y COLECCIONES · {n}`,
+  subcopy `text-xs muted` `Blísters, tins y colecciones promo (incl. Mega Evolution).` Mismo orden interno.
+  Aquí caen los productos de los grupos `promo_collection` enlazados al set (§4.34b). **Nunca** aparecen
+  singles promo (el sync los descarta; la frontera es del backend).
+- **Grid dentro de cada sección:** mismas tejas, densidad 2 col (móvil) → 3 (sm) → 4 (lg); flechas +
+  `Home/End` navegan **dentro** de la sección, `Tab` salta entre secciones. Foco visible (anillo de acento,
+  §8.2), `aria-selected`.
+- **Buscador `q`** (`Input` §6.2) **arriba de ambas secciones**: filtra por nombre en las dos a la vez
+  (envía `q` al endpoint). Si el filtro deja una sección vacía, esa sección colapsa a su micro-vacío (abajo),
+  la otra permanece.
+- **Toggle `Solo principales`** (`Switch`/checkbox, mapea `principalOnly=true`): oculta las secundarias
+  (tin/blíster/collection) en ambas secciones para el operador que solo mete cabeceras. Off por defecto.
+
+**Teja `SealedProductTile` (una fila de `SealedProduct`) — anatomía:**
+- **Imagen real del producto** (`imageUrl` de la API, validada server-side contra el host allowlist): contenedor
+  `aspect-[5/7]` con `object-contain` sobre **pozo** `surface-2` (las cajas son más cuadradas que una carta y
+  **no se recortan**, §7.1b). `alt` = nombre; **fallback** honesto si la remota no carga o `imageUrl` es null:
+  bloque pozo con el `cleanName` centrado en mono (nunca un roto, §5).
+- **Nombre** (`text-sm` medium, `lang="en"`, `line-clamp-2`): `Surging Sparks Elite Trainer Box`. Muestra
+  `cleanName` si viene; si no, `name`.
+- **Pill de subtipo** (§7.1b, tono `info`, mono versalitas) — set ampliado P-38:
+  `ETB` / `UPC` / `BOX` / `BUNDLE` / `TIN` / `BLISTER` / `COLLECTION` (labels `status.sealedSubtype.*`). Si
+  `subtypeInferred=true` la pill lleva un punto/afijo tenue (`·`) con `title=Subtipo inferido, revisable` —
+  señal honesta de que es heurística, curable en el paso 2. **`UPC`** y **`COLLECTION`** son los tonos nuevos;
+  reusan el mismo estilo de pill (sin color nuevo).
+- **Badge «Principal»** (`isPrincipal=true`): micro-pill `outline` discreta en la esquina de la imagen
+  (`PRINCIPAL`, mono, `text-[10px]`), redundante con el orden pero útil cuando el operador escanea. Las
+  secundarias no llevan badge.
+- **Referencia de mercado (money-safe):** renglón mono `tabular-nums` bajo el nombre, leído de
+  `marketRef: PriceInfo | null`. Con precio (`status:"priced"`, `referenceMxnCents`): `MX$ 1,250.00` en
+  `text-muted` con sufijo `MERCADO`. **Sin precio** (`marketRef` null **o** `status:"pending"`): pill
   **`SIN PRECIO DE MERCADO`** (warning outline, §2.4) — **jamás `MX$ 0.00` ni un precio inventado** (§7.5,
-  regla de dinero). La teja sigue siendo seleccionable (se puede comprar aunque no haya mercado; lo que se
-  bloquea es la *aportación*, paso 2).
-- **Buscador** sobre el grid (`Input` §6.2, `q`): filtra por nombre del producto dentro del set.
+  regla de dinero). La teja **sigue seleccionable** (se puede comprar y, en P-38, fijar precio manual en el
+  paso 2; lo único que se bloquea sin precio es la *aportación* directa).
 - **Selección:** una sola teja activa (borde `--color-border-strong` + fondo `surface-2` + check §7.1). Al
-  elegir, el CTA `Continuar` (primary) se habilita y se avanza al paso 2 (Enter en la teja también avanza).
+  elegir, `Continuar` (primary) se habilita y avanza al paso 2 (Enter en la teja también avanza).
 
-**Estados del grid (paso 1):**
-- **Carga:** grid de skeletons con la retícula final (§18.6, patrón compartido — imagen pozo + 2 barras),
-  no spinner.
-- **Vacío:** `Este set no tiene producto sellado en la fuente.` + nota `text-xs muted`:
-  `Si el producto existe pero no aparece, revisa la cola de no-mapeados (M2).` (enlace solo `super_admin`,
-  igual que §16.8). No es un error: es un vacío legítimo.
-- **Error de la fuente remota (TCGCSV `502 UPSTREAM_ERROR`):** banner `danger` con copy accionable
-  `No pudimos cargar el producto sellado (fuente TCGCSV no disponible). Reintenta en un momento.` + botón
-  `Reintentar`. El alta NO se cae del todo: se ofrece el **camino de respaldo** (ver abajo) para no
-  bloquear al operador cuando la fuente está caída.
+**Estados del paso 1:**
+- **Carga:** por cada sección, grid de skeletons con la retícula final (§18.6 — imagen pozo + 2 barras), no
+  spinner. El encabezado de sección se muestra como barra skeleton.
+- **`needsSync:true` (catálogo aún no descargado) — estado «Sincronizar»:** cuando la respuesta trae
+  `data:[]` **y** `needsSync:true`, el paso 1 NO muestra un vacío mudo: pinta un **`EmptyState` de acción**
+  con icono neutro, título `Aún no descargamos las presentaciones de este set.` y copy
+  `Sincroniza el catálogo de sellado desde la fuente para ver ETB, UPC, bundles y promos.` Debajo:
+  - **CTA `Sincronizar` (primary)** — visible **solo a `super_admin`** (el sync es `super_admin`). Dispara
+    `POST /admin/inventory/sealed-products/sync { setId }`. Entra en **estado cargando** (botón con spinner +
+    label `Sincronizando…`, el modal no se cierra); al volver relee `sealed-products` y las secciones se
+    pueblan. Resultado en banner `success` con el resumen honesto del `SealedSyncResultDTO`:
+    `12 presentaciones · 9 con precio · 3 pendientes de precio` (usa `productsUpserted`, `pricedCount`,
+    `pendingPriceCount`; **nunca** presenta las pendientes como 0, las nombra «pendientes»). Si el sync falla
+    (`502 UPSTREAM_ERROR`): banner `danger` `No pudimos sincronizar (fuente TCGCSV no disponible). Reintenta
+    en un momento.` + `Reintentar`.
+  - **Para `vault_operator`** (que no puede sincronizar): el mismo `EmptyState` **sin** el CTA, con copy
+    `Este set aún no tiene catálogo de sellado. Pídele a un administrador que lo sincronice.` (no botón muerto,
+    no falso permiso). El operador no queda bloqueado del todo: conserva el input de precio manual una vez que
+    exista al menos un producto que elegir; sin catálogo, no hay teja que capturar (es honesto).
+- **Enlazar un grupo promo/colección (curación, `super_admin`):** cuando la sección «Promos/colecciones»
+  está vacía pero el operador sabe que faltan (p. ej. los blísters de Mega Evolution viven en otro grupo
+  TCGCSV), un enlace secundario bajo la sección `Falta un grupo de promos/colecciones…` abre un
+  **sub-panel de curación** (`SealedGroupLinker`): lista de candidatos de
+  `GET /admin/inventory/sealed-products/sync/candidates?setId=` (`TcgcsvGroupCandidateDTO`) como filas con
+  **nombre del grupo**, `publishedOn`, un **medidor de confianza** (`matchScore` → barra/etiqueta
+  `Coincidencia alta/media/baja`, orientativa, nunca una cifra cruda sola) y estado `Ya enlazado` cuando
+  `alreadyLinked`. Cada candidato no enlazado tiene botón `Enlazar como promo/colección`
+  (`POST /admin/inventory/sealed-sets/:setId/groups { tcgplayerGroupId, kind:"promo_collection" }`) que, al
+  volver, dispara un sync del set y repuebla las secciones. Es **curación** — visible solo a `super_admin`;
+  para `vault_operator` el enlace no existe. Money-safe: enlazar/sincronizar **jamás** fija precio.
+- **Vacío legítimo tras sync** (el set realmente no tiene sellado en la fuente): `EmptyState`
+  `Este set no tiene producto sellado en la fuente.` + nota `text-xs muted`
+  `Si crees que falta un grupo (promos/colecciones), revisa los candidatos.` (enlace al `SealedGroupLinker`,
+  solo `super_admin`). No es un error.
+- **Error de la fuente al listar precios live (`502 UPSTREAM_ERROR`):** el listado de productos **sigue
+  visible** (los `SealedProduct` son persistidos), solo la `marketRef` live cae a «SIN PRECIO DE MERCADO»;
+  banner `warning` no bloqueante `No pudimos leer precios de mercado en vivo; se muestran las últimas
+  referencias conocidas o “sin precio”.` No se cae el alta.
 
-**Paso 2 — Cantidad y origen — REUSA `QuickAddSection` §16.5 + dos controles de sellado.**
+**Paso 2 — Cantidad y origen — REUSA `QuickAddSection` §16.5 + controles de sellado + precio manual.**
 Bajo un **resumen fijo** del producto elegido (miniatura 56×78 `object-contain` + nombre + pills subtipo/
-referencia), se pinta:
-- **Subtipo** (`Select` §6.3, opciones `box | etb | bundle | tin | blister`, labels `status.sealedSubtype.*`):
-  **prellenado** con el subtipo inferido en el paso 1; editable. Requerido.
+referencia + badge «Principal» si aplica), se pinta:
+- **Subtipo** (`Select` §6.3, opciones `box | etb | upc | bundle | tin | blister | collection`, labels
+  `status.sealedSubtype.*`): **prellenado** con el subtipo del producto; editable (útil sobre todo si venía
+  `subtypeInferred`). Requerido. *(Nota: el backend deriva el subtipo del `SealedProduct`; este control
+  refleja/permite corregir el snapshot de la pieza.)*
 - **Condición del sellado** (`Select` §6.3, `mint | minor_box_damage`, labels `status.sealedCondition.*`):
   default `Mint`; helper `text-xs muted` `sealedConditionHint` (no afecta el precio, §K de PROJECT).
 - **`QuickAddSection` §16.5 tal cual:** stepper de **Cantidad** (default 1, mín 1) + las dos tarjetas-radio
-  **`Comprar` / `Aportación`** con su CTA `Dar de alta al inventario`. Reglas money-safe heredadas SIN
-  cambios:
-  - **Comprar:** input de dinero (precio pagado por pieza). Para sellado el `buyEffectiveCents` es `null`
-    (no hay regla de compra de sellado), así que el input abre vacío con helper
-    `Sin sugerido — captura el precio pagado.` La compra con precio capturado SIEMPRE es válida.
-  - **Aportación:** muestra la **referencia de mercado** del producto (`marketRefCents`) como valor no
-    editable. Si es `null` (producto sin precio de mercado), la tarjeta se **deshabilita** con el pill
-    `PRECIO PENDIENTE` y el texto `Sin valor de mercado — fija primero el precio de esta variante.`
-    (idéntico a §16.5a2). Money-safe: nunca se registra aportación sin mercado.
-- **Resultado por-ítem (§16.5b):** banner `success` con los folios (`3 piezas dadas de alta · INV-000210 a
-  INV-000212`) o banner `danger` sticky `role="alert"` con la causa por línea (`PRICE_PENDING`, etc.). Tras
-  el éxito, el flujo ofrece `Agregar otra presentación` (vuelve al paso 1 con el set intacto) o `Cerrar`
-  (que refresca el detalle del set en §16.8, resaltando las filas nuevas 3s).
+  **`Comprar` / `Aportación`** con su CTA `Dar de alta al inventario`. Reglas money-safe heredadas:
+  - **Comprar:** input de dinero (precio pagado por pieza). Para sellado el `buyEffectiveCents` es `null`, así
+    que abre vacío con helper `Sin sugerido — captura el precio pagado.` La compra con precio capturado
+    SIEMPRE es válida (con o sin mercado).
+  - **Aportación:** muestra la **referencia de mercado** del producto como valor no editable. Si el mercado
+    resuelto es `null`, la tarjeta se **deshabilita** con el pill `PRECIO PENDIENTE` **a menos que** el
+    operador fije el **precio manual** (abajo), que la rehabilita usando ese valor. Money-safe: nunca se
+    valúa una aportación sin un mercado explícito (vivo o manual).
 
-**Camino de respaldo (fuente caída o producto inexistente en la fuente) — degradación honesta.**
-Cuando el grid no puede ofrecer el producto (error 502 o vacío), el flujo muestra un enlace secundario
-`Capturar sin catálogo de producto` que abre un **mini-form manual**: **Nombre del producto** (Input libre,
-requerido) + **Subtipo** + **Condición** + `QuickAddSection`. Es el comportamiento actual (alta anclada a la
-carta del set sin mapeo TCGCSV) pero **explícitamente marcado como excepción**: banner `info`
-`Sin catálogo de producto: esta pieza quedará sin precio de mercado hasta mapearla en M2.` Así el operador
-nunca se queda sin poder capturar, y la consecuencia money-safe (queda `PRICE_PENDING`) es **visible**, no
-silenciosa. Este es el único punto donde el flujo toca el catálogo de la carta, y solo como respaldo.
+**Precio MANUAL money-safe (P-38) — `SealedManualMarketField`.**
+Aparece en el paso 2 **SOLO cuando** `marketRef` del producto es `null`/`pending` (sin mercado vivo ni
+cacheado) **y** el usuario es **`vault_operator+`** (decisión del humano v1.39.1 — el operador de bóveda opera
+el alta; no se restringe a `super_admin`). Anatomía y reglas:
+- Bloque enmarcado (`surface-2`, borde `warning` sutil) bajo la referencia, con encabezado
+  `PRECIO DE MERCADO PENDIENTE` (mono versalitas) y copy honesto:
+  `Esta presentación no tiene precio de mercado. Puedes fijarlo manualmente para valuar la aportación.`
+- **Input de dinero** (`Input` money §6.2, `tabular-nums`) etiquetado `Precio de mercado manual (MX$)`,
+  **abierto vacío** — **jamás prellenado con 0 ni con un sugerido inventado** (§7.5). Mapea a
+  `manualMarketMxnCents` de la línea del batch. Validación de UI: **`> 0`** (helper de error
+  `Debe ser mayor a 0.` en `error`; el backend responde `422 VALIDATION_ERROR` si `≤ 0`).
+- **Aviso de auditoría** (`text-xs muted`, con micro-icono):
+  `Es un override auditado: queda registrado a tu nombre y alimenta la valuación de esta pieza.` (refleja
+  `AuditLog inventory.sealed_manual_market`). Sin ánimo de fricción, pero explícito: el operador sabe que
+  **queda huella**.
+- **Opcional, no forzado:** si el operador **no** lo llena, la línea se envía sin `manualMarketMxnCents` y el
+  backend la deja **`422 PRICE_PENDING`** (curable después). La UI lo anticipa con un helper bajo el CTA:
+  `Sin precio manual, la aportación quedará pendiente de precio.` Así la consecuencia money-safe es
+  **visible**, no silenciosa. *(La **compra** con precio pagado no necesita este campo; sigue siendo válida.)*
+- **Cuando SÍ hay mercado vivo, este campo NO se muestra** — el override manual solo llena el hueco `null`,
+  **nunca pisa un mercado ya resuelto** (el backend responde `422 MANUAL_MARKET_NOT_ALLOWED` si se intentara;
+  la UI simplemente no ofrece el campo en ese caso).
 
-**Qué se retira / cambia respecto a hoy:**
-- La pestaña Sellado **ya no** abre `AddItemModal` (buscador de cartas) para dar de alta. `AddItemModal`
-  sigue existiendo para el **alta por lote clásica de raw/graded** (§16.1.3), pero **deja de ofrecer
-  `productType=sealed`** como camino de captura por single (evita el bug de origen). El alta de sellado
-  vive **solo** en `SealedAddFlow`.
-- El estado vacío de la pestaña (§16.8) cambia su CTA de `Alta por lote` a **`Agregar sellado`**.
+**Resultado por-ítem (§16.5b):** banner `success` con los folios (`3 piezas dadas de alta · INV-000210 a
+INV-000212`) o banner `danger` sticky `role="alert"` con la causa por línea (`PRICE_PENDING`,
+`SEALED_PRODUCT_NOT_FOUND`, etc.). Tras el éxito, el flujo ofrece `Agregar otra presentación` (vuelve al
+paso 1 con el set intacto) o `Cerrar` (refresca el detalle del set §16.8, resaltando las filas nuevas 3s).
 
-**Accesibilidad (resumen):** stepper anunciado (`aria-current` en el paso activo); grid = `listbox` con
-`option`s navegables por flechas + `Home/End`, foco visible, `aria-selected`, `aria-label` por teja
-(`Surging Sparks Elite Trainer Box, booster box, sin precio de mercado`); imágenes decorativas con `alt` =
-nombre y fallback textual; todos los `Select`/`Input` con `label` visible y `htmlFor`; el botón `Continuar`
-se deshabilita sin selección (no recibe foco trampa); orden de tabulación set → buscador → grid → Continuar
-→ (paso 2) subtipo → condición → cantidad → tarjetas de origen → CTA. Objetivos táctiles ≥ 44px.
+**Qué se retira / cambia respecto a P-35:**
+- El **camino de respaldo «Capturar sin catálogo de producto»** (mini-form manual anclado al single del set)
+  **se retira**: era money-unsafe (nacía «SIN MAPEO»). Su función la cubren ahora el **estado «Sincronizar»**
+  (para poblar el catálogo) y el **precio manual auditado** (para la pieza sin mercado). Ya no se etiqueta un
+  single como sellado desde este flujo.
+- El paso 1 deja de ser un **grid único** en vivo; es **dos secciones** sobre datos persistidos.
+- `AddItemModal` (buscador de cartas) sigue **sin** ofrecer `productType=sealed` (decisión P-35 intacta). El
+  alta de sellado vive **solo** en `SealedAddFlow`.
+- El estado vacío de la pestaña (§16.8) conserva su CTA `Agregar sellado`.
+
+**Accesibilidad (resumen):** stepper anunciado (`aria-current` en el paso activo); **dos** `listbox`
+etiquetados (`aria-label="Del set"` / `"Promos y colecciones"`), `option`s navegables por flechas + `Home/End`
+dentro de cada uno, foco visible, `aria-selected`, `aria-label` por teja que incluye subtipo y estado de
+precio (`Surging Sparks Elite Trainer Box, ETB, principal, sin precio de mercado`); secciones como
+`<section>` con `<h3>` real (jerarquía de encabezados, no solo estilo); imágenes con `alt` = nombre + fallback
+textual; el CTA `Sincronizar`, el `SealedGroupLinker` y el `SealedManualMarketField` **solo se renderizan
+cuando el rol los habilita** (nada de botones muertos ni foco trampa); todos los `Select`/`Input` con `label`
+visible y `htmlFor`; el input de precio manual anuncia su error con `aria-describedby`; `Continuar` se
+deshabilita sin selección. Orden de tabulación: set → buscador → toggle principales → sección «Del set» →
+sección «Promos/colecciones» → (curación, si super_admin) → Continuar → (paso 2) subtipo → condición →
+cantidad → tarjetas de origen → precio manual (si aplica) → CTA. Objetivos táctiles ≥ 44px. Dinero con `Intl`
++ `tabular-nums` (§9.3); nunca `MX$ 0.00` como marcador.
 
 **Componentes reutilizados vs nuevos:**
 | | Componente | Origen |
 |---|---|---|
 | **Reusa** | `QuickAddSection` (cantidad + Comprar/Aportación + resultado por-ítem) | §16.5 (P-19) |
-| **Reusa** | `Modal`/sheet, `Combobox` de sets, `Select`, `Input`, `Banner`, `EmptyState`, `QueryState`, skeleton de retícula | §6, §7.6, §18.6 |
+| **Reusa** | `SealedAddFlow` (asistente de 2 pasos), `SealedProductTile` (evolucionada con UPC/collection + badge principal) | §16.8a (P-35) |
+| **Reusa** | `Modal`/sheet, `Combobox` de sets, `Select`, `Input` money, `Banner`, `EmptyState`, `QueryState`, `Switch`, skeleton de retícula | §6, §7.6, §18.6 |
 | **Reusa** | Tratamiento de imagen de sellado (`aspect-[5/7]` + `object-contain` sobre pozo + fallback) y pills subtipo/condición | §7.1b, §2.4 |
-| **Nuevo** | `SealedAddFlow` (asistente de 2 pasos) | P-35 |
-| **Nuevo** | `SealedProductGrid` + `SealedProductTile` (teja de PRODUCTO sellado, no single) | P-35 |
+| **Nuevo (P-38)** | `SealedProductPicker` (dos secciones por `origin`, reemplaza el grid único) | P-38 |
+| **Nuevo (P-38)** | Estado «Sincronizar» (`EmptyState` de acción + resumen del `SealedSyncResultDTO`) | P-38 |
+| **Nuevo (P-38)** | `SealedGroupLinker` (curación de grupos promo/colección, `super_admin`) | P-38 |
+| **Nuevo (P-38)** | `SealedManualMarketField` (precio manual auditado, `vault_operator+`, solo si `marketRef` null) | P-38 |
 
-**Coordinación con el contrato (solicitud al arquitecto — NO se decide aquí):**
-El flujo necesita **listar los productos sellados de un set con imagen y nombre**, keyeado por **nuestro
-`setId`** (el admin elige el set con año, como en el resto de M1). Hoy lo más cercano es el explorador
-TCGCSV de M2 (`GET /admin/pricing/sealed/tcgcsv/groups` + `/groups/:groupId/products`, que ya devuelve
-`{ productId, name, cleanName, imageUrl }`), pero está **keyeado por `groupId` de TCGCSV** y es
-**`super_admin`**. Lo que la UI pide:
-1. **Un endpoint de catálogo de producto sellado por set para el alta**, p. ej.
-   `GET /admin/inventory/sealed-catalog?setId=&q=`, que resuelva internamente `setId → groupId` de TCGCSV y
-   devuelva por producto: `{ productId, groupId, name, cleanName?, imageUrl?, sealedSubtype?
-   (inferido|null), marketReferenceMxnCents: number | null }`. El `null` de precio debe ser **honesto** (no
-   0). Alternativa aceptable: **reusar/generalizar** el explorador de M2 y abrirlo también a
-   `vault_operator` para este uso (el operador da de alta inventario; §F de PROJECT lo habilita en M1).
-2. **Que el alta de sellado acepte la identidad de producto** (`tcgplayerProductId` + `tcgplayerGroupId`)
-   para **mapear-al-crear**: así la pieza nace con su referencia de mercado y la **aportación puede
-   valuarse en el acto**, cerrando el «PRICE_PENDING por no-mapeo» que hoy describe la nota normativa de
-   §16.8/contrato (inferencia por hermanos). Esto conecta con la deuda **SB-D5** (productId en el DTO del
-   alta vs. entidad de producto sellado): el diseño **empuja** por capturar el productId en el alta. Si el
-   arquitecto lo resuelve por entidad de producto en vez de por DTO, el flujo no cambia de forma (sigue
-   eligiendo un producto del grid).
-3. **Resolución `setId → groupId`:** el mapa set↔expansión TCGCSV puede no ser 1:1 para todos los sets. Si
-   un set no resuelve a un grupo, el grid cae al **vacío legítimo** + camino de respaldo (arriba); no es un
-   error. Confirmar con el arquitecto la existencia/forma de ese mapa.
-
-Ninguna de estas peticiones bloquea el diseño visual: con el explorador M2 actual el flujo ya es
-implementable (resolviendo el groupId en el paso 0); los puntos 1–3 lo hacen más limpio y money-safe.
+**Coordinación con el contrato (resuelto en v1.39.1 — sin solicitudes abiertas):**
+La solicitud abierta de P-35 (endpoint de catálogo por `setId` + mapear-al-crear con `tcgplayerProductId`)
+**quedó resuelta** por el arquitecto en §4.34 / contrato v1.39.1: `GET /admin/inventory/sealed-products`
+entrega la identidad persistida por `setId` con `imageUrl`, `subtype` (incl. `upc`/`collection`),
+`isPrincipal`, `origin` y `marketRef: PriceInfo | null`; el alta por `sealedProductId` deriva identidad y
+congela snapshot server-side. **No hay dato ni pantalla que el contrato no cubra.** Únicas notas de diseño
+(no bloqueantes, informativas):
+1. **Precio manual por `vault_operator`** — la decisión del humano (v1.39.1) abre el input de dinero al
+   operador de bóveda. El diseño lo hace **auditado y visible** (aviso de huella + validación `>0` + nunca 0).
+   Queda **marcado para la fase de seguridad por release** (pentester + seguridad), como pide §4.34d: input de
+   dinero por rol operador — verificar que solo llene el hueco `null`, `>0`, auditado, sin pisar mercado vivo.
+2. **`GET /admin/inventory/sealed-catalog` (P-35) queda DEPRECADO**; el flujo ya no lo consume. Si en algún
+   punto el front todavía lo llamara en transición, el shape money-safe no cambia.
 
 ### 16.9 Pestaña «Gradeadas» (P-20) — por carta + grado
 
@@ -2493,7 +2580,14 @@ Consume `GET /admin/inventory/graded` (agregado por carta × empresa × grado).
 - `admin.quickAdd.{title,qty,buy.label,buy.sublabel,buy.helper.rule,buy.helper.manual,buy.helper.bounty,buy.helper.none,contrib.label,contrib.sublabel,contrib.pendingBlocked,cta,loading,successSummary,pricePendingError,partialSummary}`
 - `admin.publishAll.{title,body,scope.all,scope.set,scope.sealed,pendingNote,moneyNote,cta,result.published,result.alreadyListed,result.pendingPrice,result.failed,result.seePending,result.capped,result.replay,close}`
 - `admin.drawer.{pieces,addQuick,pieceOverridesVariant,noPieces,folioCopied,editPrice,markLoss}`
-- **P-35 — alta de sellado dedicada:** `admin.sealedAdd.{title,step1,step2,back,continue,pickSet,pickSetPlaceholder,gridLabel,searchProducts,marketRef,noMarket,noProducts,noProductsHint,upstreamError,retry,subtype,condition,addAnother,close,fallbackLink,fallbackNotice,fallbackProductName}` (el paso 2 reusa las claves `admin.quickAdd.*` ya existentes; subtipo/condición reusan `status.sealedSubtype.*` / `status.sealedCondition.*`)
+- **P-35 — alta de sellado dedicada:** `admin.sealedAdd.{title,step1,step2,back,continue,pickSet,pickSetPlaceholder,gridLabel,searchProducts,marketRef,noMarket,noProducts,noProductsHint,upstreamError,retry,subtype,condition,addAnother,close}` (el paso 2 reusa las claves `admin.quickAdd.*` ya existentes; subtipo/condición reusan `status.sealedSubtype.*` / `status.sealedCondition.*`). *(Retiradas en P-38: `fallbackLink,fallbackNotice,fallbackProductName` — el camino «capturar sin catálogo» se elimina.)*
+- **P-38 — `SealedProduct` (entidad real):**
+  - Secciones por `origin`: `admin.sealedAdd.section.{fromSet,fromSetSub,promoCollection,promoCollectionSub}` · `admin.sealedAdd.principalOnly` (toggle) · `admin.sealedAdd.principalBadge`
+  - Subtipos nuevos: `status.sealedSubtype.{upc,collection}` (además de `box,etb,bundle,tin,blister`) · `admin.sealedAdd.subtypeInferredHint`
+  - Estado sincronizar: `admin.sealedAdd.sync.{title,body,cta,loading,resultSummary,pendingNote,error,retry,notAllowed}` (resumen usa `SealedSyncResultDTO`: `productsUpserted/pricedCount/pendingPriceCount`)
+  - Curación de grupos promo: `admin.sealedAdd.linker.{title,open,candidateName,confidence.high,confidence.mid,confidence.low,alreadyLinked,linkCta,empty}`
+  - Precio manual money-safe: `admin.sealedAdd.manualMarket.{eyebrow,body,label,mustBePositive,auditNotice,pendingIfEmpty}`
+  - Errores nuevos: `error.SEALED_PRODUCT_NOT_FOUND`, `error.MANUAL_MARKET_NOT_ALLOWED`
 - `admin.bounty.{toggle,price,premium,noSuggested,targetQty,targetHelper,progress,completed,offWithHistory,badge}`
 - `buylist.bounties.{eyebrow,title,subtitle,wePay,remaining,cta}`
 - `finish.{normal,reverse,holo,firstEdHolo}` (etiquetas del `FinishMark` — compartidas con Stream C)
@@ -2516,16 +2610,15 @@ largas a probar).
 3. **`FinishMark` es la semilla de P-14 (Stream C):** el cotizador y el storefront deben reutilizar este
    componente tal cual (banda + etiqueta). Cualquier evolución (p. ej. efecto foil animado) se decide en
    Stream C sin romper la tabla de §16.6.
-4. **Catálogo de producto sellado para el alta dedicada (P-35, §16.8a) — solicitud abierta:** el flujo
-   nuevo necesita listar los **productos sellados de un set con imagen + nombre** (no singles). Hoy existe
-   el explorador TCGCSV de M2 (`.../sealed/tcgcsv/groups` + `/products`, `super_admin`, keyeado por
-   `groupId`). Se pide al arquitecto: (a) un endpoint de catálogo de sellado **por `setId`** para el alta
-   (o abrir/generalizar el explorador a `vault_operator`), devolviendo por producto `productId`, `groupId`,
-   `name/cleanName`, `imageUrl` y `marketReferenceMxnCents` (null honesto); (b) que el **alta de sellado
-   acepte `tcgplayerProductId + tcgplayerGroupId`** para **mapear-al-crear** y que la aportación pueda
-   valuarse en el acto (conecta con **SB-D5** en TECH_DEBT); (c) confirmar el **mapa `setId → groupId`
-   TCGCSV** y el fallback cuando un set no resuelve. Detalle completo en §16.8a. No bloquea el diseño (con
-   el explorador M2 actual es implementable resolviendo el groupId en el paso 0).
+4. **Catálogo de producto sellado para el alta dedicada (P-35, §16.8a) — ✅ RESUELTO en P-38 (v1.39.1).**
+   La solicitud (endpoint de catálogo por `setId` + mapear-al-crear con `tcgplayerProductId`) quedó atendida
+   por el arquitecto en ARCHITECTURE §4.34 / contrato v1.39.1: la entidad **`SealedProduct`** persiste la
+   identidad por set; `GET /admin/inventory/sealed-products?setId=` (`vault_operator+`) la lista con `imageUrl`,
+   `subtype` (incl. `upc`/`collection`), `isPrincipal`, `origin` y `marketRef: PriceInfo | null` (null honesto);
+   el alta por `sealedProductId` deriva identidad y congela snapshot server-side (la pieza nace «ETB …», no
+   Tropius). **SB-D5 se cura de raíz.** Nota de seguimiento única: el **precio manual por `vault_operator`**
+   (decisión del humano v1.39.1) es un input de dinero por rol operador → queda **marcado para la fase de
+   seguridad por release** (input auditado, `>0`, solo llena hueco null, no pisa mercado vivo). Ver §16.8a.
 
 ---
 
