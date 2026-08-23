@@ -78,7 +78,7 @@
 >   valores de enum. Backfill: siembra grupos desde `CardSet.tcgcsvGroupId`, deriva `SealedProduct` de items mapeados y liga
 >   `sealedProductId` (cura ETB→Tropius); sin-mapeo → null + reconciliación. Ver ARCHITECTURE §4.34e + §11 (M-39).
 > - **Errores nuevos:** `422 SEALED_PRODUCT_NOT_FOUND` (`sealedProductId` inexistente/inactivo), `422 MANUAL_MARKET_NOT_ALLOWED`
->   (`manualMarketMxnCents` con mercado ya resuelto, o rol < super_admin). `422 PRICE_PENDING`/`VALIDATION_ERROR` sin cambio.
+>   (`manualMarketMxnCents` con mercado ya resuelto, o rol < vault_operator). `422 PRICE_PENDING`/`VALIDATION_ERROR` sin cambio.
 >
 > **Changelog v1.38-grouped-listings (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-30,
 > catálogo de singles agrupado por stock):** hoy `GET /catalog/cards` y `GET /catalog/cards/:cardId` devuelven **un
@@ -1739,7 +1739,7 @@ BatchInventoryItemInput = { cardId?: string, productType: ProductType, rawCondit
                             certNumber?: string, locationId?: string, acquisitionType: AcquisitionType,
                             acquisitionPct?: number, listPriceCents?: number, qty?: number,
                             sealedProductId?: string,                            // v1.39 (P-38) — IDENTIDAD (recomendado)
-                            manualMarketMxnCents?: number,                       // v1.39 (P-38) — fallback manual (super_admin)
+                            manualMarketMxnCents?: number,                       // v1.39 (P-38) — fallback manual (vault_operator+)
                             tcgplayerProductId?: number, tcgplayerGroupId?: number,  // v1.36 (P-35) — DEPRECADO si hay sealedProductId
                             sealedImageUrl?: string, sealedProductName?: string }     // v1.36 (P-35) — DEPRECADO si hay sealedProductId
 BatchCreateInventoryRequest = { batchKey: string, items: BatchInventoryItemInput[] }   // cap items = 200
