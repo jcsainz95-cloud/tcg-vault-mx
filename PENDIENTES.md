@@ -65,6 +65,25 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ## Abiertos
 
+### Encontrado en pruebas post-publicación (2026-08-23)
+
+#### P-46 · El botón «Sincronizar» del alta de sellado no descarga presentaciones (prod)
+- **Reportado por el humano:** en «Agregar producto sellado», al elegir un set (ej. **Pitch Black 2026**)
+  sale «Aún no descargamos las presentaciones de este set» con «0 presentaciones · 0 con precio · 0
+  pendientes». El botón **SINCRONIZAR** **no funciona** (no descarga nada). Sin presentaciones no se puede
+  dar de alta sellado por selección.
+- **Contexto:** la sync pega a `POST /admin/inventory/sealed-products/sync` → tcgcsv.com. En el E2E local
+  degradaba **limpio** (502 UPSTREAM por el proxy del sandbox que bloquea tcgcsv.com). En **prod** hay que
+  determinar por qué no jala: (a) ¿Railway tiene **egress real a tcgcsv.com**?, (b) ¿qué **error** sale en
+  los logs al pulsar Sincronizar?, (c) ¿el botón **dispara** la llamada (Network) o no hace nada (frontend)?
+- **Rol:** por confirmar según los logs — **devops** (egress/config de red) y/o **backend** (endpoint sync)
+  y/o **frontend** (si el botón no dispara). Diagnóstico primero.
+
+#### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
+- Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
+  acabado con 0 piezas (Reverse Holo). Solo display (el dato es correcto, el otro acabado está en 0). Fix
+  frontend en curso: cada teja muestra el conteo de SU acabado. Money-safe.
+
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
   social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.

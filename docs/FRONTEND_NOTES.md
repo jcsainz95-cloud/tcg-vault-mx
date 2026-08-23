@@ -6081,3 +6081,43 @@ solicitud; contrato §M5 líneas 4694/4699: solo `aprobada` convierte). Fix:
 ### Verde (gate pre-publicación)
 `tsc --noEmit` ✓ · `vitest run` **78 archivos / 619 tests** ✓ (incluye los 3 tests nuevos de regresión
 IMP-A/IMP-B) · `next build` ✓.
+
+## Fix DISPLAY-1 — badge on-hand del binder era por CARTA, debe ser por ACABADO (regresión de IMP-2)
+
+**Bug (prod, binder admin Master Set / M1):** al dar de alta 2 piezas de un acabado (p. ej. Spinarak
+NORMAL), el badge negro «N EN TOTAL» aparecía en TODAS las tejas de esa carta —incluida la teja de un
+acabado con **0 piezas** (REVERSE HOLO)—, pintando «2» donde no había ninguna pieza. El badge mostraba
+el **total de la carta**, no el conteo del acabado de esa teja.
+
+**Causa raíz** (`frontend/src/components/master-set/MasterSetBinder.tsx`, `TileHeader`, ~L648, código
+de IMP-2): el badge se derivaba de `cell.countsByFinish.reduce((s,c)=>s+c.count,0)` = **suma de TODOS
+los acabados**. Como `TileHeader` es COMPARTIDO por todas las tejas de una misma carta (N-16: una teja
+por impresión), ese total de carta se repetía en cada teja de acabado. IMP-2 corrigió bien el *lag*
+del escalar `cell.totalCount` (pasando a derivar de `countsByFinish` para que cayera a 0 en vivo), pero
+mantuvo la **suma por-carta**, que es la semántica equivocada para una rejilla por-acabado.
+
+**Fix (solo UI, sin backend):** el DTO YA trae el desglose por acabado
+(`MasterSetCardCellDTO.countsByFinish: {finish,count}[]`, contrato L1016/L1057). `TileHeader` ahora
+recibe el `finish` de su teja y lee `countsByFinish.find(c => c.finish === finish)?.count ?? 0`; si es
+0 no pinta badge (la teja ya se muestra como «HUECO» por su footer). Se conserva la caída a 0 en vivo
+de IMP-2 (misma fuente `countsByFinish` de la respuesta refrescada), pero **por acabado**. `BinderTile`
+pasa `finish={variant.finish}` + `showFinishCount`; `QuoterTile` sigue SIN el flag (el on-hand no
+aplica al cotizador).
+
+- i18n (`messages/es.json` · `en.json`): se retiró `cardTotalCount`/`cardTotalCountAria` («N en total»
+  / «N in total») y se añadió `finishOnHandCount` (badge visible = el número, `"{count}"`, para no
+  colisionar con el «N piezas» del footer) + `finishOnHandCountAria` («Tengo N piezas de este acabado»
+  / «You have N pieces of this finish», en el `title` del badge).
+- Tests: nuevo `frontend/src/components/master-set/MasterSetBinder.test.tsx` (3 casos: Spinarak con 2
+  NORMAL / 0 REVERSE HOLO → badge «2» solo en NORMAL, REVERSE HOLO = HUECO sin badge, y el badge de la
+  carta no se repite entre tejas). Se actualizó el test INV-2 de `MasterSet.test.tsx` (Charizard 3/1/0
+  → badge por acabado, holofoil sin badge, y el total 4 no aparece en ninguna teja) y el lock del
+  cotizador (queda como «sin badge de on-hand por acabado» vía `title`).
+
+**Money-safe:** es solo display de conteo de inventario; no toca precio ni dinero.
+
+**Sin solicitud al arquitecto:** el contrato ya exponía `countsByFinish` desglosado por acabado; no se
+necesita cambio de DTO ni de backend.
+
+### Verde (gate)
+`tsc --noEmit` ✓ · `vitest run` **80 archivos / 625 tests** ✓ · `next build` ✓.

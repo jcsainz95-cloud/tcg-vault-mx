@@ -613,24 +613,29 @@ function PartSeparator({ part, tileCount }: { part: SetPartDTO; tileCount: numbe
  */
 function TileHeader({
   cell,
+  finish,
   finishLabel,
   dimmed,
   dashed,
-  showTotalCount,
+  showFinishCount,
   onImageClick,
   imageAriaLabel,
 }: {
   cell: MasterSetCardCellDTO;
+  /**
+   * Acabado de ESTA teja (una teja = una impresión carta+acabado). Sirve para leer el conteo on-hand
+   * de ESE acabado en `cell.countsByFinish`. Ausente en tejas sin badge de conteo (cotizador).
+   */
+  finish?: Finish;
   finishLabel: string;
   dimmed?: boolean;
   dashed?: boolean;
   /**
-   * INV-2: pinta el TOTAL on-hand POR CARTA (`cell.totalCount`, suma de todas las impresiones) como
-   * un badge discreto sobre el arte. Como TileHeader es COMPARTIDO por todas las tarjetas de una misma
-   * carta (N-16: una tarjeta por impresión), la cifra se repite en cada impresión de esa carta y
-   * responde "tengo N de esta carta". El on-hand no aplica al cotizador → allí NO se pasa este flag.
+   * INV-2: pinta el on-hand como un badge discreto sobre el arte. La cifra es POR ACABADO (la de la
+   * teja, `countsByFinish[finish]`), NO la suma de todos los acabados de la carta. El on-hand no
+   * aplica al cotizador → allí NO se pasa este flag.
    */
-  showTotalCount?: boolean;
+  showFinishCount?: boolean;
   /**
    * P-43 (SOLO cotizador): click en la IMAGEN abre el pop-up de detalle. Cuando viene, el arte se
    * envuelve en un `<button>` (el binder admin NO lo pasa: allí la teja ENTERA ya es un botón y
@@ -640,13 +645,17 @@ function TileHeader({
   imageAriaLabel?: string;
 }) {
   const t = useTranslations('masterSet');
-  // IMP-2 (v1.42): el total on-hand por carta se DERIVA de `countsByFinish` (que por contrato SUMA a
-  // `totalCount`), la MISMA fuente de la respuesta con la que cada tarjeta decide su conteo/«HUECO».
-  // Así el badge no puede quedar «1 EN TOTAL» mientras las tejas ya muestran HUECO: al bajar la última
-  // pieza, la suma cae a 0 y el badge desaparece SIN recargar (antes leía el escalar `cell.totalCount`,
-  // que podía quedar rezagado respecto a los conteos por acabado ya refrescados).
-  const cardTotal = cell.countsByFinish.reduce((sum, c) => sum + c.count, 0);
-  const hasTotal = !!showTotalCount && cardTotal > 0;
+  // BUG-FIX (regresión de IMP-2): el badge on-hand es POR ACABADO, no por carta. Cada teja del binder
+  // es UNA impresión (carta, acabado); su badge debe reflejar el conteo de ESE acabado —
+  // `countsByFinish[finish]`—, NUNCA la suma de todos los acabados de la carta. IMP-2 sumaba
+  // `countsByFinish` y pintaba el total de la carta en TODAS las tejas: una carta con 2 NORMAL y 0
+  // REVERSE HOLO pintaba «2» también sobre la teja REVERSE HOLO (0 piezas). Ahora se lee el conteo del
+  // acabado propio de la teja; si es 0 la teja no lleva badge (ya se muestra como «HUECO»). Se conserva
+  // la caída a 0 en vivo de IMP-2 (misma fuente `countsByFinish` de la respuesta), pero por acabado.
+  const finishCount = finish
+    ? cell.countsByFinish.find((c) => c.finish === finish)?.count ?? 0
+    : 0;
+  const hasCount = !!showFinishCount && finishCount > 0;
   const art = (
     <CardImage
       src={cell.imageSmallUrl}
@@ -675,14 +684,14 @@ function TileHeader({
             {t('secretRare')}
           </span>
         )}
-        {/* INV-2: total on-hand por carta ("tengo N de esta carta") — badge discreto arriba-izquierda,
-            en la esquina opuesta al de secret rare para que ambos convivan. */}
-        {hasTotal && (
+        {/* INV-2: on-hand del ACABADO de ESTA teja ("tengo N de este acabado") — badge discreto
+            arriba-izquierda, en la esquina opuesta al de secret rare para que ambos convivan. */}
+        {hasCount && (
           <span
             className="absolute left-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono tabular-nums text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]"
-            title={t('cardTotalCountAria', { count: cardTotal })}
+            title={t('finishOnHandCountAria', { count: finishCount })}
           >
-            {t('cardTotalCount', { count: cardTotal })}
+            {t('finishOnHandCount', { count: finishCount })}
           </span>
         )}
       </span>
@@ -747,7 +756,14 @@ function BinderTile({
       {/* FinishMark (§16.6): banda superior de 3px — canal de color; el texto lo porta la
           etiqueta de acabado del TileHeader (doble canal, nunca banda sin texto). */}
       <FinishBand finish={variant.finish} />
-      <TileHeader cell={cell} finishLabel={finishLabel} dimmed={isGap} dashed={isGap} showTotalCount />
+      <TileHeader
+        cell={cell}
+        finish={variant.finish}
+        finishLabel={finishLabel}
+        dimmed={isGap}
+        dashed={isGap}
+        showFinishCount
+      />
       {pricing ? (
         <VariantPricingCompact pricing={pricing} marketRefCents={marketRef} />
       ) : (
