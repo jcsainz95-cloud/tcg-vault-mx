@@ -5,10 +5,11 @@
  * conversión a inventario, y pago SPEI (money-out solo super_admin).
  * API_CONTRACT §6, §M5; ARCHITECTURE §4.2; PROJECT criterios 12–16, 26.
  *
- * v1.3.1: el cotizador devuelve `rarity` + `appliedRule` (en vez de `category`). Con el seed por
- * defecto: Common/Uncommon = fixed 50c, Reverse Holo = fixed 150c, cualquier otra rareza (Rare
- * Holo, Rare Secret, etc.) cae al fallback 40% de la referencia. `POST /buylist/requests` ya no
- * recibe `category` (el backend deriva la regla server-side de Card.rarity).
+ * v1.3.1 / v1.37 (P-34, M-38): el cotizador devuelve `rarity` + `appliedRule` (en vez de `category`).
+ * Con el seed TIERED por defecto (`pricing_tier_map` + `tierRules`): Common (T0) = fixed 50c, Reverse
+ * Holo (acabado) = fixed 150c, Rare/Rare Holo (T2) = **pct 25%** (decisión LOCKED P-34, antes fallback
+ * 40%), y una rareza SIN tier en el mapa (p. ej. Rare Secret) cae al fallback 40% de la referencia.
+ * `POST /buylist/requests` ya no recibe `category` (el backend deriva la regla server-side de Card.rarity).
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
@@ -43,7 +44,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
   });
 
   describe('cotizador público (por rareza)', () => {
-    it('Common = fixed 50, Reverse Holo = fixed 150, rareza sin regla = 40% (fallback)', async () => {
+    it('Common = fixed 50, Reverse Holo = fixed 150, Rare Holo = 25% (T2, regla — P-34)', async () => {
       const comun = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.common, productType: 'raw', rawCondition: 'NM' },
       });
@@ -57,13 +58,13 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       expect(reverse.body.appliedRule).toMatchObject({ mode: 'fixed', value: 150, source: 'rule' });
       expect(reverse.body.quote.quotedPriceCents).toBe(150);
 
-      const fallback = await h.api('POST', '/buylist/quote', {
+      const rareHolo = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' },
       });
-      // Rare Holo no tiene regla explícita → fallback 40% de la referencia.
-      expect(fallback.body.appliedRule).toMatchObject({ mode: 'pct', value: 40, source: 'fallback' });
-      expect(fallback.body.quote.quotedPriceCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.4));
-      expect(fallback.body.paymentNotice).toBe('PAY_AFTER_RECEIPT');
+      // v1.37 (P-34): Rare Holo → T2 → pct 25% (regla derivada del tier, NO fallback). Antes fallback 40%.
+      expect(rareHolo.body.appliedRule).toMatchObject({ mode: 'pct', value: 25, source: 'rule' });
+      expect(rareHolo.body.quote.quotedPriceCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.25));
+      expect(rareHolo.body.paymentNotice).toBe('PAY_AFTER_RECEIPT');
     });
 
     it('rareza con regla pct pero SIN referencia entra a "precio pendiente" (no cotiza automático)', async () => {
@@ -86,12 +87,13 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         },
       });
       expect(res.status).toBe(201);
-      expect(res.body.quotedTotalCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.4));
+      expect(res.body.quotedTotalCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.25));
       expect(res.body.ineRequired).toBe(false);
     });
 
     it('bloquea si supera el tope por solicitud (BUYLIST_LIMIT_EXCEEDED)', async () => {
-      const items = Array.from({ length: 8 }, () => ({
+      // P-34: Rare Holo → T2 25% × 100000 = 25000/carta; 13 × 25000 = 325000 > 300000 (cap por solicitud).
+      const items = Array.from({ length: 13 }, () => ({
         cardId: cardId.charizard,
         productType: 'raw' as const,
         rawCondition: 'NM' as const,
@@ -106,7 +108,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
     });
 
     it('exige INE cuando la cotización alcanza el umbral (INE_REQUIRED)', async () => {
-      // highvalue EX+ = 40% × 750000 = 300000 = umbral INE; sin INE → bloqueo.
+      // highvalue Rare Holo → T2 25% × 1200000 = 300000 = umbral INE (P-34); sin INE → bloqueo.
       const res = await h.api('POST', '/buylist/requests', {
         token: customerToken,
         json: {

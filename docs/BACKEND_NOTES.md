@@ -7013,3 +7013,81 @@ ARCHITECTURE §4.20b/§4.20d/§4.23g/§4.34a/§11. Suite completa: `npm test` �
   Decisión tomada: NO alterar el shape del endpoint deprecado; el front debe leer el campo gateado de
   `sealed-products`. Si se requiere el campo también en el alias deprecado, es una decisión de contrato del
   arquitecto (no la asumo). Sin bloqueo: el endpoint vivo cumple IMP-1.
+
+---
+
+## Backfill P-34 / M-38 — reshape de reglas de precio legacy → tiered (money-safe, idempotente)
+
+**Archivo:** `backend/prisma/backfill-p34-tiered-pricing.ts`
+**Rama:** `fix/variant-composition-regression`
+
+### Problema (regresión detectada por el gate E2E)
+La decisión de dinero de **P-34** —bajar la COMPRA de `Rare`/`Rare Holo` del fallback 40% al **T2 = 25%**—
+quedó **silenciosamente inerte** en BDs existentes (incluida prod). Causa raíz: `ConfigSetting.buylist_price_rules`
+conserva el **shape LEGACY PLANO** (`{"Common":…, "Uncommon":…, "Reverse Holo":…}`) que el seed sembró en el
+primer deploy; el seed hace `upsert({ update: {} })` (no pisa lo existente) y **no había migración de datos**
+del reshape a tiers (M-38). El compat on-read (`money.toPriceRuleSet`) reproduce EXACTO el negocio viejo:
+`Rare`/`Rare Holo` no están en el mapa plano ⇒ caen al fallback 40%, nunca al T2 25%. Verificado en E2E:
+quote Charizard (Rare Holo) = 40% `source:fallback`.
+
+### Qué hace el script (por `buylist_price_rules` y `sale_price_rules`)
+1. **Idempotente:** si el valor YA está en shape tiered (`{ tierRules }`) ⇒ **NO-OP**.
+2. **Pristine ⇒ reshape:** si el valor es LEGACY (plano o dos-ejes) e **idéntico** (comparación
+   order-independent) al **default original** que se sembró en su día (nunca editado a mano) ⇒ lo reemplaza
+   por el shape **TIERED CANÓNICO vigente** (`SETTING_DEFAULTS`), que es la decisión LOCKED del humano
+   (P-34 T2=25% + DEV-tiers-1 T1=$1.50). Money-safe: escribe el seed aprobado, nunca deja una regla en 0/vacía.
+3. **Divergente ⇒ NO se toca:** si el valor LEGACY **diverge** del pristine (editado a mano en M2), la
+   colapsación rareza→tier es AMBIGUA (dinero). El script **lo deja intacto** (comportamiento sin cambio =
+   money-safe) y lo REPORTA como **«ACCIÓN REQUERIDA — revisión humana»** (escalar al arquitecto/humano).
+4. **`pricing_tier_map`:** clave NUEVA de v1.37 que BDs viejas no tienen; sin ella un `tierRules` no resuelve
+   (rareza sin tier ⇒ fallback). Si falta, la crea con el mapa canónico; si existe, la respeta.
+
+**Defaults «pristine» reconocidos** (constantes históricas, ya no en el código — fuente git `a8c40c4` plano /
+`421967f` dos-ejes):
+- buylist plano: `{Common:fixed 50, Uncommon:fixed 50, "Reverse Holo":fixed 150}`
+- buylist dos-ejes: `{rarityRules:{Common:50,Uncommon:50}, finishRules:{reverse_holo:150}}`
+- sales plano: `{Common:500, Uncommon:1000, Holo:1000, "Reverse Holo":1000}`
+- sales dos-ejes: `{rarityRules:{Common:500,Uncommon:1000}, finishRules:{holofoil:1000,reverse_holo:1000}}`
+
+### Reshape de dinero (reporte de auditoría) — solo BDs PRISTINE
+El script imprime, por rareza, la regla efectiva ANTES→DESPUÉS (derivada con el MISMO `toPriceRuleSet` de
+producción). Sobre una BD pristine el reshape introduce **exactamente dos cambios de dinero**, ambos parte
+del seed LOCKED aprobado:
+- **`Rare` / `Rare Holo` (T2): 40% → 25%** — *pagamos MENOS* (decisión P-34, el objetivo de este fix).
+- **`Uncommon` (T1): $0.50 → $1.50 fixed** — *pagamos MÁS* (bandera PO **DEV-tiers-1**, bundleada en el seed).
+- Sin cambio: `Common` (T0 $0.50), `Reverse Holo` (acabado $1.50), premium T3/T4 (40% = fallback vigente).
+- **Sales:** reshape money-**neutral** (T0 $5 / T1 $10 pisos = legacy; T2/T3/T4 = pct 15 = fallback 15 vigente;
+  acabados holo/reverse $10 = legacy). Se reshapea solo por consistencia de shape (editor M2 tiered + tier-map).
+
+> Nota para el humano/devops: el objetivo comunicado fue «T2 = 25%», pero el mapa canónico de P-34 **también**
+> sube `Uncommon` a $1.50 (DEV-tiers-1). Es la misma tabla aprobada en el seed; se aplica junta. Si se quisiera
+> desacoplar, es decisión del arquitecto (no la asumí).
+
+### Cómo correrlo (runbook devops)
+```bash
+# Requiere DATABASE_URL apuntando a la BD objetivo + migraciones aplicadas.
+cd backend
+npx prisma migrate deploy            # asegura schema al día
+npx ts-node prisma/backfill-p34-tiered-pricing.ts
+```
+- Correr **después** del deploy del código v1.37+ y **antes** de anunciar que P-34 está vigente.
+- **Seguro correrlo varias veces** (idempotente). Revisar el reporte impreso; si aparece
+  «⚠ ACCIÓN REQUERIDA» para alguna tabla (BD con reglas editadas a mano), **no continuar**: escalar el
+  reshape rareza→tier al arquitecto/humano (dinero) antes de tocar esa tabla.
+- Rollback: no muta datos transaccionales, solo `ConfigSetting`. Para revertir una tabla concreta, restaurar
+  su `valueJson` anterior desde backup (el reporte del run deja el before/after por rareza para auditoría).
+
+### Ambigüedad de negocio pendiente (para el arquitecto/humano)
+El caso **BD-divergente** (reglas editadas a mano) NO se migra automáticamente porque el shape tiered no puede
+expresar divergencias per-rareza dentro de un mismo tier. Política actual del script: **no tocar + reportar**.
+Si prod resulta estar divergente, se necesita decisión humana del mapeo legacy→tier a mano. El diagnóstico E2E
+indica que prod tiene el shape **plano pristine** (3 claves), por lo que se espera la ruta limpia (reshape).
+
+### Tests
+- `backend/test/pricing.p34-reshape.spec.ts` — unit del planner puro `planSettingReshape` (7 casos: tiered→no-op,
+  plano/dos-ejes pristine→reshape, order-independent, divergente→skip, extra-key→skip, ausente→missing). VERDE.
+- `backend/test/integration/buylist.e2e-spec.ts` — actualizado a T2=25% para Rare Holo (Charizard): quote
+  `pct 25 source:rule`, `quotedTotalCents = 0.25×ref`, umbral INE (`highvalue` ref subida a $12,000 para que
+  25%×1.2M = 300000 = umbral, preservando el intent del test), y tope por solicitud (13×25000 = 325000 > cap).
+- `E2E_CARDS.highvalue.refNmCents` en `backend/prisma/e2e-fixtures.ts`: 750000 → **1200000** (para conservar
+  el umbral INE exacto bajo 25%). `highvalue` solo se usa en `buylist.e2e-spec.ts` (sin ripple).
