@@ -36,6 +36,25 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 - **Roles:** arquitecto (modelo `SealedProduct` + sync + contrato/schema) → backend + frontend + ux-ui.
   **Grande**: diseño primero.
 
+### P-39 · Foto de baja resolución en «Piezas destacadas» del home
+- **Observado por el humano (2026-08-23, prod):** la imagen de la carta destacada en el home se ve de
+  baja calidad. El backend ya expone `imageSmallUrl` **y** `imageLargeUrl`; el featured usa la chica.
+- **Roles:** frontend — usar `imageLargeUrl` en el featured/vistas prominentes (grid denso puede seguir
+  con la chica por perf). Sin cambio de backend.
+
+### P-40 · Mostrar el tipo de acabado en las publicaciones
+- **Pedido del humano (2026-08-23):** que las publicaciones (tejas del catálogo/home) muestren el
+  **acabado** (Normal / Reverse Holo / Holofoil). El `GroupedListingDTO` ya trae `finish`; falta pintarlo.
+- **Roles:** frontend — añadir la etiqueta de acabado a las tejas, respetando el visual del rediseño.
+
+### P-41 · El Tropius de Pitch Black no aparece en el cotizador del home
+- **Observado por el humano (2026-08-23, prod):** al buscar «tropius» en el cotizador (buylist) del home,
+  salen Shining Fates/Cosmic Eclipse/Deoxys/Plasma Blast/Mysterious Treasures, **pero no el de Pitch
+  Black** — que sí está en el catálogo. La búsqueda del cotizador filtra distinto que el catálogo.
+- **En diagnóstico:** ¿`searchBuylistCards` excluye Pitch Black (frontera de sync 2024/01/01, elegibilidad
+  de buylist, o límite top-N)? ¿o Pitch Black no está en el índice que busca el cotizador?
+- **Roles:** backend (`buylist`/búsqueda) según diagnóstico.
+
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
   social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.
