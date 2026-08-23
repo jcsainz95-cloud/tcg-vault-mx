@@ -1179,7 +1179,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 
 #### ConfigSetting (M10 — diales editables sin deploy)
 - `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `stripe_fee_iva_pct`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`, **`catalog_sync_from_date`** (default `"2024/01/01"`, frontera por defecto del sync de catálogo), **`buylist_price_rules`** y **`buylist_price_fallback_pct`** (v1.3.1, tabla de precio de buylist por rareza)), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
-- Defaults iniciales: envío 17500, aportación 70, IVA 16, **markup de venta configurable (`sales_markup_pct`)**, **tarifa Stripe MX para el gross-up: `stripe_fee_pct`, `stripe_fee_fixed_cents` y `stripe_fee_iva_pct` (IVA sobre la comisión de Stripe, fracción `[0,1)`, default 0.16)**, tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable + override manual, providers según tabla de PROJECT.
+- Defaults iniciales: envío 17500, aportación 70, IVA 16, **markup de venta configurable (`sales_markup_pct`)**, **tarifa Stripe MX para el gross-up: `stripe_fee_pct` y `stripe_fee_fixed_cents`** (el IVA sobre la comisión de Stripe **ya no es un dial propio**: v1.40/P-37 lo deriva de `iva_pct/100`; `stripe_fee_iva_pct` queda deprecado e inerte), tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable + override manual, providers según tabla de PROJECT.
 - **Buylist por rareza (v1.3.1):**
   - `buylist_price_rules` (JSONB) = `{ [rarity]: { mode: 'fixed'|'pct', value } }`. Seed: `{ "Common": {fixed,50}, "Uncommon": {fixed,50}, "Reverse Holo": {fixed,150} }`. **Validador:** objeto (no array); cada entrada `{ mode, value }` con `mode ∈ {fixed,pct}`; si `fixed` → `value` **entero ≥ 0** (centavos); si `pct` → `value` **número en `[0,100]`**. Rechaza modos/valores fuera de rango (`422 VALIDATION_ERROR`).
   - `buylist_price_fallback_pct` (número) = **40** por defecto. **Validador:** número en `[0,100]`.
@@ -3919,9 +3919,19 @@ convierten el orden en una propiedad del **dato**, no de cada call-site.
   ```ts
   // con setId (caso del binder): orden natural puro
   orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }, { number: 'asc' }, { id: 'asc' }]
-  // sin setId (búsqueda de texto en varios sets): nombre primero, natural dentro
-  orderBy: [{ name: 'asc' }, { setId: 'asc' }, { numberPrefix: 'asc' }, { numberSort: 'asc' }, { id: 'asc' }]
+  // sin setId (búsqueda de texto en varios sets): nombre primero, SET MÁS NUEVO, natural dentro (v1.40, Enmienda B)
+  orderBy: [{ name: 'asc' }, { set: { releaseDate: { sort: 'desc', nulls: 'last' } } }, { numberPrefix: 'asc' }, { numberSort: 'asc' }, { id: 'asc' }]
   ```
+  **v1.40 (Enmienda B, P-41) — desempate por SET MÁS NUEVO.** El segundo criterio pasó de `{ setId: 'asc' }` (uuid
+  **aleatorio** ⇒ empate arbitrario entre variantes del mismo nombre; la impresión nueva podía caer fuera del top-N) a
+  **`{ set: { releaseDate: { sort: 'desc', nulls: 'last' } } }`**: entre varias impresiones de la misma carta (mismo
+  `name`), gana la del **set con `releaseDate` más reciente**. `CardSet.releaseDate` es `String?` en formato `yyyy/MM/dd`
+  zero-padded (fuente pokemontcg.io), por lo que el orden **lexicográfico desc == cronológico desc**; `nulls: 'last'` evita
+  que un set sin fecha salte al frente. Prisma resuelve el orden por campo de relación con un JOIN a `CardSet` (no requiere
+  `include`). Cambio **normativo** que solo afecta el caso **sin `setId`** (catálogo/cotizador/búsqueda global); el orden
+  natural **dentro de un set** (`CARD_ORDER_BY_IN_SET`) **no cambia**. *(Nota de rendimiento para backend/techlead: el orden
+  por columna de la relación no aprovecha el índice `@@index([setId, numberPrefix, numberSort])` de `Card`; si el plan de la
+  búsqueda global lo requiere, evaluar índice de apoyo — no bloqueante, registrar en `TECH_DEBT.md` si aplica.)*
   El `{ id: 'asc' }` final **no es cosmético**: sin desempate total, dos filas empatadas pueden intercambiarse entre
   dos consultas paginadas y producir **filas repetidas o saltadas** al cambiar de página.
 - **`master-set.service`:** el binder pasa a ordenar en **BD** con el mismo `orderBy` y a **leer `numberSort` de la
@@ -6503,7 +6513,7 @@ baseCents          = shippingFeeCents + round(shippingFeeCents × ivaPct/100)
 totalCents         = ceil( (baseCents + (1 + stripeFeeIvaPct)·stripeFixedCents) / (1 − (1 + stripeFeeIvaPct)·stripePct) )
 processingFeeCents = totalCents − baseCents
 ```
-`stripePct`, `stripeFixedCents` y `stripeFeeIvaPct` son diales de M10 (tarifa MX vigente de Stripe; `stripe_fee_iva_pct` default **0.16**). La comisión efectiva de Stripe es `(1+stripeFeeIvaPct)·(pct·total + fija)` porque Stripe MX **grava su propia comisión con IVA**; el gross-up despeja `total` para que, tras esa comisión con IVA, la plataforma reciba `baseCents` íntegro. El `processingFeeCents` es lo que la plataforma cede a Stripe (comisión + su IVA), trasladado al comprador. **Aclaración:** "el fee no lleva IVA" se refiere al **IVA de PRODUCTO** — el fee no agrega una línea de IVA de venta; el IVA de la *comisión de Stripe* sí está contemplado dentro del gross-up (cierre del hallazgo C1 de la revisión de Stripe).
+`stripePct` y `stripeFixedCents` son diales de M10 (tarifa MX vigente de Stripe). **`stripeFeeIvaPct` NO es un dial propio (v1.40, Enmienda A/P-37): se DERIVA de `ivaPct` ⇒ `stripeFeeIvaPct := ivaPct / 100`.** Es el **mismo** IVA mexicano, así que tener un segundo dial (`stripe_fee_iva_pct`, fracción) era redundante y money-unsafe (drift entre `IVA_PCT`=16 y `STRIPE_FEE_IVA_PCT`=0.16 en formatos distintos). `IVA_PCT` es la **fuente única**; `getStripeFee()` computa `stripeFeeIvaPct = ivaPct/100` (16 ⇒ 0.16 ⇒ neteo idéntico). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee; el gross-up NUNCA cae a la fila vieja ni a 0). La comisión efectiva de Stripe es `(1+stripeFeeIvaPct)·(pct·total + fija)` porque Stripe MX **grava su propia comisión con IVA**; el gross-up despeja `total` para que, tras esa comisión con IVA, la plataforma reciba `baseCents` íntegro. El `processingFeeCents` es lo que la plataforma cede a Stripe (comisión + su IVA), trasladado al comprador. **Aclaración:** "el fee no lleva IVA" se refiere al **IVA de PRODUCTO** — el fee no agrega una línea de IVA de venta; el IVA de la *comisión de Stripe* sí está contemplado dentro del gross-up (cierre del hallazgo C1 de la revisión de Stripe).
 - **Seguridad/roles:** 3 roles. Autorización por **acción**, no solo por ruta (§7). Guard `MoneyOutGuard` exige `super_admin` para pagos SPEI y reembolsos; todo intento (permitido o bloqueado) se audita.
 - **Imágenes (v1.2):** el producto **no lleva fotos propias**; se muestra la **imagen de catálogo remota** de pokemontcg.io (`Card.imageSmallUrl`/`imageLargeUrl`). La **única** subida del sistema es la **imagen del INE** del buylist (`kyc_ine`), a object storage **privado** con presigned PUT/GET y **retención** (§3.4). No hay fotos de producto/inventario ni de evidencia de disputa (la evidencia de disputa llega por correo a soporte).
 - **Sync de precios/FX (jobs BullMQ):**
