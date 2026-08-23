@@ -149,6 +149,21 @@
 > paleta §2/§17 (tinta `#1A1A18`, rojo TCG HUNT `#B31217`, verde vivo `#4A7345`), las reglas §4.3 y
 > las tres familias §3. Refina una convención tipográfica (precios display en sans 500 `tabular-nums`,
 > dinero operativo en mono — §20.14) sin tocar contrato ni flujos.
+> **Añadido v2.1 (§N de PROJECT — «Valor estimado si se gradea», gancho de grading) → ver §21.** Tres
+> superficies nuevas sobre la piel vigente: **bloque comparativo Raw / PSA 9 / PSA 10** en la ficha (con
+> ganancia, multiplicador, escalón de costo de gradeo aplicado, fecha del dato y **disclaimer completo**),
+> **badge de estimado** en la teja de Compra y **vitrina «Joyas para gradear»** en el home. Sin artboard
+> de Claude Design: §21 se **compone íntegramente con lo ya ratificado** (celda `Fact` de la ficha,
+> `PriceTag` §7.3, chip de grado sin cert §7.2c/§16.9, patrón `Shelf` §20.5, nota al margen `rule-note`
+> §20.0, reglas §4.3). Dos decisiones cardinales: (1) **el estimado nunca usa color** — se distingue del
+> precio real por **voz tipográfica** (mono, §20.14) y por **reglas**, no por un "color de oferta" ni un
+> verde de dinero; el único acento del sistema (`--color-accent`) aparece solo como la regla de 2px de la
+> nota al margen del disclaimer, tal como ya lo usa el `referenceExplainer`; (2) **el disclaimer es parte
+> del componente, no un adorno**: no existe variante del bloque, del badge ni de la vitrina sin él, y su
+> tipografía tiene **piso propio de 10px** (única etiqueta mono del sistema con suelo). Money-safe llevado
+> al extremo (§N.4): sin dato o sin gate cumplido **no se renderiza nada** — ni $0, ni guion, ni
+> «pendiente», ni skeleton que reserve el hueco. **Aditiva: cero tokens nuevos** de color y tipografía y
+> cero elementos gráficos nuevos.
 
 ---
 
