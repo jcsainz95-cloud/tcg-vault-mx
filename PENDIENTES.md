@@ -5,23 +5,6 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 
 ---
 
-## Listo en `main` — esperando «publica» (NO en producción aún)
-
-Doble veredicto por-stream aprobado (QA + techlead); mergeado a `main`. Se despliega a producción
-solo cuando el humano diga **«publica»**.
-
-- **P-30** · Publicación **ÚNICA por carta con stock** (ya no una publicación por copia) → modelo de
-  listing agrupado por `(cardId, productType, gradeKey, finish)` con `stockCount`, agregación en lectura
-  **sin migración** (`GroupedListingDTO`, contrato **v1.38**). Una teja «N disponibles» en vez de N
-  copias; add-to-cart por `units[]` cheapest-first (re-cotiza por pieza en checkout). Money-safe (precio
-  de grupo = mínimo/«desde», sin precio → pendiente, nunca 0). Frontend adaptado **sobre el rediseño**
-  (badge «Queda 1» para singles). Deuda: FE-2 «desde»/sin-IVA (ligada a H1) y H1-H4 backend en `TECH_DEBT`.
-- **Rediseño makeover 1a del storefront** → nueva capa visual del catálogo/home/ficha (componentes
-  `_shared/`, `StockBadge` con variante «Agotado», a11y/perf). Doble veredicto propio de su sesión.
-  Deuda registrada MK-D1…MK-D9 en `TECH_DEBT`.
-
----
-
 ## Abiertos
 
 ### P-36 · Los botones +/− de «cantidad a dar de baja» no responden (Baja rápida, M1)
@@ -78,6 +61,10 @@ solo cuando el humano diga **«publica»**.
 
 ## Hecho (referencia breve — todo en producción)
 
+- **P-30** publicación única por carta con stock (`GroupedListingDTO` v1.38, una teja «N disponibles»,
+  add-to-cart por pieza, sin migración) + **rediseño makeover 1a** del storefront (nueva capa visual,
+  `StockBadge` con «Agotado»/«Queda 1») — publicados a producción (`e258da0`). Deuda H1-H4/FE-2/MK-D1..D9
+  en `TECH_DEBT`.
 - **P-35** alta dedicada de sellado (imagen de API, M-37), **P-34** pricing por 5 tiers (editor M2,
   invariante premium→pct, T2 a 25%, fix de dinero de las sin-mapear; Uncommon compra $0.50→$1.50), **H9**
   sellado fuera de la vista de singles — publicados a producción (`75ef123`). *(Pendiente devops:
