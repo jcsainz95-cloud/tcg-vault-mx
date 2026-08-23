@@ -50,6 +50,24 @@ describe('PricingService.gateSealedMarketCents — gate ÚNICO del mercado (dial
     expect(realPricing().gateSealedMarketCents(undefined, true)).toBeNull();
     expect(realPricing().gateSealedMarketCents(null, true)).toBeNull();
   });
+
+  // SEC N-1 (money-safe): un ref override con referenceMxnCents=0 (dato legacy/migración) NO cuenta como
+  // mercado. El gate devuelve null (⇒ PRICE_PENDING), JAMÁS 0 — ni siquiera para el override manual que
+  // por lo demás sobrevive al dial. Cierra el $0 latente publicado.
+  it('ref override manual con referenceMxnCents=0 → null (NO 0), incluso con dial off', () => {
+    const zeroOverride = {
+      status: 'priced' as const,
+      referenceMxnCents: 0,
+      source: 'manual' as const,
+      isManualOverride: true,
+    };
+    expect(realPricing().gateSealedMarketCents(zeroOverride, false)).toBeNull();
+    expect(realPricing().gateSealedMarketCents(zeroOverride, true)).toBeNull();
+  });
+  it('ref priced con referenceMxnCents negativo → null (nunca precio negativo)', () => {
+    const neg = { status: 'priced' as const, referenceMxnCents: -100 };
+    expect(realPricing().gateSealedMarketCents(neg, true)).toBeNull();
+  });
 });
 
 // v1.43 (IMP-C, §4.23a) — el dial gobierna SOLO la fuente automática (tcgcsv). El override manual de

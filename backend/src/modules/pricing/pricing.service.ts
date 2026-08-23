@@ -660,7 +660,12 @@ export class PricingService {
    * de fuente aplicable ⇒ `null` ⇒ (sin `listPriceCents`) `PRICE_PENDING`, nunca 0.
    */
   gateSealedMarketCents(ref: PriceInfo | undefined | null, sourceOn: boolean): number | null {
-    if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
+    // SEC N-1 (money-safe): `<= 0` se trata como «sin mercado», IGUAL que `null`. Aunque una fila
+    // `isManualOverride` no debería nacer con `referenceMxnCents<=0` (los guards del alta/override lo
+    // rechazan), un dato legacy/migración/ruta futura con 0 NO debe colarse como mercado válido: el gate
+    // devuelve `null` (⇒ PRICE_PENDING) y `computeSealedSalePrice` jamás produce un $0 publicado.
+    if (ref?.status !== 'priced' || ref.referenceMxnCents == null || ref.referenceMxnCents <= 0)
+      return null;
     // Override manual de mercado: sobrevive al dial (decisión humana explícita, máxima precedencia §K).
     if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
     // Mercado de fuente automática (tcgcsv): gateado por el dial.
@@ -1068,6 +1073,13 @@ export class PricingService {
     // MISMO commit/rollback que la creación de la pieza — sin este `tx` el override auto-commiteaba y
     // sobrevivía a un rollback (precio de dinero pinneado huérfano). Ausente ⇒ comportamiento previo.
     tx?: Prisma.TransactionClient,
+    // SEC N-3 (money-safe): claves LÓGICAS de dedupe del pendiente (paridad con `escalatePending`). Para
+    // sellado LEGACY (gradeKey='sealed' COMPARTIDO por varias identidades) el `updateMany` sin este filtro
+    // cerraría TODAS las entradas que comparten (cardId,'sealed',finish) — resolviendo pendientes ajenos.
+    // Cuando el caller conoce la identidad, restringe la resolución a la entrada correspondiente. El caso
+    // MAPEADO ya segrega por gradeKey='sealed:tcg:<id>', así que no lo necesita. `undefined` (default) o
+    // clave ausente ⇒ NO se restringe: retrocompat total del override standalone y de raw/graded.
+    pending?: { sealedProductId?: string | null; cardProductId?: number | null },
   ): Promise<PriceReference> {
     const db = tx ?? this.prisma;
     // v1.29 (M-31): el override manual de MERCADO se guarda con `cardProductId=null` (el precio
@@ -1096,8 +1108,20 @@ export class PricingService {
         });
     // v1.8-ronda-c FIX: resuelve SOLO el pendiente de ESTE acabado. Antes el where omitía
     // `finish`, así que un override de `normal` cerraba también el pendiente de `holofoil`.
+    // SEC N-3: si el caller aporta la identidad (`sealedProductId`/`cardProductId`), se añade al where
+    // para cerrar SOLO la entrada correspondiente (clave de dedupe de `escalatePending`).
     await db.pendingPriceEntry.updateMany({
-      where: { cardId, productType, gradeKey, finish, status: 'open' },
+      where: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        status: 'open',
+        ...(pending?.sealedProductId !== undefined
+          ? { sealedProductId: pending.sealedProductId }
+          : {}),
+        ...(pending?.cardProductId !== undefined ? { cardProductId: pending.cardProductId } : {}),
+      },
       data: { status: 'resolved', resolvedPriceRefId: ref.id, resolvedAt: new Date() },
     });
     return ref;

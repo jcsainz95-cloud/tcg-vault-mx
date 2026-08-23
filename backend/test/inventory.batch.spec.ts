@@ -9,6 +9,7 @@ import {
   BatchInventoryItemInput,
   BulkPublishLineInput,
   BulkPublishRequest,
+  CreateItemDto,
   MAX_APORTACION_PCT,
   MAX_BATCH_QTY,
   MAX_LIST_PRICE_CENTS,
@@ -489,6 +490,33 @@ describe('BatchInventoryItemInput — validación de qty y listPriceCents', () =
   it('[BLOQ-1] rechaza acquisitionCostCents negativo y no-entero (queda whitelisted, no se borra)', async () => {
     expect((await validateLine({ acquisitionCostCents: -1 })).some((e) => e.property === 'acquisitionCostCents')).toBe(true);
     expect((await validateLine({ acquisitionCostCents: 1.5 })).some((e) => e.property === 'acquisitionCostCents')).toBe(true);
+  });
+
+  // SEC N-2 (money-safe): `acquisitionCostCents` con @Max (misma cota que el dinero manual) — un
+  // vault_operator no puede inyectar un costo cercano a Int32 que desborde los agregados de P&L.
+  it('[SEC-N2] acepta acquisitionCostCents en el límite (MAX_LIST_PRICE_CENTS)', async () => {
+    expect(await validateLine({ acquisitionCostCents: MAX_LIST_PRICE_CENTS })).toHaveLength(0);
+  });
+
+  it('[SEC-N2] rechaza acquisitionCostCents por encima del @Max (overflow de P&L)', async () => {
+    const errors = await validateLine({ acquisitionCostCents: MAX_LIST_PRICE_CENTS + 1 });
+    expect(errors.some((e) => e.property === 'acquisitionCostCents')).toBe(true);
+  });
+});
+
+// SEC N-2 (money-safe) — misma cota @Max en CreateItemDto.acquisitionCostCents (alta por-pieza).
+describe('CreateItemDto — @Max de acquisitionCostCents (SEC N-2)', () => {
+  const base = { cardId: 'c1', productType: 'raw', acquisitionType: 'compra' };
+  const validateItem = (over: any) => validate(plainToInstance(CreateItemDto, { ...base, ...over }));
+
+  it('acepta acquisitionCostCents en el límite y 0 (promo/regalo)', async () => {
+    expect(await validateItem({ acquisitionCostCents: 0 })).toHaveLength(0);
+    expect(await validateItem({ acquisitionCostCents: MAX_LIST_PRICE_CENTS })).toHaveLength(0);
+  });
+
+  it('rechaza acquisitionCostCents por encima del @Max', async () => {
+    const errors = await validateItem({ acquisitionCostCents: MAX_LIST_PRICE_CENTS + 1 });
+    expect(errors.some((e) => e.property === 'acquisitionCostCents')).toBe(true);
   });
 });
 

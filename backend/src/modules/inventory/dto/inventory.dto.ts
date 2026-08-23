@@ -67,7 +67,11 @@ export class CreateItemDto {
   // v1.2 (M-13): sin fotos de producto (frontPhotoKey/backPhotoKey/extraPhotoKeys eliminados).
   @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
-  @IsOptional() @IsInt() @Min(0) acquisitionCostCents?: number;
+  // SEC N-2 (money-safe): `@Max` = MISMA cota que el dinero manual (`MAX_LIST_PRICE_CENTS`,
+  // MX$1,000,000/pieza). Sin ella un `vault_operator` podía inyectar un costo cercano a Int32 y
+  // desbordar los agregados de P&L (costo × qty). `@Min(0)` se mantiene: un costo 0 es legítimo
+  // (promo/regalo), a diferencia de un precio de venta.
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) acquisitionCostCents?: number;
   // v1.1: precio manual MXN. Obligatorio para PUBLICAR el sellado (sin él no aparece en Compra).
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsString() sourceSellRequestItemId?: string;
@@ -143,7 +147,9 @@ export class BatchInventoryItemInput {
   // (opcional, entero, @Min(0)). Un COSTO 0 es legítimo (promo/regalo), a diferencia de un precio
   // de venta; por eso @Min(0) y no @Min(1). Faltaba aquí → con ValidationPipe({whitelist:true}) el
   // acquisitionCostCents del cliente se borraba en silencio y toda pieza de lote nacía con costo NULL.
-  @IsOptional() @IsInt() @Min(0) acquisitionCostCents?: number;
+  // SEC N-2 (money-safe): `@Max` = MAX_LIST_PRICE_CENTS (paridad con CreateItemDto) — evita el overflow
+  // de P&L (costo × qty) por un costo cercano a Int32 inyectado desde el DTO. `@Min(0)` intacto.
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) acquisitionCostCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
   // v1.36-sealed-alta (M-37, P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados en

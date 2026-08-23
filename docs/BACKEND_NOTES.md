@@ -7192,3 +7192,65 @@ gobierna **solo la FUENTE AUTOMÁTICA** (`source='tcgcsv'`), no el override manu
   `salePriceCents=118000` (=100000×1.18, nunca 0), **sin re-crear el pendiente** (`create` no se re-llama).
   Los mocks-réplica del gate en `test/{catalog,sealed-catalog,sealed-product.service,vault-sealed}.spec.ts` se
   actualizaron al nuevo predicado (seguían siendo «réplica exacta»).
+
+---
+
+## Fast-follow de seguridad — hallazgos money-adjacent N-1 / N-2 / N-3 (pre-deploy)
+
+> Cierre de 3 hallazgos **bajos** que seguridad marcó money-adjacent (hoy inalcanzables por guards, pero
+> tocan $0 y P&L → se cierran antes del deploy). Todo confinado a `backend/`. Money-safe. Suite verde
+> (170 suites / 1670 tests) + `tsc --noEmit` limpio.
+
+### N-1 · $0 latente en el precio manual del sellado — **parte 2 aplicada; parte 1 BLOQUEADA (contrato)**
+- **Parte 2 (APLICADA) — endurecimiento del gate.** `pricing.service.ts` `gateSealedMarketCents` (~L662):
+  el predicado ahora rechaza también `referenceMxnCents <= 0`, no solo `null`:
+  `if (ref?.status !== 'priced' || ref.referenceMxnCents == null || ref.referenceMxnCents <= 0) return null;`
+  Así, aunque una fila `isManualOverride` tuviera `priceMxnCents=0` (dato legacy/migración/ruta futura), el
+  gate devuelve `null` (⇒ `PRICE_PENDING`) y `computeSealedSalePrice` **jamás** produce un $0 publicado —
+  ni siquiera por el ramo del override manual que por lo demás sobrevive al dial. Money-safe.
+  **Test:** `test/sealed-price-resolver.spec.ts` — override manual con `referenceMxnCents=0` → `null` (dial
+  on y off); ref priced con centavos negativos → `null`.
+- **Parte 1 (NO aplicada — rozaba el contrato, ver «Discrepancias»).** Añadir `@Min(1)` a
+  `manualMarketMxnCents` (`CreateItemDto`/`BatchInventoryItemInput`) **cambiaría el status HTTP de ≤0 de
+  `422` a `400`**, en contra de `API_CONTRACT` (que fija `≤0 → 422 VALIDATION_ERROR`) y de un comentario de
+  diseño deliberado en el DTO. El $0 ya está cerrado por el guard de servicio (422) + la parte 2 del gate.
+  Requiere decisión del arquitecto (ver abajo).
+
+### N-2 · `acquisitionCostCents` sin `@Max` → overflow de P&L — **APLICADA**
+- `inventory/dto/inventory.dto.ts`: `acquisitionCostCents` en `CreateItemDto` (~L74) y en
+  `BatchInventoryItemInput` (~L150) ahora es `@Min(0) @Max(MAX_LIST_PRICE_CENTS)`.
+- **Cota elegida:** `MAX_LIST_PRICE_CENTS = 100_000_000` (MX$1,000,000/pieza) — la **misma** cota que ya
+  gobierna el dinero manual (`listPriceCents`). Coherente y con margen holgado frente al slab/box más caro,
+  lejos de Int32 (2^31). Evita que un `vault_operator` inyecte un costo cercano a Int32 que desborde los
+  agregados de P&L (`costo × qty`). `@Min(0)` se mantiene: un **costo 0 es legítimo** (promo/regalo).
+- **Test:** `test/inventory.batch.spec.ts` — acepta `acquisitionCostCents = MAX_LIST_PRICE_CENTS`, rechaza
+  `MAX_LIST_PRICE_CENTS + 1` (propiedad `acquisitionCostCents`), en **ambos** DTOs (batch + `CreateItemDto`).
+
+### N-3 · resolución de pendientes sin `sealedProductId` — **APLICADA (capacidad + guard)**
+- `pricing.service.ts` `manualOverride` (~L1099): el `pendingPriceEntry.updateMany` ganó un parámetro
+  OPCIONAL `pending?: { sealedProductId?; cardProductId? }`. Cuando el caller aporta la identidad, esas
+  claves entran al `where` (paridad con la clave de dedupe de `escalatePending`), de modo que un override de
+  sellado **legacy** (`gradeKey='sealed'` compartido) cierra **solo** la entrada correspondiente y no todas
+  las identidades que comparten `(cardId,'sealed',finish)`.
+- **Retrocompat / caso mapeado intacto:** con `pending` ausente (default), el `where` NO se restringe —
+  comportamiento previo idéntico. El **caso mapeado** (`gradeKey='sealed:tcg:<id>'`) ya segrega por
+  `gradeKey`, así que no necesita la identidad; los callers actuales (override standalone del controller y
+  `applySealedManualOverride` del alta) **no se tocaron** → cero regresión (verificado: los tests del alta
+  y del dedup mapeado siguen verdes, incl. `toHaveBeenCalledWith` de 6 args).
+- **Límite conocido (no bloqueante):** el endpoint standalone `POST /admin/pricing/override` (`OverrideDto`)
+  **no transporta** `sealedProductId`, así que la resolución precisa del caso *legacy vía ese endpoint*
+  requeriría añadir `sealedProductId?` al `OverrideDto` — **cambio de contrato** (arquitecto). El fix deja la
+  capacidad lista en el servicio; ningún caller la necesita hoy salvo un futuro flujo legacy-consciente.
+- **Test:** `test/pricing.manual-override-dedup.spec.ts` — con prisma en memoria que **honra** el filtro
+  `sealedProductId`: dos pendientes legacy `sp-etb`/`sp-blister` bajo `(c1,'sealed',normal)` → un override con
+  `{sealedProductId:'sp-etb'}` cierra SOLO `sp-etb` (el blíster sigue `open`); sin identidad → `where` sin
+  `sealedProductId` (retrocompat); caso mapeado (`sealed:tcg:777` vs `:888`) segregado por `gradeKey`.
+
+### Discrepancia con el contrato que necesita decisión del arquitecto
+- **N-1 parte 1 (`manualMarketMxnCents` `@Min(1)`):** `API_CONTRACT.md` (§DTOs, la línea del fallback manual)
+  fija explícitamente `manualMarketMxnCents … > 0 (≤0 → 422 VALIDATION_ERROR)` — un **422 de regla de
+  negocio**, resuelto hoy por el guard de `resolveSealedMarketForAlta` (`'manualMarketMxnCents must be > 0'`)
+  y con test que lo asevera (`inventory.sealed-product-alta.spec.ts`). Un `@Min(1)` en el DTO lo movería a un
+  **400 del `ValidationPipe`**. No lo apliqué (el $0 ya está cerrado por el guard + N-1 parte 2). Si el
+  arquitecto quiere el `@Min(1)` defensivo, debe decidir el trade-off `422 → 400` y actualizar el contrato;
+  entonces el backend lo cablea.
