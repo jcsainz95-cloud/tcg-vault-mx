@@ -155,12 +155,18 @@
 > **badge de estimado** en la teja de Compra y **vitrina «Joyas para gradear»** en el home. Sin artboard
 > de Claude Design: §21 se **compone íntegramente con lo ya ratificado** (celda `Fact` de la ficha,
 > `PriceTag` §7.3, chip de grado sin cert §7.2c/§16.9, patrón `Shelf` §20.5, nota al margen `rule-note`
-> §20.0, reglas §4.3). Dos decisiones cardinales: (1) **el estimado nunca usa color** — se distingue del
+> §20.0, reglas §4.3). Tres decisiones cardinales: (1) **el estimado nunca usa color** — se distingue del
 > precio real por **voz tipográfica** (mono, §20.14) y por **reglas**, no por un "color de oferta" ni un
 > verde de dinero; el único acento del sistema (`--color-accent`) aparece solo como la regla de 2px de la
 > nota al margen del disclaimer, tal como ya lo usa el `referenceExplainer`; (2) **el disclaimer es parte
 > del componente, no un adorno**: no existe variante del bloque, del badge ni de la vitrina sin él, y su
-> tipografía tiene **piso propio de 10px** (única etiqueta mono del sistema con suelo). Money-safe llevado
+> tipografía tiene **piso propio de 10px** (única familia de texto del sistema con suelo); (3) **el
+> disclaimer largo de §N.5 (titular + seis párrafos) se queda ÍNTEGRO y a la vista, sin plegar** — se hace
+> legible con **jerarquía de dos tiempos** (titular mono en versalitas + la frase crítica «no evaluamos
+> esta pieza» ascendida a 15px en tinta, y el resto en 13px muted con **entradilla en negrita por
+> párrafo**, que convierte el muro en un índice escaneable de seis puntos). Se **descarta la divulgación
+> progresiva** para no perder la fuerza de «estaba a la vista» (§21.4a.1), y el costo de layout se paga
+> **moviendo el bloque al cierre de la ficha**, no plegando el aviso. Money-safe llevado
 > al extremo (§N.4): sin dato o sin gate cumplido **no se renderiza nada** — ni $0, ni guion, ni
 > «pendiente», ni skeleton que reserve el hueco. **Aditiva: cero tokens nuevos** de color y tipografía y
 > cero elementos gráficos nuevos.
@@ -3934,3 +3940,521 @@ Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los
    distintivo «N en stock» en singles mientras el contrato no exponga conteos; (c) foco visible
    recorrible por toda la home incluida la banda oscura; (d) móvil 390: sin scroll horizontal
    fantasma con el carrusel presente; (e) paginador ausente cuando `total ≤ pageSize`.
+
+---
+
+## 21. Valor estimado si se gradea — «gancho de grading» (v2.1, §N de PROJECT)
+
+> **Qué es:** el tratamiento visual del requisito **§N de `PROJECT.md`** — sobre una carta **raw**
+> publicada en Compra, mostrar **cuánto valdría si se gradeara PSA 10 / PSA 9** frente a su **precio de
+> venta raw actual**, en **tres superficies**: bloque comparativo en la **ficha**, **badge** en la teja de
+> Compra y **vitrina «Joyas para gradear»** en el home.
+>
+> **Origen:** **no hay entrega de Claude Design** para esta feature. §21 se construye **desde cero sobre la
+> piel ya aprobada**: no inventa una identidad para el gancho, la **compone** con piezas ya ratificadas
+> (`Fact` de la ficha, `PriceTag` §7.3, chip de grado sin cert §7.2c/§16.9, `Shelf` §20.5, nota al margen
+> `rule-note` §20.0, reglas §4.3, distintivo mono §20.6). Es deliberado: una feature comercial es
+> exactamente donde un sistema editorial se rompe si se le añade "un color de oferta".
+>
+> **Qué NO es (y el diseño tiene que decirlo solo):** no es un precio de venta, no es una oferta, no es una
+> promesa de grado y **no es una afirmación sobre el estado de nuestra pieza** — no hemos pre-evaluado la
+> carta. Todo el tratamiento visual de §21 está subordinado a esa frase.
+>
+> **Nota de tokens:** los valores vigentes de `--color-accent` / `--color-warning` / `--color-danger` /
+> `--color-focus-ring` son los de **§17.2** (`#B31217`, rojo TCG HUNT), no los que aún lista la tabla de
+> §2.3 (`#B44B3A`, bermellón retirado). §21 **solo referencia el token semántico**, nunca un hex.
+
+### 21.0 Alcance y las cuatro reglas duras
+
+- **Alcance:** presentación en storefront de un dato **ya evaluado y derivado server-side** (§N.4,
+  SEC-A1). §21 no define datos, no cambia contrato, no toca precio de venta, portafolio ni buylist.
+- **Aplica solo a raw publicado.** Nunca en gradeadas (ya tienen grado real, §7.2c) ni en sellado (§7.1b).
+
+| # | Regla dura de §21 | Por qué |
+|---|---|---|
+| **R1** | **Cero tokens nuevos** de color y tipografía. El gancho **no tiene color propio**: se pinta en tinta y muted. El acento aparece **solo** como la regla de 2px de la nota al margen del disclaimer (mismo uso que el `referenceExplainer` que ya vive en la ficha). | Un "verde de dinero" o un "rojo de oferta" convertiría un estimado informativo en una promesa comercial, y rompería «un solo acento usado con avaricia» (§2.1). |
+| **R2** | **El estimado nunca habla con la voz del precio real.** El precio de venta es **sans 500** (precio display, §20.14); **todo estimado por grado es mono** (dinero operativo) y, en cada superficie, **de menor o igual tamaño** que el precio de venta que lo acompaña. | La confusión precio↔estimado es el riesgo legal-comercial nº 1 de esta feature. Se resuelve con familia y jerarquía, no con una advertencia extra. |
+| **R3** | **El disclaimer es parte del componente.** No existe variante del bloque, del badge ni de la entrada de vitrina **sin** su disclaimer; no se colapsa tras un «leer más», un acordeón ni un tooltip que sea el **único** portador. | §N.5: «no existe ninguna superficie que muestre la cifra sin al menos la versión corta». |
+| **R4** | **Ausencia total ante cualquier hueco** (§N.4): sin dato, dato rancio o gate no cumplido ⇒ **no se renderiza nada**. Ni `$0`, ni `—`, ni «precio pendiente», ni caja vacía, ni encabezado huérfano, ni **skeleton** que reserve el hueco. La teja se ve **exactamente como hoy**. | En un argumento de venta, un hueco es peor que el silencio (precedente: fast-follow de seguridad del «$0 latente»). Nótese que §21 **excluye** aquí el `PendingPriceLabel` de §7.3 a propósito. |
+
+### 21.1 Las dos voces del dinero aplicadas al gancho (matiz de §20.14)
+
+§20.14 fijó dos registros; el gancho vive **siempre en el segundo** y nunca sube de tamaño al primero:
+
+| Cifra | Familia / peso | Tamaño en ficha | Tamaño en teja / vitrina |
+|---|---|---|---|
+| **Precio de venta raw** (dato real, §7.3) | **Sans 500** `tabular-nums` | 30px (celda existente) | 15px móvil / 17px `sm+` (sin cambio) |
+| **Estimado PSA 10** | **Mono** `tabular-nums`, tinta | **26px** (la cifra que ilusiona, §N.3) | 11px móvil / 12px `sm+` |
+| **Estimado PSA 9** | **Mono** `tabular-nums`, tinta | 20px | — (no cabe; vive en la ficha) |
+| **Precio raw repetido dentro del bloque** | **Mono** `tabular-nums`, muted | 17px | — |
+| **Ganancia y multiplicador** | **Mono** 11px muted (`note` de la celda) | 11px | 10–11px |
+
+> **Por qué el raw se repite dentro del bloque en mono y muted:** dentro de la comparativa el precio ya no
+> es una etiqueta de precio, es **un término de la comparación**. En sans 500 competiría con la celda real
+> de «Precio de venta» que está justo arriba y el usuario vería dos precios de venta. El precio de venta
+> **de verdad** solo se pinta una vez por pantalla y es el de §7.3.
+
+**Regla de crescendo (la jerarquía sin color):** las tres cifras se leen **de izquierda a derecha**, con el
+tamaño creciendo (17 → 20 → 26px) y alineadas por **línea base**. El crecimiento tipográfico **es** el
+argumento comercial; no hace falta pintar nada de rojo ni de verde para contarlo, y funciona igual en
+escala de grises (y en la impresión, que es la metáfora de este sistema).
+
+### 21.2 Chip de grado **hipotético** — variante de `GradedCertChip` (§7.2c) sin cert
+
+El grado que se muestra aquí **no es de una pieza física**: no hay slab, no hay `certNumber`, no hay
+graduadora que consultar. Se reutiliza el **chip de grado sin cert** ya ratificado para la lista de
+gradeadas del admin (§16.9) — no se inventa componente — con **un solo diferenciador**:
+
+| | Grado **real** (pieza gradeada) | Grado **hipotético** (§21) |
+|---|---|---|
+| Contenido | `PSA 10 · CERT 12345678` (o chip + cert, §20.5) | `PSA 10` **sin cert, jamás** |
+| Borde | `1px solid var(--color-primary)` (tinta, §20.5) | **`1px dashed var(--color-border-strong)`** |
+| Texto | mono 10px 500, tracking `0.1em`, tinta | idéntico |
+| Compañía | siempre visible (`PSA`/`CGC`/…) | siempre visible; el MVP solo cubre **PSA** (§N.1) |
+| `aria-label` | «Gradeada PSA, grado 10, certificado …» | **«Grado hipotético: PSA 10. Esta carta no está gradeada.»** |
+
+- **Por qué punteado:** el sistema ya usa el trazo punteado para «valor no realizado» (el **costo base**
+  del `PortfolioTrendChart`, §7.17/§10). El borde continuo de tinta significa *verificable*; el punteado,
+  *hipotético*. Es un **segundo canal no cromático** (no es un token: `border-style` no lo es) que evita el
+  peor malentendido posible — creer que la carta viene en slab.
+- **Nunca aparece solo:** el chip siempre va precedido del condicional en la etiqueta de su celda
+  (**«SI SALE»** / **«IF IT GRADES»**). Un chip `PSA 10` suelto está **prohibido** en superficies de raw.
+- **Nunca sobre el arte** (§7.2b): el chip hipotético vive bajo la imagen o en la retícula de datos.
+- En la **teja** no se usa el chip (a 171px el borde punteado no lee): ahí el grado es texto mono plano
+  dentro de la frase condicional (§21.5).
+
+### 21.3 Bloque de la ficha — `GradingUpsideBlock`
+
+La superficie completa, donde se cuenta la historia y donde vive el **disclaimer completo**.
+
+**Dónde va:** en la columna derecha de la ficha (`CardDetailView`), **al cierre**: después de «Ejemplares
+disponibles» y **antes** de las pestañas Descripción/Condición. Racional (decisión revisada tras conocer la
+extensión real del disclaimer, §N.5 = **siete párrafos**):
+
+- **El aviso no puede quedar entre el precio y el botón de comprar.** Un bloque legal de siete párrafos
+  entre la cifra y el CTA (a) sepulta el CTA —en móvil lo empuja ~450px hacia abajo— y (b) se **lee como
+  una advertencia sobre la compra**, cuando en realidad advierte sobre **el estimado**. Sería un daño doble:
+  peor conversión y peor comprensión.
+- **No hay "adelanto" de la cifra arriba.** La tentación obvia —un teaser junto al precio y el bloque
+  completo abajo— está **prohibida por R3**: cada render de una cifra exige su aviso, así que un teaser
+  duplicaría el disclaimer o lo dejaría huérfano. La regla money-safe es la que resuelve el layout.
+- **El trabajo de enganchar ya lo hicieron la teja y la vitrina.** El comprador llega a la ficha **ya
+  interesado**; el trabajo de la ficha es **sustentar y advertir**, no volver a vender. El bloque compensa su
+  posición con peso visual propio: regla de tinta, título serif y la cifra mono de 26px, que es lo más
+  grande de esa mitad de la página después del `h1`.
+
+En `lg+` cae íntegro en la mitad derecha, bajo los ejemplares; en móvil es el último tramo de scroll antes
+de las pestañas.
+
+**Anatomía (retícula `≥sm`):**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  regla de tinta 1px (border-t border-text)
+VALOR ESTIMADO SI SE GRADEA              ESTIMADO · 22 AGO 2026   ← dos eyebrows enfrentados (§20.2.1)
+
+Cuánto valdría gradeada                                          ← h2 serif 22px (voz de sección de ficha)
+
+┌──────────────────┬───────────────────────┬────────────────────────┐
+│ PRECIO RAW HOY   │ SI SALE ⌐PSA 9 ⌐      │ SI SALE ⌐PSA 10⌐       │  ← eyebrow + chip hipotético (§21.2)
+│ MX$ 320.00       │ MX$ 1,450.00          │ MX$ 2,900.00           │  ← mono tabular 17 / 20 / 26px
+│ sin IVA          │ +MX$ 430.00 · ≈ ×1.4  │ +MX$ 1,880.00 · ≈ ×2.8 │  ← note mono 11px muted
+└──────────────────┴───────────────────────┴────────────────────────┘
+  Ganancia y multiplicador sobre tu inversión total: MX$ 320.00 de la carta
+  + MX$ 700.00 de costo estimado de gradeo (escalón hasta MX$ 2,000; incluye
+  cuota, envío a EE. UU. y retorno asegurado a México).                        ← renglón base, mono 11px muted
+
+┃ INFORMACIÓN ILUSTRATIVA. NO ES UNA VALUACIÓN DE ESTA CARTA.      ← nota al margen: DISCLAIMER COMPLETO
+┃ ──────────────────────────────────────────                         (§N.5 íntegro, sin plegar;
+┃ No reflejan ni evalúan el estado de la carta que estás…              tratamiento de dos tiempos §21.4a)
+┃ No garantizamos ningún grado. …
+```
+
+**Composición con piezas existentes (no hay componente nuevo de retícula):**
+- Las tres celdas son **la misma celda `Fact`** de la ficha (`label` eyebrow + contenido + `note`), en un
+  contenedor `grid border-t border-text sm:grid-cols-3`; las celdas 2 y 3 llevan `sm:border-l sm:pl-7`,
+  exactamente como la segunda celda de la retícula de precio que ya existe. El `border-b` de cada `Fact`
+  cierra la retícula por abajo sin añadir nada.
+- **Única variante pedida a `Fact`:** en estas celdas el `note` puede **envolver a dos líneas**, así que
+  usa `leading-[1.5]` en vez de `leading-none`. No es un componente nuevo ni un token.
+- La **regla superior es de tinta** (`border-text`, 1px) y no de `border`: es el único énfasis del bloque y
+  sustituye a la caja que este sistema no permite (§2.1, §4.3). Misma gramática que los pasos de §20.8.
+- El **precio raw de la celda 1 es el mismo valor y la misma semántica de §7.3** (`salePriceCents`, «sin
+  IVA»): el bloque **no recalcula ni reformatea** el precio, solo lo cita en la voz mono.
+
+**Contenido obligatorio del bloque (los seis del §N.3, todos visibles, ninguno tras interacción):**
+
+| Elemento | Dónde | Tratamiento |
+|---|---|---|
+| Precio de venta raw actual | celda 1 | mono 17px muted + `note` «sin IVA» |
+| Estimado **PSA 9** (el que sostiene el gate) | celda 2 | mono 20px tinta + chip hipotético en la etiqueta |
+| Estimado **PSA 10** (la cifra que ilusiona) | celda 3 | mono 26px tinta + chip hipotético en la etiqueta |
+| **Ganancia** (MXN) y **multiplicador** | `note` de las celdas 2 y 3 | mono 11px muted, `+MX$ …` con signo explícito |
+| **Costo de gradeo del escalón aplicado** (§N.2.1) | renglón base bajo la retícula | mono 11px muted; **nombra el escalón** y dice que incluye envío internacional y retorno |
+| **Fecha del último refresco** | eyebrow derecho del encabezado | mono 10px muted, fecha localizada (§9.3) |
+| **Disclaimer completo** | nota al margen al cierre | §21.4 |
+
+**Regla del multiplicador — la base se nombra siempre.** Un multiplicador sin base nombrada está
+**prohibido**. El renglón base bajo la retícula nombra la base **una sola vez** para las dos celdas y
+desglosa de dónde sale (`precio raw + costo de gradeo del escalón`), lo que además hace visible por qué la
+cifra no está inflada. El `≈` y el `×` son glifos: van `aria-hidden` con su lectura en texto (§21.9).
+
+> **Solicitud abierta a product-owner (no bloquea):** §N.3 supone el multiplicador **frente al precio raw**
+> («≈ ×6»). ux-ui recomienda **sobre la inversión total (raw + gradeo)**, que es la base del propio gate y
+> evita el choque de mostrar «×9» a tres centímetros de un costo de gradeo que el usuario sí tiene que
+> pagar. El diseño **soporta ambas bases sin cambios** porque la etiqueta la nombra; solo hace falta la
+> decisión. Ver §21.12.
+
+### 21.4 El disclaimer como pieza de diseño — «índice a la vista», no muro ni acordeón
+
+Los textos ES/EN son **propiedad de product-owner** y ya están redactados en **§N.5** (versión completa =
+**titular en mayúsculas + seis párrafos**; versión corta = una línea que **obligatoriamente** carga dos
+ideas: **ilustrativo** y **no evaluamos el estado de esta carta**). §21 define **el tratamiento**.
+
+> **La tensión, dicha en voz alta.** El humano quiere un aviso **inequívoco, que nadie pueda alegar no
+> haber visto**. Pero siete párrafos de advertencia en una ficha de producto son, en la práctica, un muro
+> que nadie lee — y **un texto que nadie lee protege menos, no más**. Las dos salidas fáciles fallan:
+> encogerlo hasta que quepa lo vuelve letra chiquita (y da la razón a quien alegue que estaba escondido);
+> plegarlo tras un «leer más» regala el argumento contrario («nunca lo abrí»).
+
+**Decisión de diseño: texto completo SIEMPRE a la vista, con jerarquía interna de dos tiempos.** No hay
+divulgación progresiva. La legibilidad se compra con **jerarquía tipográfica**, no con ocultamiento.
+
+**(a) Versión completa (ficha) — anatomía en dos tiempos.**
+
+Contenedor: **nota al margen** (`rule-note`, §20.0) — `border-left: 2px solid var(--color-accent)`,
+`padding-left: 16px`, `max-width ~640px`, nunca centrado (§3.3). Es la **misma clase y la misma voz** del
+`referenceExplainer` que ya vive en la ficha, a propósito: ese renglón rojo ya significa «esto es lo que
+tienes que saber sobre el precio».
+
+```
+┃ INFORMACIÓN ILUSTRATIVA. NO ES UNA VALUACIÓN DE ESTA CARTA.     ← TIEMPO 1 · titular
+┃                                                                    mono 12px, 500, uppercase,
+┃                                                                    tracking 0.08em, TINTA
+┃ ─────────────────────────────────────────────────               ← regla 1px --color-border (hairline)
+┃
+┃ No reflejan ni evalúan el estado de la carta que estás           ← TIEMPO 1 · la idea crítica
+┃ comprando. No hemos inspeccionado ni pre-evaluado esta pieza…       sans 15px / 1.6, TINTA, peso 400
+┃
+┃ Dato de referencia de mercado. Las cifras de PSA 10 / PSA 9…     ← TIEMPO 2 · los cinco restantes
+┃ No garantizamos ningún grado. El grado lo determina PSA…            sans 13px / 1.65, MUTED,
+┃ No es una oferta ni un compromiso de recompra. Si mandas…           con ENTRADILLA en tinta 500
+┃ No gradeamos ni intermediamos el gradeo. La cuota de PSA…           separación 10px entre párrafos
+┃ Los precios de mercado cambian todos los días…
+```
+
+- **Tiempo 1 — lo que se lee en cuatro segundos.** El **titular** (§N.5, en mayúsculas) va en **mono 12px
+  peso 500 `uppercase`**, tinta — la misma voz con la que este sistema pinta los estados críticos (§2.4),
+  que es exactamente el registro que corresponde. Debajo, **una regla hairline** de 1px lo separa. Luego,
+  **el párrafo de «no evaluamos esta pieza»** —el punto que originó el encargo— **asciende a 15px en
+  tinta**: es el **único párrafo del cuerpo que no es muted** y el más grande del bloque. Un comprador
+  normal lee el titular y esa frase y **ya entendió el aviso completo**.
+- **Tiempo 2 — el índice escaneable.** Los párrafos restantes van en **13px / 1.65 muted**, pero **cada uno
+  abre con una entradilla en tinta peso 500** —«No garantizamos ningún grado.», «No es una oferta ni un
+  compromiso de recompra.», «No gradeamos ni intermediamos el gradeo.», «Los precios cambian todos los
+  días.»—. Esa columna de entradillas en negrita convierte el muro en un **índice escaneable**: con el
+  titular y la frase crítica del tiempo 1 suman **los seis elementos obligatorios de §N.5**, barribles en
+  cinco segundos **sin leer una sola línea de cuerpo**. **Es la pieza clave de esta sección:** el texto
+  largo se vuelve legible porque **la primera línea de cada párrafo es un titular**.
+- **Sin numerar, sin viñetas, sin iconos, sin caja.** Una lista numerada de siete bloques parecería un
+  contrato; los párrafos con entradilla se leen como prosa editorial, que es la voz del sitio.
+- **Prohibido:** bajar de 13px el cuerpo (12px el titular), bajar la opacidad, `<details>`/acordeón,
+  modal, scroll interno con altura fija, «leer más», o mandarlo a términos/FAQ **como único acceso**. El
+  disclaimer y las cifras se desplazan juntos porque **son el mismo componente** (R3).
+- **Semántica:** `<div role="note">` (o `<aside>`) con `aria-labelledby` en el titular, referenciado por
+  `aria-describedby` desde la retícula de cifras: quien aterrice en un monto lo oye anunciado.
+
+**(a.1) Por qué NO divulgación progresiva — el punto que el humano no quiere perder.**
+
+| Argumento | Detalle |
+|---|---|
+| **Fuerza de «estaba a la vista»** | Un aviso que exigió un clic admite la réplica «nunca lo abrí». Uno renderizado, visible y adyacente a la cifra no la admite. Es precisamente el valor que se busca: no hay que sacrificarlo por 200px de scroll. |
+| **Un `<details>` cerrado no es contenido visible** | No entra en la impresión, no aparece en `Ctrl+F` del navegador, y según la configuración de la ayuda técnica puede no exponerse en el árbol de accesibilidad. Un aviso legal que el buscador de la propia página no encuentra es un aviso débil. |
+| **El costo que se evitaba ya no existe** | El único daño real del texto largo era **empujar el CTA de compra**; eso se resolvió **moviendo el bloque al cierre de la ficha** (§21.3), no plegando el aviso. Abajo del bloque no hay nada que sepultar. |
+| **La jerarquía ya hace el trabajo del acordeón** | Titular + frase crítica en 15px tinta + entradillas en negrita dan el mismo «resumen primero» que ofrece un acordeón, **sin** quitar nada de la vista. Es divulgación progresiva **tipográfica**: se puede parar de leer en cualquier punto y haber entendido lo esencial. |
+
+> **Único plegado permitido en todo §21:** ninguno. Si en el futuro se quisiera aligerar, la vía correcta
+> **no** es plegar el disclaimer, sino **acortar el texto** (recomendación en §21.12), que es decisión de
+> product-owner y de la revisión legal, no del diseño.
+
+**(b) Versión corta — teja y vitrina.** El texto corto de §N.5 (~140 caracteres en ES) se pinta **íntegro y
+visible** una vez por retícula (capa 3 de §21.5), en **sans 13px muted** dentro de una nota al margen; y
+viaja **completo** en `sr-only`/`title` pegado a **cada** cifra. Pegado a la cifra, de forma visible, va
+además una **micro-línea** que conserva **las dos ideas obligatorias** (§N.5): *ilustrativo* + *no
+evaluamos esta carta*. Presupuesto de esa micro-línea: **≤ 46 caracteres** (dos renglones a 171px), mono,
+minúsculas. El detalle de las tres capas y el porqué, en §21.5.
+
+**(c) Piso tipográfico propio — regla nueva del sistema.** El aviso, en **cualquiera** de sus versiones y
+en **cualquier** viewport, **no baja de 10px**, y en la ficha no baja de **13px de cuerpo**. Es la **única
+familia de texto del sistema con suelo propio**: §20.6 permite bajar los distintivos de stock a 9px en
+móvil; **el aviso no**. Si por espacio hubiera que elegir entre encoger el aviso y quitar la cifra, **se
+quita la cifra**.
+
+**(d) Ninguna cifra sin aviso — verificación.** El check de QA es literal: buscar en el DOM cualquier
+render de un estimado por grado y comprobar que tiene, en su mismo contenedor, texto de aviso **visible**
+(o `sr-only` **más** un aviso visible en la misma retícula, §21.5). No existe una prop que lo desactive, ni
+un `variant="compact"` que lo omita.
+
+### 21.5 Badge de la teja de Compra — `GradingUpsideBadge` (la parte difícil)
+
+**Dónde va en la teja** (`CatalogTile`): **después** del precio de venta y del `StockBadge`, **antes** del
+CTA. Nunca sobre el arte (§7.2b) y **nunca por encima del precio real**: el orden de lectura obligatorio es
+**precio real → estimado → aviso → CTA**. Va separado por una **regla de 1px `--color-border`** con
+`mt-2.5 pt-2.5`: la regla es la que dice «lo de abajo es otra cosa».
+
+**Anatomía (eyebrow + cifra + micro-aviso de dos renglones; ~52px de alto):**
+
+```
+──────────────────────────────────────  ← border-t 1px --color-border
+SI SE GRADEA                            ← eyebrow mono 10px muted, tracking 0.18em
+PSA 10 ≈ MX$ 2,900.00                   ← mono 11px móvil / 12px sm+, tinta, tabular-nums, nowrap
+Ilustrativo · no evaluamos              ← micro-aviso mono 10px muted (PISO §21.4c); envuelve a
+esta carta                                 2 renglones a 171px — NO se trunca, NO lleva ellipsis
+[sr-only] versión corta íntegra del disclaimer (§N.5) + [title] igual, para hover
+```
+
+> **Los ~52px del badge son el precio de cumplir, y se paga.** El micro-aviso **no** puede reducirse a
+> «Grado no garantizado»: §N.5 exige que la versión corta cargue **dos** ideas —*ilustrativo* y *no
+> evaluamos el estado de esta carta*— y una teja que muestre la cifra con solo una de ellas **no cumple**
+> el criterio de aceptación. Antes que recortar el aviso, se recorta cualquier otra cosa de la teja.
+
+- La cifra del badge es **PSA 10** (la que ilusiona) y **siempre** con el condicional delante: la frase
+  completa que se lee es «**si se gradea, PSA 10 ≈ MX$ 2,900.00**». Nunca «PSA 10: MX$ 2,900.00».
+- **Sin color, sin caja, sin icono, sin flecha.** El único elemento gráfico es la regla superior.
+- **Sin fecha** (no cabe): la fecha vive en la ficha, a un clic. Aceptable porque el badge no es la
+  superficie de decisión.
+- Convive con el `StockBadge` (§20.6) sin competir: el de stock es **rojo o verde** y el gancho es
+  **tinta/muted**, en renglones distintos separados por una regla. Si ambos existen, se leen como dos
+  registros diferentes, que es lo que son.
+
+**Cómo cabe el aviso en 171px — veredicto y solución en dos niveles.**
+
+> **Veredicto honesto:** la versión corta **íntegra** de §N.5 (≈ **140 caracteres** en ES) **no cabe con
+> dignidad** dentro de una teja de la retícula móvil (390px ⇒ 2 columnas ⇒ ~171px útiles): serían **5–6
+> renglones de mono 10px**, ~60px extra por teja, la retícula perdería su ritmo y —peor— **20 avisos
+> idénticos por pantalla se vuelven invisibles** (ceguera de banner): el resultado sería *menos* protección,
+> no más. Meterlo en un tooltip tampoco sirve: en móvil no hay hover, y un `<button>` de tooltip dentro de
+> una teja que **entera es un enlace** es un anidamiento inválido.
+
+Solución ratificada, **tres capas que siempre coexisten** (ninguna es opcional). El criterio de §N.5 —«la
+versión corta debe cargar **ilustrativo** y **no evaluamos esta carta**»— se cumple **en la capa 1**, que es
+la que va pegada a la cifra; las capas 2 y 3 aportan el texto íntegro:
+
+| Capa | Qué | Dónde | Siempre visible |
+|---|---|---|---|
+| **1. Micro-aviso por teja** | **Dos renglones** que conservan **las dos ideas obligatorias**: *ilustrativo* + *no evaluamos esta carta* (p. ej. «Ilustrativo · no evaluamos esta carta», ≤ 46 car.). Mono 10px muted, pegado a la cifra. **Nunca una sola de las dos ideas.** | dentro del badge | **Sí, visualmente** |
+| **2. Versión corta íntegra por teja** | El texto corto completo de §N.5 como **`sr-only`** dentro del badge, más `title` para hover de escritorio. Sustituye al tooltip de §N.3: se anuncia en lectores de pantalla **en orden**, sin depender de hover ni de tap. | dentro del badge | Sí para lector de pantalla y hover |
+| **3. Aviso de retícula** | La **versión corta íntegra visible** como **nota al margen** (`rule-note`, sans 13px) **una sola vez**, inmediatamente **bajo el encabezado de resultados y sobre la primera fila** de tejas. | vitrina de Compra y vitrina del home | **Sí, visualmente** |
+
+- **La capa 3 es condicional:** se renderiza **solo si la página/vitrina actual contiene al menos una teja
+  con badge**; si ninguna teja es elegible, la nota no existe (R4). Al cambiar de página del catálogo se
+  reevalúa.
+- Con las tres capas, **ninguna cifra aparece en pantalla sin la versión corta íntegra visible** (capa 3)
+  y sin las dos ideas obligatorias pegadas a la propia cifra (capa 1). Se cumple §N.5 sin sacrificar la
+  retícula.
+- **Acceso al texto completo:** es el **propio enlace de la teja a la ficha**. No se añade un segundo
+  enlace dentro del enlace; el `aria-label` de la teja termina en «… ver estimado y aviso completo».
+- **Móvil, comprobación de peso:** con el micro-aviso a dos renglones la teja crece ~52px. En la retícula
+  de 2 columnas eso equivale a ~1.5 tejas menos por pantalla. **Se acepta**: el gancho solo aparece en las
+  tejas elegibles —que en fase 1 son las que el dueño cura a mano (§N.6)—, así que el costo se paga
+  únicamente donde hay algo que advertir.
+
+### 21.6 Vitrina del home «Joyas para gradear» — `GradingGemsShelf`
+
+Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con las tejas de Compra:
+
+- **Encabezado:** `title` serif 22/29px **«Joyas para gradear»** + **`kicker`** eyebrow mono
+  **«ILUSTRATIVO · NO EVALUAMOS LA PIEZA»** — el kicker, que en Gradeadas lleva «PSA · BGS · CGC», aquí se
+  gasta en la salvedad: la advertencia viaja **en el encabezado de la sección**, a la misma altura que el
+  título comercial y en su misma línea, no en la letra chiquita.
+- **`subtitle`** (14px muted): el argumento comercial, en condicional y sin superlativos («Cartas raw cuyo
+  valor estimado ya gradeadas supera con margen lo que cuestan hoy»). **Prohibido** copy tipo «gana X»,
+  «inversión segura», «garantizado».
+- **Nota al margen con la versión corta íntegra** (capa 3 de §21.5) como **primer hijo** del shelf, antes
+  de la retícula. Si el shelf se renderiza, la nota se renderiza.
+- **Retícula:** hasta **8** cartas (§N.3), ordenadas **por el backend** por mayor ganancia neta sobre
+  PSA 9. `grid-cols-2` (móvil, **4 visibles**) → `sm:grid-cols-3` → `lg:grid-cols-4` (las 8 en dos filas).
+  Cada entrada es la **teja de Compra con su badge** (§21.5), sin variación.
+- **Sin numeración mono roja.** La de §20.3 («Piezas destacadas») es orientadora; aquí implicaría un
+  *ranking de mejores oportunidades*, que es justo la afirmación que §N prohíbe. Y sería un segundo rojo.
+- **«Ver todas»:** se omite **mientras el contrato no exponga un filtro/orden de elegibles** — no se enlaza
+  a una vista que no filtra lo que promete. Solicitud anotada en §21.12.
+- **Vacío / error:** la sección **no se renderiza** (ni encabezado, ni nota, ni regla superior).
+- **Carga — excepción ratificada a §8.1:** esta vitrina **no pinta skeleton**. Aparece ya resuelta o no
+  aparece. Un skeleton reservaría espacio para una promesa comercial que puede no existir, y produciría el
+  salto de layout exacto que R4 quiere evitar. Se prefiere **prefetch/SSR**; si se resuelve en cliente, el
+  estado de carga es **nada**. (El resto de vitrinas conserva su skeleton de §18.6 sin cambios.)
+
+### 21.7 Estados — qué se renderiza y qué no
+
+| Situación (evaluada **server-side**, §N.4) | Ficha | Teja | Vitrina |
+|---|---|---|---|
+| PSA 10 + PSA 9 + precio raw, gate cumplido, dato fresco | **Bloque completo** (§21.3) | **Badge** (§21.5) | Entra, ordenada por ganancia sobre PSA 9 |
+| Falta **PSA 9** (aunque haya PSA 10) | **Nada** | Nada | No entra |
+| Falta **PSA 10** (aunque haya PSA 9) | **Nada** | Nada | No entra |
+| Falta el precio de venta raw / no publicada | Nada | La teja no existe | No entra |
+| **Gate de ROI no cumplido** (§N.2) | Nada | Nada | No entra |
+| **Dato rancio** (> umbral de frescura, §N.4) | Nada | Nada | No entra |
+| Producto **gradeado** o **sellado** | Nunca | Nunca | Nunca |
+| Ninguna carta elegible en el sitio | — | — | **La vitrina entera no existe** |
+
+- **No hay variante de dos cifras.** §N.4 exige los **tres** insumos, así que el bloque nunca degrada a una
+  retícula de dos celdas: o están los tres o no hay bloque. Esto simplifica el componente y elimina la
+  tentación de "medio gancho".
+  > *Contingencia documentada, hoy NO se implementa:* si product-owner llegara a autorizar un bloque con un
+  > solo grado, la degradación natural es la **retícula de dos celdas** que ya existe en la ficha
+  > (`sm:grid-cols-2`), con las mismas reglas de crescendo (17 → 26px), el mismo renglón base y el mismo
+  > disclaimer. No requeriría diseño nuevo. Requiere decisión de producto (§21.12).
+- **«Nada» significa nada:** sin encabezado, sin regla superior huérfana, sin `<hr>`, sin celda vacía, sin
+  espacio reservado y **sin el `PendingPriceLabel` de §7.3** — que sí es correcto en bóveda y back-office,
+  pero está **prohibido** en este bloque (§N.4: «ni siquiera "pendiente"»).
+- **Verificación visual:** una carta no elegible y una elegible deben producir tejas **idénticas** salvo el
+  bloque del badge; sin diferencia de altura reservada, sin borde extra.
+
+### 21.8 Móvil 390px — cómo se reordena la comparativa
+
+La retícula de tres cifras es lo que más riesgo tiene de romperse. Degradación explícita:
+
+| Superficie | `≥sm` (640px+) | `<sm` (390px) |
+|---|---|---|
+| **Retícula del bloque** | 3 celdas `Fact` en fila, separadas por `border-l`, alineadas a línea base | **3 renglones apilados**, cada uno en forma **etiqueta ⟷ cifra** (`justify-between`, línea base común), separados por `border-b` — la gramática de renglón de tabla de §20.2.4 / §20.7-móvil |
+| **Variante de `Fact`** | forma apilada actual (label arriba, cifra debajo) | variante **`row`**: `flex justify-between` en la misma línea. Es una **prop de `Fact`**, no un componente nuevo |
+| **Tamaños del crescendo** | 17 / 20 / 26px | **15 / 17 / 22px** (el crescendo se conserva; solo se comprime) |
+| **`note` (ganancia · multiplicador)** | bajo la cifra, mono 11px | bajo el renglón, alineado a la **derecha**, mono 10px (piso 10px si el `note` incluye aviso) |
+| **Chip hipotético** | en la etiqueta de la celda | igual, en la etiqueta del renglón; si la etiqueta envuelve, el chip baja a segunda línea, **nunca se recorta** |
+| **Renglón base + disclaimer** | ancho completo | ancho completo, mismos tamaños (**el disclaimer no encoge**, §21.4c) |
+| **Badge de teja** | eyebrow 10px + cifra 12px + micro-aviso 10px (1–2 renglones según ancho de teja) | idéntico salvo la cifra a **11px**; el micro-aviso **se queda en 10px** y envuelve a **2 renglones** (nunca se trunca ni se recorta a una sola idea) |
+| **Vitrina** | 4 columnas × 2 filas | 2 columnas, **4 tejas visibles** |
+
+Reglas de resistencia a cifras largas: todas las cifras llevan `tabular-nums` + `whitespace-nowrap`; la
+**etiqueta** es la que envuelve, nunca la cifra. Probar con `MX$ 999,999.00` en ES a 390px: el renglón
+etiqueta⟷cifra debe seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, el renglón
+baja un escalón de tamaño — **jamás** se trunca un monto ni se abrevia a «2.9k».
+
+### 21.9 Accesibilidad y contraste
+
+**Contraste — sin pares nuevos.** §21 no introduce ningún par que §10 / §17.2 / §20.15 no hayan verificado:
+
+| Par usado en §21 | Ratio | Veredicto |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel (todas las cifras del bloque y del badge) | ~15.5:1 | AA/AAA |
+| Muted `#6E695E` sobre papel (avisos, `note`, renglón base, disclaimer) | ~4.8:1 | AA ✓ (incluye el aviso de 10px) |
+| Muted sobre pozo `#EFEBE2` (si el bloque cae sobre banda de pozo) | ~4.6:1 | AA ✓ |
+| Regla `--color-accent` 2px de la nota al margen (no es texto) | 6.2:1 | decorativa, sobra |
+| `--color-border-strong` del chip punteado (borde de UI) | — | trazo de UI, acompañado siempre de texto |
+| Anillo de foco `--color-focus-ring` sobre papel/pozo | 6.2 / 5.9:1 | AA (≥3:1 UI) |
+
+**Reglas de accesibilidad propias del gancho:**
+- **Nada depende del color**, por construcción: el gancho no usa color. La ganancia y el multiplicador se
+  leen como **texto con signo explícito** (`+MX$ 430.00`, `≈ ×1.4`) y con su base nombrada.
+- **Glifos con lectura alternativa:** `≈` y `×` van `aria-hidden` y el valor se anuncia en prosa —
+  «aproximadamente 1.4 veces tu inversión». Nunca se deja que el lector de pantalla diga «x uno punto
+  cuatro».
+- **El grado hipotético se anuncia como hipotético** (§21.2): `aria-label` «Grado hipotético: PSA 10. Esta
+  carta no está gradeada.» — es la salvaguarda de accesibilidad más importante de esta feature.
+- **Semántica del bloque:** `<section aria-labelledby>` apuntando al eyebrow/título; la retícula
+  `aria-describedby` → el `role="note"` del disclaimer.
+- **Orden de tabulación y de DOM = orden visual** (precio real → estimado → aviso → CTA). El badge **no es
+  focuseable** (no es interactivo; la teja entera ya es un enlace) — no se anida un control dentro del link.
+- **Sin información solo-hover:** el `title` del badge es redundante del `sr-only`, nunca su única vía.
+- El estimado **no se anuncia con `aria-live`**: no es un cambio de estado, es contenido estático.
+
+### 21.10 Qué NO hacer (lista de prohibiciones — esta feature es donde el sistema se rompe)
+
+1. **No** crear un color de «oferta», «ganancia», «upside» ni un verde de dinero. No hay token nuevo.
+2. **No** usar `--color-success` para la ganancia: el verde del sistema significa *confirmado/liquidado*
+   (§2.4); una ganancia hipotética no está confirmada.
+3. **No** usar `--color-accent` para la cifra ni para el badge. Su único papel aquí es la regla de 2px de
+   la nota al margen. Dos rojos en una teja (stock + gancho) sería ruido sin significado (§17.2).
+4. **No** meter el bloque ni el badge en una **caja**, pastilla, panel con relleno, borde de color, sombra,
+   relieve o gradiente (§2.1, §4.2, §4.3, §16.6/§17 sobre gradientes).
+5. **No** poner el badge **sobre el arte** (§7.2b) ni añadir icono de flecha ascendente, gráfica, cohete,
+   fuego, estrella ni emoji (§1.3).
+6. **No** tachar ni atenuar el precio raw para "hacer ver" el estimado: no es un descuento y el precio de
+   venta es el dato real de la pantalla.
+7. **No** expresar el upside como **porcentaje de rendimiento** ni con lenguaje de instrumento financiero
+   («+312% de retorno», «ROI», «rendimiento anualizado»). Diferencia en MXN y multiplicador con base
+   nombrada, y nada más (§N.3).
+8. **No** mostrar un chip `PSA 10` sin el condicional ni sin el borde punteado (§21.2).
+9. **No** mostrar el estimado más grande que el precio de venta de la misma pantalla, ni en la voz sans del
+   precio display (R2).
+10. **No** renderizar «pendiente», `—`, `$0`, un rango inventado, un skeleton persistente ni un encabezado
+    de sección vacío cuando falte el dato (R4).
+11. **No** esconder el disclaimer tras hover, tap, `<details>`, acordeón, modal, scroll interno o «ver
+    términos» como único acceso; **no** bajarlo de 13px de cuerpo en la ficha ni de 10px en ninguna
+    superficie; y **no** recortar la versión corta a una sola de sus dos ideas obligatorias — *ilustrativo*
+    y *no evaluamos esta carta* viajan juntas siempre (R3, §21.4b, §21.4c).
+12. **No** llevar el estimado a superficies de dinero real: carrito, checkout, correos de confirmación,
+    bóveda, portafolio, cotizador de buylist ni back-office financiero. §21 vive **solo** en ficha, teja de
+    Compra y vitrina del home.
+
+### 21.11 i18n — claves nuevas (propiedad de frontend)
+
+Convención §9.2, ES de referencia y EN obligatorio (§N.3 exige el disclaimer en ambos idiomas):
+
+- `catalog.gradingUpside.{eyebrow,title,updatedAt,rawLabel,rawNote,ifGradesLabel,psa9Label,psa10Label,gainNote,basisLine,costTierNote}`
+- `catalog.gradingUpside.disclaimer.{headline,critical,p1,p2,p3,p4,p5}` — **una clave por párrafo**, para
+  que el tratamiento de §21.4a sea posible: `headline` es el titular mono en versalitas, `critical` es el
+  párrafo de 15px en tinta («no evaluamos esta pieza») y `p1…p5` son los del tiempo 2. Las **entradillas en
+  negrita** de cada párrafo se marcan con **rich text de next-intl** (`<b>…</b>` con `b: (c)=><strong>`),
+  **nunca** partiendo la frase en dos claves ni concatenando (§9.4).
+- `catalog.gradingBadge.{eyebrow,figure,caveatMicro,srDisclaimer}` — `figure` interpola grado y monto
+  (`{grade}`, `{amount}`); **`caveatMicro`** es la micro-línea visible de la capa 1 (≤ 46 car., debe cargar
+  *ilustrativo* + *no evaluamos esta carta*); `srDisclaimer` es la versión corta íntegra de §N.5
+  (`sr-only` + `title`).
+- `catalog.gradingUpside.gridNote` — la versión corta íntegra visible de la capa 3 (§21.5); mismo texto que
+  `srDisclaimer`, clave aparte por si el copy diverge.
+- `catalog.gradingUpside.hypotheticalGradeAria` — «Grado hipotético: {company} {grade}. Esta carta no está
+  gradeada.»
+- `home.gradingGems.{title,kicker,lead}` (sin `viewAll` mientras no exista el filtro, §21.6).
+
+Notas §9.4: las etiquetas condicionales crecen en ES («SI SALE PSA 10» vs «IF IT GRADES PSA 10» — aquí EN
+es el largo, caso poco común: dimensionar por el **máximo de ambos**). El renglón base y el disclaimer son
+los textos más largos del bloque: deben poder envolver sin tocar los tamaños.
+
+### 21.12 Notas a otros roles (ninguna bloquea el diseño)
+
+1. **Product-owner — longitud del disclaimer completo (recomendación, no bloqueo).** El texto de §N.5
+   (titular + seis párrafos, ~250 palabras en ES) **se puede tratar** —§21.4a lo hace legible con dos
+   tiempos y entradillas— y **queda íntegro y a la vista**, sin plegar. Dicho eso, la recomendación
+   profesional de ux-ui es que **la revisión legal lo poden a titular + cuatro párrafos**: los puntos 5
+   («no gradeamos ni intermediamos», con el desglose de cuotas/envíos/seguros) y 6 («los precios cambian a
+   diario») **ya están dichos** en otras partes de la misma pantalla —el renglón base del bloque nombra el
+   costo de gradeo y lo que incluye (§21.3), y la fecha de refresco está en el encabezado— y su repetición
+   alarga el bloque ~35% sin añadir información nueva. **Un aviso más corto se lee más y protege más.**
+   Si el texto se acorta, **§21 no cambia**: el tratamiento ya está dimensionado para ambas longitudes.
+2. **Product-owner — micro-línea del badge (`caveatMicro`, §21.5 capa 1).** Falta su texto aprobado: ≤ 46
+   caracteres en ES, debe cargar **las dos ideas obligatorias** de §N.5 (*ilustrativo* + *no evaluamos esta
+   carta*). Propuesta de ux-ui como punto de partida: **«Ilustrativo · no evaluamos esta carta»** /
+   **«Illustrative · we haven't assessed this card»**. Es un texto legal-comercial, así que lo fija PO (y,
+   idealmente, la misma revisión legal del disclaimer), no el diseño.
+3. **Product-owner — base del multiplicador** (§21.3): decidir entre «frente al raw» (§N.3) y «sobre la
+   inversión total» (recomendación de ux-ui). El diseño soporta ambas; la etiqueta nombra la base.
+4. **Product-owner — variante de un solo grado:** §N.4 la prohíbe hoy y §21.7 la respeta. La contingencia
+   está documentada por si alguna vez se autoriza; **no se implementa**.
+5. **Arquitecto — datos que §21 necesita del contrato (v1.43)**, todos ya evaluados server-side: el
+   estimado **PSA 9** y **PSA 10** en centavos MXN, la **elegibilidad** ya resuelta (booleano; el cliente
+   no la recalcula), la **ganancia** y el **multiplicador** ya calculados, el **costo de gradeo del escalón
+   aplicado** más una **etiqueta legible del escalón** (p. ej. «hasta MX$ 2,000») para el renglón base, y
+   la **fecha de refresco**. Si alguno no llega, la regla R4 aplica y el bloque no se pinta. **El diseño
+   pide explícitamente que el multiplicador y la ganancia vengan derivados**, para no recalcular dinero en
+   el cliente (SEC-A1).
+6. **Arquitecto — orden/filtro de elegibles:** la vitrina del home necesita el listado ordenado por
+   ganancia neta sobre PSA 9 (cap 8). Además, para poder ofrecer un «Ver todas» honesto en §21.6, haría
+   falta un **filtro/orden de elegibles** en `GET /catalog/cards`. Mientras no exista, la vitrina **omite**
+   el enlace (no se enlaza a una vista que no filtra lo que promete).
+7. **Frontend:** la variante `row` de `Fact` y el `leading-[1.5]` de su `note` (§21.3, §21.8) son las dos
+   únicas modificaciones a componentes existentes que pide §21; ambas viven en `CardDetailView.tsx`, que ya
+   es propiedad de esta vista. El disclaimer se pinta **una clave por párrafo con rich text** (§21.11), no
+   como un solo string. La excepción de skeleton de §21.6 es intencional: prefetch/SSR preferido.
+8. **QA visual sugerido:** (a) carta elegible vs. no elegible → tejas idénticas salvo el bloque del badge,
+   **sin diferencia de altura reservada**; (b) subir `minUpsidePct` hasta que la carta deje de calificar →
+   desaparecen bloque, badge y entrada de vitrina, **y también la nota de retícula** si no queda ninguna
+   elegible, sin dejar hueco; (c) ninguna cifra de estimado en el DOM sin aviso en su contenedor (§21.4d);
+   (d) 390px: la retícula de tres cifras en renglones, sin scroll horizontal ni monto truncado, probado con
+   `MX$ 999,999.00` en ES; (e) el disclaimer nunca por debajo de 10px (13px de cuerpo en la ficha) en ningún
+   viewport, y **el titular y el párrafo crítico visibles sin interacción** —sin `<details>`, sin «leer
+   más», sin scroll interno—; (f) EN completo, incluido el disclaimer y la micro-línea del badge; (g) el
+   estimado **no aparece** en carrito, checkout, correos, bóveda ni buylist; (h) lector de pantalla: el chip
+   anuncia «grado hipotético», el multiplicador se lee en prosa y el `sr-only` del badge trae la versión
+   corta íntegra; (i) el bloque de la ficha **no se interpone** entre el precio y el CTA de «Ejemplares
+   disponibles» (§21.3).
