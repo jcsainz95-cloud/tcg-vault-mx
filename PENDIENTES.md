@@ -67,6 +67,24 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
+#### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — EN CURSO
+- **Reportado por el humano:** en el binder, Normal/Reverse Holo/Holofoil de la misma carta muestran el
+  **mismo MERCADO** (Dartrix 1.14=1.14; Luxray reverse 2.47=holofoil 2.47). El proveedor manda precio
+  distinto por acabado; se está aplanando.
+- **Causa raíz (money-adjacent):** display y clave `PriceReference` SÍ son por-acabado (sin fallback). El
+  aplanamiento ocurre en la **ingesta**: el provider primario `PokemonPriceTrackerBulkProvider` en modo
+  `fetchPrintings` (`pokemonpricetracker-bulk.provider.ts:268-295`, `mapEntry` rama forced `:560-564`) lee el
+  `market` de **nivel carta** en las 3 pasadas → escribe el mismo precio a normal/reverse_holo/holofoil. La
+  API v2 de PPT no varía el market por `?printing=`. Test que enmascara: `fix-ppt.spec.ts:84-109` (hardcodea
+  3 markets distintos). Fuente correcta por-acabado = **TCGCSV `tcgcsv_singles`** (per subTypeName), con
+  precedencia sobre PPT, pero solo corre en refresh/import, no en el barrido diario.
+- **Fix (EN CURSO, backend):** que PPT no copie el market a las 3 impresiones (deja pendiente el que no
+  conoce, nunca el precio de otro acabado) y que la fuente por-acabado (TCGCSV) provea el precio; corregir el
+  test. Si implica cambiar la estrategia de fuente del barrido → arquitecto. Money-safe: sin precio propio →
+  pendiente/«—», jamás el de otro acabado.
+- **Mitigación:** correr el refresh de precios TCGCSV (per-acabado, gana sobre PPT) sobrescribe los aplanados.
+
+
 #### P-46 · Sincronizar sellado devuelve «0 presentaciones»: el set no resuelve grupo TCGCSV (prod)
 - **Reportado por el humano:** al Sincronizar sellado de **Pitch Black (2026)** (y Chaos Rising) sale «0
   presentaciones». **El botón SÍ funciona** — la sync corre.
