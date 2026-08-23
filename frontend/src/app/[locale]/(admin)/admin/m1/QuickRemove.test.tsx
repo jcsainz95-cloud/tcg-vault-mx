@@ -52,6 +52,52 @@ describe('QuickRemoveSection (P-29) · baja rápida de inventario', () => {
     expect(screen.queryByRole('button', { name: /Dar de baja/ })).toBeNull();
   });
 
+  it('caso P-36 (1 pieza): stepper topado en [1,1] → AMBOS botones deshabilitados y el número no cambia', () => {
+    renderWithProviders(<QuickRemoveSection target={target} removableCount={1} />, 'es');
+
+    expect(screen.getByText('1 piezas disponibles para dar de baja.')).toBeInTheDocument();
+    const minus = screen.getByRole('button', { name: 'Restar uno' });
+    const plus = screen.getByRole('button', { name: 'Sumar uno' });
+    // Sin margen (min=max=1): los dos botones están REALMENTE deshabilitados (no clickeables-muertos).
+    expect(minus).toBeDisabled();
+    expect(plus).toBeDisabled();
+
+    const qty = screen.getByLabelText('Cantidad a dar de baja') as HTMLInputElement;
+    fireEvent.click(plus); // no-op: disabled
+    fireEvent.click(minus); // no-op: disabled
+    expect(qty.value).toBe('1');
+    // El CTA de baja de 1 sigue operativo (con nota).
+    fillNote();
+    expect(screen.getByRole('button', { name: 'Dar de baja 1' })).toBeEnabled();
+  });
+
+  it('multi-pieza (3): + sube 1→3 y se deshabilita en el tope; − baja 3→1 y se deshabilita en el piso', () => {
+    renderWithProviders(<QuickRemoveSection target={target} removableCount={3} />, 'es');
+
+    const minus = screen.getByRole('button', { name: 'Restar uno' });
+    const plus = screen.getByRole('button', { name: 'Sumar uno' });
+    const qty = screen.getByLabelText('Cantidad a dar de baja') as HTMLInputElement;
+
+    // Piso: en 1, «Restar uno» está deshabilitado; «Sumar uno» activo.
+    expect(minus).toBeDisabled();
+    expect(plus).toBeEnabled();
+
+    fireEvent.click(plus); // 1 → 2
+    expect(qty.value).toBe('2');
+    expect(minus).toBeEnabled();
+    fireEvent.click(plus); // 2 → 3 (tope)
+    expect(qty.value).toBe('3');
+    // Tope: «Sumar uno» se deshabilita (nunca por encima de removableCount).
+    expect(plus).toBeDisabled();
+
+    fireEvent.click(minus); // 3 → 2
+    expect(qty.value).toBe('2');
+    expect(plus).toBeEnabled();
+    fireEvent.click(minus); // 2 → 1 (piso)
+    expect(qty.value).toBe('1');
+    expect(minus).toBeDisabled();
+  });
+
   it('money-safe: el stepper se capa al conteo VISIBLE (no ofrece bajar de más)', () => {
     renderWithProviders(<QuickRemoveSection target={target} removableCount={2} />, 'es');
 

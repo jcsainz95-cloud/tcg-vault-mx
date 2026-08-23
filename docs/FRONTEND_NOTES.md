@@ -5676,3 +5676,41 @@ singles y el contraste `availableCount===1 → «Último»` (lastUnit) para sell
 **FE-2 registrada** en `TECH_DEBT.md` (Baja, dueño frontend, bloqueada por backend **H1**/arquitecto):
 alinear el trato «desde»/sin IVA en singles cuando el rename `salePriceCents→fromPriceCents` llegue por
 contrato. **FE-1 marcada RESUELTO.**
+
+---
+
+## P-36 · Fix stepper «Baja rápida» (QuickRemove) — bug reportado en prod
+
+**Síntoma:** en «Baja rápida» del inventario admin (M1), los botones +/− de «CANTIDAD A DAR DE BAJA»
+no cambiaban el número (carta con «1 piezas disponibles»).
+
+**Causa raíz = caso (b), NO bug funcional.** Con `removableCount=1` el stepper queda topado en `[1,1]`
+(min=max=1): ambos botones **deben** ser no-op y ya llevaban el atributo `disabled`. El
+incremento/decremento funciona correctamente para `removableCount≥2` (cubierto por tests), y
+`removableCount` está **bien calculado**: sale de `VariantDrawer` como
+`rows.filter(status ∈ {in_stock,listed}).length` sobre piezas `ownerType=platform`; cada
+`InventoryItemDTO` es UNA pieza física (no hay campo `quantity` que sumar), y el filtro respeta el
+contrato (§ «solo platform + in_stock|listed son ajustables»). Es decir: la carta de la captura
+**realmente** tiene 1 pieza ajustable → 1 es correcto.
+
+**El defecto real era de UI:** los botones deshabilitados conservaban `hover:bg-surface-2`, que en
+Tailwind se dispara al pasar el cursor **aunque** el botón esté `disabled` → el botón se «encendía»
+bajo el puntero y se leía como *clickeable-pero-muerto*. El humano lo interpretó como «no responden».
+
+**Cambio (`QuickRemove.tsx`, ambos botones):**
+- `hover:bg-surface-2` → `enabled:hover:bg-surface-2` (el hover solo aplica cuando NO está disabled).
+- Estado disabled más evidente: `disabled:border-border disabled:bg-surface-2 disabled:text-muted`
+  (además del `disabled:opacity-45 disabled:cursor-not-allowed` que ya existía) + `aria-disabled`.
+- Lógica del stepper intacta (ya era correcta): + sube hasta `removableCount`, − baja hasta 1.
+
+**Money-safe intacto:** el envío sigue exigiendo `note` no-vacía + `batchKey` idempotente; el stepper
+sigue capado a `removableCount`. No se tocó `removableCount` (estaba bien).
+
+**Nota de borde (no bug):** `getAdminInventory` pide `pageSize:100`; una variante con >100 piezas
+subcontaría `removableCount` — dirección **money-safe** (nunca ofrece bajar de más). Sin acción.
+
+**Tests añadidos** (`QuickRemove.test.tsx`): caso P-36 (1 pieza → ambos botones `disabled`, el número
+no cambia, CTA «Dar de baja 1» operativo) y multi-pieza (3 → + sube 1→3 y se deshabilita en el tope;
+− baja 3→1 y se deshabilita en el piso).
+
+**Verde:** `vitest run` **73 archivos / 595 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.

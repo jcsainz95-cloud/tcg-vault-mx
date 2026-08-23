@@ -159,7 +159,8 @@ export function QuickRemoveSection({ target, removableCount, onRemoved, onToast 
                 type="button"
                 aria-label={t('qtyMinus')}
                 disabled={qtyNum <= 1}
-                className="flex h-11 w-11 items-center justify-center border border-border-strong text-text hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45"
+                aria-disabled={qtyNum <= 1}
+                className="flex h-11 w-11 items-center justify-center border border-border-strong text-text enabled:hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-2 disabled:text-muted disabled:opacity-45"
                 onClick={() => {
                   setConfirming(false);
                   setQty(String(Math.max(1, qtyNum - 1)));
@@ -182,7 +183,8 @@ export function QuickRemoveSection({ target, removableCount, onRemoved, onToast 
                 type="button"
                 aria-label={t('qtyPlus')}
                 disabled={qtyNum >= removableCount}
-                className="flex h-11 w-11 items-center justify-center border border-border-strong text-text hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45"
+                aria-disabled={qtyNum >= removableCount}
+                className="flex h-11 w-11 items-center justify-center border border-border-strong text-text enabled:hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-2 disabled:text-muted disabled:opacity-45"
                 onClick={() => {
                   setConfirming(false);
                   setQty(String(Math.min(removableCount, qtyNum + 1)));
