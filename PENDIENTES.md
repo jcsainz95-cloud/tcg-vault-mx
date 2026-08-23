@@ -7,7 +7,22 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 
 ## Listo en `main` — esperando «publica»
 
-Doble veredicto por-stream aprobado; mergeado a `main` (`a85fb22`). Se despliega a producción con «publica».
+Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega a producción con «publica».
+
+- **Endurecimiento inventario/sellado (2026-08-23, doble veredicto QA+techlead APROBADO + E2E ciclo completo):**
+  El gate E2E pre-publicación (stack levantado, 63+ capturas) verificó operativo de punta a punta: comprar
+  (settle certificado por suite de integración con webhook Stripe firmado; pago real staging-only), vender
+  (buylist con CLABE cifrada), **admin intake→publicar** (venta→SPEI→inventario a costo real→«N+1 en stock»),
+  y **subir sellado**→publicar→visible en Compra. Cierres: **BLOQ-1** (el alta por lote perdía el costo de
+  compra → P&L; ya persiste), **BLOQ-2/2a/2b** (regresión «Tropius» muerta en M1›Sellado, «Mis piezas» y
+  cola M2), **BLOQ-3** (el binder cuenta solo singles; el sellado no infla conteos), **IMP-1** (alta sellado
+  sin dead-end vía `effectiveMarketCents` gateado), **IMP-2** (badge en vivo), **IMP-A** (cotizador ya no
+  crashea por cantidad absurda), **IMP-B** (M5 deja convertir tras pagar), **IMP-C** (el override manual del
+  sellado sobrevive al dial off; bucle roto), **IMP-D** (el **T2=25%** de P-34 entra en vigor vía reshape de
+  datos), y la **cola M2 del sellado a 1 sola fila resoluble** por pieza. Contratos **v1.41/v1.42/v1.43**,
+  **migración M-40** (`PendingPriceEntry.sealedProductId`, aditiva). Money-safe en todo el recorrido (sin
+  precio → pendiente, nunca $0). *(Deuda no bloqueante anotada: D-1 cascada display duplicada, D-2
+  `resolveAnchorCardId` duplicado money-adjacent, D-3 saneo de pendientes legacy.)*
 
 - **Deuda saldada (2026-08-23, doble veredicto QA+techlead APROBADO):** backend H-P38-4 (upsert atómico
   del sync sellado), P-34 H5 (`mega`/`blackwhite` premium), P-34 H4 (invariante premium→pct testeado),
@@ -33,9 +48,18 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`a85fb22`). Se despliega
 - **P-39/P-40** · foto HD en el featured/ficha + etiqueta de **acabado**.
 - **P-36** · stepper de baja rápida: botones disabled ya no se ven «encendidos» al hover.
 
-**Al publicar (devops/Railway):** `migrate deploy` corre **M-39** (tablas nuevas aditivas), luego correr
-**`ts-node prisma/backfill-m39-sealed-product.ts`** (cura ETB→Tropius; idempotente), y el
-**`unify-rarities`** pendiente de P-34. Después, en cada set, «Sincronizar» trae sus presentaciones.
+**Al publicar (devops/Railway) — runbook en `DEVOPS_NOTES.md §27`, orquestado por `scripts/post-deploy.sh`
+(idempotente; PARA si el reshape detecta BD de precios editada a mano):**
+1. `prisma migrate deploy` → **M-39** (SealedProduct) + **M-40** (`PendingPriceEntry.sealedProductId`), aditivas.
+2. `ts-node prisma/backfill-m39-sealed-product.ts` — cura ETB→Tropius (idempotente).
+3. `ts-node prisma/backfill-p34-tiered-pricing.ts` — **reshape de tiers T2=25%** (money-crítico; si imprime
+   «⚠ ACCIÓN REQUERIDA» → PARAR y escalar al humano para el mapeo a mano).
+4. `unify-rarities` (cosmético del editor M2, pendiente de P-34).
+5. *(D-3, no bloqueante)* si aparecen filas de sellado huérfanas en la cola M2 de altas previas al fix →
+   barrido puntual (deuda backend registrada).
+6. Por cada set: «Sincronizar» trae presentaciones (requiere egress real a `tcgcsv.com`).
+> **Antes del deploy:** snapshot/PITR de la Postgres de prod (única vía de rollback fino del dinero del paso 3).
+> **Rollback:** migraciones aditivas → redeploy del commit anterior; backfills idempotentes/no destructivos.
 
 ---
 
