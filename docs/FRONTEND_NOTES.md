@@ -4,6 +4,28 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21)
+
+> Rama `fix/variant-composition-regression`. El humano decidió publicar SIN razón social por ahora.
+> El literal placeholder **«[Razón social pendiente]»** NO puede verse en producción.
+
+- **Problema:** el footer del storefront (`(storefront)/layout.tsx`, `Footer()`) renderizaba
+  `«TCG HUNT · tcghunt.mx · © {año} {footer.legalEntity}»` con `footer.legalEntity` =
+  `[Razón social pendiente]` (es) / `[Legal entity pending]` (en), dejando el placeholder visible.
+- **Fix data-driven:** nuevo helper puro `resolveLegalEntity(raw)` en
+  `frontend/src/app/[locale]/(storefront)/footer.ts`. Devuelve `null` cuando el valor es
+  vacío/en blanco o está envuelto en corchetes (convención de placeholder de los archivos de
+  mensajes), y el string recortado en caso contrario. `Footer()` (`layout.tsx:58`) omite la razón
+  social cuando el helper devuelve `null`: el footer queda «TCG HUNT · tcghunt.mx · © {año}»,
+  coherente y sin texto colgando (la marca «TCG HUNT» ya abre la línea, no hay «©» huérfano).
+- **Comportamiento futuro:** cuando el humano cargue una razón social real (sin corchetes) en
+  `messages/*.json` → `common.footer.legalEntity`, aparece automáticamente, sin cambios de código.
+- **Mensajes intactos:** `messages/es.json`/`en.json` conservan el placeholder entre corchetes como
+  marcador de intención; el resolver lo neutraliza en runtime. No toqué el contrato ni el backend.
+- **Cobertura:** `footerLegalEntity.test.ts` (3 casos: vacío/blanco/undefined/null → null;
+  placeholders es/en → null; razón social real recortada). tsc `--noEmit`, `npm test`
+  (622 passed) y `next build` verdes.
+
 ## Pase de deuda técnica frontend (2026-08-23) — cotizador H1/H3/H4 + H-P38-5
 
 > Pago de deuda **segura y de display/UX** (money-safe intacto). Detalle en `docs/TECH_DEBT.md`

@@ -3,6 +3,7 @@ import { StorefrontHeader } from '@/components/layout/StorefrontHeader';
 import { VerifyEmailBanner } from '@/components/domain/VerifyEmailBanner';
 import { PrivateRouteGuard } from '@/components/layout/PrivateRouteGuard';
 import { Link } from '@/i18n/navigation';
+import { resolveLegalEntity } from './footer';
 
 /*
  * Dirección 5a: el ancho de lectura es 1280px (max-w-7xl) y el margen crece a 32px
@@ -50,13 +51,17 @@ function Footer() {
   const tn = useTranslations('nav');
   // Footer legal (§17.3): «TCG HUNT · tcghunt.mx · © {año} [razón social]» en mono.
   // El dominio va SIEMPRE en minúsculas (§17.4) — se exceptúa del uppercase del bloque.
-  // La razón social está abierta con el humano (P-21): placeholder `footer.legalEntity`.
+  // La razón social está abierta con el humano (P-21): `footer.legalEntity` data-driven.
+  // Si aún no hay razón social, se omite (degradación con gracia): queda «TCG HUNT ·
+  // tcghunt.mx · © {año}», coherente y sin placeholder colgando.
   // D7: el año es dinámico (§20.10 «© {año}»), no un literal que caduque.
+  const legalEntity = resolveLegalEntity(t('footer.legalEntity'));
   return (
     <div className="flex flex-col gap-3 font-mono text-[11px] uppercase tracking-label text-muted sm:flex-row sm:items-center sm:justify-between">
       <p>
         {t('brand.name')} · <span className="normal-case">{t('brand.domain')}</span> ·{' '}
-        {`© ${new Date().getFullYear()}`} {t('footer.legalEntity')}
+        {`© ${new Date().getFullYear()}`}
+        {legalEntity ? ` ${legalEntity}` : ''}
       </p>
       <Link href="/terminos" className="text-text hover:text-accent">
         {tn('terms')}
