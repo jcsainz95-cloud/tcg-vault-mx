@@ -151,7 +151,7 @@
     "title": "Comprar",
     "subtitle": "Nuestro inventario publicado a la venta. Solo listamos lo que tiene precio.",
     "eyebrow": "Catálogo · MXN sin IVA",
-    "piecesAvailable": "{count, plural, =0 {Sin piezas disponibles} one {# pieza disponible} other {# piezas disponibles}}",
+    "piecesAvailable": "{count, plural, =0 {Sin publicaciones disponibles} one {# publicación disponible} other {# publicaciones disponibles}}",
     "resultsCount": "{count, plural, =0 {Sin resultados} one {# resultado} other {# resultados}}",
     "filterSet": "Set",
     "filterRarity": "Rareza",
@@ -1905,8 +1905,8 @@
         "colPieces": "Piezas",
         "colListed": "Listadas",
         "colValue": "Valor de mercado",
-        "unmappedBadge": "{count} sin mapeo",
-        "unmappedQueue": "Cola de no mapeados ({count})",
+        "unmappedBadge": "{count} sin precio",
+        "unmappedQueue": "Cola de precios pendientes ({count})",
         "emptyTitle": "Sin producto sellado en inventario.",
         "emptyBody": "El alta por lote admite tipo sellado.",
         "emptyCta": "Alta por lote",
@@ -2180,7 +2180,8 @@
         "label": "Precio de mercado manual (MX$)",
         "mustBePositive": "Debe ser mayor a 0.",
         "auditNotice": "Es un override auditado: queda registrado a tu nombre y alimenta la valuación de esta pieza.",
-        "pendingIfEmpty": "Sin precio manual, la aportación quedará pendiente de precio."
+        "pendingIfEmpty": "Sin precio manual, la aportación quedará pendiente de precio.",
+        "suggestion": "Referencia informativa (última conocida): {amount}. No fija el precio."
       }
     }
   },

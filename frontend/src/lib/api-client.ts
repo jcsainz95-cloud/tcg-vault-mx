@@ -122,6 +122,28 @@ function refreshTokensShared(): Promise<TokenPair | null> {
   return refreshInFlight;
 }
 
+/**
+ * v1.42 (menor, ruido 401): decodifica el `exp` (segundos epoch) del JWT de acceso SIN validar la
+ * firma (solo para decidir REFRESH PROACTIVO en cliente; la autoridad sigue siendo el backend). El
+ * access token dura 15m, así que tras un rato inactivo la PRIMERA request de cada navegación admin
+ * llegaba garantizada a 401 (→ refresh → retry): funcionaba, pero el navegador pintaba el 401 en rojo
+ * en consola en CADA navegación. Refrescar ANTES de disparar la request que de todos modos daría 401
+ * elimina ese ruido en su origen (cliente), sin cambiar el fallback reactivo. Con `skewMs` de colchón
+ * para tokens a punto de vencer. Token malformado/sin `exp` ⇒ `false` (no bloquea; cae al 401 reactivo).
+ */
+function isAccessTokenExpired(token: string, skewMs = 5_000): boolean {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return false;
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+    const payload = JSON.parse(json) as { exp?: number };
+    if (typeof payload.exp !== 'number') return false;
+    return Date.now() >= payload.exp * 1000 - skewMs;
+  } catch {
+    return false; // no se pudo decodificar → no asumir nada; el 401 reactivo sigue cubriendo.
+  }
+}
+
 /** Cliente REST/JSON tipado contra NEXT_PUBLIC_API_BASE_URL (contrato §0). */
 export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   return requestWithRefresh<T>(path, opts, true);
@@ -199,7 +221,16 @@ async function requestWithRefresh<T>(
     }
   }
 
-  const token = getToken();
+  // v1.42 (menor, ruido 401): si el access token ya venció y tenemos refresh, renovamos ANTES de
+  // disparar la request (que si no daría un 401 garantizado y ruidoso en cada navegación admin). El
+  // single-flight evita renovar N veces; si el refresh falla, seguimos con el token viejo y el 401
+  // reactivo de más abajo hace su trabajo (limpia sesión → login). Solo en el primer intento
+  // (`allowRefresh`) y fuera de rutas de auth.
+  let token = getToken();
+  if (allowRefresh && !isAuthPath(path) && token && getRefreshToken() && isAccessTokenExpired(token)) {
+    const pair = await refreshTokensShared();
+    token = pair?.accessToken ?? getToken();
+  }
   const res = await fetch(url.toString(), {
     method: opts.method ?? 'GET',
     headers: {

@@ -473,8 +473,9 @@ describe('M1View · Pestañas Sellado y Gradeadas (P-25 / P-20)', () => {
     // tabla md+ y bloques <md → el mismo texto aparece dos veces.)
     expect((await screen.findAllByText('Surging Sparks')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('MX$3,200.00').length).toBeGreaterThan(0);
-    // super_admin ve el acceso a la cola de no-mapeados (unmappedTotal global > 0).
-    expect(screen.getByRole('link', { name: /Cola de no mapeados/ })).toBeInTheDocument();
+    // super_admin ve el acceso a la cola de precios pendientes (unmappedTotal global > 0).
+    // v1.42 (menor): el label dejó de decir «no mapeados» (contaba piezas SIN PRECIO, no sin mapeo).
+    expect(screen.getByRole('link', { name: /Cola de precios pendientes/ })).toBeInTheDocument();
   });
 
   it('Sellado: para vault_operator NO existe el enlace a la cola de no-mapeados', async () => {
@@ -483,7 +484,7 @@ describe('M1View · Pestañas Sellado y Gradeadas (P-25 / P-20)', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Sellado' }));
 
     await screen.findAllByText('Surging Sparks');
-    expect(screen.queryByRole('link', { name: /Cola de no mapeados/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Cola de precios pendientes/ })).not.toBeInTheDocument();
   });
 
   it('Gradeadas: lista por carta+grado con valor manual ·M y costo (super_admin)', async () => {

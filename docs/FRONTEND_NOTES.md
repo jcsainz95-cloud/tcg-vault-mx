@@ -5940,3 +5940,74 @@ siguen viniendo del server; la UI solo los MUESTRA).
 - `catalog/CatalogTile.test.tsx`: rareza visible con aria «Rareza: Rare Holo».
 
 **Verde:** `vitest run` **77 archivos / 612 tests** ✓, `tsc --noEmit` ✓, `next build` ✓.
+
+---
+
+## Pase v1.41/v1.42 — sellado con identidad real + regresión de composición de variantes (rama `fix/variant-composition-regression`)
+
+Consume los campos nuevos del contrato v1.41 (IMP-1) y v1.42 (BLOQ-2a/2b/3, menores) y cierra los
+hallazgos del gate E2E. Todo confinado a `frontend/`. Money-safe respetado: sin precio ⇒ «pendiente»/«—»,
+NUNCA $0.
+
+### Tipos (espejo del contrato) — `src/types/contract.ts`
+- +`SealedPriceSource = 'tcgcsv' | 'off'` (dial §M10).
+- `SealedProductDTO` +`effectiveMarketCents: number | null` (autoritativo, gateado por `sealedPriceSource`);
+  `marketRef` reetiquetado como INFORMATIVO.
+- `SealedProductListResponse` +`sealedPriceSource`.
+- `HoldingDTO` +`sealedProductId?/sealedProductName?/sealedImageUrl?/sealedCondition?` (solo sealed; display
+  ya RESUELTO server-side por la cascada §4.34a).
+- `PendingPriceEntryDTO` +`sealedProductId?/sealedProductName?/sealedSubtype?` (solo sealed).
+
+### IMP-1 (v1.41) — dead-end del alta de sellado eliminado
+`src/app/[locale]/(admin)/admin/m1/SealedAddFlow.tsx`
+- La visibilidad del campo manual y el copy «valor de mercado» ahora KEYEAN en
+  `selected.effectiveMarketCents` (autoritativo, gateado), no en `marketRef`/caché (`liveMarketCents`
+  eliminado):
+  - `gatedMarketCents = selected?.effectiveMarketCents ?? null` (~L175).
+  - `showManualField = selected != null && gatedMarketCents == null && canManualMarket` (~L188).
+  - `resolvedMarketCents = gatedMarketCents ?? (manualValid ? manualCents : null)` → pasa a
+    `QuickAddSection.marketRefCents` (~L186, L419).
+  - `manualMarketMxnCents` viaja solo si `gatedMarketCents == null && manualValid` (~L414).
+  - `SelectedSummary` recibe `gatedMarketCents` y pinta el chip de mercado desde ese valor (~L370, L512).
+  - `marketRef` queda como sugerencia informativa opcional cuando no hay mercado gateado, vía nuevo prop
+    `suggestionCents`/`locale` de `SealedManualMarketField.tsx` (+ i18n `admin.sealedAdd.manualMarket.suggestion`).
+- Invariante logrado: lo que la UI ofrece == lo que el backend acepta (con dial `off`, `effectiveMarketCents`
+  es null ⇒ muestra manual; nunca promete un mercado que daría 422). Regresión cubierta por test nuevo
+  «IMP-1 (dead-end): dial off …» en `SealedAddFlow.test.tsx`.
+
+### BLOQ-2a (v1.42) — «Mis piezas» del cliente con identidad real del sellado
+`src/app/[locale]/(storefront)/vault/VaultView.tsx` (~L280): para `productType==='sealed'`,
+`displayName = sealedProductName ?? card.name`, `displayImage = sealedImageUrl ?? card.imageSmallUrl`.
+raw/graded intactos. Mock: holding sealed `inv-1008` ganó identidad (`sealedProductName`/`sealedImageUrl`/…).
+
+### BLOQ-2b (v1.42) — cola M2 muestra el nombre del sellado
+`src/app/[locale]/(admin)/admin/m2/sections/PendingQueueSection.tsx`: helper `pendingDisplayName(e)` usa
+`sealedProductName` para sealed; se aplica en ambas columnas (venta/compra) y en el modal de override.
+Mock: entradas `ppe-3`/`ppe-4` (ETB vs blíster del mismo set) como pendientes SEPARADOS por `sealedProductId`.
+
+### BLOQ-3 (v1.42) — el binder no muestra sellado como single
+Mock `piecesOfScope` (fixtures) ahora EXCLUYE `productType==='sealed'` de los conteos del binder (platform y
+user_vault), alineado con el backend. La UI del binder es data-driven (variants/countsByFinish) y no cuelga
+tejas de sellado; el sellado se ve solo en M1›«Sellado» y bóveda›«Sellado».
+
+### IMP-2 — badge «N EN TOTAL» ya no queda stale tras la baja
+`src/components/master-set/MasterSetBinder.tsx` (`TileHeader`): el total por carta se DERIVA de
+`countsByFinish` (que por contrato suma a `totalCount`), la misma fuente de la respuesta con la que cada
+teja decide su conteo/«HUECO». Al bajar la última pieza, la suma cae a 0 y el badge desaparece sin recargar;
+antes leía el escalar `cell.totalCount`, que podía quedar rezagado respecto a los conteos por acabado.
+
+### Menores (display)
+- M1›Sellado›lista de sets: se quitó el UUID interno pegado al nombre (`SealedTab.tsx` ~L106; solo el nombre).
+- Badge «N SIN MAPEO» → «N sin precio» y enlace «Cola de no mapeados» → «Cola de precios pendientes»
+  (i18n `admin.inventory.sealedTab.unmappedBadge`/`unmappedQueue`, es+en) — el dato cuenta piezas SIN PRECIO,
+  no sin mapeo.
+- Hero de «Compra»: «N piezas disponibles» → «N publicaciones disponibles» (i18n `catalog.piecesAvailable`,
+  es+en) — el total es de publicaciones agrupadas (GroupedListing), no de piezas físicas.
+- Ruido 401 en navegación admin: `src/lib/api-client.ts` gana REFRESH PROACTIVO — decodifica el `exp` del
+  access JWT (`isAccessTokenExpired`, sin validar firma) y, si venció y hay refresh token, renueva ANTES de
+  disparar la request (single-flight), evitando el 401 garantizado y su ruido en consola en cada navegación.
+  El fallback reactivo 401→refresh→retry queda intacto. Causa raíz acotada en el cliente de API.
+
+### Verde
+`tsc --noEmit` ✓ · `vitest run` **78 archivos / 616 tests** ✓ (incluye test nuevo de regresión IMP-1) ·
+`next build` ✓.

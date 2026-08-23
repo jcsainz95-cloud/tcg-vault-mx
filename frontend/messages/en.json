@@ -151,7 +151,7 @@
     "title": "Shop",
     "subtitle": "Our published inventory for sale. We only list what has a price.",
     "eyebrow": "Catalog · MXN before VAT",
-    "piecesAvailable": "{count, plural, =0 {No pieces available} one {# piece available} other {# pieces available}}",
+    "piecesAvailable": "{count, plural, =0 {No listings available} one {# listing available} other {# listings available}}",
     "resultsCount": "{count, plural, =0 {No results} one {# result} other {# results}}",
     "filterSet": "Set",
     "filterRarity": "Rarity",
@@ -1905,8 +1905,8 @@
         "colPieces": "Pieces",
         "colListed": "Listed",
         "colValue": "Market value",
-        "unmappedBadge": "{count} unmapped",
-        "unmappedQueue": "Unmapped queue ({count})",
+        "unmappedBadge": "{count} without price",
+        "unmappedQueue": "Pending prices queue ({count})",
         "emptyTitle": "No sealed product in inventory.",
         "emptyBody": "Batch intake supports the sealed type.",
         "emptyCta": "Batch intake",
@@ -2180,7 +2180,8 @@
         "label": "Manual market price (MX$)",
         "mustBePositive": "Must be greater than 0.",
         "auditNotice": "This is an audited override: it is logged under your name and feeds this piece's valuation.",
-        "pendingIfEmpty": "Without a manual price, the contribution will stay pending."
+        "pendingIfEmpty": "Without a manual price, the contribution will stay pending.",
+        "suggestion": "Informative reference (last known): {amount}. Does not set the price."
       }
     }
   },

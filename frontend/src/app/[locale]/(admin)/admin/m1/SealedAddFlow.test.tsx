@@ -32,6 +32,8 @@ const ETB: SealedProductDTO = {
   origin: 'set_main',
   imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590411.jpg',
   marketRef: { status: 'priced', referenceMxnCents: 125_000, source: 'tcgcsv' },
+  // v1.41 (IMP-1): mercado GATEADO presente (dial tcgcsv) ⇒ el alta registra a valor de mercado; manual oculto.
+  effectiveMarketCents: 125_000,
 };
 const BUNDLE: SealedProductDTO = {
   id: 'sp-bundle',
@@ -46,6 +48,8 @@ const BUNDLE: SealedProductDTO = {
   origin: 'set_main',
   imageUrl: null,
   marketRef: null,
+  // v1.41 (IMP-1): sin mercado gateado ⇒ el alta acepta precio manual.
+  effectiveMarketCents: null,
 };
 const PROMO: SealedProductDTO = {
   id: 'sp-promo',
@@ -60,12 +64,14 @@ const PROMO: SealedProductDTO = {
   origin: 'promo_collection',
   imageUrl: null,
   marketRef: { status: 'priced', referenceMxnCents: 18_000, source: 'tcgcsv' },
+  effectiveMarketCents: 18_000,
 };
 
 const LIST: SealedProductListResponse = {
   set: { id: 'sv08', name: 'Surging Sparks' },
   needsSync: false,
   groups: [],
+  sealedPriceSource: 'tcgcsv',
   data: [ETB, BUNDLE, PROMO],
 };
 
@@ -209,6 +215,45 @@ describe('SealedAddFlow (P-38, §16.8a) · alta dedicada de sellado con SealedPr
       productType: 'sealed',
       sealedProductId: 'sp-bundle',
       manualMarketMxnCents: 85_000,
+    });
+  });
+
+  it('IMP-1 (dead-end): dial off ⇒ effectiveMarketCents null aunque marketRef traiga caché → MUESTRA el manual y NO promete valor de mercado', async () => {
+    roleState.role = 'vault_operator';
+    // Dial `off`: el mercado GATEADO es null en TODOS los productos, aunque `marketRef` traiga un valor
+    // de caché. La UI del alta debe keyear en `effectiveMarketCents` (autoritativo), NO en `marketRef`.
+    const OFF_LIST: SealedProductListResponse = {
+      ...LIST,
+      sealedPriceSource: 'off',
+      data: [
+        { ...ETB, effectiveMarketCents: null },
+        { ...BUNDLE, effectiveMarketCents: null },
+        { ...PROMO, effectiveMarketCents: null },
+      ],
+    };
+    vi.spyOn(api, 'listSealedProducts').mockResolvedValue(OFF_LIST);
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000700']));
+    renderWithProviders(<SealedAddFlow open onClose={() => {}} presetSet={preset} />, 'es');
+
+    // El ETB tiene marketRef en caché (MX$1,250) pero SIN mercado gateado (dial off).
+    fireEvent.click(await screen.findByRole('option', { name: /Elite Trainer Box/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+
+    // Antes (dead-end): se ocultaba el manual y se prometía «valor de mercado: $X» keyeando en marketRef,
+    // pero el backend rechazaba con 422. Ahora el manual SÍ aparece (coherente con lo que el backend acepta).
+    const manual = await screen.findByLabelText('Precio de mercado manual (MX$)');
+    expect((manual as HTMLInputElement).value).toBe('');
+
+    // Captura un manual > 0 y da de alta como aportación → viaja manualMarketMxnCents (el backend lo acepta).
+    fireEvent.change(manual, { target: { value: '1300' } });
+    fireEvent.click(await screen.findByRole('radio', { name: /Aportación/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items[0]).toMatchObject({
+      productType: 'sealed',
+      sealedProductId: 'sp-etb',
+      manualMarketMxnCents: 130_000,
     });
   });
 

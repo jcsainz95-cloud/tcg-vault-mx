@@ -3,6 +3,8 @@
 import { useTranslations } from 'next-intl';
 import { ShieldAlert } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
+import { formatMoneyCents } from '@/lib/format';
+import type { AppLocale } from '@/i18n/routing';
 
 /**
  * Precio de mercado MANUAL money-safe (DESIGN_SYSTEM §16.8a, P-38 · `SealedManualMarketField`). Aparece
@@ -20,9 +22,20 @@ export interface SealedManualMarketFieldProps {
   onChange: (v: string) => void;
   /** true si el valor capturado es inválido (≤ 0 o no numérico) — muestra el error. */
   invalid: boolean;
+  // v1.41 (IMP-1): sugerencia INFORMATIVA opcional (SealedProductDTO.marketRef, caché TCGCSV). SOLO
+  // se muestra como referencia; NUNCA prellena el input ni fija precio (money-safe). Presente solo
+  // cuando el mercado GATEADO es null (el único caso en que este campo se renderiza).
+  suggestionCents?: number | null;
+  locale?: AppLocale;
 }
 
-export function SealedManualMarketField({ value, onChange, invalid }: SealedManualMarketFieldProps) {
+export function SealedManualMarketField({
+  value,
+  onChange,
+  invalid,
+  suggestionCents,
+  locale,
+}: SealedManualMarketFieldProps) {
   const t = useTranslations('admin.sealedAdd.manualMarket');
 
   return (
@@ -37,6 +50,11 @@ export function SealedManualMarketField({ value, onChange, invalid }: SealedManu
         onChange={(e) => onChange(e.target.value)}
         error={invalid ? t('mustBePositive') : undefined}
       />
+      {suggestionCents != null && locale && (
+        <p className="font-mono text-xs text-muted">
+          {t('suggestion', { amount: formatMoneyCents(suggestionCents, locale) })}
+        </p>
+      )}
       <p className="flex items-start gap-1.5 text-xs text-muted">
         <ShieldAlert size={14} className="mt-0.5 shrink-0" aria-hidden />
         <span>{t('auditNotice')}</span>

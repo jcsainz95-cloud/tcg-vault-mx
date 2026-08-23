@@ -640,7 +640,13 @@ function TileHeader({
   imageAriaLabel?: string;
 }) {
   const t = useTranslations('masterSet');
-  const hasTotal = !!showTotalCount && cell.totalCount > 0;
+  // IMP-2 (v1.42): el total on-hand por carta se DERIVA de `countsByFinish` (que por contrato SUMA a
+  // `totalCount`), la MISMA fuente de la respuesta con la que cada tarjeta decide su conteo/«HUECO».
+  // Así el badge no puede quedar «1 EN TOTAL» mientras las tejas ya muestran HUECO: al bajar la última
+  // pieza, la suma cae a 0 y el badge desaparece SIN recargar (antes leía el escalar `cell.totalCount`,
+  // que podía quedar rezagado respecto a los conteos por acabado ya refrescados).
+  const cardTotal = cell.countsByFinish.reduce((sum, c) => sum + c.count, 0);
+  const hasTotal = !!showTotalCount && cardTotal > 0;
   const art = (
     <CardImage
       src={cell.imageSmallUrl}
@@ -674,9 +680,9 @@ function TileHeader({
         {hasTotal && (
           <span
             className="absolute left-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono tabular-nums text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]"
-            title={t('cardTotalCountAria', { count: cell.totalCount })}
+            title={t('cardTotalCountAria', { count: cardTotal })}
           >
-            {t('cardTotalCount', { count: cell.totalCount })}
+            {t('cardTotalCount', { count: cardTotal })}
           </span>
         )}
       </span>

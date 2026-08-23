@@ -94,6 +94,9 @@ export type DisputeStatus = 'abierta' | 'en_revision' | 'resuelta_recompra' | 'r
 export type DisputeType = 'condition_raw' | 'condition_sealed';
 // v1.19: `tcgcsv` = referencia de mercado del SELLADO (TCGCSV, USD→MXN con FX+colchón).
 export type PriceSource = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
+// v1.19/v1.41: valores del dial `sealedPriceSource` (§M10). NO es enum de BD; seed `off` (fail-closed).
+// Gatea `SealedProductDTO.effectiveMarketCents`: con `off` el mercado autoritativo del sellado es null.
+export type SealedPriceSource = 'tcgcsv' | 'off';
 export type KycStatus = 'none' | 'pending' | 'verified' | 'rejected';
 export type AcquisitionType = 'aportacion_en_especie' | 'buylist' | 'compra';
 export type CfdiStatus = 'registrado' | 'no_aplica';
@@ -434,6 +437,19 @@ export interface HoldingDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
+  // v1.42 (BLOQ-2a): IDENTIDAD del sellado (presentes SOLO en productType='sealed'). El backend YA
+  // RESUELVE el display server-side por la cascada §4.34a — el front NO recompone.
+  //   sealedProductId    = FK → SealedProduct; `null` para sellado legacy sin ligar.
+  //   sealedProductName  = nombre de display RESUELTO (SealedProduct vivo → snapshot → Card.name).
+  //                        Nunca null en sellado (la cascada termina en Card.name NOT NULL).
+  //   sealedImageUrl     = imagen RESUELTA (SealedProduct.imageUrl → snapshot → Card.imageSmallUrl → null).
+  //   sealedCondition    = condición del sellado (mint | minor_box_damage).
+  // El front pinta la CAJA sellada, no el single ancla: nombre = sealedProductName ?? card.name,
+  // imagen = sealedImageUrl ?? card.imageSmallUrl. raw/graded NO traen estos campos.
+  sealedProductId?: string | null;
+  sealedProductName?: string;
+  sealedImageUrl?: string | null;
+  sealedCondition?: SealedCondition;
   // v1.6-finish: acabado del holding; el referenceValue es el de ESE acabado. graded/sealed → "normal".
   finish: Finish;
   gradingCompany?: GradingCompany;
@@ -1233,7 +1249,14 @@ export interface SealedProductDTO {
   isPrincipal: boolean;
   origin: SealedGroupKind;
   imageUrl: string | null;
+  // v1.41 (IMP-1): `marketRef` = referencia INFORMATIVA (live TCGCSV → caché → null); NO gateada por el
+  // dial `sealedPriceSource`. Es solo sugerencia; NUNCA decide la UI del alta ni la valuación.
   marketRef: PriceInfo | null;
+  // v1.41 (IMP-1): mercado AUTORITATIVO del sellado YA gateado por `sealedPriceSource` (resolver H-1
+  // §4.23), MXN centavos. `null` ⟺ el alta acepta precio manual (dial off/seed o sin mercado); `!= null`
+  // ⟺ el alta se registra a valor de mercado ($X). El front keyea la visibilidad del campo manual EN
+  // ESTE campo, jamás en `marketRef`/caché. Money-safe: sin precio ⇒ null («pendiente»/«—»), NUNCA 0.
+  effectiveMarketCents: number | null;
 }
 
 // Enlace set → grupo TCGCSV (1 set → N grupos). `label` = nombre del grupo en TCGCSV (curación/observabilidad).
@@ -1252,6 +1275,9 @@ export interface SealedProductListResponse {
   set: SetRefDTO;
   needsSync: boolean;
   groups: SealedSetGroupDTO[];
+  // v1.41 (IMP-1): estado del dial (§M10) que gatea `effectiveMarketCents` de cada producto. El front
+  // lo usa para el copy del alta (con `off` todos los `effectiveMarketCents` son null, fail-closed).
+  sealedPriceSource: SealedPriceSource;
   data: SealedProductDTO[];
 }
 
@@ -1740,6 +1766,13 @@ export interface PendingPriceEntryDTO {
   cardName?: string;
   /** Proyección de la carta (Tier 0 fix backend: card { id, name, number, setName }). */
   card?: { id: string; name: string; number: string; setName: string };
+  // v1.42 (BLOQ-2b): identidad del sellado (presentes SOLO para productType='sealed'). El operador ve
+  // «ETB …», no la carta ancla ni el gradeKey legacy 'sealed'. Dos presentaciones distintas del mismo
+  // set (ETB vs blíster) son entradas SEPARADAS por `sealedProductId` (resolver una no cierra la otra).
+  // Residual money-safe: sellado legacy sin `sealedProductId` cae a la carta ancla.
+  sealedProductId?: string | null;
+  sealedProductName?: string;
+  sealedSubtype?: SealedSubtype | null;
 }
 
 // ---- M2: precio de buylist por RAREZA + ACABADO (contrato §M2; v1.29 dos ejes) ----

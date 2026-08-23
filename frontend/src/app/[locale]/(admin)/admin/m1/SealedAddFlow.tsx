@@ -171,16 +171,23 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
 
   const stepLabel = step === 'pick' ? t('step1') : t('step2');
 
-  // Referencia de mercado money-safe de la aportación.
-  const liveMarketCents =
+  // v1.41 (IMP-1): la visibilidad del campo manual y el copy «valor de mercado» se keyean en
+  // `effectiveMarketCents` (AUTORITATIVO, YA gateado por `sealedPriceSource`), NUNCA en `marketRef`
+  // (informativo/caché — el dead-end anterior). Invariante: lo que la UI ofrece == lo que el backend
+  // acepta.
+  //   effectiveMarketCents == null ⟺ el alta acepta precio manual (dial off/seed o sin mercado).
+  //   effectiveMarketCents != null ⟺ el alta se registra a valor de mercado ($X); el manual → 422.
+  const gatedMarketCents = selected?.effectiveMarketCents ?? null;
+  // `marketRef` queda SOLO como sugerencia informativa cuando NO hay mercado gateado (nunca decide UI).
+  const marketRefSuggestionCents =
     selected?.marketRef?.status === 'priced' ? selected.marketRef.referenceMxnCents ?? null : null;
   const manualCents = parsePesos(manualPrice);
   const manualInvalid = manualPrice.trim() !== '' && (manualCents == null || manualCents <= 0);
   const manualValid = manualCents != null && manualCents > 0;
-  // Efectivo = mercado vivo, o el manual capturado (rehabilita la aportación). null ⇒ pendiente.
-  const effectiveMarketCents = liveMarketCents ?? (manualValid ? manualCents : null);
-  // El campo manual solo aplica al hueco null y solo a vault_operator+.
-  const showManualField = selected != null && liveMarketCents == null && canManualMarket;
+  // Mercado RESUELTO de la aportación = el gateado, o el manual capturado (rehabilita). null ⇒ pendiente.
+  const resolvedMarketCents = gatedMarketCents ?? (manualValid ? manualCents : null);
+  // El campo manual solo aplica cuando NO hay mercado gateado, y solo a vault_operator+.
+  const showManualField = selected != null && gatedMarketCents == null && canManualMarket;
 
   const linkerTrigger =
     isSuperAdmin && setId !== '' ? (
@@ -364,6 +371,7 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                   subtypeLabel={tSub(selected.subtype)}
                   principalLabel={t('principalBadge')}
                   noMarketLabel={t('noMarket')}
+                  gatedMarketCents={gatedMarketCents}
                 />
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -384,12 +392,14 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                   </div>
                 </div>
 
-                {/* Precio de mercado MANUAL money-safe — solo si no hay mercado vivo y vault_operator+. */}
+                {/* Precio de mercado MANUAL money-safe — solo si NO hay mercado gateado y vault_operator+. */}
                 {showManualField && (
                   <SealedManualMarketField
                     value={manualPrice}
                     onChange={setManualPrice}
                     invalid={manualInvalid}
+                    suggestionCents={marketRefSuggestionCents}
+                    locale={locale}
                   />
                 )}
 
@@ -403,11 +413,13 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                     sealedSubtype: subtype,
                     sealedCondition: condition,
                     sealedProductId: selected.id,
-                    manualMarketMxnCents: liveMarketCents == null && manualValid ? manualCents : null,
+                    // v1.41 (IMP-1): el manual SOLO viaja cuando el mercado GATEADO es null (coherente
+                    // con el backend: con mercado gateado, el manual → 422 MANUAL_MARKET_NOT_ALLOWED).
+                    manualMarketMxnCents: gatedMarketCents == null && manualValid ? manualCents : null,
                   }}
                   buyEffectiveCents={null}
                   buySource={null}
-                  marketRefCents={effectiveMarketCents}
+                  marketRefCents={resolvedMarketCents}
                   onToast={onToast}
                   onCreated={(folios) => {
                     setCreatedOnce(true);
@@ -416,7 +428,7 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                 />
 
                 {/* Money-safe visible: sin precio manual, la aportación quedará pendiente. */}
-                {liveMarketCents == null && !manualValid && (
+                {gatedMarketCents == null && !manualValid && (
                   <p className="text-xs text-muted">{t('manualMarket.pendingIfEmpty')}</p>
                 )}
 
@@ -500,16 +512,20 @@ function SelectedSummary({
   subtypeLabel,
   principalLabel,
   noMarketLabel,
+  gatedMarketCents,
 }: {
   product: SealedProductDTO;
   locale: AppLocale;
   subtypeLabel: string;
   principalLabel: string;
   noMarketLabel: string;
+  // v1.41 (IMP-1): mercado AUTORITATIVO gateado (SealedProductDTO.effectiveMarketCents). El chip
+  // refleja ESTE valor, no `marketRef`/caché — así el resumen no promete un «valor de mercado» que
+  // el backend rechazaría cuando el dial está off.
+  gatedMarketCents: number | null;
 }) {
   const name = product.cleanName ?? product.name;
-  const refCents =
-    product.marketRef?.status === 'priced' ? product.marketRef.referenceMxnCents ?? null : null;
+  const refCents = gatedMarketCents;
   return (
     <div className="flex items-center gap-3 border border-border-strong bg-surface-2 p-3">
       <div className="flex h-[78px] w-[56px] shrink-0 items-center justify-center overflow-hidden bg-bg">

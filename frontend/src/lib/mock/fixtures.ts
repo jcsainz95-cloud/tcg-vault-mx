@@ -581,6 +581,11 @@ export const mockHoldings: HoldingDTO[] = [
     card: cardById('c-sealed-sv08-box'),
     productType: 'sealed',
     sealedSubtype: 'box',
+    // v1.42 (BLOQ-2a): identidad RESUELTA server-side — el cliente ve la CAJA sellada, no el single ancla.
+    sealedProductId: 'sp-sv08-box',
+    sealedProductName: 'Surging Sparks Booster Box',
+    sealedImageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590412_in_1000x1000.jpg',
+    sealedCondition: 'mint',
     finish: 'normal',
     ownershipStatus: 'settled',
     status: 'in_custody',
@@ -1291,13 +1296,15 @@ export const mockSelfVaultOwner: VaultOwnerRefDTO = { userId: 'u-mock', name: 'C
 // Piezas del scope: plataforma = mockInventory on-hand; user_vault = holdings del usuario
 // que siguen "en bóveda" (status NOT IN OFF_HAND; ambas titularidades pending|settled).
 function piecesOfScope(scope: MockMasterSetScope): ScopePiece[] {
+  // v1.42 (BLOQ-3): el binder es la colección de SINGLES — `productType='sealed'` se EXCLUYE de los
+  // conteos/completitud (el sellado vive en su propia superficie «Sellado», no anclado como single).
   if (scope.kind === 'platform') {
     return mockInventory
-      .filter(isOnHand)
+      .filter((i) => isOnHand(i) && i.productType !== 'sealed')
       .map((i) => ({ cardId: i.card.id, setId: i.card.setId, number: i.card.number, finish: (i.finish ?? 'normal') as Finish }));
   }
   return scope.holdings
-    .filter((h) => !OFF_HAND.includes(h.status))
+    .filter((h) => !OFF_HAND.includes(h.status) && h.productType !== 'sealed')
     .map((h) => ({ cardId: h.card.id, setId: h.card.setId, number: h.card.number, finish: (h.finish ?? 'normal') as Finish }));
 }
 
@@ -1871,10 +1878,13 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
         failedLines += 1;
         return { index, ok: false, error: { code: 'SEALED_PRODUCT_NOT_FOUND', message: 'sealed product not found or inactive' } };
       }
-      const liveMarket = sp.marketRef?.status === 'priced' ? sp.marketRef.referenceMxnCents ?? null : null;
+      // v1.41 (IMP-1): el gate es sobre el mercado AUTORITATIVO GATEADO (== SealedProductDTO.
+      // effectiveMarketCents), NO sobre `marketRef` (caché informativo). Con dial off ⇒ null ⇒ el
+      // manual es aceptado; con mercado gateado presente ⇒ el manual → MANUAL_MARKET_NOT_ALLOWED.
+      const gatedMarket = mockEffectiveMarketCents(sp);
       const manual = line.manualMarketMxnCents;
       if (manual != null) {
-        if (liveMarket != null) {
+        if (gatedMarket != null) {
           failedLines += 1;
           return { index, ok: false, error: { code: 'MANUAL_MARKET_NOT_ALLOWED', message: 'market already resolved' } };
         }
@@ -1883,7 +1893,7 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
           return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'manual market must be > 0' } };
         }
       }
-      const resolvedMarket = liveMarket ?? (manual != null && manual > 0 ? manual : null);
+      const resolvedMarket = gatedMarket ?? (manual != null && manual > 0 ? manual : null);
       // Aportación sin mercado resuelto (ni vivo ni manual) → precio pendiente (money-safe, nunca 0).
       if (line.acquisitionType === 'aportacion_en_especie' && resolvedMarket == null) {
         failedLines += 1;
@@ -2143,6 +2153,37 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
     createdAt: '2026-08-13T09:15:00Z',
     cardName: 'Machamp',
     card: { id: 'c-machamp', name: 'Machamp', number: '8', setName: 'Base Set' },
+  },
+  // v1.42 (BLOQ-2b): dos presentaciones selladas del MISMO set (ETB vs blíster) — entradas SEPARADAS
+  // por `sealedProductId` (antes colapsaban bajo el gradeKey legacy 'sealed'). El operador ve el nombre
+  // del sellado, no la carta ancla; resolver el override de una NO cierra la otra.
+  {
+    id: 'ppe-3',
+    cardId: 'c-sealed-sv08-box',
+    productType: 'sealed',
+    gradeKey: 'sealed:tcg:590413',
+    finish: 'normal',
+    context: 'inventory',
+    status: 'open',
+    createdAt: '2026-08-20T10:00:00Z',
+    sealedProductId: 'sp-sv08-bundle',
+    sealedProductName: 'Surging Sparks Booster Bundle',
+    sealedSubtype: 'bundle',
+    card: { id: 'c-sealed-sv08-box', name: 'Surging Sparks', number: '', setName: 'Surging Sparks' },
+  },
+  {
+    id: 'ppe-4',
+    cardId: 'c-sealed-sv08-box',
+    productType: 'sealed',
+    gradeKey: 'sealed:tcg:590420',
+    finish: 'normal',
+    context: 'inventory',
+    status: 'open',
+    createdAt: '2026-08-20T10:05:00Z',
+    sealedProductId: 'sp-sv08-mega-blister',
+    sealedProductName: 'Mega Evolution Blister',
+    sealedSubtype: 'blister',
+    card: { id: 'c-sealed-sv08-box', name: 'Surging Sparks', number: '', setName: 'Surging Sparks' },
   },
 ];
 export function resolveMockPending(id: string) {
@@ -3336,8 +3377,21 @@ export function mockSealedCatalog(params: {
 // ---- P-38: alta dedicada de sellado — entidad `SealedProduct` PERSISTIDA por set ----
 // MOCK: presentaciones selladas persistidas por set (`SealedProductDTO`). Money-safe: `marketRef=null`
 // cuando la fuente no trae precio (NUNCA 0). Sets sin fila ⇒ needsSync:true (el front ofrece «Sincronizar»).
-type MockSealedProduct = import('@/types/contract').SealedProductDTO;
+// v1.41 (IMP-1): el seed lleva `marketRef` (informativo); `effectiveMarketCents` (autoritativo, gateado
+// por el dial) se DERIVA en `mockSealedProducts` — así el mock reproduce el gate real del backend.
+type MockSealedProduct = Omit<import('@/types/contract').SealedProductDTO, 'effectiveMarketCents'>;
 type MockSealedSetGroup = import('@/types/contract').SealedSetGroupDTO;
+
+// v1.41 (IMP-1): estado MOCK del dial `sealedPriceSource` (§M10). Con 'tcgcsv' el mercado gateado sigue
+// a `marketRef`; con 'off' TODO `effectiveMarketCents` cae a null (fail-closed) aunque `marketRef` tenga
+// caché — reproduce el dead-end que IMP-1 corrige. Cambia a 'off' para ejercitar el camino manual.
+const MOCK_SEALED_PRICE_SOURCE: import('@/types/contract').SealedPriceSource = 'tcgcsv';
+
+// Deriva el mercado AUTORITATIVO gateado (money-safe: sin precio o dial off ⇒ null, NUNCA 0).
+function mockEffectiveMarketCents(sp: MockSealedProduct): number | null {
+  if (MOCK_SEALED_PRICE_SOURCE === 'off') return null;
+  return sp.marketRef?.status === 'priced' ? sp.marketRef.referenceMxnCents ?? null : null;
+}
 
 const MOCK_SEALED_PRODUCTS: Record<string, MockSealedProduct[]> = {
   sv08: [
@@ -3473,7 +3527,7 @@ export function mockSealedProducts(params: {
   const seed = MOCK_SEALED_PRODUCTS[params.setId];
   // Set aún sin catálogo descargado ⇒ needsSync:true (el front ofrece «Sincronizar»).
   if (!seed) {
-    return { set: setRef, needsSync: true, groups, data: [] };
+    return { set: setRef, needsSync: true, groups, sealedPriceSource: MOCK_SEALED_PRICE_SOURCE, data: [] };
   }
   let data = seed;
   if (params.origin) data = data.filter((p) => p.origin === params.origin);
@@ -3482,7 +3536,19 @@ export function mockSealedProducts(params: {
     const q = params.q.toLowerCase();
     data = data.filter((p) => (p.cleanName ?? p.name).toLowerCase().includes(q));
   }
-  return { set: setRef, needsSync: false, groups, data: sortSealedProducts(data) };
+  // v1.41 (IMP-1): inyecta `effectiveMarketCents` (gateado) por producto + `sealedPriceSource` en la
+  // respuesta. El front keyea la UI del alta en `effectiveMarketCents`, no en `marketRef`.
+  const out = sortSealedProducts(data).map((p) => ({
+    ...p,
+    effectiveMarketCents: mockEffectiveMarketCents(p),
+  }));
+  return {
+    set: setRef,
+    needsSync: false,
+    groups,
+    sealedPriceSource: MOCK_SEALED_PRICE_SOURCE,
+    data: out,
+  };
 }
 
 export function mockSyncSealedProducts(

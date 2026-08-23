@@ -103,10 +103,11 @@ export function SealedTab({ onOpenGroup, onToast }: SealedTabProps) {
           className="text-left hover:text-accent"
           onClick={() => setOpenSet(s)}
         >
+          {/* v1.42 (menor): solo el NOMBRE del set — el id interno (UUID) no se pinta pegado al
+              nombre («E2E Base Set f7739cff-…» era ruido de captura). */}
           <span lang="en" className="font-medium">
             {s.set.name}
           </span>
-          <span className="ml-2 font-mono text-xs text-muted">{s.set.id}</span>
         </button>
       ),
     },
