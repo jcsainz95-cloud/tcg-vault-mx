@@ -74,16 +74,19 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
   (ni curado ni name-match)** → nada que sincronizar (money-safe: no se adivina)`. El set no está vinculado
   a su **grupo de TCGCSV** (`tcgcsvGroupId`): ni curado a mano ni por name-match. Sin grupo no hay
   presentaciones que bajar. (Egress a tcgcsv.com OK — no hubo 502/UPSTREAM.)
-- **A resolver:**
-  1. **UX gap (frontend):** cuando la sync devuelve 0 por «sin grupo resoluble», el modal solo dice «0
-     presentaciones» sin guiar → el humano cree que está roto. Debe explicar «no hubo match; vincula el
-     grupo a mano» y ofrecer el **SealedGroupLinker** («curar grupos»).
-  2. **Mapeo (backend/humano):** confirmar si «Pitch Black»/«Chaos Rising» existen como grupo de sellado en
-     TCGCSV; si sí, revisar por qué el **name-match** no empata (¿demasiado estricto? ¿nombre distinto en
-     TCGCSV?) — backend. Si no existen en TCGCSV, es esperado (esos sets no tienen sellado ahí) y se registra.
-  3. Mientras: el humano puede **curar el grupo a mano** con el linker, o dar de alta sellado con **precio
-     manual** (flujo P-38 ya soporta manual).
-- **Rol:** frontend (UX del modal) + backend (name-match) — diagnóstico primero.
+- **Causa confirmada (name-match backend):** `matchScore` en `sealed-product.service.ts:777` usa
+  `normalizeSetName` sobre el nombre directo, pero TCGCSV nombra los grupos con **prefijo de código**
+  («SV08: Pitch Black» → `sv08pitchblack`) vs el catálogo local («Pitch Black» → `pitchblack`) → no empatan
+  → 0.5 < umbral 0.9 → no auto-resuelve. Ya existe `setNameCandidates` (ppt-set-mapper:145) que quita ese
+  prefijo, pero `matchScore` no la usa. **Afecta a CUALQUIER set con prefijo en TCGCSV** (no solo Pitch Black).
+- **Fix (EN CURSO, backend):** `matchScore` tolerante al prefijo (reusa `setNameCandidates`) para que los
+  matches legítimos suban a ≥0.9 y auto-resuelvan; **conserva** la salvaguarda «≥0.9 Y único en el tope →
+  si empate, null (no adivina)». Con tests. Money-safe.
+- **Workaround inmediato (humano, super_admin):** M1 → Sellado → «Agregar producto sellado» → elegir set →
+  enlace «Curar/vincular grupo» (`SealedGroupLinker`) → elegir el candidato de TCGCSV (aparece con confianza
+  media) → «Vincular» → re-sync automático baja las presentaciones.
+- **Follow-up (frontend, no bloqueante):** UX del modal cuando la sync da 0 por «sin grupo resoluble» —
+  guiar explícitamente al linker en vez de solo mostrar «0 presentaciones».
 
 #### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
 - Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
