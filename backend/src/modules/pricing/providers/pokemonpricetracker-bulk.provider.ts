@@ -38,10 +38,16 @@ function parseMarketFormat(raw: unknown): MarketFormat | null {
 }
 
 /**
- * Impresiones que se piden por separado en modo `fetchPrintings` (WS-A fix-ppt causa #4). Cada una
- * es un barrido `/cards?setId=X&printing=<label>&fetchAllInSet=true`, y el `market` de la respuesta
- * se atribuye ENTERO a ESE `finish`. Cubre las dos casillas de la carta (normal + reverse holo) y
- * el holo. El label es el que espera la API; el finish, nuestro enum.
+ * Impresiones que se piden por separado en modo `fetchPrintings` (WS-A fix-ppt causa #4). Cada una es
+ * un barrido `/cards?setId=X&printing=<label>&fetchAllInSet=true`. El label es el que espera la API; el
+ * finish, nuestro enum.
+ *
+ * ⚠️ CONFIRMADO 2026-08-23 (BUG DE DINERO): la API v2 NO devuelve un `market` DISTINTO por impresión —
+ * `prices.market` es SIEMPRE el de la impresión primaria de la carta (`prices.primaryPrinting`),
+ * invariante al `?printing=`. Por eso el market de una pasada NO se atribuye a la etiqueta barrida
+ * (aplanaría normal=reverse_holo=holofoil): solo se acredita a la carta cuya `primaryPrinting` REAL
+ * casa con la etiqueta (ver `mapEntry` rama `forced`). El precio por-acabado de reverse/holo lo provee
+ * la fuente por-acabado (TCGCSV `tcgcsv_singles`), no este barrido.
  */
 const PRINTINGS: ReadonlyArray<{ label: string; finish: Finish }> = [
   { label: 'Normal', finish: 'normal' },
@@ -103,8 +109,11 @@ type ZeroReason =
  *  3. **Shape real v2**: la LISTA trae un `prices.{market, primaryPrinting}` por carta (un solo
  *     market + la impresión primaria). Se mapea `market → finish(primaryPrinting)`. Se conservan como
  *     fallback tolerante los shapes previos (`tcgplayer.prices` por acabado, listas de printings).
- *  4. **Variantes por impresión** (opcional, `fetchPrintings`): un barrido por `printing=` para poblar
- *     reverse holo/normal/holofoil por separado (≈2-3× costo).
+ *  4. **Variantes por impresión** (opcional, `fetchPrintings`): un barrido por `printing=`. OJO
+ *     (2026-08-23): la API v2 NO da market por impresión (siempre el de la primaria) ⇒ este modo SOLO
+ *     acredita el acabado que casa con `prices.primaryPrinting`; NO puebla reverse/holo por sí mismo
+ *     (esa fuente es TCGCSV `tcgcsv_singles`). Se conserva money-safe: jamás copia el market a otro
+ *     acabado. Ver `mapEntry` rama `forced` y BACKEND_NOTES §PPT-por-impresión.
  *
  * SEGURIDAD (sin cambio): host FIJO en `PptApiClient` (anti-SSRF), key solo en el header, jamás en
  * la URL ni el log. FAIL-CLOSED de moneda/unidad (sin `POKEMONPRICETRACKER_MARKET_FORMAT` → sample-only,
@@ -556,11 +565,25 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       });
     };
 
-    // (0) Modo por-impresión: el market de nivel carta es de ESA impresión (etiqueta del request).
+    // (0) Modo por-impresión (`fetchPrintings`). BUG DE DINERO CONFIRMADO 2026-08-23: la API v2 de PPT
+    // NO varía `prices.market` según `?printing=` — CADA pasada devuelve el MISMO market, el de la
+    // impresión PRIMARIA de la carta (`prices.primaryPrinting`). La versión anterior atribuía ese market
+    // a la ETIQUETA del request (`forced.label`), así que las 3 pasadas (Normal/Reverse Holofoil/Holofoil)
+    // escribían el MISMO precio a `normal`=`reverse_holo`=`holofoil` (aplanamiento del mercado).
+    //
+    // MONEY-SAFE (fix): el market SIEMPRE pertenece a `primaryPrinting`, así que solo se emite fila cuando
+    // la impresión primaria REAL de la carta coincide con la etiqueta barrida — ese es el ÚNICO acabado
+    // cuyo precio PPT realmente conoce. Los demás acabados quedan SIN fila (pendiente/«—»), JAMÁS con el
+    // precio de otra impresión. El precio PROPIO de reverse/holo lo provee la fuente por-acabado
+    // (TCGCSV `tcgcsv_singles`, precedencia §4.27f). Sin `primaryPrinting` legible ⇒ no se emite nada
+    // (nunca se copia un market a un acabado no confirmado).
     if (forced) {
-      push(forced.label, e['prices'] ?? e['market'] ?? e['marketPrice'] ?? e['price'], {
-        forcedPrinting: true,
-      });
+      const primary = extractPrimaryPrinting(e['prices']);
+      if (primary != null && normalizeFinishAlias(primary) === forced.finish) {
+        push(primary, e['prices'] ?? e['market'] ?? e['marketPrice'] ?? e['price'], {
+          forcedPrinting: true,
+        });
+      }
       return { added, drops };
     }
 
@@ -623,6 +646,20 @@ function firstString(o: Record<string, unknown>, keys: string[]): string | null 
     const v = o[k];
     if (typeof v === 'string' && v.trim().length > 0) return v.trim();
     if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  }
+  return null;
+}
+
+/**
+ * Extrae `primaryPrinting` (string) del objeto `prices` de nivel carta (shape real v2:
+ * `{ market, primaryPrinting, … }`), o `null` si no viene legible. Es la impresión a la que PERTENECE
+ * el `market` de la carta — el candado money-safe del modo por-impresión (la API v2 no da market por
+ * impresión; el market es SIEMPRE el de la primaria).
+ */
+function extractPrimaryPrinting(prices: unknown): string | null {
+  if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+    const v = (prices as Record<string, unknown>)['primaryPrinting'];
+    if (typeof v === 'string' && v.trim().length > 0) return v.trim();
   }
   return null;
 }

@@ -81,12 +81,16 @@ describe('PokemonPriceTrackerBulkProvider — fix-ppt', () => {
     expect(res.skipped).toBe(1);
   });
 
-  it('(3) fetchPrintings → un barrido por impresión (Normal/Reverse/Holo), market→ese finish', async () => {
-    // 3 respuestas (una por printing), cada carta con un market plano de esa impresión.
+  it('(3) fetchPrintings — BUG DE DINERO: la API v2 NO varía el market por impresión (misma `prices.market` en las 3 pasadas) → SOLO se emite la impresión primaria REAL de la carta; reverse/normal quedan pendientes, JAMÁS aplanados', async () => {
+    // Realidad CONFIRMADA de la API v2 (2026-08-23): `?printing=` NO cambia `prices.market` — cada
+    // pasada devuelve el MISMO market, el de la impresión PRIMARIA (`primaryPrinting`) de la carta.
+    // Antes el provider atribuía ese market a la ETIQUETA del request ⇒ normal=reverse_holo=holofoil
+    // con el MISMO precio (aplanamiento). Este test fija el comportamiento REAL: la carta es una holo
+    // (primaryPrinting=Holofoil) y las 3 pasadas traen el mismo market 5.00.
     const spy = mockPages([
-      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 1 } }], metadata: { total: 1, hasMore: false } },
-      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 2 } }], metadata: { total: 1, hasMore: false } },
-      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 3 } }], metadata: { total: 1, hasMore: false } },
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 5, primaryPrinting: 'Holofoil' } }], metadata: { total: 1, hasMore: false } },
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 5, primaryPrinting: 'Holofoil' } }], metadata: { total: 1, hasMore: false } },
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 5, primaryPrinting: 'Holofoil' } }], metadata: { total: 1, hasMore: false } },
     ]);
     const res = await make().fetchPricesForSet({ set: SET, providerSetId: '1407', fetchPrintings: true });
 
@@ -94,18 +98,38 @@ describe('PokemonPriceTrackerBulkProvider — fix-ppt', () => {
     expect(String(spy.mock.calls[0][0])).toContain('printing=Normal');
     expect(String(spy.mock.calls[1][0])).toContain('printing=Reverse+Holofoil');
     expect(String(spy.mock.calls[2][0])).toContain('printing=Holofoil');
-    expect(res.rows.map((r) => [r.finish, r.marketCents])).toEqual([
-      ['normal', 100],
-      ['reverse_holo', 200],
-      ['holofoil', 300],
+    // MONEY-SAFE: SOLO la impresión primaria REAL (holofoil) recibe precio; las pasadas Normal y
+    // Reverse Holofoil NO emiten fila (quedan pendientes «—»), NUNCA con el market del holofoil.
+    expect(res.rows.map((r) => [r.finish, r.marketCents])).toEqual([['holofoil', 500]]);
+    // v1.27 (P-13.2, §4.25a-2): el finish del modo forzado NO es evidencia estructural ⇒ NUNCA
+    // alias-verificado y marcado `forcedPrinting` para que el ingest lo EXCLUYA de `pricedFinishesSnapshot`.
+    const row = res.rows[0];
+    expect(row.finishAliasVerified).toBe(false);
+    expect(row.forcedPrinting).toBe(true);
+  });
+
+  it('(3-money) money-safe: la primaria es Normal → solo se emite `normal`; reverse/holo NO se copian (pendientes)', async () => {
+    // Una carta común: su primaria es Normal. El market (2.00) es de la Normal; reverse/holo NO tienen
+    // precio propio en PPT ⇒ deben quedar PENDIENTES (los pobla TCGCSV), jamás con el precio de la Normal.
+    mockPages([
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 2, primaryPrinting: 'Normal' } }], metadata: { total: 1, hasMore: false } },
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 2, primaryPrinting: 'Normal' } }], metadata: { total: 1, hasMore: false } },
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 2, primaryPrinting: 'Normal' } }], metadata: { total: 1, hasMore: false } },
     ]);
-    // v1.27 (P-13.2, §4.25a-2): el finish del modo forzado viene de la ETIQUETA del request, NO del
-    // dato de la carta ⇒ NUNCA alias-verificado (antes se auto-verificaba contra la propia etiqueta)
-    // y marcado `forcedPrinting` para que el ingest lo EXCLUYA de `pricedFinishesSnapshot`.
-    for (const row of res.rows) {
-      expect(row.finishAliasVerified).toBe(false);
-      expect(row.forcedPrinting).toBe(true);
-    }
+    const res = await make().fetchPricesForSet({ set: SET, providerSetId: '1407', fetchPrintings: true });
+    expect(res.rows.map((r) => [r.finish, r.marketCents])).toEqual([['normal', 200]]);
+  });
+
+  it('(3-nomarket) money-safe: sin `primaryPrinting` legible, el modo forzado NO emite NADA (nunca copia el market a un acabado no confirmado)', async () => {
+    // Shape que ANTES disparaba el aplanamiento (market plano sin primaryPrinting): ahora, al no poder
+    // confirmar a qué acabado pertenece el market, NO se emite ninguna fila (money-safe, todo pendiente).
+    mockPages([
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 1 } }], metadata: { total: 1, hasMore: false } },
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 1 } }], metadata: { total: 1, hasMore: false } },
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 1 } }], metadata: { total: 1, hasMore: false } },
+    ]);
+    const res = await make().fetchPricesForSet({ set: SET, providerSetId: '1407', fetchPrintings: true });
+    expect(res.rows).toHaveLength(0);
   });
 
   it('(3b) modo LISTA (sin fetchPrintings): las filas NO llevan forcedPrinting y SÍ pueden verificarse', async () => {
