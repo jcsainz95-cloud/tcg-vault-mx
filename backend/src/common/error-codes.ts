@@ -74,6 +74,18 @@ export const ErrorCode = {
   // rareza canónica del catálogo (§4.28c). Money-safe: el mapa solo asigna tiers a rarezas conocidas; una
   // key desconocida se rechaza en vez de crear una entrada muerta. Distinto de VALIDATION_ERROR. 422.
   UNKNOWN_RARITY: 'UNKNOWN_RARITY',
+  // v1.44-graded-estimate («gancho de grading», §4.35d / §M2). Invariantes de la tabla de escalones de
+  // COSTO de gradeo, validados en CADA `PUT /admin/pricing/graded-estimates` (fail-closed). Son códigos
+  // propios —y no un VALIDATION_ERROR genérico— porque el error es ENTRE FILAS y el editor de M2 tiene
+  // que poder señalar QUÉ par de escalones no empalma. 422.
+  GRADING_TIERS_EMPTY: 'GRADING_TIERS_EMPTY', // I1: array vacío (sin tabla no hay gate; jamás costo 0).
+  GRADING_TIERS_NOT_CONTIGUOUS: 'GRADING_TIERS_NOT_CONTIGUOUS', // I3/I4: hueco, solape, desorden o no arranca en 0.
+  GRADING_TIERS_NOT_OPEN_ENDED: 'GRADING_TIERS_NOT_OPEN_ENDED', // I5: el ÚLTIMO escalón (y solo él) debe ser abierto.
+  // v1.44 (§4.35f / §2): `?sort=grading_showcase` SIN `?gradingHighlight=true`. Fail-closed: si se
+  // aceptara, los grupos NO destacados irían a la cola del listado con clave de orden indefinida y la
+  // vitrina podría pintarlos al paginar. Mejor un error honesto que una superficie comercial
+  // contaminada. 400.
+  GRADING_SORT_REQUIRES_FILTER: 'GRADING_SORT_REQUIRES_FILTER',
 
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',

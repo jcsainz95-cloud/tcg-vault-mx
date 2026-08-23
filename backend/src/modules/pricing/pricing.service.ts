@@ -2,7 +2,14 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Card, CardProduct, CardProductKind, Finish, PriceReference, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { SettingKey } from '../settings/settings.constants';
+import {
+  SettingKey,
+  // v1.44-graded-estimate (§4.35d): los MISMOS validadores que aplica el PUT de M2, reusados en la
+  // lectura fail-closed de la config (un valor fuera de rango cae a su seed, nunca rompe el request).
+  validateGradeList,
+  validateGradedEstimateFreshnessDays,
+  validateGradingMinUpsidePct,
+} from '../settings/settings.constants';
 import { FxService } from './fx.service';
 import { PokemonTcgIoProvider } from './providers/pokemontcg-io.provider';
 import {
@@ -31,6 +38,17 @@ import {
   VariantPriceControls,
 } from '../../common/money';
 import { TierId } from '../../common/pricing-tiers';
+// v1.44-graded-estimate (§4.35): config + claves canónicas del «gancho de grading». La lógica del gate
+// vive en la pura `common/graded-estimate.ts`; aquí solo se IZA la config y se LEE el dato.
+import {
+  DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
+  DEFAULT_GRADED_ESTIMATE_GRADES,
+  DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+  DEFAULT_GRADING_MIN_UPSIDE_PCT,
+  GRADED_ESTIMATE_GRADE_KEYS,
+  GradedEstimateConfig,
+  sanitizeGradingCostTiers,
+} from '../../common/graded-estimate';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
@@ -148,6 +166,31 @@ export interface PriceInfo {
   // gate H-1 (`gateSealedMarketCents`) case el predicado normativo sin depender solo del string.
   isManualOverride?: boolean;
   capturedDate?: string;
+}
+
+/**
+ * v1.44-graded-estimate (§4.35a/g) — UN estimado por grado tal como sale del batch. Extiende
+ * `GradedEstimateInput` (lo que consumen las puras) con el `gradeKey` canónico para el render.
+ *
+ * **NO lleva `source` ni `isManualOverride`, y eso es el contrato, no un olvido:** es la garantía
+ * ESTRUCTURAL de que ninguna rama de composición pueda decidir nada por el ORIGEN del número. Es lo que
+ * hace INDISTINGUIBLES la fase 1 (valor fijado a mano por el admin) y la fase 2 (ingest automático) para
+ * el cliente. La precedencia `override manual > ingest` ya la resolvió `isBetterRef` DENTRO de la tabla.
+ */
+export interface GradedEstimateRef {
+  gradeValue: string;
+  gradeKey: string;
+  mxnCents: number;
+  capturedDate: string;
+}
+
+/**
+ * v1.44 — lista de grados saneada en LECTURA: si el valor persistido no cumple I7 (array ⊆ {"10","9"},
+ * no vacío, sin duplicados) cae al seed. Es una LISTA, no dinero: su ausencia no puede producir un gate
+ * optimista (§4.35d).
+ */
+function sanitizeGradeList(raw: unknown, fallback: string[]): string[] {
+  return validateGradeList(raw) == null ? (raw as string[]) : [...fallback];
 }
 
 /** v1.29 (§4.27i) — precio por variante de un producto separado (CardProductDTO.prices). */
@@ -618,6 +661,149 @@ export class PricingService {
     const fallbackPct = await this.settings.getNumber(SettingKey.SEALED_SPREAD_FALLBACK_PCT);
     const sourceOn = (await this.settings.getString(SettingKey.SEALED_PRICE_SOURCE)) === 'tcgcsv';
     return { spreadPctBySubtype, fallbackPct, sourceOn };
+  }
+
+  /**
+   * v1.44-graded-estimate (§4.35c/d) — CONFIG del «gancho de grading» izada UNA vez por request
+   * (espejo de `loadSealedSpreads`, pago mínimo de BE-25). Lectura FAIL-CLOSED en dos niveles:
+   *
+   * 1. **Dial maestro primero:** con `graded_estimates_enabled != 'on'` se devuelve la config APAGADA
+   *    **sin leer nada más** (una sola lectura de settings y CERO queries de precios: con el dial `off`
+   *    el backend «ni siquiera evalúa nada», §M10).
+   * 2. **La tabla de COSTO no tiene default de código:** clave ausente/corrupta/que no cumple I1–I5 ⇒
+   *    tabla VACÍA ⇒ nada se destaca (`NO_COST_TIER`). Jamás un costo de gradeo asumido en 0. Los
+   *    umbrales y listas (`minUpsidePct`/`freshnessDays`/`grades`) SÍ caen a su seed: no son dinero y su
+   *    ausencia no puede producir un gate optimista (sin tabla no hay gate).
+   */
+  async loadGradedEstimateConfig(): Promise<GradedEstimateConfig> {
+    const enabled = await this.gradedEstimatesEnabled();
+    // Con el dial `off` NO se lee nada más: ni las otras 5 claves ni (en el caller) los precios. La
+    // config apagada es INERTE — con `grades`/`gradingCostTiers` vacíos, las puras devuelven `[]` y
+    // `FEATURE_OFF` aunque alguien las llamara por error.
+    if (!enabled) {
+      return {
+        enabled: false,
+        grades: [],
+        highlightGrades: [],
+        freshnessDays: DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
+        minUpsidePct: DEFAULT_GRADING_MIN_UPSIDE_PCT,
+        gradingCostTiers: [],
+      };
+    }
+    return this.readGradedEstimateConfig(true);
+  }
+
+  /**
+   * v1.44 — variante para las superficies de ADMIN (`GET/PUT /admin/pricing/graded-estimates` y su
+   * `/preview`): lee la config COMPLETA **aunque el interruptor maestro esté apagado**, porque el editor
+   * de M2 tiene que poder ver y editar los escalones antes de encender la feature, y el diagnóstico
+   * tiene que poder explicar `FEATURE_OFF` mostrando la tabla vigente. `enabled` es el ESPEJO
+   * READ-ONLY del dial M10 (se edita en `PUT /admin/settings`, no aquí).
+   */
+  async loadGradedEstimateConfigForAdmin(): Promise<GradedEstimateConfig> {
+    return this.readGradedEstimateConfig(await this.gradedEstimatesEnabled());
+  }
+
+  /** Dial maestro M10 `graded_estimates_enabled` (seed `off`): SOLO `'on'` enciende (fail-closed). */
+  private async gradedEstimatesEnabled(): Promise<boolean> {
+    return (await this.settings.getString(SettingKey.GRADED_ESTIMATES_ENABLED)) === 'on';
+  }
+
+  /** Lee las 5 claves de config del gancho y las SANEA (ver la doctrina fail-closed de arriba). */
+  private async readGradedEstimateConfig(enabled: boolean): Promise<GradedEstimateConfig> {
+    const gradesRaw = await this.settings.getRaw(SettingKey.GRADED_ESTIMATE_GRADES);
+    const highlightRaw = await this.settings.getRaw(SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES);
+    const freshRaw = await this.settings.getRaw(SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS);
+    const minUpsideRaw = await this.settings.getRaw(SettingKey.GRADING_MIN_UPSIDE_PCT);
+    const tiersRaw = await this.settings.getRaw(SettingKey.GRADING_COST_TIERS);
+
+    const grades = sanitizeGradeList(gradesRaw, DEFAULT_GRADED_ESTIMATE_GRADES);
+    // `highlightGrades ⊆ grades` (I7) también EN LECTURA: si una edición fuera de banda dejó un grado
+    // huérfano, el badge no puede pintar un grado que la ficha no expone.
+    const highlightGrades = sanitizeGradeList(
+      highlightRaw,
+      DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+    ).filter((g) => grades.includes(g));
+    return {
+      enabled,
+      grades,
+      highlightGrades,
+      freshnessDays:
+        validateGradedEstimateFreshnessDays(freshRaw) == null
+          ? (freshRaw as number)
+          : DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
+      minUpsidePct:
+        validateGradingMinUpsidePct(minUpsideRaw) == null
+          ? (minUpsideRaw as number)
+          : DEFAULT_GRADING_MIN_UPSIDE_PCT,
+      // SIN default de código para el COSTO (money-safe): tabla inválida ⇒ [] ⇒ nada se destaca.
+      gradingCostTiers: sanitizeGradingCostTiers(tiersRaw),
+    };
+  }
+
+  /**
+   * v1.44-graded-estimate (§4.35c) — BATCH DEDICADO de los estimados PSA por carta. **UNA** query,
+   * `+1 constante` por request (catálogo, vitrina y ficha); `0` en el resto del sistema.
+   *
+   * Clave canónica (§4.35a): `(cardId, productType='graded', gradeKey ∈ {graded:PSA:10, graded:PSA:9},
+   * finish='normal', cardProductId=null)`. `finish='normal'` SIEMPRE — el grado NO se cruza con el
+   * acabado (doctrina ya vigente para `graded`), así que el estimado es **por CARTA**, no por variante.
+   *
+   * **Por qué un método DEDICADO y NO `getReferencesBatch`:** ese método arma el `WHERE` como PRODUCTO
+   * CARTESIANO de los conjuntos distintos (`cardId × productType × gradeKey × finish`) y filtra después
+   * en memoria contra `wanted` (:365-408). Mezclar los ítems raw del listado con los graded del gancho en
+   * UNA llamada haría que el SQL trajera `productType in ('raw','graded') × gradeKey in ('raw:NM',
+   * 'graded:PSA:10','graded:PSA:9') × finish in (todos)`: un **over-fetch combinatorio** sobre la tabla
+   * más caliente del sistema. Un método aparte cuesta +1 query constante y NO toca la ruta de dinero del
+   * raw (riesgo de regresión cero).
+   *
+   * Mismo desempate determinista (`pickBestRef`/`isBetterRef`, que resuelve la precedencia
+   * `override manual > ingest` DENTRO de la tabla) y mismo recomputo FX (`liveMxnCents`) que
+   * `getReference`. **El valor devuelto NO transporta `source` ni `isManualOverride`**: es la garantía
+   * ESTRUCTURAL de que ninguna rama de composición pueda bifurcar por origen del número, y por tanto de
+   * que la fase 1 (manual) y la fase 2 (ingest) sean indistinguibles para el cliente (§4.35g).
+   */
+  async getGradedEstimatesBatch(cardIds: string[]): Promise<Map<string, GradedEstimateRef[]>> {
+    const map = new Map<string, GradedEstimateRef[]>();
+    const ids = [...new Set(cardIds)];
+    if (ids.length === 0) return map;
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardId: { in: ids },
+        productType: 'graded',
+        gradeKey: { in: [...GRADED_ESTIMATE_GRADE_KEYS] },
+        // §4.35a: el estimado es de la CARTA, no de un CardProduct (§4.27) — se filtra explícitamente.
+        finish: 'normal',
+        cardProductId: null,
+      },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+    });
+    if (rows.length === 0) return map;
+    // FX izada UNA vez por request (no por fila), igual que en `getReferencesBatch`.
+    const fx = await this.fxSnapshotSafe();
+    const bestByKey = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      const k = `${r.cardId}|${r.gradeKey}`;
+      const cur = bestByKey.get(k);
+      if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);
+    }
+    for (const r of bestByKey.values()) {
+      const mxnCents = this.liveMxnCents(r, fx);
+      // Money-safe: un `<= 0` NO es un estimado (no se emite ni se usa para resolver escalón).
+      if (!Number.isInteger(mxnCents) || mxnCents <= 0) continue;
+      const gradeValue = r.gradeKey.split(':')[2] ?? '';
+      const list = map.get(r.cardId);
+      const ref: GradedEstimateRef = {
+        gradeValue,
+        gradeKey: r.gradeKey,
+        mxnCents,
+        capturedDate: r.capturedDate.toISOString().slice(0, 10),
+      };
+      if (list) list.push(ref);
+      else map.set(r.cardId, [ref]);
+    }
+    return map;
   }
 
   /**

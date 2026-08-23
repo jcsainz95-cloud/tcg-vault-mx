@@ -19,6 +19,16 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
         appliedRule: { mode: 'pct', value: 15 },
         ruleSource: 'fallback',
       })),
+      // v1.44-graded-estimate (§4.35): dial maestro APAGADO (seed `off`) ⇒ el gancho no se evalúa.
+      loadGradedEstimateConfig: jest.fn(async () => ({
+        enabled: false,
+        grades: [],
+        highlightGrades: [],
+        freshnessDays: 30,
+        minUpsidePct: 30,
+        gradingCostTiers: [],
+      })),
+      getGradedEstimatesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
     return { svc: new CatalogService(prisma as PrismaService, pricing), prisma };
   }

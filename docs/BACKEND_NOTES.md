@@ -4,6 +4,153 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.2 v1.44-graded-estimate — «Gancho de grading»: valor estimado si se gradea (2026-08-23, rama `claude/psa-graded-card-value-gmhv5u`)
+
+> Implementa `API_CONTRACT` rev **v1.44-graded-estimate** + `ARCHITECTURE §4.35` (PROJECT §N v2.0).
+> **SOLO FASE 1 (manual-first).** **Sin migración de esquema**: M-41 es **DATA/seed** (6 `ConfigSetting`).
+> Cambio **aditivo**: ningún endpoint/DTO existente cambia de forma, ningún monto de dinero cambia.
+
+### Qué se implementó (y dónde)
+
+| Pieza | Archivo |
+|---|---|
+| Puras del gancho (gate de ROI, escalones, frescura) | `backend/src/common/graded-estimate.ts` **(NUEVO)** |
+| Batch dedicado + config izada | `backend/src/modules/pricing/pricing.service.ts` (`getGradedEstimatesBatch`, `loadGradedEstimateConfig`, `loadGradedEstimateConfigForAdmin`) |
+| Composición ficha/teja/vitrina + diagnóstico | `backend/src/modules/catalog/catalog.service.ts` (`buildGroups`, `getCard`, `listCards`, `gradedEstimatePreview`) |
+| Query params `?gradingHighlight=` y `?sort=grading_showcase` | `backend/src/modules/catalog/catalog.controller.ts` |
+| Diales M2 + preview (`GET/PUT /admin/pricing/graded-estimates[/preview]`) | `backend/src/modules/catalog/graded-estimates.controller.ts` **(NUEVO)** |
+| 6 `SettingKey` + defaults + validadores (I1–I7) | `backend/src/modules/settings/settings.constants.ts` |
+| 4 códigos de error nuevos | `backend/src/common/error-codes.ts` |
+
+**Fase 1 = sin mecanismo de captura nuevo:** los estimados se fijan con el endpoint **YA existente**
+`POST /admin/pricing/override` (`productType:"graded"`, `gradeKey:"graded:PSA:10"|"graded:PSA:9"`, `finish`
+omitido ⇒ `normal`), que escribe **exactamente** la clave canónica que lee el storefront
+(`cardId, 'graded', 'graded:PSA:{10,9}', finish='normal', cardProductId=null`). **Una fila, dos lectores:** es
+la MISMA fila que alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` de M1 › Gradeadas (deliberado, §4.35b).
+
+### Reglas que el backend garantiza (para QA y frontend)
+
+- **Partición INFORMAR ≠ PROMOVER:** `gradedEstimates` (ficha, nivel CARTA, **sin** gate) vs `gradingHighlight`
+  (teja/vitrina, nivel GRUPO, **con** gate). Una carta puede informar en la ficha y **no** estar destacada.
+- **Presencia ⇔ elegibilidad:** no existe `eligible:false` ni `[]`. Si no hay nada que mostrar, **el campo se omite**.
+- **SEC-A1:** el DTO público **no transporta** `multiplier`, `upsideMxnCents`, `netUpside*`, `gradingCost*`,
+  `minUpsidePct`, `threshold` ni `reason`. Los insumos existen **solo** en
+  `GET /admin/pricing/graded-estimates/preview`.
+- **`source` se omite SIEMPRE** en `GradedEstimateDTO.estimate` — y no por convención: el batch devuelve un tipo
+  (`GradedEstimateRef`) que **no tiene** `source` ni `isManualOverride`, así que ninguna rama de composición puede
+  bifurcar por origen. Fase 1 y fase 2 son **indistinguibles byte a byte** (test ejecutable, ver abajo).
+- **Money-safe:** `estimate.status` siempre `"priced"`; un estimado `<= 0` no existe; `costMxnCents >= 1` jamás 0;
+  **fail-closed on-read** — tabla de escalones ausente/corrupta/inválida ⇒ tratada como **vacía** ⇒ `NO_COST_TIER`
+  ⇒ nada se destaca. `minUpsidePct`/`freshnessDays`/`grades` sí caen a su seed (no son dinero).
+- **Escalones `[min, max)`** contiguos con último abierto (I1–I5), validados en **cada** `PUT` y **también al leer**.
+- **Doctrina (b) intacta:** las filas PSA no fijan `listPriceCents`, no publican inventario, no entran en
+  `getPricedRawFinishesBatch`/`pricedFinishesSnapshot`/`availableFinishes`, no encolan `PendingPriceEntry`, no valúan
+  portafolio/P&L y no tocan el buylist. **No se escribió NINGÚN write nuevo**: la feature es lectura + config.
+- **Dial M10 `gradedEstimatesEnabled` (seed `off`)**: con `off` no se lee ni la config restante ni la tabla de
+  precios (**0 queries extra**), no se emite ninguno de los dos campos y `?gradingHighlight=true` ⇒ `{data:[],total:0}`.
+  **Encenderlo publica una afirmación comercial**: requiere el visto bueno del humano sobre el disclaimer (§N.5).
+
+### Coste por request (invariante de diseño)
+
+| Superficie | Queries de precios añadidas |
+|---|---|
+| `GET /catalog/cards` (teja) y `?gradingHighlight=true` (vitrina) | **+1** constante (batch de los `cardId` distintos **raw**) |
+| `GET /catalog/cards/:cardId` (ficha) | **+1** constante |
+| Dial `off`, o sin piezas raw en el conjunto | **0** |
+| Resto del sistema (`/catalog/sealed*`, `/vault/*`, checkout, buylist, facets, sets) | **0** — no se tocaron |
+
+El batch es **dedicado** (`getGradedEstimatesBatch`) y **no** reusa `getReferencesBatch`: ese método arma el `WHERE`
+como producto cartesiano de los conjuntos distintos y filtra en memoria, así que mezclar raw+graded provocaría
+over-fetch combinatorio sobre la tabla más caliente. Filtra por `cardProductId: null` explícito y reusa
+`pickBestRef`/`isBetterRef` (precedencia `override manual > ingest`, **dentro** de la tabla) y `liveMxnCents` (FX).
+
+### Decisiones de implementación (y desviaciones menores, para techlead/arquitecto)
+
+1. **`getGradedEstimatesBatch` devuelve `Map<cardId, GradedEstimateRef[]>`**, no el
+   `Map<cardId, {psa10?: PriceInfo; psa9?: PriceInfo}>` literal de §4.35c. Motivo: (a) el tipo literal **hardcodea
+   los grados**, y todo el diseño busca que añadir/quitar un grado sea editar un dial; (b) `PriceInfo` transporta
+   `source`/`isManualOverride`, y **no llevarlos** es lo que hace estructuralmente imposible filtrar la fase.
+   Semántica y coste idénticos (1 query, mismo desempate, mismo FX).
+2. **Los 3 endpoints M2 viven en `CatalogModule`** (`graded-estimates.controller.ts`), no en `PricingController`:
+   el `/preview` necesita componer los **grupos raw publicados** (`CatalogService`) y `CatalogModule` ya importa
+   `PricingModule` — al revés sería un ciclo (`forwardRef`). Las **rutas** son exactamente las del contrato.
+3. **`GET /admin/pricing/graded-estimates` devuelve la config EFECTIVA** (ya saneada fail-closed). Si el admin ve
+   `gradingCostTiers: []`, **esa** es la explicación de por qué nada se destaca. La variante de admin lee la config
+   completa **aunque el dial esté `off`** (si no, el editor de M2 no podría preparar la tabla antes de encender).
+4. **`PUT` con body vacío ⇒ `422 VALIDATION_ERROR`** (el contrato no lo especifica): un `PUT` que no cambia nada
+   sería un no-op auditado y confuso. Validación **todo-o-nada**: nada se escribe si algo falla.
+5. **`highlightGrades ⊆ grades` se valida contra el ESTADO RESULTANTE** (mezcla de lo enviado con lo vigente), no
+   solo contra el body: editar `grades` sin tocar `highlightGrades` no puede dejar un badge huérfano. También se
+   aplica **en lectura**.
+6. **`GradedEstimatePreviewDTO.capturedDate` (singular)** = el **más antiguo** de los grados presentes (el que manda
+   para la frescura); `null` si no hay ninguno. El contrato lo declara singular sin decir cuál.
+7. **`today` = fecha de negocio CDMX** (`businessDateCdmx`, `Intl`, date-only). `POST /admin/pricing/override`
+   escribe `capturedDate` a medianoche **UTC**, así que puede quedar un día «adelantado» respecto a CDMX: un
+   `capturedDate` futuro **es fresco** por regla explícita de §4.35c (no es rancio).
+8. **El `/preview` sí lee el batch con el dial `off`** (devuelve `reason: FEATURE_OFF`): si no, el diagnóstico sería
+   inútil justo en el estado por defecto. Es admin-only y read-only.
+
+### NO implementado a propósito (pendiente de decisión)
+
+- **Instrumentación de fase 2 (§4.35h, paso 1):** `POKEMONPRICETRACKER_INCLUDE_EBAY` y subir el truncate del log de
+  muestra de `800` → `4000` chars en `pokemonpricetracker-bulk.provider.ts:209`. El alcance de esta sesión excluía
+  explícitamente tocar los providers de PokemonPriceTracker. **Queda pendiente**: sin el truncate a 4000 la
+  observación de staging produce un **falso negativo** («el proveedor no manda PSA» cuando sí lo manda). Es cambio de
+  observabilidad, no de dinero. Que el orquestador decida si entra en esta rama o en la de fase 2.
+- **Ingest automático (fase 2 completa):** BLOQUEADO por doctrina P-6 (Gate 0 del 2026-08-23). No se escribió ni un
+  parser. Cuando se desbloquee, **no cambia el contrato ni el frontend**: escribe la misma clave canónica.
+
+### Diales (M-41 — DATA/seed, sin DDL)
+
+| Key | Seed | Se edita en |
+|---|---|---|
+| `graded_estimate_grades` | `["10","9"]` | M2 `PUT /admin/pricing/graded-estimates` |
+| `graded_estimate_highlight_grades` | `["10"]` | M2 (mismo `PUT`) |
+| `graded_estimate_freshness_days` | `30` | M2 (mismo `PUT`) |
+| `grading_cost_tiers` | tabla §N.2.1 (6 escalones `[min,max)`) | M2 (mismo `PUT`) |
+| `grading_min_upside_pct` | `30` | M2 (mismo `PUT`) |
+| `graded_estimates_enabled` | **`off`** (fail-closed) | **M10** `PUT /admin/settings` |
+
+Los seis se siembran solos por `SETTING_DEFAULTS` (`npm run seed` los hace `upsert` sin pisar cambios del admin).
+**Para devops: ninguna env nueva en fase 1.** Las tres de fase 2 siguen sin cablear (§4.35h).
+
+### Tests (unitarios, `npm test` en `backend/`)
+
+- `test/graded-estimate.gate.spec.ts` — puras: bordes de escalón `[min,max)`, tabla con hueco/vacía/desordenada/
+  costo 0 ⇒ **jamás costo 0**, I1–I5 con su código, frescura (borde exacto, fecha futura, fecha corrupta), ficha vs
+  gate, y la partición (subir `minUpsidePct` no apaga la ficha).
+- `test/graded-estimate.batch.spec.ts` — batch: 1 sola query con la clave canónica, sin `source` en la salida,
+  desempate determinista, FX recomputada, `<= 0` descartado; config fail-closed en dos niveles.
+- `test/graded-estimate.composition.spec.ts` — servicios REALES (Settings+Pricing+Catalog) sobre Prisma en memoria:
+  ficha vs teja, dos acabados (gate por grupo), dial off, vitrina (filtro, orden, `400`s), SEC-A1, doctrina (b),
+  criterio 90 y el **test de indistinguibilidad** (`manual` vs `pokemonpricetracker` ⇒ JSON idéntico).
+- `test/graded-estimate.admin.spec.ts` — `GET/PUT/preview`: I1–I7 con código, todo-o-nada, auditoría
+  (`pricing.graded_estimates.update`, before/after), `enabled` ignorado en el `PUT`, criterio 86 y los `reason`.
+- **Resultado local:** `npm test` → **175 suites / 1762 tests, todo verde** (antes de esta feature: 171/1679).
+  `npm run typecheck` y `npm run lint` limpios (queda 1 warning **preexistente** en `inventory.service.ts:336`).
+
+### E2E (para QA — requiere Postgres real)
+
+`test/integration/graded-estimate.e2e-spec.ts` **(NUEVO)** cubre el flujo crítico de §N.7 punta a punta:
+override manual → dial `off` (nada se emite, vitrina `[]`) → dial `on` (ficha informa, teja promueve, vitrina lista)
+→ `400 GRADING_SORT_REQUIRES_FILTER` → `/preview` con los insumos → invariantes del `PUT` → subir `minUpsidePct`
+vacía la vitrina **sin mover el precio de venta** → apagar el dial deja el catálogo como antes. Usa el fixture
+`E2E-LST-0002` (`e2e-common`, publicado a MX$600). Restaura el estado global (dial `off`, `minUpsidePct` 30, borra
+las filas PSA) en el `afterAll` porque la BD es compartida.
+**Ojo QA: no pudo ejecutarse en el entorno de desarrollo (sin Postgres disponible en el sandbox).** Correr con
+`npm run test:integration` tras `docker compose up -d` + `npm run seed:synthetic`.
+
+### Notas para frontend
+
+- `GroupedListingDTO.gradingHighlight?` (teja/vitrina, **gateado**) y `GroupedListingDetailResponse.gradedEstimates?`
+  (ficha, **sin gatear**) son **arreglos del mismo tipo**. **Iterar leyendo `gradeValue`**; prohibido asumir
+  `[0] === PSA 10` o longitud fija (hoy la ficha trae 2 y el badge 1, pero es un dial).
+- **Campo ausente ⇒ no se pinta NADA** (ni contenedor, ni skeleton, ni `—`, ni `$0`, ni «pendiente»). Prohibido
+  `…?.[0]?.estimate.referenceMxnCents ?? 0`. Nunca llega `[]` ni `eligible:false`.
+- `estimate` es un `PriceInfo` con **solo** `status:"priced"`, `referenceMxnCents` y `capturedDate` (sin `source`).
+- La vitrina es `GET /catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8`; `data: []` **es** la
+  señal de «no renderizar la vitrina completa». `sort=grading_showcase` **sin** el filtro ⇒ `400`.
+
 ## 0.1 Incidente prod: forgot-password no entrega correo — `trust proxy` ausente (2026-08-23)
 
 > Rama `fix/variant-composition-regression`. El humano usó forgot-password en prod y NO llegó correo,

@@ -40,6 +40,10 @@ export class CatalogController {
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
     @Query('sort') sort?: string,
+    // v1.44-graded-estimate (§2 / §4.35f): vitrina «Joyas para gradear» = ESTE endpoint filtrado
+    // (`?gradingHighlight=true&sort=grading_showcase`), no un endpoint nuevo — misma teja, misma cifra,
+    // cero drift con Compra. Se pasa CRUDO: el saneo (solo se acepta `"true"`) lo hace el servicio.
+    @Query('gradingHighlight') gradingHighlight?: string,
   ) {
     return this.catalog.listCards({
       q,
@@ -49,6 +53,7 @@ export class CatalogController {
       condition,
       finish,
       sealedSubtype,
+      gradingHighlight,
       minPriceCents: minPriceCents ? parseInt(minPriceCents, 10) : undefined,
       maxPriceCents: maxPriceCents ? parseInt(maxPriceCents, 10) : undefined,
       page: Math.max(1, parseInt(page, 10) || 1),
