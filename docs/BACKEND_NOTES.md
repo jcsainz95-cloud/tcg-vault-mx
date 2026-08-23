@@ -15,6 +15,20 @@
   `catalog.service.ts` (antes hand-rolled). Mismo string exacto. Otros roles: si necesitan la clave de
   agrupación de variantes, **importar `variantKey`** en vez de interpolar a mano (evita drift). *(Los ≥6
   sitios de SB-D3 siguen abiertos: este pase solo tocó los 3 de `catalog.service.ts`.)*
+- **P-30 H2 · cierre COMPLETO (2026-08-23) — productores + eje sellado + guard de round-trip.** El pase
+  anterior migró solo los CONSUMIDORES (`catalog.service`); los PRODUCTORES de esos mismos mapas seguían con
+  la clave hand-rolled, partiendo la fuente de drift en dos. Ahora productor y consumidor comparten **una sola**
+  `variantKey()`:
+  - `pricing.service.ts`: `getReferencesBatch` (`keyOf`), `getVariantOverridesBatch` (`keyOf`) y el lookup
+    single de `getVariantOverride` enrutados a `variantKey(...)` (import de `../../common/variant-key`).
+  - `catalog.service.ts` `refFromBatch` (`:197`): el eje SELLADO `refs.get(`${cardId}|sealed|${gk}|normal`)`
+    hand-rolled pasó a `variantKey({cardId, productType:'sealed', gradeKey:gk, finish:'normal'})`.
+  - **Byte-identidad garantizada:** `variantKey` emite EXACTAMENTE el mismo string ⇒ ningún override/referencia
+    se pierde (money-safe: es clave de map). **No se tocó cálculo de montos ni contrato.**
+  - **Guard de round-trip** en `backend/test/tech-debt-backend.spec.ts`: ejercita el `PricingService` REAL con
+    prisma mockeado y comprueba que la clave con que el batch INDEXA el Map se recupera con
+    `variantKey(mismas partes)` (lo que hace el consumidor) — productor y consumidor comparten fuente. Incluye
+    el eje sellado. QA: es el invariante real anti-drift (no solo «el helper produce X»).
 - **`premiumFixedOffenders(...)` reubicado** — de `PricingController` (privado) a
   `backend/src/common/pricing-tiers.ts` (exportado, lógica idéntica; el controller delega). Es el invariante
   money-safe §4.33d (premium→pct de COMPRA). Ahora unit-testeable directo sobre el seed.

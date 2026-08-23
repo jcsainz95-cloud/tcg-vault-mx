@@ -194,7 +194,11 @@ export class CatalogService {
   private refFromBatch(refs: Map<string, PriceInfo>, item: ItemWithCard): PriceInfo | undefined {
     if (item.productType === 'sealed') {
       const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-      return gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
+      // P-30 H2: mismo `variantKey` con que `getReferencesBatch` indexó el eje sellado (ver :148, que
+      // pasa {productType:'sealed', gradeKey:gk, finish:'normal'}); sin string hand-rolled paralelo.
+      return gk
+        ? refs.get(variantKey({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }))
+        : undefined;
     }
     return refs.get(
       variantKey({

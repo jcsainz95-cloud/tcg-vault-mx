@@ -159,14 +159,27 @@
 - **Disparador:** cuando el arquitecto alinee el naming de precios de grupo en el contrato; backend renombra
   el campo del DTO de `buildGroups` en el mismo pase.
 
-#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled en 3 sitios (riesgo de drift) — RESUELTO (2026-08-23)
-- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo. **Estado:** **RESUELTO**.
-- **Fix (2026-08-23):** extraído el helper único `variantKey({cardId, productType, gradeKey, finish})` en
+#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled (riesgo de drift) — RESUELTO COMPLETO (2026-08-23)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo. **Estado:** **RESUELTO COMPLETO** (ya no parcial).
+- **Fix parcial (2026-08-23, consumidores):** extraído el helper único `variantKey({cardId, productType, gradeKey, finish})` en
   `backend/src/common/variant-key.ts` (produce EXACTAMENTE el mismo string `cardId|productType|gradeKey|finish`)
-  y reusado en los **3 sitios** de `catalog.service.ts` (`variantOverride` en `fetchSellable`, `refFromBatch`,
-  `buildGroups`). Sin cambio de comportamiento (misma clave); elimina el drift silencioso. Test del helper en
-  `backend/test/tech-debt-backend.spec.ts` («P-30 H2 · variantKey produce la clave K exacta»). *(Nota: los
-  ≥6 sitios de SB-D3 quedan FUERA de este pase — este cierre acota los 3 de `catalog.service.ts`.)*
+  y reusado en los **3 CONSUMIDORES** de `catalog.service.ts` (`variantOverride` en `fetchSellable`, `refFromBatch`,
+  `buildGroups`).
+- **Cierre COMPLETO (2026-08-23, productores + eje sellado):** los **PRODUCTORES** de esos mismos mapas ahora también
+  llavean con `variantKey` — antes seguían con la interpolación hand-rolled, partiendo la fuente de drift en dos:
+  - `pricing.service.ts` `getReferencesBatch` (`keyOf`), `getVariantOverridesBatch` (`keyOf`) y el lookup single de
+    `getVariantOverride` → los 3 enrutados a `variantKey(...)` importado de `../../common/variant-key`.
+  - Eje SELLADO de `catalog.service.ts` (`refFromBatch` `:197`): el `refs.get(`${cardId}|sealed|${gk}|normal`)`
+    hand-rolled pasó a `variantKey({cardId, productType:'sealed', gradeKey:gk, finish:'normal'})`.
+  Byte-identidad verificada: `variantKey` produce EXACTAMENTE el mismo string, así que no se pierde ninguna
+  referencia/override (money-safe: es clave de map, un cambio de formato corrompería precio).
+- **Guard de round-trip (nuevo):** además del test del helper, `backend/test/tech-debt-backend.spec.ts` ejercita el
+  `PricingService` REAL (prisma mockeado): la fila que `getReferencesBatch`/`getVariantOverridesBatch` INDEXA en el
+  Map se recupera con `variantKey(mismas partes)` (lo que hace el consumidor) → se encuentra. Es el invariante que
+  de verdad protege contra el drift: **productor y consumidor comparten la misma fuente `variantKey`**, no solo que
+  el helper produzca X. Incluye el eje sellado. *(Nota: SB-D3 = otros ≥6 sitios hand-rolled en `buylist`/`inventory`/
+  `admin`/`vault`/`sealed-graded` — de OTROS módulos/streams — quedan FUERA de este ítem; siguen byte-idénticos y no
+  se rompen. Su migración es su propia entrada.)*
 - **Deuda:** la clave `K` = `${cardId}|${productType}|${gradeKey}|${finish}` está **escrita a mano en 3
   sitios** de `catalog.service.ts`: `~L177` (`variantOverride` en `fetchSellable`), `~L191` (`refFromBatch`) y
   `~L429` (`buildGroups`). Si la definición de `K` cambia (orden de campos, separador, componentes), hay que

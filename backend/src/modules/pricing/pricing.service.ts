@@ -31,6 +31,10 @@ import {
   VariantPriceControls,
 } from '../../common/money';
 import { TierId } from '../../common/pricing-tiers';
+// P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
+// Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
+// MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
+import { variantKey } from '../../common/variant-key';
 
 function today(): Date {
   const d = new Date();
@@ -357,8 +361,10 @@ export class PricingService {
   ): Promise<Map<string, PriceInfo>> {
     const map = new Map<string, PriceInfo>();
     if (items.length === 0) return map;
+    // P-30 H2: MISMA fuente de clave que el consumidor (`variantKey`). Producir e indexar el Map con el
+    // helper compartido garantiza que el `.get()` del consumidor caiga en la misma entrada (round-trip).
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
-      `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+      variantKey(i);
     const wanted = new Set(items.map(keyOf));
     const rows = await this.prisma.priceReference.findMany({
       where: {
@@ -502,8 +508,9 @@ export class PricingService {
   ): Promise<Map<string, VariantPriceOverride>> {
     const map = new Map<string, VariantPriceOverride>();
     if (items.length === 0) return map;
+    // P-30 H2: misma fuente de clave que el consumidor (`variantKey`), ver `getReferencesBatch`.
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
-      `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+      variantKey(i);
     const wanted = new Set(items.map(keyOf));
     const rows = await this.prisma.variantPriceOverride.findMany({
       where: {
@@ -531,7 +538,8 @@ export class PricingService {
     finish: Finish,
   ): Promise<VariantPriceOverride | null> {
     const map = await this.getVariantOverridesBatch([{ cardId, productType, gradeKey, finish }]);
-    return map.get(`${cardId}|${productType}|${gradeKey}|${finish}`) ?? null;
+    // P-30 H2: el lookup single usa el MISMO `variantKey` con que `getVariantOverridesBatch` indexó.
+    return map.get(variantKey({ cardId, productType, gradeKey, finish })) ?? null;
   }
 
   /**
