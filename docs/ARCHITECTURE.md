@@ -6589,13 +6589,38 @@ Con el seed, la cotización de **COMPRA** (finish `normal`) cambia SOLO en:
 
 ### 4.35 «Gancho de grading» — valor estimado si se gradea (v1.44, PROJECT §N v2.0, NORMATIVO)
 
-> **Propósito (PROJECT §N).** Sobre una carta **raw publicada**, el storefront muestra **cuánto valdría si se gradeara
-> PSA 10 / PSA 9** frente a su **precio de venta raw actual**, en **tres superficies** (ficha, badge de teja, vitrina del
-> home). Es un **argumento de venta con disclaimer**, **nunca** un precio de venta, una oferta ni una promesa de grado.
-> **Alcance de esta sección:** la capa de **lectura y composición** (dónde vive el dato, cómo se evalúa el gate
-> server-side, qué DTO sale y qué NO puede tocar) + los **diales** + el **plan condicional de la fase 2**. **NO cambia**
-> el precio de venta, el buylist, la bóveda, el inventario ni el P&L.
+> **Propósito (PROJECT §N).** Sobre una carta **raw publicada**, el storefront muestra **cuánto valdría si se gradeara**.
+> Es un **estimado informativo con disclaimer**, **nunca** un precio de venta, una oferta ni una promesa de grado.
+> **Alcance de esta sección:** la capa de **lectura y composición** (dónde vive el dato, cómo se decide qué se emite,
+> qué DTO sale y qué NO puede tocar) + los **diales** + el **plan condicional de la fase 2**. **NO cambia** el precio de
+> venta, el buylist, la bóveda, el inventario ni el P&L.
 > **Sin migración de esquema (M-41 es DATA/seed):** `PriceReference` ya admite las filas que esta feature necesita.
+
+> **⚠ REDUCCIÓN DE ALCANCE (2026-08-23, humano) — supersede la presentación descrita en `PROJECT.md` §N.3.**
+> La interfaz **NO muestra multiplicador, ni ganancia calculada, ni comparativa de columnas** («no hay que mostrarlo
+> así… nos quitamos talacha de calcularlo»). La superficie visible se reduce a **la cifra por grado junto al precio**.
+> **El gate de ROI sobrevive completo —con la tabla de escalones de §N.2.1— pero cambia de PAPEL:** deja de ser
+> información al cliente y pasa a ser **criterio de CURADURÍA**, el que decide **dónde promocionamos activamente**
+> («calcúlalo para que podamos ponerlo en la sección de destacado algo que valga la pena»). **product-owner** debe
+> actualizar `PROJECT.md` §N.3 para que vuelva a mandar sobre el contrato (regla de conflicto).
+
+#### (0) La partición que gobierna todo lo demás: INFORMAR ≠ PROMOVER
+
+| | **FICHA** | **TEJA de Compra + VITRINA del home** |
+|---|---|---|
+| Campo | `GroupedListingDetailResponse.gradedEstimates?` | `GroupedListingDTO.gradingHighlight?` |
+| Nivel | **CARTA** (el estimado no se cruza con el acabado, (a)) | **GRUPO** (el gate compara contra `salePriceCents`, que es del grupo) |
+| Gate de ROI | **NO** — se emite con solo tener dato fresco | **SÍ** — solo si el gate se cumple |
+| Contenido | **PSA 10 y PSA 9**, tal cual | los grados que el badge pinta (`highlightGrades`, hoy `["10"]`) |
+| Papel | **informar** a quien ya está viendo esa carta | **promover** activamente lo que le conviene al comprador |
+
+**Consecuencia deliberada:** una carta puede **mostrar sus estimados en la ficha y NO estar destacada** en Compra ni en
+el home. Eso es exactamente lo buscado, no una inconsistencia.
+
+**SEC-A1 sale REFORZADO por la reducción de alcance:** el cliente ya ni siquiera recibe los **insumos** del cálculo
+(ganancia neta, escalón aplicado, umbral, multiplicador) — solo su **resultado binario** = la presencia del campo. Un
+DTO manipulado **no puede reconstruir el gate porque los números no viajan**. Los insumos existen **solo** en el
+diagnóstico de admin (§4.35d, `GET /admin/pricing/graded-estimates/preview`).
 
 #### (a) Dónde vive el dato — CERO schema nuevo (verificado contra el código)
 
@@ -6659,61 +6684,91 @@ inventar una clave paralela** para «separarlos»: duplicaría la verdad y oblig
 
 #### (c) Resolución server-side — función pura + un batch, sin N+1
 
-**Ubicación:** función **pura** nueva en la zona compartida `backend/src/common/grading-upside.ts` (patrón `money.ts` /
-`pricing-tiers.ts`: sin infra, importable desde tests/seeds). Los servicios (`catalog`) izan la config **una vez por
-request** (patrón BE-25) y llaman a la pura por grupo.
+**Ubicación:** funciones **puras** nuevas en la zona compartida `backend/src/common/graded-estimate.ts` (patrón
+`money.ts` / `pricing-tiers.ts`: sin infra, importables desde tests/seeds). Los servicios (`catalog`) izan la config
+**una vez por request** (patrón BE-25) y llaman a las puras por carta/grupo.
 
 ```ts
-// backend/src/common/grading-upside.ts  (NUEVO — zona compartida common/)
+// backend/src/common/graded-estimate.ts  (NUEVO — zona compartida common/)
 export interface GradingCostTier { minValueMxnCents: number; maxValueMxnCents: number | null; costMxnCents: number }
-export interface GradingUpsideConfig {
-  enabled: boolean;                 // dial M10 grading_upside_enabled (fail-closed, seed off)
-  gradingCostTiers: GradingCostTier[];
-  minUpsidePct: number;             // default 30
-  freshnessDays: number;            // default 30
+export interface GradedEstimateConfig {
+  enabled: boolean;                 // dial M10 graded_estimates_enabled (fail-closed, seed off)
+  grades: string[];                 // grados que la FICHA expone            — seed ['10','9']
+  highlightGrades: string[];        // grados que el BADGE pinta (⊆ grades)  — seed ['10']
+  freshnessDays: number;            // seed 30
+  minUpsidePct: number;             // seed 30      (solo gate de curaduría)
+  gradingCostTiers: GradingCostTier[]; //           (solo gate de curaduría)
 }
-export interface GradedEstimateInput { mxnCents: number; capturedDate: string /* YYYY-MM-DD */ }
+export interface GradedEstimateInput { gradeValue: string; mxnCents: number; capturedDate: string /* YYYY-MM-DD */ }
 
-/** Devuelve el DTO YA evaluado, o `null` = NO elegible ⇒ el campo NO se emite. Nunca devuelve ceros. */
-export function resolveGradingUpside(input: {
+/** FICHA (SIN gate): los grados con dato FRESCO, orden desc. `[]` ⇒ el caller OMITE el campo (nunca emite []). */
+export function selectGradedEstimates(input: {
+  productType: 'raw' | 'graded' | 'sealed';
+  estimates: GradedEstimateInput[];  // los que trajo el batch, por grado
+  today: string; cfg: GradedEstimateConfig;
+}): GradedEstimateInput[];
+
+/** TEJA/VITRINA (CON gate). Devuelve el resultado COMPLETO; el DTO público solo usa `eligible` + `highlight`.
+ *  `netUpsidePsa9MxnCents` es la clave de ORDEN de la vitrina y el insumo del preview de admin — NO viaja al cliente. */
+export function evaluateGradingHighlight(input: {
   productType: 'raw' | 'graded' | 'sealed';
   rawSalePriceCents: number | null;
-  psa10: GradedEstimateInput | null;
-  psa9:  GradedEstimateInput | null;
-  today: string;                    // fecha de negocio (America/Mexico_City), date-only
-  cfg: GradingUpsideConfig;
-}): GradingUpsideDTO | null;
+  estimates: GradedEstimateInput[];
+  today: string; cfg: GradedEstimateConfig;
+}): { eligible: boolean; reason?: HighlightReason;
+      highlight: GradedEstimateInput[];        // vacío si !eligible
+      gradingCostTier: GradingCostTier | null; gradingCostMxnCents: number | null;
+      thresholdMxnCents: number | null; netUpsidePsa9MxnCents: number | null };
 ```
 
-**Algoritmo NORMATIVO** (el orden importa: cada paso es un `return null`, jamás un default):
+**Algoritmo NORMATIVO de la FICHA** (`selectGradedEstimates`) — **sin gate**:
 
 ```
-1. cfg.enabled !== true                      -> null      // fail-closed (dial M10, seed off)
-2. productType !== 'raw'                     -> null      // criterio 87: graded y sealed NUNCA
-3. rawSalePriceCents == null || <= 0         -> null      // sin precio de venta no hay comparación
-4. psa10 == null || psa9 == null             -> null      // criterio 80: sin PSA 9 no hay gancho; sin PSA 10 tampoco
-5. psa10.mxnCents <= 0 || psa9.mxnCents <= 0 -> null      // un 0 en referencia NO es un estimado
-6. stale(psa10) || stale(psa9)               -> null      // frescura: manda el MÁS ANTIGUO de los dos
+1. cfg.enabled !== true                                   -> []   // fail-closed (dial M10, seed off)
+2. productType !== 'raw'                                  -> []   // criterio 87: graded y sealed NUNCA
+3. por cada g in cfg.grades (orden desc: '10','9'):
+     e = estimates[g];  si e == null            -> se OMITE ESE GRADO   (los grados son INDEPENDIENTES)
+     si e.mxnCents <= 0                         -> se OMITE ESE GRADO   (un 0 NO es un estimado)
+     si stale(e)                                -> se OMITE ESE GRADO
+     si no                                      -> entra al arreglo
+4. resultado vacío -> []  ⇒ el caller OMITE el campo (JAMÁS emite `[]`)
+```
+
+**Algoritmo NORMATIVO del DESTACADO** (`evaluateGradingHighlight`) — **con gate**; cada paso es un `reason`, jamás un
+default:
+
+```
+1. cfg.enabled !== true                      -> FEATURE_OFF
+2. productType !== 'raw'                     -> NOT_RAW
+3. rawSalePriceCents == null || <= 0         -> NOT_PUBLISHED     // sin precio de venta no hay comparación
+4. psa10 ausente o <= 0                      -> NO_PSA10          // se necesita para resolver el ESCALÓN
+5. psa9  ausente o <= 0                      -> NO_PSA9           // criterio 80: sin PSA 9 no se promueve
+6. stale(psa10) || stale(psa9)               -> STALE             // manda el MÁS ANTIGUO de los dos
 7. tier = findTier(cfg.gradingCostTiers, psa10.mxnCents)
-   tier == null                              -> null      // SIN ESCALÓN, SIN GANCHO — jamás costo 0
+   tier == null                              -> NO_COST_TIER      // SIN ESCALÓN, SIN DESTACADO — jamás costo 0
 8. threshold = ceil((rawSalePriceCents + tier.costMxnCents) * (1 + cfg.minUpsidePct/100))
-   psa9.mxnCents < threshold                 -> null      // gate de ROI sobre PSA 9 (decisión 41)
-9. -> GradingUpsideDTO { ... }                             // presente ⇔ elegible
+   psa9.mxnCents < threshold                 -> BELOW_MIN_UPSIDE  // gate de ROI sobre PSA 9 (decisión 41)
+9. eligible = true
+   netUpsidePsa9MxnCents = psa9.mxnCents - (rawSalePriceCents + tier.costMxnCents)   // > 0 garantizado
+   highlight = los grades de cfg.highlightGrades que estén FRESCOS y > 0             // hoy ['10']
 ```
 
+- **La ficha y el destacado se evalúan por separado y con reglas distintas.** Caso normal y esperado: una carta con
+  PSA 10 y PSA 9 frescos que **no** pasa el gate ⇒ la ficha muestra **las dos cifras** y la teja **no muestra nada**.
+  Caso también normal: PSA 10 fresco sin PSA 9 ⇒ la ficha muestra **una** cifra y la teja **nada** (`NO_PSA9`).
 - **`stale(e)`** := `diffDays(today, e.capturedDate) > cfg.freshnessDays`. `today` = **fecha de negocio CDMX**,
   date-only (misma convención que `capturedDate`, columna `@db.Date`). Un `capturedDate` futuro (reloj torcido) **no**
   es rancio; es fresco.
 - **`findTier(tiers, v)`** := la fila con `v >= minValueMxnCents && (maxValueMxnCents == null || v < maxValueMxnCents)`.
-  **Intervalos semiabiertos `[min, max)`** — ver (d). Tabla vacía, con hueco o no ordenada ⇒ `null` ⇒ **no elegible**.
+  **Intervalos semiabiertos `[min, max)`** — ver (d). Tabla vacía, con hueco o no ordenada ⇒ `null` ⇒ `NO_COST_TIER`.
 - **Valor declarado = el estimado PSA 10** (PROJECT §N.2.1, SUPUESTO conservador del PO): es el escenario más caro ⇒
   empuja al escalón más alto ⇒ **gate más estricto**. Si el humano cambia el criterio (PSA 9 o precio raw), es un
   cambio de **una línea** en la pura y **cero cambio de contrato**.
 - **Redondeo:** `threshold` con **`Math.ceil`** (redondea en la dirección que hace el gate **más estricto**). Todo en
   **enteros de centavos**; prohibido flotante en la comparación.
-- **`multiplier`** = `round(psa10.mxnCents / rawSalePriceCents, 2)` — **display puro**, calculado server-side para que
-  no existan dos redondeos distintos. El cliente **puede** recomputarlo (SEC-A1 lo permite: es presentación), pero
-  **nunca** decide elegibilidad.
+- **Nada de `evaluateGradingHighlight` salvo `eligible` y `highlight` sale del servidor hacia el cliente.**
+  `netUpsidePsa9MxnCents`, `thresholdMxnCents`, `gradingCostTier` y `reason` alimentan **el orden de la vitrina** y el
+  **diagnóstico de admin** (d). Es una regla de contrato, no una recomendación.
 
 **Lectura del dato — batch dedicado, sin N+1 (NORMATIVO):**
 
@@ -6739,20 +6794,20 @@ finish: 'normal', cardProductId: null }`, `orderBy capturedDate desc`, con el **
 | Superficie | Queries añadidas | Nota |
 |---|---|---|
 | `GET /catalog/cards` (teja) | **+1** | batch sobre los `cardId` **distintos** de las filas raw vendibles que `fetchSellable` ya cargó. |
-| `GET /catalog/cards?gradingUpside=true` (vitrina) | **+1** | `listCards` ya materializa y pagina **en memoria** (`catalog.service.ts:523-542`); filtrar y ordenar por upside es en memoria sobre ese mismo conjunto. |
+| `GET /catalog/cards?gradingHighlight=true` (vitrina) | **+1** | `listCards` ya materializa, filtra y pagina **en memoria** (`catalog.service.ts:523-542`); filtrar por elegibilidad y ordenar por ganancia neta es en memoria sobre ese mismo conjunto. |
 | `GET /catalog/cards/:cardId` (ficha) | **+1** | batch de un solo `cardId`. |
 | `GET /catalog/sealed*`, `/vault/*`, checkout, buylist | **0** | no se tocan (doctrina (b)). |
 
 *(Recomendación no normativa para devops/backend: cache server-side corto —60–300 s— sobre la vitrina del home, mismo
 criterio que el hero de set, §4.12d. La config —4 `ConfigSetting`— se iza una vez por request; no se relee por grupo.)*
 
-#### (d) Los diales — `gradingCostTiers` es un recurso M2 propio, NO se reusa `/admin/pricing/tiers`
+#### (d) Los diales — recurso M2 propio, NO se reusa `/admin/pricing/tiers`
 
 **Decisión del arquitecto** (PROJECT §N.2.1 sugería reusar el patrón de `GET/PUT /admin/pricing/tiers`; la elección de
 diseño es del arquitecto): se **reusa el PATRÓN, no el RECURSO**. Endpoints dedicados
-`GET/PUT /api/v1/admin/pricing/grading-upside` (§M2 del contrato), con el mismo estilo que
-`GET/PUT /admin/pricing/sealed-spreads`: JSON en `ConfigSetting`, `super_admin`, **auditado**, **sin redeploy**,
-validación total en el `PUT` con códigos de error propios.
+`GET/PUT /api/v1/admin/pricing/graded-estimates` (+ el diagnóstico `.../preview`, §M2 del contrato), con el mismo
+estilo que `GET/PUT /admin/pricing/sealed-spreads`: JSON en `ConfigSetting`, `super_admin`, **auditado**, **sin
+redeploy**, validación total en el `PUT` con códigos de error propios.
 
 > **Por qué NO reusar `/admin/pricing/tiers`:** son tablas con **contratos opuestos**. Los tiers de rareza son una
 > **taxonomía LOCKED** de 5 filas nombradas (`id`/`name`/`premium` no editables, el `PUT` **exige** las 5, §4.33a) cuyo
@@ -6762,22 +6817,29 @@ validación total en el `PUT` con códigos de error propios.
 > ambiguo. Tampoco caben en `PUT /admin/settings`, que valida **key por key** y no puede expresar un invariante
 > **entre filas** con un error accionable (qué par de escalones no empalma).
 
-**Cuatro claves de `ConfigSetting`** (M-41, DATA/seed, sin DDL):
+**Seis claves de `ConfigSetting`** (M-41, DATA/seed, sin DDL):
 
-| Key | `SettingKey` | Tipo | Seed | Se edita en |
-|---|---|---|---|---|
-| `grading_cost_tiers` | `GRADING_COST_TIERS` | JSON array | tabla §N.2.1 (abajo) | **M2** `PUT /admin/pricing/grading-upside` |
-| `grading_min_upside_pct` | `GRADING_MIN_UPSIDE_PCT` | number | **30** | **M2** (mismo `PUT`) |
-| `grading_freshness_days` | `GRADING_FRESHNESS_DAYS` | int | **30** | **M2** (mismo `PUT`) |
-| `grading_upside_enabled` | `GRADING_UPSIDE_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | **M10** `PUT /admin/settings` |
+| Key | `SettingKey` | Tipo | Seed | Gobierna | Se edita en |
+|---|---|---|---|---|---|
+| `graded_estimate_grades` | `GRADED_ESTIMATE_GRADES` | JSON `string[]` | `["10","9"]` | qué grados expone la **FICHA** | **M2** `PUT /admin/pricing/graded-estimates` |
+| `graded_estimate_highlight_grades` | `GRADED_ESTIMATE_HIGHLIGHT_GRADES` | JSON `string[]` | `["10"]` | qué grados pinta el **BADGE** (⊆ anterior) | **M2** (mismo `PUT`) |
+| `graded_estimate_freshness_days` | `GRADED_ESTIMATE_FRESHNESS_DAYS` | int | **30** | frescura (ambas superficies) | **M2** (mismo `PUT`) |
+| `grading_cost_tiers` | `GRADING_COST_TIERS` | JSON array | tabla §N.2.1 (abajo) | **gate de curaduría** (solo teja/vitrina) | **M2** (mismo `PUT`) |
+| `grading_min_upside_pct` | `GRADING_MIN_UPSIDE_PCT` | number | **30** | **gate de curaduría** (solo teja/vitrina) | **M2** (mismo `PUT`) |
+| `graded_estimates_enabled` | `GRADED_ESTIMATES_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | **interruptor maestro** | **M10** `PUT /admin/settings` |
 
-**El flag `grading_upside_enabled` (seed `off`) es una decisión deliberada, no un adorno.** Tres razones:
+**El flag `graded_estimates_enabled` (seed `off`) es una decisión deliberada, no un adorno.** Tres razones:
 (1) el **disclaimer de §N.5 aún NO tiene el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial) — el
 código puede desplegarse antes que el texto se apruebe **sin** que la afirmación comercial salga a producción por
 accidente; (2) da a QA el on/off que el **criterio 90** exige verificar («con la feature encendida y apagada, ningún
 precio de venta cambia»); (3) es el mismo patrón fail-closed ya vigente para `sealedValueTrend`/`sealedRestockAlerts`
-(§4.23h) y `sealedPriceSource` (§4.19e). Con `off` el backend **ni siquiera evalúa el gate**: no emite `gradingUpside`
-ni `gradedEstimates`, y `?gradingUpside=true` devuelve `data: []`.
+(§4.23h) y `sealedPriceSource` (§4.19e). Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates`
+ni `gradingHighlight`, y `?gradingHighlight=true` devuelve `data: []`.
+
+> **Nota de separación de diales (importante para el operador):** `grading_cost_tiers` y `grading_min_upside_pct`
+> gobiernan **exclusivamente la CURADURÍA** (dónde promovemos). **No afectan a la ficha**: subir `minUpsidePct` vacía la
+> vitrina y quita los badges, pero la ficha de esa carta **sigue mostrando sus estimados**. Es la consecuencia directa
+> de la partición (0) y debe quedar claro en la UI de M2 para que el dueño no crea que «apagó» el estimado.
 
 **Seed de `grading_cost_tiers` — intervalos SEMIABIERTOS `[min, max)`, centavos MXN:**
 
@@ -6807,17 +6869,27 @@ ni `gradedEstimates`, y `?gradingUpside=true` devuelve `data: []`.
 | I4 | **contigüidad:** `tiers[i].maxValueMxnCents === tiers[i+1].minValueMxnCents` para todo `i < n-1` (sin huecos **ni** solapes) | `422 GRADING_TIERS_NOT_CONTIGUOUS` (body: los pares `(i, i+1)` infractores) |
 | I5 | **último escalón abierto:** `tiers[n-1].maxValueMxnCents === null` y **ninguna otra** fila `null` | `422 GRADING_TIERS_NOT_OPEN_ENDED` |
 | I6 | `minUpsidePct` número en `[0, 1000]`; `freshnessDays` int en `[1, 365]` | `422 VALIDATION_ERROR` |
+| I7 | `grades` / `highlightGrades` ⊆ `{"10","9"}`, no vacíos, sin duplicados, y **`highlightGrades` ⊆ `grades`** | `422 VALIDATION_ERROR` |
 
 - **`costMxnCents ≥ 1`, jamás 0** — es la misma regla L1 de dinero que ya aplica `OverrideDto` (`@Min(1)`,
   `pricing.controller.ts:52`). Un costo de gradeo 0 es **exactamente** lo que haría que el comprador pierda dinero.
 - **El `PUT` de `gradingCostTiers` es TOTAL** (reemplaza el array completo): un patch por fila no puede validar
-  contigüidad. `minUpsidePct`/`freshnessDays` sí son parciales.
-- **Auditado:** `AuditLog action=pricing.grading_upside.update` con `before`/`after` (M10). **Recalcula el conjunto
-  elegible al vuelo** (no hay materialización: el gate se evalúa en cada request) ⇒ criterio 86 se cumple sin job.
+  contigüidad. Los demás campos sí son parciales.
+- **Auditado:** `AuditLog action=pricing.graded_estimates.update` con `before`/`after` (M10). **Recalcula el conjunto
+  destacado al vuelo** (no hay materialización: el gate se evalúa en cada request) ⇒ criterio 86 se cumple sin job.
 - **Fail-closed on-read:** si la clave falta, está corrupta o **no cumple I1–I5** al leerla, el resolver trata la tabla
-  como **vacía** ⇒ **nada es elegible**. Jamás se cae a un default de código para el **costo** (PROJECT §N.4). *(La
-  excepción explícita: `minUpsidePct`/`freshnessDays` ausentes SÍ caen a sus seeds 30/30 — son umbrales, no dinero, y
-  su ausencia no puede producir un gate optimista: sin tabla no hay gate.)*
+  como **vacía** ⇒ **nada se destaca**. Jamás se cae a un default de código para el **costo** (PROJECT §N.4). *(La
+  excepción explícita: `minUpsidePct`/`freshnessDays`/`grades` ausentes SÍ caen a sus seeds — son umbrales/listas, no
+  dinero, y su ausencia no puede producir un gate optimista: sin tabla no hay gate.)*
+
+**Diagnóstico de curaduría — `GET /admin/pricing/graded-estimates/preview?cardId=` (`super_admin`, read-only).** Es el
+**único** lugar donde los insumos del gate se exponen, y su existencia es lo que permite que el DTO público sea tan
+chico. Responde **«¿por qué esta carta no está destacada?»** devolviendo, **por grupo raw publicado**, los estimados,
+el **escalón aplicado**, el **umbral**, la **ganancia neta sobre PSA 9**, `eligible` y un **`reason` accionable**
+(`FEATURE_OFF | NOT_RAW | NOT_PUBLISHED | NO_PSA10 | NO_PSA9 | STALE | NO_COST_TIER | BELOW_MIN_UPSIDE`) — exactamente
+los `reason` que devuelve `evaluateGradingHighlight` en (c), sin lógica duplicada. Es indispensable en fase 1, donde el
+humano **cura a mano** (§N.6): sin él, «fijé el precio y no salió» sería una caja negra. **No escribe, no toca dinero,
+no aparece en ninguna superficie pública**; montos no resolubles = `null`, **nunca `0`**.
 
 #### (e) Superficies y forma del DTO — presencia ⇔ elegibilidad
 
