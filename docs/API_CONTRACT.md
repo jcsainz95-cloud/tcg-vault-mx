@@ -2,7 +2,23 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.39-sealed-product-module).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.39.1-sealed-decisiones-po).
+>
+> **Changelog v1.39.1-sealed-decisiones-po (2026-08-23, arquitecto — decisiones del humano sobre P-38; SIN cambio de
+> shape):** el humano resolvió las 4 preguntas abiertas de §4.34. **Solo #2 cambia norma; #1/#3/#4 confirman.**
+> - **#2 (CAMBIO) — precio manual también `vault_operator`:** `BatchInventoryItemInput.manualMarketMxnCents` (fallback
+>   money-safe del alta) pasa de **`super_admin`** a **`vault_operator+`** (el operador de bóveda opera el alta). Se mantiene
+>   money-safe: solo cuando el mercado en vivo/caché es null, valor `>0`, **auditado**. **`422 MANUAL_MARKET_NOT_ALLOWED`
+>   deja de dispararse por rol** — queda **solo** para el caso «intentar sobrescribir un mercado ya resuelto». ⚠ **Este
+>   input de dinero por `vault_operator` queda MARCADO para revisión de la fase de seguridad (pentester + seguridad) por
+>   release.**
+> - **#1 (confirma) — UI SEPARADA por `origin`:** el alta muestra dos secciones «Del set» (`origin=set_main`) vs
+>   «Promos/colecciones» (`origin=promo_collection`). Partición de presentación (frontend/ux-ui); `origin` ya viene en
+>   `SealedProductDTO` — **sin cambio de shape**.
+> - **#3 (confirma) — subtipo `collection`:** `SealedSubtype = {box, etb, upc, bundle, tin, blister, collection}` (como se
+>   diseñó).
+> - **#4 (confirma) — soft-delete:** producto que desaparece de TCGCSV ⇒ `SealedProduct.active=false` (se conserva por FKs
+>   de inventario/órdenes), nunca borrado duro.
 >
 > **Changelog v1.39-sealed-product-module (2026-08-23, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-38,
 > cura de raíz de SB-D5, ARCHITECTURE §4.34):** cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**. Materializa la
@@ -1255,7 +1271,7 @@
   `{T0..T4}` o body mal formado). Ver §M2 «Pricing por TIERS».
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
-- **Códigos nuevos del módulo `SealedProduct` (v1.39, P-38):** `422 SEALED_PRODUCT_NOT_FOUND` (`BatchInventoryItemInput.sealedProductId` no existe o está `active=false`; money-safe: no se crea inventario contra una identidad inválida). `422 MANUAL_MARKET_NOT_ALLOWED` (`manualMarketMxnCents` enviado cuando el mercado en vivo/caché **ya** resuelve — el override solo aplica al hueco de precio —, **o** el rol es `< super_admin`; poblar un precio manual es un input de dinero). Reusa: `422 PRICE_PENDING` (sellado sin mercado y sin override manual), `422 VALIDATION_ERROR` (`manualMarketMxnCents ≤ 0`; `sealedProductId` en raw/graded; `sync` sin `setId` ni `all`), `409` (grupo ya enlazado en `sealed-sets/:setId/groups`), `502 UPSTREAM_ERROR` (sync/candidates/marketRef live). Ya en el enum central `common/error-codes.ts`.
+- **Códigos nuevos del módulo `SealedProduct` (v1.39, P-38):** `422 SEALED_PRODUCT_NOT_FOUND` (`BatchInventoryItemInput.sealedProductId` no existe o está `active=false`; money-safe: no se crea inventario contra una identidad inválida). `422 MANUAL_MARKET_NOT_ALLOWED` (`manualMarketMxnCents` enviado cuando el mercado en vivo/caché **ya** resuelve — el override solo aplica al hueco de precio, jamás pisa un mercado vivo). **v1.39.1:** **ya NO** lo dispara el rol — el precio manual lo permite `vault_operator+` (decisión del humano); queda como error **solo** por el caso «mercado ya resuelto». Input de dinero por vault_operator → marcado para la fase de seguridad por release. Reusa: `422 PRICE_PENDING` (sellado sin mercado y sin override manual), `422 VALIDATION_ERROR` (`manualMarketMxnCents ≤ 0`; `sealedProductId` en raw/graded; `sync` sin `setId` ni `all`), `409` (grupo ya enlazado en `sealed-sets/:setId/groups`), `502 UPSTREAM_ERROR` (sync/candidates/marketRef live). Ya en el enum central `common/error-codes.ts`.
 - **`502 UPSTREAM_ERROR` (transversal; formalizado v1.31):** una **fuente externa** de datos no está disponible o
   devolvió un payload inválido (timeout/red, 401/403/5xx, o parse fallido). Aplica a **TCGCSV** (`https://tcgcsv.com`,
   espejo de precios/estructura de TCGplayer) y a **pokemontcg.io** (metadata de cartas). **No** es un `500` crudo: el
@@ -1690,10 +1706,13 @@ InventoryAdjustmentResponse = { adjustmentIds: string[], reason: AdjustmentReaso
 //   los 4 campos sueltos se IGNORAN (mandan los derivados). `cardId` pasa a OPCIONAL: REQUERIDO para raw/graded y para
 //   sealed SIN `sealedProductId` (transición P-35); con `sealedProductId` el backend lo DERIVA (ancla del set) y el
 //   cliente puede omitirlo. Ausente donde se requiere → 422 VALIDATION_ERROR.
-// v1.39 (P-38): `manualMarketMxnCents?` (solo sealed, FALLBACK MANUAL money-safe) = mercado en MXN centavos aceptado SOLO
-//   cuando el precio EN VIVO (TCGCSV al alta) y la caché son null; `> 0` (≤0 → 422 VALIDATION_ERROR); requiere
-//   `super_admin` y AUDITADO (persiste PriceReference isManualOverride=true). Con mercado ya resuelto o rol < super_admin
-//   → 422 MANUAL_MARKET_NOT_ALLOWED. Sin override y sin mercado ⇒ 422 PRICE_PENDING (NUNCA se inventa 0).
+// v1.39 (P-38) + v1.39.1: `manualMarketMxnCents?` (solo sealed, FALLBACK MANUAL money-safe) = mercado en MXN centavos
+//   aceptado SOLO cuando el precio EN VIVO (TCGCSV al alta) y la caché son null; `> 0` (≤0 → 422 VALIDATION_ERROR);
+//   AUDITADO (persiste PriceReference isManualOverride=true). **PERMISO (v1.39.1, decisión del humano): `vault_operator+`**
+//   (NO restringido a super_admin — el operador de bóveda opera el alta). Con mercado YA resuelto (no hay hueco que
+//   llenar) → 422 MANUAL_MARKET_NOT_ALLOWED (el override manual solo aplica al hueco de precio, JAMÁS pisa un mercado
+//   vivo). Sin override y sin mercado ⇒ 422 PRICE_PENDING (NUNCA se inventa 0). ⚠ Input de dinero por vault_operator →
+//   MARCADO para revisión de la fase de seguridad (pentester + seguridad) por release.
 BatchInventoryItemInput = { cardId?: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish,
                             sealedSubtype?: SealedSubtype, sealedCondition?: SealedCondition, // v1.23: default mint (solo sealed)
                             gradingCompany?: GradingCompany, gradeValue?: string,
@@ -3720,6 +3739,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   `&principalOnly?=true` (solo presentaciones «cabecera»).
   - **Orden (§4.34c):** principales primero — `(isPrincipal desc, sortOrder asc, name asc)`; `sortOrder` canónico
     `upc=0, etb=1, box=2, bundle=3, tin=4, blister=5, collection=6`.
+  - **Presentación SEPARADA por `origin` (v1.39.1, decisión del humano) — para frontend/ux-ui:** el alta muestra **dos
+    secciones** — «Del set» (`origin=set_main`) y «Promos/colecciones» (`origin=promo_collection`). Es partición de UI;
+    **sin cambio de shape** (el campo `origin` ya viene en `SealedProductDTO`; el orden §4.34c aplica dentro de cada sección).
   - **`marketRef` (money-safe, INFORMATIVO):** por producto — **live** (fetch TCGCSV del grupo al vuelo, USD→MXN con
     FX+colchón) → fallback a `marketUsdCents` cacheado por el sync → **`null` (pendiente/«—»), JAMÁS `0`**. No fija venta
     ni costo. **Sin N+1** (una llamada de precios por grupo distinto + join en memoria; FX una vez por request).
@@ -3754,8 +3776,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - **Alta de inventario SELLADO (P-38) — SIN endpoint nuevo:** el front reusa **`POST /admin/inventory/items/batch`** con
   **`sealedProductId`** (identidad; el backend deriva `cardId` ancla + mapeo + imagen/nombre/subtipo del `SealedProduct` y
   congela el snapshot ⇒ nace «ETB …», no Tropius). Precio **en vivo** al alta (TCGCSV → caché → null). **Fallback manual
-  money-safe:** `manualMarketMxnCents?` (solo si el mercado resuelto es null, `>0`, `super_admin`, auditado); sin override
-  ⇒ `422 PRICE_PENDING` (nunca 0). Errores nuevos: `422 SEALED_PRODUCT_NOT_FOUND`, `422 MANUAL_MARKET_NOT_ALLOWED`.
+  money-safe (v1.39.1):** `manualMarketMxnCents?` (solo si el mercado resuelto es null, `>0`, **`vault_operator+`**,
+  auditado; ⚠ input de dinero por operador → revisión de seguridad por release); sin override ⇒ `422 PRICE_PENDING`
+  (nunca 0). Errores nuevos: `422 SEALED_PRODUCT_NOT_FOUND`, `422 MANUAL_MARKET_NOT_ALLOWED` (solo «mercado ya resuelto»).
   - **Nota transición:** los 4 campos sueltos M-37 (`tcgplayerProductId`/`tcgplayerGroupId`/`sealedImageUrl`/
     `sealedProductName`) quedan **DEPRECADOS**; si viene `sealedProductId` se ignoran (mandan los derivados). El flujo P-35
     (§4.32c, alta por mapeo suelto) sigue funcionando en transición.

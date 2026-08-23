@@ -6205,7 +6205,10 @@ promo — p. ej. los de **Mega Evolution**, o «Black Star Promos»). Un modelo 
 - **Listar presentaciones del set** — `GET /admin/inventory/sealed-products?setId=&q?&origin?&principalOnly?`
   (`vault_operator+`): lee los `SealedProduct` **persistidos** (active=true) del set, ordenados §4.34c, cada uno con
   `marketRef: PriceInfo | null` (**live**: fetch TCGCSV del grupo al vuelo → fallback a `marketUsdCents` cacheado →
-  `null` money-safe; USD→MXN con FX+colchón). Sustituye a `GET /admin/inventory/sealed-catalog` (§4.32a), que se marca
+  `null` money-safe; USD→MXN con FX+colchón). **Presentación SEPARADA por `origin` (decisión del humano, v1.39.1):** el
+  front pinta dos secciones — «Del set» (`set_main`) vs «Promos/colecciones» (`promo_collection`) — usando el campo
+  `origin` que ya trae cada producto (sin cambio de shape; el orden §4.34c aplica dentro de cada sección). Sustituye a
+  `GET /admin/inventory/sealed-catalog` (§4.32a), que se marca
   **DEPRECADO** (transición: puede mantenerse como alias que lee la misma tabla). Grupo/catálogo aún vacío ⇒
   `data:[]` + `needsSync:true` (el front ofrece «Sincronizar»).
 - **Alta = seleccionar** — reusa `POST /admin/inventory/items/batch`. `BatchInventoryItemInput` gana **`sealedProductId?`**
@@ -6221,9 +6224,11 @@ promo — p. ej. los de **Mega Evolution**, o «Black Star Promos»). Un modelo 
   override ⇒ `422 PRICE_PENDING` por línea (queda pendiente, curable); (b) **override manual explícito** `manualMarketMxnCents?`
   en la línea (solo cuando el mercado resuelto es null) ⇒ se usa como referencia, **auditado**
   (`AuditLog inventory.sealed_manual_market`) y persistido como `PriceReference isManualOverride=true`. **Nunca** default
-  0; `manualMarketMxnCents ≤ 0` ⇒ `422 VALIDATION_ERROR`. **Autorización:** poblar un precio manual es un input de
-  dinero — se restringe a `super_admin` (para `vault_operator` la línea sin mercado cae a `PRICE_PENDING`); a validar en
-  la fase de seguridad (ver preguntas abiertas).
+  0; `manualMarketMxnCents ≤ 0` ⇒ `422 VALIDATION_ERROR`. **Autorización (decisión del humano, v1.39.1):** lo permite
+  **`vault_operator+`** (el operador de bóveda opera el alta; NO se restringe a super_admin). `422 MANUAL_MARKET_NOT_ALLOWED`
+  **ya no** se dispara por rol — solo si se intenta sobrescribir un mercado **ya resuelto** (el override manual llena el
+  hueco de precio, jamás pisa un mercado vivo). **⚠ Este input de dinero por `vault_operator` queda MARCADO para revisión
+  de la fase de seguridad (pentester + seguridad) por release.**
 - **Sync (poblar catálogo + groupIds)** — `POST /admin/inventory/sealed-products/sync` (`super_admin`)
   `{ setId?, groupIds?, all? }`: para el set (o todos), resuelve sus grupos (`SealedSetGroup` ∪ `groupIds` pasados ∪
   name-match del `set_main` si falta), y por grupo: `listSealedProducts` (descarta singles) → `inferSealedSubtype` →
@@ -6273,13 +6278,17 @@ destructivo. Con la app corriendo. `backend/prisma/` es **zona compartida** → 
   backfill liga el ETB a su SealedProduct.
 - **Frontend** (`(admin)` inventario / captura): el modal de alta de la pestaña Sellado consume `GET
   /admin/inventory/sealed-products` (tejas con imagen de API, subtipo incl. UPC, `marketRef`/«—», principales primero);
-  seleccionar producto + cantidad + compra/aportación; enviar `items/batch` con `sealedProductId` + `batchKey`. Estado
-  «catálogo vacío» ⇒ botón «Sincronizar» (`super_admin`); campo de precio manual (super_admin) cuando `marketRef` es null.
-- **ux-ui**: teja del `SealedProduct` (imagen, subtipo/UPC, badge principal, `marketRef`/«—»), agrupación «del set» vs
-  «promo/colección» (`origin`) — pendiente de la pregunta abierta al humano —, estado «sincronizar» y el input de precio
-  manual money-safe.
+  seleccionar producto + cantidad + compra/aportación; enviar `items/batch` con `sealedProductId` + `batchKey`. **Dos
+  secciones SEPARADAS por `origin`** («Del set» / «Promos/colecciones», decisión del humano v1.39.1). Estado «catálogo
+  vacío» ⇒ botón «Sincronizar» (`super_admin`); campo de precio manual (**`vault_operator+`**, v1.39.1) cuando `marketRef`
+  es null.
+- **ux-ui**: teja del `SealedProduct` (imagen, subtipo/UPC, badge principal, `marketRef`/«—»), **dos secciones SEPARADAS
+  «Del set» vs «Promos/colecciones» por `origin`** (decisión del humano v1.39.1), estado «sincronizar» y el input de
+  precio manual money-safe (disponible para `vault_operator`).
 - **QA/techlead/seguridad**: doble veredicto por stream + fase de seguridad (toca valuación por el precio en vivo y el
-  override manual → revisar autorización del manual y del sync, y el host allowlist de imágenes).
+  override manual). **Foco de seguridad por release (v1.39.1):** el **precio manual lo puede fijar `vault_operator`**
+  (decisión del humano) — input de dinero por rol operador: revisar que sea money-safe (solo llena hueco null, `>0`,
+  auditado, no pisa mercado vivo), la autorización del sync (`super_admin`), y el host allowlist de imágenes.
 
 ---
 
