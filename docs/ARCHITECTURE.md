@@ -2,6 +2,14 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+> Rev v1.43-sealed-manual-override-survives-dial (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
+> DISEÑO EN PAPEL; lo implementa BACKEND). Escalada regla 9 del gate E2E, **issue IMP-C**. CLARIFICACIÓN de la precedencia
+> §K/§4.23a del sellado — corrige QUÉ gatea el dial `sealedPriceSource`: gobierna **solo la fuente AUTOMÁTICA de mercado
+> (ingest TCGCSV)**, NO un **override manual** (`isManualOverride`/`source='manual'`), que **sobrevive al dial `off`**.
+> Fix en el **único** predicado `gateSealedMarketCents` (resolver H-1) ⇒ arregla los 4 consumidores; mata el bucle
+> `PRICE_PENDING` tras «FIJAR PRECIO» con dial `off`. **Sin migración, sin cambio de shape, money-safe (nunca 0), no es
+> decisión de producto.** Frontend sin cambio funcional. Detalle normativo: §4.23a/§4.23d, §10 (SUP-IMP-C), §11 (nota).
+> Contrato en API_CONTRACT (Changelog v1.43-sealed-manual-override-survives-dial). **Base previa:** v1.42-sealed-identity-everywhere.
 > Rev v1.42-sealed-identity-everywhere (2026-08-23, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan.
 > Escalada regla 9 del gate E2E pre-publicación; 3 incoherencias de identidad/conteo del sellado). Dictamen: los 3
 > APROBADOS, ADITIVOS y money-safe. **BLOQ-3** — el master-set binder cuenta **SOLO singles**, EXCLUYE `productType='sealed'`
@@ -4288,10 +4296,31 @@ override (InventoryItem.listPriceCents)                       ← gana SIEMPRE s
   > (sin precio) ⇒ PRICE_PENDING ⇒ NO se publica              ← money-safe: sin mercado y sin override, no se vende
 ```
 
-- **`sealedMarketRef`** = la `PriceReference(cardId, 'sealed', 'sealed:tcg:<productId>', 'normal')` que ya escribe el
-  job `sealed-price-ingest` (§4.19d), en **MXN centavos** (FX+colchón ya aplicado). **Requiere** `sealed_price_source =
-  tcgcsv` (dial encendido, §4.19e) **y** el item **mapeado** (curación M2, §4.19c). Sin ingest/sin mapeo →
-  `sealedMarketRef = null` → el sellado solo se vende con **override** (comportamiento retro-compatible con hoy).
+- **`sealedMarketRef`** = la `PriceReference(cardId, 'sealed', 'sealed:tcg:<productId>', 'normal')` en **MXN centavos**
+  (FX+colchón ya aplicado). Puede provenir de **dos fuentes**: (i) el ingest automático `sealed-price-ingest`
+  (§4.19d, `source='tcgcsv'`) o (ii) un **override manual del admin/operador** («FIJAR PRECIO» / alta manual,
+  `POST /admin/pricing/override` productType `sealed`, `source='manual'`/`isManualOverride=true`). El item debe estar
+  **mapeado** (curación M2, §4.19c) para que la clave `sealed:tcg:<productId>` exista. Sin mercado de ninguna de las dos
+  fuentes → `sealedMarketRef = null` → el sellado solo se vende con el **override de VENTA por pieza** (`listPriceCents`).
+- **v1.43 (IMP-C) — QUÉ gatea el dial `sealedPriceSource`, con precisión (fix `gateSealedMarketCents`, resolver H-1 único):**
+  el dial gobierna **SOLO la fuente (i), el ingest AUTOMÁTICO** (`source='tcgcsv'`). Un mercado de fuente automática con el
+  dial `off` queda **inerte** (`gate → null`, fail-closed). Un **override manual** de fuente (ii)
+  (`isManualOverride=true` / `source='manual'`) es una **decisión humana explícita** y **NO lo gatea el dial**: `gate`
+  devuelve su `referenceMxnCents` **con `sourceOn` sea `true` o `false`**. Norma del predicado:
+  ```
+  gateSealedMarketCents(ref, sourceOn):
+    if ref?.status !== 'priced' || ref.referenceMxnCents == null: return null
+    if ref.isManualOverride === true || ref.source === 'manual': return ref.referenceMxnCents   // override manual: sobrevive al dial
+    return sourceOn ? ref.referenceMxnCents : null                                              // mercado de fuente: gateado por el dial
+  ```
+  **Antes de v1.43** el gate anulaba TODO mercado con `sourceOn=false` (incluido el override manual) ⇒ un sellado con
+  «FIJAR PRECIO» y dial `off` re-caía en `PRICE_PENDING` y **re-creaba el pendiente** en cada re-publicación (bucle IMP-C).
+  El predicado es la **única** fuente de verdad (H-1) que consumen `catalog.toListingDTO`, `orders.salePriceOf`, el grid
+  `loadPricedSealed` y `bulk-publish`; corregirlo aquí los arregla a los cuatro. `PriceInfo` debe exponer el discriminante
+  del override manual (`source` basta — `manualOverride()` siempre escribe `source='manual'`; añadir `isManualOverride` es
+  opcional). **Money-safe intacto:** sin `listPriceCents`, sin override manual de mercado y sin mercado automático
+  aplicable ⇒ `PRICE_PENDING`, nunca 0. **No es cambio de producto** — §K/§4.23a ya definían el dial como gobernador del
+  *ingest automático*; era un bug de gate. Ver API_CONTRACT changelog v1.43-sealed-manual-override-survives-dial.
 - **SEC-A1:** override, subtype y mercado salen de **BD** (`InventoryItem` / `PriceReference`), los spreads de
   **`ConfigSetting`**; **nada** viene del DTO del cliente. El cliente solo envía `inventoryItemId`.
 - **Congelado en `OrderItem.unitPriceCents`** al checkout → **sin snapshot de regla ni migración** de órdenes
@@ -4372,7 +4401,10 @@ mapeado) y llama la pura. Se **ramifica por `productType`** en los dos resolvedo
 - `orders.service.salePriceOf`: idem — para `sealed`, deriva por override/mercado×spread; si `pending` → `422 PRICE_PENDING`.
 - `bulk-publish` (§M1): la rama `sealed` deja de exigir `listPriceCents`; ahora **deriva** por override/mercado×spread.
   Sellado sin override **y** sin mercado → línea `PRICE_PENDING`, no se publica (money-safe, sin cambio de código de
-  error). Reusa `getReferencesBatch` + iza los spreads **una vez** por request (BE-25).
+  error). Reusa `getReferencesBatch` + iza los spreads **una vez** por request (BE-25). **v1.43 (IMP-C):** el `mercado`
+  que consume incluye el **override manual** (`isManualOverride`) que NO gatea el dial — así una re-publicación tras
+  «FIJAR PRECIO» con dial `off` **resuelve el precio y NO re-escala el pendiente** (el bucle vivía aquí porque el gate
+  anulaba el override). Todos los call-sites comparten `gateSealedMarketCents` (H-1), así que el fix es un solo punto.
 
 #### (e) Ventana de tienda del sellado — listado AGREGADO por producto (público)
 
@@ -6265,8 +6297,11 @@ promo — p. ej. los de **Mega Evolution**, o «Black Star Promos»). Un modelo 
 - **Precio EN VIVO al alta:** al crear la pieza el backend resuelve mercado en ESE momento — `sealed-price` on-demand del
   `productId` (una llamada TCGCSV) → fallback a la última `PriceReference sealed:tcg:<productId>` / `marketUsdCents` →
   `null`. **Gateado por el dial `sealedPriceSource` (§4.23, H-1):** con el dial `off` (seed, fail-closed) el mercado
-  efectivo del alta es `null` aunque exista caché. La aportación valúa por ese mercado gateado (`mercado × pct`,
-  server-side, SEC-A1).
+  de **fuente automática** (live/caché TCGCSV) queda `null`. **v1.43 (IMP-C):** el gate NO anula un **override manual**
+  ya persistido (`isManualOverride=true`); si una pieza previa fijó precio con «FIJAR PRECIO», ese `sealedMarketRef`
+  manual **sobrevive al dial `off`**, así que `effectiveMarketCents` sale **no-null** y el alta de otra pieza del mismo
+  producto valúa con él (y rechaza un `manualMarketMxnCents` redundante) — coherente con la invariante de abajo. La
+  aportación valúa por ese mercado gateado (`mercado × pct`, server-side, SEC-A1).
 - **Preview coherente con el alta (v1.41, IMP-1) — un solo mercado autoritativo:** el gate E2E encontró un dead-end
   porque el preview del alta (`SealedAddFlow`) y la valuación del alta usaban **dos** nociones distintas de mercado del
   sellado. `SealedProductDTO.marketRef` es una referencia **INFORMATIVA ungated** (live→caché) y NO debe decidir la UI;
@@ -6676,6 +6711,18 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **IMP-C (backend, v1.43, rama `fix/variant-composition-regression`) — `gateSealedMarketCents` anula el override manual
+  de MERCADO del sellado con el dial `off`.** Estado detectado (`pricing.service.ts` `gateSealedMarketCents`): el gate
+  devuelve `null` para **cualquier** `sealedMarketRef` cuando `sourceOn=false`, sin distinguir la fuente automática
+  (`source='tcgcsv'`) de un **override manual** (`isManualOverride=true`/`source='manual'`). Efecto: con el dial off,
+  «FIJAR PRECIO» (`POST /admin/pricing/override` sellado) vacía la cola de pendientes, pero re-publicar vuelve a
+  `PRICE_PENDING` y **re-crea la entrada** (bucle observado por el gate E2E). Contradice §K/§4.23a (el dial gobierna el
+  *ingest automático*, no un override manual explícito; override = máxima precedencia). **Norma: §4.23a v1.43** (el gate
+  respeta el override manual, gatea solo el mercado de fuente). **Acción (backend, este stream):** ajustar el único
+  predicado `gateSealedMarketCents` para no gatear `isManualOverride/source='manual'`; cubrir con (i) test unitario del
+  predicado con las cuatro combinaciones (`{manual, tcgcsv} × {sourceOn true/false}`) y (ii) smoke E2E: dial `off` →
+  publicar sellado → `PRICE_PENDING` → «FIJAR PRECIO» → re-publicar **sin** re-crear pendiente y con `sellable=true`.
+  `PriceInfo` debe exponer el discriminante (`source` basta). Money-safe: sin override ni mercado ⇒ `PRICE_PENDING`, nunca 0.
 - **VAR-1 (backend, v1.22) — `price-ingest` CLOBBEA `Card.availableFinishes` con los acabados que tuvieron precio.**
   Estado detectado (`price-ingest.service.ts:151-172`): tras persistir precios, `Card.update({ availableFinishes:
   providerFinishes })` donde `providerFinishes` solo contiene acabados con `marketCents > 0`. Una carta con reverse
@@ -6861,6 +6908,16 @@ este documento y con `API_CONTRACT.md`.
   retro-compatible con hoy, sin bloquear el arranque.
 - **SUP-8 (spread cero):** el validador permite spread `≥ 0` (una promo a mercado es legítima); el editor M2 lo
   advierte. ¿El PO quiere forzar un piso `> 0`? Propuesta: no forzar.
+- **SUP-IMP-C (RESUELTA por el arquitecto, v1.43 — NO requiere al humano) — el override manual sobrevive al dial `off`.**
+  Aclara operativamente SUP-7: cuando el dial `sealed_price_source=off`, «el override manual es la única vía» incluye
+  **dos** overrides manuales, y **ambos** funcionan con el dial off: el override de VENTA por pieza (`listPriceCents`,
+  precedencia §K #1, precio verbatim) y el **override manual de MERCADO** (`PriceReference isManualOverride`, «FIJAR
+  PRECIO», que alimenta `mercado × spread`, §K #2/#3). El dial gobierna **solo el ingest automático TCGCSV**; no gatea un
+  override manual. Es **decisión técnica** (coherencia con §K, no de producto): §K ya declara el dial como perilla de la
+  *fuente automática* y el override como máxima precedencia. **Refinamiento OPCIONAL para el humano/UX (no bloqueante):**
+  hoy «FIJAR PRECIO» del operador fija un override de **mercado** (sujeto a spread), idéntico a lo que pasa con el dial
+  `on`; si se quisiera que fijara el **precio de venta EXACTO** (sin spread) se enrutaría a `listPriceCents`. Propuesta:
+  conservar el mecanismo vigente (coherente con dial `on`); abrir el refinamiento solo si el PO lo pide.
 
 ### Preguntas abiertas (v1.22-variantes-orden — variantes reales y orden natural)
 
@@ -7124,6 +7181,10 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+> **v1.43-sealed-manual-override-survives-dial (IMP-C) — SIN migración.** El fix es lógica pura en `gateSealedMarketCents`
+> (resolver H-1); no toca schema, ni `ConfigSetting`, ni forma de contrato. El discriminante del override manual ya vive
+> en `PriceReference` (`isManualOverride` / `source='manual'`). No hay DDL ni seed. Ver §4.23a y §9 (IMP-C).
 
 ### v1.37-pricing-tiers (nueva — M-38: pricing por tiers — DATA/seed, SIN DDL, P-34)
 
