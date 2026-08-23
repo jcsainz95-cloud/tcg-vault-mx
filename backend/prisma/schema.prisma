@@ -63,12 +63,25 @@ enum Finish {
 }
 
 // v1.1 (M-2): subtipo opcional del producto sellado (solo productType=sealed).
+// v1.39 (M-39, P-38, §4.34c): +`upc` (Ultra Premium Collection) y +`collection` (colecciones/cajas
+// especiales: Premium/Special Collection, V/ex Box, colecciones promo). `ALTER TYPE ADD VALUE` es
+// aditivo (se APENDA al final para casar con el orden de la migración); ningún valor previo cambia.
 enum SealedSubtype {
   box
   etb
   bundle
   tin
   blister
+  upc
+  collection
+}
+
+// v1.39 (M-39, P-38, §4.34b): tipo de grupo TCGCSV asociado a un set. `set_main` = grupo principal
+// (booster box/ETB/bundle…); `promo_collection` = grupo APARTE de promo/colección (blísters/tins/
+// colecciones promo, incl. Mega Evolution). Un set tiene 1 `set_main` + N `promo_collection`.
+enum SealedGroupKind {
+  set_main
+  promo_collection
 }
 
 // v1.23-sealed-sales (M-28): condición SIMPLE del sellado, visible al comprador.
@@ -380,13 +393,13 @@ model Address {
 // ============================= CATALOG =============================
 
 model CardSet {
-  id           String   @id @default(uuid())
-  externalId   String   @unique
-  name         String
-  series       String?
-  releaseDate  String?
-  printedTotal Int?
-  ptcgoCode    String?
+  id            String   @id @default(uuid())
+  externalId    String   @unique
+  name          String
+  series        String?
+  releaseDate   String?
+  printedTotal  Int?
+  ptcgoCode     String?
   // WS-A fix-ppt (2026-08-19): setId del proveedor de PAGA PokemonPriceTracker (API v2). NO es el
   // `externalId` de pokemontcg.io (`sv8`): PPT NO reconoce ese id → `/api/v2/cards?setId=sv8` devolvía
   // `0 entradas` en TODOS los sets (causa raíz del "0 filas mapeadas"). Aquí se cachea el **GroupId
@@ -394,17 +407,77 @@ model CardSet {
   // el `PptSetMapper` resuelve una vez desde `GET /api/v2/sets` empatando por nombre normalizado +
   // año de `releaseDate`. `null` = aún no mapeado (o no se encontró match; se loguea). El barrido de
   // precios de PPT usa ESTE valor como `setId`, jamás el `externalId`.
-  pptSetId     String?
+  pptSetId      String?
   // v1.36-sealed-alta (M-37, P-35, §4.32b): grupo TCGCSV CURADO por set. Resuelve el listado de
   // productos sellados de `GET /admin/inventory/sealed-catalog` (set → productos de la API). `null`
   // ⇒ fallback: `DISTINCT tcgplayerGroupId` de los items sellados YA mapeados del set. Solo lectura
   // de catálogo (resuelve el proxy); JAMÁS fija precio (money-safe). ARCHITECTURE §11 (M-37).
   tcgcsvGroupId Int?
-  createdAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
 
-  cards     Card[]
+  cards          Card[]
   // v1.9-set-chart (M-20): serie diaria del valor de mercado agregado del set (gráfica pública del hero).
-  snapshots SetValueSnapshot[]
+  snapshots      SetValueSnapshot[]
+  // v1.39-sealed-product-module (M-39, P-38): grupos TCGCSV enlazados al set (1 set → N grupos) y las
+  // presentaciones selladas persistidas del set (catálogo de sellado, cura de raíz de SB-D5).
+  sealedGroups   SealedSetGroup[]
+  sealedProducts SealedProduct[]
+}
+
+// v1.39-sealed-product-module (M-39, P-38, §4.34b): tabla de enlace set → grupo TCGCSV. Rompe el
+// modelo `1 set → 1 tcgcsvGroupId`: un set tiene 1 `set_main` (booster box/ETB/bundle…) + N
+// `promo_collection` (blísters/tins/colecciones promo, incl. Mega Evolution). El sync la puebla por
+// name-match SIN requerir un item sellado previo (rompe el círculo vicioso del hueco 1). `label` =
+// nombre del grupo en TCGCSV (curación/observabilidad). `CardSet.tcgcsvGroupId` se conserva como
+// puntero denormalizado al `set_main`; la FUENTE DE VERDAD del set_main pasa a ser esta tabla.
+model SealedSetGroup {
+  id               String          @id @default(uuid())
+  setId            String
+  set              CardSet         @relation(fields: [setId], references: [id], onDelete: Cascade)
+  tcgplayerGroupId Int
+  kind             SealedGroupKind
+  label            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([setId, tcgplayerGroupId])
+  @@index([setId])
+}
+
+// v1.39-sealed-product-module (M-39, P-38, §4.34a): entidad de CATÁLOGO de presentaciones selladas
+// por set — fuente de verdad de la IDENTIDAD del sellado (cura de raíz de SB-D5: reemplaza la
+// inferencia-por-hermanos y el ancla-a-single). Cada presentación (ETB, UPC, Booster Bundle, booster
+// box, tin, blíster, colección) es una fila real descargada de TCGCSV por el sync, NO anclada a un
+// single. `tcgplayerProductId` = clave de identidad (== productId TCGplayer; == clave de precio
+// `sealed:tcg:<productId>`). `marketUsdCents` = CACHÉ de display/sugerencia (money-safe: null cuando
+// TCGCSV no trae precio, JAMÁS 0); la autoridad de dinero sigue siendo la cadena H-1 `PriceReference`.
+// `active=false` = soft-delete si desaparece de TCGCSV (nunca borrado duro: no rompe FKs de inventario).
+model SealedProduct {
+  id                 String          @id @default(uuid())
+  setId              String
+  set                CardSet         @relation(fields: [setId], references: [id], onDelete: Cascade)
+  tcgplayerProductId Int             @unique
+  tcgplayerGroupId   Int
+  name               String
+  cleanName          String?
+  subtype            SealedSubtype
+  // true = subtipo INFERIDO por heurística de nombre; false = curado por un humano (no lo pisa el sync).
+  subtypeInferred    Boolean         @default(true)
+  // presentación «cabecera» que el alta muestra primero (box/etb/upc/bundle); curable por pieza.
+  isPrincipal        Boolean         @default(false)
+  // de qué tipo de grupo provino (para separar «Del set» vs «Promos/colecciones» en la UI).
+  origin             SealedGroupKind @default(set_main)
+  imageUrl           String?
+  marketUsdCents     Int?
+  marketUpdatedAt    DateTime?
+  active             Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  inventoryItems InventoryItem[]
+
+  @@index([setId])
+  @@index([tcgplayerGroupId])
 }
 
 model Card {
@@ -580,6 +653,14 @@ model InventoryItem {
   // que el sellado muestre la CAJA y no el single ancla en Compra/bóveda/M1. ARCHITECTURE §11 (M-37).
   sealedImageUrl          String?
   sealedProductName       String?
+  // v1.39-sealed-product-module (M-39, P-38, §4.34a): IDENTIDAD del sellado — FK NULLABLE a la
+  // entidad de catálogo `SealedProduct` (cura de raíz de SB-D5: reemplaza el ancla-a-single como
+  // identidad). Regla de APLICACIÓN: poblada solo para productType='sealed'. `onDelete: SetNull`
+  // para que desactivar/borrar un `SealedProduct` jamás rompa una FK de inventario/órdenes. Las
+  // columnas M-23/M-37 (tcgplayerProductId/GroupId/sealedImageUrl/Name/sealedSubtype) se conservan
+  // como SNAPSHOT por-pieza congelado al alta (estabilidad money-safe del display/valuación).
+  sealedProductId         String?
+  sealedProduct           SealedProduct?   @relation(fields: [sealedProductId], references: [id], onDelete: SetNull)
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
@@ -604,6 +685,9 @@ model InventoryItem {
   // v1.23-sealed-sales (M-28): sirve el grid público del sellado (`productType='sealed' AND
   // status='listed'`) y la agregación de la pestaña «Sellado» sin barrer la tabla. ARCHITECTURE §4.23i.
   @@index([productType, status])
+  // v1.39 (M-39, P-38): sirve la resolución de display en cascada (SealedProduct vivo) y el reporte
+  // de reconciliación (sellado con sealedProductId IS NULL) sin barrer la tabla.
+  @@index([sealedProductId])
 }
 
 model InventoryMovement {

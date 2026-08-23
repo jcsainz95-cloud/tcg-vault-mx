@@ -83,11 +83,27 @@ describe('SealedPriceIngestService — algoritmo normativo (§4.19d)', () => {
     items?: { cardId: string; tcgplayerProductId: number | null }[];
     groups?: { tcgplayerGroupId: number | null }[];
     rows?: { tcgplayerProductId: number; marketCents: number; usedFallbackMid: boolean; currency: 'USD' }[];
+    // v1.39 (M-39): SealedProduct ACTIVOS que el ingest también barre (además de los items mapeados).
+    catalog?: { id: string; tcgplayerProductId: number; setId: string }[];
+    catalogGroups?: { tcgplayerGroupId: number }[];
+    anchorCardId?: string | null;
   }) {
     const findMany = jest.fn(async (args: { distinct?: string[] }) =>
       args.distinct?.includes('tcgplayerGroupId') ? (opts.groups ?? []) : (opts.items ?? []),
     );
-    const prisma = { inventoryItem: { findMany } } as unknown as PrismaService;
+    // v1.39: SealedProduct.findMany — distinct de grupos (listMappedGroupIds) vs por grupo (ingestGroup).
+    const sealedFindMany = jest.fn(async (args: { distinct?: string[] }) =>
+      args.distinct?.includes('tcgplayerGroupId') ? (opts.catalogGroups ?? []) : (opts.catalog ?? []),
+    );
+    const sealedUpdateMany = jest.fn(async () => ({ count: 1 }));
+    const cardFindFirst = jest.fn(async () =>
+      opts.anchorCardId === undefined ? null : opts.anchorCardId != null ? { id: opts.anchorCardId } : null,
+    );
+    const prisma = {
+      inventoryItem: { findMany },
+      sealedProduct: { findMany: sealedFindMany, updateMany: sealedUpdateMany },
+      card: { findFirst: cardFindFirst },
+    } as unknown as PrismaService;
     const settings = {
       getString: jest.fn().mockResolvedValue(opts.dial ?? 'tcgcsv'),
     } as unknown as SettingsService;
@@ -100,7 +116,7 @@ describe('SealedPriceIngestService — algoritmo normativo (§4.19d)', () => {
         .mockResolvedValue({ rows: opts.rows ?? [], fetchedRaw: (opts.rows ?? []).length, skipped: 0 }),
     } as unknown as TcgcsvSealedBulkProvider;
     const svc = new SealedPriceIngestService(prisma, settings, pricing, provider);
-    return { svc, prisma, settings, pricing, provider, findMany };
+    return { svc, prisma, settings, pricing, provider, findMany, sealedFindMany, sealedUpdateMany, cardFindFirst };
   }
 
   it('isEnabled lee el dial sealed_price_source (tcgcsv=true, off=false)', async () => {
@@ -168,6 +184,49 @@ describe('SealedPriceIngestService — algoritmo normativo (§4.19d)', () => {
     const res = await svc.run(FX);
     expect(provider.fetchSealedPricesForGroup).not.toHaveBeenCalled();
     expect(res).toEqual({ groups: 0, priced: 0, usedFallbackMid: 0, skipped: 0, unmatched: 0 });
+  });
+
+  // v1.39 (M-39, §4.34a): el ingest gana los SealedProduct ACTIVOS como fuente extra de grupos/productos
+  // — un producto del catálogo tiene precio AUNQUE aún no haya inventario (ancla = ancla del set).
+  it('barre un SealedProduct ACTIVO sin inventario: precio contra el ancla del set + refresca marketUsdCents', async () => {
+    const { svc, pricing, provider, sealedUpdateMany, cardFindFirst } = build({
+      items: [], // sin inventario
+      catalogGroups: [{ tcgplayerGroupId: 42 }],
+      catalog: [{ id: 'sp-1', tcgplayerProductId: 999, setId: 'set-x' }],
+      rows: [{ tcgplayerProductId: 999, marketCents: 12345, usedFallbackMid: false, currency: 'USD' }],
+      anchorCardId: 'card-anchor',
+    });
+    const res = await svc.run(FX);
+    expect(provider.fetchSealedPricesForGroup).toHaveBeenCalledWith(42);
+    expect(cardFindFirst).toHaveBeenCalled(); // resolvió el ancla del set
+    expect(pricing.persistSealedMarketReference).toHaveBeenCalledWith(
+      'card-anchor',
+      999,
+      { marketCents: 12345 },
+      FX,
+    );
+    // Refresca la CACHÉ de display SealedProduct.marketUsdCents (money-safe: sugerencia, no autoridad).
+    expect(sealedUpdateMany).toHaveBeenCalledWith({
+      where: { tcgplayerProductId: 999, active: true },
+      data: expect.objectContaining({ marketUsdCents: 12345 }),
+    });
+    expect(res).toMatchObject({ groups: 1, priced: 1 });
+  });
+
+  it('un item mapeado GANA sobre el SealedProduct para el mismo productId (no duplica el upsert)', async () => {
+    const { svc, pricing } = build({
+      groups: [{ tcgplayerGroupId: 42 }],
+      items: [{ cardId: 'card-inv', tcgplayerProductId: 999 }],
+      catalogGroups: [{ tcgplayerGroupId: 42 }],
+      catalog: [{ id: 'sp-1', tcgplayerProductId: 999, setId: 'set-x' }],
+      rows: [{ tcgplayerProductId: 999, marketCents: 12345, usedFallbackMid: false, currency: 'USD' }],
+      anchorCardId: 'card-anchor',
+    });
+    const res = await svc.run(FX);
+    // Un solo upsert, con la cardId del ITEM (no la ancla del set): item gana el dedupe por productId.
+    expect(pricing.persistSealedMarketReference).toHaveBeenCalledTimes(1);
+    expect(pricing.persistSealedMarketReference).toHaveBeenCalledWith('card-inv', 999, { marketCents: 12345 }, FX);
+    expect(res.priced).toBe(1);
   });
 });
 

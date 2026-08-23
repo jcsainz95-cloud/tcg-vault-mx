@@ -2943,7 +2943,27 @@
   + referencias al **inicio del lote** (batch por `cardId IN (...)` + map en memoria), mismo patrón
   que `getReferencesBatch`.
 
-### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (Media, backend+arquitecto)
+### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (RESUELTA v1.39/M-39, P-38)
+- **✅ RESUELTA (CURA DE RAÍZ) — v1.39-sealed-product-module (M-39, P-38, ARCHITECTURE §4.34):** se
+  materializó la entidad de catálogo **`SealedProduct`** (identidad propia por presentación sellada de un
+  set, llaveada por `tcgplayerProductId @unique`) + la tabla de enlace **`SealedSetGroup`** (1 set → N
+  grupos TCGCSV) + `InventoryItem.sealedProductId` (FK `onDelete: SetNull`). El alta pasa a **seleccionar**
+  un `SealedProduct` (`BatchInventoryItemInput.sealedProductId`): el backend DERIVA server-side la identidad
+  (ancla del set + mapeo + imagen/nombre/subtipo) → la pieza nace **«ETB …», NO anclada a Tropius**. Un
+  **sync** (`POST /admin/inventory/sealed-products/sync`) descarga las presentaciones desde TCGCSV y de paso
+  **puebla `CardSet.tcgcsvGroupId` + `SealedSetGroup`** por name-match SIN requerir un item previo — **rompe
+  el círculo vicioso** del hueco 1. El **backfill M-39** (`prisma/backfill-m39-sealed-product.ts`) deriva
+  `SealedProduct` de los items sellados YA MAPEADOS y liga su `sealedProductId` (**cura el ETB→Tropius
+  actual**); los SIN MAPEO quedan `null` + reporte de reconciliación (cero adivinación). La inferencia por
+  hermanos **sigue viva SOLO** como camino legacy/transición (sellado sin `sealedProductId`); ya no es la
+  fuente de verdad de la identidad. Ver `backend/src/modules/inventory/sealed-product.service.ts`,
+  `sealed-subtype.ts`, migración `20260823120000_m39_sealed_product`, tests
+  `backend/test/sealed-product.service.spec.ts` + `inventory.sealed-product-alta.spec.ts`.
+- **H9 (ancla-a-single en la ficha del single):** la cura de raíz elimina el ancla-a-single como
+  IDENTIDAD (ahora `sealedProductId`), pero la `cardId` ancla se **mantiene** (NOT NULL sigue) como
+  pertenencia al set + fallback de imagen; el guardarraíl `productType != 'sealed'` de la vista de singles
+  **sigue vigente** (H9 permanece MITIGADA — su retiro/reubicación es decisión del arquitecto).
+- **Contexto histórico (antes de M-39):**
 - **Dónde:** `backend/src/modules/inventory/inventory.service.ts:298-322` (inferencia del productId
   del GRUPO desde piezas hermanas ya mapeadas).
 - **Estado actual:** no existe una **entidad de producto sellado** en el modelo; el

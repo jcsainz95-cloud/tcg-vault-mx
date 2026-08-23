@@ -4,6 +4,38 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-P37/P41. IVA a un solo dial + orden global por set más nuevo (2026-08-23, v1.40)
+
+> Stream «Catálogo y precios». Dos enmiendas del contrato **v1.40** (P-37 y P-41-mejora), disjuntas y
+> money-safe. Solo `backend/`. No hay cambio de schema. Gate: `settings.validation`, `buylist-catalog`,
+> `money` y `money.direct-ship` **verde**; typecheck limpio en los archivos tocados. (Nota: hay 2 suites
+> rojas PRE-EXISTENTES del stream de inventario/sellado —`sealed-price-ingest`, `inventory.sealed`— por
+> `prisma.sealedProduct`/`TcgcsvGroupRef`; **ajenas a estos cambios**, no las toqué.)
+
+### A) P-37 — `IVA_PCT` es la fuente ÚNICA del IVA (se retira `STRIPE_FEE_IVA_PCT`)
+- **`settings.service.ts` `getStripeFee()`** — `stripeFeeIvaPct` deja de leer el dial propio y se DERIVA:
+  `(await getNumber(IVA_PCT)) / 100`. Con `IVA_PCT = 16` ⇒ `0.16`, **idéntico al centavo** al valor previo;
+  `money.ts`/`grossUpTotal`/`StripeFeeConfig` **no se tocaron** (solo cambia de dónde sale el 0.16).
+- **`settings.constants.ts`** — se elimina `STRIPE_FEE_IVA_PCT` de `SettingKey`, `SETTING_DEFAULTS`,
+  `SETTING_VALIDATORS` y `SETTING_DTO_MAP`. Efecto de contrato (§M10): ya **no se expone en `GET`** y un
+  `PUT { stripeFeeIvaPct }` cae en **422** (key desconocida, flujo existente). **Sin migración**: la fila
+  de BD `stripe_fee_iva_pct`, si existe, queda **inerte** — el gross-up nunca la lee ni cae a 0.
+- **QA/frontend:** el DTO de M10 pierde `stripeFeeIvaPct`; la UI de settings debe retirar ese dial (frontend).
+
+### B) P-41-mejora — desempate global por SET MÁS NUEVO
+- **`common/card-order.ts` `CARD_ORDER_BY_GLOBAL`** — tras `name asc`, el desempate pasa de
+  `{ setId: 'asc' }` (uuid aleatorio) a `{ set: { releaseDate: { sort: 'desc', nulls: 'last' } } }`:
+  varias variantes del mismo nombre → sale primero la del set con `releaseDate` más reciente; un set con
+  `releaseDate = null` queda al final del grupo. `{ id: 'asc' }` sigue como desempate total (paginación
+  determinista). **`CARD_ORDER_BY_IN_SET` NO cambia** (binder/master-set intactos, inventario no tocado).
+- **Consumo:** `catalog.service.searchAllCards` usa la constante tal cual (transparente). Prisma añade el
+  JOIN a `CardSet` SOLO para ordenar (sin `include`). `CardSet.releaseDate` es `String? yyyy/MM/dd`
+  zero-padded ⇒ el sort desc lexicográfico coincide con el cronológico.
+- **Rendimiento (no bloqueante):** ordenar por columna de la relación NO usa el índice
+  `@@index([setId, numberPrefix, numberSort])`. Índice de apoyo (p. ej. sobre `CardSet.releaseDate`, o un
+  índice compuesto) **a evaluar si el plan lo pide** (ya referenciado en ARCHITECTURE §4.22b). No se
+  implementó aquí. Candidato a `TECH_DEBT.md` a petición del techlead (no lo escribo por propiedad de archivo).
+
 ## 0-P30. Publicación ÚNICA por carta con STOCK — singles agrupados (2026-08-22, v1.38-grouped-listings)
 
 > Stream «Catálogo y precios». Implementa el changelog **v1.38-grouped-listings** del contrato (§DTOs
@@ -6667,3 +6699,96 @@ availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapsh
 ### Gates (local)
 - `npx tsc --noEmit` limpio · `npx eslint` (archivos tocados) 0 warnings · `npx nest build` exit 0 ·
   `npx jest` → **155 suites / 1452 tests VERDE** (set-value: 21/21).
+
+---
+
+## v1.39-sealed-product-module (M-39, P-38) — entidad `SealedProduct`, cura de raíz de SB-D5 (2026-08-23)
+
+**Contexto.** El alta de sellado anclaba cada presentación a un single representativo del set (puente P-35)
+→ «Tropius #1 · sealed» + «SIN MAPEO». Tres huecos: (1) `CardSet.tcgcsvGroupId` no lo escribía nadie
+(círculo vicioso: para resolver el grupo hacía falta un sellado ya mapeado); (2) UPC no existía; (3) sin
+concepto de «principales». M-39 materializa la entidad de catálogo `SealedProduct` (diferida en §4.32d/SB-D5)
+contra el contrato **v1.39.1** y ARCHITECTURE **§4.34 + §11 (M-39)**. **NO se tocó `docs/API_CONTRACT.md`.**
+
+### Migración — `20260823120000_m39_sealed_product` (aditiva y reversible)
+- `ALTER TYPE "SealedSubtype" ADD VALUE 'upc'`, `'collection'` (idempotente `IF NOT EXISTS`; se APENDAN).
+- `CREATE TYPE "SealedGroupKind" ('set_main','promo_collection')`.
+- `CREATE TABLE "SealedSetGroup"` (`@@unique(setId,tcgplayerGroupId)`, index `setId`, FK→CardSet CASCADE).
+- `CREATE TABLE "SealedProduct"` (§4.34a: `tcgplayerProductId @unique`, `setId` FK, `tcgplayerGroupId`,
+  `name/cleanName`, `subtype`, `subtypeInferred`, `isPrincipal`, `origin`, `imageUrl?`, `marketUsdCents?`+
+  `marketUpdatedAt?`, `active`; index `setId`/`tcgplayerGroupId`).
+- `ALTER TABLE "InventoryItem" ADD "sealedProductId"` (FK nullable, **`onDelete: SetNull`**, index).
+- **PASO 6 en SQL:** siembra `SealedSetGroup(kind=set_main)` desde `CardSet.tcgcsvGroupId != null`
+  (`ON CONFLICT DO NOTHING`). Usa solo el enum NUEVO `SealedGroupKind` (usable en su tx de creación); NO usa
+  `upc`/`collection` (un valor AÑADIDO a un enum previo no puede usarse en su misma tx).
+- **Backfill de datos (pasos 7-8) → `prisma/backfill-m39-sealed-product.ts`** (idempotente; corre TRAS
+  aplicar la migración): deriva `SealedProduct` de items sellados **YA MAPEADOS** y liga `sealedProductId`
+  (**cura el ETB→Tropius**); los **SIN MAPEO** (`tcgplayerProductId` null) quedan `sealedProductId=null` +
+  **reporte de reconciliación** (cero adivinación; JAMÁS fabrica precio → `marketUsdCents=null`).
+- `backend/prisma/` es **zona compartida** → migración serializada por el orquestador.
+
+### Cómo el backfill cura el caso actual (ETB→Tropius)
+El ETB actual está en `InventoryItem` como `productType='sealed'`, `tcgplayerProductId=<pid>` (mapeado por
+P-35) pero anclado a la carta Tropius y sin identidad. El backfill: (a) crea un `SealedProduct` con
+`name=sealedProductName` («… Elite Trainer Box»), `setId` = set de la carta ancla, `subtype='etb'`,
+`marketUsdCents=null`; (b) `UPDATE InventoryItem SET sealedProductId=<sp>` para todas las piezas de ese
+`tcgplayerProductId`. La pieza queda ligada a su **presentación real**; el display en cascada
+(`SealedProduct` vivo → snapshot → ancla) ya no muestra «Tropius». Los «SIN MAPEO» se re-curan con el nuevo
+flujo (sync del set → seleccionar el `SealedProduct` → re-alta).
+
+### Endpoints (todos bajo `/admin`, controller `InventoryController`)
+- `GET /admin/inventory/sealed-products?setId=&q&origin&principalOnly` (**vault_operator+**) →
+  `SealedProductListResponse`. Lee los `SealedProduct` **persistidos** (active=true), ordenados
+  `(isPrincipal desc, sortOrder asc, name asc)` (§4.34c), cada uno con `marketRef` money-safe
+  **live TCGCSV → caché `marketUsdCents` → null (NUNCA 0)**; `needsSync=true` si el set no tiene catálogo;
+  `groups` = `SealedSetGroup` del set (para separar «Del set» / «Promos/colecciones» por `origin`).
+- `POST /admin/inventory/sealed-products/sync` (**super_admin**, auditado `inventory.sealed_products_sync`)
+  `{ setId? | all?, groupIds? }` → `SealedSyncResultDTO`. Resuelve grupos (`SealedSetGroup` ∪ `groupIds`
+  como `promo_collection` ∪ **name-match del `set_main` si falta**) → por grupo `listSealedProducts`
+  (descarta singles) → `inferSealedSubtype` → **upsert `SealedProduct`** por `tcgplayerProductId` → asegura
+  `SealedSetGroup` → **puebla `CardSet.tcgcsvGroupId`** si null. Soft-delete de los que ya no aparecen.
+- `GET /admin/inventory/sealed-products/sync/candidates?setId=` (**super_admin**) → grupos TCGCSV candidatos
+  por name-match (`matchScore` + `alreadyLinked`).
+- `POST /admin/inventory/sealed-sets/:setId/groups` (**super_admin**, 201, auditado) `{ tcgplayerGroupId,
+  kind }` → enlaza un grupo extra (1 set → N grupos); grupo ya enlazado → 409.
+- **Alta = SELECCIONAR** (sin endpoint nuevo): `POST /admin/inventory/items/batch` gana
+  `BatchInventoryItemInput.sealedProductId?` (identidad; el backend deriva `cardId` ancla + mapeo + imagen/
+  nombre/subtipo del `SealedProduct` y congela el snapshot; `cardId` pasa a opcional) + `manualMarketMxnCents?`.
+  Errores: `422 SEALED_PRODUCT_NOT_FOUND`, `422 MANUAL_MARKET_NOT_ALLOWED`.
+
+### Alta por `sealedProductId` + precio manual money-safe (§4.34d, decisión humano v1.39.1)
+- `deriveFromSealedProduct` (SEC-A1): con `sealedProductId` el cliente NO manda identidad ni montos; se
+  derivan del `SealedProduct` persistido → la pieza **nace con identidad correcta** (los 4 campos M-37
+  sueltos se IGNORAN). Inexistente/inactivo → **422 SEALED_PRODUCT_NOT_FOUND**.
+- **Mercado al alta / fallback manual** (`resolveSealedMarketForAlta`): mercado autoritativo = caché H-1
+  `PriceReference sealed:tcg:<productId>` gateada por el dial `sealedPriceSource`. **Money-safe:**
+  - mercado resuelto + `manualMarketMxnCents` → **422 MANUAL_MARKET_NOT_ALLOWED** (el override solo llena
+    el hueco, JAMÁS pisa un mercado vivo; **NO** se dispara por rol);
+  - mercado null + `manualMarketMxnCents>0` → override AUDITADO (`AuditLog inventory.sealed_manual_market`)
+    + persistido como `PriceReference isManualOverride=true`; la aportación valúa por ese valor;
+  - `manualMarketMxnCents ≤ 0` → **422 VALIDATION_ERROR** (nunca 0);
+  - sin override y sin mercado → **422 PRICE_PENDING** (nunca 0).
+  - **Permiso `vault_operator+`** (decisión del humano): la autorización vive en el controller (rol de
+    clase); el servicio no gatea por rol. **⚠ Input de dinero por operador → marcado para la fase de
+    seguridad por release.**
+- **Nota de diseño money-safe (deuda menor aceptada):** el «precio EN VIVO al alta» se resuelve por la
+  caché H-1 (poblada por el sync + `sealed-price-ingest`, no por un fetch HTTP dentro de la transacción de
+  alta — evita pool-starvation). Nunca fabrica precio. Un producto recién sincronizado ya tiene su
+  `PriceReference`/`marketUsdCents` fresco; un hueco cae a manual/PRICE_PENDING. Registrado como SB-D-live
+  (Baja) si se quisiera un fetch on-demand estricto.
+
+### `sealed-price-ingest` enriquecido (§4.34a)
+Barre ahora **items mapeados ∪ `SealedProduct` ACTIVOS** (`listMappedGroupIds` une ambas fuentes). Para un
+`SealedProduct` sin inventario, ancla el precio a la **carta ancla del set** (menor `numberPrefix/numberSort`)
+y refresca la caché `SealedProduct.marketUsdCents` (display; la autoridad sigue siendo `PriceReference`). Un
+item mapeado GANA el dedupe por `productId` (usa su `cardId`).
+
+### `inferSealedSubtype` + `SEALED_SUBTYPE_META` (`sealed-subtype.ts`, canónico)
+Orden normativo §4.34c: **upc** (antes de etb/collection) → etb → bundle → box → tin → blister →
+**collection** (Premium/Special/`\bbox\b` genérico) → null. `sortOrder` `upc=0…collection=6`; principales =
+`box,etb,upc,bundle`. `sealed-catalog-admin.service.ts` (DEPRECADO) re-exporta esta fuente única.
+
+### Gates (local)
+- `npx tsc --noEmit` limpio · `npx jest` → **163 suites / 1589 tests VERDE** (nuevos:
+  `sealed-product.service.spec.ts` 29, `inventory.sealed-product-alta.spec.ts` 8, +2 en
+  `sealed-price-ingest.spec.ts`). Sin regresiones en las suites de sellado/inventario previas.

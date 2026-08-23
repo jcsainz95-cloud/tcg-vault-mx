@@ -8,6 +8,9 @@ import { PriceInfo } from '../pricing/pricing.service';
 import { FxService } from '../pricing/fx.service';
 import { TcgcsvSealedBulkProvider } from '../pricing/providers/tcgcsv-sealed.provider';
 import { SetRefDTO } from './master-set.service';
+// v1.39 (M-39, P-38): la heurística de subtipo pasa a la fuente canónica (incl. `upc`/`collection`).
+// Se re-exporta aquí para no romper a los consumidores/tests del alias DEPRECADO.
+import { inferSealedSubtype as inferSealedSubtypeCanonical } from './sealed-subtype';
 
 /**
  * Un producto SELLADO del catálogo TCGCSV de un set (ETB / booster box / bundle / tin / blíster),
@@ -52,20 +55,11 @@ function toSetRef(s: {
 }
 
 /**
- * Heurística de nombre → `SealedSubtype` (§4.32a). Conservadora: solo empata patrones claros; ante
- * duda devuelve `null` para que el operador elija el subtipo en el alta (jamás se adivina de más).
- * El ORDEN importa (un «Booster Bundle» es `bundle`, no `box`).
+ * Heurística de nombre → `SealedSubtype`. DEPRECADO: delega en la fuente canónica (§4.34c, incl.
+ * `upc`/`collection` con el orden normativo). Se re-exporta para no romper importadores/tests previos.
  */
 export function inferSealedSubtype(name: string): SealedSubtype | null {
-  const n = name.toLowerCase();
-  if (n.includes('elite trainer box') || /\betb\b/.test(n)) return 'etb';
-  if (n.includes('bundle')) return 'bundle';
-  if (n.includes('tin')) return 'tin';
-  if (n.includes('blister') || n.includes('sleeved booster') || n.includes('checklane')) {
-    return 'blister';
-  }
-  if (n.includes('booster box') || n.includes('booster case')) return 'box';
-  return null;
+  return inferSealedSubtypeCanonical(name);
 }
 
 /**

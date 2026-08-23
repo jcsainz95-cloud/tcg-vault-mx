@@ -18,6 +18,7 @@ import { InventoryService } from './inventory.service';
 import { MasterSetService } from './master-set.service';
 import { SealedGradedInventoryService } from './sealed-graded.service';
 import { SealedCatalogAdminService } from './sealed-catalog-admin.service';
+import { SealedProductService } from './sealed-product.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import {
@@ -30,9 +31,11 @@ import {
   MarkItemDto,
   MoveItemDto,
   PublishAllRequestDto,
+  SealedSetGroupLinkRequestDto,
+  SealedSyncRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
-import { Finish, ProductType } from '@prisma/client';
+import { Finish, ProductType, SealedGroupKind } from '@prisma/client';
 
 /**
  * v1.28 (P-17, §M1): valores válidos de los filtros aditivos de `GET /admin/inventory/items`.
@@ -56,6 +59,8 @@ export class InventoryController {
     private readonly sealedGraded?: SealedGradedInventoryService,
     // v1.36-sealed-alta (M-37, P-35): listado de productos sellados del set para el alta dedicada.
     private readonly sealedCatalog?: SealedCatalogAdminService,
+    // v1.39-sealed-product-module (M-39, P-38): catálogo persistido `SealedProduct` + sync + curación.
+    private readonly sealedProduct?: SealedProductService,
   ) {}
 
   // ===== v1.16-master-set (§4.17) — Master Set + inventario a escala (vault_operator+) =====
@@ -137,6 +142,96 @@ export class InventoryController {
       groupId = parseInt(groupIdRaw, 10);
     }
     return this.sealedCatalog!.sealedCatalog({ setId, groupId, q });
+  }
+
+  // ===== v1.39-sealed-product-module (M-39, P-38, §4.34d) — catálogo `SealedProduct` + sync =====
+
+  /**
+   * GET /admin/inventory/sealed-products?setId=&q?=&origin?=&principalOnly?= — presentaciones selladas
+   * PERSISTIDAS (active=true) del set, ordenadas §4.34c, con `marketRef` money-safe (live→caché→null).
+   * `vault_operator+` (hereda el rol de la clase). `needsSync=true` ⇒ catálogo vacío. Sustituye a
+   * `GET /admin/inventory/sealed-catalog` (DEPRECADO). Err: 400 (setId ausente/origin inválido), 404 (set).
+   */
+  @Get('inventory/sealed-products')
+  async sealedProducts(
+    @Query('setId') setId?: string,
+    @Query('q') q?: string,
+    @Query('origin') origin?: string,
+    @Query('principalOnly') principalOnly?: string,
+  ) {
+    if (!setId || setId.trim() === '') {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'setId is required');
+    }
+    if (origin != null && origin !== '' && origin !== 'set_main' && origin !== 'promo_collection') {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid origin '${origin}'`);
+    }
+    return this.sealedProduct!.listSealedProducts({
+      setId,
+      q,
+      origin: origin ? (origin as SealedGroupKind) : undefined,
+      principalOnly: principalOnly === 'true' || principalOnly === '1',
+    });
+  }
+
+  /**
+   * POST /admin/inventory/sealed-products/sync — descarga presentaciones selladas del set (o de todos)
+   * desde TCGCSV, las persiste como `SealedProduct` y POBLA `CardSet.tcgcsvGroupId` + `SealedSetGroup`.
+   * `super_admin` (escritura de catálogo). Auditado (`inventory.sealed_products_sync`).
+   */
+  @Post('inventory/sealed-products/sync')
+  @HttpCode(200)
+  @Roles(Role.super_admin)
+  async sealedProductsSync(
+    @Body() dto: SealedSyncRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.sealedProduct!.sync(dto);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.sealed_products_sync',
+      entityType: 'SealedProduct',
+      entityId: dto.setId ?? (dto.all ? 'all' : 'n/a'),
+      after: { request: { setId: dto.setId, all: dto.all, groupIds: dto.groupIds }, result: res },
+    });
+    return res;
+  }
+
+  /**
+   * GET /admin/inventory/sealed-products/sync/candidates?setId= — grupos TCGCSV candidatos por
+   * name-match contra el set (bootstrap del set_main + localizar promos/colecciones). `super_admin`.
+   */
+  @Get('inventory/sealed-products/sync/candidates')
+  @Roles(Role.super_admin)
+  async sealedProductsSyncCandidates(@Query('setId') setId?: string) {
+    if (!setId || setId.trim() === '') {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'setId is required');
+    }
+    return this.sealedProduct!.syncCandidates(setId);
+  }
+
+  /**
+   * POST /admin/inventory/sealed-sets/:setId/groups — enlaza un grupo TCGCSV EXTRA (promo/colección)
+   * al set (1 set → N grupos, §4.34b). `super_admin`. 201; grupo ya enlazado → 409. Auditado.
+   */
+  @Post('inventory/sealed-sets/:setId/groups')
+  @HttpCode(201)
+  @Roles(Role.super_admin)
+  async linkSealedSetGroup(
+    @Param('setId') setId: string,
+    @Body() dto: SealedSetGroupLinkRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.sealedProduct!.linkGroup(setId, dto);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.sealed_set_group_link',
+      entityType: 'SealedSetGroup',
+      entityId: res.id,
+      after: { setId, tcgplayerGroupId: dto.tcgplayerGroupId, kind: dto.kind },
+    });
+    return res;
   }
 
   @Post('inventory/items/batch')

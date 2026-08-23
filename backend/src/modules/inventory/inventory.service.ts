@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AdjustmentReason,
   Card,
@@ -7,6 +7,7 @@ import {
   MovementReason,
   Prisma,
   ProductType,
+  SealedSubtype,
   VariantPriceOverride,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -36,6 +37,7 @@ import {
   UpdateItemDto,
 } from './dto/inventory.dto';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
+import { AuditService } from '../audit/audit.service';
 
 /**
  * v1.36-sealed-alta (M-37, P-35) — proyección de los 4 campos aditivos del alta de SELLADO, ya
@@ -240,6 +242,10 @@ export class InventoryService {
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly settings: SettingsService,
+    // v1.39 (P-38, §4.34d): auditoría del precio manual del sellado (`inventory.sealed_manual_market`).
+    // @Optional() — el módulo lo provee (AuditModule es @Global); los tests unitarios que construyen
+    // el servicio con 3 args lo dejan `undefined` (el precio manual se ejercita sin auditor en unit).
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   /**
@@ -248,14 +254,14 @@ export class InventoryService {
    * → 422 PRICE_PENDING + cola de precio pendiente (nunca se descarta).
    */
   async createItem(dto: CreateItemDto, actorUserId: string) {
-    const r = await this.resolveCreation(dto);
+    const r = await this.resolveCreation(dto, actorUserId);
 
     // v1.1: sellado = precio SIEMPRE manual (MXN). Obligatorio para PUBLICAR: sin
     // listPriceCents el sellado queda "precio pendiente" (no aparece en Compra). Se escala
     // a la cola de precio pendiente para que el dueño lo fije (regla transversal).
     if (r.sealedNeedsEscalate) {
       await this.pricing.escalatePending(
-        dto.cardId,
+        r.card.id,
         dto.productType,
         r.gradeKey,
         'inventory',
@@ -288,7 +294,10 @@ export class InventoryService {
    * BusinessException (NOT_FOUND / VALIDATION_ERROR / FINISH_NOT_AVAILABLE / PRICE_PENDING) sin crear
    * nada; para aportación sin referencia escala el pendiente (igual que antes) y lanza PRICE_PENDING.
    */
-  private async resolveCreation(dto: CreateItemDto | BatchInventoryItemInput): Promise<{
+  private async resolveCreation(
+    dtoIn: CreateItemDto | BatchInventoryItemInput,
+    actorUserId?: string,
+  ): Promise<{
     card: Card;
     finish: Finish;
     gradeKey: string;
@@ -296,7 +305,22 @@ export class InventoryService {
     acquisitionPct: number | null;
     sealedNeedsEscalate: boolean;
     sealedMapping: SealedItemMapping;
+    sealedProductId: string | null;
+    // v1.39: subtipo RESUELTO (derivado del SealedProduct cuando se usa sealedProductId; si no, el del
+    // DTO). buildItemData recibe la línea ORIGINAL, así que la identidad derivada viaja por aquí.
+    sealedSubtype: SealedSubtype | null;
   }> {
+    // v1.39-sealed-product-module (M-39, P-38, §4.34d): si la línea trae `sealedProductId` (solo sealed),
+    // el backend DERIVA server-side la identidad (cardId ancla del set + mapeo + imagen/nombre/subtipo)
+    // DESDE el `SealedProduct` persistido — el cliente NO manda identidad ni montos. La pieza nace con
+    // identidad CORRECTA («ETB …», no la Tropius). Inexistente/inactivo → 422 SEALED_PRODUCT_NOT_FOUND.
+    const { dto, sealedProductId } = await this.deriveFromSealedProduct(dtoIn);
+
+    // v1.39: `cardId` es OPCIONAL en el DTO (se deriva con `sealedProductId`). Requerido para
+    // raw/graded y sealed sin `sealedProductId`; ausente donde se requiere → 422 VALIDATION_ERROR.
+    if (!dto.cardId) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'cardId is required');
+    }
     const card = await this.prisma.card.findUnique({ where: { id: dto.cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
 
@@ -305,7 +329,7 @@ export class InventoryService {
 
     // v1.36-sealed-alta (M-37, P-35): los 4 campos aditivos (mapeo TCGCSV + imagen/nombre de API) se
     // resuelven aquí (validación «se fijan juntos» + sanitización de la URL contra el host allowlist).
-    // Se IGNORAN en raw/graded. Con mapeo presente, la pieza NACE MAPEADA (§4.32c).
+    // Se IGNORAN en raw/graded. Con mapeo presente (o derivado del SealedProduct), la pieza NACE MAPEADA.
     const sealedMapping = this.resolveSealedMapping(dto);
 
     // v1.6-finish: el acabado aplica a raw/singles; graded/sealed = normal siempre (ARCHITECTURE §3.7).
@@ -317,25 +341,38 @@ export class InventoryService {
       ('acquisitionCostCents' in dto ? dto.acquisitionCostCents : undefined) ?? null;
     let acquisitionPct = dto.acquisitionPct ?? null;
 
+    // v1.39 (§4.34d): mercado del SELLADO al alta (money-safe) — resuelto SIEMPRE para sellado (no solo
+    // en aportación) para aplicar las salidas honestas del fallback manual: resuelto → override manual
+    // PROHIBIDO (422 MANUAL_MARKET_NOT_ALLOWED); null + `manualMarketMxnCents>0` → override AUDITADO;
+    // null sin override → mercado null (la aportación caerá a PRICE_PENDING, jamás 0).
+    // Solo se resuelve cuando hace falta: aportación (valúa el costo) o `manualMarketMxnCents` presente
+    // (valida/persiste el override). Un sellado no-aportación sin override no toca el mercado al alta
+    // (preserva el comportamiento previo: sin query extra).
+    let sealedMarketCents: number | null = null;
+    let sealedPendingGradeKey = gradeKey;
+    if (
+      dto.productType === 'sealed' &&
+      (dto.acquisitionType === 'aportacion_en_especie' || dto.manualMarketMxnCents != null)
+    ) {
+      const m = await this.resolveSealedMarketForAlta(
+        dto,
+        sealedMapping.tcgplayerProductId,
+        dto.manualMarketMxnCents,
+        actorUserId,
+      );
+      sealedMarketCents = m.marketCents;
+      sealedPendingGradeKey = m.pendingGradeKey;
+    }
+
     if (dto.acquisitionType === 'aportacion_en_especie') {
       const pct = dto.acquisitionPct ?? (await this.settings.getNumber(SettingKey.APORTACION_PCT));
       let referenceCents: number | null;
       let pendingGradeKey = gradeKey;
       if (dto.productType === 'sealed') {
-        // v1.28 (fix normativo §4.26g / contrato §M1 P-25): la APORTACIÓN de sellado valúa por
-        // `sealedMarketRef` (resolver H-1: mapeo del grupo + dial `sealedPriceSource=tcgcsv`) —
-        // NO por el gradeKey legacy 'sealed' (jamás tiene filas de mercado ⇒ todo caía a
-        // PRICE_PENDING aunque el mercado exista). Sin mapeo/dial off/sin ingest ⇒ PRICE_PENDING
-        // por línea, como siempre (money-safe: jamás se inventa el costo).
-        // v1.36 (P-35): si la pieza NACE MAPEADA (productId en el DTO, del listado que el server
-        // sirvió), se valúa por ESE productId DIRECTO — sin inferir de hermanos (§4.32c). Sin mapeo
-        // explícito se conserva la inferencia por hermanos ya mapeados (comportamiento previo).
-        const sealedRef = await this.resolveSealedAportacionMarket(
-          dto,
-          sealedMapping.tcgplayerProductId,
-        );
-        referenceCents = sealedRef.marketCents;
-        pendingGradeKey = sealedRef.pendingGradeKey;
+        // v1.39 (§4.34d): valúa por el mercado resuelto arriba (live-cache H-1 o el override manual
+        // money-safe recién persistido). Sin mercado ni override ⇒ null ⇒ PRICE_PENDING (nunca 0).
+        referenceCents = sealedMarketCents;
+        pendingGradeKey = sealedPendingGradeKey;
       } else {
         // v1.6-finish: costo contra la referencia del ACABADO alta.
         const ref = await this.pricing.getReference(dto.cardId, dto.productType, gradeKey, finish);
@@ -371,7 +408,138 @@ export class InventoryService {
       acquisitionPct,
       sealedNeedsEscalate,
       sealedMapping,
+      sealedProductId,
+      sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
     };
+  }
+
+  /**
+   * v1.39-sealed-product-module (M-39, P-38, §4.34d) — DERIVA la identidad del sellado desde el
+   * `SealedProduct` persistido cuando la línea trae `sealedProductId` (solo `productType='sealed'`).
+   * Devuelve una línea NORMALIZADA (cardId ancla del set + mapeo + imagen/nombre/subtipo del producto)
+   * y el `sealedProductId` a congelar en la pieza (FK). Sin `sealedProductId` (o no sellado) devuelve la
+   * línea tal cual (transición P-35). `SealedProduct` inexistente/inactivo → 422 SEALED_PRODUCT_NOT_FOUND.
+   * El cliente NO manda identidad ni montos: todo se deriva server-side (SEC-A1).
+   */
+  private async deriveFromSealedProduct(
+    dto: CreateItemDto | BatchInventoryItemInput,
+  ): Promise<{ dto: CreateItemDto | BatchInventoryItemInput; sealedProductId: string | null }> {
+    if (dto.productType !== 'sealed' || !dto.sealedProductId) {
+      return { dto, sealedProductId: null };
+    }
+    const sp = await this.prisma.sealedProduct.findUnique({ where: { id: dto.sealedProductId } });
+    if (!sp || !sp.active) {
+      throw BusinessException.validation(
+        'SEALED_PRODUCT_NOT_FOUND',
+        'sealedProductId does not exist or is inactive',
+      );
+    }
+    const anchorCardId = await this.resolveAnchorCardId(sp.setId);
+    if (!anchorCardId) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'set has no anchor card for sealed product');
+    }
+    // Los 4 campos M-37 sueltos se IGNORAN (mandan los derivados): se sobreescriben desde el SealedProduct.
+    const normalized = {
+      ...dto,
+      cardId: anchorCardId,
+      sealedSubtype: sp.subtype,
+      tcgplayerProductId: sp.tcgplayerProductId,
+      tcgplayerGroupId: sp.tcgplayerGroupId,
+      sealedImageUrl: sp.imageUrl ?? undefined,
+      sealedProductName: sp.name,
+    } as CreateItemDto | BatchInventoryItemInput;
+    return { dto: normalized, sealedProductId: sp.id };
+  }
+
+  /** Ancla representativa del set = menor (numberPrefix, numberSort). El sellado se ancla a ella SOLO
+   * para satisfacer InventoryItem.cardId (NOT NULL); deja de ser identidad (§4.34a). */
+  private async resolveAnchorCardId(setId: string): Promise<string | null> {
+    const anchor = await this.prisma.card.findFirst({
+      where: { setId },
+      orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }],
+      select: { id: true },
+    });
+    return anchor?.id ?? null;
+  }
+
+  /**
+   * v1.39 (§4.34d) — mercado del SELLADO al alta + fallback MANUAL money-safe. Devuelve el mercado
+   * resuelto (o el override manual recién persistido) y la clave de pendiente. Precedencia money-safe:
+   *  1. Mercado resuelto (H-1: `sealed:tcg:<productId>` gateado por el dial `sealedPriceSource`).
+   *  2. Con `manualMarketMxnCents`: SOLO si el mercado resuelto es null → override AUDITADO (`>0`;
+   *     persistido como `PriceReference isManualOverride=true`). Mercado YA resuelto → 422
+   *     MANUAL_MARKET_NOT_ALLOWED (jamás pisa un mercado vivo). `≤0` → 422 VALIDATION_ERROR.
+   *  3. Sin override y sin mercado → null (el caller escala PRICE_PENDING; JAMÁS 0).
+   * Nota money-safe: el mercado autoritativo es la caché H-1 `PriceReference` (poblada por sync +
+   * `sealed-price-ingest`); NO se hace fetch HTTP dentro de la transacción de alta (anti pool-starvation).
+   */
+  private async resolveSealedMarketForAlta(
+    dto: { cardId?: string; sealedSubtype?: string | null },
+    productId: number | null,
+    manualMarketMxnCents: number | undefined,
+    actorUserId: string | undefined,
+  ): Promise<{ marketCents: number | null; pendingGradeKey: string }> {
+    // Sin mapeo (sellado legacy sin productId): no hay clave de mercado. El override manual no aplica
+    // (no hay a qué anclarlo). Se conserva la inferencia por hermanos ya mapeados (comportamiento P-35).
+    if (productId == null) {
+      if (manualMarketMxnCents != null) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'manualMarketMxnCents requires a mapped sealed product (use sealedProductId)',
+        );
+      }
+      const legacy = await this.resolveSealedAportacionMarket(
+        { cardId: dto.cardId!, sealedSubtype: dto.sealedSubtype },
+        null,
+      );
+      return { marketCents: legacy.marketCents, pendingGradeKey: legacy.pendingGradeKey };
+    }
+
+    const marketGradeKey = sealedMarketGradeKey(productId);
+    const { sourceOn } = await this.pricing.loadSealedSpreads();
+    const ref = await this.pricing.getReference(dto.cardId!, 'sealed', marketGradeKey, 'normal');
+    const resolved = this.pricing.gateSealedMarketCents(ref, sourceOn);
+
+    if (manualMarketMxnCents != null) {
+      // 422 MANUAL_MARKET_NOT_ALLOWED SOLO por «mercado ya resuelto» (NO por rol — vault_operator+ v1.39.1).
+      if (resolved != null) {
+        throw BusinessException.validation(
+          'MANUAL_MARKET_NOT_ALLOWED',
+          'market already resolved; manual override only fills a price gap',
+        );
+      }
+      if (!(manualMarketMxnCents > 0)) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'manualMarketMxnCents must be > 0',
+        );
+      }
+      // Override money-safe: persiste PriceReference isManualOverride=true (máxima precedencia) + AUDITA.
+      await this.pricing.manualOverride(
+        dto.cardId!,
+        'sealed',
+        marketGradeKey,
+        manualMarketMxnCents,
+        'normal',
+      );
+      if (this.audit) {
+        await this.audit.log({
+          actorUserId,
+          action: 'inventory.sealed_manual_market',
+          entityType: 'SealedProduct',
+          entityId: String(productId),
+          after: {
+            cardId: dto.cardId,
+            tcgplayerProductId: productId,
+            manualMarketMxnCents,
+            isManualOverride: true,
+          },
+        });
+      }
+      return { marketCents: manualMarketMxnCents, pendingGradeKey: marketGradeKey };
+    }
+
+    return { marketCents: resolved, pendingGradeKey: marketGradeKey };
   }
 
   /**
@@ -469,22 +637,29 @@ export class InventoryService {
   private buildItemData(
     dto: CreateItemDto | BatchInventoryItemInput,
     r: {
+      // v1.39: `card` = ancla RESUELTA (derivada del SealedProduct cuando se usó sealedProductId). El
+      // `dto` de aquí es la línea ORIGINAL (su cardId puede venir vacío), así que la identidad del
+      // sellado sale de `r`, no del DTO del cliente (SEC-A1).
+      card: Card;
       finish: Finish;
       acquisitionCostCents: number | null;
       acquisitionPct: number | null;
       // v1.36 (P-35): mapeo TCGCSV + imagen/nombre de API ya resueltos/validados (null en raw/graded).
       sealedMapping: SealedItemMapping;
+      // v1.39: subtipo resuelto + FK de identidad al SealedProduct (null en raw/graded / sellado legacy).
+      sealedSubtype: SealedSubtype | null;
+      sealedProductId: string | null;
     },
     folio: string,
   ): Prisma.InventoryItemUncheckedCreateInput {
     return {
       folio,
-      cardId: dto.cardId,
+      cardId: r.card.id,
       productType: dto.productType,
       // raw solo NM (default NM); sellado/graded no llevan rawCondition.
       rawCondition: dto.productType === 'raw' ? (dto.rawCondition ?? 'NM') : null,
       finish: r.finish,
-      sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
+      sealedSubtype: dto.productType === 'sealed' ? r.sealedSubtype : null,
       // v1.23-sealed-sales (M-28): condición del sellado (default mint); null en raw/graded.
       sealedCondition: dto.productType === 'sealed' ? (dto.sealedCondition ?? 'mint') : null,
       gradingCompany: dto.productType === 'graded' ? dto.gradingCompany : null,
@@ -507,6 +682,9 @@ export class InventoryService {
       tcgplayerGroupId: r.sealedMapping.tcgplayerGroupId,
       sealedImageUrl: r.sealedMapping.sealedImageUrl,
       sealedProductName: r.sealedMapping.sealedProductName,
+      // v1.39-sealed-product-module (M-39, P-38): FK de IDENTIDAD al SealedProduct (null si no se usó
+      // sealedProductId). Las columnas M-23/M-37 de arriba quedan como SNAPSHOT congelado al alta.
+      sealedProductId: r.sealedProductId,
     };
   }
 
@@ -564,10 +742,10 @@ export class InventoryService {
                 'graded items cannot have qty > 1',
               );
             }
-            const r = await this.resolveCreation(line);
+            const r = await this.resolveCreation(line, actorUserId);
             if (r.sealedNeedsEscalate) {
               await this.pricing.escalatePending(
-                line.cardId,
+                r.card.id,
                 line.productType,
                 r.gradeKey,
                 'inventory',
@@ -1404,7 +1582,7 @@ export class InventoryService {
     const r = await this.resolveCreation(line);
     if (r.sealedNeedsEscalate) {
       await this.pricing.escalatePending(
-        line.cardId,
+        r.card.id,
         line.productType,
         r.gradeKey,
         'inventory',

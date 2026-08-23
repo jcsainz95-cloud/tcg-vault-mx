@@ -95,6 +95,15 @@ export const ErrorCode = {
   // de las que hay». `details.available`/`details.requested`. 422. PENDIENTE de formalizar en
   // API_CONTRACT por el arquitecto (patrón de los códigos M1 dedicados de arriba).
   INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
+  // v1.39-sealed-product-module (P-38, §4.34d): el `sealedProductId` de una línea de alta de sellado
+  // NO existe o está inactivo (soft-deleted). El backend deriva la identidad del sellado desde el
+  // `SealedProduct` persistido; un id muerto no puede dar identidad. 422 (por-línea en el lote).
+  SEALED_PRODUCT_NOT_FOUND: 'SEALED_PRODUCT_NOT_FOUND',
+  // v1.39.1 (P-38, §4.34d): se envió `manualMarketMxnCents` en una línea de alta de sellado cuyo
+  // mercado YA está resuelto (live/caché priced). El override manual SOLO llena el HUECO de precio
+  // (mercado null): JAMÁS pisa un mercado vivo. Money-safe. NO se dispara por rol (vault_operator+ lo
+  // permite, decisión del humano v1.39.1). 422 (por-línea en el lote).
+  MANUAL_MARKET_NOT_ALLOWED: 'MANUAL_MARKET_NOT_ALLOWED',
 
   // Payments / Stripe
   AMOUNT_TOO_LOW: 'AMOUNT_TOO_LOW', // B2: por debajo del mínimo de Stripe MX
