@@ -430,13 +430,30 @@ describe('candado — el eje de VENTA solo se resuelve por el SEAM (§4.36.5b)',
     });
   }
 
-  it('NINGÚN módulo fuera de `pricing/` importa `computeSalePriceFromCurve` (la pura, sin veredicto)', () => {
-    const offenders = walk(join(SRC, 'modules'))
-      .filter((f) => !f.includes(join('modules', 'pricing')))
+  /**
+   * v2.1.4 (techlead) — la raíz del barrido es **`src/` COMPLETO**, no `src/modules/`. Antes solo
+   * miraba `modules/`, así que `src/jobs/` quedaba fuera del candado… y `src/jobs/` es exactamente
+   * donde viviría un repriciador nocturno: el sitio con más razones para llamar a la función pura y
+   * saltarse el veredicto. Un candado con un agujero justo en el punto de mayor riesgo no es candado.
+   *
+   * Exclusiones: `common/` (ahí VIVE la función pura) y `modules/pricing/` (ahí vive el seam
+   * `decideSalePrice` y el composer del binder, que aplica el guardarraíl explícitamente en el mismo
+   * archivo).
+   */
+  const ALLOWED = [join('src', 'common'), join('src', 'modules', 'pricing')];
+
+  it('NINGÚN archivo de `src/` (incluido `src/jobs/`) importa `computeSalePriceFromCurve` fuera de las dos zonas permitidas', () => {
+    const offenders = walk(SRC)
+      .filter((f) => !ALLOWED.some((a) => f.includes(a)))
       .filter((f) => /\bcomputeSalePriceFromCurve\b/.test(readFileSync(f, 'utf8')));
-    // `modules/pricing/` sí puede: ahí vive el seam (`decideSalePrice`) y el composer del binder,
-    // que aplica el guardarraíl explícitamente en el MISMO archivo.
     expect(offenders).toEqual([]);
+  });
+
+  it('el candado REALMENTE cubre `src/jobs/` (si el barrido no lo alcanzara, este test lo delata)', () => {
+    const scanned = walk(SRC);
+    expect(scanned.some((f) => f.includes(join('src', 'jobs')))).toBe(true);
+    // Y la zona excluida es sólo la que debe serlo.
+    expect(scanned.some((f) => f.includes(join('src', 'common', 'pricing-curve.ts')))).toBe(true);
   });
 
   it('los CINCO consumidores del eje de venta pasan por el seam (`decideSalePrice`/`computeSalePriceForItem`)', () => {

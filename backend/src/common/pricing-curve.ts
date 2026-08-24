@@ -259,14 +259,51 @@ export function rawCentsFromRational(marketCents: number, num: number, den: numb
  */
 export const MAX_CENTS_CURVE = 2_147_483_647;
 
+// ----------------------------------------------------------------------------
+// `DisplayBp` — el candado de tipo del valor interpolado (v2.1.4, §4.36.8a NORMATIVO)
+// ----------------------------------------------------------------------------
+
+declare const DISPLAY_BP_BRAND: unique symbol;
+
 /**
- * Valor interpolado como número, **SOLO PARA DISPLAY** (memoria de cálculo del previsualizador y del
- * editor, §4.36.8a). ⛔ **JAMÁS como operando de un precio**: para eso está `interpExact` +
- * `rawCentsFromRational`. El contrato lo marca `appliedBp` como solo-display por esta misma razón.
+ * Un valor en bp **redondeado, apto SOLO para PINTAR**. En runtime es un `number` corriente (se
+ * serializa como número, el contrato no cambia), pero en compilación es **opaco**: no se puede
+ * multiplicar, sumar ni comparar numéricamente sin desenvolverlo a propósito con `displayBpValue`.
+ *
+ * **Por qué es un tipo y no un comentario.** Hasta v2.1.3 la puerta estaba cerrada por convención: el
+ * docblock decía «⛔ jamás como operando de un precio» y confiábamos en que nadie lo hiciera. Un
+ * `m * appliedBp / 10000` futuro reintroduce **I1 literal** — el bug de dinero que costó este pase
+ * entero—, y la lección de I1 es exactamente que las garantías de dinero no pueden depender de que
+ * alguien recuerde una convención. Con este tipo, recomponer un monto desde un bp de display **no
+ * compila**.
+ *
+ * El operando legítimo de un precio es SIEMPRE el racional exacto: `interpExact` + `rawCentsFromRational`.
  */
-export function interp(points: readonly CurvePointBp[], marketCents: number): number {
+export type DisplayBp = { readonly [DISPLAY_BP_BRAND]: 'display-only' };
+
+/** Marca un bp ya redondeado como «solo display». Uso interno de este módulo. */
+function asDisplayBp(bp: number): DisplayBp {
+  return bp as unknown as DisplayBp;
+}
+
+/**
+ * Escotilla EXPLÍCITA y greppable para **pintar** un `DisplayBp` (o compararlo en un test). Si
+ * aparece en una expresión que produce un monto, es un bug: el `grep` de `displayBpValue` es
+ * justamente la revisión que este tipo hace posible.
+ */
+export function displayBpValue(bp: DisplayBp): number {
+  return bp as unknown as number;
+}
+
+/**
+ * Valor interpolado **SOLO PARA DISPLAY** (memoria de cálculo del previsualizador y del editor,
+ * §4.36.8a). ⛔ **JAMÁS como operando de un precio**: para eso está `interpExact` +
+ * `rawCentsFromRational`. Devuelve `DisplayBp` para que esa prohibición la imponga el compilador y no
+ * la buena memoria de quien lo lea.
+ */
+export function interp(points: readonly CurvePointBp[], marketCents: number): DisplayBp {
   const { num, den } = interpExact(points, marketCents);
-  return roundHalfUp(num / den);
+  return asDisplayBp(roundHalfUp(num / den));
 }
 
 /** Proyecta los puntos de VENTA a `(marketCents, valueBp)`. */
@@ -279,15 +316,12 @@ export function buyBpPoints(points: readonly BuyCurvePoint[]): CurvePointBp[] {
   return points.map((p) => ({ marketCents: p.marketCents, valueBp: p.pctBp }));
 }
 
-/** `markup(mercado)` en bp. */
-export function saleMultiplierBpAt(curve: PricingCurve, marketCents: number): number {
-  return interp(saleBpPoints(curve.sale.points), marketCents);
-}
-
-/** `pct(mercado)` de compra en bp. */
-export function buyPctBpAt(curve: PricingCurve, marketCents: number): number {
-  return interp(buyBpPoints(curve.buy.points), marketCents);
-}
+// v2.1.4 — `saleMultiplierBpAt` / `buyPctBpAt` RETIRADAS (hallazgo del techlead). Eran una trampa
+// cargada: CERO llamadores de producción (solo su propio spec), exportadas públicamente, nombradas
+// exactamente como uno buscaría «el multiplicador de este mercado»… y devolvían el valor CUANTIZADO.
+// Un `m * saleMultiplierBpAt(c, m) / 10000` futuro reintroduce I1 literal. Quien necesite el valor
+// para PINTAR usa `interp(saleBpPoints(...), m)`, que ahora devuelve `DisplayBp` y no se puede
+// multiplicar sin desenvolverlo a propósito; quien necesite el valor para un PRECIO usa `interpExact`.
 
 // ============================================================================
 // Escalera de redondeo ↑ (SOLO VENTA — §N.2 decisión 5; la compra NO se redondea)
@@ -360,7 +394,7 @@ export interface CurveLegTrace {
    * eso el contrato lo marca solo-display. Usarlo para recomputar el monto reintroduce el bug I1:
    * `rawCents` puede NO ser `ROUND_HALF_UP(mercado × appliedBp / 10000)` cuando `k(m)` no es entero.
    */
-  appliedBp: number | null;
+  appliedBp: DisplayBp | null;
   /** El producto EXACTO `mercado · k(m)`, redondeado a centavos: ANTES de la constante y del redondeo. */
   rawCents: number | null;
   /** El piso (venta) o el bin (compra). */
@@ -401,7 +435,7 @@ export function explainSaleFromCurve(marketMxnCents: number | null, curve: Prici
   return {
     priceCents: rounded.cents,
     basis: constantWon ? 'floor' : 'market',
-    appliedBp: roundHalfUp(num / den),
+    appliedBp: asDisplayBp(roundHalfUp(num / den)),
     rawCents,
     constantCents,
     constantWon,
@@ -433,7 +467,7 @@ export function explainBuyFromCurve(marketMxnCents: number | null, curve: Pricin
   return {
     priceCents: Math.max(constantCents, rawCents),
     basis: constantWon ? 'floor' : 'market',
-    appliedBp: roundHalfUp(num / den),
+    appliedBp: asDisplayBp(roundHalfUp(num / den)),
     rawCents,
     constantCents,
     constantWon,

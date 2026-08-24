@@ -9,7 +9,6 @@
 import {
   DEFAULT_PRICING_CURVE,
   PricingCurve,
-  buyPctBpAt,
   collectCurveViolations,
   interp,
   interpExact,
@@ -17,6 +16,9 @@ import {
   saleBpPoints,
   explainSaleFromCurve,
   MAX_CENTS_CURVE,
+  displayBpValue,
+  saleBpPoints as saleBp,
+  buyBpPoints,
   isBountyEffective,
   marketBracketOf,
   normalizePricingCurve,
@@ -25,7 +27,6 @@ import {
   resolveSaleFromCurve,
   roundHalfUp,
   roundUp,
-  saleMultiplierBpAt,
   sanitizePricingCurve,
   validatePricingCurve,
 } from './pricing-curve';
@@ -62,8 +63,8 @@ describe('pricing-curve — PRUEBA DE MESA normativa (§4.36.1, criterios 79/80/
   });
 
   it('el markup interpolado en $50 es 1.3955× y el pct de compra en $300 es 45 %', () => {
-    expect(saleMultiplierBpAt(CURVE, 5000)).toBe(13955);
-    expect(buyPctBpAt(CURVE, 30000)).toBe(4500);
+    expect(saleBpForDisplay(CURVE, 5000)).toBe(13955);
+    expect(buyBpForDisplay(CURVE, 30000)).toBe(4500);
   });
 
   it('criterio 80: una Common de cientos de pesos DEJA de recibir MX$0.50 (no hay bin de bulk)', () => {
@@ -72,18 +73,27 @@ describe('pricing-curve — PRUEBA DE MESA normativa (§4.36.1, criterios 79/80/
   });
 });
 
+/**
+ * v2.1.4 — `saleMultiplierBpAt`/`buyPctBpAt` se RETIRARON (trampa cargada: cero llamadores de
+ * producción y valor cuantizado con nombre de operando). Estos helpers LOCALES del spec las
+ * sustituyen: desenvuelven el `DisplayBp` explícitamente, que es justo el gesto que el tipo obliga a
+ * hacer visible.
+ */
+const saleBpForDisplay = (c: PricingCurve, m: number) => displayBpValue(interp(saleBp(c.sale.points), m));
+const buyBpForDisplay = (c: PricingCurve, m: number) => displayBpValue(interp(buyBpPoints(c.buy.points), m));
+
 describe('pricing-curve — interpolación (criterio 81: nunca escalonada)', () => {
   it('tramos planos SOLO antes del primer punto y después del último', () => {
-    expect(saleMultiplierBpAt(CURVE, 0)).toBe(16000);
-    expect(saleMultiplierBpAt(CURVE, 1)).toBe(16000);
-    expect(saleMultiplierBpAt(CURVE, 2500)).toBe(16000);
-    expect(saleMultiplierBpAt(CURVE, 8000)).toBe(11500);
-    expect(saleMultiplierBpAt(CURVE, 900000)).toBe(11500);
+    expect(saleBpForDisplay(CURVE, 0)).toBe(16000);
+    expect(saleBpForDisplay(CURVE, 1)).toBe(16000);
+    expect(saleBpForDisplay(CURVE, 2500)).toBe(16000);
+    expect(saleBpForDisplay(CURVE, 8000)).toBe(11500);
+    expect(saleBpForDisplay(CURVE, 900000)).toBe(11500);
   });
 
   it('DENTRO del rango el markup cambia peso a peso (no hay meseta escalonada)', () => {
-    const a = saleMultiplierBpAt(CURVE, 5000);
-    const b = saleMultiplierBpAt(CURVE, 5100);
+    const a = saleBpForDisplay(CURVE, 5000);
+    const b = saleBpForDisplay(CURVE, 5100);
     expect(b).toBeLessThan(a); // baja conforme sube el valor
     // La propiedad que se protege es «SIN ESCALONES»: entre dos mercados contiguos el multiplicador se
     // mueve como la RECTA del tramo, no a saltos. Se compara contra la pendiente REAL del tramo en vez
@@ -103,11 +113,11 @@ describe('pricing-curve — interpolación (criterio 81: nunca escalonada)', () 
   });
 
   it('el pct de COMPRA sube conforme sube el mercado (§N.1)', () => {
-    expect(buyPctBpAt(CURVE, 2500)).toBe(3000);
-    expect(buyPctBpAt(CURVE, 10000)).toBe(4000);
-    expect(buyPctBpAt(CURVE, 50000)).toBe(5000);
-    expect(buyPctBpAt(CURVE, 5000)).toBeGreaterThan(3000);
-    expect(buyPctBpAt(CURVE, 5000)).toBeLessThan(4000);
+    expect(buyBpForDisplay(CURVE, 2500)).toBe(3000);
+    expect(buyBpForDisplay(CURVE, 10000)).toBe(4000);
+    expect(buyBpForDisplay(CURVE, 50000)).toBe(5000);
+    expect(buyBpForDisplay(CURVE, 5000)).toBeGreaterThan(3000);
+    expect(buyBpForDisplay(CURVE, 5000)).toBeLessThan(4000);
   });
 
   it('barrido peso a peso $1–$300: la venta NUNCA cae por debajo del mercado y es monótona', () => {
@@ -170,7 +180,7 @@ describe('pricing-curve — ROUND_HALF_UP fijado (§4.36.1): medio ALEJÁNDOSE D
   });
 
   it('la prueba de mesa NO se mueve con el redondeo fijado (regresión del fix)', () => {
-    expect(saleMultiplierBpAt(CURVE, 5000)).toBe(13955);
+    expect(saleBpForDisplay(CURVE, 5000)).toBe(13955);
     expect(resolveSaleFromCurve(5000, CURVE).cents).toBe(7000);
     expect(resolveBuyFromCurve(30000, CURVE).cents).toBe(13500);
   });
@@ -659,9 +669,11 @@ describe('E0-bis — `interpExact` es exacto y `rawCentsFromRational` es la ÚNI
   it('`interp` sigue existiendo pero es SOLO-DISPLAY: puede diferir del operando real del precio', () => {
     const display = interp(pts, 5000);
     const { num, den } = interpExact(pts, 5000);
-    expect(display).toBe(roundHalfUp(num / den));
-    // El precio NO usa `display`: con m=$50 el crudo exacto y el «display» difieren por construcción.
-    expect(rawCentsFromRational(5000, num, den)).not.toBe(roundHalfUp((5000 * display) / 10000) + 1);
+    expect(displayBpValue(display)).toBe(roundHalfUp(num / den));
+    // El precio EXACTO y el que saldría de recomponer desde el bp de display NO coinciden — que es
+    // justo por qué `interp` devuelve `DisplayBp` y esa recomposición ya no compila sin la escotilla.
+    const recomputedFromDisplay = roundHalfUp((5000 * displayBpValue(display)) / 10_000);
+    expect(rawCentsFromRational(5000, num, den)).not.toBe(recomputedFromDisplay);
   });
 });
 
@@ -920,5 +932,44 @@ describe('rawCentsFromRational — ROUND_HALF_UP también con operandos NEGATIVO
   it('acota por MAGNITUD en los dos signos (BE-27), sin desbordar al convertir a `number`', () => {
     expect(rawCentsFromRational(2_000_000_000, 1_000_000, 1)).toBe(MAX_CENTS_CURVE);
     expect(rawCentsFromRational(2_000_000_000, -1_000_000, 1)).toBe(-MAX_CENTS_CURVE);
+  });
+});
+
+describe('DisplayBp — recomponer un monto desde el bp de display NO COMPILA (§4.36.8a, v2.1.4)', () => {
+  /**
+   * El techlead lo pidió como NORMA, no como convención: hasta v2.1.3 la puerta estaba cerrada por un
+   * docblock («⛔ jamás como operando de un precio») y la lección de I1 es precisamente que las
+   * garantías de dinero no pueden depender de que alguien recuerde una convención.
+   *
+   * El candado es de TIPO: `interp` y `CurveLegTrace.appliedBp` devuelven `DisplayBp`, que en runtime
+   * es un `number` (el contrato no cambia) pero en compilación es opaco. Desenvolverlo exige
+   * `displayBpValue`, que es explícito y **greppable**.
+   */
+  it('en runtime sigue siendo un número: el JSON del contrato no cambia', () => {
+    const trace = explainSaleFromCurve(5000, DEFAULT_PRICING_CURVE);
+    expect(typeof (trace.appliedBp as unknown)).toBe('number');
+    expect(JSON.parse(JSON.stringify(trace)).appliedBp).toBe(13955);
+  });
+
+  it('la escotilla `displayBpValue` es el ÚNICO camino a un `number` (y por eso se puede auditar por grep)', () => {
+    const trace = explainSaleFromCurve(5000, DEFAULT_PRICING_CURVE);
+    expect(displayBpValue(trace.appliedBp!)).toBe(13955);
+  });
+
+  it('CANDADO: el `@ts-expect-error` falla si alguien vuelve a permitir la aritmética', () => {
+    const trace = explainSaleFromCurve(5000, DEFAULT_PRICING_CURVE);
+    // Éste es el bug que se quiere impedir: recomponer el precio desde el bp REDONDEADO (I1 literal).
+    // @ts-expect-error — DisplayBp es opaco: no se puede multiplicar sin desenvolverlo a propósito.
+    const reintroduceI1 = (5000 * trace.appliedBp!) / 10_000;
+    // La línea de arriba no compila; en runtime se evalúa igual, y aquí se ve POR QUÉ importa: no
+    // coincide con el crudo exacto (13954.5454… vs 13955).
+    expect(reintroduceI1).not.toBe(explainSaleFromCurve(5000, DEFAULT_PRICING_CURVE).rawCents);
+  });
+
+  it('el crudo exacto y la recomposición desde display DIFIEREN — por eso el tipo, y no un comentario', () => {
+    const trace = explainSaleFromCurve(5000, DEFAULT_PRICING_CURVE);
+    const fromDisplay = roundHalfUp((5000 * displayBpValue(trace.appliedBp!)) / 10_000);
+    expect(trace.rawCents).toBe(6977); // exacto: 5000 × 153500/11 / 10000
+    expect(fromDisplay).toBe(6978); // con el bp redondeado: un centavo de más
   });
 });
