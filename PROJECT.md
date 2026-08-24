@@ -1737,10 +1737,19 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     **curva de venta no monótona creciente**, (b) deje la **compra ≥ venta** en algún punto del rango, o
     (c) permita un **precio de venta por debajo del mercado**; el error indica **qué punto** lo rompe.
     Verificable intentando guardar cada uno de los tres casos.
-88. **Guardarraíl — premium en el piso no se publica**: si una carta de **rareza premium** (catálogo canónico)
-    resuelve su precio **al piso**, **no se publica**: entra a la **cola de precio pendiente** y se **escala al
-    dueño**, hasta que un barrido posterior corrija el dato o el dueño fije el precio. Verificable forzando un
-    mercado ausente/absurdo en una Illustration/Ultra Rare: **no aparece en Compra** y **sí aparece en la
+87b. **SIN DATO DE MERCADO ⇒ «PRECIO PENDIENTE», el piso NO rescata (money — LOCKED)**: una variante **sin
+    precio de mercado** **no se publica y no se cotiza**, **sea cual sea su rareza**: entra a la **cola de
+    precio pendiente** y se escala al dueño. Verificable en los **dos ejes**: una carta **Common** sin dato
+    **no aparece en Compra a MX$25** (el piso **no** se usa como respaldo) y **no recibe cotización de MX$1**
+    en el cotizador; en ningún caso se muestra **MX$0** ni un precio inventado. *(Razón: el guardarraíl del
+    criterio 88 se apoya en la rareza —el proxy que este cambio retira del pricing— y **no atraparía** una
+    Common de $400 sin dato; ver §N.2.)*
+88. **Guardarraíl — premium en el piso/bin, en los DOS ejes**: si una carta de **rareza premium** (catálogo
+    canónico) resuelve su precio **al piso** (venta) o **al bin** (compra) **teniendo dato de mercado**,
+    **no se publica** y **no se cotiza**: entra a la **cola de precio pendiente** y se **escala al dueño**,
+    hasta que un barrido posterior corrija el dato o el dueño fije el precio. Verificable forzando un mercado
+    **presente pero absurdamente bajo** (aplanado, no ausente — ese caso es el 87b) en una
+    Illustration/Ultra Rare: **no aparece en Compra**, **no se cotiza en el cotizador** y **sí aparece en la
     cola**. El volumen es **≈3 de 333** cartas de un master set completo (no debe ser una alarma ruidosa).
 89. **Precedencia de precio (money-safe)**: venta = `override por pieza > override de variante > curva >
     pendiente`; compra = `bounty válido > override de compra > curva > pendiente`. El **override manual de
@@ -1764,9 +1773,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     (`piso == mercado × markup`) cuenta como **mercado** y **sí** se muestra.
 94. **Lo que NO cambia con la visibilidad**: (a) el **cotizador de buylist** sigue **sin** mostrar valor de
     mercado (solo la mención del subtítulo); (b) la **bóveda/portafolio del cliente** sigue mostrando el
-    **valor de mercado** de lo que ya posee, con valuación y gráfica de tendencia **idénticas**; (c) sin
-    referencia de mercado, el comportamiento de **«precio pendiente»** es el de hoy (no se publica en Compra);
-    (d) el **precio cobrado no cambia** por esta regla (es presentación, no dinero).
+    **valor de mercado** de lo que ya posee, con valuación y gráfica de tendencia **idénticas**; (c) una
+    carta en **«precio pendiente»** sigue **sin publicarse** en Compra y el comprador **nunca** ve ese estado
+    (los dos caminos a esa cola son los criterios **87b** y **88**); (d) el **precio cobrado no cambia** por
+    esta regla (es presentación, no dinero).
 95. **Instrumentación**: **cada venta y cada compra** registran **mercado del día**, **precio final**, **qué
     lo determinó** (`priceBasis`), **acabado** y **bracket de mercado**. Verificable: tras una venta y una
     compra existe el registro con los **cinco** campos, y permite **agregar por bracket** para responder
@@ -2104,11 +2114,21 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    por presentación: box 18 / etb 22 / bundle 25 / tin 30 / blister 35, fallback 25). **El ACABADO SIGUE
    EXISTIENDO como identidad de variante** —inventario, overrides, bounties y `availableFinishes` siguen
    siendo por acabado—: lo único que desaparece es que el acabado tenga **regla de precio propia**.
-8. **GUARDARRAÍL — la rareza sale del pricing y entra a la VALIDACIÓN** (LOCKED, §N.5): sustituye al
-   invariante `premium ⇒ pct`, que queda sin sentido. Si una carta de **rareza premium** aterriza en el
-   **piso**, **NO se publica**: cola de **precio pendiente** y escalado al dueño hasta que el siguiente
-   barrido corrija el dato. Sin él, un dato de mercado malo en una carta cara la vendería al piso — la
-   **pérdida irreversible**. Volumen medido: **≈3 de 333** cartas de un master set (no es alarma ruidosa).
+8. **GUARDARRAÍL — la rareza sale del pricing y entra a la VALIDACIÓN, en los DOS EJES** (LOCKED, §N.5):
+   sustituye al invariante `premium ⇒ pct`, que queda sin sentido. Si una carta de **rareza premium**
+   aterriza en el **piso** (venta) o en el **bin** (compra) **teniendo dato de mercado**, **no se publica** y
+   **no se cotiza**: cola de **precio pendiente** y escalado al dueño hasta que el siguiente barrido corrija
+   el dato. Sin él, un dato malo en una carta cara la vendería al piso —o la compraría al bin—, la **pérdida
+   irreversible**. **Los dos ejes quedaron confirmados por el humano** (ya no es supuesto). Volumen medido:
+   **≈3 de 333** cartas de un master set (no es alarma ruidosa).
+8b. **SIN DATO DE MERCADO ⇒ «PRECIO PENDIENTE»; el piso NO rescata** (LOCKED, §N.2 — money-safe): una
+   variante **sin precio de mercado no se publica y no se cotiza**, **sea cual sea su rareza**. **El piso no
+   es un precio de respaldo.** La razón que gobierna: el único filtro que quedaría sería el **guardarraíl**,
+   que **se apoya en la rareza** —el **proxy malo** que este cambio retira del pricing—; atraparía una Secret
+   Rare con dato corrupto pero **no** una **Common de $400 sin dato**, que se publicaría al piso de $25. Eso
+   sería **reabrir el hueco exacto que la feature cierra**. Ante la **ausencia** de dato el sistema **se
+   detiene**, no pone un número. *(No confundir: dato **ausente** ⇒ esta regla; dato **presente pero malo**
+   ⇒ guardarraíl, decisión 8.)*
 9. **BOUNTY revalidado contra la regla** (LOCKED, **decisión 4**, §N.6): un bounty **por debajo de la regla
    vigente deja de ser bounty** — no aplica en la cotización, no se publica en la vitrina y **genera alerta en
    el binder**. Se valida **al CREAR, al COTIZAR y al PUBLICAR** (hoy solo al crear). Efecto buscado: **el
@@ -2157,18 +2177,23 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 
 ## Preguntas abiertas — precio puro por valor de mercado (v2.0, P-48)
 > Las decisiones de v2.0 están **cerradas** y redactadas en §N; las 6 preguntas del borrador anterior quedaron
-> **respondidas** (arriba). Lo que sigue son **huecos nuevos** que aparecieron al ampliar el alcance y que el
-> arquitecto necesita resueltos para no inventar. Cada uno tiene un **supuesto por defecto** en §N, así que
-> **no bloquean el arranque**. La primera **mueve dinero**.
-1. **¿Qué pasa cuando NO hay dato de mercado? (la más importante — money)** El supuesto es que **gana el piso
-   / el bin** y la carta **sí se publica a $25** (y se cotiza a $1), que es el comportamiento vigente del
-   `fixed` de hoy — y es justo lo que **hace necesario el guardarraíl** (una premium sin dato quedaría en el
-   piso, y por eso se retiene). La alternativa es **no publicar nada sin mercado** (todo a «precio
-   pendiente»), más conservador pero deja de vender **bulk sin referencia**. En ningún caso se publica MX$0.
-   ¿Confirmas «sin mercado ⇒ piso», o prefieres «sin mercado ⇒ pendiente»?
-2. **¿El guardarraíl aplica también a la COMPRA?** Está definido sobre la **publicación (venta)**. Por
-   simetría money-safe se asume que una **premium que cae al bin de $1** también queda en **«precio
-   pendiente»** en vez de ofrecerse a $1 (pagar de menos = **carta perdida**). ¿Lo confirmas?
+> **respondidas** (arriba). Lo que sigue son los **huecos que aparecieron al ampliar el alcance**. Las **dos
+> primeras (las que movían dinero) YA ESTÁN RESUELTAS** por el humano y se conservan **con su respuesta** para
+> dejar rastro de por qué se decidió así; **las tres restantes siguen abiertas** y tienen supuesto por defecto
+> en §N, así que **no bloquean el arranque**.
+1. ~~**¿Qué pasa cuando NO hay dato de mercado?**~~ → **RESUELTA (money, LOCKED): sin dato de mercado ⇒
+   «PRECIO PENDIENTE»** — no se publica y no se cotiza, **el piso NO gana** (§N.2, decisión **8b**,
+   criterio **87b**). *(Rastro: el borrador proponía lo contrario —«gana el piso / el bin»— por analogía con
+   el `fixed` de hoy. **El humano lo cerró al revés**, y la razón es la que gobierna: el único filtro que
+   quedaría sería el **guardarraíl**, que **se apoya en la rareza**, justo el **proxy malo** que este cambio
+   retira del pricing. Atraparía una Secret Rare con dato corrupto pero **no** una **Common de $400 sin
+   dato**, que se publicaría al piso de $25 — **reabriendo el hueco exacto que la feature cierra**. El
+   argumento del borrador de «deja de vender bulk sin referencia» se descartó: vender barato lo que vale caro
+   es la **pérdida irreversible** de N.0.)*
+2. ~~**¿El guardarraíl aplica también a la COMPRA?**~~ → **RESUELTA: SÍ, aplica a los DOS EJES** (§N.5,
+   decisión **8**, criterio **88**). Premium en el **piso** no se publica; premium en el **bin** no se
+   cotiza. *(Rastro: estaba redactado solo sobre la publicación y se asumió la simetría; el humano la
+   **confirmó explícitamente**, así que dejó de ser supuesto.)*
 3. **¿Qué es un «bracket» para la instrumentación?** El dato pedido incluye **bracket de mercado**, pero los
    puntos de la curva son **editables** (se agregan, mueven y borran): si el bracket se define por los puntos
    vigentes, **la serie histórica deja de ser comparable** cada vez que muevas la curva. ¿Prefieres (a) una
