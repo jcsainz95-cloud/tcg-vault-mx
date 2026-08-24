@@ -7946,3 +7946,96 @@ muriera entre commit y escritura, la siguiente cotización o el siguiente `publi
 verdes**. Deuda nueva: **D9** (el reporte de brackets escanea sin cota — la validación de fechas del
 mismo hallazgo **sí** se cerró; el escaneo necesita `groupBy` en BD y el eje de compra tiene un
 COALESCE que `_sum` no expresa).
+
+---
+
+## P-48 · B-1 / B-2 / I-1 — lo que QA encontró contra el STACK VIVO (2026-08-24)
+
+QA corrió los E2E contra el stack real por primera vez: **80/80 en mocks se convirtió en 3/8**. La
+funcionalidad central de P-48 estaba rota, y dos de los tres bloqueantes son míos.
+
+### B-1 — «Valor de mercado» no aparecía en NINGUNA ficha de single
+
+`buildGroups` construía el `GroupedListingDTO` **omitiendo `priceBasis`** —requerido por contrato—
+teniéndolo a mano en `cheapest.dto` (la línea siguiente ya lo usaba para `referenceValue`).
+
+El front decide con `primary?.priceBasis === 'market'`. Con `undefined` esa comparación es **siempre
+falsa**, así que la regla de §N.7 quedó **invertida**: de *«se muestra si y solo si el mercado fijó el
+precio»* a *«no se muestra nunca»*, en el **100%** de las fichas. Es el mismo defecto de fondo que
+veníamos cazando —la visibilidad decidida por un dato que no llega— pero al revés que la fuga del
+pentester: aquélla **publicaba de más**, ésta **apagaba funcionalidad**.
+
+### B-2 — `SealedGroupDTO` omitía `priceBasis` **y** `currency`
+
+Mismo colapso en la ficha de sellado. El basis se deriva ahora **donde vive el `SealedSpreadResult`
+completo** (`loadPricedSealed`) y no en el builder del DTO: reconstruirlo desde `source` habría creado
+un segundo cuerpo de la misma regla. Con esto las dos fichas comparten **una sola** regla de
+visibilidad, que era exactamente el motivo de darle `priceBasis` al sellado.
+
+### La causa de fondo, que es la que me toca
+
+**Los dos DTOs se construían como objetos literales SIN TIPO**, así que omitir un campo requerido
+**no era un error de compilación**. `GroupedListingDTO` y `SealedGroupDTO` quedan **declarados** y los
+builders **anotados**: esa clase entera de fallo pasa a ser un error de `tsc`.
+
+Lo verifiqué revirtiendo la emisión con los tipos ya puestos: el spec nuevo **deja de compilar**, que
+es mejor que fallar en runtime.
+
+**Y el test que faltaba.** Tres capas de verificación y el campo faltaba en la que nadie miraba:
+- los fixtures del front **horneaban** `priceBasis: 'market'`;
+- mi `catalog.dto-closed.spec.ts` assertaba sobre el **`ListingDTO`** (por-pieza), que sí lo traía;
+- ningún test `@real` abría una ficha.
+
+`catalog.group-dto-shape.spec.ts` assertea el **conjunto exacto de claves de los DTOs de GRUPO**, y lo
+hace sobre la forma **serializada**: en memoria, un opcional ausente y un requerido que falta se ven
+igual (`undefined`), y esa diferencia es justo la que B-1 explotó. Es el complemento simétrico del
+otro spec: aquél vigila que **no salga de más** (fuga), éste que **no falte de menos** (rotura).
+
+### I-1 — falta de credencial: 401, no 422
+
+`jwt-auth.guard.ts` era el **único outlier del archivo**: la rama de token inválido (mismo método) y
+las guards hermanas ya devolvían 401. **No es cosmético**: el interceptor del cliente filtra por
+`status === 401` para disparar el refresh y limpiar la sesión, así que el 422 **esquivaba esa rama
+entera** y una sesión sin token acababa en un error genérico en vez de ir al login. Semánticamente,
+422 dice «tu payload no valida» — aquí no hay payload, falta la credencial. Nada lo cubría; ahora hay
+spec unitario **y** E2E sobre las cuatro rutas que QA probó a mano.
+
+### La condición de QA para levantar el rechazo — atendida del lado del backend
+
+> *«Mientras esos specs no aporten tests `@real`, P-48 seguirá sin una sola prueba que lo mire contra
+> un backend vivo — que es exactamente cómo B-1 llegó hasta aquí.»*
+
+Los `@real` del front son de frontend, pero **mi lado del contrato sí es mío**:
+`test/integration/pricing-visibility.e2e-spec.ts` (16 casos contra **Postgres real**) mira los DTOs de
+grupo **tal como salen por HTTP**, el 401 sin credencial, los `counts` de la cola con datos reales, y
+**S48-M1 en vivo**: cotizar en compra la premium-en-el-piso **no apaga** el aviso que abrió el eje de
+venta.
+
+**El seed ahora siembra `PendingPriceEntry`**, que no tenía ningún dato real (sus `counts` estaban
+verificados en forma pero no en número). Las dos razones sembradas son **estados verdaderos**, no filas
+decorativas: `nopref` no tiene `PriceReference` (`no_market`) y la carta nueva `floorpremium` es
+premium con mercado de MX$10 ⇒ su venta cae al piso (`premium_at_floor`) mientras su compra resuelve —
+el escenario exacto de S48-M1.
+
+> **Correr la suite de integración COMPLETA valió la pena:** la carta nueva rompió
+> `buylist-cards-order.e2e-spec.ts`, que tiene un **oráculo explícito** del orden natural del set. Se
+> actualizó el oráculo y se dejó escrito por qué sigue siendo explícito y **no derivado** de
+> `E2E_CARDS`: derivarlo haría que un fixture mal ordenado se auto-justificara y el test dejaría de
+> comprobar lo que vigila.
+
+### Menor — `GET /admin/pricing/card/:cardId` devolvía filas Prisma crudas
+
+`id`, `cardProductId`, `fxRate`, `fxBufferPct`, `createdAt` y la fecha en ISO completo. Es
+`super_admin` (sin fuga pública), pero es la misma doctrina de S48-M2: **un DTO es cerrado**. Se
+proyecta por lista blanca a la forma que **el frontend ya declaró como SUPUESTO** en `contract.ts` —
+inventar otra habría roto su pantalla sin ganar nada— con fecha corta como el resto del sistema.
+`isManualOverride` **sí** viaja aquí y no contradice S48-M2: allá se retiró de superficie **anónima**
+por redundante con `source`; ésta es `super_admin`, donde la procedencia **es** el dato consultado.
+
+> **⚠️ Para el arquitecto:** esa forma sigue **sin estar declarada** en el contrato. Backend y frontend
+> coinciden hoy por **acuerdo tácito** — que es exactamente la condición que produjo B-1. Vale la pena
+> declararla, aunque el endpoint sea admin.
+
+### Estado
+`tsc --noEmit` limpio · `lint` 0 errores (2 warnings preexistentes ajenos) · **unitarios: 179 suites /
+1980 tests** · **integración: 143/143 contra Postgres real** (eran 127; +16 nuevos).
