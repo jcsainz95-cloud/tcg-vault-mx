@@ -3376,3 +3376,36 @@ hasta cerrarlo y re-verificar (independiente de los veredictos de QA y techlead)
   durabilidad del override manual a lo largo del horizonte de acumulación (no solo el día siguiente).
 
 — SEGURIDAD (blue team / AppSec), 2026-08-24 (P-47 cierre: NO-CERRADAS, ALTA P47-2 abierta)
+
+---
+
+### P47-2 (ALTA) — Durabilidad cross-day del override manual en la capa de lectura — CERRADA (v1.47)
+
+- **Estado:** CERRADA ✅ · verificado por seguridad (blue team) sobre commit `330f0b4` (dictamen arquitecto §4.27f-3 / v1.47).
+- **Hallazgo original:** `getReference`/`getReferenceByCardProduct` leían candidatas con `take:32`
+  (`SAME_DAY_REF_CANDIDATES`). Tras ~32 barridos diarios `tcgcsv_singles` para la misma clave, el override
+  manual (con `capturedDate` fijo antiguo) caía fuera de la ventana y `pickBestRef` nunca lo veía → el feed
+  automático pisaba el precio humano en silencio (money-losing). Asimetría con los caminos batch (sin cap).
+- **Fix verificado (backend):**
+  - `pricing.service.ts` — `getReference` (L332-344) y `getReferenceByCardProduct` (L384-402) hacen DOS
+    lecturas en paralelo: bloque reciente CAPADO (`take:32`, solo tier automático) + lectura DIRIGIDA de
+    manuales (`MANUAL_REF_PREDICATE = OR[isManualOverride:true, source:'manual']`) **sin cota de fecha ni
+    `take`**, unidas antes de `pickBestRef`. El `AND` con `BASE_CARD_REF_WHERE` no excluye el manual
+    (`manualOverride()` escribe `cardProductId=null`).
+  - `isBetterRef` (L149-166) iza el tier manual ABSOLUTO por encima de `capturedDate` (durable cross-day).
+  - `admin.service.ts` `ownedItemRefs` (L307-325) — `findMany` sin `take` + reduce con `isBetterRef`
+    (antes «primera vista» por fecha).
+  - Consistencia confirmada en los cinco consumidores (getReference, getReferenceByCardProduct,
+    getReferencesBatch, getSeparateProductsByCard, ownedItemRefs).
+- **Sin nuevo vector:** `source`/`isManualOverride` siguen server-side; `OverrideDto` no los expone; endpoint
+  `@Roles(super_admin)` + auditado; el bulk escribe `isManualOverride:false`. Sin suplantación de «manual».
+- **Regresión:** entre automáticas gana la fresca; lecturas filtradas por `finish` (sin copia entre acabados);
+  sin $0.
+- **Tests (13/13 verde):** `pricing.manual-override-durable-cross-day.spec.ts` (escenario >32 días + control
+  negativo), `admin.owned-item-refs.manual-override.spec.ts`, `pricing.getreference-determinism.spec.ts`.
+- **Rol dueño:** backend (ya remediado). No requiere acción adicional.
+
+**Sin hallazgos críticos/altos abiertos en el eje de precios/dinero de esta rama.** Por parte de seguridad,
+queda HABILITADO (junto con QA + techlead) el flip `PRICE_PROVIDER=tcgcsv_singles`.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-24 (P-47 cierre: CERRADAS, flip habilitado por seguridad)
