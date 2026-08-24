@@ -34,7 +34,14 @@ export class JwtAuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const auth: string | undefined = req.headers['authorization'];
     if (!auth || !auth.startsWith('Bearer ')) {
-      throw BusinessException.validation('UNAUTHENTICATED', 'Missing bearer token');
+      // v2.1.7 (I-1) — **401, no 422.** Era el único outlier del archivo: la línea de abajo (token
+      // inválido) y las guards hermanas (`roles`, `money-out`, `email-verified`) ya usaban 401.
+      //
+      // El daño NO es cosmético: el interceptor del cliente filtra por `res.status === 401` para
+      // disparar el refresh y limpiar la sesión, así que un 422 **esquivaba esa rama entera** y una
+      // sesión sin token acababa en un error genérico en vez de ir al login. «Falta credencial» es
+      // exactamente lo que significa 401; 422 dice «tu payload no valida», que aquí es falso.
+      throw new BusinessException('UNAUTHENTICATED', 401, 'Missing bearer token');
     }
     const token = auth.slice('Bearer '.length);
     let payload: { sub: string; email?: string; role?: string; tv?: number };

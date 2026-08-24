@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
+import { Card, CardSet, Finish, GradingCompany, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
@@ -71,6 +71,42 @@ export function yearFromReleaseDate(releaseDate?: string | null): number | null 
 }
 
 type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
+
+/**
+ * `GroupedListingDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
+ *
+ * ### Por qué existe este tipo
+ * El DTO se construía como un objeto literal SIN tipo, así que **omitir un campo requerido no era un
+ * error de compilación**. Se emitió sin `priceBasis` durante todo P-48 y ninguna de las tres capas de
+ * verificación lo vio: los fixtures del front lo **horneaban**, el test de forma miraba el
+ * `ListingDTO` (por-pieza) y no el de GRUPO, y ningún test `@real` abría una ficha.
+ *
+ * El daño fue invertir la regla de visibilidad de §N.7: el front decide con
+ * `priceBasis === 'market'`, y con `undefined` esa comparación es **siempre falsa** ⇒ «Valor de
+ * mercado» no se mostraba NUNCA, ni cuando el mercado sí había fijado el precio. Declarar el tipo
+ * convierte esa clase entera de fallo en un error de `tsc`.
+ */
+export interface GroupedListingDTO {
+  representativeInventoryItemId: string;
+  card: ReturnType<typeof toCardDTO>;
+  productType: 'raw' | 'graded';
+  finish: Finish;
+  rawCondition?: RawCondition;
+  gradeKey: string;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  stockCount: number;
+  salePriceCents: number;
+  /**
+   * v2.0 (P-48) — el basis del REPRESENTANTE (la pieza más barata). Las piezas de un grupo comparten
+   * clave K ⇒ comparten curva y override de variante ⇒ comparten basis, SALVO que alguna traiga
+   * `listPriceCents` manual: ahí el representante es esa y el basis del grupo es `override`. El basis
+   * EXACTO por pieza vive en `units[]` (`ListingDTO.priceBasis`).
+   */
+  priceBasis: PriceBasis;
+  referenceValue: PriceInfo;
+  currency: 'MXN';
+}
 
 @Injectable()
 export class CatalogService {
@@ -496,7 +532,8 @@ export class CatalogService {
       )[0];
       const item = cheapest.item;
       const salePriceCents = cheapest.dto.salePriceCents!; // garantizado por fetchSellable (nunca null aquí)
-      const dto = {
+      // ANOTADO con el tipo del contrato: omitir un campo requerido ya no compila (v2.1.7).
+      const dto: GroupedListingDTO = {
         representativeInventoryItemId: item.id,
         card: cheapest.dto.card,
         productType: item.productType as 'raw' | 'graded',
@@ -508,6 +545,19 @@ export class CatalogService {
         gradeValue: item.gradeValue ?? undefined,
         stockCount: members.length,
         salePriceCents,
+        // v2.0 (P-48, contrato §DTOs `GroupedListingDTO`) — REQUERIDO, y se omitía.
+        //
+        // Es el basis del REPRESENTANTE (la pieza más barata). Todas las piezas de un grupo comparten
+        // clave K ⇒ comparten curva y override de variante ⇒ comparten basis, SALVO que alguna traiga
+        // `listPriceCents` manual: en ese caso el representante es esa y el basis del grupo es
+        // `override`. El basis EXACTO por pieza vive en `units[]` (`ListingDTO.priceBasis`).
+        //
+        // ⚠️ Omitirlo INVERTÍA la regla de visibilidad de §N.7. El front hace
+        // `primary?.priceBasis === 'market'` para decidir si pinta «Valor de mercado»; con
+        // `undefined` la comparación es SIEMPRE falsa, así que el bloque no se mostraba NUNCA —ni
+        // siquiera cuando el mercado sí fijó el precio— en el 100% de las fichas de single. El dato
+        // estaba a mano en `cheapest.dto` (la línea de abajo ya lo usaba para `referenceValue`).
+        priceBasis: cheapest.dto.priceBasis,
         // Ya viene proyectado por `toListingDTO` (mismo K ⇒ misma PriceReference), informativo.
         referenceValue: cheapest.dto.referenceValue,
         currency: 'MXN' as const,

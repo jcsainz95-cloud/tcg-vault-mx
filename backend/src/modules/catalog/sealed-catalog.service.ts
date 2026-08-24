@@ -5,7 +5,7 @@ import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
-import { SealedSpreadSource } from '../../common/money';
+import { PriceBasis, SealedSpreadSource, sealedPriceBasisOf } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CatalogService, toCardDTO } from './catalog.service';
 
@@ -15,11 +15,44 @@ const RANGES = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
 
 type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
 
+/**
+ * `SealedGroupDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
+ *
+ * El DTO se construía como un objeto literal sin tipo, así que **omitir un campo requerido no era un
+ * error de compilación**: se emitió sin `priceBasis` ni `currency` y ningún test lo vio (los mocks
+ * los horneaban). Declararlo convierte esa clase de fallo en un error de `tsc` — el candado más
+ * barato que existe para un contrato.
+ */
+export interface SealedGroupDTO {
+  representativeItemId: string;
+  card: ReturnType<typeof toCardDTO>;
+  productName: string;
+  imageUrl: string | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  availableCount: number;
+  fromPriceCents: number;
+  /** Detalle PROPIO del sellado: qué spread aplicó. Se conserva además de `priceBasis`. */
+  priceSource: SealedSpreadSource;
+  /**
+   * v2.0 (P-48) — DERIVADO de `priceSource`, para que el front tenga UNA sola regla de visibilidad
+   * para las dos fichas, sin ramas por tipo de producto (§N.7).
+   */
+  priceBasis: PriceBasis;
+  referenceValue: PriceInfo;
+  currency: 'MXN';
+}
+
 /** Una pieza sellada con su precio de venta YA resuelto (SEC-A1) y su referencia de mercado cruda. */
 interface PricedSealed {
   item: ItemWithCard;
   salePriceCents: number;
   source: SealedSpreadSource;
+  /**
+   * v2.0 (P-48) — se deriva AQUÍ, donde vive el `SealedSpreadResult` completo, y no en el builder del
+   * DTO: reconstruirlo desde `source` sería un segundo cuerpo de la misma regla.
+   */
+  priceBasis: PriceBasis;
   /** Referencia de mercado TCGCSV cruda (para el lote/ficha); undefined si no mapeado. */
   marketRef?: PriceInfo;
 }
@@ -72,7 +105,13 @@ export class SealedCatalogService {
       const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
       // Solo grupos con ≥1 pieza vendible (precio resuelto > 0). Money-safe: sin precio no se lista.
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) continue;
-      out.push({ item, salePriceCents: sale.salePriceCents, source: sale.source, marketRef: ref });
+      out.push({
+        item,
+        salePriceCents: sale.salePriceCents,
+        source: sale.source,
+        priceBasis: sealedPriceBasisOf(sale),
+        marketRef: ref,
+      });
     }
     return out;
   }
@@ -85,7 +124,7 @@ export class SealedCatalogService {
   }
 
   /** Construye el SealedGroupDTO de un grupo (miembros no vacíos). Representante = pieza más barata. */
-  private toGroupDTO(members: PricedSealed[]) {
+  private toGroupDTO(members: PricedSealed[]): SealedGroupDTO {
     const sorted = [...members].sort((a, b) => a.salePriceCents - b.salePriceCents);
     const cheapest = sorted[0];
     const item = cheapest.item;
@@ -107,8 +146,17 @@ export class SealedCatalogService {
       availableCount: members.length,
       fromPriceCents: cheapest.salePriceCents,
       priceSource: cheapest.source,
+      // v2.0 (P-48, contrato §DTOs) — REQUERIDO, y se omitía. El sellado NO cambia de matemática
+      // (conserva su spread por presentación, §K/§4.23a): solo DERIVA su basis de `priceSource`
+      //     override                        ⇒ 'override' ⇒ NO se muestra «Valor de mercado»
+      //     subtype_spread | global_spread  ⇒ 'market'   ⇒ SÍ se muestra
+      // Sin esto la ficha de sellado sufría el MISMO colapso que la de single: el front compara
+      // `priceBasis === 'market'` y con `undefined` la comparación es siempre falsa.
+      priceBasis: cheapest.priceBasis,
       // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ sin `source` (ver `toPublicPriceInfo`).
       referenceValue: toPublicPriceInfo(referenceValue),
+      // Requerido por el contrato y también se omitía.
+      currency: 'MXN',
     };
   }
 

@@ -191,6 +191,34 @@ export function toPublicPriceInfo(info: PriceInfo): PriceInfo {
   return out;
 }
 
+/**
+ * `GET /admin/pricing/card/:cardId` — historial por fecha/fuente (v2.1.7).
+ *
+ * Devolvía **filas Prisma crudas** (`id`, `cardProductId`, `fxRate`, `fxBufferPct`, `createdAt`) y la
+ * fecha en ISO completo. Es `super_admin`, así que no había fuga pública — pero es la misma doctrina
+ * de S48-M2: **un DTO es CERRADO**, y publicar internos de fila invita a que alguien dependa de ellos.
+ *
+ * La forma es la que el frontend ya declaró como **SUPUESTO** en `contract.ts` (el contrato dice
+ * «historial por fecha/fuente» sin fijar campos): alinearse con ella es lo correcto — inventar otra
+ * habría roto su pantalla sin ganar nada.
+ *
+ * `isManualOverride` **sí** viaja aquí, y no contradice S48-M2: allá se retiró de `PriceInfo` por ser
+ * REDUNDANTE con `source` en superficie **anónima**; ésta es `super_admin`, donde la procedencia es
+ * justamente el dato que se está consultando.
+ *
+ * ⚠️ Para el arquitecto: esta forma sigue **sin estar declarada** en el contrato. Backend y frontend
+ * coinciden hoy por acuerdo tácito, que es exactamente la condición que produjo B-1.
+ */
+export interface PriceHistoryEntryDTO {
+  /** `YYYY-MM-DD` — día de captura, no instante. */
+  capturedDate: string;
+  source: string;
+  gradeKey: string;
+  productType: ProductType;
+  priceMxnCents: number;
+  isManualOverride: boolean;
+}
+
 /** v1.29 (§4.27i) — precio por variante de un producto separado (CardProductDTO.prices). */
 export interface CardProductPriceRow {
   finish: Finish;
@@ -1423,11 +1451,30 @@ export class PricingService {
     return { data, counts };
   }
 
-  async priceHistory(cardId: string) {
-    return this.prisma.priceReference.findMany({
+  async priceHistory(cardId: string): Promise<PriceHistoryEntryDTO[]> {
+    const rows = await this.prisma.priceReference.findMany({
       where: { cardId },
       orderBy: { capturedDate: 'desc' },
+      // Lista blanca: se selecciona lo que el DTO expone, no la fila entera.
+      select: {
+        capturedDate: true,
+        source: true,
+        gradeKey: true,
+        productType: true,
+        priceMxnCents: true,
+        isManualOverride: true,
+      },
     });
+    return rows.map((r) => ({
+      // Fecha CORTA (`YYYY-MM-DD`), igual que `PriceInfo.capturedDate`: es un día de captura, no un
+      // instante, y el ISO completo insinuaba una precisión que el dato no tiene.
+      capturedDate: r.capturedDate.toISOString().slice(0, 10),
+      source: r.source,
+      gradeKey: r.gradeKey,
+      productType: r.productType,
+      priceMxnCents: r.priceMxnCents,
+      isManualOverride: r.isManualOverride,
+    }));
   }
 
   // v2.0 (P-48) — `computeSalePrice(ref)` (markup GLOBAL único `SALES_MARKUP_PCT`) RETIRADO: era la
