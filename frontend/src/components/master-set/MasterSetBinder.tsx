@@ -200,7 +200,7 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinder
             status: r.quote.status,
             quotedPriceCents: r.quote.quotedPriceCents,
             rarity: r.rarity,
-            appliedRule: r.appliedRule,
+            priceBasis: r.priceBasis,
             referencePrice: r.referencePrice,
           }
         : null;
@@ -1022,7 +1022,7 @@ function SeparateProductTile({
                   rarity: quoteOk.rarity ?? '',
                   finish: quoteOk.finish,
                   productId: quoteOk.productId ?? product.productId,
-                  appliedRule: quoteOk.appliedRule,
+                  priceBasis: quoteOk.priceBasis,
                   quote: quoteOk.quote,
                   referencePrice: quoteOk.referencePrice,
                   paymentNotice: 'PAY_AFTER_RECEIPT',

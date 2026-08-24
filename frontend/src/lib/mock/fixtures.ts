@@ -40,16 +40,9 @@ import type {
   KycInfoDTO,
   FxDTO,
   PendingPriceEntryDTO,
-  BuylistRule,
-  BuylistRaritiesResponse,
-  PriceRuleSet,
-  SalesRule,
-  SalesRaritiesResponse,
-  SalesPriceRuleSet,
-  TierId,
-  TieredRuleSet,
-  UpdateTiersRequest,
-  TierMapResponse,
+  PriceBasis,
+  PricingCurveDTO,
+  RarityHealthResponse,
   RemoteSetDTO,
   RefreshVariantsAllResponse,
   RefreshVariantsStatusResponse,
@@ -340,6 +333,7 @@ export const mockListings: ListingDTO[] = [
     // v1.2: gradeada identificada por empresa + grado + certNumber (verificable en la graduadora).
     certNumber: '82749163',
     referenceValue: { status: 'priced', referenceMxnCents: 4850000, source: 'pokemonpricetracker', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 5335000,
     sellable: true,
   },
@@ -350,6 +344,7 @@ export const mockListings: ListingDTO[] = [
     rawCondition: 'NM',
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 140800,
     sellable: true,
   },
@@ -363,6 +358,7 @@ export const mockListings: ListingDTO[] = [
     rawCondition: 'NM',
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 140800,
     sellable: true,
   },
@@ -374,6 +370,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     // Precio manual por pieza distinto (§4.26b): el grupo muestra el más barato «desde».
+    priceBasis: 'market' as const,
     salePriceCents: 145000,
     sellable: true,
   },
@@ -385,6 +382,7 @@ export const mockListings: ListingDTO[] = [
     // v1.6-finish: la misma carta en distinto acabado = listing separado (aquí Reverse Holo).
     finish: 'reverse_holo',
     referenceValue: { status: 'priced', referenceMxnCents: 9500, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 10450,
     sellable: true,
   },
@@ -395,6 +393,7 @@ export const mockListings: ListingDTO[] = [
     rawCondition: 'NM',
     finish: 'reverse_holo',
     referenceValue: { status: 'priced', referenceMxnCents: 22000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 24200,
     sellable: true,
   },
@@ -405,6 +404,7 @@ export const mockListings: ListingDTO[] = [
     rawCondition: 'NM',
     finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 180000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 198000,
     sellable: true,
   },
@@ -417,6 +417,7 @@ export const mockListings: ListingDTO[] = [
     gradeValue: '9.5',
     certNumber: '01245678',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, source: 'pokemonpricetracker', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 1045000,
     sellable: true,
   },
@@ -427,6 +428,7 @@ export const mockListings: ListingDTO[] = [
     rawCondition: 'NM',
     finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 210000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 231000,
     sellable: true,
   },
@@ -438,6 +440,7 @@ export const mockListings: ListingDTO[] = [
     sealedSubtype: 'box',
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, source: 'manual', capturedDate: '2026-08-13' },
+    priceBasis: 'market' as const,
     salePriceCents: 320000,
     sellable: true,
   },
@@ -448,6 +451,7 @@ export const mockListings: ListingDTO[] = [
     sealedSubtype: 'etb',
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 105000, source: 'manual', capturedDate: '2026-08-12' },
+    priceBasis: 'market' as const,
     salePriceCents: 105000,
     sellable: true,
   },
@@ -498,6 +502,8 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
       gradeValue: rep.gradeValue,
       stockCount: sorted.length,
       salePriceCents: rep.salePriceCents!,
+      // v2.0: el basis del grupo = el del REPRESENTANTE (la pieza más barata).
+      priceBasis: rep.priceBasis,
       referenceValue: rep.referenceValue,
       currency: 'MXN',
     });
@@ -778,9 +784,9 @@ export const mockSellRequests: SellRequestDTO[] = [
     ineRequired: false,
     createdAt: '2026-08-12T14:00:00Z',
     items: [
-      { id: 'sri-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 50000, itemStatus: 'verificacion' },
-      { id: 'sri-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 50, itemStatus: 'recibida' },
-      { id: 'sri-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', appliedRule: { mode: 'fixed', value: 150, source: 'rule' }, quotedPriceCents: 150, itemStatus: 'recibida' },
+      { id: 'sri-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 50000, itemStatus: 'verificacion' },
+      { id: 'sri-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 50, itemStatus: 'recibida' },
+      { id: 'sri-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 150, itemStatus: 'recibida' },
     ],
   },
   // WS-F F5: solicitud con un ítem AJUSTADO (approvedPriceCents < quotedPriceCents) para ejercer el
@@ -792,7 +798,7 @@ export const mockSellRequests: SellRequestDTO[] = [
     ineRequired: false,
     createdAt: '2026-08-13T14:00:00Z',
     items: [
-      { id: 'sri-adj-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 60000, approvedPriceCents: 45000, itemStatus: 'ajustada' },
+      { id: 'sri-adj-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 60000, approvedPriceCents: 45000, itemStatus: 'ajustada' },
     ],
   },
 ];
@@ -1991,13 +1997,9 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
       // Sellado sin precio manual y sin override → no se resuelve.
       salePriceCents = item.listPriceCents;
     } else {
-      const ref = mockReferenceForFinish(item.card.id, (item.finish ?? 'normal') as Finish);
-      const { rule } = resolveSalesRule(item.card.rarity || '');
-      if (rule.mode === 'fixed') {
-        salePriceCents = ref != null ? Math.max(ref, rule.value) : rule.value;
-      } else if (ref != null) {
-        salePriceCents = Math.round(ref * (1 + rule.value / 100));
-      }
+      // v2.0: el precio de venta lo da la CURVA (piso incluido), no una regla por rareza.
+      const ref = mockMarketReferenceForVariant(item.card.id, (item.finish ?? 'normal') as Finish);
+      salePriceCents = mockDemoQuote('sale', ref).cents ?? undefined;
     }
     if (salePriceCents == null) {
       failedLines += 1;
@@ -2038,7 +2040,7 @@ export const mockAdminBuylist: AdminBuylistDTO[] = [
     quotedTotalCents: 1200,
     createdAt: '2026-08-13T08:00:00Z',
     items: [
-      { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 1200, itemStatus: 'recibida' },
+      { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 1200, itemStatus: 'recibida' },
     ],
   },
   // G3: solicitud en etapa `aprobada` (pestaña "Por pagar") — muestra pago SPEI/reveal y
@@ -2051,7 +2053,7 @@ export const mockAdminBuylist: AdminBuylistDTO[] = [
     approvedTotalCents: 28000,
     createdAt: '2026-08-14T10:00:00Z',
     items: [
-      { id: 'sri-appr', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 30000, approvedPriceCents: 28000, itemStatus: 'aprobada' },
+      { id: 'sri-appr', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 30000, approvedPriceCents: 28000, itemStatus: 'aprobada' },
     ],
   },
 ];
@@ -2190,203 +2192,89 @@ export function resolveMockPending(id: string) {
   mockPendingPrices = mockPendingPrices.filter((p) => p.id !== id);
 }
 
-/**
- * Precio de buylist en DOS EJES (v1.29, §4.28d). `rarityRules` keyeadas por RAREZA CANÓNICA;
- * `finishRules` keyeadas por el enum `Finish` (acabado). Seed que preserva el negocio vigente:
- * Common/Uncommon fijo $0.50 (rareza), reverse_holo fijo $1.50 (acabado — antes la key sintética
- * "Reverse Holo"), resto = fallback 40%. `value` = centavos si mode=fixed; % [0,100] si mode=pct.
- * Sustituye el mapa plano `mockBuylistRules` que mezclaba rareza y acabado (parche INV-1 retirado).
- */
-export let mockBuylistRarityRules: Record<string, BuylistRule> = {
-  Common: { mode: 'fixed', value: 50 },
-  Uncommon: { mode: 'fixed', value: 50 },
+// ==== M2: LA CURVA DE PRECIO POR VALOR DE MERCADO (v2.0, P-48) ====
+// ⛔ RETIRADOS con el editor viejo: `PriceRuleSet` de compra/venta, sus rarezas y los 5 tiers +
+// mapa rareza→tier. Ya no hay reglas por rareza/tier/acabado ni modos fixed/pct.
+//
+// Semilla = los diales iniciales de PROJECT §N.2 verbatim (piso MX$25 · 1.60× hasta $25 → 1.15× en
+// $80 · bin MX$1 · 30 % hasta $25 → 40 % en $100 → 50 % en $500 · escalera $5/$10/$25).
+let mockPricingCurve: PricingCurveDTO = {
+  version: 1,
+  sale: {
+    floorCents: 2500,
+    points: [
+      { marketCents: 2500, multiplierBp: 16000 },
+      { marketCents: 8000, multiplierBp: 11500 },
+    ],
+    rounding: [
+      { uptoCents: 20000, stepCents: 500 },
+      { uptoCents: 50000, stepCents: 1000 },
+      { uptoCents: null, stepCents: 2500 },
+    ],
+  },
+  buy: {
+    binCents: 100,
+    points: [
+      { marketCents: 2500, pctBp: 3000 },
+      { marketCents: 10000, pctBp: 4000 },
+      { marketCents: 50000, pctBp: 5000 },
+    ],
+  },
 };
-export let mockBuylistFinishRules: Partial<Record<Finish, BuylistRule>> = {
-  reverse_holo: { mode: 'fixed', value: 150 },
-};
-export let mockBuylistFallbackPct = 40;
-export function getMockBuylistRuleSet(): PriceRuleSet {
-  return {
-    rarityRules: mockBuylistRarityRules,
-    finishRules: mockBuylistFinishRules,
-    fallbackPct: mockBuylistFallbackPct,
+
+export function getMockPricingCurve(): PricingCurveDTO {
+  return mockPricingCurve;
+}
+
+/** El PUT reemplaza el objeto COMPLETO (semántica de reemplazo, no de patch por índice). */
+export function setMockPricingCurve(next: PricingCurveDTO): PricingCurveDTO {
+  mockPricingCurve = {
+    version: 1,
+    sale: {
+      floorCents: next.sale.floorCents,
+      points: [...next.sale.points].sort((a, b) => a.marketCents - b.marketCents),
+      rounding: next.sale.rounding,
+    },
+    buy: {
+      binCents: next.buy.binCents,
+      points: [...next.buy.points].sort((a, b) => a.marketCents - b.marketCents),
+    },
   };
-}
-export function setMockBuylistRuleSet(
-  rarityRules: Record<string, BuylistRule>,
-  finishRules: Partial<Record<Finish, BuylistRule>>,
-  fallbackPct?: number,
-) {
-  mockBuylistRarityRules = rarityRules;
-  mockBuylistFinishRules = finishRules;
-  if (fallbackPct != null) mockBuylistFallbackPct = fallbackPct;
-}
-
-/** Resuelve la regla de una rareza (eje rareza): fila explícita o fallback (pct por defecto). */
-export function resolveBuylistRule(rarity: string): { rule: BuylistRule; source: 'rule' | 'fallback' } {
-  const explicit = mockBuylistRarityRules[rarity];
-  if (explicit) return { rule: explicit, source: 'rule' };
-  return { rule: { mode: 'pct', value: mockBuylistFallbackPct }, source: 'fallback' };
+  return mockPricingCurve;
 }
 
 /**
- * v1.29 (§4.28d): la resolución cruza DOS EJES con precedencia finish-rule > rarity-rule > fallback:
- * - Acabado ≠ normal con regla de acabado (finishRules[finish]) → gana esa regla.
- * - En cualquier otro caso → regla de RAREZA (o fallback).
- * El backend deriva esto server-side de (Card.rarityCanonical, finish) validado contra
- * availableFinishes (SEC-A1). Reemplaza el viejo mapeo por keys sintéticas "Holo"/"Reverse Holo".
+ * ⚠️ **MOCK DE DEMO — NO ES LA CURVA.** Solo se usa en el modo sin backend, para que las pantallas
+ * que muestran un precio sugerido no queden vacías. Aplica el **tramo plano inicial** de la curva
+ * (el valor del primer punto) más la constante del eje: **no interpola y no redondea**.
+ *
+ * La matemática normativa (ARCHITECTURE §4.36.1) vive en el **backend** y llega a la UI por
+ * `POST /admin/pricing/curve/preview`. Duplicarla aquí sería exactamente lo que P-48 existe para
+ * cerrar: calibrar contra un cálculo que no es el que cobra.
  */
-export function resolveBuylistRuleForFinish(
-  rarity: string,
-  finish: Finish,
-): { rule: BuylistRule; source: 'rule' | 'fallback' } {
-  if (finish !== 'normal') {
-    const fr = mockBuylistFinishRules[finish];
-    if (fr) return { rule: fr, source: 'rule' };
+export function mockDemoBuyQuote(refCents: number | null): { cents: number | null; basis: PriceBasis } {
+  return mockDemoQuote('buy', refCents);
+}
+
+function mockDemoQuote(
+  axis: 'sale' | 'buy',
+  refCents: number | null,
+): { cents: number | null; basis: PriceBasis } {
+  if (refCents == null || refCents <= 0) return { cents: null, basis: 'pending' };
+  if (axis === 'sale') {
+    const bp = mockPricingCurve.sale.points[0]?.multiplierBp ?? 10000;
+    const raw = Math.round((refCents * bp) / 10000);
+    const floor = mockPricingCurve.sale.floorCents;
+    return floor > raw ? { cents: floor, basis: 'floor' } : { cents: raw, basis: 'market' };
   }
-  return resolveBuylistRule(rarity);
+  const bp = mockPricingCurve.buy.points[0]?.pctBp ?? 0;
+  const raw = Math.round((refCents * bp) / 10000);
+  const bin = mockPricingCurve.buy.binCents;
+  return bin > raw ? { cents: bin, basis: 'floor' } : { cents: raw, basis: 'market' };
 }
 
-/**
- * v1.6-finish: referencia de mercado por carta+acabado. En el MVP mock usamos la misma
- * referencia base por carta para todos los acabados (el backend guarda una PriceReference
- * por acabado). `null` (Zapdos) sigue sin referencia → precio pendiente.
- */
-export function mockReferenceForFinish(cardId: string, _finish: Finish): number | undefined {
-  return mockReferenceByCardId[cardId] ?? undefined;
-}
-
-/**
- * Rarezas distintas del catálogo (mockCards) UNIDAS a las reglas, ordenadas por
- * cardCount desc (contrato GET /admin/pricing/rarities).
- */
-export function mockBuylistRarities(): BuylistRaritiesResponse {
-  const counts = new Map<string, number>();
-  for (const c of mockCards) {
-    if (!c.rarity) continue; // el sellado no lleva rareza
-    counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
-  }
-  // Incluir también rarezas del EJE RAREZA con regla explícita aunque no estén en el catálogo mock.
-  // (Las reglas de ACABADO ya NO se cuelan aquí: viven en su propio eje — parche INV-1 retirado.)
-  for (const r of Object.keys(mockBuylistRarityRules)) if (!counts.has(r)) counts.set(r, 0);
-  const rarities = [...counts.entries()]
-    .map(([rarity, cardCount]) => {
-      const { rule, source } = resolveBuylistRule(rarity);
-      // v1.29: `canonical` = key editable (mock no canonicaliza → = rarity); `premium` heurístico
-      // de mock (todo lo que no es Common/Uncommon); `mapped` siempre true (viene del catálogo).
-      const premium = !/^(common|uncommon)$/i.test(rarity);
-      return { canonical: rarity, raw: rarity, premium, mapped: true, rarity, cardCount, rule, source };
-    })
-    .sort((a, b) => b.cardCount - a.cardCount);
-  return { fallbackPct: mockBuylistFallbackPct, rarities };
-}
-
-/**
- * Precio de VENTA por RAREZA (v1.13-sales-pricing). Seed análogo al de buylist, pero con
- * semántica de VENTA: `fixed` = PISO en centavos MXN; `pct` = % de MARKUP ARRIBA de mercado
- * ([0,1000]) → salePrice = round(ref × (1 + value/100)). Reemplaza el markup global único
- * (salesMarkupPct, DEPRECADO). El fallback default de venta (15%) es menor que el de buylist.
- */
-export let mockSalesRarityRules: Record<string, SalesRule> = {
-  Common: { mode: 'fixed', value: 500 },
-  Uncommon: { mode: 'fixed', value: 1000 },
-};
-export let mockSalesFinishRules: Partial<Record<Finish, SalesRule>> = {
-  reverse_holo: { mode: 'fixed', value: 1000 },
-};
-export let mockSalesFallbackPct = 15;
-export function getMockSalesRuleSet(): SalesPriceRuleSet {
-  return {
-    rarityRules: mockSalesRarityRules,
-    finishRules: mockSalesFinishRules,
-    fallbackPct: mockSalesFallbackPct,
-  };
-}
-export function setMockSalesRuleSet(
-  rarityRules: Record<string, SalesRule>,
-  finishRules: Partial<Record<Finish, SalesRule>>,
-  fallbackPct?: number,
-) {
-  mockSalesRarityRules = rarityRules;
-  mockSalesFinishRules = finishRules;
-  if (fallbackPct != null) mockSalesFallbackPct = fallbackPct;
-}
-
-/** Resuelve la regla de venta de una rareza (eje rareza): fila explícita o fallback (pct por defecto). */
-export function resolveSalesRule(rarity: string): { rule: SalesRule; source: 'rule' | 'fallback' } {
-  const explicit = mockSalesRarityRules[rarity];
-  if (explicit) return { rule: explicit, source: 'rule' };
-  return { rule: { mode: 'pct', value: mockSalesFallbackPct }, source: 'fallback' };
-}
-
-/**
- * Rarezas CANÓNICAS del catálogo (mockCards) UNIDAS a las reglas de VENTA por rareza, ordenadas por
- * cardCount desc (contrato GET /admin/pricing/sales-rarities, v1.29). Clon del de buylist.
- */
-export function mockSalesRarities(): SalesRaritiesResponse {
-  const counts = new Map<string, number>();
-  for (const c of mockCards) {
-    if (!c.rarity) continue; // el sellado no lleva rareza
-    counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
-  }
-  // Incluir también rarezas del EJE RAREZA con regla explícita aunque no estén en el catálogo mock.
-  for (const r of Object.keys(mockSalesRarityRules)) if (!counts.has(r)) counts.set(r, 0);
-  const rarities = [...counts.entries()]
-    .map(([rarity, cardCount]) => {
-      const { rule, source } = resolveSalesRule(rarity);
-      const premium = !/^(common|uncommon)$/i.test(rarity);
-      return { canonical: rarity, raw: rarity, premium, mapped: true, rarity, cardCount, rule, source };
-    })
-    .sort((a, b) => b.cardCount - a.cardCount);
-  return { fallbackPct: mockSalesFallbackPct, rarities };
-}
-
-// ==== M2: PRICING POR TIERS (v1.37-pricing-tiers, contrato §M2, P-34) ====
-// Seed que reproduce el negocio vigente (defaults v1.9 LOCKED): 5 tiers T0–T4, compra/venta por
-// tier, eje acabado y fallbacks. Un mapa rareza canónica → tier COMPARTIDO por compra y venta. El
-// mock preserva el invariante money-safe (premium → tier de compra `pct`, nunca `fixed`).
-export const MOCK_TIER_META: { id: TierId; name: string; premium: boolean }[] = [
-  { id: 'T0', name: 'Bulk', premium: false },
-  { id: 'T1', name: 'Uncommon / Reverse', premium: false },
-  { id: 'T2', name: 'Rare / Holo', premium: false },
-  { id: 'T3', name: 'Premium / Chase', premium: true },
-  { id: 'T4', name: 'Ultra / Grail', premium: true },
-];
-let mockTierBuy: Record<TierId, BuylistRule> = {
-  T0: { mode: 'fixed', value: 50 },
-  T1: { mode: 'fixed', value: 150 },
-  T2: { mode: 'pct', value: 25 },
-  T3: { mode: 'pct', value: 40 },
-  T4: { mode: 'pct', value: 40 },
-};
-let mockTierSell: Record<TierId, SalesRule> = {
-  T0: { mode: 'fixed', value: 500 },
-  T1: { mode: 'fixed', value: 1000 },
-  T2: { mode: 'pct', value: 15 },
-  T3: { mode: 'pct', value: 15 },
-  T4: { mode: 'pct', value: 15 },
-};
-let mockTierFinishBuy: Partial<Record<Finish, BuylistRule>> = {
-  reverse_holo: { mode: 'fixed', value: 150 },
-};
-let mockTierFinishSell: Partial<Record<Finish, SalesRule>> = {
-  reverse_holo: { mode: 'fixed', value: 1500 },
-};
-const mockTierFallback = { buy: 40, sell: 15 };
-// Mapa rareza canónica → tier (Opción B, editable por el dueño). Premium (T3/T4) solo caen en tiers
-// de compra `pct`; Common/Uncommon/Reverse/Rare/Holo en tiers de compra fija/`pct` bajo.
-let mockTierMap: Record<string, TierId> = {
-  Common: 'T0',
-  Uncommon: 'T1',
-  'Reverse Holo': 'T1',
-  'Rare Holo': 'T2',
-  'Holo Rare': 'T2',
-  'Illustration Rare': 'T3',
-  'Special Illustration Rare': 'T3',
-  'Ultra Rare': 'T4',
-};
-// Rarezas premium del catálogo canónico (mock): chase/ultra. Common/Uncommon/Reverse/Rare/Holo NO
-// son premium (pueden caer en tiers de compra fija sin violar el invariante).
+// Rarezas premium del catálogo canónico (mock): son las que arman el guardarraíl §4.36.5 — una
+// premium que aterriza en el piso/bin NO se publica ni se cotiza. Ya no eligen precio.
 const MOCK_PREMIUM_RARITIES = new Set([
   'Illustration Rare',
   'Special Illustration Rare',
@@ -2401,69 +2289,30 @@ const MOCK_PREMIUM_RARITIES = new Set([
   'Black White Rare',
   'Mega Attack Rare',
 ]);
-function isMockPremiumRarity(rarity: string): boolean {
+export function isMockPremiumRarity(rarity: string): boolean {
   return MOCK_PREMIUM_RARITIES.has(rarity);
 }
-function tierRarityCounts(): Record<TierId, number> {
-  const counts: Record<TierId, number> = { T0: 0, T1: 0, T2: 0, T3: 0, T4: 0 };
-  for (const tid of Object.values(mockTierMap)) counts[tid] += 1;
-  return counts;
-}
-export function getMockTieredRuleSet(): TieredRuleSet {
-  const counts = tierRarityCounts();
-  return {
-    tiers: MOCK_TIER_META.map((m) => ({
-      id: m.id,
-      name: m.name,
-      premium: m.premium,
-      buy: mockTierBuy[m.id],
-      sell: mockTierSell[m.id],
-      rarityCount: counts[m.id],
-    })),
-    finishRules: { buy: mockTierFinishBuy, sell: mockTierFinishSell },
-    fallbackPct: { ...mockTierFallback },
-  };
-}
-export function setMockTieredRuleSet(input: UpdateTiersRequest): TieredRuleSet {
-  for (const t of input.tiers) {
-    mockTierBuy[t.id] = t.buy;
-    mockTierSell[t.id] = t.sell;
-  }
-  if (input.finishRules?.buy) mockTierFinishBuy = input.finishRules.buy;
-  if (input.finishRules?.sell) mockTierFinishSell = input.finishRules.sell;
-  if (input.fallbackPct?.buy != null) mockTierFallback.buy = input.fallbackPct.buy;
-  if (input.fallbackPct?.sell != null) mockTierFallback.sell = input.fallbackPct.sell;
-  return getMockTieredRuleSet();
-}
-export function getMockTierMap(): TierMapResponse {
+
+/**
+ * Salud del catálogo de rarezas (GET /admin/pricing/rarities, RE-PROPOSITADO en v2.0): qué rarezas
+ * existen, cuáles son premium y cuántas cartas hay de cada una. Sin `rule`, sin `tierId`.
+ */
+export function getMockRarityHealth(): RarityHealthResponse {
   const counts = new Map<string, number>();
   for (const c of mockCards) {
     if (!c.rarity) continue; // el sellado no lleva rareza
     counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
   }
-  // Incluir rarezas con asignación explícita aunque no estén en el catálogo mock.
-  for (const r of Object.keys(mockTierMap)) if (!counts.has(r)) counts.set(r, 0);
   const rarities = [...counts.entries()]
-    .map(([canonical, cardCount]) => {
-      const tierId = mockTierMap[canonical] ?? null;
-      return {
-        canonical,
-        premium: isMockPremiumRarity(canonical),
-        mapped: true,
-        cardCount,
-        tierId,
-        source: (tierId ? 'map' : 'fallback') as 'map' | 'fallback',
-      };
-    })
+    .map(([canonical, cardCount]) => ({
+      canonical,
+      raw: canonical,
+      premium: isMockPremiumRarity(canonical),
+      mapped: true,
+      cardCount,
+    }))
     .sort((a, b) => b.cardCount - a.cardCount);
-  return {
-    tiers: MOCK_TIER_META.map((m) => ({ id: m.id, name: m.name, premium: m.premium })),
-    rarities,
-  };
-}
-export function setMockTierMap(assignments: Record<string, TierId>): TierMapResponse {
-  for (const [k, v] of Object.entries(assignments)) mockTierMap[k] = v;
-  return getMockTierMap();
+  return { rarities };
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
@@ -2779,6 +2628,7 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     availableCount: 4,
     fromPriceCents: 320000,
     priceSource: 'subtype_spread',
+    priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 305000, source: 'tcgcsv', capturedDate: '2026-08-13' },
     currency: 'MXN',
   },
@@ -2792,6 +2642,7 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     availableCount: 7,
     fromPriceCents: 105000,
     priceSource: 'subtype_spread',
+    priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 98000, source: 'tcgcsv', capturedDate: '2026-08-12' },
     currency: 'MXN',
   },
@@ -2805,7 +2656,9 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     sealedCondition: 'minor_box_damage',
     availableCount: 2,
     fromPriceCents: 298000,
+    // Se vende por OVERRIDE manual ⇒ basis "override" ⇒ la ficha NO muestra «Valor de mercado».
     priceSource: 'override',
+    priceBasis: 'override',
     referenceValue: { status: 'pending' },
     currency: 'MXN',
   },
@@ -2821,6 +2674,8 @@ function sealedListingsForGroup(group: SealedGroupDTO): ListingDTO[] {
     sealedCondition: group.sealedCondition,
     finish: 'normal' as const,
     referenceValue: group.referenceValue,
+    // v2.0: el sellado DERIVA su basis de `priceSource` (override⇒override; spread⇒market).
+    priceBasis: group.priceBasis,
     // Precios ascendentes desde fromPriceCents (mock de dispersión de precio dentro del grupo).
     salePriceCents: group.fromPriceCents + i * 500,
     sellable: true,
@@ -2953,30 +2808,26 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
   ],
 ]);
 
-/** Sugerido de COMPRA por regla (buylist rules sobre la referencia del acabado). */
-function suggestedBuyFor(
-  cardId: string,
-  finish: Finish,
-): { cents: number | null; source: 'rule' | 'fallback' } {
-  const card = mockCards.find((c) => c.id === cardId);
-  if (!card) return { cents: null, source: 'fallback' };
-  const { rule, source } = resolveBuylistRuleForFinish(card.rarity || '', finish);
-  if (rule.mode === 'fixed') return { cents: rule.value, source };
+/** Sugerido de COMPRA por la CURVA (v2.0) sobre la referencia del acabado. Demo: ver mockDemoQuote. */
+function suggestedBuyFor(cardId: string, finish: Finish): { cents: number | null; basis: PriceBasis } {
   const ref = mockMarketReferenceForVariant(cardId, finish);
-  return { cents: ref != null ? Math.round((ref * rule.value) / 100) : null, source };
+  return mockDemoQuote('buy', ref);
 }
 
-/** Sugerido de VENTA por regla (sales rules: fixed=piso; pct=markup sobre mercado). */
-function suggestedSellFor(
-  cardId: string,
-  finish: Finish,
-): { cents: number | null; source: 'rule' | 'fallback' } {
-  const card = mockCards.find((c) => c.id === cardId);
-  if (!card) return { cents: null, source: 'fallback' };
-  const { rule, source } = resolveSalesRule(card.rarity || '');
+/** Sugerido de VENTA por la CURVA (v2.0): el `max` con el piso es el piso de verdad. */
+function suggestedSellFor(cardId: string, finish: Finish): { cents: number | null; basis: PriceBasis } {
   const ref = mockMarketReferenceForVariant(cardId, finish);
-  if (rule.mode === 'fixed') return { cents: ref != null ? Math.max(ref, rule.value) : rule.value, source };
-  return { cents: ref != null ? Math.round(ref * (1 + rule.value / 100)) : null, source };
+  return mockDemoQuote('sale', ref);
+}
+
+/**
+ * Guardarraíl §4.36.5 (mock): rareza premium que aterrizó en el piso/bin. Es lo que hace VISIBLE
+ * el guardarraíl en el binder (`·!`) y lo que llena la cola con `reason="premium_at_floor"`.
+ */
+function premiumAtFloorFor(cardId: string, basis: PriceBasis): boolean {
+  if (basis !== 'floor') return false;
+  const card = mockCards.find((c) => c.id === cardId);
+  return card?.rarity ? isMockPremiumRarity(card.rarity) : false;
 }
 
 /**
@@ -2994,13 +2845,24 @@ export function mockVariantPricing(
   const buySuggested = suggestedBuyFor(cardId, finish);
   const sellSuggested = suggestedSellFor(cardId, finish);
 
+  // v2.0 (§N.6): un bounty por debajo (o IGUAL) de la tarifa vigente DEJA DE SER BOUNTY — no gana
+  // la precedencia #1, no se publica en la vitrina y el binder lo avisa. Si la curva no resuelve
+  // (`curveQuoteCents == null`), el bounty explícito SIGUE siendo efectivo.
+  const curveQuoteCents = buySuggested.cents;
+  const bountyEffective =
+    row?.bountyEnabled === true &&
+    row.bountyPriceCents != null &&
+    row.bountyPriceCents > 0 &&
+    (curveQuoteCents == null || row.bountyPriceCents > curveQuoteCents);
+
   const buy: import('@/types/contract').VariantPricingDTO['buy'] = (() => {
-    if (row?.bountyEnabled && row.bountyPriceCents != null && row.bountyPriceCents > 0) {
+    if (bountyEffective && row?.bountyPriceCents != null) {
       return {
         suggestedCents: buySuggested.cents,
         overrideCents: row.buyOverrideCents,
         effectiveCents: row.bountyPriceCents,
         source: 'bounty' as const,
+        premiumAtFloor: false,
       };
     }
     if (row?.buyOverrideCents != null) {
@@ -3009,13 +2871,17 @@ export function mockVariantPricing(
         overrideCents: row.buyOverrideCents,
         effectiveCents: row.buyOverrideCents,
         source: 'override' as const,
+        premiumAtFloor: false,
       };
     }
+    const premiumAtFloor = premiumAtFloorFor(cardId, buySuggested.basis);
     return {
       suggestedCents: buySuggested.cents,
       overrideCents: null,
-      effectiveCents: buySuggested.cents,
-      source: buySuggested.cents != null ? buySuggested.source : ('pending' as const),
+      // Guardarraíl: una premium en el bin NO se cotiza (queda en precio pendiente).
+      effectiveCents: premiumAtFloor ? null : buySuggested.cents,
+      source: premiumAtFloor ? ('pending' as const) : buySuggested.basis,
+      premiumAtFloor,
     };
   })();
 
@@ -3026,13 +2892,16 @@ export function mockVariantPricing(
         overrideCents: row.sellOverrideCents,
         effectiveCents: row.sellOverrideCents,
         source: 'override' as const,
+        premiumAtFloor: false,
       };
     }
+    const premiumAtFloor = premiumAtFloorFor(cardId, sellSuggested.basis);
     return {
       suggestedCents: sellSuggested.cents,
       overrideCents: null,
-      effectiveCents: sellSuggested.cents,
-      source: sellSuggested.cents != null ? sellSuggested.source : ('pending' as const),
+      effectiveCents: premiumAtFloor ? null : sellSuggested.cents,
+      source: premiumAtFloor ? ('pending' as const) : sellSuggested.basis,
+      premiumAtFloor,
     };
   })();
 
@@ -3047,6 +2916,8 @@ export function mockVariantPricing(
             targetQty: row.bountyTargetQty,
             acquiredQty: row.bountyAcquiredQty,
             completedAt: row.bountyCompletedAt,
+            effective: bountyEffective,
+            curveQuoteCents,
           },
         }
       : {}),
