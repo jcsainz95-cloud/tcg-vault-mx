@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { computeCartBreakdown } from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
@@ -53,6 +54,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
     };
     // Solo se toca si un ítem VÁLIDO no trae `listPriceCents` (ruta PRICE_PENDING).
     const pricing: any = {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn(() => 'NM'),
       getReference: jest.fn(async () => ({ status: 'pending', referenceMxnCents: null })),
       computeSalePriceForItem: jest.fn(async () => ({ salePriceCents: null, status: 'pending' })),

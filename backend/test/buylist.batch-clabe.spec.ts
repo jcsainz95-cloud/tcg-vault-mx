@@ -9,6 +9,7 @@ import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BuylistRule } from '../src/common/money';
 import { BatchQuoteDto, BUYLIST_QUOTE_BATCH_MAX } from '../src/modules/buylist/dto/buylist.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * WS-C (v1.15-buylist-batch-clabe) — cobertura de backend:
@@ -51,9 +52,12 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
 
   function pricingCotiza(): PricingService {
     return {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      // Common/normal usa regla FIJA, no depende de la referencia.
-      getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
+      // v2.0 (P-48): el monto sale de la CURVA sobre el mercado. Sin referencia la línea quedaría
+      // `precio_pendiente` (el BIN no gana) y dispararía el gate de INE de Fase 0.3, que NO es lo que
+      // estos casos verifican (CLABE/PII). Se le da mercado para que la línea COTICE.
+      getReference: jest.fn().mockResolvedValue({ status: 'priced', referenceMxnCents: 12500 }),
       escalatePending: jest.fn().mockResolvedValue(undefined),
       // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
       getVariantOverridesBatch: jest.fn(async () => new Map()),
@@ -198,6 +202,7 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       card: { findUnique: jest.fn(async ({ where }: any) => CARDS[where.id] ?? null) },
     };
     const pricing = {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async (cardId: string) =>
         cardId === 'c-ok'
@@ -231,14 +236,15 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
 
     expect(results).toHaveLength(5);
 
-    // index 0 — ok, Common normal → fixed $0.50
+    // index 0 — ok, mercado $125 → CURVA de compra (40.63 % interpolado) = $50.79. v2.0: ni la
+    // rareza ni el acabado entran al monto (criterio 84); `priceBasis` reemplaza a `appliedRule`.
     expect(results[0]).toMatchObject({
       index: 0,
       cardId: 'c-ok',
       ok: true,
       finish: 'normal',
-      appliedRule: { mode: 'fixed', value: 50, source: 'rule' },
-      quote: { status: 'cotizada', quotedPriceCents: 50, currency: 'MXN' },
+      priceBasis: 'market',
+      quote: { status: 'cotizada', quotedPriceCents: 5079, currency: 'MXN' },
     });
 
     // index 1 — carta inexistente → NOT_FOUND por-ítem
@@ -257,24 +263,24 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       error: { code: 'FINISH_NOT_AVAILABLE' },
     });
 
-    // index 3 — ok pero precio_pendiente (Illustration Rare premium, holofoil sin referencia)
+    // index 3 — ok pero precio_pendiente: SIN dato de mercado el BIN no gana (§4.36.0), jamás MX$0.
     expect(results[3]).toMatchObject({
       index: 3,
       cardId: 'c-pending',
       ok: true,
-      appliedRule: { mode: 'pct', value: 40, source: 'fallback' },
+      priceBasis: 'pending',
       quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' },
       referencePrice: { status: 'pending' },
     });
 
-    // index 4 — ok, Reverse Holo → fixed $1.50
+    // index 4 — ok, MISMO mercado que index 0 pero otro acabado ⇒ MISMO monto (criterio 83).
     expect(results[4]).toMatchObject({
       index: 4,
       cardId: 'c-ok',
       ok: true,
       finish: 'reverse_holo',
-      appliedRule: { mode: 'fixed', value: 150, source: 'rule' },
-      quote: { status: 'cotizada', quotedPriceCents: 150, currency: 'MXN' },
+      priceBasis: 'market',
+      quote: { status: 'cotizada', quotedPriceCents: 5079, currency: 'MXN' },
     });
 
     // READ-ONLY: aunque hubo un precio_pendiente, NO escala a la cola del dueño (endpoint anónimo).
@@ -322,10 +328,11 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
         expect(payload).toEqual(perCard[i]);
       }
     });
-    // Sanidad de montos: normal $0.50, reverse $1.50, holofoil 40% de 12500 = $50.00.
-    expect((results[0] as any).quote.quotedPriceCents).toBe(50);
-    expect((results[1] as any).quote.quotedPriceCents).toBe(150);
-    expect((results[2] as any).quote.quotedPriceCents).toBe(5000);
+    // Sanidad de montos: v2.0 los TRES acabados cotizan IDÉNTICO ($125 × 40.63 % = $50.79), porque el
+    // acabado dejó de tener regla propia y solo elige de qué variante se lee el mercado (criterio 83).
+    expect((results[0] as any).quote.quotedPriceCents).toBe(5079);
+    expect((results[1] as any).quote.quotedPriceCents).toBe(5079);
+    expect((results[2] as any).quote.quotedPriceCents).toBe(5079);
   });
 });
 

@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * PII en buylist:
@@ -20,8 +21,11 @@ const pii = new PiiCryptoService(new ConfigService({}));
 
 function pricingPending(): PricingService {
   return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-    getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
+    // v2.0 (P-48): con la curva, SIN mercado la línea queda `precio_pendiente` (el bin no gana) y eso
+    // dispara el gate de INE de Fase 0.3 — ruido ajeno a lo que este spec verifica (CLABE/PII).
+    getReference: jest.fn().mockResolvedValue({ status: 'priced', referenceMxnCents: 12500 }),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
     getVariantOverridesBatch: jest.fn(async () => new Map()),

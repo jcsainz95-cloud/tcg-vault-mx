@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Card, Finish, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { MAX_CENTS, quoteAcquisitionForFinish } from '../../common/money';
+import { MAX_CENTS, quoteAcquisitionFromCurve } from '../../common/money';
 import { AuditService } from '../audit/audit.service';
 import { PricingService } from './pricing.service';
 import { VariantPricingDTO, composeVariantPricing } from './variant-pricing';
@@ -298,19 +298,22 @@ export class VariantControlsService {
         'bounty.priceCents (> 0) is required when enabling a bounty',
       );
     }
-    // Gate contra la regla del momento: si el sugerido de compra RESUELVE y el bounty queda por
-    // debajo, no es bounty (BOUNTY_BELOW_RULE). Sugerido pending ⇒ se acepta (precio explícito:
-    // es exactamente el caso donde más se necesita).
-    const { rules, fallbackPct } = await this.pricing.loadBuylistRules();
+    // v2.0 (P-48, §4.36.6 / criterio 91) — GATE «CREAR/EDITAR» del bounty, contra la CURVA vigente.
+    // ENDURECIDO de `<` a `<=`: se rechaza también el EMPATE. Sin este ajuste un bounty EXACTAMENTE
+    // igual a la curva pasaría el alta y sería INVISIBLE en ejecución (el predicado de runtime exige
+    // estrictamente mayor), una incoherencia entre alta y runtime. Reversible en dato (subir $0.01).
+    // Curva `pending` (sin mercado) ⇒ se ACEPTA: el bounty es SIEMPRE precio explícito y es justo el
+    // caso donde más se necesita.
+    const curve = await this.pricing.loadPricingCurve();
     const ref = await this.pricing.getReference(card.id, productType, 'raw:NM', finish);
     const referenceMxnCents =
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-    const suggested = quoteAcquisitionForFinish(card.rarity, finish, referenceMxnCents, rules, fallbackPct);
-    if (suggested.quotedPriceCents != null && next.bountyPriceCents < suggested.quotedPriceCents) {
+    const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
+    if (curveQuoteCents != null && next.bountyPriceCents <= curveQuoteCents) {
       throw BusinessException.validation(
         'BOUNTY_BELOW_RULE',
-        'bounty.priceCents must be >= the suggested buylist price for this variant',
-        { suggestedCents: suggested.quotedPriceCents, priceCents: next.bountyPriceCents },
+        'bounty.priceCents must be STRICTLY GREATER than the current curve quote for this variant',
+        { curveQuoteCents, priceCents: next.bountyPriceCents },
       );
     }
     if (!next.bountyEnabled) next.bountyCompletedAt = null; // re-armado: ya no está "completado"
@@ -325,11 +328,11 @@ export class VariantControlsService {
     finish: Finish,
     row: VariantPriceOverride | null,
   ): Promise<VariantPricingDTO> {
-    const buy = await this.pricing.loadBuylistRules();
-    const sell = await this.pricing.loadSalesRules();
+    // v2.0 (P-48, §4.36.2): UN solo lector de la curva para los dos ejes.
+    const curve = await this.pricing.loadPricingCurve();
     const ref = await this.pricing.getReference(card.id, productType, gradeKey, finish);
     const referenceMxnCents =
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-    return composeVariantPricing(card.rarity, finish, referenceMxnCents, { buy, sell }, row);
+    return composeVariantPricing(referenceMxnCents, curve, row);
   }
 }

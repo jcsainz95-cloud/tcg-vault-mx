@@ -1,6 +1,7 @@
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * MENOR (QA) — los filtros enum del endpoint PÚBLICO GET /catalog/cards se validan contra la
@@ -11,6 +12,7 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
   function build() {
     const prisma: any = { inventoryItem: { findMany: jest.fn(async () => []) } };
     const pricing = {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
       computeSalePriceForItem: jest.fn(async (_i: any, r: number | null) => ({

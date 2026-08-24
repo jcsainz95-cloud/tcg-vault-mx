@@ -9,6 +9,7 @@ import { VaultController } from '../src/modules/vault/vault.controller';
 import { AdminVaultsController } from '../src/modules/vault/admin-vaults.controller';
 import { InventoryController } from '../src/modules/inventory/inventory.controller';
 import { ROLES_KEY } from '../src/common/decorators/roles.decorator';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.20-master-set-everywhere (§4.20a/b/d) — contrato ÚNICO por scope + completitud por VARIANTE:
@@ -34,9 +35,8 @@ function buildPrisma(over: any = {}) {
 
 function buildPricing(over: any = {}) {
   return {
-    loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
-    loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).

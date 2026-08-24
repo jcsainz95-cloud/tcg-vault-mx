@@ -5,22 +5,25 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { ConfigService } from '@nestjs/config';
-import { BuylistRule } from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
- * v1.3.1 — AcquisitionPricer por RAREZA OFICIAL (ARCHITECTURE §4.2). El cotizador resuelve el
- * monto por la regla de la rareza real de la carta (`Card.rarity`):
- *  - una rareza SIN regla explícita cae al fallback % (default 40%) → reproduce el ex_plus previo;
- *  - las rarezas modernas (Illustration Rare, Special Illustration Rare, etc.) cotizan como % si
- *    hay referencia, y quedan `precio_pendiente` sólo si falta la referencia;
- *  - una regla `fixed` cotiza siempre (no depende de la referencia).
+ * v1.3.1 (AcquisitionPricer por RAREZA) · ⛔ SUPERSEDED por v2.0 (P-48, ARCHITECTURE §4.36).
+ *
+ * Este spec nació para blindar el bug de dinero de Fase 0.1: una rareza PREMIUM en holofoil que caía
+ * al bin fijo barato de bulk («Holo» $1.50) porque el ACABADO seleccionaba la regla. **v2.0 elimina la
+ * clase entera de bugs**: no hay reglas que resolver, no hay ejes que se pisen y no hay rarezas sin
+ * mapear — el monto sale SOLO de la curva sobre el valor de mercado (criterio 84), y ni `rarity` ni
+ * `finish` están en la firma de la función de dinero.
+ *
+ * Se conserva el spec (no se borra) porque su PREGUNTA sigue siendo la correcta: «¿puede una chase
+ * cotizar a precio de bulk?». La respuesta ahora es estructural: **no, porque el precio ni siquiera
+ * mira la rareza**. Los casos se re-expresan contra ese invariante.
  */
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
 function svcWith(
-  rules: Record<string, BuylistRule>,
-  fallbackPct: number,
   referenceMxnCents: number | null,
   cardRarity: string | null = 'Illustration Rare',
 ): { svc: BuylistService; escalatePending: jest.Mock } {
@@ -36,6 +39,7 @@ function svcWith(
   };
   const escalatePending = jest.fn().mockResolvedValue(undefined);
   const pricing = {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn().mockResolvedValue(
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
@@ -46,98 +50,70 @@ function svcWith(
     getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
   const settings = {
-    getRaw: jest.fn().mockResolvedValue(rules),
-    getNumber: jest.fn().mockResolvedValue(fallbackPct),
+    getRaw: jest.fn(),
+    getNumber: jest.fn().mockResolvedValue(0),
   } as unknown as SettingsService;
   const svc = new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
   return { svc, escalatePending };
 }
 
-describe('BuylistService.publicQuote — rareza moderna via fallback %', () => {
-  it('rareza moderna SIN regla explícita, CON referencia → fallback 40% (appliedRule pct, source fallback)', async () => {
-    const { svc } = svcWith({ Common: { mode: 'fixed', value: 50 } }, 40, 12500, 'Illustration Rare');
+describe('BuylistService.publicQuote — el monto sale de la CURVA, no de la rareza (v2.0, criterio 84)', () => {
+  it('rareza moderna CON referencia → cotiza por la curva de compra', async () => {
+    const { svc } = svcWith(12500, 'Illustration Rare');
     const q = await svc.publicQuote('c1', 'raw', 'NM');
-    expect(q.rarity).toBe('Illustration Rare');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40, source: 'fallback' });
+    expect(q.rarity).toBe('Illustration Rare'); // dato de display; NO entra al monto
+    expect(q.priceBasis).toBe('market');
     expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(5000); // 40% de 12500
+    expect(q.quote.quotedPriceCents).toBe(5079); // $125 × 40.63 % interpolado
   });
 
-  it('rareza moderna SIN referencia → precio_pendiente (lado adquisición, nunca al comprador)', async () => {
-    const { svc } = svcWith({ Common: { mode: 'fixed', value: 50 } }, 40, null, 'Special Illustration Rare');
+  it('SIN referencia → precio_pendiente: el BIN no gana (decisión LOCKED §4.36.0)', async () => {
+    const { svc } = svcWith(null, 'Special Illustration Rare');
     const q = await svc.publicQuote('c1', 'raw', 'NM');
-    expect(q.appliedRule.source).toBe('fallback');
+    expect(q.priceBasis).toBe('pending');
     expect(q.quote.status).toBe('precio_pendiente');
     expect(q.quote.quotedPriceCents).toBeNull();
   });
 
-  it('regla fixed (Common) cotiza SIN necesidad de referencia', async () => {
-    const { svc } = svcWith({ Common: { mode: 'fixed', value: 50 } }, 40, null, 'Common');
+  it('v2.0: una Common SIN referencia YA NO cotiza al bin de bulk — queda pendiente', async () => {
+    // Antes: `fixed $0.50` cotizaba sin mercado. Ahora el precio jamás se inventa sin dato (§N.1).
+    const { svc } = svcWith(null, 'Common');
     const q = await svc.publicQuote('c1', 'raw', 'NM');
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
-    expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(50);
-  });
-
-  it('regla pct explícita distinta del fallback (granularidad por rareza)', async () => {
-    const { svc } = svcWith({ 'Secret Rare': { mode: 'pct', value: 35 } }, 40, 20000, 'Secret Rare');
-    const q = await svc.publicQuote('c1', 'raw', 'NM');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 35, source: 'rule' });
-    expect(q.quote.quotedPriceCents).toBe(7000); // 35% de 20000
+    expect(q.quote.status).toBe('precio_pendiente');
+    expect(q.quote.quotedPriceCents).toBeNull();
   });
 });
 
 /**
- * Fase 0.1 — bug de dinero: raras VALIOSAS en holofoil NO deben cotizar al bin fijo barato de bulk.
- * Antes, una rareza premium sin "holo" en el string (Illustration/Ultra/Double Rare, etc.) resolvía
- * a `['Holo']` y, con una regla "Holo" fija barata configurada, una chase de miles de pesos cotizaba
- * a ese precio de bulk. Ahora la rareza real va primero y las premium NUNCA incluyen "Holo".
+ * Fase 0.1 (bug de dinero) — RESUELTO POR CONSTRUCCIÓN en v2.0. La trampa era una regla «Holo» fija
+ * barata que el eje de ACABADO seleccionaba para una chase. Ya no existe: el acabado solo elige de qué
+ * variante se lee el mercado, y con el mismo mercado todos los acabados cotizan idéntico.
  */
-describe('BuylistService.publicQuote — Fase 0.1: premium en holofoil no cae a bulk fijo "Holo"', () => {
-  // Regla "Holo" fija BARATA de bulk (MX$1.50) — la trampa que las premium deben esquivar.
-  const cheapHolo: Record<string, BuylistRule> = { Holo: { mode: 'fixed', value: 150 } };
-
-  it('Illustration Rare + holofoil → NO usa "Holo" fija barata; cae al fallback pct sobre market holofoil', async () => {
-    const { svc } = svcWith(cheapHolo, 40, 500000, 'Illustration Rare');
+describe('Fase 0.1 — una chase ya NO puede cotizar a precio de bulk (estructural, no por gate)', () => {
+  it('Illustration Rare en holofoil con mercado $5,000 cotiza por la curva, no a $1.50', async () => {
+    const { svc } = svcWith(500000, 'Illustration Rare');
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40, source: 'fallback' });
     expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(200000); // 40% de 5000.00, NO los 1.50 de "Holo"
+    expect(q.quote.quotedPriceCents).toBe(250000); // 50 % (tramo plano final, mercado > $500)
   });
 
-  it('Ultra Rare + holofoil → usa su regla explícita si existe (nunca la fija barata "Holo")', async () => {
-    const { svc } = svcWith(
-      { ...cheapHolo, 'Ultra Rare': { mode: 'pct', value: 50 } },
-      40,
-      300000,
-      'Ultra Rare',
+  it('CUATRO rarezas distintas con el MISMO mercado cotizan EXACTAMENTE lo mismo (criterio 83)', async () => {
+    const rarities = ['Common', 'Rare Holo', 'Double Rare', 'Secret Rare'];
+    const quotes = await Promise.all(
+      rarities.map((r) => svcWith(500000, r).svc.publicQuote('c1', 'raw', 'NM', 'holofoil')),
     );
-    const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 50, source: 'rule' });
-    expect(q.quote.quotedPriceCents).toBe(150000); // 50% de 3000.00
+    const amounts = quotes.map((q) => q.quote.quotedPriceCents);
+    expect(new Set(amounts).size).toBe(1);
+    expect(amounts[0]).toBe(250000);
   });
 
-  it('Double Rare (= ex) + holofoil SIN referencia → precio_pendiente (fallback pct), NO la fija barata', async () => {
-    const { svc } = svcWith(cheapHolo, 40, null, 'Double Rare');
-    const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40, source: 'fallback' });
-    expect(q.quote.status).toBe('precio_pendiente');
-    expect(q.quote.quotedPriceCents).toBeNull();
-  });
-
-  it('Rare Holo VMAX (premium con "holo" en string) + holofoil → NO usa "Holo" fija barata', async () => {
-    const { svc } = svcWith(cheapHolo, 40, 800000, 'Rare Holo VMAX');
-    const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40, source: 'fallback' });
-    expect(q.quote.quotedPriceCents).toBe(320000); // 40% de 8000.00
-  });
-
-  it('Rare Holo (NO premium, bulk) + holofoil SÍ puede usar la regla sintética "Holo"', async () => {
-    const { svc } = svcWith(cheapHolo, 40, 500000, 'Rare Holo');
-    const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 150, source: 'rule' });
-    expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(150); // bulk holo: MX$1.50 vía "Holo"
+  it('el MISMO mercado en los CUATRO acabados cotiza igual (el acabado perdió su regla propia)', async () => {
+    const finishes = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'] as const;
+    const quotes = await Promise.all(
+      finishes.map((f) => svcWith(800000, 'Rare Holo VMAX').svc.publicQuote('c1', 'raw', 'NM', f as never)),
+    );
+    expect(new Set(quotes.map((q) => q.quote.quotedPriceCents)).size).toBe(1);
+    expect(quotes[0].quote.quotedPriceCents).toBe(400000); // 50 % de $8,000
   });
 });
 
@@ -150,7 +126,7 @@ describe('BuylistService.publicQuote — Fase 0.1: premium en holofoil no cae a 
  */
 describe('BuylistService.publicQuote — v1.12: read-only, NO crea PendingPriceEntry (cierra BE-16)', () => {
   it('precio_pendiente → NO llama escalatePending (endpoint anónimo no escribe la cola)', async () => {
-    const { svc, escalatePending } = svcWith({}, 40, null, 'Illustration Rare');
+    const { svc, escalatePending } = svcWith(null, 'Illustration Rare');
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
     expect(q.quote.status).toBe('precio_pendiente');
     // El quote reporta el pendiente pero NO lo persiste (read-only).
@@ -158,7 +134,7 @@ describe('BuylistService.publicQuote — v1.12: read-only, NO crea PendingPriceE
   });
 
   it('cotizada (con referencia) → tampoco encola pendiente', async () => {
-    const { svc, escalatePending } = svcWith({}, 40, 500000, 'Illustration Rare');
+    const { svc, escalatePending } = svcWith(500000, 'Illustration Rare');
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
     expect(q.quote.status).toBe('cotizada');
     expect(escalatePending).not.toHaveBeenCalled();

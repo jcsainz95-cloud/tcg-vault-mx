@@ -9,6 +9,7 @@ import {
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.26 (P-7 ⑤, §M1 / §4.24e) — PUBLICAR + REPRECIAR FRESCO desde el Master Set.
@@ -67,7 +68,7 @@ function buildHarness() {
     {} as PokemonPriceTrackerProvider,
     {} as PokeTraceProvider,
   );
-  jest.spyOn(pricing, 'loadSalesRules').mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 });
+  jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false } as any);
 
   // Referencia observada por getReferencesBatch — mutable para simular el efecto del reprecio fresco.

@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { CreateItemDto, UpdateItemDto } from '../src/modules/inventory/dto/inventory.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.2 (M-12) — Gradeadas por certificado (API_CONTRACT §M1, ARCHITECTURE §3.2):
@@ -13,6 +14,7 @@ import { CreateItemDto, UpdateItemDto } from '../src/modules/inventory/dto/inven
 
 function buildPricing() {
   return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('graded:PSA:10'),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     getReference: jest.fn(),

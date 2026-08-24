@@ -3,7 +3,7 @@ import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
-import { computeSalePriceForRarity } from '../../common/money';
+import { computeSalePriceFromCurve } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
 import { VariantPricingDTO, composeVariantPricing } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
@@ -752,9 +752,8 @@ export class MasterSetService implements OnModuleInit {
     // de compra/venta izadas UNA vez + overrides M-30 en UNA query (mismo lote del universo); la
     // referencia reusa `marketRefs` (mismo batch). En scopes de cliente NO se computa ni viaja.
     const includePricing = scope.kind === 'platform';
-    const pricingRules = includePricing
-      ? { buy: await this.pricing.loadBuylistRules(), sell: await this.pricing.loadSalesRules() }
-      : null;
+    // v2.0 (P-48, §4.36.2): UNA curva izada una vez por request, compartida por los dos ejes.
+    const pricingCurve = includePricing ? await this.pricing.loadPricingCurve() : null;
     const variantOverrides = includePricing
       ? await this.pricing.getVariantOverridesBatch(universeKeys)
       : new Map<string, never>();
@@ -805,13 +804,11 @@ export class MasterSetService implements OnModuleInit {
               ? { capturedDate: mref.capturedDate }
               : {}),
             // v1.28 (P-18): consola de tres precios — SOLO scope platform (regla dura §4.26b).
-            ...(pricingRules
+            ...(pricingCurve
               ? {
                   pricing: composeVariantPricing(
-                    c.rarity,
-                    finish,
                     marketReferenceMxnCents,
-                    pricingRules,
+                    pricingCurve,
                     variantOverrides.get(`${c.id}|raw|raw:NM|${finish}`) ?? null,
                   ),
                 }
@@ -948,7 +945,7 @@ export class MasterSetService implements OnModuleInit {
     const candidates = listed.filter((i) => wanted.has(`${i.cardId}|${i.finish}`));
     if (candidates.length === 0) return map;
 
-    const { rules, fallbackPct } = await this.pricing.loadSalesRules();
+    const curve = await this.pricing.loadPricingCurve();
     const derivableKeys = candidates
       .filter((i) => i.listPriceCents == null)
       .map((i) => ({
@@ -958,8 +955,8 @@ export class MasterSetService implements OnModuleInit {
         finish: i.finish,
       }));
     const refs = await this.pricing.getReferencesBatch(derivableKeys);
-    // v1.28 (P-18, §4.26b): el `buyable` del binder cobra EXACTAMENTE lo que el storefront —
-    // sellOverride de la variante (M-30) pisa la regla (mismo resolver único; lote sin N+1).
+    // v1.28 (P-18, §4.26b) · v2.0 (§4.36): el `buyable` del binder cobra EXACTAMENTE lo que el
+    // storefront — misma CURVA, mismo sellOverride de variante (mismo cuerpo único; lote sin N+1).
     const variantOverrides = await this.pricing.getVariantOverridesBatch(derivableKeys);
 
     for (const item of candidates) {
@@ -970,14 +967,11 @@ export class MasterSetService implements OnModuleInit {
         const gradeKey = this.pricing.gradeKeyFor(item);
         const ref = refs.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
         const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-        salePriceCents = computeSalePriceForRarity(
-          item.card.rarity,
-          item.finish,
+        salePriceCents = computeSalePriceFromCurve(
           refCents,
-          rules,
-          fallbackPct,
+          curve,
           variantOverrides.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`) ?? null,
-        ).salePriceCents;
+        ).priceCents;
       }
       // Sin precio resoluble (>0) → no comprable (paridad con `sellable` de la ficha §4.9).
       if (salePriceCents == null || salePriceCents <= 0) continue;

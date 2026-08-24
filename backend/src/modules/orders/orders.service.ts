@@ -66,11 +66,11 @@ export class OrdersService {
     // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
     const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
     const referenceMxnCents = ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-    // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity, acabado
-    // de InventoryItem.finish). Con `fixed` devuelve el PISO aunque no haya market; con `pct` y sin
-    // referencia → 'pending' → PRICE_PENDING (se conserva el comportamiento previo).
-    // v1.28 (P-18, §4.26b): el sellOverride de la VARIANTE (M-30) pisa la regla — checkout (auth +
-    // guest) cobra EXACTAMENTE el mismo precio que publica el storefront (mismo resolver único).
+    // v2.0 (P-48, §4.36.1/§4.36.5b): precio de venta por la CURVA sobre el valor de mercado, vía el
+    // SEAM ÚNICO del eje de venta — el checkout (auth Y guest) cobra EXACTAMENTE lo que publica el
+    // storefront porque ambos pasan por el mismo cuerpo. SIN dato de mercado ⇒ `pending` ⇒
+    // PRICE_PENDING (el PISO NO gana; jamás se cobra un precio inventado).
+    // v1.28 (P-18, §4.26b): el sellOverride de la VARIANTE (M-30) pisa la curva y es ABSOLUTO.
     // El listPriceCents POR PIEZA ya ganó arriba (paso 1 de la precedencia, intacto).
     const variantOverride = await this.pricing.getVariantOverride(
       item.cardId,
@@ -78,17 +78,13 @@ export class OrdersService {
       gradeKey,
       item.finish,
     );
-    const sale = await this.pricing.computeSalePriceForItem(
-      { rarity: item.card.rarity, finish: item.finish },
-      referenceMxnCents,
-      variantOverride,
-    );
-    // BE-26 (money-safety): un precio de venta <= 0 (p. ej. regla `fixed:0`) NO es vendible. Se
+    const sale = await this.pricing.computeSalePriceForItem(referenceMxnCents, variantOverride);
+    // BE-26 (money-safety): un precio de venta <= 0 (p. ej. un override degenerado) NO es vendible. Se
     // rechaza igual que `== null` para que ninguna línea de session entre a $0.
-    if (sale.salePriceCents == null || sale.salePriceCents <= 0) {
+    if (sale.priceCents == null || sale.priceCents <= 0) {
       throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
     }
-    return sale.salePriceCents;
+    return sale.priceCents;
   }
 
   private async loadItems(ids: string[]) {

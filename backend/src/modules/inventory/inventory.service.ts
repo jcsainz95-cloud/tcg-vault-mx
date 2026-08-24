@@ -17,12 +17,9 @@ import { buildGradeKey, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import {
-  SalesRule,
-  PriceRuleSet,
-  computeAportacionCostCents,
-  computeSalePriceForRarity,
-} from '../../common/money';
+import { computeAportacionCostCents, computeSalePriceFromCurve } from '../../common/money';
+// v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
+import { PricingCurve } from '../../common/pricing-curve';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -136,8 +133,8 @@ export const PUBLISH_ALL_FAILURES_CAP = 200;
  * `bulkPublish` y `publishAll` — el pipeline por-pieza es IDÉNTICO por contrato (§4.26c).
  */
 interface PublishPricingCtx {
-  rules: PriceRuleSet<SalesRule>;
-  fallbackPct: number;
+  /** v2.0 (P-48, §4.36.2): la CURVA izada UNA vez por request/corrida (BE-25). */
+  curve: PricingCurve;
   sealed: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
   refs: Map<string, PriceInfo>;
   variantOverrides: Map<string, VariantPriceOverride>;
@@ -1074,9 +1071,9 @@ export class InventoryService {
    */
   private async loadPublishPricingCtx(
     items: PublishableItem[],
-    base?: Pick<PublishPricingCtx, 'rules' | 'fallbackPct' | 'sealed'>,
+    base?: Pick<PublishPricingCtx, 'curve' | 'sealed'>,
   ): Promise<PublishPricingCtx> {
-    const { rules, fallbackPct } = base ?? (await this.pricing.loadSalesRules());
+    const curve = base?.curve ?? (await this.pricing.loadPricingCurve());
     const sealed = base?.sealed ?? (await this.pricing.loadSealedSpreads());
     const derivable = items
       .filter((i) => i.listPriceCents == null)
@@ -1091,7 +1088,7 @@ export class InventoryService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       derivable.filter((d) => d.productType !== 'sealed'),
     );
-    return { rules, fallbackPct, sealed, refs, variantOverrides };
+    return { curve, sealed, refs, variantOverrides };
   }
 
   /**
@@ -1165,21 +1162,16 @@ export class InventoryService {
       }
       return { ok: true, salePriceCents: sale.salePriceCents, priceSource: 'derived' };
     }
-    // raw/graded — derivado server-side (SEC-A1): rareza de Card.rarity, acabado del item; el
-    // sellOverride de la variante (M-30) pisa la regla (misma precedencia que storefront/checkout).
+    // raw/graded — v2.0 (P-48, §4.36.1): derivado server-side (SEC-A1) por la CURVA sobre el VALOR DE
+    // MERCADO del acabado de ESTA pieza. Ya no depende de la rareza ni del acabado (criterio 84); el
+    // sellOverride de la variante (M-30) pisa la curva (misma precedencia que storefront/checkout).
+    // SIN dato de mercado ⇒ PRICE_PENDING y escala a la cola: el PISO NO gana (decisión LOCKED).
     const gradeKey = this.pricing.gradeKeyFor(item);
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-    const sale = computeSalePriceForRarity(
-      item.card.rarity,
-      item.finish,
-      refCents,
-      ctx.rules,
-      ctx.fallbackPct,
-      ctx.variantOverrides.get(key) ?? null,
-    );
-    if (sale.salePriceCents == null) {
+    const sale = computeSalePriceFromCurve(refCents, ctx.curve, ctx.variantOverrides.get(key) ?? null);
+    if (sale.priceCents == null) {
       // ④: escala con el gradeKey server-side + acabado del item (la cola es POR acabado, M-19).
       const pendingPriceEntryId = await this.pricing.escalatePending(
         item.cardId,
@@ -1191,11 +1183,11 @@ export class InventoryService {
       );
       return {
         ok: false,
-        message: 'No resolvable sale price (pct without market); not published',
+        message: 'No resolvable sale price (no market reference); not published',
         pendingPriceEntryId,
       };
     }
-    return { ok: true, salePriceCents: sale.salePriceCents, priceSource: 'derived' };
+    return { ok: true, salePriceCents: sale.priceCents, priceSource: 'derived' };
   }
 
   /**
@@ -1281,9 +1273,9 @@ export class InventoryService {
       })
     ).map((r) => r.id);
 
-    // Reglas/spreads izados UNA vez por corrida; referencias/overrides en lote POR CHUNK
+    // Curva/spreads izados UNA vez por corrida; referencias/overrides en lote POR CHUNK
     // (memoria acotada; sigue sin N+1 por pieza).
-    const { rules, fallbackPct } = await this.pricing.loadSalesRules();
+    const curve = await this.pricing.loadPricingCurve();
     const sealed = await this.pricing.loadSealedSpreads();
 
     const summary = {
@@ -1305,7 +1297,7 @@ export class InventoryService {
         where: { id: { in: chunkIds } },
         include: { card: true },
       });
-      const ctx = await this.loadPublishPricingCtx(items, { rules, fallbackPct, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
       for (const item of items) {
         try {
           // `listed` = no-op idempotente (la selección fue `in_stock`; solo llega aquí por una

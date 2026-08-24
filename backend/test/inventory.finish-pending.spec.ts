@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { CreateItemDto } from '../src/modules/inventory/dto/inventory.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * Tier 0 — Escalado de pendientes POR ACABADO desde el alta de inventario (M1 → M-19).
@@ -13,6 +14,7 @@ import { CreateItemDto } from '../src/modules/inventory/dto/inventory.dto';
 
 function buildPricing(refStatus: 'pending' | 'priced' = 'pending') {
   return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     getReference: jest.fn().mockResolvedValue(

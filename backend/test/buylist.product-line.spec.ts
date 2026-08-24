@@ -6,6 +6,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BuylistRule } from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.30 (M-32, ARCHITECTURE §4.29) — LÍNEA de buylist por `productId`: cotizar/vender un `CardProduct`
@@ -60,6 +61,7 @@ function svcWith(opts: {
   const products = opts.products ?? {};
   const productRefs = opts.productRefs ?? {};
   const pricing = {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     findCardProductByTcgId: jest.fn(async (tcgId: number) => products[tcgId] ?? null),
     getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
@@ -101,9 +103,9 @@ describe('M-32 publicQuote — línea con productId (§4.29b)', () => {
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil', 707029);
     expect(q.productId).toBe(707029);
     expect(q.finish).toBe('holofoil');
-    // Common + holofoil → fallback pct 40% de 20000 = 8000.
+    // v2.0 (P-48): $200 de mercado ⇒ pct interpolado 42.5 % ⇒ $85. Ni la rareza ni el acabado entran.
     expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(8000);
+    expect(q.quote.quotedPriceCents).toBe(8500);
     // Leyó la referencia POR producto, no la del set_base.
     expect(pricing.getReferenceByCardProduct).toHaveBeenCalledWith('cp-uuid', 'raw', 'raw:NM', 'holofoil');
     expect(pricing.getReference).not.toHaveBeenCalled();
@@ -170,7 +172,9 @@ describe('M-32 publicQuote — línea con productId (§4.29b)', () => {
     const { svc, pricing } = svcWith({ cardRarity: 'Common', baseRefMxnCents: null });
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
     expect(q.productId).toBeUndefined();
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+    // v2.0 (P-48): sin mercado la línea queda pendiente (el bin NO gana); `priceBasis` reemplaza a
+    // `appliedRule`. Lo que este caso verifica sigue siendo que NO se toca la resolución de producto.
+    expect(q.priceBasis).toBe('pending');
     expect(pricing.findCardProductByTcgId).not.toHaveBeenCalled();
     expect(pricing.getReferenceByCardProduct).not.toHaveBeenCalled();
   });
@@ -216,7 +220,7 @@ describe('M-32 batchQuote — errores por-ítem + unicidad de línea (§4.29c/d)
     expect(results[1]).toMatchObject({ ok: true, productId: 707029 });
     // Precios DISTINTOS: cada línea leyó la referencia de SU producto (40% de 10000 vs 50000).
     expect((results[0] as any).quote.quotedPriceCents).toBe(4000);
-    expect((results[1] as any).quote.quotedPriceCents).toBe(20000);
+    expect((results[1] as any).quote.quotedPriceCents).toBe(25000); // $500 ⇒ 50 % = $250
   });
 });
 
@@ -265,6 +269,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
 
   function pricingForCreate(opts: { products: Record<number, FakeProduct>; productRefs: Record<string, number> }) {
     return {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       findCardProductByTcgId: jest.fn(async (tcgId: number) => opts.products[tcgId] ?? null),
       getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {

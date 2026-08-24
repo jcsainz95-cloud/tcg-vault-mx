@@ -1,6 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
-  BuylistRuleMode,
   Card,
   Finish,
   MovementReason,
@@ -20,14 +19,10 @@ import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
-import {
-  AcquisitionRuleSource,
-  BuylistRule,
-  PriceRuleSet,
-  toPriceRuleSet,
-  quoteAcquisitionForFinish,
-} from '../../common/money';
-import { TierId } from '../../common/pricing-tiers';
+// v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
+// precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
+import { PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
+import { PricingCurve } from '../../common/pricing-curve';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
@@ -55,10 +50,10 @@ export interface BuylistQuotePayload {
   // v1.30 (§4.29a): eco del productId cotizado (snapshot). Ausente ⇒ línea de set_base. La rareza sigue
   // saliendo de la carta; solo el ancla de la línea cambia.
   productId?: number;
-  // v1.28 (P-18/P-22, §6): `source` gana "bounty" | "override" (ADITIVO; el front DEBE tolerarlos)
-  // cuando el control por variante (M-30) pisó la regla. Aplica a quote, quote/batch y al snapshot
-  // `ruleSource` de createRequest (habilita el conteo de bounty al pagar, fase P-22).
-  appliedRule: { mode: BuylistRuleMode; value: number; source: AcquisitionRuleSource };
+  // v2.0 (P-48, §4.36.7a) — `appliedRule` RETIRADO (ya no hay `{mode,value}`: no hay reglas, hay CURVA).
+  // Lo reemplaza `priceBasis`: QUÉ determinó el monto. Valores alcanzables en el eje de COMPRA:
+  // "bounty" | "override" | "market" | "floor" | "pending". `precio_pendiente` ⇔ `priceBasis="pending"`.
+  priceBasis: PriceBasis;
   quote: { status: 'cotizada' | 'precio_pendiente'; quotedPriceCents: number | null; currency: 'MXN' };
   referencePrice: { status: 'priced'; priceMxnCents: number } | { status: 'pending' };
   paymentNotice: 'PAY_AFTER_RECEIPT';
@@ -197,8 +192,8 @@ export class BuylistService {
     // v1.30 (§4.29): productId TCGplayer OPCIONAL. Presente ⇒ la línea es ESE CardProduct separado.
     productId?: number,
   ): Promise<BuylistQuotePayload> {
-    // Carga la tabla de reglas UNA vez y delega en el núcleo compartido (mismo que usa el batch).
-    const { rules, fallbackPct } = await this.buylistRules();
+    // v2.0 (P-48, §4.36.2): iza la CURVA UNA vez y delega en el núcleo compartido (el mismo del batch).
+    const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18): control por variante (bounty/override pisan la regla, §4.26b). Un solo ítem ⇒
     // lectura single (misma vía batch de una clave). v1.30: el override (M-30, clave sin cardProductId)
     // aplica SOLO a la línea de set_base; en la rama `productId` se IGNORA (ver quoteCardForFinish).
@@ -209,16 +204,7 @@ export class BuylistService {
       key.gradeKey,
       key.finish,
     );
-    return this.quoteCardForFinish(
-      cardId,
-      productType,
-      rawCondition,
-      finish,
-      rules,
-      fallbackPct,
-      override,
-      productId,
-    );
+    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, curve, override, productId);
   }
 
   /**
@@ -234,7 +220,7 @@ export class BuylistService {
    * NO escala a PendingPriceEntry (endpoint anónimo; la escalada sigue solo en `createRequest`).
    */
   async batchQuote(items: QuoteItemInput[]): Promise<{ results: BuylistBatchQuoteResult[] }> {
-    const { rules, fallbackPct } = await this.buylistRules();
+    const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18): overrides por variante leídos EN LOTE (UNA query por request, §4.26b — sin N+1).
     const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
     const results: BuylistBatchQuoteResult[] = [];
@@ -247,8 +233,7 @@ export class BuylistService {
           it.productType,
           it.rawCondition,
           it.finish,
-          rules,
-          fallbackPct,
+          curve,
           overrides.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) ?? null,
           it.productId,
         );
@@ -303,10 +288,10 @@ export class BuylistService {
     productType: ProductType,
     rawCondition: RawCondition | undefined,
     finish: Finish | undefined,
-    rules: PriceRuleSet<BuylistRule>,
-    fallbackPct: number,
+    // v2.0 (P-48, §4.36.2): la CURVA izada por el caller (una lectura por request, BE-25).
+    curve: PricingCurve,
     // v1.28 (P-18/P-22, §4.26b): fila M-30 de la variante, pre-cargada por el caller (single o en
-    // lote). `null`/omitida = sin control ⇒ cadena de reglas de SIEMPRE, sin cambio.
+    // lote). `null`/omitida = sin control ⇒ solo la curva.
     override?: VariantPriceOverride | null,
     // v1.30 (§4.29): productId TCGplayer. Presente ⇒ la línea es ESE CardProduct separado.
     productId?: number,
@@ -339,29 +324,22 @@ export class BuylistService {
       referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     }
-    // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
-    // v1.28: precedencia NORMATIVA bounty > override > regla > pendiente (un solo cuerpo, money.ts).
-    const quote = quoteAcquisitionForFinish(
-      card.rarity,
-      f,
-      referenceMxnCents,
-      rules,
-      fallbackPct,
-      effectiveOverride,
-    );
+    // v2.0 (P-48, §4.36.1): el monto sale SOLO del valor de mercado — NO de la rareza ni del acabado
+    // (criterio 84). El acabado ya hizo su único trabajo: elegir DE QUÉ VARIANTE se lee el mercado.
+    // Precedencia NORMATIVA bounty VÁLIDO > override > curva > pendiente (un solo cuerpo, money.ts);
+    // el bounty se revalida AQUÍ contra la curva vigente, no solo al crearlo (§4.36.6).
+    // SEC-A1: mercado y acabado derivados server-side, jamás del DTO del cliente.
+    const quote = quoteAcquisitionFromCurve(referenceMxnCents, curve, effectiveOverride);
     return {
+      // `rarity` se conserva como dato INFORMATIVO/de display del catálogo: el monto NO depende de ella.
       rarity: card.rarity ?? null,
       finish: f,
       // v1.30: eco del productId cotizado (ausente en la rama set_base).
       ...(productId != null ? { productId } : {}),
-      appliedRule: {
-        mode: quote.appliedRule.mode,
-        value: quote.appliedRule.value,
-        source: quote.ruleSource,
-      },
+      priceBasis: quote.basis,
       quote: {
-        status: quote.status,
-        quotedPriceCents: quote.quotedPriceCents,
+        status: quote.priceCents != null ? ('cotizada' as const) : ('precio_pendiente' as const),
+        quotedPriceCents: quote.priceCents,
         currency: 'MXN' as const,
       },
       referencePrice:
@@ -372,30 +350,9 @@ export class BuylistService {
     };
   }
 
-  /**
-   * Lee la tabla de precio de buylist por rareza (dial M2) + el fallback %.
-   * BUYLIST_PRICE_RULES = `{ [rarity]: { mode, value } }`; BUYLIST_PRICE_FALLBACK_PCT = número.
-   * v1.3.1 reemplaza el antiguo `rarity_map` (deprecado, ya no se lee en la ruta de cotización).
-   * v1.28: `PricingService.loadBuylistRules()` lee las MISMAS claves para la consola/binder — si
-   * cambia el formato del dial, cambian juntos (misma SettingKey, misma forma).
-   */
-  async buylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    // v1.37 (§4.33c): iza también PRICING_TIER_MAP y DERIVA el `PriceRuleSet` efectivo si el setting trae
-    // el shape por tiers (post-M-38); compat on-read con `{ rarityRules, ... }`/plano (§4.28d) sin el mapa.
-    // Money-safe: rareza sin tier ⇒ sin entrada ⇒ fallback pct (nunca $0 ni bin fijo).
-    const rawTierMap = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
-    const tierMap =
-      rawTierMap != null && typeof rawTierMap === 'object' && !Array.isArray(rawTierMap)
-        ? (rawTierMap as Record<string, TierId>)
-        : {};
-    const rules = toPriceRuleSet<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-      fallbackPct,
-      tierMap,
-    );
-    return { rules, fallbackPct };
-  }
+  // v2.0 (P-48, §4.36.2) — `buylistRules()` RETIRADO. Era el segundo lector de configuración de dinero
+  // del backend (no delegaba en `PricingService`), así que compra y venta podían ver tablas distintas.
+  // Ahora hay UN SOLO lector de la curva en todo el backend: `PricingService.loadPricingCurve()`.
 
   /**
    * v1.28 (P-22, §4.26e / API_CONTRACT §6) — GET /buylist/bounties: vitrina pública «Top
@@ -493,13 +450,15 @@ export class BuylistService {
       effectiveClabe = onFile;
     }
 
-    // Cotiza cada item. SEC-A1: la regla (que determina el monto a pagar) NO se toma del DTO
-    // del cliente; se DERIVA server-side de la RAREZA REAL de la carta (Card.rarity) vía la
-    // tabla BUYLIST_PRICE_RULES (dial M2). Así un DTO malicioso no puede inflar `quotedTotalCents`.
-    // Se snapshotea la regla aplicada (rarity/ruleMode/ruleValue/ruleSource) para auditoría.
-    const { rules, fallbackPct } = await this.buylistRules();
+    // Cotiza cada item. SEC-A1: el monto a pagar NO se toma del DTO del cliente; se DERIVA server-side
+    // del VALOR DE MERCADO REAL de la variante (§4.36.1). Así un DTO malicioso no puede inflar
+    // `quotedTotalCents`.
+    // v2.0 (P-48, §4.36.7c): se snapshotea `priceBasis` (QUÉ determinó el precio) en la MISMA
+    // transacción que congela `quotedPriceCents`. Los `ruleMode`/`ruleValue`/`ruleSource` quedan LEGACY:
+    // nada nuevo los escribe (no hay reglas que snapshotear).
+    const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18/P-22, §4.26b): overrides por variante EN LOTE (una query por request). El snapshot
-    // `ruleSource` gana los valores "bounty" | "override" — habilita el conteo de bounty al pagar (P-22).
+    // `priceBasis="bounty"` es el que habilita el conteo de bounty al pagar (P-22).
     const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
     const itemsData: {
       cardId: string;
@@ -509,9 +468,8 @@ export class BuylistService {
       // v1.30 (§4.29d): snapshot del productId TCGplayer cuando la línea es un producto separado.
       cardProductId?: number;
       rarity: string | null;
-      ruleMode: BuylistRuleMode;
-      ruleValue: number;
-      ruleSource: string;
+      // v2.0 (P-48, §4.36.7c): snapshot de QUÉ determinó el precio (instrumentación + conteo de bounty).
+      priceBasis: PriceBasis;
       quotedPriceCents: number | null;
       itemStatus: 'cotizada' | 'precio_pendiente';
     }[] = [];
@@ -540,11 +498,11 @@ export class BuylistService {
         const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey, f);
         referenceMxnCents =
           ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-        // v1.28 (P-18): mismo núcleo único de precedencia que quote/batch (bounty > override > regla).
+        // v1.28 (P-18): mismo núcleo único de precedencia que quote/batch (bounty > override > curva).
         override = overrides.get(`${it.cardId}|${it.productType}|${gradeKey}|${f}`) ?? null;
       }
-      const q = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct, override);
-      if (q.status === 'precio_pendiente') {
+      const q = quoteAcquisitionFromCurve(referenceMxnCents, curve, override);
+      if (q.priceCents == null) {
         // v1.8-ronda-c: escala el pendiente del ACABADO cotizado (cola por acabado, M-19).
         // v1.30 (§4.29d): con productId, la entrada lleva su cardProductId a la clave lógica de la cola —
         // resolver el set_base NO cierra la del producto separado (money-safe).
@@ -558,19 +516,18 @@ export class BuylistService {
           it.productId ?? null,
         );
       }
-      quotedTotalCents += q.quotedPriceCents ?? 0;
+      quotedTotalCents += q.priceCents ?? 0;
       itemsData.push({
         cardId: it.cardId,
         productType: it.productType,
         rawCondition: it.rawCondition,
         finish: f,
         ...(it.productId != null ? { cardProductId: it.productId } : {}),
+        // Dato de display del catálogo; el monto NO depende de él (criterio 84).
         rarity: card.rarity ?? null,
-        ruleMode: q.appliedRule.mode,
-        ruleValue: q.appliedRule.value,
-        ruleSource: q.ruleSource,
-        quotedPriceCents: q.quotedPriceCents,
-        itemStatus: q.status,
+        priceBasis: q.basis,
+        quotedPriceCents: q.priceCents,
+        itemStatus: q.priceCents != null ? 'cotizada' : 'precio_pendiente',
       });
     }
 
@@ -704,9 +661,9 @@ export class BuylistService {
     // v1.30 (§4.29): snapshot del productId TCGplayer (null = línea de set_base).
     cardProductId?: number | null;
     rarity?: string | null;
-    ruleMode?: BuylistRuleMode | null;
-    ruleValue?: number | null;
-    ruleSource?: string | null;
+    // v2.0 (P-48, §4.36.7a/c): `priceBasis` reemplaza al trío legacy `ruleMode`/`ruleValue`/`ruleSource`
+    // (que sobrevive en BD por retención de filas históricas, pero nada nuevo lo escribe ni lo expone).
+    priceBasis?: PriceBasis | null;
     quotedPriceCents: number | null;
     approvedPriceCents: number | null;
     itemStatus: string;
@@ -726,7 +683,7 @@ export class BuylistService {
             ...rejectDeadlines(i.rejectedAt),
           }
         : {};
-    // v1.3.1: `category` reemplazado por `rarity` + `appliedRule` (SellItemDTO). API_CONTRACT §11.
+    // v1.3.1: `category` reemplazado por `rarity`; v2.0 (P-48): `appliedRule` → `priceBasis`.
     return {
       id: i.id,
       cardId: i.cardId,
@@ -738,11 +695,9 @@ export class BuylistService {
       // v1.30 (§4.29): eco del productId cotizado (omitido si la línea es de set_base).
       ...(i.cardProductId != null ? { productId: i.cardProductId } : {}),
       rarity: i.rarity ?? undefined,
-      appliedRule:
-        i.ruleMode != null && i.ruleValue != null
-          ? // v1.28 (P-18/P-22): `source` puede ser además "bounty" | "override" (snapshot M-30).
-            { mode: i.ruleMode, value: i.ruleValue, source: (i.ruleSource ?? 'rule') as AcquisitionRuleSource }
-          : undefined,
+      // v2.0 (P-48): `appliedRule` RETIRADO del DTO (no hay `{mode,value}`). Lo reemplaza `priceBasis`
+      // (§4.36.7a); `null` en filas históricas anteriores a M-41, que se omiten.
+      ...(i.priceBasis != null ? { priceBasis: i.priceBasis } : {}),
       quotedPriceCents: i.quotedPriceCents ?? undefined,
       approvedPriceCents: i.approvedPriceCents ?? undefined,
       itemStatus: i.itemStatus,
@@ -1447,7 +1402,7 @@ export class BuylistService {
    * API_CONTRACT §M5, PROJECT criterio 26.
    *
    * v1.28 (P-22, §4.26e): la transición a `pagada` y el CONTEO de bounty
-   * (`bountyAcquiredQty` por cada ítem con snapshot `ruleSource='bounty'`, con auto-apagado al
+   * (`bountyAcquiredQty` por cada ítem con snapshot `priceBasis='bounty'`, con auto-apagado al
    * alcanzar `bountyTargetQty`) corren en la MISMA transacción — o se paga Y se cuenta, o nada.
    * Idempotente ante replays: el conteo solo corre en la llamada que HACE la transición
    * (updateMany count===1); un re-POST/replay ve `pagada` y devuelve el estado sin re-contar.
@@ -1493,7 +1448,7 @@ export class BuylistService {
 
   /**
    * v1.28 (P-22, §4.26e) — conteo TRANSACCIONAL de bounty al pagar: por cada `SellRequestItem`
-   * de la solicitud con snapshot `ruleSource='bounty'` se incrementa `bountyAcquiredQty` de SU
+   * de la solicitud con snapshot `priceBasis='bounty'` se incrementa `bountyAcquiredQty` de SU
    * fila M-30 (clave `(cardId, productType, gradeKey, finish)` del ítem — misma derivación que la
    * cotización). Reglas money-safe:
    *  - B-1 (mismo filtro que la invariante BL-1 de `recomputeApprovedTotal`): los ítems
@@ -1519,7 +1474,9 @@ export class BuylistService {
   ): Promise<void> {
     const bountyItems = await tx.sellRequestItem.findMany({
       // B-1: mismo filtro que BL-1 — un ítem rechazado NO se compró, así que NO cuenta bounty.
-      where: { sellRequestId, ruleSource: 'bounty', itemStatus: { not: 'rechazada' } },
+      // v2.0 (P-48): el snapshot pasa de `ruleSource='bounty'` a `priceBasis='bounty'` (mismo criterio,
+      // campo nuevo). Las filas históricas con `ruleSource='bounty'` ya se pagaron o son legacy.
+      where: { sellRequestId, priceBasis: 'bounty', itemStatus: { not: 'rechazada' } },
       select: { cardId: true, productType: true, rawCondition: true, finish: true },
     });
     if (bountyItems.length === 0) return;

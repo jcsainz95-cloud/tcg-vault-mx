@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 const VALID_CLABE = '012345678901234567'; // 18 dígitos
@@ -17,6 +18,7 @@ const VALID_CLABE = '012345678901234567'; // 18 dígitos
 
 function buildPricing(referenceMxnCents: number | null): PricingService {
   return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn().mockResolvedValue(
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
@@ -126,7 +128,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
   });
 
   it('sin líneas pendientes y bajo el umbral → NO exige INE (control sin cambios)', async () => {
-    // Common (bulk fijo $0.50) CON o SIN referencia siempre cotiza → nunca pendiente.
+    // v2.0 (P-48): ya no hay «bulk fijo que cotiza sin mercado». Una línea cotiza ⇔ HAY mercado.
     const prisma = buildPrisma('Common');
     const settings = {
       getRaw: jest.fn(async () => ({ Common: { mode: 'fixed', value: 50 } })),
@@ -140,7 +142,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
     } as unknown as SettingsService;
     const svc = new BuylistService(
       prisma as PrismaService,
-      buildPricing(null),
+      buildPricing(12500),
       settings,
       {} as UsersService,
       pii,

@@ -15,7 +15,7 @@ const pii = new PiiCryptoService(new ConfigService({}));
  *     ACTIVOS (`enabled` + precio > 0, solo raw), orden `bountyPriceCents desc`, cap 50,
  *     `remainingQty = max(0, target − acquired)` (`null` sin objetivo). No escribe NADA.
  *  2) Conteo al PAGAR (paySpei): `bountyAcquiredQty` se incrementa por cada ítem con snapshot
- *     `ruleSource='bounty'` EN LA MISMA transacción del pago; auto-apagado al alcanzar
+ *     `priceBasis='bounty'` (v2.0, antes `ruleSource`) EN LA MISMA transacción del pago; auto-apagado al alcanzar
  *     `bountyTargetQty` (`enabled=false` + `completedAt` + AuditLog `bounty.completed`);
  *     idempotente ante replays (solo cuenta la llamada que HIZO la transición). B-1: los ítems
  *     `itemStatus='rechazada'` (cherry-pick) NO cuentan — §4.26a mide piezas COMPRADAS bajo
@@ -131,10 +131,10 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       sellRequestItem: {
-        // Honra el where REAL del servicio: ruleSource='bounty' + itemStatus≠'rechazada' (B-1).
+        // Honra el where REAL del servicio: priceBasis='bounty' + itemStatus≠'rechazada' (B-1, v2.0).
         findMany: jest.fn(async ({ where }: any) =>
           opts.items.filter(
-            (i) => i.ruleSource === where.ruleSource && i.itemStatus !== where.itemStatus?.not,
+            (i) => i.priceBasis === where.priceBasis && i.itemStatus !== where.itemStatus?.not,
           ),
         ),
       },
@@ -170,7 +170,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     productType: 'raw',
     rawCondition: 'NM',
     finish: 'holofoil',
-    ruleSource: 'bounty',
+    priceBasis: 'bounty',
     itemStatus: 'aprobada',
     ...over,
   });
@@ -190,7 +190,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
 
   it('incrementa el contador POR CLAVE (2 piezas de la misma variante = +2) sin llegar al target', async () => {
     const h = buildHarness({
-      items: [bountyItem(), bountyItem(), bountyItem({ ruleSource: 'rule' })], // la 3ª NO cuenta
+      items: [bountyItem(), bountyItem(), bountyItem({ priceBasis: 'market' })], // la 3ª NO cuenta
       overrideRows: [m30Row({ bountyTargetQty: 5 })],
     });
     await h.svc.paySpei('sr', 'SPEI-1', 'admin');
@@ -220,7 +220,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     // El where del servicio lleva el filtro BL-1 (misma semántica que approvedTotalCents).
     expect(h.prisma.sellRequestItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ ruleSource: 'bounty', itemStatus: { not: 'rechazada' } }),
+        where: expect.objectContaining({ priceBasis: 'bounty', itemStatus: { not: 'rechazada' } }),
       }),
     );
     expect(h.overrideRows[0]).toMatchObject({ bountyEnabled: true, bountyAcquiredQty: 3 });

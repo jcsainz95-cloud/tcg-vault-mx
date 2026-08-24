@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { computeSealedSalePrice } from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.1 — "Compra" = inventario PUBLICADO con precio (API_CONTRACT §catalog). El comprador
@@ -21,7 +22,8 @@ function pricing(): PricingService {
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     // v1.16-master-set (BE-25): fetchSellable iza reglas 1 vez + resuelve referencias en lote.
-    loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     getReferencesBatch: jest.fn(async (items: any[]) => {
       const m = new Map<string, any>();
       for (const it of items) {

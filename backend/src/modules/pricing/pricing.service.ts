@@ -20,16 +20,19 @@ import {
 } from './pricing.types';
 import {
   usdToMxnCents,
-  computeSalePriceForRarity,
+  computeSalePriceFromCurve,
   computeSealedSalePrice,
   toPriceRuleSet,
+  CurvePriceResult,
   PriceRuleSet,
   BuylistRule,
-  SalePriceResult,
   SalesRule,
   SealedSpreadResult,
   VariantPriceControls,
 } from '../../common/money';
+// v2.0 (P-48, §4.36.2): LA CURVA. Un solo lector en todo el backend (`loadPricingCurve`), para que no
+// vuelva a haber dos rutas de dinero leyendo configuraciones potencialmente distintas.
+import { PricingCurve, sanitizePricingCurve } from '../../common/pricing-curve';
 import { TierId } from '../../common/pricing-tiers';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
@@ -557,6 +560,29 @@ export class PricingService {
    * semántica de precio es la matemática compartida en `money.ts`; si cambia el formato del dial,
    * ambos reads cambian juntos.
    */
+  /**
+   * v2.0 (P-48, §4.36.2) — EL ÚNICO LECTOR DE LA CURVA en todo el backend. Funde
+   * `loadBuylistRules()` + `loadSalesRules()` (y el `BuylistService.buylistRules()` que no delegaba en
+   * este servicio) en un solo loader: la curva vive en UNA clave, así que dos loaders solo abrirían la
+   * puerta a leerla dos veces y ver dos versiones. Se iza UNA VEZ por request (patrón BE-25) y se
+   * comparte entre los dos ejes.
+   *
+   * Money-safe: un valor persistido inválido (edición manual en BD) NO apaga la publicación y la
+   * cotización de todo el catálogo — cae al seed de §N.2 y lo GRITA en el log. «Siempre hay curva» es
+   * invariante de diseño (§4.36.2: ya no existe el caso «sin regla»).
+   */
+  async loadPricingCurve(): Promise<PricingCurve> {
+    const raw = await this.settings.getRaw(SettingKey.PRICING_CURVE);
+    const { curve, fellBack } = sanitizePricingCurve(raw);
+    if (fellBack) {
+      this.logger.error(
+        `[MONEY] El setting ${SettingKey.PRICING_CURVE} es INVÁLIDO en BD: se está usando el seed de PROJECT §N.2. ` +
+          'Revísalo en M2 (PUT /admin/pricing/curve) — el precio publicado y el cotizado NO son los configurados.',
+      );
+    }
+    return curve;
+  }
+
   async loadBuylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
     const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
     // v1.37 (§4.33c): iza también PRICING_TIER_MAP y DERIVA el `PriceRuleSet` efectivo si el setting trae
@@ -1188,24 +1214,28 @@ export class PricingService {
   }
 
   /**
-   * v1.13-sales-pricing (§4.14d) — precio de VENTA por RAREZA. Lee la tabla `SALES_PRICE_RULES` + el
-   * fallback y aplica `computeSalePriceForRarity` (que reusa el gate premium de Fase 0).
+   * v2.0 (P-48, §4.36.5b) — **SEAM ÚNICO DEL EJE DE VENTA**. Todo lo que publica o cobra pasa por aquí:
+   * `catalog.fetchSellable`/`toListingDTO`, `orders.salePriceOf` (checkout auth Y guest),
+   * `inventory.bulkPublish`, `publish-all` y el binder de master-set. Un solo cuerpo ⇒ el guardarraíl
+   * (E4), la instrumentación (E6) y cualquier cambio futuro entran en UN punto, no en doce.
    *
-   * - `rarity` sale de `Card.rarity` (BD) y `finish` de `InventoryItem.finish` (BD) — SEC-A1, nunca del
-   *   cliente. `referenceMxnCents` es la `PriceReference` del ACABADO del item (getReference(...,finish)).
-   * - Con una regla `fixed`, una carta bulk SIN market obtiene precio de venta (piso) → puede ser
-   *   sellable. Con `pct` sin market → `pending` (sin precio; igual que hoy).
-   * - v1.28 (P-18, §4.26b): `controls` opcional = fila M-30 de la variante (sellOverride pisa la
-   *   regla; omitido/null = comportamiento actual). El paso 1 (`listPriceCents` por pieza) lo
-   *   aplican los callers ANTES, como siempre.
+   * El precio sale SOLO del valor de mercado (§4.36.1): `redondeo↑(max(piso, mercado × markup(mercado)))`,
+   * con la precedencia `sellOverrideCents > curva > pendiente`. El `listPriceCents` POR PIEZA lo aplican
+   * los callers ANTES (la intención más específica gana), como siempre.
+   *
+   * NI rareza NI acabado entran al monto (criterio 84). El acabado sigue eligiendo DE QUÉ VARIANTE se
+   * lee el mercado — eso ocurre antes, al resolver `referenceMxnCents`.
+   *
+   * `curve` opcional = curva ya izada por el caller (BE-25, una lectura por request). Sin ella se lee
+   * aquí (uso single).
    */
   async computeSalePriceForItem(
-    item: { rarity: string | null; finish: Finish },
     referenceMxnCents: number | null,
     controls?: VariantPriceControls | null,
-  ): Promise<SalePriceResult> {
-    const { rules, fallbackPct } = await this.loadSalesRules();
-    return computeSalePriceForRarity(item.rarity, item.finish, referenceMxnCents, rules, fallbackPct, controls);
+    curve?: PricingCurve,
+  ): Promise<CurvePriceResult> {
+    const c = curve ?? (await this.loadPricingCurve());
+    return computeSalePriceFromCurve(referenceMxnCents, c, controls);
   }
 
   gradeKeyFor(item: {

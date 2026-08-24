@@ -5,34 +5,28 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import {
-  isHoloRarity,
-  ruleKeyCandidates,
-  quoteAcquisitionForFinish,
-  BuylistRule,
-} from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
- * v1.6-finish — cotización POR ACABADO (ARCHITECTURE §4.2.1) + validación SEC-A1 del acabado
- * contra Card.availableFinishes (422 FINISH_NOT_AVAILABLE). El acabado determina qué regla de
- * BUYLIST_PRICE_RULES aplica y qué referencia usa el `pct` (la del acabado cotizado).
+ * v1.6-finish · ⛔ SUPERSEDED por v2.0 (P-48, ARCHITECTURE §4.36) — el acabado **deja de seleccionar
+ * regla de precio**: no hay `finishRules`, ni claves sintéticas «Holo»/«Reverse Holo», ni gate premium
+ * de pricing. Lo que este spec verifica ahora es lo que el acabado SÍ sigue haciendo (§4.36.10):
+ *
+ *  1. **elegir DE QUÉ VARIANTE se lee el mercado** (`getReference(..., finish)`),
+ *  2. seguir siendo **identidad de variante** (se valida contra `Card.availableFinishes`, SEC-A1, y se
+ *     snapshotea en `SellRequestItem.finish`),
+ *
+ * y lo que ya NO hace: **cambiar el monto**. Con el MISMO mercado, dos acabados cotizan IDÉNTICO
+ * (criterio 83), porque el monto sale solo de la curva sobre el valor de mercado (criterio 84).
  */
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
-const SEED: Record<string, BuylistRule> = {
-  Common: { mode: 'fixed', value: 50 },
-  Uncommon: { mode: 'fixed', value: 50 },
-  'Reverse Holo': { mode: 'fixed', value: 150 },
-};
-
 function svcWith(opts: {
-  rules?: Record<string, BuylistRule>;
-  fallbackPct?: number;
   referenceMxnCents?: number | null;
   cardRarity?: string | null;
   availableFinishes?: string[];
-}): BuylistService {
+}): { svc: BuylistService; pricing: PricingService } {
   const prisma: any = {
     card: {
       findUnique: jest.fn().mockResolvedValue({
@@ -44,106 +38,97 @@ function svcWith(opts: {
   };
   const pricing = {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    // v2.0 (§4.36.2): UN solo lector de configuración de dinero para los dos ejes.
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     getReference: jest.fn().mockResolvedValue(
       opts.referenceMxnCents == null
         ? { status: 'pending' }
         : { status: 'priced', referenceMxnCents: opts.referenceMxnCents },
     ),
     escalatePending: jest.fn(),
-    // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
-  const settings = {
-    getRaw: jest.fn().mockResolvedValue(opts.rules ?? SEED),
-    getNumber: jest.fn().mockResolvedValue(opts.fallbackPct ?? 40),
-  } as unknown as SettingsService;
-  return new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
+  const settings = { getRaw: jest.fn(), getNumber: jest.fn().mockResolvedValue(0) } as unknown as SettingsService;
+  return {
+    svc: new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii),
+    pricing,
+  };
 }
 
-describe('resolver finish→regla (§4.2.1, funciones puras)', () => {
-  it('isHoloRarity: contiene "holo" case-insensitive', () => {
-    expect(isHoloRarity('Rare Holo')).toBe(true);
-    expect(isHoloRarity('Rare Holo EX')).toBe(true);
-    expect(isHoloRarity('Common')).toBe(false);
-    expect(isHoloRarity('Ultra Rare')).toBe(false);
-    expect(isHoloRarity(null)).toBe(false);
+describe('BuylistService.publicQuote — el acabado elige la VARIANTE, no la regla (v2.0, §4.36.10)', () => {
+  it('lee la referencia DEL ACABADO cotizado (es su único papel en el precio)', async () => {
+    const { svc, pricing } = svcWith({ referenceMxnCents: 12500 });
+    await svc.publicQuote('c1', 'raw', 'NM', 'reverse_holo');
+    expect(pricing.getReference).toHaveBeenCalledWith('c1', 'raw', 'raw:NM', 'reverse_holo');
   });
 
-  it('reverse_holo → ["Reverse Holo"] siempre', () => {
-    expect(ruleKeyCandidates('Common', 'reverse_holo')).toEqual(['Reverse Holo']);
-    expect(ruleKeyCandidates('Rare Holo', 'reverse_holo')).toEqual(['Reverse Holo']);
+  it('criterio 83: DOS acabados distintos con el MISMO mercado cotizan IDÉNTICO', async () => {
+    const a = await svcWith({ referenceMxnCents: 12500 }).svc.publicQuote('c1', 'raw', 'NM', 'normal');
+    const b = await svcWith({ referenceMxnCents: 12500 }).svc.publicQuote('c1', 'raw', 'NM', 'reverse_holo');
+    const c = await svcWith({ referenceMxnCents: 12500 }).svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
+    // $125 ⇒ pct interpolado entre 40 % ($100) y 50 % ($500): 4000 + 1000×2500/40000 = 4062.5 ⇒ 4063 bp.
+    // 12500 × 4063 / 10000 = 5078.75 ⇒ $50.79.
+    expect(a.quote.quotedPriceCents).toBe(5079);
+    expect(b.quote.quotedPriceCents).toBe(a.quote.quotedPriceCents);
+    expect(c.quote.quotedPriceCents).toBe(a.quote.quotedPriceCents);
+    expect(a.priceBasis).toBe('market');
   });
 
-  it('holofoil: rareza no-holo → ["Holo"]; rareza holo → [rarity, "Holo"]', () => {
-    expect(ruleKeyCandidates('Common', 'holofoil')).toEqual(['Holo']);
-    expect(ruleKeyCandidates('Rare Holo', 'holofoil')).toEqual(['Rare Holo', 'Holo']);
+  it('criterio 84: la RAREZA no cambia el monto (una Common y una Illustration Rare cotizan igual)', async () => {
+    const common = await svcWith({ cardRarity: 'Common', referenceMxnCents: 40000 }).svc.publicQuote(
+      'c1',
+      'raw',
+      'NM',
+      'normal',
+    );
+    const chase = await svcWith({ cardRarity: 'Illustration Rare', referenceMxnCents: 40000 }).svc.publicQuote(
+      'c1',
+      'raw',
+      'NM',
+      'normal',
+    );
+    // $400 ⇒ pct interpolado 47.5 % ⇒ $190. La Common de cientos de pesos deja de recibir $0.50 (criterio 80).
+    expect(common.quote.quotedPriceCents).toBe(19000);
+    expect(chase.quote.quotedPriceCents).toBe(19000);
   });
 
-  it('first_edition_holofoil usa la misma cadena que holofoil', () => {
-    expect(ruleKeyCandidates('Common', 'first_edition_holofoil')).toEqual(['Holo']);
-    expect(ruleKeyCandidates('Rare Holo', 'first_edition_holofoil')).toEqual(['Rare Holo', 'Holo']);
-  });
-
-  it('normal → [rarity]', () => {
-    expect(ruleKeyCandidates('Illustration Rare', 'normal')).toEqual(['Illustration Rare']);
-    expect(ruleKeyCandidates(null, 'normal')).toEqual([]);
-  });
-
-  it('Common en holofoil NO usa la regla Common (salta a Holo→fallback %)', () => {
-    const q = quoteAcquisitionForFinish('Common', 'holofoil', 20000, SEED, 40);
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40 });
-    expect(q.ruleSource).toBe('fallback');
-    expect(q.quotedPriceCents).toBe(8000); // 40% del market holofoil (20000)
-  });
-});
-
-describe('BuylistService.publicQuote — por acabado (§4.2.1)', () => {
-  it('Common en reverse_holo aplica la regla "Reverse Holo" ($1.50), NO la Common ($0.50)', async () => {
-    const svc = svcWith({ cardRarity: 'Common', referenceMxnCents: 999999 });
-    const q = await svc.publicQuote('c1', 'raw', 'NM', 'reverse_holo');
-    expect(q.finish).toBe('reverse_holo');
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 150, source: 'rule' });
-    expect(q.quote.quotedPriceCents).toBe(150);
-  });
-
-  it('Common en normal aplica la regla Common ($0.50)', async () => {
-    const svc = svcWith({ cardRarity: 'Common', referenceMxnCents: null });
+  it('el BIN gana en bulk: mercado $0.50 ⇒ $1.00 con priceBasis="floor"', async () => {
+    const { svc } = svcWith({ referenceMxnCents: 50 });
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
-    expect(q.quote.quotedPriceCents).toBe(50);
+    expect(q.quote.quotedPriceCents).toBe(100);
+    expect(q.priceBasis).toBe('floor');
   });
 
-  it('pct usa la referencia del ACABADO cotizado (Common holofoil → 40% del market holofoil)', async () => {
-    const svc = svcWith({ cardRarity: 'Common', referenceMxnCents: 12500 });
-    const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40, source: 'fallback' });
-    expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(5000); // 40% de 12500
-  });
-
-  it('acabado pct sin referencia del acabado → precio_pendiente', async () => {
-    const svc = svcWith({ cardRarity: 'Common', referenceMxnCents: null });
+  it('SIN referencia del acabado ⇒ precio_pendiente (el BIN NO gana; jamás MX$0)', async () => {
+    const { svc } = svcWith({ referenceMxnCents: null });
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
     expect(q.quote.status).toBe('precio_pendiente');
     expect(q.quote.quotedPriceCents).toBeNull();
+    expect(q.priceBasis).toBe('pending');
   });
 
-  it('acabado NO disponible en la carta → 422 FINISH_NOT_AVAILABLE (SEC-A1)', async () => {
-    const svc = svcWith({ availableFinishes: ['normal'], referenceMxnCents: 10000 });
+  it('`rarity` sigue viajando como dato INFORMATIVO del catálogo', async () => {
+    const { svc } = svcWith({ cardRarity: 'Illustration Rare', referenceMxnCents: 12500 });
+    const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
+    expect(q.rarity).toBe('Illustration Rare');
+  });
+
+  it('acabado NO disponible en la carta → 422 FINISH_NOT_AVAILABLE (SEC-A1, sin cambio)', async () => {
+    const { svc } = svcWith({ availableFinishes: ['normal'], referenceMxnCents: 10000 });
     await expect(svc.publicQuote('c1', 'raw', 'NM', 'reverse_holo')).rejects.toMatchObject({
       code: 'FINISH_NOT_AVAILABLE',
     });
   });
 
-  it('sin finish explícito → default normal', async () => {
-    const svc = svcWith({ cardRarity: 'Common', referenceMxnCents: null });
+  it('sin finish explícito → default normal (sin cambio)', async () => {
+    const { svc } = svcWith({ referenceMxnCents: null });
     const q = await svc.publicQuote('c1', 'raw', 'NM');
     expect(q.finish).toBe('normal');
   });
 });
 
-describe('BuylistService.createRequest — snapshot del acabado + rechazo', () => {
+describe('BuylistService.createRequest — snapshot del acabado + del priceBasis (§4.36.7c)', () => {
   const VALID_CLABE = '012345678901234567';
 
   function prismaForCreate() {
@@ -170,9 +155,7 @@ describe('BuylistService.createRequest — snapshot del acabado + rechazo', () =
             rawCondition: it.rawCondition ?? null,
             finish: it.finish,
             rarity: it.rarity,
-            ruleMode: it.ruleMode,
-            ruleValue: it.ruleValue,
-            ruleSource: it.ruleSource,
+            priceBasis: it.priceBasis,
             quotedPriceCents: it.quotedPriceCents,
             approvedPriceCents: null,
             itemStatus: it.itemStatus,
@@ -185,27 +168,42 @@ describe('BuylistService.createRequest — snapshot del acabado + rechazo', () =
     return prisma;
   }
 
-  it('snapshotea el finish y aplica la regla del acabado (reverse_holo → $1.50)', async () => {
-    const prisma = prismaForCreate();
-    const pricing = {
+  function pricingFor(referenceMxnCents: number | null): PricingService {
+    return {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      getReference: jest.fn().mockResolvedValue(
+        referenceMxnCents == null
+          ? { status: 'pending' }
+          : { status: 'priced', referenceMxnCents },
+      ),
       escalatePending: jest.fn(),
-      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
       getVariantOverridesBatch: jest.fn(async () => new Map()),
       getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
-    const settings = {
-      getRaw: jest.fn().mockResolvedValue(SEED),
+  }
+
+  function settingsFor(): SettingsService {
+    return {
+      getRaw: jest.fn(),
       getNumber: jest.fn(async (key: string) => {
         if (key === 'buylist_cap_per_request_cents') return 100_000_000;
         if (key === 'buylist_cap_per_month_cents') return 100_000_000;
         if (key === 'ine_threshold_cents') return 100_000_000;
-        if (key === 'buylist_price_fallback_pct') return 40;
         return 0;
       }),
     } as unknown as SettingsService;
-    const svc = new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
+  }
+
+  it('snapshotea el finish y el priceBasis; el monto sale de la CURVA (no de una regla por acabado)', async () => {
+    const prisma = prismaForCreate();
+    const svc = new BuylistService(
+      prisma as PrismaService,
+      pricingFor(12500),
+      settingsFor(),
+      {} as UsersService,
+      pii,
+    );
 
     const res = await svc.createRequest(
       'user-1',
@@ -213,78 +211,33 @@ describe('BuylistService.createRequest — snapshot del acabado + rechazo', () =
       VALID_CLABE,
     );
     expect(res.items[0].finish).toBe('reverse_holo');
-    expect(res.items[0].appliedRule).toEqual({ mode: 'fixed', value: 150, source: 'rule' });
-    expect(res.items[0].quotedPriceCents).toBe(150);
-    // El create persistió el finish snapshoteado.
+    expect(res.items[0].quotedPriceCents).toBe(5079); // $125 × 40.63 % (pct interpolado)
+    expect(res.items[0].priceBasis).toBe('market');
+    // El create persistió el finish y el basis; `ruleMode`/`ruleValue`/`ruleSource` quedan LEGACY.
     const created = prisma.sellRequest.create.mock.calls[0][0].data.items.create[0];
     expect(created.finish).toBe('reverse_holo');
+    expect(created.priceBasis).toBe('market');
+    expect(created.ruleMode).toBeUndefined();
+    expect(created.ruleValue).toBeUndefined();
+    expect(created.ruleSource).toBeUndefined();
   });
 
   it('rechaza un acabado fuera de availableFinishes con FINISH_NOT_AVAILABLE', async () => {
     const prisma = prismaForCreate();
-    const pricing = {
-      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
-      escalatePending: jest.fn(),
-      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
-      getVariantOverridesBatch: jest.fn(async () => new Map()),
-      getVariantOverride: jest.fn(async () => null),
-    } as unknown as PricingService;
-    const settings = {
-      getRaw: jest.fn().mockResolvedValue(SEED),
-      getNumber: jest.fn().mockResolvedValue(40),
-    } as unknown as SettingsService;
-    const svc = new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
+    const svc = new BuylistService(
+      prisma as PrismaService,
+      pricingFor(null),
+      settingsFor(),
+      {} as UsersService,
+      pii,
+    );
 
     await expect(
       svc.createRequest(
         'user-1',
-        [{ cardId: 'c1', productType: 'raw' as any, finish: 'holofoil' as any }],
+        [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any }],
         VALID_CLABE,
       ),
     ).rejects.toMatchObject({ code: 'FINISH_NOT_AVAILABLE' });
-    expect(prisma.sellRequest.create).not.toHaveBeenCalled();
-  });
-});
-
-describe('BuylistService.convertToInventory — propaga el finish al InventoryItem', () => {
-  it('la copia física hereda el acabado snapshoteado del SellRequestItem', async () => {
-    let createdData: any;
-    const prisma: any = {
-      sellRequestItem: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'sri-1',
-          cardId: 'c1',
-          productType: 'raw',
-          rawCondition: 'NM',
-          finish: 'reverse_holo',
-          approvedPriceCents: 5000,
-          quotedPriceCents: 5000,
-          inventoryItemId: null,
-          itemStatus: 'aprobada',
-          card: {},
-        }),
-        update: jest.fn(),
-      },
-      nextFolio: jest.fn(async () => 'INV-000001'),
-      $transaction: jest.fn(async (cb: any) => cb(prisma)),
-      inventoryItem: {
-        create: jest.fn(async ({ data }: any) => {
-          createdData = data;
-          return { id: 'inv-1', folio: data.folio };
-        }),
-      },
-      inventoryMovement: { create: jest.fn() },
-    };
-    const svc = new BuylistService(
-      prisma as PrismaService,
-      {} as PricingService,
-      {} as SettingsService,
-      {} as UsersService,
-      pii,
-    );
-    const res = await svc.convertToInventory('sri-1', 'actor');
-    expect(res).toEqual({ inventoryItemId: 'inv-1', folio: 'INV-000001' });
-    expect(createdData.finish).toBe('reverse_holo');
   });
 });

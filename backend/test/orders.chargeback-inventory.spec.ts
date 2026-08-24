@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.21.2 (T1, §M3 / ARCHITECTURE §4.21c-bis) — DESENLACE HUMANO de una pieza congelada por un
@@ -98,6 +99,7 @@ function build(
     },
   };
   const pricing: any = {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn(() => 'nm'),
     getReference: jest.fn(async () => ({ status: 'pending' })),
     computeSalePriceForItem: jest.fn(async () => ({ salePriceCents: null })),

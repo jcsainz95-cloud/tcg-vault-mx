@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
-import { computeSalePriceForRarity, SalesRule, PriceRuleSet } from '../../common/money';
+// v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
+// el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
+// visibilidad del «Valor de mercado» en las dos fichas.
+import { computeSalePriceFromCurve, sealedPriceBasisOf, PriceBasis } from '../../common/money';
+import { PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
@@ -134,7 +138,7 @@ export class CatalogService {
     });
     if (items.length === 0) return [];
 
-    const salesRules = await this.pricing.loadSalesRules();
+    const curve = await this.pricing.loadPricingCurve();
     // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (pago mínimo BE-25).
     const sealedSpreads = await this.pricing.loadSealedSpreads();
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
@@ -170,7 +174,7 @@ export class CatalogService {
       const reference = this.refFromBatch(refs, item);
       const dto = await this.toListingDTO(item, {
         reference,
-        salesRules,
+        curve,
         sealedSpreads,
         pricedFinishes: pricedByCard.get(item.cardId),
         variantOverride:
@@ -222,19 +226,23 @@ export class CatalogService {
       // venta izadas una vez) para evitar el N+1 de referencias/settings. Opcional: sin él el método
       // resuelve todo por sí mismo (uso single).
       reference?: PriceInfo;
-      salesRules?: { rules: PriceRuleSet<SalesRule>; fallbackPct: number };
+      // v2.0 (P-48, §4.36.2): la CURVA izada una vez por request (BE-25) — sustituye a `salesRules`.
+      curve?: PricingCurve;
       // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
       // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
       sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
       // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
       pricedFinishes?: Iterable<Finish>;
       // v1.28 (P-18, §4.26b): fila M-30 de la variante (del lote de `fetchSellable`; `null` = sin
-      // fila). Su presencia va atada a `salesRules` (batch); en uso single se resuelve aquí mismo.
+      // fila). Su presencia va atada a `curve` (batch); en uso single se resuelve aquí mismo.
       variantOverride?: VariantPriceOverride | null;
     },
   ) {
     let referenceValue: PriceInfo;
     let salePriceCents: number | undefined;
+    // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este
+    // dato para la regla de visibilidad del «Valor de mercado» — jamás lo infiere comparando cifras.
+    let priceBasis: PriceBasis = 'pending';
 
     if (item.productType === 'sealed') {
       // v1.23-sealed-sales (§4.23a/§4.23b): precio del sellado por precedencia money-safe
@@ -250,6 +258,9 @@ export class CatalogService {
       const marketPriced = this.pricing.gateSealedMarketCents(marketRef, sealedCtx.sourceOn) != null;
       const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx);
       if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+      // v2.0 (§4.36.7a): el sellado NO cambia de matemática (criterio 85) — solo DERIVA su basis del
+      // `priceSource` que ya tenía: override⇒override; subtype/global_spread⇒market; sin precio⇒pending.
+      priceBasis = sealedPriceBasisOf(sale);
       referenceValue = marketPriced ? marketRef! : { status: 'pending' };
     } else {
       const gradeKey = this.pricing.gradeKeyFor(item);
@@ -261,18 +272,24 @@ export class CatalogService {
       if (item.listPriceCents != null) {
         // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
         // específica — v1.28 §4.26b: gana también sobre el sellOverride de la variante).
+        // v2.0 (§4.36.6): peldaño 1 de la precedencia de VENTA ⇒ `priceBasis = "override"` (y por
+        // §N.7 la ficha NO muestra «Valor de mercado»: el mercado no produjo este precio).
         salePriceCents = item.listPriceCents;
+        priceBasis = 'override';
       } else {
-        // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity,
-        // acabado de InventoryItem.finish). Con regla `fixed` una bulk SIN market obtiene piso (sellable);
-        // con `pct` sin market → pending (sin precio, no vendible), igual que antes.
-        // v1.28 (P-18, §4.26b): sellOverride de la VARIANTE (M-30) pisa la regla — resuelto en
+        // v2.0 (P-48, §4.36.1): precio de venta por la CURVA sobre el VALOR DE MERCADO — ya no
+        // depende de la rareza ni del acabado (criterio 84). SEC-A1: el mercado sale de la
+        // `PriceReference` del acabado de ESTA copia, jamás del DTO. SIN dato de mercado ⇒ `pending`
+        // (el PISO NO gana): sin referencia no se publica — decisión LOCKED que corrige el supuesto
+        // de §N.2, porque un guardarraíl por rareza no atraparía una Common de $400 sin dato.
+        // v1.28 (P-18, §4.26b): sellOverride de la VARIANTE (M-30) pisa la curva — resuelto en
         // LECTURA, por eso surte efecto inmediato en toda pieza publicada sin manual.
         const referenceMxnCents =
           referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
         // BE-25: si viene el contexto pre-cargado usa la función pura (sin leer settings por ítem);
-        // si no, delega al servicio (que iza reglas por sí mismo) y resuelve el override single.
-        const variantOverride = ctx?.salesRules
+        // si no, delega al SEAM ÚNICO del eje de venta (que iza la curva por sí mismo) y resuelve el
+        // override single.
+        const variantOverride = ctx?.curve
           ? (ctx.variantOverride ?? null)
           : await this.pricing.getVariantOverride(
               item.cardId,
@@ -280,21 +297,11 @@ export class CatalogService {
               this.pricing.gradeKeyFor(item),
               item.finish,
             );
-        const sale = ctx?.salesRules
-          ? computeSalePriceForRarity(
-              item.card.rarity,
-              item.finish,
-              referenceMxnCents,
-              ctx.salesRules.rules,
-              ctx.salesRules.fallbackPct,
-              variantOverride,
-            )
-          : await this.pricing.computeSalePriceForItem(
-              { rarity: item.card.rarity, finish: item.finish },
-              referenceMxnCents,
-              variantOverride,
-            );
-        if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+        const sale = ctx?.curve
+          ? computeSalePriceFromCurve(referenceMxnCents, ctx.curve, variantOverride)
+          : await this.pricing.computeSalePriceForItem(referenceMxnCents, variantOverride);
+        if (sale.priceCents != null) salePriceCents = sale.priceCents;
+        priceBasis = sale.basis;
       }
     }
 
@@ -317,6 +324,9 @@ export class CatalogService {
       certNumber: item.certNumber ?? undefined,
       referenceValue,
       salePriceCents,
+      // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad. `referenceValue` sigue
+      // viajando (el mismo DTO alimenta superficies admin y de valuación); el front OBEDECE esto.
+      priceBasis,
       sellable,
       // v1.2 (M-13): sin fotos propias — la imagen es la de catálogo remota (CardDTO.imageSmallUrl/Large).
     };

@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { InventoryAdjustmentRequestDto } from '../src/modules/inventory/dto/inventory.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.20-master-set-everywhere (§4.20e) + v1.20.1-adjustments-clarify — POST /admin/inventory/adjustments:
@@ -28,7 +29,8 @@ function buildPricing(over: any = {}): PricingService {
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     getReferencesBatch: jest.fn(async () => new Map()),
-    loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     ...over,
   } as unknown as PricingService;
 }

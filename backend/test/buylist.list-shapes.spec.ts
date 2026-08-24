@@ -50,9 +50,7 @@ function fakeRow(id: string) {
         productType: 'raw',
         rawCondition: 'NM',
         rarity: 'Common',
-        ruleMode: 'fixed',
-        ruleValue: 50,
-        ruleSource: 'rule',
+        priceBasis: 'market',
         quotedPriceCents: 5000,
         approvedPriceCents: null,
         itemStatus: 'cotizada',
@@ -83,9 +81,10 @@ describe('BuylistService.listMine — shape SellRequestDTO', () => {
     expect(row.id).toBeUndefined();
     expect(Array.isArray(row.items)).toBe(true);
     expect(row.items[0].card).toEqual({ id: 'card-1', name: 'Pidgey', number: '16' });
-    // Campos SellItemDTO derivados (v1.3.1): rarity + appliedRule.
+    // Campos SellItemDTO derivados: rarity + (v2.0, P-48) `priceBasis` en vez de `appliedRule`.
     expect(row.items[0].rarity).toBe('Common');
-    expect(row.items[0].appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+    expect(row.items[0].priceBasis).toBe('market');
+    expect((row.items[0] as Record<string, unknown>).appliedRule).toBeUndefined();
     expect(row.status).toBe('cotizada');
     expect(row.quotedTotalCents).toBe(5000);
     expect(row.ineRequired).toBe(false);

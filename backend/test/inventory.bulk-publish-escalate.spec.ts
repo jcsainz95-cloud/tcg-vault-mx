@@ -9,6 +9,7 @@ import {
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.26 (④, §M1) — PUBLICAR SIEMPRE CON PRECIO: la variante priceless ESCALA a la cola de
@@ -121,7 +122,7 @@ function buildHarness() {
     {} as PokeTraceProvider,
   );
   // Stubs de acceso a datos izados una vez por bulkPublish (el resto de métodos corre REAL).
-  jest.spyOn(pricing, 'loadSalesRules').mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 });
+  jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
   jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue({
     spreadPctBySubtype: {},
     fallbackPct: 25,

@@ -6,6 +6,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -21,6 +22,7 @@ const VALID_CLABE = '012345678901234567'; // 18 dígitos
 
 function buildPricing(referenceMxnCents: number | null): PricingService {
   return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn().mockResolvedValue(
       referenceMxnCents == null
@@ -74,9 +76,7 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
             productType: it.productType,
             rawCondition: it.rawCondition ?? null,
             rarity: it.rarity,
-            ruleMode: it.ruleMode,
-            ruleValue: it.ruleValue,
-            ruleSource: it.ruleSource,
+            priceBasis: it.priceBasis,
             quotedPriceCents: it.quotedPriceCents,
             approvedPriceCents: null,
             itemStatus: it.itemStatus,
@@ -101,11 +101,11 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
       VALID_CLABE,
     );
 
-    // Se cotiza como COMÚN (regla fixed MX$0.50 = 50c), NO como % de la referencia (400,000c).
-    expect(res.quotedTotalCents).toBe(50);
-    expect(res.items[0].appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+    // v2.0 (P-48): el monto se deriva del MERCADO REAL de la variante (SEC-A1), no de nada del DTO.
+    // La rareza viaja como dato de display y NO cambia el monto (criterio 84).
     expect(res.items[0].rarity).toBe('Common');
-    expect(res.items[0].quotedPriceCents).toBe(50);
+    expect(res.items[0].priceBasis).toBe('market');
+    expect(res.items[0].quotedPriceCents).toBe(res.quotedTotalCents);
   });
 });
 
@@ -124,7 +124,9 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
         return cb(prisma);
       }),
     };
-    const svc = new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(100_000_000), {} as UsersService, pii);
+    // v2.0 (P-48): sin mercado la línea queda `precio_pendiente` y dispara el gate de INE (Fase 0.3),
+    // ruido ajeno a lo que este caso verifica (aislamiento serializable). Se le da mercado.
+    const svc = new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(100_000_000), {} as UsersService, pii);
     await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], VALID_CLABE);
 
     expect(txOpts?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable);
@@ -148,8 +150,9 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
         },
         $transaction: jest.fn(async (cb: any) => cb(prisma)),
       };
-      // Tope mensual = 80c; cada solicitud común = 50c → la segunda (50+50=100) excede.
-      return new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(80), {} as UsersService, pii);
+      // v2.0 (P-48): mercado $10 ⇒ curva de compra 30 % = 300c por solicitud. Tope mensual = 500c ⇒
+      // la segunda (300+300=600) excede. (Antes: regla fija de bulk 50c con tope 80c.)
+      return new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(500), {} as UsersService, pii);
     }
 
     const item = [{ cardId: 'c', productType: 'raw' as any }];
@@ -158,7 +161,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
     await expect(build().createRequest('u', item, VALID_CLABE)).rejects.toMatchObject({
       code: 'BUYLIST_LIMIT_EXCEEDED',
     });
-    expect(shared.createdTotalCents).toBe(50); // solo UNA solicitud creada
+    expect(shared.createdTotalCents).toBe(300); // solo UNA solicitud creada
   });
 });
 
