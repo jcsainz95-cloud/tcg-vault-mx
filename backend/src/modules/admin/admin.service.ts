@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
 import { Finish, Prisma, ProductType, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, isBetterRef } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
@@ -308,14 +308,21 @@ export class AdminService {
       where: { cardId: { in: cardIds } },
       orderBy: [{ capturedDate: 'desc' }, { createdAt: 'desc' }],
     });
-    // Mapa (cardId|productType|gradeKey|finish) → referencia más reciente (primera vista, orden desc).
+    // §4.27f-2 (P47-2, v1.46): Mapa (cardId|productType|gradeKey|finish) → MEJOR referencia por el
+    // desempate determinista money-safe (`isBetterRef`), NO «la primera vista» del orden `capturedDate
+    // desc`. Bajo P47-2 el override manual es TIER SUPERIOR ABSOLUTO durable cross-day: «la primera
+    // vista» mostraría la automática más fresca aunque exista un override humano durable (divergiendo de
+    // `getReference` en la ficha 360°). Este findMany NO lleva `take`, así que todas las filas manuales
+    // ya están presentes; solo hay que reducir con la MISMA precedencia que el resto de consumidores
+    // (mismo patrón que `set-value.service.ts` / `getReferencesBatch`).
     const latest = new Map<string, (typeof refs)[number]>();
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados (raw `raw:NM`, priceMxnCents>0) por carta para
     // displayFinishes — DERIVADO de los `refs` YA cargados (sin query extra ni N+1).
     const pricedByCard = new Map<string, Set<Finish>>();
     for (const r of refs) {
       const key = `${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`;
-      if (!latest.has(key)) latest.set(key, r);
+      const cur = latest.get(key);
+      if (cur == null || isBetterRef(r, cur)) latest.set(key, r);
       if (r.productType === 'raw' && r.gradeKey === 'raw:NM' && r.priceMxnCents > 0) {
         let s = pricedByCard.get(r.cardId);
         if (!s) {

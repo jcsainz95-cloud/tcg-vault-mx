@@ -4,6 +4,166 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.1 P47-2 (§4.27f-2, v1.46): override MANUAL = tier superior ABSOLUTO y durable cross-day — comparador **+ capa de lectura + ficha 360°** (2026-08-24)
+
+> Rama `fix/variant-composition-regression`. Cierra el hallazgo ALTA **P47-2** (dictamen del arquitecto,
+> contrato **v1.46 §4.27f-2**). **Money-critical. Sin migración, sin cambio de schema ni de forma de contrato.**
+> Es un fix de **precedencia de LECTURA**: no re-resuelve ni re-escribe nada — la siguiente lectura de las
+> mismas filas elige la correcta. No toqué el provider TCGCSV singles de P47-1 (cerrado, commit 03f0e02).
+>
+> **⚠️ CIERRE EN DOS PARTES.** El fix del comparador (commit b16f03d, §0.1.a) era correcto pero **incompleto**:
+> el re-gate (techlead RECHAZADO + seguridad NO-CERRADAS) encontró que la **durabilidad cross-day se rompía en la
+> CAPA DE LECTURA** (blocker #1) y en la **ficha 360° admin** (blocker #2). Ambos corregidos abajo (§0.1.b/§0.1.c).
+
+### 0.1.a — Comparador `isBetterRef` (commit b16f03d, primera mitad del fix)
+
+**El bug:** en `isBetterRef(a, b)` (`pricing.service.ts`) `capturedDate` se comparaba **antes** que el tier
+manual/no-manual. Efecto: un override manual solo ganaba **el mismo día**; al día siguiente una fila automática
+`tcgcsv_singles` de HOY superseemplazaba el override manual de ayer → la decisión humana se perdía sin que el
+admin la tocara (money-losing).
+
+**El fix (una función, `isBetterRef`):** se **iza** la comparación `manual/no-manual` **por encima** de
+`capturedDate`. El override manual (`isManualOverride === true` **o** `source === 'manual'`) es ahora **tier
+superior ABSOLUTO y durable cross-day**: gana SIEMPRE sobre una automática, sin mirar la fecha. El resto del
+desempate queda **intacto DENTRO del tier**, en este orden: (2) `capturedDate` más fresca; (3) `sourceRank`
+(precedencia de fuente, mismo día); (4) `cardProductId` NULLS LAST (variante resuelta gana); (5) cuid lexicográfico
+(estabilidad). **Importante:** NO se izó `sourceRank` por encima de `capturedDate` — hacerlo dejaría que una
+`tcgcsv_singles` **stale** le ganara a un residuo **fresco** (money-losing distinto). Comentario/doc del método
+actualizado a «tier manual absoluto, durable cross-day».
+
+**Alcance de consumo:** `isBetterRef`/`pickBestRef` alimentan `getReference`, `getReferenceByCardProduct`,
+`getReferencesBatch`, `getSeparateProductsByCard` (pricing) y `computeSetValue` (catalog). Todos heredan la nueva
+precedencia sin cambios propios.
+
+**Tests (money-safe):** nuevo `backend/test/pricing.isbetterref-manual-tier.spec.ts` — (a) override manual VIEJO
+gana sobre `tcgcsv_singles` de HOY; (b) dos automáticas de distinta fecha → gana la más fresca; (c) override
+manual nuevo supersede al viejo; + guard money-safe (una `tcgcsv_singles` stale NO le gana a un residuo fresco) y
+desempate por fuente a igual día. Ningún test existente codificaba el bug viejo (el de determinismo M-31 que
+compara «fecha domina» usa dos filas automáticas, sigue válido).
+
+### 0.1.b — Capa de lectura: el override manual es **candidata PERENNE** (blocker #1, money) — 2026-08-24
+
+**El hueco (por qué b16f03d no bastaba):** `getReference` (~L307) y `getReferenceByCardProduct` (~L350) traían las
+candidatas con `orderBy capturedDate desc … take: SAME_DAY_REF_CANDIDATES (=32)`. El override manual se persiste con
+`capturedDate` **FIJO** (`manualOverride()`) y **no se re-fecha**; el barrido diario `tcgcsv_singles` añade ~1 fila
+automática/día para la misma clave y **no hay purga** de `PriceReference`. Tras ~32 días la fila manual cae **fuera
+del top-32** → `pickBestRef` **nunca la ve** → el comparador (por bueno que sea) no puede elegirla → el feed diario
+vuelve a pisar el precio humano **en silencio**. El comparador estaba bien; la **ventana de lectura** lo saboteaba.
+
+**Approach elegido — lectura DIRIGIDA de manuales unida al bloque reciente (opción a del dictamen).** En `getReference`
+y `getReferenceByCardProduct` la lectura ahora hace **DOS queries en paralelo** (`Promise.all`):
+1. **bloque reciente CAPADO** (`take: 32`, `orderBy capturedDate desc`) — cubre el **tier automático** sin traer el
+   histórico entero (la cota sigue siendo money-safe para automáticas: solo las recientes pueden ganar entre sí);
+2. **lectura DIRIGIDA de manuales** (`MANUAL_REF_PREDICATE = { OR: [isManualOverride:true, source:'manual'] }`),
+   **SIN cota de fecha ni `take`**, misma clave. Garantiza que **TODA** fila manual de la clave esté siempre entre
+   las candidatas, sin importar cuántos barridos automáticos se acumulen.
+
+`pickBestRef([...bloqueReciente, ...manuales])` desempata el conjunto unido (duplicados idempotentes). En `getReference`
+la lectura dirigida se combina con `BASE_CARD_REF_WHERE` vía **`AND`** (no spread) para no colisionar con el `OR` de
+`BASE_CARD_REF_WHERE`. **Por qué esta opción y no «quitar el cap»:** preserva la cota en el hot path single-item para el
+tier automático (no reintroduce un escaneo de historial ilimitado en cada `getReference`), y **expresa el invariante en
+código** («el manual es candidata perenne», f-2) de forma auto-documentada. Es exactamente lo que sugirió el blue team.
+
+**Consistencia con los métodos SIN cap:** `getReferencesBatch` y `getSeparateProductsByCard` **ya** leían sin `take`
+(todas las filas de la clave, incluidas las manuales) y reducían con `isBetterRef` → **ya eran durables**; no se
+tocaron. La asimetría que reportó seguridad (batch durable, single-item no) queda cerrada: ahora los cuatro coinciden.
+Nuevo export `MANUAL_REF_PREDICATE` en `pricing.service.ts`. Comentario de `SAME_DAY_REF_CANDIDATES` reescrito para f-2
+(la cota gobierna SOLO el tier automático; el manual es perenne).
+
+### 0.1.c — Ficha 360° admin `ownedItemRefs` usa `pickBestRef` (blocker #2, consistencia) — 2026-08-24
+
+**El bug:** `AdminService.ownedItemRefs` (`admin.service.ts` ~L307) elegía «la primera vista» por `capturedDate desc,
+createdAt desc` (`if (!latest.has(key)) latest.set(key, r)`), **NO** `isBetterRef`. Bajo P47-2 eso mostraba la
+**automática más fresca** aunque existiera un override manual durable → la ficha 360° **divergía de `getReference`**
+para la misma variante. Su query **no** lleva `take` (lee todas las refs por `cardId`), así que las filas manuales ya
+estaban presentes: bastaba **reducir con la precedencia correcta**.
+
+**El fix:** se reemplaza la reducción «primera vista» por `cur == null || isBetterRef(r, cur)` (mismo patrón que
+`set-value.service.ts` y `getReferencesBatch`). Se importa `isBetterRef` desde `pricing.service`. Sin query nueva, sin
+cambio de forma del DTO `AdminUserOwnedItemRef`.
+
+### 0.1.d — Tests money-safe añadidos + resultado
+
+- **`backend/test/pricing.isbetterref-manual-tier.spec.ts`** (b16f03d, comparador puro): sigue verde.
+- **`backend/test/pricing.manual-override-durable-cross-day.spec.ts`** (NUEVO): escenario **>32 días** — 1 fila manual
+  vieja (enero) + 40 automáticas `tcgcsv_singles` más frescas para la misma clave; el mock de Prisma modela FIELMENTE
+  las dos lecturas (la capada `take:32` **excluye** la manual vieja; la dirigida la trae). `getReference` **y**
+  `getReferenceByCardProduct` devuelven el **override manual** (no la automática fresca). + control negativo del mock
+  (la capada sola no ve la manual), + sin regresión del tier automático (gana la más fresca), + dos manuales → gana el
+  más reciente.
+- **`backend/test/admin.owned-item-refs.manual-override.spec.ts`** (NUEVO): con override manual durable viejo +
+  automática fresca, la ficha 360° (`getUser` → `ownedItems[].referenceValue`) muestra el **precio manual**; sin manual,
+  la automática más fresca (sin regresión).
+- **Suite existente actualizada:** `pricing.getreference-determinism.spec.ts` — el test «lectura acotada» asertaba
+  `findManyArgs.toHaveLength(1)` (una sola query, premisa del diseño viejo); ahora aserta las **dos** lecturas (capada
+  con `take` + dirigida sin `take`). El resto de sus asserts (determinismo M-31) intactos y verdes.
+- **Resultado real:** suite backend COMPLETA **176 suites / 1717 tests verdes** (1710 previos + 7 nuevos). Typecheck
+  `tsc --noEmit` limpio.
+
+## 0.2 P-47 (§4.35, v1.44): el barrido diario reprecia por-acabado desde TCGCSV `tcgcsv_singles` (2026-08-23)
+
+> Rama `fix/variant-composition-regression`. Continúa el fix P-47 de 0.3: tras cerrar el aplanamiento de PPT,
+> el barrido diario quedó **sin fuente por-acabado** (PPT solo produce la impresión primaria). Implementa el
+> dictamen del arquitecto (**§4.35**, contrato **v1.44**): el barrido pasa a repreciar **por-acabado** desde
+> **TCGCSV `tcgcsv_singles`**. **Money-critical. Sin migración** (M-31 ya trae `cardProductId`/`tcgcsv_singles`).
+> **Sin cambio de forma de contrato.** No toqué config/env (eso es de devops: `PRICE_PROVIDER=tcgcsv_singles`,
+> `POKEMONPRICETRACKER_FETCH_PRINTINGS=false` en staging→prod).
+
+**Qué se implementó (todo en `backend/`):**
+
+- **Provider nuevo `TcgcsvSinglesBulkPriceProvider`** (`backend/src/modules/pricing/providers/tcgcsv-singles-bulk.provider.ts`),
+  `implements BulkPriceProvider`, `source='tcgcsv_singles'`. `fetchPricesForSet({set})`: resuelve el `groupId`
+  TCGCSV (S-D3: `pptSetId` entero → groupId; si no, match ÚNICO por nombre), hace `getProducts`+`getPrices`,
+  `deriveCardProductsFromTcgcsv(...)`, y hace el **join EXACTO por `CardProduct.tcgplayerProductId`** (lee
+  `cardProduct.findMany`, NUNCA escribe estructura). Emite un `BulkPriceRow` por `(cardProductId, finish,
+  marketCents>0)` con `cardId`/`cardProductId` ya resueltos (campos nuevos opcionales en `BulkPriceRow`,
+  poblados **solo** por este provider). Money-safe: `marketPrice` null/≤0 ⇒ **omite** la fila (jamás el precio
+  de otro acabado, jamás 0); `subTypeName` desconocido ⇒ omitido (`deriveCardProductsFromTcgcsv`); `productId`
+  sin `CardProduct` local (estructura no resuelta) ⇒ omitido (dependencia §4.35b: primero `--force` del set);
+  fallo remoto ⇒ `requestOk:false` + 0 filas (precios previos **STALE**, no se borran).
+- **Registro en `providerFor()`/`PRICE_PROVIDER`** (`price-ingest.service.ts`): `tcgcsv_singles` entra a la
+  lista de providers (con filtro anti-`undefined` para los mocks de tests que no lo inyectan) y a
+  `PRICE_PROVIDER_VALUES` (`settings.constants.ts`). **El default del seed sigue en `pokemontcg_io`** — el flip
+  del dial es de devops. El provider se registra en `PricingModule` (+ su `TcgcsvCatalogClient`, cliente
+  anti-SSRF compartido, stateless).
+- **Camino DEDICADO `ingestSinglesForSet`** (`price-ingest.service.ts`): cuando `providerFor().source ===
+  'tcgcsv_singles'`, el barrido va por un método propio que **solo repreciar** — upsert de `PriceReference`
+  keyed por `cardProductId` vía `persistMarketReference(cardId, finish, {..., source:'tcgcsv_singles'}, fx,
+  cardProductId)`, FX Banxico del snapshot (USD→MXN+colchón), respetando `isManualOverride`. **NO** comparte el
+  colapso `(cardId, finish)` del flujo PPT (que perdería la granularidad por-producto de M-31) ni el bloque
+  `pricedFinishesSnapshot`+`FinishReconciler`. **NO** escribe `CardProduct.finishes`/`Card.availableFinishes`
+  (la ESTRUCTURA sigue gateada a import/`--force`, §4.27d).
+
+**Precedencia (§4.27f, confirmada, sin cambios):** `sourceRank` ya pone `tcgcsv_singles=1` (sobre PPT=2) e
+`isBetterRef` prefiere la fila con `cardProductId` no nulo. Como el reprecio TCGCSV escribe con `cardProductId`
+y PPT escribe con `cardProductId=null`, **la fila por-acabado de TCGCSV gana** sobre cualquier residuo de PPT.
+Así «PPT LIST fallback-only» se cumple por PRECEDENCIA de lectura: donde TCGCSV tiene precio, gana; PPT solo
+«se ve» donde TCGCSV no tiene fila.
+
+**Decisión de mecanismo (para techlead/QA):** el arquitecto ofreció dos vías equivalentes (§4.35b): (A) swap de
+provider en `price-ingest`, o (B) job hermano tipo `sealed-price-ingest`. Elegí **(A)** (recomendación del
+arquitecto + requisito «registrar en `providerFor()`»), PERO con un **branch dedicado** dentro de `ingestForSet`
+en vez de reusar el pipeline PPT. Razón money-safe: el pipeline PPT agrupa por `(cardId, finish)` y correría el
+bloque de estructura (`snapshot`+`reconcile`) a diario; ambos son incorrectos para singles (M-31 necesita
+granularidad por `cardProductId`, y §4.35 prohíbe re-resolver estructura a diario). El branch dedicado deja el
+flujo PPT/pokemontcg.io **100% intacto** (cero regresión) y aísla el reprecio por-cardProduct.
+
+**Tests (nuevos):**
+- `backend/test/tcgcsv-singles-bulk.provider.spec.ts` (8 casos): 3 acabados con markets DISTINTOS ⇒ 3 filas con
+  su precio; acabado sin precio (null/0) ⇒ omitido (no copia); `subTypeName` desconocido ⇒ omitido; 2 productos
+  de la misma carta ⇒ `cardProductId` distinto; producto sin `CardProduct` ⇒ omitido; fallo remoto ⇒
+  `requestOk:false`; groupId por `pptSetId` y por nombre.
+- `backend/test/price-ingest.singles.spec.ts` (9 casos): dial → provider primario; 3 upserts keyed por
+  `cardProductId` con `source='tcgcsv_singles'`+FX; **NO** escribe `availableFinishes`/snapshot ni reconcilia;
+  productos distintos de la misma carta no colisionan; fila sin `cardProductId`/`marketCents≤0` ⇒ omitida;
+  fetch fallido ⇒ nada persiste; `persistMarketReference` con `cardProductId`: FX+colchón, source correcto,
+  **override manual NO se pisa**.
+- Suite backend completa: **1701/1701 verde**, `tsc --noEmit` limpio.
+
+**No es hueco, es la separación (§4.35b):** un set **nunca resuelto** bajo M-31 se queda en PPT/`PRICE_PENDING`
+hasta un `POST /admin/catalog/sync {setId, force:true}` (runbook de devops, §4.27h) — el reprecio diario solo
+cotiza variantes cuya `CardProduct` ya existe.
+
 ## 0.3 BUG DE DINERO: el barrido por-impresión de PPT aplanaba el mercado a todos los acabados (2026-08-23)
 
 > Rama `fix/variant-composition-regression`. BUG money-critical confirmado: el barrido de precios mostraba
@@ -7424,3 +7584,50 @@ borradas/después por tabla.
 - **Rate-limit `POST /auth/forgot-password` subido 3→10/hora (2026-08-23, `auth.controller.ts:88`):** por
   petición del humano (3/hora le bloqueaba las pruebas); ttl intacto en 1 hora. 10/hora sigue siendo tope
   anti-abuso razonable. Candado en `test/auth.throttle.spec.ts` y comentario en `main.ts:34` actualizados.
+
+## P47-1 (MEDIA, seguridad blue team) — cota de cordura del `market` externo en tcgcsv_singles
+
+**Archivo:** `backend/src/modules/pricing/providers/tcgcsv-singles-bulk.provider.ts`
+**Rama:** `fix/variant-composition-regression`
+
+**Hallazgo:** el `market` del feed externo TCGCSV se convertía a centavos y terminaba clampándose a
+`MAX_CENTS` (~USD 21.4M) sin validación previa. Un `market` = `Infinity`/`NaN` o un finito absurdamente
+grande (feed corrupto o malicioso) se clampaba EN SILENCIO al máximo → riesgo de precio de venta absurdo.
+
+**Fix (quirúrgico, en el tramo que ya omitía null/≤0, ~L114):**
+1. `Number.isFinite(pf.marketPrice)` → si no es finito se OMITE la fila (mismo invariante que ≤0: celda
+   queda «—»/PRICE_PENDING, jamás un precio inventado). No se clampa.
+2. Cota superior de cordura `MAX_SANE_MARKET_USD = 50_000` (constante a nivel de módulo, documentada).
+   Un `market` por encima se OMITE y se AUDITA con `logger.warn` estructurado (`productId`, `finish`,
+   `market`) para que un dato corrupto sea VISIBLE, no silencioso.
+3. NO se inventa precio ni se sustituye por otro acabado: omitir mantiene el invariante money-safe.
+
+**Justificación de la cota (50 000 USD):** un single real de Pokémon cotiza, aun en los grados/alter más
+caros, muy por debajo de USD 50k como `market` de TCGplayer (los outliers de subasta tipo Pikachu
+Illustrator no cotizan como `market`). 50k es del orden de las decenas de miles: muy por encima de
+cualquier carta real y muy por debajo de `MAX_CENTS` (≈USD 21.4M), de modo que jamás se emita un precio
+de venta absurdo. Es una cota defendible y conservadora; si en el futuro apareciera un single legítimo
+cerca de ese techo, el `warn` lo haría visible antes de que impacte al catálogo.
+
+**NO tocado:** la precedencia `isBetterRef` (hallazgo P47-2, en manos del arquitecto).
+
+**Tests:** `backend/test/tcgcsv-singles-bulk.provider.spec.ts` — 3 casos nuevos: `market=Infinity` →
+omitida; `market` sobre la cota → omitida + warn (con productId/finish/market); `market` normal
+(3.50 USD) → emitido idéntico. Suite completa del provider: 11/11 verde.
+
+## Cierre eje P-47 (partes 1+2+3) — deuda no bloqueante anotada (2026-08-24)
+
+**Rama:** `fix/variant-composition-regression`
+
+El techlead APROBÓ el cierre de **P47-2** condicionado a registrar 3 ítems de deuda NO bloqueante. Quedaron
+anotados en `docs/TECH_DEBT.md` (sección «Deuda del pase P-47 parte 2»), dueño **backend**, sin tocar código
+de producción:
+- **BE-79** — `ownedItemRefs` (`admin.service.ts` ~L307) agrupa sin `cardProductId` / omite `BASE_CARD_REF_WHERE`
+  (display 360° admin, preexistente, no money-moving).
+- **BE-80** — lectura dirigida de manuales (`MANUAL_REF_PREDICATE` en `getReference`/`getReferenceByCardProduct`,
+  `pricing.service.ts`) sin `take`; acotada en la práctica por el nº de overrides humanos por clave.
+- **BE-81** — el `logger.warn` de la cota `MAX_SANE_MARKET_USD` (P47-1, `tcgcsv-singles-bulk.provider.ts`) no
+  incluye `set`/`groupId` (observabilidad menor; ya señalado por techlead y seguridad).
+
+**Veredicto del eje P-47 (partes 1+2+3):** cerrado con **triple veredicto — QA APROBADO, techlead APROBADO CON
+DEUDA ANOTADA, seguridad CERRADA (v1.47)**.

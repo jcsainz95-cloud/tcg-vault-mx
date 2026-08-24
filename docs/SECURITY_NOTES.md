@@ -3300,3 +3300,112 @@ _Nota de orquestación (2026-08-23): N-1/N-2/N-3 cerradas en fast-follow backend
 **Dependencia de topología:** si devops inserta otro proxy delante del backend, ajustar el nº de saltos de `trust proxy` (anotado en `main.ts`). (Persistido por el orquestador; el agente seguridad no tiene Write.)
 
 — SEGURIDAD (blue team / AppSec), 2026-08-23 (hotfix trust proxy)
+
+---
+
+## Revisión de seguridad FOCALIZADA — P-47 parte 3 (`TcgcsvSinglesBulkPriceProvider`, commit `73f0fa4`) · 2026-08-23 · VEREDICTO **APROBADO-CON-CONDICIONES**
+
+> **Rol:** seguridad (blue team / AppSec). Revisión estática del nuevo provider de precios singles por-acabado (TCGCSV) y su path de ingesta dedicado (`ingestSinglesForSet`), con lente de dinero. **NO corrijo código:** los dos residuales se rutean a su rol dueño (backend / arquitecto). (Persistido por el orquestador; el agente seguridad no tiene Write.)
+
+**Superficie revisada:** `tcgcsv-singles-bulk.provider.ts` (nuevo), `price-ingest.service.ts` (`ingestSinglesForSet`, guard `provider.source==='tcgcsv_singles'`, `providerFor`), `pricing.service.ts` (`persistMarketReference`, `sourceRank`/`isBetterRef`), `settings.constants.ts` (`PRICE_PROVIDER_VALUES`).
+
+**El código nuevo es money-safe:** identidad de carta 100% server-side (join por `CardProduct.tcgplayerProductId`, solo lectura); autz al dial `PRICE_PROVIDER` restringida a `super_admin`; validación de precio (omite `null`/`≤0`/negativo/`NaN` → nunca $0, nunca copia entre acabados); precedencia no subvertible por dato externo (el atacante no controla `sourceRank`). El path lean no colapsa acabados (sin FinishReconciler en él).
+
+**El merge es SEGURO por ser inerte:** el seed `PRICE_PROVIDER='pokemontcg_io'` deja el provider TCGCSV singles apagado en prod; el código no escribe dinero hasta que se flipe el dial. Por eso el merge NO bloquea deploy.
+
+**Dos condiciones ANTES de flipar `PRICE_PROVIDER=tcgcsv_singles` en prod (esa es la activación real de dinero):**
+- **P47-1 (MEDIA, backend):** `market` externo no se valida con `Number.isFinite` ni cota superior. Un `Infinity`/finito-gigante se clampa en silencio a `MAX_CENTS` (~MX$21.4M) sin alerta. Añadir `Number.isFinite` + cota de cordura + `logger.warn`/AuditLog al clampar (en `tcgcsv-singles-bulk.provider.ts`, tramo `market→cents`).
+- **P47-2 (ALTA, arquitecto→backend):** durabilidad cross-day del override manual. `isBetterRef` ordena `capturedDate` ANTES de `sourceRank`, así que una fila `tcgcsv_singles` del día siguiente puede ganarle a un override manual (`cardProductId=null`). Con P-47 convirtiendo `tcgcsv_singles` en escritor DIARIO, el matiz operativo se vuelve riesgo sistémico. Requiere dictamen del arquitecto sobre §4.27f (el override manual debe ganar independientemente de la fecha) + fix backend.
+
+**Condición del gate:** el merge es seguro (código inerte por el seed); las dos condiciones (P47-2 confirmado/corregido + P47-1 acotado) deben cerrarse **antes de flipar `PRICE_PROVIDER=tcgcsv_singles` en prod**. Sin críticos/altos abiertos en el código mergeado.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23 (P-47 parte 3)
+
+---
+
+## P-47 parte 3 — Veredicto de CIERRE de condiciones (blue team / AppSec)
+**Rama:** `fix/variant-composition-regression` · **Fecha:** 2026-08-24 · **Modo:** gray-box estático
+**Contexto:** verificación de cierre de las 2 condiciones del veredicto previo APROBADO-CON-CONDICIONES,
+requisito para flipar `PRICE_PROVIDER=tcgcsv_singles` en prod.
+
+### VEREDICTO: NO-CERRADAS — RECHAZADO para el flip
+Queda **1 hallazgo ALTO abierto** (P47-2). No se habilita `PRICE_PROVIDER=tcgcsv_singles` en prod
+hasta cerrarlo y re-verificar (independiente de los veredictos de QA y techlead).
+
+### P47-1 (MEDIA) — commit 03f0e02 — CERRADA
+`backend/src/modules/pricing/providers/tcgcsv-singles-bulk.provider.ts`.
+- `MAX_SANE_MARKET_USD=50_000`; `!Number.isFinite(market)` → fila OMITIDA (:132-135); `market > cota` →
+  OMITIDA + `logger.warn(productId/finish/market)` (:142-150). Todo `continue` antes de `rows.push`.
+- Verificado: un dato externo corrupto (Infinity/NaN/finito-gigante) NO puede clavar un precio; la celda
+  queda «—»/PRICE_PENDING (nunca $0, nunca copia otro acabado); `marketCents` ≤ 5M c (sin overflow Int32);
+  la cota es visible (warn) en el caso realista. Objetivo money-safe cumplido.
+- Deuda menor ACEPTADA (Baja, observabilidad): el caso `!Number.isFinite` se omite SIN warn (solo la
+  sobre-cota audita). No bloquea: se OMITE (no se clampa) y JSON no produce Infinity/NaN nativos.
+  Disparador: si a futuro entra un feed que compute valores no finitos, añadir warn simétrico. Dueño: backend.
+
+### P47-2 (ALTA) — commit b16f03d + dictamen §4.27f-2/v1.46 — NO CERRADA (ALTA, abierta)
+`backend/src/modules/pricing/pricing.service.ts`.
+- La MITAD del fix es correcta: `isBetterRef` iza el tier manual sobre `capturedDate` (:131-133); un manual
+  gana siempre a un automático; `isManualOverride`/`source` son server-side (el atacante no los controla;
+  el bulk persiste `isManualOverride:false`); entre automáticas gana la fresca (sin regresión).
+- HUECO (capa de lectura, no reconciliada con el nuevo comparador): `getReference` (:307-312) y
+  `getReferenceByCardProduct` (:350-355) leen `orderBy capturedDate desc` con `take:32`
+  (`SAME_DAY_REF_CANDIDATES`). El override manual se escribe con `capturedDate=today()` FIJO (:1100-1120)
+  y no se re-fecha; el barrido diario `tcgcsv_singles` crea ~1 fila automática/día para la misma clave y
+  NO hay poda de `PriceReference`. Tras ~32 días la fila manual cae fuera del top-32 → `pickBestRef` no la
+  ve → el feed diario VUELVE a pisar el precio humano, en silencio.
+- Impacto: regresión money-safe sobre el control humano de precio, alcanzable en operación normal (el flip
+  ES un barrido diario), sin atacante y sin alerta. Incumple el criterio de P47-2 («gana SIEMPRE / durable
+  cross-day / revocable solo por otro manual o limpieza super_admin»): válido al día +1, roto al día +32.
+- Evidencia adicional: el comentario de `SAME_DAY_REF_CANDIDATES` (:74-81) aún afirma que solo pueden ganar
+  las filas del día más reciente (invariante que P47-2 invalidó). Asimetría: `getReferencesBatch` (:387-398)
+  NO lleva `take` (sí es durable) → la misma variante puede valuarse distinto según qué método la lea.
+- Dueño: **backend** (garantizar que toda fila `isManualOverride=true` de la clave esté siempre entre las
+  candidatas de `getReference`/`getReferenceByCardProduct`, consistente con `getReferencesBatch`; p. ej.
+  pin/segundo fetch del manual o quitar el `take`). **arquitecto** (reconciliar §4.27f-2/v1.46 y el comentario:
+  la durabilidad manual depende también de la capa de lectura, no solo del comparador).
+
+### Mínimo para APROBAR el flip
+1. Cerrar P47-2: la lectura de referencia base y por-producto DEBE incluir siempre el override manual de la
+   clave (los 3 métodos consistentes), y re-verificar con un caso de >32 días de barrido diario.
+2. Re-emitir veredicto de cierre de seguridad = CERRADAS.
+3. QA y techlead también aprobando. P47-1 ya no bloquea.
+
+### Bandera para el humano
+- Antes de operar el autoprecio diario con dinero real, agendar el DAST/E2E pendiente que ejercite la
+  durabilidad del override manual a lo largo del horizonte de acumulación (no solo el día siguiente).
+
+— SEGURIDAD (blue team / AppSec), 2026-08-24 (P-47 cierre: NO-CERRADAS, ALTA P47-2 abierta)
+
+---
+
+### P47-2 (ALTA) — Durabilidad cross-day del override manual en la capa de lectura — CERRADA (v1.47)
+
+- **Estado:** CERRADA ✅ · verificado por seguridad (blue team) sobre commit `330f0b4` (dictamen arquitecto §4.27f-3 / v1.47).
+- **Hallazgo original:** `getReference`/`getReferenceByCardProduct` leían candidatas con `take:32`
+  (`SAME_DAY_REF_CANDIDATES`). Tras ~32 barridos diarios `tcgcsv_singles` para la misma clave, el override
+  manual (con `capturedDate` fijo antiguo) caía fuera de la ventana y `pickBestRef` nunca lo veía → el feed
+  automático pisaba el precio humano en silencio (money-losing). Asimetría con los caminos batch (sin cap).
+- **Fix verificado (backend):**
+  - `pricing.service.ts` — `getReference` (L332-344) y `getReferenceByCardProduct` (L384-402) hacen DOS
+    lecturas en paralelo: bloque reciente CAPADO (`take:32`, solo tier automático) + lectura DIRIGIDA de
+    manuales (`MANUAL_REF_PREDICATE = OR[isManualOverride:true, source:'manual']`) **sin cota de fecha ni
+    `take`**, unidas antes de `pickBestRef`. El `AND` con `BASE_CARD_REF_WHERE` no excluye el manual
+    (`manualOverride()` escribe `cardProductId=null`).
+  - `isBetterRef` (L149-166) iza el tier manual ABSOLUTO por encima de `capturedDate` (durable cross-day).
+  - `admin.service.ts` `ownedItemRefs` (L307-325) — `findMany` sin `take` + reduce con `isBetterRef`
+    (antes «primera vista» por fecha).
+  - Consistencia confirmada en los cinco consumidores (getReference, getReferenceByCardProduct,
+    getReferencesBatch, getSeparateProductsByCard, ownedItemRefs).
+- **Sin nuevo vector:** `source`/`isManualOverride` siguen server-side; `OverrideDto` no los expone; endpoint
+  `@Roles(super_admin)` + auditado; el bulk escribe `isManualOverride:false`. Sin suplantación de «manual».
+- **Regresión:** entre automáticas gana la fresca; lecturas filtradas por `finish` (sin copia entre acabados);
+  sin $0.
+- **Tests (13/13 verde):** `pricing.manual-override-durable-cross-day.spec.ts` (escenario >32 días + control
+  negativo), `admin.owned-item-refs.manual-override.spec.ts`, `pricing.getreference-determinism.spec.ts`.
+- **Rol dueño:** backend (ya remediado). No requiere acción adicional.
+
+**Sin hallazgos críticos/altos abiertos en el eje de precios/dinero de esta rama.** Por parte de seguridad,
+queda HABILITADO (junto con QA + techlead) el flip `PRICE_PROVIDER=tcgcsv_singles`.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-24 (P-47 cierre: CERRADAS, flip habilitado por seguridad)

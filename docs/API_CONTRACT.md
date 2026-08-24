@@ -2,7 +2,63 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.43-sealed-manual-override-survives-dial).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.44-per-finish-price-source).
+>
+> **Changelog v1.47-manual-override-perennial-candidate (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementa BACKEND.
+> Re-gate seguridad + techlead sobre P47-2, rama `fix/variant-composition-regression`. NO cambia ningún shape de DTO ni
+> endpoint; refuerza la garantía de LECTURA §4.27f-2/§4.27f-3. Money-safe, retrocompatible, sin migración.
+> ARCHITECTURE §4.27f-3.):** el re-gate halló que v1.46 era **incompleta**. El tier manual absoluto de v1.46 vive en el
+> **comparador** `isBetterRef`, pero el comparador solo puede elegir entre las candidatas que la query trae. Las rutas de
+> lectura **single-item** (`getReference`/`getReferenceByCardProduct`) acotan candidatas con `take (=32)` bajo
+> `orderBy capturedDate desc`; como el override manual tiene `capturedDate` FIJO y el barrido diario suma ~1 fila/día sin
+> purga, tras ~32 días el manual **sale de la ventana** y el feed vuelve a pisar el precio humano **en silencio**. Las
+> rutas **batch** (`getReferencesBatch`, `getSeparateProductsByCard`) no tienen cap y por eso **ya** honran el tier
+> manual. **Dictamen normativo (§4.27f-3):** la durabilidad cross-day son **DOS capas** — (a) el comparador (ya hecho) y
+> (b) la **SELECCIÓN de candidatas**, que DEBE incluir SIEMPRE toda fila manual de la clave (**candidata perenne**, sin
+> cota de fecha ni de recencia). Los caminos de lectura deben ser **consistentes** en honrar el tier manual. **Efecto en
+> el contrato:** REFUERZA (no cambia) la garantía ya declarada en v1.46 — los DTO con override manual persistido
+> reflejan ese valor de forma estable **indefinidamente** (antes: solo ~32 días en las rutas single-item). Sin cambio de
+> forma de DTO ni de endpoint. **Base previa:** v1.46-manual-override-durable-cross-day.
+>
+> **Changelog v1.46-manual-override-durable-cross-day (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementa BACKEND.
+> Escalada regla 9 (seguridad/blue team), hallazgo ALTA P47-2, rama `fix/variant-composition-regression`. NO cambia ningún
+> shape de DTO ni endpoint; solo pin­ea la semántica de precedencia de LECTURA §4.27f. Money-safe (FORTALECE la
+> invariante), retrocompatible, sin migración. ARCHITECTURE §4.27f-2 / §4.27f / §4.35(f).):** el comparador de
+> resolución de referencia de mercado (`isBetterRef`, precedencia de LECTURA §4.27f) ordenaba `capturedDate` **antes**
+> que `sourceRank`, de modo que un **override manual de MERCADO** (`PriceReference source='manual' /
+> isManualOverride=true`, `sourceRank=0`) solo ganaba el **mismo día** de su captura. Al pasar `tcgcsv_singles` a
+> **escritor DIARIO** (Changelog v1.44/§4.35), el barrido pisaba el override humano **cada día siguiente** por fecha —
+> contradiciendo §K/§E.1 (override manual = **máxima precedencia**). **Dictamen normativo (§4.27f-2):** el override
+> manual es un **tier SUPERIOR ABSOLUTO, DURABLE cross-day**; `isBetterRef` iza el split manual/no-manual **por encima**
+> de `capturedDate`; la frescura desempata **solo dentro del mismo tier**. Un override manual **solo** lo revoca otro
+> override manual posterior o la **limpieza explícita por `super_admin`** (`POST /api/v1/admin/pricing/override` de
+> nuevo, o borrado money-scoped) — **ninguna** escritura automática lo pisa. Efecto observable en el contrato: cualquier
+> DTO con `marketReferenceMxnCents` / `referenceMxnCents` / `source` / `isManualOverride` (binder, valuación de bóveda,
+> `variants[]`, sellado) que tenga un override manual persistido **refleja ese valor de forma estable día tras día**, no
+> solo el día de captura. Sin cambio de forma; nota reforzada en `POST /admin/pricing/override` (§ pricing admin) y en
+> la nota de `variants[].marketReferenceMxnCents` (§DTOs). **Base previa:** v1.45-fallback-only-is-read-precedence.
+>
+> **Changelog v1.45-fallback-only-is-read-precedence (2026-08-23, arquitecto — DISEÑO EN PAPEL; RATIFICA implementación
+> de BACKEND. Escalada regla 9 (techlead), issue P-47/§4.35b, rama `fix/variant-composition-regression`. NO cambia ningún
+> shape de DTO ni endpoint; solo aclara la semántica de «fallback-only». Money-safe, retrocompatible, sin cambio de
+> código. ARCHITECTURE §4.35(b)/§4.35(f) + §4.27f):** se **ratifica** que «PPT LIST fallback-only» del barrido diario se
+> cumple por **PRECEDENCIA DE LECTURA**, no por una doble-escritura de PPT en vivo. En el barrido `price-ingest` corre
+> **UN solo provider (`tcgcsv_singles`, dial `PRICE_PROVIDER`); PPT bulk NO corre**. Las filas PPT que aparecen donde
+> TCGCSV no tiene precio son **residuo congelado** previo al switch, que aflora al **resolver** la referencia
+> (`sourceRank`/`isBetterRef`, §4.27f). Money-safe: acabado que TCGCSV no cubre → **congela** su último precio real o
+> queda `PRICE_PENDING`/«—»; **nunca $0, nunca el de otro acabado**; el hueco de un set nunca resuelto lo cierra el
+> `--force` por set. Eco puntual en la nota `v1.44` del job `price-ingest` (§M10-ops). **Base previa:** v1.44-per-finish-price-source.
+>
+> **Changelog v1.44-per-finish-price-source (2026-08-23, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS.
+> Escalada regla 9 (backend), issue P-47, rama `fix/variant-composition-regression`. NO cambia ningún shape de DTO ni
+> endpoint; solo precedencia de fuente de precio + notas. Money-safe, retrocompatible. ARCHITECTURE §4.35 / §4.27f /
+> corrección §4.25a-2.):** tras el fix del aplanamiento de PPT `fetchPrintings` (commit `35e948a`; la API v2 de PPT
+> expone UN solo `market`, invariante al `?printing=`), el **barrido diario `price-ingest` pasa a repreciar por-acabado
+> desde TCGCSV `tcgcsv_singles`** (fuente primaria por-variante, por `cardProductId`, §4.27e/f) **sin re-resolver
+> estructura** (gateada a import/`--force`, §4.27d). **PPT baja a LIST fallback-only** y **`fetchPrintings` se APAGA**
+> (dial devops `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`). Sin migración (M-31 ya trae `cardProductId`/`tcgcsv_singles`).
+> Eco en §M10-ops (job `price-ingest`) y en la nota de `variants[].marketReferenceMxnCents` (§DTOs). Money-safe: acabado
+> sin precio en ninguna fuente ⇒ `PRICE_PENDING`/«—», JAMÁS el de otro acabado.
 >
 > **Changelog v1.43-sealed-manual-override-survives-dial (2026-08-23, arquitecto — DISEÑO EN PAPEL; lo implementa
 > BACKEND. Escalada por regla 9 del gate E2E, issue IMP-C, rama `fix/variant-composition-regression`.
@@ -1752,8 +1808,12 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 //   presente solo cuando `marketReferenceMxnCents != null`; el front lo trata como decoración de frescura y
 //   tolera su ausencia. Aplica en los 3 scopes del binder (M1 plataforma, bóveda admin, "Mi bóveda") — misma
 //   agregación, solo lectura, no toca SEC-A1.
-//   ⚠️ Prerrequisito de DATOS (no de contrato): sin `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` en prod el
-//   proveedor emite UNA fila por carta (impresión primaria) y las reverse no tendrán referencia propia → "—".
+//   ⚠️ Prerrequisito de DATOS (no de contrato) — CORREGIDO v1.44 (P-47, ARCHITECTURE §4.35): el precio por-acabado
+//   (reverse_holo/holofoil) lo pobla el barrido diario desde **TCGCSV `tcgcsv_singles`** (`source='tcgcsv_singles'`,
+//   por `cardProductId`), NO PPT. La API v2 de PPT expone UN solo `market` (impresión primaria) invariante al
+//   `?printing=`, así que `fetchPrintings` nunca dio la referencia propia de la reverse (se APAGA:
+//   `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`; PPT queda como fallback LIST de la impresión primaria). Un acabado sin
+//   precio en NINGUNA fuente ⇒ referencia `null`/"—" + `PRICE_PENDING`, JAMÁS el precio de otro acabado.
 // v1.28 (P-18, ADITIVO): `pricing?` = la CONSOLA de precios de la variante (compra/venta: sugerido por regla,
 //   override vigente, efectivo resuelto + fuente; bounty P-22). Presente **SOLO en scope `platform`** (M1) — en
 //   `user_vault` y «Mi bóveda» se OMITE SIEMPRE (la estrategia de compra/bounty no se filtra al cliente; regla
@@ -4134,6 +4194,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   Req: `{ cardId, productType, gradeKey, priceMxnCents, finish? }` → crea `PriceReference` `source=manual` **para ese acabado**, resuelve **solo** el `PendingPriceEntry` de ese `(cardId, productType, gradeKey, finish)`.
   - **v1.26 — invariante del hazard de tabla compartida (documentado):** la resolución de pendientes es **CONTEXT-AGNÓSTICA** (el `updateMany` filtra por `(cardId, productType, gradeKey, finish, status='open')` **sin `context`**) ⇒ un override desde **VENTA** (`context=inventory`) cierra **también** el pendiente de **COMPRA** (`context=buylist`) de la misma variante, y viceversa. Se **conserva agnóstico (opción a)**: la `PriceReference` es compartida por clave, así que el precio fijado es válido para ambas caras y no mueve dinero. Añadir un `context` scope al `updateMany` (opción b) es cambio en el archivo del stream de precios del que **depende el stream buylist** ⇒ **requiere serialización/coordinación con buylist**, no unilateral. Ver ARCHITECTURE §4.24c.
   - **`finish?` (v1.8-ronda-c, opcional, default `normal`):** `normal | reverse_holo | holofoil | first_edition_holofoil`. Fija/actualiza la `PriceReference` del acabado indicado y resuelve el pendiente de **ese** acabado; el pendiente de otros acabados de la misma carta **permanece abierto**. Omitirlo mantiene el comportamiento previo (`normal`). No debilita SEC-A1 (es un precio de referencia del admin, no un monto de cliente).
+  - **v1.46 (P47-2) — DURABILIDAD del override manual (precedencia de LECTURA §4.27f-2):** el override manual persistido por este endpoint es **máxima precedencia ABSOLUTA y DURABLE cross-day**: gana la resolución de la referencia de mercado **todos los días**, no solo el de su captura, **aunque el barrido diario `tcgcsv_singles` escriba una fila más fresca** (§4.35). **Solo lo revoca** (a) **otro `POST /admin/pricing/override`** posterior sobre la misma `(cardId, productType, gradeKey, finish)` (supersede al anterior), o (b) la **limpieza/borrado explícito de la fila por `super_admin`** (permiso money). **Ninguna** escritura automática (`tcgcsv_singles`/PPT/pokemontcg.io) lo pisa. Es semántica de LECTURA (comparador `isBetterRef`): **sin migración, sin cambio de shape**. Ver ARCHITECTURE §4.27f-2.
   - **v1.28 (P-20):** con `productType:"graded"` + `gradeKey:"graded:<company>:<grade>"` es la vía NORMATIVA para
     fijar el **valor de mercado por carta+grado** (pestaña Gradeadas de M1). Sin cambio de shape.
   - **v1.43 (IMP-C) — sellado + dial `off`:** con `productType:"sealed"` + `gradeKey:"sealed:tcg:<productId>"` esta es
@@ -4940,6 +5001,16 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 >   `{ job: "price-ingest", enqueued: boolean, jobId?: string }` (o `{ ..., scope: "set", setId }` si se pasó `setId`).
 >   **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto. Reemplaza a `catalog-price-sync` en el rol
 >   de pricing (abajo).
+>   **v1.44 (P-47, ARCHITECTURE §4.35):** el **provider PRIMARIO de singles del barrido pasa a `tcgcsv_singles`** —
+>   reprecia **por-acabado** desde TCGCSV (`PriceReference` con `source='tcgcsv_singles'`, por `cardProductId`; §4.27e/f),
+>   FX Banxico aplicado, respeta `isManualOverride`, **NO** escribe estructura (la composición sigue gateada a
+>   import/`--force`, §4.27d). **PPT (LIST) queda fallback-only por PRECEDENCIA DE LECTURA** *(aclarado v1.45, §4.35(f))*:
+>   en el barrido corre **UN solo provider (`tcgcsv_singles`); PPT bulk NO corre**. Donde no hay fila `tcgcsv_singles`
+>   fresca, al **resolver** la referencia (`sourceRank`/`isBetterRef`) gana la mejor fila existente — que puede ser un
+>   **residuo** PPT/pokemontcg.io previo al switch (congelado, no reescrito por el barrido). **`POKEMONPRICETRACKER_FETCH_PRINTINGS`
+>   se APAGA** (dial de devops). Sin cambio de forma del endpoint (mismo `202`; el provider lo selecciona el dial
+>   `PRICE_PROVIDER`). Money-safe: acabado sin precio en ninguna fuente ⇒ `PRICE_PENDING`/«—», jamás el de otro acabado;
+>   set nunca resuelto ⇒ lo cubre el `--force` por set, no una escritura PPT en vivo.
 > - **`sealed-price-ingest`** *(v1.19-sealed-tcgcsv — NUEVO):* dispara la ingesta de la **referencia de mercado del
 >   SELLADO** vía TCGCSV (ARCHITECTURE §4.19d): grupos distintos de los items sellados **mapeados** → precios por grupo
 >   → USD→MXN con FX+colchón → upsert idempotente de `PriceReference` `(cardId ancla, 'sealed',

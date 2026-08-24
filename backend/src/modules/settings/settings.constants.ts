@@ -194,9 +194,13 @@ const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'm
 
 /**
  * v1.14-price-ingest (WS-A, §4.15h): valores válidos del dial `price_provider` (BulkPriceProvider).
- * SOLO los dos proveedores de ingest masivo (NO poketrace/manual, que son del pricing per-carta).
+ * Proveedores de ingest masivo (NO poketrace/manual, que son del pricing per-carta).
+ *
+ * v1.44 (P-47, §4.35): += `tcgcsv_singles` — PRIMARIO del barrido de singles por-acabado desde TCGCSV
+ * (reverse_holo/holofoil con SU marketPrice). El default sigue en `pokemontcg_io` (seed); devops flipea
+ * el dial a `tcgcsv_singles` en staging→prod (config/env es de devops, §4.35e). PPT queda como fallback.
  */
-export const PRICE_PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker'];
+export const PRICE_PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'tcgcsv_singles'];
 
 /**
  * v1.19-sealed-tcgcsv (§4.19e): valores válidos del dial `sealed_price_source` (enum de

@@ -78,11 +78,18 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
   API v2 de PPT no varía el market por `?printing=`. Test que enmascara: `fix-ppt.spec.ts:84-109` (hardcodea
   3 markets distintos). Fuente correcta por-acabado = **TCGCSV `tcgcsv_singles`** (per subTypeName), con
   precedencia sobre PPT, pero solo corre en refresh/import, no en el barrido diario.
-- **Fix (EN CURSO, backend):** que PPT no copie el market a las 3 impresiones (deja pendiente el que no
-  conoce, nunca el precio de otro acabado) y que la fuente por-acabado (TCGCSV) provea el precio; corregir el
-  test. Si implica cambiar la estrategia de fuente del barrido → arquitecto. Money-safe: sin precio propio →
-  pendiente/«—», jamás el de otro acabado.
-- **Mitigación:** correr el refresh de precios TCGCSV (per-acabado, gana sobre PPT) sobrescribe los aplanados.
+- **Parte 1 (HECHO, en prod `9c3eb3e`):** PPT ya no copia el market a las 3 impresiones — solo escribe la
+  impresión primaria real; los demás acabados quedan pendiente/«—», nunca el precio de otro. Test corregido.
+- **Parte 2 (contrato v1.44, arquitecto):** el barrido diario reprecio **por-acabado** desde TCGCSV
+  `tcgcsv_singles` (separando estructura import/--force de precio diario); apagar `fetchPrintings` de PPT;
+  §4.25a-2 corregida; §4.35 nueva.
+- **Parte 3 (EN CURSO, backend):** implementar el provider/job `TcgcsvSinglesBulkPriceProvider` (precio
+  por-acabado keyed por `cardProductId`, FX, respeta overrides), registrarlo como primario del barrido, PPT
+  LIST fallback. Money-critical → **triple veredicto (QA+techlead+seguridad) antes de desplegar**.
+- **Parte 4 (después, devops):** `PRICE_PROVIDER=tcgcsv_singles` + `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`
+  + orden del scheduler + runbook `--force` por set nuevo (tras merge de backend, NO en paralelo).
+- **Mitigación mientras tanto:** el refresh/sync TCGCSV por set (per-acabado, gana sobre PPT) da los precios
+  correctos por acabado ya.
 
 
 #### P-46 · Sincronizar sellado devuelve «0 presentaciones»: el set no resuelve grupo TCGCSV (prod)

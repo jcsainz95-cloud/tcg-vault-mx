@@ -52,8 +52,10 @@
 > (P-18), **alta rápida** de dos caminos Compra/Aportación + «Publicar todo» (P-19), **distintivo visual de
 > acabado** `FinishMark` (adelanto de P-14, lenguaje compartido con Stream C) y la teja/badge **Bounty**
 > admin + vitrina pública «Top Bounties» (P-22). §16 es aditiva; introduce **un único elemento gráfico
-> nuevo** (la banda de acabado, §16.6 — incluida la ÚNICA superficie con gradiente permitida del sistema) y
-> **cero tokens nuevos** de color/tipografía.
+> nuevo** (la banda de acabado, §16.6) y **cero tokens nuevos** de color/tipografía.
+> *(Actualización posterior: la banda de acabado colorea ESTRICTAMENTE por `finish` con colores planos —
+> reverse=rojo, holofoil=azul, 1ed=tinta — y ya no lleva gradiente; añade el token de azul
+> `--color-finish-holo`. Ver §16.6.)*
 >
 > **Añadido v1.7 (P-21 — identidad TCG HUNT) → ver §17.** Rebrand de marca: el sitio pasa a llamarse
 > **TCG HUNT** (dominio `tcghunt.mx`) con **logo de mira/crosshair** en degradado **rojo `#B31217` → vino
@@ -62,8 +64,8 @@
 > **conserva la base editorial papel/tinta** y el **bermellón `#B44B3A` se retira**: el **rojo TCG HUNT
 > `#B31217` asume todos sus roles** (accent, warning, danger, anillo de foco — mismo nombre de tokens,
 > nuevo valor; contraste sobre papel **sube** de 4.65:1 a **6.2:1**, §17.2). El degradado del logo se suma
-> como **segunda y última excepción de gradiente** (junto a la banda reverse §16.6): nunca en superficies
-> ni botones. El badge BOUNTY (§16.7b) adopta el **glifo micro oficial de la mira** en lugar del
+> como **única excepción de gradiente** del sistema (la banda reverse de §16.6 pasó a rojo sólido y ya no es
+> gradiente): nunca en superficies ni botones. El badge BOUNTY (§16.7b) adopta el **glifo micro oficial de la mira** en lugar del
 > `crosshair` de lucide. La marca visible cambia; **el nombre interno del repo/proyecto (`tcg-vault-mx`) y
 > las rutas técnicas NO cambian** (§17.4). Wordmark en **Montserrat 700** (`--font-brand`, `next/font`).
 >
@@ -283,6 +285,8 @@ No uses los valores base directamente en componentes: usa estos tokens semántic
 | `--color-info` | Informativo | `#6E695E` |
 | `--color-info-bg` | Fondo suave info | `transparent` |
 | `--color-neutral-warm` | Acento terciario no semántico | `#9A6C57` |
+| `--color-finish-reverse` | Banda de acabado `reverse_holo` (§16.6) | `var(--color-accent)` (rojo de marca, `#B31217`) |
+| `--color-finish-holo` | Banda de acabado `holofoil` (§16.6) | `#1F5C8F` (azul acero) |
 | `--color-focus-ring` | Anillo de foco (§4.3, §8.2) | `#B44B3A` (bermellón) |
 | `--color-ink` / `--color-on-ink` | Panel de tinta / texto sobre él | `#1A1A18` / `#F4F1EA` |
 | `--color-on-ink-muted` | Texto secundario sobre tinta | `#8A857A` |
@@ -1263,6 +1267,9 @@ Reglas derivadas:
   --color-danger:  #B44B3A; --color-danger-bg:  transparent;
   --color-info:    #6E695E; --color-info-bg:    transparent;
   --color-neutral-warm: #9A6C57;
+  /* Bandas de acabado (§16.6) — color ESTRICTAMENTE por finish, nunca por rareza */
+  --color-finish-reverse: var(--color-accent); /* rojo de marca sólido, #B31217 */
+  --color-finish-holo: #1F5C8F;                /* azul acero */
   /* Paneles de tinta (hero de auth, sidebar del back-office) */
   --color-ink: #1A1A18; --color-on-ink: #F4F1EA; --color-on-ink-muted: #8A857A;
   --color-on-ink-nav: #A39D91; --color-on-ink-rule: rgba(244,241,234,0.14);
@@ -1288,6 +1295,7 @@ colors: {
   danger:  { DEFAULT: 'var(--color-danger)',  bg: 'var(--color-danger-bg)' },
   info:    { DEFAULT: 'var(--color-info)',     bg: 'var(--color-info-bg)' },
   'neutral-warm': 'var(--color-neutral-warm)',
+  finish: { reverse: 'var(--color-finish-reverse)', holo: 'var(--color-finish-holo)' },
   ink: 'var(--color-ink)', 'on-ink': 'var(--color-on-ink)',
   'on-ink-muted': 'var(--color-on-ink-muted)', 'on-ink-nav': 'var(--color-on-ink-nav)',
   'on-ink-rule': 'var(--color-on-ink-rule)',
@@ -2234,20 +2242,34 @@ vistazo. **Solución: banda superior de 3px + etiqueta mono SIEMPRE visible** (d
 es redundante, el texto porta — regla §2.4). Se define UNA vez y se usa igual en el binder M1, el
 cotizador (Stream C), bóvedas y storefront.
 
+**Convención de color de banda — ESTRICTAMENTE por `finish` (v-actual, implementada y desplegada).** El
+color de la banda depende **solo** del `finish`, **nunca** de la rareza ni de la composición de variantes.
+Cada acabado tiene UN color plano y estable (un mismo `reverse_holo` se ve idéntico en toda la app, sin
+variar a lo ancho de la teja):
+
 | `finish` | Banda (3px, borde superior de la casilla/teja) | Etiqueta mono (`text-[10px] uppercase tracking-[0.18em]`) |
 |---|---|---|
 | `normal` | **Sin banda** (el borde base `--color-border` de 1px) | `NORMAL` en `--color-text-muted` |
-| `reverse_holo` | **Gradiente lineal 90°** `#9A6C57 → #B44B3A` (neutral-warm → bermellón) | `REVERSE` en `--color-text` |
-| `holofoil` | **Sólida tinta** `#1A1A18` | `HOLO` en `--color-text` |
-| `first_edition_holofoil` | Sólida tinta `#1A1A18` | `1ED HOLO` en `--color-text` |
+| `reverse_holo` | **Rojo sólido** `var(--color-finish-reverse)` (= rojo de marca `#B31217`) | `REVERSE` en `--color-text` |
+| `holofoil` | **Azul sólido** `var(--color-finish-holo)` (`#1F5C8F`, azul acero) | `HOLO` en `--color-text` |
+| `first_edition_holofoil` | **Sólida tinta** `var(--color-ink)` (`#1A1A18`) | `1ED HOLO` en `--color-text` |
 
-- La banda de reverse es **la única superficie con gradiente permitida en todo el sistema** (guiño foil,
-  §5 "guiño de marca"): dos tonos cálidos de la propia paleta, 3px, decorativa (`aria-hidden`). No es un
-  "degradado arcoíris" (§1.3) ni un token nuevo.
-- **Accesibilidad:** la banda es decorativa; el significado lo porta la **etiqueta**, presente SIEMPRE
-  (nunca banda sin texto), + `aria-label` de la casilla: `Pikachu ex, reverse holo, 3 piezas`. Contraste de
-  la banda sobre papel: tinta ~15:1, neutral-warm ~4.0:1, bermellón ~4.6:1 — todas ≥ 3:1 (componente UI,
-  §10). Las etiquetas usan tinta/muted (AA de texto).
+- **Por qué rojo sólido en reverse (cambio):** antes la banda de reverse era un gradiente cálido 90°
+  (`#9A6C57 → #B44B3A`, marrón→bermellón) que variaba a lo ancho de la teja y leía inconsistente entre
+  superficies. Se sustituyó por **rojo de marca plano** (`--color-finish-reverse`, alias de
+  `--color-accent`). Con esto **la banda reverse ya NO es un gradiente**: la única excepción de gradiente
+  que queda en el sistema es el logo/lockup (§17.2).
+- **`--color-finish-holo` (`#1F5C8F`) es token nuevo:** no existía azul en la paleta. Es el ÚNICO azul del
+  sistema y vive **exclusivamente** como banda de acabado `holofoil`; no se usa para estados, enlaces,
+  bordes ni fondos (la semántica de atención sigue siendo el rojo, §2.4). Se ratifica el valor tal cual.
+- **Accesibilidad:** la banda es decorativa (`aria-hidden`); el significado lo porta la **etiqueta**,
+  presente SIEMPRE (nunca banda sin texto), + `aria-label` de la casilla: `Pikachu ex, reverse holo, 3
+  piezas`. Contraste de la banda sobre papel `#F4F1EA`: rojo `#B31217` ~6.2:1, azul `#1F5C8F` ~6.2:1, tinta
+  ~15:1 — todas ≥ 3:1 (componente UI, §10). Las etiquetas usan tinta/muted (AA de texto).
+- **Rojo/azul es un par seguro para daltonismo** (protanopía/deuteranopía/tritanopía): rojo y azul no se
+  confunden en ninguno de los tipos comunes y además difieren en tono y luminancia. Aun así el color
+  **nunca** es el único diferenciador: el refuerzo textual en versalitas (`REVERSE HOLO` / `HOLOFOIL` /
+  `1ED HOLO` / `NORMAL`) + el `aria-label` localizado cumplen el «no-solo-color» (§2.4) en toda superficie.
 - **Dónde:** en toda teja/casilla que represente UNA variante (binder M1, cotizador, drill-down header,
   Top Bounties). En fichas de detalle basta el `ListingSpec` (§7.2b); la banda es para retículas.
 - La etiqueta NO se traduce distinto por locale (`REVERSE`/`HOLO` son términos del hobby); el `aria-label`
@@ -2880,10 +2902,10 @@ tinta del sello.
 - **`--hunt-tint`** existe SOLO para el fondo del shelf «Top Bounties» (§16.7c) y piezas de marca
   (OG/correo) si el frontend lo necesita; **no** rompe la regla "sin rellenos de color en estados"
   (§2.1): los `*-bg` semánticos **siguen `transparent`**. Si no se usa, mejor.
-- **El degradado `#B31217→#4A0D0D` es la SEGUNDA y última excepción de gradiente** del sistema (la
-  primera: banda reverse §16.6). Vive **exclusivamente** en el logo/lockup. Nunca en botones, fondos,
-  textos de UI ni bordes. La banda reverse de §16.6 pasa a `#9A6C57 → var(--color-accent)` (=`#B31217`)
-  — misma regla, hereda el valor por token.
+- **El degradado `#B31217→#4A0D0D` es la ÚNICA excepción de gradiente** del sistema. Vive
+  **exclusivamente** en el logo/lockup. Nunca en botones, fondos, textos de UI ni bordes. *(Actualización:
+  la banda reverse de §16.6 dejó de ser gradiente y pasó a **rojo sólido** `var(--color-finish-reverse)`
+  (=`#B31217`); ya no cuenta como excepción de gradiente. El logo es ahora el único gradiente permitido.)*
 - **Guiño de marca (§5) actualizado:** la **mira** sustituye al "rayo/holo" como guiño permitido
   (logotipo, hero, textura sutil en banners de confianza). Mismo límite: nunca compite con la carta.
 - **Semántica sin cambios:** verde = confirmado, rojo = atención (warning y danger se siguen
@@ -3063,10 +3085,12 @@ que `MasterSetBinder` (que ya comparte — hoy el problema era solo el ancho dis
 **La teja del quoter adopta el `FinishMark` de §16.6 EXACTAMENTE como la teja del binder M1** (hoy el
 `QuoterTile` no pinta la banda — esa es la brecha a cerrar):
 
-1. **`FinishBand` arriba de la teja** (primer elemento, encima del arte), idéntica a `BinderTile`:
+1. **`FinishBand` arriba de la teja** (primer elemento, encima del arte), idéntica a `BinderTile`,
+   coloreada ESTRICTAMENTE por `finish` (§16.6):
    - `normal` → sin banda (borde base).
-   - `reverse_holo` → gradiente 90° `--color-neutral-warm → --color-accent` (`#9A6C57 → #B31217`).
-   - `holofoil` / `first_edition_holofoil` → sólida tinta `#1A1A18`.
+   - `reverse_holo` → rojo sólido `var(--color-finish-reverse)` (`#B31217`).
+   - `holofoil` → azul sólido `var(--color-finish-holo)` (`#1F5C8F`).
+   - `first_edition_holofoil` → sólida tinta `var(--color-ink)` (`#1A1A18`).
    La banda es decorativa (`aria-hidden`); **nunca banda sin texto**.
 2. **La etiqueta textual** ya existe en el `TileHeader` compartido (`#4 · REVERSE HOLO`, mono 10px
    versalitas con el acabado en `--color-text`): es el canal portador (§2.4). No se duplica etiqueta:
@@ -3164,14 +3188,16 @@ metadata:
 - **Top Bounties** conserva su lenguaje (§16.7c + §17.3): chip `☩ BOUNTY` con `HuntMarkMicro`,
   precio «Pagamos» en verde, fondo `--hunt-tint` opcional. La grilla del cotizador NO adopta el
   tinte ni el glifo de mira: la jerarquía es shelf (cacería, destacado) > grilla (catálogo neutro).
-- **Sin gradientes nuevos:** las dos únicas excepciones siguen siendo la banda reverse (§16.6) y el
-  logo (§17.2). El FAB, el drawer y las tejas no llevan degradado.
+- **Sin gradientes nuevos:** la ÚNICA excepción de gradiente es el logo (§17.2); la banda reverse (§16.6)
+  ya es rojo sólido. El FAB, el drawer y las tejas no llevan degradado.
 
 ### 18.8 Accesibilidad (además de §8.2)
 
-- **Contraste (pares ya verificados, sin pares nuevos):** banda reverse sobre papel ≥ 4.0:1 (≥ 3:1
-  UI, §16.6); accent `#B31217` sobre papel 6.2:1; FAB tinta/papel ~15:1; badge contador
-  papel-sobre-accent 6.2:1 (§17.2). Nada que re-verificar en §10.
+- **Contraste (bandas de acabado, §16.6):** banda reverse (rojo `#B31217`) sobre papel 6.2:1; banda
+  holofoil (azul `#1F5C8F`) sobre papel ~6.2:1; banda 1ed (tinta) ~15:1 — todas ≥ 3:1 (componente UI).
+  Par **rojo/azul seguro para daltonismo** + refuerzo textual (`REVERSE HOLO`/`HOLOFOIL`), «no-solo-color».
+  accent `#B31217` sobre papel 6.2:1; FAB tinta/papel ~15:1; badge contador papel-sobre-accent 6.2:1
+  (§17.2). Nada más que re-verificar en §10.
 - **Targets:** FAB 56px; cerrar drawer 44px; steppers de cantidad del carrito conservan sus targets;
   el botón `Agregar` de la teja es full-width (≥ 44px de alto con `size="sm"` + padding — verificar
   en implementación; si `sm` queda < 44px de alto en táctil, subir a `min-h-[44px]`).
