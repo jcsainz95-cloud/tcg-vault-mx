@@ -1755,6 +1755,13 @@
           "text": "texto"
         }
       },
+      "ingest": {
+        "title": "Proveedor de ingesta masiva (barrido diario de precios)",
+        "note": "Dial del barrido diario de precios, DISTINTO de los proveedores de referencia por-carta de arriba. Valores: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (precio por-acabado diario, P-47). Rollback money-safe: volver a pokemontcg_io.",
+        "label": "Proveedor de ingesta masiva",
+        "save": "Guardar proveedor de ingesta",
+        "saved": "Proveedor de ingesta guardado."
+      },
       "audit": {
         "title": "Bitácora de auditoría",
         "subtitle": "Quién hizo qué y cuándo. Toda acción de back-office queda registrada.",

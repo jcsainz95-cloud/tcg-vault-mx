@@ -1755,6 +1755,13 @@
           "text": "text"
         }
       },
+      "ingest": {
+        "title": "Bulk ingest provider (daily price sweep)",
+        "note": "Dial for the daily price sweep, SEPARATE from the per-card reference providers above. Values: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (daily per-finish pricing, P-47). Money-safe rollback: switch back to pokemontcg_io.",
+        "label": "Bulk ingest provider",
+        "save": "Save ingest provider",
+        "saved": "Ingest provider saved."
+      },
       "audit": {
         "title": "Audit log",
         "subtitle": "Who did what and when. Every back-office action is logged.",

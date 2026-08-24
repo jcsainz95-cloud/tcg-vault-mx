@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Save, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getSettings, updateSettings, getAuditLog, type AuditLogFilters } from '@/lib/api';
-import type { SettingsDTO, AuditLogDTO } from '@/types/contract';
+import type { SettingsDTO, AuditLogDTO, PriceProvider } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
@@ -35,6 +35,19 @@ const PRICE_PROVIDER_OPTIONS = [
   'pokemonpricetracker',
   'poketrace',
   'manual',
+] as const;
+
+/**
+ * Proveedores válidos de la INGESTA MASIVA de precios (dial `priceProvider` /
+ * `price_provider`, contrato §M10 · `PriceProvider`). Es el barrido diario de precios (P-47),
+ * DISTINTO de los tres `pricingProvider*` per-carta de arriba. Debe COINCIDIR exacto con
+ * `PRICE_PROVIDER_VALUES` del backend: cualquier otro valor (p. ej. `poketrace`/`manual`) → 422.
+ * Rollback money-safe = volver a `pokemontcg_io`.
+ */
+const PRICE_PROVIDER_INGEST_OPTIONS = [
+  'pokemontcg_io',
+  'pokemonpricetracker',
+  'tcgcsv_singles',
 ] as const;
 
 // Diales editables (contrato §M10). El PUT es parcial: solo se envían las keys tocadas.
@@ -93,6 +106,22 @@ export function M10View() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-settings'] });
       setDraft({});
+    },
+  });
+
+  // --- Dial del bulk price provider (ingesta masiva, §M10 · `priceProvider`) ---
+  // Draft y PUT parcial DEDICADOS: es un concepto separado de los diales de arriba, así que
+  // se guarda por su cuenta y su patch envía SOLO la key camelCase `priceProvider`.
+  const [ingestDraft, setIngestDraft] = useState<string | null>(null);
+  const ingestSaved = settings.data?.priceProvider ?? '';
+  const ingestValue = ingestDraft ?? ingestSaved;
+  const ingestDirty = ingestDraft !== null && ingestDraft !== ingestSaved;
+
+  const ingestMutation = useMutation({
+    mutationFn: (provider: PriceProvider) => updateSettings({ priceProvider: provider }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-settings'] });
+      setIngestDraft(null);
     },
   });
 
@@ -201,6 +230,48 @@ export function M10View() {
               </div>
               {saveMutation.isSuccess && <Banner variant="success" role="status">{t('dials.saved')}</Banner>}
               {saveMutation.isError && <Banner variant="danger" role="alert">{tc('errorGeneric')}</Banner>}
+            </div>
+          )}
+        </QueryState>
+      </section>
+
+      {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
+          per-carta de arriba para que el humano no los confunda (P-47). */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h2 font-semibold">{t('ingest.title')}</h2>
+        <p className="text-sm text-muted">{t('ingest.note')}</p>
+        <QueryState
+          isLoading={settings.isLoading}
+          isError={settings.isError}
+          error={settings.error}
+          onRetry={() => settings.refetch()}
+        >
+          {settings.data && (
+            <div className="flex flex-col gap-4 rounded-lg border border-primary/40 bg-surface p-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Select
+                  label={t('ingest.label')}
+                  options={PRICE_PROVIDER_INGEST_OPTIONS.map((v) => ({ value: v, label: v }))}
+                  value={ingestValue}
+                  onChange={(e) => setIngestDraft(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  disabled={!ingestDirty}
+                  loading={ingestMutation.isPending}
+                  onClick={() => ingestMutation.mutate(ingestValue as PriceProvider)}
+                >
+                  <Save size={18} /> {t('ingest.save')}
+                </Button>
+                {ingestDirty && (
+                  <Button variant="ghost" onClick={() => setIngestDraft(null)}>
+                    {tc('cancel')}
+                  </Button>
+                )}
+              </div>
+              {ingestMutation.isSuccess && <Banner variant="success" role="status">{t('ingest.saved')}</Banner>}
+              {ingestMutation.isError && <Banner variant="danger" role="alert">{tc('errorGeneric')}</Banner>}
             </div>
           )}
         </QueryState>
