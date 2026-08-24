@@ -3300,3 +3300,23 @@ _Nota de orquestación (2026-08-23): N-1/N-2/N-3 cerradas en fast-follow backend
 **Dependencia de topología:** si devops inserta otro proxy delante del backend, ajustar el nº de saltos de `trust proxy` (anotado en `main.ts`). (Persistido por el orquestador; el agente seguridad no tiene Write.)
 
 — SEGURIDAD (blue team / AppSec), 2026-08-23 (hotfix trust proxy)
+
+---
+
+## Revisión de seguridad FOCALIZADA — P-47 parte 3 (`TcgcsvSinglesBulkPriceProvider`, commit `73f0fa4`) · 2026-08-23 · VEREDICTO **APROBADO-CON-CONDICIONES**
+
+> **Rol:** seguridad (blue team / AppSec). Revisión estática del nuevo provider de precios singles por-acabado (TCGCSV) y su path de ingesta dedicado (`ingestSinglesForSet`), con lente de dinero. **NO corrijo código:** los dos residuales se rutean a su rol dueño (backend / arquitecto). (Persistido por el orquestador; el agente seguridad no tiene Write.)
+
+**Superficie revisada:** `tcgcsv-singles-bulk.provider.ts` (nuevo), `price-ingest.service.ts` (`ingestSinglesForSet`, guard `provider.source==='tcgcsv_singles'`, `providerFor`), `pricing.service.ts` (`persistMarketReference`, `sourceRank`/`isBetterRef`), `settings.constants.ts` (`PRICE_PROVIDER_VALUES`).
+
+**El código nuevo es money-safe:** identidad de carta 100% server-side (join por `CardProduct.tcgplayerProductId`, solo lectura); autz al dial `PRICE_PROVIDER` restringida a `super_admin`; validación de precio (omite `null`/`≤0`/negativo/`NaN` → nunca $0, nunca copia entre acabados); precedencia no subvertible por dato externo (el atacante no controla `sourceRank`). El path lean no colapsa acabados (sin FinishReconciler en él).
+
+**El merge es SEGURO por ser inerte:** el seed `PRICE_PROVIDER='pokemontcg_io'` deja el provider TCGCSV singles apagado en prod; el código no escribe dinero hasta que se flipe el dial. Por eso el merge NO bloquea deploy.
+
+**Dos condiciones ANTES de flipar `PRICE_PROVIDER=tcgcsv_singles` en prod (esa es la activación real de dinero):**
+- **P47-1 (MEDIA, backend):** `market` externo no se valida con `Number.isFinite` ni cota superior. Un `Infinity`/finito-gigante se clampa en silencio a `MAX_CENTS` (~MX$21.4M) sin alerta. Añadir `Number.isFinite` + cota de cordura + `logger.warn`/AuditLog al clampar (en `tcgcsv-singles-bulk.provider.ts`, tramo `market→cents`).
+- **P47-2 (ALTA, arquitecto→backend):** durabilidad cross-day del override manual. `isBetterRef` ordena `capturedDate` ANTES de `sourceRank`, así que una fila `tcgcsv_singles` del día siguiente puede ganarle a un override manual (`cardProductId=null`). Con P-47 convirtiendo `tcgcsv_singles` en escritor DIARIO, el matiz operativo se vuelve riesgo sistémico. Requiere dictamen del arquitecto sobre §4.27f (el override manual debe ganar independientemente de la fecha) + fix backend.
+
+**Condición del gate:** el merge es seguro (código inerte por el seed); las dos condiciones (P47-2 confirmado/corregido + P47-1 acotado) deben cerrarse **antes de flipar `PRICE_PROVIDER=tcgcsv_singles` en prod**. Sin críticos/altos abiertos en el código mergeado.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23 (P-47 parte 3)
