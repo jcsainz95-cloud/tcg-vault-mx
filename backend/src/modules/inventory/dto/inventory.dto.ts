@@ -28,10 +28,13 @@ import {
   FINISH_VALUES,
   GRADING_COMPANY_VALUES,
   PRODUCT_TYPE_VALUES,
-  RAW_CONDITION_VALUES,
   SEALED_CONDITION_VALUES,
   SEALED_SUBTYPE_VALUES,
 } from '../../../common/enum-values';
+// v2.1.9 (D4, §4.37): `RawCondition` es CLASE R — NO se deriva del schema. «Raw = solo NM» es
+// decisión de PROJECT §H (LOCKED), no un reflejo de la BD; derivarla BORRA la regla el día que el
+// enum crezca. Ver `common/business-rules.ts` para el porqué completo.
+import { ACCEPTED_RAW_CONDITIONS } from '../../../common/business-rules';
 
 /**
  * SEC-N3 (BE-34/WS-E) — tope de `qty` del alta por lote. `nextFolios` expande a
@@ -70,8 +73,10 @@ export class CreateItemDto {
   // sealedProductId el backend lo DERIVA (ancla del set). Ausente donde se requiere → 422 en el servicio.
   @IsOptional() @IsString() cardId?: string;
   @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
-  // v1.1: raw solo NM (se eliminan LP/MP/HP/DMG).
-  @IsOptional() @IsIn(RAW_CONDITION_VALUES) rawCondition?: RawCondition;
+  // PROJECT §H (LOCKED): el raw se opera ÚNICAMENTE en NM — se ELIMINAN LP/MP/HP/DMG. Lista de
+  // CLASE R (§4.37): literal a propósito. NO la derives de `RawCondition`: hoy daría lo mismo, pero el
+  // día que el schema gane `LP` se publicarían cartas no-NM sin que nadie lo decidiera.
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
   // v1.6-finish: acabado de la copia física (default normal). Validado contra
   // card.availableFinishes (SEC-A1); graded/sealed se fuerzan a normal en el servicio.
   @IsOptional() @IsIn(FINISH_VALUES)
@@ -152,7 +157,7 @@ export class BatchInventoryItemInput {
   // v1.39 (P-38): OPCIONAL — el backend deriva la ancla del set cuando viene `sealedProductId`.
   @IsOptional() @IsString() cardId?: string;
   @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
-  @IsOptional() @IsIn(RAW_CONDITION_VALUES) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
   @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
   @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
@@ -241,7 +246,7 @@ export class PublishAllRequestDto {
 export class AdjustmentFoundItemInput {
   @IsString() cardId!: string;
   @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
-  @IsOptional() @IsIn(RAW_CONDITION_VALUES) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
   @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
   @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
@@ -290,7 +295,7 @@ export class BulkRemoveRequestDto {
   @IsOptional() @IsString() batchKey?: string;
   // Filtros OPCIONALES para desambiguar la casilla (cardId, finish, condición) del drawer M1.
   @IsOptional() @IsIn(PRODUCT_TYPE_VALUES) productType?: ProductType;
-  @IsOptional() @IsIn(RAW_CONDITION_VALUES) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
   @IsOptional() @IsIn(SEALED_CONDITION_VALUES) sealedCondition?: SealedCondition;
 }
 

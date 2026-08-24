@@ -1,14 +1,21 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
+  AcquisitionType,
   AdjustmentReason,
   Card,
   Finish,
+  GradingCompany,
   InventoryStatus,
   MovementReason,
+  OwnerType,
+  OwnershipStatus,
   Prisma,
   ProductType,
+  RawCondition,
+  SealedCondition,
   SealedSubtype,
   VariantPriceOverride,
+  VaultZone,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -257,6 +264,104 @@ export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: stri
   { header: 'Precio compra MXN', key: 'buyMxn', width: 18 },
   { header: 'Precio venta MXN', key: 'sellMxn', width: 18 },
 ];
+
+/**
+ * v2.1.9 (S49-R4) — **lista blanca de `InventoryItem` para las respuestas de BACK-OFFICE (M1).**
+ *
+ * `updateItem`, `moveItem`, `markItem` y `createLocation` devolvían la entidad Prisma cruda. Hoy
+ * `InventoryItem` no guarda ni PII ni secretos, así que esta lista **no cambia nada visible**: fija
+ * la forma ACTUAL para que la próxima columna del schema no se auto-publique. Es la misma doctrina
+ * que `toAdminSellRequestDTO` (buylist) y `toAdminShipmentRow` (envíos).
+ *
+ * Es explícitamente una lista de columnas de **back-office**: costo (`acquisitionCostCents`),
+ * procedencia (`acquisitionType`, `sourceSellRequestItemId`) y ubicación (`locationId`) NO viajan a
+ * superficies de cliente — para eso están `HoldingDTO` (§3) y `ListingDTO` (§DTOs), que se
+ * construyen aparte y NO deben "unificarse" con esta.
+ */
+function toAdminInventoryItemRow(i: {
+  id: string;
+  folio: string;
+  cardId: string;
+  productType: ProductType;
+  rawCondition: RawCondition | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition | null;
+  gradingCompany: GradingCompany | null;
+  gradeValue: string | null;
+  certNumber: string | null;
+  locationId: string | null;
+  ownerType: OwnerType;
+  ownerUserId: string | null;
+  ownershipStatus: OwnershipStatus | null;
+  status: InventoryStatus;
+  finish: Finish;
+  listPriceCents: number | null;
+  acquisitionType: AcquisitionType;
+  acquisitionCostCents: number | null;
+  acquisitionPct: number | null;
+  sourceSellRequestItemId: string | null;
+  tcgplayerProductId: number | null;
+  tcgplayerGroupId: number | null;
+  sealedImageUrl: string | null;
+  sealedProductName: string | null;
+  sealedProductId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: i.id,
+    folio: i.folio,
+    cardId: i.cardId,
+    productType: i.productType,
+    rawCondition: i.rawCondition,
+    sealedSubtype: i.sealedSubtype,
+    sealedCondition: i.sealedCondition,
+    gradingCompany: i.gradingCompany,
+    gradeValue: i.gradeValue,
+    certNumber: i.certNumber,
+    locationId: i.locationId,
+    ownerType: i.ownerType,
+    ownerUserId: i.ownerUserId,
+    ownershipStatus: i.ownershipStatus,
+    status: i.status,
+    finish: i.finish,
+    listPriceCents: i.listPriceCents,
+    acquisitionType: i.acquisitionType,
+    acquisitionCostCents: i.acquisitionCostCents,
+    acquisitionPct: i.acquisitionPct,
+    sourceSellRequestItemId: i.sourceSellRequestItemId,
+    tcgplayerProductId: i.tcgplayerProductId,
+    tcgplayerGroupId: i.tcgplayerGroupId,
+    sealedImageUrl: i.sealedImageUrl,
+    sealedProductName: i.sealedProductName,
+    sealedProductId: i.sealedProductId,
+    createdAt: i.createdAt,
+    updatedAt: i.updatedAt,
+  };
+}
+
+/** v2.1.9 (S49-R4) — lista blanca de `VaultLocation` (M1 · ubicaciones CAJA/FILA/SLOT). */
+function toVaultLocationDTO(l: {
+  id: string;
+  zone: VaultZone;
+  box: string;
+  row: string;
+  slot: string;
+  label: string;
+  isActive: boolean;
+  createdAt: Date;
+}) {
+  return {
+    id: l.id,
+    zone: l.zone,
+    box: l.box,
+    row: l.row,
+    slot: l.slot,
+    label: l.label,
+    isActive: l.isActive,
+    createdAt: l.createdAt,
+  };
+}
 
 @Injectable()
 export class InventoryService {
@@ -1600,6 +1705,7 @@ export class InventoryService {
       },
     });
     if (!item) throw BusinessException.notFound();
+    const relations = { card: item.card, location: item.location, movements: item.movements };
     // v1.19-sealed-tcgcsv (§M1): el detalle de un sellado expone la referencia TCGCSV
     // (read-only). Misma regla que el listado: null sin mapeo o sin ingest.
     if (item.productType === 'sealed') {
@@ -1613,9 +1719,11 @@ export class InventoryService {
         );
         ref = found.status === 'priced' ? found : null;
       }
-      return { ...item, sealedMarketRef: ref };
+      return { ...toAdminInventoryItemRow(item), ...relations, sealedMarketRef: ref };
     }
-    return item;
+    // S49-R4: la cabecera pasa por la lista blanca; las relaciones del `include` se adjuntan aparte
+    // (`card`, `location`, `movements` son la vista de detalle de M1, no columnas de la fila).
+    return { ...toAdminInventoryItemRow(item), ...relations };
   }
 
   async updateItem(id: string, dto: UpdateItemDto) {
@@ -1639,7 +1747,8 @@ export class InventoryService {
         'graded items require certNumber to be published',
       );
     }
-    return this.prisma.inventoryItem.update({ where: { id }, data: dto });
+    // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
+    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: dto }));
   }
 
   async moveItem(id: string, dto: MoveItemDto, actorUserId: string) {
@@ -1656,10 +1765,13 @@ export class InventoryService {
         note: dto.note,
       },
     });
-    return this.prisma.inventoryItem.update({
-      where: { id },
-      data: { locationId: dto.toLocationId },
-    });
+    // S49-R4: proyectado.
+    return toAdminInventoryItemRow(
+      await this.prisma.inventoryItem.update({
+        where: { id },
+        data: { locationId: dto.toLocationId },
+      }),
+    );
   }
 
   async markItem(id: string, dto: MarkItemDto, actorUserId: string) {
@@ -1675,7 +1787,8 @@ export class InventoryService {
         note: dto.note,
       },
     });
-    return this.prisma.inventoryItem.update({ where: { id }, data: { status } });
+    // S49-R4: proyectado.
+    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: { status } }));
   }
 
   // ---------------- v1.20 §4.20e — Ajuste por levantamiento físico ----------------
@@ -2284,12 +2397,13 @@ export class InventoryService {
   // ---------------- Locations ----------------
 
   async listLocations() {
-    const data = await this.prisma.vaultLocation.findMany({ orderBy: { label: 'asc' } });
-    return { data };
+    const rows = await this.prisma.vaultLocation.findMany({ orderBy: { label: 'asc' } });
+    return { data: rows.map(toVaultLocationDTO) }; // S49-R4
   }
 
   async createLocation(dto: CreateLocationDto) {
     const label = `${dto.box}-${dto.row}-${dto.slot}`;
-    return this.prisma.vaultLocation.create({ data: { ...dto, label } });
+    // S49-R4: proyectado.
+    return toVaultLocationDTO(await this.prisma.vaultLocation.create({ data: { ...dto, label } }));
   }
 }

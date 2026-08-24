@@ -9,13 +9,31 @@ import { AuditService } from '../audit/audit.service';
 import { UserAuditScope } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 
-class UpdateKycDto {
+export class UpdateKycDto {
   @IsIn(['none', 'pending', 'verified', 'rejected']) kycStatus!: string;
   @IsOptional() @IsInt() @Min(0) capPerRequestCents?: number;
   @IsOptional() @IsInt() @Min(0) capPerMonthCents?: number;
 }
 
-class UpdateStatusDto {
+/**
+ * `PATCH /admin/users/:id/status` — **la lista `['active','blocked']` es una DECISIÓN DE PRODUCTO,
+ * no un espejo del schema. NO la derives de `UserStatus`.** (T-3, techlead — v2.1.9.)
+ *
+ * `UserStatus` tiene TRES valores: `active | blocked | deleted`. Aquí se aceptan dos **a propósito**:
+ * `deleted` lo fija **exclusivamente** `DELETE /admin/users/:id` (`AdminService.deleteUser`), que hace
+ * mucho más que cambiar una columna — **anonimiza la PII**, pone `passwordHash: null`, **incrementa
+ * `tokenVersion`** (revoca los JWT vivos) y borra direcciones/KYC.
+ *
+ * El riesgo concreto que este comentario existe para evitar: el candado de residuo de
+ * `enum-values-parity.spec.ts` marca las listas de enums escritas a mano como infractoras. El día que
+ * alguien «termine» esa derivación y cambie esto por `@IsIn(USER_STATUS_VALUES)`, `PATCH /status`
+ * podría poner `deleted` **saltándose todo `deleteUser`**: quedaría un usuario «eliminado» con su PII
+ * intacta y su sesión viva. Por eso `enum-values.ts` excluye `UserStatus` explícitamente, y por eso
+ * el porqué vive AQUÍ, en el call-site, y no sólo allá donde nadie lo va a leer.
+ *
+ * Fijado por test: `test/admin.user-status-enum.spec.ts` (rechaza `deleted` en este DTO).
+ */
+export class UpdateStatusDto {
   @IsIn(['active', 'blocked']) status!: 'active' | 'blocked';
 }
 

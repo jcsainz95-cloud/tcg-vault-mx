@@ -4,7 +4,6 @@ import {
   GradingCompany,
   Locale,
   ProductType,
-  RawCondition,
   SealedCondition,
   SealedSubtype,
 } from '@prisma/client';
@@ -40,12 +39,25 @@ import {
  * Prisma genera para cada enum un objeto en RUNTIME además del tipo, así que `Object.values(...)` es
  * la lista canónica y no puede desincronizarse del schema por construcción.
  *
- * ### ⚠️ Estas listas son el enum COMPLETO
- * Solo va aquí lo que debe ser **todo** el enum. Un `@IsIn` que a propósito acepta un **subconjunto**
- * (p. ej. `UserStatus` en `PATCH /admin/users/:id/status`, que acepta `active|blocked` pero **no**
- * `deleted`, porque ese lo fija el `DELETE`) **NO** se deriva de aquí: se deja explícito en su sitio,
- * porque su lista es una **decisión de producto**, no un espejo del schema. Confundir las dos cosas
- * haría que derivar rompiera una regla de negocio.
+ * ### ⚠️ Aquí SOLO va la CLASE E (API_CONTRACT §Enums / ARCHITECTURE §4.37)
+ * **Clase E — espeja el schema:** el dominio del enum **es** la regla, así que derivarlo es correcto.
+ * **Clase R — expresa una regla de negocio:** el endpoint acepta a propósito un **subconjunto** fijado
+ * por `PROJECT.md`. Esas **NO** se derivan de aquí: viven en `common/business-rules.ts` (o inline en
+ * su único call-site) declaradas literal y con la cláusula de PROJECT citada al lado.
+ *
+ * **La pregunta que decide la clase** (se contesta *por endpoint*, no por enum): *si mañana alguien
+ * añade un valor a este enum en `schema.prisma`, ¿este endpoint debe aceptarlo **solo**?*
+ * **Sí ⇒ E (aquí). No/depende ⇒ R (fuera de aquí).**
+ *
+ * ### Caso vivo reclasificado (v2.1.9, D4): `RawCondition` SALIÓ de este archivo
+ * En v2.1.8 se derivó `RAW_CONDITION_VALUES` y se metió en cuatro `@IsIn` del alta de inventario. Daba
+ * el mismo resultado —`enum RawCondition { NM }` tiene un solo valor— pero **por accidente, no por
+ * construcción**: «raw = solo NM» es decisión de `PROJECT.md` §H (LOCKED), no un reflejo de la BD. Si
+ * mañana el schema gana `LP`, toda validación derivada lo aceptaría **el mismo día** y se cotizarían y
+ * publicarían cartas no-NM sin que nadie lo decidiera. Vive ahora en `common/business-rules.ts` como
+ * `ACCEPTED_RAW_CONDITIONS`. El otro ejemplar de clase R es `UserStatus` en
+ * `PATCH /admin/users/:id/status` (acepta `active|blocked`, **no** `deleted`), declarado inline en
+ * `admin.controller.ts` porque tiene un solo call-site.
  */
 
 /** Los 7 subtipos de producto sellado. */
@@ -59,9 +71,6 @@ export const FINISH_VALUES = Object.values(Finish);
 
 /** `raw` | `graded` | `sealed`. */
 export const PRODUCT_TYPE_VALUES = Object.values(ProductType);
-
-/** Condiciones de carta suelta (hoy solo `NM`). */
-export const RAW_CONDITION_VALUES = Object.values(RawCondition);
 
 /** Graduadoras soportadas. */
 export const GRADING_COMPANY_VALUES = Object.values(GradingCompany);

@@ -42,6 +42,128 @@ import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.
 const BOUNTY_SHOWCASE_CAP = 50;
 const BOUNTY_CANDIDATE_CAP = 500;
 
+/**
+ * S49-M1 — **la proyección de `SellRequest` hacia una respuesta HTTP, en UN solo sitio.**
+ *
+ * ### El fallo que cierra
+ * `SellRequest.clabeSnapshotEnc` es el blob AES-256-GCM de la CLABE del vendedor, y el contrato
+ * (§M5) es literal: «**nunca** el snapshot cifrado». `getMine`/`adminGet` ya lo sacaban a mano con un
+ * destructuring, pero **el mismo archivo** devolvía la fila CRUDA en cinco rutas más — `respond`
+ * (decline/accept, **al propio cliente**), `receive`, `verify` (alcanzables por `vault_operator`) y
+ * `pay-spei`. El descarte a mano funciona hasta que alguien escribe el siguiente `return`: la regla
+ * vivía en la memoria del que edita, no en el código.
+ *
+ * ### Por qué lista BLANCA y no `delete`/rest-destructuring
+ * Una lista negra sólo protege de las columnas que existían el día que se escribió: la próxima
+ * columna sensible del schema **se auto-publica**. Con lista blanca, una columna nueva **no sale**
+ * hasta que alguien la añada aquí a propósito — y ese alguien está mirando este comentario.
+ * `reveal-clabe` sigue siendo el ÚNICO punto autorizado para la CLABE (con `@MoneyOut()` + auditoría).
+ */
+function toAdminSellRequestDTO(r: {
+  id: string;
+  userId: string;
+  status: SellRequestStatus;
+  quotedTotalCents: number;
+  approvedTotalCents: number | null;
+  ineRequired: boolean;
+  ineProvided: boolean;
+  speiReference: string | null;
+  paidBy: string | null;
+  paidAt: Date | null;
+  createdAt: Date;
+  receivedAt: Date | null;
+  verifiedAt: Date | null;
+  approvedAt: Date | null;
+  adjustmentSentAt: Date | null;
+  deadlineAt: Date | null;
+  closedAt: Date | null;
+}) {
+  return {
+    id: r.id,
+    userId: r.userId,
+    status: r.status,
+    quotedTotalCents: r.quotedTotalCents,
+    approvedTotalCents: r.approvedTotalCents,
+    ineRequired: r.ineRequired,
+    ineProvided: r.ineProvided,
+    speiReference: r.speiReference,
+    // Identidad del súper-admin que liquidó: back-office legítimo, NUNCA en la vista del cliente.
+    paidBy: r.paidBy,
+    paidAt: r.paidAt,
+    createdAt: r.createdAt,
+    receivedAt: r.receivedAt,
+    verifiedAt: r.verifiedAt,
+    approvedAt: r.approvedAt,
+    adjustmentSentAt: r.adjustmentSentAt,
+    deadlineAt: r.deadlineAt,
+    // SEC-D2: dato INTERNO de cumplimiento (ancla la retención de INE). Va en la vista admin; el
+    // schema lo marca «NO se expone en DTOs de cliente», y por eso NO está en la proyección de abajo.
+    closedAt: r.closedAt,
+  };
+}
+
+/**
+ * S49-M1 — proyección de `SellRequest` hacia el **CLIENTE** (`POST /buylist/requests/:id/respond`,
+ * `GET /buylist/requests/:id`). Es la de admin **menos** los dos campos internos: `closedAt` (el
+ * schema: «NO se expone en DTOs de cliente») y `paidBy` (uuid del staff que ejecutó el SPEI — el
+ * vendedor no tiene por qué recibir la identidad del operador). `clabeSnapshotEnc` no aparece en
+ * NINGUNA de las dos: sólo `reveal-clabe` devuelve la CLABE, y en claro.
+ */
+function toCustomerSellRequestDTO(r: Parameters<typeof toAdminSellRequestDTO>[0]) {
+  const { closedAt: _closedAt, paidBy: _paidBy, ...safe } = toAdminSellRequestDTO(r);
+  return safe;
+}
+
+/**
+ * S49-R4 — proyección de `SellRequestItem` para las respuestas de back-office
+ * (`PATCH /admin/buylist/items/:itemId/decision`). Hoy el modelo no tiene columnas sensibles, así
+ * que esta lista NO cambia lo que se ve: fija la forma ACTUAL para que la siguiente columna del
+ * schema **no se publique sola**. Misma doctrina de lista blanca que `toAdminSellRequestDTO`.
+ * (Las relaciones del `include` —`sellRequest`, `card`— quedan fuera por construcción: eran las que
+ * antes se descartaban a mano en la rama idempotente.)
+ */
+function toAdminSellItemRow(i: {
+  id: string;
+  sellRequestId: string;
+  cardId: string;
+  productType: ProductType;
+  rawCondition: RawCondition | null;
+  finish: Finish;
+  cardProductId: number | null;
+  rarity: string | null;
+  marketMxnCents: number | null;
+  priceBasis: PriceBasis | null;
+  marketBracket: MarketBracketType | null;
+  quotedPriceCents: number | null;
+  approvedPriceCents: number | null;
+  itemStatus: SellItemStatus;
+  inventoryItemId: string | null;
+  rejectedAt: Date | null;
+  rejectionReason: string | null;
+}) {
+  return {
+    id: i.id,
+    sellRequestId: i.sellRequestId,
+    cardId: i.cardId,
+    productType: i.productType,
+    rawCondition: i.rawCondition,
+    finish: i.finish,
+    cardProductId: i.cardProductId,
+    rarity: i.rarity,
+    marketMxnCents: i.marketMxnCents,
+    priceBasis: i.priceBasis,
+    marketBracket: i.marketBracket,
+    quotedPriceCents: i.quotedPriceCents,
+    approvedPriceCents: i.approvedPriceCents,
+    itemStatus: i.itemStatus,
+    inventoryItemId: i.inventoryItemId,
+    rejectedAt: i.rejectedAt,
+    rejectionReason: i.rejectionReason,
+    // `category`/`ruleMode`/`ruleValue`/`ruleSource` son columnas LEGACY (v2.0 P-48: nada nuevo las
+    // escribe). Se dejan FUERA a propósito: proyectar es también dejar de publicar lo muerto.
+  };
+}
+
 interface QuoteItemInput {
   cardId: string;
   productType: ProductType;
@@ -750,6 +872,8 @@ export class BuylistService {
             wouldBeCents: monthUsed + quotedTotalCents,
           });
         }
+        // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller (`createRequest`)
+        // proyecta a `{ sellRequestId, status, quotedTotalCents, ineRequired, items }` (contrato §6).
         return tx.sellRequest.create({
           data: {
             userId,
@@ -928,13 +1052,14 @@ export class BuylistService {
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     // v1.18-buylist-rejects (§6): los items del detalle del PROPIO cliente se proyectan como
     // SellItemDTO — cuando itemStatus='rechazada' exponen rejectionReason/rejectedAt y los plazos
-    // derivados (la misma información del correo de rechazo). Además, el snapshot CIFRADO de la
-    // CLABE jamás sale en la respuesta (el contrato: "nunca se devuelve").
-    const { clabeSnapshotEnc: _enc, items, ...rest } = req;
+    // derivados (la misma información del correo de rechazo).
+    // S49-M1: la CABECERA pasa por la MISMA lista blanca de cliente que `respond`. Antes se
+    // descartaba `clabeSnapshotEnc` a mano y el resto se esparcía crudo — así se colaba `closedAt`
+    // (interno, SEC-D2) y se colaría cualquier columna sensible futura del schema.
     return {
-      ...rest,
+      ...toCustomerSellRequestDTO(req),
       sellRequestId: req.id,
-      items: items.map((i) => this.itemDTO(i)),
+      items: req.items.map((i) => this.itemDTO(i)),
     };
   }
 
@@ -944,20 +1069,27 @@ export class BuylistService {
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     if (decision === 'decline') {
       // SEC-D2: transición a estado TERMINAL → sella closedAt (ancla la retención de INE al cierre real).
-      return this.prisma.sellRequest.update({
-        where: { id },
-        data: { status: 'rechazada', closedAt: new Date() },
-      });
+      // S49-M1: la fila resultante se PROYECTA — `closedAt` se acaba de escribir aquí mismo y es
+      // interno, y la fila cruda arrastraría `clabeSnapshotEnc` hasta el cuerpo de la respuesta.
+      return toCustomerSellRequestDTO(
+        await this.prisma.sellRequest.update({
+          where: { id },
+          data: { status: 'rechazada', closedAt: new Date() },
+        }),
+      );
     }
     // accept: mueve items 'ajustada' a 'aprobada' y limpia el plazo de 7d.
     await this.prisma.sellRequestItem.updateMany({
       where: { sellRequestId: id, itemStatus: 'ajustada' },
       data: { itemStatus: 'aprobada' },
     });
-    return this.prisma.sellRequest.update({
-      where: { id },
-      data: { adjustmentSentAt: null, status: 'aprobada', approvedAt: new Date() },
-    });
+    // S49-M1: misma proyección de cliente que la rama `decline` (esta ruta la llama el VENDEDOR).
+    return toCustomerSellRequestDTO(
+      await this.prisma.sellRequest.update({
+        where: { id },
+        data: { adjustmentSentAt: null, status: 'aprobada', approvedAt: new Date() },
+      }),
+    );
   }
 
   // ---------------- Admin M5 ----------------
@@ -1070,13 +1202,14 @@ export class BuylistService {
     if (!req) throw BusinessException.notFound();
     // La CLABE cifrada NUNCA se expone en la vista de detalle; solo por el reveal dedicado.
     // El join de User tampoco se propaga crudo: se proyecta SOLO el AdminSellerRef.
-    const { clabeSnapshotEnc: _enc, user, items, ...safe } = req;
+    // S49-M1: la cabecera pasa por la MISMA lista blanca que `receive`/`verify`/`pay-spei` — antes
+    // era un rest-destructuring (lista NEGRA de un solo campo).
     return {
-      ...safe,
-      seller: this.sellerRef(user),
+      ...toAdminSellRequestDTO(req),
+      seller: this.sellerRef(req.user),
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
-      items: (items ?? []).map((i) => this.itemDTO(i)),
-      clabeMasked: maskClabe(this.pii.decryptOptional(_enc)),
+      items: (req.items ?? []).map((i) => this.itemDTO(i)),
+      clabeMasked: maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc)),
     };
   }
 
@@ -1106,10 +1239,14 @@ export class BuylistService {
       where: { sellRequestId: id, itemStatus: { in: ['cotizada', 'precio_pendiente'] } },
       data: { itemStatus: 'recibida' },
     });
-    return this.prisma.sellRequest.update({
-      where: { id },
-      data: { status: 'recibida', receivedAt: new Date() },
-    });
+    // S49-M1: proyección admin (sin `clabeSnapshotEnc`). Ruta alcanzable por `vault_operator`, que
+    // es justamente el rol de MENOR confianza del back-office (SEC-A4) — no debe ver PII bancaria.
+    return toAdminSellRequestDTO(
+      await this.prisma.sellRequest.update({
+        where: { id },
+        data: { status: 'recibida', receivedAt: new Date() },
+      }),
+    );
   }
 
   async verify(id: string) {
@@ -1118,10 +1255,13 @@ export class BuylistService {
       where: { sellRequestId: id, itemStatus: 'recibida' },
       data: { itemStatus: 'verificacion' },
     });
-    return this.prisma.sellRequest.update({
-      where: { id },
-      data: { status: 'verificacion', verifiedAt: new Date() },
-    });
+    // S49-M1: proyección admin (sin `clabeSnapshotEnc`), igual que `receive`.
+    return toAdminSellRequestDTO(
+      await this.prisma.sellRequest.update({
+        where: { id },
+        data: { status: 'verificacion', verifiedAt: new Date() },
+      }),
+    );
   }
 
   /**
@@ -1194,8 +1334,9 @@ export class BuylistService {
       // Idempotencia: re-reject sobre un ítem ya `rechazada` = no-op (200 con el estado actual;
       // NO re-fija rejectedAt, NO re-envía correo).
       if (item.itemStatus === 'rechazada') {
-        const { sellRequest: _sr, card: _card, ...plain } = item;
-        return plain;
+        // S49-R4: lista blanca en vez del rest-destructuring (que sólo excluía las dos relaciones
+        // del `include` y dejaba pasar cualquier columna futura de `SellRequestItem`).
+        return toAdminSellItemRow(item);
       }
       // `reason` obligatorio (3–500 chars tras trim). El DTO ya lo valida (400 VALIDATION_ERROR);
       // esto es defensa en profundidad para llamadas internas/whitespace-only.
@@ -1226,7 +1367,7 @@ export class BuylistService {
       // reject, TRAS el recompute. Si NO queda ningún ítem no-rechazado, cierra la solicitud a
       // `rechazada`+`closedAt`. NO toca montos (BL-1 ya lo hizo) NI envía correos.
       await this.maybeAutoRejectRequest(item.sellRequestId);
-      return updated;
+      return toAdminSellItemRow(updated); // S49-R4
     }
     // RB-3: cap AML efectivo = override por-KYC del usuario si existe, si no el dial global.
     // Misma fuente que honra `createRequest` (evita rechazar una aprobación legítima de un
@@ -1269,7 +1410,7 @@ export class BuylistService {
     // RB-6 / SEC-D3: deriva y persiste `approvedTotalCents` server-side desde los montos aprobados
     // por ítem, en el punto donde esos montos cambian. Lo lee el P&L / la tarjeta "buylist del periodo".
     await this.recomputeApprovedTotal(item.sellRequestId);
-    return updated;
+    return toAdminSellItemRow(updated); // S49-R4
   }
 
   /**
@@ -1605,8 +1746,10 @@ export class BuylistService {
     if (!req) throw BusinessException.notFound();
     // SEC-M5: idempotencia — si ya está pagada, no se hace un segundo asiento; se
     // devuelve el estado existente (dos POST /pay-spei concurrentes o reintentos).
+    // S49-M1: proyectado — este `req` viene de un `findUnique` SIN select, o sea con el snapshot
+    // cifrado de la CLABE dentro. Es el camino MÁS fácil de alcanzar (basta re-postear el pago).
     if (req.status === 'pagada') {
-      return req;
+      return toAdminSellRequestDTO(req);
     }
     if (!['aprobada', 'verificacion'].includes(req.status) || !req.verifiedAt) {
       throw BusinessException.validation(
@@ -1649,13 +1792,17 @@ export class BuylistService {
         if (res.count !== 1) return null;
         // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
         await this.countBountyAcquisitionsTx(tx, id, paidBy);
-        return tx.sellRequest.findUnique({ where: { id } });
+        const row = await tx.sellRequest.findUnique({ where: { id } });
+        // S49-M1: se proyecta DENTRO de la tx, para que el snapshot cifrado no sobreviva ni como
+        // variable local del método (`paid` es lo que se devuelve tal cual al controller).
+        return row ? toAdminSellRequestDTO(row) : null;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
     if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({ where: { id } });
-      if (current?.status === 'pagada') return current;
+      // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
+      if (current?.status === 'pagada') return toAdminSellRequestDTO(current);
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'Payment allowed only after receipt/verification and approval',

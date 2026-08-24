@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
-import { Finish, MarketBracket, Prisma, ProductType, Role } from '@prisma/client';
+import { Finish, KycStatus, MarketBracket, Prisma, ProductType, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
@@ -15,6 +15,70 @@ import {
   isValidEmailFormat,
   normalizeEmail,
 } from '../../common/validation/credentials';
+
+/**
+ * v2.1.9 (R1) — **lista BLANCA de columnas de `KycProfile` que pueden salir de una respuesta admin.**
+ *
+ * Lo que deja fuera es el punto: `rfcEnc`, `clabeEnc` (PII cifrada en reposo), `ineFrontKey`/
+ * `ineBackKey` (llaves de objeto R2 del INE) y **`clabeHmac`** — el *blind index* determinista, que
+ * existe precisamente para comparar CLABEs SIN descifrarlas y por tanto **nunca** debe salir del
+ * servidor. Al ser un `select` de Prisma, esas columnas ni siquiera se leen de la BD.
+ *
+ * `ineFrontKey`/`ineBackKey` SÍ se seleccionan, pero **sólo para derivar `ineOnFile: boolean`** en
+ * `toAdminKycDTO` — exactamente el mismo trato que ya les da `getUser`. Las llaves no viajan.
+ */
+const ADMIN_KYC_SELECT = {
+  id: true,
+  userId: true,
+  legalName: true,
+  kycStatus: true,
+  capPerRequestCentsOverride: true,
+  capPerMonthCentsOverride: true,
+  verifiedBy: true,
+  verifiedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  // SOLO para `ineOnFile`; no se exponen (ver toAdminKycDTO).
+  ineFrontKey: true,
+  ineBackKey: true,
+} satisfies Prisma.KycProfileSelect;
+
+/**
+ * v2.1.9 (R1) — proyección del KYC hacia el back-office. Espeja la que `getUser` ya emite
+ * (`AdminKycProfileDTO` del contrato §M6): estado, límites y `ineOnFile`; **cero** PII cifrada.
+ * Los `*Override` se renombran a `capPerRequestCents`/`capPerMonthCents`, que es como los llama el
+ * contrato y como `getUser` los devuelve — el consumidor recibe la forma que ya conoce.
+ */
+function toAdminKycDTO(k: {
+  id: string;
+  userId: string;
+  legalName: string | null;
+  kycStatus: KycStatus;
+  capPerRequestCentsOverride: number | null;
+  capPerMonthCentsOverride: number | null;
+  verifiedBy: string | null;
+  verifiedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  ineFrontKey: string | null;
+  ineBackKey: string | null;
+}) {
+  return {
+    id: k.id,
+    userId: k.userId,
+    legalName: k.legalName,
+    kycStatus: k.kycStatus,
+    capPerRequestCents: k.capPerRequestCentsOverride,
+    capPerMonthCents: k.capPerMonthCentsOverride,
+    verifiedBy: k.verifiedBy,
+    verifiedAt: k.verifiedAt,
+    createdAt: k.createdAt,
+    updatedAt: k.updatedAt,
+    // El INE se reduce a un booleano: al back-office le basta saber SI está en archivo; la imagen
+    // se sirve por presigned GET dedicado, nunca publicando su object key en un cuerpo de respuesta.
+    ineOnFile: Boolean(k.ineFrontKey && k.ineBackKey),
+  };
+}
 
 /**
  * Ventana de fechas de los reportes. v2.1.6 (fase de seguridad) — **valida**: antes hacía
@@ -375,6 +439,22 @@ export class AdminService {
     });
   }
 
+  /**
+   * v2.1.9 (R1 — pentester, Media) — **proyectado**.
+   *
+   * Devolvía la entidad `KycProfile` COMPLETA: `rfcEnc`, `clabeEnc`, `ineFrontKey`, `ineBackKey` y —
+   * lo más grave— **`clabeHmac`**, el *blind index* determinista de la CLABE. Ese HMAC está diseñado
+   * para **no salir jamás del servidor**: es lo que permite comparar CLABEs sin descifrarlas, así que
+   * publicarlo entrega un oráculo de igualdad («¿estas dos cuentas comparten CLABE?») y un valor
+   * pre-computable contra un diccionario de CLABEs si la clave HMAC se filtrara.
+   *
+   * La decisión ya existía y esta ruta la ignoraba: la ruta hermana `getUser` (mismo `super_admin`)
+   * borra a propósito `clabeEnc`/`rfcEnc`/`clabeHmac` y reduce el INE a un booleano `ineOnFile`. Aquí
+   * se aplica **esa misma** proyección — no una inventada — vía `ADMIN_KYC_SELECT` + `toAdminKycDTO`.
+   *
+   * El `select` es lista BLANCA a nivel de BD: la PII cifrada **ni siquiera se lee**, así que una
+   * columna sensible futura tampoco se auto-publica (la clase, no sólo el caso).
+   */
   async updateUserKyc(
     id: string,
     kycStatus: string,
@@ -382,7 +462,8 @@ export class AdminService {
     capPerMonthCents?: number,
     verifiedBy?: string,
   ) {
-    return this.prisma.kycProfile.upsert({
+    const row = await this.prisma.kycProfile.upsert({
+      select: ADMIN_KYC_SELECT,
       where: { userId: id },
       create: {
         userId: id,
@@ -400,6 +481,7 @@ export class AdminService {
         verifiedAt: kycStatus === 'verified' ? new Date() : undefined,
       },
     });
+    return toAdminKycDTO(row);
   }
 
   /**

@@ -137,6 +137,45 @@ export const MULTIPLIER_BP_MIN = 10_000; // 1.00× — venta nunca por debajo de
 export const MULTIPLIER_BP_MAX = 1_000_000; // 100× — techo anti-typo
 export const PCT_BP_MAX = 10_000; // 100 % — comprar arriba de mercado no tiene sentido
 
+/**
+ * v2.1.9 (D1, §4.36.3 NORMATIVO) — **techo de CORDURA de las constantes del eje: MX$10,000.**
+ *
+ * ### El caso que lo obliga
+ * Hasta v2.1.8 `floorCents` y `binCents` eran las **únicas** entradas de la curva sin cota superior,
+ * y justo las que fijan el **piso de venta** y el **mínimo de compra**. QA lo demostró en vivo:
+ *
+ * ```
+ * PUT /admin/pricing/curve {"sale":{"floorCents":2000000000000000,…}}  → HTTP 200
+ * GET /catalog/cards                     → venta 2147483647 · basis "floor"  — TODA la vitrina
+ * ```
+ *
+ * Una curva con piso gigante está **bien formada**, así que `sanitizePricingCurve` la acepta
+ * (`fellBack=false`) y no hay respaldo al seed que la ataje.
+ *
+ * ### Por qué NO es `MAX_CENTS_CURVE`
+ * Son magnitudes distintas. `marketCents` describe **el valor de una carta** —que legítimamente puede
+ * ser alto— y su techo es de **representabilidad** (Int32, rango seguro de `interpExact`).
+ * `floorCents`/`binCents` describen el precio mínimo de **cualquier** carta de la tienda: son las
+ * únicas entradas que **por sí solas** republican el catálogo entero. Con `MAX_CENTS_CURVE` como
+ * techo, el caso de arriba **seguiría pasando** con `floorCents: 2147483647` — un techo que no cambia
+ * el síntoma es teatro.
+ *
+ * ### De dónde sale el número
+ * (1) el mayor límite de dinero por-usuario que declara PROJECT §E (tope MENSUAL de buylist
+ * MX$10,000); (2) **400×** la semilla del piso y **10 000×** la del bin (§N.2); (3) **2 147×** por
+ * debajo de Int32 ⇒ la vitrina saturada queda **inalcanzable por construcción**; (4) el precedente de
+ * este mismo archivo (`MULTIPLIER_BP_MAX` = «100×, techo anti-typo»).
+ *
+ * ### Lo que este techo NO hace — que nadie lo dé por cerrado
+ * **No ataja «un cero de más».** Con la semilla en MX$25, un typo a MX$250 (`25000`) **pasa y debe
+ * pasar**: es calibración plausible, y el error y la intención escriben el MISMO número. Ese caso se
+ * cubre **viéndolo**, con dos señales que ya existen: `constantWon` por sonda en el preview (piso
+ * disparado ⇒ `true` en TODAS las sondas) y el contador `premium_at_floor` de
+ * `GET /admin/pricing/pending` (§4.36.5c: «sube solo ⇒ piso mal calibrado»). No hace falta mecanismo
+ * nuevo.
+ */
+export const MAX_CURVE_CONSTANT_CENTS = 1_000_000; // MX$10,000 — techo de CORDURA (no de Int32)
+
 // ============================================================================
 // Interpolación (obligatoria, NUNCA escalones — PROJECT §N.1 / criterio 81)
 // ============================================================================
@@ -746,9 +785,12 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
   }
 
   // ---- V3: tipos y rangos ---------------------------------------------------
-  if (!isInt(sale.floorCents) || sale.floorCents < 0) {
+  // v2.1.9 (D1): techo de CORDURA — el piso y el bin son las únicas entradas que por sí solas fijan el
+  // precio de TODO el catálogo (ver `MAX_CURVE_CONSTANT_CENTS`). NO es `MAX_CENTS_CURVE`: con Int32 el
+  // caso que QA demostró en vivo (`floorCents: 2147483647`) seguiría pasando.
+  if (!isInt(sale.floorCents) || sale.floorCents < 0 || sale.floorCents > MAX_CURVE_CONSTANT_CENTS) {
     return [
-      err('VALIDATION_ERROR', 'sale.floorCents must be an integer >= 0 (cents)', {
+      err('VALIDATION_ERROR', `sale.floorCents must be an integer in [0, ${MAX_CURVE_CONSTANT_CENTS}] (cents)`, {
         axis: 'sale',
         // No es un punto de la tabla ⇒ `index` en `null` EXPLÍCITO. Un campo normado por §M2 tiene
         // que ESTAR aunque su valor sea nulo; omitirlo devuelve al consumidor a adivinar.
@@ -757,9 +799,11 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
       }),
     ];
   }
-  if (!isInt(buy.binCents) || buy.binCents < 0) {
+  // El techo del bin es EXPLÍCITO aunque `BIN_ABOVE_FLOOR` lo acote transitivamente: V3 corta ANTES de
+  // que ese invariante se evalúe, y apoyarse solo en él señalaría el campo equivocado en el editor.
+  if (!isInt(buy.binCents) || buy.binCents < 0 || buy.binCents > MAX_CURVE_CONSTANT_CENTS) {
     return [
-      err('VALIDATION_ERROR', 'buy.binCents must be an integer >= 0 (cents)', {
+      err('VALIDATION_ERROR', `buy.binCents must be an integer in [0, ${MAX_CURVE_CONSTANT_CENTS}] (cents)`, {
         axis: 'buy',
         index: null,
         field: 'binCents',

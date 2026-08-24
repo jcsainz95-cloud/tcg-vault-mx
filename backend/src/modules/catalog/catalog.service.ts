@@ -12,6 +12,8 @@ import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } fr
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
 // antes interpolada a mano en 3 sitios de este archivo (riesgo de drift silencioso). Mismo string.
 import { variantKey } from '../../common/variant-key';
+// v2.1.9 (D4): lista de CLASE R — «raw = solo NM» (PROJECT §H). Ver `common/business-rules.ts`.
+import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
 // v1.33 (P-27, §4.31d): master set combinado en el STOREFRONT. `GET /catalog/sets`+`/facets` PLIEGAN
 // el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
 // presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
@@ -21,7 +23,10 @@ import { MASTER_SET_GROUPS, partExternalIds } from '../../config/master-set-grou
 // fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
 // se rechaza con 400 VALIDATION_ERROR (ver `validateEnum`).
 const PRODUCT_TYPES = new Set<string>(Object.values(ProductType));
-const RAW_CONDITIONS = new Set<string>(Object.values(RawCondition));
+// v2.1.9 (D4, §4.37): el filtro público de condición es CLASE R, no un espejo del schema. PROJECT §H:
+// «el filtro de condición para raw refleja únicamente NM». Derivarlo de `RawCondition` haría que un
+// valor nuevo del enum se volviera filtrable en Compra el mismo día, sin decisión de nadie.
+const RAW_CONDITIONS = new Set<string>(ACCEPTED_RAW_CONDITIONS);
 const SEALED_SUBTYPES = new Set<string>(Object.values(SealedSubtype));
 const FINISHES = new Set<string>(Object.values(Finish));
 

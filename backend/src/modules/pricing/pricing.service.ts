@@ -450,6 +450,8 @@ export class PricingService {
    * cardId → PRODUCT_CARD_MISMATCH). Reusa el `@unique tcgplayerProductId` de M-31 (§4.27b).
    */
   async findCardProductByTcgId(tcgplayerProductId: number): Promise<CardProduct | null> {
+    // PROJECTION-EXEMPT: lectura interna de resolución (`findCardProductByTcgId`); el caller decide
+    // PRODUCT_NOT_FOUND / PRODUCT_CARD_MISMATCH y proyecta lo que expone (`CardProductDTO`).
     return this.prisma.cardProduct.findUnique({ where: { tcgplayerProductId } });
   }
 

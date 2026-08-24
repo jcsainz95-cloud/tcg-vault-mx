@@ -139,6 +139,8 @@ export class GuestCheckoutService {
       // `null`: NO se escribe titularidad, la pieza sigue siendo de la plataforma durante todo el
       // ciclo — invariante §4-G.0-1 (un invitado no tiene bóveda).
       await this.orders.reserveItems(tx, items, null);
+      // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller proyecta la respuesta del
+      // checkout de invitado (orderId/orderNumber/breakdown/stripe), nunca la fila `Order`.
       return tx.order.create({
         data: {
           userId: null,
@@ -288,6 +290,9 @@ export class GuestCheckoutService {
       // Identificar el pedido ≠ leerlo: la lectura (§4-G.3) sí exige un token vigente.
       const orderId = await this.tokens.orderIdForSelector(dto.token);
       if (!orderId) return null;
+      // PROJECTION-EXEMPT: helper PRIVADO (`findOrderForResend`); resuelve el pedido para decidir a
+      // qué correo se reenvía el enlace. Su valor NO sale en ninguna respuesta (§4-G.4 responde igual
+      // exista o no el pedido, por anti-enumeración).
       return this.prisma.order.findUnique({ where: { id: orderId } });
     }
     const order = await this.prisma.order.findUnique({
