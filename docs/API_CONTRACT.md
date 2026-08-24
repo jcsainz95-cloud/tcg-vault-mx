@@ -2,7 +2,32 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.4-buy-monotonic).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.5-details-shape).
+>
+> **Changelog v2.1.5-details-shape (2026-08-24, arquitecto — hallazgo de frontend al cablear V9 + corrección de dos
+> errores propios detectados por QA. ARCHITECTURE §4.36.1 / §4.36.3. ADITIVO en `details`; un rango se ENSANCHA.):**
+> - **`details` queda NORMADO campo por campo — se acabó el «…» (§M2).** El contrato decía
+>   `details: { axis, index, marketCents, … }` y dejaba **el segundo extremo del tramo dentro del «…»**. Backend emite
+>   `index2`/`marketCentsTo`; frontend declaró `toIndex`/`toMarketCents` —nombres que **inventó y que nadie podía
+>   contradecir**— y **el segundo extremo nunca se marcó**. No era un fallo de V9: afectaba a
+>   `SALE_CURVE_NOT_MONOTONIC` y `DUPLICATE_BREAKPOINT` **desde E9**. **Se norman `index2` y `marketCentsTo`** (los
+>   nombres que ya emite el servidor; no se renombran por estética).
+> - **La auditoría encontró CUATRO códigos más con el mismo hueco latente:** `BUY_ABOVE_SALE` (necesita
+>   `multiplierBp`+`pctBp` para su copy — que el front tenía que **adivinar o recalcular**), `BIN_ABOVE_FLOOR`
+>   (`binCents`/`floorCents`), `ROUNDING_LADDER_INVALID` (`bandIndex` — **no** `index`: indexa `rounding[]`, no
+>   `points[]`) y `SALE_BELOW_MARKET` (`multiplierBp`). **Todos normados.**
+> - **Convención transversal nueva:** **ningún campo que un consumidor deba leer puede vivir dentro de un «…»**. *El
+>   contrato no mintió: no dijo* — y un hueco de especificación hizo el mismo daño que una equivocada, con el
+>   agravante de que **ningún test de contrato podía cazarlo**.
+> - **`multiplierBp`: V3 baja su piso de `10000` a `0`** — V3 (representabilidad, **bloquea 422**) y V4 (negocio,
+>   `SALE_BELOW_MARKET`, **no bloquea en el preview**) eran **el mismo predicado con manejos opuestos**, lo que hacía
+>   a **V4 inalcanzable** y le impedía al previsualizador enseñar en pesos una curva que vendiera bajo mercado.
+> - **Se corrige una afirmación FALSA del diseño** (detectada por QA): «el operando de `rawCents` es siempre ≥ 0 por
+>   construcción». Quien garantiza el signo es **V3** (bloqueante en ambas rutas), **no V4**; y las funciones de
+>   cálculo deben ser **defensivas ante negativos** en vez de apoyarse en «no puede pasar» — que es la clase exacta de
+>   suposición que produjo I1.
+>
+> Versión previa: v2.1.4-buy-monotonic.
 >
 > **Changelog v2.1.4-buy-monotonic (2026-08-24, arquitecto — hallazgo del techlead + endurecimiento. ARCHITECTURE
 > §4.36.3 / §4.36.8a. ADITIVO: un código de error nuevo y dos cotas; ningún DTO cambia de forma.):**
@@ -1583,7 +1608,8 @@
 - **Códigos nuevos de la CURVA (v2.0, P-48 — `PUT /api/v1/admin/pricing/curve`; detalle en §M2 «Curva de precio por
   VALOR DE MERCADO» y ARCHITECTURE §4.36.3).** Todos son **`422`**, todos se validan **al GUARDAR** (no solo en
   runtime), todos se evalúan sobre el **objeto completo** (no sobre un delta) y **todos indican QUÉ PUNTO lo rompe**
-  en `details: { axis: "sale" | "buy", index: number, marketCents: number, … }` (PROJECT §N.3, criterio 87).
+  en `details`, cuya **forma está normada campo por campo en §M2** (v2.1.5 — **sin «…»**: el segundo extremo del
+  tramo es `index2`/`marketCentsTo`, y cada código declara sus campos exactos) (PROJECT §N.3, criterio 87).
   **v2.1:** los **mismos códigos y el mismo `details`** los produce `POST /admin/pricing/curve/preview`, pero repartidos
   por **computabilidad**: los que **impiden calcular** (`VALIDATION_ERROR`, `CURVE_EMPTY`, `DUPLICATE_BREAKPOINT`,
   `ROUNDING_LADDER_INVALID` estructural) salen como **`422`** también en el preview; los que **sí dejan calcular**
@@ -1596,13 +1622,14 @@
   - **`422 SALE_BELOW_MARKET`** — algún punto con `multiplierBp < 10000`: **ningún precio de venta puede caer por
     debajo del mercado**. `details.multiplierBp` señala el punto.
   - **`422 SALE_CURVE_NOT_MONOTONIC`** — la curva de venta resultante **no es monótona creciente** (más mercado
-    produciría **menos** precio). Se verifica algebraicamente por tramo, **no por muestreo**. `details` señala el tramo
-    `(index, index+1)` infractor. **v2.1.2:** el invariante se afirma sobre **el precio que se cobra**
+    produciría **menos** precio). Se verifica algebraicamente por tramo, **no por muestreo**. `details` señala **los
+    dos extremos** del tramo infractor (`index`/`marketCents` + `index2`/`marketCentsTo`; §M2, forma normada). **v2.1.2:** el invariante se afirma sobre **el precio que se cobra**
     (`roundUp(max(piso, ROUND_HALF_UP(m·k(m)/10000)), escalera)`) y no sobre una aproximación continua suya; lo
     sostiene la **prohibición de cuantizar** el multiplicador interpolado (ARCHITECTURE §4.36.1). Es lo que hace
     cumplible el **criterio 87(a)** *de verdad*: antes se aceptaban curvas cuya venta real **sí** bajaba.
   - **`422 BUY_CURVE_NOT_MONOTONIC` (NUEVO v2.1.4)** — la curva de **compra** **no es monótona creciente**: existe un
-    tramo donde **más mercado paga MENOS**. `details: { axis: "buy", index, marketCents, … }` con el tramo infractor.
+    tramo donde **más mercado paga MENOS**. `details: { axis: "buy", index, marketCents, index2, marketCentsTo }` —
+    **los DOS extremos del tramo** (§M2, forma normada).
     **Es el hermano de `SALE_CURVE_NOT_MONOTONIC` y no lo cubría nadie:** V5 solo iteraba el eje de venta y
     `BUY_ABOVE_SALE` solo ata la compra **en relativo** (por debajo de la venta), así que el monto pagado podía bajar
     **en absoluto** mientras el mercado subía — misma clase que I1, pero **silenciosa**, porque la compra no se
@@ -1889,7 +1916,13 @@ SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fall
 // el multiplicador INTERPOLADO entre dos puntos NO se cuantiza: el precio se computa en UNA sola expresión racional
 // exacta y el único redondeo de la cadena es el de centavos finales. Cuantizar el interpolado a bp entero volvía la
 // venta NO monótona (mercado $717.10 ⇒ $800 / $717.11 ⇒ $775 con una curva legal). ARCHITECTURE §4.36.1.
-SaleCurvePointDTO = { marketCents: number, multiplierBp: number }   // 1.60× = 16000 ; rango [10000, 1000000]
+// v2.1.5 — OJO con los DOS rangos del multiplicador, que son distintos a propósito:
+//   * REPRESENTABILIDAD (V3, bloquea 422 SIEMPRE, también en el preview): multiplierBp ∈ [0, 1000000].
+//   * NEGOCIO (V4, `SALE_BELOW_MARKET`, NO bloquea en el preview): multiplierBp >= 10000 («nunca por debajo del
+//     mercado»). Antes V3 exigía >= 10000 y hacía a V4 INALCANZABLE: el previsualizador no podía enseñar en pesos
+//     una curva que vendiera bajo mercado, que es justo para lo que existe el reparto 422/200. Ver §M2.
+//   `marketCents ∈ [0, MAX_CENTS]` (2_147_483_647) en ambas curvas.
+SaleCurvePointDTO = { marketCents: number, multiplierBp: number }   // 1.60× = 16000 ; V3 [0, 1000000] · V4 >= 10000
 BuyCurvePointDTO  = { marketCents: number, pctBp: number }          // 30 %  = 3000  ; rango [0, 10000]
 // Escalera de redondeo ↑ — SOLO VENTA (la compra no se redondea). La BANDA la decide el monto ANTES de redondear y se
 // elige UNA SOLA VEZ: si el redondeo cruza el umbral, NO se re-evalúa. `uptoCents: null` = banda abierta (la última).
@@ -4790,7 +4823,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
     | Código `422` | Invariante que protege |
     |---|---|
-    | `VALIDATION_ERROR` | tipos/rangos: **`marketCents ∈ [0, MAX_CENTS]`** entero (v2.1.4 — el techo importa: `interpExact` computa `num` en aritmética `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro); `multiplierBp ∈ [10000, 1000000]`; `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` |
+    | `VALIDATION_ERROR` | tipos y rangos **de REPRESENTABILIDAD** (no de negocio): **`marketCents ∈ [0, MAX_CENTS]`** entero (v2.1.4 — el techo importa: `interpExact` computa `num` en aritmética `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro); **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`); `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` |
     | `CURVE_EMPTY` | `sale.points` y `buy.points` deben tener **≥ 1** punto (sin puntos no hay curva) |
     | `DUPLICATE_BREAKPOINT` | dos puntos con el **mismo `marketCents`** en la misma curva |
     | `SALE_BELOW_MARKET` | **ningún precio de venta cae por debajo del mercado** ⇒ `multiplierBp ≥ 10000` **en cada punto** |
@@ -4798,6 +4831,46 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     | `BUY_ABOVE_SALE` | **la compra queda ESTRICTAMENTE por debajo de la venta en TODO el dominio** ⇒ **v2.1.2:** `multiplierBp(m) − pctBp(m) ≥ 1` (una unidad entera de la escala compartida) en la unión de los puntos de ambas curvas. Antes era `<` sobre los valores continuos, y dos valores distintos dentro del mismo centavo colapsaban a `compra == venta` (margen cero) |
     | **`BUY_CURVE_NOT_MONOTONIC`** | **(NUEVO v2.1.4)** la curva de **COMPRA** es monótona creciente **sobre el monto que se PAGA** — más mercado **nunca** paga menos. `BUY_ABOVE_SALE` solo ata la compra en **relativo** (por debajo de la venta); esto la ata en **absoluto**. Mismo chequeo algebraico de extremos que `SALE_CURVE_NOT_MONOTONIC`, aplicado a `buy.points`. `details` con `axis:"buy"` + el tramo `(index, index+1)` |
     | `BIN_ABOVE_FLOOR` | `binCents < floorCents` (el caso en que ambos ejes saturan en su constante) |
+
+  - **⚠️ FORMA DE `details` — NORMADA CAMPO POR CAMPO (v2.1.5). Nada de «…».** Cada campo que un consumidor tiene que
+    leer va **nombrado aquí**. Aplica igual al `PUT` y a `violations[]` del `preview`.
+
+    | Código | `details` (campos EXACTOS) | Qué consume el front (DESIGN_SYSTEM §21.4b/c) |
+    |---|---|---|
+    | `VALIDATION_ERROR` | `{ axis: "sale"\|"buy", index: number, field: string }` | marca **el campo** inline (§21.4a), no el resumen |
+    | `CURVE_EMPTY` | `{ axis }` | «La curva de {venta\|compra} se quedó sin puntos» |
+    | `DUPLICATE_BREAKPOINT` | `{ axis, index, index2, marketCents }` | marca **las dos** filas colisionadas + `{m}` |
+    | `SALE_BELOW_MARKET` | `{ axis: "sale", index, marketCents, multiplierBp }` | marca la fila + `{m}` |
+    | `SALE_CURVE_NOT_MONOTONIC` | `{ axis: "sale", index, marketCents, index2, marketCentsTo }` | marca **los DOS extremos** + `{m0}`=`marketCents`, `{m1}`=`marketCentsTo` |
+    | `BUY_CURVE_NOT_MONOTONIC` | `{ axis: "buy", index, marketCents, index2, marketCentsTo }` | ídem, eje compra |
+    | `BUY_ABOVE_SALE` | `{ marketCents, multiplierBp, pctBp, saleIndex?, buyIndex? }` | `{m}`, `{pct}`=`pctBp/100`, `{mult}`=`multiplierBp/10000`; marca la fila en **ambas** caras |
+    | `BIN_ABOVE_FLOOR` | `{ binCents, floorCents }` | `{bin}`, `{floor}`. **Sin `axis`/`index`**: es una pareja de constantes, no un punto |
+    | `ROUNDING_LADDER_INVALID` | `{ axis: "sale", bandIndex, uptoCents, stepCents }` | marca **la banda** infractora de la escalera |
+
+    - **`index2` / `marketCentsTo` son el SEGUNDO extremo del tramo.** Los errores de **tramo** (`*_NOT_MONOTONIC`) y
+      la colisión (`DUPLICATE_BREAKPOINT`) describen un problema **entre dos puntos**: marcar solo uno deja al dueño
+      sin la mitad de la información. *(Se normalizan **estos** nombres —los que el backend ya emite— y no unos más
+      simétricos tipo `indexTo`: renombrar código que funciona por estética no vale el churn. La asimetría
+      `index2`/`marketCentsTo` es deliberada y queda documentada, no es un descuido.)*
+    - **`multiplierBp` y `pctBp` viajan en el `details` de `BUY_ABOVE_SALE`** — **el front NO los recalcula**. Serían
+      una interpolación en el cliente, o sea justo la duplicación de fórmula que el `preview` existe para eliminar
+      (§4.36.8a). Van en **bp**; el formateo a `%`/`×` es display.
+    - **`bandIndex` no es `index`.** Indexa `sale.rounding[]`, no `sale.points[]`. Nombre distinto a propósito: un
+      `index` ambiguo entre dos colecciones es el mismo tipo de hueco que se está cerrando.
+
+  - **📌 CONVENCIÓN NORMATIVA DE `details` (transversal, no solo la curva).** **Ningún campo que un consumidor deba
+    leer puede quedar dentro de un «…».** Si un `details` lleva algo que la UI tiene que pintar o usar para marcar, va
+    **nombrado en el contrato**.
+    > **Por qué se eleva a convención:** un hueco aquí produjo un bug **silencioso** que vivió desde E9. El contrato
+    > normaba `details: { axis, index, marketCents, … }` y dejaba el segundo extremo dentro del «…»; backend emitió
+    > `index2`/`marketCentsTo`, el frontend declaró `toIndex`/`toMarketCents` —nombres que **inventó y que nadie
+    > podía contradecir, porque no estaban normados**— y **el segundo extremo del tramo nunca se marcó**. No era un
+    > fallo de V9: afectaba a `SALE_CURVE_NOT_MONOTONIC` y `DUPLICATE_BREAKPOINT` **desde antes**.
+    > **El contrato no mintió: no dijo.** Y un hueco de especificación hizo el mismo daño que una especificación
+    > equivocada, con el agravante de que **ningún test de contrato podía cazarlo** — no había nada que contradecir.
+    > La auditoría que disparó este hallazgo encontró **cuatro códigos más** en la misma situación
+    > (`BUY_ABOVE_SALE`, `BIN_ABOVE_FLOOR`, `ROUNDING_LADDER_INVALID`, `SALE_BELOW_MARKET`): todos con placeholders en
+    > el copy de §21.4c que el front tenía que rellenar **adivinando** o **recalculando**. Quedan normados arriba.
     | `ROUNDING_LADDER_INVALID` | escalera bien formada: `stepCents ≥ 1`; `uptoCents` estrictamente crecientes; **exactamente la última** con `uptoCents = null`; **cada frontera múltiplo exacto del paso de la banda inferior** (si no, el redondeo rompe la monotonía) |
 
   - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.curve.update`, before/after).

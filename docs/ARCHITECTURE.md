@@ -112,6 +112,19 @@
 > breakpoint absurdo lo saca del rango seguro. **Debe aterrizar ANTES del cut-over**, o sea antes de que el dueño
 > calibre la curva de compra. **Y `appliedBp` pasa a aislarse por TIPO** (branded `DisplayBp`), para que reintroducir
 > I1 **no compile** en vez de estar solo advertido.
+> **Adenda v2.1.5 — el «…» de `details`, y dos errores míos (hallazgo de frontend + QA; §4.36.1/§4.36.3, contrato
+> §M2).** (1) **Hueco de especificación:** el contrato normaba `details: { axis, index, marketCents, … }` y dejaba
+> **el segundo extremo del tramo dentro del «…»**. Backend emitió `index2`/`marketCentsTo`, frontend declaró
+> `toIndex`/`toMarketCents` —inventados, porque no había nada que contradecir— y **el segundo extremo nunca se
+> marcó**, desde E9, en `SALE_CURVE_NOT_MONOTONIC` y `DUPLICATE_BREAKPOINT`. La auditoría halló **cuatro códigos más**
+> igual (`BUY_ABOVE_SALE`, `BIN_ABOVE_FLOOR`, `ROUNDING_LADDER_INVALID`, `SALE_BELOW_MARKET`). **`details` queda
+> normado campo por campo** y se eleva a **convención transversal**: *ningún campo que un consumidor deba leer vive
+> dentro de un «…»*. **El contrato no mintió: no dijo** — y ningún test de contrato podía cazarlo, porque no había
+> nada que contradecir. (2) **V3 y V4 se solapaban** (`multiplierBp ≥ 10000` en ambos, uno bloqueante y otro no),
+> lo que hacía a **V4 INALCANZABLE**: V3 baja su piso a **`0`** y queda como **representabilidad**, V4 como
+> **negocio**. (3) **Se corrige la afirmación falsa** «el operando siempre es ≥ 0 por construcción»: lo garantiza
+> **V3**, no V4, y las funciones son **defensivas ante negativos** — apoyarse en «es imposible» es la suposición que
+> produjo I1.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -6963,14 +6976,18 @@ interpExact(points, m) -> (num, den)      // k(m) = num/den, exacto; den > 0, nu
 > rawCents = ROUND_HALF_UP( m * num / (den * 10000) )        // (num, den) = interpExact(points, m)
 > ```
 >
-> `num` y `den` son enteros y `num > 0` siempre (`k(m)` está entre `v0` y `v1`, ambos ≥ 0). **El ÚNICO redondeo de
-> toda la cadena de venta es el de centavos finales**, y ése es monótono — que es lo que hace que V5 sea una
+> `num` y `den` son enteros, y `num ≥ 0` **porque V3 lo impone** (`multiplierBp ≥ 0`, `pctBp ≥ 0`) y V3 es bloqueante
+> **también en la ruta del preview**. ⚠️ **No** porque «sea imposible por construcción»: esa afirmación estaba en este
+> documento, **era falsa** y se corrige en §4.36.3 (V4 es deliberadamente **no** bloqueante, así que no puede sostener
+> el signo). Las funciones de cálculo son **defensivas** ante un operando negativo de todos modos. **El ÚNICO redondeo
+> de toda la cadena de venta es el de centavos finales**, y ése es monótono — que es lo que hace que V5 sea una
 > afirmación sobre **la función que cobra** y no sobre una aproximación suya (§4.36.3).
 
 > **`ROUND_HALF_UP` = medio ALEJÁNDOSE DE CERO.** Se fija el modo porque es fuente clásica de divergencia entre dos
 > implementaciones de la misma fórmula de dinero (`Math.round(-0.5)` da `-0` en JS; «medio alejándose de cero» da
-> `-1`). Con la forma racional de arriba el operando **siempre es ≥ 0**, así que el caso negativo **desaparece por
-> construcción** — pero el modo queda fijado igual, para que backend y el previsualizador no difieran en un centavo.
+> `-1`). **El modo NO es decorativo ni "por si acaso": el operando negativo es ALCANZABLE** si V3 dejara de bloquear
+> —lo era, de hecho, mientras V3 y V4 se solapaban (§4.36.3, v2.1.5)—. Por eso el modo se fija **y** las funciones de
+> cálculo son **defensivas** ante negativos, en vez de apoyarse en que «no puede pasar».
 >
 > **Casos de MEDIO CENTAVO (normativos — los que fijan el modo; sobre el SEED vigente de §4.36.2).** La interpolación
 > exacta rara vez cae en `.5`, así que los casos se toman de los **tramos planos**, donde `k` es entero por
@@ -7205,7 +7222,7 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 |---|---|---|---|
 | V1 | Curva no vacía | `sale.points.length ≥ 1` y `buy.points.length ≥ 1` | `CURVE_EMPTY` |
 | V2 | Puntos ordenables y únicos | `marketCents` enteros `≥ 0` y **estrictamente crecientes** tras ordenar (sin duplicados) | `DUPLICATE_BREAKPOINT` |
-| V3 | Rangos | `multiplierBp ∈ [10000, 1000000]`; `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0`; **`marketCents ∈ [0, MAX_CENTS]`** (v2.1.4) — todos enteros | `VALIDATION_ERROR` |
+| V3 | Rangos **de REPRESENTABILIDAD** (no de negocio) | **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`, ver abajo); `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0`; **`marketCents ∈ [0, MAX_CENTS]`** (v2.1.4) — todos enteros | `VALIDATION_ERROR` |
 | V4 | **Ningún precio de venta por debajo del mercado** | `multiplierBp ≥ 10000` **en cada punto** (la interpolación lineal de valores ≥ 10000 nunca baja de 10000; el `max` con el piso solo sube; el redondeo solo sube) | `SALE_BELOW_MARKET` |
 | V5 | **Curva de venta monótona creciente — sobre la función que COBRA** | `f(m) = m·k(m)` es cuadrática por tramo ⇒ `f' ≥ 0` en los DOS extremos de cada tramo: con `s = (k₁−k₀)/(m₁−m₀)`, exigir `k₀ + m₀·s ≥ 0` **y** `k₁ + m₁·s ≥ 0`. Los tramos planos (antes del primero, después del último) son crecientes porque `k > 0`. **Válido SOLO con la interpolación exacta de §4.36.1** — ver la cadena de composición abajo | `SALE_CURVE_NOT_MONOTONIC` |
 | V6 | **Compra ESTRICTAMENTE por debajo de venta, en todo el dominio** | **`multiplierBp(m) − pctBp(m) ≥ 1`** (una unidad entera de la escala compartida) evaluado en la **UNIÓN de los `marketCents` de ambas curvas** (ambas lineales por tramo sobre esa unión ⇒ la diferencia es lineal ⇒ su mínimo cae en un nodo ⇒ basta comprobar nodos y tramos planos) | `BUY_ABOVE_SALE` |
@@ -7268,6 +7285,40 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 > diferencia `k − p` es **lineal por tramo** sobre la unión de nodos, su mínimo cae **en un nodo** ⇒ comprobar los
 > nodos sigue siendo **exacto**, no muestreado. Coste práctico: nulo (la separación real del seed es de miles de bp).
 
+> ### V3 vs V4 — se solapaban, y eso hacía a V4 INALCANZABLE (v2.1.5, corrección de un error mío)
+>
+> **El defecto.** V3 exigía `multiplierBp ∈ [10000, 1000000]` **bloqueante (422)** y V4 exige `multiplierBp ≥ 10000`
+> **no bloqueante en el preview (200 + `violations`)**. **Son el MISMO predicado con manejos OPUESTOS:** un
+> `multiplierBp = 5000` era simultáneamente «impide calcular ⇒ 422» (V3) y «calculable pero prohibido ⇒ 200» (V4).
+> Con V3 tal como estaba, **V4 nunca podía dispararse** — y el previsualizador jamás podía enseñar «esto vendería por
+> debajo del mercado» **en pesos**, que es exactamente para lo que existe el reparto de §4.36.8a(c).
+>
+> **Corrección: los dos rangos dejan de ser el mismo.**
+>
+> | | Qué comprueba | Bloquea | Por qué |
+> |---|---|---|---|
+> | **V3** | **representabilidad y cordura**: entero, no negativo, dentro del rango seguro de cálculo | **sí (422)**, también en el preview | Un `multiplierBp` negativo no es una calibración que el dueño esté «probando»: es un typo o un error de signo. Además §21.4a ya enruta los errores de **rango** al **campo** (inline, al `blur`), no al resumen — que es justo la superficie de V3 |
+> | **V4** | **invariante de negocio**: «ninguna venta por debajo del mercado» (`≥ 10000`) | **no** en el preview (200 + `violations`) | Es una curva **evaluable**: el dueño debe poder **verla en pesos** antes de corregirla (§21.4) |
+>
+> **Consecuencia buscada:** con `multiplierBp = 0`, el preview **calcula** (`raw = 0` ⇒ gana el piso ⇒ `basis='floor'`)
+> y `violations` explica por qué no se puede guardar. Con `multiplierBp = −5000`, V3 lo corta en el campo. **Cada
+> invariante en su superficie.**
+>
+> ### ⛔ Corrección de una afirmación FALSA mía sobre el signo del operando (v2.1.5, hallazgo de QA)
+>
+> Este documento afirmaba que en `rawCents = ROUND_HALF_UP(m·num/(den·10000))` **«el operando siempre es ≥ 0, así que
+> el caso negativo desaparece por construcción»**, y que `num > 0` «porque `k(m)` está entre `v0` y `v1`, ambos ≥ 0».
+> **Era falso mientras V3 y V4 se solapaban:** V4 es **deliberadamente no bloqueante** en el preview, así que si el
+> único guardián del piso hubiera sido V4, la ruta del preview alcanzaría el cálculo con multiplicador **negativo**.
+>
+> **Qué queda como norma:**
+> 1. **Quien garantiza la no-negatividad es V3** (`multiplierBp ≥ 0`, `pctBp ≥ 0`), **no V4** — y solo porque V3 es
+>    bloqueante **también en el preview**. Decirlo con precisión importa: si mañana alguien vuelve V3 no bloqueante
+>    «para que el previsualizador enseñe más», reabre el caso negativo sin darse cuenta.
+> 2. **`ROUND_HALF_UP` conserva su definición para negativos** (medio **alejándose de cero**) y las funciones de
+>    cálculo deben ser **defensivas** ante un operando negativo. **No** se apoya la corrección en «es imposible»:
+>    esa fue exactamente la clase de suposición que produjo I1. **Defensa en profundidad en una función de dinero.**
+>
 > **V3 — por qué `marketCents` también necesita TECHO (v2.1.4, endurecimiento del techlead; misma familia que I1, un
 > piso más abajo).** V3 acotaba los **valores** (`multiplierBp ≤ 1e6`, `pctBp ≤ 1e4`) pero dejaba `marketCents` sin
 > cota superior. El producto final se computa en **`BigInt`** (correcto), pero `interpExact` calcula
@@ -7892,6 +7943,7 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 | # | Etapa | Verde cuando |
 |---|---|---|
 | **E0** | `common/pricing-curve.ts`: tipos, **`interpExact` (racional, SIN cuantizar a bp)**, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador **V1–V9**. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante **V1–V9** + **los dos casos de medio centavo** de §4.36.1 (`$500.01 ⇒ 25001` en compra; `$100.10 ⇒ rawCents 11512` en venta) |
+| **E0-quater** | **Forma de `details` + V3/V4 (§4.36.3, v2.1.5):** emitir los campos normados por código (contrato §M2), en especial `index2`/`marketCentsTo`, `multiplierBp`/`pctBp` en `BUY_ABOVE_SALE` y `bandIndex`; bajar el piso de V3 a `0` para que **V4 sea alcanzable**; funciones de cálculo **defensivas ante operando negativo** | **test de contrato por código** que asserte los campos EXACTOS de `details` (no solo el `code`) — es lo único que habría cazado el bug; y un caso de `multiplierBp = 0` que **calcule** (`basis='floor'`) y reporte `SALE_BELOW_MARKET` en `violations`, en vez de `422` |
 | **E0-ter** | **V9 + techo de `marketCents` (§4.36.3, v2.1.4):** el chequeo algebraico de extremos de V5 aplicado a `buy.points` (~10 líneas, mismo cuerpo) con código propio **`BUY_CURVE_NOT_MONOTONIC`**; y `marketCents ≤ MAX_CENTS` en V3. **Debe aterrizar ANTES del cut-over** — o sea antes de que el dueño calibre la curva de compra, no después | regresión de la curva `[{2500,5000},{10000,1000}]` ⇒ `422 BUY_CURVE_NOT_MONOTONIC` con `axis:"buy"` y tramo `(0,1)`; **más** un caso de tramo plano con `pctBp = 0` que **debe PASAR** (es constante, no decreciente — la justificación es `p ≥ 0` de V3, no V4) |
 | **E0-bis** | **I1 (§4.36.1/§4.36.3):** retirar la cuantización a bp entero (`pricing-curve.ts:191`) y computar el precio en **una sola expresión racional exacta**; V6 pasa a exigir separación `≥ 1` unidad. **Toca dinero — es la corrección del hallazgo de QA** | **regresión permanente con las TRES curvas de QA** (§4.36.3): en cada par que rompía, `P(m) ≥ P(m−1)`; en particular `1.60×@$25 → 1.15×@$80 → 1.05×@$1000` da **$800 en `$717.10` Y en `$717.11`**. Más el barrido del seed ($0.01–$6 000, 0 rupturas) como test de caracterización **en CI, no en el `PUT`** |
 | **E1** | `SettingKey.PRICING_CURVE` + validador + seed §N.2. M-41 aplicada | el setting valida y siembra; los viejos siguen ahí, intactos |
