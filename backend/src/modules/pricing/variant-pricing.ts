@@ -1,6 +1,6 @@
 import { VariantPriceOverride } from '@prisma/client';
 import { PriceBasis, computeSalePriceFromCurve, quoteAcquisitionFromCurve } from '../../common/money';
-import { PricingCurve, premiumFloorGuard } from '../../common/pricing-curve';
+import { PricingCurve, isBountyEffective, premiumFloorGuard } from '../../common/pricing-curve';
 
 /**
  * variant-pricing.ts — v1.28 (P-18/P-22) · v2.0 (P-48, ARCHITECTURE §4.36 / API_CONTRACT §DTOs).
@@ -51,6 +51,15 @@ export interface VariantPricingDTO {
     targetQty: number | null;
     acquiredQty: number;
     completedAt: string | null;
+    /**
+     * v2.0 (§4.36.6, criterios 90/91) — **LA ALERTA DEL BINDER**. `false` ⇔ el bounty quedó por
+     * debajo (o IGUAL) de la tarifa vigente ⇒ NO aplica en la cotización, NO se publica en la vitrina
+     * y `buy.source` NO será `bounty`. Decisión del humano: basta el binder, SIN aviso proactivo por
+     * correo/push/dashboard.
+     */
+    effective: boolean;
+    /** La cotización de curva que lo rebasó. `null` = la curva no resuelve ⇒ el bounty SIGUE siendo efectivo. */
+    curveQuoteCents: number | null;
   } | null;
 }
 
@@ -110,6 +119,10 @@ export function composeVariantPricing(
             targetQty: override.bountyTargetQty,
             acquiredQty: override.bountyAcquiredQty,
             completedAt: override.bountyCompletedAt ? override.bountyCompletedAt.toISOString() : null,
+            // MISMO predicado que el runtime y que la vitrina (prohibido duplicarlo, §4.36.6).
+            effective:
+              override.bountyEnabled && isBountyEffective(override.bountyPriceCents, buy.curveQuoteCents),
+            curveQuoteCents: buy.curveQuoteCents,
           },
         }
       : {}),

@@ -6,6 +6,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { buildGradeKey } from '../src/modules/pricing/pricing.types';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -22,11 +23,26 @@ const pii = new PiiCryptoService(new ConfigService({}));
  *     bounty, mismo filtro que la invariante BL-1 de `approvedTotalCents`.
  */
 
-const svcOf = (prisma: any) =>
+/**
+ * v2.0 (§4.36.6): la vitrina resuelve el MERCADO en lote y filtra los bounties no efectivos ANTES
+ * del cap. `refsByKey` inyecta ese mercado; sin entrada ⇒ la curva no resuelve ⇒ el bounty explícito
+ * SIGUE siendo efectivo (es el caso donde más se necesita).
+ */
+const svcOf = (prisma: any, refsByKey: Record<string, number> = {}) =>
   new BuylistService(
     prisma as PrismaService,
-    // Solo se usa gradeKeyFor en el conteo — misma derivación canónica que la cotización.
-    { gradeKeyFor: (i: any) => buildGradeKey(i) } as unknown as PricingService,
+    {
+      gradeKeyFor: (i: any) => buildGradeKey(i),
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      getReferencesBatch: jest.fn(async (keys: any[]) => {
+        const m = new Map<string, any>();
+        for (const k of keys) {
+          const key = `${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`;
+          if (refsByKey[key] != null) m.set(key, { status: 'priced', referenceMxnCents: refsByKey[key] });
+        }
+        return m;
+      }),
+    } as unknown as PricingService,
     {} as SettingsService,
     {} as UsersService,
     pii,
@@ -62,7 +78,9 @@ describe('publicBounties — vitrina pública READ-ONLY (contrato §6)', () => {
       expect.objectContaining({
         where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
         orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
-        take: 50,
+        // v2.0: el `take` del QUERY es el cap de CANDIDATOS; el cap 50 de la vitrina se aplica
+        // DESPUÉS de filtrar los no efectivos (filtrar tras el cap dejaría huecos silenciosos).
+        take: 500,
       }),
     );
     expect(res.data[0]).toEqual({

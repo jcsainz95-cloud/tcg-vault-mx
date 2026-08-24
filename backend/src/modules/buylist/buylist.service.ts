@@ -22,10 +22,18 @@ import { maskClabe } from '../../common/crypto/pii-mask';
 // v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
 // precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
 import { PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
-import { PricingCurve, resolvePendingReason } from '../../common/pricing-curve';
+import { PricingCurve, isBountyEffective, resolvePendingReason } from '../../common/pricing-curve';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
+
+/**
+ * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
+ * paginación: es una vitrina, no un listado). `CANDIDATE` acota la lectura ANTES del filtro por
+ * efectividad, para que el endpoint anónimo no haga una lectura sin cota.
+ */
+const BOUNTY_SHOWCASE_CAP = 50;
+const BOUNTY_CANDIDATE_CAP = 500;
 
 interface QuoteItemInput {
   cardId: string;
@@ -385,13 +393,44 @@ export class BuylistService {
       remainingQty: number | null;
     }[];
   }> {
-    const rows = await this.prisma.variantPriceOverride.findMany({
+    // v2.0 (P-48, §4.36.6, criterios 90/91) — SEAM «PUBLICAR» de la revalidación del bounty.
+    // ORDEN DE OPERACIONES NORMATIVO (importa): seleccionar candidatos activos → resolver el mercado
+    // en LOTE → FILTRAR los no efectivos → ordenar `bountyPriceCents desc` → tomar el TOP 50.
+    // Filtrar DESPUÉS del cap dejaría huecos silenciosos en la vitrina.
+    // Efecto garantizado: para TODO bounty visible aquí, `/buylist/quote` cotiza EXACTAMENTE ese monto
+    // y es ESTRICTAMENTE mayor que la tarifa estándar de esa variante.
+    const candidates = await this.prisma.variantPriceOverride.findMany({
       where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
       // Desempate estable por edición más reciente (el contrato solo norma el precio desc).
       orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
-      take: 50,
+      // Cap de CANDIDATOS (no de la vitrina): el endpoint es público/anónimo y una lectura sin cota
+      // es superficie de abuso. Muy por encima del cap 50 de la vitrina, así que el filtro por
+      // efectividad no se queda sin material salvo en un escenario que no existe (>500 bounties
+      // activos, todos rebasados por la curva).
+      take: BOUNTY_CANDIDATE_CAP,
       include: { card: { include: { set: true } } },
     });
+    const curve = await this.pricing.loadPricingCurve();
+    // Mercado EN LOTE (una query), mismo lote que usa el resto del eje de compra.
+    const refs = await this.pricing.getReferencesBatch(
+      candidates.map((r) => ({
+        cardId: r.cardId,
+        productType: r.productType,
+        gradeKey: r.gradeKey,
+        finish: r.finish,
+      })),
+    );
+    const rows = candidates.filter((r) => {
+      const ref = refs.get(`${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`);
+      const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+      // MISMO cuerpo de precedencia que la cotización ⇒ el número publicado ES el que se paga.
+      const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
+      return isBountyEffective(r.bountyPriceCents, curveQuoteCents);
+    })
+      // Re-orden explícito tras el filtro (el `orderBy` del query ya lo daba; se conserva por claridad
+      // de que el ORDEN es parte del contrato de la vitrina) y CAP de la vitrina.
+      .sort((a, b) => (b.bountyPriceCents as number) - (a.bountyPriceCents as number))
+      .slice(0, BOUNTY_SHOWCASE_CAP);
     const data = rows.map((r) => ({
       cardId: r.cardId,
       name: r.card.name,

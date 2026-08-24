@@ -396,6 +396,9 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
       priceCents: 7500,
       targetQty: 3,
       acquiredQty: 1,
+      // v2.0 (§4.36.6): la ALERTA DEL BINDER. 7500 > curva 4000 ⇒ efectivo.
+      effective: true,
+      curveQuoteCents: 4000,
       completedAt: null,
     });
   });
