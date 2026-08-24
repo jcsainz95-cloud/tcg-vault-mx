@@ -4,6 +4,22 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.44-per-finish-price-source).
 >
+> **Changelog v1.47-manual-override-perennial-candidate (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementa BACKEND.
+> Re-gate seguridad + techlead sobre P47-2, rama `fix/variant-composition-regression`. NO cambia ningún shape de DTO ni
+> endpoint; refuerza la garantía de LECTURA §4.27f-2/§4.27f-3. Money-safe, retrocompatible, sin migración.
+> ARCHITECTURE §4.27f-3.):** el re-gate halló que v1.46 era **incompleta**. El tier manual absoluto de v1.46 vive en el
+> **comparador** `isBetterRef`, pero el comparador solo puede elegir entre las candidatas que la query trae. Las rutas de
+> lectura **single-item** (`getReference`/`getReferenceByCardProduct`) acotan candidatas con `take (=32)` bajo
+> `orderBy capturedDate desc`; como el override manual tiene `capturedDate` FIJO y el barrido diario suma ~1 fila/día sin
+> purga, tras ~32 días el manual **sale de la ventana** y el feed vuelve a pisar el precio humano **en silencio**. Las
+> rutas **batch** (`getReferencesBatch`, `getSeparateProductsByCard`) no tienen cap y por eso **ya** honran el tier
+> manual. **Dictamen normativo (§4.27f-3):** la durabilidad cross-day son **DOS capas** — (a) el comparador (ya hecho) y
+> (b) la **SELECCIÓN de candidatas**, que DEBE incluir SIEMPRE toda fila manual de la clave (**candidata perenne**, sin
+> cota de fecha ni de recencia). Los caminos de lectura deben ser **consistentes** en honrar el tier manual. **Efecto en
+> el contrato:** REFUERZA (no cambia) la garantía ya declarada en v1.46 — los DTO con override manual persistido
+> reflejan ese valor de forma estable **indefinidamente** (antes: solo ~32 días en las rutas single-item). Sin cambio de
+> forma de DTO ni de endpoint. **Base previa:** v1.46-manual-override-durable-cross-day.
+>
 > **Changelog v1.46-manual-override-durable-cross-day (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementa BACKEND.
 > Escalada regla 9 (seguridad/blue team), hallazgo ALTA P47-2, rama `fix/variant-composition-regression`. NO cambia ningún
 > shape de DTO ni endpoint; solo pin­ea la semántica de precedencia de LECTURA §4.27f. Money-safe (FORTALECE la

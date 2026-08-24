@@ -2,6 +2,25 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+> Rev v1.47-manual-override-perennial-candidate (2026-08-24, rama `fix/variant-composition-regression`, arquitecto —
+> DISEÑO EN PAPEL; lo implementa BACKEND). **Re-gate seguridad + techlead sobre P47-2.** El re-gate halló que el
+> **punto 4 de §4.27f-2 (v1.46) era INCOMPLETO**: afirmaba «el fix vive por completo en el comparador; ninguna
+> migración, ninguna re-resolución», pero eso solo aplica a las rutas de lectura **sin cota** (`getReferencesBatch`,
+> `getSeparateProductsByCard`). Las rutas **single-item** `getReference`/`getReferenceByCardProduct` acotan candidatas
+> con `take SAME_DAY_REF_CANDIDATES (=32)` bajo `orderBy capturedDate desc`; como el override manual tiene
+> `capturedDate` FIJO y `tcgcsv_singles` suma ~1 fila/día **sin purga**, tras ~32 días el manual **cae fuera de la
+> ventana top-32** y el comparador nunca lo ve → el feed vuelve a pisar el precio humano **en silencio**. **Dictamen
+> (§4.27f-3, NORMATIVO):** la durabilidad cross-day de (f-2) son **DOS capas** — (a) el comparador `isBetterRef` (tier
+> manual absoluto, ya hecho) y (b) la **SELECCIÓN de candidatas**, que DEBE incluir SIEMPRE toda fila manual de la
+> clave (**candidata perenne**, sin cota de fecha ni de recencia). Los TRES/cuatro caminos de lectura deben ser
+> **consistentes**: los batch ya cumplen (sin `take`); los single-item deben alinearse. Se **deroga** el comentario de
+> `SAME_DAY_REF_CANDIDATES` («solo pueden ganar las filas del día más reciente» — falso desde (f-2)). Sigue siendo
+> **precedencia de LECTURA pura** (sin migración, sin re-resolución de filas escritas, sin cambio de schema/contrato):
+> solo cambia **qué filas se seleccionan** en single-item. Dirección a backend: cumplir el **invariante de candidata
+> perenne** (opciones aceptables: lectura dirigida del manual sin cota unida a las candidatas del día; pin del tier
+> manual en la query; o quitar el cap para esta clave ya acotada por filas-por-clave) — el «cómo» lo elige backend.
+> **Bloqueante del deploy junto con (f-2): (f-2) sin (f-3) deja §K rota con retardo de ~1 mes.** Eco en API_CONTRACT
+> (Changelog v1.47-manual-override-perennial-candidate). **Base previa:** v1.46-manual-override-durable-cross-day.
 > Rev v1.46-manual-override-durable-cross-day (2026-08-24, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementa BACKEND). **Escalada regla 9 (seguridad/blue team), hallazgo ALTA P47-2.** Dictamen
 > sobre la precedencia de LECTURA §4.27f ANTES de flipear `PRICE_PROVIDER=tcgcsv_singles` en prod. **Problema:**
@@ -5513,11 +5532,14 @@ override manual de MERCADO (PriceReference.isManualOverride / M2)
   > sin precio en ninguna fuente ⇒ celda «—» (null) + PRICE_PENDING     ← NUNCA 0 inventado
 ```
 
-> **Esta precedencia es ABSOLUTA, no intra-día (P47-2, ver (f-2), v1.46).** El override manual (peldaño 1) gana
-> la lectura **independientemente de `capturedDate`** —incluso frente a una `tcgcsv_singles` barrida hoy—. La
+> **Esta precedencia es ABSOLUTA, no intra-día (P47-2, ver (f-2) + (f-3), v1.47).** El override manual (peldaño 1)
+> gana la lectura **independientemente de `capturedDate`** —incluso frente a una `tcgcsv_singles` barrida hoy—. La
 > frescura (`capturedDate` más reciente) desempata **solo dentro de un mismo tier** (entre fuentes no-manuales,
 > o entre dos overrides manuales). El comparador `isBetterRef` iza el split manual/no-manual **por encima** de
-> `capturedDate`; el orden normativo exacto está pinneado en (f-2).
+> `capturedDate`; el orden normativo exacto está pinneado en (f-2). **La durabilidad cross-day requiere DOS capas
+> (v1.47, (f-3)):** además del comparador, la **SELECCIÓN de candidatas** de las rutas single-item (`getReference`,
+> `getReferenceByCardProduct`) DEBE incluir SIEMPRE el override manual —candidata perenne, sin cota de fecha—; el
+> cap de recencia `SAME_DAY_REF_CANDIDATES` no puede excluirlo (si no, tras ~32 días el feed vuelve a pisarlo).
 
 - **PPT baja a redundancia/fallback (versión gratis) — por PRECEDENCIA DE LECTURA (aclarado v1.45, ver §4.35(f)):** esta
   precedencia es de **RESOLUCIÓN/LECTURA** de la referencia de mercado, no un orden de escrituras del barrido. En el
@@ -5532,7 +5554,7 @@ override manual de MERCADO (PriceReference.isManualOverride / M2)
 - **Sellado y gradeadas NO cambian:** el sellado sigue en `tcgcsv` sub-tipo `Normal` (§4.19); las gradeadas en PPT/
   PokeTrace (§4.20). Esta sección es SOLO singles (`productType='raw'`).
 
-#### (f-2) Dictamen P47-2 (v1.46, NORMATIVO) — el override manual es tier ABSOLUTO y DURABLE cross-day; el orden de `isBetterRef` se pin­ea
+#### (f-2) Dictamen P47-2 (v1.46, NORMATIVO; punto 4 ENMENDADO en v1.47 — ver (f-3)) — el override manual es tier ABSOLUTO y DURABLE cross-day; el orden de `isBetterRef` se pin­ea
 
 > **Escalada (seguridad/blue team, hallazgo ALTA P47-2).** El comparador `isBetterRef`
 > (`pricing.service.ts`, ~L121-133) ordena `capturedDate` **ANTES** que `sourceRank`. Consecuencia: un
@@ -5593,13 +5615,23 @@ reintroduce como escritor, y `persistMarketReference` sigue haciendo **skip** cu
 `isManualOverride` (nunca clobbea el override). Solo cambia el **orden de lectura** con que se elige la mejor
 fila entre las ya persistidas. Coherente con la doctrina «fallback-only = precedencia de LECTURA» de §4.35(f).
 
-**4) Efecto sobre precios ya persistidos: NINGUNA re-resolución, NINGUNA migración.** El fix vive por completo
-en el comparador; **no** toca filas de `PriceReference`. Las filas de override manual **ya existen** en la tabla
-—solo estaban siendo out-ranked en lectura por filas automáticas más frescas—; en cuanto el comparador ize el
-split manual, la **siguiente lectura** las elige. No hay backfill, no hay re-emisión de filas, no hay recómputo
-de snapshots (el `portfolio-snapshot` del día siguiente ya lee con la precedencia corregida). Reversible por
-código (revertir el comparador restaura el comportamiento previo). **Sin cambio de schema, sin cambio de forma
-de contrato.**
+**4) Efecto sobre precios ya persistidos: NINGUNA re-resolución, NINGUNA migración — PERO la durabilidad
+cross-day depende de DOS capas, no solo del comparador (CORREGIDO v1.47, ver (f-3)).** El fix **no** toca filas
+de `PriceReference` (sin backfill, sin re-emisión, sin recómputo de snapshots — el `portfolio-snapshot` del día
+siguiente ya lee con la precedencia corregida). Reversible por código. **Sin cambio de schema, sin cambio de
+forma de contrato.** *(Redacción original v1.46, INCOMPLETA: «el fix vive por completo en el comparador; ninguna
+migración, ninguna re-resolución».)* La afirmación «vive por completo en el comparador» es cierta **solo** para
+las rutas de lectura **sin cota de recencia** (`getReferencesBatch`, `getSeparateProductsByCard`, que hacen
+`findMany` **sin `take`** → cargan TODAS las filas de la clave, así que el override manual **siempre** está entre
+las candidatas y el comparador lo ve). **NO** es cierta para las rutas **single-item** `getReference` /
+`getReferenceByCardProduct`, que traen candidatas con `orderBy capturedDate desc … take SAME_DAY_REF_CANDIDATES
+(=32)`: como el override manual se persiste con `capturedDate` **FIJO** (el día que el humano lo capturó) y el
+barrido `tcgcsv_singles` añade ~1 fila automática por día **sin purga**, tras ~32 días la fila manual **cae fuera
+de la ventana top-32** por recencia y **el comparador nunca la ve** → el feed diario vuelve a pisar el precio
+humano **en silencio** (exactamente el hallazgo P47-2 que (f-2) pretendía cerrar, re-materializado con retardo de
+un mes). **Conclusión normativa: cumplir la durabilidad cross-day de (f-2) SÍ requiere tocar la SELECCIÓN de
+candidatas de las rutas single-item** —no basta el comparador—. El invariante completo está normado en **(f-3)**,
+que es parte integral y vinculante de (f-2).
 
 **Invariante money-safe reafirmada:** nunca $0 inventado, nunca precio copiado entre acabados, override manual
 `>0` explícito con **máxima precedencia absoluta**. Este dictamen **fortalece** la invariante (cierra una vía por
@@ -5607,6 +5639,90 @@ la que un feed automático infravaluaba/sobrescribía una decisión humana), no 
 por tocar dinero, el cambio va con **triple veredicto + gate de seguridad por release** y **DEBE estar mergeado
 y verificado ANTES** de que devops flipee `PRICE_PROVIDER=tcgcsv_singles` en producción (es la condición que
 neutraliza P47-2; sin el fix, el switch a escritor diario materializa el hallazgo ALTA).
+
+#### (f-3) Dictamen P47-2 (v1.47, NORMATIVO) — la durabilidad manual son DOS capas: comparador + SELECCIÓN de candidatas; el override manual es candidata PERENNE
+
+> **Escalada (re-gate seguridad + techlead sobre P47-2).** El re-gate encontró que el punto 4 de (f-2, v1.46)
+> es **incompleto**: afirmaba que «el fix vive por completo en el comparador; ninguna migración, ninguna
+> re-resolución». Eso solo es cierto para las rutas de lectura **sin cota** (`getReferencesBatch`,
+> `getSeparateProductsByCard`). Las rutas **single-item** `getReference` / `getReferenceByCardProduct` acotan las
+> candidatas con `take SAME_DAY_REF_CANDIDATES (=32)` bajo `orderBy capturedDate desc`. Con el override manual
+> persistido a `capturedDate` FIJO y el barrido `tcgcsv_singles` sumando ~1 fila/día **sin purga**, tras ~32 días
+> la fila manual sale de la ventana top-32 y **nunca llega al comparador** → el precio humano vuelve a ser pisado
+> en silencio. Ver el punto 4 de (f-2), ya corregido con reenvío aquí.
+
+**Dictamen: la garantía §K/§E.1 «el override manual gana la lectura TODOS los días» se sostiene sobre DOS capas
+independientes; ambas son obligatorias y ninguna basta por sí sola:**
+
+**(a) Capa de comparación — `isBetterRef` (tier manual absoluto). YA HECHO en (f-2).** Dado un conjunto de
+candidatas que **incluya** el override manual, el comparador lo iza por encima de `capturedDate` (paso 1 de
+(f-2)). Sin cambios respecto a (f-2).
+
+**(b) Capa de SELECCIÓN de candidatas — la lectura DEBE garantizar que el manual sea candidata. NUEVO (v1.47).**
+La capa (a) solo puede elegir lo que la query trae. Por tanto se norma el siguiente **invariante de selección**,
+vinculante para las cuatro funciones de resolución:
+
+> **INVARIANTE DE CANDIDATA PERENNE (v1.47):** para cualquier clave de resolución
+> `(cardId | cardProductId, productType, gradeKey, finish)`, el conjunto de filas `PriceReference` que se pasa a
+> `pickBestRef`/`isBetterRef` DEBE contener **TODA** fila de esa clave con `isManualOverride = true` /
+> `source = 'manual'`, **independientemente de su `capturedDate`** y **independientemente de cualquier cap de
+> recencia** (`take`). El override manual es una **candidata perenne**: jamás puede quedar excluido de la
+> selección por antigüedad, por volumen de filas automáticas acumuladas, ni por ningún límite de página.
+
+**Consistencia de los TRES (cuatro) caminos de lectura — todos honran el tier manual por igual.** Es un requisito
+de **consistencia**, no de implementación idéntica:
+
+| Camino de resolución | Estado hoy | Acción v1.47 |
+|---|---|---|
+| `getReferencesBatch` | `findMany` **sin `take`** → trae toda la clave; el manual siempre es candidata. **Ya cumple.** | Ninguna (documentar que cumple). |
+| `getSeparateProductsByCard` | `findMany` **sin `take`** → idem. **Ya cumple.** | Ninguna. |
+| `getReference` | `take: SAME_DAY_REF_CANDIDATES (=32)` → el manual cae fuera tras ~32 días. **NO cumple.** | **Alinear al invariante de candidata perenne.** |
+| `getReferenceByCardProduct` | `take: SAME_DAY_REF_CANDIDATES (=32)` → idem. **NO cumple.** | **Alinear al invariante de candidata perenne.** |
+
+Los batch **ya** honran el tier manual precisamente **porque no tienen cap**; los single-item deben quedar
+**consistentes** con ellos. No se exige quitar el cap en general (la cota de recencia sigue siendo legítima para
+acotar el histórico automático); se exige que el cap **nunca** excluya al manual.
+
+**Derogación del comentario de `SAME_DAY_REF_CANDIDATES`.** El comentario actual de la constante
+(`pricing.service.ts`) afirma: «TODAS las filas del día más reciente (**las únicas que pueden ganar**) caen en el
+bloque inicial». Esa premisa —«solo pueden ganar las filas del día más reciente»— fue **DEROGADA por (f-2)**: el
+override manual gana **independientemente de su fecha**, luego una fila que **no** es del día más reciente **sí**
+puede ganar. **Backend debe reescribir ese comentario** para reflejar (f-2)/(f-3): (i) el ganador ya **no** es
+necesariamente del día más reciente —un override manual antiguo supera a un feed automático fresco—; (ii) por eso
+la selección single-item **no** puede depender solo de una ventana de recencia; (iii) el override manual es
+candidata perenne y DEBE incluirse siempre. *(Es documentación/decisión del arquitecto; la reescritura del
+comentario en código la hace backend, dueño de `backend/`.)*
+
+**Sigue siendo precedencia de LECTURA pura.** Este dictamen **no** reintroduce escritura, **no** migra datos y
+**no** re-resuelve filas ya escritas: solo cambia **qué filas se SELECCIONAN** para pasarlas al comparador en las
+dos rutas single-item. `tcgcsv_singles` sigue siendo el único escritor del barrido (§4.35(f)); `persistMarketReference`
+sigue haciendo skip sobre la fila `isManualOverride` del día; el schema y la forma de contrato **no cambian**. La
+única diferencia observable: en las rutas single-item, un override manual de hace >32 días vuelve a ganar la
+lectura (que es la garantía §K que estaba silenciosamente rota tras ~1 mes).
+
+**Dirección exacta para BACKEND (invariante, no implementación).** El invariante a cumplir es el de **candidata
+perenne** de arriba, para `getReference` y `getReferenceByCardProduct`. **Backend elige el «cómo»**; cualquiera de
+estas opciones (u otra equivalente que cumpla el invariante) es **aceptable**:
+
+1. **Lectura dirigida adicional del manual, sin cota de fecha, unida a las candidatas del día.** Además del
+   `findMany` acotado por recencia, emitir una segunda lectura filtrada por `isManualOverride: true` /
+   `source: 'manual'` de la misma clave **sin `take`** (a lo sumo `take: 1` con `orderBy capturedDate desc` para
+   el manual más reciente, que es el que gana el tier por el paso 2 de (f-2)), y **unir** ese resultado al set de
+   candidatas antes de `pickBestRef`. Preferida si se quiere conservar el cap de recencia para el histórico
+   automático.
+2. **Pin del tier manual en la propia query** (p. ej. `orderBy` que ponga `isManualOverride desc` ANTES de
+   `capturedDate desc`, de modo que las filas manuales encabecen y el `take: 32` nunca las descarte). Debe
+   garantizar que **todas** las filas manuales de la clave queden dentro de la ventana, no solo una — si por diseño
+   solo puede ganar el manual más reciente (paso 2), basta con que ese quede dentro.
+3. **Quitar el cap para esta clave**, dado que las filas por
+   `(cardId | cardProductId, productType, gradeKey, finish)` ya están naturalmente acotadas en cardinalidad (el
+   histórico por-clave-por-día es un puñado); alinea las rutas single-item con los batch, que ya operan sin `take`.
+   Aceptable si el análisis de volumen por-clave lo respalda.
+
+**Requisito de gate:** por tocar dinero, este cambio va con el **mismo gate que (f-2)** —triple veredicto + gate de
+seguridad por release— y **DEBE estar mergeado y verificado ANTES** del switch `PRICE_PROVIDER=tcgcsv_singles` en
+prod. (f-2) **sin** (f-3) deja la garantía §K rota con retardo de ~1 mes en las rutas single-item; por eso (f-3)
+es **condición de cierre de P47-2**, no un follow-up opcional.
 
 #### (g) Migración M-31 y qué pasa con M-29 / los `*Finishes` existentes
 
