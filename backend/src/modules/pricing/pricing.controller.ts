@@ -298,8 +298,12 @@ export class PricingController {
   async previewCurve(@Body() dto: CurvePreviewDto) {
     const draft = dto?.draft as unknown;
     const markets = dto?.marketsCents;
+    // v2.1.2 (M1) — **400, no 422**: la FORMA de la petición (array no vacío, ≤ cap, enteros ≥ 0) es
+    // un contrato de request, no una regla de negocio; el precedente local es unánime para la misma
+    // forma (`/buylist/quote/batch`, `bulk-publish`, `bulk-remove` responden todos 400). Los 422 de
+    // este endpoint quedan SOLO para las infracciones de la curva que impiden calcular (abajo).
     if (!Array.isArray(markets) || markets.length === 0 || markets.length > CURVE_PREVIEW_MAX_PROBES) {
-      throw BusinessException.validation(
+      throw BusinessException.badRequest(
         'VALIDATION_ERROR',
         `marketsCents must be a non-empty array of at most ${CURVE_PREVIEW_MAX_PROBES} integers`,
         { field: 'marketsCents' },
@@ -307,7 +311,7 @@ export class PricingController {
     }
     for (const m of markets) {
       if (typeof m !== 'number' || !Number.isInteger(m) || m < 0) {
-        throw BusinessException.validation(
+        throw BusinessException.badRequest(
           'VALIDATION_ERROR',
           'each marketCents must be an integer >= 0 (cents). `0` IS a legitimate probe: it shows that without market data the price is PENDING (the floor does NOT win)',
           { field: 'marketsCents', value: m },

@@ -6,6 +6,7 @@ import { AuditService } from '../src/modules/audit/audit.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { PriceSyncJobService } from '../src/jobs/price-sync.service';
 import { DEFAULT_PRICING_CURVE, PricingCurve } from '../src/common/pricing-curve';
+import { HttpStatus } from '@nestjs/common';
 
 /**
  * E7a (ARCHITECTURE §4.36.8 / §4.36.8a · API_CONTRACT §M2 «Curva de precio por VALOR DE MERCADO») —
@@ -178,19 +179,30 @@ describe('POST /admin/pricing/curve/preview — dry-run (§4.36.8a)', () => {
       roundingStepCents: 500,
       segment: { fromIndex: 0, toIndex: 1 },
     });
+    // ⚠️ v2.1.2 (E0-bis) — ESTE ES EL CASO QUE CAMBIÓ, y cambió porque el bug estaba aquí.
+    // El pct exacto en $50 es 3200 + 800·2500/7500 = 10400/3 = 3466.666…, NO 3467. `appliedBp` sí
+    // muestra 3467 (es SOLO-DISPLAY), pero el precio se computa con el racional:
+    //   rawCents = ROUND_HALF_UP(5000 × 10400/3 / 10000) = ROUND_HALF_UP(1733.333…) = 1733.
+    // Con la cuantización vieja daba 1734 (`5000 × 3467/10000 = 1733.5 ⇒ 1734`): un centavo INFLADO
+    // por redondear el multiplicador antes de multiplicar. Es la misma causa raíz que, en un tramo
+    // descendente, restaba $25 de golpe (§4.36.1, hallazgo I1 de QA).
     expect(row.draft.buy).toMatchObject({
-      priceCents: 1734,
+      priceCents: 1733,
       basis: 'market',
-      appliedBp: 3467,
-      rawCents: 1734, // 5000 × 3467 / 10000 = 1733.5 ⇒ ROUND_HALF_UP ⇒ 1734
+      appliedBp: 3467, // display: ROUND_HALF_UP(3466.666…). NO es el operando del precio.
+      rawCents: 1733,
       constantCents: 100,
       constantWon: false,
       baseCents: null, // la COMPRA no se redondea
       roundingStepCents: null,
     });
-    expect(row.saved.sale).toMatchObject({ priceCents: 7000, appliedBp: 13955, rawCents: 6978 });
+    // Misma corrección en la columna VIGENTE: k($50) exacto = 153500/11 = 13954.5454…, así que
+    // rawCents = ROUND_HALF_UP(6977.2727…) = 6977 (antes 6978, por multiplicar por el bp redondeado).
+    // El precio publicado NO se mueve —la escalera lo lleva a $70 igual—, que es justo por qué este
+    // bug podía vivir años sin que nadie lo viera hasta caer en un tramo descendente.
+    expect(row.saved.sale).toMatchObject({ priceCents: 7000, appliedBp: 13955, rawCents: 6977 });
     expect(row.saved.buy).toMatchObject({ priceCents: 1667, appliedBp: 3333, rawCents: 1667 });
-    expect(row.deltaCents).toEqual({ sale: 500, buy: 67 });
+    expect(row.deltaCents).toEqual({ sale: 500, buy: 66 });
   });
 
   it('la columna VIGENTE la calcula el SERVIDOR con SU almacén (el request no la trae)', async () => {
@@ -314,9 +326,22 @@ describe('POST /admin/pricing/curve/preview — dry-run (§4.36.8a)', () => {
       ['no entero', [12.5]],
     ])('%s → 400 VALIDATION_ERROR', async (_label, marketsCents) => {
       const { controller } = build();
+      // v2.1.2 (M1) — se asserta el **status HTTP**, no solo el `code`. El test se titulaba «→ 400» y
+      // solo miraba el código, así que la divergencia 400/422 pasaba verde: la FORMA del request es
+      // 400 (precedente unánime: `/buylist/quote/batch`, `bulk-publish`, `bulk-remove`), y sin esta
+      // aserción nada cubría la distinción.
       await expect(
         controller.previewCurve({ draft: seed(), marketsCents } as never),
-      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: HttpStatus.BAD_REQUEST });
+    });
+
+    it('las infracciones de la CURVA que impiden calcular siguen siendo 422 (regla de negocio, no forma)', async () => {
+      const { controller } = build();
+      const draft = seed();
+      draft.sale.points = []; // V1 — sin puntos no hay número que devolver
+      await expect(
+        controller.previewCurve({ draft, marketsCents: [5000] } as never),
+      ).rejects.toMatchObject({ code: 'CURVE_EMPTY', status: HttpStatus.UNPROCESSABLE_ENTITY });
     });
 
     it('exactamente 50 sondas es válido', async () => {

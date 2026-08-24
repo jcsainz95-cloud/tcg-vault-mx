@@ -145,16 +145,57 @@ export interface CurvePointBp {
 }
 
 /**
- * Interpolación LINEAL entre puntos consecutivos; tramos PLANOS **solo** antes del primero y después
- * del último (se extiende el valor del extremo). Un tramo escalonado DENTRO del rango está prohibido
- * por diseño: produce saltos de precio entre dos mercados casi iguales y, arriba de ~$25 de mercado,
- * es imposible sin vender por debajo del mercado.
+ * v2.1.2 (E0-bis) — el valor interpolado, EXACTO, como RACIONAL `num/den`. **Está PROHIBIDO
+ * cuantizarlo a bp entero**: ése era el hallazgo I1 de QA y la causa raíz del bug de dinero.
+ *
+ * ### Por qué un racional y no un bp entero
+ * Redondear `k(m)` a bp entero convierte el multiplicador en una función ESCALONADA. En cada escalón
+ * a la baja, `m × round(k(m))` **cae** aunque `m` suba, y la escalera de redondeo de venta amplifica
+ * esa caída de unos centavos a UN PELDAÑO COMPLETO. Con la curva `1.60×@$25 → 1.15×@$80 → 1.05×@$1000`
+ * (diales perfectamente plausibles, que el `PUT` aceptaba con `200` y `violations: []`):
+ *
+ * | mercado | cuantizando a bp (BUG) | racional exacto (norma) |
+ * |---|---|---|
+ * | `$717.10` | `k→10808` ⇒ raw 77504 ⇒ **$800.00** | `k=10807.5` ⇒ raw 77501 ⇒ **$800.00** |
+ * | `$717.11` | `k→10807` ⇒ raw 77498 ⇒ **$775.00** ⛔ | `k=10807.4891…` ⇒ raw 77502 ⇒ **$800.00** ✅ |
+ *
+ * **$25 menos por un centavo más de mercado** — justo el sesgo que §N.0 prohíbe (precio de menos =
+ * carta perdida, irrecuperable). V5 demostraba una propiedad VERDADERA (`f(m)=m·k(m)` continua es
+ * monótona) sobre un objeto que NO era el que cobra. Con la forma racional, el ÚNICO redondeo de toda
+ * la cadena es el de centavos finales —que es monótono por definición— y V5 vuelve a ser exacto
+ * **sobre la función que cobra**, sin barrer el dominio en cada escritura.
+ *
+ * `den > 0` y `num > 0` siempre (`k(m)` queda entre `v0` y `v1`, ambos ≥ 0). En los tramos planos el
+ * racional es `(valor, 1)`, exacto por construcción.
  *
  * PRECONDICIÓN: `points` no vacío y ordenado estrictamente creciente por `marketCents` (lo garantiza
  * el validador V1/V2 al GUARDAR y `sanitizePricingCurve` al LEER).
  */
-export function interp(points: readonly CurvePointBp[], marketCents: number): number {
-  return interpWithSegment(points, marketCents).valueBp;
+export function interpExact(
+  points: readonly CurvePointBp[],
+  marketCents: number,
+): { num: number; den: number; segment: CurveSegment | null } {
+  if (points.length === 0) {
+    // Defensivo: sin puntos no hay curva. El validador V1 lo impide al guardar y `sanitize` al leer;
+    // si aun así llegara aquí, 1.00× es el valor money-safe (nunca por debajo del mercado).
+    return { num: MULTIPLIER_BP_MIN, den: 1, segment: null };
+  }
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (marketCents <= first.marketCents) return { num: first.valueBp, den: 1, segment: null }; // plano inicial
+  if (marketCents >= last.marketCents) return { num: last.valueBp, den: 1, segment: null }; // plano final
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    if (marketCents >= p0.marketCents && marketCents < p1.marketCents) {
+      const den = p1.marketCents - p0.marketCents;
+      // num = k(m) · den, ENTERO exacto (sin división, sin redondeo).
+      const num = p0.valueBp * den + (p1.valueBp - p0.valueBp) * (marketCents - p0.marketCents);
+      return { num, den, segment: { fromIndex: i, toIndex: i + 1 } };
+    }
+  }
+  /* istanbul ignore next — inalcanzable con puntos ordenados; red de seguridad. */
+  return { num: last.valueBp, den: 1, segment: null };
 }
 
 /** Tramo interpolado. `null` en los tramos PLANOS (antes del primer punto / después del último). */
@@ -164,38 +205,41 @@ export interface CurveSegment {
 }
 
 /**
- * Igual que `interp` pero devolviendo TAMBIÉN qué tramo se aplicó. Es el cuerpo real: `interp` es un
- * envoltorio. Saber QUÉ tramo interpoló es parte de la matemática y lo consume la **memoria de
- * cálculo** del dry-run (§4.36.8a) — derivarlo en el cliente sería re-duplicar este lookup.
+ * v2.1.2 (E0-bis) — **el precio crudo, en UNA sola expresión entera exacta**:
+ * `rawCents = ROUND_HALF_UP( m · num / (den · 10000) )`. Es el ÚNICO redondeo de la cadena de venta y
+ * de compra.
+ *
+ * Se calcula en `BigInt` a propósito: `m` llega hasta `MAX_CENTS` (~2.1e9) y `num` hasta ~1e15, así
+ * que el producto rebasa `Number.MAX_SAFE_INTEGER` (9e15) y en `number` se perdería precisión — que es
+ * exactamente lo que esta corrección viene a eliminar. El operando es SIEMPRE ≥ 0 por construcción
+ * (§4.36.1), así que «medio alejándose de cero» se reduce a `floor((2n + d) / 2d)`.
+ *
+ * El resultado se acota a `MAX_CENTS` ANTES de volver a `number`: por encima de eso ya no hay precio
+ * representable (BE-27) y el clamp de `money.ts` haría lo mismo; hacerlo aquí evita que un `BigInt`
+ * astronómico pase por una conversión con pérdida.
  */
-export function interpWithSegment(
-  points: readonly CurvePointBp[],
-  marketCents: number,
-): { valueBp: number; segment: CurveSegment | null } {
-  if (points.length === 0) {
-    // Defensivo: sin puntos no hay curva. El validador V1 lo impide al guardar y `sanitize` al leer;
-    // si aun así llegara aquí, 1.00× es el valor money-safe (nunca por debajo del mercado).
-    return { valueBp: MULTIPLIER_BP_MIN, segment: null };
-  }
-  const first = points[0];
-  const last = points[points.length - 1];
-  if (marketCents <= first.marketCents) return { valueBp: first.valueBp, segment: null }; // plano inicial
-  if (marketCents >= last.marketCents) return { valueBp: last.valueBp, segment: null }; // plano final
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i];
-    const p1 = points[i + 1];
-    if (marketCents >= p0.marketCents && marketCents < p1.marketCents) {
-      const span = p1.marketCents - p0.marketCents;
-      // §4.36.1: se redondea el VALOR FINAL (siempre >= 0), NO el delta (que es negativo cuando el
-      // markup baja). El resultado es bp ENTERO.
-      const valueBp = roundHalfUp(
-        p0.valueBp + ((p1.valueBp - p0.valueBp) * (marketCents - p0.marketCents)) / span,
-      );
-      return { valueBp, segment: { fromIndex: i, toIndex: i + 1 } };
-    }
-  }
-  /* istanbul ignore next — inalcanzable con puntos ordenados; red de seguridad. */
-  return { valueBp: last.valueBp, segment: null };
+export function rawCentsFromRational(marketCents: number, num: number, den: number): number {
+  const n = BigInt(marketCents) * BigInt(num);
+  const d = BigInt(den) * 10_000n;
+  const q = (2n * n + d) / (2n * d); // ROUND_HALF_UP con operandos >= 0
+  const cap = BigInt(MAX_CENTS_CURVE);
+  return Number(q > cap ? cap : q);
+}
+
+/**
+ * Tope de representación de un monto en centavos (espejo de `MAX_CENTS` de `money.ts`, duplicado aquí
+ * porque `common/pricing-curve.ts` no depende de nada: es `Int32` de Postgres).
+ */
+const MAX_CENTS_CURVE = 2_147_483_647;
+
+/**
+ * Valor interpolado como número, **SOLO PARA DISPLAY** (memoria de cálculo del previsualizador y del
+ * editor, §4.36.8a). ⛔ **JAMÁS como operando de un precio**: para eso está `interpExact` +
+ * `rawCentsFromRational`. El contrato lo marca `appliedBp` como solo-display por esta misma razón.
+ */
+export function interp(points: readonly CurvePointBp[], marketCents: number): number {
+  const { num, den } = interpExact(points, marketCents);
+  return roundHalfUp(num / den);
 }
 
 /** Proyecta los puntos de VENTA a `(marketCents, valueBp)`. */
@@ -280,9 +324,17 @@ export interface CurveLegTrace {
   priceCents: number | null;
   /** Solo `market | floor | pending`: el dry-run opera sobre mercados HIPOTÉTICOS, no sobre variantes. */
   basis: PriceBasis;
-  /** El valor INTERPOLADO aplicado, en bp del mercado. `null` si no hubo cálculo (pending). */
+  /**
+   * El valor interpolado aplicado, en bp del mercado, **redondeado SOLO PARA DISPLAY** (v2.1.2). `null`
+   * si no hubo cálculo (pending).
+   *
+   * ⛔ **NO es el operando del precio.** El precio sale del racional exacto (`interpExact` +
+   * `rawCentsFromRational`); este campo existe para la memoria de cálculo del previsualizador, y por
+   * eso el contrato lo marca solo-display. Usarlo para recomputar el monto reintroduce el bug I1:
+   * `rawCents` puede NO ser `ROUND_HALF_UP(mercado × appliedBp / 10000)` cuando `k(m)` no es entero.
+   */
   appliedBp: number | null;
-  /** `ROUND_HALF_UP(mercado × appliedBp / 10000)`: el producto ANTES de la constante y del redondeo. */
+  /** El producto EXACTO `mercado · k(m)`, redondeado a centavos: ANTES de la constante y del redondeo. */
   rawCents: number | null;
   /** El piso (venta) o el bin (compra). */
   constantCents: number;
@@ -310,8 +362,9 @@ export function explainSaleFromCurve(marketMxnCents: number | null, curve: Prici
       segment: null,
     };
   }
-  const { valueBp, segment } = interpWithSegment(saleBpPoints(curve.sale.points), marketMxnCents);
-  const rawCents = roundHalfUp((marketMxnCents * valueBp) / 10_000);
+  // v2.1.2 (E0-bis): racional EXACTO + una sola expresión entera. `appliedBp` es SOLO-DISPLAY.
+  const { num, den, segment } = interpExact(saleBpPoints(curve.sale.points), marketMxnCents);
+  const rawCents = rawCentsFromRational(marketMxnCents, num, den);
   const baseCents = Math.max(constantCents, rawCents);
   // EMPATE ⇒ 'market' (§N.7): `floor` solo si la constante es ESTRICTAMENTE mayor.
   const constantWon = constantCents > rawCents;
@@ -321,7 +374,7 @@ export function explainSaleFromCurve(marketMxnCents: number | null, curve: Prici
   return {
     priceCents: rounded.cents,
     basis: constantWon ? 'floor' : 'market',
-    appliedBp: valueBp,
+    appliedBp: roundHalfUp(num / den),
     rawCents,
     constantCents,
     constantWon,
@@ -346,13 +399,14 @@ export function explainBuyFromCurve(marketMxnCents: number | null, curve: Pricin
       segment: null,
     };
   }
-  const { valueBp, segment } = interpWithSegment(buyBpPoints(curve.buy.points), marketMxnCents);
-  const rawCents = roundHalfUp((marketMxnCents * valueBp) / 10_000);
+  // v2.1.2 (E0-bis): racional EXACTO + una sola expresión entera. `appliedBp` es SOLO-DISPLAY.
+  const { num, den, segment } = interpExact(buyBpPoints(curve.buy.points), marketMxnCents);
+  const rawCents = rawCentsFromRational(marketMxnCents, num, den);
   const constantWon = constantCents > rawCents;
   return {
     priceCents: Math.max(constantCents, rawCents),
     basis: constantWon ? 'floor' : 'market',
-    appliedBp: valueBp,
+    appliedBp: roundHalfUp(num / den),
     rawCents,
     constantCents,
     constantWon,
@@ -753,23 +807,42 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
   }
   // Los tramos planos (antes del primero, después del último) son crecientes porque k > 0 (V4 ⇒ k ≥ 10000).
 
-  // ---- V6: compra siempre por debajo de venta, en TODO el dominio ----------
+  // ---- V6: compra ESTRICTAMENTE por debajo de venta, en TODO el dominio -----
   // Ambas curvas son lineales por tramo sobre la UNIÓN de sus `marketCents` ⇒ la diferencia
-  // `multiplierBp(m) − pctBp(m)` es lineal por tramo ⇒ basta comprobar los NODOS (y las colas planas,
-  // que son constantes iguales al valor del nodo extremo). Es exacto, no un muestreo.
+  // `multiplierBp(m) − pctBp(m)` es lineal por tramo ⇒ su mínimo cae en un NODO (las colas planas son
+  // constantes iguales al valor del nodo extremo). Es exacto, no un muestreo.
+  //
+  // v2.1.2 — se exige **≥ 1 unidad entera** de separación, no solo `pct < mult`. Sobre los valores
+  // CONTINUOS, dos valores distintos dentro del mismo centavo redondean al MISMO entero: ahí
+  // `compra == venta`, margen cero, que §N.3 prohíbe. Con `k(m) − p(m) ≥ 1` la desigualdad SOBREVIVE
+  // al redondeo. Coste práctico nulo: la separación real del seed es de miles de bp.
+  //
+  // La comparación se hace sobre los RACIONALES exactos (`interpExact`), no sobre `interp` — que
+  // redondea y es SOLO-DISPLAY desde v2.1.2. En un nodo de una curva la OTRA puede valer un racional
+  // no entero, y comparar su versión redondeada volvería a demostrar algo sobre el objeto equivocado.
   const saleCurveBp = salePts.map((p) => ({ marketCents: p.marketCents, valueBp: p.valueBp }));
   const buyCurveBp = buyPts.map((p) => ({ marketCents: p.marketCents, valueBp: p.valueBp }));
   const nodes = Array.from(new Set([...saleCurveBp, ...buyCurveBp].map((p) => p.marketCents))).sort((a, b) => a - b);
   for (const m of nodes) {
-    const mult = interp(saleCurveBp, m);
-    const pct = interp(buyCurveBp, m);
-    if (pct >= mult) {
+    const sale = interpExact(saleCurveBp, m);
+    const buy = interpExact(buyCurveBp, m);
+    // ns/ds − nb/db ≥ 1  ⟺  ns·db − nb·ds ≥ ds·db   (ds, db > 0). Enteros exactos, sin división.
+    const lhs = BigInt(sale.num) * BigInt(buy.den) - BigInt(buy.num) * BigInt(sale.den);
+    const rhs = BigInt(sale.den) * BigInt(buy.den);
+    if (lhs < rhs) {
       const offending = buyPts.find((p) => p.marketCents === m) ?? salePts.find((p) => p.marketCents === m);
       out.push(
         err(
           'BUY_ABOVE_SALE',
-          'buy curve reaches or exceeds the sale curve at this market value',
-          { axis: 'buy', index: offending?.index, marketCents: m, pctBp: pct, multiplierBp: mult },
+          'buy curve must stay at least 1 bp below the sale curve at every market value',
+          {
+            axis: 'buy',
+            index: offending?.index,
+            marketCents: m,
+            // Valores REDONDEADOS solo para el mensaje del editor; la decisión ya se tomó en exacto.
+            pctBp: roundHalfUp(buy.num / buy.den),
+            multiplierBp: roundHalfUp(sale.num / sale.den),
+          },
           false,
         ),
       );

@@ -81,9 +81,10 @@ describe('BuylistService.publicQuote — el acabado elige la VARIANTE, no la reg
     const a = await svcWith({ referenceMxnCents: 12500 }).svc.publicQuote('c1', 'raw', 'NM', 'normal');
     const b = await svcWith({ referenceMxnCents: 12500 }).svc.publicQuote('c1', 'raw', 'NM', 'reverse_holo');
     const c = await svcWith({ referenceMxnCents: 12500 }).svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
-    // $125 ⇒ pct interpolado entre 40 % ($100) y 50 % ($500): 4000 + 1000×2500/40000 = 4062.5 ⇒ 4063 bp.
-    // 12500 × 4063 / 10000 = 5078.75 ⇒ $50.79.
-    expect(a.quote.quotedPriceCents).toBe(5079);
+    // $125 ⇒ pct interpolado EXACTO entre 40 % ($100) y 50 % ($500): 4000 + 1000×2500/40000 = 4062.5 bp.
+    // v2.1.2 (E0-bis): el bp NO se cuantiza — 12500 × 4062.5 / 10000 = 5078.125 ⇒ $50.78. (Antes se
+    // redondeaba el bp a 4063 y salía 5078.75 ⇒ $50.79: un centavo inflado por el doble redondeo.)
+    expect(a.quote.quotedPriceCents).toBe(5078);
     expect(b.quote.quotedPriceCents).toBe(a.quote.quotedPriceCents);
     expect(c.quote.quotedPriceCents).toBe(a.quote.quotedPriceCents);
     expect(a.priceBasis).toBe('market');
@@ -239,7 +240,7 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
       VALID_CLABE,
     );
     expect(res.items[0].finish).toBe('reverse_holo');
-    expect(res.items[0].quotedPriceCents).toBe(5079); // $125 × 40.63 % (pct interpolado)
+    expect(res.items[0].quotedPriceCents).toBe(5078); // $125 × 40.625 % EXACTO (v2.1.2, sin cuantizar)
     expect(res.items[0].priceBasis).toBe('market');
     // El create persistió el finish y el basis; `ruleMode`/`ruleValue`/`ruleSource` quedan LEGACY.
     const created = prisma.sellRequest.create.mock.calls[0][0].data.items.create[0];

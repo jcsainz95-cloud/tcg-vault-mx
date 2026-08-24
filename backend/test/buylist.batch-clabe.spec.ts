@@ -263,7 +263,7 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       ok: true,
       finish: 'normal',
       priceBasis: 'market',
-      quote: { status: 'cotizada', quotedPriceCents: 5079, currency: 'MXN' },
+      quote: { status: 'cotizada', quotedPriceCents: 5078, currency: 'MXN' },
     });
 
     // index 1 — carta inexistente → NOT_FOUND por-ítem
@@ -299,7 +299,7 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       ok: true,
       finish: 'reverse_holo',
       priceBasis: 'market',
-      quote: { status: 'cotizada', quotedPriceCents: 5079, currency: 'MXN' },
+      quote: { status: 'cotizada', quotedPriceCents: 5078, currency: 'MXN' },
     });
 
     // READ-ONLY: aunque hubo un precio_pendiente, NO escala a la cola del dueño (endpoint anónimo).
@@ -349,9 +349,9 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
     });
     // Sanidad de montos: v2.0 los TRES acabados cotizan IDÉNTICO ($125 × 40.63 % = $50.79), porque el
     // acabado dejó de tener regla propia y solo elige de qué variante se lee el mercado (criterio 83).
-    expect((results[0] as any).quote.quotedPriceCents).toBe(5079);
-    expect((results[1] as any).quote.quotedPriceCents).toBe(5079);
-    expect((results[2] as any).quote.quotedPriceCents).toBe(5079);
+    expect((results[0] as any).quote.quotedPriceCents).toBe(5078);
+    expect((results[1] as any).quote.quotedPriceCents).toBe(5078);
+    expect((results[2] as any).quote.quotedPriceCents).toBe(5078);
   });
 });
 

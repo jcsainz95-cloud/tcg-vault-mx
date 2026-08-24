@@ -10,7 +10,10 @@ import {
   DEFAULT_PRICING_CURVE,
   PricingCurve,
   buyPctBpAt,
+  collectCurveViolations,
   interp,
+  interpExact,
+  rawCentsFromRational,
   isBountyEffective,
   marketBracketOf,
   normalizePricingCurve,
@@ -478,5 +481,238 @@ describe('pricing-curve — marketBracketOf: ESCALA FIJA (§4.36.7c)', () => {
     expect(marketBracketOf(null)).toBeNull();
     expect(marketBracketOf(0)).toBeNull();
     expect(marketBracketOf(-5)).toBeNull();
+  });
+});
+
+// ============================================================================
+// E0-bis (v2.1.2) — REGRESIÓN PERMANENTE del hallazgo I1 de QA.
+// ============================================================================
+
+/**
+ * El bug: §4.36.1 mandaba cuantizar el multiplicador interpolado a **bp entero**. Eso vuelve `k(m)`
+ * una función ESCALONADA, y en cada escalón a la baja `m × round(k(m))` **cae** aunque `m` suba; la
+ * escalera de redondeo de venta amplifica esa caída de unos centavos a **un peldaño completo**.
+ *
+ * QA lo reprodujo con tres curvas de diales perfectamente razonables, **las tres aceptadas por el
+ * `PUT` con `200` y `violations: []`**. La peor pagaba **$25 menos por UN CENTAVO más de mercado** —
+ * el sesgo exacto que §N.0 prohíbe (precio de menos = carta perdida, irrecuperable).
+ *
+ * La corrección NO debilita V5 ni lo sustituye por un barrido: elimina el redondeo intermedio, de
+ * modo que el único redondeo de la cadena es el de centavos finales (monótono por definición) y V5
+ * vuelve a ser una afirmación sobre **la función que cobra**.
+ *
+ * Estas tres curvas quedan como candado permanente: si alguien re-introduce la cuantización, el par
+ * que rompía vuelve a romper aquí.
+ */
+describe('E0-bis — las TRES curvas de QA son monótonas con interpolación exacta (§4.36.1)', () => {
+  const ladder = [
+    { uptoCents: 20000, stepCents: 500 },
+    { uptoCents: 50000, stepCents: 1000 },
+    { uptoCents: null, stepCents: 2500 },
+  ];
+  const buy = { binCents: 100, points: [{ marketCents: 100, pctBp: 3000 }, { marketCents: 50000, pctBp: 5000 }] };
+  const saleCurve = (points: { marketCents: number; multiplierBp: number }[]): PricingCurve => ({
+    version: 1,
+    sale: { floorCents: 2500, points, rounding: ladder },
+    buy,
+  });
+
+  const QA_CURVES: Array<[string, PricingCurve, number]> = [
+    [
+      '2.00×@$10 → 1.05×@$500',
+      saleCurve([
+        { marketCents: 1000, multiplierBp: 20000 },
+        { marketCents: 50000, multiplierBp: 10500 },
+      ]),
+      25611,
+    ],
+    [
+      '1.60×@$25 → 1.15×@$80 → 1.05×@$1000',
+      saleCurve([
+        { marketCents: 2500, multiplierBp: 16000 },
+        { marketCents: 8000, multiplierBp: 11500 },
+        { marketCents: 100000, multiplierBp: 10500 },
+      ]),
+      71711,
+    ],
+    [
+      '1.50×@$50 → 1.00×@$800',
+      saleCurve([
+        { marketCents: 5000, multiplierBp: 15000 },
+        { marketCents: 80000, multiplierBp: 10000 },
+      ]),
+      38353,
+    ],
+  ];
+
+  it.each(QA_CURVES)('«%s»: el par que rompía ya no rompe — P(m) ≥ P(m−1)', (_label, curve, m) => {
+    const prev = resolveSaleFromCurve(m - 1, curve).cents!;
+    const cur = resolveSaleFromCurve(m, curve).cents!;
+    expect(cur).toBeGreaterThanOrEqual(prev);
+  });
+
+  it('el caso PEOR, con sus números exactos: $717.10 y $717.11 dan AMBOS $800.00 (antes $800 → $775)', () => {
+    const curve = QA_CURVES[1][1];
+    expect(resolveSaleFromCurve(71710, curve).cents).toBe(80000);
+    expect(resolveSaleFromCurve(71711, curve).cents).toBe(80000);
+  });
+
+  it.each(QA_CURVES)('«%s»: monótona en TODO el entorno de la ruptura (±$50)', (_label, curve, m) => {
+    let prev = -1;
+    for (let x = m - 5000; x <= m + 5000; x++) {
+      const c = resolveSaleFromCurve(x, curve).cents!;
+      expect(c).toBeGreaterThanOrEqual(prev);
+      prev = c;
+    }
+  });
+
+  it.each(QA_CURVES)('«%s»: las tres siguen siendo GUARDABLES (el bug no era de validación)', (_label, curve) => {
+    expect(collectCurveViolations(curve).filter((e) => e.blocking)).toEqual([]);
+  });
+
+  /**
+   * Caracterización, NO validación: este barrido vive en CI y jamás en el `PUT`. Barrer en cada
+   * escritura cambiaría un invariante EXACTO por uno MUESTREADO — justo lo que no queremos (con paso
+   * de 1 centavo costaría millones de evaluaciones por request; con cualquier paso mayor dejaría de
+   * ser una demostración).
+   */
+  it('barrido del SEED ($0.01–$6 000): CERO rupturas de monotonía', () => {
+    let prev = -1;
+    let breaks = 0;
+    for (let m = 1; m <= 600000; m++) {
+      const c = resolveSaleFromCurve(m, DEFAULT_PRICING_CURVE).cents!;
+      if (c < prev) breaks++;
+      prev = c;
+    }
+    expect(breaks).toBe(0);
+  });
+
+  it('la COMPRA también es monótona en el seed (no la redondea la escalera, pero sí el centavo)', () => {
+    let prev = -1;
+    let breaks = 0;
+    for (let m = 1; m <= 600000; m++) {
+      const c = resolveBuyFromCurve(m, DEFAULT_PRICING_CURVE).cents!;
+      if (c < prev) breaks++;
+      prev = c;
+    }
+    expect(breaks).toBe(0);
+  });
+});
+
+describe('E0-bis — `interpExact` es exacto y `rawCentsFromRational` es la ÚNICA multiplicación', () => {
+  const pts = [
+    { marketCents: 2500, valueBp: 16000 },
+    { marketCents: 8000, valueBp: 11500 },
+  ];
+
+  it('devuelve el racional sin cuantizar: k($50) = 13954.545… ⇒ (num,den) exacto', () => {
+    const { num, den } = interpExact(pts, 5000);
+    // k = 16000 + (11500−16000)·(5000−2500)/5500 = 16000 − 4500·2500/5500
+    expect(num).toBe(16000 * 5500 + (11500 - 16000) * 2500);
+    expect(den).toBe(5500);
+    expect(num / den).toBeCloseTo(13954.5454, 3);
+    // …y NO es el entero que devolvería la versión display.
+    expect(num % den).not.toBe(0);
+  });
+
+  it('tramos planos ⇒ racional (valor, 1), exacto por construcción', () => {
+    expect(interpExact(pts, 1)).toMatchObject({ num: 16000, den: 1, segment: null });
+    expect(interpExact(pts, 999999)).toMatchObject({ num: 11500, den: 1, segment: null });
+  });
+
+  it('`rawCentsFromRational` redondea medio ALEJÁNDOSE DE CERO (operando siempre ≥ 0)', () => {
+    // 15 · 1/10000 con num/den = 10000/3 ⇒ exacto 0.5 ⇒ 1 (no 0).
+    expect(rawCentsFromRational(1, 5000, 1)).toBe(1); // 1 × 0.5 = 0.5 ⇒ 1
+    expect(rawCentsFromRational(3, 5000, 1)).toBe(2); // 1.5 ⇒ 2
+    expect(rawCentsFromRational(10000, 10000, 1)).toBe(10000); // 1.00× exacto
+  });
+
+  it('NO pierde precisión con mercados grandes (por eso se calcula en BigInt, no en `number`)', () => {
+    // m·num rebasa Number.MAX_SAFE_INTEGER: 2e9 × 1e12 = 2e21.
+    const m = 2_000_000_000;
+    const num = 16000 * 5500 + (11500 - 16000) * 2500; // ~7.5e7
+    const den = 5500;
+    // El resultado excede MAX_CENTS ⇒ se acota ANTES de volver a `number` (BE-27).
+    expect(rawCentsFromRational(m, num, den)).toBe(2_147_483_647);
+  });
+
+  it('`interp` sigue existiendo pero es SOLO-DISPLAY: puede diferir del operando real del precio', () => {
+    const display = interp(pts, 5000);
+    const { num, den } = interpExact(pts, 5000);
+    expect(display).toBe(roundHalfUp(num / den));
+    // El precio NO usa `display`: con m=$50 el crudo exacto y el «display» difieren por construcción.
+    expect(rawCentsFromRational(5000, num, den)).not.toBe(roundHalfUp((5000 * display) / 10000) + 1);
+  });
+});
+
+describe('E0-bis — V6 exige ≥ 1 unidad de separación (margen cero prohibido, §N.3)', () => {
+  const base = (pctBp: number): PricingCurve => ({
+    version: 1,
+    sale: {
+      floorCents: 2500,
+      points: [{ marketCents: 1000, multiplierBp: 10000 }],
+      rounding: [{ uptoCents: null, stepCents: 500 }],
+    },
+    buy: { binCents: 100, points: [{ marketCents: 1000, pctBp }] },
+  });
+
+  it('separación de 1 bp: PASA (es el mínimo admitido)', () => {
+    expect(collectCurveViolations(base(9999)).map((e) => e.code)).not.toContain('BUY_ABOVE_SALE');
+  });
+
+  it('separación 0 (compra == venta): RECHAZA — margen cero', () => {
+    expect(collectCurveViolations(base(10000)).map((e) => e.code)).toContain('BUY_ABOVE_SALE');
+  });
+
+  it('con los rangos V3/V4, «compra ARRIBA de venta» es inalcanzable: el caso real es la separación < 1', () => {
+    // `pctBp ≤ 10000 ≤ multiplierBp` por V3/V4 ⇒ `pct > mult` no existe; lo que sí existe (y es lo que
+    // v2.1.2 cierra) es que la diferencia sea > 0 pero < 1 unidad, donde los DOS precios colapsan al
+    // mismo centavo. Un `pctBp` fuera de rango lo ataja antes V3, con otro código.
+    expect(collectCurveViolations(base(10001)).map((e) => e.code)).toContain('VALIDATION_ERROR');
+  });
+
+  it('separación FRACCIONARIA (0 < diff < 1): RECHAZA — los dos precios caerían en el mismo centavo', () => {
+    const curve: PricingCurve = {
+      version: 1,
+      sale: {
+        floorCents: 2500,
+        // En $30 la venta interpola a 10000 + 1·(2000/9000) = 10000.222…
+        points: [
+          { marketCents: 1000, multiplierBp: 10000 },
+          { marketCents: 10000, multiplierBp: 10001 },
+        ],
+        rounding: [{ uptoCents: null, stepCents: 500 }],
+      },
+      buy: { binCents: 100, points: [{ marketCents: 3000, pctBp: 10000 }] },
+    };
+    expect(collectCurveViolations(curve).map((e) => e.code)).toContain('BUY_ABOVE_SALE');
+  });
+
+  it('la separación se evalúa EXACTA en los nodos de AMBAS curvas (no sobre valores redondeados)', () => {
+    // Nodo de compra en $30 donde la venta interpola a un racional NO entero.
+    const curve: PricingCurve = {
+      version: 1,
+      sale: {
+        floorCents: 2500,
+        points: [
+          { marketCents: 1000, multiplierBp: 12000 },
+          { marketCents: 10000, multiplierBp: 10001 },
+        ],
+        rounding: [{ uptoCents: null, stepCents: 500 }],
+      },
+      buy: {
+        binCents: 100,
+        points: [
+          { marketCents: 3000, pctBp: 9000 },
+          { marketCents: 10000, pctBp: 10000 },
+        ],
+      },
+    };
+    // En $100 la venta vale 10001 y la compra 10000 ⇒ separación exacta de 1 ⇒ pasa.
+    expect(collectCurveViolations(curve).map((e) => e.code)).not.toContain('BUY_ABOVE_SALE');
+  });
+
+  it('el seed de §N.2 conserva una separación de MILES de bp (coste práctico nulo)', () => {
+    expect(collectCurveViolations(DEFAULT_PRICING_CURVE)).toEqual([]);
   });
 });

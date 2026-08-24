@@ -76,7 +76,7 @@ describe('BuylistService.publicQuote — el monto sale de la CURVA, no de la rar
     expect(q.rarity).toBe('Illustration Rare'); // dato de display; NO entra al monto
     expect(q.priceBasis).toBe('market');
     expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(5079); // $125 × 40.63 % interpolado
+    expect(q.quote.quotedPriceCents).toBe(5078); // $125 × 40.625 % EXACTO (v2.1.2: el bp no se cuantiza)
   });
 
   it('SIN referencia → precio_pendiente: el BIN no gana (decisión LOCKED §4.36.0)', async () => {
