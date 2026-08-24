@@ -35,6 +35,15 @@ import { TcgcsvCatalogClient, deriveCardProductsFromTcgcsv } from './tcgcsv-sing
  * Nota: `providerSetId`/`minPrice`/`fetchPrintings` de `BulkFetchInput` son diales de PPT y este
  * provider los IGNORA (resuelve su propio `groupId` TCGCSV, S-D3).
  */
+/**
+ * Cota superior de cordura (USD) para el `market` por-acabado de un single, ANTES de convertir a
+ * centavos (P47-1, money-safe). Cualquier `market` > esta cota se trata como dato de feed corrupto:
+ * se OMITE la fila y se audita (warn), en vez de clamparse en silencio a MAX_CENTS. Elegida en el
+ * orden de las decenas de miles de USD: muy por encima de cualquier single real de Pokémon y muy por
+ * debajo de MAX_CENTS (≈USD 21.4M), de modo que jamás se emita un precio de venta absurdo.
+ */
+const MAX_SANE_MARKET_USD = 50_000;
+
 @Injectable()
 export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
   readonly source: PriceSource = 'tcgcsv_singles';
@@ -113,6 +122,30 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
         // Cada acabado toma SU marketPrice; ausente/≤0 ⇒ OMITIR (celda «—»/PRICE_PENDING, jamás 0).
         if (pf.marketPrice == null || pf.marketPrice <= 0) {
           skipped += 1;
+          continue;
+        }
+        // P47-1 (money-safe): el `market` viene de un feed EXTERNO (TCGCSV). Un valor no finito
+        // (Infinity/-Infinity/NaN por dato corrupto o malicioso) NO se clampa a MAX_CENTS en
+        // silencio — se OMITE la fila (mismo invariante que ≤0: la celda queda «—»/PRICE_PENDING,
+        // jamás un precio inventado). `-Infinity`/`NaN` ya caerían en el ≤0 de arriba en su mayoría,
+        // pero se hace explícito para no depender de la coerción de comparación con NaN.
+        if (!Number.isFinite(pf.marketPrice)) {
+          skipped += 1;
+          continue;
+        }
+        // Cota superior de CORDURA antes de convertir a centavos. Un single de Pokémon real cotiza,
+        // aun en los grados/alter más caros, muy por debajo de USD 50k (los outliers de subasta tipo
+        // Pikachu Illustrator no cotizan como `market` de TCGplayer). Elegimos 50 000 USD: decenas de
+        // miles, muy por encima de cualquier carta real y muy por debajo de MAX_CENTS (≈USD 21.4M).
+        // Un `market` por encima de esta cota es dato corrupto ⇒ se OMITE y se AUDITA (warn), para que
+        // no se clampe en silencio a MAX_CENTS (riesgo de dinero: precio de venta absurdo inyectado).
+        if (pf.marketPrice > MAX_SANE_MARKET_USD) {
+          skipped += 1;
+          this.logger.warn(
+            `tcgcsv_singles: market ANÓMALO omitido (P47-1) — productId=${dp.productId} ` +
+              `finish=${pf.finish} market=${pf.marketPrice} USD supera la cota de cordura ` +
+              `(${MAX_SANE_MARKET_USD} USD). Fila OMITIDA (no se clampa a MAX_CENTS); dato de feed corrupto.`,
+          );
           continue;
         }
         const marketCents = Math.round(pf.marketPrice * 100);

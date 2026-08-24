@@ -7488,3 +7488,33 @@ borradas/después por tabla.
 - **Rate-limit `POST /auth/forgot-password` subido 3→10/hora (2026-08-23, `auth.controller.ts:88`):** por
   petición del humano (3/hora le bloqueaba las pruebas); ttl intacto en 1 hora. 10/hora sigue siendo tope
   anti-abuso razonable. Candado en `test/auth.throttle.spec.ts` y comentario en `main.ts:34` actualizados.
+
+## P47-1 (MEDIA, seguridad blue team) — cota de cordura del `market` externo en tcgcsv_singles
+
+**Archivo:** `backend/src/modules/pricing/providers/tcgcsv-singles-bulk.provider.ts`
+**Rama:** `fix/variant-composition-regression`
+
+**Hallazgo:** el `market` del feed externo TCGCSV se convertía a centavos y terminaba clampándose a
+`MAX_CENTS` (~USD 21.4M) sin validación previa. Un `market` = `Infinity`/`NaN` o un finito absurdamente
+grande (feed corrupto o malicioso) se clampaba EN SILENCIO al máximo → riesgo de precio de venta absurdo.
+
+**Fix (quirúrgico, en el tramo que ya omitía null/≤0, ~L114):**
+1. `Number.isFinite(pf.marketPrice)` → si no es finito se OMITE la fila (mismo invariante que ≤0: celda
+   queda «—»/PRICE_PENDING, jamás un precio inventado). No se clampa.
+2. Cota superior de cordura `MAX_SANE_MARKET_USD = 50_000` (constante a nivel de módulo, documentada).
+   Un `market` por encima se OMITE y se AUDITA con `logger.warn` estructurado (`productId`, `finish`,
+   `market`) para que un dato corrupto sea VISIBLE, no silencioso.
+3. NO se inventa precio ni se sustituye por otro acabado: omitir mantiene el invariante money-safe.
+
+**Justificación de la cota (50 000 USD):** un single real de Pokémon cotiza, aun en los grados/alter más
+caros, muy por debajo de USD 50k como `market` de TCGplayer (los outliers de subasta tipo Pikachu
+Illustrator no cotizan como `market`). 50k es del orden de las decenas de miles: muy por encima de
+cualquier carta real y muy por debajo de `MAX_CENTS` (≈USD 21.4M), de modo que jamás se emita un precio
+de venta absurdo. Es una cota defendible y conservadora; si en el futuro apareciera un single legítimo
+cerca de ese techo, el `warn` lo haría visible antes de que impacte al catálogo.
+
+**NO tocado:** la precedencia `isBetterRef` (hallazgo P47-2, en manos del arquitecto).
+
+**Tests:** `backend/test/tcgcsv-singles-bulk.provider.spec.ts` — 3 casos nuevos: `market=Infinity` →
+omitida; `market` sobre la cota → omitida + warn (con productId/finish/market); `market` normal
+(3.50 USD) → emitido idéntico. Suite completa del provider: 11/11 verde.

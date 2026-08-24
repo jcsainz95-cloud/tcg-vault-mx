@@ -97,6 +97,67 @@ describe('TcgcsvSinglesBulkPriceProvider.fetchPricesForSet', () => {
     expect(res.skipped).toBe(2);
   });
 
+  it('P47-1: market=Infinity/NaN ⇒ fila OMITIDA (no se clampa a MAX_CENTS en silencio)', async () => {
+    const client = catalogClient({
+      products: [{ productId: 700, name: 'Corrupt Feed Mon', number: '7' }],
+      prices: [
+        { productId: 700, subTypeName: 'Normal', marketPrice: Infinity },
+        { productId: 700, subTypeName: 'Reverse Holofoil', marketPrice: 3.5 }, // finito normal ⇒ sí emite
+      ],
+    });
+    const { prisma } = prismaWithCardProducts([
+      { id: 'cp-7', tcgplayerProductId: 700, cardId: 'card-7', card: { externalId: 'ext-7' } },
+    ]);
+    const provider = new TcgcsvSinglesBulkPriceProvider(client, prisma);
+
+    const res = await provider.fetchPricesForSet({ set: SET });
+    // El Infinity NO produce fila; el acabado finito sí, intacto.
+    expect(res.rows.map((r) => r.finish)).toEqual(['reverse_holo']);
+    expect(res.rows[0].marketCents).toBe(350);
+    expect(res.skipped).toBe(1);
+  });
+
+  it('P47-1: market sobre la cota de cordura ⇒ fila OMITIDA + warn (dato de feed corrupto)', async () => {
+    const client = catalogClient({
+      products: [{ productId: 701, name: 'Absurd Price Mon', number: '8' }],
+      prices: [
+        { productId: 701, subTypeName: 'Normal', marketPrice: 999_999 }, // > 50k USD ⇒ absurdo
+        { productId: 701, subTypeName: 'Holofoil', marketPrice: 12.0 }, // dentro de cota ⇒ sí emite
+      ],
+    });
+    const { prisma } = prismaWithCardProducts([
+      { id: 'cp-8', tcgplayerProductId: 701, cardId: 'card-8', card: { externalId: 'ext-8' } },
+    ]);
+    const provider = new TcgcsvSinglesBulkPriceProvider(client, prisma);
+    const warn = jest.spyOn((provider as any).logger, 'warn').mockImplementation(() => {});
+
+    const res = await provider.fetchPricesForSet({ set: SET });
+    // El precio absurdo NO se emite (no se clampa a MAX_CENTS); el normal sí.
+    expect(res.rows.map((r) => r.finish)).toEqual(['holofoil']);
+    expect(res.rows[0].marketCents).toBe(1200);
+    expect(res.skipped).toBe(1);
+    // Se auditó el dato anómalo (visible, no silencioso) con productId/finish/market.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('market ANÓMALO omitido'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('productId=701'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('999999'));
+  });
+
+  it('P47-1: market normal (3.50 USD) sigue emitiéndose idéntico (sin regresión)', async () => {
+    const client = catalogClient({
+      products: [{ productId: 702, name: 'Normal Mon', number: '9' }],
+      prices: [{ productId: 702, subTypeName: 'Normal', marketPrice: 3.5 }],
+    });
+    const { prisma } = prismaWithCardProducts([
+      { id: 'cp-2', tcgplayerProductId: 702, cardId: 'card-2', card: { externalId: 'ext-2' } },
+    ]);
+    const provider = new TcgcsvSinglesBulkPriceProvider(client, prisma);
+
+    const res = await provider.fetchPricesForSet({ set: SET });
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]).toMatchObject({ finish: 'normal', marketCents: 350, currency: 'USD' });
+    expect(res.skipped).toBe(0);
+  });
+
   it('subTypeName DESCONOCIDO ⇒ OMITIDO (anti-invención): no se atribuye a normal', async () => {
     const client = catalogClient({
       products: [{ productId: 555, name: 'X', number: '1' }],
