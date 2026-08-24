@@ -7,7 +7,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
-import { computeCartBreakdown, BreakdownDTO, PriceBasis, sealedPriceBasisOf } from '../../common/money';
+import { computeCartBreakdown, BreakdownDTO, PriceBasis, sealedPriceBasisOf, hasManualPrice } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 
 /**
@@ -95,7 +95,9 @@ export class OrdersService {
       marketBracket: marketBracketOf(marketMxnCents),
       finish: item.finish,
     });
-    if (item.listPriceCents != null && item.listPriceCents > 0) {
+    // H-1 (E5-bis): el MISMO predicado que los otros cinco seams. Este sitio ya exigía `> 0` a mano y
+    // era el único correcto; ahora la corrección vive en un cuerpo y no en la memoria de quien lea.
+    if (hasManualPrice(item)) {
       // Peldaño 1 de la precedencia de VENTA: override POR PIEZA (§4.36.6) ⇒ basis `override`.
       return instrument(item.listPriceCents, 'override', null);
     }

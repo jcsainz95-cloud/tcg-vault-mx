@@ -17,7 +17,8 @@ import { buildGradeKey, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import { computeAportacionCostCents } from '../../common/money';
+// H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
+import { computeAportacionCostCents, firstPresentAmount, hasManualPrice } from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
 import { PricingCurve } from '../../common/pricing-curve';
 import {
@@ -990,11 +991,13 @@ export class InventoryService {
       const freshPairs = req.items
         .map((line) => ({ line, item: byId.get(line.inventoryItemId) }))
         .filter(
+          // H-1 (E5-bis): `<= 0` es AUSENTE en los dos niveles (línea y pieza), así que esa pieza SÍ
+          // va a derivar precio y por tanto SÍ necesita el reprecio fresco.
           ({ line, item }) =>
             item != null &&
             item.productType === 'raw' &&
-            line.listPriceCents == null &&
-            item.listPriceCents == null,
+            !hasManualPrice(line) &&
+            !hasManualPrice(item),
         )
         .map(({ item }) => item!);
       const freshCardIds = [...new Set(freshPairs.map((i) => i.cardId))];
@@ -1092,7 +1095,8 @@ export class InventoryService {
     const curve = base?.curve ?? (await this.pricing.loadPricingCurve());
     const sealed = base?.sealed ?? (await this.pricing.loadSealedSpreads());
     const derivable = items
-      .filter((i) => i.listPriceCents == null)
+      // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ la pieza deriva precio y necesita su referencia en el lote.
+      .filter((i) => !hasManualPrice(i))
       .flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
         if (i.productType === 'sealed') {
           const gk = this.pricing.sealedMarketGradeKeyForItem(i);
@@ -1146,7 +1150,10 @@ export class InventoryService {
     lineListPriceCents: number | null,
     ctx: PublishPricingCtx,
   ): Promise<PublishPriceResolution> {
-    const manual = lineListPriceCents ?? item.listPriceCents;
+    // H-1 (E5-bis): precedencia línea → pieza con «presente ⇔ > 0». Con `??` un `0` en la LÍNEA
+    // cortocircuitaba y enmascaraba el override de la pieza; con `firstPresentAmount` cae al
+    // siguiente peldaño, que es lo que dice §4.36.6.
+    const manual = firstPresentAmount(lineListPriceCents, item.listPriceCents);
     if (manual != null) {
       return { ok: true, salePriceCents: manual, priceSource: 'manual' };
     }
@@ -2208,7 +2215,10 @@ export class InventoryService {
       const marketCents =
         market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
       const buyCents = ov?.buyOverrideCents ?? null;
-      const sellCents = it.listPriceCents ?? ov?.sellOverrideCents ?? null;
+      // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
+      // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
+      // «presente ⇔ > 0».
+      const sellCents = firstPresentAmount(it.listPriceCents, ov?.sellOverrideCents);
       sheet.addRow({
         folio: it.folio,
         card: it.card?.name ?? '',

@@ -5,7 +5,7 @@ import { PricingService, PriceInfo } from '../pricing/pricing.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
 // el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
 // visibilidad del «Valor de mercado» en las dos fichas.
-import { sealedPriceBasisOf, PriceBasis } from '../../common/money';
+import { sealedPriceBasisOf, PriceBasis, hasManualPrice } from '../../common/money';
 import { PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
@@ -162,7 +162,8 @@ export class CatalogService {
     // cadena H-1 intacta). UNA query por request, misma clave que el lote de referencias.
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       items
-        .filter((i) => i.productType !== 'sealed' && i.listPriceCents == null)
+        // H-1 (E5-bis): `<= 0` es AUSENTE, así que esas piezas TAMBIÉN necesitan precio derivado.
+        .filter((i) => i.productType !== 'sealed' && !hasManualPrice(i))
         .map((i) => ({
           cardId: i.cardId,
           productType: i.productType,
@@ -271,7 +272,7 @@ export class CatalogService {
         ctx?.reference ??
         (await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
 
-      if (item.listPriceCents != null) {
+      if (hasManualPrice(item)) {
         // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
         // específica — v1.28 §4.26b: gana también sobre el sellOverride de la variante).
         // v2.0 (§4.36.6): peldaño 1 de la precedencia de VENTA ⇒ `priceBasis = "override"` (y por

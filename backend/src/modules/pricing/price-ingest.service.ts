@@ -9,6 +9,8 @@ import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } f
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { orderFinishes } from '../../common/card-order';
+// H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido.
+import { hasManualPrice } from '../../common/money';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
@@ -504,7 +506,10 @@ export class PriceIngestService {
       let closed = 0;
       for (const item of items) {
         // Override manual POR PIEZA: el precio no sale del mercado ⇒ el barrido no opina sobre su cola.
-        if (item.listPriceCents != null) continue;
+        // H-1 (E5-bis): `<= 0` es AUSENTE, así que esa pieza SÍ deriva de la curva y SÍ tiene que
+        // entrar al barrido. Con el `!= null` de antes se saltaba y NUNCA se reconciliaba — el mismo
+        // hueco de D5, recién abierto por este bucle.
+        if (hasManualPrice(item)) continue;
         const gradeKey = this.pricing.gradeKeyFor(item);
         const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
         const ref = refs.get(key);

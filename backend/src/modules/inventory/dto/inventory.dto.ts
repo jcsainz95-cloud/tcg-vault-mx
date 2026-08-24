@@ -38,6 +38,17 @@ export const MAX_BATCH_QTY = 500;
 export const MAX_LIST_PRICE_CENTS = 100_000_000;
 
 /**
+ * H-1 en la ESCRITURA (v2.1.4, §4.36.6 / E5-bis) — «cinturón y tirantes».
+ *
+ * Todo `listPriceCents` aceptado por un write es **entero `> 0`** (`@Min(1)`): así el estado
+ * prohibido **no se puede crear**. `null`/ausente sigue siendo válido y significa «sin override».
+ *
+ * La lectura NO se relaja por eso: los seis seams tratan `<= 0` como AUSENTE de todos modos
+ * (`hasManualPrice`), porque las filas que preceden a esta validación ya están en la base. Una sola
+ * de las dos puntas no basta — el hueco D5 nació precisamente de confiar en la otra.
+ */
+
+/**
  * M-2 (SEC) — tope de política del % de aportación en especie. Sin `@Max`, un `vault_operator`
  * podía inflar arbitrariamente el costo de aportación (costo = referencia × pct/100) desde el DTO.
  * 100% (costo = referencia del día) es el techo de negocio para la aportación del dueño.
@@ -73,7 +84,7 @@ export class CreateItemDto {
   // (promo/regalo), a diferencia de un precio de venta.
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) acquisitionCostCents?: number;
   // v1.1: precio manual MXN. Obligatorio para PUBLICAR el sellado (sin él no aparece en Compra).
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsString() sourceSellRequestItemId?: string;
   // v1.36-sealed-alta (M-37, P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados en
   // raw/graded). `tcgplayerProductId`+`tcgplayerGroupId` = mapeo TCGCSV; se fijan JUNTOS (uno sin el
@@ -99,7 +110,7 @@ export class UpdateItemDto {
   @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsString() gradeValue?: string;
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsIn(['in_stock', 'listed']) status?: 'in_stock' | 'listed';
 }
 
@@ -177,7 +188,7 @@ export class BatchCreateInventoryRequest {
 
 export class BulkPublishLineInput {
   @IsString() inventoryItemId!: string;
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
 }
 
 export class BulkPublishRequest {
@@ -233,7 +244,7 @@ export class AdjustmentFoundItemInput {
   @IsOptional() @IsIn(['aportacion_en_especie', 'buylist', 'compra'])
   acquisitionType?: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
 }
 

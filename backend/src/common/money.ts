@@ -110,6 +110,47 @@ export function computeAportacionCostCents(referenceMxnCents: number, aportacion
 export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
 
 /**
+ * **H-1, EL PREDICADO** (v2.1.4, §4.36.6 / E5-bis) — «presente ⇔ `> 0`», en UN solo cuerpo.
+ *
+ * La doctrina existía desde v1.24 y estaba bien resuelta para los overrides de **variante** (M-30) y
+ * para el **sellado**… pero el **peldaño 1** de la precedencia —el `listPriceCents` POR PIEZA— no la
+ * heredó, y el `> 0` se repetía a mano seam por seam. Resultado: `orders` exigía `> 0` y otros cinco
+ * sitios solo `!= null`, así que un `listPriceCents = 0` se comportaba **distinto en cada superficie**
+ * (el checkout cobraba la curva; storefront, binder y publicación lo daban por presente y resolvían a
+ * `0` ⇒ no vendible). **Repetir el `> 0` a mano en seis sitios es literalmente cómo se llegó al
+ * hueco**, así que ahora hay un predicado y los seis lo llaman.
+ */
+export function isPresentAmount(cents: number | null | undefined): cents is number {
+  return cents != null && cents > 0;
+}
+
+/**
+ * H-1 en el **peldaño 1** de la precedencia de venta: ¿esta pieza trae override manual POR PIEZA?
+ *
+ * `<= 0` ⇒ **AUSENTE** ⇒ cae al siguiente peldaño (variante → curva), que es lo que `orders` ya hacía
+ * y lo que H-1 dice para los otros dos niveles. La alternativa («`0` = presente e inválido ⇒
+ * `PRICE_PENDING`») se DESCARTA: escondría inventario por un accidente de captura. Con §N.0: que una
+ * pieza quede priceada por curva —quizá más cara de lo que alguien tecleó— es el error RECUPERABLE;
+ * que quede invisible o se venda en `0` es el irrecuperable.
+ */
+export function hasManualPrice<T extends { listPriceCents?: number | null }>(
+  item: T,
+): item is T & { listPriceCents: number } {
+  return isPresentAmount(item.listPriceCents);
+}
+
+/**
+ * Primer monto PRESENTE (H-1) de una cadena de candidatos, o `null` si ninguno lo está. Es el `??` de
+ * la precedencia, pero con la semántica correcta: `??` solo salta `null`/`undefined`, así que un `0`
+ * lo cortocircuitaba y **enmascaraba el siguiente peldaño** (ese era el bug de `inventory:2211`, donde
+ * un `listPriceCents = 0` tapaba el `sellOverrideCents` de la variante).
+ */
+export function firstPresentAmount(...candidates: (number | null | undefined)[]): number | null {
+  for (const c of candidates) if (isPresentAmount(c)) return c;
+  return null;
+}
+
+/**
  * v1.28 (P-18/P-22, §4.26a/M-30) — CONTROLES por variante para los resolvers de precedencia. Es la
  * proyección relevante de una fila `VariantPriceOverride` (o `null`/omitido = SIN fila).
  *
