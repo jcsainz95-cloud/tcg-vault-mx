@@ -36,6 +36,8 @@ function buildPricing() {
   const createdCount = { n: 0 };
   const prisma: any = {
     pendingPriceEntry: {
+      // v2.1 (§4.36.5c): `pendingQueue` agrega los counts por motivo en el MISMO snapshot.
+      groupBy: jest.fn(async () => []),
       findMany: jest.fn(async ({ where }: any) =>
         store
           .filter((e) => e.status === where.status && (where.context ? e.context === where.context : true))

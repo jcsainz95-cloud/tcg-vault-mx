@@ -1310,6 +1310,35 @@ export class PricingService {
       orderBy: { createdAt: 'asc' },
       include: { card: { include: { set: true } }, sealedProduct: true },
     });
+    // v2.1 (§4.36.5c / API_CONTRACT §M2) — CONTEO POR MOTIVO sobre la cola COMPLETA, en el MISMO
+    // snapshot que la lista (encabezado y filas se pintan del mismo `load` ⇒ no pueden contradecirse).
+    //
+    // ⚠️ NORMATIVO: los counts IGNORAN `?reason=` pero RESPETAN `?context=`. Es la distinción que hace
+    // que el número no mienta: `reason` filtra DENTRO de la cola que el dueño está triando, mientras
+    // que `context` elige QUÉ COLA ES (VENTA=`inventory` vs COMPRA=`buylist`, §4.24c). Si respetaran
+    // `reason`, al filtrar «premium en el piso» el encabezado diría `0 SIN MERCADO` — mentiría justo
+    // cuando más se mira. Si ignoraran `context`, el bucket de VENTA sumaría pendientes de COMPRA.
+    //
+    // Solo `status='open'`: la cola es una BANDEJA DE TRABAJO; una entrada resuelta no es trabajo.
+    //
+    // Los DOS números juntos son un DIAGNÓSTICO, no dos cifras (§4.36.9c-3): contra la línea base
+    // ≈3/333, `premium_at_floor` subiendo con `no_market` PLANO ⇒ PISO MAL CALIBRADO (hay dato y está
+    // por debajo del piso); AMBOS subiendo ⇒ FEED DE MERCADO DEGRADADO — y ahí tocar el piso sería
+    // tratar el síntoma y empeorar el precio cuando el feed se recupere.
+    const grouped = await this.prisma.pendingPriceEntry.groupBy({
+      by: ['reason'],
+      where: { status: 'open', ...(context ? { context } : {}) },
+      _count: { _all: true },
+    });
+    // `unknown` = filas con `reason=null` (anteriores a M-41). Existe para que valga el invariante
+    // `no_market + premium_at_floor + unknown === nº de entradas open de esa cola`: sin ella, una cola
+    // con filas históricas no cuadraría con la lista y parecería un bug del backend.
+    const counts = { no_market: 0, premium_at_floor: 0, unknown: 0 };
+    for (const g of grouped) {
+      const key = g.reason ?? 'unknown';
+      counts[key as keyof typeof counts] += g._count._all;
+    }
+
     const data = rows.map(({ card, sealedProduct, ...entry }) => ({
       ...entry,
       cardName: card.name,
@@ -1330,7 +1359,7 @@ export class PricingService {
           }
         : {}),
     }));
-    return { data };
+    return { data, counts };
   }
 
   async priceHistory(cardId: string) {
