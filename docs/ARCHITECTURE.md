@@ -51,6 +51,23 @@
 > **junto** al otro conteo: sube solo ⇒ **piso mal calibrado**; suben los dos ⇒ **feed de mercado degradado**. Por eso
 > van en la **misma respuesta**, no en un recurso aparte. Aditivo, sin migración; se implementa en **E4** (mismo
 > `groupBy` que `reason`).
+> **Adenda v2.1.1 — PUNTO CIEGO del inventario ya `listed` (hallazgo del techlead; §4.36.5b-bis/b-ter, E4-bis/E4-ter).**
+> `publishAll` seleccionaba `status:'in_stock'`, así que **una pieza publicada nunca se re-evaluaba**: si su mercado se
+> degradaba después, dejaba de venderse **en silencio** y **no entraba a la cola** — lo contrario de lo que pide §N.5.
+> Además invalidaba el **paso 2 del cut-over** (§4.36.9c), que decía re-resolver «toda pieza»: **las cartas del reporte
+> original del dueño, las de MX$1.31, son piezas `listed`** y el cut-over no las tocaba (falso negativo en el paso de
+> verificación). **Decisión: se ensancha `publish-all` a `{in_stock, listed}` — y NO es ensuciar el endpoint, es
+> corregirlo:** el contrato ya declaraba su pipeline «IDÉNTICO a `bulk-publish`» (que acepta `listed` desde v1.16.1) y
+> **no lo era**; la divergencia de selección era una desviación no documentada. **Pero la selección SOLA no arregla
+> nada y encima lo disfraza:** el bucle corta las piezas `listed` **antes** de resolver precio
+> (`inventory.service.ts:1320-1323`) y las contaría como `alreadyListed`, que se lee como «ya estaba bien». La norma
+> son **las dos cosas**: seleccionar `listed` **y** re-resolverlas. Escalar **no** cambia el `status` (no hay
+> exposición que cerrar —la resolución en lectura ya las saca de Compra y de `stockCount`— y un flip
+> `listed → in_stock` competiría con un checkout en vuelo). `PublishAllResponse.summary` gana
+> **`listedNowPending`** (subcontador, fuera de la partición) = de lo que **ya estaba a la venta**, cuánto quedó roto.
+> **Sin migración**; único cambio de contrato: la selección documentada + ese contador (API_CONTRACT §M1).
+> **Honestidad de alcance:** esto arregla el cut-over y da un **remedio manual**, pero **no hace continuo** al
+> guardarraíl — eso lo aporta **b-ter** (que el pase posterior al barrido **abra** entradas, no solo las cierre).
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -7163,6 +7180,93 @@ siendo **READ-ONLY** (v1.12, cierra BE-16): devuelven `precio_pendiente` **sin**
 eje de compra sigue siendo `createRequest` (autenticado). En el eje de venta escalan `createItem`, `bulkPublish` y
 `publish-all`, como hoy (§4.24b).
 
+**(b-bis) PUNTO CIEGO del guardarraíl: el inventario ya `listed` (v2.1 — hallazgo del techlead, NORMATIVO).**
+
+**El diagnóstico, y por qué el arreglo obvio NO arregla nada.** `premium_at_floor` se escribe en dos sitios
+(`inventory.resolvePublishSalePrice` y `buylist.createRequest`); los caminos de **lectura** no escalan a propósito
+(arriba). Pero `InventoryService.publishAll` selecciona **`status: 'in_stock'`**
+(`inventory.service.ts:1282`), así que **una pieza ya publicada nunca se re-evalúa**. Y hay una **segunda** capa, más
+traicionera: aunque se ensanche la selección, el bucle **corta en seco** las piezas `listed` **antes** de resolver
+precio (`inventory.service.ts:1320-1323`, `if (item.status === 'listed') { summary.alreadyListed++; continue; }`).
+
+> ⚠️ **Ensanchar la selección SIN tocar esa rama deja el punto ciego intacto y además lo DISFRAZA:** cada pieza
+> degradada se contaría como **`alreadyListed`**, que se lee como «esta ya estaba bien». El cut-over reportaría un
+> número grande de «ya publicadas» y el paso 3 daría un **falso negativo**. La corrección normativa son **las dos
+> cosas juntas**; una sola es peor que ninguna.
+
+**Consecuencia 1 (operativa y permanente).** Una pieza publicada cuyo dato de mercado se degrada **después** deja de
+venderse **en silencio** y **no entra a la cola**. §N.5 pide exactamente lo contrario («convierte un error de dinero
+silencioso en una cola visible»). Tal como está, el guardarraíl cubre la **transición** a publicado, no la **vida** de
+lo publicado.
+
+**Consecuencia 2 (de release).** El paso 2 del cut-over (§4.36.9c) afirma que `publish-all` «re-resuelve **toda** pieza
+y **escala** lo que cae en `pending` o `premium_at_floor`». Con la selección vigente **eso no ocurre**. Y la ironía es
+exacta: **las cartas del reporte original del dueño —las de MX$1.31— son piezas `listed`**, justo las que el cut-over
+no tocaría.
+
+**No hay pérdida de dinero, y decir por qué importa para no sobre-reaccionar:** el precio de venta se resuelve **en
+lectura**, así que una pieza cuyo precio deja de resolver ya sale de Compra (`sellable=false`) y **no cuenta en
+`stockCount`** (§4.9a) — no se vende barata ni genera stock fantasma. Lo que se pierde es **la señal**, que es
+precisamente lo que justifica el guardarraíl. En términos de §N.0 es el error **recuperable** (venta perdida)… pero
+solo si **algo** lo revisa: sin re-evaluación no es recuperable, es un hueco silencioso y permanente del catálogo.
+
+**DECISIÓN (normativa), en tres piezas. Las tres, o no cierra:**
+
+1. **`publish-all` ensancha su selección a `{in_stock, listed}`** — la misma allowlist `PUBLISHABLE_ORIGIN_STATUSES`
+   que `bulkPublish` usa desde v1.16.1. **No ensucia la semántica del endpoint, la CORRIGE:** el contrato ya declara
+   que «el pipeline por-pieza es **IDÉNTICO** a `bulk-publish`» (API_CONTRACT §M1) y hoy **no lo es** — la divergencia
+   de selección era una **desviación no documentada entre contrato y código**. Por eso se elige esta vía y **no** un
+   seam separado: no se está mezclando «publicar» con «re-verificar», se está honrando la semántica que el endpoint ya
+   declaraba, que nunca fue «transicionar `in_stock → listed`» sino **«dejar esta pieza en el estado publicable
+   correcto»**.
+2. **La rama `listed` deja de ser corto-circuito y pasa a RE-RESOLVER.** Es el núcleo del arreglo:
+   - re-resuelve ⇒ **sigue `listed`**, cuenta en `alreadyListed` (no-op observable, sin re-cobro, sin cambio de precio
+     — el precio no está persistido, §4.26b);
+   - **no** resuelve (`pending` o `premium_at_floor`) ⇒ **escala a la cola** con su `reason` y cuenta en
+     `pendingPrice` **y** en el subcontador `listedNowPending` (3).
+3. **Escalar una pieza `listed` NO le cambia el `status`.** Se queda `listed`. Tres razones: (a) **no hay exposición
+   que cerrar** — la resolución en lectura ya la sacó de Compra y de `stockCount`; (b) un flip `listed → in_stock`
+   puede **competir con un checkout en vuelo** que la tenga reservada, y eso sí sería un riesgo nuevo introducido por
+   una mejora de observabilidad; (c) **la señal es la entrada en la cola**, no el status. Cambiar estado sería un
+   cambio de comportamiento mucho mayor que el que el hallazgo pide.
+4. **`bulkPublish` recibe el MISMO trato en su rama `listed`** (re-resuelve; no-op si sigue sana, escala si no).
+   **No es simetría cosmética:** el argumento entero para tocar `publish-all` es que el contrato ya declara ambos
+   pipelines **idénticos**. Dejar `bulkPublish` con el no-op ciego **trasladaría la divergencia de sitio** y
+   reabriría el punto ciego por la puerta del re-publish explícito — y encima haría falso, otra vez, el texto del
+   contrato. Efecto observable: una línea de `bulk-publish` sobre una pieza `listed` degradada pasa de `ok:true` a
+   `ok:false / PRICE_PENDING`. Es el resultado correcto: el operador pidió publicarla y **no es publicable**.
+
+**Nota de implementación que NO se debe «optimizar» (para backend).** La selección de `publishAll` toma un **snapshot
+de ids por adelantado** y itera sobre él, en vez de re-consultar el predicado (`inventory.service.ts:1275-1277`). Eso
+es lo que **garantiza terminación**, y con `listed` dentro pasa a ser **imprescindible**: una pieza que escala sigue
+`listed` (decisión 3), así que **seguiría casando el predicado** — re-consultar en bucle no terminaría nunca. El
+snapshot ya resuelve el caso; solo hay que **no** sustituirlo por un re-query al ampliar la allowlist.
+
+**Lo que esto NO cierra — dígase claro.** `publish-all` es una acción **manual** de admin. Ensancharla arregla el
+cut-over y **da un remedio**, pero **no hace continuo** al guardarraíl: cada degradación futura del feed vuelve a
+depender de que alguien se acuerde de pulsar el botón. La continuidad la aporta (b-ter).
+
+**(b-ter) La entrada a la cola debe ser tan continua como la salida (NORMATIVO; sin contrato, sin migración).**
+
+En (c) ya quedó normado que la **SALIDA** de la cola cabalga sobre el **barrido diario** (`price-ingest`, §4.35):
+cuando el barrido escribe una `PriceReference` real, la entrada se cierra sola. La **ENTRADA**, en cambio, quedó atada
+solo a eventos de publicación/cotización. **Esa asimetría es el hallazgo**: el guardarraíl se cierra solo pero no se
+abre solo.
+
+**Norma:** el **mismo pase de reconciliación** posterior al barrido que ya cierra entradas debe también **abrirlas**.
+Al terminar de repreciar un set, `price-ingest` re-resuelve el precio de venta de las piezas `platform` **publicadas**
+de ese set (las variantes que acaba de tocar) y escala las que caen en `no_market` o `premium_at_floor`, con las mismas
+reglas de (b-bis)-2/3 (no cambia `status`).
+
+- **No es un job nuevo ni una fan-out nueva:** es el lote que el barrido **ya tiene en la mano**, con la pura de E0 y
+  sin lecturas extra más allá de las piezas. Sin superficie de contrato, sin migración.
+- **Es lo que convierte «hay un botón» en «el sistema se vigila solo»**, que es lo que §N.5 pide. Con (b-bis) el dueño
+  *puede* encontrar el problema; con (b-ter) el problema *le llega*.
+- **Sequenciable:** (b-bis) es prerrequisito del cut-over y va en este release; (b-ter) es aditivo y no bloquea el
+  deploy. Si el orquestador decide diferirlo, debe quedar en `TECH_DEBT.md` como **deuda aceptada y explícita** —
+  «el guardarraíl cubre publicación y re-publicación manual, no la degradación continua del feed» — y **no** como
+  «cerrado», porque el hallazgo del techlead es precisamente ese.
+
 **(c) Cómo ENTRA y cómo SALE de la cola.** Reusa `PendingPriceEntry` (§3.2) sin cambiar su clave de dedupe
 `(cardId, productType, gradeKey, finish[, sealedProductId], status='open')`. **Aditivo (M-41):**
 
@@ -7459,10 +7563,19 @@ ninguna fila de precio que reescribir** y la migración **no toca dinero almacen
 re-resolver, y la operación de cut-over es:
 
 1. Deploy (código + M-41 + seed de `PRICING_CURVE`).
-2. `POST /admin/inventory/publish-all` (o el barrido equivalente) sobre el inventario `platform`: re-resuelve **toda**
-   pieza con la curva, publica lo que ahora resuelve y **escala** lo que cae en `pending` o en `premium_at_floor`.
-3. Revisar `GET /admin/pricing/pending?reason=premium_at_floor` — debe ser del orden de **≈3 por cada 333** cartas. Un
-   volumen mucho mayor significa **piso mal calibrado o dato de mercado roto**, no un guardarraíl ruidoso.
+2. `POST /admin/inventory/publish-all` sobre el inventario `platform`. **Requiere (b-bis) desplegado**, y esto es
+   condición de que el paso sirva de algo: con la selección vieja (`in_stock` a secas) el barrido **no toca las piezas
+   ya `listed`** y este paso **no re-resuelve «toda pieza»** — describiría algo que no ocurre. Con (b-bis): re-resuelve
+   `{in_stock, listed}`, publica lo que ahora resuelve, **conserva `listed`** lo que sigue resolviendo y **escala** lo
+   que cae en `no_market` o `premium_at_floor` (sin cambiarle el status).
+   > **Este es el paso que alcanza las cartas del reporte original del dueño** (las de MX$1.31): son piezas
+   > **`listed`**, exactamente las que el cut-over no tocaba.
+3. Leer el resumen de la corrida: **`summary.listedNowPending`** = de lo que **ya estaba a la venta**, cuánto quedó
+   roto bajo la curva nueva. Es el número que contesta la pregunta del dueño; **no** se puede deducir de
+   `pendingPrice` (que mezcla lo nunca publicado) ni de `alreadyListed` (que ahora significa «re-verificada y sana»).
+4. Revisar `GET /admin/pricing/pending?reason=premium_at_floor` (o el `counts` del encabezado) — debe ser del orden de
+   **≈3 por cada 333** cartas. Un volumen mucho mayor significa **piso mal calibrado o dato de mercado roto**, no un
+   guardarraíl ruidoso; los dos conteos juntos separan cuál de los dos es (§4.36.5c).
 4. Verificar en Compra que **ninguna** publicación conserva un precio calculado con la lógica vieja (se satisface por
    construcción: el resolver viejo ya no existe en el código).
 5. **Revisión de OVERRIDES heredados (tarea del DUEÑO, no del código — bandera honesta).** Los overrides manuales
@@ -7504,6 +7617,8 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 | **E2** | `computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` en `money.ts` (con `priceBasis` y precedencias), **conviviendo** con los resolvers viejos | unitarios de precedencia: override absoluto, empate ⇒ `market`, sin mercado ⇒ `pending` |
 | **E3** | Se cambian **los dos seams de servicio** (`PricingService.computeSalePriceForItem`, `BuylistService.quoteCardForFinish`) + `variant-pricing.ts`. Los ~12 call-sites **no cambian de firma** porque pasan por el servicio | suite existente adaptada: los ~40 specs de precio se re-expresan contra la curva (esperado: la mayoría cambia de **valor esperado**, no de forma) |
 | **E4** | Guardarraíl: predicado + los dos seams + `reason` + **cierre** simétrico de la cola + **`counts` de la cola** (§4.36.5c — es un `groupBy(reason)` sobre la misma tabla; va aquí y no en E7 para no pasar dos veces por el mismo código) | test de ciclo completo: escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ `resolved` + publicable · **y** el invariante `no_market + premium_at_floor + unknown === nº de open`, con `?reason=` y paginación activos (los `counts` no deben moverse) |
+| **E4-bis** | **Punto ciego del inventario `listed` (§4.36.5b-bis):** `publish-all` selecciona `{in_stock, listed}` **y** la rama `listed` **re-resuelve** en vez de corto-circuitar (**en `publishAll` Y en `bulkPublish`**, o la divergencia solo cambia de sitio); escala sin cambiar `status`; `summary.listedNowPending` | test **anti-regresión** obligatorio: pieza `listed` + mercado degradado ⇒ **entra a la cola**, **sigue `listed`**, cuenta en `pendingPrice` **y** en `listedNowPending`, **no** en `alreadyListed`. Recíproco: pieza `listed` sana ⇒ `alreadyListed`, sin escalar, sin re-cobro. Mismo par de casos por `bulk-publish` (línea `ok:false/PRICE_PENDING` vs `ok:true`). **Y un test de la partición:** `selected = published + alreadyListed + pendingPrice + failed` (con `listedNowPending` FUERA de la suma) |
+| **E4-ter** | **Continuidad (§4.36.5b-ter):** el pase de reconciliación posterior a `price-ingest` **abre** entradas además de cerrarlas (re-resuelve las piezas publicadas del set recién repreciado). Sin contrato, sin migración. **Sequenciable** — si se difiere, va a `TECH_DEBT.md` como deuda aceptada y explícita, **no** como cerrado | degradar el feed de un set ⇒ tras el barrido, las piezas publicadas de ese set aparecen en la cola **sin** intervención manual |
 | **E5** | Bounty revalidado en las **tres** seams + `effective`/`curveQuoteCents` en el DTO + filtro-antes-del-cap en la vitrina | test: bounty válido → sube el mercado → desaparece de vitrina, cotiza la curva y aparece la alerta |
 | **E6** | Instrumentación: escritura en checkout y en `createRequest` + `GET /admin/reports/pricing-brackets` | tras una venta y una compra existen los **cinco** campos y agregan por bracket |
 | **E7** | Endpoints `GET`/`PUT /admin/pricing/curve` **+ `POST /admin/pricing/curve/preview`** (§4.36.8a — envoltorio delgado sobre E0, **no depende de E2–E6**: adelantarlo desbloquea al frontend y le evita escribir la fórmula en cliente para luego borrarla); retiro de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, `/sales-rarities`; re-propósito de `/rarities` | contract tests del §M2 nuevo + la **prueba de mesa de §4.36.1 corrida contra el `preview`** (mismas diez cifras que la pura) |

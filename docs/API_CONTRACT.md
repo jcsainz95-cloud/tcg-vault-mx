@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1-curve-preview).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.1-listed-blind-spot).
 >
 > **Changelog v2.1-curve-preview (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND.
 > Solicitudes de ux-ui (`DESIGN_SYSTEM.md` §21.13.1) y de frontend, aprobadas y enrutadas por el orquestador.
@@ -18,6 +18,25 @@
 > - **Los dos conteos juntos son un diagnóstico, no dos cifras:** contra la línea base ≈3/333 (§4.36.9c-3),
 >   `premium_at_floor` subiendo con `no_market` **plano** ⇒ **piso mal calibrado**; **ambos** subiendo ⇒ **feed de
 >   mercado degradado**. Por eso van en la **misma respuesta** (mismo instante), no en un recurso aparte.
+> - **v2.1.1 — `POST /admin/inventory/publish-all` corrige el PUNTO CIEGO del inventario ya `listed`** (hallazgo del
+>   techlead; ARCHITECTURE §4.36.5b-bis). **Cambio de comportamiento de un endpoint publicado:** la selección pasa de
+>   `status='in_stock'` a **`{in_stock, listed}`** (la allowlist que `bulk-publish` ya usa) **y la rama `listed` deja
+>   de ser no-op: RE-RESUELVE el precio**. **Las dos partes son la norma** — ensanchar la selección sola dejaría el
+>   hueco intacto **y lo disfrazaría** contándolo como `alreadyListed`. **No ensucia el endpoint, lo corrige:** el
+>   contrato ya declaraba su pipeline «IDÉNTICO a `bulk-publish`» y no lo era. Escalar **no cambia el `status`** (la
+>   pieza sigue `listed`: ya estaba fuera de Compra por resolución en lectura, y un flip competiría con un checkout en
+>   vuelo). `summary` gana **`listedNowPending`** (subconjunto de `pendingPrice`, **fuera de la partición**) = de lo
+>   que ya estaba a la venta, cuánto quedó roto. **`alreadyListed` cambia de significado**: de «no la toqué» a
+>   «re-verificada y sana». Sin migración.
+> - **`POST /admin/inventory/items/bulk-publish` recibe el MISMO trato en su rama `listed`** (re-resuelve; no-op si
+>   sigue sana, línea `ok:false / PRICE_PENDING` + escalada si no). No es simetría cosmética: la justificación para
+>   tocar `publish-all` es que este contrato ya declara **ambos pipelines idénticos**; dejar `bulk-publish` con el
+>   no-op ciego solo **trasladaría la divergencia de sitio** y reabriría el punto ciego por la puerta del re-publish
+>   explícito. **Efecto observable para el front:** una línea sobre una pieza `listed` degradada pasa de `ok:true` a
+>   `ok:false / PRICE_PENDING` — que es el resultado correcto (se pidió publicarla y **no es publicable**).
+> - **Alcance honesto:** lo anterior arregla el **cut-over** y da un **remedio manual**, pero `publish-all` es una
+>   acción de admin — **no hace continuo** al guardarraíl. La continuidad la aporta el pase posterior al barrido
+>   (ARCHITECTURE §4.36.5b-ter, **sin superficie de contrato**): que **abra** entradas además de cerrarlas.
 > - **`POST /api/v1/admin/pricing/curve/preview` (NUEVO, `super_admin`) — dry-run de la curva.** Recibe una curva
 >   **borrador** (la que el dueño edita, aún sin guardar) + **N mercados de sonda** (cap 50) y devuelve, por sonda: el
 >   precio de **venta** y de **compra**, su **`priceBasis`** y la **memoria de cálculo** (valor interpolado aplicado,
@@ -4040,7 +4059,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   Req (`BulkPublishRequest`): `{ batchKey?, items: BulkPublishLineInput[] }` (cap **200**).
   - **Status de origen publicable (v1.16.1, OBLIGATORIO) = `{in_stock, listed}`:**
     - `in_stock` → **publica** (`status → listed`).
-    - `listed` → **no-op idempotente** (`ok:true`; no re-cobra, no duplica, no cambia precio salvo override explícito).
+    - `listed` → **v2.1.1: se RE-RESUELVE el precio** (antes: no-op ciego). Si resuelve ⇒ **no-op idempotente**
+      (`ok:true`; no re-cobra, no duplica, no cambia precio salvo override explícito) — igual que antes. Si **no**
+      resuelve ⇒ línea `ok:false` con **`PRICE_PENDING`**, **escala** a la cola y la pieza **sigue `listed`** (no se
+      le cambia el status; ver §M1 `publish-all` y ARCHITECTURE §4.36.5b-bis).
+      > **Se cambia aquí también, y a propósito.** La justificación para tocar `publish-all` es que este contrato ya
+      > declara ambos pipelines **idénticos**; dejar `bulk-publish` con el no-op ciego solo trasladaría la divergencia
+      > de sitio y volvería a abrir el punto ciego por la puerta del re-publish explícito. Si el operador pide
+      > publicar un folio que ya está `listed`, **re-verificarlo es justo lo que esperaría**.
     - **cualquier otro** status (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`)
       → línea falla **`422 ITEM_NOT_PUBLISHABLE`** y **NO** se publica. **Guardarraíl anti double-sell:** una pieza
       reservada/vendida/en-custodia/enviada **no** puede regresar a `listed`.
@@ -4081,8 +4107,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `POST /admin/inventory/items/reprice`. Ver ARCHITECTURE §4.24e.
   - **Errores por-línea** (item no encontrado `404`/`NOT_FOUND`, no `ownerType=platform`, status no publicable
     `ITEM_NOT_PUBLISHABLE`, precio pendiente `PRICE_PENDING` —ahora escalado—) no tumban las demás → HTTP **200**.
-    Re-publicar una pieza ya `listed` es **no-op idempotente** (`ok:true`). Reusa `getReferencesBatch` (1 lote de
-    referencias) e iza `SALES_PRICE_RULES`+fallback **una vez** por request (pago mínimo de **BE-25**).
+    Re-publicar una pieza ya `listed` es **no-op idempotente** (`ok:true`) **si su precio sigue resolviendo**; si no,
+    la línea sale `ok:false / PRICE_PENDING` y escala (v2.1.1). Reusa `getReferencesBatch` (1 lote de referencias) e
+    iza **la CURVA** (v2.0) **una vez** por request (pago mínimo de **BE-25**).
   - Res `200` (`BulkPublishResponse`): `{ summary, results }`. Auditado (`AuditLog action=inventory.bulk_publish`).
 
 #### Master set en todas partes (v1.20-master-set-everywhere) — `vault_operator+`
@@ -4181,26 +4208,67 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     solo sale por checkout/M3 (ratificado §4.20e).
 - `POST /api/v1/admin/inventory/publish-all` — **(NUEVO, P-19)** publicar TODO el inventario (o un filtro) de golpe.
   Req (`PublishAllRequest`): `{ batchKey?, setId?, productType? }` — selección **server-side**: piezas
-  `ownerType=platform` + `status=in_stock` (± `setId` de la carta, ± `productType`). **Sin cap de selección**
-  (procesa por chunks server-side; a diferencia de `bulk-publish`, que exige lista explícita y capa 200).
+  `ownerType=platform` + `status ∈ {in_stock, listed}` (± `setId` de la carta, ± `productType`). **Sin cap de
+  selección** (procesa por chunks server-side; a diferencia de `bulk-publish`, que exige lista explícita y capa 200).
+  - **⚠️ v2.1.1 (CAMBIO DE COMPORTAMIENTO, hallazgo del techlead — ARCHITECTURE §4.36.5b-bis).** La selección pasa de
+    `status = 'in_stock'` a la allowlist **`PUBLISHABLE_ORIGIN_STATUSES = {in_stock, listed}`**, la misma que
+    `bulk-publish` usa desde v1.16.1, **y la rama `listed` deja de ser un no-op: RE-RESUELVE el precio.**
+    - **Por qué no ensucia el endpoint — lo corrige.** Este contrato ya declaraba que el pipeline por-pieza es
+      «**IDÉNTICO** a `bulk-publish`», y **no lo era**: la divergencia de selección era una desviación no documentada
+      entre contrato y código. La semántica del endpoint nunca fue «transicionar `in_stock → listed`» sino **«dejar
+      cada pieza en el estado publicable correcto»**.
+    - **Las DOS partes son la norma; una sola es peor que ninguna.** Ensanchar la selección sin tocar la rama `listed`
+      dejaría el hueco intacto **y lo disfrazaría**: cada pieza degradada se contaría como **`alreadyListed`**, que se
+      lee como «ésta ya estaba bien».
+    - **Qué arregla:** una pieza publicada cuyo dato de mercado se degrada **después** dejaba de venderse **en
+      silencio** y **no entraba a la cola** — lo contrario de lo que pide §N.5 («convierte un error de dinero
+      silencioso en una cola visible»). El guardarraíl cubría la **transición** a publicado, no la **vida** de lo
+      publicado.
+    - **No había pérdida de dinero** (el precio se resuelve **en lectura**: la pieza ya salía de Compra con
+      `sellable=false` y **no contaba en `stockCount`**, §4.9a) — lo que se perdía era **la señal**.
+  - **Destino por-pieza de una `listed` re-evaluada (normativo):**
+    - **re-resuelve** ⇒ **sigue `listed`**, cuenta en **`alreadyListed`** (no-op observable: **no re-cobra** y **no
+      cambia el precio** — el precio derivado no está persistido, §4.26b);
+    - **no resuelve** (`no_market` o `premium_at_floor`) ⇒ **escala a la cola** con su `reason`, cuenta en
+      **`pendingPrice`** y además en el subcontador **`listedNowPending`**;
+    - **⚠️ escalar NO le cambia el `status`: se queda `listed`.** (a) No hay exposición que cerrar (ya está fuera de
+      Compra y de `stockCount`); (b) un flip `listed → in_stock` **competiría con un checkout en vuelo** que la tenga
+      reservada — sería introducir un riesgo nuevo con una mejora de observabilidad; (c) **la señal es la entrada en
+      la cola**, no el status.
   - **Pipeline por-pieza IDÉNTICO a `bulk-publish`:** precio server-side SEC-A1 con la precedencia v1.28
     (`listPriceCents > sellOverride > `**`CURVA`**` (v2.0)`; sellado por H-1); una pieza sin precio resoluble falla
     `PRICE_PENDING`, **ESCALA** a la cola (④ v1.26, `context='inventory'`, con su `reason` v2.0) y **NO** se publica;
-    `listed` = no-op idempotente. **Tolerante por-ítem: el lote JAMÁS revienta completo.**
+    `listed` = **re-resuelta** (v2.1.1) ⇒ no-op si sigue sana, escalada si no. **Tolerante por-ítem: el lote JAMÁS
+    revienta completo.**
   - **⚠️ v2.0 (P-48) — este endpoint ES el paso 2 del CUT-OVER de la curva** (ARCHITECTURE §4.36.9c). Como el precio
     de venta **se resuelve en LECTURA y no está persistido**, la migración **no reescribe ninguna fila de precio**:
     «repriciar el catálogo por completo» (criterio 96) = **re-resolver**, y esto es lo que lo hace. Tras el deploy se
     corre sobre el inventario `platform` para publicar lo que ahora resuelve y **escalar** lo que cae en `no_market`
-    o `premium_at_floor`. Verificación: `GET /admin/pricing/pending?reason=premium_at_floor` debe quedar del orden de
-    **≈3 por cada 333** cartas; mucho más ⇒ **piso mal calibrado o ingest roto**, no guardarraíl ruidoso.
+    o `premium_at_floor`.
+    - **⚠️ El paso depende de la selección `{in_stock, listed}` de v2.1.1.** Con la selección anterior
+      (`in_stock` a secas) este barrido **no tocaba las piezas ya publicadas**, así que «re-resolver toda pieza» era
+      falso y el paso de verificación daba un **falso negativo**. **Las cartas del reporte original del dueño —las de
+      MX$1.31— son piezas `listed`**, exactamente las que no se tocaban.
+    - **Verificación, en dos lecturas:** (1) `summary.listedNowPending` = de lo que ya estaba a la venta, cuánto quedó
+      roto bajo la curva nueva; (2) `GET /admin/pricing/pending?reason=premium_at_floor` (o el `counts` del
+      encabezado) debe quedar del orden de **≈3 por cada 333** cartas; mucho más ⇒ **piso mal calibrado o ingest
+      roto**, no guardarraíl ruidoso — y los dos `counts` juntos separan cuál de los dos es (§M2).
   - **Idempotencia + auditoría:** `batchKey` vía `InventoryBatch` (`kind='publish_all'`; replay ⇒ resultado
     guardado + `idempotentReplay:true`). `AuditLog action=inventory.publish_all` (filtros + resumen).
   - Res `200` (`PublishAllResponse`): `{ batchKey?, idempotentReplay: boolean,
-    summary: { selected, published, alreadyListed, pendingPrice, failed },
+    summary: { selected, published, alreadyListed, pendingPrice, failed, listedNowPending },
     failures: { inventoryItemId, folio, error: { code, message }, pendingPriceEntryId? }[] /* CAPADO a 200 */ }`
     — el remanente de pendientes se opera por `GET /admin/pricing/pending?context=inventory`. **`selected`
     (v1.28.1):** snapshot del total de piezas candidatas **seleccionadas server-side** por el filtro al momento de
-    la ejecución; los demás contadores reparten el destino por-pieza de esa selección.
+    la ejecución; `published`/`alreadyListed`/`pendingPrice`/`failed` **PARTICIONAN** esa selección.
+    - **`listedNowPending` (NUEVO v2.1.1)** = piezas que **estaban `listed` y ya NO resuelven precio** (escalaron a la
+      cola y siguen `listed`). Es un **SUBCONJUNTO de `pendingPrice`**, reportado aparte: **NO** entra en la partición,
+      así que el invariante `selected = published + alreadyListed + pendingPrice + failed` **no cambia**.
+    - **Por qué merece contador propio:** es el número que contesta la pregunta del dueño — *«de lo que ya estaba a la
+      venta, ¿cuánto quedó roto?»*. **No se puede deducir** de `pendingPrice` (que mezcla lo que nunca estuvo
+      publicado) ni de `alreadyListed`, cuyo significado **cambia** en v2.1.1: pasa de «no la toqué» a **«la
+      re-verifiqué y está sana»**. Sin este contador, el cut-over de una plataforma con inventario ya publicado leería
+      un `alreadyListed` alto como éxito cuando podría estar tapando el hallazgo.
   - Err `400 VALIDATION_ERROR` (filtros inválidos), `403`. **Toca dinero** (expone piezas a la venta) → gate de
     seguridad por release.
 - `GET /api/v1/admin/inventory/sealed-sets` — **(NUEVO, P-25)** índice de la pestaña «Sellado»: sets con ≥1 pieza
