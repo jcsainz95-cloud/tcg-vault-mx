@@ -2971,3 +2971,180 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 > **Límites (devops):** esta sección y `scripts/post-deploy.sh` NO modifican `backend/`, `frontend/` ni el
 > contrato. El paso 5 (saneo legacy D-3) es de **rol backend**; si el paso 3 escala a «ACCIÓN REQUERIDA», el
 > mapeo rareza→tier a mano lo decide **humano/arquitecto**, no devops.
+
+---
+
+## 28. Runbook de ACTIVACIÓN en PROD — precio automático diario POR-ACABADO (P-47, dial `tcgcsv_singles`) — 2026-08-24
+
+> **Autorización:** el humano (super_admin, dueño) APROBÓ activar en **PRODUCCIÓN** el precio automático
+> diario por-acabado (P-47). **Gate completo — triple veredicto APROBADO** sobre la rama
+> `fix/variant-composition-regression`: **QA aprobado + techlead APROBADO-CON-DEUDA + seguridad CERRADA**
+> (SECURITY_NOTES v1.47). Commits P-47: `73f0fa4` (provider TcgcsvSinglesBulk), `03f0e02` (P47-1 cota de
+> cordura del market externo), `b16f03d` + `330f0b4` (P47-2 durabilidad del override manual cross-day).
+> Docs de arquitectura v1.44–v1.47.
+>
+> **VEREDICTO devops de esta sesión: PIPELINE PREPARADO — NO se ejecutó el merge/push a `production` ni el
+> flip.** El merge a `production` lo coordina el orquestador y los clics de dashboard (Railway env var, panel
+> admin M10) los hace el humano; el egress a prod no es verificable desde aquí (misma política que §26).
+> Todo lo de propiedad devops (doc del dial en `.env.example`, este runbook) está listo. **No hay push, no
+> hay PR.**
+
+### 28.1 Verificación del DoD de deploy para este cambio (ámbito devops)
+
+| Ítem DoD (deploy) | Estado | Evidencia |
+|---|---|---|
+| Triple veredicto (QA + techlead + seguridad) | ✅ | QA aprobado; techlead APROBADO-CON-DEUDA (3 no bloqueantes BE-79/80/81 en TECH_DEBT, commit `65c88d9`); seguridad CERRADA v1.47 (`0255390`). |
+| Gate SAST por PR | ✅ cableado | `.github/workflows/security-sast.yml` corre semgrep + gitleaks en **cada push y pull_request** (`branches: ["**"]`). No requiere cambios. |
+| DAST contra staging bloquea prod | ✅ cableado | `.github/workflows/deploy.yml` job `dast-staging` (ZAP baseline `fail_action:true` + nuclei) es `needs` de la promoción a prod. |
+| Harness E2E cableado | ✅ cableado | `deploy.yml` job `e2e-real` (`uses: ./.github/workflows/e2e-real.yml`, `needs:[preflight]`) corre ANTES de promover. |
+| Migraciones al día | ✅ **P-47 NO añade migración** | Última migración = `20260823130000_m40_pending_sealed_product`. `git diff origin/main..fix -- backend/prisma/migrations` = 0. P-47 es lógica de pricing + un dial de datos; **no toca el schema**. Consecuencia clave: **rollback sin migración** (§28.6). |
+| Deuda bloqueante | ✅ ninguna | Los 3 ítems del techlead (BE-79/80/81) están registrados como **no bloqueantes** en `docs/TECH_DEBT.md`. |
+
+**Conclusión:** nada falta en el ámbito devops para activar. Se procede a preparar la secuencia.
+
+### 28.2 Mecanismo EXACTO del flip (verificado en código, NO asumido)
+
+- **El dial `PRICE_PROVIDER` (`price_provider`) es un ConfigSetting en BD, NO un env var.**
+  - Seed: `pokemontcg_io` (`backend/src/modules/settings/settings.constants.ts:94`, `DEFAULTS[SettingKey.PRICE_PROVIDER]`).
+  - Valores válidos: `['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']` (`settings.constants.ts:203`, `PRICE_PROVIDER_VALUES`; validador en `:490` → 422 si otro valor).
+  - Lectura en runtime: `PriceIngestService.providerFor()` (`backend/src/modules/pricing/price-ingest.service.ts:158-174`) hace `this.settings.getString(SettingKey.PRICE_PROVIDER)` y elige el `BulkPriceProvider` cuyo `.source` casa. Con `tcgcsv_singles` selecciona `TcgcsvSinglesBulkPriceProvider`. **Surte efecto en la siguiente corrida del job, SIN redeploy.**
+- **Flip = un solo request HTTP autenticado (super_admin), auditado:**
+  - **`PUT https://<API_BASE>/api/v1/admin/settings`** (`SettingsController.updateSettings`, `@Roles(super_admin)`, `settings.controller.ts:26`). Registra `settings.update` en el audit log (before/after).
+  - **Body:** `{ "price_provider": "tcgcsv_singles" }`
+  - Alternativa equivalente: el **panel de admin M10** (misma ruta por detrás).
+- **`tcgcsv_singles` NO necesita env nuevos:** el provider usa `TcgcsvCatalogClient` (host FIJO
+  `https://tcgcsv.com/tcgplayer`, **sin API key**, anti-SSRF heredado). Único requisito operativo: **egress
+  a `tcgcsv.com` desde Railway**, que **ya está en uso** por el job del sellado (§19/§21). No hay
+  `POKEMONPRICETRACKER_MARKET_FORMAT` que fijar (eso es solo del proveedor de paga).
+- **`POKEMONPRICETRACKER_FETCH_PRINTINGS` = env var (NO BD).** Leída en
+  `price-ingest.service.ts:606` con default `false` cuando ausente. Debe quedar **`false`** (o ausente) para
+  que la fuente por-acabado sea **solo** TCGCSV y PPT no vuelva a barrer por impresión en paralelo.
+
+> **Por eso `railway.json` NO cambia** en esta activación: el flip es un dato en BD y `tcgcsv_singles` no
+> aporta env nuevos. Lo único de env es *confirmar* `POKEMONPRICETRACKER_FETCH_PRINTINGS=false` en Railway.
+
+### 28.3 Qué preparó devops en esta sesión (propiedad devops)
+
+- **`.env.example`** (bloque del dial `PRICE_PROVIDER`): documentado el valor `tcgcsv_singles` (P-47),
+  su host fijo sin API key, el requisito de egress y el rollback. **Añadido bloque
+  `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`** con la razón (P-47 ⇒ fuente por-acabado = TCGCSV, no PPT).
+- **`docs/DEVOPS_NOTES.md` §28** (este runbook): secuencia de activación, verificación y rollback.
+- **`railway.json`:** sin cambios (justificado en §28.2). **`scripts/post-deploy.sh`:** sin cambios — el flip
+  no es un backfill de datos ni una migración; es un dial de negocio que se opera por API/panel post-deploy.
+
+### 28.4 Secuencia de ACTIVACIÓN — pasos ordenados
+
+Estado de ramas (verificado con git, 2026-08-24):
+
+| Rama | Commit | Nota |
+|---|---|---|
+| `origin/main` | `73f0fa4` | Tiene el provider P-47 base; le faltan P47-1/P47-2 + docs. |
+| `origin/fix/variant-composition-regression` | `65c88d9` | `origin/main` + **10 commits** (P47-1, P47-2, docs v1.45–v1.47, veredictos). |
+| `origin/production` | `9c3eb3e` | Rama-registro de releases (merges `main → production`, «release: …»). |
+
+`git rev-list --count origin/main..origin/fix` = **10**; `origin/fix..origin/main` = **0** ⇒ el merge
+`fix → main` es **FAST-FORWARD LIMPIO** (sin conflictos, sin descartar trabajo ajeno).
+
+**(a) Merge `fix → main → production`** — *[HUMANO/orquestador con egress a git; devops NO lo ejecuta]*
+  1. `git fetch origin`
+  2. `git checkout main && git reset --hard origin/main` (parte de la punta remota, no del local stale).
+  3. `git merge --ff-only origin/fix/variant-composition-regression` → **debe** ser fast-forward. Si no lo
+     es, **PARAR**: alguien movió `main`; re-evaluar.
+  4. `git push origin main`
+  5. `git checkout production && git reset --hard origin/production`
+  6. `git merge --no-ff main -m "release: P-47 precio automático diario por-acabado (tcgcsv_singles) (main->production)"`
+  7. **Snapshot/PITR de la Postgres de prod** (regla de oro §7; aunque P-47 no migra, es release a prod).
+  8. `git push origin production` **← esto dispara el deploy** (mecanismo declarado por el orquestador:
+     `production` es la deploy branch).
+
+> **⚠️ Confirmar el branch observado antes de pushear** (misma cautela §26.3): en Railway (servicio
+> `backend` → Settings → Source/Branch) y Vercel (Project → Settings → Git → Production Branch) verificar que
+> la *Production/Deploy Branch* es **`production`**. Pushear a la rama equivocada = deploy nulo o duplicado.
+
+**(b) Deploy y verificación de salud** — *[HUMANO/quien tenga egress a prod]*
+  9. Esperar a que Railway (backend, `Dockerfile.backend` corre `prisma migrate deploy` al arrancar — no-op
+     aquí, no hay migración nueva) y Vercel (frontend) reporten **Success** en el sha del release.
+  10. `GET https://<API_BASE>/api/v1/health` → `200`, Redis `up`. **REDIS_URL es requisito** para que el
+      scheduler agende el `price-ingest` (sin Redis solo hay disparo manual awaited — §19).
+
+**(c) Flip del dial + fetch-printings OFF** — *[HUMANO: panel admin M10 / API con JWT super_admin; y Railway env]*
+  11. **Confirmar en Railway** que `POKEMONPRICETRACKER_FETCH_PRINTINGS` = `false` **o está ausente**
+      (servicio `backend` → Variables). Si estuviera en `true`, ponerla `false` y redeploy. *(Verificado
+      2026-08-24: no está en `.env` local; el default de código es `false`.)*
+  12. **Flip:** `PUT https://<API_BASE>/api/v1/admin/settings` con `Authorization: Bearer <JWT super_admin>`,
+      `Content-Type: application/json`, body `{ "price_provider": "tcgcsv_singles" }`. Respuesta = el DTO de
+      settings ya con `price_provider: "tcgcsv_singles"`. Queda auditado (`settings.update`).
+  13. Verificar: `GET /api/v1/admin/settings` → `price_provider` = `tcgcsv_singles`.
+
+**(d) Primer barrido `tcgcsv_singles` + orden del scheduler** — *[HUMANO/orquestador con JWT super_admin]*
+  - **Orden natural del scheduler (sin intervención):** `fx-refresh` (06:00 UTC) → `price-ingest` **2×/día
+    00:00 y 12:00 UTC** (`PRICE_INGEST_CRON_1/_2`). En la primera corrida tras el flip, el job usa
+    `tcgcsv_singles` y hace upsert idempotente de `PriceReference` por (carta, acabado, día) para **todos los
+    sets en scope** (con inventario activo ∪ rares). No hay que esperar: se puede **forzar ya**.
+  - **Barrido inmediato de TODO el catálogo en scope:** `POST /api/v1/admin/jobs/price-ingest` (body vacío)
+    → `runBackground()` (fan-out por set vía BullMQ, reanudable). Progreso: `GET /api/v1/admin/pricing/sync-status`.
+  - **`--force` por set (primer barrido de UN set, AWAITED, ignora el scope):**
+    `POST /api/v1/admin/jobs/price-ingest` body `{ "setId": "<externalId o id interno>" }` →
+    `priceIngest.run(setId)` fuerza **scope FULL aunque el set esté fuera de scope** (el operador lo pide
+    explícitamente — `price-ingest.service.ts:246-257`). Úsalo para (1) el **set de verificación** del paso
+    (e) y (2) cualquier **set nuevo** que quieras poblar por-acabado de inmediato sin esperar al cron.
+    Repetible/idempotente (upsert por día).
+
+**(e) Verificación post-activación** — *[HUMANO/quien tenga egress a prod]*
+  1. **Precio por-acabado DISTINTO por acabado:** elegir un set con reverse/holo (forzarlo con el `--force`
+     del paso (d) si hace falta) y consultar el catálogo/cotizador o la BD:
+     ```sql
+     SELECT c.name, pr."finish", pr."priceMxnCents", pr."source", pr."capturedDate"
+     FROM "PriceReference" pr JOIN "Card" c ON c.id = pr."cardId"
+     WHERE pr."source" = 'tcgcsv_singles' AND pr."capturedDate" = CURRENT_DATE
+       AND pr."finish" IN ('normal','reverse_holo','holofoil')
+     ORDER BY c.name, pr."finish";
+     ```
+     Éxito = para una misma carta, `normal` / `reverse_holo` / `holofoil` muestran precios **distintos** (no
+     el mismo valor aplanado), con `source='tcgcsv_singles'` y `capturedDate` de hoy.
+  2. **El override manual PERSISTE (P47-2 durable cross-day):** poner un override
+     (`POST /api/v1/admin/pricing/override` `{cardId, finish, priceMxnCents, ...}`), disparar otra corrida de
+     `price-ingest` del mismo set, y confirmar que la lectura del precio **sigue mostrando el override**
+     (no lo pisa el barrido diario). El override es `isManualOverride=true` y gana como candidata perenne en
+     la capa de lectura (v1.47 §4.27f-3).
+  3. Frontend: la carta muestra los colores por-acabado (reverse rojo / holofoil azul, DS §16.6) con precios
+     coherentes.
+
+### 28.5 Qué requiere al HUMANO vs. qué preparó/ejecuta devops
+
+| Paso | Quién | Cómo |
+|---|---|---|
+| Doc del dial `tcgcsv_singles` + `FETCH_PRINTINGS=false` en `.env.example` | **devops (HECHO)** | Editado en esta sesión. |
+| Este runbook §28 | **devops (HECHO)** | `docs/DEVOPS_NOTES.md`. |
+| `railway.json` / env nuevos | **devops** | **N/A** — no hacen falta (§28.2). |
+| Merge `fix→main→production` + push a `production` | **HUMANO/orquestador** | git (§28.4a). devops **NO** pushea. |
+| Confirmar deploy branch en dashboards | **HUMANO** | Railway/Vercel Settings. |
+| Snapshot DB de prod | **HUMANO** | Railway Postgres. |
+| Confirmar `POKEMONPRICETRACKER_FETCH_PRINTINGS=false` | **HUMANO** | Railway → backend → Variables. |
+| **Flip del dial** a `tcgcsv_singles` | **HUMANO** | Panel admin M10 o `PUT /admin/settings` con JWT super_admin (§28.4c). |
+| Primer barrido / `--force` por set | **HUMANO/orquestador** | `POST /admin/jobs/price-ingest` con JWT super_admin (§28.4d). |
+| Verificación post-activación | **HUMANO** | SQL + UI (§28.4e). |
+| Rollback si algo sale mal | **HUMANO** | Flip inverso (§28.6). |
+
+### 28.6 ROLLBACK — reversible SIN migración
+
+- **Rollback del comportamiento de pricing (lo esperado si algo sale mal):** volver a flipear el dial.
+  - `PUT /api/v1/admin/settings` body `{ "price_provider": "pokemontcg_io" }` (o `pokemonpricetracker` si ese
+    era el proveedor previo deseado — **pero el seed y el rollback money-safe es `pokemontcg_io`**).
+  - Surte efecto en la **siguiente corrida** del `price-ingest`, **sin redeploy y sin migración**. El dial es
+    un ConfigSetting de BD; el cambio queda auditado.
+  - **Datos:** las `PriceReference` con `source='tcgcsv_singles'` ya escritas quedan (son upserts por día,
+    money-safe: no borran ni ponen $0). Al volver a `pokemontcg_io`, la siguiente corrida vuelve a escribir
+    con la fuente legacy. Los **overrides manuales** siguen ganando (durables). No se requiere restaurar DB.
+- **Rollback de código (solo si el deploy en sí está roto, no por el dial):** como **P-47 no añadió
+  migración**, el rollback de código es un **redeploy del commit anterior** — Railway (backend →
+  Deployments → Redeploy el deploy previo a `65c88d9`) y Vercel (Promote to Production del build previo), o
+  `git revert` del merge de release y push. Sin restaurar DB (no hay schema nuevo que revertir).
+- **Apagar el barrido por completo (extremo):** dejar el dial en `pokemontcg_io` **y** —si se quiere frenar
+  también el cron— usar un cron que nunca dispare en `PRICE_INGEST_CRON_1/_2` (§19.7). No es necesario para
+  el rollback normal del P-47.
+
+> **Límites (devops):** §28 y `.env.example` NO tocan `backend/`, `frontend/` ni el contrato. Si el barrido
+> `tcgcsv_singles` fallara por un bug del provider (p. ej. resolución de `groupId`, mapeo de `subTypeName`),
+> el arreglo es de **rol backend**; devops reporta el error exacto y NO lo corrige. Si el set de verificación
+> no existe aún en el catálogo, el import de metadata es prerequisito (§24).
