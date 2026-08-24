@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { SealedValueTrend } from './SealedValueTrend';
 import { SealedRestockForm } from './SealedRestockForm';
 import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
+import { cn } from '@/lib/cn';
 
 /**
  * Ficha del producto SELLADO (contrato §2-S · GET /catalog/sealed/:inventoryItemId). Selección de
@@ -96,6 +97,11 @@ function Detail({
     ? formatDate(group.referenceValue.capturedDate, locale)
     : undefined;
 
+  // §21.8a — el sellado no cambia de matemática (conserva su spread por presentación, §K): solo
+  // obedece el `priceBasis` que el backend DERIVA de `priceSource` (override ⇒ "override" ⇒ no se
+  // muestra mercado; subtype_spread|global_spread ⇒ "market" ⇒ sí se muestra).
+  const showMarketValue = group.priceBasis === 'market';
+
   return (
     <div>
       <nav
@@ -142,27 +148,36 @@ function Detail({
             <p className="mt-2 text-[13px] leading-relaxed text-muted">{t('detail.minorDamageNote')}</p>
           )}
 
-          {/* Precio: desde (mínimo del grupo) + valor de mercado informativo. */}
+          {/* §21.8: mismo mecanismo que la ficha de carta, con dos hechos. El bloque «Valor de
+              mercado» se muestra si y solo si `priceBasis === 'market'` — que para el sellado
+              significa precio derivado por SPREAD sobre mercado; con override manual DESAPARECE y
+              la celda «Desde» ocupa la fila completa. La UI obedece el basis, no lo infiere. */}
           <div className="mt-9 grid border-t border-border sm:grid-cols-2">
-            <div className="border-b border-border py-6">
+            <div
+              className={cn(
+                'border-b border-border py-6',
+                !showMarketValue && 'sm:col-span-2',
+              )}
+            >
               <div className="eyebrow">{t('fromPrice')}</div>
               <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
                 {formatMoneyCents(group.fromPriceCents, locale)}
               </div>
               <div className="mt-2 font-mono text-[11px] leading-none text-muted">{t('withoutIva')}</div>
             </div>
-            <div className="border-b border-border py-6 sm:border-l sm:pl-7">
-              <div className="eyebrow">{t('detail.marketValue')}</div>
-              <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
-                {group.referenceValue.status === 'priced' &&
-                group.referenceValue.referenceMxnCents != null
-                  ? formatMoneyCents(group.referenceValue.referenceMxnCents, locale)
-                  : '—'}
+            {showMarketValue && (
+              <div className="border-b border-border py-6 sm:border-l sm:pl-7">
+                <div className="eyebrow">{t('detail.marketValue')}</div>
+                <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
+                  {group.referenceValue.referenceMxnCents != null
+                    ? formatMoneyCents(group.referenceValue.referenceMxnCents, locale)
+                    : '—'}
+                </div>
+                {captured && (
+                  <div className="mt-2 font-mono text-[11px] leading-none text-muted">{captured}</div>
+                )}
               </div>
-              {captured && (
-                <div className="mt-2 font-mono text-[11px] leading-none text-muted">{captured}</div>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Disponibilidad real del endpoint («N en stock»/«Último»/«Agotado») + cantidad por-pieza. */}

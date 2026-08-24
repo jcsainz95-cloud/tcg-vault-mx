@@ -243,7 +243,6 @@
     "tabDescription": "Descripción",
     "tabCondition": "Condición",
     "instances": "Ejemplares disponibles",
-    "referenceExplainer": "El valor de mercado es la referencia del día usada para valuar tu portafolio. El precio de venta es el que se cobra (referencia + margen).",
     "certLabel": "Certificado",
     "certCopy": "Copiar",
     "certCopied": "Copiado",
@@ -253,7 +252,9 @@
       "graded": "Gradeada",
       "sealed": "Sellado",
       "raw": "Raw"
-    }
+    },
+    "referenceExplainerWithMarket": "El valor de mercado es la referencia del día con la que valuamos las cartas. El precio de venta se calcula a partir de ella.",
+    "referenceExplainerNoMarket": "El precio de venta es el precio publicado de esta carta, sin IVA."
   },
   "price": {
     "pendingLabel": "Precio pendiente",
@@ -544,7 +545,8 @@
     },
     "bountyBadge": "Bounty",
     "quoterDetailAria": "Ver detalle de {name} ({finish})",
-    "quoterInCart": "En el carrito"
+    "quoterInCart": "En el carrito",
+    "bountyOutbidAria": "Bounty rebasado: la tarifa estándar paga más que tu oferta."
   },
   "portfolio": {
     "trend": {
@@ -696,9 +698,6 @@
       "sealed": "Sellado"
     },
     "rarityLabel": "Rareza",
-    "appliedRuleLabel": "Regla aplicada",
-    "ruleFixed": "{amount} fijo",
-    "rulePct": "{pct}% de referencia",
     "cartTitle": "Tu lista",
     "cartCount": "{count} carta(s)",
     "cartFab": {
@@ -1326,18 +1325,18 @@
       },
       "unifyRarities": {
         "button": "Unificar rarezas",
-        "hint": "Agrupa las rarezas fragmentadas del catálogo en su forma canónica. Acción única, no cambia precios.",
+        "hint": "Agrupa las rarezas fragmentadas del catálogo en su forma canónica. No cambia ningún precio, pero sí puede cambiar qué cartas quedan retenidas por el guardarraíl, porque este mira la rareza premium.",
         "confirmTitle": "Unificar rarezas del catálogo",
-        "confirmBody": "Reasigna la rareza canónica de todas las cartas para colapsar duplicados y variantes de escritura en una sola rareza. Es una operación local de una sola pasada: no consulta fuentes externas y NO modifica ningún precio ni regla. Después, el editor de reglas por rareza mostrará una fila por rareza real, sin duplicados.",
+        "confirmBody": "Reasigna la rareza canónica de todas las cartas para colapsar duplicados y variantes de escritura en una sola rareza. Es una operación local de una sola pasada: no consulta fuentes externas. No cambia ningún precio, pero sí puede cambiar qué cartas quedan retenidas por el guardarraíl, porque este mira la rareza premium.",
         "confirmCta": "Unificar rarezas",
         "running": "Unificando…",
-        "done": "Rarezas unificadas. El editor ya refleja las rarezas canónicas.",
+        "done": "Rarezas unificadas. La lista ya refleja las rarezas canónicas.",
         "summary": "{updated} de {processed} carta(s) actualizadas · {distinct} rareza(s) canónica(s) distintas.",
-        "unmappedTitle": "{count} rareza(s) cruda(s) sin mapear (añádelas al catálogo canónico para darles regla propia):"
+        "unmappedTitle": "{count} rareza(s) cruda(s) sin mapear (añádelas al catálogo canónico para que el guardarraíl las reconozca):"
       },
       "pending": {
         "title": "Cola de precio pendiente",
-        "subtitle": "Cartas sin precio de referencia, escaladas para fijar precio a mano. El comprador nunca ve este estado.",
+        "subtitle": "Variantes sin precio publicable, escaladas para revisarlas. El comprador nunca ve este estado. Sin dato de mercado no se publica ni se cotiza — el piso no rellena el hueco.",
         "empty": "Sin precios pendientes.",
         "bucketsLabel": "Buckets de precio pendiente",
         "buckets": {
@@ -1357,7 +1356,11 @@
         "saveOverride": "Guardar precio",
         "priceLabel": "Precio de referencia (MXN)",
         "overrideInvalidValue": "Ingresa un precio válido: un valor vacío o mal formado no puede fijarse (evita publicar el ítem a MX$0 por un error de dedo).",
-        "finish": "Acabado"
+        "finish": "Acabado",
+        "reasonCol": "Motivo",
+        "filterLabel": "Motivo",
+        "filterAll": "Todos",
+        "countsByReason": "{noMarket} sin mercado · {premiumAtFloor} premium en el piso"
       },
       "fx": {
         "title": "Tipo de cambio USD→MXN",
@@ -1459,80 +1462,6 @@
         "refreshVariantsAllConfirmBody": "Esto refresca las variantes/acabados y los precios de TODOS los sets ya importados usando únicamente TCGCSV. NO re-importa cartas ni usa pokemontcg.io. Es una operación masiva que puede tardar varios minutos y correr sobre todo el catálogo. ¿Continuar?",
         "refreshVariantsAllConfirmCta": "Sí, refrescar todo el catálogo"
       },
-      "buylistRules": {
-        "title": "Precio de buylist por rareza y acabado",
-        "subtitle": "Define reglas en dos ejes: por rareza canónica de la carta y por acabado de la variante (holo / reverse holo). Cada regla es monto fijo (MX$) o porcentaje (% de la referencia). Sin regla se usa el fallback. Surte efecto sin redeploy y queda auditado.",
-        "rarityAxis": "Reglas por rareza",
-        "finishAxis": "Reglas por acabado",
-        "finishAxisHint": "Aplican al acabado de la variante. Sin regla propia, el acabado hereda la regla de su rareza.",
-        "fallbackLabel": "Fallback (%)",
-        "fallbackHint": "Se aplica a las rarezas sin regla explícita (nuevas o no configuradas).",
-        "rarity": "Rareza",
-        "finish": "Acabado",
-        "cardCount": "Cartas",
-        "mode": "Modo",
-        "value": "Valor",
-        "source": "Origen",
-        "valueMxn": "Monto (MX$)",
-        "valuePct": "Porcentaje",
-        "modeFor": "Modo para {rarity}",
-        "valueFor": "Valor para {rarity}",
-        "modeForFinish": "Modo del acabado {finish}",
-        "valueForFinish": "Valor del acabado {finish}",
-        "premium": "Premium",
-        "unmapped": "Sin mapear",
-        "inherit": "Hereda rareza",
-        "inheritPlaceholder": "Hereda rareza",
-        "modeLabel": {
-          "fixed": "Fijo (MX$)",
-          "pct": "Porcentaje (%)"
-        },
-        "sourceLabel": {
-          "rule": "Regla",
-          "fallback": "Fallback"
-        },
-        "example": "Ejemplo: el % es lo que PAGAS de la referencia. Con 40%, pagas MX$40 por una carta de MX$100.",
-        "saved": "Reglas de buylist guardadas.",
-        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar."
-      },
-      "salesRules": {
-        "title": "Reglas de precio de VENTA por rareza y acabado",
-        "subtitle": "Define reglas de venta en dos ejes: por rareza canónica y por acabado. Cada regla es monto fijo (MX$, actúa como piso) o porcentaje (% sobre mercado). Sin regla se usa el fallback. Reemplaza el markup global único. Surte efecto sin redeploy y queda auditado.",
-        "rarityAxis": "Reglas por rareza",
-        "finishAxis": "Reglas por acabado",
-        "finishAxisHint": "Aplican al acabado de la variante. Sin regla propia, el acabado hereda la regla de su rareza.",
-        "fallbackLabel": "Fallback (% sobre mercado)",
-        "fallbackHint": "Se aplica a las rarezas sin regla explícita (nuevas o no configuradas). Es un markup arriba de mercado.",
-        "rarity": "Rareza",
-        "finish": "Acabado",
-        "cardCount": "Cartas",
-        "mode": "Modo",
-        "value": "Valor",
-        "source": "Origen",
-        "valueMxn": "Piso (MX$)",
-        "valuePct": "% sobre mercado",
-        "modeFor": "Modo para {rarity}",
-        "valueFor": "Valor para {rarity}",
-        "modeForFinish": "Modo del acabado {finish}",
-        "valueForFinish": "Valor del acabado {finish}",
-        "premium": "Premium",
-        "unmapped": "Sin mapear",
-        "inherit": "Hereda rareza",
-        "inheritPlaceholder": "Hereda rareza",
-        "modeLabel": {
-          "fixed": "Fijo / piso (MX$)",
-          "pct": "% sobre mercado"
-        },
-        "sourceLabel": {
-          "rule": "Regla",
-          "fallback": "Fallback"
-        },
-        "pctHint": "Porcentaje: precio de venta = mercado × (1 + %). Ejemplo: 15% deja el precio 15% arriba de mercado (se admite hasta 1000%). Fijo: el monto en MX$ es un piso de venta.",
-        "example": "Ejemplo: el % es lo que subes SOBRE el mercado. Con +15%, vendes en MX$115 una carta de MX$100.",
-        "saved": "Reglas de venta guardadas.",
-        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar.",
-        "invalidValue": "Hay reglas con el valor vacío o inválido. Corrígelas para poder guardar: un valor vacío o mal formado no se guarda como MX$0 (evita listar cartas gratis por error)."
-      },
       "sealedSpreads": {
         "title": "Spreads de venta del sellado",
         "subtitle": "Markup sobre el valor de mercado (TCGCSV) por presentación. Precio de venta = mercado × (1 + spread).",
@@ -1547,62 +1476,158 @@
         "prereqHint": "El spread solo produce precio si el producto está mapeado a TCGCSV y la fuente de precio del sellado está activa.",
         "saved": "Spreads guardados."
       },
-      "tierRules": {
-        "title": "Precios por tier (compra y venta)",
-        "subtitle": "Cinco tiers T0–T4 agrupan todas las rarezas. Cada tier define su regla de COMPRA (buylist) y de VENTA: monto fijo (MX$) o porcentaje. El mapa de rarezas a tiers se edita abajo. Reemplaza el editor de ~30 reglas por rareza. Surte efecto sin redeploy y queda auditado.",
-        "invariantNote": "Invariante money-safe: los tiers premium (T3/T4) solo admiten COMPRA en porcentaje. Un monto fijo regalaría cartas caras, por eso el modo «fijo» de compra está bloqueado en esas filas.",
-        "tier": "Tier",
-        "buyAxis": "Compra (buylist)",
-        "sellAxis": "Venta",
-        "premium": "Premium",
-        "rarityCount": "{count, plural, one {# rareza} other {# rarezas}}",
-        "mode": "Modo",
-        "modeLabel": {
-          "fixed": "Fijo (MX$)",
-          "pct": "Porcentaje (%)"
+      "curve": {
+        "title": "Curva de precio",
+        "lead": "El precio sale solo del valor de mercado de cada carta. La rareza y el acabado ya no intervienen en el cálculo. Cada curva es una lista de puntos que tú defines: entre dos puntos el valor se interpola en línea recta; antes del primero y después del último se mantiene plano. Los cambios surten efecto sin publicar de nuevo y quedan en bitácora.",
+        "footerNote": "Al guardar, el catálogo se repricia en el siguiente cálculo · los precios manuales (override) no se tocan · queda en bitácora.",
+        "constants": {
+          "title": "Constantes",
+          "floorLabel": "Piso de venta",
+          "floorHint": "Ninguna carta se publica por debajo de este precio, aunque su mercado sea menor.",
+          "floorGuardrailHint": "Una carta de rareza premium que aterrice en el piso no se publica: pasa a la cola de precio pendiente para que revises su mercado.",
+          "binLabel": "Mínimo de compra",
+          "binHint": "Nunca pagamos menos que esto, aunque el porcentaje dé menos."
         },
-        "valueMxn": "Monto (MX$)",
-        "valuePct": "% de referencia",
-        "valueFloor": "Piso (MX$)",
-        "valueMarkup": "% sobre mercado",
-        "modeBuyFor": "Modo de compra de {tier}",
-        "valueBuyFor": "Valor de compra de {tier}",
-        "modeSellFor": "Modo de venta de {tier}",
-        "valueSellFor": "Valor de venta de {tier}",
-        "finishTitle": "Reglas por acabado",
-        "finishHint": "Aplican al acabado de la variante (holo / reverse holo / 1a edición). Sin regla propia, el acabado hereda la del tier de su rareza.",
-        "modeBuyForFinish": "Modo de compra del acabado {finish}",
-        "valueBuyForFinish": "Valor de compra del acabado {finish}",
-        "modeSellForFinish": "Modo de venta del acabado {finish}",
-        "valueSellForFinish": "Valor de venta del acabado {finish}",
-        "inheritPlaceholder": "Hereda tier",
-        "fallbackBuyLabel": "Fallback de compra (%)",
-        "fallbackSellLabel": "Fallback de venta (%)",
-        "fallbackHint": "Se aplica a las rarezas sin tier asignado (nuevas o no configuradas): cotizan por porcentaje, nunca a MX$0.",
-        "pctPendingHint": "Una regla de porcentaje sin referencia de mercado deja el precio PENDIENTE (nunca MX$0): se escala al dueño para fijarlo a mano.",
-        "invalidValue": "Hay reglas con el valor vacío o inválido. Corrígelas para poder guardar: un valor vacío o mal formado no se guarda como MX$0 (evita listar/pagar cartas gratis por error).",
-        "saved": "Reglas por tier guardadas.",
-        "premiumFixedTitle": "No se pudo guardar: rareza premium en tier de compra fija",
-        "premiumFixedBody": "Una rareza premium no puede resolver en un tier cuya regla de compra sea fija (regalaría cartas caras). Corrige estos pares:"
+        "sale": {
+          "title": "Venta",
+          "tableCaption": "Puntos de la curva de venta",
+          "marketCol": "Mercado",
+          "multiplierCol": "Multiplicador",
+          "resultCol": "Venta a ese mercado",
+          "marketAria": "Mercado del punto {n} de venta",
+          "removeAria": "Quitar el punto de venta de {market}"
+        },
+        "buy": {
+          "title": "Compra",
+          "tableCaption": "Puntos de la curva de compra",
+          "payCol": "Pago",
+          "resultCol": "Compra a ese mercado",
+          "marketAria": "Mercado del punto {n} de compra",
+          "removeAria": "Quitar el punto de compra de {market}"
+        },
+        "point": {
+          "positionCol": "Posición",
+          "actionsCol": "Acciones",
+          "flatBefore": "Plano antes",
+          "flatAfter": "Plano después",
+          "new": "Nuevo",
+          "add": "+ Agregar punto",
+          "addedNeutralHint": "Se colocó sobre la curva actual: todavía no cambia ningún precio.",
+          "removeLastDisabled": "Una curva necesita al menos un punto.",
+          "undoRemoved": "Punto de {market} eliminado ·",
+          "undoRemovedMany": "{count} puntos eliminados ·",
+          "undo": "Deshacer",
+          "reorderAnnounce": "El punto de {market} quedó en la posición {position} de {total}.",
+          "previousValue": "Antes: {value}",
+          "multiplierAria": "Multiplicador del punto {n}",
+          "payAria": "Pago del punto {n}"
+        },
+        "rounding": {
+          "title": "Redondeo ↑ (solo venta)",
+          "tableCaption": "Bandas de la escalera de redondeo hacia arriba",
+          "uptoCol": "Hasta",
+          "stepCol": "Escalón",
+          "openBand": "En adelante",
+          "add": "+ Agregar banda",
+          "removeAria": "Quitar la banda {n}",
+          "removeDisabled": "La última banda («en adelante») no se puede quitar: sin ella no habría escalón arriba del último umbral.",
+          "uptoAria": "Hasta de la banda {n}",
+          "stepAria": "Escalón de la banda {n}",
+          "hint": "El precio de venta se redondea hacia arriba al siguiente múltiplo del escalón de su banda. La banda la decide el precio antes de redondear y no se vuelve a evaluar. La compra no se redondea."
+        },
+        "fieldError": {
+          "required": "Escribe un valor: un campo vacío no se guarda como MX$0.",
+          "negative": "El valor no puede ser negativo.",
+          "multiplierTooLow": "El multiplicador de venta nunca puede bajar de 1.00×: venderías por debajo del mercado.",
+          "multiplierTooHigh": "El multiplicador es demasiado alto (máximo 100.00×).",
+          "pctRange": "El pago tiene que estar entre 0% y 100% del mercado.",
+          "stepTooLow": "El escalón tiene que ser de al menos MX$0.01.",
+          "uptoNotIncreasing": "Cada frontera tiene que ser mayor que la de la banda anterior.",
+          "duplicateMarket": "Hay dos puntos en el mismo mercado. Cambia uno o quita el repetido."
+        },
+        "preview": {
+          "probeTitle": "Probar un mercado",
+          "probeMarketLabel": "Mercado",
+          "current": "Vigente",
+          "draft": "Borrador",
+          "saleLabel": "Venta",
+          "buyLabel": "Compra",
+          "empty": "Escribe un valor de mercado para ver qué precio sale.",
+          "unavailableTitle": "No se puede previsualizar ahora",
+          "unavailableShort": "La tabla de referencia necesita el cálculo del servidor: no se muestran cifras estimadas.",
+          "saleMath": "Venta: {market} × {factor} = {raw} → ↑ {result} (paso {step})",
+          "saleMathFloor": "Venta: {market} × {factor} = {raw} · el piso {constant} gana → {result}",
+          "saleMathPending": "Venta: sin dato de mercado no hay precio (no se publica).",
+          "buyMath": "Compra: {market} × {factor} = {raw} (mínimo {constant})",
+          "buyMathPending": "Compra: sin dato de mercado no hay cotización.",
+          "floorWinsNote": "Aquí el mercado no explica el precio: en la ficha no se muestra el valor de mercado, y una carta premium en esta zona no se publica.",
+          "referenceTitle": "Tabla de referencia",
+          "referenceHint": "Los mercados de la prueba de mesa más el mercado de cada punto de tu borrador.",
+          "referenceCaption": "Precios de referencia con la curva vigente y con el borrador",
+          "marketCol": "Mercado",
+          "saleCurrentCol": "Venta vigente",
+          "saleDraftCol": "Venta borrador",
+          "buyCurrentCol": "Compra vigente",
+          "buyDraftCol": "Compra borrador",
+          "shapeHint": "La curva va al revés de lo previsto: el margen debería ser grueso abajo y delgado arriba en venta, y el pago mayor arriba en compra."
+        },
+        "save": {
+          "noChanges": "Sin cambios",
+          "dirty": "{count, plural, one {# cambio sin guardar} other {# cambios sin guardar}}",
+          "fieldErrors": "Hay campos sin corregir",
+          "notSaved": "No se guardó",
+          "discard": "Descartar",
+          "discardConfirm": "¿Descartar los cambios sin guardar de la curva?",
+          "submit": "Guardar curva",
+          "saved": "Curva de precio guardada."
+        },
+        "diff": {
+          "title": "Guardar la curva de precio",
+          "axis": {
+            "sale": "Venta",
+            "buy": "Compra",
+            "floor": "Piso",
+            "bin": "Mínimo de compra",
+            "rounding": "Redondeo"
+          },
+          "lineChanged": "{axis} · punto {market} · {before} → {after}",
+          "lineAdded": "{axis} · punto {market} agregado · {after}",
+          "lineRemoved": "{axis} · punto {market} eliminado · era {before}",
+          "lineConstant": "{axis} · {before} → {after}",
+          "impactTitle": "Efecto en precios ({changed} de {total} mercados de referencia cambian)",
+          "impactMore": "…y {count} más",
+          "marketCol": "Mercado",
+          "saleCol": "Venta",
+          "buyCol": "Compra",
+          "effectNote": "Al guardar, el catálogo se repricia en el siguiente cálculo: cambia el precio publicado de las cartas y lo que ofrece el cotizador de compra. Los precios manuales (override) no se tocan.",
+          "auditNote": "Solo súper-admin · queda en bitácora.",
+          "cta": "Guardar curva"
+        },
+        "diffAxis": {
+          "sale": "venta",
+          "buy": "compra"
+        },
+        "errors": {
+          "summaryTitle": "No se guardó nada.",
+          "goToPoint": "Ir al punto de {market}",
+          "CURVE_EMPTY": "La curva de {axis} se quedó sin puntos. Agrega al menos uno.",
+          "DUPLICATE_BREAKPOINT": "Hay dos puntos en el mismo mercado ({market}). Cambia uno o quita el repetido.",
+          "SALE_BELOW_MARKET": "El punto de {market} vendería por debajo del mercado. El multiplicador de venta nunca puede bajar de 1.00×.",
+          "SALE_CURVE_NOT_MONOTONIC": "Entre {from} y {to} el precio de venta baja cuando el mercado sube. Sube el multiplicador de {to} o baja el de {from}.",
+          "BUY_ABOVE_SALE": "En {market} pagarías {pct}% y venderías a {mult}×: la compra alcanza a la venta. Baja el pago de ese tramo.",
+          "BIN_ABOVE_FLOOR": "El mínimo de compra ({bin}) no puede alcanzar al piso de venta ({floor}).",
+          "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: cada frontera debe ser múltiplo exacto del escalón de la banda anterior (con escalón de MX$5, la frontera puede ser MX$200, no MX$203)."
+        }
       },
-      "tierMap": {
-        "title": "Asignación de rarezas a tiers",
-        "subtitle": "Cada rareza canónica del catálogo se mapea a un tier (el mismo mapa aplica a compra y venta). Cambia solo las que necesites. Surte efecto sin redeploy y queda auditado.",
-        "invariantNote": "Money-safe: una rareza premium no puede asignarse a un tier de compra fija (T0/T1). El servidor lo rechaza y te muestra los pares en conflicto.",
-        "rarity": "Rareza",
-        "cardCount": "Cartas",
-        "tier": "Tier",
-        "source": "Origen",
+      "rarityHealth": {
+        "title": "Salud del catálogo de rarezas",
+        "subtitle": "Las rarezas ya no fijan precios. Se conservan para filtros, presentación y para el guardarraíl que retiene una carta premium cuando su precio cae al piso.",
+        "canonicalCol": "Rareza canónica",
+        "premiumCol": "Premium",
+        "mappedCol": "Mapeada",
+        "cardCountCol": "Cartas",
         "premium": "Premium",
-        "unmapped": "Sin mapear",
-        "offender": "En conflicto",
-        "tierFor": "Tier para {rarity}",
-        "unassigned": "Sin asignar (fallback)",
-        "sourceMap": "Asignada",
-        "sourceFallback": "Fallback (pendiente)",
-        "saved": "Mapa de rarezas guardado.",
-        "premiumFixedTitle": "No se pudo guardar: rareza premium en tier de compra fija",
-        "premiumFixedBody": "Estas rarezas premium quedarían en un tier de compra fija, lo que regalaría cartas caras. Asígnalas a un tier de compra por porcentaje (premium):"
+        "unmapped": "Sin mapear"
       }
     },
     "m6": {
@@ -1963,31 +1988,29 @@
         "sell": "Venta",
         "buyLong": "Compra",
         "sellLong": "Venta",
-        "suggested": "Sugerido (regla)",
+        "suggested": "Sugerido (curva)",
         "override": "Override",
         "effective": "Efectivo",
-        "source": {
-          "rule": "Regla",
-          "manual": "Manual",
-          "bounty": "Bounty",
-          "pending": "Pendiente"
-        },
-        "resetToRule": "Restablecer a regla",
         "save": "Guardar precios",
         "saved": "Precios de la variante guardados.",
-        "overrideRemoved": "Override retirado — vuelve a regir la regla.",
+        "overrideRemoved": "Override retirado — vuelve a regir la curva.",
         "pisaNota": "Los cambios pisan lo que ve el cliente · queda en bitácora.",
         "pendingShort": "—",
         "pendingTitle": "Precio pendiente — sin referencia de mercado",
-        "manualTitle": "Precio manual — pisa la regla",
+        "manualTitle": "Precio manual — pisa la curva",
         "bountyActiveTitle": "Bounty activo",
         "rowAria": "{label}: {value}",
         "rowAriaSource": "{label}: {value}, {source}",
         "mustBePositive": "El precio debe ser mayor a cero.",
-        "suggestedByRule": "Sugerido por regla",
         "fixMarket": "Fijar mercado (MXN)",
         "fixMarketCta": "Fijar",
-        "marketFixed": "Referencia de mercado fijada."
+        "marketFixed": "Referencia de mercado fijada.",
+        "suggestedByCurve": "Sugerido por la curva",
+        "resetToCurve": "Restablecer a la curva",
+        "heldByGuardrail": "Retenida por el guardarraíl ·",
+        "seeInPendingQueue": "Ver en la cola de pendientes",
+        "heldByGuardrailSell": "No se publica: rareza premium que aterrizó en el piso. Está en la cola de precio pendiente para revisar su mercado.",
+        "heldByGuardrailBuy": "No se cotiza: rareza premium que aterrizó en el mínimo de compra."
       }
     },
     "quickAdd": {
@@ -2109,14 +2132,19 @@
       "stateOn": "Activo",
       "stateOff": "Apagado",
       "price": "Precio bounty (MXN)",
-      "premium": "Premium sobre la regla: +{amount} (+{pct}%)",
-      "noSuggested": "Sin sugerido de regla — el bounty es el precio explícito.",
+      "premium": "Premium sobre la curva: +{amount} (+{pct}%)",
+      "noSuggested": "Sin tarifa de curva — el bounty es el precio explícito.",
       "targetQty": "Cantidad objetivo (opcional)",
       "targetHelper": "Al completarse, el bounty se apaga solo.",
       "progress": "{acquired} de {target} conseguidas",
       "completed": "Bounty completado · {date}",
       "offWithHistory": "Bounty apagado · {count} conseguidas",
-      "badge": "Bounty"
+      "badge": "Bounty",
+      "mustBeHigherHint": "Debe ser mayor que la tarifa vigente ({amount}).",
+      "outbidTitle": "Bounty rebasado",
+      "outbidYours": "Tu oferta {amount}",
+      "outbidCurrent": "tarifa vigente {amount}",
+      "outbidBody": "Mientras esté por debajo, se paga la tarifa vigente y la carta no aparece en «Top Bounties». Súbelo por encima de {amount} o apágalo."
     },
     "sealedAdd": {
       "title": "Agregar producto sellado",
@@ -2282,6 +2310,27 @@
     "sealedCondition": {
       "mint": "Como nueva",
       "minor_box_damage": "Detalle menor en caja"
+    },
+    "priceBasis": {
+      "market": "Mercado",
+      "floor": "Piso",
+      "override": "Manual",
+      "bounty": "Bounty",
+      "pending": "Pendiente"
+    },
+    "priceBasisTitle": {
+      "floorSell": "Determinado por el piso — el mercado no explica este precio",
+      "floorBuy": "Determinado por el mínimo de compra — el mercado no explica este precio",
+      "override": "Precio manual — pisa la curva",
+      "bounty": "Bounty activo"
+    },
+    "pendingReason": {
+      "no_market": "Sin mercado",
+      "premium_at_floor": "Premium en el piso"
+    },
+    "bounty": {
+      "active": "Bounty",
+      "outbid": "Bounty rebasado"
     }
   },
   "error": {
@@ -2327,13 +2376,18 @@
     "ORDER_ALREADY_CLAIMED": "No fue posible vincular este pedido.",
     "CLAIM_EMAIL_MISMATCH": "No fue posible vincular este pedido.",
     "BOUNTY_PRICE_REQUIRED": "El bounty necesita un precio explícito.",
-    "BOUNTY_BELOW_RULE": "El precio bounty debe ser mayor o igual al sugerido por regla ({suggested}).",
+    "BOUNTY_BELOW_RULE": "Un bounty tiene que pagar más que la tarifa vigente ({suggested}). Con el mismo importe no sería una oferta.",
     "SET_NOT_IMPORTED": "Ese set aún no está importado; impórtalo antes de refrescar sus variantes.",
     "UPSTREAM_ERROR": "TCGCSV no está disponible en este momento. Inténtalo de nuevo en unos minutos.",
-    "PREMIUM_RARITY_FIXED_TIER": "No se pudo guardar: una rareza premium quedaría en un tier de compra fija.",
-    "UNKNOWN_RARITY": "Rareza desconocida: no está en el catálogo canónico.",
     "SEALED_PRODUCT_NOT_FOUND": "Ese producto sellado ya no existe o está inactivo; vuelve a sincronizar el catálogo.",
-    "MANUAL_MARKET_NOT_ALLOWED": "Esta presentación ya tiene precio de mercado; el precio manual solo aplica cuando no hay mercado."
+    "MANUAL_MARKET_NOT_ALLOWED": "Esta presentación ya tiene precio de mercado; el precio manual solo aplica cuando no hay mercado.",
+    "CURVE_EMPTY": "La curva se quedó sin puntos: no se guardó nada.",
+    "DUPLICATE_BREAKPOINT": "Hay dos puntos en el mismo mercado: no se guardó nada.",
+    "SALE_BELOW_MARKET": "Un punto vendería por debajo del mercado: no se guardó nada.",
+    "SALE_CURVE_NOT_MONOTONIC": "La curva de venta baja cuando el mercado sube: no se guardó nada.",
+    "BUY_ABOVE_SALE": "La compra alcanza a la venta en algún tramo: no se guardó nada.",
+    "BIN_ABOVE_FLOOR": "El mínimo de compra alcanza al piso de venta: no se guardó nada.",
+    "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: no se guardó nada."
   },
   "payment": {
     "title": "Pago",

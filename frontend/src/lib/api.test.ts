@@ -88,19 +88,25 @@ describe('api (rama mock, v1.1)', () => {
     expect([...dates].sort()).toEqual(dates);
   });
 
-  it('buylist: rareza sin regla explícita (Ultra Rare) usa el fallback pct (40% de la referencia)', async () => {
-    const q = await getBuylistQuote({ cardId: 'c-milotic-fa', productType: 'raw', rawCondition: 'NM' });
-    expect(q.rarity).toBe('Ultra Rare');
-    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40, source: 'fallback' });
-    expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(Math.round(210000 * 0.4));
+  it('buylist v2.0: la cotización sale de la CURVA sobre el mercado — la rareza NO la decide', async () => {
+    // Ultra Rare y Common cotizan por el MISMO camino (curva sobre el mercado de su variante): la
+    // rareza viaja como dato informativo del catálogo, no como selector de regla (criterio 84).
+    const ultra = await getBuylistQuote({ cardId: 'c-milotic-fa', productType: 'raw', rawCondition: 'NM' });
+    expect(ultra.rarity).toBe('Ultra Rare');
+    expect(ultra.priceBasis).toBe('market');
+    expect(ultra.quote.status).toBe('cotizada');
+    expect(ultra.quote.quotedPriceCents).toBe(Math.round((210000 * 3000) / 10000));
+
+    const common = await getBuylistQuote({ cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' });
+    expect(common.rarity).toBe('Common');
+    expect(common.priceBasis).toBe('market');
+    // Una Common cara deja de cotizar al bin de bulk: el mercado manda (era el bug de P-48).
+    expect(common.quote.quotedPriceCents).toBe(Math.round((9500 * 3000) / 10000));
   });
 
-  it('buylist: rareza con regla fija (Common) cotiza el monto fijo sin depender de la referencia', async () => {
+  it('buylist v2.0: `appliedRule` YA NO existe en la respuesta (no hay reglas, hay curva)', async () => {
     const q = await getBuylistQuote({ cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' });
-    expect(q.rarity).toBe('Common');
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
-    expect(q.quote.quotedPriceCents).toBe(50);
+    expect('appliedRule' in q).toBe(false);
   });
 
   it('buylist: carta sin market price (Zapdos) escala a precio pendiente (adquisición)', async () => {
@@ -109,36 +115,37 @@ describe('api (rama mock, v1.1)', () => {
     expect(q.quote.quotedPriceCents).toBeNull();
   });
 
-  it('buylist (v1.6-finish): el acabado selecciona la regla — Common + reverse_holo = "Reverse Holo" fijo $1.50', async () => {
+  it('buylist v2.0: el acabado YA NO selecciona regla — solo elige DE QUÉ VARIANTE se lee el mercado', async () => {
     const q = await getBuylistQuote({
       cardId: 'c-pikachu',
       productType: 'raw',
       rawCondition: 'NM',
       finish: 'reverse_holo',
     });
-    // El backend deriva la regla del acabado (no de la rareza base): Reverse Holo fijo 150.
     expect(q.finish).toBe('reverse_holo');
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 150, source: 'rule' });
-    expect(q.quote.quotedPriceCents).toBe(150);
+    expect(q.priceBasis).toBe('market');
+    // Mismo cálculo que en `normal`, sobre el mercado del reverse (ref × 1.25 en el mock): el
+    // acabado dejó de tener regla de precio propia (§N.4).
+    expect(q.quote.quotedPriceCents).toBe(Math.round((Math.round(9500 * 1.25) * 3000) / 10000));
   });
 
   it('buylist (v1.6-finish): sin finish la respuesta ecoa el default normal', async () => {
     const q = await getBuylistQuote({ cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' });
     expect(q.finish).toBe('normal');
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+    expect(q.priceBasis).toBe('market');
   });
 
   // ---- Batch quote (contrato §6 · POST /buylist/quote/batch, v1.15) ----
   it('batchQuote (v1.15): cotiza N cartas en 1 request, ecoando index/cardId y el MISMO monto que el por-carta', async () => {
     const res = await batchQuote([
-      { cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' }, // Common → fixed 50
-      { cardId: 'c-charizard', productType: 'raw', rawCondition: 'NM' }, // Rare Holo → fallback 40%
+      { cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' },
+      { cardId: 'c-charizard', productType: 'raw', rawCondition: 'NM' },
     ]);
     expect(res.results).toHaveLength(2);
     // index 0 = correlación posicional; cardId ecoado.
     const r0 = res.results[0];
     expect(r0).toMatchObject({ index: 0, cardId: 'c-pikachu', ok: true });
-    if (r0.ok) expect(r0.quote.quotedPriceCents).toBe(50);
+    if (r0.ok) expect(r0.quote.quotedPriceCents).toBe(Math.round((9500 * 3000) / 10000));
     const r1 = res.results[1];
     expect(r1).toMatchObject({ index: 1, cardId: 'c-charizard', ok: true });
     // Coincide EXACTAMENTE con el quote por-carta (misma función de precio).

@@ -92,6 +92,7 @@ import type {
   FxDTO,
   PriceIngestResponse,
   PendingPriceEntryDTO,
+  PendingPriceReason,
   PendingPriceContext,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
@@ -2940,15 +2941,20 @@ export async function unifyRarities(): Promise<UnifyRaritiesResponse> {
  */
 export async function getPendingPrices(
   context?: PendingPriceContext,
+  reason?: PendingPriceReason,
 ): Promise<PendingPriceEntryDTO[]> {
   if (!config.useMocks) {
     const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending', {
-      query: { context },
+      // v2.0 (P-48): `?reason=` distingue las dos causas de la cola — `no_market` lo arregla el
+      // siguiente barrido solo; `premium_at_floor` (guardarraíl) REQUIERE que alguien la mire.
+      query: { context, reason },
     });
     return res.data;
   }
   return delay(
-    context ? fx.mockPendingPrices.filter((p) => p.context === context) : fx.mockPendingPrices,
+    fx.mockPendingPrices.filter(
+      (p) => (!context || p.context === context) && (!reason || p.reason === reason),
+    ),
   );
 }
 

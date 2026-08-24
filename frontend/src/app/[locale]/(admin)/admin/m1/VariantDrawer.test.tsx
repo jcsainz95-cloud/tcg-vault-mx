@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { VariantDrawer } from './VariantDrawer';
 import * as api from '@/lib/api';
+import type { VariantPricingDTO } from '@/types/contract';
 
 const roleState = vi.hoisted(() => ({ role: 'super_admin' }));
 vi.mock('@/lib/role', () => ({
@@ -99,9 +100,9 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
   });
 
   it('con pricing (scope platform) monta la consola de precios; el sellado NO la lleva', async () => {
-    const pricing = {
-      buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'rule' as const },
-      sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'rule' as const },
+    const pricing: VariantPricingDTO = {
+      buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'market', premiumAtFloor: false },
+      sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'market', premiumAtFloor: false },
     };
     const { unmount } = renderDrawer({ pricing, marketRefCents: 125_000 });
     expect(await screen.findByRole('heading', { name: 'Precios' })).toBeInTheDocument();
@@ -120,9 +121,9 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
   });
 
   it('M-1: guardar un override en la consola pinta el estado nuevo SIN reabrir y refresca agregados', async () => {
-    const pricing = {
-      buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'rule' as const },
-      sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'rule' as const },
+    const pricing: VariantPricingDTO = {
+      buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'market', premiumAtFloor: false },
+      sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'market', premiumAtFloor: false },
     };
     vi.spyOn(api, 'putVariantControls').mockResolvedValue({
       cardId: 'c-charizard',
@@ -130,8 +131,8 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
       gradeKey: 'raw:NM',
       finish: 'normal',
       pricing: {
-        buy: { suggestedCents: 87_500, overrideCents: 95_000, effectiveCents: 95_000, source: 'override' },
-        sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'rule' },
+        buy: { suggestedCents: 87_500, overrideCents: 95_000, effectiveCents: 95_000, source: 'override', premiumAtFloor: false },
+        sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'market', premiumAtFloor: false },
       },
     });
     const onChanged = vi.fn();
@@ -141,7 +142,7 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Guardar precios' }));
 
     // Efectivo/FUENTE del response, visibles al instante (antes quedaba el prop capturado al abrir).
-    expect(await screen.findByRole('button', { name: 'Restablecer a regla' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Restablecer a la curva' })).toBeInTheDocument();
     expect(screen.getAllByText('Manual').length).toBeGreaterThanOrEqual(1);
     // Y el drawer avisa al dueño para refrescar el binder (respuesta ya no se descarta).
     await waitFor(() => expect(onChanged).toHaveBeenCalled());

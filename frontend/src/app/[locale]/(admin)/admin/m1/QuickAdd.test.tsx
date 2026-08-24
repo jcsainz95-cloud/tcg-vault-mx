@@ -38,7 +38,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
       <QuickAddSection
         target={target}
         buyEffectiveCents={87_500}
-        buySource="rule"
+        buySource="market"
         marketRefCents={125_000}
       />,
       'es',
@@ -90,7 +90,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
   it('«Aportación» manda acquisitionPct: 100 EXPLÍCITO (sin % visible en ninguna parte)', async () => {
     const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000400']));
     renderWithProviders(
-      <QuickAddSection target={target} buyEffectiveCents={87_500} buySource="rule" marketRefCents={125_000} />,
+      <QuickAddSection target={target} buyEffectiveCents={87_500} buySource="market" marketRefCents={125_000} />,
       'es',
     );
 
@@ -133,7 +133,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
       ],
     });
     renderWithProviders(
-      <QuickAddSection target={target} buyEffectiveCents={87_500} buySource="rule" marketRefCents={125_000} />,
+      <QuickAddSection target={target} buyEffectiveCents={87_500} buySource="market" marketRefCents={125_000} />,
       'es',
     );
 

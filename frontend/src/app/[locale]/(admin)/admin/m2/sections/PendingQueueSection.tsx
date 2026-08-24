@@ -7,7 +7,7 @@ import { ExternalLink } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 import { getPendingPrices, overridePrice } from '@/lib/api';
-import type { PendingPriceEntryDTO } from '@/types/contract';
+import type { PendingPriceEntryDTO, PendingPriceReason } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
@@ -39,16 +39,21 @@ function pendingDisplayName(e: PendingPriceEntryDTO): string {
 export function PendingQueueSection() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
+  const tReason = useTranslations('status.pendingReason');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage();
 
   const [bucket, setBucket] = useState<'venta' | 'compra'>('venta');
+  // §21.7c: la cola recibe entradas de DOS orígenes que se arreglan de forma distinta, así que se
+  // distinguen a la vista y se pueden filtrar. El segundo conteo es la señal de calibración del
+  // piso: si crece mucho, el piso está mal puesto (o el dato de mercado está roto).
+  const [reason, setReason] = useState<PendingPriceReason | 'all'>('all');
   // Cada bucket pide SOLO su contexto y solo cuando su pestaña está activa (calca M6). El override
   // invalida el prefijo ['pending-prices'] → refresca el bucket VENTA al cerrar el pendiente.
   const ventaPending = useQuery({
-    queryKey: ['pending-prices', 'inventory'],
-    queryFn: () => getPendingPrices('inventory'),
+    queryKey: ['pending-prices', 'inventory', reason],
+    queryFn: () => getPendingPrices('inventory', reason === 'all' ? undefined : reason),
     enabled: bucket === 'venta',
   });
   const compraPending = useQuery({
@@ -100,6 +105,24 @@ export function PendingQueueSection() {
     },
     { key: 'context', header: t('pending.context'), render: (e) => <Badge tone="warning" shape="outline">{e.context}</Badge> },
     {
+      key: 'reason',
+      header: t('pending.reasonCol'),
+      render: (e) =>
+        e.reason ? (
+          <span
+            className={cn(
+              'font-mono text-[10px] uppercase tracking-[0.06em]',
+              e.reason === 'premium_at_floor' ? 'text-accent' : 'text-muted',
+            )}
+          >
+            {tReason(e.reason)}
+          </span>
+        ) : (
+          // Filas históricas (anteriores a v2.0) no traen motivo: se dice, no se inventa.
+          <span className="text-muted">—</span>
+        ),
+    },
+    {
       key: 'actions',
       header: '',
       align: 'right',
@@ -140,11 +163,32 @@ export function PendingQueueSection() {
   // salesRules: solo es fijable un valor no vacío que parsea a número finito → si no, se bloquea.
   const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue);
 
+  // Conteo por motivo del conjunto cargado. Con un filtro activo el conteo describe ESE
+  // subconjunto (no se inventa un total que el servidor no devolvió).
+  const countsByReason = ventaPending.data
+    ? ventaPending.data.reduce(
+        (acc, e) => {
+          if (e.reason === 'premium_at_floor') acc.premium_at_floor += 1;
+          else if (e.reason === 'no_market') acc.no_market += 1;
+          return acc;
+        },
+        { no_market: 0, premium_at_floor: 0 },
+      )
+    : null;
+
   return (
     <>
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('pending.title')}</h2>
         <p className="text-sm text-muted">{t('pending.subtitle')}</p>
+        {bucket === 'venta' && countsByReason && (
+          <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+            {t('pending.countsByReason', {
+              noMarket: countsByReason.no_market,
+              premiumAtFloor: countsByReason.premium_at_floor,
+            })}
+          </p>
+        )}
 
         {/* Pestañas VENTA / COMPRA (patrón de tabs de M6) */}
         <div role="tablist" aria-label={t('pending.bucketsLabel')} className="flex flex-wrap gap-1 border-b border-border">
@@ -167,7 +211,26 @@ export function PendingQueueSection() {
 
         {/* VENTA (context=inventory): fijable por override → publica el ítem */}
         {bucket === 'venta' && (
-          <div role="tabpanel">
+          <div role="tabpanel" className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="eyebrow">{t('pending.filterLabel')}</span>
+              {(['all', 'no_market', 'premium_at_floor'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={reason === k}
+                  onClick={() => setReason(k)}
+                  className={cn(
+                    'min-h-[44px] px-3 font-mono text-[11px] uppercase tracking-[0.06em] sm:min-h-0 sm:py-2',
+                    reason === k
+                      ? 'border-b-2 border-accent text-text'
+                      : 'border-b-2 border-transparent text-muted hover:text-text',
+                  )}
+                >
+                  {k === 'all' ? t('pending.filterAll') : tReason(k)}
+                </button>
+              ))}
+            </div>
             <QueryState
               isLoading={ventaPending.isLoading}
               isError={ventaPending.isError}

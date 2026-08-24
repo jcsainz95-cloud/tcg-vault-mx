@@ -6,6 +6,17 @@ import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { VariantPricingDTO } from '@/types/contract';
 
+// `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
+// Lo necesita el enlace del guardarraíl («Ver en la cola de pendientes») de la consola de precios.
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+
 // Rol controlable (edición SOLO super_admin; vault_operator lee).
 const roleState = vi.hoisted(() => ({ role: 'super_admin' }));
 vi.mock('@/lib/role', () => ({
@@ -23,22 +34,38 @@ beforeEach(() => {
 });
 
 const basePricing: VariantPricingDTO = {
-  buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'rule' },
-  sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'rule' },
+  buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'market', premiumAtFloor: false },
+  sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'market', premiumAtFloor: false },
 };
 
 const overriddenPricing: VariantPricingDTO = {
-  buy: { suggestedCents: 87_500, overrideCents: 95_000, effectiveCents: 95_000, source: 'override' },
-  sell: { suggestedCents: 169_000, overrideCents: 180_000, effectiveCents: 180_000, source: 'override' },
-  bounty: { enabled: false, priceCents: null, targetQty: null, acquiredQty: 0, completedAt: null },
+  buy: { suggestedCents: 87_500, overrideCents: 95_000, effectiveCents: 95_000, source: 'override', premiumAtFloor: false },
+  sell: { suggestedCents: 169_000, overrideCents: 180_000, effectiveCents: 180_000, source: 'override', premiumAtFloor: false },
+  bounty: {
+    enabled: false,
+    priceCents: null,
+    targetQty: null,
+    acquiredQty: 0,
+    completedAt: null,
+    effective: false,
+    curveQuoteCents: 87_500,
+  },
 };
 
 describe('VariantPricingCompact (§16.3a) · teja de solo-lectura', () => {
   it('pinta MERCADO/COMPRA/VENTA con sufijo ·M en override y ·B en bounty — nunca $0', () => {
     const pricing: VariantPricingDTO = {
-      buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 250_000, source: 'bounty' },
-      sell: { suggestedCents: 169_000, overrideCents: 180_000, effectiveCents: 180_000, source: 'override' },
-      bounty: { enabled: true, priceCents: 250_000, targetQty: 3, acquiredQty: 1, completedAt: null },
+      buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 250_000, source: 'bounty', premiumAtFloor: false },
+      sell: { suggestedCents: 169_000, overrideCents: 180_000, effectiveCents: 180_000, source: 'override', premiumAtFloor: false },
+      bounty: {
+        enabled: true,
+        priceCents: 250_000,
+        targetQty: 3,
+        acquiredQty: 1,
+        completedAt: null,
+        effective: true,
+        curveQuoteCents: 87_500,
+      },
     };
     renderWithProviders(<VariantPricingCompact pricing={pricing} marketRefCents={125_000} />, 'es');
 
@@ -54,8 +81,8 @@ describe('VariantPricingCompact (§16.3a) · teja de solo-lectura', () => {
 
   it('sin precio → «—» con affordance de pendiente (jamás un 0 inventado)', () => {
     const pricing: VariantPricingDTO = {
-      buy: { suggestedCents: null, overrideCents: null, effectiveCents: null, source: 'pending' },
-      sell: { suggestedCents: null, overrideCents: null, effectiveCents: null, source: 'pending' },
+      buy: { suggestedCents: null, overrideCents: null, effectiveCents: null, source: 'pending', premiumAtFloor: false },
+      sell: { suggestedCents: null, overrideCents: null, effectiveCents: null, source: 'pending', premiumAtFloor: false },
     };
     renderWithProviders(<VariantPricingCompact pricing={pricing} marketRefCents={null} />, 'es');
     expect(screen.getAllByText('—').length).toBe(3);
@@ -96,7 +123,7 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
     });
   });
 
-  it('«Restablecer a regla» manda null explícito SOLO de esa cara (visible solo con override)', async () => {
+  it('«Restablecer a la curva» manda null explícito SOLO de esa cara (visible solo con override)', async () => {
     const spy = vi.spyOn(api, 'putVariantControls').mockResolvedValue({
       cardId: 'c-charizard',
       productType: 'raw',
@@ -114,7 +141,7 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
       'es',
     );
 
-    const resets = screen.getAllByRole('button', { name: 'Restablecer a regla' });
+    const resets = screen.getAllByRole('button', { name: 'Restablecer a la curva' });
     expect(resets).toHaveLength(2); // compra y venta tienen override activo
     fireEvent.click(resets[0]);
 
@@ -125,16 +152,16 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
     });
     // Confirmación de que la cara volvió a la regla.
     expect(
-      await screen.findByText('Override retirado — vuelve a regir la regla.'),
+      await screen.findByText('Override retirado — vuelve a regir la curva.'),
     ).toBeInTheDocument();
   });
 
-  it('sin override activo NO hay enlace «Restablecer a regla»', () => {
+  it('sin override activo NO hay enlace «Restablecer a la curva»', () => {
     renderWithProviders(
       <VariantPriceConsole cardId="c-charizard" finish="normal" pricing={basePricing} marketRefCents={125_000} />,
       'es',
     );
-    expect(screen.queryByRole('button', { name: 'Restablecer a regla' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Restablecer a la curva' })).toBeNull();
   });
 
   it('monto ≤ 0 → error inline y el guardado se bloquea', async () => {
@@ -170,7 +197,7 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
 
     fireEvent.change(screen.getByLabelText('Precio bounty (MXN)'), { target: { value: '2500' } });
     // Premium sobre la regla (2500.00 − 875.00 = +1,625.00).
-    expect(screen.getByText(/Premium sobre la regla/)).toBeInTheDocument();
+    expect(screen.getByText(/Premium sobre la curva/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Guardar precios' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -191,14 +218,14 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
     );
 
     // Antes del write ambas caras resuelven por regla: no hay override que retirar.
-    expect(screen.queryByRole('button', { name: 'Restablecer a regla' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Restablecer a la curva' })).toBeNull();
 
     fireEvent.change(screen.getAllByLabelText('Override')[0], { target: { value: '950' } });
     fireEvent.click(screen.getByRole('button', { name: 'Guardar precios' }));
 
     // La consola adopta el pricing RESUELTO de la respuesta (no el prop capturado al abrir):
     // fuente Manual en ambas caras, efectivos nuevos y «Restablecer a regla» disponible — SIN reabrir.
-    expect(await screen.findAllByRole('button', { name: 'Restablecer a regla' })).toHaveLength(2);
+    expect(await screen.findAllByRole('button', { name: 'Restablecer a la curva' })).toHaveLength(2);
     expect(screen.getAllByText('Manual').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('MX$1,800.00')).toBeInTheDocument(); // venta efectiva del response
   });

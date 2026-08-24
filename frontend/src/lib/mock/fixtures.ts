@@ -2140,9 +2140,27 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
     finish: 'holofoil',
     context: 'inventory',
     status: 'open',
+    // v2.0: sin dato de mercado ⇒ precio pendiente (el piso NO rellena el hueco). Lo arregla el
+    // siguiente barrido, solo: no requiere que nadie lo mire.
+    reason: 'no_market',
     createdAt: '2026-08-13T06:00:00Z',
     cardName: 'Zapdos',
     card: { id: 'c-zapdos', name: 'Zapdos', number: '16', setName: 'Base Set' },
+  },
+  {
+    // v2.0 (§4.36.5): guardarraíl — rareza PREMIUM que aterrizó en el piso. Hay dato y PARECE
+    // equivocado: no se publica y REQUIERE que el dueño revise su mercado o fije precio a mano.
+    id: 'ppe-guardrail',
+    cardId: 'c-latias-sir',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    finish: 'holofoil',
+    context: 'inventory',
+    status: 'open',
+    reason: 'premium_at_floor',
+    createdAt: '2026-08-24T07:30:00Z',
+    cardName: 'Latias ex',
+    card: { id: 'c-latias-sir', name: 'Latias ex', number: '76', setName: 'Surging Sparks' },
   },
   {
     id: 'ppe-2',
@@ -2152,6 +2170,7 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
     finish: 'normal',
     context: 'buylist',
     status: 'open',
+    reason: 'no_market',
     createdAt: '2026-08-13T09:15:00Z',
     cardName: 'Machamp',
     card: { id: 'c-machamp', name: 'Machamp', number: '8', setName: 'Base Set' },

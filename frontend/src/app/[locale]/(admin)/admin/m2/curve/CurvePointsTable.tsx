@@ -77,8 +77,10 @@ export function CurvePointsTable({
   // (§21.4b-1) el dueño no pierde de vista su propio punto.
   useEffect(() => {
     if (!focusKey) return;
-    firstInputs.current[focusKey]?.focus();
-    firstInputs.current[focusKey]?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    const el = firstInputs.current[focusKey];
+    el?.focus();
+    // jsdom no implementa scrollIntoView; el foco es lo obligatorio y el scroll es cortesía.
+    el?.scrollIntoView?.({ block: 'center', behavior: 'auto' });
   }, [focusKey]);
 
   const valueCol = axis === 'sale' ? t('sale.multiplierCol') : t('buy.payCol');
@@ -154,7 +156,7 @@ export function CurvePointsTable({
                 </td>
                 <td className="py-3 pr-3">
                   <label className="sr-only" htmlFor={`${row.key}-market`}>
-                    {t('point.marketAria', { n: index + 1 })}
+                    {t(`${axis}.marketAria`, { n: index + 1 })}
                   </label>
                   <span className="flex items-baseline gap-1.5 border-b border-border-strong pb-1 focus-within:shadow-focus">
                     <span className="shrink-0 font-mono text-[11px] text-muted">MX$</span>
@@ -221,7 +223,7 @@ export function CurvePointsTable({
                     type="button"
                     onClick={() => onRemove(row.key)}
                     disabled={!canRemove}
-                    aria-label={t('point.removeAria', { market: rowLabel })}
+                    aria-label={t(`${axis}.removeAria`, { market: rowLabel })}
                     title={canRemove ? undefined : t('point.removeLastDisabled')}
                     aria-describedby={canRemove ? undefined : `${row.key}-remove-why`}
                     className="inline-flex h-11 w-11 items-center justify-center text-text transition-colors hover:text-accent disabled:cursor-not-allowed disabled:text-muted"

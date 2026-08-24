@@ -59,7 +59,14 @@ export function CardDetailView({ cardId }: { cardId: string }) {
           <div className="flex flex-col gap-4">
             <Skeleton className="h-10 w-2/3" />
             <Skeleton className="h-5 w-1/3" />
-            <Skeleton className="h-32 w-full" />
+            {/* §21.8e — sin salto de layout: el esqueleto pinta la fila de dinero como UNA celda
+                a ancho completo (la parte que NO depende del dato) y la de mercado solo aparece
+                cuando llegan los datos. Así nunca se ve aparecer un bloque que después se retira. */}
+            <Skeleton className="h-24 w-full" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
           </div>
         </div>
       }
@@ -88,6 +95,20 @@ export function CardDetailView({ cardId }: { cardId: string }) {
   );
 }
 
+/**
+ * Un HECHO visible de la ficha. §21.8b-1: **primero la lista, después la retícula** — la lista se
+ * arma evaluando `priceBasis` y la retícula se pinta SOBRE ESA LISTA YA FILTRADA. Un hecho oculto
+ * **no existe**: no hay celda vacía que deje media fila colgando.
+ */
+interface FactSpec {
+  key: string;
+  label: string;
+  node: React.ReactNode;
+  note?: string;
+  /** La celda de dinero ocupa la fila completa cuando queda sola (§21.8b-3). */
+  fullRow?: boolean;
+}
+
 /** Celda de la ficha: etiqueta mono arriba, dato debajo, reglas alrededor. */
 function Fact({
   label,
@@ -105,6 +126,39 @@ function Fact({
       <div className="eyebrow">{label}</div>
       <div className="mt-2.5">{children}</div>
       {note && <div className="mt-2 font-mono text-[11px] leading-none text-muted">{note}</div>}
+    </div>
+  );
+}
+
+/**
+ * Pinta la retícula sobre la lista YA FILTRADA de hechos.
+ *
+ * §21.8b-2: **el divisor es de la POSICIÓN, no del hecho.** `border-l` solo en las celdas que no
+ * abren fila (índice par en la lista filtrada, en `≥ sm`). Hardcodear `sm:border-l` en un hecho
+ * concreto —como hacía la versión anterior con «Valor de mercado» y «Acabado»— es justo el bug:
+ * al desaparecer una celda, el divisor lo heredaba quien no le tocaba y la regla moría a media fila.
+ */
+function FactGrid({ facts }: { facts: FactSpec[] }) {
+  let column = 0; // columna que ocupa la celda actual dentro de la fila (0 = abre fila)
+  return (
+    <div className="mt-9 grid border-t border-border sm:grid-cols-2">
+      {facts.map((f) => {
+        const opensRow = column === 0;
+        column = f.fullRow ? 0 : (column + 1) % 2;
+        return (
+          <Fact
+            key={f.key}
+            label={f.label}
+            note={f.note}
+            className={cn(
+              f.fullRow && 'sm:col-span-2',
+              !f.fullRow && !opensRow && 'sm:border-l sm:pl-7',
+            )}
+          >
+            {f.node}
+          </Fact>
+        );
+      })}
     </div>
   );
 }
@@ -158,6 +212,67 @@ function Detail({
     ? formatDate(primary.referenceValue.capturedDate, locale)
     : undefined;
 
+  // §21.8a — el basis que manda es el del MISMO grupo cuyo precio ocupa el bloque (hoy
+  // `listings[0]`, la publicación más barata, la del «desde»). Nunca se mezcla el precio de un
+  // grupo con el mercado de otro. Empate ⇒ el backend ya emitió "market"; el front no re-evalúa.
+  const showMarketValue = primary?.priceBasis === 'market';
+
+  const facts: FactSpec[] = primary
+    ? [
+        {
+          key: 'salePrice',
+          label: tcat('salePrice'),
+          note: primary.salePriceCents != null ? tc('withoutIva') : undefined,
+          // §21.8b-3: sin «Valor de mercado», la celda de venta ocupa la fila completa. La cifra
+          // CONSERVA su tamaño y su posición: nada crece para compensar (§21.8c).
+          fullRow: !showMarketValue,
+          node:
+            primary.salePriceCents != null ? (
+              <span className="tabular text-3xl font-medium leading-none text-text">
+                {formatMoneyCents(primary.salePriceCents, locale)}
+              </span>
+            ) : (
+              // Sin precio: «precio pendiente» honesto, jamás MX$0.00 (§7.3).
+              <PendingPriceLabel className="text-[13px] tracking-[0.06em]" />
+            ),
+        },
+        ...(showMarketValue
+          ? [
+              {
+                key: 'marketValue',
+                label: tcat('marketValue'),
+                note: captured,
+                node: (
+                  <span className="tabular text-3xl font-medium leading-none text-text">
+                    {primary.referenceValue.referenceMxnCents != null
+                      ? formatMoneyCents(primary.referenceValue.referenceMxnCents, locale)
+                      : '—'}
+                  </span>
+                ),
+              },
+            ]
+          : []),
+        {
+          key: 'condition',
+          label: t('condition'),
+          node:
+            primary.productType === 'graded' ? (
+              // Chip de grado (artboard Ficha): borde de tinta, mono «PSA 9».
+              <span className="inline-flex items-center border border-text px-2.5 py-1.5 font-mono text-[13px] leading-none tracking-[0.06em] text-text">
+                {`${primary.gradingCompany ?? ''} ${primary.gradeValue ?? ''}`.trim()}
+              </span>
+            ) : (
+              <span className="text-base text-text">{tcat('condition.nm.label')}</span>
+            ),
+        },
+        {
+          key: 'finish',
+          label: tFinish('label'),
+          node: <span className="text-base text-text">{tFinish(primary.finish)}</span>,
+        },
+      ]
+    : [];
+
   return (
     <div>
       <nav
@@ -191,46 +306,13 @@ function Detail({
 
           {primary && (
             <>
-              {/* Ficha en dos columnas: precio de venta «desde» contra valor de mercado. */}
-              <div className="mt-9 grid border-t border-border sm:grid-cols-2">
-                <Fact
-                  label={tcat('salePrice')}
-                  note={primary.salePriceCents != null ? tc('withoutIva') : undefined}
-                >
-                  {primary.salePriceCents != null ? (
-                    <span className="tabular text-3xl font-medium leading-none text-text">
-                      {formatMoneyCents(primary.salePriceCents, locale)}
-                    </span>
-                  ) : (
-                    // Sin precio: «precio pendiente» honesto, jamás MX$0.00 (§7.3).
-                    <PendingPriceLabel className="text-[13px] tracking-[0.06em]" />
-                  )}
-                </Fact>
-                <Fact
-                  label={tcat('marketValue')}
-                  note={captured}
-                  className="sm:border-l sm:pl-7"
-                >
-                  <span className="tabular text-3xl font-medium leading-none text-text">
-                    {primary.referenceValue.referenceMxnCents != null
-                      ? formatMoneyCents(primary.referenceValue.referenceMxnCents, locale)
-                      : '—'}
-                  </span>
-                </Fact>
-                <Fact label={t('condition')}>
-                  {primary.productType === 'graded' ? (
-                    // Chip de grado (artboard Ficha): borde de tinta, mono «PSA 9».
-                    <span className="inline-flex items-center border border-text px-2.5 py-1.5 font-mono text-[13px] leading-none tracking-[0.06em] text-text">
-                      {`${primary.gradingCompany ?? ''} ${primary.gradeValue ?? ''}`.trim()}
-                    </span>
-                  ) : (
-                    <span className="text-base text-text">{tcat('condition.nm.label')}</span>
-                  )}
-                </Fact>
-                <Fact label={tFinish('label')} className="sm:border-l sm:pl-7">
-                  <span className="text-base text-text">{tFinish(primary.finish)}</span>
-                </Fact>
-              </div>
+              {/* §21.8: la retícula se arma sobre la lista de hechos VISIBLES. El bloque «Valor de
+                  mercado» entra si y solo si `priceBasis === 'market'`; con floor/override/bounty/
+                  pending NO se renderiza (ni en cero, ni tachado, ni atenuado, ni «—»). La UI
+                  OBEDECE `priceBasis`: está PROHIBIDO inferirlo comparando `referenceValue` contra
+                  `salePriceCents` (el DTO sigue trayendo la referencia porque alimenta superficies
+                  de admin y de valuación — que viaje no autoriza a pintarla). */}
+              <FactGrid facts={facts} />
 
               {/* Gradeada: certificado verificable (§7.2c) del SLAB representativo — por pieza (units) */}
               {primary.productType === 'graded' && primaryUnit?.certNumber && (
@@ -241,7 +323,12 @@ function Detail({
             </>
           )}
 
-          <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">{t('referenceExplainer')}</p>
+          {/* §21.8d: la nota al pie cambia CON el bloque. La variante «sin mercado» no menciona el
+              valor de mercado ni insinúa que falte algo: no hay nada que explicar. La clave vieja
+              `card.referenceExplainer` describía además el modelo retirado («referencia + margen»). */}
+          <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">
+            {showMarketValue ? t('referenceExplainerWithMarket') : t('referenceExplainerNoMarket')}
+          </p>
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. */}
           <h2 className="mt-10 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>

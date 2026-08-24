@@ -5,11 +5,24 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { M2View } from './M2View';
 import * as api from '@/lib/api';
-import * as fx from '@/lib/mock/fixtures';
+import type { CurvePreviewLegDTO, CurvePreviewRowDTO } from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
 
 // El `Link` de next-intl (`@/i18n/navigation`) no resuelve bajo vitest; se stubea a un <a>
 // que preserva href/aria-label (enlace del bucket COMPRA al admin de buylist, M5).
+// M2 es un módulo `super_admin` (la página lo envuelve en SuperAdminOnly); el editor de la curva
+// además NO se renderiza para vault_operator (§21.1: la curva es dinero de los dos lados). El rol
+// es controlable por test.
+const roleState = vi.hoisted(() => ({ role: 'super_admin' }));
+vi.mock('@/lib/role', () => ({
+  useRole: () => ({
+    role: roleState.role,
+    setRole: () => {},
+    isSuperAdmin: roleState.role === 'super_admin',
+    canSwitchRole: true,
+  }),
+}));
+
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, ...rest }: { href: unknown; children: ReactNode }) => (
     <a href={typeof href === 'string' ? href : '#'} {...rest}>
@@ -96,7 +109,7 @@ describe('M2View · Catálogo y precios', () => {
     // Zapdos es context=inventory (fixture) → visible en VENTA (pestaña activa por defecto).
     expect((await screen.findAllByText('Zapdos')).length).toBeGreaterThan(0);
     // El bucket VENTA consulta SOLO context=inventory.
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('inventory'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('inventory', undefined));
     // Machamp es context=buylist → NO aparece en el bucket VENTA.
     expect(screen.queryByText('Machamp')).toBeNull();
   });
@@ -938,168 +951,372 @@ describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (R
 
 
 /**
- * P-34 (v1.37-pricing-tiers): editor de precios por TIER. SUPERSEDE el editor de ~30 reglas por
- * rareza. Sección 4 = 5 filas por tier (compra + venta); Sección 5 = asignador rareza → tier. Se
- * verifica: guardar tiers, invariante premium→% visible, asignar el mapa y el manejo de los 422
- * (PREMIUM_RARITY_FIXED_TIER con pares infractores y UNKNOWN_RARITY).
+ * v2.0 (P-48) · **Editor de la CURVA de precio por valor de mercado** (§21.1–§21.7). Sustituye a los
+ * cuatro editores retirados. Se verifica: la anatomía de la pantalla, que la columna derivada y el
+ * previsualizador salen del **dry-run del servidor** (nunca de una cuenta del cliente), el
+ * reordenamiento por mercado al `blur`, el punto nuevo NEUTRO por construcción, el borrado con
+ * deshacer, el guardado con diff y el `422` que no guarda nada.
  */
-describe('M2 · Editor de precios por TIER (P-34, v1.37)', () => {
-  async function sectionFor(name: RegExp) {
-    const heading = await screen.findByRole('heading', { name });
+describe('M2 · Editor de la curva de precio (P-48, v2.0)', () => {
+  const CURVE_RE = /Curva de precio/;
+
+  async function curveSection() {
+    const heading = await screen.findByRole('heading', { name: CURVE_RE, level: 2 });
     const section = heading.closest('section');
     if (!section) throw new Error('section not found');
     return within(section);
   }
-  const TIERS_RE = /Precios por tier/;
-  const MAP_RE = /Asignación de rarezas a tiers/;
 
-  it('renderiza las 5 filas de tiers T0–T4 con su nombre y el badge premium', async () => {
+  /**
+   * Respuesta del dry-run construida a mano: es el SERVIDOR quien calcula (ARCH §4.36.8a), así que
+   * el test fija las cifras y comprueba que la pantalla pinta EXACTAMENTE eso. No se replica aquí
+   * la matemática de §4.36.1 — hacerlo sería la duplicación que el endpoint existe para matar.
+   */
+  function leg(over: Partial<CurvePreviewLegDTO> = {}): CurvePreviewLegDTO {
+    return {
+      priceCents: 7000,
+      basis: 'market',
+      appliedBp: 14409,
+      rawCents: 6978,
+      constantCents: 2500,
+      constantWon: false,
+      baseCents: 6978,
+      roundingStepCents: 500,
+      segment: { fromIndex: 0, toIndex: 1 },
+      ...over,
+    };
+  }
+
+  function previewRow(
+    marketCents: number,
+    over: Partial<CurvePreviewRowDTO> = {},
+  ): CurvePreviewRowDTO {
+    return {
+      marketCents,
+      draft: { sale: leg(), buy: leg({ priceCents: 1734, roundingStepCents: null }) },
+      saved: { sale: leg(), buy: leg({ priceCents: 1734, roundingStepCents: null }) },
+      deltaCents: { sale: 0, buy: 0 },
+      ...over,
+    };
+  }
+
+  /** Espía del dry-run: responde SIEMPRE las sondas que se le piden. */
+  function mockPreview(rowFor: (m: number) => CurvePreviewRowDTO = previewRow) {
+    return vi.spyOn(api, 'previewPricingCurve').mockImplementation(async (req) => ({
+      rows: [...req.marketsCents].sort((a, b) => a - b).map(rowFor),
+      violations: [],
+    }));
+  }
+
+  it('§21.0: la pantalla vieja de tiers SE RETIRÓ, con su texto falso incluido', async () => {
+    mockPreview();
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(TIERS_RE);
-    for (const name of ['Bulk', 'Uncommon / Reverse', 'Rare / Holo', 'Premium / Chase', 'Ultra / Grail']) {
-      expect((await s.findAllByText(name)).length).toBeGreaterThan(0);
-    }
-    // T3/T4 son premium: al menos dos badges «Premium» dentro del editor de tiers.
-    expect(s.getAllByText('Premium').length).toBeGreaterThanOrEqual(2);
+    await screen.findByRole('heading', { name: CURVE_RE, level: 2 });
+
+    // Los cuatro editores retirados no dejan residuo…
+    expect(screen.queryByRole('heading', { name: /Precios por tier/ })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /Asignación de rarezas a tiers/ })).toBeNull();
+    expect(screen.queryByText(/Reglas de buylist/)).toBeNull();
+    expect(screen.queryByText(/Reglas de venta por rareza/)).toBeNull();
+    // …y con ellos se va la MENTIRA que causó P-48: el código nunca heredó la regla del tier.
+    expect(screen.queryByText(/hereda la del tier de su rareza/i)).toBeNull();
+    expect(screen.queryByPlaceholderText(/Hereda tier/i)).toBeNull();
+    // Tampoco quedan los modos excluyentes fijo/porcentaje.
+    expect(screen.queryByText('Fijo (MX$)')).toBeNull();
   });
 
-  it('guardar tras editar la COMPRA de T0 (fijo) envía updatePricingTiers con los centavos correctos', async () => {
-    const spy = vi.spyOn(api, 'updatePricingTiers').mockResolvedValue(fx.getMockTieredRuleSet());
+  it('§21.1/§21.3: anatomía — constantes con su ayuda de COMPORTAMIENTO, venta, redondeo y compra', async () => {
+    mockPreview();
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(TIERS_RE);
-    // Seed T0 buy = fixed 50¢ → el campo muestra "0.5" (pesos). 1 peso → 100 centavos.
-    const input = (await s.findByLabelText('Valor de compra de Bulk')) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '1' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+    const s = await curveSection();
 
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as { tiers: { id: string; buy: { mode: string; value: number } }[] };
-    expect(arg.tiers).toHaveLength(5);
-    const t0 = arg.tiers.find((x) => x.id === 'T0')!;
-    expect(t0.buy).toEqual({ mode: 'fixed', value: 100 });
-    expect(await screen.findByText('Reglas por tier guardadas.')).toBeInTheDocument();
+    // Las dos ayudas son el antídoto de P-48: describen qué HACE el número, no su rol abstracto.
+    expect(await s.findByText(/Ninguna carta se publica por debajo de este precio/)).toBeInTheDocument();
+    expect(s.getByText(/Nunca pagamos menos que esto/)).toBeInTheDocument();
+    // El guardarraíl se enuncia junto al dial que lo dispara.
+    expect(s.getByText(/rareza premium que aterrice en el piso no se publica/i)).toBeInTheDocument();
+    // Orden VENTA → REDONDEO → COMPRA (el redondeo anida en venta: la compra no se redondea).
+    expect(s.getByRole('group', { name: 'Venta' })).toBeInTheDocument();
+    expect(s.getByRole('group', { name: 'Compra' })).toBeInTheDocument();
+    expect(s.getByText(/La compra no se redondea/)).toBeInTheDocument();
+    // Semilla §N.2: dos puntos de venta y tres de compra.
+    expect(s.getAllByTestId('curve-point-sale')).toHaveLength(2);
+    expect(s.getAllByTestId('curve-point-buy')).toHaveLength(3);
+    // Unidades de PANTALLA: pesos, × y % — nunca centavos ni puntos base.
+    expect((s.getByLabelText('Multiplicador del punto 1') as HTMLInputElement).value).toBe('1.60');
+    expect((s.getByLabelText('Pago del punto 1') as HTMLInputElement).value).toBe('30');
+    expect(s.queryByDisplayValue('16000')).toBeNull();
   });
 
-  it('invariante visible: en un tier PREMIUM (T3) la COMPRA no ofrece el modo «fijo» (solo %)', async () => {
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(TIERS_RE);
-    const buyMode = (await s.findByLabelText('Modo de compra de Premium / Chase')) as HTMLSelectElement;
-    // El modo «fijo» está retirado (bin fijo regalaría cartas premium); solo queda «Porcentaje».
-    expect(within(buyMode).queryByRole('option', { name: 'Fijo (MX$)' })).toBeNull();
-    expect(within(buyMode).getAllByRole('option')).toHaveLength(1);
-    // La VENTA del mismo tier sí ofrece ambos modos (un fijo de venta es un piso, no un bin de compra).
-    const sellMode = (await s.findByLabelText('Modo de venta de Premium / Chase')) as HTMLSelectElement;
-    expect(within(sellMode).getAllByRole('option')).toHaveLength(2);
-  });
-
-  it('money-safe: vaciar el valor de compra de T0 DESHABILITA Guardar (no persiste MX$0)', async () => {
-    const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'updatePricingTiers');
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(TIERS_RE);
-    const input = (await s.findByLabelText('Valor de compra de Bulk')) as HTMLInputElement;
-    await user.clear(input);
-    expect(input).toHaveValue('');
-    const save = s.getByRole('button', { name: 'Guardar' });
-    expect(save).toBeDisabled();
-    expect(s.getByText(/vac[íi]o o inv[áa]lido/i)).toBeInTheDocument();
-    await user.click(save);
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('maneja el 422 PREMIUM_RARITY_FIXED_TIER de PUT /tiers mostrando los pares infractores', async () => {
-    vi.spyOn(api, 'updatePricingTiers').mockRejectedValue(
-      new ApiClientError(422, {
-        code: 'PREMIUM_RARITY_FIXED_TIER',
-        message: 'premium on fixed',
-        details: { offending: [{ rarity: 'Ultra Rare', tierId: 'T0' }] },
+  it('§21.2/§21.5: la columna derivada y la tabla de referencia salen del DRY-RUN, no de una cuenta local', async () => {
+    // El servidor dice 88.88; la pantalla tiene que decir 88.88 aunque no cuadre con ninguna
+    // fórmula que el cliente pudiera inventar. Esa es exactamente la propiedad que se quiere.
+    const spy = mockPreview((m) =>
+      previewRow(m, {
+        draft: { sale: leg({ priceCents: 8888 }), buy: leg({ priceCents: 1234 }) },
+        saved: { sale: leg({ priceCents: 7000 }), buy: leg({ priceCents: 1100 }) },
+        deltaCents: { sale: 1888, buy: 134 },
       }),
     );
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(TIERS_RE);
-    // Editar la VENTA de T0 (permitido) para ensuciar el borrador y poder guardar.
-    fireEvent.change(await s.findByLabelText('Valor de venta de Bulk'), { target: { value: '9' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+    const s = await curveSection();
+
+    await waitFor(() => expect(spy).toHaveBeenCalled(), { timeout: 3000 });
+    // El request lleva SOLO el borrador + sondas: la curva vigente la resuelve el servidor.
+    const req = spy.mock.calls[0][0];
+    expect(Object.keys(req).sort()).toEqual(['draft', 'marketsCents']);
+    expect(req.marketsCents.length).toBeGreaterThan(0);
+    expect(req.marketsCents.length).toBeLessThanOrEqual(50);
+    // Los diez mercados de la prueba de mesa (§4.36.1) viajan como sondas.
+    for (const m of [114, 1000, 2500, 5000, 8000, 8600, 8700, 10000, 30000, 50000]) {
+      expect(req.marketsCents).toContain(m);
+    }
+
+    expect((await s.findAllByText('MX$88.88')).length).toBeGreaterThan(0);
+    expect(s.getAllByTestId('curve-reference-row').length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('§21.5a: la probeta pinta VIGENTE contra BORRADOR con la memoria de cálculo del servidor', async () => {
+    mockPreview((m) =>
+      previewRow(m, {
+        draft: {
+          sale: leg({ priceCents: 7500, appliedBp: 14409, rawCents: 6978, roundingStepCents: 500 }),
+          buy: leg({ priceCents: 1734, appliedBp: 3467, rawCents: 1734, roundingStepCents: null }),
+        },
+        saved: { sale: leg({ priceCents: 7000 }), buy: leg({ priceCents: 1667 }) },
+        deltaCents: { sale: 500, buy: 67 },
+      }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    expect(await s.findByText('Probar un mercado')).toBeInTheDocument();
+    // Memoria de cálculo: multiplicador aplicado, producto ANTES de redondear y paso usado. Las
+    // cifras son las que devolvió el servidor (`rawCents`), no una multiplicación del cliente.
+    expect(
+      await s.findByText(/50\.00 × 1\.44× = 69\.78 → ↑ MX\$75\.00 \(paso MX\$5\.00\)/),
+    ).toBeInTheDocument();
+    expect(s.getByText(/Compra: 50\.00 × 34\.67% = 17\.34/)).toBeInTheDocument();
+  });
+
+  it('§21.5: sin dry-run disponible el previsualizador NO inventa cifras: muestra su error', async () => {
+    vi.spyOn(api, 'previewPricingCurve').mockRejectedValue(
+      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+    expect(await s.findByText(/No se puede previsualizar ahora/)).toBeInTheDocument();
+    expect(
+      s.getByText(/necesita el cálculo del servidor: no se muestran cifras estimadas/),
+    ).toBeInTheDocument();
+  });
+
+  it('§21.2a: mover un punto = cambiar su mercado; la tabla reordena AL BLUR y lo anuncia', async () => {
+    mockPreview();
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    const first = (await s.findByLabelText('Mercado del punto 1 de venta')) as HTMLInputElement;
+    expect(first.value).toBe('25.00');
+    // Mientras se teclea NO se reordena (una fila que salta de sitio a media escritura es el gesto
+    // que produce un error que nadie recuerda haber hecho).
+    fireEvent.change(first, { target: { value: '900' } });
+    expect((s.getByLabelText('Mercado del punto 1 de venta') as HTMLInputElement).value).toBe('900');
+    // Al salir del campo, sí: el orden se DERIVA del mercado.
+    fireEvent.blur(first);
+    await waitFor(() =>
+      expect((s.getByLabelText('Mercado del punto 2 de venta') as HTMLInputElement).value).toBe('900'),
+    );
+    expect(screen.getByText(/quedó en la posición 2 de 2/)).toBeInTheDocument();
+    // No hay asas de arrastre: el orden no es un dato que el dueño edite.
+    expect(s.queryByRole('button', { name: /arrastr/i })).toBeNull();
+  });
+
+  it('§21.2b: el punto nuevo se prerrellena con la interpolación VIGENTE del servidor (neutro)', async () => {
+    // El dry-run responde `appliedBp = 13000` en ese mercado ⇒ la fila nueva queda en 1.30×.
+    mockPreview((m) =>
+      previewRow(m, {
+        draft: { sale: leg({ appliedBp: 13000 }), buy: leg({ appliedBp: 3500 }) },
+        saved: { sale: leg(), buy: leg() },
+        deltaCents: { sale: 0, buy: 0 },
+      }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    await s.findByLabelText('Mercado del punto 1 de venta');
+    fireEvent.click(s.getAllByRole('button', { name: '+ Agregar punto' })[0]);
+    // La fila nueva nace AL FINAL, en edición y con el foco en Mercado.
+    const market = (await s.findByLabelText('Mercado del punto 3 de venta')) as HTMLInputElement;
+    fireEvent.change(market, { target: { value: '60' } });
+    fireEvent.blur(market);
+
+    // Al confirmar el mercado, la fila se ordena en su sitio (60 entre 25 y 80) y su valor se
+    // rellena con la interpolación que devolvió el SERVIDOR para la curva actual.
+    await waitFor(
+      () => expect((s.getByLabelText('Mercado del punto 2 de venta') as HTMLInputElement).value).toBe('60'),
+      { timeout: 3000 },
+    );
+    await waitFor(
+      () => expect((s.getByLabelText('Multiplicador del punto 2') as HTMLInputElement).value).toBe('1.30'),
+      { timeout: 3000 },
+    );
+    expect(
+      s.getByText('Se colocó sobre la curva actual: todavía no cambia ningún precio.'),
+    ).toBeInTheDocument();
+  });
+
+  it('§21.2c: borrar es inmediato y REVERSIBLE dentro del borrador (nada toca dinero hasta guardar)', async () => {
+    mockPreview();
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    expect((await s.findAllByTestId('curve-point-sale')).length).toBe(2);
+    fireEvent.click(s.getByRole('button', { name: 'Quitar el punto de venta de MX$25.00' }));
+    expect(s.getAllByTestId('curve-point-sale')).toHaveLength(1);
+    expect(s.getByText(/Punto de MX\$25\.00 eliminado/)).toBeInTheDocument();
+    // Con un solo punto, Quitar queda deshabilitado con el motivo anunciado (V1 hecho control).
+    expect(s.getByRole('button', { name: /Quitar el punto de venta/ })).toBeDisabled();
+    expect(s.getByRole('button', { name: /Quitar el punto de venta/ })).toHaveAttribute(
+      'title',
+      'Una curva necesita al menos un punto.',
+    );
+
+    fireEvent.click(s.getAllByRole('button', { name: 'Deshacer' })[0]);
+    await waitFor(() => expect(s.getAllByTestId('curve-point-sale')).toHaveLength(2));
+  });
+
+  it('§21.4a: al TECLEAR no hay error; al BLUR sí, y solo lo que un control afirma de sí mismo', async () => {
+    mockPreview();
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    const mult = (await s.findByLabelText('Multiplicador del punto 1')) as HTMLInputElement;
+    fireEvent.change(mult, { target: { value: '0.9' } });
+    // Mientras se teclea: nada. Sin rojo, sin sacudidas.
+    expect(s.queryByText(/nunca puede bajar de 1\.00×/)).toBeNull();
+    fireEvent.blur(mult);
+    expect(await s.findByText(/nunca puede bajar de 1\.00×/)).toBeInTheDocument();
+    expect(mult).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('§21.6: guardar abre el diff y hace PUT con el objeto COMPLETO (pesos → centavos, × → bp)', async () => {
+    mockPreview();
+    const put = vi.spyOn(api, 'updatePricingCurve').mockImplementation(async (c) => c);
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    const mult = (await s.findByLabelText('Multiplicador del punto 2')) as HTMLInputElement;
+    fireEvent.change(mult, { target: { value: '1.25' } });
+    fireEvent.blur(mult);
+    expect(await s.findByText('1 cambio sin guardar')).toBeInTheDocument();
+
+    fireEvent.click(s.getByRole('button', { name: 'Guardar curva' }));
+    // El diálogo se abre SIEMPRE: el PUT reemplaza toda la curva y repricia el catálogo entero.
+    const dialog = await screen.findByRole('dialog', { name: /Guardar la curva de precio/ });
+    expect(within(dialog).getByText(/Venta · punto MX\$80\.00 · 1\.15× → 1\.25×/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Solo súper-admin · queda en bitácora/)).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar curva' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const body = put.mock.calls[0][0];
+    expect(body.sale.points).toEqual([
+      { marketCents: 2500, multiplierBp: 16000 },
+      { marketCents: 8000, multiplierBp: 12500 },
+    ]);
+    expect(body.sale.floorCents).toBe(2500);
+    expect(body.buy.binCents).toBe(100);
+    expect(await screen.findByText('Curva de precio guardada.')).toBeInTheDocument();
+  });
+
+  it('§21.4b: un 422 no guarda NADA — resumen anclado con foco, salto al punto y fila marcada', async () => {
+    mockPreview();
+    vi.spyOn(api, 'updatePricingCurve').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'SALE_CURVE_NOT_MONOTONIC',
+        message: 'not monotonic',
+        details: { axis: 'sale', index: 0, marketCents: 2500, toIndex: 1, toMarketCents: 8000 },
+      }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    const mult = (await s.findByLabelText('Multiplicador del punto 2')) as HTMLInputElement;
+    fireEvent.change(mult, { target: { value: '1.05' } });
+    fireEvent.blur(mult);
+    fireEvent.click(s.getByRole('button', { name: 'Guardar curva' }));
+    const dialog = await screen.findByRole('dialog', { name: /Guardar la curva de precio/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar curva' }));
+
+    // Título FIJO, sin ambigüedad, y el resumen recibe el foco.
+    const alert = await s.findByRole('alert');
+    expect(within(alert).getByText('No se guardó nada.')).toBeInTheDocument();
+    expect(
+      within(alert).getByText(/Entre MX\$25\.00 y MX\$80\.00 el precio de venta baja/),
+    ).toBeInTheDocument();
+    // Botón de salto al punto culpable (los DOS extremos del tramo).
+    expect(within(alert).getByRole('button', { name: 'Ir al punto de MX$25.00' })).toBeInTheDocument();
+    expect(within(alert).getByRole('button', { name: 'Ir al punto de MX$80.00' })).toBeInTheDocument();
+    // La barra dice que no se guardó; la curva vigente sigue viva.
+    expect(s.getByText('No se guardó')).toBeInTheDocument();
+  });
+
+  it('§21.4: el editor NO se adelanta al 422 — una curva cruzada sigue siendo GUARDABLE en cliente', async () => {
+    mockPreview();
+    const put = vi.spyOn(api, 'updatePricingCurve').mockImplementation(async (c) => c);
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    // Pago de compra por encima del multiplicador de venta: el invariante cruzado lo decide el
+    // SERVIDOR. Si el cliente inventara el rechazo, el dueño dejaría de confiar en la pantalla.
+    const pay = (await s.findByLabelText('Pago del punto 1')) as HTMLInputElement;
+    fireEvent.change(pay, { target: { value: '99' } });
+    fireEvent.blur(pay);
+    fireEvent.click(s.getByRole('button', { name: 'Guardar curva' }));
+    const dialog = await screen.findByRole('dialog', { name: /Guardar la curva de precio/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar curva' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+  });
+});
+
+/**
+ * §21.7b — «Salud del catálogo de rarezas»: solo lectura, respalda el guardarraíl y hospeda
+ * «Unificar rarezas» (que dejó de colgar de un editor de precios).
+ */
+describe('M2 · Salud del catálogo de rarezas (P-48, §21.7b)', () => {
+  it('lista rarezas con su marca premium y el conteo de cartas, sin columna de regla ni de tier', async () => {
+    vi.spyOn(api, 'previewPricingCurve').mockResolvedValue({ rows: [], violations: [] });
+    renderWithProviders(<M2View />, 'es');
+    const heading = await screen.findByRole('heading', { name: /Salud del catálogo de rarezas/ });
+    const s = within(heading.closest('section')!);
 
     expect(
-      await s.findByText(/rareza premium en tier de compra fija/i),
+      s.getByText(/Las rarezas ya no fijan precios/),
     ).toBeInTheDocument();
-    expect(s.getByText('Ultra Rare')).toBeInTheDocument();
-    expect(s.getByText(/Ultra Rare/).textContent).toContain('Ultra Rare');
-  });
-
-  // ---- Asignador rareza → tier (mapa compartido compra/venta) ----
-  it('renderiza el asignador con las rarezas del catálogo y un dropdown de tier por fila', async () => {
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(MAP_RE);
     expect((await s.findAllByText('Common')).length).toBeGreaterThan(0);
-    // El dropdown de Common existe y arranca en su tier del seed (T0).
-    const sel = (await s.findByLabelText('Tier para Common')) as HTMLSelectElement;
-    expect(sel.value).toBe('T0');
+    expect(s.getByRole('columnheader', { name: 'Cartas' })).toBeInTheDocument();
+    expect(s.queryByRole('columnheader', { name: 'Tier' })).toBeNull();
+    expect(s.queryByRole('columnheader', { name: /Regla/ })).toBeNull();
   });
 
-  it('asignar Common → T2 y guardar envía updatePricingTierMap con el patch parcial', async () => {
-    const spy = vi.spyOn(api, 'updatePricingTierMap').mockResolvedValue(fx.getMockTierMap());
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(MAP_RE);
-    fireEvent.change(await s.findByLabelText('Tier para Common'), { target: { value: 'T2' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy).toHaveBeenCalledWith({ assignments: { Common: 'T2' } });
-    expect(await screen.findByText('Mapa de rarezas guardado.')).toBeInTheDocument();
-  });
-
-  it('maneja el 422 PREMIUM_RARITY_FIXED_TIER de PUT /tier-map listando los pares infractores', async () => {
-    vi.spyOn(api, 'updatePricingTierMap').mockRejectedValue(
-      new ApiClientError(422, {
-        code: 'PREMIUM_RARITY_FIXED_TIER',
-        message: 'premium on fixed',
-        details: { offending: [{ rarity: 'Ultra Rare', tierId: 'T1' }] },
-      }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(MAP_RE);
-    fireEvent.change(await s.findByLabelText('Tier para Common'), { target: { value: 'T2' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    expect(await s.findByText(/rareza premium en tier de compra fija/i)).toBeInTheDocument();
-    // El par infractor Ultra Rare → T1 se lista para que el dueño lo corrija.
-    const items = s.getAllByText('Ultra Rare');
-    expect(items.length).toBeGreaterThan(0);
-  });
-
-  it('maneja el 422 UNKNOWN_RARITY de PUT /tier-map con un mensaje claro', async () => {
-    vi.spyOn(api, 'updatePricingTierMap').mockRejectedValue(
-      new ApiClientError(422, { code: 'UNKNOWN_RARITY', message: 'unknown' }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(MAP_RE);
-    fireEvent.change(await s.findByLabelText('Tier para Common'), { target: { value: 'T2' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    expect(await s.findByText(/Rareza desconocida/i)).toBeInTheDocument();
-  });
-
-  it('money-safe: una rareza sin tier se muestra como fallback (pendiente), nunca a MX$0', async () => {
-    vi.spyOn(api, 'getPricingTierMap').mockResolvedValue({
-      tiers: [
-        { id: 'T0', name: 'Bulk', premium: false },
-        { id: 'T1', name: 'Uncommon / Reverse', premium: false },
-        { id: 'T2', name: 'Rare / Holo', premium: false },
-        { id: 'T3', name: 'Premium / Chase', premium: true },
-        { id: 'T4', name: 'Ultra / Grail', premium: true },
-      ],
-      rarities: [
-        { canonical: 'Galaxy Foil', premium: false, mapped: true, cardCount: 3, tierId: null, source: 'fallback' },
-      ],
+  it('«Unificar rarezas» conserva su acción y dice AHORA sus dos consecuencias', async () => {
+    vi.spyOn(api, 'previewPricingCurve').mockResolvedValue({ rows: [], violations: [] });
+    const spy = vi.spyOn(api, 'unifyRarities').mockResolvedValue({
+      ok: true,
+      cardsProcessed: 10,
+      cardsUpdated: 3,
+      distinctCanonical: 7,
+      unmapped: [],
     });
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(MAP_RE);
-    expect(await s.findByText('Galaxy Foil')).toBeInTheDocument();
-    // Sin tier asignado → origen fallback (pendiente) y dropdown vacío (no inventa un tier).
-    expect(s.getByText('Fallback (pendiente)')).toBeInTheDocument();
-    const sel = (await s.findByLabelText('Tier para Galaxy Foil')) as HTMLSelectElement;
-    expect(sel.value).toBe('');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Unificar rarezas/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Unificar rarezas del catálogo/ });
+    // El microcopy se corrige: «no cambia precios» ya no lo cuenta todo.
+    expect(
+      within(dialog).getByText(/puede cambiar qué cartas quedan retenidas por el guardarraíl/),
+    ).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unificar rarezas' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
   });
 });

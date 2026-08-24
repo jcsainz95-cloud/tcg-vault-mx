@@ -30,6 +30,7 @@ function listingsOf(group: SealedGroupDTO, ids: string[]): ListingDTO[] {
     sealedCondition: group.sealedCondition,
     finish: 'normal',
     referenceValue: group.referenceValue,
+    priceBasis: group.priceBasis,
     salePriceCents: group.fromPriceCents + i * 500,
     sellable: true,
   }));
@@ -108,5 +109,34 @@ describe('SealedDetailView · sin stock', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Agregar 1 al carrito' }));
     expect(window.localStorage.getItem('tcg.cart')).toBeNull();
+  });
+});
+
+/**
+ * §21.8 — el mismo mecanismo que la ficha de carta, con DOS hechos. El sellado no cambia de
+ * matemática (conserva su spread por presentación, §K): solo obedece el `priceBasis` que el backend
+ * DERIVA de `priceSource`.
+ */
+describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', () => {
+  it('precio derivado por SPREAD (priceBasis="market"): se muestran los dos hechos', async () => {
+    mockDetail({ group: BOX_MINT });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+
+    expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
+    expect(screen.getByText('MX$3,050.00')).toBeInTheDocument();
+  });
+
+  it('precio por OVERRIDE manual (priceBasis="override"): queda UNA sola celda a fila completa', async () => {
+    mockDetail({ group: BOX_MINOR });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1020" />, 'es');
+
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    // No queda hueco: la celda del dinero ocupa la fila completa.
+    const cells = Array.from(
+      document.querySelectorAll('div.border-b.border-border.py-6'),
+    ) as HTMLElement[];
+    expect(cells).toHaveLength(1);
+    expect(cells[0].className).toContain('sm:col-span-2');
   });
 });

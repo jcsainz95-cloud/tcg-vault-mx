@@ -166,6 +166,7 @@ export function PricingCurveSection() {
     () => new Set(violation ? violationMarkets(violation) : []),
     [violation],
   );
+  const shapeWarning = useMemo(() => shapeLooksInverted(saveCurve), [saveCurve]);
   const offendingKeys = useCallback(
     (rows: PointRow[], axis: CurveAxis) => {
       const set = new Set<string>();
@@ -404,7 +405,6 @@ export function PricingCurveSection() {
   const buyOffending = offendingKeys(draft?.buy ?? [], 'buy');
   const previewRows = preview.data?.rows ?? [];
   const probeRow = probeCents != null ? preview.byMarket.get(probeCents) : undefined;
-  const shapeWarning = useMemo(() => shapeLooksInverted(saveCurve), [saveCurve]);
 
   const statusLabel = violation
     ? t('save.notSaved')
