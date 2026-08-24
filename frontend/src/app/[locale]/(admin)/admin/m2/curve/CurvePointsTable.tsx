@@ -143,15 +143,14 @@ export function CurvePointsTable({
                       : 'border-l-2 border-transparent',
                 )}
               >
+                {/* Gutter de posición: explica los tramos PLANOS de los extremos, que es la
+                    primera pregunta que hace la tabla («¿por qué una carta de MX$1 usa el 1.60×?»).
+                    Con un solo punto la curva es plana a los DOS lados: se dicen los dos. */}
                 <td className="py-3 pr-2">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-                    {row.isNew
-                      ? t('point.new')
-                      : index === 0
-                        ? t('point.flatBefore')
-                        : index === rows.length - 1
-                          ? t('point.flatAfter')
-                          : ''}
+                  <span className="flex flex-col font-mono text-[10px] uppercase leading-tight tracking-[0.06em] text-muted">
+                    {row.isNew && <span>{t('point.new')}</span>}
+                    {index === 0 && <span>{t('point.flatBefore')}</span>}
+                    {index === rows.length - 1 && <span>{t('point.flatAfter')}</span>}
                   </span>
                 </td>
                 <td className="py-3 pr-3">
@@ -183,7 +182,14 @@ export function CurvePointsTable({
                       ? t('point.multiplierAria', { n: index + 1 })
                       : t('point.payAria', { n: index + 1 })}
                   </label>
-                  <span className="flex items-baseline gap-1.5 border-b border-border-strong pb-1 focus-within:shadow-focus">
+                  {/* §21.2d: el diff EN EL SITIO del cambio — regla izquierda de 2px + «Antes: …».
+                      Sin tachados y sin rellenos de color. */}
+                  <span
+                    className={cn(
+                      'flex items-baseline gap-1.5 border-b border-border-strong pb-1 focus-within:shadow-focus',
+                      changed && 'border-l-2 border-l-accent pl-1.5',
+                    )}
+                  >
                     <input
                       id={`${row.key}-value`}
                       className="tabular-nums w-16 bg-transparent font-mono text-[13px] text-text outline-none"
