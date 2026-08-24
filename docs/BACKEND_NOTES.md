@@ -4,6 +4,39 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.1 P47-2 (§4.27f-2, v1.46): el override MANUAL es tier superior ABSOLUTO y durable cross-day en `isBetterRef` (2026-08-24)
+
+> Rama `fix/variant-composition-regression`. Cierra el hallazgo ALTA **P47-2** (dictamen del arquitecto,
+> contrato **v1.46 §4.27f-2**). **Money-critical. Sin migración, sin cambio de schema ni de forma de contrato.**
+> Es un fix de **precedencia de LECTURA**: no re-resuelve ni re-escribe nada — la siguiente lectura de las
+> mismas filas elige la correcta. No toqué el provider TCGCSV singles de P47-1 (cerrado, commit 03f0e02).
+
+**El bug:** en `isBetterRef(a, b)` (`pricing.service.ts`) `capturedDate` se comparaba **antes** que el tier
+manual/no-manual. Efecto: un override manual solo ganaba **el mismo día**; al día siguiente una fila automática
+`tcgcsv_singles` de HOY superseemplazaba el override manual de ayer → la decisión humana se perdía sin que el
+admin la tocara (money-losing).
+
+**El fix (una función, `isBetterRef`):** se **iza** la comparación `manual/no-manual` **por encima** de
+`capturedDate`. El override manual (`isManualOverride === true` **o** `source === 'manual'`) es ahora **tier
+superior ABSOLUTO y durable cross-day**: gana SIEMPRE sobre una automática, sin mirar la fecha. El resto del
+desempate queda **intacto DENTRO del tier**, en este orden: (2) `capturedDate` más fresca; (3) `sourceRank`
+(precedencia de fuente, mismo día); (4) `cardProductId` NULLS LAST (variante resuelta gana); (5) cuid lexicográfico
+(estabilidad). **Importante:** NO se izó `sourceRank` por encima de `capturedDate` — hacerlo dejaría que una
+`tcgcsv_singles` **stale** le ganara a un residuo **fresco** (money-losing distinto). Comentario/doc del método
+actualizado a «tier manual absoluto, durable cross-day».
+
+**Alcance de consumo:** `isBetterRef`/`pickBestRef` alimentan `getReference`, `getReferenceByCardProduct`,
+`getReferencesBatch`, `getSeparateProductsByCard` (pricing) y `computeSetValue` (catalog). Todos heredan la nueva
+precedencia sin cambios propios.
+
+**Tests (money-safe):** nuevo `backend/test/pricing.isbetterref-manual-tier.spec.ts` — (a) override manual VIEJO
+gana sobre `tcgcsv_singles` de HOY; (b) dos automáticas de distinta fecha → gana la más fresca; (c) override
+manual nuevo supersede al viejo; + guard money-safe (una `tcgcsv_singles` stale NO le gana a un residuo fresco) y
+desempate por fuente a igual día. Suite pricing completa: **17 suites / 141 tests verdes**; suites consumidoras
+(`set-value`, `inventory.sealed-aportacion`, `price-ingest`, `sealed-price`): **8 suites / 132 verdes**. Ningún
+test existente codificaba el bug viejo (el de determinismo M-31 que compara «fecha domina» usa dos filas
+automáticas, sigue válido).
+
 ## 0.2 P-47 (§4.35, v1.44): el barrido diario reprecia por-acabado desde TCGCSV `tcgcsv_singles` (2026-08-23)
 
 > Rama `fix/variant-composition-regression`. Continúa el fix P-47 de 0.3: tras cerrar el aplanamiento de PPT,

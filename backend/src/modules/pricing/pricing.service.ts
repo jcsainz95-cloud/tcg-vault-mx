@@ -111,20 +111,32 @@ function sourceRank(source: string, isManualOverride: boolean): number {
 
 /**
  * ¿`a` es MEJOR referencia que `b`? Precedencia TOTALMENTE DETERMINISTA (money-safe, M-31 MAYOR-3):
- *   1. `capturedDate` más reciente.
- *   2. A igual día, mejor precedencia de FUENTE (override > tcgcsv_singles > … , `sourceRank`).
- *   3. A igual día y fuente, la fila de la VARIANTE RESUELTA (`cardProductId` no nulo, escrita por el
- *      resolver de singles) gana sobre la genérica `cardProductId=null` del price-ingest (NULLS LAST).
- *   4. Último criterio: orden lexicográfico del `cardProductId` (cuid), para que la elección sea
+ *   1. §4.27f-2 (P47-2): el override MANUAL es TIER SUPERIOR ABSOLUTO y DURABLE cross-day. Una fila
+ *      manual gana SIEMPRE sobre una automática, sin mirar `capturedDate` — no solo el mismo día. Es
+ *      una decisión humana explícita que persiste hasta que el admin la cambie; nunca la supersede una
+ *      referencia automática por ser «más fresca».
+ *   2. DENTRO del mismo tier (ambas manuales o ambas automáticas): `capturedDate` más reciente gana.
+ *   3. A igual tier y día, mejor precedencia de FUENTE (`sourceRank`): entre manuales rank 0; entre
+ *      automáticas tcgcsv_singles > tcgcsv > PPT/PokeTrace > pokemontcg.io. NO se iza `sourceRank`
+ *      por encima de `capturedDate` dentro del tier: una `tcgcsv_singles` STALE no debe ganarle a un
+ *      residuo fresco (sería money-losing).
+ *   4. A igual tier, día y fuente, la fila de la VARIANTE RESUELTA (`cardProductId` no nulo, escrita
+ *      por el resolver de singles) gana sobre la genérica `cardProductId=null` del ingest (NULLS LAST).
+ *   5. Último criterio: orden lexicográfico del `cardProductId` (cuid), para que la elección sea
  *      ESTABLE y REPRODUCIBLE ante un import forzado (`sync {force:true}`), no «cualquiera de las dos».
  */
 export function isBetterRef(a: RefRow, b: RefRow): boolean {
+  // §4.27f-2 (P47-2): tier manual ABSOLUTO y durable cross-day. Se compara ANTES que `capturedDate`
+  // para que un override manual gane aunque su fila sea de días atrás frente a una automática de hoy.
+  const am = a.isManualOverride || a.source === 'manual';
+  const bm = b.isManualOverride || b.source === 'manual';
+  if (am !== bm) return am;
   const at = a.capturedDate.getTime();
   const bt = b.capturedDate.getTime();
-  if (at !== bt) return at > bt;
+  if (at !== bt) return at > bt; // dentro del mismo tier: gana la más fresca.
   const ar = sourceRank(a.source, a.isManualOverride);
   const br = sourceRank(b.source, b.isManualOverride);
-  if (ar !== br) return ar < br;
+  if (ar !== br) return ar < br; // mismo día: precedencia de fuente (determinismo).
   const acp = a.cardProductId;
   const bcp = b.cardProductId;
   if ((acp == null) !== (bcp == null)) return acp != null; // NULLS LAST: la variante resuelta gana.
