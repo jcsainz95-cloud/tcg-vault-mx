@@ -106,16 +106,24 @@ describe('PricingService.getReference — desempate determinista money-safe (M-3
     expect(info.referenceMxnCents).toBe(1000); // la de HOY, aunque sea la genérica null.
   });
 
-  it('la lectura es acotada y determinista: orderBy con NULLS LAST + take', async () => {
+  it('la lectura del tier automático es acotada y determinista: orderBy con NULLS LAST + take', async () => {
+    // §4.27f-2 (P47-2, v1.46): getReference hace DOS lecturas — el bloque reciente CAPADO (tier
+    // automático) y la lectura DIRIGIDA de manuales SIN cota (candidata perenne). La capada mantiene el
+    // orderBy NULLS LAST + take; la manual NO lleva take (durabilidad cross-day del override humano).
     const { svc, findManyArgs } = build([row({ cardProductId: 'cp', priceMxnCents: 1500 })]);
     await svc.getReference('c1', 'raw', 'raw:NM', 'normal');
-    expect(findManyArgs).toHaveLength(1);
-    expect(findManyArgs[0].orderBy).toEqual([
+    expect(findManyArgs).toHaveLength(2);
+    const capped = findManyArgs.find((a) => a.take != null);
+    const manual = findManyArgs.find((a) => a.take == null);
+    expect(capped).toBeDefined();
+    expect(capped.orderBy).toEqual([
       { capturedDate: 'desc' },
       { cardProductId: { sort: 'asc', nulls: 'last' } },
     ]);
-    expect(typeof findManyArgs[0].take).toBe('number');
-    expect(findManyArgs[0].take).toBeGreaterThan(0);
+    expect(capped.take).toBeGreaterThan(0);
+    // La lectura manual: sin `take`, y filtra por el predicado de override manual.
+    expect(manual).toBeDefined();
+    expect(JSON.stringify(manual.where)).toContain('isManualOverride');
   });
 
   it('sin filas ⇒ pending (invariante: nunca 0, nunca referencia inventada)', async () => {

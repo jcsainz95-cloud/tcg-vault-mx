@@ -72,13 +72,34 @@ const PRICE_REF_SELECT = {
 } as const;
 
 /**
- * Cota de candidatas a leer para el desempate por-clave (M-31, MAYOR-3). Por
+ * Cota de candidatas AUTOMÁTICAS a leer para el desempate por-clave (M-31, MAYOR-3). Por
  * `(cardId, productType, gradeKey, finish, capturedDate)` dentro de `BASE_CARD_REF_WHERE` las filas
  * solo difieren en `cardProductId` (null | set_base | other): un puñado por día. Bajo
- * `orderBy capturedDate desc`, TODAS las filas del día más reciente (las únicas que pueden ganar)
- * caen en el bloque inicial; 32 es una cota holgadísima que las cubre sin traer el histórico entero.
+ * `orderBy capturedDate desc`, las filas de los días más recientes (las únicas del TIER AUTOMÁTICO
+ * que pueden ganar) caen en el bloque inicial; 32 es una cota holgadísima que las cubre sin traer el
+ * histórico entero.
+ *
+ * §4.27f-2 (P47-2, v1.46): esta cota YA NO gobierna al override MANUAL. Bajo el dictamen de durabilidad
+ * cross-day, el override manual es TIER SUPERIOR ABSOLUTO y CANDIDATA PERENNE: gana aunque su
+ * `capturedDate` sea de meses atrás frente a una automática de hoy. Por eso NO puede quedar sujeto a
+ * `take`/recencia — tras ~32 barridos diarios automáticos caería fuera de la ventana y el feed volvería
+ * a pisar el precio humano en silencio (regresión money-losing). La lectura de referencia (getReference /
+ * getReferenceByCardProduct) SIEMPRE une a las candidatas del bloque reciente TODAS las filas manuales de
+ * la clave (`MANUAL_REF_PREDICATE`, sin cota de fecha), de modo que `pickBestRef` nunca deja de verlas.
+ * El cap sigue acotando SOLO el tier automático.
  */
 const SAME_DAY_REF_CANDIDATES = 32;
+
+/**
+ * §4.27f-2 (P47-2, v1.46) — predicado de override MANUAL de MERCADO: `isManualOverride=true` O
+ * `source='manual'` (`manualOverride()` escribe ambos juntos; se casan los dos por robustez). Es la
+ * candidata PERENNE de la resolución de referencia: se lee SIN cota de fecha ni `take` y se une a las
+ * candidatas recientes, garantizando la durabilidad cross-day del control humano de precio. Se combina
+ * con otros filtros vía `AND` para no colisionar con el `OR` de `BASE_CARD_REF_WHERE`.
+ */
+export const MANUAL_REF_PREDICATE: Prisma.PriceReferenceWhereInput = {
+  OR: [{ isManualOverride: true }, { source: 'manual' }],
+};
 
 export type RefRow = {
   priceMxnCents: number;
@@ -304,13 +325,23 @@ export class PricingService {
     // (p. ej. un `sync {force:true}`). `capturedDate desc` a secas es NO determinista para ese empate,
     // así que NO se toma «la primera del orden»: se leen las candidatas del día y se elige la mejor con
     // `isBetterRef` (fuente → cardProductId NULLS LAST → cuid), estable y reproducible.
-    const rows = await this.prisma.priceReference.findMany({
-      where: { cardId, productType, gradeKey, finish, ...BASE_CARD_REF_WHERE },
-      orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
-      select: PRICE_REF_SELECT,
-      take: SAME_DAY_REF_CANDIDATES,
-    });
-    const ref = pickBestRef(rows);
+    // §4.27f-2 (P47-2, v1.46): el bloque reciente va CAPADO (`take`) al tier automático, pero el override
+    // MANUAL es candidata PERENNE (durable cross-day). Se une una lectura DIRIGIDA de TODAS las filas
+    // manuales de la clave SIN cota de fecha ni `take`, de modo que un override humano de meses atrás
+    // nunca cae fuera de la ventana ni lo pisa el barrido diario. `pickBestRef` desempata el conjunto.
+    const [dayRows, manualRows] = await Promise.all([
+      this.prisma.priceReference.findMany({
+        where: { cardId, productType, gradeKey, finish, ...BASE_CARD_REF_WHERE },
+        orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
+        select: PRICE_REF_SELECT,
+        take: SAME_DAY_REF_CANDIDATES,
+      }),
+      this.prisma.priceReference.findMany({
+        where: { cardId, productType, gradeKey, finish, AND: [BASE_CARD_REF_WHERE, MANUAL_REF_PREDICATE] },
+        select: PRICE_REF_SELECT,
+      }),
+    ]);
+    const ref = pickBestRef([...dayRows, ...manualRows]);
     if (!ref) return { status: 'pending' };
     const fx = await this.fxSnapshotSafe();
     return {
@@ -347,13 +378,28 @@ export class PricingService {
     // M-31 MAYOR-3 (money-safe): mismo desempate DETERMINISTA que `getReference`. Aquí todas las filas
     // comparten `cardProductId`, así que el empate que importa es a igual día por FUENTE (p. ej. un
     // override manual vs tcgcsv_singles del mismo día): se elige con `isBetterRef`, no «la primera».
-    const rows = await this.prisma.priceReference.findMany({
-      where: { cardProductId: cardProductInternalId, productType, gradeKey, finish },
-      orderBy: { capturedDate: 'desc' },
-      select: PRICE_REF_SELECT,
-      take: SAME_DAY_REF_CANDIDATES,
-    });
-    const ref = pickBestRef(rows);
+    // §4.27f-2 (P47-2, v1.46): consistente con `getReference` — el bloque reciente va CAPADO al tier
+    // automático y se une la lectura DIRIGIDA de TODAS las filas manuales de ESTE `cardProductId` (sin
+    // cota de fecha ni `take`), para que el override manual siga siendo candidata perenne durable.
+    const [dayRows, manualRows] = await Promise.all([
+      this.prisma.priceReference.findMany({
+        where: { cardProductId: cardProductInternalId, productType, gradeKey, finish },
+        orderBy: { capturedDate: 'desc' },
+        select: PRICE_REF_SELECT,
+        take: SAME_DAY_REF_CANDIDATES,
+      }),
+      this.prisma.priceReference.findMany({
+        where: {
+          cardProductId: cardProductInternalId,
+          productType,
+          gradeKey,
+          finish,
+          ...MANUAL_REF_PREDICATE,
+        },
+        select: PRICE_REF_SELECT,
+      }),
+    ]);
+    const ref = pickBestRef([...dayRows, ...manualRows]);
     if (!ref) return { status: 'pending' };
     const fx = await this.fxSnapshotSafe();
     return {

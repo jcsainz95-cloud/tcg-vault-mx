@@ -4,12 +4,18 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
-## 0.1 P47-2 (§4.27f-2, v1.46): el override MANUAL es tier superior ABSOLUTO y durable cross-day en `isBetterRef` (2026-08-24)
+## 0.1 P47-2 (§4.27f-2, v1.46): override MANUAL = tier superior ABSOLUTO y durable cross-day — comparador **+ capa de lectura + ficha 360°** (2026-08-24)
 
 > Rama `fix/variant-composition-regression`. Cierra el hallazgo ALTA **P47-2** (dictamen del arquitecto,
 > contrato **v1.46 §4.27f-2**). **Money-critical. Sin migración, sin cambio de schema ni de forma de contrato.**
 > Es un fix de **precedencia de LECTURA**: no re-resuelve ni re-escribe nada — la siguiente lectura de las
 > mismas filas elige la correcta. No toqué el provider TCGCSV singles de P47-1 (cerrado, commit 03f0e02).
+>
+> **⚠️ CIERRE EN DOS PARTES.** El fix del comparador (commit b16f03d, §0.1.a) era correcto pero **incompleto**:
+> el re-gate (techlead RECHAZADO + seguridad NO-CERRADAS) encontró que la **durabilidad cross-day se rompía en la
+> CAPA DE LECTURA** (blocker #1) y en la **ficha 360° admin** (blocker #2). Ambos corregidos abajo (§0.1.b/§0.1.c).
+
+### 0.1.a — Comparador `isBetterRef` (commit b16f03d, primera mitad del fix)
 
 **El bug:** en `isBetterRef(a, b)` (`pricing.service.ts`) `capturedDate` se comparaba **antes** que el tier
 manual/no-manual. Efecto: un override manual solo ganaba **el mismo día**; al día siguiente una fila automática
@@ -32,10 +38,67 @@ precedencia sin cambios propios.
 **Tests (money-safe):** nuevo `backend/test/pricing.isbetterref-manual-tier.spec.ts` — (a) override manual VIEJO
 gana sobre `tcgcsv_singles` de HOY; (b) dos automáticas de distinta fecha → gana la más fresca; (c) override
 manual nuevo supersede al viejo; + guard money-safe (una `tcgcsv_singles` stale NO le gana a un residuo fresco) y
-desempate por fuente a igual día. Suite pricing completa: **17 suites / 141 tests verdes**; suites consumidoras
-(`set-value`, `inventory.sealed-aportacion`, `price-ingest`, `sealed-price`): **8 suites / 132 verdes**. Ningún
-test existente codificaba el bug viejo (el de determinismo M-31 que compara «fecha domina» usa dos filas
-automáticas, sigue válido).
+desempate por fuente a igual día. Ningún test existente codificaba el bug viejo (el de determinismo M-31 que
+compara «fecha domina» usa dos filas automáticas, sigue válido).
+
+### 0.1.b — Capa de lectura: el override manual es **candidata PERENNE** (blocker #1, money) — 2026-08-24
+
+**El hueco (por qué b16f03d no bastaba):** `getReference` (~L307) y `getReferenceByCardProduct` (~L350) traían las
+candidatas con `orderBy capturedDate desc … take: SAME_DAY_REF_CANDIDATES (=32)`. El override manual se persiste con
+`capturedDate` **FIJO** (`manualOverride()`) y **no se re-fecha**; el barrido diario `tcgcsv_singles` añade ~1 fila
+automática/día para la misma clave y **no hay purga** de `PriceReference`. Tras ~32 días la fila manual cae **fuera
+del top-32** → `pickBestRef` **nunca la ve** → el comparador (por bueno que sea) no puede elegirla → el feed diario
+vuelve a pisar el precio humano **en silencio**. El comparador estaba bien; la **ventana de lectura** lo saboteaba.
+
+**Approach elegido — lectura DIRIGIDA de manuales unida al bloque reciente (opción a del dictamen).** En `getReference`
+y `getReferenceByCardProduct` la lectura ahora hace **DOS queries en paralelo** (`Promise.all`):
+1. **bloque reciente CAPADO** (`take: 32`, `orderBy capturedDate desc`) — cubre el **tier automático** sin traer el
+   histórico entero (la cota sigue siendo money-safe para automáticas: solo las recientes pueden ganar entre sí);
+2. **lectura DIRIGIDA de manuales** (`MANUAL_REF_PREDICATE = { OR: [isManualOverride:true, source:'manual'] }`),
+   **SIN cota de fecha ni `take`**, misma clave. Garantiza que **TODA** fila manual de la clave esté siempre entre
+   las candidatas, sin importar cuántos barridos automáticos se acumulen.
+
+`pickBestRef([...bloqueReciente, ...manuales])` desempata el conjunto unido (duplicados idempotentes). En `getReference`
+la lectura dirigida se combina con `BASE_CARD_REF_WHERE` vía **`AND`** (no spread) para no colisionar con el `OR` de
+`BASE_CARD_REF_WHERE`. **Por qué esta opción y no «quitar el cap»:** preserva la cota en el hot path single-item para el
+tier automático (no reintroduce un escaneo de historial ilimitado en cada `getReference`), y **expresa el invariante en
+código** («el manual es candidata perenne», f-2) de forma auto-documentada. Es exactamente lo que sugirió el blue team.
+
+**Consistencia con los métodos SIN cap:** `getReferencesBatch` y `getSeparateProductsByCard` **ya** leían sin `take`
+(todas las filas de la clave, incluidas las manuales) y reducían con `isBetterRef` → **ya eran durables**; no se
+tocaron. La asimetría que reportó seguridad (batch durable, single-item no) queda cerrada: ahora los cuatro coinciden.
+Nuevo export `MANUAL_REF_PREDICATE` en `pricing.service.ts`. Comentario de `SAME_DAY_REF_CANDIDATES` reescrito para f-2
+(la cota gobierna SOLO el tier automático; el manual es perenne).
+
+### 0.1.c — Ficha 360° admin `ownedItemRefs` usa `pickBestRef` (blocker #2, consistencia) — 2026-08-24
+
+**El bug:** `AdminService.ownedItemRefs` (`admin.service.ts` ~L307) elegía «la primera vista» por `capturedDate desc,
+createdAt desc` (`if (!latest.has(key)) latest.set(key, r)`), **NO** `isBetterRef`. Bajo P47-2 eso mostraba la
+**automática más fresca** aunque existiera un override manual durable → la ficha 360° **divergía de `getReference`**
+para la misma variante. Su query **no** lleva `take` (lee todas las refs por `cardId`), así que las filas manuales ya
+estaban presentes: bastaba **reducir con la precedencia correcta**.
+
+**El fix:** se reemplaza la reducción «primera vista» por `cur == null || isBetterRef(r, cur)` (mismo patrón que
+`set-value.service.ts` y `getReferencesBatch`). Se importa `isBetterRef` desde `pricing.service`. Sin query nueva, sin
+cambio de forma del DTO `AdminUserOwnedItemRef`.
+
+### 0.1.d — Tests money-safe añadidos + resultado
+
+- **`backend/test/pricing.isbetterref-manual-tier.spec.ts`** (b16f03d, comparador puro): sigue verde.
+- **`backend/test/pricing.manual-override-durable-cross-day.spec.ts`** (NUEVO): escenario **>32 días** — 1 fila manual
+  vieja (enero) + 40 automáticas `tcgcsv_singles` más frescas para la misma clave; el mock de Prisma modela FIELMENTE
+  las dos lecturas (la capada `take:32` **excluye** la manual vieja; la dirigida la trae). `getReference` **y**
+  `getReferenceByCardProduct` devuelven el **override manual** (no la automática fresca). + control negativo del mock
+  (la capada sola no ve la manual), + sin regresión del tier automático (gana la más fresca), + dos manuales → gana el
+  más reciente.
+- **`backend/test/admin.owned-item-refs.manual-override.spec.ts`** (NUEVO): con override manual durable viejo +
+  automática fresca, la ficha 360° (`getUser` → `ownedItems[].referenceValue`) muestra el **precio manual**; sin manual,
+  la automática más fresca (sin regresión).
+- **Suite existente actualizada:** `pricing.getreference-determinism.spec.ts` — el test «lectura acotada» asertaba
+  `findManyArgs.toHaveLength(1)` (una sola query, premisa del diseño viejo); ahora aserta las **dos** lecturas (capada
+  con `take` + dirigida sin `take`). El resto de sus asserts (determinismo M-31) intactos y verdes.
+- **Resultado real:** suite backend COMPLETA **176 suites / 1717 tests verdes** (1710 previos + 7 nuevos). Typecheck
+  `tsc --noEmit` limpio.
 
 ## 0.2 P-47 (§4.35, v1.44): el barrido diario reprecia por-acabado desde TCGCSV `tcgcsv_singles` (2026-08-23)
 
