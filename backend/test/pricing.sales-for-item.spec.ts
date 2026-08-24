@@ -10,10 +10,12 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 /**
  * v1.13-sales-pricing (§4.14d) · ⛔ SUPERSEDED por v2.0 (P-48, ARCHITECTURE §4.36.5b).
  *
- * `PricingService.computeSalePriceForItem` es el **SEAM ÚNICO del eje de VENTA**: ya no lee reglas por
- * rareza sino **la CURVA** (`pricing_curve`), y su firma **no recibe `rarity` ni `finish`** — criterio
- * 84 hecho tipo. Los call-sites (catálogo y checkout) siguen pasando por él, así que cobran y publican
- * exactamente el mismo número.
+ * `PricingService.computeSalePriceForItem` / `decideSalePrice` son el **SEAM ÚNICO del eje de VENTA**:
+ * ya no leen reglas por rareza sino **la CURVA** (`pricing_curve`) y devuelven una **DECISIÓN** —monto
+ * **y** veredicto— para que ningún call-site pueda quedarse con el precio y olvidarse del guardarraíl.
+ * Los call-sites (catálogo y checkout) pasan por él, así que cobran y publican el mismo número.
+ *
+ * Criterio 84: la rareza entra SOLO al veredicto; el MONTO no la ve (test dedicado abajo).
  */
 
 function realPricing(): { pricing: PricingService; settings: SettingsService } {
@@ -35,31 +37,35 @@ function realPricing(): { pricing: PricingService; settings: SettingsService } {
 describe('PricingService.computeSalePriceForItem — SEAM ÚNICO de VENTA por la CURVA (§4.36.5b)', () => {
   it('SIN mercado ⇒ pending: el PISO NO gana (cambio LOCKED vs. el `fixed` de v1.13)', async () => {
     const { pricing } = realPricing();
-    const r = await pricing.computeSalePriceForItem(null);
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: null, rarityCanonical: 'comun' });
     expect(r).toMatchObject({ priceCents: null, basis: 'pending', marketMxnCents: null });
   });
 
   it('CON mercado ⇒ curva: $1,000 × 1.15 = $1,150 (múltiplo de $25, no se mueve)', async () => {
     const { pricing } = realPricing();
-    const r = await pricing.computeSalePriceForItem(100000);
-    expect(r).toMatchObject({ priceCents: 115000, basis: 'market', marketMxnCents: 100000 });
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: 100000, rarityCanonical: 'comun' });
+    expect(r).toMatchObject({ priceCents: 115000, basis: 'market', marketMxnCents: 100000, pendingReason: null });
   });
 
   it('mercado bajo ⇒ gana el PISO ($1.14 ⇒ $25) con basis "floor"', async () => {
     const { pricing } = realPricing();
-    const r = await pricing.computeSalePriceForItem(114);
-    expect(r).toMatchObject({ priceCents: 2500, basis: 'floor' });
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: 114, rarityCanonical: 'comun' });
+    expect(r).toMatchObject({ priceCents: 2500, basis: 'floor', pendingReason: null });
   });
 
   it('sellOverrideCents (variante) pisa la curva y es ABSOLUTO (criterio 89)', async () => {
     const { pricing } = realPricing();
-    const r = await pricing.computeSalePriceForItem(100000, { sellOverrideCents: 3000 });
+    const r = await pricing.computeSalePriceForItem({
+      referenceMxnCents: 100000,
+      rarityCanonical: 'comun',
+      controls: { sellOverrideCents: 3000 },
+    });
     expect(r).toMatchObject({ priceCents: 3000, basis: 'override', curveQuoteCents: 115000 });
   });
 
   it('lee `pricing_curve` y NUNCA las claves retiradas (`sales_price_rules`, `sales_markup_pct`)', async () => {
     const { pricing, settings } = realPricing();
-    await pricing.computeSalePriceForItem(100000);
+    await pricing.computeSalePriceForItem({ referenceMxnCents: 100000, rarityCanonical: 'comun' });
     const rawKeys = (settings.getRaw as jest.Mock).mock.calls.map((c) => c[0]);
     const numKeys = (settings.getNumber as jest.Mock).mock.calls.map((c) => c[0]);
     expect(rawKeys).toContain('pricing_curve');
@@ -73,7 +79,12 @@ describe('PricingService.computeSalePriceForItem — SEAM ÚNICO de VENTA por la
     const { pricing, settings } = realPricing();
     const curve = await pricing.loadPricingCurve();
     (settings.getRaw as jest.Mock).mockClear();
-    const r = await pricing.computeSalePriceForItem(100000, null, curve);
+    const r = await pricing.computeSalePriceForItem({
+      referenceMxnCents: 100000,
+      rarityCanonical: 'comun',
+      controls: null,
+      curve,
+    });
     expect(r.priceCents).toBe(115000);
     expect(settings.getRaw).not.toHaveBeenCalled();
   });
@@ -92,7 +103,7 @@ describe('PricingService.computeSalePriceForItem — SEAM ÚNICO de VENTA por la
       {} as never,
     );
     const spy = jest.spyOn(pricing['logger'], 'error').mockImplementation(() => undefined);
-    const r = await pricing.computeSalePriceForItem(100000);
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: 100000, rarityCanonical: 'comun' });
     expect(r.priceCents).toBe(115000); // el seed de §N.2
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('[MONEY]'));
     spy.mockRestore();
@@ -124,8 +135,11 @@ function pricingMock(referenceMxnCents: number | null): PricingService {
     getReference: jest.fn(async () =>
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),
-    computeSalePriceForItem: jest.fn((ref: number | null, controls?: never, curve?: never) =>
-      real.computeSalePriceForItem(ref, controls, curve),
+    // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+    // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+    computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
+    decideSalePrice: jest.fn((input: Parameters<PricingService['decideSalePrice']>[0]) =>
+      real.decideSalePrice(input),
     ),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
@@ -140,8 +154,11 @@ describe('call-site — toListingDTO resuelve por la CURVA y expone `priceBasis`
     expect(dto.salePriceCents).toBeUndefined();
     expect(dto.sellable).toBe(false);
     expect(dto.priceBasis).toBe('pending');
-    // Criterio 84 hecho tipo: al seam NO se le pasa rareza ni acabado, solo el MERCADO.
-    expect((pricing.computeSalePriceForItem as jest.Mock).mock.calls[0][0]).toBeNull();
+    // Criterio 84: al seam se le pasa el MERCADO y la rareza SOLO para el veredicto — nunca el acabado,
+    // y la rareza jamás toca el monto (ver el test dedicado abajo).
+    const arg = (pricing.computeSalePriceForItem as jest.Mock).mock.calls[0][0];
+    expect(arg.referenceMxnCents).toBeNull();
+    expect(arg).not.toHaveProperty('finish');
   });
 
   it('con mercado publica por la curva y marca `priceBasis="market"`', async () => {

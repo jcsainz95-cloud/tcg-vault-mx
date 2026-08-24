@@ -70,7 +70,16 @@ function build(opts: {
       findFirst: jest.fn(async () => opts.findFirst ?? null),
     },
     priceReference: { findMany: jest.fn(async () => []) },
-    card: { findUnique: jest.fn(async () => ({ id: 'c1' })) },
+    card: {
+      findUnique: jest.fn(async () => ({ id: 'c1' })),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
+    },
     sealedRestockSubscription: { create: jest.fn(async () => ({ id: 's1' })) },
   } as unknown as PrismaService;
 

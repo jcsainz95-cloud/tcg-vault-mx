@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -248,14 +250,17 @@ describe('E4 — ciclo completo de la cola (§4.36.5c): escalar ⇒ mercado real
 function listingHarness(rarity: string | null, referenceMxnCents: number | null) {
   const pricing = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () =>
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),
-    computeSalePriceForItem: jest.fn(async (ref: number | null, controls?: never) => {
-      const { computeSalePriceFromCurve } = await import('../src/common/money');
-      return computeSalePriceFromCurve(ref, DEFAULT_PRICING_CURVE, controls);
-    }),
+    // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+    // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+    computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     getVariantOverride: jest.fn(async () => null),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     settlePendingForVariant: jest.fn(async () => undefined),
@@ -329,10 +334,22 @@ describe('E4 — guardarraíl del eje de COMPRA (§4.36.5, simetría money-safe)
     const prisma = {
       card: {
         findUnique: jest.fn(async () => ({ id: 'c1', rarity, availableFinishes: ['normal'] })),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+        // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
       },
     } as unknown as PrismaService;
     const pricing = {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
       getReference: jest.fn(async () =>
         referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
@@ -389,5 +406,75 @@ describe('E4 — guardarraíl del eje de COMPRA (§4.36.5, simetría money-safe)
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
     expect(q.quote.quotedPriceCents).toBe(900000);
     expect(q.priceBasis).toBe('bounty');
+  });
+});
+
+/**
+ * v2.1.1 (P-48, gate techlead — BLOQUEO 1) — CANDADO DE ARQUITECTURA del eje de VENTA.
+ *
+ * El hallazgo no fue «a `master-set` se le olvidó una llamada»: fue que el seam **cargaba config y
+ * delegaba**, así que el guardarraíl vivía FUERA y cada consumidor tenía que acordarse de invocarlo.
+ * Uno de cinco no se acordó. La regla «un solo cuerpo» no se sostiene con disciplina, se sostiene con
+ * tipos — y este test es la parte mecánica de esa garantía: **ningún módulo de servicio fuera de
+ * `pricing/` puede volver a llamar a la función PURA de venta**, que es la que devuelve monto sin
+ * veredicto. Si alguien lo intenta, el precio y el veredicto vuelven a poder separarse.
+ */
+describe('candado — el eje de VENTA solo se resuelve por el SEAM (§4.36.5b)', () => {
+  const SRC = join(__dirname, '..', 'src');
+
+  function walk(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) return walk(full);
+      return e.isFile() && e.name.endsWith('.ts') && !e.name.endsWith('.spec.ts') ? [full] : [];
+    });
+  }
+
+  it('NINGÚN módulo fuera de `pricing/` importa `computeSalePriceFromCurve` (la pura, sin veredicto)', () => {
+    const offenders = walk(join(SRC, 'modules'))
+      .filter((f) => !f.includes(join('modules', 'pricing')))
+      .filter((f) => /\bcomputeSalePriceFromCurve\b/.test(readFileSync(f, 'utf8')));
+    // `modules/pricing/` sí puede: ahí vive el seam (`decideSalePrice`) y el composer del binder,
+    // que aplica el guardarraíl explícitamente en el MISMO archivo.
+    expect(offenders).toEqual([]);
+  });
+
+  it('los CINCO consumidores del eje de venta pasan por el seam (`decideSalePrice`/`computeSalePriceForItem`)', () => {
+    const consumers = [
+      join(SRC, 'modules', 'catalog', 'catalog.service.ts'),
+      join(SRC, 'modules', 'orders', 'orders.service.ts'),
+      join(SRC, 'modules', 'inventory', 'inventory.service.ts'),
+      join(SRC, 'modules', 'inventory', 'master-set.service.ts'),
+      // v2.1.1 (§4.36.5b-ter): el barrido también re-resuelve, y por el MISMO cuerpo.
+      join(SRC, 'modules', 'pricing', 'price-ingest.service.ts'),
+    ];
+    for (const f of consumers) {
+      expect(readFileSync(f, 'utf8')).toMatch(/\.(decideSalePrice|computeSalePriceForItem)\(/);
+    }
+  });
+
+  it('el seam SUPRIME el monto cuando bloquea: `pendingReason != null` ⇒ `priceCents === null` y basis `pending`', () => {
+    const decide = PricingService.prototype.decideSalePrice;
+    // Premium con mercado absurdo ⇒ piso ⇒ bloqueada.
+    const blocked = decide({
+      referenceMxnCents: 1000,
+      rarityCanonical: 'Special Illustration Rare',
+      curve: DEFAULT_PRICING_CURVE,
+    });
+    expect(blocked.pendingReason).toBe('premium_at_floor');
+    expect(blocked.priceCents).toBeNull();
+    expect(blocked.basis).toBe('pending');
+    // …pero el diagnóstico sigue visible para que el dueño vea POR QUÉ se bloqueó.
+    expect(blocked.marketMxnCents).toBe(1000);
+    expect(blocked.curveQuoteCents).toBe(2500);
+  });
+
+  it('criterio 84: la RAREZA no mueve el monto — solo puede suprimirlo', () => {
+    const decide = PricingService.prototype.decideSalePrice;
+    const args = { referenceMxnCents: 100000, curve: DEFAULT_PRICING_CURVE };
+    const comun = decide({ ...args, rarityCanonical: 'Common' });
+    const chase = decide({ ...args, rarityCanonical: 'Special Illustration Rare' });
+    expect(chase.priceCents).toBe(comun.priceCents);
+    expect(chase.pendingReason).toBeNull();
   });
 });

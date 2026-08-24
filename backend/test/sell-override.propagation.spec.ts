@@ -5,7 +5,6 @@ import { MasterSetService } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { computeSalePriceFromCurve } from '../src/common/money';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
@@ -84,6 +83,10 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
       : { status: 'priced', referenceMxnCents: opts.referenceMxnCents };
   return {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => ref),
     getReferencesBatch: jest.fn(async (keys: { cardId: string; productType: string; gradeKey: string; finish: string }[]) => {
@@ -100,9 +103,9 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false })),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
-    computeSalePriceForItem: jest.fn(async (refCents: number | null, controls?: never) =>
-      computeSalePriceFromCurve(refCents, DEFAULT_PRICING_CURVE, controls),
-    ),
+    // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+    // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+    computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
     settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn(async () => 'pend-1'),

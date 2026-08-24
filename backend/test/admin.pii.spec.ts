@@ -81,6 +81,10 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     // → null) ⇒ liveMxnCents devuelve el priceMxnCents almacenado (congelado), como el modelo previo.
     const pricing = {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,

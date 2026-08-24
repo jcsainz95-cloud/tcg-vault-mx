@@ -21,9 +21,10 @@ import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
 // v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
 // precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
-import { PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
+import { CurvePriceResult, PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
 import {
   MarketBracket as MarketBracketType,
+  PendingReason,
   PricingCurve,
   isBountyEffective,
   marketBracketOf,
@@ -91,6 +92,28 @@ export type BuylistBatchQuoteResult =
         message: string;
       };
     };
+
+/**
+ * v2.0 (P-48, §4.36.5b) — LA DECISIÓN DE COMPRA de UNA línea: acabado resuelto, de qué variante se
+ * leyó el mercado, monto **y** veredicto. Es lo que devuelve el cuerpo único `decideBuyLine`, y lo
+ * consumen por igual la cotización pública (que solo lo pinta) y `createRequest` (que además lo
+ * congela y lo escala). Mismo invariante que el eje de venta: `pendingReason != null` ⇒
+ * `quotedPriceCents === null` y `priceBasis === 'pending'`.
+ */
+interface BuyLineDecision {
+  /** Acabado VALIDADO server-side (SEC-A1), ya sea contra `Card.availableFinishes` o `CardProduct.finishes`. */
+  finish: Finish;
+  gradeKey: string;
+  /** Valor de MERCADO que entró al cálculo (de la variante correcta: set_base o producto separado). */
+  referenceMxnCents: number | null;
+  /** Resultado crudo de la precedencia de compra (bounty > override > curva > pendiente). */
+  quote: CurvePriceResult;
+  /** `null` = se cotiza. No-null = bloqueada: `no_market` o el guardarraíl `premium_at_floor`. */
+  pendingReason: PendingReason | null;
+  /** Monto FINAL a pagar por la línea; `null` ⇔ bloqueada. */
+  quotedPriceCents: number | null;
+  priceBasis: PriceBasis;
+}
 
 @Injectable()
 export class BuylistService {
@@ -312,18 +335,52 @@ export class BuylistService {
   ): Promise<BuylistQuotePayload> {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
+    // TODO el dinero de esta respuesta sale del cuerpo compartido; aquí solo se arma el DTO.
+    const line = await this.decideBuyLine({ card, productType, rawCondition, finish, curve, override, productId });
+    return this.toQuotePayload(card, line, productId);
+  }
+
+  /**
+   * v2.0 (P-48, §4.36.5b / gate techlead) — **CUERPO ÚNICO de la DECISIÓN DE COMPRA de UNA línea**:
+   * resuelve el acabado válido, DE QUÉ variante se lee el mercado, el override EFECTIVO, aplica la
+   * precedencia de compra y devuelve el veredicto del guardarraíl. Lo consumen las TRES superficies:
+   * `POST /buylist/quote` y `/quote/batch` (vía `quoteCardForFinish`) y `POST /buylist/requests`
+   * (`createRequest`).
+   *
+   * **Por qué un solo cuerpo y no dos que hoy coinciden.** `createRequest` reimplementaba esta misma
+   * secuencia —rama `productId`, rama `set_base`, `quoteAcquisitionFromCurve`, `resolvePendingReason`
+   * y la derivación de `quotedPriceCents`/`priceBasis`— y aunque los dos cuerpos daban EXACTAMENTE el
+   * mismo número, la spec exige uno solo por una razón concreta: la cotización pública y la solicitud
+   * que se paga no pueden divergir. **El vendedor ve un número y firma otro.** Cualquier matiz futuro
+   * (un tope, una condición, un segundo control por variante) entraría en uno de los dos y la
+   * divergencia solo se descubriría por una queja. Lo ÚNICO propio de `createRequest` es lo que no es
+   * decisión de precio: la instrumentación que se congela y el `settlePendingForVariant`.
+   *
+   * `card` llega YA cargada (single o en lote) para que el caller controle el N+1.
+   * READ-ONLY: no escribe en la cola ni en ningún lado — quien escala sigue siendo `createRequest`.
+   */
+  private async decideBuyLine(input: {
+    card: Card;
+    productType: ProductType;
+    rawCondition?: RawCondition;
+    finish?: Finish;
+    curve: PricingCurve;
+    override?: VariantPriceOverride | null;
+    productId?: number;
+  }): Promise<BuyLineDecision> {
+    const { card, productType, rawCondition, finish, curve, productId } = input;
     const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
 
     let f: Finish;
     let referenceMxnCents: number | null;
-    let effectiveOverride: VariantPriceOverride | null | undefined = override;
+    let effectiveOverride: VariantPriceOverride | null | undefined = input.override;
     if (productId != null) {
       // v1.30 (§4.29b): rama PRODUCTO SEPARADO. La identidad de la línea es ESE CardProduct: whitelist de
       // acabado = CardProduct.finishes (NO Card.availableFinishes); la referencia se lee filtrada por su
       // cardProductId (precio propio del producto). El override M-30 (clave sin cardProductId) NO aplica
       // aquí: mapea a la variante set_base, no a este producto — aplicarlo sería fusión de precios
       // (money-safe: se IGNORA). La rareza NO cambia de fuente (sale de la carta).
-      const cp = await this.resolveCardProductForCard(cardId, productId);
+      const cp = await this.resolveCardProductForCard(card.id, productId);
       f = this.assertFinishForProduct(cp.finishes, finish);
       const ref = await this.pricing.getReferenceByCardProduct(cp.id, productType, gradeKey, f);
       referenceMxnCents =
@@ -333,8 +390,8 @@ export class BuylistService {
       // Rama SET_BASE (comportamiento v1.29 idéntico).
       // SEC-A1: el acabado se valida contra los acabados REALES de la carta antes de cotizar.
       f = this.assertFinishAvailable(card, finish);
-      // v1.6-finish: la referencia del `pct` es la del ACABADO cotizado.
-      const ref = await this.pricing.getReference(cardId, productType, gradeKey, f);
+      // v1.6-finish: la referencia es la del ACABADO cotizado.
+      const ref = await this.pricing.getReference(card.id, productType, gradeKey, f);
       referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     }
@@ -347,26 +404,42 @@ export class BuylistService {
     // v2.0 (P-48, §4.36.5b) — GUARDARRAÍL del eje de COMPRA: una rareza PREMIUM que aterriza en el BIN
     // NO se cotiza. Pagar de menos es la MISMA pérdida irreversible que vender de menos (§N.0), y que
     // una chase resuelva al bin solo puede significar que su dato de mercado está mal. NO dispara con
-    // override ni bounty. READ-ONLY: reporta `precio_pendiente` SIN escribir en la cola (doctrina
-    // v1.12 de endpoints anónimos); quien escala sigue siendo `createRequest`.
-    const pendingReason = resolvePendingReason(quote.basis, card.rarity);
+    // override ni bounty (decisiones deliberadas del admin).
+    const pendingReason = resolvePendingReason(quote.basis, card.rarityCanonical ?? card.rarity);
     const quotedPriceCents = pendingReason == null ? quote.priceCents : null;
-    const priceBasis = pendingReason == null ? quote.basis : ('pending' as const);
+    return {
+      finish: f,
+      gradeKey,
+      referenceMxnCents,
+      quote,
+      pendingReason,
+      quotedPriceCents,
+      // MISMO invariante que el eje de venta: monto en `null` ⇔ basis `pending`.
+      priceBasis: pendingReason == null ? quote.basis : 'pending',
+    };
+  }
+
+  /**
+   * DTO de cotización a partir de la decisión compartida. Presentación pura: NO decide dinero.
+   * READ-ONLY (doctrina v1.12 de endpoints anónimos): reporta `precio_pendiente` SIN escribir en la
+   * cola; quien escala sigue siendo `createRequest`.
+   */
+  private toQuotePayload(card: Card, line: BuyLineDecision, productId?: number): BuylistQuotePayload {
     return {
       // `rarity` se conserva como dato INFORMATIVO/de display del catálogo: el monto NO depende de ella.
       rarity: card.rarity ?? null,
-      finish: f,
+      finish: line.finish,
       // v1.30: eco del productId cotizado (ausente en la rama set_base).
       ...(productId != null ? { productId } : {}),
-      priceBasis,
+      priceBasis: line.priceBasis,
       quote: {
-        status: quotedPriceCents != null ? ('cotizada' as const) : ('precio_pendiente' as const),
-        quotedPriceCents,
+        status: line.quotedPriceCents != null ? ('cotizada' as const) : ('precio_pendiente' as const),
+        quotedPriceCents: line.quotedPriceCents,
         currency: 'MXN' as const,
       },
       referencePrice:
-        referenceMxnCents != null
-          ? { status: 'priced' as const, priceMxnCents: referenceMxnCents }
+        line.referenceMxnCents != null
+          ? { status: 'priced' as const, priceMxnCents: line.referenceMxnCents }
           : { status: 'pending' as const },
       paymentNotice: 'PAY_AFTER_RECEIPT' as const,
     };
@@ -532,68 +605,63 @@ export class BuylistService {
       itemStatus: 'cotizada' | 'precio_pendiente';
     }[] = [];
     let quotedTotalCents = 0;
+    // Cartas EN LOTE (una query por request): antes se hacía un `findUnique` POR ÍTEM dentro del
+    // bucle mientras el override sí venía en lote — N+1 que este refactor cierra de paso.
+    const cardsById = new Map(
+      (
+        await this.prisma.card.findMany({ where: { id: { in: [...new Set(items.map((it) => it.cardId))] } } })
+      ).map((c) => [c.id, c]),
+    );
     for (const it of items) {
-      const card = await this.prisma.card.findUnique({ where: { id: it.cardId } });
+      const card = cardsById.get(it.cardId);
       if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
-      const gradeKey = this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition });
-
-      let f: Finish;
-      let referenceMxnCents: number | null;
-      let override: VariantPriceOverride | null;
-      if (it.productId != null) {
-        // v1.30 (§4.29b): línea de PRODUCTO SEPARADO. Whitelist por CardProduct.finishes; referencia por
-        // su cardProductId; override M-30 NO aplica (money-safe, mismo criterio que el quote).
-        const cp = await this.resolveCardProductForCard(it.cardId, it.productId);
-        f = this.assertFinishForProduct(cp.finishes, it.finish);
-        const ref = await this.pricing.getReferenceByCardProduct(cp.id, it.productType, gradeKey, f);
-        referenceMxnCents =
-          ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-        override = null;
-      } else {
-        // SEC-A1: valida el acabado contra los acabados REALES de la carta (422 si no).
-        f = this.assertFinishAvailable(card, it.finish);
-        // v1.6-finish: referencia del ACABADO cotizado.
-        const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey, f);
-        referenceMxnCents =
-          ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-        // v1.28 (P-18): mismo núcleo único de precedencia que quote/batch (bounty > override > curva).
-        override = overrides.get(`${it.cardId}|${it.productType}|${gradeKey}|${f}`) ?? null;
-      }
-      const q = quoteAcquisitionFromCurve(referenceMxnCents, curve, override);
-      // v2.0 (P-48, §4.36.5): veredicto ÚNICO — `no_market` (sin dato el bin NO gana) o el
-      // GUARDARRAÍL `premium_at_floor` (premium en el bin ⇒ su dato de mercado está mal).
-      const pendingReason = resolvePendingReason(q.basis, card.rarity);
-      const quotedPriceCents = pendingReason == null ? q.priceCents : null;
+      // v2.0 (P-48, §4.36.5b / gate techlead) — MISMO cuerpo que `POST /buylist/quote` y `/quote/batch`:
+      // el vendedor firma EXACTAMENTE el número que le cotizamos. Aquí no se re-deriva nada de dinero;
+      // lo único propio de `createRequest` es lo de abajo (instrumentación + escalada a la cola).
+      const line = await this.decideBuyLine({
+        card,
+        productType: it.productType,
+        rawCondition: it.rawCondition,
+        finish: it.finish,
+        curve,
+        // v1.28 (P-18): el override de la variante viene del LOTE. La rama `productId` lo ignora
+        // dentro del cuerpo compartido (money-safe: no se fusionan precios de dos identidades).
+        override:
+          overrides.get(
+            `${it.cardId}|${it.productType}|${this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition })}|${it.finish ?? 'normal'}`,
+          ) ?? null,
+        productId: it.productId,
+      });
       // v1.8-ronda-c: la cola es POR acabado (M-19). v1.30 (§4.29d): con productId, la entrada lleva su
       // cardProductId a la clave lógica — resolver el set_base NO cierra la del producto separado.
       // §4.36.5c: el MISMO seam CIERRA cuando el precio vuelve a resolver (salida simétrica).
       await this.pricing.settlePendingForVariant(
-        pendingReason,
+        line.pendingReason,
         {
           cardId: it.cardId,
           productType: it.productType,
-          gradeKey,
-          finish: f,
+          gradeKey: line.gradeKey,
+          finish: line.finish,
           cardProductId: it.productId ?? null,
         },
         'buylist',
       );
-      quotedTotalCents += quotedPriceCents ?? 0;
+      quotedTotalCents += line.quotedPriceCents ?? 0;
       itemsData.push({
         cardId: it.cardId,
         productType: it.productType,
         rawCondition: it.rawCondition,
-        finish: f,
+        finish: line.finish,
         ...(it.productId != null ? { cardProductId: it.productId } : {}),
         // Dato de display del catálogo; el monto NO depende de él (criterio 84).
         rarity: card.rarity ?? null,
-        priceBasis: pendingReason == null ? q.basis : 'pending',
+        priceBasis: line.priceBasis,
         // Sin mercado (override/bounty sin referencia, o pendiente) van en `null`: honesto, jamás un
         // 0 inventado. El BRACKET es un índice de conveniencia; el dato real es el monto crudo.
-        marketMxnCents: q.marketMxnCents,
-        marketBracket: marketBracketOf(q.marketMxnCents),
-        quotedPriceCents,
-        itemStatus: quotedPriceCents != null ? 'cotizada' : 'precio_pendiente',
+        marketMxnCents: line.quote.marketMxnCents,
+        marketBracket: marketBracketOf(line.quote.marketMxnCents),
+        quotedPriceCents: line.quotedPriceCents,
+        itemStatus: line.quotedPriceCents != null ? 'cotizada' : 'precio_pendiente',
       });
     }
 

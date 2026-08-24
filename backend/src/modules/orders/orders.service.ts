@@ -8,7 +8,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { computeCartBreakdown, BreakdownDTO, PriceBasis, sealedPriceBasisOf } from '../../common/money';
-import { marketBracketOf, resolvePendingReason } from '../../common/pricing-curve';
+import { marketBracketOf } from '../../common/pricing-curve';
 
 /**
  * Titularidad a escribir al RESERVAR una pieza (T2). Es el único eje en el que difieren las dos
@@ -132,11 +132,17 @@ export class OrdersService {
       gradeKey,
       item.finish,
     );
-    const sale = await this.pricing.computeSalePriceForItem(referenceMxnCents, variantOverride);
-    // v2.0 (P-48, §4.36.5b) — GUARDARRAÍL en el checkout (auth Y guest): una premium en el piso NO se
-    // vende. El storefront ya no la publica; esto cierra la puerta de atrás (un `inventoryItemId`
-    // conocido que intente comprarse igual). Mismo código de error que siempre.
-    if (resolvePendingReason(sale.basis, item.card.rarity) != null) {
+    // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO: monto + GUARDARRAÍL en la misma llamada. En el checkout
+    // (auth Y guest) una premium en el piso NO se vende: el storefront ya no la publica y esto cierra
+    // la puerta de atrás (un `inventoryItemId` conocido que intente comprarse igual). Mismo código de
+    // error que siempre.
+    const sale = await this.pricing.computeSalePriceForItem({
+      referenceMxnCents,
+      // SOLO para el veredicto del guardarraíl (criterio 84): no entra al monto.
+      rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+      controls: variantOverride,
+    });
+    if (sale.pendingReason != null) {
       throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no publishable price`);
     }
     // BE-26 (money-safety): un precio de venta <= 0 (p. ej. un override degenerado) NO es vendible. Se

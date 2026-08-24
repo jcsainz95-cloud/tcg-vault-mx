@@ -15,6 +15,10 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 function buildPricing(refStatus: 'pending' | 'priced' = 'pending') {
   return {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
     settlePendingForVariant: jest.fn(async () => undefined),
@@ -38,6 +42,14 @@ function buildPrisma() {
         id: 'c1',
         rarity: 'Rare Holo',
         availableFinishes: ['normal', 'holofoil'],
+      }),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
       }),
     },
     nextFolio: jest.fn().mockResolvedValue('INV-000042'),

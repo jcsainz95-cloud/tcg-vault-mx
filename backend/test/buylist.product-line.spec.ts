@@ -52,12 +52,24 @@ function svcWith(opts: {
         rarity: opts.cardRarity ?? 'Common',
         availableFinishes: opts.availableFinishes ?? ['normal', 'reverse_holo', 'holofoil'],
       }),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
     },
   };
   const products = opts.products ?? {};
   const productRefs = opts.productRefs ?? {};
   const pricing = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     findCardProductByTcgId: jest.fn(async (tcgId: number) => products[tcgId] ?? null),
     getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
@@ -233,6 +245,14 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
           rarity: 'Common',
           availableFinishes: ['normal', 'holofoil'],
         }),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+        // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
@@ -268,6 +288,10 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
   function pricingForCreate(opts: { products: Record<number, FakeProduct>; productRefs: Record<string, number> }) {
     return {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       findCardProductByTcgId: jest.fn(async (tcgId: number) => opts.products[tcgId] ?? null),
       getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {

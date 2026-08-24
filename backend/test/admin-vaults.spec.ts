@@ -34,6 +34,10 @@ function build(over: {
   } as unknown as PrismaService;
   const pricing = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getReferencesBatch: jest.fn().mockResolvedValue(over.refs ?? new Map()),
   } as unknown as PricingService;

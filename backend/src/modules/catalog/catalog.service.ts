@@ -5,8 +5,8 @@ import { PricingService, PriceInfo } from '../pricing/pricing.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
 // el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
 // visibilidad del «Valor de mercado» en las dos fichas.
-import { computeSalePriceFromCurve, sealedPriceBasisOf, PriceBasis } from '../../common/money';
-import { PricingCurve, resolvePendingReason } from '../../common/pricing-curve';
+import { sealedPriceBasisOf, PriceBasis } from '../../common/money';
+import { PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
@@ -299,17 +299,23 @@ export class CatalogService {
               this.pricing.gradeKeyFor(item),
               item.finish,
             );
+        // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO del eje de venta: el monto y el GUARDARRAÍL vienen de la
+        // MISMA llamada. Una carta de rareza PREMIUM que aterriza en el PISO NO se publica —que una
+        // chase resuelva al piso solo puede significar que su dato de mercado está mal (ausente,
+        // aplanado o absurdo), y venderla ahí es la pérdida IRREVERSIBLE que §N.0 manda evitar—; el
+        // seam ya devuelve `priceCents=null` + `basis='pending'` en ese caso, así que aquí no hay
+        // ningún veredicto que «acordarse» de consultar. NO dispara con override ni bounty.
+        // Esta ruta es LECTURA PÚBLICA: NO escala a la cola — quien escala es la publicación (§4.36.5b).
+        const decision = {
+          referenceMxnCents,
+          // La rareza SOLO alimenta el veredicto (criterio 84); jamás el monto.
+          rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+          controls: variantOverride,
+        };
         const sale = ctx?.curve
-          ? computeSalePriceFromCurve(referenceMxnCents, ctx.curve, variantOverride)
-          : await this.pricing.computeSalePriceForItem(referenceMxnCents, variantOverride);
-        // v2.0 (P-48, §4.36.5) — GUARDARRAÍL: una carta de rareza PREMIUM que aterriza en el PISO NO se
-        // publica. Que una chase resuelva al piso solo puede significar que su dato de mercado está mal
-        // (ausente, aplanado o absurdo), y venderla ahí es la pérdida IRREVERSIBLE que §N.0 manda evitar.
-        // Efecto idéntico a PRICE_PENDING: `sellable=false` y `priceBasis='pending'`. NO dispara con
-        // override ni bounty (decisiones deliberadas del admin). Esta ruta es LECTURA PÚBLICA: NO escala
-        // a la cola — quien escala es la publicación (§4.36.5b), como siempre.
-        const pendingReason = resolvePendingReason(sale.basis, item.card.rarity);
-        if (pendingReason == null && sale.priceCents != null) {
+          ? this.pricing.decideSalePrice({ ...decision, curve: ctx.curve })
+          : await this.pricing.computeSalePriceForItem(decision);
+        if (sale.priceCents != null) {
           salePriceCents = sale.priceCents;
           priceBasis = sale.basis;
         } else {

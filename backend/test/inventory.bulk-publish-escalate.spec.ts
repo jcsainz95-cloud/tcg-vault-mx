@@ -277,3 +277,44 @@ describe('bulkPublish ④ — sealed priceless ESCALA (no dropea, no publica)', 
     expect(h.items[0].status).toBe('listed');
   });
 });
+
+/**
+ * v2.1.1 (P-48, §4.36.5b-bis / E4-bis) — `bulk-publish` recibe el MISMO trato que `publish-all` en su
+ * rama `listed`. No es simetría cosmética: el contrato declara ambos pipelines IDÉNTICOS, así que
+ * dejar uno con el no-op ciego solo trasladaría la divergencia de sitio y reabriría el punto ciego
+ * por la puerta del re-publish explícito. Efecto observable para el frontend: una línea sobre una
+ * pieza `listed` degradada pasa de `ok:true` a `ok:false / PRICE_PENDING` — que es el resultado
+ * correcto: el operador pidió publicarla y NO es publicable.
+ */
+describe('bulkPublish — E4-bis: una pieza YA `listed` se RE-RESUELVE (§4.36.5b-bis)', () => {
+  it('`listed` DEGRADADA (premium en el piso) ⇒ ok:false PRICE_PENDING, escala y NO cambia de status', async () => {
+    const h = buildHarness();
+    // Illustration Rare (premium) con mercado absurdo ($10) ⇒ la curva la manda al PISO.
+    h.items.push(rawItem({ status: 'listed' }));
+    h.refsBatch.mockResolvedValue(
+      new Map([['c1|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 1000 } as any]]),
+    );
+
+    const res = await h.svc.bulkPublish(publish('i1'), 'admin');
+
+    expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'PRICE_PENDING' } });
+    expect(h.pendingStore).toHaveLength(1);
+    expect(h.pendingStore[0]).toMatchObject({ context: 'inventory', reason: 'premium_at_floor' });
+    // Escalar NO le cambia el status (§4.36.5b-bis decisión 3).
+    expect(h.items[0].status).toBe('listed');
+  });
+
+  it('RECÍPROCO — `listed` SANA ⇒ ok:true (no-op idempotente), sin escalar', async () => {
+    const h = buildHarness();
+    h.items.push(rawItem({ status: 'listed' }));
+    h.refsBatch.mockResolvedValue(
+      new Map([['c1|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 100000 } as any]]),
+    );
+
+    const res = await h.svc.bulkPublish(publish('i1'), 'admin');
+
+    expect(res.results[0]).toMatchObject({ ok: true, status: 'listed', priceSource: 'derived' });
+    expect(h.pendingStore).toHaveLength(0);
+    expect(h.items[0].status).toBe('listed');
+  });
+});

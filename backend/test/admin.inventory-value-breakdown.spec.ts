@@ -33,6 +33,10 @@ function buildHarness(items: any[], refsByKey: Record<string, number>) {
   });
   const pricing = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: (i: any) => buildGradeKey(i),
     sealedMarketGradeKeyForItem: (i: any) =>
       i.tcgplayerProductId != null ? sealedMarketGradeKey(i.tcgplayerProductId) : null,

@@ -23,6 +23,10 @@ const VALID_CLABE = '012345678901234567'; // 18 dígitos
 function buildPricing(referenceMxnCents: number | null): PricingService {
   return {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn().mockResolvedValue(
       referenceMxnCents == null
@@ -63,7 +67,16 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
   it('ignora cualquier category del DTO y deriva la regla de la rareza real (no infla el pago)', async () => {
     const prisma: any = {
       // Carta COMÚN con referencia ALTA. Un DTO malicioso intentaría cotizarla como % de la ref.
-      card: { findUnique: jest.fn().mockResolvedValue({ id: 'card-common', rarity: 'Common' }) },
+      card: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'card-common', rarity: 'Common' }),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
+      },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
         aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
@@ -115,7 +128,16 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
   it('lee el acumulado y crea DENTRO de una transacción serializable', async () => {
     let txOpts: any;
     const prisma: any = {
-      card: { findUnique: jest.fn().mockResolvedValue({ id: 'c', rarity: 'Common' }) },
+      card: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'c', rarity: 'Common' }),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
+      },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
         aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
@@ -141,7 +163,16 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
     const shared = { createdTotalCents: 0 };
     function build() {
       const prisma: any = {
-        card: { findUnique: jest.fn().mockResolvedValue({ id: 'c', rarity: 'Common' }) },
+        card: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'c', rarity: 'Common' }),
+          // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+          // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+          findMany: jest.fn(async function (this: any, args: any) {
+            const ids: string[] = args?.where?.id?.in ?? [];
+            const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+            return rows.filter(Boolean);
+          }),
+        },
         kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
         sellRequest: {
           aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: shared.createdTotalCents } })),

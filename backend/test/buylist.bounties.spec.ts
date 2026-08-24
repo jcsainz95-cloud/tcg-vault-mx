@@ -34,6 +34,10 @@ const svcOf = (prisma: any, refsByKey: Record<string, number> = {}) =>
     {
       gradeKeyFor: (i: any) => buildGradeKey(i),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       getReferencesBatch: jest.fn(async (keys: any[]) => {
         const m = new Map<string, any>();
         for (const k of keys) {

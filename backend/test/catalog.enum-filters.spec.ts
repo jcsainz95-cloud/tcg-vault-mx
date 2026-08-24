@@ -13,14 +13,15 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
     const prisma: any = { inventoryItem: { findMany: jest.fn(async () => []) } };
     const pricing = {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
-      computeSalePriceForItem: jest.fn(async (_i: any, r: number | null) => ({
-        salePriceCents: r,
-        status: r == null ? 'pending' : 'priced',
-        appliedRule: { mode: 'pct', value: 15 },
-        ruleSource: 'fallback',
-      })),
+      // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+      // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+      computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     } as unknown as PricingService;
     return { svc: new CatalogService(prisma as PrismaService, pricing), prisma };
   }

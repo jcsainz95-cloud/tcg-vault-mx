@@ -17,9 +17,9 @@ import { buildGradeKey, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import { computeAportacionCostCents, computeSalePriceFromCurve } from '../../common/money';
+import { computeAportacionCostCents } from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
-import { PricingCurve, resolvePendingReason } from '../../common/pricing-curve';
+import { PricingCurve } from '../../common/pricing-curve';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -115,9 +115,22 @@ export interface PublishAllResponse {
   summary: {
     selected: number;
     published: number;
+    /**
+     * v2.1.1 (§4.36.5b-bis): CAMBIA DE SIGNIFICADO — de «no la toqué» a «la RE-VERIFIQUÉ y sigue
+     * sana». Una pieza `listed` que vuelve a resolver precio cuenta aquí (no-op observable: no se
+     * re-cobra y no cambia el precio, que no está persistido).
+     */
     alreadyListed: number;
     pendingPrice: number;
     failed: number;
+    /**
+     * v2.1.1 (§4.36.5b-bis) — SUBCONJUNTO de `pendingPrice`, FUERA de la partición: piezas que
+     * estaban `listed` y ya NO resuelven precio (escalaron a la cola y SIGUEN `listed`). Contesta la
+     * pregunta del dueño: «de lo que ya estaba a la venta, ¿cuánto quedó roto?». No se puede deducir
+     * de `pendingPrice` (mezcla lo que nunca estuvo publicado) ni de `alreadyListed`. El invariante
+     * `selected = published + alreadyListed + pendingPrice + failed` NO cambia.
+     */
+    listedNowPending: number;
   };
   failures: PublishAllFailure[];
 }
@@ -939,8 +952,9 @@ export class InventoryService {
   /**
    * v1.16-master-set (§4.17b) — PUBLICAR POR LOTE (varias piezas → `listed`). Por línea:
    *  - `listPriceCents` presente → override manual; ausente → precio de venta **derivado** server-side
-   *    de la curva de precios (v2.0, §4.36.1, SEC-A1) vía `computeSalePriceFromCurve` — sin rareza ni
-   *    acabado como parámetro de monto (criterio 84); la rareza solo alimenta el guardarraíl.
+   *    de la curva de precios (v2.0, §4.36.1, SEC-A1) vía el SEAM ÚNICO `pricing.decideSalePrice` —
+   *    sin rareza ni acabado como parámetro de monto (criterio 84); la rareza solo alimenta el
+   *    veredicto del guardarraíl, que el propio seam devuelve junto al precio.
    *  - Una pieza cuyo precio NO se resuelve (sin `PriceReference`) o cuyo guardarraíl premium-en-el-
    *    piso dispara → `PRICE_PENDING`, NO se publica (regla "solo se lista lo que tiene precio",
    *    §4.9). Sellado sin override → `PRICE_PENDING`.
@@ -1172,11 +1186,18 @@ export class InventoryService {
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-    const sale = computeSalePriceFromCurve(refCents, ctx.curve, ctx.variantOverrides.get(key) ?? null);
-    // v2.0 (P-48, §4.36.5) — veredicto ÚNICO de publicación: `no_market` (sin dato ⇒ el piso NO gana) o
+    // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO del eje de venta (versión síncrona: la curva ya viene izada
+    // por el lote, BE-25). Monto + veredicto en UNA llamada: `no_market` (sin dato ⇒ el piso NO gana) o
     // `premium_at_floor` (guardarraíl: una chase en el piso solo puede significar dato de mercado malo).
     // NO dispara con override ni bounty.
-    const pendingReason = resolvePendingReason(sale.basis, item.card.rarity);
+    const sale = this.pricing.decideSalePrice({
+      referenceMxnCents: refCents,
+      // SOLO para el veredicto (criterio 84): no entra al monto.
+      rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+      controls: ctx.variantOverrides.get(key) ?? null,
+      curve: ctx.curve,
+    });
+    const pendingReason = sale.pendingReason;
     if (pendingReason != null || sale.priceCents == null) {
       // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR acabado,
       // M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
@@ -1234,13 +1255,20 @@ export class InventoryService {
 
   /**
    * v1.28 (P-19, §4.26c) — POST /admin/inventory/publish-all: publicar TODO el inventario (o un
-   * filtro) de golpe. Selección SERVER-SIDE (`ownerType=platform` + `status=in_stock` ± `setId`/
-   * `productType`), SIN cap de selección (proceso por chunks); pipeline por-pieza IDÉNTICO a
+   * filtro) de golpe. Selección SERVER-SIDE (`ownerType=platform` + `status ∈ {in_stock, listed}` ±
+   * `setId`/`productType`), SIN cap de selección (proceso por chunks); pipeline por-pieza IDÉNTICO a
    * `bulk-publish` (helpers compartidos): precio server-side SEC-A1 con la precedencia v1.28,
-   * PRICE_PENDING escala (④) y NO publica, `listed` = no-op idempotente. **Tolerante por-ítem: el
-   * lote JAMÁS revienta completo.** Idempotencia por `batchKey` (`InventoryBatch kind='publish_all'`;
-   * replay ⇒ resultado guardado + `idempotentReplay:true`). La auditoría (`inventory.publish_all`)
-   * la escribe el controller.
+   * PRICE_PENDING escala (④) y NO publica. **Tolerante por-ítem: el lote JAMÁS revienta completo.**
+   * Idempotencia por `batchKey` (`InventoryBatch kind='publish_all'`; replay ⇒ resultado guardado +
+   * `idempotentReplay:true`). La auditoría (`inventory.publish_all`) la escribe el controller.
+   *
+   * v2.1.1 (§4.36.5b-bis) — este endpoint ES el paso 2 del CUT-OVER de la curva (§4.36.9c): como el
+   * precio de venta se resuelve EN LECTURA y no está persistido, «repriciar el catálogo» = RE-RESOLVER,
+   * y esto es lo que lo hace. Por eso la selección incluye lo ya `listed` y su rama RE-RESUELVE:
+   * - vuelve a resolver ⇒ sigue `listed`, cuenta en `alreadyListed` (que ahora significa
+   *   «re-verificada y sana», no «no la toqué»);
+   * - no resuelve ⇒ escala a la cola con su `reason`, cuenta en `pendingPrice` Y en el subcontador
+   *   `listedNowPending`, y **NO cambia de status**.
    */
   async publishAll(req: PublishAllRequestDto, actorUserId: string): Promise<PublishAllResponse> {
     // Replay idempotente por batchKey. Un batchKey ya usado por OTRO tipo de lote no se "replay-ea"
@@ -1272,14 +1300,25 @@ export class InventoryService {
       }
     }
 
-    // Selección server-side: SNAPSHOT de ids (solo ids — sin cap). Iterar por snapshot (y no
-    // re-consultando `in_stock`) garantiza terminación: una pieza PRICE_PENDING queda `in_stock`
-    // y no debe re-seleccionarse en un loop infinito.
+    // Selección server-side: SNAPSHOT de ids (solo ids — sin cap).
+    //
+    // ⚠️ NO SUSTITUIR POR UN RE-QUERY DEL PREDICADO (§4.36.5b-bis, nota de implementación). Iterar
+    // por snapshot es lo que GARANTIZA TERMINACIÓN, y con `listed` dentro de la allowlist pasa de
+    // conveniente a IMPRESCINDIBLE: una pieza que escala SIGUE `listed` (decisión 3: escalar no le
+    // cambia el status), así que seguiría casando el predicado y un re-query en bucle no terminaría
+    // nunca. Lo mismo valía antes para la `in_stock` que queda PRICE_PENDING.
+    //
+    // v2.1.1 (§4.36.5b-bis): la selección se ensancha a `{in_stock, listed}` — la MISMA allowlist
+    // `PUBLISHABLE_ORIGIN_STATUSES` que `bulkPublish` usa desde v1.16.1. No ensucia la semántica del
+    // endpoint, la CORRIGE: el contrato ya declaraba su pipeline «IDÉNTICO a bulk-publish» y no lo
+    // era. Sin esto, una pieza publicada cuyo mercado se degrada después dejaba de venderse en
+    // SILENCIO y no entraba a la cola — lo contrario de §N.5 — y el paso 2 del cut-over (§4.36.9c)
+    // daba un falso negativo justo sobre las piezas del reporte del dueño, que están `listed`.
     const selectedIds = (
       await this.prisma.inventoryItem.findMany({
         where: {
           ownerType: 'platform',
-          status: 'in_stock',
+          status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
           ...(req.productType ? { productType: req.productType } : {}),
           ...(req.setId ? { card: { setId: req.setId } } : {}),
         },
@@ -1299,6 +1338,7 @@ export class InventoryService {
       alreadyListed: 0,
       pendingPrice: 0,
       failed: 0,
+      listedNowPending: 0,
     };
     const failures: PublishAllFailure[] = [];
     const pushFailure = (f: PublishAllFailure) => {
@@ -1315,16 +1355,21 @@ export class InventoryService {
       const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
       for (const item of items) {
         try {
-          // `listed` = no-op idempotente (la selección fue `in_stock`; solo llega aquí por una
-          // transición concurrente o un chunk repetido — no re-cobra, no cambia precio).
-          if (item.status === 'listed') {
-            summary.alreadyListed++;
-            continue;
-          }
+          // v2.1.1 (§4.36.5b-bis) — la rama `listed` YA NO ES CORTO-CIRCUITO: se RE-RESUELVE.
+          // Corto-circuitarla dejaba el punto ciego intacto y encima lo DISFRAZABA — cada pieza
+          // degradada se contaba como `alreadyListed`, que se lee como «ésta ya estaba bien».
+          // Seleccionar `listed` sin esto sería peor que no seleccionarla.
+          const wasListed = item.status === 'listed';
           this.assertPublishableGuards(item);
           const resolved = await this.resolvePublishSalePrice(item, null, ctx);
           if (!resolved.ok) {
+            // Ya escaló a la cola con su `reason` dentro de `resolvePublishSalePrice`. Si estaba
+            // publicada, NO se le cambia el status: sigue `listed` (§4.36.5b-bis decisión 3). No hay
+            // exposición que cerrar —la resolución EN LECTURA ya la sacó de Compra y de `stockCount`
+            // (§4.9a)— y un flip `listed → in_stock` competiría con un checkout en vuelo que la
+            // tenga reservada. La SEÑAL es la entrada en la cola, no el status.
             summary.pendingPrice++;
+            if (wasListed) summary.listedNowPending++;
             pushFailure({
               inventoryItemId: item.id,
               folio: item.folio,
@@ -1333,6 +1378,12 @@ export class InventoryService {
                 ? { pendingPriceEntryId: resolved.pendingPriceEntryId }
                 : {}),
             });
+            continue;
+          }
+          if (wasListed) {
+            // Re-verificada y SANA: no-op observable. No se re-cobra y no cambia el precio (que no
+            // está persistido, §4.26b), así que ni siquiera se toca la fila.
+            summary.alreadyListed++;
             continue;
           }
           await this.claimListed(item);

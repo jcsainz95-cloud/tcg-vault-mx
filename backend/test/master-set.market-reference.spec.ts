@@ -30,6 +30,10 @@ function buildPricing(refs: Map<string, PriceInfo>) {
   return {
     pricing: {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
       getReferencesBatch,
       getSeparateProductsByCard: jest.fn(async () => new Map()),

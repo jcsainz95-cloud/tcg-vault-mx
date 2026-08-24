@@ -49,14 +49,17 @@ describe('E6 — instrumentación de VENTA: se congela con `unitPriceCents` (che
     const prisma = { inventoryItem: { findMany: jest.fn(async () => [item]) } } as unknown as PrismaService;
     const pricing = {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
       getReference: jest.fn(async () =>
         referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
       ),
-      computeSalePriceForItem: jest.fn(async (ref: number | null, controls?: never) => {
-        const { computeSalePriceFromCurve } = await import('../src/common/money');
-        return computeSalePriceFromCurve(ref, DEFAULT_PRICING_CURVE, controls);
-      }),
+      // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+      // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+      computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
       getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const settings = {
@@ -112,7 +115,16 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
   function buylistWith(referenceMxnCents: number | null, override: Record<string, unknown> | null = null) {
     const created: Record<string, unknown>[] = [];
     const prisma = {
-      card: { findUnique: jest.fn(async () => ({ id: 'c1', rarity: 'Common', availableFinishes: ['normal', 'reverse_holo'] })) },
+      card: {
+        findUnique: jest.fn(async () => ({ id: 'c1', rarity: 'Common', availableFinishes: ['normal', 'reverse_holo'] })),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
+      },
       kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
       sellRequest: {
         aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: 0 } })),
@@ -130,6 +142,10 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
     } as unknown as PrismaService & { sellRequest: { create: jest.Mock } };
     const pricing = {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
       getReference: jest.fn(async () =>
         referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },

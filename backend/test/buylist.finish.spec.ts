@@ -34,12 +34,24 @@ function svcWith(opts: {
         rarity: opts.cardRarity ?? 'Common',
         availableFinishes: opts.availableFinishes ?? ['normal', 'reverse_holo', 'holofoil'],
       }),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
     },
   };
   const pricing = {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     // v2.0 (§4.36.2): UN solo lector de configuración de dinero para los dos ejes.
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReference: jest.fn().mockResolvedValue(
       opts.referenceMxnCents == null
         ? { status: 'pending' }
@@ -141,6 +153,14 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
           rarity: 'Common',
           availableFinishes: ['normal', 'reverse_holo'],
         }),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+        // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
@@ -174,6 +194,10 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
     return {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       getReference: jest.fn().mockResolvedValue(
         referenceMxnCents == null
           ? { status: 'pending' }
@@ -243,5 +267,151 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
         VALID_CLABE,
       ),
     ).rejects.toMatchObject({ code: 'FINISH_NOT_AVAILABLE' });
+  });
+});
+
+/**
+ * v2.1.1 (P-48, gate techlead — BLOQUEO 2) — **UN SOLO CUERPO en el eje de COMPRA**.
+ *
+ * `createRequest` reimplementaba la secuencia de `quoteCardForFinish` (rama `productId`, rama
+ * `set_base`, `quoteAcquisitionFromCurve`, `resolvePendingReason` y la derivación de
+ * `quotedPriceCents`/`priceBasis`/`itemStatus`). Los dos cuerpos daban el MISMO número, así que no era
+ * un bug: era riesgo. Y la razón por la que la spec exige uno solo es concreta — la cotización pública
+ * y la solicitud que se paga no pueden divergir: **el vendedor ve un número y firma otro**. Cualquier
+ * matiz futuro (un tope, una condición, un segundo control por variante) entraría en uno de los dos y
+ * la divergencia solo se descubriría por una queja.
+ *
+ * Estos tests son el candado: para el MISMO insumo, `POST /buylist/quote` y `POST /buylist/requests`
+ * producen el MISMO monto, el MISMO `priceBasis` y el MISMO veredicto — incluido el guardarraíl.
+ */
+describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.36.5b)', () => {
+  const VALID_CLABE_2 = '032180000118359719';
+  const INE_KEYS = { front: 'ine/front.jpg', back: 'ine/back.jpg' };
+
+  function harness(referenceMxnCents: number | null, cardRarity = 'Common') {
+    const card = { id: 'c1', rarity: cardRarity, availableFinishes: ['normal', 'reverse_holo'] };
+    const prisma: any = {
+      card: {
+        findUnique: jest.fn(async () => card),
+        findMany: jest.fn(async () => [card]),
+      },
+      kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
+      sellRequest: {
+        aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: 0 } })),
+        create: jest.fn(async ({ data }: any) => ({
+          id: 'sr-1',
+          status: data.status,
+          quotedTotalCents: data.quotedTotalCents,
+          items: data.items.create.map((it: any, i: number) => ({
+            id: `it-${i}`,
+            cardId: it.cardId,
+            card: { id: it.cardId, name: 'Pidgey', number: '16' },
+            productType: it.productType,
+            rawCondition: it.rawCondition ?? null,
+            finish: it.finish,
+            rarity: it.rarity,
+            priceBasis: it.priceBasis,
+            quotedPriceCents: it.quotedPriceCents,
+            approvedPriceCents: null,
+            itemStatus: it.itemStatus,
+            inventoryItemId: null,
+          })),
+        })),
+      },
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
+    };
+    const pricing = {
+      gradeKeyFor: jest.fn(() => 'raw:NM'),
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      getReference: jest.fn(async () =>
+        referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
+      ),
+      settlePendingForVariant: jest.fn(async () => undefined),
+      escalatePending: jest.fn(),
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
+    } as unknown as PricingService;
+    const settings = {
+      getRaw: jest.fn(),
+      getNumber: jest.fn(async () => 100_000_000),
+    } as unknown as SettingsService;
+    return new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
+  }
+
+  const line = { cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'normal' as any };
+
+  it.each([
+    ['mercado normal ($125)', 12500, 'Common'],
+    ['bulk en el BIN ($0.50)', 50, 'Common'],
+    ['sin mercado', null, 'Common'],
+    ['PREMIUM en el bin (guardarraíl)', 100, 'Special Illustration Rare'],
+    ['premium con mercado sano', 40000, 'Special Illustration Rare'],
+  ])('%s: el monto y el basis de la cotización son EXACTAMENTE los que se firman', async (_n, ref, rarity) => {
+    const quoted = await harness(ref as number | null, rarity as string).publicQuote('c1', 'raw', 'NM', 'normal');
+    const created = await harness(ref as number | null, rarity as string).createRequest(
+      'u1',
+      [line],
+      VALID_CLABE_2,
+      // Fase 0.3 (compliance): una línea `precio_pendiente` EXIGE INE (el monto incierto se trata
+      // como potencialmente por encima del umbral). Se aporta para poder comparar los DOS caminos.
+      INE_KEYS,
+    );
+
+    // El DTO de la solicitud emite el monto ausente como `undefined` (`?? undefined`); el del quote
+    // como `null`. Se normalizan para comparar LA DECISIÓN, no la serialización.
+    expect(created.items[0].quotedPriceCents ?? null).toBe(quoted.quote.quotedPriceCents);
+    expect(created.items[0].priceBasis).toBe(quoted.priceBasis);
+    expect(created.items[0].itemStatus).toBe(quoted.quote.status);
+  });
+
+  it('el guardarraíl bloquea en AMBAS superficies (la solicitud no puede pagar lo que el quote no cotiza)', async () => {
+    // Special Illustration Rare con mercado de $1: la curva la manda al BIN ⇒ `premium_at_floor`.
+    const quoted = await harness(100, 'Special Illustration Rare').publicQuote('c1', 'raw', 'NM', 'normal');
+    const created = await harness(100, 'Special Illustration Rare').createRequest(
+      'u1', [line], VALID_CLABE_2, INE_KEYS,
+    );
+    expect(quoted.quote.quotedPriceCents).toBeNull();
+    expect(quoted.priceBasis).toBe('pending');
+    expect(created.items[0].quotedPriceCents ?? null).toBeNull();
+    expect(created.items[0].itemStatus).toBe('precio_pendiente');
+    expect(created.quotedTotalCents).toBe(0);
+  });
+
+  it('N+1 cerrado: `createRequest` carga las cartas EN LOTE (un findMany, cero findUnique por ítem)', async () => {
+    const card = { id: 'c1', rarity: 'Common', availableFinishes: ['normal'] };
+    const prisma: any = {
+      card: { findUnique: jest.fn(async () => card), findMany: jest.fn(async () => [card]) },
+      kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
+      sellRequest: {
+        aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: 0 } })),
+        create: jest.fn(async ({ data }: any) => ({
+          id: 'sr-1', status: data.status, quotedTotalCents: data.quotedTotalCents,
+          items: data.items.create.map((it: any, i: number) => ({
+            id: `it-${i}`, cardId: it.cardId, card: { id: it.cardId, name: 'P', number: '1' },
+            productType: it.productType, rawCondition: null, finish: it.finish, rarity: it.rarity,
+            priceBasis: it.priceBasis, quotedPriceCents: it.quotedPriceCents, approvedPriceCents: null,
+            itemStatus: it.itemStatus, inventoryItemId: null,
+          })),
+        })),
+      },
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
+    };
+    const pricing = {
+      gradeKeyFor: jest.fn(() => 'raw:NM'),
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 12500 })),
+      settlePendingForVariant: jest.fn(async () => undefined),
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+    } as unknown as PricingService;
+    const settings = { getRaw: jest.fn(), getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService;
+    const svc = new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
+
+    await svc.createRequest('u1', [line, line, line], VALID_CLABE_2);
+
+    expect(prisma.card.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.card.findUnique).not.toHaveBeenCalled();
+    // La curva y los overrides siguen izándose UNA vez por request (BE-25).
+    expect(pricing.loadPricingCurve).toHaveBeenCalledTimes(1);
+    expect(pricing.getVariantOverridesBatch).toHaveBeenCalledTimes(1);
   });
 });

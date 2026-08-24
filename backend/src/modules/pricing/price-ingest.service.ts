@@ -418,6 +418,17 @@ export class PriceIngestService {
       await this.finishReconciler.reconcile(reconcileIds);
     }
 
+    // v2.1.1 (P-48, §4.36.5b-ter) — CONTINUIDAD DEL GUARDARRAÍL: el pase posterior al barrido ABRE
+    // entradas, no solo las cierra. Hasta aquí la SALIDA de la cola cabalgaba sobre el barrido (una
+    // `PriceReference` nueva la cierra en la siguiente resolución) pero la ENTRADA estaba atada solo a
+    // eventos de publicación: el guardarraíl se cerraba solo y NO se abría solo, así que cada
+    // degradación futura del feed dependía de que alguien pulsara «publicar». Solo tras una corrida
+    // EXITOSA con filas (mismo criterio conservador que el snapshot de acabados: ante fallo total o 0
+    // filas no se concluye nada).
+    if (result.requestOk && result.rows.length > 0) {
+      await this.reconcilePublishedPrices(set);
+    }
+
     if (driftPairs.length > 0) {
       this.logger.warn(
         `price-ingest-set(${set.externalId}, ${provider.source}): finishNotInCatalog — ` +
@@ -445,6 +456,89 @@ export class PriceIngestService {
       scope,
       dailyRemaining: result.dailyRemaining ?? null,
     };
+  }
+
+  /**
+   * v2.1.1 (P-48, §4.36.5b-ter) — RE-RESUELVE el precio de venta de las piezas PUBLICADAS del set que
+   * el barrido acaba de repreciar y **abre o cierra** su entrada en la cola según el veredicto. Es lo
+   * que hace CONTINUO al guardarraíl: sin esto, una pieza ya `listed` cuyo mercado se degrada deja de
+   * venderse en silencio hasta que alguien pulse «publicar» (§N.5 pide lo contrario).
+   *
+   * - **No es un job nuevo ni una fan-out nueva:** es el lote que el barrido YA tiene en la mano.
+   * - **Alcance = el SET completo, no solo las variantes con fila nueva.** A propósito: el caso feo es
+   *   justamente el acabado/carta que el proveedor DEJÓ de reportar; si solo mirásemos lo que vino en
+   *   la respuesta, ese caso —el que más se parece a una degradación real— nunca se detectaría.
+   * - **Solo `raw`:** es lo que este barrido reprecia (`productType='raw'`, `gradeKey='raw:NM'`). El
+   *   sellado y las gradeadas tienen su propio ingest y su propia clave de cola.
+   * - **Las piezas con override manual POR PIEZA se saltan**, igual que en `resolvePublishSalePrice`:
+   *   su precio no depende del mercado, así que ni escalan ni cierran nada.
+   * - **NO cambia el `status`** (§4.36.5b-bis decisión 3): la pieza sigue `listed`. No hay exposición
+   *   que cerrar (la resolución en lectura ya la sacó de Compra y de `stockCount`) y un flip
+   *   `listed → in_stock` competiría con un checkout en vuelo. La señal es la entrada en la cola.
+   *
+   * Falla-seguro: un error aquí NO tumba la ingesta (los precios ya se persistieron); se loguea.
+   */
+  private async reconcilePublishedPrices(set: CardSet): Promise<void> {
+    try {
+      const items = await this.prisma.inventoryItem.findMany({
+        where: {
+          ownerType: 'platform',
+          status: 'listed',
+          productType: 'raw',
+          card: { setId: set.id },
+        },
+        include: { card: true },
+      });
+      if (items.length === 0) return;
+      // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
+      const curve = await this.pricing.loadPricingCurve();
+      const keys = items.map((it) => ({
+        cardId: it.cardId,
+        productType: it.productType,
+        gradeKey: this.pricing.gradeKeyFor(it),
+        finish: it.finish,
+      }));
+      const refs = await this.pricing.getReferencesBatch(keys);
+      const overrides = await this.pricing.getVariantOverridesBatch(keys);
+      let opened = 0;
+      let closed = 0;
+      for (const item of items) {
+        // Override manual POR PIEZA: el precio no sale del mercado ⇒ el barrido no opina sobre su cola.
+        if (item.listPriceCents != null) continue;
+        const gradeKey = this.pricing.gradeKeyFor(item);
+        const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
+        const ref = refs.get(key);
+        const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+        // SEAM ÚNICO del eje de venta (§4.36.5b): mismo cuerpo, mismo veredicto que publicación y
+        // checkout — el barrido no puede llegar a una conclusión distinta de la del storefront.
+        const decision = this.pricing.decideSalePrice({
+          referenceMxnCents: refCents,
+          rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+          controls: overrides.get(key) ?? null,
+          curve,
+        });
+        // §4.36.5c: el MISMO seam abre y cierra. `reason != null` ⇒ entra a la cola; `null` ⇒ se cierra
+        // la entrada abierta de esa clave si el mercado volvió a resolver.
+        await this.pricing.settlePendingForVariant(
+          decision.pendingReason,
+          { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
+          'inventory',
+        );
+        if (decision.pendingReason != null) opened++;
+        else closed++;
+      }
+      if (opened > 0) {
+        this.logger.warn(
+          `price-ingest-set(${set.externalId}): ${opened} pieza(s) PUBLICADA(s) dejaron de resolver precio ` +
+            `tras el barrido y entraron a la cola (siguen \`listed\`); ${closed} re-verificada(s) sana(s).`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `price-ingest-set(${set.externalId}): la reconciliación de piezas publicadas falló ` +
+          `(los precios YA se persistieron): ${(e as Error).message}`,
+      );
+    }
   }
 
   /**

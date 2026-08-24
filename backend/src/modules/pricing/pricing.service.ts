@@ -37,6 +37,7 @@ import {
   explainBuyFromCurve,
   explainSaleFromCurve,
   normalizePricingCurve,
+  resolvePendingReason,
   sanitizePricingCurve,
 } from '../../common/pricing-curve';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
@@ -187,6 +188,24 @@ export interface RefreshCardPricesResult {
 
 /** v1.26 (P-7 ⑤) — cota DURA de cartas por llamada de reprecio fresco (nunca un barrido). */
 export const MAX_FRESH_REPRICE_CARDS = 50;
+
+/**
+ * v2.0 (P-48, §4.36.5b) — LA DECISIÓN DE VENTA de una variante: monto **y** veredicto, juntos e
+ * inseparables. Es lo que devuelve el seam único del eje de venta (`decideSalePrice` /
+ * `computeSalePriceForItem`).
+ *
+ * INVARIANTE que sostiene todo lo demás: `pendingReason != null` ⇒ `priceCents === null` y
+ * `basis === 'pending'`. Un caller no puede leer un precio publicable de una variante bloqueada
+ * porque **no existe tal precio en el objeto** — el guardarraíl deja de depender de que cada
+ * consumidor se acuerde de consultarlo.
+ */
+export interface SalePriceDecision extends CurvePriceResult {
+  /**
+   * `null` = se puede publicar/cobrar/ofrecer. No-null = BLOQUEADA, con el motivo que hace TRIABLE la
+   * cola: `no_market` (lo cura solo el barrido) vs `premium_at_floor` (necesita que el dueño mire).
+   */
+  pendingReason: PendingReason | null;
+}
 
 /**
  * PricingService — Orquesta el pricing (ARCHITECTURE §4.1):
@@ -1326,28 +1345,72 @@ export class PricingService {
   // venta lo resuelve `computeSalePriceForItem` (seam único, §4.36.5b).
 
   /**
-   * v2.0 (P-48, §4.36.5b) — **SEAM ÚNICO DEL EJE DE VENTA**. Todo lo que publica o cobra pasa por aquí:
-   * `catalog.fetchSellable`/`toListingDTO`, `orders.salePriceOf` (checkout auth Y guest),
-   * `inventory.bulkPublish`, `publish-all` y el binder de master-set. Un solo cuerpo ⇒ el guardarraíl
-   * (E4), la instrumentación (E6) y cualquier cambio futuro entran en UN punto, no en doce.
+   * v2.0 (P-48, §4.36.5b) — **SEAM ÚNICO DEL EJE DE VENTA**, versión SÍNCRONA (curva ya izada por el
+   * caller, patrón BE-25). Devuelve una **DECISIÓN**, no un monto: el precio y el veredicto de
+   * publicación salen JUNTOS de la misma llamada.
    *
-   * El precio sale SOLO del valor de mercado (§4.36.1): `redondeo↑(max(piso, mercado × markup(mercado)))`,
-   * con la precedencia `sellOverrideCents > curva > pendiente`. El `listPriceCents` POR PIEZA lo aplican
-   * los callers ANTES (la intención más específica gana), como siempre.
+   * **Por qué la decisión y no el monto (techlead, gate v2.0).** Mientras el seam solo cargaba config y
+   * delegaba en la función pura, el guardarraíl vivía FUERA y cada consumidor tenía que acordarse de
+   * llamarlo: uno de cinco (`master-set.resolveBuyables`) no se acordó, y el binder ofrecía como
+   * `buyable` una premium que el storefront ya ocultaba y el checkout ya rechazaba. La regla «un solo
+   * cuerpo» no se sostiene con disciplina; se sostiene con tipos. Aquí es IMPOSIBLE obtener el precio
+   * sin recibir el veredicto, y cuando el veredicto bloquea el monto viene en `null`:
+   * `pendingReason != null` ⇒ `priceCents === null` y `basis === 'pending'`, sin excepción.
    *
-   * NI rareza NI acabado entran al monto (criterio 84). El acabado sigue eligiendo DE QUÉ VARIANTE se
-   * lee el mercado — eso ocurre antes, al resolver `referenceMxnCents`.
+   * **La rareza NO entra al monto (criterio 84).** Entra a `resolvePendingReason`, que devuelve un
+   * veredicto —jamás una cantidad— y solo puede SUPRIMIR el precio, nunca fijarlo. La matemática pura
+   * de `common/` sigue sin `rarity` ni `finish` en su firma, que es donde §4.36.4 lo exige «hecho tipo».
    *
-   * `curve` opcional = curva ya izada por el caller (BE-25, una lectura por request). Sin ella se lee
-   * aquí (uso single).
+   * `marketMxnCents` y `curveQuoteCents` se devuelven SIEMPRE (aunque el veredicto bloquee): son la
+   * instrumentación honesta del insumo (§4.36.7c) y el diagnóstico del piso mal calibrado que la consola
+   * del binder necesita para explicar POR QUÉ se bloqueó.
    */
-  async computeSalePriceForItem(
-    referenceMxnCents: number | null,
-    controls?: VariantPriceControls | null,
-    curve?: PricingCurve,
-  ): Promise<CurvePriceResult> {
-    const c = curve ?? (await this.loadPricingCurve());
-    return computeSalePriceFromCurve(referenceMxnCents, c, controls);
+  decideSalePrice(input: {
+    /** Valor de MERCADO de la variante, ya resuelto por el caller (SEC-A1: de BD, jamás del DTO). */
+    referenceMxnCents: number | null;
+    /**
+     * Rareza CANÓNICA — SOLO para el veredicto del guardarraíl (§4.36.5). No entra al monto.
+     * Obligatoria (no opcional) A PROPÓSITO: un caller no puede «olvidarla» sin que el compilador lo
+     * pare, que es justo la falla que este seam cierra.
+     */
+    rarityCanonical: string | null;
+    /** Fila M-30 de la variante (sellOverrideCents). El `listPriceCents` POR PIEZA lo aplica el caller ANTES. */
+    controls?: VariantPriceControls | null;
+    /** Curva izada UNA vez por request (BE-25). */
+    curve: PricingCurve;
+  }): SalePriceDecision {
+    // 1. EL MONTO — solo del valor de mercado (§4.36.1): `redondeo↑(max(piso, mercado × markup(mercado)))`,
+    //    precedencia `sellOverrideCents > curva > pendiente`. Sin rareza, sin acabado.
+    const price = computeSalePriceFromCurve(input.referenceMxnCents, input.curve, input.controls);
+    // 2. EL VEREDICTO — `no_market` (sin dato el PISO no gana, decisión LOCKED §4.36.0) o el guardarraíl
+    //    `premium_at_floor` (una chase en el piso solo puede significar dato de mercado malo). NO dispara
+    //    con `override` ni `bounty`: son decisiones deliberadas del admin y no se corrigen (§4.36.6).
+    const pendingReason = resolvePendingReason(price.basis, input.rarityCanonical);
+    if (pendingReason != null) {
+      // El monto se SUPRIME aquí, en el seam, y no en cada caller: así ninguna superficie puede
+      // publicar/cobrar/ofrecer un precio que otra superficie ya considera no publicable.
+      return { ...price, priceCents: null, basis: 'pending', pendingReason };
+    }
+    return { ...price, pendingReason: null };
+  }
+
+  /**
+   * v2.0 (P-48, §4.36.5b) — el MISMO seam para uso SINGLE: iza la curva por sí mismo cuando el caller
+   * no la trae (una sola lectura, `loadPricingCurve`). Delegación pura a `decideSalePrice`: un solo
+   * cuerpo, cero matemática propia.
+   *
+   * Consumidores que DEBEN pasar por aquí o por `decideSalePrice` (§4.36.5b):
+   * `catalog.fetchSellable`/`toListingDTO`, `orders.salePriceOf` (checkout auth Y guest),
+   * `inventory.bulkPublish`, `publish-all` y el binder de master-set (`resolveBuyables`).
+   */
+  async computeSalePriceForItem(input: {
+    referenceMxnCents: number | null;
+    rarityCanonical: string | null;
+    controls?: VariantPriceControls | null;
+    curve?: PricingCurve;
+  }): Promise<SalePriceDecision> {
+    const curve = input.curve ?? (await this.loadPricingCurve());
+    return this.decideSalePrice({ ...input, curve });
   }
 
   gradeKeyFor(item: {

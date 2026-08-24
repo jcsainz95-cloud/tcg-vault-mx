@@ -51,7 +51,16 @@ function overrideRow(over: Record<string, unknown> = {}) {
 function build(opts: { existing?: ReturnType<typeof overrideRow> | null; referenceMxnCents?: number | null; card?: object | null } = {}) {
   const existing = opts.existing ?? null;
   const prisma = {
-    card: { findUnique: jest.fn(async () => (opts.card === undefined ? CARD : opts.card)) },
+    card: {
+      findUnique: jest.fn(async () => (opts.card === undefined ? CARD : opts.card)),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
+    },
     variantPriceOverride: {
       findUnique: jest.fn(async () => existing),
       upsert: jest.fn(async ({ create, update }: any) =>
@@ -62,6 +71,10 @@ function build(opts: { existing?: ReturnType<typeof overrideRow> | null; referen
   } as unknown as PrismaService;
   const pricing = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReference: jest.fn(async () =>
       opts.referenceMxnCents == null
         ? { status: 'pending' }

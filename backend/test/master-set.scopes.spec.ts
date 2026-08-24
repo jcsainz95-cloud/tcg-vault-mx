@@ -36,6 +36,10 @@ function buildPrisma(over: any = {}) {
 function buildPricing(over: any = {}) {
   return {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
@@ -297,6 +301,60 @@ describe('buyable — SOLO vista (iii); pieza listed más barata o null (§4.20d
     const res = await svc.binder('s1', { kind: 'user_vault', userId: 'u1' }, { includeBuyable: true });
     const missing = res.cells[0].variants.find((v) => v.finish === 'reverse_holo')!;
     expect(missing.buyable).toEqual({ inventoryItemId: 'i-derivada', salePriceCents: 11500 });
+  });
+
+  /**
+   * v2.1.1 (P-48, gate techlead — BLOQUEO 1) — el binder pasa por el SEAM ÚNICO del eje de venta, así
+   * que hereda el GUARDARRAÍL. Antes calculaba el monto con la función pura y se saltaba el veredicto:
+   * el storefront ocultaba la carta, el checkout la rechazaba con `PRICE_PENDING`… y el binder la
+   * seguía ofreciendo como `buyable` con CTA a un checkout que iba a fallar. Dos superficies de la
+   * MISMA decisión de dinero discrepando.
+   */
+  it('GUARDARRAÍL: una PREMIUM que aterriza en el PISO NO se ofrece como buyable (paridad con storefront y checkout)', async () => {
+    // Mercado absurdo ($10) para una Special Illustration Rare ⇒ venta cruda $11.50 < piso $25 ⇒
+    // `basis='floor'` ⇒ `premium_at_floor`. Es el escenario exacto de P-48.
+    const refs = new Map([
+      ['c1|raw|raw_NM|reverse_holo', { status: 'priced', referenceMxnCents: 1000 }],
+    ]);
+    const { svc } = setupCustomerBinder(
+      [
+        {
+          id: 'i-premium-en-piso',
+          cardId: 'c1',
+          finish: 'reverse_holo',
+          productType: 'raw',
+          listPriceCents: null,
+          card: { rarity: 'Special Illustration Rare' },
+        },
+      ],
+      { getReferencesBatch: jest.fn().mockResolvedValue(refs) },
+    );
+    const res = await svc.binder('s1', { kind: 'user_vault', userId: 'u1' }, { includeBuyable: true });
+    const missing = res.cells[0].variants.find((v) => v.finish === 'reverse_holo')!;
+    // NO se ofrece: ni a MX$25 (el piso) ni a ningún otro precio.
+    expect(missing.buyable).toBeNull();
+  });
+
+  it('recíproco: la MISMA carta premium con mercado SANO sí se ofrece (el guardarraíl no es un apagón por rareza)', async () => {
+    const refs = new Map([
+      ['c1|raw|raw_NM|reverse_holo', { status: 'priced', referenceMxnCents: 100000 }],
+    ]);
+    const { svc } = setupCustomerBinder(
+      [
+        {
+          id: 'i-premium-sana',
+          cardId: 'c1',
+          finish: 'reverse_holo',
+          productType: 'raw',
+          listPriceCents: null,
+          card: { rarity: 'Special Illustration Rare' },
+        },
+      ],
+      { getReferencesBatch: jest.fn().mockResolvedValue(refs) },
+    );
+    const res = await svc.binder('s1', { kind: 'user_vault', userId: 'u1' }, { includeBuyable: true });
+    const missing = res.cells[0].variants.find((v) => v.finish === 'reverse_holo')!;
+    expect(missing.buyable).toEqual({ inventoryItemId: 'i-premium-sana', salePriceCents: 115000 });
   });
 
   it('vista admin (ii) y platform (i): buyable OMITIDO aunque haya faltantes', async () => {
