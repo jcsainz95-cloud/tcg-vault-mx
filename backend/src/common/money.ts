@@ -9,6 +9,24 @@
 // AMBOS lados (rareza y key) para empatar 1:1 con la forma canónica del ingest.
 import { isPremiumCanonicalRarity, normalizeRarity } from './rarity-catalog';
 import type { TierId } from './pricing-tiers';
+// v2.0 (P-48, §4.36): LA CURVA. La matemática pura (interpolación, redondeo, invariantes, guardarraíl
+// y predicado de bounty) vive en `common/pricing-curve.ts`; aquí solo se le aplican las PRECEDENCIAS
+// de §4.36.6 y el clamp de persistencia (BE-27). Dirección de dependencia ÚNICA: money.ts →
+// pricing-curve.ts (nunca al revés), para que no haya ciclo.
+import {
+  PricingCurve,
+  resolveBuyFromCurve,
+  resolveSaleFromCurve,
+  isBountyEffective,
+} from './pricing-curve';
+import type { PriceBasis } from './pricing-curve';
+
+/**
+ * §4.36.7a — los CINCO valores LOCKED de PROJECT §N.7. Se DEFINE en `pricing-curve.ts` (que no importa
+ * nada de aquí) y se re-exporta desde `money.ts` porque es el tipo de retorno de las dos funciones de
+ * dinero. UNA sola definición, dos puertas de importación.
+ */
+export type { PriceBasis };
 
 /**
  * BE-27 (money-safety): techo Int32 de Postgres. Toda columna `*Cents` persistible es `Int`, cuyo
@@ -606,6 +624,113 @@ export function computeSalePriceForRarity(
   };
 }
 
+// ============================================================================
+// v2.0 (P-48, §4.36.2/§4.36.6) — PRECIO PURO POR VALOR DE MERCADO: las DOS funciones de dinero.
+//
+// SUSTITUYEN (en E8 se BORRA lo viejo): applyRule, resolveRuleForFinish, resolveTwoAxisRule,
+// ruleKeyCandidates, finishRuleFor, lookupRarityRule, toPriceRuleSet, buildEffectiveRuleSet,
+// isPriceRuleSet, isTieredRuleSet, quoteAcquisitionForFinish, computeSalePriceForRarity e
+// isPremiumRarity/PREMIUM_RARITY_PATTERNS.
+//
+// NI `rarity` NI `finish` SON PARÁMETROS — es el criterio 84 hecho tipo: *no se puede* consultar la
+// rareza desde el pricing porque NO ESTÁ EN LA FIRMA. El acabado sigue determinando DE QUÉ VARIANTE se
+// lee el mercado (`getReference(cardId, productType, gradeKey, finish)`), pero eso ocurre ANTES, en la
+// capa de servicio.
+// ============================================================================
+
+/** Resultado de dinero de la curva, con la señal server-side de QUÉ lo determinó. */
+export interface CurvePriceResult {
+  /** `null` ⇔ `basis === 'pending'`. JAMÁS MX$0 ni un precio inventado. */
+  priceCents: number | null;
+  basis: PriceBasis;
+  /**
+   * El mercado que ENTRÓ al cálculo, CRUDO en centavos (instrumentación §4.36.7c). Es passthrough
+   * honesto del insumo: `null` cuando no había referencia (aunque un override/bounty haya fijado el
+   * monto). Jamás un 0 inventado.
+   */
+  marketMxnCents: number | null;
+  /**
+   * Lo que da LA CURVA hoy para ese mercado, INDEPENDIENTEMENTE de qué peldaño ganó. Dos consumidores
+   * lo necesitan y por eso se devuelve en vez de recalcularse: (1) la REVALIDACIÓN DEL BOUNTY
+   * (§4.36.6 — un bounty por debajo o igual de esto deja de ser bounty) y (2) el `suggestedCents` de
+   * la consola del binder. `null` = la curva no resuelve (sin mercado).
+   */
+  curveQuoteCents: number | null;
+}
+
+/**
+ * VENTA (§4.36.6). Precedencia NORMATIVA:
+ *   1. `InventoryItem.listPriceCents` (POR PIEZA) → la aplican los CALLERS antes de llamar aquí
+ *      (la intención más específica gana); su basis también es `override`.
+ *   2. `sellOverrideCents` (variante, M-30) → `override`. **ABSOLUTO**: puede quedar POR DEBAJO de la
+ *      curva —decisión deliberada del admin— y NO se convierte en piso. PROHIBIDO envolverlo en un
+ *      `max(...)` con la curva: sería reintroducir en espejo el bug que este cambio cierra.
+ *   3. CURVA `redondeo↑(max(piso, mercado × markup(mercado)))` → `market` | `floor`.
+ *   4. sin resolver → `pending` (no se publica; el guardarraíl y la cola los aplica el servicio).
+ */
+export function computeSalePriceFromCurve(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
+  controls?: VariantPriceControls | null,
+): CurvePriceResult {
+  const fromCurve = resolveSaleFromCurve(marketMxnCents, curve);
+  const curveQuoteCents = fromCurve.cents == null ? null : clampCents(fromCurve.cents);
+  // 2. Override de venta de la variante. Regla de presencia H-1: presente ⇔ > 0 (un <= 0 es input
+  //    degenerado y se trata como AUSENTE — jamás se vende gratis por un dato corrupto).
+  if (controls?.sellOverrideCents != null && controls.sellOverrideCents > 0) {
+    return {
+      priceCents: clampCents(controls.sellOverrideCents),
+      basis: 'override',
+      marketMxnCents,
+      curveQuoteCents,
+    };
+  }
+  // 3./4. La curva (o pendiente).
+  return { priceCents: curveQuoteCents, basis: fromCurve.basis, marketMxnCents, curveQuoteCents };
+}
+
+/**
+ * COMPRA (§4.36.6). Precedencia NORMATIVA:
+ *   1. **bounty VÁLIDO** → `bounty`. Válido = habilitado, `priceCents > 0` y **ESTRICTAMENTE MAYOR**
+ *      que la cotización de la curva vigente (criterio 91). Un bounty rebasado por la curva DEJA DE
+ *      SER BOUNTY: se salta este peldaño y se paga la curva. El bounty NUNCA se compara contra el
+ *      mercado — solo contra la curva (vive en la escala de compra, 30–50 % del mercado).
+ *   2. `buyOverrideCents` (variante, M-30) → `override`. **ABSOLUTO**, igual que en venta.
+ *   3. CURVA `max(bin, mercado × pct(mercado))` (SIN redondeo) → `market` | `floor`.
+ *   4. sin resolver → `pending`.
+ *
+ * Este es el ÚNICO cuerpo de la precedencia de compra: quote público, quote batch, createRequest y la
+ * vitrina `/buylist/bounties` DEBEN pasar por aquí — prohibido duplicarlo.
+ */
+export function quoteAcquisitionFromCurve(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
+  controls?: VariantPriceControls | null,
+): CurvePriceResult {
+  const fromCurve = resolveBuyFromCurve(marketMxnCents, curve);
+  const curveQuoteCents = fromCurve.cents == null ? null : clampCents(fromCurve.cents);
+  // 1. Bounty, REVALIDADO contra la curva vigente (no solo al crear: también aquí, al cotizar).
+  if (controls?.bountyEnabled && isBountyEffective(controls.bountyPriceCents ?? null, curveQuoteCents)) {
+    return {
+      priceCents: clampCents(controls.bountyPriceCents as number),
+      basis: 'bounty',
+      marketMxnCents,
+      curveQuoteCents,
+    };
+  }
+  // 2. Override manual de compra (ABSOLUTO; puede quedar por debajo de la curva a propósito).
+  if (controls?.buyOverrideCents != null && controls.buyOverrideCents > 0) {
+    return {
+      priceCents: clampCents(controls.buyOverrideCents),
+      basis: 'override',
+      marketMxnCents,
+      curveQuoteCents,
+    };
+  }
+  // 3./4. La curva (o pendiente).
+  return { priceCents: curveQuoteCents, basis: fromCurve.basis, marketMxnCents, curveQuoteCents };
+}
+
 /**
  * v1.23-sealed-sales (§4.23b) — precio de VENTA del SELLADO por PRESENTACIÓN. Hermana de
  * `computeSalePriceForRarity`, keyeada por `SealedSubtype` en vez de rareza+acabado.
@@ -663,6 +788,24 @@ export function computeSealedSalePrice(
     source,
     appliedSpreadPct: spread,
   };
+}
+
+/**
+ * v2.0 (P-48, §4.36.7a) — `priceBasis` DERIVADO del sellado. **La matemática del sellado NO cambia**
+ * (§4.23/§K: `override > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`,
+ * con sus semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25). Lo único que gana es
+ * esta señal, para que el front tenga UNA SOLA regla de visibilidad del «Valor de mercado» en las dos
+ * fichas (carta y sellado), sin ramas por tipo de producto:
+ *
+ *   `override`                       ⇒ `override` ⇒ NO se muestra
+ *   `subtype_spread | global_spread` ⇒ `market`   ⇒ SÍ se muestra
+ *   sin precio (PRICE_PENDING)       ⇒ `pending`  ⇒ NO se muestra
+ *
+ * Verificable: el PRECIO de un sellado antes y después de v2.0 es IDÉNTICO (criterio 85).
+ */
+export function sealedPriceBasisOf(result: SealedSpreadResult): PriceBasis {
+  if (result.status === 'pending' || result.salePriceCents == null) return 'pending';
+  return result.source === 'override' ? 'override' : 'market';
 }
 
 export interface BreakdownDTO {
