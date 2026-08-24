@@ -116,7 +116,28 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // v1.23-sealed-sales (§4.23c, SUP-6): seed confirmado por el PO — markup % arriba de mercado por
   // presentación (ítems chicos → % mayor) y fallback global 25 para piezas sin subtype o subtype
   // sin regla. Editables en M2 (GET/PUT /admin/pricing/sealed-spreads).
-  [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE]: { box: 18, etb: 22, bundle: 25, tin: 30, blister: 35 },
+  //
+  // v2.1.9 — `upc: 18` y `collection: 22`, **elegidos por el dueño** (2026-08-24). El criterio es el
+  // que la tabla ya venía usando: **ítem más chico ⇒ % mayor** (box 18 · etb 22 · bundle 25 · tin 30 ·
+  // blister 35). Un **UPC** (Ultra Premium Collection) es la pieza **más grande y cara** del catálogo,
+  // así que va con **box**; una **collection** es comparable a un **ETB**. Hasta ahora las dos caían al
+  // `SEALED_SPREAD_FALLBACK_PCT: 25` — un número que **nadie eligió** para la pieza más cara que
+  // vendemos, y que era el síntoma exacto del que salió todo el hilo del enum en v2.1.8.
+  //
+  // ⚠️ **Es SEMILLA, no migración.** `prisma/seed.ts` upserta con `update: {}` (no pisa lo que el admin
+  // ya editó), así que esta fila **sólo aplica a instalaciones LIMPIAS**. Una BD ya sembrada —la local
+  // viva y producción cuando exista— conserva su fila de cinco llaves. Llevarlo a un entorno existente
+  // es un **paso de runbook operativo**, no un despliegue: `PUT /admin/pricing/sealed-spreads`
+  // (`super_admin`, auditado, sin redeploy). Ver `docs/BACKEND_NOTES.md` › «semilla ≠ migración».
+  [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE]: {
+    box: 18,
+    etb: 22,
+    bundle: 25,
+    tin: 30,
+    blister: 35,
+    upc: 18, // pieza más grande y cara del catálogo ⇒ mismo % que box
+    collection: 22, // comparable a un ETB
+  },
   [SettingKey.SEALED_SPREAD_FALLBACK_PCT]: 25,
   // v1.23-sealed-sales (§4.23h): feature flags cableados pero APAGADOS (seed off). El front llega
   // después; el súper-admin los enciende sin redeploy (PUT /admin/settings).

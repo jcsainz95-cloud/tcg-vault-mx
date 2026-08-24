@@ -8380,6 +8380,59 @@ para que el «1 resultado» no se confunda con una bóveda vacía— y (c) un te
 **inexistente** se sigue ignorando (tolerar basura desconocida SÍ es correcto; esconder un valor que el
 schema conoce, no).
 
+### Semilla de spreads del sellado: `upc: 18` y `collection: 22` — **y por qué NO llega sola a un entorno vivo**
+
+El dueño confirmó que **vende UPC** y eligió los dos valores (2026-08-24). El criterio es el que la
+tabla **ya venía usando**, «ítem más chico ⇒ % mayor» (`box 18 · etb 22 · bundle 25 · tin 30 ·
+blister 35`): un **UPC** (Ultra Premium Collection) es la pieza **más grande y cara** del catálogo, así
+que va con **box**; una **collection** es comparable a un **ETB**. Hasta ahora las dos caían al
+`sealed_spread_fallback_pct: 25` — un número que **nadie eligió** para la pieza más cara que vendemos,
+y que fue el síntoma del que salió todo el hilo del enum en v2.1.8.
+
+> ### ⚠️ PASO DE RUNBOOK PARA DEVOPS — esto es **semilla, no migración**
+>
+> `prisma/seed.ts` upserta los diales con **`update: {}`** (a propósito: no pisa lo que el admin ya
+> editó). Consecuencia concreta: **una BD ya sembrada conserva su fila de CINCO llaves**, y correr
+> `prisma migrate deploy` + `seed` **no la actualiza**. Aplica a la **local viva de este stack** y a
+> **producción** cuando exista.
+>
+> Llevar el valor a un entorno existente es una **acción operativa**, no un despliegue:
+>
+> ```
+> PUT /api/v1/admin/pricing/sealed-spreads     (super_admin, auditado, sin redeploy)
+> { "spreadPctBySubtype": { "upc": 18, "collection": 22 } }
+> ```
+>
+> El `PUT` es **parcial** (sólo las claves a cambiar), así que no hay que reenviar las otras cinco.
+> Queda en `AuditLog` (`pricing.sealed_spreads.update`, con `before`/`after`). Verificación:
+> `GET /admin/pricing/sealed-spreads` debe devolver las siete llaves.
+>
+> **No lo des por hecho al desplegar.** Sin ese `PUT`, un UPC publicado en un entorno existente se
+> sigue vendiendo al fallback del 25 % — money-safe, pero **no es el precio que el dueño eligió**.
+
+Hay un **ancla** en `test/sealed-settings.spec.ts` que exige **una entrada por cada `SealedSubtype`**:
+cuando el schema gane un octavo subtipo, el test rompe y obliga a **elegir su spread a propósito** en
+vez de dejarlo caer al fallback en silencio. Misma doctrina que las anclas de `enum-values-parity`.
+
+> **⚠️ DIVERGENCIA CON EL CONTRATO — para el arquitecto (no la corrijo yo, regla 9).**
+> `docs/API_CONTRACT.md` §M2 dice hoy, literal: «**`upc` y `collection` NO tienen semilla** — […] Que
+> no tengan semilla es justamente por qué el dueño **necesita** poder fijarlas a mano». Esa frase
+> describía el estado **anterior** a la decisión del dueño y **ahora contradice el código**. La
+> enmienda es de una línea (las semillas de §K pasan a listar las siete). Lo señalo aquí en vez de
+> tocarlo porque el contrato manda sobre el código y no es mío; la decisión del dueño (PROJECT §K) es
+> la que manda sobre el contrato. **Puede viajar junto con la enmienda de `MAX_CURVE_CONSTANT_CENTS`
+> que ya está pedida** — el arquitecto está editando esa misma sección ahora mismo.
+
+> **⚠️ HUECO DETECTADO DE PASO (no implementado, no enrutado a mí todavía): hoy NO se puede BORRAR un
+> spread para volver al global.** El validador vigente exige `número ∈ [0, 1000]`, así que
+> `PUT { "spreadPctBySubtype": { "upc": null } }` responde **`422`** (verificado). Es decir: el dueño
+> puede **fijar** el spread de una presentación pero **no retirarlo**. La única salida hoy sería
+> mandar `0`, que es un **bug de dinero**: `0` es un spread legítimo y significa «vender **al mercado,
+> sin markup**», no «usa el global». El arquitecto ya tiene una norma redactada en su borrador
+> (`null` explícito retira la llave, idempotente y auditado). **Cuando la commitee, es trabajo de
+> backend**: aceptar `null` en el validador y borrar la llave del mapa persistido. No lo adelanto —
+> el shape del request es contrato (regla 9).
+
 ### Lo que NO se tocó, y por qué
 
 - **Deuda anotada, no resuelta:** D-a, D-b, D-c, D-d, D-f y **S49-B2** quedan en `docs/TECH_DEBT.md`
@@ -8389,10 +8442,25 @@ schema conoce, no).
   inventario que no se vende. El fix real exige persistir el precio de venta, lo que revierte la
   propiedad «repricia en lectura» de §4.36.9c ⇒ **decisión del arquitecto**.
 - **D-e** se cerró de paso (las listas de claves ya se derivan de la interfaz).
+- **`MAX_CURVE_CONSTANT_CENTS` sigue en `1_000_000`.** El dueño contestó Q-D1 y lo baja a **MX$2,000**
+  (`200_000`): el piso de venta es *el precio de la carta más barata de la tienda*, así que MX$10,000
+  nunca es configuración legítima, un techo apretado ataja más typos y equivocarse sólo cuesta un
+  `422` (siguen quedando **80×** sobre la semilla de MX$25). **No se implementa todavía**: el techo
+  está declarado en `docs/API_CONTRACT.md` §M2 y en ARCHITECTURE §4.36.3, así que la enmienda va
+  primero por el **arquitecto** (regla 9). Cuando llegue, además del valor hay que mover los casos de
+  `test/pricing.curve-constant-cap.spec.ts`: hoy son `1000000 ⇒ 200` y `1000001 ⇒ 422`, y pasan a
+  `200000 ⇒ 200` y `200001 ⇒ 422`; **se conservan `2147483647 ⇒ 422` y `2e15 ⇒ 422`**, que son los que
+  demostró QA y los que hacen visible que el techo **no** es de representabilidad.
 
 ### Estado
 `typecheck` limpio · `lint` 0 errores (2 warnings preexistentes, ajenos) · **unitarios 185 suites /
-2087 tests** · **integración 11 suites / 149 tests contra Postgres real**, todo en verde.
+2089 tests** · **integración 11 suites / 149 tests contra Postgres real**, todo en verde.
+
+> **El stack vivo de `:3099` NO se reinició** tras el cambio de semilla, a petición del coordinador
+> (seguridad está corriendo PoC contra el proceso). No hace falta: la semilla sólo la lee
+> `prisma/seed.ts` en una instalación limpia, y el proceso vivo lee los spreads de la **BD**, cuya fila
+> no cambia (ver el paso de runbook de arriba). El backend corre con `ts-node` **sin watch**, así que
+> editar no lo afecta.
 
 > **Nota para QA sobre `test/integration/pricing-visibility.e2e-spec.ts`:** cuatro de sus casos
 > afirmaban lo VIEJO (que la **rejilla** trae `priceBasis` y `referenceValue`) y **fallaron a
