@@ -130,6 +130,9 @@ export const DEFAULT_PRICING_CURVE: PricingCurve = {
 };
 
 /** Cotas de rango de los valores interpolados (§4.36.3 V3/V4). */
+// v2.1.5 — OJO: este es el piso de NEGOCIO (V4, `SALE_BELOW_MARKET`, NO bloqueante en el preview),
+// NO el de representabilidad (V3, bloqueante, `multiplierBp >= 0`). Eran el mismo número y por eso V4
+// era inalcanzable; ahora son dos cosas distintas y cada una vive en su superficie.
 export const MULTIPLIER_BP_MIN = 10_000; // 1.00× — venta nunca por debajo del mercado
 export const MULTIPLIER_BP_MAX = 1_000_000; // 100× — techo anti-typo
 export const PCT_BP_MAX = 10_000; // 100 % — comprar arriba de mercado no tiene sentido
@@ -213,21 +216,23 @@ export interface CurveSegment {
  * que el producto rebasa `Number.MAX_SAFE_INTEGER` (9e15) y en `number` se perdería precisión — que es
  * exactamente lo que esta corrección viene a eliminar.
  *
- * ### El operando PUEDE ser negativo (corrección v2.1.4)
+ * ### DEFENSIVA ante operando negativo — y quién garantiza el signo (v2.1.5)
  * La versión anterior afirmaba «siempre ≥ 0 por construcción» y usaba `floor((2n+d)/2d)`, que en
  * `BigInt` **trunca hacia cero** y por tanto NO es «medio alejándose de cero» para negativos:
  * `rawCentsFromRational(5, -50000, 1)` daba `-24` cuando el valor exacto es `-25.0`.
  *
- * **Y la premisa era falsa.** V3 no acota `multiplierBp` por abajo y **V4 (`SALE_BELOW_MARKET`) es
- * deliberadamente NO BLOQUEANTE** (§4.36.8a(c)): el previsualizador SÍ calcula con multiplicador
- * negativo — es justo el caso de curva rota que existe para explicar. No llega a un precio cobrado
- * (el `PUT` rechaza y el `max` con el piso gana), pero sí a una **cifra en pesos equivocada en la
- * memoria de cálculo**, exactamente donde el dueño está mirando para entender el error.
+ * **Quien garantiza la no-negatividad es V3, NO V4** — y solo porque **V3 bloquea (422) también en la
+ * ruta del `preview`**. Decirlo con precisión importa: **V4 (`SALE_BELOW_MARKET`) es deliberadamente
+ * NO bloqueante** (§4.36.8a(c): el dueño tiene que poder VER en pesos una curva que vende bajo
+ * mercado antes de corregirla), así que si el único guardián del piso fuera V4, la ruta del preview
+ * llegaría aquí con multiplicador negativo. Si mañana alguien vuelve V3 no bloqueante «para que el
+ * previsualizador enseñe más», reabre ese caso sin darse cuenta — y esta función tiene que seguir
+ * dando la cifra correcta.
  *
- * Es **el anti-patrón de I1 en miniatura**: un atajo de redondeo justificado por un invariante que no
- * se cumple. Por eso el modo se fija con la MISMA doctrina que `roundHalfUp` (arriba): se implementa
- * la rama negativa para que el modo quede FIJADO en el código y no dependa de que el insumo nunca sea
- * negativo.
+ * Por eso **NO se apoya la corrección en «es imposible»**: esa es exactamente la clase de suposición
+ * que produjo I1. Defensa en profundidad en una función de dinero, con la MISMA doctrina de
+ * `roundHalfUp` (arriba): la rama negativa se implementa para que el modo quede FIJADO en el código y
+ * no dependa de que el insumo nunca sea negativo.
  *
  * El resultado se acota a ±`MAX_CENTS` ANTES de volver a `number`: por encima de eso ya no hay precio
  * representable (BE-27) y el clamp de `money.ts` haría lo mismo; hacerlo aquí evita que un `BigInt`
@@ -618,13 +623,33 @@ export interface CurveValidationError {
    * Para el `PUT` la distinción es irrelevante: **cualquier** infracción rechaza el guardado.
    */
   blocking: boolean;
+  /**
+   * v2.1.5 (§M2) — **forma NORMADA campo por campo, sin «…»**. Cada código declara sus campos exactos
+   * en el contrato y este objeto los emite con ESOS nombres. La convención transversal que salió del
+   * hallazgo: **ningún campo que un consumidor deba leer puede vivir dentro de un «…»** — el front
+   * declaró `toIndex`/`toMarketCents` porque el contrato no nombraba el segundo extremo, y ningún
+   * test de contrato podía cazarlo. Un campo normado **está** aunque su valor sea `null`; omitirlo
+   * devuelve al consumidor a adivinar.
+   */
   details: {
     axis?: 'sale' | 'buy';
-    /** Índice del punto en el array TAL COMO VINO en el request (no el ordenado). */
-    index?: number;
-    /** Segundo extremo del tramo infractor (V5), también en índices del request. */
+    /**
+     * Índice del punto en el array TAL COMO VINO en el request (no el ordenado). `null` cuando el
+     * error es de una CONSTANTE (`floorCents`/`binCents`), que no es una fila de la tabla.
+     */
+    index?: number | null;
+    /**
+     * Segundo extremo del tramo infractor (V5/V9/`DUPLICATE_BREAKPOINT`), en índices del request.
+     * (El par `index2`/`marketCentsTo` es asimétrico a propósito: son los nombres que el servidor ya
+     * emitía y renombrarlos por estética no vale el churn. La asimetría queda documentada como
+     * INTENCIONAL para que nadie la «arregle».)
+     */
     index2?: number;
     marketCents?: number;
+    /** Qué CAMPO del punto/constante está fuera de rango — el editor lo marca inline (§21.4a). */
+    field?: string;
+    /** Banda de `rounding[]`. Nombre DISTINTO de `index` a propósito: indexa OTRA colección. */
+    bandIndex?: number | null;
     [k: string]: unknown;
   };
 }
@@ -722,10 +747,24 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
 
   // ---- V3: tipos y rangos ---------------------------------------------------
   if (!isInt(sale.floorCents) || sale.floorCents < 0) {
-    return [err('VALIDATION_ERROR', 'sale.floorCents must be an integer >= 0 (cents)', { axis: 'sale' })];
+    return [
+      err('VALIDATION_ERROR', 'sale.floorCents must be an integer >= 0 (cents)', {
+        axis: 'sale',
+        // No es un punto de la tabla ⇒ `index` en `null` EXPLÍCITO. Un campo normado por §M2 tiene
+        // que ESTAR aunque su valor sea nulo; omitirlo devuelve al consumidor a adivinar.
+        index: null,
+        field: 'floorCents',
+      }),
+    ];
   }
   if (!isInt(buy.binCents) || buy.binCents < 0) {
-    return [err('VALIDATION_ERROR', 'buy.binCents must be an integer >= 0 (cents)', { axis: 'buy' })];
+    return [
+      err('VALIDATION_ERROR', 'buy.binCents must be an integer >= 0 (cents)', {
+        axis: 'buy',
+        index: null,
+        field: 'binCents',
+      }),
+    ];
   }
   for (let i = 0; i < sale.points.length; i++) {
     const p = sale.points[i] as SaleCurvePoint | undefined;
@@ -737,25 +776,23 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
         err('VALIDATION_ERROR', `marketCents must be an integer in [0, ${MAX_CENTS_CURVE}] (cents)`, {
           axis: 'sale',
           index: i,
+          field: 'marketCents',
           marketCents: p.marketCents,
         }),
       ];
     }
-    if (!isInt(p.multiplierBp)) {
+    // v2.1.5 (E0-quater) — V3 es REPRESENTABILIDAD, no negocio: `multiplierBp ∈ [0, 1000000]`. El piso
+    // BAJA de 10000 a 0 a propósito. Antes V3 y V4 eran EL MISMO PREDICADO con manejos opuestos (V3
+    // bloqueaba con 422, V4 reporta sin bloquear), así que V4 era INALCANZABLE y el previsualizador
+    // JAMÁS podía enseñar en pesos «esto vendería por debajo del mercado» — que es exactamente para lo
+    // que existe el reparto 422/200 de §4.36.8a(c). Ahora: `0` CALCULA (gana el piso ⇒ `basis='floor'`)
+    // y `violations` explica por qué no se guarda; `−5000` lo corta V3 en el campo.
+    if (!isInt(p.multiplierBp) || p.multiplierBp < 0 || p.multiplierBp > MULTIPLIER_BP_MAX) {
       return [
-        err('VALIDATION_ERROR', 'multiplierBp must be an integer (bp of market; 10000 = 1x)', {
+        err('VALIDATION_ERROR', `multiplierBp must be an integer in [0, ${MULTIPLIER_BP_MAX}] (bp of market)`, {
           axis: 'sale',
           index: i,
-          marketCents: p.marketCents,
-          multiplierBp: p.multiplierBp,
-        }),
-      ];
-    }
-    if (p.multiplierBp > MULTIPLIER_BP_MAX) {
-      return [
-        err('VALIDATION_ERROR', `multiplierBp must be <= ${MULTIPLIER_BP_MAX} (bp)`, {
-          axis: 'sale',
-          index: i,
+          field: 'multiplierBp',
           marketCents: p.marketCents,
           multiplierBp: p.multiplierBp,
         }),
@@ -772,6 +809,7 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
         err('VALIDATION_ERROR', `marketCents must be an integer in [0, ${MAX_CENTS_CURVE}] (cents)`, {
           axis: 'buy',
           index: i,
+          field: 'marketCents',
           marketCents: p.marketCents,
         }),
       ];
@@ -781,6 +819,7 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
         err('VALIDATION_ERROR', `pctBp must be an integer in [0, ${PCT_BP_MAX}] (bp of market)`, {
           axis: 'buy',
           index: i,
+          field: 'pctBp',
           marketCents: p.marketCents,
           pctBp: p.pctBp,
         }),
@@ -848,7 +887,9 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
       err(
         'BIN_ABOVE_FLOOR',
         'buy.binCents must be strictly below sale.floorCents',
-        { axis: 'buy', binCents: buy.binCents, floorCents: sale.floorCents },
+        // v2.1.5: SIN `axis`/`index` a propósito — es una pareja de CONSTANTES, no un punto de la
+        // tabla. El copy usa `{bin}` y `{floor}`, así que los dos viajan nombrados.
+        { binCents: buy.binCents, floorCents: sale.floorCents },
         false,
       ),
     );
@@ -954,18 +995,24 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
     const lhs = BigInt(sale.num) * BigInt(buy.den) - BigInt(buy.num) * BigInt(sale.den);
     const rhs = BigInt(sale.den) * BigInt(buy.den);
     if (lhs < rhs) {
-      const offending = buyPts.find((p) => p.marketCents === m) ?? salePts.find((p) => p.marketCents === m);
+      // v2.1.5 (E0-quater) — `details` NORMADO: el copy del editor lleva `{pct}` y `{mult}`, y sin
+      // ellos el front tenía que ADIVINARLOS o RECALCULARLOS… o sea, interpolar en el cliente, que es
+      // exactamente la duplicación de fórmula que el `preview` existe para eliminar. Y el nodo puede
+      // pertenecer a UNA sola de las dos curvas, por eso van `saleIndex`/`buyIndex` por separado (y
+      // opcionales) en vez de un `index` ambiguo sobre un `axis`.
+      const saleIndex = salePts.find((p) => p.marketCents === m)?.index;
+      const buyIndex = buyPts.find((p) => p.marketCents === m)?.index;
       out.push(
         err(
           'BUY_ABOVE_SALE',
           'buy curve must stay at least 1 bp below the sale curve at every market value',
           {
-            axis: 'buy',
-            index: offending?.index,
             marketCents: m,
             // Valores REDONDEADOS solo para el mensaje del editor; la decisión ya se tomó en exacto.
-            pctBp: roundHalfUp(buy.num / buy.den),
             multiplierBp: roundHalfUp(sale.num / sale.den),
+            pctBp: roundHalfUp(buy.num / buy.den),
+            ...(saleIndex != null ? { saleIndex } : {}),
+            ...(buyIndex != null ? { buyIndex } : {}),
           },
           false,
         ),
@@ -981,6 +1028,10 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
  * V8 — escalera bien formada. Devuelve TODAS sus infracciones, separando las **estructurales**
  * (bloqueantes: sin banda no se puede elegir paso) de la **fina** (no bloqueante).
  *
+ * v2.1.5 — `details` lleva **`bandIndex`**, con nombre DISTINTO de `index` a propósito: indexa
+ * `rounding[]`, no `points[]`. Un `index` ambiguo entre dos colecciones es el mismo hueco de
+ * especificación otra vez, y el editor marca la BANDA con él (§21.4b/c).
+ *
  * La condición sutil es la última: **cada frontera debe ser múltiplo exacto del paso de la banda
  * inmediatamente inferior**. Sin ella el redondeo ROMPE la monotonía que V5 acaba de garantizar: con
  * bandas `<$200⇒$5` y una frontera en $203, un `baseCents` de $202.99 redondea a $205 mientras que
@@ -988,7 +1039,12 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
  */
 export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveValidationError[] {
   if (!Array.isArray(ladder) || ladder.length === 0) {
-    return [err('ROUNDING_LADDER_INVALID', 'sale.rounding must have at least 1 band', { axis: 'sale' })];
+    return [
+      err('ROUNDING_LADDER_INVALID', 'sale.rounding must have at least 1 band', {
+        axis: 'sale',
+        bandIndex: null,
+      }),
+    ];
   }
   const out: CurveValidationError[] = [];
   for (let i = 0; i < ladder.length; i++) {
@@ -997,7 +1053,9 @@ export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveVa
       return [
         err('ROUNDING_LADDER_INVALID', 'rounding band must be an object { uptoCents, stepCents }', {
           axis: 'sale',
-          index: i,
+          bandIndex: i,
+          uptoCents: null,
+          stepCents: null,
         }),
       ];
     }
@@ -1005,7 +1063,8 @@ export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveVa
       return [
         err('ROUNDING_LADDER_INVALID', 'stepCents must be an integer >= 1', {
           axis: 'sale',
-          index: i,
+          bandIndex: i,
+          uptoCents: b.uptoCents ?? null,
           stepCents: b.stepCents,
         }),
       ];
@@ -1016,8 +1075,9 @@ export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveVa
         return [
           err('ROUNDING_LADDER_INVALID', 'the LAST rounding band must be open (uptoCents = null)', {
             axis: 'sale',
-            index: i,
+            bandIndex: i,
             uptoCents: b.uptoCents,
+            stepCents: b.stepCents,
           }),
         ];
       }
@@ -1026,8 +1086,9 @@ export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveVa
         return [
           err('ROUNDING_LADDER_INVALID', 'only the LAST rounding band may be open; uptoCents must be an integer > 0', {
             axis: 'sale',
-            index: i,
+            bandIndex: i,
             uptoCents: b.uptoCents,
+            stepCents: b.stepCents,
           }),
         ];
       }
@@ -1036,8 +1097,9 @@ export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveVa
         return [
           err('ROUNDING_LADDER_INVALID', 'uptoCents must be strictly increasing', {
             axis: 'sale',
-            index: i,
+            bandIndex: i,
             uptoCents: b.uptoCents,
+            stepCents: b.stepCents,
           }),
         ];
       }
@@ -1047,7 +1109,7 @@ export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveVa
           err(
             'ROUNDING_LADDER_INVALID',
             'each band boundary must be an exact multiple of the step of the band below it (otherwise rounding breaks monotonicity)',
-            { axis: 'sale', index: i, uptoCents: b.uptoCents, stepCents: b.stepCents },
+            { axis: 'sale', bandIndex: i, uptoCents: b.uptoCents, stepCents: b.stepCents },
             false,
           ),
         );

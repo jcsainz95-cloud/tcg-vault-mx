@@ -379,7 +379,7 @@ describe('pricing-curve — invariantes VALIDABLES del setting (§4.36.3, V1–V
       { uptoCents: 20000, stepCents: 500 },
       { uptoCents: 50000, stepCents: 1000 },
     ];
-    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { index: 1 } });
+    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { bandIndex: 1 } });
   });
 
   it('V8 — ROUNDING_LADDER_INVALID: hay MÁS de una banda abierta', () => {
@@ -388,7 +388,7 @@ describe('pricing-curve — invariantes VALIDABLES del setting (§4.36.3, V1–V
       { uptoCents: null, stepCents: 500 },
       { uptoCents: null, stepCents: 2500 },
     ];
-    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { index: 0 } });
+    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { bandIndex: 0 } });
   });
 
   it('V8 — ROUNDING_LADDER_INVALID: uptoCents no estrictamente crecientes', () => {
@@ -398,13 +398,13 @@ describe('pricing-curve — invariantes VALIDABLES del setting (§4.36.3, V1–V
       { uptoCents: 20000, stepCents: 1000 },
       { uptoCents: null, stepCents: 2500 },
     ];
-    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { index: 1 } });
+    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { bandIndex: 1 } });
   });
 
   it('V8 — ROUNDING_LADDER_INVALID: stepCents < 1', () => {
     const c = seed();
     c.sale.rounding[0].stepCents = 0;
-    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { index: 0 } });
+    expect(validatePricingCurve(c)).toMatchObject({ code: 'ROUNDING_LADDER_INVALID', details: { bandIndex: 0 } });
   });
 
   it('V8 (la sutil) — una frontera que NO es múltiplo del paso de su banda rompería la monotonía', () => {
@@ -416,7 +416,7 @@ describe('pricing-curve — invariantes VALIDABLES del setting (§4.36.3, V1–V
     ];
     expect(validatePricingCurve(c)).toMatchObject({
       code: 'ROUNDING_LADDER_INVALID',
-      details: { index: 0, uptoCents: 20300, stepCents: 500 },
+      details: { bandIndex: 0, uptoCents: 20300, stepCents: 500 },
     });
   });
 
@@ -917,14 +917,17 @@ describe('rawCentsFromRational — ROUND_HALF_UP también con operandos NEGATIVO
     expect(roundHalfUp(-1.5)).toBe(-2);
   });
 
-  it('el previsualizador de una curva ROTA (V4 no bloqueante) da la cifra correcta en pesos', () => {
-    const broken = JSON.parse(JSON.stringify(DEFAULT_PRICING_CURVE)) as PricingCurve;
-    broken.sale.points[0].multiplierBp = -50_000; // absurdo, pero CALCULABLE ⇒ el preview lo pinta
-    // V4 lo reporta, pero NO bloquea: la traza tiene que ser aritmética honesta.
-    expect(collectCurveViolations(broken).map((e) => e.code)).toContain('SALE_BELOW_MARKET');
-    const trace = explainSaleFromCurve(1000, broken);
+  it('DEFENSA EN PROFUNDIDAD: aunque V3 corta el negativo, la función sigue dando la cifra exacta', () => {
+    // v2.1.5 — quien garantiza el signo es V3 (bloqueante TAMBIÉN en el preview), no V4. Pero la
+    // corrección NO se apoya en «es imposible»: si alguien volviera V3 no bloqueante «para que el
+    // previsualizador enseñe más», esta función tiene que seguir siendo correcta. Apoyarse en «no
+    // puede pasar» es la clase exacta de suposición que produjo I1.
+    const trace = explainSaleFromCurve(1000, {
+      ...DEFAULT_PRICING_CURVE,
+      sale: { ...DEFAULT_PRICING_CURVE.sale, points: [{ marketCents: 0, multiplierBp: -50_000 }] },
+    } as PricingCurve);
     expect(trace.rawCents).toBe(-5000); // 1000 × (−50000/10000) = −5000, exacto
-    // El precio cobrado NO se ve afectado: el `max` con el piso gana y el PUT rechazaría la curva.
+    // El precio cobrado NO se ve afectado: el `max` con el piso gana.
     expect(trace.priceCents).toBe(2500);
     expect(trace.basis).toBe('floor');
   });
