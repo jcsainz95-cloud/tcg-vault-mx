@@ -2,7 +2,32 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.5-details-shape).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.6-closed-dtos).
+>
+> **Changelog v2.1.6-closed-dtos (2026-08-24, arquitecto — hallazgos de la fase de seguridad. ARCHITECTURE §4.36.6a.
+> Un campo SE RETIRA del DTO público; una convención se enuncia en los dos sentidos.):**
+> - **`PriceInfo.isManualOverride` SE RETIRA.** Nunca estuvo declarado en este contrato y el backend lo emitía igual
+>   (`pricing.service.ts:335/378/430`) **a endpoints anónimos**: un mapa **scrapeable** de qué cartas llevan precio
+>   fijado a mano — o sea dónde falló el feed automático y dónde es más probable que el precio esté desalineado. **No
+>   se reubica en una superficie admin: es REDUNDANTE** (`source === "manual"` carga el mismo bit).
+> - **⚠️ Quitarlo NO basta, y ésta es la parte que importa:** `PriceSource` incluye el valor `manual`, así que
+>   **`source` filtra la misma señal**. **Norma: `source` se OMITE en toda superficie pública/anónima** y solo viaja
+>   en `vault_operator+`. El campo ya era **opcional**, así que omitirlo no cambia el tipo — y no incurre en el
+>   «mismo DTO con formas distintas por ruta» que sí prohibimos para `referenceMxnCents` (ése es la **carga**;
+>   `source` es **procedencia**). `capturedDate` sí puede viajar en público (frescura = información de compra).
+> - **La convención de DTO pasa a enunciarse en LOS DOS SENTIDOS (§M2):** *lo que debe estar, **declarado**; lo que no
+>   debe salir, **prohibido***. Un DTO es **CERRADO**: emitir un campo no declarado es **violación de contrato**, no
+>   adición inocua. «Aditivo es seguro» vale para el **consumidor**, no para el **emisor** — publicar de más no rompe
+>   a nadie, **filtra**. Es la otra cara del hueco de `details` (v2.1.5): aquél **apagó funcionalidad**, éste
+>   **publicó información**. **Consecuencia para los tests:** assertar el **conjunto exacto de claves** de los DTOs
+>   que cruzan a superficie pública, no solo la presencia de los esperados.
+> - **Topes AML del buylist: NO están fuera del alcance de v2.0** (ARCHITECTURE §4.36.6a, invariante **AML-1**). La
+>   transacción `Serializable` no se tocó, pero el cambio **amplió la población de líneas que suman $0** al tope
+>   (sin mercado ⇒ pendiente; guardarraíl). El tope mensual debe ligar **el dinero que SALE** (`approvedPriceCents`,
+>   en el seam de `MoneyOutGuard` de M5), no solo la cotización de intake. Sequenciable (Baja), **no cerrable como
+>   «fuera de alcance»**.
+>
+> Versión previa: v2.1.5-details-shape.
 >
 > **Changelog v2.1.5-details-shape (2026-08-24, arquitecto — hallazgo de frontend al cablear V9 + corrección de dos
 > errores propios detectados por QA. ARCHITECTURE §4.36.1 / §4.36.3. ADITIVO en `details`; un rango se ENSANCHA.):**
@@ -1759,6 +1784,19 @@ SealedSpreadSource  = override | subtype_spread | global_spread  // v1.23: de d�
 ```ts
 Money        = { amountCents: number, currency: "MXN" }
 // PriceInfo describe el VALOR DE REFERENCIA (valor de mercado), no el precio de venta.
+// ⚠️ v2.1.6 (hallazgo de la fase de seguridad) — `source` es PROCEDENCIA, y la procedencia es ADMIN-ONLY.
+//   * `isManualOverride` NUNCA estuvo en este contrato y el backend lo emitía igual (`pricing.service.ts:335/378/430`),
+//     **a endpoints anónimos**. SE RETIRA del DTO, y no «se mueve a admin»: es REDUNDANTE — `source === "manual"`
+//     carga exactamente el mismo bit. Dejarlo en otra superficie sería mantener dos nombres para un mismo hecho.
+//   * ⚠️ POR ESO NO BASTA QUITAR `isManualOverride`: `PriceSource` incluye el valor `manual`, así que `source` filtra
+//     LA MISMA señal. Norma: **`source` se OMITE en toda superficie pública/anónima** (`/catalog/*`, `/buylist/*`) y
+//     solo viaja en superficies `vault_operator+`. El campo YA es opcional, así que omitirlo NO cambia el tipo ni
+//     hace que `PriceInfo` signifique cosas distintas según la ruta (eso sí lo prohibimos para `referenceMxnCents`,
+//     que es la CARGA del DTO; `source` es metadato de procedencia y su ausencia es un caso ya declarado).
+//   * Riesgo que cierra: un mapa **scrapeable** de qué cartas llevan precio fijado a mano — es decir, dónde falló el
+//     feed automático y por tanto dónde es más probable que el precio esté desalineado. Es inteligencia de pricing
+//     interna, no información de compra: el comprador no necesita saber de dónde salió el número.
+//   * `capturedDate` SÍ puede viajar en público (frescura del dato es información legítima de compra).
 PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, source?: PriceSource, capturedDate?: string }
 // v1.6-finish: availableFinishes = acabados en que existe la carta. SIGUE siendo 1 CardDTO por carta
 // (externalId único); availableFinishes es un array en el MISMO objeto. Filas históricas / sin sincronizar →
@@ -4858,9 +4896,24 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     - **`bandIndex` no es `index`.** Indexa `sale.rounding[]`, no `sale.points[]`. Nombre distinto a propósito: un
       `index` ambiguo entre dos colecciones es el mismo tipo de hueco que se está cerrando.
 
-  - **📌 CONVENCIÓN NORMATIVA DE `details` (transversal, no solo la curva).** **Ningún campo que un consumidor deba
-    leer puede quedar dentro de un «…».** Si un `details` lleva algo que la UI tiene que pintar o usar para marcar, va
-    **nombrado en el contrato**.
+  - **📌 CONVENCIÓN NORMATIVA DE DTOs — LOS DOS SENTIDOS (transversal, v2.1.6; no solo `details`, no solo la curva).**
+    Un DTO de este contrato es **CERRADO, no abierto**: enumera su superficie **completa**.
+    1. **Lo que debe estar, DECLARADO.** Ningún campo que un consumidor deba leer puede quedar dentro de un «…». Si
+       un `details` (o cualquier DTO) lleva algo que la UI tiene que pintar o usar para marcar, va **nombrado**.
+    2. **Lo que no debe salir, PROHIBIDO.** Emitir un campo **no declarado** es una **violación del contrato**, no una
+       adición inocua. «Aditivo es seguro» vale para el **consumidor** (que ignora lo que no conoce); **no** vale para
+       el **emisor**, porque publicar de más no rompe a nadie — **filtra**.
+    > **Por qué hacen falta las dos mitades, con un caso de cada una.** La primera nació de un hueco que **apagó
+    > funcionalidad**: el segundo extremo del tramo vivía en un «…», backend emitió `index2`/`marketCentsTo`,
+    > frontend inventó `toIndex`/`toMarketCents` y **la marca nunca se pintó** desde E9. La segunda nació de un hueco
+    > que **publicó información**: `PriceInfo.isManualOverride` **nunca estuvo declarado** y el backend lo emitía a
+    > endpoints **anónimos** (fase de seguridad, v2.1.6) — un mapa scrapeable de qué cartas llevan precio manual.
+    > **Son el mismo defecto por las dos caras: el contrato no mintió, no dijo.** Un DTO que solo lista lo obligatorio
+    > deja el resto al criterio de quien implementa — y ese criterio, sin malicia, resuelve unas veces de menos
+    > (funcionalidad apagada) y otras de más (fuga). **Ningún test de contrato caza ninguno de los dos**, porque en
+    > ambos casos no hay nada que contradecir.
+    > **Consecuencia práctica para los tests:** un test de contrato debe assertar **el conjunto exacto de claves** de
+    > los DTOs sensibles (al menos los que cruzan a superficie pública), no solo que las esperadas estén presentes.
     > **Por qué se eleva a convención:** un hueco aquí produjo un bug **silencioso** que vivió desde E9. El contrato
     > normaba `details: { axis, index, marketCents, … }` y dejaba el segundo extremo dentro del «…»; backend emitió
     > `index2`/`marketCentsTo`, el frontend declaró `toIndex`/`toMarketCents` —nombres que **inventó y que nadie

@@ -7825,3 +7825,124 @@ que verifica que el barrido **alcanza** `src/jobs/`.
 verdes**. Deuda nueva anotada en `docs/TECH_DEBT.md`: **D7** (escritura secuencial del pase nocturno —
 anotar, no hacer) y **D8** (`batchQuote` sin batchear, ahora barato porque las tres superficies
 comparten `decideBuyLine`). **D5 marcada como RESUELTA.**
+
+---
+
+## P-48 · Cierre de la fase de seguridad — S48-M1, S48-M2, P48-B1 y AML-1 (2026-08-24)
+
+Los tres veredictos ya estaban dados (QA, techlead, seguridad: 0 críticos / 0 altos); esto cierra los
+hallazgos que quedaban antes del cut-over. **Ninguno cambia un precio**; todos cierran control.
+
+### S48-M1 (Media) — la cola se cierra por (variante, EJE, RAZÓN), no por variante
+
+Lo encontró seguridad ejecutando las funciones puras contra el seed real, y **es mío de raíz**.
+`closePendingForVariant` cerraba por variante, sin eje ni razón, apoyado en el invariante v1.26: *«la
+`PriceReference` es COMPARTIDA por clave, así que si el mercado resolvió, resolvió para las dos
+caras»*.
+
+**Ese argumento era válido con UNA sola razón.** `no_market` sí depende de un dato compartido.
+`premium_at_floor` —que añadí yo en v2.0— depende de **constantes distintas por eje**
+(`sale.floorCents` 2500 vs `buy.binCents` 100, con V7 garantizando `bin < floor`), así que las dos
+caras **ya no resuelven juntas**. Con el seed y mercado de MX$10:
+
+```
+VENTA  → 2500c basis 'floor'  reason 'premium_at_floor'   (bloqueada)
+COMPRA →  300c basis 'market' reason  null                (resuelve)
+```
+
+…así que un cliente **autenticado** mandando esa variante en `POST /buylist/requests` cerraba la
+entrada que el eje de venta había abierto. No perdía el **bloqueo** (el seam re-bloquea y re-escala en
+el siguiente `publish-all`) pero perdía el **aviso** — justo la entrada que §4.36.5c describe como «la
+que necesita que el dueño mire». Y el peor momento para que la cola se vacíe sola es el **cut-over**,
+que es cuando más entradas hay.
+
+Regla nueva, **por razón** (quirúrgica, no un apagón del cierre): `no_market` se cierra desde
+cualquier eje —con test, porque si dejara de hacerlo la otra cara quedaría abierta para siempre, que
+es justo lo que v1.26 vino a evitar—; `premium_at_floor` solo desde el eje que la abrió; las filas
+históricas (`reason = null`, pre-M-41) como `no_market`; y sin `context` (vía manual del admin) el
+cierre sigue siendo total, porque ahí se arregla el dato de mercado compartido, raíz de las dos.
+
+> **Residual conocido, para el arquitecto.** Con la clave de dedupe actual hay **una sola fila abierta
+> por variante**, y su `context` es el de quien la creó. Si las **dos** caras están bloqueadas a la vez
+> (posible: con el seed, cualquier mercado < $3.33 bloquea ambas) y la que la creó resuelve primero, la
+> fila se cierra aunque la otra siga bloqueada — hasta que esa otra la reabra. Cerrarlo del todo exige
+> meter `context` en la clave de dedupe, que es **decisión de schema/contrato**, no de implementación.
+> Con esta corrección el caso pasa de «cualquier eje apaga cualquier aviso» a un residual estrecho.
+
+### S48-M2 (Baja) — DTO CERRADO: `isManualOverride` viajaba sin estar declarado
+
+`PriceInfo.isManualOverride` nunca estuvo en el contrato y el backend lo emitía **a endpoints
+anónimos**: un mapa **scrapeable** de qué cartas llevan precio fijado a mano — o sea dónde falló el
+feed y dónde el precio puede estar desalineado. **Se retira** (no se reubica en admin: es
+**redundante**, `source === 'manual'` carga el mismo bit; el flag sigue en la fila de BD y
+`gateSealedMarketCents` discrimina por `source`, que es lo que `manualOverride()` siempre escribe).
+
+**Quitarlo no basta:** `PriceSource` incluye `manual`, así que **`source` filtra la misma señal**.
+`toPublicPriceInfo` es ahora el único cuerpo que decide qué sale, y proyecta por **lista blanca** en
+vez de hacer `delete`: si mañana `PriceInfo` gana un campo interno, no sale por omisión — es la
+diferencia entre cerrar una fuga y cerrar la clase. Aplicado a `/catalog/*`, al grid de sellado y
+**también a la bóveda del cliente** (un cliente no es `vault_operator+`: necesita el valor y su
+frescura, no de qué feed salió). Admin conserva la procedencia. `capturedDate` sigue en público.
+
+**El test es de CONJUNTO EXACTO de claves**, que es lo único que habría cazado esto: todos los tests
+previos comprobaban que los campos esperados **estuvieran**. *«Aditivo es seguro» vale para el
+consumidor, no para el emisor: publicar de más no rompe a nadie, **filtra**.* Es la otra cara del
+hueco de `details` (v2.1.5) — aquél apagó funcionalidad, éste publicaba información. Incluye candado
+explícito de **no-sobrecorrección**: `referenceValue` y `priceBasis` **siguen viajando** (§N.7 los
+manda, y seguridad reclasificó ese hallazgo a la baja precisamente por eso).
+
+### P48-B1 — tres agujeros en `PUT /admin/settings` (IVA, fees, topes AML, umbral de INE)
+
+1. **Lista blanca esquivable por la cadena de prototipos.** `SETTING_DTO_MAP[dtoKey]` con
+   `__proto__`/`constructor`/`toString` devuelve un heredado **truthy** ⇒ pasaba el `if (!settingKey)`
+   y llegaba al `upsert` con clave no-string ⇒ **500**. Ahora se pregunta por **propiedad propia**
+   (`hasOwnProperty.call`, no `Object.hasOwn`: el target del build es ES2021 y son equivalentes, así
+   que no obligo a mover configuración de compilación) más un `typeof === 'string'` de defensa.
+2. **Y al escribir el test apareció la misma clase un nivel más abajo.** El acumulador `errors` se
+   indexa con claves **controladas por el atacante**, y sobre un objeto normal
+   `errors['__proto__'] = 'unknown setting key'` **no crea propiedad** —es el setter de `[[Prototype]]`,
+   no-op silencioso con un string—, así que **el error se perdía**, `Object.keys(errors).length` seguía
+   en 0 y la petición continuaba **como si fuera válida**. `Object.create(null)` lo cierra.
+3. **El «todo o nada» que prometía el propio comentario era falso en la escritura** (los `upsert` sin
+   transacción) y **la bitácora se perdía justo donde más importa** (el controller auditaba *después*
+   de `update()`, así que una excepción saltaba el `audit.log` y el dial persistido no dejaba rastro).
+   Ahora los upserts y la fila de auditoría van en **la misma `$transaction`**: commitean o revierten
+   juntos, en cualquier orden de fallo — incluido que reviente la propia auditoría, donde los diales
+   revierten (en un endpoint de dinero la bitácora no es opcional).
+
+> El test construye el payload con `JSON.parse` y **no** con un literal, porque ahí está el vector:
+> `{ __proto__: x }` en un literal **fija el prototipo** y no crea propiedad propia, mientras que
+> `JSON.parse` **sí** — que es como llega un body HTTP. Con un literal el test pasaría sin probar nada.
+
+### AML-1 (§4.36.6a) — el tope mensual liga el dinero que SALE
+
+El tope se evaluaba sobre la **cotización de intake**, pero el dinero sale en la **aprobación**: una
+línea `precio_pendiente` entra consumiendo **$0** y, si el dueño le fija precio y la aprueba, ese monto
+**sí sale** — y nada lo medía. La curva **amplió la población de líneas en `$0`** (dos vías nuevas
+hacia `precio_pendiente`), así que el hueco es responsabilidad de este pase aunque el remedio viva en
+M5: *un control AML no se define solo por su mecanismo de concurrencia, sino por el universo de montos
+que mide*.
+
+Implementado en el seam de money-out **que ya existía** (`paySpei`, donde vive `@MoneyOut`), no en un
+control nuevo. Se ancla en **`paidAt`** y no en `createdAt` (una solicitud de diciembre pagada en enero
+consume tope de **enero**, que es cuando sale el dinero). El monto es `approvedTotalCents ??
+quotedTotalCents`, sumado en memoria porque es un **COALESCE** que `_sum` de Prisma no expresa y sumar
+el campo equivocado sería justo el error que este control cierra. Bajo **`Serializable`** por la misma
+razón que el intake (SEC-A2). La transacción del intake **no se toca**: esto **añade** la verificación
+de salida.
+
+### `createRequest` ya no escribe la cola por una solicitud que no existe
+
+Escribía en `PendingPriceEntry` **antes** de topes/INE y **fuera** de la transacción: una solicitud
+rechazada dejaba igual su rastro y —peor— podía **cerrar** entradas por una solicitud que nunca
+existió. Misma clase que S48-M1, otra puerta. Ahora el bucle solo **acumula la intención** y la cola se
+escribe **después del commit**. No dentro de la tx serializable a propósito: meter N escrituras ahí
+alargaría su ventana de conflicto sin ganar nada, y el seam es idempotente y simétrico — si el proceso
+muriera entre commit y escritura, la siguiente cotización o el siguiente `publish-all` re-escalan.
+**Perder una escalada es recuperable; escribir la cola por una solicitud que no se creó, no.**
+
+### Estado de la suite
+`tsc --noEmit` limpio · `lint` 0 errores (2 warnings preexistentes ajenos) · **177 suites / 1962 tests
+verdes**. Deuda nueva: **D9** (el reporte de brackets escanea sin cota — la validación de fechas del
+mismo hallazgo **sí** se cerró; el escaneo necesita `groupBy` en BD y el eje de compra tiene un
+COALESCE que `_sum` no expresa).

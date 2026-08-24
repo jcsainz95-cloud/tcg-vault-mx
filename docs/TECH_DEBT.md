@@ -3941,3 +3941,22 @@
   arriesgar que divergieran. La deuda se abarató por el propio refactor.
 - **Disparador / dirección de fix:** pre-cargar cartas y referencias en lote en `batchQuote` (espejo de lo que ya hace
   `createRequest`) y pasarlas a `decideBuyLine`. Endpoint público y anónimo ⇒ vale la pena antes de tráfico real.
+
+#### D9 · `GET /admin/reports/pricing-brackets` escanea sin cota (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada; admin-only). **La validación de fechas del mismo hallazgo SÍ se
+  cerró** (v2.1.6): una fecha basura daba **500** y un rango invertido devolvía un reporte vacío indistinguible de «no
+  hubo operaciones»; ahora las dos son `422` con el campo señalado, para todos los reportes que comparten `range()`.
+- **Deuda:** `admin.service.ts` `pricingBrackets` hace `findMany` sobre **todos** los `OrderItem` liquidados (y todos
+  los `SellRequestItem` pagados) del rango y agrega **en memoria**. Sin `from`/`to` eso es «todo el histórico».
+- **Por qué NO se resolvió con un `take`:** un cap de filas **truncaría el agregado en silencio** y el reporte
+  reportaría **menos dinero del que hubo** — que en un reporte de calibración es peor que tardar. Un límite que
+  produce un número plausible pero falso es exactamente lo que este proyecto ha estado corrigiendo todo el pase.
+- **Por qué tampoco una ventana por defecto:** cambiaría lo que devuelve una llamada sin filtros (hoy «todo»), y eso
+  es superficie de contrato ⇒ decisión del arquitecto, no del implementador.
+- **Dirección de fix:** agregar **en la base** con `groupBy(['marketBracket','priceBasis'])` + `_count`/`_sum`, que
+  deja la memoria en O(brackets × basis) ≈ 30 filas sea cual sea el volumen y **no cambia ni un número**. Nota para
+  quien lo tome: el eje de COMPRA suma `approvedPriceCents ?? quotedPriceCents`, un COALESCE que `_sum` de Prisma no
+  expresa — ese eje necesita SQL crudo o dos sumas reconciliadas. Esa asimetría es la razón de que no entrara en el
+  pase de seguridad.
+- **Disparador:** cuando el histórico de operaciones deje de caber cómodamente en memoria, o antes de exponer el
+  reporte a un rol con menos fricción que `super_admin`.

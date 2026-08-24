@@ -125,6 +125,21 @@
 > **negocio**. (3) **Se corrige la afirmación falsa** «el operando siempre es ≥ 0 por construcción»: lo garantiza
 > **V3**, no V4, y las funciones son **defensivas ante negativos** — apoyarse en «es imposible» es la suposición que
 > produjo I1.
+> **Adenda v2.1.6 — fase de seguridad: una fuga por omisión y un juicio de alcance (§4.36.6a, contrato §DTOs).**
+> (1) **`PriceInfo.isManualOverride` viajaba a endpoints ANÓNIMOS sin estar declarado en el contrato** — un mapa
+> **scrapeable** de qué cartas llevan precio fijado a mano, o sea dónde falló el feed y dónde es más probable que el
+> precio esté desalineado. **Se retira**, y **no se reubica en admin**: es **redundante** con `source === "manual"`.
+> ⚠️ **Y por eso quitarlo no basta:** `PriceSource` incluye `manual`, así que **`source` filtra la misma señal** ⇒
+> **`source` se omite en toda superficie pública** (ya era opcional, así que no cambia el tipo). Es **la otra cara**
+> del hueco de `details`: aquélla **apagó funcionalidad**, ésta **publicó información**. La convención de DTO se
+> enuncia ahora **en los dos sentidos**: *lo que debe estar, declarado; lo que no debe salir, prohibido* — un DTO es
+> **cerrado**, y emitir un campo no declarado es **violación de contrato**, no adición inocua.
+> (2) **Los topes AML del buylist NO quedan fuera de alcance** (coincido con seguridad): la transacción `Serializable`
+> no se tocó, pero este cambio **cambió QUÉ suma al tope** al ampliar la población de líneas que aportan **$0**
+> (sin mercado ⇒ pendiente, y el guardarraíl). Invariante **AML-1**: el tope mensual debe ligar **el dinero que
+> SALE** (`approvedPriceCents`, en el seam de `MoneyOutGuard` de M5), no solo la cotización de intake. **Sequenciable
+> (Baja), pero no cerrable como «fuera de alcance»** — una propiedad de control que solo se cumple en una punta no se
+> cumple.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -7678,6 +7693,41 @@ export function isBountyEffective(bountyPriceCents: number | null, curveQuoteCen
 > **menor**) a `≤` (rechaza también el **empate**). Sin este ajuste, un bounty exactamente igual a la curva **pasaría el
 > alta** y sería **invisible en runtime** (el predicado exige `>` estricto por criterio 91) — una incoherencia entre
 > alta y ejecución. Es un endurecimiento money-safe, reversible en dato (subir el bounty $0.01).
+
+#### 4.36.6a Topes AML del buylist — SÍ están en el alcance de este cambio (v2.1.6, NORMATIVO)
+
+**Juicio de alcance (coincido con seguridad, contra la lectura del pentester).** El webhook de Stripe y la reserva de
+checkout **sí** quedaron fuera (diff cero, verificado). **El tope mensual de buylist NO.** Razón: aunque la
+**transacción `Serializable` que lo evalúa no se tocó**, este cambio reescribió el eje de compra entero y con ello
+**cambió QUÉ suma al tope** — que es la otra mitad de un control. Un control AML no se define solo por su mecanismo de
+concurrencia; se define por **el universo de montos que mide**.
+
+**Qué cambió en ese universo.** Antes, una regla `fixed` **siempre** cotizaba un número, así que casi toda línea
+aportaba un monto al tope de intake. Ahora hay **dos vías nuevas** hacia `precio_pendiente` — **sin dato de mercado**
+(§4.36.0, el bin **no** gana) y el **guardarraíl** `premium_at_floor` (§4.36.5) — y una línea pendiente aporta **$0**.
+**El cambio amplió la población de líneas que consumen $0 de tope.**
+
+**El hueco que eso destapa (AML-1, invariante normativo).**
+
+> **El tope se evalúa sobre la COTIZACIÓN de intake, pero el dinero sale en la APROBACIÓN.** Una línea
+> `precio_pendiente` entra al mes consumiendo **$0**; si después el dueño le fija precio y la **aprueba**
+> (`approvedPriceCents`), ese monto **sí es dinero que sale** — y hoy **el tope mensual no se re-verifica contra lo
+> aprobado**. Con suficientes líneas pendientes, el pago mensual real puede superar `buylistCapPerMonthCents` sin que
+> ningún control lo note.
+
+**Norma:** el tope mensual debe ligar **el dinero que sale**, no solo la estimación de entrada.
+- **Dónde:** en el **seam de money-out que ya existe** — el pago SPEI de M5, donde ya vive `MoneyOutGuard`. **No** se
+  crea un control nuevo ni se toca la transacción `Serializable` del intake (que sigue siendo correcta para lo suyo).
+- **Qué:** antes de liquidar, re-verificar el acumulado **aprobado/pagado** del mes del vendedor contra
+  `buylistCapPerMonthCents`. Una línea que entró en `$0` y sale con monto **debe consumir tope en ese momento**.
+- **Qué NO cambia:** el tope **por solicitud**, el umbral de INE y la mecánica de intake se quedan como están. Esto
+  **añade** una verificación en la salida; no reemplaza la de la entrada.
+
+**Por qué se documenta aquí y no solo se enruta a backend.** El tope de buylist es un **control AML**, no una regla de
+negocio: su propiedad —«ningún vendedor cobra más de X al mes»— es arquitectura, y una propiedad de control que solo
+se cumple en una de las dos puntas **no se cumple**. Que el diseño de la curva haya ampliado la población de líneas en
+`$0` es responsabilidad de esta sección, aunque el remedio viva en M5. **Alcance del arreglo: sequenciable** (es
+Baja, y el negocio no está en vivo), pero **no puede cerrarse como «fuera de alcance»**.
 
 **Alerta en el binder (decisión 5 del humano — basta el binder, SIN aviso proactivo).** `VariantPricingDTO.bounty` gana
 `effective: boolean` y `curveQuoteCents: number | null` (la tarifa estándar que lo rebasó) para que M1 pinte la alerta
