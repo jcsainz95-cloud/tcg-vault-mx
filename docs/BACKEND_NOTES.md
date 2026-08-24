@@ -8169,3 +8169,234 @@ una disciplina en algo que sostiene la máquina.
 ### Estado
 `tsc` limpio · `lint` 0 errores · **unitarios 181 suites / 2002 tests** · **integración 146/146 contra
 Postgres real**.
+
+---
+
+## v2.1.9 — La CLABE cifrada viajaba en cinco rutas más, y la norma que lo prohibía no existía (2026-08-24)
+
+> Rama `claude/card-pricing-rules-2e537m`. Hallazgos enrutados por el gate de release (QA + techlead +
+> seguridad, tres veredictos aprobados, 0 críticos / 0 altos) más los encargos **D1/D2/D4** que el
+> arquitecto desbloqueó en `be4cc71`. Todo lo de abajo es backend; **ningún cambio de contrato** salió
+> de aquí.
+
+### S49-M1 · El snapshot cifrado de la CLABE, en cinco rutas (seguridad, Media) — CERRADO
+
+`SellRequest.clabeSnapshotEnc` es el blob **AES-256-GCM** de la CLABE del vendedor. El contrato (§M5)
+es literal: «**nunca** el snapshot cifrado»; `reveal-clabe` es el único punto autorizado, con
+`@MoneyOut()` y auditoría. El release anterior aplicó esa regla a **dos** sitios (`getMine`,
+`adminGet`) y la declaró universal. **En el mismo archivo** quedaban cinco `return` con la fila entera:
+
+| Ruta | Quién la alcanza | Cómo se llegaba |
+|---|---|---|
+| `POST /buylist/requests/:id/respond` (`decline`) | **el propio cliente** | transición terminal |
+| `POST /buylist/requests/:id/respond` (`accept`) | **el propio cliente** | transición |
+| `POST /admin/buylist/:id/receive` | `vault_operator` | transición |
+| `POST /admin/buylist/:id/verify` | `vault_operator` | transición |
+| `POST /admin/buylist/:id/pay-spei` | `super_admin` | transición **y salida idempotente** |
+
+La **salida idempotente** de `pay-spei` es la más fácil de alcanzar de todas: basta **re-postear el
+pago** — devolvía el `findUnique` crudo sin pasar por ninguna transición. `getMine` filtraba además
+`closedAt`, que el schema marca «NO se expone en DTOs de cliente» (SEC-D2, ancla la retención de INE).
+
+**Cómo se proyecta.** Dos funciones en `buylist.service.ts`: `toAdminSellRequestDTO` y
+`toCustomerSellRequestDTO` (= la de admin **menos** `closedAt` y `paidBy`; `paidBy` es el uuid del
+staff que liquidó — el vendedor no tiene por qué recibir la identidad del operador). Son **listas
+blancas**: una lista negra sólo protege de las columnas que existían el día que se escribió.
+
+> **Para QA y frontend:** el shape de esas respuestas **no cambia** salvo por lo retirado. El front no
+> consumía `clabeSnapshotEnc`, `closedAt` ni `paidBy` en ninguna de las cinco (verificado en
+> `frontend/src/lib/api.ts` y `M5View.tsx`: `respond` sólo usa `{id,status}` y las demás ignoran el
+> cuerpo). `reveal-clabe` **sigue igual**.
+
+### R1 · `PATCH /admin/users/:id/kyc` devolvía la entidad `KycProfile` (pentester, Media) — CERRADO
+
+Devolvía `rfcEnc`, `clabeEnc`, `ineFrontKey`, `ineBackKey` y —lo más grave— **`clabeHmac`**, el *blind
+index* determinista. Ese HMAC existe **para no salir jamás del servidor**: es lo que permite comparar
+CLABEs sin descifrarlas, así que publicarlo entrega un **oráculo de igualdad** («¿estas dos cuentas
+comparten CLABE?») y un valor pre-computable contra un diccionario si la clave HMAC se filtrara.
+
+La decisión ya existía y esta ruta la ignoraba: la ruta hermana `getUser`, **con el mismo privilegio**,
+borra a propósito esos campos y reduce el INE a `ineOnFile: boolean`. Se aplica **esa** proyección
+(`ADMIN_KYC_SELECT` + `toAdminKycDTO`), no una inventada. El `select` es lista blanca **a nivel de BD**:
+la PII cifrada **ni siquiera se lee**.
+
+> **Para frontend:** la respuesta pasa de la fila cruda a la forma de `AdminKycProfileDTO` (§M6) —
+> `kycStatus`, `capPerRequestCents`, `capPerMonthCents`, `ineOnFile`. `M6View` ignora el cuerpo (sólo
+> invalida queries), así que no hay cambio observable.
+
+### R4 · El barrido completo — y qué encontraron las dos listas previas que faltaba
+
+Las dos listas anteriores estaban incompletas y en direcciones distintas, así que este barrido se hizo
+desde cero sobre `backend/src/`, con **dos** patrones (directo `return prisma.X.op(...)` e indirecto
+`const x = await ...; return x`): **24 directos + 13 indirectos**. De ésos, ~14 eran falsos positivos
+estructurales (`return` **dentro** de una `$transaction` cuyo caller sí proyecta, helpers privados,
+`count()` que devuelve un número, o un `select` ya presente).
+
+**Lo que ninguna de las dos listas previas traía** (además de que la del pentester omitía el módulo
+con la PII):
+
+- `disputes.service.ts` — `listMine` y `getMine`, o sea el **cliente** recibía la fila `Dispute`
+  completa, con `resolvedBy` (uuid del súper-admin que resolvió) y `repurchaseOrderId`. La lista
+  citaba sólo `:152,163` (el `resolve` admin).
+- `users.service.ts` — `listAddresses`, además del `create`/`update` que sí estaban listados.
+- `disputes.service.ts` `adminList` — el listado paginado, no sólo la transición.
+- `shipments.service.ts` — `withAdminKind` esparcía la fila entera (`...row`), así que `adminList` y
+  `adminGet` eran raw-entity **en disguise**: el patrón `return prisma.X` no los delataba.
+- `buylist.service.ts` `itemDecision` — devolvía `SellRequestItem` crudo por **tres** caminos, con las
+  columnas legacy `category`/`ruleMode`/`ruleValue`/`ruleSource` que ya nada escribe (v2.0 P-48).
+- `inventory.service.ts` `getItem` y `listLocations`, además de los cuatro ya listados.
+
+Ninguno de esos lleva secreto **hoy**; se proyectaron **fijando la forma ACTUAL** (lista blanca de lo
+que ya viajaba): **cero cambio visible**, cero forma inventada, y la columna sensible de mañana ya no
+se auto-publica.
+
+**La norma pasó a la máquina** — `backend/test/no-raw-entity-response.spec.ts`, dos capas:
+
+1. **Comportamiento.** Se llama al servicio con una fila que **sí** trae el secreto y se afirma que la
+   respuesta no lo contiene. Un mock de Prisma **ignora los `select`**, así que este test sólo pasa si
+   la proyección es explícita en el código — que es justamente el punto.
+2. **Estructura.** Barrido de `src/` que prohíbe `return prisma.<modelo>.<op>(…)`. Lo que no se puede
+   proyectar lleva **`PROJECTION-EXEMPT: <motivo>`** en el propio código: la excepción deja de ser un
+   silencio y pasa a ser **una frase que alguien tuvo que escribir**. Hay un segundo test que verifica
+   que el barrido **no está midiendo el vacío** (si un refactor cambiara el acceso a datos, el regex
+   dejaría de encontrar nada y pasaría verde).
+
+### D1 · Techo de cordura de `floorCents` / `binCents` (arquitecto, `be4cc71`) — CERRADO
+
+`MAX_CURVE_CONSTANT_CENTS = 1_000_000` (**MX$10,000**) en `common/pricing-curve.ts`. Bloquea igual en
+`PUT /admin/pricing/curve` y en `POST /admin/pricing/curve/preview` (V3 es Fase 1 ⇒ **422** en las dos,
+mismo `code` y mismo `details { axis, index: null, field }`).
+
+**Lo importante es que NO es `MAX_CENTS`.** Con Int32 el caso que QA demostró en vivo **seguiría
+pasando**: `floorCents: 2147483647` es representable y publica la vitrina entera saturada. `marketCents`
+describe *el valor de una carta* ⇒ su techo es de **representabilidad**; el piso y el bin son las únicas
+entradas que **por sí solas** fijan el precio de todo el catálogo ⇒ el suyo es de **cordura**. El test
+lo fija con los tres valores que importan (`2e15`, `2147483647`, `1000001`) **asertando el status
+HTTP**, no sólo el `code`.
+
+**Efecto colateral deseado (y verificado):** una curva **ya persistida** con el piso disparado deja de
+servirse — `sanitizePricingCurve` la declara inválida y cae al seed (`fellBack=true`). El síntoma que
+QA vio era de lectura; ahí es donde se corta.
+
+> **Lo que este techo NO hace, y no se intentó cubrir:** no ataja «un cero de más». Un piso de MX$250
+> (`25000`) **pasa y debe pasar** — es calibración plausible, y el error y la intención escriben el
+> **mismo número**. Eso lo cubren dos señales que **ya existen**: `constantWon` por sonda en el preview
+> y `premium_at_floor` en `GET /admin/pricing/pending`. Hay un test con ese nombre para que nadie lo
+> lea como una defensa anti-typo. El **número** (MX$10,000) está escalado como **Q-D1**: cambiarlo es
+> una enmienda de una línea, sin efecto en la matemática ni en ningún DTO.
+
+### D2 · La regla de visibilidad se impone en el EMISOR (arquitecto, `be4cc71`) — CERRADO
+
+§N.7 dice que «Valor de mercado» se muestra **si y solo si `priceBasis === 'market'`**, y eso se cumplía
+**sólo en el navegador**: un `curl` **sin token** a `GET /catalog/listings/<id>` devolvía
+`priceBasis:"override"` **junto con el número de mercado** — el bloque exacto que la UI tiene prohibido
+pintar. El argumento que lo sostenía («el mismo DTO alimenta admin y valuación») quedó **derogado por
+escrito**: `toPublicPriceInfo` ya recortaba por superficie (quita `source` desde v2.1.6), así que la
+premisa era falsa.
+
+**El recorte va en UN solo proyector**, `toPublicPriceInfo(info, priceBasis?)`, nunca repartido por
+seams. Quién recibe qué:
+
+| Superficie | `priceBasis` | número de mercado |
+|---|---|---|
+| **Rejilla** `GET /catalog/cards` | **no viaja** | **no viaja** |
+| **Rejilla** `GET /catalog/sealed` | **no viaja** (ni `priceSource`) | **no viaja** |
+| **Ficha** `GET /catalog/cards/:id` (`listings[]`, `units[]`) | viaja | **iff** `market` |
+| **Ficha** `GET /catalog/sealed/:id` (`group`) | viaja (y `priceSource`) | **iff** `market` |
+| `GET /catalog/listings/:id` | viaja | **iff** `market` |
+| `/vault/*`, `/admin/*` | **SIN CAMBIO** | **SIN CAMBIO** |
+
+- **En sellado se va también `priceSource`** de la rejilla: `priceBasis` se **deriva** de él, así que
+  dejarlo publicaría la misma señal con otro nombre — el error que v2.1.6 documentó al retirar
+  `isManualOverride` y descubrir que `source` filtraba igual.
+- **`priceBasis` NO se vuelve opcional en ningún DTO** — eso es literalmente B-1 (`undefined ===
+  'market'` es `false` **siempre** ⇒ el bloque no se mostraba nunca). Las rejillas reciben **tipos
+  propios declarados**: `GroupedListingSummaryDTO` y `SealedGroupSummaryDTO`. Omitir el campo en la
+  ficha **no compila**, y emitirlo en la rejilla tampoco.
+- **`/vault/*` y `/admin/*` quedan intactos a propósito** (§N.7 los excluye): ahí el cliente ve el
+  mercado de lo que **ya posee** y el back-office necesita la procedencia. Omitir el argumento
+  `priceBasis` en esas llamadas es deliberado y está dicho en el docstring — **no lo "unifiques"**.
+
+> **Para frontend (cambio de shape, coordinar):** `GroupedListingListResponse.data` y
+> `SealedGroupListResponse.data` cambian de `GroupedListingDTO`/`SealedGroupDTO` a sus `*SummaryDTO`.
+> Si alguna teja leía `priceBasis` o `referenceValue`, ahora recibe `undefined` — pero §N.7 dice que
+> tejas y listados **no muestran** valor de mercado, así que no debería haber consumidor.
+> **Esto NO releva al front de obedecer `priceBasis` en la ficha:** es defensa en profundidad, no
+> permiso para inferir comparando cifras.
+
+### D4 · `RawCondition` pasa a **clase R**, y la paridad de enums a **tres bandas** — CERRADO
+
+El candado de enums era **tautológico**: `expect(Object.values(e)).toEqual(Object.values(e))`. No podía
+fallar. Un valor nuevo en cualquier enum del schema pasaba **verde** y quedaba **auto-aceptado en la
+API**. El único ancla real era el `toHaveLength(7)` de `SealedSubtype`, y era **accidental**.
+
+- **Ancla humana por enum**: `EXPECTED_ENUM_VALUES` con la lista aprobada escrita a mano. Un valor
+  nuevo en el schema **rompe el test a propósito** y obliga a decidir tres cosas que el espejo
+  automático decidía solo (¿se acepta en los `@IsIn` públicos? ¿hay listas de negocio que NO son el
+  enum completo? ¿hay pricing/spreads que calibrar?).
+- **Tres bandas**: `schema.prisma` ⇄ `enum-values.ts` ⇄ **la línea canónica del contrato**. La tercera
+  es la que falló **dos veces** (`PriceSource` sin `tcgcsv_singles`, `SealedSubtype` sin
+  `upc`/`collection`) porque **nadie la comparaba**.
+- **`RawCondition` sale de `enum-values.ts`** a `src/common/business-rules.ts` como
+  `ACCEPTED_RAW_CONDITIONS = ['NM']`, literal y con `PROJECT.md` §H citado al lado. Aplica a los 4
+  `@IsIn` del alta de inventario, los 3 del buylist y el filtro público de condición de Compra. Sus dos
+  tests de clase R: **lista exacta** y **subconjunto** del enum de Prisma.
+
+**La distinción, en una frase:** `enum-values.ts` responde *«¿qué valores EXISTEN?»*;
+`business-rules.ts` responde *«¿cuáles ACEPTAMOS?»*. Cuando las dos respuestas coinciden hoy, sigue
+importando cuál de las dos preguntas se está haciendo — es la que decide qué pasa mañana.
+
+### T-3 · El porqué de la exclusión de `UserStatus`, movido al call-site
+
+`admin.controller.ts` tenía `@IsIn(['active','blocked'])` **sin comentario** y sin ningún test que
+fijara el rechazo de `deleted`. El riesgo es concreto: el escáner de residuo marca las listas de enums
+escritas a mano como infractoras, y el fix «obvio» —derivarla— le concedería a `PATCH /status` poner
+`deleted` **saltándose todo `deleteUser`** (que anonimiza la PII, pone `passwordHash: null`,
+**incrementa `tokenVersion`** revocando los JWT vivos, y borra direcciones/KYC). Resultado: un usuario
+«eliminado» con la PII intacta y la **sesión viva**. El porqué vive ahora en el DTO, y
+`test/admin.user-status-enum.spec.ts` fija el rechazo (+ un test que verifica que el enum del schema
+sigue siendo **más ancho**, para que la afirmación no se vacíe de contenido).
+
+### T-2 · DTOs con tipo declarado que espeja el CONTRATO, no la implementación
+
+- **`CardDTO`** y **`ListingDTO`** declarados en `catalog.service.ts`; `toCardDTO` y `toListingDTO`
+  anotados. Antes `GroupedListingDTO.card` era `ReturnType<typeof toCardDTO>` — **el tipo espejaba la
+  implementación**: si el builder perdía `displayFinishes`, el tipo lo seguía y ningún test lo veía.
+- **`HoldingDTO`** declarado en `vault.service.ts`. Ahí el riesgo era mayor por el **spread condicional**
+  (`...sealedFields`): con dos ramas y sin tipo, una podía perder un requerido sin que la otra lo notara.
+- La aserción de conjunto exacto **baja al segundo nivel** (`listings[0].card`), que era el hueco: las
+  de forma sólo cubrían el primer nivel.
+- Las listas de claves dejan de estar duplicadas a mano: viven en `test/helpers/dto-keys.ts` derivadas
+  con `Record<keyof DTO, true>` ⇒ añadir un campo al DTO y no declararlo **no compila**.
+
+### MENOR 3 (QA) · El filtro `sealedSubtype` de la bóveda, cubierto
+
+`vault-sealed.spec.ts` no ejercitaba el filtro con **ningún** valor, y es justo el sitio donde el bug de
+v2.1.8 **no fallaba: MENTÍA** (el `if` no entraba, el WHERE salía sin filtro y el cliente recibía todo
+su sellado creyendo ver sólo sus UPC). QA no pudo probarlo por comportamiento porque la bóveda del seed
+está vacía de sellado; ahora hay (a) los **siete** subtipos verificados contra el WHERE que llega a
+Prisma, (b) un test de **comportamiento** con dos piezas de subtipo distinto —filtrado vs sin filtrar,
+para que el «1 resultado» no se confunda con una bóveda vacía— y (c) un test que fija que un subtipo
+**inexistente** se sigue ignorando (tolerar basura desconocida SÍ es correcto; esconder un valor que el
+schema conoce, no).
+
+### Lo que NO se tocó, y por qué
+
+- **Deuda anotada, no resuelta:** D-a, D-b, D-c, D-d, D-f y **S49-B2** quedan en `docs/TECH_DEBT.md`
+  con dueño, razón y disparador. **S49-B2 se juzgó explícitamente**: los 3 endpoints `@Public` que
+  paginan en memoria **no** son baratos de arreglar, y el arreglo barato (un `take`) sería **peor** que
+  la deuda — truncaría el catálogo en silencio, e inventario publicado que no aparece en Compra es
+  inventario que no se vende. El fix real exige persistir el precio de venta, lo que revierte la
+  propiedad «repricia en lectura» de §4.36.9c ⇒ **decisión del arquitecto**.
+- **D-e** se cerró de paso (las listas de claves ya se derivan de la interfaz).
+
+### Estado
+`typecheck` limpio · `lint` 0 errores (2 warnings preexistentes, ajenos) · **unitarios 185 suites /
+2087 tests** · **integración 11 suites / 149 tests contra Postgres real**, todo en verde.
+
+> **Nota para QA sobre `test/integration/pricing-visibility.e2e-spec.ts`:** cuatro de sus casos
+> afirmaban lo VIEJO (que la **rejilla** trae `priceBasis` y `referenceValue`) y **fallaron a
+> propósito** al implementar D2 — es la señal correcta, no un flake. Se reescribieron: la afirmación
+> de B-1 se mudó a la **ficha**, que es donde `priceBasis` se consume, y se añadió el `iff` verificado
+> **por HTTP y sin token**, incluido el PoC exacto del pentester
+> (`GET /catalog/listings/<id>` de una pieza con override ⇒ `priceBasis` sí, número de mercado no).

@@ -7,7 +7,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
 import { PriceBasis, SealedSpreadSource, sealedPriceBasisOf } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
-import { CatalogService, toCardDTO } from './catalog.service';
+import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 
 // v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí.
@@ -40,7 +40,7 @@ type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
  */
 export interface SealedGroupSummaryDTO {
   representativeItemId: string;
-  card: ReturnType<typeof toCardDTO>;
+  card: CardDTO;
   productName: string;
   imageUrl: string | null;
   sealedSubtype: SealedSubtype | null;
@@ -52,7 +52,7 @@ export interface SealedGroupSummaryDTO {
 
 export interface SealedGroupDTO {
   representativeItemId: string;
-  card: ReturnType<typeof toCardDTO>;
+  card: CardDTO;
   productName: string;
   imageUrl: string | null;
   sealedSubtype: SealedSubtype | null;
@@ -302,7 +302,8 @@ export class SealedCatalogService {
 
     const group = this.toGroupDTO(priced);
     const sealedCtx = await this.pricing.loadSealedSpreads();
-    const listings = await Promise.all(
+    // v2.1.9 (T-2): anotado con el tipo del contrato (`SealedGroupDetailResponse.listings`).
+    const listings: ListingDTO[] = await Promise.all(
       [...priced]
         .sort((a, b) => a.salePriceCents - b.salePriceCents)
         .map((p) =>

@@ -1,9 +1,23 @@
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype, ShipmentStatus } from '@prisma/client';
+import {
+  Card,
+  CardSet,
+  Finish,
+  GradingCompany,
+  InventoryItem,
+  InventoryStatus,
+  OwnershipStatus,
+  Prisma,
+  ProductType,
+  RawCondition,
+  SealedCondition,
+  SealedSubtype,
+  ShipmentStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
-import { toCardDTO } from '../catalog/catalog.service';
+import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 
@@ -23,6 +37,45 @@ const ACTIVE_SHIPMENT_STAGES: ShipmentStatus[] = [
 // su sellado). Tolerar basura desconocida está bien; esconder un valor que SÍ existe en el schema, no.
 const SEALED_SUBTYPE_SET = new Set<string>(SEALED_SUBTYPE_VALUES);
 const SEALED_CONDITION_SET = new Set<string>(SEALED_CONDITION_VALUES);
+
+/**
+ * `HoldingDTO` del contrato (§3 `GET /vault/holdings`), **declarado** (v2.1.9, T-2).
+ *
+ * ### Por qué importa aquí más que en otros DTOs
+ * Se construía como **objeto literal sin tipo** y con un **spread condicional** (`...sealedFields`):
+ * los campos de sellado se añaden en una rama y en la otra no. Con dos ramas y sin tipo, una de ellas
+ * puede perder un campo requerido **sin que la otra lo note** — y las aserciones de forma cubren el
+ * caso que el test eligió, no el que falta. Es exactamente la geometría de B-1, con una bifurcación
+ * encima.
+ *
+ * Los campos de sellado son **opcionales por contrato** (presentes SOLO en `productType='sealed'`,
+ * aditivo/retrocompatible), así que quedan `?` aquí; lo que el tipo garantiza es que los **comunes**
+ * están en LAS DOS ramas.
+ */
+export interface HoldingDTO {
+  inventoryItemId: string;
+  folio: string;
+  card: CardDTO;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  finish: Finish;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  ownershipStatus: OwnershipStatus | null;
+  status: InventoryStatus;
+  /** v1.17: etapa del envío ACTIVO; `null` si no hay envío vivo. */
+  shipmentState: ShipmentStatus | null;
+  activeShipmentId: string | null;
+  /** v1.17.1: flag AUTORITATIVO anti doble-retiro (mismo criterio read/write que `classifyItems`). */
+  withdrawable: boolean;
+  referenceValue: PriceInfo;
+  // v1.42 (BLOQ-2a): identidad de sellado — presente SOLO para `productType='sealed'`.
+  sealedProductId?: string | null;
+  sealedProductName?: string;
+  sealedImageUrl?: string | null;
+  sealedSubtype?: SealedSubtype | null;
+  sealedCondition?: SealedCondition | null;
+}
 
 /**
  * v1.42 (BLOQ-2a / H-P38-1, §4.34a) — cascada de display del SELLADO, RESUELTA server-side: snapshot
@@ -95,7 +148,9 @@ export class VaultService {
 
     let totalValueMxnCents = 0;
     let pendingPriceCount = 0;
-    const data = [];
+    // v2.1.9 (T-2): ANOTADO con el tipo del contrato. Con el spread condicional de sellado más abajo,
+    // sin tipo una rama podía perder un requerido y la otra no — y el test solo mira la que eligió.
+    const data: HoldingDTO[] = [];
     for (const item of items) {
       const gradeKey = this.pricing.gradeKeyFor(item);
       // v1.6-finish: valúa contra la referencia del ACABADO del holding (no un precio único por carta).

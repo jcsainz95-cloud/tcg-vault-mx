@@ -21,7 +21,10 @@ import { DEFAULT_PRICING_CURVE, resolveSaleFromCurve } from '../../src/common/pr
 
 const salePrice = (marketCents: number) => resolveSaleFromCurve(marketCents, DEFAULT_PRICING_CURVE).cents as number;
 
-/** Claves EXACTAS de `GroupedListingDTO` (contrato §DTOs) para una pieza `raw` sin grading. */
+/**
+ * Claves EXACTAS de `GroupedListingDTO` (contrato §DTOs) para una pieza `raw` sin grading — el DTO de
+ * la **FICHA** (`GroupedListingDetailResponse.listings[]`).
+ */
 const GROUPED_LISTING_KEYS = [
   'card',
   'currency',
@@ -35,6 +38,15 @@ const GROUPED_LISTING_KEYS = [
   'salePriceCents',
   'stockCount',
 ].sort();
+
+/**
+ * v2.1.9 (D2) — claves de `GroupedListingSummaryDTO`, el DTO de la **REJILLA**: el de arriba
+ * **menos** `priceBasis` y `referenceValue`. §N.7 dice «SOLO fichas», y la rejilla es la superficie de
+ * cosecha masiva: emitir `priceBasis` ahí publica un MAPA de qué cartas llevan override manual.
+ */
+const GROUPED_LISTING_SUMMARY_KEYS = GROUPED_LISTING_KEYS.filter(
+  (k) => k !== 'priceBasis' && k !== 'referenceValue',
+);
 
 describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra backend vivo', () => {
   let h: E2EHarness;
@@ -50,47 +62,95 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
     await h?.close();
   });
 
-  describe('B-1 — el DTO de GRUPO trae `priceBasis` (era `undefined` en el 100%)', () => {
-    it('`GET /catalog/cards` — el grupo del charizard trae `priceBasis: "market"`', async () => {
-      const res = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.charizard.name)}&pageSize=20`);
-      expect(res.status).toBe(200);
-      const group = res.body.data.find((g: { card: { name: string } }) => g.card.name === E2E_CARDS.charizard.name);
-      expect(group).toBeDefined();
-      // La condición EXACTA que evalúa el front para pintar «Valor de mercado».
-      expect(group.priceBasis).toBe('market');
-      expect(group.salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents!));
-    });
-
-    it('la FORMA en el cable: conjunto EXACTO de claves del grupo, ni una de menos ni de más', async () => {
-      const res = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.charizard.name)}&pageSize=20`);
-      const group = res.body.data.find((g: { card: { name: string } }) => g.card.name === E2E_CARDS.charizard.name);
-      expect(Object.keys(group).sort()).toEqual(GROUPED_LISTING_KEYS);
-    });
-
-    it('`GET /catalog/cards/:cardId` — `listings[]` (grupos) también lo trae, no solo `units[]`', async () => {
-      const card = await h.prisma.card.findUnique({ where: { externalId: E2E_CARDS.charizard.externalId } });
+  describe('B-1 — el DTO de GRUPO de la FICHA trae `priceBasis` (era `undefined` en el 100%)', () => {
+    /** Los grupos de la ficha de una carta, por nombre del fixture. */
+    async function fichaListings(externalId: string) {
+      const card = await h.prisma.card.findUnique({ where: { externalId } });
       const res = await h.api('GET', `/catalog/cards/${card!.id}`);
       expect(res.status).toBe(200);
-      expect(res.body.listings.length).toBeGreaterThan(0);
-      for (const g of res.body.listings) expect(g.priceBasis).toBe('market');
+      return res.body as { card: unknown; listings: any[]; units: any[] };
+    }
+
+    it('`GET /catalog/cards/:cardId` — el grupo del charizard trae `priceBasis: "market"`', async () => {
+      const { listings } = await fichaListings(E2E_CARDS.charizard.externalId);
+      expect(listings.length).toBeGreaterThan(0);
+      // La condición EXACTA que evalúa el front para pintar «Valor de mercado».
+      for (const g of listings) expect(g.priceBasis).toBe('market');
+      expect(listings[0].salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents!));
       // `units[]` es el ListingDTO por-pieza: ya lo traía, y se fija para que no se pierda.
-      for (const u of res.body.units) expect(u.priceBasis).toBeDefined();
+      const { units } = await fichaListings(E2E_CARDS.charizard.externalId);
+      for (const u of units) expect(u.priceBasis).toBeDefined();
+    });
+
+    it('la FORMA en el cable: conjunto EXACTO de claves del grupo de la FICHA', async () => {
+      const { listings } = await fichaListings(E2E_CARDS.charizard.externalId);
+      expect(Object.keys(listings[0]).sort()).toEqual(GROUPED_LISTING_KEYS);
     });
 
     it('un override manual POR PIEZA da `priceBasis: "override"` ⇒ el front NO pinta el bloque', async () => {
-      const res = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.common.name)}&pageSize=20`);
-      const group = res.body.data.find((g: { card: { name: string } }) => g.card.name === E2E_CARDS.common.name);
       // El seed publica esta carta con `listPriceCents` override (E2E-LST-0002).
-      expect(group.priceBasis).toBe('override');
-      expect(group.priceBasis === 'market').toBe(false); // el mercado NO produjo este precio
+      const { listings } = await fichaListings(E2E_CARDS.common.externalId);
+      expect(listings[0].priceBasis).toBe('override');
+      expect(listings[0].priceBasis === 'market').toBe(false); // el mercado NO produjo este precio
     });
 
     it('`referenceValue` público sigue SIN procedencia (S48-M2 no se rompió al arreglar B-1)', async () => {
-      const res = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.charizard.name)}&pageSize=20`);
-      const group = res.body.data.find((g: { card: { name: string } }) => g.card.name === E2E_CARDS.charizard.name);
-      expect(Object.keys(group.referenceValue).sort()).toEqual(['capturedDate', 'referenceMxnCents', 'status']);
-      expect(group.referenceValue).not.toHaveProperty('source');
-      expect(group.referenceValue).not.toHaveProperty('isManualOverride');
+      const { listings } = await fichaListings(E2E_CARDS.charizard.externalId);
+      expect(Object.keys(listings[0].referenceValue).sort()).toEqual([
+        'capturedDate',
+        'referenceMxnCents',
+        'status',
+      ]);
+      expect(listings[0].referenceValue).not.toHaveProperty('source');
+      expect(listings[0].referenceValue).not.toHaveProperty('isManualOverride');
+    });
+
+    /**
+     * v2.1.9 (D2) — **la regla de §N.7 se impone en el EMISOR, contra el backend VIVO.**
+     *
+     * Antes de este pase, un `curl` sin token a `GET /catalog/listings/<id>` devolvía
+     * `priceBasis:"override"` **junto con el número de mercado** — el bloque exacto que la UI tiene
+     * prohibido pintar. Era el PoC literal del pentester, y por eso se verifica **por HTTP**, sin
+     * token, y sobre el JSON de la respuesta: el `iff` en las dos direcciones y a los dos niveles.
+     */
+    describe('D2 — el `iff` del número de mercado, por HTTP y sin token', () => {
+      it('REJILLA `GET /catalog/cards`: ni `priceBasis` ni `referenceValue`, y la forma es la del summary', async () => {
+        const res = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.charizard.name)}&pageSize=20`);
+        expect(res.status).toBe(200);
+        const group = res.body.data.find((g: { card: { name: string } }) => g.card.name === E2E_CARDS.charizard.name);
+        expect(group).toBeDefined();
+        expect(Object.keys(group).sort()).toEqual(GROUPED_LISTING_SUMMARY_KEYS);
+        expect(group).not.toHaveProperty('priceBasis');
+        expect(group).not.toHaveProperty('referenceValue');
+        // Lo que la rejilla SÍ necesita sigue ahí (el recorte no apagó funcionalidad).
+        expect(group.salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents!));
+      });
+
+      it('FICHA con basis `market`: el número de mercado SÍ viaja (dirección «no lo mando nunca»)', async () => {
+        const { listings } = await fichaListings(E2E_CARDS.charizard.externalId);
+        expect(listings[0].priceBasis).toBe('market');
+        expect(listings[0].referenceValue.referenceMxnCents).toBe(E2E_CARDS.charizard.refNmCents);
+      });
+
+      it('FICHA con basis `override`: `priceBasis` viaja, el NÚMERO no', async () => {
+        const { listings } = await fichaListings(E2E_CARDS.common.externalId);
+        expect(listings[0].priceBasis).toBe('override');
+        expect(listings[0].referenceValue).toEqual({ status: expect.any(String) });
+        expect(listings[0].referenceValue).not.toHaveProperty('referenceMxnCents');
+      });
+
+      it('`GET /catalog/listings/:id` SIN TOKEN — el PoC del pentester, cerrado', async () => {
+        const { listings, units } = await fichaListings(E2E_CARDS.common.externalId);
+        const overrideUnit = units.find((u: any) => u.priceBasis === 'override');
+        expect(overrideUnit).toBeDefined();
+        expect(listings[0].priceBasis).toBe('override');
+        const res = await h.api('GET', `/catalog/listings/${overrideUnit.inventoryItemId}`);
+        expect(res.status).toBe(200);
+        // `priceBasis` se conserva (la UI lo OBEDECE); el número que tenía prohibido pintar, no.
+        expect(res.body.priceBasis).toBe('override');
+        expect(res.body.referenceValue).not.toHaveProperty('referenceMxnCents');
+        expect(res.body.referenceValue).not.toHaveProperty('capturedDate');
+      });
     });
   });
 

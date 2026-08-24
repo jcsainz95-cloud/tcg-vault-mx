@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, Finish, GradingCompany, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
+import { Card, CardSet, Finish, GradingCompany, InventoryItem, Prisma, ProductType, RawCondition, SealedCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
@@ -31,6 +31,62 @@ const SEALED_SUBTYPES = new Set<string>(Object.values(SealedSubtype));
 const FINISHES = new Set<string>(Object.values(Finish));
 
 /**
+ * `CardDTO` del contrato (§DTOs), **declarado como INTERFAZ que espeja el CONTRATO** (v2.1.9, T-2).
+ *
+ * ### Por qué no `ReturnType<typeof toCardDTO>`
+ * Ése era el tipo que usaban `GroupedListingDTO.card` y `SealedGroupDTO.card`: **el tipo espejaba la
+ * IMPLEMENTACIÓN, no el contrato**. Si el builder perdiera `displayFinishes`, el tipo lo seguiría sin
+ * chistar y ningún test lo vería (las aserciones de forma solo cubrían el primer nivel). Es B-1 un
+ * nivel más abajo: un campo requerido que desaparece y el compilador «tiene razón».
+ *
+ * Con la interfaz declarada, quitar un campo del builder **no compila** — que es el candado más
+ * barato que existe para un contrato.
+ */
+export interface CardDTO {
+  id: string;
+  externalId: string;
+  name: string;
+  number: string;
+  /** v1.22 (M-26, §4.22b): claves persistidas del ORDEN NATURAL. */
+  numberSort: number | null;
+  numberPrefix: string | null;
+  rarity: string | null;
+  supertype: string | null;
+  subtypes: string[];
+  setId: string;
+  setName: string | null;
+  imageSmallUrl: string | null;
+  imageLargeUrl: string | null;
+  availableFinishes: Finish[];
+  /** v1.22-2 / N-15: subconjunto DISPLAY-only (⊆ availableFinishes, nunca vacío). */
+  displayFinishes: Finish[];
+}
+
+/**
+ * `ListingDTO` del contrato (§DTOs), **declarado** (v2.1.9, T-2). El retorno de `toListingDTO` era
+ * **inferido**: la misma clase que B-1 cerró en `GroupedListingDTO` seguía abierta en el DTO
+ * por-pieza, que es el que alimenta `units[]`, `GET /catalog/listings/:id` y la ficha de sellado.
+ */
+export interface ListingDTO {
+  inventoryItemId: string;
+  card: CardDTO;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
+  /** v1.23-sealed-sales: condición del sellado; `undefined` en raw/graded. */
+  sealedCondition?: SealedCondition;
+  finish: Finish;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  certNumber?: string;
+  referenceValue: PriceInfo;
+  salePriceCents?: number;
+  /** v2.0 (P-48, §N.7): QUÉ determinó el precio. REQUERIDO — su ausencia es lo que invirtió B-1. */
+  priceBasis: PriceBasis;
+  sellable: boolean;
+}
+
+/**
  * @param pricedFinishes v1.22-2 / N-15 (§4.22a-6): acabados de ESTA carta con `hasPricedRef`
  *   (PriceReference raw `raw:NM`, `priceMxnCents > 0`), de `PricingService.getPricedRawFinishesBatch`.
  *   El llamador lo pasa para computar `displayFinishes` (supresión del acabado ESPURIO en premium de
@@ -41,7 +97,7 @@ const FINISHES = new Set<string>(Object.values(Finish));
 export function toCardDTO(
   card: Card & { set?: CardSet | null },
   pricedFinishes?: Iterable<Finish>,
-) {
+): CardDTO {
   // v1.6-finish: acabados en que existe la carta (lista blanca de validación). [normal] por default.
   const availableFinishes = (card.availableFinishes ?? ['normal']) as Finish[];
   return {
@@ -116,7 +172,7 @@ type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
  */
 export interface GroupedListingSummaryDTO {
   representativeInventoryItemId: string;
-  card: ReturnType<typeof toCardDTO>;
+  card: CardDTO;
   productType: 'raw' | 'graded';
   finish: Finish;
   rawCondition?: RawCondition;
@@ -130,7 +186,7 @@ export interface GroupedListingSummaryDTO {
 
 export interface GroupedListingDTO {
   representativeInventoryItemId: string;
-  card: ReturnType<typeof toCardDTO>;
+  card: CardDTO;
   productType: 'raw' | 'graded';
   finish: Finish;
   rawCondition?: RawCondition;
@@ -300,6 +356,8 @@ export class CatalogService {
    * (valor de mercado) de salePriceCents (precio de venta). El sellado lleva sealedSubtype
    * y NO lleva rawCondition/grade/rareza.
    */
+  // v2.1.9 (T-2): retorno DECLARADO. Era inferido, así que perder un campo requerido no era un
+  // error de compilación — la misma clase que B-1 cerró en el DTO de GRUPO, abierta en el de PIEZA.
   async toListingDTO(
     item: ItemWithCard,
     ctx?: {
@@ -318,7 +376,7 @@ export class CatalogService {
       // fila). Su presencia va atada a `curve` (batch); en uso single se resuelve aquí mismo.
       variantOverride?: VariantPriceOverride | null;
     },
-  ) {
+  ): Promise<ListingDTO> {
     let referenceValue: PriceInfo;
     let salePriceCents: number | undefined;
     // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este
