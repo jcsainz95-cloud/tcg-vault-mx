@@ -140,6 +140,25 @@
 > SALE** (`approvedPriceCents`, en el seam de `MoneyOutGuard` de M5), no solo la cotización de intake. **Sequenciable
 > (Baja), pero no cerrable como «fuera de alcance»** — una propiedad de control que solo se cumple en una punta no se
 > cumple.
+> **Adenda v2.1.7 — B-1: la regla de visibilidad se INVIRTIÓ, y la causa es la misma familia (gate E2E de QA;
+> contrato §M2/§DTOs).** `GroupedListingDTO` y `SealedGroupDTO` **nunca emitían `priceBasis`**, así que
+> `undefined === 'market'` era `false` **siempre** y «Valor de mercado» **no se mostraba nunca** — ni cuando el
+> mercado sí fijaba el precio. **No se apagó la regla: se invirtió**, que es el peor modo de fallo porque *un bloque
+> que falta no se nota* y la pantalla parecía correcta. Solo el **E2E contra el stack vivo** lo cazó. **Causa
+> estructural:** los DTOs se construían como **objetos literales sin tipo** ⇒ omitir un campo requerido **no era
+> error de compilación**. Cerrado por backend (tipos + builders anotados + spec sobre el JSON serializado).
+> **Consecuencias de diseño que quedan normadas:** (1) **`GET /admin/pricing/card/:cardId`** y
+> **`POST /admin/pricing/override`** **se declaran** — la primera vivía de un **acuerdo tácito** backend↔frontend
+> (con grieta: `source: string` vs `PriceSource`), que es *literalmente la condición que produjo B-1*; (2) **ningún
+> endpoint devuelve una entidad Prisma directamente** — `override` devolvía la fila `PriceReference` completa, y
+> cuando la respuesta **es** la entidad **la forma de la API la define el schema, no el contrato**, con lo que **cada
+> migración pasa a ser un cambio de contrato silencioso** (M-41 tocó tres modelos); (3) la convención de DTOs
+> cerrados gana su **tercera pata**: *verificar sobre la forma **SERIALIZADA***, en **las dos direcciones** y **en el
+> nivel de agregación que el consumidor lee** — *en memoria, un opcional ausente y un requerido que falta se ven
+> idénticos*, y un test de DTO de **unidad** no cubre el de **grupo**. (4) **`isManualOverride` se conserva en el
+> historial `super_admin`** y **no** contradice su retiro de `PriceInfo` (v2.1.6): distinta superficie, y ahí **no es
+> redundante** con `source` per-fila. *La pregunta correcta no es «¿este campo es sensible?» sino «¿es sensible para
+> quien lee esta ruta?».*
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`

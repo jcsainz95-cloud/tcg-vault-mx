@@ -2,7 +2,33 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.6-closed-dtos).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.7-declared-shapes).
+>
+> **Changelog v2.1.7-declared-shapes (2026-08-24, arquitecto — B-1 del gate E2E de QA + auditoría de rutas sin forma
+> declarada. ARCHITECTURE §4.36. Dos respuestas SE NORMAN; la convención de DTOs gana su tercera pata.):**
+> - **B-1 (la funcionalidad central de P-48 estaba ROTA):** `GroupedListingDTO` y `SealedGroupDTO` **nunca emitían
+>   `priceBasis`**, así que `undefined === "market"` era `false` **siempre** y «Valor de mercado» **no se mostraba
+>   nunca**, ni cuando el mercado sí fijaba el precio. **La regla no se apagó: se INVIRTIÓ.** Causa estructural: los
+>   dos DTOs se construían como **objetos literales sin tipo**, así que omitir un campo requerido **no era error de
+>   compilación**. Ya cerrado por backend (tipos declarados + builders anotados + spec sobre el JSON).
+> - **`GET /admin/pricing/card/:cardId` SE NORMA** (`{ data: PriceHistoryEntryDTO[] }`, §DTOs). Era **la misma
+>   condición que produjo B-1**: el contrato decía «historial por fecha/fuente» sin fijar campos, y backend y
+>   frontend coincidían por **acuerdo tácito** — ambos marcándolo como SUPUESTO en su propio código. Y el acuerdo ya
+>   tenía **grieta**: backend tipaba `source: string`, frontend `source: PriceSource`. **Manda el enum.**
+> - **`POST /admin/pricing/override` SE NORMA** (`{ data: PriceHistoryEntryDTO }`) porque **hoy devuelve la fila
+>   Prisma `PriceReference` COMPLETA**. Regla nueva de la que ése es el caso testigo: **ningún endpoint devuelve una
+>   entidad Prisma directamente; siempre una proyección declarada.** Cuando la respuesta **es** la entidad, la forma
+>   de la API la define el **schema**, y entonces **cada migración es un cambio de contrato silencioso** (M-41 añadió
+>   columnas a tres modelos).
+> - **`isManualOverride` SÍ viaja en el historial admin, y NO contradice su retiro de `PriceInfo`** (v2.1.6): allá era
+>   superficie **anónima** y redundante con `source`; aquí es **`super_admin`**, la procedencia **es la pregunta que
+>   el endpoint contesta**, y **no es redundante per-fila** (`sourceRank` trata las dos señales como separadas). *La
+>   pregunta correcta nunca es «¿este campo es sensible?» sino «¿es sensible PARA QUIEN LEE ESTA RUTA?».*
+> - **Tercera pata de la convención de DTOs cerrados:** *lo declarado, **verificado sobre la forma SERIALIZADA***, en
+>   las dos direcciones y **en el nivel de agregación que el consumidor lee** — porque *en memoria, un opcional
+>   ausente y un requerido que falta se ven idénticos*, y un test sobre el DTO de **unidad** no cubre el de **grupo**.
+>
+> Versión previa: v2.1.6-closed-dtos.
 >
 > **Changelog v2.1.6-closed-dtos (2026-08-24, arquitecto — hallazgos de la fase de seguridad. ARCHITECTURE §4.36.6a.
 > Un campo SE RETIRA del DTO público; una convención se enuncia en los dos sentidos.):**
@@ -4800,7 +4826,32 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     compra ni se paga ⇒ jamás cuenta para el bounty ni dispara el auto-apagado — ARCHITECTURE §4.26e); al
     llegar a `targetQty` ⇒ `enabled=false` + `completedAt` + `AuditLog action=bounty.completed` (auto-apagado).
     Apagar/editar un bounty NO re-precia solicitudes ya cotizadas (montos snapshoteados, doctrina vigente).
-- `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
+- `GET /api/v1/admin/pricing/card/:cardId` — **historial de precios** por fecha/fuente de esa carta (todas las
+  variantes/grados/tipos), `capturedDate` **desc**. **Forma NORMADA en v2.1.7** — antes solo decía «historial de
+  precios por fecha/fuente» y **no fijaba campos**: backend y frontend coincidían por **acuerdo tácito**, que es
+  exactamente la condición que produjo B-1 (ver la convención de DTOs cerrados abajo).
+  Res `200`: `{ data: PriceHistoryEntryDTO[] }` (§DTOs de administración).
+  - **`isManualOverride` SÍ viaja aquí, y NO contradice su retiro de `PriceInfo` (v2.1.6).** Dos razones, y conviene
+    dejarlas escritas para que la próxima auditoría no lo vuelva a levantar como fuga:
+    1. **La superficie es distinta.** Allá era **anónima** (`/catalog/*`) y la procedencia permitía inferir estado
+       interno de pricing — un mapa de dónde falló el feed. Aquí es **`super_admin`** y la procedencia **es la
+       pregunta que el endpoint contesta**: «¿de dónde salió este precio y cuándo?». Retirarlo lo vaciaría.
+    2. **Aquí NO es redundante con `source`.** En `PriceInfo` se resuelve **una** referencia y `source === "manual"`
+       la determina por completo. En el historial son **N filas** y el resolver trata las dos señales como
+       **separadas** (`sourceRank(source, isManualOverride)`, `pricing.service.ts:105-106`, que casa
+       `isManualOverride || source === 'manual'`): una fila puede venir marcada manual con un `source` distinto de
+       `manual`. En una superficie de **auditoría** ambas cargan información.
+    > **Regla general que esto ilustra:** un mismo campo puede ser **fuga** en una superficie y **carga** en otra. La
+    > pregunta correcta nunca es «¿este campo es sensible?» sino **«¿es sensible PARA QUIEN LEE ESTA RUTA?»**.
+- `POST /api/v1/admin/pricing/override` — **Res `200` NORMADA en v2.1.7:** `{ data: PriceHistoryEntryDTO }` — la
+  referencia recién escrita, **proyectada**, no la entidad.
+  > ⚠️ **Por qué se norma: hoy devuelve la fila Prisma `PriceReference` COMPLETA** (`manualOverride(): Promise<PriceReference>`,
+  > devuelta tal cual por el controller). Eso publica `id`, `priceUsdCents`, `fxRate`, `fxBufferPct`, `cardProductId`,
+  > `createdAt`… **sin que el contrato lo diga**. No es fuga pública (`super_admin`), pero es la **causa raíz** de
+  > esta familia: **cuando la respuesta ES la entidad, la forma de la API la define el SCHEMA, no el contrato — y
+  > entonces CADA MIGRACIÓN es un cambio de contrato silencioso.** M-41 añadió columnas a tres modelos; con este
+  > patrón, cualquier columna futura se auto-publica. **Norma: ningún endpoint devuelve una entidad Prisma
+  > directamente; siempre una proyección declarada.**
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate?, bufferPct? }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
   - **`rate?` opcional (v1.14-price-ingest, #13):** si se **omite** `rate`, la llamada actualiza **solo** el colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (`fx_manual_override_rate`) → la tasa **automática de Banxico sigue activa**. Antes exigía ambos, así que subir solo el colchón congelaba la tasa sin querer. El colchón **aplica en cada ingest de precios** (USD→MXN con FX+buffer, ARCHITECTURE §4.15f). **Vía recomendada sin cambiar este endpoint:** editar el colchón por `PUT /admin/settings { fxBufferPct }` (parcial, ya soportado). **Nota para frontend (M2):** exponer un guardado del colchón independiente del `rate`.
 #### Curva de precio por VALOR DE MERCADO (v2.0 — NUEVO; editor M2, `super_admin`) — SUPERSEDE el editor por TIERS y por RAREZA
@@ -4912,8 +4963,24 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     > deja el resto al criterio de quien implementa — y ese criterio, sin malicia, resuelve unas veces de menos
     > (funcionalidad apagada) y otras de más (fuga). **Ningún test de contrato caza ninguno de los dos**, porque en
     > ambos casos no hay nada que contradecir.
-    > **Consecuencia práctica para los tests:** un test de contrato debe assertar **el conjunto exacto de claves** de
-    > los DTOs sensibles (al menos los que cruzan a superficie pública), no solo que las esperadas estén presentes.
+    3. **Lo declarado, VERIFICADO SOBRE LA FORMA SERIALIZADA** (v2.1.7 — la tercera pata, que faltaba). La
+       verificación de un DTO cerrado se hace sobre **el JSON que sale**, **en las dos direcciones** (que no sobre,
+       que no falte) y **en el nivel de agregación que el consumidor realmente lee**.
+    > **Por qué el JSON y no el objeto:** *en memoria, un opcional ausente y un requerido que falta se ven idénticos*.
+    > Esa indistinguibilidad es exactamente la que B-1 explotó — `GroupedListingDTO` y `SealedGroupDTO` se construían
+    > como **objetos literales sin tipo**, así que omitir `priceBasis` **no era error de compilación**, y
+    > `undefined === "market"` daba `false` **siempre**: «Valor de mercado» **no se mostró nunca**, ni cuando el
+    > mercado sí fijaba el precio. **La regla no se apagó: se INVIRTIÓ** — el peor modo de fallo, porque la pantalla
+    > se veía «correcta» (un bloque que falta no se nota) y el E2E contra el stack vivo fue lo único que lo cazó.
+    > **Por qué el nivel de agregación importa:** ya existía un test que vigilaba que **no saliera de más** a nivel de
+    > **pieza** (`catalog.dto-closed.spec.ts`); faltaba el simétrico, que **no faltara de menos** a nivel de **grupo**.
+    > **Un test sobre el DTO de unidad NO cubre el de grupo, aunque compartan campos** — son builders distintos, y el
+    > que el consumidor lee es el de grupo.
+    > **Y la mitad estructural:** todo DTO se construye **con su tipo puesto** (builder anotado), no como objeto
+    > literal suelto. Con el tipo, omitir un campo requerido **deja de compilar**; sin él, el test es la única red.
+    > Backend lo verificó revirtiendo la emisión con los tipos puestos: **el spec deja de compilar**. Ése es el
+    > estándar — *que el compilador atrape lo que pueda, y el test serializado lo que no*, la misma doctrina que
+    > `DisplayBp` (§M2 preview).
     > **Por qué se eleva a convención:** un hueco aquí produjo un bug **silencioso** que vivió desde E9. El contrato
     > normaba `details: { axis, index, marketCents, … }` y dejaba el segundo extremo dentro del «…»; backend emitió
     > `index2`/`marketCentsTo`, el frontend declaró `toIndex`/`toMarketCents` —nombres que **inventó y que nadie
@@ -5999,6 +6066,19 @@ RejectedSellItemDTO = { id, sellRequestId, seller: AdminSellerRef, card: CardDTO
 PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, cardProductId?: number,
                      sealedProductId?: string | null, sealedProductName?: string, sealedSubtype?: SealedSubtype | null,
                      context, reason?: PendingPriceReason | null, status: "open"|"resolved", createdAt }
+// v2.1.7 — GET /admin/pricing/card/:cardId (`super_admin`). Una fila por `PriceReference` capturada, `capturedDate`
+// desc. NORMADA tras B-1: antes el contrato decía «historial por fecha/fuente» sin fijar campos, y backend/frontend
+// coincidían por acuerdo TÁCITO (ambos lo marcaron como SUPUESTO en su código; ver §M2).
+//   * `capturedDate` = `YYYY-MM-DD` (día de captura, NO instante — igual que `PriceInfo.capturedDate`). El ISO
+//     completo insinuaría una precisión que el dato no tiene.
+//   * ⚠️ `source` es **`PriceSource`** (el enum), NO `string`. El acuerdo tácito ya tenía una GRIETA: backend lo
+//     tipaba `string` y frontend `PriceSource`. Con `string`, un valor fuera del enum compila en backend y **rompe
+//     el render** del front sin que nada avise. **Manda el enum**; si aparece una fuente nueva, se añade a
+//     `PriceSource` en este contrato — que es el punto de tener un enum.
+//   * `isManualOverride` SÍ va aquí (superficie `super_admin` de auditoría, donde la procedencia ES el dato; y NO es
+//     redundante con `source` per-fila — ver §M2). Contrasta con `PriceInfo`, de donde se RETIRÓ (v2.1.6).
+PriceHistoryEntryDTO = { capturedDate: string, source: PriceSource, gradeKey: string,
+                         productType: ProductType, priceMxnCents: number, isManualOverride: boolean }
 // v2.1 (P-48): conteo por motivo del encabezado de la cola (DESIGN_SYSTEM §21.7c: «12 SIN MERCADO · 3 PREMIUM EN EL
 // PISO»). Viaja en el CUERPO de GET /admin/pricing/pending, junto a `data`.
 //   * Se calculan sobre la cola COMPLETA: IGNORAN `?reason=` y la paginación. Si respetaran `reason`, el encabezado
