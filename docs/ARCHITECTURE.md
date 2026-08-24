@@ -2,6 +2,31 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+> Rev **v2.0-pricing-curve** (2026-08-24, rama `claude/card-pricing-rules-2e537m`, arquitecto — **DISEÑO EN PAPEL**; lo
+> implementan BACKEND + FRONTEND). **PROJECT §N v2.0 LOCKED, P-48.** El precio de las **cartas sueltas** (raw **y**
+> gradeadas) deja de depender de la **rareza** y del **acabado** y pasa a **UNA curva por eje de dinero** sobre el
+> **valor de mercado**: `venta = redondeo↑(max(piso, mercado × markup(mercado)))` y
+> `compra = max(bin, mercado × pct(mercado))`, ambas **interpoladas** entre puntos de quiebre (**nunca escalonadas**) y
+> con **tabla de puntos de LONGITUD VARIABLE editable desde M2** (agregar / mover / borrar). **Se retiran sin residuos**
+> los modos `fixed`/`pct`, los **5 tiers**, el **mapa rareza→tier**, las **reglas por acabado** (`finishRules`) y los
+> cinco `SettingKey` que los sostenían — reemplazados por **uno solo**, `PRICING_CURVE` (escritura **atómica**, que es
+> lo que hace validable el invariante cruzado «compra < venta»). **La rareza no sale del sistema: sale del PRICING y
+> entra a la VALIDACIÓN** — guardarraíl §4.36.5, que **sustituye** al invariante `premium ⇒ pct` de §4.33d.
+> **Decisiones del humano ancladas en esta rev (cerradas, no se re-litigan):** (1) **sin dato de mercado ⇒ PRECIO
+> PENDIENTE**, no se publica ni se cotiza — el piso **NO** gana (corrige el supuesto de §N.2; razón en §4.36.0: el
+> guardarraíl se apoya en la rareza, el proxy que este cambio retira, así que atraparía una Secret Rare con dato
+> corrupto pero **no** una Common de $400 sin dato); (2) el guardarraíl aplica a **los dos ejes** (premium en el piso no
+> se publica; premium en el bin no se cotiza); (3) el **bracket** de instrumentación es una **ESCALA FIJA** e
+> independiente de la curva (`<3 · 3–10 · 10–25 · 25–80 · 80–300 · >300` MXN) y **además se persiste siempre el mercado
+> crudo en centavos**; (4) la banda de redondeo la decide el monto **antes** de redondear, **una sola vez**
+> (`<$200⇒$5 · [200,500)⇒$10 · ≥$500⇒$25`); (5) la **alerta de bounty rebasado basta en el binder** (sin aviso
+> proactivo). Se suman **`priceBasis`** (`market|floor|override|bounty|pending`, server-side) con su **regla de
+> visibilidad** del «Valor de mercado» (solo ficha de carta y de sellado), el **bounty revalidado al crear, cotizar y
+> publicar**, y la **instrumentación** de cada venta y cada compra. **El SELLADO no cambia** (spread por presentación,
+> §4.23) y **el ACABADO sigue siendo identidad de variante** (solo pierde su regla de precio). Spec normativa: **§4.36**;
+> superseded: §4.2/§4.2.1, §4.14, §4.28d y **§4.33 completa**; amendada: §4.26b. **Migración M-41** (§11, aditiva pura;
+> **sin migración de dinero** — el precio de venta se resuelve en lectura). Causa raíz en §9 (**P-48-RC**). Contrato en
+> API_CONTRACT (Changelog v2.0-pricing-curve). **Base previa:** v1.44-per-finish-price-source-daily-sweep.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -1569,7 +1594,14 @@ Implementaciones MVP:
 - **`escalatePending(cardId, productType, gradeKey, finish, context, refId?)`** dedupe por `(cardId, productType, gradeKey, finish, status='open')`. **Corrección de implementación (BE):** hoy `syncCardPrice` invoca `escalatePending` **sin** pasar `finish` (bug: colapsa acabados) — con M-19 debe **propagar** el `finish` del `syncCardPrice`.
 - **`manualOverride(cardId, productType, gradeKey, priceMxnCents, finish='normal')`** ya crea la `PriceReference` del acabado correcto (clave con `finish`), pero su `updateMany` que **resuelve** pendientes filtraba `{cardId, productType, gradeKey, status:'open'}` **sin `finish`** → cerraba TODOS los acabados. Con M-19 el `updateMany` **añade `finish`**, resolviendo **solo** el pendiente de ese acabado (el de `holofoil` sigue abierto hasta que se le fije precio). `getReference(...finish)` no cambia (ya era por-acabado); no se rompe SEC-A1 (los montos siguen derivándose server-side de `(Card.rarity, finish)`).
 
-### 4.2 AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL (v1.3.1)
+### 4.2 AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL (v1.3.1) — ⛔ **SUPERSEDED por §4.36 (v2.0, P-48)**
+
+> ⛔ **SUPERSEDED COMPLETA por §4.36 (v2.0, P-48, PROJECT §N LOCKED).** El precio de compra **ya no depende de la
+> rareza ni del acabado**: sale de la **curva única por valor de mercado** `compra = max(bin, mercado × pct(mercado))`.
+> Desaparecen la tabla por rareza, los modos `fixed`/`pct`, el `fallbackPct` y el gate `isPremiumRarity` **del pricing**.
+> Lo único que **sobrevive** de esta sección es el principio money-safe «sin dato ⇒ precio pendiente, jamás MX$0 ni
+> precio inventado» y la **derivación server-side (SEC-A1)**. Se conserva abajo como **registro histórico** (procedencia
+> del bug P-48; ver §4.36.0). **No implementar nada de aquí.**
 
 > **Reemplaza** el esquema de 3 categorías (`RARITY_MAP` + `BuylistCategory`). El monto a pagar por el buylist
 > se resuelve con una **regla por rareza oficial de Pokémon** (la de `Card.rarity`, tal cual pokemontcg.io),
@@ -1651,7 +1683,11 @@ reversible desde el editor.
 compra al usuario (buylist). El **costo de aportación en especie** del inventario propio sigue usando su dial
 propio (`aportacion_pct`, default 70%); no se toca.
 
-#### 4.2.1 Cotización POR ACABADO (v1.6-finish)
+#### 4.2.1 Cotización POR ACABADO (v1.6-finish) — ⛔ **SUPERSEDED por §4.36**
+
+> ⛔ **SUPERSEDED por §4.36.** El `finish` **deja de seleccionar regla** (`ruleKeyCandidates`, claves sintéticas
+> `Holo`/`Reverse Holo` y el **gate premium de pricing** se retiran). El acabado **sigue** eligiendo **de qué variante
+> se lee el mercado** (`getReference(..., finish)`) y sigue siendo identidad de variante (§4.36.10). Histórico.
 
 La cotización es **por acabado**. El `finish` seleccionado (validado contra `card.availableFinishes`, SEC-A1)
 determina **dos cosas de forma determinista y server-side**: (a) **qué regla** de `BUYLIST_PRICE_RULES` aplica y
@@ -2351,7 +2387,15 @@ desde M-18). Los cuatro sub-ítems son independientes y paralelizables, salvo qu
 
 ---
 
-### 4.14 Fase 2 del epic de precios — precio de VENTA por RAREZA, editable en admin (v1.13-sales-pricing)
+### 4.14 Fase 2 del epic de precios — precio de VENTA por RAREZA, editable en admin (v1.13-sales-pricing) — ⛔ **SUPERSEDED por §4.36 (v2.0, P-48)**
+
+> ⛔ **SUPERSEDED COMPLETA por §4.36 (v2.0, P-48, PROJECT §N LOCKED).** El precio de venta **ya no depende de la rareza
+> ni del acabado**: sale de la **curva única** `venta = redondeo↑(max(piso, mercado × markup(mercado)))`. **Aquí está la
+> causa raíz del bug P-48**: el `mode:'fixed'` de (b) está documentado como **PISO** y etiquetado «Piso (MX$)» en el
+> editor de M2, pero **devuelve el valor configurado sin compararlo jamás contra el mercado** — es un **precio
+> absoluto**, no un piso (`computeSalePriceForRarity`, rama `rule.mode === 'fixed'`). En §4.36 el `max` hace que el
+> piso sea **piso de verdad**, y el modo `fixed` **desaparece**. Se retiran `SALES_PRICE_RULES`,
+> `SALES_PRICE_FALLBACK_PCT` y el editor por rareza. Histórico; **no implementar nada de aquí**.
 
 > **Reemplaza** el **markup GLOBAL único** de venta (`SALES_MARKUP_PCT`, default 15) por una **tabla de regla por
 > rareza** editable en **M2** sin redeploy, **simétrica** a la de buylist (§4.2 / §4.2.1). Decisión del humano (fija):
@@ -5087,7 +5131,16 @@ model VariantPriceOverride {
   `finish ∈ Card.availableFinishes` (SEC-A1); para `graded`, `finish=normal` y `gradeKey` con forma
   `graded:<company>:<grade>`.
 
-#### (b) P-18 — la consola de TRES precios y las precedencias NORMATIVAS (money-safe)
+#### (b) P-18 — la consola de TRES precios y las precedencias NORMATIVAS (money-safe) — ⚠️ **AMENDADA por §4.36.6 (v2.0)**
+
+> ⚠️ **AMENDADA por §4.36.6 (v2.0, P-48).** La **forma** de las dos precedencias **NO cambia** y sigue siendo
+> normativa; lo que cambia es el **peldaño 3**: `BUYLIST_PRICE_RULES / SALES_PRICE_RULES` ⇒ **la CURVA** (§4.36.1). Es
+> decir: `bounty válido > buyOverrideCents > CURVA (bin|mercado) > pendiente` y `listPriceCents > sellOverrideCents >
+> CURVA (piso|mercado) > pendiente`. Además: (1) el `ruleSource` `rule|fallback` se sustituye por **`priceBasis`**
+> (`market|floor|override|bounty|pending`, §4.36.7a); (2) el bounty pasa a **revalidarse contra la curva al cotizar y
+> al publicar**, no solo al crear (§4.36.6) — un bounty por debajo de la curva **deja de ganar la precedencia #1**;
+> (3) el **override manual sigue siendo ABSOLUTO** (jamás se envuelve en un `max` con la curva); (4) las tres perillas
+> (mercado / compra / venta) y el nivel carta+variante **no cambian**.
 
 El Master Set muestra, por (carta, variante): **mercado** (P-15, ya en el binder v1.27), **compra** y **venta**,
 cada uno con **sugerido por regla** + **override manual**. Decisión del humano ratificada: **los overrides SÍ pisan
@@ -5625,7 +5678,15 @@ para la cotización):
   `money.ts:309` normaliza AMBOS lados (key de regla y rareza) antes de comparar, para que una regla legacy con key
   cruda siga enganchando durante la transición. Cuando ambos lados son canónicos el match es directo.
 
-#### (d) Separar el eje RAREZA (carta) del eje ACABADO/finish (variante) en las reglas de precio
+#### (d) Separar el eje RAREZA (carta) del eje ACABADO/finish (variante) en las reglas de precio — ⛔ **SUPERSEDED por §4.36**
+
+> ⛔ **SUPERSEDED por §4.36 (v2.0, P-48).** Los **dos ejes desaparecen**: no hay `PriceRuleSet`, ni `rarityRules`, ni
+> `finishRules`, ni `fallbackPct`, ni `resolveTwoAxisRule`. **Aquí está la segunda causa raíz del bug P-48**: el caso
+> `reverse_holo` de `resolveTwoAxisRule` devuelve `finishRules.reverse_holo ?? null` y **nunca consulta la regla de la
+> rareza**, así que una variante sin regla propia cae al `%` de respaldo y el «piso» ni siquiera participa. §4.36 lo
+> resuelve **eliminando los ejes**, no arbitrando entre ellos. El resto de §4.28 (**b** catálogo canónico, **c**
+> normalizador, **e** una sola definición de `premium`) **SIGUE VIGENTE** — es lo que alimenta el **guardarraíl**
+> (§4.36.5) y la presentación. Histórico.
 
 Hoy las reglas son un `Record<string, Rule>` **plano** que MEZCLA keys de rareza (`Common`, `Uncommon`) con keys
 **sintéticas por-acabado** (`Holo`, `Reverse Holo`) que fabrica `ruleKeyCandidates` (`money.ts:228-251`). Esas keys
@@ -6407,7 +6468,17 @@ destructivo. Con la app corriendo. `backend/prisma/` es **zona compartida** → 
 
 ---
 
-### 4.33 Pricing por TIERS — una regla por peldaño + mapa rareza→tier (v1.37, P-34, PROJECT §M LOCKED, NORMATIVO)
+### 4.33 Pricing por TIERS — una regla por peldaño + mapa rareza→tier (v1.37, P-34) — ⛔ **SUPERSEDED COMPLETA por §4.36 (v2.0, P-48)**
+
+> ⛔ **SUPERSEDED COMPLETA — esta sección deja de ser NORMATIVA.** PROJECT §M quedó superseded por **§N (v2.0, LOCKED)**:
+> desaparecen **los 5 tiers**, el **mapa rareza→tier** (`PRICING_TIER_MAP`), `common/pricing-tiers.ts`, `TieredRuleSet`,
+> `buildEffectiveRuleSet` y los endpoints `/tiers` + `/tier-map`. **El invariante `premium ⇒ pct` de (d) queda SIN
+> SENTIDO** (no hay modos que refinar) y lo **sustituye el guardarraíl de §4.36.5** (misma finalidad money-safe, otro
+> mecanismo: la rareza premium ya no elige *qué regla* aplica, sino que **bloquea la publicación/cotización** cuando el
+> precio aterriza en el piso/bin). El cambio intencional de T2 y los deltas de (f) quedan **sin efecto**: con la curva
+> no hay tiers de los que salir. **Veredicto sobre la taxonomía: se retira del todo** (razonado en §4.36.4) — la
+> taxonomía que **sobrevive** es la de **rareza canónica** (§4.28b/c/e), y **solo** para guardarraíl, filtros y
+> reportes. Se conserva abajo como registro histórico; **no implementar nada de aquí**.
 
 > **Propósito (PROJECT §M).** El editor de M2 muestra hoy **una fila por CADA rareza canónica** (~30 tras el sync,
 > §4.28). El dueño quiere pricear pensando en **5 familias de valor**, no en 30 nombres. Se introduce una **taxonomía de
@@ -6700,6 +6771,639 @@ subsección (filas `forced` no escriben el snapshot) queda como registro histór
 
 ---
 
+### 4.36 PRECIO PURO POR VALOR DE MERCADO — la curva única (v2.0, P-48, PROJECT §N LOCKED, NORMATIVO)
+
+> **Propósito (PROJECT §N).** El precio de una carta suelta deja de depender de la **rareza** y del **acabado** y pasa
+> a depender **solo de su valor de mercado**, con **UNA curva por eje de dinero**:
+>
+> ```
+> venta  = redondeo↑( max( piso , mercado × markup(mercado) ) )
+> compra =            max( bin  , mercado × pct(mercado)    )
+> ```
+>
+> **Esta sección SUPERSEDE:** §4.2 y §4.2.1 (tabla por rareza + `ruleKeyCandidates` + gate premium de pricing), §4.14
+> (precio de venta por rareza, `SALES_PRICE_RULES`/`SALES_PRICE_FALLBACK_PCT`), **§4.28d** (el `PriceRuleSet` de dos
+> ejes: `rarityRules` + `finishRules`) y **§4.33 COMPLETA** (pricing por tiers, `PRICING_TIER_MAP`, el invariante
+> `premium ⇒ pct` y `common/pricing-tiers.ts`). **AMIENDA** §4.26b (las precedencias de compra y venta conservan su
+> forma; el peldaño «regla» pasa a ser «curva»). **NO toca** §4.23 (sellado por spread), §4.27 (composición por
+> `CardProduct`), §4.28b/c/e (catálogo canónico de rarezas, normalizador y `isPremiumCanonicalRarity`), §4.35 (fuente
+> de precio por-acabado del barrido) ni §4.9a (publicación agrupada).
+
+#### 4.36.0 Doctrina — por qué la rareza sale del pricing y qué la sustituye
+
+El bug de origen (cartas publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**) tuvo dos causas
+concurrentes, **ambas de estructura, no de dato**: (a) `mode:'fixed'` está documentado y etiquetado como **PISO** pero
+se implementa como **precio absoluto** (`money.ts` `applyRule` / `computeSalePriceForRarity`: devuelve `rule.value` sin
+compararlo nunca contra el mercado), y (b) el eje de **acabado** no consulta la regla de la rareza
+(`resolveTwoAxisRule`, caso `reverse_holo`: devuelve `finishRules.reverse_holo ?? null`, **jamás** `rarityRule`), así
+que una variante sin regla propia cae al `%` de respaldo y el piso ni siquiera participa. Parchar los dos ejes arregla
+la mitad y **deja en pie la complejidad que produjo el error**. La curva elimina la clase entera: no hay reglas que
+resolver, no hay ejes que se pisen, no hay rarezas sin mapear.
+
+**Principio de sesgo de error (PROJECT §N.0, gobierna todo el diseño de esta sección).** *Precio de más = venta perdida
+(recuperable); precio de menos = carta perdida (irrecuperable).* Ante empate o duda, gana el precio más alto — en venta
+y en compra. Toda decisión de abajo se justifica contra este principio; una futura debe poder hacerlo también.
+
+**Decisión de diseño que gobierna el resto — «sin dato de mercado ⇒ PRECIO PENDIENTE, no se publica ni se cotiza»
+(cerrada por el humano; corrige el supuesto contrario anotado en PROJECT §N.2/§N.5).** El piso **NO gana** cuando falta
+el mercado. La razón es estructural y hay que leerla completa, porque es la que gobierna el diseño:
+
+> El guardarraíl de §4.36.5 se apoya en la **RAREZA**, que es exactamente el proxy malo que este cambio retira del
+> pricing. Un guardarraíl por rareza atraparía una **Secret Rare con dato corrupto** que aterrizara en el piso, pero
+> **no atraparía una Common que vale $400 y no tiene dato**: esa se publicaría al piso de $25 y se vendería a $25.
+> Aceptar «sin mercado ⇒ piso» sería **reabrir el hueco exacto que este cambio cierra** — el hueco no era «las chase
+> están mal clasificadas», era «el precio no mira el mercado». Por eso, sin dato de mercado la variante entra a
+> `PendingPriceEntry` (cola que ya existe), **no se publica** (venta) y **no se cotiza** (compra), y se escala al
+> dueño; el **siguiente barrido** (`price-ingest`, §4.35) o un override manual la corrigen y sale sola de la cola
+> (§4.36.5c).
+
+**El guardarraíl aplica a los DOS EJES (cerrado por el humano; confirma el supuesto de simetría de §N.5).** Una rareza
+premium que aterriza en el **piso** no se publica; una rareza premium que aterriza en el **bin** de compra no se
+cotiza. Ambas a pendientes. Pagar de menos es la misma pérdida irreversible que vender de menos (§N.0).
+
+#### 4.36.1 La matemática (normativa, entera, en centavos MXN)
+
+**Unidades.** Todo en **enteros**. `mercado`, `piso`, `bin` y todo precio en **centavos MXN**. Los dos valores
+interpolados se expresan en la **MISMA unidad**: **puntos base (bp) del mercado**, donde `10 000 bp = 1× = 100 % del
+mercado`.
+
+| Símbolo | Unidad | Significado | Rango válido |
+|---|---|---|---|
+| `multiplierBp` (venta) | bp | multiplicador sobre mercado: `1.60×` = **16000** | `[10000, 1000000]` |
+| `pctBp` (compra) | bp | fracción del mercado que se paga: `30 %` = **3000** | `[0, 10000]` |
+
+> **Por qué la misma unidad:** el invariante «compra siempre por debajo de venta» se vuelve la comparación **directa**
+> `pctBp(m) < multiplierBp(m)`, sin conversiones ni redondeos intermedios que puedan mentir. Es la razón por la que el
+> markup se persiste como **multiplicador** (16000) y no como «% arriba de mercado» (6000): con multiplicador, «venta
+> nunca por debajo del mercado» es el chequeo trivial `multiplierBp ≥ 10000` **por punto**.
+
+**Interpolación (obligatoria, NUNCA escalones — PROJECT §N.1, criterio 81).** Cada curva es una lista de puntos
+`(marketCents, value)` **ordenada estrictamente creciente por `marketCents`**. Entre dos puntos consecutivos el valor
+se **interpola linealmente**; **antes del primer punto y después del último los tramos son planos** (se extiende el
+valor del extremo). Un tramo plano **dentro** del rango está prohibido por diseño: produce saltos de precio entre dos
+mercados casi iguales y, arriba de ~$25 de mercado, es imposible sin vender por debajo del mercado.
+
+```
+interp(points, m):
+  if points is empty            -> ERROR de configuración (no se guarda; ver 4.36.3)
+  if m <= points[0].market      -> points[0].value                      // tramo plano inicial
+  if m >= points[last].market   -> points[last].value                   // tramo plano final
+  find i with points[i].market <= m < points[i+1].market
+  (m0,v0) = points[i] ; (m1,v1) = points[i+1]
+  return v0 + ROUND_HALF_UP( (v1 - v0) * (m - m0) / (m1 - m0) )         // bp entero
+```
+
+**Venta.**
+```
+resolveSale(m, curve):
+  if m == null or m <= 0                   -> { cents: null, basis: 'pending' }
+  rawCents  = ROUND_HALF_UP( m * interp(curve.sale.points, m) / 10000 )
+  baseCents = max(curve.sale.floorCents, rawCents)
+  basis     = (curve.sale.floorCents > rawCents) ? 'floor' : 'market'    // EMPATE ⇒ 'market' (§N.7)
+  return { cents: roundUp(baseCents, curve.sale.rounding), basis }
+```
+
+**Compra.**
+```
+resolveBuy(m, curve):
+  if m == null or m <= 0                   -> { cents: null, basis: 'pending' }
+  rawCents  = ROUND_HALF_UP( m * interp(curve.buy.points, m) / 10000 )
+  basis     = (curve.buy.binCents > rawCents) ? 'floor' : 'market'       // EMPATE ⇒ 'market'
+  return { cents: max(curve.buy.binCents, rawCents), basis }             // SIN redondeo (§N.1)
+```
+
+**Escalera de redondeo ↑ (SOLO venta — cerrada por el humano, decisión 4 de esta rev).** La **banda la decide el monto
+de venta ANTES de redondear** (`baseCents`) y se elige **UNA SOLA VEZ**: si el redondeo cruza el umbral, **no se
+re-evalúa**. Fronteras semiabiertas, en centavos: `< 20000 ⇒ paso 500` · `[20000, 50000) ⇒ paso 1000` ·
+`≥ 50000 ⇒ paso 2500`.
+
+```
+roundUp(x, ladder):
+  step = ladder.find(band => band.uptoCents == null || x < band.uptoCents).stepCents
+  return ceil(x / step) * step        // la banda NO se re-evalúa con el resultado
+```
+
+**El `max` es el piso de verdad.** No hay modo `fixed`: **desaparece la distinción `fixed` vs `pct`**. El piso y el bin
+son **ÚNICOS y globales** — un piso de venta y un bin de compra para todo el catálogo de cartas sueltas. **No** por
+acabado, **no** por rareza, **no** por tier (PROJECT decisión 4: el humano aceptó que el piso diferenciado por acabado
+cuesta ~2 % de utilidad y no vale su complejidad; §N.10 lo pone fuera de alcance explícitamente).
+
+**Prueba de mesa (normativa — criterios 79/80/82; los tests unitarios DEBEN cubrir estas filas con los diales
+iniciales de 4.36.2).**
+
+| Mercado | Venta esperada | Por qué | Compra esperada | Por qué |
+|---|---|---|---|---|
+| $1.14 | **$25.00** | gana el piso (`basis='floor'`) | — | — |
+| $0.50 | — | — | **$1.00** | gana el bin (`basis='floor'`) |
+| $10.00 | — | — | **$3.00** | 30 % (tramo plano inicial) |
+| $25.00 | **$40.00** | 25×1.60 = 40 ⇒ ↑$5 = 40 | **$7.50** | 30 % |
+| $50.00 | **$70.00** | markup interp ≈1.3955 ⇒ 69.77 ⇒ ↑$5 | — | — |
+| $80.00 | **$95.00** | 80×1.15 = 92 ⇒ ↑$5 | — | — |
+| $86.00 | **$100.00** | 98.90 ⇒ ↑$5 | — | — |
+| $87.00 | **$105.00** | 100.05 ⇒ ↑$5 (**no $110**: el paso de $5 llega a $200) | — | — |
+| $100.00 | — | — | **$40.00** | 40 % (punto exacto) |
+| $300.00 | — | — | **$135.00** | pct interpolado 45 % |
+| $500.00 | — | — | **$250.00** | 50 % (punto exacto) |
+
+#### 4.36.2 El setting nuevo — `PRICING_CURVE`, UNA clave, escritura ATÓMICA
+
+**Retira** cinco `SettingKey` y **los reemplaza por uno solo**: `PRICING_CURVE` (`pricing_curve`), JSON en
+`ConfigSetting` (patrón M2/M10 de siempre: editable sin redeploy, auditado, **sin DDL**).
+
+| Retirado | Qué era | Destino |
+|---|---|---|
+| `SALES_PRICE_RULES` (`sales_price_rules`) | tabla de venta (plana → dos ejes → tiers) | `PRICING_CURVE.sale` |
+| `SALES_PRICE_FALLBACK_PCT` (`sales_price_fallback_pct`) | markup de respaldo | **desaparece** (no hay «sin regla»: siempre hay curva) |
+| `BUYLIST_PRICE_RULES` (`buylist_price_rules`) | tabla de compra | `PRICING_CURVE.buy` |
+| `BUYLIST_PRICE_FALLBACK_PCT` (`buylist_price_fallback_pct`) | % de respaldo | **desaparece** |
+| `PRICING_TIER_MAP` (`pricing_tier_map`) | mapa rareza canónica → tier | **desaparece** (§4.36.4) |
+
+> **Por qué UNA clave y no dos (venta/compra separadas) — decisión de diseño, no de gusto.** El invariante «la compra
+> queda por debajo de la venta en todo el dominio» (§N.3) es **cruzado**: se valida sobre las dos curvas + el piso + el
+> bin **juntos**. Con dos claves, dos `PUT` sucesivos pueden dejar el sistema en un estado intermedio que viola el
+> invariante (bajas el markup de venta antes de bajar el pct de compra ⇒ ventana en la que se compra por encima de lo
+> que se vende). Con **una** clave la validación es **atómica por construcción** y no existe la ventana. Es el mismo
+> argumento por el que el editor de M2 guarda todo el objeto, no renglón por renglón.
+
+**Forma (normativa; `backend/src/common/pricing-curve.ts` — zona compartida `common/`, importable desde seeds/tests,
+sin infra, igual que `rarity-catalog.ts`):**
+
+```ts
+// backend/src/common/pricing-curve.ts   (NUEVO — reemplaza a common/pricing-tiers.ts, que se RETIRA)
+
+/** Punto de quiebre de la curva de VENTA. La tabla es de LONGITUD VARIABLE (§N.3). */
+export interface SaleCurvePoint  { marketCents: number; multiplierBp: number; }  // 1.60× = 16000
+/** Punto de quiebre de la curva de COMPRA. La tabla es de LONGITUD VARIABLE (§N.3). */
+export interface BuyCurvePoint   { marketCents: number; pctBp: number; }         // 30 %  = 3000
+/** Banda de la escalera de redondeo ↑ de VENTA. `uptoCents: null` = banda abierta (la última). */
+export interface RoundingBand    { uptoCents: number | null; stepCents: number; }
+
+export interface PricingCurve {
+  version: 1;                       // versión de FORMA del setting (no del contenido); permite compat on-read
+  sale: {
+    floorCents: number;             // PISO único y global (≥ 0)
+    points: SaleCurvePoint[];       // ≥ 1 punto; markets ESTRICTAMENTE crecientes
+    rounding: RoundingBand[];       // ≥ 1 banda; la última con uptoCents = null
+  };
+  buy: {
+    binCents: number;               // BIN único y global (≥ 0)
+    points: BuyCurvePoint[];        // ≥ 1 punto; markets ESTRICTAMENTE crecientes
+  };
+}
+```
+
+**La tabla de puntos es de LONGITUD VARIABLE (requisito explícito del humano, §N.3).** El súper-admin **agrega**,
+**mueve** (cambia `marketCents` y/o el valor) y **borra** renglones en cualquiera de las dos curvas, y también edita
+`floorCents`, `binCents` y la escalera. **NO es una estructura fija de N puntos**: la curva es tan fina o tan gruesa
+como el dueño quiera. Por eso `points` es un **array** (no un objeto con claves fijas) y el `PUT` **reemplaza la lista
+completa** (semántica de reemplazo, no de patch por índice: mover/borrar un renglón por índice es frágil y no
+auditable; el `AuditLog` guarda `before`/`after` del objeto entero).
+
+**Seed inicial (PROJECT §N.2 verbatim; son DIALES, no constantes de código):**
+
+```jsonc
+// SettingKey.PRICING_CURVE  (ConfigSetting key='pricing_curve')
+{
+  "version": 1,
+  "sale": {
+    "floorCents": 2500,                                  // MX$25 — piso ÚNICO y global
+    "points": [
+      { "marketCents": 2500, "multiplierBp": 16000 },    // 1.60× hasta $25 (tramo plano inicial)
+      { "marketCents": 8000, "multiplierBp": 11500 }     // baja lineal a 1.15× en $80; plano de ahí en adelante
+    ],
+    "rounding": [
+      { "uptoCents": 20000, "stepCents":  500 },         // < $200  ⇒ múltiplo de $5
+      { "uptoCents": 50000, "stepCents": 1000 },         // < $500  ⇒ múltiplo de $10
+      { "uptoCents": null,  "stepCents": 2500 }          // ≥ $500  ⇒ múltiplo de $25
+    ]
+  },
+  "buy": {
+    "binCents": 100,                                     // MX$1 — bin ÚNICO y global
+    "points": [
+      { "marketCents":  2500, "pctBp": 3000 },           // 30 % hasta $25 (tramo plano inicial)
+      { "marketCents": 10000, "pctBp": 4000 },           // 40 % en $100
+      { "marketCents": 50000, "pctBp": 5000 }            // 50 % en $500; plano de ahí en adelante
+    ]
+  }
+}
+```
+
+**Función pura única (`backend/src/common/money.ts`, sustituye a TODO el bloque de reglas):**
+
+```ts
+// SUSTITUYE: applyRule, resolveRuleForFinish, resolveTwoAxisRule, ruleKeyCandidates, finishRuleFor,
+//            lookupRarityRule, toPriceRuleSet, buildEffectiveRuleSet, isPriceRuleSet, isTieredRuleSet,
+//            quoteAcquisitionForFinish, computeSalePriceForRarity, isPremiumRarity/PREMIUM_RARITY_PATTERNS.
+export type PriceBasis = 'market' | 'floor' | 'override' | 'bounty' | 'pending';
+
+export interface CurvePriceResult {
+  priceCents: number | null;      // null ⇔ basis === 'pending'
+  basis: PriceBasis;
+  marketMxnCents: number | null;  // el mercado que ENTRÓ al cálculo (instrumentación, §4.36.7)
+}
+
+/** VENTA. Precedencia §4.36.6 aplicada por el caller para el override POR PIEZA. */
+export function computeSalePriceFromCurve(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
+  controls?: VariantPriceControls | null,   // sellOverrideCents (M-30)
+): CurvePriceResult;
+
+/** COMPRA. `ruleQuoteCents` interno se calcula aquí para revalidar el bounty (§4.36.6). */
+export function quoteAcquisitionFromCurve(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
+  controls?: VariantPriceControls | null,   // bounty + buyOverrideCents (M-30)
+): CurvePriceResult;
+```
+
+**Ni `rarity` ni `finish` son parámetros de estas funciones.** Es el criterio 84 hecho tipo: *no se puede* consultar la
+rareza desde el pricing porque **no está en la firma**. El acabado sigue determinando **de qué variante se lee el
+mercado** (`getReference(cardId, productType, gradeKey, finish)`, §4.1/§4.35), pero eso ocurre **antes** de llamar a la
+curva, en la capa de servicio.
+
+**Carga de config (capa de servicio).** `PricingService.loadBuylistRules()` y `loadSalesRules()` se **funden en una
+sola** `PricingService.loadPricingCurve(): Promise<PricingCurve>` — izada **una vez por request** (patrón BE-25) y
+compartida por los dos ejes. Es la consecuencia natural de que la curva viva en **una** clave: dos loaders para un
+solo objeto solo abrirían la puerta a leerlo dos veces y ver dos versiones. `BuylistService.buylistRules()` (que hoy
+**no** delega en `PricingService`) se retira y pasa a consumir el mismo loader — **un solo lector de la curva en todo
+el backend**, para que no vuelva a haber dos rutas de dinero con configuraciones potencialmente distintas.
+
+#### 4.36.3 Invariantes VALIDABLES del setting (se imponen al GUARDAR — 422, no solo en runtime)
+
+Se validan **server-side en cada write** sobre el **objeto completo** (no sobre un delta), en `PUT /admin/pricing/curve`
+y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el error **dice qué punto lo rompe**
+(PROJECT §N.3 / criterio 87). Todos son chequeos **exactos y finitos** — no muestreos.
+
+| # | Invariante | Chequeo exacto | Código 422 |
+|---|---|---|---|
+| V1 | Curva no vacía | `sale.points.length ≥ 1` y `buy.points.length ≥ 1` | `CURVE_EMPTY` |
+| V2 | Puntos ordenables y únicos | `marketCents` enteros `≥ 0` y **estrictamente crecientes** tras ordenar (sin duplicados) | `DUPLICATE_BREAKPOINT` |
+| V3 | Rangos | `multiplierBp ∈ [10000, 1000000]`; `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` (enteros) | `VALIDATION_ERROR` |
+| V4 | **Ningún precio de venta por debajo del mercado** | `multiplierBp ≥ 10000` **en cada punto** (la interpolación lineal de valores ≥ 10000 nunca baja de 10000; el `max` con el piso solo sube; el redondeo solo sube) | `SALE_BELOW_MARKET` |
+| V5 | **Curva de venta monótona creciente** | `f(m) = m·k(m)` es cuadrática por tramo ⇒ `f' ≥ 0` en los DOS extremos de cada tramo: con `s = (k₁−k₀)/(m₁−m₀)`, exigir `k₀ + m₀·s ≥ 0` **y** `k₁ + m₁·s ≥ 0`. Los tramos planos (antes del primero, después del último) son crecientes porque `k > 0` | `SALE_CURVE_NOT_MONOTONIC` |
+| V6 | **Compra siempre por debajo de venta, en todo el dominio** | `pctBp(m) < multiplierBp(m)` evaluado en la **UNIÓN de los `marketCents` de ambas curvas** (ambas son lineales por tramo sobre esa unión ⇒ la diferencia es lineal por tramo ⇒ basta comprobar los nodos y los tramos planos) | `BUY_ABOVE_SALE` |
+| V7 | El bin no rebasa al piso | `binCents < floorCents` (cierra el caso en que ambos ejes saturan en su constante) | `BIN_ABOVE_FLOOR` |
+| V8 | Escalera bien formada | `≥ 1` banda; `stepCents ≥ 1`; `uptoCents` estrictamente crecientes; **exactamente la última** con `uptoCents = null`; **cada frontera es múltiplo exacto del paso de la banda inmediatamente inferior** | `ROUNDING_LADDER_INVALID` |
+
+> **V8, la sutil.** Sin la condición de «frontera múltiplo del paso inferior», el redondeo **rompe la monotonía** que V5
+> acaba de garantizar: con bandas `<$200⇒$5` y una frontera en $203, un `baseCents` de $202.99 redondea a $205 mientras
+> que $203.00 cae a la banda siguiente y podría redondear a menos. Con las fronteras del seed ($200 múltiplo de $5;
+> $500 múltiplo de $10) el invariante se cumple y la escalera es monótona por construcción.
+> **V5 y V6 juntos son lo que hace verificable el criterio 81** («no hay saltos de `markup`/`pct` entre dos mercados
+> contiguos, salvo los del redondeo»): un barrido peso a peso es un test de **caracterización**, no la definición; la
+> definición es el chequeo algebraico de arriba, que es exacto.
+
+**Money-safe adicional (runtime, no configuración):** `mercado == null` o `≤ 0` ⇒ `basis='pending'`, `priceCents=null`.
+**Nunca** se publica MX$0 ni se inventa un precio (regla transversal §H, intacta).
+
+#### 4.36.4 Qué se RETIRA y qué SOBREVIVE de la taxonomía (criterio 96, «sin residuos»)
+
+**Se retira del producto y del código (backend borra; el arquitecto no toca código):**
+
+- **`backend/src/common/pricing-tiers.ts` COMPLETO** — los 5 tiers, `TierId`, `PRICING_TIERS`, `isTierId`, `getTier`,
+  `validateTieredRuleSet` y sus specs. **Veredicto: se retira del todo, la taxonomía de tiers NO sobrevive.** Razón: no
+  le queda **ningún** consumidor. El pricing ya no la usa (curva), el guardarraíl usa **rareza**, y los reportes de
+  rotación/margen agregan por **bracket de escala fija** (§4.36.7), no por tier. Un enum de 5 peldaños sin consumidor es
+  una invitación a re-acoplar el pricing a una taxonomía por la puerta de atrás — exactamente lo que §N.10 prohíbe.
+- **`SettingKey.PRICING_TIER_MAP`** y su validador `validateTierMap`.
+- **El modo `fixed` / `pct` como reglas excluyentes**, `BuylistRule`, `SalesRule`, `BuylistRuleMode`, `SalesRuleMode`,
+  `PriceRuleSet`, `TieredRuleSet` y todo el bloque de resolución de §4.28d/§4.33c listado en 4.36.2.
+- **El mapeo acabado → regla de precio** (`finishRules`, `finishRuleFor`, `ruleKeyCandidates`, `isHoloRarity` como gate
+  de pricing) — §I lo declara superseded: el acabado **pierde su regla de precio propia** y **nada más**.
+- **El invariante `premium ⇒ pct` de §4.33d** y su `422 PREMIUM_RARITY_FIXED_TIER`: sin modos, no tiene sentido. Lo
+  **sustituye** el guardarraíl de §4.36.5 (mismo objetivo money-safe, otro mecanismo).
+- **`isPremiumRarity` / `PREMIUM_RARITY_PATTERNS` de `money.ts`** (las regex, ya deprecadas por §4.28e).
+- **La pantalla de M2 que editaba tiers/mapa/reglas por rareza**, junto con su **texto falso** («Sin regla propia, el
+  acabado hereda la del tier de su rareza» y el placeholder «Hereda tier»): **se retira con la pantalla, no se
+  corrige** (§N.9). En su lugar queda el editor de la tabla de puntos.
+
+**SOBREVIVE — `backend/src/common/rarity-catalog.ts` (`CANONICAL_RARITIES`, `normalizeRarity`,
+`isPremiumCanonicalRarity`) y `Card.rarityCanonical`**, pero **fuera del pricing**. Queda como la **única** taxonomía
+de rareza del sistema y tiene exactamente **tres** consumidores legítimos:
+
+1. **El guardarraíl** (§4.36.5) — `isPremiumCanonicalRarity` decide qué variante en el piso/bin no se publica ni se
+   cotiza. Es el único punto donde la rareza **toca dinero**, y lo hace **bloqueando**, nunca **fijando** un precio.
+2. **Presentación y filtros** — facetas de Compra, ficha, binder, `GET /admin/pricing/rarities` (§4.36.8).
+3. **Composición de variantes** (§4.25e) — el filtro `normal | isPremiumRarity(rarity)` que evita el `normal` fantasma
+   en cartas premium. Debe migrar a `isPremiumCanonicalRarity` si aún usa la regex (§4.28e).
+
+> **Regla dura, verificable (criterio 84):** ninguna función que devuelva un **monto** puede recibir `rarity`,
+> `rarityCanonical`, `tier` ni `finish` como parámetro. La rareza solo entra a funciones que devuelven un **veredicto
+> booleano de publicación/cotización**. Es un test de arquitectura, no una promesa en prosa.
+
+#### 4.36.5 Guardarraíl — la rareza sale del PRICING y entra a la VALIDACIÓN
+
+**(a) La regla.** Para una carta de **rareza canónica `premium`**:
+
+- **VENTA:** si el precio resuelve con `basis === 'floor'` (el piso ganó el `max`) ⇒ **NO se publica**. La pieza queda
+  en su status de origen y la variante entra a `PendingPriceEntry` (`context='inventory'`).
+- **COMPRA:** si la cotización resuelve con `basis === 'floor'` (el bin ganó el `max`) ⇒ **NO se cotiza**: el resultado
+  es `status='precio_pendiente'`, `quotedPriceCents=null`.
+
+**No dispara** con `basis ∈ {market, override, bounty}`. Un **override manual** o un **bounty** son decisiones
+deliberadas del admin y **no se corrigen** (§4.36.6). Con `basis='pending'` no hace falta: ya no se publica ni se
+cotiza por la vía normal.
+
+**Por qué funciona.** Que una chase resuelva al piso solo puede significar que su dato de mercado está **mal**
+(ausente, aplanado o absurdo). El guardarraíl convierte un error de dinero silencioso en una **cola visible**. Volumen
+medido sobre un master set completo: **≈3 de 333** cartas — no es una alarma ruidosa, por eso puede bloquear la
+publicación sin entorpecer la operación.
+
+**(b) Dónde se evalúa — DOS seams, uno por eje, cada uno con UN solo cuerpo.** El predicado es puro y vive en
+`common/` junto a la curva; **prohibido duplicarlo**:
+
+```ts
+// backend/src/common/pricing-curve.ts
+export type GuardVerdict = 'ok' | 'premium_at_floor';
+export function premiumFloorGuard(rarityCanonical: string | null, basis: PriceBasis): GuardVerdict {
+  return basis === 'floor' && isPremiumCanonicalRarity(rarityCanonical) ? 'premium_at_floor' : 'ok';
+}
+```
+
+| Eje | Seam único (servicio) | Consumidores que DEBEN pasar por él | Efecto de `premium_at_floor` |
+|---|---|---|---|
+| VENTA | `PricingService.computeSalePriceForItem` | `catalog.fetchSellable` / `toListingDTO`, `orders.salePriceOf` (checkout auth **y** guest), `inventory.bulkPublish`, `inventory.publish-all`, `master-set` (sugerido/efectivo del binder) | idéntico a `PRICE_PENDING`: `sellable=false`, no publica, **escala** a la cola |
+| COMPRA | `BuylistService.quoteCardForFinish` (núcleo compartido con `PricingService.loadPricingCurve`) | `POST /buylist/quote`, `POST /buylist/quote/batch`, `POST /buylist/requests` (`createRequest`), `GET /buylist/bounties` | `status='precio_pendiente'`, `quotedPriceCents=null` |
+
+**La escalada respeta la doctrina de escritura vigente y NO la cambia:** `POST /buylist/quote` y `/quote/batch` siguen
+siendo **READ-ONLY** (v1.12, cierra BE-16): devuelven `precio_pendiente` **sin** escribir en la cola. Quien escala en el
+eje de compra sigue siendo `createRequest` (autenticado). En el eje de venta escalan `createItem`, `bulkPublish` y
+`publish-all`, como hoy (§4.24b).
+
+**(c) Cómo ENTRA y cómo SALE de la cola.** Reusa `PendingPriceEntry` (§3.2) sin cambiar su clave de dedupe
+`(cardId, productType, gradeKey, finish[, sealedProductId], status='open')`. **Aditivo (M-41):**
+
+```prisma
+enum PendingPriceReason { no_market  premium_at_floor }
+model PendingPriceEntry { /* … */  reason PendingPriceReason?  /* null = filas históricas */ }
+```
+
+> **Por qué `reason` es necesario y no cosmético.** Sin él, la cola mezcla dos problemas con remedios distintos: «no
+> hay dato» (lo arregla el barrido solo) y «hay dato y es absurdo» (necesita que el dueño mire). Con ≈3 de 333 al mes,
+> el dueño **no puede triar** una cola indistinta; el guardarraíl dejaría de ser «una cola visible» (§N.5) para ser
+> ruido. Es una columna nullable, aditiva, sin backfill.
+
+**Salida de la cola (normativo, simétrico a la entrada).** El **mismo seam** que escala **cierra** la entrada `open` de
+esa clave cuando una resolución posterior devuelve `basis ∈ {market, override, bounty}`. Es decir: cuando el siguiente
+barrido (`price-ingest`, §4.35) escribe una `PriceReference` real y el precio vuelve a resolver por mercado, la entrada
+se cierra **sola** en la siguiente resolución (publicación, republicación, `publish-all` o lectura del binder) —
+**sin** intervención manual. El camino manual existente (`POST /admin/pricing/override`, que resuelve pendientes
+context-agnóstico, §4.24c) **no cambia**. **Nota para backend:** hoy el ingest **no** cierra entradas; esta simetría es
+**comportamiento nuevo** y debe cubrirse con test (escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ entrada
+`resolved` y pieza publicable).
+
+**(d) Lo que el guardarraíl NO es.** No es un piso por rareza, no es una regla de precio y **no fija ningún monto**:
+solo decide **publicar / no publicar** y **cotizar / no cotizar**. Meter la rareza de vuelta al monto por esta puerta
+contradice §N.10 y está prohibido.
+
+#### 4.36.6 Precedencias, override absoluto y bounty revalidado
+
+**Precedencias (AMIENDAN §4.26b; la forma no cambia, el peldaño «regla» pasa a ser «curva»):**
+
+```
+VENTA:   listPriceCents (POR PIEZA)  >  sellOverrideCents (variante)  >  CURVA (piso | mercado)  >  pendiente
+COMPRA:  bounty VÁLIDO               >  buyOverrideCents  (variante)  >  CURVA (bin  | mercado)  >  pendiente
+```
+
+`priceBasis` resultante: peldaño 1–2 ⇒ `override`; bounty ⇒ `bounty`; curva ⇒ `market` o `floor`; sin nada ⇒
+`pending`. (El `listPriceCents` por pieza lo aplican los **callers** antes de llamar a la pura, como hoy; su basis
+también es `override`.)
+
+**El override manual de compra SIGUE SIENDO ABSOLUTO (LOCKED, §N.6 / criterio 89).** Puede quedar **por debajo** de la
+curva vigente —es una decisión deliberada del admin para esa variante— y **NO se convierte en piso**: se paga
+exactamente ese monto. Lo mismo aplica a los overrides de venta. **Prohibido** envolverlos en un `max(...)` con la
+curva; hacerlo sería reintroducir el bug que se está cerrando, en espejo.
+
+**Bounty revalidado contra la regla vigente (decisión 9/§N.6, criterios 90/91).** El bounty es la **sección de ofertas**
+del dueño: vive en la escala de **compra** (30–50 % del mercado), está **siempre** por debajo del mercado y **nunca se
+compara contra el mercado** — solo **contra la curva de compra**. El hueco: hoy `BOUNTY_BELOW_RULE` se valida **solo al
+crear** (`variant-controls.service.ts:301-315`); si después sube el mercado y la curva rebasa al bounty, la «oferta»
+publicada **paga menos que la tarifa normal** y aun así sigue publicada y ganando la precedencia #1.
+
+**Predicado único (puro, en `common/pricing-curve.ts`; prohibido duplicar):**
+
+```ts
+export function isBountyEffective(bountyPriceCents: number | null, curveQuoteCents: number | null): boolean {
+  if (bountyPriceCents == null || bountyPriceCents <= 0) return false;
+  if (curveQuoteCents == null) return true;              // curva sin resolver ⇒ el bounty explícito manda
+  return bountyPriceCents > curveQuoteCents;             // ESTRICTAMENTE mayor (criterio 91)
+}
+```
+
+**Tres seams (las tres, no solo la primera):**
+
+| Seam | Dónde | Comportamiento |
+|---|---|---|
+| **CREAR/EDITAR** | `PUT /admin/pricing/variant-controls/:cardId/:finish` | `enabled:true` con `priceCents ≤` cotización de curva vigente ⇒ **`422 BOUNTY_BELOW_RULE`** (con `curveQuoteCents` en el detalle). Curva `pending` ⇒ se **acepta** (el bounty es precio explícito; es el caso donde más se necesita) |
+| **COTIZAR** | `quoteAcquisitionFromCurve` (núcleo único de compra) | bounty **no efectivo** ⇒ se **salta el peldaño 1** y cae a `override`/curva/pendiente. El `basis` resultante **nunca** es `bounty` |
+| **PUBLICAR** | `GET /buylist/bounties` (vitrina Home + Vender) | se resuelve la efectividad **por bounty** y se **filtran los no efectivos ANTES** de aplicar el cap 50 (seleccionar candidatos → filtrar → ordenar por `bountyPriceCents desc` → top 50). Filtrar después del cap dejaría huecos silenciosos |
+
+> **Cambio explícito de semántica en el 422 (bandera para QA/PO):** el gate de creación pasa de `<` (rechaza solo si es
+> **menor**) a `≤` (rechaza también el **empate**). Sin este ajuste, un bounty exactamente igual a la curva **pasaría el
+> alta** y sería **invisible en runtime** (el predicado exige `>` estricto por criterio 91) — una incoherencia entre
+> alta y ejecución. Es un endurecimiento money-safe, reversible en dato (subir el bounty $0.01).
+
+**Alerta en el binder (decisión 5 del humano — basta el binder, SIN aviso proactivo).** `VariantPricingDTO.bounty` gana
+`effective: boolean` y `curveQuoteCents: number | null` (la tarifa estándar que lo rebasó) para que M1 pinte la alerta
+donde el dueño ya trabaja. **NO** se implementa correo, push ni tarjeta de dashboard: eso es alcance posterior.
+
+**Efecto buscado (criterio 91):** el número publicado es **exactamente** lo que se paga, y todo lo que aparece en la
+vitrina es por definición **mejor** que la tarifa estándar.
+
+#### 4.36.7 `priceBasis`, regla de visibilidad e instrumentación
+
+**(a) `priceBasis` — la señal server-side de qué determinó el precio.**
+
+```ts
+type PriceBasis = 'market' | 'floor' | 'override' | 'bounty' | 'pending';
+```
+
+Son **exactamente** los cinco valores LOCKED de PROJECT §N.7 (*mercado / piso / override / bounty / pendiente*).
+**`floor` significa «la constante inferior de ESE eje ganó el `max`»**: el **piso** en venta y el **bin** en compra. Se
+usa un solo valor para los dos ejes deliberadamente (no se inventa un sexto `bin`): es el mismo hecho —«el mercado no
+explica este precio»— y así el guardarraíl, la instrumentación y la regla de visibilidad comparten **un** enum.
+
+- **Quién lo calcula:** **el backend, siempre** (`computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` lo devuelven
+  en el mismo objeto que el monto). SEC-A1 intacto: sale del dato real de la variante, jamás del DTO del cliente.
+- **Empate ⇒ `market`** (§N.7, desempate fijado para que la regla sea determinista y verificable): `basis='floor'`
+  **solo** si la constante es **estrictamente mayor** que el valor derivado del mercado.
+- **Dónde viaja (contrato, §DTOs):** `ListingDTO.priceBasis`, `GroupedListingDTO.priceBasis`,
+  `SealedGroupDTO.priceBasis`, `VariantPricingDTO.sell.source` / `.buy.source` (sus valores `rule|fallback`
+  **desaparecen** y pasan a ser `market|floor`), y `BuylistQuotePayload.priceBasis` (que **reemplaza** a `appliedRule`,
+  cuyo `{mode,value}` ya no existe).
+- **Sellado (§4.23, no cambia de matemática):** gana `priceBasis` **derivado** de su `priceSource` —
+  `override ⇒ 'override'`; `subtype_spread | global_spread ⇒ 'market'`; sin precio `⇒ 'pending'`. Así el front tiene
+  **una sola regla** para las dos fichas, sin ramas por tipo de producto. `priceSource` se conserva (detalle propio del
+  sellado).
+
+**(b) Regla de visibilidad del «Valor de mercado» (§N.7, criterios 93/94).**
+
+> **En la ficha de carta y en la ficha/ventana de sellado, el bloque «Valor de mercado» se muestra SI Y SOLO SI
+> `priceBasis === 'market'`.** Con `floor`, `override`, `bounty` o `pending` el bloque **desaparece** — nada de cero,
+> tachado, atenuado ni «—».
+
+- **La UI no infiere.** Prohibido comparar cifras en pantalla para decidir; se **obedece** `priceBasis`. Es lo que hace
+  **visible el guardarraíl** y lo que permite **detectar pisos mal calibrados** desde el back-office.
+- **Alcance:** solo **ficha de carta** (`GET /catalog/cards/:cardId`) y **ficha de sellado**
+  (`GET /catalog/sealed/:inventoryItemId`). **Tejas y listados no muestran mercado hoy y no van a mostrarlo.**
+- **NO cambia:** la **bóveda / portafolio del cliente** (ahí el cliente ve el valor de mercado de lo que **ya posee**, y
+  eso es correcto y deseable: valuación, gráfica de tendencia y §C **intactos**), el **cotizador de buylist** (sigue sin
+  mostrar valor de mercado), y el **precio cobrado** (es regla de **presentación**, no de dinero).
+- **El backend NO borra `referenceValue` del DTO** (decisión de diseño, con su razón): el mismo DTO alimenta superficies
+  admin y de valuación que **sí** necesitan el mercado, y stripearlo por endpoint haría que `PriceInfo` significara
+  cosas distintas según la ruta — peor que el problema que resuelve. `priceBasis` es la señal normativa y **el
+  frontend está contractualmente obligado a obedecerla**; QA lo verifica en la ficha, no en el payload.
+
+**(c) Instrumentación (§N.8, criterio 95) — qué se persiste y dónde.**
+
+**El «bracket» es una ESCALA FIJA e independiente de la curva (cerrado por el humano, decisión 3 de esta rev).** Si el
+bracket se derivara de los puntos vigentes, la serie histórica **dejaría de ser comparable** cada vez que el dueño
+moviera la curva — que es justo lo que la instrumentación existe para medir. Además del bracket se **persiste siempre
+el valor de mercado crudo en centavos**: el bracket es un **índice de conveniencia**, el **dato real es el monto**.
+
+```ts
+// backend/src/common/pricing-curve.ts — CONSTANTE DE CÓDIGO, NO dial. Cambiarla parte la serie histórica.
+export type MarketBracket = 'lt_3' | 'r3_10' | 'r10_25' | 'r25_80' | 'r80_300' | 'gte_300';
+// Fronteras SEMIABIERTAS [lo, hi) en centavos MXN:
+//   lt_3   : m <      300      r25_80  :   2500 <= m <   8000
+//   r3_10  :   300 <= m < 1000 r80_300 :   8000 <= m <  30000
+//   r10_25 :  1000 <= m < 2500 gte_300 :  30000 <= m
+export function marketBracketOf(marketMxnCents: number | null): MarketBracket | null;  // null ⇔ sin mercado
+```
+
+Cada **venta** y cada **compra** persisten los cinco campos de §N.8. **No se crea una tabla de log nueva**: se añaden
+columnas a las **filas de dinero que ya son el snapshot inmutable** de la operación.
+
+| Eje | Fila | Campos (M-41, aditivos nullable) |
+|---|---|---|
+| VENTA | `OrderItem` | `marketMxnCents Int?` · `priceBasis PriceBasis?` · `marketBracket MarketBracket?` · `finish Finish?` (snapshot; el precio final ya vive en `unitPriceCents`) |
+| COMPRA | `SellRequestItem` | `marketMxnCents Int?` · `priceBasis PriceBasis?` · `marketBracket MarketBracket?` (ya tiene `finish` y `quotedPriceCents`) |
+
+> **Por qué columnas y no una tabla `PriceDecisionLog`.** (1) `OrderItem`/`SellRequestItem` **ya son** el snapshot
+> inmutable y transaccional del dinero: escribir ahí no puede desincronizarse de la operación, un log aparte sí. (2)
+> Toda pregunta de rotación y margen («cuánto vendí, a qué velocidad y con qué margen en cada bracket») necesita
+> **unir** la decisión con la orden/solicitud — con columnas es la misma fila, sin join. (3) Un segundo camino de
+> escritura es un segundo camino que se puede olvidar en un call-site. **Costo aceptado:** solo se instrumentan
+> operaciones **consumadas**, no cada cotización anónima; §N.8 pide exactamente eso («cada venta y cada compra»).
+
+- **Momento de captura.** VENTA: al **checkout**, en la misma transacción que congela `unitPriceCents`. COMPRA: al
+  **crear la solicitud** (`createRequest`), en la misma transacción que congela `quotedPriceCents` — que es donde se
+  determinó el precio. Un **ajuste** posterior del admin (`approvedPriceCents`) **no reescribe** el bracket ni el
+  basis: la serie mide **la decisión de la curva**, y el monto realmente pagado se lee de `approvedPriceCents ??
+  quotedPriceCents`.
+- **Sin mercado** (`basis ∈ {override, bounty}` sin referencia, o `pending`): `marketMxnCents = null` y
+  `marketBracket = null`. Honesto; jamás un 0 inventado.
+- **Los `ruleMode`/`ruleValue`/`ruleSource` de `SellRequestItem`** (snapshot de la regla vieja, §3.2) quedan **legacy**:
+  nada nuevo los escribe; se conservan por retención de filas históricas, igual que `category` (M-14).
+- **Superficie de lectura mínima (para que el dato no sea write-only):** `GET /admin/reports/pricing-brackets`
+  (M9, `super_admin`) agrega por eje × bracket. §N.10 deja **fuera de alcance** la calibración automática: en v2.0 el
+  dato **se recolecta** y el dueño mueve los puntos **a mano**.
+
+#### 4.36.8 Superficie de admin (contrato en API_CONTRACT §M2)
+
+| Endpoint | Estado |
+|---|---|
+| `GET /api/v1/admin/pricing/curve` | **NUEVO** — lee el `PricingCurve` completo |
+| `PUT /api/v1/admin/pricing/curve` | **NUEVO** — reemplaza el objeto completo; valida V1–V8 (§4.36.3); auditado (`pricing.curve.update`, before/after); **sin redeploy** |
+| `GET`/`PUT /api/v1/admin/pricing/tiers` | **RETIRADOS** |
+| `GET`/`PUT /api/v1/admin/pricing/tier-map` | **RETIRADOS** |
+| `GET /api/v1/admin/pricing/buylist-rules`, `GET /api/v1/admin/pricing/sales-rules` | **RETIRADOS** (sus `PUT` ya lo estaban desde v1.37) |
+| `GET /api/v1/admin/pricing/sales-rarities` | **RETIRADO** (era el espejo de venta del editor por rareza) |
+| `GET /api/v1/admin/pricing/rarities` | **SOBREVIVE, re-propósito**: deja de devolver `rule`/`tierId`/`source` y queda como **salud del catálogo de rarezas** (`canonical`, `raw?`, `premium`, `mapped`, `cardCount`) — la vista que respalda el **guardarraíl**, no un editor de precios |
+| `GET /api/v1/admin/pricing/pending` | **SIN cambio de forma**; gana `reason` en cada entrada y el filtro `?reason=` |
+| `PUT /api/v1/admin/pricing/variant-controls/:cardId/:finish` | **SIN cambio de forma**; el `422 BOUNTY_BELOW_RULE` pasa a comparar contra la **curva** y a rechazar el **empate** (§4.36.6) |
+| `POST /api/v1/admin/pricing/override`, `sealed-spreads`, `sync`, `card/:cardId`, FX | **SIN cambio** |
+
+**Autorización sin cambio:** todo lo de pricing es `super_admin` (§7); `vault_operator` **lee** la consola del binder,
+no la edita.
+
+#### 4.36.9 Migración de datos (M-41) y cut-over
+
+**(a) Schema — migración M-41, ADITIVA PURA (ver §11).** Dos enums nuevos (`PendingPriceReason`, y los enums de
+instrumentación `PriceBasis`/`MarketBracket` si se modelan como enums Prisma) + columnas nullable en `OrderItem`,
+`SellRequestItem` y `PendingPriceEntry`. **Sin `DROP`, sin backfill obligatorio, segura con la app corriendo.**
+`backend/prisma/` es **zona compartida**: el orquestador serializa M-41.
+
+**(b) Config — seed, no conversión.** El `PRICING_CURVE` se **siembra con los diales de §N.2 verbatim**. **No se
+deriva** de las reglas viejas: la forma vieja (modos excluyentes por rareza/tier/acabado) y la nueva (una función del
+mercado) son **incommensurables** — cualquier «conversión» sería una interpretación inventada, y **el negocio no está
+en vivo**, así que no hay comportamiento que preservar. Los cinco settings retirados (§4.36.2) **dejan de leerse,
+escribirse y sembrarse**; sus filas quedan **huérfanas e inertes** en `ConfigSetting` (mismo precedente que
+`rarity_map`, retirado en v1.32) y un follow-up de limpieza las borra. **No hay `DELETE` en la migración**: borrar
+config en el mismo paso que se cambia la matemática elimina la vía de diagnóstico si algo sale raro.
+
+**(c) Repricio del catálogo (criterio 96) — el punto que evita trabajo inútil.** **El precio de venta NO está
+persistido**: se resuelve **en lectura** (§4.26b: publicar no escribe el precio derivado). Por lo tanto **no hay
+ninguna fila de precio que reescribir** y la migración **no toca dinero almacenado**. Lo único persistido es (i)
+`InventoryItem.listPriceCents` (override por pieza, deliberado, **se conserva**) y (ii) `OrderItem.unitPriceCents` de
+órdenes pasadas (historia inmutable, **no se toca**). El «catálogo repriciado por completo» se satisface **solo** con
+re-resolver, y la operación de cut-over es:
+
+1. Deploy (código + M-41 + seed de `PRICING_CURVE`).
+2. `POST /admin/inventory/publish-all` (o el barrido equivalente) sobre el inventario `platform`: re-resuelve **toda**
+   pieza con la curva, publica lo que ahora resuelve y **escala** lo que cae en `pending` o en `premium_at_floor`.
+3. Revisar `GET /admin/pricing/pending?reason=premium_at_floor` — debe ser del orden de **≈3 por cada 333** cartas. Un
+   volumen mucho mayor significa **piso mal calibrado o dato de mercado roto**, no un guardarraíl ruidoso.
+4. Verificar en Compra que **ninguna** publicación conserva un precio calculado con la lógica vieja (se satisface por
+   construcción: el resolver viejo ya no existe en el código).
+5. **Revisión de OVERRIDES heredados (tarea del DUEÑO, no del código — bandera honesta).** Los overrides manuales
+   (`InventoryItem.listPriceCents`, `VariantPriceOverride.sellOverrideCents`/`buyOverrideCents`) **se conservan
+   intactos** porque §N.6 los declara **absolutos**. Pero algunos pudieron fijarse **confiando en la etiqueta falsa
+   «Piso (MX$)»** del editor viejo (la causa raíz P-48). Con la curva, un override así **sigue ganando** y puede estar
+   por debajo de lo que la curva pagaría/cobraría hoy. **El código no puede distinguir un override deliberado de uno
+   mal informado** — y adivinar sería exactamente el error que este cambio corrige. **Norma:** no se tocan
+   automáticamente; se le presenta al dueño la lista para que decida. Superficie que ya lo sirve, sin endpoint nuevo:
+   el binder expone `pricing.buy/sell.suggestedCents` (curva) junto a `overrideCents`, así que la comparación
+   «override vs. curva» **ya es visible** por variante. *(Un reporte «overrides por debajo de la curva» sería una
+   mejora de UX razonable; queda como sugerencia para el PO, fuera del alcance de v2.0.)*
+
+**(d) Rollback.** Revertir el deploy restaura el resolver viejo, que vuelve a leer sus settings (siguen en BD, inertes
+pero íntegros). M-41 es aditiva ⇒ no estorba. **No se requiere ventana de riesgo** (no hay dinero vivo, §N.9).
+
+#### 4.36.10 Alcance — qué entra a la curva y qué NO
+
+| Superficie | ¿Curva? | Detalle |
+|---|---|---|
+| **Cartas `raw`** | **SÍ** | mismo piso, mismo bin, misma curva |
+| **Cartas `graded` (PSA/CGC)** | **SÍ** (confirmado por el humano) | el **slab** sigue siendo la garantía de condición (§H) y su **fuente** de mercado sigue siendo la suya (§«Fuentes de precio»); lo que cambia es **cómo se convierte ese mercado en precio**. Sin bounty (la vitrina pública es de sueltas, §4.26a) |
+| **SELLADO** | **NO** | conserva **íntegro** su spread por presentación (§4.23a/§K): `override > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25. Solo gana `priceBasis` derivado (§4.36.7a) para la regla de visibilidad. **Verificable: el precio de un sellado antes y después es idéntico** (criterio 85) |
+| **Acabado (`finish`)** | **identidad, no precio** | sigue siendo la **identidad de la variante**: inventario, `VariantPriceOverride`, bounties, `availableFinishes`, ficha, bóveda, filtros y captura en el cotizador **no cambian**. Y **sigue eligiendo de qué variante se lee el mercado** (§4.35). Lo único que pierde es **tener regla de precio propia** |
+| **Rareza** | **validación, no precio** | §4.36.4/§4.36.5 |
+| **Bóveda / portafolio / tendencia** | **NO cambia** | §C intacto: valuación a mercado del acabado, snapshot diario, gráfica |
+| **Aportación en especie (`aportacionPct`, 70 %)** | **NO cambia** | dial propio de costo de inventario, ajeno al pricing de venta/compra |
+| **Fuera de alcance (§N.10)** | — | sellado por curva · piso/bin por acabado (**descartado explícitamente**) · curvas por rareza/acabado/set · calibración automática · convertir el override en piso |
+
+#### 4.36.11 Entrega — etapas VERIFICABLES sobre UNA rama y UN solo deploy (§N.9)
+
+**No son fases desplegables.** Son puntos de corte con **tests en verde** dentro del mismo cambio, para que el trabajo
+sea revisable y reversible por partes. Zona compartida `backend/src/common/` — **este stream es el único que la toca**.
+
+| # | Etapa | Verde cuando |
+|---|---|---|
+| **E0** | `common/pricing-curve.ts`: tipos, `interp`, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador V1–V8. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante V1–V8 |
+| **E1** | `SettingKey.PRICING_CURVE` + validador + seed §N.2. M-41 aplicada | el setting valida y siembra; los viejos siguen ahí, intactos |
+| **E2** | `computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` en `money.ts` (con `priceBasis` y precedencias), **conviviendo** con los resolvers viejos | unitarios de precedencia: override absoluto, empate ⇒ `market`, sin mercado ⇒ `pending` |
+| **E3** | Se cambian **los dos seams de servicio** (`PricingService.computeSalePriceForItem`, `BuylistService.quoteCardForFinish`) + `variant-pricing.ts`. Los ~12 call-sites **no cambian de firma** porque pasan por el servicio | suite existente adaptada: los ~40 specs de precio se re-expresan contra la curva (esperado: la mayoría cambia de **valor esperado**, no de forma) |
+| **E4** | Guardarraíl: predicado + los dos seams + `reason` + **cierre** simétrico de la cola | test de ciclo completo: escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ `resolved` + publicable |
+| **E5** | Bounty revalidado en las **tres** seams + `effective`/`curveQuoteCents` en el DTO + filtro-antes-del-cap en la vitrina | test: bounty válido → sube el mercado → desaparece de vitrina, cotiza la curva y aparece la alerta |
+| **E6** | Instrumentación: escritura en checkout y en `createRequest` + `GET /admin/reports/pricing-brackets` | tras una venta y una compra existen los **cinco** campos y agregan por bracket |
+| **E7** | Endpoints `GET`/`PUT /admin/pricing/curve`; retiro de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, `/sales-rarities`; re-propósito de `/rarities` | contract tests del §M2 nuevo |
+| **E8** | **Borrado sin residuos** (criterio 96): `pricing-tiers.ts`, el bloque de reglas de `money.ts` (§4.36.4), validadores y settings retirados | compila sin referencias muertas; grep de `tier`/`fixed`/`finishRules` limpio en pricing |
+| **E9** | Frontend (en **paralelo** desde E0, contra el contrato): editor de la tabla de puntos en M2, retiro de la pantalla de tiers **con su texto falso**, regla de visibilidad por `priceBasis`, alerta de bounty en el binder | Playwright de los flujos de §N |
+
+**Reparto:**
+- **backend** (WS «Catálogo y precios» + zona compartida `common/` y `prisma/`): E0–E8. **Toca dinero en los dos ejes**
+  ⇒ triple veredicto + gate de seguridad por release.
+- **frontend**: E9, arrancable desde el día 1 contra API_CONTRACT §M2/§DTOs (el contrato es la interfaz).
+- **ux-ui**: copys del editor de la tabla de puntos y del bloque «Valor de mercado» que **desaparece** (no se atenúa) →
+  `DESIGN_SYSTEM.md`.
+- **devops**: nada de env nuevo (la curva es dato, no variable de entorno); serializar M-41; el runbook de cut-over de
+  §4.36.9c en `DEVOPS_NOTES.md`.
+- **arquitecto** (este §): §4.36 + eco de contrato. **No toca código.**
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -6838,6 +7542,25 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **P-48-RC (backend, v2.0) — CAUSA RAÍZ del bug de dinero que motivó §4.36; queda RESUELTA por diseño, se documenta
+  para trazabilidad (pentester / techlead / QA).** Cartas publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de
+  **MX$15**. Tres desviaciones **entre documento y código**, todas de estructura:
+  1. **`fixed` documentado como PISO, implementado como PRECIO ABSOLUTO.** §4.14a lo llama «piso de venta MX$ en
+     centavos» y el editor de M2 lo etiqueta literalmente **«Piso (MX$)»**, pero `computeSalePriceForRarity`
+     (`common/money.ts`, rama `rule.mode === 'fixed'`) y `applyRule` **devuelven `rule.value` sin compararlo nunca
+     contra el mercado**. Una carta cuyo mercado supera el «piso» se publica **al piso**. En compra el efecto es peor:
+     una Common de $400 cotiza **$0.50**.
+  2. **El eje de acabado nunca consulta la regla de la rareza.** `resolveTwoAxisRule` (§4.28d), caso `reverse_holo`,
+     devuelve `finishRules.reverse_holo ?? null`; sin regla de acabado la variante cae al **`fallbackPct`** y el piso
+     **ni siquiera participa**. El invariante `premium ⇒ pct` (§4.33d) **no tapa nada de esto**, porque Common no es
+     premium.
+  3. **`BOUNTY_BELOW_RULE` se valida solo al CREAR** (`modules/pricing/variant-controls.service.ts:301-315`) y compara
+     con `<` (**acepta el empate**). Si después sube el mercado y la regla rebasa al bounty, la «oferta» publicada
+     **paga menos que la tarifa estándar** y **sigue ganando la precedencia #1** en el cotizador y en la vitrina.
+  **Norma: §4.36** (la curva elimina 1 y 2 por construcción — no hay modos ni ejes; §4.36.6 cierra 3 revalidando el
+  bounty **al crear, al cotizar y al publicar**, con comparación **estricta**). **Acción (backend, este stream):**
+  implementar §4.36 en las etapas E0–E8 (§4.36.11). **No se parchan los ejes viejos**: el código de `fixed` se **tira**
+  (§N.9). **Toca dinero en los dos ejes ⇒ triple veredicto + gate de seguridad por release.**
 - **IMP-C (backend, v1.43, rama `fix/variant-composition-regression`) — `gateSealedMarketCents` anula el override manual
   de MERCADO del sellado con el dial `off`.** Estado detectado (`pricing.service.ts` `gateSealedMarketCents`): el gate
   devuelve `null` para **cualquier** `sealedMarketRef` cuando `sourceOn=false`, sin distinguir la fuente automática
@@ -7313,7 +8036,32 @@ Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin bac
 > (resolver H-1); no toca schema, ni `ConfigSetting`, ni forma de contrato. El discriminante del override manual ya vive
 > en `PriceReference` (`isManualOverride` / `source='manual'`). No hay DDL ni seed. Ver §4.23a y §9 (IMP-C).
 
-### v1.37-pricing-tiers (nueva — M-38: pricing por tiers — DATA/seed, SIN DDL, P-34)
+### v2.0-pricing-curve (nueva — M-41: instrumentación + razón del pendiente; DDL ADITIVO + seed, P-48)
+
+⚠️ **`backend/prisma/` y `backend/src/common/` son ZONA COMPARTIDA:** el orquestador serializa **M-41**. Es **aditiva
+pura y reversible**: enums nuevos + **columnas nullable**, **sin `DROP`, sin backfill obligatorio, sin reescritura de
+dinero**. Segura con la app corriendo. Spec normativa en **§4.36**; cut-over en **§4.36.9c**.
+
+| # | Modelo / artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-41.1 | `enum PriceBasis { market floor override bounty pending }` | Enum nuevo | Add enum | Los **cinco** valores LOCKED de PROJECT §N.7. `floor` = «la constante inferior de ese eje ganó el `max`» (piso en venta, bin en compra) — §4.36.7a |
+| M-41.2 | `enum MarketBracket { lt_3 r3_10 r10_25 r25_80 r80_300 gte_300 }` | Enum nuevo | Add enum | **ESCALA FIJA**, independiente de la curva (§4.36.7c). Fronteras `[lo,hi)` en centavos: 300 / 1000 / 2500 / 8000 / 30000. **Cambiarla parte la serie histórica** |
+| M-41.3 | `enum PendingPriceReason { no_market premium_at_floor }` | Enum nuevo | Add enum | Distingue «no hay dato» (lo cura el barrido) de «hay dato y es absurdo» (necesita al dueño) |
+| M-41.4 | `OrderItem.marketMxnCents Int?` · `priceBasis PriceBasis?` · `marketBracket MarketBracket?` · `finish Finish?` | 4 columnas nuevas nullable | Add column | **Instrumentación de VENTA** (§N.8). El precio final ya vive en `unitPriceCents`. Se escriben al **checkout**, en la misma transacción que congela el precio. `null` en filas históricas |
+| M-41.5 | `SellRequestItem.marketMxnCents Int?` · `priceBasis PriceBasis?` · `marketBracket MarketBracket?` | 3 columnas nuevas nullable | Add column | **Instrumentación de COMPRA** (§N.8). `finish` y `quotedPriceCents` ya existen. Se escriben al **crear la solicitud**. Los `ruleMode`/`ruleValue`/`ruleSource` quedan **legacy** (nada nuevo los escribe; se conservan por retención, como `category` en M-14) |
+| M-41.6 | `PendingPriceEntry.reason PendingPriceReason?` | Columna nueva nullable | Add column | Índice recomendado para el filtro `?reason=` de M2. `null` = filas históricas. **No entra a la clave de dedupe** (la clave sigue siendo `(cardId, productType, gradeKey, finish[, sealedProductId], status)`) |
+| M-41.7 | `ConfigSetting` — seed de `pricing_curve` | **DATA/seed**, sin DDL | Seed idempotente | Valores de PROJECT §N.2 **verbatim** (§4.36.2). Idempotente: no pisa un valor ya editado por el dueño |
+| M-41.8 | `ConfigSetting` — `sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`, `buylist_price_fallback_pct`, `pricing_tier_map` | **Se dejan de leer/escribir/sembrar** | *(sin DDL, sin DELETE)* | Filas **huérfanas e inertes**, precedente `rarity_map` (v1.32). **No se borran en esta migración a propósito:** borrar config en el mismo paso que cambia la matemática elimina la vía de diagnóstico y el rollback barato. Limpieza como follow-up |
+
+> **Sin migración de dinero.** El precio de venta **no está persistido** (se resuelve en lectura, §4.26b): no hay
+> ninguna fila de precio que convertir. Lo persistido es `InventoryItem.listPriceCents` (override deliberado, **se
+> conserva**) y `OrderItem.unitPriceCents` de órdenes pasadas (historia inmutable, **no se toca**). El criterio 96
+> («ninguna variante conserva un precio calculado con la lógica vieja») se satisface con el **re-resolver** del
+> cut-over, no con un `UPDATE`.
+> **Rollback:** revertir el deploy restaura el resolver viejo, que vuelve a leer sus settings (intactos en BD). M-41 es
+> aditiva ⇒ no estorba. Sin ventana de riesgo (el negocio no está en vivo, §N.9).
+
+### v1.37-pricing-tiers (nueva — M-38: pricing por tiers — DATA/seed, SIN DDL, P-34) — ⛔ superseded por M-41 (§4.36.9)
 
 ⚠️ **`backend/prisma/` y `backend/src/common/` son ZONA COMPARTIDA:** el orquestador serializa **M-38** frente a
 cualquier otro stream que toque schema/común. **No hay DDL de Prisma** (ni tablas, ni columnas, ni enums, ni `DROP`):

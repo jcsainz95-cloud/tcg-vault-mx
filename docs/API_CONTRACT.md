@@ -2,7 +2,43 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-23 (rev v1.44-per-finish-price-source).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.0-pricing-curve).
+>
+> **Changelog v2.0-pricing-curve (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND.
+> PROJECT §N v2.0 LOCKED, P-48, rama `claude/card-pricing-rules-2e537m`. ARCHITECTURE §4.36 / §11 M-41.
+> ⚠️ CAMBIO BREAKING ACOTADO al editor de precios de M2 y a tres campos de DTO; el negocio NO está en vivo.):**
+> - **Precio puro por valor de mercado.** El precio de **cartas sueltas** (raw **y** gradeadas) deja de depender de la
+>   **rareza** y del **acabado**: `venta = redondeo↑(max(piso, mercado × markup(mercado)))` ·
+>   `compra = max(bin, mercado × pct(mercado))`, ambas **interpoladas** (nunca escalonadas). **El SELLADO no cambia**
+>   (spread por presentación, §2-S/§K) — su precio antes y después es **idéntico** (criterio 85).
+> - **Editor de M2 (breaking, intencional):** entran **`GET`/`PUT /admin/pricing/curve`** (tabla de puntos de
+>   **longitud variable**: agregar / mover / borrar; + piso, bin y escalera de redondeo). **Se RETIRAN**
+>   `GET`/`PUT /admin/pricing/tiers`, `GET`/`PUT /admin/pricing/tier-map`, `GET /admin/pricing/buylist-rules`,
+>   `GET /admin/pricing/sales-rules` y `GET /admin/pricing/sales-rarities`. `GET /admin/pricing/rarities`
+>   **sobrevive re-propositado** (salud del catálogo de rarezas que respalda el guardarraíl; **sin** `rule`/`tierId`).
+> - **Códigos 422 nuevos del editor** (money-safe, el error dice **qué punto** lo rompe): `CURVE_EMPTY`,
+>   `DUPLICATE_BREAKPOINT`, `SALE_BELOW_MARKET`, `SALE_CURVE_NOT_MONOTONIC`, `BUY_ABOVE_SALE`, `BIN_ABOVE_FLOOR`,
+>   `ROUNDING_LADDER_INVALID`. **Se retira** `PREMIUM_RARITY_FIXED_TIER` (su invariante ya no existe).
+> - **`priceBasis` (NUEVO, aditivo en DTOs públicos):** `market | floor | override | bounty | pending`, calculado
+>   **server-side**. Viaja en `ListingDTO`, `GroupedListingDTO`, `SealedGroupDTO` y `BuylistQuotePayload`. Gobierna la
+>   **regla de visibilidad**: el bloque «Valor de mercado» se muestra **si y solo si `priceBasis === "market"`**, y
+>   **solo** en la **ficha de carta** y la **ficha de sellado**. **No cambian** bóveda/portafolio, cotizador, tejas ni
+>   listados.
+> - **Breaking en DTOs de admin/buylist:** `VariantPricingDTO.sell.source` / `.buy.source` cambian sus valores
+>   `rule|fallback` por `market|floor`; `BuylistQuotePayload.appliedRule` **se retira** (no hay `{mode,value}`) y lo
+>   reemplaza `priceBasis`. `VariantPricingDTO.bounty` gana `effective` + `curveQuoteCents`.
+> - **Guardarraíl (la rareza sale del pricing y entra a la validación):** una **rareza premium** que aterriza en el
+>   **piso** (venta) **no se publica** y la que aterriza en el **bin** (compra) **no se cotiza**: entran a la cola de
+>   precio pendiente. **Sin dato de mercado ⇒ PRECIO PENDIENTE** (el piso NO gana). `PendingPriceEntry` gana
+>   **`reason`** (`no_market | premium_at_floor`) y `GET /admin/pricing/pending` el filtro **`?reason=`**.
+> - **Bounty revalidado** contra la curva **al crear, al cotizar y al publicar**: un bounty por debajo (o **igual**)
+>   de la tarifa vigente deja de aplicar y **desaparece de `GET /buylist/bounties`**. El `422 BOUNTY_BELOW_RULE` pasa a
+>   rechazar el **empate**. El **override manual de compra sigue siendo ABSOLUTO** (puede quedar por debajo de la
+>   curva a propósito; **no** se levanta).
+> - **Instrumentación:** cada venta y cada compra persisten **mercado crudo (centavos)**, **precio final**,
+>   **`priceBasis`**, **acabado** y **`marketBracket`** (escala **FIJA**: `lt_3 · r3_10 · r10_25 · r25_80 · r80_300 ·
+>   gte_300`). Superficie de lectura: **`GET /admin/reports/pricing-brackets`** (M9, NUEVO). Migración **M-41**
+>   (aditiva pura; **sin migración de dinero**).
 >
 > **Changelog v1.44-per-finish-price-source (2026-08-23, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS.
 > Escalada regla 9 (backend), issue P-47, rama `fix/variant-composition-regression`. NO cambia ningún shape de DTO ni
@@ -1425,14 +1461,40 @@
 - **`422 ITEM_NOT_IN_CUSTODY` (v1.17.1):** en `POST /shipments`, se intenta retirar un item cuyo `status` **no es `in_custody`** — típicamente ya `withdrawn` (retiro entregado, terminal), o cualquier otro estado no custodiable. **Guardarraíl anti doble-retiro/doble-cobro:** un item ya entregado (`withdrawn`) **NO** es re-elegible para un nuevo retiro aunque conserve `ownershipStatus='settled'` (histórico). Comparte criterio con el flag de lectura `HoldingDTO.withdrawable` (§3): read y write usan la **misma** regla de elegibilidad. Distinto de `422 ITEM_NOT_SETTLED` (aún `pending`, no liquidado) y de `409 ITEM_IN_ANOTHER_SHIPMENT` (ya tiene envío activo). Ver §5 y ARCHITECTURE §3.3.
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
-- **`422 PREMIUM_RARITY_FIXED_TIER` (v1.37, pricing por tiers, P-34):** en `PUT /admin/pricing/tier-map` o `PUT
+- **Códigos nuevos de la CURVA (v2.0, P-48 — `PUT /api/v1/admin/pricing/curve`; detalle en §M2 «Curva de precio por
+  VALOR DE MERCADO» y ARCHITECTURE §4.36.3).** Todos son **`422`**, todos se validan **al GUARDAR** (no solo en
+  runtime), todos se evalúan sobre el **objeto completo** (no sobre un delta) y **todos indican QUÉ PUNTO lo rompe**
+  en `details: { axis: "sale" | "buy", index: number, marketCents: number, … }` (PROJECT §N.3, criterio 87):
+  - **`422 CURVE_EMPTY`** — `sale.points` o `buy.points` sin puntos: sin puntos no hay curva que interpolar.
+  - **`422 DUPLICATE_BREAKPOINT`** — dos puntos con el mismo `marketCents` en la misma curva (la interpolación sería
+    ambigua / división por cero).
+  - **`422 SALE_BELOW_MARKET`** — algún punto con `multiplierBp < 10000`: **ningún precio de venta puede caer por
+    debajo del mercado**. `details.multiplierBp` señala el punto.
+  - **`422 SALE_CURVE_NOT_MONOTONIC`** — la curva de venta resultante **no es monótona creciente** (más mercado
+    produciría **menos** precio). Se verifica algebraicamente por tramo, no por muestreo. `details` señala el tramo
+    `(index, index+1)` infractor.
+  - **`422 BUY_ABOVE_SALE`** — en algún punto del dominio la **compra alcanza o supera la venta** (`pctBp(m) ≥
+    multiplierBp(m)`). Se evalúa en la **unión** de los `marketCents` de ambas curvas (exacto, no muestreo).
+  - **`422 BIN_ABOVE_FLOOR`** — `binCents ≥ floorCents`: el caso en que ambos ejes saturan en su constante y la compra
+    igualaría/superaría la venta.
+  - **`422 ROUNDING_LADDER_INVALID`** — escalera mal formada: banda sin `stepCents ≥ 1`, `uptoCents` no crecientes,
+    ninguna/más de una banda abierta (`uptoCents: null`), o una **frontera que no es múltiplo exacto del paso de la
+    banda inferior** (rompería la monotonía que `SALE_CURVE_NOT_MONOTONIC` acaba de garantizar).
+  - **`422 BOUNTY_BELOW_RULE` (v1.28, SEMÁNTICA AMPLIADA en v2.0):** ahora compara contra la **cotización de la
+    curva** y **rechaza también el EMPATE** (`priceCents ≤ curveQuoteCents`). `details: { curveQuoteCents, priceCents }`.
+    Además, la misma condición se evalúa **en runtime** al cotizar y al publicar (ahí no es un `422`: el bounty
+    simplemente **deja de aplicar** y **desaparece de la vitrina**). Ver §M2 y §6.
+  - **RETIRADOS en v2.0:** `422 PREMIUM_RARITY_FIXED_TIER` y `422 UNKNOWN_RARITY` — sus endpoints (`/tiers`,
+    `/tier-map`) ya no existen y su invariante lo sustituye el **guardarraíl** de ARCHITECTURE §4.36.5 (que no rechaza
+    configuración: bloquea publicación/cotización en runtime y encola con `reason="premium_at_floor"`).
+- **`422 PREMIUM_RARITY_FIXED_TIER` (v1.37, pricing por tiers, P-34) — ⛔ RETIRADO en v2.0 (P-48):** en `PUT /admin/pricing/tier-map` o `PUT
   /admin/pricing/tiers`, la edición dejaría una rareza `premium:true` (catálogo canónico, §4.28e) resolviendo en un tier
   cuya regla de **COMPRA** es `fixed` (con el seed: T0/T1). **Guardarraíl money-safe (refinamiento estricto, ARCHITECTURE
   §4.33d):** una carta chase jamás puede cotizar al bin fijo barato de bulk, **aunque el dueño edite el mapa**. El
   invariante se valida sobre el producto (tiers × mapa) completo, por eso lo emiten **ambos** PUT. `details: { offending:
   [{ rarity: string, tierId: string }] }` (los pares infractores, para que el front los marque). El eje de VENTA no lo
   dispara (un `fixed` de venta es un piso, no un bin de compra). Ya en el enum central `common/error-codes.ts`.
-- **`422 UNKNOWN_RARITY` (v1.37, pricing por tiers, P-34):** en `PUT /admin/pricing/tier-map`, una key de `assignments`
+- **`422 UNKNOWN_RARITY` (v1.37, pricing por tiers, P-34) — ⛔ RETIRADO en v2.0 (P-48):** en `PUT /admin/pricing/tier-map`, una key de `assignments`
   **no** es una rareza canónica del catálogo (§4.28c). Money-safe: el mapa solo asigna tiers a rarezas conocidas; una key
   desconocida se rechaza en vez de crear una entrada muerta. Distinto de `422 VALIDATION_ERROR` (`TierId` fuera de
   `{T0..T4}` o body mal formado). Ver §M2 «Pricing por TIERS».
@@ -1483,8 +1545,26 @@ ShipmentStatus      = solicitado | picking | guia | enviado | entregado | cancel
 ShipmentActiveStage = solicitado | picking | guia | enviado  // v1.17: subconjunto "activo" de ShipmentStatus expuesto en HoldingDTO.shipmentState. `entregado` NUNCA aparece (el item ya es InventoryStatus.withdrawn y sale de holdings); `cancelado` libera el item ⇒ shipmentState=null.
 SellRequestStatus   = cotizada | recibida | verificacion | aprobada | pagada | rechazada | abandonada
 SellItemStatus      = cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario
-BuylistRuleMode     = fixed | pct                       // v1.3.1: naturaleza de la regla de precio por rareza (fixed = MX$ centavos; pct = % de la referencia)
-SalesRuleMode       = fixed | pct                       // v1.13-sales-pricing: regla de precio de VENTA por rareza (fixed = piso MX$ centavos; pct = % ARRIBA de mercado). Misma FORMA que BuylistRuleMode, semántica de pct DISTINTA.
+PriceBasis          = market | floor | override | bounty | pending   // v2.0 (P-48, PROJECT §N.7 LOCKED): QUÉ determinó el precio.
+                    // Lo calcula SIEMPRE el backend (SEC-A1); la UI NO lo infiere comparando cifras: lo OBEDECE.
+                    // market  = el mercado produjo el precio (curva). EMPATE (piso == mercado×markup) cuenta como market.
+                    // floor   = la CONSTANTE INFERIOR de ese eje ganó el `max`: el PISO en venta, el BIN en compra.
+                    //           (Un solo valor para los dos ejes a propósito: es el mismo hecho — «el mercado no explica
+                    //            este precio» — y así guardarraíl, instrumentación y visibilidad comparten UN enum.)
+                    // override = override manual (por pieza o por variante). bounty = bounty VÁLIDO (solo eje compra).
+                    // pending  = no resoluble ⇒ no se publica ni se cotiza (JAMÁS MX$0 ni precio inventado).
+                    // SELLADO: derivado de SealedSpreadSource — override⇒override; subtype_spread|global_spread⇒market.
+MarketBracket       = lt_3 | r3_10 | r10_25 | r25_80 | r80_300 | gte_300  // v2.0 (§N.8): bracket de mercado para la
+                    // instrumentación. ESCALA FIJA e INDEPENDIENTE de la curva (si se derivara de los puntos vigentes,
+                    // la serie histórica dejaría de ser comparable cada vez que el dueño mueva la curva). Fronteras
+                    // SEMIABIERTAS [lo,hi) en centavos MXN: 300 / 1000 / 2500 / 8000 / 30000. Es un ÍNDICE de
+                    // conveniencia: el dato real es `marketMxnCents` (crudo), que se persiste SIEMPRE junto al bracket.
+                    // `null` cuando la operación no tuvo mercado (override/bounty sin referencia).
+PendingPriceReason  = no_market | premium_at_floor      // v2.0: por qué una variante entró a la cola de precio pendiente.
+                    // no_market = sin referencia de mercado. premium_at_floor = guardarraíl §4.36.5 (rareza premium que
+                    // aterrizó en el piso/bin: su dato de mercado está mal). Distinguirlos es lo que hace TRIABLE la cola.
+BuylistRuleMode     = fixed | pct                       // ⛔ RETIRADO v2.0 (P-48): desaparece la distinción fixed/pct como modos excluyentes. Solo retención de filas históricas (SellRequestItem.ruleMode legacy).
+SalesRuleMode       = fixed | pct                       // ⛔ RETIRADO v2.0 (P-48): ídem. El `fixed` de venta era la causa raíz (documentado como PISO, implementado como precio absoluto).
 BuylistCategory     = comun | reverse_holo | ex_plus    // DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode). Retención legacy; nada nuevo lo usa.
 DisputeStatus       = abierta | en_revision | resuelta_recompra | rechazada
 PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual | tcgcsv // v1.19: tcgcsv = referencia de SELLADO (M-23)
@@ -1573,9 +1653,19 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
 // v1.6-finish: `finish` = acabado de ESTA copia física. referenceValue/salePriceCents se calculan contra la
 // PriceReference de ESE acabado (no un precio único por carta). Dos copias de la misma carta con acabado
 // distinto son ListingDTO SEPARADOS. graded/sealed → finish = "normal".
+// ===== v2.0 (P-48) — `priceBasis` ADITIVO y NORMATIVO =====
+//   * `priceBasis` = QUÉ determinó `salePriceCents` (server-side, §ARCH 4.36.7a). Valores alcanzables en el eje de
+//     VENTA: "market" | "floor" | "override" | "pending". ("bounty" NUNCA aparece en venta: vive en el eje de compra.)
+//   * ⚠️ REGLA DE VISIBILIDAD (contrato, no sugerencia): en la FICHA de carta y en la FICHA de sellado el bloque
+//     «Valor de mercado» se muestra **si y solo si `priceBasis === "market"`**. Con floor/override/pending el bloque
+//     DESAPARECE — ni en cero, ni tachado, ni atenuado, ni «—». En TEJAS y LISTADOS no se muestra mercado (no se
+//     muestra hoy y no va a mostrarse). NO cambia la bóveda/portafolio del cliente ni el cotizador de buylist.
+//   * `referenceValue` SIGUE viajando en el DTO aunque no se muestre: el mismo DTO alimenta superficies admin y de
+//     valuación que sí lo necesitan, y stripearlo por endpoint haría que PriceInfo significara cosas distintas según
+//     la ruta. El front OBEDECE `priceBasis`; PROHIBIDO inferir comparando cifras en pantalla.
 ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sealedSubtype?, finish: Finish,
                  gradingCompany?, gradeValue?, certNumber?,
-                 referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean }
+                 referenceValue: PriceInfo, salePriceCents?: number, priceBasis: PriceBasis, sellable: boolean }
 // ===== v1.38-grouped-listings (P-30): publicación ÚNICA por carta/variante/condición con STOCK =====
 // GroupedListingDTO = UNA publicación agrupada de SINGLES (raw/graded) para la sección "Compra". Reemplaza el
 // «un ListingDTO por copia física» de `GET /catalog/cards*`. Es el análogo de `SealedGroupDTO` (sellado) para singles.
@@ -1605,10 +1695,15 @@ ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sea
 //     GRADO, compartida por el grupo). El `certNumber` es POR SLAB (distinto por pieza) ⇒ NO va a nivel de grupo: se
 //     expone por pieza en `units[]` de la ficha (el comprador verifica el cert del slab concreto que agrega al carrito).
 //   * productType ∈ {raw, graded} — NUNCA sealed (H9: el sellado tiene su propio catálogo agrupado, §2-S).
+//   * **v2.0 (P-48):** `priceBasis` = el del **representante** (la pieza más barata del grupo). Todas las piezas de un
+//     grupo comparten clave K ⇒ comparten curva/override de variante ⇒ comparten basis, SALVO que alguna traiga
+//     `listPriceCents` manual (override POR PIEZA): en ese caso el representante es esa y el basis del grupo es
+//     "override". El basis EXACTO por pieza vive en `units[]` de la ficha (`ListingDTO.priceBasis`).
 GroupedListingDTO = { representativeInventoryItemId: string, card: CardDTO, productType: "raw" | "graded",
                       finish: Finish, rawCondition?: RawCondition, gradeKey: string,
                       gradingCompany?: GradingCompany, gradeValue?: string,
-                      stockCount: number, salePriceCents: number, referenceValue: PriceInfo, currency: "MXN" }
+                      stockCount: number, salePriceCents: number, priceBasis: PriceBasis,
+                      referenceValue: PriceInfo, currency: "MXN" }
 GroupedListingListResponse = { data: GroupedListingDTO[], page: number, pageSize: number, total: number }
 // Ficha (GET /catalog/cards/:cardId): los grupos vendibles de esa carta + `units` = TODAS las piezas vendibles por-pieza
 // (cheapest-first) para que el front agregue hasta `stockCount` `inventoryItemId` DISTINTOS al carrito (por-pieza, §4-G).
@@ -1631,15 +1726,36 @@ SetValueRange = "5d" | "15d" | "1m" | "3m" | "6m" | "1y" | "ytd" | "all"
 SetValueHistoryResponse = { set: SetRefDTO | null, range: SetValueRange,
                             points: SetValuePointDTO[],
                             change: { absMxnCents: number, pct: number | null, direction: "up" | "down" | "flat" } }
-// v1.3.1: regla de precio de buylist para una rareza. value = centavos MXN si mode=fixed; porcentaje [0,100] si mode=pct.
-BuylistRule       = { mode: BuylistRuleMode, value: number }
-// appliedRule = la regla que se resolvió para la carta; ruleSource="rule" (fila explícita) o "fallback" (BUYLIST_PRICE_FALLBACK_PCT).
-BuylistRuleApplied = { mode: BuylistRuleMode, value: number, source: "rule" | "fallback" }
-// v1.13-sales-pricing: regla de precio de VENTA por rareza. Misma FORMA que BuylistRule; value = centavos MXN
-// (piso) si mode=fixed; % de MARKUP ARRIBA de mercado si mode=pct → salePrice = round(ref × (1 + value/100)).
-// (¡OJO! en buylist pct = % de la referencia; en venta pct = % arriba de mercado. No confundir.)
-SalesRule         = { mode: SalesRuleMode, value: number }
-SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fallback" }
+// ⛔ v2.0 (P-48): `BuylistRule` / `BuylistRuleApplied` / `SalesRule` / `SalesRuleApplied` RETIRADOS del contrato vivo.
+// No hay reglas por rareza/tier/acabado ni modos fixed/pct: hay UNA CURVA por eje (`PricingCurveDTO`, abajo). Se
+// conservan estas líneas solo como registro de procedencia (y porque `SellRequestItem.ruleMode/ruleValue/ruleSource`
+// sobreviven en BD como columnas legacy de filas históricas — nada nuevo las escribe).
+BuylistRule       = { mode: BuylistRuleMode, value: number }                              // ⛔ RETIRADO v2.0
+BuylistRuleApplied = { mode: BuylistRuleMode, value: number, source: "rule" | "fallback" } // ⛔ RETIRADO v2.0
+SalesRule         = { mode: SalesRuleMode, value: number }                                // ⛔ RETIRADO v2.0
+SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fallback" }   // ⛔ RETIRADO v2.0
+
+// ===== v2.0 (P-48) — LA CURVA. Fuente de verdad del editor de M2 (GET/PUT /admin/pricing/curve) =====
+// UNIDADES (normativas, todo ENTERO): dinero en CENTAVOS MXN. Los dos valores interpolados van en la MISMA unidad —
+// PUNTOS BASE (bp) del mercado, donde 10000 bp = 1× = 100 % del mercado. Así el invariante «compra < venta» es la
+// comparación DIRECTA `pctBp(m) < multiplierBp(m)` y «venta nunca por debajo del mercado» es `multiplierBp >= 10000`.
+//   venta  = redondeo↑( max( sale.floorCents , mercado × multiplierBp(mercado) / 10000 ) )
+//   compra =            max( buy.binCents    , mercado × pctBp(mercado)        / 10000 )   // SIN redondeo
+// INTERPOLACIÓN LINEAL obligatoria entre puntos; tramos PLANOS solo antes del primero y después del último. Un tramo
+// escalonado DENTRO del rango está prohibido (produce saltos de precio y, arriba de ~$25 de mercado, es imposible sin
+// vender por debajo del mercado). `points` es de LONGITUD VARIABLE: el dueño AGREGA, MUEVE y BORRA renglones — NO es
+// una estructura fija de N puntos. El PUT reemplaza la lista completa (semántica de reemplazo, no de patch por índice).
+SaleCurvePointDTO = { marketCents: number, multiplierBp: number }   // 1.60× = 16000 ; rango [10000, 1000000]
+BuyCurvePointDTO  = { marketCents: number, pctBp: number }          // 30 %  = 3000  ; rango [0, 10000]
+// Escalera de redondeo ↑ — SOLO VENTA (la compra no se redondea). La BANDA la decide el monto ANTES de redondear y se
+// elige UNA SOLA VEZ: si el redondeo cruza el umbral, NO se re-evalúa. `uptoCents: null` = banda abierta (la última).
+RoundingBandDTO   = { uptoCents: number | null, stepCents: number }
+PricingCurveDTO   = { version: 1,
+                      sale: { floorCents: number,          // PISO único y GLOBAL (no por acabado, ni rareza, ni tier)
+                              points: SaleCurvePointDTO[],  // >= 1, marketCents estrictamente crecientes
+                              rounding: RoundingBandDTO[] },// >= 1, la ÚLTIMA con uptoCents = null
+                      buy:  { binCents: number,            // BIN único y GLOBAL
+                              points: BuyCurvePointDTO[] } }
 // v1.15-buylist-batch-clabe: cotización en LOTE (POST /buylist/quote/batch). READ-ONLY. SIN `qty` — el modelo es
 // UNA línea por carta física (ARCHITECTURE §4.16b). Espeja EXACTAMENTE los campos del quote por-carta (PublicQuoteDto).
 // v1.30: `productId?` (number = TCGplayer productId == CardProduct.tcgplayerProductId; el MISMO que el front recibió
@@ -1649,9 +1765,14 @@ SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fall
 BuylistQuoteItemDTO = { cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish,
                         productId?: number }
 // Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta (BuylistQuoteResponse).
-// v1.30: `productId?` = eco del producto cotizado (snapshot). Ausente ⇒ línea de set_base. La `rarity` sigue siendo la
-//   de la carta (rarityCanonical) y el `finish` el del producto; ambos derivan la regla server-side (SEC-A1).
-BuylistQuotePayload = { rarity: string | null, finish: Finish, productId?: number, appliedRule: BuylistRuleApplied,
+// v1.30: `productId?` = eco del producto cotizado (snapshot). Ausente ⇒ línea de set_base. El `finish` es el del
+//   producto y determina DE QUÉ VARIANTE se lee el mercado; el monto se deriva server-side (SEC-A1).
+// ⚠️ v2.0 (P-48) — BREAKING ACOTADO: `appliedRule` SE RETIRA (ya no existe `{mode,value}`: no hay reglas, hay curva).
+//   Lo reemplaza `priceBasis` (§Enums). `rarity` SE CONSERVA como dato INFORMATIVO/de display del catálogo — el monto
+//   NO depende de ella (criterio 84); el front no debe derivar precio de ella. Valores alcanzables de `priceBasis` en
+//   este eje: "bounty" | "override" | "market" | "floor" | "pending". `precio_pendiente` ⇔ priceBasis="pending" —
+//   que ahora incluye DOS casos: sin dato de mercado (el bin NO gana) y guardarraíl §4.36.5 (premium en el bin).
+BuylistQuotePayload = { rarity: string | null, finish: Finish, productId?: number, priceBasis: PriceBasis,
                         quote: { status: "cotizada" | "precio_pendiente", quotedPriceCents: number | null, currency: "MXN" },
                         referencePrice: { status: "priced" | "pending", priceMxnCents?: number },
                         paymentNotice: "PAY_AFTER_RECEIPT" }
@@ -1781,18 +1902,30 @@ MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean, display
                         marketReferenceMxnCents?: number | null, capturedDate?: string | null,
                         pricing?: VariantPricingDTO,
                         buyable?: { inventoryItemId: string, salePriceCents: number } | null }
-// v1.28 (P-18/P-22). `suggestedCents` = lo que da la regla HOY (buylist rules / sales rules sobre la referencia
-// del acabado); `overrideCents` = el override manual persistido (VariantPriceOverride, M-30); `effectiveCents` =
-// el precio RESUELTO con la precedencia normativa; `source` = qué peldaño ganó. `buy.source="bounty"` cuando el
-// bounty está activo. `bounty` viene (solo si existe fila) con su estado para la edición en consola.
+// v1.28 (P-18/P-22). `suggestedCents` = lo que da la REGLA HOY sobre la referencia del acabado; `overrideCents` = el
+// override manual persistido (VariantPriceOverride, M-30); `effectiveCents` = el precio RESUELTO con la precedencia
+// normativa; `source` = qué peldaño ganó. `bounty` viene (solo si existe fila) con su estado para la consola.
+// ⚠️ v2.0 (P-48) — BREAKING ACOTADO (admin-only, ningún cliente público lo consume):
+//   * `suggestedCents` = lo que da la **CURVA** hoy (no «la regla»): venta con piso+redondeo, compra con bin.
+//   * `source` pasa de `"rule" | "fallback"` a **`PriceBasis`**: `market | floor` sustituyen a ambos.
+//     buy.source ∈ {bounty, override, market, floor, pending} · sell.source ∈ {override, market, floor, pending}.
+//   * `bounty` gana **`effective: boolean`** y **`curveQuoteCents: number | null`** — la ALERTA DEL BINDER (§N.6,
+//     decisión del humano: basta el binder, SIN aviso proactivo por correo/push). `effective=false` ⇔ el bounty
+//     quedó por debajo (o IGUAL) de la tarifa vigente ⇒ NO aplica en la cotización, NO se publica en la vitrina y
+//     `buy.source` NO será "bounty". `curveQuoteCents` = la tarifa de curva que lo rebasó (null si la curva no
+//     resuelve, en cuyo caso el bounty explícito SIGUE siendo efectivo).
+//   * `premiumAtFloor: boolean` (ADITIVO) = el guardarraíl §4.36.5 disparó para esta variante en ese eje: rareza
+//     premium que aterrizó en el piso/bin ⇒ NO se publica / NO se cotiza y hay entrada `premium_at_floor` en la cola.
+//     Es lo que hace VISIBLE el guardarraíl desde el back-office y permite detectar PISOS MAL CALIBRADOS.
 VariantPricingDTO = { buy:  { suggestedCents: number | null, overrideCents: number | null,
                               effectiveCents: number | null,
-                              source: "bounty" | "override" | "rule" | "fallback" | "pending" },
+                              source: PriceBasis, premiumAtFloor: boolean },
                       sell: { suggestedCents: number | null, overrideCents: number | null,
                               effectiveCents: number | null,
-                              source: "override" | "rule" | "fallback" | "pending" },
+                              source: PriceBasis, premiumAtFloor: boolean },
                       bounty?: { enabled: boolean, priceCents: number | null, targetQty: number | null,
-                                 acquiredQty: number, completedAt: string | null } | null }
+                                 acquiredQty: number, completedAt: string | null,
+                                 effective: boolean, curveQuoteCents: number | null } | null }
 // EXTENSIONES v1.20 (ADITIVAS — los campos v1.16 no cambian; notación `+=` = campos que se AÑADEN al DTO):
 // Índice: catalogVariantCount = Σ |availableFinishes| de las cartas del set; distinctVariantsOwned = variantes del
 // universo con ≥1 pieza en el scope; variantCompletionPct = distinctVariantsOwned / catalogVariantCount × 100
@@ -1993,10 +2126,17 @@ ListingDTO += { sealedCondition?: SealedCondition }
 // la ficha). `imageUrl` = imagen TCGCSV si el producto está mapeado, si no la de catálogo de la Card. `fromPriceCents`
 // = mínimo salePriceCents del grupo. `referenceValue` = valor de mercado TCGCSV (informativo; puede ser pending si el
 // grupo se vende solo por override). Todos los grupos devueltos tienen ≥1 pieza vendible.
+// v2.0 (P-48): el sellado NO cambia de matemática (conserva su spread por presentación, §K/§4.23a — su precio antes y
+// después es IDÉNTICO). Solo gana `priceBasis` DERIVADO de `priceSource`, para que el front tenga UNA sola regla de
+// visibilidad para las dos fichas, sin ramas por tipo de producto:
+//     priceSource="override"                          ⇒ priceBasis="override"  ⇒ NO se muestra «Valor de mercado»
+//     priceSource="subtype_spread" | "global_spread"  ⇒ priceBasis="market"    ⇒ SÍ se muestra
+//     sin precio (no se publica, PRICE_PENDING)        ⇒ priceBasis="pending"
+// `priceSource` se CONSERVA (detalle propio del sellado: qué spread aplicó).
 SealedGroupDTO = { representativeItemId: string, card: CardDTO, productName: string, imageUrl: string | null,
                    sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition,
                    availableCount: number, fromPriceCents: number, priceSource: SealedSpreadSource,
-                   referenceValue: PriceInfo, currency: "MXN" }
+                   priceBasis: PriceBasis, referenceValue: PriceInfo, currency: "MXN" }
 SealedGroupListResponse = { data: SealedGroupDTO[], page: number, pageSize: number, total: number }
 // Ficha del sellado (GET /catalog/sealed/:inventoryItemId): el grupo + TODAS las piezas disponibles del mismo grupo
 // (cada una un ListingDTO, más baratas primero) para que el comprador elija cantidad (carrito por-pieza). `trendEnabled`
@@ -2222,11 +2362,26 @@ Res `200`:
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
 
-### GET /api/v1/catalog/cards/:cardId — `public`
+### GET /api/v1/catalog/cards/:cardId — `public`  (FICHA — aquí aplica la regla de visibilidad v2.0)
 Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }`.
 - **`listings`** = las **publicaciones agrupadas** de esa carta (una por `(productType, gradeKey, finish)` con `stockCount≥1`, `salePriceCents` único). Es lo que el front pinta en la ficha. *(Antes de v1.38: `listings: ListingDTO[]` con una entrada por copia física.)*
 - **`units`** = TODAS las piezas vendibles de la carta **por-pieza** (`ListingDTO[]`, cheapest-first) — SOLO para resolver el **add-to-cart por `inventoryItemId`** (el carrito sigue siendo por-pieza, §4-G) y para exponer el `certNumber` de cada slab en graded. No es la grilla de navegación. Espeja `SealedGroupDetailResponse.listings`.
 - **Cambio breaking coordinado con el rediseño del storefront** (ver nota de coordinación en el Changelog v1.38 y ARCHITECTURE §4.9a).
+- **⚠️ v2.0 (P-48) — REGLA DE VISIBILIDAD DEL «VALOR DE MERCADO» (contrato de UI, criterio 93).** En **esta ficha**, el
+  bloque **«Valor de mercado»** se muestra **si y solo si `priceBasis === "market"`** del grupo/pieza que se está
+  pintando. Con `"floor"`, `"override"` o `"pending"` el bloque **DESAPARECE**: ni en cero, ni tachado, ni atenuado,
+  ni «—»; el precio de venta queda como el **único número** de esa zona.
+  - **Por qué:** en zona de piso el mercado **no produjo** el precio, así que el número **no explica nada**. Mostrar
+    «venta $25 / mercado $1.14» publica un **múltiplo de 22×** sin informar al comprador.
+  - **Empate ⇒ se muestra:** si `piso == mercado × markup`, el backend emite `priceBasis="market"` (desempate fijado
+    para que la regla sea determinista y verificable).
+  - **PROHIBIDO inferir en el cliente** comparando `referenceValue` contra `salePriceCents`: la UI **obedece**
+    `priceBasis`. `referenceValue` sigue viajando en el DTO (el mismo DTO alimenta superficies admin/valuación) —
+    que viaje **no** autoriza a pintarlo.
+  - **Alcance: SOLO fichas.** `GET /catalog/cards` (tejas/listados) **no muestra** valor de mercado hoy y **no va a
+    mostrarlo**. **NO cambian** la **bóveda/portafolio del cliente** (ahí ve el valor de mercado de lo que **ya
+    posee** — valuación y gráfica de tendencia **idénticas**) ni el **cotizador de buylist**.
+  - El **precio cobrado NO cambia** por esta regla: es **presentación**, no dinero.
 
 ### GET /api/v1/catalog/listings/:inventoryItemId — `public`
 Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / sin precio: no es visible en Compra).
@@ -2303,12 +2458,20 @@ Res `200` (`SealedGroupListResponse`): `{ data: SealedGroupDTO[], page, pageSize
   (pieza más barata → add-to-cart), `imageUrl` (TCGCSV si mapeado), `referenceValue` (valor de mercado TCGCSV, informativo).
 - **Sin N+1:** una query de las piezas de la página + `getReferencesBatch` de sus `sealedMarketRef` + agrupación en memoria.
 
-### GET /api/v1/catalog/sealed/:inventoryItemId — `public`
+### GET /api/v1/catalog/sealed/:inventoryItemId — `public`  (FICHA — aquí aplica la regla de visibilidad v2.0)
 Ficha de un producto sellado. `:inventoryItemId` = una pieza del grupo (típicamente `representativeItemId`).
 Res `200` (`SealedGroupDetailResponse`): `{ group, listings: ListingDTO[], trendEnabled, restockEnabled }`.
 - `listings` = **todas** las piezas disponibles del mismo grupo (producto+condición), más baratas primero — el front deja
   agregar hasta `group.availableCount` al carrito (por-pieza).
 - `trendEnabled`/`restockEnabled` = estado de los feature-flags `sealed_value_trend`/`sealed_restock_alerts` (§M10).
+- **⚠️ v2.0 (P-48) — misma REGLA DE VISIBILIDAD que la ficha de carta (criterio 93).** El bloque «Valor de mercado» se
+  muestra **si y solo si `group.priceBasis === "market"`**. Para el sellado eso se traduce, sin ambigüedad, a:
+  precio derivado por **spread** (`priceSource ∈ {subtype_spread, global_spread}`) ⇒ **se muestra**; precio fijado por
+  **override manual** (`priceSource="override"`) ⇒ **NO se muestra**. **La matemática del sellado NO cambia** (§K /
+  ARCHITECTURE §4.23a): conserva `override > mercado × spread por presentación > mercado × spread global >
+  PRICE_PENDING`, con sus semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25. **El precio de un
+  sellado antes y después de v2.0 es IDÉNTICO** (criterio 85); lo único aditivo es `priceBasis`, para que el front
+  tenga **una sola** regla de visibilidad para las dos fichas.
 Err `404 NOT_FOUND` (pieza inexistente o no publicada — no visible en Compra).
 
 ### GET /api/v1/catalog/sealed/:inventoryItemId/value-history — `public`  (v1.23 — FEATURE-FLAGGED `sealed_value_trend`)
@@ -2489,6 +2652,13 @@ Ejemplo (una pieza vendida entre visitas, otra borrada):
 ```
 Err: `422 PRICE_PENDING` (algún ítem **VÁLIDO** —existente y disponible— sin precio; se evalúa **después** de la
 poda, semántica intacta), `400 VALIDATION_ERROR` (carrito vacío en el request), `401`.
+- **v2.0 (P-48) — `PRICE_PENDING` NO cambia de semántica; solo gana dos causas más** (sin dato de mercado, y
+  guardarraíl `premium_at_floor`), exactamente como cualquier otra pieza cuyo precio dejó de resolver entre visitas.
+  **Punto normativo importante:** como el precio de venta se resuelve **en LECTURA**, una pieza `status='listed'`
+  cuyo precio deja de resolver **desaparece sola de Compra** (`fetchSellable` la excluye por `sellable=false` /
+  `salePriceCents=null`) **sin cambiar de status** y **escala a la cola**. El comprador **nunca** ve «precio
+  pendiente» (§A). El **checkout NO se sesga hacia abajo**: ante duda, no se vende (§N.0 — vender de menos es la
+  pérdida irreversible).
 **Eliminados en v1.21.3 (SOLO en este endpoint):** `404 NOT_FOUND` global y `409 ITEM_UNAVAILABLE` global — ambos
 casos ahora viajan en `unavailableItems` con `200`.
 > ⚠️ **NO propagar la poda a session:** `POST /checkout/session` (abajo) **conserva** `404 NOT_FOUND` /
@@ -3357,71 +3527,72 @@ Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition, f
   - **Ausente** → comportamiento v1.29 (set_base por `(cardId, finish)`), sin cambio.
   - **`422 PRODUCT_NOT_FOUND`** si el `productId` no existe; **`422 PRODUCT_CARD_MISMATCH`** si existe pero no cuelga
     del `cardId` (rechazo validado, jamás fusión silenciosa). Producto sin precio ⇒ `precio_pendiente`/«—», nunca 0.
-  - La respuesta ecoa `productId` (`BuylistQuotePayload.productId`). La **rareza** sigue saliendo de la carta y el
-    **acabado** del producto; la regla se deriva server-side (SEC-A1, gate premium intacto).
-Res `200`:
+  - La respuesta ecoa `productId` (`BuylistQuotePayload.productId`). El **acabado** del producto determina **de qué
+    variante se lee el mercado**; el monto se deriva server-side (SEC-A1).
+Res `200` (**v2.0**):
 ```json
 { "rarity": "Common", "finish": "reverse_holo",
-  "appliedRule": { "mode": "fixed", "value": 150, "source": "rule" },
-  "quote": { "status": "cotizada", "quotedPriceCents": 150, "currency": "MXN" },
+  "priceBasis": "market",
+  "quote": { "status": "cotizada", "quotedPriceCents": 3750, "currency": "MXN" },
   "referencePrice": { "status": "priced", "priceMxnCents": 12500 },
   "paymentNotice": "PAY_AFTER_RECEIPT" }
 ```
-**Resolución del monto (server-side, ARCHITECTURE §4.2 / §4.2.1):** el backend toma la **rareza oficial real** de la
-carta (`Card.rarity`) **y el acabado validado** (`finish` ∈ `availableFinishes`), **nunca del cliente** (SEC-A1).
-El **acabado selecciona la regla** (cadena de candidatos de `ruleKey`, primero con regla explícita gana; la
-**rareza real va siempre primera**):
-- **`reverse_holo`** → `"Reverse Holo"`.
-- **`holofoil` / `first_edition_holofoil`**:
-  - **Rareza PREMIUM** (chase / alto valor — `isPremiumRarity`, ver abajo) → `[rarity]` **únicamente**: su regla
-    explícita o, si no existe, el **fallback pct** (% de mercado). **Nunca** `"Holo"` ni ningún bin **fijo** de bulk.
-  - **No premium** → rareza base **si ya es holo** (`rarity` contiene "holo") → `[rarity, "Holo"]`; si no →
-    `["Holo"]` (Common/Uncommon = % del market holofoil).
-- **`normal`** → la **rareza base** (`Card.rarity`).
 
-**`isPremiumRarity` (parte del contrato de pricing, Fase 0.1 / gate de dinero).** Una rareza es **premium** si, en
-minúsculas, casa alguno de estos patrones (substrings/tokens; cierra el bug por el que chase-only-holofoil como
-`ex`/Full Art/Illustration Rare cotizaban al bin fijo barato): `illustration`, `ultra rare`, `double rare`,
-`secret`, `rainbow`, `hyper`, `full art`, `alt(ernate) art`, `special`, `amazing`, `radiant`, `shiny`,
-`trainer gallery`, `character`, `gold`, `prism`, y los tokens sueltos `v | vmax | vstar | vunion | ex | gx`. **NO
-premium** (bulk legítimo): Common, Uncommon, Rare (no-holo), Rare Holo (plano), Reverse Holo. Definición canónica y
-tabla de patrones en **ARCHITECTURE §4.2.1**. **Garantía de dinero:** una rareza premium **jamás** resuelve a una
-regla **fija** de bulk (ni a `"Holo"`); cae a su propia regla o al fallback pct (% de mercado).
+**⚠️ v2.0 (P-48) — RESOLUCIÓN DEL MONTO: la CURVA. Supersede TODO lo anterior de esta sección** (cadena de
+`ruleKeyCandidates`, claves sintéticas `"Holo"`/`"Reverse Holo"`, `isPremiumRarity` como gate de pricing,
+`BUYLIST_PRICE_RULES`, `fixed`/`pct` y `BUYLIST_PRICE_FALLBACK_PCT`). **El monto NO depende de la rareza ni del
+acabado** (criterio 84). ARCHITECTURE §4.36.
 
-**v1.28 (P-18/P-22) — la regla deja de ser el primer peldaño.** ANTES de aplicar `BUYLIST_PRICE_RULES` se
-consulta el control por variante (`VariantPriceOverride`, leído EN LOTE — sin N+1). Precedencia NORMATIVA
-(ARCHITECTURE §4.26b): **`bounty > override manual > regla > sin precio`** — money-safe, nunca inventar:
-- **Bounty activo** (`bountyEnabled` + `bountyPriceCents>0`) → `quotedPriceCents = bountyPriceCents`,
-  `appliedRule = { mode:"fixed", value: bountyPriceCents, source:"bounty" }`. Siempre `cotizada` (no depende de
-  referencia).
-- **`buyOverrideCents`** → ídem con `source:"override"`.
-- Sin control por variante → la cadena de reglas de SIEMPRE (abajo), sin cambio.
-**`appliedRule.source` gana los valores `"bounty" | "override"`** (aditivo — el front DEBE tolerarlos; aplica a
-`quote`, `quote/batch` y al snapshot `ruleSource` de `createRequest`, que habilita el conteo de bounty al pagar,
-§M2 variant-controls). Los topes de buylist (solicitud/mes, INE) NO cambian y aplican igual a montos bounty.
+```
+compra = max( bin , mercado × pct(mercado) )        // pct INTERPOLADO; SIN redondeo
+```
 
-Con la regla resuelta se aplica `BUYLIST_PRICE_RULES`:
-- `mode="fixed"` → `quotedPriceCents = value` (centavos). **No** depende de la referencia → siempre `cotizada`.
-- `mode="pct"`  → `quotedPriceCents = round(referenciaDelAcabado × value/100)`, donde `referenciaDelAcabado` es la
-  `PriceReference` **de ESE acabado** (`tcgplayer.prices[finish].market`). Si **falta** →
-  `{ "quote": { "status": "precio_pendiente", "quotedPriceCents": null } }` (escala a cola al crear la solicitud).
-- **regla no configurada** (ninguno de los candidatos existe) → `BUYLIST_PRICE_FALLBACK_PCT` (default 40) como
-  `pct`; `appliedRule.source="fallback"`. No bloquea la cotización (solo `precio_pendiente` si además falta la
-  referencia del acabado).
+- **Qué hace todavía el `finish`:** elegir **de qué variante se lee el mercado** (`PriceReference` de ESE acabado /
+  ESE `cardProductId`). Sigue **capturándose** en el cotizador por eso, y sigue siendo identidad de variante
+  (inventario, overrides, bounties, `availableFinishes`). Lo único que perdió es **tener regla de precio propia**.
+- **Qué hace todavía la `rareza`:** **nada en el monto**. El campo `rarity` de la respuesta es **informativo/display**.
+  Su único papel money-safe es el **guardarraíl** (abajo).
+- **Precedencia NORMATIVA de COMPRA (§4.36.6; la forma de v1.28 no cambia, el peldaño «regla» pasa a ser «curva»):**
 
-La condición de compra es **siempre NM** (§ARCHITECTURE 3.5); `rawCondition` solo puede ser `NM`. El seed reproduce
-el comportamiento anterior y el mapeo por acabado (ej.: **Common Reverse Holo = fixed $1.50**; Common Normal = fixed
-$0.50; **Illustration Rare / ex en holofoil = 40% del market holofoil** — nunca el bin fijo de bulk, gate premium;
-resto = 40% del market del acabado). El "precio pendiente" es de adquisición/back-office; **nunca** se muestra al
-comprador. Ver la tabla de ejemplos en ARCHITECTURE §4.2.1.
+  | # | Peldaño | `priceBasis` | Nota |
+  |---|---|---|---|
+  | 1 | **bounty VÁLIDO** (`bountyEnabled`, `priceCents>0` y **estrictamente mayor** que la curva) | `"bounty"` | no depende de la referencia ⇒ siempre `cotizada`. Un bounty **rebasado por la curva deja de ser bounty**: se salta este peldaño |
+  | 2 | **`buyOverrideCents`** | `"override"` | **ABSOLUTO**: puede quedar **por debajo** de la curva y se paga **exactamente** ese monto (criterio 89). Jamás se envuelve en un `max` |
+  | 3 | **CURVA** `max(bin, mercado × pct(mercado))` | `"market"` o `"floor"` | `"floor"` ⇔ el **bin** ganó el `max` (mercado × pct < bin). **Empate ⇒ `"market"`** |
+  | 4 | **sin resolver** | `"pending"` | `{ "quote": { "status": "precio_pendiente", "quotedPriceCents": null } }` |
+
+- **Dos causas de `precio_pendiente` (v2.0, ambas LOCKED, money):**
+  1. **SIN DATO DE MERCADO ⇒ pendiente. El bin NO gana** (corrige el supuesto de §N.2). *Por qué:* el guardarraíl se
+     apoya en la **rareza** — justo el proxy malo que este cambio retira del pricing. Atraparía una Secret Rare con
+     dato corrupto, pero **no** una Common de $400 sin dato, que se cotizaría a $1. Sería reabrir el hueco exacto que
+     este cambio cierra. **En ningún caso se cotiza MX$0 ni se inventa un precio.**
+  2. **GUARDARRAÍL — rareza premium que aterriza en el BIN** (§4.36.5, criterio 88): que una chase resuelva al bin
+     solo puede significar que su dato de mercado está **mal**. Se cotiza `precio_pendiente` y la variante entra a la
+     cola con `reason="premium_at_floor"`. **NO** dispara con `priceBasis ∈ {override, bounty}` (decisiones
+     deliberadas del admin, §4.36.6).
+- **`escalatePending` sin cambio de doctrina:** `/quote` y `/quote/batch` siguen siendo **READ-ONLY** (v1.12) — no
+  escriben en la cola aunque devuelvan `precio_pendiente`. Quien escala sigue siendo `POST /buylist/requests`.
+- **`appliedRule` RETIRADO del payload** (no hay `{mode,value}`); lo reemplaza `priceBasis`. El snapshot
+  `ruleSource="bounty"` de `createRequest` que habilita el conteo del bounty al pagar se re-expresa como
+  `priceBasis="bounty"` (misma semántica, mismo efecto en §M2 variant-controls).
+- **Prueba de mesa (criterio 80, diales iniciales de §N.2 — verificable):** mercado **$0.50 ⇒ $1** (gana el bin) ·
+  **$10 ⇒ $3** · **$25 ⇒ $7.50** · **$100 ⇒ $40** · **$300 ⇒ $135** (pct interpolado 45 %) · **$500 ⇒ $250**. En
+  particular, **una Common que vale cientos de pesos deja de recibir MX$0.50**.
+- La condición de compra es **siempre NM** (ARCHITECTURE §3.5); `rawCondition` solo puede ser `NM`. Los topes de
+  buylist (solicitud/mes, INE) **no cambian** y aplican igual a montos bounty. El "precio pendiente" es un estado de
+  adquisición/back-office; **nunca** se muestra al comprador. El cotizador **sigue sin mostrar valor de mercado**
+  (§N.7: no se toca).
 
 ### POST /api/v1/buylist/quote/batch — `public`  (v1.15 — NUEVO · cotización en LOTE · READ-ONLY)
 Cotiza **N cartas en 1 request** (colapsa el fan-out del cotizador: hoy el grid dispara ~`pageSize` llamadas a
 `POST /buylist/quote`). **No** crea solicitud, **no** mueve dinero, **no** persiste y **no** escala a
 `PendingPriceEntry` (misma doctrina read-only que el quote por-carta desde v1.12; crítico por ser endpoint anónimo).
-Cada ítem se resuelve **igual** que `POST /buylist/quote` (misma función de precio: rareza+acabado server-side, **gate
-premium**, `BUYLIST_PRICE_RULES` + fallback, referencia por acabado, FX ya bakeada en `PriceReference`). SEC-A1
-intacto.
+Cada ítem se resuelve **igual** que `POST /buylist/quote` — **v2.0 (P-48): por la CURVA DE COMPRA**
+`max(bin, mercado × pct(mercado))` con la precedencia `bounty válido > buyOverrideCents > curva > pendiente`,
+referencia **por acabado** (el acabado elige de qué variante se lee el mercado), FX ya bakeada en `PriceReference`.
+**Un solo cuerpo compartido, prohibido duplicarlo** (`quoteAcquisitionFromCurve`). ~~rareza+acabado server-side, gate
+premium, `BUYLIST_PRICE_RULES` + fallback~~ ⛔ retirados. SEC-A1 intacto: el monto se deriva del dato real de la
+variante, jamás del DTO. **READ-ONLY** (no escala pendientes, v1.12).
 Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType, rawCondition?, finish?, productId? }`
 (mismos campos que el quote por-carta; **sin `qty`** — el modelo es una línea por carta física, ARCHITECTURE §4.16b).
 - **Límites:** `items` **no vacío**; **máx `50`** ítems por request (`BUYLIST_QUOTE_BATCH_MAX`). Vacío o sobre-cap →
@@ -3442,13 +3613,13 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
   "results": [
     { "index": 0, "cardId": "card_abc", "ok": true,
       "rarity": "Common", "finish": "reverse_holo",
-      "appliedRule": { "mode": "fixed", "value": 150, "source": "rule" },
-      "quote": { "status": "cotizada", "quotedPriceCents": 150, "currency": "MXN" },
+      "priceBasis": "market",
+      "quote": { "status": "cotizada", "quotedPriceCents": 3750, "currency": "MXN" },
       "referencePrice": { "status": "priced", "priceMxnCents": 12500 },
       "paymentNotice": "PAY_AFTER_RECEIPT" },
     { "index": 1, "cardId": "card_zap", "ok": true,
       "rarity": "Illustration Rare", "finish": "holofoil",
-      "appliedRule": { "mode": "pct", "value": 40, "source": "fallback" },
+      "priceBasis": "pending",
       "quote": { "status": "precio_pendiente", "quotedPriceCents": null, "currency": "MXN" },
       "referencePrice": { "status": "pending" },
       "paymentNotice": "PAY_AFTER_RECEIPT" },
@@ -3457,10 +3628,11 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
   ]
 }
 ```
-- **`ok:true`** → mismo payload que `POST /buylist/quote` (`rarity`, `finish`, `appliedRule`, `quote`,
-  `referencePrice`, `paymentNotice`). `quote.status="precio_pendiente"` cuando la regla es `pct` y falta la referencia
-  del acabado (igual que por-carta; el "precio pendiente" es de adquisición/back-office, **nunca** se muestra como
-  precio al comprador — aquí es un vendedor cotizando).
+- **`ok:true`** → mismo payload que `POST /buylist/quote` (`rarity`, `finish`, **`priceBasis`** —v2.0, reemplaza a
+  `appliedRule`—, `quote`, `referencePrice`, `paymentNotice`). **v2.0:** `quote.status="precio_pendiente"` ⇔
+  `priceBasis="pending"`, y ahora tiene **dos** causas: (a) **sin dato de mercado** (el bin **NO** gana) y (b) el
+  **guardarraíl** (rareza premium que aterrizó en el bin). El "precio pendiente" es de adquisición/back-office,
+  **nunca** se muestra como precio al comprador — aquí es un vendedor cotizando.
 - **`ok:false`** → `error.code ∈ { NOT_FOUND (carta inexistente), FINISH_NOT_AVAILABLE (acabado fuera de la whitelist
   aplicable), PRODUCT_NOT_FOUND (v1.30 — productId inexistente), PRODUCT_CARD_MISMATCH (v1.30 — productId no cuelga del
   cardId) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
@@ -3474,6 +3646,17 @@ Bounties **activos** (`bountyEnabled=true` con `bountyPriceCents>0`), para la se
 `/buylist`, visible **antes de elegir set**. **Read-only estricto** (doctrina v1.12 de endpoints anónimos: no
 persiste, no escala pendientes, no mueve dinero); mismo throttle público que el quote. Orden `bountyPriceCents
 desc`; **cap 50** (sin paginación — es una vitrina, no un listado). Sin query params.
+
+> **⚠️ v2.0 (P-48) — solo se publica lo que es MEJOR que la tarifa estándar (§N.6, criterios 90/91).** Un bounty
+> **por debajo o igual** de la cotización de la **curva** vigente **deja de ser bounty** y **NO aparece aquí** (ni en
+> Home ni en Vender). Antes, `BOUNTY_BELOW_RULE` se validaba **solo al crear**: si después subía el mercado y la
+> tarifa estándar rebasaba al bounty, la «oferta» publicada **pagaba MENOS que la tarifa normal** y seguía publicada.
+> **Orden de operaciones NORMATIVO (importa):** seleccionar candidatos activos → resolver el mercado en **lote** →
+> **filtrar los no efectivos** → ordenar `bountyPriceCents desc` → **tomar el top 50**. Filtrar **después** del cap
+> dejaría huecos silenciosos en la vitrina. **Efecto garantizado:** para **todo** bounty visible aquí, la cotización
+> de `/buylist/quote` es **exactamente** `bountyPriceCents` y es **estrictamente mayor** que la tarifa estándar de esa
+> variante (criterio 91). El dueño ve los rebasados como **alerta en el binder** (`VariantPricingDTO.bounty.effective
+> = false` + `curveQuoteCents`, §M2) — **sin** aviso proactivo por correo/push (decisión del humano).
 Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
 ```json
 { "data": [
@@ -3507,9 +3690,16 @@ Req: `{ items: [{ cardId, productType, rawCondition?, finish?, productId? }], cl
 > se loguea** y **nunca se devuelve** en la respuesta; su único punto de exposición en claro es el reveal dedicado.
 > **v1.15 — INE en archivo:** si `GET /users/me/kyc` reporta `ineOnFile=true`, el front **omite** `ineUploadKeys` y el
 > backend usa el INE ya en archivo para el umbral AML (no re-pide INE si ya está).
-> **v1.3.1:** `items` **ya no** incluye `category` (SEC-A1: el backend deriva la regla server-side de
-> `Card.rarity`; un `category` del cliente se ignora si se envía). Cada item cotizado snapshotea la regla
-> aplicada (rarity/ruleMode/ruleValue/ruleSource) y se refleja en `SellItemDTO`.
+> **v1.3.1:** `items` **ya no** incluye `category` (SEC-A1: el backend deriva el monto server-side; un `category` del
+> cliente se ignora si se envía). ~~Cada item cotizado snapshotea la regla aplicada
+> (rarity/ruleMode/ruleValue/ruleSource)~~
+> **⚠️ v2.0 (P-48) — el snapshot cambia de contenido y ES la instrumentación (§N.8, criterio 95).** En la **misma
+> transacción** que congela `quotedPriceCents`, cada item persiste: **`marketMxnCents`** (mercado **crudo** en
+> centavos que entró al cálculo), **`priceBasis`**, **`marketBracket`** (escala **FIJA**) y el **`finish`** que ya
+> tenía — los cinco datos de §N.8 (`quotedPriceCents` es el precio final). Se refleja en `SellItemDTO`. Un **ajuste**
+> posterior del admin (`approvedPriceCents`) **no reescribe** `priceBasis`/`marketBracket`: la serie mide **la
+> decisión de la curva**. Las columnas `ruleMode`/`ruleValue`/`ruleSource` quedan **legacy** (nada nuevo las escribe).
+> **Este es el único punto del eje de compra que ESCALA a `PendingPriceEntry`** (el quote sigue read-only, v1.12).
 > **v1.6-finish:** cada item lleva `finish?` (default `normal`, validado ∈ `card.availableFinishes`); se
 > **snapshotea** en `SellRequestItem.finish` y se propaga al `InventoryItem` al convertir (M5). El monto se deriva
 > por `(rarity, finish)` server-side.
@@ -3767,11 +3957,21 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       → línea falla **`422 ITEM_NOT_PUBLISHABLE`** y **NO** se publica. **Guardarraíl anti double-sell:** una pieza
       reservada/vendida/en-custodia/enviada **no** puede regresar a `listed`.
   - Precio por línea: `listPriceCents` presente → **override manual**; ausente → **precio de venta
-    derivado** server-side (SEC-A1) ramificado por `productType`: `raw|graded` → reglas por rareza+acabado (§M2
-    sales-rules, `computeSalePriceForItem`); **`sealed` → `computeSealedSalePrice`** (`sealedMarketRef × spread`, §M2
-    sealed-spreads / ARCHITECTURE §4.23b/d). Una pieza cuyo precio **no se resuelve** (`pct` sin market, o **sellado sin
-    override y sin `sealedMarketRef`**) → línea falla `PRICE_PENDING` y **NO** se publica (regla "solo se lista lo que
-    tiene precio"; mismo código de error que antes). graded sin `certNumber` → `VALIDATION_ERROR`.
+    derivado** server-side (SEC-A1) ramificado por `productType`: `raw|graded` → ~~reglas por rareza+acabado~~
+    **⛔ v2.0 (P-48): la CURVA DE VENTA** `redondeo↑(max(piso, mercado × markup(mercado)))` (§M2 «Curva de precio por
+    VALOR DE MERCADO», `computeSalePriceForItem`); **`sealed` → `computeSealedSalePrice`** (`sealedMarketRef × spread`,
+    §M2 sealed-spreads / ARCHITECTURE §4.23b/d — **sin cambio**). Una pieza cuyo precio **no se resuelve** → línea
+    falla `PRICE_PENDING` y **NO** se publica (regla "solo se lista lo que tiene precio"; mismo código de error).
+    graded sin `certNumber` → `VALIDATION_ERROR`.
+    - **v2.0 — DOS causas nuevas de `PRICE_PENDING` en `raw|graded`** (ambas escalan a la cola con su `reason`, ver ④):
+      1. **Sin dato de mercado ⇒ `PRICE_PENDING`. El piso NO gana** (`reason="no_market"`). *Por qué (decisión del
+         humano, corrige el supuesto de §N.2):* el guardarraíl se apoya en la **rareza**, justo el proxy malo que este
+         cambio retira del pricing — atraparía una Secret Rare con dato corrupto pero **no** una Common de $400 sin
+         dato, que se publicaría al piso de $25. Sería reabrir el hueco exacto que este cambio cierra.
+      2. **GUARDARRAÍL: rareza premium que aterriza en el PISO ⇒ no se publica** (`reason="premium_at_floor"`,
+         criterio 88). Que una chase resuelva al piso solo puede significar que su dato de mercado está **mal**.
+         **NO** dispara con `priceBasis ∈ {override, bounty}` (decisiones deliberadas del admin: `listPriceCents` y
+         `sellOverrideCents` **siguen siendo ABSOLUTOS** y publican sin importar la curva).
     - **v1.23:** el sellado **ya no exige `listPriceCents`** — se auto-precia por mercado×spread cuando está mapeado y el
       dial `sealedPriceSource=tcgcsv`; el override sigue disponible y gana. Retro-compatible: sin mercado, el override es
       la única vía (idéntico a hoy).
@@ -3781,6 +3981,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     enteraba. **Mismo código de error** `PRICE_PENDING` (no breaking). La línea puede devolver **`pendingPriceEntryId?`**
     (aditivo/opcional) para deep-link de UI. Remedio: el admin fija precio (override M2 `POST /admin/pricing/override` o
     `listPriceCents` por-línea) y el re-publish procede. Paridad con `createItem` (que ya escalaba). Ver ARCHITECTURE §4.24b.
+    - **v2.0 (P-48):** la entrada escalada lleva **`reason`** (`no_market | premium_at_floor`) y **sale sola** de la
+      cola: cuando el siguiente barrido (`price-ingest`) escribe una `PriceReference` real y el precio vuelve a
+      resolver con `priceBasis="market"`, la entrada `open` de esa clave se **cierra** en la siguiente resolución
+      (re-publish / `publish-all` / lectura del binder), **sin intervención manual**.
   - **v1.26 (P-7, `repriceFresh?`):** si `repriceFresh:true`, ANTES de resolver el precio se refresca la `PriceReference`
     con un fetch **on-demand por carta** del proveedor (upsert de mercado del día), útil para publicar inventario
     UNPUBLISHED con precio fresco. **Hereda el gate ④**: si tras el refresh sigue sin precio → escala pendiente, no
@@ -3892,9 +4096,15 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   `ownerType=platform` + `status=in_stock` (± `setId` de la carta, ± `productType`). **Sin cap de selección**
   (procesa por chunks server-side; a diferencia de `bulk-publish`, que exige lista explícita y capa 200).
   - **Pipeline por-pieza IDÉNTICO a `bulk-publish`:** precio server-side SEC-A1 con la precedencia v1.28
-    (`listPriceCents > sellOverride > regla`; sellado por H-1); una pieza sin precio resoluble falla
-    `PRICE_PENDING`, **ESCALA** a la cola (④ v1.26, `context='inventory'`) y **NO** se publica; `listed` = no-op
-    idempotente. **Tolerante por-ítem: el lote JAMÁS revienta completo.**
+    (`listPriceCents > sellOverride > `**`CURVA`**` (v2.0)`; sellado por H-1); una pieza sin precio resoluble falla
+    `PRICE_PENDING`, **ESCALA** a la cola (④ v1.26, `context='inventory'`, con su `reason` v2.0) y **NO** se publica;
+    `listed` = no-op idempotente. **Tolerante por-ítem: el lote JAMÁS revienta completo.**
+  - **⚠️ v2.0 (P-48) — este endpoint ES el paso 2 del CUT-OVER de la curva** (ARCHITECTURE §4.36.9c). Como el precio
+    de venta **se resuelve en LECTURA y no está persistido**, la migración **no reescribe ninguna fila de precio**:
+    «repriciar el catálogo por completo» (criterio 96) = **re-resolver**, y esto es lo que lo hace. Tras el deploy se
+    corre sobre el inventario `platform` para publicar lo que ahora resuelve y **escalar** lo que cae en `no_market`
+    o `premium_at_floor`. Verificación: `GET /admin/pricing/pending?reason=premium_at_floor` debe quedar del orden de
+    **≈3 por cada 333** cartas; mucho más ⇒ **piso mal calibrado o ingest roto**, no guardarraíl ruidoso.
   - **Idempotencia + auditoría:** `batchKey` vía `InventoryBatch` (`kind='publish_all'`; replay ⇒ resultado
     guardado + `idempotentReplay:true`). `AuditLog action=inventory.publish_all` (filtros + resumen).
   - Res `200` (`PublishAllResponse`): `{ batchKey?, idempotentReplay: boolean,
@@ -4145,6 +4355,21 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - **v1.8-ronda-c:** cada `PendingPriceEntry` trae **`finish`** — dos acabados de la misma carta sin precio son **entradas separadas** (antes colapsaban en una).
   - **v1.42 (BLOQ-2b):** para sellado, la entrada trae **`sealedProductId`** (+ `sealedProductName`/`sealedSubtype` de display). Dos presentaciones distintas del mismo set (ETB vs blíster) son **entradas separadas** por `sealedProductId` — antes colapsaban bajo el `gradeKey` legacy `'sealed'`. El override de una **no** cierra la otra (money-safe).
   - **v1.26 (P-6, dos buckets) — query param opcional `?context=`** (`catalog | portfolio | buylist | inventory`; omitido = todos, retro-compatible). Habilita los dos buckets de M2: **VENTA** = `?context=inventory` (inventario incl. no publicado; se escala en `createItem` y —v1.26— en `bulk-publish`); **COMPRA** = `?context=buylist`, una vista **READ-ONLY** (solo display). ⚠️ **Producir el precio de compra on-request es un WRITE del buylist (`itemDecision`, acoplado a control INE/AML) — FUERA DE ALCANCE de M2;** COMPRA no escribe decisiones ni resuelve pendientes de buylist. Ver ARCHITECTURE §4.24c.
+  - **v2.0 (P-48) — cada entrada gana `reason: PendingPriceReason | null`** y el endpoint el **filtro `?reason=`**
+    (`no_market | premium_at_floor`; omitido = todas, retro-compatible; `null` en filas históricas). Distinguirlos es
+    lo que hace **triable** la cola: `no_market` la cura sola el siguiente barrido; **`premium_at_floor` necesita que
+    el dueño mire** (es el **guardarraíl** §4.36.5: una rareza premium cuyo precio aterrizó en el piso/bin, señal
+    inequívoca de que **su dato de mercado está mal**). Volumen esperado de `premium_at_floor`: **≈3 de 333** cartas de
+    un master set completo — si sale mucho más, el problema es el **piso mal calibrado** o el ingest, no el guardarraíl.
+  - **v2.0 — dos entradas nuevas a la cola (money, LOCKED):** (1) **sin dato de mercado ⇒ `no_market`** — la variante
+    **NO se publica y NO se cotiza**; el piso/bin **NO gana** (decisión del humano que corrige el supuesto de §N.2:
+    un guardarraíl por rareza atraparía una Secret Rare con dato corrupto pero **no** una Common de $400 sin dato, que
+    se publicaría al piso — sería reabrir el hueco exacto que este cambio cierra). (2) **`premium_at_floor`** en
+    **AMBOS ejes**: premium en el piso ⇒ no se publica; premium en el bin ⇒ no se cotiza.
+  - **v2.0 — SALIDA de la cola (simétrica a la entrada):** cuando el **siguiente barrido** (`price-ingest`) escribe una
+    `PriceReference` real y el precio vuelve a resolver con `priceBasis="market"`, la entrada `open` de esa clave se
+    **cierra sola** en la siguiente resolución (publicación / re-publicación / `publish-all` / lectura del binder),
+    **sin intervención manual**. La vía manual (`POST /admin/pricing/override`) **no cambia**.
 - `POST /api/v1/admin/pricing/override` — override manual (respaldo siempre disponible).
   Req: `{ cardId, productType, gradeKey, priceMxnCents, finish? }` → crea `PriceReference` `source=manual` **para ese acabado**, resuelve **solo** el `PendingPriceEntry` de ese `(cardId, productType, gradeKey, finish)`.
   - **v1.26 — invariante del hazard de tabla compartida (documentado):** la resolución de pendientes es **CONTEXT-AGNÓSTICA** (el `updateMany` filtra por `(cardId, productType, gradeKey, finish, status='open')` **sin `context`**) ⇒ un override desde **VENTA** (`context=inventory`) cierra **también** el pendiente de **COMPRA** (`context=buylist`) de la misma variante, y viceversa. Se **conserva agnóstico (opción a)**: la `PriceReference` es compartida por clave, así que el precio fijado es válido para ambas caras y no mueve dinero. Añadir un `context` scope al `updateMany` (opción b) es cambio en el archivo del stream de precios del que **depende el stream buylist** ⇒ **requiere serialización/coordinación con buylist**, no unilateral. Ver ARCHITECTURE §4.24c.
@@ -4177,6 +4402,23 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `enabled:true` sin `priceCents>0` ⇒ **`422 BOUNTY_PRICE_REQUIRED`**; `priceCents <` sugerido de compra por
     regla del momento (cuando el sugerido resuelve) ⇒ **`422 BOUNTY_BELOW_RULE`** (si el sugerido está `pending`
     se acepta: el bounty es SIEMPRE precio explícito, jamás calculado); `targetQty ≥ 1`.
+  - **v2.0 (P-48) — el bounty se revalida contra la CURVA, y ahora en TRES momentos (§N.6, criterios 90/91):**
+    - **`422 BOUNTY_BELOW_RULE` cambia de comparación:** se compara contra la **cotización de la curva** vigente y
+      **rechaza también el EMPATE** (`priceCents ≤ curveQuoteCents`, antes solo `<`). Detalle del error:
+      `{ curveQuoteCents, priceCents }`. **Por qué el endurecimiento:** el predicado de runtime exige
+      **estrictamente mayor** (criterio 91: «todo lo de la vitrina es mejor que la tarifa estándar»), así que un
+      bounty **igual** a la curva pasaría el alta y sería **invisible en ejecución** — una incoherencia entre alta y
+      runtime. Reversible en dato (subir el bounty $0.01). Curva `pending` ⇒ se **acepta** (sin cambio).
+    - **AL COTIZAR** (`/buylist/quote`, `/quote/batch`, `createRequest`): un bounty que quedó **por debajo o igual**
+      de la curva vigente **deja de ser bounty** — se **salta el peldaño 1** y se paga la **curva**. El `priceBasis`
+      resultante **nunca** es `"bounty"`.
+    - **AL PUBLICAR** (`GET /buylist/bounties`): **desaparece de la vitrina** (Home y Vender).
+    - **ALERTA EN EL BINDER (y solo ahí — decisión del humano):** la respuesta trae `pricing.bounty.effective=false` +
+      `curveQuoteCents` para que M1 pinte el aviso. **NO** hay aviso proactivo (correo/push/dashboard): eso es alcance
+      posterior.
+  - **v2.0 — el override manual de compra SIGUE SIENDO ABSOLUTO** (criterio 89): `buyOverrideCents` puede quedar
+    **por debajo** de la curva vigente —decisión deliberada del admin para esa variante— y **se paga exactamente ese
+    monto**. **No** se levanta al nivel de la curva ni se envuelve en un `max(...)`. Ídem `sellOverrideCents`.
   - Res `200` (`VariantControlsResponse`): `{ cardId, productType, gradeKey, finish, pricing: VariantPricingDTO }`
     (el estado RESUELTO tras el write — mismo DTO que lee el binder; §DTOs). Err `404 NOT_FOUND` (carta), `403`.
   - **Auditado** (`AuditLog action=pricing.variant_controls`, before/after). **Toca dinero en ambas direcciones**
@@ -4184,7 +4426,8 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `PendingPriceEntry` (un override de venta/compra no es una referencia; la cola de pendientes sigue siendo del
     mercado — a diferencia de `pricing/override`).
   - **Efectos colaterales normativos:** el conteo del bounty (`bountyAcquiredQty`) lo incrementa el PAGO de M5
-    (SPEI) en su misma transacción, por cada `SellRequestItem` con snapshot `ruleSource="bounty"` de esa clave
+    (SPEI) en su misma transacción, por cada `SellRequestItem` con snapshot ~~`ruleSource="bounty"`~~
+    **`priceBasis="bounty"`** (v2.0: mismo criterio, campo nuevo) de esa clave
     **cuyo `itemStatus` NO sea `rechazada`** (v1.28.1, alineado con BL-1: un ítem rechazado del cherry-pick no se
     compra ni se paga ⇒ jamás cuenta para el bounty ni dispara el auto-apagado — ARCHITECTURE §4.26e); al
     llegar a `targetQty` ⇒ `enabled=false` + `completedAt` + `AuditLog action=bounty.completed` (auto-apagado).
@@ -4192,7 +4435,120 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate?, bufferPct? }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
   - **`rate?` opcional (v1.14-price-ingest, #13):** si se **omite** `rate`, la llamada actualiza **solo** el colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (`fx_manual_override_rate`) → la tasa **automática de Banxico sigue activa**. Antes exigía ambos, así que subir solo el colchón congelaba la tasa sin querer. El colchón **aplica en cada ingest de precios** (USD→MXN con FX+buffer, ARCHITECTURE §4.15f). **Vía recomendada sin cambiar este endpoint:** editar el colchón por `PUT /admin/settings { fxBufferPct }` (parcial, ya soportado). **Nota para frontend (M2):** exponer un guardado del colchón independiente del `rate`.
-#### Pricing por TIERS (v1.37 — NUEVO; editor M2, `super_admin`) — SUPERSEDE el editor por rareza
+#### Curva de precio por VALOR DE MERCADO (v2.0 — NUEVO; editor M2, `super_admin`) — SUPERSEDE el editor por TIERS y por RAREZA
+> **P-48, PROJECT §N v2.0 LOCKED, ARCHITECTURE §4.36.** El precio de las **cartas sueltas** (raw **y** gradeadas) deja
+> de depender de la **rareza** y del **acabado**. Queda **UNA curva por eje de dinero** sobre el **valor de mercado**:
+>
+> ```
+> venta  = redondeo↑( max( piso , mercado × markup(mercado) ) )
+> compra =            max( bin  , mercado × pct(mercado)    )
+> ```
+>
+> **Desaparecen** los modos `fixed`/`pct`, los 5 tiers, el mapa rareza→tier, las reglas por acabado (`finishRules`) y
+> los cinco `SettingKey` que los sostenían — reemplazados por **UNO solo**, `pricing_curve`. El **SELLADO no cambia**
+> (spread por presentación, §2-S). Toda edición se **audita** (M10) y **surte efecto sin redeploy**.
+>
+> **Por qué UN solo endpoint y no dos (venta/compra por separado) — razón de money-safety, no de estilo:** el
+> invariante «la compra queda por debajo de la venta en todo el dominio» es **cruzado** (depende de las dos curvas +
+> el piso + el bin **a la vez**). Con dos endpoints, dos `PUT` sucesivos abren una ventana en la que se compra por
+> encima de lo que se vende. Con **uno**, la validación es **atómica por construcción** y esa ventana no existe.
+
+- `GET /api/v1/admin/pricing/curve` — **(NUEVO)** lee la curva completa. Read-only.
+  Res `200` (`PricingCurveDTO`, §DTOs — semillas de PROJECT §N.2):
+  ```json
+  { "version": 1,
+    "sale": {
+      "floorCents": 2500,
+      "points": [ { "marketCents": 2500, "multiplierBp": 16000 },
+                  { "marketCents": 8000, "multiplierBp": 11500 } ],
+      "rounding": [ { "uptoCents": 20000, "stepCents":  500 },
+                    { "uptoCents": 50000, "stepCents": 1000 },
+                    { "uptoCents": null,  "stepCents": 2500 } ]
+    },
+    "buy": {
+      "binCents": 100,
+      "points": [ { "marketCents":  2500, "pctBp": 3000 },
+                  { "marketCents": 10000, "pctBp": 4000 },
+                  { "marketCents": 50000, "pctBp": 5000 } ]
+    } }
+  ```
+  - **Unidades (normativas, todo entero):** dinero en **centavos MXN**; `multiplierBp` y `pctBp` en **puntos base del
+    mercado** (`10000 bp = 1× = 100 %`). `1.60×` = `16000`; `30 %` = `3000`.
+  - **Interpolación LINEAL** entre puntos; **tramos planos SOLO antes del primero y después del último**. Un tramo
+    escalonado dentro del rango está **prohibido** (criterio 81).
+  - **`points` es de LONGITUD VARIABLE** (requisito explícito del humano, §N.3): el dueño **agrega**, **mueve** y
+    **borra** renglones. **NO** es una estructura fija de N puntos. `rounding` también es de longitud variable.
+  - El **piso** y el **bin** son **ÚNICOS y GLOBALES** para todo el catálogo de cartas: **no** por acabado, **no** por
+    rareza, **no** por tier (§N.10 lo descarta explícitamente).
+  - El **redondeo↑ aplica SOLO a venta**; la **compra no se redondea**. La **banda** la decide el monto de venta
+    **ANTES** de redondear y se elige **UNA SOLA VEZ**: si el redondeo cruza el umbral, **no se re-evalúa**.
+- `PUT /api/v1/admin/pricing/curve` — **(NUEVO)** **reemplaza el objeto completo** (semántica de reemplazo, no de
+  patch por índice: mover/borrar un renglón por índice es frágil y no auditable; el `AuditLog` guarda `before`/`after`
+  del objeto entero).
+  Req: el mismo `PricingCurveDTO`. Los puntos pueden venir desordenados: el server **ordena por `marketCents`** y
+  rechaza duplicados.
+  - **Validaciones money-safe (se imponen al GUARDAR — 422, no solo en runtime; §N.3 / criterio 87). Si algo falla NO
+    se guarda, y el cuerpo del error dice EXACTAMENTE QUÉ PUNTO lo rompe** (`details: { axis: "sale"|"buy", index,
+    marketCents, … }`):
+
+    | Código `422` | Invariante que protege |
+    |---|---|
+    | `VALIDATION_ERROR` | tipos/rangos: `marketCents ≥ 0` entero; `multiplierBp ∈ [10000, 1000000]`; `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` |
+    | `CURVE_EMPTY` | `sale.points` y `buy.points` deben tener **≥ 1** punto (sin puntos no hay curva) |
+    | `DUPLICATE_BREAKPOINT` | dos puntos con el **mismo `marketCents`** en la misma curva |
+    | `SALE_BELOW_MARKET` | **ningún precio de venta cae por debajo del mercado** ⇒ `multiplierBp ≥ 10000` **en cada punto** |
+    | `SALE_CURVE_NOT_MONOTONIC` | **la curva de venta es monótona creciente** — más mercado **nunca** produce menos precio |
+    | `BUY_ABOVE_SALE` | **la compra queda por debajo de la venta en TODO el dominio** ⇒ `pctBp(m) < multiplierBp(m)` en la unión de los puntos de ambas curvas |
+    | `BIN_ABOVE_FLOOR` | `binCents < floorCents` (el caso en que ambos ejes saturan en su constante) |
+    | `ROUNDING_LADDER_INVALID` | escalera bien formada: `stepCents ≥ 1`; `uptoCents` estrictamente crecientes; **exactamente la última** con `uptoCents = null`; **cada frontera múltiplo exacto del paso de la banda inferior** (si no, el redondeo rompe la monotonía) |
+
+  - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.curve.update`, before/after).
+    **Sin redeploy**: mover un punto **repricia** todo lo afectado **en el siguiente cálculo** (el precio de venta se
+    resuelve en LECTURA, no está persistido — por eso no hace falta re-publicar nada).
+  - **Se RETIRA `422 PREMIUM_RARITY_FIXED_TIER`**: su invariante (`premium ⇒ pct`) ya no existe. Lo sustituye el
+    **guardarraíl** de §4.36.5 (que no valida configuración: bloquea publicación/cotización en runtime).
+- `GET /api/v1/admin/reports/pricing-brackets` — **(NUEVO, M9, `super_admin`)** — instrumentación (§N.8, criterio 95).
+  Agrega las operaciones **consumadas** por eje × `MarketBracket` para responder «¿qué tan rápido rota cada bracket y
+  con qué margen?». Es lo que evita que la calibración de la curva vuelva a ser una corazonada.
+  Query: `from?`, `to?` (fechas ISO), `axis?` (`sale | buy`; omitido = ambos).
+  Res `200`:
+  ```json
+  { "from": "2026-08-01", "to": "2026-08-24",
+    "sale": [ { "bracket": "r25_80", "operations": 41, "unitsSold": 47,
+                "grossMxnCents": 415000, "marketMxnCents": 305000,
+                "byBasis": { "market": 39, "floor": 0, "override": 2, "bounty": 0, "pending": 0 } } ],
+    "buy":  [ { "bracket": "lt_3",  "operations": 310, "unitsBought": 310,
+                "paidMxnCents": 31000, "marketMxnCents": 74000,
+                "byBasis": { "market": 12, "floor": 296, "override": 2, "bounty": 0, "pending": 0 } } ] }
+  ```
+  - `bracket` = **escala FIJA** (`MarketBracket`, §Enums), independiente de la curva **a propósito**: si se derivara de
+    los puntos vigentes, la serie histórica dejaría de ser comparable cada vez que el dueño moviera la curva — que es
+    justo lo que se quiere medir. Fila `bracket: null` = operaciones **sin mercado** (override/bounty sin referencia).
+  - `marketMxnCents` = suma del **mercado crudo** de esas operaciones (se persiste SIEMPRE, junto al bracket: el
+    bracket es un índice, el dato real es el monto). `byBasis` = conteo por `priceBasis`.
+  - **v2.0 recolecta; NO calibra.** El ajuste automático de la curva está **fuera de alcance** (§N.10): el dueño mueve
+    los puntos a mano con este dato en la pantalla.
+- **RETIRADOS por la curva (v2.0):**
+  - `GET`/`PUT /api/v1/admin/pricing/tiers` y `GET`/`PUT /api/v1/admin/pricing/tier-map` — **ya no existen**. El eje
+    rareza **no se edita**: salió del pricing.
+  - `GET /api/v1/admin/pricing/buylist-rules` y `GET /api/v1/admin/pricing/sales-rules` — **ya no existen** (sus `PUT`
+    estaban retirados desde v1.37). No hay `PriceRuleSet` que leer.
+  - `GET /api/v1/admin/pricing/sales-rarities` — **ya no existe** (era el espejo de venta del editor por rareza).
+  - Filas `ConfigSetting` con key `sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`,
+    `buylist_price_fallback_pct` y `pricing_tier_map` quedan **huérfanas e inertes** (nadie las lee); **no se borran en
+    la migración a propósito** — conservarlas mantiene barato el diagnóstico y el rollback. Mismo precedente que
+    `rarity_map` (v1.32).
+- **`GET /api/v1/admin/pricing/rarities` — SOBREVIVE, RE-PROPOSITADO** (es lo único que queda del editor viejo). Deja
+  de ser un editor de precios y pasa a ser la **salud del catálogo de rarezas que respalda el guardarraíl**: qué
+  rarezas existen, cuáles son `premium` y cuántas cartas hay de cada una.
+  Res `200`: `{ "rarities": [ { "canonical": "Illustration Rare", "raw": "Illustration Rare", "premium": true,
+  "mapped": true, "cardCount": 87 } ] }` — **se retiran** `rule`, `tierId`, `source` y `fallbackPct` (ya no hay
+  reglas). `rarity` (alias deprecado de `canonical`) se retira también. Ordenado por `cardCount` desc.
+
+#### Pricing por TIERS (v1.37) — ⛔ **RETIRADO por la curva (v2.0, P-48); ver «Curva de precio por VALOR DE MERCADO» arriba**
+> ⛔ **RETIRADO.** PROJECT §M quedó superseded por §N v2.0. Los endpoints `/tiers` y `/tier-map` **ya no existen** y la
+> taxonomía de 5 tiers se retira del código (`common/pricing-tiers.ts`). Se conserva abajo como registro de
+> procedencia. **No implementar nada de aquí.**
 > **P-34, PROJECT §M v1.9 LOCKED, ARCHITECTURE §4.33.** El editor pasa de «una fila por CADA rareza canónica» (~30) a
 > «una fila por `tier`» (**5 tiers T0–T4**) + un **mapa rareza canónica → tier** compartido por compra y venta. La
 > naturaleza de la regla (`fixed` MX$ centavos / `pct`), la precedencia money-safe y el **eje `finish`** (`finishRules`)
@@ -4262,7 +4618,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   `source:'map'|'fallback'`; su `rule` refleja la regla **RESUELTA vía tier** (retrocompatible). El editor nuevo consume
   `/tiers` + `/tier-map`.
 
-#### Precio de buylist por RAREZA (v1.3.1 — DEPRECADO por §4.33/v1.37; ver «Pricing por TIERS» arriba)
+#### Precio de buylist por RAREZA (v1.3.1) — ⛔ **RETIRADO por la CURVA (v2.0, P-48)**
+> ⛔ **RETIRADO (v2.0).** Los endpoints `GET /admin/pricing/buylist-rules` y `GET /admin/pricing/rarities` con
+> `rule`/`fallbackPct` **ya no existen en esa forma**: la compra sale de la **curva**
+> (`GET/PUT /admin/pricing/curve`, arriba) y `/rarities` sobrevive **re-propositado** como salud del catálogo de
+> rarezas (sin reglas). Registro histórico; **no implementar nada de aquí.**
 > **DEPRECADO (v1.37):** superseded por el editor por `tier` (arriba). Se conserva para procedencia. Reemplazó
 > `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
 > referencia)** + un **fallback %** para rarezas sin regla. Toda edición se **audita** (M10). Ver ARCHITECTURE §4.2.
@@ -4315,7 +4675,12 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   Filas `ConfigSetting key='rarity_map'` que existan en BD quedan huérfanas e inertes (nadie las lee); no requieren
   migración y los deploys nuevos ya no las siembran.
 
-#### Precio de VENTA por RAREZA (v1.13-sales-pricing — NUEVO backend; editor M2)
+#### Precio de VENTA por RAREZA (v1.13-sales-pricing) — ⛔ **RETIRADO por la CURVA (v2.0, P-48)**
+> ⛔ **RETIRADO (v2.0).** `GET /admin/pricing/sales-rules` y `GET /admin/pricing/sales-rarities` **ya no existen**.
+> **Aquí vivía la causa raíz del bug P-48**: la regla `fixed` se documenta y etiqueta como **«Piso (MX$)»** pero se
+> implementa como **precio absoluto** (nunca se compara contra el mercado) — por eso una carta con mercado de $400 se
+> publicaba en $15 y una barata en $1.31. En la curva el `max` hace que el **piso sea piso de verdad** y el modo
+> `fixed` **desaparece**. Registro histórico; **no implementar nada de aquí.**
 > **Análogo al de buylist** (arriba), pero para el **precio de VENTA** (lo que se cobra en Compra/checkout).
 > Reemplaza el markup GLOBAL único (`salesMarkupPct`, §M10, ahora **DEPRECADO**). Una fila por rareza con regla
 > **`fixed` (piso MX$ centavos)** o **`pct` (% ARRIBA de mercado)** + un **fallback %** para rarezas sin regla.
@@ -4917,10 +5282,22 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > **Estado v1.3: YA EXISTE en backend** (`AdminReportsController` + `AdminService.launchMetrics/exportCsv`). No requiere backend nuevo; falta **consumo de frontend** (M9 es `ModuleTodo` en UI).
 - `GET /api/v1/admin/reports/launch-metrics` — `?from=&to=` → métricas de lanzamiento vs metas N/X/Y/Z. Shape real: `{ users, salesSettled, buylistPaid, withdrawalsNoDispute, goals: { N, X, Y, Z } | null }`. Cuando **no hay metas fijadas**, `goals` debe ser **`null`** (el objeto completo), **no** un objeto con campos nulos como `{ N: null, X: null, Y: null, Z: null }`. Solo cuando el humano fija las metas, `goals` pasa a ser el objeto `{ N, X, Y, Z }`. Cada métrica respeta el rango por su fecha de realización (alta de usuario / `settledAt` / `paidAt` / `deliveredAt`).
 - `GET /api/v1/admin/reports/export.csv` — `?report=pnl|iva|inventory&from=&to=` → CSV (comparte el `exportCsv` de M7; `report` default `pnl`).
+- `GET /api/v1/admin/reports/pricing-brackets` — **(NUEVO v2.0, P-48)** instrumentación de la curva: agrega las ventas
+  y compras **consumadas** por eje × `MarketBracket` (escala **FIJA**, §Enums) para contestar «**¿qué tan rápido rota
+  cada bracket y con qué margen?**» — el dato que faltaba para **calibrar la curva con realidad en vez de con
+  supuestos** (§N.8, criterio 95). **Shape completo, query params y semántica: documentados junto al editor en §M2**
+  («Curva de precio por VALOR DE MERCADO»), para que la lectura y la escritura de la curva vivan juntas.
+  `report=pricing_brackets` se añade también a `export.csv`. **v2.0 recolecta; NO calibra** (§N.10).
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
 - `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest:** `priceProvider` (`price_provider`, enum `pokemonpricetracker | pokemontcg_io`, seed recomendado **`pokemontcg_io`**) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15); editable sin redeploy → palanca de **rollback** del proveedor de paga. Validado contra el enum; `422 VALIDATION_ERROR` si es otro valor. El flip a `pokemonpricetracker` se hace tras verificar el esquema del proveedor en la 1ª corrida (ARCHITECTURE decisión abierta v1.14-1/v1.14-4). **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- **v2.0 (P-48) — `salesMarkupPct` queda RETIRADO de la ruta de venta, sin sustituto en este DTO.** El precio de venta
+  sale de la **curva** (`pricing_curve`, §M2), no de un markup global ni de una tabla por rareza. El dial puede
+  conservarse en el DTO como palanca inerte durante la transición, pero **nada lo lee** — la palanca de rollback real
+  es revertir el deploy (§ARCH 4.36.9d). **Los diales de la curva (piso, bin, puntos, escalera) NO se editan por
+  `PUT /admin/settings`**: viven en su endpoint dedicado `PUT /admin/pricing/curve` (como los spreads del sellado),
+  porque su validación es **cruzada y atómica** (§M2).
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
@@ -5029,11 +5406,36 @@ OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, set
 // cotizado cuando la línea es un producto separado (deck_exclusive/promo, §4.29). Ausente ⇒ línea de set_base
 // (comportamiento actual). El front lo usa para etiquetar la línea («Deck Exclusive») y para no colapsar dos líneas
 // que comparten (cardId, finish) con distinto productId.
+// ⚠️ v2.0 (P-48) — INSTRUMENTACIÓN (§N.8, criterio 95). `appliedRule` SE RETIRA (no hay reglas). En su lugar, la
+// línea persiste el snapshot de la DECISIÓN DE PRECIO al cotizar/crear la solicitud (misma transacción que congela
+// `quotedPriceCents`), con los cinco datos de §N.8: mercado crudo, precio final, qué lo determinó, acabado y bracket:
+//   * `marketMxnCents: number | null` = el **mercado CRUDO en centavos** que entró al cálculo. Se persiste SIEMPRE
+//     (el bracket es un índice de conveniencia; **el dato real es el monto**). `null` si no hubo mercado.
+//   * `priceBasis: PriceBasis` = qué determinó el monto (bounty / override / market / floor / pending).
+//   * `marketBracket: MarketBracket | null` = bracket de **ESCALA FIJA** (independiente de la curva, a propósito:
+//     si dependiera de los puntos vigentes, la serie histórica dejaría de ser comparable al mover la curva).
+//   * `finish` ya existía y cuenta como el quinto dato; `quotedPriceCents` es el precio final.
+//   * Un **ajuste** posterior del admin (`approvedPriceCents`) **NO reescribe** `priceBasis`/`marketBracket`: la serie
+//     mide **la decisión de la curva**; lo realmente pagado se lee de `approvedPriceCents ?? quotedPriceCents`.
+//   * `rarity?` se CONSERVA como snapshot informativo del catálogo — **el monto no depende de ella** (criterio 84).
+//   * Las columnas `ruleMode`/`ruleValue`/`ruleSource` de `SellRequestItem` quedan **legacy** en BD (nada nuevo las
+//     escribe; retención de filas históricas, igual que `category` en M-14) y **no** se proyectan en este DTO.
 SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Finish, productId?: number,
-                     rarity?: string, appliedRule?: BuylistRuleApplied,
+                     rarity?: string,
+                     marketMxnCents?: number | null, priceBasis?: PriceBasis,
+                     marketBracket?: MarketBracket | null,
                      quotedPriceCents?, approvedPriceCents?, itemStatus: SellItemStatus, inventoryItemId?,
                      rejectedAt?: string, rejectionReason?: string,
                      returnDeadlineAt?: string, abandonDeadlineAt?: string }
+// v2.0 (P-48) — INSTRUMENTACIÓN del eje de VENTA. `OrderItem` gana el mismo quinteto en BD (M-41), capturado al
+// CHECKOUT en la misma transacción que congela `unitPriceCents` (que ES el precio final; ya existía).
+// EXPOSICIÓN: **solo back-office** — la línea de `GET /admin/orders/:id` (M3) gana estos campos. La línea del
+// pedido del CLIENTE (`GET /orders/:orderId`, `items[]`) **NO cambia**: el comprador no necesita saber qué peldaño
+// fijó su precio, y §N.7 ya gobierna qué ve en la ficha. Money-safe: es lectura de instrumentación, no de dinero.
+AdminOrderItemDTO += { marketMxnCents?: number | null, priceBasis?: PriceBasis,
+                       marketBracket?: MarketBracket | null, finish?: Finish }
+// v2.0 (P-48) — la entrada de la cola de precio pendiente gana la RAZÓN (M-41). `null` en filas históricas.
+PendingPriceEntryDTO += { reason?: PendingPriceReason | null }
 // v1.18-buylist-rejects: identidad del vendedor en M5 (GET /admin/buylist, /admin/buylist/:id, rejected-items).
 // PII: correo = dato de contacto operativo de back-office (roles vault_operator/super_admin); NO es la CLABE →
 // sin enmascarado ni reveal auditado. seller.id === SellRequest.userId (que se conserva por compat).
@@ -5059,9 +5461,11 @@ RejectedSellItemDTO = { id, sellRequestId, seller: AdminSellerRef, card: CardDTO
 //   RESUELTO (cascada §4.34a) para que M2 muestre «ETB …», no «sealed» ambiguo; `sealedSubtype?` idem. Los 3 campos
 //   presentes SOLO en sellado (null/ausentes en raw/graded). Residual money-safe: sellado legacy sin sealedProductId
 //   (backfill P-38 no ligó) puede colapsar bajo 'sealed' hasta curarse en M2 — sigue pendiente, JAMÁS 0.
+// v2.0 (P-48): `reason` = por qué entró (M-41). `no_market` la cura sola el siguiente barrido; `premium_at_floor`
+// (guardarraíl §4.36.5) necesita que el DUEÑO mire — es el que hace TRIABLE la cola. `null` en filas históricas.
 PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, cardProductId?: number,
                      sealedProductId?: string | null, sealedProductName?: string, sealedSubtype?: SealedSubtype | null,
-                     context, status: "open"|"resolved", createdAt }
+                     context, reason?: PendingPriceReason | null, status: "open"|"resolved", createdAt }
 // v1.8-ronda-c (BE-10): resumen de un item en la bóveda del usuario para la ficha 360° admin (GET /admin/users/:id).
 // `referenceValue` reusa el MISMO PriceInfo por-acabado que HoldingDTO (§3); items sin precio → status="pending".
 // Es una PROYECCIÓN (no tabla): no migra. Antes traía solo { inventoryItemId, folio, card, ownershipStatus }.
@@ -5080,17 +5484,29 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
 ---
 
 ## 12. Notas de coherencia con PROJECT.md
-- Precios de catálogo/ficha **sin IVA**. Se distingue **valor de referencia** (mercado, `referenceValue`) del **precio de venta** (`salePriceCents`). **v1.13-sales-pricing:** el `salePriceCents` se resuelve por la **regla de venta de la rareza+acabado** del item (`SALES_PRICE_RULES`: `fixed` piso MX$, o `pct` = referencia × (1 + value/100) = markup arriba de mercado) u **override manual** (`listPriceCents`); reemplaza el markup global `salesMarkupPct` (deprecado). IVA 16% y fee de procesamiento se agregan **en checkout** (`BreakdownDTO`).
+- **PRECIO PURO POR VALOR DE MERCADO (v2.0, P-48, PROJECT §N LOCKED) — la nota que manda sobre las de abajo.** El
+  precio de **cartas sueltas** (raw **y** gradeadas) depende **solo del valor de mercado**:
+  `venta = redondeo↑(max(piso, mercado × markup(mercado)))` · `compra = max(bin, mercado × pct(mercado))`, ambas
+  **interpoladas** (nunca escalonadas), con **piso y bin ÚNICOS y globales** y **tabla de puntos de longitud variable
+  editable en M2** (`GET/PUT /admin/pricing/curve`). **La rareza y el acabado salen del PRICING**: la rareza entra a
+  la **VALIDACIÓN** (guardarraíl: premium en el piso no se publica, premium en el bin no se cotiza) y el acabado
+  sigue siendo **identidad de variante** y **elige de qué variante se lee el mercado**. **Sin dato de mercado ⇒
+  PRECIO PENDIENTE** (el piso NO gana). El **SELLADO no cambia** (spread por presentación). `priceBasis`
+  (`market|floor|override|bounty|pending`) es la señal server-side que gobierna la **regla de visibilidad** del
+  «Valor de mercado» (solo ficha de carta y de sellado). El **override manual es ABSOLUTO**; el **bounty se revalida**
+  al crear, cotizar y publicar. Cada venta y cada compra quedan **instrumentadas** (mercado crudo + precio final +
+  `priceBasis` + acabado + `marketBracket` de **escala fija**). Ver ARCHITECTURE §4.36 y §M2.
+- Precios de catálogo/ficha **sin IVA**. Se distingue **valor de referencia** (mercado, `referenceValue`) del **precio de venta** (`salePriceCents`). ~~**v1.13-sales-pricing:** el `salePriceCents` se resuelve por la **regla de venta de la rareza+acabado** del item (`SALES_PRICE_RULES`)~~ ⛔ **SUPERSEDED v2.0:** el `salePriceCents` se resuelve por la **CURVA** (o por `listPriceCents` / `sellOverrideCents`, que siguen ganando como override manual). IVA 16% y fee de procesamiento se agregan **en checkout** (`BreakdownDTO`).
 - **Fee de procesamiento = gross-up** de la comisión Stripe (para recibir íntegro subtotal+IVA); **sin IVA de producto sobre el fee** (el fee no vuelve a gravar la venta). Internamente el gross-up **sí** cubre el IVA que Stripe MX cobra sobre su comisión (**v1.40: derivado de `ivaPct/100`**, fuente única del IVA). IVA de producto grava subtotal (compra) y tarifa de envío (retiro).
 - **CFDI sin PAC en MVP**: factura por correo (`POST /orders/:id/request-invoice`); IVA cobrado registrado en M7. Timbrado real = fase 2.
 - **FX automático (Banxico) + colchón + override manual** (M10); job diario `fx-refresh`.
 - **Envío se cobra por Stripe ANTES** de crear la solicitud; avanza a picking solo tras `payment_intent.succeeded`.
-- Carta "precio pendiente" → `sellable=false`, compra bloqueada con `PRICE_PENDING`; escalada al dueño vía `PendingPriceEntry`. **v1.8-ronda-c:** la cola es **por acabado** (`PendingPriceEntry.finish`); el override (`POST /admin/pricing/override` con `finish?`) resuelve solo el pendiente de ese acabado.
+- Carta "precio pendiente" → `sellable=false`, compra bloqueada con `PRICE_PENDING`; escalada al dueño vía `PendingPriceEntry`. **v1.8-ronda-c:** la cola es **por acabado** (`PendingPriceEntry.finish`); el override (`POST /admin/pricing/override` con `finish?`) resuelve solo el pendiente de ese acabado. **v2.0 (P-48):** la cola gana **`reason`** (`no_market | premium_at_floor`) y **dos entradas nuevas** — (a) **sin dato de mercado** (el piso/bin **NO** gana) y (b) el **guardarraíl** (rareza premium en el piso o en el bin). La **salida** es simétrica: cuando el siguiente barrido escribe una `PriceReference` real y el precio vuelve a resolver con `priceBasis="market"`, la entrada se cierra **sola** en la siguiente resolución.
 - **Ronda C (v1.8):** (a) **BE-10** — `AdminUserOwnedItemRef` (bóveda de la ficha 360° admin) trae `finish` + `referenceValue: PriceInfo`, reusando la valuación por-acabado del `HoldingDTO`; enriquecer el ref (no endpoint nuevo). (b) **SEC-D2** — `SellRequest.closedAt` (interno, no en DTOs de cliente) ancla la retención de INE al cierre real (`pagada`/`rechazada`/`abandonada`). Migración **M-19** (dos columnas; BE-10 no migra). SEC-A1 intacto.
 - Retiro solo sobre `settled` (`ITEM_NOT_SETTLED`); direcciones solo MX (`ADDRESS_NOT_MX`).
-- Buylist: cotización por **regla por rareza oficial** (v1.3.1 — `fixed` MX$ / `pct` % de la referencia + fallback %; reemplaza común/reverse/EX+), topes y INE (`BUYLIST_LIMIT_EXCEEDED`, `INE_REQUIRED`), pago SPEI **solo súper-admin** tras recepción/verificación. La regla se **deriva server-side** de `Card.rarity` (SEC-A1); editor en M2 (`buylist-rules`/`rarities`).
+- Buylist: ~~cotización por **regla por rareza oficial** (v1.3.1 — `fixed` MX$ / `pct` % de la referencia + fallback %)~~ ⛔ **SUPERSEDED v2.0 (P-48):** cotización por la **CURVA DE COMPRA** `max(bin, mercado × pct(mercado))` — **no depende de la rareza ni del acabado**; el acabado solo elige **de qué variante** se lee el mercado. Topes e INE (`BUYLIST_LIMIT_EXCEEDED`, `INE_REQUIRED`) **sin cambio**, pago SPEI **solo súper-admin** tras recepción/verificación. El monto se **deriva server-side** (SEC-A1) del mercado real de la variante, **jamás** del DTO; editor en M2 (`GET/PUT /admin/pricing/curve`).
 - **Alta de usuarios por rol + historial 360° (v1.7-admin-users):** `POST /admin/users` (super_admin-only, auditado `user.create`, NO money-out) crea cuentas de cualquier rol sin KYC/CLABE/INE; `emailVerified=true` para staff y para el customer creado por admin; `mustChangePassword=true` solo si la contraseña es autogenerada (devuelta una vez en `tempPassword`, nunca en `AuditLog`). Crear `super_admin` = escalada de privilegios, controlada por super_admin-only + auditoría. El historial 360° se arma por **reuso**: `?userId=` en `GET /admin/{orders,buylist,shipments,disputes}` (paginados, misma proyección PII por rol) + `GET /admin/users/:id/audit` (AuditLog por `scope=target|actor|both`, expone action/actorRole/entityType/entityId/createdAt + `ip` solo super_admin, **nunca** before/after; `vault_operator` reducido sin `ip`). Sin migración (reusa `User`/`AuditLog`). Ver ARCHITECTURE §4.7bis.
-- **Acabado / versión de carta (v1.6-finish):** `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`, modelado en **toda la cadena** (Compra, cotizador, inventario/bóveda, portafolio). `CardDTO.availableFinishes` (derivado de `tcgplayer.prices`), `finish` en `ListingDTO`/`HoldingDTO`/`SellItemDTO` y en req de quote/requests/alta M1. El monto se **deriva server-side** de `(Card.rarity, finish)` **validado contra `availableFinishes`** (SEC-A1); acabado no disponible → `422 FINISH_NOT_AVAILABLE`. La cotización es por acabado: el acabado selecciona la regla (reverse holo → `"Reverse Holo"`; holofoil / 1st ed → rareza base si ya es holo, si no `"Holo"`; normal → rareza base) y, para `pct`, usa el market de **ese** acabado. `PriceReference` lleva `finish` en su clave; el provider guarda precio por acabado. **1 fila por `Card`** (no cambia). Migración **M-18** (aditiva, default seguro `normal`/`[normal]`) → **RE-SYNC** del catálogo tras desplegar. Ver ARCHITECTURE §3.7 y §4.2.1.
+- **Acabado / versión de carta (v1.6-finish):** `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`, modelado en **toda la cadena** (Compra, cotizador, inventario/bóveda, portafolio). `CardDTO.availableFinishes` (derivado de `tcgplayer.prices`), `finish` en `ListingDTO`/`HoldingDTO`/`SellItemDTO` y en req de quote/requests/alta M1. El `finish` se **valida contra `availableFinishes`** (SEC-A1); acabado no disponible → `422 FINISH_NOT_AVAILABLE`. ~~El acabado selecciona la regla (reverse holo → `"Reverse Holo"`; holofoil/1st ed → rareza base si ya es holo, si no `"Holo"`; normal → rareza base)~~ ⛔ **SUPERSEDED v2.0 (P-48): el acabado YA NO tiene regla de precio propia** (`finishRules` se retira). **Lo único que pierde es eso**: el acabado **SIGUE** siendo la **identidad de la variante** (inventario, overrides, bounties, `availableFinishes`, ficha, bóveda, filtros y captura en el cotizador) y **sigue determinando de qué variante se lee el mercado** que alimenta la curva. `PriceReference` lleva `finish` en su clave; el provider guarda precio por acabado. **1 fila por `Card`** (no cambia). Migración **M-18** (aditiva, default seguro `normal`/`[normal]`) → **RE-SYNC** del catálogo tras desplegar. Ver ARCHITECTURE §3.7 y §4.36.10.
 - Contracargo (webhook `charge.dispute.created`) es **consciente del estado físico**: revierte el item a inventario de plataforma **solo si sigue en bóveda**; si ya se envió/entregó **no** re-agrega y marca `chargebackNeedsManual` (ver §9). Cierre de disputa: ganamos→`settled` (`disputeOutcome=won`), perdemos→`chargeback` (`disputeOutcome=lost`).
 - **VENTAS FINALES** (política del humano, ver `PROJECT.md`): no hay reembolso voluntario. Excepciones: (a) **error de la plataforma** (cobro doble/inventario fantasma) → **siempre** se reembolsa (§M3); (b) **disputa de condición** raw dañada/equivocada → el súper-admin compensa con **recompra al precio pagado**, el cliente **conserva la carta** y **no** vuelve al inventario (§M8). En ningún caso de reembolso/recompra el item se re-agrega al inventario.
 - Los montos exactos de los diales (envío 17500, IVA 16, markup de venta, tarifa Stripe, tope 300000/1000000, aportación 70%) provienen de `ConfigSetting` (M10), no hardcode; los valores aquí son defaults.
