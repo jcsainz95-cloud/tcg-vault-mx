@@ -159,7 +159,7 @@
 > **editor de M2** que sustituye a las pantallas de reglas por rareza y por tier — fila de punto,
 > agregar/mover/borrar sin fragilidad (**mover = cambiar el mercado, no arrastrar**), constantes
 > **piso**/**mínimo de compra**/**escalera de redondeo**, el **momento y la forma** de los errores
-> V1–V8 (nada al teclear · campo al `blur` · **cruzados como `422` al guardar, sin guardar nada**) y
+> V1–V9 (nada al teclear · campo al `blur` · **cruzados como `422` al guardar, sin guardar nada**) y
 > un **previsualizador obligatorio** (probeta con memoria de cálculo + tabla de referencia; curva
 > dibujada recomendada); (2) la regla de que el bloque **«Valor de mercado» desaparece** cuando
 > `priceBasis !== "market"`, con la **recomposición de la retícula sin hueco** (el divisor es de la
@@ -4211,7 +4211,7 @@ separada por regla, **arriba de las dos curvas**, porque gobiernan a las dos.
 
 ---
 
-### 21.4 Validación V1–V8: **cuándo** aparece el error y **qué forma** tiene
+### 21.4 Validación V1–V9: **cuándo** aparece el error y **qué forma** tiene
 
 > **Principio de la pantalla:** *mientras se teclea no hay errores; el previsualizador enseña el problema en pesos;
 > el servidor lo nombra al guardar.* El editor **no reimplementa** los invariantes cruzados para adelantarse al
@@ -4225,7 +4225,7 @@ separada por regla, **arriba de las dos curvas**, porque gobiernan a las dos.
 | **Mientras se teclea** | **nada** | ninguna. Sin rojo, sin sacudidas, sin reformateos | no |
 | **Al salir del campo (`blur`)** | lo que **un solo control** puede afirmar de sí mismo: tipos y rangos (**V3**), `multiplicador ≥ 1.00×` (**V4**), `pago` en 0–100%, `escalón ≥ MX$0.01` y `hasta` creciente (parte de **V8**) | error inline de §6.2: borde `--color-danger`, mensaje debajo, `aria-invalid` + `aria-describedby` | no lo impide, pero el botón lo advierte (ver (d)) |
 | **Al salir del campo, nivel tabla** | **V2** duplicado: dos puntos con el mismo mercado (tras reordenar quedan **adyacentes**) | ambas filas marcadas con la misma sub-fila de mensaje | no |
-| **Al guardar (`PUT` → `422`)** | los **cruzados**: **V1**, **V5** (monotonía), **V6** (compra bajo venta), **V7** (bin bajo piso) y la condición fina de **V8** | resumen anclado + marcas por punto (ver (b)) | **nada se guardó**: la curva vigente sigue viva |
+| **Al guardar (`PUT` → `422`)** | los **cruzados**: **V1**, **V5** (monotonía de **venta**), **V9** (monotonía de **compra**), **V6** (compra bajo venta), **V7** (bin bajo piso) y la condición fina de **V8** | resumen anclado + marcas por punto (ver (b)) | **nada se guardó**: la curva vigente sigue viva |
 
 **(b) La forma del error al guardar.** El contrato entrega `code` + `details: { axis, index, marketCents, … }`; el
 diseño lo convierte en **tres marcas coordinadas**:
@@ -4237,7 +4237,8 @@ diseño lo convierte en **tres marcas coordinadas**:
    a la vista.
 2. **La(s) fila(s) culpables** — regla izquierda de 2px `--color-danger`, `aria-invalid="true"` en sus inputs y una
    **sub-fila** a todo el ancho de la tabla con el mensaje en mono `text-[11px]` `--color-danger`. Los errores de
-   **tramo** (V5, V6) marcan **los dos extremos** y escriben el mensaje bajo el segundo, nombrando los dos mercados.
+   **tramo** (V5 y V9 —las dos monotonías— y V6) marcan **los dos extremos** y escriben el mensaje bajo el segundo,
+   nombrando los dos mercados.
    Los **cruzados de eje** (V6, V7) marcan la fila/el campo en **las dos** caras; el mensaje inline vive en el eje
    que indica `details.axis` y el resumen es el que cuenta la historia completa.
 3. **El previsualizador** (§21.5) resalta el tramo o el mercado implicado, para que el error se **vea en pesos** y
@@ -4251,11 +4252,16 @@ diseño lo convierte en **tres marcas coordinadas**:
 | `DUPLICATE_BREAKPOINT` | «Hay dos puntos en el mismo mercado (MX$ {m}). Cambia uno o quita el repetido.» | «Two points share the same market (MX$ {m}). Change one or remove the duplicate.» |
 | `SALE_BELOW_MARKET` | «El punto de MX$ {m} vendería **por debajo del mercado**. El multiplicador de venta nunca puede bajar de **1.00×**.» | «The MX$ {m} point would sell **below market**. The sale multiplier can never go under **1.00×**.» |
 | `SALE_CURVE_NOT_MONOTONIC` | «Entre MX$ {m0} y MX$ {m1} el precio de venta **baja** cuando el mercado sube. Sube el multiplicador de MX$ {m1} o baja el de MX$ {m0}.» | «Between MX$ {m0} and MX$ {m1} the sale price **drops** as market goes up. Raise the MX$ {m1} multiplier or lower the MX$ {m0} one.» |
+| `BUY_CURVE_NOT_MONOTONIC` **(V9)** | «Entre MX$ {m0} y MX$ {m1} **pagarías menos** aunque el mercado suba. Sube el pago de MX$ {m1} o baja el de MX$ {m0}.» | «Between MX$ {m0} and MX$ {m1} **you would pay less** even though market goes up. Raise the MX$ {m1} pay or lower the MX$ {m0} one.» |
 | `BUY_ABOVE_SALE` | «En MX$ {m} pagarías **{pct}%** y venderías a **{mult}×**: la compra alcanza a la venta. Baja el pago de ese tramo.» | «At MX$ {m} you would pay **{pct}%** and sell at **{mult}×**: buying catches up with selling. Lower the pay for that stretch.» |
 | `BIN_ABOVE_FLOOR` | «El **mínimo de compra** (MX$ {bin}) no puede alcanzar al **piso de venta** (MX$ {floor}).» | «The **buy minimum** (MX$ {bin}) cannot reach the **sale floor** (MX$ {floor}).» |
 | `ROUNDING_LADDER_INVALID` | «La escalera de redondeo no es válida: cada frontera debe ser **múltiplo exacto** del escalón de la banda anterior (con escalón de MX$5, la frontera puede ser MX$200, no MX$203).» | «The rounding ladder is invalid: each boundary must be an **exact multiple** of the previous band's step (with a MX$5 step, the boundary can be MX$200, not MX$203).» |
 | `VALIDATION_ERROR` (rango/tipo) | se muestra **en el campo**, no en el resumen (§6.2) | idem |
 
+- **Las dos monotonías son gemelas y su copy lo refleja** (V5 venta / V9 compra): mismo esqueleto —diagnóstico en
+  una frase + remedio nombrando los dos puntos— y misma marca de tramo. Cambia el verbo, porque cambia el daño:
+  en venta el precio **baja**; en compra **pagarías menos**. El error **no explica por qué importa** (eso vive en
+  este documento y en §N.0): un mensaje de guardado tiene que ser corto y accionable.
 - **`PREMIUM_RARITY_FIXED_TIER` se retira** junto con su copy: su invariante ya no existe.
 - Cualquier otro fallo (`403`, `5xx`, red) usa el patrón genérico de §8.1 con «Reintentar»; **nunca** se deja la
   pantalla insinuando que algo se guardó a medias.
@@ -4265,6 +4271,34 @@ local). El **resumen** permanece hasta el siguiente intento de guardar o hasta `
 haría creer que el problema se resolvió sin haberlo comprobado. Si hay errores **de campo** pendientes, el botón
 `Guardar curva` sigue habilitado pero la barra muestra en mono accent: `HAY CAMPOS SIN CORREGIR`; al pulsarlo, el
 foco salta al primero (no se envía).
+
+**(e) Invariante ≠ aviso: V9 y la «lectura de la curva» conviven y NO son lo mismo.**
+Son dos cosas distintas que pueden ser ciertas **a la vez sobre la misma curva**, y la pantalla tiene que dejar
+claro cuál es cuál. La regla que las separa es de una línea: **invariante = dinero; aviso = intención.**
+
+| | **V9 `BUY_CURVE_NOT_MONOTONIC`** | **Aviso «lectura de la curva» (§21.5b)** |
+|---|---|---|
+| Qué afirma | **Pagas menos por más mercado** — el **pago absoluto** baja | El **porcentaje** de compra baja (o el multiplicador de venta sube) |
+| Naturaleza | **Invariante de dinero.** Una carta que no se compra se pierde igual que una vendida barata (§N.0) | **Preferencia de negocio** (§N.1): margen grueso abajo, pago mayor arriba |
+| Momento | solo **al guardar** (`422` del servidor) | **en vivo**, mientras se edita |
+| Dónde | resumen anclado + filas marcadas en el editor + tramo en la curva dibujada | al pie de la **tabla de referencia**, en el panel de previsualización |
+| Tono | `--color-danger`, `role="alert"`, recibe el foco | mono `--color-text-muted`, `role="status"`, sin icono y **nunca en rojo** |
+| Efecto | **bloquea**: no se guarda nada | **no bloquea nada**, nunca deshabilita `Guardar` |
+
+- **Por qué V9 no exige que el pct suba** (decisión del arquitecto, y este documento la respeta): bajar el
+  porcentaje en un tramo es **legítimo** mientras el pago absoluto siga subiendo. Convertir esa preferencia en un
+  rechazo del sistema le quitaría al dueño una palanca válida — y le enseñaría a pelearse con la pantalla.
+- **Ejemplo que dispara los dos** (es el contraejemplo real de QA): `$25 ⇒ $12.50` · `$80 ⇒ $16.53` ·
+  `$100 ⇒ $10.00`. El **aviso** aparece en cuanto se teclea, porque el pct cae (50% → 20.66% → 10%); **V9** llega
+  al guardar, y solo por el tramo **$80 → $100**, donde el pago absoluto baja. El tramo `$25 → $80` **no** es un
+  error: el pct cae pero el pago sube.
+- **Nunca se sustituyen, se resumen ni se contagian.** Si coinciden, se muestran **los dos**, cada uno en su sitio
+  y con su tono. **Prohibido teñir el aviso de rojo** o darle icono de error cuando V9 esté presente: si el aviso
+  aprendiera a verse como un error, la próxima vez que aparezca solo —que es el caso normal y legítimo— se leería
+  como un fallo del que nadie tiene que hacer nada. Es la misma disciplina de §2.4: cada estado dice **una** cosa.
+- **Dónde se ve V9 antes de guardar:** en la columna derivada **«Compra a ese mercado»** (§21.2), donde el pago
+  absoluto aparece **descendiendo** de una fila a la siguiente. Es coherente con la tesis de §21.4: *el
+  previsualizador enseña el problema en pesos; el servidor lo nombra al guardar.*
 
 ---
 
@@ -4320,9 +4354,15 @@ natural de este sistema («el sitio se lee como una tabla de precios», §3.1).
 - **Es también el test de aceptación del previsualizador:** con los diales iniciales de §N.2, la tabla debe
   reproducir **exactamente** las cifras de la prueba de mesa (`$87 ⇒ $105`, no `$110`). QA lo verifica ahí.
 - **Lectura de la curva (aviso, nunca error):** si los multiplicadores de venta **suben** con el mercado, o los
-  porcentajes de compra **bajan**, la tabla añade al pie una línea mono muted: «La curva va al revés de lo previsto:
-  el margen debería ser **grueso abajo y delgado arriba** en venta, y el pago **mayor arriba** en compra.» Es una
-  observación de intención de negocio (§N.1), **no** un invariante: **no** se pinta en rojo, **no** bloquea nada.
+  porcentajes de compra **bajan**, la tabla añade al pie un bloque con **eyebrow mono `LECTURA DE LA CURVA`** y una
+  línea mono muted: «La curva va al revés de lo previsto: el margen debería ser **grueso abajo y delgado arriba** en
+  venta, y el pago **mayor arriba** en compra.» Es una observación de **intención de negocio** (§N.1), **no** un
+  invariante: `role="status"`, **nunca** en rojo, **nunca** con icono de error y **no bloquea nada**.
+  > **El eyebrow no es decorativo: es lo que impide confundirlo con un error.** El aviso tiene **nombre y casa
+  > fijos** (`LECTURA DE LA CURVA`, al pie de esta tabla); ningún error de validación lleva ese rótulo ni vive aquí.
+  > **No confundir con V9 `BUY_CURVE_NOT_MONOTONIC`**, que sí es dinero y sí bloquea: que el **pct baje** es
+  > legítimo mientras el **pago absoluto suba**. Los dos pueden ser ciertos a la vez sobre la misma curva — tabla
+  > comparativa y ejemplo trabajado en **§21.4e**.
 
 **(c) La curva dibujada — `PricingCurveChart` (recomendada, no bloqueante para el primer entregable).**
 Reutiliza el lenguaje de §7.17/§7.18: SVG, línea de 1.5–2px, **sin relleno**, ejes como reglas, etiquetas mono.
@@ -4337,7 +4377,8 @@ Reutiliza el lenguaje de §7.17/§7.18: SVG, línea de 1.5–2px, **sin relleno*
   visible el invariante «nunca por debajo del mercado».
 - **Piso y mínimo** como reglas horizontales rotuladas en mono (`PISO MX$25`, `MÍN. MX$1`). Los puntos de quiebre
   son marcas de 4px sobre su trazo; al pasar el foco/ratón muestran su `title` (`MX$80 · 1.15×`).
-- **Tramo con error** (tras un `422` de V5/V6): se dibuja en `--color-danger` y su marca lleva el mismo mensaje.
+- **Tramo con error** (tras un `422` de V5, **V9** o V6): se dibuja en `--color-danger` sobre el **trazo de su
+  eje** —venta o compra, para que se vea de cuál de las dos curvas se habla— y su marca lleva el mismo mensaje.
 - **Alternativa textual obligatoria:** la tabla (b) **es** la alternativa accesible del gráfico; el `<svg>` va con
   `role="img"` + `aria-label` de resumen y `aria-describedby` apuntando a la tabla (mismo patrón que §7.17).
 
@@ -4667,11 +4708,14 @@ La **columna derivada sobre pozo** es la única superficie tintada que introduce
   reorderAnnounce,previousValue}`
 - `rounding.{title,uptoCol,stepCol,openBand,add,remove,hint}`
 - `preview.{probeTitle,probeMarketLabel,current,draft,empty,saleMath,buyMath,floorWinsNote,
-  referenceTitle,referenceHint,shapeHint,chartTitle,chartAria}`
+  referenceTitle,referenceHint,shapeTitle,shapeHint,chartTitle,chartAria}` — `shapeTitle` = el eyebrow
+  **`LECTURA DE LA CURVA`** que le da nombre y casa al aviso no bloqueante (§21.5b / §21.4e)
 - `save.{noChanges,dirty,fieldErrors,notSaved,discard,discardConfirm,submit,submitting,saved,leaveConfirm}`
 - `diff.{title,body,impactTitle,impactMore,effectNote,auditNote,cta}`
-- `errors.{CURVE_EMPTY,DUPLICATE_BREAKPOINT,SALE_BELOW_MARKET,SALE_CURVE_NOT_MONOTONIC,BUY_ABOVE_SALE,
-  BIN_ABOVE_FLOOR,ROUNDING_LADDER_INVALID,summaryTitle,goToPoint}`
+- `errors.{CURVE_EMPTY,DUPLICATE_BREAKPOINT,SALE_BELOW_MARKET,SALE_CURVE_NOT_MONOTONIC,BUY_CURVE_NOT_MONOTONIC,
+  BUY_ABOVE_SALE,BIN_ABOVE_FLOOR,ROUNDING_LADDER_INVALID,summaryTitle,goToPoint}`
+  *(`BUY_CURVE_NOT_MONOTONIC` = V9, rev `v2.1.4-buy-monotonic`; código propio, no una generalización del de venta,
+  para no tocar el copy de `SALE_CURVE_NOT_MONOTONIC` ya cerrado.)*
 
 **Nuevas — alrededores y binder:**
 - `admin.m2.rarityHealth.{title,subtitle,canonicalCol,premiumCol,mappedCol,cardCountCol}` (+ se **conserva**
@@ -4713,9 +4757,12 @@ que truncar.
    entre componentes. Es el equivalente frontal de la regla «un solo lector de la curva» del backend.
 5. **QA visual sugerido:** (a) ficha de una carta en zona de **piso** ⇒ el bloque «Valor de mercado» **no está en el
    DOM** y la retícula no deja media fila; (b) ficha de sellado con **override** ⇒ una sola celda a fila completa;
-   (c) teja de Compra ⇒ **ningún** valor de mercado en ningún estado; (d) editar la curva con un punto que rompa V5
-   ⇒ `422`, resumen con foco, dos filas marcadas, **nada guardado** (recargar devuelve la curva anterior);
-   (e) bounty válido → subir el mercado ⇒ el badge dice `BOUNTY REBASADO`, la carta desaparece de «Top Bounties» y
-   el drill-down muestra las dos cifras; (f) variante premium en el piso ⇒ `·!` en el renglón de venta y entrada en
-   la cola con motivo `PREMIUM EN EL PISO`; (g) los diez mercados de la prueba de mesa dan en la tabla de referencia
-   exactamente las cifras de §4.36.1.
+   (c) teja de Compra ⇒ **ningún** valor de mercado en ningún estado; (d) editar la curva con un punto que rompa
+   **V5** (venta) y otro que rompa **V9** (compra) ⇒ en ambos casos `422`, resumen con foco, **dos** filas marcadas
+   del eje correcto y **nada guardado** (recargar devuelve la curva anterior); (e) bounty válido → subir el mercado
+   ⇒ el badge dice `BOUNTY REBASADO`, la carta desaparece de «Top Bounties» y el drill-down muestra las dos cifras;
+   (f) variante premium en el piso ⇒ `·!` en el renglón de venta y entrada en la cola con motivo
+   `PREMIUM EN EL PISO`; (g) los diez mercados de la prueba de mesa dan en la tabla de referencia exactamente las
+   cifras de §4.36.1; (h) **curva de compra `$25⇒$12.50 · $80⇒$16.53 · $100⇒$10.00`** ⇒ el aviso
+   `LECTURA DE LA CURVA` aparece **en vivo** (muted, sin bloquear) y, al guardar, **V9** marca **solo** el tramo
+   `$80 → $100` en rojo: los dos conviven, ninguno se pinta como el otro (§21.4e).
