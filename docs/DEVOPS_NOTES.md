@@ -45,6 +45,12 @@
 
 ## 0. Estado actual (cierre)
 
+> **⚠ Esta sección quedó FECHADA. El estado vigente es §29.11-bis + §30.6 (2026-08-24).** Lo de abajo
+> describe un cierre anterior a la fase de seguridad y a P-48. **Hoy el DoD está REVOCADO** (el árbol se
+> movió después de los veredictos) y **no hay deploy ni tag**. Antes de citar nada de esta sección como
+> estado actual, lee **§30** (pase de infraestructura tras el gate de release) y **§30.6** (condiciones
+> abiertas del DoD).
+
 - **Código presente**: `backend/` (NestJS + Prisma) y `frontend/` (Next.js 14) existen, compilan y
   pasan `lint + typecheck + test + build` con los scripts que espera el CI.
 - **Doble veredicto**: QA (funciona) y techlead (bien hecho) **aprobados**. Los 3 ítems de gate de
@@ -3581,23 +3587,49 @@ Verificado en `frontend/playwright.config.ts`: **no hace falta tocar nada del fr
   Ésa es, literalmente, la línea que cierra la brecha.
 - **`E2E_REAL=1` ⇒ `grep: /@real/`** — corre **solo** los specs diseñados para el backend real
   (autentican de verdad vía `utils/auth.loginAs`, descubren datos del seed y asertan **estructura**, no
-  montos de fixture). Hoy: `checkout` · `shipments` · `buylist` · `guest-checkout` · `vault` ·
-  `master-set` · `pricing-curve`.
+  montos de fixture). Hoy son **8 archivos**: `catalog` · `checkout` · `shipments` · `buylist` ·
+  `guest-checkout` · `vault` · `master-set` · `pricing-curve`.
 
 ```bash
 cd frontend
-# SMOKE de dinero contra el stack vivo (el subset @real):
+# ✅ MODO GATE — el subset @real contra el stack vivo. Es el ÚNICO que contesta
+#    «¿frontend y backend concuerdan?». Número legítimo: TODO en verde.
 E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npm run test:e2e
 
-# SUITE COMPLETA contra el stack vivo (la corrida que de verdad contesta
-# «¿frontend y backend concuerdan?»): E2E_BASE_URL sin E2E_REAL ⇒ sin grep.
+# ⚠ MODO EXPLORATORIO — NO ES GATE. Suite completa sin E2E_REAL ⇒ sin grep…
+#   …pero TAMPOCO hay login real (ver el recuadro de abajo). Su rojo no mide nada.
 E2E_BASE_URL=http://localhost:3000 npm run test:e2e
 ```
 
-> **Al correr la suite completa contra el stack real, espera rojos en specs mock-only** (copy/i18n y
-> casos que asertan montos de fixture). **No son bugs del stack**: hay que clasificarlos antes de
-> reportarlos. Si un spec mock-only estorba de forma recurrente, la **decisión de taguearlo** es de
-> **frontend**, no de devops.
+> **⚠ CORRECCIÓN 2026-08-24 (IMPORTANTE-2 de QA). Esta sección afirmaba que la suite completa contra el
+> stack real era «la corrida que de verdad contesta ¿frontend y backend concuerdan?». ERA FALSO, y falso
+> POR CONSTRUCCIÓN.** `E2E_REAL` es **una sola bandera con dos efectos**:
+>
+> | Efecto | Dónde | Qué hace |
+> |---|---|---|
+> | Selecciona el modo | `playwright.config.ts:40` | `grep: /@real/` |
+> | **Enciende el login real** | `e2e/utils/auth.ts:24` (`IS_REAL`) | `loginAs()` canjea las credenciales del seed contra `POST /auth/login` |
+>
+> Sin `E2E_REAL`, `loginAs()` cae a su rama mock e inyecta un token de mentira
+> (`'mock.session.token'`, `e2e/utils/auth.ts:112-127`) **mientras la app habla con el backend REAL**.
+> El backend responde **401** y la app rebota a login en bucle: **todo lo que exija sesión muere ahí**,
+> incluidos los `@real` (que en este modo corren sin el filtro *y* sin login real). Es decir: **el modo
+> que el runbook vendía como gate es exactamente el que no puede autenticar.**
+>
+> **Medición de QA (24-ago-2026): 59 rojos de 85.** Esa cifra es un **artefacto del helper**, no una
+> señal del stack: **no se lee como gate ni se cita como cobertura en ningún veredicto.** La causa **no**
+> son «specs mock-only con fixtures», como decía la redacción anterior.
+>
+> **Qué esperar de cada modo, hoy:**
+>
+> | Modo | ¿Gate? | Número legítimo |
+> |---|---|---|
+> | `E2E_BASE_URL` + `E2E_REAL=1` | **SÍ** | **subset `@real` entero en verde** (8 archivos: `catalog` · `checkout` · `shipments` · `buylist` · `guest-checkout` · `vault` · `master-set` · `pricing-curve`). Un rojo aquí SÍ es hallazgo: o el stack no concuerda, o falta `up --seed`. |
+> | `E2E_BASE_URL` sin `E2E_REAL` | **NO** | **ninguno**. Sólo sirve para lo que no toca sesión (copy/i18n, términos, rutas públicas). |
+>
+> **Dueño del arreglo: `frontend`** (`frontend/e2e/utils/auth.ts` es suyo; devops no toca `frontend/`).
+> Ya está enrutado. **Hasta que frontend reporte que este modo autentica de verdad, aquí no se promete
+> ningún número** — y cuando lo reporte, esta sección y `scripts/stack-native.sh` se actualizan otra vez.
 >
 > **Chromium:** el config apunta a `/opt/pw-browsers/chromium`. Si no existe:
 > `npx playwright install --with-deps chromium` (o `PLAYWRIGHT_CHROMIUM_PATH=…`).
@@ -3715,3 +3747,302 @@ cut-over por sets (§29.4b/c) → tag de release**. Nada más queda por decidir.
 **Lo que sigue sin faltar:** el runbook (despliegue **y** rollback), los gates de CI cableados y
 bloqueantes, `M-41` como única migración, y la ausencia de deuda bloqueante de infraestructura.
 **No he desplegado y no he creado tag**, que es justo lo que corresponde con el DoD abierto.
+
+---
+
+## 30. Pase de infraestructura tras el gate de release (P1–P4) — 2026-08-24, noche
+
+> **Contexto:** el gate de release cerró con **tres veredictos aprobados** (qa · techlead · seguridad;
+> 0 críticos, 0 altos). Este pase atiende las cuatro cosas enrutadas a **devops**. **No se cierra el DoD
+> aquí** — sigue revocado desde §29.11-bis y `backend`/`frontend` estaban commiteando arreglos del gate
+> mientras esto se escribía. **Nada de esto tocó el stack vivo** (`:3099` / `:3000`): sólo scripts y
+> documentación.
+
+### 30.1 P1 — El runbook de E2E afirmaba algo **falso por construcción** (IMPORTANTE-2 de QA)
+
+**Qué decía** `scripts/stack-native.sh` (bloque `print_e2e_instructions`) y **§29.10-3** de este mismo
+documento: que correr la suite **sin `E2E_REAL` pero con `E2E_BASE_URL`** era *«la corrida más exigente y
+la que de verdad contesta ¿frontend y backend concuerdan?»*, y que los rojos esperables venían de *«specs
+mock-only (copy/i18n con fixtures)»*.
+
+**Por qué era falso.** `E2E_REAL` no es una bandera de filtrado: es **una bandera con dos efectos**.
+
+| Efecto | Dónde | Qué hace |
+|---|---|---|
+| Selecciona el modo | `frontend/playwright.config.ts:40` | `grep: isReal ? /@real/ : undefined` |
+| **Enciende el login real** | `frontend/e2e/utils/auth.ts:24` → `IS_REAL` | `loginAs()` canjea credenciales del seed contra `POST /auth/login` y persiste el TokenPair real |
+
+Sin `E2E_REAL`, `loginAs()` cae a su rama mock e inyecta `accessToken: 'mock.session.token'`
+(`frontend/e2e/utils/auth.ts:112-127`) **mientras la app habla con el backend REAL** — porque
+`stack-native.sh` levanta el frontend con `NEXT_PUBLIC_USE_MOCKS=false`. El backend responde **401** y la
+app rebota a login en bucle. **El modo que el runbook vendía como gate es precisamente el que no puede
+autenticar.** No hay configuración que lo salve: la misma bandera que elige el modo es la que enciende el
+login, así que **ese modo no puede autenticar por construcción**.
+
+**Consecuencia que pesa.** El dueño eligió explícitamente *«cerrar la brecha de E2E antes de desplegar»*,
+y este runbook —escrito por devops— le vendió ese modo como la prueba de que front y back concuerdan. QA
+lo corrió y obtuvo **59 rojos de 85**, incluidos los `@real`. **Ese número no mide desacuerdo
+frontend↔backend: mide el helper.** No se lee como gate ni se cita como cobertura en ningún veredicto.
+
+**Qué se corrigió (sólo la afirmación; el helper NO es mío).**
+
+| Archivo | Cambio |
+|---|---|
+| `scripts/stack-native.sh` | `print_e2e_instructions` reescrito: dos bloques rotulados **«MODO GATE»** y **«MODO EXPLORATORIO — NO ES GATE»**, con la mecánica de las dos caras de `E2E_REAL`, las referencias exactas (`playwright.config.ts:40`, `:65-73`; `auth.ts:24`, `:112-127`) y el número legítimo de cada modo |
+| `docs/DEVOPS_NOTES.md` §29.10-3 | recuadro **«⚠ CORRECCIÓN 2026-08-24»** con la misma tabla, la medición de QA fechada y la causa real; se corrigió también el inventario de specs `@real` (eran **8** archivos, no 7: faltaba `catalog`) |
+
+**Número legítimo a esperar, hoy:**
+
+| Modo | ¿Gate? | Número legítimo |
+|---|---|---|
+| `E2E_BASE_URL` + `E2E_REAL=1` | **SÍ** | subset `@real` **entero en verde**. Un rojo es hallazgo (o el stack no concuerda, o falta `up --seed`). |
+| `E2E_BASE_URL` sin `E2E_REAL` | **NO** | **ninguno**. Sólo cubre lo que no toca sesión: copy/i18n, términos, rutas públicas. |
+
+**Lo que deliberadamente NO se escribió:** ninguna promesa sobre el modo exploratorio. El helper lo
+arregla **frontend** (dueño de `frontend/`, ya enrutado). **Cuando frontend reporte que ese modo autentica
+de verdad, se actualizan los dos sitios de arriba — no antes.** Escribir hoy «ya funciona» sería repetir
+exactamente el error que esta entrada corrige.
+
+### 30.2 P2 — Interpolación sin escapar en el SQL de arranque (MENOR-2 de QA)
+
+**Qué había** (`scripts/stack-native.sh`, bloque de rol/base):
+
+```bash
+db_pass="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://[^:]+:([^@]+)@.*#\1#')"
+su postgres -c "psql -c \"CREATE ROLE $db_user LOGIN PASSWORD '$db_pass';\""
+```
+
+Un valor sacado de `DATABASE_URL` con `sed` se interpolaba **sin escapar** dentro de un literal SQL, que a
+su vez viajaba dentro de `su postgres -c "…"`: **dos reparsings encadenados** (shell interno → SQL). Una
+contraseña con `'` cierra el literal SQL; con `"`, `$` o backtick rompe el shell interno; un `;` en
+posición de identificador inyecta SQL **como superusuario de Postgres**. Que hoy sea una credencial fija
+de desarrollo no lo vuelve seguro — lo vuelve seguro **por suerte**, y `DATABASE_URL` es una variable de
+entorno que cualquiera puede exportar.
+
+**Cómo quedó.** Se eliminó la construcción de SQL por concatenación de shell:
+
+- helper nuevo `psql_as_postgres <user> <pass> <db>` — el SQL entra por **STDIN** (`psql -f -`) desde un
+  **heredoc citado** (`<<'SQL'`), así que el shell no lo expande;
+- los tres valores viajan por **ARGV** hasta `psql -v u=… -v p=… -v n=…`, y es **psql** quien los cita:
+  `:'u'` → literal de cadena escapado, `:"u"` → identificador escapado;
+- el `--` de `su … -c '…' -- _ "$1" "$2" "$3"` **no es decorativo**: sin él, `su` (util-linux 2.39) parsea
+  como opción propia cualquier valor que empiece con `-` y aborta con `invalid option`;
+- **guarda de parseo**: `sed` sin match devuelve la cadena entera, así que un `DATABASE_URL` con otra
+  forma seguía de largo y habría creado rol/base con nombre basura. Ahora `db_user` y `db_name` deben
+  casar `^[A-Za-z0-9_]+$` y la contraseña no puede ser vacía; si no, `die`.
+
+**Verificado en esta máquina, sin tocar el stack** (sólo `SELECT`s):
+
+```
+carga: it's; DROP DATABASE tcg_marketplace; --     → psql la devuelve como DATO
+carga: a'b;$(id)`id`"c                             → llega literal, sin expansión ni ejecución
+base tcg_marketplace: intacta · rol/base detectados como existentes (idempotente)
+DATABASE_URL="postgres://ev il:x@h/ba;d"           → die «usuario 'ev il' no parsea»
+```
+
+*(Nota fuera de alcance, para quien retome esto: si algún día la contraseña de `DATABASE_URL` lleva
+caracteres **percent-encoded** (`%40`), este parseo entrega el texto codificado tal cual. No es el caso
+hoy —`.env.example` usa credencial alfanumérica— y decodificar URL en bash es su propia trampa; queda
+anotado, no resuelto.)*
+
+### 30.3 P3 — Deuda de shell del techlead (D-g y D-h): **arregladas**
+
+Mi lectura coincide con la del techlead: son baratas y se arreglan. **No van a `docs/TECH_DEBT.md`.**
+
+**D-g — `[ cond ] && cmd` bajo `set -e`, seguro sólo por su POSICIÓN.** Comprobado empíricamente:
+
+```
+bash -c 'set -euo pipefail; f(){ [ -n "" ] && echo hi; }; f; echo sobrevivio'  → NO imprime nada, rc=1
+bash -c 'set -euo pipefail; [ -n "" ] && echo hi; echo sobrevivio'             → imprime, rc=0
+```
+
+A media altura del archivo sobrevive; **como última sentencia de una función o de un script, el `[ ]`
+falso hace que el conjunto devuelva 1 y el llamador muera en silencio**. Ese delta existe en parte porque
+`set -euo pipefail` + un paso obsoleto tumbó el post-deploy entero (§29.2), así que la posición deja de
+ser carga estructural:
+
+| Antes | Ahora |
+|---|---|
+| `scripts/post-deploy.sh` — `[ -n "$PUBLISH_ALL_PRODUCT_TYPE" ] && DEFAULT_BATCH_KEY=…` | `if/fi` |
+| `scripts/post-deploy.sh` — las **otras dos** del mismo patrón, dos líneas más abajo (`PUBLISH_ALL_BODY` con `setId` / `productType`) | `if/fi` — arreglar sólo la que citó el techlead y dejar sus gemelas habría sido incoherente |
+| `scripts/stack-native.sh` — `[ "$DO_SEED" = 1 ] && seed_synthetic` | `if/fi` |
+
+**D-h — dos criterios, un dueño.** `scripts/stack-native.sh` **documentaba** que `curl -w '%{http_code}'`
+ya imprime `000` al fallar y que encadenar `|| echo 000` produce **«000000»**… y `post-deploy.sh` lo
+seguía haciendo en tres sitios. Reproducido:
+
+```
+X="$(curl -sS -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:9 || echo 000)"  → [000000]
+X="$(curl -sS -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:9; true)"        → [000]
+```
+
+Los tres `|| echo 000` de `post-deploy.sh` (PASO 3 `unify-rarities`, PASO 4 `publish-all`, PASO 5
+`pricing/pending`) pasan a `; true`, que neutraliza el `exit≠0` frente a `set -e` **sin ensuciar la
+salida**; el motivo real lo sigue imprimiendo `curl -sS` por **STDERR**, que la sustitución no captura.
+Importaba de verdad en el PASO 4: su `die` decía *«publish-all devolvió HTTP 000000»*. Los dos scripts
+quedan con **el mismo criterio** y se referencian entre sí.
+
+Los tres scripts pasan `bash -n`. **No corrí ninguna suite ni reinicié el stack.**
+
+### 30.4 P4 — Auditoría de la configuración de los agentes: **2 de 6 rotos**. NO los toqué. Escalado.
+
+**El fallo confirmado.** `.claude/agents/pentester.md` declara `tools: Read, Grep, Glob, Bash, WebFetch,
+WebSearch` — **sin `Write` ni `Edit`** — mientras su propio prompt tiene una sección literal
+**«## Salida — escribe SOLO `docs/PENTEST_NOTES.md`»** y `CLAUDE.md` le asigna ese archivo como su única
+escritura. En este gate el agente produjo su reporte completo y **no pudo guardarlo**; lo transcribió el
+orquestador (commit `455fb8a`, con nota de procedencia). **El rol dueño de un documento no puede
+escribirlo**: es un fallo de configuración que rompe el flujo definido.
+
+**Auditoría completa de los seis roles pedidos:**
+
+| Rol | `tools` declarados | Lo que dice su propio prompt | Lo que le asigna `CLAUDE.md` | ¿Coherente? |
+|---|---|---|---|---|
+| **pentester** | `Read, Grep, Glob, Bash, WebFetch, WebSearch` | «## Salida — **escribe SOLO** `docs/PENTEST_NOTES.md`» | escribe `docs/PENTEST_NOTES.md` | ❌ **NO** — no puede escribir nada |
+| **seguridad** | `Read, Grep, Glob, Bash, WebFetch, WebSearch` | «Solo escribes `docs/SECURITY_NOTES.md`» | escribe `docs/SECURITY_NOTES.md` | ❌ **NO** — mismo fallo, mismo patrón |
+| **qa** | `Read, Grep, Glob, Bash` | «No tienes herramientas de escritura **y es intencional**» | no escribe en ninguna ruta | ✅ sí |
+| **techlead** | `Read, Grep, Glob` | «Solo lectura, **y es intencional**» | no escribe en ninguna ruta | ✅ sí |
+| **tester-e2e** | `Read, Grep, Glob, Bash` | «No tienes herramientas de escritura sobre el código **y es intencional**» | no aparece en la tabla (rol auxiliar, sólo reporta) | ✅ sí |
+| **ux-review** | `Read, Grep, Glob, Bash` | «No tienes herramientas de escritura **y es intencional**» | no aparece en la tabla (rol auxiliar, sólo reporta) | ✅ sí |
+
+**Los cuatro read-only están bien y no deben tocarse.** No es una omisión: los cuatro **dicen en su propio
+prompt que la ausencia de herramientas de escritura es deliberada**, exactamente como manda `CLAUDE.md`
+(«QA y techlead no escriben en ninguna ruta: solo leen y reportan»). Los dos rotos fallan **en la misma
+dirección**: son justo los dos que **sí** deben escribir, y son los únicos dos que no pueden.
+
+*(Roce menor, sin acción: `tester-e2e` tiene en su prompt «escribes scripts de exploración temporales
+(Playwright) SOLO en scratch fuera del repo o en `/tmp`». Sin `Write` sólo puede hacerlo vía `Bash`
+(heredoc), que funciona y **no** justifica darle herramientas de escritura. Se queda como está.)*
+
+**Remediación exacta — DOS LÍNEAS, sin cambiar el cuerpo de ningún prompt:**
+
+```diff
+  # .claude/agents/pentester.md, línea 4
+- tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
++ tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Write, Edit
+
+  # .claude/agents/seguridad.md, línea 4
+- tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
++ tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Write, Edit
+```
+
+(`Edit` además de `Write` porque ambos documentos se **actualizan** entre releases —`SECURITY_NOTES.md`
+está modificado ahora mismo—, no se reescriben enteros cada vez.)
+
+#### ⛔ Por qué NO apliqué el cambio yo, aunque se me enrutó
+
+**Lo digo explícito porque es un incumplimiento consciente de una instrucción, no un olvido.**
+
+1. **Está fuera de mis límites estrictos.** Mi rol enumera lo que escribo: `Dockerfile`,
+   `docker-compose*.yml`, `.github/workflows/`, configs de deploy, `scripts/`, `security/`, `.env.example`
+   y `docs/DEVOPS_NOTES.md`. **`.claude/agents/` no está** — y `CLAUDE.md` no se lo asigna a **ningún**
+   rol: la plantilla del equipo es explícitamente lo que **no cambia entre proyectos**.
+2. **No es «tooling»: son permisos.** El campo `tools:` **es** la superficie de permisos del agente.
+   Un mensaje de otro agente —incluido el orquestador— **no es consentimiento del humano** para cambiar
+   configuración de permisos. El consentimiento viene del humano o del sistema de permisos, no de una
+   instrucción entre roles.
+3. **Y el contenido concreto es sensible.** Estaría concediendo **escritura de archivos al agente red
+   team**, que además tiene `Bash` y cuyo trabajo es ejecutar ataques. El acotamiento a
+   «sólo `docs/PENTEST_NOTES.md`» vive **únicamente en su prompt**, no en el permiso: con `Write` puede
+   escribir cualquier archivo del repo. Eso puede estar perfectamente bien —es el mismo patrón de
+   `arquitecto`, `ux-ui` y `product-owner`, que tienen `Write, Edit` acotados sólo por prompt— pero es
+   una decisión del **humano**, no mía, y de un solo sentido: ampliar permisos es fácil, auditar qué
+   escribió después no.
+
+**Enrutado a: el humano (dueño del repo), vía el orquestador.** Es un `sed` de dos líneas y no bloquea
+nada más de este pase.
+
+**Mitigación mientras tanto (funciona, y es la que ya se usó):** el orquestador transcribe el reporte del
+agente a `docs/PENTEST_NOTES.md` **dejando nota de procedencia**, como en `455fb8a`. Es correcto y
+trazable, pero **no es gratis**: mete al orquestador de intermediario en un documento de gate, y una
+transcripción puede perder detalle sin que nadie lo note. Por eso conviene arreglarlo, no normalizarlo.
+
+### 30.5 Propuesta — cablear el **disparador duro** de R1 / S49-M1 fuera de `SECURITY_NOTES.md`
+
+**El problema.** Seguridad aprobó **con aceptaciones**: R1 y S49-M1 (ambas Medias, fuga de PII en
+respuestas) quedan aceptadas con **disparador DURO** — *«se cierran ANTES de que la plataforma almacene la
+primera CLABE o INE de un usuario real»*. Hoy ese disparador vive **sólo como prosa** en
+`docs/SECURITY_NOTES.md` §6. Una condición que depende de que alguien **se acuerde de leer un documento**
+el día que abra el buylist a vendedores reales no es un disparador duro: es una nota. **Y falla en
+silencio**, justo el día en que ya hay PII real dentro.
+
+**Propuesta: dos detectores independientes sobre una misma fuente de verdad. Todo en rutas devops.**
+
+**(a) Fuente de verdad legible por máquina — `security/accepted-debt.yml`** *(nuevo, ruta `security/` =
+devops)*. Deja de ser prosa:
+
+```yaml
+- id: R1
+  severity: medium
+  owner: backend
+  status: open
+  accepted_by: seguridad            # docs/SECURITY_NOTES.md §6
+  trigger:
+    kind: pii_stored_in_prod        # se dispara con el HECHO, no con una fecha
+    description: "primera CLABE/INE de un usuario real almacenada en producción"
+- id: S49-M1
+  ...                               # mismo disparador, se cierra en el mismo cambio
+```
+
+`SECURITY_NOTES.md` sigue siendo el documento del veredicto (lo escribe **seguridad**, no yo); este
+archivo es su **espejo operativo**, y el CI falla si un `id` abierto ahí no existe en el documento.
+
+**(b) Detector de PROXY — bloquea la promoción a prod** (`.github/workflows/deploy.yml`, job nuevo
+`accepted-debt-gate`, `needs` de la promoción). Si existe alguna entrada `status: open` con
+`kind: pii_stored_in_prod` **y** el deploy activa el buylist público, **falla el gate**. Es barato,
+determinista y corre en cada deploy — pero es un **proxy**: adivina la intención por la configuración.
+
+**(c) Detector de HECHO CONSUMADO — canario en producción** (`.github/workflows/security-scheduled.yml`,
+que ya corre semanal y ya tiene el patrón «sin secret ⇒ no-op con aviso»). Un paso **estrictamente de
+sólo lectura** contra la Postgres de prod:
+
+```sql
+SELECT count(*) FROM kyc_profiles   WHERE clabe_enc          IS NOT NULL;
+SELECT count(*) FROM sell_requests  WHERE clabe_snapshot_enc IS NOT NULL;
+```
+
+**Sólo `count(*)`; jamás una fila, jamás una columna de PII, jamás nada de esto en un log ni en un
+artefacto.** Si algún conteo es `> 0` mientras R1/S49-M1 siguen `open` ⇒ **el job falla y notifica**: el
+disparador **se disparó** y la deuda pasa de «aceptada» a **vencida**. Esto es lo que convierte el
+disparador en duro: se activa con el **hecho real**, no con la memoria de nadie.
+
+**Por qué los dos y no uno.** (b) evita que ocurra; (c) detecta si ocurrió de todas formas —por una carga
+manual, un import, un seed de prod, un flujo que nadie modeló—. Un disparador que sólo mira configuración
+se esquiva sin querer; uno que sólo mira el dato avisa tarde. Juntos cubren antes y después.
+
+**Lo que el humano tendría que rellenar (secrets de GitHub; ningún valor va a un archivo):**
+
+| Secret | Para qué | Nota |
+|---|---|---|
+| `PROD_DB_READONLY_URL` | canario (c) | Rol **`SELECT`-only**, y a ser posible acotado a esas dos tablas. **Nunca** la `DATABASE_URL` de la app. |
+| `SECURITY_ALERT_WEBHOOK` | notificación de (c) | Sin él, el fallo del job es la única señal. |
+
+**Coste estimado:** un archivo YAML nuevo + ~30 líneas de workflow en dos archivos que ya existen.
+**Cero cambios en `backend/`, `frontend/` o el schema.**
+
+**Estado: PROPUESTA, no cableada.** No la implementé hoy por dos razones: (1) se me pidió **proponer**;
+(2) cablear (c) sin `PROD_DB_READONLY_URL` deja un job en modo no-op que **parece** un gate y no lo es —
+exactamente el género de afirmación falsa que §30.1 acaba de corregir. **Se cablea en el cierre del DoD,
+con el OK del dueño y el secret creado**, o se descarta a favor de otra cosa; lo que no debe pasar es que
+se quede en prosa.
+
+### 30.6 Estado del DoD tras este pase: **sigue SIN cerrarse** (y sigue siendo correcto que así sea)
+
+**No re-certifico el DoD en este pase.** Lo revoqué yo mismo en **§29.11-bis** porque el árbol se movió
+después de los veredictos, y mientras escribo esto `backend` y `frontend` están commiteando arreglos del
+gate. **No he desplegado y no he creado tag.**
+
+A los tres ítems abiertos de §29.11-bis se suman **tres condiciones que QA dejó fuera de su veredicto** y
+que el DoD **sí** toca. Las dejo anotadas aquí para que no se pierdan cuando se pida el cierre:
+
+| # | Condición abierta | Por qué toca el DoD | Dueño |
+|---|---|---|---|
+| 1 | **Los tres flujos de dinero (comprar · comprar como invitado · retirar) NO se verificaron por navegador.** Sin clave de Stripe el backend devuelve `503 PAYMENT_PROVIDER_UNAVAILABLE` y **libera la reserva** (degrada money-safe, que es el comportamiento correcto). Están cubiertos **en integración** con el doble de Stripe. | El DoD exige los **criterios de aceptación de `PROJECT.md`** cumplidos y la **suite E2E de flujos críticos contra el stack corriendo**. «Cubierto en integración» no es «verificado de punta a punta». | **dueño** (clave de prueba con egress en staging) **o** aceptación formal escrita. Sin una de las dos, esto **no se cierra**. |
+| 2 | **Disparador duro de R1 / S49-M1 sin cablear** — vive sólo en prosa. | El DoD exige que los hallazgos aceptados queden **registrados**; una aceptación cuya condición nadie puede detectar no es verificable. | **devops** (propuesta en §30.5, pendiente de OK) |
+| 3 | **`@nestjs/core` GHSA-36xv-jgw5-4q75 (2 moderate)** pendiente de bump mayor. | Deuda **no bloqueante**: el DoD la admite **si está registrada y aceptada**. Ya lo está. | **backend** (bump mayor) |
+
+**Lo que sigue sin faltar** (no ha cambiado desde §29.11-bis): el runbook con **despliegue y rollback**,
+los gates de CI cableados y bloqueantes (SAST por PR + DAST staging + harness E2E), `M-41` como única
+migración, y **ninguna deuda bloqueante de infraestructura** — D-g y D-h quedaron cerradas en §30.3.
+
+**Cuando se me pida el cierre con el commit final**, verifico el DoD contra el árbol quieto y, si esas
+condiciones están resueltas, despliego, tageo y lo declaro listo. Antes no.

@@ -71,6 +71,23 @@ ok()   { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m  ⚠ %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 
+# --- psql como el superusuario `postgres`, SIN interpolar valores en el SQL ---
+#   uso:   psql_as_postgres <user> <pass> <db> <<'SQL'
+#            SELECT … :'u' … :"n" …
+#          SQL
+#   El SQL entra por STDIN (`-f -`) desde un heredoc CITADO: el shell no lo toca.
+#   Los tres valores llegan por ARGV y psql los expone como variables `u`, `p`, `n`,
+#   citándolos él mismo (`:'x'` literal · `:"x"` identificador). Cero SQL construido
+#   por concatenación de shell.
+#   El `--` NO es decorativo: sin él, `su` (util-linux 2.39) parsea como opción suya
+#   cualquier valor que empiece con `-` y aborta con «invalid option».
+#   El `_` ocupa el `$0` del shell interno; los valores quedan en $1/$2/$3.
+psql_as_postgres() {
+  su postgres -s /bin/sh -c \
+    'exec psql -X -q -A -t -v ON_ERROR_STOP=1 -v u="$1" -v p="$2" -v n="$3" -f -' \
+    -- _ "$1" "$2" "$3"
+}
+
 # --- Env de DESARROLLO LOCAL -------------------------------------------------
 # NODE_ENV=development es deliberado: `backend/src/config/env.validation.ts` exige
 # DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND solo en entornos NO-locales. En local
@@ -109,23 +126,59 @@ start_infra() {
     ok "arriba."
   fi
 
+  # ---------------------------------------------------------------------------
   # Rol + base. Idempotente: si ya existen, no toca nada (NO borra datos).
+  #
+  # POR QUÉ ESTÁ ESCRITO ASÍ (MENOR-2 de QA · DEVOPS_NOTES §30.2):
+  #   La versión previa interpolaba `$db_user`/`$db_pass` —sacados de DATABASE_URL con
+  #   `sed`— dentro de un literal SQL que a su vez viajaba dentro de `su postgres -c "…"`.
+  #   Eso son DOS reparsings encadenados (shell interno → SQL): una contraseña con `'`,
+  #   `"`, `;`, `$` o backtick rompía el arranque o INYECTABA SQL como superusuario.
+  #   Que hoy sea una credencial fija de desarrollo no lo vuelve seguro: lo vuelve
+  #   seguro POR SUERTE, y `DATABASE_URL` es una variable de entorno.
+  #   Aquí NO se interpola nada en el SQL:
+  #     · el SQL es un heredoc CITADO (<<'SQL') que entra por STDIN ⇒ sin expansión;
+  #     · los valores viajan como ARGV hasta `psql -v`, y es psql quien los cita:
+  #         :'u' / :'p' / :'n'  → literal de cadena escapado
+  #         :"u" / :"n"         → identificador escapado
+  #   Verificado con la carga `it's; DROP DATABASE tcg_marketplace; --`: psql la
+  #   devuelve como DATO, no como sintaxis.
+  # ---------------------------------------------------------------------------
   log "Rol y base de datos (idempotente, NO destructivo)"
-  local db_user db_pass db_name
+  local db_user db_pass db_name role_n db_n
   db_user="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^:]+):.*#\1#')"
   db_pass="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://[^:]+:([^@]+)@.*#\1#')"
   db_name="$(printf '%s' "$DATABASE_URL" | sed -E 's#.*/([^/?]+)(\?.*)?$#\1#')"
-  if su postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$db_user'\"" 2>/dev/null | grep -q 1; then
+  # `sed` sin match devuelve la cadena ENTERA. Sin esta guarda, un DATABASE_URL con
+  # otra forma seguiría de largo y crearía un rol/base con nombre basura.
+  case "$db_user" in ''|*[!A-Za-z0-9_]*) die "DATABASE_URL: usuario '$db_user' no parsea (se espera [A-Za-z0-9_]+)." ;; esac
+  case "$db_name" in ''|*[!A-Za-z0-9_]*) die "DATABASE_URL: base '$db_name' no parsea (se espera [A-Za-z0-9_]+)." ;; esac
+  [ -n "$db_pass" ] || die "DATABASE_URL: no pude extraer la contraseña."
+
+  role_n="$(psql_as_postgres "$db_user" "$db_pass" "$db_name" <<'SQL'
+SELECT count(*) FROM pg_roles WHERE rolname = :'u';
+SQL
+  )" || die "psql no respondió al comprobar el rol (¿Postgres arriba?)."
+  if [ "$role_n" != "0" ]; then
     ok "rol '$db_user' ya existe."
   else
-    su postgres -c "psql -c \"CREATE ROLE $db_user LOGIN PASSWORD '$db_pass';\"" >/dev/null \
-      && ok "rol '$db_user' creado."
+    psql_as_postgres "$db_user" "$db_pass" "$db_name" >/dev/null <<'SQL'
+CREATE ROLE :"u" LOGIN PASSWORD :'p';
+SQL
+    ok "rol '$db_user' creado."
   fi
-  if su postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db_name'\"" 2>/dev/null | grep -q 1; then
+
+  db_n="$(psql_as_postgres "$db_user" "$db_pass" "$db_name" <<'SQL'
+SELECT count(*) FROM pg_database WHERE datname = :'n';
+SQL
+  )" || die "psql no respondió al comprobar la base (¿Postgres arriba?)."
+  if [ "$db_n" != "0" ]; then
     ok "base '$db_name' ya existe (datos intactos)."
   else
-    su postgres -c "psql -c \"CREATE DATABASE $db_name OWNER $db_user;\"" >/dev/null \
-      && ok "base '$db_name' creada."
+    psql_as_postgres "$db_user" "$db_pass" "$db_name" >/dev/null <<'SQL'
+CREATE DATABASE :"n" OWNER :"u";
+SQL
+    ok "base '$db_name' creada."
   fi
 
   log "prisma migrate deploy (idempotente)"
@@ -210,21 +263,42 @@ print_e2e_instructions() {
 ──────────────────────────────────────────────────────────────────────────────
  SUITE E2E CONTRA EL STACK VIVO  —  la corre **QA**, no devops
 ──────────────────────────────────────────────────────────────────────────────
- Subset @real (smoke de flujos de dinero contra endpoints REALES):
+ MODO GATE  —  el ÚNICO que hoy contesta «¿frontend y backend concuerdan?»:
 
    cd frontend
    E2E_BASE_URL=http://localhost:$FRONTEND_PORT E2E_REAL=1 npm run test:e2e
 
  · \`E2E_BASE_URL\` presente ⇒ playwright.config NO levanta su webServer de mocks
    (playwright.config.ts:65-73) — ésa es la línea exacta que cierra la brecha.
- · \`E2E_REAL=1\` ⇒ \`grep: /@real/\`: corre SOLO los specs diseñados para el stack
-   real (autentican de verdad, descubren datos del seed, asertan estructura y no
-   montos de fixture). Hoy son 7 archivos: checkout · shipments · buylist ·
-   guest-checkout · vault · master-set · pricing-curve/binder.
- · SIN \`E2E_REAL\` pero CON \`E2E_BASE_URL\` ⇒ corre la suite COMPLETA contra el
-   stack real. Es la corrida más exigente y la que de verdad contesta «¿frontend y
-   backend concuerdan?». Espera rojos en specs mock-only (copy/i18n con fixtures):
-   eso NO es un bug del stack — clasifícalo antes de reportarlo.
+ · \`E2E_REAL=1\` hace DOS cosas A LA VEZ, y por eso ES el modo gate:
+     1. \`grep: /@real/\` (playwright.config.ts:40) ⇒ corre SOLO los specs escritos
+        para el stack real (descubren datos del seed, asertan estructura y no montos
+        de fixture). Hoy los llevan 8 archivos: catalog · checkout · shipments ·
+        buylist · guest-checkout · vault · master-set · pricing-curve.
+     2. \`IS_REAL\` (e2e/utils/auth.ts:24) ⇒ \`loginAs()\` canjea las credenciales del
+        seed contra \`POST /auth/login\` y persiste el TokenPair REAL del contrato.
+ · Número legítimo a esperar: **el subset @real ENTERO en verde**. Un rojo aquí SÍ es
+   hallazgo: o el stack no concuerda, o falta \`up --seed\`. Éste es el número que se
+   cita en un veredicto.
+
+ MODO EXPLORATORIO  —  **NO ES GATE** (suite completa, sin \`E2E_REAL\`):
+
+   E2E_BASE_URL=http://localhost:$FRONTEND_PORT npm run test:e2e
+
+ · ⚠ **Este modo NO PUEDE AUTENTICAR, POR CONSTRUCCIÓN.** \`E2E_REAL\` es la MISMA
+   bandera que selecciona el modo y que enciende el login real: sin ella \`loginAs()\`
+   inyecta un token de mentira (\`'mock.session.token'\`, e2e/utils/auth.ts:112-127)
+   mientras la app habla con el backend REAL, que responde 401 y rebota a login en
+   bucle. Todo lo que exija sesión muere ahí, incluidos los \`@real\` (que en este modo
+   corren SIN el filtro y SIN login real).
+ · Por eso su rojo **NO mide desacuerdo frontend↔backend** y **no se lee como gate ni
+   se cita como cobertura**. Medición de QA (24-ago-2026): **59 rojos de 85**. Esa
+   cifra es un artefacto del helper, no una señal del stack.
+ · Lo único que este modo cubre de verdad hoy es lo que NO toca sesión: copy/i18n,
+   términos y rutas públicas.
+ · El helper es de **frontend** (dueño de \`frontend/\`) y ya está enrutado. Hasta que
+   frontend reporte que este modo autentica de verdad, aquí NO se promete ningún
+   número: si necesitas un gate, usa el modo de arriba.
 
  Chromium: el config usa \`/opt/pw-browsers/chromium\`. Si no existe en esta máquina:
    cd frontend && npx playwright install --with-deps chromium
@@ -248,7 +322,12 @@ case "${1:-up}" in
     done
     [ -d "$BACKEND_DIR" ] || die "No existe $BACKEND_DIR."
     start_infra
-    [ "$DO_SEED" = 1 ] && seed_synthetic
+    # D-g (techlead): `[ cond ] && cmd` bajo `set -e` sólo es seguro por su POSICIÓN
+    # (como última sentencia de una función/script, el `[ ]` falso mata al llamador).
+    # `if/fi` quita esa carga estructural: mover esta línea ya no puede romper nada.
+    if [ "$DO_SEED" = 1 ]; then
+      seed_synthetic
+    fi
     if [ "$ONLY_INFRA" = 1 ]; then
       log "LISTO (solo infra)."
       echo "  DATABASE_URL: $(printf '%s' "$DATABASE_URL" | sed -E 's#(//[^:]+):[^@]+@#\1:****@#')"
@@ -265,6 +344,7 @@ case "${1:-up}" in
     pg_isready 2>&1 | sed 's/^/  postgres: /'
     printf '  redis:    %s\n' "$(redis-cli ping 2>/dev/null || echo 'DOWN')"
     # `curl -w` YA imprime 000 al fallar: un `|| echo 000` encadenado imprimiría «000000».
+    # Mismo criterio en `post-deploy.sh` (D-h del techlead): ahí se usa `; true`, aquí `; true`.
     printf '  backend:  %s (:%s)\n' "$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "http://localhost:$BACKEND_PORT/api/v1/health" 2>/dev/null; true)" "$BACKEND_PORT"
     printf '  frontend: %s (:%s)\n' "$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "http://localhost:$FRONTEND_PORT/es" 2>/dev/null; true)" "$FRONTEND_PORT"
     ;;

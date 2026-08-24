@@ -133,10 +133,14 @@ ok "Backfill M-39 completado."
 # -----------------------------------------------------------------------------
 log "PASO 3 — unify-rarities (cosmético; NO bloquea)"
 if [ "$HAS_ADMIN_HTTP" = 1 ]; then
+  # D-h (techlead): `curl -w '%{http_code}'` YA imprime `000` cuando ni siquiera conecta;
+  # encadenar `|| echo 000` imprimía OTRO `000` y el operador leía «HTTP 000000».
+  # `; true` neutraliza el exit≠0 frente a `set -e` sin ensuciar la salida, y el motivo
+  # real lo sigue diciendo `curl -sS` por STDERR (que la sustitución NO captura).
   HTTP_CODE="$(curl -sS -o /tmp/unify-rarities.out -w '%{http_code}' \
       -X POST "$ADMIN_BASE_URL/admin/catalog/unify-rarities" \
       -H "Authorization: Bearer $ADMIN_JWT" \
-      -H "Content-Type: application/json" || echo 000)"
+      -H "Content-Type: application/json"; true)"
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
     ok "unify-rarities disparado (HTTP $HTTP_CODE): $(cat /tmp/unify-rarities.out)"
   else
@@ -175,13 +179,23 @@ if [ -n "$PUBLISH_ALL_SET_ID" ]; then
 else
   DEFAULT_BATCH_KEY="p48-cutover-v2.0"
 fi
-[ -n "$PUBLISH_ALL_PRODUCT_TYPE" ] && DEFAULT_BATCH_KEY="${DEFAULT_BATCH_KEY}-${PUBLISH_ALL_PRODUCT_TYPE}"
+# D-g (techlead): `[ cond ] && cmd` bajo `set -e` sólo es seguro por su POSICIÓN — como
+# ÚLTIMA sentencia de una función o de un script, el `[ ]` falso hace que el conjunto
+# devuelva 1 y el llamador MUERE en silencio. Ese delta ya nos costó un post-deploy
+# entero (§ cabecera). Con `if/fi` la posición deja de ser carga estructural.
+if [ -n "$PUBLISH_ALL_PRODUCT_TYPE" ]; then
+  DEFAULT_BATCH_KEY="${DEFAULT_BATCH_KEY}-${PUBLISH_ALL_PRODUCT_TYPE}"
+fi
 PUBLISH_ALL_BATCH_KEY="${PUBLISH_ALL_BATCH_KEY:-$DEFAULT_BATCH_KEY}"
 
 # Cuerpo JSON con solo las claves presentes (un `setId:null` sería 400 VALIDATION_ERROR).
 PUBLISH_ALL_BODY="{\"batchKey\":\"$PUBLISH_ALL_BATCH_KEY\""
-[ -n "$PUBLISH_ALL_SET_ID" ]       && PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY,\"setId\":\"$PUBLISH_ALL_SET_ID\""
-[ -n "$PUBLISH_ALL_PRODUCT_TYPE" ] && PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY,\"productType\":\"$PUBLISH_ALL_PRODUCT_TYPE\""
+if [ -n "$PUBLISH_ALL_SET_ID" ]; then                                    # D-g: ver arriba
+  PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY,\"setId\":\"$PUBLISH_ALL_SET_ID\""
+fi
+if [ -n "$PUBLISH_ALL_PRODUCT_TYPE" ]; then
+  PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY,\"productType\":\"$PUBLISH_ALL_PRODUCT_TYPE\""
+fi
 PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY}"
 
 log "PASO 4 — CUT-OVER P-48: re-resolver el catálogo con la curva (publish-all)"
@@ -215,11 +229,12 @@ elif [ "$HAS_ADMIN_HTTP" != 1 ]; then
 else
   echo "  batchKey: $PUBLISH_ALL_BATCH_KEY  (misma clave ⇒ replay idempotente, NO re-publica)"
   PUB_OUT="$(mktemp -t post-deploy-publish-all.XXXXXX.json)"
+  # D-h: `; true` en vez de `|| echo 000` (si no, «000000»). Ver PASO 3.
   HTTP_CODE="$(curl -sS -o "$PUB_OUT" -w '%{http_code}' \
       -X POST "$ADMIN_BASE_URL/admin/inventory/publish-all" \
       -H "Authorization: Bearer $ADMIN_JWT" \
       -H "Content-Type: application/json" \
-      -d "$PUBLISH_ALL_BODY" || echo 000)"
+      -d "$PUBLISH_ALL_BODY"; true)"
   if [ "$HTTP_CODE" != "200" ]; then
     die "publish-all devolvió HTTP $HTTP_CODE — el catálogo NO se re-resolvió. NO anuncies el release.
      Si es 400 VALIDATION_ERROR con setId: pasaste el externalId en vez del uuid de CardSet (§29.4b).
@@ -264,9 +279,10 @@ fi
 log "PASO 5 — cola de pendientes por razón (diagnóstico ENTRE SET Y SET; NO bloquea)"
 if [ "$HAS_ADMIN_HTTP" = 1 ]; then
   PEND_OUT="$(mktemp -t post-deploy-pending.XXXXXX.json)"
+  # D-h: `; true` en vez de `|| echo 000` (si no, «000000»). Ver PASO 3.
   HTTP_CODE="$(curl -sS -o "$PEND_OUT" -w '%{http_code}' \
       -X GET "$ADMIN_BASE_URL/admin/pricing/pending" \
-      -H "Authorization: Bearer $ADMIN_JWT" || echo 000)"
+      -H "Authorization: Bearer $ADMIN_JWT"; true)"
   if [ "$HTTP_CODE" = "200" ]; then
     if command -v jq >/dev/null 2>&1; then
       jq -r '"  counts → no_market=\(.counts.no_market) premium_at_floor=\(.counts.premium_at_floor) unknown=\(.counts.unknown)"' "$PEND_OUT" \
