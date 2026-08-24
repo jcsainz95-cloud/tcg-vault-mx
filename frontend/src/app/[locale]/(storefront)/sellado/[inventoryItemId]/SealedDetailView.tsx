@@ -242,8 +242,16 @@ function Detail({
       </div>
 
       {/* Feature-flag: tendencia de valor del sellado (estilo acciones). Oculta si el flag está OFF
-          o si el endpoint responde 404 (FEATURE_DISABLED / no mapeado). */}
-      {trendEnabled && (
+          o si el endpoint responde 404 (FEATURE_DISABLED / no mapeado).
+
+          §21.8a + §N.7 — **también obedece `priceBasis`**. El objeto de la regla no es UNA CELDA: es
+          **no publicar el valor de mercado cuando el mercado no fijó el precio**. Este bloque pinta
+          la cifra a 32–40px y la rotula literalmente «valor de mercado de referencia», así que
+          dejarlo incondicional hacía exactamente lo que la regla prohíbe, solo que 200px más abajo
+          — y §21.8c es explícito en que el hueco no se rellena «ni con una explicación de por qué
+          no está el mercado». Con `override` (o `pending`) desaparece; con precio derivado por
+          SPREAD **sí hay mercado** y se muestra, que es la asimetría legítima. */}
+      {trendEnabled && showMarketValue && (
         <div className="gutter border-t border-border py-10">
           <SealedValueTrend inventoryItemId={group.representativeItemId} />
         </div>

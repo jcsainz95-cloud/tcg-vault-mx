@@ -50,36 +50,25 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
               label={tType('all')}
               onClick={() => onChange({ ...filters, productType: undefined, sealedSubtype: undefined })}
             />
-            {(['raw', 'graded', 'sealed'] as ProductType[]).map((pt) => (
+            {/* Compra lista SINGLES: `GroupedListingDTO.productType ∈ {raw, graded}` — NUNCA
+                sealed (contrato §DTOs, H9: el sellado tiene su propio catálogo agrupado, §2-S, y
+                su propia pestaña «Producto sellado» → /sellado, justo encima de estos filtros).
+                La casilla «Sellado» sobrevivía de antes de esa separación y era un CALLEJÓN SIN
+                SALIDA: filtrar por ella solo podía devolver «Ninguna carta coincide», porque el
+                endpoint jamás emite un grupo sellado. Un filtro que nunca puede acertar es peor
+                que no ofrecerlo — y ya hay una ruta que sí lleva ahí. Con él se va su sub-filtro
+                de presentación, que solo se abría bajo esa casilla. */}
+            {(['raw', 'graded'] as ProductType[]).map((pt) => (
               <TypeChip
                 key={pt}
                 active={filters.productType === pt}
                 label={tType(pt)}
-                onClick={() =>
-                  onChange({
-                    ...filters,
-                    productType: pt,
-                    sealedSubtype: pt === 'sealed' ? filters.sealedSubtype : undefined,
-                  })
-                }
+                onClick={() => onChange({ ...filters, productType: pt, sealedSubtype: undefined })}
               />
             ))}
           </div>
           {filters.productType === 'raw' && (
             <p className="mt-3 font-mono text-[11px] text-muted">{tType('rawSublabel')}</p>
-          )}
-          {filters.productType === 'sealed' && (facets?.sealedSubtypes.length ?? 0) > 0 && (
-            <div className="mt-5">
-              <Select
-                label={tType('subtypeLabel')}
-                placeholder="—"
-                options={(facets?.sealedSubtypes ?? []).map((s) => ({ value: s, label: tSub(s) }))}
-                value={filters.sealedSubtype ?? ''}
-                onChange={(e) =>
-                  onChange({ ...filters, sealedSubtype: (e.target.value || undefined) as SealedSubtype })
-                }
-              />
-            </div>
           )}
         </fieldset>
       </FilterSection>

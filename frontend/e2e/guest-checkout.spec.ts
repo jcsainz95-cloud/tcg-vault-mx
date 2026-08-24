@@ -72,8 +72,16 @@ test.describe('guest checkout · identidad y desglose', () => {
     await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('no-es-correo');
     await page.getByRole('button', { name: /Pagar/ }).click();
 
-    await expect(page.getByRole('main').getByRole('alert')).toBeVisible();
-    await expect(page.getByText(t('es', 'checkout.guest.email.invalid')).first()).toBeVisible();
+    // El invitado ve DOS avisos deliberados y distintos: el RESUMEN de errores del formulario
+    // (§15.9) y la nota bajo «Pagar» que explica el bloqueo. Se afirma el resumen POR SU
+    // CONTENIDO en vez de «el alert de main», que era ambiguo entre los dos.
+    await expect(
+      page
+        .getByRole('main')
+        .getByRole('alert')
+        .filter({ hasText: t('es', 'checkout.guest.email.invalid') }),
+    ).toBeVisible();
+    await expect(page.getByText(t('es', 'checkout.guest.formIncomplete'))).toBeVisible();
     await expect(page.getByRole('dialog')).toBeHidden();
   });
 
@@ -82,7 +90,13 @@ test.describe('guest checkout · identidad y desglose', () => {
     await page.goto('/es/checkout');
     await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
 
-    const vault = page.getByRole('radio', { name: new RegExp(t('es', 'checkout.destination.vault')) });
+    // N-9: el destino se ofrece DOS veces a propósito (en el formulario, con su detalle y el
+    // upsell; y otra vez justo arriba de «Pagar»), compartiendo estado. Se elige el del
+    // FORMULARIO por su nombre accesible completo — el del resumen se llama solo «Guardar en mi
+    // bóveda» —, en vez de un localizador que casa con los dos.
+    const vault = page.getByRole('radio', {
+      name: `${t('es', 'checkout.destination.vault')} ${t('es', 'checkout.destination.vaultRequiresAccount')}`,
+    });
     await expect(vault).toBeEnabled();
     await vault.check();
 

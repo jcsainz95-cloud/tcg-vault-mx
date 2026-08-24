@@ -63,9 +63,32 @@ async function addFromBinder(page: Page, name: string, finish = 'Normal') {
     .click();
 }
 
-/** Abre el DRAWER del carrito con el FAB (P-16, §18.4): el carrito ya no es columna lateral. */
+/**
+ * Localizador del carrito de venta **agnóstico del layout**. El carrito tiene DOS encarnaciones
+ * (`BuylistView`, mitigación H1): en **desktop (≥1024px)** es un `<aside>` fijo siempre visible; en
+ * **móvil** es un `role="dialog"` que abre el FAB. Ambos comparten el MISMO `SellCartContents` y el
+ * MISMO `aria-label`, así que se localiza por ahí en vez de por rol — que es lo único que cambia.
+ */
+function cartPanel(page: Page) {
+  // El aria-label lleva el conteo («Carrito de venta (2)»), así que se ancla por prefijo.
+  const prefix = t('es', 'buylist.cartDrawer.ariaLabel', { count: 0 }).replace(/\s*\(0\)\s*$/, '');
+  return page.locator(`[aria-label^="${prefix}"]`);
+}
+
+/**
+ * Deja el carrito VISIBLE, sea cual sea el viewport. En móvil abre el drawer con el FAB; en
+ * desktop no hay nada que abrir (el `<aside>` ya está en pantalla).
+ *
+ * Antes clicaba el FAB a secas y, con el viewport por defecto de la suite (1280×800), ese FAB
+ * **no existe** — el carrito es la columna lateral. De ahí el timeout de ocho specs.
+ */
 async function openCart(page: Page) {
-  await page.getByTestId('sell-cart-fab').click();
+  const fab = page.getByTestId('sell-cart-fab');
+  if ((await fab.count()) > 0) {
+    await fab.click();
+    return;
+  }
+  await expect(cartPanel(page)).toBeVisible();
 }
 
 /**
@@ -84,9 +107,17 @@ async function addFirstSellableCard(page: Page) {
   // Primera fila HABILITADA: una carta puede no cotizar en graded (p. ej. fixtures
   // holofoil-only → FINISH_NOT_AVAILABLE por-ítem) y su fila queda deshabilitada sin
   // tumbar el grid — se descubre la primera cotizable, no la primera a secas.
+  //
+  // ⚠️ Acotado a los botones de AGREGAR por su nombre accesible. Un `getByRole('button',
+  // { disabled: false })` a secas también casaba con el «Ver detalle de …» de cada fila (P-43),
+  // que está siempre habilitado: el helper abría el pop-up de detalle y NO agregaba nada, y el
+  // fallo aparecía después, al buscar el total en un carrito vacío.
+  const addPrefix = t('es', 'buylist.addFinishAria', { name: '\u0000', finish: '\u0000' }).split(
+    '\u0000',
+  )[0];
   await page
     .getByRole('list', { name: t('es', 'buylist.searchResults') })
-    .getByRole('button', { disabled: false })
+    .getByRole('button', { name: new RegExp(`^${addPrefix}`), disabled: false })
     .first()
     .click();
 }
@@ -219,6 +250,12 @@ test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', (
 });
 
 test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14/P-16 — §18.11.3)', () => {
+  // El FAB + drawer es la encarnación MÓVIL del carrito: arriba de 1024px el carrito es el
+  // `<aside>` fijo y el FAB ni se monta (`isDesktopCart`, mitigación H1). Este bloque describe
+  // literalmente «badge del FAB» y «cerrar regresa el foco al FAB», así que corre en el viewport
+  // donde ese comportamiento existe — el 390px de los patrones móviles de §20.11.
+  test.use({ viewport: { width: 390, height: 844 } });
+
   test('smoke: agregar desde la teja → badge del FAB sube → drawer con FinishMark → cerrar regresa el foco', async ({
     page,
   }) => {

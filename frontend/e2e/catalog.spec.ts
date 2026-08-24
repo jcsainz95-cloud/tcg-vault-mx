@@ -33,14 +33,30 @@ test.describe('Compra · listado y filtros', () => {
     await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
   });
 
-  test('tarjeta de SELLADO: badge "Sellado" + precio, sin condición/rareza', async ({ page }) => {
+  test('el SELLADO no se filtra desde Compra: vive en su propia pestaña', async ({ page }) => {
     await page.goto('/es/catalog');
-    // Filtra a Sellado.
-    await page.getByRole('button', { name: t('es', 'shop.type.sealed'), exact: true }).click();
+    // Compra lista SINGLES (raw/graded); el endpoint jamás emite un grupo sellado (H9, §2-S), así
+    // que la casilla «Sellado» del filtro de tipo solo podía devolver «Ninguna carta coincide».
+    // Se retiró: el sellado tiene su propia ruta, enlazada desde la sub-navegación de la Tienda.
+    await expect(
+      page.getByRole('button', { name: t('es', 'shop.type.sealed'), exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: t('es', 'shop.type.raw'), exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: t('es', 'storeTabs.sealed') }),
+    ).toBeVisible();
+  });
+
+  test('tarjeta de SELLADO (en /sellado): nombre del producto + precio «desde» sin IVA', async ({
+    page,
+  }) => {
+    await page.goto('/es/sellado');
     await expect(page.getByText('Surging Sparks Booster Box').first()).toBeVisible();
-    await expect(page.getByText(t('es', 'card.productType.sealed')).first()).toBeVisible();
-    // Precio siempre visible (sin IVA).
+    // Precio siempre visible (sin IVA), nunca «precio pendiente» en la vitrina.
     await expect(page.getByText(t('es', 'common.withoutIva')).first()).toBeVisible();
+    await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
   });
 
   test('condición NM legible con tooltip del estándar', async ({ page }) => {

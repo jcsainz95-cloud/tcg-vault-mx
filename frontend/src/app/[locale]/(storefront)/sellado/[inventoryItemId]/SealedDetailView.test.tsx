@@ -126,6 +126,26 @@ describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', 
     expect(screen.getByText('MX$3,050.00')).toBeInTheDocument();
   });
 
+  it('la TENDENCIA de valor también obedece `priceBasis`: con override no se pinta', async () => {
+    // El objeto de la regla no es una celda: es no publicar el valor de mercado cuando el mercado
+    // no fijó el precio. «Tendencia de valor» lo pintaba a 32-40px y lo rotulaba literalmente
+    // «valor de mercado de referencia» — hacía lo que la regla prohíbe, 200px más abajo.
+    mockDetail({ group: BOX_MINOR, trendEnabled: true });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1020" />, 'es');
+
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.queryByText('Tendencia de valor')).toBeNull();
+    expect(
+      screen.queryByText('Valor de mercado de referencia (TCGCSV), actualizado a diario.'),
+    ).toBeNull();
+  });
+
+  it('con precio por SPREAD la tendencia SÍ se pinta (ahí el mercado explica el precio)', async () => {
+    mockDetail({ group: BOX_MINT, trendEnabled: true });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+    expect(await screen.findByText('Tendencia de valor')).toBeInTheDocument();
+  });
+
   it('precio por OVERRIDE manual (priceBasis="override"): queda UNA sola celda a fila completa', async () => {
     mockDetail({ group: BOX_MINOR });
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1020" />, 'es');

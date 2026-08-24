@@ -73,18 +73,33 @@ test.describe('M2 · editor de la curva de precio (P-48)', () => {
 });
 
 test.describe('§21.8 · «Valor de mercado» que desaparece', () => {
-  test('ficha de sellado con OVERRIDE manual: el bloque no está y no deja hueco', async ({ page }) => {
+  test('ficha de sellado con OVERRIDE manual: la ficha NO publica el mercado en NINGUNA parte', async ({
+    page,
+  }) => {
     // inv-1020 se vende por override (sin mercado TCGCSV) ⇒ priceBasis="override".
     await page.goto('/es/sellado/inv-1020');
-
     await expect(page.getByText(t('es', 'sealed.fromPrice'))).toBeVisible();
-    // No se muestra: no aparece. Ni en cero, ni tachado, ni atenuado, ni «—».
-    await expect(page.getByText(t('es', 'sealed.detail.marketValue'))).toHaveCount(0);
+
+    // El objeto de la regla no es UNA CELDA: es no publicar el valor de mercado cuando el mercado
+    // no fijó el precio. Se afirma sobre la PÁGINA ENTERA a propósito — el defecto que esto cierra
+    // era que la celda desaparecía y «Tendencia de valor» volvía a publicar la cifra 200px abajo,
+    // rotulada «valor de mercado de referencia».
+    await expect(page.getByText(/valor de mercado/i)).toHaveCount(0);
+    await expect(page.getByText(t('es', 'sealed.trend.title'))).toHaveCount(0);
+    await expect(page.getByText(t('es', 'sealed.trend.marketRefNote'))).toHaveCount(0);
   });
 
-  test('ficha de sellado con precio por SPREAD: el bloque sí se muestra', async ({ page }) => {
+  test('ficha de sellado con precio por SPREAD: el bloque y la tendencia SÍ se muestran', async ({
+    page,
+  }) => {
+    // Asimetría legítima: con precio derivado por spread SÍ hay mercado, y el mercado es justo lo
+    // que explica el precio. `exact` acota al rótulo de la celda (la nota de la tendencia es otra
+    // frase que también contiene «Valor de mercado»).
     await page.goto('/es/sellado/inv-1008');
-    await expect(page.getByText(t('es', 'sealed.detail.marketValue'))).toBeVisible();
+    await expect(
+      page.getByText(t('es', 'sealed.detail.marketValue'), { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(t('es', 'sealed.trend.title'))).toBeVisible();
   });
 
   test('§21.8f: las tejas de Compra NO muestran valor de mercado en ningún estado', async ({

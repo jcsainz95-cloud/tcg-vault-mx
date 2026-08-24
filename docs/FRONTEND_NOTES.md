@@ -118,6 +118,27 @@ margen»). La variante «sin bloque» **no menciona** el mercado: no hay nada qu
   emite del editor viejo (`rule`, `tierId`, `source`). Cuando E7b/E8 los retiren, no hay cambio de
   frontend.
 
+### §21.8 alcanza a «Tendencia de valor» (hallazgo de QA, 2026-08-24)
+
+> El objeto de la regla **no es una celda**: es **no publicar el valor de mercado cuando el mercado
+> no fijó el precio**. La primera versión condicionó la celda y dejó fuera el otro bloque de la
+> misma ficha que publica la misma cifra.
+
+- **Defecto:** en `/sellado/:id` con `priceBasis='override'` la celda «Valor de mercado» desaparecía,
+  pero 200px más abajo `SealedValueTrend` pintaba la cifra a 32–40px y la rotulaba literalmente
+  «Valor de mercado de referencia (TCGCSV), actualizado a diario.» — exactamente lo que §N.7
+  prohíbe, solo que más abajo, y contra §21.8c («el hueco no se rellena ni con una explicación de
+  por qué no está el mercado»).
+- **Fix:** el bloque de tendencia se condiciona por `priceBasis` igual que la celda
+  (`trendEnabled && showMarketValue`). **Asimetría legítima:** con precio derivado por **spread**
+  sí hay mercado y el bloque **se muestra** — ahí el mercado es justo lo que explica el precio.
+- **Cómo se afirma ahora:** el E2E del caso override afirma sobre la **página entera**
+  (`getByText(/valor de mercado/i)` → 0), no sobre una celda. Un assert acotado a la celda es
+  exactamente el que dejó pasar este defecto.
+- **Regla para el futuro:** cualquier bloque nuevo de la ficha (de carta o de sellado) que imprima
+  la referencia de mercado entra bajo la misma condición. Hoy solo hay uno; la ficha de carta no
+  tiene tendencia y el formulario de restock no publica mercado (verificado).
+
 ### Cobertura
 
 - `M2View.test.tsx`: 12 casos del editor (retiro sin residuos + texto falso, anatomía, dry-run como
@@ -151,6 +172,39 @@ margen»). La variante «sin bloque» **no menciona** el mercado: no hay nada qu
   base ≈3/333, `premium_at_floor` subiendo con `no_market` **plano** ⇒ hay dato de mercado y está
   **bajo el piso** ⇒ **piso mal calibrado**; **subiendo los dos** ⇒ **feed de mercado degradado**, y
   tocar el piso empeoraría las cosas.
+
+### Harness E2E: tres defectos de test (no de app) que bloqueaban el release
+
+QA reportó once fallos E2E **anteriores a P-48** en flujos que este cambio toca. Ninguno era una
+regresión del stream y ninguno era de backend; los tres eran **supuestos de test caducados** por
+cambios de UI anteriores, más un control muerto:
+
+1. **`buylist` ×7 — el carrito tiene DOS encarnaciones.** `openCart()` clicaba el FAB, y con el
+   viewport de la suite (1280×800) ese FAB **no existe**: arriba de 1024px el carrito es el
+   `<aside>` fijo (mitigación H1). Ahora el helper es *viewport-aware* y el carrito se localiza por
+   su `aria-label` compartido, no por su rol —que es lo único que cambia entre ambas—. El smoke que
+   describe literalmente «badge del FAB» y «cerrar regresa el foco al FAB» corre en **390px**, que
+   es donde ese comportamiento existe.
+2. **`buylist` ×1 y `master-set` ×1 — localizadores que no distinguían el botón de AGREGAR.** Un
+   `getByRole('button', { disabled: false })` a secas también casaba con el «Ver detalle de …» de
+   cada fila/casilla (P-43, añadido después): el helper abría el pop-up y no agregaba nada, y el
+   fallo aparecía más tarde, en un carrito vacío. Ahora se acotan por nombre accesible.
+3. **`master-set` ×2 — el cotizador es una rejilla PLANA.** Los tests esperaban «dos casillas dentro
+   de la MISMA celda»; desde N-16 (v1.22-2) hay **una casilla `li` por (carta, acabado)**, hermanas.
+   Se reexpresó la misma intención (dos casillas para una carta con reverse holo, una para la de un
+   solo acabado, y ningún botón de venta para acabados que no existen) contra la estructura real.
+4. **`catalog` ×1 — un filtro que no podía acertar.** La casilla «Sellado» del filtro de tipo de
+   Compra sobrevivía de antes de la separación singles/sellado (H9, §2-S): `GroupedListingDTO`
+   **nunca** trae sellado, así que filtrar por ella solo podía devolver «Ninguna carta coincide»,
+   con la pestaña «Producto sellado» a diez centímetros. Se retiró la casilla (y su sub-filtro de
+   presentación, que solo se abría bajo ella). **Es el único de los cuatro que tocó UI de
+   producto**, y por eso queda dicho aquí: no se cambió ningún dato ni ningún precio, se quitó un
+   callejón sin salida.
+
+*(Aparte, `guest-checkout` ×2 fallaban por **strict mode**: el checkout de invitado ofrece el
+selector de DESTINO **dos veces a propósito** (N-9: en el formulario y otra vez arriba de «Pagar»,
+compartiendo estado) y pinta **dos avisos distintos** (resumen de errores + nota de bloqueo). Los
+localizadores ahora dicen a cuál se refieren; **no se tocó el checkout**, que es de otro stream.)*
 
 ### Solicitudes al arquitecto (ninguna bloquea)
 
