@@ -68,6 +68,22 @@
 > **Sin migración**; único cambio de contrato: la selección documentada + ese contador (API_CONTRACT §M1).
 > **Honestidad de alcance:** esto arregla el cut-over y da un **remedio manual**, pero **no hace continuo** al
 > guardarraíl — eso lo aporta **b-ter** (que el pase posterior al barrido **abra** entradas, no solo las cierre).
+> **Adenda v2.1.2 — I1: V5 se demostraba sobre el objeto equivocado (hallazgo de QA; §4.36.1/§4.36.3, E0-bis).** El
+> chequeo algebraico de V5 valida `f(m) = m·k(m)` **continua**, pero el precio que se cobra usaba `k(m)` **cuantizado a
+> bp entero** (`pricing-curve.ts:191`, siguiendo el «// bp entero» que este documento mandaba). En tramos descendentes
+> de pendiente pequeña, `m × round(k(m))` **baja** al subir `m`, y la escalera amplifica esa caída a **un peldaño
+> entero**: con `1.60×@$25 → 1.15×@$80 → 1.05×@$1000`, mercado **$717.10 ⇒ $800** y **$717.11 ⇒ $775** — **$25 menos
+> por un centavo más**, guardado con `200` y `violations: []`. Viola los criterios 87(a) y 81 y es el sesgo que §N.0
+> prohíbe. **Causa raíz: este diseño, no la estrategia de validación** — la demostración era correcta, el objeto no.
+> **Corrección: se PROHÍBE cuantizar el multiplicador interpolado**; el precio se computa en **una sola expresión
+> racional exacta** y el **único** redondeo de la cadena pasa a ser el de centavos finales, que es monótono. Con eso,
+> V5 vuelve a ser exacto **sobre la función que cobra** (cadena de composición explícita en §4.36.1), **sin barrer el
+> dominio** en el `PUT`. **V6** se endurece de `p < k` a `k − p ≥ 1` unidad (dos valores continuos distintos dentro del
+> mismo centavo colapsaban a `compra == venta`). **Sin cambio de DTO, de setting ni de seed**; el seed vigente ya era
+> limpio (0 rupturas en el barrido de QA) — pero por suerte estructural, no por garantía. Las tres curvas de QA quedan
+> como **regresión permanente**. **Además (M2):** se corrige el texto de §4.36.5c que afirmaba que la **lectura del
+> binder** cierra pendientes — **no lo hace ni debe hacerlo** (chocaría con la doctrina read-only); cierran solo los
+> seams de escritura, y la continuidad la da **b-ter**.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -6885,28 +6901,55 @@ valor del extremo). Un tramo plano **dentro** del rango está prohibido por dise
 mercados casi iguales y, arriba de ~$25 de mercado, es imposible sin vender por debajo del mercado.
 
 ```
-interp(points, m):
+// ⚠️ v2.1.2 — `interp` devuelve el valor EXACTO como RACIONAL (num/den). NO se cuantiza a bp entero.
+interpExact(points, m) -> (num, den)      // k(m) = num/den, exacto; den > 0, num > 0
   if points is empty            -> ERROR de configuración (no se guarda; ver 4.36.3)
-  if m <= points[0].market      -> points[0].value                      // tramo plano inicial
-  if m >= points[last].market   -> points[last].value                   // tramo plano final
+  if m <= points[0].market      -> (points[0].value,    1)              // tramo plano inicial
+  if m >= points[last].market   -> (points[last].value, 1)              // tramo plano final
   find i with points[i].market <= m < points[i+1].market
   (m0,v0) = points[i] ; (m1,v1) = points[i+1]
-  return ROUND_HALF_UP( v0 + (v1 - v0) * (m - m0) / (m1 - m0) )         // bp entero
+  den = m1 - m0
+  num = v0*den + (v1 - v0)*(m - m0)                                     // = k(m) * den, entero
+  return (num, den)
 ```
 
-> **`ROUND_HALF_UP` = medio **ALEJÁNDOSE DE CERO**, y se redondea el **VALOR FINAL**, no el delta.** Los dos detalles
-> son deliberados y **normativos**, porque son fuente clásica de divergencia entre dos implementaciones de la misma
-> fórmula de dinero: (1) redondear el delta obligaría a redondear un número **negativo** cuando el markup baja
-> —`Math.round(-1590.5)` da `-1590` en JS (medio hacia +∞) pero «medio alejándose de cero» da `-1591`—, mientras que el
-> **valor final siempre es ≥ 0** en ambas curvas (`multiplierBp ≥ 10000`, `pctBp ≥ 0`), así que el caso negativo
-> **desaparece por construcción**; (2) fijar el modo evita que backend y el previsualizador difieran en un centavo.
-> La misma regla aplica a `rawCents = ROUND_HALF_UP(m × valor / 10000)`.
+> ### ⛔ PROHIBIDO cuantizar el multiplicador interpolado (v2.1.2 — corrige el hallazgo I1 de QA)
+>
+> **La versión anterior de esta sección decía «bp entero» y ESO ERA EL BUG.** Redondear `k(m)` a bp entero convierte el
+> multiplicador en una **función escalonada**: en cada escalón a la baja, `m × K(m)` **cae** aunque `m` suba, y la
+> escalera de redondeo amplifica esa caída de unos centavos a **un peldaño completo**. Caso reproducido por QA con la
+> curva `1.60×@$25 → 1.15×@$80 → 1.05×@$1000` (diales perfectamente plausibles, guardados con `200` y
+> `violations: []`):
+>
+> | mercado | con bp cuantizado (BUG) | con racional exacto (norma) |
+> |---|---|---|
+> | `$717.10` | `k→10808`, raw `77504` ⇒ **$800.00** | `k=10807.5`, raw `77501` ⇒ **$800.00** |
+> | `$717.11` | `k→10807`, raw `77498` ⇒ **$775.00** ⛔ | `k=10807.4891…`, raw `77502` ⇒ **$800.00** ✅ |
+>
+> **$25 menos por un centavo más de mercado** — exactamente el sesgo que §N.0 manda evitar (precio de menos = carta
+> perdida). La causa NO era la estrategia de validación: era **esta línea del diseño**.
+>
+> **Norma:** el precio se computa en **UNA sola expresión entera exacta**, sin ningún redondeo intermedio:
+>
+> ```
+> rawCents = ROUND_HALF_UP( m * num / (den * 10000) )        // (num, den) = interpExact(points, m)
+> ```
+>
+> `num` y `den` son enteros y `num > 0` siempre (`k(m)` está entre `v0` y `v1`, ambos ≥ 0). **El ÚNICO redondeo de
+> toda la cadena de venta es el de centavos finales**, y ése es monótono — que es lo que hace que V5 sea una
+> afirmación sobre **la función que cobra** y no sobre una aproximación suya (§4.36.3).
+
+> **`ROUND_HALF_UP` = medio ALEJÁNDOSE DE CERO.** Se fija el modo porque es fuente clásica de divergencia entre dos
+> implementaciones de la misma fórmula de dinero (`Math.round(-0.5)` da `-0` en JS; «medio alejándose de cero» da
+> `-1`). Con la forma racional de arriba el operando **siempre es ≥ 0**, así que el caso negativo **desaparece por
+> construcción** — pero el modo queda fijado igual, para que backend y el previsualizador no difieran en un centavo.
 
 **Venta.**
 ```
 resolveSale(m, curve):
   if m == null or m <= 0                   -> { cents: null, basis: 'pending' }
-  rawCents  = ROUND_HALF_UP( m * interp(curve.sale.points, m) / 10000 )
+  (num, den) = interpExact(curve.sale.points, m)                        // EXACTO, sin cuantizar
+  rawCents  = ROUND_HALF_UP( m * num / (den * 10000) )                  // ÚNICO redondeo de la cadena
   baseCents = max(curve.sale.floorCents, rawCents)
   basis     = (curve.sale.floorCents > rawCents) ? 'floor' : 'market'    // EMPATE ⇒ 'market' (§N.7)
   return { cents: roundUp(baseCents, curve.sale.rounding), basis }
@@ -6916,7 +6959,8 @@ resolveSale(m, curve):
 ```
 resolveBuy(m, curve):
   if m == null or m <= 0                   -> { cents: null, basis: 'pending' }
-  rawCents  = ROUND_HALF_UP( m * interp(curve.buy.points, m) / 10000 )
+  (num, den) = interpExact(curve.buy.points, m)                         // EXACTO, sin cuantizar
+  rawCents  = ROUND_HALF_UP( m * num / (den * 10000) )
   basis     = (curve.buy.binCents > rawCents) ? 'floor' : 'market'       // EMPATE ⇒ 'market'
   return { cents: max(curve.buy.binCents, rawCents), basis }             // SIN redondeo (§N.1)
 ```
@@ -6936,6 +6980,31 @@ roundUp(x, ladder):
 son **ÚNICOS y globales** — un piso de venta y un bin de compra para todo el catálogo de cartas sueltas. **No** por
 acabado, **no** por rareza, **no** por tier (PROJECT decisión 4: el humano aceptó que el piso diferenciado por acabado
 cuesta ~2 % de utilidad y no vale su complejidad; §N.10 lo pone fuera de alcance explícitamente).
+
+**CADENA DE MONOTONÍA (v2.1.2 — el eslabón que faltaba; NORMATIVA y verificable).** El precio que se cobra es la
+composición `P(m) = roundUp( max( piso , ROUND_HALF_UP( f(m) ) ) , escalera )` con `f(m) = m·k(m)/10000`. Que `P` sea
+monótona **no se sigue** de que `f` lo sea: hay que decir por qué **cada eslabón preserva la monotonía**, y ése es
+exactamente el paso que faltaba cuando V5 se declaró «exacto».
+
+| # | Eslabón | ¿Preserva monotonía? | Quién lo garantiza |
+|---|---|---|---|
+| 1 | `k(m)` interpolado | — (puede bajar; se permite y se quiere) | §N.1 (markup decreciente) |
+| 2 | `f(m) = m·k(m)/10000` **exacto, sin cuantizar** | **sí, si `f' ≥ 0`** | **V5** (chequeo algebraico por tramo) **+ la prohibición de cuantizar k** (§4.36.1) |
+| 3 | `ROUND_HALF_UP(·)` a centavos | **sí** — es no decreciente por definición | propiedad de la función |
+| 4 | `max(piso, ·)` | **sí** — máximo con una constante | trivial |
+| 5 | `roundUp(·, escalera)` | **sí, dado un input monótono** | **V8** (fronteras múltiplo del paso inferior) |
+
+> **Dónde estuvo el error, dicho sin adorno.** El eslabón 2 **no se sostenía**: el diseño mandaba cuantizar `k(m)` a bp
+> entero, así que la función real no era `m·k(m)` sino `m·round(k(m))` — **escalonada**, y por tanto capaz de bajar en
+> cada escalón. V5 demostraba una propiedad **verdadera** (`f` continua es monótona) sobre un objeto que **no era el
+> que cobra**. La forma de la demostración era correcta; el objeto, no. Se corrige **en el eslabón 2** (interpolación
+> exacta, §4.36.1), no debilitando V5 ni sustituyéndolo por un barrido.
+>
+> **Por qué NO se resuelve barriendo el dominio.** Un barrido peso a peso convierte una validación **exacta** en una
+> **muestreada**: con paso de 1 centavo sería exacto pero costaría millones de evaluaciones por `PUT`, y con cualquier
+> paso mayor dejaría de ser una demostración — reintroduciendo el mismo problema por otra puerta (un hueco que nadie
+> ve). El barrido **sí** vale como **test** (una vez, en CI, contra el seed y contra las curvas de regresión de QA);
+> **no** como validación de escritura.
 
 **Prueba de mesa (normativa — criterios 79/80/82; los tests unitarios DEBEN cubrir estas filas con los diales
 iniciales de 4.36.2).**
@@ -7090,8 +7159,8 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 | V2 | Puntos ordenables y únicos | `marketCents` enteros `≥ 0` y **estrictamente crecientes** tras ordenar (sin duplicados) | `DUPLICATE_BREAKPOINT` |
 | V3 | Rangos | `multiplierBp ∈ [10000, 1000000]`; `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` (enteros) | `VALIDATION_ERROR` |
 | V4 | **Ningún precio de venta por debajo del mercado** | `multiplierBp ≥ 10000` **en cada punto** (la interpolación lineal de valores ≥ 10000 nunca baja de 10000; el `max` con el piso solo sube; el redondeo solo sube) | `SALE_BELOW_MARKET` |
-| V5 | **Curva de venta monótona creciente** | `f(m) = m·k(m)` es cuadrática por tramo ⇒ `f' ≥ 0` en los DOS extremos de cada tramo: con `s = (k₁−k₀)/(m₁−m₀)`, exigir `k₀ + m₀·s ≥ 0` **y** `k₁ + m₁·s ≥ 0`. Los tramos planos (antes del primero, después del último) son crecientes porque `k > 0` | `SALE_CURVE_NOT_MONOTONIC` |
-| V6 | **Compra siempre por debajo de venta, en todo el dominio** | `pctBp(m) < multiplierBp(m)` evaluado en la **UNIÓN de los `marketCents` de ambas curvas** (ambas son lineales por tramo sobre esa unión ⇒ la diferencia es lineal por tramo ⇒ basta comprobar los nodos y los tramos planos) | `BUY_ABOVE_SALE` |
+| V5 | **Curva de venta monótona creciente — sobre la función que COBRA** | `f(m) = m·k(m)` es cuadrática por tramo ⇒ `f' ≥ 0` en los DOS extremos de cada tramo: con `s = (k₁−k₀)/(m₁−m₀)`, exigir `k₀ + m₀·s ≥ 0` **y** `k₁ + m₁·s ≥ 0`. Los tramos planos (antes del primero, después del último) son crecientes porque `k > 0`. **Válido SOLO con la interpolación exacta de §4.36.1** — ver la cadena de composición abajo | `SALE_CURVE_NOT_MONOTONIC` |
+| V6 | **Compra ESTRICTAMENTE por debajo de venta, en todo el dominio** | **`multiplierBp(m) − pctBp(m) ≥ 1`** (una unidad entera de la escala compartida) evaluado en la **UNIÓN de los `marketCents` de ambas curvas** (ambas lineales por tramo sobre esa unión ⇒ la diferencia es lineal ⇒ su mínimo cae en un nodo ⇒ basta comprobar nodos y tramos planos) | `BUY_ABOVE_SALE` |
 | V7 | El bin no rebasa al piso | `binCents < floorCents` (cierra el caso en que ambos ejes saturan en su constante) | `BIN_ABOVE_FLOOR` |
 | V8 | Escalera bien formada | `≥ 1` banda; `stepCents ≥ 1`; `uptoCents` estrictamente crecientes; **exactamente la última** con `uptoCents = null`; **cada frontera es múltiplo exacto del paso de la banda inmediatamente inferior** | `ROUNDING_LADDER_INVALID` |
 
@@ -7101,10 +7170,33 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 > $500 múltiplo de $10) el invariante se cumple y la escalera es monótona por construcción.
 > **V5 y V6 juntos son lo que hace verificable el criterio 81** («no hay saltos de `markup`/`pct` entre dos mercados
 > contiguos, salvo los del redondeo»): un barrido peso a peso es un test de **caracterización**, no la definición; la
-> definición es el chequeo algebraico de arriba, que es exacto.
+> definición es el chequeo algebraico de arriba, que es exacto — **sobre la función que cobra**, gracias a la cadena de
+> composición de §4.36.1 y a que ya no hay cuantización intermedia.
+
+> **V6, por qué `≥ 1` y no `<` (v2.1.2).** El chequeo anterior era `pctBp(m) < multiplierBp(m)` sobre los valores
+> **continuos**, y eso **no garantiza** que los precios en centavos queden separados: dos valores continuos distintos
+> pero dentro del mismo centavo redondean al **mismo** entero, y ahí `compra == venta` (margen cero), que es lo que
+> §N.3 prohíbe. Exigir **una unidad entera** de separación en la escala compartida lo cierra: si `k(m) − p(m) ≥ 1`
+> entonces `ROUND(m·k/S) ≥ ROUND(m·p/S + m/S) > ROUND(m·p/S)` y la desigualdad **sobrevive al redondeo**. Como la
+> diferencia `k − p` es **lineal por tramo** sobre la unión de nodos, su mínimo cae **en un nodo** ⇒ comprobar los
+> nodos sigue siendo **exacto**, no muestreado. Coste práctico: nulo (la separación real del seed es de miles de bp).
 
 **Money-safe adicional (runtime, no configuración):** `mercado == null` o `≤ 0` ⇒ `basis='pending'`, `priceCents=null`.
 **Nunca** se publica MX$0 ni se inventa un precio (regla transversal §H, intacta).
+
+**Regresión obligatoria de V5 (I1) — las tres curvas de QA quedan como test permanente.** Con la interpolación exacta
+las tres deben ser **monótonas** y guardarse; el test barre el entorno de la ruptura (no todo el dominio) y compara
+`P(m)` contra `P(m−1)`:
+
+| Curva de venta | Par que rompía | Debe dar |
+|---|---|---|
+| `2.00×@$10 → 1.05×@$500` | `$256.10` / `$256.11` | `P($256.11) ≥ P($256.10)` |
+| `1.60×@$25 → 1.15×@$80 → 1.05×@$1000` | `$717.10` / `$717.11` | ambos **$800.00** (antes `$800` → `$775`) |
+| `1.50×@$50 → 1.00×@$800` | `$383.52` / `$383.53` | `P($383.53) ≥ P($383.52)` |
+
+> El **seed vigente sigue limpio** (QA lo barrió de $0.01 a $6 000: 0 rupturas) — pero eso era **suerte estructural**,
+> no garantía: su único tramo descendente termina en $80, donde la cuantización de bp aún no muerde. La tabla es
+> **editable sin redeploy** (criterio 86), así que la garantía tiene que estar en la matemática, no en el default.
 
 #### 4.36.4 Qué se RETIRA y qué SOBREVIVE de la taxonomía (criterio 96, «sin residuos»)
 
@@ -7299,12 +7391,27 @@ el dueño filtra para triar**.
 > no en un recurso aparte: el diagnóstico es la **relación entre ambos**, y dos lecturas desfasadas no la sostienen.
 
 **Salida de la cola (normativo, simétrico a la entrada).** El **mismo seam** que escala **cierra** la entrada `open` de
-esa clave cuando una resolución posterior devuelve `basis ∈ {market, override, bounty}`. Es decir: cuando el siguiente
-barrido (`price-ingest`, §4.35) escribe una `PriceReference` real y el precio vuelve a resolver por mercado, la entrada
-se cierra **sola** en la siguiente resolución (publicación, republicación, `publish-all` o lectura del binder) —
-**sin** intervención manual. El camino manual existente (`POST /admin/pricing/override`, que resuelve pendientes
-context-agnóstico, §4.24c) **no cambia**. **Nota para backend:** hoy el ingest **no** cierra entradas; esta simetría es
-**comportamiento nuevo** y debe cubrirse con test (escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ entrada
+esa clave cuando una resolución posterior devuelve `basis ∈ {market, override, bounty}`.
+
+**Los seams que cierran son SOLO los de ESCRITURA** (v2.1.2 — corrección del hallazgo M2 de QA):
+`inventory.createItem`, `inventory.bulkPublish`, `inventory.publish-all` y `buylist.createRequest` — exactamente los
+mismos que escalan (b). El camino manual existente (`POST /admin/pricing/override`, que resuelve pendientes
+context-agnóstico, §4.24c) **no cambia**.
+
+> ⛔ **Corrección: la «lectura del binder» NO cierra pendientes, y no debe hacerlo.** Una revisión anterior de este
+> párrafo listaba «publicación, republicación, `publish-all` **o lectura del binder**». Lo último **era falso**: el
+> binder (`master-set.service.ts`) usa el **composer puro** (`composeVariantPricing`) y **no escribe** —
+> `settlePendingForVariant` solo se invoca desde `inventory.service.ts` y `buylist.service.ts`. Y **está bien que sea
+> así**: hacer escribir a un `GET` chocaría de frente con la doctrina read-only de (b) (la misma que mantiene
+> `/buylist/quote` sin efectos, lección BE-16) y metería escrituras N+1 en una pantalla de lectura. Se corrige **el
+> documento**, no el código. *(Es higiene de cola, no dinero: mientras la entrada siga `open` de más, la variante ya
+> resuelve y se publica igual — solo sobra una fila en la cola hasta el siguiente write o barrido.)*
+
+**Y por eso la salida REALMENTE continua la aporta (b-ter).** Si los únicos seams que cierran son de escritura, una
+entrada solo se cierra cuando alguien publica o cotiza. El pase de reconciliación posterior al barrido (b-ter) es lo
+que la cierra **sin intervención**, y es **el mismo pase** que la abre — abrir y cerrar por la misma vía es lo que
+hace que la cola no derive. **Nota para backend:** hoy el ingest **no** cierra entradas; esa simetría es
+**comportamiento nuevo** y debe cubrirse con test (escalar ⇒ inyectar `PriceReference` ⇒ correr el pase ⇒ entrada
 `resolved` y pieza publicable).
 
 **(d) Lo que el guardarraíl NO es.** No es un piso por rareza, no es una regla de precio y **no fija ningún monto**:
@@ -7612,7 +7719,8 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 
 | # | Etapa | Verde cuando |
 |---|---|---|
-| **E0** | `common/pricing-curve.ts`: tipos, `interp`, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador V1–V8. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante V1–V8 + **un caso de medio centavo** que fije `ROUND_HALF_UP` (p. ej. `interp` cayendo en `.5` y `rawCents = 1733.5 ⇒ 1734`) |
+| **E0** | `common/pricing-curve.ts`: tipos, **`interpExact` (racional, SIN cuantizar a bp)**, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador V1–V8. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante V1–V8 + **un caso de medio centavo** que fije `ROUND_HALF_UP` (`rawCents = 1733.5 ⇒ 1734`) |
+| **E0-bis** | **I1 (§4.36.1/§4.36.3):** retirar la cuantización a bp entero (`pricing-curve.ts:191`) y computar el precio en **una sola expresión racional exacta**; V6 pasa a exigir separación `≥ 1` unidad. **Toca dinero — es la corrección del hallazgo de QA** | **regresión permanente con las TRES curvas de QA** (§4.36.3): en cada par que rompía, `P(m) ≥ P(m−1)`; en particular `1.60×@$25 → 1.15×@$80 → 1.05×@$1000` da **$800 en `$717.10` Y en `$717.11`**. Más el barrido del seed ($0.01–$6 000, 0 rupturas) como test de caracterización **en CI, no en el `PUT`** |
 | **E1** | `SettingKey.PRICING_CURVE` + validador + seed §N.2. M-41 aplicada | el setting valida y siembra; los viejos siguen ahí, intactos |
 | **E2** | `computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` en `money.ts` (con `priceBasis` y precedencias), **conviviendo** con los resolvers viejos | unitarios de precedencia: override absoluto, empate ⇒ `market`, sin mercado ⇒ `pending` |
 | **E3** | Se cambian **los dos seams de servicio** (`PricingService.computeSalePriceForItem`, `BuylistService.quoteCardForFinish`) + `variant-pricing.ts`. Los ~12 call-sites **no cambian de firma** porque pasan por el servicio | suite existente adaptada: los ~40 specs de precio se re-expresan contra la curva (esperado: la mayoría cambia de **valor esperado**, no de forma) |

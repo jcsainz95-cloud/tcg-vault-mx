@@ -2,7 +2,34 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.1-listed-blind-spot).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.2-monotonic-discrete).
+>
+> **Changelog v2.1.2-monotonic-discrete (2026-08-24, arquitecto — corrección de los hallazgos I1/M1/M2 de QA.
+> ARCHITECTURE §4.36.1 / §4.36.3 / §4.36.5c. NO cambia ningún DTO, endpoint ni seed; cambia la MATEMÁTICA interna y
+> dos textos que decían algo falso.):**
+> - **I1 (money) — la curva de venta podía NO ser monótona.** V5 demostraba `f(m) = m·k(m)` **continua**, pero el
+>   precio real usaba `k(m)` **cuantizado a bp entero**, que es escalonado: en cada escalón a la baja `m × round(k(m))`
+>   **cae**, y la escalera amplifica la caída a **un peldaño entero**. Con la curva legal
+>   `1.60×@$25 → 1.15×@$80 → 1.05×@$1000`: mercado **$717.10 ⇒ $800.00** y **$717.11 ⇒ $775.00** — **$25 menos por un
+>   centavo más**, guardado con `200` y `violations: []`. Viola los criterios **87(a)** y **81**.
+>   **Corrección: se PROHÍBE cuantizar el multiplicador interpolado.** El precio se computa en **una sola expresión
+>   racional exacta** y el **único** redondeo de la cadena es el de centavos finales (monótono). Así V5 pasa a ser
+>   exacto **sobre la función que cobra**, **sin barrer el dominio** en el `PUT`. **Los puntos siguen siendo enteros en
+>   el DTO** — no cambia el contrato ni el seed.
+> - **V6 se endurece** de `pct < multiplier` a **`multiplier − pct ≥ 1`** (una unidad entera): dos valores continuos
+>   distintos dentro del mismo centavo colapsaban a **`compra == venta`** (margen cero), que §N.3 prohíbe.
+> - **`appliedBp` del preview queda marcado como SOLO-DISPLAY** (redondeado a bp; **no** es el valor con el que se
+>   calcula). Rehacer a mano `mercado × appliedBp` puede diferir de `rawCents` en **≤ 1 centavo**; el autoritativo es
+>   `rawCents`.
+> - **M1 — `POST /admin/pricing/curve/preview`: se RATIFICA `400`** para los límites de la petición (sondas vacías /
+>   > 50 / no enteras / negativas; `draft` mal formado) y `422` solo para la curva inevaluable. **Manda el contrato**;
+>   la implementación devuelve 422 y **backend ajusta**. Precedente local idéntico: `/buylist/quote/batch`,
+>   `bulk-publish`, `bulk-remove`. Los tests de estos errores deben **assertar el status**, no solo el `code`.
+> - **M2 — se corrige un texto falso de ARCHITECTURE §4.36.5c:** decía que la **lectura del binder** cierra pendientes
+>   y **no lo hace ni debe hacerlo** (chocaría con la doctrina read-only). Cierran **solo los seams de escritura**; la
+>   continuidad la aporta el pase posterior al barrido (§4.36.5b-ter). Sin cambio de contrato.
+>
+> Versión previa: v2.1.1-listed-blind-spot.
 >
 > **Changelog v2.1-curve-preview (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND.
 > Solicitudes de ux-ui (`DESIGN_SYSTEM.md` §21.13.1) y de frontend, aprobadas y enrutadas por el orquestador.
@@ -1531,10 +1558,16 @@
   - **`422 SALE_BELOW_MARKET`** — algún punto con `multiplierBp < 10000`: **ningún precio de venta puede caer por
     debajo del mercado**. `details.multiplierBp` señala el punto.
   - **`422 SALE_CURVE_NOT_MONOTONIC`** — la curva de venta resultante **no es monótona creciente** (más mercado
-    produciría **menos** precio). Se verifica algebraicamente por tramo, no por muestreo. `details` señala el tramo
-    `(index, index+1)` infractor.
-  - **`422 BUY_ABOVE_SALE`** — en algún punto del dominio la **compra alcanza o supera la venta** (`pctBp(m) ≥
-    multiplierBp(m)`). Se evalúa en la **unión** de los `marketCents` de ambas curvas (exacto, no muestreo).
+    produciría **menos** precio). Se verifica algebraicamente por tramo, **no por muestreo**. `details` señala el tramo
+    `(index, index+1)` infractor. **v2.1.2:** el invariante se afirma sobre **el precio que se cobra**
+    (`roundUp(max(piso, ROUND_HALF_UP(m·k(m)/10000)), escalera)`) y no sobre una aproximación continua suya; lo
+    sostiene la **prohibición de cuantizar** el multiplicador interpolado (ARCHITECTURE §4.36.1). Es lo que hace
+    cumplible el **criterio 87(a)** *de verdad*: antes se aceptaban curvas cuya venta real **sí** bajaba.
+  - **`422 BUY_ABOVE_SALE`** — en algún punto del dominio la **compra alcanza o supera la venta**. **v2.1.2:** la
+    condición es `multiplierBp(m) − pctBp(m) ≥ 1` (una unidad entera de la escala compartida), no `pctBp < multiplierBp`
+    sobre los continuos: dos valores distintos **dentro del mismo centavo** redondeaban al mismo entero y producían
+    `compra == venta` (margen cero). Se evalúa en la **unión** de los `marketCents` de ambas curvas — exacto, no
+    muestreo: la diferencia es lineal por tramo, así que su mínimo cae siempre **en un nodo**.
   - **`422 BIN_ABOVE_FLOOR`** — `binCents ≥ floorCents`: el caso en que ambos ejes saturan en su constante y la compra
     igualaría/superaría la venta.
   - **`422 ROUNDING_LADDER_INVALID`** — escalera mal formada: banda sin `stepCents ≥ 1`, `uptoCents` no crecientes,
@@ -1805,6 +1838,10 @@ SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fall
 // escalonado DENTRO del rango está prohibido (produce saltos de precio y, arriba de ~$25 de mercado, es imposible sin
 // vender por debajo del mercado). `points` es de LONGITUD VARIABLE: el dueño AGREGA, MUEVE y BORRA renglones — NO es
 // una estructura fija de N puntos. El PUT reemplaza la lista completa (semántica de reemplazo, no de patch por índice).
+// ⚠️ v2.1.2 — los `marketCents`/`multiplierBp`/`pctBp` de los PUNTOS son enteros (así se persisten y se editan), pero
+// el multiplicador INTERPOLADO entre dos puntos NO se cuantiza: el precio se computa en UNA sola expresión racional
+// exacta y el único redondeo de la cadena es el de centavos finales. Cuantizar el interpolado a bp entero volvía la
+// venta NO monótona (mercado $717.10 ⇒ $800 / $717.11 ⇒ $775 con una curva legal). ARCHITECTURE §4.36.1.
 SaleCurvePointDTO = { marketCents: number, multiplierBp: number }   // 1.60× = 16000 ; rango [10000, 1000000]
 BuyCurvePointDTO  = { marketCents: number, pctBp: number }          // 30 %  = 3000  ; rango [0, 10000]
 // Escalera de redondeo ↑ — SOLO VENTA (la compra no se redondea). La BANDA la decide el monto ANTES de redondear y se
@@ -1825,8 +1862,13 @@ PricingCurveDTO   = { version: 1,
 CurvePreviewRequest = { draft: PricingCurveDTO,   // la curva EN EDICIÓN (sin guardar). Obligatoria.
                         marketsCents: number[] }  // 1..50 sondas, enteros >= 0. El server DEDUPLICA y ORDENA asc.
 // Memoria de cálculo de UN eje para UNA sonda (§21.5a la pinta literal; ARCHITECTURE §4.36.1 la define).
-//   * `appliedBp` = el valor INTERPOLADO que se aplicó, en puntos base del mercado (venta: multiplicador, 16000=1.60×;
-//     compra: porcentaje, 3000=30%). Es el «× 1.4409» / «× 34.67%» de la memoria.
+//   * `appliedBp` = el valor interpolado, en puntos base (venta: multiplicador, 16000=1.60×; compra: %, 3000=30%). Es
+//     el «× 1.4409» / «× 34.67%» de la memoria.
+//     ⚠️ v2.1.2 — `appliedBp` es **SOLO PARA MOSTRAR, redondeado a bp; NO es el valor con el que se calcula**: el
+//     cálculo usa la interpolación RACIONAL EXACTA (cuantizarla rompía la monotonía, §DTOs arriba / ARCHITECTURE
+//     §4.36.1). Consecuencia práctica: rehacer a mano `mercado × appliedBp` puede diferir de `rawCents` en **≤ 1
+//     centavo**; el número autoritativo es `rawCents`, que lo devuelve el servidor. (Nota para ux-ui: conviene que la
+//     memoria de §21.5a lea «≈» en esa línea, o muestre más decimales. Es copy, decide ux-ui.)
 //   * `rawCents` = producto ANTES de la constante y ANTES de redondear = ROUND_HALF_UP(mercado × appliedBp / 10000).
 //     ⚠ `ROUND_HALF_UP` = medio ALEJÁNDOSE DE CERO, y en `interp` se redondea el VALOR FINAL (nunca el delta, que
 //     puede ser negativo cuando el markup baja: `Math.round(-1590.5)` da -1590 en JS pero la norma exige -1591).
@@ -4687,8 +4729,8 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     | `CURVE_EMPTY` | `sale.points` y `buy.points` deben tener **≥ 1** punto (sin puntos no hay curva) |
     | `DUPLICATE_BREAKPOINT` | dos puntos con el **mismo `marketCents`** en la misma curva |
     | `SALE_BELOW_MARKET` | **ningún precio de venta cae por debajo del mercado** ⇒ `multiplierBp ≥ 10000` **en cada punto** |
-    | `SALE_CURVE_NOT_MONOTONIC` | **la curva de venta es monótona creciente** — más mercado **nunca** produce menos precio |
-    | `BUY_ABOVE_SALE` | **la compra queda por debajo de la venta en TODO el dominio** ⇒ `pctBp(m) < multiplierBp(m)` en la unión de los puntos de ambas curvas |
+    | `SALE_CURVE_NOT_MONOTONIC` | **la curva de venta es monótona creciente SOBRE EL PRECIO QUE SE COBRA** — más mercado **nunca** produce menos precio. **v2.1.2:** el invariante se afirma sobre `roundUp(max(piso, ROUND_HALF_UP(m·k(m)/10000)), escalera)`, no sobre una aproximación suya; lo sostiene la **prohibición de cuantizar** el multiplicador interpolado (ARCHITECTURE §4.36.1) |
+    | `BUY_ABOVE_SALE` | **la compra queda ESTRICTAMENTE por debajo de la venta en TODO el dominio** ⇒ **v2.1.2:** `multiplierBp(m) − pctBp(m) ≥ 1` (una unidad entera de la escala compartida) en la unión de los puntos de ambas curvas. Antes era `<` sobre los valores continuos, y dos valores distintos dentro del mismo centavo colapsaban a `compra == venta` (margen cero) |
     | `BIN_ABOVE_FLOOR` | `binCents < floorCents` (el caso en que ambos ejes saturan en su constante) |
     | `ROUNDING_LADDER_INVALID` | escalera bien formada: `stepCents ≥ 1`; `uptoCents` estrictamente crecientes; **exactamente la última** con `uptoCents = null`; **cada frontera múltiplo exacto del paso de la banda inferior** (si no, el redondeo rompe la monotonía) |
 
@@ -4780,6 +4822,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     verifica en la tabla de referencia de §21.5b: **una fórmula, tres puntos de observación, cero divergencia posible.**
   - Err: `400 VALIDATION_ERROR` (sondas vacías / > 50 / no enteras / negativas; `draft` ausente o mal formado),
     `422` (los del grupo «impide calcular», arriba), `403 FORBIDDEN` (rol < `super_admin`).
+  - **⚠️ RATIFICADO v2.1.2 (hallazgo M1 de QA — la implementación devuelve `422` donde aquí dice `400`; manda el
+    contrato).** La separación es deliberada y **se conserva**:
+    - **`400` = la PETICIÓN está mal formada** (`marketsCents` vacío, > 50, no entero, negativo; `draft` ausente o sin
+      la forma de `PricingCurveDTO`). No se llegó a evaluar ninguna curva.
+    - **`422` = la CURVA es inevaluable** (`CURVE_EMPTY`, `DUPLICATE_BREAKPOINT`, rangos, escalera estructural). La
+      petición era válida; el objeto de negocio no.
+    - **Por qué 400 y no 422 en los límites de la lista:** es el **precedente local** para exactamente la misma forma
+      (lista + cap 50): `POST /buylist/quote/batch` → «Vacío o sobre-cap → `400 VALIDATION_ERROR`»; ídem
+      `bulk-publish` y `bulk-remove`. Un cap de request es forma, no regla de negocio. **Backend ajusta** (no usar
+      `BusinessException.validation`, que mapea a 422, para este grupo).
+    - **Nota de calidad de test (para backend):** el caso `pricing.curve-endpoints.spec.ts:315` **se titula «→ 400»
+      pero solo asserta `code`**, nunca el status — por eso la divergencia pasó verde. Los tests de estos errores
+      deben **assertar el status HTTP**, no solo el `code`; si no, la distinción 400/422 no está cubierta por nada.
 - `GET /api/v1/admin/reports/pricing-brackets` — **(NUEVO, M9, `super_admin`)** — instrumentación (§N.8, criterio 95).
   Agrega las operaciones **consumadas** por eje × `MarketBracket` para responder «¿qué tan rápido rota cada bracket y
   con qué margen?». Es lo que evita que la calibración de la curva vuelva a ser una corazonada.
