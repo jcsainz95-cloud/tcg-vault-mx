@@ -5,7 +5,6 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { BuylistRule } from '../src/common/money';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
@@ -17,11 +16,6 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
  */
 
 const pii = new PiiCryptoService(new ConfigService({}));
-
-const SEED: Record<string, BuylistRule> = {
-  Common: { mode: 'fixed', value: 50 },
-  'Reverse Holo': { mode: 'fixed', value: 150 },
-};
 
 /** CardProduct simulado, resuelto por tcgplayerProductId. */
 interface FakeProduct {
@@ -84,7 +78,7 @@ function svcWith(opts: {
     getVariantOverride: jest.fn(async () => null),
   };
   const settings = {
-    getRaw: jest.fn().mockResolvedValue(SEED),
+    getRaw: jest.fn().mockResolvedValue(null),
     getNumber: jest.fn().mockResolvedValue(opts.fallbackPct ?? 40),
   } as unknown as SettingsService;
   const svc = new BuylistService(
@@ -290,7 +284,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
   }
 
   const settings = {
-    getRaw: jest.fn().mockResolvedValue(SEED),
+    getRaw: jest.fn().mockResolvedValue(null),
     getNumber: jest.fn(async (key: string) => {
       if (key === 'buylist_cap_per_request_cents') return 100_000_000;
       if (key === 'buylist_cap_per_month_cents') return 100_000_000;

@@ -939,13 +939,15 @@ export class InventoryService {
   /**
    * v1.16-master-set (§4.17b) — PUBLICAR POR LOTE (varias piezas → `listed`). Por línea:
    *  - `listPriceCents` presente → override manual; ausente → precio de venta **derivado** server-side
-   *    de las reglas por rareza+acabado (§4.14, SEC-A1) reusando `computeSalePriceForRarity`.
-   *  - Una pieza cuyo precio NO se resuelve (`pct` sin market) → `PRICE_PENDING`, NO se publica
-   *    (regla "solo se lista lo que tiene precio", §4.9). Sellado sin override → `PRICE_PENDING`.
+   *    de la curva de precios (v2.0, §4.36.1, SEC-A1) vía `computeSalePriceFromCurve` — sin rareza ni
+   *    acabado como parámetro de monto (criterio 84); la rareza solo alimenta el guardarraíl.
+   *  - Una pieza cuyo precio NO se resuelve (sin `PriceReference`) o cuyo guardarraíl premium-en-el-
+   *    piso dispara → `PRICE_PENDING`, NO se publica (regla "solo se lista lo que tiene precio",
+   *    §4.9). Sellado sin override → `PRICE_PENDING`.
    *  - **Errores por-línea** (no encontrada, no `platform`, graded sin certNumber, precio pendiente)
    *    no tumban las demás → HTTP 200. Re-publicar una `listed` = no-op idempotente (`ok:true`).
-   *  - Pago mínimo de BE-25: iza `SALES_PRICE_RULES`+fallback UNA vez y usa `getReferencesBatch` (1
-   *    lote de referencias) — sin N+1 de settings ni de referencias.
+   *  - Pago mínimo de BE-25: iza la curva (`PricingService.loadPricingCurve()`) UNA vez y usa
+   *    `getReferencesBatch` (1 lote de referencias) — sin N+1 de settings ni de referencias.
    */
   async bulkPublish(req: BulkPublishRequest, actorUserId: string): Promise<BulkPublishResponse> {
     // Idempotencia opcional del lote (si trae batchKey) — replay devuelve lo guardado.

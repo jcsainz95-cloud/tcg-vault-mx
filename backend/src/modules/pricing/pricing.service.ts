@@ -22,11 +22,7 @@ import {
   usdToMxnCents,
   computeSalePriceFromCurve,
   computeSealedSalePrice,
-  toPriceRuleSet,
   CurvePriceResult,
-  PriceRuleSet,
-  BuylistRule,
-  SalesRule,
   SealedSpreadResult,
   VariantPriceControls,
 } from '../../common/money';
@@ -43,7 +39,6 @@ import {
   normalizePricingCurve,
   sanitizePricingCurve,
 } from '../../common/pricing-curve';
-import { TierId } from '../../common/pricing-tiers';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
@@ -563,14 +558,6 @@ export class PricingService {
   }
 
   /**
-   * v1.28 (P-18) — iza `BUYLIST_PRICE_RULES` + fallback UNA vez por request (espejo de
-   * `loadSalesRules`), para consola/binder. OJO: `BuylistService.buylistRules()` NO delega aquí —
-   * son DOS lecturas paralelas de la MISMA config (mismas SettingKey, misma forma; decisión
-   * justificada para no acoplar módulos, registrada como deuda SB-D2). El cuerpo normativo de la
-   * semántica de precio es la matemática compartida en `money.ts`; si cambia el formato del dial,
-   * ambos reads cambian juntos.
-   */
-  /**
    * v2.0 (P-48, §4.36.2) — EL ÚNICO LECTOR DE LA CURVA en todo el backend. Funde
    * `loadBuylistRules()` + `loadSalesRules()` (y el `BuylistService.buylistRules()` que no delegaba en
    * este servicio) en un solo loader: la curva vive en UNA clave, así que dos loaders solo abrirían la
@@ -642,53 +629,18 @@ export class PricingService {
     return { rows, violations: collectCurveViolations(draft).filter((e) => !e.blocking) };
   }
 
-  async loadBuylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    // v1.37 (§4.33c): iza también PRICING_TIER_MAP y DERIVA el `PriceRuleSet` efectivo si el setting trae
-    // el shape por tiers (post-M-38); compat on-read con `{ rarityRules, ... }`/plano (§4.28d) sin el mapa.
-    const tierMap = await this.loadTierMap();
-    const rules = toPriceRuleSet<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-      fallbackPct,
-      tierMap,
-    );
-    return { rules, fallbackPct };
-  }
-
-  /**
-   * v1.37 (§4.33b/c) — iza el mapa COMPARTIDO `PRICING_TIER_MAP` (`Record<canonicalRarity, TierId>`) para
-   * derivar el `PriceRuleSet` efectivo (compra y venta lo comparten). Rareza ausente ⇒ sin entrada ⇒
-   * fallbackPct (money-safe). Forma degenerada del setting ⇒ `{}` (todo al fallback, nunca $0).
-   */
-  async loadTierMap(): Promise<Record<string, TierId>> {
-    const raw = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
-    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return {};
-    return raw as Record<string, TierId>;
-  }
-
-  /**
-   * v1.16-master-set (BE-25, pago mínimo) — iza `SALES_PRICE_RULES` + fallback en **1** par de
-   * lecturas por request (en vez de 2 lecturas de settings por ítem). Lo usan `bulk-publish` y
-   * `fetchSellable` con `computeSalePriceForRarity` (pura) para evitar el N+1 de settings.
-   */
-  async loadSalesRules(): Promise<{ rules: PriceRuleSet<SalesRule>; fallbackPct: number }> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
-    // v1.37 (§4.33c): DERIVA el `PriceRuleSet` efectivo desde (tierRules × PRICING_TIER_MAP) si el setting
-    // trae el shape por tiers; compat on-read con `{ rarityRules, ... }`/plano (§4.28d).
-    const tierMap = await this.loadTierMap();
-    const rules = toPriceRuleSet<SalesRule>(
-      await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
-      fallbackPct,
-      tierMap,
-    );
-    return { rules, fallbackPct };
-  }
+  // v2.0 (P-48, §4.36.2/§4.36.4) — `loadBuylistRules()`, `loadSalesRules()` y `loadTierMap()`
+  // RETIRADOS: las cinco claves que leían (`buylist_price_rules`, `buylist_price_fallback_pct`,
+  // `sales_price_rules`, `sales_price_fallback_pct`, `pricing_tier_map`) ya no se leen, escriben ni
+  // siembran. Las sustituye `loadPricingCurve()` (arriba), ÚNICO lector de configuración de dinero.
+  // Sus filas quedan huérfanas e inertes en `ConfigSetting` a propósito (§4.36.9b): borrar config en
+  // el mismo paso que cambia la matemática elimina la vía de diagnóstico y el rollback barato.
 
   /**
    * v1.23-sealed-sales (§4.23b/§4.23c/§4.23d) — CONTEXTO de precio del SELLADO izado en UNA lectura
-   * por request (espejo de `loadSalesRules`, pago mínimo de BE-25): spreads por presentación +
-   * fallback + estado del dial `sealedPriceSource`. `sourceOn=false` (dial off) ⇒ el sellado solo se
-   * vende con override manual (el `sealedMarketRef` queda inerte, ARCHITECTURE §4.23a).
+   * por request (mecanismo INDEPENDIENTE de la curva de precios, pago mínimo de BE-25): spreads por
+   * presentación + fallback + estado del dial `sealedPriceSource`. `sourceOn=false` (dial off) ⇒ el
+   * sellado solo se vende con override manual (el `sealedMarketRef` queda inerte, ARCHITECTURE §4.23a).
    */
   async loadSealedSpreads(): Promise<{
     spreadPctBySubtype: Record<string, number>;
@@ -1369,18 +1321,9 @@ export class PricingService {
     });
   }
 
-  /**
-   * @deprecated v1.13-sales-pricing (§4.14d): reemplazado por `computeSalePriceForItem` (precio de
-   * venta por RAREZA). Ya NO lo llama la ruta de venta (los 2 call-sites migraron: catalog.toListingDTO
-   * y orders.salePriceOf). Se conserva como palanca de ROLLBACK del markup GLOBAL único
-   * (SALES_MARKUP_PCT). Retiro definitivo = follow-up del humano (decisión abierta v1.13-3).
-   *
-   * Precio de venta = referencia × (1 + markup). ARCHITECTURE §10.1.
-   */
-  async computeSalePrice(referenceMxnCents: number): Promise<number> {
-    const markup = await this.settings.getNumber(SettingKey.SALES_MARKUP_PCT);
-    return Math.round(referenceMxnCents * (1 + markup / 100));
-  }
+  // v2.0 (P-48) — `computeSalePrice(ref)` (markup GLOBAL único `SALES_MARKUP_PCT`) RETIRADO: era la
+  // palanca de rollback del pricing anterior a v1.13, y con la curva no hay a qué volver. El precio de
+  // venta lo resuelve `computeSalePriceForItem` (seam único, §4.36.5b).
 
   /**
    * v2.0 (P-48, §4.36.5b) — **SEAM ÚNICO DEL EJE DE VENTA**. Todo lo que publica o cobra pasa por aquí:

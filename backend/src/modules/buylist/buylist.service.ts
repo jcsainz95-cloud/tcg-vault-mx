@@ -224,9 +224,9 @@ export class BuylistService {
   /**
    * v1.15 (§4.16b) — cotización en LOTE (`POST /buylist/quote/batch`, public, READ-ONLY). Mata el
    * fan-out FE-12: cotiza N cartas en 1 request. Es un `map` de la MISMA lógica por-carta
-   * (`quoteCardForFinish`) compartiendo `buylistRules()` (un solo read de config) → misma matemática
-   * y mismos guardarraíles (gate premium, BUYLIST_PRICE_RULES + fallback, referencia por acabado, FX
-   * ya bakeada en PriceReference). SEC-A1 intacto.
+   * (`quoteCardForFinish`) compartiendo la curva izada UNA vez (`PricingService.loadPricingCurve()`,
+   * v2.0 §4.36.2) → misma matemática y mismos guardarraíles (gate premium-en-el-piso, referencia por
+   * acabado, FX ya bakeada en PriceReference). SEC-A1 intacto.
    *
    * ERRORES POR-ÍTEM: una carta inválida (NOT_FOUND / FINISH_NOT_AVAILABLE) NO tumba las demás — su
    * resultado sale `ok:false` con el `error` de ESE ítem; el HTTP global es 200. Correlación por

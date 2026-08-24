@@ -2,7 +2,6 @@
  * settings.constants.ts — Diales M10 (ConfigSetting). ARCHITECTURE §3.2, §5.1.
  * Los valores viven en DB (editables sin redeploy). Aquí solo las KEYS y los DEFAULTS.
  */
-import { TIER_IDS, isTierId } from '../../common/pricing-tiers';
 // v2.0 (P-48, §4.36.2): la CURVA vive en `common/` (zona compartida, sin infra) para que el seed, las
 // migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
 // validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
@@ -37,21 +36,12 @@ export const SettingKey = {
   // flipee el dial (mismo patrón de rollout money-safe que `price_provider`). Rollback = `off`
   // (los PriceReference ya escritos permanecen, informativos e inertes).
   SEALED_PRICE_SOURCE: 'sealed_price_source',
-  // v1.3.1 (§E.1): tabla de precio de buylist por RAREZA OFICIAL. Reemplaza `rarity_map` en la
-  // ruta de cotización. Editables en M2 (GET/PUT /admin/pricing/buylist-rules), no en M10.
-  BUYLIST_PRICE_RULES: 'buylist_price_rules',
-  BUYLIST_PRICE_FALLBACK_PCT: 'buylist_price_fallback_pct',
-  // v1.13-sales-pricing (§4.14, FASE 2): tabla de precio de VENTA por RAREZA OFICIAL. Reemplaza el
-  // markup GLOBAL único (SALES_MARKUP_PCT) en la ruta de venta. Editables en M2 (GET/PUT
-  // /admin/pricing/sales-rules), no en M10. `pct` = % ARRIBA de mercado (markup), NO % de la
-  // referencia como en buylist (ver money.ts computeSalePriceForRarity).
-  SALES_PRICE_RULES: 'sales_price_rules',
-  SALES_PRICE_FALLBACK_PCT: 'sales_price_fallback_pct',
-  // v1.37 (§4.33b, P-34, M-38): mapa COMPARTIDO `Record<canonicalRarity, TierId>`. Un solo mapa, dos
-  // juegos de valores (vive fuera de las dos claves de reglas porque lo comparten compra y venta). Rareza
-  // AUSENTE del mapa ⇒ tier por defecto ⇒ fallbackPct (money-safe, nunca $0/bin fijo). Editable por M2
-  // (GET/PUT /admin/pricing/tier-map), no por PUT /admin/settings.
-  PRICING_TIER_MAP: 'pricing_tier_map',
+  // v2.0 (P-48, §4.36.2/§4.36.9b) — RETIRADAS: `buylist_price_rules`, `buylist_price_fallback_pct`,
+  // `sales_price_rules`, `sales_price_fallback_pct` y `pricing_tier_map`. Las cinco las reemplaza UNA
+  // sola clave, `pricing_curve` (abajo). Ya no se leen, ni se escriben, ni se siembran; sus filas
+  // quedan huérfanas e inertes en `ConfigSetting` A PROPÓSITO (no se borran en la migración: borrar
+  // config en el mismo paso que cambia la matemática elimina la vía de diagnóstico y el rollback
+  // barato). Mismo precedente que `rarity_map` (v1.32).
   // v2.0 (P-48, §4.36.2, M-41.7): LA CURVA — UNA sola clave que reemplaza a las CINCO de arriba
   // (`sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`,
   // `buylist_price_fallback_pct`, `pricing_tier_map`). Es UNA y no dos (venta/compra) a propósito: el
@@ -62,9 +52,10 @@ export const SettingKey = {
   // `SETTING_DTO_MAP`, así que `PUT /admin/settings` no la toca.
   PRICING_CURVE: 'pricing_curve',
   // v1.23-sealed-sales (§4.23c): spreads de VENTA del SELLADO por presentación + fallback global.
-  // Espejo de SALES_PRICE_RULES/FALLBACK pero keyeados por SealedSubtype. `pct` = markup ARRIBA de
-  // mercado (NO % de la referencia como en buylist). Editables por endpoints M2 dedicados
-  // (GET/PUT /admin/pricing/sealed-spreads), NO por PUT /admin/settings. money.computeSealedSalePrice.
+  // Mecanismo INDEPENDIENTE de la curva de precios (v2.0, §4.36): el sellado no interpola, usa
+  // `pct` = markup ARRIBA de mercado por SealedSubtype (NO % de la referencia como en buylist).
+  // Editables por endpoints M2 dedicados (GET/PUT /admin/pricing/sealed-spreads), NO por
+  // PUT /admin/settings. money.computeSealedSalePrice.
   SEALED_SPREAD_PCT_BY_SUBTYPE: 'sealed_spread_pct_by_subtype',
   SEALED_SPREAD_FALLBACK_PCT: 'sealed_spread_fallback_pct',
   // v1.23-sealed-sales (§4.23h): feature flags (seed off) de los endpoints §2-S. Con off el
@@ -115,83 +106,6 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SEALED_PRICE_SOURCE]: 'off',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
-  // v1.29 (§4.28d): seed en DOS EJES que PRESERVA el negocio vigente. Antes plano
-  // (Common/Uncommon $0.50 fijo, Reverse Holo $1.50 fijo, resto → fallback 40%); la key sintética
-  // «Reverse Holo» (que era un ACABADO, no rareza) migra a `finishRules.reverse_holo`; Common/Uncommon
-  // (rarezas) a `rarityRules`. `fallbackPct` vive en el dial separado BUYLIST_PRICE_FALLBACK_PCT.
-  // v1.37 (§4.33b/e, M-38): RESHAPE a TIERS. `tierRules` (5 entradas T0–T4) reemplaza `rarityRules`.
-  // `finishRules`/`fallbackPct` (dial separado) NO cambian (eje acabado intacto, §4.28d). Reproduce el
-  // negocio de COMPRA vigente SALVO T2: T0 fixed $0.50, T1 fixed $1.50 (Uncommon/Reverse — bandera PO
-  // DEV-tiers-1), **T2 pct 25% (cambio LOCKED, antes fallback 40%)**, T3/T4 pct 40% (= fallback vigente).
-  [SettingKey.BUYLIST_PRICE_RULES]: {
-    tierRules: {
-      T0: { mode: 'fixed', value: 50 },
-      T1: { mode: 'fixed', value: 150 },
-      T2: { mode: 'pct', value: 25 },
-      T3: { mode: 'pct', value: 40 },
-      T4: { mode: 'pct', value: 40 },
-    },
-    finishRules: {
-      reverse_holo: { mode: 'fixed', value: 150 },
-    },
-  },
-  [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: 40,
-  // v1.29 (§4.28d): seed en DOS EJES que reproduce el ejemplo del humano (Common $5, Uncommon $10 por
-  // RAREZA; holo/reverse $10 FIJOS por ACABADO; el resto cae al fallback = market × (1 + 15/100)). Las
-  // keys sintéticas «Holo»/«Reverse Holo» migran a `finishRules.holofoil`/`finishRules.reverse_holo`.
-  // v1.37 (§4.33b/e, M-38): RESHAPE a TIERS (análogo con SalesRule). Reproduce la VENTA vigente: T0/T1 =
-  // pisos fijos vigentes de Common/Uncommon ($5 / $10); T2/T3/T4 = pct 15 (= SALES_PRICE_FALLBACK_PCT
-  // vigente, markup arriba de mercado). `finishRules` (holofoil/reverse_holo $10 fijos) = las de hoy, SIN
-  // cambio (§4.33e). El eje de venta NO entra al invariante premium→pct (un fixed de venta es un piso).
-  [SettingKey.SALES_PRICE_RULES]: {
-    tierRules: {
-      T0: { mode: 'fixed', value: 500 },
-      T1: { mode: 'fixed', value: 1000 },
-      T2: { mode: 'pct', value: 15 },
-      T3: { mode: 'pct', value: 15 },
-      T4: { mode: 'pct', value: 15 },
-    },
-    finishRules: {
-      holofoil: { mode: 'fixed', value: 1000 },
-      reverse_holo: { mode: 'fixed', value: 1000 },
-    },
-  },
-  // Default 15 = iguala EXACTAMENTE el SALES_MARKUP_PCT vigente → preserva el precio de venta actual
-  // (market × 1.15) para toda rareza que caiga al fallback. Solo el piso de bulk cambia.
-  [SettingKey.SALES_PRICE_FALLBACK_PCT]: 15,
-  // v1.37 (§4.33b/e, M-38): mapa COMPARTIDO rareza canónica → tier (M.2 LOCKED + las 2 canónicas nuevas
-  // Mega Rare/Black White Rare → T3). Rareza ausente ⇒ fallbackPct. Editable por PUT /admin/pricing/tier-map.
-  [SettingKey.PRICING_TIER_MAP]: {
-    Common: 'T0',
-    Uncommon: 'T1',
-    'Reverse Holo': 'T1',
-    Promo: 'T1',
-    Rare: 'T2',
-    'Rare Holo': 'T2',
-    'Double Rare': 'T3',
-    'Ultra Rare': 'T3',
-    'Illustration Rare': 'T3',
-    'Rare Holo EX': 'T3',
-    'Rare Holo GX': 'T3',
-    'Rare Holo V': 'T3',
-    'Rare Holo VMAX': 'T3',
-    'Rare Holo VSTAR': 'T3',
-    'Rare Holo LV.X': 'T3',
-    'Rare Prime': 'T3',
-    'Rare BREAK': 'T3',
-    LEGEND: 'T3',
-    'Amazing Rare': 'T3',
-    'Radiant Rare': 'T3',
-    'Shiny Rare': 'T3',
-    'Trainer Gallery Rare Holo': 'T3',
-    'Rare ACE': 'T3',
-    'Mega Rare': 'T3',
-    'Black White Rare': 'T3',
-    'Special Illustration Rare': 'T4',
-    'Hyper Rare': 'T4',
-    'Secret Rare': 'T4',
-    'Gold Rare': 'T4',
-  },
   // v2.0 (P-48, §4.36.2 / M-41.7): SEED = los diales de PROJECT §N.2 VERBATIM. NO se DERIVA de las
   // reglas viejas: la forma vieja (modos excluyentes por rareza/tier/acabado) y la nueva (una función
   // del mercado) son INCONMENSURABLES — cualquier «conversión» sería una interpretación inventada, y el
@@ -230,133 +144,12 @@ function isNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-/**
- * BE-27 (money-safety): COTA SUPERIOR compartida del `value` de una regla `fixed` (centavos MXN).
- * `= MX$1,000,000` en centavos. Sin techo, un `fixed` absurdo (p. ej. 1e12) desbordaría las columnas
- * `*Cents` que son `Int` en Postgres (máx 2_147_483_647 = ~MX$21.4M): al persistir el importe cotizado
- * lanzaría (excepción Prisma = DoS del checkout/cotización). MX$1M deja holgura de sobra para cualquier
- * pieza real y queda MUY por debajo del techo Int32. Mismo patrón que SALES_PCT_MAX / MAX_FX_MANUAL_OVERRIDE_RATE.
- */
-export const FIXED_CENTS_MAX = 100_000_000;
 
-/**
- * v1.3.1 (§E.1): valida UNA regla de precio de buylist `{ mode, value }`.
- * fixed → value entero en [0, FIXED_CENTS_MAX] (centavos MXN). pct → value número en [0, 100].
- */
-export function isValidBuylistRule(v: unknown): boolean {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
-  const r = v as { mode?: unknown; value?: unknown };
-  // BE-27: fixed acotado arriba por FIXED_CENTS_MAX (evita overflow Int32 al persistir `*Cents`).
-  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0 && r.value <= FIXED_CENTS_MAX;
-  if (r.mode === 'pct') return isNum(r.value) && r.value >= 0 && r.value <= 100;
-  return false;
-}
 
-/** v1.29 (§4.28d): acabados válidos como key de `finishRules` (enum Finish). */
-export const FINISH_RULE_KEYS = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 
-/**
- * v1.29 (§4.28d) — valida un `PriceRuleSet` de DOS EJES `{ rarityRules, finishRules, fallbackPct? }`.
- * `ruleOk` valida UNA regla (buylist o venta). `rarityRules` = objeto por rareza; `finishRules` =
- * objeto por acabado (key ∈ enum Finish). Money-safe: rechaza formas/keys/valores inválidos → 422.
- */
-export function validatePriceRuleSet(v: unknown, ruleOk: (r: unknown) => boolean, pctHint: string): string | null {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-    return 'must be an object { rarityRules, finishRules, fallbackPct? }';
-  }
-  const set = v as { rarityRules?: unknown; finishRules?: unknown };
-  const rr = set.rarityRules;
-  if (rr === undefined || rr === null || typeof rr !== 'object' || Array.isArray(rr)) {
-    return 'rarityRules must be an object map { [canonicalRarity]: { mode, value } }';
-  }
-  for (const [rarity, rule] of Object.entries(rr as Record<string, unknown>)) {
-    if (!ruleOk(rule)) return `invalid rarityRule for "${rarity}": ${pctHint}`;
-  }
-  const fr = set.finishRules;
-  if (fr === undefined || fr === null || typeof fr !== 'object' || Array.isArray(fr)) {
-    return 'finishRules must be an object map { [finish]: { mode, value } }';
-  }
-  for (const [finish, rule] of Object.entries(fr as Record<string, unknown>)) {
-    if (!FINISH_RULE_KEYS.includes(finish)) {
-      return `invalid finishRule key "${finish}": must be one of ${FINISH_RULE_KEYS.join('|')}`;
-    }
-    if (!ruleOk(rule)) return `invalid finishRule for "${finish}": ${pctHint}`;
-  }
-  return null;
-}
 
-/**
- * v1.37 (§4.33b) — valida un `TieredRuleSet` `{ tierRules, finishRules, fallbackPct? }`. `tierRules` =
- * objeto keyeado por `TierId` (T0–T4; toda key debe ser un `TierId` válido, cada regla válida);
- * `finishRules` = objeto por acabado (key ∈ enum Finish); `fallbackPct` opcional (vive en el dial separado).
- * NO exige las 5 entradas aquí (una tabla parcial cae al fallback); el PUT /pricing/tiers sí exige las 5.
- */
-export function validateTieredRuleSet(v: unknown, ruleOk: (r: unknown) => boolean, pctHint: string): string | null {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-    return 'must be an object { tierRules, finishRules, fallbackPct? }';
-  }
-  const set = v as { tierRules?: unknown; finishRules?: unknown };
-  const tr = set.tierRules;
-  if (tr === undefined || tr === null || typeof tr !== 'object' || Array.isArray(tr)) {
-    return 'tierRules must be an object map { [TierId]: { mode, value } }';
-  }
-  for (const [tierId, rule] of Object.entries(tr as Record<string, unknown>)) {
-    if (!isTierId(tierId)) return `invalid tier "${tierId}": must be one of ${TIER_IDS.join('|')}`;
-    if (!ruleOk(rule)) return `invalid tierRule for "${tierId}": ${pctHint}`;
-  }
-  const fr = set.finishRules;
-  if (fr === undefined || fr === null || typeof fr !== 'object' || Array.isArray(fr)) {
-    return 'finishRules must be an object map { [finish]: { mode, value } }';
-  }
-  for (const [finish, rule] of Object.entries(fr as Record<string, unknown>)) {
-    if (!FINISH_RULE_KEYS.includes(finish)) {
-      return `invalid finishRule key "${finish}": must be one of ${FINISH_RULE_KEYS.join('|')}`;
-    }
-    if (!ruleOk(rule)) return `invalid finishRule for "${finish}": ${pctHint}`;
-  }
-  return null;
-}
 
-/**
- * Valida la tabla `buylist_price_rules`. v1.37 (§4.33b): acepta el `TieredRuleSet` (`{ tierRules,
- * finishRules }`, forma NUEVA por tiers), el `PriceRuleSet` de DOS EJES (`{ rarityRules, finishRules }`,
- * compat pre-M-38) o el mapa PLANO legacy (`{ [rarity]: rule }`). Cada regla: fixed→entero
- * [0,FIXED_CENTS_MAX] cents · pct→número [0,100].
- */
-export function validateBuylistRules(v: unknown): string | null {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-    return 'must be an object map, TieredRuleSet { tierRules, finishRules } or PriceRuleSet { rarityRules, finishRules }';
-  }
-  const hint = `fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,100]`;
-  if ('tierRules' in (v as object)) {
-    return validateTieredRuleSet(v, isValidBuylistRule, hint);
-  }
-  if ('rarityRules' in (v as object) || 'finishRules' in (v as object)) {
-    return validatePriceRuleSet(v, isValidBuylistRule, hint);
-  }
-  for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
-    if (!isValidBuylistRule(rule)) return `invalid rule for rarity "${rarity}": ${hint}`;
-  }
-  return null;
-}
 
-/**
- * v1.37 (§4.33b) — valida el mapa `pricing_tier_map` (`Record<canonicalRarity, TierId>`): objeto (no
- * array), cada value un `TierId` válido. La existencia de la rareza en el catálogo canónico se valida en
- * el PUT /pricing/tier-map (422 UNKNOWN_RARITY); aquí solo forma+TierId (money-safe: no siembra tiers
- * inventados).
- */
-export function validateTierMap(v: unknown): string | null {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-    return 'must be an object map { [canonicalRarity]: TierId }';
-  }
-  for (const [rarity, tierId] of Object.entries(v as Record<string, unknown>)) {
-    if (!isTierId(tierId)) {
-      return `invalid tier for rarity "${rarity}": must be one of ${TIER_IDS.join('|')}`;
-    }
-  }
-  return null;
-}
 
 /**
  * v2.0 (P-48, §4.36.3) — validador de PUERTA del dial `pricing_curve`. Delega en el ÚNICO validador
@@ -378,59 +171,10 @@ export function validatePricingCurveSetting(v: unknown): string | null {
   return `${problem.code}: ${problem.message}${where}`;
 }
 
-/** Valida el fallback `buylist_price_fallback_pct` (número en [0, 100]). */
-export function validateFallbackPct(v: unknown): string | null {
-  return isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]';
-}
 
-/**
- * v1.13-sales-pricing (§4.14a): tope del `pct` de VENTA. A diferencia del pct de buylist (que topa
- * en [0,100] porque comprar a >100% de mercado no tiene sentido), el pct de venta es un MARKUP
- * ARRIBA de mercado y SÍ puede superar 100% (una chase se lista a 2×–3× market). Tope 1000% evita
- * typos catastróficos sin limitar el markup real. Ver ARCHITECTURE decisión abierta v1.13-2.
- */
-export const SALES_PCT_MAX = 1000;
 
-/**
- * v1.13-sales-pricing (§4.14a): valida UNA regla de precio de VENTA `{ mode, value }`.
- * fixed → value entero ≥ 0 (piso MX$ centavos). pct → value número en [0, SALES_PCT_MAX] (markup %).
- * Clona `isValidBuylistRule` cambiando solo el tope del pct (100 → 1000).
- */
-export function isValidSalesRule(v: unknown): boolean {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
-  const r = v as { mode?: unknown; value?: unknown };
-  // BE-27: fixed acotado arriba por FIXED_CENTS_MAX (evita overflow Int32 al persistir `*Cents`).
-  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0 && r.value <= FIXED_CENTS_MAX;
-  if (r.mode === 'pct') return isNum(r.value) && r.value >= 0 && r.value <= SALES_PCT_MAX;
-  return false;
-}
 
-/**
- * Valida la tabla `sales_price_rules`. v1.29 (§4.28d): acepta el `PriceRuleSet` de DOS EJES
- * (forma NUEVA) o el mapa PLANO legacy. Cada regla: fixed→entero [0,FIXED_CENTS_MAX] cents ·
- * pct→número [0,SALES_PCT_MAX] (markup arriba de mercado).
- */
-export function validateSalesRules(v: unknown): string | null {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-    return 'must be an object map, TieredRuleSet { tierRules, finishRules } or PriceRuleSet { rarityRules, finishRules }';
-  }
-  const hint = `fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,${SALES_PCT_MAX}]`;
-  if ('tierRules' in (v as object)) {
-    return validateTieredRuleSet(v, isValidSalesRule, hint);
-  }
-  if ('rarityRules' in (v as object) || 'finishRules' in (v as object)) {
-    return validatePriceRuleSet(v, isValidSalesRule, hint);
-  }
-  for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
-    if (!isValidSalesRule(rule)) return `invalid rule for rarity "${rarity}": ${hint}`;
-  }
-  return null;
-}
 
-/** Valida el fallback `sales_price_fallback_pct` (número en [0, SALES_PCT_MAX]). */
-export function validateSalesFallbackPct(v: unknown): string | null {
-  return isNum(v) && v >= 0 && v <= SALES_PCT_MAX ? null : `must be a number in [0, ${SALES_PCT_MAX}]`;
-}
 
 /**
  * v1.23-sealed-sales (§4.23c): tope del spread de venta del sellado. Mismo criterio que el pct de
@@ -531,14 +275,6 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && SEALED_PRICE_SOURCE_VALUES.includes(v)
       ? null
       : `must be one of ${SEALED_PRICE_SOURCE_VALUES.join('|')}`,
-  [SettingKey.BUYLIST_PRICE_RULES]: validateBuylistRules,
-  [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: validateFallbackPct,
-  // v1.13-sales-pricing (§4.14a): reglas de VENTA por rareza + fallback (pct = markup arriba de mercado).
-  [SettingKey.SALES_PRICE_RULES]: validateSalesRules,
-  [SettingKey.SALES_PRICE_FALLBACK_PCT]: validateSalesFallbackPct,
-  // v1.37 (§4.33b): mapa compartido rareza→tier. Se valida forma+TierId; la existencia de la rareza en
-  // el catálogo la valida el PUT /pricing/tier-map (422 UNKNOWN_RARITY). No editable por PUT /settings.
-  [SettingKey.PRICING_TIER_MAP]: validateTierMap,
   // v2.0 (P-48, §4.36.3): la CURVA. Editable SOLO por PUT /admin/pricing/curve (no está en
   // SETTING_DTO_MAP), pero se valida igual en esta puerta: V1–V8 money-safe, sin excepción.
   [SettingKey.PRICING_CURVE]: validatePricingCurveSetting,

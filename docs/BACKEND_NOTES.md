@@ -7424,3 +7424,144 @@ borradas/después por tabla.
 - **Rate-limit `POST /auth/forgot-password` subido 3→10/hora (2026-08-23, `auth.controller.ts:88`):** por
   petición del humano (3/hora le bloqueaba las pruebas); ttl intacto en 1 hora. 10/hora sigue siendo tope
   anti-abuso razonable. Candado en `test/auth.throttle.spec.ts` y comentario en `main.ts:34` actualizados.
+
+---
+
+## P-48 · v2.0-pricing-curve + v2.1-curve-preview — curva de precios (interpolada, sin tiers), M-41 (2026-08-24)
+
+Rework end-to-end de TODO el eje de precios (venta y compra) según ARCHITECTURE §4.36.0–§4.36.11 y
+API_CONTRACT `v2.0-pricing-curve`/`v2.1-curve-preview`. Reemplaza el modelo de reglas por rareza/tier
+(`SALES_PRICE_RULES`/`BUYLIST_PRICE_RULES`/`PRICING_TIER_MAP` + los dos fallback `%`) por UNA sola
+función continua e interpolada por tramos de mercado, en basis points (bp, 10000bp=100%), sin rareza ni
+acabado como parámetro de monto (criterio 84 — la rareza SOLO alimenta un guardarraíl booleano). Se
+implementaron las etapas E0–E8 completas, en orden, cada una con su propia suite verde antes de avanzar.
+Rama `claude/card-pricing-rules-2e537m`. Money-critical: toca los dos ejes (venta al público, compra en
+buylist) y el guardarraíl de rarezas premium.
+
+### E0 — matemática pura (`backend/src/common/pricing-curve.ts` + `.spec.ts`, 75 tests)
+Módulo SIN dependencias de infraestructura. `venta = ROUND_HALF_UP(max(piso, mercado × markup(mercado)))`,
+`compra = max(bin, mercado × pct(mercado))`, ambas interpoladas linealmente entre breakpoints (nunca
+escalonadas). `DEFAULT_PRICING_CURVE` = el seed de PROJECT §N.2 verbatim.
+
+**ROUND_HALF_UP — confirmación explícita pedida por el coordinador:** mi implementación original de
+`interp` redondeaba el DELTA (`v0 + Math.round(delta)`), no el valor final. El arquitecto corrigió §4.36.1
+(commit `7f1f23d`) para exigir redondeo del VALOR FINAL (`ROUND_HALF_UP(v0 + delta)`), porque
+`Math.round(-1590.5)` en JS da `-1590` (redondeo nativo hacia +∞), pero ROUND_HALF_UP (mitad ALEJADA de
+cero) exige `-1591` en deltas negativos. Verifiqué con un barrido numérico exhaustivo (155,003 puntos sobre
+5 tramos representativos, incluida la curva seed real) que mi redondeo-de-delta original daba resultados
+IDÉNTICOS al redondeo-de-valor-final corregido en TODOS los casos — porque `v0` (el breakpoint) siempre es
+entero, así que `v0 + round(delta) === round(v0 + delta)` matemáticamente. A pesar de la equivalencia
+numérica probada (cero divergencias), reescribí el código para que coincida LITERALMENTE con el §4.36.1
+corregido (auditabilidad): añadí `roundHalfUp(x)` como helper nombrado explícito
+(`x < 0 ? -Math.round(-x) : Math.round(x)`), cambié `interp`/`interpWithSegment` para calcular
+`roundHalfUp(p0.valueBp + delta)` en vez de `p0.valueBp + Math.round(delta)`, y añadí tests de medio
+centavo obligatorios (`roundHalfUp(-1590.5) === -1591`, `interp` con delta exactamente `-500.5` debe dar
+`15500` no `15499`). Commit `46947ee`.
+
+`PriceBasis` (`market | floor | override | bounty | pending`) vive aquí y se re-exporta desde `money.ts`;
+es el enum compartido entre los dos ejes, el guardarraíl, la instrumentación y la regla de visibilidad.
+`MarketBracket` (`lt_3 | r3_10 | r10_25 | r25_80 | r80_300 | gte_300`) es una escala FIJA independiente de
+la curva mutable, usada solo para agregación de instrumentación — nunca se deriva de los breakpoints.
+
+### E1 — setting + migración M-41 (`settings.constants.ts`, `backend/prisma/migrations/`)
+`SettingKey.PRICING_CURVE = 'pricing_curve'`, seed = `DEFAULT_PRICING_CURVE`, validador
+`validatePricingCurveSetting`, explícitamente fuera de `SETTING_DTO_MAP` (NO se toca por
+`PUT /admin/settings`; solo por `GET/PUT /admin/pricing/curve` dedicado, como los spreads del sellado).
+Migración M-41 ADITIVA PURA (sin `DROP`, sin migración de datos — el precio de venta se resuelve en
+lectura, no se persiste). Verifiqué que aplica limpio y sin drift (`prisma migrate diff`) contra un cluster
+Postgres local provisionado ad-hoc (`/var/lib/postgresql/m41check`, puerto 5439).
+
+### E2/E3 — seams de servicio migrados a la curva (`money.ts`, `pricing.service.ts`, ~30 specs)
+`PricingService.loadPricingCurve()` es el ÚNICO lector de configuración de dinero en todo el backend
+(funde los antiguos `loadBuylistRules()`/`loadSalesRules()`/`loadTierMap()` Y el
+`BuylistService.buylistRules()` que antes NO delegaba en `PricingService` — dos lectores paralelos de la
+MISMA config era un riesgo money-safe real, ya cerrado). Money-safe: un valor persistido inválido en BD
+(edición manual) NO apaga la publicación/cotización de todo el catálogo — cae al seed §N.2 y lo grita por
+`logger.error`. «Siempre hay curva» es invariante de diseño (§4.36.2: ya no existe «sin regla»).
+`computeSalePriceFromCurve`/`quoteAcquisitionFromCurve` en `money.ts` reemplazan
+`computeSalePriceForRarity`/`quoteAcquisitionForFinish` — firma sin `rarity`/`finish` (criterio 84).
+
+### E4 — guardarraíl premium-en-el-piso + cola de pendientes simétrica (§4.36.5/§4.36.5c)
+`premiumFloorGuard`: rareza premium que aterriza en piso(venta)/bin(compra) bloquea publicar/cotizar y
+escala a `PendingPriceEntry` con `reason='premium_at_floor'`. `resolvePendingReason(basis, rarityCanonical)`
+distingue `no_market` (basis=`pending`, sin `PriceReference`) de `premium_at_floor` (guardarraíl). Seam
+único simétrico `settlePendingForVariant(reason, key, context, refId?)` tanto ESCALA (con motivo) como
+CIERRA (cuando el precio deja de ser pendiente/premium-en-piso) — antes solo existía la mitad de escalada.
+Adenda v2.1: `GET /admin/pricing/pending?reason=` filtra por motivo y devuelve `counts` agregados vía
+`prisma.pendingPriceEntry.groupBy({by:['reason'], where:{status:'open',...}})`.
+
+### E5 — bounty revalidado en las TRES seams (create/quote/publish)
+`isBountyEffective` exige ESTRICTAMENTE mayor que la cotización de la curva (criterio 91).
+`BOUNTY_BELOW_RULE` endurecido de `<` a `<=` al crear (ya no se puede fijar un bounty igual a lo que la
+curva ya paga). `publicBounties()` reescrito para resolver mercado en lote y filtrar bounties inefectivos
+ANTES del tope de 50 (antes filtraba después, podía mostrar menos de 50 aun habiendo más disponibles).
+
+### E6 — instrumentación de los dos ejes (§N.8, criterio 95)
+5 campos (`marketMxnCents`, `priceBasis`, `marketBracket`, `finish`, precio final) persistidos
+DIRECTAMENTE en las filas de `OrderItem`/`SellRequestItem` (sin tabla de log separada) en el momento de
+consumación (checkout / `createRequest`). `resolveSaleDecision(item)` en `orders.service.ts` calcula precio
+e instrumentación en el MISMO call site para que no puedan desincronizarse. `GET /admin/reports/pricing-brackets`
+(nuevo, `admin.service.ts`/`admin.controller.ts`) agrega por `marketBracket` + desglose `byBasis`.
+
+### E7a/E7b — editor de la curva + retiro del editor viejo
+`GET/PUT /admin/pricing/curve` (valida con `collectCurveViolations`, audita `pricing.curve.update` con
+before/after) y `POST /admin/pricing/curve/preview` (v2.1, adelantado a pedido del arquitecto): dry-run que
+separa violaciones ESTRUCTURALES (bloquean con 422) de violaciones NO bloqueantes (devuelve 200 +
+`violations[]` para que el editor muestre pesos mientras el dueño arregla la curva); el preview NUNCA
+autoriza el PUT, que revalida desde cero. Se retiraron `GET/PUT /admin/pricing/tiers`,
+`GET/PUT /admin/pricing/tier-map`, `GET /admin/pricing/buylist-rules`, `GET /admin/pricing/sales-rules`,
+`GET /admin/pricing/sales-rarities` (~480 líneas). `GET /admin/pricing/rarities` se repropuso: devuelve
+`{rarities: [{canonical, raw, premium, mapped, cardCount}]}` ordenado por `cardCount` desc (se cayeron
+`rule`/`tierId`/`source`/`fallbackPct` y el alias deprecado `rarity`).
+
+### E8 — retiro SIN RESIDUOS de los cinco settings legacy (criterio 96)
+Se retiró la LECTURA/ESCRITURA y la superficie de API de `SALES_PRICE_RULES`, `BUYLIST_PRICE_RULES`,
+`PRICING_TIER_MAP`, `SALES_PRICE_FALLBACK_PCT`, `BUYLIST_PRICE_FALLBACK_PCT` — **sus filas quedan
+HUÉRFANAS E INERTES en `ConfigSetting`, NO se borran** (§4.36.9b, mismo precedente que `rarity_map` v1.32):
+borrar config en el mismo paso que cambia la matemática elimina la vía de diagnóstico y el rollback barato.
+El precedente/documentación de la migración M-41 permanece intacto (aditiva pura, sin `DROP`).
+
+Se eliminaron del código: los 5 `SettingKey` + sus `SETTING_DEFAULTS`/`SETTING_VALIDATORS`, las funciones
+`validatePriceRuleSet`/`validateTieredRuleSet`/`validateBuylistRules`/`validateTierMap`/
+`validateFallbackPct`/`validateSalesRules`/`validateSalesFallbackPct`/`isValidBuylistRule`/
+`isValidSalesRule`, los tipos `BuylistRule`/`SalesRule`/`PriceRuleSet`/`TieredRuleSet`/
+`BuylistRuleMode`/`SalesRuleMode`/`AcquisitionRuleSource`/`AcquisitionQuote`/`SalePriceResult`/
+`SaleRuleSource`, las funciones `quoteAcquisition`/`quoteAcquisitionForFinish`/`computeSalePriceForRarity`/
+`applyRule`/`resolveRuleForFinish`/`resolveTwoAxisRule`/`ruleKeyCandidates`/`finishRuleFor`/
+`lookupRarityRule`/`toPriceRuleSet`/`buildEffectiveRuleSet`/`isPriceRuleSet`/`isTieredRuleSet`/
+`isHoloRarity`/`isPremiumRarity` (la de `money.ts`; sobrevive `isPremiumCanonicalRarity` de
+`rarity-catalog.ts`, que sí se sigue usando). Se borraron `backend/src/common/pricing-tiers.ts` (+ su
+spec), `backend/prisma/backfill-p34-tiered-pricing.ts` (el backfill P-34/M-38 ya corrió; el código de
+respaldo queda retirado, no la migración) y varios specs obsoletos de la superficie retirada. `money.ts`
+conserva `Finish`, `VariantPriceControls`, `computeSalePriceCents` (markup GENÉRICO — distinto de la
+retirada `computeSalePriceForRarity`, sigue en uso), toda la math de sellado (independiente de la curva) y
+los helpers de `BreakdownDTO`.
+
+**Verificación de residuo** (grep exigido por el criterio de la etapa): sin referencias vivas a
+`SALES_PRICE_RULES`/`BUYLIST_PRICE_RULES`/`PRICING_TIER_MAP`/`*_FALLBACK_PCT`/`computeSalePriceForRarity`/
+`loadSalesRules`/`loadBuylistRules`/`loadTierMap`/`buylistRules()` en `src/`/`prisma/` — solo quedan
+comentarios de retiro explícitos (`v2.0 (P-48, §4.36.2) — ... RETIRADO`). De paso corregí varios docblocks
+que describían el mecanismo viejo como si siguiera vigente (`catalog.service.ts`, `inventory.service.ts`,
+`buylist.service.ts`, `pricing.service.ts`, `settings.constants.ts`, `prisma/e2e-fixtures.ts`) — quedaban
+huérfanos apuntando a settings/funciones ya retiradas, incluido un docblock DUPLICADO en
+`pricing.service.ts` (el viejo de `loadBuylistRules`, v1.28, seguía pegado justo encima del nuevo de
+`loadPricingCurve`, v2.0) que borré por completo.
+
+Se actualizaron dos specs de integración y el fixture compartido a la matemática v2.0:
+`prisma/e2e-fixtures.ts` (`highvalue.refNmCents` recalculado de `1200000` a `600000` para que
+`600000 × 50% = 300000` siga cayendo exacto en el umbral INE bajo el pct-tope de la curva, no el 25% T2
+viejo), `test/integration/buylist.e2e-spec.ts` (montos esperados re-expresados en `priceBasis` en vez de
+`appliedRule`; el test de tope-por-solicitud pasó de 13 a 7 ítems porque la curva paga 500/carta no
+250/carta en ese tramo) y `test/integration/catalog-checkout-webhook.e2e-spec.ts` (helper `salePrice()`
+sobre `resolveSaleFromCurve` en vez del markup genérico `computeSalePriceCents`).
+
+### Estado final de la suite (post-E8, tras verificación explícita con herramientas)
+`npx tsc --noEmit` limpio. `npm run lint`: 0 errores, 2 warnings preexistentes SIN relación con este
+cambio (`actorUserId` sin usar en `inventory.service.ts`, `normalizeSetName` sin usar en
+`sealed-product.service.ts`). `npx jest`: **171 suites / 1809 tests, todos verdes**.
+
+### Pendiente para otro rol (NO lo toco — fuera de mi propiedad de archivos)
+`scripts/post-deploy.sh` (línea 87) referencia `npx ts-node prisma/backfill-p34-tiered-pricing.ts`, que
+este pase borró como parte del retiro sin residuos (E8, criterio 96 — el backfill P-34/M-38 ya corrió en
+producción y su script de respaldo queda retirado). `scripts/` es territorio de **devops** por la tabla de
+propiedad de archivos; queda flagueado para que devops actualice/retire esa línea del pipeline de deploy.

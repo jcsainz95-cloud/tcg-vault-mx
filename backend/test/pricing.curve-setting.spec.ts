@@ -99,17 +99,26 @@ describe('E1 — el validador de puerta aplana el error estructurado sin ablanda
   });
 });
 
-describe('E1 — los CINCO settings retirados siguen ahí, INTACTOS (§4.36.9b: sin DELETE)', () => {
-  // Borrar config en el MISMO paso que cambia la matemática elimina la vía de diagnóstico y el
-  // rollback barato. Quedan huérfanos e inertes; su limpieza es un follow-up. Precedente: `rarity_map`.
-  it.each([
-    SettingKey.SALES_PRICE_RULES,
-    SettingKey.SALES_PRICE_FALLBACK_PCT,
-    SettingKey.BUYLIST_PRICE_RULES,
-    SettingKey.BUYLIST_PRICE_FALLBACK_PCT,
-    SettingKey.PRICING_TIER_MAP,
-  ])('%s conserva su default y su validador', (key) => {
-    expect(SETTING_DEFAULTS[key]).toBeDefined();
-    expect(SETTING_VALIDATORS[key]).toBeDefined();
+describe('E8 — los CINCO settings retirados YA NO se leen, escriben ni siembran (§4.36.9b)', () => {
+  // La MIGRACIÓN no los borra a propósito: sus filas quedan huérfanas e inertes en `ConfigSetting`
+  // (precedente `rarity_map`, v1.32), porque borrar config en el mismo paso que cambia la matemática
+  // elimina la vía de diagnóstico y el rollback barato. Lo que se retira es el CÓDIGO que los usaba.
+  const RETIRADAS = [
+    'sales_price_rules',
+    'sales_price_fallback_pct',
+    'buylist_price_rules',
+    'buylist_price_fallback_pct',
+    'pricing_tier_map',
+  ] as const;
+
+  it.each(RETIRADAS)('%s no tiene SettingKey, ni default, ni validador', (key) => {
+    expect(Object.values(SettingKey)).not.toContain(key);
+    expect(Object.prototype.hasOwnProperty.call(SETTING_DEFAULTS, key)).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(SETTING_VALIDATORS, key)).toBe(false);
+  });
+
+  it('el seed ya NO siembra ninguna de las cinco (una BD nueva arranca solo con `pricing_curve`)', () => {
+    for (const key of RETIRADAS) expect(Object.keys(SETTING_DEFAULTS)).not.toContain(key);
+    expect(Object.keys(SETTING_DEFAULTS)).toContain('pricing_curve');
   });
 });

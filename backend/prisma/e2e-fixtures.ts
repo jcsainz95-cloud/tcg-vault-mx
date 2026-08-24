@@ -32,10 +32,11 @@ export const E2E_ORDER_SET = {
 
 /**
  * Cartas del catálogo sintético. `rarity` (crudo) se colapsa a su rareza canónica vía
- * `normalizeRarity` (catálogo canónico de rarezas) y esa canónica es la key con la que el
- * buylist elige regla en `BUYLIST_PRICE_RULES` (o cae al fallback por %). Aquí: Common→comun,
- * Reverse Holo→reverse_holo, Rare Holo/Rare Secret→ex_plus. `refNmCents` es la referencia
- * (valor de mercado) para raw:NM.
+ * `normalizeRarity` (catálogo canónico de rarezas); esa canónica YA NO selecciona una regla de
+ * precio (v2.0, §4.36: una sola curva para todos), solo alimenta el guardarraíl premium-en-el-
+ * piso (`premiumFloorGuard`) — Common→comun, Reverse Holo→reverse_holo, Rare Holo/Rare
+ * Secret→ex_plus (premium). `refNmCents` es la referencia (valor de mercado) para raw:NM, que la
+ * curva interpola para dar venta/compra.
  *
  * v1.22-variantes-orden (§4.22e) — `availableFinishes` se siembra SIEMPRE de forma EXPLÍCITA:
  * depender del `@default([normal])` del schema es justo lo que hacía que el bug del PO (una sola
@@ -61,7 +62,10 @@ export const E2E_CARDS = {
   // DOS casillas ESTRUCTURALES (§4.25a): TCGCSV resolvió ambas; PPT confirma el reverse con precio (snapshot = observabilidad).
   reverse: { externalId: 'e2e-reverse', name: 'E2E Reverse Bird', number: '17', rarity: 'Reverse Holo', refNmCents: 3000, availableFinishes: ['normal', 'reverse_holo'], catalogFinishes: ['normal'], structuralFinishes: ['normal', 'reverse_holo'], pricedFinishesSnapshot: ['reverse_holo'] }, // reverse_holo — DOS casillas (§4.22c), sostenidas por la ESTRUCTURA
   graded: { externalId: 'e2e-graded', name: 'E2E Graded Star', number: '20', rarity: 'Rare Holo', refPsa10Cents: 500000, availableFinishes: ['normal'] }, // graded PSA10
-  highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 1200000, availableFinishes: ['normal'] }, // Rare Holo → T2 25%; quote 0.25×1200000=300000 = umbral INE (P-34)
+  // v2.0 (P-48): con la CURVA de compra, $6,000 de mercado ⇒ 50 % (tramo plano final) ⇒ 300000 =
+  // EXACTAMENTE el umbral de INE y el tope por solicitud, que es el borde que el E2E necesita probar
+  // (el cap se evalúa ANTES que el INE y usa `>`, así que el empate pasa el cap y dispara el INE).
+  highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 600000, availableFinishes: ['normal'] },
   nopref: { externalId: 'e2e-nopref', name: 'E2E No Price', number: '99', rarity: 'Rare Secret', availableFinishes: ['normal'] }, // ex_plus SIN referencia → precio pendiente
 } as const;
 

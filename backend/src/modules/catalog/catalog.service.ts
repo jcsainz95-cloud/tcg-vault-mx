@@ -84,11 +84,13 @@ export class CatalogService {
    * `status=listed`, plataforma. El comprador NUNCA ve "precio pendiente".
    *
    * v1.13-sales-pricing (§4.14d): el gate coarse en DB YA NO puede filtrar por existencia de precio.
-   * Con las reglas de venta por rareza, una regla `fixed` da PISO a una carta bulk SIN `PriceReference`
-   * (antes se excluía), volviéndola sellable — la resolubilidad depende de `SALES_PRICE_RULES`, que la
-   * DB no evalúa. Por eso el gate coarse se reduce a `platform + listed`; el precio EXACTO y la
-   * comprabilidad (`sellable`) se confirman al construir el ListingDTO (`fetchSellable` descarta los no
-   * resolubles: `pct` sin market → pending → no vendible).
+   * Con la curva de precios (v2.0, §4.36.1), el PISO da un precio a una carta bulk incluso SIN
+   * `PriceReference` de mercado (antes se excluía), volviéndola candidata a sellable — la
+   * resolubilidad depende de la curva y del guardarraíl premium-en-el-piso, que la DB no evalúa. Por
+   * eso el gate coarse se reduce a `platform + listed`; el precio EXACTO y la comprabilidad
+   * (`sellable`) se confirman al construir el ListingDTO (`fetchSellable` descarta los no resolubles:
+   * sin mercado y sin piso aplicable → `pending` → no vendible; guardarraíl premium-en-el-piso →
+   * `pending` también).
    */
   private publishedWhere(extra: Prisma.InventoryItemWhereInput = {}): Prisma.InventoryItemWhereInput {
     return {
@@ -124,7 +126,7 @@ export class CatalogService {
   /**
    * Trae items publicados que efectivamente son comprables (precio resoluble).
    *
-   * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza `SALES_PRICE_RULES`+fallback **una vez** por
+   * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza la curva de precios **una vez** por
    * request y resuelve las referencias en **un** lote (`getReferencesBatch`) en vez de 2 lecturas de
    * settings + 1 `getReference` **por ítem** (N+1). Cada DTO se construye con el contexto pre-cargado.
    */

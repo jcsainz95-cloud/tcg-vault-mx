@@ -7,7 +7,6 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { BuylistRule } from '../src/common/money';
 import { BatchQuoteDto, BUYLIST_QUOTE_BATCH_MAX } from '../src/modules/buylist/dto/buylist.dto';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -23,18 +22,11 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
-const SEED: Record<string, BuylistRule> = {
-  Common: { mode: 'fixed', value: 50 },
-  Uncommon: { mode: 'fixed', value: 50 },
-  'Reverse Holo': { mode: 'fixed', value: 150 },
-};
-
 /** Settings con caps/umbral MUY altos (no interfieren) y las reglas del seed. */
 function settingsHighCaps(): SettingsService {
   return {
-    getRaw: jest.fn(async (key: string) =>
-      key === 'buylist_price_rules' ? SEED : {},
-    ),
+    // v2.0 (P-48): ya no hay tabla de reglas por rareza; la curva la iza `PricingService`.
+    getRaw: jest.fn(async () => null),
     getNumber: jest.fn(async (key: string) =>
       key === 'buylist_price_fallback_pct' ? 40 : 100_000_000,
     ),

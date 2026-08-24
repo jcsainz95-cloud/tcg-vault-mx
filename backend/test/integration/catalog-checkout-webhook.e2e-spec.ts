@@ -12,11 +12,16 @@
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_FOLIOS, E2E_LIST_OVERRIDE_CENTS, E2E_USERS } from '../../prisma/e2e-fixtures';
-import { computeCartBreakdown, computeSalePriceCents } from '../../src/common/money';
+import { computeCartBreakdown } from '../../src/common/money';
+// v2.0 (P-48, §4.36.1): el precio de venta sale de la CURVA. El E2E lo calcula con la MISMA pura que
+// el backend — si alguien mueve un dial del seed, este test se mueve con él y no miente.
+import { DEFAULT_PRICING_CURVE, resolveSaleFromCurve } from '../../src/common/pricing-curve';
+
+/** Precio de venta que la curva del seed produce para un mercado dado. */
+const salePrice = (marketCents: number) => resolveSaleFromCurve(marketCents, DEFAULT_PRICING_CURVE).cents as number;
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
-const MARKUP = 15;
 
 describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
   let h: E2EHarness;
@@ -51,8 +56,10 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       const byId = await h.api('GET', `/catalog/listings/${itemId.listedCharizard}`);
       expect(byId.status).toBe(200);
       expect(byId.body.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: E2E_CARDS.charizard.refNmCents });
-      // salePrice = referencia × (1 + markup); el valor de mercado sigue siendo la referencia.
-      expect(byId.body.salePriceCents).toBe(computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP));
+      // v2.0: salePrice = redondeo↑(max(piso, mercado × markup(mercado))); el valor de mercado sigue
+      // siendo la referencia. $1,000 × 1.15 = $1,150 (ya múltiplo de $25, el redondeo no lo mueve).
+      expect(byId.body.salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents));
+      expect(byId.body.priceBasis).toBe('market'); // §N.7: SÍ se muestra «Valor de mercado» en la ficha
       expect(byId.body.sellable).toBe(true);
 
       // El listado de Compra responde y toda fila publicada es vendible con precio resuelto
@@ -92,7 +99,7 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
         json: { inventoryItemIds: [itemId.listedCharizard] },
       });
       expect(res.status).toBe(200);
-      const subtotal = computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP);
+      const subtotal = salePrice(E2E_CARDS.charizard.refNmCents);
       const expected = computeCartBreakdown(subtotal, IVA, FEE);
       expect(res.body.breakdown).toMatchObject({
         subtotalCents: expected.subtotalCents,
@@ -160,7 +167,7 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
         [viva1.id, viva2.id].sort(),
       );
       // El breakdown se calcula SOLO con las vivas.
-      const unit = computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP);
+      const unit = salePrice(E2E_CARDS.charizard.refNmCents);
       expect(res.body.breakdown).toEqual(computeCartBreakdown(unit * 2, IVA, FEE));
       expect(res.body.unavailableItems).toEqual([
         { inventoryItemId: vendida.id, cardName: E2E_CARDS.charizard.name },
