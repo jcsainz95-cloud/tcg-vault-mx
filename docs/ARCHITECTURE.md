@@ -6943,6 +6943,26 @@ interpExact(points, m) -> (num, den)      // k(m) = num/den, exacto; den > 0, nu
 > implementaciones de la misma fórmula de dinero (`Math.round(-0.5)` da `-0` en JS; «medio alejándose de cero» da
 > `-1`). Con la forma racional de arriba el operando **siempre es ≥ 0**, así que el caso negativo **desaparece por
 > construcción** — pero el modo queda fijado igual, para que backend y el previsualizador no difieran en un centavo.
+>
+> **Casos de MEDIO CENTAVO (normativos — los que fijan el modo; sobre el SEED vigente de §4.36.2).** La interpolación
+> exacta rara vez cae en `.5`, así que los casos se toman de los **tramos planos**, donde `k` es entero por
+> construcción y el medio centavo es exacto y comprobable a mano:
+>
+> | Eje | Mercado | Cuenta | `rawCents` | Precio final |
+> |---|---|---|---|---|
+> | **Compra** | `$500.01` (`m=50001`) | tramo plano `pct=5000` ⇒ `50001 × 5000/10000 = 25000.5` | **`25001`** | **`$250.01`** (compra no se redondea) |
+> | **Venta** | `$100.10` (`m=10010`) | tramo plano `1.15×` ⇒ `10010 × 11500/10000 = 11511.5` | **`11512`** | **`$120.00`** (escalera `$5`) |
+>
+> ⚠️ **El caso de medio centavo que citaba la revisión anterior (`5000 × 3467/10000 = 1733.5 ⇒ 1734`) quedó
+> INVÁLIDO con v2.1.2 y se retira.** Ese `.5` era un **artefacto de la cuantización**: existía solo porque `k` se
+> redondeaba a `3467`. Con el racional exacto, `k($50) = 10400/3 = 3466.666…` y el resultado es `1733.33… ⇒ 1733`.
+> Es decir: la corrección de I1 no solo arregló la monotonía — **eliminó los medios centavos artificiales** que la
+> cuantización fabricaba. Por eso el caso de prueba hay que anclarlo en un `.5` **real**, no en uno inventado por un
+> redondeo intermedio.
+>
+> **Efecto colateral verificado (para QA):** cifras que la cuantización inflaba un centavo bajan al valor exacto —
+> p. ej. compra en mercado **`$125`**: `k = 4062.5` exacto ⇒ `5078.125 ⇒ **5078**` (antes `k→4063` ⇒ `5078.75 ⇒ 5079`).
+> **No es una regresión: es el centavo que sobraba por el doble redondeo.**
 
 **Venta.**
 ```
@@ -7015,7 +7035,7 @@ iniciales de 4.36.2).**
 | $0.50 | — | — | **$1.00** | gana el bin (`basis='floor'`) |
 | $10.00 | — | — | **$3.00** | 30 % (tramo plano inicial) |
 | $25.00 | **$40.00** | 25×1.60 = 40 ⇒ ↑$5 = 40 | **$7.50** | 30 % |
-| $50.00 | **$70.00** | markup interp ≈1.3955 ⇒ 69.77 ⇒ ↑$5 | — | — |
+| $50.00 | **$70.00** | markup interp **exacto** `13954.5454…` bp ⇒ `rawCents 6977` (**$69.77 exacto**, no truncado) ⇒ ↑$5 | — | — |
 | $80.00 | **$95.00** | 80×1.15 = 92 ⇒ ↑$5 | — | — |
 | $86.00 | **$100.00** | 98.90 ⇒ ↑$5 | — | — |
 | $87.00 | **$105.00** | 100.05 ⇒ ↑$5 (**no $110**: el paso de $5 llega a $200) | — | — |
@@ -7436,6 +7456,56 @@ curva vigente —es una decisión deliberada del admin para esa variante— y **
 exactamente ese monto. Lo mismo aplica a los overrides de venta. **Prohibido** envolverlos en un `max(...)` con la
 curva; hacerlo sería reintroducir el bug que se está cerrando, en espejo.
 
+**H-1 APLICA TAMBIÉN AL PELDAÑO 1 — «presente ⇔ `> 0`» para el override POR PIEZA (v2.1.3, hallazgo D5, NORMATIVO).**
+
+**El hueco.** La doctrina **H-1** («un override existe **si y solo si** es `> 0`; un `0` es input degenerado y se trata
+como **ausente**») ya gobierna los overrides de **variante** (`sellOverrideCents`/`buyOverrideCents`, `money.ts`) y el
+del **sellado** (§4.23a). **El peldaño 1 —`InventoryItem.listPriceCents`— no la heredó**, y hoy el **mismo campo** se
+lee de dos maneras:
+
+| Seam | Predicado hoy | Qué hace con `listPriceCents = 0` |
+|---|---|---|
+| `orders.salePriceOf` (`orders.service.ts:98`) | `!= null && > 0` ✅ | lo ignora ⇒ **precia por la CURVA** |
+| `catalog.toListingDTO` (`catalog.service.ts:274`) | `!= null` ❌ | lo usa ⇒ `salePriceCents = 0` ⇒ BE-26 ⇒ **no vendible** |
+| `master-set` (`master-set.service.ts:975`) | `!= null` ❌ | ídem en el binder |
+| filtros «necesita curva» (`catalog:165`, `inventory:996-997/1095`) | `== null` ❌ | la excluye del resolver ⇒ nunca se precia |
+| valor de inventario (`inventory.service.ts:2211`) | `listPriceCents ?? sellOverrideCents` ❌ | el `0` **enmascara un override de variante legítimo** (`??` solo atrapa `null`) |
+| barrido (`price-ingest.service.ts:507`) | `!= null` ❌ | la **salta al repreciar** ⇒ nunca se reconcilia (choca con b-ter) |
+
+**Efecto observable (money-relevante, no cosmético):** una pieza con `0` **no aparece en Compra** (storefront la marca
+no vendible) pero **el checkout sí le pone precio de curva**. Es decir: el carrito puede cotizar una pieza que la
+tienda nunca mostró — y en el binder el `0` puede **tapar** un `sellOverrideCents` real.
+
+**DECISIÓN: sí, H-1 aplica. `listPriceCents <= 0` se trata como AUSENTE en TODOS los seams.** Tres razones:
+
+1. **Un `0` no es un precio.** La regla money-safe transversal (§H, §N.1) dice que **jamás** se publica MX$0 ni se
+   inventa un precio. Un `0` almacenado es un accidente de captura o una fila legacy — nunca «vender esto gratis».
+   Leerlo como decisión deliberada contradice la doctrina que gobierna **todas** las demás superficies de precio.
+2. **Es exactamente la forma del bug P-48.** *Un mismo concepto significando cosas distintas en rutas de código
+   distintas* — `fixed` como «piso» aquí y «precio absoluto» allá. Toda §4.36 existe para eliminar esa clase; dejarla
+   viva **en la propia precedencia normativa** sería reintroducirla por la puerta principal.
+3. **Es una omisión, no una decisión.** Los otros dos peldaños de override ya heredaron H-1. El peldaño 1 es el
+   **único** que no, y nada en el diseño justifica la excepción.
+
+**Dirección de la unificación: `<= 0` ⇒ ausente ⇒ cae al siguiente peldaño (variante → curva),** que es lo que
+`orders` ya hace y lo que H-1 dice para los otros dos. La alternativa («`0` = presente e inválido ⇒ `PRICE_PENDING`»)
+se **descarta**: esconde inventario por un accidente de captura y diverge de los demás peldaños. Con §N.0: que una
+pieza quede priceada **por curva** (posiblemente más cara de lo que alguien tecleó) es el error **recuperable**; que
+quede invisible o se venda en `0` es el irrecuperable.
+
+**Cinturón y tirantes — se cierra en las DOS puntas:**
+- **Escritura:** el write valida `listPriceCents` **entero `> 0`** (`422 VALIDATION_ERROR`) donde se acepte —
+  `POST /admin/inventory/items`, `items/batch` y las líneas de `bulk-publish`— para que el estado **no se pueda
+  crear**. `null` sigue siendo válido y significa «sin override».
+- **Lectura:** aun así, **todos** los seams tratan `<= 0` como ausente, defensivamente, por las filas que preceden a
+  esa validación. **Un solo predicado compartido** (`hasManualPrice(item)`) — prohibido repetir el `> 0` a mano en seis
+  sitios, que es justo cómo se llegó aquí.
+
+**Alcance:** es **higiene de precedencia**, no cambia ningún precio de una pieza sana (`null` o `> 0` se comportan
+igual que hoy). No requiere migración: las filas con `0` existentes pasan a comportarse **como si no tuvieran
+override**, que es la lectura correcta. **Toca dinero ⇒ test por seam** (una pieza con `0` da el **mismo** precio en
+storefront, ficha, checkout y binder, y **no** enmascara el `sellOverrideCents` de su variante).
+
 **Bounty revalidado contra la regla vigente (decisión 9/§N.6, criterios 90/91).** El bounty es la **sección de ofertas**
 del dueño: vive en la escala de **compra** (30–50 % del mercado), está **siempre** por debajo del mercado y **nunca se
 compara contra el mercado** — solo **contra la curva de compra**. El hueco: hoy `BOUNTY_BELOW_RULE` se valida **solo al
@@ -7719,7 +7789,7 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 
 | # | Etapa | Verde cuando |
 |---|---|---|
-| **E0** | `common/pricing-curve.ts`: tipos, **`interpExact` (racional, SIN cuantizar a bp)**, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador V1–V8. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante V1–V8 + **un caso de medio centavo** que fije `ROUND_HALF_UP` (`rawCents = 1733.5 ⇒ 1734`) |
+| **E0** | `common/pricing-curve.ts`: tipos, **`interpExact` (racional, SIN cuantizar a bp)**, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador V1–V8. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante V1–V8 + **los dos casos de medio centavo** de §4.36.1 (`$500.01 ⇒ 25001` en compra; `$100.10 ⇒ rawCents 11512` en venta) |
 | **E0-bis** | **I1 (§4.36.1/§4.36.3):** retirar la cuantización a bp entero (`pricing-curve.ts:191`) y computar el precio en **una sola expresión racional exacta**; V6 pasa a exigir separación `≥ 1` unidad. **Toca dinero — es la corrección del hallazgo de QA** | **regresión permanente con las TRES curvas de QA** (§4.36.3): en cada par que rompía, `P(m) ≥ P(m−1)`; en particular `1.60×@$25 → 1.15×@$80 → 1.05×@$1000` da **$800 en `$717.10` Y en `$717.11`**. Más el barrido del seed ($0.01–$6 000, 0 rupturas) como test de caracterización **en CI, no en el `PUT`** |
 | **E1** | `SettingKey.PRICING_CURVE` + validador + seed §N.2. M-41 aplicada | el setting valida y siembra; los viejos siguen ahí, intactos |
 | **E2** | `computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` en `money.ts` (con `priceBasis` y precedencias), **conviviendo** con los resolvers viejos | unitarios de precedencia: override absoluto, empate ⇒ `market`, sin mercado ⇒ `pending` |

@@ -4651,6 +4651,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - **v2.0 — el override manual de compra SIGUE SIENDO ABSOLUTO** (criterio 89): `buyOverrideCents` puede quedar
     **por debajo** de la curva vigente —decisión deliberada del admin para esa variante— y **se paga exactamente ese
     monto**. **No** se levanta al nivel de la curva ni se envuelve en un `max(...)`. Ídem `sellOverrideCents`.
+  - **v2.1.3 (D5) — H-1 aplica también al override POR PIEZA (`InventoryItem.listPriceCents`).** «Presente ⇔ `> 0`»:
+    un `listPriceCents <= 0` se trata como **AUSENTE** y la pieza cae al siguiente peldaño (override de variante →
+    curva). Es la misma regla que ya gobierna `sellOverrideCents`/`buyOverrideCents` y el override del sellado; el
+    peldaño 1 era el **único** que no la había heredado. **Un `0` no es un precio** (§H: jamás se publica MX$0), y
+    dejar el mismo campo con dos lecturas es exactamente la forma del bug P-48. **Se cierra en las dos puntas:** el
+    **write** rechaza `<= 0` (abajo) y la **lectura** lo trata como ausente en **todos** los seams (storefront, ficha,
+    checkout, binder, publish, barrido y valor de inventario), vía **un solo predicado compartido**.
+    Ver ARCHITECTURE §4.36.6.
   - Res `200` (`VariantControlsResponse`): `{ cardId, productType, gradeKey, finish, pricing: VariantPricingDTO }`
     (el estado RESUELTO tras el write — mismo DTO que lee el binder; §DTOs). Err `404 NOT_FOUND` (carta), `403`.
   - **Auditado** (`AuditLog action=pricing.variant_controls`, before/after). **Toca dinero en ambas direcciones**
@@ -4775,27 +4783,40 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
           "sale": { "priceCents": 7500, "basis": "market", "appliedBp": 14409, "rawCents": 7205,
                     "constantCents": 2500, "constantWon": false, "baseCents": 7205,
                     "roundingStepCents": 500, "segment": { "fromIndex": 0, "toIndex": 1 } },
-          "buy":  { "priceCents": 1734, "basis": "market", "appliedBp": 3467, "rawCents": 1734,
+          "buy":  { "priceCents": 1733, "basis": "market", "appliedBp": 3467, "rawCents": 1733,
                     "constantCents": 100, "constantWon": false, "baseCents": null,
                     "roundingStepCents": null, "segment": { "fromIndex": 0, "toIndex": 1 } } },
         "saved": {
-          "sale": { "priceCents": 7000, "basis": "market", "appliedBp": 13955, "rawCents": 6978,
-                    "constantCents": 2500, "constantWon": false, "baseCents": 6978,
+          "sale": { "priceCents": 7000, "basis": "market", "appliedBp": 13955, "rawCents": 6977,
+                    "constantCents": 2500, "constantWon": false, "baseCents": 6977,
                     "roundingStepCents": 500, "segment": { "fromIndex": 0, "toIndex": 1 } },
           "buy":  { "priceCents": 1667, "basis": "market", "appliedBp": 3333, "rawCents": 1667,
                     "constantCents": 100, "constantWon": false, "baseCents": null,
                     "roundingStepCents": null, "segment": { "fromIndex": 0, "toIndex": 1 } } },
-        "deltaCents": { "sale": 500, "buy": 67 } }
+        "deltaCents": { "sale": 500, "buy": 66 } }
     ],
     "violations": [] }
   ```
-  > **El ejemplo está calculado con `ROUND_HALF_UP` (ARCHITECTURE §4.36.1), y por eso vale como caso de prueba.**
-  > Corresponde al de DESIGN_SYSTEM §21.5a (borrador que sube el punto de venta de MX$80 de `1.15×` a `1.25×` y el de
-  > compra de MX$25 de `30%` a `32%`). Ojo con los medios centavos: `5000 × 3467/10000 = 1733.5 ⇒ **1734**` y
-  > `5000 × 13955/10000 = 6977.5 ⇒ **6978**`. La prosa ilustrativa del design system escribe `17.33` y `69.77`
-  > (truncando); **manda la aritmética de §4.36.1**, y como el previsualizador pinta `rawCents` **tal como lo devuelve
-  > el servidor**, la pantalla queda correcta por construcción. Es, en pequeño, exactamente la divergencia que este
-  > endpoint existe para eliminar.
+  > **⚠️ Recalculado en v2.1.2 con la interpolación EXACTA — la versión anterior de este ejemplo estaba derivada del
+  > bp cuantizado y afirmaba cifras que la matemática corregida ya no produce.** Corresponde al de DESIGN_SYSTEM
+  > §21.5a (borrador que sube el punto de venta de MX$80 de `1.15×` a `1.25×` y el de compra de MX$25 de `30%` a
+  > `32%`). Lo que cambió y por qué:
+  >
+  > | Campo | Antes (bp cuantizado) | Ahora (racional exacto) |
+  > |---|---|---|
+  > | `draft.buy.rawCents` / `priceCents` | `1734` (de `k→3467`, `5000×3467/10000 = 1733.5`) | **`1733`** (`k = 10400/3 = 3466.666…`, `= 1733.33…`) |
+  > | `saved.sale.rawCents` / `baseCents` | `6978` (de `k→13955`, `= 6977.5`) | **`6977`** (`k = 13954.545…`, `= 6977.27…`) |
+  > | `deltaCents.buy` | `67` | **`66`** |
+  >
+  > **Los `appliedBp` (`14409`, `3467`, `13955`, `3333`) siguen siendo correctos** — pero **solo como display**: son la
+  > interpolación redondeada a bp, **no** el valor con el que se calcula. Los `priceCents` finales **no cambian**
+  > (`$75.00` / `$70.00`), porque la escalera absorbe el centavo — pero `rawCents` sí, y es el número que el
+  > previsualizador pinta en la memoria de cálculo.
+  >
+  > **Nota para ux-ui (retira mi sugerencia anterior de usar «≈» aquí):** con la matemática exacta, las cifras de la
+  > prosa de §21.5a — `17.33` y `69.77` — **son exactas**, no truncamientos. Eran correctas desde el principio; el que
+  > estaba desviado un centavo era mi ejemplo cuantizado. El caveat general sigue en pie (`appliedBp` es display, así
+  > que rehacer a mano puede diferir ≤1 centavo en otros mercados), pero **en este ejemplo no hay nada que suavizar**.
   - **BORRADOR INVÁLIDO — la respuesta se parte por COMPUTABILIDAD, no por severidad (decisión normativa):**
 
     | Grupo | Códigos | Respuesta | Por qué |
