@@ -45,6 +45,10 @@ report_html.html
 report_md.md
 nuclei.jsonl
 
+# --- Stack NATIVO (scripts/stack-native.sh): pids y logs de procesos locales ---
+# Ruta alternativa a docker-compose para entornos SIN demonio de Docker (DEVOPS_NOTES §29.10).
+.native-stack/
+
 # --- Docker / datos locales ---
 # Los volúmenes de docker-compose son named volumes (no en el árbol),
 # pero por si alguien monta datos localmente:

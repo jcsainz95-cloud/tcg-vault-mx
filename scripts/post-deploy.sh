@@ -48,10 +48,28 @@
 #   RUN_PUBLISH_ALL=1  — OPT-IN explícito del cut-over (paso 4). NO se dispara solo aunque
 #                        haya credenciales: `publish-all` EXPONE PIEZAS A LA VENTA y esa
 #                        decisión se toma a propósito, no de rebote por correr el script.
-#   PUBLISH_ALL_BATCH_KEY — clave de idempotencia del paso 4 (default `p48-cutover-v2.0`).
-#                        Repetir con la MISMA clave devuelve el resultado guardado
-#                        (`idempotentReplay: true`) sin re-publicar. Para forzar una pasada
-#                        NUEVA (p. ej. tras curar dato de mercado), pasa otra clave.
+#   PUBLISH_ALL_SET_ID — **CUT-OVER POR SETS (decisión del dueño, DEVOPS_NOTES §29.4b).**
+#                        `CardSet.id` INTERNO (uuid) del set a repriciar. El barrido se acota
+#                        a las piezas de ESE set y se revisa la cola antes de seguir con el
+#                        siguiente. Sin esta variable, el paso 4 repricia el catálogo COMPLETO
+#                        de una sola vez — que NO es lo que se decidió.
+#                        ⚠️ NO acepta el `externalId` de pokemontcg.io (`sv8pt5`, `cel25`…):
+#                        el servicio resuelve `cardSet.findUnique({ where:{ id } })`, así que
+#                        un externalId da 400 VALIDATION_ERROR. Cómo obtener el uuid: §29.4b.
+#   PUBLISH_ALL_PRODUCT_TYPE — `raw | graded | sealed`. Acota además por tipo. El SELLADO está
+#                        FUERA de la curva (§4.36.10): filtrarlo en el cut-over de P-48 no
+#                        repricia nada — se avisa si se pide.
+#   PUBLISH_ALL_BATCH_KEY — clave de idempotencia del paso 4.
+#                        Default: `p48-cutover-v2.0` en el barrido completo, y
+#                        `p48-cutover-<setId>` cuando se pasa PUBLISH_ALL_SET_ID.
+#                        ⚠️ **TRAMPA DEL CUT-OVER POR SETS:** la idempotencia es POR `batchKey`
+#                        y SE EVALÚA ANTES DE MIRAR LOS FILTROS (fast-path del `InventoryBatch`
+#                        en `inventory.service.ts`). Repetir la MISMA clave con otro `setId` NO
+#                        repricia el set nuevo: devuelve el resumen GUARDADO del set anterior
+#                        con `idempotentReplay:true` — un «ya está» que es MENTIRA. Por eso la
+#                        clave se deriva del set automáticamente; si la fijas a mano, que sea
+#                        DISTINTA por set. Para forzar una pasada NUEVA sobre el mismo set
+#                        (p. ej. tras curar dato de mercado), pasa otra clave.
 # =============================================================================
 set -euo pipefail
 
@@ -145,19 +163,52 @@ fi
 #   Se CONSERVAN intactos los overrides manuales (§N.6 los declara absolutos): revisarlos
 #   es tarea del DUEÑO, no de este script (§4.36.9c-5, DEVOPS_NOTES §29.5).
 # -----------------------------------------------------------------------------
-PUBLISH_ALL_BATCH_KEY="${PUBLISH_ALL_BATCH_KEY:-p48-cutover-v2.0}"
+# --- Filtros del cut-over POR SETS (decisión del dueño, §29.4b) ---------------
+# El barrido se acota con `setId` (uuid INTERNO de CardSet) y/o `productType`. La clave de
+# idempotencia se DERIVA del set: reusarla entre sets devolvería el resumen del set anterior
+# con `idempotentReplay:true` (el fast-path del InventoryBatch se evalúa ANTES de los filtros)
+# y el operador leería un «ya está» falso.
+PUBLISH_ALL_SET_ID="${PUBLISH_ALL_SET_ID:-}"
+PUBLISH_ALL_PRODUCT_TYPE="${PUBLISH_ALL_PRODUCT_TYPE:-}"
+if [ -n "$PUBLISH_ALL_SET_ID" ]; then
+  DEFAULT_BATCH_KEY="p48-cutover-${PUBLISH_ALL_SET_ID}"
+else
+  DEFAULT_BATCH_KEY="p48-cutover-v2.0"
+fi
+[ -n "$PUBLISH_ALL_PRODUCT_TYPE" ] && DEFAULT_BATCH_KEY="${DEFAULT_BATCH_KEY}-${PUBLISH_ALL_PRODUCT_TYPE}"
+PUBLISH_ALL_BATCH_KEY="${PUBLISH_ALL_BATCH_KEY:-$DEFAULT_BATCH_KEY}"
+
+# Cuerpo JSON con solo las claves presentes (un `setId:null` sería 400 VALIDATION_ERROR).
+PUBLISH_ALL_BODY="{\"batchKey\":\"$PUBLISH_ALL_BATCH_KEY\""
+[ -n "$PUBLISH_ALL_SET_ID" ]       && PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY,\"setId\":\"$PUBLISH_ALL_SET_ID\""
+[ -n "$PUBLISH_ALL_PRODUCT_TYPE" ] && PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY,\"productType\":\"$PUBLISH_ALL_PRODUCT_TYPE\""
+PUBLISH_ALL_BODY="$PUBLISH_ALL_BODY}"
+
 log "PASO 4 — CUT-OVER P-48: re-resolver el catálogo con la curva (publish-all)"
+if [ -z "$PUBLISH_ALL_SET_ID" ]; then
+  warn "SIN PUBLISH_ALL_SET_ID ⇒ barrido del catálogo COMPLETO en una sola pasada."
+  warn "El dueño decidió hacer el cut-over POR SETS, empezando por uno chico (§29.4b)."
+  warn "Fija PUBLISH_ALL_SET_ID=<uuid de CardSet> salvo que estés cerrando el último tramo."
+else
+  echo "  alcance: setId=$PUBLISH_ALL_SET_ID${PUBLISH_ALL_PRODUCT_TYPE:+ productType=$PUBLISH_ALL_PRODUCT_TYPE}"
+fi
+if [ "$PUBLISH_ALL_PRODUCT_TYPE" = "sealed" ]; then
+  warn "productType=sealed: el SELLADO está FUERA de la curva (§4.36.10). Conserva su spread"
+  warn "por presentación, así que este barrido no repricia nada del cambio P-48."
+fi
+
 if [ "${RUN_PUBLISH_ALL:-0}" != "1" ]; then
   cat <<EOF
   ↷ NO se disparó (falta el opt-in explícito RUN_PUBLISH_ALL=1). Es deliberado: publicar
-    EXPONE PIEZAS A LA VENTA. Para correrlo desde aquí:
-        RUN_PUBLISH_ALL=1 ADMIN_BASE_URL=… ADMIN_JWT=… bash scripts/post-deploy.sh
+    EXPONE PIEZAS A LA VENTA. Para correr el cut-over DE UN SET desde aquí:
+        RUN_PUBLISH_ALL=1 PUBLISH_ALL_SET_ID=<uuid> ADMIN_BASE_URL=… ADMIN_JWT=… \\
+          bash scripts/post-deploy.sh
     O a mano, con un JWT de super_admin:
         curl -X POST "\$ADMIN_BASE_URL/admin/inventory/publish-all" \\
              -H "Authorization: Bearer <super_admin_JWT>" -H "Content-Type: application/json" \\
-             -d '{"batchKey":"$PUBLISH_ALL_BATCH_KEY"}'
-    Filtros opcionales del body: {"setId":"…"} y {"productType":"raw|graded|sealed"} —
-    útiles para hacer el cut-over por partes (p. ej. un set primero). Ver DEVOPS_NOTES §29.
+             -d '$PUBLISH_ALL_BODY'
+    El \`setId\` es el uuid INTERNO de CardSet, NO el externalId (\`sv8pt5\`) — ése da 400.
+    Cómo sacarlo y cómo elegir el primer set: DEVOPS_NOTES §29.4b.
 EOF
 elif [ "$HAS_ADMIN_HTTP" != 1 ]; then
   die "RUN_PUBLISH_ALL=1 pero faltan ADMIN_BASE_URL/ADMIN_JWT (super_admin). El cut-over NO corrió."
@@ -168,24 +219,39 @@ else
       -X POST "$ADMIN_BASE_URL/admin/inventory/publish-all" \
       -H "Authorization: Bearer $ADMIN_JWT" \
       -H "Content-Type: application/json" \
-      -d "{\"batchKey\":\"$PUBLISH_ALL_BATCH_KEY\"}" || echo 000)"
+      -d "$PUBLISH_ALL_BODY" || echo 000)"
   if [ "$HTTP_CODE" != "200" ]; then
     die "publish-all devolvió HTTP $HTTP_CODE — el catálogo NO se re-resolvió. NO anuncies el release.
+     Si es 400 VALIDATION_ERROR con setId: pasaste el externalId en vez del uuid de CardSet (§29.4b).
      Respuesta: $(head -c 800 "$PUB_OUT")
      Cuerpo completo en: $PUB_OUT"
   fi
   if command -v jq >/dev/null 2>&1; then
-    jq -r '"  selected=\(.summary.selected) published=\(.summary.published) alreadyListed=\(.summary.alreadyListed) pendingPrice=\(.summary.pendingPrice) failed=\(.summary.failed) replay=\(.idempotentReplay)"' "$PUB_OUT" \
+    # `listedNowPending` (v2.1.1) = de lo que YA ESTABA A LA VENTA, cuánto quedó retenido.
+    # Es el número que contesta la pregunta del dueño y NO se deduce de los otros: `pendingPrice`
+    # mezcla lo que nunca estuvo publicado, y `alreadyListed` ahora significa «re-verificada y
+    # SANA», no «no la toqué». Va FUERA de la partición
+    # (selected = published + alreadyListed + pendingPrice + failed).
+    jq -r '"  selected=\(.summary.selected) published=\(.summary.published) alreadyListed=\(.summary.alreadyListed) pendingPrice=\(.summary.pendingPrice) failed=\(.summary.failed) replay=\(.idempotentReplay)\n  ► listedNowPending=\(.summary.listedNowPending)  ← de lo que ya estaba a la venta, cuánto quedó RETENIDO"' "$PUB_OUT" \
       || head -c 800 "$PUB_OUT"
+    LNP="$(jq -r '.summary.listedNowPending // 0' "$PUB_OUT")"
+    SEL="$(jq -r '.summary.selected // 0' "$PUB_OUT")"
+    if [ "$LNP" != "0" ]; then
+      warn "listedNowPending=$LNP sobre selected=$SEL: piezas que SE VENDÍAN y ahora no resuelven"
+      warn "precio. Siguen \`listed\` (escalar NO cambia el status) pero están fuera de Compra."
+      warn "Míralas en la cola ANTES de repriciar el siguiente set (PASO 5)."
+    fi
     if [ "$(jq -r '.idempotentReplay' "$PUB_OUT")" = "true" ]; then
       warn "REPLAY idempotente: devolvió el resultado guardado de una corrida previa con esta batchKey."
-      warn "Si querías una pasada NUEVA, re-corre con otra PUBLISH_ALL_BATCH_KEY."
+      warn "⚠️ Si cambiaste de set y NO cambiaste la batchKey, este resumen es del set ANTERIOR:"
+      warn "   el set nuevo NO se reprició. Re-corre con otra PUBLISH_ALL_BATCH_KEY."
     fi
   else
     head -c 800 "$PUB_OUT"; echo
+    warn "Sin \`jq\`: lee a mano \`summary.listedNowPending\` en el cuerpo de arriba."
   fi
   rm -f "$PUB_OUT"
-  ok "Cut-over disparado. Revisa la cola de pendientes en el PASO 5 antes de anunciar."
+  ok "Cut-over disparado. Revisa la cola de pendientes en el PASO 5 antes de seguir con el siguiente set."
 fi
 
 # -----------------------------------------------------------------------------
@@ -195,7 +261,7 @@ fi
 #   MAL CALIBRADO o DATO DE MERCADO ROTO — y eso se escala al dueño/arquitecto, no se
 #   silencia. Los `counts` ignoran `?reason=` y respetan `?context=` (contrato §M2).
 # -----------------------------------------------------------------------------
-log "PASO 5 — cola de pendientes por razón (diagnóstico del cut-over; NO bloquea)"
+log "PASO 5 — cola de pendientes por razón (diagnóstico ENTRE SET Y SET; NO bloquea)"
 if [ "$HAS_ADMIN_HTTP" = 1 ]; then
   PEND_OUT="$(mktemp -t post-deploy-pending.XXXXXX.json)"
   HTTP_CODE="$(curl -sS -o "$PEND_OUT" -w '%{http_code}' \
@@ -208,19 +274,37 @@ if [ "$HAS_ADMIN_HTTP" = 1 ]; then
     else
       head -c 600 "$PEND_OUT"; echo
     fi
-    echo "  Referencia (§4.36.9c-3): premium_at_floor ≈ 3 por cada 333 cartas. Muy por encima ⇒"
-    echo "  piso mal calibrado o mercado roto ⇒ escalar al dueño/arquitecto ANTES de anunciar."
+    cat <<'EOF'
+
+  ── REGLA DE DIAGNÓSTICO (ARCHITECTURE §4.36.5c) — los dos conteos SOLO se leen JUNTOS ──
+    · `premium_at_floor` SUBE y `no_market` PLANO   ⇒ PISO MAL CALIBRADO.
+        Se corrige en el EDITOR DE LA CURVA (M2): subir el piso y volver a repriciar el set.
+    · SUBEN LOS DOS                                 ⇒ FEED DE MERCADO DEGRADADO.
+        NO TOQUES EL PISO: cuando el feed se recupere, el piso inflado empeora el precio.
+        Se arregla el ingest (rol backend) y se repricia después.
+    · Línea base esperada: `premium_at_floor` ≈ 3 de cada 333 cartas (§4.36.9c-3).
+        Muy por encima NO es un guardarraíl ruidoso: es una de las dos causas de arriba.
+        ⇒ PARAR el cut-over por sets, escalar al dueño/arquitecto, NO repriciar el siguiente.
+
+  Toma esta lectura INMEDIATAMENTE después del publish-all, no días más tarde: la actividad
+  normal de vendedores cierra entradas de la cola y te borra la señal (SECURITY_NOTES §6-3).
+EOF
   else
-    warn "No pude leer la cola (HTTP $HTTP_CODE). Revísala a mano en M2 antes de anunciar."
+    warn "No pude leer la cola (HTTP $HTTP_CODE). Revísala a mano en M2 antes de seguir."
   fi
   rm -f "$PEND_OUT"
 else
   cat <<'EOF'
   ↷ Manual (sin ADMIN_BASE_URL/ADMIN_JWT):
-      curl "$ADMIN_BASE_URL/admin/pricing/pending?reason=premium_at_floor" \
-           -H "Authorization: Bearer <super_admin_JWT>"
-    Mira `counts.premium_at_floor` (≈3 por cada 333 cartas). Muy por encima ⇒ piso mal
-    calibrado o dato de mercado roto ⇒ escalar. Ver DEVOPS_NOTES §29.4.
+      curl "$ADMIN_BASE_URL/admin/pricing/pending" -H "Authorization: Bearer <super_admin_JWT>"
+    (los `counts` del cuerpo IGNORAN `?reason=` y la paginación, y respetan `?context=`:
+     describen la cola entera, no la página filtrada)
+
+  ── REGLA DE DIAGNÓSTICO (§4.36.5c) — los dos conteos SOLO se leen JUNTOS ──
+    · `premium_at_floor` sube y `no_market` plano ⇒ PISO MAL CALIBRADO → editor de curva (M2).
+    · suben los dos                               ⇒ FEED DEGRADADO → NO tocar el piso; es ingest.
+    · Línea base: premium_at_floor ≈ 3 de cada 333 (§4.36.9c-3). Muy por encima ⇒ parar y escalar.
+    Ver DEVOPS_NOTES §29.4b/§29.4c.
 EOF
 fi
 
@@ -254,4 +338,10 @@ log "POST-DEPLOY COMPLETADO — pasos automatizables OK."
 echo "  Pendientes manuales: unify-rarities (si no se disparó por HTTP), el cut-over"
 echo "  publish-all (si no se pasó RUN_PUBLISH_ALL=1), la REVISIÓN DE OVERRIDES heredados"
 echo "  por el dueño (§29.5) y el sync de sellado por set (paso 7)."
+if [ -n "${PUBLISH_ALL_SET_ID:-}" ]; then
+  echo
+  echo "  ► CUT-OVER POR SETS: este pase cubrió UN set. Repite pasos 4+5 con el SIGUIENTE"
+  echo "    PUBLISH_ALL_SET_ID (la batchKey se re-deriva sola). El release se anuncia cuando"
+  echo "    TODOS los sets estén repriciados y la cola siga dentro de la línea base (§29.4b)."
+fi
 echo "  Recién entonces se anuncia el release."

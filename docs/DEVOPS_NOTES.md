@@ -20,6 +20,17 @@
 > `MARKET_FORMAT`, rollback por dial) y el bloque de precios/scheduling de `.env.example`. El **scheduler** y
 > `env.validation.ts` los cabla **backend** (devops no toca `backend/`).
 >
+> **⇒ Actualización 2026-08-24 (P-48 / v2.0 — «precio puro por valor de mercado»): EL RUNBOOK
+> OPERATIVO VIGENTE ES §29.** Tres veredictos **aprobados** (QA · techlead con deuda · seguridad
+> **0 críticos / 0 altos**) y **tres decisiones del dueño** ya reflejadas ahí:
+> **(1)** **P-47 primero, P-48 después** — la fuente del precio se estabiliza **antes** de cambiar la
+> matemática que se le aplica (§29.3, con criterio de corte explícito).
+> **(2)** El cut-over va **POR SETS**, empezando por uno chico, leyendo `summary.listedNowPending` y los
+> `counts` de la cola entre set y set (§29.4b/§29.4c).
+> **(3)** La **brecha de E2E contra mocks** se cierra **antes** de desplegar, por la **ruta NATIVA sin
+> Docker** de **§29.10** (`scripts/stack-native.sh` + subset `@real`). **La ejecuta QA.**
+> **Estado del DoD y qué falta exactamente: §29.11.** §27 queda como **registro histórico**.
+>
 > **Actualización 2026-08-23 (D-4 — cierre techlead, regla 10):** el release
 > `fix/variant-composition-regression` @ `9b6a81b` trae **cambios de DATOS** que `migrate deploy` NO cubre
 > solo (reshape de tiers **P-34 T2=25%** + cura del sellado **M-39/M-40**). La **secuencia exacta
@@ -216,6 +227,15 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 
 > **Actualización 2026-08-17 (devops):** se separó el E2E en dos caminos porque el
 > "verde" que veía QA corría **contra mocks**, lo que dejó pasar flujos reales rotos.
+>
+> ### ⚠️ Actualización 2026-08-24 — **si no tienes demonio de Docker, ve a §29.10.**
+> Los comandos `docker compose` de esta sección **siguen siendo la ruta canónica en CI** y no
+> cambian. Pero en la **máquina de trabajo del equipo NO hay demonio de Docker**
+> (`/var/run/docker.sock` no existe), así que aquí **no arrancan**. La alternativa **soportada
+> y verificada** es la **ruta NATIVA** de **§29.10** (`scripts/stack-native.sh`): mismo Postgres,
+> mismo Redis, mismo backend Nest completo, frontend con `NEXT_PUBLIC_USE_MOCKS=false`, y el
+> subset **`@real`** de Playwright contra `E2E_BASE_URL`. **No leas esta sección como si fuera el
+> único camino:** fue justamente ese callejón sin salida el que dejó la verificación real sin correr.
 
 ### El problema (por qué "QA verde" no bastaba)
 
@@ -2990,15 +3010,27 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 > **Rama:** `claude/card-pricing-rules-2e537m` (etapas **E0–E9**, de `586f736` a `HEAD`).
 > **Fuente normativa:** `ARCHITECTURE.md` **§4.36** (spec) y **§4.36.9** (migración + cut-over).
 >
-> ### ⛔ ESTADO: **NO DESPLEGADO. NO DESPLEGAR TODAVÍA.**
-> Este cambio **toca dinero en los dos ejes** (venta y compra) y **aún no tiene veredictos**: falta
-> **QA** (suite E2E completa), **techlead** y la **fase de seguridad** (pentester + seguridad). La
-> **regla 10** de `CLAUDE.md` exige los **tres** antes de promover. Esta sección deja el **runbook
-> listo y el pipeline sano**; ejecutarlo es un paso posterior, cuando los tres veredictos existan.
+> ### ✅ ESTADO: **TRES VEREDICTOS APROBADOS. Runbook LISTO. Deploy NO EJECUTADO.**
+> | Gate | Estado |
+> |---|---|
+> | **QA** | ✅ aprobado — con una **brecha declarada** (los 80/80 de Playwright corrieron contra **mocks**). Se cierra por §29.10 **antes** del deploy. |
+> | **techlead** | ✅ aprobado **con deuda** (no bloqueante, registrada en `docs/TECH_DEBT.md`). |
+> | **seguridad** | ✅ **APROBADO — 0 críticos, 0 altos** (`docs/SECURITY_NOTES.md`, pase P-48; los medios/bajos S48-M1/M2 y P48-B1 se cerraron después en `6322ee3`, `a2d238e`, `1771a47`). |
+>
+> **Por qué sigue sin desplegarse, y no es un olvido:** faltan **dos insumos que solo aporta el dueño** —
+> el **snapshot/PITR de la Postgres de producción** (paso 0, la red de seguridad del release) y la
+> **ventana** en que se ejecuta. Devops no tiene egress a prod ni acceso a los dashboards; ese límite es
+> el mismo de §26/§28 y no se disimula aquí. Lo que sí está listo es todo lo demás: pipeline sano,
+> secuencia, verificación, rollback y el orden entre releases.
 >
 > **Numeración:** esta sección es **§29 y no §28** a propósito: `origin/main` ya tiene un
 > **§28** (runbook de activación del dial `tcgcsv_singles`, P-47). Numerarla §29 evita el choque
 > de encabezados cuando este stream mergee a `main`.
+>
+> **Cambios de esta revisión (2026-08-24, tras las tres decisiones del dueño):** §29.3 pasa de
+> *recomendación* a **orden normativo** (P-47 primero, P-48 después, con criterio de corte explícito);
+> §29.4 se parte en **29.4a deploy / 29.4b cut-over POR SETS / 29.4c lectura entre set y set**; y se añade
+> **§29.10** (ruta NATIVA sin Docker para cerrar la brecha de E2E) y **§29.11** (verificación del DoD).
 
 ### 29.1 Resumen para el operador: qué cambia en INFRA (y qué NO)
 
@@ -3007,7 +3039,7 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 | **Variables de entorno** | **NINGUNA nueva.** La curva es **DATO** (setting `pricing_curve` en `ConfigSetting`), no configuración de entorno: se edita en M2 sin redeploy. Si algún día un cambio de pricing pide un env nuevo, es señal de diseño equivocado → **reportar al arquitecto, no agregarlo**. |
 | **Migración** | **M-41** `20260824120000_m41_pricing_curve_instrumentation` — **ADITIVA PURA**: 3 enums + 8 columnas **nullable** + 1 índice. **Sin `DROP`, sin backfill, sin migración de dinero.** Segura con la app corriendo. |
 | **Migración de dinero** | **NO EXISTE.** El precio de venta **no está persistido**: se resuelve **en lectura** (§4.26b). No hay filas de precio que reescribir. |
-| **«Repriciar el catálogo»** | Es **RE-RESOLVER**, no un `UPDATE` masivo → `POST /admin/inventory/publish-all` (§29.4, paso 5). |
+| **«Repriciar el catálogo»** | Es **RE-RESOLVER**, no un `UPDATE` masivo → `POST /admin/inventory/publish-all` (§29.4b), **por sets**. |
 | **Settings viejos** | Las **cinco** claves retiradas quedan **huérfanas e INERTES**, **sin `DELETE`**: `sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`, `buylist_price_fallback_pct`, `pricing_tier_map`. **NO LAS BORRES** (§29.8). |
 | **Seed** | **No se necesita** para el cut-over. Si la fila `pricing_curve` no existe, `SettingsService.get()` devuelve el **default de §N.2** (`SETTING_DEFAULTS`) — exactamente lo que el seed escribiría. La fila se materializa sola con el primer `PUT /admin/pricing/curve`. Correr `prisma/seed.ts` completo contra prod **no** es parte de este runbook (siembra usuarios/cartas demo). |
 | **Sellado** | **Fuera de la curva** (§4.36.10): conserva íntegro su spread por presentación y su dial `sealed_spread_fallback_pct`. Verificable: **el precio de un sellado antes y después es idéntico**. |
@@ -3034,7 +3066,7 @@ post-deploy **entero** abortaba ahí → **release imposible de completar**.
 - `post-deploy.sh` se renumeró (1 migraciones · 2 backfill M-39 · 3 unify-rarities · 4 **cut-over
   publish-all** · 5 **diagnóstico de la cola** · 6 nota D-3 · 7 sync de sellado) y su cabecera describe
   el estado real del release.
-- **Verificado `bash -n scripts/post-deploy.sh` → OK.**
+- **Verificado `bash -n scripts/post-deploy.sh` → OK** (y de nuevo tras los cambios de §29.4b).
 - **Barrido de referencias muertas** en territorio devops (`scripts/`, `.github/workflows/`, `security/`,
   `docker-compose*.yml`, `Dockerfile.*`, `railway.json`, `.env.example`): **sin residuos** de
   `backfill-p34`, `tiered-pricing`, `pricing/tiers`, `tier-map`, `buylist-rules`, `sales-rules`,
@@ -3044,66 +3076,307 @@ post-deploy **entero** abortaba ahí → **release imposible de completar**.
   `docs/BACKEND_NOTES.md` §del backfill P-34 es de **backend**. Ninguna de las dos rompe el deploy
   (son documentación), pero conviene alinearlas para no reintroducir el paso muerto.
 
-### 29.3 M-41: contenido, serialización y orden de merge
+---
 
-**Contenido** (`backend/prisma/migrations/20260824120000_m41_pricing_curve_instrumentation/`):
+### 29.3 ORDEN ENTRE RELEASES — **P-47 PRIMERO, P-48 DESPUÉS** (decisión del dueño, NORMATIVA)
 
-1. `CREATE TYPE "PriceBasis"` (`market`, `floor`, `override`, `bounty`, `pending`).
-2. `CREATE TYPE "MarketBracket"` (`lt_3`, `r3_10`, `r10_25`, `r25_80`, `r80_300`, `gte_300`) — **escala
-   fija**: cambiarla parte la serie histórica.
-3. `CREATE TYPE "PendingPriceReason"` (`no_market`, `premium_at_floor`).
-4. `OrderItem` += `marketMxnCents`, `priceBasis`, `marketBracket`, `finish` (todas nullable).
-5. `SellRequestItem` += `marketMxnCents`, `priceBasis`, `marketBracket` (nullable).
-6. `PendingPriceEntry` += `reason` (nullable) + índice `PendingPriceEntry_reason_idx`.
+> **Esto ya no es una recomendación de devops: es el orden acordado.** Devops lo propuso, el dueño lo
+> aceptó. Ejecutar los dos en la misma ventana **queda descartado**.
 
-**Sin `DROP`, sin `UPDATE`, sin backfill.** Las filas históricas quedan en `null` a propósito (`null` =
-«anterior a M-41»); `reason` **no** entra a la clave de dedupe de la cola, así que filas viejas y nuevas
-conviven sin duplicar.
+#### 29.3-1 Por qué, en una línea que conviene no olvidar
 
-**¿Hay que serializar M-41 contra otras migraciones pendientes? — Verificado con git: NO hay conflicto.**
+**P-47 cambia la FUENTE del precio de mercado** (flip del dial `price_provider` → `tcgcsv_singles`,
+precio por-acabado diario desde TCGCSV, §28). **P-48 cambia la MATEMÁTICA que se aplica a esa fuente**
+(la curva: `venta = redondeo↑(max(piso, mercado × markup(mercado)))`).
 
-| Ref | Última migración | Nota |
+Y el detalle que obliga al orden, no solo lo aconseja: **P-48 pone el 100 % del peso sobre el dato de
+mercado.** Con la curva no hay reglas por rareza ni por acabado que amortigüen un dato malo — si el
+mercado dice una cifra, esa cifra decide el precio, y si no dice nada la pieza se retiene. Por eso **el
+dato tiene que ser confiable ANTES de que la curva empiece a decidir precios**.
+
+Si se encienden juntos y un precio se mueve raro, **no hay forma de separar si fue la fuente o la
+matemática**: las dos variables cambiaron a la vez y no queda una lectura limpia contra la cual comparar.
+Serializados, cada movimiento tiene un solo sospechoso.
+
+#### 29.3-2 Secuencia
+
+| Fase | Qué se hace | Runbook |
 |---|---|---|
-| `origin/main` (`d9c8c91`) | `20260823130000_m40_pending_sealed_product` | M-39/M-40 ya mergeadas. |
-| `origin/production` (`c255692`) | `20260823130000_m40_pending_sealed_product` | Rama-registro de releases. |
-| `origin/claude/card-pricing-rules-2e537m` (esta) | **`20260824120000_m41_…`** | **Única migración por delante de `main`.** |
-| Resto de ramas remotas | ≤ M-40 | Ninguna otra rama abierta añade migraciones. |
+| **1** | **P-47**: merge/deploy + flip del dial a `tcgcsv_singles` + primer barrido | **§28** (ya en `origin/main`) |
+| **2** | **VERIFICACIÓN de P-47** contra cartas conocidas — abajo | §29.3-3 |
+| **3** | **CORTE**: ¿P-47 está estable? — criterio explícito abajo | §29.3-4 |
+| **4** | **P-48**: merge/deploy de esta rama + cut-over **por sets** | §29.4a/§29.4b |
 
-- **M-41 es la única migración pendiente del repo.** No hay colisión de timestamp ni orden ambiguo:
-  Prisma aplica por nombre (lexicográfico) y `20260824120000` > `20260823130000`.
-- La **serialización** que pide `ARCHITECTURE §4.36.9a` es la de **zona compartida** (`backend/prisma/`,
-  regla de work streams): **este stream es el único que la toca** en la ventana actual. Mientras M-41 no
-  esté en `main`, **ningún otro stream debe crear migraciones**; si lo hace, el orquestador serializa
-  (M-41 primero, y la otra se re-fecha por encima).
-- **`migrate deploy` corre solo:** el `CMD` de `Dockerfile.backend`
-  (`prisma migrate deploy && node dist/main.js`) garantiza **migración antes de servir**. El código v2.0
-  nunca sirve sin las columnas de M-41. `healthcheckTimeout: 300` en `railway.json` da holgura.
+**Entre la fase 1 y la 4 tiene que haber al menos un ciclo COMPLETO del `price-ingest`.** El job corre
+**2×/día (00:00 y 12:00 UTC)**; un barrido forzado (`POST /admin/jobs/price-ingest`) sirve para adelantar
+sets concretos, pero el criterio de corte se toma sobre una corrida **programada** que haya pasado por el
+catálogo en scope, no sobre un `--force` puntual. Un `--force` prueba que la ruta funciona; no prueba que
+el barrido diario cubre el catálogo.
 
-> **⚠️ Orden entre releases (recomendación de devops).** `origin/main` va **14 commits por delante** de
-> esta rama y trae **P-47 / §28**: el flip del dial `priceProvider → tcgcsv_singles` (precio por-acabado
-> diario desde TCGCSV). **P-47 cambia la FUENTE del mercado; P-48 cambia la MATEMÁTICA que se aplica a
-> ese mercado.** Encender ambos en la **misma ventana** hace indiagnosticable cualquier movimiento de
-> precio: si un número queda raro no se sabrá si fue el dato o la curva. **Recomendación: una cosa a la
-> vez** — dejar asentar el flip de §28 (o hacer el cut-over de §29 con el dial en su estado actual) y
-> mover el otro después, comparando `GET /admin/reports/pricing-brackets` entre ambos momentos. La
-> decisión es del dueño/orquestador; devops solo señala el riesgo de diagnóstico.
+#### 29.3-3 Qué se verifica ENTRE uno y otro (contra cartas conocidas)
 
-### 29.4 Secuencia de cut-over (§4.36.9c) — **cuando existan los tres veredictos**
+La verificación de §28.4e sigue siendo la base. Lo que se añade aquí es **el ancla contra cartas que el
+dueño conoce de memoria**, que es lo único que detecta un dato *plausible pero equivocado* —un feed puede
+devolver cifras perfectamente bien formadas y aun así estar mal mapeado:
+
+1. **Elegir 8–10 cartas cuyo precio real el dueño sepa de memoria**, repartidas a propósito:
+   - **al menos 2 de valor alto** (una chase moderna) — el tramo donde la curva aplica el markup más bajo
+     y un error de fuente se traduce en pesos de inmediato;
+   - **al menos 2 baratas** (bulk) — el tramo donde la curva topa contra el **piso**;
+   - **al menos 2 con reverse holo y holofoil de la misma carta** — es exactamente lo que P-47 aporta
+     (precio distinto por acabado) y lo que el proveedor viejo aplanaba.
+2. **Comparar el mercado del día contra lo que el dueño espera**, por acabado:
+   ```sql
+   SELECT c.name, pr."finish", pr."priceMxnCents", pr."source", pr."capturedDate", pr."isManualOverride"
+   FROM "PriceReference" pr
+   JOIN "Card" c ON c.id = pr."cardId"
+   WHERE c.name IN ('<carta 1>', '<carta 2>', '…')
+     AND pr."capturedDate" = CURRENT_DATE
+   ORDER BY c.name, pr."finish";
+   ```
+   **Éxito** = para una misma carta, `normal` / `reverse_holo` / `holofoil` dan cifras **distintas**, con
+   `source='tcgcsv_singles'` y `capturedDate` de **hoy**, y los montos **caen donde el dueño espera**
+   (no se busca el centavo exacto: se busca que no haya un orden de magnitud de diferencia ni un acabado
+   pegado al de otro).
+3. **Cobertura, no solo puntería.** Una fuente puede acertar en las 10 cartas del muestreo y aun así
+   dejar medio catálogo sin dato — y bajo la curva, **sin dato = pieza retenida**:
+   ```sql
+   -- % de variantes en inventario de plataforma CON mercado de hoy
+   SELECT round(100.0 * count(pr.id) FILTER (WHERE pr.id IS NOT NULL) / NULLIF(count(*), 0), 1) AS pct_con_mercado,
+          count(*) AS variantes
+   FROM (SELECT DISTINCT i."cardId", i."finish", i."productType"
+         FROM "InventoryItem" i
+         WHERE i."ownerType" = 'platform' AND i.status IN ('in_stock','listed')) v
+   LEFT JOIN "PriceReference" pr
+     ON pr."cardId" = v."cardId" AND pr."finish" = v."finish"
+    AND pr."productType" = v."productType" AND pr."capturedDate" = CURRENT_DATE;
+   ```
+4. **Los overrides manuales siguen ganando** (P47-2, durable cross-day). Ya se verifica en §28.4e-2; se
+   repite aquí porque bajo la curva el override es **absoluto** (§N.6) y conviene saber que sobrevivió al
+   cambio de fuente **antes** de que la curva entre en juego.
+
+#### 29.3-4 CRITERIO DE CORTE — «P-47 está estable, procede P-48»
+
+Se procede con P-48 cuando **los cinco** se cumplen. Si falta uno, **no se procede**; y lo que falla se
+enruta a su rol (fuente/ingest ⇒ **backend**; egress/dial/env ⇒ **devops**; dato de negocio ⇒ **dueño**).
+
+| # | Condición | Cómo se comprueba |
+|---|---|---|
+| 1 | **≥ 2 corridas programadas** de `price-ingest` con `tcgcsv_singles` **sin fallo de barrido** | `GET /admin/pricing/sync-status` + logs; sin `403`/timeouts recurrentes contra `tcgcsv.com` |
+| 2 | **`capturedDate` de HOY** para la mayoría del inventario de plataforma | la consulta de cobertura de §29.3-3-3 |
+| 3 | **Cobertura ≥ 95 %** de variantes en inventario con mercado del día | misma consulta. **Este es el número que más importa para P-48**: bajo la curva, la variante sin dato **no se publica** — una cobertura del 80 % significa que **1 de cada 5 piezas se retiene** en el cut-over, y eso se leería como «la curva rompió el catálogo» cuando en realidad fue la fuente |
+| 4 | **Precio distinto por acabado** en las cartas de muestreo, y **coherente** con lo que el dueño espera | §29.3-3-1/2 |
+| 5 | **Sin sorpresas en la cola** durante ≥ 24 h con P-47 solo | `GET /admin/pricing/pending` → `counts`. `no_market` **estable o a la baja**. Si `no_market` está **subiendo** con P-47 solo, la fuente todavía se está asentando: **esperar**. Encender la curva sobre un `no_market` en ascenso garantiza no poder distinguir después qué causó qué |
+
+> **La condición 5 es la que hace que el orden sirva de algo.** Es la lectura de la cola **antes** de que
+> la curva exista, es decir, **la línea base**. Sin ella, el `counts` posterior al cut-over no se compara
+> contra nada y la regla de diagnóstico de §29.4c se queda sin denominador. **Anota los dos números
+> (`no_market` y `premium_at_floor`) en el momento del corte** — son el «antes» del release.
+>
+> **Ojo:** con P-47 solo, `premium_at_floor` **debería ser 0** — esa razón la introduce el guardarraíl de
+> P-48 y antes del cut-over no existe. Si apareciera con valor > 0, es que ya hay código de v2.0
+> desplegado y el orden se rompió: **parar**.
+
+---
+
+### 29.4 Secuencia de cut-over (§4.36.9c) — **con los tres veredictos ya dados**
 
 Orquestada por `scripts/post-deploy.sh` (idempotente). Patrón §11.F para el env de prod.
 
+#### 29.4a Deploy y salud (pasos 0–4)
+
 | # | Paso | Comando / dónde | Bloquea | Notas |
 |---|---|---|---|---|
-| 0 | **Snapshot / PITR de la Postgres de prod** | Railway → Postgres → Backups → *Create backup* | **SÍ** | Orden de oro (§7): **datos primero, código después**. Aquí no hay dinero que migrar, pero el snapshot es la red para cualquier sorpresa. |
+| **−1** | **P-47 estable** (§29.3-4) | los 5 criterios de corte | **SÍ** | Prerrequisito de orden. No se salta. |
+| **−0.5** | **E2E contra el stack real** (§29.10) | lo corre **QA** | **SÍ** | Cierra la brecha declarada por QA. El «verde» de mocks no autoriza un deploy que toca dinero. |
+| 0 | **Snapshot / PITR de la Postgres de prod** | Railway → Postgres → Backups → *Create backup* | **SÍ** | Orden de oro (§7): **datos primero, código después**. Aquí no hay dinero que migrar, pero el snapshot es la red para cualquier sorpresa. **Lo aporta el dueño; devops no tiene acceso.** |
 | 1 | **Merge a `main` + deploy** (Railway backend + Vercel frontend) | `deploy.yml` (auto desde `main`) o §26.3 | **SÍ** | Al arrancar, el contenedor aplica **M-41**. El frontend v2.0 (editor de curva) y el backend deben ir **juntos**: el editor de tiers ya no existe. |
 | 2 | **Salud** | `GET /api/v1/health` → 200 (Redis `up`) | **SÍ** | No se toca dato hasta que la app esté sana. |
 | 3 | **Verificar M-41 aplicada** | SQL de §29.6 | **SÍ** | 1 fila en `_prisma_migrations` + columnas/enums presentes. |
 | 4 | **(Opcional) Fijar la curva** | M2 → editor de curva, o `PUT /admin/pricing/curve` | No | Si no se toca, rige el **default de §N.2** (idéntico al seed). El `POST /admin/pricing/curve/preview` permite **dry-run** antes de guardar. |
-| 5 | **CUT-OVER: re-resolver el catálogo** | `RUN_PUBLISH_ALL=1 ADMIN_BASE_URL=… ADMIN_JWT=… bash scripts/post-deploy.sh` — o `POST /admin/inventory/publish-all` con `{"batchKey":"p48-cutover-v2.0"}` | **SÍ** | Selecciona piezas `ownerType=platform` + `status=in_stock`, las re-resuelve **con la curva**, publica lo que resuelve y **escala** a la cola lo que cae en `pending`/`premium_at_floor`. Idempotente por `batchKey`; tolerante por-ítem. **Lo ya publicado NO necesita este paso: adopta la curva solo con el deploy** (el precio se resuelve en lectura). Filtros `setId`/`productType` permiten hacerlo por partes. |
-| 6 | **Leer la cola por razón** | `GET /admin/pricing/pending` → `counts` (paso 5 del script) | **SÍ (juicio)** | `premium_at_floor` ≈ **3 por cada 333** cartas (§4.36.9c-3). **Muy por encima ⇒ piso mal calibrado o dato de mercado roto** ⇒ escalar al dueño/arquitecto, **no anunciar**. |
-| 7 | **Revisión de OVERRIDES heredados** | M2, binder por variante (§29.5) | No (pero es **del dueño**) | Tarea humana, no automatizable. |
-| 8 | **Instrumentación viva** | `GET /admin/reports/pricing-brackets?axis=sale\|buy` | No | Tras la primera venta y la primera compra deben existir los cinco campos y agregar por bracket. |
-| 9 | **Anunciar / taggear** | tag de release | — | Solo con 0–8 en verde **y** los tres veredictos. |
+
+> **Entre el paso 1 y el 5 el catálogo YA está bajo la curva.** El precio de venta se resuelve **en
+> lectura** (§4.26b): lo que estaba publicado adopta la curva **con el deploy**, sin que nadie corra nada.
+> El `publish-all` **no es** lo que aplica la curva — es lo que **re-evalúa** cada pieza para publicar la
+> que ahora resuelve y **retener** (escalar a la cola) la que no. Por eso el cut-over por sets es una
+> operación de **observación y control**, no de aplicación.
+
+#### 29.4b CUT-OVER **POR SETS** (paso 5) — decisión del dueño
+
+> **No se repricia el catálogo completo de una sola vez.** La secuencia es: **repriciar UN set → revisar
+> la cola de pendientes y unos cuantos precios → seguir con el siguiente**. `publish-all` acepta
+> `setId`/`productType` justamente para esto.
+
+**Por qué por sets, ahora que la cola ya no se vacía sola.** Con v2.1.1 una pieza `listed` que deja de
+resolver precio **se escala a la cola y SIGUE `listed`** (escalar no le cambia el status). Eso convierte
+el cut-over en algo **verificable de verdad**: hay un número —`summary.listedNowPending`— que dice *«de lo
+que ya estaba a la venta, cuánto quedó retenido»*, y ese número **solo es interpretable en lotes chicos**.
+Sobre el catálogo entero, un `listedNowPending` de 40 no dice si el problema está en un set concreto o
+repartido; sobre un set de 30 piezas, sí.
+
+##### Cómo se dispara
+
+```bash
+# Un set, desde el orquestador post-deploy (la batchKey se deriva del set — ver la trampa de abajo):
+RUN_PUBLISH_ALL=1 \
+PUBLISH_ALL_SET_ID='<uuid interno de CardSet>' \
+ADMIN_BASE_URL='https://<API_BASE>/api/v1' ADMIN_JWT='<JWT super_admin>' \
+  bash scripts/post-deploy.sh
+
+# O a mano:
+curl -X POST "$ADMIN_BASE_URL/admin/inventory/publish-all" \
+     -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
+     -d '{"batchKey":"p48-cutover-<setId>","setId":"<uuid interno de CardSet>"}'
+```
+
+##### ⚠️ Dos trampas verificadas en el código — leerlas antes del primer set
+
+1. **`setId` es el `CardSet.id` INTERNO (uuid), NO el `externalId`.**
+   `InventoryService.publishAll` resuelve `cardSet.findUnique({ where: { id: req.setId } })`, y el DTO
+   (`PublishAllRequestDto`) solo valida `@IsString()`. Mandar `sv8pt5` o `cel25` da
+   **`400 VALIDATION_ERROR`**. Es **asimétrico con `POST /admin/jobs/price-ingest`**, que sí acepta
+   externalId o id interno (§28.4d) — no lo asumas por analogía. Cómo obtener el uuid:
+   ```sql
+   SELECT id, "externalId", name, "releaseDate" FROM "CardSet"
+   WHERE "externalId" = 'sv8pt5';        -- o:  WHERE name ILIKE '%prismatic%'
+   ```
+   *(Paridad `externalId` en `publish-all` sería una mejora razonable; es **decisión del arquitecto** y
+   cambio de **backend**, no de devops. Queda anotado, no ejecutado.)*
+
+2. **La idempotencia por `batchKey` se evalúa ANTES de mirar los filtros.** El fast-path del
+   `InventoryBatch` consulta la clave y, si existe, **devuelve el `resultJson` guardado** con
+   `idempotentReplay:true` sin llegar a la selección. Consecuencia directa sobre el cut-over por sets:
+   **reusar la misma `batchKey` con otro `setId` NO repricia el set nuevo** — devuelve el resumen del set
+   **anterior**, y el operador lee un «ya está» que es **falso**. Por eso `post-deploy.sh` deriva la clave
+   del set (`p48-cutover-<setId>`) y avisa en voz alta si detecta un replay. Si fijas
+   `PUBLISH_ALL_BATCH_KEY` a mano, **que sea distinta por set**.
+
+##### Qué set escoger primero — **recomendación, no imposición**
+
+El objetivo del primer set no es repriciar mucho: es **calibrar la lectura** con el mínimo dinero
+expuesto. Criterios, en orden de importancia:
+
+| Criterio | Por qué |
+|---|---|
+| **Pocas piezas publicadas** (~10–40) | `listedNowPending` tiene que ser un número que se pueda **mirar pieza por pieza**. Si el primer set retiene 3, se abren 3 fichas y se entiende qué pasó. Con 300 no se entiende nada. |
+| **Mercado bien cubierto** (≥ 95 % de sus variantes con `PriceReference` de hoy) | Es lo que separa las dos causas. Si el set entra con cobertura pobre, `no_market` se dispara **por la fuente**, no por la curva, y la primera lectura del release queda contaminada. |
+| **Con rarezas premium publicadas** (≥ 3 piezas) | Sin premium, el guardarraíl `premium_at_floor` **nunca se dispara** y el set no prueba la mitad del cambio. Un set de puro bulk sale «perfecto» sin haber ejercitado nada. |
+| **Precios repartidos** (barato / medio / caro) | La curva **interpola** entre puntos de quiebre. Un set de un solo bracket verifica un solo tramo. |
+| **Un solo set-id** (no multi-parte) | Los master sets de §L (Celebrations `cel25`+`cel25c`, Shiny Vault `swsh45sv`, `sma`) viven como **dos** set-ids: el filtro `setId` toma **una sola parte** y el binder mostraría el set **repriciado a medias**. Confunde la lectura sin ganar nada. |
+| **Que NO sea el set destacado del home** (`HOME_FEATURED_SET_ID`, hoy `sv8pt5` Prismatic Evolutions) | Es el hero de la portada: máximo radio de exposición. Mal candidato para el primer intento. |
+| **Que NO sea el set que se esté validando en P-47** (p. ej. Pitch Black / ME05, §26.6) | Su cobertura de mercado es **justo la variable bajo prueba** en la fase anterior. Usarlo confunde fuente con matemática — exactamente lo que §29.3 evita. |
+| **Que NO sea sellado** (`productType=sealed`) | El sellado está **fuera de la curva** (§4.36.10): repriciarlo no prueba nada de P-48. `post-deploy.sh` avisa si se pide. |
+
+**Consulta para rankear candidatos** (correr en prod, solo lectura):
+
+```sql
+WITH inv AS (
+  SELECT i.id, i."cardId", i.finish, i."productType", i.status, c."setId", c.rarity
+  FROM "InventoryItem" i
+  JOIN "Card" c ON c.id = i."cardId"
+  WHERE i."ownerType" = 'platform'
+    AND i.status IN ('in_stock','listed')
+    AND i."productType" <> 'sealed'          -- el sellado no entra a la curva
+), cov AS (
+  SELECT inv.*, (pr.id IS NOT NULL) AS con_mercado
+  FROM inv
+  LEFT JOIN "PriceReference" pr
+    ON pr."cardId" = inv."cardId" AND pr.finish = inv.finish
+   AND pr."productType" = inv."productType" AND pr."capturedDate" = CURRENT_DATE
+)
+SELECT s.id                AS set_uuid,          -- ← ESTE es el valor de PUBLISH_ALL_SET_ID
+       s."externalId", s.name, s."releaseDate",
+       count(*)                                          AS piezas,
+       count(*) FILTER (WHERE status = 'listed')         AS publicadas,
+       round(100.0 * count(*) FILTER (WHERE con_mercado) / count(*), 1) AS pct_mercado_hoy,
+       count(*) FILTER (WHERE rarity IS NOT NULL AND rarity NOT IN
+         ('Common','Uncommon','Rare','Rare Holo','Reverse Holo','Promo'))  AS piezas_premium_aprox
+FROM cov JOIN "CardSet" s ON s.id = cov."setId"
+GROUP BY s.id, s."externalId", s.name, s."releaseDate"
+HAVING count(*) FILTER (WHERE status = 'listed') BETWEEN 10 AND 40
+ORDER BY (round(100.0 * count(*) FILTER (WHERE con_mercado) / count(*), 1)) DESC,
+         count(*) FILTER (WHERE status = 'listed') ASC;
+```
+
+> `piezas_premium_aprox` es una **aproximación operativa**: excluye las seis canónicas NO premium del
+> catálogo (`backend/src/common/rarity-catalog.ts`). La **autoridad** es `isPremiumCanonicalRarity()`, que
+> además resuelve alias y patrones; para una lectura exacta por rareza, `GET /admin/pricing/rarities`.
+> Si la consulta y esta guía se contradicen, **manda la consulta**: describe el inventario real de prod,
+> que devops no puede ver desde aquí.
+
+**Recomendación concreta:** el **primer candidato de esa lista** (mayor cobertura, menos piezas
+publicadas) que además traiga **≥ 3 premium**. Si el ranking deja arriba un set con 0 premium, tómalo
+igual como **primer set** —es el más barato de equivocarse— pero **no des el guardarraíl por verificado**:
+elige como **segundo** uno con premium, y hasta entonces no lo declares probado.
+Y si `HAVING` devuelve vacío (ningún set entre 10 y 40 publicadas), afloja el rango antes que abandonar la
+secuencia por sets: **un set grande revisado sigue siendo mejor que el catálogo entero sin revisar**.
+
+#### 29.4c Lectura ENTRE set y set — los tres números que decide el dueño
+
+Después de **cada** set, antes de disparar el siguiente. `post-deploy.sh` imprime los tres.
+
+**① `summary.listedNowPending`** — *de lo que ya estaba a la venta, cuánto quedó retenido.*
+
+Es el número que contesta la pregunta del dueño, y **no se deduce de ningún otro**: `pendingPrice` mezcla
+lo que **nunca** estuvo publicado, y `alreadyListed` **cambió de significado** en v2.1.1 (pasó de «no la
+toqué» a «la re-verifiqué y está **sana**»). Va **fuera** de la partición
+`selected = published + alreadyListed + pendingPrice + failed`.
+
+| Lectura | Qué significa | Qué se hace |
+|---|---|---|
+| `listedNowPending = 0` | Nada de lo que se vendía dejó de venderse. | Seguir con el siguiente set. |
+| **Unas pocas** (1–3 en un set chico) | Piezas que la matemática vieja publicaba **mal** y la curva retiene. **Es el cambio funcionando, no un fallo.** | Abrir esas fichas en M2 y confirmar una por una que el precio viejo era el equivocado. Recién ahí, seguir. |
+| **Muchas** (una fracción visible del set) | La curva está reteniendo inventario sano. | **PARAR.** No repriciar el siguiente set. Ir a ②/③ para saber si es piso o feed. |
+
+> Estas piezas **siguen `listed`** pero están **fuera de Compra** y **no cuentan en `stockCount`** — no hay
+> exposición abierta ni dinero en riesgo, pero **tampoco se venden**. La retención es visible en la cola,
+> que es exactamente la diferencia contra el bug original: antes esto pasaba **en silencio**.
+
+**② y ③ `counts` de la cola por razón** — `GET /admin/pricing/pending` → `{ no_market, premium_at_floor, unknown }`.
+
+Los `counts` **ignoran `?reason=` y la paginación** y **respetan `?context=`**: describen **la cola**, no
+la página que estés viendo. (Derivarlos de la página cargada mentiría justo cuando el dueño filtra para
+triar.)
+
+> ### REGLA DE DIAGNÓSTICO (`ARCHITECTURE §4.36.5c`) — los dos conteos SOLO se leen JUNTOS
+>
+> | Patrón | Diagnóstico | Acción |
+> |---|---|---|
+> | **`premium_at_floor` SUBE** y **`no_market` PLANO** | **PISO MAL CALIBRADO.** Hay dato de mercado (por eso `no_market` no se mueve), pero la curva aterriza cartas premium en el piso ⇒ el piso está por debajo de lo que esas cartas valen. | **Se corrige en el EDITOR de la curva (M2)**: subir el piso, `POST /admin/pricing/curve/preview` para ver el efecto **en pesos** antes de guardar, `PUT` y **repriciar el mismo set con otra `batchKey`**. |
+> | **SUBEN LOS DOS** | **FEED DEGRADADO.** Falta dato de mercado en volumen; las premium que sí lo tienen caen al piso por arrastre. | **NO TOCAR EL PISO.** Un piso inflado para tapar un feed caído **empeora el precio cuando el feed se recupere** — y ese precio malo ya no se nota, porque el síntoma desapareció. Se arregla el **ingest** (rol **backend**) y se repricia después. |
+>
+> **Línea base esperada: `premium_at_floor` ≈ 3 de cada 333 cartas** (§4.36.9c-3) — algo así como **0,9 %**.
+> Muy por encima **no es un guardarraíl ruidoso**: es una de las dos causas de arriba.
+
+**Si el PRIMER set se sale de la línea base:**
+
+1. **PARAR.** No repriciar el siguiente set. Cada set adicional añade ruido a un diagnóstico que todavía
+   no está hecho.
+2. **Clasificar** con la tabla de arriba, comparando contra la línea base que se anotó en el corte de
+   P-47 (§29.3-4-5). Sin ese «antes», los `counts` no se comparan contra nada.
+3. **Enrutar** — **no lo arregla devops**:
+   - **piso mal calibrado ⇒ el DUEÑO**, en el editor de la curva (M2). Es un dial de negocio, sin deploy.
+   - **feed degradado ⇒ BACKEND** (ingest/proveedor). Puede implicar volver a `pokemontcg_io` (§28.6):
+     ojo, **eso es rollback de P-47, no de P-48** — y confirma que serializar fue lo correcto, porque
+     revertir la fuente **sin** tocar la matemática es una operación limpia.
+   - **la curva en sí está mal especificada ⇒ ARQUITECTO** (§4.36).
+4. **No se anuncia el release.** Un set repriciado con la cola fuera de rango no es un cut-over parcial
+   exitoso: es un diagnóstico pendiente.
+5. **Repetir el set** tras el arreglo, **con otra `batchKey`** (misma clave = replay, §29.4b-2).
+
+**Además de los tres números, mirar unos cuantos PRECIOS** (es lo que el dueño pidió y ningún contador
+sustituye): abrir 5–10 fichas del set en Compra y confirmar que el precio publicado tiene sentido — sobre
+todo en los **extremos** (la más barata y la más cara), que son los tramos donde la curva y el piso se
+encuentran. El bug original (**MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**) se veía a simple
+vista en una ficha; no hacía falta un reporte.
+
+#### 29.4d Cierre (pasos 6–8)
+
+| # | Paso | Comando / dónde | Bloquea | Notas |
+|---|---|---|---|---|
+| 6 | **Revisión de OVERRIDES heredados** | M2, binder por variante (§29.5) | No (pero es **del dueño**) | Tarea humana, no automatizable. |
+| 7 | **Instrumentación viva** | `GET /admin/reports/pricing-brackets?axis=sale\|buy` | No | Tras la primera venta y la primera compra deben existir los cinco campos y agregar por bracket. |
+| 8 | **Anunciar / taggear** | tag de release | — | Solo con **todos los sets** repriciados, la cola dentro de la línea base y §29.10 en verde. |
 
 ### 29.5 Overrides heredados — **tarea del dueño, no del script** (§4.36.9c-5)
 
@@ -3116,6 +3389,10 @@ curva, ese override **sigue ganando** y puede quedar por debajo de lo que la cur
 exactamente el error que este cambio corrige. **Norma: no se tocan automáticamente.** La comparación ya
 es visible sin endpoint nuevo: el binder expone `pricing.buy/sell.suggestedCents` (curva) junto a
 `overrideCents`. **Ningún script de devops modifica overrides** — ni este ni ninguno.
+
+> **Nota para el cut-over por sets:** una pieza con override **no aparece** en `listedNowPending` (su
+> precio resuelve, por el override). Es decir, **el recorrido por sets no revela los overrides mal
+> informados**: son un barrido aparte, del dueño, y no bloquean el release.
 
 ### 29.6 Verificación post-deploy (SQL + HTTP)
 
@@ -3142,6 +3419,11 @@ SELECT key, "updatedBy" FROM "ConfigSetting" WHERE key = 'pricing_curve';
 SELECT key FROM "ConfigSetting" WHERE key IN
   ('sales_price_rules','sales_price_fallback_pct','buylist_price_rules',
    'buylist_price_fallback_pct','pricing_tier_map');
+
+-- 6) Sellado INTACTO (§4.36.10: fuera de la curva). Anota el precio de 2-3 sellados ANTES
+--    del deploy y compáralo DESPUÉS: debe ser IDÉNTICO (criterio 85).
+SELECT i.folio, i."sealedProductName", i."listPriceCents"
+FROM "InventoryItem" i WHERE i."productType" = 'sealed' AND i.status = 'listed' LIMIT 5;
 ```
 
 **HTTP (super_admin):**
@@ -3155,7 +3437,8 @@ curl -sS "$ADMIN_BASE_URL/admin/reports/pricing-brackets?axis=sale" -H "Authoriz
 **Señal de alarma en logs:** `[MONEY] El setting pricing_curve es INVÁLIDO en BD` significa que alguien
 editó la fila a mano y quedó corrupta: el backend **no apaga el catálogo** (cae al seed de §N.2 —
 «siempre hay curva»), pero **el precio publicado no es el configurado**. Se arregla con
-`PUT /admin/pricing/curve`. Vale la pena una alerta sobre ese patrón en el log drain (§8).
+`PUT /admin/pricing/curve`. **Alerta pendiente sobre ese patrón en el log drain** (§8) — es la deuda
+**S48-I4** de `SECURITY_NOTES §5`, dueño **devops**, disparador «con el primer alerting real».
 
 ### 29.7 Rollback
 
@@ -3167,7 +3450,9 @@ editó la fila a mano y quedó corrupta: el backend **no apaga el catálogo** (c
 | **¿Y las columnas de M-41?** | **Aditiva ⇒ no estorba.** Para el código viejo, las 8 columnas nullable y el índice son **inertes**; sigue insertando `null` en ellas. **No se revierte la migración** (no hace falta y `migrate resolve --rolled-back` sobre una aditiva solo genera ruido). |
 | **¿Y la matemática?** | El resolver viejo **vuelve solo**: sigue en la imagen anterior y sus cinco settings **siguen en BD, íntegros** (por eso **no se borran**). Rollback barato **exactamente** por esa decisión. |
 | **¿Y la fila `pricing_curve`?** | Inerte para el código viejo (nadie la lee). Se deja; si se vuelve a v2.0, la configuración del dueño sigue ahí. |
-| **¿Y lo que publicó el cut-over (paso 5)?** | Esas piezas quedan `listed` y, bajo el código viejo, **vuelven a precio con la matemática vieja** (la de P-48, la del bug). No hay corrupción de datos, pero **es la consecuencia real de revertir**: si se revierte, se revierte el precio de todo, no solo de lo nuevo. Despublicar pieza por pieza es manual (M2) y solo se hace si el dueño lo pide. |
+| **¿Y lo que publicó el cut-over?** | Esas piezas quedan `listed` y, bajo el código viejo, **vuelven a precio con la matemática vieja** (la de P-48, la del bug). No hay corrupción de datos, pero **es la consecuencia real de revertir**: si se revierte, se revierte el precio de todo, no solo de lo nuevo. Despublicar pieza por pieza es manual (M2) y solo se hace si el dueño lo pide. |
+| **Rollback a MITAD del cut-over por sets** | **No hay estado partido que reparar.** Los sets ya repriciados no quedan «a medio migrar»: el precio se resuelve **en lectura**, así que al revertir el código **todos** los sets —repriciados o no— vuelven a la matemática vieja a la vez. Las entradas de cola creadas por el guardarraíl quedan **abiertas e inertes** (el código viejo no las lee) y se cierran solas al volver a v2.0 y re-resolver. Los `InventoryBatch` de las `batchKey` usadas **se conservan**: si se vuelve a v2.0, hay que usar **claves nuevas** para repriciar de verdad (§29.4b-2). |
+| **Rollback SOLO de la fuente (P-47)** | Flip inverso del dial: `PUT /admin/settings` `{"price_provider":"pokemontcg_io"}` (§28.6). **Sin redeploy y sin migración.** Que esto sea una palanca independiente de la curva es **el beneficio operativo de haber serializado** (§29.3). |
 | **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
 | **Corrupción de datos (no rollback de código)** | Única razón para restaurar el snapshot del paso 0. |
 
@@ -3189,21 +3474,166 @@ toque. Aun así, el cut-over se hace **fuera de hora pico** por el volumen del `
 5. **NO correr `prisma/seed.ts` completo contra prod** (siembra demo). El default de la curva ya aplica
    por lectura.
 6. **NO re-crear** `backfill-p34-tiered-pricing.ts` ni ningún equivalente.
-7. **NO desplegar sin los tres veredictos** (QA + techlead + seguridad), y con el **gate de seguridad**
-   (SAST por PR + DAST staging) y el **harness E2E** en verde.
+7. **NO encender P-47 y P-48 en la misma ventana** (§29.3). Decisión del dueño, no preferencia de devops.
+8. **NO repriciar el catálogo completo de una pasada** salvo que el recorrido por sets ya haya cerrado y
+   solo quede el remanente (§29.4b).
+9. **NO reusar la misma `batchKey` entre sets** — devuelve el resumen del set anterior y el set nuevo no
+   se repricia (§29.4b-2).
+10. **NO subir el piso para acallar la cola sin haber mirado `no_market`** (§29.4c). Si el feed está
+    degradado, el piso inflado **empeora el precio cuando el feed vuelva**, y ya sin síntoma que lo delate.
+11. **NO desplegar con el «verde» de mocks como única evidencia de E2E** (§29.10).
 
-### 29.9 Estado del DoD para este stream (verificación de devops)
+### 29.9 M-41: contenido y serialización de migraciones
 
-| Ítem DoD | Estado |
-|---|---|
-| Criterios de aceptación de `PROJECT.md` (P-48) | **Pendiente de verificación por QA.** |
-| **QA aprobó** (E2E completa contra el stack) | ❌ **falta** |
-| **techlead aprobó** | ❌ **falta** |
-| **Fase de seguridad** (pentester + seguridad) — money-critical | ❌ **falta** |
-| `docs/` al día | ✅ `ARCHITECTURE §4.36`, `API_CONTRACT v2.0/v2.1`, `DESIGN_SYSTEM §21`, `BACKEND_NOTES`, `FRONTEND_NOTES` y **este §29** |
-| **devops desplegó** + despliegue/rollback documentados | ⏸️ **runbook listo (§29.4/§29.7); deploy NO ejecutado a propósito** |
-| Deuda bloqueante | Sin deuda bloqueante conocida **de infraestructura**; la de código la evalúan techlead/backend. |
+**Contenido** (`backend/prisma/migrations/20260824120000_m41_pricing_curve_instrumentation/`):
 
-**Conclusión devops:** el **pipeline quedó sano** (bloqueo del post-deploy resuelto y verificado) y el
-**cut-over está documentado punta a punta**. **El proyecto NO se cierra en este pase**: faltan los tres
-veredictos. Cuando estén, este runbook se ejecuta tal cual y se crea el tag de release.
+1. `CREATE TYPE "PriceBasis"` (`market`, `floor`, `override`, `bounty`, `pending`).
+2. `CREATE TYPE "MarketBracket"` (`lt_3`, `r3_10`, `r10_25`, `r25_80`, `r80_300`, `gte_300`) — **escala
+   fija**: cambiarla parte la serie histórica.
+3. `CREATE TYPE "PendingPriceReason"` (`no_market`, `premium_at_floor`).
+4. `OrderItem` += `marketMxnCents`, `priceBasis`, `marketBracket`, `finish` (todas nullable).
+5. `SellRequestItem` += `marketMxnCents`, `priceBasis`, `marketBracket` (nullable).
+6. `PendingPriceEntry` += `reason` (nullable) + índice `PendingPriceEntry_reason_idx`.
+
+**Sin `DROP`, sin `UPDATE`, sin backfill.** Las filas históricas quedan en `null` a propósito (`null` =
+«anterior a M-41»); `reason` **no** entra a la clave de dedupe de la cola, así que filas viejas y nuevas
+conviven sin duplicar.
+
+**¿Hay que serializar M-41 contra otras migraciones pendientes? — Verificado con git: NO hay conflicto.**
+
+| Ref | Última migración | Nota |
+|---|---|---|
+| `origin/main` (`d9c8c91`) | `20260823130000_m40_pending_sealed_product` | M-39/M-40 ya mergeadas; trae P-47/§28. |
+| `origin/production` (`c255692`) | `20260823130000_m40_pending_sealed_product` | Rama-registro de releases. |
+| `origin/claude/card-pricing-rules-2e537m` (esta) | **`20260824120000_m41_…`** | **Única migración por delante de `main`.** |
+| Resto de ramas remotas | ≤ M-40 | Ninguna otra rama abierta añade migraciones. |
+
+- **M-41 es la única migración pendiente del repo.** No hay colisión de timestamp ni orden ambiguo:
+  Prisma aplica por nombre (lexicográfico) y `20260824120000` > `20260823130000`.
+- La **serialización** que pide `ARCHITECTURE §4.36.9a` es la de **zona compartida** (`backend/prisma/`,
+  regla de work streams): **este stream es el único que la toca** en la ventana actual. Mientras M-41 no
+  esté en `main`, **ningún otro stream debe crear migraciones**; si lo hace, el orquestador serializa
+  (M-41 primero, y la otra se re-fecha por encima).
+- **P-47 no añade migración** (§28.1), así que el orden P-47→P-48 de §29.3 **no** condiciona el orden de
+  migraciones: son dos ejes independientes. El merge de esta rama sobre `main` **incorpora** P-47 (que ya
+  está allí) y no lo revierte.
+- **`migrate deploy` corre solo:** el `CMD` de `Dockerfile.backend`
+  (`prisma migrate deploy && node dist/main.js`) garantiza **migración antes de servir**. El código v2.0
+  nunca sirve sin las columnas de M-41. `healthcheckTimeout: 300` en `railway.json` da holgura.
+
+---
+
+### 29.10 E2E: cerrar la brecha de los MOCKS — **ruta NATIVA soportada** (sin Docker)
+
+> **Hallazgo de QA, aceptado:** los **80/80 de Playwright corrieron contra MOCKS.** Sin `E2E_BASE_URL`,
+> `frontend/playwright.config.ts:65-73` levanta `npm run dev` con **`NEXT_PUBLIC_USE_MOCKS=true`**. Ese
+> verde demuestra **«la UI es consistente con sus propias simulaciones»**, **no** «frontend y backend
+> concuerdan». Para un release que **cambia la matemática del dinero en los dos ejes**, no alcanza.
+>
+> **Reparto:** **devops CABLEA el camino** (esta sección + `scripts/stack-native.sh`); **QA lo EJECUTA y
+> emite el veredicto** (`CLAUDE.md`: las suites las escriben frontend/backend, QA las corre).
+
+#### 29.10-1 Por qué la ruta documentada en §5.1 no basta hoy
+
+`e2e-real.yml` y `docker-compose.staging.yml` **siguen siendo la ruta canónica en CI** y no cambian.
+Pero **en el entorno de trabajo del equipo NO hay demonio de Docker** (`/var/run/docker.sock` no
+existe), así que `docker compose -f docker-compose.staging.yml up` **no arranca**. Documentar solo esa
+ruta equivale a no documentar ninguna: es la razón por la que la verificación real se venía saltando y el
+verde de mocks pasaba por suficiente.
+
+#### 29.10-2 La ruta NATIVA — verificada, no supuesta
+
+Tres agentes la recorrieron en este entorno:
+
+| Quién | Qué levantó | Resultado |
+|---|---|---|
+| **QA** | `pg_ctlcluster 16 main start` + `redis-server --daemonize yes` + `prisma migrate deploy` | **126/127** de integración |
+| **pentester** | stack **Nest completo** con `ts-node src/main.ts` en `localhost:3099` | todos los guards y pipes **activos** (no un arnés recortado) |
+| **devops** | `scripts/stack-native.sh` (une las dos + el frontend) | Stack COMPLETO arriba: `GET :3099/api/v1/health` → **200** (`db:up`, `redis:up`), M-41 aplicada, `GET :3000/es/compra` → **200**. Y **el cableado frontend→backend verificado, no supuesto**: los chunks servidos (`app/[locale]/(storefront)/compra/page.js`, `layout.js`) llevan **`localhost:3099`** horneado ⇒ `NEXT_PUBLIC_API_BASE_URL` se inyectó y `NEXT_PUBLIC_USE_MOCKS=false` está en efecto |
+
+```bash
+# 1) Stack real nativo (Postgres + Redis + migraciones + backend :3099 + frontend :3000 con mocks=false)
+./scripts/stack-native.sh up
+
+# variantes
+./scripts/stack-native.sh up --infra   # solo PG + Redis + migrate  → para `npm run test:integration`
+./scripts/stack-native.sh up --seed    # + npm run seed:synthetic (datos E2E deterministas)
+./scripts/stack-native.sh status
+./scripts/stack-native.sh down         # apaga apps; PG/Redis siguen (datos intactos)
+./scripts/stack-native.sh down --all   # + para PG y Redis
+```
+
+#### 29.10-3 El subset `@real` de Playwright — **ya está cableado en `frontend/`**
+
+Verificado en `frontend/playwright.config.ts`: **no hace falta tocar nada del frontend.**
+
+- **`E2E_BASE_URL` presente ⇒ `webServer: undefined`** — Playwright **NO** levanta su server de mocks.
+  Ésa es, literalmente, la línea que cierra la brecha.
+- **`E2E_REAL=1` ⇒ `grep: /@real/`** — corre **solo** los specs diseñados para el backend real
+  (autentican de verdad vía `utils/auth.loginAs`, descubren datos del seed y asertan **estructura**, no
+  montos de fixture). Hoy: `checkout` · `shipments` · `buylist` · `guest-checkout` · `vault` ·
+  `master-set` · `pricing-curve`.
+
+```bash
+cd frontend
+# SMOKE de dinero contra el stack vivo (el subset @real):
+E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npm run test:e2e
+
+# SUITE COMPLETA contra el stack vivo (la corrida que de verdad contesta
+# «¿frontend y backend concuerdan?»): E2E_BASE_URL sin E2E_REAL ⇒ sin grep.
+E2E_BASE_URL=http://localhost:3000 npm run test:e2e
+```
+
+> **Al correr la suite completa contra el stack real, espera rojos en specs mock-only** (copy/i18n y
+> casos que asertan montos de fixture). **No son bugs del stack**: hay que clasificarlos antes de
+> reportarlos. Si un spec mock-only estorba de forma recurrente, la **decisión de taguearlo** es de
+> **frontend**, no de devops.
+>
+> **Chromium:** el config apunta a `/opt/pw-browsers/chromium`. Si no existe:
+> `npx playwright install --with-deps chromium` (o `PLAYWRIGHT_CHROMIUM_PATH=…`).
+
+#### 29.10-4 Qué NO cubre la ruta nativa (dicho, no disimulado)
+
+| Hueco | Consecuencia | Mitigación |
+|---|---|---|
+| **Sin MinIO/R2** | La subida del **INE del buylist** (sobre el tope AML) no se ejercita. | Ruta Docker en CI, o levantar MinIO aparte. **Fuera del delta de P-48** (`uploads` no se tocó). |
+| **Corre `ts-node` sobre el fuente, no la imagen de `Dockerfile.backend`** | Prueba el **código**, no el **artefacto** de producción. | El gate del artefacto sigue siendo **`e2e-real.yml` en CI**, que sí construye y usa la imagen. La ruta nativa **complementa**, no sustituye. |
+| **Sin egress** | `pokemontcg.io` / `tcgcsv.com` → **403**. El catch-up de `price-ingest` lo registra al arrancar. | **Esperado y money-safe**: deja precios **STALE**, no borra ni escribe $0. Sembrar `PriceReference` con el seed sintético para los flujos que necesiten mercado. |
+| **Sin Stripe real** | El webhook firmado no viaja. | Ya cubierto por la suite de **integración** del backend (webhook firmado) — es la que corrió 126/127. |
+
+#### 29.10-5 CI: sin cambios, y por qué
+
+`e2e-real.yml` (nightly + `workflow_call` desde `deploy.yml`, con `needs` sobre la promoción a prod) y
+`e2e.yml` (mock, cada PR) **quedan como están**. La ruta nativa es para **la máquina del equipo**, donde
+Docker no existe; en CI sí existe y la ruta canónica es la buena. Añadir un job nativo duplicaría el gate
+sin añadir garantía.
+
+---
+
+### 29.11 Verificación del **DoD** (`CLAUDE.md`) — responsabilidad de devops
+
+| # | Ítem del DoD | Estado | Evidencia / qué falta |
+|---|---|---|---|
+| 1 | **Criterios de aceptación de `PROJECT.md`** cumplidos | ⚠️ **cumplidos salvo verificación E2E real** | QA los verificó con la suite de **integración** (126/127) y con Playwright **en mocks**. Los criterios **79–96** (§N, v2.0) tocan dinero: la evidencia de punta a punta contra el stack vivo se cierra con **§29.10**. **Responsable: QA** (devops ya dejó el camino). |
+| 2 | **QA aprobó** + **techlead aprobó** | ✅ | QA aprobado con brecha declarada (→ ítem 1). Techlead **aprobado con deuda**, registrada y no bloqueante. |
+| 3 | **Fase de seguridad aprobada**, sin críticos/altos abiertos, aceptados registrados | ✅ | `docs/PENTEST_NOTES.md` (red team, `6657196`) + `docs/SECURITY_NOTES.md` (blue team, `2469e6a`): **0 críticos, 0 altos**. Los medios/bajos **S48-M1**, **S48-M2**, **P48-B1** y **AML-1** se **cerraron** después (`6322ee3`, `a2d238e`, `1771a47`, `d38aacf`, `5bd1975`). La deuda aceptada queda en **`SECURITY_NOTES §5`** con dueño y disparador. |
+| 4 | **`docs/` al día** (incl. `PENTEST_NOTES` y `SECURITY_NOTES`) | ✅ | `ARCHITECTURE §4.36` · `API_CONTRACT` v2.0→**v2.1.6** · `DESIGN_SYSTEM §21` · `BACKEND_NOTES` · `FRONTEND_NOTES` · `PENTEST_NOTES` · `SECURITY_NOTES` · **este §29**. |
+| 5 | **devops desplegó** + despliegue **y rollback** documentados | ⏸️ **runbook COMPLETO; deploy NO ejecutado** | Despliegue: §29.3 (orden) + §29.4a/b/c/d. Rollback: **§29.7**, incluida la fila nueva «rollback a mitad del cut-over por sets» y el rollback independiente de P-47. **Bloqueado por dos insumos del dueño: el snapshot/PITR de la Postgres de prod (paso 0) y la ventana.** Devops no tiene egress a prod ni acceso a los dashboards. |
+| 6 | **Gate de seguridad (SAST por PR + DAST staging) y harness E2E cableados en CI** | ✅ | SAST: `security-sast.yml` (semgrep + gitleaks) en **cada push y PR** (`branches: ["**"]`). DAST: job `dast-staging` de `deploy.yml` (ZAP baseline `fail_action:true` + nuclei), **`needs` de la promoción a prod**. E2E: job `e2e-real` (`uses: ./.github/workflows/e2e-real.yml`). **Los dos son `needs` de `promote-production-backend`/`-frontend`** (verificado sobre el YAML: `needs: [dast-staging, e2e-real]`), así que **bloquean** la promoción; no son informativos. |
+| 7 | **Sin deuda técnica bloqueante**; la no bloqueante registrada | ✅ **sin deuda bloqueante de infraestructura** | La de código está en `docs/TECH_DEBT.md` (techlead) y la de seguridad en `SECURITY_NOTES §5`. **Deuda devops abierta, toda no bloqueante:** **S48-I3** (`ADMIN_JWT` de post-deploy: emitir **efímero**, revocarlo al terminar el release — disparador: **antes del primer deploy con dinero real**), **S48-I4** (alerta de log drain sobre `[MONEY] pricing_curve INVÁLIDO`, §29.6), **S48-I2** (`json({ limit })` explícito), y el carryover **throttler in-memory** (multi-instancia multiplica el límite por N réplicas). |
+
+#### VEREDICTO DE DoD — **NO SE CIERRA TODAVÍA. Faltan 2 ítems, ninguno de contenido.**
+
+**Lo que falta, con su dueño:**
+
+1. **[QA] Correr la suite E2E contra el stack REAL** (§29.10) y emitir veredicto sobre esa corrida.
+   El camino está cableado y verificado; falta ejecutarlo. Es el ítem 1 del DoD y **la única brecha
+   sustantiva** — mientras siga abierta, «QA aprobó» descansa sobre mocks para la capa de UI.
+2. **[DUEÑO] Aportar el snapshot/PITR de la Postgres de producción y fijar la ventana** (§29.4a, paso 0).
+   Sin él no se ejecuta el paso 1. Devops no puede aportarlo: no hay egress a prod desde aquí.
+
+**Lo que NO falta:** los tres veredictos existen, `docs/` está al día, los gates de CI están cableados,
+no hay deuda bloqueante y el runbook cubre despliegue **y** rollback.
+
+**Cuando esos dos ítems se cierren**, la secuencia es: **P-47 estable (§29.3-4) → deploy P-48 (§29.4a) →
+cut-over por sets (§29.4b/c) → tag de release**. Nada más queda por decidir.

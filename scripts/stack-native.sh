@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+# =============================================================================
+# scripts/stack-native.sh — Stack REAL sin Docker (ruta NATIVA)  ·  Propiedad: devops
+# TCG Vault MX — Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# POR QUÉ EXISTE (cierre de la brecha de E2E reportada por QA, DEVOPS_NOTES §29.10):
+#   La suite Playwright «80/80 en verde» corre contra MOCKS: sin `E2E_BASE_URL`,
+#   `frontend/playwright.config.ts` levanta `npm run dev` con `NEXT_PUBLIC_USE_MOCKS=true`.
+#   Eso demuestra «la UI es consistente con sus propias simulaciones», NO «frontend y
+#   backend concuerdan». La ruta que cierra esa brecha es `e2e-real.yml` /
+#   `docker-compose.staging.yml` — pero **en este entorno de trabajo NO hay demonio de
+#   Docker** (`/var/run/docker.sock` no existe), así que la ruta documentada en §5.1 no
+#   se puede ejecutar aquí. Este script es la ALTERNATIVA SOPORTADA: levanta el mismo
+#   stack con los binarios nativos de la máquina.
+#
+#   Verificado por dos agentes en este entorno y por devops:
+#     · QA         → `pg_ctlcluster 16 main start` + `redis-server --daemonize yes` +
+#                    `prisma migrate deploy`  ⇒ 126/127 de integración.
+#     · pentester  → stack Nest COMPLETO con `ts-node src/main.ts` en :3099 (guards y
+#                    pipes activos, no un arnés recortado).
+#     · devops     → arranque en :3099 con `GET /api/v1/health` → 200 (`db:up`,`redis:up`).
+#
+# EQUIVALENCIA CON LA RUTA DOCKER (qué SÍ y qué NO reproduce):
+#   SÍ  · Postgres 16 real + Redis 7 real + backend NestJS completo (todos los guards,
+#         pipes, interceptores y el scheduler BullMQ) + frontend Next con mocks=false.
+#   NO  · MinIO/R2 (subida del INE del buylist). Si el flujo bajo prueba toca `uploads`,
+#         usa la ruta Docker o levanta MinIO aparte. Se avisa al final.
+#   NO  · La IMAGEN de producción (`Dockerfile.backend`). Aquí corre `ts-node` sobre el
+#         fuente: se prueba el CÓDIGO, no el artefacto. El gate del artefacto sigue
+#         siendo `e2e-real.yml` en CI, que sí usa la imagen.
+#   NO  · Egress a internet. `pokemontcg.io` / `tcgcsv.com` devuelven 403 desde aquí; el
+#         `price-ingest` de arranque lo registra y deja los precios STALE (money-safe:
+#         no borra, no escribe $0). Es ESPERADO, no un fallo del stack.
+#
+# USO:
+#   ./scripts/stack-native.sh up          # infra + migraciones + backend + frontend
+#   ./scripts/stack-native.sh up --infra  # solo Postgres + Redis + migraciones
+#   ./scripts/stack-native.sh up --seed   # + `npm run seed:synthetic` (datos E2E)
+#   ./scripts/stack-native.sh status      # qué está arriba y en qué puerto
+#   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
+#   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
+#
+# QUIÉN LO CORRE: **QA** (ejecuta la suite) y cualquier rol que necesite el stack vivo.
+#   devops CABLEA el camino; NO ejecuta la suite E2E (CLAUDE.md: las suites las escriben
+#   frontend/backend y las corre QA).
+#
+# VARIABLES (todas con default; ninguna es un secreto real):
+#   BACKEND_PORT   3099   — puerto del backend nativo (evita chocar con el 3001 del compose)
+#   FRONTEND_PORT  3000   — Next dev; DEBE estar en la allow-list CORS de APP_BASE_URL
+#   PG_CLUSTER     16/main
+#   DATABASE_URL   postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace
+#                  (credenciales de DESARROLLO LOCAL, las mismas de `.env.example`; jamás
+#                   se pone aquí un secreto real — ver DEVOPS_NOTES §11)
+# =============================================================================
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$ROOT_DIR/backend"
+FRONTEND_DIR="$ROOT_DIR/frontend"
+RUN_DIR="$ROOT_DIR/.native-stack"
+
+BACKEND_PORT="${BACKEND_PORT:-3099}"
+FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+PG_CLUSTER="${PG_CLUSTER:-16/main}"
+PG_VER="${PG_CLUSTER%%/*}"
+PG_NAME="${PG_CLUSTER##*/}"
+
+log()  { printf '\n\033[1;36m▸ %s\033[0m\n' "$*"; }
+ok()   { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m  ⚠ %s\033[0m\n' "$*"; }
+die()  { printf '\n\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# --- Env de DESARROLLO LOCAL -------------------------------------------------
+# NODE_ENV=development es deliberado: `backend/src/config/env.validation.ts` exige
+# DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND solo en entornos NO-locales. En local
+# degrada seguro (mail → NoopMailAdapter). NUNCA uses este bloque para staging/prod.
+export NODE_ENV="${NODE_ENV:-development}"
+export PORT="$BACKEND_PORT"
+export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace?schema=public}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
+export APP_BASE_URL="${APP_BASE_URL:-http://localhost:$FRONTEND_PORT}"
+export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-local_dev_only_access_secret_at_least_32_chars_long}"
+export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-local_dev_only_refresh_secret_at_least_32_chars_different}"
+
+mkdir -p "$RUN_DIR"
+
+# -----------------------------------------------------------------------------
+# Infra: Postgres + Redis (tolerante a que ya estén arriba)
+# -----------------------------------------------------------------------------
+start_infra() {
+  log "Postgres ($PG_CLUSTER)"
+  if pg_isready -q 2>/dev/null; then
+    ok "ya estaba aceptando conexiones."
+  else
+    pg_ctlcluster "$PG_VER" "$PG_NAME" start || die "No pude arrancar el cluster $PG_CLUSTER."
+    for i in $(seq 1 30); do pg_isready -q 2>/dev/null && break; sleep 1; done
+    pg_isready -q 2>/dev/null || die "Postgres no respondió tras 30s."
+    ok "arriba."
+  fi
+
+  log "Redis"
+  if redis-cli ping >/dev/null 2>&1; then
+    ok "ya respondía PONG."
+  else
+    redis-server --daemonize yes || die "No pude arrancar redis-server."
+    for i in $(seq 1 20); do redis-cli ping >/dev/null 2>&1 && break; sleep 1; done
+    redis-cli ping >/dev/null 2>&1 || die "Redis no respondió tras 20s."
+    ok "arriba."
+  fi
+
+  # Rol + base. Idempotente: si ya existen, no toca nada (NO borra datos).
+  log "Rol y base de datos (idempotente, NO destructivo)"
+  local db_user db_pass db_name
+  db_user="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://([^:]+):.*#\1#')"
+  db_pass="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://[^:]+:([^@]+)@.*#\1#')"
+  db_name="$(printf '%s' "$DATABASE_URL" | sed -E 's#.*/([^/?]+)(\?.*)?$#\1#')"
+  if su postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$db_user'\"" 2>/dev/null | grep -q 1; then
+    ok "rol '$db_user' ya existe."
+  else
+    su postgres -c "psql -c \"CREATE ROLE $db_user LOGIN PASSWORD '$db_pass';\"" >/dev/null \
+      && ok "rol '$db_user' creado."
+  fi
+  if su postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$db_name'\"" 2>/dev/null | grep -q 1; then
+    ok "base '$db_name' ya existe (datos intactos)."
+  else
+    su postgres -c "psql -c \"CREATE DATABASE $db_name OWNER $db_user;\"" >/dev/null \
+      && ok "base '$db_name' creada."
+  fi
+
+  log "prisma migrate deploy (idempotente)"
+  ( cd "$BACKEND_DIR" && npx prisma migrate deploy )
+  ok "Migraciones al día (incluida M-41)."
+}
+
+# -----------------------------------------------------------------------------
+# Backend nativo: el stack Nest COMPLETO por ts-node (no un arnés recortado)
+# -----------------------------------------------------------------------------
+start_backend() {
+  log "Backend NestJS nativo (ts-node) en :$BACKEND_PORT"
+  if curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1; then
+    ok "ya respondía en :$BACKEND_PORT."
+    return 0
+  fi
+  [ -d "$BACKEND_DIR/node_modules" ] || die "Falta $BACKEND_DIR/node_modules. Corre: cd backend && npm ci"
+  ( cd "$BACKEND_DIR" && nohup npx ts-node --transpile-only src/main.ts \
+      > "$RUN_DIR/backend.log" 2>&1 & echo $! > "$RUN_DIR/backend.pid" )
+  # El arranque compila TS en caliente: dale margen (observado ~45-60s en frío).
+  for i in $(seq 1 60); do
+    curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1 && break
+    kill -0 "$(cat "$RUN_DIR/backend.pid")" 2>/dev/null || {
+      tail -40 "$RUN_DIR/backend.log"; die "El backend murió al arrancar. Log: $RUN_DIR/backend.log
+     Si es un error de código y no de entorno, el hallazgo es del rol BACKEND (devops no lo corrige)."; }
+    sleep 3
+  done
+  curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1 \
+    || { tail -40 "$RUN_DIR/backend.log"; die "Sin salud tras ~3min. Log: $RUN_DIR/backend.log"; }
+  ok "salud: $(curl -sS -m 5 "http://localhost:$BACKEND_PORT/api/v1/health")"
+  warn "Al arrancar, el catch-up de \`price-ingest\` intenta salir a pokemontcg.io y aquí da 403."
+  warn "Es ESPERADO sin egress y es money-safe: deja los precios STALE, no borra ni escribe \$0."
+}
+
+# -----------------------------------------------------------------------------
+# Frontend nativo con mocks=false apuntando al backend REAL
+# -----------------------------------------------------------------------------
+start_frontend() {
+  log "Frontend Next (mocks=FALSE) en :$FRONTEND_PORT → API :$BACKEND_PORT"
+  if curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1; then
+    ok "ya respondía en :$FRONTEND_PORT."
+    return 0
+  fi
+  [ -d "$FRONTEND_DIR/node_modules" ] || die "Falta $FRONTEND_DIR/node_modules. Corre: cd frontend && npm ci"
+  ( cd "$FRONTEND_DIR" \
+    && NEXT_PUBLIC_USE_MOCKS=false \
+       NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
+       nohup npx next dev -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+  for i in $(seq 1 40); do
+    curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 && break
+    sleep 3
+  done
+  curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 \
+    || { tail -40 "$RUN_DIR/frontend.log"; die "El frontend no respondió. Log: $RUN_DIR/frontend.log"; }
+  ok "arriba en http://localhost:$FRONTEND_PORT"
+}
+
+seed_synthetic() {
+  log "Seed sintético (datos E2E deterministas, NUNCA datos reales de clientes)"
+  ( cd "$BACKEND_DIR" && npm run seed:synthetic )
+  ok "Seed cargado."
+}
+
+stop_apps() {
+  for svc in backend frontend; do
+    if [ -f "$RUN_DIR/$svc.pid" ]; then
+      local pid; pid="$(cat "$RUN_DIR/$svc.pid")"
+      if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null || true; ok "$svc detenido (pid $pid)."
+      else warn "$svc ya no corría."; fi
+      rm -f "$RUN_DIR/$svc.pid"
+    else
+      warn "$svc: sin pidfile (¿lo levantaste a mano?)."
+    fi
+  done
+  pkill -f "ts-node --transpile-only src/main.ts" 2>/dev/null || true
+  pkill -f "next dev -p $FRONTEND_PORT"           2>/dev/null || true
+}
+
+print_e2e_instructions() {
+  cat <<EOF
+
+──────────────────────────────────────────────────────────────────────────────
+ SUITE E2E CONTRA EL STACK VIVO  —  la corre **QA**, no devops
+──────────────────────────────────────────────────────────────────────────────
+ Subset @real (smoke de flujos de dinero contra endpoints REALES):
+
+   cd frontend
+   E2E_BASE_URL=http://localhost:$FRONTEND_PORT E2E_REAL=1 npm run test:e2e
+
+ · \`E2E_BASE_URL\` presente ⇒ playwright.config NO levanta su webServer de mocks
+   (playwright.config.ts:65-73) — ésa es la línea exacta que cierra la brecha.
+ · \`E2E_REAL=1\` ⇒ \`grep: /@real/\`: corre SOLO los specs diseñados para el stack
+   real (autentican de verdad, descubren datos del seed, asertan estructura y no
+   montos de fixture). Hoy son 7 archivos: checkout · shipments · buylist ·
+   guest-checkout · vault · master-set · pricing-curve/binder.
+ · SIN \`E2E_REAL\` pero CON \`E2E_BASE_URL\` ⇒ corre la suite COMPLETA contra el
+   stack real. Es la corrida más exigente y la que de verdad contesta «¿frontend y
+   backend concuerdan?». Espera rojos en specs mock-only (copy/i18n con fixtures):
+   eso NO es un bug del stack — clasifícalo antes de reportarlo.
+
+ Chromium: el config usa \`/opt/pw-browsers/chromium\`. Si no existe en esta máquina:
+   cd frontend && npx playwright install --with-deps chromium
+   (o exporta PLAYWRIGHT_CHROMIUM_PATH=/ruta/al/chromium)
+
+ Logs:  $RUN_DIR/backend.log   ·   $RUN_DIR/frontend.log
+ Apagar: ./scripts/stack-native.sh down
+EOF
+}
+
+case "${1:-up}" in
+  up)
+    shift || true
+    ONLY_INFRA=0; DO_SEED=0
+    for a in "$@"; do
+      case "$a" in
+        --infra) ONLY_INFRA=1 ;;
+        --seed)  DO_SEED=1 ;;
+        *) die "Opción desconocida: $a (usa --infra | --seed)" ;;
+      esac
+    done
+    [ -d "$BACKEND_DIR" ] || die "No existe $BACKEND_DIR."
+    start_infra
+    [ "$DO_SEED" = 1 ] && seed_synthetic
+    if [ "$ONLY_INFRA" = 1 ]; then
+      log "LISTO (solo infra)."
+      echo "  DATABASE_URL: $(printf '%s' "$DATABASE_URL" | sed -E 's#(//[^:]+):[^@]+@#\1:****@#')"
+      echo "  Para los tests de integración del backend:  cd backend && npm run test:integration"
+      exit 0
+    fi
+    start_backend
+    start_frontend
+    warn "SIN MinIO/R2: los flujos de subida del INE (buylist sobre el tope) NO se cubren por esta ruta."
+    print_e2e_instructions
+    ;;
+  status)
+    log "Estado del stack nativo"
+    pg_isready 2>&1 | sed 's/^/  postgres: /'
+    printf '  redis:    %s\n' "$(redis-cli ping 2>/dev/null || echo 'DOWN')"
+    # `curl -w` YA imprime 000 al fallar: un `|| echo 000` encadenado imprimiría «000000».
+    printf '  backend:  %s (:%s)\n' "$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "http://localhost:$BACKEND_PORT/api/v1/health" 2>/dev/null; true)" "$BACKEND_PORT"
+    printf '  frontend: %s (:%s)\n' "$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "http://localhost:$FRONTEND_PORT/es" 2>/dev/null; true)" "$FRONTEND_PORT"
+    ;;
+  down)
+    log "Apagando apps"
+    stop_apps
+    if [ "${2:-}" = "--all" ]; then
+      log "Apagando infra"
+      redis-cli shutdown nosave 2>/dev/null || true; ok "Redis detenido."
+      pg_ctlcluster "$PG_VER" "$PG_NAME" stop 2>/dev/null || warn "Postgres no se detuvo (¿ya estaba parado?)."
+    else
+      warn "Postgres y Redis SIGUEN ARRIBA (los datos se conservan). Usa 'down --all' para pararlos."
+    fi
+    ;;
+  *)
+    die "Uso: $0 {up [--infra|--seed] | status | down [--all]}"
+    ;;
+esac
