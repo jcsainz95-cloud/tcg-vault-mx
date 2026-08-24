@@ -30,9 +30,10 @@ import {
 } from './api';
 import { getToken, setToken } from './api-client';
 import { config } from './config';
+import * as fx from './mock/fixtures';
 
 // Estas pruebas ejercitan la RAMA MOCK del cliente (config.useMocks = true por defecto
-// en test, ya que NEXT_PUBLIC_USE_MOCKS !== 'false'). Verifican que las llamadas nuevas
+// en test: `vitest.config.ts` declara NEXT_PUBLIC_USE_MOCKS='true'). Verifican que las llamadas nuevas
 // de v1.1 devuelven shapes del contrato sin backend (para Vercel).
 
 describe('api (rama mock, v1.1)', () => {
@@ -95,13 +96,40 @@ describe('api (rama mock, v1.1)', () => {
     expect(ultra.rarity).toBe('Ultra Rare');
     expect(ultra.priceBasis).toBe('market');
     expect(ultra.quote.status).toBe('cotizada');
-    expect(ultra.quote.quotedPriceCents).toBe(Math.round((210000 * 3000) / 10000));
+    // ref MX$2,100 > último punto (MX$500) ⇒ tramo plano final 50% ⇒ MX$1,050.
+    expect(ultra.quote.quotedPriceCents).toBe(105_000);
 
     const common = await getBuylistQuote({ cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' });
     expect(common.rarity).toBe('Common');
     expect(common.priceBasis).toBe('market');
     // Una Common cara deja de cotizar al bin de bulk: el mercado manda (era el bug de P-48).
-    expect(common.quote.quotedPriceCents).toBe(Math.round((9500 * 3000) / 10000));
+    // ref MX$95 cae en el tramo $25→$100 ⇒ pct interpolado 39.33% ⇒ MX$37.36.
+    expect(common.quote.quotedPriceCents).toBe(3_736);
+  });
+
+  /**
+   * El mock del cotizador INTERPOLA (v2.1.7). Antes aplicaba el pct del primer punto a todo el
+   * dominio: QA midió **67% de diferencia** contra el backend vivo (MX$300 vs MX$500 para un
+   * mercado de MX$1,000) con constantes idénticas — divergencia pura de evaluación. Este test fija
+   * que el modo demo reproduce la **prueba de mesa normativa** del eje de compra (ARCHITECTURE
+   * §4.36.1), que es lo que lo vuelve una demo honesta en vez de una cifra inventada.
+   *
+   * Sigue sin ser la autoridad: el monto que se paga lo deriva SIEMPRE el backend (SEC-A1).
+   */
+  it('el mock del cotizador reproduce la prueba de mesa de COMPRA (§4.36.1)', () => {
+    const table: [number, number][] = [
+      [50, 100], // gana el bin
+      [1_000, 300], // 30% (tramo plano inicial)
+      [2_500, 750], // 30% (punto exacto)
+      [10_000, 4_000], // 40% (punto exacto)
+      [30_000, 13_500], // 45% interpolado
+      [50_000, 25_000], // 50% (punto exacto)
+    ];
+    for (const [marketCents, expected] of table) {
+      expect(fx.mockDemoBuyQuote(marketCents).cents, `mercado ${marketCents}`).toBe(expected);
+    }
+    // Sin dato de mercado NO se cotiza: el bin no rellena el hueco (§4.36.0).
+    expect(fx.mockDemoBuyQuote(null)).toEqual({ cents: null, basis: 'pending' });
   });
 
   it('buylist v2.0: `appliedRule` YA NO existe en la respuesta (no hay reglas, hay curva)', async () => {
@@ -124,9 +152,10 @@ describe('api (rama mock, v1.1)', () => {
     });
     expect(q.finish).toBe('reverse_holo');
     expect(q.priceBasis).toBe('market');
-    // Mismo cálculo que en `normal`, sobre el mercado del reverse (ref × 1.25 en el mock): el
-    // acabado dejó de tener regla de precio propia (§N.4).
-    expect(q.quote.quotedPriceCents).toBe(Math.round((Math.round(9500 * 1.25) * 3000) / 10000));
+    // Mismo cálculo que en `normal`, sobre el mercado del reverse (ref × 1.25 = MX$118.75 en el
+    // mock): el acabado dejó de tener regla de precio propia (§N.4). Con el pct interpolado del
+    // tramo $25→$100 ⇒ MX$48.06.
+    expect(q.quote.quotedPriceCents).toBe(4_806);
   });
 
   it('buylist (v1.6-finish): sin finish la respuesta ecoa el default normal', async () => {
@@ -145,7 +174,7 @@ describe('api (rama mock, v1.1)', () => {
     // index 0 = correlación posicional; cardId ecoado.
     const r0 = res.results[0];
     expect(r0).toMatchObject({ index: 0, cardId: 'c-pikachu', ok: true });
-    if (r0.ok) expect(r0.quote.quotedPriceCents).toBe(Math.round((9500 * 3000) / 10000));
+    if (r0.ok) expect(r0.quote.quotedPriceCents).toBe(3_736);
     const r1 = res.results[1];
     expect(r1).toMatchObject({ index: 1, cardId: 'c-charizard', ok: true });
     // Coincide EXACTAMENTE con el quote por-carta (misma función de precio).

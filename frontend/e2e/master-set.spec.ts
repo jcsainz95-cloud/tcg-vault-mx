@@ -33,10 +33,17 @@ const ORACLE = IS_REAL
       dual: { name: 'E2E Reverse Bird', number: '17', finishes: ['Normal', 'Reverse Holo'] },
       single: { name: 'E2E Pidgey', number: '16', finish: 'Normal' },
       orderSet: 'E2E Order Set',
-      // Copia LITERAL de `E2E_ORDER_EXPECTED_NUMBERS` (backend/prisma/e2e-fixtures.ts, §4.22e):
-      // el spec no importa de `backend/` (paquetes separados), así que el oráculo se copia con
-      // su fuente citada. `SV` < `TG` ⇒ SV107 va ANTES de TG01 (promos agrupados por prefijo).
-      orderExact: ['2', '10', 'SV107', 'TG01'] as string[] | null,
+      // ⚠️ Oráculo de VARIANTES, no de cartas. `E2E_ORDER_EXPECTED_NUMBERS`
+      // (backend/prisma/e2e-fixtures.ts, §4.22e) = `['2','10','SV107','TG01']` es el oráculo de
+      // `GET /buylist/cards`: UNA entrada por CARTA. El binder del cotizador pinta **una casilla
+      // por (carta, acabado)** (rejilla plana N-16), y `E2E Order Two` (#2) trae
+      // `availableFinishes: ['normal','reverse_holo']` ⇒ **dos** casillas. Copiar el oráculo de
+      // cartas aquí producía un assert que no podía pasar en ningún entorno: en real fallaba por
+      // el #2 duplicado y en mock era código muerto (`orderExact: null` salta la línea).
+      // El propio spec ya lo demostraba: el test de «una carta CON reverse holo pinta DOS
+      // casillas» pasa — o sea que el producto tiene razón y el oráculo estaba mal.
+      // `SV` < `TG` ⇒ SV107 va ANTES de TG01 (promos agrupados por prefijo).
+      orderExact: ['2', '2', '10', 'SV107', 'TG01'] as string[] | null,
       orderMustContain: { numeric: [2, 10], promos: ['SV107', 'TG01'] },
     }
   : {
@@ -172,8 +179,15 @@ test.describe('master set · cotizador: una casilla de IMAGEN por variante real 
     // (c) La secuencia mínima del seed §4.22e está presente y en su grupo correcto.
     for (const n of ORACLE.orderMustContain.numeric) expect(numeric).toContain(n);
     for (const p of ORACLE.orderMustContain.promos) expect(promos).toContain(p);
-    // (d) Rama real: la secuencia COMPLETA es EXACTAMENTE la del fixture §4.22e
-    //     (2 → 10 → SV107 → TG01; los promos se agrupan por prefijo: SV antes que TG).
+    // (d) Rama real: la secuencia COMPLETA de CASILLAS es exactamente la del fixture §4.22e
+    //     expandido por acabado (#2 dos veces: normal + reverse holo) — 2 → 2 → 10 → SV107 → TG01.
     if (ORACLE.orderExact) expect(numbers).toEqual(ORACLE.orderExact);
+    // (e) Y las casillas de una MISMA carta quedan juntas: expandir por acabado no puede
+    //     desordenar el set (si #2 apareciera separado, el orden natural estaría roto).
+    const firstTwo = numbers.indexOf('2');
+    const lastTwo = numbers.lastIndexOf('2');
+    if (firstTwo !== -1 && lastTwo !== firstTwo) {
+      expect(numbers.slice(firstTwo, lastTwo + 1).every((n) => n === '2')).toBe(true);
+    }
   });
 });

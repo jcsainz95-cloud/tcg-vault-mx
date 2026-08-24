@@ -106,12 +106,13 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     expect(
       screen.getByRole('button', { name: /^Agregar Charizard \(Holofoil\) a la venta/ }),
     ).toBeInTheDocument();
-    // Estimado del acabado normal: la CURVA de compra sobre el mercado del acabado
-    // (MX$48,500 × 30% en el tramo plano inicial del mock) → MX$14,550.00. La rareza NO interviene.
+    // Estimado del acabado normal: la CURVA de compra sobre el mercado del acabado. El mercado
+    // (MX$48,500) queda por encima del último punto ⇒ tramo plano final 50% ⇒ MX$24,250.00.
+    // La rareza NO interviene en el monto (criterio 84).
     // N-16 rejilla plana: el botón "Agregar" es su propia acción; el precio va en su etiqueta
     // accesible (aria-label) y en el renglón mono de la tarjeta, no dentro del texto del botón.
     await waitFor(() => expect(normal).toBeEnabled());
-    expect(normal.getAttribute('aria-label')).toContain('MX$14,550.00');
+    expect(normal.getAttribute('aria-label')).toContain('MX$24,250.00');
   });
 
   it('clic en una casilla agrega la carta DIRECTO al carrito con su estimado', async () => {
@@ -419,7 +420,7 @@ describe('BuylistView · carrito de venta', () => {
     expect(await screen.findByText('Resumen de tu venta')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Carrito de venta (1)' })).not.toBeInTheDocument();
     // El total estimado aparece en el modal: línea (unitario × cantidad) + total.
-    expect(screen.getAllByText('MX$14,550.00').length).toBeGreaterThan(1);
+    expect(screen.getAllByText('MX$24,250.00').length).toBeGreaterThan(1);
     // Aviso de vigencia del estimado (en la página y en el modal).
     expect(screen.getAllByText(/estimado con los precios de hoy/).length).toBeGreaterThan(1);
   });

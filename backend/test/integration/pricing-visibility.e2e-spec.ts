@@ -172,3 +172,75 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
     });
   });
 });
+
+/**
+ * v2.1.7 (§M2) — las dos rutas NORMADAS, contra Postgres real: **ningún endpoint devuelve una entidad
+ * Prisma directamente**. Se verifica sobre el JSON que sale por HTTP, que es donde una columna del
+ * schema se auto-publicaría.
+ */
+describe('E2E — §M2: rutas de pricing con forma DECLARADA', () => {
+  let h2: E2EHarness;
+  let admin: string;
+  let cardId: string;
+
+  const PRICE_HISTORY_KEYS = [
+    'capturedDate',
+    'gradeKey',
+    'isManualOverride',
+    'priceMxnCents',
+    'productType',
+    'source',
+  ].sort();
+
+  beforeAll(async () => {
+    h2 = await E2EHarness.create();
+    await seedE2E(h2.prisma);
+    admin = await h2.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+    const card = await h2.prisma.card.findUnique({ where: { externalId: E2E_CARDS.charizard.externalId } });
+    cardId = card!.id;
+  });
+
+  afterAll(async () => {
+    await h2?.close();
+  });
+
+  it('`GET /admin/pricing/card/:cardId` ⇒ `{ data: PriceHistoryEntryDTO[] }`, sin internos de fila', async () => {
+    const res = await h2.api('GET', `/admin/pricing/card/${cardId}`, { token: admin });
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body)).toEqual(['data']);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    for (const row of res.body.data) {
+      expect(Object.keys(row).sort()).toEqual(PRICE_HISTORY_KEYS);
+      expect(row.capturedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/); // día, no instante
+    }
+  });
+
+  it('`POST /admin/pricing/override` ⇒ `{ data }` proyectado — antes devolvía la fila COMPLETA', async () => {
+    const res = await h2.api('POST', '/admin/pricing/override', {
+      token: admin,
+      json: { cardId, productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 123400, finish: 'normal' },
+    });
+    expect(res.status).toBe(201);
+    expect(Object.keys(res.body)).toEqual(['data']);
+    expect(Object.keys(res.body.data).sort()).toEqual(PRICE_HISTORY_KEYS);
+    // Lo que el schema publicaba solo:
+    for (const interno of ['id', 'priceUsdCents', 'fxRate', 'fxBufferPct', 'cardProductId', 'createdAt']) {
+      expect(res.body.data).not.toHaveProperty(interno);
+    }
+    // Y el override SÍ surtió efecto (la proyección no rompió la escritura).
+    expect(res.body.data).toMatchObject({ priceMxnCents: 123400, source: 'manual', isManualOverride: true });
+  });
+
+  it('`PATCH /admin/users/:id/status` ya NO devuelve `passwordHash` (auditoría de la norma)', async () => {
+    const target = await h2.prisma.user.findUnique({ where: { email: E2E_USERS.customer2.email } });
+    const res = await h2.api('PATCH', `/admin/users/${target!.id}/status`, {
+      token: admin,
+      json: { status: 'blocked' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).not.toHaveProperty('passwordHash');
+    expect(Object.keys(res.body).sort()).toEqual(['createdAt', 'email', 'id', 'name', 'role', 'status']);
+    // Se restaura para no dejar al usuario bloqueado en el seed compartido.
+    await h2.api('PATCH', `/admin/users/${target!.id}/status`, { token: admin, json: { status: 'active' } });
+  });
+});

@@ -4,7 +4,7 @@ import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } fro
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
-import { PricingService } from './pricing.service';
+import { PricingService, toPriceHistoryEntry } from './pricing.service';
 import { FxService } from './fx.service';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -190,6 +190,20 @@ export class PricingController {
     );
   }
 
+  /**
+   * v2.1.7 (§M2) — Res `{ data: PriceHistoryEntryDTO }`: la referencia recién escrita **PROYECTADA**,
+   * no la entidad.
+   *
+   * **Éste era el caso testigo de la regla.** Devolvía la fila Prisma `PriceReference` COMPLETA
+   * (`id`, `priceUsdCents`, `fxRate`, `fxBufferPct`, `cardProductId`, `createdAt`…) con el contrato
+   * sin decir nada. No era fuga pública —es `super_admin`— pero sí la **causa raíz** de esta familia:
+   * cuando la respuesta ES la entidad, la forma de la API la define el **schema**, y **cada migración
+   * pasa a ser un cambio de contrato silencioso**.
+   *
+   * El SERVICIO sigue devolviendo la entidad a propósito: sus otros llamadores la componen dentro de
+   * una transacción (el alta de sellado con precio manual) y necesitan la fila. La proyección vive
+   * **en el borde HTTP**, que es donde se decide la forma de la API.
+   */
   @Post('override')
   async override(@Body() dto: OverrideDto, @CurrentUser('id') userId: string) {
     const ref = await this.pricing.manualOverride(
@@ -203,10 +217,11 @@ export class PricingController {
       actorUserId: userId,
       action: 'pricing.override',
       entityType: 'PriceReference',
+      // El `id` sigue yendo a la BITÁCORA (donde se necesita para trazar), no a la respuesta.
       entityId: ref.id,
       after: { priceMxnCents: dto.priceMxnCents, finish: dto.finish ?? 'normal' },
     });
-    return ref;
+    return { data: toPriceHistoryEntry(ref) };
   }
 
   /**
@@ -226,9 +241,17 @@ export class PricingController {
     return this.variantControls.update(cardId, finish, dto, userId);
   }
 
+  /**
+   * v2.1.7 (§M2) — Res `{ data: PriceHistoryEntryDTO[] }`, `capturedDate` desc.
+   *
+   * Forma NORMADA tras B-1: el contrato decía «historial de precios por fecha/fuente» **sin fijar
+   * campos**, así que backend y frontend coincidían por **acuerdo tácito** —cada uno marcándolo como
+   * SUPUESTO en su propio código— y el acuerdo ya tenía **grieta** (`source: string` aquí,
+   * `PriceSource` allá). Es la misma condición que produjo B-1.
+   */
   @Get('card/:cardId')
-  history(@Param('cardId') cardId: string) {
-    return this.pricing.priceHistory(cardId);
+  async history(@Param('cardId') cardId: string) {
+    return { data: await this.pricing.priceHistory(cardId) };
   }
 
   // ==========================================================================

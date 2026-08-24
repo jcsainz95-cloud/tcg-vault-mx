@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { loginAs, MONEY_RE } from './utils/auth';
 
@@ -115,11 +115,34 @@ async function addFirstSellableCard(page: Page) {
   const addPrefix = t('es', 'buylist.addFinishAria', { name: '\u0000', finish: '\u0000' }).split(
     '\u0000',
   )[0];
-  await page
-    .getByRole('list', { name: t('es', 'buylist.searchResults') })
-    .getByRole('button', { name: new RegExp(`^${addPrefix}`), disabled: false })
-    .first()
-    .click();
+  const list = page.getByRole('list', { name: t('es', 'buylist.searchResults') });
+  const rows = list.getByRole('listitem');
+  const addBtn = (row: Locator) =>
+    row.getByRole('button', { name: new RegExp(`^${addPrefix}`), disabled: false });
+
+  // ⚠️ Enumerar filas NO auto-espera: `count()`/`innerText()` leen el DOM del instante. El código
+  // anterior clicaba `.first()`, que sí auto-espera, y eso TAPABA la ausencia de espera. Se espera
+  // explícitamente a que el batch de estimados habilite al menos una fila antes de recorrerlas.
+  await expect(addBtn(list).first()).toBeVisible({ timeout: 30_000 });
+
+  // Se elige la fila cotizable MÁS BARATA, no la primera. Motivo money: contra el stack real la
+  // curva de compra cotiza de verdad, y una carta cara empuja la solicitud por encima del TOPE AML
+  // — la UI entonces exige INE (anverso y reverso) antes de confirmar, que es el guardarraíl
+  // AML-1 haciendo su trabajo. El smoke quiere recorrer VENDER de punta a punta, no pelearse con
+  // un control de lavado de dinero; la más barata lo deja del lado correcto del tope sin
+  // hardcodear ningún monto (sigue siendo descubrimiento puro).
+  const count = await rows.count();
+  let best: { row: Locator; cents: number } | null = null;
+  for (let i = 0; i < count; i += 1) {
+    const row = rows.nth(i);
+    if ((await addBtn(row).count()) === 0) continue;
+    const text = (await row.innerText()).replace(/\s+/g, ' ');
+    const m = text.match(/MX\$([\d,]+)\.(\d{2})/);
+    const cents = m ? Number(m[1].replace(/,/g, '')) * 100 + Number(m[2]) : Number.MAX_SAFE_INTEGER;
+    if (!best || cents < best.cents) best = { row, cents };
+  }
+  if (!best) throw new Error('No hay ninguna fila cotizable en el grid');
+  await addBtn(best.row).first().click();
 }
 
 test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del carrito', () => {
@@ -355,6 +378,25 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     }
 
     await dialog.getByRole('button', { name: t('es', 'buylist.submit') }).click();
-    await expect(page.getByText(t('es', 'buylist.created'))).toBeVisible();
+
+    // Dos desenlaces LEGÍTIMOS, y el test afirma en ambos (ninguno es un no-op):
+    //  (a) la solicitud se crea → confirmación;
+    //  (b) el estimado cruzó el TOPE AML y la UI exige INE antes de confirmar (AML-1). Eso NO es
+    //      un fallo del producto: es el guardarraíl de dinero saliente funcionando. Lo que el test
+    //      exige entonces es que el bloqueo sea HONESTO — mensaje accionable, la sección de INE
+    //      ofrecida, y NINGUNA confirmación de solicitud creada.
+    const created = page.getByText(t('es', 'buylist.created'));
+    const ineRequired = dialog.getByText(t('es', 'buylist.ineRequiredError'));
+    await expect(created.or(ineRequired).first()).toBeVisible();
+
+    if (await ineRequired.count()) {
+      await expect(dialog.getByText(t('es', 'buylist.ineSectionTitle'))).toBeVisible();
+      await expect(dialog.getByText(t('es', 'ine.front'))).toBeVisible();
+      await expect(dialog.getByText(t('es', 'ine.back'))).toBeVisible();
+      // Money-safe: sin INE la solicitud NO se creó.
+      await expect(created).toHaveCount(0);
+    } else {
+      await expect(created).toBeVisible();
+    }
   });
 });

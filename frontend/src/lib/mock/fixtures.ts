@@ -2288,9 +2288,16 @@ export function setMockPricingCurve(next: PricingCurveDTO): PricingCurveDTO {
 }
 
 /**
- * ⚠️ **MOCK DE DEMO — NO ES LA CURVA.** Solo se usa en el modo sin backend, para que las pantallas
- * que muestran un precio sugerido no queden vacías. Aplica el **tramo plano inicial** de la curva
- * (el valor del primer punto) más la constante del eje: **no interpola y no redondea**.
+ * ⚠️ **MOCK DE DEMO — NO ES LA AUTORIDAD.** Solo se usa en el modo sin backend, para que las
+ * pantallas que muestran un precio sugerido no queden vacías.
+ *
+ * **v2.1.7 — ahora INTERPOLA.** Antes aplicaba el valor del PRIMER punto a todo el dominio (tramo
+ * plano único). QA lo midió contra el stack vivo: para un mercado de MX$1,000 el mock pagaba
+ * **MX$300** y el backend **MX$500** — **67% de diferencia** con constantes idénticas, o sea
+ * puramente de evaluación. Una demo puede ser una demo, pero no puede estar 67% equivocada sobre
+ * dinero: alguien se la cree. Con la interpolación el eje de COMPRA queda **estructuralmente
+ * completo** (`max(bin, mercado × pct(mercado))` — la compra no se redondea), así que ya no
+ * diverge del real por evaluación. El eje de VENTA sigue **sin la escalera de redondeo**.
  *
  * La matemática normativa (ARCHITECTURE §4.36.1) vive en el **backend** y llega a la UI por
  * `POST /admin/pricing/curve/preview`. Duplicarla aquí sería exactamente lo que P-48 existe para
@@ -2309,18 +2316,49 @@ export function mockDemoBuyQuote(refCents: number | null): { cents: number | nul
   return mockDemoQuote('buy', refCents);
 }
 
+/**
+ * Interpolación lineal entre puntos, con tramos PLANOS antes del primero y después del último.
+ * Es la forma que el contrato documenta para `PricingCurveDTO` — sin ella, el mock aplicaba el
+ * valor del PRIMER punto a todo el dominio.
+ */
+function mockInterpBp(points: { marketCents: number; bp: number }[], m: number): number {
+  if (points.length === 0) return 0;
+  const pts = [...points].sort((a, b) => a.marketCents - b.marketCents);
+  if (m <= pts[0].marketCents) return pts[0].bp;
+  const last = pts[pts.length - 1];
+  if (m >= last.marketCents) return last.bp;
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const p0 = pts[i];
+    const p1 = pts[i + 1];
+    if (m >= p0.marketCents && m < p1.marketCents) {
+      const span = p1.marketCents - p0.marketCents;
+      return p0.bp + Math.round(((p1.bp - p0.bp) * (m - p0.marketCents)) / span);
+    }
+  }
+  return last.bp;
+}
+
 function mockDemoQuote(
   axis: 'sale' | 'buy',
   refCents: number | null,
 ): { cents: number | null; basis: PriceBasis } {
   if (refCents == null || refCents <= 0) return { cents: null, basis: 'pending' };
   if (axis === 'sale') {
-    const bp = mockPricingCurve.sale.points[0]?.multiplierBp ?? 10000;
+    const bp = mockInterpBp(
+      mockPricingCurve.sale.points.map((p) => ({ marketCents: p.marketCents, bp: p.multiplierBp })),
+      refCents,
+    );
     const raw = Math.round((refCents * bp) / 10000);
     const floor = mockPricingCurve.sale.floorCents;
+    // ⚠️ El eje de VENTA sigue SIN redondear: la escalera vive en el backend. Por eso el precio de
+    // venta del modo demo puede diferir del real hasta un escalón, y sigue sin ser apto para
+    // afirmar montos de venta en un E2E.
     return floor > raw ? { cents: floor, basis: 'floor' } : { cents: raw, basis: 'market' };
   }
-  const bp = mockPricingCurve.buy.points[0]?.pctBp ?? 0;
+  const bp = mockInterpBp(
+    mockPricingCurve.buy.points.map((p) => ({ marketCents: p.marketCents, bp: p.pctBp })),
+    refCents,
+  );
   const raw = Math.round((refCents * bp) / 10000);
   const bin = mockPricingCurve.buy.binCents;
   return bin > raw ? { cents: bin, basis: 'floor' } : { cents: raw, basis: 'market' };

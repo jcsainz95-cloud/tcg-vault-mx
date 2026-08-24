@@ -2027,8 +2027,12 @@ export interface SealedSpreadsDTO {
 }
 
 // GET /admin/pricing/card/:cardId — historial de precios por fecha/fuente.
-// SUPUESTO de shape: el contrato describe "historial de precios por fecha/fuente"
-// sin fijar campos exactos; estos son los mínimos para render (ver FRONTEND_NOTES).
+// ✅ SUPUESTO CERRADO (contrato v2.1.7): el shape está NORMADO — `{ data: PriceHistoryEntryDTO[] }`
+// con los campos de abajo. Antes el contrato solo decía «historial por fecha/fuente» y backend y
+// frontend coincidían por acuerdo TÁCITO, que es la misma condición que produjo B-1; el acuerdo ya
+// tenía grieta (backend tipaba `source: string`, aquí `PriceSource`) y el contrato resolvió a favor
+// del ENUM. `isManualOverride` viaja aquí a propósito: es superficie `super_admin` de auditoría,
+// donde la procedencia ES la pregunta (contrasta con `PriceInfo`, de donde se retiró en v2.1.6).
 export interface PriceHistoryEntryDTO {
   capturedDate: string;
   source: PriceSource;

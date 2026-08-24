@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Card, CardProduct, CardProductKind, Finish, PriceReference, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
+import { Card, CardProduct, CardProductKind, Finish, PriceReference, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -210,13 +210,60 @@ export function toPublicPriceInfo(info: PriceInfo): PriceInfo {
  * coinciden hoy por acuerdo tácito, que es exactamente la condición que produjo B-1.
  */
 export interface PriceHistoryEntryDTO {
-  /** `YYYY-MM-DD` — día de captura, no instante. */
+  /** `YYYY-MM-DD` — día de captura, NO instante (igual que `PriceInfo.capturedDate`). */
   capturedDate: string;
-  source: string;
+  /**
+   * ⚠️ El **ENUM**, no `string` (v2.1.7). El acuerdo tácito ya tenía una GRIETA: backend tipaba
+   * `string` y frontend `PriceSource`. Con `string`, un valor fuera del enum **compila** de este lado
+   * y **rompe el render** del otro sin que nada avise — justo en el campo del que trata la ruta.
+   */
+  source: PriceSource;
+  gradeKey: string;
+  productType: ProductType;
+  priceMxnCents: number;
+  /**
+   * Viaja aquí y NO contradice su retiro de `PriceInfo` (v2.1.6): allá era superficie **anónima** y
+   * `source === 'manual'` la determinaba por completo; aquí es `super_admin` de **auditoría**, la
+   * procedencia **es** la pregunta que el endpoint contesta, y **no es redundante per-fila** —
+   * `sourceRank` trata las dos señales como SEPARADAS (`isManualOverride || source === 'manual'`),
+   * así que una fila puede venir marcada manual con un `source` distinto de `manual`.
+   *
+   * La regla que generaliza: la pregunta correcta nunca es «¿este campo es sensible?» sino
+   * **«¿es sensible PARA QUIEN LEE ESTA RUTA?»**.
+   */
+  isManualOverride: boolean;
+}
+
+/**
+ * v2.1.7 — **LA proyección** de una `PriceReference` a su forma declarada. Un solo cuerpo para el
+ * historial y para la respuesta del override manual.
+ *
+ * ### La norma que la obliga (§M2, y es la causa raíz de esta familia de bugs)
+ * **Ningún endpoint devuelve una entidad Prisma directamente; siempre una proyección declarada.**
+ * Cuando la respuesta **ES** la entidad, la forma de la API la define el **schema**, no el contrato —
+ * y entonces **cada migración es un cambio de contrato silencioso**. M-41 añadió columnas a tres
+ * modelos; con el patrón anterior, cualquier columna futura se **auto-publicaba** sin que nadie lo
+ * decidiera. Es la misma máquina que produjo el hueco de `details`, el de `PriceInfo` y B-1.
+ *
+ * Se construye por **lista blanca** (no `delete`, no spread de la fila): una columna nueva NO sale por
+ * omisión, que es exactamente la propiedad que se busca.
+ */
+export function toPriceHistoryEntry(row: {
+  capturedDate: Date;
+  source: PriceSource;
   gradeKey: string;
   productType: ProductType;
   priceMxnCents: number;
   isManualOverride: boolean;
+}): PriceHistoryEntryDTO {
+  return {
+    capturedDate: row.capturedDate.toISOString().slice(0, 10),
+    source: row.source,
+    gradeKey: row.gradeKey,
+    productType: row.productType,
+    priceMxnCents: row.priceMxnCents,
+    isManualOverride: row.isManualOverride,
+  };
 }
 
 /** v1.29 (§4.27i) — precio por variante de un producto separado (CardProductDTO.prices). */
@@ -1465,16 +1512,7 @@ export class PricingService {
         isManualOverride: true,
       },
     });
-    return rows.map((r) => ({
-      // Fecha CORTA (`YYYY-MM-DD`), igual que `PriceInfo.capturedDate`: es un día de captura, no un
-      // instante, y el ISO completo insinuaba una precisión que el dato no tiene.
-      capturedDate: r.capturedDate.toISOString().slice(0, 10),
-      source: r.source,
-      gradeKey: r.gradeKey,
-      productType: r.productType,
-      priceMxnCents: r.priceMxnCents,
-      isManualOverride: r.isManualOverride,
-    }));
+    return rows.map(toPriceHistoryEntry);
   }
 
   // v2.0 (P-48) — `computeSalePrice(ref)` (markup GLOBAL único `SALES_MARKUP_PCT`) RETIRADO: era la

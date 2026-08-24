@@ -402,8 +402,24 @@ export class AdminService {
     });
   }
 
+  /**
+   * v2.1.7 (auditoría de la regla «ningún endpoint devuelve una entidad Prisma») — **proyectado**.
+   *
+   * Devolvía la fila `User` COMPLETA, o sea **`passwordHash`** (y `tokenVersion`, `googleId`,
+   * `anonymizedAt`…) en el cuerpo de la respuesta. Es `super_admin` y el hash es un bcrypt, así que no
+   * es una fuga explotable de inmediato — pero un hash de credencial no tiene ninguna razón para
+   * viajar en una respuesta de «cambiar estado», y es exactamente el fallo que la norma predice:
+   * cuando la respuesta ES la entidad, cada columna nueva del schema se auto-publica.
+   *
+   * La proyección NO se inventa: es la MISMA que ya usa `listUsers` (el endpoint hermano), así que el
+   * consumidor recibe la forma que ya conoce.
+   */
   async updateUserStatus(id: string, status: 'active' | 'blocked') {
-    return this.prisma.user.update({ where: { id }, data: { status } });
+    return this.prisma.user.update({
+      where: { id },
+      data: { status },
+      select: { id: true, email: true, name: true, role: true, status: true, createdAt: true },
+    });
   }
 
   /**
