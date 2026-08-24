@@ -2,7 +2,25 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.7-declared-shapes).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.8-enum-mirror).
+>
+> **Changelog v2.1.8-enum-mirror (2026-08-24, arquitecto — dos enums canónicos incompletos + reparto de la deuda D10.
+> ARCHITECTURE §4.36.0b. Corrige declaraciones; no cambia comportamiento de backend.):**
+> - **`PriceSource` gana `tcgcsv_singles` — y deja de estar DUPLICADO.** Faltaba desde v1.44 (el changelog lo anunció;
+>   la línea canónica no se actualizó) y es la fuente **primaria** de singles, o sea **la mayoría de las filas** de
+>   `GET /admin/pricing/card/:cardId`: el front recibía un `source` **fuera de su unión** en casi todas. Agravante: el
+>   enum estaba **declarado dos veces** en el bloque de Enums — el mecanismo exacto por el que una copia se actualiza
+>   y la otra no. **Se colapsan en una sola declaración canónica** que espeja `schema.prisma:198-210`.
+> - **`SealedSubtype` gana `upc` y `collection`** (faltaban desde v1.39, también anunciados en changelog). **No era
+>   cosmético:** la validación de `PUT /admin/pricing/sealed-spreads` deriva de ese enum, así que **el dueño no podía
+>   calibrarles spread** — dos presentaciones reales caían siempre al `fallbackPct` global.
+> - **Cuarta pata de la convención de DTOs cerrados:** *un enum se declara **UNA** vez y su declaración canónica
+>   **espeja el schema***. Ampliar un enum en Prisma sin ampliarlo aquí es un **cambio de contrato silencioso**.
+>   Se sugiere el test barato que cierra la clase: comparar los valores del enum Prisma contra los declarados aquí.
+> - **Deuda D10 (ocho respuestas devolviendo entidades crudas): las formas las declara el ARQUITECTO**, no backend, y
+>   van al **siguiente ciclo** (ARCHITECTURE §4.36.0b). Incluye **`AddressDTO`, referenciada en §5 y nunca definida**.
+>
+> Versión previa: v2.1.7-declared-shapes.
 >
 > **Changelog v2.1.7-declared-shapes (2026-08-24, arquitecto — B-1 del gate E2E de QA + auditoría de rutas sin forma
 > declarada. ARCHITECTURE §4.36. Dos respuestas SE NORMAN; la convención de DTOs gana su tercera pata.):**
@@ -1750,7 +1768,12 @@ Locale              = es | en
 ProductType         = graded | sealed | raw
 RawCondition        = NM                                 // v1.1: ÚNICO valor (se eliminan LP|MP|HP|DMG). Migración.
 Finish              = normal | reverse_holo | holofoil | first_edition_holofoil // v1.6-finish: acabado/versión de carta (mapeo de tcgplayer.prices, ARCHITECTURE §3.7). graded/sealed = normal.
-SealedSubtype       = box | etb | bundle | tin | blister // v1.1: subtipo opcional del sellado
+SealedSubtype       = box | etb | bundle | tin | blister | upc | collection
+                    // v1.1: subtipo opcional del sellado. ⛔ v2.1.8 — `upc` (Ultra Premium Collection) y
+                    // `collection` FALTABAN: el changelog v1.39/P-38 anunció «enum SealedSubtype gana `upc` y
+                    // `collection`» (y §M1 lo repite), pero la línea CANÓNICA nunca se actualizó. Espeja ahora
+                    // `schema.prisma:69-77`. **SEGUNDA instancia del mismo patrón que `PriceSource`** — por eso el
+                    // espejo enum↔schema pasa a ser verificación de contrato (ver §M2 «convención de DTOs»).
 AuthProvider        = local | google                     // v1.1: proveedor de autenticación del User
 AuthTokenType       = email_verification | password_reset // v1.5: token de un solo uso (hash en BD); verificación 24h, reset 1h
 GradingCompany      = PSA | CGC
@@ -1785,13 +1808,25 @@ BuylistRuleMode     = fixed | pct                       // ⛔ RETIRADO v2.0 (P-
 SalesRuleMode       = fixed | pct                       // ⛔ RETIRADO v2.0 (P-48): ídem. El `fixed` de venta era la causa raíz (documentado como PISO, implementado como precio absoluto).
 BuylistCategory     = comun | reverse_holo | ex_plus    // DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode). Retención legacy; nada nuevo lo usa.
 DisputeStatus       = abierta | en_revision | resuelta_recompra | rechazada
-PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual | tcgcsv // v1.19: tcgcsv = referencia de SELLADO (M-23)
+PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual | tcgcsv | tcgcsv_singles
+                    // ⚠️ DECLARACIÓN CANÓNICA ÚNICA (v2.1.8). Espeja `enum PriceSource` de `schema.prisma:198-210`.
+                    // `tcgcsv`        = referencia de mercado del SELLADO vía TCGCSV (v1.19, M-23, §4.19).
+                    // `tcgcsv_singles`= PRIMARIO de precio de SINGLES por variante (por CardProduct+acabado, leído
+                    //   del `marketPrice` por `subTypeName`); PPT/pokemontcg.io quedan de FALLBACK (v1.29, M-31,
+                    //   §4.27f). **Es la fuente de la MAYORÍA de las filas** de `GET /admin/pricing/card/:cardId`.
+                    // ⛔ `tcgcsv_singles` FALTABA desde v1.44: el changelog anunció «PriceSource gana tcgcsv_singles»
+                    //   y la línea canónica nunca se actualizó — y estaba DUPLICADA (dos declaraciones del mismo
+                    //   enum en este bloque), que es justo el mecanismo por el que una se actualiza y la otra no.
+                    //   Se colapsan en ESTA. Efecto que cerraba: el front recibía un `source` FUERA de su unión en
+                    //   la mayoría de las filas del historial (mismo modo de fallo que `string` contra enum, un
+                    //   nivel más arriba: aquí el enum existe y le faltaba un miembro).
 SealedPriceSource   = tcgcsv | off                       // v1.19: valores del dial sealedPriceSource (§M10). NO es enum de BD; seed "off" (fail-closed)
 KycStatus           = none | pending | verified | rejected
 UserStatus          = active | blocked | deleted        // v1.3.1: `deleted` = cuenta soft-deleted/anonimizada (no puede iniciar sesión). `PATCH .../status` sigue aceptando solo active|blocked; `deleted` lo fija DELETE /admin/users/:id.
 AcquisitionType     = aportacion_en_especie | buylist | compra
 CfdiStatus          = registrado | no_aplica          // MVP sin PAC; "emitido" reservado para fase 2
-PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual | tcgcsv   // fuentes de precio (tcgcsv = sellado, v1.19)
+// (v2.1.8) — aquí había una SEGUNDA declaración de `PriceSource`, duplicada y desactualizada. RETIRADA: la
+// declaración canónica es la de arriba. Un enum declarado dos veces es un enum que se va a bifurcar.
 FxSource            = banxico | manual                // fuente del tipo de cambio (separado de PriceSource)
 MasterSetScope      = platform | user_vault           // v1.20: alcance de la vista master set (inventario de plataforma vs bóveda de UN usuario)
 AdjustmentReason    = encontrada | perdida | danada | error_captura // v1.20: motivo OBLIGATORIO del ajuste de inventario por levantamiento físico (M1)
@@ -4981,6 +5016,22 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     > Backend lo verificó revirtiendo la emisión con los tipos puestos: **el spec deja de compilar**. Ése es el
     > estándar — *que el compilador atrape lo que pueda, y el test serializado lo que no*, la misma doctrina que
     > `DisplayBp` (§M2 preview).
+    4. **Un enum se declara UNA vez, y su declaración canónica ESPEJA el schema** (v2.1.8 — cuarta pata). Ampliar un
+       enum en `schema.prisma` **sin** ampliar su línea canónica aquí es un **cambio de contrato silencioso**: el
+       backend emite el valor nuevo (lo contrario sería inventar dato) y el consumidor recibe algo **fuera de su
+       unión**.
+    > **Se eleva a norma porque ya ocurrió DOS veces, y la segunda cortó funcionalidad.** (a) `PriceSource` no
+    > incluía **`tcgcsv_singles`** —la fuente **primaria** de singles, o sea **la mayoría** de las filas de
+    > `GET /admin/pricing/card/:cardId`— pese a que el changelog de v1.44 lo anunció. Agravante: el enum estaba
+    > **DECLARADO DOS VECES** en este bloque, que es precisamente el mecanismo por el que una copia se actualiza y la
+    > otra no; **se colapsaron en una**. (b) `SealedSubtype` no incluía **`upc`** ni **`collection`** pese al
+    > changelog de v1.39 — y ahí no fue solo cosmético: la validación de `PUT /admin/pricing/sealed-spreads` deriva
+    > de ese enum, así que **el dueño no podía calibrar spread** para dos presentaciones reales; caían siempre al
+    > fallback global.
+    > **Regla práctica:** un enum del contrato que tenga contraparte en `schema.prisma` lleva su referencia
+    > (`archivo:líneas`) al lado, y el espejo se verifica — un test que compare **los valores del enum Prisma contra
+    > los declarados aquí** cuesta poco y cierra la clase entera. Es el análogo, a nivel de tipo, del test sobre la
+    > forma serializada.
     > **Por qué se eleva a convención:** un hueco aquí produjo un bug **silencioso** que vivió desde E9. El contrato
     > normaba `details: { axis, index, marketCents, … }` y dejaba el segundo extremo dentro del «…»; backend emitió
     > `index2`/`marketCentsTo`, el frontend declaró `toIndex`/`toMarketCents` —nombres que **inventó y que nadie
@@ -5555,7 +5606,11 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   (ej. `{ "spreadPctBySubtype": { "box":18, "etb":22, "bundle":25, "tin":30, "blister":35 }, "fallbackPct": 25 }`).
 - `PUT /api/v1/admin/pricing/sealed-spreads` — **(NUEVO)** reemplaza los spreads y/o el fallback.
   Req: `{ spreadPctBySubtype?: { [subtype]: number }, fallbackPct?: number }` (parcial: solo las claves a cambiar).
-  - **Validación:** cada clave de `spreadPctBySubtype` ∈ `{box,etb,bundle,tin,blister}`; cada `value` y `fallbackPct`
+  - **Validación:** cada clave de `spreadPctBySubtype` ∈ **`SealedSubtype`** — es decir
+    `{box, etb, bundle, tin, blister, upc, collection}` (**v2.1.8**: `upc` y `collection` estaban de facto excluidos
+    porque el enum canónico se había quedado corto, así que el `PUT` los rechazaba con `422` y **el dueño no podía
+    calibrarles spread**; caían siempre al `fallbackPct` global. Consecuencia money-safe pero **no calibrable** — el
+    fallback existe para el hueco, no para ser el único camino de dos presentaciones reales); cada `value` y `fallbackPct`
     **número en `[0, 1000]`** (markup arriba de mercado, puede >100%). Objeto (no array). `422 VALIDATION_ERROR` si no.
   - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.sealed_spreads.update`, `before`/`after`).
     **Surte efecto sin redeploy.**

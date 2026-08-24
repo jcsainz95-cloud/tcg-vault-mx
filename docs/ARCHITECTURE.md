@@ -159,6 +159,20 @@
 > historial `super_admin`** y **no** contradice su retiro de `PriceInfo` (v2.1.6): distinta superficie, y ahí **no es
 > redundante** con `source` per-fila. *La pregunta correcta no es «¿este campo es sensible?» sino «¿es sensible para
 > quien lee esta ruta?».*
+> **Adenda v2.1.8 — la regla anti-entidad-Prisma cazó un `passwordHash`, y dos enums canónicos estaban incompletos
+> (§4.36.0b, contrato §Enums).** (1) **Validación de la regla:** `PATCH /admin/users/:id/status` devolvía la fila
+> `User` **completa** — con **`passwordHash`**, `tokenVersion`, `googleId`, `anonymizedAt`. `super_admin` y bcrypt, no
+> explotable de inmediato, pero **un hash de credencial no tiene por qué viajar en «cambiar estado»**, y ninguna
+> auditoría lo había visto porque **el contrato no declaraba esa forma**. Ya proyectado por backend reusando el
+> `select` de `listUsers`. (2) **`PriceSource` no incluía `tcgcsv_singles`** —la fuente **primaria** de singles, o sea
+> la mayoría de las filas del historial de M2— pese al changelog de v1.44; y **estaba declarado DOS VECES**, que es el
+> mecanismo por el que una copia se actualiza y la otra no. (3) **`SealedSubtype` no incluía `upc` ni `collection`**
+> pese al changelog de v1.39, y ahí **cortaba funcionalidad**: la validación de `sealed-spreads` deriva de ese enum,
+> así que esas dos presentaciones **no eran calibrables** y caían siempre al fallback. De ahí la **cuarta pata** de la
+> convención: *un enum se declara UNA vez y ESPEJA el schema*. (4) **Deuda D10** — ocho rutas devolviendo entidades
+> crudas: **las formas las declara el arquitecto**, backend proyecta contra lo declarado, y va al **siguiente ciclo**
+> (proyectar rutas de dinero en vísperas del gate es riesgo sin ganancia). Incluye **`AddressDTO`, referenciada en §5
+> y nunca definida**.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -7712,6 +7726,49 @@ export function isBountyEffective(bountyPriceCents: number | null, curveQuoteCen
 > **menor**) a `≤` (rechaza también el **empate**). Sin este ajuste, un bounty exactamente igual a la curva **pasaría el
 > alta** y sería **invisible en runtime** (el predicado exige `>` estricto por criterio 91) — una incoherencia entre
 > alta y ejecución. Es un endurecimiento money-safe, reversible en dato (subir el bounty $0.01).
+
+#### 4.36.0b Deuda D10 — ocho respuestas sin forma declarada: la declara el ARQUITECTO (v2.1.8)
+
+**Contexto.** La regla «ningún endpoint devuelve una entidad Prisma directamente» (§M2, v2.1.7) destapó, además de
+las dos rutas de pricing ya normadas, **ocho** que siguen devolviendo entidades crudas: `addresses`, `guest-checkout`,
+`inventory items`/`locations`, `buylist`, `shipments`, `disputes`, `kyc`. Inventariadas con `archivo:línea` en **D10**
+(`BACKEND_NOTES.md`). Ninguna expone credenciales.
+
+**Backend NO las proyectó, y la decisión es CORRECTA. Se ratifica aquí para que conste como criterio, no como
+pendiente olvidado.** Su razón, que suscribo textualmente:
+
+> *El contrato no declara la forma de ninguna de esas respuestas — `AddressDTO` incluso se referencia en §5 y **nunca
+> se define**. Proyectarlas ahora sería que backend invente ocho formas por su cuenta, que es precisamente el acuerdo
+> tácito que produjo B-1 y que esta revisión vino a erradicar.* **El arquitecto declara; yo proyecto contra lo
+> declarado.**
+
+**Es exactamente el reparto correcto, y conviene decir por qué no es burocracia.** El defecto que se está cerrando no
+es «las respuestas no están proyectadas»; es **«la forma la decide quien implementa, en silencio»**. Proyectar ocho
+formas inventadas por backend **no arregla eso: lo consuma** — cambiaría ocho acuerdos tácitos implícitos (la entidad)
+por ocho acuerdos tácitos explícitos (la proyección que a backend le pareció), sin que nadie los haya declarado. La
+única salida es que **la forma la declare quien es dueño del contrato**.
+
+**Alcance (juicio del arquitecto, coincide con el orquestador):**
+
+| Ítem | Release | Por qué |
+|---|---|---|
+| Enum `PriceSource` + `SealedSubtype` (§Enums) | **ESTE** | **Rompe pantalla**: el historial de M2 recibe `tcgcsv_singles` fuera de su unión en la mayoría de las filas; y `upc`/`collection` dejan dos presentaciones sin spread calibrable |
+| Las **ocho** formas de D10 | **SIGUIENTE ciclo** | Son rutas de **dinero** (buylist, shipments, guest-checkout, kyc): proyectarlas en vísperas del gate mete riesgo de regresión **sin ganancia de seguridad** (ninguna expone credenciales). El riesgo de esperar es bajo y conocido; el de tocarlas ahora, no |
+
+**Dueño y forma de saldarla — para que no se convierta en otro acuerdo tácito:**
+1. **El arquitecto declara las ocho formas** en `API_CONTRACT.md` (incluida `AddressDTO`, hoy **referenciada en §5 y
+   nunca definida** — que es la misma deuda un nivel más arriba), **antes** de que backend toque ninguna.
+2. **Recién entonces** backend proyecta contra lo declarado, con la mecánica ya probada en v2.1.7: reusar el `select`
+   existente donde lo haya (como se hizo con `listUsers` para `PATCH /admin/users/:id/status`), no inventar.
+3. **Prioridad dentro del lote:** primero las que cruzan a superficie **no-admin** (`addresses`, `guest-checkout`,
+   `kyc`), porque ahí el radio de una sobre-emisión es mayor.
+
+> **Nota sobre lo que la regla ya cazó, como evidencia de que vale la pena:**
+> `PATCH /admin/users/:id/status` devolvía la fila `User` **completa** — con **`passwordHash`**, `tokenVersion`,
+> `googleId` y `anonymizedAt`. Es `super_admin` y es bcrypt, así que no era explotable de inmediato; pero **un hash
+> de credencial no tiene ninguna razón para viajar en la respuesta de «cambiar estado»**, y ninguna auditoría previa
+> lo había visto porque **el contrato no declaraba esa forma**. Es el argumento de la regla en un solo caso: el
+> problema nunca fue el campo, fue que **nadie había declarado cuáles eran los campos**.
 
 #### 4.36.6a Topes AML del buylist — SÍ están en el alcance de este cambio (v2.1.6, NORMATIVO)
 
