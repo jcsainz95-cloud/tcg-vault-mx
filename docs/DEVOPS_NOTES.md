@@ -3803,6 +3803,18 @@ arregla **frontend** (dueño de `frontend/`, ya enrutado). **Cuando frontend rep
 de verdad, se actualizan los dos sitios de arriba — no antes.** Escribir hoy «ya funciona» sería repetir
 exactamente el error que esta entrada corrige.
 
+> **ACTUALIZACIÓN (misma noche) — frontend reportó, y lo verifiqué.** `frontend/e2e/utils/auth.ts:55-70`
+> ahora decide con `IS_REAL = !FORCE_MOCK && (APP_IS_EXTERNAL || REAL_SUBSET_SELECTED)`: **`E2E_BASE_URL`
+> implica autenticación real**. El modo suite-completa **ya autentica**, y su número reportado sobre el
+> stack final es **48 verdes / 3 rojos / 35 saltados**, con los 3 rojos siendo los smokes de dinero por
+> **falta de clave de Stripe** (entorno, no producto). `scripts/stack-native.sh` está actualizado en
+> consecuencia. **Sigue sin ser el gate de dinero** — ése es `e2e-real.yml` con clave de prueba: **§31**.
+>
+> **Efecto colateral que este arreglo cierra sin tocar `.github/`:** el gate de CI `e2e-real.yml` fijaba
+> `E2E_BASE_URL` y **no** `E2E_REAL` (verificado: `E2E_REAL` no aparecía en ninguna línea de `.github/`),
+> así que **el gate que bloquea la promoción a prod también autenticaba con `'mock.session.token'`**. Era
+> el mismo género de afirmación falsa que esta entrada corrige, **en mi propio carril**. Ver §31.4.
+
 ### 30.2 P2 — Interpolación sin escapar en el SQL de arranque (MENOR-2 de QA)
 
 **Qué había** (`scripts/stack-native.sh`, bloque de rol/base):
@@ -4036,8 +4048,8 @@ que el DoD **sí** toca. Las dejo anotadas aquí para que no se pierdan cuando s
 
 | # | Condición abierta | Por qué toca el DoD | Dueño |
 |---|---|---|---|
-| 1 | **Los tres flujos de dinero (comprar · comprar como invitado · retirar) NO se verificaron por navegador.** Sin clave de Stripe el backend devuelve `503 PAYMENT_PROVIDER_UNAVAILABLE` y **libera la reserva** (degrada money-safe, que es el comportamiento correcto). Están cubiertos **en integración** con el doble de Stripe. | El DoD exige los **criterios de aceptación de `PROJECT.md`** cumplidos y la **suite E2E de flujos críticos contra el stack corriendo**. «Cubierto en integración» no es «verificado de punta a punta». | **dueño** (clave de prueba con egress en staging) **o** aceptación formal escrita. Sin una de las dos, esto **no se cierra**. |
-| 2 | **Disparador duro de R1 / S49-M1 sin cablear** — vive sólo en prosa. | El DoD exige que los hallazgos aceptados queden **registrados**; una aceptación cuya condición nadie puede detectar no es verificable. | **devops** (propuesta en §30.5, pendiente de OK) |
+| 1 | *(→ **RESUELTA la vía**: el dueño eligió la clave de prueba. Ejecución y estado en **§31**.)* **Los tres flujos de dinero (comprar · comprar como invitado · retirar) NO se verificaron por navegador.** Sin clave de Stripe el backend devuelve `503 PAYMENT_PROVIDER_UNAVAILABLE` y **libera la reserva** (degrada money-safe, que es el comportamiento correcto). Están cubiertos **en integración** con el doble de Stripe. | El DoD exige los **criterios de aceptación de `PROJECT.md`** cumplidos y la **suite E2E de flujos críticos contra el stack corriendo**. «Cubierto en integración» no es «verificado de punta a punta». | **dueño** (clave de prueba con egress en staging) **o** aceptación formal escrita. Sin una de las dos, esto **no se cierra**. |
+| 2 | *(→ **DEJA DE APLICAR**: backend las corrigió en vez de aceptarlas; ver **§31.5**.)* **Disparador duro de R1 / S49-M1 sin cablear** — vive sólo en prosa. | El DoD exige que los hallazgos aceptados queden **registrados**; una aceptación cuya condición nadie puede detectar no es verificable. | **devops** (propuesta en §30.5, pendiente de OK) |
 | 3 | **`@nestjs/core` GHSA-36xv-jgw5-4q75 (2 moderate)** pendiente de bump mayor. | Deuda **no bloqueante**: el DoD la admite **si está registrada y aceptada**. Ya lo está. | **backend** (bump mayor) |
 
 **Lo que sigue sin faltar** (no ha cambiado desde §29.11-bis): el runbook con **despliegue y rollback**,
@@ -4046,3 +4058,192 @@ migración, y **ninguna deuda bloqueante de infraestructura** — D-g y D-h qued
 
 **Cuando se me pida el cierre con el commit final**, verifico el DoD contra el árbol quieto y, si esas
 condiciones están resueltas, despliego, tageo y lo declaro listo. Antes no.
+
+---
+
+## 31. Clave de PRUEBA de Stripe: los tres flujos de dinero en navegador antes de prod — 2026-08-24
+
+> **Decisión del dueño:** la condición #1 del DoD (§30.6) se resuelve **por la vía de la clave de prueba**,
+> no por aceptación formal. Los tres flujos de dinero —**comprar**, **comprar como invitado**,
+> **retirar**— se verifican **en navegador contra staging** antes de promover a prod. Eso convierte una
+> condición abierta en **tarea de entorno**, y ésta es la sección que la ejecuta.
+
+**Estado de partida (verificado, no supuesto).** El backend del stack nativo **no tiene
+`STRIPE_SECRET_KEY`** en su entorno: `scripts/stack-native.sh` no la exporta, y `stripe.service.ts:47-54`
+cae al literal `sk_test_dummy` con un `warn` (solo fuera de producción; en producción
+`onModuleInit` aborta el arranque). Con eso, `paymentIntents.create` falla, `orders.service.ts:428-431`
+**libera la reserva** y `toRetryError` devuelve **503 `PAYMENT_PROVIDER_UNAVAILABLE`**. Degrada
+money-safe, que es el comportamiento correcto — pero deja los tres smokes en rojo.
+
+La suite arreglada por frontend da **48 verdes / 3 rojos / 35 saltados**, y los 3 rojos son exactamente
+`checkout`, `guest-checkout` y `shipments`. **Frontend los dejó en rojo a propósito**, con esta nota en
+los propios specs, que comparto y que es la razón de que este semáforo sirva:
+
+> *«un smoke de dinero que se pone verde (o se salta solo) cuando no hay proveedor de pago es exactamente
+> la clase de mentira que este arnés vino a quitar»*
+
+**En cuanto la clave esté, esos tres pasan a verde solos. Son el semáforo: no hay que tocar nada más.**
+
+### 31.1 Qué tiene que proveer el humano, y dónde
+
+| Secret | Valor | Dónde se pone | ¿Obligatorio? |
+|---|---|---|---|
+| `STRIPE_TEST_SECRET_KEY` | **`sk_test_…`** (clave secreta de **TEST**) | GitHub → *Settings > Secrets and variables > Actions* | **Sí**, en la ruta de promoción a prod |
+| `STRIPE_TEST_PUBLISHABLE_KEY` | `pk_test_…` | igual | **Sí** (el modal de pago no monta sin ella) |
+| `STRIPE_TEST_WEBHOOK_SECRET` | `whsec_…` | igual | **No** para estos tres smokes — ver §31.3 |
+
+**Entorno: STAGING.** Nunca producción, nunca `sk_live_…`. El preflight nuevo de `e2e-real.yml` **aborta
+el job** si detecta una clave que empiece con `sk_live_`, sin imprimir el valor.
+
+**Permisos que necesita la clave.** Una **clave secreta de TEST estándar** del dashboard
+(*Developers > API keys*, con el switch en **Test mode**). **No** hace falta clave restringida ni ámbitos
+especiales: el backend solo hace `paymentIntents.create` y verifica firmas de webhook. Si se prefiere una
+*restricted key*, basta **escritura en «PaymentIntents»**. La `pk_test_…` es pública por diseño.
+
+**Cómo se inyecta — la fontanería ya existe, no hay que cablearla.** `docker-compose.staging.yml:171-173`
+y `:206` ya mapean las tres a lo que lee el backend y hornea el frontend:
+
+```
+STRIPE_TEST_SECRET_KEY      -> STRIPE_SECRET_KEY
+STRIPE_TEST_PUBLISHABLE_KEY -> STRIPE_PUBLISHABLE_KEY  +  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY (build arg)
+STRIPE_TEST_WEBHOOK_SECRET  -> STRIPE_WEBHOOK_SECRET
+```
+
+Sin ellas caen a `*_staging_dummy`. Eso es deliberado y **no es un verde falso**: Stripe rechaza esos
+literales, así que el resultado es rojo con causa, no verde sin proveedor.
+
+**Ningún valor real entra a ningún archivo del repo.** `.env.example` documenta los tres con
+`CHANGE_ME` y explica dónde van, con el mismo criterio de §11.
+
+### 31.2 Egress — la clave es necesaria pero **NO suficiente**
+
+**Comprobado en esta máquina, no supuesto:**
+
+```
+curl https://api.stripe.com/v1/charges           -> CONNECT tunnel failed, response 403
+(sin HTTPS_PROXY)                                -> 403
+```
+
+`api.stripe.com` está **bloqueado** desde el entorno de trabajo del equipo, igual que `pokemontcg.io` y
+`tcgcsv.com` (§29.10-4). **Consecuencia operativa que hay que decir de frente: darle
+`STRIPE_SECRET_KEY` al stack nativo local NO pondría estos tres smokes en verde aquí.** Se quedarían
+rojos, solo que por timeout de red en vez de por falta de clave. Quien lo intente y no lo sepa va a
+perder una tarde.
+
+**Dónde SÍ corre, entonces:**
+
+| Entorno | ¿Egress a `api.stripe.com`? | ¿Sirve para esta verificación? |
+|---|---|---|
+| Stack nativo local (`:3099`/`:3000`) | **No** (403) | **No.** Ni con clave. |
+| `e2e-real.yml` en runner `ubuntu-latest` | **Sí** (runner estándar de GitHub, salida abierta) | **Sí — es la ruta recomendada** |
+| Staging real (Railway/VPS) con secret manager | Sí, salvo egress restringido explícito | Sí |
+
+**¿Necesita cambio `docker-compose.staging.yml`? NO.** No declara `networks:`, así que los servicios usan
+la red bridge por defecto y **heredan el egress del host**. El bloqueo no está en el compose: está en el
+host/proxy. Si un día se pone staging detrás de un egress con allow-list, lo único que hay que abrir es
+**`api.stripe.com:443`** (más `m.stripe.network`/`js.stripe.com` para el navegador que monta Elements, que
+salen del cliente, no del backend).
+
+### 31.3 Webhooks — **estos tres smokes NO dependen del webhook**, y hay que decirlo
+
+Ruta del webhook: **`POST /api/v1/webhooks/stripe`** (`webhooks.controller.ts`, `@Controller('webhooks')`
++ `@Post('stripe')`), con firma verificada contra `STRIPE_WEBHOOK_SECRET` sobre el **raw body**.
+
+**Verifiqué qué asertan los tres specs, y ninguno espera la llamada de vuelta de Stripe.** Los tres paran
+en *«el modal de pago abre con el `clientSecret` de la sesión REAL»*. El propio `checkout.spec.ts` lo dice
+en su cabecera: *«el asentamiento es por webhook, así que NO se espera pantalla de "pagado" inmediata»*.
+En la rama real, `guest-checkout` **no** completa el pago: solo comprueba que el modal **no** es el
+simulado.
+
+**Por lo tanto, para poner los tres en verde NO hace falta endpoint público ni `stripe listen`.**
+`STRIPE_TEST_WEBHOOK_SECRET` puede quedarse en su dummy sin afectar el resultado.
+
+**Y aquí va la parte incómoda, que es justo la advertencia del coordinador:** eso significa que
+**estos tres verdes prueban "la sesión de pago se crea contra Stripe de verdad", NO "el pedido se
+asienta"**. Es un gate legítimo y es un salto enorme respecto a lo que había (autenticación falsa contra
+un backend real), pero **no es la cadena completa hasta `settled`**. Lo digo aquí para que nadie lea
+"tres smokes de dinero en verde" como "el dinero funciona de punta a punta".
+
+| Qué cubre | Quién lo cubre hoy |
+|---|---|
+| Sesión de pago creada contra Stripe real, con desglose e IVA | **Estos tres smokes** (gate de promoción) |
+| Asentamiento `pending → settled` por webhook firmado | **Suite de integración del backend** (webhook firmado, §29.10-4) |
+| Cadena completa navegador → Stripe → webhook → `settled` | **Nadie todavía.** No es gate y no lo declaro como tal. |
+
+**Si algún día se quiere cerrar esa tercera fila** (no es requisito del dueño hoy), hacen falta dos cosas
+y ninguna es gratis: (a) un staging **alcanzable desde internet** para que Stripe pueda llamar, o
+`stripe listen --forward-to <backend>/api/v1/webhooks/stripe` corriendo durante la prueba; y (b) meter en
+`STRIPE_TEST_WEBHOOK_SECRET` **el `whsec_…` que imprime el CLI**, que **no es** el del dashboard. Un
+checkout que crea la sesión y nunca recibe el webhook se ve "verde a medias" — por eso la tabla de arriba
+separa las tres filas en vez de dejarlo implícito.
+
+### 31.4 Cableado en el gate de promoción (qué es gate y qué no)
+
+Tres cambios, todos en rutas devops:
+
+**(1) Faltaba un flujo de dinero en el smoke.** `e2e-real.yml` corría
+`checkout · shipments · buylist`: **dos de los tres flujos de dinero**, y `guest-checkout.spec.ts`
+**no estaba**. Añadido a los tres sitios donde vive el default (env del job, input de `workflow_dispatch`,
+input de `workflow_call`):
+
+```
+checkout.spec.ts  guest-checkout.spec.ts  shipments.spec.ts  buylist.spec.ts
+```
+
+**(2) `E2E_REAL: '1'` en el paso de Playwright.** Confirmé el hallazgo de frontend de forma independiente:
+`E2E_REAL` **no aparecía en ninguna línea de `.github/`**, así que el gate que bloquea la promoción a prod
+fijaba `E2E_BASE_URL` y autenticaba con `'mock.session.token'`. **Es el mismo género de afirmación falsa
+que corregí en §30.1, en mi propio carril.**
+
+El arreglo de frontend ya lo corrige sin tocar `.github/` —ahora
+`IS_REAL = !FORCE_MOCK && (APP_IS_EXTERNAL || REAL_SUBSET_SELECTED)`, y `E2E_BASE_URL` implica auth real—,
+y lo verifiqué en `frontend/e2e/utils/auth.ts:55-70`. **Aun así fijo `E2E_REAL=1`, por una razón concreta
+que encontré al revisarlo:** `guest-checkout.spec.ts:151` ramifica con **`process.env.E2E_REAL` crudo**, no
+con `IS_REAL` (es el **único** spec que lo hace; `checkout` y `shipments` usan `IS_REAL`). Sin la bandera,
+ese spec tomaría la **rama mock de sus asertos** —clic dentro del modal y copy de confirmación
+simulada— **contra un modal de Stripe real**. Con `E2E_REAL=1`, las tres preguntas —qué specs corro,
+contra qué habla la app, cómo autentico— tienen **una sola respuesta**.
+
+> **Hallazgo para frontend (no lo toco, es su archivo):** `guest-checkout.spec.ts:151` debería ramificar
+> con `IS_REAL`, como sus hermanos, y no con `process.env.E2E_REAL`. Mientras no lo haga, ese spec depende
+> de que **yo** fije la bandera en CI — un acoplamiento invisible entre `frontend/e2e/` y `.github/`.
+> No bloquea: con el cambio (2) el gate es correcto hoy.
+
+**(3) Preflight de la clave, y gate duro solo en la ruta de promoción.** `e2e-real.yml` gana un input
+`require_real_stripe` (default `false`) y un paso que clasifica la clave **antes** de levantar nada:
+
+| Clave detectada | `require_real_stripe: false` (nightly, dispatch) | `require_real_stripe: true` (promoción) |
+|---|---|---|
+| `sk_test_e2e_dummy` (fallback) | `::warning::` — los smokes de dinero saldrán rojos **por falta de proveedor, no por bug** | **`::error::` y aborta** con instrucciones |
+| `sk_test_…` real | `::notice::` — los smokes de dinero son gate real | idem |
+| `sk_live_…` | **aborta** | **aborta** |
+| otro formato | **aborta** sin imprimir el valor | idem |
+
+`deploy.yml` pasa `require_real_stripe: true` en su llamada a `e2e-real.yml` — y ese job ya era `needs` de
+`promote-production-*` (`deploy.yml:290-293, 328-331`). **Resultado: sin clave de prueba real, no hay
+promoción a prod, y se sabe en el primer minuto en vez de en un rojo de Playwright 20 minutos después.**
+
+Fuera de la ruta de promoción **nada se rompe**: el nightly y el `workflow_dispatch` siguen corriendo con
+el dummy y un aviso claro, que es lo correcto para un repo sin el secret configurado.
+
+#### Resumen: qué es gate y qué no (criterio de §30.1)
+
+| Corrida | ¿Gate? | Qué significa su verde |
+|---|---|---|
+| `e2e-real.yml` con `sk_test_…` real, `E2E_BASE_URL` + `E2E_REAL=1` | **SÍ — bloquea la promoción a prod** | Los 3 flujos de dinero crean sesión de pago contra Stripe real desde el navegador, autenticando de verdad |
+| `e2e-real.yml` con la clave dummy | **NO** | Nada sobre dinero. Los 3 salen rojos por falta de proveedor. |
+| Stack nativo local + clave de prueba | **NO** | **Imposible aquí:** egress a `api.stripe.com` bloqueado (§31.2) |
+| Suite completa sin `E2E_REAL` contra stack real | **NO** | Ver §30.1. Con el helper arreglado ya autentica, pero sigue sin ser el gate de dinero. |
+
+### 31.5 Efecto en las condiciones abiertas del DoD (§30.6)
+
+| # | Condición | Estado tras este pase |
+|---|---|---|
+| 1 | Tres flujos de dinero sin verificar en navegador | **En curso, con dueño claro.** El camino está cableado y es un gate duro; **falta que el humano cree `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`**. Se cierra cuando `e2e-real.yml` pase en verde con clave real. |
+| 2 | Disparador duro de R1 / S49-M1 | **Deja de aplicar a estas dos.** Backend las **corrigió** en vez de aceptarlas (y encontró que S49-M1 eran **cinco** rutas, no cuatro: faltaba la salida idempotente de `pay-spei`). **Pendiente de que `seguridad` confirme la re-verificación**; hasta entonces no lo doy por cerrado yo. La propuesta de §30.5 **no se tira**: sigue siendo el mecanismo para deuda aceptada futura, pero **hoy no hay nada que disparar**. |
+| 3 | `@nestjs/core` GHSA-36xv-jgw5-4q75 | Sin cambio: deuda **no bloqueante**, registrada y aceptada. Dueño **backend**. |
+
+**Sigo sin re-certificar el DoD y sin desplegar ni tagear.** El árbol se va a mover otra vez (arquitecto
+baja el techo de la curva a MX$2,000 + backend lo implementa, más la semilla de spreads de UPC), así que
+cualquier certificación de hoy caducaría igual que la de §29.11-bis. **Se hace con el commit final,
+cuando se me pida.**

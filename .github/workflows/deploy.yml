@@ -170,6 +170,14 @@ jobs:
   e2e-real:
     needs: [preflight]
     uses: ./.github/workflows/e2e-real.yml
+    # `require_real_stripe: true` — ÉSTA es la ruta de promoción a prod, y el dueño
+    # decidió (2026-08-24) verificar los TRES flujos de dinero en navegador con clave
+    # de PRUEBA antes de desplegar, en vez de aceptarlos formalmente. Sin `sk_test_…`
+    # real el backend responde 503 PAYMENT_PROVIDER_UNAVAILABLE y los tres smokes son
+    # rojos; el preflight de e2e-real.yml lo dice de frente en vez de dejar que se
+    # descubra 20 minutos después en un rojo de Playwright. Ver DEVOPS_NOTES §31.
+    with:
+      require_real_stripe: true
     secrets: inherit
 
   # ---------------------------------------------------------------------------

@@ -281,24 +281,32 @@ print_e2e_instructions() {
    hallazgo: o el stack no concuerda, o falta \`up --seed\`. Éste es el número que se
    cita en un veredicto.
 
- MODO EXPLORATORIO  —  **NO ES GATE** (suite completa, sin \`E2E_REAL\`):
+ MODO SUITE COMPLETA  —  ya autentica de verdad, pero NO es el gate de dinero:
 
    E2E_BASE_URL=http://localhost:$FRONTEND_PORT npm run test:e2e
 
- · ⚠ **Este modo NO PUEDE AUTENTICAR, POR CONSTRUCCIÓN.** \`E2E_REAL\` es la MISMA
-   bandera que selecciona el modo y que enciende el login real: sin ella \`loginAs()\`
-   inyecta un token de mentira (\`'mock.session.token'\`, e2e/utils/auth.ts:112-127)
-   mientras la app habla con el backend REAL, que responde 401 y rebota a login en
-   bucle. Todo lo que exija sesión muere ahí, incluidos los \`@real\` (que en este modo
-   corren SIN el filtro y SIN login real).
- · Por eso su rojo **NO mide desacuerdo frontend↔backend** y **no se lee como gate ni
-   se cita como cobertura**. Medición de QA (24-ago-2026): **59 rojos de 85**. Esa
-   cifra es un artefacto del helper, no una señal del stack.
- · Lo único que este modo cubre de verdad hoy es lo que NO toca sesión: copy/i18n,
-   términos y rutas públicas.
- · El helper es de **frontend** (dueño de \`frontend/\`) y ya está enrutado. Hasta que
-   frontend reporte que este modo autentica de verdad, aquí NO se promete ningún
-   número: si necesitas un gate, usa el modo de arriba.
+ · **ARREGLADO por frontend (24-ago-2026).** Antes este modo NO PODÍA AUTENTICAR por
+   construcción: \`E2E_REAL\` era a la vez el selector de specs y el interruptor del
+   login real, así que sin ella \`loginAs()\` inyectaba \`'mock.session.token'\` contra
+   el backend REAL → 401 → login en bucle. Los **59 rojos de 85** que midió QA eran
+   eso, no el stack. Hoy la decisión la toma \`E2E_BASE_URL\`:
+     IS_REAL = !FORCE_MOCK && (APP_IS_EXTERNAL || REAL_SUBSET_SELECTED)
+   (e2e/utils/auth.ts:55-70) — app levantada por otro ⇒ backend real ⇒ auth real.
+ · Número reportado sobre el stack final: **48 verdes · 3 rojos · 35 saltados**. Los
+   **3 rojos son los smokes de dinero** (checkout · guest-checkout · shipments) y son
+   de ENTORNO, no de producto: sin \`STRIPE_SECRET_KEY\` el backend responde 503
+   PAYMENT_PROVIDER_UNAVAILABLE y libera la reserva (money-safe). Frontend NO los
+   salta a propósito. Ver DEVOPS_NOTES §31.
+ · **Sigue sin ser el gate de dinero**, por dos razones verificadas:
+     1. Aquí NO hay egress a api.stripe.com (CONNECT → 403): esos 3 no pueden ponerse
+        verdes en esta máquina NI con clave de prueba. El gate vive en CI.
+     2. \`guest-checkout.spec.ts:151\` ramifica con \`process.env.E2E_REAL\` CRUDO (no con
+        \`IS_REAL\`): sin la bandera toma la rama MOCK de sus asertos contra un modal de
+        Stripe real. Por eso \`e2e-real.yml\` fija ahora \`E2E_REAL=1\` (§31.4).
+ · **Escotilla que conviene conocer:** \`E2E_MOCKS=1\` fuerza modo mock aunque haya
+   \`E2E_BASE_URL\`, y gana sobre todo lo demás. Es deliberada (demo con fixtures); si
+   alguna vez aparece en un gate, ese gate deja de medir el stack real. Hoy NO está en
+   \`.github/\` (comprobado).
 
  Chromium: el config usa \`/opt/pw-browsers/chromium\`. Si no existe en esta máquina:
    cd frontend && npx playwright install --with-deps chromium
