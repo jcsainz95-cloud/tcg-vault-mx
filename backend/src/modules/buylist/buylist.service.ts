@@ -605,6 +605,18 @@ export class BuylistService {
       itemStatus: 'cotizada' | 'precio_pendiente';
     }[] = [];
     let quotedTotalCents = 0;
+    /**
+     * v2.1.6 (fase de seguridad) — INTENCIONES de cola, a aplicar SOLO si la solicitud se crea.
+     *
+     * Antes, el bucle escribía en `PendingPriceEntry` **antes** de los topes y del umbral de INE y
+     * **fuera** de la transacción: una solicitud RECHAZADA por tope dejaba igualmente su rastro en la
+     * cola del dueño — y, peor, podía **CERRAR** entradas (`reason=null`) por una solicitud que nunca
+     * existió. Es la misma clase que S48-M1 (un cliente moviendo la cola del dueño) por otra puerta.
+     */
+    const pendingSettlements: Array<{
+      reason: PendingReason | null;
+      key: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; cardProductId: number | null };
+    }> = [];
     // Cartas EN LOTE (una query por request): antes se hacía un `findUnique` POR ÍTEM dentro del
     // bucle mientras el override sí venía en lote — N+1 que este refactor cierra de paso.
     const cardsById = new Map(
@@ -632,20 +644,18 @@ export class BuylistService {
           ) ?? null,
         productId: it.productId,
       });
-      // v1.8-ronda-c: la cola es POR acabado (M-19). v1.30 (§4.29d): con productId, la entrada lleva su
-      // cardProductId a la clave lógica — resolver el set_base NO cierra la del producto separado.
-      // §4.36.5c: el MISMO seam CIERRA cuando el precio vuelve a resolver (salida simétrica).
-      await this.pricing.settlePendingForVariant(
-        line.pendingReason,
-        {
+      // v2.1.6 (fase de seguridad) — la escritura en la cola se DIFIERE hasta después de que la
+      // solicitud exista de verdad (ver abajo). Aquí solo se ACUMULA la intención.
+      pendingSettlements.push({
+        reason: line.pendingReason,
+        key: {
           cardId: it.cardId,
           productType: it.productType,
           gradeKey: line.gradeKey,
           finish: line.finish,
           cardProductId: it.productId ?? null,
         },
-        'buylist',
-      );
+      });
       quotedTotalCents += line.quotedPriceCents ?? 0;
       itemsData.push({
         cardId: it.cardId,
@@ -756,6 +766,18 @@ export class BuylistService {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
+    // v2.1.6 — AHORA sí: la solicitud EXISTE, así que la cola refleja un hecho real. Va DESPUÉS del
+    // commit y no dentro de la transacción serializable a propósito: meter N escrituras de cola en
+    // la tx del tope mensual alargaría su ventana de conflicto sin ganar nada — el seam es idempotente
+    // y simétrico, así que si el proceso muriera entre el commit y esto, la siguiente cotización o el
+    // siguiente `publish-all` vuelven a escalar. Perder una escalada es recuperable; escribir la cola
+    // por una solicitud que NO se creó, no.
+    for (const s of pendingSettlements) {
+      // v1.8-ronda-c: la cola es POR acabado (M-19). v1.30 (§4.29d): con productId, la entrada lleva
+      // su cardProductId a la clave lógica. §4.36.5c: el MISMO seam CIERRA (salida simétrica).
+      await this.pricing.settlePendingForVariant(s.reason, s.key, 'buylist');
+    }
+
     return {
       sellRequestId: request.id,
       status: request.status,
@@ -783,6 +805,38 @@ export class BuylistService {
       _sum: { quotedTotalCents: true },
     });
     return agg._sum.quotedTotalCents ?? 0;
+  }
+
+  /**
+   * v2.1.6 (AML-1, §4.36.6a) — acumulado **PAGADO** del mes del vendedor: *el dinero que SALIÓ*.
+   *
+   * **Por qué no basta el acumulado de intake** (`monthUsedCentsTx`, que suma `quotedTotalCents`): el
+   * tope se evaluaba sobre la COTIZACIÓN de entrada, pero el dinero sale en la APROBACIÓN. Una línea
+   * `precio_pendiente` entra al mes consumiendo **$0**; si después el dueño le fija precio y la
+   * aprueba, ese monto **sí es dinero que sale** y hasta v2.1.5 **nada lo medía**. Con suficientes
+   * líneas pendientes, el pago mensual real podía superar el tope sin que ningún control lo notara.
+   *
+   * Y este cambio **amplió la población de líneas en `$0`**: la curva trajo dos vías nuevas hacia
+   * `precio_pendiente` (sin mercado —el bin NO gana— y el guardarraíl `premium_at_floor`). Por eso el
+   * hueco es responsabilidad de este pase aunque el remedio viva en el seam de M5.
+   *
+   * Se suma en memoria porque el monto que salió es `approvedTotalCents ?? quotedTotalCents` — un
+   * COALESCE que `_sum` de Prisma no expresa, y sumar el campo equivocado sería exactamente el error
+   * que este control viene a cerrar. El conjunto está acotado por el propio tope (las solicitudes
+   * PAGADAS de UN vendedor en UN mes).
+   */
+  private async monthPaidOutCentsTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+    const start = new Date();
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+    const rows = await tx.sellRequest.findMany({
+      // Ancla en `paidAt` (cuándo salió el dinero), no en `createdAt` (cuándo entró la solicitud):
+      // una solicitud de diciembre que se paga en enero consume tope de ENERO, que es el mes en que
+      // el dinero sale.
+      where: { userId, status: 'pagada', paidAt: { gte: start } },
+      select: { approvedTotalCents: true, quotedTotalCents: true },
+    });
+    return rows.reduce((acc, r) => acc + (r.approvedTotalCents ?? r.quotedTotalCents ?? 0), 0);
   }
 
   private itemDTO(i: {
@@ -1560,20 +1614,45 @@ export class BuylistService {
         'Payment allowed only after receipt/verification and approval',
       );
     }
+    // v2.1.6 (AML-1, §4.36.6a) — TOPE MENSUAL SOBRE EL DINERO QUE SALE, no solo sobre la cotización
+    // de entrada. Se lee el override de KYC del VENDEDOR (mismo criterio que el intake).
+    const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: req.userId } });
+    const capPerMonth =
+      kyc?.capPerMonthCentsOverride ??
+      (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_MONTH_CENTS));
+
     // SEC-M5: transición atómica con guardia de estado (patrón count===1). El
     // `updateMany` solo prospera si la solicitud sigue en un estado pagable; dos
     // llamadas concurrentes → solo una hace la transición a `pagada` (y solo esa CUENTA bounty).
-    const paid = await this.prisma.$transaction(async (tx) => {
-      const res = await tx.sellRequest.updateMany({
-        where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
-        // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
-        data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
-      });
-      if (res.count !== 1) return null;
-      // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
-      await this.countBountyAcquisitionsTx(tx, id, paidBy);
-      return tx.sellRequest.findUnique({ where: { id } });
-    });
+    //
+    // v2.1.6 (AML-1): SERIALIZABLE, por la misma razón que el intake (SEC-A2). Sin ella, dos
+    // `pay-spei` concurrentes de solicitudes distintas del MISMO vendedor leen el mismo acumulado y
+    // las dos pasan — el bypass clásico del tope. Con serializable, una de las dos entra en conflicto
+    // y no liquida.
+    const paid = await this.prisma.$transaction(
+      async (tx) => {
+        // Lo que REALMENTE sale por esta solicitud: lo aprobado manda; sin cherry-pick, lo cotizado.
+        const payoutCents = req.approvedTotalCents ?? req.quotedTotalCents ?? 0;
+        const alreadyPaid = await this.monthPaidOutCentsTx(tx, req.userId);
+        if (alreadyPaid + payoutCents > capPerMonth) {
+          throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month payout cap exceeded', {
+            scope: 'per_month_payout',
+            capCents: capPerMonth,
+            wouldBeCents: alreadyPaid + payoutCents,
+          });
+        }
+        const res = await tx.sellRequest.updateMany({
+          where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
+          // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
+          data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
+        });
+        if (res.count !== 1) return null;
+        // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
+        await this.countBountyAcquisitionsTx(tx, id, paidBy);
+        return tx.sellRequest.findUnique({ where: { id } });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({ where: { id } });
       if (current?.status === 'pagada') return current;

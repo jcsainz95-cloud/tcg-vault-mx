@@ -47,7 +47,7 @@ const svcOf = (prisma: any, refsByKey: Record<string, number> = {}) =>
         return m;
       }),
     } as unknown as PricingService,
-    {} as SettingsService,
+    { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService,
     {} as UsersService,
     pii,
   );
@@ -145,12 +145,16 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
       o.gradeKey === w.gradeKey &&
       o.finish === w.finish;
     const prisma: any = {
+      // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
+      // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
+      kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
           .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
       sellRequestItem: {
         // Honra el where REAL del servicio: priceBasis='bounty' + itemStatus≠'rechazada' (B-1, v2.0).

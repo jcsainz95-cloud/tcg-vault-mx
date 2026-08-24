@@ -54,12 +54,13 @@ function harness(opts: { failOnKey?: string } = {}) {
   return { svc: new SettingsService(prisma), written, audited, prisma, wasRolledBack: () => rolledBack };
 }
 
-/** Espeja lo que hace el controller: audita DENTRO de la transacción. */
-const auditWithin =
-  (h: ReturnType<typeof harness>) =>
-  async (tx: { auditLog: { create: (a: unknown) => Promise<unknown> } }, applied: Record<string, unknown>) => {
-    await tx.auditLog.create({ data: { action: 'settings.update', after: applied } });
-  };
+/** Espeja lo que hace el controller: audita DENTRO de la transacción, con el cliente `tx`. */
+const auditWithin = async (
+  tx: { auditLog: { create: (a: unknown) => Promise<unknown> } },
+  applied: Record<string, unknown>,
+) => {
+  await tx.auditLog.create({ data: { action: 'settings.update', after: applied } });
+};
 
 /**
  * ⚠️ El payload se construye con `JSON.parse`, NO con un literal — y la diferencia es el vector.
@@ -129,7 +130,7 @@ describe('P48-B1 (2) — el «todo o nada» de la ESCRITURA es real: hay transac
 describe('P48-B1 (3) — la bitácora vive DENTRO del alcance del fallo', () => {
   it('éxito ⇒ diales + entrada de auditoría, en el MISMO commit', async () => {
     const h = harness();
-    await h.svc.update({ ivaPct: 16 }, 'admin-1', auditWithin(h) as never);
+    await h.svc.update({ ivaPct: 16 }, 'admin-1', auditWithin as never);
     expect(h.written).toHaveLength(1);
     expect(h.audited).toHaveLength(1);
     expect(h.audited[0]).toMatchObject({ action: 'settings.update', after: { ivaPct: 16 } });
@@ -138,7 +139,7 @@ describe('P48-B1 (3) — la bitácora vive DENTRO del alcance del fallo', () => 
   it('fallo a mitad ⇒ NI dial NI bitácora: es imposible que exista uno sin el otro', async () => {
     const h = harness({ failOnKey: 'stripe_fee_pct' });
     await expect(
-      h.svc.update({ ivaPct: 16, stripeFeePct: 0.036 }, 'admin-1', auditWithin(h) as never),
+      h.svc.update({ ivaPct: 16, stripeFeePct: 0.036 }, 'admin-1', auditWithin as never),
     ).rejects.toThrow('boom a mitad');
     expect(h.written).toHaveLength(0);
     expect(h.audited).toHaveLength(0);

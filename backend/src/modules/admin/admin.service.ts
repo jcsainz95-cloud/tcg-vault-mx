@@ -16,9 +16,32 @@ import {
   normalizeEmail,
 } from '../../common/validation/credentials';
 
+/**
+ * Ventana de fechas de los reportes. v2.1.6 (fase de seguridad) — **valida**: antes hacía
+ * `new Date(garbage)` y metía un `Invalid Date` directo al filtro de Prisma, que revienta con **500**
+ * en un endpoint de reportes de dinero. Una entrada inválida es un **422 con el campo señalado**, no
+ * un error de servidor. También rechaza el rango invertido (`from > to`), que devolvía un reporte
+ * vacío indistinguible de «no hubo operaciones» — peor que un error, porque se lee como un dato.
+ */
 function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   if (!from && !to) return undefined;
-  return { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) };
+  const parse = (raw: string, field: 'from' | 'to'): Date => {
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) {
+      throw BusinessException.validation('VALIDATION_ERROR', `invalid ${field} date`, { field, value: raw });
+    }
+    return d;
+  };
+  const gte = from ? parse(from, 'from') : undefined;
+  const lte = to ? parse(to, 'to') : undefined;
+  if (gte && lte && gte.getTime() > lte.getTime()) {
+    throw BusinessException.validation('VALIDATION_ERROR', 'from must be earlier than or equal to to', {
+      field: 'from',
+      from,
+      to,
+    });
+  }
+  return { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) };
 }
 
 @Injectable()

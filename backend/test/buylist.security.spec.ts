@@ -202,6 +202,9 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
   it('dos conversiones concurrentes → un solo InventoryItem (P2002 = ya convertido)', async () => {
     const shared: { createdId: string | null } = { createdId: null };
     const prisma: any = {
+      // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
+      // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
+      kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequestItem: {
         // Ambas lecturas ven inventoryItemId=null (carrera antes de commit).
         findUnique: jest.fn().mockResolvedValue({
@@ -234,7 +237,7 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
       },
       inventoryMovement: { create: jest.fn() },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
 
     const res1 = await svc.convertToInventory('sri-1', 'actor');
     const res2 = await svc.convertToInventory('sri-1', 'actor');
@@ -250,13 +253,17 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
 describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', () => {
   it('si ya está pagada, no hace un segundo asiento (idempotente)', async () => {
     const prisma: any = {
+      // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
+      // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
+      kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
         findUnique: jest.fn().mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
         updateMany: jest.fn(),
         update: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
     expect(prisma.sellRequest.updateMany).not.toHaveBeenCalled();
@@ -264,19 +271,23 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
 
   it('transición aprobada→pagada por updateMany atómico (count===1) con guardia de estado', async () => {
     const prisma: any = {
+      // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
+      // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
+      kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
           .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
       // v1.28 (P-22): el pago corre en $transaction (conteo de bounty en la misma tx); sin ítems
       // bounty el conteo es no-op.
       sellRequestItem: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
     const call = prisma.sellRequest.updateMany.mock.calls[0][0];

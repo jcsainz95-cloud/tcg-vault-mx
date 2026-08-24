@@ -278,3 +278,42 @@ describe('E6 — GET /admin/reports/pricing-brackets: agrega por eje × bracket'
     });
   });
 });
+
+/**
+ * v2.1.6 (fase de seguridad, Baja) — `range()` de los reportes VALIDA la ventana.
+ *
+ * Antes hacía `new Date(garbage)` y metía un `Invalid Date` al filtro de Prisma ⇒ **500** en un
+ * endpoint de reportes de dinero. Y un rango invertido devolvía un reporte **vacío**, indistinguible
+ * de «no hubo operaciones» — peor que un error, porque se lee como un dato.
+ */
+describe('reportes — la ventana de fechas se valida (422, no 500)', () => {
+  function adminSvc() {
+    const prisma = {
+      orderItem: { findMany: jest.fn(async () => []) },
+      sellRequestItem: { findMany: jest.fn(async () => []) },
+    } as never;
+    return new AdminService(prisma, {} as never, {} as never, {} as never);
+  }
+
+  it.each(['garbage', '2026-13-45', 'DROP TABLE', ''])('`from=%s` inválido ⇒ 422 con el campo', async (bad) => {
+    if (bad === '') return; // vacío = ausente (sin filtro), no es inválido
+    const err = await adminSvc()
+      .pricingBrackets(bad, undefined, 'sale')
+      .catch((e) => e);
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect(err.getResponse()).toMatchObject({ details: { field: 'from', value: bad } });
+  });
+
+  it('rango INVERTIDO ⇒ 422 (antes: reporte vacío que se leía como «no hubo operaciones»)', async () => {
+    const err = await adminSvc()
+      .pricingBrackets('2026-08-31', '2026-08-01', 'sale')
+      .catch((e) => e);
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect(err.getResponse()).toMatchObject({ details: { from: '2026-08-31', to: '2026-08-01' } });
+  });
+
+  it('una ventana VÁLIDA sigue funcionando, y sin ventana también', async () => {
+    await expect(adminSvc().pricingBrackets('2026-08-01', '2026-08-31', 'sale')).resolves.toBeDefined();
+    await expect(adminSvc().pricingBrackets(undefined, undefined, 'sale')).resolves.toBeDefined();
+  });
+});

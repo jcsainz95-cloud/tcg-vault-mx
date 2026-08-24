@@ -51,6 +51,7 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
         }),
         // v1.24-buylist-request-reject: guarda atómica «no pisar terminal» de la auto-transición.
         updateMany: jest.fn(async () => ({ count: 1 })),
+        findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
       kycProfile: {
         findUnique: jest
@@ -133,6 +134,9 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
   it('respond(decline) → rechazada con closedAt', async () => {
     const updates: any[] = [];
     const prisma: any = {
+      // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
+      // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
+      kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
         findUnique: jest.fn().mockResolvedValue({ id: 'sr-1', userId: 'u1', status: 'aprobada' }),
         update: jest.fn(async (args: any) => {
@@ -144,7 +148,7 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
     const svc = new BuylistService(
       prisma as PrismaService,
       {} as PricingService,
-      {} as SettingsService,
+      { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService,
       {} as UsersService,
       pii,
     );
@@ -155,12 +159,16 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
 
   it('paySpei → pagada con closedAt en el updateMany terminal', async () => {
     const prisma: any = {
+      // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
+      // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
+      kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
           .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
       // v1.28 (P-22): el pago corre en $transaction (conteo de bounty en la misma tx); sin ítems
       // bounty el conteo es no-op.
@@ -170,7 +178,7 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
     const svc = new BuylistService(
       prisma as PrismaService,
       {} as PricingService,
-      {} as SettingsService,
+      { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService,
       {} as UsersService,
       pii,
     );
