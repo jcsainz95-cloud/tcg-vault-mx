@@ -22,7 +22,13 @@ import { maskClabe } from '../../common/crypto/pii-mask';
 // v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
 // precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
 import { PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
-import { PricingCurve, isBountyEffective, resolvePendingReason } from '../../common/pricing-curve';
+import {
+  MarketBracket as MarketBracketType,
+  PricingCurve,
+  isBountyEffective,
+  marketBracketOf,
+  resolvePendingReason,
+} from '../../common/pricing-curve';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
@@ -515,8 +521,13 @@ export class BuylistService {
       // v1.30 (§4.29d): snapshot del productId TCGplayer cuando la línea es un producto separado.
       cardProductId?: number;
       rarity: string | null;
-      // v2.0 (P-48, §4.36.7c): snapshot de QUÉ determinó el precio (instrumentación + conteo de bounty).
+      // v2.0 (P-48, §4.36.7c / §N.8): INSTRUMENTACIÓN DE COMPRA — los cinco datos se congelan en la
+      // MISMA transacción que `quotedPriceCents` (que es el precio final) y con el `finish` que ya
+      // tenía. Un AJUSTE posterior del admin (`approvedPriceCents`) NO los reescribe: la serie mide
+      // LA DECISIÓN DE LA CURVA, y el monto realmente pagado se lee de `approvedPriceCents ?? quoted`.
       priceBasis: PriceBasis;
+      marketMxnCents: number | null;
+      marketBracket: MarketBracketType | null;
       quotedPriceCents: number | null;
       itemStatus: 'cotizada' | 'precio_pendiente';
     }[] = [];
@@ -577,6 +588,10 @@ export class BuylistService {
         // Dato de display del catálogo; el monto NO depende de él (criterio 84).
         rarity: card.rarity ?? null,
         priceBasis: pendingReason == null ? q.basis : 'pending',
+        // Sin mercado (override/bounty sin referencia, o pendiente) van en `null`: honesto, jamás un
+        // 0 inventado. El BRACKET es un índice de conveniencia; el dato real es el monto crudo.
+        marketMxnCents: q.marketMxnCents,
+        marketBracket: marketBracketOf(q.marketMxnCents),
         quotedPriceCents,
         itemStatus: quotedPriceCents != null ? 'cotizada' : 'precio_pendiente',
       });
@@ -715,6 +730,8 @@ export class BuylistService {
     // v2.0 (P-48, §4.36.7a/c): `priceBasis` reemplaza al trío legacy `ruleMode`/`ruleValue`/`ruleSource`
     // (que sobrevive en BD por retención de filas históricas, pero nada nuevo lo escribe ni lo expone).
     priceBasis?: PriceBasis | null;
+    marketMxnCents?: number | null;
+    marketBracket?: MarketBracketType | null;
     quotedPriceCents: number | null;
     approvedPriceCents: number | null;
     itemStatus: string;
@@ -749,6 +766,9 @@ export class BuylistService {
       // v2.0 (P-48): `appliedRule` RETIRADO del DTO (no hay `{mode,value}`). Lo reemplaza `priceBasis`
       // (§4.36.7a); `null` en filas históricas anteriores a M-41, que se omiten.
       ...(i.priceBasis != null ? { priceBasis: i.priceBasis } : {}),
+      // v2.0 (§N.8): instrumentación de COMPRA. `null` en filas anteriores a M-41 (se omiten).
+      ...(i.marketMxnCents !== undefined ? { marketMxnCents: i.marketMxnCents } : {}),
+      ...(i.marketBracket !== undefined ? { marketBracket: i.marketBracket } : {}),
       quotedPriceCents: i.quotedPriceCents ?? undefined,
       approvedPriceCents: i.approvedPriceCents ?? undefined,
       itemStatus: i.itemStatus,

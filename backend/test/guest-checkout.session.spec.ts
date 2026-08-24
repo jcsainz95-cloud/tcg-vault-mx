@@ -97,6 +97,11 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       inventoryItemId: id,
       cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
       unitPriceCents: 25000,
+      // v2.0 (§N.8): instrumentación de VENTA congelada con el precio.
+      marketMxnCents: 20000,
+      priceBasis: 'market' as const,
+      marketBracket: 'r80_300' as const,
+      finish: 'normal' as const,
     })),
   }));
   // v1.21.3-quote-prune: el QUOTE usa la variante tolerante (poda por ítem). Por defecto todo
@@ -108,6 +113,11 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       inventoryItemId: id,
       cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
       unitPriceCents: 25000,
+      // v2.0 (§N.8): instrumentación de VENTA congelada con el precio.
+      marketMxnCents: 20000,
+      priceBasis: 'market' as const,
+      marketBracket: 'r80_300' as const,
+      finish: 'normal' as const,
     })),
     unavailableItems: [],
   }));

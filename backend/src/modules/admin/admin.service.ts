@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
-import { Finish, Prisma, ProductType, Role } from '@prisma/client';
+import { Finish, MarketBracket, Prisma, ProductType, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
@@ -743,6 +743,99 @@ export class AdminService {
   // ---------------- Dashboard (8 tarjetas) ----------------
 
   /** Rango del periodo del dashboard: from/to explícitos o el mes calendario en curso (UTC). */
+  /**
+   * v2.0 (P-48, §4.36.7c / PROJECT §N.8, criterio 95) — **INSTRUMENTACIÓN DE LA CURVA**:
+   * `GET /admin/reports/pricing-brackets`. Agrega las operaciones **CONSUMADAS** por eje × bracket
+   * para responder «¿qué tan rápido rota cada bracket y con qué margen?» — el dato que falta para
+   * calibrar la curva con realidad en vez de con corazonadas.
+   *
+   * El `bracket` es una ESCALA FIJA e independiente de la curva A PROPÓSITO: si se derivara de los
+   * puntos vigentes, la serie histórica dejaría de ser comparable cada vez que el dueño moviera la
+   * curva — que es justo lo que se quiere medir. La fila `bracket: null` son las operaciones SIN
+   * mercado (override/bounty sin referencia).
+   *
+   * v2.0 RECOLECTA; NO CALIBRA. El ajuste automático está fuera de alcance (§N.10): el dueño mueve
+   * los puntos a mano con este dato en la pantalla.
+   *
+   * VENTA = `OrderItem` de órdenes **liquidadas** (`Order.status='settled'`): una orden con el pago
+   * sin confirmar no es una venta consumada y contaminaría la rotación. COMPRA = `SellRequestItem`
+   * de solicitudes **pagadas**, excluyendo los ítems `rechazada` del cherry-pick (BL-1: un ítem
+   * rechazado no se compró ni se pagó). El monto pagado se lee de `approvedPriceCents ?? quoted`,
+   * porque un ajuste del admin NO reescribe basis/bracket (la serie mide la DECISIÓN de la curva).
+   */
+  async pricingBrackets(from?: string, to?: string, axis?: 'sale' | 'buy') {
+    const r = range(from, to);
+    const emptyByBasis = () => ({ market: 0, floor: 0, override: 0, bounty: 0, pending: 0 });
+    type Row = {
+      bracket: MarketBracket | null;
+      operations: number;
+      unitsSold?: number;
+      unitsBought?: number;
+      grossMxnCents?: number;
+      paidMxnCents?: number;
+      marketMxnCents: number;
+      byBasis: ReturnType<typeof emptyByBasis>;
+    };
+
+    const out: { from?: string; to?: string; sale?: Row[]; buy?: Row[] } = {
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    };
+
+    if (axis !== 'buy') {
+      const rows = await this.prisma.orderItem.findMany({
+        where: { order: { status: 'settled', ...(r ? { settledAt: r } : {}) } },
+        select: { marketBracket: true, priceBasis: true, marketMxnCents: true, unitPriceCents: true },
+      });
+      const acc = new Map<string, Row>();
+      for (const it of rows) {
+        const key = it.marketBracket ?? 'null';
+        const row =
+          acc.get(key) ??
+          ({ bracket: it.marketBracket, operations: 0, unitsSold: 0, grossMxnCents: 0, marketMxnCents: 0, byBasis: emptyByBasis() } as Row);
+        row.operations += 1;
+        row.unitsSold = (row.unitsSold ?? 0) + 1;
+        row.grossMxnCents = (row.grossMxnCents ?? 0) + it.unitPriceCents;
+        row.marketMxnCents += it.marketMxnCents ?? 0;
+        if (it.priceBasis) row.byBasis[it.priceBasis] += 1;
+        acc.set(key, row);
+      }
+      out.sale = [...acc.values()];
+    }
+
+    if (axis !== 'sale') {
+      const rows = await this.prisma.sellRequestItem.findMany({
+        where: {
+          itemStatus: { not: 'rechazada' },
+          sellRequest: { status: 'pagada', ...(r ? { paidAt: r } : {}) },
+        },
+        select: {
+          marketBracket: true,
+          priceBasis: true,
+          marketMxnCents: true,
+          quotedPriceCents: true,
+          approvedPriceCents: true,
+        },
+      });
+      const acc = new Map<string, Row>();
+      for (const it of rows) {
+        const key = it.marketBracket ?? 'null';
+        const row =
+          acc.get(key) ??
+          ({ bracket: it.marketBracket, operations: 0, unitsBought: 0, paidMxnCents: 0, marketMxnCents: 0, byBasis: emptyByBasis() } as Row);
+        row.operations += 1;
+        row.unitsBought = (row.unitsBought ?? 0) + 1;
+        row.paidMxnCents = (row.paidMxnCents ?? 0) + (it.approvedPriceCents ?? it.quotedPriceCents ?? 0);
+        row.marketMxnCents += it.marketMxnCents ?? 0;
+        if (it.priceBasis) row.byBasis[it.priceBasis] += 1;
+        acc.set(key, row);
+      }
+      out.buy = [...acc.values()];
+    }
+
+    return out;
+  }
+
   private resolvePeriod(from?: string, to?: string): { gte: Date; lte: Date } {
     if (from || to) {
       const now = new Date();

@@ -7,6 +7,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
 import { AuditService } from '../audit/audit.service';
 import { UserAuditScope } from '../audit/audit.service';
+import { BusinessException } from '../../common/business.exception';
 
 class UpdateKycDto {
   @IsIn(['none', 'pending', 'verified', 'rejected']) kycStatus!: string;
@@ -253,6 +254,26 @@ export class AdminReportsController {
   @Get('launch-metrics')
   launchMetrics(@Query('from') from?: string, @Query('to') to?: string) {
     return this.admin.launchMetrics(from, to);
+  }
+
+  /**
+   * v2.0 (P-48, §4.36.7c / PROJECT §N.8, criterio 95) — INSTRUMENTACIÓN de la curva: agrega las
+   * operaciones CONSUMADAS por eje × `MarketBracket` (escala FIJA, independiente de la curva). Es lo
+   * que evita que la calibración vuelva a ser una corazonada. v2.0 RECOLECTA; NO CALIBRA (§N.10).
+   */
+  @Get('pricing-brackets')
+  pricingBrackets(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('axis') axis?: string,
+  ) {
+    if (axis !== undefined && axis !== 'sale' && axis !== 'buy') {
+      throw BusinessException.validation('VALIDATION_ERROR', `invalid axis '${axis}'`, {
+        field: 'axis',
+        allowed: ['sale', 'buy'],
+      });
+    }
+    return this.admin.pricingBrackets(from, to, axis);
   }
 
   @Get('export.csv')
