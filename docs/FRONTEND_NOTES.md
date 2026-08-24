@@ -173,6 +173,39 @@ tendencia se sirve con **ese mismo** valor — así, si el bloque volviera, la c
 Verificado por mutación: al revertir la condición, **fallan los dos** (el del rótulo y el de la
 cifra, este último nombrando `MX$9,876.54`). La E2E conserva el assert de página entera.
 
+### Cobertura `@real`: de 0 a 3 tests en el spec de P-48 (2026-08-24)
+
+QA corrió los E2E contra el stack vivo y el dato desnudo fue: **80 tests en mock, 8 con
+`E2E_REAL=1`** — y `pricing-curve.spec.ts`, el spec del cambio bajo revisión, aportaba **cero**. La
+consecuencia estaba a la vista: **B-1** (el backend no emite `priceBasis` en `GroupedListingDTO`, así
+que `undefined === 'market'` suprime el bloque **en todas las fichas**) pasó por 80 tests en verde,
+porque el fixture **hornea** `priceBasis: 'market'` — que es lo correcto para un mock y justo lo que
+lo vuelve ciego a un campo que el servidor no manda.
+
+Añadidos (`@real` corre también en mock, así que **descubren datos y afirman invariantes**, nunca
+montos de fixture):
+
+| Spec | Test | Qué mira |
+|---|---|---|
+| `pricing-curve` | la regla de §21.8 **no está invertida** | Recorre las primeras fichas y exige que **alguna** publique el mercado. Es el detector de B-1 |
+| `pricing-curve` | dinero con formato MXN, nunca «precio pendiente» | Money-safe de cara al comprador |
+| `pricing-curve` | el editor carga del servidor y **el dry-run responde** | Primera vez que el previsualizador de la curva se ejercita contra un backend vivo |
+| `catalog` | la vitrina publica cartas reales con precio | Un catálogo vacío o sin precio ya no pasa en verde |
+| `catalog` | la ficha **coincide consigo misma** | Bicondicional de §21.8d: bloque y nota al pie cuentan la misma historia |
+
+**Resultado medido contra el stack vivo:** `@real` pasó de **8 a 13** tests. El detector de B-1
+**falla, con su propio mensaje** («Ninguna de las 3 fichas visitadas publicó el valor de mercado…»)
+— es el comportamiento correcto hasta que backend emita el campo. El del editor + dry-run **pasa**.
+
+> **Dos lecciones de método que costaron encontrar y conviene no repetir.**
+> 1. **Un test que descubre datos tiene que esperar a que existan.** La primera versión leía el DOM
+>    tras el `<h1>`; contra un backend real la retícula aún no había pintado, la lista de fichas
+>    salía **vacía** y el bucle no se ejecutaba: el test pasaba **en vacío**. Ahora se espera a que
+>    haya un enlace de ficha antes de enumerar.
+> 2. **Sustituir `.first().click()` por una enumeración quita el auto-wait.** `count()` e
+>    `innerText()` leen el DOM del instante; el `.first()` anterior **tapaba** la falta de espera.
+>    Mismo bug, mismo día, en `addFirstSellableCard`.
+
 ### Cobertura
 
 - `M2View.test.tsx`: 12 casos del editor (retiro sin residuos + texto falso, anatomía, dry-run como
@@ -239,6 +272,35 @@ cambios de UI anteriores, más un control muerto:
 selector de DESTINO **dos veces a propósito** (N-9: en el formulario y otra vez arriba de «Pagar»,
 compartiendo estado) y pinta **dos avisos distintos** (resumen de errores + nota de bloqueo). Los
 localizadores ahora dicen a cuál se refieren; **no se tocó el checkout**, que es de otro stream.)*
+
+### Tres arreglos de test que el stack vivo destapó
+
+- **I-2 · un assert que no podía pasar en ningún entorno** (`master-set.spec.ts`). El oráculo
+  `['2','10','SV107','TG01']` se copió de `E2E_ORDER_EXPECTED_NUMBERS`, que es el oráculo de
+  **cartas** de `GET /buylist/cards`. El binder pinta **una casilla por (carta, acabado)** y
+  `E2E Order Two` (#2) tiene dos acabados ⇒ lo real es `['2','2','10','SV107','TG01']`. En mock la
+  línea era código muerto (`orderExact: null`) y en real era falsa. **El propio spec ya lo
+  demostraba**: el test de «una carta CON reverse holo pinta DOS casillas» pasa. Corregido el
+  oráculo a nivel VARIANTE + un assert nuevo de que las casillas de una misma carta quedan juntas.
+- **I-3 · el smoke de VENDER se quedaba en el tope AML.** Con la curva real el estimado sube y la
+  solicitud cruza el tope: la UI exige INE, que es **AML-1 funcionando**. El test elige ahora la
+  fila cotizable **más barata** (sigue siendo descubrimiento, sin hardcodear montos) y contempla
+  **los dos desenlaces legítimos**: solicitud creada, o bloqueo por INE — y en ese caso exige que el
+  bloqueo sea honesto (mensaje accionable, sección de INE ofrecida, **ninguna** solicitud creada).
+  **VENDER pasa `@real` por primera vez.**
+- **El mock del cotizador ahora interpola** (ver `docs/TECH_DEBT.md` F-P48-2): cerraba un 67% de
+  divergencia medido por QA.
+
+### Dos defaults y un supuesto, cerrados
+
+- **`config.useMocks` pasó a ser opt-in explícito.** Era `!== 'false'`, o sea **encendido por
+  defecto**: un build donde se olvidara `NEXT_PUBLIC_USE_MOCKS=false` servía **fixtures en
+  silencio** — precios de mentira sin un solo error en pantalla. Ahora es `=== 'true'`: si la API no
+  está, la UI muestra su estado de error honesto en vez de inventar datos. Los caminos que quieren
+  mocks lo **declaran** (`playwright.config.ts` ya lo hacía; `vitest.config.ts` ahora también).
+- **`PriceHistoryEntryDTO` deja de ser un SUPUESTO.** El contrato lo normó en **v2.1.7**
+  (`{ data: PriceHistoryEntryDTO[] }`) y resolvió la grieta a favor del **enum** `PriceSource` — que
+  es lo que este front ya tipaba. El marcador de supuesto se retira del código.
 
 ### Solicitudes al arquitecto (ninguna bloquea)
 

@@ -2462,19 +2462,24 @@
 - **Disparador:** si se quiere E2E de las cifras de la prueba de mesa (§21.13.5g) en el pipeline de
   mock, la salida correcta **no** es escribir la fórmula en el cliente: es levantar el backend
   (`E2E_REAL=1`) o servir un *fixture grabado* de la respuesta real del dry-run.
-- **Aparente incoherencia con `fixtures.ts` › `mockDemoBuyQuote`, y por qué no lo es** (hallazgo del
-  techlead, 2026-08-24): el mock **sí** aproxima la curva de COMPRA en cliente (tramo plano inicial
-  + constante, sin interpolar ni redondear) para que el cotizador no quede vacío sin backend.
-  **Rellenar una demo no es calibrar.** El previsualizador existe para que el dueño **elija los
-  puntos de la curva** mirando una cifra: si esa cifra saliera de una aproximación local, elegiría
-  contra un número que el backend no produce — P-48 en espejo. En el cotizador de demo nadie toma
-  una decisión de dinero con ese número, y el monto real siempre lo deriva el backend (SEC-A1).
-- **Consecuencia práctica que sí importa:** **un E2E de Playwright en modo mock que afirme MONTOS
-  del cotizador no verifica el precio del producto — verifica el mock.** Hoy no hay ninguno: el
-  único assert de dinero del cotizador (`e2e/buylist.spec.ts`) usa `MONEY_RE`, que afirma
-  **formato**, no monto (queda anotado ahí mismo para que no se convierta en un assert exacto). Los
+- **`fixtures.ts` › `mockDemoBuyQuote`: la distinción, y su corrección de 2026-08-24.** El mock del
+  cotizador **sí** evalúa la curva de compra en cliente para que la demo no quede vacía. **Rellenar
+  una demo no es calibrar:** el previsualizador existe para que el dueño **elija los puntos**
+  mirando una cifra —si fuera local, elegiría contra un número que el backend no produce, P-48 en
+  espejo—; en la demo nadie toma una decisión de dinero con ese número y el monto real siempre lo
+  deriva el backend (SEC-A1).
+  **Pero la demo tampoco puede estar 67% equivocada.** QA lo midió contra el stack vivo: con
+  constantes idénticas, un mercado de MX$1,000 pagaba **MX$300** en mock y **MX$500** en real,
+  porque el mock aplicaba el pct del PRIMER punto a todo el dominio. Corregido (v2.1.7): el mock
+  **interpola**, y hay un test que fija que reproduce la **prueba de mesa de compra** de
+  ARCHITECTURE §4.36.1 (`$10⇒$3 · $25⇒$7.50 · $100⇒$40 · $300⇒$135 · $500⇒$250`). El eje de compra
+  queda estructuralmente completo (no se redondea); **el de VENTA sigue sin la escalera**, así que
+  un monto de venta del modo demo puede diferir del real hasta un escalón.
+- **Consecuencia práctica que sigue vigente:** **un E2E en modo mock que afirme MONTOS de VENTA no
+  verifica el precio del producto.** El único assert de dinero del cotizador
+  (`e2e/buylist.spec.ts`) usa `MONEY_RE` — **formato**, no monto — y queda anotado ahí mismo. Los
   montos exactos de otros specs (`inventory-stream-b.spec.ts`) son valores de mercado, spread de
-  sellado y precios de bounty **explícitos** — ninguno pasa por la curva.
+  sellado y precios de bounty **explícitos**: ninguno pasa por la curva.
 
 ### F-P48-3 · ~~Conteo por motivo de la cola derivado de la página cargada~~ — **RESUELTA (2026-08-24)**
 - **Estaba mal clasificada.** Se registró como «espera solicitud abierta al arquitecto», pero la

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
+import { MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: "Compra" (antes "Catálogo") — vitrina de inventario publicado CON precio
@@ -57,6 +58,76 @@ test.describe('Compra · listado y filtros', () => {
     // Precio siempre visible (sin IVA), nunca «precio pendiente» en la vitrina.
     await expect(page.getByText(t('es', 'common.withoutIva')).first()).toBeVisible();
     await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
+  });
+
+  /**
+   * SMOKE `@real` — la vitrina contra un backend VIVO. Sin esto, «Compra» solo se verificaba contra
+   * fixtures: un catálogo que no publica nada, o que publica sin precio, pasaba en verde.
+   * Env-agnóstico: descubre datos y afirma INVARIANTES y FORMATO, nunca montos de fixture.
+   */
+  test('@real la vitrina publica cartas reales con precio, y ninguna «precio pendiente»', async ({
+    page,
+  }) => {
+    await page.goto('/es/catalog');
+    // Esperar a la retícula, no al H1: contra un backend real la query tarda y leer antes deja
+    // asserts vacíos (la lección de `pricing-curve.spec.ts`).
+    await page.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll('a[href]')).some((a) =>
+          /\/catalog\/[^/]+$/.test(a.getAttribute('href') ?? ''),
+        ),
+      null,
+      { timeout: 30_000 },
+    );
+
+    // Money-safe de cara al comprador: lo publicado tiene precio real (§7.3). Una variante sin
+    // precio NO se publica — jamás un MX$0 ni un «pendiente» en la vitrina.
+    await expect(page.getByText(MONEY_RE).first()).toBeVisible();
+    await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
+    await expect(page.getByText('MX$0.00')).toHaveCount(0);
+
+    // El filtro de tipo ofrece SOLO singles: el sellado tiene su propia ruta (H9, §2-S).
+    await expect(page.getByRole('button', { name: t('es', 'shop.type.raw'), exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: t('es', 'shop.type.sealed'), exact: true }),
+    ).toHaveCount(0);
+  });
+
+  test('@real la ficha coincide consigo misma: bloque de mercado y nota al pie cuentan lo mismo', async ({
+    page,
+  }) => {
+    await page.goto('/es/catalog');
+    await page.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll('a[href]')).some((a) =>
+          /\/catalog\/[^/]+$/.test(a.getAttribute('href') ?? ''),
+        ),
+      null,
+      { timeout: 30_000 },
+    );
+    const href = await page
+      .locator('a[href]')
+      .evaluateAll(
+        (els) =>
+          els
+            .map((e) => (e as HTMLAnchorElement).getAttribute('href') ?? '')
+            .filter((h) => /\/catalog\/[^/]+$/.test(h))[0] ?? '',
+      );
+    expect(href).not.toBe('');
+
+    await page.goto(href);
+    await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
+
+    // §21.8d — bicondicional: el bloque «Valor de mercado» y la nota al pie tienen que contar la
+    // MISMA historia. Con mercado, la nota lo explica; sin mercado, ni lo menciona. Nunca las dos
+    // variantes a la vez, nunca ninguna.
+    const block = await page.getByText(t('es', 'catalog.marketValue'), { exact: true }).count();
+    const withMarket = await page
+      .getByText(t('es', 'card.referenceExplainerWithMarket'))
+      .count();
+    const noMarket = await page.getByText(t('es', 'card.referenceExplainerNoMarket')).count();
+    expect(withMarket + noMarket).toBe(1);
+    expect(block > 0 ? withMarket : noMarket).toBe(1);
   });
 
   test('condición NM legible con tooltip del estándar', async ({ page }) => {
