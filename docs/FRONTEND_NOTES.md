@@ -6492,3 +6492,215 @@ esa nota del DS queda desactualizada) y (c) el valor/nombre del token azul. **No
 
 ### Verde (gate)
 `tsc --noEmit` ✓ · `vitest run` **80 archivos / 627 tests** ✓ · `next build` ✓.
+
+## §22 · T-1 (techlead) + IMPORTANTE-2 (QA) — la lista de sellado que tapaba el enum, y el modo E2E que no podía autenticar (2026-08-24, rama `claude/card-pricing-rules-2e537m`)
+
+> Dos hallazgos del gate de release, del mismo tipo: **algo que no falla, MIENTE**. Uno en el
+> producto (un filtro que descarta en silencio, una perilla de dinero sin fila) y otro en el arnés
+> (un modo de prueba que no puede autenticar por construcción y aun así se anuncia como el más
+> exigente). Fuentes: `API_CONTRACT` **v2.1.9** (§Enums, §DTOs, §M2, §4.34c) · `PROJECT §K`.
+
+### T-1 · `SealedSubtype`: UNA lista, derivada del enum, en `src/types/contract.ts`
+
+**Qué estaba roto.** El contrato define **siete** presentaciones (`box · etb · bundle · tin ·
+blister · upc · collection`), el backend las acepta (`?sealedSubtype=upc` → 200, basura → 400) y el
+`PUT /admin/pricing/sealed-spreads` ya calibra `upc`. El front tenía **tres listas de cinco escritas
+a mano** que tapaban el tipo:
+
+| Sitio | Consecuencia real |
+|---|---|
+| `m2/sections/shared.tsx` | el editor pinta **una fila por elemento** ⇒ **no había dónde teclearle el spread a UPC ni a Collection**. El dueño **sí vende UPC**. |
+| `(storefront)/catalog/CatalogView.tsx` | `?sealedSubtype=upc` se **descartaba en silencio** |
+| `(storefront)/sellado/SealedShopView.tsx` | ídem en el `<select>` de la tienda |
+
+**No fue un descuido del front:** el ejemplo de respuesta de §M2 del contrato listaba cinco llaves y
+el front lo espejó. El arquitecto ya corrigió el ejemplo y **normó que un ejemplo nunca es el dominio
+de llaves** (v2.1.9). Aquí solo queda la mitad del cliente.
+
+**Cómo quedó.**
+- **`src/types/contract.ts`** — la lista es la **fuente única** y **la unión se DERIVA de ella**:
+  `export const SEALED_SUBTYPES = [...] as const` + `type SealedSubtype = (typeof SEALED_SUBTYPES)[number]`.
+  Desincronizar lista y tipo deja de ser posible por construcción. Orden = el **`sortOrder` canónico
+  del contrato §4.34c** (`upc=0 … collection=6`), el mismo con el que el backend ordena las
+  presentaciones: la UI lo espeja en vez de inventar tres ordenamientos.
+- Los **cuatro** consumidores (los tres del hallazgo + `admin/m1/SealedAddFlow.tsx`, que ya tenía los
+  siete por su cuenta) importan de ahí. Ninguno declara lista propia.
+- **Copy:** los siete ya existían en `messages/{es,en}.json` › `status.sealedSubtype.*`. **Paridad
+  es/en verificada** (mismas siete claves, mismos valores) y ahora **fijada por test**.
+
+### T-1 (corrección del arquitecto) · los renglones salen del ENUM, no de las llaves de la respuesta
+
+Arreglar la lista **no bastaba**: `GET /admin/pricing/sealed-spreads` devuelve un mapa **PARCIAL**
+(omite lo no configurado) y **`upc`/`collection` no tienen semilla** en §K. Verificado contra el
+stack vivo: `{"box":18,"etb":22,"tin":30,"bundle":25,"blister":35}` — sin `upc`. Un editor que
+derivara sus renglones de la respuesta habría reproducido el hueco por otra puerta.
+
+`m2/sections/SealedSpreadsSection.tsx`:
+- **Una fila por valor del enum, siempre** — independiente de lo que traiga el `GET`.
+- **Llave ausente ⇒ «Usa el global (25%)»**, no un vacío mudo ni un cero: el campo queda **vacío**
+  con el global de **marca de agua** y una etiqueta que lo dice. Pintar el 25 como si fuera su valor
+  es justo lo que ocultaba el fallback — el dueño no sabía que sus UPC caían ahí. **Ausente ≠ 0%**.
+- La alarma money-safe de «spread 0%» ahora cuenta **solo reglas explícitas en 0**; el hueco→global
+  ya no la dispara (antes tampoco, pero por accidente: el campo nunca estaba vacío).
+- **Money-safe (nuevo):** el guardado usa `isSaveableRuleValue` + `sanitizeDecimalInput` (los mismos
+  helpers de S-P1-1 que ya protegían las otras cajas de dinero de M2). Antes esta sección hacía
+  `Number(val) || 0`: con el campo vacío ahora siendo el estado natural, eso habría **guardado 0%**
+  (vender al costo) al limpiar una fila. Un borrador vacío o mal formado se **ignora**.
+
+**Solicitud al arquitecto (§M2):** el contrato no define cómo **BORRAR** una regla explícita para
+volver al global. Hoy vaciar el campo no la retira (se ignora, money-safe). Falta normar la
+operación —`null` en la llave, un `DELETE`, o un `PUT` con reemplazo total declarado como tal—.
+
+**Tests.**
+- `src/types/sealed-subtype.test.ts` — candado anti-desincronización: (a) la lista cubre
+  **exactamente** el enum del contrato; (b) `upc`/`collection` presentes; (c) sin duplicados;
+  (d) orden §4.34c; (e) etiqueta en **ambos** locales; (f) **ningún módulo bajo `src/` declara una
+  segunda lista literal** (`: SealedSubtype[] =`) — verificado que ese guard **falla** si se
+  reintroduce una. Además dos asignaciones de tipo que rompen `tsc` si lista y unión divergen.
+- `m2/sections/SealedSpreadsSection.test.tsx` (7 casos): siete filas con un `GET` de cinco llaves;
+  la fila sin regla vacía + placeholder + etiqueta; escribir en UPC llega al `PUT`; **una fila vacía
+  NO se guarda como 0%**; hueco→global no dispara la alarma; un 0 explícito sí.
+- `e2e/admin.spec.ts` › «hay fila editable para UPC y Collection» — corre en **los dos modos** (el
+  fixture y el backend real omiten ambas llaves) y **verificado en verde contra el stack vivo**.
+
+### Contrato v2.1.9 (D2) · las rejillas pierden `priceBasis` y `referenceValue`
+
+`GET /catalog/cards` y `GET /catalog/sealed` pasan a emitir **DTOs propios**:
+`GroupedListingSummaryDTO` y `SealedGroupSummaryDTO` (este último **también sin `priceSource`**, de
+donde `priceBasis` se derivaba). Espejados en `src/types/contract.ts` como **tipos propios, no campos
+opcionales**: un `priceBasis?` cuya ausencia apaga la regla de §N.7 es literalmente B-1
+(`undefined === 'market'` ⇒ `false` **siempre** ⇒ el bloque no se muestra nunca, y en verde).
+
+- Consumidores migrados: `catalog/CatalogTile.tsx`, `catalog/CatalogView.tsx` (`onAdd`),
+  `_home/FeaturedCarousel.tsx` (`tileMeta`/`TilePrice`), `sellado/SealedShopView.tsx`
+  (`SealedGroupTile`). **Ninguno leía los campos retirados** — la teja nunca pintó el mercado.
+- Los fixtures de test de esas dos tejas se recortaron al DTO de rejilla **a propósito**: si mañana
+  una teja leyera `priceBasis`, no compila.
+- **La regla de la ficha NO cambia:** `priceBasis` sigue en `GroupedListingDTO`/`SealedGroupDTO`/
+  `ListingDTO` y el mercado se muestra `iff priceBasis === 'market'`.
+- El backend del stack vivo **todavía emite** los campos (va en paralelo); es inocuo: sobra en el
+  JSON y el tipo ya no lo expone a ningún consumidor.
+
+### Contrato v2.1.9 · `details.index` puede ser `null` + techo de cordura de piso/bin
+
+- `CurveErrorDetails.index` pasa a **`number | null`**. Ningún consumidor lo indexaba (el front nunca
+  trató `VALIDATION_ERROR` como infracción de curva), así que **no había `undefined` esperando**;
+  se corrige el espejo y se documenta la lectura: `number` ⇒ marca el **renglón**, `null` ⇒ marca el
+  **campo** de piso/bin.
+- **Nuevo `constantError()`** (`curve/curve-draft.ts`) con `MAX_CURVE_CONSTANT_CENTS = 1_000_000`
+  (MX$10,000, §M2 v2.1.9). Piso y bin dejan de validarse con `marketError` (que no tenía techo):
+  son las dos únicas entradas que por sí solas fijan el precio de **todo** el catálogo. El
+  `ConstantField` ahora **enuncia** el error (`role="alert"`), no solo colorea el borde. Copy nuevo
+  `admin.m2.curve.fieldError.constantTooHigh` en **es/en**.
+
+### IMPORTANTE-2 · el modo E2E «suite completa contra el stack real» no podía autenticar
+
+**Diagnóstico (reproducido: 59 rojos de 85, idéntico al de QA).** `e2e/utils/auth.ts` derivaba
+`IS_REAL` de `E2E_REAL`, que en `playwright.config.ts` es la bandera de **SELECCIÓN DE SPECS**
+(`grep: /@real/`). Dos preguntas distintas viajaban en la misma variable:
+
+```
+(a) ¿QUÉ specs corro?          → E2E_REAL=1 ⇒ solo los @real
+(b) ¿CONTRA QUÉ habla la APP?  → lo decide quién levantó el frontend
+```
+
+Con `E2E_BASE_URL` puesto y `E2E_REAL` ausente —el modo que el runbook vende como el más exigente—
+el helper inyectaba el token **inventado** `'mock.session.token'` contra un front con
+`NEXT_PUBLIC_USE_MOCKS=false`: 401 → el interceptor limpia sesión → `/login`, en bucle.
+
+**Y no era solo local:** `.github/workflows/e2e-real.yml` (el gate de CI del smoke de dinero contra
+el stack completo) fija `E2E_BASE_URL` y **NO** fija `E2E_REAL` — o sea que **el gate «real»
+también autenticaba con el token de mentira**. El arreglo del helper lo corrige sin tocar `.github/`.
+
+**Cómo quedó.** La pregunta (b) se contesta con la fuente correcta: `playwright.config.ts` hornea
+`NEXT_PUBLIC_USE_MOCKS=true` en **un solo lugar** — el `webServer` que levanta él mismo, que solo
+existe cuando `E2E_BASE_URL` está **ausente**.
+
+```
+sin E2E_BASE_URL (app la levanta Playwright) ⇒ MOCKS
+con E2E_BASE_URL (app la levanta devops/QA)  ⇒ BACKEND REAL  → login real vía POST /auth/login
+E2E_REAL=1                                    ⇒ implica real (compatibilidad) + filtra @real
+E2E_MOCKS=1                                   ⇒ escotilla: app externa servida con fixtures
+```
+
+Otros cambios del helper, todos para que el modo real **funcione de verdad**:
+- **Descubrimiento de la API**: `E2E_API_BASE_URL` gana; si no, se prueba `/health` (público) sobre
+  el host del front en `:3099` (stack nativo) → `:3011` (staging/CI) → `:3001` (default del config).
+  Si ninguna contesta, el error dice qué hacer en vez de un 401 tres asserts después.
+- **Sesión memoizada por rol y por worker** (TTL 10 min contra el token de 15) **+ reintento con
+  backoff ante `429`**. Sin esto, un login real por test hace que el `ThrottlerGuard` responda
+  `429 RATE_LIMITED` a media suite: 8 rojos del arnés disfrazados de rojos de producto (los vi).
+  El throttler es una defensa legítima del producto y **no se tocó**: se adaptó el arnés.
+- **`credentialsFor(role)`**: el smoke «login se muestra y redirige» ahora **teclea credenciales del
+  seed** en modo real. Antes usaba un par inventado ⇒ 401 ⇒ medía el arnés. Ahora ejerce
+  `POST /auth/login` de punta a punta (**verde** contra el stack vivo, es/en).
+- **`loginAs` donde faltaba**: `admin.spec` (8), `pricing-curve` (m2), `portfolio`, `vault`,
+  `shipments`, `inventory-stream-b`. En modo mock los guards (`AdminShell`, `PrivateRouteGuard`) son
+  **inertes** (`requireAuth = !config.useMocks`), así que estos specs navegaban a rutas privadas sin
+  sesión y «pasaban»; contra el stack real eso es un redirect a `/login`.
+
+### Clasificación honesta de lo que NO corre en el modo real
+
+Un `skip` con motivo **impreso en el reporte** es una clasificación; 59 rojos indistinguibles no lo
+son. Dos helpers **distintos a propósito** (`e2e/utils/auth.ts`):
+
+- **`mockOnly(reason)`** — depende de algo que solo existe en mock: literales de
+  `src/lib/mock/fixtures.ts` (`c-charizard`, `INV-000110`, `MX$4,800.00`, `mock-demo-token`) o una
+  afordancia de **demo** (el switcher «Ver como», que en real no se pinta porque el rol lo dicta el
+  JWT). **No puede correr contra un backend real sin reescribirlo.**
+- **`needsSeed(reason)`** — el test está bien escrito y **falta el DATO** en `seed-e2e`. Pasaría tal
+  cual el día que se siembre. Es una **petición accionable**, no una limitación.
+
+**Regla que me impuse:** copy, i18n, navegación, guardas y desgloses **no** son mock-only. Si eso
+falla contra el stack real es un desacuerdo de verdad y **tiene que verse rojo**. Los tres smokes de
+dinero bloqueados por Stripe **se dejaron ROJOS a propósito** (ver abajo).
+
+**Huecos del seed real detectados (petición a backend/QA, `backend/prisma/seed-e2e.ts`):**
+
+| Hueco | Verificado contra el stack vivo | Deja sin cubrir |
+|---|---|---|
+| Sin solicitudes de buylist | `GET /admin/buylist` → `total: 0` | M5 cherry-pick + diálogo de rechazo v1.18 |
+| Sin disputas | `GET /admin/disputes` → `total: 0` | M8 (el panel de evidencia cuelga de la disputa activa) |
+| Sin sellado publicado | `GET /catalog/sealed` → `total: 0` | vitrina `/sellado` completa |
+| Gradeada sin referencia de mercado | el grid de buylist pinta «Precio pendiente» | estimado de gradeadas (el «pendiente» es **correcto**: sin dato no se inventa cifra) |
+
+### Números del modo `E2E_BASE_URL` sin `E2E_REAL` (suite completa contra el stack vivo)
+
+Comando: `cd frontend && E2E_BASE_URL=http://localhost:3000 npx playwright test` contra el stack
+nativo vivo (`:3000` front con `NEXT_PUBLIC_USE_MOCKS=false` · `:3099` backend).
+
+| Corrida | Verdes | Rojos | Saltados (clasificados) |
+|---|---|---|---|
+| **Antes** (reproducción exacta del reporte de QA) | 26 | **59** | 0 |
+| Con el env-gating + los `loginAs` que faltaban | 39 | 33 (**8** de ellos `429` del propio arnés) | 14 |
+| **Final** (`--workers=1`) | **48** | **3** | **35** (31 `mock-only` + 4 `needsSeed`) |
+
+**Los 3 rojos que quedan son los MISMOS y son de ENTORNO, no de producto:** los smokes `@real` de
+comprar / comprar como invitado / retirar. Causa verificada a mano contra el backend vivo:
+
+```
+POST /api/v1/checkout/session → {"code":"PAYMENT_PROVIDER_UNAVAILABLE"}
+```
+
+No hay clave de Stripe en este stack. **Se dejaron rojos a propósito** (ver el comentario en los tres
+specs): un smoke de dinero que se salta solo cuando no hay proveedor de pago es la misma clase de
+mentira que este encargo vino a quitar.
+
+**Flakiness bajo paralelismo (no es producto):** con `--workers=3` y la suite completa aparecen 2
+rojos extra e intermitentes (`i18n-locale` ×2, `auth login [es]`) — el toggle de idioma navega a una
+ruta que **`next dev` compila bajo demanda** y con tres workers golpeando el mismo dev server la
+compilación pasa de los 15 s del `expect`. Con `--workers=1` pasan las tres; con `--workers=3` pero
+menos archivos, también. Contra un build de producción no debería ocurrir. Si se quiere el modo
+paralelo estable, el camino es `next build && next start` en el stack, no subir timeouts.
+
+**Ningún rojo resultó ser un desacuerdo real entre frontend y backend.** Los dos hallazgos que sí
+salieron de aquí son (1) el gate de CI `e2e-real.yml` autenticando con token de mentira y (2) los
+cuatro huecos del seed de la tabla de arriba.
+
+### Trampa del entorno: `reuseExistingServer`
+
+`playwright.config.ts` levanta su webServer con `reuseExistingServer: !isCI` en `:3000`. Si el stack
+nativo ya ocupa `:3000` con `NEXT_PUBLIC_USE_MOCKS=false`, una corrida **sin** `E2E_BASE_URL`
+**reutiliza ese servidor**: crees estar en modo mock y estás pegándole al backend real sin sesión.
+Para correr mock de verdad hay que bajar el stack o apuntar el front a otro puerto. (Lo dejo
+anotado aquí porque me costó un falso negativo; el runbook lo mantiene devops.)

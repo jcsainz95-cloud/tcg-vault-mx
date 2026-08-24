@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { MONEY_RE } from './utils/auth';
+import { mockOnly, MONEY_RE } from './utils/auth';
 
 /**
  * Guest checkout — PROJECT §J / §J.1, criterios 45–56b; contrato §4-G.
@@ -121,6 +121,13 @@ test.describe('guest checkout · identidad y desglose', () => {
    *  - real: solo se verifica que el modal se abre con el clientSecret de la sesión REAL.
    *  - mock: completa el pago simulado y confirma la pantalla de confirmación (criterio 49).
    */
+  /**
+   * ⚠️ ENTORNO (no producto): contra un stack SIN clave de Stripe este test es ROJO — el backend
+   * responde `PAYMENT_PROVIDER_UNAVAILABLE` y el modal de pago no puede abrirse. NO se salta a
+   * propósito: un smoke de dinero que se pone verde (o se salta solo) cuando no hay proveedor de
+   * pago es exactamente la clase de mentira que este arnés vino a quitar. Si sale rojo aquí,
+   * confirma primero si hay `STRIPE_SECRET_KEY` en el stack antes de reportarlo como bug.
+   */
   test('@real comprar como invitado: la sesión se crea y termina en confirmación', async ({ page }) => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
@@ -159,7 +166,11 @@ test.describe('seguimiento público · /pedido', () => {
   test('con enlace válido muestra estado, artículos y total, sin datos sensibles (criterios 50, 51)', async ({
     page,
   }) => {
-    // MOCK: la rama mock de `trackGuestOrder` reconoce tokens que empiezan con "mock".
+    // MOCK: la rama mock de `trackGuestOrder` reconoce tokens que empiezan con "mock". Contra el
+    // backend real haría falta un pedido de invitado + su token FIRMADO, que no se puede fabricar
+    // desde el navegador. Los caminos NEUTROS (token inventado/expirado) sí corren en real: son
+    // los que importan para la seguridad, y ahí el backend es la autoridad.
+    mockOnly('token de seguimiento `mock-demo-token` que solo reconoce la rama mock');
     await page.goto('/es/pedido?token=mock-demo-token');
 
     await expect(page.getByTestId('tracking-order-number')).toBeVisible();
@@ -234,6 +245,7 @@ test.describe('seguimiento público · /pedido', () => {
   });
 
   test('un enlace de checkout VIGENTE avisa de que es temporal y remite al correo', async ({ page }) => {
+    mockOnly('token de seguimiento `mock-demo-token` que solo reconoce la rama mock');
     await page.goto('/es/pedido?token=mock-demo-token');
     // El pedido demo del mock caduca en 90 días (enlace de correo): sin aviso de temporalidad.
     await expect(page.getByTestId('tracking-order-number')).toBeVisible();

@@ -47,6 +47,13 @@ test.describe('checkout · desglose y CFDI', () => {
    *  - mock: conserva el camino simulado → confirma "en proceso" y ofrece la bóveda.
    * Aserciones por ESTRUCTURA (desglose + total con formato de moneda), no por montos.
    */
+  /**
+   * ⚠️ ENTORNO (no producto): contra un stack SIN clave de Stripe este test es ROJO — el backend
+   * responde `PAYMENT_PROVIDER_UNAVAILABLE` y el modal de pago no puede abrirse. NO se salta a
+   * propósito: un smoke de dinero que se pone verde (o se salta solo) cuando no hay proveedor de
+   * pago es exactamente la clase de mentira que este arnés vino a quitar. Si sale rojo aquí,
+   * confirma primero si hay `STRIPE_SECRET_KEY` en el stack antes de reportarlo como bug.
+   */
   test('@real comprar: el pago crea la sesión y abre el modal de pago', async ({ page }) => {
     await loginAs(page, 'customer');
     await page.goto('/es/catalog');

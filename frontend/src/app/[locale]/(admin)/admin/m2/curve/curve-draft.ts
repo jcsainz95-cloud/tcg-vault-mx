@@ -227,7 +227,28 @@ export type FieldErrorCode =
   | 'pctRange'
   | 'stepTooLow'
   | 'uptoNotIncreasing'
-  | 'duplicateMarket';
+  | 'duplicateMarket'
+  | 'constantTooHigh';
+
+/**
+ * Techo de cordura de `floorCents` / `binCents` (contrato v2.1.9 §M2, `MAX_CURVE_CONSTANT_CENTS`):
+ * MX$10,000. NO es `MAX_CENTS`: son las dos únicas entradas que por sí solas fijan el precio de
+ * TODO el catálogo (un piso gigante publica la vitrina entera a esa cifra, con basis `floor`), así
+ * que piden cordura y no solo representabilidad. El backend valida; esto lo dice ANTES de guardar.
+ */
+export const MAX_CURVE_CONSTANT_CENTS = 1_000_000;
+
+/**
+ * Validación de una CONSTANTE del eje (piso de venta / bin de compra). Es `marketError` más el
+ * techo: un punto de la tabla describe el valor de UNA carta; el piso y el bin fijan el de todas.
+ */
+export function constantError(raw: string): FieldErrorCode | null {
+  const cents = pesosToCents(raw);
+  if (cents == null) return 'required';
+  if (cents < 0) return 'negative';
+  if (cents > MAX_CURVE_CONSTANT_CENTS) return 'constantTooHigh';
+  return null;
+}
 
 export function marketError(raw: string): FieldErrorCode | null {
   const cents = pesosToCents(raw);

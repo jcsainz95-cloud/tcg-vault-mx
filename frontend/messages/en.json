@@ -1473,6 +1473,7 @@
         "subtype": "Format",
         "spread": "Spread",
         "spreadFor": "{subtype} spread",
+      "usesGlobal": "Uses the global ({pct}%)",
         "zeroWarning": "No margin",
         "zeroBanner": "A 0% spread sells at market cost, with no margin. Double-check before saving.",
         "prereqHint": "The spread only produces a price if the product is mapped to TCGCSV and the sealed price source is on.",
@@ -1545,7 +1546,8 @@
           "pctRange": "Pay must be between 0% and 100% of market.",
           "stepTooLow": "The step must be at least MX$0.01.",
           "uptoNotIncreasing": "Each boundary must be higher than the previous band's.",
-          "duplicateMarket": "Two points share the same market. Change one or remove the duplicate."
+          "duplicateMarket": "Two points share the same market. Change one or remove the duplicate.",
+          "constantTooHigh": "Floor and bin cannot exceed MX$10,000: they set the price of the WHOLE catalog."
         },
         "preview": {
           "probeTitle": "Try a market",

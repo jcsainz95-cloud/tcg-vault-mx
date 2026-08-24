@@ -15,14 +15,29 @@ export type RawCondition = 'NM';
 export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
 // v1.1: subtipo opcional del sellado.
 // v1.39 (P-38): +`upc` (Ultra Premium Collection) y +`collection` (colecciones/cajas especiales).
-export type SealedSubtype =
-  | 'box'
-  | 'etb'
-  | 'bundle'
-  | 'tin'
-  | 'blister'
-  | 'upc'
-  | 'collection';
+//
+// T-1 (techlead): esta LISTA es la fuente única y la UNIÓN se DERIVA de ella — antes eran dos cosas
+// distintas y el front acabó con TRES listas de cinco escritas a mano (M2 spreads, catálogo,
+// tienda de sellado) que TAPABAN la unión de siete. Consecuencias reales, no hipotéticas: el dueño
+// no podía calibrarle spread a `upc`/`collection` (no había fila que editar) y `?sealedSubtype=upc`
+// se descartaba EN SILENCIO en los filtros aunque el backend lo acepta (200) y rechaza basura (400).
+// Un filtro que ignora sin avisar no falla: MIENTE. Al derivar el tipo del array, agregar un subtipo
+// aquí lo propaga solo a todos los consumidores y desincronizarlos deja de ser posible.
+//
+// ORDEN CANÓNICO = `sortOrder` del contrato §4.34c (`upc=0, etb=1, box=2, bundle=3, tin=4,
+// blister=5, collection=6`). Es el mismo orden en el que el backend ordena las presentaciones, así
+// que la UI (select de filtro, filas del editor de spreads, alta de M1) lo espeja en vez de inventar
+// tres ordenamientos distintos. Las etiquetas legibles viven en i18n (`status.sealedSubtype.*`).
+export const SEALED_SUBTYPES = [
+  'upc',
+  'etb',
+  'box',
+  'bundle',
+  'tin',
+  'blister',
+  'collection',
+] as const;
+export type SealedSubtype = (typeof SEALED_SUBTYPES)[number];
 // v1.23-sealed-sales: condición SIMPLE del sellado, visible al comprador. Enum de BD
 // (InventoryItem.sealedCondition, default mint). No afecta precio (labels legibles vía i18n).
 export type SealedCondition = 'mint' | 'minor_box_damage';
@@ -431,8 +446,29 @@ export interface GroupedListingDTO {
   currency: 'MXN';
 }
 
+// ===== v2.1.9 (D2): el DTO de la REJILLA de singles = `GroupedListingDTO` MENOS las dos señales
+// de precio (`priceBasis`, `referenceValue`). TIPO PROPIO, no «los mismos campos opcionales»:
+//   * §N.7 es literal — «Valor de mercado» vive SOLO en fichas. La rejilla no lo consume, así que
+//     por la convención de DTOs cerrados el backend no lo emite (y la rejilla es la superficie de
+//     cosecha masiva: emitir `priceBasis` por fila publicaría el mapa de qué cartas van por override).
+//   * Un `priceBasis?` opcional sería reintroducir B-1: `undefined === 'market'` es SIEMPRE false,
+//     o sea la regla apagada en verde. Con dos tipos, el compilador sostiene la diferencia.
+export interface GroupedListingSummaryDTO {
+  representativeInventoryItemId: string;
+  card: CardDTO;
+  productType: 'raw' | 'graded';
+  finish: Finish;
+  rawCondition?: RawCondition;
+  gradeKey: string;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  stockCount: number;
+  salePriceCents: number;
+  currency: 'MXN';
+}
+
 export interface GroupedListingListResponse {
-  data: GroupedListingDTO[];
+  data: GroupedListingSummaryDTO[];
   page: number;
   pageSize: number;
   total: number;
@@ -1927,7 +1963,13 @@ export interface CurvePreviewResponse {
 // nombre — ver `docs/FRONTEND_NOTES.md` §21.)
 export interface CurveErrorDetails {
   axis?: 'sale' | 'buy';
-  index?: number;
+  /**
+   * v2.1.9: `number | null`, NO `number`. Un `VALIDATION_ERROR` de `floorCents`/`binCents` viaja con
+   * `index: null` porque esas dos NO son puntos de la tabla: son constantes globales del eje. El
+   * front distingue FILA (`number` ⇒ marca el renglón) de CONSTANTE (`null` ⇒ marca el CAMPO de
+   * piso/bin, §21.4a). Asumir que siempre es número deja un `rows[null]` → `undefined` esperando.
+   */
+  index?: number | null;
   marketCents?: number;
   /** Tramo infractor (V5 venta · V9 compra · V6): el SEGUNDO punto del par. */
   index2?: number;
@@ -1980,8 +2022,22 @@ export interface SealedGroupDTO {
   referenceValue: PriceInfo;
   currency: 'MXN';
 }
+// v2.1.9 (D2): el DTO de la REJILLA de sellado = `SealedGroupDTO` MENOS `priceBasis`,
+// `referenceValue` y TAMBIÉN `priceSource` (de donde `priceBasis` se deriva: dejarlo publicaría la
+// misma señal por otro nombre). Misma razón y mismas garantías que `GroupedListingSummaryDTO`.
+export interface SealedGroupSummaryDTO {
+  representativeItemId: string;
+  card: CardDTO;
+  productName: string;
+  imageUrl: string | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  availableCount: number;
+  fromPriceCents: number;
+  currency: 'MXN';
+}
 export interface SealedGroupListResponse {
-  data: SealedGroupDTO[];
+  data: SealedGroupSummaryDTO[];
   page: number;
   pageSize: number;
   total: number;

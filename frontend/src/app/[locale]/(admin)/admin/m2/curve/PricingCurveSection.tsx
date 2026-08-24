@@ -18,6 +18,7 @@ import { RoundingLadderTable } from './RoundingLadderTable';
 import { useCurvePreview } from './useCurvePreview';
 import {
   centsToPesos,
+  constantError,
   curveViolationFromError,
   diffCurve,
   draftFromCurve,
@@ -475,6 +476,9 @@ export function PricingCurveSection() {
                     {t('constants.title')}
                   </h3>
                   <div className="mt-3 grid gap-6 sm:grid-cols-2">
+                    {/* v2.1.9: piso y bin se validan con `constantError` (no `marketError`): son las
+                        DOS entradas con techo de cordura (MX$10,000). Un `VALIDATION_ERROR` de estos
+                        campos llega con `index: null` — marca el CAMPO, no un renglón (§21.4a). */}
                     <ConstantField
                       id="curve-floor"
                       label={t('constants.floorLabel')}
@@ -483,9 +487,8 @@ export function PricingCurveSection() {
                         setSavedOk(false);
                         setDraft((d) => (d ? { ...d, floorRaw: raw } : d));
                       }}
-                      invalid={
-                        violation?.code === 'BIN_ABOVE_FLOOR' || marketError(draft.floorRaw) != null
-                      }
+                      invalid={violation?.code === 'BIN_ABOVE_FLOOR'}
+                      error={constantError(draft.floorRaw)}
                       hints={[t('constants.floorHint'), t('constants.floorGuardrailHint')]}
                     />
                     <ConstantField
@@ -496,9 +499,8 @@ export function PricingCurveSection() {
                         setSavedOk(false);
                         setDraft((d) => (d ? { ...d, binRaw: raw } : d));
                       }}
-                      invalid={
-                        violation?.code === 'BIN_ABOVE_FLOOR' || marketError(draft.binRaw) != null
-                      }
+                      invalid={violation?.code === 'BIN_ABOVE_FLOOR'}
+                      error={constantError(draft.binRaw)}
                       hints={[t('constants.binHint')]}
                     />
                   </div>
@@ -638,6 +640,7 @@ function ConstantField({
   value,
   onChange,
   invalid,
+  error,
   hints,
 }: {
   id: string;
@@ -645,8 +648,12 @@ function ConstantField({
   value: string;
   onChange: (raw: string) => void;
   invalid: boolean;
+  /** Error del campo SOBRE SÍ MISMO (vacío/negativo/techo). Se enuncia, no solo se colorea. */
+  error?: FieldErrorCode | null;
   hints: string[];
 }) {
+  const t = useTranslations('admin.m2.curve');
+  const bad = invalid || error != null;
   return (
     <div className="flex flex-col">
       <label htmlFor={id} className="eyebrow">
@@ -654,7 +661,7 @@ function ConstantField({
       </label>
       <span
         className={`mt-2 flex items-baseline gap-1.5 border-b pb-1 focus-within:shadow-focus ${
-          invalid ? 'border-accent' : 'border-border-strong'
+          bad ? 'border-accent' : 'border-border-strong'
         }`}
       >
         <span className="shrink-0 font-mono text-[11px] text-muted">MX$</span>
@@ -663,12 +670,17 @@ function ConstantField({
           className="tabular-nums w-28 bg-transparent font-mono text-[13px] text-text outline-none"
           inputMode="decimal"
           value={value}
-          aria-invalid={invalid ? true : undefined}
+          aria-invalid={bad ? true : undefined}
           aria-describedby={`${id}-hint`}
           onChange={(e) => onChange(sanitizeDecimal(e.target.value))}
         />
       </span>
       <span id={`${id}-hint`} className="mt-2 flex flex-col gap-1">
+        {error != null && (
+          <span className="text-xs text-accent" role="alert">
+            {t(`fieldError.${error}`)}
+          </span>
+        )}
         {hints.map((h) => (
           <span key={h} className="text-xs text-muted">
             {h}

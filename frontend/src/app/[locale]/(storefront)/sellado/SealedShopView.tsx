@@ -5,7 +5,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getSealedGroups, type SealedFilters, type SealedSort } from '@/lib/api';
-import type { SealedCondition, SealedGroupDTO, SealedSubtype } from '@/types/contract';
+import {
+  SEALED_SUBTYPES,
+  type SealedCondition,
+  type SealedGroupSummaryDTO,
+  type SealedSubtype,
+} from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
@@ -20,7 +25,6 @@ import { Paginator } from '../_shared/Paginator';
 const SORTS: SealedSort[] = ['newest', 'price_asc', 'price_desc'];
 /** pageSize del contrato (§2, default del backend); fallback del total de páginas. */
 const DEFAULT_PAGE_SIZE = 20;
-const SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 const CONDITIONS: SealedCondition[] = ['mint', 'minor_box_damage'];
 
 /**
@@ -121,7 +125,7 @@ export function SealedShopView() {
           }
           options={[
             { value: '', label: t('filters.allSubtypes') },
-            ...SUBTYPES.map((s) => ({ value: s, label: tSub(s) })),
+            ...SEALED_SUBTYPES.map((s) => ({ value: s, label: tSub(s) })),
           ]}
         />
         <Select
@@ -192,7 +196,7 @@ export function SealedShopView() {
  * set · presentación (+ condición si trae detalle), precio «desde» tabular y el
  * distintivo real de stock. Toda la teja enlaza a la ficha por `representativeItemId`.
  */
-function SealedGroupTile({ group }: { group: SealedGroupDTO }) {
+function SealedGroupTile({ group }: { group: SealedGroupSummaryDTO }) {
   const t = useTranslations('sealed');
   const tSub = useTranslations('status.sealedSubtype');
   const locale = useLocale() as AppLocale;

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { MONEY_RE } from './utils/auth';
+import { mockOnly, needsSeed, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: "Compra" (antes "Catálogo") — vitrina de inventario publicado CON precio
@@ -10,6 +10,9 @@ import { MONEY_RE } from './utils/auth';
  */
 test.describe('Compra · listado y filtros', () => {
   test('rótulo "Compra" y datos de catálogo en inglés', async ({ page }) => {
+    // El rótulo y el nav los cubre el `@real` de abajo contra datos reales; lo que ata este test
+    // al fixture son los nombres literales de carta (el seed las llama «E2E …»).
+    mockOnly('nombres literales «Charizard»/«Pikachu» del fixture');
     await page.goto('/es/catalog');
     await expect(page.getByRole('heading', { name: t('es', 'catalog.title') })).toBeVisible();
     // "Compra" también en el nav.
@@ -21,6 +24,7 @@ test.describe('Compra · listado y filtros', () => {
   });
 
   test('filtra por rareza (multi-select buscable) mandando la rareza cruda', async ({ page }) => {
+    mockOnly('afirma qué cartas del fixture quedan al filtrar Common (Pikachu sí, Charizard no)');
     await page.goto('/es/catalog');
     // Marca la rareza "Common" en el combobox de rareza (panel lateral en lg).
     await page.getByRole('option', { name: 'Common', exact: true }).click();
@@ -53,6 +57,9 @@ test.describe('Compra · listado y filtros', () => {
   test('tarjeta de SELLADO (en /sellado): nombre del producto + precio «desde» sin IVA', async ({
     page,
   }) => {
+    // Verificado contra el stack vivo: `GET /catalog/sealed` → `total: 0`. No hay NADA sellado
+    // publicado en el seed, así que ni la teja ni el precio «desde» pueden existir.
+    needsSeed('ningún grupo sellado publicado (GET /catalog/sealed → total 0)');
     await page.goto('/es/sellado');
     await expect(page.getByText('Surging Sparks Booster Box').first()).toBeVisible();
     // Precio siempre visible (sin IVA), nunca «precio pendiente» en la vitrina.
@@ -143,6 +150,7 @@ test.describe('Compra · listado y filtros', () => {
   test('la ficha de detalle pinta la condición con su etiqueta legible', async ({ page }) => {
     // La etiqueta completa ("Casi nueva (NM)") es la que ocupa la celda de
     // Condición en la ficha, donde sí hay hueco para leerla entera.
+    mockOnly('id de carta `c-pikachu` del fixture (los del seed son UUID)');
     await page.goto('/es/catalog/c-pikachu');
     await expect(page.getByText(t('es', 'catalog.condition.nm.label')).first()).toBeVisible();
   });
@@ -150,6 +158,9 @@ test.describe('Compra · listado y filtros', () => {
 
 test.describe('Compra · ficha de carta', () => {
   test('distingue valor de mercado vs precio de venta (§21.8: el mercado FIJÓ el precio)', async ({ page }) => {
+    // La regla §21.8 contra datos REALES la cubre `@real la ficha coincide consigo misma` (arriba)
+    // y el `@real` de pricing-curve; lo que ata este test al fixture es el id `c-charizard`.
+    mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/es/catalog/c-charizard');
 
     await expect(page.getByRole('heading', { name: 'Charizard' })).toBeVisible();
@@ -163,6 +174,7 @@ test.describe('Compra · ficha de carta', () => {
   });
 
   test('«Comprar» da feedback: toast + CTA «En el carrito»; el segundo clic lleva al carrito', async ({ page }) => {
+    mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/es/catalog/c-charizard');
     await page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first().click();
 
@@ -179,6 +191,7 @@ test.describe('Compra · ficha de carta', () => {
   });
 
   test('pieza ya en el carrito al recargar la ficha → CTA inicial «En el carrito»', async ({ page }) => {
+    mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/es/catalog/c-charizard');
     await page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first().click();
     await expect(
@@ -193,6 +206,7 @@ test.describe('Compra · ficha de carta', () => {
   });
 
   test('ficha traducida a inglés mantiene el nombre de carta en inglés', async ({ page }) => {
+    mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/en/catalog/c-charizard');
     await expect(page.getByText(t('en', 'card.referenceExplainerWithMarket'))).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Charizard' })).toBeVisible();

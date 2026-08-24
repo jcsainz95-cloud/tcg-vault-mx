@@ -6,11 +6,12 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft, X } from 'lucide-react';
 import { listSealedProducts, listBuylistSets, syncSealedProducts } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type {
-  SealedCondition,
-  SealedProductDTO,
-  SealedSubtype,
-  SealedSyncResultDTO,
+import {
+  SEALED_SUBTYPES,
+  type SealedCondition,
+  type SealedProductDTO,
+  type SealedSubtype,
+  type SealedSyncResultDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -40,15 +41,6 @@ import { SealedGroupLinker } from './SealedGroupLinker';
  * money-unsafe «capturar sin catálogo» de P-35.
  */
 
-const SEALED_SUBTYPES: SealedSubtype[] = [
-  'upc',
-  'etb',
-  'box',
-  'bundle',
-  'tin',
-  'blister',
-  'collection',
-];
 const SEALED_CONDITIONS: SealedCondition[] = ['mint', 'minor_box_damage'];
 
 function parsePesos(v: string): number | null {

@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, MONEY_RE } from './utils/auth';
+import { loginAs, mockOnly, needsSeed, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: buylist (PROJECT §E / AC 12, 13, 33, 34; contrato §6).
@@ -154,6 +154,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
   test('clic en una teja de acabado agrega DIRECTO al carrito; el detalle expandible muestra la referencia', async ({
     page,
   }) => {
+    mockOnly('carta literal «Charizard» del fixture (el seed real la llama «E2E Charizard»)');
     await page.goto('/es/buylist');
     await addFromBinder(page, 'Charizard');
 
@@ -172,6 +173,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
   });
 
   test('la misma carta en DISTINTO acabado entra como línea separada del carrito', async ({ page }) => {
+    mockOnly('carta literal «Charizard» del fixture con normal + reverse holo');
     await page.goto('/es/buylist');
     await addFromBinder(page, 'Charizard', 'Normal');
     await addFromBinder(page, 'Charizard', 'Reverse Holo');
@@ -182,6 +184,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
   });
 
   test('agrega varias cartas al carrito y suma un total estimado', async ({ page }) => {
+    mockOnly('cartas literales «Charizard» y «Pikachu» del fixture');
     await loginAs(page, 'customer');
     await page.goto('/es/buylist');
     await addFromBinder(page, 'Charizard');
@@ -196,6 +199,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
   test('carta sin referencia entra a "precio pendiente" (estimado pendiente, backend lo fija)', async ({
     page,
   }) => {
+    mockOnly('«Zapdos» con referencia PENDIENTE es un estado fabricado por el fixture');
     await page.goto('/es/buylist');
     // Zapdos tiene referencia pendiente en los fixtures: su teja lo dice y sigue agregable.
     await openBaseSet(page);
@@ -233,6 +237,11 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
 
 test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', () => {
   test('el grid lista cada carta con su estimado (una fila por tipo, sin panel COTIZACIÓN)', async ({ page }) => {
+    // Doble dependencia, verificada contra el stack vivo: (a) el botón se llama «Agregar E2E
+    // Charizard…» con el seed real; (b) la gradeada del seed NO tiene referencia de mercado, así
+    // que el grid pinta «Precio pendiente» — que es el comportamiento money-safe CORRECTO, no un
+    // fallo: sin dato no se inventa cifra. Por eso no hay importe que afirmar.
+    mockOnly('nombre literal «Charizard» + gradeada sin referencia en el seed (estimado pendiente)');
     await page.goto('/es/buylist');
     await selectGraded(page);
     await searchFor(page, 'Charizard');
@@ -258,6 +267,7 @@ test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', (
   });
 
   test('bulk: multi-selección en el grid y agregar varias de golpe', async ({ page }) => {
+    mockOnly('set literal `base1` y cartas «Charizard»/«Pikachu» del fixture');
     await page.goto('/es/buylist');
     await selectGraded(page);
     await page.getByLabel(t('es', 'buylist.filterBySet')).selectOption('base1');
@@ -282,6 +292,7 @@ test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14
   test('smoke: agregar desde la teja → badge del FAB sube → drawer con FinishMark → cerrar regresa el foco', async ({
     page,
   }) => {
+    mockOnly('teja literal «Charizard (Reverse Holo)» del fixture');
     await page.goto('/es/buylist');
 
     // Binder quoter (raw, default): elegir Base Set desde su propio índice «Buscar set».
@@ -324,6 +335,8 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
   }) => {
     // Mock-only: asume KYC sin CLABE/INE en archivo (fixtures) para mostrar ambos uploaders.
     // El seed real puede traer CLABE/INE en archivo → el modal usa atajos (cubierto por @real).
+    // Y además arranca agregando la carta literal «Charizard» del fixture.
+    mockOnly('KYC vacío + carta literal «Charizard» del fixture');
     await loginAs(page, 'customer');
     await page.goto('/es/buylist');
     // Charizard tiene referencia → su teja del binder trae estimado y el clic la agrega al carrito.

@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { FeaturedCarousel } from './FeaturedCarousel';
 import * as api from '@/lib/api';
-import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
+import type { CardDTO, GroupedListingSummaryDTO } from '@/types/contract';
 
 // El carrusel usa <Link> de next-intl; se mockea a un <a> plano para aislar la vista.
 vi.mock('@/i18n/navigation', () => ({
@@ -33,14 +33,8 @@ function card(id: string, name: string): CardDTO {
   };
 }
 
-const refValue: ListingDTO['referenceValue'] = {
-  status: 'priced',
-  referenceMxnCents: 128000,
-  source: 'pokemontcg_io',
-  capturedDate: '2026-08-13',
-};
-
-function grp(over: Partial<GroupedListingDTO> & { card: CardDTO }): GroupedListingDTO {
+// v2.1.9 (D2): las tejas del carrusel consumen el DTO de la REJILLA, sin las dos señales de precio.
+function grp(over: Partial<GroupedListingSummaryDTO> & { card: CardDTO }): GroupedListingSummaryDTO {
   return {
     representativeInventoryItemId: `inv-${over.card.id}`,
     productType: 'raw',
@@ -48,15 +42,13 @@ function grp(over: Partial<GroupedListingDTO> & { card: CardDTO }): GroupedListi
     finish: 'normal',
     gradeKey: 'raw:NM',
     stockCount: 1,
-    priceBasis: 'market',
-  salePriceCents: 140800,
-    referenceValue: refValue,
+    salePriceCents: 140800,
     currency: 'MXN',
     ...over,
   };
 }
 
-function mockCatalog(data: GroupedListingDTO[]) {
+function mockCatalog(data: GroupedListingSummaryDTO[]) {
   vi.spyOn(api, 'getCatalog').mockResolvedValue({
     data,
     page: 1,

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { IS_REAL, MONEY_RE, loginAs } from './utils/auth';
+import { IS_REAL, MONEY_RE, loginAs, mockOnly } from './utils/auth';
 
 /**
  * Flujo v2.0 (P-48): **precio puro por valor de mercado**. Cubre los tres frentes de UI de §N
@@ -56,6 +56,7 @@ test.describe('M2 · editor de la curva de precio (P-48)', () => {
   test('la pantalla de tiers SE RETIRÓ con su texto falso; en su lugar está la curva', async ({
     page,
   }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
 
     await expect(
@@ -75,6 +76,7 @@ test.describe('M2 · editor de la curva de precio (P-48)', () => {
   test('las constantes describen su COMPORTAMIENTO y el guardarraíl se enuncia junto al piso', async ({
     page,
   }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
 
     // «Piso» tiene que significar piso: la ayuda describe qué HACE el número.
@@ -88,6 +90,7 @@ test.describe('M2 · editor de la curva de precio (P-48)', () => {
   test('la tabla de puntos habla en pesos, × y % — nunca en centavos ni puntos base', async ({
     page,
   }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
 
     await expect(page.getByLabel('Mercado del punto 1 de venta')).toHaveValue('25.00');
@@ -101,6 +104,7 @@ test.describe('M2 · editor de la curva de precio (P-48)', () => {
   test('mover un punto reordena AL BLUR (no hay arrastrar y soltar) y el borrador queda sucio', async ({
     page,
   }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
 
     const first = page.getByLabel('Mercado del punto 1 de venta');
@@ -205,6 +209,7 @@ test.describe('§21.8 · «Valor de mercado» que desaparece', () => {
     page,
   }) => {
     // inv-1020 se vende por override (sin mercado TCGCSV) ⇒ priceBasis="override".
+    mockOnly('pieza `inv-1020` del fixture (sellado con override manual)');
     await page.goto('/es/sellado/inv-1020');
     await expect(page.getByText(t('es', 'sealed.fromPrice'))).toBeVisible();
 
@@ -223,6 +228,7 @@ test.describe('§21.8 · «Valor de mercado» que desaparece', () => {
     // Asimetría legítima: con precio derivado por spread SÍ hay mercado, y el mercado es justo lo
     // que explica el precio. `exact` acota al rótulo de la celda (la nota de la tendencia es otra
     // frase que también contiene «Valor de mercado»).
+    mockOnly('pieza `inv-1008` del fixture (sellado con precio por spread)');
     await page.goto('/es/sellado/inv-1008');
     await expect(
       page.getByText(t('es', 'sealed.detail.marketValue'), { exact: true }),

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
+import { loginAs, mockOnly, needsSeed } from './utils/auth';
 
 /**
  * Flujo: panel admin responsive (PROJECT §F / AC 24, 25, 27; contrato §10).
@@ -9,6 +10,7 @@ import { t } from './utils/i18n';
  */
 test.describe('admin · dashboard', () => {
   test('muestra las 8 tarjetas del dashboard', async ({ page }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin');
     await expect(page.getByRole('heading', { name: t('es', 'admin.modules.dashboard') })).toBeVisible();
 
@@ -27,6 +29,11 @@ test.describe('admin · dashboard', () => {
   });
 
   test('enmascara cifras financieras para vault_operator', async ({ page }) => {
+    // El switcher «Ver como» es una afordancia de DEMO: en modo real el rol lo dicta el JWT
+    // (`RoleProvider.canSwitchRole === false`) y el selector no se pinta. El enmascarado real
+    // por rol lo cubre el backend + el unitario de AdminShell, no este smoke.
+    mockOnly('el switcher de rol «Ver como» solo existe en modo demo');
+    await loginAs(page, 'admin');
     await page.goto('/es/admin');
     // Como super_admin (default) no hay enmascarado.
     await expect(page.getByText(t('es', 'admin.masked'))).toHaveCount(0);
@@ -41,6 +48,7 @@ test.describe('admin · M1 inventario', () => {
   test('P-17: M1 abre en Master Set con pestañas Sellado/Gradeadas y SIN pestaña Piezas', async ({
     page,
   }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m1');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m1.title') })).toBeVisible();
 
@@ -58,6 +66,7 @@ test.describe('admin · M1 inventario', () => {
   test('alta por LOTE es SIN foto propia (imagen de catálogo) y captura certNumber de gradeada', async ({
     page,
   }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m1');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m1.title') })).toBeVisible();
 
@@ -74,6 +83,10 @@ test.describe('admin · M1 inventario', () => {
 
 test.describe('admin · M5 buylist (cherry-pick)', () => {
   test('permite decisión carta por carta y respeta dinero saliente', async ({ page }) => {
+    // Las acciones cherry-pick solo existen si hay AL MENOS una solicitud con items en cola.
+    // Verificado contra el stack vivo: `GET /admin/buylist` → `total: 0`.
+    needsSeed('ninguna solicitud de buylist en cola (GET /admin/buylist → total 0)');
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m5.title') })).toBeVisible();
 
@@ -87,6 +100,8 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
   });
 
   test('v1.18: rechazar exige motivo en un diálogo (3–500) antes de enviar la decisión', async ({ page }) => {
+    needsSeed('ninguna solicitud de buylist en cola: no hay botón «Rechazar» que abrir');
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await page.getByRole('button', { name: t('es', 'admin.m5.reject') }).first().click();
 
@@ -100,6 +115,7 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
   });
 
   test('v1.18: la pestaña Rechazadas existe y NO ofrece convertir a inventario', async ({ page }) => {
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await page.getByRole('tab', { name: t('es', 'admin.m5.tabs.rechazadas') }).click();
     // Pestaña transversal informativa: sin acción de conversión (PROJECT criterio 16).
@@ -109,6 +125,10 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
 
 test.describe('admin · M8 disputas', () => {
   test('disputa por correo a soporte, sin comparador de fotos (v1.2)', async ({ page }) => {
+    // `DisputeEvidenceContact` cuelga de la disputa ACTIVA (M8View:141): sin disputas no hay panel.
+    // Verificado contra el stack vivo: `GET /admin/disputes` → `total: 0`.
+    needsSeed('ninguna disputa sembrada (GET /admin/disputes → total 0)');
+    await loginAs(page, 'admin');
     await page.goto('/es/admin/m8');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m8.title') })).toBeVisible();
     // Panel de contacto de evidencia (correo del contrato, no hardcodeado en la UI).
@@ -116,5 +136,36 @@ test.describe('admin · M8 disputas', () => {
     await expect(page.getByTestId('evidence-email').first()).toBeVisible();
     // Ya no existe comparador de fotos de ingreso/reclamo.
     await expect(page.getByText('Comparador de fotos')).toHaveCount(0);
+  });
+});
+
+/**
+ * T-1 (techlead) — el editor de spreads del SELLADO tiene que dar una fila EDITABLE por cada
+ * presentación del enum, incluidas `upc` y `collection`. Es la prueba al nivel en que el dueño vive
+ * el problema: no «la lista tiene siete elementos», sino «hay un campo donde escribir el precio».
+ *
+ * Corre en los DOS modos a propósito: tanto el fixture como el backend real devuelven un mapa
+ * PARCIAL sin `upc`/`collection` (§K no les da semilla), así que la misma aserción vale en ambos —
+ * y eso es justo lo que se quiere fijar: los renglones salen del ENUM, no de la respuesta.
+ */
+test.describe('admin · M2 spreads del sellado (T-1)', () => {
+  test('hay fila editable para UPC y Collection, y dicen que caen al global', async ({ page }) => {
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+
+    const upc = page.getByLabel(t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype: 'UPC' }));
+    const collection = page.getByLabel(
+      t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype: 'Collection' }),
+    );
+    await expect(upc).toBeVisible();
+    await expect(collection).toBeVisible();
+
+    // Sin regla propia: campo vacío + etiqueta que declara el fallback (ausente ≠ 0%).
+    await expect(upc).toHaveValue('');
+    await expect(page.getByText(/Usa el global \(\d+(\.\d+)?%\)/).first()).toBeVisible();
+
+    // Y es EDITABLE: el dueño puede teclear el spread de lo que sí vende.
+    await upc.fill('20');
+    await expect(upc).toHaveValue('20');
   });
 });
