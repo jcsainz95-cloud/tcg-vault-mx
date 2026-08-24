@@ -84,6 +84,18 @@
 > como **regresión permanente**. **Además (M2):** se corrige el texto de §4.36.5c que afirmaba que la **lectura del
 > binder** cierra pendientes — **no lo hace ni debe hacerlo** (chocaría con la doctrina read-only); cierran solo los
 > seams de escritura, y la continuidad la da **b-ter**.
+> **Adenda v2.1.3 — D5: H-1 en el peldaño 1 de la precedencia (escalado por backend; §4.36.6).** `listPriceCents`
+> se leía de **dos** maneras: `orders.service.ts:98` exigía `> 0` (⇒ curva) mientras `catalog:274`, `master-set:975`,
+> los filtros «necesita curva» (`catalog:165`, `inventory:996-997/1095`), el valor de inventario
+> (`inventory:2211`, con `??`) y el barrido (`price-ingest:507`) solo comprobaban `!= null`. Con `listPriceCents = 0`
+> la pieza **no aparece en Compra** (BE-26) **pero el checkout sí le pone precio de curva**, y el `0` **enmascara** un
+> `sellOverrideCents` legítimo. **Decisión: H-1 («presente ⇔ `> 0`») aplica también aquí** — `<= 0` es **ausente** y
+> cae al siguiente peldaño, igual que en los otros dos overrides y en el sellado. Un `0` no es un precio (§H), y el
+> mismo campo con dos lecturas **es la forma exacta del bug P-48**. Se cierra en las dos puntas (write rechaza `<= 0`;
+> lectura lo ignora defensivamente, con **un solo predicado compartido**). **Sin migración, sin cambio de precio para
+> piezas sanas.** **Además:** los ejemplos de medio centavo de §4.36.1 y del preview quedaron **recalculados** — el
+> caso `1733.5 ⇒ 1734` era un **artefacto de la cuantización** y se retira; los nuevos (`$500.01 ⇒ 25001`,
+> `$100.10 ⇒ 11512`) se anclan en tramos **planos**, donde el `.5` es real.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -7341,12 +7353,17 @@ solo si **algo** lo revisa: sin re-evaluación no es recuperable, es un hueco si
    puede **competir con un checkout en vuelo** que la tenga reservada, y eso sí sería un riesgo nuevo introducido por
    una mejora de observabilidad; (c) **la señal es la entrada en la cola**, no el status. Cambiar estado sería un
    cambio de comportamiento mucho mayor que el que el hallazgo pide.
-4. **`bulkPublish` recibe el MISMO trato en su rama `listed`** (re-resuelve; no-op si sigue sana, escala si no).
+4. **`bulkPublish` debe re-resolver su rama `listed` igual que `publishAll`** (no-op si sigue sana, escala si no).
    **No es simetría cosmética:** el argumento entero para tocar `publish-all` es que el contrato ya declara ambos
-   pipelines **idénticos**. Dejar `bulkPublish` con el no-op ciego **trasladaría la divergencia de sitio** y
-   reabriría el punto ciego por la puerta del re-publish explícito — y encima haría falso, otra vez, el texto del
-   contrato. Efecto observable: una línea de `bulk-publish` sobre una pieza `listed` degradada pasa de `ok:true` a
-   `ok:false / PRICE_PENDING`. Es el resultado correcto: el operador pidió publicarla y **no es publicable**.
+   pipelines **idénticos**; que uno re-verifique y el otro no **trasladaría la divergencia de sitio** y reabriría el
+   punto ciego por la puerta del re-publish explícito. Efecto observable: una línea de `bulk-publish` sobre una pieza
+   `listed` degradada sale `ok:false / PRICE_PENDING` — el resultado correcto (el operador pidió publicarla y **no es
+   publicable**).
+   > ✅ **Corrección de mi diagnóstico (verificada por backend en la implementación): `bulkPublish` NUNCA tuvo el
+   > corto-circuito — ya re-resolvía.** El `if (item.status === 'listed') { … continue; }` que encontré vive en el
+   > bucle de **`publishAll`** (`inventory.service.ts:1320-1323`), no en `bulkPublish`. Yo lo generalicé a los dos sin
+   > comprobarlo. **Para `bulkPublish` esto es RATIFICACIÓN, no cambio de comportamiento**; se conserva como norma
+   > escrita y **con el mismo par de tests**, porque lo que estaba sin cubrir era justamente que nadie lo garantizara.
 
 **Nota de implementación que NO se debe «optimizar» (para backend).** La selección de `publishAll` toma un **snapshot
 de ids por adelantado** y itera sobre él, en vez de re-consultar el predicado (`inventory.service.ts:1275-1277`). Eso
@@ -7797,6 +7814,7 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 | **E4** | Guardarraíl: predicado + los dos seams + `reason` + **cierre** simétrico de la cola + **`counts` de la cola** (§4.36.5c — es un `groupBy(reason)` sobre la misma tabla; va aquí y no en E7 para no pasar dos veces por el mismo código) | test de ciclo completo: escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ `resolved` + publicable · **y** el invariante `no_market + premium_at_floor + unknown === nº de open`, con `?reason=` y paginación activos (los `counts` no deben moverse) |
 | **E4-bis** | **Punto ciego del inventario `listed` (§4.36.5b-bis):** `publish-all` selecciona `{in_stock, listed}` **y** la rama `listed` **re-resuelve** en vez de corto-circuitar (**en `publishAll` Y en `bulkPublish`**, o la divergencia solo cambia de sitio); escala sin cambiar `status`; `summary.listedNowPending` | test **anti-regresión** obligatorio: pieza `listed` + mercado degradado ⇒ **entra a la cola**, **sigue `listed`**, cuenta en `pendingPrice` **y** en `listedNowPending`, **no** en `alreadyListed`. Recíproco: pieza `listed` sana ⇒ `alreadyListed`, sin escalar, sin re-cobro. Mismo par de casos por `bulk-publish` (línea `ok:false/PRICE_PENDING` vs `ok:true`). **Y un test de la partición:** `selected = published + alreadyListed + pendingPrice + failed` (con `listedNowPending` FUERA de la suma) |
 | **E4-ter** | **Continuidad (§4.36.5b-ter):** el pase de reconciliación posterior a `price-ingest` **abre** entradas además de cerrarlas (re-resuelve las piezas publicadas del set recién repreciado). Sin contrato, sin migración. **Sequenciable** — si se difiere, va a `TECH_DEBT.md` como deuda aceptada y explícita, **no** como cerrado | degradar el feed de un set ⇒ tras el barrido, las piezas publicadas de ese set aparecen en la cola **sin** intervención manual |
+| **E5-bis** | **D5 (§4.36.6):** H-1 en el peldaño 1 — predicado **único** `hasManualPrice(item)` (`listPriceCents != null && > 0`) aplicado en los **seis** seams (`catalog:274`, `catalog:165`, `master-set:975`, `inventory:996-997/1095`, `inventory:2211` —quitar el `??`—, `price-ingest:507`) + validación de escritura `> 0` en `items`, `items/batch` y líneas de `bulk-publish` | una pieza con `listPriceCents = 0` da el **mismo** precio en storefront, ficha, checkout y binder, **no** enmascara el `sellOverrideCents` de su variante y **sí** entra al barrido. **Prohibido** repetir el `> 0` a mano en cada seam: así se llegó al hueco |
 | **E5** | Bounty revalidado en las **tres** seams + `effective`/`curveQuoteCents` en el DTO + filtro-antes-del-cap en la vitrina | test: bounty válido → sube el mercado → desaparece de vitrina, cotiza la curva y aparece la alerta |
 | **E6** | Instrumentación: escritura en checkout y en `createRequest` + `GET /admin/reports/pricing-brackets` | tras una venta y una compra existen los **cinco** campos y agregan por bracket |
 | **E7** | Endpoints `GET`/`PUT /admin/pricing/curve` **+ `POST /admin/pricing/curve/preview`** (§4.36.8a — envoltorio delgado sobre E0, **no depende de E2–E6**: adelantarlo desbloquea al frontend y le evita escribir la fórmula en cliente para luego borrarla); retiro de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, `/sales-rarities`; re-propósito de `/rarities` | contract tests del §M2 nuevo + la **prueba de mesa de §4.36.1 corrida contra el `preview`** (mismas diez cifras que la pura) |

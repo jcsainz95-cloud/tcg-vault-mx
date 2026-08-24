@@ -2,7 +2,28 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.2-monotonic-discrete).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.3-h1-per-piece).
+>
+> **Changelog v2.1.3-h1-per-piece (2026-08-24, arquitecto — hallazgo D5 escalado por backend + recálculo de ejemplos
+> tras v2.1.2. ARCHITECTURE §4.36.6 / §4.36.1.):**
+> - **D5 — H-1 aplica también al override POR PIEZA (`InventoryItem.listPriceCents`): «presente ⇔ `> 0`».** El mismo
+>   campo se leía de **dos** maneras: `orders` exigía `> 0` (⇒ preciaba por CURVA) mientras `catalog`, `master-set`,
+>   `inventory` y `price-ingest` solo comprobaban `!= null` (⇒ `salePriceCents = 0` ⇒ **no vendible** por BE-26).
+>   Efecto: una pieza con `0` **no aparece en Compra pero el checkout sí le pone precio**, y en el binder el `0`
+>   **enmascara** un `sellOverrideCents` legítimo (`??` solo atrapa `null`). **Decisión: `<= 0` se trata como AUSENTE
+>   en TODOS los seams** y cae al siguiente peldaño — la misma doctrina que ya rige `sellOverrideCents`,
+>   `buyOverrideCents` y el override del sellado; el peldaño 1 era el único que no la heredó. **Un `0` no es un
+>   precio** (§H). **Se cierra en las dos puntas:** el **write** valida `listPriceCents` entero **`> 0`**
+>   (`422 VALIDATION_ERROR`) en `items`, `items/batch` y las líneas de `bulk-publish`; la **lectura** lo trata como
+>   ausente defensivamente, vía **un solo predicado compartido**. **Sin migración** (las filas con `0` pasan a
+>   comportarse como «sin override», que es la lectura correcta) y **sin cambio de precio** para piezas sanas.
+> - **Ejemplos del preview RECALCULADOS con la interpolación exacta de v2.1.2** (los anteriores derivaban del bp
+>   cuantizado y afirmaban cifras que la matemática corregida ya no produce): `draft.buy.rawCents/priceCents`
+>   `1734 → **1733**`, `saved.sale.rawCents/baseCents` `6978 → **6977**`, `deltaCents.buy` `67 → **66**`. Los
+>   `appliedBp` no cambian (son **display**) y los `priceCents` finales tampoco. **Los números de DESIGN_SYSTEM §21.5a
+>   (`17.33`, `69.77`) resultan EXACTOS** — el desviado era mi ejemplo cuantizado; se retira la sugerencia de «≈».
+>
+> Versión previa: v2.1.2-monotonic-discrete.
 >
 > **Changelog v2.1.2-monotonic-discrete (2026-08-24, arquitecto — corrección de los hallazgos I1/M1/M2 de QA.
 > ARCHITECTURE §4.36.1 / §4.36.3 / §4.36.5c. NO cambia ningún DTO, endpoint ni seed; cambia la MATEMÁTICA interna y
@@ -55,12 +76,10 @@
 >   vuelo). `summary` gana **`listedNowPending`** (subconjunto de `pendingPrice`, **fuera de la partición**) = de lo
 >   que ya estaba a la venta, cuánto quedó roto. **`alreadyListed` cambia de significado**: de «no la toqué» a
 >   «re-verificada y sana». Sin migración.
-> - **`POST /admin/inventory/items/bulk-publish` recibe el MISMO trato en su rama `listed`** (re-resuelve; no-op si
->   sigue sana, línea `ok:false / PRICE_PENDING` + escalada si no). No es simetría cosmética: la justificación para
->   tocar `publish-all` es que este contrato ya declara **ambos pipelines idénticos**; dejar `bulk-publish` con el
->   no-op ciego solo **trasladaría la divergencia de sitio** y reabriría el punto ciego por la puerta del re-publish
->   explícito. **Efecto observable para el front:** una línea sobre una pieza `listed` degradada pasa de `ok:true` a
->   `ok:false / PRICE_PENDING` — que es el resultado correcto (se pidió publicarla y **no es publicable**).
+> - **`POST /admin/inventory/items/bulk-publish`: su rama `listed` re-resuelve** (no-op si sigue sana, línea
+>   `ok:false / PRICE_PENDING` + escalada si no). **Para este endpoint es RATIFICACIÓN, no cambio** — ya lo hacía; el
+>   corto-circuito vivía **solo** en `publish-all`. Se escribe como norma porque este contrato declara **ambos
+>   pipelines idénticos** y lo que faltaba era que algo lo **garantizara** (queda cubierto con el mismo par de tests).
 > - **Alcance honesto:** lo anterior arregla el **cut-over** y da un **remedio manual**, pero `publish-all` es una
 >   acción de admin — **no hace continuo** al guardarraíl. La continuidad la aporta el pase posterior al barrido
 >   (ARCHITECTURE §4.36.5b-ter, **sin superficie de contrato**): que **abra** entradas además de cerrarlas.
@@ -4101,19 +4120,25 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   Req (`BulkPublishRequest`): `{ batchKey?, items: BulkPublishLineInput[] }` (cap **200**).
   - **Status de origen publicable (v1.16.1, OBLIGATORIO) = `{in_stock, listed}`:**
     - `in_stock` → **publica** (`status → listed`).
-    - `listed` → **v2.1.1: se RE-RESUELVE el precio** (antes: no-op ciego). Si resuelve ⇒ **no-op idempotente**
-      (`ok:true`; no re-cobra, no duplica, no cambia precio salvo override explícito) — igual que antes. Si **no**
-      resuelve ⇒ línea `ok:false` con **`PRICE_PENDING`**, **escala** a la cola y la pieza **sigue `listed`** (no se
-      le cambia el status; ver §M1 `publish-all` y ARCHITECTURE §4.36.5b-bis).
-      > **Se cambia aquí también, y a propósito.** La justificación para tocar `publish-all` es que este contrato ya
-      > declara ambos pipelines **idénticos**; dejar `bulk-publish` con el no-op ciego solo trasladaría la divergencia
-      > de sitio y volvería a abrir el punto ciego por la puerta del re-publish explícito. Si el operador pide
-      > publicar un folio que ya está `listed`, **re-verificarlo es justo lo que esperaría**.
+    - `listed` → **el precio se RE-RESUELVE** (v2.1.1, ratificado normativamente). Si resuelve ⇒ **no-op idempotente**
+      (`ok:true`; no re-cobra, no duplica, no cambia precio salvo override explícito). Si **no** resuelve ⇒ línea
+      `ok:false` con **`PRICE_PENDING`**, **escala** a la cola y la pieza **sigue `listed`** (no se le cambia el
+      status; ver §M1 `publish-all` y ARCHITECTURE §4.36.5b-bis).
+      > **Para `bulk-publish` esto es RATIFICACIÓN, no cambio de comportamiento:** ya re-resolvía. Se escribe como
+      > norma porque el punto ciego que se corrigió en `publish-all` (v2.1.1) vivía **solo** en el bucle de
+      > `publish-all`, y lo que faltaba aquí era que **algo garantizara** que `bulk-publish` no derivara hacia el
+      > mismo no-op: este contrato declara ambos pipelines **idénticos**, y con el mismo par de tests queda cubierto.
+      > Si el operador pide publicar un folio que ya está `listed`, **re-verificarlo es justo lo que esperaría**.
     - **cualquier otro** status (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`)
       → línea falla **`422 ITEM_NOT_PUBLISHABLE`** y **NO** se publica. **Guardarraíl anti double-sell:** una pieza
       reservada/vendida/en-custodia/enviada **no** puede regresar a `listed`.
   - Precio por línea: `listPriceCents` presente → **override manual**; ausente → **precio de venta
-    derivado** server-side (SEC-A1) ramificado por `productType`: `raw|graded` → ~~reglas por rareza+acabado~~
+    derivado** server-side (SEC-A1). **v2.1.3 (D5, H-1): «presente» significa `> 0`.** Un `listPriceCents <= 0` en la
+    línea (o en la pieza) se trata como **AUSENTE** y la pieza se precia por la cadena derivada — nunca se publica en
+    `0`. Además el **write valida `listPriceCents` entero `> 0`** (`422 VALIDATION_ERROR`) aquí y en
+    `POST /admin/inventory/items` / `items/batch`, para que el estado no se pueda crear; `null` sigue siendo válido y
+    significa «sin override». Misma regla que `sellOverrideCents` y que el override del sellado. Ramificado por
+    `productType`: `raw|graded` → ~~reglas por rareza+acabado~~
     **⛔ v2.0 (P-48): la CURVA DE VENTA** `redondeo↑(max(piso, mercado × markup(mercado)))` (§M2 «Curva de precio por
     VALOR DE MERCADO», `computeSalePriceForItem`); **`sealed` → `computeSealedSalePrice`** (`sealedMarketRef × spread`,
     §M2 sealed-spreads / ARCHITECTURE §4.23b/d — **sin cambio**). Una pieza cuyo precio **no se resuelve** → línea
