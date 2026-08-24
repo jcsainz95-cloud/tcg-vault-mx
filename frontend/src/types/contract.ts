@@ -91,8 +91,8 @@ export type SellItemStatus =
   | 'rechazada'
   | 'pagada'
   | 'convertida_inventario';
-// DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode).
-// Se conserva por retención legacy; nada nuevo lo consume.
+// DEPRECADO v1.3.1 (y superado otra vez en v2.0 por la CURVA): retención legacy de filas
+// históricas. Nada nuevo lo consume.
 export type BuylistCategory = 'comun' | 'reverse_holo' | 'ex_plus';
 // ⛔ v2.0 (P-48): `BuylistRuleMode` / `SalesRuleMode` RETIRADOS. Desaparece la distinción
 // fixed/pct como modos excluyentes: hay UNA CURVA por eje (`PricingCurveDTO`). El `fixed` de venta
@@ -731,7 +731,8 @@ export interface BuylistBatchQuoteResponse {
   results: BuylistBatchQuoteResultDTO[];
 }
 
-// v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity` + `appliedRule`.
+// v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity`; v2.0 (P-48) retira `appliedRule`
+// y lo sustituye por la instrumentación de la decisión de precio (`priceBasis`/`marketBracket`).
 export interface SellItemDTO {
   id: string;
   card: CardDTO;
