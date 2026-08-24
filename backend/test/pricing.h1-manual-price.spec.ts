@@ -3,7 +3,6 @@ import { OrdersService } from '../src/modules/orders/orders.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { FxService } from '../src/modules/pricing/fx.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { firstPresentAmount, hasManualPrice, isPresentAmount } from '../src/common/money';

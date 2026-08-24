@@ -259,6 +259,13 @@ export function rawCentsFromRational(marketCents: number, num: number, den: numb
  */
 export const MAX_CENTS_CURVE = 2_147_483_647;
 
+/** Acota un monto ya calculado al tope representable (BE-27), preservando el signo. */
+function capToMaxCents(cents: number): number {
+  if (cents > MAX_CENTS_CURVE) return MAX_CENTS_CURVE;
+  if (cents < -MAX_CENTS_CURVE) return -MAX_CENTS_CURVE;
+  return cents;
+}
+
 // ----------------------------------------------------------------------------
 // `DisplayBp` — el candado de tipo del valor interpolado (v2.1.4, §4.36.8a NORMATIVO)
 // ----------------------------------------------------------------------------
@@ -433,7 +440,12 @@ export function explainSaleFromCurve(marketMxnCents: number | null, curve: Prici
   // paso $5 el precio publicado es $30, y sin este dato eso parecería un descuadre en pantalla).
   const rounded = roundUpWithStep(baseCents, curve.sale.rounding);
   return {
-    priceCents: rounded.cents,
+    // v2.1.4 — la ESCALERA redondea HACIA ARRIBA, así que puede pasarse del tope Int32 aunque
+    // `rawCentsFromRational` ya hubiera acotado: con m = 2e9 el crudo queda en MAX_CENTS y el paso de
+    // $25 lo sube a 2_147_485_000. `money.ts` re-acota en la ruta de cobro, pero el dry-run devolvía
+    // la traza SIN acotar (admin-only y cosmético, pero es una cifra no representable en pantalla).
+    // Se cierra aquí, en el único cuerpo, para que ningún consumidor tenga que acordarse.
+    priceCents: capToMaxCents(rounded.cents),
     basis: constantWon ? 'floor' : 'market',
     appliedBp: asDisplayBp(roundHalfUp(num / den)),
     rawCents,

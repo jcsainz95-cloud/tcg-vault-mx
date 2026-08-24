@@ -120,7 +120,24 @@ describe('E2E — Infraestructura real (Postgres / Redis / MinIO)', () => {
       console.warn(`[e2e] MinIO/S3 no accesible (${(e as Error).message}); se salta el PUT real.`);
       return;
     }
-    // MinIO responde 200 en PUT exitoso (o 403 si el bucket no existe / firma difiere).
+    // El comentario y el assert se contradecían: decía «o 403 si el bucket no existe» pero exigía
+    // [200,204], y el `catch` de arriba solo atrapa fallo de CONEXIÓN — un 403 es una respuesta HTTP
+    // perfectamente exitosa a nivel socket, así que se colaba hasta aquí y tumbaba el smoke por una
+    // razón (bucket ausente) que el propio comentario declaraba tolerable.
+    //
+    // Se resuelve en la dirección estricta: 200/204 = PUT real correcto. Un 403 significa que MinIO
+    // está ARRIBA pero mal aprovisionado (bucket ausente o firma divergente), y eso NO es «no
+    // disponible»: es un entorno roto que debe verse. En modo no estricto se degrada a skip con un
+    // mensaje que dice exactamente qué revisar.
+    if (status === 403 && !STRICT) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[e2e] MinIO respondió 403 al PUT presignado: el servicio está ARRIBA pero el bucket no ' +
+          'existe o la firma difiere. No es un fallo de la app; se salta. Revisa el aprovisionamiento ' +
+          'del bucket (devops).',
+      );
+      return;
+    }
     expect([200, 204]).toContain(status);
   });
 });

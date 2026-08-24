@@ -973,3 +973,17 @@ describe('DisplayBp — recomponer un monto desde el bp de display NO COMPILA (�
     expect(fromDisplay).toBe(6978); // con el bp redondeado: un centavo de más
   });
 });
+
+describe('BE-27 — la ESCALERA no puede sacar el precio del rango Int32 (v2.1.4)', () => {
+  it('`explainSaleFromCurve` acota tras redondear: el paso de $25 ya no rebasa MAX_CENTS', () => {
+    const trace = explainSaleFromCurve(2_000_000_000, DEFAULT_PRICING_CURVE);
+    // El crudo ya venía acotado; sin el cap final la escalera lo subía a 2_147_485_000.
+    expect(trace.rawCents).toBe(MAX_CENTS_CURVE);
+    expect(trace.priceCents).toBe(MAX_CENTS_CURVE);
+    expect(trace.priceCents!).toBeLessThanOrEqual(MAX_CENTS_CURVE);
+  });
+
+  it('el precio NORMAL no se toca (el cap solo muerde en el extremo)', () => {
+    expect(explainSaleFromCurve(100000, DEFAULT_PRICING_CURVE).priceCents).toBe(115000);
+  });
+});
