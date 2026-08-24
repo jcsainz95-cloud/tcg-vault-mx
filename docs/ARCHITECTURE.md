@@ -27,6 +27,22 @@
 > superseded: §4.2/§4.2.1, §4.14, §4.28d y **§4.33 completa**; amendada: §4.26b. **Migración M-41** (§11, aditiva pura;
 > **sin migración de dinero** — el precio de venta se resuelve en lectura). Causa raíz en §9 (**P-48-RC**). Contrato en
 > API_CONTRACT (Changelog v2.0-pricing-curve). **Base previa:** v1.44-per-finish-price-source-daily-sweep.
+> **Adenda v2.1-curve-preview (2026-08-24, misma rama — solicitud de ux-ui `DESIGN_SYSTEM.md` §21.13.1 aprobada y
+> enrutada por el orquestador).** Se añade **`POST /admin/pricing/curve/preview`** (dry-run, **§4.36.8a**): evalúa una
+> curva **borrador** contra N mercados de sonda y devuelve precio + `priceBasis` + **memoria de cálculo**, junto al
+> mismo cálculo con la curva **vigente** (que el servidor lee de SU almacén, nunca del cliente). **Es money-safety, no
+> comodidad:** sin él, el previsualizador obligatorio de §21.5 obliga a **reimplementar la matemática de §4.36.1 en el
+> cliente**, y el dueño **calibraría la curva contra un cálculo que no es el que va a cobrar** — el bug de P-48 en
+> espejo. Mata **dos** duplicaciones: la aritmética **y** los invariantes cruzados (devuelve las infracciones del mismo
+> validador del `PUT`, que es lo que §21.4 le prohíbe reimplementar al editor). **Decisión sobre el borrador
+> inválido — se parte por COMPUTABILIDAD, no por severidad:** V1/V2/V3 y la escalera mal formada ⇒ **`422`** (no hay
+> número que devolver); V4/V5/V6/V7 y la condición fina de V8 ⇒ **`200` con los precios calculados +
+> `violations[]`**, para que el previsualizador pueda «enseñar el problema **en pesos**» mientras el dueño corrige,
+> tal como ordena §21.4. **El preview NO autoriza:** un `200` sin violaciones **no** garantiza que el `PUT` pase — el
+> `PUT` re-valida desde cero y sigue siendo la única autoridad del dinero. No persiste, no audita, no consulta rareza
+> ni inventario. **Sin migración, sin cambio de forma de ningún DTO existente.** Es un envoltorio delgado sobre las
+> puras de **E0**, así que puede adelantarse dentro de **E7** sin esperar E2–E6. Eco en API_CONTRACT §M2 (Changelog
+> v2.1-curve-preview).
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -6850,8 +6866,16 @@ interp(points, m):
   if m >= points[last].market   -> points[last].value                   // tramo plano final
   find i with points[i].market <= m < points[i+1].market
   (m0,v0) = points[i] ; (m1,v1) = points[i+1]
-  return v0 + ROUND_HALF_UP( (v1 - v0) * (m - m0) / (m1 - m0) )         // bp entero
+  return ROUND_HALF_UP( v0 + (v1 - v0) * (m - m0) / (m1 - m0) )         // bp entero
 ```
+
+> **`ROUND_HALF_UP` = medio **ALEJÁNDOSE DE CERO**, y se redondea el **VALOR FINAL**, no el delta.** Los dos detalles
+> son deliberados y **normativos**, porque son fuente clásica de divergencia entre dos implementaciones de la misma
+> fórmula de dinero: (1) redondear el delta obligaría a redondear un número **negativo** cuando el markup baja
+> —`Math.round(-1590.5)` da `-1590` en JS (medio hacia +∞) pero «medio alejándose de cero» da `-1591`—, mientras que el
+> **valor final siempre es ≥ 0** en ambas curvas (`multiplierBp ≥ 10000`, `pctBp ≥ 0`), así que el caso negativo
+> **desaparece por construcción**; (2) fijar el modo evita que backend y el previsualizador difieran en un centavo.
+> La misma regla aplica a `rawCents = ROUND_HALF_UP(m × valor / 10000)`.
 
 **Venta.**
 ```
@@ -7306,6 +7330,7 @@ columnas a las **filas de dinero que ya son el snapshot inmutable** de la operac
 |---|---|
 | `GET /api/v1/admin/pricing/curve` | **NUEVO** — lee el `PricingCurve` completo |
 | `PUT /api/v1/admin/pricing/curve` | **NUEVO** — reemplaza el objeto completo; valida V1–V8 (§4.36.3); auditado (`pricing.curve.update`, before/after); **sin redeploy** |
+| `POST /api/v1/admin/pricing/curve/preview` | **NUEVO (v2.1)** — **dry-run**: evalúa una curva **borrador** contra N mercados de sonda y devuelve precio + `priceBasis` + **memoria de cálculo**, junto al mismo cálculo con la curva **vigente**. No persiste, no audita, **no autoriza**. Ver §4.36.8a |
 | `GET`/`PUT /api/v1/admin/pricing/tiers` | **RETIRADOS** |
 | `GET`/`PUT /api/v1/admin/pricing/tier-map` | **RETIRADOS** |
 | `GET /api/v1/admin/pricing/buylist-rules`, `GET /api/v1/admin/pricing/sales-rules` | **RETIRADOS** (sus `PUT` ya lo estaban desde v1.37) |
@@ -7317,6 +7342,73 @@ columnas a las **filas de dinero que ya son el snapshot inmutable** de la operac
 
 **Autorización sin cambio:** todo lo de pricing es `super_admin` (§7); `vault_operator` **lee** la consola del binder,
 no la edita.
+
+##### 4.36.8a Dry-run de la curva — `POST /admin/pricing/curve/preview` (v2.1, NORMATIVO)
+
+> **Origen:** solicitud de **ux-ui** (`DESIGN_SYSTEM.md` §21.13.1), aprobada y enrutada por el orquestador. El
+> previsualizador de §21.5 (probeta + tabla de referencia) es **obligatorio** en el editor: el dueño teclea un mercado
+> y ve qué venta y qué compra saldrían, con la memoria de cálculo. Este endpoint es **la fuente de esos números**.
+
+**(a) Por qué existe — es money-safety, no comodidad.** Sin endpoint, el frontend tiene que **reimplementar la
+matemática de §4.36.1 en el cliente**: dos implementaciones de una fórmula de dinero que pueden divergir. Aquí el daño
+es peor que el habitual, porque **el dueño calibraría la curva contra un cálculo que no es el que va a cobrar**: elige
+los puntos mirando una cifra que el backend no produce. Es la clase exacta de bug que P-48 existe para cerrar — precio
+mostrado ≠ precio real —, en espejo.
+
+**Mata DOS duplicaciones, no una.** La aritmética (interpolación, `max`, escalera) **y** los invariantes cruzados: el
+endpoint devuelve las infracciones **calculadas por el mismo validador del `PUT`** (c), así que el editor tampoco tiene
+que reimplementar V1–V8 para adelantarse al `422` — algo que §21.4 le **prohíbe** explícitamente («si el cliente
+inventara un rechazo que el servidor no haría, el dueño dejaría de confiar en la pantalla»).
+
+**(b) Forma (contrato completo en API_CONTRACT §M2).** Recibe la curva **borrador** (la de pantalla, aún sin guardar) y
+**N mercados de sonda**; devuelve, por sonda, el resultado con el **borrador** y con la curva **vigente**, cada uno con
+`priceCents`, `basis` y la **memoria de cálculo** que §21.5a exige: valor interpolado aplicado, **producto antes de
+redondear**, comparación contra la constante y **paso de redondeo usado**.
+
+- **La columna «vigente» la calcula el servidor con SU curva almacenada, nunca con nada que mande el cliente.** Si el
+  cliente pudiera echarle de vuelta la curva guardada, un cliente rancio pintaría una columna «VIGENTE» que no es la
+  vigente — y esa columna es justamente contra la que el dueño mide su cambio. Por eso el request trae **solo** el
+  borrador.
+- **Varias sondas por llamada** (cap 50): la **tabla de referencia** de §21.5b necesita los 10 mercados de la prueba de
+  mesa **∪** los puntos del borrador de un tiro. El servidor **deduplica y ordena** ascendente — la tabla los quiere
+  así, y dejarlo del lado del servidor evita una reimplementación más, por pequeña que sea.
+- **`marketCents = 0` es una sonda LEGÍTIMA**, no un error: devuelve `basis='pending'` y `priceCents=null`. Es la forma
+  de que el previsualizador **enseñe en pantalla** la decisión money del humano («sin dato de mercado ⇒ precio
+  pendiente; el piso NO gana», §4.36.0) en vez de dejarla solo escrita en un documento.
+- **Qué segmento se aplicó** viaja en la respuesta (`segment`): saber **qué tramo** interpoló es parte de la
+  matemática, y §21.4b/§21.5c necesitan resaltar «el tramo implicado». Derivarlo en el cliente sería re-duplicar el
+  lookup que este endpoint existe para centralizar.
+
+**(c) DECISIÓN — qué pasa si el borrador viola un invariante. Se parte por COMPUTABILIDAD, no por severidad.**
+
+| Grupo | Invariantes | Respuesta | Por qué |
+|---|---|---|---|
+| **Impide calcular** | **V1** `CURVE_EMPTY`, **V2** `DUPLICATE_BREAKPOINT`, **V3** tipos/rangos, **V8** escalera mal formada (banda abierta ausente/duplicada, `stepCents < 1`, `uptoCents` no crecientes) | **`422`**, mismos códigos y mismo `details` que el `PUT` | No hay número que devolver: sin puntos `interp` no tiene qué interpolar, con dos puntos en el mismo mercado la interpolación es **ambigua** (división por cero) y sin banda no se puede elegir paso. Un `200` aquí sería inventar un precio |
+| **Calculable pero prohibido** | **V4** `SALE_BELOW_MARKET`, **V5** `SALE_CURVE_NOT_MONOTONIC`, **V6** `BUY_ABOVE_SALE`, **V7** `BIN_ABOVE_FLOOR`, **V8** condición fina (frontera no múltiplo del paso inferior) | **`200`** con los precios **calculados** + `violations[]` con el mismo `{ code, details }` que emitiría el `PUT` | Son invariantes sobre la **forma** de una curva que **sí** se puede evaluar. Devolver `422` apagaría el previsualizador **justo cuando más se necesita**: §21.4 ordena que «el previsualizador enseñe el problema **en pesos**» y §21.4b-3 que **resalte el tramo implicado**. Con `422` el dueño vería la prosa del error sin poder ver cuánto cuesta, y tendría que corregir a ciegas |
+
+**El `200` no es permisividad: es que el `PUT` sigue siendo el único que decide.** El dry-run **no autoriza nada** —
+regla dura:
+
+> **Un `200` con `violations: []` NO significa que el `PUT` vaya a pasar.** El `PUT` **re-valida desde cero** contra el
+> estado almacenado en el momento de la escritura. El cliente **jamás** puede saltarse, cachear ni cortocircuitar la
+> validación del `PUT` apoyándose en un preview. El preview es **lectura**; la autoridad del dinero es el `PUT`
+> (SEC-A1).
+
+**(d) Lo que el endpoint NO hace (para que nadie lo amplíe por inercia).** No persiste (ni la curva, ni una `PriceReference`,
+ni una entrada de cola). **No audita** — es lectura pura y no mueve dinero; se dice explícitamente porque *todo* lo
+demás en pricing sí se audita y su ausencia podría leerse como olvido. No evalúa el **guardarraíl** ni consulta rareza,
+overrides, bounties ni inventario: opera sobre **mercados hipotéticos**, no sobre variantes reales — por eso `basis`
+solo puede valer `market`, `floor` o `pending` (nunca `override` ni `bounty`). **No cuenta impacto** sobre
+publicaciones reales (§21.13.2, diferido por el orquestador).
+
+**(e) Coste de implementación y orden de entrega.** Es un **envoltorio delgado sobre las puras de E0**
+(`interp`, `roundUp`, el validador V1–V8) — **no depende de E2–E6**. Backend ya cerró **E0/E1**, así que puede
+adelantarse dentro de **E7** en cuanto la superficie de admin arranque. **Recomendación:** que el frontend lo consuma
+**desde el principio** en vez de escribir primero el cálculo en cliente y cambiarlo después; §21.5d está redactado para
+funcionar sin él, pero escribir la fórmula dos veces para luego borrarla es trabajo que este endpoint existe para
+evitar. La **prueba de mesa de §4.36.1 se convierte en el test del endpoint** (además del de la pura), y §21.5b la
+declara el test de aceptación visible del previsualizador: los mismos diez mercados, las mismas cifras, en los dos
+lados.
 
 #### 4.36.9 Migración de datos (M-41) y cut-over
 
@@ -7381,16 +7473,16 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 
 | # | Etapa | Verde cuando |
 |---|---|---|
-| **E0** | `common/pricing-curve.ts`: tipos, `interp`, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador V1–V8. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante V1–V8 |
+| **E0** | `common/pricing-curve.ts`: tipos, `interp`, `roundUp`, `marketBracketOf`, `premiumFloorGuard`, `isBountyEffective`, validador V1–V8. **Nada cableado** | unitarios de la **prueba de mesa** (§4.36.1) + un caso por invariante V1–V8 + **un caso de medio centavo** que fije `ROUND_HALF_UP` (p. ej. `interp` cayendo en `.5` y `rawCents = 1733.5 ⇒ 1734`) |
 | **E1** | `SettingKey.PRICING_CURVE` + validador + seed §N.2. M-41 aplicada | el setting valida y siembra; los viejos siguen ahí, intactos |
 | **E2** | `computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` en `money.ts` (con `priceBasis` y precedencias), **conviviendo** con los resolvers viejos | unitarios de precedencia: override absoluto, empate ⇒ `market`, sin mercado ⇒ `pending` |
 | **E3** | Se cambian **los dos seams de servicio** (`PricingService.computeSalePriceForItem`, `BuylistService.quoteCardForFinish`) + `variant-pricing.ts`. Los ~12 call-sites **no cambian de firma** porque pasan por el servicio | suite existente adaptada: los ~40 specs de precio se re-expresan contra la curva (esperado: la mayoría cambia de **valor esperado**, no de forma) |
 | **E4** | Guardarraíl: predicado + los dos seams + `reason` + **cierre** simétrico de la cola | test de ciclo completo: escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ `resolved` + publicable |
 | **E5** | Bounty revalidado en las **tres** seams + `effective`/`curveQuoteCents` en el DTO + filtro-antes-del-cap en la vitrina | test: bounty válido → sube el mercado → desaparece de vitrina, cotiza la curva y aparece la alerta |
 | **E6** | Instrumentación: escritura en checkout y en `createRequest` + `GET /admin/reports/pricing-brackets` | tras una venta y una compra existen los **cinco** campos y agregan por bracket |
-| **E7** | Endpoints `GET`/`PUT /admin/pricing/curve`; retiro de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, `/sales-rarities`; re-propósito de `/rarities` | contract tests del §M2 nuevo |
+| **E7** | Endpoints `GET`/`PUT /admin/pricing/curve` **+ `POST /admin/pricing/curve/preview`** (§4.36.8a — envoltorio delgado sobre E0, **no depende de E2–E6**: adelantarlo desbloquea al frontend y le evita escribir la fórmula en cliente para luego borrarla); retiro de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, `/sales-rarities`; re-propósito de `/rarities` | contract tests del §M2 nuevo + la **prueba de mesa de §4.36.1 corrida contra el `preview`** (mismas diez cifras que la pura) |
 | **E8** | **Borrado sin residuos** (criterio 96): `pricing-tiers.ts`, el bloque de reglas de `money.ts` (§4.36.4), validadores y settings retirados | compila sin referencias muertas; grep de `tier`/`fixed`/`finishRules` limpio en pricing |
-| **E9** | Frontend (en **paralelo** desde E0, contra el contrato): editor de la tabla de puntos en M2, retiro de la pantalla de tiers **con su texto falso**, regla de visibilidad por `priceBasis`, alerta de bounty en el binder | Playwright de los flujos de §N |
+| **E9** | Frontend (en **paralelo** desde E0, contra el contrato): editor de la tabla de puntos en M2 (§21.1–21.6), **previsualizador contra `POST /admin/pricing/curve/preview`** (§4.36.8a — no reimplementar §4.36.1 en cliente), retiro de la pantalla de tiers **con su texto falso**, regla de visibilidad por `priceBasis` (§21.8), alerta de bounty en el binder (§21.9) | Playwright de los flujos de §N + tabla de referencia reproduciendo la prueba de mesa (§21.5b) |
 
 **Reparto:**
 - **backend** (WS «Catálogo y precios» + zona compartida `common/` y `prisma/`): E0–E8. **Toca dinero en los dos ejes**
