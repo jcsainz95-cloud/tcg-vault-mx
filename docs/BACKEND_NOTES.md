@@ -7533,9 +7533,14 @@ Se eliminaron del código: los 5 `SettingKey` + sus `SETTING_DEFAULTS`/`SETTING_
 `rarity-catalog.ts`, que sí se sigue usando). Se borraron `backend/src/common/pricing-tiers.ts` (+ su
 spec), `backend/prisma/backfill-p34-tiered-pricing.ts` (el backfill P-34/M-38 ya corrió; el código de
 respaldo queda retirado, no la migración) y varios specs obsoletos de la superficie retirada. `money.ts`
-conserva `Finish`, `VariantPriceControls`, `computeSalePriceCents` (markup GENÉRICO — distinto de la
-retirada `computeSalePriceForRarity`, sigue en uso), toda la math de sellado (independiente de la curva) y
-los helpers de `BreakdownDTO`.
+conserva `Finish`, `VariantPriceControls`, `computeSalePriceCents`, toda la math de sellado
+(independiente de la curva) y los helpers de `BreakdownDTO`.
+
+> **RECTIFICACIÓN (2026-08-24, gate techlead).** Esta nota decía que `computeSalePriceCents` «sigue en
+> uso» — **es FALSO**. Solo la tocan dos specs; ningún código de producción la llama, y su `@deprecated`
+> apunta a `computeSalePriceForRarity`, que E8 borró. Es la única función que produce un precio de venta
+> **fuera de la curva**, así que queda registrada como deuda **D2(b)** en `docs/TECH_DEBT.md`: o se
+> retira o se justifica explícitamente. No se retiró en este pase por ser superficie de dinero.
 
 **Verificación de residuo** (grep exigido por el criterio de la etapa): sin referencias vivas a
 `SALES_PRICE_RULES`/`BUYLIST_PRICE_RULES`/`PRICING_TIER_MAP`/`*_FALLBACK_PCT`/`computeSalePriceForRarity`/
@@ -7565,3 +7570,127 @@ cambio (`actorUserId` sin usar en `inventory.service.ts`, `normalizeSetName` sin
 este pase borró como parte del retiro sin residuos (E8, criterio 96 — el backfill P-34/M-38 ya corrió en
 producción y su script de respaldo queda retirado). `scripts/` es territorio de **devops** por la tabla de
 propiedad de archivos; queda flagueado para que devops actualice/retire esa línea del pipeline de deploy.
+
+---
+
+## P-48 · Ronda de gate — techlead (bloqueos 1/2), arquitecto (E4-bis/E4-ter) y QA (E0-bis) (2026-08-24)
+
+Tres frentes cerrados sobre la rama `claude/card-pricing-rules-2e537m` después de la primera entrega de
+E0–E8. Ninguno cambió el DTO, el setting ni el seed.
+
+### E0-bis (v2.1.2) — el bug de dinero: cuantizar el multiplicador rompía la monotonía
+
+**Lo que pasó, y por qué mi implementación no era el eslabón roto.** §4.36.1 mandaba redondear el
+multiplicador interpolado a **bp entero** (`// bp entero`), y eso es lo que implementé. Redondear `k(m)`
+lo convierte en una función **escalonada**: en cada escalón a la baja, `m × round(k(m))` **cae** aunque
+`m` suba, y la escalera de redondeo de venta amplifica esa caída de unos centavos a **un peldaño
+completo**. QA lo reprodujo con tres curvas de diales plausibles, **las tres aceptadas por el `PUT` con
+`200` y `violations: []`**; la peor daba **$717.10 ⇒ $800** y **$717.11 ⇒ $775**.
+
+V5 (monotonía de venta) demostraba algo **verdadero** —`f(m)=m·k(m)` continua es creciente— sobre un
+objeto que **no era el que cobra**. El eslabón que faltaba nombrar era el 2 de la cadena de composición.
+
+**La corrección, en el código:**
+- `interpExact(points, m) → { num, den, segment }`: el valor interpolado **exacto**, como racional. Ya
+  no existe un «bp entero» intermedio.
+- `rawCentsFromRational(m, num, den) = ROUND_HALF_UP(m·num / (den·10000))`, en **UNA** expresión y en
+  **`BigInt`**: con `m` hasta `MAX_CENTS` (~2.1e9) y `num` hasta ~1e15 el producto rebasa
+  `Number.MAX_SAFE_INTEGER`, y perder precisión ahí sería reintroducir el mismo bug por otra puerta. El
+  operando es siempre ≥ 0 por construcción, así que ROUND_HALF_UP se reduce a `floor((2n+d)/2d)`. El
+  resultado se acota a `MAX_CENTS` **antes** de volver a `number` (BE-27).
+- `interp` **sobrevive marcada SOLO-DISPLAY** (memoria de cálculo del previsualizador). `CurveLegTrace.appliedBp`
+  documenta explícitamente que **no es el operando del precio**: con `k(m)` no entero, `rawCents` ya
+  **no** es `ROUND_HALF_UP(mercado × appliedBp / 10000)`, y recomputarlo así reintroduce I1.
+- **V6 endurecida** a `multiplier − pct ≥ 1` unidad, comparada sobre los **racionales exactos** en la
+  unión de nodos (`ns·db − nb·ds ≥ ds·db`, enteros, sin división). Sobre los continuos, dos valores
+  distintos dentro del mismo centavo colapsaban a `compra == venta` (margen cero, §N.3).
+- **V8 intacta**: amplificaba un input ya roto, no lo generaba.
+
+**Valores que CAMBIARON** (y son el bug, no una regresión): el pct exacto de compra en $125 es
+`4062.5 bp` ⇒ `5078` centavos (antes `4063 bp` ⇒ `5079`: un centavo **inflado** por el doble redondeo).
+Ese `5078` aparece ahora en `buylist.finish`, `buylist.modern-rarity` y `buylist.batch-clabe`.
+
+> **⚠️ DISCREPANCIA DE CONTRATO PARA EL ARQUITECTO (no la toqué).** El ejemplo del dry-run en
+> `docs/API_CONTRACT.md:4778` y su nota `:4794` siguen mostrando el resultado **derivado del bp
+> cuantizado**: `«5000 × 3467/10000 = 1733.5 ⇒ 1734»`. Con la interpolación exacta que el propio
+> v2.1.2 impone, `pct($50) = 10400/3 = 3466.666…`, así que `rawCents = 1733` y `priceCents = 1733`, y
+> `deltaCents.buy` pasa de `67` a **`66`**. `appliedBp: 3467` sigue siendo correcto **como display**.
+> Mismo caso en `docs/ARCHITECTURE.md:7722` (la fila E0 de la tabla de etapas cita `rawCents = 1733.5
+> ⇒ 1734` como el «caso de medio centavo» obligatorio). Implementé la matemática corregida —es la
+> decisión más reciente y explícita— y dejé el modo `ROUND_HALF_UP` fijado por tests propios de
+> `rawCentsFromRational`. **Los dos ejemplos necesitan actualización del arquitecto.**
+
+**Regresión permanente** (`pricing-curve.spec.ts`): las tres curvas de QA con su par que rompía y el
+entorno de ±$50, el caso peor con sus cifras exactas, y el barrido del seed y de la compra
+($0.01–$6 000, 0 rupturas). El barrido vive **en CI, jamás en el `PUT`**: barrer en cada escritura
+cambiaría un invariante exacto por uno muestreado.
+
+### Bloqueo 1 — el seam de venta devuelve una DECISIÓN, no un monto
+
+`PricingService.computeSalePriceForItem` se documentaba como «seam único» pero solo cargaba config y
+delegaba: el guardarraíl vivía **fuera**, así que cada consumidor tenía que acordarse de invocarlo — y
+uno de cinco (`MasterSetService.resolveBuyables`) no se acordó. Efecto alcanzable y money-visible: una
+premium con mercado degradado que el storefront ocultaba y el checkout rechazaba, **el binder la seguía
+ofreciendo como `buyable` con CTA a un checkout que iba a fallar**.
+
+- `decideSalePrice({ referenceMxnCents, rarityCanonical, controls, curve })` (síncrono, curva izada) y
+  `computeSalePriceForItem(...)` (single, iza la curva) devuelven `SalePriceDecision`, con el invariante
+  **`pendingReason != null ⇒ priceCents === null && basis === 'pending'`**. El monto se suprime **en el
+  seam**, no en cada caller.
+- La rareza es **obligatoria en la firma** a propósito: un caller no puede «olvidarla» sin que el
+  compilador lo pare. **Criterio 84 intacto**: la matemática pura de `common/` sigue sin `rarity`/`finish`
+  en su firma —que es donde §4.36.4 lo exige «hecho tipo»— y la rareza solo puede **suprimir** el monto,
+  nunca fijarlo (test dedicado: misma curva, dos rarezas, mismo precio).
+- **Candado mecánico** (`pricing.premium-floor-guard.spec.ts`): ningún módulo fuera de `modules/pricing/`
+  puede importar la función pura `computeSalePriceFromCurve`, y los cinco consumidores deben contener una
+  llamada al seam. La regla «un solo cuerpo» deja de depender de disciplina.
+
+### Bloqueo 2 — un solo cuerpo en el eje de compra
+
+`createRequest` reimplementaba la secuencia de `quoteCardForFinish` (rama `productId`, rama `set_base`,
+`quoteAcquisitionFromCurve`, `resolvePendingReason`, derivación de `quotedPriceCents`/`priceBasis`/
+`itemStatus`). Los dos cuerpos coincidían **hoy**, así que no era un bug: era el riesgo de que **el
+vendedor vea un número y firme otro**. Ahora `decideBuyLine` es el cuerpo único (quote, batch y
+createRequest), `quoteCardForFinish` queda como armador de DTO, y lo único propio de `createRequest` es
+la instrumentación y el `settlePendingForVariant`. De paso se cerró el **N+1**: las cartas se cargan en
+lote (1 `findMany`, 0 `findUnique` por ítem) mientras los overrides ya venían en lote.
+
+### E4-bis — el punto ciego del inventario ya `listed`
+
+`publishAll` seleccionaba `in_stock` **y** cortaba la rama `listed` antes de resolver precio. Ensanchar
+la selección sin tocar esa rama habría sido **peor que no hacer nada**: cada pieza degradada se contaría
+como `alreadyListed` («ya estaba bien») y el paso 2 del cut-over habría dado falso negativo *pareciendo*
+verificado. Se hicieron **las dos cosas**: selección `{in_stock, listed}` y **re-resolución** de la rama
+`listed`. Escalar **no cambia el status** (sigue `listed`: no hay exposición que cerrar porque el precio
+se resuelve en lectura, y un flip competiría con un checkout en vuelo). `summary.listedNowPending` es
+subcontador **fuera** de la partición; `alreadyListed` cambia de significado a «re-verificada y sana».
+`bulkPublish` **ya** re-resolvía (nunca tuvo el corto-circuito): queda cubierto con el mismo par de tests.
+
+> **Nota para quien toque `publishAll`:** el **snapshot de ids por adelantado** no es una optimización,
+> es lo que **garantiza terminación**. Con `listed` en la allowlist es imprescindible: una pieza que
+> escala **sigue casando el predicado**, así que un re-query en bucle no terminaría nunca.
+
+### E4-ter — el barrido ABRE la cola, no solo la cierra
+
+§4.36.5c ató la **salida** de la cola al barrido diario, pero la **entrada** quedó atada solo a eventos
+de publicación: el guardarraíl **se cerraba solo y no se abría solo**. `PriceIngestService.reconcilePublishedPrices`
+cierra la asimetría: al terminar de repreciar un set, re-resuelve sus piezas `platform`/`listed`/`raw`
+por el **mismo seam** y abre o cierra según el veredicto. Alcance = **el set completo**, no solo las
+variantes con fila nueva, porque el caso feo es justo el acabado que el proveedor **dejó de reportar**.
+Se saltan las piezas con override manual por pieza (su precio no depende del mercado, mismo criterio que
+`resolvePublishSalePrice`). Falla-seguro: un error aquí **no tumba la ingesta** (los precios ya se
+persistieron). Sin contrato, sin migración, sin job nuevo.
+
+### M1 — el cap de sondas del dry-run devuelve 400, no 422
+
+`POST /admin/pricing/curve/preview` usaba `BusinessException.validation` (422) para la **forma** del
+request. Manda el contrato: **400**. La forma no es regla de negocio y el precedente local es unánime
+(`/buylist/quote/batch`, `bulk-publish`, `bulk-remove`). Los 422 quedan solo para las infracciones de
+curva que **impiden calcular**. El test que se titulaba «→ 400» solo asertaba el `code` y nunca el
+status —por eso la divergencia pasaba verde—: ahora assertea el **status HTTP**, con el recíproco 422.
+
+### Estado de la suite tras la ronda
+`tsc --noEmit` limpio · `lint` 0 errores (2 warnings preexistentes ajenos) · **171 suites / 1859 tests
+verdes**. Deuda anotada en `docs/TECH_DEBT.md`: **D1** (cerrada por arrastre del bloqueo 1), **D2**
+(residuos de E8, incluida la rectificación de `computeSalePriceCents`), **D5** (dos criterios para
+`listPriceCents > 0` — es dinero y necesita decisión del arquitecto) y **D6** (menores, cerrados).

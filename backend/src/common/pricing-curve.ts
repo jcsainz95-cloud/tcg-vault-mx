@@ -585,7 +585,9 @@ function indexed<T extends { marketCents: number }>(points: readonly T[], value:
  * Valida el objeto COMPLETO (no un delta). Devuelve el PRIMER error o `null` si todo pasa.
  *
  * Orden de evaluación (determinista, de lo estructural a lo algebraico): forma → V1 → V3 (tipos y
- * rangos) → V4 → V2 → V8 → V7 → V5 → V6.
+ * rangos) → **V2** → V4 → V8 → V7 → V5 → V6. V2 (puntos ordenables y únicos) va ANTES que V4 porque
+ * es BLOQUEANTE: con breakpoints duplicados la curva ni siquiera es evaluable, y correr los chequeos
+ * algebraicos encima produciría errores derivados que confundirían al editor.
  *
  * NOTA de precedencia entre V3 y V4 (el contrato lista `multiplierBp ∈ [10000, 1000000]` bajo
  * `VALIDATION_ERROR` y `multiplierBp ≥ 10000` bajo `SALE_BELOW_MARKET`): un `multiplierBp < 10000`

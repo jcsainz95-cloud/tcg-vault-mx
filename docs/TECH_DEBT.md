@@ -3843,3 +3843,72 @@
   quedan como filas huérfanas `open` que ensucian la cola M2. No bloquea nada.
 - **Disparador / dirección de fix:** script de saneo **idempotente** (o barrido puntual) que remapee/cierre las
   entradas legacy huérfanas pertenecientes a piezas con `sealedProductId`.
+
+---
+
+### Gate techlead P-48 / v2.0-pricing-curve (rama `claude/card-pricing-rules-2e537m`, 2026-08-24) — deuda del veredicto (APROBADO CON DEUDA ANOTADA, no bloqueante)
+
+> El techlead **no rechazó el diseño** de la curva (la abstracción simplifica de verdad y la matemática
+> vive en un solo sitio); rechazó tres huecos concretos, ya **corregidos con tests** en este mismo pase
+> (guardarraíl ausente en `MasterSetService`, dos cuerpos en el eje de compra, y —vía arquitecto— el
+> punto ciego del inventario ya `listed`). Lo de abajo es lo **menor no bloqueante** que se acepta
+> anotado. Dueño de las tres: **backend**.
+
+#### D1 · `resolvePendingReason` recibe la rareza CRUDA en cuatro de cinco call sites — **RESUELTA (2026-08-24)**
+- **Dueño:** backend. **Severidad:** Baja hoy, **money-adjacent** (el parámetro gobierna un veredicto que bloquea dinero).
+- **Deuda (como la reportó el techlead):** el parámetro se llama `rarityCanonical`, pero cuatro call sites le
+  pasaban `card.rarity` **crudo** (`catalog:311`, `inventory:1179`, `orders:139`, `buylist:565`) y solo
+  `master-set:817` pasaba `rarityCanonical ?? rarity`. Era inocuo **hoy** porque `isPremiumCanonicalRarity`
+  normaliza por dentro; el riesgo era futuro: si alguien endurecía el predicado a canónica pura, cuatro caminos
+  de dinero degradaban **en silencio** (una chase dejaría de estar protegida por el guardarraíl sin que nada
+  fallara). Cinco call sites, un solo criterio.
+- **Por qué se cerró en vez de anotarse:** el refactor del BLOQUEO 1 obligaba a tocar los cinco call sites de
+  todos modos (el seam ahora **exige** la rareza en la firma), así que unificar costaba una línea por sitio.
+  Los cinco pasan hoy `card.rarityCanonical ?? card.rarity`, que era el criterio del sitio «bueno».
+- **Residual aceptado (Baja):** `rarityCanonical` puede quedar **stale** en BD si el catálogo cambió su
+  normalización después de escribir la fila; el `?? rarity` cubre el caso `null`, no el caso obsoleto. Lo cura
+  el backfill de normalización de rarezas (`unify-rarities`), no este seam.
+
+#### D2 · Residuos de E8 (retiro «sin residuos» del modelo de reglas) (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (ruido/mantenibilidad; (b) es money-adjacent por naturaleza).
+- **Deuda, en tres piezas:**
+  - **(a) Códigos de error sin emisor.** `common/error-codes.ts:83` (`PREMIUM_RARITY_FIXED_TIER`) y `:87`
+    (`UNKNOWN_RARITY`) siguen declarados, con comentarios que describen `PUT /admin/pricing/tier-map` — un
+    endpoint que **ya no existe**. El contrato los declara **retirados en v2.0** y `grep` confirma que **nadie
+    los emite**. Retirarlos toca el enum central (superficie de contrato) ⇒ pasa por el arquitecto (regla 9).
+  - **(b) `computeSalePriceCents` (`common/money.ts:74`) está MUERTA y su `@deprecated` miente.** Solo la tocan
+    dos specs (`be27-clamp-cents.spec.ts`, `money.spec.ts`); ningún código de producción la llama. Su
+    `@deprecated` apunta a `computeSalePriceForRarity`, **que E8 borró**. Es la **única función que produce un
+    precio de venta fuera de la curva**, así que dejarla viva es dejar una segunda puerta al dinero: o se retira
+    o se justifica explícitamente. **Corrección de mi propia nota:** `docs/BACKEND_NOTES.md` §E8 afirmaba que
+    «sigue en uso» — **es falso** y queda rectificado aquí y en esa nota.
+  - **(c) Docstrings obsoletos** que describen el modelo retirado: `master-set.service.ts:924-931` (**ya
+    corregido** en este pase, al reescribir `resolveBuyables`) y `rarity-catalog.ts:15-24,89,96` (pendiente).
+- **Disparador / dirección de fix:** (a) y (b) juntos, en el próximo pase que toque `common/` — (b) requiere
+  decisión explícita («se retira» vs «se justifica») porque toca la superficie de dinero; (a) requiere al
+  arquitecto por ser el enum de contrato.
+
+#### D5 · Dos criterios para la presencia del override POR PIEZA (`listPriceCents`) (Media, backend)
+- **Dueño:** backend. **Severidad:** Media (**es dinero, y es divergencia observable entre superficies**).
+- **Deuda:** la doctrina **H-1** («presente ⇔ `> 0`») está bien resuelta en `money.ts` para los overrides de
+  **variante** (M-30) y para el **sellado**, pero el **peldaño 1** de la precedencia —el override por pieza— no
+  la heredó: `orders.service.ts:98` exige `listPriceCents != null && > 0`, mientras `catalog.service.ts:274`,
+  `master-set.service.ts:969` e `inventory.service.ts:1135` solo exigen `!= null`.
+- **Efecto concreto de un `listPriceCents = 0`:** el **checkout** lo trata como AUSENTE y cae a la curva
+  (cobra el precio derivado); el **storefront**, el **binder** y la **publicación** lo tratan como PRESENTE y
+  resuelven a `0` ⇒ no vendible / `pending`. La misma pieza se comporta distinto en cada superficie, y la
+  divergencia es justo del tipo que este pase acaba de cerrar en el eje de venta (un solo cuerpo, un solo
+  criterio).
+- **Por qué se anota y no se corrige aquí:** unificar cambia **comportamiento de dinero** en un peldaño de la
+  precedencia normativa (§4.36.6) — hay que decidir cuál de los dos criterios es el correcto (`0` = ausente,
+  como en H-1, es lo coherente) y eso es decisión del **arquitecto**, no un refactor de backend.
+- **Disparador:** antes de operar con dinero real, o en cuanto aparezca una pieza con `listPriceCents = 0` en
+  producción. Fix esperado: extender H-1 al peldaño 1 en un único predicado compartido, como ya se hizo con los
+  otros dos niveles.
+
+#### D6 · Detalles menores del gate (preferencia del techlead, no bloquean) — **RESUELTOS (2026-08-24)**
+- `collectCurveViolations` (`pricing-curve.ts`) anunciaba en su JSDoc el orden «forma → V1 → V3 → V4 → V2»
+  mientras el código evalúa V2 antes que V4: el docblock se corrigió al orden real.
+- El test «el markup cambia peso a peso» (`pricing-curve.spec.ts`) fijaba `a - b < 200`, un umbral atado a la
+  pendiente del seed vigente que se rompería por una razón **distinta** de la que el test quiere proteger
+  (que no haya escalones). Se re-expresó contra la propiedad, no contra el número.

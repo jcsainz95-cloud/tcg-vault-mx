@@ -14,6 +14,7 @@ import {
   interp,
   interpExact,
   rawCentsFromRational,
+  saleBpPoints,
   isBountyEffective,
   marketBracketOf,
   normalizePricingCurve,
@@ -82,7 +83,21 @@ describe('pricing-curve — interpolación (criterio 81: nunca escalonada)', () 
     const a = saleMultiplierBpAt(CURVE, 5000);
     const b = saleMultiplierBpAt(CURVE, 5100);
     expect(b).toBeLessThan(a); // baja conforme sube el valor
-    expect(a - b).toBeLessThan(200); // sin saltos bruscos entre mercados casi iguales
+    // La propiedad que se protege es «SIN ESCALONES»: entre dos mercados contiguos el multiplicador se
+    // mueve como la RECTA del tramo, no a saltos. Se compara contra la pendiente REAL del tramo en vez
+    // de contra un umbral fijo (antes `< 200`), que estaba atado a la inclinación del seed vigente y se
+    // habría roto al re-calibrar la curva — por una razón distinta de la que el test vigila.
+    const [p0, p1] = [CURVE.sale.points[0], CURVE.sale.points[1]];
+    const perCent = Math.abs(p1.multiplierBp - p0.multiplierBp) / (p1.marketCents - p0.marketCents);
+    // Sobre el valor EXACTO (v2.1.2: `saleMultiplierBpAt` redondea, es solo-display) la caída es
+    // exactamente la de la recta.
+    const exactAt = (m: number) => {
+      const { num, den } = interpExact(saleBpPoints(CURVE.sale.points), m);
+      return num / den;
+    };
+    expect(exactAt(5000) - exactAt(5100)).toBeCloseTo(perCent * 100, 6);
+    // Y el valor de display no se aleja del exacto más de lo que puede un redondeo a bp.
+    expect(Math.abs(a - b - perCent * 100)).toBeLessThanOrEqual(1);
   });
 
   it('el pct de COMPRA sube conforme sube el mercado (§N.1)', () => {
