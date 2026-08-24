@@ -54,3 +54,6 @@ nuclei.jsonl
 # pero por si alguien monta datos localmente:
 data/
 tmp/
+
+# Volcado de Redis local (lo deja `redis-server` al correr el stack nativo desde la raíz)
+dump.rdb
