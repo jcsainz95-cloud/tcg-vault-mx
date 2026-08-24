@@ -8039,3 +8039,76 @@ por redundante con `source`; ésta es `super_admin`, donde la procedencia **es**
 ### Estado
 `tsc --noEmit` limpio · `lint` 0 errores (2 warnings preexistentes ajenos) · **unitarios: 179 suites /
 1980 tests** · **integración: 143/143 contra Postgres real** (eran 127; +16 nuevos).
+
+---
+
+## P-48 · v2.1.7-declared-shapes — la causa raíz, y la auditoría que dejó a backend (2026-08-24)
+
+El arquitecto normó las dos rutas que dejé marcadas y, auditando el acuerdo tácito de
+`GET /admin/pricing/card/:cardId`, encontró **la causa raíz de toda la familia de bugs** de este pase:
+
+> Cuando la respuesta **es** la entidad, la forma de la API la define el **schema**, no el contrato — y
+> entonces **cada migración es un cambio de contrato silencioso.**
+
+M-41 añadió columnas a **tres** modelos. Con ese patrón, cualquier columna futura **se auto-publica sin
+que nadie lo decida**. Es literalmente la máquina que produjo el hueco de `details` (v2.1.5), el de
+`PriceInfo` (v2.1.6) y B-1 (v2.1.7).
+
+### Las dos rutas normadas
+
+`toPriceHistoryEntry` es **un solo cuerpo**, por **lista blanca** (no `delete`, no spread de la fila).
+Hay un test que **simula la próxima migración** —añade una columna al objeto de entrada— y comprueba
+que no sale por omisión: esa es la propiedad que se busca, no que hoy los campos coincidan.
+
+- **`GET /admin/pricing/card/:cardId`** → `{ data: PriceHistoryEntryDTO[] }`.
+- **`POST /admin/pricing/override`** → `{ data: PriceHistoryEntryDTO }`. Era el **caso testigo**:
+  devolvía la fila completa (`id`, `priceUsdCents`, `fxRate`, `fxBufferPct`, `cardProductId`,
+  `createdAt`).
+
+> **Dónde vive la proyección, y por qué.** El **servicio** sigue devolviendo la entidad **a propósito**:
+> su otro llamador (`inventory`, alta de sellado con precio manual) la compone dentro de una
+> transacción y necesita la fila. La proyección vive en el **borde HTTP**, que es donde se decide la
+> forma de la API. El `id` sigue yendo a la **bitácora**, que es donde se necesita para trazar.
+
+**`source` pasa a ser el ENUM.** Era la grieta del acuerdo tácito: yo lo tipaba `string`, el frontend
+`PriceSource`. Con `string`, un valor fuera del enum **compila** de mi lado y **rompe el render** del
+otro sin que nada avise — justo en el campo del que trata la ruta.
+
+### La auditoría encontró algo peor que las rutas de pricing
+
+`PATCH /admin/users/:id/status` devolvía la fila **`User` COMPLETA**: **`passwordHash`**, más
+`tokenVersion`, `googleId` y `anonymizedAt`. Es `super_admin` y el hash es bcrypt, así que no es una
+fuga explotable de inmediato — pero **un hash de credencial no tiene ninguna razón para viajar en la
+respuesta de «cambiar estado»**, y es exactamente el fallo que la norma predice.
+
+Se proyectó con el **mismo `select` que ya usaba `listUsers`** (el endpoint hermano): no inventé forma,
+reusé la que el consumidor ya conoce.
+
+### Lo que NO proyecté, y por qué es deliberado
+
+La auditoría completa quedó en `docs/TECH_DEBT.md` **D10** con archivo:línea: ocho sitios más
+(`addresses`, `guest-checkout`, `inventory items/locations`, `buylist`, `shipments`, `disputes`,
+`kyc`). **Ninguno expone credenciales.**
+
+No los proyecté porque **el contrato no declara la forma de ninguna de esas respuestas** — `AddressDTO`
+incluso se **referencia** en §5 y **nunca se define**. Proyectarlas ahora sería que backend **invente
+ocho formas por su cuenta**, que es **exactamente el «acuerdo tácito» que produjo B-1** y que esta
+revisión vino a erradicar. Y hacerlo en vísperas del gate de release metería riesgo de regresión en
+rutas de dinero sin ganancia de seguridad. El arquitecto declara; yo proyecto contra lo declarado.
+
+### `isManualOverride` en el historial — ratificado, y con mejor argumento que el mío
+
+El arquitecto fue a **verificar** mi afirmación de redundancia en vez de aceptarla, y encontró que
+**ahí no la hay**: `sourceRank(source, isManualOverride)` casa `isManualOverride || source === 'manual'`
+— o sea las trata como **señales separadas**, así que una fila puede venir marcada manual con un
+`source` distinto. En `PriceInfo` se resuelve **una** referencia y `source === 'manual'` la determinaba
+por completo; en un historial de **N filas de auditoría**, ambas cargan información. Queda con la regla
+que generaliza:
+
+> La pregunta correcta nunca es «¿este campo es sensible?» sino **«¿es sensible para quien lee esta
+> ruta?»**.
+
+### Estado final del árbol
+`tsc --noEmit` limpio · `lint` 0 errores (2 warnings preexistentes ajenos) · **unitarios: 180 suites /
+1989 tests** · **integración: 146/146 contra Postgres real**. Las tres rutas corregidas están
+verificadas **por HTTP contra el stack vivo**, no solo en unitarios.

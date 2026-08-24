@@ -3960,3 +3960,34 @@
   pase de seguridad.
 - **Disparador:** cuando el histórico de operaciones deje de caber cómodamente en memoria, o antes de exponer el
   reporte a un rol con menos fricción que `super_admin`.
+
+#### D10 · Endpoints que aún devuelven entidades Prisma sin forma declarada (Media, backend + arquitecto)
+- **Dueño:** el **arquitecto** declara la forma; **backend** proyecta. **Severidad:** Media (no hay credenciales ni
+  PII sensible en los que quedan; lo que hay es la **máquina** que produce cambios de contrato silenciosos).
+- **Contexto:** v2.1.7 elevó a norma que *ningún endpoint devuelve una entidad Prisma directamente*. El arquitecto
+  normó las **dos** rutas de §M2 y dejó a backend **auditar el resto**. Esta es esa auditoría, completa.
+- **Ya cerrados en v2.1.7:** `GET /admin/pricing/card/:cardId`, `POST /admin/pricing/override` (rutas normadas) y
+  `PATCH /admin/users/:id/status` — este último **devolvía `passwordHash`**, y se proyectó con el `select` que ya
+  usaba `listUsers` (no hubo que inventar forma).
+- **Pendientes, con archivo:línea.** Ninguno expone credenciales; todos comparten el defecto estructural:
+
+  | Endpoint / servicio | Sitio | Entidad devuelta |
+  |---|---|---|
+  | `POST`/`PATCH /users/me/addresses` | `users.service.ts:81,91` | `Address` |
+  | Seguimiento de pedido invitado | `guest-checkout.service.ts:291` | `Order` |
+  | `PATCH /admin/inventory/items/:id` (y `move`/`mark`) | `inventory.service.ts:1642,1659,1678` | `InventoryItem` |
+  | `POST /admin/inventory/locations` | `inventory.service.ts:2293` | `VaultLocation` |
+  | `POST /buylist/requests/:id/respond` y transiciones admin | `buylist.service.ts:947,957,1109,1121` | `SellRequest` |
+  | Transición de envío | `shipments.service.ts:564` | `ShipmentRequest` |
+  | Transición de disputa | `disputes.service.ts:152,163` | `Dispute` |
+  | KYC admin | `admin.service.ts:385` | `KycProfile` |
+
+- **Por qué NO se proyectaron en este pase, y es deliberado:** el contrato **no declara** la forma de ninguna de
+  esas respuestas — de hecho `AddressDTO` se **referencia** en §5 pero **nunca se define**. Proyectarlas ahora
+  significaría que backend **inventa** ocho formas por su cuenta… que es **exactamente el «acuerdo tácito» que
+  produjo B-1** y que esta misma revisión vino a erradicar. Hacerlo en vísperas del gate de release, además, mete
+  riesgo de regresión en rutas de dinero (buylist, shipments, orders) sin ganancia de seguridad.
+- **Disparador / dirección de fix:** el arquitecto declara los DTOs (o confirma que la entidad ES la forma
+  contractual para cada caso) y backend proyecta contra lo declarado, con el patrón ya probado: **tipo declarado +
+  builder anotado + test de conjunto exacto de claves sobre el JSON**. Prioridad sugerida por superficie:
+  `guest-checkout` (semi-pública, con token) → `users/addresses` (PII de domicilio) → el resto (admin).
