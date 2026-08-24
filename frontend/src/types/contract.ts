@@ -1918,11 +1918,21 @@ export interface CurvePreviewResponse {
 
 // `details` de los 422 de la curva (contrato §0 «Códigos nuevos de la CURVA»): SIEMPRE dicen QUÉ
 // PUNTO lo rompe. Campos opcionales según el código (el front los usa para saltar al punto).
+//
+// ⚠️ El contrato norma `{ axis, index, marketCents, … }` y deja el SEGUNDO extremo del tramo dentro
+// de ese «…», sin nombrarlo. El backend emite `index2` / `marketCentsTo`. Se leen ESOS, y se
+// toleran `toIndex` / `toMarketCents` como alias por si el nombre se normaliza al revés: si el
+// front leyera solo un nombre y el server mandara el otro, el segundo extremo del tramo **no se
+// marcaría** y el dueño buscaría el problema donde no está. (Solicitud al arquitecto: normar el
+// nombre — ver `docs/FRONTEND_NOTES.md` §21.)
 export interface CurveErrorDetails {
   axis?: 'sale' | 'buy';
   index?: number;
   marketCents?: number;
-  /** Tramo infractor (V5/V6): el segundo punto del par. */
+  /** Tramo infractor (V5 venta · V9 compra · V6): el SEGUNDO punto del par. */
+  index2?: number;
+  marketCentsTo?: number;
+  /** Alias tolerados del segundo extremo (el contrato no fija el nombre). */
   toIndex?: number;
   toMarketCents?: number;
   multiplierBp?: number;

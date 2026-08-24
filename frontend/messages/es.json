@@ -1566,6 +1566,7 @@
           "referenceTitle": "Tabla de referencia",
           "referenceHint": "Los mercados de la prueba de mesa más el mercado de cada punto de tu borrador.",
           "referenceCaption": "Precios de referencia con la curva vigente y con el borrador",
+          "shapeTitle": "Lectura de la curva",
           "marketCol": "Mercado",
           "saleCurrentCol": "Venta vigente",
           "saleDraftCol": "Venta borrador",
@@ -1616,6 +1617,7 @@
           "DUPLICATE_BREAKPOINT": "Hay dos puntos en el mismo mercado ({market}). Cambia uno o quita el repetido.",
           "SALE_BELOW_MARKET": "El punto de {market} vendería por debajo del mercado. El multiplicador de venta nunca puede bajar de 1.00×.",
           "SALE_CURVE_NOT_MONOTONIC": "Entre {from} y {to} el precio de venta baja cuando el mercado sube. Sube el multiplicador de {to} o baja el de {from}.",
+          "BUY_CURVE_NOT_MONOTONIC": "Entre {from} y {to} pagarías menos aunque el mercado suba. Sube el pago de {to} o baja el de {from}.",
           "BUY_ABOVE_SALE": "En {market} pagarías {pct}% y venderías a {mult}×: la compra alcanza a la venta. Baja el pago de ese tramo.",
           "BIN_ABOVE_FLOOR": "El mínimo de compra ({bin}) no puede alcanzar al piso de venta ({floor}).",
           "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: cada frontera debe ser múltiplo exacto del escalón de la banda anterior (con escalón de MX$5, la frontera puede ser MX$200, no MX$203)."
@@ -2387,6 +2389,7 @@
     "DUPLICATE_BREAKPOINT": "Hay dos puntos en el mismo mercado: no se guardó nada.",
     "SALE_BELOW_MARKET": "Un punto vendería por debajo del mercado: no se guardó nada.",
     "SALE_CURVE_NOT_MONOTONIC": "La curva de venta baja cuando el mercado sube: no se guardó nada.",
+    "BUY_CURVE_NOT_MONOTONIC": "La curva de compra pagaría menos con más mercado: no se guardó nada.",
     "BUY_ABOVE_SALE": "La compra alcanza a la venta en algún tramo: no se guardó nada.",
     "BIN_ABOVE_FLOOR": "El mínimo de compra alcanza al piso de venta: no se guardó nada.",
     "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: no se guardó nada."

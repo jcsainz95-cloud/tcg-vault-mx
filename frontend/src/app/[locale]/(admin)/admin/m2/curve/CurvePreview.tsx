@@ -209,10 +209,21 @@ export function CurvePreview({
             </table>
           </div>
         )}
+        {/* §21.5b + §21.4e — «LECTURA DE LA CURVA»: aviso de INTENCIÓN de negocio, no invariante.
+            El eyebrow no es decoración: es lo que impide confundirlo con un error. El aviso tiene
+            nombre y casa FIJOS (aquí, al pie de la tabla de referencia) y ningún error de
+            validación lleva ese rótulo ni vive en este sitio.
+
+            ⚠️ PROHIBIDO teñirlo de rojo o darle icono de error **aunque V9 esté presente**: los dos
+            pueden ser ciertos a la vez sobre la misma curva y significan cosas distintas — que el
+            PCT baje es legítimo mientras el PAGO ABSOLUTO suba; lo que V9 bloquea es que baje el
+            pago. Si el aviso aprendiera a verse como error, la próxima vez que aparezca solo —que
+            es el caso normal— se leería como un fallo que nadie tiene que atender. */}
         {shapeWarning && (
-          <p className="font-mono text-[11px] text-muted" role="status">
-            {t('shapeHint')}
-          </p>
+          <div className="border-t border-border pt-3" role="status" data-testid="curve-shape-note">
+            <span className="eyebrow">{t('shapeTitle')}</span>
+            <p className="mt-1.5 font-mono text-[11px] text-muted">{t('shapeHint')}</p>
+          </div>
         )}
       </section>
     </div>

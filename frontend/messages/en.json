@@ -1566,6 +1566,7 @@
           "referenceTitle": "Reference table",
           "referenceHint": "The table-test markets plus the market of every point in your draft.",
           "referenceCaption": "Reference prices with the current curve and with the draft",
+          "shapeTitle": "Curve reading",
           "marketCol": "Market",
           "saleCurrentCol": "Sale current",
           "saleDraftCol": "Sale draft",
@@ -1616,6 +1617,7 @@
           "DUPLICATE_BREAKPOINT": "Two points share the same market ({market}). Change one or remove the duplicate.",
           "SALE_BELOW_MARKET": "The {market} point would sell below market. The sale multiplier can never go under 1.00×.",
           "SALE_CURVE_NOT_MONOTONIC": "Between {from} and {to} the sale price drops as market goes up. Raise the {to} multiplier or lower the {from} one.",
+          "BUY_CURVE_NOT_MONOTONIC": "Between {from} and {to} you would pay less even though market goes up. Raise the {to} pay or lower the {from} one.",
           "BUY_ABOVE_SALE": "At {market} you would pay {pct}% and sell at {mult}×: buying catches up with selling. Lower the pay for that stretch.",
           "BIN_ABOVE_FLOOR": "The buy minimum ({bin}) cannot reach the sale floor ({floor}).",
           "ROUNDING_LADDER_INVALID": "The rounding ladder is invalid: each boundary must be an exact multiple of the previous band's step (with a MX$5 step, the boundary can be MX$200, not MX$203)."
@@ -2387,6 +2389,7 @@
     "DUPLICATE_BREAKPOINT": "Two points share the same market: nothing was saved.",
     "SALE_BELOW_MARKET": "A point would sell below market: nothing was saved.",
     "SALE_CURVE_NOT_MONOTONIC": "The sale curve drops as market goes up: nothing was saved.",
+    "BUY_CURVE_NOT_MONOTONIC": "The buy curve would pay less as market goes up: nothing was saved.",
     "BUY_ABOVE_SALE": "Buying catches up with selling somewhere: nothing was saved.",
     "BIN_ABOVE_FLOOR": "The buy minimum reaches the sale floor: nothing was saved.",
     "ROUNDING_LADDER_INVALID": "The rounding ladder is invalid: nothing was saved."

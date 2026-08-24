@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { formatMoneyCents } from '@/lib/format';
 import { SealedDetailView } from './SealedDetailView';
 import * as api from '@/lib/api';
 import { mockSealedGroups } from '@/lib/mock/fixtures';
@@ -138,6 +139,57 @@ describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', 
     expect(
       screen.queryByText('Valor de mercado de referencia (TCGCSV), actualizado a diario.'),
     ).toBeNull();
+  });
+
+  /**
+   * Matiz de QA sobre el assert de la ficha: el de la E2E caza el **rótulo**, no la **cifra**, así
+   * que un bloque futuro que republicara el número sin la frase —un eje de gráfica, un tooltip, un
+   * `aria-label`— pasaría en verde. Aquí sí se puede afirmar por la CIFRA sin volverse frágil: el
+   * test es dueño de su fixture, así que compara contra el mismo valor que inyecta, no contra un
+   * monto global que cualquiera puede mover.
+   *
+   * El caso es además el más exigente: hay mercado CONOCIDO y aun así lo fijó un override (§K:
+   * `override manual > mercado × spread`), o sea que la cifra existe y NO debe publicarse.
+   */
+  it('con override NO se publica la CIFRA del mercado en ninguna parte, ni sin su rótulo', async () => {
+    const MARKET_CENTS = 987_654; // valor propio del test: se afirma contra él, no contra fixtures.
+    mockDetail({
+      group: {
+        ...BOX_MINOR,
+        priceBasis: 'override',
+        referenceValue: {
+          status: 'priced',
+          referenceMxnCents: MARKET_CENTS,
+          source: 'tcgcsv',
+          capturedDate: '2026-08-20',
+        },
+      },
+      trendEnabled: true,
+    });
+    // La serie de tendencia se sirve con ESE mismo mercado como valor actual (es lo que la
+    // tendencia pinta a 32-40px). Así el assert MUERDE: si el bloque volviera a renderizarse, la
+    // cifra aparecería aunque alguien le quitara la frase «valor de mercado de referencia».
+    vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue({
+      set: { id: 'sealed:box', name: 'Surging Sparks Booster Box' },
+      range: '1m',
+      points: [
+        { date: '2026-08-19', valueMxnCents: MARKET_CENTS - 1000, pricedCardCount: 1 },
+        { date: '2026-08-20', valueMxnCents: MARKET_CENTS, pricedCardCount: 1 },
+      ],
+      change: { direction: 'up', absMxnCents: 1000, pct: 1.02 },
+    });
+    const { container } = renderWithProviders(
+      <SealedDetailView inventoryItemId="inv-1020" />,
+      'es',
+    );
+
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    const formatted = formatMoneyCents(MARKET_CENTS, 'es'); // MX$9,876.54
+    // Ni con rótulo ni sin él: la cifra no aparece en el texto…
+    expect(container.textContent).not.toContain(formatted);
+    // …ni escondida en un atributo accesible o un tooltip.
+    expect(container.innerHTML).not.toContain(formatted);
+    expect(container.innerHTML).not.toContain(String(MARKET_CENTS));
   });
 
   it('con precio por SPREAD la tendencia SÍ se pinta (ahí el mercado explica el precio)', async () => {

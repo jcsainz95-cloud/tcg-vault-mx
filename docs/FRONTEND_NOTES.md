@@ -139,6 +139,40 @@ margen»). La variante «sin bloque» **no menciona** el mercado: no hay nada qu
   la referencia de mercado entra bajo la misma condición. Hoy solo hay uno; la ficha de carta no
   tiene tendencia y el formulario de restock no publica mercado (verificado).
 
+### V9 `BUY_CURVE_NOT_MONOTONIC` y la disciplina de §21.4e (2026-08-24)
+
+- **Código propio, no una generalización de V5.** Los dos son gemelos —mismo esqueleto de copy,
+  misma marca de tramo— pero el verbo cambia porque cambia el daño: en venta el precio **baja**; en
+  compra **pagarías menos**. Unificarlos obligaría a un mensaje que no dice ninguna de las dos cosas.
+- **`details.axis` enruta las marcas.** Con `axis:"buy"` las dos filas culpables se marcan en la
+  tabla de **compra** y el salto «Ir al punto de …» aterriza ahí; las de venta quedan limpias. Hay
+  test que lo fija en ambos sentidos.
+- **⚠️ Drift de nombre encontrado al cablearlo.** El contrato norma `details: { axis, index,
+  marketCents, … }` y deja el **segundo extremo del tramo dentro de ese «…»**; el backend emite
+  **`index2` / `marketCentsTo`**, y este front había declarado `toIndex` / `toMarketCents`. Con el
+  nombre equivocado, el segundo extremo **no se marcaba** y el dueño buscaría el problema donde no
+  está. Ahora se lee `marketCentsTo` (lo real) con el otro como alias tolerado, y los tests usan el
+  shape del servidor. **Solicitud al arquitecto:** normar el nombre en el contrato.
+- **§21.4e — el aviso no se contagia del invariante.** «Lectura de la curva» (§21.5b) y V9 pueden
+  ser ciertos **a la vez sobre la misma curva** y significan cosas distintas: que el **pct baje** es
+  legítimo mientras el **pago absoluto suba**; V9 bloquea que baje el pago. El aviso conserva su
+  eyebrow `LECTURA DE LA CURVA`, su `role="status"` y su tinta muted **aunque V9 esté presente** —
+  sin rojo y sin icono de error. Si aprendiera a verse como error, la próxima vez que apareciera
+  solo —el caso normal y legítimo— se leería como un fallo del que nadie tiene que hacer nada. Hay
+  un test que dispara los dos a la vez y afirma que el aviso no cambia de tono.
+
+### El assert de la ficha de sellado, ahora también por la CIFRA (matiz de QA)
+
+QA validó que el assert de página entera no es vacuo, y señaló que **caza el rótulo, no el número**:
+un bloque futuro que republicara la cifra sin la frase —un eje de gráfica, un tooltip, un
+`aria-label`— pasaría en verde. Se cerró **sin volver frágil el test**: el assert por cifra vive en
+el **unitario**, que es dueño de su fixture, así que compara contra el mismo valor que inyecta y no
+contra un monto global que cualquiera puede mover. El caso elegido es el más exigente: hay mercado
+**conocido** y aun así lo fijó un override (§K: `override manual > mercado × spread`), y la serie de
+tendencia se sirve con **ese mismo** valor — así, si el bloque volviera, la cifra aparecería.
+Verificado por mutación: al revertir la condición, **fallan los dos** (el del rótulo y el de la
+cifra, este último nombrando `MX$9,876.54`). La E2E conserva el assert de página entera.
+
 ### Cobertura
 
 - `M2View.test.tsx`: 12 casos del editor (retiro sin residuos + texto falso, anatomía, dry-run como
@@ -208,7 +242,11 @@ localizadores ahora dicen a cuál se refieren; **no se tocó el checkout**, que 
 
 ### Solicitudes al arquitecto (ninguna bloquea)
 
-1. **Impacto del cambio sobre inventario real** (§21.13.2, ya diferido): el diálogo de guardado habla
+1. **Nombre del segundo extremo del tramo en `details`.** El contrato lo deja en «…» y el backend
+   emite `index2` / `marketCentsTo`. Hoy el front lee ese nombre con alias tolerado, pero mientras
+   no esté normado, cualquier renombre silencioso deja de marcar la segunda fila **sin romper
+   ningún test de contrato**. Afecta a los tres errores de tramo (V5, V9, V6).
+2. **Impacto del cambio sobre inventario real** (§21.13.2, ya diferido): el diálogo de guardado habla
    de **mercados de referencia**, no de cuántas publicaciones cambian de precio. Sin ese dato el
    diseño es veraz, pero un conteo por bracket haría del diff una decisión con volumen.
 

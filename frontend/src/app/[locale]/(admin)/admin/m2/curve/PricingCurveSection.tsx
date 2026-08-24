@@ -756,7 +756,15 @@ function violationMessage(t: Translator, v: CurveViolation, locale: AppLocale): 
     case 'SALE_CURVE_NOT_MONOTONIC':
       return t('errors.SALE_CURVE_NOT_MONOTONIC', {
         from: money(d.marketCents),
-        to: money(d.toMarketCents),
+        to: money(d.marketCentsTo ?? d.toMarketCents),
+      });
+    // V9 — gemelo de V5 en el eje de COMPRA. Mismo esqueleto (diagnóstico + remedio nombrando los
+    // dos puntos), verbo distinto: el daño no es «vender barato», es «pagar de menos» — y una
+    // carta que no se compra se pierde igual que una vendida barata (§N.0 en simétrico).
+    case 'BUY_CURVE_NOT_MONOTONIC':
+      return t('errors.BUY_CURVE_NOT_MONOTONIC', {
+        from: money(d.marketCents),
+        to: money(d.marketCentsTo ?? d.toMarketCents),
       });
     case 'BUY_ABOVE_SALE':
       return t('errors.BUY_ABOVE_SALE', {

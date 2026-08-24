@@ -450,6 +450,10 @@ const CURVE_ERROR_CODES = new Set([
   'DUPLICATE_BREAKPOINT',
   'SALE_BELOW_MARKET',
   'SALE_CURVE_NOT_MONOTONIC',
+  // V9 (v2.1.4): código PROPIO, no una generalización del de venta. Son gemelos —mismo esqueleto
+  // de copy y misma marca de tramo— pero el daño es distinto: en venta el precio BAJA; en compra
+  // PAGARÍAS MENOS. Unificarlos obligaría a un mensaje que no dice ninguna de las dos cosas.
+  'BUY_CURVE_NOT_MONOTONIC',
   'BUY_ABOVE_SALE',
   'BIN_ABOVE_FLOOR',
   'ROUNDING_LADDER_INVALID',
@@ -470,10 +474,17 @@ export function curveViolationFromError(error: unknown): CurveViolation | null {
   return { code: error.code, details: (error.details as CurveErrorDetails) ?? {} };
 }
 
-/** Mercados (centavos) implicados por una infracción: para marcar filas y resaltar el previsualizador. */
+/**
+ * Mercados (centavos) implicados por una infracción: para marcar filas y resaltar el
+ * previsualizador. Los errores de TRAMO (V5 venta, V9 compra, V6) devuelven **los dos extremos** —
+ * marcar uno solo mandaría al dueño a buscar el problema donde no está.
+ */
 export function violationMarkets(v: CurveViolation): number[] {
   const out: number[] = [];
   if (v.details.marketCents != null) out.push(v.details.marketCents);
-  if (v.details.toMarketCents != null) out.push(v.details.toMarketCents);
+  // El segundo extremo: `marketCentsTo` es lo que emite el backend; `toMarketCents` se tolera
+  // porque el contrato deja el nombre dentro de un «…» (ver `CurveErrorDetails`).
+  const to = v.details.marketCentsTo ?? v.details.toMarketCents;
+  if (to != null && to !== v.details.marketCents) out.push(to);
   return out;
 }

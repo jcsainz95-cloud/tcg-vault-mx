@@ -1299,7 +1299,8 @@ describe('M2 · Editor de la curva de precio (P-48, v2.0)', () => {
       new ApiClientError(422, {
         code: 'SALE_CURVE_NOT_MONOTONIC',
         message: 'not monotonic',
-        details: { axis: 'sale', index: 0, marketCents: 2500, toIndex: 1, toMarketCents: 8000 },
+        // Shape REAL del backend para un error de TRAMO: `index2` / `marketCentsTo`.
+        details: { axis: 'sale', index: 0, index2: 1, marketCents: 2500, marketCentsTo: 8000 },
       }),
     );
     renderWithProviders(<M2View />, 'es');
@@ -1323,6 +1324,90 @@ describe('M2 · Editor de la curva de precio (P-48, v2.0)', () => {
     expect(within(alert).getByRole('button', { name: 'Ir al punto de MX$80.00' })).toBeInTheDocument();
     // La barra dice que no se guardó; la curva vigente sigue viva.
     expect(s.getByText('No se guardó')).toBeInTheDocument();
+  });
+
+  /**
+   * V9 `BUY_CURVE_NOT_MONOTONIC` (v2.1.4) — gemelo de V5 en el eje de COMPRA: una curva que pagaría
+   * MENOS por una carta que vale MÁS. Código PROPIO, no una generalización: cambia el verbo porque
+   * cambia el daño (pagar de menos ⇒ el vendedor no vende ⇒ carta perdida, §N.0 en simétrico).
+   */
+  it('V9: un 422 de compra marca la tabla de COMPRA y nombra los DOS extremos del tramo', async () => {
+    mockPreview();
+    vi.spyOn(api, 'updatePricingCurve').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'BUY_CURVE_NOT_MONOTONIC',
+        message: 'buy not monotonic',
+        details: { axis: 'buy', index: 1, index2: 2, marketCents: 10000, marketCentsTo: 50000 },
+      }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    const pay = (await s.findByLabelText('Pago del punto 3')) as HTMLInputElement;
+    fireEvent.change(pay, { target: { value: '10' } });
+    fireEvent.blur(pay);
+    fireEvent.click(s.getByRole('button', { name: 'Guardar curva' }));
+    const dialog = await screen.findByRole('dialog', { name: /Guardar la curva de precio/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar curva' }));
+
+    const alert = await s.findByRole('alert');
+    expect(within(alert).getByText('No se guardó nada.')).toBeInTheDocument();
+    // Copy PROPIO del eje de compra: «pagarías menos», no «el precio de venta baja».
+    expect(
+      within(alert).getByText(/Entre MX\$100\.00 y MX\$500\.00 pagarías menos aunque el mercado suba/),
+    ).toBeInTheDocument();
+    expect(within(alert).queryByText(/precio de venta baja/)).toBeNull();
+    // Los DOS extremos del tramo, no uno: marcar uno solo mandaría a buscar donde no está.
+    expect(within(alert).getByRole('button', { name: 'Ir al punto de MX$100.00' })).toBeInTheDocument();
+    expect(within(alert).getByRole('button', { name: 'Ir al punto de MX$500.00' })).toBeInTheDocument();
+
+    // `details.axis="buy"` enruta las marcas a la tabla de COMPRA: las filas de VENTA quedan limpias.
+    const buyRows = s.getAllByTestId('curve-point-buy');
+    const markedBuy = buyRows.filter((r) => r.className.includes('border-accent'));
+    expect(markedBuy).toHaveLength(2);
+    const saleRows = s.getAllByTestId('curve-point-sale');
+    expect(saleRows.filter((r) => r.className.includes('border-accent'))).toHaveLength(0);
+  });
+
+  /**
+   * §21.4e — invariante ≠ aviso. V9 y la «lectura de la curva» pueden ser ciertos A LA VEZ sobre la
+   * misma curva y significan cosas distintas: que el PCT baje es legítimo mientras el PAGO ABSOLUTO
+   * suba; V9 bloquea que baje el pago. Si el aviso aprendiera a verse como error, la próxima vez que
+   * apareciera solo —el caso normal— se leería como un fallo que nadie tiene que atender.
+   */
+  it('§21.4e: con V9 presente, el aviso «Lectura de la curva» sigue siendo status muted, nunca rojo', async () => {
+    mockPreview();
+    vi.spyOn(api, 'updatePricingCurve').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'BUY_CURVE_NOT_MONOTONIC',
+        message: 'buy not monotonic',
+        details: { axis: 'buy', index: 1, index2: 2, marketCents: 10000, marketCentsTo: 50000 },
+      }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await curveSection();
+
+    // Curva de compra con el pct DESCENDENTE ⇒ el aviso aparece en vivo, mientras se edita.
+    const pay = (await s.findByLabelText('Pago del punto 3')) as HTMLInputElement;
+    fireEvent.change(pay, { target: { value: '10' } });
+    fireEvent.blur(pay);
+    const note = await s.findByTestId('curve-shape-note');
+    expect(note).toHaveAttribute('role', 'status');
+    expect(within(note).getByText('Lectura de la curva')).toBeInTheDocument();
+
+    // Al guardar llega V9. Los DOS conviven: cada uno en su sitio y con su tono.
+    fireEvent.click(s.getByRole('button', { name: 'Guardar curva' }));
+    const dialog = await screen.findByRole('dialog', { name: /Guardar la curva de precio/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar curva' }));
+    await s.findByRole('alert');
+
+    const stillMuted = s.getByTestId('curve-shape-note');
+    expect(stillMuted).toHaveAttribute('role', 'status');
+    // Ni rojo ni icono de error: el aviso no se contagia del invariante.
+    expect(stillMuted.className).not.toContain('accent');
+    expect(stillMuted.className).not.toContain('danger');
+    expect(within(stillMuted).queryByRole('img')).toBeNull();
+    expect(within(stillMuted).queryByRole('alert')).toBeNull();
   });
 
   it('§21.4: el editor NO se adelanta al 422 — una curva cruzada sigue siendo GUARDABLE en cliente', async () => {
