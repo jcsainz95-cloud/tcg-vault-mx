@@ -5,16 +5,21 @@
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.9-caps-and-surfaces).
 >
 > **Changelog v2.1.9-caps-and-surfaces (2026-08-24, arquitecto — las cuatro decisiones que el cierre de release
-> (QA + techlead + seguridad) enrutó al contrato. ARCHITECTURE §4.36.3 / §4.36.7(b.2) / §4.37. Ninguna cambia la
-> matemática de la curva; dos de ellas SÍ cambian forma de respuesta.):**
+> (QA + techlead + seguridad) enrutó al contrato, más la escalada de frontend sobre el borrado de spreads.
+> ARCHITECTURE §4.36.3 / §4.36.7(b.2) / §4.36.9(e) / §4.37. Ninguna cambia la matemática de la curva; dos de ellas SÍ
+> cambian forma de respuesta.):**
 > - **(D1, DESBLOQUEA A BACKEND) `floorCents` y `binCents` ganan TECHO — y NO es el de `marketCents`.** Este contrato
 >   declaraba `floorCents ≥ 0` y `binCents ≥ 0` **sin cota superior**, así que el código **cumplía**: QA guardó
 >   `floorCents: 2e15` con **`200`** y toda la vitrina se republicó a **`2147483647` con `basis="floor"`**
 >   (MX$21,474,836.47), sin caer al seed (la curva está **bien formada**; `sanitize` no protege ahí). **La desviación
 >   era del contrato, no del código** — por eso la fija el arquitecto y no backend (regla 9). **Norma:
->   `floorCents, binCents ∈ [0, 1000000]` (MX$10,000 = `MAX_CURVE_CONSTANT_CENTS`)**, que **no** es `MAX_CENTS`: con
+>   `floorCents, binCents ∈ [0, 200000]` (**MX$2,000** = `MAX_CURVE_CONSTANT_CENTS`)**, que **no** es `MAX_CENTS`: con
 >   Int32 el caso demostrado seguiría pasando. Son las **únicas** entradas que por sí solas fijan el precio de **todo**
->   el catálogo, así que piden **cordura**, no solo representabilidad. Código `422 VALIDATION_ERROR` con
+>   el catálogo, así que piden **cordura**, no solo representabilidad. **El número lo cerró el dueño (Q-D1, 2026-08-24)
+>   y su anclaje sustituye al mío:** el piso **es el precio de la carta más barata de la tienda**, así que su techo sale
+>   de lo plausible como carta más barata — **no** de los topes AML de §E (ésos acotan dinero por usuario, otra
+>   magnitud). Deja **80×** sobre la semilla (MX$25), y apretar es correcto porque pasarse de apretado cuesta un `422`
+>   mientras que pasarse de holgado cuesta **republicar la vitrina entera**. Código `422 VALIDATION_ERROR` con
 >   `details { axis, index: null, field }` — y **`index` pasa a declararse `number | null`**, que es la forma que el
 >   backend **ya emite** para campos que no son puntos de la tabla y que este contrato tenía mal escrita como `number`.
 > - **(D2) La regla de visibilidad de §N.7 se imponía SOLO en el navegador; ahora se impone en el EMISOR.**
@@ -31,6 +36,16 @@
 >   y no podía calibrarle spread desde la pantalla. `SealedSpreadsDTO` en §DTOs **ya era correcto**; mentía el ejemplo.
 >   Se corrige a los siete y se norma que **el ejemplo nunca es el dominio de llaves** (además: el `GET` **omite** las
 >   llaves no configuradas — es un mapa **parcial**, no un registro completo).
+> - **(D3-b, pregunta de frontend) `PUT /admin/pricing/sealed-spreads` gana forma para BORRAR una regla.** §M2 no
+>   definía cómo retirar el spread de una presentación para volver al global: hoy vaciar el campo **no la retira** (se
+>   ignora, money-safe). Con el dueño configurando `upc` y `collection` **ahora mismo**, va a querer deshacerlo.
+>   **Norma: `null` explícito RETIRA la llave** (`{"spreadPctBySubtype":{"upc":null}}`), semántica parcial intacta, y
+>   **`null` ≠ `0`** — `0` es un spread legítimo («vender AL mercado, sin markup»), así que un campo **vaciado** viaja
+>   como `null` y **jamás** como `0`. `fallbackPct: null` ⇒ **`422`** (el global es el respaldo: retirarlo dejaría de
+>   publicarse todo lo que depende de él). Se descartan el reemplazo total (un cliente rancio con cinco llaves borraría
+>   `upc`/`collection` **en silencio** — D3 reabierto por el otro lado) y un `DELETE` por subtipo (dos caminos de
+>   escritura para un mismo setting). **Precedente local que lo cierra:** este mismo §M2 ya usa `tcgplayerProductId:
+>   null` para **desmapear** un item sellado — mismo verbo, mismo rol, misma semántica de «quitar la asociación».
 > - **(D4) Enums derivados: se norma cuándo un `Object.values()` es correcto y cuándo BORRA una regla.** Ver
 >   ARCHITECTURE §4.37 (clases **E — espeja el schema** / **R — expresa una regla**, con la pregunta que decide y el
 >   inventario). Eco aquí: la **cuarta pata** de la convención gana su **verificación a tres bandas** (`schema.prisma` ↔
@@ -2119,16 +2134,17 @@ BuyCurvePointDTO  = { marketCents: number, pctBp: number }          // 30 %  = 3
 // Escalera de redondeo ↑ — SOLO VENTA (la compra no se redondea). La BANDA la decide el monto ANTES de redondear y se
 // elige UNA SOLA VEZ: si el redondeo cruza el umbral, NO se re-evalúa. `uptoCents: null` = banda abierta (la última).
 RoundingBandDTO   = { uptoCents: number | null, stepCents: number }
-// v2.1.9 — LAS DOS CONSTANTES LLEVAN TECHO, y NO es el de `marketCents`: `floorCents, binCents ∈ [0, 1000000]`
-//   (`MAX_CURVE_CONSTANT_CENTS` = MX$10,000). `marketCents` describe el VALOR DE UNA CARTA (techo = representabilidad
-//   Int32); el piso y el bin son las ÚNICAS entradas que por sí solas fijan el precio de TODO el catálogo (techo =
-//   cordura). Sin techo, `floorCents: 2e15` se guardaba con `200` y publicaba la vitrina entera en 2147483647 con
-//   basis="floor". Razón completa y anclajes del número en §M2 / ARCHITECTURE §4.36.3.
+// v2.1.9 — LAS DOS CONSTANTES LLEVAN TECHO, y NO es el de `marketCents`: `floorCents, binCents ∈ [0, 200000]`
+//   (`MAX_CURVE_CONSTANT_CENTS` = MX$2,000, cerrado por el dueño en Q-D1). `marketCents` describe el VALOR DE UNA
+//   CARTA (techo = representabilidad Int32); el piso y el bin son las ÚNICAS entradas que por sí solas fijan el precio
+//   de TODO el catálogo (techo = cordura, anclado en lo plausible como CARTA MÁS BARATA de la tienda). Sin techo,
+//   `floorCents: 2e15` se guardaba con `200` y publicaba la vitrina entera en 2147483647 con basis="floor". Razón
+//   completa y anclajes del número en §M2 / ARCHITECTURE §4.36.3.
 PricingCurveDTO   = { version: 1,
-                      sale: { floorCents: number,          // PISO único y GLOBAL (no por acabado, ni rareza, ni tier). [0, 1000000]
+                      sale: { floorCents: number,          // PISO único y GLOBAL (no por acabado, ni rareza, ni tier). [0, 200000]
                               points: SaleCurvePointDTO[],  // >= 1, marketCents estrictamente crecientes
                               rounding: RoundingBandDTO[] },// >= 1, la ÚLTIMA con uptoCents = null
-                      buy:  { binCents: number,            // BIN único y GLOBAL. [0, 1000000] y además < floorCents (BIN_ABOVE_FLOOR)
+                      buy:  { binCents: number,            // BIN único y GLOBAL. [0, 200000] y además < floorCents (BIN_ABOVE_FLOOR)
                               points: BuyCurvePointDTO[] } }
 
 // ===== v2.1 (P-48) — DRY-RUN de la curva (POST /admin/pricing/curve/preview) =====
@@ -2599,6 +2615,14 @@ VaultSealedResponse = { data: VaultSealedGroupDTO[], totalValueMxnCents: number,
 // mercado por presentación; `fallbackPct` = spread global de respaldo (sin subtype o subtype sin regla). Semántica de
 // pct = markup sobre mercado (como ventas §4.14, NO "% de la referencia" del buylist). Rango [0, 1000].
 SealedSpreadsDTO = { spreadPctBySubtype: { [subtype in SealedSubtype]?: number }, fallbackPct: number }
+// v2.1.9 — REQUEST del PUT (distinto del DTO de respuesta, y la diferencia es el punto): los valores admiten `null`
+// como sentinel de RETIRO («quita la regla propia de esta presentación; usa `fallbackPct`»). Semántica PARCIAL:
+//   llave ausente  ⇒ no se toca      ·  llave con número ⇒ se fija  ·  llave con null ⇒ SE RETIRA (el GET la omite)
+// ⚠️ `null` ≠ `0`: `0` es un spread legítimo (vender AL mercado, sin markup, §SUP-8). Un campo VACIADO en la pantalla
+// viaja como `null`, JAMÁS como `0`. `fallbackPct: null` ⇒ 422 (el global es el respaldo; no se retira). Razón,
+// alternativas descartadas y precedente (`mapping` con `tcgplayerProductId: null`) en §M2.
+SealedSpreadsUpdateRequest = { spreadPctBySubtype?: { [subtype in SealedSubtype]?: number | null },
+                               fallbackPct?: number }
 // ===== v1.36 (P-35): alta dedicada de sellado — listar productos sellados de un set desde la API =====
 // Un producto SELLADO del catálogo TCGCSV de un set (ETB / booster box / bundle / tin / blister), NO un single.
 // `tcgplayerProductId` = clave de emparejamiento TCGplayer (== la que el alta reenvía al batch). `sealedSubtype` =
@@ -5078,7 +5102,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     **borra** renglones. **NO** es una estructura fija de N puntos. `rounding` también es de longitud variable.
   - El **piso** y el **bin** son **ÚNICOS y GLOBALES** para todo el catálogo de cartas: **no** por acabado, **no** por
     rareza, **no** por tier (§N.10 lo descarta explícitamente). **v2.1.9:** y **precisamente por ser globales llevan
-    techo propio** — `floorCents, binCents ∈ [0, 1000000]` (MX$10,000), que **no** es el de `marketCents`; ver el
+    techo propio** — `floorCents, binCents ∈ [0, 200000]` (**MX$2,000**), que **no** es el de `marketCents`; ver el
     bloque del `PUT`.
   - El **redondeo↑ aplica SOLO a venta**; la **compra no se redondea**. La **banda** la decide el monto de venta
     **ANTES** de redondear y se elige **UNA SOLA VEZ**: si el redondeo cruza el umbral, **no se re-evalúa**.
@@ -5093,7 +5117,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
     | Código `422` | Invariante que protege |
     |---|---|
-    | `VALIDATION_ERROR` | tipos y rangos **de REPRESENTABILIDAD y CORDURA** (no de negocio): **`marketCents ∈ [0, MAX_CENTS]`** entero (v2.1.4 — el techo importa: `interpExact` computa `num` en aritmética `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro); **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`); `pctBp ∈ [0, 10000]`; **`floorCents ∈ [0, 1000000]`** y **`binCents ∈ [0, 1000000]`** (**v2.1.9** — antes `≥ 0` **sin techo**; `1000000` = `MAX_CURVE_CONSTANT_CENTS` = **MX$10,000**, y **NO** es `MAX_CENTS`: ver el bloque de abajo) |
+    | `VALIDATION_ERROR` | tipos y rangos **de REPRESENTABILIDAD y CORDURA** (no de negocio): **`marketCents ∈ [0, MAX_CENTS]`** entero (v2.1.4 — el techo importa: `interpExact` computa `num` en aritmética `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro); **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`); `pctBp ∈ [0, 10000]`; **`floorCents ∈ [0, 200000]`** y **`binCents ∈ [0, 200000]`** (**v2.1.9** — antes `≥ 0` **sin techo**; `200000` = `MAX_CURVE_CONSTANT_CENTS` = **MX$2,000**, y **NO** es `MAX_CENTS`: ver el bloque de abajo) |
     | `CURVE_EMPTY` | `sale.points` y `buy.points` deben tener **≥ 1** punto (sin puntos no hay curva) |
     | `DUPLICATE_BREAKPOINT` | dos puntos con el **mismo `marketCents`** en la misma curva |
     | `SALE_BELOW_MARKET` | **ningún precio de venta cae por debajo del mercado** ⇒ `multiplierBp ≥ 10000` **en cada punto** |
@@ -5154,11 +5178,20 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       Saturarlas no produce «un precio alto», produce **una vitrina entera republicada**. Con `MAX_CENTS` como techo, el
       caso de arriba **seguiría pasando** con `floorCents: 2147483647` — un techo que no cambia el síntoma no es el
       techo.
-    - **El número: `MAX_CURVE_CONSTANT_CENTS = 1000000` (MX$10,000).** Anclado en (1) el mayor límite de dinero
-      por-usuario que declara PROJECT §E (tope **mensual** de buylist MX$10,000; el de solicitud es MX$3,000 y el envío
-      MX$175), (2) **400×** la semilla del piso y **10 000×** la del bin (§N.2), (3) **2 147×** por debajo de Int32 ⇒ la
-      vitrina saturada es **inalcanzable por construcción**, y (4) el **precedente de este mismo contrato**, que ya fija
-      techos anti-typo que no vienen de PROJECT (`multiplierBp ≤ 1000000` = «100×, techo anti-typo»; `pctBp ≤ 10000`).
+    - **El número: `MAX_CURVE_CONSTANT_CENTS = 200000` (MX$2,000) — cerrado por el dueño (Q-D1, 2026-08-24).**
+      Anclado en **qué es el número acotado**: `floorCents` **es el precio de la carta más barata de la tienda**, así
+      que un piso por encima de MX$2,000 significaría que **nada** en la vitrina baja de MX$2,000 — implausible para un
+      marketplace de singles cuya semilla es MX$25 (§N.2) y cuyo bulk vale centavos. Deja **80×** sobre la semilla del
+      piso y **2 000×** sobre la del bin, y queda **10 737×** por debajo de Int32 ⇒ la vitrina saturada es
+      **inalcanzable por construcción**. **Apretarlo es lo correcto por asimetría de costo:** pasarse de apretado cuesta
+      **un `422` y volver a teclear**; pasarse de holgado cuesta **republicar la vitrina entera y apagar el buylist**.
+      - **⛔ El techo del piso NO se deriva de los topes de §E**, y conviene dejarlo escrito para que nadie lo
+        «restaure» viendo que las cifras se parecían: MX$3,000/solicitud y MX$10,000/mes son **límites AML por usuario
+        sobre dinero que SALE** y no dicen nada sobre cuánto puede costar la carta más barata. Ése era **mi** anclaje en
+        el borrador de esta rev y **queda retirado**: era coincidencia de orden de magnitud, no razonamiento — y ataría
+        el techo del **pricing** a un dial de **AML**.
+      - **Precedente que hacía legítimo proponer un número** (no que lo determina): este contrato ya fija techos
+        anti-typo que no vienen de PROJECT (`multiplierBp ≤ 1000000` = «100×, techo anti-typo»; `pctBp ≤ 10000`).
     - **Bloquea igual en `PUT` y en `preview`**: V3 es del grupo «impide calcular» ⇒ `422` en las dos rutas, mismo
       código y mismo `details` (tabla de arriba).
     - **Lo que este techo NO hace, dicho para que nadie lo dé por cerrado:** **no ataja «un cero de más»**. Con la
@@ -5170,9 +5203,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       piso ⇒ guardarraíl ⇒ cola; §4.36.5c ya norma su lectura: «sube solo ⇒ **piso mal calibrado**»).
     - **`binCents` también lleva techo explícito** aunque `BIN_ABOVE_FLOOR` lo acote transitivamente: V3 corta **antes**
       de que ese invariante se evalúe, y apoyarse solo en él dejaría el error señalando el campo equivocado.
-    - **Pregunta abierta al humano (Q-D1, NO bloqueante, ARCHITECTURE §10):** el **número** es calibración de negocio;
-      el **techo** y el hecho de que **no sea `MAX_CENTS`** no lo son. Cambiar MX$10,000 sería una enmienda de una línea
-      aquí y en §4.36.3, sin efecto en la matemática ni en ningún DTO.
+    - **✅ Q-D1 CERRADA (2026-08-24, ARCHITECTURE §10):** el **número** era calibración de negocio y lo fijó el dueño
+      en **MX$2,000** (el borrador de esta rev proponía MX$10,000). El **techo** y el hecho de que **no sea
+      `MAX_CENTS`** nunca estuvieron en duda: son la parte técnica, y son justo lo que hace defendible un número tan
+      apretado. Sin efecto en la matemática ni en ningún DTO.
 
   - **📌 CONVENCIÓN NORMATIVA DE DTOs — LOS DOS SENTIDOS (transversal, v2.1.6; no solo `details`, no solo la curva).**
     Un DTO de este contrato es **CERRADO, no abierto**: enumera su superficie **completa**.
@@ -5837,7 +5871,39 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     el shape de siete llaves sea inconfundible. Que no tengan semilla es justamente por qué el dueño **necesita** poder
     fijarlas a mano.
 - `PUT /api/v1/admin/pricing/sealed-spreads` — **(NUEVO)** reemplaza los spreads y/o el fallback.
-  Req: `{ spreadPctBySubtype?: { [subtype]: number }, fallbackPct?: number }` (parcial: solo las claves a cambiar).
+  Req (`SealedSpreadsUpdateRequest`, §DTOs): `{ spreadPctBySubtype?: { [subtype in SealedSubtype]?: number | null }, fallbackPct?: number }`
+  (**parcial**: solo las claves a cambiar).
+  - **⚠️ CÓMO SE BORRA UNA REGLA PARA VOLVER AL GLOBAL — NORMADO EN v2.1.9 (pregunta de frontend; §M2 no lo definía).**
+    **`null` explícito RETIRA la regla de esa presentación**, que pasa a usar `fallbackPct`:
+    ```
+    PUT { "spreadPctBySubtype": { "upc": null } }     ⇒ `upc` deja de tener regla propia; usa el global
+    ```
+    Tras el `PUT`, el `GET` **omite** la llave (el mapa es parcial, arriba). Es **idempotente**: retirar una llave que
+    no estaba configurada devuelve `200`, no error. **Auditado** como cualquier otra edición
+    (`pricing.sealed_spreads.update` con `before`/`after`, donde la retirada es visible).
+  - **`null` ≠ `0`, y confundirlos es un bug de DINERO — esto es lo que el front NO debe hacer.** `0` es un spread
+    **legítimo** (§SUP-8: «una promo a mercado es legítima»), y significa **vender AL mercado, sin markup**. `null`
+    significa **«no tengo regla propia, usa el global»** (hoy 25 %). Un campo que el dueño **vacía** en la pantalla debe
+    viajar como **`null`** —o no viajar, si no quiso tocarlo—; **jamás como `0`**, que pondría esa presentación a
+    precio de mercado sin margen y sin que nadie lo pidiera. El editor debe distinguir los tres estados: **con valor**,
+    **vaciado** (⇒ `null`) y **no tocado** (⇒ llave ausente).
+  - **Por qué `null` y no otra cosa (dos alternativas descartadas, con su razón):**
+    1. **Semántica de reemplazo total** (mandar el mapa completo; ausencia = borrada), como el `PUT` de la curva:
+       **descartada**. Un cliente rancio que mandara las **cinco** llaves de siempre **borraría `upc` y `collection`
+       en silencio** — literalmente el bug de D3 reabierto desde el otro lado. En la curva el reemplazo total es
+       correcto porque el objeto **es** la unidad de validación cruzada; aquí las llaves son **independientes** entre
+       sí, así que la unidad de edición es la llave.
+    2. **`DELETE /admin/pricing/sealed-spreads/:subtype`**: **descartada** por no partir en dos caminos de escritura la
+       edición de un mismo setting (dos caminos = uno se olvida en un call-site, y la auditoría queda repartida en dos
+       acciones). Además, con `null` el dueño puede **retirar una y ajustar otra en la misma escritura**.
+    3. **Precedente local que lo cierra:** este mismo §M2 ya usa exactamente este sentinel para exactamente este gesto —
+       `PUT /admin/pricing/sealed/items/:itemId/mapping` con `tcgplayerProductId: null` **desmapea**. Mismo verbo,
+       mismo rol, misma semántica de «quitar la asociación»: reusarlo es una decisión menos que tomar y una menos que
+       recordar.
+  - **`fallbackPct: null` ⇒ `422 VALIDATION_ERROR`.** El global **no se puede retirar**: es el respaldo del que
+    dependen todas las presentaciones sin regla, y sin él una presentación sin spread no tendría de dónde derivar
+    precio — caería a `PRICE_PENDING` y **dejaría de publicarse**, que es una consecuencia de dinero para un gesto que
+    parece de limpieza. Para «no aplicar markup global» el valor correcto es **`0`**, no la ausencia.
   - **Validación:** cada clave de `spreadPctBySubtype` ∈ **`SealedSubtype`** — es decir
     `{box, etb, bundle, tin, blister, upc, collection}` (**v2.1.8**: `upc` y `collection` estaban de facto excluidos
     porque el enum canónico se había quedado corto, así que el `PUT` los rechazaba con `422` y **el dueño no podía

@@ -173,8 +173,9 @@
 > crudas: **las formas las declara el arquitecto**, backend proyecta contra lo declarado, y va al **siguiente ciclo**
 > (proyectar rutas de dinero en vísperas del gate es riesgo sin ganancia). Incluye **`AddressDTO`, referenciada en §5
 > y nunca definida**.
-> **Adenda v2.1.9 — cuatro decisiones de contrato del cierre de release (QA + techlead + seguridad; §4.36.3, §4.36.7b,
-> §4.37, contrato §M2/§2/§Enums). Ninguna cambia la matemática de la curva.**
+> **Adenda v2.1.9 — las cuatro decisiones de contrato del cierre de release (QA + techlead + seguridad) más dos
+> escaladas posteriores (frontend y backend); §4.36.3, §4.36.7(b.2), §4.36.9(e), §4.37, contrato §M2/§2/§Enums/§DTOs.
+> Ninguna cambia la matemática de la curva.**
 > **(D1) Las dos constantes de la curva no tenían TECHO — y el código CUMPLÍA el contrato.** `floorCents ≥ 0` y
 > `binCents ≥ 0`, literal, sin cota superior (contrato §M2, `pricing-curve.ts:749/760`), mientras `marketCents` sí la
 > tenía. QA lo demostró vivo: `PUT /admin/pricing/curve` con `floorCents = 2e15` ⇒ **`200`**, y toda la vitrina se
@@ -182,14 +183,18 @@
 > con piso gigante está **bien formada**, así que la acepta (`fellBack=false`, cero líneas `[MONEY]`). **La desviación es
 > de este documento y del contrato, no del código** (regla de conflicto: el contrato manda sobre el código; si el techo
 > no está escrito, backend no puede ponerlo). **Norma: V3 gana techo para las dos constantes, y NO es el de
-> `marketCents`** — `MAX_CURVE_CONSTANT_CENTS = 1_000_000` (**MX$10,000**), razonado en §4.36.3. `MAX_CENTS` sería
+> `marketCents`** — `MAX_CURVE_CONSTANT_CENTS = 200_000` (**MX$2,000**), razonado en §4.36.3. `MAX_CENTS` sería
 > *representabilidad* y deja pasar exactamente el caso demostrado; el piso y el bin son las únicas entradas que **por sí
 > solas** fijan el precio de **todo** el catálogo, y por eso piden **cordura**, no solo representabilidad. **Se dice
 > también lo que el techo NO hace:** no ataja «un cero de más» (un piso de MX$250 es calibración legítima y debe
 > guardarse); eso lo ataja **ver**, y las dos señales ya existen (`constantWon` por sonda en el preview y
-> `premium_at_floor` en `GET /admin/pricing/pending`). **Q-D1 al humano:** el **número** es calibración de negocio; se
-> fija MX$10,000 con precedente local (`multiplierBp ≤ 1e6` = «100×, techo anti-typo») para **desbloquear a backend
-> hoy**, y cambiarlo después es una enmienda de una línea.
+> `premium_at_floor` en `GET /admin/pricing/pending`). **Q-D1 CERRADA por el humano (2026-08-24): MX$2,000**, no los
+> MX$10,000 que yo había propuesto — y **el anclaje del dueño es mejor que el mío**: el piso de venta es *el precio de
+> la carta más barata de la tienda*, así que su techo de cordura sale de **lo que es plausible como carta más barata**,
+> no de un límite de dinero por usuario. Mi anclaje anterior (el tope AML mensual de §E) era **coincidencia de
+> magnitud**, no razonamiento. Sigue dejando **80×** sobre la semilla del piso (MX$25), y apretarlo es correcto porque
+> los costos son asimétricos: pasarse de apretado cuesta **un 422 y volver a teclear**; pasarse de holgado cuesta
+> **republicar la vitrina entera**. Ver §4.36.3 y §10.
 > **(D2) La regla de visibilidad de §N.7 se aplicaba SOLO en el navegador.** `catalog.service.ts:386-389` emite
 > `referenceValue` y `priceBasis` **incondicionalmente**, también a anónimos: `GET /catalog/listings/<id>` sin token
 > devuelve `priceBasis:"override"` + `referenceValue` de una pieza cuyo bloque «Valor de mercado» la UI tiene
@@ -214,6 +219,15 @@
 > canónica del contrato) o **EXPRESA una regla** (y entonces **no** se deriva: literal, con la cláusula de PROJECT
 > citada al lado y un test que la fije **y** la afirme subconjunto del enum). La pregunta que decide: *si mañana alguien
 > añade un valor a este enum en el schema, ¿este endpoint debe aceptarlo solo?*
+> **(D3-b, pregunta de frontend) Cómo BORRAR una regla de spread de sellado** — §M2 no lo definía y hoy vaciar el campo
+> **no la retira**. **Norma: `null` explícito la RETIRA** (vuelve al `fallbackPct`), semántica parcial intacta, y
+> **`null` ≠ `0`** (`0` = vender **al** mercado sin markup, spread legítimo). `fallbackPct: null` ⇒ **`422`**: el global
+> es el respaldo del que dependen las presentaciones sin regla, y retirarlo las dejaría en `PRICE_PENDING`, o sea
+> **fuera de la vitrina**, por un gesto que parece de limpieza. Precedente reusado: `tcgplayerProductId: null` ya
+> desmapea un item sellado en este mismo §M2. Detalle y alternativas descartadas en API_CONTRACT §M2.
+> **(S49-B2, escalada de backend) Paginar la rejilla sin revertir «el precio se resuelve en lectura»** — dictamen en
+> **§4.36.9(e)**: una proyección persistida puede gobernar **orden, filtro y paginación**, **nunca el precio que se
+> cobra**. No ahora (disparador ~5k piezas en `TECH_DEBT.md`); la decisión vuelve por el arquitecto cuando toque.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -7452,23 +7466,32 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 >
 > ```ts
 > // backend/src/common/pricing-curve.ts — techo de CORDURA de las dos constantes globales. NO es MAX_CENTS.
-> export const MAX_CURVE_CONSTANT_CENTS = 1_000_000; // MX$10,000
+> export const MAX_CURVE_CONSTANT_CENTS = 200_000; // MX$2,000 — Q-D1, cerrada por el dueño 2026-08-24
 > ```
 >
-> **De dónde sale MX$10,000 (los cuatro anclajes, para que no parezca gusto personal):**
-> 1. **Es el mayor límite de dinero por-usuario que declara PROJECT**: el tope **mensual** de buylist (§E, MX$10,000).
->    Ninguna cifra de dinero del producto que acote **una** decisión lo supera (envío MX$175; tope por solicitud
->    MX$3,000).
-> 2. **400× la semilla del piso** (MX$25) y **10 000× la del bin** (MX$1) — §N.2. Nadie calibra ahí **a propósito**.
-> 3. **2 147× por debajo de Int32**: con este techo la vitrina saturada en `2147483647` es **inalcanzable por
->    construcción**, no por suerte.
-> 4. **Precedente local, y es lo que hace que esta decisión sea del arquitecto:** el contrato ya fija techos anti-typo
->    que **no** vienen de PROJECT — `multiplierBp ≤ 1_000_000` («100×, techo anti-typo») y `pctBp ≤ 10_000`. Ésta es la
->    misma clase de decisión.
->
-> **Q-D1 (abierta al humano, NO bloqueante):** el **número** es calibración de negocio, no un hecho técnico. Se fija
-> MX$10,000 para **desbloquear a backend hoy**; si el humano prefiere otro, es una **enmienda de una línea** en V3 y en
-> §M2. Lo que **no** se re-litiga es que el techo **exista** y que **no sea `MAX_CENTS`**.
+> **De dónde sale MX$2,000 — el anclaje sale de QUÉ ES el número acotado, no de otra cifra del producto (Q-D1,
+> decidida por el dueño; §10).**
+> 1. **El anclaje, en una frase:** `floorCents` **es el precio de la carta más barata de la tienda**. Un piso de
+>    MX$2,000 significa que **nada** en la vitrina cuesta menos de MX$2,000 — implausible para un marketplace de
+>    singles de Pokémon cuya semilla es **MX$25** (§N.2) y cuyo bulk vale **centavos**. El techo de cordura de un piso
+>    sale de **lo plausible como carta más barata**; nada más lo determina.
+> 2. **⛔ Corrección de mi anclaje anterior — yo proponía MX$10,000 apoyándome en §E, y estaba mal apoyado.** Los topes
+>    de §E —MX$3,000 por solicitud, MX$10,000 al mes— son **límites AML por usuario sobre dinero que SALE**. **No dicen
+>    nada sobre cuánto puede costar la carta más barata**: son otra magnitud, en otro eje, para otra cosa. Apoyar ahí el
+>    techo del piso era **coincidencia de orden de magnitud disfrazada de razonamiento** — y ése es justo el anclaje que
+>    envejece mal: el día que alguien mueva un dial de **AML**, el techo del **pricing** se movería «por simpatía», sin
+>    que nadie lo hubiera decidido. **Se retira.** *(El techo del piso **no** se deriva de §E, y conviene que quede
+>    escrito para que nadie lo «restaure» viendo que las cifras se parecían.)*
+> 3. **Margen que deja: 80× la semilla del piso** (MX$25) y **2 000× la del bin** (MX$1). Espacio de sobra para
+>    cualquier recalibración real: un piso de MX$200 —ocho veces el actual— sigue cabiendo holgado.
+> 4. **Por qué APRETAR es lo correcto (la asimetría que decide).** Pasarse de apretado cuesta **un `422` y volver a
+>    teclear**; pasarse de holgado cuesta **republicar la vitrina entera y apagar el buylist**. Con costos así de
+>    asimétricos el valor correcto es **el más apretado que no estorbe**, porque cuanto más apretado, **más typos
+>    ataja**. Es §N.0 aplicado al **error de configuración** en vez de al de precio.
+> 5. **10 737× por debajo de Int32**: la vitrina saturada en `2147483647` queda **inalcanzable por construcción**.
+> 6. **Precedente local, que es lo que hacía legítimo que yo propusiera un número:** el contrato ya fija techos
+>    anti-typo que **no** vienen de PROJECT (`multiplierBp ≤ 1_000_000` = «100×, techo anti-typo»; `pctBp ≤ 10_000`). La
+>    propuesta fue mía; **la calibración la cerró el dueño**, que es como debía ser.
 >
 > **Lo que este techo NO hace — y hay que escribirlo para que nadie lo dé por cerrado.** No ataja **«un cero de más»**:
 > con la semilla en MX$25, un typo a MX$250 (`25000`) **pasa V3 y debe pasar** — un piso de MX$250 es una calibración
@@ -7495,9 +7518,13 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 > es atómica **sobre sí misma** (§4.36.2) y esa propiedad es la que hace validables sus invariantes cruzados; extenderla
 > a otro setting la rompe. El caso queda cubierto por el mismo par de señales de arriba (con el bin disparado, la cola
 > de pendientes y el `constantWon` del preview lo enseñan) y por V7, que impide el caso patológico de que **ambos** ejes
-> saturen en su constante. **Consecuencia aceptada y explícita:** el rango `[0, MAX_CURVE_CONSTANT_CENTS]` **admite un
-> bin por encima del tope AML** (MX$10,000 > MX$3,000). Es deliberado, no un hueco: acotarlo ahí sería tratar un dial de
-> **AML** como si fuera un dial de **pricing**.
+> saturen en su constante.
+> **⚠️ Con el techo en MX$2,000, el bin máximo queda POR DEBAJO del tope AML por solicitud (MX$3,000) — pero eso es una
+> COINCIDENCIA FAVORABLE, no un invariante, y escribirlo como garantía sería inventar una propiedad que nada sostiene.**
+> Las dos cifras viven en settings independientes: si el dueño bajara el tope AML a MX$1,000, el hueco reaparecería sin
+> que ningún validador se enterara. **La decisión de no acoplarlos sigue en pie** —acotar el bin contra un dial de AML
+> sería tratar un dial de **AML** como si fuera un dial de **pricing**, y volvería retroactivamente inválida una curva
+> ya almacenada—; el margen de hoy simplemente hace **menos probable** el síntoma, no imposible.
 >
 > **Consecuencia de dinero, con el sesgo de §N.0 explícito** (para que el rango de la corrección quede honesto): el
 > piso disparado **yerra hacia arriba** en venta (venta perdida, **recuperable**) y **apaga** la compra (con el bin
@@ -8253,6 +8280,34 @@ re-resolver, y la operación de cut-over es:
 **(d) Rollback.** Revertir el deploy restaura el resolver viejo, que vuelve a leer sus settings (siguen en BD, inertes
 pero íntegros). M-41 es aditiva ⇒ no estorba. **No se requiere ventana de riesgo** (no hay dinero vivo, §N.9).
 
+**(e) S49-B2 — «¿persistir `salePriceCents` para poder paginar la rejilla?» (dictamen del arquitecto, v2.1.9; NO
+bloquea el cierre).** Backend escaló la pregunta en vez de resolverla barato, y **tenía razón en negarse**: como el
+precio de venta **se resuelve en LECTURA** a propósito (arriba, (c)), un `take` en la query paginaría **piezas, no
+grupos**, y un cap truncaría el catálogo **en silencio** — *inventario publicado que no aparece en Compra es inventario
+que no se vende*, que es un bug de ingreso disfrazado de detalle de UI. Queda anotado en `docs/TECH_DEBT.md` con
+disparador (~5k piezas). Mi dictamen, para que cuando toque hacerlo no se vuelva a discutir desde cero:
+
+- **La pregunta correcta no es «¿persistir sí o no?» sino «¿QUIÉN MANDA sobre el precio que se cobra?».** Lo que
+  §4.36.9c protege es que **mover un punto de la curva repricie todo sin un paso de escritura intermedio** — es una
+  propiedad sobre **autoridad y frescura**, no sobre si existe o no una copia derivada. Persistir el precio **como
+  autoridad** sí revierte la doctrina, y reintroduce la clase entera de P-48 («el precio mostrado ≠ el precio real»).
+  Persistir una **proyección derivada e invalidable** no la revierte por sí solo — pero trae su propio modo de fallo:
+  una proyección rancia que publica un precio viejo, o sea **exactamente** el fallo que v2.0 existe para eliminar.
+- **Por eso el invariante, si algún día se implementa, es éste — y es lo único que hay que respetar:**
+  > **Una proyección persistida puede gobernar el ORDEN, el FILTRO y la PAGINACIÓN. Nunca el precio que se COBRA.**
+  Es decir: se persiste una **clave de orden** (`sortKeyPriceCents` o similar) que alimenta `ORDER BY`, el rango
+  `minPriceCents`/`maxPriceCents` y el corte de página; y `salePriceCents` del DTO, del carrito y del checkout **siguen
+  resolviéndose en lectura**. La asimetría de daño es la que decide: una clave rancia pone una carta **unas posiciones
+  fuera de sitio** —invisible y recuperable—; un **precio** rancio cobra mal, que es irreversible en cuanto alguien
+  paga. Con ese reparto, el trabajo **no requiere revertir §4.36.9c** ni tocar la precedencia de §4.36.6.
+- **Corolarios que evitan el siguiente accidente:** la clave se **invalida** en los mismos seams que ya reprician
+  (escritura de curva, de override por variante o por pieza, e ingest de mercado); **puede** estar rancia sin que nada
+  se rompa —por eso vale la pena—; y **no** se emite en ningún DTO (es interna, como `catalogFinishes`), porque en
+  cuanto un cliente pueda leerla alguien la usará para pintar un precio.
+- **No ahora.** Sin el disparador, esto es infraestructura para un problema que aún no existe, y su modo de fallo es
+  peor que el síntoma. **Cuando el disparador se cumpla, la decisión vuelve por el arquitecto** (regla 9) — pero ya con
+  el invariante de arriba fijado, no en blanco.
+
 #### 4.36.10 Alcance — qué entra a la curva y qué NO
 
 | Superficie | ¿Curva? | Detalle |
@@ -8510,12 +8565,18 @@ Riesgos técnicos:
   el vector real es **un typo**. **No es fuga de dinero** (§N.0: venta yerra hacia arriba = venta perdida recuperable;
   el bin disparado **apaga** el buylist porque toda cotización rebasa `buylist_cap_per_request_cents`, no paga de más);
   es que **un typo republica la tienda entera y apaga la compra en silencio**. **Norma: §4.36.3 V3 v2.1.9** —
-  `floorCents`/`binCents` `∈ [0, MAX_CURVE_CONSTANT_CENTS]` con `MAX_CURVE_CONSTANT_CENTS = 1_000_000` (MX$10,000),
+  `floorCents`/`binCents` `∈ [0, MAX_CURVE_CONSTANT_CENTS]` con **`MAX_CURVE_CONSTANT_CENTS = 200_000` (MX$2,000)**,
   **que NO es `MAX_CENTS`** (razón y anclajes en §4.36.3). **Acción (backend, WS «Catálogo y precios»):** (1) añadir la
   cota en V3 con `details { axis, index: null, field }` —la forma que el código **ya emite** (`:753-756`), que ahora
   queda declarada en §M2—; (2) bloquea igual en `PUT` y en `preview` (V3 es Fase 1); (3) regresión permanente con las
-  tres cifras de QA (`2e15`, `2147483647`, `1000001` ⇒ **422**; `1000000` ⇒ **200**) **asertando el status**, no solo
-  el `code`. **Q-D1 abierta al humano** (el número, no el techo) — §10.
+  cifras de QA (`2e15`, `2147483647`, `200001` ⇒ **422**; `200000` ⇒ **200**) **asertando el status**, no solo el
+  `code`.
+  > **⚠️ ENMIENDA 2026-08-24 (Q-D1 cerrada por el dueño; §10) — el número bajó de `1_000_000` a `200_000`.** Backend ya
+  > había implementado `1_000_000` con tests en `1000000 ⇒ 200` / `1000001 ⇒ 422`: **hay que re-apuntar la constante y
+  > esas dos cifras a `200000` / `200001`**. Es el único cambio; la forma del error, el `details`, el reparto
+  > `PUT`/`preview` y el resto de la regresión **no se tocan**. El dueño eligió el techo más apretado con el anclaje
+  > correcto (el piso **es** el precio de la carta más barata de la tienda), que **sustituye** al mío (§E), y sigue
+  > dejando **80×** sobre la semilla.
 - **D2-EMISOR (backend, v2.1.9) — la regla de visibilidad de §N.7 se aplicaba solo en el navegador.** Estado detectado
   (`catalog.service.ts:386-389`): `referenceValue` y `priceBasis` se emiten **incondicionalmente**, también a anónimos,
   con un comentario que lo declara deliberado «porque el mismo DTO alimenta superficies admin y de valuación». PoC del
@@ -8732,20 +8793,25 @@ este documento y con `API_CONTRACT.md`.
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
 
-### Pregunta abierta v2.1.9 — el NÚMERO del techo del piso/bin (Q-D1; NO bloquea a backend)
+### ✅ Q-D1 — CERRADA por el dueño (2026-08-24): el techo del piso/bin es **MX$2,000**
 
-- **Q-D1 (calibración de negocio, no decisión técnica).** §4.36.3 fija `MAX_CURVE_CONSTANT_CENTS = 1_000_000`
-  (**MX$10,000**) como cota superior de `sale.floorCents` y `buy.binCents`. **Lo técnico está cerrado y no se
-  re-litiga:** el techo **debe existir** y **no puede ser `MAX_CENTS`** (con Int32 el caso demostrado por QA seguiría
-  pasando). Lo que se consulta es **el número**: *«¿cuál es el precio mínimo más alto que tendría sentido fijar para la
-  carta más barata de la tienda?»*. La propuesta se ancla en cuatro cosas —el mayor límite de dinero por-usuario que
-  declara PROJECT §E (tope mensual MX$10,000), 400× la semilla del piso, 2 147× por debajo de Int32, y el precedente
-  local de techos anti-typo del propio contrato (`multiplierBp ≤ 1e6`)—. **Backend implementa MX$10,000 ya**; si el
-  humano prefiere otro valor, es una **enmienda de una línea** en V3 (§4.36.3) y en API_CONTRACT §M2, sin efecto en la
-  matemática ni en ningún DTO. **Advertencia honesta que acompaña la pregunta:** **ningún** techo atrapa «un cero de
-  más» (un piso de MX$250 es calibración legítima y debe guardarse); bajar el techo hasta que lo atrape **bloquearía
-  configuraciones válidas**. Ese caso lo cubre **ver** (`constantWon` en el preview, `premium_at_floor` en la cola de
-  pendientes), no validar.
+- **Decisión: `MAX_CURVE_CONSTANT_CENTS = 200_000` (MX$2,000)**, cota superior de `sale.floorCents` y `buy.binCents`
+  (§4.36.3 V3, API_CONTRACT §M2). **El dueño eligió MX$2,000, no los MX$10,000 que yo había propuesto.**
+- **Su razonamiento, que adopto como el anclaje oficial porque es mejor que el mío:** un piso de venta por encima de
+  MX$2,000 significaría que **su carta más barata cuesta MX$2,000**, cosa implausible para este negocio. El techo de
+  cordura de un piso sale de **qué es plausible como carta más barata**, no de un límite de dinero por usuario — así
+  que **no se deriva de los topes AML de §E**, y mi anclaje anterior (tope mensual MX$10,000) queda **retirado por
+  ser coincidencia de magnitud, no razonamiento** (§4.36.3, punto 2). Además: **un techo apretado ataja más typos**, y
+  **equivocarse sólo cuesta un `422` y volver a teclear**, mientras que quedarse holgado cuesta **republicar la vitrina
+  entera**. Sigue dejando **80×** de margen sobre la semilla vigente del piso (MX$25).
+- **Lo técnico nunca estuvo en duda y sigue igual:** el techo **debe existir** y **no puede ser `MAX_CENTS`** (con Int32
+  el caso que QA demostró seguiría pasando). La distinción **techo de representabilidad** (`marketCents`) vs **techo de
+  cordura** (piso/bin) es precisamente lo que hace defendible un número tan apretado como MX$2,000.
+- **Vigente y honesto:** **ningún** techo atrapa «un cero de más» (un piso de MX$250 sigue pasando, y **debe** pasar);
+  ese caso lo cubre **ver** — `constantWon` en el preview y `premium_at_floor` en la cola de pendientes—, no validar.
+- **Efecto en implementación:** backend había implementado `1_000_000`; re-apuntar la constante y los dos casos de
+  regresión a `200000 ⇒ 200` / `200001 ⇒ 422` (§9, D1-TECHO). Nada más cambia: ni la forma del error, ni el `details`,
+  ni el reparto `PUT`/`preview`, ni ningún DTO.
 
 ### Supuestos abiertos (v1.23-sealed-sales — venta de producto cerrado) — confirmar con PO
 
