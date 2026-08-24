@@ -16,15 +16,31 @@
  * `pctBp(m) < multiplierBp(m)`, sin conversiones intermedias que puedan mentir, y «venta nunca por
  * debajo del mercado» es el chequeo trivial `multiplierBp >= 10000` por punto.
  *
- * REDONDEO: se usa `Math.round` (ROUND_HALF_UP hacia +∞). El desempate hacia arriba NO es casual —
- * es el principio de sesgo de error de PROJECT §N.0 (*precio de más = venta perdida, recuperable;
- * precio de menos = carta perdida, irrecuperable*): ante empate gana el monto más alto, en los dos ejes.
+ * REDONDEO (§4.36.1, NORMATIVO y explícito): `ROUND_HALF_UP` = **medio ALEJANDOSE DE CERO**, y se
+ * redondea siempre el **VALOR FINAL**, nunca un delta intermedio. Los dos detalles son deliberados:
+ * redondear el delta obligaria a redondear un numero NEGATIVO cuando el markup baja (todo el tramo de
+ * $25 a $80), donde `round(-1590.5)` da `-1590` con el redondeo nativo de JS (medio hacia +inf) pero
+ * `-1591` con «medio alejandose de cero»; el valor final, en cambio, es SIEMPRE >= 0 en las dos curvas
+ * (`multiplierBp >= 10000`, `pctBp >= 0`), asi que el caso negativo desaparece por construccion. Fijar
+ * el modo evita que el backend y el previsualizador del editor (§4.36.8a) difieran en un centavo. El
+ * desempate hacia arriba tampoco es casual: es el principio de sesgo de error de PROJECT §N.0 (*precio
+ * de mas = venta perdida, recuperable; precio de menos = carta perdida, irrecuperable*).
  *
  * CRITERIO 84 HECHO TIPO: ninguna función de este módulo que devuelva un MONTO recibe `rarity`,
  * `rarityCanonical`, `tier` ni `finish`. La rareza solo entra a `premiumFloorGuard`, que devuelve un
  * VEREDICTO booleano de publicación/cotización — nunca un monto (§4.36.4/§4.36.5d).
  */
 import { isPremiumCanonicalRarity } from './rarity-catalog';
+
+/**
+ * `ROUND_HALF_UP` de §4.36.1: **medio ALEJANDOSE DE CERO**. Sobre valores `>= 0` (el unico caso que
+ * produce esta curva, por construccion) coincide con el redondeo nativo de JS; la rama negativa esta
+ * para que el modo quede FIJADO en el codigo y no dependa de que el insumo nunca sea negativo. Es el
+ * UNICO redondeo-a-entero del modulo: toda la matematica de la curva pasa por aqui.
+ */
+export function roundHalfUp(x: number): number {
+  return x < 0 ? -Math.round(-x) : Math.round(x);
+}
 
 // ============================================================================
 // Tipos del setting (§4.36.2). La tabla de puntos es de LONGITUD VARIABLE: el súper-admin AGREGA,
@@ -152,8 +168,9 @@ export function interp(points: readonly CurvePointBp[], marketCents: number): nu
     const p1 = points[i + 1];
     if (marketCents >= p0.marketCents && marketCents < p1.marketCents) {
       const span = p1.marketCents - p0.marketCents;
-      // ROUND_HALF_UP hacia +∞ (sesgo N.0). El resultado es bp ENTERO.
-      return p0.valueBp + Math.round(((p1.valueBp - p0.valueBp) * (marketCents - p0.marketCents)) / span);
+      // §4.36.1: se redondea el VALOR FINAL (siempre >= 0), NO el delta (que es negativo cuando el
+      // markup baja). El resultado es bp ENTERO.
+      return roundHalfUp(p0.valueBp + ((p1.valueBp - p0.valueBp) * (marketCents - p0.marketCents)) / span);
     }
   }
   /* istanbul ignore next — inalcanzable con puntos ordenados; red de seguridad. */
@@ -210,7 +227,7 @@ export function roundUp(cents: number, ladder: readonly RoundingBand[]): number 
  */
 export function resolveSaleFromCurve(marketMxnCents: number | null, curve: PricingCurve): CurveResolution {
   if (marketMxnCents == null || marketMxnCents <= 0) return { cents: null, basis: 'pending' };
-  const rawCents = Math.round((marketMxnCents * saleMultiplierBpAt(curve, marketMxnCents)) / 10_000);
+  const rawCents = roundHalfUp((marketMxnCents * saleMultiplierBpAt(curve, marketMxnCents)) / 10_000);
   const floorCents = curve.sale.floorCents;
   const baseCents = Math.max(floorCents, rawCents);
   const basis: PriceBasis = floorCents > rawCents ? 'floor' : 'market';
@@ -223,7 +240,7 @@ export function resolveSaleFromCurve(marketMxnCents: number | null, curve: Prici
  */
 export function resolveBuyFromCurve(marketMxnCents: number | null, curve: PricingCurve): CurveResolution {
   if (marketMxnCents == null || marketMxnCents <= 0) return { cents: null, basis: 'pending' };
-  const rawCents = Math.round((marketMxnCents * buyPctBpAt(curve, marketMxnCents)) / 10_000);
+  const rawCents = roundHalfUp((marketMxnCents * buyPctBpAt(curve, marketMxnCents)) / 10_000);
   const binCents = curve.buy.binCents;
   const basis: PriceBasis = binCents > rawCents ? 'floor' : 'market';
   return { cents: Math.max(binCents, rawCents), basis };

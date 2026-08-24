@@ -17,6 +17,7 @@ import {
   premiumFloorGuard,
   resolveBuyFromCurve,
   resolveSaleFromCurve,
+  roundHalfUp,
   roundUp,
   saleMultiplierBpAt,
   sanitizePricingCurve,
@@ -109,6 +110,49 @@ describe('pricing-curve — interpolación (criterio 81: nunca escalonada)', () 
 
   it('interp con lista vacía devuelve 1.00× (defensivo, nunca por debajo del mercado)', () => {
     expect(interp([], 12345)).toBe(10000);
+  });
+});
+
+describe('pricing-curve — ROUND_HALF_UP fijado (§4.36.1): medio ALEJÁNDOSE DE CERO sobre el VALOR FINAL', () => {
+  it('roundHalfUp: medio alejándose de cero en los dos signos', () => {
+    expect(roundHalfUp(0.5)).toBe(1);
+    expect(roundHalfUp(1.5)).toBe(2);
+    expect(roundHalfUp(2.5)).toBe(3); // NO "half to even": 2, no 3, sería banker's rounding
+    expect(roundHalfUp(-0.5)).toBe(-1); // el nativo de JS daría -0
+    expect(roundHalfUp(-1590.5)).toBe(-1591); // el nativo de JS daría -1590
+    expect(roundHalfUp(1733.4999)).toBe(1733);
+  });
+
+  it('MEDIO CENTAVO (obligatorio, E0): rawCents = 1733.5 ⇒ 1734', () => {
+    // Curva de compra plana al 50 %: 3467 × 5000 / 10000 = 1733.5 EXACTO ⇒ hacia arriba.
+    const curve: PricingCurve = {
+      version: 1,
+      sale: { floorCents: 2500, points: [{ marketCents: 1, multiplierBp: 16000 }], rounding: CURVE.sale.rounding },
+      buy: { binCents: 100, points: [{ marketCents: 1, pctBp: 5000 }] },
+    };
+    expect(validatePricingCurve(curve)).toBeNull();
+    expect(resolveBuyFromCurve(3467, curve).cents).toBe(1734);
+    // Y medio centavo por debajo NO sube: 3466 × 50 % = 1733 exacto.
+    expect(resolveBuyFromCurve(3466, curve).cents).toBe(1733);
+  });
+
+  it('MEDIO CENTAVO en interp: se redondea el VALOR FINAL, no el delta (el delta es negativo)', () => {
+    // Tramo (0, 1.60×) → (2000, 1.50×): en m = 1001 el delta vale EXACTAMENTE -500.5.
+    //   * redondear el DELTA con «medio alejándose de cero» daría 16000 - 501 = 15499 (INCORRECTO);
+    //   * redondear el VALOR FINAL (15499.5, siempre >= 0) da 15500 (NORMATIVO, §4.36.1).
+    const points = [
+      { marketCents: 0, valueBp: 16000 },
+      { marketCents: 2000, valueBp: 15000 },
+    ];
+    expect(interp(points, 1001)).toBe(15500);
+    // Y el caso simétrico hacia abajo: en m = 999 el delta es -499.5 ⇒ final 15500.5 ⇒ 15501.
+    expect(interp(points, 999)).toBe(15501);
+  });
+
+  it('la prueba de mesa NO se mueve con el redondeo fijado (regresión del fix)', () => {
+    expect(saleMultiplierBpAt(CURVE, 5000)).toBe(13955);
+    expect(resolveSaleFromCurve(5000, CURVE).cents).toBe(7000);
+    expect(resolveBuyFromCurve(30000, CURVE).cents).toBe(13500);
   });
 });
 
