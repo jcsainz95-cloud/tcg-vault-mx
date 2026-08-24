@@ -2849,6 +2849,17 @@ entero, `groupId = pptSetId`). Es decir: das el `externalId` al endpoint, y el r
 
 ## 27. Runbook de release — SECUENCIA POST-DEPLOY money-crítica (M-39/M-40 + reshape P-34) — 2026-08-23
 
+> ### ⛔ AVISO 2026-08-24 — el **PASO 3 de esta sección ya NO EXISTE**. Ver **§29**.
+> El **backfill P-34 (reshape de tiers)** se **retiró del pipeline**: la etapa **E8 de P-48/v2.0** borró
+> `backend/prisma/backfill-p34-tiered-pricing.ts` junto con toda la superficie de tiers, y
+> `scripts/post-deploy.sh` ya **no** lo invoca (su llamada rompía el post-deploy entero por
+> `set -euo pipefail`). **No se reemplazó por otro script**: las cinco claves que migraba
+> (`sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`,
+> `buylist_price_fallback_pct`, `pricing_tier_map`) **ya no las lee nadie**; sus filas quedan
+> huérfanas e **inertes** en `ConfigSetting` a propósito (§4.36.9b: rollback barato + diagnóstico).
+> **Esta sección se conserva como REGISTRO HISTÓRICO** del release 2026-08-23 (M-39/M-40 siguen
+> vigentes y ya están en `origin/main`/`origin/production`). **El runbook operativo vigente es §29.**
+>
 > **Rama:** `fix/variant-composition-regression` @ `9b6a81b`. **Origen:** el techlead marcó **D-4** — el
 > script money-crítico de **reshape de tiers (P-34 T2=25%)** **no estaba en el runbook de deploy** y la
 > **regla 10** de `CLAUDE.md` exige cerrarlo ANTES de prod. Esta sección cablea la **secuencia exacta
@@ -2882,7 +2893,7 @@ entero, `groupId = pptSetId`). Es decir: das el `externalId` al endpoint, y el r
 |---|---|---|---|---|
 | 1 | **Migraciones** M-39 (`SealedProduct`) + M-40 (`PendingPriceEntry.sealedProductId`, FK nullable `onDelete SET NULL`). Ambas **aditivas**. | `npx prisma migrate deploy` (ya corre al arrancar el contenedor; el orquestador la re-verifica salvo `SKIP_MIGRATE=1`) | No-op si ya aplicaron (`_prisma_migrations`). | Falla atómica dentro de su tx → Railway mantiene el deploy anterior. Rollback = redeploy del commit previo (§27.4). |
 | 2 | **Backfill M-39** — cura el **ETB→Tropius** (deriva `SealedProduct` de items ya mapeados y liga `sealedProductId`). | `npx ts-node prisma/backfill-m39-sealed-product.ts` | `upsert` + solo liga items sin FK ⇒ 2ª corrida no duplica. | Reimprime reconciliación de sellados **SIN MAPEO** (quedan `null`, no bloquea). Si el script sale ≠0, revisar log y re-correr; no es destructivo. |
-| 3 | **Backfill P-34 — RESHAPE de tiers (T2=25%). MONEY-CRÍTICO.** Migra las reglas legacy plano/dos-ejes al shape tiered canónico. | `npx ts-node prisma/backfill-p34-tiered-pricing.ts` | Ve `tierRules` ⇒ NO-OP. Nunca escribe $0. | **Si imprime «⚠ ACCIÓN REQUERIDA»** (una tabla de M2 fue editada a mano y DIVERGE del default): **NO la toca (money-safe)** → **PARAR y escalar al humano/arquitecto** para definir el mapeo rareza→tier a mano. **El release NO se anuncia** hasta cerrarlo. `post-deploy.sh` **para solo** ante ese texto. |
+| ~~3~~ | ⛔ **RETIRADO 2026-08-24 (P-48/E8) — el script YA NO EXISTE, no lo busques ni lo re-crees (§29.2).** ~~Backfill P-34 — RESHAPE de tiers (T2=25%). MONEY-CRÍTICO.~~ Migra las reglas legacy plano/dos-ejes al shape tiered canónico. | `npx ts-node prisma/backfill-p34-tiered-pricing.ts` | Ve `tierRules` ⇒ NO-OP. Nunca escribe $0. | **Si imprime «⚠ ACCIÓN REQUERIDA»** (una tabla de M2 fue editada a mano y DIVERGE del default): **NO la toca (money-safe)** → **PARAR y escalar al humano/arquitecto** para definir el mapeo rareza→tier a mano. **El release NO se anuncia** hasta cerrarlo. `post-deploy.sh` **para solo** ante ese texto. |
 | 4 | **unify-rarities** — pendiente **cosmético** de P-34 (re-deriva `Card.rarityCanonical`). Es endpoint HTTP, no script de DB. | `curl -X POST "$ADMIN_BASE_URL/admin/catalog/unify-rarities" -H "Authorization: Bearer <super_admin_JWT>" -H "Content-Type: application/json"` | Idempotente (2ª corrida = 0 updates). | Cosmético: **NO bloquea**. Reintentar a mano cuando se tenga JWT. El orquestador lo dispara solo si se le pasan `ADMIN_BASE_URL` + `ADMIN_JWT`. |
 | 5 | **Nota de saneo legacy (deuda D-3)** — filas pendientes de sellado duplicadas/huérfanas (`gradeKey='sealed'` sin `sealedProductId`) de altas previas al fix. | *(barrido puntual, registrado en `TECH_DEBT`/`BACKEND_NOTES`)* | — | **Deuda de rol BACKEND, NO devops. NO bloquea el deploy.** Solo se observa en la cola de precio pendiente de M2 y se enruta a backend. |
 | 6 | **Sincronizar sellado por set** — «Sincronizar» trae presentaciones de sellado desde **tcgcsv.com** (egress real; en local/CI daba **403**). | Back-office M2 «Sincronizar» por set, o el endpoint por-set con super_admin (ver §26.6). | Idempotente / money-safe (repuebla presentaciones y precio; no borra `PriceReference`). | Requiere egress a tcgcsv.com. Si da 403/timeout, es red/egress: reintentar desde un entorno con salida a Internet; no altera dinero existente. |
@@ -2971,3 +2982,228 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 > **Límites (devops):** esta sección y `scripts/post-deploy.sh` NO modifican `backend/`, `frontend/` ni el
 > contrato. El paso 5 (saneo legacy D-3) es de **rol backend**; si el paso 3 escala a «ACCIÓN REQUERIDA», el
 > mapeo rareza→tier a mano lo decide **humano/arquitecto**, no devops.
+
+---
+
+## 29. Cut-over de **v2.0 — precio puro por valor de mercado** (P-48, M-41) — 2026-08-24
+
+> **Rama:** `claude/card-pricing-rules-2e537m` (etapas **E0–E9**, de `586f736` a `HEAD`).
+> **Fuente normativa:** `ARCHITECTURE.md` **§4.36** (spec) y **§4.36.9** (migración + cut-over).
+>
+> ### ⛔ ESTADO: **NO DESPLEGADO. NO DESPLEGAR TODAVÍA.**
+> Este cambio **toca dinero en los dos ejes** (venta y compra) y **aún no tiene veredictos**: falta
+> **QA** (suite E2E completa), **techlead** y la **fase de seguridad** (pentester + seguridad). La
+> **regla 10** de `CLAUDE.md` exige los **tres** antes de promover. Esta sección deja el **runbook
+> listo y el pipeline sano**; ejecutarlo es un paso posterior, cuando los tres veredictos existan.
+>
+> **Numeración:** esta sección es **§29 y no §28** a propósito: `origin/main` ya tiene un
+> **§28** (runbook de activación del dial `tcgcsv_singles`, P-47). Numerarla §29 evita el choque
+> de encabezados cuando este stream mergee a `main`.
+
+### 29.1 Resumen para el operador: qué cambia en INFRA (y qué NO)
+
+| Dimensión | v2.0 (P-48) |
+|---|---|
+| **Variables de entorno** | **NINGUNA nueva.** La curva es **DATO** (setting `pricing_curve` en `ConfigSetting`), no configuración de entorno: se edita en M2 sin redeploy. Si algún día un cambio de pricing pide un env nuevo, es señal de diseño equivocado → **reportar al arquitecto, no agregarlo**. |
+| **Migración** | **M-41** `20260824120000_m41_pricing_curve_instrumentation` — **ADITIVA PURA**: 3 enums + 8 columnas **nullable** + 1 índice. **Sin `DROP`, sin backfill, sin migración de dinero.** Segura con la app corriendo. |
+| **Migración de dinero** | **NO EXISTE.** El precio de venta **no está persistido**: se resuelve **en lectura** (§4.26b). No hay filas de precio que reescribir. |
+| **«Repriciar el catálogo»** | Es **RE-RESOLVER**, no un `UPDATE` masivo → `POST /admin/inventory/publish-all` (§29.4, paso 5). |
+| **Settings viejos** | Las **cinco** claves retiradas quedan **huérfanas e INERTES**, **sin `DELETE`**: `sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`, `buylist_price_fallback_pct`, `pricing_tier_map`. **NO LAS BORRES** (§29.8). |
+| **Seed** | **No se necesita** para el cut-over. Si la fila `pricing_curve` no existe, `SettingsService.get()` devuelve el **default de §N.2** (`SETTING_DEFAULTS`) — exactamente lo que el seed escribiría. La fila se materializa sola con el primer `PUT /admin/pricing/curve`. Correr `prisma/seed.ts` completo contra prod **no** es parte de este runbook (siembra usuarios/cartas demo). |
+| **Sellado** | **Fuera de la curva** (§4.36.10): conserva íntegro su spread por presentación y su dial `sealed_spread_fallback_pct`. Verificable: **el precio de un sellado antes y después es idéntico**. |
+| **Docker / compose / CI** | **Sin cambios.** Mismo `Dockerfile.backend` (su `CMD` corre `migrate deploy` antes de servir), mismos workflows, mismos gates SAST/DAST/E2E. |
+
+### 29.2 Bloqueo resuelto — `post-deploy.sh` invocaba un script **borrado**
+
+**Síntoma:** `scripts/post-deploy.sh` línea 87 hacía
+`npx ts-node prisma/backfill-p34-tiered-pricing.ts`, y ese archivo **ya no existe**: la etapa **E8** lo
+borró como parte del retiro sin residuos de la superficie de tiers. Con `set -euo pipefail`, el
+post-deploy **entero** abortaba ahí → **release imposible de completar**.
+
+**Arreglo (no sustitución):** el paso se **retiró del pipeline**. No hay nada que poner en su lugar:
+
+- Ese backfill era el de **P-34/M-38** (reshape rareza→tier) y **ya cumplió su función**.
+- Migraba justo las claves que v2.0 **dejó de leer**. Aunque no hubiera corrido, hoy sería un **no-op de
+  comportamiento**: ningún camino de código lee esas cinco claves (verificado por grep en `backend/src/`
+  y `backend/prisma/`; solo quedan comentarios de retiro explícitos).
+- Con él se fue su **parada controlada** por «ACCIÓN REQUERIDA» (la ambigüedad rareza→tier de una tabla
+  editada a mano). Ya no aplica: **no hay tablas de reglas** que colapsar — hay **una curva**.
+
+**Además, en el mismo pase:**
+
+- `post-deploy.sh` se renumeró (1 migraciones · 2 backfill M-39 · 3 unify-rarities · 4 **cut-over
+  publish-all** · 5 **diagnóstico de la cola** · 6 nota D-3 · 7 sync de sellado) y su cabecera describe
+  el estado real del release.
+- **Verificado `bash -n scripts/post-deploy.sh` → OK.**
+- **Barrido de referencias muertas** en territorio devops (`scripts/`, `.github/workflows/`, `security/`,
+  `docker-compose*.yml`, `Dockerfile.*`, `railway.json`, `.env.example`): **sin residuos** de
+  `backfill-p34`, `tiered-pricing`, `pricing/tiers`, `tier-map`, `buylist-rules`, `sales-rules`,
+  `sales-rarities` ni de las cinco claves retiradas. La **única** referencia viva estaba en la línea 87.
+- **Fuera de mi territorio** (queda para su rol): `PENDIENTES.md` (líneas ~53-55) todavía lista
+  `ts-node prisma/backfill-p34-tiered-pricing.ts` como paso 3 del «Al publicar». Es del **orquestador**;
+  `docs/BACKEND_NOTES.md` §del backfill P-34 es de **backend**. Ninguna de las dos rompe el deploy
+  (son documentación), pero conviene alinearlas para no reintroducir el paso muerto.
+
+### 29.3 M-41: contenido, serialización y orden de merge
+
+**Contenido** (`backend/prisma/migrations/20260824120000_m41_pricing_curve_instrumentation/`):
+
+1. `CREATE TYPE "PriceBasis"` (`market`, `floor`, `override`, `bounty`, `pending`).
+2. `CREATE TYPE "MarketBracket"` (`lt_3`, `r3_10`, `r10_25`, `r25_80`, `r80_300`, `gte_300`) — **escala
+   fija**: cambiarla parte la serie histórica.
+3. `CREATE TYPE "PendingPriceReason"` (`no_market`, `premium_at_floor`).
+4. `OrderItem` += `marketMxnCents`, `priceBasis`, `marketBracket`, `finish` (todas nullable).
+5. `SellRequestItem` += `marketMxnCents`, `priceBasis`, `marketBracket` (nullable).
+6. `PendingPriceEntry` += `reason` (nullable) + índice `PendingPriceEntry_reason_idx`.
+
+**Sin `DROP`, sin `UPDATE`, sin backfill.** Las filas históricas quedan en `null` a propósito (`null` =
+«anterior a M-41»); `reason` **no** entra a la clave de dedupe de la cola, así que filas viejas y nuevas
+conviven sin duplicar.
+
+**¿Hay que serializar M-41 contra otras migraciones pendientes? — Verificado con git: NO hay conflicto.**
+
+| Ref | Última migración | Nota |
+|---|---|---|
+| `origin/main` (`d9c8c91`) | `20260823130000_m40_pending_sealed_product` | M-39/M-40 ya mergeadas. |
+| `origin/production` (`c255692`) | `20260823130000_m40_pending_sealed_product` | Rama-registro de releases. |
+| `origin/claude/card-pricing-rules-2e537m` (esta) | **`20260824120000_m41_…`** | **Única migración por delante de `main`.** |
+| Resto de ramas remotas | ≤ M-40 | Ninguna otra rama abierta añade migraciones. |
+
+- **M-41 es la única migración pendiente del repo.** No hay colisión de timestamp ni orden ambiguo:
+  Prisma aplica por nombre (lexicográfico) y `20260824120000` > `20260823130000`.
+- La **serialización** que pide `ARCHITECTURE §4.36.9a` es la de **zona compartida** (`backend/prisma/`,
+  regla de work streams): **este stream es el único que la toca** en la ventana actual. Mientras M-41 no
+  esté en `main`, **ningún otro stream debe crear migraciones**; si lo hace, el orquestador serializa
+  (M-41 primero, y la otra se re-fecha por encima).
+- **`migrate deploy` corre solo:** el `CMD` de `Dockerfile.backend`
+  (`prisma migrate deploy && node dist/main.js`) garantiza **migración antes de servir**. El código v2.0
+  nunca sirve sin las columnas de M-41. `healthcheckTimeout: 300` en `railway.json` da holgura.
+
+> **⚠️ Orden entre releases (recomendación de devops).** `origin/main` va **14 commits por delante** de
+> esta rama y trae **P-47 / §28**: el flip del dial `priceProvider → tcgcsv_singles` (precio por-acabado
+> diario desde TCGCSV). **P-47 cambia la FUENTE del mercado; P-48 cambia la MATEMÁTICA que se aplica a
+> ese mercado.** Encender ambos en la **misma ventana** hace indiagnosticable cualquier movimiento de
+> precio: si un número queda raro no se sabrá si fue el dato o la curva. **Recomendación: una cosa a la
+> vez** — dejar asentar el flip de §28 (o hacer el cut-over de §29 con el dial en su estado actual) y
+> mover el otro después, comparando `GET /admin/reports/pricing-brackets` entre ambos momentos. La
+> decisión es del dueño/orquestador; devops solo señala el riesgo de diagnóstico.
+
+### 29.4 Secuencia de cut-over (§4.36.9c) — **cuando existan los tres veredictos**
+
+Orquestada por `scripts/post-deploy.sh` (idempotente). Patrón §11.F para el env de prod.
+
+| # | Paso | Comando / dónde | Bloquea | Notas |
+|---|---|---|---|---|
+| 0 | **Snapshot / PITR de la Postgres de prod** | Railway → Postgres → Backups → *Create backup* | **SÍ** | Orden de oro (§7): **datos primero, código después**. Aquí no hay dinero que migrar, pero el snapshot es la red para cualquier sorpresa. |
+| 1 | **Merge a `main` + deploy** (Railway backend + Vercel frontend) | `deploy.yml` (auto desde `main`) o §26.3 | **SÍ** | Al arrancar, el contenedor aplica **M-41**. El frontend v2.0 (editor de curva) y el backend deben ir **juntos**: el editor de tiers ya no existe. |
+| 2 | **Salud** | `GET /api/v1/health` → 200 (Redis `up`) | **SÍ** | No se toca dato hasta que la app esté sana. |
+| 3 | **Verificar M-41 aplicada** | SQL de §29.6 | **SÍ** | 1 fila en `_prisma_migrations` + columnas/enums presentes. |
+| 4 | **(Opcional) Fijar la curva** | M2 → editor de curva, o `PUT /admin/pricing/curve` | No | Si no se toca, rige el **default de §N.2** (idéntico al seed). El `POST /admin/pricing/curve/preview` permite **dry-run** antes de guardar. |
+| 5 | **CUT-OVER: re-resolver el catálogo** | `RUN_PUBLISH_ALL=1 ADMIN_BASE_URL=… ADMIN_JWT=… bash scripts/post-deploy.sh` — o `POST /admin/inventory/publish-all` con `{"batchKey":"p48-cutover-v2.0"}` | **SÍ** | Selecciona piezas `ownerType=platform` + `status=in_stock`, las re-resuelve **con la curva**, publica lo que resuelve y **escala** a la cola lo que cae en `pending`/`premium_at_floor`. Idempotente por `batchKey`; tolerante por-ítem. **Lo ya publicado NO necesita este paso: adopta la curva solo con el deploy** (el precio se resuelve en lectura). Filtros `setId`/`productType` permiten hacerlo por partes. |
+| 6 | **Leer la cola por razón** | `GET /admin/pricing/pending` → `counts` (paso 5 del script) | **SÍ (juicio)** | `premium_at_floor` ≈ **3 por cada 333** cartas (§4.36.9c-3). **Muy por encima ⇒ piso mal calibrado o dato de mercado roto** ⇒ escalar al dueño/arquitecto, **no anunciar**. |
+| 7 | **Revisión de OVERRIDES heredados** | M2, binder por variante (§29.5) | No (pero es **del dueño**) | Tarea humana, no automatizable. |
+| 8 | **Instrumentación viva** | `GET /admin/reports/pricing-brackets?axis=sale\|buy` | No | Tras la primera venta y la primera compra deben existir los cinco campos y agregar por bracket. |
+| 9 | **Anunciar / taggear** | tag de release | — | Solo con 0–8 en verde **y** los tres veredictos. |
+
+### 29.5 Overrides heredados — **tarea del dueño, no del script** (§4.36.9c-5)
+
+Los overrides manuales (`InventoryItem.listPriceCents`, `VariantPriceOverride.sellOverrideCents` /
+`buyOverrideCents`) **se conservan intactos**: §N.6 los declara **absolutos**. Pero algunos pudieron
+fijarse creyendo la etiqueta falsa «Piso (MX$)» del editor viejo — **la causa raíz de P-48**. Con la
+curva, ese override **sigue ganando** y puede quedar por debajo de lo que la curva cobraría/pagaría hoy.
+
+**El código no puede distinguir un override deliberado de uno mal informado**, y adivinar sería
+exactamente el error que este cambio corrige. **Norma: no se tocan automáticamente.** La comparación ya
+es visible sin endpoint nuevo: el binder expone `pricing.buy/sell.suggestedCents` (curva) junto a
+`overrideCents`. **Ningún script de devops modifica overrides** — ni este ni ninguno.
+
+### 29.6 Verificación post-deploy (SQL + HTTP)
+
+```sql
+-- 1) M-41 aplicada
+SELECT migration_name FROM "_prisma_migrations"
+WHERE migration_name = '20260824120000_m41_pricing_curve_instrumentation'
+  AND finished_at IS NOT NULL;                      -- → 1 fila
+
+-- 2) Instrumentación presente (venta y compra)
+SELECT table_name, column_name FROM information_schema.columns
+WHERE (table_name = 'OrderItem'      AND column_name IN ('marketMxnCents','priceBasis','marketBracket','finish'))
+   OR (table_name = 'SellRequestItem' AND column_name IN ('marketMxnCents','priceBasis','marketBracket'))
+   OR (table_name = 'PendingPriceEntry' AND column_name = 'reason');   -- → 8 filas
+
+-- 3) Enums nuevos
+SELECT unnest(enum_range(NULL::"MarketBracket"));   -- → lt_3 … gte_300 (escala FIJA)
+SELECT unnest(enum_range(NULL::"PriceBasis"));      -- → market, floor, override, bounty, pending
+
+-- 4) La curva (0 filas = corriendo con el default de §N.2, es VÁLIDO)
+SELECT key, "updatedBy" FROM "ConfigSetting" WHERE key = 'pricing_curve';
+
+-- 5) Las cinco INERTES deben SEGUIR AHÍ (NO se borran — §29.8)
+SELECT key FROM "ConfigSetting" WHERE key IN
+  ('sales_price_rules','sales_price_fallback_pct','buylist_price_rules',
+   'buylist_price_fallback_pct','pricing_tier_map');
+```
+
+**HTTP (super_admin):**
+
+```bash
+curl -sS "$ADMIN_BASE_URL/admin/pricing/curve"           -H "Authorization: Bearer $ADMIN_JWT"
+curl -sS "$ADMIN_BASE_URL/admin/pricing/pending"         -H "Authorization: Bearer $ADMIN_JWT"   # counts por razón
+curl -sS "$ADMIN_BASE_URL/admin/reports/pricing-brackets?axis=sale" -H "Authorization: Bearer $ADMIN_JWT"
+```
+
+**Señal de alarma en logs:** `[MONEY] El setting pricing_curve es INVÁLIDO en BD` significa que alguien
+editó la fila a mano y quedó corrupta: el backend **no apaga el catálogo** (cae al seed de §N.2 —
+«siempre hay curva»), pero **el precio publicado no es el configurado**. Se arregla con
+`PUT /admin/pricing/curve`. Vale la pena una alerta sobre ese patrón en el log drain (§8).
+
+### 29.7 Rollback
+
+**Rollback = redeploy del commit anterior. No se restaura la DB para revertir código.**
+
+| Escenario | Acción |
+|---|---|
+| **App v2.0 rota / precios inesperados** | Railway (`backend` → Deployments → **Redeploy** del deploy previo bueno) y Vercel (**Promote to Production** del build previo). Alternativa Git: `git revert` del merge + push. **Backend y frontend se revierten JUNTOS** (el M2 v2.0 habla con endpoints que el backend viejo no tiene, y viceversa). |
+| **¿Y las columnas de M-41?** | **Aditiva ⇒ no estorba.** Para el código viejo, las 8 columnas nullable y el índice son **inertes**; sigue insertando `null` en ellas. **No se revierte la migración** (no hace falta y `migrate resolve --rolled-back` sobre una aditiva solo genera ruido). |
+| **¿Y la matemática?** | El resolver viejo **vuelve solo**: sigue en la imagen anterior y sus cinco settings **siguen en BD, íntegros** (por eso **no se borran**). Rollback barato **exactamente** por esa decisión. |
+| **¿Y la fila `pricing_curve`?** | Inerte para el código viejo (nadie la lee). Se deja; si se vuelve a v2.0, la configuración del dueño sigue ahí. |
+| **¿Y lo que publicó el cut-over (paso 5)?** | Esas piezas quedan `listed` y, bajo el código viejo, **vuelven a precio con la matemática vieja** (la de P-48, la del bug). No hay corrupción de datos, pero **es la consecuencia real de revertir**: si se revierte, se revierte el precio de todo, no solo de lo nuevo. Despublicar pieza por pieza es manual (M2) y solo se hace si el dueño lo pide. |
+| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
+| **Corrupción de datos (no rollback de código)** | Única razón para restaurar el snapshot del paso 0. |
+
+**No se requiere ventana de riesgo** (§4.36.9d / §N.9): no hay dinero vivo en tránsito que la migración
+toque. Aun así, el cut-over se hace **fuera de hora pico** por el volumen del `publish-all`.
+
+### 29.8 Anti-checklist — lo que **NO** se hace en este release
+
+1. **NO borrar** las cinco claves inertes (`sales_price_rules`, `sales_price_fallback_pct`,
+   `buylist_price_rules`, `buylist_price_fallback_pct`, `pricing_tier_map`). Borrar configuración en el
+   mismo paso que cambia la matemática **mata el diagnóstico y el rollback barato** (§4.36.9b, mismo
+   precedente que `rarity_map` en v1.32). La limpieza es un **follow-up** posterior, con su propia
+   migración y su propia decisión. **Ojo al parecido:** `sealed_spread_fallback_pct` **NO** es una de
+   ellas — el sellado sigue vivo y fuera de la curva.
+2. **NO hacer `UPDATE` masivo de precios.** No hay precio de venta persistido que actualizar.
+3. **NO tocar** `InventoryItem.listPriceCents` ni `VariantPriceOverride.*` (§29.5).
+4. **NO agregar variables de entorno.** La curva es dato. Si algo parece necesitar env nuevo →
+   **reportar al arquitecto**.
+5. **NO correr `prisma/seed.ts` completo contra prod** (siembra demo). El default de la curva ya aplica
+   por lectura.
+6. **NO re-crear** `backfill-p34-tiered-pricing.ts` ni ningún equivalente.
+7. **NO desplegar sin los tres veredictos** (QA + techlead + seguridad), y con el **gate de seguridad**
+   (SAST por PR + DAST staging) y el **harness E2E** en verde.
+
+### 29.9 Estado del DoD para este stream (verificación de devops)
+
+| Ítem DoD | Estado |
+|---|---|
+| Criterios de aceptación de `PROJECT.md` (P-48) | **Pendiente de verificación por QA.** |
+| **QA aprobó** (E2E completa contra el stack) | ❌ **falta** |
+| **techlead aprobó** | ❌ **falta** |
+| **Fase de seguridad** (pentester + seguridad) — money-critical | ❌ **falta** |
+| `docs/` al día | ✅ `ARCHITECTURE §4.36`, `API_CONTRACT v2.0/v2.1`, `DESIGN_SYSTEM §21`, `BACKEND_NOTES`, `FRONTEND_NOTES` y **este §29** |
+| **devops desplegó** + despliegue/rollback documentados | ⏸️ **runbook listo (§29.4/§29.7); deploy NO ejecutado a propósito** |
+| Deuda bloqueante | Sin deuda bloqueante conocida **de infraestructura**; la de código la evalúan techlead/backend. |
+
+**Conclusión devops:** el **pipeline quedó sano** (bloqueo del post-deploy resuelto y verificado) y el
+**cut-over está documentado punta a punta**. **El proyecto NO se cierra en este pase**: faltan los tres
+veredictos. Cuando estén, este runbook se ejecuta tal cual y se crea el tag de release.

@@ -313,6 +313,13 @@ jobs:
           echo "Desplegando servicio '$RAILWAY_BACKEND_SERVICE' a Railway (production)..."
           railway up --service "$RAILWAY_BACKEND_SERVICE" --environment production --ci
           # `prisma migrate deploy` corre en el arranque del contenedor (Dockerfile CMD).
+      - name: Recordatorio de secuencia POST-DEPLOY (no automatizada, a propósito)
+        run: |
+          echo "::notice::El deploy NO termina aquí: corre la secuencia post-deploy."
+          echo "::notice::  railway run --service backend --environment production bash scripts/post-deploy.sh"
+          echo "::notice::Runbook vigente: DEVOPS_NOTES §29 (cut-over v2.0/P-48). Histórico: §27."
+          echo "::notice::v2.0: 'repriciar' = RE-RESOLVER (publish-all, opt-in RUN_PUBLISH_ALL=1), no un UPDATE masivo."
+          echo "::notice::Luego revisa la cola: GET /admin/pricing/pending -> counts.premium_at_floor (~3 por cada 333 cartas)."
 
   # ---------------------------------------------------------------------------
   # PRODUCCIÓN — Frontend a Vercel (--prod).
