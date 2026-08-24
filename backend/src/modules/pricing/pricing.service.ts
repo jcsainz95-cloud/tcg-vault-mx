@@ -32,7 +32,16 @@ import {
 } from '../../common/money';
 // v2.0 (P-48, §4.36.2): LA CURVA. Un solo lector en todo el backend (`loadPricingCurve`), para que no
 // vuelva a haber dos rutas de dinero leyendo configuraciones potencialmente distintas.
-import { PricingCurve, sanitizePricingCurve } from '../../common/pricing-curve';
+import {
+  CurveLegTrace,
+  CurveValidationError,
+  PricingCurve,
+  collectCurveViolations,
+  explainBuyFromCurve,
+  explainSaleFromCurve,
+  normalizePricingCurve,
+  sanitizePricingCurve,
+} from '../../common/pricing-curve';
 import { TierId } from '../../common/pricing-tiers';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
@@ -581,6 +590,55 @@ export class PricingService {
       );
     }
     return curve;
+  }
+
+  /**
+   * v2.1 (P-48, §4.36.8a) — **DRY-RUN de la curva**. Evalúa una curva BORRADOR contra N mercados de
+   * sonda y devuelve, por sonda, el resultado con el borrador Y con la curva **VIGENTE** (que se lee
+   * de ESTE almacén, jamás del cliente: si el cliente pudiera echarla de vuelta, un cliente rancio
+   * pintaría una columna «VIGENTE» que no es la vigente — y ésa es contra la que el dueño mide su
+   * cambio).
+   *
+   * **No persiste, no audita, no autoriza.** No evalúa el guardarraíl ni consulta rareza, overrides,
+   * bounties ni inventario: opera sobre mercados HIPOTÉTICOS, así que `basis` solo puede valer
+   * `market | floor | pending`.
+   *
+   * Usa las MISMAS puras que el precio real (`explainSaleFromCurve`/`explainBuyFromCurve` son el
+   * cuerpo de `resolveSale/BuyFromCurve`) y el MISMO validador que el `PUT` — que es todo el punto:
+   * sin este endpoint el editor reimplementaría la aritmética Y los invariantes en el cliente, y el
+   * dueño calibraría contra un número que el backend no produce (el bug de P-48 en espejo).
+   */
+  async previewCurve(
+    draft: PricingCurve,
+    marketsCents: number[],
+  ): Promise<{
+    rows: {
+      marketCents: number;
+      draft: { sale: CurveLegTrace; buy: CurveLegTrace };
+      saved: { sale: CurveLegTrace; buy: CurveLegTrace };
+      deltaCents: { sale: number | null; buy: number | null };
+    }[];
+    violations: CurveValidationError[];
+  }> {
+    // La VIGENTE la resuelve el servidor con SU almacén, al atender la petición.
+    const saved = await this.loadPricingCurve();
+    const normalizedDraft = normalizePricingCurve(draft);
+    // El server DEDUPLICA y ORDENA ascendente (la tabla de referencia del editor los quiere así, y
+    // dejarlo aquí evita otra reimplementación en el cliente, por pequeña que sea).
+    const probes = Array.from(new Set(marketsCents)).sort((a, b) => a - b);
+    const rows = probes.map((marketCents) => {
+      const d = { sale: explainSaleFromCurve(marketCents, normalizedDraft), buy: explainBuyFromCurve(marketCents, normalizedDraft) };
+      const v = { sale: explainSaleFromCurve(marketCents, saved), buy: explainBuyFromCurve(marketCents, saved) };
+      const delta = (a: number | null, b: number | null) => (a == null || b == null ? null : a - b);
+      return {
+        marketCents,
+        draft: d,
+        saved: v,
+        deltaCents: { sale: delta(d.sale.priceCents, v.sale.priceCents), buy: delta(d.buy.priceCents, v.buy.priceCents) },
+      };
+    });
+    // Solo las NO bloqueantes: las bloqueantes ya cortaron con 422 en el controller.
+    return { rows, violations: collectCurveViolations(draft).filter((e) => !e.blocking) };
   }
 
   async loadBuylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {

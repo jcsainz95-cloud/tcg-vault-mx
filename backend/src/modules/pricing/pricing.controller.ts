@@ -19,6 +19,13 @@ import {
   isValidSalesRule,
 } from '../settings/settings.constants';
 import { BuylistRule, SalesRule, PriceRuleSet, toPriceRuleSet } from '../../common/money';
+// v2.0/v2.1 (P-48, §4.36.8/§4.36.8a): la CURVA — editor de M2 y su dry-run.
+import {
+  CurveErrorCode,
+  PricingCurve,
+  collectCurveViolations,
+  normalizePricingCurve,
+} from '../../common/pricing-curve';
 import {
   PRICING_TIERS,
   TIER_IDS,
@@ -42,6 +49,31 @@ import { VariantControlsService } from './variant-controls.service';
 
 /** P-6 (§M2): valores válidos del query `?context=` de `GET /admin/pricing/pending`. */
 const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = Object.values(PendingPriceContext);
+
+/**
+ * v2.1 (§4.36.8a): cap de sondas del dry-run. La tabla de referencia del editor necesita los 10
+ * mercados de la prueba de mesa ∪ los puntos del borrador de un tiro; 50 deja holgura sin abrir un
+ * vector de coste (el endpoint es puro CPU sobre aritmética entera).
+ */
+const CURVE_PREVIEW_MAX_PROBES = 50;
+
+/**
+ * v2.0 (§4.36.8) — body del `PUT /admin/pricing/curve`. La validación REAL es V1–V8
+ * (`collectCurveViolations`), que es la MISMA que usa el dry-run: aquí solo se declara la forma
+ * mínima para que `class-validator` no rechace el objeto antes de llegar al validador de dinero.
+ */
+class CurvePutDto {
+  @IsInt() version!: number;
+  @IsObject() sale!: Record<string, unknown>;
+  @IsObject() buy!: Record<string, unknown>;
+}
+
+/** v2.1 (§4.36.8a) — body del dry-run. `draft` = la curva EN EDICIÓN (sin guardar). */
+class CurvePreviewDto {
+  @IsObject() draft!: Record<string, unknown>;
+  // El rango/cap/enteros se validan en el handler para poder devolver `field` y un mensaje accionable.
+  @Allow() marketsCents!: number[];
+}
 
 class OverrideDto {
   @IsString() cardId!: string;
@@ -241,6 +273,99 @@ export class PricingController {
     const raw = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
     if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return {};
     return raw as Record<string, TierId>;
+  }
+
+  // ==========================================================================
+  // v2.0/v2.1 (P-48) — LA CURVA: editor de M2 (§4.36.8) + dry-run (§4.36.8a)
+  // ==========================================================================
+
+  /**
+   * §4.36.8 — lee la curva COMPLETA. Read-only. Es la fuente del editor de la tabla de puntos.
+   */
+  @Get('curve')
+  async getCurve(): Promise<PricingCurve> {
+    return this.pricing.loadPricingCurve();
+  }
+
+  /**
+   * §4.36.8 — **REEMPLAZA el objeto completo** (semántica de reemplazo, no de patch por índice: mover
+   * o borrar un renglón por índice es frágil y no auditable; el `AuditLog` guarda `before`/`after` del
+   * objeto entero). Los puntos pueden venir DESORDENADOS: el server ordena por `marketCents`.
+   *
+   * Valida V1–V8 **al GUARDAR** (no solo en runtime) sobre el objeto completo, con el código y el
+   * `details` que señalan QUÉ PUNTO lo rompe (criterio 87). **Autoridad única del dinero (SEC-A1):**
+   * re-valida desde cero — un `preview` previo NO autoriza nada.
+   *
+   * Sin redeploy: mover un punto **repricia en el siguiente cálculo**, porque el precio de venta se
+   * resuelve EN LECTURA y no está persistido (§4.36.9c) — por eso no hay que re-publicar nada.
+   */
+  @Put('curve')
+  async putCurve(@Body() dto: CurvePutDto, @CurrentUser('id') userId: string): Promise<PricingCurve> {
+    const problem = collectCurveViolations(dto)[0];
+    if (problem) {
+      throw BusinessException.validation(problem.code as CurveErrorCode, problem.message, problem.details);
+    }
+    const before = await this.pricing.loadPricingCurve();
+    const curve = normalizePricingCurve(dto as unknown as PricingCurve);
+    const valueJson = curve as unknown as Prisma.InputJsonValue;
+    await this.prisma.configSetting.upsert({
+      where: { key: SettingKey.PRICING_CURVE },
+      create: { key: SettingKey.PRICING_CURVE, valueJson, updatedBy: userId },
+      update: { valueJson, updatedBy: userId },
+    });
+    const after = await this.pricing.loadPricingCurve();
+    await this.audit.log({
+      actorUserId: userId,
+      action: 'pricing.curve.update',
+      entityType: 'ConfigSetting',
+      before,
+      after,
+    });
+    return after;
+  }
+
+  /**
+   * v2.1 (§4.36.8a) — **DRY-RUN**: evalúa una curva BORRADOR contra N mercados de sonda y devuelve
+   * precio + `priceBasis` + **memoria de cálculo**, junto al mismo cálculo con la curva **VIGENTE**
+   * (que resuelve el servidor con SU almacén — el request NO la trae, a propósito).
+   *
+   * **No persiste, no audita, NO AUTORIZA:** un `200` con `violations: []` NO significa que el `PUT`
+   * vaya a pasar; el `PUT` re-valida desde cero y es la única autoridad del dinero (SEC-A1).
+   *
+   * **El borrador inválido se parte por COMPUTABILIDAD, no por severidad** (§4.36.8a(c)): las
+   * infracciones que impiden calcular (V1/V2/V3 y la escalera estructural) salen como `422` con el
+   * mismo código y `details` que el `PUT` — un `200` ahí sería inventar un precio. Las que SÍ dejan
+   * calcular (V4/V5/V6/V7 y la condición fina de V8) salen en `200` dentro de `violations[]`, para
+   * que el previsualizador enseñe el problema EN PESOS mientras el dueño corrige.
+   */
+  @Post('curve/preview')
+  async previewCurve(@Body() dto: CurvePreviewDto) {
+    const draft = dto?.draft as unknown;
+    const markets = dto?.marketsCents;
+    if (!Array.isArray(markets) || markets.length === 0 || markets.length > CURVE_PREVIEW_MAX_PROBES) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        `marketsCents must be a non-empty array of at most ${CURVE_PREVIEW_MAX_PROBES} integers`,
+        { field: 'marketsCents' },
+      );
+    }
+    for (const m of markets) {
+      if (typeof m !== 'number' || !Number.isInteger(m) || m < 0) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'each marketCents must be an integer >= 0 (cents). `0` IS a legitimate probe: it shows that without market data the price is PENDING (the floor does NOT win)',
+          { field: 'marketsCents', value: m },
+        );
+      }
+    }
+    // Solo las BLOQUEANTES cortan: sin ellas no hay número que devolver.
+    const blocking = collectCurveViolations(draft).find((e) => e.blocking);
+    if (blocking) {
+      throw BusinessException.validation(blocking.code as CurveErrorCode, blocking.message, blocking.details);
+    }
+    const { rows, violations } = await this.pricing.previewCurve(draft as PricingCurve, markets);
+    // El contrato expone `{ code, details }` — `blocking` es detalle interno del validador.
+    return { rows, violations: violations.map((v) => ({ code: v.code, details: v.details })) };
   }
 
   /**

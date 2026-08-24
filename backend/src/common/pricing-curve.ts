@@ -154,15 +154,33 @@ export interface CurvePointBp {
  * el validador V1/V2 al GUARDAR y `sanitizePricingCurve` al LEER).
  */
 export function interp(points: readonly CurvePointBp[], marketCents: number): number {
+  return interpWithSegment(points, marketCents).valueBp;
+}
+
+/** Tramo interpolado. `null` en los tramos PLANOS (antes del primer punto / después del último). */
+export interface CurveSegment {
+  fromIndex: number;
+  toIndex: number;
+}
+
+/**
+ * Igual que `interp` pero devolviendo TAMBIÉN qué tramo se aplicó. Es el cuerpo real: `interp` es un
+ * envoltorio. Saber QUÉ tramo interpoló es parte de la matemática y lo consume la **memoria de
+ * cálculo** del dry-run (§4.36.8a) — derivarlo en el cliente sería re-duplicar este lookup.
+ */
+export function interpWithSegment(
+  points: readonly CurvePointBp[],
+  marketCents: number,
+): { valueBp: number; segment: CurveSegment | null } {
   if (points.length === 0) {
     // Defensivo: sin puntos no hay curva. El validador V1 lo impide al guardar y `sanitize` al leer;
     // si aun así llegara aquí, 1.00× es el valor money-safe (nunca por debajo del mercado).
-    return MULTIPLIER_BP_MIN;
+    return { valueBp: MULTIPLIER_BP_MIN, segment: null };
   }
   const first = points[0];
   const last = points[points.length - 1];
-  if (marketCents <= first.marketCents) return first.valueBp; // tramo plano inicial
-  if (marketCents >= last.marketCents) return last.valueBp; // tramo plano final
+  if (marketCents <= first.marketCents) return { valueBp: first.valueBp, segment: null }; // plano inicial
+  if (marketCents >= last.marketCents) return { valueBp: last.valueBp, segment: null }; // plano final
   for (let i = 0; i < points.length - 1; i++) {
     const p0 = points[i];
     const p1 = points[i + 1];
@@ -170,11 +188,14 @@ export function interp(points: readonly CurvePointBp[], marketCents: number): nu
       const span = p1.marketCents - p0.marketCents;
       // §4.36.1: se redondea el VALOR FINAL (siempre >= 0), NO el delta (que es negativo cuando el
       // markup baja). El resultado es bp ENTERO.
-      return roundHalfUp(p0.valueBp + ((p1.valueBp - p0.valueBp) * (marketCents - p0.marketCents)) / span);
+      const valueBp = roundHalfUp(
+        p0.valueBp + ((p1.valueBp - p0.valueBp) * (marketCents - p0.marketCents)) / span,
+      );
+      return { valueBp, segment: { fromIndex: i, toIndex: i + 1 } };
     }
   }
   /* istanbul ignore next — inalcanzable con puntos ordenados; red de seguridad. */
-  return last.valueBp;
+  return { valueBp: last.valueBp, segment: null };
 }
 
 /** Proyecta los puntos de VENTA a `(marketCents, valueBp)`. */
@@ -210,10 +231,18 @@ export function buyPctBpAt(curve: PricingCurve, marketCents: number): number {
  * (paso mayor ⇒ precio mayor ⇒ sesgo N.0), y una escalera vacía no redondea.
  */
 export function roundUp(cents: number, ladder: readonly RoundingBand[]): number {
-  if (ladder.length === 0) return cents;
+  return roundUpWithStep(cents, ladder).cents;
+}
+
+/** Igual que `roundUp` pero devolviendo el PASO usado (memoria de cálculo del dry-run, §4.36.8a). */
+export function roundUpWithStep(
+  cents: number,
+  ladder: readonly RoundingBand[],
+): { cents: number; stepCents: number | null } {
+  if (ladder.length === 0) return { cents, stepCents: null };
   const band = ladder.find((b) => b.uptoCents == null || cents < b.uptoCents) ?? ladder[ladder.length - 1];
   const step = Number.isInteger(band.stepCents) && band.stepCents >= 1 ? band.stepCents : 1;
-  return Math.ceil(cents / step) * step;
+  return { cents: Math.ceil(cents / step) * step, stepCents: step };
 }
 
 // ============================================================================
@@ -226,12 +255,8 @@ export function roundUp(cents: number, ladder: readonly RoundingBand[]): number 
  * mayor que el valor derivado del mercado.
  */
 export function resolveSaleFromCurve(marketMxnCents: number | null, curve: PricingCurve): CurveResolution {
-  if (marketMxnCents == null || marketMxnCents <= 0) return { cents: null, basis: 'pending' };
-  const rawCents = roundHalfUp((marketMxnCents * saleMultiplierBpAt(curve, marketMxnCents)) / 10_000);
-  const floorCents = curve.sale.floorCents;
-  const baseCents = Math.max(floorCents, rawCents);
-  const basis: PriceBasis = floorCents > rawCents ? 'floor' : 'market';
-  return { cents: roundUp(baseCents, curve.sale.rounding), basis };
+  const t = explainSaleFromCurve(marketMxnCents, curve);
+  return { cents: t.priceCents, basis: t.basis };
 }
 
 /**
@@ -239,11 +264,103 @@ export function resolveSaleFromCurve(marketMxnCents: number | null, curve: Prici
  * EMPATE ⇒ `market`, igual que en venta.
  */
 export function resolveBuyFromCurve(marketMxnCents: number | null, curve: PricingCurve): CurveResolution {
-  if (marketMxnCents == null || marketMxnCents <= 0) return { cents: null, basis: 'pending' };
-  const rawCents = roundHalfUp((marketMxnCents * buyPctBpAt(curve, marketMxnCents)) / 10_000);
-  const binCents = curve.buy.binCents;
-  const basis: PriceBasis = binCents > rawCents ? 'floor' : 'market';
-  return { cents: Math.max(binCents, rawCents), basis };
+  const t = explainBuyFromCurve(marketMxnCents, curve);
+  return { cents: t.priceCents, basis: t.basis };
+}
+
+// ----------------------------------------------------------------------------
+// Memoria de cálculo (§4.36.8a) — el CUERPO REAL de las dos resoluciones. `resolveSale/BuyFromCurve`
+// son envoltorios que se quedan con `{ cents, basis }`. Que el dry-run del editor y el precio que se
+// cobra salgan de la MISMA función es todo el punto del endpoint de preview: si el dueño calibrara
+// contra un cálculo distinto del que cobra, sería el bug de P-48 en espejo.
+// ----------------------------------------------------------------------------
+
+/** Traza completa de UN eje para UN mercado. Espeja `CurvePreviewLegDTO` del contrato. */
+export interface CurveLegTrace {
+  priceCents: number | null;
+  /** Solo `market | floor | pending`: el dry-run opera sobre mercados HIPOTÉTICOS, no sobre variantes. */
+  basis: PriceBasis;
+  /** El valor INTERPOLADO aplicado, en bp del mercado. `null` si no hubo cálculo (pending). */
+  appliedBp: number | null;
+  /** `ROUND_HALF_UP(mercado × appliedBp / 10000)`: el producto ANTES de la constante y del redondeo. */
+  rawCents: number | null;
+  /** El piso (venta) o el bin (compra). */
+  constantCents: number;
+  /** La constante ganó el `max` ⇒ `basis === 'floor'`. */
+  constantWon: boolean;
+  /** `max(constantCents, rawCents)` — el monto que elige la banda y se redondea. `null` en compra/pending. */
+  baseCents: number | null;
+  /** Paso de la escalera usado (solo venta). `null` en compra y en pending. */
+  roundingStepCents: number | null;
+  segment: CurveSegment | null;
+}
+
+export function explainSaleFromCurve(marketMxnCents: number | null, curve: PricingCurve): CurveLegTrace {
+  const constantCents = curve.sale.floorCents;
+  if (marketMxnCents == null || marketMxnCents <= 0) {
+    return {
+      priceCents: null,
+      basis: 'pending',
+      appliedBp: null,
+      rawCents: null,
+      constantCents,
+      constantWon: false,
+      baseCents: null,
+      roundingStepCents: null,
+      segment: null,
+    };
+  }
+  const { valueBp, segment } = interpWithSegment(saleBpPoints(curve.sale.points), marketMxnCents);
+  const rawCents = roundHalfUp((marketMxnCents * valueBp) / 10_000);
+  const baseCents = Math.max(constantCents, rawCents);
+  // EMPATE ⇒ 'market' (§N.7): `floor` solo si la constante es ESTRICTAMENTE mayor.
+  const constantWon = constantCents > rawCents;
+  // La escalera se aplica IGUAL cuando gana el piso (por eso `baseCents` viaja: con piso $25.30 y
+  // paso $5 el precio publicado es $30, y sin este dato eso parecería un descuadre en pantalla).
+  const rounded = roundUpWithStep(baseCents, curve.sale.rounding);
+  return {
+    priceCents: rounded.cents,
+    basis: constantWon ? 'floor' : 'market',
+    appliedBp: valueBp,
+    rawCents,
+    constantCents,
+    constantWon,
+    baseCents,
+    roundingStepCents: rounded.stepCents,
+    segment,
+  };
+}
+
+export function explainBuyFromCurve(marketMxnCents: number | null, curve: PricingCurve): CurveLegTrace {
+  const constantCents = curve.buy.binCents;
+  if (marketMxnCents == null || marketMxnCents <= 0) {
+    return {
+      priceCents: null,
+      basis: 'pending',
+      appliedBp: null,
+      rawCents: null,
+      constantCents,
+      constantWon: false,
+      baseCents: null,
+      roundingStepCents: null,
+      segment: null,
+    };
+  }
+  const { valueBp, segment } = interpWithSegment(buyBpPoints(curve.buy.points), marketMxnCents);
+  const rawCents = roundHalfUp((marketMxnCents * valueBp) / 10_000);
+  const constantWon = constantCents > rawCents;
+  return {
+    priceCents: Math.max(constantCents, rawCents),
+    basis: constantWon ? 'floor' : 'market',
+    appliedBp: valueBp,
+    rawCents,
+    constantCents,
+    constantWon,
+    // La COMPRA no se redondea (§N.1): no hay banda ni base que elegir.
+    baseCents: null,
+    roundingStepCents: null,
+    segment,
+  };
 }
 
 // ============================================================================
@@ -335,6 +452,17 @@ export type CurveErrorCode =
 export interface CurveValidationError {
   code: CurveErrorCode;
   message: string;
+  /**
+   * §4.36.8a(c) — el dry-run se parte por COMPUTABILIDAD, no por severidad:
+   *  - `true`  ⇒ **impide calcular** (V1/V2/V3 y la escalera ESTRUCTURAL): sin puntos no hay qué
+   *    interpolar, con dos puntos en el mismo mercado la interpolación es ambigua y sin banda no se
+   *    puede elegir paso. El preview responde `422`: un `200` aquí sería inventar un precio.
+   *  - `false` ⇒ **calculable pero prohibido** (V4/V5/V6/V7 y la condición fina de V8): el preview
+   *    responde `200` con los precios y la infracción en `violations[]`, para que el previsualizador
+   *    enseñe el problema EN PESOS en vez de que el dueño corrija a ciegas.
+   * Para el `PUT` la distinción es irrelevante: **cualquier** infracción rechaza el guardado.
+   */
+  blocking: boolean;
   details: {
     axis?: 'sale' | 'buy';
     /** Índice del punto en el array TAL COMO VINO en el request (no el ordenado). */
@@ -350,8 +478,13 @@ function isInt(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && Number.isFinite(v);
 }
 
-function err(code: CurveErrorCode, message: string, details: CurveValidationError['details'] = {}): CurveValidationError {
-  return { code, message, details };
+function err(
+  code: CurveErrorCode,
+  message: string,
+  details: CurveValidationError['details'] = {},
+  blocking = true,
+): CurveValidationError {
+  return { code, message, details, blocking };
 }
 
 /** Punto ordenado que recuerda su índice ORIGINAL (para que el error señale el renglón del editor). */
@@ -379,146 +512,188 @@ function indexed<T extends { marketCents: number }>(points: readonly T[], value:
  * `multiplierBp > 1000000` emite `VALIDATION_ERROR` (typo de rango, sin lectura de negocio).
  */
 export function validatePricingCurve(value: unknown): CurveValidationError | null {
+  return collectCurveViolations(value)[0] ?? null;
+}
+
+/**
+ * Devuelve **TODAS** las infracciones del objeto (no solo la primera), separadas en dos fases:
+ *  - **Fase 1 — BLOQUEANTES** (forma, V1, V3, V2, escalera estructural): si hay una, se devuelve SOLA
+ *    y no se sigue. Las fases posteriores asumen una curva evaluable; correrlas sobre puntos
+ *    duplicados o no numéricos produciría errores derivados que confundirían al editor.
+ *  - **Fase 2 — NO BLOQUEANTES** (V4, V8 fino, V7, V5, V6): se acumulan todas, porque el
+ *    previsualizador las pinta juntas mientras el dueño corrige (§4.36.8a(c)).
+ *
+ * El `PUT` usa `validatePricingCurve` (la primera) — cualquier infracción rechaza el guardado; el
+ * dry-run usa esta lista completa. **Un solo validador para las dos superficies**, que es lo que
+ * impide que el editor reimplemente V1–V8 para adelantarse al 422.
+ */export function collectCurveViolations(value: unknown): CurveValidationError[] {
+  // ======================= FASE 1 — BLOQUEANTES (impiden calcular) =======================
   // ---- Forma ----------------------------------------------------------------
   if (value == null || typeof value !== 'object' || Array.isArray(value)) {
-    return err('VALIDATION_ERROR', 'pricing curve must be an object { version, sale, buy }');
+    return [err('VALIDATION_ERROR', 'pricing curve must be an object { version, sale, buy }')];
   }
   const c = value as Partial<PricingCurve>;
   if (c.version !== 1) {
-    return err('VALIDATION_ERROR', 'unsupported curve version: must be 1', { version: c.version });
+    return [err('VALIDATION_ERROR', 'unsupported curve version: must be 1', { version: c.version })];
   }
   const sale = c.sale;
   const buy = c.buy;
   if (sale == null || typeof sale !== 'object' || Array.isArray(sale)) {
-    return err('VALIDATION_ERROR', 'sale must be an object { floorCents, points, rounding }', { axis: 'sale' });
+    return [err('VALIDATION_ERROR', 'sale must be an object { floorCents, points, rounding }', { axis: 'sale' })];
   }
   if (buy == null || typeof buy !== 'object' || Array.isArray(buy)) {
-    return err('VALIDATION_ERROR', 'buy must be an object { binCents, points }', { axis: 'buy' });
+    return [err('VALIDATION_ERROR', 'buy must be an object { binCents, points }', { axis: 'buy' })];
   }
   if (!Array.isArray(sale.points)) {
-    return err('VALIDATION_ERROR', 'sale.points must be an array', { axis: 'sale' });
+    return [err('VALIDATION_ERROR', 'sale.points must be an array', { axis: 'sale' })];
   }
   if (!Array.isArray(buy.points)) {
-    return err('VALIDATION_ERROR', 'buy.points must be an array', { axis: 'buy' });
+    return [err('VALIDATION_ERROR', 'buy.points must be an array', { axis: 'buy' })];
   }
   if (!Array.isArray(sale.rounding)) {
-    return err('VALIDATION_ERROR', 'sale.rounding must be an array', { axis: 'sale' });
+    return [err('VALIDATION_ERROR', 'sale.rounding must be an array', { axis: 'sale' })];
   }
 
-  // ---- V1: curva no vacía ---------------------------------------------------
+  // ---- V1: curva no vacía (sin puntos no hay qué interpolar) ----------------
   if (sale.points.length === 0) {
-    return err('CURVE_EMPTY', 'sale.points must have at least 1 breakpoint', { axis: 'sale' });
+    return [err('CURVE_EMPTY', 'sale.points must have at least 1 breakpoint', { axis: 'sale' })];
   }
   if (buy.points.length === 0) {
-    return err('CURVE_EMPTY', 'buy.points must have at least 1 breakpoint', { axis: 'buy' });
+    return [err('CURVE_EMPTY', 'buy.points must have at least 1 breakpoint', { axis: 'buy' })];
   }
 
   // ---- V3: tipos y rangos ---------------------------------------------------
   if (!isInt(sale.floorCents) || sale.floorCents < 0) {
-    return err('VALIDATION_ERROR', 'sale.floorCents must be an integer >= 0 (cents)', { axis: 'sale' });
+    return [err('VALIDATION_ERROR', 'sale.floorCents must be an integer >= 0 (cents)', { axis: 'sale' })];
   }
   if (!isInt(buy.binCents) || buy.binCents < 0) {
-    return err('VALIDATION_ERROR', 'buy.binCents must be an integer >= 0 (cents)', { axis: 'buy' });
+    return [err('VALIDATION_ERROR', 'buy.binCents must be an integer >= 0 (cents)', { axis: 'buy' })];
   }
   for (let i = 0; i < sale.points.length; i++) {
     const p = sale.points[i] as SaleCurvePoint | undefined;
     if (p == null || typeof p !== 'object') {
-      return err('VALIDATION_ERROR', 'sale point must be an object { marketCents, multiplierBp }', { axis: 'sale', index: i });
+      return [err('VALIDATION_ERROR', 'sale point must be an object { marketCents, multiplierBp }', { axis: 'sale', index: i })];
     }
     if (!isInt(p.marketCents) || p.marketCents < 0) {
-      return err('VALIDATION_ERROR', 'marketCents must be an integer >= 0 (cents)', {
-        axis: 'sale',
-        index: i,
-        marketCents: p.marketCents,
-      });
+      return [
+        err('VALIDATION_ERROR', 'marketCents must be an integer >= 0 (cents)', {
+          axis: 'sale',
+          index: i,
+          marketCents: p.marketCents,
+        }),
+      ];
     }
     if (!isInt(p.multiplierBp)) {
-      return err('VALIDATION_ERROR', 'multiplierBp must be an integer (bp of market; 10000 = 1x)', {
-        axis: 'sale',
-        index: i,
-        marketCents: p.marketCents,
-        multiplierBp: p.multiplierBp,
-      });
+      return [
+        err('VALIDATION_ERROR', 'multiplierBp must be an integer (bp of market; 10000 = 1x)', {
+          axis: 'sale',
+          index: i,
+          marketCents: p.marketCents,
+          multiplierBp: p.multiplierBp,
+        }),
+      ];
     }
     if (p.multiplierBp > MULTIPLIER_BP_MAX) {
-      return err('VALIDATION_ERROR', `multiplierBp must be <= ${MULTIPLIER_BP_MAX} (bp)`, {
-        axis: 'sale',
-        index: i,
-        marketCents: p.marketCents,
-        multiplierBp: p.multiplierBp,
-      });
+      return [
+        err('VALIDATION_ERROR', `multiplierBp must be <= ${MULTIPLIER_BP_MAX} (bp)`, {
+          axis: 'sale',
+          index: i,
+          marketCents: p.marketCents,
+          multiplierBp: p.multiplierBp,
+        }),
+      ];
     }
   }
   for (let i = 0; i < buy.points.length; i++) {
     const p = buy.points[i] as BuyCurvePoint | undefined;
     if (p == null || typeof p !== 'object') {
-      return err('VALIDATION_ERROR', 'buy point must be an object { marketCents, pctBp }', { axis: 'buy', index: i });
+      return [err('VALIDATION_ERROR', 'buy point must be an object { marketCents, pctBp }', { axis: 'buy', index: i })];
     }
     if (!isInt(p.marketCents) || p.marketCents < 0) {
-      return err('VALIDATION_ERROR', 'marketCents must be an integer >= 0 (cents)', {
-        axis: 'buy',
-        index: i,
-        marketCents: p.marketCents,
-      });
+      return [
+        err('VALIDATION_ERROR', 'marketCents must be an integer >= 0 (cents)', {
+          axis: 'buy',
+          index: i,
+          marketCents: p.marketCents,
+        }),
+      ];
     }
     if (!isInt(p.pctBp) || p.pctBp < 0 || p.pctBp > PCT_BP_MAX) {
-      return err('VALIDATION_ERROR', `pctBp must be an integer in [0, ${PCT_BP_MAX}] (bp of market)`, {
-        axis: 'buy',
-        index: i,
-        marketCents: p.marketCents,
-        pctBp: p.pctBp,
-      });
+      return [
+        err('VALIDATION_ERROR', `pctBp must be an integer in [0, ${PCT_BP_MAX}] (bp of market)`, {
+          axis: 'buy',
+          index: i,
+          marketCents: p.marketCents,
+          pctBp: p.pctBp,
+        }),
+      ];
     }
   }
+
+  // ---- V2: puntos ordenables y únicos (un duplicado hace AMBIGUA la interpolación) ----
+  const salePts = indexed(sale.points, (p) => p.multiplierBp);
+  const buyPts = indexed(buy.points, (p) => p.pctBp);
+  for (let i = 1; i < salePts.length; i++) {
+    if (salePts[i].marketCents === salePts[i - 1].marketCents) {
+      return [
+        err('DUPLICATE_BREAKPOINT', 'two sale breakpoints share the same marketCents', {
+          axis: 'sale',
+          index: salePts[i].index,
+          index2: salePts[i - 1].index,
+          marketCents: salePts[i].marketCents,
+        }),
+      ];
+    }
+  }
+  for (let i = 1; i < buyPts.length; i++) {
+    if (buyPts[i].marketCents === buyPts[i - 1].marketCents) {
+      return [
+        err('DUPLICATE_BREAKPOINT', 'two buy breakpoints share the same marketCents', {
+          axis: 'buy',
+          index: buyPts[i].index,
+          index2: buyPts[i - 1].index,
+          marketCents: buyPts[i].marketCents,
+        }),
+      ];
+    }
+  }
+
+  // ---- V8 ESTRUCTURAL: sin banda bien formada no se puede elegir paso --------
+  const ladder = validateRoundingLadder(sale.rounding);
+  const ladderBlocking = ladder.filter((e) => e.blocking);
+  if (ladderBlocking.length > 0) return [ladderBlocking[0]];
+
+  // ======================= FASE 2 — NO BLOQUEANTES (calculables, prohibidas) =======================
+  const out: CurveValidationError[] = [];
 
   // ---- V4: ningún precio de venta por debajo del mercado --------------------
   for (let i = 0; i < sale.points.length; i++) {
     const p = sale.points[i];
     if (p.multiplierBp < MULTIPLIER_BP_MIN) {
-      return err('SALE_BELOW_MARKET', `multiplierBp must be >= ${MULTIPLIER_BP_MIN} (1.00x): sale price can never fall below market`, {
-        axis: 'sale',
-        index: i,
-        marketCents: p.marketCents,
-        multiplierBp: p.multiplierBp,
-      });
+      out.push(
+        err(
+          'SALE_BELOW_MARKET',
+          `multiplierBp must be >= ${MULTIPLIER_BP_MIN} (1.00x): sale price can never fall below market`,
+          { axis: 'sale', index: i, marketCents: p.marketCents, multiplierBp: p.multiplierBp },
+          false,
+        ),
+      );
     }
   }
 
-  // ---- V2: puntos ordenables y únicos --------------------------------------
-  const salePts = indexed(sale.points, (p) => p.multiplierBp);
-  const buyPts = indexed(buy.points, (p) => p.pctBp);
-  for (let i = 1; i < salePts.length; i++) {
-    if (salePts[i].marketCents === salePts[i - 1].marketCents) {
-      return err('DUPLICATE_BREAKPOINT', 'two sale breakpoints share the same marketCents', {
-        axis: 'sale',
-        index: salePts[i].index,
-        index2: salePts[i - 1].index,
-        marketCents: salePts[i].marketCents,
-      });
-    }
-  }
-  for (let i = 1; i < buyPts.length; i++) {
-    if (buyPts[i].marketCents === buyPts[i - 1].marketCents) {
-      return err('DUPLICATE_BREAKPOINT', 'two buy breakpoints share the same marketCents', {
-        axis: 'buy',
-        index: buyPts[i].index,
-        index2: buyPts[i - 1].index,
-        marketCents: buyPts[i].marketCents,
-      });
-    }
-  }
-
-  // ---- V8: escalera bien formada -------------------------------------------
-  const ladderErr = validateRoundingLadder(sale.rounding);
-  if (ladderErr != null) return ladderErr;
+  // ---- V8 FINO: frontera múltiplo del paso (si no, el redondeo rompe V5) ----
+  out.push(...ladder.filter((e) => !e.blocking));
 
   // ---- V7: el bin no rebasa al piso ----------------------------------------
   if (buy.binCents >= sale.floorCents) {
-    return err('BIN_ABOVE_FLOOR', 'buy.binCents must be strictly below sale.floorCents', {
-      axis: 'buy',
-      binCents: buy.binCents,
-      floorCents: sale.floorCents,
-    });
+    out.push(
+      err(
+        'BIN_ABOVE_FLOOR',
+        'buy.binCents must be strictly below sale.floorCents',
+        { axis: 'buy', binCents: buy.binCents, floorCents: sale.floorCents },
+        false,
+      ),
+    );
   }
 
   // ---- V5: curva de venta monótona creciente -------------------------------
@@ -533,22 +708,25 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
     const dLeft = p0.valueBp * span + p0.marketCents * dk; // = span · f'(m0)
     const dRight = p1.valueBp * span + p1.marketCents * dk; // = span · f'(m1)
     if (dLeft < 0 || dRight < 0) {
-      return err(
-        'SALE_CURVE_NOT_MONOTONIC',
-        'sale curve is not monotonically increasing: more market would produce LESS price on this segment',
-        {
-          axis: 'sale',
-          index: p0.index,
-          index2: p1.index,
-          marketCents: p0.marketCents,
-          marketCentsTo: p1.marketCents,
-        },
+      out.push(
+        err(
+          'SALE_CURVE_NOT_MONOTONIC',
+          'sale curve is not monotonically increasing: more market would produce LESS price on this segment',
+          {
+            axis: 'sale',
+            index: p0.index,
+            index2: p1.index,
+            marketCents: p0.marketCents,
+            marketCentsTo: p1.marketCents,
+          },
+          false,
+        ),
       );
     }
   }
   // Los tramos planos (antes del primero, después del último) son crecientes porque k > 0 (V4 ⇒ k ≥ 10000).
 
-  // ---- V6: compra siempre por debajo de venta, en TODO el dominio -----------
+  // ---- V6: compra siempre por debajo de venta, en TODO el dominio ----------
   // Ambas curvas son lineales por tramo sobre la UNIÓN de sus `marketCents` ⇒ la diferencia
   // `multiplierBp(m) − pctBp(m)` es lineal por tramo ⇒ basta comprobar los NODOS (y las colas planas,
   // que son constantes iguales al valor del nodo extremo). Es exacto, no un muestreo.
@@ -560,84 +738,101 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
     const pct = interp(buyCurveBp, m);
     if (pct >= mult) {
       const offending = buyPts.find((p) => p.marketCents === m) ?? salePts.find((p) => p.marketCents === m);
-      return err('BUY_ABOVE_SALE', 'buy curve reaches or exceeds the sale curve at this market value', {
-        axis: 'buy',
-        index: offending?.index,
-        marketCents: m,
-        pctBp: pct,
-        multiplierBp: mult,
-      });
+      out.push(
+        err(
+          'BUY_ABOVE_SALE',
+          'buy curve reaches or exceeds the sale curve at this market value',
+          { axis: 'buy', index: offending?.index, marketCents: m, pctBp: pct, multiplierBp: mult },
+          false,
+        ),
+      );
+      break; // una sola señal por curva: el editor resalta el punto, no inunda la lista
     }
   }
 
-  return null;
+  return out;
 }
 
 /**
- * V8 — escalera bien formada. La condición SUTIL es la última: **cada frontera debe ser múltiplo
- * exacto del paso de la banda inmediatamente inferior**. Sin ella el redondeo ROMPE la monotonía que
- * V5 acaba de garantizar: con bandas `<$200⇒$5` y una frontera en $203, un `baseCents` de $202.99
- * redondea a $205 mientras que $203.00 cae a la banda siguiente y podría redondear a MENOS.
+ * V8 — escalera bien formada. Devuelve TODAS sus infracciones, separando las **estructurales**
+ * (bloqueantes: sin banda no se puede elegir paso) de la **fina** (no bloqueante).
+ *
+ * La condición sutil es la última: **cada frontera debe ser múltiplo exacto del paso de la banda
+ * inmediatamente inferior**. Sin ella el redondeo ROMPE la monotonía que V5 acaba de garantizar: con
+ * bandas `<$200⇒$5` y una frontera en $203, un `baseCents` de $202.99 redondea a $205 mientras que
+ * $203.00 cae a la banda siguiente y podría redondear a MENOS.
  */
-export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveValidationError | null {
+export function validateRoundingLadder(ladder: readonly RoundingBand[]): CurveValidationError[] {
   if (!Array.isArray(ladder) || ladder.length === 0) {
-    return err('ROUNDING_LADDER_INVALID', 'sale.rounding must have at least 1 band', { axis: 'sale' });
+    return [err('ROUNDING_LADDER_INVALID', 'sale.rounding must have at least 1 band', { axis: 'sale' })];
   }
+  const out: CurveValidationError[] = [];
   for (let i = 0; i < ladder.length; i++) {
     const b = ladder[i];
     if (b == null || typeof b !== 'object') {
-      return err('ROUNDING_LADDER_INVALID', 'rounding band must be an object { uptoCents, stepCents }', {
-        axis: 'sale',
-        index: i,
-      });
+      return [
+        err('ROUNDING_LADDER_INVALID', 'rounding band must be an object { uptoCents, stepCents }', {
+          axis: 'sale',
+          index: i,
+        }),
+      ];
     }
     if (!isInt(b.stepCents) || b.stepCents < 1) {
-      return err('ROUNDING_LADDER_INVALID', 'stepCents must be an integer >= 1', {
-        axis: 'sale',
-        index: i,
-        stepCents: b.stepCents,
-      });
+      return [
+        err('ROUNDING_LADDER_INVALID', 'stepCents must be an integer >= 1', {
+          axis: 'sale',
+          index: i,
+          stepCents: b.stepCents,
+        }),
+      ];
     }
     const isLast = i === ladder.length - 1;
     if (isLast) {
       if (b.uptoCents !== null) {
-        return err('ROUNDING_LADDER_INVALID', 'the LAST rounding band must be open (uptoCents = null)', {
-          axis: 'sale',
-          index: i,
-          uptoCents: b.uptoCents,
-        });
+        return [
+          err('ROUNDING_LADDER_INVALID', 'the LAST rounding band must be open (uptoCents = null)', {
+            axis: 'sale',
+            index: i,
+            uptoCents: b.uptoCents,
+          }),
+        ];
       }
     } else {
       if (b.uptoCents === null || !isInt(b.uptoCents) || b.uptoCents <= 0) {
-        return err('ROUNDING_LADDER_INVALID', 'only the LAST rounding band may be open; uptoCents must be an integer > 0', {
-          axis: 'sale',
-          index: i,
-          uptoCents: b.uptoCents,
-        });
+        return [
+          err('ROUNDING_LADDER_INVALID', 'only the LAST rounding band may be open; uptoCents must be an integer > 0', {
+            axis: 'sale',
+            index: i,
+            uptoCents: b.uptoCents,
+          }),
+        ];
       }
       const prev = i > 0 ? ladder[i - 1].uptoCents : null;
       if (prev != null && b.uptoCents <= prev) {
-        return err('ROUNDING_LADDER_INVALID', 'uptoCents must be strictly increasing', {
-          axis: 'sale',
-          index: i,
-          uptoCents: b.uptoCents,
-        });
+        return [
+          err('ROUNDING_LADDER_INVALID', 'uptoCents must be strictly increasing', {
+            axis: 'sale',
+            index: i,
+            uptoCents: b.uptoCents,
+          }),
+        ];
       }
-      // Frontera múltiplo EXACTO del paso de su propia banda (la inmediatamente inferior a la frontera).
+      // CONDICIÓN FINA (no bloqueante): la frontera debe ser múltiplo EXACTO del paso de su banda.
       if (b.uptoCents % b.stepCents !== 0) {
-        return err(
-          'ROUNDING_LADDER_INVALID',
-          'each band boundary must be an exact multiple of the step of the band below it (otherwise rounding breaks monotonicity)',
-          { axis: 'sale', index: i, uptoCents: b.uptoCents, stepCents: b.stepCents },
+        out.push(
+          err(
+            'ROUNDING_LADDER_INVALID',
+            'each band boundary must be an exact multiple of the step of the band below it (otherwise rounding breaks monotonicity)',
+            { axis: 'sale', index: i, uptoCents: b.uptoCents, stepCents: b.stepCents },
+            false,
+          ),
         );
       }
     }
   }
-  return null;
+  return out;
 }
 
-// ============================================================================
-// Normalización / lectura money-safe
 // ============================================================================
 
 /** Ordena los puntos por `marketCents` (el `PUT` acepta la tabla desordenada, §M2). */
