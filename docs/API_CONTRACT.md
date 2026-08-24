@@ -2,7 +2,28 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.9-caps-and-surfaces).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.9-caps-and-surfaces,
+> enmienda **v2.1.9-a**).
+>
+> **Enmienda v2.1.9-a (2026-08-24, arquitecto — el contrato afirmaba lo contrario del código tras dos decisiones del
+> dueño. Correcciones de declaración; sin cambio de forma):**
+> - **Techo del piso/bin: `MAX_CURVE_CONSTANT_CENTS = 200_000` (MX$2,000)**, no `1_000_000`. **Q-D1 cerrada por el
+>   dueño** (ARCHITECTURE §10) y **su anclaje sustituye al mío**: el piso **es el precio de la carta más barata de la
+>   tienda**, así que su techo sale de lo plausible como carta más barata — **no** de los topes AML de §E, que acotan
+>   dinero **por usuario** y son otra magnitud. Deja **80×** sobre la semilla (MX$25). Apretar es correcto por
+>   asimetría: pasarse de apretado cuesta **un `422` y volver a teclear**; pasarse de holgado cuesta **republicar la
+>   vitrina entera**.
+> - **`upc` y `collection` YA TIENEN SEMILLA (`18` y `22`).** §M2 decía literal «**no tienen semilla** […] por eso el
+>   dueño necesita poder fijarlas a mano» — describía el estado **anterior** a que el dueño contestara. **El argumento
+>   no muere, cambia de sitio:** era un diagnóstico correcto del bug de v2.1.8 (el `422` impedía calibrarlas) con la
+>   **conclusión equivocada** — tocaba **arreglar el `422`**, no **dejarlas sin default**. Ahora se cumplen las dos
+>   cosas. **Criterio: «ítem más chico ⇒ % mayor»** ⇒ `upc` = `box` (pieza más grande y cara), `collection` = `etb`; y
+>   **ya no vive solo en prosa** (backend lo ancló con cobertura de **todos** los `SealedSubtype` + el orden de la
+>   tabla). **El ejemplo de §M2 se mantiene DELIBERADAMENTE distinto de la semilla** — si coincidiera sería
+>   indistinguible de una tabla de defaults, que es **D3 otra vez** con los números en vez de las llaves.
+> - **Consecuencia sobre `fallbackPct`:** con cobertura completa del enum, ninguna presentación llega al global **por
+>   olvido**; sólo llega la que el dueño **retiró a propósito** con `null`. Pasa de **default de facto** a **excepción
+>   explícita** — que es exactamente por qué `fallbackPct: null` es `422`.
 >
 > **Changelog v2.1.9-caps-and-surfaces (2026-08-24, arquitecto — las cuatro decisiones que el cierre de release
 > (QA + techlead + seguridad) enrutó al contrato, más la escalada de frontend sobre el borrado de spreads.
@@ -2942,7 +2963,7 @@ Grid agregado del sellado publicado. Agrupa por producto+condición (`tcgplayerP
 `cardId+sealedSubtype`, + `sealedCondition`); **solo grupos con ≥1 pieza vendible** (`status=listed`, `ownerType=platform`,
 precio resuelto). La condición **separa** grupos (una tarjeta `mint`, otra `minor_box_damage`).
 Query: `?setId=&sealedSubtype=&condition=&q=&page=&pageSize=&sort=`
-- `condition`: `mint | minor_box_damage`. `sealedSubtype`: `box|etb|bundle|tin|blister`. `sort`: `price_asc | price_desc | newest`.
+- `condition`: `mint | minor_box_damage`. `sealedSubtype`: **cualquier valor de `SealedSubtype`** (§Enums — los SIETE; ⛔ **v2.1.9-a**: aquí decía `box|etb|bundle|tin|blister`, una lista a mano de **cinco** de un enum de **siete**. El backend ya deriva del enum y acepta `upc`/`collection`, así que **el contrato era el que iba atrasado** — filtrar por UPC en la tienda funciona y aquí parecía inválido. Es literalmente la clase que §4.37 norma: **un enum se declara UNA vez**). `sort`: `price_asc | price_desc | newest`.
 Res `200` (**v2.1.9**, `SealedGroupListResponse`): `{ data: SealedGroupSummaryDTO[], page, pageSize, total }`.
 - Cada `SealedGroupSummaryDTO` trae `availableCount` («N disponibles»), `fromPriceCents` (mínimo del grupo),
   `representativeItemId` (pieza más barata → add-to-cart) e `imageUrl` (TCGCSV si mapeado).
@@ -2966,7 +2987,8 @@ Res `200` (`SealedGroupDetailResponse`): `{ group, listings: ListingDTO[], trend
   precio derivado por **spread** (`priceSource ∈ {subtype_spread, global_spread}`) ⇒ **se muestra**; precio fijado por
   **override manual** (`priceSource="override"`) ⇒ **NO se muestra**. **La matemática del sellado NO cambia** (§K /
   ARCHITECTURE §4.23a): conserva `override > mercado × spread por presentación > mercado × spread global >
-  PRICE_PENDING`, con sus semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25. **El precio de un
+  PRICE_PENDING`, con sus semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / **upc 18 / collection 22**
+  (v2.1.9-a) / global 25. **El precio de un
   sellado antes y después de v2.0 es IDÉNTICO** (criterio 85); lo único aditivo es `priceBasis`, para que el front
   tenga **una sola** regla de visibilidad para las dos fichas.
 - **v2.1.9 (D2):** en esta ficha `group.priceBasis` y `group.priceSource` **se conservan**, y `group.referenceValue`
@@ -5848,8 +5870,11 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   — el **dominio de llaves son los SIETE valores de `SealedSubtype`**: `box · etb · bundle · tin · blister · upc ·
   collection`.
   ```json
-  { "spreadPctBySubtype": { "box": 18, "etb": 22, "bundle": 25, "tin": 30, "blister": 35, "upc": 20 },
-    "fallbackPct": 25 }
+  // ⚠️ VALORES DE EJEMPLO — deliberadamente DISTINTOS de la semilla (ver la tabla de semillas abajo).
+  //    Ninguno de estos siete números coincide con el default: esto ilustra la FORMA, no los valores.
+  { "spreadPctBySubtype": { "box": 15, "etb": 19, "bundle": 24, "tin": 28, "blister": 33,
+                            "upc": 15, "collection": 19 },
+    "fallbackPct": 26 }
   ```
   - **⚠️ CORREGIDO EN v2.1.9 — este ejemplo listaba CINCO llaves mientras el `PUT` acepta SIETE, y el frontend
     lo estaba ESPEJANDO.** Tenía tres listas de cinco escritas a mano tomadas de aquí; el resultado es que el dueño
@@ -5857,19 +5882,71 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     global. **No fue un error del frontend: fue este ejemplo.** Es la misma familia que los dos enums de v2.1.8, un
     piso más abajo: allí mentía la **línea canónica**, aquí mentía el **ejemplo** — y un ejemplo se copia con la misma
     confianza que una declaración.
-  - **NORMA: el ejemplo NUNCA es el dominio de llaves.** La lista de presentaciones se **deriva de `SealedSubtype`**
-    (§Enums, espejo de `schema.prisma`), tanto en backend como en el editor de M2: **una fila por valor del enum**,
-    nunca un literal a mano. Un ejemplo muestra **una instancia**, no el dominio — y si los dos pueden leerse igual,
-    manda la declaración de §DTOs.
-  - **El mapa es PARCIAL: el `GET` OMITE las llaves no configuradas** (devuelve tal cual lo almacenado; `{}` si nunca
-    se guardó nada). **Ausente ≠ 0**: una presentación sin spread propio usa `fallbackPct` (`ARCHITECTURE §4.23b`).
+  - **NORMA: el ejemplo NUNCA es el dominio de llaves, NI la fuente de los valores.** La lista de presentaciones se
+    **deriva de `SealedSubtype`** (§Enums, espejo de `schema.prisma`), tanto en backend como en el editor de M2: **una
+    fila por valor del enum**, nunca un literal a mano. Un ejemplo muestra **una instancia**, no el dominio — y si los
+    dos pueden leerse igual, manda la declaración de §DTOs.
+    - **Por eso el ejemplo de arriba se mantiene DISTINTO de la semilla (v2.1.9-a, decisión deliberada).** Cuando el
+      dueño fijó `upc`/`collection` hubo la tentación de alinear el ejemplo con los defaults «para que cuadre»: **se
+      descarta**. Un ejemplo que coincide con la semilla es indistinguible de una tabla de defaults, y volveríamos a
+      tener a alguien copiando de aquí — que es **exactamente** el bug D3, con los números en vez de las llaves. La
+      **forma** vive en el ejemplo; los **valores** viven en la tabla de semillas de abajo y, en runtime, en lo
+      almacenado. *(El ejemplo sí conserva a propósito la **relación** `upc == box` y `collection == etb`: eso no es un
+      valor, es el criterio.)*
+  - **El mapa es PARCIAL: el `GET` OMITE las llaves no configuradas** (devuelve tal cual lo almacenado; `{}` sólo si no
+    hay fila de setting). **Ausente ≠ 0**: una presentación sin spread propio usa `fallbackPct` (`ARCHITECTURE §4.23b`).
     Consecuencia para el editor: **la pantalla no puede derivar sus renglones de las llaves que vengan** —vendría
     exactamente el mismo hueco por otra puerta—; los deriva del **enum** y pinta «usa el global (`fallbackPct`)» en las
     que falten.
-  - **Semillas de PROJECT §K** (`box 18 · etb 22 · bundle 25 · tin 30 · blister 35 · global 25`): **`upc` y
-    `collection` NO tienen semilla** — el `20` del ejemplo es una calibración cualquiera, puesta a propósito para que
-    el shape de siete llaves sea inconfundible. Que no tengan semilla es justamente por qué el dueño **necesita** poder
-    fijarlas a mano.
+    - **v2.1.9-a — la partialidad sigue siendo real, pero YA NO es el estado inicial.** Con la semilla cubriendo las
+      **siete** presentaciones, una instalación limpia devuelve **siete** llaves. Una llave falta sólo si el dueño la
+      **retiró a propósito** con `null` (ver el `PUT`). **Que hoy vengan las siete NO autoriza al editor a asumirlo**:
+      seguiría siendo derivar el dominio de una instancia — exactamente el error de D3, y encima uno que sólo se
+      manifestaría **después** de que el dueño borre su primera regla.
+  - **SEMILLAS — las SIETE presentaciones tienen default (⚠️ ENMENDADO v2.1.9-a).** Se declaran en tabla, no en JSON,
+    a propósito: una tabla no se copia como payload.
+
+    | Presentación | Spread semilla | Origen |
+    |---|---|---|
+    | `box` | **18 %** | PROJECT §K |
+    | `etb` | **22 %** | PROJECT §K |
+    | `bundle` | **25 %** | PROJECT §K |
+    | `tin` | **30 %** | PROJECT §K |
+    | `blister` | **35 %** | PROJECT §K |
+    | **`upc`** | **18 %** | **decisión del dueño, 2026-08-24** (= `box`) |
+    | **`collection`** | **22 %** | **decisión del dueño, 2026-08-24** (= `etb`) |
+    | `fallbackPct` (global) | **25 %** | PROJECT §K |
+
+    - **⛔ Qué decía esta línea hasta v2.1.9 y por qué estaba mal:** *«`upc` y `collection` **NO tienen semilla** […]
+      que no tengan semilla es justamente por qué el dueño **necesita** poder fijarlas a mano»*. Describía el estado
+      **anterior** a que el dueño contestara, y hoy **afirma lo contrario del código** (backend ya las sembró).
+    - **El argumento no muere, cambia de sitio — y conviene decir por qué, porque el error es instructivo.** «No tienen
+      semilla, por eso hace falta poder fijarlas» era un **diagnóstico correcto del bug** (el `422` le impedía
+      calibrarlas) del que saqué **la conclusión equivocada**: la respuesta era **arreglar el `422`**, no **dejarlas
+      sin default**. Son cosas independientes — *poder editar* y *tener un valor razonable de arranque*—, y tratarlas
+      como si una sustituyera a la otra dejaba a dos presentaciones reales cayendo al fallback global por omisión.
+      **Ahora se cumplen las dos:** el dueño puede fijarlas (D3 + el borrado con `null`, abajo) **y** arrancan en un
+      valor elegido a propósito.
+    - **El criterio que ubica cualquier presentación futura (es el que la tabla ya venía usando): «ítem más chico ⇒
+      % mayor».** El orden `box 18 < etb 22 < bundle 25 < tin 30 < blister 35` no es arbitrario: en una pieza grande y
+      cara un porcentaje gordo es un **monto absoluto** que mata la venta; en una pieza barata hace falta un porcentaje
+      mayor para que el margen absoluto pague el manejo y el envío. De ahí salen los dos nuevos: un **UPC** es la pieza
+      **más grande y cara** del catálogo ⇒ va con `box` (**18**); una **collection** es comparable a un ETB ⇒ va con
+      `etb` (**22**).
+    - **El criterio ya NO vive solo en esta prosa (backend lo ancló con dos tests, y es la mitad que importa):** (1)
+      **una entrada por CADA `SealedSubtype`** — un octavo subtipo en el schema **rompe el test** y obliga a elegirle
+      spread **a propósito**, en vez de caer al fallback en silencio; (2) el **orden** `box < etb < bundle < tin <
+      blister` con `upc === box` y `collection === etb`. Es la misma doctrina de §4.37: convertir una disciplina en algo
+      que sostiene la máquina.
+    - **Efecto de (1) sobre el papel de `fallbackPct` — vale la pena verlo, porque cierra el círculo de esta rev.**
+      Antes, el fallback era el **destino silencioso de todo lo que nadie pensó** (por eso `upc`/`collection` vivían
+      ahí). Con el test de cobertura, **ninguna presentación llega al fallback por olvido**: sólo llega la que el dueño
+      **retiró deliberadamente** con `null` (ver el `PUT`). El fallback pasa de **default de facto** a **excepción
+      explícita** — que es lo que siempre debió ser, y la razón por la que `fallbackPct: null` es `422`.
+    - **📌 Enrutar a product-owner (no bloquea):** `upc 18` / `collection 22` son una **decisión de negocio del humano**
+      y hoy sólo están registradas **aquí y en el seed**. PROJECT §K sigue enumerando **cinco**. Por la regla de
+      conflicto (*PROJECT manda sobre el contrato*), el contrato no debería ser el **origen** de un número de negocio:
+      **product-owner** debe reflejarlas en §K para que este bloque quede citándolas, no inventándolas.
 - `PUT /api/v1/admin/pricing/sealed-spreads` — **(NUEVO)** reemplaza los spreads y/o el fallback.
   Req (`SealedSpreadsUpdateRequest`, §DTOs): `{ spreadPctBySubtype?: { [subtype in SealedSubtype]?: number | null }, fallbackPct?: number }`
   (**parcial**: solo las claves a cambiar).

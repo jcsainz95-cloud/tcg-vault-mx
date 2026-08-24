@@ -228,6 +228,22 @@
 > **(S49-B2, escalada de backend) Paginar la rejilla sin revertir «el precio se resuelve en lectura»** — dictamen en
 > **§4.36.9(e)**: una proyección persistida puede gobernar **orden, filtro y paginación**, **nunca el precio que se
 > cobra**. No ahora (disparador ~5k piezas en `TECH_DEBT.md`); la decisión vuelve por el arquitecto cuando toque.
+> **Enmienda v2.1.9-a (2026-08-24) — `upc`/`collection` YA TIENEN SEMILLA; el contrato afirmaba lo contrario del
+> código (§4.23c, SUP-6 en §10, API_CONTRACT §M2).** El dueño cerró los dos defaults que faltaban —**`upc: 18`** (=
+> `box`, la pieza más grande y cara) y **`collection: 22`** (= `etb`)— y backend los sembró; §M2 seguía diciendo «**no
+> tienen semilla** […] por eso el dueño necesita poder fijarlas a mano». **El argumento no muere, cambia de sitio:**
+> era un diagnóstico correcto del bug de v2.1.8 (el `422` impedía calibrarlas) del que saqué la **conclusión
+> equivocada** — la respuesta era **arreglar el `422`**, no **dejarlas sin default**. *Poder editar* y *arrancar en un
+> valor razonable* son independientes; confundirlas dejaba dos presentaciones reales al 25 % global por omisión.
+> **Criterio que ubica cualquier presentación futura: «ítem más chico ⇒ % mayor»**, y **ya no vive solo en prosa** —
+> backend lo ancló con dos tests (cobertura de **todos** los `SealedSubtype`, de modo que un octavo **rompa** y obligue
+> a elegir a propósito; y el orden `box < etb < bundle < tin < blister` con `upc === box`, `collection === etb`).
+> **Efecto que cierra el círculo de esta rev:** el `fallbackPct` deja de ser el **destino silencioso de lo que nadie
+> pensó** y pasa a cubrir **sólo** lo que el dueño **retiró a propósito** con `null` (D3-b) — de default de facto a
+> **excepción explícita**, que es la razón por la que `fallbackPct: null` es `422`. **Ejemplo del contrato: se mantiene
+> DELIBERADAMENTE distinto de la semilla** (si coincidiera sería indistinguible de una tabla de defaults y volveríamos
+> a tener a alguien copiando de ahí — D3 con los números en vez de las llaves). **Enrutado a product-owner:** los dos
+> números son decisión de negocio y **PROJECT §K sigue enumerando cinco**.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -1320,7 +1336,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
   - raw → `rawCondition` (**enum `RawCondition = NM` — ÚNICO valor; MIGRACIÓN v1.1**, estándar propio, ver §3.5). Se **eliminan** `LP | MP | HP | DMG` del enum. Greenfield: no hay filas que hacer backfill; la migración solo redefine el enum/constraint.
   - graded → `gradingCompany` (`PSA | CGC`), `gradeValue` (ej. `10`, `9.5`), **`certNumber` (`String` — nº de certificado PSA/CGC; MIGRACIÓN v1.2 M-12). REQUERIDO para publicar una gradeada.** El slab (empresa+grado+cert, verificable en la web de la graduadora) es la garantía de condición; **sin validación automática** contra la graduadora (fuera de alcance). `certNumber` es null para raw/sealed.
   - sealed → **sin condición ni rareza ni grade ni cert** (ver §3.6). **Precio manual MXN obligatorio para publicar.**
-  - `sealedSubtype?` (enum opcional `box | etb | bundle | tin | blister`, solo para `productType=sealed`; nullable en el resto).
+  - `sealedSubtype?` (enum opcional **`SealedSubtype`**, solo para `productType=sealed`; nullable en el resto). *(v2.1.9-a: aquí se re-listaban **cinco** valores a mano; se sustituye por la referencia al enum — declaración canónica en `schema.prisma` / API_CONTRACT §Enums, §4.37 clase **E**. Re-listar un enum en N sitios son N copias que pueden desfasarse, que es el bug de v2.1.8.)*
 - **Imagen (v1.2): sin fotos propias.** El item **no** almacena fotos propias; la imagen mostrada (ficha/Compra/bóveda/back-office) es la **imagen de catálogo remota** de la `Card` (`imageSmallUrl`/`imageLargeUrl` de pokemontcg.io). Los campos `frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys` quedan **eliminados/opcionales sin uso** (MIGRACIÓN v1.2 M-13); ya **no** son evidencia de disputa (la evidencia va por correo a soporte, ver §3.6 y §Dispute).
 - Ubicación: `locationId` (FK VaultLocation).
 - Propiedad y titularidad:
@@ -1675,7 +1691,7 @@ Notas de coherencia:
 - El sellado es una **línea de venta de primera clase** en Compra, distinta de raw/graded.
 - **Sin `rawCondition`, sin `gradingCompany`/`gradeValue`, sin rareza** (no aplica taxonomía de carta individual). Puede referenciar un `Card`/`CardSet` para nombre/imagen del producto, pero no lleva condición ni rareza.
 - **Precio SIEMPRE manual del admin en MXN**: no hay fuente automática en el MVP (pokemontcg.io no cubre sellado; PriceCharting = fase 2). El `listPriceCents` se fija a mano (override manual) y es **obligatorio para publicar**: sin precio, el sellado queda como "precio pendiente" y **no aparece en Compra** (regla general — el comprador nunca ve precio pendiente).
-- `sealedSubtype?` (`box | etb | bundle | tin | blister`) opcional; alimenta el filtro de tipo de producto en Compra (subfaceta informativa).
+- `sealedSubtype?` (**`SealedSubtype`**, §4.37 clase **E** — no se re-lista aquí) opcional; alimenta el filtro de tipo de producto en Compra (subfaceta informativa).
 - **Referencia de mercado del sellado (v1.19-sealed-tcgcsv, §4.19):** existe una fuente automática de **valor de
   referencia** para sellado — **TCGCSV** (espejo diario de precios de TCGplayer) — pero es **estrictamente informativa**
   (sugerencia para el admin en M1/M2 al fijar `listPriceCents`). **NO altera esta sección:** el precio de VENTA del
@@ -4630,16 +4646,33 @@ Dos `SettingKey` nuevos (`settings.constants.ts`), **espejo** de `SALES_PRICE_RU
 pero keyeados por `SealedSubtype`:
 
 - `SEALED_SPREAD_PCT_BY_SUBTYPE` (`sealed_spread_pct_by_subtype`): mapa `{ [SealedSubtype]: number }` — markup % por
-  presentación. Validador: cada clave ∈ `{box, etb, bundle, tin, blister}`, cada `value` número en `[0, 1000]`.
+  presentación. Validador: cada clave ∈ **`SealedSubtype`** (los SIETE — ⛔ **v2.1.8**: decía
+  `{box, etb, bundle, tin, blister}` y esa lista a mano **era** el bug; hoy se **deriva** del enum, §4.37 clase **E**),
+  cada `value` número en `[0, 1000]`. **v2.1.9-a:** el `PUT` acepta además **`null`** como sentinel de **retiro**
+  (API_CONTRACT §M2); `null` **≠** `0`.
 - `SEALED_SPREAD_FALLBACK_PCT` (`sealed_spread_fallback_pct`): markup % global de respaldo (número en `[0, 1000]`),
   usado cuando la pieza no tiene `sealedSubtype` o su subtype no está en el mapa.
 
-**Seed inicial propuesto (editable en M2; PO confirma los números — SUP-6, §10):**
+**Seed inicial — las SIETE presentaciones (editable en M2; v2.1.9-a):**
 ```jsonc
 // SEALED_SPREAD_PCT_BY_SUBTYPE  (markup % arriba de mercado, por presentación)
-{ "box": 18, "etb": 22, "bundle": 25, "tin": 30, "blister": 35 }   // ítems chicos → % mayor
+// CRITERIO: ítem más chico ⇒ % mayor. En pieza grande y cara un % gordo es un MONTO que mata la venta;
+// en pieza barata hace falta más % para que el margen absoluto pague manejo y envío.
+{ "box": 18, "etb": 22, "bundle": 25, "tin": 30, "blister": 35,
+  "upc": 18,        // pieza MÁS GRANDE y cara del catálogo ⇒ mismo tramo que `box`   (dueño, 2026-08-24)
+  "collection": 22  // comparable a un ETB ⇒ mismo tramo que `etb`                     (dueño, 2026-08-24)
+}
 // SEALED_SPREAD_FALLBACK_PCT = 25
 ```
+> **v2.1.9-a — `upc`/`collection` PASAN A TENER SEMILLA (antes caían al fallback).** Mientras el `422` de v2.1.8 les
+> impedía calibrarse, «no tienen default» parecía la descripción del problema; la conclusión correcta era **arreglar el
+> `422`**, no **dejarlas sin default** — son cosas independientes (*poder editar* ≠ *arrancar en un valor razonable*), y
+> confundirlas dejaba dos presentaciones reales al 25 % global por omisión. Ahora se cumplen las dos.
+> **El criterio queda anclado en tests, no en esta prosa:** (1) **una entrada por CADA `SealedSubtype`** —un octavo
+> subtipo **rompe** el test y obliga a elegirle spread a propósito— y (2) el orden `box < etb < bundle < tin < blister`
+> con `upc === box` y `collection === etb`. **Consecuencia sobre el fallback:** deja de ser el destino silencioso de lo
+> que nadie pensó y pasa a cubrir **sólo** lo que el dueño **retiró a propósito** con `null`. Por eso
+> `fallbackPct: null` es `422` (API_CONTRACT §M2).
 Se editan por **endpoints M2 dedicados** (no por `PUT /admin/settings`, igual que las reglas de venta/buylist):
 `GET/PUT /admin/pricing/sealed-spreads`, **auditados** (`action=pricing.sealed_spreads.update`, before/after).
 
@@ -4744,7 +4777,7 @@ después. Con el flag `off` el endpoint responde `404 FEATURE_DISABLED` (o el fr
 
 #### (i) Deltas de schema Prisma PROPUESTOS (migración M-28, §11) — «ya existe» vs «nuevo»
 
-**Ya existe y se reusa (NO se toca):** `enum ProductType.sealed`, `enum SealedSubtype {box|etb|bundle|tin|blister}`,
+**Ya existe y se reusa (NO se toca):** `enum ProductType.sealed`, `enum SealedSubtype` (valores canónicos en `schema.prisma`; **no se re-listan aquí**, §4.37),
 `InventoryItem.productType/sealedSubtype/listPriceCents/tcgplayerProductId/tcgplayerGroupId`,
 `enum PriceSource.tcgcsv`, `PriceReference` (gradeKey `sealed:tcg:<productId>`, `finish='normal'`), el dial
 `sealed_price_source`, `Dispute.type='condition_sealed'`, todo el checkout/fulfillment.
@@ -8314,7 +8347,7 @@ disparador (~5k piezas). Mi dictamen, para que cuando toque hacerlo no se vuelva
 |---|---|---|
 | **Cartas `raw`** | **SÍ** | mismo piso, mismo bin, misma curva |
 | **Cartas `graded` (PSA/CGC)** | **SÍ** (confirmado por el humano) | el **slab** sigue siendo la garantía de condición (§H) y su **fuente** de mercado sigue siendo la suya (§«Fuentes de precio»); lo que cambia es **cómo se convierte ese mercado en precio**. Sin bounty (la vitrina pública es de sueltas, §4.26a) |
-| **SELLADO** | **NO** | conserva **íntegro** su spread por presentación (§4.23a/§K): `override > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25. Solo gana `priceBasis` derivado (§4.36.7a) para la regla de visibilidad. **Verificable: el precio de un sellado antes y después es idéntico** (criterio 85) |
+| **SELLADO** | **NO** | conserva **íntegro** su spread por presentación (§4.23a/§K): `override > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / **upc 18** / **collection 22** (v2.1.9-a) / global 25. Solo gana `priceBasis` derivado (§4.36.7a) para la regla de visibilidad. **Verificable: el precio de un sellado antes y después es idéntico** (criterio 85) |
 | **Acabado (`finish`)** | **identidad, no precio** | sigue siendo la **identidad de la variante**: inventario, `VariantPriceOverride`, bounties, `availableFinishes`, ficha, bóveda, filtros y captura en el cotizador **no cambian**. Y **sigue eligiendo de qué variante se lee el mercado** (§4.35). Lo único que pierde es **tener regla de precio propia** |
 | **Rareza** | **validación, no precio** | §4.36.4/§4.36.5 |
 | **Bóveda / portafolio / tendencia** | **NO cambia** | §C intacto: valuación a mercado del acabado, snapshot diario, gráfica |
@@ -8385,6 +8418,14 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 **es una tautología** — no puede fallar nunca, ni siquiera si Prisma Client quedara desfasado del schema en disco. El
 mismo archivo ya trae la forma correcta para **un** enum (`schema.prisma` leído con `readFileSync`,
 `enum-values-parity.spec.ts:67-76`): **esa forma es la norma, para todos**.
+
+**Corolario que me aplico a mí mismo (v2.1.9-a): «una vez» incluye la PROSA de estos documentos.** Al enmendar los
+seeds del sellado encontré **cuatro** listas de cinco valores de `SealedSubtype` escritas a mano en mis propios docs —
+tres en éste (§3.2, §3.2-facetas, §4.23a) y una en **API_CONTRACT §2-S**, donde declaraba el dominio del query param
+`?sealedSubtype=` de un endpoint **público**: el backend ya aceptaba los siete y **el contrato era el que iba
+atrasado**, así que filtrar por UPC en la tienda funcionaba y aquí parecía inválido. **Norma: el enum se enumera en su
+LÍNEA CANÓNICA (API_CONTRACT §Enums) y en ningún otro sitio; toda otra mención lo REFERENCIA por nombre.** Re-listarlo
+en N lugares son N copias que pueden desfasarse — y las de prosa son las peores, porque **ningún test las mira**.
 
 **Y la tercera copia — el CONTRATO — es la que ya falló dos veces.** `PriceSource` sin `tcgcsv_singles` y
 `SealedSubtype` sin `upc`/`collection` fueron **schema ↔ contrato**, no schema ↔ código; ningún test los vio porque
@@ -8832,8 +8873,15 @@ este documento y con `API_CONTRACT.md`.
   `cardId+subtype` (no mapeado) + condición; piezas mapeadas y no mapeadas del mismo producto podrían mostrarse como
   dos tarjetas → **mitigación: curar el mapeo**. El restock (agotados) usa `tcgplayerProductId` como identidad estable;
   una página de producto agotado debe ser direccionable (front, cuando se encienda el flag).
-- **SUP-6 (defaults de spread):** propuesta `{box:18, etb:22, bundle:25, tin:30, blister:35}` y fallback `25` — el PO
-  confirma los porcentajes de negocio.
+- **SUP-6 (defaults de spread) — ✅ COMPLETADA para las siete presentaciones (2026-08-24, v2.1.9-a).** La propuesta
+  original cubría cinco: `{box:18, etb:22, bundle:25, tin:30, blister:35}` con fallback `25`. **El dueño cerró las dos
+  que faltaban: `upc: 18` (= `box`, por ser la pieza más grande y cara) y `collection: 22` (= `etb`)**, siguiendo el
+  criterio que la tabla ya usaba —**ítem más chico ⇒ % mayor**— y anclado en tests (cobertura de **todos** los
+  `SealedSubtype` + orden `box < etb < bundle < tin < blister`). Detalle en §4.23c y API_CONTRACT §M2.
+  **📌 Queda un paso de procedencia, no de decisión:** estos dos números viven hoy en el contrato y en el seed, y
+  **PROJECT §K sigue enumerando cinco**. Por la regla de conflicto (*PROJECT manda sobre el contrato*), **product-owner**
+  debe reflejarlos en §K para que el contrato los **cite** en vez de **originarlos**. No bloquea: la decisión es del
+  humano y está registrada y testeada.
 - **SUP-7 (rollout money-safe):** para vender sellado por auto-spread hacen falta (1) items **mapeados** (§4.19c) y
   (2) `sealed_price_source = tcgcsv` **encendido** (§4.19e). Hasta entonces, el **override** manual es la única vía —
   retro-compatible con hoy, sin bloquear el arranque.
