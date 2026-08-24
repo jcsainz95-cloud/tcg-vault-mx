@@ -130,8 +130,10 @@
 > la curva **elimina el modo `fixed`** y ese código se tiraría; sigue siendo cierto como **comportamiento
 > objetivo**, no como fase. **El negocio TODAVÍA NO ESTÁ EN VIVO**: no hay exposición viva que proteger, ni
 > ventas ni cotizaciones reales afectadas. Ver **§N** (nueva), §A, §E.1, §M (superseded), criterios **79–96**
-> y las **Decisiones (v2.0, P-48)** al final. **Bloque LOCKED — listo para el arquitecto**, salvo los supuestos
-> marcados `(SUPUESTO: ...)` en §N (sobre todo: **qué pasa cuando NO hay dato de mercado**).
+> y las **Decisiones (v2.0, P-48)** al final. **Bloque LOCKED — listo para el arquitecto.** Dos reglas
+> money-safe quedaron **cerradas por el humano** (ya no son supuestos): **sin dato de mercado ⇒ «precio
+> pendiente»** —no se publica ni se cotiza, el piso **no** gana (§N.2)— y el **guardarraíl aplica a los DOS
+> ejes** (§N.5).
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -993,8 +995,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **El redondeo hacia arriba aplica SOLO a la venta** (N.2). La **compra no se redondea**.
 - [ ] **Derivación server-side (SEC-A1) intacta**: el mercado y el precio se derivan **siempre en el backend**
       a partir del dato real de la variante; **nunca** del DTO del cliente.
-- [ ] **Money-safe**: el precio **jamás se inventa**. Ver el supuesto de N.2 sobre **qué pasa cuando no hay
-      dato de mercado** y el guardarraíl de N.5.
+- [ ] **Money-safe**: el precio **jamás se inventa**. **Sin dato de mercado no hay curva y no hay piso: la
+      variante queda en «precio pendiente»** (N.2), y el **guardarraíl** de N.5 cubre el caso del dato **malo**
+      (presente pero corrupto).
 - [ ] *(Comportamiento objetivo que esta curva absorbe)*: el **piso es piso de verdad** (el `max` lo garantiza
       en los dos ejes) y **la compra sube donde el mercado supera el bin** —una Common de $400 deja de
       recibir $0.50—. Eso **ya no se entrega como fase aparte**: llega dentro de la curva (N.9).
@@ -1021,11 +1024,21 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] *(SUPUESTO — confirmar, ver preguntas abiertas v2.0)*: **la banda de redondeo la decide el monto de
       venta ANTES de redondear**, y se elige **una sola vez** (si el redondeo cruza el umbral, no se
       re-evalúa). Bandas: `< $200` ⇒ $5; `$200 ≤ x < $500` ⇒ $10; `≥ $500` ⇒ $25.
-- [ ] *(SUPUESTO — confirmar, el más importante, ver preguntas abiertas v2.0)*: **sin dato de mercado gana el
-      piso/el bin** y la carta **sí** se publica al piso (y se cotiza al bin), que es el comportamiento
-      vigente del `fixed` de hoy y lo que hace necesario el guardarraíl de N.5. La alternativa es **no
-      publicar nada sin mercado** (todo a «precio pendiente»), que es más conservador pero deja de vender
-      bulk sin referencia. **En ningún caso se publica MX$0 ni se inventa un precio.**
+- [ ] **SIN DATO DE MERCADO ⇒ «PRECIO PENDIENTE» (LOCKED — decidido por el humano, money-safe):** si la
+      variante **no tiene precio de mercado**, **no se publica y no se cotiza**. **El piso NO gana**: sin
+      mercado no hay curva, y el piso **no** actúa como precio de respaldo. La variante entra a la **cola de
+      precio pendiente** y se **escala al dueño**, en venta **y** en compra. **Nunca MX$0, nunca un precio
+      inventado.**
+- [ ] **Por qué el piso no puede rescatar a una carta sin dato** *(razón que gobierna, conviene tenerla
+      escrita)*: el único filtro que quedaría para atrapar el error sería el **guardarraíl**, y el guardarraíl
+      **se apoya en la rareza** — justamente **el proxy malo que este cambio retira del pricing**. Atraparía
+      una **Secret Rare** con dato corrupto, pero **no** una **Common de $400 sin dato**, que se publicaría
+      **al piso de $25**. Eso sería **reabrir el hueco exacto que esta feature cierra** (§N contexto: la
+      Common de $400 vendida en $15). Por eso el respaldo ante la **ausencia** de dato es **detenerse**, no
+      poner un número.
+- [ ] **Ojo con la diferencia (no confundir los dos casos)**: **dato AUSENTE ⇒ precio pendiente** (esta
+      regla); **dato PRESENTE pero malo** (aplanado, absurdo, demasiado bajo) ⇒ la curva sí calcula y puede
+      aterrizar en el **piso**, y ahí es donde actúa el **guardarraíl** de N.5.
 
 **N.3 — La tabla de puntos se edita desde admin (LOCKED — requisito explícito del humano)**
 - [ ] **Agregar, mover y borrar renglones**: el súper-admin administra los **puntos de quiebre** de las dos
@@ -1064,18 +1077,23 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > Sustituye al invariante **`premium ⇒ pct`** de §M.4, que con la curva **queda sin sentido** (ya no hay
 > modos). Sin guardarraíl, **un dato de mercado malo en una carta cara la vendería al piso**, que es
 > exactamente la **pérdida irreversible** que el principio de N.0 manda evitar.
-- [ ] **Regla**: si una carta de **rareza premium** (catálogo canónico de rarezas) **aterriza en el piso**,
-      **NO se publica**: entra a la **cola de precio pendiente** y se **escala al dueño**, hasta que el
-      **siguiente barrido** corrija el dato de mercado (o el dueño fije el precio a mano).
-- [ ] **Por qué funciona**: que una chase resuelva al piso solo puede significar que **su dato de mercado está
-      mal** (ausente, aplanado o absurdo). El guardarraíl convierte un error de dinero silencioso en una
-      **cola visible**.
+- [ ] **Regla — aplica a los DOS EJES (LOCKED, confirmado por el humano; ya no es supuesto)**: si una carta
+      de **rareza premium** (catálogo canónico de rarezas) **aterriza en el piso o en el bin**:
+      - **VENTA**: **no se publica** — entra a la **cola de precio pendiente** y se **escala al dueño**;
+      - **COMPRA**: **no se cotiza** — misma cola, mismo escalado (ofrecer el bin de $1 por una chase es
+        **pagar de menos = carta perdida**, la pérdida irreversible de N.0).
+      En ambos casos se libera cuando el **siguiente barrido** corrija el dato de mercado (o el dueño fije el
+      precio a mano).
+- [ ] **Por qué funciona**: que una chase resuelva al **piso/bin** solo puede significar que **su dato de
+      mercado está mal** (aplanado, absurdo o demasiado bajo). El guardarraíl convierte un error de dinero
+      silencioso en una **cola visible**.
+- [ ] **Qué NO cubre el guardarraíl (por eso existe la regla de N.2)**: el caso del **dato ausente**. El
+      guardarraíl **se apoya en la rareza**, que es el **proxy malo** que este cambio retira del pricing:
+      atraparía una Secret Rare con dato corrupto, pero **dejaría pasar una Common de $400 sin dato**
+      publicándola al piso. Por eso la **ausencia** de dato se resuelve **antes**, con «**precio pendiente**»
+      para **todas** las rarezas (N.2), y el guardarraíl solo se ocupa del **dato presente pero malo**.
 - [ ] **Volumen esperado**: medido sobre un **master set completo**, ≈ **3 cartas de 333**. **No es una alarma
-      ruidosa** y por eso puede bloquear la publicación sin entorpecer la operación.
-- [ ] *(SUPUESTO — confirmar, ver preguntas abiertas v2.0)*: el guardarraíl está definido sobre la
-      **PUBLICACIÓN (venta)**. Por **simetría money-safe** se asume que una **premium que cae al bin de
-      compra** también queda en **«precio pendiente»** en vez de ofrecerse a $1 (pagar de menos = **carta
-      perdida**, N.0). Falta confirmarlo explícitamente.
+      ruidosa** y por eso puede bloquear publicación y cotización sin entorpecer la operación.
 
 **N.6 — Precedencia, override y bounty revalidado (decisión 4, LOCKED)**
 - [ ] **Precedencia de VENTA**: `override por pieza > override de variante > curva (piso / mercado) >
@@ -1130,8 +1148,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       - la **bóveda / portafolio del cliente NO cambia**: ahí el cliente ve el **valor de mercado de lo que ya
         posee**, y eso es correcto y deseable (valuación, gráfica de tendencia y §C intactos);
       - una carta en **«precio pendiente»** sigue **sin publicarse** en Compra (§A) y el comprador **nunca**
-        ve ese estado *(qué deja a una carta sin precio bajo la curva: ver el supuesto de N.2 y la pregunta
-        abierta 1 de v2.0)*;
+        ve ese estado — y bajo la curva llegan ahí **dos casos**: **sin dato de mercado** (N.2, cualquier
+        rareza) y **premium aterrizando en el piso/bin** (N.5);
       - el **precio cobrado** no cambia por esta regla: es una regla de **presentación**, no de dinero.
 
 **N.8 — Instrumentación: medir para poder calibrar (requisito nuevo, LOCKED)**
