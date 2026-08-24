@@ -5,8 +5,19 @@
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1-curve-preview).
 >
 > **Changelog v2.1-curve-preview (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND.
-> Solicitud de ux-ui (`DESIGN_SYSTEM.md` §21.13.1) aprobada y enrutada por el orquestador. ARCHITECTURE §4.36.8a.
-> ADITIVO PURO: un endpoint nuevo; NO cambia ningún DTO, endpoint ni código de error existente.):**
+> Solicitudes de ux-ui (`DESIGN_SYSTEM.md` §21.13.1) y de frontend, aprobadas y enrutadas por el orquestador.
+> ARCHITECTURE §4.36.8a / §4.36.5c. ADITIVO PURO: un endpoint nuevo + un campo nuevo; NO cambia ningún DTO, endpoint
+> ni código de error existente.):**
+> - **`GET /api/v1/admin/pricing/pending` gana `counts` en el CUERPO** (`PendingPriceCountsDTO =
+>   { no_market, premium_at_floor, unknown }`). **Los `counts` IGNORAN `?reason=` y la paginación, pero RESPETAN
+>   `?context=`**: `reason` filtra **dentro** de la cola que se está triando, mientras que `context` elige **qué cola
+>   es** (VENTA=`inventory` vs COMPRA=`buylist`, §4.24c). Sin esto, el encabezado de §21.7c describía el **subconjunto
+>   filtrado** en vez de la cola: **el número mentía justo cuando el dueño filtraba para triar**. Solo `status="open"`.
+>   `unknown` (filas `reason=null` anteriores a M-41) existe para que valga el invariante
+>   `no_market + premium_at_floor + unknown === nº de entradas open de esa cola`.
+> - **Los dos conteos juntos son un diagnóstico, no dos cifras:** contra la línea base ≈3/333 (§4.36.9c-3),
+>   `premium_at_floor` subiendo con `no_market` **plano** ⇒ **piso mal calibrado**; **ambos** subiendo ⇒ **feed de
+>   mercado degradado**. Por eso van en la **misma respuesta** (mismo instante), no en un recurso aparte.
 > - **`POST /api/v1/admin/pricing/curve/preview` (NUEVO, `super_admin`) — dry-run de la curva.** Recibe una curva
 >   **borrador** (la que el dueño edita, aún sin guardar) + **N mercados de sonda** (cap 50) y devuelve, por sonda: el
 >   precio de **venta** y de **compra**, su **`priceBasis`** y la **memoria de cálculo** (valor interpolado aplicado,
@@ -1843,6 +1854,12 @@ BuylistQuoteItemDTO = { cardId: string, productType: ProductType, rawCondition?:
 //   NO depende de ella (criterio 84); el front no debe derivar precio de ella. Valores alcanzables de `priceBasis` en
 //   este eje: "bounty" | "override" | "market" | "floor" | "pending". `precio_pendiente` ⇔ priceBasis="pending" —
 //   que ahora incluye DOS casos: sin dato de mercado (el bin NO gana) y guardarraíl §4.36.5 (premium en el bin).
+// ⚠️ v2.1 — `priceBasis` de ESTE payload es para la LÓGICA del cliente (habilitar/deshabilitar, estado
+//   `precio_pendiente`, snapshot de `createRequest`), NO para RENDERIZARLO AL VENDEDOR. §N.7 acota la superficie donde
+//   se explica el origen del precio a la FICHA de carta y la de sellado; el **cotizador de buylist NO se toca**. Al
+//   retirarse `appliedRule`, la fila «Regla aplicada» de la vista del cliente **se retira** — NO se sustituye por un
+//   rótulo de `priceBasis` de cara al comprador/vendedor (sería inventar superficie que el contrato no autoriza y
+//   filtrar la calibración interna: «piso»/«mínimo» le dice al vendedor que su carta tocó el bin). Decisión ratificada.
 BuylistQuotePayload = { rarity: string | null, finish: Finish, productId?: number, priceBasis: PriceBasis,
                         quote: { status: "cotizada" | "precio_pendiente", quotedPriceCents: number | null, currency: "MXN" },
                         referencePrice: { status: "priced" | "pending", priceMxnCents?: number },
@@ -4422,7 +4439,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 ### M2 — Catálogo y precios (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.
 - `POST /api/v1/admin/pricing/sync` — dispara/encola el sync diario (solo bóveda). Req `{ scope?: "all_vault" | "cardIds" , cardIds?: [] }` → `{ jobId, queued: number }`.
-- `GET /api/v1/admin/pricing/pending` — cola de precio pendiente. `{ data: PendingPriceEntry[] }`.
+- `GET /api/v1/admin/pricing/pending` — cola de precio pendiente. **v2.1:** `{ data: PendingPriceEntry[], counts: PendingPriceCountsDTO }`.
   - **v1.8-ronda-c:** cada `PendingPriceEntry` trae **`finish`** — dos acabados de la misma carta sin precio son **entradas separadas** (antes colapsaban en una).
   - **v1.42 (BLOQ-2b):** para sellado, la entrada trae **`sealedProductId`** (+ `sealedProductName`/`sealedSubtype` de display). Dos presentaciones distintas del mismo set (ETB vs blíster) son **entradas separadas** por `sealedProductId` — antes colapsaban bajo el `gradeKey` legacy `'sealed'`. El override de una **no** cierra la otra (money-safe).
   - **v1.26 (P-6, dos buckets) — query param opcional `?context=`** (`catalog | portfolio | buylist | inventory`; omitido = todos, retro-compatible). Habilita los dos buckets de M2: **VENTA** = `?context=inventory` (inventario incl. no publicado; se escala en `createItem` y —v1.26— en `bulk-publish`); **COMPRA** = `?context=buylist`, una vista **READ-ONLY** (solo display). ⚠️ **Producir el precio de compra on-request es un WRITE del buylist (`itemDecision`, acoplado a control INE/AML) — FUERA DE ALCANCE de M2;** COMPRA no escribe decisiones ni resuelve pendientes de buylist. Ver ARCHITECTURE §4.24c.
@@ -4437,6 +4454,40 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     un guardarraíl por rareza atraparía una Secret Rare con dato corrupto pero **no** una Common de $400 sin dato, que
     se publicaría al piso — sería reabrir el hueco exacto que este cambio cierra). (2) **`premium_at_floor`** en
     **AMBOS ejes**: premium en el piso ⇒ no se publica; premium en el bin ⇒ no se cotiza.
+  - **v2.1 (NUEVO) — `counts: PendingPriceCountsDTO` en el CUERPO de la respuesta.** Conteo por motivo sobre la cola
+    **completa**, para el encabezado `12 SIN MERCADO · 3 PREMIUM EN EL PISO` de DESIGN_SYSTEM §21.7c.
+    `{ "counts": { "no_market": 12, "premium_at_floor": 3, "unknown": 0 } }`
+    - **⚠️ NORMATIVO — los `counts` IGNORAN `?reason=` y la paginación, pero RESPETAN `?context=`.** Es la distinción
+      que arregla el defecto: **`reason` filtra DENTRO de la cola que estás triando; `context` elige QUÉ cola es**
+      (VENTA = `inventory` vs COMPRA = `buylist`, los dos buckets de §4.24c). Si los conteos ignoraran `context`, el
+      encabezado del bucket de VENTA sumaría pendientes de COMPRA — el mismo defecto en otro eje. Y si respetaran
+      `reason`, al filtrar «Premium en el piso» el encabezado diría `0 SIN MERCADO · 3 PREMIUM EN EL PISO`: **el
+      número mentiría justo cuando el dueño está filtrando para triar**, que es cuando más lo mira.
+    - **Solo `status = "open"`.** La cola es una **bandeja de trabajo**: una entrada `resolved` ya no es trabajo
+      pendiente y no debe inflar el encabezado.
+    - **`unknown`** = entradas con `reason = null` (**filas anteriores a M-41**, §11). Existe para que se cumpla el
+      invariante **`no_market + premium_at_floor + unknown === nº de entradas `open` de esa cola`** — verificable por
+      QA y aseverable por el front. Sin esta tercera clave, una cola con filas históricas haría que los dos números
+      **no cuadraran con la lista** y pareciera un bug del backend. DESIGN_SYSTEM §21.7c ya contempla la fila
+      `(ausente, filas históricas) → «—»`, así que la UI puede mostrarla o ignorarla; el contrato **no** la esconde.
+    - **DECISIÓN: van en el CUERPO, no en un recurso aparte.** Tres razones, en orden de peso: (1) **coherencia en
+      pantalla** — encabezado y lista se pintan del mismo `load`, así que salen del mismo snapshot y no pueden
+      contradecirse; con un recurso aparte hay dos round-trips y una ventana en la que el encabezado describe un
+      estado que la tabla ya no muestra, que es una variante del mismo defecto que se está corrigiendo; (2) **coste
+      trivial** — es un `groupBy(reason)` sobre la misma tabla y el mismo predicado menos el filtro de `reason`, no
+      una consulta nueva; (3) **precedente local** — este contrato ya devuelve agregados-sobre-el-total junto a una
+      lista paginada (`GET /admin/inventory/sealed-sets` → `unmappedTotal`; `PublishAllResponse.summary`), así que no
+      se inventa un patrón.
+    - **Los dos números juntos son un DIAGNÓSTICO, no dos cifras sueltas** — y es la razón de peso para que viajen en
+      la misma respuesta. Contra la línea base de **≈3 por cada 333** cartas (ARCHITECTURE §4.36.9c-3):
+      **`premium_at_floor` sube y `no_market` se queda plano** ⇒ hay dato de mercado y está **por debajo del piso**:
+      apunta a **piso mal calibrado** (o a un piso que subió sin recalibrar la curva). **Suben los dos a la vez** ⇒
+      apunta al **feed de mercado degradado** (`price-ingest`/proveedor), no a la curva. Son los dos diagnósticos que
+      hoy el dueño no puede separar sin contar a mano, y separarlos exige **ver ambos conteos del mismo instante**.
+    - *(Observación para PO/orquestador, **no** es cambio de contrato ni acción de nadie ahora):* el **Dashboard** ya
+      tiene una tarjeta **«salud de datos»** (`dataHealth.pendingPriceCount`). Si `premium_at_floor` es señal de salud
+      del sistema, ése es su sitio natural para que el dueño lo note **sin navegar a M2**. Reusaría este mismo
+      `groupBy`. Se anota y **se difiere**; hoy la señal vive donde se triaja, que es lo que pidió el diseño.
   - **v2.0 — SALIDA de la cola (simétrica a la entrada):** cuando el **siguiente barrido** (`price-ingest`) escribe una
     `PriceReference` real y el precio vuelve a resolver con `priceBasis="market"`, la entrada `open` de esa clave se
     **cierra sola** en la siguiente resolución (publicación / re-publicación / `publish-all` / lectura del binder),
@@ -5620,6 +5671,20 @@ RejectedSellItemDTO = { id, sellRequestId, seller: AdminSellerRef, card: CardDTO
 PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, cardProductId?: number,
                      sealedProductId?: string | null, sealedProductName?: string, sealedSubtype?: SealedSubtype | null,
                      context, reason?: PendingPriceReason | null, status: "open"|"resolved", createdAt }
+// v2.1 (P-48): conteo por motivo del encabezado de la cola (DESIGN_SYSTEM §21.7c: «12 SIN MERCADO · 3 PREMIUM EN EL
+// PISO»). Viaja en el CUERPO de GET /admin/pricing/pending, junto a `data`.
+//   * Se calculan sobre la cola COMPLETA: IGNORAN `?reason=` y la paginación. Si respetaran `reason`, el encabezado
+//     describiría el subconjunto filtrado y NO la cola — el número mentiría justo cuando el dueño filtra para triar.
+//   * RESPETAN `?context=`, porque `context` no filtra dentro de la cola: elige QUÉ cola es (VENTA=inventory vs
+//     COMPRA=buylist, §4.24c). Ignorarlo sumaría pendientes de compra al encabezado de venta (mismo defecto, otro eje).
+//   * Cuentan SOLO `status="open"` (es una bandeja de trabajo; lo `resolved` ya no es trabajo).
+//   * `unknown` = entradas con `reason=null` (filas anteriores a M-41). Está para que se cumpla el invariante
+//     `no_market + premium_at_floor + unknown === nº de entradas open de esa cola`: sin ella, una cola con filas
+//     históricas no cuadraría con la lista y parecería un bug del backend.
+//   * LOS DOS NÚMEROS JUNTOS SON UN DIAGNÓSTICO (por eso van en la misma respuesta, del mismo instante): contra la
+//     línea base ≈3/333 (ARCHITECTURE §4.36.9c-3) — `premium_at_floor` sube con `no_market` PLANO ⇒ hay dato y está
+//     bajo el piso ⇒ PISO MAL CALIBRADO; suben LOS DOS ⇒ FEED DE MERCADO DEGRADADO (ingest/proveedor), no la curva.
+PendingPriceCountsDTO = { no_market: number, premium_at_floor: number, unknown: number }
 // v1.8-ronda-c (BE-10): resumen de un item en la bóveda del usuario para la ficha 360° admin (GET /admin/users/:id).
 // `referenceValue` reusa el MISMO PriceInfo por-acabado que HoldingDTO (§3); items sin precio → status="pending".
 // Es una PROYECCIÓN (no tabla): no migra. Antes traía solo { inventoryItemId, folio, card, ownershipStatus }.

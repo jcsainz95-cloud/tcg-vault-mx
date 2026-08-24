@@ -43,6 +43,14 @@
 > ni inventario. **Sin migración, sin cambio de forma de ningún DTO existente.** Es un envoltorio delgado sobre las
 > puras de **E0**, así que puede adelantarse dentro de **E7** sin esperar E2–E6. Eco en API_CONTRACT §M2 (Changelog
 > v2.1-curve-preview).
+> **Además (misma adenda, solicitud de frontend aprobada): `GET /admin/pricing/pending` gana `counts`** en el cuerpo
+> (`{ no_market, premium_at_floor, unknown }`, **§4.36.5c**). **Ignoran `?reason=` y la paginación, respetan
+> `?context=`** — `reason` filtra *dentro* de la cola, `context` elige *qué cola es* (§4.24c). Derivar el encabezado de
+> la página cargada hacía que el número **describiera el subconjunto filtrado y no la cola**: mentía **justo cuando el
+> dueño filtra para triar**. `premium_at_floor` es la **señal de calibración del piso** de §N.5 y solo es legible
+> **junto** al otro conteo: sube solo ⇒ **piso mal calibrado**; suben los dos ⇒ **feed de mercado degradado**. Por eso
+> van en la **misma respuesta**, no en un recurso aparte. Aditivo, sin migración; se implementa en **E4** (mismo
+> `groupBy` que `reason`).
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -7168,6 +7176,24 @@ model PendingPriceEntry { /* … */  reason PendingPriceReason?  /* null = filas
 > el dueño **no puede triar** una cola indistinta; el guardarraíl dejaría de ser «una cola visible» (§N.5) para ser
 > ruido. Es una columna nullable, aditiva, sin backfill.
 
+**Conteo por motivo — `counts` (v2.1; contrato en API_CONTRACT §M2).** `GET /admin/pricing/pending` devuelve, en el
+cuerpo, `{ no_market, premium_at_floor, unknown }` sobre la cola **completa**. Regla normativa: **ignoran `?reason=` y
+la paginación, pero respetan `?context=`** — `reason` filtra **dentro** de la cola que se está triando, mientras que
+`context` elige **qué cola es** (VENTA=`inventory` vs COMPRA=`buylist`, §4.24c). Derivar el encabezado de la página
+cargada hacía que el número **describiera el subconjunto filtrado y no la cola**, es decir que mintiera **justo cuando
+el dueño filtra para triar**.
+
+> **`premium_at_floor` es la señal de CALIBRACIÓN DEL PISO que §N.5 quiere hacer visible — y solo es legible junto al
+> otro conteo.** Contra la línea base de **≈3 por cada 333** cartas (§4.36.9c-3), los dos números separan dos
+> diagnósticos que de otro modo se confunden:
+> - **`premium_at_floor` sube y `no_market` se queda PLANO** ⇒ **hay** dato de mercado y está **por debajo del piso**:
+>   el problema es el **piso** (mal calibrado, o subido sin recalibrar la curva). Se corrige en el editor.
+> - **Suben LOS DOS a la vez** ⇒ el problema es el **feed de mercado** (`price-ingest` / proveedor, §4.35), **no la
+>   curva**. Tocar el piso aquí sería tratar el síntoma y **empeorar** el precio cuando el feed se recupere.
+>
+> Esa es la razón de fondo por la que los conteos viajan **en la misma respuesta** (mismo instante, mismo snapshot) y
+> no en un recurso aparte: el diagnóstico es la **relación entre ambos**, y dos lecturas desfasadas no la sostienen.
+
 **Salida de la cola (normativo, simétrico a la entrada).** El **mismo seam** que escala **cierra** la entrada `open` de
 esa clave cuando una resolución posterior devuelve `basis ∈ {market, override, bounty}`. Es decir: cuando el siguiente
 barrido (`price-ingest`, §4.35) escribe una `PriceReference` real y el precio vuelve a resolver por mercado, la entrada
@@ -7477,7 +7503,7 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 | **E1** | `SettingKey.PRICING_CURVE` + validador + seed §N.2. M-41 aplicada | el setting valida y siembra; los viejos siguen ahí, intactos |
 | **E2** | `computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` en `money.ts` (con `priceBasis` y precedencias), **conviviendo** con los resolvers viejos | unitarios de precedencia: override absoluto, empate ⇒ `market`, sin mercado ⇒ `pending` |
 | **E3** | Se cambian **los dos seams de servicio** (`PricingService.computeSalePriceForItem`, `BuylistService.quoteCardForFinish`) + `variant-pricing.ts`. Los ~12 call-sites **no cambian de firma** porque pasan por el servicio | suite existente adaptada: los ~40 specs de precio se re-expresan contra la curva (esperado: la mayoría cambia de **valor esperado**, no de forma) |
-| **E4** | Guardarraíl: predicado + los dos seams + `reason` + **cierre** simétrico de la cola | test de ciclo completo: escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ `resolved` + publicable |
+| **E4** | Guardarraíl: predicado + los dos seams + `reason` + **cierre** simétrico de la cola + **`counts` de la cola** (§4.36.5c — es un `groupBy(reason)` sobre la misma tabla; va aquí y no en E7 para no pasar dos veces por el mismo código) | test de ciclo completo: escalar ⇒ inyectar `PriceReference` ⇒ re-resolver ⇒ `resolved` + publicable · **y** el invariante `no_market + premium_at_floor + unknown === nº de open`, con `?reason=` y paginación activos (los `counts` no deben moverse) |
 | **E5** | Bounty revalidado en las **tres** seams + `effective`/`curveQuoteCents` en el DTO + filtro-antes-del-cap en la vitrina | test: bounty válido → sube el mercado → desaparece de vitrina, cotiza la curva y aparece la alerta |
 | **E6** | Instrumentación: escritura en checkout y en `createRequest` + `GET /admin/reports/pricing-brackets` | tras una venta y una compra existen los **cinco** campos y agregan por bracket |
 | **E7** | Endpoints `GET`/`PUT /admin/pricing/curve` **+ `POST /admin/pricing/curve/preview`** (§4.36.8a — envoltorio delgado sobre E0, **no depende de E2–E6**: adelantarlo desbloquea al frontend y le evita escribir la fórmula en cliente para luego borrarla); retiro de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, `/sales-rarities`; re-propósito de `/rarities` | contract tests del §M2 nuevo + la **prueba de mesa de §4.36.1 corrida contra el `preview`** (mismas diez cifras que la pura) |
