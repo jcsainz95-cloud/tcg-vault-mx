@@ -1360,7 +1360,9 @@
         "reasonCol": "Reason",
         "filterLabel": "Reason",
         "filterAll": "All",
-        "countsByReason": "{noMarket} no market · {premiumAtFloor} premium at floor"
+        "countNoMarket": "{count} no market",
+        "countPremiumAtFloor": "{count} premium at floor",
+        "countUnknown": "{count} without reason"
       },
       "fx": {
         "title": "USD→MXN exchange rate",

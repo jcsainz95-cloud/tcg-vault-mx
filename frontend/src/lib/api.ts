@@ -92,6 +92,7 @@ import type {
   FxDTO,
   PriceIngestResponse,
   PendingPriceEntryDTO,
+  PendingPriceQueueResponse,
   PendingPriceReason,
   PendingPriceContext,
   RemoteSetDTO,
@@ -2942,20 +2943,18 @@ export async function unifyRarities(): Promise<UnifyRaritiesResponse> {
 export async function getPendingPrices(
   context?: PendingPriceContext,
   reason?: PendingPriceReason,
-): Promise<PendingPriceEntryDTO[]> {
+): Promise<PendingPriceQueueResponse> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending', {
+    // v2.1 (P-48): la respuesta trae `data` + `counts` en el MISMO cuerpo. Encabezado y lista se
+    // pintan del mismo snapshot, así que no pueden contradecirse.
+    return apiRequest<PendingPriceQueueResponse>('/admin/pricing/pending', {
       // v2.0 (P-48): `?reason=` distingue las dos causas de la cola — `no_market` lo arregla el
       // siguiente barrido solo; `premium_at_floor` (guardarraíl) REQUIERE que alguien la mire.
+      // Los `counts` IGNORAN este filtro y la paginación, pero RESPETAN `context` (contrato §M2).
       query: { context, reason },
     });
-    return res.data;
   }
-  return delay(
-    fx.mockPendingPrices.filter(
-      (p) => (!context || p.context === context) && (!reason || p.reason === reason),
-    ),
-  );
+  return delay(fx.getMockPendingQueue(context, reason));
 }
 
 export interface PricingOverrideInput {

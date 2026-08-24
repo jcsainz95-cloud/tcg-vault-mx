@@ -185,6 +185,12 @@ test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', (
 
     // Leyenda del grid + estimado con formato MXN dentro de la lista de resultados,
     // SIN seleccionar nada (el batch cotiza cada carta de la página).
+    //
+    // ⚠️ Se afirma el FORMATO (`MONEY_RE`), NO el monto. En modo mock el estimado lo produce
+    // `fx.mockDemoBuyQuote` —una aproximación de demo de la curva de compra, sin interpolar ni
+    // redondear—, así que un assert de monto exacto aquí NO verificaría el precio del producto:
+    // verificaría el mock. Las cifras de la curva se comprueban contra el backend real
+    // (`E2E_REAL=1`) y en los unitarios del dry-run.
     await expect(page.getByText(t('es', 'buylist.gridEstimateLegend'))).toBeVisible();
     await expect(
       page.getByRole('list', { name: t('es', 'buylist.searchResults') }).getByText(MONEY_RE).first(),

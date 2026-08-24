@@ -163,30 +163,47 @@ export function PendingQueueSection() {
   // salesRules: solo es fijable un valor no vacío que parsea a número finito → si no, se bloquea.
   const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue);
 
-  // Conteo por motivo del conjunto cargado. Con un filtro activo el conteo describe ESE
-  // subconjunto (no se inventa un total que el servidor no devolvió).
-  const countsByReason = ventaPending.data
-    ? ventaPending.data.reduce(
-        (acc, e) => {
-          if (e.reason === 'premium_at_floor') acc.premium_at_floor += 1;
-          else if (e.reason === 'no_market') acc.no_market += 1;
-          return acc;
-        },
-        { no_market: 0, premium_at_floor: 0 },
-      )
-    : null;
+  // v2.1: el conteo por motivo VIENE SERVIDO en el cuerpo de la respuesta y se pinta VERBATIM.
+  // NO se recalcula ni se filtra en cliente: los `counts` del contrato IGNORAN `?reason=` y la
+  // paginación pero RESPETAN `?context=` — derivarlos de la página cargada era justo el defecto
+  // (con un filtro activo el encabezado describía el subconjunto, y el número mentía cuando el
+  // dueño filtraba para triar, que es cuando más lo mira).
+  const countsByReason = ventaPending.data?.counts ?? null;
 
   return (
     <>
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('pending.title')}</h2>
         <p className="text-sm text-muted">{t('pending.subtitle')}</p>
+        {/* §21.7c + ARCH §4.36.5c — los dos primeros números JUNTOS son un DIAGNÓSTICO, no volumen
+            de trabajo: contra la línea base ≈3/333, `premium_at_floor` subiendo con `no_market`
+            PLANO ⇒ hay dato de mercado y está bajo el piso ⇒ PISO MAL CALIBRADO; subiendo LOS DOS
+            ⇒ feed de mercado degradado, y tocar el piso empeoraría las cosas. Por eso el segundo
+            va en tinta de atención y no se entierra entre el resto del encabezado. */}
         {bucket === 'venta' && countsByReason && (
-          <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-            {t('pending.countsByReason', {
-              noMarket: countsByReason.no_market,
-              premiumAtFloor: countsByReason.premium_at_floor,
-            })}
+          <p
+            className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted"
+            data-testid="pending-counts"
+          >
+            <span className="tabular-nums">
+              {t('pending.countNoMarket', { count: countsByReason.no_market })}
+            </span>
+            {' · '}
+            <span className="tabular-nums font-medium text-accent">
+              {t('pending.countPremiumAtFloor', { count: countsByReason.premium_at_floor })}
+            </span>
+            {/* `unknown` (filas anteriores a M-41, sin motivo) NO es adorno: sostiene el invariante
+                `no_market + premium_at_floor + unknown === entradas open de esta cola`. Sin pintarla,
+                los números no cuadrarían con la lista y parecería un bug del backend. Se omite
+                cuando es 0 para no añadir ruido a la cola sana. */}
+            {countsByReason.unknown > 0 && (
+              <>
+                {' · '}
+                <span className="tabular-nums">
+                  {t('pending.countUnknown', { count: countsByReason.unknown })}
+                </span>
+              </>
+            )}
           </p>
         )}
 
@@ -237,9 +254,9 @@ export function PendingQueueSection() {
               error={ventaPending.error}
               onRetry={() => ventaPending.refetch()}
             >
-              {ventaPending.data && ventaPending.data.length > 0 ? (
+              {ventaPending.data && ventaPending.data.data.length > 0 ? (
                 <div className="rounded-lg border border-border bg-surface p-2">
-                  <DataTable columns={pendingColumns} rows={ventaPending.data} rowKey={(e) => e.id} />
+                  <DataTable columns={pendingColumns} rows={ventaPending.data.data} rowKey={(e) => e.id} />
                 </div>
               ) : (
                 <EmptyState tone="positive" title={t('pending.ventaEmpty')} />
@@ -263,9 +280,9 @@ export function PendingQueueSection() {
               error={compraPending.error}
               onRetry={() => compraPending.refetch()}
             >
-              {compraPending.data && compraPending.data.length > 0 ? (
+              {compraPending.data && compraPending.data.data.length > 0 ? (
                 <div className="rounded-lg border border-border bg-surface p-2">
-                  <DataTable columns={compraColumns} rows={compraPending.data} rowKey={(e) => e.id} />
+                  <DataTable columns={compraColumns} rows={compraPending.data.data} rowKey={(e) => e.id} />
                 </div>
               ) : (
                 <EmptyState tone="positive" title={t('pending.compraEmpty')} />

@@ -47,6 +47,15 @@ todos del **dry-run del servidor** (`POST /admin/pricing/curve/preview`, ARCH §
   exactamente la duplicación que el endpoint existe para matar. Sin backend, el previsualizador
   muestra su estado de error («no se muestran cifras estimadas») en vez de inventar un precio.
   *(Consecuencia conocida: en `NEXT_PUBLIC_USE_MOCKS` el previsualizador queda en ese estado.)*
+- **Y sin embargo `fixtures.ts › mockDemoBuyQuote` sí aproxima la curva de compra** (tramo plano
+  inicial + constante, sin interpolar ni redondear) para que el cotizador no quede vacío en modo
+  demo. **No es incoherencia: rellenar una demo no es calibrar.** El previsualizador es donde el
+  dueño **elige los puntos de la curva** mirando una cifra — si esa cifra fuera local, elegiría
+  contra un número que el backend no produce (P-48 en espejo); en el cotizador de demo nadie toma
+  una decisión de dinero con ese número. **Consecuencia práctica: un E2E en modo mock que afirme
+  MONTOS del cotizador no verifica el precio del producto, verifica el mock.** Por eso el único
+  assert de dinero del cotizador (`e2e/buylist.spec.ts`) afirma **formato** (`MONEY_RE`), no monto,
+  y así queda anotado en el propio spec. Detalle en `docs/TECH_DEBT.md` F-P48-2.
 
 Lo único que el cliente calcula son **conversiones de unidad** (`curve-draft.ts`: pesos↔centavos,
 `×`↔bp, `%`↔bp) y el **diff** del borrador. §21.1c: la pantalla nunca muestra `marketCents`,
@@ -121,14 +130,31 @@ margen»). La variante «sin bloque» **no menciona** el mercado: no hay nada qu
   los dos estados del badge de bounty.
 - `e2e/pricing-curve.spec.ts` (nuevo) + ajustes en `e2e/catalog.spec.ts` y `e2e/buylist.spec.ts`.
 
+### Conteo por motivo de la cola de pendientes — **servido por el contrato (v2.1)**
+
+> Se pidió como solicitud al arquitecto y **se resolvió durante esta misma entrega**: el contrato
+> **v2.1** norma `counts: { no_market, premium_at_floor, unknown }` en el **cuerpo** de
+> `GET /admin/pricing/pending`. El frontend lo **pinta**, no lo calcula.
+
+- **Se pintan verbatim.** Los `counts` **ignoran `?reason=` y la paginación pero respetan
+  `?context=`**: `reason` filtra **dentro** de la cola que se está triando, mientras que `context`
+  elige **qué cola es** (VENTA = `inventory` vs COMPRA = `buylist`). Recalcularlos o filtrarlos en
+  cliente reintroduce el defecto original — con un filtro activo el encabezado describiría el
+  subconjunto, y **el número mentiría justo cuando el dueño filtra para triar**, que es cuando más
+  lo mira. Hay un test que fija exactamente eso (filtrar por motivo **no** mueve el encabezado).
+- **`unknown` se pinta cuando es > 0.** Son entradas con `reason = null` (filas anteriores a M-41).
+  No es adorno: sostiene el invariante `no_market + premium_at_floor + unknown === entradas open de
+  esa cola`. Sin ella, una cola con filas históricas no cuadra con la lista y **parece un bug del
+  backend**. §21.7c ya contempla la fila `(ausente) → «—»` en la columna Motivo, que también está.
+- **Los dos primeros números juntos son un DIAGNÓSTICO** (ARCH §4.36.5c), no volumen de trabajo, y
+  por eso el segundo va en tinta de atención en vez de enterrado en el encabezado: contra la línea
+  base ≈3/333, `premium_at_floor` subiendo con `no_market` **plano** ⇒ hay dato de mercado y está
+  **bajo el piso** ⇒ **piso mal calibrado**; **subiendo los dos** ⇒ **feed de mercado degradado**, y
+  tocar el piso empeoraría las cosas.
+
 ### Solicitudes al arquitecto (ninguna bloquea)
 
-1. **`PendingPriceEntryDTO.reason` y el conteo por motivo.** El filtro `?reason=` ya se consume, pero
-   el **conteo por motivo** del encabezado (§21.7c: `12 SIN MERCADO · 3 PREMIUM EN EL PISO`) hoy se
-   deriva de la página cargada. Con un filtro activo describe ese subconjunto, no el total. Un
-   `counts: { no_market, premium_at_floor }` en la respuesta lo haría exacto — y ese segundo número
-   es **la señal de calibración del piso** que §N.5 quiere hacer visible.
-2. **Impacto del cambio sobre inventario real** (§21.13.2, ya diferido): el diálogo de guardado habla
+1. **Impacto del cambio sobre inventario real** (§21.13.2, ya diferido): el diálogo de guardado habla
    de **mercados de referencia**, no de cuántas publicaciones cambian de precio. Sin ese dato el
    diseño es veraz, pero un conteo por bracket haría del diff una decisión con volumen.
 

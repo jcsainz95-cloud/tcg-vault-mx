@@ -1360,7 +1360,9 @@
         "reasonCol": "Motivo",
         "filterLabel": "Motivo",
         "filterAll": "Todos",
-        "countsByReason": "{noMarket} sin mercado · {premiumAtFloor} premium en el piso"
+        "countNoMarket": "{count} sin mercado",
+        "countPremiumAtFloor": "{count} premium en el piso",
+        "countUnknown": "{count} sin motivo"
       },
       "fx": {
         "title": "Tipo de cambio USD→MXN",

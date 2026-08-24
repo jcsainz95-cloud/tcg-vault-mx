@@ -2462,17 +2462,34 @@
 - **Disparador:** si se quiere E2E de las cifras de la prueba de mesa (§21.13.5g) en el pipeline de
   mock, la salida correcta **no** es escribir la fórmula en el cliente: es levantar el backend
   (`E2E_REAL=1`) o servir un *fixture grabado* de la respuesta real del dry-run.
+- **Aparente incoherencia con `fixtures.ts` › `mockDemoBuyQuote`, y por qué no lo es** (hallazgo del
+  techlead, 2026-08-24): el mock **sí** aproxima la curva de COMPRA en cliente (tramo plano inicial
+  + constante, sin interpolar ni redondear) para que el cotizador no quede vacío sin backend.
+  **Rellenar una demo no es calibrar.** El previsualizador existe para que el dueño **elija los
+  puntos de la curva** mirando una cifra: si esa cifra saliera de una aproximación local, elegiría
+  contra un número que el backend no produce — P-48 en espejo. En el cotizador de demo nadie toma
+  una decisión de dinero con ese número, y el monto real siempre lo deriva el backend (SEC-A1).
+- **Consecuencia práctica que sí importa:** **un E2E de Playwright en modo mock que afirme MONTOS
+  del cotizador no verifica el precio del producto — verifica el mock.** Hoy no hay ninguno: el
+  único assert de dinero del cotizador (`e2e/buylist.spec.ts`) usa `MONEY_RE`, que afirma
+  **formato**, no monto (queda anotado ahí mismo para que no se convierta en un assert exacto). Los
+  montos exactos de otros specs (`inventory-stream-b.spec.ts`) son valores de mercado, spread de
+  sellado y precios de bounty **explícitos** — ninguno pasa por la curva.
 
-### F-P48-3 · Conteo por motivo de la cola de pendientes derivado de la página cargada (Baja)
-- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/sections/PendingQueueSection.tsx` — el
-  encabezado `12 SIN MERCADO · 3 PREMIUM EN EL PISO` (§21.7c) se calcula sobre las filas que la
-  query devolvió; con un filtro `?reason=` activo describe **ese subconjunto**, no el total.
-- **Impacto:** bajo, y honesto (no inventa un total que el servidor no devolvió), pero el segundo
-  número es **la señal de calibración del piso** que §N.5 quiere hacer visible: si crece mucho, el
-  piso está mal puesto o el dato de mercado está roto. Un conteo parcial la debilita.
-- **Disparador:** solicitud abierta al arquitecto (`docs/FRONTEND_NOTES.md` §21, solicitud 1): que
-  `GET /admin/pricing/pending` devuelva `counts: { no_market, premium_at_floor }`. Con eso, el
-  frontend solo lo pinta.
+### F-P48-3 · ~~Conteo por motivo de la cola derivado de la página cargada~~ — **RESUELTA (2026-08-24)**
+- **Estaba mal clasificada.** Se registró como «espera solicitud abierta al arquitecto», pero la
+  solicitud **se resolvió mientras el frontend trabajaba**: el contrato **v2.1** norma
+  `counts: { no_market, premium_at_floor, unknown }` en el **cuerpo** de `GET /admin/pricing/pending`
+  (`API_CONTRACT` §M2) y el backend ya lo devuelve. Lo que quedaba era **drift del lado del
+  frontend**, no deuda de producto.
+- **Cerrado:** `frontend/src/types/contract.ts` declara `PendingPriceCountsDTO` /
+  `PendingPriceQueueResponse`; `getPendingPrices` devuelve `{ data, counts }`; y
+  `PendingQueueSection.tsx` pinta los counts **verbatim** — no los recalcula ni los filtra en
+  cliente, porque el contrato manda que **ignoren `?reason=` y la paginación pero respeten
+  `?context=`**. Se pinta también `unknown` (filas anteriores a M-41) cuando es > 0: sostiene el
+  invariante `no_market + premium_at_floor + unknown === entradas open de esa cola`; sin ella los
+  números no cuadran con la lista y parece un bug del backend. Cubierto por tres tests en
+  `M2View.test.tsx` (counts verbatim, el filtro no mueve el encabezado, y `unknown` pintado).
 
 ### F-1 · Efecto de poda duplicado en CheckoutView/GuestCheckoutView (Baja)
 - **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` y

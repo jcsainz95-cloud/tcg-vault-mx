@@ -1802,6 +1802,33 @@ export interface PendingPriceEntryDTO {
   sealedSubtype?: SealedSubtype | null;
 }
 
+// v2.1 (P-48): conteo por MOTIVO de la cola de precio pendiente, en el CUERPO de
+// `GET /admin/pricing/pending` (contrato §M2). Alimenta el encabezado `12 SIN MERCADO ·
+// 3 PREMIUM EN EL PISO` de DESIGN_SYSTEM §21.7c.
+//   * ⚠️ NORMATIVO: los counts **IGNORAN `?reason=` y la paginación, pero RESPETAN `?context=`**.
+//     `reason` filtra DENTRO de la cola que se está triando; `context` elige QUÉ cola es (VENTA =
+//     inventory vs COMPRA = buylist). Por eso el front los pinta VERBATIM: recalcularlos o
+//     filtrarlos en cliente reintroduce el defecto — el número mentiría justo cuando el dueño
+//     filtra para triar, que es cuando más lo mira.
+//   * Cuentan SOLO `status="open"`: la cola es una bandeja de trabajo.
+//   * `unknown` = entradas con `reason=null` (filas anteriores a M-41). NO es adorno: sostiene el
+//     invariante `no_market + premium_at_floor + unknown === nº de entradas open de esa cola`. Sin
+//     pintarla, una cola con filas históricas no cuadraría con la lista y parecería un bug del backend.
+//   * LOS DOS PRIMEROS NÚMEROS JUNTOS SON UN DIAGNÓSTICO (ARCH §4.36.5c), no volumen de trabajo:
+//     contra la línea base ≈3/333 — `premium_at_floor` sube con `no_market` PLANO ⇒ hay dato de
+//     mercado y está bajo el piso ⇒ PISO MAL CALIBRADO; suben LOS DOS ⇒ FEED DE MERCADO DEGRADADO
+//     (ingest/proveedor), y tocar el piso empeoraría las cosas.
+export interface PendingPriceCountsDTO {
+  no_market: number;
+  premium_at_floor: number;
+  unknown: number;
+}
+
+export interface PendingPriceQueueResponse {
+  data: PendingPriceEntryDTO[];
+  counts: PendingPriceCountsDTO;
+}
+
 // ==== M2: LA CURVA DE PRECIO POR VALOR DE MERCADO (v2.0, P-48; contrato §M2 + §DTOs) ====
 // ⛔ RETIRADOS por la curva: `PriceRuleSet`, `SalesPriceRuleSet`, `BuylistRarit*`, `SalesRarit*`,
 // `TierId`/`TieredRuleSet`/`TierMap*` y el 422 `PREMIUM_RARITY_FIXED_TIER`. No hay reglas por

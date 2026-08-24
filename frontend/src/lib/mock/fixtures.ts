@@ -40,6 +40,9 @@ import type {
   KycInfoDTO,
   FxDTO,
   PendingPriceEntryDTO,
+  PendingPriceContext,
+  PendingPriceQueueResponse,
+  PendingPriceReason,
   PriceBasis,
   PricingCurveDTO,
   RarityHealthResponse,
@@ -2211,6 +2214,28 @@ export function resolveMockPending(id: string) {
   mockPendingPrices = mockPendingPrices.filter((p) => p.id !== id);
 }
 
+/**
+ * Cola de precio pendiente con sus `counts` (contrato §M2, v2.1). El mock respeta la regla
+ * NORMATIVA que hace útil el encabezado: **los conteos IGNORAN `reason` (y la paginación) pero
+ * RESPETAN `context`** — `reason` filtra dentro de la cola que se está triando, `context` elige qué
+ * cola es. Si respetaran `reason`, al filtrar «Premium en el piso» el encabezado diría
+ * `0 SIN MERCADO · 3 PREMIUM EN EL PISO`: el número mentiría justo cuando el dueño filtra para triar.
+ *
+ * `unknown` = filas con `reason` ausente/null (anteriores a M-41): sostiene el invariante
+ * `no_market + premium_at_floor + unknown === nº de entradas open de esa cola`.
+ */
+export function getMockPendingQueue(
+  context?: PendingPriceContext,
+  reason?: PendingPriceReason,
+): PendingPriceQueueResponse {
+  const inQueue = mockPendingPrices.filter(
+    (p) => p.status === 'open' && (!context || p.context === context),
+  );
+  const counts = { no_market: 0, premium_at_floor: 0, unknown: 0 };
+  for (const p of inQueue) counts[p.reason ?? 'unknown'] += 1;
+  return { data: inQueue.filter((p) => !reason || p.reason === reason), counts };
+}
+
 // ==== M2: LA CURVA DE PRECIO POR VALOR DE MERCADO (v2.0, P-48) ====
 // ⛔ RETIRADOS con el editor viejo: `PriceRuleSet` de compra/venta, sus rarezas y los 5 tiers +
 // mapa rareza→tier. Ya no hay reglas por rareza/tier/acabado ni modos fixed/pct.
@@ -2270,6 +2295,15 @@ export function setMockPricingCurve(next: PricingCurveDTO): PricingCurveDTO {
  * La matemática normativa (ARCHITECTURE §4.36.1) vive en el **backend** y llega a la UI por
  * `POST /admin/pricing/curve/preview`. Duplicarla aquí sería exactamente lo que P-48 existe para
  * cerrar: calibrar contra un cálculo que no es el que cobra.
+ *
+ * **Por qué esto SÍ y el previsualizador NO** (la distinción, para que nadie la lea como
+ * incoherencia — ver `docs/TECH_DEBT.md` F-P48-2): **rellenar una demo no es calibrar**. El
+ * previsualizador existe para que el dueño **elija los puntos de la curva** mirando una cifra; si
+ * esa cifra saliera de una aproximación local, elegiría contra un número que el backend no produce
+ * — P-48 en espejo. Aquí, en cambio, solo se evita que una pantalla de demo quede vacía sin
+ * backend; nadie toma una decisión de dinero con este número. **Consecuencia práctica: un E2E en
+ * modo mock que afirme MONTOS del cotizador no verifica el precio del producto, verifica este
+ * mock.** Los E2E del cotizador afirman FORMATO (`MONEY_RE`), no monto.
  */
 export function mockDemoBuyQuote(refCents: number | null): { cents: number | null; basis: PriceBasis } {
   return mockDemoQuote('buy', refCents);

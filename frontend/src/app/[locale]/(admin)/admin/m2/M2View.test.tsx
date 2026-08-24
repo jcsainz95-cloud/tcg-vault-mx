@@ -204,6 +204,70 @@ describe('M2View · Catálogo y precios', () => {
     expect(override).toHaveBeenCalledWith(expect.objectContaining({ priceMxnCents: 1250 }));
   });
 
+  /**
+   * §21.7c + contrato §M2 v2.1 — el conteo por motivo **viene servido** en el cuerpo. La propiedad
+   * que importa: los `counts` IGNORAN `?reason=` (pero respetan `?context=`), así que el encabezado
+   * describe LA COLA, no el subconjunto filtrado. Derivarlo de la página cargada era el defecto:
+   * el número mentía justo cuando el dueño filtraba para triar.
+   */
+  it('el encabezado pinta los counts del SERVIDOR verbatim — no los deriva de la lista', async () => {
+    vi.spyOn(api, 'getPendingPrices').mockResolvedValue({
+      // La lista trae UNA fila (como si viniera filtrada o paginada)…
+      data: [
+        {
+          id: 'ppe-x',
+          cardId: 'c-zapdos',
+          productType: 'raw',
+          gradeKey: 'raw:NM',
+          finish: 'holofoil',
+          context: 'inventory',
+          status: 'open',
+          reason: 'premium_at_floor',
+          createdAt: '2026-08-24T07:30:00Z',
+          cardName: 'Zapdos',
+        },
+      ],
+      // …y los counts describen la COLA COMPLETA. Se pintan tal cual: 12 ≠ 1.
+      counts: { no_market: 12, premium_at_floor: 3, unknown: 0 },
+    });
+    renderWithProviders(<M2View />, 'es');
+
+    const counts = await screen.findByTestId('pending-counts');
+    expect(counts).toHaveTextContent('12 sin mercado');
+    expect(counts).toHaveTextContent('3 premium en el piso');
+    // Con `unknown: 0` la clave no añade ruido a una cola sana.
+    expect(counts).not.toHaveTextContent('sin motivo');
+  });
+
+  it('filtrar por motivo NO cambia el encabezado (los counts ignoran ?reason=)', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'getPendingPrices').mockResolvedValue({
+      data: [],
+      counts: { no_market: 12, premium_at_floor: 3, unknown: 0 },
+    });
+    renderWithProviders(<M2View />, 'es');
+    await screen.findByTestId('pending-counts');
+
+    await user.click(screen.getByRole('button', { name: 'Premium en el piso' }));
+    // El filtro SÍ viaja al servidor…
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith('inventory', 'premium_at_floor'),
+    );
+    // …pero el encabezado sigue describiendo la cola entera: no dice «0 sin mercado».
+    expect(await screen.findByTestId('pending-counts')).toHaveTextContent('12 sin mercado');
+  });
+
+  it('`unknown` (filas anteriores a M-41) se pinta: sostiene el invariante con la lista', async () => {
+    vi.spyOn(api, 'getPendingPrices').mockResolvedValue({
+      data: [],
+      counts: { no_market: 1, premium_at_floor: 1, unknown: 2 },
+    });
+    renderWithProviders(<M2View />, 'es');
+    // Sin la tercera clave, 1+1 no cuadraría con las 4 entradas de la cola y parecería un bug
+    // del backend. La columna Motivo ya pinta «—» para esas filas.
+    expect(await screen.findByTestId('pending-counts')).toHaveTextContent('2 sin motivo');
+  });
+
   it('P-6 COMPRA pide context=buylist y es READ-ONLY (sin acción de fijar precio) + enlace a M5', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'getPendingPrices');
