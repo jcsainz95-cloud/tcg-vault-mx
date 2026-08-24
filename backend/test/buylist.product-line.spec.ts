@@ -46,6 +46,8 @@ function svcWith(opts: {
     findCardProductByTcgId: jest.Mock;
     getReferenceByCardProduct: jest.Mock;
     getReference: jest.Mock;
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.Mock;
     escalatePending: jest.Mock;
   };
 } {
@@ -75,6 +77,8 @@ function svcWith(opts: {
         ? { status: 'pending' }
         : { status: 'priced', referenceMxnCents: opts.baseRefMxnCents },
     ),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn(),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
@@ -277,6 +281,8 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
         return cents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents: cents };
       }),
       getReference: jest.fn(async () => ({ status: 'pending' })),
+      // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+      settlePendingForVariant: jest.fn(async () => undefined),
       escalatePending: jest.fn(),
       getVariantOverridesBatch: jest.fn(async () => new Map()),
       getVariantOverride: jest.fn(async () => null),
@@ -338,8 +344,14 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       VALID_CLABE,
       { front: 'k-front', back: 'k-back' },
     );
-    // escalatePending recibió el productId (7º argumento) — clave lógica de la cola por producto.
-    expect(pricing.escalatePending).toHaveBeenCalledWith('c1', 'raw', 'raw:NM', 'buylist', undefined, 'holofoil', 707029);
+    // v2.0 (§4.36.5c): la escalada pasa por el seam simétrico `settlePendingForVariant`, con la RAZÓN
+    // y con el `cardProductId` en la clave lógica de la cola (resolver el set_base NO cierra la del
+    // producto separado — money-safe).
+    expect(pricing.settlePendingForVariant).toHaveBeenCalledWith(
+      'no_market',
+      { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', cardProductId: 707029 },
+      'buylist',
+    );
   });
 
   it('SIN productId → NO snapshotea cardProductId (retrocompat) y NO resuelve producto', async () => {

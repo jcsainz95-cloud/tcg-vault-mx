@@ -1,6 +1,6 @@
 import { VariantPriceOverride } from '@prisma/client';
 import { PriceBasis, computeSalePriceFromCurve, quoteAcquisitionFromCurve } from '../../common/money';
-import { PricingCurve } from '../../common/pricing-curve';
+import { PricingCurve, premiumFloorGuard } from '../../common/pricing-curve';
 
 /**
  * variant-pricing.ts — v1.28 (P-18/P-22) · v2.0 (P-48, ARCHITECTURE §4.36 / API_CONTRACT §DTOs).
@@ -31,12 +31,19 @@ export interface VariantPricingDTO {
     effectiveCents: number | null;
     /** v2.0: `PriceBasis` — `market|floor` sustituyen a `rule|fallback`. */
     source: PriceBasis;
+    /**
+     * v2.0 (§4.36.5) — el GUARDARRAÍL disparó en este eje: rareza premium que aterrizó en el piso/bin
+     * ⇒ NO se publica / NO se cotiza y hay entrada `premium_at_floor` en la cola. Es lo que hace
+     * VISIBLE el guardarraíl desde el back-office y permite detectar PISOS MAL CALIBRADOS.
+     */
+    premiumAtFloor: boolean;
   };
   sell: {
     suggestedCents: number | null;
     overrideCents: number | null;
     effectiveCents: number | null;
     source: PriceBasis;
+    premiumAtFloor: boolean;
   };
   bounty?: {
     enabled: boolean;
@@ -63,24 +70,36 @@ export function composeVariantPricing(
   referenceMxnCents: number | null,
   curve: PricingCurve,
   override: VariantPriceOverride | null,
+  /**
+   * v2.0 (§4.36.5) — rareza CANÓNICA de la carta, SOLO para el veredicto del guardarraíl. No entra al
+   * monto (criterio 84): `premiumFloorGuard` devuelve un booleano de publicación, jamás una cantidad.
+   */
+  rarityCanonical: string | null = null,
 ): VariantPricingDTO {
   // COMPRA — un solo cuerpo: el resultado trae el efectivo Y lo que daría la curva sola.
   const buy = quoteAcquisitionFromCurve(referenceMxnCents, curve, override);
   // VENTA — efectivo A NIVEL VARIANTE (sellOverride > curva); el override por pieza no entra aquí.
   const sell = computeSalePriceFromCurve(referenceMxnCents, curve, override);
 
+  const buyGuarded = premiumFloorGuard(rarityCanonical, buy.basis) === 'premium_at_floor';
+  const sellGuarded = premiumFloorGuard(rarityCanonical, sell.basis) === 'premium_at_floor';
+
   return {
     buy: {
-      suggestedCents: buy.curveQuoteCents,
+      suggestedCents: buy.curveQuoteCents, // lo que DARÍA la curva: el diagnóstico del piso mal calibrado
       overrideCents: override?.buyOverrideCents ?? null,
-      effectiveCents: buy.priceCents,
-      source: buy.basis,
+      // Con el guardarraíl disparado la variante NO se cotiza ⇒ efectivo nulo y `pending`, igual que
+      // en runtime. El `suggestedCents` sigue visible para que el dueño vea POR QUÉ se bloqueó.
+      effectiveCents: buyGuarded ? null : buy.priceCents,
+      source: buyGuarded ? 'pending' : buy.basis,
+      premiumAtFloor: buyGuarded,
     },
     sell: {
       suggestedCents: sell.curveQuoteCents,
       overrideCents: override?.sellOverrideCents ?? null,
-      effectiveCents: sell.priceCents,
-      source: sell.basis,
+      effectiveCents: sellGuarded ? null : sell.priceCents,
+      source: sellGuarded ? 'pending' : sell.basis,
+      premiumAtFloor: sellGuarded,
     },
     // Solo si existe fila M-30 (contrato §DTOs: "bounty viene (solo si existe fila)").
     ...(override

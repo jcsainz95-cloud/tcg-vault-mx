@@ -102,6 +102,29 @@ function buildHarness() {
         pendingStore.push(row);
         return row;
       }),
+      update: jest.fn(async ({ where, data }: any) => {
+        const row = pendingStore.find((e) => e.id === where.id);
+        if (row) Object.assign(row, data);
+        return row;
+      }),
+      // v2.0 (§4.36.5c): SALIDA simétrica de la cola — el mismo seam que escala CIERRA cuando el
+      // precio vuelve a resolver. Antes de v2.0 el ingest no cerraba nada.
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        let count = 0;
+        for (const e of pendingStore) {
+          if (
+            e.cardId === where.cardId &&
+            e.productType === where.productType &&
+            e.gradeKey === where.gradeKey &&
+            e.finish === where.finish &&
+            e.status === where.status
+          ) {
+            Object.assign(e, data);
+            count++;
+          }
+        }
+        return { count };
+      }),
     },
   };
 

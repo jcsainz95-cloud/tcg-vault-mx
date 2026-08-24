@@ -19,7 +19,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { computeAportacionCostCents, computeSalePriceFromCurve } from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
-import { PricingCurve } from '../../common/pricing-curve';
+import { PricingCurve, resolvePendingReason } from '../../common/pricing-curve';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -1171,22 +1171,35 @@ export class InventoryService {
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
     const sale = computeSalePriceFromCurve(refCents, ctx.curve, ctx.variantOverrides.get(key) ?? null);
-    if (sale.priceCents == null) {
-      // ④: escala con el gradeKey server-side + acabado del item (la cola es POR acabado, M-19).
-      const pendingPriceEntryId = await this.pricing.escalatePending(
-        item.cardId,
-        item.productType,
-        gradeKey,
+    // v2.0 (P-48, §4.36.5) — veredicto ÚNICO de publicación: `no_market` (sin dato ⇒ el piso NO gana) o
+    // `premium_at_floor` (guardarraíl: una chase en el piso solo puede significar dato de mercado malo).
+    // NO dispara con override ni bounty.
+    const pendingReason = resolvePendingReason(sale.basis, item.card.rarity);
+    if (pendingReason != null || sale.priceCents == null) {
+      // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR acabado,
+      // M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
+      const pendingPriceEntryId = await this.pricing.settlePendingForVariant(
+        pendingReason ?? 'no_market',
+        { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
         'inventory',
-        undefined,
-        item.finish,
       );
       return {
         ok: false,
-        message: 'No resolvable sale price (no market reference); not published',
+        message:
+          pendingReason === 'premium_at_floor'
+            ? 'Premium rarity resolved to the floor (bad market data); not published — escalated to the pending queue'
+            : 'No resolvable sale price (no market reference); not published',
         pendingPriceEntryId,
       };
     }
+    // §4.36.5c — SALIDA SIMÉTRICA: el MISMO seam que escala CIERRA. Si el barrido ya escribió una
+    // `PriceReference` real y el precio volvió a resolver, la entrada `open` de esta clave se cierra
+    // SOLA aquí, sin intervención manual.
+    await this.pricing.settlePendingForVariant(
+      null,
+      { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
+      'inventory',
+    );
     return { ok: true, salePriceCents: sale.priceCents, priceSource: 'derived' };
   }
 

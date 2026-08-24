@@ -58,6 +58,8 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       // `precio_pendiente` (el BIN no gana) y dispararía el gate de INE de Fase 0.3, que NO es lo que
       // estos casos verifican (CLABE/PII). Se le da mercado para que la línea COTICE.
       getReference: jest.fn().mockResolvedValue({ status: 'priced', referenceMxnCents: 12500 }),
+      // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+      settlePendingForVariant: jest.fn(async () => undefined),
       escalatePending: jest.fn().mockResolvedValue(undefined),
       // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
       getVariantOverridesBatch: jest.fn(async () => new Map()),

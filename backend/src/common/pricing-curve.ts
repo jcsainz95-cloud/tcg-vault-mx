@@ -384,6 +384,33 @@ export function premiumFloorGuard(rarityCanonical: string | null, basis: PriceBa
   return basis === 'floor' && isPremiumCanonicalRarity(rarityCanonical) ? 'premium_at_floor' : 'ok';
 }
 
+/**
+ * §4.36.5c — POR QUÉ una variante entra a la cola de precio pendiente. Espeja el enum de BD
+ * `PendingPriceReason` (aquí como unión de literales para que `common/` siga sin depender de infra).
+ */
+export type PendingReason = 'no_market' | 'premium_at_floor';
+
+/**
+ * **VEREDICTO ÚNICO de publicación/cotización** (§4.36.5). Devuelve la razón por la que la variante
+ * NO se puede publicar/cotizar, o `null` si sí se puede. Es el ÚNICO punto donde la rareza toca el
+ * dinero — y lo hace **bloqueando**, nunca **fijando** un monto: esta función no recibe ni devuelve
+ * cantidades (criterio 84).
+ *
+ * - `basis === 'pending'` ⇒ `no_market`: sin dato de mercado NO se publica ni se cotiza; el piso/bin
+ *   **NO** gana (decisión LOCKED §4.36.0 que corrige el supuesto de §N.2). Un guardarraíl por rareza
+ *   atraparía una Secret Rare con dato corrupto, pero **no** una Common de $400 sin dato.
+ * - guardarraíl ⇒ `premium_at_floor`: una chase que resuelve al piso/bin solo puede significar que su
+ *   dato de mercado está mal. Lo cura el dueño o el siguiente barrido.
+ * - `override` / `bounty` ⇒ `null` SIEMPRE: son decisiones deliberadas del admin y no se corrigen.
+ *
+ * Distinguir las dos razones es lo que hace TRIABLE la cola: `no_market` la cura sola el barrido;
+ * `premium_at_floor` necesita que el dueño mire.
+ */
+export function resolvePendingReason(basis: PriceBasis, rarityCanonical: string | null): PendingReason | null {
+  if (basis === 'pending') return 'no_market';
+  return premiumFloorGuard(rarityCanonical, basis) === 'premium_at_floor' ? 'premium_at_floor' : null;
+}
+
 // ============================================================================
 // Bounty revalidado contra la curva (§4.36.6 / criterios 90-91).
 // PROHIBIDO duplicar: mismo cuerpo en las TRES seams (crear, cotizar, publicar).

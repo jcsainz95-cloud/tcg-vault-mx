@@ -56,6 +56,22 @@ function buildHarness() {
         pendingStore.push(row);
         return row;
       }),
+      update: jest.fn(async ({ where, data }: any) => {
+        const row = pendingStore.find((e) => e.id === where.id);
+        if (row) Object.assign(row, data);
+        return row;
+      }),
+      // v2.0 (§4.36.5c): el mismo seam que escala CIERRA cuando el precio vuelve a resolver.
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        let count = 0;
+        for (const e of pendingStore) {
+          if (matchKey(e, where)) {
+            Object.assign(e, data);
+            count++;
+          }
+        }
+        return { count };
+      }),
     },
   };
 

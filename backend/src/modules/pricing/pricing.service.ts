@@ -35,6 +35,7 @@ import {
 import {
   CurveLegTrace,
   CurveValidationError,
+  PendingReason,
   PricingCurve,
   collectCurveViolations,
   explainBuyFromCurve,
@@ -911,6 +912,10 @@ export class PricingService {
     // vs blíster) son SEPARADAS — resolver el override de uno NO cierra el otro (money-safe). `null`
     // (default) = raw/graded o sellado legacy sin ligar (residual: colapsa bajo 'sealed' hasta curarse).
     sealedProductId: string | null = null,
+    // v2.0 (M-41.6, §4.36.5c): POR QUÉ entra a la cola. `no_market` = sin referencia; `premium_at_floor`
+    // = guardarraíl. NO entra a la clave de dedupe: si la entrada ya existe con otra razón, se ACTUALIZA
+    // (la cola debe reflejar el problema VIGENTE para ser triable, no el de la primera vez).
+    reason: PendingReason | null = null,
   ): Promise<string> {
     // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
@@ -919,7 +924,12 @@ export class PricingService {
     const open = await this.prisma.pendingPriceEntry.findFirst({
       where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
     });
-    if (open) return open.id;
+    if (open) {
+      if (reason != null && open.reason !== reason) {
+        await this.prisma.pendingPriceEntry.update({ where: { id: open.id }, data: { reason } });
+      }
+      return open.id;
+    }
     const created = await this.prisma.pendingPriceEntry.create({
       data: {
         cardId,
@@ -931,9 +941,79 @@ export class PricingService {
         context,
         refId,
         status: 'open',
+        reason,
       },
     });
     return created.id;
+  }
+
+  /**
+   * v2.0 (§4.36.5c) — **SALIDA de la cola, simétrica a la entrada**. Cierra las entradas `open` de esa
+   * clave cuando el precio VUELVE a resolver (`basis ∈ {market, override, bounty}`). Es COMPORTAMIENTO
+   * NUEVO: hasta v1.44 el ingest no cerraba nada y la cola solo se vaciaba con el override manual.
+   *
+   * Efecto: cuando el siguiente barrido (`price-ingest`) escribe una `PriceReference` real, la entrada
+   * se cierra SOLA en la siguiente resolución (publicación, re-publicación o `publish-all`), sin
+   * intervención manual. La vía manual (`POST /admin/pricing/override`) NO cambia.
+   *
+   * **Context-agnóstico a propósito**, igual que `manualOverride` (invariante documentado v1.26): la
+   * `PriceReference` es COMPARTIDA por clave, así que si el mercado resolvió, resolvió para las dos
+   * caras. Cerrar solo la del propio contexto dejaría la otra abierta para siempre.
+   */
+  async closePendingForVariant(
+    cardId: string,
+    productType: ProductType,
+    gradeKey: string,
+    finish: Finish = 'normal',
+    cardProductId: number | null = null,
+    sealedProductId: string | null = null,
+  ): Promise<number> {
+    const res = await this.prisma.pendingPriceEntry.updateMany({
+      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
+      data: { status: 'resolved', resolvedAt: new Date() },
+    });
+    return res.count;
+  }
+
+  /**
+   * v2.0 (§4.36.5c) — **EL MISMO SEAM que escala CIERRA**. Un solo cuerpo para las dos direcciones:
+   *  - `reason != null` ⇒ escala (o actualiza la razón de la entrada abierta) y devuelve su id;
+   *  - `reason == null` ⇒ cierra las entradas `open` de esa clave y devuelve `undefined`.
+   *
+   * Tenerlo en UNA función es lo que impide que la salida se olvide en un call-site (que es
+   * exactamente lo que pasó hasta ahora: había entrada y no había salida).
+   */
+  async settlePendingForVariant(
+    reason: PendingReason | null,
+    key: {
+      cardId: string;
+      productType: ProductType;
+      gradeKey: string;
+      finish?: Finish;
+      cardProductId?: number | null;
+      sealedProductId?: string | null;
+    },
+    context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
+    refId?: string,
+  ): Promise<string | undefined> {
+    const finish = key.finish ?? 'normal';
+    const cardProductId = key.cardProductId ?? null;
+    const sealedProductId = key.sealedProductId ?? null;
+    if (reason != null) {
+      return this.escalatePending(
+        key.cardId,
+        key.productType,
+        key.gradeKey,
+        context,
+        refId,
+        finish,
+        cardProductId,
+        sealedProductId,
+        reason,
+      );
+    }
+    await this.closePendingForVariant(key.cardId, key.productType, key.gradeKey, finish, cardProductId, sealedProductId);
+    return undefined;
   }
 
   /**
@@ -1218,13 +1298,15 @@ export class PricingService {
    * campos del modelo `PendingPriceEntry` (incluido `finish`, M-19) + `cardName` (conveniencia
    * plana que consume el front) + `card { id, name, number, setName }`.
    */
-  async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory') {
+  async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory', reason?: PendingReason) {
     // P-6 (§M2): filtro opcional por `context` para los dos buckets de M2 (VENTA=`inventory`,
     // COMPRA=`buylist` read-only). Sin arg → todos los pendientes (back-compat). Shape sin cambios.
     // v1.42 (BLOQ-2b): `sealedProduct` para resolver la identidad de display de la cola (cascada §4.34a:
     // SealedProduct vivo → snapshot ausente aquí → Card.name). Presente solo cuando la entrada trae FK.
     const rows = await this.prisma.pendingPriceEntry.findMany({
-      where: { status: 'open', ...(context ? { context } : {}) },
+      // v2.0 (§M2): filtro `?reason=` — `no_market` la cura sola el barrido; `premium_at_floor` necesita
+      // que el dueño mire. Omitido = todas (retro-compatible; `null` en filas históricas).
+      where: { status: 'open', ...(context ? { context } : {}), ...(reason ? { reason } : {}) },
       orderBy: { createdAt: 'asc' },
       include: { card: { include: { set: true } }, sealedProduct: true },
     });

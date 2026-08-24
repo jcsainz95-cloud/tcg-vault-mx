@@ -136,16 +136,16 @@ describe('PricingController.pending — passthrough del query ?context= (P-6)', 
     const pendingQueue = jest.fn(async () => ({ data: [] }));
     const ctrl = buildController(pendingQueue);
     await ctrl.pending('inventory');
-    expect(pendingQueue).toHaveBeenCalledWith('inventory');
+    expect(pendingQueue).toHaveBeenCalledWith('inventory', undefined);
     await ctrl.pending('buylist');
-    expect(pendingQueue).toHaveBeenCalledWith('buylist');
+    expect(pendingQueue).toHaveBeenCalledWith('buylist', undefined);
   });
 
   it('sin query → pendingQueue() sin arg (back-compat)', async () => {
     const pendingQueue = jest.fn(async () => ({ data: [] }));
     const ctrl = buildController(pendingQueue);
     await ctrl.pending(undefined);
-    expect(pendingQueue).toHaveBeenCalledWith(undefined);
+    expect(pendingQueue).toHaveBeenCalledWith(undefined, undefined);
   });
 
   it('context inválido → 422 VALIDATION_ERROR (no llega al servicio)', () => {

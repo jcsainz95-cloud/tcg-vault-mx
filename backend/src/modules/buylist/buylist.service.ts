@@ -22,7 +22,7 @@ import { maskClabe } from '../../common/crypto/pii-mask';
 // v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
 // precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
 import { PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
-import { PricingCurve } from '../../common/pricing-curve';
+import { PricingCurve, resolvePendingReason } from '../../common/pricing-curve';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
@@ -330,16 +330,24 @@ export class BuylistService {
     // el bounty se revalida AQUÍ contra la curva vigente, no solo al crearlo (§4.36.6).
     // SEC-A1: mercado y acabado derivados server-side, jamás del DTO del cliente.
     const quote = quoteAcquisitionFromCurve(referenceMxnCents, curve, effectiveOverride);
+    // v2.0 (P-48, §4.36.5b) — GUARDARRAÍL del eje de COMPRA: una rareza PREMIUM que aterriza en el BIN
+    // NO se cotiza. Pagar de menos es la MISMA pérdida irreversible que vender de menos (§N.0), y que
+    // una chase resuelva al bin solo puede significar que su dato de mercado está mal. NO dispara con
+    // override ni bounty. READ-ONLY: reporta `precio_pendiente` SIN escribir en la cola (doctrina
+    // v1.12 de endpoints anónimos); quien escala sigue siendo `createRequest`.
+    const pendingReason = resolvePendingReason(quote.basis, card.rarity);
+    const quotedPriceCents = pendingReason == null ? quote.priceCents : null;
+    const priceBasis = pendingReason == null ? quote.basis : ('pending' as const);
     return {
       // `rarity` se conserva como dato INFORMATIVO/de display del catálogo: el monto NO depende de ella.
       rarity: card.rarity ?? null,
       finish: f,
       // v1.30: eco del productId cotizado (ausente en la rama set_base).
       ...(productId != null ? { productId } : {}),
-      priceBasis: quote.basis,
+      priceBasis,
       quote: {
-        status: quote.priceCents != null ? ('cotizada' as const) : ('precio_pendiente' as const),
-        quotedPriceCents: quote.priceCents,
+        status: quotedPriceCents != null ? ('cotizada' as const) : ('precio_pendiente' as const),
+        quotedPriceCents,
         currency: 'MXN' as const,
       },
       referencePrice:
@@ -502,21 +510,25 @@ export class BuylistService {
         override = overrides.get(`${it.cardId}|${it.productType}|${gradeKey}|${f}`) ?? null;
       }
       const q = quoteAcquisitionFromCurve(referenceMxnCents, curve, override);
-      if (q.priceCents == null) {
-        // v1.8-ronda-c: escala el pendiente del ACABADO cotizado (cola por acabado, M-19).
-        // v1.30 (§4.29d): con productId, la entrada lleva su cardProductId a la clave lógica de la cola —
-        // resolver el set_base NO cierra la del producto separado (money-safe).
-        await this.pricing.escalatePending(
-          it.cardId,
-          it.productType,
+      // v2.0 (P-48, §4.36.5): veredicto ÚNICO — `no_market` (sin dato el bin NO gana) o el
+      // GUARDARRAÍL `premium_at_floor` (premium en el bin ⇒ su dato de mercado está mal).
+      const pendingReason = resolvePendingReason(q.basis, card.rarity);
+      const quotedPriceCents = pendingReason == null ? q.priceCents : null;
+      // v1.8-ronda-c: la cola es POR acabado (M-19). v1.30 (§4.29d): con productId, la entrada lleva su
+      // cardProductId a la clave lógica — resolver el set_base NO cierra la del producto separado.
+      // §4.36.5c: el MISMO seam CIERRA cuando el precio vuelve a resolver (salida simétrica).
+      await this.pricing.settlePendingForVariant(
+        pendingReason,
+        {
+          cardId: it.cardId,
+          productType: it.productType,
           gradeKey,
-          'buylist',
-          undefined,
-          f,
-          it.productId ?? null,
-        );
-      }
-      quotedTotalCents += q.priceCents ?? 0;
+          finish: f,
+          cardProductId: it.productId ?? null,
+        },
+        'buylist',
+      );
+      quotedTotalCents += quotedPriceCents ?? 0;
       itemsData.push({
         cardId: it.cardId,
         productType: it.productType,
@@ -525,9 +537,9 @@ export class BuylistService {
         ...(it.productId != null ? { cardProductId: it.productId } : {}),
         // Dato de display del catálogo; el monto NO depende de él (criterio 84).
         rarity: card.rarity ?? null,
-        priceBasis: q.basis,
-        quotedPriceCents: q.priceCents,
-        itemStatus: q.priceCents != null ? 'cotizada' : 'precio_pendiente',
+        priceBasis: pendingReason == null ? q.basis : 'pending',
+        quotedPriceCents,
+        itemStatus: quotedPriceCents != null ? 'cotizada' : 'precio_pendiente',
       });
     }
 

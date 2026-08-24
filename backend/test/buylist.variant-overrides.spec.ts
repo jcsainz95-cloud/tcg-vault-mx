@@ -50,6 +50,11 @@ function buildPricing(opts: {
       overridesByKey[`${cardId}|${productType}|${gradeKey}|${finish}`] ?? null,
   );
   const escalatePending = jest.fn().mockResolvedValue(undefined);
+  // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola. Delega en el mock de escalada cuando hay
+  // razón, para que los asserts de «no escala» sigan siendo válidos.
+  const settlePendingForVariant = jest.fn(async (reason: string | null) =>
+    reason == null ? undefined : escalatePending(),
+  );
   const pricing = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn(({ rawCondition }: { rawCondition?: string }) => `raw:${rawCondition ?? 'NM'}`),
@@ -59,6 +64,7 @@ function buildPricing(opts: {
         : { status: 'priced', referenceMxnCents: opts.referenceMxnCents },
     ),
     escalatePending,
+    settlePendingForVariant,
     getVariantOverridesBatch,
     getVariantOverride,
   } as unknown as PricingService;

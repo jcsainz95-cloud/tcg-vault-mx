@@ -45,6 +45,8 @@ function svcWith(opts: {
         ? { status: 'pending' }
         : { status: 'priced', referenceMxnCents: opts.referenceMxnCents },
     ),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn(),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
@@ -177,6 +179,8 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
           ? { status: 'pending' }
           : { status: 'priced', referenceMxnCents },
       ),
+      // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+      settlePendingForVariant: jest.fn(async () => undefined),
       escalatePending: jest.fn(),
       getVariantOverridesBatch: jest.fn(async () => new Map()),
       getVariantOverride: jest.fn(async () => null),

@@ -22,6 +22,7 @@ import { BuylistRule, SalesRule, PriceRuleSet, toPriceRuleSet } from '../../comm
 // v2.0/v2.1 (P-48, §4.36.8/§4.36.8a): la CURVA — editor de M2 y su dry-run.
 import {
   CurveErrorCode,
+  PendingReason,
   PricingCurve,
   collectCurveViolations,
   normalizePricingCurve,
@@ -49,6 +50,9 @@ import { VariantControlsService } from './variant-controls.service';
 
 /** P-6 (§M2): valores válidos del query `?context=` de `GET /admin/pricing/pending`. */
 const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = Object.values(PendingPriceContext);
+
+/** v2.0 (§M2): valores válidos del query `?reason=` de `GET /admin/pricing/pending`. */
+const VALID_PENDING_REASONS: readonly PendingReason[] = ['no_market', 'premium_at_floor'];
 
 /**
  * v2.1 (§4.36.8a): cap de sondas del dry-run. La tabla de referencia del editor necesita los 10
@@ -196,7 +200,7 @@ export class PricingController {
    * buylist (`itemDecision`) — FUERA DE ALCANCE aquí; este endpoint es solo lectura.
    */
   @Get('pending')
-  pending(@Query('context') context?: string) {
+  pending(@Query('context') context?: string, @Query('reason') reason?: string) {
     if (context !== undefined && !VALID_PENDING_CONTEXTS.includes(context as PendingPriceContext)) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
@@ -204,7 +208,19 @@ export class PricingController {
         { field: 'context', allowed: VALID_PENDING_CONTEXTS },
       );
     }
-    return this.pricing.pendingQueue(context as PendingPriceContext | undefined);
+    // v2.0 (P-48, §M2): filtro `?reason=`. Distinguir las dos razones es lo que hace TRIABLE la cola:
+    // `no_market` la cura sola el siguiente barrido; `premium_at_floor` (el guardarraíl) necesita que
+    // el dueño mire — es la señal inequívoca de que el dato de mercado de esa chase está mal.
+    if (reason !== undefined && !VALID_PENDING_REASONS.includes(reason as PendingReason)) {
+      throw BusinessException.validation('VALIDATION_ERROR', `invalid reason '${reason}'`, {
+        field: 'reason',
+        allowed: VALID_PENDING_REASONS,
+      });
+    }
+    return this.pricing.pendingQueue(
+      context as PendingPriceContext | undefined,
+      reason as PendingReason | undefined,
+    );
   }
 
   @Post('override')

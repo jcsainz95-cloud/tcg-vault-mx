@@ -30,6 +30,8 @@ function buildPricing(over: any = {}): PricingService {
   return {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     // v2.0 (P-48): el precio de venta SALE del mercado, así que el lote de referencias debe traerlo
     // (antes bastaba la regla `fixed` de bulk, que publicaba sin mercado). $100 ⇒ 1.15× ⇒ $115.

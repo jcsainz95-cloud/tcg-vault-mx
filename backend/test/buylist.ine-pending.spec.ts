@@ -23,6 +23,8 @@ function buildPricing(referenceMxnCents: number | null): PricingService {
     getReference: jest.fn().mockResolvedValue(
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
     getVariantOverridesBatch: jest.fn(async () => new Map()),

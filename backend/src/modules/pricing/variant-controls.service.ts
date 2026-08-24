@@ -333,6 +333,6 @@ export class VariantControlsService {
     const ref = await this.pricing.getReference(card.id, productType, gradeKey, finish);
     const referenceMxnCents =
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-    return composeVariantPricing(referenceMxnCents, curve, row);
+    return composeVariantPricing(referenceMxnCents, curve, row, card.rarityCanonical ?? card.rarity);
   }
 }

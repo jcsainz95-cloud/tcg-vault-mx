@@ -173,6 +173,7 @@ describe('PATCH parcial: omitido no toca, null limpia; fila vacía se borra', ()
       overrideCents: 9900,
       effectiveCents: 9900,
       source: 'override',
+      premiumAtFloor: false,
     });
     // v2.0 (criterio 89): el override de compra ($3) queda POR DEBAJO de la curva ($40) y se respeta.
     expect(res.pricing.buy).toEqual({
@@ -180,6 +181,7 @@ describe('PATCH parcial: omitido no toca, null limpia; fila vacía se borra', ()
       overrideCents: 300,
       effectiveCents: 300,
       source: 'override',
+      premiumAtFloor: false,
     });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'pricing.variant_controls', actorUserId: 'admin-1' }),
@@ -353,8 +355,8 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
   it('sin fila: sugerido=efectivo por la CURVA, overrides null, SIN bloque bounty', () => {
     const dto = composeVariantPricing(10000, DEFAULT_PRICING_CURVE, null);
     expect(dto).toEqual({
-      buy: { suggestedCents: 4000, overrideCents: null, effectiveCents: 4000, source: 'market' },
-      sell: { suggestedCents: 11500, overrideCents: null, effectiveCents: 11500, source: 'market' },
+      buy: { suggestedCents: 4000, overrideCents: null, effectiveCents: 4000, source: 'market', premiumAtFloor: false },
+      sell: { suggestedCents: 11500, overrideCents: null, effectiveCents: 11500, source: 'market', premiumAtFloor: false },
     });
   });
 
@@ -365,12 +367,14 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
       overrideCents: null,
       effectiveCents: null,
       source: 'pending',
+      premiumAtFloor: false,
     });
     expect(dto.sell).toEqual({
       suggestedCents: null,
       overrideCents: null,
       effectiveCents: null,
       source: 'pending',
+      premiumAtFloor: false,
     });
   });
 
@@ -385,8 +389,8 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
     }) as never;
     const dto = composeVariantPricing(10000, DEFAULT_PRICING_CURVE, row);
     // Bounty $75 > curva $40 ⇒ EFECTIVO, gana la precedencia #1.
-    expect(dto.buy).toEqual({ suggestedCents: 4000, overrideCents: 300, effectiveCents: 7500, source: 'bounty' });
-    expect(dto.sell).toEqual({ suggestedCents: 11500, overrideCents: 9900, effectiveCents: 9900, source: 'override' });
+    expect(dto.buy).toEqual({ suggestedCents: 4000, overrideCents: 300, effectiveCents: 7500, source: 'bounty', premiumAtFloor: false });
+    expect(dto.sell).toEqual({ suggestedCents: 11500, overrideCents: 9900, effectiveCents: 9900, source: 'override', premiumAtFloor: false });
     expect(dto.bounty).toEqual({
       enabled: true,
       priceCents: 7500,

@@ -686,6 +686,9 @@ export class MasterSetService implements OnModuleInit {
         number: true,
         name: true,
         rarity: true,
+        // v2.0 (§4.36.5): la rareza CANÓNICA alimenta el veredicto del guardarraíl (`premiumAtFloor`
+        // del binder). No entra al monto — solo decide publicar/no publicar (criterio 84).
+        rarityCanonical: true,
         imageSmallUrl: true,
         availableFinishes: true,
         // v1.22 (M-26): se LEEN de la columna; ya no se derivan en memoria (ARCHITECTURE 4.22b).
@@ -810,6 +813,8 @@ export class MasterSetService implements OnModuleInit {
                     marketReferenceMxnCents,
                     pricingCurve,
                     variantOverrides.get(`${c.id}|raw|raw:NM|${finish}`) ?? null,
+                    // v2.0 (§4.36.5): la rareza SOLO para el veredicto del guardarraíl (`premiumAtFloor`).
+                    c.rarityCanonical ?? c.rarity,
                   ),
                 }
               : {}),

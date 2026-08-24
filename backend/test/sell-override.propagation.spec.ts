@@ -103,6 +103,8 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
     computeSalePriceForItem: jest.fn(async (refCents: number | null, controls?: never) =>
       computeSalePriceFromCurve(refCents, DEFAULT_PRICING_CURVE, controls),
     ),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn(async () => 'pend-1'),
   } as unknown as PricingService;
 }
@@ -251,12 +253,14 @@ describe('binder M1 — pricing? por variante SOLO scope platform (§4.26b)', ()
       overrideCents: 9900,
       effectiveCents: 9900,
       source: 'override',
+      premiumAtFloor: false,
     });
     expect(vNormal.pricing!.buy).toEqual({
       suggestedCents: 4000, // la CURVA de compra a mercado $100
       overrideCents: null,
       effectiveCents: 4000,
       source: 'market',
+      premiumAtFloor: false,
     });
     // v2.0 (§4.36.2): UN solo lector de la curva, izado UNA vez por request — sin N+1 y sin dos
     // configuraciones distintas para los dos ejes.

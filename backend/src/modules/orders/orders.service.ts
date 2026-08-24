@@ -8,6 +8,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { computeCartBreakdown, BreakdownDTO } from '../../common/money';
+import { resolvePendingReason } from '../../common/pricing-curve';
 
 /**
  * Titularidad a escribir al RESERVAR una pieza (T2). Es el único eje en el que difieren las dos
@@ -79,6 +80,12 @@ export class OrdersService {
       item.finish,
     );
     const sale = await this.pricing.computeSalePriceForItem(referenceMxnCents, variantOverride);
+    // v2.0 (P-48, §4.36.5b) — GUARDARRAÍL en el checkout (auth Y guest): una premium en el piso NO se
+    // vende. El storefront ya no la publica; esto cierra la puerta de atrás (un `inventoryItemId`
+    // conocido que intente comprarse igual). Mismo código de error que siempre.
+    if (resolvePendingReason(sale.basis, item.card.rarity) != null) {
+      throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no publishable price`);
+    }
     // BE-26 (money-safety): un precio de venta <= 0 (p. ej. un override degenerado) NO es vendible. Se
     // rechaza igual que `== null` para que ninguna línea de session entre a $0.
     if (sale.priceCents == null || sale.priceCents <= 0) {
