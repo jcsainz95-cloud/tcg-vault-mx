@@ -2,7 +2,42 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.8-enum-mirror).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.9-caps-and-surfaces).
+>
+> **Changelog v2.1.9-caps-and-surfaces (2026-08-24, arquitecto — las cuatro decisiones que el cierre de release
+> (QA + techlead + seguridad) enrutó al contrato. ARCHITECTURE §4.36.3 / §4.36.7(b.2) / §4.37. Ninguna cambia la
+> matemática de la curva; dos de ellas SÍ cambian forma de respuesta.):**
+> - **(D1, DESBLOQUEA A BACKEND) `floorCents` y `binCents` ganan TECHO — y NO es el de `marketCents`.** Este contrato
+>   declaraba `floorCents ≥ 0` y `binCents ≥ 0` **sin cota superior**, así que el código **cumplía**: QA guardó
+>   `floorCents: 2e15` con **`200`** y toda la vitrina se republicó a **`2147483647` con `basis="floor"`**
+>   (MX$21,474,836.47), sin caer al seed (la curva está **bien formada**; `sanitize` no protege ahí). **La desviación
+>   era del contrato, no del código** — por eso la fija el arquitecto y no backend (regla 9). **Norma:
+>   `floorCents, binCents ∈ [0, 1000000]` (MX$10,000 = `MAX_CURVE_CONSTANT_CENTS`)**, que **no** es `MAX_CENTS`: con
+>   Int32 el caso demostrado seguiría pasando. Son las **únicas** entradas que por sí solas fijan el precio de **todo**
+>   el catálogo, así que piden **cordura**, no solo representabilidad. Código `422 VALIDATION_ERROR` con
+>   `details { axis, index: null, field }` — y **`index` pasa a declararse `number | null`**, que es la forma que el
+>   backend **ya emite** para campos que no son puntos de la tabla y que este contrato tenía mal escrita como `number`.
+> - **(D2) La regla de visibilidad de §N.7 se imponía SOLO en el navegador; ahora se impone en el EMISOR.**
+>   `referenceValue` y `priceBasis` viajaban **incondicionalmente** a superficies anónimas (PoC sin token:
+>   `GET /catalog/listings/<id>` ⇒ `priceBasis "override"` + `referenceValue`). **La razón escrita aquí para no
+>   recortar —«haría que `PriceInfo` significara cosas distintas según la ruta»— ya la había invalidado
+>   `toPublicPriceInfo` (v2.1.6)**, que sí recorta por superficie. **Norma nueva:** el mercado sale **solo** en las dos
+>   **fichas** y **solo** con `priceBasis === "market"`; las **rejillas** (`GET /catalog/cards`, `GET /catalog/sealed`)
+>   pierden `priceBasis` **y** `referenceValue` vía **dos DTOs nuevos declarados** (`GroupedListingSummaryDTO`,
+>   `SealedGroupSummaryDTO`). **`priceBasis` NO se vuelve opcional en ningún DTO** — su ausencia fue lo que invirtió la
+>   regla en B-1. Bóveda, cotizador y admin **no cambian**.
+> - **(D3) El ejemplo de `GET/PUT /admin/pricing/sealed-spreads` mostraba CINCO llaves y la validación acepta SIETE.**
+>   El frontend tenía tres listas de cinco **espejando este ejemplo** — no equivocándose solo—, y el dueño **vende UPC**
+>   y no podía calibrarle spread desde la pantalla. `SealedSpreadsDTO` en §DTOs **ya era correcto**; mentía el ejemplo.
+>   Se corrige a los siete y se norma que **el ejemplo nunca es el dominio de llaves** (además: el `GET` **omite** las
+>   llaves no configuradas — es un mapa **parcial**, no un registro completo).
+> - **(D4) Enums derivados: se norma cuándo un `Object.values()` es correcto y cuándo BORRA una regla.** Ver
+>   ARCHITECTURE §4.37 (clases **E — espeja el schema** / **R — expresa una regla**, con la pregunta que decide y el
+>   inventario). Eco aquí: la **cuarta pata** de la convención gana su **verificación a tres bandas** (`schema.prisma` ↔
+>   `enum-values.ts` ↔ línea canónica de §Enums), y **`RawCondition` se marca clase R** (PROJECT §H: «raw = solo NM» es
+>   decisión de producto, no espejo del schema).
+>
+> Versión previa: v2.1.8-enum-mirror.
 >
 > **Changelog v2.1.8-enum-mirror (2026-08-24, arquitecto — dos enums canónicos incompletos + reparto de la deuda D10.
 > ARCHITECTURE §4.36.0b. Corrige declaraciones; no cambia comportamiento de backend.):**
@@ -1762,11 +1797,35 @@
 - **PII sensible (CLABE / RFC / INE):** por **defecto se devuelven ENMASCARADOS** en **todas** las respuestas (cliente y back-office, incluido `super_admin`). Formato: CLABE → `****1234` (últimos 4 dígitos), RFC → parcial (ej. `XAX**********`). La **CLABE en claro (18 dígitos) SOLO** se obtiene por el endpoint dedicado `GET /admin/buylist/:id/reveal-clabe` (`super_admin`, money-out, **auditado**). Estos campos viven **cifrados en reposo** (ver ARCHITECTURE §3.4); el contrato nunca expone RFC/CLABE/INE en claro fuera del reveal.
 
 ### Enums (fuente de verdad)
+
+> **⚠️ v2.1.9 (D4) — CÓMO SE LEE ESTE BLOQUE: hay dos clases de lista y NO se validan igual (ARCHITECTURE §4.37).**
+> - **Clase E — ESPEJA el schema.** El dominio del enum **es** la regla. La declaración de aquí espeja `schema.prisma`
+>   (con su referencia `archivo:líneas` al lado) y el backend la **deriva** (`Object.values(<PrismaEnum>)`, una sola
+>   declaración en `common/enum-values.ts`). **Paridad a TRES BANDAS**, verificada: `schema.prisma` ↔ `enum-values.ts`
+>   ↔ **esta línea**. *Comparar `Object.values(e)` contra `Object.values(e)` es una **tautología** y no verifica nada —
+>   la tercera banda (el contrato) es justamente la que falló dos veces (`PriceSource` sin `tcgcsv_singles`,
+>   `SealedSubtype` sin `upc`/`collection`), porque **nadie la comparaba**.*
+> - **Clase R — EXPRESA una regla de negocio.** El endpoint acepta a propósito un **subconjunto** fijado por
+>   `PROJECT.md`. **NO se deriva**: se declara literal, con la cláusula de PROJECT citada al lado, y se verifica con dos
+>   tests (lista exacta **y** subconjunto del enum de Prisma). **Derivar una clase R BORRA la regla**: el próximo valor
+>   que alguien añada al schema se auto-aceptaría en la API **sin que nadie decidiera nada**.
+> - **La pregunta que decide la clase** (se contesta **por endpoint**, no por enum): *si mañana alguien añade un valor a
+>   este enum en `schema.prisma`, ¿este endpoint debe aceptarlo **solo**?* **Sí ⇒ E. No/depende ⇒ R.**
+
 ```
 Role                = customer | vault_operator | super_admin
 Locale              = es | en
 ProductType         = graded | sealed | raw
 RawCondition        = NM                                 // v1.1: ÚNICO valor (se eliminan LP|MP|HP|DMG). Migración.
+                    // ⚠️ CLASE R (v2.1.9, D4) — NO SE DERIVA DEL SCHEMA. «Raw = solo NM» es decisión de PROJECT §H
+                    // (LOCKED): «el raw se opera ÚNICAMENTE en NM; se ELIMINAN los grados LP/MP/HP/DMG», con
+                    // consecuencias de dinero en las dos puntas (buylist NM-only: «si al recibir no está en NM, no se
+                    // compra»; el filtro de Compra «refleja únicamente NM»). Hoy el enum de BD tiene un solo valor, así
+                    // que derivar da el MISMO resultado — pero por accidente, no por construcción: si mañana el schema
+                    // gana `LP`, toda validación derivada lo aceptaría el mismo día y se cotizarían y publicarían
+                    // cartas no-NM. Backend: literal `['NM']` con esta cita al lado + test de lista exacta y de
+                    // subconjunto del enum. Ejemplar hermano ya bien resuelto: `UserStatus` en
+                    // `PATCH /admin/users/:id/status` (acepta active|blocked, NO deleted — lo fija el DELETE).
 Finish              = normal | reverse_holo | holofoil | first_edition_holofoil // v1.6-finish: acabado/versión de carta (mapeo de tcgplayer.prices, ARCHITECTURE §3.7). graded/sealed = normal.
 SealedSubtype       = box | etb | bundle | tin | blister | upc | collection
                     // v1.1: subtipo opcional del sellado. ⛔ v2.1.8 — `upc` (Ultra Premium Collection) y
@@ -1926,9 +1985,21 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
 //     «Valor de mercado» se muestra **si y solo si `priceBasis === "market"`**. Con floor/override/pending el bloque
 //     DESAPARECE — ni en cero, ni tachado, ni atenuado, ni «—». En TEJAS y LISTADOS no se muestra mercado (no se
 //     muestra hoy y no va a mostrarse). NO cambia la bóveda/portafolio del cliente ni el cotizador de buylist.
-//   * `referenceValue` SIGUE viajando en el DTO aunque no se muestre: el mismo DTO alimenta superficies admin y de
-//     valuación que sí lo necesitan, y stripearlo por endpoint haría que PriceInfo significara cosas distintas según
-//     la ruta. El front OBEDECE `priceBasis`; PROHIBIDO inferir comparando cifras en pantalla.
+//   * ⛔ DEROGADO v2.1.9 — decía: «`referenceValue` SIGUE viajando aunque no se muestre … stripearlo por endpoint haría
+//     que PriceInfo significara cosas distintas según la ruta». La premisa era FALSA desde v2.1.6: `toPublicPriceInfo`
+//     YA recorta `PriceInfo` por superficie (quita `source`), y lo prohibido es que cambie de significado
+//     `referenceMxnCents` —la CARGA—, no que esté o no esté. Efecto del hueco: `GET /catalog/listings/<id>` devolvía
+//     SIN TOKEN `priceBasis:"override"` + `referenceValue`, o sea el bloque que la UI tiene PROHIBIDO pintar.
+//   * ===== v2.1.9 (D2) — LA REGLA DE VISIBILIDAD SE IMPONE EN EL EMISOR (NORMATIVO) =====
+//     Lo que la UI no puede pintar en una superficie NO VIAJA en esa superficie. En superficie PÚBLICA:
+//         referenceValue.referenceMxnCents PRESENTE  ⇔  priceBasis === "market"
+//     (`capturedDate` acompaña al número: sin número, la frescura no informa. `status` viaja SIEMPRE — es la carga
+//     estructural del PriceInfo, no procedencia.) Con basis floor/override/pending el `PriceInfo` público sale como
+//     `{ status }` a secas. Es un `iff` ⇒ se verifica sobre el JSON SERIALIZADO en LAS DOS DIRECCIONES.
+//     ⚠️ Esto NO releva al front de obedecer `priceBasis`: la garantía del servidor es defensa en profundidad, no un
+//     permiso para inferir comparando cifras. Y `priceBasis` NO se vuelve opcional en NINGÚN DTO — su ausencia es lo
+//     que INVIRTIÓ la regla en B-1. Superficies `vault_operator+`, `/vault/*` y `/admin/*`: SIN CAMBIO (§N.7 las
+//     excluye explícitamente; ahí el cliente ve el mercado de lo que YA POSEE y admin necesita la procedencia).
 ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sealedSubtype?, finish: Finish,
                  gradingCompany?, gradeValue?, certNumber?,
                  referenceValue: PriceInfo, salePriceCents?: number, priceBasis: PriceBasis, sellable: boolean }
@@ -1965,12 +2036,34 @@ ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sea
 //     grupo comparten clave K ⇒ comparten curva/override de variante ⇒ comparten basis, SALVO que alguna traiga
 //     `listPriceCents` manual (override POR PIEZA): en ese caso el representante es esa y el basis del grupo es
 //     "override". El basis EXACTO por pieza vive en `units[]` de la ficha (`ListingDTO.priceBasis`).
+//   * **v2.1.9 (D2):** este DTO es el de la **FICHA** (`GroupedListingDetailResponse.listings[]`). `referenceValue`
+//     sigue **requerido**, pero su `referenceMxnCents`/`capturedDate` viajan **si y solo si `priceBasis === "market"`**
+//     (el `iff` de `ListingDTO` arriba). La **REJILLA** ya NO usa este DTO: usa `GroupedListingSummaryDTO`.
 GroupedListingDTO = { representativeInventoryItemId: string, card: CardDTO, productType: "raw" | "graded",
                       finish: Finish, rawCondition?: RawCondition, gradeKey: string,
                       gradingCompany?: GradingCompany, gradeValue?: string,
                       stockCount: number, salePriceCents: number, priceBasis: PriceBasis,
                       referenceValue: PriceInfo, currency: "MXN" }
-GroupedListingListResponse = { data: GroupedListingDTO[], page: number, pageSize: number, total: number }
+// ===== v2.1.9 (D2) — el DTO de la REJILLA de singles: `GroupedListingDTO` MENOS las dos señales de precio =====
+// Es `GroupedListingDTO` sin `priceBasis` y sin `referenceValue`. Se declara como TIPO PROPIO (no como «los mismos
+// campos, opcionales») a propósito, y ésa es la parte que importa:
+//   * §N.7 dice literal «SOLO fichas»: tejas y listados NO muestran valor de mercado hoy y NO van a mostrarlo, así que
+//     en esta superficie NADIE consume ninguno de los dos campos. Por la convención de DTOs cerrados («lo que no debe
+//     salir, PROHIBIDO»: publicar de más no rompe a nadie — FILTRA), un campo no consumido aquí no se emite.
+//   * Qué cierra: la rejilla es la superficie de COSECHA MASIVA (N filas por request, paginada). Emitir `priceBasis`
+//     ahí publica un MAPA COMPLETO de qué cartas llevan override manual — o sea dónde falló el feed y dónde el precio
+//     puede estar desalineado. Es exactamente la clase que v2.1.6 cerró retirando `isManualOverride`/`source` de lo
+//     público. En la FICHA `priceBasis` sí es público, y a propósito: la UI lo OBEDECE (decisión LOCKED de §N.7);
+//     lo que cambia entre las dos superficies no es el secreto, es la ECONOMÍA de enumerarlo.
+//   * Por qué TIPO PROPIO y no `priceBasis?`: un campo opcional cuya ausencia apaga una regla es LITERALMENTE B-1
+//     (`undefined === "market"` ⇒ false SIEMPRE ⇒ «Valor de mercado» no se mostró NUNCA). Con dos tipos, omitirlo en la
+//     ficha NO COMPILA y emitirlo en la rejilla tampoco. El compilador sostiene la diferencia; el test es la red.
+//   * Todo lo demás (agrupación K, `stockCount`, `salePriceCents` con semántica «desde», representante) es IDÉNTICO.
+GroupedListingSummaryDTO = { representativeInventoryItemId: string, card: CardDTO, productType: "raw" | "graded",
+                             finish: Finish, rawCondition?: RawCondition, gradeKey: string,
+                             gradingCompany?: GradingCompany, gradeValue?: string,
+                             stockCount: number, salePriceCents: number, currency: "MXN" }
+GroupedListingListResponse = { data: GroupedListingSummaryDTO[], page: number, pageSize: number, total: number }
 // Ficha (GET /catalog/cards/:cardId): los grupos vendibles de esa carta + `units` = TODAS las piezas vendibles por-pieza
 // (cheapest-first) para que el front agregue hasta `stockCount` `inventoryItemId` DISTINTOS al carrito (por-pieza, §4-G).
 // Espeja `SealedGroupDetailResponse` (group+listings): la grilla se construye contra `listings` (grupos); `units` es SOLO
@@ -2026,11 +2119,16 @@ BuyCurvePointDTO  = { marketCents: number, pctBp: number }          // 30 %  = 3
 // Escalera de redondeo ↑ — SOLO VENTA (la compra no se redondea). La BANDA la decide el monto ANTES de redondear y se
 // elige UNA SOLA VEZ: si el redondeo cruza el umbral, NO se re-evalúa. `uptoCents: null` = banda abierta (la última).
 RoundingBandDTO   = { uptoCents: number | null, stepCents: number }
+// v2.1.9 — LAS DOS CONSTANTES LLEVAN TECHO, y NO es el de `marketCents`: `floorCents, binCents ∈ [0, 1000000]`
+//   (`MAX_CURVE_CONSTANT_CENTS` = MX$10,000). `marketCents` describe el VALOR DE UNA CARTA (techo = representabilidad
+//   Int32); el piso y el bin son las ÚNICAS entradas que por sí solas fijan el precio de TODO el catálogo (techo =
+//   cordura). Sin techo, `floorCents: 2e15` se guardaba con `200` y publicaba la vitrina entera en 2147483647 con
+//   basis="floor". Razón completa y anclajes del número en §M2 / ARCHITECTURE §4.36.3.
 PricingCurveDTO   = { version: 1,
-                      sale: { floorCents: number,          // PISO único y GLOBAL (no por acabado, ni rareza, ni tier)
+                      sale: { floorCents: number,          // PISO único y GLOBAL (no por acabado, ni rareza, ni tier). [0, 1000000]
                               points: SaleCurvePointDTO[],  // >= 1, marketCents estrictamente crecientes
                               rounding: RoundingBandDTO[] },// >= 1, la ÚLTIMA con uptoCents = null
-                      buy:  { binCents: number,            // BIN único y GLOBAL
+                      buy:  { binCents: number,            // BIN único y GLOBAL. [0, 1000000] y además < floorCents (BIN_ABOVE_FLOOR)
                               points: BuyCurvePointDTO[] } }
 
 // ===== v2.1 (P-48) — DRY-RUN de la curva (POST /admin/pricing/curve/preview) =====
@@ -2465,11 +2563,23 @@ ListingDTO += { sealedCondition?: SealedCondition }
 //     priceSource="subtype_spread" | "global_spread"  ⇒ priceBasis="market"    ⇒ SÍ se muestra
 //     sin precio (no se publica, PRICE_PENDING)        ⇒ priceBasis="pending"
 // `priceSource` se CONSERVA (detalle propio del sellado: qué spread aplicó).
+// **v2.1.9 (D2):** este DTO es el de la FICHA (`SealedGroupDetailResponse.group`). `referenceValue` sigue requerido,
+// con su `referenceMxnCents`/`capturedDate` presentes si y solo si `priceBasis === "market"` (el `iff` de ListingDTO).
+// La REJILLA ya NO usa este DTO: usa `SealedGroupSummaryDTO`.
 SealedGroupDTO = { representativeItemId: string, card: CardDTO, productName: string, imageUrl: string | null,
                    sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition,
                    availableCount: number, fromPriceCents: number, priceSource: SealedSpreadSource,
                    priceBasis: PriceBasis, referenceValue: PriceInfo, currency: "MXN" }
-SealedGroupListResponse = { data: SealedGroupDTO[], page: number, pageSize: number, total: number }
+// ===== v2.1.9 (D2) — el DTO de la REJILLA de sellado: `SealedGroupDTO` MENOS las tres señales de precio =====
+// Se van `priceBasis`, `referenceValue` y **también `priceSource`**: en sellado `priceSource` es de donde `priceBasis`
+// se DERIVA (`override ⇒ override`; `*_spread ⇒ market`), así que dejarlo publicaría la misma señal por otro nombre —
+// el mismo error que v2.1.6 documentó al retirar `isManualOverride` y descubrir que `source` filtraba igual. Misma
+// razón y mismas garantías que `GroupedListingSummaryDTO` (ver su bloque): §N.7 «SOLO fichas», nadie lo consume en la
+// rejilla, y TIPO PROPIO en vez de campos opcionales para que el compilador —y no un test— sostenga la diferencia.
+SealedGroupSummaryDTO = { representativeItemId: string, card: CardDTO, productName: string, imageUrl: string | null,
+                          sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition,
+                          availableCount: number, fromPriceCents: number, currency: "MXN" }
+SealedGroupListResponse = { data: SealedGroupSummaryDTO[], page: number, pageSize: number, total: number }
 // Ficha del sellado (GET /catalog/sealed/:inventoryItemId): el grupo + TODAS las piezas disponibles del mismo grupo
 // (cada una un ListingDTO, más baratas primero) para que el comprador elija cantidad (carrito por-pieza). `trendEnabled`
 // / `restockEnabled` reflejan los feature-flags (§M10) para que el front decida si mostrar la tendencia / el CTA de aviso.
@@ -2674,7 +2784,19 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
   `ListingDTO` sigue llaveado a su `Card`/set real.
 - `sort`: `price_asc | price_desc | newest` (opcional). Ordena por el **grupo**: `salePriceCents` del grupo; `newest` por la pieza más nueva del grupo (`createdAt` desc).
 - **v1.38-grouped-listings (P-30):** el listado es **AGRUPADO por publicación única** `(carta, productType, gradeKey, finish)`, no una fila por copia física. `minPriceCents`/`maxPriceCents` filtran sobre el `salePriceCents` del grupo; los filtros `condition`/`finish`/`rarity`/`productType`/`setId` **no cambian de forma** (acotan las piezas que entran a cada grupo).
-Res `200` (**v1.38, `GroupedListingListResponse`**): `{ data: GroupedListingDTO[], page, pageSize, total }`. `total` = nº de **grupos** (publicaciones únicas), no de piezas. Cada grupo trae `stockCount≥1` (vivo), `salePriceCents` = mínimo/«desde» del grupo (el front rotula «desde» si `stockCount>1`, FE-2) y `representativeInventoryItemId` (add-to-cart de 1). Un grupo AGOTADO (`stockCount=0`) **no aparece** (money-safe: solo se lista lo publicado con precio y stock). *(Antes de v1.38: `{ data: ListingDTO[], … }`, un ítem por copia física — Tropius ×3 salía 3 veces. **Cambio de shape breaking, coordinado con el rediseño del storefront**.)*
+Res `200` (**v2.1.9, `GroupedListingListResponse`**): `{ data: GroupedListingSummaryDTO[], page, pageSize, total }`. `total` = nº de **grupos** (publicaciones únicas), no de piezas. Cada grupo trae `stockCount≥1` (vivo), `salePriceCents` = mínimo/«desde» del grupo (el front rotula «desde» si `stockCount>1`, FE-2) y `representativeInventoryItemId` (add-to-cart de 1). Un grupo AGOTADO (`stockCount=0`) **no aparece** (money-safe: solo se lista lo publicado con precio y stock). *(Antes de v1.38: `{ data: ListingDTO[], … }`, un ítem por copia física — Tropius ×3 salía 3 veces. **Cambio de shape breaking, coordinado con el rediseño del storefront**.)*
+- **⚠️ v2.1.9 (D2) — CAMBIO DE SHAPE: la rejilla pasa de `GroupedListingDTO` a `GroupedListingSummaryDTO`**, que es el
+  mismo objeto **sin `priceBasis` y sin `referenceValue`**. §N.7 dice literal «**SOLO fichas**»: aquí no se muestra
+  valor de mercado hoy y **no va a mostrarse**, así que **nadie consume** ninguno de los dos — y un campo no consumido
+  en una superficie pública **no se emite** (convención de DTOs cerrados: *publicar de más no rompe a nadie, filtra*).
+  **Qué cierra:** la rejilla es la superficie de **cosecha masiva** (N filas por request, paginada); emitir `priceBasis`
+  ahí publicaba un **mapa completo** de qué cartas llevan **override manual**, o sea dónde falló el feed y dónde el
+  precio puede estar desalineado — la misma clase que v2.1.6 cerró con `isManualOverride`/`source`. En la **ficha**
+  `priceBasis` **sigue siendo público y requerido**, y eso es deliberado: la UI lo **obedece** (§N.7 LOCKED). Lo que
+  cambia entre las dos superficies no es el secreto: es la **economía de enumerarlo**.
+  **Frontend:** es una **eliminación** de campos, así que TypeScript marca cualquier consumo que quedara vivo. Hoy
+  `ListingCard` pasa `referenceValue` a `PriceTag` en `mode='sale'`, que **no lo pinta** (§21.8f ya retiró esa línea);
+  el único uso real es la rama «precio pendiente», **inalcanzable aquí** (la rejilla solo lista lo que tiene precio).
 
 ### GET /api/v1/catalog/facets — `public`  (v1.1 — facetas dinámicas de "Compra")
 Facetas calculadas **sobre el inventario publicado** (no sobre el catálogo completo), para poblar los filtros de Compra.
@@ -2708,16 +2830,28 @@ Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card:
   - **Empate ⇒ se muestra:** si `piso == mercado × markup`, el backend emite `priceBasis="market"` (desempate fijado
     para que la regla sea determinista y verificable).
   - **PROHIBIDO inferir en el cliente** comparando `referenceValue` contra `salePriceCents`: la UI **obedece**
-    `priceBasis`. `referenceValue` sigue viajando en el DTO (el mismo DTO alimenta superficies admin/valuación) —
-    que viaje **no** autoriza a pintarlo.
+    `priceBasis`. **⚠️ v2.1.9 (D2) — corrección de la frase que seguía aquí** («`referenceValue` sigue viajando en el
+    DTO… que viaje no autoriza a pintarlo»): **ya no viaja siempre**. En esta ficha el número de mercado
+    (`referenceValue.referenceMxnCents` + `capturedDate`) se emite **si y solo si `priceBasis === "market"`**; con
+    `floor`/`override`/`pending` el `PriceInfo` sale como `{ status }` a secas. **La regla se impone en el EMISOR**,
+    no solo en el navegador — antes, un `curl` sin token devolvía el número que la UI tenía prohibido pintar.
+    **Esto NO releva al front de obedecer `priceBasis`:** es defensa en profundidad, no permiso para inferir.
   - **Alcance: SOLO fichas.** `GET /catalog/cards` (tejas/listados) **no muestra** valor de mercado hoy y **no va a
-    mostrarlo**. **NO cambian** la **bóveda/portafolio del cliente** (ahí ve el valor de mercado de lo que **ya
+    mostrarlo** — y desde **v2.1.9 tampoco lo recibe** (`GroupedListingSummaryDTO`, sin `priceBasis` ni
+    `referenceValue`). **NO cambian** la **bóveda/portafolio del cliente** (ahí ve el valor de mercado de lo que **ya
     posee** — valuación y gráfica de tendencia **idénticas**) ni el **cotizador de buylist**.
   - El **precio cobrado NO cambia** por esta regla: es **presentación**, no dinero.
 
 ### GET /api/v1/catalog/listings/:inventoryItemId — `public`
 Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / sin precio: no es visible en Compra).
 - **v1.38 (P-30):** **SIN cambio** — sigue devolviendo el `ListingDTO` **por pieza**. Lo consume el re-quote del carrito (v1.21.3, carrito = lista de `inventoryItemId`). La agrupación de P-30 vive SOLO en `GET /catalog/cards*` (navegación); la resolución por-pieza (carrito/checkout) es intacta.
+- **v2.1.9 (D2) — aplica el mismo `iff` que la ficha, y `priceBasis` SE CONSERVA.** El número de mercado viaja **solo
+  si `priceBasis === "market"`**. `priceBasis` **sí** sigue viajando aquí, y la razón es de **economía, no de secreto**:
+  es una superficie de **detalle por pieza** (1 request = 1 carta, igual que la ficha), devuelve el **mismo
+  `ListingDTO`** que `units[]`, y bifurcar el tipo aquí no cerraría nada que la ficha —donde `priceBasis` es público
+  por decisión LOCKED de §N.7— no abra igual. Lo que se cierra es el **listado**, que es donde la señal se vuelve mapa.
+  *(Este endpoint es el del PoC del pentester: `GET /catalog/listings/<id>` sin token devolvía `priceBasis:"override"`
+  **+ `referenceValue`**. Lo que se retira es la mitad que la UI tenía prohibido pintar.)*
 
 ### GET /api/v1/catalog/sets — `public`
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
@@ -2765,7 +2899,7 @@ existe. Útil si en el futuro se grafica otro set fuera del destacado. Err `404 
 existe. **Nota:** en el MVP solo el set destacado tiene jobs de captura corriendo; para otros sets la serie puede
 venir vacía (`points: []`) hasta que se les active la captura diaria.
 
-**Nota de precio pendiente (v1.1):** un item en "precio pendiente" (`referenceValue.status="pending"` y sin `salePriceCents` por override) **NO aparece en Compra** (`GET /catalog/cards` lo excluye) — el comprador nunca lo ve. El estado "precio pendiente" vive solo en adquisición/buylist/back-office (M2/M5). Si por carrera un item deja de ser vendible entre listar y comprar, el checkout lo bloquea con `422 PRICE_PENDING` / `409 ITEM_UNAVAILABLE`. El `salePriceCents` visible al cliente es el precio de venta (referencia × (1+markup) u override); `referenceValue` es el valor de mercado informativo.
+**Nota de precio pendiente (v1.1):** un item en "precio pendiente" (`referenceValue.status="pending"` y sin `salePriceCents` por override) **NO aparece en Compra** (`GET /catalog/cards` lo excluye) — el comprador nunca lo ve. *(v2.1.9: eso es el **criterio server-side** de exclusión, evaluado antes de proyectar; la rejilla ya no **emite** `referenceValue` —§DTOs `GroupedListingSummaryDTO`— y no lo necesita, precisamente porque todo lo que llega ahí tiene precio resuelto.)* El estado "precio pendiente" vive solo en adquisición/buylist/back-office (M2/M5). Si por carrera un item deja de ser vendible entre listar y comprar, el checkout lo bloquea con `422 PRICE_PENDING` / `409 ITEM_UNAVAILABLE`. El `salePriceCents` visible al cliente es el precio de venta (referencia × (1+markup) u override); `referenceValue` es el valor de mercado informativo.
 
 **Sellado (v1.1 → actualizado v1.23 → v1.38):** el sellado tiene su **propio catálogo agrupado** en §2-S (`GET /catalog/sealed` → `SealedGroupDTO` con `availableCount`); su precio de venta es **derivado** (`override > mercado TCGCSV × spread > PRICE_PENDING`, ARCHITECTURE §4.23b). Como Compra solo lista lo que tiene precio, un sellado sin precio resuelto **no aparece** (money-safe). **Guardarraíl H9 (vigente):** `GET /catalog/cards*` es el catálogo de **singles** (raw/graded) y **excluye** `productType='sealed'` (`singlesPublishedWhere`); por eso `GET /catalog/cards?productType=sealed` devuelve **vacío** (el sellado se navega SOLO por §2-S). Con **v1.38-grouped-listings**, los singles de `/catalog/cards*` van **agrupados por stock** (`GroupedListingDTO`), simétrico al agrupado del sellado (`SealedGroupDTO`): dos catálogos agrupados paralelos, cada uno con su DTO.
 
@@ -2785,10 +2919,17 @@ Grid agregado del sellado publicado. Agrupa por producto+condición (`tcgplayerP
 precio resuelto). La condición **separa** grupos (una tarjeta `mint`, otra `minor_box_damage`).
 Query: `?setId=&sealedSubtype=&condition=&q=&page=&pageSize=&sort=`
 - `condition`: `mint | minor_box_damage`. `sealedSubtype`: `box|etb|bundle|tin|blister`. `sort`: `price_asc | price_desc | newest`.
-Res `200` (`SealedGroupListResponse`): `{ data: SealedGroupDTO[], page, pageSize, total }`.
-- Cada `SealedGroupDTO` trae `availableCount` («N disponibles»), `fromPriceCents` (mínimo del grupo), `representativeItemId`
-  (pieza más barata → add-to-cart), `imageUrl` (TCGCSV si mapeado), `referenceValue` (valor de mercado TCGCSV, informativo).
+Res `200` (**v2.1.9**, `SealedGroupListResponse`): `{ data: SealedGroupSummaryDTO[], page, pageSize, total }`.
+- Cada `SealedGroupSummaryDTO` trae `availableCount` («N disponibles»), `fromPriceCents` (mínimo del grupo),
+  `representativeItemId` (pieza más barata → add-to-cart) e `imageUrl` (TCGCSV si mapeado).
+- **⚠️ v2.1.9 (D2) — CAMBIO DE SHAPE: la rejilla pierde `referenceValue`, `priceBasis` y `priceSource`.** Mismo
+  criterio que `GET /catalog/cards` (§2): §N.7 es «SOLO fichas», nadie los consume aquí, y es la superficie de
+  **cosecha masiva**. **`priceSource` se va también** —aunque no sea el campo del hallazgo— porque en sellado
+  `priceBasis` **se deriva de él** (`override ⇒ override`; `*_spread ⇒ market`): dejarlo publicaría **la misma señal
+  por otro nombre**, que es exactamente el error que v2.1.6 documentó al retirar `isManualOverride` y descubrir que
+  `source` filtraba igual. Los tres **siguen intactos en la ficha** (`SealedGroupDTO`).
 - **Sin N+1:** una query de las piezas de la página + `getReferencesBatch` de sus `sealedMarketRef` + agrupación en memoria.
+  *(El mercado se sigue leyendo server-side —lo necesita `fromPriceCents`—; lo que cambia es que **no se emite**.)*
 
 ### GET /api/v1/catalog/sealed/:inventoryItemId — `public`  (FICHA — aquí aplica la regla de visibilidad v2.0)
 Ficha de un producto sellado. `:inventoryItemId` = una pieza del grupo (típicamente `representativeItemId`).
@@ -2804,6 +2945,9 @@ Res `200` (`SealedGroupDetailResponse`): `{ group, listings: ListingDTO[], trend
   PRICE_PENDING`, con sus semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25. **El precio de un
   sellado antes y después de v2.0 es IDÉNTICO** (criterio 85); lo único aditivo es `priceBasis`, para que el front
   tenga **una sola** regla de visibilidad para las dos fichas.
+- **v2.1.9 (D2):** en esta ficha `group.priceBasis` y `group.priceSource` **se conservan**, y `group.referenceValue`
+  emite su número **si y solo si `priceBasis === "market"`** (el `iff` de §DTOs). Los `listings[]` (piezas, `ListingDTO`)
+  siguen la misma regla. La **rejilla** (`GET /catalog/sealed`) ya no recibe ninguno de los tres.
 Err `404 NOT_FOUND` (pieza inexistente o no publicada — no visible en Compra).
 
 ### GET /api/v1/catalog/sealed/:inventoryItemId/value-history — `public`  (v1.23 — FEATURE-FLAGGED `sealed_value_trend`)
@@ -4933,7 +5077,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - **`points` es de LONGITUD VARIABLE** (requisito explícito del humano, §N.3): el dueño **agrega**, **mueve** y
     **borra** renglones. **NO** es una estructura fija de N puntos. `rounding` también es de longitud variable.
   - El **piso** y el **bin** son **ÚNICOS y GLOBALES** para todo el catálogo de cartas: **no** por acabado, **no** por
-    rareza, **no** por tier (§N.10 lo descarta explícitamente).
+    rareza, **no** por tier (§N.10 lo descarta explícitamente). **v2.1.9:** y **precisamente por ser globales llevan
+    techo propio** — `floorCents, binCents ∈ [0, 1000000]` (MX$10,000), que **no** es el de `marketCents`; ver el
+    bloque del `PUT`.
   - El **redondeo↑ aplica SOLO a venta**; la **compra no se redondea**. La **banda** la decide el monto de venta
     **ANTES** de redondear y se elige **UNA SOLA VEZ**: si el redondeo cruza el umbral, **no se re-evalúa**.
 - `PUT /api/v1/admin/pricing/curve` — **(NUEVO)** **reemplaza el objeto completo** (semántica de reemplazo, no de
@@ -4947,7 +5093,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
     | Código `422` | Invariante que protege |
     |---|---|
-    | `VALIDATION_ERROR` | tipos y rangos **de REPRESENTABILIDAD** (no de negocio): **`marketCents ∈ [0, MAX_CENTS]`** entero (v2.1.4 — el techo importa: `interpExact` computa `num` en aritmética `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro); **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`); `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` |
+    | `VALIDATION_ERROR` | tipos y rangos **de REPRESENTABILIDAD y CORDURA** (no de negocio): **`marketCents ∈ [0, MAX_CENTS]`** entero (v2.1.4 — el techo importa: `interpExact` computa `num` en aritmética `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro); **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`); `pctBp ∈ [0, 10000]`; **`floorCents ∈ [0, 1000000]`** y **`binCents ∈ [0, 1000000]`** (**v2.1.9** — antes `≥ 0` **sin techo**; `1000000` = `MAX_CURVE_CONSTANT_CENTS` = **MX$10,000**, y **NO** es `MAX_CENTS`: ver el bloque de abajo) |
     | `CURVE_EMPTY` | `sale.points` y `buy.points` deben tener **≥ 1** punto (sin puntos no hay curva) |
     | `DUPLICATE_BREAKPOINT` | dos puntos con el **mismo `marketCents`** en la misma curva |
     | `SALE_BELOW_MARKET` | **ningún precio de venta cae por debajo del mercado** ⇒ `multiplierBp ≥ 10000` **en cada punto** |
@@ -4961,7 +5107,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
     | Código | `details` (campos EXACTOS) | Qué consume el front (DESIGN_SYSTEM §21.4b/c) |
     |---|---|---|
-    | `VALIDATION_ERROR` | `{ axis: "sale"\|"buy", index: number, field: string }` | marca **el campo** inline (§21.4a), no el resumen |
+    | `VALIDATION_ERROR` | `{ axis: "sale"\|"buy", index: number \| null, field: string }` | marca **el campo** inline (§21.4a), no el resumen |
     | `CURVE_EMPTY` | `{ axis }` | «La curva de {venta\|compra} se quedó sin puntos» |
     | `DUPLICATE_BREAKPOINT` | `{ axis, index, index2, marketCents }` | marca **las dos** filas colisionadas + `{m}` |
     | `SALE_BELOW_MARKET` | `{ axis: "sale", index, marketCents, multiplierBp }` | marca la fila + `{m}` |
@@ -4981,6 +5127,52 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       (§4.36.8a). Van en **bp**; el formateo a `%`/`×` es display.
     - **`bandIndex` no es `index`.** Indexa `sale.rounding[]`, no `sale.points[]`. Nombre distinto a propósito: un
       `index` ambiguo entre dos colecciones es el mismo tipo de hueco que se está cerrando.
+    - **`index: null` EXPLÍCITO para lo que no es un punto de la tabla (v2.1.9 — se declara lo que ya se emite).**
+      `floorCents` y `binCents` son **constantes globales del eje**, no filas: su `VALIDATION_ERROR` viaja con
+      `{ axis, index: null, field }`. **El campo TIENE que estar aunque su valor sea nulo** — omitirlo devuelve al
+      consumidor a adivinar, que es la mitad «lo que debe estar, declarado» de la convención de abajo. Por eso `index`
+      se declara **`number | null`** y no `number`: el backend ya emitía `null` (`pricing-curve.ts:753-756`) y este
+      contrato lo tenía mal escrito. El front distingue **fila** (`index: number` ⇒ marca el renglón) de **constante**
+      (`index: null` ⇒ marca el campo de piso/bin, §21.4a).
+
+  - **⚠️ EL TECHO DE `floorCents` / `binCents` — por qué NO es `MAX_CENTS` (v2.1.9, NORMATIVO; ARCHITECTURE §4.36.3).**
+    Hasta v2.1.8 este contrato decía literal `floorCents ≥ 0` y `binCents ≥ 0`, **sin cota superior** — las dos únicas
+    entradas de la curva sin techo, y justo las que fijan el **piso de venta** y el **mínimo de compra**. Con eso:
+
+    ```
+    PUT /admin/pricing/curve  {"sale":{"floorCents":2000000000000000,…}}   → HTTP 200
+    GET /catalog/cards        → venta 2147483647 · basis "floor"  (MX$21,474,836.47) — TODA la vitrina
+    ```
+
+    **El código cumplía este contrato** (por eso la corrección es del contrato, no de backend), y **no hay respaldo al
+    seed**: una curva con piso gigante está **bien formada**, así que el saneador de lectura la acepta.
+
+    - **`marketCents` y las constantes son magnitudes distintas.** `marketCents` describe **el valor de una carta**
+      —que legítimamente puede ser alto— y su techo es **representabilidad** (Int32, el rango seguro de `interpExact`).
+      `floorCents` describe **el precio mínimo de la carta más barata de la tienda** y `binCents` **el pago mínimo por
+      cualquier carta**: son las **únicas** entradas que **por sí solas** deciden el precio de **todo** el catálogo.
+      Saturarlas no produce «un precio alto», produce **una vitrina entera republicada**. Con `MAX_CENTS` como techo, el
+      caso de arriba **seguiría pasando** con `floorCents: 2147483647` — un techo que no cambia el síntoma no es el
+      techo.
+    - **El número: `MAX_CURVE_CONSTANT_CENTS = 1000000` (MX$10,000).** Anclado en (1) el mayor límite de dinero
+      por-usuario que declara PROJECT §E (tope **mensual** de buylist MX$10,000; el de solicitud es MX$3,000 y el envío
+      MX$175), (2) **400×** la semilla del piso y **10 000×** la del bin (§N.2), (3) **2 147×** por debajo de Int32 ⇒ la
+      vitrina saturada es **inalcanzable por construcción**, y (4) el **precedente de este mismo contrato**, que ya fija
+      techos anti-typo que no vienen de PROJECT (`multiplierBp ≤ 1000000` = «100×, techo anti-typo»; `pctBp ≤ 10000`).
+    - **Bloquea igual en `PUT` y en `preview`**: V3 es del grupo «impide calcular» ⇒ `422` en las dos rutas, mismo
+      código y mismo `details` (tabla de arriba).
+    - **Lo que este techo NO hace, dicho para que nadie lo dé por cerrado:** **no ataja «un cero de más»**. Con la
+      semilla en MX$25, un typo a MX$250 (`25000`) **pasa y debe pasar** — es una calibración plausible. Ningún techo
+      atrapa ese caso sin bloquear configuraciones legítimas: el error y la intención escriben **el mismo número**. Ese
+      caso se cubre **viéndolo**, con dos señales que **ya existen**: `CurvePreviewLegDTO.constantWon` **por sonda**
+      (una curva con el piso disparado da `true` en **todas** las sondas de la tabla de referencia) y el contador
+      **`premium_at_floor`** de `GET /admin/pricing/pending` (con el piso disparado, toda carta premium aterriza en el
+      piso ⇒ guardarraíl ⇒ cola; §4.36.5c ya norma su lectura: «sube solo ⇒ **piso mal calibrado**»).
+    - **`binCents` también lleva techo explícito** aunque `BIN_ABOVE_FLOOR` lo acote transitivamente: V3 corta **antes**
+      de que ese invariante se evalúe, y apoyarse solo en él dejaría el error señalando el campo equivocado.
+    - **Pregunta abierta al humano (Q-D1, NO bloqueante, ARCHITECTURE §10):** el **número** es calibración de negocio;
+      el **techo** y el hecho de que **no sea `MAX_CENTS`** no lo son. Cambiar MX$10,000 sería una enmienda de una línea
+      aquí y en §4.36.3, sin efecto en la matemática ni en ningún DTO.
 
   - **📌 CONVENCIÓN NORMATIVA DE DTOs — LOS DOS SENTIDOS (transversal, v2.1.6; no solo `details`, no solo la curva).**
     Un DTO de este contrato es **CERRADO, no abierto**: enumera su superficie **completa**.
@@ -5032,6 +5224,22 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     > (`archivo:líneas`) al lado, y el espejo se verifica — un test que compare **los valores del enum Prisma contra
     > los declarados aquí** cuesta poco y cierra la clase entera. Es el análogo, a nivel de tipo, del test sobre la
     > forma serializada.
+    > **⚠️ AMPLIADA en v2.1.9 (D4) — la pata tenía DOS huecos, y los dos ya se materializaron:**
+    > 1. **La verificación es a TRES bandas, no a dos.** El candado que se escribió compara la lista derivada contra
+    >    `Object.values(<PrismaEnum>)` (`enum-values-parity.spec.ts:58`) — pero **la lista derivada ES eso**, así que
+    >    **es una tautología: no puede fallar nunca**. Y aunque no lo fuera, seguiría sin mirar **la tercera copia, esta
+    >    declaración**, que es justo la que falló en los dos casos de v2.1.8. **Norma: `schema.prisma` (leído del
+    >    archivo, no del cliente generado) ↔ `common/enum-values.ts` ↔ la línea canónica de §Enums.** El mismo spec ya
+    >    trae la forma correcta para **un** enum (`:67-76`, `readFileSync` del schema); esa forma es la norma para
+    >    todos.
+    > 2. **«Espejar el schema» no siempre es lo correcto — y cuándo NO lo es hay que decidirlo por endpoint.** Una
+    >    lista de validación que expresa una **regla de PROJECT.md** (no el dominio del enum) **no se deriva**:
+    >    derivarla la **borra**, porque cualquier valor futuro del schema se auto-aceptaría en la API sin decisión.
+    >    Clases **E**/**R**, pregunta que decide, obligaciones de cada una e **inventario vigente**: **ARCHITECTURE
+    >    §4.37**. Caso vivo reclasificado: **`RawCondition`** (§Enums).
+    > **La simetría con las otras patas es exacta:** aditivo-es-seguro vale para el consumidor y no para el emisor;
+    > derivar-del-schema vale para el espejo y no para la regla. En ambos casos la trampa es aplicar a una cara un
+    > argumento que solo es cierto en la otra.
     > **Por qué se eleva a convención:** un hueco aquí produjo un bug **silencioso** que vivió desde E9. El contrato
     > normaba `details: { axis, index, marketCents, … }` y dejaba el segundo extremo dentro del «…»; backend emitió
     > `index2`/`marketCentsTo`, el frontend declaró `toIndex`/`toMarketCents` —nombres que **inventó y que nadie
@@ -5602,8 +5810,32 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > Toda edición se **audita** (M10). Ver ARCHITECTURE §4.23b/§4.23c.
 
 - `GET /api/v1/admin/pricing/sealed-spreads` — **(NUEVO)** lee los spreads crudos + fallback.
-  Res `200` (`SealedSpreadsDTO`): `{ spreadPctBySubtype: { box, etb, bundle, tin, blister }, fallbackPct }`
-  (ej. `{ "spreadPctBySubtype": { "box":18, "etb":22, "bundle":25, "tin":30, "blister":35 }, "fallbackPct": 25 }`).
+  Res `200` (`SealedSpreadsDTO`, §DTOs): `{ spreadPctBySubtype: { [subtype in SealedSubtype]?: number }, fallbackPct: number }`
+  — el **dominio de llaves son los SIETE valores de `SealedSubtype`**: `box · etb · bundle · tin · blister · upc ·
+  collection`.
+  ```json
+  { "spreadPctBySubtype": { "box": 18, "etb": 22, "bundle": 25, "tin": 30, "blister": 35, "upc": 20 },
+    "fallbackPct": 25 }
+  ```
+  - **⚠️ CORREGIDO EN v2.1.9 — este ejemplo listaba CINCO llaves mientras el `PUT` acepta SIETE, y el frontend
+    lo estaba ESPEJANDO.** Tenía tres listas de cinco escritas a mano tomadas de aquí; el resultado es que el dueño
+    **vende UPC y no podía calibrarle spread desde la pantalla** — la presentación caía siempre al `fallbackPct`
+    global. **No fue un error del frontend: fue este ejemplo.** Es la misma familia que los dos enums de v2.1.8, un
+    piso más abajo: allí mentía la **línea canónica**, aquí mentía el **ejemplo** — y un ejemplo se copia con la misma
+    confianza que una declaración.
+  - **NORMA: el ejemplo NUNCA es el dominio de llaves.** La lista de presentaciones se **deriva de `SealedSubtype`**
+    (§Enums, espejo de `schema.prisma`), tanto en backend como en el editor de M2: **una fila por valor del enum**,
+    nunca un literal a mano. Un ejemplo muestra **una instancia**, no el dominio — y si los dos pueden leerse igual,
+    manda la declaración de §DTOs.
+  - **El mapa es PARCIAL: el `GET` OMITE las llaves no configuradas** (devuelve tal cual lo almacenado; `{}` si nunca
+    se guardó nada). **Ausente ≠ 0**: una presentación sin spread propio usa `fallbackPct` (`ARCHITECTURE §4.23b`).
+    Consecuencia para el editor: **la pantalla no puede derivar sus renglones de las llaves que vengan** —vendría
+    exactamente el mismo hueco por otra puerta—; los deriva del **enum** y pinta «usa el global (`fallbackPct`)» en las
+    que falten.
+  - **Semillas de PROJECT §K** (`box 18 · etb 22 · bundle 25 · tin 30 · blister 35 · global 25`): **`upc` y
+    `collection` NO tienen semilla** — el `20` del ejemplo es una calibración cualquiera, puesta a propósito para que
+    el shape de siete llaves sea inconfundible. Que no tengan semilla es justamente por qué el dueño **necesita** poder
+    fijarlas a mano.
 - `PUT /api/v1/admin/pricing/sealed-spreads` — **(NUEVO)** reemplaza los spreads y/o el fallback.
   Req: `{ spreadPctBySubtype?: { [subtype]: number }, fallbackPct?: number }` (parcial: solo las claves a cambiar).
   - **Validación:** cada clave de `spreadPctBySubtype` ∈ **`SealedSubtype`** — es decir

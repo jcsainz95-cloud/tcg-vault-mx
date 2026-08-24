@@ -173,6 +173,47 @@
 > crudas: **las formas las declara el arquitecto**, backend proyecta contra lo declarado, y va al **siguiente ciclo**
 > (proyectar rutas de dinero en vísperas del gate es riesgo sin ganancia). Incluye **`AddressDTO`, referenciada en §5
 > y nunca definida**.
+> **Adenda v2.1.9 — cuatro decisiones de contrato del cierre de release (QA + techlead + seguridad; §4.36.3, §4.36.7b,
+> §4.37, contrato §M2/§2/§Enums). Ninguna cambia la matemática de la curva.**
+> **(D1) Las dos constantes de la curva no tenían TECHO — y el código CUMPLÍA el contrato.** `floorCents ≥ 0` y
+> `binCents ≥ 0`, literal, sin cota superior (contrato §M2, `pricing-curve.ts:749/760`), mientras `marketCents` sí la
+> tenía. QA lo demostró vivo: `PUT /admin/pricing/curve` con `floorCents = 2e15` ⇒ **`200`**, y toda la vitrina se
+> republica en **`2147483647` con `basis='floor'`** (MX$21,474,836.47). `sanitizePricingCurve` **no** protege: una curva
+> con piso gigante está **bien formada**, así que la acepta (`fellBack=false`, cero líneas `[MONEY]`). **La desviación es
+> de este documento y del contrato, no del código** (regla de conflicto: el contrato manda sobre el código; si el techo
+> no está escrito, backend no puede ponerlo). **Norma: V3 gana techo para las dos constantes, y NO es el de
+> `marketCents`** — `MAX_CURVE_CONSTANT_CENTS = 1_000_000` (**MX$10,000**), razonado en §4.36.3. `MAX_CENTS` sería
+> *representabilidad* y deja pasar exactamente el caso demostrado; el piso y el bin son las únicas entradas que **por sí
+> solas** fijan el precio de **todo** el catálogo, y por eso piden **cordura**, no solo representabilidad. **Se dice
+> también lo que el techo NO hace:** no ataja «un cero de más» (un piso de MX$250 es calibración legítima y debe
+> guardarse); eso lo ataja **ver**, y las dos señales ya existen (`constantWon` por sonda en el preview y
+> `premium_at_floor` en `GET /admin/pricing/pending`). **Q-D1 al humano:** el **número** es calibración de negocio; se
+> fija MX$10,000 con precedente local (`multiplierBp ≤ 1e6` = «100×, techo anti-typo») para **desbloquear a backend
+> hoy**, y cambiarlo después es una enmienda de una línea.
+> **(D2) La regla de visibilidad de §N.7 se aplicaba SOLO en el navegador.** `catalog.service.ts:386-389` emite
+> `referenceValue` y `priceBasis` **incondicionalmente**, también a anónimos: `GET /catalog/listings/<id>` sin token
+> devuelve `priceBasis:"override"` + `referenceValue` de una pieza cuyo bloque «Valor de mercado» la UI tiene
+> **prohibido** pintar. **La premisa que sostenía esa decisión ya era falsa**: «stripearlo haría que `PriceInfo`
+> significara cosas distintas según la ruta» la invalidó `toPublicPriceInfo` (v2.1.6), que **sí** recorta por
+> superficie. **Norma nueva (§4.36.7(b.2)): la regla de visibilidad se impone en el EMISOR.** Lo que la UI no puede pintar
+> **no viaja**. Tabla por endpoint en §4.36.7(b.2): el mercado sale **solo** en las dos **fichas** y **solo** con
+> `priceBasis === "market"`; las **rejillas** (`/catalog/cards`, `/catalog/sealed`) pierden `priceBasis` **y**
+> `referenceValue` — nada las consume y son la superficie de **cosecha masiva**. Bóveda, cotizador y admin **no
+> cambian** (§N.7 los excluye explícitamente).
+> **(D3) El ejemplo de `sealed-spreads` documentaba CINCO llaves y la validación acepta SIETE** (contrato §M2). El
+> frontend tenía tres listas de cinco **espejando el ejemplo**, no equivocándose solo — el dueño vende UPC y no podía
+> calibrarle spread desde la pantalla. `SealedSpreadsDTO` en §DTOs **ya era correcto**; el ejemplo era el que mentía.
+> Se corrige y se norma que **el ejemplo NUNCA es el dominio de llaves**: las llaves se derivan de `SealedSubtype`.
+> **(D4) Enums derivados: cuándo un `Object.values()` es correcto y cuándo BORRA una regla de negocio (§4.37, nueva).**
+> El cambio de `@IsIn` literal a listas derivadas fue correcto y hoy no ensanchó nada — pero deja abierta la
+> consecuencia estructural de que **cualquier valor futuro del schema se auto-acepte en la API sin decisión por
+> endpoint**, y el candado no puede verlo: `enum-values-parity.spec.ts:58` compara `Object.values(e)` contra
+> `Object.values(e)` — **tautológico**. Caso vivo: **`RawCondition`** pasó de `@IsIn(['NM'])` a lista derivada, pero
+> «raw = solo NM» es **decisión de PROJECT §H**, no espejo del schema. **Norma §4.37:** una lista de validación o
+> **ESPEJA** el schema (y entonces se deriva, y su paridad se verifica contra `schema.prisma` **y** contra la línea
+> canónica del contrato) o **EXPRESA una regla** (y entonces **no** se deriva: literal, con la cláusula de PROJECT
+> citada al lado y un test que la fije **y** la afirme subconjunto del enum). La pregunta que decide: *si mañana alguien
+> añade un valor a este enum en el schema, ¿este endpoint debe aceptarlo solo?*
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -7270,7 +7311,7 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 |---|---|---|---|
 | V1 | Curva no vacía | `sale.points.length ≥ 1` y `buy.points.length ≥ 1` | `CURVE_EMPTY` |
 | V2 | Puntos ordenables y únicos | `marketCents` enteros `≥ 0` y **estrictamente crecientes** tras ordenar (sin duplicados) | `DUPLICATE_BREAKPOINT` |
-| V3 | Rangos **de REPRESENTABILIDAD** (no de negocio) | **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`, ver abajo); `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0`; **`marketCents ∈ [0, MAX_CENTS]`** (v2.1.4) — todos enteros | `VALIDATION_ERROR` |
+| V3 | Rangos **de REPRESENTABILIDAD y CORDURA** (no de negocio) | **`multiplierBp ∈ [0, 1000000]`** (v2.1.5 — el piso baja de `10000` a `0`, ver abajo); `pctBp ∈ [0, 10000]`; **`floorCents ∈ [0, MAX_CURVE_CONSTANT_CENTS]`** y **`binCents ∈ [0, MAX_CURVE_CONSTANT_CENTS]`** (**v2.1.9** — antes `≥ 0` **sin techo**, ver abajo); **`marketCents ∈ [0, MAX_CENTS]`** (v2.1.4) — todos enteros | `VALIDATION_ERROR` |
 | V4 | **Ningún precio de venta por debajo del mercado** | `multiplierBp ≥ 10000` **en cada punto** (la interpolación lineal de valores ≥ 10000 nunca baja de 10000; el `max` con el piso solo sube; el redondeo solo sube) | `SALE_BELOW_MARKET` |
 | V5 | **Curva de venta monótona creciente — sobre la función que COBRA** | `f(m) = m·k(m)` es cuadrática por tramo ⇒ `f' ≥ 0` en los DOS extremos de cada tramo: con `s = (k₁−k₀)/(m₁−m₀)`, exigir `k₀ + m₀·s ≥ 0` **y** `k₁ + m₁·s ≥ 0`. Los tramos planos (antes del primero, después del último) son crecientes porque `k > 0`. **Válido SOLO con la interpolación exacta de §4.36.1** — ver la cadena de composición abajo | `SALE_CURVE_NOT_MONOTONIC` |
 | V6 | **Compra ESTRICTAMENTE por debajo de venta, en todo el dominio** | **`multiplierBp(m) − pctBp(m) ≥ 1`** (una unidad entera de la escala compartida) evaluado en la **UNIÓN de los `marketCents` de ambas curvas** (ambas lineales por tramo sobre esa unión ⇒ la diferencia es lineal ⇒ su mínimo cae en un nodo ⇒ basta comprobar nodos y tramos planos) | `BUY_ABOVE_SALE` |
@@ -7377,6 +7418,92 @@ y en el validador de `SETTING_VALIDATORS`. **Si algo falla, NO se guarda** y el 
 > del sistema — `money.ts` `MAX_CENTS`, espejada en `pricing-curve.ts`). El efecto observable hoy es sub-centavo; se
 > cierra igual, porque **la lección de I1 es precisamente que un redondeo intermedio inocuo en apariencia es el que
 > rompe la garantía**.
+
+> ### V3 — el TECHO que faltaba en las DOS constantes, y por qué NO es el de `marketCents` (v2.1.9, D1; QA + techlead)
+>
+> **El hueco, con la evidencia.** V3 acotaba por arriba los **valores** (`multiplierBp ≤ 1e6`, `pctBp ≤ 1e4`) y el
+> **eje de mercado** (`marketCents ≤ MAX_CENTS`, v2.1.4), pero dejaba `floorCents ≥ 0` y `binCents ≥ 0` **sin cota
+> superior** — literalmente las dos únicas entradas del módulo sin techo, y justamente las que fijan el **piso de
+> venta** y el **mínimo de compra** (`pricing-curve.ts:749/760`). QA lo demostró contra el stack vivo:
+>
+> ```
+> PUT /admin/pricing/curve  {"sale":{"floorCents":2000000000000000,…}}   → HTTP 200
+> GET /catalog/cards        → venta 2147483647 · basis "floor"  (MX$21,474,836.47), TODA la vitrina
+> ```
+>
+> **No hay respaldo al seed:** `sanitizePricingCurve` protege contra una curva **mal formada**, y ésta está **bien
+> formada** — la acepta (`fellBack=false`, cero líneas `[MONEY]`). Y el editor de M2 le devuelve al dueño la cifra
+> absurda que él mismo tecleó, sin contradecirlo.
+>
+> **Quién tenía la culpa: este documento y el contrato.** §M2 declaraba `floorCents ≥ 0` / `binCents ≥ 0` sin techo, y el
+> código **cumple el contrato**. Por la regla de conflicto de `CLAUDE.md`, backend no podía poner el techo por su
+> cuenta. **La corrección es de norma, no de implementación.**
+>
+> **Por qué el techo NO puede ser `MAX_CENTS`, aunque la simetría con `marketCents` lo sugiera.** Son **magnitudes
+> distintas**, no el mismo tipo de número:
+>
+> | | Qué describe | Techo | Por qué |
+> |---|---|---|---|
+> | `marketCents` | **el valor de una carta**, que legítimamente puede ser alto (un slab PSA 10 vale decenas de miles) | `MAX_CENTS` (Int32) | Es **representabilidad**: por encima de eso `interpExact` sale del rango seguro de `number` (v2.1.4). No hay un valor de carta «absurdo por negocio» |
+> | `floorCents` / `binCents` | **el precio mínimo de la carta más barata de la tienda** y **el pago mínimo por cualquier carta** | **`MAX_CURVE_CONSTANT_CENTS`** | Son las **únicas** entradas que **por sí solas** deciden el precio de **todo** el catálogo: saturarlas no produce «un precio alto», produce **una vitrina entera republicada**. Piden **cordura**, no solo representabilidad |
+>
+> Con `MAX_CENTS` como techo, el caso demostrado **seguiría pasando** (`floorCents = 2147483647` es representable): se
+> cerraría el `2e15` y se dejaría abierto el resultado observable. Un techo que no cambia el síntoma no es el techo.
+>
+> ```ts
+> // backend/src/common/pricing-curve.ts — techo de CORDURA de las dos constantes globales. NO es MAX_CENTS.
+> export const MAX_CURVE_CONSTANT_CENTS = 1_000_000; // MX$10,000
+> ```
+>
+> **De dónde sale MX$10,000 (los cuatro anclajes, para que no parezca gusto personal):**
+> 1. **Es el mayor límite de dinero por-usuario que declara PROJECT**: el tope **mensual** de buylist (§E, MX$10,000).
+>    Ninguna cifra de dinero del producto que acote **una** decisión lo supera (envío MX$175; tope por solicitud
+>    MX$3,000).
+> 2. **400× la semilla del piso** (MX$25) y **10 000× la del bin** (MX$1) — §N.2. Nadie calibra ahí **a propósito**.
+> 3. **2 147× por debajo de Int32**: con este techo la vitrina saturada en `2147483647` es **inalcanzable por
+>    construcción**, no por suerte.
+> 4. **Precedente local, y es lo que hace que esta decisión sea del arquitecto:** el contrato ya fija techos anti-typo
+>    que **no** vienen de PROJECT — `multiplierBp ≤ 1_000_000` («100×, techo anti-typo») y `pctBp ≤ 10_000`. Ésta es la
+>    misma clase de decisión.
+>
+> **Q-D1 (abierta al humano, NO bloqueante):** el **número** es calibración de negocio, no un hecho técnico. Se fija
+> MX$10,000 para **desbloquear a backend hoy**; si el humano prefiere otro, es una **enmienda de una línea** en V3 y en
+> §M2. Lo que **no** se re-litiga es que el techo **exista** y que **no sea `MAX_CENTS`**.
+>
+> **Lo que este techo NO hace — y hay que escribirlo para que nadie lo dé por cerrado.** No ataja **«un cero de más»**:
+> con la semilla en MX$25, un typo a MX$250 (`25000`) **pasa V3 y debe pasar** — un piso de MX$250 es una calibración
+> plausible para una tienda que no quiere vender nada barato. **Ningún techo puede atrapar ese caso** sin bloquear
+> configuraciones legítimas, porque el error y la intención producen **el mismo número**. Lo que ataja el cero es
+> **verlo**, y las dos señales **ya existen** — no hacen falta mecanismos nuevos:
+> - **Antes de guardar:** `CurvePreviewLegDTO.constantWon` (§4.36.8a) dice, **por sonda**, si ganó la constante. Una
+>   curva con el piso disparado da `constantWon: true` en **todas** las sondas de la tabla de referencia. *(Nota para
+>   **ux-ui**: que el editor lo haga evidente —«con esta curva TODAS las sondas se publican al piso»— como **aviso, no
+>   invariante**, igual que «la curva va al revés de lo previsto» de §21.5b. Es display; no cambia forma de DTO.)*
+> - **Después de guardar:** `premium_at_floor` de `GET /admin/pricing/pending` (§4.36.5c) **sí se dispara**: con el piso
+>   disparado, **toda** carta premium aterriza en el piso ⇒ guardarraíl ⇒ cola. §4.36.5c ya norma cómo leerlo («sube
+>   solo ⇒ **piso mal calibrado**; suben los dos ⇒ feed degradado»). Es el detector que ya existía para esto.
+>
+> **Efecto sobre el bin y orden de evaluación.** V7 (`binCents < floorCents`) acota el bin **transitivamente**, pero el
+> techo se declara **explícito para los dos**: V3 es **Fase 1** y corta antes de que V7 llegue a evaluarse, así que
+> apoyarse solo en V7 dejaría el mensaje de error en el campo equivocado.
+>
+> **Lo que SE DESCARTÓ, y por qué (para que no parezca olvido).** Se consideró atar el **bin** al tope AML de compra
+> (`buylist_cap_per_request_cents`, hoy MX$3,000): un bin por encima de ese tope hace que **toda** cotización se
+> rechace, que es el síntoma exacto de «se apagó el buylist». **Se descarta:** sería **validación cruzada entre dos
+> settings independientes**, así que bajar el tope AML mañana volvería **retroactivamente inválida** una curva ya
+> almacenada —y el `PUT` de la curva empezaría a fallar por un cambio hecho en otra pantalla—. La escritura de la curva
+> es atómica **sobre sí misma** (§4.36.2) y esa propiedad es la que hace validables sus invariantes cruzados; extenderla
+> a otro setting la rompe. El caso queda cubierto por el mismo par de señales de arriba (con el bin disparado, la cola
+> de pendientes y el `constantWon` del preview lo enseñan) y por V7, que impide el caso patológico de que **ambos** ejes
+> saturen en su constante. **Consecuencia aceptada y explícita:** el rango `[0, MAX_CURVE_CONSTANT_CENTS]` **admite un
+> bin por encima del tope AML** (MX$10,000 > MX$3,000). Es deliberado, no un hueco: acotarlo ahí sería tratar un dial de
+> **AML** como si fuera un dial de **pricing**.
+>
+> **Consecuencia de dinero, con el sesgo de §N.0 explícito** (para que el rango de la corrección quede honesto): el
+> piso disparado **yerra hacia arriba** en venta (venta perdida, **recuperable**) y **apaga** la compra (con el bin
+> disparado toda cotización rebasa `buylist_cap_per_request_cents` y se rechaza: **no se paga de más**). **No es fuga de
+> dinero**: es que **un typo republica la tienda entera y apaga el buylist en silencio**. Se corrige por el **silencio**
+> y por el **rango**, no porque estuviera pagando de menos.
 
 **Money-safe adicional (runtime, no configuración):** `mercado == null` o `≤ 0` ⇒ `basis='pending'`, `priceCents=null`.
 **Nunca** se publica MX$0 ni se inventa un precio (regla transversal §H, intacta).
@@ -7851,10 +7978,88 @@ explica este precio»— y así el guardarraíl, la instrumentación y la regla 
 - **NO cambia:** la **bóveda / portafolio del cliente** (ahí el cliente ve el valor de mercado de lo que **ya posee**, y
   eso es correcto y deseable: valuación, gráfica de tendencia y §C **intactos**), el **cotizador de buylist** (sigue sin
   mostrar valor de mercado), y el **precio cobrado** (es regla de **presentación**, no de dinero).
-- **El backend NO borra `referenceValue` del DTO** (decisión de diseño, con su razón): el mismo DTO alimenta superficies
-  admin y de valuación que **sí** necesitan el mercado, y stripearlo por endpoint haría que `PriceInfo` significara
-  cosas distintas según la ruta — peor que el problema que resuelve. `priceBasis` es la señal normativa y **el
-  frontend está contractualmente obligado a obedecerla**; QA lo verifica en la ficha, no en el payload.
+- ⛔ **DEROGADO (v2.1.9, D2 del cierre de release).** Este bullet decía: *«el backend NO borra `referenceValue` del DTO
+  … stripearlo por endpoint haría que `PriceInfo` significara cosas distintas según la ruta»*. **La premisa ya era
+  falsa cuando se escribió el argumento que la sostenía:** `toPublicPriceInfo` (`pricing.service.ts:186-192`, v2.1.6)
+  **sí** recorta `PriceInfo` por superficie —quita `source`— y el propio contrato razonó por qué eso **no** rompe nada
+  (el campo ya era opcional; lo prohibido es que **`referenceMxnCents`, la CARGA**, signifique cosas distintas, no que
+  esté o no esté). Ver **§4.36.7(b.2)**, que lo sustituye.
+
+**(b.2) La regla de visibilidad se impone en el EMISOR (v2.1.9, NORMATIVO — sustituye al bullet derogado).**
+*(Se numera `b.2` y no `b-bis` porque §4.36.5 ya usa `(b-bis)` para el punto ciego del guardarraíl; dos `b-bis` en el
+mismo §4.36 harían ambigua toda referencia cruzada.)*
+
+> **Lo que la UI tiene PROHIBIDO pintar en una superficie NO VIAJA en esa superficie.** Una regla de presentación que el
+> humano fijó sobre **lo que ve el comprador** no está cumplida si solo la cumple el navegador: queda a una pestaña de
+> devtools —o a un `curl` sin token— de ser falsa.
+
+**El hallazgo que lo motiva (pentester, ratificado por seguridad como Baja; PoC sin token):**
+
+```
+GET /catalog/listings/<pidgey>   salePriceCents 60000 · priceBasis "override" · referenceValue 5000
+```
+
+`catalog.service.ts:386-389` emite las dos señales **incondicionalmente**, con un comentario que dice que es a propósito
+«porque el mismo DTO alimenta superficies admin y de valuación». **Esa justificación ya no se sostiene** (arriba), y
+además el delta de v2.0 **amplió la superficie**: `priceBasis` es **nuevo en la rejilla** (`GroupedListingDTO`),
+mientras §N.7 dice literal «**SOLO fichas**».
+
+**Qué es público y qué no, POR ENDPOINT (normativo; `referenceValue` = el número de mercado, `referenceMxnCents`):**
+
+| Superficie | `priceBasis` | `referenceValue` | Razón |
+|---|---|---|---|
+| `GET /catalog/cards` (**rejilla**, `GroupedListingSummaryDTO`) | **NO** | **NO** | §N.7: tejas y listados **no muestran mercado hoy y no van a mostrarlo**. Nada los consume (`ListingCard` pasa `referenceValue` a `PriceTag` en `mode='sale'`, que **no lo pinta**). Es la superficie de **cosecha masiva**: N filas por request, paginada |
+| `GET /catalog/sealed` (**rejilla**, `SealedGroupSummaryDTO`) | **NO** | **NO** | Idéntica razón, eje sellado |
+| `GET /catalog/cards/:cardId` (**FICHA**) — `listings[]`, `units[]` | **SÍ** (requerido) | **SÍ, solo si `priceBasis === "market"`** | La ficha **es** la superficie que PROJECT §A manda mostrar («precio real y transparente»), acotada por §N.7 a cuando el mercado fijó el precio |
+| `GET /catalog/sealed/:inventoryItemId` (**FICHA**) — `group`, `listings[]` | **SÍ** | **SÍ, solo si `market`** | Ídem; para sellado `market ⇔ priceSource ∈ {subtype_spread, global_spread}` |
+| `GET /catalog/listings/:inventoryItemId` (re-quote del carrito) | **SÍ** | **SÍ, solo si `market`** | Superficie de **detalle por pieza**: mismas economías de enumeración que la ficha (1 request = 1 carta), y el DTO es el mismo `ListingDTO` que viaja en `units[]`. Bifurcarlo aquí no cierra nada que la ficha no abra |
+| `POST /buylist/quote*` (`BuylistQuotePayload.priceBasis`) | **SÍ** | n/a | **Ya normado** (§DTOs): es **lógica del cliente** (habilitar/deshabilitar, estado), no rótulo. El cotizador **no muestra** valor de mercado (§N.7) y no lo recibe |
+| `/vault/*` (autenticado, dueño de las piezas) | sin cambio | sin cambio | §N.7 **excluye** explícitamente la bóveda: ahí el cliente ve el mercado de **lo que ya posee** — valuación y tendencia intactas |
+| `/admin/*` (`vault_operator+`) | sin cambio | sin cambio | La procedencia **es** la pregunta que esas rutas contestan (v2.1.7) |
+
+**Invariante verificable (un `iff`, comprobable sobre el JSON serializado, en las DOS direcciones):**
+
+```
+en superficie PÚBLICA:   referenceValue.referenceMxnCents PRESENTE  ⇔  (endpoint ∈ {ficha carta, ficha sellado,
+                                                                        listing por pieza}  ∧  priceBasis === "market")
+```
+
+`capturedDate` **acompaña al número**: sin número, la frescura no informa de nada (se omite con él). `status` **siempre
+viaja** (es la carga estructural del `PriceInfo`, no procedencia).
+
+**Tercera señal, solo en el eje SELLADO: `priceSource` sale también de la rejilla.** No aparece en la tabla porque no es
+el campo del hallazgo, pero `priceBasis` del sellado **se deriva** de él (`override ⇒ override`;
+`subtype_spread | global_spread ⇒ market`, §4.36.7a). Retirar `priceBasis` y dejar `priceSource` publicaría **la misma
+señal con otro nombre** — literalmente el error que v2.1.6 documentó al quitar `isManualOverride` y descubrir que
+`source` seguía filtrándola. En la **ficha** los tres se conservan.
+
+**Por qué `referenceValue` SIGUE siendo público en la ficha — el argumento que sí sigue siendo cierto.** No es «porque
+el DTO se reusa»: es porque **PROJECT §A lo manda** («el precio de venta se deriva del valor de mercado… la ficha
+muestra ese valor de referencia de mercado») y §N.7 lo acota a «cuando el mercado fue lo que fijó el precio». Es una
+**divulgación decidida por el negocio**, no un interno filtrado — y por eso el markup derivable de esa pareja
+(`salePriceCents` / `referenceMxnCents`) es **consecuencia aceptada** de una decisión de producto, no una fuga.
+
+**Por qué `priceBasis` se retira de las REJILLAS y no de las fichas.** En la ficha es **público por decisión LOCKED del
+humano** (la UI lo **obedece**), así que «qué cartas llevan override» es información per-carta que ya es pública por
+diseño: quitarlo de la ficha sería contradecir §N.7. Lo que sí cambia es la **economía**: la rejilla convierte esa
+señal en un **mapa completo y paginado** de dónde falló el feed —la misma clase que v2.1.6 cerró al retirar
+`isManualOverride`/`source` de lo público— y **nadie la consume ahí**. Por la convención de DTOs cerrados («lo que no
+debe salir, PROHIBIDO»; *publicar de más no rompe a nadie — filtra*), un campo no consumido en esa superficie **no se
+emite**.
+
+**Cómo se implementa sin reabrir B-1 (esto importa).** `priceBasis` **NO se vuelve opcional** en ningún DTO: su
+ausencia fue exactamente lo que **invirtió** la regla en B-1 (`undefined === 'market'` ⇒ `false` siempre). La rejilla
+recibe **un DTO propio y declarado** (`GroupedListingSummaryDTO` / `SealedGroupSummaryDTO`) que **no tiene el campo** —
+distinta superficie, distinto tipo, y el **compilador** sostiene la diferencia en vez de un test. Es la misma doctrina
+de §DTOs («todo DTO se construye con su tipo puesto») y de `toPublicPriceInfo` («lista blanca, no `delete`»).
+
+**Único cuerpo que decide.** El recorte vive en **un** proyector (extensión de `toPublicPriceInfo`, que ya es «el único
+cuerpo que decide qué sale a superficie anónima»), parametrizado por `priceBasis`. **Prohibido** repartir la decisión
+por los seams: un segundo camino de recorte es un segundo camino que se puede olvidar.
+
+**Lo que NO cambia:** el **precio cobrado** (es presentación, no dinero), la **bóveda/portafolio**, el **cotizador**, y
+la obligación del frontend de **obedecer `priceBasis`** en la ficha (la garantía del servidor es defensa en
+profundidad, **no** un permiso para que la UI infiera comparando cifras).
 
 **(c) Instrumentación (§N.8, criterio 95) — qué se persiste y dónde.**
 
@@ -8095,6 +8300,66 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
   §4.36.9c en `DEVOPS_NOTES.md`.
 - **arquitecto** (este §): §4.36 + eco de contrato. **No toca código.**
 
+### 4.37 Listas de validación: ESPEJO del schema vs REGLA de negocio (v2.1.9, NORMATIVO, transversal)
+
+> **Toda lista de valores aceptados por la API pertenece a exactamente UNA de dos clases, y la clase se declara.**
+> Confundirlas tiene daños opuestos y silenciosos: derivar una **regla** la **borra**; escribir a mano un **espejo** lo
+> deja **desfasado**.
+
+**La pregunta que decide la clase (única, y se contesta por endpoint, no por enum):**
+
+> *Si mañana alguien añade un valor a este enum en `schema.prisma`, ¿este endpoint debe aceptarlo **solo**, sin que
+> nadie tome una decisión?*
+
+- **Sí** ⇒ clase **E (ESPEJO)**. El dominio del enum **es** la regla; rechazar un valor del schema sería mentirle al
+  cliente sobre lo que el sistema sabe representar.
+- **No / depende** ⇒ clase **R (REGLA)**. La lista **expresa una decisión de PROJECT.md**, y el schema solo es el
+  contenedor donde esa decisión vive junto a otras.
+
+**Qué exige cada clase (verificable, no disciplina):**
+
+| | Clase **E — ESPEJO** | Clase **R — REGLA** |
+|---|---|---|
+| **Dónde vive** | `backend/src/common/enum-values.ts`, **una sola** declaración `Object.values(<PrismaEnum>)` | **En su sitio** (el DTO/guard del endpoint), literal y explícita |
+| **Documentación obligatoria** | La línea canónica del enum en **API_CONTRACT §Enums**, con su referencia `schema.prisma:líneas` al lado | La **cláusula de PROJECT.md citada al lado de la lista** (`// PROJECT §H — raw = solo NM`) |
+| **Test que la sostiene** | Paridad **contra el archivo `schema.prisma` en disco** *y* **contra la línea del contrato**. **PROHIBIDO** comparar `Object.values(e)` con `Object.values(e)` | (1) la lista es **exactamente** la esperada y (2) es **subconjunto** del enum de Prisma |
+| **Qué falla si el schema crece** | El test de paridad, hasta que se actualice el contrato — que es el punto | **Nada**, a propósito: la regla no se mueve sola. El test de subconjunto sí falla si el schema **pierde** el valor |
+
+**Por qué la paridad tiene que leer el ARCHIVO, y no `Object.values`.** `enum-values-parity.spec.ts:58` hace
+`expect([...derived].sort()).toEqual(Object.values(prismaEnum).sort())` con `derived = Object.values(prismaEnum)`:
+**es una tautología** — no puede fallar nunca, ni siquiera si Prisma Client quedara desfasado del schema en disco. El
+mismo archivo ya trae la forma correcta para **un** enum (`schema.prisma` leído con `readFileSync`,
+`enum-values-parity.spec.ts:67-76`): **esa forma es la norma, para todos**.
+
+**Y la tercera copia — el CONTRATO — es la que ya falló dos veces.** `PriceSource` sin `tcgcsv_singles` y
+`SealedSubtype` sin `upc`/`collection` fueron **schema ↔ contrato**, no schema ↔ código; ningún test los vio porque
+**nadie compara esas dos**. La cuarta pata de la convención de DTOs (contrato §M2) declara la obligación; **aquí se
+declara su verificación**: la paridad es a **tres bandas** — `schema.prisma` ↔ `enum-values.ts` ↔ línea canónica de
+API_CONTRACT §Enums.
+
+**Inventario vigente (se actualiza cuando cambie; backend implementa):**
+
+| Enum | Clase | Sustento |
+|---|---|---|
+| `SealedSubtype` | **E** | Un subtipo nuevo en el schema **debe** ser capturable, filtrable y calibrable el mismo día. Es el bug que originó la derivación |
+| `SealedCondition`, `Finish`, `ProductType`, `GradingCompany`, `AcquisitionType`, `Locale` | **E** | Añadir el valor al schema **es** la decisión; ningún endpoint quiere un subconjunto propio |
+| **`RawCondition`** | **⚠️ R — RECLASIFICADO (v2.1.9)** | **PROJECT §H, LOCKED:** «el raw se opera **únicamente en NM**; se **eliminan** los grados LP/MP/HP/DMG». Hoy tiene un solo valor y derivar es *equivalente por accidente*, no *correcto por construcción* |
+| `UserStatus` en `PATCH /admin/users/:id/status` | **R** | Acepta `active\|blocked` pero **no** `deleted` (lo fija el `DELETE`). Ya está bien resuelto: es el **ejemplar** de la clase |
+| `PriceBasis`, `MarketBracket`, `SealedSpreadSource` | **E** (derivados/no-BD) | `PriceBasis` espeja el enum de BD; `MarketBracket` y `SealedSpreadSource` **no son enums de BD** (constantes de código) y su lista canónica vive en el contrato |
+
+**El caso `RawCondition`, explicado — es el que enseña la diferencia.** La lista pasó de `@IsIn(['NM'])` a la lista
+derivada. **Hoy no ensanchó nada** y el resultado es idéntico. Pero «raw = solo NM» **no es un hecho del schema**: es
+una decisión de producto con consecuencias de dinero en las dos puntas (§H: «si al recibir/verificar no está en NM,
+**no se compra**»; el filtro de condición de Compra «refleja únicamente NM»). Si mañana alguien añade `LP` al schema
+—por una feature futura, por una migración, por un experimento— **todos los endpoints derivados lo aceptarían el mismo
+día, sin que nadie decidiera nada**: se cotizarían y se publicarían cartas no-NM. El daño no es hipotético en su
+mecánica: es **exactamente** el mecanismo que produjo los dos bugs de enum de v2.1.8, con el signo invertido.
+
+**Regla de oro, en una línea:** *derivar es correcto cuando el schema **es** la regla; cuando la regla la escribió el
+humano en PROJECT.md, derivar la **borra**.* Y el comentario de `enum-values.ts:43-48` ya intuía esta distinción
+(excluye `UserStatus` con el argumento correcto): esta sección la convierte de **comentario en un archivo** en **norma
+verificable con inventario**.
+
 ---
 
 ## 5. Decisiones transversales
@@ -8235,6 +8500,48 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **D1-TECHO (contrato → backend, v2.1.9) — las dos constantes de la curva no tenían cota superior. ⚠️ EL CÓDIGO
+  CUMPLE EL CONTRATO: la desviación es MÍA.** Estado detectado (`pricing-curve.ts:749/760`): `sale.floorCents` y
+  `buy.binCents` se validan `!isInt || < 0` — **sin techo**—, mientras `p.marketCents` (`:774`) sí lo tiene
+  (`> MAX_CENTS_CURVE`). Evidencia de QA contra el stack vivo: `PUT /admin/pricing/curve` con
+  `floorCents: 2000000000000000` ⇒ **`200`**, y `GET /catalog/cards` devuelve toda la vitrina a `2147483647` con
+  `basis="floor"` (MX$21,474,836.47). `sanitizePricingCurve` **no** interviene: la curva está **bien formada**
+  (`fellBack=false`, cero líneas `[MONEY]`), así que no hay respaldo al seed. Exige `super_admin`, o sea **el dueño**:
+  el vector real es **un typo**. **No es fuga de dinero** (§N.0: venta yerra hacia arriba = venta perdida recuperable;
+  el bin disparado **apaga** el buylist porque toda cotización rebasa `buylist_cap_per_request_cents`, no paga de más);
+  es que **un typo republica la tienda entera y apaga la compra en silencio**. **Norma: §4.36.3 V3 v2.1.9** —
+  `floorCents`/`binCents` `∈ [0, MAX_CURVE_CONSTANT_CENTS]` con `MAX_CURVE_CONSTANT_CENTS = 1_000_000` (MX$10,000),
+  **que NO es `MAX_CENTS`** (razón y anclajes en §4.36.3). **Acción (backend, WS «Catálogo y precios»):** (1) añadir la
+  cota en V3 con `details { axis, index: null, field }` —la forma que el código **ya emite** (`:753-756`), que ahora
+  queda declarada en §M2—; (2) bloquea igual en `PUT` y en `preview` (V3 es Fase 1); (3) regresión permanente con las
+  tres cifras de QA (`2e15`, `2147483647`, `1000001` ⇒ **422**; `1000000` ⇒ **200**) **asertando el status**, no solo
+  el `code`. **Q-D1 abierta al humano** (el número, no el techo) — §10.
+- **D2-EMISOR (backend, v2.1.9) — la regla de visibilidad de §N.7 se aplicaba solo en el navegador.** Estado detectado
+  (`catalog.service.ts:386-389`): `referenceValue` y `priceBasis` se emiten **incondicionalmente**, también a anónimos,
+  con un comentario que lo declara deliberado «porque el mismo DTO alimenta superficies admin y de valuación». PoC del
+  pentester sin token: `GET /catalog/listings/<id>` ⇒ `priceBasis "override"` + `referenceValue 5000` de una pieza cuyo
+  bloque «Valor de mercado» la UI tiene **prohibido** pintar. **La premisa citada en ese comentario es la que yo
+  escribí en §4.36.7b y ya era falsa**: `toPublicPriceInfo` (`pricing.service.ts:186-192`) **sí** recorta `PriceInfo`
+  por superficie. Agravante propio de este delta: `priceBasis` es **nuevo en la rejilla** (`GroupedListingDTO`) y §N.7
+  dice «SOLO fichas». **Norma: §4.36.7(b.2)** (tabla por endpoint + el `iff` verificable). **Acción (backend):** (1)
+  dos DTOs nuevos declarados para las rejillas (`GroupedListingSummaryDTO`, `SealedGroupSummaryDTO`) — **sin** volver
+  opcional `priceBasis` en ningún DTO existente (eso reabre B-1); (2) el recorte del número de mercado vive en **un
+  solo** proyector (extensión de `toPublicPriceInfo` parametrizada por `priceBasis`), nunca repartido por seams; (3)
+  spec sobre el **JSON serializado** que compruebe el `iff` en las **dos** direcciones y **a nivel de rejilla y de
+  ficha** (un test del DTO de unidad no cubre el de grupo — lección de B-1). **Acción (frontend):** consumir los DTOs
+  de rejilla recortados; la regla de la ficha **no cambia** (sigue obedeciendo `priceBasis`).
+- **D4-ENUMS (backend, v2.1.9) — el candado de paridad es tautológico y `RawCondition` está mal clasificado.** Estado
+  detectado: (1) `enum-values-parity.spec.ts:58` compara `Object.values(prismaEnum)` **contra sí mismo** (la lista
+  derivada **es** eso) ⇒ **no puede fallar**; el mismo archivo ya trae la forma correcta —leer `schema.prisma` de
+  disco— pero **solo para `SealedSubtype`** (`:67-76`). (2) **`RawCondition` se derivó** (`enum-values.ts:64`) cuando
+  «raw = solo NM» es **decisión de PROJECT §H**, no espejo del schema: hoy no ensancha nada, pero cualquier valor
+  futuro del enum se auto-aceptaría **sin decisión por endpoint**, cotizando y publicando cartas no-NM. (3) Menor, misma
+  familia: el docstring de `pricing.controller.ts:432-435` sigue diciendo «subtype ∈ {box,etb,bundle,tin,blister}»
+  cuando la validación ya deriva los **siete** — texto desfasado en el sitio exacto donde vivía el bug de v2.1.8.
+  **Norma: §4.37** (clases E/R, la pregunta que decide, y paridad a **tres bandas**: schema ↔ código ↔ contrato).
+  **Acción (backend):** sacar `RawCondition` de `enum-values.ts` y del `it.each` de paridad, declararlo literal con la
+  cita de §H y sus dos tests (lista exacta + subconjunto del enum); convertir la paridad de los enums de clase **E** en
+  lectura de `schema.prisma` + comparación contra la línea canónica de API_CONTRACT §Enums; corregir el docstring.
 - **P-48-RC (backend, v2.0) — CAUSA RAÍZ del bug de dinero que motivó §4.36; queda RESUELTA por diseño, se documenta
   para trazabilidad (pentester / techlead / QA).** Cartas publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de
   **MX$15**. Tres desviaciones **entre documento y código**, todas de estructura:
@@ -8424,6 +8731,21 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Pregunta abierta v2.1.9 — el NÚMERO del techo del piso/bin (Q-D1; NO bloquea a backend)
+
+- **Q-D1 (calibración de negocio, no decisión técnica).** §4.36.3 fija `MAX_CURVE_CONSTANT_CENTS = 1_000_000`
+  (**MX$10,000**) como cota superior de `sale.floorCents` y `buy.binCents`. **Lo técnico está cerrado y no se
+  re-litiga:** el techo **debe existir** y **no puede ser `MAX_CENTS`** (con Int32 el caso demostrado por QA seguiría
+  pasando). Lo que se consulta es **el número**: *«¿cuál es el precio mínimo más alto que tendría sentido fijar para la
+  carta más barata de la tienda?»*. La propuesta se ancla en cuatro cosas —el mayor límite de dinero por-usuario que
+  declara PROJECT §E (tope mensual MX$10,000), 400× la semilla del piso, 2 147× por debajo de Int32, y el precedente
+  local de techos anti-typo del propio contrato (`multiplierBp ≤ 1e6`)—. **Backend implementa MX$10,000 ya**; si el
+  humano prefiere otro valor, es una **enmienda de una línea** en V3 (§4.36.3) y en API_CONTRACT §M2, sin efecto en la
+  matemática ni en ningún DTO. **Advertencia honesta que acompaña la pregunta:** **ningún** techo atrapa «un cero de
+  más» (un piso de MX$250 es calibración legítima y debe guardarse); bajar el techo hasta que lo atrape **bloquearía
+  configuraciones válidas**. Ese caso lo cubre **ver** (`constantWon` en el preview, `premium_at_floor` en la cola de
+  pendientes), no validar.
 
 ### Supuestos abiertos (v1.23-sealed-sales — venta de producto cerrado) — confirmar con PO
 
