@@ -3888,7 +3888,16 @@
   decisión explícita («se retira» vs «se justifica») porque toca la superficie de dinero; (a) requiere al
   arquitecto por ser el enum de contrato.
 
-#### D5 · Dos criterios para la presencia del override POR PIEZA (`listPriceCents`) (Media, backend)
+#### D5 · Dos criterios para la presencia del override POR PIEZA (`listPriceCents`) — **RESUELTA (2026-08-24, E5-bis)**
+> Cerrada por el arquitecto en §4.36.6 (E5-bis) y ejecutada: `<= 0` es AUSENTE en los **seis** seams, con un
+> **predicado único** (`hasManualPrice`/`isPresentAmount`/`firstPresentAmount` en `common/money.ts`) y validación de
+> escritura `@Min(1)` en los cinco DTOs que escriben la columna. **Mi nota original listaba cuatro sitios y eran
+> seis:** el quinto (`inventory:2211`) usaba `??`, que solo salta `null`/`undefined` y por tanto dejaba que un `0`
+> enmascarara el `sellOverrideCents` de la variante; el sexto (`price-ingest:507`) lo abrió el propio bucle de
+> reconciliación de E4-ter en este mismo pase — saltaba la pieza al repreciar, así que **nunca se reconciliaba**.
+> Se deja el texto original abajo como registro de qué se corrigió.
+
+#### D5 (texto original) · Dos criterios para la presencia del override POR PIEZA (`listPriceCents`) (Media, backend)
 - **Dueño:** backend. **Severidad:** Media (**es dinero, y es divergencia observable entre superficies**).
 - **Deuda:** la doctrina **H-1** («presente ⇔ `> 0`») está bien resuelta en `money.ts` para los overrides de
   **variante** (M-30) y para el **sellado**, pero el **peldaño 1** de la precedencia —el override por pieza— no
@@ -3912,3 +3921,23 @@
 - El test «el markup cambia peso a peso» (`pricing-curve.spec.ts`) fijaba `a - b < 200`, un umbral atado a la
   pendiente del seed vigente que se rompería por una razón **distinta** de la que el test quiere proteger
   (que no haya escalones). Se re-expresó contra la propiedad, no contra el número.
+
+#### D7 · `reconcilePublishedPrices` escribe pieza por pieza (`await` secuencial) (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada; **anotar, no hacer** — petición explícita del techlead).
+- **Deuda:** `price-ingest.service.ts` (bucle de E4-ter) hace un `await settlePendingForVariant(...)` **por pieza**,
+  secuencial. En un **job nocturno** es perfectamente aceptable —el barrido no compite con nadie y la latencia no le
+  importa a ningún usuario—, pero el patrón no debe copiarse a un camino de **request**.
+- **Por qué se anota igual:** el riesgo no es este bucle, es que alguien lo tome como plantilla. Queda escrito para
+  que la próxima lectura sepa que la tolerancia es del contexto (job), no del patrón.
+- **Disparador / dirección de fix:** si alguna vez se llama desde un endpoint, agrupar por clave y cerrar/abrir en
+  lote (`updateMany` por conjunto) en vez de N escrituras.
+
+#### D8 · `batchQuote` sigue con `findUnique` + `getReference` por línea (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** `buylist.service.ts` `batchQuote` iza la curva y los overrides **en lote** (BE-25), pero cada línea sigue
+  haciendo su `card.findUnique` y su `getReference`. `createRequest` ya cerró su N+1 de cartas en este pase.
+- **Por qué ahora es barato:** desde el gate del techlead las **tres** superficies comparten `decideBuyLine`, así que
+  batchear dentro de ese cuerpo es un cambio **local** — antes habría habido que tocar dos implementaciones y
+  arriesgar que divergieran. La deuda se abarató por el propio refactor.
+- **Disparador / dirección de fix:** pre-cargar cartas y referencias en lote en `batchQuote` (espejo de lo que ya hace
+  `createRequest`) y pasarlas a `decideBuyLine`. Endpoint público y anónimo ⇒ vale la pena antes de tráfico real.

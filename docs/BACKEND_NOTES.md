@@ -7694,3 +7694,134 @@ status —por eso la divergencia pasaba verde—: ahora assertea el **status HTT
 verdes**. Deuda anotada en `docs/TECH_DEBT.md`: **D1** (cerrada por arrastre del bloqueo 1), **D2**
 (residuos de E8, incluida la rectificación de `computeSalePriceCents`), **D5** (dos criterios para
 `listPriceCents > 0` — es dinero y necesita decisión del arquitecto) y **D6** (menores, cerrados).
+
+---
+
+## P-48 · Ronda final pre-seguridad — E0-ter, E0-quater, E5-bis y el cierre de los menores (2026-08-24)
+
+Última ronda antes de la fase de seguridad. Cuatro bloques normativos (`v2.1.4` y `v2.1.5`) más los
+menores del techlead. **Ningún cambio de DTO ni de setting**; un rango se ensancha (V3) y `details`
+gana campos (aditivo).
+
+### E0-ter (v2.1.4) — V9: la simetría que faltaba en el eje de compra
+
+**El hueco.** V5 solo iteraba `sale.points`, y V6 ata la compra únicamente en **relativo** (por debajo
+de la venta): nada impedía que el **monto pagado bajara en absoluto** mientras el mercado subía. Con
+diales de tienda real (50 % @ $10 → 20 % @ $500), mercado **$410.90 paga $104.60** y **$500.00 paga
+$100.00** — $89.10 más de valor, $4.60 menos para el cliente. Es la misma clase que I1, **sin la
+amplificación de la escalera** (la compra no se redondea), y por eso pasó desapercibida: no da el
+salto llamativo de un peldaño, **solo pierde dinero en silencio**. §N.0 aplica simétricamente: pagar
+de menos ⇒ el vendedor no vende ⇒ carta perdida, irrecuperable.
+
+V9 es el mismo chequeo algebraico de extremos de V5 aplicado a `buy.points`, con código propio
+`BUY_CURVE_NOT_MONOTONIC`. Dos cosas quedaron **escritas en el código** para que nadie las
+«simplifique»:
+- **Los tramos planos de compra no se justifican como los de venta.** Allá el argumento es V4
+  (`k ≥ 10000 > 0`); aquí **no hay V4** y `pctBp ∈ [0, 10000]`, así que se apoya en **V3** (`p ≥ 0`):
+  con `p = 0` el tramo es **constante**, que sigue siendo no decreciente y deja el pago en el `bin`.
+  Hay un test de `pctBp = 0` que **debe pasar**, precisamente para cazar a quien copie el razonamiento
+  de venta.
+- **V9 no exige que el pct suba.** Eso es **intención** (§N.1) y vive como aviso no bloqueante del
+  previsualizador. V9 impone el **invariante de dinero**, que es más débil: bajar el pct en un tramo
+  mientras el pago absoluto sube es legítimo, y hay test que lo fija. *Invariante = dinero; aviso =
+  intención.*
+
+**Techo de `marketCents` (V3).** Se aceptaba `9_000_000_000`. El producto final se computa en `BigInt`
+(correcto), pero `interpExact` calcula `num = v₀·den + (v₁−v₀)·(m−m₀)` en aritmética `number` **antes**
+de que el `BigInt` intervenga: con un breakpoint absurdo ese `num` sale del rango seguro justo en el
+paso que E0-bis acaba de blindar. Cota: `[0, MAX_CENTS]`.
+
+### `rawCentsFromRational` violaba su propio ROUND_HALF_UP
+
+`(2n + d) / (2d)` en `BigInt` **trunca hacia cero**, que no es «medio alejándose de cero» para
+negativos: `(5, -50000, 1)` daba `-24` cuando el exacto es `-25.0`. Ahora redondea sobre **magnitudes**
+con el signo aparte.
+
+Y el docblock que lo justificaba —«el operando es SIEMPRE ≥ 0 por construcción»— era **falso**. La
+corrección de v2.1.5 lo deja preciso: **quien garantiza el signo es V3, no V4**, y **solo porque V3
+bloquea también en la ruta del `preview`**. Si alguien vuelve V3 no bloqueante «para que el
+previsualizador enseñe más», reabre el caso negativo sin notarlo. Las funciones quedan **defensivas
+ante negativos de todos modos**: apoyarse en «es imposible» es la clase exacta de suposición que
+produjo I1.
+
+### E0-quater (v2.1.5) — V4 era estructuralmente inalcanzable
+
+**V3 y V4 eran el mismo predicado con manejos opuestos:** V3 exigía `multiplierBp ≥ 10000`
+**bloqueante (422)**, V4 exige lo mismo **no bloqueante (200 + `violations`)**. Un `5000` era
+simultáneamente ambas cosas, y como V3 bloquea primero, **V4 nunca podía dispararse** — el
+previsualizador **jamás** podía enseñar en pesos «esto vendería por debajo del mercado», que es
+exactamente el caso para el que se diseñó el reparto 422/200. La validación existía y estaba muerta.
+
+V3 baja su piso a `0` y queda como **representabilidad**; V4 queda como el **invariante de negocio**.
+Ahora `multiplierBp = 0` **calcula** (raw `0` ⇒ gana el piso ⇒ `basis='floor'`) y `violations` explica
+por qué no se guarda; `−5000` lo corta V3 en el campo. **Cada invariante en su superficie.**
+
+> Ojo con la interacción: tratar el negativo en `rawCentsFromRational` **no sustituía** bajar el piso
+> de V3. Son cosas distintas — sin el cambio de V3, V4 seguía inalcanzable.
+
+**`details` normado campo por campo, sin «…».** El hueco era de **cinco** códigos. El contrato decía
+`{ axis, index, marketCents, … }` y dejaba el segundo extremo del tramo dentro del «…»; el front
+declaró `toIndex`/`toMarketCents` —nombres que inventó y que **nadie podía contradecir**— y el segundo
+extremo **nunca se marcó desde E9**. El peor era `BUY_ABOVE_SALE`: su copy lleva `{pct}` y `{mult}`, y
+sin ellos el front los **adivinaba o los recalculaba**, o sea **interpolaba en el cliente** — justo la
+duplicación de fórmula que el `preview` existe para eliminar. Ahora viajan, con `saleIndex`/`buyIndex`
+por separado (el nodo puede ser de una sola curva). `ROUNDING_LADDER_INVALID` gana **`bandIndex`**,
+con nombre distinto **a propósito**: indexa `rounding[]`, no `points[]`.
+
+**El test que sí lo habría cazado** (`test/pricing.curve-details-shape.spec.ts`): contrato **por
+código**, assertando los **campos exactos** de `details` y no solo el `code` — que es como todos los
+tests previos dejaban pasar el hueco. La convención transversal que sale de esto: **ningún campo que
+un consumidor deba leer puede vivir dentro de un «…»**. *El contrato no mintió: no dijo.*
+
+### E5-bis (v2.1.4) — D5 completo, con los seis sitios
+
+`<= 0` es **AUSENTE** en todos los seams, con **un solo predicado** (`hasManualPrice`,
+`isPresentAmount`, `firstPresentAmount` en `common/money.ts`, junto a la H-1 que ya regía para variante
+y sellado). Se eliminaron **dos `??`**, que eran la forma sutil del mismo bug: `??` solo salta
+`null`/`undefined`, así que un `0` cortocircuitaba y **enmascaraba el siguiente peldaño** — en
+`resolvePublishSalePrice` un `0` en la línea tapaba el override de la pieza, y en el export XLSX
+tapaba el `sellOverrideCents` de la variante.
+
+**El sexto seam lo abrió este mismo pase:** `price-ingest:507`, el bucle de reconciliación de E4-ter.
+Con `!= null` saltaba la pieza al repreciar y **nunca se reconciliaba** — el hueco de D5 reabierto
+dentro del mecanismo que existe para cerrarlo. Mi nota de `TECH_DEBT` listaba cuatro sitios y eran
+seis; corregido allí.
+
+**Escritura (cinturón y tirantes):** `@Min(1)` en los **cinco** DTOs que escriben la columna — los tres
+que la spec nombra más `UpdateItemDto` y `AdjustmentFoundItemInput`: dejar uno en `Min(0)` mantendría
+abierta la puerta para crear el estado prohibido. La lectura no se relaja por eso (las filas
+anteriores a la validación ya están en la base), y **una sola de las dos puntas es exactamente lo que
+falló**.
+
+### `DisplayBp` y el retiro de la trampa cargada
+
+`saleMultiplierBpAt`/`buyPctBpAt` **retiradas**: cero llamadores de producción, exportadas
+públicamente, nombradas exactamente como uno buscaría un multiplicador… y devolviendo el valor
+**cuantizado**. `DisplayBp` pasa a **norma**: `interp` y `CurveLegTrace.appliedBp` devuelven un tipo
+**opaco** — en runtime es un `number` (el JSON del contrato no cambia), en compilación **no se puede
+multiplicar**. Desenvolverlo exige `displayBpValue`, explícito y **greppable**. Candado con
+`@ts-expect-error` que falla si alguien vuelve a permitir la aritmética. Hasta ahora la puerta estaba
+cerrada por convención, y la lección de I1 es justamente que una garantía de dinero no puede depender
+de que alguien recuerde una convención.
+
+**El candado de arquitectura cubría `src/modules` pero no `src/jobs/`** — que es exactamente donde
+viviría un repriciador nocturno, el sitio con más razones para llamar a la función pura y saltarse el
+veredicto. La raíz pasa a `src/` completo con exclusión de `common/` y `modules/pricing/`, más un test
+que verifica que el barrido **alcanza** `src/jobs/`.
+
+### Menores
+
+- **Int32 tras la escalera:** `roundUpWithStep` redondea **hacia arriba**, así que podía sacar el
+  precio del rango aunque `rawCentsFromRational` ya hubiera acotado (con `m = 2e9`, `2_147_485_000`).
+  `money.ts` re-acotaba en la ruta de cobro, pero `previewCurve` devolvía la traza sin acotar. Cerrado
+  en `explainSaleFromCurve`, el único cuerpo.
+- **Smoke de MinIO contradictorio:** el comentario decía «o 403 si el bucket no existe» pero el assert
+  exigía `[200,204]`, y el `catch` solo atrapa fallo de **conexión** — un 403 es una respuesta HTTP
+  exitosa a nivel socket, así que se colaba y tumbaba el smoke por una razón que el propio comentario
+  declaraba tolerable. Resuelto en la dirección estricta, con skip explicativo en modo no estricto.
+
+### Estado de la suite
+`tsc --noEmit` limpio · `lint` 0 errores (2 warnings preexistentes ajenos) · **173 suites / 1916 tests
+verdes**. Deuda nueva anotada en `docs/TECH_DEBT.md`: **D7** (escritura secuencial del pase nocturno —
+anotar, no hacer) y **D8** (`batchQuote` sin batchear, ahora barato porque las tres superficies
+comparten `decideBuyLine`). **D5 marcada como RESUELTA.**
