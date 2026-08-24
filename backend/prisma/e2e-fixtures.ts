@@ -67,6 +67,15 @@ export const E2E_CARDS = {
   // (el cap se evalúa ANTES que el INE y usa `>`, así que el empate pasa el cap y dispara el INE).
   highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 600000, availableFinishes: ['normal'] },
   nopref: { externalId: 'e2e-nopref', name: 'E2E No Price', number: '99', rarity: 'Rare Secret', availableFinishes: ['normal'] }, // ex_plus SIN referencia → precio pendiente
+  /**
+   * v2.1.7 — carta PREMIUM con mercado ABSURDO (MX$10): el caso del GUARDARRAÍL, que hasta ahora no
+   * existía en datos reales. Con el seed de la curva:
+   *   VENTA:  1000 × 1.60 = 1600 < piso 2500  ⇒ basis 'floor'  ⇒ `premium_at_floor` (NO se publica)
+   *   COMPRA: 1000 × 0.30 =  300 >  bin  100  ⇒ basis 'market' ⇒ SÍ se cotiza
+   * Es además el escenario EXACTO de S48-M1 (las dos caras no resuelven juntas), así que la cola de
+   * triage y su asimetría quedan cubiertas con datos de verdad y no solo en forma.
+   */
+  floorpremium: { externalId: 'e2e-floor-premium', name: 'E2E Floor Premium', number: '98', rarity: 'Rare Secret', refNmCents: 1000, availableFinishes: ['normal'] },
 } as const;
 
 /**
@@ -98,7 +107,10 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
  * Orden natural ESPERADO de `E2E_SET` (`GET /buylist/cards?setId=<e2e-base>`) — oráculo del test
  * de integración `buylist-cards-order.e2e-spec.ts` (orden + paginación sin huecos ni duplicados).
  */
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '99'] as const;
+// v2.1.7: entra `98` (E2E Floor Premium, la carta del guardarraíl). El oráculo se mantiene EXPLÍCITO
+// —y no derivado de `E2E_CARDS`— a propósito: si se derivara, un fixture mal ordenado se auto-
+// justificaría y el test dejaría de comprobar el orden natural, que es justo lo que vigila.
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '98', '99'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
