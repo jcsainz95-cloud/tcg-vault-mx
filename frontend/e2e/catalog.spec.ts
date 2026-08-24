@@ -62,11 +62,12 @@ test.describe('Compra · listado y filtros', () => {
 });
 
 test.describe('Compra · ficha de carta', () => {
-  test('distingue valor de mercado vs precio de venta', async ({ page }) => {
+  test('distingue valor de mercado vs precio de venta (§21.8: el mercado FIJÓ el precio)', async ({ page }) => {
     await page.goto('/es/catalog/c-charizard');
 
     await expect(page.getByRole('heading', { name: 'Charizard' })).toBeVisible();
-    await expect(page.getByText(t('es', 'card.referenceExplainer'))).toBeVisible();
+    // v2.0 (P-48): la nota al pie tiene DOS variantes; con bloque de mercado va la «WithMarket».
+    await expect(page.getByText(t('es', 'card.referenceExplainerWithMarket'))).toBeVisible();
     await expect(page.getByText(t('es', 'catalog.marketValue')).first()).toBeVisible();
     await expect(page.getByText(t('es', 'common.withoutIva')).first()).toBeVisible();
     await expect(
@@ -106,7 +107,7 @@ test.describe('Compra · ficha de carta', () => {
 
   test('ficha traducida a inglés mantiene el nombre de carta en inglés', async ({ page }) => {
     await page.goto('/en/catalog/c-charizard');
-    await expect(page.getByText(t('en', 'card.referenceExplainer'))).toBeVisible();
+    await expect(page.getByText(t('en', 'card.referenceExplainerWithMarket'))).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Charizard' })).toBeVisible();
   });
 });

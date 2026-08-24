@@ -4,6 +4,134 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §21 · P-48 (v2.0) — precio puro por valor de mercado: editor de la curva, «Valor de mercado» condicional y bounty rebasado (2026-08-24, rama `claude/card-pricing-rules-2e537m`)
+
+> Etapa **E9** de `ARCHITECTURE §4.36.11`. Fuentes: `PROJECT §N` (LOCKED) · `API_CONTRACT`
+> revs **`v2.0-pricing-curve`** y **`v2.1-curve-preview`** · `DESIGN_SYSTEM §21` (+ enmiendas
+> §7.3, §16.3, §16.7, §19).
+
+### Qué se construyó
+
+| # | Superficie | Archivos |
+|---|---|---|
+| 1 | **M2 › Curva de precio** (editor de la tabla de puntos) | `app/[locale]/(admin)/admin/m2/curve/*` |
+| 2 | **M2 › Salud del catálogo de rarezas** (hospeda «Unificar rarezas») | `m2/sections/RarityHealthSection.tsx` |
+| 3 | **Cola de pendientes** con motivo + filtro | `m2/sections/PendingQueueSection.tsx` |
+| 4 | **Ficha de carta / ficha de sellado**: el mercado desaparece | `catalog/[cardId]/CardDetailView.tsx`, `sellado/[inventoryItemId]/SealedDetailView.tsx`, `components/ui/PriceTag.tsx` |
+| 5 | **Binder M1**: basis, guardarraíl y bounty rebasado | `components/master-set/{VariantPriceConsole,MasterSetBinder}.tsx`, `components/domain/PriceBasisTag.tsx` |
+
+**Retirado sin residuos** (§N.9): `TierRulesSection.tsx`, `TierMapSection.tsx`, `tier-shared.tsx`,
+las funciones de API de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, los tipos
+`Tier*`/`PriceRuleSet`/`BuylistRule`/`SalesRule`/`*RuleMode`, sus mocks y sus claves i18n —
+**incluidos `admin.m2.tierRules.finishHint` («Sin regla propia, el acabado hereda la del tier de su
+rareza») e `inheritPlaceholder` («Hereda tier»)**. Ese texto era **falso**: el código nunca heredó, y
+la promesa fue la causa de que el dueño creyera tener un piso que no tenía. No se corrigió: **se fue
+con la pantalla**.
+
+### Decisión central — la matemática de la curva NO vive en el cliente
+
+El previsualizador, **la columna derivada de cada fila** y el **prerrelleno del punto nuevo** salen
+todos del **dry-run del servidor** (`POST /admin/pricing/curve/preview`, ARCH §4.36.8a):
+
+- `useCurvePreview.ts` es la **única** puerta a esos números. El request lleva **solo el borrador +
+  las sondas**; la columna `VIGENTE` la resuelve el servidor con su curva almacenada (un cliente
+  rancio pintaría una «vigente» que no lo es, y esa columna es contra la que el dueño mide su cambio).
+- La **memoria de cálculo** (`appliedBp`, `rawCents`, `constantCents`/`constantWon`, `baseCents`,
+  `roundingStepCents`, `segment`) se **pinta tal cual llega**: no se deriva ni se recalcula. Por eso
+  el editor es inmune al ajuste de `ROUND_HALF_UP` que movió medio centavo dos cifras de ejemplo del
+  DS: la pantalla dice lo que el backend calcula, por construcción.
+- El **prerrelleno neutro** de §21.2b usa `draft.<axis>.appliedBp` de la sonda en el mercado nuevo:
+  es la interpolación **del servidor** sobre la curva actual, no una cuenta local. Un punto colocado
+  sobre la curva vigente no cambia ningún precio ⇒ «agregar un punto» es seguro por construcción.
+- **`previewPricingCurve` NO tiene rama mock a propósito.** Fingir el cálculo en el cliente sería
+  exactamente la duplicación que el endpoint existe para matar. Sin backend, el previsualizador
+  muestra su estado de error («no se muestran cifras estimadas») en vez de inventar un precio.
+  *(Consecuencia conocida: en `NEXT_PUBLIC_USE_MOCKS` el previsualizador queda en ese estado.)*
+
+Lo único que el cliente calcula son **conversiones de unidad** (`curve-draft.ts`: pesos↔centavos,
+`×`↔bp, `%`↔bp) y el **diff** del borrador. §21.1c: la pantalla nunca muestra `marketCents`,
+`multiplierBp` ni `pctBp`, ni en `title` ni en `aria-label`.
+
+### Validación en tres momentos (§21.4) — y lo que el editor NO hace
+
+- **Al teclear:** nada. Sin rojo, sin sacudidas, sin reformateos.
+- **Al `blur`:** solo lo que **un control puede afirmar de sí mismo** (rangos, `multiplicador ≥
+  1.00×`, `pago ∈ [0,100]`, `escalón ≥ MX$0.01`, fronteras crecientes) + el duplicado a nivel tabla.
+- **Al guardar:** los cruzados llegan como **422**, con resumen anclado `role="alert"` que **recibe
+  el foco**, título fijo «No se guardó nada.», botón de salto al punto culpable y fila marcada.
+- **El editor no reimplementa V1/V5/V6/V7/V8-fina.** Es deliberado: si el cliente inventara un
+  rechazo que el servidor no haría, el dueño dejaría de confiar en la pantalla — y la autoridad del
+  dinero es el backend (SEC-A1). Hay un test que lo fija: una curva con la compra cruzando la venta
+  **sigue siendo enviable** desde el cliente.
+- `violations[]` del dry-run **no se surface pre-guardado** (§21.4a manda que al teclear no haya
+  errores). Está tipado y disponible; si se quisiera «enseñar el problema en pesos» antes de
+  guardar, ese es el enganche — sin volver a implementar los invariantes.
+
+### §21.8 — el bloque que desaparece
+
+Tres reglas normativas implementadas en `CardDetailView`:
+
+1. **Primero la lista, después la retícula.** `FactSpec[]` se arma evaluando `priceBasis`; `FactGrid`
+   pinta sobre la lista **ya filtrada**. Un hecho oculto **no existe** (no hay celda vacía).
+2. **El divisor es de la POSICIÓN, no del hecho.** `sm:border-l` se aplica a las celdas que **no
+   abren fila** (índice par de la lista filtrada). El `sm:border-l` hardcodeado en «Valor de mercado»
+   y «Acabado» **era el bug**: al quitar una celda, el divisor lo heredaba quien no le tocaba.
+3. **La fila del dinero nunca queda coja:** sin mercado, «Precio de venta» ocupa `sm:col-span-2`.
+
+El **esqueleto** ya pinta ese layout (una celda de dinero a ancho completo) ⇒ **sin CLS**.
+`card.referenceExplainer` se partió en `referenceExplainerWithMarket` / `referenceExplainerNoMarket`:
+la clave vieja describía a la vez el bloque que ya no está y el modelo retirado («referencia +
+margen»). La variante «sin bloque» **no menciona** el mercado: no hay nada que explicar.
+
+### Decisiones de implementación que conviene conocer
+
+- **Nombres accesibles por eje.** §21.10 propone `aria-label` «Mercado del punto 2» y «Quitar el
+  punto de MX$ 80.00», pero hay **dos** tablas de puntos en la misma pantalla: esos nombres
+  colisionaban (dos controles con el mismo nombre accesible es un defecto real). Se desambiguó por
+  curva: «Mercado del punto 2 **de venta**», «Quitar el punto **de compra** de MX$ 25.00».
+- **El marcador sobrevive al «—».** Una variante retenida por el guardarraíl no tiene precio
+  publicable; el renglón pinta `— ·!` porque el marcador es justo lo que explica el hueco.
+- **`·!` no convive con `·P`** (§21.9b): la retención implica el piso; la causa va en el nombre
+  accesible.
+- **Namespaces i18n:** las claves nuevas del binder se añadieron a los namespaces **existentes**
+  (`admin.pricing.console.*`, `admin.bounty.*`) en vez de crear `admin.m1.priceConsole.*` /
+  `admin.m1.bounty.*` como sugiere §21.12. Es el mismo copy en el mismo sitio, con menos churn; si
+  el equipo prefiere el nombre del DS, es un rename mecánico.
+- **La fila «Regla aplicada» del carrito de venta se retiró** (`SellCartContents.tsx`). Rotulaba
+  `appliedRule`, que el contrato retira. Se optó por **quitarla**, no por sustituirla con la
+  versalita de `priceBasis`: es una superficie del **cliente**, y un rótulo interno ahí explicaría
+  menos que el propio importe. El DS no diseñó esa fila para v2.0.
+- **El gráfico de la curva (§21.5c) no se implementó.** Es «recomendada, no bloqueante para el
+  primer entregable» y su alternativa accesible obligatoria —la tabla de referencia— **sí** está.
+  Anotado en `docs/TECH_DEBT.md`.
+- **`GET /admin/pricing/rarities`**: el front ya lee el shape re-propositado
+  (`{canonical, raw, premium, mapped, cardCount}`) e **ignora** los campos que el backend todavía
+  emite del editor viejo (`rule`, `tierId`, `source`). Cuando E7b/E8 los retiren, no hay cambio de
+  frontend.
+
+### Cobertura
+
+- `M2View.test.tsx`: 12 casos del editor (retiro sin residuos + texto falso, anatomía, dry-run como
+  única fuente de las cifras, probeta con memoria de cálculo, previsualizador sin servidor, reorden
+  al blur, prerrelleno neutro, borrar+deshacer, blur vs tecleo, guardar con diff, 422 que no guarda
+  nada, y el editor que **no** se adelanta al 422) + 2 de salud de rarezas.
+- `CardDetailView.test.tsx`: mercado visible / floor / override + la geometría de la retícula.
+- `SealedDetailView.test.tsx`: spread vs override (una sola celda a fila completa).
+- `VariantPriceConsole.test.tsx` / `MasterSetBinder.test.tsx`: `·P`, `·!`, enlace del guardarraíl y
+  los dos estados del badge de bounty.
+- `e2e/pricing-curve.spec.ts` (nuevo) + ajustes en `e2e/catalog.spec.ts` y `e2e/buylist.spec.ts`.
+
+### Solicitudes al arquitecto (ninguna bloquea)
+
+1. **`PendingPriceEntryDTO.reason` y el conteo por motivo.** El filtro `?reason=` ya se consume, pero
+   el **conteo por motivo** del encabezado (§21.7c: `12 SIN MERCADO · 3 PREMIUM EN EL PISO`) hoy se
+   deriva de la página cargada. Con un filtro activo describe ese subconjunto, no el total. Un
+   `counts: { no_market, premium_at_floor }` en la respuesta lo haría exacto — y ese segundo número
+   es **la señal de calibración del piso** que §N.5 quiere hacer visible.
+2. **Impacto del cambio sobre inventario real** (§21.13.2, ya diferido): el diálogo de guardado habla
+   de **mercados de referencia**, no de cuántas publicaciones cambian de precio. Sin ese dato el
+   diseño es veraz, pero un conteo por bracket haría del diff una decisión con volumen.
+
 ## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21)
 
 > Rama `fix/variant-composition-regression`. El humano decidió publicar SIN razón social por ahora.

@@ -72,9 +72,19 @@ function CompactRow({
             )}
           </>
         ) : (
-          <span className="text-muted" aria-hidden>
-            —
-          </span>
+          <>
+            <span className="text-muted" aria-hidden>
+              —
+            </span>
+            {/* El marcador SOBREVIVE al «—»: una variante retenida por el guardarraíl no tiene
+                precio publicable, y el `·!` es justo lo que explica por qué (§21.9b). */}
+            {suffix && (
+              <span className={suffixClass} title={suffixTitle} aria-hidden>
+                {' '}
+                {suffix}
+              </span>
+            )}
+          </>
         )}
       </span>
     </span>

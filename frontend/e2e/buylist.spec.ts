@@ -97,7 +97,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await expect(page.getByText(t('es', 'buylist.payAfterReceipt')).first()).toBeVisible();
   });
 
-  test('clic en una teja de acabado agrega DIRECTO al carrito; el detalle expandible muestra referencia y regla', async ({
+  test('clic en una teja de acabado agrega DIRECTO al carrito; el detalle expandible muestra la referencia', async ({
     page,
   }) => {
     await page.goto('/es/buylist');
@@ -109,11 +109,12 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await openCart(page);
     await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
 
-    // Transparencia: el detalle expandible trae valor de referencia + regla aplicada.
+    // Transparencia: el detalle expandible trae el valor de referencia y el acabado.
+    // v2.0 (P-48): la fila «Regla aplicada» SE RETIRÓ — no hay reglas por rareza/acabado, hay una
+    // curva; dejar el rótulo habría sido, otra vez, texto que promete lo que el sistema no hace.
     await page.getByRole('button', { name: t('es', 'buylist.lineDetailShow') }).click();
     await expect(page.getByText(t('es', 'buylist.referencePrice'), { exact: true })).toBeVisible();
-    await expect(page.getByText(t('es', 'buylist.appliedRuleLabel'), { exact: true })).toBeVisible();
-    await expect(page.getByText('40% de referencia')).toBeVisible();
+    await expect(page.getByText('Regla aplicada')).toHaveCount(0);
   });
 
   test('la misma carta en DISTINTO acabado entra como línea separada del carrito', async ({ page }) => {

@@ -2433,6 +2433,47 @@
 > (F-2: re-quote tras `ITEM_UNAVAILABLE`/`NOT_FOUND` en session) **ya se corrigió en la misma rama**
 > y no figura aquí. Todos los ítems son no bloqueantes; dueño **frontend**.
 
+### F-P48-1 · Gráfico de la curva (`PricingCurveChart`, DS §21.5c) no implementado (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/curve/CurvePreview.tsx` — el previsualizador
+  entrega las **dos capas obligatorias** de §21.5 (probeta con memoria de cálculo + tabla de
+  referencia). Falta la tercera, **recomendada y explícitamente no bloqueante** para el primer
+  entregable: el SVG con eje X logarítmico en las fronteras del `MarketBracket`, los cuatro trazos
+  (venta borrador con su escalera, compra borrador, curva guardada detrás y la identidad
+  `venta = mercado`) y las reglas horizontales de piso/mínimo.
+- **Impacto:** bajo. La **alternativa accesible obligatoria del gráfico es la tabla de referencia**
+  (§21.5b), que sí está: no hay pérdida de información ni de accesibilidad, solo de lectura rápida
+  de la FORMA de la curva al calibrar. El aviso textual «la curva va al revés de lo previsto»
+  (§21.5b) cubre el caso que el gráfico haría obvio de un vistazo.
+- **Disparador:** cuando el dueño empiece a calibrar con el reporte `GET /admin/reports/pricing-brackets`
+  (§N.8): ahí el gráfico y el reporte **hablan del mismo eje** y compararlos deja de ser mental.
+  Los datos ya vienen servidos por el dry-run (`rows`), así que es trabajo de dibujo, no de cálculo.
+
+### F-P48-2 · El previsualizador no funciona en modo mock (Baja, deliberada)
+- **Dónde:** `frontend/src/lib/api.ts` → `previewPricingCurve` **no tiene rama mock**: siempre llama
+  al backend (`POST /admin/pricing/curve/preview`).
+- **Por qué es deliberado:** fingir el cálculo en el cliente —aunque fuera «solo para la demo»— es
+  exactamente la duplicación de fórmula de dinero que ese endpoint existe para matar (ARCH §4.36.8a).
+  Un mock plausible se convierte, con el tiempo, en la cifra contra la que alguien calibra.
+- **Impacto:** con `NEXT_PUBLIC_USE_MOCKS` (dev sin backend y los E2E de Playwright en modo mock) el
+  previsualizador muestra su **estado de error honesto** («no se muestran cifras estimadas») y la
+  columna derivada de cada fila queda en «—». El editor sigue siendo operable: constantes, puntos,
+  reorden, borrado, diff y guardado funcionan contra el mock del `PUT`. **No hay riesgo de dinero**:
+  la pantalla nunca inventa un precio.
+- **Disparador:** si se quiere E2E de las cifras de la prueba de mesa (§21.13.5g) en el pipeline de
+  mock, la salida correcta **no** es escribir la fórmula en el cliente: es levantar el backend
+  (`E2E_REAL=1`) o servir un *fixture grabado* de la respuesta real del dry-run.
+
+### F-P48-3 · Conteo por motivo de la cola de pendientes derivado de la página cargada (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/sections/PendingQueueSection.tsx` — el
+  encabezado `12 SIN MERCADO · 3 PREMIUM EN EL PISO` (§21.7c) se calcula sobre las filas que la
+  query devolvió; con un filtro `?reason=` activo describe **ese subconjunto**, no el total.
+- **Impacto:** bajo, y honesto (no inventa un total que el servidor no devolvió), pero el segundo
+  número es **la señal de calibración del piso** que §N.5 quiere hacer visible: si crece mucho, el
+  piso está mal puesto o el dato de mercado está roto. Un conteo parcial la debilita.
+- **Disparador:** solicitud abierta al arquitecto (`docs/FRONTEND_NOTES.md` §21, solicitud 1): que
+  `GET /admin/pricing/pending` devuelva `counts: { no_market, premium_at_floor }`. Con eso, el
+  frontend solo lo pinta.
+
 ### F-1 · Efecto de poda duplicado en CheckoutView/GuestCheckoutView (Baja)
 - **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` y
   `GuestCheckoutView.tsx` — el mismo par `pushUnavailableNotice(unavailable)` +

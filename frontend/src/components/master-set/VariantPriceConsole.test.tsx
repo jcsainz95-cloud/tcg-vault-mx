@@ -293,3 +293,100 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
     expect(screen.getAllByText('MX$950.00').length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * §21.9a/b — mapa canónico de `priceBasis` y **guardarraíl visible**. `·P` es nuevo y necesario:
+ * «el piso ganó» es lo que el dueño necesita ver para detectar un **piso mal calibrado**, y es la
+ * causa de que la ficha pública NO muestre el mercado.
+ */
+describe('VariantPricingCompact · basis y guardarraíl (P-48, §21.9a/b)', () => {
+  it('cuando gana la constante del eje, el renglón lleva ·P con su nombre accesible', () => {
+    const pricing: VariantPricingDTO = {
+      buy: { suggestedCents: 100, overrideCents: null, effectiveCents: 100, source: 'floor', premiumAtFloor: false },
+      sell: { suggestedCents: 2_500, overrideCents: null, effectiveCents: 2_500, source: 'floor', premiumAtFloor: false },
+    };
+    renderWithProviders(<VariantPricingCompact pricing={pricing} marketRefCents={114} />, 'es');
+
+    expect(screen.getAllByText('·P')).toHaveLength(2);
+    // La desambiguación del eje vive en el nombre accesible, no en un segundo rótulo.
+    expect(
+      screen.getByTitle('Determinado por el piso — el mercado no explica este precio'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle('Determinado por el mínimo de compra — el mercado no explica este precio'),
+    ).toBeInTheDocument();
+  });
+
+  it('guardarraíl: `premiumAtFloor` pinta ·! (y NO ·P) — la retención implica el piso', () => {
+    const pricing: VariantPricingDTO = {
+      buy: { suggestedCents: 100, overrideCents: null, effectiveCents: null, source: 'pending', premiumAtFloor: true },
+      sell: { suggestedCents: 2_500, overrideCents: null, effectiveCents: null, source: 'pending', premiumAtFloor: true },
+    };
+    renderWithProviders(<VariantPricingCompact pricing={pricing} marketRefCents={114} />, 'es');
+
+    expect(screen.getAllByText('·!')).toHaveLength(2);
+    expect(screen.queryByText('·P')).toBeNull();
+    expect(
+      screen.getByTitle(/No se publica: rareza premium que aterrizó en el piso/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('VariantPriceConsole · aviso de bounty rebasado (P-48, §21.9c-3)', () => {
+  const outbid: VariantPricingDTO = {
+    buy: { suggestedCents: 95_000, overrideCents: null, effectiveCents: 95_000, source: 'market', premiumAtFloor: false },
+    sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'market', premiumAtFloor: false },
+    bounty: {
+      enabled: true,
+      priceCents: 90_000,
+      targetQty: null,
+      acquiredQty: 0,
+      completedAt: null,
+      effective: false,
+      curveQuoteCents: 95_000,
+    },
+  };
+
+  it('muestra las DOS cifras y el remedio, SIN acciones nuevas', () => {
+    renderWithProviders(
+      <VariantPriceConsole cardId="c-charizard" finish="normal" pricing={outbid} marketRefCents={300_000} />,
+      'es',
+    );
+
+    expect(screen.getByText('Bounty rebasado')).toBeInTheDocument();
+    expect(screen.getByText(/Tu oferta MX\$900\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/tarifa vigente MX\$950\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/Súbelo por encima de MX\$950\.00 o apágalo/)).toBeInTheDocument();
+    // Cuánto pagar es decisión del dueño: no se ofrece «subir automáticamente».
+    expect(screen.queryByRole('button', { name: /autom/i })).toBeNull();
+  });
+
+  it('sin tarifa de curva (curveQuoteCents null) NO hay aviso: el bounty explícito sigue siendo efectivo', () => {
+    const noCurve: VariantPricingDTO = {
+      ...outbid,
+      bounty: { ...outbid.bounty!, effective: true, curveQuoteCents: null },
+    };
+    renderWithProviders(
+      <VariantPriceConsole cardId="c-charizard" finish="normal" pricing={noCurve} marketRefCents={300_000} />,
+      'es',
+    );
+    expect(screen.queryByText('Bounty rebasado')).toBeNull();
+  });
+
+  it('guardarraíl en el drill-down: versalita PISO en la fuente + enlace a la cola con ?reason=', () => {
+    const held: VariantPricingDTO = {
+      buy: { suggestedCents: 100, overrideCents: null, effectiveCents: null, source: 'pending', premiumAtFloor: true },
+      sell: { suggestedCents: 2_500, overrideCents: null, effectiveCents: null, source: 'pending', premiumAtFloor: true },
+    };
+    renderWithProviders(
+      <VariantPriceConsole cardId="c-latias-sir" finish="holofoil" pricing={held} marketRefCents={114} />,
+      'es',
+    );
+
+    expect(screen.getAllByText('Piso')).toHaveLength(2);
+    const links = screen.getAllByRole('link', { name: 'Ver en la cola de pendientes' });
+    expect(links.length).toBe(2);
+    // La ÚNICA acción es ir a revisar el mercado: el guardarraíl no se apaga desde aquí.
+    expect(links[0]).toHaveAttribute('href', '/admin/m2?reason=premium_at_floor');
+  });
+});
