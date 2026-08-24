@@ -3563,6 +3563,13 @@ Tres agentes la recorrieron en este entorno:
 ./scripts/stack-native.sh down --all   # + para PG y Redis
 ```
 
+> **Si un componente se cae entre sesiones, vuelve a correr `up`: es idempotente.** Observado en este
+> entorno — un proceso lanzado en una shell puede no sobrevivir a que esa shell termine (el backend
+> aguantó, el `next dev` no). `up` detecta lo que ya responde y **solo levanta lo que falta**; no
+> reinicia lo sano, no re-migra y **no toca datos**. Antes de correr la suite, un
+> `./scripts/stack-native.sh status` con **200 en backend y frontend** ahorra diagnosticar como bug de
+> la app lo que es un proceso caído.
+
 #### 29.10-3 El subset `@real` de Playwright — **ya está cableado en `frontend/`**
 
 Verificado en `frontend/playwright.config.ts`: **no hace falta tocar nada del frontend.**
