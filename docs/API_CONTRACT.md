@@ -2,7 +2,26 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.3-h1-per-piece).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v2.1.4-buy-monotonic).
+>
+> **Changelog v2.1.4-buy-monotonic (2026-08-24, arquitecto — hallazgo del techlead + endurecimiento. ARCHITECTURE
+> §4.36.3 / §4.36.8a. ADITIVO: un código de error nuevo y dos cotas; ningún DTO cambia de forma.):**
+> - **`422 BUY_CURVE_NOT_MONOTONIC` (NUEVO) — V5 solo ataba el eje de VENTA.** `BUY_ABOVE_SALE` ata la compra solo en
+>   **relativo** (por debajo de la venta), así que nada impedía que el **monto pagado bajara en absoluto** mientras el
+>   mercado sube. Con `buy.points = [{2500,5000bp},{10000,1000bp}]` — aceptada hoy con `200` y `violations: []` — el
+>   pago va `$25⇒$12.50`, `$80⇒$16.53`, **`$100⇒$10.00`**. **Misma clase que I1**, pero **silenciosa**: la compra no se
+>   redondea, así que no hay salto de peldaño que delate. §N.0 en simétrico: **pagar de menos ⇒ el vendedor no vende ⇒
+>   carta perdida, irrecuperable**. Se valida con el **mismo chequeo algebraico de extremos** de
+>   `SALE_CURVE_NOT_MONOTONIC`, aplicado a `buy.points`. **Necesita fila de copy en DESIGN_SYSTEM §21.4c** (redacción
+>   de ux-ui).
+> - **`marketCents` gana techo `MAX_CENTS`** en `VALIDATION_ERROR` (V3): `interpExact` computa `num` en aritmética
+>   `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro. Efecto hoy sub-centavo; se
+>   cierra porque es **la forma de I1 un piso más abajo**.
+> - **`appliedBp` se aísla por TIPO** (branded `DisplayBp`): recomponer un monto a partir de él debe **no compilar**,
+>   en vez de estar solo advertido en prosa.
+> - **Ambos deben aterrizar ANTES del cut-over** — o sea antes de que el dueño calibre la curva de compra, no después.
+>
+> Versión previa: v2.1.3-h1-per-piece.
 >
 > **Changelog v2.1.3-h1-per-piece (2026-08-24, arquitecto — hallazgo D5 escalado por backend + recálculo de ejemplos
 > tras v2.1.2. ARCHITECTURE §4.36.6 / §4.36.1.):**
@@ -1582,6 +1601,15 @@
     (`roundUp(max(piso, ROUND_HALF_UP(m·k(m)/10000)), escalera)`) y no sobre una aproximación continua suya; lo
     sostiene la **prohibición de cuantizar** el multiplicador interpolado (ARCHITECTURE §4.36.1). Es lo que hace
     cumplible el **criterio 87(a)** *de verdad*: antes se aceptaban curvas cuya venta real **sí** bajaba.
+  - **`422 BUY_CURVE_NOT_MONOTONIC` (NUEVO v2.1.4)** — la curva de **compra** **no es monótona creciente**: existe un
+    tramo donde **más mercado paga MENOS**. `details: { axis: "buy", index, marketCents, … }` con el tramo infractor.
+    **Es el hermano de `SALE_CURVE_NOT_MONOTONIC` y no lo cubría nadie:** V5 solo iteraba el eje de venta y
+    `BUY_ABOVE_SALE` solo ata la compra **en relativo** (por debajo de la venta), así que el monto pagado podía bajar
+    **en absoluto** mientras el mercado subía — misma clase que I1, pero **silenciosa**, porque la compra no se
+    redondea y no produce el salto llamativo de un peldaño. Money-safe por §N.0 **en simétrico**: pagar de menos ⇒ el
+    vendedor no vende ⇒ **carta perdida, irrecuperable**. **Necesita fila de copy en DESIGN_SYSTEM §21.4c** (redacción
+    final de ux-ui; sugerencia: ES «Entre MX$ {m0} y MX$ {m1} **pagarías menos** aunque el mercado suba. Sube el pago
+    de MX$ {m1} o baja el de MX$ {m0}.»).
   - **`422 BUY_ABOVE_SALE`** — en algún punto del dominio la **compra alcanza o supera la venta**. **v2.1.2:** la
     condición es `multiplierBp(m) − pctBp(m) ≥ 1` (una unidad entera de la escala compartida), no `pctBp < multiplierBp`
     sobre los continuos: dos valores distintos **dentro del mismo centavo** redondeaban al mismo entero y producían
@@ -1877,7 +1905,7 @@ PricingCurveDTO   = { version: 1,
 // Alimenta el previsualizador OBLIGATORIO del editor (DESIGN_SYSTEM §21.5: probeta + tabla de referencia). Existe
 // para que la fórmula de dinero NO se reimplemente en el cliente: si el dueño calibra contra un cálculo que no es el
 // que va a cobrar, es el bug de P-48 en espejo. ARCHITECTURE §4.36.8a.
-// `violations` = las infracciones CALCULADAS POR EL MISMO VALIDADOR DEL `PUT` ⇒ el editor tampoco reimplementa V1–V8.
+// `violations` = las infracciones CALCULADAS POR EL MISMO VALIDADOR DEL `PUT` ⇒ el editor tampoco reimplementa V1–V9.
 CurvePreviewRequest = { draft: PricingCurveDTO,   // la curva EN EDICIÓN (sin guardar). Obligatoria.
                         marketsCents: number[] }  // 1..50 sondas, enteros >= 0. El server DEDUPLICA y ORDENA asc.
 // Memoria de cálculo de UN eje para UNA sonda (§21.5a la pinta literal; ARCHITECTURE §4.36.1 la define).
@@ -1888,6 +1916,10 @@ CurvePreviewRequest = { draft: PricingCurveDTO,   // la curva EN EDICIÓN (sin g
 //     §4.36.1). Consecuencia práctica: rehacer a mano `mercado × appliedBp` puede diferir de `rawCents` en **≤ 1
 //     centavo**; el número autoritativo es `rawCents`, que lo devuelve el servidor. (Nota para ux-ui: conviene que la
 //     memoria de §21.5a lea «≈» en esa línea, o muestre más decimales. Es copy, decide ux-ui.)
+//     ⚠️ v2.1.4 — el aislamiento pasa a ser ESTRUCTURAL, no advertido: `appliedBp` se tipa como un tipo DISTINTO
+//     (branded `DisplayBp`) que NO es asignable a los parámetros de las funciones de precio, de modo que recomponer
+//     un monto a partir de él **no compile**. Hoy ningún consumidor lo hace (verificado en backend y frontend), pero
+//     eso es convención; I1 falló exactamente así — un valor redondeado que se coló en la ruta de dinero.
 //   * `rawCents` = producto ANTES de la constante y ANTES de redondear = ROUND_HALF_UP(mercado × appliedBp / 10000).
 //     ⚠ `ROUND_HALF_UP` = medio ALEJÁNDOSE DE CERO, y en `interp` se redondea el VALOR FINAL (nunca el delta, que
 //     puede ser negativo cuando el markup baja: `Math.round(-1590.5)` da -1590 en JS pero la norma exige -1591).
@@ -4758,12 +4790,13 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
     | Código `422` | Invariante que protege |
     |---|---|
-    | `VALIDATION_ERROR` | tipos/rangos: `marketCents ≥ 0` entero; `multiplierBp ∈ [10000, 1000000]`; `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` |
+    | `VALIDATION_ERROR` | tipos/rangos: **`marketCents ∈ [0, MAX_CENTS]`** entero (v2.1.4 — el techo importa: `interpExact` computa `num` en aritmética `number` **antes** del `BigInt`, y un breakpoint absurdo lo saca del rango seguro); `multiplierBp ∈ [10000, 1000000]`; `pctBp ∈ [0, 10000]`; `floorCents ≥ 0`; `binCents ≥ 0` |
     | `CURVE_EMPTY` | `sale.points` y `buy.points` deben tener **≥ 1** punto (sin puntos no hay curva) |
     | `DUPLICATE_BREAKPOINT` | dos puntos con el **mismo `marketCents`** en la misma curva |
     | `SALE_BELOW_MARKET` | **ningún precio de venta cae por debajo del mercado** ⇒ `multiplierBp ≥ 10000` **en cada punto** |
     | `SALE_CURVE_NOT_MONOTONIC` | **la curva de venta es monótona creciente SOBRE EL PRECIO QUE SE COBRA** — más mercado **nunca** produce menos precio. **v2.1.2:** el invariante se afirma sobre `roundUp(max(piso, ROUND_HALF_UP(m·k(m)/10000)), escalera)`, no sobre una aproximación suya; lo sostiene la **prohibición de cuantizar** el multiplicador interpolado (ARCHITECTURE §4.36.1) |
     | `BUY_ABOVE_SALE` | **la compra queda ESTRICTAMENTE por debajo de la venta en TODO el dominio** ⇒ **v2.1.2:** `multiplierBp(m) − pctBp(m) ≥ 1` (una unidad entera de la escala compartida) en la unión de los puntos de ambas curvas. Antes era `<` sobre los valores continuos, y dos valores distintos dentro del mismo centavo colapsaban a `compra == venta` (margen cero) |
+    | **`BUY_CURVE_NOT_MONOTONIC`** | **(NUEVO v2.1.4)** la curva de **COMPRA** es monótona creciente **sobre el monto que se PAGA** — más mercado **nunca** paga menos. `BUY_ABOVE_SALE` solo ata la compra en **relativo** (por debajo de la venta); esto la ata en **absoluto**. Mismo chequeo algebraico de extremos que `SALE_CURVE_NOT_MONOTONIC`, aplicado a `buy.points`. `details` con `axis:"buy"` + el tramo `(index, index+1)` |
     | `BIN_ABOVE_FLOOR` | `binCents < floorCents` (el caso en que ambos ejes saturan en su constante) |
     | `ROUNDING_LADDER_INVALID` | escalera bien formada: `stepCents ≥ 1`; `uptoCents` estrictamente crecientes; **exactamente la última** con `uptoCents = null`; **cada frontera múltiplo exacto del paso de la banda inferior** (si no, el redondeo rompe la monotonía) |
 
@@ -4847,7 +4880,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     | Grupo | Códigos | Respuesta | Por qué |
     |---|---|---|---|
     | **Impide calcular** | `VALIDATION_ERROR` (tipos/rangos), `CURVE_EMPTY`, `DUPLICATE_BREAKPOINT`, `ROUNDING_LADDER_INVALID` **estructural** (banda abierta ausente/duplicada, `stepCents < 1`, `uptoCents` no crecientes) | **`422`**, mismos códigos y mismo `details` que el `PUT` | **No hay número que devolver:** sin puntos no hay qué interpolar, con dos puntos en el mismo mercado la interpolación es **ambigua** (división por cero) y sin banda no se puede elegir paso. Un `200` aquí sería **inventar un precio** |
-    | **Calculable pero prohibido** | `SALE_BELOW_MARKET`, `SALE_CURVE_NOT_MONOTONIC`, `BUY_ABOVE_SALE`, `BIN_ABOVE_FLOOR`, `ROUNDING_LADDER_INVALID` **fino** (frontera no múltiplo del paso inferior) | **`200`** con los precios **calculados** + `violations[]` con el mismo `{ code, details }` que emitiría el `PUT` | Son invariantes sobre la **forma** de una curva que **sí** se puede evaluar. Un `422` apagaría el previsualizador **justo cuando más se necesita**: §21.4 ordena que «el previsualizador enseñe el problema **en pesos**» y §21.4b-3 que **resalte el tramo implicado**. Con `422`, el dueño leería la prosa del error sin poder ver cuánto cuesta, y corregiría a ciegas |
+    | **Calculable pero prohibido** | `SALE_BELOW_MARKET`, `SALE_CURVE_NOT_MONOTONIC`, **`BUY_CURVE_NOT_MONOTONIC`** (v2.1.4), `BUY_ABOVE_SALE`, `BIN_ABOVE_FLOOR`, `ROUNDING_LADDER_INVALID` **fino** (frontera no múltiplo del paso inferior) | **`200`** con los precios **calculados** + `violations[]` con el mismo `{ code, details }` que emitiría el `PUT` | Son invariantes sobre la **forma** de una curva que **sí** se puede evaluar. Un `422` apagaría el previsualizador **justo cuando más se necesita**: §21.4 ordena que «el previsualizador enseñe el problema **en pesos**» y §21.4b-3 que **resalte el tramo implicado**. Con `422`, el dueño leería la prosa del error sin poder ver cuánto cuesta, y corregiría a ciegas. *(`BUY_CURVE_NOT_MONOTONIC` entra aquí por la misma razón: la tabla de referencia de §21.5b es donde el dueño VE que su curva de compra baja.)* |
 
   - **⚠️ REGLA DURA — el preview NO autoriza.** Un `200` con **`violations: []` NO significa que el `PUT` vaya a
     pasar**: el `PUT` **re-valida desde cero** contra el estado almacenado en el momento de la escritura. El cliente
