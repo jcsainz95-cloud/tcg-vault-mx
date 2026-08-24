@@ -29,7 +29,10 @@
 > `counts` de la cola entre set y set (§29.4b/§29.4c).
 > **(3)** La **brecha de E2E contra mocks** se cierra **antes** de desplegar, por la **ruta NATIVA sin
 > Docker** de **§29.10** (`scripts/stack-native.sh` + subset `@real`). **La ejecuta QA.**
-> **Estado del DoD y qué falta exactamente: §29.11.** §27 queda como **registro histórico**.
+> **Estado del DoD y qué falta exactamente: §29.11 — y OBLIGATORIO leer §29.11-bis**, que corrige el
+> veredicto: tras certificar, la rama **se movió** (`d8c4625` + trabajo sin commitear de backend/frontend),
+> así que **el delta que se desplegaría ya no es el que se aprobó** y el gate de release debe re-pasarse
+> sobre el árbol final. §27 queda como **registro histórico**.
 >
 > **Actualización 2026-08-23 (D-4 — cierre techlead, regla 10):** el release
 > `fix/variant-composition-regression` @ `9b6a81b` trae **cambios de DATOS** que `migrate deploy` NO cubre
@@ -3623,8 +3626,8 @@ sin añadir garantía.
 |---|---|---|---|
 | 1 | **Criterios de aceptación de `PROJECT.md`** cumplidos | ⚠️ **cumplidos salvo verificación E2E real** | QA los verificó con la suite de **integración** (126/127) y con Playwright **en mocks**. Los criterios **79–96** (§N, v2.0) tocan dinero: la evidencia de punta a punta contra el stack vivo se cierra con **§29.10**. **Responsable: QA** (devops ya dejó el camino). |
 | 2 | **QA aprobó** + **techlead aprobó** | ✅ | QA aprobado con brecha declarada (→ ítem 1). Techlead **aprobado con deuda**, registrada y no bloqueante. |
-| 3 | **Fase de seguridad aprobada**, sin críticos/altos abiertos, aceptados registrados | ✅ | `docs/PENTEST_NOTES.md` (red team, `6657196`) + `docs/SECURITY_NOTES.md` (blue team, `2469e6a`): **0 críticos, 0 altos**. Los medios/bajos **S48-M1**, **S48-M2**, **P48-B1** y **AML-1** se **cerraron** después (`6322ee3`, `a2d238e`, `1771a47`, `d38aacf`, `5bd1975`). La deuda aceptada queda en **`SECURITY_NOTES §5`** con dueño y disparador. |
-| 4 | **`docs/` al día** (incl. `PENTEST_NOTES` y `SECURITY_NOTES`) | ✅ | `ARCHITECTURE §4.36` · `API_CONTRACT` v2.0→**v2.1.6** · `DESIGN_SYSTEM §21` · `BACKEND_NOTES` · `FRONTEND_NOTES` · `PENTEST_NOTES` · `SECURITY_NOTES` · **este §29**. |
+| 3 | **Fase de seguridad aprobada**, sin críticos/altos abiertos, aceptados registrados | ✅ | `docs/PENTEST_NOTES.md` (red team, `6657196`) + `docs/SECURITY_NOTES.md` (blue team, `2469e6a`): **0 críticos, 0 altos**. Los medios/bajos **S48-M1**, **S48-M2**, **P48-B1** y **AML-1** se **cerraron** después (`6322ee3`, `a2d238e`, `1771a47`, `d38aacf`, `5bd1975`). La deuda aceptada queda en **`SECURITY_NOTES §5`** con dueño y disparador. **⚠️ Alcance: ese veredicto cubre el delta hasta `5bd1975`, que YA NO es `HEAD` — ver §29.11-bis.** |
+| 4 | **`docs/` al día** (incl. `PENTEST_NOTES` y `SECURITY_NOTES`) | ✅ | `ARCHITECTURE §4.36` · `API_CONTRACT` v2.0→**v2.1.6** *(al corte de `5bd1975`)* · `DESIGN_SYSTEM §21` · `BACKEND_NOTES` · `FRONTEND_NOTES` · `PENTEST_NOTES` · `SECURITY_NOTES` · **este §29**. |
 | 5 | **devops desplegó** + despliegue **y rollback** documentados | ⏸️ **runbook COMPLETO; deploy NO ejecutado** | Despliegue: §29.3 (orden) + §29.4a/b/c/d. Rollback: **§29.7**, incluida la fila nueva «rollback a mitad del cut-over por sets» y el rollback independiente de P-47. **Bloqueado por dos insumos del dueño: el snapshot/PITR de la Postgres de prod (paso 0) y la ventana.** Devops no tiene egress a prod ni acceso a los dashboards. |
 | 6 | **Gate de seguridad (SAST por PR + DAST staging) y harness E2E cableados en CI** | ✅ | SAST: `security-sast.yml` (semgrep + gitleaks) en **cada push y PR** (`branches: ["**"]`). DAST: job `dast-staging` de `deploy.yml` (ZAP baseline `fail_action:true` + nuclei), **`needs` de la promoción a prod**. E2E: job `e2e-real` (`uses: ./.github/workflows/e2e-real.yml`). **Los dos son `needs` de `promote-production-backend`/`-frontend`** (verificado sobre el YAML: `needs: [dast-staging, e2e-real]`), así que **bloquean** la promoción; no son informativos. |
 | 7 | **Sin deuda técnica bloqueante**; la no bloqueante registrada | ✅ **sin deuda bloqueante de infraestructura** | La de código está en `docs/TECH_DEBT.md` (techlead) y la de seguridad en `SECURITY_NOTES §5`. **Deuda devops abierta, toda no bloqueante:** **S48-I3** (`ADMIN_JWT` de post-deploy: emitir **efímero**, revocarlo al terminar el release — disparador: **antes del primer deploy con dinero real**), **S48-I4** (alerta de log drain sobre `[MONEY] pricing_curve INVÁLIDO`, §29.6), **S48-I2** (`json({ limit })` explícito), y el carryover **throttler in-memory** (multi-instancia multiplica el límite por N réplicas). |
@@ -3644,3 +3647,71 @@ no hay deuda bloqueante y el runbook cubre despliegue **y** rollback.
 
 **Cuando esos dos ítems se cierren**, la secuencia es: **P-47 estable (§29.3-4) → deploy P-48 (§29.4a) →
 cut-over por sets (§29.4b/c) → tag de release**. Nada más queda por decidir.
+
+---
+
+### 29.11-bis El árbol SE MOVIÓ (y SIGUE moviéndose) después de los veredictos — 2026-08-24, tarde
+
+> Al volver a mirar el repo para dejar el stack listo, la rama **ya no estaba donde la certifiqué**.
+> Lo registro porque **verificar el DoD es responsabilidad de devops** y un DoD se verifica contra un
+> árbol **quieto**: si el código se mueve por debajo, lo que certifiqué describe un commit que ya pasó.
+
+**Qué cambió.**
+
+| Hecho | Detalle |
+|---|---|
+| **Commits nuevos encima de los míos** | En el rato que tardé en dejar el stack listo entraron **`d8c4625`** (*DTOs de grupo emiten `priceBasis`; falta de credencial = 401*), **`1885b4a`** (*E2E contra backend VIVO de la funcionalidad central de P-48*) y **`a05a819`** (*docs de B-1/B-2/I-1*). Roles **backend**/**frontend**. Mis dos commits (`6216ccc`, `167d830`) **siguen en la historia** (`git merge-base --is-ancestor`): no se perdió nada. |
+| **Trabajo EN VUELO, sin commitear** | Al cierre de este pase, specs de `frontend/e2e/`. Antes hubo seeds y fixtures de `backend/prisma/`, que ya se commitearon. **No toqué ninguno** (no son territorio devops). |
+| **⚠️ La lista de arriba CADUCA** | La escribo con fecha porque **el árbol se estaba moviendo mientras la escribía** — entre dos comandos `git status` cambió dos veces. **No la leas como inventario**; léela como síntoma. El inventario se saca en el momento: `git log --oneline 5bd1975..HEAD` y `git status --short`. |
+
+**Qué NO se rompió de este runbook — re-verificado contra `HEAD`, no asumido:**
+
+- **`d8c4625` NO añade migración.** `M-41` sigue siendo la **única** migración por delante de `origin/main`
+  (`git diff --name-only origin/main..HEAD -- backend/prisma/migrations`). **§29.9 sigue vigente tal cual.**
+- **No añade variables de entorno**, no toca `scripts/`, `.github/workflows/`, `Dockerfile.*`,
+  `docker-compose*.yml` ni `railway.json`. Los gates de CI y el pipeline de §29.4 no cambian.
+- **B-1/B-2 no cambian el contrato: lo CUMPLEN.** `API_CONTRACT.md:192` ya declaraba que `priceBasis`
+  «viaja en `ListingDTO`, `GroupedListingDTO`, `SealedGroupDTO` y `BuylistQuotePayload`»; el código
+  **omitía** el campo en los DTOs de grupo. Es corrección de una desviación código↔contrato, **no** una
+  superficie nueva ⇒ **no abre hueco de `docs/`** (fila 4 del DoD se mantiene).
+
+**Qué SÍ cambia el veredicto, y es lo que hay que leer:**
+
+1. **Los tres veredictos cubren hasta `5bd1975`; `HEAD` ya está por delante.** Los commits
+   posteriores al gate de seguridad que **sí** estaban cubiertos eran los **cierres que la propia
+   seguridad pidió** (S48-M1/M2, P48-B1, AML-1). **Lo que entró después no es eso**: es comportamiento
+   **nuevo**, no solicitado por ese pase, y **nadie lo ha verificado todavía** — ni QA, ni techlead, ni
+   seguridad. *(Que parte de ese trabajo sea **más tests** —`1885b4a` trae E2E contra backend vivo, justo
+   la brecha de §29.10— es buena noticia y no cambia el punto: **tests nuevos también son delta nuevo**, y
+   el verde lo emite **QA**, no el rol que escribió la suite.)*
+2. **Y cae justo en dos superficies sensibles**, lo que desaconseja tratarlo como trivial: (a) **qué
+   emiten los DTOs públicos de grupo** —la misma familia que seguridad acababa de cerrar en **S48-M2**,
+   aunque aquí el movimiento va en la dirección contraria (falta**ba** un campo, no sobraba)— y
+   (b) el **código de error de un guard de autenticación** (422 → 401). **No estoy dictaminando riesgo:
+   no es mi rol.** Estoy diciendo que **el delta que se despliega ya no es el delta que se aprobó**.
+3. **Esto no es una excepción: es la cadencia de `CLAUDE.md` funcionando.** «Por release (antes de deploy
+   a staging→prod): **qa** corre la **suite E2E completa** con todos los streams ya mergeados, y corre la
+   **fase de seguridad completa**». El gate de release corre sobre el **árbol final**, no sobre el árbol
+   de ayer. Que haya entrado código después de los veredictos por-stream es normal; **desplegar sin
+   re-pasar el gate de release sobre él, no.**
+4. **Consecuencia operativa para §29.10 (la corrida de QA):** debe hacerse sobre un **árbol quieto y
+   commiteado**. Con `frontend/e2e/*.spec.ts` y los seeds **modificados sin commitear**, una corrida hoy
+   verifica una suite y unos datos que **no son los que se van a desplegar**, y su verde no sería
+   trazable a ningún commit. **Primero se asienta el árbol, después corre la suite.**
+5. **Detalle que hace más urgente el punto 4, no menos:** el propio `d8c4625` explica que, hasta él, el
+   «Valor de mercado» **no aparecía en NINGUNA ficha de single** — la regla de visibilidad de **§N.7**
+   estaba **invertida** en el 100 % de las fichas. O sea: **cualquier verificación manual de §N.7 hecha
+   antes de `d8c4625` era vacía**, y el criterio de aceptación que la cubre solo se volvió comprobable
+   con ese commit. Es exactamente el tipo de cosa que la corrida real de §29.10 existe para atrapar.
+
+**Veredicto de DoD, actualizado: sigue SIN cerrarse, y ahora son TRES los ítems abiertos.**
+
+| # | Falta | Dueño |
+|---|---|---|
+| 1 | **Asentar el árbol**: commitear (o descartar) el trabajo en vuelo de `backend/`+`frontend/` y fijar el commit del release | **backend** / **frontend**, coordinados por el **orquestador** |
+| 2 | **Re-pasar el gate de RELEASE sobre el delta final** — QA (suite E2E completa contra el stack real, §29.10) y la **fase de seguridad** sobre lo que entró después de `5bd1975` | **QA** · **pentester + seguridad** |
+| 3 | **Snapshot/PITR de la Postgres de prod + ventana** | **dueño** |
+
+**Lo que sigue sin faltar:** el runbook (despliegue **y** rollback), los gates de CI cableados y
+bloqueantes, `M-41` como única migración, y la ausencia de deuda bloqueante de infraestructura.
+**No he desplegado y no he creado tag**, que es justo lo que corresponde con el DoD abierto.
