@@ -2,6 +2,37 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+> Rev v1.46-manual-override-durable-cross-day (2026-08-24, rama `fix/variant-composition-regression`, arquitecto —
+> DISEÑO EN PAPEL; lo implementa BACKEND). **Escalada regla 9 (seguridad/blue team), hallazgo ALTA P47-2.** Dictamen
+> sobre la precedencia de LECTURA §4.27f ANTES de flipear `PRICE_PROVIDER=tcgcsv_singles` en prod. **Problema:**
+> `isBetterRef` (`pricing.service.ts`) ordena `capturedDate` ANTES que `sourceRank`, así que el **override manual**
+> (`sourceRank=0`, §K máxima precedencia) solo ganaba el MISMO día; al volver `tcgcsv_singles` escritor DIARIO (P-47),
+> el barrido lo pisaba cada día siguiente por fecha. **Dictamen (§4.27f-2, NORMATIVO):** el override manual es un tier
+> SUPERIOR ABSOLUTO, DURABLE cross-day; `isBetterRef` iza el split manual/no-manual **por encima** de `capturedDate`;
+> la frescura desempata **solo dentro del mismo tier** (entre no-manuales, o entre dos manuales). Solo revoca un
+> override manual **otro override manual** posterior o la **limpieza explícita por `super_admin`** — **ninguna**
+> escritura automática. Es **precedencia de LECTURA** (no reintroduce escritura PPT; `tcgcsv_singles` sigue único
+> escritor del barrido). **Sin migración, sin re-resolución de precios persistidos** (el fix vive en el comparador
+> puro; la siguiente lectura ya elige el override existente), **sin cambio de forma de contrato**. Money-safe
+> FORTALECIDA (cierra la vía por la que un feed automático sobrescribía un precio humano). **Bloqueante del deploy:
+> debe mergearse + triple veredicto ANTES del switch de provider.** Eco en API_CONTRACT (Changelog
+> v1.46-manual-override-durable-cross-day). **Base previa:** v1.45-fallback-only-is-read-precedence.
+> Rev v1.45-fallback-only-is-read-precedence (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
+> DISEÑO EN PAPEL; ratifica implementación de BACKEND). **Escalada regla 9 (techlead), issue P-47/§4.35b.** El techlead
+> pidió confirmar/registrar cómo backend implementó «PPT LIST fallback-only» en el barrido diario. **Dictamen:
+> RATIFICADA la interpretación de LECTURA.** §4.35(b)/§4.27f mezclaban lenguaje de ESCRITURA («PPT solo escribe la
+> `PriceReference` cuando no hay fila `tcgcsv_singles` fresca») con la precedencia de §4.27f, que es de **LECTURA**
+> (resolución de la referencia de mercado por `(carta, variante)`). Backend implementó `PRICE_PROVIDER=tcgcsv_singles`
+> de modo que **en el barrido corre UN solo provider (TCGCSV singles); PPT bulk NO corre**. Las filas PPT que «se ven
+> donde TCGCSV no tiene fila» son **residuo congelado** de antes del switch, que aflora por **precedencia de LECTURA**
+> (`sourceRank`/`isBetterRef` sobre `PriceReference`), **NO** por una doble-escritura de fallback en vivo. Es la lectura
+> más simple y **money-safe**: un acabado que TCGCSV no cubre **congela** su último precio real (residuo PPT/pokemontcg.io)
+> o queda «—»/`PRICE_PENDING` si nunca lo tuvo — **nunca $0, nunca copia entre acabados**; el hueco de un set nunca
+> resuelto lo cierra el runbook `--force` por set (§4.27h). **Se rechaza** exigir una doble-escritura de PPT en el
+> barrido (reintroduce a PPT como escritor vivo —el path que P-47 neutralizó— por un beneficio marginal ya cubierto por
+> `--force`). Reescrito §4.35(b) + nuevo §4.35(f) (dictamen) + aclaración in-situ del bullet de escritura de §4.27f.
+> **Sin migración, sin cambio de forma de contrato, sin cambio de código** (ratifica lo implementado). Eco en
+> API_CONTRACT (Changelog v1.45-fallback-only-is-read-precedence). **Base previa:** v1.44-per-finish-price-source-daily-sweep.
 > Rev v1.44-per-finish-price-source-daily-sweep (2026-08-23, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + DEVOPS). **Escalada regla 9 (backend), issue P-47.** Dictamen sobre la
 > **fuente de precio por-acabado en el barrido diario**, tras el fix money-safe del aplanamiento de PPT `fetchPrintings`
@@ -5482,12 +5513,100 @@ override manual de MERCADO (PriceReference.isManualOverride / M2)
   > sin precio en ninguna fuente ⇒ celda «—» (null) + PRICE_PENDING     ← NUNCA 0 inventado
 ```
 
-- **PPT baja a redundancia/fallback (versión gratis):** el barrido de PPT SOLO escribe `PriceReference` de una variante
-  cuando NO existe fila `tcgcsv_singles` fresca de esa variante en la ventana del día. Deja de ser el escritor primario.
+> **Esta precedencia es ABSOLUTA, no intra-día (P47-2, ver (f-2), v1.46).** El override manual (peldaño 1) gana
+> la lectura **independientemente de `capturedDate`** —incluso frente a una `tcgcsv_singles` barrida hoy—. La
+> frescura (`capturedDate` más reciente) desempata **solo dentro de un mismo tier** (entre fuentes no-manuales,
+> o entre dos overrides manuales). El comparador `isBetterRef` iza el split manual/no-manual **por encima** de
+> `capturedDate`; el orden normativo exacto está pinneado en (f-2).
+
+- **PPT baja a redundancia/fallback (versión gratis) — por PRECEDENCIA DE LECTURA (aclarado v1.45, ver §4.35(f)):** esta
+  precedencia es de **RESOLUCIÓN/LECTURA** de la referencia de mercado, no un orden de escrituras del barrido. En el
+  barrido diario corre **UN solo provider (`tcgcsv_singles`)**; **PPT bulk NO corre**. «PPT solo aporta donde no hay fila
+  `tcgcsv_singles` fresca» se cumple al **resolver** (`sourceRank`/`isBetterRef`): gana la mejor `PriceReference`
+  existente, que puede ser un **residuo** PPT previo al switch. PPT deja de ser el escritor primario y **no** se
+  reintroduce como escritor secundario en vivo. *(La redacción original «el barrido de PPT SOLO escribe…» describía el
+  comportamiento del barrido **cuando PPT era el provider**; con `PRICE_PROVIDER=tcgcsv_singles` PPT ya no escribe en el
+  barrido — el fallback es de lectura. Ver el dictamen §4.35(f).)*
 - El precio de **VENTA** (referencia × (1+markup)) y los **overrides de compra/venta** (`VariantPriceOverride`, M-30,
   §4.26b) se resuelven IGUAL que hoy, sobre la referencia ya elegida por esta precedencia. Sin cambios.
 - **Sellado y gradeadas NO cambian:** el sellado sigue en `tcgcsv` sub-tipo `Normal` (§4.19); las gradeadas en PPT/
   PokeTrace (§4.20). Esta sección es SOLO singles (`productType='raw'`).
+
+#### (f-2) Dictamen P47-2 (v1.46, NORMATIVO) — el override manual es tier ABSOLUTO y DURABLE cross-day; el orden de `isBetterRef` se pin­ea
+
+> **Escalada (seguridad/blue team, hallazgo ALTA P47-2).** El comparador `isBetterRef`
+> (`pricing.service.ts`, ~L121-133) ordena `capturedDate` **ANTES** que `sourceRank`. Consecuencia: un
+> **override manual** (`source='manual'` / `isManualOverride=true`, `sourceRank=0`) solo gana a otra fuente el
+> **mismo día** en que se capturó. Hasta P-47 era un matiz tolerable porque `tcgcsv_singles` **no** era
+> escritor diario. **P-47 lo convierte en escritor DIARIO** (§4.35): la fila `tcgcsv_singles` recién barrida
+> gana al override manual por `capturedDate` más nueva —aunque su `sourceRank` sea peor (1 vs 0)—, así que el
+> override humano queda **pisado cada día siguiente** por un feed automático. Contradice frontalmente la
+> precedencia de (f) y PROJECT.md §K (override manual = **máxima precedencia**, precio humano explícito).
+
+**Dictamen: se RATIFICA la precedencia de (f) y se PIN­EA la semántica del comparador. El override manual es un
+tier SUPERIOR ABSOLUTO, INDEPENDIENTE de la fecha; `capturedDate` desempata SOLO DENTRO del mismo tier (entre
+fuentes no-manuales, o entre dos manuales).** El bug es que la implementación aplicaba la precedencia de fuente
+(f) únicamente como desempate intra-día; la precedencia de (f) es **absoluta**, no intra-día.
+
+**1) Orden de comparación normativo de `isBetterRef(a, b)`** (`a` es MEJOR ⇒ `true`; el primer criterio que
+distingue decide). El ÚNICO cambio vs. el código actual es **izar el split manual/no-manual POR ENCIMA de
+`capturedDate`**; el resto del desempate determinista de M-31 MAYOR-3 (fecha → fuente → `cardProductId` NULLS
+LAST → cuid) se conserva intacto **dentro** del tier:
+
+```
+isBetterRef(a, b):
+  am := a.isManualOverride || a.source === 'manual'      // ¿a es override manual?
+  bm := b.isManualOverride || b.source === 'manual'
+  1. if am !== bm:            return am                    // ← MANUAL gana SIEMPRE, sin mirar capturedDate (P47-2)
+  2. if a.capturedDate !== b.capturedDate:                //   dentro del MISMO tier (ambos manual | ambos no-manual):
+                             return a.capturedDate > b.capturedDate   //   gana la MÁS FRESCA
+  3. ar := sourceRank(a); br := sourceRank(b)             //   mismo día: precedencia de FUENTE (determinismo M-31)
+     if ar !== br:            return ar < br               //   tcgcsv_singles > PPT > pokemontcg.io
+  4. if (a.cardProductId == null) !== (b.cardProductId == null):
+                             return a.cardProductId != null // NULLS LAST: la variante resuelta gana
+  5. if ambos cardProductId no-null y distintos:
+                             return a.cardProductId < b.cardProductId  // cuid lexicográfico (estable/reproducible)
+  6. return false
+```
+
+Propiedad clave: el paso **1** hace que el override manual (rank 0) gane a **cualquier** fuente automática con
+**cualquier** `capturedDate` —incluida una `tcgcsv_singles` barrida hoy—. La invariante «entre fuentes
+automáticas gana la más fresca» se preserva en el paso **2** (para el tier no-manual). **NO** se ordena
+`sourceRank` estrictamente antes que `capturedDate` para las fuentes automáticas: eso haría que una
+`tcgcsv_singles` **stale** (p. ej. de hace un año) le ganara a un residuo PPT **fresco** de ayer —
+money-losing. El split se aplica **solo** al escalón manual; entre automáticas manda la frescura y `sourceRank`
+es el desempate intra-día (idéntico a hoy, conserva §4.35(f)).
+
+**2) Durabilidad cross-day y revocación.** Un override manual persistido (`PriceReference` con
+`isManualOverride=true`/`source='manual'`) es **durable indefinidamente**: gana la lectura **todos los días**,
+no solo el de su captura. **Solo lo revoca**: (a) **otro override manual** más reciente sobre la misma clave
+(paso 2 dentro del tier manual: el humano posterior supersede al anterior), o (b) la **limpieza/borrado
+explícito** de la fila de override por `super_admin` (permiso money — §4.26/§10), tras lo cual las fuentes
+automáticas vuelven a aflorar por (f). **Ninguna** escritura automática (`tcgcsv_singles`, PPT, pokemontcg.io),
+por más fresca que sea, revoca ni pisa un override manual — es exactamente la garantía de §K/§E.1.
+
+**3) Es un cambio de precedencia de LECTURA (no reintroduce escritura).** `isBetterRef` es una función **pura**
+de resolución; corre al RESOLVER la referencia (`getReference`, `getReferenceByCardProduct`,
+`getReferencesBatch`, `getSeparateProductsByCard`, vía `pickBestRef`). No cambia **qué** se escribe ni **quién**
+escribe: `tcgcsv_singles` sigue siendo el único escritor del barrido diario (§4.35(f)), PPT **no** se
+reintroduce como escritor, y `persistMarketReference` sigue haciendo **skip** cuando la fila del día es
+`isManualOverride` (nunca clobbea el override). Solo cambia el **orden de lectura** con que se elige la mejor
+fila entre las ya persistidas. Coherente con la doctrina «fallback-only = precedencia de LECTURA» de §4.35(f).
+
+**4) Efecto sobre precios ya persistidos: NINGUNA re-resolución, NINGUNA migración.** El fix vive por completo
+en el comparador; **no** toca filas de `PriceReference`. Las filas de override manual **ya existen** en la tabla
+—solo estaban siendo out-ranked en lectura por filas automáticas más frescas—; en cuanto el comparador ize el
+split manual, la **siguiente lectura** las elige. No hay backfill, no hay re-emisión de filas, no hay recómputo
+de snapshots (el `portfolio-snapshot` del día siguiente ya lee con la precedencia corregida). Reversible por
+código (revertir el comparador restaura el comportamiento previo). **Sin cambio de schema, sin cambio de forma
+de contrato.**
+
+**Invariante money-safe reafirmada:** nunca $0 inventado, nunca precio copiado entre acabados, override manual
+`>0` explícito con **máxima precedencia absoluta**. Este dictamen **fortalece** la invariante (cierra una vía por
+la que un feed automático infravaluaba/sobrescribía una decisión humana), no la debilita. **Requisito de gate:**
+por tocar dinero, el cambio va con **triple veredicto + gate de seguridad por release** y **DEBE estar mergeado
+y verificado ANTES** de que devops flipee `PRICE_PROVIDER=tcgcsv_singles` en producción (es la condición que
+neutraliza P47-2; sin el fix, el switch a escritor diario materializa el hallazgo ALTA).
 
 #### (g) Migración M-31 y qué pasa con M-29 / los `*Finishes` existentes
 
@@ -6646,10 +6765,16 @@ ya es el arnés robusto del barrido. Se reusa tal cual; **solo cambia el PROVIDE
 - **`PriceIngestService.providerFor()`** (dial `PRICE_PROVIDER`, §4.15b) gana el valor **`tcgcsv_singles`** como
   **primario del barrido de singles**. El upsert de `PriceReference` incluye `cardProductId` y `source='tcgcsv_singles'`
   (clave `@@unique … cardProductId`, M-31/§4.27b).
-- **PPT (modo LISTA) queda como FALLBACK-only** (no primario): en el barrido, PPT solo escribe la `PriceReference` de una
-  `(carta, finish)` cuando **NO** existe fila `tcgcsv_singles` fresca de esa variante en la ventana del día (precedencia
-  de ESCRITURA ya normada en §4.27f). Así reverse/holo obtienen su precio real de TCGCSV y PPT solo cubre el hueco de la
-  impresión primaria donde TCGCSV no tenga precio.
+- **PPT (modo LISTA) queda como FALLBACK-only por PRECEDENCIA DE LECTURA** (no primario, y **no** un segundo escritor
+  vivo del barrido) — **ratificado en §4.35(f), v1.45**. En el barrido corre **UN solo provider: `tcgcsv_singles`** (lo
+  selecciona el dial `PRICE_PROVIDER`, §4.15b). **PPT bulk NO corre en el barrido diario** y `fetchPrintings` queda
+  apagado (c). «Fallback-only» significa que, **al RESOLVER** la referencia de mercado de una `(carta, finish)` (§4.27f,
+  precedencia de LECTURA por `sourceRank`/`isBetterRef`), si **no** hay fila `tcgcsv_singles` fresca gana la mejor fila
+  existente — que puede ser un **residuo** PPT/pokemontcg.io escrito **antes** del switch de provider. Reverse/holo
+  obtienen su precio real de TCGCSV cuando este lo trae; donde TCGCSV aún no tiene precio, la celda **conserva** (congela)
+  su último precio real de residuo, o queda «—»/`PRICE_PENDING` si nunca existió. **Nunca $0, nunca el precio de otro
+  acabado.** El hueco de un set **nunca resuelto** (sin `CardProduct`, sin residuo) lo cierra el `--force` del runbook
+  (§4.27h), **no** una escritura de PPT en vivo.
 
 **Dependencia explícita (no es hueco, es la separación de (a)):** el reprecio diario TCGCSV solo cotiza variantes cuya
 `CardProduct` **ya existe** (estructura resuelta en import/`--force`, §4.27d). Un set **nunca resuelto** bajo M-31 se
@@ -6697,6 +6822,54 @@ subsección (filas `forced` no escriben el snapshot) queda como registro histór
   (§4.27h). Documenta en `DEVOPS_NOTES.md`.
 - **arquitecto** (este §): dictamen + corrección §4.25a-2 + eco de contrato. Sin migración, sin cambio de forma de
   contrato (solo notas/precedencia).
+
+#### (f) Dictamen regla 9 (techlead): «fallback-only» se cumple por PRECEDENCIA DE LECTURA — RATIFICADO (v1.45, NORMATIVO)
+
+> **Escalada (techlead).** El techlead pidió confirmar o registrar cómo backend implementó §4.35(b). **Ambigüedad
+> detectada:** §4.35(b) y el bullet de PPT de §4.27f describían el fallback con lenguaje de **ESCRITURA** («PPT solo
+> **escribe** la `PriceReference` cuando NO existe fila `tcgcsv_singles` fresca»), y lo remitían a «(precedencia de
+> ESCRITURA §4.27f)» — pero **§4.27f es una precedencia de LECTURA** (su bloque de código resuelve la *referencia de
+> mercado* por `(carta, variante)`, no ordena escrituras). El lenguaje mezclado sugería —incorrectamente— una
+> **doble-escritura de PPT en vivo** dentro del barrido.
+
+**Dictamen: se RATIFICA la interpretación de LECTURA (la que implementó backend).** No se exige doble-escritura de PPT.
+
+**Qué corre en el barrido diario (inequívoco).** El barrido `price-ingest` ejecuta **exactamente UN provider primario:
+`TcgcsvSinglesBulkPriceProvider`** (`source='tcgcsv_singles'`), seleccionado por el dial `PRICE_PROVIDER=tcgcsv_singles`
+(§4.15b). **PPT bulk NO corre en el barrido diario**; `POKEMONPRICETRACKER_FETCH_PRINTINGS` queda en `false` (c). No hay
+un segundo pase de PPT que escriba filas donde TCGCSV no las tenga.
+
+**Cómo se cumple «fallback-only» (por LECTURA, no por escritura).** «Fallback-only» = PPT es fallback **en el momento de
+RESOLVER** la referencia de una `(carta, finish)`, no un escritor secundario del barrido. La resolución aplica la
+precedencia de LECTURA de §4.27f (`isManualOverride` > `tcgcsv_singles` > PPT > pokemontcg.io > «—»/`PRICE_PENDING`),
+eligiendo la **mejor `PriceReference` existente** por `sourceRank`/`isBetterRef`. Donde no hay fila `tcgcsv_singles`
+fresca, gana la mejor fila previa — que puede ser un **residuo congelado** (una `PriceReference` PPT/pokemontcg.io
+escrita **antes** del switch de provider, con `cardProductId = null`, §4.27g). Ese residuo no lo reescribe el barrido:
+lo aflora la lectura.
+
+**Qué pasa con los acabados que TCGCSV no cubre (money-safe, inequívoco).** Un set **ya resuelto** al que TCGCSV le
+falte una carta/acabado en la ventana del día:
+- si esa `(carta, finish)` **tiene residuo** (precio real previo PPT/pokemontcg.io) → la celda **congela** ese precio
+  hasta que TCGCSV lo traiga o el admin lo overridee o corra un `--force`;
+- si **nunca** tuvo precio → queda «—»/`PRICE_PENDING`.
+
+En ningún caso se inventa **$0** ni se **copia el precio de otro acabado** (invariante H1/H2/H3, §4.27e). Un residuo
+congelado es un precio **real pasado**, no una fabricación: es estrictamente más money-safe que reintroducir una
+escritura PPT que —por la invariante de la API v2 (UN solo `market`, §4.35 preámbulo/(d))— aplanaba.
+
+**Por qué se rechaza exigir la doble-escritura de PPT en el barrido.** (1) Reintroduce a PPT como **escritor vivo** —el
+mismo path de escritura que P-47 (`35e948a`) neutralizó por money-losing—, reabriendo su superficie de riesgo de
+aplanamiento por un beneficio marginal. (2) Gasta presupuesto del free tier de PPT en cada barrido para, a lo sumo,
+refrescar la impresión primaria de un set que TCGCSV aún no resuelve. (3) Ese único hueco real —un set **nunca resuelto**
+bajo M-31, sin `CardProduct` y sin residuo— ya está cubierto por el runbook **`--force` por set** (`POST
+/admin/catalog/sync {setId, force:true}`, §4.27h/§4.35(b)), que resuelve estructura **y** emite los `tcgcsv_singles` del
+set. La interpretación de lectura es la **más simple** (un provider, sin segundo path de escritura que mantener) y
+**money-safe** (congela real, nunca $0, nunca cross-finish), y el `--force` cubre el hueco.
+
+**Consecuencia normativa.** «Fallback-only» de §4.35(b)/§4.27f se entiende **siempre** como fallback de **LECTURA/
+resolución**, nunca como mandato de una escritura PPT en el barrido. Cualquier redacción previa con verbo «escribe»
+referida a PPT en el barrido se lee como «**aflora por precedencia de lectura**». Sin cambio de código (ratifica lo
+implementado), sin migración, sin cambio de forma de contrato.
 
 ---
 
