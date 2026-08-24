@@ -15,6 +15,8 @@ import {
   interpExact,
   rawCentsFromRational,
   saleBpPoints,
+  explainSaleFromCurve,
+  MAX_CENTS_CURVE,
   isBountyEffective,
   marketBracketOf,
   normalizePricingCurve,
@@ -239,7 +241,7 @@ describe('pricing-curve — EMPATE ⇒ market (§N.7, desempate fijado)', () => 
   });
 });
 
-describe('pricing-curve — invariantes VALIDABLES del setting (§4.36.3, V1–V8)', () => {
+describe('pricing-curve — invariantes VALIDABLES del setting (§4.36.3, V1–V9)', () => {
   it('el seed de §N.2 es VÁLIDO', () => {
     expect(validatePricingCurve(DEFAULT_PRICING_CURVE)).toBeNull();
   });
@@ -335,10 +337,13 @@ describe('pricing-curve — invariantes VALIDABLES del setting (§4.36.3, V1–V
       { marketCents: 2500, multiplierBp: 10_000 },
       { marketCents: 50_000, multiplierBp: 10_000 },
     ];
+    // El tramo final va PLANO a propósito: bajar el pct de vuelta a 30 % haría que este mismo fixture
+    // violara además V9 (v2.1.4) —el pago absoluto caería entre $400 y $500— y el test dejaría de
+    // aislar V6, que es lo que quiere comprobar.
     c.buy.points = [
       { marketCents: 2500, pctBp: 3_000 },
       { marketCents: 10_000, pctBp: 10_000 },
-      { marketCents: 50_000, pctBp: 3_000 },
+      { marketCents: 50_000, pctBp: 10_000 },
     ];
     expect(validatePricingCurve(c)).toMatchObject({ code: 'BUY_ABOVE_SALE', details: { marketCents: 10_000 } });
   });
@@ -729,5 +734,191 @@ describe('E0-bis — V6 exige ≥ 1 unidad de separación (margen cero prohibido
 
   it('el seed de §N.2 conserva una separación de MILES de bp (coste práctico nulo)', () => {
     expect(collectCurveViolations(DEFAULT_PRICING_CURVE)).toEqual([]);
+  });
+});
+
+// ============================================================================
+// E0-ter (v2.1.4) — V9: la monotonía del eje de COMPRA, y el techo de `marketCents`.
+// ============================================================================
+
+/**
+ * V5 solo iteraba `sale.points`. V6 ata la compra únicamente en RELATIVO (por debajo de la venta), así
+ * que **nada impedía que el monto pagado bajara en absoluto mientras el mercado subía**. Es la misma
+ * clase que I1 —«más mercado ⇒ menos dinero»— sin la amplificación de la escalera, porque la compra no
+ * se redondea: no da el salto llamativo de un peldaño, solo **pierde dinero en silencio**. §N.0 aplica
+ * simétricamente y con la misma dureza: pagar de menos ⇒ el vendedor no vende ⇒ carta perdida.
+ */
+describe('E0-ter — V9: la curva de COMPRA no puede pagar menos por más mercado (§4.36.3)', () => {
+  const withBuy = (points: { marketCents: number; pctBp: number }[]): PricingCurve => {
+    const c = JSON.parse(JSON.stringify(DEFAULT_PRICING_CURVE)) as PricingCurve;
+    c.buy.points = points;
+    return c;
+  };
+
+  it('REGRESIÓN del techlead: `[{2500,5000},{10000,1000}]` ⇒ 422 BUY_CURVE_NOT_MONOTONIC en el tramo (0,1)', () => {
+    const curve = withBuy([
+      { marketCents: 2500, pctBp: 5000 },
+      { marketCents: 10000, pctBp: 1000 },
+    ]);
+    expect(validatePricingCurve(curve)).toMatchObject({
+      code: 'BUY_CURVE_NOT_MONOTONIC',
+      details: { axis: 'buy', index: 0, index2: 1, marketCents: 2500, marketCentsTo: 10000 },
+    });
+  });
+
+  it('y el pago que delataba el hueco: $25 ⇒ $12.50, $80 ⇒ $16.53, $100 ⇒ $10.00 (menos con MÁS mercado)', () => {
+    const curve = withBuy([
+      { marketCents: 2500, pctBp: 5000 },
+      { marketCents: 10000, pctBp: 1000 },
+    ]);
+    // La matemática NO cambia (V9 valida al GUARDAR, no al resolver): se comprueba que el caso que
+    // ahora se rechaza es exactamente el que pagaba de menos.
+    expect(resolveBuyFromCurve(2500, curve).cents).toBe(1250);
+    expect(resolveBuyFromCurve(8000, curve).cents).toBe(1653);
+    expect(resolveBuyFromCurve(10000, curve).cents).toBe(1000); // ⛔ $89 más de mercado, $6.53 menos
+  });
+
+  it('el caso de QA con diales de tienda real (50 % @ $10 → 20 % @ $500): se RECHAZA', () => {
+    const curve = withBuy([
+      { marketCents: 1000, pctBp: 5000 },
+      { marketCents: 50000, pctBp: 2000 },
+    ]);
+    // $410.90 pagaba $104.60 y $500.00 pagaba $100.00: con $89.10 más de valor, $4.60 menos.
+    expect(resolveBuyFromCurve(41090, curve).cents).toBeGreaterThan(resolveBuyFromCurve(50000, curve).cents!);
+    expect(validatePricingCurve(curve)?.code).toBe('BUY_CURVE_NOT_MONOTONIC');
+  });
+
+  it('el chequeo es de EXTREMOS, y es el DERECHO el que atrapa el caso (igual que en V5)', () => {
+    // s = (1000−5000)/(10000−2500) = −0.5333…
+    //   p0 + m0·s = 5000 − 1333.3 = +3666.7 ≥ 0  ✅  (el izquierdo NO lo atrapa)
+    //   p1 + m1·s = 1000 − 5333.3 = −4333.3 < 0  ❌  (el derecho SÍ)
+    const s = (1000 - 5000) / (10000 - 2500);
+    expect(5000 + 2500 * s).toBeGreaterThanOrEqual(0);
+    expect(1000 + 10000 * s).toBeLessThan(0);
+  });
+
+  it('un pct DECRECIENTE que igual paga más en absoluto es LEGÍTIMO (V9 es invariante de dinero, no de intención)', () => {
+    // 50 % @ $25 → 40 % @ $500: el pct baja, pero el pago sube ($12.50 ⇒ $200). §N.1 «el pct sube» es
+    // INTENCIÓN y vive como aviso NO bloqueante del previsualizador; V9 impone solo el invariante.
+    const curve = withBuy([
+      { marketCents: 2500, pctBp: 5000 },
+      { marketCents: 50000, pctBp: 4000 },
+    ]);
+    expect(collectCurveViolations(curve).map((e) => e.code)).not.toContain('BUY_CURVE_NOT_MONOTONIC');
+    expect(resolveBuyFromCurve(50000, curve).cents!).toBeGreaterThan(resolveBuyFromCurve(2500, curve).cents!);
+  });
+
+  /**
+   * ⚠️ El caso que la spec manda cubrir EXPLÍCITAMENTE. En venta los tramos planos son crecientes
+   * porque V4 garantiza `k ≥ 10000 > 0`; en compra NO hay V4 y `pctBp ∈ [0, 10000]`, así que la
+   * justificación es otra: `p ≥ 0` de V3. Con `p = 0` el tramo es CONSTANTE (no decreciente) y el pago
+   * se queda en el `bin`. Si alguien «simplifica» V9 copiando el razonamiento de venta, este test cae.
+   */
+  it('`pctBp = 0` DEBE PASAR: constante no es decreciente (la razón es `p ≥ 0` de V3, NO V4)', () => {
+    const curve = withBuy([
+      { marketCents: 2500, pctBp: 0 },
+      { marketCents: 50000, pctBp: 0 },
+    ]);
+    expect(collectCurveViolations(curve).map((e) => e.code)).not.toContain('BUY_CURVE_NOT_MONOTONIC');
+    // Y el pago se queda en el bin sobre todo el tramo (jamás MX$0: el `max` con el bin manda).
+    expect(resolveBuyFromCurve(2500, curve).cents).toBe(DEFAULT_PRICING_CURVE.buy.binCents);
+    expect(resolveBuyFromCurve(50000, curve).cents).toBe(DEFAULT_PRICING_CURVE.buy.binCents);
+  });
+
+  it('`pctBp = 0` seguido de un tramo que sube también pasa (0 → 30 % es creciente)', () => {
+    const curve = withBuy([
+      { marketCents: 2500, pctBp: 0 },
+      { marketCents: 50000, pctBp: 3000 },
+    ]);
+    expect(collectCurveViolations(curve).map((e) => e.code)).not.toContain('BUY_CURVE_NOT_MONOTONIC');
+  });
+
+  it('el seed de §N.2 pasa V9 (su pct sube en todo el dominio)', () => {
+    expect(collectCurveViolations(DEFAULT_PRICING_CURVE)).toEqual([]);
+  });
+
+  it('barrido: una curva que pasa V9 es monótona peso a peso en el pago', () => {
+    const curve = withBuy([
+      { marketCents: 1000, pctBp: 3000 },
+      { marketCents: 50000, pctBp: 5000 },
+    ]);
+    expect(collectCurveViolations(curve)).toEqual([]);
+    let prev = -1;
+    for (let m = 1; m <= 600000; m++) {
+      const c = resolveBuyFromCurve(m, curve).cents!;
+      expect(c).toBeGreaterThanOrEqual(prev);
+      prev = c;
+    }
+  });
+});
+
+describe('E0-ter — V3 acota `marketCents` por ARRIBA (v2.1.4)', () => {
+  it('un breakpoint de 9e9 se RECHAZA: `num` saldría del rango seguro dentro de `interpExact`', () => {
+    const c = JSON.parse(JSON.stringify(DEFAULT_PRICING_CURVE)) as PricingCurve;
+    c.sale.points[1].marketCents = 9_000_000_000;
+    expect(validatePricingCurve(c)).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { axis: 'sale', marketCents: 9_000_000_000 },
+    });
+  });
+
+  it('también en el eje de COMPRA', () => {
+    const c = JSON.parse(JSON.stringify(DEFAULT_PRICING_CURVE)) as PricingCurve;
+    c.buy.points[1].marketCents = 9_000_000_000;
+    expect(validatePricingCurve(c)).toMatchObject({ code: 'VALIDATION_ERROR', details: { axis: 'buy' } });
+  });
+
+  it('exactamente MAX_CENTS es válido (la cota es inclusiva, misma Int32 que todo monto del sistema)', () => {
+    const c = JSON.parse(JSON.stringify(DEFAULT_PRICING_CURVE)) as PricingCurve;
+    c.sale.points[c.sale.points.length - 1].marketCents = MAX_CENTS_CURVE;
+    c.buy.points[c.buy.points.length - 1].marketCents = MAX_CENTS_CURVE;
+    expect(collectCurveViolations(c).filter((e) => e.blocking)).toEqual([]);
+  });
+
+  it('con la cota, `num` de `interpExact` sigue dentro de Number.MAX_SAFE_INTEGER', () => {
+    // Peor caso: den ~ MAX_CENTS y salto de valor máximo (1e6 bp).
+    const pts = [
+      { marketCents: 0, valueBp: 1_000_000 },
+      { marketCents: MAX_CENTS_CURVE, valueBp: 10_000 },
+    ];
+    const { num } = interpExact(pts, MAX_CENTS_CURVE - 1);
+    expect(Number.isSafeInteger(num)).toBe(true);
+  });
+});
+
+describe('rawCentsFromRational — ROUND_HALF_UP también con operandos NEGATIVOS (v2.1.4)', () => {
+  /**
+   * El docblock afirmaba «el operando es SIEMPRE ≥ 0 por construcción» y usaba `floor((2n+d)/2d)`, que
+   * en BigInt trunca hacia cero. La premisa era FALSA: V3 no acota `multiplierBp` por abajo y V4 es
+   * deliberadamente NO bloqueante, así que el previsualizador calcula con multiplicador negativo — es
+   * justo el caso de curva rota que existe para explicar. Anti-patrón de I1 en miniatura: un atajo de
+   * redondeo justificado por un invariante que no se cumple.
+   */
+  it('el caso de QA: `(5, -50000, 1)` es EXACTAMENTE −25, no −24 (medio alejándose de cero)', () => {
+    expect(rawCentsFromRational(5, -50000, 1)).toBe(-25);
+  });
+
+  it('espeja la rama negativa de `roundHalfUp` (mismo modo fijado en el código, no en el insumo)', () => {
+    expect(rawCentsFromRational(3, -5000, 1)).toBe(-2); // −1.5 ⇒ −2
+    expect(rawCentsFromRational(1, -5000, 1)).toBe(-1); // −0.5 ⇒ −1
+    expect(rawCentsFromRational(3, 5000, 1)).toBe(2); // +1.5 ⇒ +2 (simétrico)
+    expect(roundHalfUp(-1.5)).toBe(-2);
+  });
+
+  it('el previsualizador de una curva ROTA (V4 no bloqueante) da la cifra correcta en pesos', () => {
+    const broken = JSON.parse(JSON.stringify(DEFAULT_PRICING_CURVE)) as PricingCurve;
+    broken.sale.points[0].multiplierBp = -50_000; // absurdo, pero CALCULABLE ⇒ el preview lo pinta
+    // V4 lo reporta, pero NO bloquea: la traza tiene que ser aritmética honesta.
+    expect(collectCurveViolations(broken).map((e) => e.code)).toContain('SALE_BELOW_MARKET');
+    const trace = explainSaleFromCurve(1000, broken);
+    expect(trace.rawCents).toBe(-5000); // 1000 × (−50000/10000) = −5000, exacto
+    // El precio cobrado NO se ve afectado: el `max` con el piso gana y el PUT rechazaría la curva.
+    expect(trace.priceCents).toBe(2500);
+    expect(trace.basis).toBe('floor');
+  });
+
+  it('acota por MAGNITUD en los dos signos (BE-27), sin desbordar al convertir a `number`', () => {
+    expect(rawCentsFromRational(2_000_000_000, 1_000_000, 1)).toBe(MAX_CENTS_CURVE);
+    expect(rawCentsFromRational(2_000_000_000, -1_000_000, 1)).toBe(-MAX_CENTS_CURVE);
   });
 });

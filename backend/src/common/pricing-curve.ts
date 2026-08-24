@@ -209,28 +209,55 @@ export interface CurveSegment {
  * `rawCents = ROUND_HALF_UP( m · num / (den · 10000) )`. Es el ÚNICO redondeo de la cadena de venta y
  * de compra.
  *
- * Se calcula en `BigInt` a propósito: `m` llega hasta `MAX_CENTS` (~2.1e9) y `num` hasta ~1e15, así
+ * Se calcula en `BigInt` a propósito: `m` llega hasta `MAX_CENTS` (~2.1e9) y `num` hasta ~2.1e15, así
  * que el producto rebasa `Number.MAX_SAFE_INTEGER` (9e15) y en `number` se perdería precisión — que es
- * exactamente lo que esta corrección viene a eliminar. El operando es SIEMPRE ≥ 0 por construcción
- * (§4.36.1), así que «medio alejándose de cero» se reduce a `floor((2n + d) / 2d)`.
+ * exactamente lo que esta corrección viene a eliminar.
  *
- * El resultado se acota a `MAX_CENTS` ANTES de volver a `number`: por encima de eso ya no hay precio
+ * ### El operando PUEDE ser negativo (corrección v2.1.4)
+ * La versión anterior afirmaba «siempre ≥ 0 por construcción» y usaba `floor((2n+d)/2d)`, que en
+ * `BigInt` **trunca hacia cero** y por tanto NO es «medio alejándose de cero» para negativos:
+ * `rawCentsFromRational(5, -50000, 1)` daba `-24` cuando el valor exacto es `-25.0`.
+ *
+ * **Y la premisa era falsa.** V3 no acota `multiplierBp` por abajo y **V4 (`SALE_BELOW_MARKET`) es
+ * deliberadamente NO BLOQUEANTE** (§4.36.8a(c)): el previsualizador SÍ calcula con multiplicador
+ * negativo — es justo el caso de curva rota que existe para explicar. No llega a un precio cobrado
+ * (el `PUT` rechaza y el `max` con el piso gana), pero sí a una **cifra en pesos equivocada en la
+ * memoria de cálculo**, exactamente donde el dueño está mirando para entender el error.
+ *
+ * Es **el anti-patrón de I1 en miniatura**: un atajo de redondeo justificado por un invariante que no
+ * se cumple. Por eso el modo se fija con la MISMA doctrina que `roundHalfUp` (arriba): se implementa
+ * la rama negativa para que el modo quede FIJADO en el código y no dependa de que el insumo nunca sea
+ * negativo.
+ *
+ * El resultado se acota a ±`MAX_CENTS` ANTES de volver a `number`: por encima de eso ya no hay precio
  * representable (BE-27) y el clamp de `money.ts` haría lo mismo; hacerlo aquí evita que un `BigInt`
  * astronómico pase por una conversión con pérdida.
  */
 export function rawCentsFromRational(marketCents: number, num: number, den: number): number {
   const n = BigInt(marketCents) * BigInt(num);
   const d = BigInt(den) * 10_000n;
-  const q = (2n * n + d) / (2n * d); // ROUND_HALF_UP con operandos >= 0
+  // Magnitudes SIEMPRE positivas + signo aparte: así «medio ALEJÁNDOSE DE CERO» vale para los dos
+  // signos, sin depender de cómo trunque la división de BigInt.
+  const negative = n < 0n !== d < 0n;
+  const an = n < 0n ? -n : n;
+  const ad = d < 0n ? -d : d;
+  const mag = (2n * an + ad) / (2n * ad); // ROUND_HALF_UP sobre magnitudes
   const cap = BigInt(MAX_CENTS_CURVE);
-  return Number(q > cap ? cap : q);
+  const capped = mag > cap ? cap : mag;
+  return Number(negative ? -capped : capped);
 }
 
 /**
  * Tope de representación de un monto en centavos (espejo de `MAX_CENTS` de `money.ts`, duplicado aquí
  * porque `common/pricing-curve.ts` no depende de nada: es `Int32` de Postgres).
+ *
+ * v2.1.4 — además de acotar el RESULTADO, es la cota normativa de `marketCents` en V3: `interpExact`
+ * calcula `num = v0·den + (v1−v0)·(m−m0)` en aritmética `number` **antes** de que el `BigInt`
+ * intervenga, y con `den`/`m` acotados por esto y `v ≤ 1e6` el `num` llega a ~2.1e15 y CABE en
+ * `Number.MAX_SAFE_INTEGER` (~9e15). Con un breakpoint absurdo NO cabe, y se perdería precisión justo
+ * en el paso que E0-bis acaba de blindar.
  */
-const MAX_CENTS_CURVE = 2_147_483_647;
+export const MAX_CENTS_CURVE = 2_147_483_647;
 
 /**
  * Valor interpolado como número, **SOLO PARA DISPLAY** (memoria de cálculo del previsualizador y del
@@ -515,7 +542,7 @@ export function marketBracketOf(marketMxnCents: number | null): MarketBracket | 
 }
 
 // ============================================================================
-// Invariantes VALIDABLES del setting (§4.36.3, V1–V8). Se imponen al GUARDAR (422), no solo en
+// Invariantes VALIDABLES del setting (§4.36.3, V1–V9). Se imponen al GUARDAR (422), no solo en
 // runtime, sobre el OBJETO COMPLETO. Todos son chequeos EXACTOS y FINITOS — no muestreos.
 // ============================================================================
 
@@ -525,6 +552,7 @@ export type CurveErrorCode =
   | 'DUPLICATE_BREAKPOINT'
   | 'SALE_BELOW_MARKET'
   | 'SALE_CURVE_NOT_MONOTONIC'
+  | 'BUY_CURVE_NOT_MONOTONIC'
   | 'BUY_ABOVE_SALE'
   | 'BIN_ABOVE_FLOOR'
   | 'ROUNDING_LADDER_INVALID';
@@ -585,7 +613,8 @@ function indexed<T extends { marketCents: number }>(points: readonly T[], value:
  * Valida el objeto COMPLETO (no un delta). Devuelve el PRIMER error o `null` si todo pasa.
  *
  * Orden de evaluación (determinista, de lo estructural a lo algebraico): forma → V1 → V3 (tipos y
- * rangos) → **V2** → V4 → V8 → V7 → V5 → V6. V2 (puntos ordenables y únicos) va ANTES que V4 porque
+ * rangos) → **V2** → V4 → V8 → V7 → V5 → **V9** → V6. V9 va junto a V5 (es su gemela algebraica en el
+ * eje de compra) y antes que V6, que compara los DOS ejes entre sí. V2 (puntos ordenables y únicos) va ANTES que V4 porque
  * es BLOQUEANTE: con breakpoints duplicados la curva ni siquiera es evaluable, y correr los chequeos
  * algebraicos encima produciría errores derivados que confundirían al editor.
  *
@@ -603,7 +632,7 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
  *  - **Fase 1 — BLOQUEANTES** (forma, V1, V3, V2, escalera estructural): si hay una, se devuelve SOLA
  *    y no se sigue. Las fases posteriores asumen una curva evaluable; correrlas sobre puntos
  *    duplicados o no numéricos produciría errores derivados que confundirían al editor.
- *  - **Fase 2 — NO BLOQUEANTES** (V4, V8 fino, V7, V5, V6): se acumulan todas, porque el
+ *  - **Fase 2 — NO BLOQUEANTES** (V4, V8 fino, V7, V5, V9, V6): se acumulan todas, porque el
  *    previsualizador las pinta juntas mientras el dueño corrige (§4.36.8a(c)).
  *
  * El `PUT` usa `validatePricingCurve` (la primera) — cualquier infracción rechaza el guardado; el
@@ -657,9 +686,9 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
     if (p == null || typeof p !== 'object') {
       return [err('VALIDATION_ERROR', 'sale point must be an object { marketCents, multiplierBp }', { axis: 'sale', index: i })];
     }
-    if (!isInt(p.marketCents) || p.marketCents < 0) {
+    if (!isInt(p.marketCents) || p.marketCents < 0 || p.marketCents > MAX_CENTS_CURVE) {
       return [
-        err('VALIDATION_ERROR', 'marketCents must be an integer >= 0 (cents)', {
+        err('VALIDATION_ERROR', `marketCents must be an integer in [0, ${MAX_CENTS_CURVE}] (cents)`, {
           axis: 'sale',
           index: i,
           marketCents: p.marketCents,
@@ -692,9 +721,9 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
     if (p == null || typeof p !== 'object') {
       return [err('VALIDATION_ERROR', 'buy point must be an object { marketCents, pctBp }', { axis: 'buy', index: i })];
     }
-    if (!isInt(p.marketCents) || p.marketCents < 0) {
+    if (!isInt(p.marketCents) || p.marketCents < 0 || p.marketCents > MAX_CENTS_CURVE) {
       return [
-        err('VALIDATION_ERROR', 'marketCents must be an integer >= 0 (cents)', {
+        err('VALIDATION_ERROR', `marketCents must be an integer in [0, ${MAX_CENTS_CURVE}] (cents)`, {
           axis: 'buy',
           index: i,
           marketCents: p.marketCents,
@@ -808,6 +837,53 @@ export function validatePricingCurve(value: unknown): CurveValidationError | nul
     }
   }
   // Los tramos planos (antes del primero, después del último) son crecientes porque k > 0 (V4 ⇒ k ≥ 10000).
+
+  // ---- V9 (v2.1.4): curva de COMPRA monótona creciente ---------------------
+  // MISMA forma algebraica que V5, sobre `buy.points`: g(m) = m·p(m) es cuadrática por tramo ⇒ g' es
+  // LINEAL ⇒ g' >= 0 en TODO el tramo si y solo si lo es en sus dos extremos.
+  //
+  // POR QUÉ EXISTE (hallazgo del techlead): V5 solo iteraba `sale.points` y V6 ata la compra únicamente
+  // en RELATIVO (por debajo de la venta), así que nada impedía que el MONTO PAGADO bajara en absoluto
+  // mientras el mercado subía. `[{2500,5000},{10000,1000}]` se guardaba con 200 y pagaba $12.50 en $25,
+  // $16.53 en $80 y $10.00 en $100. Es la MISMA clase que I1 («más mercado ⇒ menos dinero») sin la
+  // amplificación de la escalera —la compra no se redondea—, y por eso pasó desapercibida: no da el
+  // salto llamativo de un peldaño, solo pierde dinero en silencio. §N.0 aplica SIMÉTRICAMENTE: pagar de
+  // menos ⇒ el vendedor no vende ⇒ carta perdida, irrecuperable.
+  for (let i = 0; i < buyPts.length - 1; i++) {
+    const p0 = buyPts[i];
+    const p1 = buyPts[i + 1];
+    const span = p1.marketCents - p0.marketCents; // > 0 por V2
+    const dp = p1.valueBp - p0.valueBp;
+    const dLeft = p0.valueBp * span + p0.marketCents * dp; // = span · g'(m0)
+    const dRight = p1.valueBp * span + p1.marketCents * dp; // = span · g'(m1)
+    if (dLeft < 0 || dRight < 0) {
+      out.push(
+        err(
+          'BUY_CURVE_NOT_MONOTONIC',
+          'buy curve is not monotonically increasing: more market would pay LESS on this segment',
+          {
+            axis: 'buy',
+            index: p0.index,
+            index2: p1.index,
+            marketCents: p0.marketCents,
+            marketCentsTo: p1.marketCents,
+          },
+          false,
+        ),
+      );
+    }
+  }
+  // ⚠️ Los tramos planos de COMPRA (antes del primero, después del último) NO necesitan chequeo propio,
+  // pero LA RAZÓN NO ES LA DE VENTA. Allá el argumento es V4 (`k ≥ 10000 > 0`); aquí NO hay V4 y
+  // `pctBp ∈ [0, 10000]`, así que se apoya en V3: con `p ≥ 0` constante, `g(m) = m·p/10000` es NO
+  // DECRECIENTE — estrictamente creciente si `p > 0`, y CONSTANTE si `p = 0` (que sigue cumpliendo
+  // «monótona no decreciente» y deja el pago en el `bin` sobre todo ese tramo). Queda escrito para que
+  // nadie lo «simplifique» copiando el razonamiento de venta y deje el caso `p = 0` sin justificar.
+  //
+  // Lo que V9 NO hace: NO exige que el pct SUBA (`p1 >= p0`). Eso es la INTENCIÓN de §N.1 y vive como
+  // aviso NO bloqueante del previsualizador. V9 impone el INVARIANTE DE DINERO (nunca se paga menos por
+  // más mercado), que es más débil y es el que corresponde: bajar el pct en un tramo mientras el pago
+  // absoluto sigue subiendo es legítimo. Invariante = dinero; aviso = intención.
 
   // ---- V6: compra ESTRICTAMENTE por debajo de venta, en TODO el dominio -----
   // Ambas curvas son lineales por tramo sobre la UNIÓN de sus `marketCents` ⇒ la diferencia
