@@ -8112,3 +8112,60 @@ que generaliza:
 `tsc --noEmit` limpio · `lint` 0 errores (2 warnings preexistentes ajenos) · **unitarios: 180 suites /
 1989 tests** · **integración: 146/146 contra Postgres real**. Las tres rutas corregidas están
 verificadas **por HTTP contra el stack vivo**, no solo en unitarios.
+
+---
+
+## v2.1.8 — Los valores de enum se DERIVAN del schema (el dueño ya puede vender UPC) (2026-08-24)
+
+**Ortogonal a P-48**: no toca la curva, ni el guardarraíl, ni los DTOs de precio. Va aparte a
+propósito, para que el delta sea legible.
+
+### El daño, y por qué no fue uniforme
+
+`SealedSubtype` tiene **siete** valores en el schema (`box etb bundle tin blister upc collection`).
+Había **ocho** listas de cinco escritas a mano —tres más de las que el grep inicial encontró— y
+`upc`/`collection` quedaron fuera de todas:
+
+| sitio | efecto |
+|---|---|
+| `@IsIn` del catálogo público | filtrar por UPC ⇒ **400** |
+| `validateEnum` del catálogo de sellado | mismo rechazo |
+| filtro de la **bóveda** | **se ignora EN SILENCIO**: el cliente pide sus UPC y recibe todo su sellado |
+| `@IsIn` del alta de inventario (**×4**) | **no se podía ni CAPTURAR** una pieza UPC |
+| `SEALED_SUBTYPE_KEYS` de spreads | **422**: sin poder calibrar spread ⇒ siempre el fallback del 25 % |
+
+El de la bóveda es el peor: **no falla, miente**. «Ignorar en silencio lo que no matchea» es un
+diseño correcto para **basura desconocida** — pero aquí el valor **existe en el schema**, así que el
+silencio escondía un bug en vez de tolerar entrada inválida. Y el de spreads es **dinero**: un UPC es
+pieza grande, comparable a una box (18 %) o un ETB (22 %), y salía al 25 % sin ajuste posible.
+
+### Por qué derivar y no «añadir dos strings»
+
+Añadirlos a ocho listas cerraba **este** bug y dejaba la **clase** abierta: el próximo valor del enum
+se cae por el mismo agujero. Las listas se derivan ahora del **enum de Prisma** —que es el espejo del
+schema— en `src/common/enum-values.ts`, **una sola declaración**. Prisma genera un objeto en runtime
+además del tipo, así que `Object.values(...)` no puede desincronizarse por construcción. Se derivan
+también `Finish`, `ProductType`, `GradingCompany`, `AcquisitionType`, `RawCondition`,
+`SealedCondition` y `Locale`.
+
+> **La distinción que quedó escrita en el módulo, porque derivar mal rompería negocio:** ahí solo va
+> lo que debe ser el enum **completo**. Un `@IsIn` que a propósito acepta un **subconjunto** —
+> `UserStatus` en `PATCH /admin/users/:id/status`, que acepta `active|blocked` pero **no** `deleted`
+> porque ese lo fija el `DELETE`— **no se deriva**: su lista es una **decisión de producto**, no un
+> espejo del schema.
+
+### El test cierra la clase en DOS direcciones, y la segunda encontró más
+
+1. **Paridad**: cada lista derivada == los valores del enum. Además se lee **`schema.prisma` en
+   disco**, por si el client estuviera regenerado pero desfasado.
+2. **Residuo**: **ninguna lista literal** de esos valores sobrevive en `src/`.
+
+La segunda dirección **encontró dos sitios que el grep inicial no vio** (`buylist.dto.ts` con `Finish`
+y `ProductType`; `pricing.controller.ts` con `Finish`). Sin ella, la paridad habría pasado verde
+mientras un `@IsIn` olvidado seguía rechazando al cliente — que es **exactamente la situación que
+había**. Misma doctrina que el candado de arquitectura del eje de venta y que `DisplayBp`: convertir
+una disciplina en algo que sostiene la máquina.
+
+### Estado
+`tsc` limpio · `lint` 0 errores · **unitarios 181 suites / 2002 tests** · **integración 146/146 contra
+Postgres real**.
