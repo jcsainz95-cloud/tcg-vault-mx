@@ -3,6 +3,10 @@
  * Los valores viven en DB (editables sin redeploy). Aquí solo las KEYS y los DEFAULTS.
  */
 import { TIER_IDS, isTierId } from '../../common/pricing-tiers';
+// v2.0 (P-48, §4.36.2): la CURVA vive en `common/` (zona compartida, sin infra) para que el seed, las
+// migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
+// validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
+import { DEFAULT_PRICING_CURVE, validatePricingCurve } from '../../common/pricing-curve';
 export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
   APORTACION_PCT: 'aportacion_pct',
@@ -48,6 +52,15 @@ export const SettingKey = {
   // AUSENTE del mapa ⇒ tier por defecto ⇒ fallbackPct (money-safe, nunca $0/bin fijo). Editable por M2
   // (GET/PUT /admin/pricing/tier-map), no por PUT /admin/settings.
   PRICING_TIER_MAP: 'pricing_tier_map',
+  // v2.0 (P-48, §4.36.2, M-41.7): LA CURVA — UNA sola clave que reemplaza a las CINCO de arriba
+  // (`sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`,
+  // `buylist_price_fallback_pct`, `pricing_tier_map`). Es UNA y no dos (venta/compra) a propósito: el
+  // invariante «la compra queda por debajo de la venta en todo el dominio» es CRUZADO (depende de las
+  // dos curvas + piso + bin a la vez); con dos claves, dos PUT sucesivos abren una ventana en la que se
+  // compra por encima de lo que se vende. Con una, la validación es ATÓMICA por construcción.
+  // Editable SOLO por `GET/PUT /admin/pricing/curve` (como los spreads del sellado): NO se expone en
+  // `SETTING_DTO_MAP`, así que `PUT /admin/settings` no la toca.
+  PRICING_CURVE: 'pricing_curve',
   // v1.23-sealed-sales (§4.23c): spreads de VENTA del SELLADO por presentación + fallback global.
   // Espejo de SALES_PRICE_RULES/FALLBACK pero keyeados por SealedSubtype. `pct` = markup ARRIBA de
   // mercado (NO % de la referencia como en buylist). Editables por endpoints M2 dedicados
@@ -179,6 +192,12 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
     'Secret Rare': 'T4',
     'Gold Rare': 'T4',
   },
+  // v2.0 (P-48, §4.36.2 / M-41.7): SEED = los diales de PROJECT §N.2 VERBATIM. NO se DERIVA de las
+  // reglas viejas: la forma vieja (modos excluyentes por rareza/tier/acabado) y la nueva (una función
+  // del mercado) son INCONMENSURABLES — cualquier «conversión» sería una interpretación inventada, y el
+  // negocio NO está en vivo, así que no hay comportamiento que preservar. Son DIALES: el súper-admin los
+  // mueve desde M2 sin redeploy (el upsert del seed no pisa un valor ya editado).
+  [SettingKey.PRICING_CURVE]: DEFAULT_PRICING_CURVE,
   // v1.23-sealed-sales (§4.23c, SUP-6): seed confirmado por el PO — markup % arriba de mercado por
   // presentación (ítems chicos → % mayor) y fallback global 25 para piezas sin subtype o subtype
   // sin regla. Editables en M2 (GET/PUT /admin/pricing/sealed-spreads).
@@ -337,6 +356,26 @@ export function validateTierMap(v: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * v2.0 (P-48, §4.36.3) — validador de PUERTA del dial `pricing_curve`. Delega en el ÚNICO validador
+ * (`common/pricing-curve.validatePricingCurve`, invariantes V1–V8) y aplana su resultado estructurado al
+ * `string | null` que espera `SETTING_VALIDATORS`. El endpoint dedicado `PUT /admin/pricing/curve` usa la
+ * forma ESTRUCTURADA para emitir el `422` con su código propio y el `details` que señala QUÉ PUNTO lo
+ * rompe (criterio 87); aquí se conserva el mensaje para que ninguna puerta quede más permisiva que la
+ * otra (misma doctrina que `validateFxManualOverrideRate`, FX-B2).
+ */
+export function validatePricingCurveSetting(v: unknown): string | null {
+  const problem = validatePricingCurve(v);
+  if (problem == null) return null;
+  const where =
+    problem.details.axis != null && problem.details.index != null
+      ? ` [${problem.details.axis}.points[${problem.details.index}]]`
+      : problem.details.axis != null
+        ? ` [${problem.details.axis}]`
+        : '';
+  return `${problem.code}: ${problem.message}${where}`;
 }
 
 /** Valida el fallback `buylist_price_fallback_pct` (número en [0, 100]). */
@@ -500,6 +539,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // v1.37 (§4.33b): mapa compartido rareza→tier. Se valida forma+TierId; la existencia de la rareza en
   // el catálogo la valida el PUT /pricing/tier-map (422 UNKNOWN_RARITY). No editable por PUT /settings.
   [SettingKey.PRICING_TIER_MAP]: validateTierMap,
+  // v2.0 (P-48, §4.36.3): la CURVA. Editable SOLO por PUT /admin/pricing/curve (no está en
+  // SETTING_DTO_MAP), pero se valida igual en esta puerta: V1–V8 money-safe, sin excepción.
+  [SettingKey.PRICING_CURVE]: validatePricingCurveSetting,
   // v1.23-sealed-sales (§4.23c/§4.23h): spreads del sellado (editados por M2, no por PUT settings,
   // pero se validan igual) + feature flags on|off.
   [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE]: validateSealedSpreads,
