@@ -2424,6 +2424,57 @@
   guard de auth opcional que popule `userId` cuando haya sesión (sin romper el acceso anónimo ni la
   respuesta neutra anti-enumeración).
 
+### Deuda del pase P-47 parte 2 (rama `fix/variant-composition-regression`, techlead APROBADO CON DEUDA, 2026-08-24)
+
+> Cierre de **P47-2** (§4.27f-2, v1.46): el override MANUAL es tier superior absoluto durable cross-day, y
+> la lectura de referencia une SIEMPRE a las candidatas del bloque reciente TODAS las filas manuales de la
+> clave (`MANUAL_REF_PREDICATE`, sin cota de fecha). El fix money-relevante ya está corregido con tests y no
+> figura como deuda; lo de abajo son los **3 ítems menores NO bloqueantes** que el techlead pidió anotar como
+> condición del cierre. Ninguno mueve dinero. Dueño de los tres: **backend**.
+>
+> **Cierre del eje P-47 (partes 1+2+3):** cerrado con **triple veredicto — QA APROBADO, techlead APROBADO CON
+> DEUDA ANOTADA (estos ítems + los de «P-47 parte 3»), seguridad CERRADA (v1.47)**.
+
+#### BE-79 · `ownedItemRefs` agrupa SIN `cardProductId` (omite `BASE_CARD_REF_WHERE`) (Baja — display, preexistente)
+- **Dónde:** `backend/src/modules/admin/admin.service.ts` (`ownedItemRefs`, ~L307). El `findMany` filtra solo
+  por `cardId` y la reducción llavea por `${cardId}|${productType}|${gradeKey}|${finish}` (~L323), **sin**
+  aplicar `BASE_CARD_REF_WHERE` ni distinguir `cardProductId`, a diferencia de `getReference` /
+  `getReferencesBatch` (que SÍ acotan al set_base/other vía `BASE_CARD_REF_WHERE`).
+- **Estado actual:** **preexistente** — NO introducido por `330f0b4` (P47-2 solo cambió «primera vista» →
+  `isBetterRef` sobre el mismo conjunto). Teóricamente una `PriceReference` de un `deck_exclusive`/`promo`
+  bajo el MISMO `cardId` podría **contaminar el bucket** de la carta de set en la vista 360° del admin
+  (esos precios viven en su producto separado y `getReference` los excluye a propósito).
+- **Impacto:** bajo — vista de **display** (valuación 360° del admin), **no money-moving** (el cobro/cotización
+  reales van por `getReference`/`getReferencesBatch`, que sí acotan). El escenario requiere que coexistan filas
+  de un producto separado y de la carta de set bajo el mismo `cardId`.
+- **Disparador:** al **unificar la capa de valuación del admin con `getReferencesBatch`** (familia BE-4/BE-49/
+  RB-8): al migrar `ownedItemRefs` a la primitiva batch compartida hereda `BASE_CARD_REF_WHERE` y el keying por
+  `cardProductId`, cerrando la contaminación teórica de paso.
+
+#### BE-80 · Lectura DIRIGIDA de manuales (`MANUAL_REF_PREDICATE`) sin `take` (Baja — teóricamente no acotada)
+- **Dónde:** `backend/src/modules/pricing/pricing.service.ts` — la rama `manualRows` de `getReference` (~L339-342)
+  y su homóloga en `getReferenceByCardProduct` (~L397) leen TODAS las filas que matchean `MANUAL_REF_PREDICATE`
+  (overrides humanos de la clave) **sin cota de fecha ni `take`** (a propósito: un override de meses atrás no
+  debe caer fuera de la ventana). El bloque reciente SÍ va capado (`take: SAME_DAY_REF_CANDIDATES`).
+- **Estado actual:** teóricamente **no acotada**; en la práctica acotada por el **nº de overrides humanos por
+  clave** (un puñado — los pone un operador a mano, no un feed). `pickBestRef` desempata el conjunto.
+- **Impacto:** bajo — el cardinal real es diminuto; no hay ruta que genere manuales en masa por clave.
+- **Disparador (blindaje OPCIONAL):** si algún día se automatizara la escritura de manuales, añadir
+  `orderBy: [{ capturedDate: 'desc' }]` + un `take` pequeño a la rama manual (el tier manual gana por
+  **frescura entre manuales**, así que un `take` corto sobre el orden desc no cambia el ganador). Severidad
+  menor; no urge.
+
+#### BE-81 · El warn de la cota `MAX_SANE_MARKET_USD` (P47-1) no incluye `set`/`groupId` (Baja — observabilidad)
+- **Dónde:** `backend/src/modules/pricing/providers/tcgcsv-singles-bulk.provider.ts` — el `logger.warn` de la
+  cota de cordura `MAX_SANE_MARKET_USD` (~L144-148) emite `productId`/`finish`/`market` pero **no** `set`/
+  `groupId`, que sí están en scope (el resto de warns del provider los incluyen).
+- **Estado actual:** la línea audita cada `market` anómalo omitido POR VARIANTE; un feed **masivamente
+  corrupto** de TCGCSV podría generar ruido por-variante sin el ancla `set`/`groupId` para agruparlo/filtrarlo.
+- **Impacto:** bajo — **observabilidad** menor; no afecta correctness (la fila anómala se OMITE, money-safe).
+  Ya señalado por **techlead** y **seguridad** en pases previos (nit de P47-1).
+- **Disparador:** al tocar la observabilidad del provider TCGCSV singles, añadir `set=${set.name}` /
+  `groupId=${groupId}` al warn de la cota (paridad con los otros dos warns del mismo archivo).
+
 ### Deuda del pase P-47 parte 3 (rama `fix/variant-composition-regression`, techlead APROBADO CON DEUDA, 2026-08-23)
 
 > Ingesta de precios de singles vía TCGCSV. Los 3 ítems de abajo son **menores no bloqueantes**;

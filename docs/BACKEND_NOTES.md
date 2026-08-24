@@ -7614,3 +7614,20 @@ cerca de ese techo, el `warn` lo haría visible antes de que impacte al catálog
 **Tests:** `backend/test/tcgcsv-singles-bulk.provider.spec.ts` — 3 casos nuevos: `market=Infinity` →
 omitida; `market` sobre la cota → omitida + warn (con productId/finish/market); `market` normal
 (3.50 USD) → emitido idéntico. Suite completa del provider: 11/11 verde.
+
+## Cierre eje P-47 (partes 1+2+3) — deuda no bloqueante anotada (2026-08-24)
+
+**Rama:** `fix/variant-composition-regression`
+
+El techlead APROBÓ el cierre de **P47-2** condicionado a registrar 3 ítems de deuda NO bloqueante. Quedaron
+anotados en `docs/TECH_DEBT.md` (sección «Deuda del pase P-47 parte 2»), dueño **backend**, sin tocar código
+de producción:
+- **BE-79** — `ownedItemRefs` (`admin.service.ts` ~L307) agrupa sin `cardProductId` / omite `BASE_CARD_REF_WHERE`
+  (display 360° admin, preexistente, no money-moving).
+- **BE-80** — lectura dirigida de manuales (`MANUAL_REF_PREDICATE` en `getReference`/`getReferenceByCardProduct`,
+  `pricing.service.ts`) sin `take`; acotada en la práctica por el nº de overrides humanos por clave.
+- **BE-81** — el `logger.warn` de la cota `MAX_SANE_MARKET_USD` (P47-1, `tcgcsv-singles-bulk.provider.ts`) no
+  incluye `set`/`groupId` (observabilidad menor; ya señalado por techlead y seguridad).
+
+**Veredicto del eje P-47 (partes 1+2+3):** cerrado con **triple veredicto — QA APROBADO, techlead APROBADO CON
+DEUDA ANOTADA, seguridad CERRADA (v1.47)**.
