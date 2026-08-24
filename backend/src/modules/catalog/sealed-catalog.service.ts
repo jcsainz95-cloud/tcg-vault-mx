@@ -8,9 +8,11 @@ import { BusinessException } from '../../common/business.exception';
 import { PriceBasis, SealedSpreadSource, sealedPriceBasisOf } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CatalogService, toCardDTO } from './catalog.service';
+import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 
-const SEALED_CONDITIONS = new Set<string>(['mint', 'minor_box_damage']);
-const SEALED_SUBTYPES = new Set<string>(['box', 'etb', 'bundle', 'tin', 'blister']);
+// v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí.
+const SEALED_CONDITIONS = new Set<string>(SEALED_CONDITION_VALUES);
+const SEALED_SUBTYPES = new Set<string>(SEALED_SUBTYPE_VALUES);
 const RANGES = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
 
 type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };

@@ -16,8 +16,10 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Finish, ProductType, RawCondition } from '@prisma/client';
+import { FINISH_VALUES, PRODUCT_TYPE_VALUES } from '../../../common/enum-values';
 
-const FINISHES = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'] as const;
+// v2.1.8: DERIVADO del schema (`common/enum-values.ts`) — un enum se declara UNA vez.
+const FINISHES = FINISH_VALUES;
 
 /**
  * v1.15 (ARCHITECTURE §4.16b) — cap de ítems por request del batch quote
@@ -39,7 +41,7 @@ export const MAX_APPROVED_PRICE_CENTS = 1_000_000;
 
 export class PublicQuoteDto {
   @IsString() cardId!: string;
-  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
+  @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
   @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
   // v1.6-finish: acabado cotizado (default normal). Se valida server-side contra
   // card.availableFinishes (SEC-A1); fuera de la lista → 422 FINISH_NOT_AVAILABLE.
@@ -59,7 +61,7 @@ export class PublicQuoteDto {
  */
 export class BuylistQuoteItemDto {
   @IsString() cardId!: string;
-  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
+  @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
   @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
   @IsOptional() @IsIn(FINISHES) finish?: Finish;
   // v1.30 (§4.29): productId OPCIONAL por-ítem (misma semántica que el quote por-carta). Presente ⇒ la
@@ -83,7 +85,7 @@ export class BatchQuoteDto {
 
 export class RequestItemDto {
   @IsString() cardId!: string;
-  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
+  @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
   @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
   // v1.6-finish: acabado del item (default normal), validado contra card.availableFinishes.
   @IsOptional() @IsIn(FINISHES) finish?: Finish;

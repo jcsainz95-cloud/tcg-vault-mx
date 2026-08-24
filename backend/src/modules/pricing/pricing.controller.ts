@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
+import { FINISH_VALUES } from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -71,7 +72,7 @@ class OverrideDto {
   // fijable — P-6 enruta al operador a override-and-publish, de modo que un 0 nunca es un precio legítimo.
   @IsInt() @Min(1) priceMxnCents!: number;
   // v1.6-finish: override por acabado (default normal). Cada acabado tiene su PriceReference.
-  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
 }
 

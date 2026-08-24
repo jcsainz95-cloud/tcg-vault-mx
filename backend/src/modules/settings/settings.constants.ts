@@ -6,6 +6,7 @@
 // migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
 // validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
 import { DEFAULT_PRICING_CURVE, validatePricingCurve } from '../../common/pricing-curve';
+import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
   APORTACION_PCT: 'aportacion_pct',
@@ -185,7 +186,10 @@ export function validatePricingCurveSetting(v: unknown): string | null {
 export const SEALED_SPREAD_PCT_MAX = 1000;
 
 /** Subtipos válidos del sellado (llaves de `sealed_spread_pct_by_subtype`). */
-export const SEALED_SUBTYPE_KEYS = ['box', 'etb', 'bundle', 'tin', 'blister'];
+// v2.1.8: DERIVADO del schema. Con la lista de cinco a mano, `PUT /admin/pricing/sealed-spreads`
+// devolvía 422 para `upc`/`collection`, así que el dueño NO podía calibrarles spread y salían al
+// fallback del 25 % — un UPC es pieza grande, comparable a una box (18 %) o un ETB (22 %).
+export const SEALED_SUBTYPE_KEYS: string[] = [...SEALED_SUBTYPE_VALUES];
 
 /**
  * Valida el mapa `sealed_spread_pct_by_subtype`: objeto, cada clave ∈ SEALED_SUBTYPE_KEYS, cada

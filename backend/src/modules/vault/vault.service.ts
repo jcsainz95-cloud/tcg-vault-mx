@@ -5,6 +5,7 @@ import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing
 import { BusinessException } from '../../common/business.exception';
 import { toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
+import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 
 // v1.17: etapas de un envío ACTIVO (subconjunto expuesto en HoldingDTO.shipmentState).
 // `entregado` no aparece (el item ya es `withdrawn` y sale de holdings) y `cancelado`
@@ -17,8 +18,11 @@ const ACTIVE_SHIPMENT_STAGES: ShipmentStatus[] = [
 ];
 
 // v1.23-sealed-sales: filtros válidos de la pestaña «Sellado» (se ignoran silenciosamente si no matchean).
-const SEALED_SUBTYPE_SET = new Set<string>(['box', 'etb', 'bundle', 'tin', 'blister']);
-const SEALED_CONDITION_SET = new Set<string>(['mint', 'minor_box_damage']);
+// v2.1.8: DERIVADOS del schema. Antes eran listas de cinco a mano y `upc`/`collection` no
+// estaban: el filtro de la bóveda los ignoraba EN SILENCIO (el cliente pedía sus UPC y recibía todo
+// su sellado). Tolerar basura desconocida está bien; esconder un valor que SÍ existe en el schema, no.
+const SEALED_SUBTYPE_SET = new Set<string>(SEALED_SUBTYPE_VALUES);
+const SEALED_CONDITION_SET = new Set<string>(SEALED_CONDITION_VALUES);
 
 /**
  * v1.42 (BLOQ-2a / H-P38-1, §4.34a) — cascada de display del SELLADO, RESUELTA server-side: snapshot
