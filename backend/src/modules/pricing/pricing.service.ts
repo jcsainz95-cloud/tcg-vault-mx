@@ -927,9 +927,35 @@ export class PricingService {
    * se cierra SOLA en la siguiente resolución (publicación, re-publicación o `publish-all`), sin
    * intervención manual. La vía manual (`POST /admin/pricing/override`) NO cambia.
    *
-   * **Context-agnóstico a propósito**, igual que `manualOverride` (invariante documentado v1.26): la
+   * ### v2.1.6 (S48-M1) — se cierra por (VARIANTE, EJE, RAZÓN), no por variante
+   *
+   * Hasta aquí esto era **context-agnóstico a propósito**, con este argumento (v1.26): «la
    * `PriceReference` es COMPARTIDA por clave, así que si el mercado resolvió, resolvió para las dos
-   * caras. Cerrar solo la del propio contexto dejaría la otra abierta para siempre.
+   * caras; cerrar solo la del propio contexto dejaría la otra abierta para siempre».
+   *
+   * **Ese argumento era válido cuando había UNA sola razón** (`no_market`), que efectivamente depende
+   * de un dato compartido. **`premium_at_floor` (v2.0) NO lo es:** depende de constantes **distintas
+   * por eje** (`sale.floorCents` vs `buy.binCents`, con V7 garantizando `bin < floor`), así que las
+   * dos caras **ya no resuelven juntas**. Con el seed y mercado de MX$10:
+   *
+   * ```
+   * VENTA  → 2500c, basis 'floor',  reason 'premium_at_floor'   (bloqueada)
+   * COMPRA →  300c, basis 'market', reason  null                (resuelve)
+   * ```
+   *
+   * …así que un cliente autenticado que mandara esa variante en `POST /buylist/requests` **cerraba la
+   * entrada que el eje de VENTA había abierto**. No perdía el bloqueo —el seam re-bloquea y re-escala
+   * en el siguiente `publish-all`— pero **perdía el AVISO**, que es justo la entrada que §4.36.5c
+   * describe como «la que necesita que el dueño mire». Y el peor momento para que la cola se vacíe
+   * sola es el **cut-over**, que es cuando más entradas hay.
+   *
+   * **Regla nueva, por razón:**
+   *  - `no_market` ⇒ se cierra **desde cualquier eje** (el argumento v1.26 sigue intacto: el dato que
+   *    faltaba es la `PriceReference`, y es compartida).
+   *  - `premium_at_floor` ⇒ se cierra **solo desde el eje que la abrió** (`context`). Que mi eje haya
+   *    salido del piso no dice NADA sobre el otro.
+   *  - `reason = null` (filas históricas anteriores a M-41) ⇒ como `no_market`: son de cuando esa era
+   *    la única razón posible. Preserva el comportamiento v1.26 para lo ya escrito.
    */
   async closePendingForVariant(
     cardId: string,
@@ -938,9 +964,31 @@ export class PricingService {
     finish: Finish = 'normal',
     cardProductId: number | null = null,
     sealedProductId: string | null = null,
+    // v2.1.6 (S48-M1): eje que CIERRA. Omitirlo conserva el cierre total (vía manual del admin, que
+    // arregla el dato de mercado compartido — raíz de las DOS razones).
+    context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
   ): Promise<number> {
     const res = await this.prisma.pendingPriceEntry.updateMany({
-      where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
+      where: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        cardProductId,
+        sealedProductId,
+        status: 'open',
+        ...(context
+          ? {
+              OR: [
+                // Dato COMPARTIDO ⇒ resolvió para las dos caras (invariante v1.26, intacto).
+                { reason: 'no_market' as const },
+                { reason: null },
+                // Constante POR EJE ⇒ solo puede cerrarla quien la abrió.
+                { reason: 'premium_at_floor' as const, context },
+              ],
+            }
+          : {}),
+      },
       data: { status: 'resolved', resolvedAt: new Date() },
     });
     return res.count;
@@ -983,7 +1031,17 @@ export class PricingService {
         reason,
       );
     }
-    await this.closePendingForVariant(key.cardId, key.productType, key.gradeKey, finish, cardProductId, sealedProductId);
+    // v2.1.6 (S48-M1): el EJE viaja al cierre. Sin él, el eje de compra podía apagar el aviso que
+    // había abierto el de venta (razones con constantes distintas por eje).
+    await this.closePendingForVariant(
+      key.cardId,
+      key.productType,
+      key.gradeKey,
+      finish,
+      cardProductId,
+      sealedProductId,
+      context,
+    );
     return undefined;
   }
 
