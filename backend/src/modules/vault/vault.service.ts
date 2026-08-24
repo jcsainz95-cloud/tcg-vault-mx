@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
 import { toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
@@ -150,7 +150,10 @@ export class VaultService {
         shipmentState,
         activeShipmentId,
         withdrawable,
-        referenceValue,
+        // v2.1.6 (S48-M2): el cliente NO es `vault_operator+`, así que la PROCEDENCIA no viaja. Su
+        // bóveda es superficie autenticada pero no operativa: el dueño de la carta necesita el VALOR
+        // y su frescura, no de qué feed salió ni si alguien lo fijó a mano.
+        referenceValue: toPublicPriceInfo(referenceValue),
         // v1.42 (BLOQ-2a): campos de sellado (solo sealed; {} en raw/graded).
         ...sealedFields,
       });
@@ -311,7 +314,7 @@ export class VaultService {
       // H-1 (v1.24): gate ÚNICO del mercado (dial + priced). Con off / no mapeado → null → pending.
       const marketCents = this.pricing.gateSealedMarketCents(rawRef, sourceOn);
       const priced = marketCents != null;
-      const marketRef: PriceInfo = priced ? rawRef! : { status: 'pending' };
+      const marketRef: PriceInfo = priced ? toPublicPriceInfo(rawRef!) : { status: 'pending' };
       const count = members.length;
       const ownership = { pending: 0, settled: 0 };
       for (const m of members) {
@@ -382,7 +385,8 @@ export class VaultService {
       certNumber: item.certNumber ?? undefined,
       ownershipStatus: item.ownershipStatus,
       status: item.status,
-      referenceValue,
+      // v2.1.6 (S48-M2): ídem — sin procedencia fuera de `vault_operator+`.
+      referenceValue: toPublicPriceInfo(referenceValue),
       movements: item.movements,
     };
   }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
 // el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
 // visibilidad del «Valor de mercado» en las dos fichas.
@@ -342,7 +342,11 @@ export class CatalogService {
       gradeValue: item.gradeValue ?? undefined,
       // v1.2 (M-12): nº de certificado PSA/CGC (verificable en la graduadora); null en raw/sealed.
       certNumber: item.certNumber ?? undefined,
-      referenceValue,
+      // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ se proyecta SIN `source`. `PriceSource` incluye
+      // `manual`, así que dejarlo pasar publicaría un mapa scrapeable de qué cartas llevan precio
+      // fijado a mano — o sea dónde falló el feed y dónde el precio puede estar desalineado. La
+      // frescura (`capturedDate`) sí es información legítima de compra y sigue viajando.
+      referenceValue: toPublicPriceInfo(referenceValue),
       salePriceCents,
       // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad. `referenceValue` sigue
       // viajando (el mismo DTO alimenta superficies admin y de valuación); el front OBEDECE esto.
@@ -504,7 +508,8 @@ export class CatalogService {
         gradeValue: item.gradeValue ?? undefined,
         stockCount: members.length,
         salePriceCents,
-        referenceValue: cheapest.dto.referenceValue, // único por K (misma PriceReference), informativo.
+        // Ya viene proyectado por `toListingDTO` (mismo K ⇒ misma PriceReference), informativo.
+        referenceValue: cheapest.dto.referenceValue,
         currency: 'MXN' as const,
       };
       return {

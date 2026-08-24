@@ -148,15 +148,47 @@ export function pickBestRef<T extends RefRow>(rows: T[]): T | null {
   return best;
 }
 
+/**
+ * `PriceInfo` describe el VALOR DE REFERENCIA (valor de mercado), no el precio de venta.
+ *
+ * ### v2.1.6 (S48-M2, fase de seguridad) — DTO CERRADO
+ * `isManualOverride` **SE RETIRA**. Nunca estuvo declarado en el contrato y el backend lo emitía
+ * igual **a endpoints anónimos**: un mapa **scrapeable** de qué cartas llevan precio fijado a mano —
+ * o sea dónde falló el feed automático y dónde es más probable que el precio esté desalineado. No se
+ * reubica en una superficie admin porque es **REDUNDANTE**: `source === 'manual'` carga exactamente
+ * el mismo bit, y mantener dos nombres para un mismo hecho es cómo se diverge.
+ *
+ * ⚠️ **Quitarlo no basta:** `PriceSource` incluye el valor `manual`, así que **`source` filtra la
+ * MISMA señal**. Norma: `source` se **OMITE en toda superficie pública/anónima** (`/catalog/*`,
+ * `/buylist/*`) vía `toPublicPriceInfo` y solo viaja en `vault_operator+`. El campo YA era opcional,
+ * así que omitirlo no cambia el tipo ni hace que `PriceInfo` signifique cosas distintas según la ruta
+ * (eso sí está prohibido para `referenceMxnCents`, que es la CARGA; `source` es **procedencia**).
+ * `capturedDate` sí puede viajar en público: la frescura del dato es información legítima de compra.
+ */
 export interface PriceInfo {
   status: 'priced' | 'pending';
   referenceMxnCents?: number;
+  /** PROCEDENCIA — `vault_operator+` únicamente. En público se OMITE (`toPublicPriceInfo`). */
   source?: PriceSourceStr;
-  // v1.43 (IMP-C, §4.23a): discriminante del override manual de MERCADO. `manualOverride()` siempre
-  // escribe `source='manual'` (por eso `source` basta), pero se expone el flag explícito para que el
-  // gate H-1 (`gateSealedMarketCents`) case el predicado normativo sin depender solo del string.
-  isManualOverride?: boolean;
   capturedDate?: string;
+}
+
+/**
+ * v2.1.6 (S48-M2) — proyección PÚBLICA de un `PriceInfo`: **quita la procedencia**. Es el único
+ * cuerpo que decide qué sale a superficie anónima; los seams públicos (`catalog`, `buylist`) lo
+ * aplican al construir su DTO.
+ *
+ * Un DTO es **CERRADO**: emitir un campo no declarado es violación de contrato, no una adición
+ * inocua. «Aditivo es seguro» vale para el **consumidor**, no para el **emisor** — publicar de más no
+ * rompe a nadie, **filtra**.
+ */
+export function toPublicPriceInfo(info: PriceInfo): PriceInfo {
+  // Se construye por LISTA BLANCA (no `delete`): si mañana `PriceInfo` gana un campo interno, este
+  // proyector NO lo deja salir por omisión. Es la diferencia entre cerrar una fuga y cerrar la clase.
+  const out: PriceInfo = { status: info.status };
+  if (info.referenceMxnCents !== undefined) out.referenceMxnCents = info.referenceMxnCents;
+  if (info.capturedDate !== undefined) out.capturedDate = info.capturedDate;
+  return out;
 }
 
 /** v1.29 (§4.27i) — precio por variante de un producto separado (CardProductDTO.prices). */
@@ -332,7 +364,6 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
-      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -375,7 +406,6 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
-      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -427,7 +457,6 @@ export class PricingService {
         status: 'priced',
         referenceMxnCents: this.liveMxnCents(r, fx),
         source: r.source as PriceSourceStr,
-        isManualOverride: r.isManualOverride,
         capturedDate: r.capturedDate.toISOString().slice(0, 10),
       });
     }
@@ -723,7 +752,10 @@ export class PricingService {
     if (ref?.status !== 'priced' || ref.referenceMxnCents == null || ref.referenceMxnCents <= 0)
       return null;
     // Override manual de mercado: sobrevive al dial (decisión humana explícita, máxima precedencia §K).
-    if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+    // v2.1.6: el discriminante es `source === 'manual'` — `manualOverride()` SIEMPRE lo escribe así, y
+    // el flag paralelo `isManualOverride` se retiró del DTO por redundante (dos nombres para el mismo
+    // hecho es cómo se diverge). El flag sigue existiendo en la FILA de BD, que es donde importa.
+    if (ref.source === 'manual') return ref.referenceMxnCents;
     // Mercado de fuente automática (tcgcsv): gateado por el dial.
     return sourceOn ? ref.referenceMxnCents : null;
   }

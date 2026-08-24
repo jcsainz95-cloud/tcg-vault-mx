@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
@@ -107,7 +107,8 @@ export class SealedCatalogService {
       availableCount: members.length,
       fromPriceCents: cheapest.salePriceCents,
       priceSource: cheapest.source,
-      referenceValue,
+      // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ sin `source` (ver `toPublicPriceInfo`).
+      referenceValue: toPublicPriceInfo(referenceValue),
     };
   }
 
