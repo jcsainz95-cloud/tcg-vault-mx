@@ -25,6 +25,31 @@ type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
  * los horneaban). Declararlo convierte esa clase de fallo en un error de `tsc` — el candado más
  * barato que existe para un contrato.
  */
+/**
+ * v2.1.9 (D2, contrato §DTOs `SealedGroupSummaryDTO`) — **el DTO de la REJILLA de sellado:
+ * `SealedGroupDTO` MENOS las TRES señales de precio.**
+ *
+ * Se van `priceBasis`, `referenceValue` y —esto es lo que se pasa por alto— **`priceSource`**: en
+ * sellado `priceBasis` se DERIVA de `priceSource` (`override ⇒ override`; `*_spread ⇒ market`), así
+ * que dejarlo publicaría **la misma señal con otro nombre**. Es exactamente el error que v2.1.6
+ * documentó al retirar `isManualOverride` y descubrir que `source` filtraba igual.
+ *
+ * Misma razón y mismas garantías que `GroupedListingSummaryDTO` (ver su bloque en `catalog.service`):
+ * §N.7 dice «SOLO fichas», nadie lo consume en la rejilla, y **tipo propio** en vez de campos
+ * opcionales para que el compilador —y no un test— sostenga la diferencia.
+ */
+export interface SealedGroupSummaryDTO {
+  representativeItemId: string;
+  card: ReturnType<typeof toCardDTO>;
+  productName: string;
+  imageUrl: string | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  availableCount: number;
+  fromPriceCents: number;
+  currency: 'MXN';
+}
+
 export interface SealedGroupDTO {
   representativeItemId: string;
   card: ReturnType<typeof toCardDTO>;
@@ -156,9 +181,31 @@ export class SealedCatalogService {
       // `priceBasis === 'market'` y con `undefined` la comparación es siempre falsa.
       priceBasis: cheapest.priceBasis,
       // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ sin `source` (ver `toPublicPriceInfo`).
-      referenceValue: toPublicPriceInfo(referenceValue),
+      // v2.1.9 (D2): y el NÚMERO de mercado viaja si y solo si `priceBasis === 'market'`. Este DTO es
+      // el de la FICHA (`SealedGroupDetailResponse.group`); la rejilla usa `toGroupSummaryDTO`.
+      referenceValue: toPublicPriceInfo(referenceValue, cheapest.priceBasis),
       // Requerido por el contrato y también se omitía.
       currency: 'MXN',
+    };
+  }
+
+  /**
+   * v2.1.9 (D2) — proyección de REJILLA: el mismo grupo **menos** `priceBasis`, `referenceValue` y
+   * `priceSource`. Se construye desde el DTO de ficha (una sola fuente de agrupación y de precio,
+   * SEC-A1) por lista blanca; el tipo propio hace que emitir cualquiera de los tres aquí NO COMPILE.
+   */
+  private toGroupSummaryDTO(members: PricedSealed[]): SealedGroupSummaryDTO {
+    const g = this.toGroupDTO(members);
+    return {
+      representativeItemId: g.representativeItemId,
+      card: g.card,
+      productName: g.productName,
+      imageUrl: g.imageUrl,
+      sealedSubtype: g.sealedSubtype,
+      sealedCondition: g.sealedCondition,
+      availableCount: g.availableCount,
+      fromPriceCents: g.fromPriceCents,
+      currency: g.currency,
     };
   }
 
@@ -210,8 +257,9 @@ export class SealedCatalogService {
       else groups.set(k, [p]);
     }
 
+    // v2.1.9 (D2): la REJILLA emite `SealedGroupSummaryDTO` — sin priceBasis/referenceValue/priceSource.
     const cards = [...groups.values()].map((members) => ({
-      dto: this.toGroupDTO(members),
+      dto: this.toGroupSummaryDTO(members),
       newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
     }));
 

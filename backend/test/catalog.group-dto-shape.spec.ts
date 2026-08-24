@@ -5,6 +5,16 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { computeSealedSalePrice } from '../src/common/money';
+// D-e (techlead, v2.1.9): las claves se declaran UNA vez y el COMPILADOR las mantiene completas
+// (`Record<keyof DTO, true>`). Antes vivían duplicadas a mano en dos specs y sin vínculo con la
+// interfaz — un candado de forma cuya forma de referencia se mantiene a mano.
+import {
+  GROUPED_LISTING_KEYS as ALL_GROUPED_KEYS,
+  GROUPED_LISTING_SUMMARY_KEYS as ALL_GROUPED_SUMMARY_KEYS,
+  SEALED_GROUP_KEYS as ALL_SEALED_KEYS,
+  SEALED_GROUP_SUMMARY_KEYS as ALL_SEALED_SUMMARY_KEYS,
+  onWire,
+} from './helpers/dto-keys';
 
 /**
  * B-1 / B-2 (v2.1.7, hallazgo de QA contra el STACK VIVO) — **forma exacta de los DTOs de GRUPO**.
@@ -32,6 +42,11 @@ const CARD = (over: Record<string, unknown> = {}) => ({
   externalId: 'sv8-1',
   name: 'Pikachu',
   number: '1',
+  // v2.1.9 (T-2): el contrato declara `numberSort: number` y `numberPrefix: string` REQUERIDOS en
+  // `CardDTO`. El fixture los omitía, así que desaparecían del JSON y la aserción de conjunto exacto
+  // de segundo nivel no los habría visto — el mismo hueco de B-1, un nivel más abajo.
+  numberSort: 1,
+  numberPrefix: '',
   rarity: 'Illustration Rare',
   rarityCanonical: 'illustration_rare',
   supertype: 'Pokémon',
@@ -93,6 +108,10 @@ function pricingMock() {
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
+    // La ficha de sellado construye `listings[]` con `toListingDTO`, que consulta el gate del dial.
+    gateSealedMarketCents: (ref: { status?: string; referenceMxnCents?: number } | undefined, on: boolean) =>
+      on && ref?.status === 'priced' ? (ref.referenceMxnCents ?? null) : null,
+    getSealedMarketRef: jest.fn(async () => ({ status: 'pending' })),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: true })),
     sealedMarketGradeKeyForItem: jest.fn((i: { tcgplayerProductId: number | null }) =>
       i.tcgplayerProductId != null ? `sealed:tcg:${i.tcgplayerProductId}` : null,
@@ -113,27 +132,18 @@ function pricingMock() {
 }
 
 /**
- * La forma se assertea sobre el objeto SERIALIZADO (`JSON.parse(JSON.stringify(dto))`), que es lo que
- * de verdad cruza el cable: los opcionales ausentes viajan como `undefined` en memoria pero
- * DESAPARECEN en JSON, mientras que un requerido que falta desaparece igual — y ésa es exactamente la
- * diferencia que B-1 explotó. Comparar el objeto en memoria mezclaría las dos cosas.
+ * El escenario de estos tests es un **raw sin grading**, así que `gradingCompany`/`gradeValue` (los
+ * dos opcionales de `graded`) NO viajan en el JSON. El recorte va EXPLÍCITO aquí, contra la lista
+ * COMPLETA que el compilador deriva de la interfaz: si mañana el DTO gana un campo, la lista de
+ * `helpers/dto-keys.ts` no compila hasta declararlo, y este test lo exige en el cable.
  */
-const onWire = (dto: unknown) => JSON.parse(JSON.stringify(dto)) as Record<string, unknown>;
+const withoutGrading = (keys: string[]) =>
+  keys.filter((k) => k !== 'gradingCompany' && k !== 'gradeValue');
 
-/** Claves EXACTAS que el contrato (§DTOs) declara para `GroupedListingDTO` (raw, sin grading). */
-const GROUPED_LISTING_KEYS = [
-  'card',
-  'currency',
-  'finish',
-  'gradeKey',
-  'priceBasis',
-  'productType',
-  'rawCondition',
-  'referenceValue',
-  'representativeInventoryItemId',
-  'salePriceCents',
-  'stockCount',
-].sort();
+/** `GroupedListingDTO` (FICHA) en el escenario raw. */
+const GROUPED_LISTING_KEYS = withoutGrading(ALL_GROUPED_KEYS);
+/** `GroupedListingSummaryDTO` (REJILLA, v2.1.9 D2) en el escenario raw. */
+const GROUPED_LISTING_SUMMARY_KEYS = withoutGrading(ALL_GROUPED_SUMMARY_KEYS);
 
 describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la ficha)', () => {
   function build(items: Array<Record<string, unknown>>) {
@@ -144,21 +154,43 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
     return new CatalogService(prisma, pricingMock());
   }
 
-  it('`GET /catalog/cards`: el grupo trae `priceBasis` — antes era `undefined` en el 100%', async () => {
-    const res = await build([ITEM()]).listCards({ page: 1, pageSize: 20 } as never);
-    expect(res.data).toHaveLength(1);
-    expect(res.data[0].priceBasis).toBe('market');
-  });
-
-  it('CONJUNTO EXACTO de claves del grupo: ninguna de menos (B-1) y ninguna de más (fuga)', async () => {
-    const res = await build([ITEM()]).listCards({ page: 1, pageSize: 20 } as never);
-    expect(Object.keys(onWire(res.data[0])).sort()).toEqual(GROUPED_LISTING_KEYS);
-  });
-
-  it('`GET /catalog/cards/:cardId → listings[]`: mismo grupo, mismo `priceBasis`', async () => {
+  it('`GET /catalog/cards/:cardId → listings[]` (FICHA): el grupo trae `priceBasis` — antes `undefined` en el 100%', async () => {
+    // v2.1.9 (D2): la afirmación de B-1 se mudó de la REJILLA a la FICHA, que es donde `priceBasis`
+    // se consume. La rejilla ya no lo recibe (ver el describe de D2, abajo).
     const detail = await build([ITEM()]).getCard('c1');
+    expect(detail.listings).toHaveLength(1);
     expect(detail.listings[0].priceBasis).toBe('market');
+  });
+
+  it('CONJUNTO EXACTO de claves del grupo de la FICHA: ninguna de menos (B-1) y ninguna de más (fuga)', async () => {
+    const detail = await build([ITEM()]).getCard('c1');
     expect(Object.keys(onWire(detail.listings[0])).sort()).toEqual(GROUPED_LISTING_KEYS);
+  });
+
+  it('extendido a `data[0].card` (P-30/T-2): la aserción de conjunto exacto baja al SEGUNDO nivel', async () => {
+    // Las aserciones de forma solo cubrían el primer nivel, así que un `CardDTO` al que le faltara
+    // `displayFinishes` habría pasado — y el tipo lo habría seguido, porque estaba declarado como
+    // `ReturnType<typeof toCardDTO>` (el tipo espejando la IMPLEMENTACIÓN, no el contrato).
+    const detail = await build([ITEM()]).getCard('c1');
+    expect(Object.keys(onWire(detail.listings[0].card)).sort()).toEqual(
+      [
+        'availableFinishes',
+        'displayFinishes',
+        'externalId',
+        'id',
+        'imageLargeUrl',
+        'imageSmallUrl',
+        'name',
+        'number',
+        'numberPrefix',
+        'numberSort',
+        'rarity',
+        'setId',
+        'setName',
+        'subtypes',
+        'supertype',
+      ].sort(),
+    );
   });
 
   it('EL ESCENARIO DE QA: basis `market` + referencia de MX$5,000 ⇒ el front SÍ pinta «Valor de mercado»', async () => {
@@ -170,8 +202,8 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
       inventoryItem: { findMany: jest.fn(async () => [ITEM()]), count: jest.fn(async () => 1) },
       card: { findUnique: jest.fn(async () => CARD()) },
     } as unknown as PrismaService;
-    const res = await new CatalogService(prisma, pricing).listCards({ page: 1, pageSize: 20 } as never);
-    const group = res.data[0];
+    const detail = await new CatalogService(prisma, pricing).getCard('c1');
+    const group = detail.listings[0];
     // La condición EXACTA que evalúa `CardDetailView.tsx`.
     expect(group.priceBasis === 'market').toBe(true);
     expect(group.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: 500000 });
@@ -181,11 +213,12 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
   it('el basis del grupo es el del REPRESENTANTE: un override POR PIEZA más barato manda', async () => {
     // La pieza con override manual ($10) es la más barata ⇒ representa al grupo ⇒ basis `override`
     // ⇒ el front NO pinta «Valor de mercado», que es lo correcto: el mercado no produjo ese precio.
-    const res = await build([ITEM(), ITEM({ id: 'i2', listPriceCents: 1000 })]).listCards({
-      page: 1,
-      pageSize: 20,
-    } as never);
-    expect(res.data[0]).toMatchObject({ priceBasis: 'override', salePriceCents: 1000, stockCount: 2 });
+    const detail = await build([ITEM(), ITEM({ id: 'i2', listPriceCents: 1000 })]).getCard('c1');
+    expect(detail.listings[0]).toMatchObject({
+      priceBasis: 'override',
+      salePriceCents: 1000,
+      stockCount: 2,
+    });
   });
 
   it('sin mercado el grupo NO existe (no se publica), así que no hay basis que pintar', async () => {
@@ -204,33 +237,32 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
   });
 });
 
-/** Claves EXACTAS que el contrato (§DTOs) declara para `SealedGroupDTO`. */
-const SEALED_GROUP_KEYS = [
-  'availableCount',
-  'card',
-  'currency',
-  'fromPriceCents',
-  'imageUrl',
-  'priceBasis',
-  'priceSource',
-  'productName',
-  'referenceValue',
-  'representativeItemId',
-  'sealedCondition',
-  'sealedSubtype',
-].sort();
+/** `SealedGroupDTO` (FICHA) / `SealedGroupSummaryDTO` (REJILLA) — derivados de la interfaz declarada. */
+const SEALED_GROUP_KEYS = ALL_SEALED_KEYS;
+const SEALED_GROUP_SUMMARY_KEYS = ALL_SEALED_SUMMARY_KEYS;
 
 describe('B-2 — `SealedGroupDTO` trae `priceBasis` y `currency`', () => {
   function buildSealed(items: Array<Record<string, unknown>>) {
     const prisma = {
-      inventoryItem: { findMany: jest.fn(async () => items), count: jest.fn(async () => items.length) },
+      inventoryItem: {
+        findMany: jest.fn(async () => items),
+        count: jest.fn(async () => items.length),
+        // v2.1.9 (D2): la ficha (`sealedDetail`) resuelve primero el representante por `findFirst`.
+        findFirst: jest.fn(async () => items[0]),
+      },
       sealedProduct: { findMany: jest.fn(async () => []) },
     } as unknown as PrismaService;
     return new SealedCatalogService(
       prisma,
       pricingMock(),
-      { getBool: jest.fn(async () => false), getNumber: jest.fn(async () => 0) } as unknown as SettingsService,
-      {} as CatalogService,
+      {
+        getBool: jest.fn(async () => false),
+        getNumber: jest.fn(async () => 0),
+        // La ficha lee los dos feature-flags (`trendEnabled`/`restockEnabled`).
+        getString: jest.fn(async () => 'off'),
+      } as unknown as SettingsService,
+      // La ficha construye `listings[]` por-pieza con el `toListingDTO` de CatalogService.
+      new CatalogService(prisma, pricingMock()),
     );
   }
 
@@ -247,24 +279,21 @@ describe('B-2 — `SealedGroupDTO` trae `priceBasis` y `currency`', () => {
       ...over,
     });
 
-  it('el grupo de sellado trae `priceBasis` DERIVADO del spread (mercado ⇒ `market`)', async () => {
-    const res = await buildSealed([SEALED()]).listSealed({ page: 1, pageSize: 20 } as never);
-    expect(res.data[0].priceBasis).toBe('market');
-    expect(res.data[0].priceSource).not.toBe('override'); // el detalle propio del sellado se CONSERVA
+  it('la FICHA de sellado trae `priceBasis` DERIVADO del spread (mercado ⇒ `market`)', async () => {
+    const { group } = await buildSealed([SEALED()]).sealedDetail('s1');
+    expect(group.priceBasis).toBe('market');
+    expect(group.priceSource).not.toBe('override'); // el detalle propio del sellado se CONSERVA
   });
 
   it('con override manual POR PIEZA el basis es `override` ⇒ el front NO pinta «Valor de mercado»', async () => {
-    const res = await buildSealed([SEALED({ listPriceCents: 999000 })]).listSealed({
-      page: 1,
-      pageSize: 20,
-    } as never);
-    expect(res.data[0]).toMatchObject({ priceBasis: 'override', priceSource: 'override' });
+    const { group } = await buildSealed([SEALED({ listPriceCents: 999000 })]).sealedDetail('s1');
+    expect(group).toMatchObject({ priceBasis: 'override', priceSource: 'override' });
   });
 
-  it('CONJUNTO EXACTO de claves del grupo de sellado (incluye `currency`, que también faltaba)', async () => {
-    const res = await buildSealed([SEALED()]).listSealed({ page: 1, pageSize: 20 } as never);
-    expect(Object.keys(onWire(res.data[0])).sort()).toEqual(SEALED_GROUP_KEYS);
-    expect(res.data[0].currency).toBe('MXN');
+  it('CONJUNTO EXACTO de claves del grupo de sellado en la FICHA (incluye `currency`, que faltaba)', async () => {
+    const { group } = await buildSealed([SEALED()]).sealedDetail('s1');
+    expect(Object.keys(onWire(group)).sort()).toEqual(SEALED_GROUP_KEYS);
+    expect(group.currency).toBe('MXN');
   });
 
   it('UNA sola regla de visibilidad para las DOS fichas: el mismo enum decide en single y en sellado', async () => {
@@ -274,9 +303,38 @@ describe('B-2 — `SealedGroupDTO` trae `priceBasis` y `currency`', () => {
         card: { findUnique: jest.fn(async () => CARD()) },
       } as unknown as PrismaService,
       pricingMock(),
-    ).listCards({ page: 1, pageSize: 20 } as never);
-    const sealed = await buildSealed([SEALED()]).listSealed({ page: 1, pageSize: 20 } as never);
+    ).getCard('c1');
+    const { group } = await buildSealed([SEALED()]).sealedDetail('s1');
     // Es el punto de P-48: el front no ramifica por tipo de producto, compara el MISMO campo.
-    expect(single.data[0].priceBasis).toBe(sealed.data[0].priceBasis);
+    expect(single.listings[0].priceBasis).toBe(group.priceBasis);
+  });
+
+  it('D2 · la REJILLA de sellado NO recibe las tres señales de precio', async () => {
+    const res = await buildSealed([SEALED()]).listSealed({ page: 1, pageSize: 20 } as never);
+    expect(Object.keys(onWire(res.data[0])).sort()).toEqual(SEALED_GROUP_SUMMARY_KEYS);
+  });
+});
+
+describe('D2 — la REJILLA de singles no recibe `priceBasis` ni `referenceValue`', () => {
+  function build(items: Array<Record<string, unknown>>) {
+    const prisma = {
+      inventoryItem: { findMany: jest.fn(async () => items), count: jest.fn(async () => items.length) },
+      card: { findUnique: jest.fn(async () => CARD()) },
+    } as unknown as PrismaService;
+    return new CatalogService(prisma, pricingMock());
+  }
+
+  it('CONJUNTO EXACTO de la rejilla = el del grupo MENOS las dos señales', async () => {
+    const res = await build([ITEM()]).listCards({ page: 1, pageSize: 20 } as never);
+    expect(Object.keys(onWire(res.data[0])).sort()).toEqual(GROUPED_LISTING_SUMMARY_KEYS);
+    // Dicho también en negativo, que es como se lee el hallazgo del pentester.
+    expect(onWire(res.data[0])).not.toHaveProperty('priceBasis');
+    expect(onWire(res.data[0])).not.toHaveProperty('referenceValue');
+  });
+
+  it('lo que la rejilla SÍ necesita sigue intacto (el recorte no apaga funcionalidad)', async () => {
+    const res = await build([ITEM(), ITEM({ id: 'i2' })]).listCards({ page: 1, pageSize: 20 } as never);
+    expect(res.data[0]).toMatchObject({ stockCount: 2, currency: 'MXN', productType: 'raw' });
+    expect(res.data[0].salePriceCents).toBeGreaterThan(0);
   });
 });

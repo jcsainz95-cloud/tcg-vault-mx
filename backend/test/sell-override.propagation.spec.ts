@@ -119,7 +119,11 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
     const dto = await svc.toListingDTO(rawItem());
     expect(dto.salePriceCents).toBe(9900);
     expect(dto.sellable).toBe(true);
-    expect(dto.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: 10000 });
+    // v2.1.9 (D2): la referencia de mercado NO cambia — pero con `priceBasis='override'` ya NO VIAJA
+    // en superficie pública. El mercado no produjo este precio, así que el número no explica nada y
+    // la UI lo tenía PROHIBIDO pintar; ahora tampoco lo recibe. `status` sí viaja (carga estructural).
+    expect(dto.priceBasis).toBe('override');
+    expect(dto.referenceValue).toEqual({ status: 'priced' });
   });
 
   it('listPriceCents POR PIEZA gana al sellOverride de la variante (intención más específica)', async () => {

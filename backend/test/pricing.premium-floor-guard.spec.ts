@@ -305,8 +305,10 @@ describe('E4 — efecto del guardarraíl en Compra y en el checkout', () => {
     expect(dto.sellable).toBe(false);
     expect(dto.salePriceCents).toBeUndefined();
     expect(dto.priceBasis).toBe('pending');
-    // La referencia sigue viajando (el DTO alimenta superficies admin); el front OBEDECE priceBasis.
-    expect(dto.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: 100 });
+    // v2.1.9 (D2): la frase que estaba aquí («la referencia sigue viajando porque el DTO alimenta
+    // superficies admin») quedó DEROGADA — `toPublicPriceInfo` ya recortaba por superficie, así que
+    // la premisa era falsa. Con `priceBasis='pending'` el número NO viaja en superficie pública.
+    expect(dto.referenceValue).toEqual({ status: 'priced' });
   });
 
   it('la misma carta con mercado REAL sí se publica', async () => {

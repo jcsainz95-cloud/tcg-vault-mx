@@ -431,8 +431,16 @@ export class PricingController {
 
   /**
    * Reemplaza los spreads y/o el fallback (parcial: solo las claves a cambiar). Validación estricta
-   * (subtype ∈ {box,etb,bundle,tin,blister}, value/fallback en [0,1000]) → 422 VALIDATION_ERROR.
-   * Auditado (before/after). Surte efecto sin redeploy.
+   * (`subtype ∈ SEALED_SUBTYPE_KEYS`, value/fallback en `[0, SEALED_SPREAD_PCT_MAX]`) →
+   * `422 VALIDATION_ERROR`. Auditado (before/after). Surte efecto sin redeploy.
+   *
+   * ⚠️ v2.1.9 (D4) — este docstring decía `subtype ∈ {box,etb,bundle,tin,blister}`: **CINCO** de los
+   * SIETE del enum. Era el residuo textual del mismo bug que v2.1.8 arregló en el código (`upc` y
+   * `collection` faltaban en ocho listas, y el dueño no podía calibrar el spread de un UPC — caía
+   * siempre al fallback del 25 %). El código ya derivaba del schema; la documentación no, y un
+   * comentario desfasado sobre un dominio de llaves es exactamente lo que hace que alguien
+   * «corrija» el código para que coincida. Se cita la CONSTANTE, no sus valores: un dominio de
+   * llaves no se enumera a mano en prosa.
    */
   @Put('sealed-spreads')
   async putSealedSpreads(@Body() dto: SealedSpreadsDto, @CurrentUser('id') userId: string) {

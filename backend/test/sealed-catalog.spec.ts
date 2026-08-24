@@ -140,7 +140,8 @@ describe('SealedCatalogService.listSealed — grid agregado por producto+condici
     expect(g.availableCount).toBe(2);
     expect(g.fromPriceCents).toBe(50000);
     expect(g.representativeItemId).toBe('b'); // el más barato
-    expect(g.priceSource).toBe('override');
+    // v2.1.9 (D2): la REJILLA ya no recibe `priceSource` (de él se DERIVA `priceBasis`, así que
+    // dejarlo publicaría la misma señal con otro nombre). El basis/source se afirman en la FICHA.
     expect(g.sealedCondition).toBe('mint');
     expect(g.imageUrl).toBe('https://img/small.png');
   });
@@ -207,8 +208,9 @@ describe('SealedCatalogService.listSealed — grid agregado por producto+condici
     const res = await svc.listSealed({ page: 1, pageSize: 20 });
     expect(res.total).toBe(1);
     expect(res.data[0].fromPriceCents).toBe(118000);
-    expect(res.data[0].priceSource).toBe('subtype_spread');
-    expect(res.data[0].referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: 100000 });
+    // v2.1.9 (D2): `priceSource` y `referenceValue` salieron de la REJILLA. Que el precio DERIVADO
+    // sigue siendo el correcto se ve en `fromPriceCents` (100000 × 1.18); la procedencia se afirma
+    // en la ficha (`catalog.group-dto-shape.spec.ts`).
   });
 
   it('MONEY-SAFE: sellado sin override y sin mercado NO se lista', async () => {

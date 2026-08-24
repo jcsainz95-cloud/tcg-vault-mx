@@ -91,6 +91,43 @@ type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
  * mercado» no se mostraba NUNCA, ni cuando el mercado sí había fijado el precio. Declarar el tipo
  * convierte esa clase entera de fallo en un error de `tsc`.
  */
+/**
+ * v2.1.9 (D2, contrato §DTOs `GroupedListingSummaryDTO`) — **el DTO de la REJILLA de singles:
+ * `GroupedListingDTO` MENOS las dos señales de precio.**
+ *
+ * ### Por qué la rejilla no recibe `priceBasis` ni `referenceValue`
+ * §N.7 dice literal «SOLO fichas»: tejas y listados no muestran valor de mercado hoy y no van a
+ * mostrarlo, así que en esta superficie **nadie consume** ninguno de los dos. Y por la convención de
+ * DTOs cerrados —«lo que no debe salir, PROHIBIDO»: publicar de más no rompe a nadie, **filtra**— un
+ * campo no consumido aquí no se emite.
+ *
+ * Lo que cierra: la rejilla es la superficie de **cosecha masiva** (N filas por request, paginada).
+ * Emitir `priceBasis` ahí publica un **mapa completo** de qué cartas llevan override manual — o sea
+ * dónde falló el feed y dónde el precio puede estar desalineado. Es exactamente la clase que v2.1.6
+ * cerró retirando `isManualOverride`/`source`. En la FICHA `priceBasis` sí es público, y a propósito
+ * (la UI lo OBEDECE, decisión LOCKED de §N.7): lo que cambia entre las dos superficies no es el
+ * secreto, es la **economía** de enumerarlo.
+ *
+ * ### Por qué TIPO PROPIO y no `priceBasis?`
+ * Un campo opcional cuya ausencia apaga una regla es **literalmente B-1**: `undefined === 'market'`
+ * es false SIEMPRE, así que «Valor de mercado» no se mostraba NUNCA. Con dos tipos, omitirlo en la
+ * ficha **no compila** y emitirlo en la rejilla tampoco. El compilador sostiene la diferencia; el
+ * test es la red.
+ */
+export interface GroupedListingSummaryDTO {
+  representativeInventoryItemId: string;
+  card: ReturnType<typeof toCardDTO>;
+  productType: 'raw' | 'graded';
+  finish: Finish;
+  rawCondition?: RawCondition;
+  gradeKey: string;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  stockCount: number;
+  salePriceCents: number;
+  currency: 'MXN';
+}
+
 export interface GroupedListingDTO {
   representativeInventoryItemId: string;
   card: ReturnType<typeof toCardDTO>;
@@ -387,7 +424,12 @@ export class CatalogService {
       // `manual`, así que dejarlo pasar publicaría un mapa scrapeable de qué cartas llevan precio
       // fijado a mano — o sea dónde falló el feed y dónde el precio puede estar desalineado. La
       // frescura (`capturedDate`) sí es información legítima de compra y sigue viajando.
-      referenceValue: toPublicPriceInfo(referenceValue),
+      //
+      // v2.1.9 (D2): y AHORA el número de mercado viaja **si y solo si `priceBasis === 'market'`**.
+      // La regla de §N.7 deja de vivir solo en el navegador: este DTO es el de la FICHA, `units[]` y
+      // `GET /catalog/listings/:id` — el endpoint del PoC del pentester, que SIN TOKEN devolvía
+      // `priceBasis:"override"` + el número que la UI tiene PROHIBIDO pintar.
+      referenceValue: toPublicPriceInfo(referenceValue, priceBasis),
       salePriceCents,
       // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad. `referenceValue` sigue
       // viajando (el mismo DTO alimenta superficies admin y de valuación); el front OBEDECE esto.
@@ -567,8 +609,25 @@ export class CatalogService {
         referenceValue: cheapest.dto.referenceValue,
         currency: 'MXN' as const,
       };
+      // v2.1.9 (D2): la REJILLA recibe el mismo grupo MENOS `priceBasis` y `referenceValue`. Se
+      // construye por lista blanca desde el mismo objeto (una sola fuente de agrupación), y el tipo
+      // propio hace que emitir cualquiera de los dos aquí NO COMPILE.
+      const summary: GroupedListingSummaryDTO = {
+        representativeInventoryItemId: dto.representativeInventoryItemId,
+        card: dto.card,
+        productType: dto.productType,
+        finish: dto.finish,
+        rawCondition: dto.rawCondition,
+        gradeKey: dto.gradeKey,
+        gradingCompany: dto.gradingCompany,
+        gradeValue: dto.gradeValue,
+        stockCount: dto.stockCount,
+        salePriceCents: dto.salePriceCents,
+        currency: dto.currency,
+      };
       return {
         dto,
+        summary,
         salePriceCents,
         // 'newest' del grupo = la pieza más nueva (createdAt desc) — contrato §2 GET /catalog/cards.
         newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
@@ -628,7 +687,8 @@ export class CatalogService {
 
     const total = groups.length;
     const start = (q.page - 1) * q.pageSize;
-    const data = groups.slice(start, start + q.pageSize).map((g) => g.dto);
+    // v2.1.9 (D2): la REJILLA emite `GroupedListingSummaryDTO` — sin `priceBasis` ni `referenceValue`.
+    const data = groups.slice(start, start + q.pageSize).map((g) => g.summary);
     return { data, page: q.page, pageSize: q.pageSize, total };
   }
 

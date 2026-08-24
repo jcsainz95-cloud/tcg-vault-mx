@@ -23,6 +23,7 @@ import {
   computeSalePriceFromCurve,
   computeSealedSalePrice,
   CurvePriceResult,
+  PriceBasis,
   SealedSpreadResult,
   VariantPriceControls,
 } from '../../common/money';
@@ -181,11 +182,41 @@ export interface PriceInfo {
  * Un DTO es **CERRADO**: emitir un campo no declarado es violación de contrato, no una adición
  * inocua. «Aditivo es seguro» vale para el **consumidor**, no para el **emisor** — publicar de más no
  * rompe a nadie, **filtra**.
+ *
+ * ### v2.1.9 (D2) — la regla de visibilidad de §N.7 se impone en el EMISOR, no en el navegador
+ * `priceBasis` parametriza el recorte. En superficie **pública**:
+ *
+ * ```
+ * referenceValue.referenceMxnCents PRESENTE  ⇔  priceBasis === 'market'
+ * ```
+ *
+ * Con `floor`/`override`/`pending` el `PriceInfo` público sale como `{ status }` a secas —
+ * `capturedDate` acompaña al número (sin número, la frescura no informa) y `status` viaja SIEMPRE
+ * (es la carga estructural, no procedencia).
+ *
+ * **Por qué aquí y no repartido por seams:** el argumento viejo («el mismo DTO alimenta admin y
+ * valuación, así que stripearlo por endpoint haría que `PriceInfo` significara cosas distintas según
+ * la ruta») quedó **derogado por escrito**: este proyector YA recorta por superficie (quita `source`),
+ * así que la premisa era falsa. El PoC del pentester era literal — `GET /catalog/listings/<id>` **sin
+ * token** devolvía `priceBasis:"override"` **+ el número de mercado**, o sea justo el bloque que la UI
+ * tiene PROHIBIDO pintar. Una regla que solo vive en el navegador no es una regla: es una sugerencia.
+ *
+ * ⚠️ Esto **NO releva al front** de obedecer `priceBasis`: es defensa en profundidad, no permiso para
+ * inferir comparando cifras.
+ *
+ * ⚠️ **Omitir `priceBasis` es deliberado en bóveda/portafolio y admin** (`/vault/*`, `/admin/*`):
+ * §N.7 las excluye explícitamente — ahí el cliente ve el mercado de lo que **ya posee** y el
+ * back-office necesita la procedencia. No "unifiques" pasando el basis también ahí.
+ *
+ * @param priceBasis Presente ⇒ superficie sujeta a §N.7 (Compra/ficha). Ausente ⇒ sin recorte por basis.
  */
-export function toPublicPriceInfo(info: PriceInfo): PriceInfo {
+export function toPublicPriceInfo(info: PriceInfo, priceBasis?: PriceBasis): PriceInfo {
   // Se construye por LISTA BLANCA (no `delete`): si mañana `PriceInfo` gana un campo interno, este
   // proyector NO lo deja salir por omisión. Es la diferencia entre cerrar una fuga y cerrar la clase.
   const out: PriceInfo = { status: info.status };
+  // v2.1.9 (D2): el NÚMERO de mercado viaja si y solo si el mercado produjo el precio. Omitir el
+  // `priceBasis` = superficie NO sujeta a §N.7 (bóveda/portafolio/admin) ⇒ comportamiento de siempre.
+  if (priceBasis !== undefined && priceBasis !== 'market') return out;
   if (info.referenceMxnCents !== undefined) out.referenceMxnCents = info.referenceMxnCents;
   if (info.capturedDate !== undefined) out.capturedDate = info.capturedDate;
   return out;
