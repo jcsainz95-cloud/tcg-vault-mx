@@ -649,8 +649,9 @@
 >   El job `catalog-price-sync` (v1.12, `force:true` = re-sync completo para refrescar precios) queda **DEPRECADO** en su
 >   rol de pricing (lo cubre `price-ingest`, mucho más barato: bulk por set vs re-bajar todas las cartas).
 > - **A.6 — Config/env/contrato (§4.15h).** Nuevo dial `PRICE_PROVIDER` (`price_provider`, ConfigSetting editable sin
->   redeploy en M2/M10, valores `pokemonpricetracker | pokemontcg_io`) — palanca de selección/rollback del proveedor de
->   ingest. `POKEMONPRICETRACKER_API_KEY` (env, ya en Railway) pasa a ser **requisito operativo en prod** cuando el dial
+>   redeploy en M2/M10, ~~valores `pokemonpricetracker | pokemontcg_io`~~ **enum vigente `tcgcsv_singles |
+>   pokemonpricetracker | pokemontcg_io`; primario `tcgcsv_singles` desde P-47/§4.35 — ver `PRICE_PROVIDER_VALUES`**) —
+>   palanca de selección/rollback del proveedor de ingest. `POKEMONPRICETRACKER_API_KEY` (env, ya en Railway) pasa a ser **requisito operativo en prod** cuando el dial
 >   apunta al proveedor de paga. Disparo manual `POST /admin/jobs/price-ingest` (super_admin, auditado, single-flight;
 >   `setId?` opcional para verificación de esquema en la 1ª corrida). Ver `API_CONTRACT.md` (Changelog v1.14-price-ingest).
 >
@@ -2781,11 +2782,13 @@ Reemplaza la derivación frágil de `tcgplayer.prices` (que en el barrido roto d
   si el proveedor de paga está seleccionado pero la key falta/está inválida, **no** se borran precios (se dejan stale) y se
   loguea/alerta; **no** hay fallback silencioso a otra fuente (evita mezclar fuentes sin querer). Ver decisión abierta v1.14-2.
 - **Dial `PRICE_PROVIDER` (`price_provider`, ConfigSetting):** selecciona el `BulkPriceProvider` de ingest. Valores
-  `pokemonpricetracker | pokemontcg_io`. Editable **sin redeploy** (M2/M10) → palanca de **rollback** money-safe. **Seed
-  recomendado (rollout money-safe): `pokemontcg_io`** (no cambia el comportamiento de fuente al desplegar; el job ya es
-  robusto) y **devops flip a `pokemonpricetracker`** tras verificar el esquema en la **1ª corrida manual** (`POST
-  /admin/jobs/price-ingest` con `setId?` de un set conocido → inspeccionar `PriceReference`/logs). Alternativa: sembrar
-  `pokemonpricetracker` desde el arranque (la key ya está) asumiendo la verificación previa. Decisión abierta v1.14-4.
+  **`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`** (`PRICE_PROVIDER_VALUES =
+  ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`). Editable **sin redeploy** (M2/M10) → palanca de **rollback**
+  money-safe. **Vigente desde P-47/§4.35: primario `tcgcsv_singles`** (precio por-acabado diario desde TCGCSV);
+  `pokemontcg_io` = legacy/rollback money-safe; `pokemonpricetracker` (PPT bulk) = fallback. ~~**Seed recomendado
+  (rollout money-safe): `pokemontcg_io`** … **devops flip a `pokemonpricetracker`** tras verificar el esquema en la 1ª
+  corrida manual … Decisión abierta v1.14-4.~~ *(superado por P-47/§4.35: el flip previsto v1.14 quedó absorbido por el
+  switch a `tcgcsv_singles`, hoy el provider primario del barrido).*
 - **Disparo manual:** `POST /api/v1/admin/jobs/price-ingest` (super_admin, auditado, single-flight; familia §M10-ops).
   Acepta `setId?` **opcional** (excepción justificada al body-vacío de la familia): un solo set para **verificar el
   esquema** en la 1ª corrida sin barrer el catálogo entero. Ver `API_CONTRACT.md §M10-ops`.

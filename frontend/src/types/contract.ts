@@ -1728,7 +1728,10 @@ export interface FxDTO {
 
 // v1.14-price-ingest: proveedor de la ingesta MASIVA de precios (dial `price_provider`, §M10).
 // Palanca de rollback money-safe que cambia la fuente de precios del ingest SIN redeploy.
-export type PriceProvider = 'pokemontcg_io' | 'pokemonpricetracker';
+// v1.44 (P-47, contrato §M10 / ARCHITECTURE §4.35): se suma `tcgcsv_singles` como provider
+// PRIMARIO de singles (reprecia por-acabado desde TCGCSV). Espejo de `PRICE_PROVIDER_VALUES`
+// del backend (`['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`). Rollback = `pokemontcg_io`.
+export type PriceProvider = 'pokemontcg_io' | 'pokemonpricetracker' | 'tcgcsv_singles';
 
 // POST /admin/jobs/price-ingest → 202 (contrato §M10-ops, v1.14-price-ingest): dispara la
 // ingesta masiva (fan-out BullMQ un job por set). `enqueued=false` si ya había un pase en

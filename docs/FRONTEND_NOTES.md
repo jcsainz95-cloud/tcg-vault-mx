@@ -6184,3 +6184,42 @@ esa nota del DS queda desactualizada) y (c) el valor/nombre del token azul. **No
 
 ### Verde (gate)
 `tsc --noEmit` ✓ · `vitest run` **80 archivos / 627 tests** ✓ · `next build` ✓.
+
+---
+
+## Control de UI del bulk price provider re-expuesto en M10 (P-47)
+
+**Contexto.** El dial de la **ingesta masiva** de precios es `priceProvider`
+(`SettingKey.PRICE_PROVIDER` / `price_provider`), DISTINTO de los tres `pricingProvider*` per-carta.
+El backend ya lo expone en `GET /admin/settings` y valida `PUT` parcial contra
+`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`, pero el UI de M10 no
+renderizaba ningún control para él (el del bulk se había retirado de M2 en P-33). Faltaba el botón para
+flipear el dial del barrido diario y activar el precio automático por-acabado (P-47, `tcgcsv_singles`).
+
+**Qué se implementó (`frontend/src/app/[locale]/(admin)/admin/m10/M10View.tsx`).**
+- Nueva **sección propia** (Sección 1b) en M10, VISUALMENTE SEPARADA de los tres diales per-carta
+  (card con borde `border-primary/40`, encabezado y nota propios), para que el humano no los confunda.
+  Etiqueta ES «Proveedor de ingesta masiva (barrido diario de precios)» + nota con los valores
+  `pokemontcg_io` (legacy) / `pokemonpricetracker` / `tcgcsv_singles` (precio por-acabado diario, P-47)
+  y el rollback money-safe = volver a `pokemontcg_io`. i18n en `messages/es.json` y `en.json` (bloque
+  `admin.m10.ingest`).
+- Conjunto de opciones **DEDICADO** `PRICE_PROVIDER_INGEST_OPTIONS =
+  ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']` — coincide EXACTO con
+  `PRICE_PROVIDER_VALUES` del backend. **NO** reutiliza el `PRICE_PROVIDER_OPTIONS` per-carta (ese lleva
+  `poketrace`/`manual`, que en el bulk darían 422).
+- Read desde el DTO (`settings.data.priceProvider`) y **PUT parcial dedicado** que envía SOLO la key
+  camelCase `{ priceProvider }` y solo cuando se toca (draft/mutation propios, botón Guardar propio).
+- **NO se tocaron** los tres diales per-carta (`pricingProvider*`) ni su `PRICE_PROVIDER_OPTIONS`
+  (`tcgcsv_singles` no va ahí).
+
+**Tipo espejo.** `frontend/src/types/contract.ts` — `PriceProvider` pasó de
+`'pokemontcg_io' | 'pokemonpricetracker'` a incluir `'tcgcsv_singles'` (espejo del contrato §M10 / P-47;
+NO se modificó `API_CONTRACT.md`).
+
+**Tests.** `M10View.test.tsx` +2 casos: (a) el control del bulk aparece, es `<select>` y lista
+exactamente `['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']` (incluye `tcgcsv_singles`, excluye
+`poketrace`/`manual`); (b) al cambiarlo el PUT envía `{ priceProvider: 'tcgcsv_singles' }` (camelCase,
+parcial). Verde: `vitest run M10View.test.tsx` **7/7** ✓ · `tsc --noEmit` ✓.
+
+**Money-safe.** El control solo cambia la fuente del barrido sin redeploy; el rollback documentado es
+volver a `pokemontcg_io`. La derivación de montos sigue server-side; el UI solo selecciona el dial.
