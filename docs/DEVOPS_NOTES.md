@@ -4243,6 +4243,17 @@ el dummy y un aviso claro, que es lo correcto para un repo sin el secret configu
 | 2 | Disparador duro de R1 / S49-M1 | **Deja de aplicar a estas dos.** Backend las **corrigió** en vez de aceptarlas (y encontró que S49-M1 eran **cinco** rutas, no cuatro: faltaba la salida idempotente de `pay-spei`). **Pendiente de que `seguridad` confirme la re-verificación**; hasta entonces no lo doy por cerrado yo. La propuesta de §30.5 **no se tira**: sigue siendo el mecanismo para deuda aceptada futura, pero **hoy no hay nada que disparar**. |
 | 3 | `@nestjs/core` GHSA-36xv-jgw5-4q75 | Sin cambio: deuda **no bloqueante**, registrada y aceptada. Dueño **backend**. |
 
+### 31.6 Nota operativa: `status` daba un falso «frontend caído»
+
+Al cerrar este pase, `./scripts/stack-native.sh status` reportó **`frontend: 000`** con el proceso
+**vivo y sirviendo 200**. Causa: `next dev` **compila bajo demanda**, y el log mostraba
+`✓ Compiled /[locale] in 9.6s` justo en ese momento; el `curl -m 3` del `status` expiraba antes.
+
+Importa más de lo que parece **hoy**: un falso «caído» invita a relanzar el stack, y ahora mismo hay
+otros roles trabajando contra `:3099`. Timeout del frontend subido a **15s** y anotado en el propio
+script: si aun así sale `000`, confirmar con `pgrep -af "next dev"` y `tail .native-stack/frontend.log`
+**antes** de relanzar nada.
+
 **Sigo sin re-certificar el DoD y sin desplegar ni tagear.** El árbol se va a mover otra vez (arquitecto
 baja el techo de la curva a MX$2,000 + backend lo implementa, más la semilla de spreads de UPC), así que
 cualquier certificación de hoy caducaría igual que la de §29.11-bis. **Se hace con el commit final,

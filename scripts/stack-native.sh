@@ -354,7 +354,13 @@ case "${1:-up}" in
     # `curl -w` YA imprime 000 al fallar: un `|| echo 000` encadenado imprimiría «000000».
     # Mismo criterio en `post-deploy.sh` (D-h del techlead): ahí se usa `; true`, aquí `; true`.
     printf '  backend:  %s (:%s)\n' "$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "http://localhost:$BACKEND_PORT/api/v1/health" 2>/dev/null; true)" "$BACKEND_PORT"
-    printf '  frontend: %s (:%s)\n' "$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "http://localhost:$FRONTEND_PORT/es" 2>/dev/null; true)" "$FRONTEND_PORT"
+    # OJO con el timeout del frontend: `next dev` compila BAJO DEMANDA, y una primera
+    # petición mientras recompila tarda 10s+ («✓ Compiled /[locale] in 9.6s»). Con -m 3
+    # esto imprimía 000 con el proceso VIVO y sirviendo 200 — un falso «caído» que invita
+    # a reiniciar el stack sin necesidad. 15s cubre la recompilación; si aun así da 000,
+    # confirma con `pgrep -af "next dev"` y `tail .native-stack/frontend.log` ANTES de
+    # relanzar nada (puede haber otro rol trabajando contra el stack).
+    printf '  frontend: %s (:%s)\n' "$(curl -sS -m 15 -o /dev/null -w '%{http_code}' "http://localhost:$FRONTEND_PORT/es" 2>/dev/null; true)" "$FRONTEND_PORT"
     ;;
   down)
     log "Apagando apps"
