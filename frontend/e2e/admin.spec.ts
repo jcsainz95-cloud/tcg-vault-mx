@@ -144,28 +144,43 @@ test.describe('admin · M8 disputas', () => {
  * presentación del enum, incluidas `upc` y `collection`. Es la prueba al nivel en que el dueño vive
  * el problema: no «la lista tiene siete elementos», sino «hay un campo donde escribir el precio».
  *
- * Corre en los DOS modos a propósito: tanto el fixture como el backend real devuelven un mapa
- * PARCIAL sin `upc`/`collection` (§K no les da semilla), así que la misma aserción vale en ambos —
- * y eso es justo lo que se quiere fijar: los renglones salen del ENUM, no de la respuesta.
+ * Corre en los DOS modos a propósito, y afirma el INVARIANTE, no el estado: la fila existe y se
+ * puede editar **venga o no venga** su llave en la respuesta. Eso importa desde v2.1.9-a, cuando la
+ * semilla pasó a cubrir las siete presentaciones: un test que exigiera «UPC viene vacío» se pondría
+ * rojo por un cambio de DATO, y peor, dejaría de vigilar lo único que se rompió (que la fila
+ * exista). El vínculo vacío ⇔ «usa el global» se afirma como bicondicional, sin asumir cuál de los
+ * dos lados toca hoy.
  */
 test.describe('admin · M2 spreads del sellado (T-1)', () => {
-  test('hay fila editable para UPC y Collection, y dicen que caen al global', async ({ page }) => {
+  test('hay fila editable para UPC y Collection, y el vacío dice que cae al global', async ({
+    page,
+  }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
 
-    const upc = page.getByLabel(t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype: 'UPC' }));
-    const collection = page.getByLabel(
-      t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype: 'Collection' }),
-    );
-    await expect(upc).toBeVisible();
-    await expect(collection).toBeVisible();
+    const usesGlobal = /Usa el global \(\d+(\.\d+)?%\)/;
+    for (const subtype of ['UPC', 'Collection']) {
+      const field = page.getByLabel(
+        t('es', 'admin.m2.sealedSpreads.spreadFor', { subtype }),
+      );
+      await expect(field).toBeVisible();
 
-    // Sin regla propia: campo vacío + etiqueta que declara el fallback (ausente ≠ 0%).
-    await expect(upc).toHaveValue('');
-    await expect(page.getByText(/Usa el global \(\d+(\.\d+)?%\)/).first()).toBeVisible();
+      // Bicondicional (ausente ≠ 0%): si el campo está vacío, su fila DECLARA que cae al global;
+      // si trae regla propia, no lo declara. Cualquiera de los dos estados es válido según semilla.
+      const row = page.locator('li').filter({ has: field });
+      if ((await field.inputValue()) === '') {
+        await expect(row.getByText(usesGlobal)).toBeVisible();
+      } else {
+        await expect(row.getByText(usesGlobal)).toHaveCount(0);
+      }
 
-    // Y es EDITABLE: el dueño puede teclear el spread de lo que sí vende.
-    await upc.fill('20');
-    await expect(upc).toHaveValue('20');
+      // Y es EDITABLE: el dueño puede teclear el spread de lo que sí vende — que era el hallazgo.
+      await field.fill('20');
+      await expect(field).toHaveValue('20');
+
+      // Vaciarla la devuelve al global EN PANTALLA (al guardar viaja como `null`, nunca como 0).
+      await field.fill('');
+      await expect(row.getByText(usesGlobal)).toBeVisible();
+    }
   });
 });
