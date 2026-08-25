@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { mockOnly, MONEY_RE } from './utils/auth';
+import { IS_REAL, mockOnly, MONEY_RE } from './utils/auth';
 
 /**
  * Guest checkout — PROJECT §J / §J.1, criterios 45–56b; contrato §4-G.
@@ -148,7 +148,13 @@ test.describe('guest checkout · identidad y desglose', () => {
     const modal = page.getByRole('dialog', { name: t('es', 'checkout.payTitle') });
     await expect(modal).toBeVisible();
 
-    if (process.env.E2E_REAL === '1') {
+    // ⚠️ Aquí vivía `process.env.E2E_REAL === '1'` CRUDO — el único sitio de `e2e/` que le
+    // preguntaba al entorno en vez de al helper. Sin la bandera puesta, este test tomaba la rama
+    // MOCK de sus asertos (clic en «Pagar» simulado + esperar `guest-order-number`) contra un modal
+    // de STRIPE REAL: la misma mentira que el arreglo del env-gating vino a matar, un piso más
+    // abajo. `IS_REAL` contesta la pregunta correcta —«¿contra qué habla la app?»— y con eso este
+    // archivo deja de obligar a `.github/` a fijar `E2E_REAL` sólo para que se comporte.
+    if (IS_REAL) {
       await expect(modal.getByText(t('es', 'payment.mockBody'))).toBeHidden();
     } else {
       await modal.getByRole('button', { name: /Pagar/ }).click();

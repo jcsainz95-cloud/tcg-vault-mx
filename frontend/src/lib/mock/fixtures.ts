@@ -2839,12 +2839,29 @@ export const mockSealedSpreads: SealedSpreadsDTO = {
   fallbackPct: 15,
 };
 
+/**
+ * Aplica un `SealedSpreadsUpdateRequest` PARCIAL sobre el mock, con la misma semántica de tres
+ * estados que norma el contrato v2.1.9 (§M2): llave ausente = no se toca · número = se fija ·
+ * `null` = SE RETIRA (y el GET deja de emitirla). El mock la reproduce a propósito: si aquí
+ * `null` se guardara como 0, el modo mock enseñaría un comportamiento de dinero que el backend
+ * real no tiene, y esa divergencia es justo la que no se puede permitir en una perilla de precio.
+ */
 export function setMockSealedSpreads(
-  spreadPctBySubtype: Partial<Record<SealedSubtype, number>>,
-  fallbackPct: number,
+  spreadPctBySubtype: Partial<Record<SealedSubtype, number | null>> | undefined,
+  fallbackPct: number | undefined,
 ): void {
-  mockSealedSpreads.spreadPctBySubtype = { ...spreadPctBySubtype };
-  mockSealedSpreads.fallbackPct = fallbackPct;
+  if (spreadPctBySubtype) {
+    const next = { ...mockSealedSpreads.spreadPctBySubtype };
+    for (const [sub, value] of Object.entries(spreadPctBySubtype) as [
+      SealedSubtype,
+      number | null | undefined,
+    ][]) {
+      if (value === null) delete next[sub];
+      else if (value !== undefined) next[sub] = value;
+    }
+    mockSealedSpreads.spreadPctBySubtype = next;
+  }
+  if (fallbackPct !== undefined) mockSealedSpreads.fallbackPct = fallbackPct;
 }
 
 // ============================================================================

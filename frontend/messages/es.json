@@ -1470,6 +1470,7 @@
         "example": "Ej.: 15% sobre un mercado de MX$3,000 = MX$3,450.",
         "fallbackLabel": "Spread global",
         "fallbackHint": "Se aplica a las presentaciones sin regla propia.",
+      "fallbackRequired": "El spread global no se puede quitar: es el respaldo de las presentaciones sin regla propia. Para no aplicar markup, escribe 0.",
         "subtype": "Presentación",
         "spread": "Spread",
         "spreadFor": "Spread de {subtype}",
@@ -1547,7 +1548,7 @@
           "stepTooLow": "El escalón tiene que ser de al menos MX$0.01.",
           "uptoNotIncreasing": "Cada frontera tiene que ser mayor que la de la banda anterior.",
           "duplicateMarket": "Hay dos puntos en el mismo mercado. Cambia uno o quita el repetido.",
-          "constantTooHigh": "El piso y el bin no pueden pasar de MX$10,000: fijan el precio de TODO el catálogo."
+          "constantTooHigh": "El piso y el bin no pueden pasar de MX$2,000: el piso es el precio de la carta más barata de la tienda."
         },
         "preview": {
           "probeTitle": "Probar un mercado",

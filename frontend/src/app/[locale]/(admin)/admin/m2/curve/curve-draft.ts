@@ -232,11 +232,24 @@ export type FieldErrorCode =
 
 /**
  * Techo de cordura de `floorCents` / `binCents` (contrato v2.1.9 §M2, `MAX_CURVE_CONSTANT_CENTS`):
- * MX$10,000. NO es `MAX_CENTS`: son las dos únicas entradas que por sí solas fijan el precio de
- * TODO el catálogo (un piso gigante publica la vitrina entera a esa cifra, con basis `floor`), así
- * que piden cordura y no solo representabilidad. El backend valida; esto lo dice ANTES de guardar.
+ * **MX$2,000**, cerrado por el dueño en Q-D1. NO es `MAX_CENTS`: son las dos únicas entradas que
+ * por sí solas fijan el precio de TODO el catálogo (un piso disparado no produce «un precio alto»,
+ * produce la VITRINA ENTERA republicada), así que piden cordura y no solo representabilidad.
+ *
+ * El anclaje es **qué es el número acotado**: `floorCents` ES el precio de la carta más barata de
+ * la tienda, así que un piso arriba de MX$2,000 significaría que NADA en la vitrina baja de esa
+ * cifra — implausible para un marketplace de singles cuya semilla es MX$25 y cuyo bulk vale
+ * centavos. Deja 80× sobre la semilla del piso y queda 10,737× por debajo de Int32.
+ *
+ * ⛔ NO se deriva de los topes de §E (MX$3,000/solicitud, MX$10,000/mes): esos son límites **AML
+ * por usuario sobre dinero que SALE** y no dicen nada sobre cuánto puede costar la carta más
+ * barata. Queda escrito para que nadie lo «restaure» viendo que las cifras se parecían.
+ *
+ * ⚠️ **Este valor tiene que ser EL MISMO que el del backend.** Si el cliente aceptara en el campo
+ * lo que el `PUT` rechaza con 422, cliente y servidor estarían discrepando sobre la misma regla —
+ * §21.4 con el signo invertido: el editor promete que se puede guardar y el guardado dice que no.
  */
-export const MAX_CURVE_CONSTANT_CENTS = 1_000_000;
+export const MAX_CURVE_CONSTANT_CENTS = 200_000;
 
 /**
  * Validación de una CONSTANTE del eje (piso de venta / bin de compra). Es `marketError` más el

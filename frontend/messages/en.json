@@ -1470,6 +1470,7 @@
         "example": "E.g.: 15% over a MX$3,000 market = MX$3,450.",
         "fallbackLabel": "Global spread",
         "fallbackHint": "Applied to formats without their own rule.",
+      "fallbackRequired": "The global spread cannot be removed: it backs every format without its own rule. For no markup, type 0.",
         "subtype": "Format",
         "spread": "Spread",
         "spreadFor": "{subtype} spread",
@@ -1547,7 +1548,7 @@
           "stepTooLow": "The step must be at least MX$0.01.",
           "uptoNotIncreasing": "Each boundary must be higher than the previous band's.",
           "duplicateMarket": "Two points share the same market. Change one or remove the duplicate.",
-          "constantTooHigh": "Floor and bin cannot exceed MX$10,000: they set the price of the WHOLE catalog."
+          "constantTooHigh": "Floor and bin cannot exceed MX$2,000: the floor is the price of the cheapest card in the store."
         },
         "preview": {
           "probeTitle": "Try a market",

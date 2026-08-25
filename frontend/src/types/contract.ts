@@ -2081,6 +2081,25 @@ export interface SealedSpreadsDTO {
   spreadPctBySubtype: Partial<Record<SealedSubtype, number>>;
   fallbackPct: number;
 }
+// v2.1.9 — REQUEST del PUT. Es un tipo DISTINTO del DTO de respuesta, y la diferencia ES el punto:
+// los valores admiten `null` como sentinel de RETIRO. Semántica PARCIAL, tres estados por llave:
+//
+//   llave AUSENTE    ⇒ no se toca
+//   llave con NÚMERO ⇒ se fija
+//   llave con `null` ⇒ SE RETIRA (esa presentación vuelve al `fallbackPct`; el GET la omite)
+//
+// ⚠️ `null` ≠ `0`, y confundirlos es un BUG DE DINERO. `0` es un spread LEGÍTIMO (§SUP-8): «vender
+// AL mercado, sin markup». `null` es «no tengo regla propia, usa el global». Un campo que el dueño
+// VACÍA en la pantalla viaja como `null` —o no viaja, si no quiso tocarlo—; JAMÁS como `0`, que
+// pondría esa presentación a precio de mercado sin margen sin que nadie lo pidiera.
+//
+// `fallbackPct` NO admite `null` (⇒ 422): es el respaldo del que dependen todas las presentaciones
+// sin regla; retirarlo las dejaría en PRICE_PENDING, o sea FUERA de la vitrina. Para «sin markup
+// global» el valor correcto es `0`, no la ausencia.
+export interface SealedSpreadsUpdateRequest {
+  spreadPctBySubtype?: Partial<Record<SealedSubtype, number | null>>;
+  fallbackPct?: number;
+}
 
 // GET /admin/pricing/card/:cardId — historial de precios por fecha/fuente.
 // ✅ SUPUESTO CERRADO (contrato v2.1.7): el shape está NORMADO — `{ data: PriceHistoryEntryDTO[] }`

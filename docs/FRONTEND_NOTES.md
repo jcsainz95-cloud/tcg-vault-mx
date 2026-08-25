@@ -6547,9 +6547,8 @@ derivara sus renglones de la respuesta habría reproducido el hueco por otra pue
   `Number(val) || 0`: con el campo vacío ahora siendo el estado natural, eso habría **guardado 0%**
   (vender al costo) al limpiar una fila. Un borrador vacío o mal formado se **ignora**.
 
-**Solicitud al arquitecto (§M2):** el contrato no define cómo **BORRAR** una regla explícita para
-volver al global. Hoy vaciar el campo no la retira (se ignora, money-safe). Falta normar la
-operación —`null` en la llave, un `DELETE`, o un `PUT` con reemplazo total declarado como tal—.
+**✅ CONTESTADA (contrato v2.1.9 enmendado, `32484cd`) — ver §22.2.** El arquitecto normó el
+sentinel `null`. Lo que aquí quedaba «se ignora, money-safe» ya es un gesto de primera clase.
 
 **Tests.**
 - `src/types/sealed-subtype.test.ts` — candado anti-desincronización: (a) la lista cubre
@@ -6587,8 +6586,8 @@ opcionales**: un `priceBasis?` cuya ausencia apaga la regla de §N.7 es literalm
   trató `VALIDATION_ERROR` como infracción de curva), así que **no había `undefined` esperando**;
   se corrige el espejo y se documenta la lectura: `number` ⇒ marca el **renglón**, `null` ⇒ marca el
   **campo** de piso/bin.
-- **Nuevo `constantError()`** (`curve/curve-draft.ts`) con `MAX_CURVE_CONSTANT_CENTS = 1_000_000`
-  (MX$10,000, §M2 v2.1.9). Piso y bin dejan de validarse con `marketError` (que no tenía techo):
+- **Nuevo `constantError()`** (`curve/curve-draft.ts`) con `MAX_CURVE_CONSTANT_CENTS`
+  (**MX$2,000** tras Q-D1 — ver §22.2). Piso y bin dejan de validarse con `marketError` (sin techo):
   son las dos únicas entradas que por sí solas fijan el precio de **todo** el catálogo. El
   `ConstantField` ahora **enuncia** el error (`role="alert"`), no solo colorea el borde. Copy nuevo
   `admin.m2.curve.fieldError.constantTooHigh` en **es/en**.
@@ -6704,3 +6703,101 @@ nativo ya ocupa `:3000` con `NEXT_PUBLIC_USE_MOCKS=false`, una corrida **sin** `
 **reutiliza ese servidor**: crees estar en modo mock y estás pegándole al backend real sin sesión.
 Para correr mock de verdad hay que bajar el stack o apuntar el front a otro puerto. (Lo dejo
 anotado aquí porque me costó un falso negativo; el runbook lo mantiene devops.)
+
+## §22.2 · Contrato v2.1.9 enmendado (`32484cd`) — el techo baja a MX$2,000 y el borrado se llama `null` (2026-08-25)
+
+> Tres encargos, dos del contrato enmendado y uno de devops sobre mi propio arreglo del arnés.
+
+### El techo de la curva vive en DOS lados y tiene que decir lo mismo
+
+`MAX_CURVE_CONSTANT_CENTS` pasa de `1_000_000` a **`200_000` (MX$2,000)**, el número que cerró el
+dueño en **Q-D1**. Es mi copia del techo del backend, y ahí está el punto: si el cliente aceptara en
+el campo un piso de MX$5,000 que el `PUT` rechaza con `422`, **cliente y servidor estarían
+discrepando sobre la misma regla** — §21.4 con el signo invertido (el editor promete un guardado que
+no ocurre). Van los dos con el mismo valor.
+
+El anclaje nuevo, que además es el que hace defendible un número tan apretado: **`floorCents` ES el
+precio de la carta más barata de la tienda**, así que su techo sale de lo plausible como carta más
+barata (**80×** sobre la semilla de MX$25), no de ningún límite de dinero. El anclaje anterior —los
+topes AML de §E— **queda retirado por escrito** en el contrato, y lo repito en el comentario del
+código para que nadie lo «restaure» viendo que las cifras se parecían.
+
+- Copy actualizado en **es/en** (`constantTooHigh`): ya no dice MX$10,000, y explica *qué* es el
+  número acotado, no solo cuál es.
+- **`curve/curve-constants.test.ts` (5 casos)** fija la cifra, el borde exacto (2000 pasa, 2000.01
+  no), que no se pierden `required`/`negative`, que las semillas (piso MX$25, bin MX$1) siguen
+  entrando, y —el que más me importa— **que el copy nombre el MISMO número que el validador**: un
+  mensaje que dice 10,000 junto a un corte en 2,000 es peor que no tener mensaje.
+- **Estado del backend en el stack vivo:** todavía acepta `floorCents: 500000` en `preview` (`201`).
+  Mi editor queda **más estricto que el servidor corriendo**, que es la dirección segura; converge
+  cuando backend lo aterrice.
+
+### Borrar una regla de spread: `null`, y **`null` ≠ `0`**
+
+El contrato normó lo que yo había pedido. Semántica **parcial de tres estados**, y el editor ahora
+los distingue de verdad:
+
+| Gesto en la pantalla | Qué viaja | Efecto |
+|---|---|---|
+| Escribe un número | `{"upc": 20}` | fija la regla |
+| **Vacía el campo** | **`{"upc": null}`** | **retira** la regla ⇒ vuelve al global |
+| No lo toca | la llave **no viaja** | no se toca |
+
+**Esto conecta con la mina que ya había desactivado.** Yo había matado el `Number(val) || 0` de
+`saveSpreads` porque con el campo vacío como estado natural, limpiar una fila habría guardado **0%**.
+El contrato ahora le pone nombre a por qué eso era un bug de dinero y no un detalle: **`0` es un
+spread legítimo** (§SUP-8, «vender AL mercado, sin markup»), así que `0` y «sin regla» **no pueden
+compartir representación**. Antes yo resolvía el empate ignorando el gesto (seguro pero mudo: el
+dueño vaciaba y no pasaba nada); ahora el gesto significa algo y significa lo correcto.
+
+- **El `PUT` pasa a ser PARCIAL de verdad**: viajan **solo las llaves tocadas**. Antes mandaba
+  `{...server, ...draft}` — funcionaba, pero es la forma que el arquitecto descartó, y por una razón
+  que me toca directo: un cliente rancio con «las cinco llaves de siempre» **borraría `upc` y
+  `collection` en silencio**, o sea el bug de la lista de cinco reabierto desde el otro lado.
+  `fallbackPct` solo viaja si cambió. Si no cambió nada, no se llama al endpoint.
+- **Un borrador mal formado (`"."`, `"1.2.3"`) no manda NADA** — ni fija ni retira. El dueño está a
+  medio teclear y ninguna de las dos cosas es lo que pidió.
+- **Vaciar una fila que nunca tuvo regla propia no manda nada**: no hay qué retirar (el backend sería
+  idempotente igual, pero ensuciar la bitácora con un no-op no ayuda a nadie que la lea después).
+- **La fila vaciada se previsualiza como «Usa el global»**, igual que una sin regla: los dos estados
+  terminan en el fallback, así que la pantalla cuenta lo mismo en los dos — y **ninguno es un 0%**.
+- **El global NO se puede vaciar** (`fallbackPct: null` ⇒ 422). Retirarlo dejaría en `PRICE_PENDING`
+  a toda presentación sin regla, o sea **fuera de la vitrina**, por un gesto que parece de limpieza.
+  El editor lo **impide** (Guardar deshabilitado, `aria-invalid`) **y lo explica**: «El spread global
+  no se puede quitar… Para no aplicar markup, escribe **0**». Antes revertía en silencio al valor del
+  servidor — seguro, pero el dueño no se enteraba de que su gesto no había hecho nada.
+- El **mock** reproduce la semántica de tres estados (`setMockSealedSpreads` aplica el parche y
+  **borra** en `null`). Si el mock guardara `null` como 0, el modo demo enseñaría un comportamiento
+  de dinero que el backend real no tiene — y esa divergencia, en una perilla de precio, no se puede.
+- Tipos: **`SealedSpreadsUpdateRequest`** (request) separado de **`SealedSpreadsDTO`** (respuesta).
+  Son tipos distintos porque **la diferencia es el punto**: solo el request admite `null`.
+- **Estado del backend en el stack vivo:** `PUT {"spreadPctBySubtype":{"collection":null}}` responde
+  **`422`** («must be a number in [0, 1000]»), así que el gesto de *vaciar* aún no funciona
+  end-to-end. Probado con una llave **ausente** a propósito, para que fuera un no-op verificable:
+  el `GET` posterior devolvió el mismo mapa. Las demás rutas (fijar, cambiar el global) sí funcionan
+  hoy. Las dos mitades tienen que aterrizar juntas para que «vaciar» sirva.
+- El dueño ya eligió **`upc: 18`, `collection: 22`**; en el stack vivo la semilla todavía no está
+  (el `GET` sigue trayendo cinco llaves) y el editor los muestra como «usa el global», que era el punto.
+
+### El spec que le preguntaba al entorno en vez de al helper (hallazgo de devops)
+
+`guest-checkout.spec.ts` ramificaba con **`process.env.E2E_REAL` crudo** — el único sitio de `e2e/`
+que lo hacía. Sin la bandera puesta tomaba la **rama mock de sus asertos** (clic en el «Pagar»
+simulado y esperar `guest-order-number`) **contra un modal de Stripe real**: exactamente la clase de
+mentira que el arreglo del env-gating fue a matar, un piso más abajo, y **un verde falso en uno de
+los tres flujos de dinero** — justo el que el gate de promoción acababa de empezar a correr.
+
+Ahora usa `IS_REAL` como sus hermanas. Con eso, `frontend/e2e/` deja de obligar a `.github/` a fijar
+`E2E_REAL` **solo para que un archivo se comporte**: la bandera vuelve a significar únicamente lo que
+`playwright.config.ts` dice que significa (seleccionar `@real`).
+
+**`src/test/e2e-harness.test.ts` (2 casos)** lo vuelve irrepetible: ningún `*.spec.ts` puede leer
+`process.env.E2E_REAL` (ignorando comentarios, porque explicar *por qué* no se usa sí debe seguir
+escrito), y quien ramifique por entorno tiene que **importar `IS_REAL`** del helper. Verificado que
+el guard **falla** al reintroducir la fuga. La regla, en una línea: **un solo módulo lee la variable;
+los specs le preguntan a él.**
+
+### Verde (gate)
+
+`tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **84 archivos / 677 tests** ✓ · E2E contra el stack
+vivo (`admin` + `pricing-curve`): **13 verdes / 0 rojos** (6 saltados, clasificados).

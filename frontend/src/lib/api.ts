@@ -66,6 +66,7 @@ import type {
   SealedGroupDetailResponse,
   VaultSealedResponse,
   SealedSpreadsDTO,
+  SealedSpreadsUpdateRequest,
   Finish,
   GradingCompany,
   AcquisitionType,
@@ -529,11 +530,18 @@ export async function getSealedSpreads(): Promise<SealedSpreadsDTO> {
 }
 
 /**
- * Reemplaza los spreads de venta del sellado y/o el fallback (contrato PUT
+ * Edita los spreads de venta del sellado y/o el fallback (contrato PUT
  * /admin/pricing/sealed-spreads). Semántica pct = markup ARRIBA de mercado (como ventas §4.14),
  * rango [0,1000]. Auditado. `salePriceCents = round(mercadoTCGCSV × (1 + spread/100))`.
+ *
+ * v2.1.9 — la petición es **PARCIAL y con tres estados** (`SealedSpreadsUpdateRequest`): se mandan
+ * SOLO las llaves que el dueño tocó; `null` RETIRA la regla de esa presentación (vuelve al global).
+ * No es reemplazo total a propósito: un cliente rancio que mandara «las cinco llaves de siempre»
+ * borraría `upc`/`collection` en silencio, que es el bug de D3 reabierto desde el otro lado.
  */
-export async function updateSealedSpreads(input: SealedSpreadsDTO): Promise<SealedSpreadsDTO> {
+export async function updateSealedSpreads(
+  input: SealedSpreadsUpdateRequest,
+): Promise<SealedSpreadsDTO> {
   if (!config.useMocks) {
     return apiRequest<SealedSpreadsDTO>('/admin/pricing/sealed-spreads', {
       method: 'PUT',
