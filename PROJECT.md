@@ -61,7 +61,7 @@
 > de este documento. (1) **Actualizado: el precio del sellado deja de ser "manual-único" y pasa a DERIVADO
 > por spread sobre precio de mercado; TCGCSV pasa de "solo informativa" a ser la BASE del precio de venta del
 > sellado (vía el mapeo curado existente) — decisión del PO, ago-2026.** La precedencia money-safe es:
-> `override manual > (mercado × spread por presentación) > (mercado × spread global de respaldo) > sin precio
+> `override manual > spread por presentación > spread global de respaldo > sin precio
 > ⇒ no se publica (PRICE_PENDING)`. El override manual sigue disponible como **máxima precedencia**. Esto
 > **SOLO aplica al sellado**: para **cartas sueltas (raw/singles) nada cambia** (TCGCSV sigue sin usarse como
 > fuente de su precio). (2) **El sellado es SOLO VENTA** (plataforma→cliente): **no se compra sellado a
@@ -148,8 +148,16 @@
 > documento **deja de enumerar presentaciones a mano** y apunta a §K (las copias en prosa son las que se
 > desincronizan, porque ningún test las mira). Tabla completa: **box 18 · etb 22 · bundle 25 · tin 30 ·
 > blister 35 · upc 18 · collection 22**, global de respaldo **25**. **No se cambia ningún número ni el
-> criterio** — esta revisión solo los **registra donde les toca**. Ver **§K**, criterios **3e/18/57/60/60b** y
-> **decisiones 35/35b**.
+> criterio** — esta revisión solo los **registra donde les toca**. Se cierran además dos cosas que salieron
+> del mismo hilo: **(a) regla de negocio firme** — *toda presentación nueva llega con spread elegido a
+> propósito, nunca cae al global en silencio* (era supuesto; el dueño lo confirmó, y es lo que evita repetir
+> lo del UPC vendiéndose meses al 25 % porque nadie lo eligió); y **(b) corrección de REDACCIÓN de la
+> fórmula**: donde el documento decía `mercado × spread` ahora dice **`mercado × (1 + spread)`** — el spread
+> es un **markup ARRIBA del mercado** (caja de mercado MX$2,000 al 18 % ⇒ **MX$2,360**, no MX$360). **Eso NO
+> cambió en agosto de 2026**: el código y el contrato siempre lo hicieron así; era taquigrafía heredada de
+> v1.6 en el texto, y se corrige porque este documento manda sobre el contrato. La **fórmula queda con origen
+> único en §K** y sus citas la referencian en vez de repetirla. Ver **§K**, criterios **3e/18/57/60/60b** y
+> **decisiones 35/35b/35c/35d**.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -221,8 +229,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       - **gradeadas (PSA/CGC)**: **PokemonPriceTracker** o **PokeTrace** (free tier), con **override
         manual del admin** siempre disponible como respaldo.
       - **sellado** *(actualizado v1.6)*: **precio de venta DERIVADO del precio de mercado de TCGCSV** (vía
-        el mapeo curado existente), con la precedencia money-safe `override manual > (mercado × spread por
-        presentación) > (mercado × spread global de respaldo) > sin precio ⇒ no se publica (PRICE_PENDING)`.
+        el mapeo curado existente), con la precedencia money-safe `override manual > spread por presentación >
+        spread global de respaldo > sin precio ⇒ no se publica (PRICE_PENDING)` (fórmula en §K).
         TCGCSV es la **base del precio del sellado** (ya no "solo informativa"); el **override manual** sigue
         siendo la máxima precedencia. Ver §K. *(Supersede la decisión previa "sellado = precio manual".)*
 - [ ] Tipos de producto vendibles: **gradeadas (PSA/CGC)** (el **slab** es la garantía: se muestra
@@ -232,8 +240,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       **raw en Near Mint (NM)** (**estándar de condición propio**, sin foto). **La ficha usa la imagen de
       catálogo de pokemontcg.io**; el producto no lleva fotos propias.
 - [ ] **Venta de producto sellado** *(actualizado v1.6, ver §K)*: se vende en Compra con **precio de venta
-      DERIVADO** de la referencia TCGCSV por spread (precedencia `override manual > mercado × spread por
-      presentación > mercado × spread global > PRICE_PENDING`); es **solo venta** (plataforma→cliente, **sin
+      DERIVADO** de la referencia TCGCSV por spread (precedencia `override manual > spread por presentación >
+      spread global > PRICE_PENDING`, fórmula en §K); es **solo venta** (plataforma→cliente, **sin
       buylist de sellado**); **sin rareza**, pero **con condición propia** (default Mint, opción "Detalle
       menor en caja"; visible al comprador y **sin efecto en el precio**). Como en Compra solo se lista lo que
       tiene precio, un sellado en **PRICE_PENDING** (sin override y sin spread aplicable) **no se publica**.
@@ -426,7 +434,7 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M2 — Catálogo y precios**: **sync de precios** de las cartas en bóveda desde las fuentes según tipo
       (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; **sellado con precio de
       venta DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K)* — precedencia `override manual >
-      mercado × spread por presentación > mercado × spread global > PRICE_PENDING`), **override manual** de
+      spread por presentación > spread global > PRICE_PENDING`, fórmula en §K), **override manual** de
       precio siempre disponible (máxima precedencia), **editor de spreads del sellado por presentación**
       (**las siete presentaciones** + el global de respaldo; la tabla y sus valores viven en **§K**, que es su
       origen único), **cache diario**, **tipo de cambio USD→MXN con colchón**
@@ -708,14 +716,32 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       `contacto@tcgvaultmx.com` (dominio `tcgvaultmx.com`); las disputas siguen en `soporte@tcgvault.mx`
       (dominio `tcgvault.mx`). Son propósitos y dominios distintos; ambos son correctos y no se unifican.)*
 
-**Precio de venta derivado (money-safe, server-side)**
+**Precio de venta derivado (money-safe, server-side)** — ⚠️ **ORIGEN ÚNICO de la fórmula**
+> **La fórmula y la precedencia se definen AQUÍ una sola vez.** El resto del documento nombra la
+> **precedencia** (qué regla gana) y **apunta a §K** para la aritmética; **no la repite**. Una fórmula de
+> dinero copiada quince veces es la próxima contradicción esperando — es la misma razón por la que la tabla
+> de spreads también tiene un solo origen.
+
 - [ ] El **precio de venta del sellado** se **deriva del precio de mercado de TCGCSV** (vía el **mapeo curado**
       ya existente entre nuestro producto sellado y el ítem de TCGCSV) con esta **precedencia** estricta:
       1. **override manual** del admin (máxima precedencia; siempre disponible),
-      2. **mercado × spread por presentación** (el spread de su presentación, según la **tabla de spreads**
-         de esta misma sección),
-      3. **mercado × spread global de respaldo** (cuando falta el spread por presentación),
+      2. **spread por presentación** ⇒ `precio = mercado × (1 + spread)` con el spread de su presentación
+         (**tabla de spreads**, abajo),
+      3. **spread global de respaldo** ⇒ `precio = mercado × (1 + global)`, cuando no aplica un spread por
+         presentación,
       4. **sin precio** ⇒ el ítem queda en **PRICE_PENDING** y **NO se publica** en Compra.
+- [ ] **El spread es un MARKUP ARRIBA del mercado, no una fracción del mercado.** Con `box` al **18 %**, una
+      caja cuyo mercado es **MX$2,000** se vende en **MX$2,360** (`2,000 × 1.18`) — **no** en MX$360. Es la
+      misma semántica que el markup de venta de las cartas, y es **distinta** de la del buylist (donde el `%`
+      sí es "% de la referencia", §E.1).
+      > **📌 Corrección de REDACCIÓN, no de semántica (2026-08-24, autorizada por el dueño).** Hasta esta
+      > fecha §K y sus citas escribían la fórmula como `mercado × spread`, que leída al pie significa
+      > `mercado × 0.18` — es decir, **vender la caja a MX$360**. Era **taquigrafía heredada de la redacción
+      > de v1.6**: el código (`money.ts`) y el contrato (`API_CONTRACT §M2`, *"markup % ARRIBA de mercado"*)
+      > **siempre** hicieron `mercado × (1 + spread)`. **NO cambió ningún precio, ni el markup, ni la
+      > matemática en agosto de 2026**: lo único que cambió es que el documento rector ahora **dice** lo que
+      > el sistema **siempre hizo**. Se corrige porque `PROJECT.md` manda sobre el contrato (`CLAUDE.md` ›
+      > Regla de conflicto), así que una fórmula mal escrita aquí es la versión que gana.
 - [ ] **TCGCSV es la BASE del precio del sellado** (deja de ser "solo informativa"). Este cambio **aplica
       únicamente al sellado**; el precio de **cartas sueltas (raw/singles)** sigue calculándose como hoy
       (pokemontcg.io/TCGPlayer + markup) y **TCGCSV no se usa como su fuente**.
@@ -756,14 +782,26 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       catálogo. Peor: por un hueco de validación **no se podía capturar una pieza UPC en inventario** ni
       **fijarle spread** desde M2. El hueco ya está corregido; lo que faltaba era que la **decisión de
       negocio** viviera en este documento y no solo en el contrato y el seed.
-- [ ] **El global de respaldo es una EXCEPCIÓN explícita, no el destino de lo que nadie pensó**: **toda**
-      presentación soportada debe tener spread elegido **a propósito**. Una presentación nueva **no** puede
-      quedarse sin valor y caer al global en silencio; el global solo aplica a una pieza **sin presentación**
+- [ ] **REGLA DE NEGOCIO (firme, confirmada por el dueño el 2026-08-24) — toda presentación nueva llega con
+      spread elegido a propósito; NUNCA cae al global en silencio.** Agregar una presentación al catálogo
+      **incluye elegirle su spread**: es parte del alta, no un paso opcional. El **global de respaldo es una
+      EXCEPCIÓN explícita**, no el destino de lo que nadie pensó — solo aplica a una pieza **sin presentación**
       o a una regla que el dueño **retiró deliberadamente**.
-      *(SUPUESTO: al agregar una presentación nueva al catálogo, el dueño **debe elegirle spread** como parte
-      de esa alta —no se autoriza el default silencioso—. Confirmar.)*
+      > **Por qué es regla y no recomendación (razón del dueño):** es exactamente lo que evita que se repita
+      > lo del **UPC**, que llevaba **meses vendiéndose al 25 %** porque **nadie lo eligió** — el default
+      > silencioso no se ve, no duele y no avisa. **La máquina ya lo sostiene**: backend ancló la cobertura de
+      > **todos** los `SealedSubtype` con un test, así que un subtipo nuevo **rompe el test** y obliga a
+      > elegirle spread a propósito. Regla y máquina ya coinciden; esto solo lo deja escrito en el documento
+      > rector.
       *(SUPUESTO: las etiquetas legibles en español de cada presentación —"lata", "caja de colección"— son
       del sistema de diseño/UI, no de este documento; aquí solo se fija la llave y su spread.)*
+- [ ] **📌 Nota para ux-ui (próximo ciclo, no bloquea) — choque de nomenclatura con «Collection».** La palabra
+      tiene **dos acepciones no relacionadas** en este producto y ambas van a querer llamarse "Colección" en
+      pantalla: (a) **`collection`**, la **presentación sellada** de esta tabla (una caja/set de colección,
+      spread 22 %), y (b) **"Classic Collection"** de **§L**, que es un **subset de cartas** de un master set
+      multi-parte (Celebrations `cel25c`). Son cosas distintas —producto cerrado vs. agrupación de catálogo— y
+      un filtro o etiqueta ambigua las confundiría. Que ux-ui les fije nombres visibles distintos en el
+      siguiente ciclo; aquí solo queda anotado el riesgo.
 
 **Condición del sellado (no altera el precio)**
 - [ ] El sellado tiene **condición propia** (independiente del NM del raw y del slab de gradeadas): **default
@@ -1126,8 +1164,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **slab** sigue siendo la garantía de condición (§H) y la **fuente** de su precio de mercado sigue siendo
       la suya (§«Fuentes de precio»); lo que cambia es **cómo se convierte ese mercado en precio**.
 - [ ] **El SELLADO NO cambia**: conserva su **spread por presentación** (§K) — precedencia `override manual >
-      mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, con **las semillas de la
-      tabla de §K** (las **siete** presentaciones + global de respaldo). El sellado **no entra a la curva**.
+      spread por presentación > spread global > PRICE_PENDING`, con **la fórmula y las semillas de §K** (las
+      **siete** presentaciones + global de respaldo). El sellado **no entra a la curva**.
 - [ ] **Tampoco cambian**: el resto de §K, la **bóveda/portafolio** y su valuación (§C), el **cotizador** como
       flujo (§E), la política de **«precio pendiente»** (§H) ni la **derivación server-side** (SEC-A1).
 
@@ -1300,8 +1338,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   (se declara y se extiende a mano). Inferir automáticamente qué set-ids son subset de cuál (por naming, fecha
   o heurística) queda fuera de alcance.
 - **Sellado por curva de valor de mercado** *(v2.0, §N.10)*: el **sellado conserva su spread por
-  presentación** (§K: `override > mercado × spread por presentación > mercado × spread global >
-  PRICE_PENDING`, con las semillas de **la tabla de §K** — siete presentaciones + global). Migrarlo a la
+  presentación** (§K: `override > spread por presentación > spread global > PRICE_PENDING`, con la fórmula y
+  las semillas de **§K** — siete presentaciones + global). Migrarlo a la
   curva de §N sería **otra decisión**, no entra en v2.0.
 - **Piso o bin diferenciados por acabado** *(v2.0, §N.10)*: **descartado explícitamente por el humano** —
   cuesta **~2% de utilidad** y **no vale su complejidad**. El piso de venta y el bin de compra son **únicos y
@@ -1350,7 +1388,7 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   |---|---|---|
   | raw / singles | TCGPlayer "Market Price" vía **pokemontcg.io** | override manual del admin |
   | gradeadas (PSA/CGC) | **PokemonPriceTracker** (free 100/día) o **PokeTrace** (free 250/día) | override manual del admin |
-  | sellado *(actualizado v1.6, §K)* | **precio DERIVADO de TCGCSV** (mercado × spread por presentación) vía mapeo curado | **override manual del admin** (máxima precedencia); sin spread aplicable ⇒ **PRICE_PENDING** (no se publica) |
+  | sellado *(actualizado v1.6, §K)* | **precio DERIVADO de TCGCSV** (spread por presentación; fórmula en §K) vía mapeo curado | **override manual del admin** (máxima precedencia); sin spread aplicable ⇒ **PRICE_PENDING** (no se publica) |
   - Solo se prician las cartas **en bóveda** (no el catálogo completo) + **cache diario**, para que el free
     tier alcance. **PriceCharting no se usa en el MVP.** **TCGCSV es fuente de precio SOLO del sellado**; para
     raw/singles no cambia nada (sigue pokemontcg.io/TCGPlayer).
@@ -1405,10 +1443,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Sección de compra = "Compra"** (antes "Catálogo"): muestra el **inventario propio publicado** a la venta;
   solo se lista lo que tiene **precio de venta fijado** (nunca "precio pendiente" al comprador).
 - **Precio del sellado** *(actualizado v1.6, §K)*: **DERIVADO del precio de mercado de TCGCSV** por spread,
-  con precedencia `override manual > mercado × spread por presentación > mercado × spread global >
-  PRICE_PENDING`. Spreads configurables (ConfigSetting, M10), **uno por cada una de las siete presentaciones
-  + global de respaldo**: la tabla de valores y el criterio que la ordena («ítem más chico ⇒ % mayor») viven
-  en **§K**, que es su origen único. **Solo venta (sin buylist de sellado)**; **condición propia** (default Mint /
+  con precedencia `override manual > spread por presentación > spread global > PRICE_PENDING`. Spreads
+  configurables (ConfigSetting, M10), **uno por cada una de las siete presentaciones + global de respaldo**:
+  la **fórmula** (`mercado × (1 + spread)`, markup arriba del mercado), la tabla de valores y el criterio que
+  la ordena («ítem más chico ⇒ % mayor») viven en **§K**, que es su origen único. **Solo venta (sin buylist de sellado)**; **condición propia** (default Mint /
   "Detalle menor en caja") **sin efecto en el precio**. *(Supersede "sellado = precio manual" y "TCGCSV solo
   informativa" — decisión del PO, ago-2026.)*
 - **Branch de trabajo**: `claude/tcg-cards-marketplace-oijthj`.
@@ -1433,8 +1471,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 2. Una ficha muestra el precio de referencia en MXN (sin IVA) según la fuente que corresponde a
    su tipo de producto —pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas (con
    override manual como respaldo); el **sellado** lleva **precio de venta DERIVADO de TCGCSV por spread**
-   *(actualizado v1.6)* con la precedencia `override manual > mercado × spread por presentación > mercado ×
-   spread global > PRICE_PENDING`—, con fecha del último refresco; el refresco (cache diario) ocurre al menos
+   *(actualizado v1.6)* con la precedencia `override manual > spread por presentación > spread global >
+   PRICE_PENDING` (fórmula en §K)—, con fecha del último refresco; el refresco (cache diario) ocurre al menos
    una vez al día y solo cubre las cartas/ítems en bóveda.
 2b. La ficha de Compra muestra la **imagen de catálogo de pokemontcg.io** (remota) y **no muestra fotos
    propias** de la carta; no existe subida de imágenes de producto en ningún flujo del MVP.
@@ -1459,7 +1497,7 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 3e. El **producto sellado** (las **siete presentaciones** de §K: booster box, ETB, bundle, tin, blister, **UPC**
    y colección) se vende en Compra con **precio de venta
    DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K y criterios 57–64)*: la precedencia es `override
-   manual > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, y un ítem en
+   manual > spread por presentación > spread global > PRICE_PENDING` (fórmula en §K), y un ítem en
    **PRICE_PENDING** (sin override y sin spread aplicable) **no se publica**. El sellado es **solo venta (sin
    buylist)**, **no lleva rareza**, y **sí lleva condición propia** (default Mint / "Detalle menor en caja",
    visible y sin efecto en el precio).
@@ -1677,12 +1715,15 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 
 **Sellado (producto cerrado) — v1.6**
 57. El **precio de venta del sellado** se **deriva de TCGCSV** con la precedencia exacta: **(a)** si hay
-    **override manual**, gana el override; **(b)** si no, **mercado × spread de la presentación**
-    (cualquiera de las **siete** de §K); **(c)** si no hay spread por presentación, **mercado × spread global**;
+    **override manual**, gana el override; **(b)** si no, el **spread de su presentación** (cualquiera de las
+    **siete** de §K); **(c)** si no aplica un spread por presentación, el **spread global de respaldo**;
     **(d)** si no hay ninguno, el ítem queda en **PRICE_PENDING**. El precio se calcula **server-side** (no
-    se toma del cliente).
+    se toma del cliente) con la **fórmula de §K** — el spread es un **markup ARRIBA del mercado**.
+    **Verificable**: en las vías derivadas (b) y (c) el precio publicado **nunca queda por debajo del precio
+    de mercado** del ítem (con spread 0 quedaría exactamente en el mercado). Un **override** sí puede estar
+    deliberadamente por debajo (p. ej. descontar una caja con detalle); las vías derivadas **no**.
 58. Un sellado en **PRICE_PENDING** (sin override y sin spread/mercado aplicable) **no aparece en Compra**;
-    en cuanto adquiere precio (override o spread × mercado) puede publicarse.
+    en cuanto adquiere precio (override, o mercado + spread según §K) puede publicarse.
 59. El cambio de **base de precio a TCGCSV aplica SOLO al sellado**: el precio de un **raw/single** o de una
     **gradeada** **no** cambia por esto (siguen sus fuentes actuales), verificable comparando que la fuente
     de precio de una carta suelta sigue siendo pokemontcg.io/TCGPlayer y no TCGCSV.
@@ -1794,8 +1835,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     acabado. Verificable: dar de alta dos piezas de acabados distintos sigue produciendo **dos variantes
     distinguibles**.
 85. **Alcance: raw y gradeadas sí; sellado no**: la curva aplica igual a **raw** y a **gradeadas**. El
-    **precio del sellado no cambia** — conserva `override > mercado × spread por presentación > mercado ×
-    spread global > PRICE_PENDING` con sus semillas (§K). Verificable comparando el precio de un sellado antes
+    **precio del sellado no cambia** — conserva `override > spread por presentación > spread global >
+    PRICE_PENDING` con su fórmula y sus semillas (§K). Verificable comparando el precio de un sellado antes
     y después: **idéntico**.
 86. **Tabla de puntos editable — agregar, mover y borrar**: el súper-admin puede **añadir** un punto de
     quiebre, **moverlo** y **borrarlo** en las curvas de venta y de compra desde el back-office, **sin
@@ -1999,9 +2040,10 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    Ver §J y criterios 54–56.
 
 **Decisiones v1.6 — sellado (producto cerrado) (2026-08-19, tomadas por el humano; SUPERSEDEN decisiones 4 y 16):**
-33. **Precio del sellado = DERIVADO por spread** (ya no manual-único): precedencia `override manual >
-   (mercado × spread por presentación) > (mercado × spread global de respaldo) > sin precio ⇒ PRICE_PENDING
-   (no se publica)`. **Supersede** la parte de sellado de la decisión 4 ("sellado = precio manual") y la 16.
+33. **Precio del sellado = DERIVADO por spread** (ya no manual-único): precedencia `override manual > spread
+   por presentación > spread global de respaldo > sin precio ⇒ PRICE_PENDING (no se publica)`; la **fórmula**
+   (markup arriba del mercado) vive en **§K**. **Supersede** la parte de sellado de la decisión 4 ("sellado =
+   precio manual") y la 16.
 34. **TCGCSV = BASE del precio de venta del sellado** (ya no "solo informativa"), vía el **mapeo curado
    existente**. Aplica **solo al sellado**; para **raw/singles no cambia nada**.
 35. **Spreads configurables por presentación** (ConfigSetting, M10): semillas **box 18% / etb 22% / bundle
@@ -2014,6 +2056,20 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    un monto que mata la venta; una pieza barata necesita más % para que el margen pague manejo y envío).
    Hasta esta decisión ambas caían al **global de respaldo (25%)** por omisión, y por un hueco de validación
    **no se podía capturar una pieza UPC en inventario ni fijarle spread** desde M2 (ya corregido). Ver §K.
+35c. **Toda presentación nueva llega con spread elegido a propósito — nunca cae al global en silencio**
+   (2026-08-24, **confirmado por el dueño** como **regla de negocio firme**, ya no supuesto): elegir el
+   spread es **parte del alta** de una presentación. El **global de respaldo queda como excepción explícita**
+   (pieza sin presentación, o regla retirada a propósito), no como default de lo que nadie pensó. Razón: es
+   lo que evita repetir lo del **UPC**, que llevaba **meses vendiéndose al 25 %** porque nadie lo eligió.
+   Backend ya lo sostiene con un **test de cobertura de todos los `SealedSubtype`**. Ver §K.
+35d. **Corrección de REDACCIÓN de la fórmula del spread — NO cambia ningún precio** (2026-08-24, autorizada
+   por el dueño): el documento escribía `mercado × spread`, que leído al pie significa `mercado × 0.18`
+   (vender una caja de MX$2,000 en **MX$360**). La fórmula real, **siempre** implementada así en `money.ts` y
+   **siempre** bien descrita en `API_CONTRACT §M2` ("markup % ARRIBA de mercado"), es **`mercado × (1 +
+   spread)`** ⇒ **MX$2,360**. Era **taquigrafía heredada de la redacción de v1.6**, no una decisión de
+   negocio distinta. **En agosto de 2026 no cambió el markup, ni un precio, ni la matemática**: solo se
+   corrigió el texto del documento rector, que por la regla de conflicto es la versión que gana. La fórmula
+   queda con **origen único en §K** y las ~15 citas pasan a nombrar la **precedencia** y apuntar a §K.
 36. **Sellado = solo venta** (plataforma→cliente): **sin buylist de sellado**; call-out `mailto`
    (`contacto@tcgvaultmx.com`) para revender fuera de la app.
 37. **Condición del sellado**: default **Mint**, opción **"Detalle menor en caja"**; visible al comprador,
