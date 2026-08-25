@@ -2,7 +2,40 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-24 (rev v1.48-priceprovider-enum-reconcile).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-25 (rev v1.49-pricing-two-layers-merge).
+>
+> **Changelog v1.49-pricing-two-layers-merge (2026-08-25, arquitecto — DICTAMEN DE FUSIÓN; lo implementa BACKEND en el
+> merge. Escalada regla 9 (backend), rama v2 `origin/claude/card-pricing-rules-2e537m`. ARCHITECTURE §4.36. Money-safe,
+> retrocompatible; sin migración por este dictamen — la M-41 aditiva la trae la rama.):** la rama v2 reescribe la **capa
+> REGLA** de pricing (motor de **curva** `computeSalePriceFromCurve`/`quoteAcquisitionFromCurve`, editor M2 de
+> curvas/spreads/UPC, `priceBasis` en DTO de precio) y, en el mismo pase, **elimina** el provider `tcgcsv_singles` (P-47,
+> §4.35) del barrido. **Dictamen:** se **ADOPTA** la capa REGLA (curva) y se **CONSERVA** la capa REFERENCIA
+> (`tcgcsv_singles`); son **ortogonales**. Se **RECHAZA** el borrado de `tcgcsv_singles`.
+>
+> **— DOS CAPAS DE PRECIO (NORMATIVO). —** El precio de un single se produce en dos capas independientes que no se pisan:
+> 1. **Capa REFERENCIA (per-acabado):** el **precio de mercado por `(carta, finish, cardProductId)`** lo puebla el barrido
+>    diario desde **TCGCSV `tcgcsv_singles`** (§4.35, P-47), provider **PRIMARIO**. `tcgcsv_singles` **PERMANECE** como
+>    fuente per-acabado **precisamente porque PPT/pokemontcg.io aplanan** —exponen UN solo `market` a nivel carta,
+>    invariante al printing (§4.35(d))—; retirarlo re-aplana normal/reverse/holo al mismo precio (la regresión que P-47
+>    cerró). Ancla: **§4.35** (referencia per-acabado, `tcgcsv_singles` primario) + **§4.27f-2** (override manual = tier
+>    superior absoluto, durable cross-day, sobre CUALQUIER fuente automática).
+> 2. **Capa REGLA (deriva compra/venta):** sobre el escalar de mercado de la capa 1, la **curva** (adopción v2) deriva el
+>    precio de compra (buylist) y de venta, **por acabado** (`getReference(...finish)`/`getReferencesBatch` per-acabado; la
+>    curva recibe `marketMxnCents` escalar y se evalúa una vez por acabado). La curva es la evolución del editor de M2 y
+>    **sustituye la indirección tiers×mapa** de §4.33 conservando su semántica money-safe (`fixed`/`pct`, gate premium,
+>    precedencia, `pct` sin market ⇒ pendiente nunca $0, derivación server-side SEC-A1). Ancla: **§M2** (editor de curva) +
+>    **§4.33/§4.28** (regla = curva por valor de mercado sobre el catálogo canónico de rarezas). Los DTO de precio ganan
+>    **`priceBasis`** (adopción v2) para exponer sobre qué base se derivó el precio.
+>
+> Las dos capas se **ortogonalizan en el barrido** como escribir-luego-leer: la capa REFERENCIA **escribe**
+> `PriceReference` per-acabado (`tcgcsv_singles`), la capa REGLA (curva) la **lee** para derivar compra/venta y encolar
+> pendientes (`pendingReason`). El override manual (§4.27f-2) es tier superior absoluto sobre la capa 1 y sobrevive a
+> ambas. **Reconciliación de numeración:** los changelogs internos **v2.x** de la rama (hasta `v2.1.9`) se re-anclan como
+> **notas internas del pase de curva**; la línea de contrato de PRODUCCIÓN sigue siendo **v1.x** y bumpéa a **v1.49**. No
+> existe una «línea v2» del contrato. **Sin cambio de forma** de los DTO existentes salvo la adición de `priceBasis` (capa
+> REGLA v2, adoptada verbatim de la rama); los shapes concretos de la curva (editor M2, `priceBasis`) son los que aterriza
+> la rama v2 y backend los confirma al merge — este changelog fija la NORMA de las dos capas, no re-diseña el shape de la
+> curva. **Base previa:** v1.48-priceprovider-enum-reconcile.
 >
 > **Changelog v1.48-priceprovider-enum-reconcile (2026-08-24, arquitecto — CORRECCIÓN DE REDACCIÓN; NO cambia código ni
 > shape de DTO. Frontend lo detectó al re-exponer el dial `priceProvider` en la UI de M10, rama de catálogo/precios. NO

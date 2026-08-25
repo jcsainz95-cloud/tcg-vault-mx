@@ -6992,6 +6992,114 @@ implementado), sin migración, sin cambio de forma de contrato.
 
 ---
 
+### 4.36 Fusión pricing v2 — DOS CAPAS ORTOGONALES: REFERENCIA (`tcgcsv_singles`, P-47) × REGLA (curva v2) (v1.49, DICTAMEN DE FUSIÓN, NORMATIVO)
+
+> **Escalada regla 9 (backend) — dictamen de fusión de la rama v2 `origin/claude/card-pricing-rules-2e537m`.** La rama v2
+> reescribe la **capa REGLA** de pricing: sustituye la indirección tiers×mapa (§4.33) por un **motor de CURVA**
+> (`computeSalePriceFromCurve` / `quoteAcquisitionFromCurve` en `common/money.ts`), añade el editor de curvas/spreads/UPC
+> en M2 y un `priceBasis` a los DTO de precio. En el mismo pase **elimina** el provider `TcgcsvSinglesBulkPriceProvider`
+> (P-47, §4.35) del barrido: borra su import, el parámetro del constructor, su registro en `providerFor()` (deja
+> `[pptBulk, tcgIoBulk]`) y **borra el fichero** `providers/tcgcsv-singles-bulk.provider.ts`. **Ese borrado es la única
+> pieza que este dictamen RECHAZA.** El resto de la capa REGLA v2 se ADOPTA. Sin migración de schema por este dictamen
+> (M-41 de la rama es aditiva y limpia tras M-40; no toca `PriceReference` ni `finish`/`cardProductId`).
+
+#### (a) El dictamen — CONSERVAR referencia (P-47) + ADOPTAR regla (curva v2). Son capas ORTOGONALES.
+
+El pricing de singles tiene **dos capas independientes que no se pisan**:
+
+| Capa | Qué hace | Quién la produce | Clave |
+|---|---|---|---|
+| **REFERENCIA** (§4.35, P-47) | Puebla el **precio de mercado por-acabado** (`marketMxnCents` escalar por `(carta, finish, cardProductId)`) | `TcgcsvSinglesBulkPriceProvider` → upsert `PriceReference` `source='tcgcsv_singles'` | La FUENTE per-acabado |
+| **REGLA** (§4.33 → curva v2) | Deriva **compra/venta** a partir de ese escalar de mercado | curva v2 (`computeSalePriceFromCurve`/`quoteAcquisitionFromCurve`) leyendo `getReference(...finish)` / `getReferencesBatch` per-acabado | La MATEMÁTICA sobre la referencia |
+
+**Ortogonalidad demostrada en el propio código v2:** la curva recibe un `marketMxnCents` **escalar** y el servicio lo lee
+**POR ACABADO** (`getReference(...finish)` / `getReferencesBatch` keyeado por `variantKey`; `catalog.service.ts
+fetchSellable` itera pieza a pieza con su `finish`). `finish` **no** es parámetro de la curva —es criterio de forma— pero
+**cada acabado tiene su propia evaluación** sobre su propia referencia. Es decir: el precio por-acabado (P-47) **sobrevive
+estructuralmente** a la curva. Lo que la curva NO puede inventar es una referencia per-acabado **distinta** si la fuente
+que la escribe (tcgcsv_singles) desaparece.
+
+#### (b) Por qué `tcgcsv_singles` NO se retira — la regresión que P-47 cerró y que el humano reactivó en prod
+
+Retirar `tcgcsv_singles` **no** colapsa el mecanismo per-acabado (la curva sigue leyendo por acabado), pero **SÍ elimina la
+FUENTE DE DATOS que produce precios por-acabado DISTINTOS**. Motivo (evidencia P-47, §4.35 preámbulo/(d)): **PPT (API v2)
+devuelve UN solo `market` a nivel carta, invariante al printing**; pokemontcg.io idem. Por eso P-47/v1.44 introdujo
+`tcgcsv_singles` como escritor DIARIO per-acabado (por `cardProductId`), precisamente para **no aplanar**. Si la fusión v2
+quita `tcgcsv_singles` y la referencia vuelve a salir de PPT/pokemontcg.io, el precio por-acabado se **re-aplana** (mismo
+precio normal/reverse/holo): es la **regresión exacta que P-47 cerró** y que el humano reportó y acaba de reactivar en
+prod. **Conclusión normativa: `tcgcsv_singles` permanece como provider PRIMARIO per-acabado del barrido. La curva v2 se
+adopta ENCIMA de esa referencia, no en su lugar.**
+
+#### (c) Resolución por-hunk de `price-ingest.service.ts` (instrucción para BACKEND)
+
+En el merge de la rama v2, `price-ingest.service.ts` es el **único conflicto de código**. Regla por hunk:
+
+- **CONSERVAR (lado main / P-47), rechazar el borrado de v2:**
+  - el `import` de `TcgcsvSinglesBulkPriceProvider`;
+  - el **parámetro del constructor** que lo inyecta;
+  - su **registro en `providerFor()`** — las candidatas incluyen `tcgcsvSinglesBulk` y `providerFor('tcgcsv_singles')`
+    debe seguir devolviéndolo como **primario** (NO dejar `[pptBulk, tcgIoBulk]`);
+  - el fichero `providers/tcgcsv-singles-bulk.provider.ts` (**no** se borra);
+  - el camino dedicado `ingestSinglesForSet` (el path per-acabado que evita el `FinishReconciler`, §4.35);
+  - el dial `PRICE_PROVIDER=tcgcsv_singles` como opción válida y **primaria** (§4.15b, §M10).
+- **ADOPTAR (lado v2):**
+  - la reescritura del bloque de **reprice/pendientes por-curva** (`loadPricingCurve`, `getReferencesBatch` per-acabado,
+    cola con `pendingReason`);
+  - toda la **capa REGLA**: la curva en `common/money.ts` (`computeSalePriceFromCurve`/`quoteAcquisitionFromCurve`), el
+    editor M2 de curvas/spreads/UPC, los DTO con `priceBasis`, y la migración **M-41** (aditiva).
+- **Punto de fricción (reprice v2 ↔ `ingestSinglesForSet` P-47) — CÓMO COEXISTEN:** las dos piezas operan en **fases
+  distintas del mismo barrido y NO se excluyen**, porque una **ESCRIBE** referencia y la otra la **LEE**:
+  1. **Fase ESCRITURA (P-47, capa REFERENCIA):** `ingestSinglesForSet` / `TcgcsvSinglesBulkPriceProvider` upsertea
+     `PriceReference (cardId, finish, cardProductId, source='tcgcsv_singles', capturedDate=hoy)` con FX, respetando
+     `isManualOverride`, **sin** tocar estructura. Es el barrido primario de singles.
+  2. **Fase REGLA (v2, capa REGLA):** el bloque de reprice v2 hace `loadPricingCurve` + `getReferencesBatch` per-acabado y
+     **lee** esas mismas filas para derivar compra/venta y encolar pendientes (`pendingReason`).
+  El orden es **escribir-luego-leer**: `ingestSinglesForSet` deja la referencia fresca del día y el reprice v2 la consume.
+  **No deben excluirse mutuamente en el merge** (el error a evitar es que el hunk v2 sustituya la escritura de referencia
+  por su propia lectura y deje el barrido sin quien pueble la referencia per-acabado).
+- **Si un hunk toca literalmente las mismas líneas** (el bloque v2 de reprice y el path P-47 de `ingestSinglesForSet`
+  comparten región): mínima adaptación = mantener **ambas fases** en secuencia dentro de `ingestSinglesForSet` —primero el
+  upsert de referencia per-acabado (P-47), después el reprice por-curva (v2) sobre lo recién escrito—. **No** hay
+  incompatibilidad real: la curva **requiere** un `marketMxnCents` de entrada, y ese escalar es justo lo que la fase de
+  referencia produce. Retirar la referencia dejaría a la curva leyendo el market aplanado de PPT (regresión (b)).
+
+#### (d) Banderas — puntos donde la rama v2 pudo asumir que `tcgcsv_singles` ya no existe (para BACKEND/QA)
+
+La coexistencia es limpia en `price-ingest.service.ts`, pero el borrado v2 pudo dejar **referencias colgantes** al provider
+retirado. Backend/QA deben barrer y RESTABLECER en el merge:
+
+1. **Enum de provider / validador** `PRICE_PROVIDER_VALUES` (settings): debe seguir siendo
+   `['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`. Si v2 lo redujo a dos valores, **restaurar** `tcgcsv_singles`.
+2. **`enum PriceSource`** (Prisma / `common/`): debe conservar el valor `tcgcsv_singles` (M-31). Si v2 lo eliminó del enum
+   o de su union TS, **restaurar** (borrarlo rompería la lectura de `PriceReference` históricas y §4.27f).
+3. **Seed / `ConfigSetting`**: el seed de `PRICE_PROVIDER` debe dejar `tcgcsv_singles` como primario (§4.35/§M10). Si el
+   seed v2 lo cambió a `pokemontcg_io`/`pokemonpricetracker`, **restaurar**.
+4. **Registro de providers** (módulo NestJS / factory de `providerFor`): el proveedor debe estar en el array de providers
+   inyectables; si v2 lo quitó del módulo, **re-registrarlo**.
+5. **Tests**: cualquier test v2 que asserte `providerFor()` == `[pptBulk, tcgIoBulk]` o que `tcgcsv_singles` ya no existe
+   debe **corregirse** para reflejar el primario conservado (P-47). Añadir/mantener el test money-safe de §4.35(e)(4):
+   reverse/holo con precio TCGCSV ⇒ celda con SU precio; sin precio en ninguna fuente ⇒ `PRICE_PENDING`/«—», nunca el de
+   otro acabado.
+6. **Devops (dials/env)**: `PRICE_PROVIDER=tcgcsv_singles` y `POKEMONPRICETRACKER_FETCH_PRINTINGS=false` siguen vigentes
+   (§4.35(e)); verificar que el merge v2 no los revirtió en `.env.example`/config de staging.
+
+Si en el barrido resultara alguna incompatibilidad NO listada aquí (p. ej. la curva v2 asume un shape de entrada que la
+referencia P-47 no provee), **es una escalada regla 9 al arquitecto antes de merge** — no se resuelve en backend por su
+cuenta (toca zona compartida `common/money.ts` + contrato).
+
+#### (e) Numeración y reparto
+
+- **Re-anclaje de versión:** la línea de contrato de PRODUCCIÓN es **v1.x**. Los changelogs internos **v2.x** de la rama
+  (hasta `v2.1.9`) se re-anclan como **notas internas del pase de curva**, NO como línea de contrato; el contrato bumpéa a
+  **v1.49-pricing-two-layers-merge** (§ changelog del contrato). No hay línea «v2» del contrato.
+- **backend** (WS «Catálogo y precios»): ejecuta la resolución (c) en el merge, restablece las banderas (d), adopta la
+  curva v2 y M-41. **Toca dinero + zona compartida (`common/money.ts`, registro de providers) → triple veredicto + gate de
+  seguridad por release; serializar en UN solo stream.**
+- **arquitecto** (este §): dictamen + resolución por-hunk + contrato v1.49. Sin migración por este dictamen (M-41 la trae
+  la rama). El **merge lo coordina el orquestador**.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -7130,6 +7238,16 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **MERGE-P47xCURVA (backend, v1.49, rama v2 `origin/claude/card-pricing-rules-2e537m`) — el pase de curva v2 BORRA el
+  provider `TcgcsvSinglesBulkPriceProvider` (P-47), re-aplanando el precio por-acabado.** Estado detectado (diff de la
+  rama sobre `price-ingest.service.ts` + `providers/`): v2 elimina el import, el parámetro del constructor, el registro en
+  `providerFor()` (deja `[pptBulk, tcgIoBulk]`) y **borra** `providers/tcgcsv-singles-bulk.provider.ts`. Efecto money-safe:
+  la referencia per-acabado vuelve a salir de PPT/pokemontcg.io, que exponen **un solo `market` a nivel carta**
+  (§4.35(d)) ⇒ normal/reverse/holo cotizan al **mismo** precio — la regresión que P-47 cerró y el humano reactivó en prod.
+  **Norma: §4.36** (conservar `tcgcsv_singles` = capa REFERENCIA; adoptar la curva = capa REGLA; son ortogonales).
+  **Acción (backend, en el merge):** aplicar la resolución por-hunk §4.36(c) —CONSERVAR el provider/registro/fichero/path
+  `ingestSinglesForSet`, ADOPTAR el reprice por-curva— y barrer las banderas §4.36(d) (enum `PriceSource`,
+  `PRICE_PROVIDER_VALUES`, seed, registro de módulo, tests). Cubrir con el test money-safe §4.35(e)(4).
 - **IMP-C (backend, v1.43, rama `fix/variant-composition-regression`) — `gateSealedMarketCents` anula el override manual
   de MERCADO del sellado con el dial `off`.** Estado detectado (`pricing.service.ts` `gateSealedMarketCents`): el gate
   devuelve `null` para **cualquier** `sealedMarketRef` cuando `sourceOn=false`, sin distinguir la fuente automática
