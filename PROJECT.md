@@ -134,6 +134,22 @@
 > money-safe quedaron **cerradas por el humano** (ya no son supuestos): **sin dato de mercado ⇒ «precio
 > pendiente»** —no se publica ni se cotiza, el piso **no** gana (§N.2)— y el **guardarraíl aplica a los DOS
 > ejes** (§N.5).
+> **Decisión del dueño 2026-08-24 — SELLADO: son SIETE presentaciones, no cinco (`upc` 18 % · `collection`
+> 22 %):** el dueño **confirmó que vende UPC** (Ultra Premium Collection) y **eligió los dos spreads que
+> faltaban**: **`upc` = 18 %** (es la pieza más grande y cara del catálogo ⇒ mismo % que `box`) y
+> **`collection` = 22 %** (comparable a un ETB ⇒ mismo % que `etb`). Salió a la luz porque un hueco de
+> validación hacía que **no se pudiera capturar una pieza UPC en inventario** ni **fijarle precio** desde M2
+> —ambas presentaciones caían al **global de respaldo (25 %)**, un número que nadie eligió para la pieza más
+> cara que vendemos—; el hueco **ya está corregido**. Lo que faltaba era de **propiedad del documento**: los
+> dos números vivían solo en `docs/API_CONTRACT.md` §M2 y en la semilla del código, mientras **§K seguía
+> enumerando cinco**. Por la **regla de conflicto** (*PROJECT manda sobre el contrato*), el contrato no puede
+> ser el **origen** de un número de negocio: debe **citarlo**. Con esta revisión **§K es el origen único** de
+> la tabla de spreads y enuncia el **criterio que la ordena — «ítem más chico ⇒ % mayor»**; el resto del
+> documento **deja de enumerar presentaciones a mano** y apunta a §K (las copias en prosa son las que se
+> desincronizan, porque ningún test las mira). Tabla completa: **box 18 · etb 22 · bundle 25 · tin 30 ·
+> blister 35 · upc 18 · collection 22**, global de respaldo **25**. **No se cambia ningún número ni el
+> criterio** — esta revisión solo los **registra donde les toca**. Ver **§K**, criterios **3e/18/57/60/60b** y
+> **decisiones 35/35b**.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -211,7 +227,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
         siendo la máxima precedencia. Ver §K. *(Supersede la decisión previa "sellado = precio manual".)*
 - [ ] Tipos de producto vendibles: **gradeadas (PSA/CGC)** (el **slab** es la garantía: se muestra
       **empresa + grado + número de certificado**, verificable en la web de la graduadora; se captura
-      `certNumber`), **producto sellado** (sets cerrados: booster box, ETB, bundle, tin, blister…) y
+      `certNumber`), **producto sellado** (sets cerrados: booster box, ETB, bundle, tin, blister, **UPC**
+      —Ultra Premium Collection— y colección; las **siete presentaciones** están en §K) y
       **raw en Near Mint (NM)** (**estándar de condición propio**, sin foto). **La ficha usa la imagen de
       catálogo de pokemontcg.io**; el producto no lleva fotos propias.
 - [ ] **Venta de producto sellado** *(actualizado v1.6, ver §K)*: se vende en Compra con **precio de venta
@@ -411,7 +428,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       venta DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K)* — precedencia `override manual >
       mercado × spread por presentación > mercado × spread global > PRICE_PENDING`), **override manual** de
       precio siempre disponible (máxima precedencia), **editor de spreads del sellado por presentación**
-      (box/etb/bundle/tin/blister + global; ver §K), **cache diario**, **tipo de cambio USD→MXN con colchón**
+      (**las siete presentaciones** + el global de respaldo; la tabla y sus valores viven en **§K**, que es su
+      origen único), **cache diario**, **tipo de cambio USD→MXN con colchón**
       configurable, y **editor de la curva de precio por valor de mercado** *(v2.0, §N.3 — supersede el editor
       «por rareza / por tier»)*: **tabla de puntos de quiebre** de venta y compra donde el dueño puede
       **agregar, mover y borrar** renglones, más **piso**, **bin** y **escalera de redondeo**, con las
@@ -672,7 +690,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > un pedido **ya reclamado** no puede vincularse a una segunda cuenta.
 
 ### K. Sellado (producto cerrado) — venta con precio derivado (transversal — NUEVO v1.6)
-> **Qué es**: el **producto sellado** (booster box, ETB, bundle, tin, blister…) se consolida aquí con las
+> **Qué es**: el **producto sellado** (booster box, ETB, bundle, tin, blister, **UPC**, colección — las
+> **siete presentaciones** de la tabla de spreads, abajo) se consolida aquí con las
 > decisiones cerradas del work stream de Sellado (2026-08-19). **SUPERSEDE** dos decisiones previas del
 > documento: (1) "sellado = precio manual único" → ahora el precio es **derivado por spread**; (2) "TCGCSV
 > solo informativa" → ahora TCGCSV es la **base del precio de venta del sellado** (solo del sellado; para
@@ -693,7 +712,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] El **precio de venta del sellado** se **deriva del precio de mercado de TCGCSV** (vía el **mapeo curado**
       ya existente entre nuestro producto sellado y el ítem de TCGCSV) con esta **precedencia** estricta:
       1. **override manual** del admin (máxima precedencia; siempre disponible),
-      2. **mercado × spread por presentación** (spread según box/etb/bundle/tin/blister),
+      2. **mercado × spread por presentación** (el spread de su presentación, según la **tabla de spreads**
+         de esta misma sección),
       3. **mercado × spread global de respaldo** (cuando falta el spread por presentación),
       4. **sin precio** ⇒ el ítem queda en **PRICE_PENDING** y **NO se publica** en Compra.
 - [ ] **TCGCSV es la BASE del precio del sellado** (deja de ser "solo informativa"). Este cambio **aplica
@@ -702,10 +722,48 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] El precio derivado se **calcula server-side** (no se toma del cliente), consistente con la protección
       anti-manipulación existente (SEC-A1).
 
-**Spreads configurables por presentación (ConfigSetting)**
+**Spreads configurables por presentación (ConfigSetting)** — ⚠️ **ORIGEN ÚNICO de estos números**
+> Esta tabla es **la fuente de verdad** de los spreads del sellado. El contrato (`API_CONTRACT §M2`) y la
+> semilla del código **la citan**; no la originan. Cualquier otra mención en este documento debe **apuntar
+> aquí** en vez de volver a enumerar las presentaciones: las copias en prosa se desincronizan porque
+> ningún test las mira (fue exactamente lo que pasó con `upc` y `collection`, ver abajo).
+
 - [ ] Los spreads son **diales configurables** (ConfigSetting, editables sin deploy y auditados en M10),
-      **uno por presentación** más un **global de respaldo**. **Semillas** (editables por el dueño):
-      **box 18%**, **etb 22%**, **bundle 25%**, **tin 30%**, **blister 35%**, **global 25%**.
+      **uno por presentación** más un **global de respaldo**. Son **siete presentaciones** (no cinco).
+      **Semillas** (editables por el dueño en M2), en esta tabla:
+
+| Presentación | Spread semilla | Origen |
+|---|---|---|
+| `box` (booster box) | **18 %** | v1.6 (2026-08-19) |
+| `etb` (Elite Trainer Box) | **22 %** | v1.6 (2026-08-19) |
+| `bundle` | **25 %** | v1.6 (2026-08-19) |
+| `tin` (lata) | **30 %** | v1.6 (2026-08-19) |
+| `blister` | **35 %** | v1.6 (2026-08-19) |
+| **`upc`** (Ultra Premium Collection) | **18 %** | **decisión del dueño, 2026-08-24** (= `box`) |
+| **`collection`** (caja/set de colección) | **22 %** | **decisión del dueño, 2026-08-24** (= `etb`) |
+| **global de respaldo** | **25 %** | v1.6 (2026-08-19) |
+
+- [ ] **Criterio que ordena la tabla (enunciado, para ubicar cualquier presentación futura): «ítem más chico
+      ⇒ % mayor».** El orden `box 18 < etb 22 < bundle 25 < tin 30 < blister 35` no es arbitrario: en una
+      pieza **grande y cara** un porcentaje gordo se vuelve un **monto absoluto** que mata la venta; en una
+      pieza **barata** hace falta un porcentaje mayor para que el margen absoluto **pague el manejo y el
+      envío**. De ahí salen los dos valores nuevos: un **UPC** es la pieza **más grande y cara** del
+      catálogo ⇒ va con `box` (**18 %**); una **`collection`** es comparable a un **ETB** ⇒ va con `etb`
+      (**22 %**).
+- [ ] **`upc` y `collection` — decisión del dueño del 2026-08-24 (el dueño SÍ vende UPC).** Se registran
+      aquí porque hasta v1.6 este documento solo enumeraba **cinco** presentaciones, y esas dos **caían al
+      global de respaldo (25 %) por omisión** — un número que nadie eligió para la pieza más cara del
+      catálogo. Peor: por un hueco de validación **no se podía capturar una pieza UPC en inventario** ni
+      **fijarle spread** desde M2. El hueco ya está corregido; lo que faltaba era que la **decisión de
+      negocio** viviera en este documento y no solo en el contrato y el seed.
+- [ ] **El global de respaldo es una EXCEPCIÓN explícita, no el destino de lo que nadie pensó**: **toda**
+      presentación soportada debe tener spread elegido **a propósito**. Una presentación nueva **no** puede
+      quedarse sin valor y caer al global en silencio; el global solo aplica a una pieza **sin presentación**
+      o a una regla que el dueño **retiró deliberadamente**.
+      *(SUPUESTO: al agregar una presentación nueva al catálogo, el dueño **debe elegirle spread** como parte
+      de esa alta —no se autoriza el default silencioso—. Confirmar.)*
+      *(SUPUESTO: las etiquetas legibles en español de cada presentación —"lata", "caja de colección"— son
+      del sistema de diseño/UI, no de este documento; aquí solo se fija la llave y su spread.)*
 
 **Condición del sellado (no altera el precio)**
 - [ ] El sellado tiene **condición propia** (independiente del NM del raw y del slab de gradeadas): **default
@@ -1068,8 +1126,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **slab** sigue siendo la garantía de condición (§H) y la **fuente** de su precio de mercado sigue siendo
       la suya (§«Fuentes de precio»); lo que cambia es **cómo se convierte ese mercado en precio**.
 - [ ] **El SELLADO NO cambia**: conserva su **spread por presentación** (§K) — precedencia `override manual >
-      mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, con las semillas **box 18%
-      / etb 22% / bundle 25% / tin 30% / blister 35% / global 25%**. El sellado **no entra a la curva**.
+      mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, con **las semillas de la
+      tabla de §K** (las **siete** presentaciones + global de respaldo). El sellado **no entra a la curva**.
 - [ ] **Tampoco cambian**: el resto de §K, la **bóveda/portafolio** y su valuación (§C), el **cotizador** como
       flujo (§E), la política de **«precio pendiente»** (§H) ni la **derivación server-side** (SEC-A1).
 
@@ -1243,7 +1301,7 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   o heurística) queda fuera de alcance.
 - **Sellado por curva de valor de mercado** *(v2.0, §N.10)*: el **sellado conserva su spread por
   presentación** (§K: `override > mercado × spread por presentación > mercado × spread global >
-  PRICE_PENDING`, semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25). Migrarlo a la
+  PRICE_PENDING`, con las semillas de **la tabla de §K** — siete presentaciones + global). Migrarlo a la
   curva de §N sería **otra decisión**, no entra en v2.0.
 - **Piso o bin diferenciados por acabado** *(v2.0, §N.10)*: **descartado explícitamente por el humano** —
   cuesta **~2% de utilidad** y **no vale su complejidad**. El piso de venta y el bin de compra son **únicos y
@@ -1348,8 +1406,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   solo se lista lo que tiene **precio de venta fijado** (nunca "precio pendiente" al comprador).
 - **Precio del sellado** *(actualizado v1.6, §K)*: **DERIVADO del precio de mercado de TCGCSV** por spread,
   con precedencia `override manual > mercado × spread por presentación > mercado × spread global >
-  PRICE_PENDING`. Spreads configurables (ConfigSetting, M10): box 18% / etb 22% / bundle 25% / tin 30% /
-  blister 35% / global 25%. **Solo venta (sin buylist de sellado)**; **condición propia** (default Mint /
+  PRICE_PENDING`. Spreads configurables (ConfigSetting, M10), **uno por cada una de las siete presentaciones
+  + global de respaldo**: la tabla de valores y el criterio que la ordena («ítem más chico ⇒ % mayor») viven
+  en **§K**, que es su origen único. **Solo venta (sin buylist de sellado)**; **condición propia** (default Mint /
   "Detalle menor en caja") **sin efecto en el precio**. *(Supersede "sellado = precio manual" y "TCGCSV solo
   informativa" — decisión del PO, ago-2026.)*
 - **Branch de trabajo**: `claude/tcg-cards-marketplace-oijthj`.
@@ -1397,7 +1456,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    NM"**; una carta recibida que **no es NM** se **rechaza (no se paga)** y se devuelve según plazos (7 días,
    **a costo del usuario**; abandono a 30 días), y una carta **abandonada no-NM NO entra al inventario
    vendible**.
-3e. El **producto sellado** (booster box, ETB, bundle, tin, blister…) se vende en Compra con **precio de venta
+3e. El **producto sellado** (las **siete presentaciones** de §K: booster box, ETB, bundle, tin, blister, **UPC**
+   y colección) se vende en Compra con **precio de venta
    DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K y criterios 57–64)*: la precedencia es `override
    manual > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, y un ítem en
    **PRICE_PENDING** (sin override y sin spread aplicable) **no se publica**. El sellado es **solo venta (sin
@@ -1473,7 +1533,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 18. En M2 se puede sincronizar precios de las cartas en bóveda desde la fuente que corresponde a cada tipo
     (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; el **sellado** se pricia
     **derivado de TCGCSV por spread** *(actualizado v1.6)*), hacer **override manual** siempre (máxima
-    precedencia), **editar los spreads del sellado por presentación** (box/etb/bundle/tin/blister + global),
+    precedencia), **editar los spreads del sellado de las siete presentaciones de §K + el global de respaldo**
+    (ninguna presentación soportada puede quedar fuera del editor),
     y configurar el **tipo de cambio USD→MXN con colchón**, el **editor de la curva de precio por valor de
     mercado** *(v2.0, §N.3: tabla de puntos con agregar/mover/borrar + piso + bin + redondeo; supersede el
     editor por rareza/tier — ver criterios 86–87)* y el **`PricingProvider`** por tipo de producto.
@@ -1617,7 +1678,7 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 **Sellado (producto cerrado) — v1.6**
 57. El **precio de venta del sellado** se **deriva de TCGCSV** con la precedencia exacta: **(a)** si hay
     **override manual**, gana el override; **(b)** si no, **mercado × spread de la presentación**
-    (box/etb/bundle/tin/blister); **(c)** si no hay spread por presentación, **mercado × spread global**;
+    (cualquiera de las **siete** de §K); **(c)** si no hay spread por presentación, **mercado × spread global**;
     **(d)** si no hay ninguno, el ítem queda en **PRICE_PENDING**. El precio se calcula **server-side** (no
     se toma del cliente).
 58. Un sellado en **PRICE_PENDING** (sin override y sin spread/mercado aplicable) **no aparece en Compra**;
@@ -1625,10 +1686,17 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 59. El cambio de **base de precio a TCGCSV aplica SOLO al sellado**: el precio de un **raw/single** o de una
     **gradeada** **no** cambia por esto (siguen sus fuentes actuales), verificable comparando que la fuente
     de precio de una carta suelta sigue siendo pokemontcg.io/TCGPlayer y no TCGCSV.
-60. El **súper-admin edita en M2** los **spreads del sellado por presentación** (semillas box 18% / etb 22%
-    / bundle 25% / tin 30% / blister 35% / global 25%); el cambio **surte efecto sin redeploy**, queda
-    **auditado** (M10) y **recalcula** el precio derivado de los sellados afectados (salvo los que tengan
+60. El **súper-admin edita en M2** los **spreads del sellado por presentación**, con **las semillas de la
+    tabla de §K** (las **siete** presentaciones + global de respaldo); el cambio **surte efecto sin redeploy**,
+    queda **auditado** (M10) y **recalcula** el precio derivado de los sellados afectados (salvo los que tengan
     override).
+60b. **Las siete presentaciones son operables de punta a punta** *(añadido 2026-08-24 con la decisión del
+    dueño sobre `upc`/`collection`)*: para **cada una** de las siete se puede (a) **dar de alta una pieza en
+    inventario** y (b) **fijarle spread desde M2** sin que la operación sea rechazada. Verificable con `upc` y
+    `collection`, que antes fallaban en ambas puntas (no se podían capturar y el guardado devolvía error), y
+    cuyo precio caía al global de respaldo por omisión. Ninguna presentación soportada llega al global **por
+    olvido**: el global queda para piezas **sin presentación** o para una regla **retirada a propósito** por el
+    dueño.
 61. El **sellado es solo venta**: **no existe** flujo de **buylist de sellado** (ni cotizador ni pipeline);
     la **ficha/ventana de sellado muestra el call-out `mailto`** para revender (a `contacto@tcgvaultmx.com`),
     que es un enlace de correo y **no** un flujo dentro de la app.
@@ -1937,7 +2005,15 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 34. **TCGCSV = BASE del precio de venta del sellado** (ya no "solo informativa"), vía el **mapeo curado
    existente**. Aplica **solo al sellado**; para **raw/singles no cambia nada**.
 35. **Spreads configurables por presentación** (ConfigSetting, M10): semillas **box 18% / etb 22% / bundle
-   25% / tin 30% / blister 35% / global 25%** (editables, auditados).
+   25% / tin 30% / blister 35% / global de respaldo 25%** (editables, auditados). *(Ampliado el 2026-08-24:
+   ver 35b — son **siete** presentaciones, no cinco. La tabla completa vive en §K.)*
+35b. **`upc` 18% y `collection` 22%** (2026-08-24, **elegidos por el dueño**, que **confirmó que vende UPC**
+   —Ultra Premium Collection—): un **UPC** es la pieza **más grande y cara** del catálogo ⇒ mismo % que
+   **`box`**; una **`collection`** es comparable a un **ETB** ⇒ mismo % que **`etb`**. Se enuncia además el
+   **criterio que ordena toda la tabla**: **«ítem más chico ⇒ % mayor»** (un % gordo sobre una pieza cara es
+   un monto que mata la venta; una pieza barata necesita más % para que el margen pague manejo y envío).
+   Hasta esta decisión ambas caían al **global de respaldo (25%)** por omisión, y por un hueco de validación
+   **no se podía capturar una pieza UPC en inventario ni fijarle spread** desde M2 (ya corregido). Ver §K.
 36. **Sellado = solo venta** (plataforma→cliente): **sin buylist de sellado**; call-out `mailto`
    (`contacto@tcgvaultmx.com`) para revender fuera de la app.
 37. **Condición del sellado**: default **Mint**, opción **"Detalle menor en caja"**; visible al comprador,
@@ -2111,7 +2187,7 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    **monótona creciente**, **compra siempre menor que la venta**, y **ningún precio de venta por debajo del
    mercado**.
 7. **Alcance** (LOCKED): aplica igual a **raw y a GRADEADAS**. El **SELLADO NO cambia** (conserva su spread
-   por presentación: box 18 / etb 22 / bundle 25 / tin 30 / blister 35, fallback 25). **El ACABADO SIGUE
+   por presentación, con la tabla de **§K**: siete presentaciones + global de respaldo). **El ACABADO SIGUE
    EXISTIENDO como identidad de variante** —inventario, overrides, bounties y `availableFinishes` siguen
    siendo por acabado—: lo único que desaparece es que el acabado tenga **regla de precio propia**.
 8. **GUARDARRAÍL — la rareza sale del pricing y entra a la VALIDACIÓN, en los DOS EJES** (LOCKED, §N.5):
