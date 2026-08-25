@@ -1,7 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
-import { Finish, KycStatus, MarketBracket, Prisma, ProductType, Role } from '@prisma/client';
+import {
+  AuthProvider,
+  DisputeStatus,
+  Finish,
+  KycStatus,
+  Locale,
+  MarketBracket,
+  OrderStatus,
+  Prisma,
+  ProductType,
+  Role,
+  SellRequestStatus,
+  UserStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
@@ -42,6 +55,128 @@ const ADMIN_KYC_SELECT = {
   ineFrontKey: true,
   ineBackKey: true,
 } satisfies Prisma.KycProfileSelect;
+
+/**
+ * v2.1.9 (S49-M1-R) — **las RELACIONES de la ficha 360°, proyectadas una por una.**
+ *
+ * ### El fallo que cierra, y por qué el sitio es instructivo
+ * `getUser` filtraba la cabecera con una **lista NEGRA** (`const { passwordHash, ownedItems, ...safe }`)
+ * y **no tocaba las relaciones del `include`**. `sellRequests: { take: 20 }` entraba como **filas
+ * enteras**, así que `...safe` arrastraba **`clabeSnapshotEnc`** —el blob AES-256-GCM de la CLABE— a
+ * un endpoint que el **`vault_operator`** puede leer. Es exactamente lo que S49-M1 cerró en las cinco
+ * rutas de `buylist`, entrando por la puerta de al lado.
+ *
+ * Lo instructivo: **es la misma función cuyo `kycProfile` sirvió de modelo para arreglar R1**. Unas
+ * líneas más abajo enmascara la CLABE con cuidado. La ruta que enseñaba el patrón correcto para una
+ * relación filtraba por otra — porque la cabecera se filtraba con lista negra y las relaciones no se
+ * miraban. Una lista negra protege de lo que su autor recordó; una relación entera no está en esa lista.
+ *
+ * Todas las proyecciones de abajo son **listas blancas** y espejan los refs que el contrato §M6 ya
+ * declara (`AdminUserSellRequestRef`, `AdminUserDisputeRef`, `OrderSummaryDTO`, `AddressDTO`).
+ */
+function toAdminUserHeader(u: {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  status: UserStatus;
+  locale: Locale;
+  emailVerified: boolean;
+  authProvider: AuthProvider;
+  phone: string | null;
+  avatarUrl: string | null;
+  mustChangePassword: boolean;
+  deletedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    status: u.status,
+    locale: u.locale,
+    emailVerified: u.emailVerified,
+    authProvider: u.authProvider,
+    phone: u.phone,
+    avatarUrl: u.avatarUrl,
+    mustChangePassword: u.mustChangePassword,
+    deletedAt: u.deletedAt,
+    createdAt: u.createdAt,
+    updatedAt: u.updatedAt,
+    // FUERA por construcción: `passwordHash`, `tokenVersion` (revocación de sesiones), `googleId`,
+    // `anonymizedAt`. Ninguno tiene por qué viajar en una ficha de back-office.
+  };
+}
+
+/** `AdminUserSellRequestRef` (§M6). **Sin `clabeSnapshotEnc`** — el fallo exacto de S49-M1-R. */
+function toAdminUserSellRequestRef(r: {
+  id: string;
+  status: SellRequestStatus;
+  quotedTotalCents: number;
+  createdAt: Date;
+}) {
+  return { id: r.id, status: r.status, quotedTotalCents: r.quotedTotalCents, createdAt: r.createdAt };
+}
+
+/** `AdminUserDisputeRef` (§M6). Sin `resolution`/`resolvedBy` (detalle operativo del caso). */
+function toAdminUserDisputeRef(d: {
+  id: string;
+  status: DisputeStatus;
+  type: string;
+  createdAt: Date;
+}) {
+  return { id: d.id, status: d.status, type: d.type, createdAt: d.createdAt };
+}
+
+/** `OrderSummaryDTO` (§DTOs). **Sin `billingSnapshot`** (lleva `rfcEnc`) ni ids de Stripe. */
+function toAdminUserOrderRef(o: {
+  id: string;
+  userId: string | null;
+  orderNumber: string | null;
+  status: OrderStatus;
+  totalCents: number;
+  createdAt: Date;
+  settledAt: Date | null;
+}) {
+  return {
+    id: o.id,
+    userId: o.userId,
+    orderNumber: o.orderNumber,
+    status: o.status,
+    totalCents: o.totalCents,
+    createdAt: o.createdAt,
+    settledAt: o.settledAt,
+  };
+}
+
+/** `AddressDTO` (§DTOs) — misma lista blanca que `UsersService.toAddressDTO`. */
+function toAdminUserAddressRef(a: {
+  id: string;
+  line1: string;
+  line2: string | null;
+  neighborhood: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+  isDefault: boolean;
+}) {
+  return {
+    id: a.id,
+    line1: a.line1,
+    line2: a.line2,
+    neighborhood: a.neighborhood,
+    city: a.city,
+    state: a.state,
+    postalCode: a.postalCode,
+    country: a.country,
+    phone: a.phone,
+    isDefault: a.isDefault,
+  };
+}
 
 /**
  * v2.1.9 (R1) — proyección del KYC hacia el back-office. Espeja la que `getUser` ya emite
@@ -299,7 +434,21 @@ export class AdminService {
       },
     });
     if (!user) throw BusinessException.notFound();
-    const { passwordHash: _pw, ownedItems: _ownedRaw, ...safe } = user;
+    // v2.1.9 (S49-M1-R): antes esto era `const { passwordHash, ownedItems, ...safe } = user` — una
+    // lista NEGRA que quitaba dos campos conocidos y dejaba pasar TODO lo demás, incluidas las
+    // RELACIONES del `include` como filas enteras. `sellRequests` arrastraba `clabeSnapshotEnc` (el
+    // blob AES-256-GCM de la CLABE) a un endpoint que el `vault_operator` puede leer. Ahora cada
+    // pieza pasa por su propia lista BLANCA (ver los proyectores del encabezado de este archivo).
+    const safe = {
+      ...toAdminUserHeader(user),
+      addresses: user.addresses.map(toAdminUserAddressRef),
+      orders: user.orders.map(toAdminUserOrderRef),
+      sellRequests: user.sellRequests.map(toAdminUserSellRequestRef),
+      disputes: user.disputes.map(toAdminUserDisputeRef),
+      kycProfile: user.kycProfile,
+      billingProfile: user.billingProfile,
+    };
+    const _ownedRaw = user.ownedItems;
     // Conforma la bóveda al contrato §M6 `AdminUserOwnedItemRef` (v1.8-ronda-c / BE-10):
     // { inventoryItemId, folio, card: CardDTO, productType, finish, ownershipStatus, referenceValue }.
     // `referenceValue` reusa la MISMA valuación por-acabado del HoldingDTO (getReference); los items
