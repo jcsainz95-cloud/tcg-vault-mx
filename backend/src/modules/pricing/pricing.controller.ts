@@ -93,9 +93,18 @@ class FxDto {
  * v1.23-sealed-sales (§M2): spreads de venta del SELLADO por presentación (+ fallback global).
  * PARCIAL: solo las claves a cambiar. `pct` = markup ARRIBA de mercado, número en [0,1000].
  */
+/**
+ * `SealedSpreadsUpdateRequest` del contrato (§DTOs) — **el REQUEST, distinto del DTO de respuesta, y
+ * la diferencia es el punto**: los valores admiten `null` como sentinel de RETIRO (v2.1.9, D3-b).
+ *
+ * `fallbackPct` NO lo admite: se declara `@Allow()` en vez de `@IsNumber()` para que un `null`
+ * **llegue al validador manual** y reciba el 422 con el motivo («el global es el respaldo del que
+ * dependen las presentaciones sin regla; usa 0 para “sin markup global”») en vez del mensaje genérico
+ * del pipe, que no diría qué hacer en su lugar.
+ */
 class SealedSpreadsDto {
-  @IsOptional() @IsObject() spreadPctBySubtype?: Record<string, number>;
-  @IsOptional() @IsNumber() fallbackPct?: number;
+  @IsOptional() @IsObject() spreadPctBySubtype?: Record<string, number | null>;
+  @IsOptional() @Allow() fallbackPct?: number | null;
 }
 
 class SyncDto {
@@ -430,7 +439,11 @@ export class PricingController {
   }
 
   /**
-   * Reemplaza los spreads y/o el fallback (parcial: solo las claves a cambiar). Validación estricta
+   * Actualiza los spreads y/o el fallback. **PARCIAL por llave** (v2.1.9, D3-b): llave ausente = no se
+   * toca; número = se fija; **`null` = se RETIRA** (esa presentación vuelve al `fallbackPct`, y el
+   * `GET` deja de emitir la llave). Idempotente: retirar una llave que no estaba devuelve `200`.
+   * `fallbackPct: null` ⇒ `422` (el global no se retira: dejaría en `PRICE_PENDING`, o sea fuera de la
+   * vitrina, a toda presentación sin regla). Validación estricta
    * (`subtype ∈ SEALED_SUBTYPE_KEYS`, value/fallback en `[0, SEALED_SPREAD_PCT_MAX]`) →
    * `422 VALIDATION_ERROR`. Auditado (before/after). Surte efecto sin redeploy.
    *
@@ -461,18 +474,38 @@ export class PricingController {
 
     const before = await this.readSealedSpreads();
     if (dto.spreadPctBySubtype !== undefined) {
-      const spreadsJson = dto.spreadPctBySubtype as unknown as Prisma.InputJsonValue;
+      // v2.1.9 (D3-b) — MERGE PARCIAL, no reemplazo. Tres estados por llave, y los tres importan:
+      //   ausente        ⇒ NO SE TOCA        (la semántica «parcial» que el contrato ya declaraba)
+      //   número         ⇒ se fija
+      //   null           ⇒ SE RETIRA         (esa presentación vuelve al `fallbackPct`; el GET la omite)
+      //
+      // ⚠️ Antes esto REEMPLAZABA el mapa entero (`valueJson: dto.spreadPctBySubtype`), que es
+      // literalmente la alternativa que el arquitecto DESCARTÓ: un cliente rancio que mandara las
+      // CINCO llaves de siempre borraría `upc` y `collection` **en silencio** — el bug de D3 reabierto
+      // desde el otro lado, y ahora con consecuencia real porque las dos ya tienen semilla (v2.1.9).
+      // El reemplazo total es correcto en el `PUT` de la CURVA, donde el objeto ES la unidad de
+      // validación cruzada; aquí las llaves son INDEPENDIENTES, así que la unidad de edición es la llave.
+      const merged: Record<string, number> = { ...before.spreadPctBySubtype };
+      for (const [subtype, value] of Object.entries(dto.spreadPctBySubtype)) {
+        if (value === null) delete merged[subtype]; // retiro (idempotente: borrar lo ausente es no-op)
+        else merged[subtype] = value;
+      }
+      const spreadsJson = merged as unknown as Prisma.InputJsonValue;
       await this.prisma.configSetting.upsert({
         where: { key: SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE },
         create: { key: SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE, valueJson: spreadsJson, updatedBy: userId },
         update: { valueJson: spreadsJson, updatedBy: userId },
       });
     }
-    if (dto.fallbackPct !== undefined) {
+    // `null` ya fue rechazado arriba con su motivo (el global no se retira), así que aquí solo puede
+    // ser número. Se estrecha con un `const` en vez de un cast: si mañana alguien relajara el
+    // validador, esto deja de compilar en lugar de escribir un `null` en el dial de respaldo.
+    const nextFallbackPct: number | undefined = dto.fallbackPct ?? undefined;
+    if (nextFallbackPct !== undefined) {
       await this.prisma.configSetting.upsert({
         where: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT },
-        create: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT, valueJson: dto.fallbackPct, updatedBy: userId },
-        update: { valueJson: dto.fallbackPct, updatedBy: userId },
+        create: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT, valueJson: nextFallbackPct, updatedBy: userId },
+        update: { valueJson: nextFallbackPct, updatedBy: userId },
       });
     }
     const after = await this.readSealedSpreads();

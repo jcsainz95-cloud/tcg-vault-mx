@@ -160,11 +160,23 @@ export const PCT_BP_MAX = 10_000; // 100 % — comprar arriba de mercado no tien
  * techo, el caso de arriba **seguiría pasando** con `floorCents: 2147483647` — un techo que no cambia
  * el síntoma es teatro.
  *
- * ### De dónde sale el número
- * (1) el mayor límite de dinero por-usuario que declara PROJECT §E (tope MENSUAL de buylist
- * MX$10,000); (2) **400×** la semilla del piso y **10 000×** la del bin (§N.2); (3) **2 147×** por
- * debajo de Int32 ⇒ la vitrina saturada queda **inalcanzable por construcción**; (4) el precedente de
- * este mismo archivo (`MULTIPLIER_BP_MAX` = «100×, techo anti-typo»).
+ * ### De dónde sale el número — **lo cerró el dueño (Q-D1, 2026-08-24)**
+ * El ancla es **qué es el número acotado**: `floorCents` **es el precio de la carta más barata de la
+ * tienda**, así que un piso por encima de MX$2,000 significaría que **nada** en la vitrina baja de
+ * MX$2,000 — implausible para un marketplace de singles cuya semilla es MX$25 (§N.2) y cuyo bulk vale
+ * centavos. Deja **80×** sobre la semilla del piso y **2 000×** sobre la del bin, y queda **10 737×**
+ * por debajo de Int32 ⇒ la vitrina saturada es **inalcanzable por construcción**.
+ *
+ * **Apretarlo es lo correcto por asimetría de costo:** pasarse de apretado cuesta **un `422` y volver
+ * a teclear**; pasarse de holgado cuesta **republicar la vitrina entera y apagar el buylist**.
+ *
+ * ⛔ **NO se deriva de los topes de PROJECT §E**, y conviene dejarlo escrito para que nadie lo
+ * «restaure» viendo que las cifras se parecían: MX$3,000/solicitud y MX$10,000/mes son **límites AML
+ * por usuario sobre dinero que SALE** y no dicen nada sobre cuánto puede costar la carta más barata.
+ * Ése era el anclaje del borrador de esta rev y **quedó retirado**: era coincidencia de orden de
+ * magnitud, no razonamiento — y ataría el techo del **pricing** a un dial de **AML**. El precedente
+ * que hacía legítimo proponer un número (no que lo determina) es `MULTIPLIER_BP_MAX` = «100×, techo
+ * anti-typo», en este mismo archivo.
  *
  * ### Lo que este techo NO hace — que nadie lo dé por cerrado
  * **No ataja «un cero de más».** Con la semilla en MX$25, un typo a MX$250 (`25000`) **pasa y debe
@@ -174,7 +186,7 @@ export const PCT_BP_MAX = 10_000; // 100 % — comprar arriba de mercado no tien
  * `GET /admin/pricing/pending` (§4.36.5c: «sube solo ⇒ piso mal calibrado»). No hace falta mecanismo
  * nuevo.
  */
-export const MAX_CURVE_CONSTANT_CENTS = 1_000_000; // MX$10,000 — techo de CORDURA (no de Int32)
+export const MAX_CURVE_CONSTANT_CENTS = 200_000; // MX$2,000 — techo de CORDURA (no de Int32)
 
 // ============================================================================
 // Interpolación (obligatoria, NUNCA escalones — PROJECT §N.1 / criterio 81)

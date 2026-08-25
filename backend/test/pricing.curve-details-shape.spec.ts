@@ -1,5 +1,6 @@
 import {
   DEFAULT_PRICING_CURVE,
+  MAX_CURVE_CONSTANT_CENTS,
   PricingCurve,
   collectCurveViolations,
   validatePricingCurve,
@@ -163,11 +164,16 @@ describe('§M2 — `details` por código: los campos EXACTOS que el contrato dec
 
   it('BIN_ABOVE_FLOOR: { binCents, floorCents } — SIN axis/index (es una pareja de constantes)', () => {
     const c = clone();
-    c.buy.binCents = 999_999;
+    // v2.1.9 (Q-D1): el bin debe quedar DENTRO del techo de cordura (MX$2,000) para que la infracción
+    // que se ejercita sea `BIN_ABOVE_FLOOR` y no V3. Antes era `999_999`, que con el techo nuevo lo
+    // corta V3 (bloqueante, `field: 'binCents'`) y este caso nunca se alcanzaba. Sigue siendo un bin
+    // MUY por encima del piso de la semilla (MX$25), que es lo que el test viene a ejercitar.
+    const bin = MAX_CURVE_CONSTANT_CENTS;
+    c.buy.binCents = bin;
     const v = collectCurveViolations(c).find((x) => x.code === 'BIN_ABOVE_FLOOR')!;
     expect(v).toBeDefined();
     expectContractShape(v.code, v.details);
-    expect(v.details).toMatchObject({ binCents: 999_999, floorCents: DEFAULT_PRICING_CURVE.sale.floorCents });
+    expect(v.details).toMatchObject({ binCents: bin, floorCents: DEFAULT_PRICING_CURVE.sale.floorCents });
     expect(v.details).not.toHaveProperty('index');
     expect(v.details).not.toHaveProperty('axis');
   });

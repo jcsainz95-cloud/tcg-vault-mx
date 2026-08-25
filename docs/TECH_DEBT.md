@@ -4107,10 +4107,24 @@
 - **Mitigación vigente:** superficie de sólo lectura, sin escrituras ni escalada de pendientes (doctrina
   v1.12 de anónimos), tras el throttler global (300/min) y con el fan-out más caro (`quote/batch`) ya
   acotado a 12/min por B-C1.
-- **Dirección de fix (real, no barata):** persistir el precio de venta resuelto (columna o vista
-  materializada) con invalidación al mover la curva / cambiar overrides, y recién entonces paginar y
-  ordenar en SQL. **Es un cambio de arquitectura de pricing ⇒ pasa por el arquitecto**, porque revierte
-  la propiedad «repricia en lectura» que §4.36.9c eligió a propósito.
+- **✅ DICTAMEN DEL ARQUITECTO — `ARCHITECTURE §4.36.9(e)` (2026-08-24).** La escalada se resolvió y el
+  invariante queda **fijado**, así que quien lo retome **no discute desde cero**:
+
+  > Una proyección persistida puede gobernar el **ORDEN**, el **FILTRO** y la **PAGINACIÓN**.
+  > Nunca el precio que se **COBRA**.
+
+  O sea: persistir una **clave de orden invalidable** (para `ORDER BY`, rango de precio y corte de
+  página) **NO** revierte §4.36.9c, **mientras** el `salePriceCents` del DTO, del carrito y del
+  checkout se sigan resolviendo **en lectura**. La asimetría que lo decide es la que motivó negarse a
+  la solución barata: una **clave rancia** pone una carta unas posiciones fuera de sitio —invisible y
+  recuperable—; un **precio rancio cobra mal**, y eso es **irreversible** en cuanto alguien paga.
+- **Corolarios que fijó el dictamen** (condiciones de la solución, no sugerencias): la clave se
+  **invalida en los mismos seams que ya reprician**; **puede estar rancia sin romper nada** (esa
+  tolerancia es justo lo que la hace admisible); y **no se emite en ningún DTO** — en cuanto un cliente
+  pueda leerla, alguien la usará para pintar un precio, y ahí se pierde la garantía entera.
+- **Dirección de fix (real, no barata):** persistir esa **clave de orden** con su invalidación, y recién
+  entonces paginar/ordenar/filtrar en SQL. **NO** persistir el precio que se cobra. El diseño concreto
+  vuelve por el **arquitecto** cuando toque (el invariante ya está; falta la forma).
 - **Disparador:** cuando el inventario publicado supere ~5k piezas, o antes de exponer Compra a tráfico
   no autenticado real (lo que ocurra primero). Medir primero: `fetchSellable` con `EXPLAIN ANALYZE` y el
   p95 de `GET /catalog/cards` bajo carga.

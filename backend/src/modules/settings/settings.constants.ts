@@ -213,8 +213,22 @@ export const SEALED_SPREAD_PCT_MAX = 1000;
 export const SEALED_SUBTYPE_KEYS: string[] = [...SEALED_SUBTYPE_VALUES];
 
 /**
- * Valida el mapa `sealed_spread_pct_by_subtype`: objeto, cada clave ∈ SEALED_SUBTYPE_KEYS, cada
- * value número en [0, SEALED_SPREAD_PCT_MAX]. API_CONTRACT §M2 (GET/PUT /admin/pricing/sealed-spreads).
+ * Valida el mapa `sealed_spread_pct_by_subtype`: objeto, cada clave ∈ `SEALED_SUBTYPE_KEYS`, cada
+ * value número en `[0, SEALED_SPREAD_PCT_MAX]`. API_CONTRACT §M2 (GET/PUT /admin/pricing/sealed-spreads).
+ *
+ * ### v2.1.9 (D3-b) — `null` es el SENTINEL DE RETIRO, y NO es `0`
+ * Un valor `null` significa **«quita la regla propia de esta presentación; usa `fallbackPct`»** y por
+ * eso se ACEPTA aquí (el `PUT` lo traduce a borrar la llave del mapa persistido). Es el mismo sentinel
+ * que este §M2 ya usa para el mismo gesto: `tcgplayerProductId: null` **desmapea** un item sellado.
+ *
+ * ⚠️ **`null` ≠ `0`, y confundirlos es un bug de DINERO.** `0` es un spread **legítimo** (§SUP-8) y
+ * significa **vender AL mercado, sin markup**; `null` significa «no tengo regla, usa el global» (hoy
+ * 25 %). Un campo VACIADO en la pantalla viaja como `null`, **jamás** como `0` — que pondría esa
+ * presentación a precio de mercado sin margen sin que nadie lo pidiera.
+ *
+ * Se usa para VALIDAR el REQUEST (`SealedSpreadsUpdateRequest`), donde `null` es legal, y también
+ * como validador del setting persistido — donde no habrá `null` nunca, porque el `PUT` los consume
+ * borrando la llave. Aceptarlo en los dos lados es inocuo y evita un segundo cuerpo de la misma regla.
  */
 export function validateSealedSpreads(v: unknown): string | null {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) {
@@ -224,15 +238,28 @@ export function validateSealedSpreads(v: unknown): string | null {
     if (!SEALED_SUBTYPE_KEYS.includes(subtype)) {
       return `invalid subtype "${subtype}": must be one of ${SEALED_SUBTYPE_KEYS.join('|')}`;
     }
+    // D3-b: `null` = RETIRO de la regla (el PUT borra la llave). Legal y distinto de `0`.
+    if (value === null) continue;
     if (!(isNum(value) && value >= 0 && value <= SEALED_SPREAD_PCT_MAX)) {
-      return `invalid spread for "${subtype}": must be a number in [0, ${SEALED_SPREAD_PCT_MAX}]`;
+      return `invalid spread for "${subtype}": must be a number in [0, ${SEALED_SPREAD_PCT_MAX}], or null to remove the rule`;
     }
   }
   return null;
 }
 
-/** Valida el fallback `sealed_spread_fallback_pct` (número en [0, SEALED_SPREAD_PCT_MAX]). */
+/**
+ * Valida el fallback `sealed_spread_fallback_pct` (número en `[0, SEALED_SPREAD_PCT_MAX]`).
+ *
+ * v2.1.9 (D3-b) — **`null` NO se acepta aquí, a diferencia del mapa por presentación.** El global es
+ * el respaldo del que dependen TODAS las presentaciones sin regla propia: retirarlo las dejaría sin
+ * dónde derivar precio ⇒ `PRICE_PENDING` ⇒ **fuera de la vitrina**. Es una consecuencia de dinero
+ * para un gesto que parece de limpieza, así que se corta con un mensaje que dice qué hacer en su
+ * lugar: para «no aplicar markup global» el valor correcto es **`0`**, no la ausencia.
+ */
 export function validateSealedSpreadFallback(v: unknown): string | null {
+  if (v === null) {
+    return `fallbackPct cannot be removed: it is the fallback every presentation without its own rule depends on (removing it would leave them PRICE_PENDING, i.e. unpublished). Use 0 for "no global markup"`;
+  }
   return isNum(v) && v >= 0 && v <= SEALED_SPREAD_PCT_MAX
     ? null
     : `must be a number in [0, ${SEALED_SPREAD_PCT_MAX}]`;

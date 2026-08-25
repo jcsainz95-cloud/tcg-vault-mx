@@ -17,7 +17,7 @@ import {
 
 /**
  * v2.1.9 · D1 (API_CONTRACT §M2 / ARCHITECTURE §4.36.3) — **techo de CORDURA de `floorCents` y
- * `binCents`: `[0, MAX_CURVE_CONSTANT_CENTS]` = MX$10,000.**
+ * `binCents`: `[0, MAX_CURVE_CONSTANT_CENTS]` = MX$2,000 (Q-D1, cerrado por el dueño).**
  *
  * ### El caso que QA demostró EN VIVO
  * ```
@@ -81,8 +81,12 @@ const OVER_CAP: ReadonlyArray<[label: string, value: number]> = [
   ['2e15 — el valor del reporte en vivo', 2_000_000_000_000_000],
   // El caso que un techo de representabilidad NO habría atajado: Int32 máximo, publicable.
   ['2147483647 — Int32 máx: el techo de MAX_CENTS NO lo habría atajado', MAX_CENTS_CURVE],
-  // La frontera, +1: el techo es INCLUSIVO en 1000000.
-  ['1000001 — justo por encima del techo', MAX_CURVE_CONSTANT_CENTS + 1],
+  // v2.1.9 (Q-D1): el techo bajó de MX$10,000 a MX$2,000, así que `1000000` —que en el borrador de
+  // esta rev era el LÍMITE ACEPTADO— pasa a ser RECHAZO. Se conserva nombrado a propósito: es la
+  // frontera vieja, y verla rechazada es lo que hace visible que el techo se apretó de verdad.
+  ['1000000 — el techo del borrador (MX$10,000): AHORA se rechaza', 1_000_000],
+  // La frontera nueva, +1: el techo es INCLUSIVO en 200000.
+  ['200001 — justo por encima del techo', MAX_CURVE_CONSTANT_CENTS + 1],
 ];
 
 describe('D1 · PUT /admin/pricing/curve — el piso y el bin llevan techo de cordura', () => {
@@ -112,7 +116,7 @@ describe('D1 · PUT /admin/pricing/curve — el piso y el bin llevan techo de co
     expect(prisma.configSetting.upsert).not.toHaveBeenCalled();
   });
 
-  it('el techo es INCLUSIVO: floorCents = 1000000 (MX$10,000) ⇒ 200 y se guarda', async () => {
+  it('el techo es INCLUSIVO: floorCents = 200000 (MX$2,000) ⇒ 200 y se guarda', async () => {
     const { controller, store } = build();
     const draft = seed();
     draft.sale.floorCents = MAX_CURVE_CONSTANT_CENTS;
@@ -122,7 +126,7 @@ describe('D1 · PUT /admin/pricing/curve — el piso y el bin llevan techo de co
     expect((store.get('pricing_curve') as PricingCurve).sale.floorCents).toBe(MAX_CURVE_CONSTANT_CENTS);
   });
 
-  it('el techo es INCLUSIVO: binCents = 999999 (bajo el piso en el techo) ⇒ 200 y se guarda', async () => {
+  it('el techo es INCLUSIVO: binCents = 199999 (bajo el piso en el techo) ⇒ 200 y se guarda', async () => {
     const { controller } = build();
     const draft = seed();
     draft.sale.floorCents = MAX_CURVE_CONSTANT_CENTS;
@@ -205,9 +209,18 @@ describe('D1 · POST /admin/pricing/curve/preview — bloquea IGUAL que el PUT (
 });
 
 describe('D1 · el techo NO es MAX_CENTS, y eso es la mitad del arreglo', () => {
-  it('MAX_CURVE_CONSTANT_CENTS es 1_000_000 (MX$10,000) y es ESTRICTAMENTE menor que Int32', () => {
-    expect(MAX_CURVE_CONSTANT_CENTS).toBe(1_000_000);
+  it('MAX_CURVE_CONSTANT_CENTS es 200_000 (MX$2,000) y es ESTRICTAMENTE menor que Int32', () => {
+    expect(MAX_CURVE_CONSTANT_CENTS).toBe(200_000);
     expect(MAX_CURVE_CONSTANT_CENTS).toBeLessThan(MAX_CENTS_CURVE);
+    // 10 737× por debajo de Int32: la vitrina saturada queda inalcanzable por construcción.
+    expect(MAX_CENTS_CURVE / MAX_CURVE_CONSTANT_CENTS).toBeGreaterThan(10_000);
+  });
+
+  it('deja 80× sobre la semilla del piso: apretar no rompe la calibración real', () => {
+    // El ancla del número es QUÉ acota: `floorCents` es el precio de la carta MÁS BARATA de la tienda.
+    // Si el techo no dejara holgura cómoda sobre la semilla, sería un techo mal puesto.
+    const seedFloor = DEFAULT_PRICING_CURVE.sale.floorCents;
+    expect(MAX_CURVE_CONSTANT_CENTS / seedFloor).toBeGreaterThanOrEqual(80);
   });
 
   it('`marketCents` CONSERVA su techo de representabilidad (Int32): son magnitudes distintas', () => {
