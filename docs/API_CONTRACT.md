@@ -6528,6 +6528,137 @@ PendingPriceCountsDTO = { no_market: number, premium_at_floor: number, unknown: 
 // Es una PROYECCIÓN (no tabla): no migra. Antes traía solo { inventoryItemId, folio, card, ownershipStatus }.
 AdminUserOwnedItemRef = { inventoryItemId, folio, card: CardDTO, productType: ProductType, finish: Finish,
                          ownershipStatus: OwnershipStatus, referenceValue: PriceInfo }
+
+// ===================================================================================================
+// v2.1.9-b (S49-M1-R / S49-M2) — LAS FORMAS QUE FALTABAN: ficha 360° de M6 y órdenes de M3.
+// Ambas devolvían FILAS/RELACIONES CRUDAS de Prisma con PII dentro. Se declaran aquí, y con ellas las
+// formas de CADA RELACIÓN ANIDADA — que es donde vivía el hueco (ver la QUINTA PATA en §M2).
+// ===================================================================================================
+
+// D10 — `AddressDTO` estaba REFERENCIADA en §5 y NUNCA DEFINIDA (deuda declarada en v2.1.8). Aquí queda.
+// El DUEÑO es implícito por la ruta (`/users/me/addresses` o la ficha de M6) ⇒ NO lleva `userId`: repetirlo
+// solo crea una segunda fuente de la misma verdad.
+AddressDTO = { id: string, line1: string, line2?: string, neighborhood?: string, city: string,
+               state: string, postalCode: string, country: "MX", phone: string,
+               isDefault: boolean, createdAt: string }
+
+// ---------- M3 — órdenes en back-office (`vault_operator+`) ----------
+// LISTADO. Es `OrderSummaryDTO` + los campos de invitado que §M3 ya declaraba como aditivos. Lo que NO
+// lleva y por qué (esto es el hallazgo S49-M2: «el listado repartía por la ventana lo que la puerta cierra»):
+//   ⛔ `billingSnapshot`  — la fila `BillingProfile` ENTERA (rfcEnc, razonSocial, regimenFiscal, usoCfdi,
+//      postalCode, email). Es PII fiscal, y `getUser` YA la oculta al operador citando SEC-A4. La decisión
+//      estaba tomada DOS veces (detalle + getUser) y el listado la ignoraba.
+//   ⛔ `shippingAddressSnapshot` — domicilio completo. En un LISTADO es cosecha masiva de PII (mismo
+//      argumento que la rejilla de §2 en D2: N filas por request, paginada). Va en el DETALLE, donde hace falta.
+//   ⛔ `stripePaymentIntentId` / `stripeChargeId` / `paymentMethodBrand` / `paymentMethodLast4` — identificadores
+//      de cobro; nada en una lista los usa. Van en el detalle.
+//   ⛔ `locale`, `refundedAt`, `ivaRatePct`, `subtotalCents`, `processingFeeCents`, `ivaCents` — el desglose es
+//      del detalle; la lista muestra el TOTAL (que es sobre el que ya filtra `minCents`/`maxCents`).
+//   ✅ `guestEmail` SÍ va: es contacto operativo ya autorizado por rol (mismo criterio que `AdminSellerRef.email`)
+//      y es uno de los campos sobre los que busca `?q=`. Quitarlo rompería el buscador de M3.
+AdminOrderSummaryDTO = { id: string, userId: string | null, orderNumber: string | null,
+                         status: OrderStatus, totalCents: number,
+                         fulfillmentMode: FulfillmentMode, shippingFeeCents: number,
+                         isGuestOrder: boolean, guestEmail?: string, claimedAt?: string,
+                         chargebackNeedsManual: boolean,
+                         createdAt: string, settledAt?: string }
+AdminOrderListResponse = { data: AdminOrderSummaryDTO[], page: number, pageSize: number, total: number }
+// DETALLE. Ya proyectaba (por eso NO estaba filtrando) — se DECLARA para que no pueda volver a divergir del
+// listado: la divergencia silenciosa entre dos rutas de la misma entidad es la forma que tomó S49-M2.
+AdminOrderDetailDTO = { id: string, userId: string | null, orderNumber: string | null,
+                        status: OrderStatus, breakdown: BreakdownDTO, items: AdminOrderItemDTO[],
+                        cfdiStatus: CfdiStatus, invoiceRequested: boolean,
+                        stripePaymentIntentId: string | null,
+                        fulfillmentMode: FulfillmentMode, shippingFeeCents: number,
+                        shippingAddressSnapshot?: object,   // solo `direct_ship`
+                        paymentMethodBrand?: string, paymentMethodLast4?: string,
+                        chargebackNeedsManual: boolean, disputeOutcome: "won" | "lost" | null,
+                        isGuestOrder: boolean, guestEmail?: string, claimedAt?: string,
+                        billing?: AdminOrderBillingDTO,     // ⚠️ SOLO `super_admin` — ver abajo
+                        createdAt: string, settledAt?: string }
+// ⚠️ `billing` es la PROYECCIÓN del `billingSnapshot`, NO el snapshot. Diferencias que importan:
+//   * `rfcMasked`, NUNCA `rfcEnc`. El blob cifrado no le sirve a nadie que lo lea: es ilegible Y es fuga.
+//     El RFC va enmascarado incluso para `super_admin`, igual que en `getUser`/`kycProfile` (§3.4).
+//   * SOLO `super_admin` (SEC-A4: el operador no ve datos fiscales — `getUser` ya lo decide así).
+//   * OPCIONAL y ADITIVO: el detalle HOY no emite nada de esto, y no emitirlo sigue siendo conforme. Se declara
+//     para que el CFDI manual (PROJECT §B) tenga una forma legítima a la que ir, en vez de que alguien
+//     «resuelva» la necesidad devolviendo el blob crudo. **Lo prohibido es el snapshot sin proyectar.**
+AdminOrderBillingDTO = { rfcMasked: string, razonSocial: string, regimenFiscal: string,
+                         usoCfdi: string, postalCode: string, email: string }
+
+// ---------- M6 — ficha 360° (`GET /admin/users/:id`) ----------
+// ⚠️ LA FORMA INCLUYE LAS RELACIONES. El fallo S49-M1-R no fue olvidar un campo de la RAÍZ: fue que
+// `sellRequests[]`, `orders[]`, `disputes[]`, `addresses` y `billingProfile` entran por `include:` y NADIE
+// declaró qué forma tienen DENTRO de esta respuesta. Dato que lo prueba: de las seis relaciones, la ÚNICA con
+// forma declarada (`ownedItems` → `AdminUserOwnedItemRef`, v1.8-ronda-c) es la ÚNICA que no filtraba. No es
+// casualidad — es la regla.
+// RAÍZ. ⛔ Fuera: `passwordHash`, `tokenVersion` (contador de revocación de sesión: interno, sin uso admin),
+// `googleId` (identificador externo, sin uso admin). **Son tres de los cuatro que v2.1.8 ya había juzgado
+// impublicables en `PATCH /admin/users/:id/status`** — el arreglo se aplicó a esa ruta y la hermana siguió
+// devolviendo el mismo payload, porque el filtro de aquí es una LISTA NEGRA de un solo elemento.
+// `anonymizedAt` SÍ va, pero solo a `super_admin`: en «cambiar estado» era ruido; en una ficha 360° la pregunta
+// «¿esta cuenta está anonimizada?» es legítima. *(Misma doctrina que `isManualOverride` en v2.1.7: la pregunta
+// no es «¿este campo es sensible?» sino «¿es sensible PARA QUIEN LEE ESTA RUTA?».)*
+AdminUserDetailDTO = {            // ← `super_admin`
+  id: string, email: string, name: string, phone?: string, locale: Locale, role: Role,
+  status: UserStatus, emailVerified: boolean, authProvider: AuthProvider, avatarUrl?: string,
+  mustChangePassword: boolean, deletedAt?: string, anonymizedAt?: string,
+  createdAt: string, updatedAt: string,
+  kycProfile: AdminKycProfileDTO | null,
+  billingProfile: AdminBillingProfileDTO | null,
+  addresses: AddressDTO[],
+  orders: AdminOrderSummaryDTO[],            // últimas 20 (F1: el historial completo es §M3 con ?userId=)
+  sellRequests: AdminSellRequestSummaryDTO[],// últimas 20 (historial completo: §M5 con ?userId=)
+  disputes: AdminDisputeSummaryDTO[],        // últimas 20 (historial completo: §M8 con ?userId=)
+  ownedItems: AdminUserOwnedItemRef[] }
+// ⚠️ EL ROL ES PARTE DE LA FORMA — DOS DTOs, no uno con opcionales. Si la diferencia fuera «campos opcionales»,
+// omitir el recorte NO sería error de compilación y ningún test lo vería: es EXACTAMENTE B-1 con otro campo.
+// Misma decisión y misma razón que `GroupedListingSummaryDTO` en D2.
+AdminUserDetailOperatorDTO = {    // ← `vault_operator` (SEC-A4: rol de menor confianza; sin PII fiscal/bancaria)
+  id: string, email: string, name: string, phone?: string, locale: Locale, role: Role,
+  status: UserStatus, emailVerified: boolean, deletedAt?: string,
+  createdAt: string, updatedAt: string,
+  kycProfile: AdminKycProfileOperatorDTO | null,
+  billingProfile: null,                      // SIEMPRE null (no «omitido»): el front pinta «sin acceso», no «sin datos»
+  addresses: AddressDTO[],
+  orders: AdminOrderSummaryDTO[],
+  sellRequests: AdminSellRequestSummaryDTO[],
+  disputes: AdminDisputeSummaryDTO[],
+  ownedItems: AdminUserOwnedItemRef[] }
+// KYC — la CLABE y el RFC viajan SIEMPRE ENMASCARADOS, también para `super_admin` (§3.4). La CLABE en claro solo
+// por `GET /admin/buylist/:id/reveal-clabe` (money-out, auditado). ⛔ NUNCA: `clabeEnc`, `rfcEnc` (blobs cifrados)
+// ni `clabeHmac` (blind index — es una clave de CORRELACIÓN entre cuentas; publicarla permite empatar titulares
+// sin descifrar nada).
+AdminKycProfileDTO = { id: string, userId: string, legalName?: string, kycStatus: KycStatus,
+                       clabeMasked?: string, rfcMasked?: string, ineOnFile: boolean,
+                       ineFrontKey?: string, ineBackKey?: string,   // solo super_admin: sirven el presigned GET
+                       capPerRequestCents?: number, capPerMonthCents?: number,
+                       verifiedBy?: string, verifiedAt?: string, createdAt: string, updatedAt: string }
+AdminKycProfileOperatorDTO = { id: string, userId: string, legalName?: string, kycStatus: KycStatus,
+                               clabeMasked?: string, ineOnFile: boolean,
+                               capPerRequestCents?: number, capPerMonthCents?: number,
+                               verifiedAt?: string }
+AdminBillingProfileDTO = { id: string, userId: string, rfcMasked: string, razonSocial: string,
+                           regimenFiscal: string, usoCfdi: string, postalCode: string, email: string,
+                           createdAt: string, updatedAt: string }
+// Buylist anidado. ⛔ `clabeSnapshotEnc` NO SALE A NADIE, en ninguna ruta y con ningún rol — ÉSA es la fuga
+// S49-M1-R. No es «enmascararlo»: el snapshot cifrado no tiene lectura legítima fuera del pago SPEI, que ya
+// tiene su endpoint dedicado, auditado y money-out. ⛔ `closedAt` tampoco (campo INTERNO de cumplimiento que
+// ancla la retención de INE, §3.2). `speiReference`/`paidBy` = hechos de EJECUCIÓN DE PAGO ⇒ solo `super_admin`
+// (SEC-A4: el operador no toca dinero que sale).
+AdminSellRequestSummaryDTO = { id: string, userId: string, status: SellRequestStatus,
+                               quotedTotalCents: number, approvedTotalCents?: number,
+                               ineRequired: boolean, ineProvided: boolean,
+                               speiReference?: string, paidBy?: string, paidAt?: string,  // ← solo super_admin
+                               createdAt: string, receivedAt?: string, verifiedAt?: string,
+                               approvedAt?: string, adjustmentSentAt?: string, deadlineAt?: string }
+// Disputas anidadas. ⛔ `description` y `resolution` son TEXTO LIBRE escrito por cliente y admin: pueden contener
+// cualquier cosa (datos de contacto, del pedido, de terceros) y un RESUMEN no los necesita. Viven en el detalle
+// de §M8. ⛔ `resolvedBy` (actor) → la traza de quién hizo qué es `GET /admin/users/:id/audit`.
+AdminDisputeSummaryDTO = { id: string, userId: string, inventoryItemId: string, orderItemId?: string,
+                           type: string, status: DisputeStatus, deadlineAt: string,
+                           createdAt: string, resolvedAt?: string }
+
 AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entityId, createdAt }
 // v1.7-admin-users: entrada de auditoría por usuario (GET /admin/users/:id/audit). Superset de AuditLogDTO:
 // `ip?` SOLO se puebla para super_admin (vault_operator lo recibe omitido). NUNCA incluye before/after.
