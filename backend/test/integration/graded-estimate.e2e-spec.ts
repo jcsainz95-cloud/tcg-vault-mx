@@ -1,6 +1,6 @@
 /**
  * graded-estimate.e2e-spec.ts — «Gancho de grading» de punta a punta contra la app REAL + Postgres
- * REAL (v1.44, PROJECT §N, ARCHITECTURE §4.35, API_CONTRACT §2/§M2). Propiedad: backend; la EJECUTA QA.
+ * REAL (v1.44, PROJECT §N, ARCHITECTURE §4.38, API_CONTRACT §2/§M2). Propiedad: backend; la EJECUTA QA.
  *
  * Reproduce el flujo de FASE 1 tal cual lo hará el humano (§N.6, manual-first):
  *   1. el admin fija los estimados con `POST /admin/pricing/override` (endpoint YA existente),
@@ -62,8 +62,10 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     ] as const) {
       const res = await h.api('POST', '/admin/pricing/override', {
         token: adminToken,
-        // `finish` OMITIDO ⇒ `normal`: el grado NO se cruza con el acabado (§4.35a).
-        json: { cardId, productType: 'graded', gradeKey, priceMxnCents },
+        // `finish` OMITIDO ⇒ `normal`: el grado NO se cruza con el acabado (§4.38a).
+        // v1.50.2 (BREAKING, INV-D §4.38l.1): con `productType:'graded'` el `intent` es OBLIGATORIO.
+        // Aquí es `graded_estimate` porque esto ES la captura del gancho; sin él la ruta responde 422.
+        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, intent: 'graded_estimate' },
       });
       expect(res.status).toBe(201);
     }
@@ -103,28 +105,74 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
       referenceMxnCents: PSA10_CENTS,
     });
     expect(ficha.body.gradedEstimates[0].estimate.capturedDate).toEqual(expect.any(String));
-    // INDISTINGUIBILIDAD (§4.35g): `source`/`isManualOverride` NUNCA viajan EN EL GANCHO — es lo único
+    // INDISTINGUIBILIDAD (§4.38g): `source`/`isManualOverride` NUNCA viajan EN EL GANCHO — es lo único
     // que delataría fase 1 (manual) vs fase 2 (ingest).
     expect(ficha.body.gradedEstimates[0].estimate.source).toBeUndefined();
     // La aserción se ACOTA a los dos campos del gancho a propósito: el resto de la ficha lleva el
     // `PriceInfo` del precio RAW (`listings[].referenceValue`, `units[].referenceValue`), que expone
     // `source`/`isManualOverride` desde antes de v1.44. Escanear el body entero mezclaba ese campo
     // PRE-EXISTENTE y legítimo con la fuga que esta prueba busca.
+    // v1.50.2: el destacado se lee de la REJILLA (`GroupedListingSummaryDTO`), no de los `listings[]`
+    // de la ficha — se MOVIÓ, no se duplicó (§4.38e).
+    const rejilla = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.common.name)}&pageSize=20`);
+    const teja = rejilla.body.data.find((g: any) => g.card.id === cardId && g.productType === 'raw');
     const hookJson = JSON.stringify({
       gradedEstimates: ficha.body.gradedEstimates,
-      gradingHighlight: ficha.body.listings.map((l: any) => l.gradingHighlight),
+      gradingHighlight: teja.gradingHighlight,
     });
     expect(hookJson).not.toContain('isManualOverride');
     expect(hookJson).not.toContain('"source"');
 
-    const raw = ficha.body.listings.find((l: any) => l.productType === 'raw');
-    expect(raw.gradingHighlight).toHaveLength(1);
-    expect(raw.gradingHighlight[0].gradeValue).toBe('10'); // el badge pinta UNA cifra
+    // La FICHA ya NO trae destacado en sus grupos (informa con `gradedEstimates`, que es más rico).
+    expect(ficha.body.listings.every((l: any) => l.gradingHighlight === undefined)).toBe(true);
+    expect(teja.gradingHighlight).toHaveLength(1);
+    expect(teja.gradingHighlight[0].gradeValue).toBe('10'); // el badge pinta UNA cifra
     // SEC-A1: ni el umbral, ni el costo, ni la ganancia neta salen del servidor. Estos SÍ son tokens
     // exclusivos del gancho, así que se escanean sobre el body COMPLETO (no pueden estar en ningún lado).
     for (const forbidden of ['netUpside', 'gradingCost', 'threshold', 'minUpsidePct', 'eligible']) {
       expect(JSON.stringify(ficha.body)).not.toContain(forbidden);
     }
+  });
+
+  /**
+   * v1.50.2 — INV-D (§4.38l.1) contra el STACK VIVO. Es la guarda que impide que un «estimado» cambie
+   * el precio de venta REAL de un slab publicado: la fila es la misma, así que la única defensa es
+   * **exigir que se declare la intención** y bloquear la combinación imposible.
+   */
+  it('3b) INV-D — `intent` OBLIGATORIO en graded: 422 sin él, 409 sobre una carta con slab publicado', async () => {
+    // (a) SIN `intent` ⇒ 422. Es BREAKING a propósito: un default a `market` sería fail-open.
+    const sinIntent = await h.api('POST', '/admin/pricing/override', {
+      token: adminToken,
+      json: { cardId, productType: 'graded', gradeKey: 'graded:PSA:10', priceMxnCents: PSA10_CENTS },
+    });
+    expect(sinIntent.status).toBe(422);
+    expect(sinIntent.body.error.code).toBe('GRADED_INTENT_REQUIRED');
+
+    // (b) `graded_estimate` sobre la carta que SÍ tiene un slab PSA 10 publicado (`E2E-LST-0003`) ⇒ 409.
+    const conSlab = await h.prisma.card.findFirst({ where: { externalId: E2E_CARDS.graded.externalId } });
+    const choque = await h.api('POST', '/admin/pricing/override', {
+      token: adminToken,
+      json: {
+        cardId: conSlab!.id,
+        productType: 'graded',
+        gradeKey: 'graded:PSA:10',
+        priceMxnCents: 123_456,
+        intent: 'graded_estimate',
+      },
+    });
+    expect(choque.status).toBe(409);
+    expect(choque.body.error.code).toBe('GRADED_ESTIMATE_SLAB_PUBLISHED');
+    expect(choque.body.error.details.publishedSlabCount).toBeGreaterThanOrEqual(1);
+
+    // …y el precio de mercado del slab NO se movió (la guarda corta ANTES de escribir).
+    const ref = await h.prisma.priceReference.findFirst({
+      where: { cardId: conSlab!.id, productType: 'graded', gradeKey: 'graded:PSA:10' },
+      orderBy: { capturedDate: 'desc' },
+    });
+    expect(ref?.priceMxnCents).not.toBe(123_456);
+
+    // (c) `intent:"market"` sobre esa MISMA carta sí es legítimo: es fijar el precio real del slab.
+    //     (No se ejecuta la escritura para no ensuciar la BD compartida; lo cubre el spec unitario.)
   });
 
   it('4) la VITRINA la lista (subconjunto ordenado de Compra, mismo DTO de teja)', async () => {
@@ -210,7 +258,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const raw = despues.body.listings.find((l: any) => l.productType === 'raw');
     expect(raw.gradingHighlight).toBeUndefined(); // el badge desaparece…
     expect(raw.salePriceCents).toBe(precioAntes); // …y el precio de venta NO se movió
-    // PARTICIÓN §4.35-0: la FICHA sigue mostrando sus dos cifras (el dial de curaduría no la apaga).
+    // PARTICIÓN §4.38-0: la FICHA sigue mostrando sus dos cifras (el dial de curaduría no la apaga).
     expect(despues.body.gradedEstimates).toHaveLength(2);
   });
 
@@ -225,7 +273,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(vitrinaSana.body.data.find((g: any) => g.card.id === cardId)).toBeDefined();
 
     // Edición FUERA DE BANDA (el `PUT` lo rechazaría con 422): SQL directo / restore parcial. Es el
-    // único camino que llega a este estado, y es exactamente cuando conviene ser paranoico (§4.35d).
+    // único camino que llega a este estado, y es exactamente cuando conviene ser paranoico (§4.38d).
     await h.prisma.configSetting.upsert({
       where: { key: 'grading_min_upside_pct' },
       create: { key: 'grading_min_upside_pct', valueJson: 'mucho' },

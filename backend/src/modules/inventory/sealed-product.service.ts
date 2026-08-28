@@ -8,7 +8,7 @@ import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { FxService } from '../pricing/fx.service';
 import { TcgcsvSealedBulkProvider } from '../pricing/providers/tcgcsv-sealed.provider';
 import { TcgcsvGroupRef, sealedMarketGradeKey } from '../pricing/pricing.types';
-import { normalizeSetName } from '../pricing/ppt-set-mapper.service';
+import { normalizeSetName, setNameCandidates } from '../pricing/ppt-set-mapper.service';
 import { releaseYear } from '../pricing/ppt-sync-scope';
 import { SetRefDTO } from './master-set.service';
 import { inferSealedSubtype, SEALED_SUBTYPE_META, SEALED_SORT_ORDER_FALLBACK } from './sealed-subtype';
@@ -773,22 +773,29 @@ export class SealedProductService {
   /**
    * Score de coincidencia nombre+año (0..1, orientativo). 1.0 = nombre exacto (normalizado) + año igual;
    * 0.9 = nombre exacto sin poder confirmar año; 0.5 = contención parcial. Money-safe: solo orienta la UI.
+   *
+   * Tolerante al prefijo de código de TCGCSV: los grupos de TCGCSV nombran con prefijo de colección
+   * (`"SV08: Pitch Black"`) mientras el catálogo local NO (`"Pitch Black"`). Comparamos vía
+   * `setNameCandidates`, que incluye el nombre completo y —si trae prefijo tipo `"SV08:"`— también el
+   * nombre SIN prefijo; así el match exacto sin-prefijo sube al rango auto-resoluble en vez de caer a 0.5.
    */
   private matchScore(
     set: { name: string; releaseDate: string | null },
     g: TcgcsvGroupRef,
   ): number {
-    const target = normalizeSetName(set.name);
-    if (target === '') return 0;
-    const gname = normalizeSetName(g.name);
-    if (gname === '') return 0;
-    if (gname === target) {
+    const targets = setNameCandidates(set.name).filter((s) => s !== '');
+    if (targets.length === 0) return 0;
+    const gnames = setNameCandidates(g.name).filter((s) => s !== '');
+    if (gnames.length === 0) return 0;
+    // Exacto: alguna variante (con/sin prefijo) del set local empata con alguna del grupo.
+    if (targets.some((t) => gnames.includes(t))) {
       const localYear = releaseYear({ releaseDate: set.releaseDate });
       const groupYear = releaseYear({ releaseDate: g.publishedOn ?? null });
       if (localYear != null && groupYear != null) return localYear === groupYear ? 1.0 : 0.7;
       return 0.9;
     }
-    if (gname.includes(target) || target.includes(gname)) return 0.5;
+    // Contención parcial: alguna variante contiene o está contenida en alguna del grupo.
+    if (targets.some((t) => gnames.some((gn) => gn.includes(t) || t.includes(gn)))) return 0.5;
     return 0;
   }
 

@@ -5,78 +5,119 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
- * v1.13-sales-pricing (§4.14d) — PricingService.computeSalePriceForItem lee la tabla de reglas de
- * VENTA + fallback y aplica el resolver por rareza. Además, los 2 call-sites (catalog.toListingDTO,
- * orders.salePriceOf) usan la regla por rareza y NO el markup global.
+ * v1.13-sales-pricing (§4.14d) · ⛔ SUPERSEDED por v2.0 (P-48, ARCHITECTURE §4.36.5b).
+ *
+ * `PricingService.computeSalePriceForItem` / `decideSalePrice` son el **SEAM ÚNICO del eje de VENTA**:
+ * ya no leen reglas por rareza sino **la CURVA** (`pricing_curve`) y devuelven una **DECISIÓN** —monto
+ * **y** veredicto— para que ningún call-site pueda quedarse con el precio y olvidarse del guardarraíl.
+ * Los call-sites (catálogo y checkout) pasan por él, así que cobran y publican el mismo número.
+ *
+ * Criterio 84: la rareza entra SOLO al veredicto; el MONTO no la ve (test dedicado abajo).
  */
 
-const SALES_RULES = {
-  Common: { mode: 'fixed', value: 500 },
-  Uncommon: { mode: 'fixed', value: 1000 },
-  Holo: { mode: 'fixed', value: 1000 },
-  'Reverse Holo': { mode: 'fixed', value: 1000 },
-};
-
-function realPricing(): PricingService {
+function realPricing(): { pricing: PricingService; settings: SettingsService } {
   const settings = {
-    getRaw: jest.fn(async (key: string) => (key === 'sales_price_rules' ? SALES_RULES : null)),
-    getNumber: jest.fn(async (key: string) => (key === 'sales_price_fallback_pct' ? 15 : 0)),
+    getRaw: jest.fn(async (key: string) => (key === 'pricing_curve' ? DEFAULT_PRICING_CURVE : null)),
+    getNumber: jest.fn(async () => 0),
   } as unknown as SettingsService;
-  return new PricingService(
+  const pricing = new PricingService(
     {} as PrismaService,
     settings,
     {} as FxService,
-    {} as any,
-    {} as any,
-    {} as any,
+    {} as never,
+    {} as never,
+    {} as never,
   );
+  return { pricing, settings };
 }
 
-describe('PricingService.computeSalePriceForItem (§4.14d)', () => {
-  it('fixed → piso aunque no haya market (Common $5)', async () => {
-    const p = realPricing();
-    const r = await p.computeSalePriceForItem({ rarity: 'Common', finish: 'normal' }, null);
-    expect(r).toMatchObject({ salePriceCents: 500, status: 'priced', ruleSource: 'rule' });
+describe('PricingService.computeSalePriceForItem — SEAM ÚNICO de VENTA por la CURVA (§4.36.5b)', () => {
+  it('SIN mercado ⇒ pending: el PISO NO gana (cambio LOCKED vs. el `fixed` de v1.13)', async () => {
+    const { pricing } = realPricing();
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: null, rarityCanonical: 'comun' });
+    expect(r).toMatchObject({ priceCents: null, basis: 'pending', marketMxnCents: null });
   });
 
-  it('pct fallback → 15% arriba de market (rareza rara con market)', async () => {
-    const p = realPricing();
-    const r = await p.computeSalePriceForItem({ rarity: 'Illustration Rare', finish: 'normal' }, 100000);
-    expect(r).toMatchObject({ salePriceCents: 115000, status: 'priced', ruleSource: 'fallback' });
+  it('CON mercado ⇒ curva: $1,000 × 1.15 = $1,150 (múltiplo de $25, no se mueve)', async () => {
+    const { pricing } = realPricing();
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: 100000, rarityCanonical: 'comun' });
+    expect(r).toMatchObject({ priceCents: 115000, basis: 'market', marketMxnCents: 100000, pendingReason: null });
   });
 
-  it('pct sin market → pending', async () => {
-    const p = realPricing();
-    const r = await p.computeSalePriceForItem({ rarity: 'Rare', finish: 'normal' }, null);
-    expect(r).toMatchObject({ salePriceCents: null, status: 'pending' });
+  it('mercado bajo ⇒ gana el PISO ($1.14 ⇒ $25) con basis "floor"', async () => {
+    const { pricing } = realPricing();
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: 114, rarityCanonical: 'comun' });
+    expect(r).toMatchObject({ priceCents: 2500, basis: 'floor', pendingReason: null });
   });
 
-  it('NO usa el markup global SALES_MARKUP_PCT (lee sales_price_rules / sales_price_fallback_pct)', async () => {
-    const settings = {
-      getRaw: jest.fn(async () => SALES_RULES),
-      getNumber: jest.fn(async () => 15),
-    } as unknown as SettingsService;
-    const p = new PricingService({} as PrismaService, settings, {} as FxService, {} as any, {} as any, {} as any);
-    await p.computeSalePriceForItem({ rarity: 'Common', finish: 'normal' }, null);
-    // Leyó las keys de VENTA por rareza, NUNCA sales_markup_pct.
+  it('sellOverrideCents (variante) pisa la curva y es ABSOLUTO (criterio 89)', async () => {
+    const { pricing } = realPricing();
+    const r = await pricing.computeSalePriceForItem({
+      referenceMxnCents: 100000,
+      rarityCanonical: 'comun',
+      controls: { sellOverrideCents: 3000 },
+    });
+    expect(r).toMatchObject({ priceCents: 3000, basis: 'override', curveQuoteCents: 115000 });
+  });
+
+  it('lee `pricing_curve` y NUNCA las claves retiradas (`sales_price_rules`, `sales_markup_pct`)', async () => {
+    const { pricing, settings } = realPricing();
+    await pricing.computeSalePriceForItem({ referenceMxnCents: 100000, rarityCanonical: 'comun' });
     const rawKeys = (settings.getRaw as jest.Mock).mock.calls.map((c) => c[0]);
     const numKeys = (settings.getNumber as jest.Mock).mock.calls.map((c) => c[0]);
-    expect(rawKeys).toContain('sales_price_rules');
-    expect(numKeys).toContain('sales_price_fallback_pct');
+    expect(rawKeys).toContain('pricing_curve');
+    expect(rawKeys).not.toContain('sales_price_rules');
+    expect(rawKeys).not.toContain('pricing_tier_map');
+    expect(numKeys).not.toContain('sales_price_fallback_pct');
     expect(numKeys).not.toContain('sales_markup_pct');
+  });
+
+  it('la CURVA se puede izar UNA vez por request y pasarse al seam (BE-25, sin releer settings)', async () => {
+    const { pricing, settings } = realPricing();
+    const curve = await pricing.loadPricingCurve();
+    (settings.getRaw as jest.Mock).mockClear();
+    const r = await pricing.computeSalePriceForItem({
+      referenceMxnCents: 100000,
+      rarityCanonical: 'comun',
+      controls: null,
+      curve,
+    });
+    expect(r.priceCents).toBe(115000);
+    expect(settings.getRaw).not.toHaveBeenCalled();
+  });
+
+  it('un `pricing_curve` CORRUPTO en BD no apaga el catálogo: cae al seed y lo grita en el log', async () => {
+    const settings = {
+      getRaw: jest.fn(async () => ({ version: 1, sale: { floorCents: 0, points: [], rounding: [] } })),
+      getNumber: jest.fn(async () => 0),
+    } as unknown as SettingsService;
+    const pricing = new PricingService(
+      {} as PrismaService,
+      settings,
+      {} as FxService,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const spy = jest.spyOn(pricing['logger'], 'error').mockImplementation(() => undefined);
+    const r = await pricing.computeSalePriceForItem({ referenceMxnCents: 100000, rarityCanonical: 'comun' });
+    expect(r.priceCents).toBe(115000); // el seed de §N.2
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[MONEY]'));
+    spy.mockRestore();
   });
 });
 
-function cardOf(over: Partial<any> = {}) {
+function cardOf(over: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'c1', externalId: 'x', name: 'N', number: '1', rarity: 'Common', supertype: 'Pokémon',
     subtypes: [], setId: 's', imageSmallUrl: null, imageLargeUrl: null, availableFinishes: ['normal'],
     set: { id: 's', name: 'Set' }, ...over,
   };
 }
-function itemOf(over: Partial<any> = {}) {
+function itemOf(over: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'i1', cardId: 'c1', productType: 'raw', rawCondition: 'NM', sealedSubtype: null,
     gradingCompany: null, gradeValue: null, certNumber: null, status: 'listed', finish: 'normal',
@@ -85,86 +126,80 @@ function itemOf(over: Partial<any> = {}) {
   };
 }
 
-describe('call-site swap — toListingDTO usa la regla por rareza (piso fixed sin market)', () => {
-  it('una Common SIN PriceReference se vuelve sellable al piso $5 (mejora deliberada)', async () => {
-    const pricing = {
-      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      getReference: jest.fn(async () => ({ status: 'pending' })), // sin market
-      computeSalePriceForItem: jest.fn(async () => ({
-        salePriceCents: 500, status: 'priced', appliedRule: { mode: 'fixed', value: 500 }, ruleSource: 'rule',
-      })),
-      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
-      getVariantOverridesBatch: jest.fn(async () => new Map()),
-      getVariantOverride: jest.fn(async () => null),
-    } as unknown as PricingService;
+/** Mock del servicio que DELEGA en el seam real (sin reimplementar la matemática). */
+function pricingMock(referenceMxnCents: number | null): PricingService {
+  const real = realPricing().pricing;
+  return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    getReference: jest.fn(async () =>
+      referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
+    ),
+    // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+    // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+    computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
+    decideSalePrice: jest.fn((input: Parameters<PricingService['decideSalePrice']>[0]) =>
+      real.decideSalePrice(input),
+    ),
+    getVariantOverridesBatch: jest.fn(async () => new Map()),
+    getVariantOverride: jest.fn(async () => null),
+  } as unknown as PricingService;
+}
+
+describe('call-site — toListingDTO resuelve por la CURVA y expone `priceBasis`', () => {
+  it('una Common SIN PriceReference YA NO se publica (el piso no gana): sellable=false, basis pending', async () => {
+    const pricing = pricingMock(null);
     const svc = new CatalogService({} as PrismaService, pricing);
-    const dto = await svc.toListingDTO(itemOf() as any);
-    expect(dto.salePriceCents).toBe(500);
-    expect(dto.sellable).toBe(true);
-    // Se pasó (rarity, finish) desde la BD (Card.rarity / InventoryItem.finish), no del cliente.
-    expect((pricing.computeSalePriceForItem as jest.Mock).mock.calls[0][0]).toEqual({
-      rarity: 'Common', finish: 'normal',
-    });
+    const dto = await svc.toListingDTO(itemOf() as never);
+    expect(dto.salePriceCents).toBeUndefined();
+    expect(dto.sellable).toBe(false);
+    expect(dto.priceBasis).toBe('pending');
+    // Criterio 84: al seam se le pasa el MERCADO y la rareza SOLO para el veredicto — nunca el acabado,
+    // y la rareza jamás toca el monto (ver el test dedicado abajo).
+    const arg = (pricing.computeSalePriceForItem as jest.Mock).mock.calls[0][0];
+    expect(arg.referenceMxnCents).toBeNull();
+    expect(arg).not.toHaveProperty('finish');
   });
 
-  it('listPriceCents (override) sigue ganando sobre la regla', async () => {
-    const pricing = {
-      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
-      computeSalePriceForItem: jest.fn(),
-      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
-      getVariantOverridesBatch: jest.fn(async () => new Map()),
-      getVariantOverride: jest.fn(async () => null),
-    } as unknown as PricingService;
+  it('con mercado publica por la curva y marca `priceBasis="market"`', async () => {
+    const pricing = pricingMock(100000);
     const svc = new CatalogService({} as PrismaService, pricing);
-    const dto = await svc.toListingDTO(itemOf({ listPriceCents: 99999 }) as any);
+    const dto = await svc.toListingDTO(itemOf() as never);
+    expect(dto.salePriceCents).toBe(115000);
+    expect(dto.sellable).toBe(true);
+    expect(dto.priceBasis).toBe('market');
+  });
+
+  it('listPriceCents (override POR PIEZA) sigue ganando y marca `priceBasis="override"`', async () => {
+    const pricing = pricingMock(100000);
+    const svc = new CatalogService({} as PrismaService, pricing);
+    const dto = await svc.toListingDTO(itemOf({ listPriceCents: 99999 }) as never);
     expect(dto.salePriceCents).toBe(99999);
+    expect(dto.priceBasis).toBe('override');
     expect(pricing.computeSalePriceForItem).not.toHaveBeenCalled();
   });
 });
 
-describe('call-site swap — orders.salePriceOf usa la regla por rareza', () => {
+describe('call-site — orders.salePriceOf cobra EXACTAMENTE lo que publica el storefront', () => {
   function buildOrders(pricing: PricingService) {
-    const prisma: any = {
+    const prisma: PrismaService = {
       inventoryItem: { findMany: jest.fn(async () => [itemOf()]) },
-    };
-    const settings: any = {
+    } as never;
+    const settings = {
       getNumber: jest.fn().mockResolvedValue(16),
       getStripeFee: jest.fn().mockResolvedValue({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 }),
-    };
-    return new OrdersService(
-      prisma as PrismaService, pricing, settings as SettingsService, {} as StripeService, {} as CatalogService,
-    );
+    } as unknown as SettingsService;
+    return new OrdersService(prisma, pricing, settings, {} as StripeService, {} as CatalogService);
   }
 
-  it('fixed devuelve el piso aunque no haya market', async () => {
-    const pricing = {
-      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      getReference: jest.fn(async () => ({ status: 'pending' })),
-      computeSalePriceForItem: jest.fn(async () => ({
-        salePriceCents: 500, status: 'priced', appliedRule: { mode: 'fixed', value: 500 }, ruleSource: 'rule',
-      })),
-      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
-      getVariantOverridesBatch: jest.fn(async () => new Map()),
-      getVariantOverride: jest.fn(async () => null),
-    } as unknown as PricingService;
-    const svc = buildOrders(pricing);
+  it('con mercado cobra el precio de la curva (mismo número que la ficha)', async () => {
+    const svc = buildOrders(pricingMock(100000));
     const res = await svc.quote(['i1']);
-    expect(res.items[0].unitPriceCents).toBe(500);
+    expect(res.items[0].unitPriceCents).toBe(115000);
   });
 
-  it('pct sin market → PRICE_PENDING (se conserva)', async () => {
-    const pricing = {
-      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      getReference: jest.fn(async () => ({ status: 'pending' })),
-      computeSalePriceForItem: jest.fn(async () => ({
-        salePriceCents: null, status: 'pending', appliedRule: { mode: 'pct', value: 15 }, ruleSource: 'fallback',
-      })),
-      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
-      getVariantOverridesBatch: jest.fn(async () => new Map()),
-      getVariantOverride: jest.fn(async () => null),
-    } as unknown as PricingService;
-    const svc = buildOrders(pricing);
+  it('sin mercado → PRICE_PENDING (el piso NO gana; jamás se cobra un precio inventado)', async () => {
+    const svc = buildOrders(pricingMock(null));
     await expect(svc.quote(['i1'])).rejects.toMatchObject({ code: 'PRICE_PENDING' });
   });
 });

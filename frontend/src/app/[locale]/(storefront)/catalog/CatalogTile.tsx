@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
 import { Link, useRouter } from '@/i18n/navigation';
-import type { GroupedListingDTO } from '@/types/contract';
+import type { GroupedListingSummaryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
@@ -15,10 +15,10 @@ import { GradingEstimateBadge } from '../_shared/grading/GradingEstimateBadge';
 import { cn } from '@/lib/cn';
 
 export interface CatalogTileProps {
-  listing: GroupedListingDTO;
+  listing: GroupedListingSummaryDTO;
   /** Estado DERIVADO del carrito (useCart, por representativeInventoryItemId); el padre lo calcula. */
   inCart: boolean;
-  onAdd: (listing: GroupedListingDTO) => void;
+  onAdd: (listing: GroupedListingSummaryDTO) => void;
 }
 
 /**
@@ -27,7 +27,9 @@ export interface CatalogTileProps {
  * técnica de la variante (ListingSpec, §7.2b), el precio «desde» como cifra tabular
  * en sans y el distintivo de stock real del grupo («N en stock», §20.6).
  *
- * v1.38-grouped-listings (P-30): una teja = UNA publicación agrupada (GroupedListingDTO),
+ * v1.38-grouped-listings (P-30): una teja = UNA publicación agrupada. v2.1.9 (D2): el DTO de la
+ * REJILLA es `GroupedListingSummaryDTO` — SIN `priceBasis` ni `referenceValue`: el «Valor de
+ * mercado» vive SOLO en la ficha (§N.7) y la teja nunca lo pintó, así que ya ni lo recibe.
  * no una copia física. `stockCount` es el conteo REAL del grupo (money-safe): el badge lo
  * traduce a su variante canónica (Queda 1 / N en stock / Agotado). El add-to-cart usa
  * `representativeInventoryItemId` (la pieza más barata; el carrito sigue por-pieza).
@@ -99,7 +101,7 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
         />
       )}
 
-      {/* «Gancho de grading» (§21.5): DESPUÉS del precio y del stock, ANTES del CTA — el orden de
+      {/* «Gancho de grading» (§22.5): DESPUÉS del precio y del stock, ANTES del CTA — el orden de
           lectura obligatorio es precio real → estimado → CTA. Presencia ⇔ elegibilidad: sin
           `gradingHighlight` (o sin nota al pie en esta página) la teja se ve EXACTAMENTE como hoy,
           sin badge vacío ni altura reservada (R4). */}

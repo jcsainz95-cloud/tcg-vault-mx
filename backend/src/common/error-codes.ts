@@ -64,6 +64,21 @@ export const ErrorCode = {
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
   BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
+  // v2.0 (P-48, §4.36.3 / API_CONTRACT §Errores) — códigos de la CURVA. Todos son 422, todos se
+  // validan AL GUARDAR (no solo en runtime), todos se evalúan sobre el OBJETO COMPLETO y todos
+  // indican QUÉ PUNTO lo rompe en `details: { axis, index, marketCents, … }` (criterio 87).
+  // Los emiten `PUT /admin/pricing/curve` y —los que impiden calcular— `POST .../curve/preview`.
+  CURVE_EMPTY: 'CURVE_EMPTY', // sin puntos no hay curva que interpolar
+  DUPLICATE_BREAKPOINT: 'DUPLICATE_BREAKPOINT', // dos puntos en el mismo mercado ⇒ interpolación ambigua
+  SALE_BELOW_MARKET: 'SALE_BELOW_MARKET', // algún multiplierBp < 10000: la venta caería bajo el mercado
+  SALE_CURVE_NOT_MONOTONIC: 'SALE_CURVE_NOT_MONOTONIC', // más mercado produciría MENOS precio
+  // v2.1.4 (V9): simétrico del anterior en el eje de COMPRA — más mercado PAGARÍA menos. V6 ataba la
+  // compra solo en RELATIVO (por debajo de la venta), así que el monto absoluto podía bajar. Misma
+  // clase que I1, sin la amplificación de la escalera: pierde dinero en silencio.
+  BUY_CURVE_NOT_MONOTONIC: 'BUY_CURVE_NOT_MONOTONIC',
+  BUY_ABOVE_SALE: 'BUY_ABOVE_SALE', // la compra alcanza o supera la venta en algún punto del dominio
+  BIN_ABOVE_FLOOR: 'BIN_ABOVE_FLOOR', // binCents >= floorCents (ambos ejes saturando en su constante)
+  ROUNDING_LADDER_INVALID: 'ROUNDING_LADDER_INVALID', // escalera mal formada (o frontera no múltiplo del paso)
   // v1.37 (pricing por tiers, P-34, §4.33d): en PUT /admin/pricing/tier-map o PUT /admin/pricing/tiers,
   // la edición dejaría una rareza `premium:true` (catálogo canónico, §4.28e) resolviendo en un tier cuya
   // regla de COMPRA es `fixed` (con el seed: T0/T1). Guardarraíl money-safe: una chase jamás cotiza al bin
@@ -74,18 +89,32 @@ export const ErrorCode = {
   // rareza canónica del catálogo (§4.28c). Money-safe: el mapa solo asigna tiers a rarezas conocidas; una
   // key desconocida se rechaza en vez de crear una entrada muerta. Distinto de VALIDATION_ERROR. 422.
   UNKNOWN_RARITY: 'UNKNOWN_RARITY',
-  // v1.44-graded-estimate («gancho de grading», §4.35d / §M2). Invariantes de la tabla de escalones de
+  // v1.50-graded-estimate («gancho de grading», §4.38d / §M2). Invariantes de la tabla de escalones de
   // COSTO de gradeo, validados en CADA `PUT /admin/pricing/graded-estimates` (fail-closed). Son códigos
   // propios —y no un VALIDATION_ERROR genérico— porque el error es ENTRE FILAS y el editor de M2 tiene
   // que poder señalar QUÉ par de escalones no empalma. 422.
   GRADING_TIERS_EMPTY: 'GRADING_TIERS_EMPTY', // I1: array vacío (sin tabla no hay gate; jamás costo 0).
   GRADING_TIERS_NOT_CONTIGUOUS: 'GRADING_TIERS_NOT_CONTIGUOUS', // I3/I4: hueco, solape, desorden o no arranca en 0.
   GRADING_TIERS_NOT_OPEN_ENDED: 'GRADING_TIERS_NOT_OPEN_ENDED', // I5: el ÚLTIMO escalón (y solo él) debe ser abierto.
-  // v1.44 (§4.35f / §2): `?sort=grading_showcase` SIN `?gradingHighlight=true`. Fail-closed: si se
+  // v1.50 (§4.38f / §2): `?sort=grading_showcase` SIN `?gradingHighlight=true`. Fail-closed: si se
   // aceptara, los grupos NO destacados irían a la cola del listado con clave de orden indefinida y la
   // vitrina podría pintarlos al paginar. Mejor un error honesto que una superficie comercial
   // contaminada. 400.
   GRADING_SORT_REQUIRES_FILTER: 'GRADING_SORT_REQUIRES_FILTER',
+  // v1.50.2 (INV-D, §4.38l / §M2) — la colisión entre el ESTIMADO y el SLAB REAL publicado. La fila del
+  // «valor estimado si se gradea» y la referencia de mercado de una pieza PSA N **publicada** son LA
+  // MISMA FILA (`cardId` + `graded` + `gradeKey` + `finish='normal'`), así que un «estimado» tecleado
+  // sobre una carta con slab publicado **cambia el precio de venta real de esa pieza**.
+  //
+  // `intent` es OBLIGATORIO (no opcional-con-default) a propósito: un default a `"market"` sería
+  // FAIL-OPEN — el operador que olvida el campo obtendría, en silencio, la ruta que MUEVE DINERO. Se
+  // acepta un breaking chico en una ruta `super_admin` a cambio de que la ambigüedad sea imposible de
+  // expresar. Misma doctrina que «sin escalón no hay destacado» y «AUSENTE ≠ INVÁLIDA». 422.
+  GRADED_INTENT_REQUIRED: 'GRADED_INTENT_REQUIRED',
+  // Se intentó fijar un ESTIMADO (`intent:"graded_estimate"`) sobre una carta que YA tiene >= 1 slab
+  // publicado de ese grado: esa fila es el precio de mercado REAL de esas piezas. 409 (conflicto de
+  // ESTADO, no de forma: el mismo body es válido en cuanto deje de haber slabs publicados).
+  GRADED_ESTIMATE_SLAB_PUBLISHED: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
 
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',

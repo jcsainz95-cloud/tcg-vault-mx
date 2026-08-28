@@ -23,7 +23,7 @@ const BOUNTY: PublicBountyDTO = {
 };
 
 describe('TopBountiesShelf (P-22, §16.7c) · vitrina pública de /buylist', () => {
-  it('con bounties activos: eyebrow SE BUSCA, precio héroe «Pagamos», QUEDAN N y CTA', async () => {
+  it('con bounties activos: eyebrow SE BUSCA, precio héroe «Pagamos» y CTA', async () => {
     vi.spyOn(api, 'getPublicBounties').mockResolvedValue({ data: [BOUNTY] });
     const onQuote = vi.fn();
     renderWithProviders(<TopBountiesShelf onQuote={onQuote} />, 'es');
@@ -37,20 +37,19 @@ describe('TopBountiesShelf (P-22, §16.7c) · vitrina pública de /buylist', () 
       screen.getByText(/El pago se realiza después de recibir y verificar tu carta/),
     ).toBeInTheDocument();
     expect(screen.getByText('Pagamos')).toBeInTheDocument();
-    expect(screen.getByText('Quedan 2')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cotizar esta carta' }));
     expect(onQuote).toHaveBeenCalledWith(BOUNTY);
   });
 
-  it('sin objetivo (remainingQty null) NO inventa escasez: no se pinta «Quedan N»', async () => {
-    vi.spyOn(api, 'getPublicBounties').mockResolvedValue({
-      data: [{ ...BOUNTY, targetQty: null, remainingQty: null }],
-    });
+  it('la cantidad restante NUNCA se revela al cliente en la vitrina pública, aun con remainingQty presente', async () => {
+    vi.spyOn(api, 'getPublicBounties').mockResolvedValue({ data: [BOUNTY] });
     renderWithProviders(<TopBountiesShelf />, 'es');
 
+    // El precio confirma que la tarjeta ya se pintó; la línea «Quedan N» no debe aparecer.
     await screen.findByText('MX$2,500.00');
     expect(screen.queryByText(/Quedan/)).toBeNull();
+    expect(screen.queryByText(/^2$/)).toBeNull();
   });
 
   it('sin bounties activos la sección NO se renderiza (nunca un shelf vacío)', async () => {

@@ -12,6 +12,17 @@ import type {
 import { MasterSetPanel } from './MasterSetPanel';
 import * as api from '@/lib/api';
 
+// `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
+// Lo necesita el enlace del guardarraíl («Ver en la cola de pendientes») de la consola de precios.
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -92,23 +103,32 @@ describe('Master Set · Binder (rejilla PLANA: una tarjeta por impresión + orde
     expect(within(drawer).getByText('3 piezas')).toBeInTheDocument();
   });
 
-  it('INV-2: cada tarjeta de una carta muestra el TOTAL on-hand POR CARTA (cell.totalCount) de forma clara', async () => {
+  it('INV-2: el badge on-hand de cada tarjeta es POR ACABADO (countsByFinish[finish]), no el total de la carta', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
-    // Charizard (#4) tiene 4 piezas on-hand (normal 3 + reverse holo 1) → totalCount = 4. El total
-    // POR CARTA se repite en cada una de sus 3 tarjetas de impresión (N-16, imagen/cabecera compartida),
-    // respondiendo "tengo N de esta carta".
+    // Charizard (#4): normal 3 piezas, reverse holo 1 pieza, holofoil 0 (HUECO). Cada tarjeta de
+    // impresión (N-16) lleva el badge on-hand de SU acabado — NO la suma de la carta (4). La
+    // regresión (IMP-2) sumaba `countsByFinish` y pintaba «4 en total» en las TRES tarjetas, incluida
+    // la de holofoil (0 piezas). El badge visible es el número; el aria describe el acabado.
     const charizardTiles = await screen.findAllByRole('button', { name: /Charizard/ });
     expect(charizardTiles).toHaveLength(3);
+    const normalTile = charizardTiles.find((t) => /·\s*Normal/.test(t.textContent ?? ''))!;
+    const reverseTile = charizardTiles.find((t) => /Reverse Holo/.test(t.textContent ?? ''))!;
+    const holoTile = charizardTiles.find((t) => /·\s*Holofoil/.test(t.textContent ?? ''))!;
+    expect(within(normalTile).getByTitle('Tengo 3 piezas de este acabado')).toBeInTheDocument();
+    expect(within(reverseTile).getByTitle('Tengo 1 pieza de este acabado')).toBeInTheDocument();
+    // Holofoil (0 piezas) → HUECO, SIN badge de conteo (ni el propio 0 ni la suma 4 de la carta).
+    expect(within(holoTile).queryByTitle(/de este acabado$/)).toBeNull();
+    // El total de la carta (4) NO se pinta en NINGUNA tarjeta (la regresión exacta).
     charizardTiles.forEach((tile) => {
-      expect(within(tile).getByText('4 en total')).toBeInTheDocument();
+      expect(within(tile).queryByTitle('Tengo 4 piezas de este acabado')).toBeNull();
     });
 
-    // Una carta SIN piezas on-hand (totalCount = 0) NO pinta el total (evita ruido de "0 en total").
+    // Una carta SIN piezas on-hand (Pikachu, 0 en todos los acabados) NO pinta badge en ninguna teja.
     const pikachuTiles = await screen.findAllByRole('button', { name: /Pikachu/ });
     pikachuTiles.forEach((tile) => {
-      expect(within(tile).queryByText(/en total/)).toBeNull();
+      expect(within(tile).queryByTitle(/de este acabado$/)).toBeNull();
     });
   });
 
@@ -727,7 +747,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
           ok: true,
           rarity: 'Rare',
           finish: it.finish ?? 'normal',
-          appliedRule: { mode: 'fixed', value: it.finish === 'normal' ? 10000 : 15000, source: 'rule' },
+          priceBasis: 'market' as const,
           quote: {
             status: 'cotizada',
             quotedPriceCents: it.finish === 'normal' ? 10000 : 15000,
@@ -799,10 +819,9 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     ).toBeInTheDocument();
   });
 
-  it('INV-2: el cotizador (mode="quoter") NUNCA pinta el badge de total on-hand por carta', async () => {
-    // Lock de invariante: el on-hand no aplica al cotizador (QuoterTile no pasa showTotalCount).
-    // Este test evita que un refactor futuro de defaults lo reintroduzca en silencio (aparecería
-    // "0 en total" o similar).
+  it('INV-2: el cotizador (mode="quoter") NUNCA pinta el badge de on-hand por acabado', async () => {
+    // Lock de invariante: el on-hand no aplica al cotizador (QuoterTile no pasa showFinishCount).
+    // Este test evita que un refactor futuro de defaults lo reintroduzca en silencio.
     mockOneSet();
     const dualFinishCard: CardDTO = {
       id: 'c-dual',
@@ -830,8 +849,8 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
 
     // Las casillas del cotizador ya cargaron (precio visible)…
     expect(await screen.findByText('MX$100.00')).toBeInTheDocument();
-    // …pero NO hay badge de total on-hand por carta en ninguna casilla del cotizador.
-    expect(screen.queryByText(/en total/)).toBeNull();
+    // …pero NO hay badge de on-hand por acabado en ninguna casilla del cotizador.
+    expect(screen.queryByTitle(/de este acabado$/)).toBeNull();
   });
 
   it('una carta con UN solo acabado muestra SOLO una casilla, sin hueco vacío para los demás', async () => {
@@ -1030,7 +1049,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
           ok: true,
           rarity: 'Rare',
           finish: it.finish ?? 'normal',
-          appliedRule: { mode: 'fixed', value: 10000, source: 'rule' },
+          priceBasis: 'market' as const,
           quote: { status: 'cotizada', quotedPriceCents: 10000, currency: 'MXN' },
           referencePrice: { status: 'priced', priceMxnCents: 25000 },
           paymentNotice: 'PAY_AFTER_RECEIPT',

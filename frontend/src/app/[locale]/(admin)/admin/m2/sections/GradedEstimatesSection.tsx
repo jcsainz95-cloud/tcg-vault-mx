@@ -17,7 +17,7 @@ import { pesosToCents, sanitizeDecimalInput } from './shared';
 
 /**
  * Sección 5c — **config del «gancho de grading»** (`GET/PUT /admin/pricing/graded-estimates`,
- * PROJECT §N.2/§N.2.1, criterio **92(e)**: «el súper-admin puede añadir/quitar/editar escalones
+ * PROJECT §O.2/§O.2.1, criterio **110(e)**: «el súper-admin puede añadir/quitar/editar escalones
  * **sin redeploy**, con **auditoría** y **recálculo** de qué se promociona»).
  *
  * **Por qué existe (D2 del techlead):** hasta ahora los escalones solo se editaban por API. Un dial
@@ -33,7 +33,7 @@ import { pesosToCents, sanitizeDecimalInput } from './shared';
  *  - **I1 (tabla no vacía)**: no se puede borrar el último escalón (queda `[0, ∞)`).
  *  - **I2 (`costMxnCents ≥ 1`, JAMÁS 0)**: el costo se valida en cliente y el botón se deshabilita;
  *    un costo subestimado es exactamente lo que promocionaría una carta en la que el comprador
- *    pierde dinero (§N.4).
+ *    pierde dinero (§O.4).
  * La **fuente de verdad sigue siendo el servidor** (validación fail-closed en cada write): si el
  * `PUT` responde 422, el mensaje se muestra **tal cual**, traducido y accionable.
  *
@@ -141,7 +141,7 @@ export function GradedEstimatesSection() {
 
             {!server.enabled && <Banner variant="info">{t('offBanner')}</Banner>}
 
-            {/* --- Escalones de costo de gradeo (§N.2.1) --- */}
+            {/* --- Escalones de costo de gradeo (§O.2.1) --- */}
             <div className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold">{t('tiers.title')}</h3>
               <p className="text-xs text-muted">{t('tiers.hint')}</p>
@@ -177,7 +177,7 @@ export function GradedEstimatesSection() {
                             {t('tiers.to')}
                           </span>
                           {/* I5: el ÚLTIMO escalón es abierto siempre. Ninguna carta, por cara que
-                              sea, se queda sin escalón (criterio 92(b)). */}
+                              sea, se queda sin escalón (criterio 110(b)). */}
                           <span className="text-sm text-muted">{t('tiers.openEnded')}</span>
                         </div>
                       ) : (

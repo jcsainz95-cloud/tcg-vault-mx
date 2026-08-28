@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
-import type { GradedEstimateDTO, GroupedListingDTO } from '@/types/contract';
+import type { GradedEstimateDTO, GroupedListingSummaryDTO } from '@/types/contract';
 import { GradingGemsShelf } from './GradingGemsShelf';
 import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
 
@@ -23,7 +23,9 @@ const psa10: GradedEstimateDTO = {
   estimate: { status: 'priced', referenceMxnCents: 290_000, capturedDate: '2026-08-22' },
 };
 
-const gem = (id: string): GroupedListingDTO => ({
+// v1.50.2: la vitrina recibe el DTO de la REJILLA — sin `priceBasis`/`referenceValue` (D2) y
+// CON el marcador `gradingHighlight` ya gateado por el servidor.
+const gem = (id: string): GroupedListingSummaryDTO => ({
   representativeInventoryItemId: id,
   card: {
     id: `c-${id}`,
@@ -45,12 +47,11 @@ const gem = (id: string): GroupedListingDTO => ({
   gradeKey: 'raw:NM',
   stockCount: 1,
   salePriceCents: 140800,
-  referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
   currency: 'MXN',
   gradingHighlight: [psa10],
 });
 
-function mockGems(data: GroupedListingDTO[]) {
+function mockGems(data: GroupedListingSummaryDTO[]) {
   return vi
     .spyOn(api, 'getCatalog')
     .mockResolvedValue({ data, page: 1, pageSize: 8, total: data.length });
@@ -61,7 +62,7 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('GradingGemsShelf · §21.6 vitrina «Joyas para gradear»', () => {
+describe('GradingGemsShelf · §22.6 vitrina «Joyas para gradear»', () => {
   it('pide al servidor la lista YA CURADA Y ORDENADA (?gradingHighlight=true&sort=grading_showcase&pageSize=8)', async () => {
     const spy = mockGems([gem('inv-a')]);
     renderWithProviders(
@@ -92,7 +93,7 @@ describe('GradingGemsShelf · §21.6 vitrina «Joyas para gradear»', () => {
     const subtitle = screen.getByText(/Cartas sin gradear/);
     expect(subtitle.textContent).not.toMatch(/margen|ROI|vale la pena|ganancia|inversión|garantiz/i);
     // Cada entrada es la teja de Compra CON su badge y su MICRO-AVISO visible, sin variación: el
-    // kicker es refuerzo, NO sustituye al aviso de ninguna teja (§21.6 / R3.1).
+    // kicker es refuerzo, NO sustituye al aviso de ninguna teja (§22.6 / R3.1).
     expect(screen.getByText(/no evaluamos esta carta/i)).toBeInTheDocument();
   });
 

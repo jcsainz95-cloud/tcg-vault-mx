@@ -4,10 +4,121 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
-## «Valor estimado si se gradea» — gancho de grading (2026-08-23, v1.44-graded-estimate / §21)
+## §25 · Fusión del gancho de grading con `main` (pricing v2 / P-48) — 2026-08-28
 
-> Rama `claude/psa-graded-card-value-gmhv5u`. Implementa PROJECT §N (v2.0), contrato
-> **v1.44-graded-estimate** y **DESIGN_SYSTEM §21**. Cambio **aditivo**: sin `gradedEstimates` /
+> Merge de `origin/main` (curva de precio por valor de mercado, **ya en producción**) sobre la rama
+> del gancho. Seis conflictos en `frontend/` + este documento. Fuente de verdad tras la fusión:
+> contrato **v1.50 / v1.50.2**, `DESIGN_SYSTEM §22` (renumerado desde §21, que main ocupó con la
+> curva) y `PROJECT §O` (criterios **97–112**, antes §N / 79–92).
+
+### 1. El cambio de shape que desbloqueó todo: `gradingHighlight` se MUEVE al Summary
+
+Main partió el DTO de singles en dos (**D2**): `GroupedListingDTO` es el de la **ficha** y
+`GroupedListingSummaryDTO` el de la **rejilla** (catálogo + home), con lista blanca de campos —sin
+`priceBasis` ni `referenceValue`—. Mi marcador de curaduría vivía en `GroupedListingDTO`, así que
+**se caía de la rejilla en silencio**: la teja compilaba y no pintaba nunca.
+
+El arquitecto resolvió (contrato **v1.50.2**) admitirlo en el Summary: D2 protege la *economía de
+enumerar*, y ese argumento decae cuando existe un **enumerador público** del propio campo — y aquí
+existe porque lo construimos a propósito (`?gradingHighlight=true&sort=grading_showcase`). Aplicado
+en el cliente:
+
+| Antes (v1.50) | Ahora (v1.50.2) |
+|---|---|
+| `GroupedListingDTO.gradingHighlight?` | **`GroupedListingSummaryDTO.gradingHighlight?`** |
+| ficha podía leerlo en `listings[i]` | **derogado**: la ficha usa `gradedEstimates` de la raíz |
+
+- `types/contract.ts`: el campo **se mueve** (no se duplica). Que sean dos tipos distintos es lo que
+  hace que el compilador —y no una convención— cierre el camino derogado: releer el marcador desde
+  `listings[i]` de la ficha ya no compila.
+- Retipados contra el Summary: `_shared/grading/estimates.ts` (`badgeEstimatesOf`,
+  `pageHasGradingFigures`), `GradingEstimateBadge.tsx` y `_home/GradingGemsShelf.tsx` (`gemsOf`).
+- `lib/mock/fixtures.ts`: `groupMockListings()` queda como agrupador de la **ficha** y se añade
+  **`groupMockSummaries()`**, que deriva del mismo agrupador el DTO de rejilla (quita las dos
+  señales de precio de D2, añade el marcador). `getCatalog()` mock consume el segundo. Rejilla y
+  ficha no pueden divergir en stock, precio ni representante porque salen de la misma función.
+- El DTO de la **ficha** conserva `gradedEstimates` en la raíz, sin cambios: sigue **sin gatear**.
+
+### 2. `Fact` extraída vs. `FactGrid` de main — el conflicto con miga
+
+Main añadió a `CardDetailView` una `interface FactSpec` + una `FactGrid` **exactamente donde yo había
+extraído la celda `Fact`** a `_shared/Fact.tsx`. Resolución:
+
+- Se conservan **`FactSpec` y `FactGrid` de main** (arman la retícula de precio sobre la lista de
+  hechos ya filtrada por `priceBasis`, §21.8b-1) y **se borra la `Fact` inline**: la celda vive en
+  `_shared/Fact.tsx` y `FactGrid` la importa. Compatibilidad verificada campo por campo — `FactGrid`
+  pasa `label` (string ⊂ `ReactNode`), `note?: string` y `className?: string`, que es exactamente lo
+  que la celda extraída acepta. Cero cambio visual en la ficha.
+- El bloque del gancho **reutiliza la celda, nunca `FactGrid`** (§22.3): `FactGrid` es el contenedor
+  de los hechos de **precio** y fija su propia regla (`border-border`); el gancho necesita **regla de
+  tinta** y debe leerse como **otra categoría** (R2). Pedirle una prop de tono a `FactGrid` sería
+  modificar un componente existente, que es justo lo que §22 se prohíbe.
+- **Divisor posicional (§21.8b-2, norma de main).** El bloque pasa de `i > 0` a **`i % 2 !== 0`**:
+  el divisor es de la **posición**, no del hecho. Con `i > 0`, una tercera cifra —si el dial `grades`
+  creciera— heredaría un `sm:border-l` **abriendo fila**, que es el bug exacto que esa norma cerró.
+- **Prohibido** empujar el estimado como quinto `FactSpec` (mismo grid = misma categoría) y el
+  estimado **nunca lleva versalita de `priceBasis`/`PriceBasisTag`**: un estimado no tiene base de
+  precio. Ninguna de las dos cosas se hizo; quedan anotadas porque ahora son **una línea de código**.
+- Bonus de §21.8f: main retira la línea «Valor de mercado» de las tejas de Compra ⇒ la teja **encoge
+  ~16px** y el coste del micro-aviso (§22.5) queda casi nulo en escritorio. El espacio recuperado se
+  queda en **aire**, no en un elemento nuevo.
+
+### 3. Estado nuevo en la tabla de §22.7: fresca + gate cumplido + **no confiable**
+
+Caso que antes no existía (**R6**): la ficha **sí** pinta el bloque, la teja y la vitrina **no**. Es
+**indistinguible en el DOM** del caso «no pasa el gate de ROI» —y **debe** serlo (R5 / SEC-A1: el
+criterio no se filtra al cliente)—. No se añadió marca, ni `data-*`, ni clase, ni tinta atenuada.
+Cubierto como estado **correcto** en dos tests nuevos:
+
+- `CardDetailView.test.tsx` — con un PSA 10 por **debajo** del raw (la cota inferior de R6: el error
+  de USD capturado como MXN) la ficha informa igual, con su micro-aviso y su nota; se afirma que
+  **ningún atributo del DOM** menciona confianza/gate/muestra y que el texto tampoco.
+- `CatalogTile.test.tsx` — las dos causas de supresión producen el **mismo `outerHTML`**, y la teja
+  no expone atributo alguno que nombre el criterio.
+
+### 4. Mensajes (`messages/{es,en}.json`)
+
+- Hunk 1: main **borra** `admin.m2.tierRules`/`tierMap` (los sustituye la curva) y añade
+  `admin.m2.curve`. Resolución: **`curve` + `gradedEstimates`**, tirando `tierRules`/`tierMap`. El
+  marcador de conflicto cortaba a media estructura, así que se resolvió por bloques completos y se
+  verificó **con el JSON parseado**, no a ojo: **cero** claves de main perdidas, **cero** valores
+  divergentes, y las claves de bounties que main añadió después intactas.
+- Hunk 2: códigos de error disjuntos ⇒ se conservan **todos** (`CURVE_*`/`BUY_*`/`BIN_*` de main +
+  `GRADING_TIERS_*` míos).
+- Paridad ES/EN verificada por script: **2179 claves, cero asimetrías**, con 59 claves del gancho.
+
+### 5. Renumeración aplicada
+
+`§21.x → §22.x` y `§N.x → §O.x` **solo en los archivos del gancho**; los `§21` que el propio §22 cita
+**hacia la curva de main** (§21.8/§21.8b-2/§21.8f, `PriceBasisTag` §21.9a) son **cruzados a
+propósito** y se conservan. Igual con `§N` cuando habla de la curva (`fixtures.ts` seed de la curva,
+bounty rebasado §N.6, `priceBasis` §N.7). Criterios de aceptación: **+18** (79–92 → 97–110); las
+referencias a `criterio 84` de main (rareza que no interviene en el monto) **no** se tocaron.
+Etiquetas de contrato `v1.44-graded-estimate` → **`v1.50`/`v1.50.2`**.
+
+### 6. Verde tras la fusión (números reales, esta rama, modo mocks)
+
+`npx tsc --noEmit` ✓ (0 errores) · `npx next lint` ✓ (0 warnings) · `npx vitest run` **88 archivos /
+734 tests, 734 passed** ✓ · `npx next build` ✓ (compilado + 62 páginas estáticas) ·
+`npx playwright test e2e/grading-estimate.spec.ts` **9/9 passed** ✓.
+Adicional: `npx playwright test e2e/catalog.spec.ts` **13/13 passed** — el fallo **F-17** que se
+arrastraba de `origin/main` **no reprodujo** en este entorno (mock mode); se deja la anotación de
+`docs/TECH_DEBT.md` como está, porque no es mío ni lo toqué.
+
+### 7. Para el arquitecto (no bloquea; ninguna se resolvió por cuenta propia)
+
+1. **Bullet contradictorio vivo en el contrato.** `API_CONTRACT.md` §DTOs base deroga expresamente
+   que los `listings[i]` de la ficha traigan `gradingHighlight`, pero la ficha de
+   `GET /catalog/cards/:cardId` **sigue afirmándolo** («Los `listings[i]` de esta misma respuesta
+   pueden traer su `gradingHighlight?`»). El cliente implementó la derogación (manda la sección de
+   DTOs); conviene borrar el bullet superviviente para que no reaparezca en un backend futuro.
+2. **La vitrina sigue sin «Ver todas»** (§22.6 / §22.12 nº6): no existe una vista de Compra filtrada
+   por elegibles a la que enlazar sin mentir. Se mantiene omitido.
+
+## §24 · «Valor estimado si se gradea» — gancho de grading (2026-08-23, contrato v1.50-graded-estimate / DESIGN_SYSTEM §22)
+
+> Rama `claude/psa-graded-card-value-gmhv5u`. Implementa PROJECT §O (v2.0), contrato
+> **v1.50-graded-estimate** y **DESIGN_SYSTEM §22**. Cambio **aditivo**: sin `gradedEstimates` /
 > `gradingHighlight` en la respuesta, todas las superficies se ven **exactamente como hoy**.
 
 ### Piezas nuevas
@@ -15,16 +126,16 @@
 |---|---|
 | `(storefront)/_shared/grading/estimates.ts` | Predicados de render (`renderableEstimates`, `blockEstimatesOf`, `badgeEstimatesOf`, `pageHasGradingFigures`, `oldestCapturedDate`). **Única** fuente de verdad de «¿hay cifra que pintar?». |
 | `(storefront)/_shared/grading/GradingFootnote.tsx` | `GradingFootnoteBoundary` (contexto + nota), `GradingNoteCall` (la llamada `*`) y la nota al pie. |
-| `(storefront)/_shared/grading/GradingEstimateBlock.tsx` | Bloque de la ficha (§21.3). |
-| `(storefront)/_shared/grading/GradingEstimateBadge.tsx` | Badge de la teja / vitrina (§21.5). |
-| `(storefront)/_shared/grading/GradingMicroNotice.tsx` | **El micro-aviso adyacente visible** (§21.4c) + su llamada `*`. Único portador del aviso en las tres superficies. |
-| `(storefront)/_shared/grading/HypotheticalGradeChip.tsx` | Chip de grado hipotético, borde punteado (§21.2). |
-| `(storefront)/_home/GradingGemsShelf.tsx` | Vitrina «Joyas para gradear» + `useGradingGems()` (§21.6). |
+| `(storefront)/_shared/grading/GradingEstimateBlock.tsx` | Bloque de la ficha (§22.3). |
+| `(storefront)/_shared/grading/GradingEstimateBadge.tsx` | Badge de la teja / vitrina (§22.5). |
+| `(storefront)/_shared/grading/GradingMicroNotice.tsx` | **El micro-aviso adyacente visible** (§22.4c) + su llamada `*`. Único portador del aviso en las tres superficies. |
+| `(storefront)/_shared/grading/HypotheticalGradeChip.tsx` | Chip de grado hipotético, borde punteado (§22.2). |
+| `(storefront)/_home/GradingGemsShelf.tsx` | Vitrina «Joyas para gradear» + `useGradingGems()` (§22.6). |
 | `(storefront)/_shared/Fact.tsx` | La celda `Fact` de la ficha, **extraída tal cual** de `CardDetailView` para reusarla en el bloque. Único ensanchamiento: `label` pasa de `string` a `ReactNode` (la etiqueta del gancho lleva el chip). Cero cambio visual. |
 
 Tocados: `types/contract.ts` (espejo del contrato), `lib/api.ts` (`gradingHighlight` + `sort=grading_showcase`), `lib/mock/fixtures.ts`, `catalog/CatalogTile.tsx`, `catalog/CatalogView.tsx`, `catalog/[cardId]/CardDetailView.tsx`, `(storefront)/page.tsx`, `messages/{es,en}.json`.
 
-### Cómo se resolvió el acoplamiento llamada ↔ nota (§21 R3.3) — lo importante
+### Cómo se resolvió el acoplamiento llamada ↔ nota (§22 R3.3) — lo importante
 El requisito es que **un refactor no pueda dejar cifras huérfanas**. En vez de repetir la condición
 en cada sitio, hay **un solo booleano por página** que hace **dos cosas a la vez**:
 
@@ -41,7 +152,7 @@ en cada sitio, hay **un solo booleano por página** que hace **dos cosas a la ve
   correcta del error en una superficie comercial).
 - El `active` de cada página se deriva **siempre** de los helpers de `estimates.ts`, nunca de una
   regla copiada: ficha `blockEstimatesOf(detail) !== null`; Compra
-  `pageHasGradingFigures(catalogQuery.data?.data)` (se reevalúa al filtrar/paginar, §21.4b); home
+  `pageHasGradingFigures(catalogQuery.data?.data)` (se reevalúa al filtrar/paginar, §22.4b); home
   `pageHasGradingFigures(gemsOf(gems.data))` — la **misma** query que alimenta la vitrina, deduplicada
   por `queryKey`, así que vitrina y nota no pueden divergir.
 - El `Provider` se renderiza **siempre** (solo conmuta su valor): cambiar el tipo de nodo al paginar
@@ -57,7 +168,7 @@ en cada sitio, hay **un solo booleano por página** que hace **dos cosas a la ve
 `GradedEstimateDTO[]` se recorre leyendo `gradeValue`/`gradingCompany`; **no hay ningún `[0]`** ni
 supuesto de longitud. Añadir o quitar un grado (diales `grades` / `highlightGrades`) **no toca el
 cliente**: el bloque pinta una celda por elemento y el badge un renglón por elemento. La única
-lectura posicional es **tipográfica** (la primera cifra es el premio mayor, §N.3/§21.1), que es
+lectura posicional es **tipográfica** (la primera cifra es el premio mayor, §O.3/§22.1), que es
 justo lo que el diseño pide y no rompe si cambia el conjunto de grados.
 
 ### Colores y tipografía — cero tokens nuevos
@@ -81,24 +192,24 @@ vitrina del home es la excepción ratificada a §8.1 (aparece resuelta o no apar
 Claves nuevas bajo `catalog.gradingEstimate`, `catalog.gradingBadge`, `catalog.gradingNote` y
 `home.gradingGems`, en ES y EN (el test de paridad las cubre). El disclaimer se pinta **una clave por
 párrafo con rich text** (`<b>` → `<strong>`), jamás concatenando. Dos desviaciones deliberadas del
-esquema de §21.11, ambas para poder copiar el texto aprobado **sin reescribirlo**:
-- **`p1…p6`** (no `p1…p5`): el texto de PROJECT §N.5 tiene **seis** párrafos y el humano lo quiso
-  íntegro; el diagrama de §21.4b omite el primero.
+esquema de §22.11, ambas para poder copiar el texto aprobado **sin reescribirlo**:
+- **`p1…p6`** (no `p1…p5`): el texto de PROJECT §O.5 tiene **seis** párrafos y el humano lo quiso
+  íntegro; el diagrama de §22.4b omite el primero.
 - **Sin `psa10Label` / `psa9Label`**: serían claves por grado cableado, que contradicen la regla de
   iteración del contrato. La etiqueta de celda es `ifGradesLabel` («SI SALE») + el chip, que ya
   compone «SI SALE PSA 10» para cualquier grado que mande el servidor.
 - `catalog.gradingBadge.approx` es nueva y existe por accesibilidad: el glifo `≈` va `aria-hidden` y
-  su lectura («aproximadamente») viaja en `sr-only` dentro del mismo `t.rich` (§21.9).
+  su lectura («aproximadamente») viaja en `sr-only` dentro del mismo `t.rich` (§22.9).
 
-### Textos MARCADOR DE POSICIÓN (pendientes de PO — §21.12 nº2)
+### Textos MARCADOR DE POSICIÓN (pendientes de PO — §22.12 nº2)
 Los dos `microNotice` (`catalog.gradingBadge.microNotice`, `catalog.gradingEstimate.microNotice`) y
-`catalog.gradingNote.callSr` usan **los textos propuestos por ux-ui en §21.11**, tomados a su vez de
-§N.5. Son texto legal-comercial: los fija PO (idealmente con la misma revisión legal del
+`catalog.gradingNote.callSr` usan **los textos propuestos por ux-ui en §22.11**, tomados a su vez de
+§O.5. Son texto legal-comercial: los fija PO (idealmente con la misma revisión legal del
 disclaimer). Cambiarlos es editar `messages/{es,en}.json`, sin tocar código.
 
 ### Un solo grado disponible — RESUELTO (ya no hay discrepancia)
-La versión anterior de estas notas reportaba una discrepancia con §21.7 («falta un grado ⇒ nada» en
-la ficha). **Ya no existe:** ux-ui alineó §21.7 con `PROJECT §N.3(1)/§N.4` y el contrato v1.44 —
+La versión anterior de estas notas reportaba una discrepancia con §22.7 («falta un grado ⇒ nada» en
+la ficha). **Ya no existe:** ux-ui alineó §22.7 con `PROJECT §O.3(1)/§O.4` y el contrato v1.50 —
 «se muestra lo que haya»— y añadió la forma: con **una sola cifra la retícula colapsa a una
 columna** a ancho completo. El código ya hacía lo primero y ahora hace también lo segundo (ver
 «Ronda de corrección», D6). No queda nada abierto para PO/ux-ui por este punto.
@@ -108,22 +219,22 @@ columna** a ancho completo. El código ya hacía lo primero y ahora hace tambié
 ordenada** por el gate) y `mockGradingHighlightGrades` (dial del badge). El fixture **no calcula** el
 gate ni la ganancia: reproduce el **resultado** que el servidor ya resolvió. Cobertura de estados:
 Blastoise / Pikachu IR (bloque + badge + vitrina), Milotic FA (**bloque sí, badge no** — estado
-normal de §21.7, no un bug), Eevee (un solo grado), Pikachu (sin estimados ⇒ nada).
+normal de §22.7, no un bug), Eevee (un solo grado), Pikachu (sin estimados ⇒ nada).
 
 ### Verde (gate pre-publicación — primera entrega)
 `tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **81 archivos / 653 tests** ✓ (33 nuevos) ·
 `next build` ✓. Nota: `page.test.tsx` del home necesitó `useRouter`/`usePathname` en su mock de
 `@/i18n/navigation` porque la vitrina reusa la teja de Compra.
 
-## Gancho de grading · RONDA DE CORRECCIÓN tras el rechazo de QA (2026-08-23)
+## §24b · Gancho de grading · RONDA DE CORRECCIÓN tras el rechazo de QA (2026-08-23)
 
 > Rama `claude/psa-graded-card-value-gmhv5u`. Cierra el **bloqueante de QA** (cifras estimadas sin
 > aviso visible), el **IMPORTANTE-1** (cero cobertura Playwright), **D2** (el humano no podía
 > encender ni configurar su propia feature) y la deuda **D5/D6/D7** del techlead. La raíz del
-> bloqueante era de diseño y **ya venía corregida**: se implementa `DESIGN_SYSTEM §21` en su
+> bloqueante era de diseño y **ya venía corregida**: se implementa `DESIGN_SYSTEM §22` en su
 > versión con el micro-aviso restaurado (commit `6569df6`).
 
-### 1. El bloqueante: micro-aviso VISIBLE, no `sr-only` (R3, §21.4c)
+### 1. El bloqueante: micro-aviso VISIBLE, no `sr-only` (R3, §22.4c)
 Lo que QA capturó del DOM (`ESTIMADO SI SE GRADEA*` / `PSA 10 ≈ MX$29,000.00` **sin aviso visible**)
 ya no se puede producir, porque el aviso dejó de ser un detalle de cada superficie y pasó a ser **un
 componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
@@ -133,17 +244,17 @@ componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
   pierda una idea, ni `truncate`/`line-clamp`. Fuera de una boundary de nota al pie devuelve `null`
   —el mismo fail-closed que la cifra—, así que **no puede existir cifra sin aviso ni aviso huérfano**.
 - **La teja pierde el eyebrow** y su `sr-only`. «ESTIMADO» y «Ilustrativo» eran **la misma idea**, y
-  §N.5 exige que las dos ideas vivan **en el micro-aviso**: lo que sobraba era el eyebrow. El
+  §O.5 exige que las dos ideas vivan **en el micro-aviso**: lo que sobraba era el eyebrow. El
   condicional se incorporó a la cifra —`figure` «En PSA 10 vale ≈ {amount}» (`sm+`) y `figureShort`
   «PSA 10 ≈ {amount}» (móvil)—, con lo que el aviso **cabe sin añadir un tercer renglón**.
   Las dos longitudes se resuelven con `hidden sm:inline` / `sm:hidden` (el mismo patrón que ya usa el
   CTA de la teja): solo una se renderiza a la vez, así que **no hay texto duplicado** para el lector
   de pantalla.
 - **La ficha cambia `provenance` por `microNotice`**: el renglón viejo cargaba «no evaluamos esta
-  pieza» pero **no** «ilustrativo», y §N.5 anticipa ese fallo con todas sus letras. La procedencia se
+  pieza» pero **no** «ilustrativo», y §O.5 anticipa ese fallo con todas sus letras. La procedencia se
   conserva como inciso dentro del aviso. La **llamada `*` se movió del eyebrow al final del aviso**
   (en la ficha es un enlace real al pie; en la teja, un `<sup>` — la teja entera ya es un enlace).
-- **`callSr` se acorta a «Ver nota al pie.»** (§21.11): con el aviso visible delante, duplicar las
+- **`callSr` se acorta a «Ver nota al pie.»** (§22.11): con el aviso visible delante, duplicar las
   dos ideas en el texto accesible las haría oírse dos veces seguidas.
 - **i18n:** nuevas `catalog.gradingEstimate.microNotice`, `catalog.gradingBadge.{figure,figureShort,
   microNotice}`; retiradas `catalog.gradingEstimate.provenance` y `catalog.gradingBadge.eyebrow`.
@@ -155,19 +266,19 @@ componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
   **afirmando de más** sobre un dato de casi un mes. La lectura conservadora coincide además con el
   criterio de frescura del backend.
 - **D6 — la retícula colapsa con un solo grado.** `grid sm:grid-cols-2` pasa a
-  `cn('grid', items.length > 1 && 'sm:grid-cols-2')`, tal como pide §21.7: sin media retícula vacía
+  `cn('grid', items.length > 1 && 'sm:grid-cols-2')`, tal como pide §22.7: sin media retícula vacía
   ni `sm:border-l` huérfano. El test nuevo verifica **la retícula**, no solo el texto.
 - **D7 — nota obsoleta retirada.** La sección «Discrepancia REPORTADA» y el `⚠️` de
-  `gradingEstimates.test.tsx` desaparecen: §21.7 ya está alineada y el código era correcto.
+  `gradingEstimates.test.tsx` desaparecen: §22.7 ya está alineada y el código era correcto.
 
-### 3. D2 — el dueño ya puede encender y configurar su feature (criterio 92(e))
+### 3. D2 — el dueño ya puede encender y configurar su feature (criterio 110(e))
 - **M10 · interruptor maestro:** `gradedEstimatesEnabled` entra en `DIALS` como dial **`onOff`**
   (Select cerrado `off | on`, no texto libre) y viaja por el `PUT` parcial de siempre —**sin
   redeploy y auditado**—. Un dial ausente en la respuesta se lee **`off`** (fail-closed, como el seed).
 - **La UI advierte lo que ese dial hace.** Encenderlo **publica una afirmación comercial** cuyo
   disclaimer aún espera el visto bueno del humano: al tocarlo y dejarlo encendido aparece un aviso
   `role="alert"` que lo dice, y que aclara que **no cambia ningún precio de venta, valuación ni
-  cotización** (criterio 90). Hay además una nota permanente que remite a M2 para el resto de la config.
+  cotización** (criterio 108). Hay además una nota permanente que remite a M2 para el resto de la config.
 - **M2 · Sección 5c `GradedEstimatesSection`:** editor de los **escalones de costo de gradeo**, el
   **margen mínimo** y la **frescura**, con el `enabled` como **espejo read-only** de M10.
   **Los invariantes I1–I5 se cumplen por CONSTRUCCIÓN, no por regaño:** la tabla no pide `min` y `max`
@@ -180,14 +291,14 @@ componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
   `..._NOT_CONTIGUOUS`, `..._NOT_OPEN_ENDED`) tienen copy propio en `error.*` y se muestran
   accionables, no como «error genérico».
 - **API/mocks:** `getGradedEstimateConfig` / `updateGradedEstimateConfig` (`enabled` **nunca** se
-  envía: se edita en M10) + `mockGradedEstimateConfig` con el seed de §N.2.1 en centavos.
+  envía: se edita en M10) + `mockGradedEstimateConfig` con el seed de §O.2.1 en centavos.
 
 ### 4. Playwright — `e2e/grading-estimate.spec.ts` (IMPORTANTE-1)
 Nueve smoke sobre las **tres superficies**, en modo mocks:
 
 - **Con dato se pinta / sin dato no se pinta nada:** ficha de Blastoise (dos cifras), Eevee (un solo
   grado), Pikachu (sin estimados ⇒ ni bloque, ni nota, ni rastro), y Milotic ex —**ficha con bloque y
-  teja sin badge**, el estado normal de §21.7 que suele reportarse como bug—.
+  teja sin badge**, el estado normal de §22.7 que suele reportarse como bug—.
 - **El caso que QA pidió explícitamente:** se inyecta `.sr-only { display: none !important }` y se
   comprueba que **el aviso sigue visible** en ficha, teja y vitrina; en el listado y en el home se
   cuentan los avisos visibles contra las cifras, para que **ninguna quede huérfana en una retícula**.
@@ -202,7 +313,7 @@ Nueve smoke sobre las **tres superficies**, en modo mocks:
   `docs/TECH_DEBT.md`.
 
 ### 5. Cero tokens nuevos (se mantiene)
-Ni un hex, ni un token nuevo, ni una caja. El micro-aviso es **sans muted** (§21.4c: es prosa, no una
+Ni un hex, ni un token nuevo, ni una caja. El micro-aviso es **sans muted** (§22.4c: es prosa, no una
 etiqueta) con las dos ideas en `text-text font-medium`; el acento sigue teniendo **un solo empleo**:
 la llamada `*` y su marcador en la nota.
 
@@ -210,6 +321,345 @@ la llamada `*` y su marcador en la nota.
 `tsc --noEmit` ✓ · `next lint` ✓ (0 warnings) · `vitest run` **82 archivos / 671 tests** ✓ ·
 `next build` ✓ · `playwright test e2e/grading-estimate.spec.ts` **9/9** ✓ ·
 `playwright test e2e/catalog.spec.ts` **9 passed / 1 failed** (el fallo preexistente F-17).
+
+## §22 · Home «Top Bounties» — de tabla a tarjetas con imagen (2026-08-28, `main`)
+
+Cambio visual pedido por el dueño: la sección de bounties de la home (`_home/BountyBoard.tsx`,
+montada en `page.tsx:128`) pasa de **tabla compacta** («Lo que más buscamos hoy») a **tarjetas con
+imagen de la carta**, y se retitula **«Top Bounties»** para quedar consistente con la vitrina de
+`/buylist` (`components/domain/TopBountiesShelf.tsx`).
+
+- **i18n:** `home.bounties.title` → «Top Bounties» (es/en). Subtítulo se conserva (ya era coherente).
+  Se **retiraron** las claves solo-tabla `colCard`/`colCondition`/`colWePay`/`conditionNm` y se
+  añadieron `home.bounties.wePay` («Pagamos» / «We pay») y `home.bounties.badge` («Bounty») para la
+  tarjeta. Verificado que `home.bounties.*` no lo comparte otra superficie (solo BountyBoard); la
+  vitrina de `/buylist` vive en un namespace aparte, `buylist.bounties.*` (intacto).
+- **Presentación:** el marco de estante (`_shared/Shelf.tsx`, título + «ver todo» → `/buylist`) se
+  mantiene; el interior pasa a una rejilla `grid-cols-2 lg:grid-cols-4` de tarjetas que **reutilizan
+  el lenguaje visual** de `TopBountiesShelf.BountyCard` (FinishBand + imagen `aspect-[5/7]` + chip
+  ☩ BOUNTY sobre scrim de tinta + nombre serif + set·número mono + precio héroe verde «Pagamos»).
+  No se reusó el componente `BountyCard` tal cual porque incluye el CTA «Cotizar esta carta» que
+  necesita el cotizador de `BuylistView` (`onQuote`); en la home no hay cotizador, así que cada
+  tarjeta es un `Link` a `/buylist` sin CTA muerto. Se evitó tocar `TopBountiesShelf` (regla: ya está
+  bien). La imagen usa `alt={name}` (antes `alt=""` aria-hidden en la vitrina) porque aquí es el
+  contenido accesible del enlace.
+- **Sin fuga de demanda:** la tarjeta NO reintroduce `remainingQty`/`targetQty` (se quitaron a
+  propósito en `e3f76e2`/`df50e60`/`965e9f2`). Confirmado por grep: la home no referencia
+  `remainingQty`/`targetQty`/`colWanted` fuera de comentarios y del fixture de test.
+- **Condicional intacto:** sin bounties o en error ⇒ la sección desaparece (misma regla de honestidad
+  que la vitrina).
+- **Tests:** nuevo `_home/BountyBoard.test.tsx` (4 casos): tarjetas con imagen + título «Top
+  Bounties» + precio «Pagamos», enlace a `/buylist`, no-fuga de cantidades, y ocultamiento en
+  vacío/error. `tsc --noEmit` ✓ · `vitest run` BountyBoard + TopBountiesShelf + home `page.test`
+  verdes.
+
+## §21 · P-48 (v2.0) — precio puro por valor de mercado: editor de la curva, «Valor de mercado» condicional y bounty rebasado (2026-08-24, rama `claude/card-pricing-rules-2e537m`)
+
+> Etapa **E9** de `ARCHITECTURE §4.36.11`. Fuentes: `PROJECT §N` (LOCKED) · `API_CONTRACT`
+> revs **`v2.0-pricing-curve`** y **`v2.1-curve-preview`** · `DESIGN_SYSTEM §21` (+ enmiendas
+> §7.3, §16.3, §16.7, §19).
+
+### Qué se construyó
+
+| # | Superficie | Archivos |
+|---|---|---|
+| 1 | **M2 › Curva de precio** (editor de la tabla de puntos) | `app/[locale]/(admin)/admin/m2/curve/*` |
+| 2 | **M2 › Salud del catálogo de rarezas** (hospeda «Unificar rarezas») | `m2/sections/RarityHealthSection.tsx` |
+| 3 | **Cola de pendientes** con motivo + filtro | `m2/sections/PendingQueueSection.tsx` |
+| 4 | **Ficha de carta / ficha de sellado**: el mercado desaparece | `catalog/[cardId]/CardDetailView.tsx`, `sellado/[inventoryItemId]/SealedDetailView.tsx`, `components/ui/PriceTag.tsx` |
+| 5 | **Binder M1**: basis, guardarraíl y bounty rebasado | `components/master-set/{VariantPriceConsole,MasterSetBinder}.tsx`, `components/domain/PriceBasisTag.tsx` |
+
+**Retirado sin residuos** (§N.9): `TierRulesSection.tsx`, `TierMapSection.tsx`, `tier-shared.tsx`,
+las funciones de API de `/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, los tipos
+`Tier*`/`PriceRuleSet`/`BuylistRule`/`SalesRule`/`*RuleMode`, sus mocks y sus claves i18n —
+**incluidos `admin.m2.tierRules.finishHint` («Sin regla propia, el acabado hereda la del tier de su
+rareza») e `inheritPlaceholder` («Hereda tier»)**. Ese texto era **falso**: el código nunca heredó, y
+la promesa fue la causa de que el dueño creyera tener un piso que no tenía. No se corrigió: **se fue
+con la pantalla**.
+
+### Decisión central — la matemática de la curva NO vive en el cliente
+
+El previsualizador, **la columna derivada de cada fila** y el **prerrelleno del punto nuevo** salen
+todos del **dry-run del servidor** (`POST /admin/pricing/curve/preview`, ARCH §4.36.8a):
+
+- `useCurvePreview.ts` es la **única** puerta a esos números. El request lleva **solo el borrador +
+  las sondas**; la columna `VIGENTE` la resuelve el servidor con su curva almacenada (un cliente
+  rancio pintaría una «vigente» que no lo es, y esa columna es contra la que el dueño mide su cambio).
+- La **memoria de cálculo** (`appliedBp`, `rawCents`, `constantCents`/`constantWon`, `baseCents`,
+  `roundingStepCents`, `segment`) se **pinta tal cual llega**: no se deriva ni se recalcula. Por eso
+  el editor es inmune al ajuste de `ROUND_HALF_UP` que movió medio centavo dos cifras de ejemplo del
+  DS: la pantalla dice lo que el backend calcula, por construcción.
+- El **prerrelleno neutro** de §21.2b usa `draft.<axis>.appliedBp` de la sonda en el mercado nuevo:
+  es la interpolación **del servidor** sobre la curva actual, no una cuenta local. Un punto colocado
+  sobre la curva vigente no cambia ningún precio ⇒ «agregar un punto» es seguro por construcción.
+- **`previewPricingCurve` NO tiene rama mock a propósito.** Fingir el cálculo en el cliente sería
+  exactamente la duplicación que el endpoint existe para matar. Sin backend, el previsualizador
+  muestra su estado de error («no se muestran cifras estimadas») en vez de inventar un precio.
+  *(Consecuencia conocida: en `NEXT_PUBLIC_USE_MOCKS` el previsualizador queda en ese estado.)*
+- **Y sin embargo `fixtures.ts › mockDemoBuyQuote` sí aproxima la curva de compra** (tramo plano
+  inicial + constante, sin interpolar ni redondear) para que el cotizador no quede vacío en modo
+  demo. **No es incoherencia: rellenar una demo no es calibrar.** El previsualizador es donde el
+  dueño **elige los puntos de la curva** mirando una cifra — si esa cifra fuera local, elegiría
+  contra un número que el backend no produce (P-48 en espejo); en el cotizador de demo nadie toma
+  una decisión de dinero con ese número. **Consecuencia práctica: un E2E en modo mock que afirme
+  MONTOS del cotizador no verifica el precio del producto, verifica el mock.** Por eso el único
+  assert de dinero del cotizador (`e2e/buylist.spec.ts`) afirma **formato** (`MONEY_RE`), no monto,
+  y así queda anotado en el propio spec. Detalle en `docs/TECH_DEBT.md` F-P48-2.
+
+Lo único que el cliente calcula son **conversiones de unidad** (`curve-draft.ts`: pesos↔centavos,
+`×`↔bp, `%`↔bp) y el **diff** del borrador. §21.1c: la pantalla nunca muestra `marketCents`,
+`multiplierBp` ni `pctBp`, ni en `title` ni en `aria-label`.
+
+### Validación en tres momentos (§21.4) — y lo que el editor NO hace
+
+- **Al teclear:** nada. Sin rojo, sin sacudidas, sin reformateos.
+- **Al `blur`:** solo lo que **un control puede afirmar de sí mismo** (rangos, `multiplicador ≥
+  1.00×`, `pago ∈ [0,100]`, `escalón ≥ MX$0.01`, fronteras crecientes) + el duplicado a nivel tabla.
+- **Al guardar:** los cruzados llegan como **422**, con resumen anclado `role="alert"` que **recibe
+  el foco**, título fijo «No se guardó nada.», botón de salto al punto culpable y fila marcada.
+- **El editor no reimplementa V1/V5/V6/V7/V8-fina.** Es deliberado: si el cliente inventara un
+  rechazo que el servidor no haría, el dueño dejaría de confiar en la pantalla — y la autoridad del
+  dinero es el backend (SEC-A1). Hay un test que lo fija: una curva con la compra cruzando la venta
+  **sigue siendo enviable** desde el cliente.
+- `violations[]` del dry-run **no se surface pre-guardado** (§21.4a manda que al teclear no haya
+  errores). Está tipado y disponible; si se quisiera «enseñar el problema en pesos» antes de
+  guardar, ese es el enganche — sin volver a implementar los invariantes.
+
+### §21.8 — el bloque que desaparece
+
+Tres reglas normativas implementadas en `CardDetailView`:
+
+1. **Primero la lista, después la retícula.** `FactSpec[]` se arma evaluando `priceBasis`; `FactGrid`
+   pinta sobre la lista **ya filtrada**. Un hecho oculto **no existe** (no hay celda vacía).
+2. **El divisor es de la POSICIÓN, no del hecho.** `sm:border-l` se aplica a las celdas que **no
+   abren fila** (índice par de la lista filtrada). El `sm:border-l` hardcodeado en «Valor de mercado»
+   y «Acabado» **era el bug**: al quitar una celda, el divisor lo heredaba quien no le tocaba.
+3. **La fila del dinero nunca queda coja:** sin mercado, «Precio de venta» ocupa `sm:col-span-2`.
+
+El **esqueleto** ya pinta ese layout (una celda de dinero a ancho completo) ⇒ **sin CLS**.
+`card.referenceExplainer` se partió en `referenceExplainerWithMarket` / `referenceExplainerNoMarket`:
+la clave vieja describía a la vez el bloque que ya no está y el modelo retirado («referencia +
+margen»). La variante «sin bloque» **no menciona** el mercado: no hay nada que explicar.
+
+### Decisiones de implementación que conviene conocer
+
+- **Nombres accesibles por eje.** §21.10 propone `aria-label` «Mercado del punto 2» y «Quitar el
+  punto de MX$ 80.00», pero hay **dos** tablas de puntos en la misma pantalla: esos nombres
+  colisionaban (dos controles con el mismo nombre accesible es un defecto real). Se desambiguó por
+  curva: «Mercado del punto 2 **de venta**», «Quitar el punto **de compra** de MX$ 25.00».
+- **El marcador sobrevive al «—».** Una variante retenida por el guardarraíl no tiene precio
+  publicable; el renglón pinta `— ·!` porque el marcador es justo lo que explica el hueco.
+- **`·!` no convive con `·P`** (§21.9b): la retención implica el piso; la causa va en el nombre
+  accesible.
+- **Namespaces i18n:** las claves nuevas del binder se añadieron a los namespaces **existentes**
+  (`admin.pricing.console.*`, `admin.bounty.*`) en vez de crear `admin.m1.priceConsole.*` /
+  `admin.m1.bounty.*` como sugiere §21.12. Es el mismo copy en el mismo sitio, con menos churn; si
+  el equipo prefiere el nombre del DS, es un rename mecánico.
+- **La fila «Regla aplicada» del carrito de venta se retiró** (`SellCartContents.tsx`). Rotulaba
+  `appliedRule`, que el contrato retira. Se optó por **quitarla**, no por sustituirla con la
+  versalita de `priceBasis`: es una superficie del **cliente**, y un rótulo interno ahí explicaría
+  menos que el propio importe. El DS no diseñó esa fila para v2.0.
+- **El gráfico de la curva (§21.5c) no se implementó.** Es «recomendada, no bloqueante para el
+  primer entregable» y su alternativa accesible obligatoria —la tabla de referencia— **sí** está.
+  Anotado en `docs/TECH_DEBT.md`.
+- **`GET /admin/pricing/rarities`**: el front ya lee el shape re-propositado
+  (`{canonical, raw, premium, mapped, cardCount}`) e **ignora** los campos que el backend todavía
+  emite del editor viejo (`rule`, `tierId`, `source`). Cuando E7b/E8 los retiren, no hay cambio de
+  frontend.
+
+### §21.8 alcanza a «Tendencia de valor» (hallazgo de QA, 2026-08-24)
+
+> El objeto de la regla **no es una celda**: es **no publicar el valor de mercado cuando el mercado
+> no fijó el precio**. La primera versión condicionó la celda y dejó fuera el otro bloque de la
+> misma ficha que publica la misma cifra.
+
+- **Defecto:** en `/sellado/:id` con `priceBasis='override'` la celda «Valor de mercado» desaparecía,
+  pero 200px más abajo `SealedValueTrend` pintaba la cifra a 32–40px y la rotulaba literalmente
+  «Valor de mercado de referencia (TCGCSV), actualizado a diario.» — exactamente lo que §N.7
+  prohíbe, solo que más abajo, y contra §21.8c («el hueco no se rellena ni con una explicación de
+  por qué no está el mercado»).
+- **Fix:** el bloque de tendencia se condiciona por `priceBasis` igual que la celda
+  (`trendEnabled && showMarketValue`). **Asimetría legítima:** con precio derivado por **spread**
+  sí hay mercado y el bloque **se muestra** — ahí el mercado es justo lo que explica el precio.
+- **Cómo se afirma ahora:** el E2E del caso override afirma sobre la **página entera**
+  (`getByText(/valor de mercado/i)` → 0), no sobre una celda. Un assert acotado a la celda es
+  exactamente el que dejó pasar este defecto.
+- **Regla para el futuro:** cualquier bloque nuevo de la ficha (de carta o de sellado) que imprima
+  la referencia de mercado entra bajo la misma condición. Hoy solo hay uno; la ficha de carta no
+  tiene tendencia y el formulario de restock no publica mercado (verificado).
+
+### V9 `BUY_CURVE_NOT_MONOTONIC` y la disciplina de §21.4e (2026-08-24)
+
+- **Código propio, no una generalización de V5.** Los dos son gemelos —mismo esqueleto de copy,
+  misma marca de tramo— pero el verbo cambia porque cambia el daño: en venta el precio **baja**; en
+  compra **pagarías menos**. Unificarlos obligaría a un mensaje que no dice ninguna de las dos cosas.
+- **`details.axis` enruta las marcas.** Con `axis:"buy"` las dos filas culpables se marcan en la
+  tabla de **compra** y el salto «Ir al punto de …» aterriza ahí; las de venta quedan limpias. Hay
+  test que lo fija en ambos sentidos.
+- **⚠️ Drift de nombre encontrado al cablearlo.** El contrato norma `details: { axis, index,
+  marketCents, … }` y deja el **segundo extremo del tramo dentro de ese «…»**; el backend emite
+  **`index2` / `marketCentsTo`**, y este front había declarado `toIndex` / `toMarketCents`. Con el
+  nombre equivocado, el segundo extremo **no se marcaba** y el dueño buscaría el problema donde no
+  está. Ahora se lee `marketCentsTo` (lo real) con el otro como alias tolerado, y los tests usan el
+  shape del servidor. **Solicitud al arquitecto:** normar el nombre en el contrato.
+- **§21.4e — el aviso no se contagia del invariante.** «Lectura de la curva» (§21.5b) y V9 pueden
+  ser ciertos **a la vez sobre la misma curva** y significan cosas distintas: que el **pct baje** es
+  legítimo mientras el **pago absoluto suba**; V9 bloquea que baje el pago. El aviso conserva su
+  eyebrow `LECTURA DE LA CURVA`, su `role="status"` y su tinta muted **aunque V9 esté presente** —
+  sin rojo y sin icono de error. Si aprendiera a verse como error, la próxima vez que apareciera
+  solo —el caso normal y legítimo— se leería como un fallo del que nadie tiene que hacer nada. Hay
+  un test que dispara los dos a la vez y afirma que el aviso no cambia de tono.
+
+### El assert de la ficha de sellado, ahora también por la CIFRA (matiz de QA)
+
+QA validó que el assert de página entera no es vacuo, y señaló que **caza el rótulo, no el número**:
+un bloque futuro que republicara la cifra sin la frase —un eje de gráfica, un tooltip, un
+`aria-label`— pasaría en verde. Se cerró **sin volver frágil el test**: el assert por cifra vive en
+el **unitario**, que es dueño de su fixture, así que compara contra el mismo valor que inyecta y no
+contra un monto global que cualquiera puede mover. El caso elegido es el más exigente: hay mercado
+**conocido** y aun así lo fijó un override (§K: `override manual > mercado × spread`), y la serie de
+tendencia se sirve con **ese mismo** valor — así, si el bloque volviera, la cifra aparecería.
+Verificado por mutación: al revertir la condición, **fallan los dos** (el del rótulo y el de la
+cifra, este último nombrando `MX$9,876.54`). La E2E conserva el assert de página entera.
+
+### Cobertura `@real`: de 0 a 3 tests en el spec de P-48 (2026-08-24)
+
+QA corrió los E2E contra el stack vivo y el dato desnudo fue: **80 tests en mock, 8 con
+`E2E_REAL=1`** — y `pricing-curve.spec.ts`, el spec del cambio bajo revisión, aportaba **cero**. La
+consecuencia estaba a la vista: **B-1** (el backend no emite `priceBasis` en `GroupedListingDTO`, así
+que `undefined === 'market'` suprime el bloque **en todas las fichas**) pasó por 80 tests en verde,
+porque el fixture **hornea** `priceBasis: 'market'` — que es lo correcto para un mock y justo lo que
+lo vuelve ciego a un campo que el servidor no manda.
+
+Añadidos (`@real` corre también en mock, así que **descubren datos y afirman invariantes**, nunca
+montos de fixture):
+
+| Spec | Test | Qué mira |
+|---|---|---|
+| `pricing-curve` | la regla de §21.8 **no está invertida** | Recorre las primeras fichas y exige que **alguna** publique el mercado. Es el detector de B-1 |
+| `pricing-curve` | dinero con formato MXN, nunca «precio pendiente» | Money-safe de cara al comprador |
+| `pricing-curve` | el editor carga del servidor y **el dry-run responde** | Primera vez que el previsualizador de la curva se ejercita contra un backend vivo |
+| `catalog` | la vitrina publica cartas reales con precio | Un catálogo vacío o sin precio ya no pasa en verde |
+| `catalog` | la ficha **coincide consigo misma** | Bicondicional de §21.8d: bloque y nota al pie cuentan la misma historia |
+
+**Resultado medido contra el stack vivo:** `@real` pasó de **8 a 13** tests. El detector de B-1
+**falla, con su propio mensaje** («Ninguna de las 3 fichas visitadas publicó el valor de mercado…»)
+— es el comportamiento correcto hasta que backend emita el campo. El del editor + dry-run **pasa**.
+
+> **Dos lecciones de método que costaron encontrar y conviene no repetir.**
+> 1. **Un test que descubre datos tiene que esperar a que existan.** La primera versión leía el DOM
+>    tras el `<h1>`; contra un backend real la retícula aún no había pintado, la lista de fichas
+>    salía **vacía** y el bucle no se ejecutaba: el test pasaba **en vacío**. Ahora se espera a que
+>    haya un enlace de ficha antes de enumerar.
+> 2. **Sustituir `.first().click()` por una enumeración quita el auto-wait.** `count()` e
+>    `innerText()` leen el DOM del instante; el `.first()` anterior **tapaba** la falta de espera.
+>    Mismo bug, mismo día, en `addFirstSellableCard`.
+
+### Cobertura
+
+- `M2View.test.tsx`: 12 casos del editor (retiro sin residuos + texto falso, anatomía, dry-run como
+  única fuente de las cifras, probeta con memoria de cálculo, previsualizador sin servidor, reorden
+  al blur, prerrelleno neutro, borrar+deshacer, blur vs tecleo, guardar con diff, 422 que no guarda
+  nada, y el editor que **no** se adelanta al 422) + 2 de salud de rarezas.
+- `CardDetailView.test.tsx`: mercado visible / floor / override + la geometría de la retícula.
+- `SealedDetailView.test.tsx`: spread vs override (una sola celda a fila completa).
+- `VariantPriceConsole.test.tsx` / `MasterSetBinder.test.tsx`: `·P`, `·!`, enlace del guardarraíl y
+  los dos estados del badge de bounty.
+- `e2e/pricing-curve.spec.ts` (nuevo) + ajustes en `e2e/catalog.spec.ts` y `e2e/buylist.spec.ts`.
+
+### Conteo por motivo de la cola de pendientes — **servido por el contrato (v2.1)**
+
+> Se pidió como solicitud al arquitecto y **se resolvió durante esta misma entrega**: el contrato
+> **v2.1** norma `counts: { no_market, premium_at_floor, unknown }` en el **cuerpo** de
+> `GET /admin/pricing/pending`. El frontend lo **pinta**, no lo calcula.
+
+- **Se pintan verbatim.** Los `counts` **ignoran `?reason=` y la paginación pero respetan
+  `?context=`**: `reason` filtra **dentro** de la cola que se está triando, mientras que `context`
+  elige **qué cola es** (VENTA = `inventory` vs COMPRA = `buylist`). Recalcularlos o filtrarlos en
+  cliente reintroduce el defecto original — con un filtro activo el encabezado describiría el
+  subconjunto, y **el número mentiría justo cuando el dueño filtra para triar**, que es cuando más
+  lo mira. Hay un test que fija exactamente eso (filtrar por motivo **no** mueve el encabezado).
+- **`unknown` se pinta cuando es > 0.** Son entradas con `reason = null` (filas anteriores a M-41).
+  No es adorno: sostiene el invariante `no_market + premium_at_floor + unknown === entradas open de
+  esa cola`. Sin ella, una cola con filas históricas no cuadra con la lista y **parece un bug del
+  backend**. §21.7c ya contempla la fila `(ausente) → «—»` en la columna Motivo, que también está.
+- **Los dos primeros números juntos son un DIAGNÓSTICO** (ARCH §4.36.5c), no volumen de trabajo, y
+  por eso el segundo va en tinta de atención en vez de enterrado en el encabezado: contra la línea
+  base ≈3/333, `premium_at_floor` subiendo con `no_market` **plano** ⇒ hay dato de mercado y está
+  **bajo el piso** ⇒ **piso mal calibrado**; **subiendo los dos** ⇒ **feed de mercado degradado**, y
+  tocar el piso empeoraría las cosas.
+
+### Harness E2E: tres defectos de test (no de app) que bloqueaban el release
+
+QA reportó once fallos E2E **anteriores a P-48** en flujos que este cambio toca. Ninguno era una
+regresión del stream y ninguno era de backend; los tres eran **supuestos de test caducados** por
+cambios de UI anteriores, más un control muerto:
+
+1. **`buylist` ×7 — el carrito tiene DOS encarnaciones.** `openCart()` clicaba el FAB, y con el
+   viewport de la suite (1280×800) ese FAB **no existe**: arriba de 1024px el carrito es el
+   `<aside>` fijo (mitigación H1). Ahora el helper es *viewport-aware* y el carrito se localiza por
+   su `aria-label` compartido, no por su rol —que es lo único que cambia entre ambas—. El smoke que
+   describe literalmente «badge del FAB» y «cerrar regresa el foco al FAB» corre en **390px**, que
+   es donde ese comportamiento existe.
+2. **`buylist` ×1 y `master-set` ×1 — localizadores que no distinguían el botón de AGREGAR.** Un
+   `getByRole('button', { disabled: false })` a secas también casaba con el «Ver detalle de …» de
+   cada fila/casilla (P-43, añadido después): el helper abría el pop-up y no agregaba nada, y el
+   fallo aparecía más tarde, en un carrito vacío. Ahora se acotan por nombre accesible.
+3. **`master-set` ×2 — el cotizador es una rejilla PLANA.** Los tests esperaban «dos casillas dentro
+   de la MISMA celda»; desde N-16 (v1.22-2) hay **una casilla `li` por (carta, acabado)**, hermanas.
+   Se reexpresó la misma intención (dos casillas para una carta con reverse holo, una para la de un
+   solo acabado, y ningún botón de venta para acabados que no existen) contra la estructura real.
+4. **`catalog` ×1 — un filtro que no podía acertar.** La casilla «Sellado» del filtro de tipo de
+   Compra sobrevivía de antes de la separación singles/sellado (H9, §2-S): `GroupedListingDTO`
+   **nunca** trae sellado, así que filtrar por ella solo podía devolver «Ninguna carta coincide»,
+   con la pestaña «Producto sellado» a diez centímetros. Se retiró la casilla (y su sub-filtro de
+   presentación, que solo se abría bajo ella). **Es el único de los cuatro que tocó UI de
+   producto**, y por eso queda dicho aquí: no se cambió ningún dato ni ningún precio, se quitó un
+   callejón sin salida.
+
+*(Aparte, `guest-checkout` ×2 fallaban por **strict mode**: el checkout de invitado ofrece el
+selector de DESTINO **dos veces a propósito** (N-9: en el formulario y otra vez arriba de «Pagar»,
+compartiendo estado) y pinta **dos avisos distintos** (resumen de errores + nota de bloqueo). Los
+localizadores ahora dicen a cuál se refieren; **no se tocó el checkout**, que es de otro stream.)*
+
+### Tres arreglos de test que el stack vivo destapó
+
+- **I-2 · un assert que no podía pasar en ningún entorno** (`master-set.spec.ts`). El oráculo
+  `['2','10','SV107','TG01']` se copió de `E2E_ORDER_EXPECTED_NUMBERS`, que es el oráculo de
+  **cartas** de `GET /buylist/cards`. El binder pinta **una casilla por (carta, acabado)** y
+  `E2E Order Two` (#2) tiene dos acabados ⇒ lo real es `['2','2','10','SV107','TG01']`. En mock la
+  línea era código muerto (`orderExact: null`) y en real era falsa. **El propio spec ya lo
+  demostraba**: el test de «una carta CON reverse holo pinta DOS casillas» pasa. Corregido el
+  oráculo a nivel VARIANTE + un assert nuevo de que las casillas de una misma carta quedan juntas.
+- **I-3 · el smoke de VENDER se quedaba en el tope AML.** Con la curva real el estimado sube y la
+  solicitud cruza el tope: la UI exige INE, que es **AML-1 funcionando**. El test elige ahora la
+  fila cotizable **más barata** (sigue siendo descubrimiento, sin hardcodear montos) y contempla
+  **los dos desenlaces legítimos**: solicitud creada, o bloqueo por INE — y en ese caso exige que el
+  bloqueo sea honesto (mensaje accionable, sección de INE ofrecida, **ninguna** solicitud creada).
+  **VENDER pasa `@real` por primera vez.**
+- **El mock del cotizador ahora interpola** (ver `docs/TECH_DEBT.md` F-P48-2): cerraba un 67% de
+  divergencia medido por QA.
+
+### Dos defaults y un supuesto, cerrados
+
+- **`config.useMocks` pasó a ser opt-in explícito.** Era `!== 'false'`, o sea **encendido por
+  defecto**: un build donde se olvidara `NEXT_PUBLIC_USE_MOCKS=false` servía **fixtures en
+  silencio** — precios de mentira sin un solo error en pantalla. Ahora es `=== 'true'`: si la API no
+  está, la UI muestra su estado de error honesto en vez de inventar datos. Los caminos que quieren
+  mocks lo **declaran** (`playwright.config.ts` ya lo hacía; `vitest.config.ts` ahora también).
+- **`PriceHistoryEntryDTO` deja de ser un SUPUESTO.** El contrato lo normó en **v2.1.7**
+  (`{ data: PriceHistoryEntryDTO[] }`) y resolvió la grieta a favor del **enum** `PriceSource` — que
+  es lo que este front ya tipaba. El marcador de supuesto se retira del código.
+
+### Solicitudes al arquitecto (ninguna bloquea)
+
+1. **Nombre del segundo extremo del tramo en `details`.** El contrato lo deja en «…» y el backend
+   emite `index2` / `marketCentsTo`. Hoy el front lee ese nombre con alias tolerado, pero mientras
+   no esté normado, cualquier renombre silencioso deja de marcar la segunda fila **sin romper
+   ningún test de contrato**. Afecta a los tres errores de tramo (V5, V9, V6).
+2. **Impacto del cambio sobre inventario real** (§21.13.2, ya diferido): el diálogo de guardado habla
+   de **mercados de referencia**, no de cuántas publicaciones cambian de precio. Sin ese dato el
+   diseño es veraz, pero un conteo por bracket haría del diff una decisión con volumen.
 
 ## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21)
 
@@ -6288,3 +6738,453 @@ solicitud; contrato §M5 líneas 4694/4699: solo `aprobada` convierte). Fix:
 ### Verde (gate pre-publicación)
 `tsc --noEmit` ✓ · `vitest run` **78 archivos / 619 tests** ✓ (incluye los 3 tests nuevos de regresión
 IMP-A/IMP-B) · `next build` ✓.
+
+## Fix DISPLAY-1 — badge on-hand del binder era por CARTA, debe ser por ACABADO (regresión de IMP-2)
+
+**Bug (prod, binder admin Master Set / M1):** al dar de alta 2 piezas de un acabado (p. ej. Spinarak
+NORMAL), el badge negro «N EN TOTAL» aparecía en TODAS las tejas de esa carta —incluida la teja de un
+acabado con **0 piezas** (REVERSE HOLO)—, pintando «2» donde no había ninguna pieza. El badge mostraba
+el **total de la carta**, no el conteo del acabado de esa teja.
+
+**Causa raíz** (`frontend/src/components/master-set/MasterSetBinder.tsx`, `TileHeader`, ~L648, código
+de IMP-2): el badge se derivaba de `cell.countsByFinish.reduce((s,c)=>s+c.count,0)` = **suma de TODOS
+los acabados**. Como `TileHeader` es COMPARTIDO por todas las tejas de una misma carta (N-16: una teja
+por impresión), ese total de carta se repetía en cada teja de acabado. IMP-2 corrigió bien el *lag*
+del escalar `cell.totalCount` (pasando a derivar de `countsByFinish` para que cayera a 0 en vivo), pero
+mantuvo la **suma por-carta**, que es la semántica equivocada para una rejilla por-acabado.
+
+**Fix (solo UI, sin backend):** el DTO YA trae el desglose por acabado
+(`MasterSetCardCellDTO.countsByFinish: {finish,count}[]`, contrato L1016/L1057). `TileHeader` ahora
+recibe el `finish` de su teja y lee `countsByFinish.find(c => c.finish === finish)?.count ?? 0`; si es
+0 no pinta badge (la teja ya se muestra como «HUECO» por su footer). Se conserva la caída a 0 en vivo
+de IMP-2 (misma fuente `countsByFinish` de la respuesta refrescada), pero **por acabado**. `BinderTile`
+pasa `finish={variant.finish}` + `showFinishCount`; `QuoterTile` sigue SIN el flag (el on-hand no
+aplica al cotizador).
+
+- i18n (`messages/es.json` · `en.json`): se retiró `cardTotalCount`/`cardTotalCountAria` («N en total»
+  / «N in total») y se añadió `finishOnHandCount` (badge visible = el número, `"{count}"`, para no
+  colisionar con el «N piezas» del footer) + `finishOnHandCountAria` («Tengo N piezas de este acabado»
+  / «You have N pieces of this finish», en el `title` del badge).
+- Tests: nuevo `frontend/src/components/master-set/MasterSetBinder.test.tsx` (3 casos: Spinarak con 2
+  NORMAL / 0 REVERSE HOLO → badge «2» solo en NORMAL, REVERSE HOLO = HUECO sin badge, y el badge de la
+  carta no se repite entre tejas). Se actualizó el test INV-2 de `MasterSet.test.tsx` (Charizard 3/1/0
+  → badge por acabado, holofoil sin badge, y el total 4 no aparece en ninguna teja) y el lock del
+  cotizador (queda como «sin badge de on-hand por acabado» vía `title`).
+
+**Money-safe:** es solo display de conteo de inventario; no toca precio ni dinero.
+
+**Sin solicitud al arquitecto:** el contrato ya exponía `countsByFinish` desglosado por acabado; no se
+necesita cambio de DTO ni de backend.
+
+### Verde (gate)
+`tsc --noEmit` ✓ · `vitest run` **80 archivos / 625 tests** ✓ · `next build` ✓.
+
+---
+
+## Consistencia del acento de acabado en las tejas del binder (Master Set) — spec humano 2026-08
+
+**Petición del humano:** la línea/acento de color en la parte superior de las tejas del binder
+(Master Set) debe ir **estrictamente por acabado (finish)** y ser CONSISTENTE en todas las vistas.
+Spec: **reverse_holo → ROJO**, **holofoil → AZUL**, **normal → sin banda (como estaba)**.
+
+### Causa de la inconsistencia reportada
+El acento es la banda de 3px de `FinishBand` (`frontend/src/components/domain/FinishMark.tsx`). En el
+código el color **ya dependía SOLO de `finish`** (no de la rareza, ni del orden, ni de la composición
+de variantes de la carta): cada teja del binder plano se expande con `displayedVariants` y pinta
+`<FinishBand finish={variant.finish} />` con su acabado propio. Es decir, NO había una rama por
+composición. La percepción de «el color cambia cuando la carta tiene holofoil y reverse holo» venía
+del mapeo de color en sí:
+- `reverse_holo` era un **GRADIENTE** 90° `neutral-warm (#9A6C57) → accent (#B31217)`: el color varía a
+  lo ancho de la banda según el tamaño de la teja, así que no leía como un rojo estable.
+- `holofoil` y `first_edition_holofoil` compartían la **MISMA tinta oscura** (`--color-ink`): dos foils
+  indistinguibles y ninguno azul.
+
+Al ver una carta con holofoil (banda oscura) y reverse holo (gradiente marrón→rojo) juntas, las dos
+bandas leían «muddy»/oscuras y el reverse «cambiaba de color» a lo ancho → percepción de inconsistencia.
+
+### Qué se cambió (dónde se centralizó)
+- **`frontend/src/components/domain/FinishMark.tsx`** — se centralizó el mapeo finish→color en UN solo
+  lugar: la constante `FINISH_BAND_BACKGROUND` (Record parcial por `Finish`), consumida por `FinishBand`
+  (que es la ÚNICA superficie que pinta el acento, usada por binder M1, bóveda cliente, bóveda admin,
+  cotizador, línea del carrito de venta, `TopBountiesShelf` y `VariantDrawer`). Ninguna vista tiene
+  lógica de color propia — todas heredan de aquí.
+  - `reverse_holo → var(--color-finish-reverse, var(--color-accent, #B31217))` (ROJO **sólido**, ya no
+    gradiente → color estable).
+  - `holofoil → var(--color-finish-holo, #1F5C8F)` (AZUL).
+  - `normal → sin banda` (sin cambio).
+  - `first_edition_holofoil → var(--color-ink)` (sin cambio: no es reverse ni holofoil).
+- **`frontend/src/app/globals.css`** — se añadieron dos tokens en `:root`:
+  - `--color-finish-reverse: var(--color-accent);` (alias del rojo de marca).
+  - `--color-finish-holo: #1f5c8f;` (**azul acero — TOKEN NUEVO**: no existía azul en la paleta
+    paper/tinta/rojo/verde; se eligió apagado/acero para no romper el aire cálido vintage).
+
+### Accesibilidad
+El acento es doble canal: la banda (decorativa, `aria-hidden`) va acompañada SIEMPRE de la etiqueta de
+acabado del `TileHeader` («REVERSE HOLO» / «HOLOFOIL»), así que el color no es el único canal. Rojo vs
+azul es además un par seguro para daltonismo (a diferencia de rojo/verde).
+
+### Tests
+- `frontend/src/components/domain/FinishMark.test.tsx`: reverse_holo → banda SÓLIDA roja (sin gradiente),
+  holofoil → banda azul (`--color-finish-holo`).
+- `frontend/src/components/master-set/MasterSetBinder.test.tsx`: nuevo describe de composición mixta —
+  una carta con normal + reverse_holo + holofoil a la vez pinta ROJO en la teja reverse y AZUL en la
+  holofoil (independiente de la composición); la teja normal no lleva banda.
+
+### ⚠️ Pendiente de ratificar por ux-ui (DESIGN_SYSTEM §16.6)
+El color es dominio de `DESIGN_SYSTEM.md`. Se implementó el spec del humano y se **añadió un token nuevo
+`--color-finish-holo` (azul #1F5C8F)** que NO existía en la paleta. **Falta ratificar en el sistema de
+diseño** (§16.6 y §17.2): (a) la convención finish→color (reverse=rojo sólido / holofoil=azul), (b) el
+retiro del gradiente reverse (§16.6 lo describía como «la única superficie con gradiente permitida» —
+esa nota del DS queda desactualizada) y (c) el valor/nombre del token azul. **No edité DESIGN_SYSTEM.md.**
+
+**Money-safe:** N/A — es solo color.
+
+### Verde (gate)
+`tsc --noEmit` ✓ · `vitest run` **80 archivos / 627 tests** ✓ · `next build` ✓.
+
+---
+
+## Control de UI del bulk price provider re-expuesto en M10 (P-47)
+
+**Contexto.** El dial de la **ingesta masiva** de precios es `priceProvider`
+(`SettingKey.PRICE_PROVIDER` / `price_provider`), DISTINTO de los tres `pricingProvider*` per-carta.
+El backend ya lo expone en `GET /admin/settings` y valida `PUT` parcial contra
+`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`, pero el UI de M10 no
+renderizaba ningún control para él (el del bulk se había retirado de M2 en P-33). Faltaba el botón para
+flipear el dial del barrido diario y activar el precio automático por-acabado (P-47, `tcgcsv_singles`).
+
+**Qué se implementó (`frontend/src/app/[locale]/(admin)/admin/m10/M10View.tsx`).**
+- Nueva **sección propia** (Sección 1b) en M10, VISUALMENTE SEPARADA de los tres diales per-carta
+  (card con borde `border-primary/40`, encabezado y nota propios), para que el humano no los confunda.
+  Etiqueta ES «Proveedor de ingesta masiva (barrido diario de precios)» + nota con los valores
+  `pokemontcg_io` (legacy) / `pokemonpricetracker` / `tcgcsv_singles` (precio por-acabado diario, P-47)
+  y el rollback money-safe = volver a `pokemontcg_io`. i18n en `messages/es.json` y `en.json` (bloque
+  `admin.m10.ingest`).
+- Conjunto de opciones **DEDICADO** `PRICE_PROVIDER_INGEST_OPTIONS =
+  ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']` — coincide EXACTO con
+  `PRICE_PROVIDER_VALUES` del backend. **NO** reutiliza el `PRICE_PROVIDER_OPTIONS` per-carta (ese lleva
+  `poketrace`/`manual`, que en el bulk darían 422).
+- Read desde el DTO (`settings.data.priceProvider`) y **PUT parcial dedicado** que envía SOLO la key
+  camelCase `{ priceProvider }` y solo cuando se toca (draft/mutation propios, botón Guardar propio).
+- **NO se tocaron** los tres diales per-carta (`pricingProvider*`) ni su `PRICE_PROVIDER_OPTIONS`
+  (`tcgcsv_singles` no va ahí).
+
+**Tipo espejo.** `frontend/src/types/contract.ts` — `PriceProvider` pasó de
+`'pokemontcg_io' | 'pokemonpricetracker'` a incluir `'tcgcsv_singles'` (espejo del contrato §M10 / P-47;
+NO se modificó `API_CONTRACT.md`).
+
+**Tests.** `M10View.test.tsx` +2 casos: (a) el control del bulk aparece, es `<select>` y lista
+exactamente `['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']` (incluye `tcgcsv_singles`, excluye
+`poketrace`/`manual`); (b) al cambiarlo el PUT envía `{ priceProvider: 'tcgcsv_singles' }` (camelCase,
+parcial). Verde: `vitest run M10View.test.tsx` **7/7** ✓ · `tsc --noEmit` ✓.
+
+**Money-safe.** El control solo cambia la fuente del barrido sin redeploy; el rollback documentado es
+volver a `pokemontcg_io`. La derivación de montos sigue server-side; el UI solo selecciona el dial.
+## §22 · T-1 (techlead) + IMPORTANTE-2 (QA) — la lista de sellado que tapaba el enum, y el modo E2E que no podía autenticar (2026-08-24, rama `claude/card-pricing-rules-2e537m`)
+
+> Dos hallazgos del gate de release, del mismo tipo: **algo que no falla, MIENTE**. Uno en el
+> producto (un filtro que descarta en silencio, una perilla de dinero sin fila) y otro en el arnés
+> (un modo de prueba que no puede autenticar por construcción y aun así se anuncia como el más
+> exigente). Fuentes: `API_CONTRACT` **v2.1.9** (§Enums, §DTOs, §M2, §4.34c) · `PROJECT §K`.
+
+### T-1 · `SealedSubtype`: UNA lista, derivada del enum, en `src/types/contract.ts`
+
+**Qué estaba roto.** El contrato define **siete** presentaciones (`box · etb · bundle · tin ·
+blister · upc · collection`), el backend las acepta (`?sealedSubtype=upc` → 200, basura → 400) y el
+`PUT /admin/pricing/sealed-spreads` ya calibra `upc`. El front tenía **tres listas de cinco escritas
+a mano** que tapaban el tipo:
+
+| Sitio | Consecuencia real |
+|---|---|
+| `m2/sections/shared.tsx` | el editor pinta **una fila por elemento** ⇒ **no había dónde teclearle el spread a UPC ni a Collection**. El dueño **sí vende UPC**. |
+| `(storefront)/catalog/CatalogView.tsx` | `?sealedSubtype=upc` se **descartaba en silencio** |
+| `(storefront)/sellado/SealedShopView.tsx` | ídem en el `<select>` de la tienda |
+
+**No fue un descuido del front:** el ejemplo de respuesta de §M2 del contrato listaba cinco llaves y
+el front lo espejó. El arquitecto ya corrigió el ejemplo y **normó que un ejemplo nunca es el dominio
+de llaves** (v2.1.9). Aquí solo queda la mitad del cliente.
+
+**Cómo quedó.**
+- **`src/types/contract.ts`** — la lista es la **fuente única** y **la unión se DERIVA de ella**:
+  `export const SEALED_SUBTYPES = [...] as const` + `type SealedSubtype = (typeof SEALED_SUBTYPES)[number]`.
+  Desincronizar lista y tipo deja de ser posible por construcción. Orden = el **`sortOrder` canónico
+  del contrato §4.34c** (`upc=0 … collection=6`), el mismo con el que el backend ordena las
+  presentaciones: la UI lo espeja en vez de inventar tres ordenamientos.
+- Los **cuatro** consumidores (los tres del hallazgo + `admin/m1/SealedAddFlow.tsx`, que ya tenía los
+  siete por su cuenta) importan de ahí. Ninguno declara lista propia.
+- **Copy:** los siete ya existían en `messages/{es,en}.json` › `status.sealedSubtype.*`. **Paridad
+  es/en verificada** (mismas siete claves, mismos valores) y ahora **fijada por test**.
+
+### T-1 (corrección del arquitecto) · los renglones salen del ENUM, no de las llaves de la respuesta
+
+Arreglar la lista **no bastaba**: `GET /admin/pricing/sealed-spreads` devuelve un mapa **PARCIAL**
+(omite lo no configurado) y **`upc`/`collection` no tienen semilla** en §K. Verificado contra el
+stack vivo: `{"box":18,"etb":22,"tin":30,"bundle":25,"blister":35}` — sin `upc`. Un editor que
+derivara sus renglones de la respuesta habría reproducido el hueco por otra puerta.
+
+`m2/sections/SealedSpreadsSection.tsx`:
+- **Una fila por valor del enum, siempre** — independiente de lo que traiga el `GET`.
+- **Llave ausente ⇒ «Usa el global (25%)»**, no un vacío mudo ni un cero: el campo queda **vacío**
+  con el global de **marca de agua** y una etiqueta que lo dice. Pintar el 25 como si fuera su valor
+  es justo lo que ocultaba el fallback — el dueño no sabía que sus UPC caían ahí. **Ausente ≠ 0%**.
+- La alarma money-safe de «spread 0%» ahora cuenta **solo reglas explícitas en 0**; el hueco→global
+  ya no la dispara (antes tampoco, pero por accidente: el campo nunca estaba vacío).
+- **Money-safe (nuevo):** el guardado usa `isSaveableRuleValue` + `sanitizeDecimalInput` (los mismos
+  helpers de S-P1-1 que ya protegían las otras cajas de dinero de M2). Antes esta sección hacía
+  `Number(val) || 0`: con el campo vacío ahora siendo el estado natural, eso habría **guardado 0%**
+  (vender al costo) al limpiar una fila. Un borrador vacío o mal formado se **ignora**.
+
+**✅ CONTESTADA (contrato v2.1.9 enmendado, `32484cd`) — ver §22.2.** El arquitecto normó el
+sentinel `null`. Lo que aquí quedaba «se ignora, money-safe» ya es un gesto de primera clase.
+
+**Tests.**
+- `src/types/sealed-subtype.test.ts` — candado anti-desincronización: (a) la lista cubre
+  **exactamente** el enum del contrato; (b) `upc`/`collection` presentes; (c) sin duplicados;
+  (d) orden §4.34c; (e) etiqueta en **ambos** locales; (f) **ningún módulo bajo `src/` declara una
+  segunda lista literal** (`: SealedSubtype[] =`) — verificado que ese guard **falla** si se
+  reintroduce una. Además dos asignaciones de tipo que rompen `tsc` si lista y unión divergen.
+- `m2/sections/SealedSpreadsSection.test.tsx` (7 casos): siete filas con un `GET` de cinco llaves;
+  la fila sin regla vacía + placeholder + etiqueta; escribir en UPC llega al `PUT`; **una fila vacía
+  NO se guarda como 0%**; hueco→global no dispara la alarma; un 0 explícito sí.
+- `e2e/admin.spec.ts` › «hay fila editable para UPC y Collection» — corre en **los dos modos** (el
+  fixture y el backend real omiten ambas llaves) y **verificado en verde contra el stack vivo**.
+
+### Contrato v2.1.9 (D2) · las rejillas pierden `priceBasis` y `referenceValue`
+
+`GET /catalog/cards` y `GET /catalog/sealed` pasan a emitir **DTOs propios**:
+`GroupedListingSummaryDTO` y `SealedGroupSummaryDTO` (este último **también sin `priceSource`**, de
+donde `priceBasis` se derivaba). Espejados en `src/types/contract.ts` como **tipos propios, no campos
+opcionales**: un `priceBasis?` cuya ausencia apaga la regla de §N.7 es literalmente B-1
+(`undefined === 'market'` ⇒ `false` **siempre** ⇒ el bloque no se muestra nunca, y en verde).
+
+- Consumidores migrados: `catalog/CatalogTile.tsx`, `catalog/CatalogView.tsx` (`onAdd`),
+  `_home/FeaturedCarousel.tsx` (`tileMeta`/`TilePrice`), `sellado/SealedShopView.tsx`
+  (`SealedGroupTile`). **Ninguno leía los campos retirados** — la teja nunca pintó el mercado.
+- Los fixtures de test de esas dos tejas se recortaron al DTO de rejilla **a propósito**: si mañana
+  una teja leyera `priceBasis`, no compila.
+- **La regla de la ficha NO cambia:** `priceBasis` sigue en `GroupedListingDTO`/`SealedGroupDTO`/
+  `ListingDTO` y el mercado se muestra `iff priceBasis === 'market'`.
+- El backend del stack vivo **todavía emite** los campos (va en paralelo); es inocuo: sobra en el
+  JSON y el tipo ya no lo expone a ningún consumidor.
+
+### Contrato v2.1.9 · `details.index` puede ser `null` + techo de cordura de piso/bin
+
+- `CurveErrorDetails.index` pasa a **`number | null`**. Ningún consumidor lo indexaba (el front nunca
+  trató `VALIDATION_ERROR` como infracción de curva), así que **no había `undefined` esperando**;
+  se corrige el espejo y se documenta la lectura: `number` ⇒ marca el **renglón**, `null` ⇒ marca el
+  **campo** de piso/bin.
+- **Nuevo `constantError()`** (`curve/curve-draft.ts`) con `MAX_CURVE_CONSTANT_CENTS`
+  (**MX$2,000** tras Q-D1 — ver §22.2). Piso y bin dejan de validarse con `marketError` (sin techo):
+  son las dos únicas entradas que por sí solas fijan el precio de **todo** el catálogo. El
+  `ConstantField` ahora **enuncia** el error (`role="alert"`), no solo colorea el borde. Copy nuevo
+  `admin.m2.curve.fieldError.constantTooHigh` en **es/en**.
+
+### IMPORTANTE-2 · el modo E2E «suite completa contra el stack real» no podía autenticar
+
+**Diagnóstico (reproducido: 59 rojos de 85, idéntico al de QA).** `e2e/utils/auth.ts` derivaba
+`IS_REAL` de `E2E_REAL`, que en `playwright.config.ts` es la bandera de **SELECCIÓN DE SPECS**
+(`grep: /@real/`). Dos preguntas distintas viajaban en la misma variable:
+
+```
+(a) ¿QUÉ specs corro?          → E2E_REAL=1 ⇒ solo los @real
+(b) ¿CONTRA QUÉ habla la APP?  → lo decide quién levantó el frontend
+```
+
+Con `E2E_BASE_URL` puesto y `E2E_REAL` ausente —el modo que el runbook vende como el más exigente—
+el helper inyectaba el token **inventado** `'mock.session.token'` contra un front con
+`NEXT_PUBLIC_USE_MOCKS=false`: 401 → el interceptor limpia sesión → `/login`, en bucle.
+
+**Y no era solo local:** `.github/workflows/e2e-real.yml` (el gate de CI del smoke de dinero contra
+el stack completo) fija `E2E_BASE_URL` y **NO** fija `E2E_REAL` — o sea que **el gate «real»
+también autenticaba con el token de mentira**. El arreglo del helper lo corrige sin tocar `.github/`.
+
+**Cómo quedó.** La pregunta (b) se contesta con la fuente correcta: `playwright.config.ts` hornea
+`NEXT_PUBLIC_USE_MOCKS=true` en **un solo lugar** — el `webServer` que levanta él mismo, que solo
+existe cuando `E2E_BASE_URL` está **ausente**.
+
+```
+sin E2E_BASE_URL (app la levanta Playwright) ⇒ MOCKS
+con E2E_BASE_URL (app la levanta devops/QA)  ⇒ BACKEND REAL  → login real vía POST /auth/login
+E2E_REAL=1                                    ⇒ implica real (compatibilidad) + filtra @real
+E2E_MOCKS=1                                   ⇒ escotilla: app externa servida con fixtures
+```
+
+Otros cambios del helper, todos para que el modo real **funcione de verdad**:
+- **Descubrimiento de la API**: `E2E_API_BASE_URL` gana; si no, se prueba `/health` (público) sobre
+  el host del front en `:3099` (stack nativo) → `:3011` (staging/CI) → `:3001` (default del config).
+  Si ninguna contesta, el error dice qué hacer en vez de un 401 tres asserts después.
+- **Sesión memoizada por rol y por worker** (TTL 10 min contra el token de 15) **+ reintento con
+  backoff ante `429`**. Sin esto, un login real por test hace que el `ThrottlerGuard` responda
+  `429 RATE_LIMITED` a media suite: 8 rojos del arnés disfrazados de rojos de producto (los vi).
+  El throttler es una defensa legítima del producto y **no se tocó**: se adaptó el arnés.
+- **`credentialsFor(role)`**: el smoke «login se muestra y redirige» ahora **teclea credenciales del
+  seed** en modo real. Antes usaba un par inventado ⇒ 401 ⇒ medía el arnés. Ahora ejerce
+  `POST /auth/login` de punta a punta (**verde** contra el stack vivo, es/en).
+- **`loginAs` donde faltaba**: `admin.spec` (8), `pricing-curve` (m2), `portfolio`, `vault`,
+  `shipments`, `inventory-stream-b`. En modo mock los guards (`AdminShell`, `PrivateRouteGuard`) son
+  **inertes** (`requireAuth = !config.useMocks`), así que estos specs navegaban a rutas privadas sin
+  sesión y «pasaban»; contra el stack real eso es un redirect a `/login`.
+
+### Clasificación honesta de lo que NO corre en el modo real
+
+Un `skip` con motivo **impreso en el reporte** es una clasificación; 59 rojos indistinguibles no lo
+son. Dos helpers **distintos a propósito** (`e2e/utils/auth.ts`):
+
+- **`mockOnly(reason)`** — depende de algo que solo existe en mock: literales de
+  `src/lib/mock/fixtures.ts` (`c-charizard`, `INV-000110`, `MX$4,800.00`, `mock-demo-token`) o una
+  afordancia de **demo** (el switcher «Ver como», que en real no se pinta porque el rol lo dicta el
+  JWT). **No puede correr contra un backend real sin reescribirlo.**
+- **`needsSeed(reason)`** — el test está bien escrito y **falta el DATO** en `seed-e2e`. Pasaría tal
+  cual el día que se siembre. Es una **petición accionable**, no una limitación.
+
+**Regla que me impuse:** copy, i18n, navegación, guardas y desgloses **no** son mock-only. Si eso
+falla contra el stack real es un desacuerdo de verdad y **tiene que verse rojo**. Los tres smokes de
+dinero bloqueados por Stripe **se dejaron ROJOS a propósito** (ver abajo).
+
+**Huecos del seed real detectados (petición a backend/QA, `backend/prisma/seed-e2e.ts`):**
+
+| Hueco | Verificado contra el stack vivo | Deja sin cubrir |
+|---|---|---|
+| Sin solicitudes de buylist | `GET /admin/buylist` → `total: 0` | M5 cherry-pick + diálogo de rechazo v1.18 |
+| Sin disputas | `GET /admin/disputes` → `total: 0` | M8 (el panel de evidencia cuelga de la disputa activa) |
+| Sin sellado publicado | `GET /catalog/sealed` → `total: 0` | vitrina `/sellado` completa |
+| Gradeada sin referencia de mercado | el grid de buylist pinta «Precio pendiente» | estimado de gradeadas (el «pendiente» es **correcto**: sin dato no se inventa cifra) |
+
+### Números del modo `E2E_BASE_URL` sin `E2E_REAL` (suite completa contra el stack vivo)
+
+Comando: `cd frontend && E2E_BASE_URL=http://localhost:3000 npx playwright test` contra el stack
+nativo vivo (`:3000` front con `NEXT_PUBLIC_USE_MOCKS=false` · `:3099` backend).
+
+| Corrida | Verdes | Rojos | Saltados (clasificados) |
+|---|---|---|---|
+| **Antes** (reproducción exacta del reporte de QA) | 26 | **59** | 0 |
+| Con el env-gating + los `loginAs` que faltaban | 39 | 33 (**8** de ellos `429` del propio arnés) | 14 |
+| **Final** (`--workers=1`) | **48** | **3** | **35** (31 `mock-only` + 4 `needsSeed`) |
+
+**Los 3 rojos que quedan son los MISMOS y son de ENTORNO, no de producto:** los smokes `@real` de
+comprar / comprar como invitado / retirar. Causa verificada a mano contra el backend vivo:
+
+```
+POST /api/v1/checkout/session → {"code":"PAYMENT_PROVIDER_UNAVAILABLE"}
+```
+
+No hay clave de Stripe en este stack. **Se dejaron rojos a propósito** (ver el comentario en los tres
+specs): un smoke de dinero que se salta solo cuando no hay proveedor de pago es la misma clase de
+mentira que este encargo vino a quitar.
+
+**Flakiness bajo paralelismo (no es producto):** con `--workers=3` y la suite completa aparecen 2
+rojos extra e intermitentes (`i18n-locale` ×2, `auth login [es]`) — el toggle de idioma navega a una
+ruta que **`next dev` compila bajo demanda** y con tres workers golpeando el mismo dev server la
+compilación pasa de los 15 s del `expect`. Con `--workers=1` pasan las tres; con `--workers=3` pero
+menos archivos, también. Contra un build de producción no debería ocurrir. Si se quiere el modo
+paralelo estable, el camino es `next build && next start` en el stack, no subir timeouts.
+
+**Ningún rojo resultó ser un desacuerdo real entre frontend y backend.** Los dos hallazgos que sí
+salieron de aquí son (1) el gate de CI `e2e-real.yml` autenticando con token de mentira y (2) los
+cuatro huecos del seed de la tabla de arriba.
+
+### Trampa del entorno: `reuseExistingServer`
+
+`playwright.config.ts` levanta su webServer con `reuseExistingServer: !isCI` en `:3000`. Si el stack
+nativo ya ocupa `:3000` con `NEXT_PUBLIC_USE_MOCKS=false`, una corrida **sin** `E2E_BASE_URL`
+**reutiliza ese servidor**: crees estar en modo mock y estás pegándole al backend real sin sesión.
+Para correr mock de verdad hay que bajar el stack o apuntar el front a otro puerto. (Lo dejo
+anotado aquí porque me costó un falso negativo; el runbook lo mantiene devops.)
+
+## §22.2 · Contrato v2.1.9 enmendado (`32484cd`) — el techo baja a MX$2,000 y el borrado se llama `null` (2026-08-25)
+
+> Tres encargos, dos del contrato enmendado y uno de devops sobre mi propio arreglo del arnés.
+
+### El techo de la curva vive en DOS lados y tiene que decir lo mismo
+
+`MAX_CURVE_CONSTANT_CENTS` pasa de `1_000_000` a **`200_000` (MX$2,000)**, el número que cerró el
+dueño en **Q-D1**. Es mi copia del techo del backend, y ahí está el punto: si el cliente aceptara en
+el campo un piso de MX$5,000 que el `PUT` rechaza con `422`, **cliente y servidor estarían
+discrepando sobre la misma regla** — §21.4 con el signo invertido (el editor promete un guardado que
+no ocurre). Van los dos con el mismo valor.
+
+El anclaje nuevo, que además es el que hace defendible un número tan apretado: **`floorCents` ES el
+precio de la carta más barata de la tienda**, así que su techo sale de lo plausible como carta más
+barata (**80×** sobre la semilla de MX$25), no de ningún límite de dinero. El anclaje anterior —los
+topes AML de §E— **queda retirado por escrito** en el contrato, y lo repito en el comentario del
+código para que nadie lo «restaure» viendo que las cifras se parecían.
+
+- Copy actualizado en **es/en** (`constantTooHigh`): ya no dice MX$10,000, y explica *qué* es el
+  número acotado, no solo cuál es.
+- **`curve/curve-constants.test.ts` (5 casos)** fija la cifra, el borde exacto (2000 pasa, 2000.01
+  no), que no se pierden `required`/`negative`, que las semillas (piso MX$25, bin MX$1) siguen
+  entrando, y —el que más me importa— **que el copy nombre el MISMO número que el validador**: un
+  mensaje que dice 10,000 junto a un corte en 2,000 es peor que no tener mensaje.
+- **Estado del backend en el stack vivo:** todavía acepta `floorCents: 500000` en `preview` (`201`).
+  Mi editor queda **más estricto que el servidor corriendo**, que es la dirección segura; converge
+  cuando backend lo aterrice.
+
+### Borrar una regla de spread: `null`, y **`null` ≠ `0`**
+
+El contrato normó lo que yo había pedido. Semántica **parcial de tres estados**, y el editor ahora
+los distingue de verdad:
+
+| Gesto en la pantalla | Qué viaja | Efecto |
+|---|---|---|
+| Escribe un número | `{"upc": 20}` | fija la regla |
+| **Vacía el campo** | **`{"upc": null}`** | **retira** la regla ⇒ vuelve al global |
+| No lo toca | la llave **no viaja** | no se toca |
+
+**Esto conecta con la mina que ya había desactivado.** Yo había matado el `Number(val) || 0` de
+`saveSpreads` porque con el campo vacío como estado natural, limpiar una fila habría guardado **0%**.
+El contrato ahora le pone nombre a por qué eso era un bug de dinero y no un detalle: **`0` es un
+spread legítimo** (§SUP-8, «vender AL mercado, sin markup»), así que `0` y «sin regla» **no pueden
+compartir representación**. Antes yo resolvía el empate ignorando el gesto (seguro pero mudo: el
+dueño vaciaba y no pasaba nada); ahora el gesto significa algo y significa lo correcto.
+
+- **El `PUT` pasa a ser PARCIAL de verdad**: viajan **solo las llaves tocadas**. Antes mandaba
+  `{...server, ...draft}` — funcionaba, pero es la forma que el arquitecto descartó, y por una razón
+  que me toca directo: un cliente rancio con «las cinco llaves de siempre» **borraría `upc` y
+  `collection` en silencio**, o sea el bug de la lista de cinco reabierto desde el otro lado.
+  `fallbackPct` solo viaja si cambió. Si no cambió nada, no se llama al endpoint.
+- **Un borrador mal formado (`"."`, `"1.2.3"`) no manda NADA** — ni fija ni retira. El dueño está a
+  medio teclear y ninguna de las dos cosas es lo que pidió.
+- **Vaciar una fila que nunca tuvo regla propia no manda nada**: no hay qué retirar (el backend sería
+  idempotente igual, pero ensuciar la bitácora con un no-op no ayuda a nadie que la lea después).
+- **La fila vaciada se previsualiza como «Usa el global»**, igual que una sin regla: los dos estados
+  terminan en el fallback, así que la pantalla cuenta lo mismo en los dos — y **ninguno es un 0%**.
+- **El global NO se puede vaciar** (`fallbackPct: null` ⇒ 422). Retirarlo dejaría en `PRICE_PENDING`
+  a toda presentación sin regla, o sea **fuera de la vitrina**, por un gesto que parece de limpieza.
+  El editor lo **impide** (Guardar deshabilitado, `aria-invalid`) **y lo explica**: «El spread global
+  no se puede quitar… Para no aplicar markup, escribe **0**». Antes revertía en silencio al valor del
+  servidor — seguro, pero el dueño no se enteraba de que su gesto no había hecho nada.
+- El **mock** reproduce la semántica de tres estados (`setMockSealedSpreads` aplica el parche y
+  **borra** en `null`). Si el mock guardara `null` como 0, el modo demo enseñaría un comportamiento
+  de dinero que el backend real no tiene — y esa divergencia, en una perilla de precio, no se puede.
+- Tipos: **`SealedSpreadsUpdateRequest`** (request) separado de **`SealedSpreadsDTO`** (respuesta).
+  Son tipos distintos porque **la diferencia es el punto**: solo el request admite `null`.
+- **Estado del backend en el stack vivo:** `PUT {"spreadPctBySubtype":{"collection":null}}` responde
+  **`422`** («must be a number in [0, 1000]»), así que el gesto de *vaciar* aún no funciona
+  end-to-end. Probado con una llave **ausente** a propósito, para que fuera un no-op verificable:
+  el `GET` posterior devolvió el mismo mapa. Las demás rutas (fijar, cambiar el global) sí funcionan
+  hoy. Las dos mitades tienen que aterrizar juntas para que «vaciar» sirva.
+- El dueño ya eligió **`upc: 18`, `collection: 22`**; en el stack vivo la semilla todavía no está
+  (el `GET` sigue trayendo cinco llaves) y el editor los muestra como «usa el global», que era el punto.
+
+### El spec que le preguntaba al entorno en vez de al helper (hallazgo de devops)
+
+`guest-checkout.spec.ts` ramificaba con **`process.env.E2E_REAL` crudo** — el único sitio de `e2e/`
+que lo hacía. Sin la bandera puesta tomaba la **rama mock de sus asertos** (clic en el «Pagar»
+simulado y esperar `guest-order-number`) **contra un modal de Stripe real**: exactamente la clase de
+mentira que el arreglo del env-gating fue a matar, un piso más abajo, y **un verde falso en uno de
+los tres flujos de dinero** — justo el que el gate de promoción acababa de empezar a correr.
+
+Ahora usa `IS_REAL` como sus hermanas. Con eso, `frontend/e2e/` deja de obligar a `.github/` a fijar
+`E2E_REAL` **solo para que un archivo se comporte**: la bandera vuelve a significar únicamente lo que
+`playwright.config.ts` dice que significa (seleccionar `@real`).
+
+**`src/test/e2e-harness.test.ts` (2 casos)** lo vuelve irrepetible: ningún `*.spec.ts` puede leer
+`process.env.E2E_REAL` (ignorando comentarios, porque explicar *por qué* no se usa sí debe seguir
+escrito), y quien ramifique por entorno tiene que **importar `IS_REAL`** del helper. Verificado que
+el guard **falla** al reintroducir la fuga. La regla, en una línea: **un solo módulo lee la variable;
+los specs le preguntan a él.**
+
+### Verde (gate)
+
+`tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **84 archivos / 677 tests** ✓ · E2E contra el stack
+vivo (`admin` + `pricing-curve`): **13 verdes / 0 rojos** (6 saltados, clasificados).

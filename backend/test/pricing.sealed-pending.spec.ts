@@ -21,6 +21,8 @@ function build(pendingRows: any[] = []) {
   const findManyCalls: any[] = [];
   const prisma: any = {
     pendingPriceEntry: {
+      // v2.1 (§4.36.5c): `pendingQueue` agrega los counts por motivo en el MISMO snapshot.
+      groupBy: jest.fn(async () => []),
       findFirst: jest.fn(async (args: any) => {
         findFirstCalls.push(args);
         return null; // no hay pendiente abierto que colisione

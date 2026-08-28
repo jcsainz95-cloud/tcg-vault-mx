@@ -5,7 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { BuylistRule } from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.30 (M-32, ARCHITECTURE §4.29) — LÍNEA de buylist por `productId`: cotizar/vender un `CardProduct`
@@ -16,11 +16,6 @@ import { BuylistRule } from '../src/common/money';
  */
 
 const pii = new PiiCryptoService(new ConfigService({}));
-
-const SEED: Record<string, BuylistRule> = {
-  Common: { mode: 'fixed', value: 50 },
-  'Reverse Holo': { mode: 'fixed', value: 150 },
-};
 
 /** CardProduct simulado, resuelto por tcgplayerProductId. */
 interface FakeProduct {
@@ -45,6 +40,8 @@ function svcWith(opts: {
     findCardProductByTcgId: jest.Mock;
     getReferenceByCardProduct: jest.Mock;
     getReference: jest.Mock;
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.Mock;
     escalatePending: jest.Mock;
   };
 } {
@@ -55,11 +52,24 @@ function svcWith(opts: {
         rarity: opts.cardRarity ?? 'Common',
         availableFinishes: opts.availableFinishes ?? ['normal', 'reverse_holo', 'holofoil'],
       }),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
     },
   };
   const products = opts.products ?? {};
   const productRefs = opts.productRefs ?? {};
   const pricing = {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     findCardProductByTcgId: jest.fn(async (tcgId: number) => products[tcgId] ?? null),
     getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
@@ -73,12 +83,14 @@ function svcWith(opts: {
         ? { status: 'pending' }
         : { status: 'priced', referenceMxnCents: opts.baseRefMxnCents },
     ),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn(),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
   };
   const settings = {
-    getRaw: jest.fn().mockResolvedValue(SEED),
+    getRaw: jest.fn().mockResolvedValue(null),
     getNumber: jest.fn().mockResolvedValue(opts.fallbackPct ?? 40),
   } as unknown as SettingsService;
   const svc = new BuylistService(
@@ -101,9 +113,9 @@ describe('M-32 publicQuote — línea con productId (§4.29b)', () => {
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil', 707029);
     expect(q.productId).toBe(707029);
     expect(q.finish).toBe('holofoil');
-    // Common + holofoil → fallback pct 40% de 20000 = 8000.
+    // v2.0 (P-48): $200 de mercado ⇒ pct interpolado 42.5 % ⇒ $85. Ni la rareza ni el acabado entran.
     expect(q.quote.status).toBe('cotizada');
-    expect(q.quote.quotedPriceCents).toBe(8000);
+    expect(q.quote.quotedPriceCents).toBe(8500);
     // Leyó la referencia POR producto, no la del set_base.
     expect(pricing.getReferenceByCardProduct).toHaveBeenCalledWith('cp-uuid', 'raw', 'raw:NM', 'holofoil');
     expect(pricing.getReference).not.toHaveBeenCalled();
@@ -170,7 +182,9 @@ describe('M-32 publicQuote — línea con productId (§4.29b)', () => {
     const { svc, pricing } = svcWith({ cardRarity: 'Common', baseRefMxnCents: null });
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'normal');
     expect(q.productId).toBeUndefined();
-    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+    // v2.0 (P-48): sin mercado la línea queda pendiente (el bin NO gana); `priceBasis` reemplaza a
+    // `appliedRule`. Lo que este caso verifica sigue siendo que NO se toca la resolución de producto.
+    expect(q.priceBasis).toBe('pending');
     expect(pricing.findCardProductByTcgId).not.toHaveBeenCalled();
     expect(pricing.getReferenceByCardProduct).not.toHaveBeenCalled();
   });
@@ -216,7 +230,7 @@ describe('M-32 batchQuote — errores por-ítem + unicidad de línea (§4.29c/d)
     expect(results[1]).toMatchObject({ ok: true, productId: 707029 });
     // Precios DISTINTOS: cada línea leyó la referencia de SU producto (40% de 10000 vs 50000).
     expect((results[0] as any).quote.quotedPriceCents).toBe(4000);
-    expect((results[1] as any).quote.quotedPriceCents).toBe(20000);
+    expect((results[1] as any).quote.quotedPriceCents).toBe(25000); // $500 ⇒ 50 % = $250
   });
 });
 
@@ -230,6 +244,14 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
           id: 'c1',
           rarity: 'Common',
           availableFinishes: ['normal', 'holofoil'],
+        }),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+        // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
         }),
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
@@ -265,6 +287,11 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
 
   function pricingForCreate(opts: { products: Record<number, FakeProduct>; productRefs: Record<string, number> }) {
     return {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       findCardProductByTcgId: jest.fn(async (tcgId: number) => opts.products[tcgId] ?? null),
       getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
@@ -272,6 +299,8 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
         return cents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents: cents };
       }),
       getReference: jest.fn(async () => ({ status: 'pending' })),
+      // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+      settlePendingForVariant: jest.fn(async () => undefined),
       escalatePending: jest.fn(),
       getVariantOverridesBatch: jest.fn(async () => new Map()),
       getVariantOverride: jest.fn(async () => null),
@@ -279,7 +308,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
   }
 
   const settings = {
-    getRaw: jest.fn().mockResolvedValue(SEED),
+    getRaw: jest.fn().mockResolvedValue(null),
     getNumber: jest.fn(async (key: string) => {
       if (key === 'buylist_cap_per_request_cents') return 100_000_000;
       if (key === 'buylist_cap_per_month_cents') return 100_000_000;
@@ -333,8 +362,14 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       VALID_CLABE,
       { front: 'k-front', back: 'k-back' },
     );
-    // escalatePending recibió el productId (7º argumento) — clave lógica de la cola por producto.
-    expect(pricing.escalatePending).toHaveBeenCalledWith('c1', 'raw', 'raw:NM', 'buylist', undefined, 'holofoil', 707029);
+    // v2.0 (§4.36.5c): la escalada pasa por el seam simétrico `settlePendingForVariant`, con la RAZÓN
+    // y con el `cardProductId` en la clave lógica de la cola (resolver el set_base NO cierra la del
+    // producto separado — money-safe).
+    expect(pricing.settlePendingForVariant).toHaveBeenCalledWith(
+      'no_market',
+      { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', cardProductId: 707029 },
+      'buylist',
+    );
   });
 
   it('SIN productId → NO snapshotea cardProductId (retrocompat) y NO resuelve producto', async () => {

@@ -3,15 +3,15 @@ import { t } from './utils/i18n';
 
 /**
  * Flujo: **«Valor estimado si se gradea» — el gancho de grading** en sus TRES superficies
- * (PROJECT §N, criterios **79–85**; DESIGN_SYSTEM §21).
+ * (PROJECT §O, criterios **97–103**; DESIGN_SYSTEM §22).
  *
  * Qué se verifica de punta a punta, contra la app corriendo (no componentes aislados):
  *  1. **Ficha** — bloque con las cifras que haya, su micro-aviso y la nota al pie.
  *  2. **Teja de Compra** — badge en las cartas curadas; teja **idéntica a hoy** en las demás.
  *  3. **Vitrina del home** «Joyas para gradear» — cada teja con su propio micro-aviso.
- *  4. **El caso que FALLÓ y por el que QA rechazó (§21.12 nº8 c-bis):** se **ocultan a propósito
+ *  4. **El caso que FALLÓ y por el que QA rechazó (§22.12 nº8 c-bis):** se **ocultan a propósito
  *     todos los `sr-only`** y se comprueba que el aviso **sigue visible**. Un aviso que solo existe
- *     para el lector de pantalla es, para un comprador vidente, ningún aviso — y `PROJECT.md` §N.5
+ *     para el lector de pantalla es, para un comprador vidente, ningún aviso — y `PROJECT.md` §O.5
  *     lo califica de **defecto bloqueante**.
  *  5. **Aserción transversal (D8 del techlead):** en cualquier página, **si el DOM contiene una
  *     cifra estimada, contiene la nota al pie completa**. Es la red que impide que un refactor deje
@@ -28,7 +28,7 @@ function plain(locale: 'es' | 'en', key: string): string {
   return t(locale, key).replace(/<[^>]+>/g, '').trim();
 }
 
-/** Las DOS ideas obligatorias del micro-aviso (§N.5), tal como se ven en pantalla. */
+/** Las DOS ideas obligatorias del micro-aviso (§O.5), tal como se ven en pantalla. */
 const IDEA_ILUSTRATIVO = /ilustrativ/i;
 const IDEA_NO_EVALUAMOS = /no evaluamos (el estado de )?esta carta/i;
 
@@ -37,8 +37,8 @@ const NOTE_HEADLINE = 'catalog.gradingNote.headline';
 
 /**
  * ¿La página muestra alguna cifra estimada? Dos marcas que **solo** produce el gancho y ninguna
- * otra superficie del sitio: el glifo `≈` (exclusivo de la cifra del badge, §21.5) y el eyebrow del
- * bloque de la ficha (§21.3). Deliberadamente NO se usa el micro-aviso como marca: sería circular
+ * otra superficie del sitio: el glifo `≈` (exclusivo de la cifra del badge, §22.5) y el eyebrow del
+ * bloque de la ficha (§22.3). Deliberadamente NO se usa el micro-aviso como marca: sería circular
  * —es justo lo que estos tests verifican—.
  */
 function hasEstimateFigure(text: string): boolean {
@@ -80,7 +80,7 @@ async function expectVisibleMicroNotice(scope: Locator) {
   await expect(scope.getByText(IDEA_ILUSTRATIVO).first()).toBeVisible();
 }
 
-test.describe('Gancho de grading · ficha de carta (§21.3)', () => {
+test.describe('Gancho de grading · ficha de carta (§22.3)', () => {
   test('pinta las dos cifras, su micro-aviso VISIBLE y la nota al pie de la página', async ({ page }) => {
     await page.goto('/es/catalog/c-blastoise');
 
@@ -115,7 +115,7 @@ test.describe('Gancho de grading · ficha de carta (§21.3)', () => {
     const block = page.locator('section', { hasText: t('es', 'catalog.gradingEstimate.eyebrow') }).first();
     await expectVisibleMicroNotice(block);
 
-    // La llamada de la ficha es un enlace real al pie (§21.4a).
+    // La llamada de la ficha es un enlace real al pie (§22.4a).
     const call = page.locator('#llamada-estimado a');
     await expect(call).toHaveAttribute('href', '#nota-estimado');
     await call.click();
@@ -146,7 +146,7 @@ test.describe('Gancho de grading · ficha de carta (§21.3)', () => {
   });
 });
 
-test.describe('Gancho de grading · teja de Compra (§21.5)', () => {
+test.describe('Gancho de grading · teja de Compra (§22.5)', () => {
   test('la teja curada lleva la cifra con el condicional y su micro-aviso visible; la nota está al pie', async ({ page }) => {
     await page.goto('/es/catalog');
     await expect(page.getByText('Blastoise').first()).toBeVisible();
@@ -189,7 +189,7 @@ test.describe('Gancho de grading · teja de Compra (§21.5)', () => {
     await expect(tile.getByText(/vale ≈|PSA 10 ≈/)).toHaveCount(0);
     await expect(tile).not.toContainText(IDEA_NO_EVALUAMOS);
 
-    // …y su ficha SÍ trae el bloque: informar ≠ promover (§21.7, estado normal, no un bug).
+    // …y su ficha SÍ trae el bloque: informar ≠ promover (§22.7, estado normal, no un bug).
     await page.goto('/es/catalog/c-milotic-fa');
     await expect(
       page.getByRole('heading', { name: t('es', 'catalog.gradingEstimate.eyebrow'), exact: true }),
@@ -198,13 +198,13 @@ test.describe('Gancho de grading · teja de Compra (§21.5)', () => {
   });
 });
 
-test.describe('Gancho de grading · vitrina del home (§21.6)', () => {
+test.describe('Gancho de grading · vitrina del home (§22.6)', () => {
   test('cada teja de «Joyas para gradear» lleva SU micro-aviso; el kicker no lo sustituye', async ({ page }) => {
     await page.goto('/es');
 
     const shelfTitle = page.getByText(t('es', 'home.gradingGems.title')).first();
     await expect(shelfTitle).toBeVisible();
-    // El kicker es refuerzo (§21.6), no la garantía: se comprueba que ADEMÁS esté el aviso por teja.
+    // El kicker es refuerzo (§22.6), no la garantía: se comprueba que ADEMÁS esté el aviso por teja.
     await expect(page.getByText(t('es', 'home.gradingGems.kicker'))).toBeVisible();
 
     await hideScreenReaderOnly(page);
@@ -221,7 +221,7 @@ test.describe('Gancho de grading · vitrina del home (§21.6)', () => {
     await expectFigureImpliesFootnote(page);
   });
 
-  test('EN: la misma vitrina, con su aviso y su nota, en inglés (§N.3 bilingüe)', async ({ page }) => {
+  test('EN: la misma vitrina, con su aviso y su nota, en inglés (§O.3 bilingüe)', async ({ page }) => {
     await page.goto('/en');
     await expect(page.getByText(t('en', 'home.gradingGems.title')).first()).toBeVisible();
 

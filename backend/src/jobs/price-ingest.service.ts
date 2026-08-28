@@ -68,6 +68,11 @@ export class PriceIngestJobService {
 
     if (this.queue) {
       const jobId = await this.enqueueAllSets(fx);
+      // v1.50.2 (§4.38h): el ingest de estimados PSA corre APARTE del fan-out por set. No se encola
+      // por set a propósito: su alcance es «cartas con inventario publicado», que es transversal a los
+      // sets y ya viene acotado por su propio tope de cuota. Con el dial `off` (seed) es un no-op de
+      // una sola lectura de config.
+      await this.runGradedEstimates(fx);
       return { job: JOB, enqueued: true, jobId };
     }
 
@@ -79,10 +84,31 @@ export class PriceIngestJobService {
     this.running = true;
     try {
       await this.ingest.ingestAll(fx);
+      await this.runGradedEstimates(fx);
     } finally {
       this.running = false;
     }
     return { job: JOB, enqueued: true };
+  }
+
+  /**
+   * v1.50.2 (§4.38h) — ingest de ESTIMADOS PSA (fase 2), fail-closed por su PROPIO dial.
+   *
+   * Se aísla en su propio `try` **a propósito**: un fallo del gancho —que es informativo— **no puede**
+   * tumbar ni ensuciar el barrido de precios de venta, que sí es dinero. La relación de dependencia va
+   * en un solo sentido y así se mantiene.
+   */
+  private async runGradedEstimates(fx: FxSnapshot): Promise<void> {
+    try {
+      const res = await this.ingest.ingestGradedEstimates(fx);
+      if (res.escalation) {
+        this.logger.error(
+          `⛔ graded-estimate-ingest requiere DECISIÓN DEL ARQUITECTO (regla 9): ${res.escalation.reason}.`,
+        );
+      }
+    } catch (e) {
+      this.logger.error(`graded-estimate-ingest falló: ${(e as Error).message} (no afecta al barrido).`);
+    }
   }
 
   /**

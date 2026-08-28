@@ -1,9 +1,67 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DisputeStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { StripeService } from '../payments/stripe.service';
 import { DISPUTE_EVIDENCE_CONTACT } from './disputes.constants';
+
+/**
+ * v2.1.9 (S49-R4) — **`Dispute` se proyecta; nunca sale la fila cruda.**
+ *
+ * Cuatro rutas devolvían la entidad: `GET /disputes`, `GET /disputes/:id` (ambas del **cliente**),
+ * `GET /admin/disputes` y `POST /admin/disputes/:id/resolve`. Hoy `Dispute` no guarda secretos, pero
+ * sí dos campos que son **de back-office, no del cliente**: `resolvedBy` (uuid del súper-admin que
+ * resolvió) y `repurchaseOrderId`. Y sobre todo: mientras la respuesta SEA la entidad, la próxima
+ * columna del schema se publica sola — que es exactamente la clase que este pase viene a cerrar.
+ *
+ * Dos proyecciones, porque son dos audiencias:
+ *  - `toDisputeDTO` (cliente): lo que el contrato §7 declara — estado, tipo, descripción, plazo.
+ *  - `toAdminDisputeRow` (back-office): añade `resolvedBy`/`repurchaseOrderId`/`userId`.
+ */
+type DisputeRow = {
+  id: string;
+  userId: string;
+  inventoryItemId: string;
+  orderItemId: string | null;
+  type: string;
+  status: DisputeStatus;
+  description: string;
+  resolution: string | null;
+  repurchaseOrderId: string | null;
+  deadlineAt: Date;
+  createdAt: Date;
+  resolvedAt: Date | null;
+  resolvedBy: string | null;
+};
+
+function toDisputeDTO(d: DisputeRow) {
+  return {
+    id: d.id,
+    inventoryItemId: d.inventoryItemId,
+    type: d.type,
+    status: d.status,
+    description: d.description,
+    // La resolución (texto que el admin escribió) SÍ es del cliente: es el desenlace de SU disputa.
+    resolution: d.resolution,
+    deadlineAt: d.deadlineAt,
+    createdAt: d.createdAt,
+    resolvedAt: d.resolvedAt,
+    evidenceContact: DISPUTE_EVIDENCE_CONTACT,
+    // FUERA a propósito: `resolvedBy` (identidad del staff) y `repurchaseOrderId` (referencia
+    // interna de la compensación). `userId` tampoco: el cliente es el dueño de la sesión, no
+    // necesita que se lo devolvamos.
+  };
+}
+
+function toAdminDisputeRow(d: DisputeRow) {
+  return {
+    ...toDisputeDTO(d),
+    userId: d.userId,
+    orderItemId: d.orderItemId,
+    repurchaseOrderId: d.repurchaseOrderId,
+    resolvedBy: d.resolvedBy,
+  };
+}
 
 @Injectable()
 export class DisputesService {
@@ -68,17 +126,18 @@ export class DisputesService {
   }
 
   async listMine(userId: string) {
-    const data = await this.prisma.dispute.findMany({
+    const rows = await this.prisma.dispute.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
     });
-    return { data };
+    // S49-R4: proyectado (antes devolvía las filas crudas).
+    return { data: rows.map(toDisputeDTO) };
   }
 
   async getMine(userId: string, id: string) {
     const d = await this.prisma.dispute.findUnique({ where: { id } });
     if (!d || d.userId !== userId) throw BusinessException.notFound();
-    return d;
+    return toDisputeDTO(d); // S49-R4
   }
 
   // ---------------- Admin M8 ----------------
@@ -93,7 +152,7 @@ export class DisputesService {
     if (status) where.status = status as never;
     // v1.7-admin-users: filtro opcional por Dispute.userId (simetría con /admin/orders).
     if (userId) where.userId = userId;
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.dispute.findMany({
         where,
         orderBy: { createdAt: 'asc' },
@@ -102,7 +161,8 @@ export class DisputesService {
       }),
       this.prisma.dispute.count({ where }),
     ]);
-    return { data, page, pageSize, total };
+    // S49-R4: proyectado (antes devolvía las filas crudas).
+    return { data: rows.map(toAdminDisputeRow), page, pageSize, total };
   }
 
   /**
@@ -149,10 +209,13 @@ export class DisputesService {
     const dispute = await this.prisma.dispute.findUnique({ where: { id } });
     if (!dispute) throw BusinessException.notFound();
     if (resolution === 'reject') {
-      return this.prisma.dispute.update({
-        where: { id },
-        data: { status: 'rechazada', resolution: note, resolvedAt: new Date(), resolvedBy: actorUserId },
-      });
+      // S49-R4: proyectado.
+      return toAdminDisputeRow(
+        await this.prisma.dispute.update({
+          where: { id },
+          data: { status: 'rechazada', resolution: note, resolvedAt: new Date(), resolvedBy: actorUserId },
+        }),
+      );
     }
     // repurchase: precio pagado = unitPrice del OrderItem del item. El cliente conserva la
     // carta; NO se toca el InventoryItem ni se crea InventoryMovement de reingreso.
@@ -160,14 +223,17 @@ export class DisputesService {
       where: { inventoryItemId: dispute.inventoryItemId },
       orderBy: { id: 'desc' },
     });
-    return this.prisma.dispute.update({
-      where: { id },
-      data: {
-        status: 'resuelta_recompra',
-        resolution: `${note} (repurchase ${orderItem?.unitPriceCents ?? 0} cents; customer keeps card, not re-added to inventory)`,
-        resolvedAt: new Date(),
-        resolvedBy: actorUserId,
-      },
-    });
+    // S49-R4: proyectado.
+    return toAdminDisputeRow(
+      await this.prisma.dispute.update({
+        where: { id },
+        data: {
+          status: 'resuelta_recompra',
+          resolution: `${note} (repurchase ${orderItem?.unitPriceCents ?? 0} cents; customer keeps card, not re-added to inventory)`,
+          resolvedAt: new Date(),
+          resolvedBy: actorUserId,
+        },
+      }),
+    );
   }
 }

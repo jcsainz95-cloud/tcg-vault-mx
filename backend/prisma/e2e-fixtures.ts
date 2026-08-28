@@ -32,10 +32,11 @@ export const E2E_ORDER_SET = {
 
 /**
  * Cartas del catálogo sintético. `rarity` (crudo) se colapsa a su rareza canónica vía
- * `normalizeRarity` (catálogo canónico de rarezas) y esa canónica es la key con la que el
- * buylist elige regla en `BUYLIST_PRICE_RULES` (o cae al fallback por %). Aquí: Common→comun,
- * Reverse Holo→reverse_holo, Rare Holo/Rare Secret→ex_plus. `refNmCents` es la referencia
- * (valor de mercado) para raw:NM.
+ * `normalizeRarity` (catálogo canónico de rarezas); esa canónica YA NO selecciona una regla de
+ * precio (v2.0, §4.36: una sola curva para todos), solo alimenta el guardarraíl premium-en-el-
+ * piso (`premiumFloorGuard`) — Common→comun, Reverse Holo→reverse_holo, Rare Holo/Rare
+ * Secret→ex_plus (premium). `refNmCents` es la referencia (valor de mercado) para raw:NM, que la
+ * curva interpola para dar venta/compra.
  *
  * v1.22-variantes-orden (§4.22e) — `availableFinishes` se siembra SIEMPRE de forma EXPLÍCITA:
  * depender del `@default([normal])` del schema es justo lo que hacía que el bug del PO (una sola
@@ -61,8 +62,20 @@ export const E2E_CARDS = {
   // DOS casillas ESTRUCTURALES (§4.25a): TCGCSV resolvió ambas; PPT confirma el reverse con precio (snapshot = observabilidad).
   reverse: { externalId: 'e2e-reverse', name: 'E2E Reverse Bird', number: '17', rarity: 'Reverse Holo', refNmCents: 3000, availableFinishes: ['normal', 'reverse_holo'], catalogFinishes: ['normal'], structuralFinishes: ['normal', 'reverse_holo'], pricedFinishesSnapshot: ['reverse_holo'] }, // reverse_holo — DOS casillas (§4.22c), sostenidas por la ESTRUCTURA
   graded: { externalId: 'e2e-graded', name: 'E2E Graded Star', number: '20', rarity: 'Rare Holo', refPsa10Cents: 500000, availableFinishes: ['normal'] }, // graded PSA10
-  highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 1200000, availableFinishes: ['normal'] }, // Rare Holo → T2 25%; quote 0.25×1200000=300000 = umbral INE (P-34)
+  // v2.0 (P-48): con la CURVA de compra, $6,000 de mercado ⇒ 50 % (tramo plano final) ⇒ 300000 =
+  // EXACTAMENTE el umbral de INE y el tope por solicitud, que es el borde que el E2E necesita probar
+  // (el cap se evalúa ANTES que el INE y usa `>`, así que el empate pasa el cap y dispara el INE).
+  highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 600000, availableFinishes: ['normal'] },
   nopref: { externalId: 'e2e-nopref', name: 'E2E No Price', number: '99', rarity: 'Rare Secret', availableFinishes: ['normal'] }, // ex_plus SIN referencia → precio pendiente
+  /**
+   * v2.1.7 — carta PREMIUM con mercado ABSURDO (MX$10): el caso del GUARDARRAÍL, que hasta ahora no
+   * existía en datos reales. Con el seed de la curva:
+   *   VENTA:  1000 × 1.60 = 1600 < piso 2500  ⇒ basis 'floor'  ⇒ `premium_at_floor` (NO se publica)
+   *   COMPRA: 1000 × 0.30 =  300 >  bin  100  ⇒ basis 'market' ⇒ SÍ se cotiza
+   * Es además el escenario EXACTO de S48-M1 (las dos caras no resuelven juntas), así que la cola de
+   * triage y su asimetría quedan cubiertas con datos de verdad y no solo en forma.
+   */
+  floorpremium: { externalId: 'e2e-floor-premium', name: 'E2E Floor Premium', number: '98', rarity: 'Rare Secret', refNmCents: 1000, availableFinishes: ['normal'] },
 } as const;
 
 /**
@@ -94,7 +107,10 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
  * Orden natural ESPERADO de `E2E_SET` (`GET /buylist/cards?setId=<e2e-base>`) — oráculo del test
  * de integración `buylist-cards-order.e2e-spec.ts` (orden + paginación sin huecos ni duplicados).
  */
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '99'] as const;
+// v2.1.7: entra `98` (E2E Floor Premium, la carta del guardarraíl). El oráculo se mantiene EXPLÍCITO
+// —y no derivado de `E2E_CARDS`— a propósito: si se derivara, un fixture mal ordenado se auto-
+// justificaría y el test dejaría de comprobar el orden natural, que es justo lo que vigila.
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '98', '99'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la

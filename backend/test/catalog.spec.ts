@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { computeSealedSalePrice } from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.1 — "Compra" = inventario PUBLICADO con precio (API_CONTRACT §catalog). El comprador
@@ -21,7 +22,12 @@ function pricing(): PricingService {
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     // v1.16-master-set (BE-25): fetchSellable iza reglas 1 vez + resuelve referencias en lote.
-    loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn(async (items: any[]) => {
       const m = new Map<string, any>();
       for (const it of items) {
@@ -36,11 +42,9 @@ function pricing(): PricingService {
     }),
     // v1.13-sales-pricing: el call-site migró a computeSalePriceForItem. Sin market → pending
     // (Illustration Rare cae al fallback pct); con market → 15% arriba (equivale al legacy 1.15).
-    computeSalePriceForItem: jest.fn(async (_item: any, ref: number | null) =>
-      ref == null
-        ? { salePriceCents: null, status: 'pending', appliedRule: { mode: 'pct', value: 15 }, ruleSource: 'fallback' }
-        : { salePriceCents: Math.round(ref * 1.15), status: 'priced', appliedRule: { mode: 'pct', value: 15 }, ruleSource: 'fallback' },
-    ),
+    // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+    // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+    computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     // v1.23-sealed-sales: contexto de spreads del sellado + helpers de mercado (no usados en estos raw tests).
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false })),
     sealedMarketGradeKeyForItem: jest.fn((item: any) =>
@@ -181,7 +185,16 @@ describe('CatalogService.listCards — regla dura de "Compra"', () => {
 describe('CatalogService — publicación ÚNICA por carta/variante/condición con STOCK (P-30)', () => {
   function prismaWith(items: any[]): any {
     return {
-      card: { findUnique: jest.fn(async ({ where }: any) => items.find((i) => i.cardId === where.id)?.card ?? null) },
+      card: {
+        findUnique: jest.fn(async ({ where }: any) => items.find((i) => i.cardId === where.id)?.card ?? null),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
+      },
       inventoryItem: { findMany: jest.fn(async () => items) },
     };
   }
@@ -431,7 +444,16 @@ describe('H9 / SB-D5 — la vista de SINGLES excluye el sellado (P-35 ancla-a-si
 
   function prismaHonoringWhere(items: any[]): any {
     return {
-      card: { findUnique: jest.fn(async ({ where }: any) => (where.id === 'anchor' ? anchorCard() : null)) },
+      card: {
+        findUnique: jest.fn(async ({ where }: any) => (where.id === 'anchor' ? anchorCard() : null)),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
+      },
       inventoryItem: {
         findMany: jest.fn(async ({ where }: any) => items.filter((it) => matchWhere(it, where))),
         findFirst: jest.fn(async ({ where }: any) => items.find((it) => matchWhere(it, where)) ?? null),

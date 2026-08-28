@@ -23,6 +23,40 @@ type EnrichedShipmentItem = ShipmentItem & {
   inventoryItem: InventoryItem & { card: Card & { set: CardSet | null } };
 };
 
+/**
+ * v2.1.9 (S49-R4) — **lista blanca de `ShipmentRequest` para las respuestas de BACK-OFFICE.**
+ *
+ * `withAdminKind` esparcía la fila entera (`...row`) y `setTracking`/`updateStatus` devolvían la
+ * entidad Prisma directa. Ninguna columna de hoy es un secreto **para M4** —`shippingCostCents` es
+ * costo interno y este rol SÍ debe verlo (§M4)— pero la fila cruda es justo lo que hace que una
+ * columna futura se publique sola. Esta lista fija la forma ACTUAL: no cambia nada visible, y a
+ * partir de aquí exponer algo nuevo exige escribirlo aquí a propósito.
+ *
+ * ⚠ `shippingCostCents` es **admin-only por contrato** (§M4: «no se expone al cliente»). Su ausencia
+ * en `toClientShipment` es deliberada — no la "completes" por simetría.
+ */
+function toAdminShipmentRow(s: ShipmentRequest) {
+  return {
+    id: s.id,
+    userId: s.userId,
+    orderId: s.orderId,
+    addressSnapshot: s.addressSnapshot,
+    status: s.status,
+    shippingFeeCents: s.shippingFeeCents,
+    shippingCostCents: s.shippingCostCents,
+    ivaCents: s.ivaCents,
+    processingFeeCents: s.processingFeeCents,
+    totalCents: s.totalCents,
+    stripePaymentIntentId: s.stripePaymentIntentId,
+    carrier: s.carrier,
+    trackingNumber: s.trackingNumber,
+    requestedAt: s.requestedAt,
+    pickingAt: s.pickingAt,
+    shippedAt: s.shippedAt,
+    deliveredAt: s.deliveredAt,
+  };
+}
+
 @Injectable()
 export class ShipmentsService {
   private readonly logger = new Logger(ShipmentsService.name);
@@ -141,6 +175,8 @@ export class ShipmentsService {
             'Item already in a shipment',
           );
         }
+        // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller (`create`) proyecta a
+        // `{ shipmentId, status, breakdown, stripe }` (contrato §5).
         return tx.shipmentRequest.create({
           data: {
             userId,
@@ -351,9 +387,9 @@ export class ShipmentsService {
     },
   >(s: T) {
     const snapshot = (s.addressSnapshot ?? {}) as { recipientName?: string };
-    const { order, ...row } = s;
+    const { order } = s;
     return {
-      ...row,
+      ...toAdminShipmentRow(s),
       // v1.21.2 (D4): `orderId == null` ⇒ retiro de bóveda; con orden vinculada, el `kind` se
       // resuelve LEYENDO `Order.fulfillmentMode` (nunca asumiendo `direct_ship` por tener orderId).
       kind:
@@ -518,7 +554,7 @@ export class ShipmentsService {
             },
           });
         }
-        return updated;
+        return toAdminShipmentRow(updated); // S49-R4
       }
 
       if (!isDirectShip && to === 'entregado') {
@@ -549,7 +585,7 @@ export class ShipmentsService {
           });
         }
       }
-      return updated;
+      return toAdminShipmentRow(updated); // S49-R4
     });
   }
 
@@ -561,15 +597,18 @@ export class ShipmentsService {
   ) {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!shipment) throw BusinessException.notFound();
-    return this.prisma.shipmentRequest.update({
-      where: { id },
-      data: {
-        carrier,
-        trackingNumber,
-        status: 'guia',
-        // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
-        ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
-      },
-    });
+    // S49-R4: proyectado (antes devolvía la entidad `ShipmentRequest` cruda).
+    return toAdminShipmentRow(
+      await this.prisma.shipmentRequest.update({
+        where: { id },
+        data: {
+          carrier,
+          trackingNumber,
+          status: 'guia',
+          // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
+          ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
+        },
+      }),
+    );
   }
 }

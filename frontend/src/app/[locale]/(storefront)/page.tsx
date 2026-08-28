@@ -59,7 +59,7 @@ export default function HomePage() {
   // y como sección propia (móvil) compartiendo las mismas líneas.
   const quoter = useHomeQuoter();
 
-  // «Gancho de grading» (§21.6): la MISMA consulta que alimenta la vitrina decide si el home
+  // «Gancho de grading» (§22.6): la MISMA consulta que alimenta la vitrina decide si el home
   // hospeda la nota al pie (TanStack la dedupe por queryKey). Si la vitrina no se renderiza,
   // tampoco la nota; y sin nota, ninguna cifra puede pintarse (R3.3).
   const gems = useGradingGems();

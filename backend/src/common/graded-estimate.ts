@@ -1,10 +1,10 @@
 /**
- * graded-estimate.ts (v1.44, ARCHITECTURE §4.35, PROJECT §N v2.0) — «gancho de grading»: lógica PURA
+ * graded-estimate.ts (v1.50.2, ARCHITECTURE §4.38, PROJECT §O v2.0) — «gancho de grading»: lógica PURA
  * del estimado por grado y del gate de CURADURÍA. Zona compartida (`common/`), sin dependencias de
  * infra (importable desde tests, seeds y `settings.constants`), hermana de `money.ts` /
- * `pricing-tiers.ts`.
+ * `pricing-curve.ts`.
  *
- * LA PARTICIÓN QUE GOBIERNA TODO (§4.35-0): INFORMAR ≠ PROMOVER.
+ * LA PARTICIÓN QUE GOBIERNA TODO (§4.38-0): INFORMAR ≠ PROMOVER.
  *   - FICHA  (`gradedEstimates`)  → `selectGradedEstimates`  → SIN gate: basta dato FRESCO y > 0.
  *   - TEJA/VITRINA (`gradingHighlight`) → `evaluateGradingHighlight` → CON gate de ROI sobre PSA 9.
  * Una carta puede mostrar sus estimados en la ficha y NO estar destacada. Es deliberado.
@@ -14,7 +14,7 @@
  * `gradingCostTier` y `reason` alimentan el ORDEN de la vitrina y el diagnóstico de admin; JAMÁS el DTO
  * público. Por eso las puras reciben `{ gradeValue, mxnCents, capturedDate }` y NUNCA `source` /
  * `isManualOverride`: ninguna rama puede bifurcar por ORIGEN del número (indistinguibilidad fase 1 ⇄ 2,
- * §4.35g).
+ * §4.38g).
  *
  * MONEY-SAFE: sin escalón NO hay destacado (jamás un costo de gradeo asumido en 0); un estimado ≤ 0 no
  * es un estimado; un arreglo vacío NUNCA se emite (el caller OMITE el campo).
@@ -32,7 +32,7 @@ export interface GradingCostTier {
 /**
  * Config efectiva del gancho, izada UNA vez por request (patrón BE-25).
  *
- * **v1.44.1 (GU-A8, §4.35d) — TRES interruptores, no uno.** El fail-closed distingue *AUSENTE* de
+ * **v1.44.1 (GU-A8, §4.38d) — TRES interruptores, no uno.** El fail-closed distingue *AUSENTE* de
  * *PRESENTE-pero-INVÁLIDA*, y una clave inválida apaga **solo la superficie que gobierna**:
  *
  * | Flag | Qué apaga | Se pone en `false` por |
@@ -48,7 +48,7 @@ export interface GradedEstimateConfig {
   /**
    * ESPEJO READ-ONLY del dial M10 `graded_estimates_enabled` (fail-closed, seed `off`). Es el `enabled`
    * del DTO de admin; **no** lo apaga una clave corrupta (eso se refleja en el `reason` del preview y en
-   * el `warn`, §4.35d › Observabilidad), porque el contrato lo define como espejo del dial.
+   * el `warn`, §4.38d › Observabilidad), porque el contrato lo define como espejo del dial.
    */
   enabled: boolean;
   /** ¿La FICHA puede informar? Gobierna `selectGradedEstimates`. */
@@ -65,12 +65,59 @@ export interface GradedEstimateConfig {
   minUpsidePct: number;
   /** Tabla de escalones del gate de CURADURÍA. Vacía ⇒ nada se destaca. NO afecta la ficha. */
   gradingCostTiers: GradingCostTier[];
+
+  // ===================== v1.50.2 — gate de confianza (§4.38k) + ingest (§4.38h) =====================
+
+  /**
+   * ESPEJO READ-ONLY del segundo dial M10, `graded_estimate_ingest_enabled` (seed `off`). Gobierna la
+   * **obtención** (¿gastamos créditos y escribimos filas?), NO la **exhibición** (`enabled`). Son dos
+   * diales a propósito: con uno solo, el operador tendría que elegir entre «no puedo probar el ingest
+   * sin publicar» y «no puedo publicar sin encender el gasto» (§4.38d).
+   */
+  ingestEnabled: boolean;
+  /**
+   * Decaimiento del OVERRIDE MANUAL (seed `null` = **no decae**), §4.38m. `freshnessDays` protege
+   * contra un **feed** rancio; un override manual **no es un feed**: es una afirmación deliberada de un
+   * humano, y su vigencia la revoca otro humano, no el calendario. Sin esta asimetría, un manual viejo
+   * ganaba la resolución (`isBetterRef`, tier absoluto) y **después** la frescura lo tiraba ⇒ la carta
+   * quedaba sin estimado PESE A HABER dato fresco disponible: un fallo silencioso.
+   */
+  manualFreshnessDays: number | null;
+  /** Cota SUPERIOR de magnitud (seed 50), §4.38k.2. Solo la REJILLA la aplica; la ficha nunca. */
+  maxRawMultiple: number;
+  /**
+   * Muestra mínima del proveedor para aceptar una fila AUTOMÁTICA (seed 3), §4.38k.1. Se aplica **en la
+   * ESCRITURA** (ingest): `PriceReference` no tiene dónde persistir el `count` sin DDL, y gatearlo al
+   * escribir mantiene M-42 como DATA/seed puro. Consecuencia asumida: cambiarlo afecta solo a
+   * escrituras futuras (para re-aplicarlo hay que re-correr el ingest).
+   */
+  minSampleCount: number;
+  /** Cuál número del proveedor ES el precio (seed `median`), §4.38h.2. */
+  sourceStat: GradedEstimateSourceStat;
+  /** Tope DURO de cartas por corrida del ingest (seed 250), §4.38h.3. */
+  ingestMaxCardsPerRun: number;
+  /**
+   * INTERNO (no viaja al DTO): ¿alguna de las 3 claves del INGEST está PRESENTE-pero-INVÁLIDA? Los
+   * diales del ingest **no** apagan una superficie de lectura —corromperlos no puede vaciar una vitrina
+   * cuyo dato ya está escrito—, pero **sí** deben impedir que el job escriba: con `minSampleCount` o
+   * `sourceStat` corruptos no sabemos *qué* número es el precio ni *cuánta* muestra exigimos, y adivinar
+   * eso es escribir dinero a ciegas. Mismo espíritu que `estimatesEnabled`/`highlightEnabled`.
+   */
+  ingestConfigInvalid: boolean;
 }
+
+/**
+ * Qué estadístico del proveedor se publica. **`median` por defecto y no `average`**: en PSA 10 de
+ * cartas caras una venta atípica es lo normal, y el promedio la arrastra entera. `smart` es una
+ * derivación PROPIETARIA no documentada del proveedor — construir sobre ella es exactamente lo que P-6
+ * prohíbe —, así que existe como escotilla del operador, no como default.
+ */
+export type GradedEstimateSourceStat = 'median' | 'average' | 'smart';
 
 /** El `GradedEstimateConfigDTO` del contrato (§M2). Los flags internos de GU-A8 NO forman parte de él. */
 export type GradedEstimateConfigDTO = Omit<
   GradedEstimateConfig,
-  'estimatesEnabled' | 'highlightEnabled'
+  'estimatesEnabled' | 'highlightEnabled' | 'ingestConfigInvalid'
 >;
 
 /**
@@ -81,24 +128,38 @@ export type GradedEstimateConfigDTO = Omit<
 export function toGradedEstimateConfigDTO(cfg: GradedEstimateConfig): GradedEstimateConfigDTO {
   return {
     enabled: cfg.enabled,
+    ingestEnabled: cfg.ingestEnabled,
     grades: cfg.grades,
     highlightGrades: cfg.highlightGrades,
     freshnessDays: cfg.freshnessDays,
     minUpsidePct: cfg.minUpsidePct,
     gradingCostTiers: cfg.gradingCostTiers,
+    // v1.50.2 — los 5 diales editables del gate de confianza y del ingest (contrato §M2).
+    manualFreshnessDays: cfg.manualFreshnessDays,
+    maxRawMultiple: cfg.maxRawMultiple,
+    minSampleCount: cfg.minSampleCount,
+    sourceStat: cfg.sourceStat,
+    ingestMaxCardsPerRun: cfg.ingestMaxCardsPerRun,
   };
 }
 
-/** Un estimado por grado, ya resuelto a MXN. Deliberadamente SIN `source`/`isManualOverride` (§4.35g). */
+/** Un estimado por grado, ya resuelto a MXN. Deliberadamente SIN `source`/`isManualOverride` (§4.38g). */
 export interface GradedEstimateInput {
   /** `"10"` | `"9"` (string abierto en el TIPO: añadir un grado no es cambio de contrato). */
   gradeValue: string;
   mxnCents: number;
   /** `YYYY-MM-DD` (date-only, misma convención que `PriceReference.capturedDate @db.Date`). */
   capturedDate: string;
+  /**
+   * v1.50.2 (§4.38m) — ¿es un OVERRIDE MANUAL? Decide **SI** el elemento se emite (la frescura de feed
+   * no se le aplica), **NUNCA QUÉ** se emite: ni el monto, ni el shape, ni el render dependen de él, y
+   * **no viaja al DTO**. La garantía (g) —fase 1 y fase 2 indistinguibles para el cliente— queda
+   * intacta: un cliente no puede distinguir una fila manual de una automática mirando la respuesta.
+   */
+  isManual: boolean;
 }
 
-/** Razón accionable por la que un grupo NO quedó destacado (solo admin/diagnóstico, §4.35d). */
+/** Razón accionable por la que un grupo NO quedó destacado (solo admin/diagnóstico, §4.38d). */
 export type HighlightReason =
   | 'FEATURE_OFF'
   | 'NOT_RAW'
@@ -107,7 +168,16 @@ export type HighlightReason =
   | 'NO_PSA9'
   | 'STALE'
   | 'NO_COST_TIER'
-  | 'BELOW_MIN_UPSIDE';
+  | 'BELOW_MIN_UPSIDE'
+  // ---- v1.50.2 ----
+  /** INV-D (§4.38l): hay un SLAB PUBLICADO de ese grado ⇒ esa fila es DINERO real, no un estimado. */
+  | 'SLAB_PUBLISHED'
+  /** Cota INFERIOR de magnitud: `psa10 <= salePriceCents`. Caza el ERROR DE UNIDADES (USD como MXN). */
+  | 'NOT_ABOVE_RAW'
+  /** Cota SUPERIOR: `psa10 > salePriceCents × maxRawMultiple`. Caza el cero de más / typo al alza. */
+  | 'ABOVE_MAX_MULTIPLE'
+  /** Cota de ORDEN: `psa10 < psa9`. Caza el grado INTERCAMBIADO (las dos filas capturadas cruzadas). */
+  | 'GRADE_ORDER_INVERTED';
 
 export interface GradingHighlightResult<T extends GradedEstimateInput = GradedEstimateInput> {
   eligible: boolean;
@@ -120,6 +190,12 @@ export interface GradingHighlightResult<T extends GradedEstimateInput = GradedEs
   /** Clave de ORDEN de la vitrina + insumo del preview de admin. NO viaja al cliente. */
   netUpsidePsa9MxnCents: number | null;
   /**
+   * v1.50.2 — cota SUPERIOR efectiva (`salePriceCents × maxRawMultiple`, truncada a entero) para que el
+   * operador vea en el `preview` **contra qué** se comparó. `null` si no hay precio de venta resoluble.
+   * Diagnóstico de ADMIN: jamás viaja al cliente.
+   */
+  maxAllowedPsa10MxnCents: number | null;
+  /**
    * Montos crudos por grado tal como se leyeron (o `null` si ausente/<= 0). Sirven al DESEMPATE de la
    * vitrina (PSA 10 desc) y al diagnóstico de admin. **NUNCA** salen en el DTO público.
    */
@@ -131,16 +207,16 @@ export interface GradingHighlightResult<T extends GradedEstimateInput = GradedEs
   capturedDate: string | null;
 }
 
-/** MVP: única graduadora soportada (§N.1; CGC/BGS/TAG fuera de alcance). */
+/** MVP: única graduadora soportada (§O.1; CGC/BGS/TAG fuera de alcance). */
 export const GRADED_ESTIMATE_COMPANY = 'PSA' as const;
 
 /**
  * Conjunto CERRADO de grados soportados (I7 del `PUT`). El gate SIEMPRE necesita PSA 9 aunque el badge
- * no lo pinte, por eso el batch lee siempre los dos. Grados PSA <= 8 quedan fuera de alcance (§N.1).
+ * no lo pinte, por eso el batch lee siempre los dos. Grados PSA <= 8 quedan fuera de alcance (§O.1).
  */
 export const GRADED_ESTIMATE_GRADE_VALUES: readonly string[] = ['10', '9'];
 
-/** `gradeKey` canónico del estimado (§4.35a). Empata con `buildGradeKey({productType:'graded'})`. */
+/** `gradeKey` canónico del estimado (§4.38a). Empata con `buildGradeKey({productType:'graded'})`. */
 export function gradedEstimateGradeKey(gradeValue: string): string {
   return `graded:${GRADED_ESTIMATE_COMPANY}:${gradeValue}`;
 }
@@ -162,7 +238,7 @@ export const GRADED_ESTIMATE_FRESHNESS_DAYS_MIN = 1;
 export const GRADED_ESTIMATE_FRESHNESS_DAYS_MAX = 365;
 
 /**
- * Seed de `grading_cost_tiers` (§4.35d / PROJECT §N.2.1), intervalos SEMIABIERTOS `[min, max)` en
+ * Seed de `grading_cost_tiers` (§4.38d / PROJECT §O.2.1), intervalos SEMIABIERTOS `[min, max)` en
  * centavos MXN. Cubre el total PUERTA A PUERTA para un comprador en México (cuota PSA + envío
  * internacional + retorno asegurado + manejo), no la cuota pelona. SUPUESTO revisable por el dueño.
  *
@@ -181,11 +257,115 @@ export const DEFAULT_GRADING_COST_TIERS: GradingCostTier[] = [
   { minValueMxnCents: 5_000_000, maxValueMxnCents: null, costMxnCents: 1_200_000 },
 ];
 
-/** Seeds de los diales NO-dinero (umbrales/listas). Su ausencia SÍ puede caer aquí (§4.35d). */
+/** Seeds de los diales NO-dinero (umbrales/listas). Su ausencia SÍ puede caer aquí (§4.38d). */
 export const DEFAULT_GRADED_ESTIMATE_GRADES: string[] = ['10', '9'];
 export const DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES: string[] = ['10'];
 export const DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS = 30;
 export const DEFAULT_GRADING_MIN_UPSIDE_PCT = 30;
+
+// ===== v1.50.2 — seeds y rangos de los 5 diales nuevos de M2 (I8/I9, contrato §M2) =====
+
+/** `null` = el override manual NO decae (§4.38m). Es el seed, y es una decisión, no un olvido. */
+export const DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS: number | null = null;
+export const GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MIN = 1;
+export const GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MAX = 3650;
+
+/** Cota SUPERIOR de magnitud (§4.38k.2). */
+export const DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE = 50;
+/**
+ * I9: `maxRawMultiple > 1` **estricto**, y NO es cosmético. Con `<= 1` la cota superior chocaría con la
+ * INFERIOR (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás: una vitrina vacía
+ * permanente y sin explicación. Por eso el mínimo es exclusivo.
+ */
+export const GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MIN_EXCLUSIVE = 1;
+export const GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MAX = 1000;
+
+/** Muestra mínima del proveedor, aplicada en la ESCRITURA (§4.38k.1). */
+export const DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT = 3;
+export const GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MIN = 1;
+export const GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MAX = 100;
+
+/** Qué número del proveedor ES el precio (§4.38h.2). La MEDIANA, no el promedio. */
+export const GRADED_ESTIMATE_SOURCE_STAT_VALUES: readonly GradedEstimateSourceStat[] = [
+  'median',
+  'average',
+  'smart',
+];
+export const DEFAULT_GRADED_ESTIMATE_SOURCE_STAT: GradedEstimateSourceStat = 'median';
+
+/** Tope DURO de cuota por corrida del ingest (§4.38h.3). Un error de alcance no quema el día. */
+export const DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN = 250;
+export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MIN = 1;
+export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 5000;
+
+/**
+ * Config APAGADA e INERTE — el estado del dial `off` (seed) y el que usan los tests de «con `off` el
+ * backend ni siquiera evalúa nada». Con `grades`/`gradingCostTiers` vacíos, las puras devuelven `[]` y
+ * `FEATURE_OFF` **aunque alguien las llamara por error**: el fail-closed no depende de que el caller
+ * recuerde comprobar el flag. Se declara aquí (una sola vez) para que `pricing.service` y los tests no
+ * mantengan tres copias divergentes del mismo objeto.
+ */
+export const DISABLED_GRADED_ESTIMATE_CONFIG: GradedEstimateConfig = {
+  enabled: false,
+  estimatesEnabled: false,
+  highlightEnabled: false,
+  ingestEnabled: false,
+  grades: [],
+  highlightGrades: [],
+  freshnessDays: DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
+  minUpsidePct: DEFAULT_GRADING_MIN_UPSIDE_PCT,
+  gradingCostTiers: [],
+  manualFreshnessDays: DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+  maxRawMultiple: DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
+  minSampleCount: DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
+  sourceStat: DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
+  ingestMaxCardsPerRun: DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+  ingestConfigInvalid: false,
+};
+
+/** I8 — `manualFreshnessDays`: `null` (no decae) o entero en `[1, 3650]`. `null` es un valor, no ausencia. */
+export function validateGradedEstimateManualFreshnessDays(v: unknown): string | null {
+  if (v === null) return null;
+  return isInt(v) &&
+    v >= GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MIN &&
+    v <= GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MAX
+    ? null
+    : `must be null or an integer in [${GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MIN}, ${GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MAX}] (days)`;
+}
+
+/** I9 — `maxRawMultiple`: número **> 1** (estricto) y <= 1000. Ver por qué el `> 1` importa arriba. */
+export function validateGradedEstimateMaxRawMultiple(v: unknown): string | null {
+  return typeof v === 'number' &&
+    Number.isFinite(v) &&
+    v > GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MIN_EXCLUSIVE &&
+    v <= GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MAX
+    ? null
+    : `must be a number > ${GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MIN_EXCLUSIVE} and <= ${GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MAX} ` +
+        '(<= 1 would collide with the lower bound psa10 > salePriceCents and empty the showcase forever)';
+}
+
+/** I8 — `minSampleCount`: entero en `[1, 100]`. */
+export function validateGradedEstimateMinSampleCount(v: unknown): string | null {
+  return isInt(v) &&
+    v >= GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MIN &&
+    v <= GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MAX
+    ? null
+    : `must be an integer in [${GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MIN}, ${GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MAX}]`;
+}
+
+/** I8 — `sourceStat` ∈ {median, average, smart}. */
+export function validateGradedEstimateSourceStat(v: unknown): string | null {
+  return typeof v === 'string' && (GRADED_ESTIMATE_SOURCE_STAT_VALUES as readonly string[]).includes(v)
+    ? null
+    : `must be one of ${GRADED_ESTIMATE_SOURCE_STAT_VALUES.join('|')}`;
+}
+
+/** I8 — `ingestMaxCardsPerRun`: entero en `[1, 5000]`. */
+export function validateGradedEstimateIngestMaxCards(v: unknown): string | null {
+  return isInt(v) && v >= GRADED_ESTIMATE_INGEST_MAX_CARDS_MIN && v <= GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX
+    ? null
+    : `must be an integer in [${GRADED_ESTIMATE_INGEST_MAX_CARDS_MIN}, ${GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX}] (cards per run)`;
+}
 
 /** Error de validación de la tabla de escalones: código de contrato + detalle accionable. */
 export interface GradingTiersError {
@@ -306,7 +486,7 @@ export function validateGradingCostTiers(v: unknown): GradingTiersError | null {
 }
 
 /**
- * Lectura FAIL-CLOSED de la tabla (§4.35d): clave ausente, corrupta o que no cumple I1–I5 ⇒ tabla
+ * Lectura FAIL-CLOSED de la tabla (§4.38d): clave ausente, corrupta o que no cumple I1–I5 ⇒ tabla
  * VACÍA ⇒ **nada se destaca**. JAMÁS se cae a un default de código para el COSTO (a diferencia de
  * `minUpsidePct`/`freshnessDays`/`grades`, que son umbrales/listas y sí caen a su seed: su ausencia no
  * puede producir un gate optimista porque sin tabla no hay gate).
@@ -388,22 +568,60 @@ function byGradeDesc(a: { gradeValue: string }, b: { gradeValue: string }): numb
   return String(b.gradeValue).localeCompare(String(a.gradeValue));
 }
 
-/** ¿El estimado de `gradeValue` sirve? (existe, > 0 y fresco). */
+/**
+ * v1.50.2 (§4.38m) — frescura ASIMÉTRICA por ORIGEN de la fila:
+ *
+ * ```
+ * stale(e) := e.isManual ? (manualFreshnessDays == null ? false : diff > manualFreshnessDays)
+ *                        : diff > freshnessDays
+ * ```
+ *
+ * **Por qué el manual no decae por defecto.** `freshnessDays` existe para protegernos de un **feed**
+ * rancio (un precio automático que el proveedor dejó de actualizar). Un override manual **no es un
+ * feed**: es una afirmación deliberada de un humano, y la revoca otro humano, no el calendario.
+ * Sin esta regla, `isBetterRef` (tier manual ABSOLUTO, §4.27f-2) elegía el manual viejo y la ventana de
+ * frescura lo descartaba después ⇒ la carta se quedaba **sin estimado pese a haber dato fresco**. Es la
+ * clase entera de fallo «gana y luego se tira», y se elimina aquí y no en `isBetterRef` porque
+ * **degradar una invariante de DINERO para arreglar un problema de PRESENTACIÓN sería el peor cambio**.
+ */
+export function isStaleRef(
+  e: GradedEstimateInput,
+  today: string,
+  cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
+): boolean {
+  if (e.isManual === true) {
+    if (cfg.manualFreshnessDays == null) return false; // seed: el manual NUNCA es rancio.
+    return isStaleEstimate(e.capturedDate, today, cfg.manualFreshnessDays);
+  }
+  return isStaleEstimate(e.capturedDate, today, cfg.freshnessDays);
+}
+
+/**
+ * ¿El estimado de `gradeValue` sirve? (existe, > 0, fresco y **sin slab publicado de ese grado**).
+ *
+ * `publishedSlabGrades` (v1.50.2, INV-D §4.38l) es la guarda de LECTURA: si la carta tiene un slab
+ * PUBLICADO de ese grado, esa fila **no es un estimado** — es la referencia de mercado real que fija el
+ * precio de venta de esa pieza física. Va aquí, en el helper compartido, para que **ninguna** de las dos
+ * superficies pueda olvidarla; y neutraliza además las filas escritas ANTES de la guarda de escritura,
+ * que el `422`/`409` del override por sí solo no alcanza.
+ */
 function usable<T extends GradedEstimateInput>(
   estimates: T[],
   gradeValue: string,
   today: string,
-  freshnessDays: number,
+  cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
+  publishedSlabGrades: readonly string[],
 ): T | null {
   const e = estimates.find((x) => x.gradeValue === gradeValue);
   if (e == null) return null;
   if (!isInt(e.mxnCents) || e.mxnCents <= 0) return null; // un 0 NO es un estimado (money-safe).
-  if (isStaleEstimate(e.capturedDate, today, freshnessDays)) return null;
+  if (isStaleRef(e, today, cfg)) return null;
+  if (publishedSlabGrades.includes(gradeValue)) return null; // INV-D: es precio REAL, no estimado.
   return e;
 }
 
 /**
- * FICHA (`gradedEstimates`) — SIN gate de ROI (§4.35c). Devuelve los grados de `cfg.grades` con dato
+ * FICHA (`gradedEstimates`) — SIN gate de ROI (§4.38c). Devuelve los grados de `cfg.grades` con dato
  * FRESCO y > 0, en orden descendente. Los grados son INDEPENDIENTES: tener PSA 10 y no PSA 9 emite un
  * arreglo de UN elemento.
  *
@@ -413,36 +631,47 @@ function usable<T extends GradedEstimateInput>(
 export function selectGradedEstimates<T extends GradedEstimateInput>(input: {
   productType: 'raw' | 'graded' | 'sealed';
   estimates: T[];
+  /** v1.50.2 (INV-D, §4.38l): grados con SLAB PUBLICADO ⇒ ese grado se OMITE (es dinero, no estimado). */
+  publishedSlabGrades?: readonly string[];
   today: string;
   cfg: GradedEstimateConfig;
 }): T[] {
   const { productType, estimates, today, cfg } = input;
+  const publishedSlabGrades = input.publishedSlabGrades ?? [];
   // 1. fail-closed: dial M10 `off` (seed) **o** GU-A8 — `grades`/`freshnessDays` PRESENTE-e-INVÁLIDA.
   //    Sin un umbral de frescura confiable no se puede afirmar que una cifra esté vigente, así que la
-  //    ficha tampoco informa (§4.35d › «Alcance del apagado»).
+  //    ficha tampoco informa (§4.38d › «Alcance del apagado»).
   if (cfg.estimatesEnabled !== true) return [];
   if (productType !== 'raw') return []; // 2. criterio 87: graded y sealed NUNCA.
   const out: T[] = [];
   for (const g of cfg.grades) {
-    const e = usable(estimates, g, today, cfg.freshnessDays); // 3. ausente / <= 0 / rancio ⇒ se OMITE ESE grado.
+    // 3. ausente / <= 0 / rancio / con slab publicado ⇒ se OMITE ESE grado (son INDEPENDIENTES).
+    //    ⚠️ La FICHA **NO** aplica la cota de MAGNITUD (§4.38k.3): informa lo que hay. Si el dueño fijó
+    //    a mano un estimado raro, la ficha se lo MUESTRA —es su dato, con su disclaimer— y solo la
+    //    rejilla se niega a promoverlo. Suprimirlo también aquí convertiría un dato visible-y-corregible
+    //    en una desaparición silenciosa.
+    const e = usable(estimates, g, today, cfg, publishedSlabGrades);
     if (e != null) out.push(e);
   }
   return out.sort(byGradeDesc); // 4. orden desc (PSA 10 primero).
 }
 
 /**
- * TEJA / VITRINA (`gradingHighlight`) — CON gate de ROI sobre PSA 9 (§4.35c, decisión 41). Cada paso
+ * TEJA / VITRINA (`gradingHighlight`) — CON gate de ROI sobre PSA 9 (§4.38c, decisión 41). Cada paso
  * produce un `reason` accionable; JAMÁS un default silencioso.
  *
  * ```
- * 1 !enabled            -> FEATURE_OFF      5 psa9 ausente/<=0  -> NO_PSA9
- * 2 productType != raw  -> NOT_RAW          6 alguno rancio     -> STALE
- * 3 sin precio de venta -> NOT_PUBLISHED    7 sin escalón       -> NO_COST_TIER   (jamás costo 0)
- * 4 psa10 ausente/<=0   -> NO_PSA10         8 psa9 < umbral     -> BELOW_MIN_UPSIDE
+ * 1  !enabled            -> FEATURE_OFF     6  alguno rancio      -> STALE
+ * 2  productType != raw  -> NOT_RAW         6b slab publicado     -> SLAB_PUBLISHED     (v1.50.2, INV-D)
+ * 3  sin precio de venta -> NOT_PUBLISHED   6c psa10 <= raw       -> NOT_ABOVE_RAW      (unidades)
+ * 4  psa10 ausente/<=0   -> NO_PSA10           psa10 > raw × mult -> ABOVE_MAX_MULTIPLE (cero de más)
+ * 5  psa9 ausente/<=0    -> NO_PSA9            psa10 < psa9       -> GRADE_ORDER_INVERTED (cruzados)
+ *                                           7  sin escalón        -> NO_COST_TIER  (jamás costo 0)
+ *                                           8  psa9 < umbral      -> BELOW_MIN_UPSIDE
  * gate: psa9 × 100 >= (rawSalePriceCents + tier.costMxnCents) × (100 + minUpsidePct)   [entero]
  * ```
  *
- * - **Valor declarado = el estimado PSA 10** (§N.2.1): escenario más caro ⇒ escalón más alto ⇒ gate más
+ * - **Valor declarado = el estimado PSA 10** (§O.2.1): escenario más caro ⇒ escalón más alto ⇒ gate más
  *   estricto. Cambiarlo es UNA línea aquí y CERO cambio de contrato.
  * - **Aritmética ENTERA en el umbral** (MENOR-1): se compara `psa9 × 100 >= (rawSalePriceCents +
  *   tier.costMxnCents) × (100 + minUpsidePct)`. Nada de `× (1 + pct/100)`: esa forma se pasaba un centavo
@@ -456,10 +685,13 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   productType: 'raw' | 'graded' | 'sealed';
   rawSalePriceCents: number | null;
   estimates: T[];
+  /** v1.50.2 (INV-D, §4.38l): grados con SLAB PUBLICADO ⇒ `SLAB_PUBLISHED`, no se promueve. */
+  publishedSlabGrades?: readonly string[];
   today: string;
   cfg: GradedEstimateConfig;
 }): GradingHighlightResult<T> {
   const { productType, rawSalePriceCents, estimates, today, cfg } = input;
+  const publishedSlabGrades = input.publishedSlabGrades ?? [];
   const rawPsa10 = estimates.find((e) => e.gradeValue === '10');
   const rawPsa9 = estimates.find((e) => e.gradeValue === '9');
   const amountOf = (e: T | undefined): number | null =>
@@ -472,7 +704,17 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     .map((e) => e.capturedDate)
     .sort();
   const capturedDate = dates.length > 0 ? dates[0] : null;
-  const stale = dates.some((d) => isStaleEstimate(d, today, cfg.freshnessDays));
+  // v1.50.2: la frescura se evalúa POR FILA (asimétrica manual/automática, §4.38m), no por fecha suelta.
+  const stale = [rawPsa10, rawPsa9]
+    .filter((e): e is T => e != null)
+    .some((e) => isStaleRef(e, today, cfg));
+  // Cota SUPERIOR efectiva. Se trunca a ENTERO de centavos: `psa10 > floor(raw × mult)` es equivalente a
+  // `psa10 > raw × mult` para `psa10` entero, y así el número que ve el operador en el `preview` es
+  // exactamente el que se comparó (nada de un umbral flotante que no coincide con lo que se decidió).
+  const maxAllowedPsa10MxnCents =
+    rawSalePriceCents != null && isInt(rawSalePriceCents) && rawSalePriceCents > 0
+      ? Math.floor(rawSalePriceCents * cfg.maxRawMultiple)
+      : null;
 
   const no = (reason: HighlightReason): GradingHighlightResult<T> => ({
     eligible: false,
@@ -482,13 +724,14 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     gradingCostMxnCents: null,
     thresholdMxnCents: null,
     netUpsidePsa9MxnCents: null,
+    maxAllowedPsa10MxnCents,
     psa10MxnCents,
     psa9MxnCents,
     stale,
     capturedDate,
   });
 
-  // GU-A8 (§4.35d): apagado por dial M10 `off` **o** por una clave PRESENTE-e-INVÁLIDA que gobierne la
+  // GU-A8 (§4.38d): apagado por dial M10 `off` **o** por una clave PRESENTE-e-INVÁLIDA que gobierne la
   // promoción (`minUpsidePct`, `highlightGrades`) o la ficha (`grades`, `freshnessDays`). Un valor
   // corrupto es evidencia de que la intención del admin se perdió: **no se adivina**, se apaga.
   if (cfg.highlightEnabled !== true) return no('FEATURE_OFF');
@@ -501,6 +744,34 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   if (psa10MxnCents == null) return no('NO_PSA10'); // se necesita para resolver el ESCALÓN.
   if (psa9MxnCents == null) return no('NO_PSA9'); // criterio 80: sin PSA 9 no se promueve.
   if (stale) return no('STALE'); // manda el MÁS ANTIGUO de los dos.
+
+  // 6b. INV-D (§4.38l): con un SLAB PUBLICADO de cualquiera de los dos grados, esa fila es el precio de
+  //     mercado REAL de una pieza física — no un estimado — y la pieza ya se lista con su propio precio.
+  if (publishedSlabGrades.includes('10') || publishedSlabGrades.includes('9')) {
+    return no('SLAB_PUBLISHED');
+  }
+
+  // ============================ 6c. GATE DE MAGNITUD (§4.38k.2) ============================
+  // ⚠️ LEER ANTES DE RELAJAR CUALQUIERA DE LAS TRES. **NO son redundantes**: cada una ataja un error
+  // distinto, y quitar una no «simplifica» — abre exactamente su agujero.
+  //
+  //  (1) INFERIOR `psa10 > salePriceCents`  → caza el **ERROR DE UNIDADES** (USD escrito donde van MXN).
+  //      La dirección es lo contraintuitivo y por eso queda escrito: uno espera que un error de moneda
+  //      INFLE el número, pero USD→MXN mal aplicado lo **DEPRIME** (~19× MENOS). Un PSA 10 de USD 60
+  //      guardado como MX$60 contra un raw de MX$400 queda BAJO, así que **el múltiplo máximo NO lo
+  //      ve**: solo esta cota lo caza. (INV-FX lo previene en ORIGEN, §4.38a; ésta es la 2ª línea de
+  //      defensa, para la captura manual y para cualquier ruta futura.)
+  //  (2) SUPERIOR `psa10 <= salePriceCents × maxRawMultiple` → caza el **cero de más** / typo al alza.
+  //  (3) DE ORDEN `psa10 >= psa9` → caza el **grado INTERCAMBIADO** (las dos filas capturadas cruzadas).
+  //
+  // Va ANTES de resolver el escalón (paso 7) A PROPÓSITO: si el número está en unidades equivocadas, el
+  // escalón que elija es basura y el `threshold` que produzca también. Se descarta antes de contaminar
+  // el resto del cálculo. La FICHA no aplica NADA de esto (§4.38k.3): informar ≠ promover.
+  if (psa10MxnCents <= rawSalePriceCents) return no('NOT_ABOVE_RAW');
+  if (maxAllowedPsa10MxnCents != null && psa10MxnCents > maxAllowedPsa10MxnCents) {
+    return no('ABOVE_MAX_MULTIPLE');
+  }
+  if (psa10MxnCents < psa9MxnCents) return no('GRADE_ORDER_INVERTED');
 
   const tier = findGradingCostTier(cfg.gradingCostTiers, psa10MxnCents);
   if (tier == null) return no('NO_COST_TIER'); // SIN ESCALÓN, SIN DESTACADO — jamás costo 0.
@@ -519,6 +790,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     gradingCostMxnCents: tier.costMxnCents,
     thresholdMxnCents,
     netUpsidePsa9MxnCents,
+    maxAllowedPsa10MxnCents,
     psa10MxnCents,
     psa9MxnCents,
     stale,
@@ -534,7 +806,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
 
   const highlight: T[] = [];
   for (const g of cfg.highlightGrades) {
-    const e = usable(estimates, g, today, cfg.freshnessDays);
+    const e = usable(estimates, g, today, cfg, publishedSlabGrades);
     if (e != null) highlight.push(e);
   }
   // `netUpsidePsa9MxnCents > 0` garantizado aquí (psa9 >= threshold >= costBase, con minUpsidePct >= 0).

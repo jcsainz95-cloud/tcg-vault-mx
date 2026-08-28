@@ -8,7 +8,7 @@ import { DEFAULT_GRADING_COST_TIERS } from '../src/common/graded-estimate';
 
 /**
  * v1.44-graded-estimate — `PricingService.getGradedEstimatesBatch` + `loadGradedEstimateConfig`
- * (ARCHITECTURE §4.35a/c/d).
+ * (ARCHITECTURE §4.38a/c/d).
  *
  * Lo que se prueba aquí es lo que hace que la feature no sea un problema de rendimiento ni de money-
  * safety: UNA sola query con la clave canónica, desempate determinista, recomputo FX, y una config
@@ -63,7 +63,7 @@ function wire(rows: unknown[] = [], config: Record<string, unknown> = {}) {
   return { pricing, prisma, findMany, configStore };
 }
 
-describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.35a/c)', () => {
+describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/c)', () => {
   it('consulta productType=graded, los DOS gradeKey, finish=normal y cardProductId=null — una sola vez', async () => {
     const { pricing, findMany } = wire([refRow(), refRow({ gradeKey: 'graded:PSA:9', priceMxnCents: 300_000 })]);
     const map = await pricing.getGradedEstimatesBatch(['c1', 'c1', 'c2']);
@@ -73,7 +73,7 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.35a/
     expect(where.cardId).toEqual({ in: ['c1', 'c2'] }); // cardIds DISTINTOS
     expect(where.productType).toBe('graded');
     expect(where.gradeKey).toEqual({ in: ['graded:PSA:10', 'graded:PSA:9'] });
-    // El grado NO se cruza con el acabado: el estimado es por CARTA (§4.35a).
+    // El grado NO se cruza con el acabado: el estimado es por CARTA (§4.38a).
     expect(where.finish).toBe('normal');
     // El estimado es de la CARTA, no de un CardProduct separado (§4.27).
     expect(where.cardProductId).toBeNull();
@@ -88,7 +88,7 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.35a/
     expect(findMany).not.toHaveBeenCalled();
   });
 
-  it('INDISTINGUIBILIDAD (§4.35g): el resultado NO transporta `source` ni `isManualOverride`', async () => {
+  it('INDISTINGUIBILIDAD (§4.38g): el resultado NO transporta `source` ni `isManualOverride`', async () => {
     const { pricing } = wire([refRow()]);
     const [ref] = (await pricing.getGradedEstimatesBatch(['c1'])).get('c1')!;
     expect(ref).toEqual({
@@ -96,6 +96,11 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.35a/
       gradeKey: 'graded:PSA:10',
       mxnCents: 900_000,
       capturedDate: '2026-08-20',
+      // v1.50.2 (§4.38m): `isManual` SÍ entra al tipo interno — decide **si** el elemento se emite (la
+      // frescura de feed no se aplica a una decisión humana), nunca **qué**. Sigue sin ser `source`:
+      // no dice de QUÉ proveedor vino, solo si un humano lo fijó, y **no viaja al DTO público** (eso
+      // lo prueba `SEC-A1` en `graded-estimate.composition.spec.ts` sobre el JSON serializado).
+      isManual: true,
     });
     expect(Object.keys(ref)).not.toContain('source');
     expect(Object.keys(ref)).not.toContain('isManualOverride');
@@ -108,7 +113,7 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.35a/
       refRow({ capturedDate: D('2026-08-23'), priceMxnCents: 333_333, source: 'manual', isManualOverride: true }),
     ]);
     const [ref] = (await pricing.getGradedEstimatesBatch(['c1'])).get('c1')!;
-    // §N.6: override manual > ingest automático, resuelto DENTRO de la tabla por `isBetterRef`.
+    // §O.6: override manual > ingest automático, resuelto DENTRO de la tabla por `isBetterRef`.
     expect(ref.mxnCents).toBe(333_333);
     expect(ref.capturedDate).toBe('2026-08-23');
   });
@@ -140,7 +145,7 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.35a/
 const SEEDED_TIERS = { [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS };
 const ON = { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' };
 
-describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', () => {
+describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', () => {
   it('con el dial `off` (seed) devuelve la config APAGADA sin evaluar nada', async () => {
     const { pricing, prisma } = wire();
     const cfg = await pricing.loadGradedEstimateConfig();
@@ -161,7 +166,10 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
     await pricing.loadGradedEstimateConfig();
     expect((prisma as any).configSetting.findMany).toHaveBeenCalledTimes(1);
     expect((prisma as any).configSetting.findUnique).not.toHaveBeenCalled();
-    // Las 6 claves del gancho (dial maestro + las 5 de M2) van en el MISMO `where.key.in`.
+    // Las DOCE claves del gancho (v1.50.2: los 2 diales M10 + las 10 de M2) van en el MISMO
+    // `where.key.in`. La afirmación importante NO es «doce» sino **UNA sola query**: la regresión que
+    // QA midió como +7 fue exactamente una lectura POR CLAVE, así que añadir diales no puede volver a
+    // convertir esto en +N.
     const keys = (prisma as any).configSetting.findMany.mock.calls[0][0].where.key.in;
     expect(new Set(keys)).toEqual(
       new Set([
@@ -171,6 +179,12 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
         SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
         SettingKey.GRADING_MIN_UPSIDE_PCT,
         SettingKey.GRADING_COST_TIERS,
+        SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+        SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
+        SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
+        SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
+        SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+        SettingKey.GRADED_ESTIMATE_INGEST_ENABLED,
       ]),
     );
   });
@@ -187,12 +201,23 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
       freshnessDays: 30,
       minUpsidePct: 30,
       gradingCostTiers: DEFAULT_GRADING_COST_TIERS,
+      // v1.50.2 — los seeds de los 5 diales nuevos + el 2º interruptor M10. `manualFreshnessDays:
+      // null` es el que hay que mirar dos veces: significa «el override manual NO decae» (§4.38m), y
+      // es un VALOR deliberado, no una clave sin escribir. `ingestEnabled: false` = fail-closed: el
+      // ingest no gasta un solo crédito hasta que el dueño lo encienda.
+      ingestEnabled: false,
+      manualFreshnessDays: null,
+      maxRawMultiple: 50,
+      minSampleCount: 3,
+      sourceStat: 'median',
+      ingestMaxCardsPerRun: 250,
+      ingestConfigInvalid: false,
     });
   });
 
   it('R1 — clave `grading_cost_tiers` AUSENTE ⇒ tabla VACÍA (NO cae al seed de código)', async () => {
     // El caso que el bucle de «corrupta» NO cubría: la fila no existe. `SettingsService.get()` haría
-    // fallback a `SETTING_DEFAULTS` y el gate correría con los 6 escalones; §4.35d dice lo contrario.
+    // fallback a `SETTING_DEFAULTS` y el gate correría con los 6 escalones; §4.38d dice lo contrario.
     const { pricing } = wire([], ON);
     expect((await pricing.loadGradedEstimateConfig()).gradingCostTiers).toEqual([]);
     // …y el resto de la config SÍ cae a su seed (son umbrales/listas, no dinero).
@@ -232,7 +257,7 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
 });
 
 /**
- * GU-A8 (§4.35d, v1.44.1) — **`AUSENTE ≠ INVÁLIDA`**. La justificación vieja de la excepción de seed
+ * GU-A8 (§4.38d, v1.44.1) — **`AUSENTE ≠ INVÁLIDA`**. La justificación vieja de la excepción de seed
  * («sin tabla no hay gate») solo valía si AMBAS claves fallaban a la vez: con la tabla VÁLIDA y
  * `grading_min_upside_pct` corrupto, un 200 configurado se volvía el seed 30 — **más permisivo que la
  * intención del admin, en silencio, en la superficie que promociona**.
@@ -243,7 +268,7 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.35d)', ()
  * | AUSENTE | `[]` (nada se destaca) | **seed** |
  * | PRESENTE pero INVÁLIDA | `[]` (nada se destaca) | **nada se destaca** (NO cae al seed) |
  */
-describe('GU-A8 — AUSENTE ≠ INVÁLIDA: los tres estados de cada clave (§4.35d)', () => {
+describe('GU-A8 — AUSENTE ≠ INVÁLIDA: los tres estados de cada clave (§4.38d)', () => {
   /** Valores que EXISTEN en la fila pero violan su invariante (solo llegan por edición fuera de banda). */
   const INVALID = {
     [SettingKey.GRADING_MIN_UPSIDE_PCT]: 'mucho',

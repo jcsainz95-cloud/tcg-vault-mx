@@ -33,10 +33,17 @@ const ORACLE = IS_REAL
       dual: { name: 'E2E Reverse Bird', number: '17', finishes: ['Normal', 'Reverse Holo'] },
       single: { name: 'E2E Pidgey', number: '16', finish: 'Normal' },
       orderSet: 'E2E Order Set',
-      // Copia LITERAL de `E2E_ORDER_EXPECTED_NUMBERS` (backend/prisma/e2e-fixtures.ts, §4.22e):
-      // el spec no importa de `backend/` (paquetes separados), así que el oráculo se copia con
-      // su fuente citada. `SV` < `TG` ⇒ SV107 va ANTES de TG01 (promos agrupados por prefijo).
-      orderExact: ['2', '10', 'SV107', 'TG01'] as string[] | null,
+      // ⚠️ Oráculo de VARIANTES, no de cartas. `E2E_ORDER_EXPECTED_NUMBERS`
+      // (backend/prisma/e2e-fixtures.ts, §4.22e) = `['2','10','SV107','TG01']` es el oráculo de
+      // `GET /buylist/cards`: UNA entrada por CARTA. El binder del cotizador pinta **una casilla
+      // por (carta, acabado)** (rejilla plana N-16), y `E2E Order Two` (#2) trae
+      // `availableFinishes: ['normal','reverse_holo']` ⇒ **dos** casillas. Copiar el oráculo de
+      // cartas aquí producía un assert que no podía pasar en ningún entorno: en real fallaba por
+      // el #2 duplicado y en mock era código muerto (`orderExact: null` salta la línea).
+      // El propio spec ya lo demostraba: el test de «una carta CON reverse holo pinta DOS
+      // casillas» pasa — o sea que el producto tiene razón y el oráculo estaba mal.
+      // `SV` < `TG` ⇒ SV107 va ANTES de TG01 (promos agrupados por prefijo).
+      orderExact: ['2', '2', '10', 'SV107', 'TG01'] as string[] | null,
       orderMustContain: { numeric: [2, 10], promos: ['SV107', 'TG01'] },
     }
   : {
@@ -80,6 +87,22 @@ function cellOf(grid: Locator, cardName: string): Locator {
   return grid.locator('li').filter({ hasText: cardName }).first();
 }
 
+/**
+ * Casillas de UNA carta en la rejilla PLANA del cotizador (N-16, v1.22-2): hay **una casilla (li)
+ * por (carta, acabado)**, hermanas entre sí — no una celda con sub-casillas dentro. Se localizan
+ * por el `#número`, que cada casilla imprime junto a su acabado («#58 · Reverse Holo»).
+ */
+function variantTilesOf(grid: Locator, cardNumber: string): Locator {
+  return grid.locator('li').filter({ hasText: `#${cardNumber}` });
+}
+
+/** Botón «Agregar {carta} ({acabado}) a la venta» dentro de la rejilla. */
+function addVariantBtn(grid: Locator, cardName: string, finish: string): Locator {
+  return grid.getByRole('button', {
+    name: new RegExp(`^Agregar ${cardName} \\(${finish}\\) a la venta`),
+  });
+}
+
 test.describe('master set · cotizador: una casilla de IMAGEN por variante real (§4.22e)', () => {
   test.beforeEach(async ({ page }) => {
     await stubFixtureImages(page);
@@ -89,23 +112,22 @@ test.describe('master set · cotizador: una casilla de IMAGEN por variante real 
     page,
   }) => {
     const grid = await openQuoterSet(page, ORACLE.variantsSet);
-    const cell = cellOf(grid, ORACLE.dual.name);
-    await expect(cell.getByText(`#${ORACLE.dual.number}`)).toBeVisible();
+    const tiles = variantTilesOf(grid, ORACLE.dual.number);
+
+    // DOS casillas HERMANAS, una por variante real (rejilla plana N-16): la carta con reverse holo
+    // ocupa dos posiciones de la cuadrícula, no una celda con dos cajas dentro.
+    await expect(tiles).toHaveCount(2);
 
     // Cada casilla es su PROPIO botón de venta (aria quoterAddAria) con su propia imagen.
     // El precio del aria varía por seed (cotizada o "Precio pendiente") → regex por prefijo.
     const [left, right] = ORACLE.dual.finishes;
-    const leftBtn = cell.getByRole('button', {
-      name: new RegExp(`^Agregar ${ORACLE.dual.name} \\(${left}\\) a la venta`),
-    });
-    const rightBtn = cell.getByRole('button', {
-      name: new RegExp(`^Agregar ${ORACLE.dual.name} \\(${right}\\) a la venta`),
-    });
+    const leftBtn = addVariantBtn(grid, ORACLE.dual.name, left);
+    const rightBtn = addVariantBtn(grid, ORACLE.dual.name, right);
     await expect(leftBtn).toBeVisible();
     await expect(rightBtn).toBeVisible();
 
-    // DOS casillas de imagen (una <img> por variante — no una imagen + chips de texto)…
-    await expect(cell.locator('img')).toHaveCount(2);
+    // Una <img> por variante — no una imagen + chips de texto.
+    await expect(tiles.locator('img')).toHaveCount(2);
     // …y normal a la IZQUIERDA del reverse holo (orden del array, contrato v1.22).
     const leftBox = await leftBtn.boundingBox();
     const rightBox = await rightBtn.boundingBox();
@@ -117,18 +139,18 @@ test.describe('master set · cotizador: una casilla de IMAGEN por variante real 
   }) => {
     const setName = 'set' in ORACLE.single ? (ORACLE.single as { set: string }).set : ORACLE.variantsSet;
     const grid = await openQuoterSet(page, setName);
-    const cell = cellOf(grid, ORACLE.single.name);
-    await expect(cell.getByText(`#${ORACLE.single.number}`)).toBeVisible();
+    const tiles = variantTilesOf(grid, ORACLE.single.number);
 
-    // UNA casilla de imagen, la de su único acabado real…
-    await expect(cell.locator('img')).toHaveCount(1);
+    // UNA casilla, la de su único acabado real, con UNA imagen…
+    await expect(tiles).toHaveCount(1);
+    await expect(tiles.locator('img')).toHaveCount(1);
+    await expect(addVariantBtn(grid, ORACLE.single.name, ORACLE.single.finish)).toBeVisible();
+    // …y NINGÚN botón de venta para acabados que la carta no tiene (prohibido el relleno).
+    // Se cuentan los botones de AGREGAR: la casilla lleva además su «Ver detalle de …» (P-43),
+    // que es navegación al pop-up, no una variante de más.
     await expect(
-      cell.getByRole('button', {
-        name: new RegExp(`^Agregar ${ORACLE.single.name} \\(${ORACLE.single.finish}\\) a la venta`),
-      }),
-    ).toBeVisible();
-    // …y NINGÚN botón/casilla para acabados que la carta no tiene (prohibido el relleno).
-    await expect(cell.getByRole('button')).toHaveCount(1);
+      grid.getByRole('button', { name: new RegExp(`^Agregar ${ORACLE.single.name} \\(`) }),
+    ).toHaveCount(1);
   });
 
   test('@real el binder lista el set en ORDEN NATURAL: numéricos ascendentes primero, promos con prefijo al final', async ({
@@ -157,8 +179,15 @@ test.describe('master set · cotizador: una casilla de IMAGEN por variante real 
     // (c) La secuencia mínima del seed §4.22e está presente y en su grupo correcto.
     for (const n of ORACLE.orderMustContain.numeric) expect(numeric).toContain(n);
     for (const p of ORACLE.orderMustContain.promos) expect(promos).toContain(p);
-    // (d) Rama real: la secuencia COMPLETA es EXACTAMENTE la del fixture §4.22e
-    //     (2 → 10 → SV107 → TG01; los promos se agrupan por prefijo: SV antes que TG).
+    // (d) Rama real: la secuencia COMPLETA de CASILLAS es exactamente la del fixture §4.22e
+    //     expandido por acabado (#2 dos veces: normal + reverse holo) — 2 → 2 → 10 → SV107 → TG01.
     if (ORACLE.orderExact) expect(numbers).toEqual(ORACLE.orderExact);
+    // (e) Y las casillas de una MISMA carta quedan juntas: expandir por acabado no puede
+    //     desordenar el set (si #2 apareciera separado, el orden natural estaría roto).
+    const firstTwo = numbers.indexOf('2');
+    const lastTwo = numbers.lastIndexOf('2');
+    if (firstTwo !== -1 && lastTwo !== firstTwo) {
+      expect(numbers.slice(firstTwo, lastTwo + 1).every((n) => n === '2')).toBe(true);
+    }
   });
 });

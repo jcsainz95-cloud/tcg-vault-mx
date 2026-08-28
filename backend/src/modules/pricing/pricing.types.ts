@@ -205,6 +205,21 @@ export interface BulkPriceRow {
   /** mapeo FALLBACK: `(setExternalId, number)` → `Card`. */
   setExternalId?: string | null;
   number?: string | null;
+  /**
+   * v1.44 (P-47, §4.35) — `Card.id` LOCAL YA RESUELTO por el PROVIDER. Solo lo pobla el
+   * `TcgcsvSinglesBulkPriceProvider`, que hace el join EXACTO por `CardProduct.tcgplayerProductId`
+   * en la propia lectura (a diferencia de PPT/pokemontcg.io, cuya resolución carta↔BD la hace el
+   * `PriceIngestService` por `externalId`/`(set,number)`). Ausente en los demás providers.
+   */
+  cardId?: string | null;
+  /**
+   * v1.44 (P-47, §4.35 / M-31, §4.27b) — `CardProduct.id` de la VARIANTE (== un `productId`
+   * TCGplayer). Solo lo pobla el `TcgcsvSinglesBulkPriceProvider`; entra en la clave del upsert de
+   * `PriceReference` (`source='tcgcsv_singles'`) para que dos productos de la MISMA carta con el
+   * MISMO `Finish` (p. ej. set_base holofoil y una promo holofoil) NO colisionen. Ausente/`null`
+   * en el fallback PPT/pokemontcg.io (esas filas escriben `cardProductId=null`).
+   */
+  cardProductId?: string | null;
   /** YA mapeado a nuestro enum (normal|reverse_holo|holofoil|first_edition_holofoil). */
   finish: Finish;
   /** entero de centavos, > 0 (validado por el adapter). */

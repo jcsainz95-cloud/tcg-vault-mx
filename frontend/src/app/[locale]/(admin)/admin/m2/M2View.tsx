@@ -5,8 +5,8 @@ import { useCatalogSync } from './sections/useCatalogSync';
 import { PriceIngestSection } from './sections/PriceIngestSection';
 import { PendingQueueSection } from './sections/PendingQueueSection';
 import { FxSection } from './sections/FxSection';
-import { TierRulesSection } from './sections/TierRulesSection';
-import { TierMapSection } from './sections/TierMapSection';
+import { PricingCurveSection } from './curve/PricingCurveSection';
+import { RarityHealthSection } from './sections/RarityHealthSection';
 import { SealedSpreadsSection } from './sections/SealedSpreadsSection';
 import { GradedEstimatesSection } from './sections/GradedEstimatesSection';
 import { CatalogSyncSection } from './sections/CatalogSyncSection';
@@ -41,19 +41,20 @@ export function M2View() {
           humano — TCGCSV sigue primario y PPT queda fijo como respaldo en el backend, sin
           control en UI. La ingesta a mano vive en la Sección 1 (PriceIngestSection). */}
 
-      {/* Sección 4 · precios por TIER (5 tiers T0–T4, compra + venta) — v1.37-pricing-tiers (P-34).
-          SUPERSEDE el editor de ~30 reglas por rareza (Buylist/Sales por rareza). */}
-      <TierRulesSection />
+      {/* Sección 4 · LA CURVA de precio por valor de mercado (v2.0, P-48, §21.1–§21.6). Ocupa el
+          mismo lugar que los cuatro editores retirados (reglas de buylist, reglas de venta, precios
+          por tier y mapa rareza→tier): el precio ya no depende de la rareza ni del acabado. */}
+      <PricingCurveSection />
 
-      {/* Sección 5 · asignador rareza canónica → tier (mapa compartido compra/venta) + «Unificar
-          rarezas» (§19.5) — v1.37-pricing-tiers (P-34). */}
-      <TierMapSection />
+      {/* Sección 5 · salud del catálogo de rarezas (§21.7b) — solo lectura; respalda el guardarraíl
+          y hospeda «Unificar rarezas» (§19.5), que dejó de colgar de un editor de precios. */}
+      <RarityHealthSection />
 
       {/* Sección 5b · spreads de VENTA del SELLADO por presentación (v1.23-sealed-sales) */}
       <SealedSpreadsSection />
 
       {/* Sección 5c · config del «gancho de grading»: escalones de costo de gradeo + margen mínimo
-          + frescura (v1.44-graded-estimate, criterio 92(e)). El interruptor maestro vive en M10. */}
+          + frescura (v1.44-graded-estimate, criterio 110(e)). El interruptor maestro vive en M10. */}
       <GradedEstimatesSection />
 
       {/* §19 · los TRES grupos de sync de catálogo (Datos/Catálogo/Avanzado) + tabla de sets + modales */}

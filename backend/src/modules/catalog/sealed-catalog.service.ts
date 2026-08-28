@@ -1,25 +1,85 @@
 import { Injectable } from '@nestjs/common';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
-import { SealedSpreadSource } from '../../common/money';
+import { PriceBasis, SealedSpreadSource, sealedPriceBasisOf } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
-import { CatalogService, toCardDTO } from './catalog.service';
+import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
+import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 
-const SEALED_CONDITIONS = new Set<string>(['mint', 'minor_box_damage']);
-const SEALED_SUBTYPES = new Set<string>(['box', 'etb', 'bundle', 'tin', 'blister']);
+// v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí.
+const SEALED_CONDITIONS = new Set<string>(SEALED_CONDITION_VALUES);
+const SEALED_SUBTYPES = new Set<string>(SEALED_SUBTYPE_VALUES);
 const RANGES = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
 
 type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
+
+/**
+ * `SealedGroupDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
+ *
+ * El DTO se construía como un objeto literal sin tipo, así que **omitir un campo requerido no era un
+ * error de compilación**: se emitió sin `priceBasis` ni `currency` y ningún test lo vio (los mocks
+ * los horneaban). Declararlo convierte esa clase de fallo en un error de `tsc` — el candado más
+ * barato que existe para un contrato.
+ */
+/**
+ * v2.1.9 (D2, contrato §DTOs `SealedGroupSummaryDTO`) — **el DTO de la REJILLA de sellado:
+ * `SealedGroupDTO` MENOS las TRES señales de precio.**
+ *
+ * Se van `priceBasis`, `referenceValue` y —esto es lo que se pasa por alto— **`priceSource`**: en
+ * sellado `priceBasis` se DERIVA de `priceSource` (`override ⇒ override`; `*_spread ⇒ market`), así
+ * que dejarlo publicaría **la misma señal con otro nombre**. Es exactamente el error que v2.1.6
+ * documentó al retirar `isManualOverride` y descubrir que `source` filtraba igual.
+ *
+ * Misma razón y mismas garantías que `GroupedListingSummaryDTO` (ver su bloque en `catalog.service`):
+ * §N.7 dice «SOLO fichas», nadie lo consume en la rejilla, y **tipo propio** en vez de campos
+ * opcionales para que el compilador —y no un test— sostenga la diferencia.
+ */
+export interface SealedGroupSummaryDTO {
+  representativeItemId: string;
+  card: CardDTO;
+  productName: string;
+  imageUrl: string | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  availableCount: number;
+  fromPriceCents: number;
+  currency: 'MXN';
+}
+
+export interface SealedGroupDTO {
+  representativeItemId: string;
+  card: CardDTO;
+  productName: string;
+  imageUrl: string | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  availableCount: number;
+  fromPriceCents: number;
+  /** Detalle PROPIO del sellado: qué spread aplicó. Se conserva además de `priceBasis`. */
+  priceSource: SealedSpreadSource;
+  /**
+   * v2.0 (P-48) — DERIVADO de `priceSource`, para que el front tenga UNA sola regla de visibilidad
+   * para las dos fichas, sin ramas por tipo de producto (§N.7).
+   */
+  priceBasis: PriceBasis;
+  referenceValue: PriceInfo;
+  currency: 'MXN';
+}
 
 /** Una pieza sellada con su precio de venta YA resuelto (SEC-A1) y su referencia de mercado cruda. */
 interface PricedSealed {
   item: ItemWithCard;
   salePriceCents: number;
   source: SealedSpreadSource;
+  /**
+   * v2.0 (P-48) — se deriva AQUÍ, donde vive el `SealedSpreadResult` completo, y no en el builder del
+   * DTO: reconstruirlo desde `source` sería un segundo cuerpo de la misma regla.
+   */
+  priceBasis: PriceBasis;
   /** Referencia de mercado TCGCSV cruda (para el lote/ficha); undefined si no mapeado. */
   marketRef?: PriceInfo;
 }
@@ -72,7 +132,13 @@ export class SealedCatalogService {
       const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
       // Solo grupos con ≥1 pieza vendible (precio resuelto > 0). Money-safe: sin precio no se lista.
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) continue;
-      out.push({ item, salePriceCents: sale.salePriceCents, source: sale.source, marketRef: ref });
+      out.push({
+        item,
+        salePriceCents: sale.salePriceCents,
+        source: sale.source,
+        priceBasis: sealedPriceBasisOf(sale),
+        marketRef: ref,
+      });
     }
     return out;
   }
@@ -85,7 +151,7 @@ export class SealedCatalogService {
   }
 
   /** Construye el SealedGroupDTO de un grupo (miembros no vacíos). Representante = pieza más barata. */
-  private toGroupDTO(members: PricedSealed[]) {
+  private toGroupDTO(members: PricedSealed[]): SealedGroupDTO {
     const sorted = [...members].sort((a, b) => a.salePriceCents - b.salePriceCents);
     const cheapest = sorted[0];
     const item = cheapest.item;
@@ -107,7 +173,39 @@ export class SealedCatalogService {
       availableCount: members.length,
       fromPriceCents: cheapest.salePriceCents,
       priceSource: cheapest.source,
-      referenceValue,
+      // v2.0 (P-48, contrato §DTOs) — REQUERIDO, y se omitía. El sellado NO cambia de matemática
+      // (conserva su spread por presentación, §K/§4.23a): solo DERIVA su basis de `priceSource`
+      //     override                        ⇒ 'override' ⇒ NO se muestra «Valor de mercado»
+      //     subtype_spread | global_spread  ⇒ 'market'   ⇒ SÍ se muestra
+      // Sin esto la ficha de sellado sufría el MISMO colapso que la de single: el front compara
+      // `priceBasis === 'market'` y con `undefined` la comparación es siempre falsa.
+      priceBasis: cheapest.priceBasis,
+      // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ sin `source` (ver `toPublicPriceInfo`).
+      // v2.1.9 (D2): y el NÚMERO de mercado viaja si y solo si `priceBasis === 'market'`. Este DTO es
+      // el de la FICHA (`SealedGroupDetailResponse.group`); la rejilla usa `toGroupSummaryDTO`.
+      referenceValue: toPublicPriceInfo(referenceValue, cheapest.priceBasis),
+      // Requerido por el contrato y también se omitía.
+      currency: 'MXN',
+    };
+  }
+
+  /**
+   * v2.1.9 (D2) — proyección de REJILLA: el mismo grupo **menos** `priceBasis`, `referenceValue` y
+   * `priceSource`. Se construye desde el DTO de ficha (una sola fuente de agrupación y de precio,
+   * SEC-A1) por lista blanca; el tipo propio hace que emitir cualquiera de los tres aquí NO COMPILE.
+   */
+  private toGroupSummaryDTO(members: PricedSealed[]): SealedGroupSummaryDTO {
+    const g = this.toGroupDTO(members);
+    return {
+      representativeItemId: g.representativeItemId,
+      card: g.card,
+      productName: g.productName,
+      imageUrl: g.imageUrl,
+      sealedSubtype: g.sealedSubtype,
+      sealedCondition: g.sealedCondition,
+      availableCount: g.availableCount,
+      fromPriceCents: g.fromPriceCents,
+      currency: g.currency,
     };
   }
 
@@ -159,8 +257,9 @@ export class SealedCatalogService {
       else groups.set(k, [p]);
     }
 
+    // v2.1.9 (D2): la REJILLA emite `SealedGroupSummaryDTO` — sin priceBasis/referenceValue/priceSource.
     const cards = [...groups.values()].map((members) => ({
-      dto: this.toGroupDTO(members),
+      dto: this.toGroupSummaryDTO(members),
       newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
     }));
 
@@ -203,7 +302,8 @@ export class SealedCatalogService {
 
     const group = this.toGroupDTO(priced);
     const sealedCtx = await this.pricing.loadSealedSpreads();
-    const listings = await Promise.all(
+    // v2.1.9 (T-2): anotado con el tipo del contrato (`SealedGroupDetailResponse.listings`).
+    const listings: ListingDTO[] = await Promise.all(
       [...priced]
         .sort((a, b) => a.salePriceCents - b.salePriceCents)
         .map((p) =>

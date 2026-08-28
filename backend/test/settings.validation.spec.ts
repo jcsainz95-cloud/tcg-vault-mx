@@ -12,7 +12,10 @@ describe('SettingsService.update — validación de diales (fix #2)', () => {
   let service: SettingsService;
 
   beforeEach(() => {
+    // v2.1.6 (P48-B1): `update()` escribe DENTRO de una `$transaction` (el «todo o nada» que su
+    // comentario prometía y no cumplía). El mock la ejecuta con el mismo cliente.
     prisma = { configSetting: { upsert: jest.fn().mockResolvedValue({}) } };
+    prisma.$transaction = jest.fn(async (cb: (tx: unknown) => unknown) => cb(prisma));
     service = new SettingsService(prisma as unknown as PrismaService);
   });
 

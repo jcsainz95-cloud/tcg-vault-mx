@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { expectVisibleMicroNotice, sightedText } from '@/test/grading';
-import type { GradedEstimateDTO, GroupedListingDTO } from '@/types/contract';
+import type {
+  GradedEstimateDTO,
+  GroupedListingDTO,
+  GroupedListingSummaryDTO,
+} from '@/types/contract';
 import {
   badgeEstimatesOf,
   blockEstimatesOf,
@@ -34,7 +38,9 @@ function est(gradeValue: string, cents: number | undefined, over: Partial<Graded
   };
 }
 
-const listing = (over: Partial<GroupedListingDTO> = {}): GroupedListingDTO => ({
+// v1.50.2: `gradingHighlight` vive en el DTO de la REJILLA (`GroupedListingSummaryDTO`), que es
+// el que reciben la teja de Compra y la vitrina. La FICHA no lo lee: usa `gradedEstimates`.
+const listing = (over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSummaryDTO => ({
   representativeInventoryItemId: 'inv-a',
   card: {
     id: 'c-1',
@@ -56,17 +62,27 @@ const listing = (over: Partial<GroupedListingDTO> = {}): GroupedListingDTO => ({
   gradeKey: 'raw:NM',
   stockCount: 1,
   salePriceCents: 140800,
-  referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
   currency: 'MXN',
   ...over,
 });
 
+/**
+ * La FICHA recibe `GroupedListingDTO` (con `priceBasis`/`referenceValue`, D2) y sus estimados en la
+ * RAÍZ. Es un tipo DISTINTO del de la rejilla a propósito: es lo que impide releer el marcador de
+ * promoción desde `listings[i]` (camino derogado por el contrato v1.50.2).
+ */
+const detailListing = (productType: 'raw' | 'graded' = 'raw'): GroupedListingDTO => ({
+  ...listing({ productType }),
+  priceBasis: 'market',
+  referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
+});
+
 const detail = (gradedEstimates?: GradedEstimateDTO[], productType: 'raw' | 'graded' = 'raw') => ({
-  listings: [listing({ productType })],
+  listings: [detailListing(productType)],
   gradedEstimates,
 });
 
-describe('gancho de grading · predicados (contrato v1.44: presencia ⇔ elegibilidad)', () => {
+describe('gancho de grading · predicados (contrato v1.50: presencia ⇔ elegibilidad)', () => {
   it('campo ausente ⇒ null (nunca un arreglo vacío que invite a pintar un contenedor)', () => {
     expect(renderableEstimates(undefined)).toBeNull();
     expect(renderableEstimates([])).toBeNull();
@@ -111,7 +127,7 @@ describe('gancho de grading · predicados (contrato v1.44: presencia ⇔ elegibi
   });
 });
 
-describe('§21 R3 · acoplamiento llamada ↔ nota al pie (fail-closed)', () => {
+describe('§22 R3 · acoplamiento llamada ↔ nota al pie (fail-closed)', () => {
   it('FUERA de una boundary activa, ninguna cifra se pinta (ni bloque ni badge)', () => {
     const items = [est('10', 290_000), est('9', 145_000)];
     const { container } = renderWithIntl(
@@ -154,7 +170,7 @@ describe('§21 R3 · acoplamiento llamada ↔ nota al pie (fail-closed)', () => 
   });
 });
 
-describe('§21.3 · bloque de la ficha', () => {
+describe('§22.3 · bloque de la ficha', () => {
   const renderBlock = (items?: GradedEstimateDTO[], locale: 'es' | 'en' = 'es') =>
     renderWithIntl(
       <GradingFootnoteBoundary active={blockEstimatesOf(detail(items)) !== null}>
@@ -173,7 +189,7 @@ describe('§21.3 · bloque de la ficha', () => {
     expect(screen.getByText('PSA 10')).toBeInTheDocument();
     // D5: la fecha rotulada es la MÁS ANTIGUA de las dos cifras (aquí ambas son 22 ago).
     expect(screen.getByText('ESTIMADO · 22 ago 2026')).toBeInTheDocument();
-    // El grado se anuncia como HIPOTÉTICO (§21.9), nunca como un slab.
+    // El grado se anuncia como HIPOTÉTICO (§22.9), nunca como un slab.
     expect(
       screen.getByText('Grado hipotético: PSA 10. Esta carta no está gradeada.'),
     ).toBeInTheDocument();
@@ -187,10 +203,10 @@ describe('§21.3 · bloque de la ficha', () => {
 
   /**
    * Un solo grado disponible es el comportamiento NORMAL y especificado de la ficha: PROJECT
-   * §N.3(1)/§N.4 («se muestra lo que haya»), contrato v1.44 y —desde su corrección— DESIGN_SYSTEM
-   * §21.7, que además fija la forma: la retícula COLAPSA a una columna a ancho completo (D6).
+   * §O.3(1)/§O.4 («se muestra lo que haya»), contrato v1.44 y —desde su corrección— DESIGN_SYSTEM
+   * §22.7, que además fija la forma: la retícula COLAPSA a una columna a ancho completo (D6).
    */
-  it('un solo grado con dato pinta SU celda y la retícula COLAPSA a una columna (§21.7)', () => {
+  it('un solo grado con dato pinta SU celda y la retícula COLAPSA a una columna (§22.7)', () => {
     const { container } = renderBlock([est('10', 290_000)]);
     expect(screen.getAllByText('SI SALE')).toHaveLength(1);
     expect(screen.getByText('MX$2,900.00')).toBeInTheDocument();
@@ -214,7 +230,7 @@ describe('§21.3 · bloque de la ficha', () => {
 
     const notice = screen.getByText(/No evaluamos el estado de esta carta/i).closest('p')!;
     expect(notice.className).not.toContain('sr-only');
-    // El asterisco vive al final del aviso y aquí SÍ es un enlace a la nota (§21.4a).
+    // El asterisco vive al final del aviso y aquí SÍ es un enlace a la nota (§22.4a).
     const call = notice.querySelector('sup')!;
     expect(call.querySelector('a')).toHaveAttribute('href', '#nota-estimado');
     // El eyebrow se quedó sin llamada.
@@ -222,12 +238,12 @@ describe('§21.3 · bloque de la ficha', () => {
     expect(eyebrow.querySelector('sup')).toBeNull();
   });
 
-  it('el aviso NO se abrevia por haber una cifra menos (§21.7)', () => {
+  it('el aviso NO se abrevia por haber una cifra menos (§22.7)', () => {
     const { container } = renderBlock([est('9', 145_000)]);
     expectVisibleMicroNotice(container as HTMLElement, 'es');
     // La etiqueta nombra el grado que ES: una ficha de un solo grado nunca es ambigua…
     expect(screen.getByText('PSA 9')).toBeInTheDocument();
-    // …y NADA anuncia la ausencia del otro DENTRO del bloque (§N.4: el hueco tampoco se dibuja).
+    // …y NADA anuncia la ausencia del otro DENTRO del bloque (§O.4: el hueco tampoco se dibuja).
     // La nota al pie sí nombra ambos grados: es el texto legal, no una celda vacía.
     const block = container.querySelector('section:not([id])') as HTMLElement;
     expect(sightedText(block)).not.toMatch(/PSA 10|sin dato|—/);
@@ -243,7 +259,7 @@ describe('§21.3 · bloque de la ficha', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('EN: mismo bloque con el copy en inglés (paridad §N.3)', () => {
+  it('EN: mismo bloque con el copy en inglés (paridad §O.3)', () => {
     renderBlock([est('10', 290_000), est('9', 145_000)], 'en');
     expect(screen.getByText('ESTIMATED VALUE IF GRADED')).toBeInTheDocument();
     expect(screen.getAllByText('IF IT GRADES')).toHaveLength(2);

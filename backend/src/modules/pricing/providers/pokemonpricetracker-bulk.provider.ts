@@ -38,10 +38,16 @@ function parseMarketFormat(raw: unknown): MarketFormat | null {
 }
 
 /**
- * Impresiones que se piden por separado en modo `fetchPrintings` (WS-A fix-ppt causa #4). Cada una
- * es un barrido `/cards?setId=X&printing=<label>&fetchAllInSet=true`, y el `market` de la respuesta
- * se atribuye ENTERO a ESE `finish`. Cubre las dos casillas de la carta (normal + reverse holo) y
- * el holo. El label es el que espera la API; el finish, nuestro enum.
+ * Impresiones que se piden por separado en modo `fetchPrintings` (WS-A fix-ppt causa #4). Cada una es
+ * un barrido `/cards?setId=X&printing=<label>&fetchAllInSet=true`. El label es el que espera la API; el
+ * finish, nuestro enum.
+ *
+ * ⚠️ CONFIRMADO 2026-08-23 (BUG DE DINERO): la API v2 NO devuelve un `market` DISTINTO por impresión —
+ * `prices.market` es SIEMPRE el de la impresión primaria de la carta (`prices.primaryPrinting`),
+ * invariante al `?printing=`. Por eso el market de una pasada NO se atribuye a la etiqueta barrida
+ * (aplanaría normal=reverse_holo=holofoil): solo se acredita a la carta cuya `primaryPrinting` REAL
+ * casa con la etiqueta (ver `mapEntry` rama `forced`). El precio por-acabado de reverse/holo lo provee
+ * la fuente por-acabado (TCGCSV `tcgcsv_singles`), no este barrido.
  */
 const PRINTINGS: ReadonlyArray<{ label: string; finish: Finish }> = [
   { label: 'Normal', finish: 'normal' },
@@ -90,6 +96,75 @@ type ZeroReason =
   | 'sample-only';
 
 /**
+ * v1.50.2 (§4.38h.1) — **TRUNCADO DE LA MUESTRA CRUDA: 800 → 4000 caracteres.**
+ *
+ * No es cosmético: **con 800 el bloque PSA queda CORTADO** y el diagnóstico produce un **falso
+ * negativo** («el proveedor no manda PSA» cuando sí lo manda). Una entrada de la API v2 con
+ * `includeEbay=true` arrastra el bloque `ebay.salesByGrade` DESPUÉS de los precios base, así que es
+ * justo lo primero que se pierde al recortar. Es cambio de **observabilidad**, no de dinero: el log ya
+ * es seguro (la API key va en el header, jamás en la URL ni en el log, §4.15).
+ */
+const GRADED_SAMPLE_TRUNCATE = 4000;
+
+/** Las dos hipótesis de shape que el parser SONDEA, en orden fijo (§4.38h.1). */
+type GradedFormat = 'auto' | 'sales_by_grade' | 'graded_prices';
+const GRADED_FORMATS: readonly GradedFormat[] = ['auto', 'sales_by_grade', 'graded_prices'];
+
+/** Qué campo del objeto S1 es el precio. Empata 1:1 con el dial `graded_estimate_source_stat`. */
+const GRADED_STAT_FIELD = {
+  median: 'medianPrice',
+  average: 'averagePrice',
+  smart: 'smartMarketPrice',
+} as const;
+type GradedStat = keyof typeof GRADED_STAT_FIELD;
+
+/**
+ * UNA fila de estimado PSA identificada POSITIVAMENTE por el parser. `amountCents` va en la moneda de
+ * `currency` (INV-FX: quien persiste decide dónde cae el numeral, §4.38a).
+ */
+export interface GradedEstimateSourceRow {
+  externalId?: string | null;
+  number?: string | null;
+  /** `"10"` | `"9"` — el grado, no la clave. */
+  gradeValue: string;
+  amountCents: number;
+  currency: 'USD' | 'MXN';
+  /**
+   * Muestra observada (`count`). `null` = el shape **no la trae** (S2) ⇒ DESCONOCIDO ⇒ fail-closed.
+   * NUNCA se persiste en la tabla de dinero: va a log + `AuditLog` del job (§4.38k.1).
+   */
+  count: number | null;
+  source: PriceSource;
+}
+
+/** Por qué se DESCARTÓ una entrada (traza obligatoria del job, §4.38h.4). */
+export interface GradedDropSample {
+  externalId: string | null;
+  reason: 'unrecognized_shape' | 'sample_too_small' | 'not_a_positive_amount';
+  count: number | null;
+  /** Muestra CRUDA del bloque que no se reconoció (truncada). Es el insumo para confirmar el shape. */
+  sample: string;
+}
+
+export interface GradedEstimateFetchResult {
+  rows: GradedEstimateSourceRow[];
+  fetchedRaw: number;
+  /** Entradas que el parser NO identificó positivamente como monto ⇒ **no se escribió nada de ellas**. */
+  drops: GradedDropSample[];
+  requestOk: boolean;
+  dailyLimited: boolean;
+  dailyRemaining: number | null;
+  /**
+   * ⛔ **ESCALADA (regla 9)** — no es un error recuperable ni algo que el código deba «arreglar».
+   * Se puebla cuando la observación real contradice la premisa del diseño: `includeEbay=true` **no**
+   * combina con `fetchAllInSet=true`. Eso implicaría **una petición por carta**, que invalida el modelo
+   * de barrido por set y obliga a rediseñar hacia un ingest **curado por lista** — decisión de
+   * ARQUITECTURA y de COSTO, no de implementación. El job **para** y **no** cae al modo por carta.
+   */
+  escalate: { reason: 'ebay_not_supported_with_set_sweep' | 'no_graded_block_in_response'; detail: string } | null;
+}
+
+/**
  * PokemonPriceTrackerBulkProvider — implementación PRIMARIA del `BulkPriceProvider`
  * (WS-A, ARCHITECTURE §4.15b). Barre las cartas de un set con la **API v2** de precios.
  *
@@ -103,8 +178,11 @@ type ZeroReason =
  *  3. **Shape real v2**: la LISTA trae un `prices.{market, primaryPrinting}` por carta (un solo
  *     market + la impresión primaria). Se mapea `market → finish(primaryPrinting)`. Se conservan como
  *     fallback tolerante los shapes previos (`tcgplayer.prices` por acabado, listas de printings).
- *  4. **Variantes por impresión** (opcional, `fetchPrintings`): un barrido por `printing=` para poblar
- *     reverse holo/normal/holofoil por separado (≈2-3× costo).
+ *  4. **Variantes por impresión** (opcional, `fetchPrintings`): un barrido por `printing=`. OJO
+ *     (2026-08-23): la API v2 NO da market por impresión (siempre el de la primaria) ⇒ este modo SOLO
+ *     acredita el acabado que casa con `prices.primaryPrinting`; NO puebla reverse/holo por sí mismo
+ *     (esa fuente es TCGCSV `tcgcsv_singles`). Se conserva money-safe: jamás copia el market a otro
+ *     acabado. Ver `mapEntry` rama `forced` y BACKEND_NOTES §PPT-por-impresión.
  *
  * SEGURIDAD (sin cambio): host FIJO en `PptApiClient` (anti-SSRF), key solo en el header, jamás en
  * la URL ni el log. FAIL-CLOSED de moneda/unidad (sin `POKEMONPRICETRACKER_MARKET_FORMAT` → sample-only,
@@ -206,7 +284,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         fetchedRaw += entries.length;
 
         if (sample == null) {
-          sample = truncate(JSON.stringify(entries[0]), 800);
+          sample = truncate(JSON.stringify(entries[0]), GRADED_SAMPLE_TRUNCATE);
           this.logger.log(
             `PokemonPriceTracker bulk: GET ${url} OK (set ${setExternalId}=${providerSetId}` +
               `${forced ? `, printing=${forced.label}` : ''}, pág ${page + 1}): ${entries.length} entradas, ` +
@@ -390,6 +468,338 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     return out;
   }
 
+  // ==========================================================================================
+  // v1.50.2 (§4.38h) — INGEST AUTOMÁTICO DE ESTIMADOS PSA. Parser AUTO-CONFIRMANTE.
+  // ==========================================================================================
+
+  /**
+   * Barre UN set pidiendo además el bloque de eBay (`includeEbay=true`) y devuelve **solo** los
+   * estimados PSA que el parser identifica **POSITIVAMENTE** como monto.
+   *
+   * ### Por qué esto NO viola la doctrina P-6 — la satisface por construcción
+   * P-6 prohíbe **codificar contra un esquema que se ASUME**. La documentación del proveedor se
+   * **contradice** entre `data[i].ebay.salesByGrade.psaN` (objeto) y `gradedPrices.psaN` (escalar), y
+   * v1.50 concluyó de ahí «fase 2 BLOQUEADA, captura manual». El humano cuestionó ese bloqueo y tenía
+   * razón: lo que P-6 exige no es *no automatizar*, es **no asumir**. Este parser **prueba las dos
+   * hipótesis en orden fijo**, y ante **cualquier otra forma NO ESCRIBE NADA** y registra la muestra
+   * cruda. La primera corrida real **confirma el formato con cero datos malos en la BD**, que es
+   * exactamente lo que P-6 protege. Nunca hay fallback silencioso entre shapes.
+   *
+   * | | Ruta | Persiste SOLO si |
+   * |---|---|---|
+   * | **S1** | `ebay.salesByGrade.psaN` (objeto) | el stat elegido es número finito **> 0** Y `count` entero **>= minSampleCount** |
+   * | **S2** | `gradedPrices.psaN` (escalar) | es número finito **> 0** Y se resuelve la regla de `count` |
+   * | **—** | cualquier otra (array, string, null, NaN, negativo, objeto desconocido) | **NADA** + muestra cruda |
+   *
+   * - **S2 no trae `count` ⇒ el punto 2 del gate de confianza queda DESCONOCIDO ⇒ fail-closed ⇒ NO se
+   *   persiste.** «Desconocido» no es «suficiente». Escotilla explícita del operador:
+   *   `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` acepta el riesgo **a sabiendas**.
+   * - **El override del operador MANDA sobre la autodetección.** Con `POKEMONPRICETRACKER_GRADED_FORMAT`
+   *   / `_GRADED_FIELD` fijados, si la respuesta no casa **no se escribe nada** y se registra la
+   *   muestra: caer al otro shape derrotaría la intención explícita que el override existe para
+   *   expresar.
+   * - **MONEDA (INV-FX, §4.38a):** el formato sale del MISMO candado fail-closed que el market
+   *   (`POKEMONPRICETRACKER_GRADED_MARKET_FORMAT` y, si no está, `POKEMONPRICETRACKER_MARKET_FORMAT` —
+   *   mismo proveedor, misma convención, confirmada por el PO: `usd_dollars`). **Sin formato explícito
+   *   NO se persiste nada**: es la misma doctrina que ya rige el market, y evita que este camino
+   *   invente una unidad por su cuenta.
+   */
+  async fetchGradedEstimatesForSet(input: {
+    set: { externalId: string };
+    providerSetId: string | null;
+    /** Grados a leer (de la config: `["10","9"]`). */
+    grades: readonly string[];
+    /** `graded_estimate_min_sample_count` — se aplica AQUÍ, en la ESCRITURA (§4.38k.1). */
+    minSampleCount: number;
+    /** `graded_estimate_source_stat` — cuál número del proveedor ES el precio. */
+    sourceStat: GradedStat;
+  }): Promise<GradedEstimateFetchResult> {
+    const empty: GradedEstimateFetchResult = {
+      rows: [],
+      fetchedRaw: 0,
+      drops: [],
+      requestOk: false,
+      dailyLimited: false,
+      dailyRemaining: this.client.dailyRemaining(),
+      escalate: null,
+    };
+    if (!this.client.apiKey()) {
+      this.logger.warn('PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).');
+      return empty;
+    }
+    if (!input.providerSetId) {
+      this.logger.warn(
+        `PPT graded: set ${input.set.externalId} sin pptSetId → no se pide nada (jamás se cae al externalId).`,
+      );
+      return empty;
+    }
+    const format =
+      parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_GRADED_MARKET_FORMAT')) ??
+      parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_MARKET_FORMAT'));
+    if (!format) {
+      this.logger.warn(
+        'PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → modo ' +
+          'SAMPLE-ONLY: NO se persiste ningún estimado. Fija el formato tras inspeccionar el log.',
+      );
+      return empty;
+    }
+
+    const forcedFormat = this.gradedFormatOverride();
+    const forcedField = this.gradedFieldOverride();
+    const stat: GradedStat = forcedField ?? input.sourceStat;
+    const acceptUnknownCount = this.config.get<string>('POKEMONPRICETRACKER_GRADED_MIN_COUNT') === '0';
+
+    const rows: GradedEstimateSourceRow[] = [];
+    const drops: GradedDropSample[] = [];
+    let fetchedRaw = 0;
+    let requestOk = false;
+    let dailyLimited = false;
+    let sawGradedBlock = false;
+    let sample: string | null = null;
+
+    try {
+      let received = 0;
+      let offset: number | null = null;
+      for (let page = 0; page < this.maxPages; page++) {
+        const { entries, pagination, url, dailyRemaining } = await this.fetchGradedPage(
+          input.providerSetId,
+          offset,
+        );
+        requestOk = true;
+        if (entries.length === 0) break;
+        received += entries.length;
+        fetchedRaw += entries.length;
+        if (sample == null) {
+          sample = truncate(JSON.stringify(entries[0]), GRADED_SAMPLE_TRUNCATE);
+          this.logger.log(
+            `PPT graded: GET ${url} OK (set ${input.set.externalId}=${input.providerSetId}, pág ${page + 1}): ` +
+              `${entries.length} entradas, pagination=${JSON.stringify(pagination)}, ` +
+              `dailyRemaining=${dailyRemaining ?? 'n/d'}. Ejemplo crudo (${GRADED_SAMPLE_TRUNCATE} chars): ${sample}`,
+          );
+        }
+        for (const entry of entries) {
+          const parsed = this.parseGradedEntry(entry, {
+            grades: input.grades,
+            stat,
+            forcedFormat,
+            minSampleCount: input.minSampleCount,
+            acceptUnknownCount,
+            format,
+          });
+          if (parsed.sawGradedBlock) sawGradedBlock = true;
+          rows.push(...parsed.rows);
+          drops.push(...parsed.drops);
+        }
+        if (!this.hasMorePages(pagination, received)) break;
+        offset = received;
+      }
+    } catch (e) {
+      if (e instanceof PptDailyLimitError) {
+        dailyLimited = true;
+        this.logger.warn(`PPT graded: 429 DAILY en el set ${input.set.externalId} → PARADA. ${e.message}`);
+      } else if (e instanceof PptHttpError && e.status !== 429 && e.status >= 400 && e.status < 500) {
+        // ⛔ ESCALADA: el proveedor RECHAZA la combinación `includeEbay=true` + `fetchAllInSet=true`.
+        // NO se cae a «una petición por carta»: eso cambia el modelo de coste (2 créditos × carta) y
+        // el de barrido, y es decisión del ARQUITECTO (regla 9), no un fallback de implementación.
+        return {
+          ...empty,
+          requestOk: false,
+          escalate: {
+            reason: 'ebay_not_supported_with_set_sweep',
+            detail:
+              `HTTP ${e.status} al pedir includeEbay=true junto con fetchAllInSet=true ` +
+              `(set ${input.set.externalId}): ${e.message}`,
+          },
+        };
+      } else {
+        this.logger.warn(
+          `PPT graded: EL REQUEST FALLÓ para el set ${input.set.externalId}: ${(e as Error).message} ` +
+            '(no se escribe nada; los estimados previos quedan intactos).',
+        );
+      }
+    }
+
+    // ⛔ ESCALADA (2ª forma, la silenciosa): el request PASÓ pero NINGUNA entrada trae bloque de
+    // grados. No podemos distinguir «el set no tiene ventas PSA» de «el proveedor IGNORÓ includeEbay»,
+    // y adivinar entre esas dos es exactamente lo que P-6 prohíbe ⇒ se reporta para que un humano lo
+    // resuelva con la muestra cruda delante, y NO se escribe nada por este camino.
+    const escalate =
+      requestOk && fetchedRaw > 0 && !sawGradedBlock
+        ? {
+            reason: 'no_graded_block_in_response' as const,
+            detail:
+              `El barrido del set ${input.set.externalId} devolvió ${fetchedRaw} entradas con ` +
+              'includeEbay=true y NINGUNA trae bloque PSA reconocible. Muestra cruda: ' +
+              `${sample ?? 'n/d'}`,
+          }
+        : null;
+
+    return {
+      rows,
+      fetchedRaw,
+      drops,
+      requestOk,
+      dailyLimited,
+      dailyRemaining: this.client.dailyRemaining(),
+      escalate,
+    };
+  }
+
+  /** `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` default). Valor desconocido ⇒ `auto` + `warn`. */
+  private gradedFormatOverride(): GradedFormat {
+    const raw = this.config.get<string>('POKEMONPRICETRACKER_GRADED_FORMAT');
+    if (raw == null || raw.trim() === '') return 'auto';
+    const v = raw.trim().toLowerCase() as GradedFormat;
+    if (GRADED_FORMATS.includes(v)) return v;
+    this.logger.warn(
+      `PPT graded: POKEMONPRICETRACKER_GRADED_FORMAT="${raw}" no es ${GRADED_FORMATS.join('|')} → se usa auto.`,
+    );
+    return 'auto';
+  }
+
+  /** `POKEMONPRICETRACKER_GRADED_FIELD` — override del operador sobre el dial `sourceStat`. */
+  private gradedFieldOverride(): GradedStat | null {
+    const raw = this.config.get<string>('POKEMONPRICETRACKER_GRADED_FIELD');
+    if (raw == null || raw.trim() === '') return null;
+    const v = raw.trim();
+    for (const [stat, field] of Object.entries(GRADED_STAT_FIELD)) {
+      if (v === field || v === stat) return stat as GradedStat;
+    }
+    this.logger.warn(
+      `PPT graded: POKEMONPRICETRACKER_GRADED_FIELD="${raw}" desconocido → se usa el dial sourceStat.`,
+    );
+    return null;
+  }
+
+  /**
+   * El SONDEO, por entrada. Devuelve filas SOLO con identificación positiva; ante cualquier otra forma,
+   * un `drop` con la muestra cruda y **cero escrituras**.
+   */
+  private parseGradedEntry(
+    entry: unknown,
+    opts: {
+      grades: readonly string[];
+      stat: GradedStat;
+      forcedFormat: GradedFormat;
+      minSampleCount: number;
+      acceptUnknownCount: boolean;
+      format: MarketFormat;
+    },
+  ): { rows: GradedEstimateSourceRow[]; drops: GradedDropSample[]; sawGradedBlock: boolean } {
+    const out = { rows: [] as GradedEstimateSourceRow[], drops: [] as GradedDropSample[], sawGradedBlock: false };
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return out;
+    const e = entry as Record<string, unknown>;
+    const externalId = firstString(e, ['id', 'cardId']);
+    const number = firstString(e, ['cardNumber', 'number', 'collectorNumber']);
+
+    // S1: `ebay.salesByGrade.psaN` (objeto con count/medianPrice/…).
+    const salesByGrade = pickObject(pickObject(e['ebay']), 'salesByGrade');
+    // S2: `gradedPrices.psaN` (escalar).
+    const gradedPrices = pickObject(e, 'gradedPrices');
+    const useS1 = opts.forcedFormat !== 'graded_prices' && salesByGrade != null;
+    const useS2 = opts.forcedFormat !== 'sales_by_grade' && !useS1 && gradedPrices != null;
+    if (salesByGrade != null || gradedPrices != null) out.sawGradedBlock = true;
+    if (!useS1 && !useS2) {
+      // Con override fijado y respuesta que NO casa, esto es lo correcto: NO escribir y dejar traza.
+      if (opts.forcedFormat !== 'auto' && (salesByGrade != null || gradedPrices != null)) {
+        out.drops.push({
+          externalId,
+          reason: 'unrecognized_shape',
+          count: null,
+          sample: truncate(JSON.stringify(e['ebay'] ?? e['gradedPrices'] ?? null), GRADED_SAMPLE_TRUNCATE),
+        });
+      }
+      return out;
+    }
+
+    for (const grade of opts.grades) {
+      const key = `psa${grade}`;
+      const raw = useS1 ? (salesByGrade as Record<string, unknown>)[key] : (gradedPrices as Record<string, unknown>)[key];
+      if (raw === undefined) continue; // el grado sencillamente no viene: no es un error, se OMITE.
+
+      let amount: number | null = null;
+      let count: number | null = null;
+      if (useS1) {
+        // S1 EXIGE objeto. Un escalar aquí NO se acepta «por tolerancia»: sería asumir que el número
+        // suelto es el stat que pedimos, que es justo la clase de suposición que P-6 prohíbe.
+        if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+          out.drops.push({
+            externalId,
+            reason: 'unrecognized_shape',
+            count: null,
+            sample: truncate(JSON.stringify({ [key]: raw }), GRADED_SAMPLE_TRUNCATE),
+          });
+          continue;
+        }
+        const o = raw as Record<string, unknown>;
+        const statValue = o[GRADED_STAT_FIELD[opts.stat]];
+        amount = typeof statValue === 'number' && Number.isFinite(statValue) ? statValue : null;
+        const c = o['count'];
+        count = typeof c === 'number' && Number.isInteger(c) && Number.isFinite(c) ? c : null;
+      } else {
+        // S2: escalar ESTRICTO. `"12.5"` (string) NO se acepta: un string es una forma distinta.
+        amount = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+        count = null; // el shape no la trae ⇒ DESCONOCIDO.
+      }
+
+      const amountCents = toCents(amount, opts.format.unit);
+      if (amountCents == null) {
+        out.drops.push({
+          externalId,
+          reason: amount == null ? 'unrecognized_shape' : 'not_a_positive_amount',
+          count,
+          sample: truncate(JSON.stringify({ [key]: raw }), GRADED_SAMPLE_TRUNCATE),
+        });
+        continue;
+      }
+      // Gate de ORIGEN CONFIABLE (§4.38k, punto 2) — aplicado en la ESCRITURA. `null` = DESCONOCIDO, y
+      // «desconocido» NO es «suficiente»: fail-closed, salvo escotilla explícita del operador.
+      if (count == null ? !opts.acceptUnknownCount : count < opts.minSampleCount) {
+        out.drops.push({
+          externalId,
+          reason: 'sample_too_small',
+          count,
+          sample: truncate(JSON.stringify({ [key]: raw }), GRADED_SAMPLE_TRUNCATE),
+        });
+        continue;
+      }
+      out.rows.push({
+        externalId,
+        number,
+        gradeValue: grade,
+        amountCents,
+        currency: opts.format.currency,
+        count,
+        source: this.source,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * GET de una página del barrido CON `includeEbay=true` (2 créditos/carta, §4.38h). Se pide junto a
+   * `fetchAllInSet=true` **a propósito**: si el proveedor no admitiera la combinación, el modelo de
+   * coste cambia por completo y eso ESCALA al arquitecto — no se degrada a una petición por carta.
+   */
+  private async fetchGradedPage(providerSetId: string, offset: number | null): Promise<PricesPage> {
+    const query: Record<string, string> = {
+      setId: providerSetId,
+      fetchAllInSet: 'true',
+      includeEbay: 'true',
+    };
+    if (offset != null) {
+      query.limit = String(this.pageLimit);
+      query.offset = String(offset);
+    }
+    const res: PptResponse<unknown> = await this.client.getJson<unknown>(this.cardsPath, query);
+    return {
+      entries: this.extractEntries(res.body),
+      pagination: this.extractPagination(res.body),
+      url: res.url,
+      dailyRemaining: res.dailyRemaining,
+    };
+  }
+
   /**
    * Diagnóstico observable (causa #5): SIEMPRE deja una línea con el MOTIVO cuando el set da 0 filas
    * (`429 daily` / `429 per_minute` / `setId no mapeado` / `200 sin datos` / `sample-only` / mapeo
@@ -556,11 +966,25 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       });
     };
 
-    // (0) Modo por-impresión: el market de nivel carta es de ESA impresión (etiqueta del request).
+    // (0) Modo por-impresión (`fetchPrintings`). BUG DE DINERO CONFIRMADO 2026-08-23: la API v2 de PPT
+    // NO varía `prices.market` según `?printing=` — CADA pasada devuelve el MISMO market, el de la
+    // impresión PRIMARIA de la carta (`prices.primaryPrinting`). La versión anterior atribuía ese market
+    // a la ETIQUETA del request (`forced.label`), así que las 3 pasadas (Normal/Reverse Holofoil/Holofoil)
+    // escribían el MISMO precio a `normal`=`reverse_holo`=`holofoil` (aplanamiento del mercado).
+    //
+    // MONEY-SAFE (fix): el market SIEMPRE pertenece a `primaryPrinting`, así que solo se emite fila cuando
+    // la impresión primaria REAL de la carta coincide con la etiqueta barrida — ese es el ÚNICO acabado
+    // cuyo precio PPT realmente conoce. Los demás acabados quedan SIN fila (pendiente/«—»), JAMÁS con el
+    // precio de otra impresión. El precio PROPIO de reverse/holo lo provee la fuente por-acabado
+    // (TCGCSV `tcgcsv_singles`, precedencia §4.27f). Sin `primaryPrinting` legible ⇒ no se emite nada
+    // (nunca se copia un market a un acabado no confirmado).
     if (forced) {
-      push(forced.label, e['prices'] ?? e['market'] ?? e['marketPrice'] ?? e['price'], {
-        forcedPrinting: true,
-      });
+      const primary = extractPrimaryPrinting(e['prices']);
+      if (primary != null && normalizeFinishAlias(primary) === forced.finish) {
+        push(primary, e['prices'] ?? e['market'] ?? e['marketPrice'] ?? e['price'], {
+          forcedPrinting: true,
+        });
+      }
       return { added, drops };
     }
 
@@ -627,6 +1051,20 @@ function firstString(o: Record<string, unknown>, keys: string[]): string | null 
   return null;
 }
 
+/**
+ * Extrae `primaryPrinting` (string) del objeto `prices` de nivel carta (shape real v2:
+ * `{ market, primaryPrinting, … }`), o `null` si no viene legible. Es la impresión a la que PERTENECE
+ * el `market` de la carta — el candado money-safe del modo por-impresión (la API v2 no da market por
+ * impresión; el market es SIEMPRE el de la primaria).
+ */
+function extractPrimaryPrinting(prices: unknown): string | null {
+  if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+    const v = (prices as Record<string, unknown>)['primaryPrinting'];
+    if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+  }
+  return null;
+}
+
 /** Extrae el número de market crudo (de un número o de `{ market|marketPrice|price }`), sin unidad. */
 function extractMarketNumber(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
@@ -654,6 +1092,15 @@ function numberOrNull(v: unknown): number | null {
 
 function boolOrNull(v: unknown): boolean | null {
   return typeof v === 'boolean' ? v : null;
+}
+
+/** Sub-objeto PLANO (no array, no null) de `o[key]`, o `null`. Nunca «tolera» otra forma. */
+function pickObject(o: unknown, key?: string): Record<string, unknown> | null {
+  if (o == null || typeof o !== 'object' || Array.isArray(o)) return null;
+  if (key === undefined) return o as Record<string, unknown>;
+  const v = (o as Record<string, unknown>)[key];
+  if (v == null || typeof v !== 'object' || Array.isArray(v)) return null;
+  return v as Record<string, unknown>;
 }
 
 function truncate(s: string, max: number): string {

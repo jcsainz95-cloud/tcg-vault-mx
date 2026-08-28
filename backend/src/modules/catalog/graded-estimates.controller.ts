@@ -12,9 +12,15 @@ import { SettingKey, validateGradeList } from '../settings/settings.constants';
 import {
   validateGradingCostTiers,
   toGradedEstimateConfigDTO,
+  GradedEstimateConfigDTO,
   GRADING_MIN_UPSIDE_PCT_MAX,
   GRADED_ESTIMATE_FRESHNESS_DAYS_MAX,
   GRADED_ESTIMATE_FRESHNESS_DAYS_MIN,
+  validateGradedEstimateIngestMaxCards,
+  validateGradedEstimateManualFreshnessDays,
+  validateGradedEstimateMaxRawMultiple,
+  validateGradedEstimateMinSampleCount,
+  validateGradedEstimateSourceStat,
 } from '../../common/graded-estimate';
 
 /**
@@ -27,10 +33,16 @@ const GRADED_ESTIMATE_M2_KEYS = [
   SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
   SettingKey.GRADING_MIN_UPSIDE_PCT,
   SettingKey.GRADING_COST_TIERS,
+  // v1.50.2 — las 5 nuevas de M2 (los DOS diales M10 siguen fuera: se editan en PUT /admin/settings).
+  SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+  SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
+  SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
+  SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
+  SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
 ] as const;
 
 /**
- * v1.44-graded-estimate (§M2) — body de `PUT /admin/pricing/graded-estimates`. `@Allow()` (whitelist sin
+ * v1.50-graded-estimate (§M2) — body de `PUT /admin/pricing/graded-estimates`. `@Allow()` (whitelist sin
  * validar aquí): la validación es MANUAL abajo porque los invariantes I1–I7 son ENTRE FILAS
  * (contigüidad, escalón final abierto, `highlightGrades ⊆ grades`) y deben salir 422 con códigos propios
  * (`GRADING_TIERS_EMPTY` / `GRADING_TIERS_NOT_CONTIGUOUS` / `GRADING_TIERS_NOT_OPEN_ENDED`), algo que los
@@ -42,15 +54,22 @@ class GradedEstimatesPutDto {
   @Allow() freshnessDays?: unknown;
   @Allow() minUpsidePct?: unknown;
   @Allow() gradingCostTiers?: unknown;
-  /** ESPEJO read-only del dial M10: si viene, se IGNORA (se edita en `PUT /admin/settings`). */
+  // v1.50.2 — los 5 diales del gate de confianza y del ingest (I8/I9).
+  @Allow() manualFreshnessDays?: unknown;
+  @Allow() maxRawMultiple?: unknown;
+  @Allow() minSampleCount?: unknown;
+  @Allow() sourceStat?: unknown;
+  @Allow() ingestMaxCardsPerRun?: unknown;
+  /** ESPEJOS read-only de los DOS diales M10: si vienen, se IGNORAN (se editan en `PUT /admin/settings`). */
   @Allow() enabled?: unknown;
+  @Allow() ingestEnabled?: unknown;
 }
 
 /**
  * M2 — «Gancho de grading»: diales del estimado PSA + curaduría del destacado (v1.44, `super_admin`).
- * API_CONTRACT §M2 › «Gancho de grading»; ARCHITECTURE §4.35d.
+ * API_CONTRACT §M2 › «Gancho de grading»; ARCHITECTURE §4.38d.
  *
- * **Recurso PROPIO, no `/admin/pricing/tiers`** (§4.35d / GU-A1): los tiers de rareza son una taxonomía
+ * **Recurso PROPIO, no `/admin/pricing/tiers`** (§4.38d / GU-A1): los tiers de rareza son una taxonomía
  * LOCKED de 5 filas nombradas cuyo `PUT` EXIGE las 5 y valida el refinamiento premium; los escalones de
  * costo son filas AÑADIBLES/ELIMINABLES que son RANGOS y cuyo invariante es contigüidad + escalón final
  * abierto. Dos validadores incompatibles no caben en un `PUT`, y `PUT /admin/settings` valida key por key
@@ -63,7 +82,7 @@ class GradedEstimatesPutDto {
  * (`admin/pricing/...`) es el del contrato, independiente del módulo que lo aloja.
  *
  * NADA de lo que se edita aquí viaja al cliente. Los ESTIMADOS no se capturan aquí: se fijan con
- * `POST /admin/pricing/override` (fase 1 manual-first, §4.35a).
+ * `POST /admin/pricing/override` (fase 1 manual-first, §4.38a).
  */
 @Controller('admin/pricing/graded-estimates')
 @Roles(Role.super_admin)
@@ -135,6 +154,9 @@ export class GradedEstimatesController {
     }
 
     // I6 — umbrales.
+    let freshnessDays: number | undefined;
+    let minUpsidePct: number | undefined;
+    let gradingCostTiers: unknown;
     if (dto.freshnessDays !== undefined) {
       const v = dto.freshnessDays;
       if (typeof v !== 'number' || !Number.isInteger(v) || v < GRADED_ESTIMATE_FRESHNESS_DAYS_MIN || v > GRADED_ESTIMATE_FRESHNESS_DAYS_MAX) {
@@ -145,6 +167,7 @@ export class GradedEstimatesController {
         );
       }
       writes.push({ key: SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS, value: v });
+      freshnessDays = v;
     }
     if (dto.minUpsidePct !== undefined) {
       const v = dto.minUpsidePct;
@@ -156,11 +179,12 @@ export class GradedEstimatesController {
         );
       }
       writes.push({ key: SettingKey.GRADING_MIN_UPSIDE_PCT, value: v });
+      minUpsidePct = v;
     }
 
     // I1–I5 — la tabla de escalones, con el MISMO validador compartido que usa la lectura fail-closed.
     // `costMxnCents >= 1`, JAMÁS 0: un costo de gradeo subestimado es exactamente lo que haría que el
-    // comprador pierda dinero (§N.4).
+    // comprador pierda dinero (§O.4).
     if (dto.gradingCostTiers !== undefined) {
       const err = validateGradingCostTiers(dto.gradingCostTiers);
       if (err) throw BusinessException.validation(err.code, err.message, err.details);
@@ -168,38 +192,99 @@ export class GradedEstimatesController {
         key: SettingKey.GRADING_COST_TIERS,
         value: dto.gradingCostTiers as unknown as Prisma.InputJsonValue,
       });
+      gradingCostTiers = dto.gradingCostTiers;
     }
+
+    // I8/I9 (v1.50.2) — los cinco diales nuevos, con los MISMOS validadores compartidos que aplican
+    // `PUT /admin/settings` y la lectura fail-closed del resolver. Una sola verdad por invariante.
+    const patch: Partial<Record<keyof GradedEstimateConfigDTO, unknown>> = {};
+    const applyDial = (
+      field: 'manualFreshnessDays' | 'maxRawMultiple' | 'minSampleCount' | 'sourceStat' | 'ingestMaxCardsPerRun',
+      key: (typeof GRADED_ESTIMATE_M2_KEYS)[number],
+      validate: (v: unknown) => string | null,
+    ): void => {
+      const v = dto[field];
+      if (v === undefined) return; // body PARCIAL: omitido = no se toca.
+      const err = validate(v);
+      if (err) {
+        throw BusinessException.validation('VALIDATION_ERROR', `${field} ${err}`, { field });
+      }
+      writes.push({ key, value: v as Prisma.InputJsonValue });
+      patch[field] = v;
+    };
+    // ⚠️ `manualFreshnessDays` acepta `null` como VALOR («no decae»), no como ausencia. Por eso la
+    // guarda de arriba compara contra `undefined` y no es un `!= null`: un `null` explícito SE ESCRIBE.
+    applyDial(
+      'manualFreshnessDays',
+      SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+      validateGradedEstimateManualFreshnessDays,
+    );
+    applyDial('maxRawMultiple', SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE, validateGradedEstimateMaxRawMultiple);
+    applyDial('minSampleCount', SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT, validateGradedEstimateMinSampleCount);
+    applyDial('sourceStat', SettingKey.GRADED_ESTIMATE_SOURCE_STAT, validateGradedEstimateSourceStat);
+    applyDial(
+      'ingestMaxCardsPerRun',
+      SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+      validateGradedEstimateIngestMaxCards,
+    );
 
     if (writes.length === 0) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
-        'Provide at least one of grades, highlightGrades, freshnessDays, minUpsidePct, gradingCostTiers',
+        'Provide at least one of grades, highlightGrades, freshnessDays, minUpsidePct, gradingCostTiers, ' +
+          'manualFreshnessDays, maxRawMultiple, minSampleCount, sourceStat, ingestMaxCardsPerRun',
       );
     }
+
+    // v1.50.2 — el `after` se COMPUTA en vez de re-leerse, y es lo que permite auditar DENTRO de la
+    // transacción (abajo). Es exacto por construcción: cada clave escrita ya pasó su validador, así que
+    // la config efectiva resultante es `before` con esas claves sustituidas — el saneo on-read sobre un
+    // valor válido es la identidad, y `highlightGrades ⊆ grades` ya se comprobó contra el ESTADO
+    // RESULTANTE unas líneas más arriba. (Re-leer con `loadGradedEstimateConfigForAdmin()` desde dentro
+    // de la transacción no serviría: ese lector usa su propia conexión y no vería lo aún no commiteado.)
+    const after: GradedEstimateConfigDTO = {
+      ...toGradedEstimateConfigDTO(before),
+      ...(dto.grades !== undefined ? { grades } : {}),
+      ...(dto.highlightGrades !== undefined ? { highlightGrades } : {}),
+      ...(freshnessDays !== undefined ? { freshnessDays } : {}),
+      ...(minUpsidePct !== undefined ? { minUpsidePct } : {}),
+      ...(gradingCostTiers !== undefined ? { gradingCostTiers } : {}),
+      ...patch,
+    } as GradedEstimateConfigDTO;
 
     // v1.44 D4 — TODO-O-NADA de verdad: los upserts van en UNA transacción. Antes era un bucle suelto,
     // así que un fallo a media escritura (p. ej. `grades` sí y `gradingCostTiers` no) dejaba la config
     // en un estado MIXTO que nadie pidió, mientras BACKEND_NOTES §0.2 nº4 prometía atomicidad.
-    await this.prisma.$transaction(
-      writes.map((w) =>
-        this.prisma.configSetting.upsert({
+    //
+    // v1.50.2 (deuda BE-GE2, PARIDAD con v2.1.6/P48-B1) — **la bitácora entra a la MISMA transacción**.
+    // Antes se escribía DESPUÉS del commit, así que una excepción entre commit y `audit.log` (caída del
+    // proceso, timeout del pool, fallo del insert de auditoría) dejaba **la config de dinero cambiada y
+    // sin registro** — exactamente el agujero que P48-B1 cerró en `PUT /admin/settings`, en un endpoint
+    // que gobierna una afirmación comercial y el gate que decide qué se promociona. Ahora efecto y
+    // bitácora **commitean o revierten juntos**: es imposible que exista uno sin el otro, en cualquier
+    // orden de fallo.
+    await this.prisma.$transaction(async (tx) => {
+      for (const w of writes) {
+        await tx.configSetting.upsert({
           where: { key: w.key },
           create: { key: w.key, valueJson: w.value, updatedBy: userId },
           update: { valueJson: w.value, updatedBy: userId },
-        }),
-      ),
-    );
-    const after = toGradedEstimateConfigDTO(await this.pricing.loadGradedEstimateConfigForAdmin());
-    await this.audit.log({
-      actorUserId: userId,
-      action: 'pricing.graded_estimates.update',
-      entityType: 'ConfigSetting',
-      // `before`/`after` son la config EFECTIVA (saneada). `storedRaw` es el FORENSE: los valores tal
-      // cual estaban almacenados, con las claves AUSENTES omitidas y las corruptas intactas. Sin él, un
-      // `grading_cost_tiers` corrupto se auditaba como `[]` y la bitácora perdía la evidencia de qué
-      // había realmente antes de la edición (D4).
-      before: { ...toGradedEstimateConfigDTO(before), storedRaw },
-      after,
+        });
+      }
+      await this.audit.log(
+        {
+          actorUserId: userId,
+          action: 'pricing.graded_estimates.update',
+          entityType: 'ConfigSetting',
+          // `before`/`after` son la config EFECTIVA (saneada). `storedRaw` es el FORENSE: los valores
+          // tal cual estaban almacenados, con las claves AUSENTES omitidas y las corruptas intactas.
+          // Sin él, un `grading_cost_tiers` corrupto se auditaba como `[]` y la bitácora perdía la
+          // evidencia de qué había realmente antes de la edición (D4).
+          before: { ...toGradedEstimateConfigDTO(before), storedRaw },
+          after,
+        },
+        tx,
+      );
     });
     return after;
   }
@@ -220,7 +305,7 @@ export class GradedEstimatesController {
   }
 
   /**
-   * I7 sobre UNA lista de grados. Lista CERRADA a propósito (§N.1: otros grados quedan fuera).
+   * I7 sobre UNA lista de grados. Lista CERRADA a propósito (§O.1: otros grados quedan fuera).
    *
    * v1.44 D3 — ENVUELVE el validador COMPARTIDO `validateGradeList` (`settings.constants.ts`, el mismo
    * que aplica `PUT /admin/settings` y la lectura fail-closed). Antes esta función re-implementaba la

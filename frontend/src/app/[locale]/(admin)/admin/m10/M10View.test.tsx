@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import * as api from '@/lib/api';
 import { M10View } from './M10View';
 
 describe('M10View · Config y bitácora', () => {
@@ -37,7 +38,7 @@ describe('M10View · Config y bitácora', () => {
   });
 
   /**
-   * D2 (techlead): sin este dial en la UI, encender la feature exigía `curl` — y el criterio 92(e)
+   * D2 (techlead): sin este dial en la UI, encender la feature exigía `curl` — y el criterio 110(e)
    * pide «desde el back-office, sin redeploy, auditado». El PUT parcial de M10 ya es auditado.
    */
   it('v1.44 · el gancho de grading tiene su interruptor maestro (Select off/on, no texto libre)', async () => {
@@ -72,5 +73,31 @@ describe('M10View · Config y bitácora', () => {
     expect(raw.tagName).toBe('SELECT');
     const options = Array.from((raw as HTMLSelectElement).options).map((o) => o.value);
     expect(options).toEqual(['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual']);
+  });
+
+  it('expone el proveedor de la ingesta MASIVA (bulk) con su propio set de opciones', async () => {
+    renderWithProviders(<M10View />, 'es');
+    const bulk = (await screen.findByLabelText(/Proveedor de ingesta masiva/)) as HTMLSelectElement;
+    expect(bulk.tagName).toBe('SELECT');
+    const options = Array.from(bulk.options).map((o) => o.value);
+    // Set DEDICADO del bulk: coincide EXACTO con PRICE_PROVIDER_VALUES del backend.
+    // Incluye tcgcsv_singles (P-47) y NO incluye poketrace/manual (serían 422).
+    expect(options).toEqual(['pokemontcg_io', 'pokemonpricetracker', 'tcgcsv_singles']);
+    expect(options).toContain('tcgcsv_singles');
+    expect(options).not.toContain('poketrace');
+    expect(options).not.toContain('manual');
+  });
+
+  it('al cambiar el bulk provider hace PUT parcial { priceProvider } camelCase', async () => {
+    // mockResolvedValue evita mutar el estado global de mock (setMockSettings) entre tests.
+    const spy = vi
+      .spyOn(api, 'updateSettings')
+      .mockResolvedValue({ priceProvider: 'tcgcsv_singles' } as never);
+    renderWithProviders(<M10View />, 'es');
+    const bulk = (await screen.findByLabelText(/Proveedor de ingesta masiva/)) as HTMLSelectElement;
+    fireEvent.change(bulk, { target: { value: 'tcgcsv_singles' } });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar proveedor de ingesta/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ priceProvider: 'tcgcsv_singles' }));
+    spy.mockRestore();
   });
 });

@@ -12,7 +12,7 @@ import type {
   Finish,
   SealedCondition,
   SealedSubtype,
-  VariantBuySource,
+  PriceBasis,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -57,7 +57,7 @@ export interface QuickAddProps {
   target: QuickAddTarget;
   /** `pricing.buy.effectiveCents` del binder (sugerido/override/bounty vigente) — null sin sugerido. */
   buyEffectiveCents: number | null;
-  buySource: VariantBuySource | null;
+  buySource: PriceBasis | null;
   /** Referencia de mercado para la APORTACIÓN (raw: variante P-15; sellado: sealedMarketRef). */
   marketRefCents: number | null;
   /** Refresca lista de piezas/agregados; recibe los folios creados (resaltado 3s). */

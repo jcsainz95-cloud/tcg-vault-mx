@@ -75,13 +75,6 @@ export function SellCartContents({
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
 
-  /** Regla aplicada legible ("40% de referencia" / "MX$1.50 fijo"), resuelta server-side. */
-  function ruleText(rule: BuylistQuoteResponse['appliedRule']): string {
-    return rule.mode === 'fixed'
-      ? t('ruleFixed', { amount: formatMoneyCents(rule.value, locale) })
-      : t('rulePct', { pct: rule.value });
-  }
-
   return (
     <>
       {/* Requisitos de cuenta SIEMPRE visibles (aun con carrito vacío — §18.6: el
@@ -195,8 +188,10 @@ export function SellCartContents({
                           </span>
                         </QuoteRow>
                       )}
-                      {/* Regla aplicada, resuelta server-side por el acabado. */}
-                      <QuoteRow label={t('appliedRuleLabel')}>{ruleText(l.quote.appliedRule)}</QuoteRow>
+                      {/* v2.0 (P-48): la fila «Regla aplicada» SE RETIRA — no hay reglas por
+                          rareza/acabado, hay una curva. El monto lo deriva el backend (SEC-A1) y
+                          esta superficie es del cliente: un rótulo interno de `priceBasis` aquí
+                          explicaría menos que el propio importe. */}
                       {pending && (
                         <p className="rule-note mt-3 text-[12px] leading-[1.7] text-muted">
                           {t('pricePendingNotice')}

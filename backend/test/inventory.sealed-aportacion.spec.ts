@@ -33,6 +33,14 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
           ? { id: 'card-anchor', rarity: null, availableFinishes: ['normal'] }
           : null,
       ),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
     },
     inventoryItem: {
       findMany: jest.fn(async ({ where }: any) =>

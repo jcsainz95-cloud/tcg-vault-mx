@@ -1,6 +1,1578 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════
+     GATE DE RELEASE — FUSIÓN pricing-v2 × P-47 (2026-08-28) — se antepone. Todo lo anterior
+     (v2.1.9, v2.1.7/v2.1.8, P-48, histórico) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# GATE DE RELEASE · FUSIÓN curva v2 × tcgcsv_singles (P-47) · 2026-08-28 · seguridad (blue team)
+
+> **Árbol auditado:** `integration/pricing-v2-merge`, HEAD **`1268e7a`** (merge --no-ff), **working
+> tree limpio**. **Insumo:** `docs/PENTEST_NOTES.md` (pase v2.1.7/v2.1.8) + re-verificación v2.1.9 +
+> revisión del delta de fusión. **Modo:** estático dirigido sobre el árbol fusionado + `npm audit`.
+> Los commits que el handoff marcó «sin gate» (`d8c4625`, `1885b4a`, `a05a819`) son **ancestros del
+> gate v2 `7aa2081`** y SÍ fueron atacados por el pentester; re-verificados en el árbol fusionado. El
+> delta genuinamente nuevo es **la fusión** (integración P-47 provider × curva v2).
+
+## 0. VEREDICTO: ✅ APROBADO-CON-CONDICIONES · gate CERRADO con condiciones
+
+| | |
+|---|---|
+| **Críticos / Altos abiertos** | **0 / 0** ⇒ el criterio de rechazo del DoD no se dispara. |
+| **Medias abiertas** | **1** — **S49-M2** (aceptada con disparador duro). |
+| **Bajas / Info** | S49-B3 · candado `no-raw-entity` (gap estructural) · R2 · R4 · deps (2 moderate). |
+| **Cerradas y verificadas en la fusión** | R1 · S49-M1 · S49-M1-R · R3/D1 (techo de curva) · D2 (§N.7 en el emisor). |
+| **¿La fusión P-47×curva introdujo algo nuevo?** | **NO.** El eje de precios sigue money-safe. |
+
+**Mínimo para APROBADO limpio:** cerrar **S49-M2** + extender el candado `no-raw-entity-response.spec.ts`.
+**Disparador DURO de S49-M2:** se cierra **ANTES de que la plataforma almacene el primer RFC/CLABE/INE de
+un usuario real** (antes de abrir buylist/facturación a clientes reales). Hoy la BD no tiene ni un dato
+fiscal/bancario real ⇒ la condición se cumple para desplegar staging/prod sin PII real.
+
+## 1. Hallazgo abierto que condiciona el gate
+### S49-M2 · [Media · ABIERTO] · `GET /admin/orders` publica la fila `Order` cruda (con `billingSnapshot`: `rfcEnc` cifrado + metadato fiscal) al `vault_operator`
+- Confirmado: `admin-orders.controller.ts:@Get()` hace `findMany` **sin `select`** y devuelve la fila entera.
+  La ruta hermana `:id` SÍ proyecta (`billingSnapshot:null`) y `getUser` oculta `billingProfile` (SEC-A4) → es bug, no diseño.
+- El RFC viaja **cifrado** (AES-256-GCM); lo que sale en claro es metadato fiscal; sin vector anónimo/customer, sin dinero ⇒ **Media**.
+- **Dueño:** backend (proyectar el listado como el detalle) + arquitecto (declarar si `billingSnapshot` es visible a `vault_operator`).
+
+## 2. Fusión P-47 × curva — eje de precios money-safe (verificado)
+- Dial `PRICE_PROVIDER` `super_admin`-only; validador restringe a 3 valores; `PRICING_CURVE` fuera de `SETTING_DTO_MAP` (única puerta = `PUT /admin/pricing/curve`, super_admin).
+- `reconcilePublishedPrices` llavea por `cardId|productType|gradeKey|finish`; sin mercado → `pendingReason`/cola (nunca `$0`); respeta override manual por pieza; mismo seam `decideSalePrice` que publicación/checkout. `ingestSinglesForSet` upsertea referencia per-acabado respetando `isManualOverride`.
+- `source`/`isManualOverride` solo server-side; omitidos en `PriceInfo` público; solo en `vault_operator+`.
+- Techo de cordura curva (R3/D1) CERRADO: `MAX_CURVE_CONSTANT_CENTS = 200_000` acota `floorCents`/`binCents`.
+
+## 3. Deuda de seguridad aceptada (no bloqueante)
+- **S49-B3** (Baja) — `buylist.service.ts` `itemDTO` devuelve `card` cruda (catálogo público, sin secretos). Dueño: backend.
+- **Candado `no-raw-entity`** (Baja/Info) — el barrido no ve spread `{...row}` ni `include:` crudo. Dueño: backend.
+- **R2** (Baja) — `POST /buylist/quote` `@Public` emite `priceBasis`+precio (ratificado en contrato, throttled). Dueño: backend+arquitecto.
+- **R4** (Baja/Info) — filas crudas sin PII en back-office/recurso propio. Dueño: backend.
+- **Deps** (Media) — backend prod `npm audit`: 2 moderate (`@nestjs/core`, exige bump a NestJS 11), 0 high/critical. Dueño: devops.
+
+## 4. Banderas para el humano
+1. Antes de operar con dinero real: pentest de tercero + bug bounty.
+2. El disparador de S49-M2 es de negocio: el día que entre el primer RFC/CLABE/INE real, esa ruta pasa de deuda a incidente de privacidad.
+3. Custodia/PII (INE/CLABE/RFC): pendiente validación legal de retención y contrato de custodia (no es decisión de ingeniería).
+
+— SEGURIDAD (blue team / AppSec), 2026-08-28 (gate de release fusión pricing-v2 × P-47) · persistido por el orquestador
+
+---
+
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
+     RE-VERIFICACIÓN DE CIERRE v2.1.9 (2026-08-24) — se antepone. Todo lo anterior
+     (pase v2.1.7/v2.1.8 y el histórico) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# RE-VERIFICACIÓN DE CIERRE · v2.1.9 · 2026-08-24 · seguridad (blue team)
+
+> **Qué es esto:** NO es un pase nuevo. Es la comprobación **acotada** de que lo que dictaminé en el
+> gate de release (`7aa2081`, árbol hasta `455fb8a`) quedó efectivamente cerrado en el árbol final
+> **`005a610`** (5 commits de código: `be4cc71`, `ed160c9`, `82b03df`, `64c6ad7`, `005a610`).
+> **Modo:** esta vez **con mutación autorizada** — el stack estaba libre, así que disparé los PoC que
+> escriben (los que la vez pasada quedaron marcados *[no verificado en vivo — colisión con QA]*).
+> **Restauración:** curva de precios restaurada byte a byte (`floorCents 2500 / binCents 100`,
+> comparación JSON idéntica), `Order.billingSnapshot` devuelto a `NULL`, `BillingProfile`/`KycProfile`
+> de prueba borrados, `SellRequest` de prueba eliminadas, recuentos verificados. **Lo único que dejo
+> a propósito son 2 filas de `AuditLog`** con mi referencia `SEC-REVERIF-001`: la bitácora es
+> append-only y borrar de ella para "limpiar" es peor práctica que el rastro.
+> **Nota de higiene del entorno:** entre las 23:49 y 23:52 otra corrida (E2E) tocó la misma BD
+> (`InventoryItem` 260→290, `ShipmentRequest` 101→116, `AuditLog` con `order.chargeback_inventory`
+> que yo no disparé). **No contamina estos resultados** — cada PoC crea y lee su propio dato en la
+> misma ventana de segundos —, pero lo digo porque el entorno no estaba tan quieto como se me indicó.
+
+---
+
+## 0. VEREDICTO DE CIERRE
+
+# ✅ APROBADO CON ACEPTACIONES
+
+| | |
+|---|---|
+| **Las dos Medias que acepté con disparador** | **CERRADAS las dos** (R1 y S49-M1), verificadas **en vivo**. La aceptación con disparador **ya no aplica**: se puede borrar del expediente. |
+| **¿Los arreglos introdujeron algo nuevo?** | **NO.** Cero hallazgos nuevos causados por los fixes (§6). |
+| **¿Queda algo abierto de la misma clase?** | **SÍ: 2 Medias.** No las introdujeron los arreglos — **son sitios que los arreglos no alcanzaron, y que ni el pentester ni yo habíamos encontrado**. Confirmadas en vivo (§3). |
+| **Críticos / Altos abiertos** | **0 / 0** ⇒ el criterio de rechazo del DoD *(«sin hallazgos críticos/altos abiertos»)* **no se dispara**. |
+
+**Mínimo para pasar a APROBADO limpio (sin aceptaciones):** cerrar **S49-M1-R** y **S49-M2** (§3.1,
+§3.2) y **extender el candado** `no-raw-entity-response.spec.ts` al patrón que hoy no ve (§4). Son
+tres cambios en tres archivos; el patrón correcto ya existe en el mismo repo.
+
+**Disparador DURO que traspaso a las dos Medias abiertas** (idéntico al que acepté antes, no uno
+nuevo y más laxo): **se cierran ANTES de que la plataforma almacene la primera CLABE, INE o RFC de un
+usuario real** — es decir, antes de abrir buylist o facturación a clientes reales. Fuera de esa
+condición: **RECHAZADO**.
+
+### ⚠️ Alcance EXACTO de este veredicto (leerlo antes de citarlo)
+
+Este veredicto cubre el commit **`005a610`** y **solo** ese árbol. Al cerrar esta re-verificación el
+**árbol de trabajo ya NO es `005a610`**: hay **15 archivos modificados sin commitear** (y 3 sin
+seguimiento), entre ellos **`backend/src/common/pricing-curve.ts`** —el fichero de dinero que acabo de
+certificar—, `pricing.controller.ts`, `settings/settings.constants.ts`, `frontend/src/lib/api.ts` y
+`frontend/src/types/contract.ts`. Lo digo porque un veredicto que se cita sobre un árbol distinto del
+que se auditó es peor que no tenerlo.
+
+- **Lo que sí revisé de ese pendiente, porque toca lo que acabo de certificar:** el cambio a
+  `MAX_CURVE_CONSTANT_CENTS` **aprieta** el techo (1 000 000 → **200 000**, MX$2,000). Es **más
+  restrictivo**, así que D1 sigue cerrada *a fortiori*: todo lo que el techo viejo bloqueaba, el nuevo
+  también, y `sanitizePricingCurve` sigue compartiendo validador con el `PUT`.
+- **Lo que NO revisé y NO está cubierto:** el resto del pendiente, en particular **D3-b** en
+  `pricing.controller.ts` (merge parcial de `sealed-spreads` con semántica `null` = retiro, y un
+  **`@Allow()` que sustituye a `@IsNumber` en `fallbackPct`** delegando la validación a un validador a
+  mano). Es un cambio en la **validación de un dial de precio**: entra por el gate normal
+  (QA → techlead → seguridad) antes de desplegar. **No lo firmo aquí.**
+- **Mi evidencia en vivo sí corresponde a `005a610`:** el backend que interrogué (PID 12024,
+  `ts-node` sin watch, arrancado a las 23:18) nunca se reinició durante la ventana, así que servía el
+  código de `005a610`, no el pendiente en disco.
+
+---
+
+## 1. Las dos Medias del veredicto anterior — **CERRADAS** (verificado en vivo)
+
+### R1 · `PATCH /admin/users/:id/kyc` — **CERRADA** ✅
+
+PoC de mi propio reporte, disparado contra `:3099` con token `super_admin` del seed:
+
+```
+PATCH /api/v1/admin/users/<id>/kyc  {"kycStatus":"verified","capPerRequestCents":500000}   → 200
+{ id, userId, legalName, kycStatus, capPerRequestCents, capPerMonthCents,
+  verifiedBy, verifiedAt, createdAt, updatedAt, ineOnFile:false }
+PROHIBIDOS ENCONTRADOS: NINGUNO
+```
+
+**Fuera:** `clabeEnc`, **`clabeHmac`**, `rfcEnc`, `ineFrontKey`, `ineBackKey`. El `select`
+(`ADMIN_KYC_SELECT`, `admin.service.ts:31-52`) es lista blanca **en BD** ⇒ el blind index ni se lee;
+`toAdminKycDTO` (`:59-96`) reduce el INE a booleano. Es la solución que pedí, no un parche.
+Fijado por test (`test/no-raw-entity-response.spec.ts:227-235` verifica que se pide `select`).
+
+### S49-M1 · `SellRequest.clabeSnapshotEnc` — **CERRADA en las cinco rutas** ✅
+
+Backend tiene razón en que eran **cinco**, no cuatro: se me escapó la salida **idempotente** de
+`pay-spei` (`return req` del `findUnique`), que es el camino más barato de todos — basta re-postear
+el pago, sin transición. Flujo completo ejercitado en vivo (crear solicitud → recibir → verificar →
+pagar → re-pagar → responder), con `clabeSnapshotEnc` **presente en BD** (`has_enc = t`) para que el
+test no pase por vacío:
+
+| Ruta | Rol usado | HTTP | `clabeSnapshotEnc` | `closedAt` / `paidBy` |
+|---|---|---|---|---|
+| `POST /admin/buylist/:id/receive` | **vault_operator** | 201 | **ausente** | admin: presente (correcto) |
+| `POST /admin/buylist/:id/verify` | **vault_operator** | 201 | **ausente** | admin: presente (correcto) |
+| `POST /admin/buylist/:id/pay-spei` (transición) | super_admin | 201 | **ausente** | — |
+| `POST /admin/buylist/:id/pay-spei` (**re-post idempotente**) | super_admin | 201 | **ausente** | — |
+| `POST /buylist/requests/:id/respond` `decline` | customer | 200 | **ausente** | **ambos ausentes** ✅ |
+| `POST /buylist/requests/:id/respond` `accept` | customer | 200 | **ausente** | **ambos ausentes** ✅ |
+| `GET /buylist/requests/:id` (`getMine`) | customer | 200 | **ausente** | **ambos ausentes** ✅ |
+| `GET /admin/buylist/:id` (`adminGet`) | **vault_operator** | 200 | **ausente** (sale `clabeMasked`, que es lo normado) | admin: presente (correcto) |
+
+Control de dinero re-verificado de paso: `pay-spei` con token `vault_operator` ⇒ **403
+`MONEY_OUT_FORBIDDEN`**. La CLABE en claro sigue saliendo **solo** por `reveal-clabe`.
+
+**Conclusión:** las dos Medias que acepté están cerradas. **La aceptación con disparador que registré
+en `7aa2081` ya no aplica y queda sin efecto.**
+
+---
+
+## 2. Los siete sitios que encontró backend y no estaban en ningún barrido — verificados ✅
+
+Los dos que interesaban, comprobados:
+
+- **`disputes.service.ts` `listMine`/`getMine`** — cerrados. Hoy hay **dos** proyecciones por
+  audiencia (`toDisputeDTO` cliente / `toAdminDisputeRow` back-office, `:12-68`): el cliente ya no
+  recibe `resolvedBy` (uuid del súper-admin que resolvió) ni `repurchaseOrderId` ni `userId`.
+  Backend tiene razón en el diagnóstico de por qué se escapó: mi lista y la del pentester citaban
+  `resolve` (admin) porque el grep encontraba `return this.prisma.dispute.update(`; `listMine` era
+  `const data = await …; return { data }` — **el mismo patrón indirecto**, invisible al mismo grep.
+- **`shipments.service.ts` `withAdminKind`** — cerrado (`toAdminShipmentRow`, `:26-56`). Y el
+  diagnóstico es el correcto y es el más valioso de todo este delta: `...row` **es** una entidad
+  cruda **disfrazada**, y ningún barrido de `return prisma.X` la delata. Comprobado que la lista
+  blanca no perdió columnas: cubre **todos** los escalares de `ShipmentRequest`.
+
+Los otros cinco (`inventory` update/move/mark/getItem/createLocation, `users` addresses,
+`buylist` itemDecision, `pricing`/`catalog-sync`/`guest-checkout`/`jobs` marcados
+`PROJECTION-EXEMPT`) verificados por lectura + respuesta viva. `GET /users/me/addresses` ya devuelve
+`AddressDTO` (sin `userId`/`createdAt`/`updatedAt`). **Ninguna lista blanca perdió columnas** frente
+al schema (comparé columna a columna: `ShipmentRequest`, `InventoryItem`, `VaultLocation`,
+`SellRequest`, `Dispute` están completas; lo único deliberadamente fuera son las cuatro columnas
+LEGACY de `SellRequestItem`, que nada consume).
+
+---
+
+## 3. Tercera pasada — buscando el patrón **disfrazado** (spread / helper / `include`)
+
+Backend acertó al señalar que el patrón que buscábamos no detectaba el disfraz. Volví a barrer
+**buscando eso**: spread de fila (`...row`/`...safe`/`...rest`), asignar-y-devolver, `Object.assign`,
+y **relaciones de `include:` devueltas crudas dentro de una respuesta proyectada**. Aparecieron dos
+sitios de la **misma clase y la misma severidad** que S49-M1 — **ninguno introducido por los
+arreglos; los dos son anteriores y ninguno de los tres barridos (pentester, el mío, el de backend)
+los había tocado.**
+
+### 3.1 · S49-M1-R · [**Media**] · `GET /admin/users/:id` devuelve `sellRequests[]` **crudas**, con `clabeSnapshotEnc`, y llega al **vault_operator**
+
+- **Ubicación:** `backend/src/modules/admin/admin.service.ts:288-302` — `include: { … sellRequests:
+  { take: 20 }, orders: { take: 20 }, addresses: true, disputes: { take: 20 } }` y luego
+  `const { passwordHash: _pw, ownedItems: _ownedRaw, ...safe } = user;` + `return { ...safe, … }`.
+  La cabecera se filtra por **lista negra de dos campos**; **las relaciones no se tocan**.
+- **PoC (en vivo, con una solicitud de venta real del seed):**
+
+```
+GET /api/v1/admin/users/<id>   Authorization: Bearer <vault_operator>       → 200
+  .sellRequests[0] keys: [... "clabeSnapshotEnc" ...]
+  clabeSnapshotEnc = "v1:IFt9OZHgjtWOYPxD:9ORvGnhquXCjcDvshZg6EA==:JWXhJuqhAfWFA2E…"
+```
+
+- **Por qué es exactamente S49-M1:** mismo dato (blob AES-256-GCM de la CLABE del vendedor), misma
+  frontera de rol cruzada (`PROJECTION-EXEMPT` no aplica: esto es una respuesta HTTP), misma norma
+  violada (`API_CONTRACT.md:5728`: «**nunca** el snapshot cifrado»). Y es **la misma ruta** cuya
+  proyección de KYC el equipo usó como modelo de lo correcto para arreglar R1 — el `kycProfile` está
+  impecable y la relación de al lado publica el ciphertext bancario.
+- **De regalo, en la misma respuesta:** `orders[]` crudas (`guestEmail`, `paymentMethodLast4`,
+  `stripePaymentIntentId`, `billingSnapshot`), `addresses[]` crudas y `disputes[]` crudas — o sea el
+  **`toAddressDTO`/`toDisputeDTO` recién creados se saltan por esta puerta**.
+- **Severidad Media** (idéntico criterio que S49-M1): ciphertext, no PII en claro; sin vector anónimo;
+  sin impacto de dinero; pero cruza una segregación de funciones **diseñada a propósito** y
+  contradice el contrato.
+- **Rol dueño:** **backend** (proyectar las cuatro relaciones; `toAdminSellRequestDTO` ya existe y es
+  literalmente la respuesta) + **arquitecto** (declarar el `Res` de §M6: el contrato dice que la ficha
+  «incluye `sellRequests` (20)» y **no dice con qué forma** — la misma causa raíz que R1).
+
+### 3.2 · S49-M2 · [**Media**] · `GET /admin/orders` publica `Order.billingSnapshot` —con `rfcEnc` y los datos fiscales— al **vault_operator**
+
+- **Ubicación:** listado admin de órdenes (`@Controller('admin/orders')` +
+  `@Roles(vault_operator, super_admin)`, `admin-orders.controller.ts:21-22`). `billingSnapshot` se
+  escribe en `orders.service.ts:491-521` como **la fila `BillingProfile` entera**
+  (`to_jsonb(BillingProfile)`), o sea `rfcEnc` + `razonSocial` + `regimenFiscal` + `usoCfdi` +
+  `postalCode` + `email`.
+- **PoC (en vivo; reproduje el dato escribiendo en la orden exactamente el mismo valor que escribe
+  `orders.service.ts:521`, y lo revertí después):**
+
+```
+GET /api/v1/admin/orders?pageSize=100   Authorization: Bearer <vault_operator>   → 200
+  data[].billingSnapshot = {"id":"765fab03…","email":"facturacion@e2e.local",
+    "rfcEnc":"v1:aNPN+rUdkpBWHhsR:T9qZnWOvL5T+ZxtdU8LU1g==:WrbKso0cfyN6cOdH4Q==",
+    "usoCfdi":"G03","postalCode":"01000","razonSocial":"SEC REVERIF SA","regimenFiscal":"601"}
+```
+
+- **Lo que lo convierte en hallazgo y no en diseño — hay DOS contraejemplos en el propio sistema:**
+  1. `GET /admin/orders/**:id**` (la ruta hermana, mismo controller) **sí** proyecta: devolvió
+     `billingSnapshot: null` con el dato presente en BD. El **detalle** está bien; el **listado** no.
+  2. `AdminService.getUser` decide explícitamente `billingProfile: null` para el operador y lo
+     documenta: *«Perfil de facturación (RFC/datos fiscales): **oculto al operador**»* (SEC-A4). El
+     listado de órdenes reparte por la ventana lo que la puerta cierra.
+- **Severidad Media, y digo también el argumento contrario para que se pueda discrepar con datos:**
+  el dato realmente protegido —el **RFC**— viaja **cifrado**, igual que la CLABE de S49-M1 ⇒ no es
+  «PII en claro» en el sentido fuerte que yo mismo fijé como criterio de rechazo. Lo que sí sale en
+  claro (`razonSocial`, `regimenFiscal`, `usoCfdi`) es **metadato fiscal**, y `email`/`postalCode`
+  ese rol **ya los ve** legítimamente (`seller`/`owner` en buylist y bóveda; `addressSnapshot` para
+  el picking). Marginal real: la razón social y el régimen. ⇒ **Media**, no Alta.
+- **Rol dueño:** **backend** (proyectar el listado como ya hace el detalle) + **arquitecto**
+  (declarar si `billingSnapshot` es visible para `vault_operator`; hoy hay dos respuestas escritas y
+  se contradicen).
+
+### 3.3 · S49-B3 · [**Baja**] · El `card` del buylist es la fila `Card` cruda — **y el tipo declarado dice lo contrario**
+
+- **Ubicación:** `buylist.service.ts:966-1004` — la firma declara `card: { id: string; name: string;
+  number: string } | null` y el cuerpo hace `card: i.card`. Como TypeScript es **estructural**, un
+  objeto más ancho pasado por variable **satisface** ese tipo: el tipo describe lo que se *usa*, no
+  lo que se *emite*.
+- **PoC (en vivo, `GET /buylist/requests/:id` con token `customer`):**
+
+```
+.items[].card keys: availableFinishes, catalogFinishes, createdAt, externalId, id, imageLargeUrl,
+  imageSmallUrl, name, number, numberPrefix, numberSort, pricedFinishesSnapshot, rarity,
+  rarityCanonical, setId, structuralFinishes, subtypes, supertype, tcgplayerId
+```
+
+- **Impacto:** bajo — el catálogo es público. Lo que sale de más es **instrumentación interna**
+  (`pricedFinishesSnapshot`, `catalogFinishes`, `structuralFinishes`, `rarityCanonical`,
+  `tcgplayerId`), no secretos. **Lo que importa es la lección:** este es el disfraz **más peligroso
+  de todos** porque hay un tipo declarado al lado que da falsa tranquilidad — es B-1 al revés.
+  Aparece igual en `GET /admin/buylist`, `GET /admin/buylist/:id` y `GET /admin/inventory/items`
+  (`...relations` en `inventory.service.ts:1722`: `card`, `location`, `movements` crudas).
+- **Rol dueño:** **backend** (reusar `toCardDTO`, que ya existe y es lo que el contrato llama `CardDTO`).
+
+### 3.4 · Info · Coherencias menores que dejo anotadas, sin severidad
+
+- **`getUser` sigue emitiendo `ineFrontKey`/`ineBackKey` al `super_admin`** mientras el `PATCH` recién
+  arreglado ya no lo hace. El comentario del fix de R1 afirma dar «el mismo trato que `getUser`»: no
+  es exacto, el `PATCH` es **más estricto**. Como verifiqué en el pase anterior que `presignGet` **no
+  tiene ningún llamador**, esas object keys no le sirven hoy a nadie ⇒ conviene igualar `getUser` a
+  la nueva proyección. → **backend**.
+- **`frontend/src/lib/api.ts:3355-3357`** declara que `updateUserKyc` devuelve `AdminUserDetailDTO`;
+  el backend devuelve ahora el KYC proyectado. **No rompe nada** (M6 ignora la respuesta y hace
+  `invalidateQueries`), pero el tipo miente. → **frontend** + **arquitecto** (declarar el `Res`).
+- **`backend/prisma/seed-e2e.ts` no tiene guardia de entorno.** `npm run seed:synthetic` contra
+  cualquier `DATABASE_URL` crea `admin@e2e.local` / `Admin123!` con rol **`super_admin`**. Hoy solo
+  lo invocan `e2e.yml` y `e2e-real.yml` contra BD efímeras del runner (verificado), así que el riesgo
+  es **error de operador**, no una ruta abierta. Una guardia (`NODE_ENV`/host de la BD) cuesta cinco
+  líneas. Pre-existente, no de este delta. → **backend**.
+
+---
+
+## 4. Juicio del candado nuevo (`backend/test/no-raw-entity-response.spec.ts`)
+
+**Veredicto: la capa de comportamiento es buena; la capa estructural NO cierra la clase — y lo
+demuestro, no lo opino.**
+
+**Lo que está bien, y es mejor de lo que pedí:** los 13 tests de comportamiento pasan una fila que
+**sí** trae el secreto y afirman sobre el **JSON serializado** (`expect(JSON.stringify(res)).not
+.toMatch(/"v1:[^"]+"/)`), o sea detectan el blob aunque cambie el ciphertext; el mock de Prisma
+**ignora los `select`** a propósito, así que el test solo pasa si la proyección está en el código; y
+el segundo test del barrido (`:319-322`) verifica que el patrón vigilado **existe** en la base, que
+es justo la lección del candado tautológico de enums. Eso está bien pensado.
+
+**Lo que no cierra — evasión demostrada:** el barrido busca `return [await] prisma.<modelo>.<op>(`.
+Eso deja fuera, por construcción, **los tres disfraces que este mismo release descubrió**:
+
+| Patrón que NO ve | Ejemplo vivo hoy |
+|---|---|
+| asignar y devolver (`const x = await prisma…; return x`) | era el de `disputes.listMine` |
+| **spread de fila** (`return { ...row }`) | `admin.service.ts:313` — **§3.1, fuga viva** |
+| **relación de `include:` devuelta cruda** dentro de un objeto proyectado | `sellRequests[]`, `orders[]` en §3.1; `card`/`location`/`movements` en §3.3 |
+| `select:` **en cualquier parte** del statement cuenta como lista blanca (`:303`) | un `select` anidado dentro de un `include` marcaría como seguro un `return` de fila cruda |
+
+**La prueba de que esto importa, y es la frase que quiero que quede:**
+
+```
+$ npx jest test/no-raw-entity-response.spec.ts
+Tests: 13 passed, 13 total        ← VERDE
+
+$ curl -H "Authorization: Bearer <vault_operator>" .../admin/users/<id> | jq '.sellRequests[0].clabeSnapshotEnc'
+"v1:IFt9OZHgjtWOYPxD:9ORvGnhquXCjcDvshZg6EA==:JWXhJuqhAfWFA2E…"     ← FUGA VIVA
+```
+
+**Un candado verde sobre una norma falsa es peor que no tener candado**: convierte una afirmación
+verificable en una creencia, y es exactamente lo que hará que nadie vuelva a mirar. Es la misma
+crítica que hice al test de paridad de enums (S49-B1), y el equipo la aplicó bien ahí (`business-rules.ts`
++ la clase E/R es una respuesta seria); aquí falta aplicarla a su propio candado.
+
+**Lo mínimo para que el candado sostenga la clase** (→ **backend**): (a) barrer también
+`const x = await prisma…` seguido de `return x` / `...x`; (b) prohibir `include:` en cualquier
+`findX` cuyo resultado alcance un `return` sin proyección explícita — la relación es el nuevo
+`return prisma.X`; (c) exigir que el `select:` que exime esté en el **nivel raíz** del statement, no
+en cualquier parte de él.
+
+---
+
+## 5. D2 (visibilidad §N.7 en el emisor) y D1 (techo de la curva) — verificados ✅
+
+### D2 · `referenceMxnCents` viaja **si y solo si** `priceBasis === 'market'` — confirmado en vivo, anónimo
+
+| Superficie pública (sin token) | Resultado |
+|---|---|
+| `GET /catalog/cards` (rejilla) | claves = `card, currency, finish, gradeKey, productType, rawCondition, representativeInventoryItemId, salePriceCents, stockCount` — **sin `priceBasis`, sin `referenceValue`** ✅ |
+| `GET /catalog/listings/:id` — **el PoC literal del pentester** | `priceBasis:"override"` ⇒ `referenceValue: {"status":"priced"}` — **el número desapareció** ✅ |
+| idem con `priceBasis:"market"` | `referenceValue: {status, referenceMxnCents:100000, capturedDate}` — **no se apagó funcionalidad** ✅ (la otra dirección del `iff`, que es donde se rompen estas cosas) |
+| `GET /catalog/cards/:cardId` (ficha + `units[]`) | ambos obedecen el mismo `iff` ✅ |
+| `GET /catalog/sealed` (rejilla) | sin stock sellado en el entorno; cubierto por `toGroupSummaryDTO` + `test/catalog.market-visibility-emitter.spec.ts` (que además quita `priceSource`, del que `priceBasis` se deriva — el detalle que se pasa por alto) |
+| `GET /catalog/facets`, `/buylist/cards`, `/buylist/bounties`, `/checkout/guest/quote`, `value-history` | **cero** señales de precio internas ✅ |
+
+**Único residuo, y es el de siempre (R2, Baja, sin cambio):** `POST /buylist/quote` y `/quote/batch`
+(**@Public**) siguen emitiendo `priceBasis` **y** `referencePrice.priceMxnCents`. Está **ratificado
+por contrato** (`API_CONTRACT.md:2004-2008`) y, a diferencia de la rejilla, **está acotado**:
+`@Throttle` 60/min y 12/min×50 ⇒ ~600 cotizaciones/min por IP frente a las **30 000 filas/min** que
+permitía la rejilla. O sea: el arreglo no solo cerró el PoC, **redujo el canal de cosecha masiva en
+dos órdenes de magnitud**. No lo reabro.
+
+El test que lo fija (`catalog.market-visibility-emitter.spec.ts`, 296 líneas) es de los buenos:
+prueba el `iff` **en las dos direcciones**, sobre el **JSON serializado** y a los dos niveles; y
+`test/helpers/dto-keys.ts` deriva las claves esperadas de la interfaz con
+`Record<keyof T, true>` ⇒ añadir un campo al DTO y no declararlo **no compila**. Eso sí cierra clase.
+
+### D1 · `floorCents`/`binCents ∈ [0, 1 000 000]` — bloquea en **PUT**, en **preview** y **en lectura** ✅
+
+```
+PUT  /admin/pricing/curve  floorCents=2 000 000            → 422 "sale.floorCents must be an integer in [0, 1000000]"
+PUT  …                     binCents=2 000 000              → 422 "buy.binCents must be an integer in [0, 1000000]"
+PUT  …                     floorCents=2 000 000 000 000 000 (el caso exacto de QA) → 422
+POST /admin/pricing/curve/preview  (los tres borradores)    → 422, mismo código y mismo `details`
+PUT  …                     floorCents=1 000 000 (el borde)  → 200  (intervalo cerrado, coherente con el mensaje)
+```
+
+**Y el hueco de la vez pasada está cerrado**: inyecté la curva envenenada **directamente en BD**
+(saltándome el `PUT`) y la lectura **no la sirve** — `sanitizePricingCurve` llama al **mismo**
+`validatePricingCurve` (`pricing-curve.ts:1190-1194`), así que cae al seed:
+
+```
+UPDATE ConfigSetting … floorCents = 2000000000000000        (BD envenenada)
+GET /admin/pricing/curve      → floorCents: 2500            (seed; NO sirve lo almacenado)
+GET /catalog/cards (anónimo)  → 115000 / 575000 / 60000     (la vitrina NO se satura)
+```
+
+Curva restaurada y comparada byte a byte con el respaldo (`IDENTICA: True`).
+
+---
+
+## 6. ¿Los arreglos rompieron algo? — **No** (era mi preocupación principal)
+
+Es mucha proyección nueva en seis módulos, y el riesgo real no es la fuga sino **el contrario**: una
+lista blanca que quita un campo que el cliente necesita y rompe un flujo en silencio. Lo verifiqué
+por cuatro vías independientes:
+
+1. **Cobertura de columnas:** comparé cada lista blanca contra el `schema.prisma`, columna a columna.
+   `ShipmentRequest`, `InventoryItem`, `VaultLocation`, `SellRequest`(admin), `Dispute`(admin) están
+   **completas**; lo único fuera son las 4 columnas LEGACY de `SellRequestItem` y los campos internos
+   deliberados (`closedAt`/`paidBy` en la vista de cliente).
+2. **Consumidores reales:** `grep` en todo `frontend/src` de los campos retirados (`closedAt`,
+   `paidBy`, `resolvedBy`, `repurchaseOrderId`, `orderItemId`, `ruleMode/ruleValue/ruleSource`,
+   `address.userId/createdAt`) ⇒ **cero usos**. El único consumidor de la respuesta cambiada de R1
+   (M6) la **ignora** y refresca por query.
+3. **Compilación:** `tsc --noEmit` **backend: 0 errores**, **frontend: 0 errores**. Los tipos propios
+   (`GroupedListingSummaryDTO`, `SealedGroupSummaryDTO`, `CardDTO`, `ListingDTO`, `HoldingDTO`) hacen
+   que emitir de más o de menos **no compile**, que es el candado correcto.
+4. **Suite unitaria completa:** `185 suites / 2089 tests / 100 % verde`.
+
+Además comprobé que la trimming de D2 **no alcanza** a bóveda/portafolio ni a admin: `vault.service`
+llama `toPublicPriceInfo(ref)` **sin** basis (§N.7 los excluye) y las superficies admin usan la
+referencia sin recortar. Verificado en vivo: `GET /vault/holdings` conserva `referenceValue`.
+
+**Conclusión: 0 hallazgos nuevos introducidos por los arreglos.**
+
+---
+
+## 7. Banderas para el humano (sin cambios de fondo; las repito porque siguen vigentes)
+
+1. **Antes de operar con dinero real:** pentest de tercero + bug bounty. Esta fase es interna y
+   gray-box; tres barridos independientes sobre la **misma** clase de fallo dejaron **dos** sitios
+   vivos — eso es exactamente el argumento para una mirada externa, no contra ella.
+2. **El disparador de las dos Medias es de negocio, no técnico:** hoy no hay ni una CLABE, RFC o INE
+   real en la BD. El día que entre la primera, estas dos rutas pasan de «deuda» a «incidente de
+   privacidad». Que alguien del negocio ponga fecha a ese día.
+3. **Custodia y PII (INE/CLABE/RFC):** sigue pendiente la validación **legal** de retención y de
+   contrato de custodia. No es una decisión de ingeniería.
+4. **Higiene del entorno de pruebas:** el stack compartido se usó por dos actores a la vez durante
+   esta ventana. Para el gate de seguridad conviene una BD dedicada y desechable (como usó el
+   pentester), no la que corre la E2E.
+
+---
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
+     PASE v2.1.7 / v2.1.8 — GATE DE RELEASE (2026-08-24) — se antepone; el contenido
+     histórico (P-48/v2.0, P-38, v1.28, Stream C, etc.) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# PASE v2.1.7 / v2.1.8 — GATE DE RELEASE · 2026-08-24 · VEREDICTO de seguridad
+
+> **Rol:** seguridad (blue team / AppSec). Consolido el pase red team «PASE v2.1.7 / v2.1.8 — RELEASE»
+> de `docs/PENTEST_NOTES.md`, lo cruzo contra el código con criterio propio, **añado lo que el red team
+> no miró** y emito el veredicto de la fase de seguridad del **gate de release**. **NO corrijo código:**
+> cada hallazgo lleva rol dueño (`CLAUDE.md`).
+> **Árbol auditado:** delta `5bd1975..e78ced2` (15 commits) en `claude/card-pricing-rules-2e537m`.
+> Durante el pase entró `455fb8a`, que es **solo `docs/PENTEST_NOTES.md`** — `git diff --stat
+> e78ced2..455fb8a` = 1 archivo de docs, **cero código**. Así que el árbol de código que audité **es** el
+> que se despliega.
+> **Por qué corre otra vez:** mi veredicto anterior cubría hasta `5bd1975` y devops revocó por eso la
+> certificación de DoD (`docs/DEVOPS_NOTES.md` §29.11-bis). Éste es el pase **por release** sobre el
+> árbol final, como manda la «Cadencia de gates» de `CLAUDE.md`.
+> **Modo:** revisión **estática dirigida** del delta + **barrido exhaustivo de proyecciones** en todo
+> `backend/src/modules/` + `npm audit` + barrido de secretos + **peticiones GET de lectura** contra el
+> stack vivo (`:3099`).
+> **⚠️ Restricción de esta corrida (declarada, no disimulada):** QA estaba ejecutando la suite Playwright
+> completa contra ese mismo stack, así que **no muté nada** — cero `POST`/`PUT`/`PATCH` que escriba, cero
+> `psql` de escritura, no se reinició el stack, no se corrió ninguna suite. Todo lo que habría exigido
+> mutar va marcado **[no verificado en vivo — colisión con QA]** y se sostiene en lectura de código.
+> **Fuentes normativas:** `PROJECT.md` (§N.7, §H, §E, «Usuarios y roles») · `docs/API_CONTRACT.md` ·
+> regla de conflicto de `CLAUDE.md`: **PROJECT manda sobre el contrato, el contrato manda sobre el código.**
+
+---
+
+## 0. VEREDICTO
+
+# ✅ APROBADO CON ACEPTACIONES
+
+**Hallazgos CRÍTICOS abiertos: 0. Hallazgos ALTOS abiertos: 0.** El criterio de rechazo del DoD
+(*«sin hallazgos críticos/altos abiertos»*) **no se dispara**. La fase de seguridad del gate de release
+**pasa**.
+
+| Severidad | # abiertos | IDs |
+|---|---|---|
+| **Crítica** | **0** | — |
+| **Alta** | **0** | — |
+| **Media** | **2** | **R1** (pentester, confirmado) · **S49-M1** (nuevo, mío) |
+| **Baja** | **5** | **R2** (pentester, *reclasificado a Baja*) · **R3** (confirmado) · **R4** (confirmado, *ampliado*) · **S49-B1** (nuevo) · **S49-B2** (nuevo) |
+| Info / higiene | 4 | S49-I1 … S49-I4 |
+| **Carryover abierto** | 5 | S48-B3 (residual) · S48-I1 · S48-I2 · S48-I3 · S48-I4 · + deps/Int32/MS-1/MS-4/B-1/B-2/B-5/throttler |
+| **CERRADOS en este delta** | **6** | **S48-M1** · **S48-B1** · **S48-B2** · **S48-B4** · **S48-B5** · mitad de **S48-B3** |
+
+### Disposición de cada MEDIA (sin ambigüedad, como pide el gate)
+
+| ID | Disposición | Justificación registrada |
+|---|---|---|
+| **R1** — `PATCH /admin/users/:id/kyc` devuelve `KycProfile` cruda (`clabeEnc`, **`clabeHmac`**, `rfcEnc`, `ineFrontKey`, `ineBackKey`) | **SE ACEPTA FORMALMENTE**, con **disparador DURO** | `super_admin`-only. Un `super_admin` **ya puede** obtener la CLABE en claro por `reveal-clabe` (auditado), así que la escalada marginal *para ese actor* es pequeña; el riesgo real es **exposición incidental** (logs HTTP, memoria del navegador, telemetría, sesión admin comprometida) y la **pérdida de auditoría** de la correlación por blind index. No hay vector anónimo ni de rol menor a texto claro. ⇒ Media, aceptable con disparador. **Disparador: se cierra ANTES de que la plataforma almacene la primera CLABE o INE de un usuario real** (= antes de abrir el buylist a vendedores reales). Fuera de esa condición, **RECHAZADO**. |
+| **S49-M1** — `SellRequest.clabeSnapshotEnc` viaja crudo en 4 rutas, dos de ellas alcanzables por **`vault_operator`** | **SE ACEPTA FORMALMENTE**, con **disparador DURO** | Es **ciphertext** AES-256-GCM con IV aleatorio por operación (`pii-crypto.service.ts`), o sea **no correlacionable** e ilegible sin `PII_ENCRYPTION_KEY`. No hay divulgación de PII en claro. Pero **viola una norma explícita del contrato** y cruza una frontera de rol deliberada. ⇒ Media, aceptable con disparador. **Mismo disparador que R1**, y se cierra en el mismo cambio (mismo archivo, mismo patrón). Fuera de esa condición, **RECHAZADO**. |
+
+### Recomendación de ingeniería (NO cambia el veredicto — lo digo aparte a propósito)
+
+**Recomiendo corregir R1 y S49-M1 antes de desplegar**, y lo separo del veredicto para que nadie tenga
+que adivinar dónde acaba la norma y dónde empieza mi opinión. El argumento no es de severidad, es de
+**coste/beneficio y de coherencia**:
+
+1. **El coste es una cláusula `select` / un destructuring** — y la versión correcta **ya existe en el
+   mismo archivo**, a 140 líneas de distancia (`admin.service.ts:246-300` para R1;
+   `buylist.service.ts:933` y `:1073` para S49-M1). No hay que diseñar nada.
+2. **Este release declara cerrada exactamente esta clase.** El mensaje de `cc96d87` dice *«ningún
+   endpoint devuelve una entidad Prisma directamente»* y `406ab41` audita la regla. Desplegar con R1 y
+   S49-M1 abiertos deja esa afirmación **falsa en `docs/` y en los comentarios del código**, que es peor
+   que el bug: convierte una norma verificable en una creencia.
+3. **Es un negocio de custodia con PII de INE/CLABE.** La minimización de datos no es cosmética aquí.
+
+### Lo que HARÍA RECHAZAR este gate (y no ocurre)
+
+- Un hallazgo crítico o alto abierto — **no hay ninguno**.
+- Que alguna de las dos Medias fuera alcanzable **anónimamente** o produjera **PII en claro** para un rol
+  que no deba verla — **no**: R1 es `super_admin` y S49-M1 entrega ciphertext.
+- Que la derivación de enums hubiera **ensanchado** una validación de dinero o de autorización — la
+  verifiqué valor por valor contra el schema: **no ensanchó nada** (§2.1).
+- Que el delta hubiera tocado auth, pagos, cripto de PII, uploads, CORS/headers o el schema —
+  **diff CERO** en los ocho, verificado (§4.1).
+
+---
+
+## 1. Hallazgos del pentester, consolidados con mi criterio
+
+### R1 · [**Media**, CONFIRMADO] · `PATCH /admin/users/:id/kyc` devuelve la entidad `KycProfile` cruda
+
+**Confirmo el hallazgo por lectura de código; mantengo Media.**
+
+- **Ubicación:** `backend/src/modules/admin/admin.service.ts:378-403` (`updateUserKyc` →
+  `return this.prisma.kycProfile.upsert({…})` **sin `select`**). Ruta:
+  `backend/src/modules/admin/admin.controller.ts:123-124` (`@Patch(':id/kyc')` + `@Roles(super_admin)`),
+  que devuelve `res` tal cual.
+- **Qué sale exactamente** (columnas de `KycProfile`, `prisma/schema.prisma`): `rfcEnc`, `clabeEnc`,
+  **`clabeHmac`**, `ineFrontKey`, `ineBackKey`, `legalName`, `capPerRequestCentsOverride`,
+  `capPerMonthCentsOverride`, `verifiedBy`.
+- **Prueba de que es bug y no diseño — la refuerzo:** la ruta hermana `getUser`
+  (`admin.service.ts:246-300`) **borra a propósito** `clabeEnc`/`rfcEnc`/`clabeHmac` y reduce el INE a
+  un booleano `ineOnFile` **incluso para `super_admin`**, y da al `vault_operator` una proyección aún
+  más reducida. Y `PUT /users/me/kyc` (la versión del cliente, `users.service.ts:166-183`) **también**
+  proyecta: termina en `return this.getKyc(userId)`, enmascarado. O sea: **el sistema tiene tres
+  implementaciones del mismo dato y dos están bien**. La tercera es la que este release no miró.
+- **Contrato:** `docs/API_CONTRACT.md:5795` declara el **Req** de este endpoint y **no dice nada del
+  Res**. Ése es precisamente el mecanismo que el release identifica como causa raíz: cuando el contrato
+  calla, la forma de la API la define el **schema**, y cada migración se vuelve un cambio de contrato
+  silencioso. Va también al **arquitecto**.
+- **Lo que me importa de verdad, y lo separo del resto:** el que duele es **`clabeHmac`**, no el INE.
+  - El **blind index** es un HMAC-SHA256 **determinista** sobre la CLABE normalizada
+    (`pii-crypto.service.ts`), diseñado para el match «a nombre propio» y para detectar CLABE compartida
+    entre cuentas **sin descifrar**. Está indexado en BD (`@@index([clabeHmac])`). Es exactamente el
+    tipo de valor que **nunca debe salir del servidor**: quien lo tenga puede (a) **correlacionar
+    cuentas** fuera de la ruta auditada `reveal-clabe`, y (b) si algún día se filtra `PII_HMAC_KEY`,
+    **forzar el espacio de CLABEs offline** (18 dígitos con estructura bancaria conocida es un espacio
+    perfectamente atacable).
+  - Las **keys de S3 del INE** son, en cambio, **menos graves de lo que suenan** — y lo verifiqué:
+    `uploads.service.ts:134` expone `presignGet`, pero **no tiene NINGÚN llamador en todo `src/`**
+    (`grep -rn "presignGet" src/` ⇒ solo la definición). **No existe hoy un endpoint que convierta una
+    key de INE en una URL descargable.** La key sola no abre la imagen sin credenciales directas de
+    R2/S3. Lo digo para que la remediación se priorice por el HMAC, no por el INE.
+- **Impacto:** confidencialidad de PII bancaria + degradación de un control anti-fraude. **Sin impacto
+  de dinero, sin escalada de privilegio, sin vector anónimo.**
+- **[no verificado en vivo — colisión con QA]:** el PoC exige un `PATCH` que escribe. El pentester lo
+  disparó `[LIVE]` en su ventana; yo lo sostengo en código.
+- **Rol dueño:** **backend** (proyectar con la misma lista blanca que `getUser`) + **arquitecto**
+  (declarar el `Res` de esta ruta en el contrato).
+
+---
+
+### R2 · [Media → **BAJA**] · §N.7 se aplica solo en el cliente: `referenceValue` + `priceBasis` viajan a anónimo
+
+**Mantengo mi arbitraje del pase anterior (S48-B2) y lo ratifico: la mayor parte de R2 NO es un
+hallazgo de seguridad, es una decisión de producto/contrato ya tomada. Pero el pentester tiene razón en
+que algo sobrevive, y este release lo hizo MÁS ancho, no menos.**
+
+**Lo que descarto, por escrito y no por criterio:**
+1. **`priceBasis` en DTO público — lo EXIGE `PROJECT.md` §N.7:** *«La señal la produce el backend —
+   `priceBasis` … el sistema registra y expone server-side qué determinó el precio … La UI no infiere
+   nada: obedece ese dato»*, y §N.7 se autodefine como regla **de presentación**: *«el precio cobrado no
+   cambia por esta regla»*. Un requisito de producto no puede ser a la vez la fuga.
+2. **`referenceValue` sin recortar — lo norma el contrato**, `docs/API_CONTRACT.md:1929-1931`:
+   *«`referenceValue` SIGUE viajando en el DTO aunque no se muestre: el mismo DTO alimenta superficies
+   admin y de valuación … stripearlo por endpoint haría que `PriceInfo` significara cosas distintas
+   según la ruta»*. Y `:2711-2713` lo repite en la ficha. Por la regla de conflicto, **el contrato manda
+   sobre el código**.
+3. **El PoC del cotizador (`priceBasis:"floor"` al vendedor) está ratificado** en
+   `docs/API_CONTRACT.md:2004-2008`, que anticipa **literalmente** el argumento del pentester y lo
+   resuelve: *«es para la LÓGICA del cliente … NO para RENDERIZARLO AL VENDEDOR … Decisión ratificada»*.
+4. **El control de presentación está IMPLEMENTADO**, no prometido: `CardDetailView.tsx:218`
+   (`showMarketValue = primary?.priceBasis === 'market'`), y `PriceBasisTag` solo aparece en superficies
+   admin. Lo verifiqué en el pase anterior y el delta no lo tocó.
+5. **La mitad que era hallazgo de verdad YA SE CERRÓ.** `toPublicPriceInfo`
+   (`pricing.service.ts:184-191`) construye `PriceInfo` **por lista blanca** y deja fuera `source` e
+   `isManualOverride`. **Verificado EN VIVO por mí** (GET anónimo de lectura, sin mutar nada):
+   `GET /catalog/cards` devuelve `"referenceValue":{"status":"priced","referenceMxnCents":100000,
+   "capturedDate":"2026-08-24"}` — **sin `source`, sin `isManualOverride`**. **S48-B2 CERRADO.**
+
+**Lo que SÍ sobrevive, y es mío, no del pentester:**
+
+- **(a) El argumento del contrato ya no se sostiene técnicamente.** La razón escrita para no recortar es
+  *«stripearlo por endpoint haría que `PriceInfo` significara cosas distintas según la ruta»*. Pero
+  **v2.1.6 hizo exactamente eso**: `toPublicPriceInfo` **ya** hace que `PriceInfo` signifique cosas
+  distintas en superficie anónima vs admin, y el propio código lo celebra como doctrina (*«un DTO es
+  CERRADO»*). El contrato no está mal por su conclusión; está mal por su **premisa**, y conviene que el
+  arquitecto lo reescriba antes de que alguien lo cite como precedente para no proyectar otra cosa.
+- **(b) Este delta AMPLIÓ la superficie anónima, no la redujo.** `d8c4625` añade `priceBasis` al
+  `GroupedListingDTO` y al `SealedGroupDTO` (`catalog.service.ts:558`,
+  `sealed-catalog.service.ts:156`). **Antes del delta, la REJILLA no lo emitía; ahora sí** — lo confirmé
+  en vivo. Y §N.7 acota su propio alcance a **«SOLO fichas»** (`API_CONTRACT.md:2714-2716`: *«`GET
+  /catalog/cards` (tejas/listados) no muestra valor de mercado hoy y no va a mostrarlo»*). O sea: el
+  endpoint de **rejilla**, que es el masivamente scrapeable, ahora carga una señal que **su propia regla
+  dice que no necesita**. Es corrección legítima de una desviación código↔contrato (el contrato lo
+  declara en `GroupedListingDTO`), pero el efecto lateral es real.
+- **(c) `priceBasis:"override"` reemplaza el canal que S48-M2 cerró.** Se retiró `isManualOverride` de
+  `PriceInfo` por publicar *«un mapa scrapeable de qué cartas llevan precio fijado a mano»* — y
+  `priceBasis === "override"` dice **exactamente lo mismo**, en el mismo DTO, al mismo anónimo. El fix
+  cerró el campo y dejó el canal equivalente.
+
+**Riesgo de negocio, dicho explícitamente (es lo que se me pidió que nombrara):** un **scraper
+anónimo**, sin cuenta, puede construir por carta y a escala de catálogo: (1) la **referencia de mercado
+interna** (`referenceMxnCents`), (2) el **precio de venta** (`salePriceCents`), y por tanto el
+**múltiplo de markup exacto**, (3) **qué cartas llevan override manual** (`priceBasis:"override"` — o
+sea dónde el feed falló o dónde el dueño decidió desviarse a mano) y (4) **qué cartas tocaron el piso**
+(`priceBasis:"floor"` — o sea qué es bulk para nosotros). Un competidor con eso sabe dónde estamos
+caros, dónde estamos ciegos y dónde no queremos vender. **Sin coste de entrada:** `GET /catalog/cards`
+es `@Public`, no tiene `@Throttle` propio (cae al global de `300 req/min`,
+`app.module.ts:38`) y admite `pageSize=100` (`catalog.controller.ts:56`) ⇒ **hasta 30 000 filas/minuto
+por IP**, y el throttler es **in-memory**, así que con N réplicas el techo se multiplica por N.
+
+**Severidad: BAJA** (no Media). Es confidencialidad de **metadato operativo de negocio**: no hay dinero,
+no hay integridad, no hay PII, no hay escalada. Y `referenceMxnCents` deriva de fuentes **públicas**
+(TCGplayer/PPT × FX), así que la revelación marginal es el **flag**, no el número.
+
+**Remediación mínima que propongo (y es más barata que «separar el DTO por superficie»):** no hace falta
+bifurcar `PriceInfo`. Basta con **no emitir `priceBasis` en la REJILLA** (`GET /catalog/cards`,
+`GET /catalog/sealed`), donde §N.7 declara que no se usa, y conservarlo en la **ficha**
+(`GET /catalog/cards/:cardId`, `GET /catalog/listings/:id`, `GET /catalog/sealed/:id`), que es donde la
+regla vive. Eso corta el canal de scraping masivo sin tocar la regla de visibilidad ni el front.
+
+- **Rol dueño:** **arquitecto** (decidir y **normar**: alcance de `priceBasis` por superficie + corregir
+  la premisa obsoleta de `API_CONTRACT.md:1929-1931`) → luego **backend** (implementar lo que decida).
+
+---
+
+### R3 · [**Baja**, CONFIRMADO] · `sale.floorCents` / `buy.binCents` sin cota superior en el validador de la curva
+
+**Confirmado por lectura de código. Mantengo Baja, y añado el análisis de impacto que faltaba.**
+
+- **Ubicación:** `backend/src/common/pricing-curve.ts:748-757` (`floorCents`: solo `!isInt || < 0`) y
+  `:759-767` (`binCents`: idem). **La asimetría es real y verificable en el mismo bloque V3:**
+  `marketCents` → `> MAX_CENTS_CURVE` (`:774`), `multiplierBp` → `MULTIPLIER_BP_MAX = 1_000_000`
+  (`:137`), `pctBp` → `PCT_BP_MAX = 10_000` (`:138`). **Las dos constantes que fijan piso y bin son las
+  únicas sin techo** en un módulo cuyo comentario de cabecera se declara *money-safe*.
+- **Impacto, desglosado por eje (esto lo añado yo):**
+  - **Eje de VENTA:** `floorCents` astronómico ⇒ todo el catálogo aterriza en el piso ⇒ `clampCents`
+    lo recorta a `MAX_CENTS = 2 147 483 647` (~MX$21.4M) ⇒ **nada se vende**. Es **denegación de
+    negocio**, no pérdida de dinero. Y si alguien intentara comprar, el agregado desborda `Int32` en
+    `Order.totalCents` ⇒ 500 (**MS-2**, carryover del pase v1.6, sigue abierto).
+  - **Eje de COMPRA:** `binCents` astronómico ⇒ toda cotización sale astronómica ⇒ **el tope AML por
+    solicitud la rechaza antes de crear nada** (`buylist.service.ts`, `BUYLIST_LIMIT_EXCEEDED`), y desde
+    **AML-1** el tope mensual se re-verifica **también al pagar** (`:1617-1642`). **El dinero saliente
+    está acotado por dos controles independientes** ⇒ el daño es denegación del buylist, no sobrepago.
+  - **V7 (`bin < floor`) no ayuda:** como el pentester señala, se cumple trivialmente subiendo también
+    el piso, porque **ninguno de los dos tiene techo**.
+- **Por qué Baja y no Media:** exige `super_admin` (o escritura directa en BD), no hay atacante externo,
+  y `sanitizePricingCurve` protege la **lectura** (una curva inválida cae al seed, §3.3 del pase
+  anterior). Es un **typo de dedos gordos** en un módulo de dinero, no un vector.
+- **Rol dueño:** **backend** (cota superior simétrica con el resto de V3).
+
+---
+
+### R4 · [Baja/Info, CONFIRMADO — y **AMPLIADO**] · La regla «ningún endpoint devuelve entidad Prisma» no está uniformemente aplicada
+
+**Confirmo los 8 sitios que lista el pentester y coincido en su severidad (ninguno lleva PII ni
+secretos). Pero la respuesta a la pregunta del encargo — «¿el barrido está completo?» — es NO.**
+El barrido exhaustivo que hice está en **§2.1**, y encontró **11 sitios más**, uno de los cuales es
+**Media** (S49-M1). El patrón que el pentester detectó es correcto; su inventario no lo es.
+
+- **Sitios de R4 que confirmo, y por qué se quedan en Baja/Info:**
+  `shipments.service.ts:564` (`setTracking`), `disputes.service.ts:152,163` (`resolve`),
+  `inventory.service.ts:1642,1659,1678` (`update`/`moveItem`/`markItem`), `users.service.ts:81,91`
+  (`address`). Los cuatro primeros son back-office con `@Roles(vault_operator, super_admin)`; los datos
+  «sensibles» que arrastran (`InventoryItem.acquisitionCostCents`/`acquisitionPct` = margen interno;
+  `ShipmentRequest.addressSnapshot` = dirección del cliente) **ya los ve ese rol por su función**
+  (captura el coste al dar de alta, lee la dirección para hacer el picking). `users.service.ts` devuelve
+  al usuario **su propia** dirección. **Sin fuga sensible; sí contraejemplos de una norma que el release
+  declara universal.**
+- **Rol dueño:** **backend**.
+
+---
+
+### Info del pentester · «el patrón de derivación auto-acepta valores futuros de enum»
+
+**El pentester tiene razón en que es un riesgo de proceso, y me pidieron juzgarlo. Lo elevo a hallazgo
+propio con análisis: ver S49-B1 (§2.2).** Respuesta corta a la pregunta del encargo — *«¿basta el test de
+paridad?»*: **no, y por una razón estructural, no por descuido.**
+
+---
+
+## 2. Hallazgos NUEVOS de esta revisión
+
+### 2.1 · S49-M1 · [**Media**] · El `clabeSnapshotEnc` del buylist viaja crudo en 4 rutas — dos de ellas alcanzables por `vault_operator`
+
+**Es la misma clase que R1, en el módulo que el barrido del red team no cubrió, y contradice una norma
+EXPLÍCITA del contrato.**
+
+- **Ubicación (4 sitios, 1 archivo):**
+
+  | Ruta | Rol | Sitio |
+  |---|---|---|
+  | `POST /admin/buylist/:id/receive` | **`vault_operator`** + `super_admin` | `buylist.service.ts:1109-1113` (`receive`), controller `admin-buylist.controller.ts:93-104` (devuelve `res`) |
+  | `POST /admin/buylist/:id/verify` | **`vault_operator`** + `super_admin` | `buylist.service.ts:1121-1125` (`verify`), controller `:106-117` |
+  | `POST /admin/buylist/:id/pay-spei` | `super_admin` (`@MoneyOut`) | `buylist.service.ts:1652` (`return tx.sellRequest.findUnique(...)`), controller `:196-214` |
+  | `POST /buylist/requests/:id/respond` | **`customer`** (su propia solicitud) | `buylist.service.ts:947-950` y `:957-960`, controller `buylist.controller.ts:79-86` |
+
+  Los roles del controller admin son de clase: `admin-buylist.controller.ts:21`
+  (`@Roles(Role.vault_operator, Role.super_admin)`).
+
+- **Qué sale:** la fila `SellRequest` completa ⇒ **`clabeSnapshotEnc`** (blob AES-256-GCM de la CLABE
+  del vendedor), más `speiReference`, `paidBy` (id del admin que pagó), `ineRequired`/`ineProvided` y
+  **`closedAt`**.
+
+- **Prueba de que es bug y no diseño — es la más fuerte de todo el pase, porque el patrón correcto está
+  en el MISMO archivo:**
+  - `buylist.service.ts:933` — `getMine` (cliente): `const { clabeSnapshotEnc: _enc, items, ...rest } = req;`
+  - `buylist.service.ts:1073` — `adminGet` (admin): `const { clabeSnapshotEnc: _enc, user, items, ...safe } = req;`
+  - `buylist.service.ts:753-763` — `createRequest`: proyecta a `{ sellRequestId, status, quotedTotalCents, ineRequired, items }`.
+  - `buylist.service.ts:1417` — `rejectRequest`: **usa `adminGet`** para responder, o sea proyecta.
+  **Cuatro cuerpos lo hacen bien y cuatro lo hacen mal, en el mismo servicio.**
+
+- **Norma del contrato que se viola, literal** (`docs/API_CONTRACT.md:5728`, sobre
+  `GET /admin/buylist/:id`): *«La CLABE del vendedor se expone **enmascarada** como `clabeMasked`
+  (`****1234`); **nunca** el snapshot cifrado ni la CLABE en claro. Para pagar, el súper-admin usa
+  `reveal-clabe`»*, y `:5731`: *«[`reveal-clabe`] es el **ÚNICO** punto del contrato que devuelve la
+  CLABE en claro; cada llamada queda registrada en `AuditLog`»*. El diseño construyó **tres** capas para
+  esa CLABE — cifrado en reposo, `@MoneyOut()` + `super_admin` en `reveal-clabe`, y bitácora por
+  llamada — y estas cuatro rutas la sacan **sin ninguna de las tres**.
+
+- **Y además viola un invariante documentado en el propio schema:** `prisma/schema.prisma`, sobre
+  `SellRequest.closedAt`: *«Campo INTERNO de cumplimiento: **NO se expone en DTOs de cliente**»*.
+  `POST /buylist/requests/:id/respond` lo devuelve al **cliente**.
+
+- **Impacto, honesto y acotado:**
+  - **NO hay divulgación de PII en claro.** `PiiCryptoService` usa AES-256-GCM con **IV aleatorio de 12
+    bytes por operación** (lo verifiqué en `pii-crypto.service.ts`), así que el ciphertext **no es
+    correlacionable** entre solicitudes y es ilegible sin `PII_ENCRYPTION_KEY` (que en no-local es
+    obligatoria de 32 bytes, con fail-fast al arrancar — bien construido).
+  - **Lo que sí pasa:** (1) se **cruza una frontera de rol** que el sistema construyó a propósito
+    — `PROJECT.md` dice del operador *«No toca dinero, configuración ni finanzas»*, y `getUser` le da
+    una proyección **sin CLABE ni INE**; (2) el ciphertext de una **cuenta bancaria** sale del límite de
+    la BD hacia navegadores, logs de proxy/CDN, telemetría de errores del front y cualquier captura de
+    tráfico — que es justo lo que el cifrado en reposo existe para evitar; (3) si `PII_ENCRYPTION_KEY`
+    se rota mal o se filtra alguna vez, todo ese ciphertext capturado se vuelve **descifrable offline**.
+  - **Sin impacto de dinero** (el SPEI sigue siendo `@MoneyOut()` + `super_admin` + auditado; `paySpei`
+    paga contra el snapshot cifrado de la propia solicitud, con transición atómica).
+- **Por qué Media y no Alta:** no hay PII en claro, no hay escalada de privilegio, no hay vector anónimo
+  ni de `customer` sobre datos ajenos (el IDOR del buylist está cerrado: `respond` verifica
+  `req.userId !== userId` ⇒ 404, y el pentester lo confirmó `[LIVE]`).
+  **Por qué no Baja:** cruza una frontera de rol *diseñada*, contradice dos normas escritas (contrato +
+  schema) y toca la PII más sensible del sistema junto con el INE.
+- **[no verificado en vivo — colisión con QA]:** las 4 rutas son `POST` que **escriben** (transición de
+  estado). No las disparé. Sostenido en lectura de código, con el patrón correcto del mismo archivo como
+  control.
+- **Rol dueño:** **backend** (proyectar las 4 rutas — el destructuring de `:933`/`:1073` ya es la
+  respuesta) + **arquitecto** (declarar el `Res` de `receive`/`verify`/`pay-spei`/`respond` en el
+  contrato, que hoy solo declara el efecto).
+
+#### El barrido exhaustivo — respuesta completa a «¿el barrido de R4 está completo?»
+
+Método: `grep` de `return [await] (this.prisma|tx).<modelo>.<op>(` en **todo** `backend/src/modules/`
+(excluyendo `*.spec.ts`) **más** un segundo barrido programático para el patrón indirecto
+(`const x = await prisma…` … `return x;` dentro de 40 líneas), que es el que se le escapa a un grep
+simple. **23 + 12 = 35 sitios candidatos**, clasificados uno por uno por *qué lleva la entidad* y *quién
+la recibe*:
+
+| Sitio | Entidad | ¿Llega al cliente? | Clasificación | Estado |
+|---|---|---|---|---|
+| `admin.service.ts:385` | `KycProfile` | Sí, `super_admin` | **PII + blind index + keys S3** | **R1 · Media · ABIERTO** |
+| `buylist.service.ts:1109` `receive` | `SellRequest` | Sí, **`vault_operator`** | **PII cifrada (CLABE)** | **S49-M1 · Media · ABIERTO** |
+| `buylist.service.ts:1121` `verify` | `SellRequest` | Sí, **`vault_operator`** | **PII cifrada (CLABE)** | **S49-M1 · ABIERTO** |
+| `buylist.service.ts:1652` `paySpei` | `SellRequest` | Sí, `super_admin` | **PII cifrada (CLABE)** | **S49-M1 · ABIERTO** |
+| `buylist.service.ts:947,957` `respond` | `SellRequest` | Sí, **`customer`** | **PII cifrada propia + `closedAt` interno** | **S49-M1 · ABIERTO** |
+| `buylist.service.ts:1213,1268` `itemDecision` | `SellRequestItem` | Sí, back-office | Pricing interno (`priceBasis`, `marketBracket`) — sin PII | Baja (clase R4) |
+| `buylist.service.ts:1604` `paySpei` idempotente | `SellRequest` | Sí, `super_admin` | Mismo que arriba | **S49-M1** |
+| `shipments.service.ts:564` `setTracking` | `ShipmentRequest` | Sí, back-office | `addressSnapshot` (el rol ya la ve para picking) | Baja (R4) |
+| `shipments.service.ts:492` `transition` | `ShipmentRequest` | Sí, back-office | Idem | Baja (R4, **no listado por el pentester**) |
+| `disputes.service.ts:152,163` `resolve` | `Dispute` | Sí, back-office | `resolvedBy`, `resolution` — sin PII | Baja (R4) |
+| `disputes.service.ts:79` `getMine` | `Dispute` | Sí, **`customer`** | Su propia disputa + `resolvedBy` (id de admin) | Info (**no listado**) |
+| `inventory.service.ts:1642,1659,1678` | `InventoryItem` | Sí, back-office | `acquisitionCostCents` (margen) — el rol lo captura | Baja (R4) |
+| `inventory.service.ts:1594` `getItem` | `InventoryItem`+relaciones | Sí, back-office | Idem | Info (**no listado**) |
+| `inventory.service.ts:2293` `createLocation` | `VaultLocation` | Sí, back-office | Sin dato sensible | Info (**no listado**) |
+| `users.service.ts:81,91` `address` | `Address` | Sí, **dueño** | Su propia dirección | Info (R4) |
+| `catalog-sync.service.ts:816` | `CardSet` | Sí, `super_admin` | Catálogo público | **No es hallazgo** |
+| `set-value.service.ts:150` | `CardSet` | Interno | — | **No es hallazgo** |
+| `pricing.service.ts:453` | `CardProduct` | Interno (helper) | — | **No es hallazgo** |
+| `orders.service.ts:159,509` · `guest-checkout.service.ts:142,291` · `shipments.service.ts:44` · `buylist.service.ts:753,1549` | `Order`/`InventoryItem`/`Address`/`SellRequest` | **NO** — helpers internos; el borde HTTP **sí** proyecta | — | **Verificado limpio** |
+
+**Conclusión del barrido:** el patrón que el release cerró (`updateUserStatus`) y el que R4 documenta son
+**correctos pero incompletos**. El inventario real es de **~17 rutas**, con **dos niveles**: las que
+llevan **PII** (R1 + S49-M1, 5 rutas → Media) y las que llevan back-office/margen (12 rutas → Baja/Info).
+Y el borde HTTP **sí** está bien resuelto en `orders`/`guest-checkout`/`payments`, lo cual confirma que
+esto es negligencia local por módulo, no un fallo de arquitectura.
+
+**Recomendación estructural para el techlead/backend (no es hallazgo, es cómo cerrar la CLASE):** cerrar
+sitio por sitio deja la clase abierta otra vez — exactamente el argumento que `enum-values.ts` usa para
+sí mismo. El equivalente aquí es un **test de forma que la máquina sostenga**: (a) anotar cada handler con
+su tipo de DTO declarado, como ya se hizo con `GroupedListingDTO`/`SealedGroupDTO`
+(`catalog.service.ts:75-107`, `sealed-catalog.service.ts:20-45`), lo que convierte el fallo en error de
+`tsc`; y/o (b) un test que recorra `src/modules/**` y falle ante `return … prisma.<modelo>.<op>(` sin
+`select`, con lista de excepciones explícita — el mismo patrón que `enum-values-parity.spec.ts` ya usa
+para detectar «residuo».
+
+---
+
+### 2.2 · S49-B1 · [**Baja**] · La derivación de enums del schema convierte cada valor futuro en un ensanchamiento automático de la API — y el test de paridad **no puede** detectarlo
+
+**Éste es el eje que se me pidió juzgar como riesgo de proceso. Mi veredicto: el control existe pero es
+parcial, y el test de paridad es estructuralmente incapaz de cerrarlo.**
+
+**Primero, lo que verifiqué y NO es un problema (el delta es limpio):** comparé valor por valor cada
+lista derivada contra su `enum` del schema. **La derivación no ensanchó ninguna validación hoy**, salvo
+la ampliación **deliberada y documentada** de `SealedSubtype` (+`upc`, +`collection`), que es una
+corrección de producto — el dueño vende UPC y no podía. Los otros siete enums ya estaban completos en
+las listas a mano. **Cero ensanchamiento no intencional.** Coincido con el pentester.
+
+**El problema es de proceso, y es real:**
+
+- **Qué hace el test de paridad** (`backend/test/enum-values-parity.spec.ts:58`):
+  `expect([...derived].sort()).toEqual(Object.values(prismaEnum).sort())` sobre
+  `derived = Object.values(prismaEnum)`. **Es una tautología en tiempo de ejecución.** Su valor real es
+  el tercer test (`:67-76`), que lee `schema.prisma` del disco y detecta *Prisma Client desfasado del
+  schema* — pero **solo para `SealedSubtype`**.
+- **Por qué eso NO cierra el riesgo:** el test afirma que la lista **debe ser igual** al enum. Si mañana
+  alguien añade un octavo valor al schema, el test **sigue verde** y el valor queda **auto-aceptado** en
+  todas las superficies que derivan de él, **sin ninguna decisión por endpoint**. Lo que detectaría el
+  ensanchamiento es lo **contrario** de un test de paridad: un **test de oro** que fije los valores
+  esperados, de modo que añadir uno ponga el test en **rojo** y obligue a una decisión explícita
+  (actualizar el golden **es** la decisión).
+- **Hoy hay UN solo cortafuegos, y es accidental:** `enum-values-parity.spec.ts:64`
+  (`expect(SEALED_SUBTYPE_VALUES).toHaveLength(7)`) sí se pone en rojo con un octavo subtipo. **Es el
+  único de los ocho enums con anclaje de cardinalidad.** Los otros siete —`Finish`, `ProductType`,
+  `RawCondition`, `GradingCompany`, `AcquisitionType`, `SealedCondition`, `Locale`— se ensanchan **en
+  silencio**.
+- **Dónde eso importa, en orden de riesgo:**
+  1. **`RawCondition` — el caso grave, y es exactamente la trampa que el propio archivo advierte.**
+     Hoy `enum RawCondition { NM }`, un solo valor. El delta cambió `@IsIn(['NM'])` por
+     `@IsIn(RAW_CONDITION_VALUES)` en **cuatro** DTOs de inventario
+     (`inventory.dto.ts:74,155,244,293`). Pero *«raw = solo Near Mint»* **no es un espejo del schema:
+     es una decisión de producto de `PROJECT.md` §H** (*«en TODO el marketplace … se **eliminan** los
+     grados LP/MP/HP/DMG»*), repetida en §A y §E como política NM-only del buylist. El docstring de
+     `common/enum-values.ts` establece la regla correcta —*«Un `@IsIn` que a propósito acepta un
+     subconjunto … NO se deriva de aquí … porque su lista es una decisión de producto, no un espejo del
+     schema»*— y **excluye `UserStatus` por eso**, pero **incluye `RawCondition`**, que está en la misma
+     categoría. Añadir `LP` al schema mañana **auto-abriría la captura de inventario a cartas no-NM**
+     sin que nadie lo decidiera y sin que ningún test se ponga en rojo.
+  2. **`AcquisitionType`** determina la **base de coste** del item (`owner_contribution` vs
+     `client_purchase`, `PROJECT.md` §G/M1) y por tanto el P&L de M7. Un valor nuevo se auto-acepta en
+     el alta (`inventory.dto.ts:89,165,254`) **sin regla de coste asociada**.
+  3. **`ProductType`** enruta la resolución de precio (raw/graded/sealed tienen tres caminos distintos).
+     Un cuarto valor auto-aceptado en filtros públicos y en el alta llegaría a `resolveSalePrice` sin
+     camino propio.
+  4. `Finish`, `GradingCompany`, `SealedCondition`, `Locale`: impacto bajo (peor caso, `pending`
+     money-safe o un label sin traducir).
+- **Severidad: Baja.** Es **latente** — hoy no hay ni un solo valor de enum que ensanche nada, y el
+  disparador exige un cambio de schema, que pasa por migración y por el **arquitecto** (regla 9 de
+  `CLAUDE.md`, `prisma/` es zona compartida). No hay vector de atacante. Pero es un control de
+  autorización de entrada que pasó de *explícito por endpoint* a *implícito por schema*, y eso merece
+  quedar escrito antes de que alguien lo descubra con una migración.
+- **Qué propongo (respuesta directa a «¿basta el test de paridad o hace falta algo en contrato/CI?»):**
+  1. **Sacar `RawCondition` de `enum-values.ts`** y devolverlo a `@IsIn(['NM'])` explícito con
+     referencia a `PROJECT.md` §H — **misma decisión que ya se tomó con `UserStatus`**. *(backend)*
+  2. **Anclar la cardinalidad de los ocho** (`toHaveLength(n)`), que es el golden mínimo y ya existe
+     para uno. Convierte «añadir un valor al schema» en un test rojo, que es la señal que hoy falta.
+     *(backend)*
+  3. **Regla en el contrato:** que `docs/API_CONTRACT.md` declare que **añadir un valor a un enum de
+     schema es un cambio de contrato** y exige pasar por el arquitecto **con decisión por superficie**
+     (público / back-office / interno). Hoy el contrato ya lista los enums (§DTOs) pero no dice **quién
+     autoriza ampliarlos**. *(arquitecto)*
+  4. **CI:** el gate de SAST ya corre por PR; añadir a la plantilla de PR de migraciones un ítem
+     «¿este cambio añade valores de enum? → decisión por endpoint documentada». *(devops)*
+- **Rol dueño:** **arquitecto** (norma de contrato) + **backend** (1 y 2) + **devops** (4).
+
+---
+
+### 2.3 · S49-B2 · [**Baja**] · Los tres endpoints públicos de listado hacen escaneo completo sin cota y paginan **en memoria**
+
+**Eje que el pentester declaró fuera de alcance (no hizo pruebas de carga). Lo encontré leyendo el
+código de la superficie anónima.**
+
+- **Ubicación:**
+  - `backend/src/modules/catalog/catalog.service.ts:169-176` — `fetchSellable` hace
+    `prisma.inventoryItem.findMany({ where, include: { card: { include: { set: true } } } })` **sin
+    `take`**.
+  - `catalog.service.ts:610-627` — `listCards` construye **todos** los grupos, filtra por precio,
+    ordena y **luego** hace `groups.slice(start, start + pageSize)` **en la app**.
+  - `catalog.service.ts:635` — `facets()` llama al **mismo** `fetchSellable` sobre `publishedWhere()`
+    (sin el filtro de singles), o sea el catálogo publicado **entero**.
+  - `catalog/sealed-catalog.service.ts:82-87` + `listSealed` (`:224-226`) — patrón idéntico para el
+    sellado.
+- **Rutas afectadas (las tres `@Public`, sin `@Throttle` propio):** `GET /catalog/cards`,
+  `GET /catalog/facets`, `GET /catalog/sealed`.
+- **Por qué importa:** el coste de cada petición **anónima** crece **linealmente con el inventario
+  publicado total** y es **independiente de `pageSize`** — pedir `pageSize=1` cuesta lo mismo que pedir
+  100. Con el límite global de `300 req/min` por IP (`app.module.ts:38`) y **storage in-memory** (el
+  propio comentario `:37` lo admite ⇒ con N réplicas el techo efectivo se multiplica por N), es una
+  **amplificación barata**: una petición HTTP trivial dispara un escaneo de tabla + hidratación de
+  `card`+`set` + agrupación + orden en el heap de Node.
+- **Severidad: Baja, HOY.** El catálogo del cut-over es pequeño (≈333 cartas según el runbook de
+  `post-deploy.sh`), el negocio **no está en vivo** y el throttler global acota. **No lo inflo.**
+- **Disparador para dejar de ser Baja:** cuando el inventario publicado pase de unos pocos miles de
+  piezas, **o** antes de la primera campaña que traiga tráfico anónimo real. Es la misma clase que
+  **S48-B3** (`pricingBrackets` sin `take`), con la diferencia de que aquélla es `super_admin` y ésta es
+  **anónima**.
+- **[no verificado en vivo]:** medir tiempos contra el seed E2E (3 grupos) no probaría nada, y una
+  prueba de carga habría colisionado con la corrida de QA. Verificado en código.
+- **Rol dueño:** **backend** (paginar en la BD, o cachear la agrupación) + **arquitecto** (si paginar en
+  BD obliga a cambiar el significado de `total` = nº de grupos, es cambio de contrato).
+
+---
+
+### 2.4 · Info / higiene (no son hallazgos)
+
+- **S49-I1 · Las listas derivadas se exportan como arrays MUTABLES compartidos.**
+  `common/enum-values.ts` exporta `Object.values(...)` sin `as const` ni `Object.freeze`, y
+  `buylist/dto/buylist.dto.ts:22` guarda un **alias** (`const FINISHES = FINISH_VALUES`), no una copia.
+  Cada `@IsIn(...)` retiene **la misma referencia**. Un `push()` en cualquier punto del proceso
+  ensancharía **todas** las validaciones de la app a la vez. Hoy nadie muta (lo verifiqué), y
+  `SEALED_SUBTYPE_KEYS` y los `new Set(...)` sí copian. Es defensa en profundidad barata en un archivo
+  cuya tesis es *«que la máquina lo sostenga»*: `Object.freeze(Object.values(X))`. *Backend.*
+- **S49-I2 · `LOCALE_VALUES` es un export muerto.** Declarado en `enum-values.ts` y verificado por el
+  test de paridad, pero **cero llamadores** en `src/`. Un allowlist que nadie usa se pudre. *Backend.*
+- **S49-I3 · `variant-controls.service.ts:46` mantiene su propio `Object.values(Finish)`** en vez de
+  importar `FINISH_VALUES`. Es derivado (no puede desincronizarse del schema), pero es la **segunda
+  declaración** de la lista, justo lo que `enum-values.ts` existe para eliminar — y el test de residuo
+  no lo detecta porque no es una lista literal. *Backend.*
+- **S49-I4 · El reporte del pentester no estaba en el árbol cuando audité `e78ced2`.** Llegó en
+  `455fb8a`, **transcrito por el orquestador** porque el rol `pentester` no tiene `Write`/`Edit` en esta
+  sesión. Que el rol dueño de `docs/PENTEST_NOTES.md` **no pueda escribir su propio archivo** es una
+  brecha de tooling con consecuencia de **cadena de custodia**: el informe de red team pasa por un
+  intermediario. No pongo en duda el contenido (lo crucé contra el código y cuadra), pero la fila 4 del
+  DoD («`docs/` al día») depende de que esto no vuelva a pasar. *devops (config de roles).*
+
+---
+
+## 3. Re-verificación de MIS hallazgos previos (pase P-48 / v2.0)
+
+Los verifiqué uno por uno contra el código de `e78ced2`. **No los di por cerrados porque alguien lo
+diga en un commit.**
+
+| ID | Sev. previa | Estado | Evidencia verificada por mí |
+|---|---|---|---|
+| **S48-M1** — el cierre de la cola de pendientes es agnóstico del eje | Media | ✅ **CERRADO** | `pricing.service.ts:1071-1101`: `closePendingForVariant` ahora recibe `context` y el `where` discrimina por razón — `no_market`/`null` cierran desde cualquier eje (invariante v1.26 intacto), **`premium_at_floor` solo desde el `context` que la abrió**. Era mi única Media abierta. **El seed E2E lo ejercita con datos reales** (`prisma/seed-e2e.ts`, `E2E_CARDS.floorpremium` con mercado MX$10 ⇒ venta en piso / compra en mercado). |
+| **S48-B1** — cadena de prototipos evade el allowlist de `PUT /admin/settings` | Baja (disparador duro) | ✅ **CERRADO, y mejor de lo que pedí** | `settings.service.ts:98` usa `Object.prototype.hasOwnProperty.call`; las escrituras van en `$transaction`; la **auditoría entra DENTRO de la misma transacción** vía callback `auditWithin` (mi punto 1); y encontraron un tercer agujero que yo no vi: el acumulador `errors` era `{}`, donde `errors['__proto__'] = …` **no crea propiedad** y el error se perdía en silencio ⇒ ahora `Object.create(null)` (`:95`). |
+| **S48-B2** — `isManualOverride` a clientes anónimos | Baja | ✅ **CERRADO — verificado EN VIVO** | `toPublicPriceInfo` (`pricing.service.ts:184-191`) construye por **lista blanca**. `GET /catalog/cards` anónimo (lectura, sin mutar) ⇒ `referenceValue` solo con `status`/`referenceMxnCents`/`capturedDate`. Aplicado en `catalog:385`, `sealed-catalog:159`, `vault:160,321,393`. ⚠️ **Residual: el canal equivalente sigue abierto vía `priceBasis:"override"`** — ver R2(c). |
+| **S48-B3** — reporte de brackets sin cota ni validación de fechas | Baja | 🟡 **MITAD CERRADA** | ✅ La validación de fechas está: `admin.service.ts:19-24` — `range()` ahora rechaza fecha inválida y rango invertido con **422 con el campo señalado** (antes `Invalid Date` → 500). ❌ **La cota sigue sin estar:** `admin.service.ts:825` y `:846` siguen con `findMany` **sin `take`** y agregación en memoria. Sigue en deuda aceptada. |
+| **S48-B4** — líneas pendientes suman $0 a los topes AML | Baja (disparador duro) | ✅ **CERRADO** | **AML-1**: `buylist.service.ts:1617-1642` — `paySpei` re-verifica el **tope mensual sobre el dinero que SALE** (`approvedTotalCents ?? quotedTotalCents`), leyendo el override de KYC del vendedor, **dentro de una transacción `Serializable`** (cierra también la carrera de dos `pay-spei` concurrentes del mismo vendedor, que era el bypass clásico). Era justo el hueco residual que reporté. |
+| **S48-B5** — escritura en la cola antes de topes/INE y fuera de la tx | Baja | ✅ **CERRADO** | `buylist.service.ts:766-777`: las llamadas a `settlePendingForVariant` se movieron **fuera del bucle de ítems y DESPUÉS del commit** de la transacción `Serializable`, con la justificación money-safe escrita (*«perder una escalada es recuperable; escribir la cola por una solicitud que NO se creó, no»*). Una solicitud que termina en 422 ya no deja rastro en la cola del dueño. |
+| **S48-I1** — default fail-open del parámetro del guardarraíl | Info | ⚠️ **ABIERTO** | `pricing/variant-pricing.ts:86` sigue con `rarityCanonical: string \| null = null`. Sin exposición hoy (los dos llamadores lo pasan). Deuda. |
+| **S48-I2** — `json()` sin `limit` explícito | Info | ⚠️ **ABIERTO** | `main.ts:53` sigue `app.use(json())` sin `limit`. Acotado de facto por el default de 100 kB de Express. Deuda. |
+| **S48-I3** — `ADMIN_JWT` de post-deploy · **S48-I4** — fallback silencioso de la curva | Info | ⚠️ **ABIERTOS** | `scripts/` no cambió en el delta. Deuda de **devops**. |
+| **Nit 422→401 del guard** | Contrato | ✅ **CERRADO** | `common/guards/jwt-auth.guard.ts:44` — `new BusinessException('UNAUTHENTICATED', 401, …)`. Verificado además que **no abre nada**: el guard sigue fijando `algorithms: ['HS256']` (`:52`), verificando `status` y `tokenVersion` **contra la BD** en cada request (`:60-71`), y `req.user.role` viene del **token firmado**. Comprobé que **no existe ninguna ruta que cambie el `role` de un usuario**, así que no hay ventana de rol obsoleto; y bloquear surte efecto inmediato porque el `status` se relee de BD. |
+
+**Balance:** de mis 6 hallazgos accionables del pase anterior, **5 cerrados y 1 a medias**. Es el mejor
+ciclo de remediación del proyecto y lo dejo escrito.
+
+---
+
+## 4. Lo que verifiqué yo (defensa) — positivos con evidencia
+
+### 4.1 · Las superficies críticas **no se tocaron** — diff CERO, verificado, no supuesto
+
+`git diff --stat 5bd1975..e78ced2` sobre cada ruta: **`backend/src/modules/auth/`, `payments/`,
+`shipments/`, `disputes/`, `uploads/`, `users/`, `common/crypto/`, `common/decorators/`, `src/main.ts`,
+`src/app.module.ts` y `prisma/schema.prisma` ⇒ salida vacía.**
+
+Consecuencias que puedo afirmar como **hecho** y no como esperanza:
+
+- **Sin cambio de schema ⇒ sin migración nueva ⇒ sin riesgo de datos.** `M-41` sigue siendo la única
+  migración por delante de `origin/main`, como dice devops en §29.11-bis.
+- **JWT / argon2 / rotación / revocación por `tokenVersion` / logout: intactos.**
+- **Verificación de firma del webhook de Stripe, idempotencia por `event.id`, reserva atómica
+  anti-doble-venta, manejo de contracargo/reembolso: intactos.**
+- **Cripto de PII intacta** — y la revisé de nuevo por S49-M1: AES-256-GCM, **IV aleatorio de 12 bytes
+  por operación**, authTag de 16, formato versionado `v1:iv:tag:ct`, HMAC con **clave dedicada**
+  (`PII_HMAC_KEY`) y **fail-fast obligatorio** en no-local para ambas claves, con exigencia de 32 bytes.
+  Está bien construida.
+- **Retención de INE intacta** (`jobs/ine-retention.service.ts`, dial `INE_RETENTION_DAYS`=180 anclado a
+  `SellRequest.closedAt`), y la **purga en borrado de cuenta** funciona en **ambos** modos
+  (`admin.service.ts:502` `purgeIne` antes de decidir hard/soft; el soft-delete anula
+  `clabeEnc`/`clabeHmac`/`rfcEnc`/`legalName`/`ineFrontKey`/`ineBackKey`, `:509-528`).
+- **CORS / cabeceras / pipes sin regresión:** `helmet()` (`main.ts:42`), `enableCors` con **allow-list**
+  y **nunca `origin: true`** (`:61-62`), `ValidationPipe({ whitelist: true })` (`:56`),
+  `trust proxy` (`:39`), body raw solo para el webhook de Stripe (`:48`).
+- **Rate-limiting sin regresión y bien calibrado donde importa:** global 300/min
+  (`app.module.ts:38`), y `@Throttle` endurecido en lo sensible — `login`/`register`/`google` **5/min**,
+  `forgot-password` **10/hora**, `reset-password` 10/min, `verify-email` 10/hora, checkout de invitado
+  **5/hora**, `resend-link` **3/hora**, `restock-subscriptions` 5/min. *(Carryover: el storage sigue
+  in-memory ⇒ multiplicado por réplicas.)*
+
+**Traducción para el gate:** este release **no puede** haber roto autenticación, dinero saliente,
+transporte ni PII, porque **no tocó ese código**. Lo que reviso es lo que sí tocó: proyecciones, enums,
+un guard de código de estado y DTOs de catálogo.
+
+### 4.2 · La derivación de enums: verificada valor por valor
+
+Comparé las ocho listas contra `prisma/schema.prisma`. `SealedSubtype` pasa de 5 (a mano) a **7**
+(`+upc +collection`) — **ampliación deliberada, de producto, documentada**. Las otras siete no cambian
+ni un valor. **Cero ensanchamiento no intencional.** El riesgo es de futuro (S49-B1), no de hoy.
+
+### 4.3 · Los DTO tipados son un **control de seguridad**, no solo higiene
+
+`GroupedListingDTO` (`catalog.service.ts:75-107`) y `SealedGroupDTO`
+(`sealed-catalog.service.ts:20-45`) pasan de objeto literal a **interfaz declarada**. Eso convierte
+«omitir un campo del contrato» en error de `tsc`. Lo anoto como positivo de seguridad porque es
+**exactamente el mecanismo que propongo en §2.1 para cerrar la clase de R1/S49-M1**: la forma de la
+respuesta deja de depender de la disciplina y pasa a depender del compilador. Ojalá se extienda a las
+17 rutas del barrido.
+
+### 4.4 · `toPriceHistoryEntry` — la remediación correcta, hecha bien
+
+`pricing.service.ts` introduce **una** proyección por **lista blanca** para `PriceReference`, usada por
+`GET /admin/pricing/card/:cardId` y por `POST /admin/pricing/override`
+(`pricing.controller.ts:225`, `:254`). Antes ambas devolvían la fila cruda (`id`, `fxRate`,
+`fxBufferPct`, `cardProductId`, `createdAt`). Y la decisión de **sí** emitir `isManualOverride` aquí
+—superficie `super_admin` de auditoría, donde la procedencia **es** la pregunta— es el criterio
+correcto y está razonado en el código: *«la pregunta correcta nunca es ¿este campo es sensible? sino
+¿es sensible PARA QUIEN LEE ESTA RUTA?»*. **Suscribo la regla.**
+
+### 4.5 · `useMocks` pasa a opt-in — corrección de seguridad real
+
+`frontend/src/lib/config.ts:19` pasa de `!== 'false'` (encendido por defecto) a `=== 'true'`. Antes, un
+build de producción sin `NEXT_PUBLIC_USE_MOCKS=false` servía **fixtures en silencio**: precios e
+inventario falsos, sin un solo error en pantalla. Es un **default que fallaba hacia el lado inseguro**
+en una app que muestra precios de dinero. **Buen fix.**
+
+### 4.6 · Dependencias y secretos (corrido hoy)
+
+- `npm audit --omit=dev`: **backend 2 moderate, 0 high, 0 critical** (`@nestjs/core`
+  GHSA-36xv-jgw5-4q75, arrastra `@nestjs/platform-express`; el fix exige salto mayor a NestJS 11) ·
+  **frontend prod 0 vulnerabilidades**. **Sin cambio** — carryover de devops.
+- **Secretos:** barrido de patrones (`sk_live`/`sk_test`/`pk_live`/`AKIA…`/`BEGIN … PRIVATE KEY`/
+  `whsec_`/`xox…`/`ghp_`) + asignaciones tipo `secret|token|password|api_key = "…"` sobre **todos** los
+  archivos del delta ⇒ **cero credenciales**. Lo único que aparece son **placeholders** de
+  `.env.example` (`sk_test_CHANGE_ME`) y menciones en docs.
+- **`.env` fuera del repo:** `git ls-files | grep .env` ⇒ **solo `.env.example`**; `.gitignore:3-10`
+  cubre `.env`, `.env.local`, `.env.*.local`, `.env.development/production/test` con `!.env.example`.
+- **`dump.rdb`:** `6cc72d6` lo añade a `.gitignore:59`. Verifiqué que **nunca estuvo commiteado**
+  (`git log --all -- dump.rdb` ⇒ vacío) y que el archivo en disco solo contiene **metadata de BullMQ**
+  (`bull:tcg-daily:repeat`), sin secretos ni PII. **Higiene correcta, cerrada.**
+
+### 4.7 · Autorización y superficie pública
+
+- **33 `@Public()` en 29 rutas**, enumeradas y contrastadas contra el contrato: catálogo de lectura,
+  auth (con throttle duro), checkout/seguimiento de invitado, cotizador de buylist, `health` y el
+  webhook de Stripe. **Ninguna ruta nueva se hizo pública en este delta**, y ninguna toca dinero
+  saliente ni back-office.
+- **Dinero saliente intacto:** los tres `@MoneyOut()` siguen donde deben — refund
+  (`admin-orders.controller.ts`), `reveal-clabe` y `pay-spei` (`admin-buylist.controller.ts:79-80`,
+  `:196-197`), todos `super_admin` y auditados.
+- **Filtro global de excepciones sin fuga:** `common/filters/all-exceptions.filter.ts` — una excepción
+  no controlada **loguea el stack del lado servidor** y responde
+  `{ error: { code: INTERNAL, message: 'Internal server error', details: {} } }`. **Sin stack, sin
+  mensaje de Prisma, sin nombres de tabla.**
+
+---
+
+## 5. No verificado / fuera de alcance (dicho, no asumido)
+
+Mantengo la disciplina del equipo: **prefiero una brecha escrita que una garantía inventada.**
+
+- **No muté el estado del sistema.** QA corría la suite Playwright completa contra el mismo stack.
+  Solo hice **GET** de lectura. Concretamente **[no verificado en vivo — colisión con QA]**: el PoC de
+  R1 (`PATCH .../kyc`), los cuatro de S49-M1 (`receive`/`verify`/`pay-spei`/`respond`), el de R3
+  (`PUT /admin/pricing/curve`) y el `POST /buylist/quote` anónimo. Los cuatro primeros están
+  **confirmados por lectura de código** con el patrón correcto del mismo archivo como control; R3 y el
+  quote los disparó el pentester `[LIVE]` en su ventana y **crucé su resultado contra el código**.
+- **No corrí ninguna suite de tests** (habría colisionado con QA). El verde de la suite lo emite **QA**,
+  no yo.
+- **No corrí DAST ni el gate SAST de CI** en esta sesión.
+- **No hice pruebas de carga** — por eso S49-B2 va como Baja verificada en código, sin número medido.
+- **Concurrencia y carreras: no ejercitadas.** Mi juicio sobre si son ajenas al delta: **webhook de
+  Stripe, reserva de checkout, `convert-to-inventory`** ⇒ genuinamente **fuera** (diff cero en
+  `payments/` y `shipments/`; `reserveItems` no aparece en el diff). **Tope mensual del buylist** ⇒ ya
+  **no** es hueco: **AML-1** lo cierra con `Serializable` en el punto de pago (§3).
+- **No re-audité** la matemática de la curva ni la cobertura de tests (QA y techlead ya lo hicieron).
+  Mi lente fue **authz, manipulación, fuga, PII y abuso de flujo**.
+- **`pokemontcg.io` sin egress (403)** ⇒ precios STALE es **esperado en este entorno**, no hallazgo.
+- **El throttler multi-instancia sigue sin verificarse** (storage in-memory, `app.module.ts:38`).
+  Carryover de devops.
+
+---
+
+## 6. Deuda de seguridad ACEPTADA (no bloqueante) — con disparador
+
+| ID | Tema | Impacto | Disparador para abordarla | Dueño |
+|---|---|---|---|---|
+| **R1** | `PATCH /admin/users/:id/kyc` devuelve `KycProfile` cruda (`clabeHmac`, `clabeEnc`, keys INE) | Fuga del **blind index** (correlación de CLABEs sin auditar; forzable offline si se filtra `PII_HMAC_KEY`) + exposición incidental en logs/navegador | **DURO: antes de que se almacene la primera CLABE/INE real** (= antes de abrir el buylist a vendedores reales). **Recomendado: antes de desplegar.** | **backend** + arquitecto |
+| **S49-M1** | `clabeSnapshotEnc` crudo en `receive`/`verify`/`pay-spei`/`respond` | Ciphertext de cuenta bancaria fuera del límite de BD, hacia **`vault_operator`** y `customer`; viola contrato (`API_CONTRACT.md:5728`) y el invariante de `closedAt` del schema | **DURO: el mismo que R1** (se cierran en el mismo cambio, mismo archivo). **Recomendado: antes de desplegar.** | **backend** + arquitecto |
+| **R2** | `priceBasis` + `referenceValue` a anónimo; `priceBasis` **nuevo** en la rejilla | Inteligencia de pricing scrapeable (markup por carta, qué lleva override, qué tocó piso) a 30 000 filas/min | Al primer indicio de scraping competitivo, **o** en la próxima revisión de `PriceInfo`/§N.7 por el arquitecto. Remediación mínima en §1-R2. | **arquitecto** → backend |
+| **R3** | `floorCents`/`binCents` sin cota superior | Typo de `super_admin` rompe el pricing del catálogo (venta) o bloquea el buylist (compra). Money-out acotado por AML | Junto con cualquier otro toque a `pricing-curve.ts`; **antes de operar con dinero real** si se quiere simetría money-safe completa | **backend** |
+| **R4** | 12 rutas de back-office devuelven fila cruda (sin PII) | Si mañana se añade una columna sensible al schema, se **auto-publica** | Con el cierre de R1/S49-M1 (mismo cambio) o con el test de forma de §2.1 | **backend** |
+| **S49-B1** | Enums derivados: valor futuro del schema = ensanchamiento automático de la API | Latente. `RawCondition` es el caso grave (rompería la política NM-only de `PROJECT.md` §H sin test rojo) | **Antes de la próxima migración que añada un valor de enum** — y sacar `RawCondition` ya, por ser decisión de producto | **arquitecto** + backend + devops |
+| **S49-B2** | Escaneo completo sin cota + paginación en memoria en 3 endpoints `@Public` | Disponibilidad; amplificación barata desde tráfico anónimo | Cuando el inventario publicado pase de unos miles de piezas, **o** antes de la primera campaña con tráfico real | **backend** (+ arquitecto si cambia `total`) |
+| **S48-B3** (residual) | `pricingBrackets` sin `take` ni paginación (fechas **ya** validadas) | Disponibilidad (OOM/500 en reporte admin) | Cuando el histórico supere decenas de miles de líneas, o si el reporte se automatiza | **backend** |
+| S49-I1 · S49-I2 · S49-I3 | Arrays de enum mutables compartidos · `LOCALE_VALUES` muerto · segunda declaración de `FINISH_VALUES` | Higiene / defensa en profundidad | Junto con S49-B1 (mismo archivo) | **backend** |
+| S49-I4 | El rol `pentester` no puede escribir `docs/PENTEST_NOTES.md` | Cadena de custodia del informe de red team | Antes del próximo pase de seguridad | **devops** |
+| S48-I1 · S48-I2 · S48-I3 · S48-I4 | Fail-open del guardarraíl · `json()` sin `limit` · `ADMIN_JWT` de post-deploy · fallback silencioso de la curva | Ver pase P-48 | Sin cambio | backend / devops |
+| **Carryover** | `@nestjs/core` 2 moderate (salto mayor a Nest 11) · Int32 en columnas de dinero + **MS-2** (agregados sin clamp) · MS-1/MS-4/MS-5 (idempotency-key en shipments/refund, H1 sin espejo en shipment, `?? ''` del webhook secret) · B-1 timing de `forgot-password` · B-2 linking de Google a cuentas privilegiadas · B-5 token en query-string · throttler in-memory | Ver pases v1.5/v1.6 | **Sin cambio en este pase** (superficies no tocadas — diff cero) | devops / backend / frontend / arquitecto |
+
+---
+
+## 7. Banderas para el humano
+
+1. **Pentest de tercero + bug bounty ANTES de mover dinero real. Lo repito y lo subo de tono.** Este
+   pase y el del red team son **internos**, y el mío fue **estático + solo lecturas** por la colisión con
+   QA. Un negocio de **custodia de bienes ajenos** con **INE y CLABE** y **dinero saliente por SPEI**
+   amerita una revisión externa con target vivo y **sin restricción de mutación** antes de la primera
+   operación con pesos reales. **No bloquea este release; es prerrequisito del go-live comercial.**
+2. **Validación legal de custodia y PII (México).** Retención de INE (180 días), cifrado de CLABE,
+   umbral y topes AML: la implementación técnica está donde debe y **este delta no la tocó**, pero los
+   **plazos y umbrales son decisiones jurídicas, no de ingeniería**. Un abogado debe ratificarlos.
+   **Añado un ángulo nuevo, de S49-M1:** que el ciphertext de una cuenta bancaria salga hacia el rol
+   `vault_operator` puede tener lectura de **minimización de datos** bajo la LFPDPPP, además de la
+   técnica. Vale la pena preguntarlo.
+3. **Las dos Medias tienen una fecha, no una intención.** R1 y S49-M1 quedan aceptadas **solo mientras
+   el sistema no guarde PII real**. En el momento en que se capture la primera CLABE o el primer INE de
+   un vendedor de verdad, **la aceptación caduca y el veredicto pasa a RECHAZADO** hasta que se cierren.
+   Es una decisión del humano **cuándo** abrir el buylist; lo que no es negociable es que esas dos cosas
+   ocurran en ese orden.
+4. **Cuentas de back-office y Google (carryover B-2, sin cambio).** El linking de Google alcanza cuentas
+   `super_admin`. Con dinero real, la seguridad del SPEI pasa a depender también de la seguridad de una
+   cuenta de Gmail. Decisión del humano: **MFA obligatorio en back-office**, o restringir el linking a
+   `role=customer`.
+5. **El árbol se movió otra vez durante este pase** — `455fb8a`, aunque esta vez fue **solo docs** y lo
+   verifiqué. Es el patrón que devops describe en §29.11-bis. **Mi veredicto vale para el código de
+   `e78ced2`**; si entra **una sola línea** de `backend/src` o `frontend/src` después, este veredicto
+   **deja de cubrir el árbol que se despliega** y hay que re-abrir el gate. No es burocracia: dos de los
+   hallazgos de este pase (R1 y S49-M1) existen precisamente porque un cambio arregló un endpoint y pasó
+   de largo por su vecino de archivo.
+
+---
+
+## 8. Ruteo por rol dueño (resumen accionable)
+
+- **backend** — **R1** (proyectar `updateUserKyc` con la lista blanca de `getUser`) · **S49-M1**
+  (proyectar las 4 rutas de `SellRequest`; el destructuring de `buylist.service.ts:933`/`:1073` es la
+  respuesta) · **R4** (las 12 restantes del barrido de §2.1) · **R3** (cota superior a
+  `floorCents`/`binCents`) · **S49-B1** (sacar `RawCondition` de `enum-values.ts`; anclar cardinalidad
+  de los ocho) · **S49-B2** (paginar en BD) · **S48-B3 residual** (`take` + paginación) · S48-I1 ·
+  S48-I2 · S49-I1/I2/I3. **Y el fix estructural que cierra la clase:** anotar cada handler con su DTO
+  declarado (como `GroupedListingDTO`) y/o un test de residuo tipo `enum-values-parity.spec.ts`.
+- **arquitecto** — **R2** (decidir y **normar** el alcance de `priceBasis` por superficie; corregir la
+  premisa obsoleta de `API_CONTRACT.md:1929-1931`, que `toPublicPriceInfo` ya invalidó) · **S49-B1**
+  (norma: «añadir un valor a un enum de schema **es** cambio de contrato y exige decisión por
+  superficie») · **R1 / S49-M1** (declarar el `Res` de `PATCH /admin/users/:id/kyc`,
+  `receive`/`verify`/`pay-spei`/`respond` — hoy el contrato solo declara el efecto, y ése es el
+  mecanismo raíz de toda esta familia) · carryover Int32/`BigInt`.
+- **devops** — **S49-I4** (dar `Write` al rol `pentester` sobre su propio archivo) · S48-I3 (`ADMIN_JWT`
+  efímero) · S48-I4 (alerta sobre `[MONEY]`) · S48-I2 (`json({ limit })`) · carryover: bump a NestJS 11,
+  throttler con storage compartido, ítem de enums en la plantilla de PR de migraciones.
+- **frontend** — **nada nuevo, y con un positivo:** el fail-safe de `useMocks` (§4.5) es una corrección
+  de seguridad real. **Verifiqué que la regla §N.7 se cumple** (`CardDetailView.tsx:218`) y que
+  `PriceBasisTag` no aparece en superficies de cliente. Carryover **B-5** (token en query-string) sigue
+  abierto.
+
+---
+---
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
+     PASE P-48 / v2.0 — «precio puro por valor de mercado» (2026-08-24) — se antepone;
+     el contenido histórico (P-38, v1.28, Stream C, etc.) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# PASE P-48 / v2.0 — la CURVA de precios · 2026-08-24 · VEREDICTO de seguridad
+
+> **Rol:** seguridad (blue team / AppSec). Consolido el pase red team de `docs/PENTEST_NOTES.md`
+> («PASE v2.0 / P-48», commit `6657196`), lo cruzo contra el código con criterio propio, añado lo que
+> encontré yo y emito el **tercer veredicto** del DoD. **NO corrijo código:** cada hallazgo lleva rol dueño.
+> **Delta revisado:** `586f736..HEAD` (44 commits) en la rama `claude/card-pricing-rules-2e537m`.
+> **Modo:** revisión **estática dirigida** del delta + **ejecución de las puras del pricing con `ts-node`**
+> (`resolveSaleFromCurve`/`resolveBuyFromCurve`/`resolvePendingReason` contra `DEFAULT_PRICING_CURVE`)
+> + `npm audit` + barrido de secretos sobre los archivos tocados. **NO levanté el stack HTTP**: los
+> `[LIVE]` son del pentester — los tomo como dados y los **cruzo con el código**, no los re-disparo.
+> **Fuentes normativas:** `PROJECT.md` §N.7/§N.8 · `docs/ARCHITECTURE.md` §4.36 · `docs/API_CONTRACT.md`
+> (`v2.0-pricing-curve` … `v2.1.5`). Regla de conflicto de `CLAUDE.md`: PROJECT manda sobre el contrato,
+> el contrato manda sobre el código. La apliqué literalmente para juzgar P48-M1 (ver §2).
+
+## 0. VEREDICTO
+
+# ✅ APROBADO
+
+**0 hallazgos Críticos · 0 Altos.** El DoD exige que no queden críticos ni altos abiertos: se cumple.
+Las superficies nuevas de dinero (editor de curva, dry-run, guardarraíl, bounty revalidado,
+instrumentación) llegaron **bien construidas**, y las tres garantías que más me preocupaban las verifiqué
+una por una y **siguen en pie**: SEC-A1 (rareza derivada en servidor, y solo bloquea — nunca fija monto),
+dinero saliente `super_admin`-only y auditado, e invariantes V1–V9 **imponiéndose también en LECTURA**,
+que es lo que cierra cualquier vía de escritura alterna (§3.3).
+
+| Severidad | # abiertos (P-48) | IDs |
+|---|---|---|
+| **Crítica** | 0 | — |
+| **Alta** | 0 | — |
+| **Media** | 1 | S48-M1 (nuevo, mío) |
+| **Baja** | 5 | S48-B1 (=P48-B1) · S48-B2 (=P48-M1 **reclasificado**) · S48-B3 · S48-B4 · S48-B5 |
+| Info / higiene | 4 | S48-I1 … S48-I4 |
+
+**Mínimo necesario para aprobar: ya cumplido** (cero críticos/altos). Lo que **haría RECHAZAR** este gate:
+que S48-M1 resultara borrar también entradas del eje de compra con dinero de por medio (no lo hace: el
+bloqueo del guardarraíl es de ejecución y sobrevive; lo que se pierde es la señal), o que apareciera un
+camino de escritura de curva que evadiera V1–V9 en lectura (no existe). **Distinto es el gate de dinero
+real**: §5 lista lo que debe cerrarse antes de operar con pesos de verdad, y no es lo mismo que aprobar
+este release.
+
+---
+
+## 1. Hallazgo NUEVO de esta revisión
+
+### S48-M1 · [Media] · El cierre de la cola de pendientes es **agnóstico del eje**, pero `premium_at_floor` **no lo es**: un cliente puede borrar en silencio el aviso del guardarraíl de VENTA
+- **Categoría:** integridad de un control de seguridad / abuso de flujo por tercero.
+- **Ubicación:**
+  - `backend/src/modules/pricing/pricing.service.ts:934-947` — `closePendingForVariant` cierra por clave
+    `(cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status:'open')`, **sin eje y sin
+    razón**. El comentario `:930-932` justifica el agnosticismo: *«la `PriceReference` es COMPARTIDA por
+    clave, así que si el mercado resolvió, resolvió para las dos caras»*.
+  - `backend/src/modules/pricing/pricing.service.ts:957-988` — `settlePendingForVariant(null, …)` delega ahí.
+  - **Disparador alcanzable por cliente:** `backend/src/modules/buylist/buylist.service.ts:638-648`
+    (`createRequest` llama al seam por CADA línea con el `pendingReason` del **eje de COMPRA**).
+  - **Origen de la entrada:** `backend/src/modules/inventory/inventory.service.ts:1200-1222`
+    (`publish-all`/`bulk-publish` escala con el veredicto del **eje de VENTA**).
+- **Por qué el argumento del comentario ya no se sostiene:** era cierto con **una sola** razón
+  (`no_market`, que sí depende únicamente de la `PriceReference` compartida). v2.0 introdujo una **segunda**
+  razón, `premium_at_floor`, que **no** se deriva del dato compartido sino de comparar ese dato contra
+  constantes **distintas por eje** — `sale.floorCents` (2500) vs `buy.binCents` (100). Sobre el mismo
+  mercado, un eje puede decir `floor` y el otro `market`.
+- **Evidencia (ejecuté las puras reales contra el `DEFAULT_PRICING_CURVE` sembrado, rareza canónica
+  premium `Secret Rare`):**
+
+  | mercado | VENTA | razón venta | COMPRA | razón compra |
+  |---|---|---|---|---|
+  | 200 c | `2500` · `floor` | `premium_at_floor` | `100` · `floor` | `premium_at_floor` |
+  | **1000 c** | `2500` · **`floor`** | **`premium_at_floor`** | `300` · **`market`** | **`null`** |
+  | **1500 c** | `2500` · **`floor`** | **`premium_at_floor`** | `450` · **`market`** | **`null`** |
+  | 1900 c | `3500` · `market` | `null` | `570` · `market` | `null` |
+
+- **PoC (encadenado, sin HTTP):** carta de rareza premium con mercado ≈ MX$10 → el dueño corre
+  `publish-all` (el runbook de cut-over de ESTE release lo manda, `scripts/post-deploy.sh` paso 4) → la
+  pieza **no se publica** y entra a la cola con `reason='premium_at_floor'`. Después **cualquier cliente
+  autenticado y con correo verificado** manda esa misma variante en un `POST /buylist/requests`: el eje de
+  compra resuelve `basis='market'` ⇒ `pendingReason=null` ⇒ `settlePendingForVariant(null, …)` ⇒ la entrada
+  del **eje de venta** queda `status='resolved'`, `resolvedAt=now()`, **indistinguible de una resolución
+  legítima** (no se registra quién ni por qué la cerró).
+- **Impacto:** se pierde el **aviso**, no el **bloqueo**. El guardarraíl se re-evalúa en cada lectura y
+  en cada intento de publicación (`decideSalePrice` sigue devolviendo `pending`), así que la pieza no se
+  vende barata y la entrada se **re-abre** al siguiente `publish-all`. Lo que se degrada es la razón de ser
+  del mecanismo, escrita en el propio código (`pricing-curve.ts:508`): *«convierte un error de dinero
+  silencioso en una COLA VISIBLE»*, y `resolvePendingReason` documenta que `no_market` **se cura sola** pero
+  `premium_at_floor` **necesita que el dueño mire**. Es justo la clase que un tercero puede limpiar. Sin
+  movimiento de dinero, sin PII, sin escalada de privilegio.
+- **Por qué Media y no Alta:** no hay pérdida de dinero ni evasión de un control de ejecución, y el
+  disparador exige cuenta autenticada + correo verificado. **Por qué no Baja:** el control afectado es el
+  que P-48 introdujo *como* red de seguridad del dinero, el borrado es silencioso y no auditado, y el
+  escenario es el del cut-over de este mismo release (≈3 entradas por cada 333 cartas según §4.36.9c-3 —
+  una población chica, o sea que perder una es proporcionalmente caro).
+- **Rol dueño:** **backend** (que el cierre respete el eje/razón: no dejar que una resolución de compra
+  cierre una entrada abierta por venta) + **arquitecto** (decidir si la cola es por-eje — toca schema y
+  contrato, zona compartida ⇒ pasa por él antes, regla 9).
+
+---
+
+## 2. Hallazgos del pentester, consolidados con mi criterio
+
+### S48-B2 (= **P48-M1**) · [Media → **BAJA**, alcance reducido] · `PriceInfo.isManualOverride` viaja a clientes anónimos y **no está declarado en el contrato**
+
+**Mi juicio independiente: la mayor parte de P48-M1 la DESCARTO como hallazgo; sobrevive una porción
+pequeña y concreta.** El pentester marcó el matiz con honestidad y pidió arbitraje. Aquí está.
+
+**Lo que descarto, y por qué (no es «lo aceptaron», es que está mandado por escrito):**
+1. **`priceBasis` en DTO público — NO es fuga.** `PROJECT.md:1140-1145` (§N.7) lo **exige**: *«La señal la
+   produce el backend — `priceBasis` … el sistema registra y expone server-side qué determinó el precio …
+   La UI no infiere nada: obedece ese dato»*. Y §N.7 se autodefine como regla **de presentación**:
+   *«el precio cobrado no cambia por esta regla: es una regla de presentación, no de dinero»*
+   (`PROJECT.md:1155`). Un requisito de producto no puede ser a la vez la fuga.
+2. **`referenceValue` sin recortar por `basis` — NO es una desviación.** `API_CONTRACT.md:1830-1832` lo
+   norma explícitamente: *«`referenceValue` SIGUE viajando en el DTO aunque no se muestre: el mismo DTO
+   alimenta superficies admin y de valuación … stripearlo por endpoint haría que `PriceInfo` significara
+   cosas distintas según la ruta»*. Por la regla de conflicto, el contrato manda sobre el código y PROJECT
+   no lo contradice (§N.7 acota su alcance a **la ficha**, `PROJECT.md:1133-1137`).
+3. **El PoC del cotizador (`priceBasis:"floor"` al vendedor) — ratificado por contrato.**
+   `API_CONTRACT.md:2004-2008` anticipa **literalmente** el argumento del pentester: *«`priceBasis` de ESTE
+   payload es para la LÓGICA del cliente … NO para RENDERIZARLO AL VENDEDOR … sería … filtrar la
+   calibración interna: “piso”/“mínimo” le dice al vendedor que su carta tocó el bin. Decisión ratificada»*.
+4. **Y el control de presentación está IMPLEMENTADO, no prometido — lo verifiqué:**
+   `frontend/src/app/[locale]/(storefront)/catalog/[cardId]/CardDetailView.tsx:218`
+   (`showMarketValue = primary?.priceBasis === 'market'`), y `PriceBasisTag` **solo** aparece en superficies
+   admin (`VariantPriceConsole.tsx:427,459,501` y `curve/CurvePreview.tsx:253,266`) — cero usos de cara al
+   cliente.
+5. **`referencePrice` al vendedor ya se pinta a propósito y es PREVIO a P-48:**
+   `SellCartContents.tsx:184-187` («Valor de referencia», `frontend/messages/es.json:636`), **sin cambios en
+   el delta**; lo que P-48 hizo ahí fue **quitar** la fila «Regla aplicada». O sea: el cambio **redujo** lo
+   que el vendedor ve, no lo amplió.
+6. `source` y `capturedDate` **sí** están declarados en `PriceInfo` (`API_CONTRACT.md:1762`).
+
+**Lo que SÍ sobrevive como hallazgo (y esto el contrato no lo cubre):**
+- **`isManualOverride` no está en el `PriceInfo` del contrato.** `API_CONTRACT.md:1762` declara
+  `PriceInfo = { status, referenceMxnCents?, source?, capturedDate? }` — **cuatro** campos. El backend emite
+  un quinto: `backend/src/modules/pricing/pricing.service.ts:335`, `:378`, `:430` (y el tipo lo declara en
+  `:151-160`). Es un **discriminante interno** nacido en v1.43 para el gate H-1 del sellado, y llega a
+  endpoints `@Public` (`GET /catalog/cards`, `/catalog/cards/:id`, `/catalog/listings/:id`).
+- **Impacto:** un observador anónimo obtiene, **por carta y a escala de catálogo**, el mapa de qué cartas
+  tienen precio **fijado a mano por el admin**. Es inteligencia operativa del negocio; no es dinero, no es
+  integridad, no es PII, y el `referenceMxnCents` de al lado deriva de fuentes públicas (TCGplayer/PPT ×
+  FX), así que el margen de revelación adicional es el flag, no el número.
+- **Precedencia:** es **carryover de v1.43**, no lo introdujo P-48; este pase lo saca a la luz.
+- **Severidad: Baja.** Confidencialidad de metadato operativo, sin efecto en dinero.
+- **Rol dueño:** **backend** (no proyectar `isManualOverride` fuera de las superficies admin) +
+  **arquitecto** (ratificarlo en `PriceInfo` o retirarlo; hoy el código emite un campo que el contrato no
+  declara, y eso es lo que hay que cerrar de una forma o de otra).
+
+### S48-B1 (= **P48-B1**) · [**Baja**, confirmado, **alcance ampliado**] · Clave de cadena de prototipos evade el allowlist de `PUT /admin/settings` → 500, escritura parcial **y sin registro en la bitácora**
+- **Confirmo la causa raíz por lectura de código.** `backend/src/modules/settings/settings.service.ts:71-99`
+  hace `SETTING_DTO_MAP[dtoKey]` sobre un **objeto literal** (`settings.constants.ts:296`), así que
+  `__proto__`/`constructor`/`toString` devuelven miembros heredados **truthy** y el rechazo «unknown setting
+  key» no dispara; `SETTING_VALIDATORS[settingKey]` sale `undefined` (no valida) y la clave no-string llega
+  al `upsert` de Prisma. **Habilitador adicional que añado:** el controller declara
+  `@Body() body: Record<string, unknown>` (`settings.controller.ts:28`) — **sin clase DTO**, así que el
+  `ValidationPipe({whitelist:true})` de `main.ts:56` no tiene contra qué recortar y **toda** clave del body
+  entra al servicio.
+- **Lo que añado al hallazgo (dos cosas que no estaban):**
+  1. **Se rompe la bitácora, no solo la atomicidad.** `settings.controller.ts:32-41` audita **después** de
+     que `update()` retorne; la excepción salta el `audit.log`, así que el dial que **sí** se persistió
+     (`ivaPct:7` en el PoC del pentester) queda **sin entrada en `AuditLog`**. Para un endpoint que gobierna
+     IVA, comisiones de Stripe, **topes AML del buylist** y el **umbral de INE**, una mutación silenciosa y
+     no repudiable es peor que el 500.
+  2. **La promesa «todo o nada» del comentario `:58-63` es falsa en general, no solo con `__proto__`.**
+     `update()` **no abre `$transaction`**: valida todo y luego escribe en un bucle de `upsert` sueltos
+     (`:92-99`). Cualquier fallo a mitad (caída de BD, timeout) deja escritura parcial.
+- **Mantengo Baja:** es `super_admin`-gated (`settings.controller.ts:12-13`), no hay prototype pollution
+  real (`JSON.parse` crea `__proto__` como propiedad de datos), no hay escalada. Pero con **disparador
+  duro**: cerrarlo antes de operar con dinero real (§5) — el registro de cambios de configuración de dinero
+  es control de cumplimiento en un negocio de custodia, no cosmética.
+- **Rol dueño:** **backend** (`Object.hasOwn`/`Map`/`Object.create(null)`; envolver las escrituras en
+  `$transaction`; auditar **antes** o dentro de la transacción; y de paso, una clase DTO en el `@Body`).
+
+---
+
+## 3. Lo que verifiqué yo (defensa) — y lo que encontré de paso
+
+### 3.1 SEC-A1 con la firma nueva del seam: **intacto**
+`rarityCanonical` entra al guardarraíl **siempre desde la BD**, en los cuatro seams:
+`catalog.service.ts:313`, `buylist.service.ts:408`, `inventory.service.ts:1203`,
+`variant-controls.service.ts:336` — todos `item.card.rarityCanonical ?? item.card.rarity`. La columna solo
+la escribe el **sync de catálogo** (admin), derivada con `normalizeRarity`
+(`catalog-sync.service.ts:119-120`, `:899`); **ningún DTO de cliente la acepta**. Y el diseño está protegido
+por tipos, no por disciplina: `decideSalePrice` declara `rarityCanonical` **obligatoria a propósito**
+(`pricing.service.ts:1372-1376`), y `premiumFloorGuard` (`pricing-curve.ts:515-517`) devuelve un veredicto,
+**nunca centavos** — la rareza solo puede **suprimir** el precio, jamás fijarlo. **Ningún camino deja que el
+cliente influya en el veredicto.**
+- **Excepción de higiene → S48-I1** (abajo): `composeVariantPricing` sí tiene un default fail-open.
+
+### 3.2 Dinero saliente: **no se movió**
+`git diff 586f736..HEAD` tiene **diff cero** en `backend/src/modules/payments/`, `shipments/`, `disputes/`,
+`auth/`, `users/`, `uploads/`, `common/crypto/`, `common/guards/`, `common/decorators/`, `main.ts` y
+`app.module.ts`. Los tres `@MoneyOut()` siguen donde deben (`admin-orders.controller.ts:212` refund;
+`admin-buylist.controller.ts:80` reveal-clabe, `:197` pay-spei) y `MoneyOutGuard` **audita el intento
+bloqueado antes de lanzar el 403**. `paySpei` (`buylist.service.ts:1549-1585`) paga contra el
+`clabeSnapshotEnc` **cifrado de la propia solicitud del usuario**, con transición atómica
+(`updateMany` + `count===1`) e idempotencia si ya está `pagada`. **CLABE cifrada, INE con retención y SPEI a
+cuenta propia: caminos no tocados por este cambio** — lo digo como hecho verificado por diff, no como
+suposición.
+
+### 3.3 V1–V9 como control de seguridad: **no hay vía de escritura que los evada**
+Audité las cuatro vías posibles:
+
+| Vía | ¿Pasa por V1–V9? | Evidencia |
+|---|---|---|
+| `PUT /admin/pricing/curve` | **Sí, completo** | `pricing.controller.ts:260-263` usa `collectCurveViolations(dto)[0]` ⇒ rechaza **cualquier** infracción, bloqueante o no |
+| `PUT /admin/settings` | **No alcanza la clave** | `PRICING_CURVE` no está en `SETTING_DTO_MAP` (`settings.constants.ts:296-325`) ⇒ 422 |
+| `prisma/seed.ts` | Constante, `create-only` | `seed.ts:43-49` (`update: {}`, no pisa lo editado) con `DEFAULT_PRICING_CURVE`, cuya validez asegura la suite (`pricing-curve.spec.ts:256`, `:748`) |
+| Backfill / import / migración | **No existe** | `backfill-p34-tiered-pricing.ts` **borrado**; `migration.sql` de M-41 es aditiva pura; `post-deploy.sh` **no escribe curva** (lo declara en su cabecera) |
+| **Edición directa en BD** | **Cubierta en LECTURA** | `loadPricingCurve` (`pricing.service.ts:590-600`) → `sanitizePricingCurve` (`pricing-curve.ts:1143-1151`) → `validatePricingCurve` = `collectCurveViolations(...)[0]` = **V1–V9 íntegros** ⇒ cae al seed |
+
+**Conclusión fuerte:** los invariantes se imponen **también al leer**, así que **ninguna** vía de escritura
+—incluido acceso directo a la BD— puede poner en producción una curva que pierda dinero. Es la decisión de
+diseño más sólida del cambio y quiero dejarla escrita.
+**Salvedad honesta:** el fallback es **silencioso** salvo un `logger.error('[MONEY] …')`
+(`pricing.service.ts:594-597`). No hay alerta, ni señal de health, ni aviso en el back-office. Quien
+corrompa (o fat-fingueé) la fila cambia **toda la política de precios a la curva semilla** y nadie se entera
+salvo leyendo logs → **S48-I4**, dueño devops.
+
+### 3.4 Instrumentación (§N.8): la asimetría venta/compra está **bien resuelta del lado del comprador**
+El contrato manda que la instrumentación sea **solo back-office** en el eje de venta
+(`API_CONTRACT.md:5911-5916`: *«La línea del pedido del CLIENTE … NO cambia»*). **Se cumple:**
+`orders.service.ts:773-777` proyecta únicamente `inventoryItemId`/`card`/`unitPriceCents`, y el IDOR está
+cerrado (`:758`, `order.userId !== userId` ⇒ 403). Del lado de compra, `SellItemDTO` **sí** declara
+`marketMxnCents`/`priceBasis`/`marketBracket` (`API_CONTRACT.md:5905-5907`) y `itemDTO`
+(`buylist.service.ts:836-840`) los emite al vendedor en `listMine`/`getMine`: **conforme al contrato**, pero
+es una asimetría deliberada que conviene que el arquitecto reconfirme, porque el razonamiento de §N.7
+(«no le digas al vendedor que su carta tocó el fondo») aplica **más** al vendedor que al comprador. Lo dejo
+como **bandera**, no como hallazgo: está declarado y no lo voy a inventar como fuga.
+
+### 3.5 Hallazgos menores propios
+
+**S48-B3 · [Baja] · El reporte de instrumentación carga TODAS las líneas en memoria, sin cota ni paginación.**
+`backend/src/modules/admin/admin.service.ts` (`pricingBrackets`, `:766-838`): dos `findMany` **sin `take`**
+y con rango de fechas **opcional**; sin `from`/`to` trae **todos** los `OrderItem` de órdenes liquidadas y
+**todos** los `SellRequestItem` de solicitudes pagadas, y agrega en memoria de la app. Además `range()`
+(`admin.service.ts:19-22`) **no valida** las fechas: `new Date('basura')` → `Invalid Date` → Prisma lanza →
+500. `super_admin`-only ⇒ solo disponibilidad (un reporte descuidado tumba la API para todos), sin dinero.
+**Dueño: backend** (cota + paginación, y validar `from`/`to`).
+
+**S48-B4 · [Baja] · P-48 amplía el conjunto de líneas que suman $0 a los topes AML del buylist.**
+El guardarraíl nuevo hace que `premium_at_floor` devuelva `quotedPriceCents=null` en el eje de compra
+(`buylist.service.ts:409`), y una línea sin monto **suma 0** a `quotedTotalCents`
+(`buylist.service.ts:649`), que es la base del **tope por solicitud** (`:679`), del **tope mensual**
+(`:736`) y del **umbral de INE** (`:700`). Antes de P-48 esa carta cotizaba por regla de rareza y **sí**
+contaba. **Controles compensatorios que verifiqué y funcionan:** cualquier línea pendiente **fuerza INE**
+(`:699-705`, Fase 0.3), y la aprobación está acotada por `assertApprovedPriceWithinCap`
+(`:1094-1111`) — que además **cierra el carryover B-4** del pase v1.5. **Hueco residual:** ese tope es el
+**por solicitud**; el **mensual nunca se re-verifica** contra `approvedTotalCents`, así que lo aprobado por
+encima de lo cotizado no vuelve a topar en el mes. No es un bypass automático (exige aprobación humana ítem
+por ítem y el SPEI sigue siendo `super_admin`), pero **es una consecuencia real del delta sobre un control
+AML** y por eso la reporto en vez de darla por «fuera de alcance».
+**Dueño: backend** (re-chequear el tope mensual al aprobar/pagar) + **humano/arquitecto** (política AML, §4).
+
+**S48-B5 · [Baja] · `createRequest` escribe y cierra la cola ANTES de los topes, del gate de INE y fuera de la transacción.**
+`settlePendingForVariant` se llama **dentro del bucle de ítems** (`buylist.service.ts:638`), mientras que el
+tope por solicitud está en `:679`, el gate de INE en `:701` y la transacción `Serializable` en `:733`. Una
+solicitud que termina en **422** ya dejó (o cerró) entradas en la cola del dueño. La dedupe por variante
+(`pricing.service.ts:895-901`) acota el volumen y `context='buylist'` registra procedencia, así que el techo
+es bajo — pero es una escritura de tercero en una cola de back-office que ocurre **antes** de que se validen
+las puertas que el endpoint documenta. Es el mismo call-site que S48-M1. **Dueño: backend.**
+
+### 3.6 Info / higiene (no son hallazgos)
+- **S48-I1 · Default fail-open en el parámetro del guardarraíl.**
+  `backend/src/modules/pricing/variant-pricing.ts:86` — `composeVariantPricing(…, rarityCanonical = null)`:
+  un llamador que lo **omita** obtiene `premiumFloorGuard → 'ok'` en silencio (nunca `premium_at_floor`).
+  Hoy **los dos** llamadores lo pasan (`variant-controls.service.ts:336`,
+  `master-set.service.ts:813-818`), así que no hay exposición. Contrasta con `decideSalePrice`, donde el
+  campo es **obligatorio a propósito** por esta misma razón. Recomiendo volverlo obligatorio. *Backend.*
+- **S48-I2 · El `PUT` de la curva persiste claves extra dentro de los puntos y no acota su número.**
+  `normalizePricingCurve` (`pricing-curve.ts:1125-1138`) reconstruye el **nivel superior** pero copia los
+  objetos-punto por referencia, así que `{marketCents, multiplierBp, loQueSea}` se guarda verbatim en el
+  JSON; y V1 exige `≥1` punto **sin techo**. Inerte (los lectores solo leen campos conocidos; `JSON.parse`
+  no contamina prototipos) y acotado en la práctica por el límite de 100 kB por defecto de `json()`
+  (`main.ts:53`, sin `limit` explícito). `super_admin`-only. *Backend / devops (fijar `limit` explícito).*
+- **S48-I3 · `ADMIN_JWT` del post-deploy.** `scripts/post-deploy.sh` lo pasa por `curl -H` (visible en el
+  `argv` del proceso); el script **nunca lo imprime** y **enmascara** el `DATABASE_URL` (`:80`), y
+  `publish-all` exige **opt-in explícito** (`RUN_PUBLISH_ALL=1`) — higiene correcta. La observación es de
+  ciclo de vida: si ese JWT se guarda como variable persistente de Railway se vuelve una **credencial
+  `super_admin` permanente** fuera del flujo de auth. *devops (TTL corto, emitir y desechar por corrida).*
+- **S48-I4 · El fallback money-safe de la curva no alerta.** Ver §3.3. *devops (alerta sobre `[MONEY]`).*
+- **Nits del pentester (falta de token → 422 en vez de 401; `preview` → 201 en vez de 200):** confirmo que
+  son **contrato, no seguridad**. *Backend.*
+
+### 3.7 Defensas confirmadas (verificadas por mí, no solo heredadas)
+1. **Authz de las superficies nuevas.** `@Roles(super_admin)` a nivel clase (`pricing.controller.ts:124`) y
+   **ninguna** ruta de curva la debilita ni lleva `@Public` (grep: solo `:124` y `:462` en todo el archivo);
+   `RolesGuard` es estricto y **sin jerarquía** (`roles.guard.ts`, `!required.includes(user.role)` → 403).
+   El reporte de brackets también es `super_admin` (`admin.controller.ts:248-251`) y valida `axis`
+   (`:264-275`).
+2. **El `preview` no autoriza nada.** `previewCurve` (`pricing.service.ts:618-649`) solo lee/computa; la
+   autoridad del dinero es el `PUT`, que **re-valida desde cero** (`pricing.controller.ts:260`). Coincido
+   con el pentester y lo confirmo en código.
+3. **Sin superficie SQL nueva:** cero líneas `$queryRaw*` **añadidas** en todo el delta del backend;
+   `orders.service.ts:283` sigue con tagged template sin entrada de cliente.
+4. **Publicación atómica:** `claimListed` (`inventory.service.ts:1242-1256`) transiciona con `updateMany` +
+   allowlist de estado en el mismo UPDATE ⇒ TOCTOU cerrado, anti doble-venta intacto.
+5. **Migración M-41: aditiva, nullable, sin PII** (3 enums + 8 columnas + 1 índice; nada de
+   email/nombre/CLABE/INE/dirección). Confirmo el positivo #6 del pentester leyendo el `.sql`.
+6. **Cotas de dinero en los overrides por variante:** entero positivo `≤ MAX_CENTS`
+   (`variant-controls.service.ts:69-71`), y el gate del bounty se endureció de `<` a `<=` contra la curva
+   vigente (`:295-317`).
+7. **Cabeceras/CORS/pipes sin regresión:** `helmet()` (`main.ts:42`), allow-list de CORS nunca `origin:true`
+   (`:61-62`), `ValidationPipe({whitelist:true})` (`:56`), `trust proxy` (`:39`) — **diff cero** en el delta.
+8. **Dependencias (corrido hoy):** backend runtime **2 moderate, 0 high, 0 critical** (`@nestjs/core`
+   GHSA-36xv-jgw5-4q75, arrastra `@nestjs/platform-express`; el fix exige salto mayor a NestJS 11) ·
+   frontend prod **0 vulnerabilidades**. **Secretos:** barrido sobre **todos** los archivos cambiados del
+   delta ⇒ **cero** credenciales hardcodeadas.
+
+---
+
+## 4. No verificado / fuera de mi alcance (dicho, no asumido)
+
+Esta es la disciplina que el equipo viene arrastrando y la mantengo: **prefiero una brecha escrita que una
+garantía inventada.**
+
+- **No levanté el stack HTTP.** Mi pase es estático + ejecución de las funciones **puras** del pricing con
+  `ts-node`. Todo `[LIVE]` de este documento es del pentester; lo crucé contra el código, **no lo re-disparé**.
+- **Concurrencia y carreras: NO probadas.** Mi juicio sobre si son ajenas al delta, que es lo que se me pidió:
+  - **Webhook de Stripe (forja/replay) y reserva de checkout (doble gasto): genuinamente FUERA.**
+    No es una opinión: `backend/src/modules/payments/` tiene **diff cero** en `586f736..HEAD` y `reserveItems`
+    no aparece en el diff de `orders.service.ts`. El pentester acierta.
+  - **Tope mensual de buylist: NO está fuera.** El eje de compra se reescribió entero y el cambio toca
+    **qué suma al tope** (S48-B4), aunque la transacción `Serializable` (`buylist.service.ts:733-757`) siga
+    idéntica byte a byte. La **carrera** en sí sigue **sin probarse**; lo que reporto es el cambio de
+    *superficie*, no una carrera nueva.
+- **SSRF: sin vector nuevo.** El dry-run es CPU puro sobre aritmética entera y no agrega ningún fetch
+  server-side desde input del cliente. Coincido con el pentester.
+- **No corrí DAST ni el gate SAST de CI** en esta sesión.
+- **No verifiqué el throttler en multi-instancia.** Sigue con storage **in-memory**
+  (`app.module.ts:38`, el propio comentario `:37` lo admite) ⇒ en N réplicas el límite efectivo se multiplica
+  por N. Carryover de devops, no del delta.
+- **No re-audité** la matemática de la curva ni la cobertura de tests (QA y techlead ya la aprobaron; mi
+  lente fue authz, manipulación, fuga y abuso de flujo).
+
+---
+
+## 5. Deuda de seguridad ACEPTADA (no bloqueante) — con disparador
+
+| ID | Tema | Impacto | Disparador para abordarla | Dueño |
+|---|---|---|---|---|
+| S48-B1 | Bypass de allowlist + escritura parcial **sin auditar** en `PUT /admin/settings` | No repudio de cambios de config de dinero (IVA, fees, topes AML, umbral INE) | **Antes de operar con dinero real** (control de cumplimiento en custodia/AML) | backend |
+| S48-B2 | `isManualOverride` no declarado, visible a anónimos | Inteligencia operativa (qué cartas llevan precio fijado a mano) | Al primer indicio de scraping competitivo, o en la próxima revisión de `PriceInfo` por el arquitecto | backend + arquitecto |
+| S48-B3 | Reporte de brackets sin cota ni validación de fechas | Disponibilidad (OOM/500 en un reporte admin) | Cuando el histórico supere unas decenas de miles de líneas, o antes si el reporte se automatiza | backend |
+| S48-B4 | Líneas pendientes suman $0 a los topes AML | El tope mensual puede sub-contar lo realmente pagado | **Antes de operar con dinero real** (es un control AML) | backend + humano |
+| S48-B5 | Escritura en la cola antes de topes/INE y fuera de la tx | Ruido de tercero en una cola de back-office | Junto con S48-M1 (mismo call-site) | backend |
+| S48-I1 | Default fail-open del parámetro del guardarraíl | Latente (hoy cero llamadores expuestos) | Al añadir un tercer llamador de `composeVariantPricing` | backend |
+| S48-I2 | Claves extra y puntos sin techo en la curva | Basura persistida; coste CPU acotado por el body limit | Al fijar `limit` explícito en `json()` | backend/devops |
+| S48-I3 | `ADMIN_JWT` de post-deploy | Credencial `super_admin` potencialmente permanente | Antes del primer deploy a producción con dinero real | devops |
+| S48-I4 | Fallback silencioso de la curva | Cambio de toda la política de precios sin aviso | Con el primer alerting real de la plataforma | devops |
+| **Carryover** | `@nestjs/core` 2 moderate (salto mayor) · Int32 en columnas de dinero (`MAX_CENTS`) · MS-1/MS-4/MS-5 (idempotency-key de shipments/refund, H1 sin espejo en shipment, `?? ''` del webhook secret) · B-1 timing forgot-password · B-2 linking Google a cuentas privilegiadas · B-5 token en query-string · throttler in-memory | Ver pases v1.5/v1.6 | Sin cambio en este pase (superficies no tocadas) | devops / backend / frontend / arquitecto |
+
+**Carryover CERRADO en este delta (lo verifiqué):** **B-4 del pase v1.5** (`approvedPriceCents` del buylist
+sin cota, fijable por `vault_operator`) ⇒ **cerrado** por `assertApprovedPriceWithinCap`
+(`buylist.service.ts:1094-1111`), que aplica `min(quoted × factor, cap AML)` en `approve` **y** en `adjust`.
+
+---
+
+## 6. Banderas para el humano
+
+1. **Pentest de tercero + bug bounty antes de mover dinero real.** Este pase y el del red team son
+   internos y **estáticos en su mayor parte**. Un negocio de **custodia de bienes ajenos** con PII
+   sensible (INE, CLABE) y dinero saliente por SPEI amerita una revisión externa con target vivo antes
+   de la primera operación con pesos reales. No es un bloqueo de este release; es un prerrequisito del
+   go-live comercial.
+2. **Validación legal de custodia y PII (México).** Retención de INE, cifrado de CLABE, umbral y topes
+   AML: la implementación técnica está donde debe (y este cambio **no la tocó**), pero **los umbrales y
+   plazos son decisiones jurídicas, no de ingeniería**. Que un abogado los ratifique — en particular a la
+   luz de **S48-B4**: hoy una línea sin cotizar **no consume tope mensual**, y ésa es una decisión con
+   lectura regulatoria, no solo de producto.
+3. **Cut-over de P-48: revisen la cola después de publicar.** El runbook (`post-deploy.sh` paso 5) ya
+   manda mirar `counts.premium_at_floor` (≈3 por cada 333 cartas). Con **S48-M1** abierto, esa lectura
+   hay que tomarla **inmediatamente después del `publish-all`** y no días más tarde: la actividad normal
+   de vendedores puede haber cerrado entradas legítimas en el intervalo.
+4. **Asimetría comprador/vendedor de la instrumentación (§3.4).** El comprador no ve `marketMxnCents`;
+   el vendedor **sí**, en sus propias solicitudes. Está en el contrato y lo respeto, pero merece un «sí,
+   a propósito» explícito del arquitecto y del PO, porque el razonamiento de §N.7 apunta al revés.
+5. **Cuentas de back-office y Google.** Carryover B-2: el linking de Google alcanza cuentas
+   `super_admin`. En el momento en que exista dinero real, la seguridad del SPEI pasa a depender de la
+   seguridad de una cuenta de Gmail. Decisión del humano: MFA obligatorio en back-office, o restringir el
+   linking a `customer`.
+
+---
+
+## 7. Ruteo por rol dueño (resumen accionable)
+
+- **backend:** S48-M1 (cierre de cola por eje) · S48-B1 (allowlist + transacción + auditar antes) ·
+  S48-B2 (no proyectar `isManualOverride` en público) · S48-B3 (cota y validación en el reporte) ·
+  S48-B4 (re-chequeo del tope mensual al aprobar/pagar) · S48-B5 (orden de gates en `createRequest`) ·
+  S48-I1 (parámetro obligatorio) · S48-I2 · nits de contrato (401/200).
+- **arquitecto:** S48-M1 (¿la cola es por eje? schema + contrato) · S48-B2 (`PriceInfo`: ratificar o
+  retirar `isManualOverride`) · §3.4 (asimetría de instrumentación) · carryover Int32/`BigInt`.
+- **devops:** S48-I3 (`ADMIN_JWT` efímero) · S48-I4 (alerta sobre `[MONEY]`) · S48-I2 (`json({limit})`) ·
+  carryover: bump a NestJS 11, throttler con storage compartido.
+- **frontend:** nada nuevo en este pase. **Lo verifiqué y cumple** la regla de visibilidad §N.7
+  (`CardDetailView.tsx:218`) y no expone `priceBasis` en superficies de cliente. Carryover B-5 sigue abierto.
+
+---
+---
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
      PASE P-38 — SealedProduct + precio manual de sellado (2026-08-23) — se antepone;
      el contenido histórico (v1.28, Stream C, etc.) se conserva íntegro abajo.
      ════════════════════════════════════════════════════════════════════════════════════════ -->
@@ -3291,3 +4863,121 @@ DoD se RECHAZA solo con críticos/altos abiertos → **0/0 → umbral no se acti
 _Nota de orquestación (2026-08-23): N-1/N-2/N-3 cerradas en fast-follow backend ANTES del deploy (commit `5fe3cac`, suite 170/1670 verde). **N-2** `@Max` en `acquisitionCostCents` (overflow P&L cerrado). **N-1 substancia** el gate `gateSealedMarketCents` rechaza `<=0` ($0 latente cerrado). **N-3** el resolver acepta `sealedProductId` en el `where`. **N-1 parte 1** (`@Min(1)` en el DTO) deliberadamente NO aplicada: contradiría el contrato (`≤0 → 422 VALIDATION_ERROR`, regla de negocio ya entregada por el guard de servicio); el $0 lo cierra el gate. N-0 (deps) queda en backlog devops; DAST staging agendado antes de volumen real. (Persistido por el orquestador; el agente seguridad no tiene Write.)_
 
 — SEGURIDAD (blue team / AppSec), 2026-08-23
+
+---
+
+**[SEC — hotfix `trust proxy`, commit `6e21a0c`, 2026-08-23] — APROBADO para prod.**
+`app.set('trust proxy', 1)` en `backend/src/main.ts`. Topología: Railway, 1 salto de edge, sin Cloudflare/dominio custom delante del backend (DEVOPS §23.2/§25.3). `1` = confianza de mínimo salto → `req.ip` = IP real anexada por el edge; el `X-Forwarded-For` del cliente se ignora → **no spoofeable** (a diferencia de `true`/nº alto). Restaura la discriminación por-IP del `ThrottlerGuard` (corrige el cubo global que agotaba `forgot-password 3/h` → 429 fantasma que impedía enviar el correo de recuperación) y da IP real a `AuthToken.requestIp`, `order-access-token.requestIp` y a la auditoría `money_out.blocked` (`money-out.guard.ts:40`). Sin consumidores de `req.secure/protocol/hostname`/cookies → sin efectos colaterales. Sin hallazgos críticos/altos; no bloquea deploy.
+**Deuda de seguridad aceptada (no bloqueante):** throttler in-memory por instancia. Hoy `numReplicas: 1` (railway.json) → límite por-IP correcto. **Disparador:** antes de `numReplicas > 1`, migrar throttler a store Redis compartido (`REDIS_URL` disponible). Dueño: backend (TECH_DEBT v15-D3 / §5).
+**Dependencia de topología:** si devops inserta otro proxy delante del backend, ajustar el nº de saltos de `trust proxy` (anotado en `main.ts`). (Persistido por el orquestador; el agente seguridad no tiene Write.)
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23 (hotfix trust proxy)
+
+---
+
+## Revisión de seguridad FOCALIZADA — P-47 parte 3 (`TcgcsvSinglesBulkPriceProvider`, commit `73f0fa4`) · 2026-08-23 · VEREDICTO **APROBADO-CON-CONDICIONES**
+
+> **Rol:** seguridad (blue team / AppSec). Revisión estática del nuevo provider de precios singles por-acabado (TCGCSV) y su path de ingesta dedicado (`ingestSinglesForSet`), con lente de dinero. **NO corrijo código:** los dos residuales se rutean a su rol dueño (backend / arquitecto). (Persistido por el orquestador; el agente seguridad no tiene Write.)
+
+**Superficie revisada:** `tcgcsv-singles-bulk.provider.ts` (nuevo), `price-ingest.service.ts` (`ingestSinglesForSet`, guard `provider.source==='tcgcsv_singles'`, `providerFor`), `pricing.service.ts` (`persistMarketReference`, `sourceRank`/`isBetterRef`), `settings.constants.ts` (`PRICE_PROVIDER_VALUES`).
+
+**El código nuevo es money-safe:** identidad de carta 100% server-side (join por `CardProduct.tcgplayerProductId`, solo lectura); autz al dial `PRICE_PROVIDER` restringida a `super_admin`; validación de precio (omite `null`/`≤0`/negativo/`NaN` → nunca $0, nunca copia entre acabados); precedencia no subvertible por dato externo (el atacante no controla `sourceRank`). El path lean no colapsa acabados (sin FinishReconciler en él).
+
+**El merge es SEGURO por ser inerte:** el seed `PRICE_PROVIDER='pokemontcg_io'` deja el provider TCGCSV singles apagado en prod; el código no escribe dinero hasta que se flipe el dial. Por eso el merge NO bloquea deploy.
+
+**Dos condiciones ANTES de flipar `PRICE_PROVIDER=tcgcsv_singles` en prod (esa es la activación real de dinero):**
+- **P47-1 (MEDIA, backend):** `market` externo no se valida con `Number.isFinite` ni cota superior. Un `Infinity`/finito-gigante se clampa en silencio a `MAX_CENTS` (~MX$21.4M) sin alerta. Añadir `Number.isFinite` + cota de cordura + `logger.warn`/AuditLog al clampar (en `tcgcsv-singles-bulk.provider.ts`, tramo `market→cents`).
+- **P47-2 (ALTA, arquitecto→backend):** durabilidad cross-day del override manual. `isBetterRef` ordena `capturedDate` ANTES de `sourceRank`, así que una fila `tcgcsv_singles` del día siguiente puede ganarle a un override manual (`cardProductId=null`). Con P-47 convirtiendo `tcgcsv_singles` en escritor DIARIO, el matiz operativo se vuelve riesgo sistémico. Requiere dictamen del arquitecto sobre §4.27f (el override manual debe ganar independientemente de la fecha) + fix backend.
+
+**Condición del gate:** el merge es seguro (código inerte por el seed); las dos condiciones (P47-2 confirmado/corregido + P47-1 acotado) deben cerrarse **antes de flipar `PRICE_PROVIDER=tcgcsv_singles` en prod**. Sin críticos/altos abiertos en el código mergeado.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-23 (P-47 parte 3)
+
+---
+
+## P-47 parte 3 — Veredicto de CIERRE de condiciones (blue team / AppSec)
+**Rama:** `fix/variant-composition-regression` · **Fecha:** 2026-08-24 · **Modo:** gray-box estático
+**Contexto:** verificación de cierre de las 2 condiciones del veredicto previo APROBADO-CON-CONDICIONES,
+requisito para flipar `PRICE_PROVIDER=tcgcsv_singles` en prod.
+
+### VEREDICTO: NO-CERRADAS — RECHAZADO para el flip
+Queda **1 hallazgo ALTO abierto** (P47-2). No se habilita `PRICE_PROVIDER=tcgcsv_singles` en prod
+hasta cerrarlo y re-verificar (independiente de los veredictos de QA y techlead).
+
+### P47-1 (MEDIA) — commit 03f0e02 — CERRADA
+`backend/src/modules/pricing/providers/tcgcsv-singles-bulk.provider.ts`.
+- `MAX_SANE_MARKET_USD=50_000`; `!Number.isFinite(market)` → fila OMITIDA (:132-135); `market > cota` →
+  OMITIDA + `logger.warn(productId/finish/market)` (:142-150). Todo `continue` antes de `rows.push`.
+- Verificado: un dato externo corrupto (Infinity/NaN/finito-gigante) NO puede clavar un precio; la celda
+  queda «—»/PRICE_PENDING (nunca $0, nunca copia otro acabado); `marketCents` ≤ 5M c (sin overflow Int32);
+  la cota es visible (warn) en el caso realista. Objetivo money-safe cumplido.
+- Deuda menor ACEPTADA (Baja, observabilidad): el caso `!Number.isFinite` se omite SIN warn (solo la
+  sobre-cota audita). No bloquea: se OMITE (no se clampa) y JSON no produce Infinity/NaN nativos.
+  Disparador: si a futuro entra un feed que compute valores no finitos, añadir warn simétrico. Dueño: backend.
+
+### P47-2 (ALTA) — commit b16f03d + dictamen §4.27f-2/v1.46 — NO CERRADA (ALTA, abierta)
+`backend/src/modules/pricing/pricing.service.ts`.
+- La MITAD del fix es correcta: `isBetterRef` iza el tier manual sobre `capturedDate` (:131-133); un manual
+  gana siempre a un automático; `isManualOverride`/`source` son server-side (el atacante no los controla;
+  el bulk persiste `isManualOverride:false`); entre automáticas gana la fresca (sin regresión).
+- HUECO (capa de lectura, no reconciliada con el nuevo comparador): `getReference` (:307-312) y
+  `getReferenceByCardProduct` (:350-355) leen `orderBy capturedDate desc` con `take:32`
+  (`SAME_DAY_REF_CANDIDATES`). El override manual se escribe con `capturedDate=today()` FIJO (:1100-1120)
+  y no se re-fecha; el barrido diario `tcgcsv_singles` crea ~1 fila automática/día para la misma clave y
+  NO hay poda de `PriceReference`. Tras ~32 días la fila manual cae fuera del top-32 → `pickBestRef` no la
+  ve → el feed diario VUELVE a pisar el precio humano, en silencio.
+- Impacto: regresión money-safe sobre el control humano de precio, alcanzable en operación normal (el flip
+  ES un barrido diario), sin atacante y sin alerta. Incumple el criterio de P47-2 («gana SIEMPRE / durable
+  cross-day / revocable solo por otro manual o limpieza super_admin»): válido al día +1, roto al día +32.
+- Evidencia adicional: el comentario de `SAME_DAY_REF_CANDIDATES` (:74-81) aún afirma que solo pueden ganar
+  las filas del día más reciente (invariante que P47-2 invalidó). Asimetría: `getReferencesBatch` (:387-398)
+  NO lleva `take` (sí es durable) → la misma variante puede valuarse distinto según qué método la lea.
+- Dueño: **backend** (garantizar que toda fila `isManualOverride=true` de la clave esté siempre entre las
+  candidatas de `getReference`/`getReferenceByCardProduct`, consistente con `getReferencesBatch`; p. ej.
+  pin/segundo fetch del manual o quitar el `take`). **arquitecto** (reconciliar §4.27f-2/v1.46 y el comentario:
+  la durabilidad manual depende también de la capa de lectura, no solo del comparador).
+
+### Mínimo para APROBAR el flip
+1. Cerrar P47-2: la lectura de referencia base y por-producto DEBE incluir siempre el override manual de la
+   clave (los 3 métodos consistentes), y re-verificar con un caso de >32 días de barrido diario.
+2. Re-emitir veredicto de cierre de seguridad = CERRADAS.
+3. QA y techlead también aprobando. P47-1 ya no bloquea.
+
+### Bandera para el humano
+- Antes de operar el autoprecio diario con dinero real, agendar el DAST/E2E pendiente que ejercite la
+  durabilidad del override manual a lo largo del horizonte de acumulación (no solo el día siguiente).
+
+— SEGURIDAD (blue team / AppSec), 2026-08-24 (P-47 cierre: NO-CERRADAS, ALTA P47-2 abierta)
+
+---
+
+### P47-2 (ALTA) — Durabilidad cross-day del override manual en la capa de lectura — CERRADA (v1.47)
+
+- **Estado:** CERRADA ✅ · verificado por seguridad (blue team) sobre commit `330f0b4` (dictamen arquitecto §4.27f-3 / v1.47).
+- **Hallazgo original:** `getReference`/`getReferenceByCardProduct` leían candidatas con `take:32`
+  (`SAME_DAY_REF_CANDIDATES`). Tras ~32 barridos diarios `tcgcsv_singles` para la misma clave, el override
+  manual (con `capturedDate` fijo antiguo) caía fuera de la ventana y `pickBestRef` nunca lo veía → el feed
+  automático pisaba el precio humano en silencio (money-losing). Asimetría con los caminos batch (sin cap).
+- **Fix verificado (backend):**
+  - `pricing.service.ts` — `getReference` (L332-344) y `getReferenceByCardProduct` (L384-402) hacen DOS
+    lecturas en paralelo: bloque reciente CAPADO (`take:32`, solo tier automático) + lectura DIRIGIDA de
+    manuales (`MANUAL_REF_PREDICATE = OR[isManualOverride:true, source:'manual']`) **sin cota de fecha ni
+    `take`**, unidas antes de `pickBestRef`. El `AND` con `BASE_CARD_REF_WHERE` no excluye el manual
+    (`manualOverride()` escribe `cardProductId=null`).
+  - `isBetterRef` (L149-166) iza el tier manual ABSOLUTO por encima de `capturedDate` (durable cross-day).
+  - `admin.service.ts` `ownedItemRefs` (L307-325) — `findMany` sin `take` + reduce con `isBetterRef`
+    (antes «primera vista» por fecha).
+  - Consistencia confirmada en los cinco consumidores (getReference, getReferenceByCardProduct,
+    getReferencesBatch, getSeparateProductsByCard, ownedItemRefs).
+- **Sin nuevo vector:** `source`/`isManualOverride` siguen server-side; `OverrideDto` no los expone; endpoint
+  `@Roles(super_admin)` + auditado; el bulk escribe `isManualOverride:false`. Sin suplantación de «manual».
+- **Regresión:** entre automáticas gana la fresca; lecturas filtradas por `finish` (sin copia entre acabados);
+  sin $0.
+- **Tests (13/13 verde):** `pricing.manual-override-durable-cross-day.spec.ts` (escenario >32 días + control
+  negativo), `admin.owned-item-refs.manual-override.spec.ts`, `pricing.getreference-determinism.spec.ts`.
+- **Rol dueño:** backend (ya remediado). No requiere acción adicional.
+
+**Sin hallazgos críticos/altos abiertos en el eje de precios/dinero de esta rama.** Por parte de seguridad,
+queda HABILITADO (junto con QA + techlead) el flip `PRICE_PROVIDER=tcgcsv_singles`.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-24 (P-47 cierre: CERRADAS, flip habilitado por seguridad)

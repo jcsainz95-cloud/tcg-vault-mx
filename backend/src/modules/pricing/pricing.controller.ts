@@ -1,37 +1,30 @@
 import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
+import { FINISH_VALUES } from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
-import { PricingService } from './pricing.service';
+import { PricingService, toPriceHistoryEntry } from './pricing.service';
 import { FxService } from './fx.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   SettingKey,
-  validateFallbackPct,
-  validateSalesFallbackPct,
   validateSealedSpreads,
   validateSealedSpreadFallback,
   validateFxManualOverrideRate,
-  validateTieredRuleSet,
-  isValidBuylistRule,
-  isValidSalesRule,
 } from '../settings/settings.constants';
-import { BuylistRule, SalesRule, PriceRuleSet, toPriceRuleSet } from '../../common/money';
+// v2.0/v2.1 (P-48, §4.36.8/§4.36.8a): la CURVA — editor de M2 y su dry-run.
 import {
-  PRICING_TIERS,
-  TIER_IDS,
-  TierId,
-  isTierId,
-  getTier,
-  premiumFixedOffenders,
-} from '../../common/pricing-tiers';
-import {
-  rarityInfo,
-  isRarityMapped,
-  normalizeRarity,
-} from '../../common/rarity-catalog';
+  CurveErrorCode,
+  PendingReason,
+  PricingCurve,
+  collectCurveViolations,
+  normalizePricingCurve,
+} from '../../common/pricing-curve';
+// v2.0 (§4.36.4): SOBREVIVE el catálogo canónico de rarezas, pero FUERA del pricing — aquí solo
+// alimenta la vista de SALUD que respalda el guardarraíl (`GET /admin/pricing/rarities`).
+import { rarityInfo } from '../../common/rarity-catalog';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PriceSyncJobService } from '../../jobs/price-sync.service';
@@ -43,6 +36,44 @@ import { VariantControlsService } from './variant-controls.service';
 /** P-6 (§M2): valores válidos del query `?context=` de `GET /admin/pricing/pending`. */
 const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = Object.values(PendingPriceContext);
 
+/** v2.0 (§M2): valores válidos del query `?reason=` de `GET /admin/pricing/pending`. */
+const VALID_PENDING_REASONS: readonly PendingReason[] = ['no_market', 'premium_at_floor'];
+
+/**
+ * v2.1 (§4.36.8a): cap de sondas del dry-run. La tabla de referencia del editor necesita los 10
+ * mercados de la prueba de mesa ∪ los puntos del borrador de un tiro; 50 deja holgura sin abrir un
+ * vector de coste (el endpoint es puro CPU sobre aritmética entera).
+ */
+const CURVE_PREVIEW_MAX_PROBES = 50;
+
+/**
+ * v2.0 (§4.36.8) — body del `PUT /admin/pricing/curve`. La validación REAL es V1–V8
+ * (`collectCurveViolations`), que es la MISMA que usa el dry-run: aquí solo se declara la forma
+ * mínima para que `class-validator` no rechace el objeto antes de llegar al validador de dinero.
+ */
+class CurvePutDto {
+  @IsInt() version!: number;
+  @IsObject() sale!: Record<string, unknown>;
+  @IsObject() buy!: Record<string, unknown>;
+}
+
+/** v2.1 (§4.36.8a) — body del dry-run. `draft` = la curva EN EDICIÓN (sin guardar). */
+class CurvePreviewDto {
+  @IsObject() draft!: Record<string, unknown>;
+  // El rango/cap/enteros se validan en el handler para poder devolver `field` y un mensaje accionable.
+  @Allow() marketsCents!: number[];
+}
+
+/**
+ * v1.50.2 (§M2 / ARCHITECTURE §4.38l.1) — discriminante OBLIGATORIO cuando `productType:'graded'`.
+ *
+ *  - `market`          → precio de mercado REAL de un slab publicado (comportamiento vigente, §M1 v1.28).
+ *  - `graded_estimate` → «valor estimado si se gradea» del gancho (§4.38): informativo, NO es dinero…
+ *    **salvo que exista un slab publicado de ese grado**, y por eso ese caso se BLOQUEA con 409.
+ */
+const GRADED_INTENT_VALUES = ['market', 'graded_estimate'] as const;
+type GradedIntent = (typeof GRADED_INTENT_VALUES)[number];
+
 class OverrideDto {
   @IsString() cardId!: string;
   @IsString() productType!: ProductType;
@@ -51,8 +82,18 @@ class OverrideDto {
   // fijable — P-6 enruta al operador a override-and-publish, de modo que un 0 nunca es un precio legítimo.
   @IsInt() @Min(1) priceMxnCents!: number;
   // v1.6-finish: override por acabado (default normal). Cada acabado tiene su PriceReference.
-  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
+  /**
+   * v1.50.2 — **OBLIGATORIO con `productType:'graded'`** (la exigencia se aplica en el handler, que es
+   * quien conoce el `productType`; aquí solo se acota el DOMINIO). Con otro `productType` se IGNORA.
+   *
+   * ⚠️ **Deliberadamente SIN default.** Un `intent` que cayera a `'market'` por omisión es FAIL-OPEN:
+   * el operador que olvida el campo obtendría, en silencio, la ruta que MUEVE DINERO (la fila que fija
+   * el precio de venta de un slab publicado). Cuando la intención se perdió, no se adivina.
+   */
+  @IsOptional() @IsIn(GRADED_INTENT_VALUES)
+  intent?: GradedIntent;
 }
 
 /**
@@ -69,29 +110,21 @@ class FxDto {
 }
 
 /**
- * v1.37 (§4.33, P-34) — body de `PUT /admin/pricing/tiers`. `@Allow()` (whitelist sin validar aquí): la
- * validación es MANUAL en `putTiers` porque distingue la forma anidada (tiers[], finishRules{buy,sell},
- * fallbackPct{buy,sell}), exige las 5 filas y emite códigos propios (VALIDATION_ERROR /
- * PREMIUM_RARITY_FIXED_TIER) que los decoradores de class-validator no expresan.
- */
-class TiersPutDto {
-  @Allow() tiers?: unknown;
-  @Allow() finishRules?: unknown;
-  @Allow() fallbackPct?: unknown;
-}
-
-/** v1.37 (§4.33d) — body de `PUT /admin/pricing/tier-map`. Validación manual en `putTierMap`. */
-class TierMapPutDto {
-  @Allow() assignments?: unknown;
-}
-
-/**
  * v1.23-sealed-sales (§M2): spreads de venta del SELLADO por presentación (+ fallback global).
  * PARCIAL: solo las claves a cambiar. `pct` = markup ARRIBA de mercado, número en [0,1000].
  */
+/**
+ * `SealedSpreadsUpdateRequest` del contrato (§DTOs) — **el REQUEST, distinto del DTO de respuesta, y
+ * la diferencia es el punto**: los valores admiten `null` como sentinel de RETIRO (v2.1.9, D3-b).
+ *
+ * `fallbackPct` NO lo admite: se declara `@Allow()` en vez de `@IsNumber()` para que un `null`
+ * **llegue al validador manual** y reciba el 422 con el motivo («el global es el respaldo del que
+ * dependen las presentaciones sin regla; usa 0 para “sin markup global”») en vez del mensaje genérico
+ * del pipe, que no diría qué hacer en su lugar.
+ */
 class SealedSpreadsDto {
-  @IsOptional() @IsObject() spreadPctBySubtype?: Record<string, number>;
-  @IsOptional() @IsNumber() fallbackPct?: number;
+  @IsOptional() @IsObject() spreadPctBySubtype?: Record<string, number | null>;
+  @IsOptional() @Allow() fallbackPct?: number | null;
 }
 
 class SyncDto {
@@ -164,7 +197,7 @@ export class PricingController {
    * buylist (`itemDecision`) — FUERA DE ALCANCE aquí; este endpoint es solo lectura.
    */
   @Get('pending')
-  pending(@Query('context') context?: string) {
+  pending(@Query('context') context?: string, @Query('reason') reason?: string) {
     if (context !== undefined && !VALID_PENDING_CONTEXTS.includes(context as PendingPriceContext)) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
@@ -172,11 +205,75 @@ export class PricingController {
         { field: 'context', allowed: VALID_PENDING_CONTEXTS },
       );
     }
-    return this.pricing.pendingQueue(context as PendingPriceContext | undefined);
+    // v2.0 (P-48, §M2): filtro `?reason=`. Distinguir las dos razones es lo que hace TRIABLE la cola:
+    // `no_market` la cura sola el siguiente barrido; `premium_at_floor` (el guardarraíl) necesita que
+    // el dueño mire — es la señal inequívoca de que el dato de mercado de esa chase está mal.
+    if (reason !== undefined && !VALID_PENDING_REASONS.includes(reason as PendingReason)) {
+      throw BusinessException.validation('VALIDATION_ERROR', `invalid reason '${reason}'`, {
+        field: 'reason',
+        allowed: VALID_PENDING_REASONS,
+      });
+    }
+    return this.pricing.pendingQueue(
+      context as PendingPriceContext | undefined,
+      reason as PendingReason | undefined,
+    );
   }
 
+  /**
+   * v2.1.7 (§M2) — Res `{ data: PriceHistoryEntryDTO }`: la referencia recién escrita **PROYECTADA**,
+   * no la entidad.
+   *
+   * **Éste era el caso testigo de la regla.** Devolvía la fila Prisma `PriceReference` COMPLETA
+   * (`id`, `priceUsdCents`, `fxRate`, `fxBufferPct`, `cardProductId`, `createdAt`…) con el contrato
+   * sin decir nada. No era fuga pública —es `super_admin`— pero sí la **causa raíz** de esta familia:
+   * cuando la respuesta ES la entidad, la forma de la API la define el **schema**, y **cada migración
+   * pasa a ser un cambio de contrato silencioso**.
+   *
+   * El SERVICIO sigue devolviendo la entidad a propósito: sus otros llamadores la componen dentro de
+   * una transacción (el alta de sellado con precio manual) y necesitan la fila. La proyección vive
+   * **en el borde HTTP**, que es donde se decide la forma de la API.
+   */
   @Post('override')
   async override(@Body() dto: OverrideDto, @CurrentUser('id') userId: string) {
+    // ===== v1.50.2 (INV-D, §4.38l.1) — guarda de ESCRITURA, ANTES de tocar la tabla de dinero =====
+    //
+    // El problema, en una frase: la fila del ESTIMADO y la referencia de mercado real de una pieza PSA N
+    // PUBLICADA son **la misma fila** (`cardId` + `graded` + `gradeKey` + `finish='normal'`). Fijar un
+    // «estimado» sobre una carta que además tiene un slab publicado de ese grado **cambia el precio de
+    // venta real de esa pieza**. Es preexistente; el gancho lo AMPLIFICA porque vuelve esa captura una
+    // tarea rutinaria de curaduría. La solución NO es duplicar la verdad con una clave paralela (el
+    // admin tendría que capturar dos veces y las dos filas divergirían): es **exigir que se declare la
+    // intención** y bloquear la combinación imposible.
+    if (dto.productType === 'graded') {
+      if (dto.intent === undefined) {
+        throw BusinessException.validation(
+          'GRADED_INTENT_REQUIRED',
+          'Para productType:"graded" debes declarar intent: "market" (precio de mercado real de un ' +
+            'slab publicado) o "graded_estimate" (valor estimado si se gradea).',
+          { field: 'intent', allowed: [...GRADED_INTENT_VALUES] },
+        );
+      }
+      if (dto.intent === 'graded_estimate') {
+        const slabs = await this.pricing.publishedSlabsForGradeKey(dto.cardId, dto.gradeKey);
+        if (slabs.length > 0) {
+          const grade = dto.gradeKey.split(':')[2] ?? '';
+          throw BusinessException.conflict(
+            'GRADED_ESTIMATE_SLAB_PUBLISHED',
+            `No se puede fijar un valor ESTIMADO de PSA ${grade} para esta carta: hay ${slabs.length} ` +
+              `slab(s) PSA ${grade} publicado(s). Esa fila es el precio de mercado real de esas piezas ` +
+              'y cambiaría su precio de venta. Usa intent:"market" si lo que quieres es fijar el precio ' +
+              'de mercado del slab.',
+            {
+              cardId: dto.cardId,
+              gradeKey: dto.gradeKey,
+              publishedSlabCount: slabs.length,
+              inventoryItemIds: slabs.map((i) => i.id),
+            },
+          );
+        }
+      }
+    }
     const ref = await this.pricing.manualOverride(
       dto.cardId,
       dto.productType,
@@ -188,10 +285,18 @@ export class PricingController {
       actorUserId: userId,
       action: 'pricing.override',
       entityType: 'PriceReference',
+      // El `id` sigue yendo a la BITÁCORA (donde se necesita para trazar), no a la respuesta.
       entityId: ref.id,
-      after: { priceMxnCents: dto.priceMxnCents, finish: dto.finish ?? 'normal' },
+      // v1.50.2: el `intent` va a la BITÁCORA. Es la única señal que distingue «fijé el mercado de un
+      // slab» de «capturé un estimado del gancho» sobre una fila idéntica; sin él, la auditoría no
+      // puede reconstruir qué quiso hacer el operador.
+      after: {
+        priceMxnCents: dto.priceMxnCents,
+        finish: dto.finish ?? 'normal',
+        ...(dto.productType === 'graded' ? { intent: dto.intent } : {}),
+      },
     });
-    return ref;
+    return { data: toPriceHistoryEntry(ref) };
   }
 
   /**
@@ -211,82 +316,134 @@ export class PricingController {
     return this.variantControls.update(cardId, finish, dto, userId);
   }
 
+  /**
+   * v2.1.7 (§M2) — Res `{ data: PriceHistoryEntryDTO[] }`, `capturedDate` desc.
+   *
+   * Forma NORMADA tras B-1: el contrato decía «historial de precios por fecha/fuente» **sin fijar
+   * campos**, así que backend y frontend coincidían por **acuerdo tácito** —cada uno marcándolo como
+   * SUPUESTO en su propio código— y el acuerdo ya tenía **grieta** (`source: string` aquí,
+   * `PriceSource` allá). Es la misma condición que produjo B-1.
+   */
   @Get('card/:cardId')
-  history(@Param('cardId') cardId: string) {
-    return this.pricing.priceHistory(cardId);
+  async history(@Param('cardId') cardId: string) {
+    return { data: await this.pricing.priceHistory(cardId) };
   }
 
-  // ---------------- Precio de buylist por RAREZA (v1.3.1, §E.1) ----------------
+  // ==========================================================================
+  // v2.0/v2.1 (P-48) — LA CURVA: editor de M2 (§4.36.8) + dry-run (§4.36.8a)
+  // ==========================================================================
 
   /**
-   * v1.29 (§4.28d) — Lee el `PriceRuleSet` de DOS EJES + fallback (migra el legacy plano on-read).
-   * `rarityRules` se keyea por rareza canónica; `finishRules` por el enum Finish. API_CONTRACT §M2.
+   * §4.36.8 — lee la curva COMPLETA. Read-only. Es la fuente del editor de la tabla de puntos.
    */
-  private async readBuylistRuleSet(): Promise<PriceRuleSet<BuylistRule>> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    // v1.37 (§4.33c): DERIVA el `PriceRuleSet` efectivo desde (tierRules × PRICING_TIER_MAP) si el
-    // setting trae el shape por tiers; compat on-read con `{ rarityRules, ... }`/plano (§4.28d).
-    return toPriceRuleSet<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-      fallbackPct,
-      await this.readTierMap(),
-    );
+  @Get('curve')
+  async getCurve(): Promise<PricingCurve> {
+    return this.pricing.loadPricingCurve();
   }
 
   /**
-   * v1.37 (§4.33b/c) — lee el mapa COMPARTIDO `PRICING_TIER_MAP` (`Record<canonicalRarity, TierId>`).
-   * Forma degenerada del setting ⇒ `{}` (money-safe: todo cae al fallback, nunca $0).
+   * §4.36.8 — **REEMPLAZA el objeto completo** (semántica de reemplazo, no de patch por índice: mover
+   * o borrar un renglón por índice es frágil y no auditable; el `AuditLog` guarda `before`/`after` del
+   * objeto entero). Los puntos pueden venir DESORDENADOS: el server ordena por `marketCents`.
+   *
+   * Valida V1–V8 **al GUARDAR** (no solo en runtime) sobre el objeto completo, con el código y el
+   * `details` que señalan QUÉ PUNTO lo rompe (criterio 87). **Autoridad única del dinero (SEC-A1):**
+   * re-valida desde cero — un `preview` previo NO autoriza nada.
+   *
+   * Sin redeploy: mover un punto **repricia en el siguiente cálculo**, porque el precio de venta se
+   * resuelve EN LECTURA y no está persistido (§4.36.9c) — por eso no hay que re-publicar nada.
    */
-  private async readTierMap(): Promise<Record<string, TierId>> {
-    const raw = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
-    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return {};
-    return raw as Record<string, TierId>;
+  @Put('curve')
+  async putCurve(@Body() dto: CurvePutDto, @CurrentUser('id') userId: string): Promise<PricingCurve> {
+    const problem = collectCurveViolations(dto)[0];
+    if (problem) {
+      throw BusinessException.validation(problem.code as CurveErrorCode, problem.message, problem.details);
+    }
+    const before = await this.pricing.loadPricingCurve();
+    const curve = normalizePricingCurve(dto as unknown as PricingCurve);
+    const valueJson = curve as unknown as Prisma.InputJsonValue;
+    await this.prisma.configSetting.upsert({
+      where: { key: SettingKey.PRICING_CURVE },
+      create: { key: SettingKey.PRICING_CURVE, valueJson, updatedBy: userId },
+      update: { valueJson, updatedBy: userId },
+    });
+    const after = await this.pricing.loadPricingCurve();
+    await this.audit.log({
+      actorUserId: userId,
+      action: 'pricing.curve.update',
+      entityType: 'ConfigSetting',
+      before,
+      after,
+    });
+    return after;
   }
 
   /**
-   * v1.37 (§4.33c) — GET del `PriceRuleSet` EFECTIVO de compra (derivado de tiers×mapa). SUPERSEDED por
-   * `/tiers`+`/tier-map` como editor; se conserva como lectura durante la transición. El PUT se RETIRÓ.
+   * v2.1 (§4.36.8a) — **DRY-RUN**: evalúa una curva BORRADOR contra N mercados de sonda y devuelve
+   * precio + `priceBasis` + **memoria de cálculo**, junto al mismo cálculo con la curva **VIGENTE**
+   * (que resuelve el servidor con SU almacén — el request NO la trae, a propósito).
+   *
+   * **No persiste, no audita, NO AUTORIZA:** un `200` con `violations: []` NO significa que el `PUT`
+   * vaya a pasar; el `PUT` re-valida desde cero y es la única autoridad del dinero (SEC-A1).
+   *
+   * **El borrador inválido se parte por COMPUTABILIDAD, no por severidad** (§4.36.8a(c)): las
+   * infracciones que impiden calcular (V1/V2/V3 y la escalera estructural) salen como `422` con el
+   * mismo código y `details` que el `PUT` — un `200` ahí sería inventar un precio. Las que SÍ dejan
+   * calcular (V4/V5/V6/V7 y la condición fina de V8) salen en `200` dentro de `violations[]`, para
+   * que el previsualizador enseñe el problema EN PESOS mientras el dueño corrige.
    */
-  @Get('buylist-rules')
-  async getBuylistRules() {
-    return this.readBuylistRuleSet();
+  @Post('curve/preview')
+  async previewCurve(@Body() dto: CurvePreviewDto) {
+    const draft = dto?.draft as unknown;
+    const markets = dto?.marketsCents;
+    // v2.1.2 (M1) — **400, no 422**: la FORMA de la petición (array no vacío, ≤ cap, enteros ≥ 0) es
+    // un contrato de request, no una regla de negocio; el precedente local es unánime para la misma
+    // forma (`/buylist/quote/batch`, `bulk-publish`, `bulk-remove` responden todos 400). Los 422 de
+    // este endpoint quedan SOLO para las infracciones de la curva que impiden calcular (abajo).
+    if (!Array.isArray(markets) || markets.length === 0 || markets.length > CURVE_PREVIEW_MAX_PROBES) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `marketsCents must be a non-empty array of at most ${CURVE_PREVIEW_MAX_PROBES} integers`,
+        { field: 'marketsCents' },
+      );
+    }
+    for (const m of markets) {
+      if (typeof m !== 'number' || !Number.isInteger(m) || m < 0) {
+        throw BusinessException.badRequest(
+          'VALIDATION_ERROR',
+          'each marketCents must be an integer >= 0 (cents). `0` IS a legitimate probe: it shows that without market data the price is PENDING (the floor does NOT win)',
+          { field: 'marketsCents', value: m },
+        );
+      }
+    }
+    // Solo las BLOQUEANTES cortan: sin ellas no hay número que devolver.
+    const blocking = collectCurveViolations(draft).find((e) => e.blocking);
+    if (blocking) {
+      throw BusinessException.validation(blocking.code as CurveErrorCode, blocking.message, blocking.details);
+    }
+    const { rows, violations } = await this.pricing.previewCurve(draft as PricingCurve, markets);
+    // El contrato expone `{ code, details }` — `blocking` es detalle interno del validador.
+    return { rows, violations: violations.map((v) => ({ code: v.code, details: v.details })) };
   }
 
-  // v1.37 (§4.33 / API_CONTRACT §M2): `PUT /admin/pricing/buylist-rules` RETIRADO (superseded). El eje
-  // rareza ya no se edita por rareza suelta sino por TIER: usa `PUT /admin/pricing/tiers` (valores de las 5
-  // reglas + eje acabado + fallbacks) y `PUT /admin/pricing/tier-map` (asignación rareza→tier).
-
   /**
-   * v1.29 (§4.28c) — Rarezas CANÓNICAS del catálogo (`groupBy(['rarityCanonical'])`) unidas a sus
-   * reglas de rareza (para poblar el editor M2). Cada entrada: `canonical` (key editable), `raw` (una
-   * forma cruda observada), `premium` (del catálogo canónico), `mapped` (false = unmapped → fallback),
-   * `cardCount`, `rule`, `source`. `rarity` = alias DEPRECADO de `canonical`. Ordenado por cardCount desc.
+   * §4.36.8 — `GET /admin/pricing/rarities` **SOBREVIVE, RE-PROPOSITADO**: es lo único que queda del
+   * editor viejo. Deja de ser un editor de precios (la rareza SALIÓ del pricing, criterio 84) y pasa a
+   * ser la **SALUD DEL CATÁLOGO DE RAREZAS QUE RESPALDA EL GUARDARRAÍL** (§4.36.5): qué rarezas
+   * existen, cuáles son `premium` y cuántas cartas hay de cada una.
+   *
+   * Se RETIRAN `rule`, `tierId`, `source`, `fallbackPct` y el alias deprecado `rarity`: ya no hay
+   * reglas que mostrar. Ordenado por `cardCount` desc.
    */
   @Get('rarities')
   async rarities() {
-    const ruleSet = await this.readBuylistRuleSet();
-    return this.buildRaritiesResponse(ruleSet, await this.readTierMap());
-  }
-
-  /**
-   * Construye la respuesta de `rarities`/`sales-rarities`: agrupa por `rarityCanonical`, junta una
-   * forma cruda representativa (para diagnóstico) y resuelve la regla de RAREZA (`rarityRules`).
-   * v1.37 (§4.33c): cada entrada gana `tierId` (del mapa vigente) + `source:'map'|'fallback'`; el `rule`
-   * refleja la regla RESUELTA vía tier (el `ruleSet` ya es el efectivo derivado de tiers×mapa).
-   */
-  private async buildRaritiesResponse(
-    ruleSet: PriceRuleSet<BuylistRule | SalesRule>,
-    tierMap: Record<string, TierId>,
-  ) {
-    // Agrupa por la CANÓNICA (§4.28c: empate 1:1 con las keys del admin) + una forma cruda por canónica.
+    // Agrupa por la CANÓNICA (§4.28c: empate 1:1 con el catálogo) + una forma cruda representativa
+    // por canónica (diagnóstico del ingest).
     const grouped = await this.prisma.card.groupBy({
       by: ['rarityCanonical', 'rarity'],
       _count: { _all: true },
     });
-    const byCanonical = new Map<
-      string,
-      { canonical: string; raw: string | null; cardCount: number }
-    >();
+    const byCanonical = new Map<string, { canonical: string; raw: string | null; cardCount: number }>();
     for (const g of grouped) {
       const canonical = g.rarityCanonical;
       if (canonical == null) continue;
@@ -297,404 +454,31 @@ export class PricingController {
     }
     const rarities = [...byCanonical.values()]
       .map((r) => {
-        const explicit = ruleSet.rarityRules[r.canonical];
         const info = rarityInfo(r.canonical);
-        const tierId = tierMap[r.canonical] ?? null;
         return {
           canonical: r.canonical,
-          // `rarity` conservado como ALIAS de `canonical` (compat, DEPRECADO).
-          rarity: r.canonical,
           raw: r.raw,
+          // `premium` es lo ÚNICO de esta respuesta que toca dinero — y lo hace BLOQUEANDO
+          // (guardarraíl §4.36.5), nunca fijando un monto.
           premium: info.premium,
           mapped: info.mapped,
           cardCount: r.cardCount,
-          // v1.37: `rule` = regla RESUELTA vía tier (o fallback pct si la rareza no está en el mapa).
-          rule: explicit ?? { mode: 'pct' as const, value: ruleSet.fallbackPct },
-          tierId,
-          // 'map' = la rareza hereda la regla de su tier (está en PRICING_TIER_MAP); 'fallback' = sin tier.
-          source: tierId != null ? ('map' as const) : ('fallback' as const),
         };
       })
       .sort((a, b) => b.cardCount - a.cardCount);
-    return { fallbackPct: ruleSet.fallbackPct, rarities };
+    return { rarities };
   }
 
-  // ---------------- Precio de VENTA por RAREZA (v1.13-sales-pricing, §4.14c) ----------------
-  // Clones 1:1 del patrón buylist de arriba. Auditados (super_admin). API_CONTRACT §M2.
-  // OJO semántica: en venta `pct` = markup ARRIBA de mercado (no % de la referencia como en buylist);
-  // la matemática vive en money.computeSalePriceForRarity — aquí solo se lee/escribe la tabla cruda.
+  // v2.0 (P-48, §4.36.8 / API_CONTRACT §M2) — **RETIRADOS por la curva**, sin sustituto:
+  //   GET/PUT /admin/pricing/tiers        · GET/PUT /admin/pricing/tier-map
+  //   GET     /admin/pricing/buylist-rules · GET     /admin/pricing/sales-rules
+  //   GET     /admin/pricing/sales-rarities
+  // El eje RAREZA ya no se edita porque SALIÓ del pricing: no hay tabla por rareza, ni mapa
+  // rareza→tier, ni reglas por acabado. El editor de precios es ahora la TABLA DE PUNTOS
+  // (`GET/PUT /admin/pricing/curve`, arriba). Las filas `ConfigSetting` de los cinco settings
+  // retirados quedan huérfanas e inertes a propósito (§4.36.9b): borrar config en el mismo paso que
+  // cambia la matemática elimina la vía de diagnóstico y el rollback barato.
 
-  /**
-   * v1.37 (§4.33c) — Lee el `PriceRuleSet` EFECTIVO de VENTA (derivado de tiers×mapa; compat on-read con
-   * `{ rarityRules, ... }`/plano). API_CONTRACT §M2.
-   */
-  private async readSalesRuleSet(): Promise<PriceRuleSet<SalesRule>> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
-    return toPriceRuleSet<SalesRule>(
-      await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
-      fallbackPct,
-      await this.readTierMap(),
-    );
-  }
-
-  @Get('sales-rules')
-  async getSalesRules() {
-    return this.readSalesRuleSet();
-  }
-
-  // v1.37 (§4.33 / API_CONTRACT §M2): `PUT /admin/pricing/sales-rules` RETIRADO (superseded por `/tiers`).
-
-  /**
-   * Rarezas distintas del catálogo unidas a sus reglas de VENTA (para poblar el editor M2).
-   * Devuelve rarezas con regla explícita y rarezas del catálogo aún sin regla (muestran el fallback).
-   * Ordenado por cardCount desc. API_CONTRACT §M2.
-   */
-  @Get('sales-rarities')
-  async salesRarities() {
-    // v1.29 (§4.28c): eco de ventas — mismo agrupado por `rarityCanonical` que `rarities`.
-    const ruleSet = await this.readSalesRuleSet();
-    return this.buildRaritiesResponse(ruleSet, await this.readTierMap());
-  }
-
-  // ---------------- Pricing por TIERS (v1.37, P-34, §4.33 / API_CONTRACT §M2) ----------------
-  // El eje RAREZA se edita por TIER (5 peldaños T0–T4) + un MAPA rareza→tier compartido por compra y
-  // venta. La naturaleza de la regla (`fixed`/`pct`), la precedencia y el eje `finish` NO cambian.
-  // Todo auditado (super_admin) y surte efecto sin redeploy. Invariante money-safe (§4.33d) en ambos PUT.
-
-  /**
-   * Extrae `{ tierRules, finishRules }` del setting crudo. Si trae el shape por tiers (post-M-38) los usa;
-   * si es legacy (`{ rarityRules, ... }`/plano, pre-M-38) → `tierRules` vacío (durante la transición el
-   * editor mostrará las 5 reglas al fallback) y conserva `finishRules` si venían. Nunca lanza.
-   */
-  private extractTiered<R extends BuylistRule | SalesRule>(
-    raw: unknown,
-  ): { tierRules: Partial<Record<TierId, R>>; finishRules: Partial<Record<string, R>> } {
-    if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
-      const o = raw as { tierRules?: unknown; finishRules?: unknown };
-      const tierRules =
-        o.tierRules != null && typeof o.tierRules === 'object' && !Array.isArray(o.tierRules)
-          ? (o.tierRules as Partial<Record<TierId, R>>)
-          : {};
-      const finishRules =
-        o.finishRules != null && typeof o.finishRules === 'object' && !Array.isArray(o.finishRules)
-          ? (o.finishRules as Partial<Record<string, R>>)
-          : {};
-      return { tierRules, finishRules };
-    }
-    return { tierRules: {}, finishRules: {} };
-  }
-
-  /**
-   * §4.33d — pares `(rareza, tier)` que VIOLARÍAN el invariante money-safe: una rareza `premium:true`
-   * (catálogo canónico, §4.28e) mapeada a un tier cuya regla de COMPRA es `fixed`. Una rareza premium
-   * jamás debe cotizar al bin fijo barato de bulk, aunque el dueño edite el mapa/las reglas. Un tier SIN
-   * regla de compra (undefined) NO es infractor (cae al fallback pct = money-safe). El eje de venta NO
-   * entra al invariante (un `fixed` de venta es un piso, §4.33d).
-   */
-  private premiumFixedOffenders(
-    tierMap: Record<string, TierId>,
-    buyTierRules: Partial<Record<TierId, BuylistRule>>,
-  ): { rarity: string; tierId: TierId }[] {
-    // P-34 H4 (TECH_DEBT): la lógica del invariante vive en `common/pricing-tiers.ts` (exportada para
-    // unit-test directo sobre el seed); el controller solo delega. Comportamiento idéntico.
-    return premiumFixedOffenders(tierMap, buyTierRules);
-  }
-
-  /** Construye la respuesta de `GET /admin/pricing/tiers` (mismo shape que devuelve el PUT). */
-  private async buildTiersResponse() {
-    const buy = this.extractTiered<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-    );
-    const sell = this.extractTiered<SalesRule>(
-      await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
-    );
-    const buyFallback = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    const sellFallback = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
-    const tierMap = await this.readTierMap();
-    const rarityCountByTier = new Map<TierId, number>();
-    for (const t of Object.values(tierMap)) {
-      if (isTierId(t)) rarityCountByTier.set(t, (rarityCountByTier.get(t) ?? 0) + 1);
-    }
-    const tiers = TIER_IDS.map((id) => {
-      const t = getTier(id)!;
-      return {
-        id,
-        name: t.name,
-        premium: t.premium,
-        // Regla vigente del tier; si aún no hay (legacy en transición) se muestra el fallback pct.
-        buy: buy.tierRules[id] ?? { mode: 'pct' as const, value: buyFallback },
-        sell: sell.tierRules[id] ?? { mode: 'pct' as const, value: sellFallback },
-        rarityCount: rarityCountByTier.get(id) ?? 0,
-      };
-    });
-    return {
-      tiers,
-      finishRules: { buy: buy.finishRules, sell: sell.finishRules },
-      fallbackPct: { buy: buyFallback, sell: sellFallback },
-    };
-  }
-
-  /**
-   * `GET /admin/pricing/tiers` (v1.37) — lee los 5 tiers (regla de COMPRA y VENTA), el eje acabado y los
-   * fallbacks. `id`/`name`/`premium` = taxonomía LOCKED; `rarityCount` = nº de rarezas mapeadas al tier.
-   */
-  @Get('tiers')
-  async getTiers() {
-    return this.buildTiersResponse();
-  }
-
-  /**
-   * `PUT /admin/pricing/tiers` (v1.37, §4.33) — reemplaza los VALORES de las 5 reglas (buy y sell), el eje
-   * acabado y los fallbacks. `name`/`premium` se ignoran (taxonomía LOCKED). Deben venir las 5 filas. El
-   * invariante money-safe (§4.33d) se valida contra el MAPA vigente ⇒ 422 PREMIUM_RARITY_FIXED_TIER si un
-   * tier con compra `fixed` tiene alguna rareza premium mapeada. Auditado. Sin redeploy.
-   */
-  @Put('tiers')
-  async putTiers(@Body() dto: TiersPutDto, @CurrentUser('id') userId: string) {
-    if (!Array.isArray(dto.tiers)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'tiers must be an array of 5 rows', {
-        field: 'tiers',
-      });
-    }
-    const buyTierRules: Partial<Record<TierId, BuylistRule>> = {};
-    const sellTierRules: Partial<Record<TierId, SalesRule>> = {};
-    const seen = new Set<TierId>();
-    for (const row of dto.tiers as unknown[]) {
-      if (row == null || typeof row !== 'object') {
-        throw BusinessException.validation('VALIDATION_ERROR', 'each tier row must be an object', {
-          field: 'tiers',
-        });
-      }
-      const { id, buy, sell } = row as { id?: unknown; buy?: unknown; sell?: unknown };
-      if (!isTierId(id)) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `invalid tier id: must be one of ${TIER_IDS.join('|')}`,
-          { field: 'tiers.id' },
-        );
-      }
-      if (!isValidBuylistRule(buy)) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `invalid buy rule for ${id}: fixed→integer cents ≥ 0, pct→number in [0,100]`,
-          { field: 'tiers.buy', tierId: id },
-        );
-      }
-      if (!isValidSalesRule(sell)) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `invalid sell rule for ${id}: fixed→integer cents ≥ 0, pct→number in [0,1000]`,
-          { field: 'tiers.sell', tierId: id },
-        );
-      }
-      seen.add(id);
-      buyTierRules[id] = buy as BuylistRule;
-      sellTierRules[id] = sell as SalesRule;
-    }
-    if (seen.size !== TIER_IDS.length) {
-      throw BusinessException.validation(
-        'VALIDATION_ERROR',
-        `tiers must include all ${TIER_IDS.length} rows (${TIER_IDS.join(', ')})`,
-        { field: 'tiers' },
-      );
-    }
-
-    // finishRules (opcional): si vienen, se validan y REEMPLAZAN el eje acabado; si no, se conservan.
-    const prevBuy = this.extractTiered<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-    );
-    const prevSell = this.extractTiered<SalesRule>(
-      await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
-    );
-    const fr = (dto.finishRules ?? {}) as { buy?: unknown; sell?: unknown };
-    let buyFinishRules = prevBuy.finishRules;
-    let sellFinishRules = prevSell.finishRules;
-    if (fr.buy !== undefined) {
-      const err = validateTieredRuleSet(
-        { tierRules: {}, finishRules: fr.buy },
-        isValidBuylistRule,
-        'fixed→integer cents ≥ 0, pct→number in [0,100]',
-      );
-      if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'finishRules.buy' });
-      buyFinishRules = fr.buy as Partial<Record<string, BuylistRule>>;
-    }
-    if (fr.sell !== undefined) {
-      const err = validateTieredRuleSet(
-        { tierRules: {}, finishRules: fr.sell },
-        isValidSalesRule,
-        'fixed→integer cents ≥ 0, pct→number in [0,1000]',
-      );
-      if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'finishRules.sell' });
-      sellFinishRules = fr.sell as Partial<Record<string, SalesRule>>;
-    }
-
-    // fallbackPct (opcional): buy en [0,100], sell en [0,SALES_PCT_MAX].
-    const fp = (dto.fallbackPct ?? {}) as { buy?: unknown; sell?: unknown };
-    if (fp.buy !== undefined) {
-      const err = validateFallbackPct(fp.buy);
-      if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'fallbackPct.buy' });
-    }
-    if (fp.sell !== undefined) {
-      const err = validateSalesFallbackPct(fp.sell);
-      if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'fallbackPct.sell' });
-    }
-
-    // INVARIANTE money-safe (§4.33d): validado contra el MAPA VIGENTE con las reglas de compra NUEVAS.
-    const tierMap = await this.readTierMap();
-    const offending = this.premiumFixedOffenders(tierMap, buyTierRules);
-    if (offending.length > 0) {
-      throw BusinessException.validation(
-        'PREMIUM_RARITY_FIXED_TIER',
-        'a premium rarity would resolve to a fixed buy tier',
-        { offending },
-      );
-    }
-
-    const before = await this.buildTiersResponse();
-    const buyJson = { tierRules: buyTierRules, finishRules: buyFinishRules } as unknown as Prisma.InputJsonValue;
-    const sellJson = { tierRules: sellTierRules, finishRules: sellFinishRules } as unknown as Prisma.InputJsonValue;
-    await this.prisma.configSetting.upsert({
-      where: { key: SettingKey.BUYLIST_PRICE_RULES },
-      create: { key: SettingKey.BUYLIST_PRICE_RULES, valueJson: buyJson, updatedBy: userId },
-      update: { valueJson: buyJson, updatedBy: userId },
-    });
-    await this.prisma.configSetting.upsert({
-      where: { key: SettingKey.SALES_PRICE_RULES },
-      create: { key: SettingKey.SALES_PRICE_RULES, valueJson: sellJson, updatedBy: userId },
-      update: { valueJson: sellJson, updatedBy: userId },
-    });
-    if (fp.buy !== undefined) {
-      await this.prisma.configSetting.upsert({
-        where: { key: SettingKey.BUYLIST_PRICE_FALLBACK_PCT },
-        create: { key: SettingKey.BUYLIST_PRICE_FALLBACK_PCT, valueJson: fp.buy as number, updatedBy: userId },
-        update: { valueJson: fp.buy as number, updatedBy: userId },
-      });
-    }
-    if (fp.sell !== undefined) {
-      await this.prisma.configSetting.upsert({
-        where: { key: SettingKey.SALES_PRICE_FALLBACK_PCT },
-        create: { key: SettingKey.SALES_PRICE_FALLBACK_PCT, valueJson: fp.sell as number, updatedBy: userId },
-        update: { valueJson: fp.sell as number, updatedBy: userId },
-      });
-    }
-    const after = await this.buildTiersResponse();
-    await this.audit.log({
-      actorUserId: userId,
-      action: 'pricing.tiers.update',
-      entityType: 'ConfigSetting',
-      before,
-      after,
-    });
-    return after;
-  }
-
-  /** Construye la respuesta de `GET /admin/pricing/tier-map` (mismo shape que devuelve el PUT). */
-  private async buildTierMapResponse() {
-    const tierMap = await this.readTierMap();
-    const grouped = await this.prisma.card.groupBy({
-      by: ['rarityCanonical'],
-      _count: { _all: true },
-    });
-    const rarities = grouped
-      .filter((g) => g.rarityCanonical != null)
-      .map((g) => {
-        const canonical = g.rarityCanonical as string;
-        const info = rarityInfo(canonical);
-        const tierId = tierMap[canonical] ?? null;
-        return {
-          canonical,
-          premium: info.premium,
-          mapped: info.mapped,
-          cardCount: g._count._all,
-          tierId,
-          source: tierId != null ? ('map' as const) : ('fallback' as const),
-        };
-      })
-      .sort((a, b) => b.cardCount - a.cardCount);
-    return {
-      tiers: PRICING_TIERS.map((t) => ({ id: t.id, name: t.name, premium: t.premium })),
-      rarities,
-    };
-  }
-
-  /**
-   * `GET /admin/pricing/tier-map` (v1.37) — el mapa rareza canónica → tier, unido al catálogo canónico
-   * (§4.28c). Muestra rarezas mapeadas y rarezas del catálogo aún sin mapear (`tierId:null`,`source:'fallback'`).
-   */
-  @Get('tier-map')
-  async getTierMap() {
-    return this.buildTierMapResponse();
-  }
-
-  /**
-   * `PUT /admin/pricing/tier-map` (v1.37, §4.33d, Opción B) — reasigna rarezas a tiers (patch PARCIAL).
-   * Valida `TierId ∈ {T0..T4}` (422 VALIDATION_ERROR) y que cada key sea una rareza canónica del catálogo
-   * (422 UNKNOWN_RARITY). Invariante money-safe: una rareza premium a un tier de compra `fixed` ⇒ 422
-   * PREMIUM_RARITY_FIXED_TIER (pares infractores). Auditado. Sin redeploy.
-   */
-  @Put('tier-map')
-  async putTierMap(@Body() dto: TierMapPutDto, @CurrentUser('id') userId: string) {
-    const assignments = dto.assignments;
-    if (assignments == null || typeof assignments !== 'object' || Array.isArray(assignments)) {
-      throw BusinessException.validation(
-        'VALIDATION_ERROR',
-        'assignments must be an object { [canonicalRarity]: TierId }',
-        { field: 'assignments' },
-      );
-    }
-    // Normaliza cada key a su canónica y valida (TierId válido + rareza conocida). Money-safe: una key
-    // desconocida se RECHAZA (UNKNOWN_RARITY) en vez de sembrar una entrada muerta.
-    const normalized: Record<string, TierId> = {};
-    for (const [key, tierId] of Object.entries(assignments as Record<string, unknown>)) {
-      if (!isTierId(tierId)) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `invalid tier for "${key}": must be one of ${TIER_IDS.join('|')}`,
-          { field: 'assignments', rarity: key },
-        );
-      }
-      if (!isRarityMapped(key)) {
-        throw BusinessException.validation('UNKNOWN_RARITY', `unknown canonical rarity "${key}"`, {
-          rarity: key,
-        });
-      }
-      const canonical = normalizeRarity(key) as string;
-      normalized[canonical] = tierId;
-    }
-
-    const current = await this.readTierMap();
-    const merged: Record<string, TierId> = { ...current, ...normalized };
-
-    // INVARIANTE money-safe (§4.33d): sobre el mapa RESULTANTE completo × las reglas de compra vigentes.
-    const buyTierRules = this.extractTiered<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-    ).tierRules;
-    const offending = this.premiumFixedOffenders(merged, buyTierRules);
-    if (offending.length > 0) {
-      throw BusinessException.validation(
-        'PREMIUM_RARITY_FIXED_TIER',
-        'a premium rarity would resolve to a fixed buy tier',
-        { offending },
-      );
-    }
-
-    const before = await this.buildTierMapResponse();
-    const mapJson = merged as unknown as Prisma.InputJsonValue;
-    await this.prisma.configSetting.upsert({
-      where: { key: SettingKey.PRICING_TIER_MAP },
-      create: { key: SettingKey.PRICING_TIER_MAP, valueJson: mapJson, updatedBy: userId },
-      update: { valueJson: mapJson, updatedBy: userId },
-    });
-    const after = await this.buildTierMapResponse();
-    await this.audit.log({
-      actorUserId: userId,
-      action: 'pricing.tier_map.update',
-      entityType: 'ConfigSetting',
-      before,
-      after,
-    });
-    return after;
-  }
 
   // ---------------- Spreads de venta del SELLADO (v1.23-sealed-sales, §4.23c) ----------------
   // Espejo de sales-rules pero keyeado por SealedSubtype. `pct` = markup ARRIBA de mercado.
@@ -720,9 +504,21 @@ export class PricingController {
   }
 
   /**
-   * Reemplaza los spreads y/o el fallback (parcial: solo las claves a cambiar). Validación estricta
-   * (subtype ∈ {box,etb,bundle,tin,blister}, value/fallback en [0,1000]) → 422 VALIDATION_ERROR.
-   * Auditado (before/after). Surte efecto sin redeploy.
+   * Actualiza los spreads y/o el fallback. **PARCIAL por llave** (v2.1.9, D3-b): llave ausente = no se
+   * toca; número = se fija; **`null` = se RETIRA** (esa presentación vuelve al `fallbackPct`, y el
+   * `GET` deja de emitir la llave). Idempotente: retirar una llave que no estaba devuelve `200`.
+   * `fallbackPct: null` ⇒ `422` (el global no se retira: dejaría en `PRICE_PENDING`, o sea fuera de la
+   * vitrina, a toda presentación sin regla). Validación estricta
+   * (`subtype ∈ SEALED_SUBTYPE_KEYS`, value/fallback en `[0, SEALED_SPREAD_PCT_MAX]`) →
+   * `422 VALIDATION_ERROR`. Auditado (before/after). Surte efecto sin redeploy.
+   *
+   * ⚠️ v2.1.9 (D4) — este docstring decía `subtype ∈ {box,etb,bundle,tin,blister}`: **CINCO** de los
+   * SIETE del enum. Era el residuo textual del mismo bug que v2.1.8 arregló en el código (`upc` y
+   * `collection` faltaban en ocho listas, y el dueño no podía calibrar el spread de un UPC — caía
+   * siempre al fallback del 25 %). El código ya derivaba del schema; la documentación no, y un
+   * comentario desfasado sobre un dominio de llaves es exactamente lo que hace que alguien
+   * «corrija» el código para que coincida. Se cita la CONSTANTE, no sus valores: un dominio de
+   * llaves no se enumera a mano en prosa.
    */
   @Put('sealed-spreads')
   async putSealedSpreads(@Body() dto: SealedSpreadsDto, @CurrentUser('id') userId: string) {
@@ -743,18 +539,38 @@ export class PricingController {
 
     const before = await this.readSealedSpreads();
     if (dto.spreadPctBySubtype !== undefined) {
-      const spreadsJson = dto.spreadPctBySubtype as unknown as Prisma.InputJsonValue;
+      // v2.1.9 (D3-b) — MERGE PARCIAL, no reemplazo. Tres estados por llave, y los tres importan:
+      //   ausente        ⇒ NO SE TOCA        (la semántica «parcial» que el contrato ya declaraba)
+      //   número         ⇒ se fija
+      //   null           ⇒ SE RETIRA         (esa presentación vuelve al `fallbackPct`; el GET la omite)
+      //
+      // ⚠️ Antes esto REEMPLAZABA el mapa entero (`valueJson: dto.spreadPctBySubtype`), que es
+      // literalmente la alternativa que el arquitecto DESCARTÓ: un cliente rancio que mandara las
+      // CINCO llaves de siempre borraría `upc` y `collection` **en silencio** — el bug de D3 reabierto
+      // desde el otro lado, y ahora con consecuencia real porque las dos ya tienen semilla (v2.1.9).
+      // El reemplazo total es correcto en el `PUT` de la CURVA, donde el objeto ES la unidad de
+      // validación cruzada; aquí las llaves son INDEPENDIENTES, así que la unidad de edición es la llave.
+      const merged: Record<string, number> = { ...before.spreadPctBySubtype };
+      for (const [subtype, value] of Object.entries(dto.spreadPctBySubtype)) {
+        if (value === null) delete merged[subtype]; // retiro (idempotente: borrar lo ausente es no-op)
+        else merged[subtype] = value;
+      }
+      const spreadsJson = merged as unknown as Prisma.InputJsonValue;
       await this.prisma.configSetting.upsert({
         where: { key: SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE },
         create: { key: SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE, valueJson: spreadsJson, updatedBy: userId },
         update: { valueJson: spreadsJson, updatedBy: userId },
       });
     }
-    if (dto.fallbackPct !== undefined) {
+    // `null` ya fue rechazado arriba con su motivo (el global no se retira), así que aquí solo puede
+    // ser número. Se estrecha con un `const` en vez de un cast: si mañana alguien relajara el
+    // validador, esto deja de compilar en lugar de escribir un `null` en el dial de respaldo.
+    const nextFallbackPct: number | undefined = dto.fallbackPct ?? undefined;
+    if (nextFallbackPct !== undefined) {
       await this.prisma.configSetting.upsert({
         where: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT },
-        create: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT, valueJson: dto.fallbackPct, updatedBy: userId },
-        update: { valueJson: dto.fallbackPct, updatedBy: userId },
+        create: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT, valueJson: nextFallbackPct, updatedBy: userId },
+        update: { valueJson: nextFallbackPct, updatedBy: userId },
       });
     }
     const after = await this.readSealedSpreads();

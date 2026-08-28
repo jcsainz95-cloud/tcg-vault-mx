@@ -4,12 +4,7 @@ import { renderWithIntl } from '@/test/render';
 import { expectNoMicroNotice, expectVisibleMicroNotice } from '@/test/grading';
 import { CatalogTile } from './CatalogTile';
 import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
-import type {
-  CardDTO,
-  GradedEstimateDTO,
-  GroupedListingDTO,
-  ListingDTO,
-} from '@/types/contract';
+import type { CardDTO, GradedEstimateDTO, GroupedListingSummaryDTO } from '@/types/contract';
 
 // La teja usa <Link> y useRouter de next-intl; se mockean para aislarla del router.
 vi.mock('@/i18n/navigation', () => ({
@@ -37,14 +32,10 @@ const card: CardDTO = {
   availableFinishes: ['normal', 'holofoil'],
 };
 
-const refValue: ListingDTO['referenceValue'] = {
-  status: 'priced',
-  referenceMxnCents: 128000,
-  source: 'pokemontcg_io',
-  capturedDate: '2026-08-13',
-};
-
-function listing(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
+// v2.1.9 (D2): la teja recibe el DTO de la REJILLA — SIN `priceBasis` ni `referenceValue`. El
+// fixture los omite a propósito: si la teja empezara a leerlos, esto no compilaría (que es
+// justamente lo que el tipo propio compra frente a un campo opcional).
+function listing(over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSummaryDTO {
   return {
     representativeInventoryItemId: 'inv-a',
     card,
@@ -54,7 +45,6 @@ function listing(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
     gradeKey: 'raw:NM',
     stockCount: 2,
     salePriceCents: 140800,
-    referenceValue: refValue,
     currency: 'MXN',
     ...over,
   };
@@ -91,7 +81,7 @@ describe('CatalogTile · P-44 rareza visible', () => {
   });
 });
 
-// ===== v1.44-graded-estimate · badge del gancho de grading (§21.5) =====
+// ===== v1.50-graded-estimate · badge del gancho de grading (§22.5) =====
 const psa10: GradedEstimateDTO = {
   gradingCompany: 'PSA',
   gradeValue: '10',
@@ -104,7 +94,7 @@ const psa10: GradedEstimateDTO = {
  * el subárbol de LA TEJA (primer hijo de la boundary; el segundo es la nota) para poder afirmar
  * sobre ella sin que el texto del disclaimer contamine las búsquedas.
  */
-function renderTile(over: Partial<GroupedListingDTO> = {}, locale: 'es' | 'en' = 'es') {
+function renderTile(over: Partial<GroupedListingSummaryDTO> = {}, locale: 'es' | 'en' = 'es') {
   const view = renderWithIntl(
     <GradingFootnoteBoundary active>
       <CatalogTile listing={listing(over)} inCart={false} onAdd={vi.fn()} />
@@ -114,24 +104,24 @@ function renderTile(over: Partial<GroupedListingDTO> = {}, locale: 'es' | 'en' =
   return { ...view, tile: view.container.firstElementChild as HTMLElement };
 }
 
-/** El bloque del badge dentro de la teja: el contenedor del micro-aviso (§21.5). */
+/** El bloque del badge dentro de la teja: el contenedor del micro-aviso (§22.5). */
 function badgeBlockOf(tile: HTMLElement): HTMLElement {
   return within(tile).getByText(/no evaluamos esta carta/i).closest('div')!;
 }
 
-describe('CatalogTile · §21.5 badge «estimado si se gradea»', () => {
+describe('CatalogTile · §22.5 badge «estimado si se gradea»', () => {
   it('la cifra lleva el condicional INCORPORADO (sin eyebrow) en sus dos longitudes', () => {
     const { tile } = renderTile({ gradingHighlight: [psa10] });
     const badge = badgeBlockOf(tile);
 
-    // El eyebrow se retiró (§21.5): decía la misma idea que «Ilustrativo» del micro-aviso.
+    // El eyebrow se retiró (§22.5): decía la misma idea que «Ilustrativo» del micro-aviso.
     expect(within(tile).queryByText('ESTIMADO SI SE GRADEA')).not.toBeInTheDocument();
     // `sm+`: «En PSA 10 vale ≈ MX$2,900.00» · móvil: «PSA 10 ≈ MX$2,900.00». Prohibido «PSA 10:».
     expect(badge.textContent).toContain('En PSA 10 vale');
     expect(badge.textContent).toContain('MX$2,900.00');
     expect(badge.textContent).not.toContain('PSA 10:');
     const figure = badge.querySelector('p')!;
-    // El glifo ≈ va aria-hidden y su lectura viaja en prosa (§21.9).
+    // El glifo ≈ va aria-hidden y su lectura viaja en prosa (§22.9).
     expect(figure.querySelector('[aria-hidden]')).toHaveTextContent('≈');
     expect(within(figure).getAllByText('aproximadamente').length).toBeGreaterThan(0);
     // El precio REAL sigue siendo el dato principal de la teja y no se toca.
@@ -155,7 +145,7 @@ describe('CatalogTile · §21.5 badge «estimado si se gradea»', () => {
     expect(call.querySelector('a')).toBeNull();
     expect(call.querySelector('[aria-hidden]')).toHaveTextContent('*');
     expect(within(tile).getByText('Ver nota al pie.')).toBeInTheDocument();
-    // La llamada CIERRA el micro-aviso (§21.4a), no un eyebrow.
+    // La llamada CIERRA el micro-aviso (§22.4a), no un eyebrow.
     expect(call.closest('p')).toBe(within(tile).getByText(/no evaluamos esta carta/i).closest('p'));
   });
 
@@ -167,7 +157,7 @@ describe('CatalogTile · §21.5 badge «estimado si se gradea»', () => {
     const plainText = plain.tile.textContent!;
     plain.unmount();
 
-    // §21.7 (verificación visual): elegible y no elegible producen tejas IDÉNTICAS salvo el bloque
+    // §22.7 (verificación visual): elegible y no elegible producen tejas IDÉNTICAS salvo el bloque
     // del badge — quitado ese bloque, el resto de la teja es exactamente el mismo.
     const withBadge = renderTile({ gradingHighlight: [psa10] });
     badgeBlockOf(withBadge.tile).remove();
@@ -177,6 +167,31 @@ describe('CatalogTile · §21.5 badge «estimado si se gradea»', () => {
   it('R5 · el badge no filtra ninguna pieza del cálculo', () => {
     const { tile } = renderTile({ gradingHighlight: [psa10] });
     expect(tile.textContent).not.toMatch(/ganancia|multiplic|ROI|margen|costo de grade/i);
+  });
+
+  /**
+   * §22.7, caso 4 (ESTADO NUEVO, R6). Una carta con el gate de ROI **cumplido** cuya cifra no pasa
+   * el filtro de **confianza** y una carta que simplemente **no pasa el gate** llegan al cliente de
+   * la MISMA forma: sin `gradingHighlight`. El servidor no manda el motivo y la teja no lo inventa,
+   * así que las dos producen **exactamente el mismo DOM** — no hay marca, ni `data-*`, ni clase que
+   * los distinga, y no debe haberla (R5 / SEC-A1: el criterio no se filtra al cliente).
+   */
+  it('§22.7 · suprimida por CONFIANZA y suprimida por GATE son el MISMO DOM (sin marca del motivo)', () => {
+    const gateFallido = renderTile();
+    const gateHtml = gateFallido.tile.outerHTML;
+    gateFallido.unmount();
+
+    // Gate cumplido pero cifra no confiable: el backend NO emite el campo (misma entrada exacta).
+    const noConfiable = renderTile();
+    expect(noConfiable.tile.outerHTML).toBe(gateHtml);
+    expectNoMicroNotice(noConfiable.tile, 'es');
+    // Y la teja no expone ningún atributo que nombre el criterio por el que no se promociona.
+    const attrs = Array.from(noConfiable.tile.querySelectorAll('*'))
+      .concat(noConfiable.tile)
+      .flatMap((el) => Array.from(el.attributes).map((a) => `${a.name}=${a.value}`));
+    expect(attrs.some((a) => /confian|trust|gate|roi|eligib|sample|muestra|grading/i.test(a))).toBe(
+      false,
+    );
   });
 
   it('EN: cifra condicional y micro-aviso visible en inglés', () => {

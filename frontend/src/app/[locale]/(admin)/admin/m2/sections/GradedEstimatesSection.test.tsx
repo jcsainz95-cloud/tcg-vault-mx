@@ -7,13 +7,13 @@ import { ApiClientError } from '@/lib/api-client';
 import { GradedEstimatesSection } from './GradedEstimatesSection';
 
 /**
- * D2 (techlead) / criterio **92(e)**: el dueño tiene que poder **añadir, quitar y editar** los
+ * D2 (techlead) / criterio **110(e)**: el dueño tiene que poder **añadir, quitar y editar** los
  * escalones de costo de gradeo **desde el back-office**, sin redeploy y con auditoría. Estos tests
  * fijan lo que hace que el editor sea seguro: los invariantes del contrato (contigüidad, escalón
  * final abierto, `costMxnCents ≥ 1`) se cumplen **por construcción** y el 422 del servidor se
  * muestra **accionable**, no como «error genérico».
  */
-/** Seed de §N.2.1 en centavos, servido FRESCO en cada test (el mock del módulo es mutable). */
+/** Seed de §O.2.1 en centavos, servido FRESCO en cada test (el mock del módulo es mutable). */
 const seed = (): GradedEstimateConfigDTO => ({
   enabled: true,
   grades: ['10', '9'],
@@ -37,12 +37,12 @@ beforeEach(() => {
 
 const rowsOf = () => screen.getAllByLabelText(/Costo de gradeo del escalón/);
 
-describe('GradedEstimatesSection · escalones de costo de gradeo (§M2 / §N.2.1)', () => {
+describe('GradedEstimatesSection · escalones de costo de gradeo (§M2 / §O.2.1)', () => {
   it('carga la tabla del servidor: primer escalón desde MX$0 y último ABIERTO', async () => {
     renderWithProviders(<GradedEstimatesSection />, 'es');
 
     expect(await screen.findByText(/Escalones de costo de gradeo/)).toBeInTheDocument();
-    // Seed de §N.2.1: 6 escalones, el primero desde $0 (cobertura desde cero) y el último abierto.
+    // Seed de §O.2.1: 6 escalones, el primero desde $0 (cobertura desde cero) y el último abierto.
     expect(rowsOf()).toHaveLength(6);
     expect(screen.getByText('MX$0.00')).toBeInTheDocument();
     expect(screen.getByText('En adelante')).toBeInTheDocument();

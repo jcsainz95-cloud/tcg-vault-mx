@@ -1,6 +1,8 @@
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 
 /**
  * MENOR (QA) — los filtros enum del endpoint PÚBLICO GET /catalog/cards se validan contra la
@@ -11,24 +13,21 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
   function build() {
     const prisma: any = { inventoryItem: { findMany: jest.fn(async () => []) } };
     const pricing = {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
-      computeSalePriceForItem: jest.fn(async (_i: any, r: number | null) => ({
-        salePriceCents: r,
-        status: r == null ? 'pending' : 'priced',
-        appliedRule: { mode: 'pct', value: 15 },
-        ruleSource: 'fallback',
-      })),
-      // v1.44-graded-estimate (§4.35): dial maestro APAGADO (seed `off`) ⇒ el gancho no se evalúa.
-      loadGradedEstimateConfig: jest.fn(async () => ({
-        enabled: false,
-        grades: [],
-        highlightGrades: [],
-        freshnessDays: 30,
-        minUpsidePct: 30,
-        gradingCostTiers: [],
-      })),
+      // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+      // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+      computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
+      // v1.50-graded-estimate (§4.38): dial maestro APAGADO (seed `off`) ⇒ el gancho no se evalúa y no
+      // hace NINGUNA de sus dos queries (el coste extra con `off` es solo la lectura de config).
+      loadGradedEstimateConfig: jest.fn(async () => DISABLED_GRADED_ESTIMATE_CONFIG),
       getGradedEstimatesBatch: jest.fn(async () => new Map()),
+      getPublishedSlabGradesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
     return { svc: new CatalogService(prisma as PrismaService, pricing), prisma };
   }

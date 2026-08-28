@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/cn';
 
 /**
- * Llamada + nota al pie del «gancho de grading» (DESIGN_SYSTEM §21.4).
+ * Llamada + nota al pie del «gancho de grading» (DESIGN_SYSTEM §22.4).
  *
  * **R3 — acoplamiento llamada ↔ nota, a nivel de PÁGINA.** El diseño exige que (1) toda cifra
  * estimada lleve su llamada visible, (2) toda página que pinte una cifra renderice su nota al pie
@@ -21,7 +21,7 @@ import { cn } from '@/lib/cn';
  *    NADA (fail-closed, que es la dirección correcta del error en una superficie de dinero).
  *
  * La nota NO vive tras `<details>`, acordeón, modal ni tooltip, no se manda a otra página como único
- * acceso y no se mete en el footer de marca (§21.4d). Es contenido real, imprimible y encontrable
+ * acceso y no se mete en el footer de marca (§22.4d). Es contenido real, imprimible y encontrable
  * con Ctrl+F.
  */
 
@@ -43,7 +43,7 @@ export function useGradingFootnote(): GradingFootnoteAnchors | null {
 
 const NOTE_ID = 'nota-estimado';
 const HEADING_ID = 'nota-estimado-titulo';
-/** Ancla por defecto del regreso: la llamada de la ficha (la única que es enlace, §21.4a). */
+/** Ancla por defecto del regreso: la llamada de la ficha (la única que es enlace, §22.4a). */
 export const GRADING_CALL_ID = 'llamada-estimado';
 
 export interface GradingFootnoteBoundaryProps {
@@ -77,15 +77,15 @@ export function GradingFootnoteBoundary({
 }
 
 /**
- * La llamada (`*`) — §21.4a. Una por superficie, anclada a la ETIQUETA del gancho (no repetida por
+ * La llamada (`*`) — §22.4a. Una por superficie, anclada a la ETIQUETA del gancho (no repetida por
  * cifra) y nunca pegada a un precio real. Glifo mono 13px en `--color-accent` (único empleo del
- * acento en §21), `vertical-align: super` con `line-height: 0` para no alterar la caja de línea.
+ * acento en §22), `vertical-align: super` con `line-height: 0` para no alterar la caja de línea.
  *
  * Accesibilidad: el glifo va `aria-hidden` y el texto accesible (`callSr`, con las dos ideas
- * obligatorias de §N.5) lo sustituye — quien navega por audio NO oye «asterisco».
+ * obligatorias de §O.5) lo sustituye — quien navega por audio NO oye «asterisco».
  *
  * `variant="link"` solo en la FICHA: en la teja y en la vitrina la teja entera ya es un enlace y no
- * se anidan anclas (§21.4a), así que ahí es un `<sup>` sin interacción.
+ * se anidan anclas (§22.4a), así que ahí es un `<sup>` sin interacción.
  */
 export function GradingNoteCall({
   variant = 'plain',
@@ -123,9 +123,9 @@ export function GradingNoteCall({
 }
 
 /**
- * La nota al pie — §21.4b. Banda a ancho completo delimitada SOLO por su regla superior (sin caja,
+ * La nota al pie — §22.4b. Banda a ancho completo delimitada SOLO por su regla superior (sin caja,
  * sin fondo): marcador de acento que repite la llamada + eyebrow, titular mono en versalitas y los
- * párrafos del disclaimer de PROJECT §N.5, **una clave i18n por párrafo con rich text** (jamás
+ * párrafos del disclaimer de PROJECT §O.5, **una clave i18n por párrafo con rich text** (jamás
  * concatenando ni partiendo frases). Pisos tipográficos propios: cuerpo 13px, etiquetas 10px.
  *
  * Salto y regreso: `tabindex="-1"` en el encabezado para que el foco aterrice de verdad,
@@ -137,7 +137,7 @@ function GradingEstimateNote() {
   const t = useTranslations('catalog.gradingNote');
   if (!anchors) return null;
 
-  // Entradilla en tinta 500 al abrir cada párrafo (§21.4b): rich text de next-intl, NUNCA dos claves.
+  // Entradilla en tinta 500 al abrir cada párrafo (§22.4b): rich text de next-intl, NUNCA dos claves.
   const rich = { b: (chunks: React.ReactNode) => <strong className="font-medium text-text">{chunks}</strong> };
 
   return (
@@ -179,8 +179,8 @@ function GradingEstimateNote() {
 }
 
 /**
- * Una clave por párrafo (§21.11). Son SEIS porque el texto aprobado en PROJECT §N.5 tiene seis
- * párrafos y el humano lo quiso íntegro («el texto completo NO se poda»); el esquema de §21.11
+ * Una clave por párrafo (§22.11). Son SEIS porque el texto aprobado en PROJECT §O.5 tiene seis
+ * párrafos y el humano lo quiso íntegro («el texto completo NO se poda»); el esquema de §22.11
  * enumera `p1…p5` porque su diagrama omite el primer párrafo. Añadir o quitar un párrafo es tocar
  * esta lista y las dos traducciones, nada más.
  */

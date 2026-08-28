@@ -4,24 +4,26 @@ import { renderWithIntl } from '@/test/render';
 import { FinishMark, FinishBand } from './FinishMark';
 
 describe('FinishMark (§16.6) · doble canal: banda decorativa + etiqueta SIEMPRE visible', () => {
-  it('reverse_holo: banda de GRADIENTE (aria-hidden) + etiqueta mono "Reverse"', () => {
+  it('reverse_holo: banda SÓLIDA ROJA (aria-hidden) + etiqueta mono "Reverse"', () => {
     renderWithIntl(<FinishMark finish="reverse_holo" />, 'es');
 
     const band = screen.getByTestId('finish-band');
     expect(band).toHaveAttribute('aria-hidden', 'true'); // decorativa: el texto porta
     expect(band).toHaveAttribute('data-finish', 'reverse_holo');
-    expect(band.getAttribute('style')).toContain('linear-gradient');
+    // Spec humano: ROJO sólido y estable (no gradiente). Token vivo con fallback (SB-D8).
+    expect(band.getAttribute('style')).toContain('var(--color-finish-reverse');
+    expect(band.getAttribute('style')).not.toContain('gradient');
 
     // Etiqueta del hobby (no se traduce por locale) + nombre legible como canal accesible.
     const label = screen.getByText('Reverse');
     expect(label).toHaveAttribute('aria-label', 'Reverse Holo');
   });
 
-  it('holofoil: banda SÓLIDA tinta (token vivo + fallback, SB-D8) + etiqueta "Holo"', () => {
+  it('holofoil: banda SÓLIDA AZUL (token vivo + fallback, SB-D8) + etiqueta "Holo"', () => {
     renderWithIntl(<FinishMark finish="holofoil" />, 'es');
     const band = screen.getByTestId('finish-band');
-    // SB-D8: token del sistema con fallback al hex del DS (nada de hex hardcodeado a secas).
-    expect(band.getAttribute('style')).toContain('var(--color-ink');
+    // Spec humano: AZUL (token nuevo --color-finish-holo) con fallback al hex del DS.
+    expect(band.getAttribute('style')).toContain('var(--color-finish-holo');
     expect(band.getAttribute('style')).not.toContain('gradient');
     expect(screen.getByText('Holo')).toBeInTheDocument();
   });

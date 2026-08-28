@@ -9,14 +9,15 @@ import {
   isStaleEstimate,
   selectGradedEstimates,
   validateGradingCostTiers,
+  DISABLED_GRADED_ESTIMATE_CONFIG,
 } from '../src/common/graded-estimate';
 
 /**
- * v1.44-graded-estimate — LÓGICA PURA del «gancho de grading» (ARCHITECTURE §4.35c/d, PROJECT §N).
+ * v1.44-graded-estimate — LÓGICA PURA del «gancho de grading» (ARCHITECTURE §4.38c/d, PROJECT §N).
  *
- * Cubre los flujos negativos que §4.35i marca como OBLIGATORIOS: sin PSA 9 ⇒ ficha sí / destacado no;
+ * Cubre los flujos negativos que §4.38i marca como OBLIGATORIOS: sin PSA 9 ⇒ ficha sí / destacado no;
  * sin ningún estimado; graded y sealed NUNCA; tabla vacía o con hueco ⇒ **jamás costo 0**; estimado
- * rancio; y la partición §4.35-0 (subir `minUpsidePct` no apaga la ficha).
+ * rancio; y la partición §4.38-0 (subir `minUpsidePct` no apaga la ficha).
  */
 
 const TODAY = '2026-08-23';
@@ -30,9 +31,14 @@ const TODAY = '2026-08-23';
 function cfg(over: Partial<GradedEstimateConfig> = {}): GradedEstimateConfig {
   const enabled = over.enabled ?? true;
   return {
+    // v1.50.2: se parte de la config APAGADA compartida y se ENCIENDE lo que el test necesita, para
+    // que un dial nuevo no obligue a tocar cada helper de test (ni deje uno con un default distinto
+    // al de producción, que es como se cuelan los falsos verdes).
+    ...DISABLED_GRADED_ESTIMATE_CONFIG,
     enabled,
     estimatesEnabled: enabled,
     highlightEnabled: enabled,
+    ingestEnabled: false,
     grades: ['10', '9'],
     highlightGrades: ['10'],
     freshnessDays: 30,
@@ -42,11 +48,26 @@ function cfg(over: Partial<GradedEstimateConfig> = {}): GradedEstimateConfig {
   };
 }
 
-const est = (gradeValue: string, mxnCents: number, capturedDate = TODAY): GradedEstimateInput => ({
+/**
+ * v1.50.2: `isManual` es AUTOMÁTICO por defecto en los helpers (`false`) porque es el caso que ejerce
+ * la ventana de frescura. El manual se pide EXPLÍCITAMENTE (`estManual`), para que ningún test se
+ * apoye por accidente en la excepción de §4.38m.
+ */
+const est = (
+  gradeValue: string,
+  mxnCents: number,
+  capturedDate = TODAY,
+  isManual = false,
+): GradedEstimateInput => ({
   gradeValue,
   mxnCents,
   capturedDate,
+  isManual,
 });
+
+// El helper `estManual` (fila fijada a mano) vive en `graded-estimate.confidence-gate.spec.ts`, que es
+// donde se prueba la asimetría de frescura de §4.38m. Aquí todas las filas son AUTOMÁTICAS a propósito:
+// son las que ejercen la ventana de frescura.
 
 describe('findGradingCostTier — intervalos SEMIABIERTOS [min, max)', () => {
   it('resuelve cada escalón del seed y NO deja huecos en los centavos intermedios', () => {
@@ -295,15 +316,21 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
   });
 
   it('el umbral redondea con ceil (dirección que hace el gate MÁS estricto)', () => {
-    // (100001 + 70000) × 1.30 = 221001.3 ⇒ ceil = 221002 (no 221001).
+    // (100001 + 110000) × 1.30 = 273001.3 ⇒ ceil = 273002 (no 273001).
+    //
+    // ⚠️ v1.50.2 — el PSA 10 de este fixture SUBIÓ de 150_000 a 400_000, y no es un ajuste cosmético:
+    // con 150_000 el PSA 9 (273_001) quedaba POR ENCIMA del PSA 10, que es justo lo que la cota de
+    // ORDEN (§4.38k.2) declara incoherente ⇒ el gate cortaba en `GRADE_ORDER_INVERTED` y nunca llegaba
+    // a calcular el umbral. El fixture viejo describía un mundo imposible; el nuevo mantiene EXACTA la
+    // afirmación del test (el `ceil` del umbral) sobre un caso coherente.
     const r = evaluateGradingHighlight({
       productType: 'raw',
       rawSalePriceCents: 100_001,
       today: TODAY,
-      estimates: [est('10', 150_000), est('9', 221_001)],
+      estimates: [est('10', 400_000), est('9', 273_001)],
       cfg: cfg(),
     });
-    expect(r.thresholdMxnCents).toBe(221_002);
+    expect(r.thresholdMxnCents).toBe(273_002);
     expect(r.eligible).toBe(false);
   });
 
@@ -345,7 +372,11 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
             productType: 'raw',
             rawSalePriceCents: raw,
             today: TODAY,
-            estimates: [est('10', 900_000), est('9', psa9)],
+            // v1.50.2: el PSA 10 acompaña al PSA 9 hacia arriba. Con `pct` alto el umbral supera el
+            // 900_000 fijo del fixture viejo y el gate cortaba en `GRADE_ORDER_INVERTED` antes de
+            // evaluar el umbral — que es lo que este barrido mide. El escalón es único y abierto, así
+            // que mover el PSA 10 NO cambia el costo ni, por tanto, el umbral esperado.
+            estimates: [est('10', Math.max(900_000, psa9)), est('9', psa9)],
             cfg: cfg({ minUpsidePct: pct, gradingCostTiers: tiers }),
           });
           expect(r.thresholdMxnCents).toBe(exacto);
@@ -365,7 +396,11 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
     const cara = evaluateGradingHighlight({
       ...base,
       estimates: [est('10', 6_000_000), est('9', 120_000)],
-      cfg: cfg(),
+      // v1.50.2: este test mide la RESOLUCIÓN DEL ESCALÓN, no la magnitud. Con el seed (50) un PSA 10
+      // de 6M sobre un raw de 100k da múltiplo 60 y el gate cortaría en `ABOVE_MAX_MULTIPLE` antes de
+      // llegar al escalón. Se sube la cota SOLO en este caso, dejando la afirmación intacta; el
+      // comportamiento de la cota tiene sus propias pruebas, una por cota.
+      cfg: cfg({ maxRawMultiple: 1000 }),
     });
     expect(barata.gradingCostMxnCents).toBe(70_000);
     expect(cara.gradingCostMxnCents).toBe(1_200_000);
@@ -407,7 +442,10 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
         ...base,
         // Upside brutal: si el costo se asumiera 0, esta carta se destacaría. NO debe destacarse.
         estimates: [est('10', 9_000_000), est('9', 8_000_000)],
-        cfg: cfg({ gradingCostTiers: tiers }),
+        // v1.50.2: idem — lo que se prueba es «SIN ESCALÓN NO HAY DESTACADO, jamás costo 0». La cota
+        // de magnitud se relaja aquí para que el gate llegue hasta el paso 7 y falle POR LA RAZÓN QUE
+        // ESTE TEST AFIRMA (`NO_COST_TIER`) y no por una anterior.
+        cfg: cfg({ gradingCostTiers: tiers, maxRawMultiple: 1000 }),
       });
       expect(r.eligible).toBe(false);
       expect(r.reason).toBe('NO_COST_TIER');
@@ -433,7 +471,7 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
     expect(evaluateGradingHighlight({ ...base, productType: 'sealed', estimates, cfg: cfg() }).reason).toBe('NOT_RAW');
   });
 
-  it('PARTICIÓN §4.35-0 — subir `minUpsidePct` quita el DESTACADO pero NO apaga la FICHA', () => {
+  it('PARTICIÓN §4.38-0 — subir `minUpsidePct` quita el DESTACADO pero NO apaga la FICHA', () => {
     const estimates = [est('10', 900_000), est('9', 500_000)];
     const estricto = cfg({ minUpsidePct: 500 });
     expect(evaluateGradingHighlight({ ...base, estimates, cfg: estricto }).eligible).toBe(false);

@@ -3,26 +3,32 @@
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getPublicBounties } from '@/lib/api';
+import type { PublicBountyDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
+import { Link } from '@/i18n/navigation';
+import { FinishBand } from '@/components/domain/FinishMark';
+import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 import { Shelf } from '../_shared/Shelf';
 
-const MAX_ROWS = 5;
+const MAX_TILES = 4;
 
 /**
- * «Lo que más buscamos hoy» (makeover 1a §7): tabla de bounties públicos. CONDICIONAL:
- * solo se renderiza si GET /buylist/bounties regresa elementos (misma regla de honestidad
- * que TopBountiesShelf: sin bounties o con error, la sección desaparece — es vitrina).
- * «Pagamos» = bountyPriceCents del server; «Buscadas» = remainingQty/targetQty reales.
- * Condición: la buylist solo compra NM (política global del contrato), por eso la
- * columna pinta la constante honesta "NM" — no existe condición por-bounty en el DTO.
+ * «Top Bounties» (home): vitrina de bounties públicos con IMAGEN de la carta, consistente con
+ * la de /buylist (TopBountiesShelf). CONDICIONAL: solo se renderiza si GET /buylist/bounties
+ * regresa elementos (misma regla de honestidad que TopBountiesShelf: sin bounties o con error,
+ * la sección desaparece — es vitrina). «Pagamos» = bountyPriceCents del server.
  *
- * Semántica de tabla (§20.7): grid con `role="table"`/`row`/`columnheader`/`cell`
- * (la retícula visual responsiva se mantiene; el orden de lectura coincide).
+ * NO se expone la cantidad buscada/restante al cliente (fuga de inventario/demanda): la tarjeta
+ * NO pinta remainingQty/targetQty (se retiró intencionalmente en e3f76e2/df50e60).
+ *
+ * Reutiliza el patrón visual de la tarjeta de bounty de TopBountiesShelf (FinishBand + imagen +
+ * chip ☩ BOUNTY + nombre + set·número + precio héroe «Pagamos»), pero como es la home cada
+ * tarjeta es un Link a /buylist (no lleva el CTA «Cotizar esta carta», que necesita el cotizador
+ * de BuylistView) y el estante conserva su marco (título + «ver todo»).
  */
 export function BountyBoard() {
   const t = useTranslations('home');
-  const locale = useLocale() as AppLocale;
 
   const bounties = useQuery({
     queryKey: ['public-bounties'],
@@ -31,8 +37,8 @@ export function BountyBoard() {
     retry: false,
   });
 
-  const rows = (bounties.data?.data ?? []).slice(0, MAX_ROWS);
-  if (bounties.isLoading || bounties.isError || rows.length === 0) return null;
+  const tiles = (bounties.data?.data ?? []).slice(0, MAX_TILES);
+  if (bounties.isLoading || bounties.isError || tiles.length === 0) return null;
 
   return (
     <Shelf
@@ -44,54 +50,56 @@ export function BountyBoard() {
       viewAllHref="/buylist"
       viewAllLabel={t('bounties.viewAll')}
     >
-      <div className="gutter pb-12 lg:pb-14">
-        <div role="table" aria-label={t('bounties.title')}>
-          <div
-            role="row"
-            className="hidden grid-cols-[2fr_1fr_1fr_1fr] gap-5 border-b border-border-strong pb-2.5 sm:grid"
-          >
-            <span role="columnheader" className="eyebrow">
-              {t('bounties.colCard')}
-            </span>
-            <span role="columnheader" className="eyebrow">
-              {t('bounties.colCondition')}
-            </span>
-            <span role="columnheader" className="eyebrow text-right">
-              {t('bounties.colWePay')}
-            </span>
-            <span role="columnheader" className="eyebrow text-right">
-              {t('bounties.colWanted')}
-            </span>
-          </div>
-          {rows.map((b) => {
-            const wanted = b.remainingQty ?? b.targetQty;
-            return (
-              <div
-                key={`${b.cardId}:${b.finish}`}
-                role="row"
-                className="grid grid-cols-[1fr_auto] items-baseline gap-x-5 border-b border-border py-[15px] sm:grid-cols-[2fr_1fr_1fr_1fr]"
-              >
-                <span
-                  role="cell"
-                  lang="en"
-                  className="min-w-0 font-serif text-[15px] leading-snug text-text lg:text-[17px]"
-                >
-                  {b.name} · {b.setName} #{b.number}
-                </span>
-                <span role="cell" className="hidden font-mono text-xs text-muted sm:block">
-                  {t('bounties.conditionNm')}
-                </span>
-                <span role="cell" className="tabular text-right font-mono text-[14px] text-text lg:text-[15px]">
-                  {formatMoneyCents(b.bountyPriceCents, locale)}
-                </span>
-                <span role="cell" className="tabular hidden text-right font-mono text-xs text-muted sm:block">
-                  {wanted != null ? wanted : '—'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+      <div className="gutter grid grid-cols-2 gap-6 pb-12 lg:grid-cols-4 lg:gap-8 lg:pb-14">
+        {tiles.map((b) => (
+          <BountyTile key={`${b.cardId}:${b.finish}`} bounty={b} />
+        ))}
       </div>
     </Shelf>
+  );
+}
+
+/**
+ * Tarjeta de bounty de la home: mismo lenguaje visual que TopBountiesShelf.BountyCard, envuelta
+ * en un Link a /buylist. NO revela remainingQty/targetQty.
+ */
+function BountyTile({ bounty }: { bounty: PublicBountyDTO }) {
+  const t = useTranslations('home');
+  const locale = useLocale() as AppLocale;
+
+  return (
+    <Link href="/buylist" className="flex h-full flex-col">
+      <FinishBand finish={bounty.finish} />
+      <div className="relative aspect-[5/7] w-full bg-surface-2">
+        {bounty.imageSmallUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={bounty.imageSmallUrl}
+            alt={bounty.name}
+            loading="lazy"
+            className="h-full w-full object-contain"
+          />
+        )}
+        {/* Chip con scrim de tinta (§7.2b): texto papel sobre tinta. */}
+        <span className="absolute left-1 top-1 flex items-center gap-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--color-on-ink)]">
+          <HuntMarkMicro size={12} /> {t('bounties.badge')}
+        </span>
+      </div>
+      <p lang="en" className="mt-2.5 line-clamp-2 font-serif text-[15px] leading-tight text-text">
+        {bounty.name}
+      </p>
+      <p className="mt-1 font-mono text-[10px] uppercase tracking-wide text-muted">
+        <span lang="en">{bounty.setName}</span>
+        <span aria-hidden> · </span>
+        <span className="tabular-nums">#{bounty.number}</span>
+      </p>
+      {/* Precio héroe: dinero que TE pagamos → verde (semántica "positivo"). */}
+      <p className="mt-2 flex flex-col">
+        <span className="text-xs text-muted">{t('bounties.wePay')}</span>
+        <span className="font-mono text-lg font-semibold tabular-nums text-success">
+          {formatMoneyCents(bounty.bountyPriceCents, locale)}
+        </span>
+      </p>
+    </Link>
   );
 }

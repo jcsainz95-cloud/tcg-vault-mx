@@ -22,6 +22,19 @@ import {
   SealedCondition,
   SealedSubtype,
 } from '@prisma/client';
+// v2.1.8: las listas de valores se DERIVAN del schema (una sola declaración, `common/enum-values.ts`).
+import {
+  ACQUISITION_TYPE_VALUES,
+  FINISH_VALUES,
+  GRADING_COMPANY_VALUES,
+  PRODUCT_TYPE_VALUES,
+  SEALED_CONDITION_VALUES,
+  SEALED_SUBTYPE_VALUES,
+} from '../../../common/enum-values';
+// v2.1.9 (D4, §4.37): `RawCondition` es CLASE R — NO se deriva del schema. «Raw = solo NM» es
+// decisión de PROJECT §H (LOCKED), no un reflejo de la BD; derivarla BORRA la regla el día que el
+// enum crezca. Ver `common/business-rules.ts` para el porqué completo.
+import { ACCEPTED_RAW_CONDITIONS } from '../../../common/business-rules';
 
 /**
  * SEC-N3 (BE-34/WS-E) — tope de `qty` del alta por lote. `nextFolios` expande a
@@ -38,6 +51,17 @@ export const MAX_BATCH_QTY = 500;
 export const MAX_LIST_PRICE_CENTS = 100_000_000;
 
 /**
+ * H-1 en la ESCRITURA (v2.1.4, §4.36.6 / E5-bis) — «cinturón y tirantes».
+ *
+ * Todo `listPriceCents` aceptado por un write es **entero `> 0`** (`@Min(1)`): así el estado
+ * prohibido **no se puede crear**. `null`/ausente sigue siendo válido y significa «sin override».
+ *
+ * La lectura NO se relaja por eso: los seis seams tratan `<= 0` como AUSENTE de todos modos
+ * (`hasManualPrice`), porque las filas que preceden a esta validación ya están en la base. Una sola
+ * de las dos puntas no basta — el hueco D5 nació precisamente de confiar en la otra.
+ */
+
+/**
  * M-2 (SEC) — tope de política del % de aportación en especie. Sin `@Max`, un `vault_operator`
  * podía inflar arbitrariamente el costo de aportación (costo = referencia × pct/100) desde el DTO.
  * 100% (costo = referencia del día) es el techo de negocio para la aportación del dueño.
@@ -48,24 +72,26 @@ export class CreateItemDto {
   // v1.39 (P-38): OPCIONAL — REQUERIDO para raw/graded y sealed SIN sealedProductId; con
   // sealedProductId el backend lo DERIVA (ancla del set). Ausente donde se requiere → 422 en el servicio.
   @IsOptional() @IsString() cardId?: string;
-  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
-  // v1.1: raw solo NM (se eliminan LP/MP/HP/DMG).
-  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
+  @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
+  // PROJECT §H (LOCKED): el raw se opera ÚNICAMENTE en NM — se ELIMINAN LP/MP/HP/DMG. Lista de
+  // CLASE R (§4.37): literal a propósito. NO la derives de `RawCondition`: hoy daría lo mismo, pero el
+  // día que el schema gane `LP` se publicarían cartas no-NM sin que nadie lo decidiera.
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
   // v1.6-finish: acabado de la copia física (default normal). Validado contra
   // card.availableFinishes (SEC-A1); graded/sealed se fuerzan a normal en el servicio.
-  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
   // v1.1: subtipo del sellado (solo productType=sealed).
-  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
   // v1.23-sealed-sales: condición del sellado (solo productType=sealed; default mint en el servicio).
-  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
-  @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
+  @IsOptional() @IsIn(SEALED_CONDITION_VALUES) sealedCondition?: SealedCondition;
+  @IsOptional() @IsIn(GRADING_COMPANY_VALUES) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
   // v1.2 (M-12): nº de certificado PSA/CGC. Requerido para publicar una gradeada.
   @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsString() locationId?: string;
   // v1.2 (M-13): sin fotos de producto (frontPhotoKey/backPhotoKey/extraPhotoKeys eliminados).
-  @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
+  @IsIn(ACQUISITION_TYPE_VALUES) acquisitionType!: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
   // SEC N-2 (money-safe): `@Max` = MISMA cota que el dinero manual (`MAX_LIST_PRICE_CENTS`,
   // MX$1,000,000/pieza). Sin ella un `vault_operator` podía inyectar un costo cercano a Int32 y
@@ -73,7 +99,7 @@ export class CreateItemDto {
   // (promo/regalo), a diferencia de un precio de venta.
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) acquisitionCostCents?: number;
   // v1.1: precio manual MXN. Obligatorio para PUBLICAR el sellado (sin él no aparece en Compra).
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsString() sourceSellRequestItemId?: string;
   // v1.36-sealed-alta (M-37, P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados en
   // raw/graded). `tcgplayerProductId`+`tcgplayerGroupId` = mapeo TCGCSV; se fijan JUNTOS (uno sin el
@@ -97,9 +123,9 @@ export class CreateItemDto {
 export class UpdateItemDto {
   // v1.2 (M-13): sin fotos de producto. v1.2 (M-12): certNumber editable.
   @IsOptional() @IsString() certNumber?: string;
-  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsString() gradeValue?: string;
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsIn(['in_stock', 'listed']) status?: 'in_stock' | 'listed';
 }
 
@@ -130,18 +156,18 @@ export class CreateLocationDto {
 export class BatchInventoryItemInput {
   // v1.39 (P-38): OPCIONAL — el backend deriva la ancla del set cuando viene `sealedProductId`.
   @IsOptional() @IsString() cardId?: string;
-  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
-  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
-  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
-  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
   // v1.23-sealed-sales: condición del sellado (default mint en el servicio); solo productType=sealed.
-  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
-  @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
+  @IsOptional() @IsIn(SEALED_CONDITION_VALUES) sealedCondition?: SealedCondition;
+  @IsOptional() @IsIn(GRADING_COMPANY_VALUES) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
   @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsString() locationId?: string;
-  @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
+  @IsIn(ACQUISITION_TYPE_VALUES) acquisitionType!: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
   // BLOQ-1 (fix regresión E2E DINERO): MISMAS reglas que CreateItemDto.acquisitionCostCents
   // (opcional, entero, @Min(0)). Un COSTO 0 es legítimo (promo/regalo), a diferencia de un precio
@@ -177,7 +203,7 @@ export class BatchCreateInventoryRequest {
 
 export class BulkPublishLineInput {
   @IsString() inventoryItemId!: string;
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
 }
 
 export class BulkPublishRequest {
@@ -207,7 +233,7 @@ export class BulkPublishRequest {
 export class PublishAllRequestDto {
   @IsOptional() @IsString() batchKey?: string;
   @IsOptional() @IsString() setId?: string;
-  @IsOptional() @IsIn(['graded', 'sealed', 'raw']) productType?: ProductType;
+  @IsOptional() @IsIn(PRODUCT_TYPE_VALUES) productType?: ProductType;
 }
 
 // ===== v1.20-master-set-everywhere (§4.20e) — ajuste por levantamiento físico =====
@@ -219,21 +245,21 @@ export class PublishAllRequestDto {
  */
 export class AdjustmentFoundItemInput {
   @IsString() cardId!: string;
-  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
-  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
-  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  @IsIn(PRODUCT_TYPE_VALUES) productType!: ProductType;
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
-  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
   // v1.23-sealed-sales: condición del sellado (default mint en el servicio); solo productType=sealed.
-  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
-  @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
+  @IsOptional() @IsIn(SEALED_CONDITION_VALUES) sealedCondition?: SealedCondition;
+  @IsOptional() @IsIn(GRADING_COMPANY_VALUES) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
   @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsString() locationId?: string;
-  @IsOptional() @IsIn(['aportacion_en_especie', 'buylist', 'compra'])
+  @IsOptional() @IsIn(ACQUISITION_TYPE_VALUES)
   acquisitionType?: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_APORTACION_PCT) acquisitionPct?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
 }
 
@@ -258,7 +284,7 @@ export class AdjustmentFoundItemInput {
  */
 export class BulkRemoveRequestDto {
   @IsString() cardId!: string;
-  @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil']) finish!: Finish;
+  @IsIn(FINISH_VALUES) finish!: Finish;
   @IsInt() @Min(1) @Max(MAX_BATCH_QTY) quantity!: number;
   @IsIn(['perdida', 'danada', 'error_captura']) reason!: 'perdida' | 'danada' | 'error_captura';
   // Obligatoria (paridad con la baja por-pieza `adjustExisting`); `@IsNotEmpty` rechaza el string
@@ -268,9 +294,9 @@ export class BulkRemoveRequestDto {
   // timeout ambiguo). Persistido en InventoryBatch (kind='bulk_remove'); replay → respuesta original.
   @IsOptional() @IsString() batchKey?: string;
   // Filtros OPCIONALES para desambiguar la casilla (cardId, finish, condición) del drawer M1.
-  @IsOptional() @IsIn(['graded', 'sealed', 'raw']) productType?: ProductType;
-  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
-  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
+  @IsOptional() @IsIn(PRODUCT_TYPE_VALUES) productType?: ProductType;
+  @IsOptional() @IsIn(ACCEPTED_RAW_CONDITIONS) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(SEALED_CONDITION_VALUES) sealedCondition?: SealedCondition;
 }
 
 /**

@@ -1,0 +1,132 @@
+import { PricingController } from '../src/modules/pricing/pricing.controller';
+import { PricingService } from '../src/modules/pricing/pricing.service';
+import { AuditService } from '../src/modules/audit/audit.service';
+
+/**
+ * v1.50.2 (BREAKING chico, `super_admin`) — **`intent` OBLIGATORIO en `POST /admin/pricing/override`
+ * cuando `productType:"graded"`** (API_CONTRACT §M2; ARCHITECTURE §4.38l.1 · INV-D).
+ *
+ * ### El agujero que cierra, en una frase
+ * La fila del **«valor estimado si se gradea»** y la **referencia de mercado real de una pieza PSA N
+ * publicada** son **LA MISMA FILA** (`cardId` + `productType='graded'` + `gradeKey` + `finish='normal'`).
+ * Así que teclear un «estimado» sobre una carta que además tiene un slab publicado de ese grado
+ * **cambia el precio de venta real de esa pieza**. Es preexistente; el gancho lo **amplifica**, porque
+ * convierte esa captura en una tarea rutinaria de curaduría.
+ *
+ * ### Por qué OBLIGATORIO y no opcional-con-default
+ * Un `intent` que cayera a `"market"` por omisión es **FAIL-OPEN**: el operador que olvida el campo
+ * obtiene, **en silencio**, la ruta que **mueve dinero**. Se acepta el coste de un *breaking* pequeño en
+ * una ruta `super_admin` a cambio de que **la ambigüedad sea imposible de expresar**. Es la misma
+ * doctrina que «sin escalón no hay destacado» y que «AUSENTE ≠ INVÁLIDA»: cuando la intención se
+ * perdió, **no se adivina**.
+ */
+
+const REF = {
+  id: 'pr-1',
+  capturedDate: new Date('2026-08-28T00:00:00.000Z'),
+  source: 'manual' as const,
+  gradeKey: 'graded:PSA:10',
+  productType: 'graded' as const,
+  priceMxnCents: 900_000,
+  isManualOverride: true,
+};
+
+function build(publishedSlabs: { id: string }[] = []) {
+  const pricing = {
+    manualOverride: jest.fn(async () => REF),
+    publishedSlabsForGradeKey: jest.fn(async () => publishedSlabs),
+  } as unknown as PricingService;
+  const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
+  const ctrl = new PricingController(
+    pricing, {} as never, {} as never, audit, {} as never, {} as never, {} as never, {} as never,
+  );
+  return { ctrl, pricing, audit };
+}
+
+const body = (over: Record<string, unknown> = {}) => ({
+  cardId: 'c1',
+  productType: 'graded',
+  gradeKey: 'graded:PSA:10',
+  priceMxnCents: 900_000,
+  ...over,
+});
+
+describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (INV-D)', () => {
+  it('SIN `intent` ⇒ 422 GRADED_INTENT_REQUIRED, y NO se escribe nada', async () => {
+    const { ctrl, pricing } = build();
+    await expect(ctrl.override(body() as never, 'admin-1')).rejects.toMatchObject({
+      code: 'GRADED_INTENT_REQUIRED',
+      status: 422,
+    });
+    // Lo importante no es el código: es que la tabla de dinero NO se tocó.
+    expect(pricing.manualOverride).not.toHaveBeenCalled();
+  });
+
+  it('el 422 dice QUÉ hacer: nombra las dos intenciones y qué significa cada una', async () => {
+    const { ctrl } = build();
+    const err: any = await ctrl.override(body() as never, 'admin-1').catch((e) => e);
+    expect(err.message).toContain('market');
+    expect(err.message).toContain('graded_estimate');
+    expect(err.details).toMatchObject({ field: 'intent' });
+  });
+
+  it('`intent:"graded_estimate"` con SLAB PUBLICADO de ese grado ⇒ 409 GRADED_ESTIMATE_SLAB_PUBLISHED', async () => {
+    const { ctrl, pricing } = build([{ id: 'inv-1' }, { id: 'inv-2' }]);
+    const err: any = await ctrl
+      .override(body({ intent: 'graded_estimate' }) as never, 'admin-1')
+      .catch((e) => e);
+    expect(err.code).toBe('GRADED_ESTIMATE_SLAB_PUBLISHED');
+    expect(err.status).toBe(409); // conflicto de ESTADO, no de forma: el body es válido
+    // El `details` tiene que permitir ACTUAR: qué piezas son y cuántas.
+    expect(err.details).toMatchObject({
+      cardId: 'c1',
+      gradeKey: 'graded:PSA:10',
+      publishedSlabCount: 2,
+      inventoryItemIds: ['inv-1', 'inv-2'],
+    });
+    // …y el mensaje enruta a la salida correcta, no solo prohíbe.
+    expect(err.message).toContain('intent:"market"');
+    expect(pricing.manualOverride).not.toHaveBeenCalled();
+  });
+
+  it('`intent:"graded_estimate"` SIN slab publicado ⇒ escribe (es el flujo normal del gancho, fase 1)', async () => {
+    const { ctrl, pricing } = build([]);
+    const res = await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
+    expect(res.data.priceMxnCents).toBe(900_000);
+    expect(pricing.manualOverride).toHaveBeenCalledWith('c1', 'graded', 'graded:PSA:10', 900_000, 'normal');
+  });
+
+  it('`intent:"market"` NO consulta la guarda: es el comportamiento vigente de §M1 v1.28, intacto', async () => {
+    const { ctrl, pricing } = build([{ id: 'inv-1' }]);
+    const res = await ctrl.override(body({ intent: 'market' }) as never, 'admin-1');
+    expect(res.data.priceMxnCents).toBe(900_000);
+    // Con un slab publicado, `market` es EXACTAMENTE lo que el operador quiere hacer: fijar su precio.
+    expect(pricing.publishedSlabsForGradeKey).not.toHaveBeenCalled();
+    expect(pricing.manualOverride).toHaveBeenCalled();
+  });
+
+  it('con `productType` distinto de `graded` el `intent` NI SE EXIGE NI ESTORBA (raw/sealed intactos)', async () => {
+    const { ctrl, pricing } = build([{ id: 'inv-1' }]);
+    await ctrl.override(
+      { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 115_000 } as never,
+      'admin-1',
+    );
+    await ctrl.override(
+      { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
+      'admin-1',
+    );
+    expect(pricing.manualOverride).toHaveBeenCalledTimes(2);
+    expect(pricing.publishedSlabsForGradeKey).not.toHaveBeenCalled();
+  });
+
+  it('el `intent` queda en la BITÁCORA: es lo único que distingue las dos capturas sobre la MISMA fila', async () => {
+    const { ctrl, audit } = build([]);
+    await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'pricing.override',
+        after: expect.objectContaining({ intent: 'graded_estimate' }),
+      }),
+    );
+  });
+});

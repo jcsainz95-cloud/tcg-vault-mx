@@ -6,6 +6,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { buildGradeKey } from '../src/modules/pricing/pricing.types';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -15,19 +16,38 @@ const pii = new PiiCryptoService(new ConfigService({}));
  *     ACTIVOS (`enabled` + precio > 0, solo raw), orden `bountyPriceCents desc`, cap 50,
  *     `remainingQty = max(0, target − acquired)` (`null` sin objetivo). No escribe NADA.
  *  2) Conteo al PAGAR (paySpei): `bountyAcquiredQty` se incrementa por cada ítem con snapshot
- *     `ruleSource='bounty'` EN LA MISMA transacción del pago; auto-apagado al alcanzar
+ *     `priceBasis='bounty'` (v2.0, antes `ruleSource`) EN LA MISMA transacción del pago; auto-apagado al alcanzar
  *     `bountyTargetQty` (`enabled=false` + `completedAt` + AuditLog `bounty.completed`);
  *     idempotente ante replays (solo cuenta la llamada que HIZO la transición). B-1: los ítems
  *     `itemStatus='rechazada'` (cherry-pick) NO cuentan — §4.26a mide piezas COMPRADAS bajo
  *     bounty, mismo filtro que la invariante BL-1 de `approvedTotalCents`.
  */
 
-const svcOf = (prisma: any) =>
+/**
+ * v2.0 (§4.36.6): la vitrina resuelve el MERCADO en lote y filtra los bounties no efectivos ANTES
+ * del cap. `refsByKey` inyecta ese mercado; sin entrada ⇒ la curva no resuelve ⇒ el bounty explícito
+ * SIGUE siendo efectivo (es el caso donde más se necesita).
+ */
+const svcOf = (prisma: any, refsByKey: Record<string, number> = {}) =>
   new BuylistService(
     prisma as PrismaService,
-    // Solo se usa gradeKeyFor en el conteo — misma derivación canónica que la cotización.
-    { gradeKeyFor: (i: any) => buildGradeKey(i) } as unknown as PricingService,
-    {} as SettingsService,
+    {
+      gradeKeyFor: (i: any) => buildGradeKey(i),
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+      getReferencesBatch: jest.fn(async (keys: any[]) => {
+        const m = new Map<string, any>();
+        for (const k of keys) {
+          const key = `${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`;
+          if (refsByKey[key] != null) m.set(key, { status: 'priced', referenceMxnCents: refsByKey[key] });
+        }
+        return m;
+      }),
+    } as unknown as PricingService,
+    { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService,
     {} as UsersService,
     pii,
   );
@@ -62,7 +82,9 @@ describe('publicBounties — vitrina pública READ-ONLY (contrato §6)', () => {
       expect.objectContaining({
         where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
         orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
-        take: 50,
+        // v2.0: el `take` del QUERY es el cap de CANDIDATOS; el cap 50 de la vitrina se aplica
+        // DESPUÉS de filtrar los no efectivos (filtrar tras el cap dejaría huecos silenciosos).
+        take: 500,
       }),
     );
     expect(res.data[0]).toEqual({
@@ -123,18 +145,22 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
       o.gradeKey === w.gradeKey &&
       o.finish === w.finish;
     const prisma: any = {
+      // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
+      // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
+      kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
           .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
       sellRequestItem: {
-        // Honra el where REAL del servicio: ruleSource='bounty' + itemStatus≠'rechazada' (B-1).
+        // Honra el where REAL del servicio: priceBasis='bounty' + itemStatus≠'rechazada' (B-1, v2.0).
         findMany: jest.fn(async ({ where }: any) =>
           opts.items.filter(
-            (i) => i.ruleSource === where.ruleSource && i.itemStatus !== where.itemStatus?.not,
+            (i) => i.priceBasis === where.priceBasis && i.itemStatus !== where.itemStatus?.not,
           ),
         ),
       },
@@ -170,7 +196,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     productType: 'raw',
     rawCondition: 'NM',
     finish: 'holofoil',
-    ruleSource: 'bounty',
+    priceBasis: 'bounty',
     itemStatus: 'aprobada',
     ...over,
   });
@@ -190,7 +216,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
 
   it('incrementa el contador POR CLAVE (2 piezas de la misma variante = +2) sin llegar al target', async () => {
     const h = buildHarness({
-      items: [bountyItem(), bountyItem(), bountyItem({ ruleSource: 'rule' })], // la 3ª NO cuenta
+      items: [bountyItem(), bountyItem(), bountyItem({ priceBasis: 'market' })], // la 3ª NO cuenta
       overrideRows: [m30Row({ bountyTargetQty: 5 })],
     });
     await h.svc.paySpei('sr', 'SPEI-1', 'admin');
@@ -220,7 +246,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     // El where del servicio lleva el filtro BL-1 (misma semántica que approvedTotalCents).
     expect(h.prisma.sellRequestItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ ruleSource: 'bounty', itemStatus: { not: 'rechazada' } }),
+        where: expect.objectContaining({ priceBasis: 'bounty', itemStatus: { not: 'rechazada' } }),
       }),
     );
     expect(h.overrideRows[0]).toMatchObject({ bountyEnabled: true, bountyAcquiredQty: 3 });

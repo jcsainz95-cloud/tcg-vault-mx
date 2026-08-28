@@ -7,8 +7,8 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { BuylistRule } from '../src/common/money';
 import { BatchQuoteDto, BUYLIST_QUOTE_BATCH_MAX } from '../src/modules/buylist/dto/buylist.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * WS-C (v1.15-buylist-batch-clabe) — cobertura de backend:
@@ -22,18 +22,11 @@ import { BatchQuoteDto, BUYLIST_QUOTE_BATCH_MAX } from '../src/modules/buylist/d
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
-const SEED: Record<string, BuylistRule> = {
-  Common: { mode: 'fixed', value: 50 },
-  Uncommon: { mode: 'fixed', value: 50 },
-  'Reverse Holo': { mode: 'fixed', value: 150 },
-};
-
 /** Settings con caps/umbral MUY altos (no interfieren) y las reglas del seed. */
 function settingsHighCaps(): SettingsService {
   return {
-    getRaw: jest.fn(async (key: string) =>
-      key === 'buylist_price_rules' ? SEED : {},
-    ),
+    // v2.0 (P-48): ya no hay tabla de reglas por rareza; la curva la iza `PricingService`.
+    getRaw: jest.fn(async () => null),
     getNumber: jest.fn(async (key: string) =>
       key === 'buylist_price_fallback_pct' ? 40 : 100_000_000,
     ),
@@ -51,9 +44,18 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
 
   function pricingCotiza(): PricingService {
     return {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      // Common/normal usa regla FIJA, no depende de la referencia.
-      getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
+      // v2.0 (P-48): el monto sale de la CURVA sobre el mercado. Sin referencia la línea quedaría
+      // `precio_pendiente` (el BIN no gana) y dispararía el gate de INE de Fase 0.3, que NO es lo que
+      // estos casos verifican (CLABE/PII). Se le da mercado para que la línea COTICE.
+      getReference: jest.fn().mockResolvedValue({ status: 'priced', referenceMxnCents: 12500 }),
+      // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+      settlePendingForVariant: jest.fn(async () => undefined),
       escalatePending: jest.fn().mockResolvedValue(undefined),
       // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
       getVariantOverridesBatch: jest.fn(async () => new Map()),
@@ -71,6 +73,14 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
         findUnique: jest
           .fn()
           .mockResolvedValue({ id: 'c', rarity: 'Common', availableFinishes: ['normal'] }),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+        // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
       },
       kycProfile: {
         findUnique: jest.fn(async ({ where }: any) => kycByUser[where.userId] ?? null),
@@ -195,9 +205,23 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
   function buildSvc() {
     const escalatePending = jest.fn().mockResolvedValue(undefined);
     const prisma: any = {
-      card: { findUnique: jest.fn(async ({ where }: any) => CARDS[where.id] ?? null) },
+      card: {
+        findUnique: jest.fn(async ({ where }: any) => CARDS[where.id] ?? null),
+        // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+        // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+        findMany: jest.fn(async function (this: any, args: any) {
+          const ids: string[] = args?.where?.id?.in ?? [];
+          const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+          return rows.filter(Boolean);
+        }),
+      },
     };
     const pricing = {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async (cardId: string) =>
         cardId === 'c-ok'
@@ -231,14 +255,15 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
 
     expect(results).toHaveLength(5);
 
-    // index 0 — ok, Common normal → fixed $0.50
+    // index 0 — ok, mercado $125 → CURVA de compra (40.63 % interpolado) = $50.79. v2.0: ni la
+    // rareza ni el acabado entran al monto (criterio 84); `priceBasis` reemplaza a `appliedRule`.
     expect(results[0]).toMatchObject({
       index: 0,
       cardId: 'c-ok',
       ok: true,
       finish: 'normal',
-      appliedRule: { mode: 'fixed', value: 50, source: 'rule' },
-      quote: { status: 'cotizada', quotedPriceCents: 50, currency: 'MXN' },
+      priceBasis: 'market',
+      quote: { status: 'cotizada', quotedPriceCents: 5078, currency: 'MXN' },
     });
 
     // index 1 — carta inexistente → NOT_FOUND por-ítem
@@ -257,24 +282,24 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       error: { code: 'FINISH_NOT_AVAILABLE' },
     });
 
-    // index 3 — ok pero precio_pendiente (Illustration Rare premium, holofoil sin referencia)
+    // index 3 — ok pero precio_pendiente: SIN dato de mercado el BIN no gana (§4.36.0), jamás MX$0.
     expect(results[3]).toMatchObject({
       index: 3,
       cardId: 'c-pending',
       ok: true,
-      appliedRule: { mode: 'pct', value: 40, source: 'fallback' },
+      priceBasis: 'pending',
       quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' },
       referencePrice: { status: 'pending' },
     });
 
-    // index 4 — ok, Reverse Holo → fixed $1.50
+    // index 4 — ok, MISMO mercado que index 0 pero otro acabado ⇒ MISMO monto (criterio 83).
     expect(results[4]).toMatchObject({
       index: 4,
       cardId: 'c-ok',
       ok: true,
       finish: 'reverse_holo',
-      appliedRule: { mode: 'fixed', value: 150, source: 'rule' },
-      quote: { status: 'cotizada', quotedPriceCents: 150, currency: 'MXN' },
+      priceBasis: 'market',
+      quote: { status: 'cotizada', quotedPriceCents: 5078, currency: 'MXN' },
     });
 
     // READ-ONLY: aunque hubo un precio_pendiente, NO escala a la cola del dueño (endpoint anónimo).
@@ -322,10 +347,11 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
         expect(payload).toEqual(perCard[i]);
       }
     });
-    // Sanidad de montos: normal $0.50, reverse $1.50, holofoil 40% de 12500 = $50.00.
-    expect((results[0] as any).quote.quotedPriceCents).toBe(50);
-    expect((results[1] as any).quote.quotedPriceCents).toBe(150);
-    expect((results[2] as any).quote.quotedPriceCents).toBe(5000);
+    // Sanidad de montos: v2.0 los TRES acabados cotizan IDÉNTICO ($125 × 40.63 % = $50.79), porque el
+    // acabado dejó de tener regla propia y solo elige de qué variante se lee el mercado (criterio 83).
+    expect((results[0] as any).quote.quotedPriceCents).toBe(5078);
+    expect((results[1] as any).quote.quotedPriceCents).toBe(5078);
+    expect((results[2] as any).quote.quotedPriceCents).toBe(5078);
   });
 });
 

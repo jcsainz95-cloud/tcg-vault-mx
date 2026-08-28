@@ -14,7 +14,7 @@ import * as fx from './mock/fixtures';
 import type {
   Paginated,
   ListingDTO,
-  GroupedListingDTO,
+  GroupedListingSummaryDTO,
   GroupedListingListResponse,
   GroupedListingDetailResponse,
   CardSetDTO,
@@ -67,22 +67,17 @@ import type {
   SealedGroupDetailResponse,
   VaultSealedResponse,
   SealedSpreadsDTO,
+  SealedSpreadsUpdateRequest,
   GradedEstimateConfigDTO,
   GradedEstimateConfigInput,
   Finish,
   GradingCompany,
   AcquisitionType,
   InventoryStatus,
-  BuylistRule,
-  PriceRuleSet,
-  BuylistRaritiesResponse,
-  SalesRule,
-  SalesPriceRuleSet,
-  SalesRaritiesResponse,
-  TieredRuleSet,
-  UpdateTiersRequest,
-  TierMapResponse,
-  UpdateTierMapRequest,
+  PricingCurveDTO,
+  CurvePreviewRequest,
+  CurvePreviewResponse,
+  RarityHealthResponse,
   BreakdownDTO,
   PortfolioRange,
   PortfolioHistoryResponse,
@@ -101,6 +96,8 @@ import type {
   FxDTO,
   PriceIngestResponse,
   PendingPriceEntryDTO,
+  PendingPriceQueueResponse,
+  PendingPriceReason,
   PendingPriceContext,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
@@ -237,7 +234,7 @@ export interface CatalogFilters {
   page?: number;
   pageSize?: number;
   /**
-   * v1.44-graded-estimate (§N.3(3)): vitrina «Joyas para gradear» del home. **Solo se acepta
+   * v1.50-graded-estimate (§O.3(3)): vitrina «Joyas para gradear» del home. **Solo se acepta
    * `true`** (fail-closed: un `false` «filtrando lo no destacado» sería una superficie comercial
    * invertida). Presente ⇒ el servidor devuelve únicamente los grupos que pasan el gate de ROI.
    * `data: []` ES la señal normativa de «no renderizar la vitrina completa».
@@ -247,7 +244,8 @@ export interface CatalogFilters {
 
 /**
  * v1.38-grouped-listings (P-30): GET /catalog/cards devuelve el shape AGRUPADO
- * (`GroupedListingDTO[]`), UNA publicación por (carta, productType, gradeKey, finish) con
+ * (`GroupedListingSummaryDTO[]`, v2.1.9/D2), UNA publicación por (carta, productType, gradeKey,
+ * finish) con
  * `stockCount`, no una fila por copia física. `total` = nº de GRUPOS. El re-quote/cobro sigue
  * siendo por-pieza (GET /catalog/listings/:inventoryItemId, sin cambio).
  */
@@ -269,12 +267,12 @@ export async function getCatalog(
       sort: filters.sort,
       page: filters.page,
       pageSize: filters.pageSize,
-      // v1.44: solo se manda cuando es `true`; omitido ⇒ comportamiento idéntico a hoy.
+      // v1.50: solo se manda cuando es `true`; omitido ⇒ comportamiento idéntico a hoy.
       gradingHighlight: filters.gradingHighlight ? 'true' : undefined,
     };
     return apiRequest<GroupedListingListResponse>('/catalog/cards', { query });
   }
-  // v1.44 (paridad con el contrato): `sort=grading_showcase` SIN `gradingHighlight=true` es un
+  // v1.50 (paridad con el contrato): `sort=grading_showcase` SIN `gradingHighlight=true` es un
   // 400 GRADING_SORT_REQUIRES_FILTER — si se aceptara, los grupos no destacados irían a la cola con
   // clave de orden indefinida y la vitrina podría pintarlos al paginar.
   if (filters.sort === 'grading_showcase' && !filters.gradingHighlight) {
@@ -299,21 +297,23 @@ export async function getCatalog(
   if (filters.productType) pieces = pieces.filter((l) => l.productType === filters.productType);
   if (filters.condition) pieces = pieces.filter((l) => l.rawCondition === filters.condition);
   if (filters.finish) pieces = pieces.filter((l) => l.finish === filters.finish);
-  let data = fx.groupMockListings(pieces);
+  // v1.50.2: la rejilla usa el DTO del Summary (sin `priceBasis`/`referenceValue`, con el marcador
+  // `gradingHighlight` ya resuelto por el servidor).
+  let data = fx.groupMockSummaries(pieces);
   if (filters.minPriceCents != null)
     data = data.filter((g) => g.salePriceCents >= filters.minPriceCents!);
   if (filters.maxPriceCents != null)
     data = data.filter((g) => g.salePriceCents <= filters.maxPriceCents!);
   if (filters.sort === 'price_asc') data.sort((a, b) => a.salePriceCents - b.salePriceCents);
   if (filters.sort === 'price_desc') data.sort((a, b) => b.salePriceCents - a.salePriceCents);
-  // v1.44: la vitrina «Joyas para gradear» = subconjunto YA CURADO del catálogo (mismo DTO, misma
+  // v1.50: la vitrina «Joyas para gradear» = subconjunto YA CURADO del catálogo (mismo DTO, misma
   // teja). El filtro es la PRESENCIA del marcador; el orden lo dicta el fixture (lo resolvió el
   // servidor). El cliente no reevalúa el gate ni deriva ganancia/costo alguno.
   if (filters.gradingHighlight) {
     data = data.filter((g) => !!g.gradingHighlight);
     if (filters.sort === 'grading_showcase') {
       const order = fx.mockGradingShowcaseCardIds;
-      const rank = (g: GroupedListingDTO) => {
+      const rank = (g: GroupedListingSummaryDTO) => {
         const i = order.indexOf(g.card.id);
         return i === -1 ? Number.MAX_SAFE_INTEGER : i;
       };
@@ -575,11 +575,18 @@ export async function getSealedSpreads(): Promise<SealedSpreadsDTO> {
 }
 
 /**
- * Reemplaza los spreads de venta del sellado y/o el fallback (contrato PUT
+ * Edita los spreads de venta del sellado y/o el fallback (contrato PUT
  * /admin/pricing/sealed-spreads). Semántica pct = markup ARRIBA de mercado (como ventas §4.14),
  * rango [0,1000]. Auditado. `salePriceCents = round(mercadoTCGCSV × (1 + spread/100))`.
+ *
+ * v2.1.9 — la petición es **PARCIAL y con tres estados** (`SealedSpreadsUpdateRequest`): se mandan
+ * SOLO las llaves que el dueño tocó; `null` RETIRA la regla de esa presentación (vuelve al global).
+ * No es reemplazo total a propósito: un cliente rancio que mandara «las cinco llaves de siempre»
+ * borraría `upc`/`collection` en silencio, que es el bug de D3 reabierto desde el otro lado.
  */
-export async function updateSealedSpreads(input: SealedSpreadsDTO): Promise<SealedSpreadsDTO> {
+export async function updateSealedSpreads(
+  input: SealedSpreadsUpdateRequest,
+): Promise<SealedSpreadsDTO> {
   if (!config.useMocks) {
     return apiRequest<SealedSpreadsDTO>('/admin/pricing/sealed-spreads', {
       method: 'PUT',
@@ -1130,11 +1137,13 @@ export interface BuylistQuoteInput {
 }
 
 /**
- * MOCK v1.3.1/v1.6-finish/v1.30: aplica la REGLA de buylist (fixed MX$ / pct % de la referencia +
- * fallback) sobre una (rareza, acabado, referencia) YA resueltas. El backend deriva rareza+acabado
- * server-side (SEC-A1); aquí lo replicamos para la demo. `productId` (§4.29) se ECOA cuando la línea
- * es un producto separado (deck_exclusive/promo). Money-safe: pct sin referencia ⇒ precio_pendiente
- * (jamás 0). Compartido por el quote por-carta, el batch y la creación de solicitud.
+ * MOCK v2.0 (P-48): cotización de COMPRA por la **curva** sobre una (acabado, referencia) ya
+ * resueltas. La `rarity` viaja como dato INFORMATIVO del catálogo — el monto **no depende de
+ * ella** (criterio 84) ni del acabado: el acabado solo elige DE QUÉ VARIANTE se lee el mercado.
+ *
+ * ⚠️ El cálculo real vive en el BACKEND (ARCHITECTURE §4.36.1); `fx.mockDemoBuyQuote` es una
+ * aproximación de demo del modo sin backend, no la curva. Money-safe: **sin dato de mercado ⇒
+ * PRECIO PENDIENTE** (el bin NO rellena el hueco, §4.36.0) — jamás MX$0.
  */
 function mockRuleQuote(
   rarity: string,
@@ -1142,23 +1151,17 @@ function mockRuleQuote(
   refCents: number | null,
   productId?: number,
 ): BuylistQuoteResponse {
-  const { rule, source } = fx.resolveBuylistRuleForFinish(rarity, finish);
-  const appliedRule = { mode: rule.mode, value: rule.value, source };
+  const quote = fx.mockDemoBuyQuote(refCents);
   const referencePrice: BuylistQuoteResponse['referencePrice'] =
     refCents != null ? { status: 'priced', priceMxnCents: refCents } : { status: 'pending' };
   const base = {
     rarity,
     finish,
     ...(productId != null ? { productId } : {}),
-    appliedRule,
+    priceBasis: quote.basis,
     paymentNotice: 'PAY_AFTER_RECEIPT' as const,
   };
-  if (rule.mode === 'fixed') {
-    // Fijo: NO depende de la referencia → siempre cotiza.
-    return { ...base, quote: { status: 'cotizada', quotedPriceCents: rule.value, currency: 'MXN' }, referencePrice };
-  }
-  // Porcentaje: si falta referencia (del acabado o del producto separado) → precio pendiente.
-  if (refCents == null) {
+  if (quote.cents == null) {
     return {
       ...base,
       quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' },
@@ -1167,7 +1170,7 @@ function mockRuleQuote(
   }
   return {
     ...base,
-    quote: { status: 'cotizada', quotedPriceCents: Math.round((refCents * rule.value) / 100), currency: 'MXN' },
+    quote: { status: 'cotizada', quotedPriceCents: quote.cents, currency: 'MXN' },
     referencePrice,
   };
 }
@@ -1210,7 +1213,7 @@ function mockResolveQuoteItem(
   if (opts.validateBaseFinish && !card.availableFinishes.includes(finish)) {
     return { ok: false, code: 'FINISH_NOT_AVAILABLE' };
   }
-  const refCents = fx.mockReferenceForFinish(item.cardId, finish) ?? null;
+  const refCents = fx.mockMarketReferenceForVariant(item.cardId, finish) ?? null;
   return { ok: true, payload: mockRuleQuote(rarity, finish, refCents) };
 }
 
@@ -1335,7 +1338,8 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
       // v1.30 (§4.29): snapshot del productId cuando la línea es un producto separado.
       ...(it.productId != null ? { productId: it.productId } : {}),
       rarity: card.rarity,
-      appliedRule: payload?.appliedRule ?? { mode: 'pct', value: 40, source: 'fallback' },
+      // v2.0 (§N.8): instrumentación de la decisión de precio en lugar de `appliedRule`.
+      priceBasis: payload?.priceBasis ?? 'pending',
       quotedPriceCents: quoted,
       itemStatus: quoted == null ? 'precio_pendiente' : 'cotizada',
     };
@@ -3032,16 +3036,19 @@ export async function unifyRarities(): Promise<UnifyRaritiesResponse> {
  */
 export async function getPendingPrices(
   context?: PendingPriceContext,
-): Promise<PendingPriceEntryDTO[]> {
+  reason?: PendingPriceReason,
+): Promise<PendingPriceQueueResponse> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending', {
-      query: { context },
+    // v2.1 (P-48): la respuesta trae `data` + `counts` en el MISMO cuerpo. Encabezado y lista se
+    // pintan del mismo snapshot, así que no pueden contradecirse.
+    return apiRequest<PendingPriceQueueResponse>('/admin/pricing/pending', {
+      // v2.0 (P-48): `?reason=` distingue las dos causas de la cola — `no_market` lo arregla el
+      // siguiente barrido solo; `premium_at_floor` (guardarraíl) REQUIERE que alguien la mire.
+      // Los `counts` IGNORAN este filtro y la paginación, pero RESPETAN `context` (contrato §M2).
+      query: { context, reason },
     });
-    return res.data;
   }
-  return delay(
-    context ? fx.mockPendingPrices.filter((p) => p.context === context) : fx.mockPendingPrices,
-  );
+  return delay(fx.getMockPendingQueue(context, reason));
 }
 
 export interface PricingOverrideInput {
@@ -3145,126 +3152,67 @@ export async function triggerPriceIngest(
  * backend (SettingsDTO.priceProvider) con PPT fijo como respaldo, sin control desde el frontend.
  */
 
+// ==== M2: LA CURVA DE PRECIO POR VALOR DE MERCADO (v2.0, P-48; contrato §M2) ====
+// ⛔ RETIRADOS con el editor viejo: getBuylistRarities / getBuylistRules / updateBuylistRules /
+// getSalesRarities / getSalesRules / updateSalesRules / getPricingTiers / updatePricingTiers /
+// getPricingTierMap / updatePricingTierMap. Sus endpoints YA NO EXISTEN (contrato §M2 «RETIRADOS
+// por la curva»). El eje rareza NO se edita: salió del pricing.
+
 /**
- * Rarezas distintas del catálogo sincronizado UNIDAS a las reglas de buylist, para
- * poblar el editor de precio por rareza (contrato GET /admin/pricing/rarities, v1.3.1).
- * Las rarezas sin regla explícita muestran el fallback (source="fallback").
+ * La curva completa (piso + puntos de venta + escalera de redondeo + bin + puntos de compra) —
+ * contrato GET /admin/pricing/curve, `super_admin`, read-only.
  */
-export async function getBuylistRarities(): Promise<BuylistRaritiesResponse> {
-  if (!config.useMocks) return apiRequest<BuylistRaritiesResponse>('/admin/pricing/rarities');
-  return delay(fx.mockBuylistRarities());
+export async function getPricingCurve(): Promise<PricingCurveDTO> {
+  if (!config.useMocks) return apiRequest<PricingCurveDTO>('/admin/pricing/curve');
+  return delay(fx.getMockPricingCurve());
 }
 
 /**
- * PriceRuleSet de buylist: reglas por RAREZA CANÓNICA + reglas por ACABADO + fallback (contrato
- * GET /admin/pricing/buylist-rules, v1.29 dos ejes). Reemplaza el mapa plano `{ rules, fallbackPct }`
- * (que mezclaba rareza y acabado con keys sintéticas "Holo"/"Reverse Holo" — parche INV-1 retirado).
+ * Reemplaza el objeto COMPLETO (contrato PUT /admin/pricing/curve — semántica de reemplazo, no de
+ * patch por índice). Los puntos pueden ir desordenados: el server ordena por `marketCents` y rechaza
+ * duplicados. Validación money-safe al GUARDAR (422 con `details` que dice QUÉ PUNTO lo rompe):
+ * CURVE_EMPTY · DUPLICATE_BREAKPOINT · SALE_BELOW_MARKET · SALE_CURVE_NOT_MONOTONIC · BUY_ABOVE_SALE
+ * · BIN_ABOVE_FLOOR · ROUNDING_LADDER_INVALID. Auditado (M10). Surte efecto sin redeploy: el precio
+ * de venta se resuelve en LECTURA, así que NO hay «publicar de nuevo».
  */
-export async function getBuylistRules(): Promise<PriceRuleSet> {
-  if (!config.useMocks) return apiRequest<PriceRuleSet>('/admin/pricing/buylist-rules');
-  return delay(fx.getMockBuylistRuleSet());
-}
-
-/**
- * Reemplaza el PriceRuleSet de buylist (reglas por rareza + por acabado + fallback) — contrato PUT
- * /admin/pricing/buylist-rules (v1.29). Validación server-side: mode ∈ {fixed,pct}; fixed → value
- * entero ≥ 0 (centavos); pct/fallback → número en [0,100]. Auditado (M10). Surte efecto sin redeploy.
- */
-export async function updateBuylistRules(input: {
-  rarityRules: Record<string, BuylistRule>;
-  finishRules: Partial<Record<Finish, BuylistRule>>;
-  fallbackPct?: number;
-}): Promise<PriceRuleSet> {
+export async function updatePricingCurve(input: PricingCurveDTO): Promise<PricingCurveDTO> {
   if (!config.useMocks) {
-    return apiRequest<PriceRuleSet>('/admin/pricing/buylist-rules', { method: 'PUT', body: input });
+    return apiRequest<PricingCurveDTO>('/admin/pricing/curve', { method: 'PUT', body: input });
   }
-  fx.setMockBuylistRuleSet(input.rarityRules, input.finishRules, input.fallbackPct);
-  return delay(fx.getMockBuylistRuleSet());
+  return delay(fx.setMockPricingCurve(input));
 }
 
 /**
- * Rarezas distintas del catálogo sincronizado UNIDAS a las reglas de VENTA, para poblar el
- * editor de precio de venta por rareza (contrato GET /admin/pricing/sales-rarities,
- * v1.13-sales-pricing). Clon de getBuylistRarities pero para el precio de VENTA. Las rarezas
- * sin regla explícita muestran el fallback (source="fallback").
+ * DRY-RUN de la curva (contrato POST /admin/pricing/curve/preview, v2.1; ARCHITECTURE §4.36.8a).
+ * Es la ÚNICA fuente de los números del previsualizador: la matemática de §4.36.1 NO se
+ * reimplementa en el cliente — si el dueño calibrara contra un cálculo que no es el que va a
+ * cobrar, sería el bug de P-48 en espejo.
+ *
+ * Request = SOLO el borrador + las sondas: la columna VIGENTE la calcula el servidor con SU curva
+ * almacenada (un cliente rancio pintaría una «vigente» que no lo es). Un `200` con `violations: []`
+ * NO autoriza nada: el PUT re-valida desde cero y es la única autoridad del dinero (SEC-A1).
+ *
+ * SIN mock local a propósito (money-safe): fingir el cálculo en el cliente sería exactamente la
+ * duplicación que este endpoint existe para matar. Sin backend, el previsualizador muestra su
+ * estado de error honesto en vez de cifras inventadas.
  */
-export async function getSalesRarities(): Promise<SalesRaritiesResponse> {
-  if (!config.useMocks) return apiRequest<SalesRaritiesResponse>('/admin/pricing/sales-rarities');
-  return delay(fx.mockSalesRarities());
-}
-
-/** PriceRuleSet de VENTA (rareza canónica + acabado + fallback) — contrato GET /admin/pricing/sales-rules (v1.29). */
-export async function getSalesRules(): Promise<SalesPriceRuleSet> {
-  if (!config.useMocks) return apiRequest<SalesPriceRuleSet>('/admin/pricing/sales-rules');
-  return delay(fx.getMockSalesRuleSet());
-}
-
-/**
- * Reemplaza el PriceRuleSet de VENTA (reglas por rareza + por acabado + fallback) — contrato PUT
- * /admin/pricing/sales-rules (v1.29). Validación server-side: mode ∈ {fixed,pct}; fixed → value
- * entero ≥ 0 (centavos, PISO); pct/fallback → número en [0,1000] (markup ARRIBA de mercado; puede
- * >100% a diferencia del pct de buylist). Auditado (M10). Surte efecto sin redeploy.
- */
-export async function updateSalesRules(input: {
-  rarityRules: Record<string, SalesRule>;
-  finishRules: Partial<Record<Finish, SalesRule>>;
-  fallbackPct?: number;
-}): Promise<SalesPriceRuleSet> {
-  if (!config.useMocks) {
-    return apiRequest<SalesPriceRuleSet>('/admin/pricing/sales-rules', { method: 'PUT', body: input });
-  }
-  fx.setMockSalesRuleSet(input.rarityRules, input.finishRules, input.fallbackPct);
-  return delay(fx.getMockSalesRuleSet());
-}
-
-// ==== M2: PRICING POR TIERS (v1.37-pricing-tiers, contrato §M2, P-34) ====
-
-/**
- * Los 5 tiers T0–T4 con su regla de COMPRA (buylist) y VENTA + el eje acabado (finishRules) y los
- * fallbacks, por eje (contrato GET /admin/pricing/tiers). Read-only. `name`/`premium`/`rarityCount`
- * son informativos (taxonomía LOCKED); el editor solo edita los VALORES de las reglas.
- */
-export async function getPricingTiers(): Promise<TieredRuleSet> {
-  if (!config.useMocks) return apiRequest<TieredRuleSet>('/admin/pricing/tiers');
-  return delay(fx.getMockTieredRuleSet());
+export async function previewPricingCurve(
+  input: CurvePreviewRequest,
+): Promise<CurvePreviewResponse> {
+  return apiRequest<CurvePreviewResponse>('/admin/pricing/curve/preview', {
+    method: 'POST',
+    body: input,
+  });
 }
 
 /**
- * Reemplaza los VALORES de las 5 reglas (buy y sell) + eje acabado + fallbacks (contrato PUT
- * /admin/pricing/tiers). Validación server-side: mode ∈ {fixed,pct}; fixed → centavos ≥ 0; buy pct
- * ∈ [0,100]; sell pct ∈ [0,1000]. Invariante money-safe: la regla de COMPRA de un tier con rarezas
- * `premium` mapeadas no puede ser `fixed` ⇒ 422 PREMIUM_RARITY_FIXED_TIER (con los pares
- * infractores). Auditado (M10). Surte efecto sin redeploy.
+ * Salud del catálogo de rarezas (contrato GET /admin/pricing/rarities — RE-PROPOSITADO en v2.0).
+ * Ya NO es un editor de precios: qué rarezas existen, cuáles son `premium` y cuántas cartas hay de
+ * cada una. Es la vista que RESPALDA el guardarraíl (§4.36.5), no una tabla de reglas.
  */
-export async function updatePricingTiers(input: UpdateTiersRequest): Promise<TieredRuleSet> {
-  if (!config.useMocks) {
-    return apiRequest<TieredRuleSet>('/admin/pricing/tiers', { method: 'PUT', body: input });
-  }
-  return delay(fx.setMockTieredRuleSet(input));
-}
-
-/**
- * El mapa rareza canónica → tier unido al catálogo (contrato GET /admin/pricing/tier-map), para
- * poblar el asignador. Muestra rarezas mapeadas y rarezas del catálogo aún sin mapear (tierId:null
- * + source:'fallback' → cotizan por el fallback pct, money-safe). Ordenado por cardCount desc.
- */
-export async function getPricingTierMap(): Promise<TierMapResponse> {
-  if (!config.useMocks) return apiRequest<TierMapResponse>('/admin/pricing/tier-map');
-  return delay(fx.getMockTierMap());
-}
-
-/**
- * Reasigna rarezas a tiers (contrato PUT /admin/pricing/tier-map). Patch PARCIAL: solo las rarezas a
- * cambiar. Validación: TierId ∈ {T0..T4} (422 VALIDATION_ERROR); cada key debe ser una rareza
- * canónica del catálogo (422 UNKNOWN_RARITY); invariante de refinamiento (422
- * PREMIUM_RARITY_FIXED_TIER: una rareza premium no puede caer en un tier de compra `fixed`).
- * Auditado (M10). Surte efecto sin redeploy.
- */
-export async function updatePricingTierMap(input: UpdateTierMapRequest): Promise<TierMapResponse> {
-  if (!config.useMocks) {
-    return apiRequest<TierMapResponse>('/admin/pricing/tier-map', { method: 'PUT', body: input });
-  }
-  return delay(fx.setMockTierMap(input.assignments));
+export async function getRarityHealth(): Promise<RarityHealthResponse> {
+  if (!config.useMocks) return apiRequest<RarityHealthResponse>('/admin/pricing/rarities');
+  return delay(fx.getMockRarityHealth());
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */

@@ -2,7 +2,6 @@ import {
   computeCartBreakdown,
   computeShipmentBreakdown,
   grossUpTotal,
-  quoteAcquisition,
   computeSalePriceCents,
   computeAportacionCostCents,
   usdToMxnCents,
@@ -94,65 +93,9 @@ describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisi�
   });
 });
 
-describe('AcquisitionPricer — quoteAcquisition por RAREZA (ARCHITECTURE §4.2, v1.3.1)', () => {
-  const RULES = {
-    Common: { mode: 'fixed' as const, value: 50 },
-    Uncommon: { mode: 'fixed' as const, value: 50 },
-    'Reverse Holo': { mode: 'fixed' as const, value: 150 },
-  };
-  const FALLBACK = 40;
-
-  it('regla fixed → monto fijo, siempre cotiza (no depende de referencia)', () => {
-    expect(quoteAcquisition('Common', 999999, RULES, FALLBACK)).toEqual({
-      quotedPriceCents: 50,
-      status: 'cotizada',
-      appliedRule: { mode: 'fixed', value: 50 },
-      ruleSource: 'rule',
-    });
-    // Reverse Holo fijo cotiza aun SIN referencia.
-    expect(quoteAcquisition('Reverse Holo', null, RULES, FALLBACK)).toEqual({
-      quotedPriceCents: 150,
-      status: 'cotizada',
-      appliedRule: { mode: 'fixed', value: 150 },
-      ruleSource: 'rule',
-    });
-  });
-
-  it('regla pct explícita → % de la referencia', () => {
-    const rules = { 'Illustration Rare': { mode: 'pct' as const, value: 40 } };
-    expect(quoteAcquisition('Illustration Rare', 12500, rules, FALLBACK)).toEqual({
-      quotedPriceCents: 5000,
-      status: 'cotizada',
-      appliedRule: { mode: 'pct', value: 40 },
-      ruleSource: 'rule',
-    });
-  });
-
-  it('rareza SIN regla → fallback % (ruleSource=fallback), reproduce el antiguo ex_plus 40%', () => {
-    expect(quoteAcquisition('Special Illustration Rare', 12500, RULES, FALLBACK)).toEqual({
-      quotedPriceCents: 5000,
-      status: 'cotizada',
-      appliedRule: { mode: 'pct', value: 40 },
-      ruleSource: 'fallback',
-    });
-    // rareza null también cae al fallback.
-    expect(quoteAcquisition(null, 12500, RULES, FALLBACK).ruleSource).toBe('fallback');
-  });
-
-  it('pct (regla o fallback) SIN referencia → precio_pendiente (nunca se descarta)', () => {
-    expect(quoteAcquisition('Illustration Rare', null, RULES, FALLBACK)).toEqual({
-      quotedPriceCents: null,
-      status: 'precio_pendiente',
-      appliedRule: { mode: 'pct', value: 40 },
-      ruleSource: 'fallback',
-    });
-  });
-
-  it('pct redondea correctamente', () => {
-    expect(quoteAcquisition('X', 12501, {}, 40).quotedPriceCents).toBe(5000); // round(5000.4)
-    expect(quoteAcquisition('X', 12513, {}, 40).quotedPriceCents).toBe(5005); // round(5005.2)
-  });
-});
+// v2.0 (P-48, §4.36.4): el bloque de `quoteAcquisition` (tabla por RAREZA con modos fixed/pct) se
+// RETIRÓ con las reglas. Su sustituto —la CURVA DE COMPRA— se prueba en `money.pricing-curve.spec.ts`
+// (precedencias) y en `common/pricing-curve.spec.ts` (la matemática y la prueba de mesa normativa).
 
 describe('pricing helpers', () => {
   it('computeSalePriceCents = round(ref × (1+markup%))', () => {

@@ -1,7 +1,7 @@
 import { expect } from 'vitest';
 
 /**
- * Utilidades de test del «gancho de grading» (DESIGN_SYSTEM §21 R3.1 / PROJECT §N.5).
+ * Utilidades de test del «gancho de grading» (DESIGN_SYSTEM §22 R3.1 / PROJECT §O.5).
  *
  * El bloqueante que reportó QA fue exactamente este: el aviso existía **solo** como `sr-only`, así
  * que un comprador vidente veía la cifra **sin** ningún aviso. Estas utilidades reproducen esa
@@ -18,8 +18,8 @@ export function sightedText(root: HTMLElement): string {
 }
 
 /**
- * Las DOS ideas obligatorias de §N.5, por idioma: **«ilustrativo»** y **«no evaluamos esta carta»**.
- * Un aviso que solo cargue una de las dos NO cumple (§N.5 lo dice con todas sus letras).
+ * Las DOS ideas obligatorias de §O.5, por idioma: **«ilustrativo»** y **«no evaluamos esta carta»**.
+ * Un aviso que solo cargue una de las dos NO cumple (§O.5 lo dice con todas sus letras).
  */
 export const MICRO_NOTICE_IDEAS: Record<'es' | 'en', [RegExp, RegExp]> = {
   es: [/ilustrativ/i, /no evaluamos (el estado de )?esta carta/i],

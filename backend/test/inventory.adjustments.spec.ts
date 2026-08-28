@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { InventoryAdjustmentRequestDto } from '../src/modules/inventory/dto/inventory.dto';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.20-master-set-everywhere (§4.20e) + v1.20.1-adjustments-clarify — POST /admin/inventory/adjustments:
@@ -26,9 +27,16 @@ function buildPricing(over: any = {}): PricingService {
   return {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     getReferencesBatch: jest.fn(async () => new Map()),
-    loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     ...over,
   } as unknown as PricingService;
 }
@@ -54,6 +62,14 @@ function buildPrisma(over: any = {}) {
           ? null
           : { id: where.id, rarity: 'Common', availableFinishes: ['normal', 'reverse_holo'] },
       ),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
     },
     nextFolios: jest.fn(async (n: number) => {
       const out: string[] = [];

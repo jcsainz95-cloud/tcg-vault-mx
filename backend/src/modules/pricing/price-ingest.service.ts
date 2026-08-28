@@ -8,10 +8,14 @@ import { PricingService } from './pricing.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
+import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
 import { orderFinishes } from '../../common/card-order';
+// H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido.
+import { hasManualPrice } from '../../common/money';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
+import { AuditService } from '../audit/audit.service';
 
 /** InventoryStatus que NO cuentan como "activo" para el scope parcial (regla del PO: no withdrawn/lost). */
 const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
@@ -25,6 +29,26 @@ interface SetScopeInfo {
 
 /** Snapshot de FX cargado UNA vez por corrida (§4.15f), pasado a cada set. */
 export type FxSnapshot = { rate: number; bufferPct: number };
+
+/** v1.50.2 (§4.38h) — resultado de UNA corrida del ingest de estimados PSA. Todo es observabilidad. */
+export interface GradedIngestResult {
+  /** ¿El dial `graded_estimate_ingest_enabled` estaba `on` **y** la config del ingest era válida? */
+  enabled: boolean;
+  sets: number;
+  cardsInScope: number;
+  written: number;
+  /** Filas NO escritas porque había override MANUAL del día (§O.6: el manual gana). */
+  skippedManual: number;
+  /** Saltadas por INV-D (§4.38l): hay slab PUBLICADO de ese grado ⇒ esa fila es dinero real. */
+  skippedSlabPublished: number;
+  /** Descartadas por `count < minSampleCount` **o** `count` DESCONOCIDO (fail-closed, §4.38k.1). */
+  skippedSample: number;
+  /** Entradas cuya forma el parser NO identificó positivamente ⇒ **no se escribió nada** de ellas. */
+  unrecognized: number;
+  dailyLimited: boolean;
+  /** ⛔ Presente ⇒ el job PARÓ y hay que volver al ARQUITECTO (regla 9). */
+  escalation: { reason: string; detail: string } | null;
+}
 
 /** Resumen de la ingesta de un set (observabilidad; NO expuesto por contrato). */
 export interface IngestSetResult {
@@ -147,12 +171,29 @@ export class PriceIngestService {
     // WS-A fix-ppt: resuelve `CardSet.pptSetId` (causa raíz #1) y lee los diales de scope/throttle.
     private readonly pptSetMapper: PptSetMapper,
     private readonly config: ConfigService,
+    // v1.44 (P-47, §4.35): PRIMARIO del barrido de singles por-acabado desde TCGCSV `tcgcsv_singles`.
+    // Opcional en el constructor para no forzar la actualización de los mocks de tests que no lo usan
+    // (dial != 'tcgcsv_singles' nunca lo dereferencia); en DI real SIEMPRE se inyecta.
+    private readonly tcgcsvSinglesBulk?: TcgcsvSinglesBulkPriceProvider,
+    // v1.50.2 (§4.38h.4): la TRAZA por carta saltada es OBLIGATORIA, no opcional — sin ella el descarte
+    // por `count` bajo sería INVISIBLE (el `preview` lo vería como `NO_PSA10`, porque la fila no
+    // existe). Va al final y opcional por la MISMA razón que `tcgcsvSinglesBulk`: no romper los mocks
+    // posicionales de los tests que no tocan este camino. `AuditModule` es @Global ⇒ en DI real
+    // SIEMPRE se inyecta.
+    private readonly audit?: AuditService,
   ) {}
 
   /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
   async providerFor(): Promise<BulkPriceProvider> {
     const wanted = await this.settings.getString(SettingKey.PRICE_PROVIDER);
-    const providers: BulkPriceProvider[] = [this.pptBulk, this.tcgIoBulk];
+    // v1.44 (§4.35): `tcgcsv_singles` entra como opción PRIMARIA del barrido. Se filtra `undefined`
+    // (mocks de tests que no inyectan el provider) para no reventar el `.find`.
+    const candidates: Array<BulkPriceProvider | undefined> = [
+      this.pptBulk,
+      this.tcgIoBulk,
+      this.tcgcsvSinglesBulk,
+    ];
+    const providers = candidates.filter((p): p is BulkPriceProvider => p != null);
     const chosen = providers.find((p) => p.source === wanted);
     if (!chosen) {
       this.logger.warn(`PRICE_PROVIDER="${wanted}" desconocido → fallback a pokemontcg_io (legacy).`);
@@ -317,6 +358,13 @@ export class PriceIngestService {
     opts: { manual?: boolean } = {},
   ): Promise<IngestSetResult> {
     const provider = await this.providerFor();
+    // v1.44 (P-47, §4.35): el PRIMARIO de singles reprecia SOLO por-acabado (marketPrice de TCGCSV por
+    // CardProduct+finish) y NO re-resuelve estructura. Va por un camino DEDICADO, keyed por
+    // `cardProductId`, que NO comparte el colapso `(cardId, finish)` ni el bloque snapshot/reconcile
+    // del flujo PPT/pokemontcg.io (ese bloque tocaría estructura; §4.35 lo prohíbe a diario).
+    if (provider.source === 'tcgcsv_singles') {
+      return this.ingestSinglesForSet(set, provider, fx);
+    }
     const input = await this.buildFetchInput(provider, set, opts.manual === true);
     if (input === 'skip') {
       // Set viejo sin inventario activo ni rares (scope PO): no se pide nada (ahorra créditos).
@@ -418,6 +466,17 @@ export class PriceIngestService {
       await this.finishReconciler.reconcile(reconcileIds);
     }
 
+    // v2.1.1 (P-48, §4.36.5b-ter) — CONTINUIDAD DEL GUARDARRAÍL: el pase posterior al barrido ABRE
+    // entradas, no solo las cierra. Hasta aquí la SALIDA de la cola cabalgaba sobre el barrido (una
+    // `PriceReference` nueva la cierra en la siguiente resolución) pero la ENTRADA estaba atada solo a
+    // eventos de publicación: el guardarraíl se cerraba solo y NO se abría solo, así que cada
+    // degradación futura del feed dependía de que alguien pulsara «publicar». Solo tras una corrida
+    // EXITOSA con filas (mismo criterio conservador que el snapshot de acabados: ante fallo total o 0
+    // filas no se concluye nada).
+    if (result.requestOk && result.rows.length > 0) {
+      await this.reconcilePublishedPrices(set);
+    }
+
     if (driftPairs.length > 0) {
       this.logger.warn(
         `price-ingest-set(${set.externalId}, ${provider.source}): finishNotInCatalog — ` +
@@ -445,6 +504,166 @@ export class PriceIngestService {
       scope,
       dailyRemaining: result.dailyRemaining ?? null,
     };
+  }
+
+  /**
+   * v1.44 (P-47, §4.35) — barrido DIARIO de PRECIO por-acabado de singles desde TCGCSV
+   * `tcgcsv_singles`. El provider ya hizo el join EXACTO por `CardProduct.tcgplayerProductId` y
+   * devuelve una fila por `(cardProductId, finish, marketCents>0)`; aquí SOLO se upsertea la
+   * `PriceReference` keyed por `cardProductId` (source `tcgcsv_singles`, FX del snapshot), respetando
+   * `isManualOverride` (lo garantiza `persistMarketReference`).
+   *
+   * SEPARACIÓN ESTRUCTURA ↔ PRECIO (§4.35a): NO escribe `CardProduct.finishes` ni
+   * `Card.availableFinishes`, NO toca `pricedFinishesSnapshot`, NO llama al `FinishReconciler`. La
+   * composición sigue GATEADA a import/`--force` (§4.27d). Money-safe: un acabado sin `marketPrice`
+   * fresco en TCGCSV NO produce fila (el provider ya lo omitió) ⇒ queda «—»/PRICE_PENDING, jamás el
+   * precio de otro acabado ni un 0. La precedencia §4.27f (`sourceRank`/`isBetterRef`) hace que la
+   * fila `tcgcsv_singles` (con `cardProductId`) gane sobre cualquier residuo de PPT (`cardProductId=null`).
+   */
+  private async ingestSinglesForSet(
+    set: CardSet,
+    provider: BulkPriceProvider,
+    fx: FxSnapshot,
+  ): Promise<IngestSetResult> {
+    const result = await provider.fetchPricesForSet({ set });
+    const touchedCards = new Set<string>();
+    let priced = 0;
+    let skipped = result.skipped;
+    for (const row of result.rows) {
+      // Defensa en profundidad: el provider de singles SIEMPRE puebla ambos; sin ellos no se escribe
+      // (nunca una `PriceReference` huérfana ni una variante sin su `cardProductId` money-safe).
+      if (!row.cardId || !row.cardProductId) {
+        skipped += 1;
+        continue;
+      }
+      if (!(row.marketCents > 0)) {
+        skipped += 1;
+        continue;
+      }
+      await this.pricing.persistMarketReference(
+        row.cardId,
+        row.finish,
+        { marketCents: row.marketCents, currency: row.currency, source: 'tcgcsv_singles' },
+        fx,
+        row.cardProductId,
+      );
+      touchedCards.add(row.cardId);
+      priced += 1;
+    }
+    this.logger.log(
+      `price-ingest-set(${set.externalId}, tcgcsv_singles): ${touchedCards.size} cartas, ${priced} ` +
+        `refs por-acabado (keyed por cardProduct), ${skipped} omitidas` +
+        `${result.requestOk ? '' : ' [fetch FALLÓ → 0 filas, precios previos STALE]'}. ` +
+        `Estructura NO re-resuelta (§4.35).`,
+    );
+    // §4.36(c) — COEXISTENCIA de las DOS CAPAS ortogonales (ESCRIBIR-luego-LEER): la capa REFERENCIA
+    // (P-47, `tcgcsv_singles`) acaba de upsertear las `PriceReference` per-acabado del set; ahora la
+    // capa REGLA (curva v2) LEE esas mismas filas para re-resolver el precio de venta de las piezas
+    // PUBLICADAS y abrir/cerrar su entrada en la cola. Sin esto, el barrido PRIMARIO (tcgcsv_singles)
+    // repreciaría la referencia pero NUNCA re-resolvería la curva de lo ya `listed` (regresión del
+    // guardarraíl continuo, §4.36.5b-ter). Mismo criterio conservador que el flujo PPT/pokemontcg.io:
+    // solo tras una corrida EXITOSA con filas. Falla-seguro (los precios YA se persistieron).
+    if (result.requestOk && result.rows.length > 0) {
+      await this.reconcilePublishedPrices(set);
+    }
+    return {
+      setId: set.id,
+      setExternalId: set.externalId,
+      provider: provider.source,
+      cardCount: touchedCards.size,
+      priced,
+      unresolved: 0,
+      skipped,
+      dailyLimited: false,
+      scope: 'full',
+      dailyRemaining: null,
+    };
+  }
+
+  /**
+   * v2.1.1 (P-48, §4.36.5b-ter) — RE-RESUELVE el precio de venta de las piezas PUBLICADAS del set que
+   * el barrido acaba de repreciar y **abre o cierra** su entrada en la cola según el veredicto. Es lo
+   * que hace CONTINUO al guardarraíl: sin esto, una pieza ya `listed` cuyo mercado se degrada deja de
+   * venderse en silencio hasta que alguien pulse «publicar» (§N.5 pide lo contrario).
+   *
+   * - **No es un job nuevo ni una fan-out nueva:** es el lote que el barrido YA tiene en la mano.
+   * - **Alcance = el SET completo, no solo las variantes con fila nueva.** A propósito: el caso feo es
+   *   justamente el acabado/carta que el proveedor DEJÓ de reportar; si solo mirásemos lo que vino en
+   *   la respuesta, ese caso —el que más se parece a una degradación real— nunca se detectaría.
+   * - **Solo `raw`:** es lo que este barrido reprecia (`productType='raw'`, `gradeKey='raw:NM'`). El
+   *   sellado y las gradeadas tienen su propio ingest y su propia clave de cola.
+   * - **Las piezas con override manual POR PIEZA se saltan**, igual que en `resolvePublishSalePrice`:
+   *   su precio no depende del mercado, así que ni escalan ni cierran nada.
+   * - **NO cambia el `status`** (§4.36.5b-bis decisión 3): la pieza sigue `listed`. No hay exposición
+   *   que cerrar (la resolución en lectura ya la sacó de Compra y de `stockCount`) y un flip
+   *   `listed → in_stock` competiría con un checkout en vuelo. La señal es la entrada en la cola.
+   *
+   * Falla-seguro: un error aquí NO tumba la ingesta (los precios ya se persistieron); se loguea.
+   */
+  private async reconcilePublishedPrices(set: CardSet): Promise<void> {
+    try {
+      const items = await this.prisma.inventoryItem.findMany({
+        where: {
+          ownerType: 'platform',
+          status: 'listed',
+          productType: 'raw',
+          card: { setId: set.id },
+        },
+        include: { card: true },
+      });
+      if (items.length === 0) return;
+      // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
+      const curve = await this.pricing.loadPricingCurve();
+      const keys = items.map((it) => ({
+        cardId: it.cardId,
+        productType: it.productType,
+        gradeKey: this.pricing.gradeKeyFor(it),
+        finish: it.finish,
+      }));
+      const refs = await this.pricing.getReferencesBatch(keys);
+      const overrides = await this.pricing.getVariantOverridesBatch(keys);
+      let opened = 0;
+      let closed = 0;
+      for (const item of items) {
+        // Override manual POR PIEZA: el precio no sale del mercado ⇒ el barrido no opina sobre su cola.
+        // H-1 (E5-bis): `<= 0` es AUSENTE, así que esa pieza SÍ deriva de la curva y SÍ tiene que
+        // entrar al barrido. Con el `!= null` de antes se saltaba y NUNCA se reconciliaba — el mismo
+        // hueco de D5, recién abierto por este bucle.
+        if (hasManualPrice(item)) continue;
+        const gradeKey = this.pricing.gradeKeyFor(item);
+        const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
+        const ref = refs.get(key);
+        const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+        // SEAM ÚNICO del eje de venta (§4.36.5b): mismo cuerpo, mismo veredicto que publicación y
+        // checkout — el barrido no puede llegar a una conclusión distinta de la del storefront.
+        const decision = this.pricing.decideSalePrice({
+          referenceMxnCents: refCents,
+          rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+          controls: overrides.get(key) ?? null,
+          curve,
+        });
+        // §4.36.5c: el MISMO seam abre y cierra. `reason != null` ⇒ entra a la cola; `null` ⇒ se cierra
+        // la entrada abierta de esa clave si el mercado volvió a resolver.
+        await this.pricing.settlePendingForVariant(
+          decision.pendingReason,
+          { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
+          'inventory',
+        );
+        if (decision.pendingReason != null) opened++;
+        else closed++;
+      }
+      if (opened > 0) {
+        this.logger.warn(
+          `price-ingest-set(${set.externalId}): ${opened} pieza(s) PUBLICADA(s) dejaron de resolver precio ` +
+            `tras el barrido y entraron a la cola (siguen \`listed\`); ${closed} re-verificada(s) sana(s).`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `price-ingest-set(${set.externalId}): la reconciliación de piezas publicadas falló ` +
+          `(los precios YA se persistieron): ${(e as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -565,6 +784,202 @@ export class PriceIngestService {
       }
     }
     return null;
+  }
+
+  /**
+   * v1.50.2 (§4.38h) — **INGEST AUTOMÁTICO DE ESTIMADOS PSA (fase 2).** Deja de ser manual.
+   *
+   * ### Alcance: SOLO cartas con INVENTARIO PUBLICADO (y por qué eso resuelve la cuota)
+   * `includeEbay=true` cuesta **2 créditos por carta**. Barrer el catálogo entero sería insostenible;
+   * pedir precio de gradeo **solo de lo que efectivamente estamos vendiendo** hace el coste
+   * proporcional al inventario real, que es el único conjunto donde el estimado tiene superficie donde
+   * mostrarse (una carta sin publicar no tiene teja ni ficha). Encima va el tope DURO
+   * `graded_estimate_ingest_max_cards_per_run` (seed 250): un error de alcance no puede quemar la
+   * cuota del día.
+   *
+   * ### Fail-closed en tres puntos, todos deliberados
+   *  1. `graded_estimate_ingest_enabled` (seed `off`) — dial PROPIO, distinto del de exhibición: se
+   *     puede rodar el ingest **en observación con la vitrina apagada** (§4.38d).
+   *  2. `ingestConfigInvalid` — con `minSampleCount`/`sourceStat` corruptos NO sabemos *cuánta* muestra
+   *     exigimos ni *qué número* es el precio. Adivinar eso es escribir dinero a ciegas.
+   *  3. El parser solo escribe lo que identifica POSITIVAMENTE como monto (§4.38h.1).
+   *
+   * ### INV-D (§4.38l): la MISMA guarda que el override manual
+   * Si la carta tiene un **slab publicado** de ese grado, esa fila **es el precio real** de esa pieza:
+   * el job **la salta** y deja `AuditLog`. Es la misma regla que hace que
+   * `POST /admin/pricing/override` con `intent:"graded_estimate"` devuelva `409`.
+   *
+   * ### ⛔ Escalada (regla 9)
+   * Si el proveedor revela que `includeEbay=true` **no** combina con `fetchAllInSet=true`, el job
+   * **PARA** y lo reporta: NO se degrada a «una petición por carta». Eso multiplicaría el coste por el
+   * nº de cartas e invalidaría el modelo de barrido por set — rediseño de arquitectura y de costo, no
+   * decisión de implementación.
+   */
+  async ingestGradedEstimates(fx: FxSnapshot): Promise<GradedIngestResult> {
+    const result: GradedIngestResult = {
+      enabled: false,
+      sets: 0,
+      cardsInScope: 0,
+      written: 0,
+      skippedManual: 0,
+      skippedSlabPublished: 0,
+      skippedSample: 0,
+      unrecognized: 0,
+      dailyLimited: false,
+      escalation: null,
+    };
+    // Config COMPLETA (no la del storefront): los DOS diales son independientes, así que el ingest
+    // tiene que poder correr con la EXHIBICIÓN apagada — que es la secuencia de encendido que pide
+    // §4.38h («rodar en observación antes de publicar»).
+    const cfg = await this.pricing.loadGradedEstimateConfigForAdmin();
+    if (!cfg.ingestEnabled) {
+      this.logger.log('graded-estimate-ingest: dial `graded_estimate_ingest_enabled` = off → no se pide nada.');
+      return result;
+    }
+    if (cfg.ingestConfigInvalid) {
+      this.logger.warn(
+        'graded-estimate-ingest: config del INGEST presente-pero-INVÁLIDA (minSampleCount/sourceStat/' +
+          'ingestMaxCardsPerRun) → NO se escribe nada. Corrige con PUT /admin/pricing/graded-estimates.',
+      );
+      return result;
+    }
+    result.enabled = true;
+
+    // ALCANCE: cartas con inventario RAW publicado. Orden DETERMINISTA (cardId asc) para que el tope
+    // por corrida sea reproducible y no dependa del orden que devuelva la BD.
+    const published = await this.prisma.inventoryItem.findMany({
+      where: { ownerType: 'platform', status: 'listed', productType: 'raw' },
+      select: { cardId: true },
+      distinct: ['cardId'],
+      orderBy: { cardId: 'asc' },
+    });
+    const cardIds = published.map((r) => r.cardId).slice(0, cfg.ingestMaxCardsPerRun);
+    if (cardIds.length === 0) return result;
+    result.cardsInScope = cardIds.length;
+
+    const cards = await this.prisma.card.findMany({
+      where: { id: { in: cardIds } },
+      select: { id: true, setId: true, set: true },
+    });
+    const bySet = new Map<string, { set: CardSet; allowed: Set<string> }>();
+    for (const c of cards) {
+      if (!c.set) continue;
+      const entry = bySet.get(c.setId) ?? { set: c.set, allowed: new Set<string>() };
+      entry.allowed.add(c.id);
+      bySet.set(c.setId, entry);
+    }
+    // INV-D — una sola query batcheada para TODO el alcance (jamás una por carta).
+    const slabsByCard = await this.pricing.getPublishedSlabGradesBatch(cardIds);
+
+    for (const { set, allowed } of bySet.values()) {
+      const map = await this.pptSetMapper.resolveForSets([set]);
+      const providerSetId = map.get(set.id) ?? null;
+      const res = await this.pptBulk.fetchGradedEstimatesForSet({
+        set,
+        providerSetId,
+        grades: cfg.grades,
+        minSampleCount: cfg.minSampleCount,
+        sourceStat: cfg.sourceStat,
+      });
+      result.sets += 1;
+      result.unrecognized += res.drops.filter((d) => d.reason === 'unrecognized_shape').length;
+      result.skippedSample += res.drops.filter((d) => d.reason === 'sample_too_small').length;
+
+      // ⛔ ESCALADA — se PARA y se devuelve; no se intenta ninguna vía alternativa.
+      if (res.escalate) {
+        result.escalation = res.escalate;
+        this.logger.error(
+          `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO (regla 9, §4.38h.4): ${res.escalate.reason}. ` +
+            `${res.escalate.detail} — el job PARA. NO se implementa el modo «una petición por carta»: ` +
+            'cambia el modelo de coste (2 créditos × carta) y obliga a un ingest CURADO POR LISTA, que ' +
+            'es decisión de arquitectura y de presupuesto.',
+        );
+        await this.auditGradedSkip('graded_estimate.ingest.escalated', null, {
+          setExternalId: set.externalId,
+          ...res.escalate,
+        });
+        return result;
+      }
+
+      // La traza de los DESCARTES del parser es obligatoria: sin ella, el descarte por muestra baja es
+      // invisible para el operador (la fila sencillamente no existe y el preview dice `NO_PSA10`).
+      for (const d of res.drops) {
+        this.logger.warn(
+          `graded-estimate-ingest: DESCARTADA entrada (${d.reason}) set=${set.externalId} ` +
+            `card=${d.externalId ?? 'n/d'} count=${d.count ?? 'DESCONOCIDO'} muestra=${d.sample}`,
+        );
+        await this.auditGradedSkip('graded_estimate.ingest.skipped', null, {
+          setExternalId: set.externalId,
+          providerCardId: d.externalId,
+          reason: d.reason,
+          count: d.count,
+          sample: d.sample,
+        });
+      }
+
+      for (const row of res.rows) {
+        const cardId = await this.resolveCardId(
+          { externalId: row.externalId, number: row.number } as BulkPriceRow,
+          set,
+        );
+        if (!cardId || !allowed.has(cardId)) continue; // fuera del alcance publicado ⇒ no se escribe.
+        // INV-D: con slab publicado de ese grado, esa fila es DINERO de una pieza real.
+        if ((slabsByCard.get(cardId) ?? []).includes(row.gradeValue)) {
+          result.skippedSlabPublished += 1;
+          this.logger.warn(
+            `graded-estimate-ingest: SALTADA card=${cardId} PSA ${row.gradeValue} — hay slab PUBLICADO ` +
+              'de ese grado (INV-D, §4.38l): esa fila es su precio de mercado REAL, no un estimado.',
+          );
+          await this.auditGradedSkip('graded_estimate.ingest.skipped', cardId, {
+            reason: 'slab_published',
+            gradeValue: row.gradeValue,
+          });
+          continue;
+        }
+        // INV-FX: `currency` viaja tal cual del proveedor; el escritor decide dónde cae el numeral.
+        const wrote = await this.pricing.persistGradedEstimateReference(
+          cardId,
+          row.gradeValue,
+          { amountCents: row.amountCents, currency: row.currency, source: 'pokemonpricetracker' },
+          fx,
+        );
+        if (wrote) result.written += 1;
+        else result.skippedManual += 1; // el override MANUAL gana (§O.6): no se pisa, se cuenta.
+      }
+
+      if (res.dailyLimited) {
+        result.dailyLimited = true;
+        this.logger.warn('graded-estimate-ingest: 429 DAILY → PARADA (lo ya escrito se conserva).');
+        break;
+      }
+    }
+
+    this.logger.log(
+      `graded-estimate-ingest: ${result.sets} set(s), ${result.cardsInScope} carta(s) en alcance, ` +
+        `${result.written} referencia(s) escritas, ${result.skippedManual} respetando override manual, ` +
+        `${result.skippedSlabPublished} con slab publicado, ${result.skippedSample} por muestra ` +
+        `insuficiente, ${result.unrecognized} con forma no reconocida.`,
+    );
+    return result;
+  }
+
+  /** Traza obligatoria en `AuditLog` (§4.38h.4). Nunca revienta el job por un fallo de bitácora. */
+  private async auditGradedSkip(
+    action: string,
+    cardId: string | null,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.audit) return;
+    try {
+      await this.audit.log({
+        action,
+        entityType: 'PriceReference',
+        ...(cardId ? { entityId: cardId } : {}),
+        after: payload,
+      });
+    } catch (e) {
+      this.logger.warn(`graded-estimate-ingest: no se pudo escribir la bitácora: ${(e as Error).message}`);
+    }
   }
 
   private emptyResult(setId: string, externalId: string | null, provider: string): IngestSetResult {

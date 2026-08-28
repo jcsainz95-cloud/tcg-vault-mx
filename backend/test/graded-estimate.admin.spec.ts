@@ -11,7 +11,7 @@ import { DEFAULT_GRADING_COST_TIERS } from '../src/common/graded-estimate';
 
 /**
  * v1.44-graded-estimate — DIALES M2 del gancho + diagnóstico de curaduría
- * (`GET/PUT /admin/pricing/graded-estimates` y `.../preview`; API_CONTRACT §M2, ARCHITECTURE §4.35d).
+ * (`GET/PUT /admin/pricing/graded-estimates` y `.../preview`; API_CONTRACT §M2, ARCHITECTURE §4.38d).
  *
  * Estos endpoints NO capturan estimados (eso es `POST /admin/pricing/override`, fase 1 manual-first) y
  * NADA de lo que gobiernan viaja al cliente. Lo que se prueba aquí es que los invariantes I1–I7 se
@@ -114,7 +114,7 @@ const psaRef = (gradeValue: '10' | '9', mxnCents: number, capturedDate = RECENT)
 
 function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknown> = {}) {
   // Estado SEMBRADO por defecto: `prisma/seed.ts` escribe una fila por cada `SETTING_DEFAULTS`. La
-  // clave del COSTO no tiene default de CÓDIGO (R1, §4.35d): si la fila no existe la tabla es `[]`.
+  // clave del COSTO no tiene default de CÓDIGO (R1, §4.38d): si la fila no existe la tabla es `[]`.
   const configStore = new Map<string, unknown>(
     Object.entries({ [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS, ...config }),
   );
@@ -122,10 +122,19 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
     configStore.set(key, configStore.has(key) ? update.valueJson : create.valueJson);
     return { key };
   });
-  const prisma = {
-    // D4: el `PUT` escribe dentro de `$transaction`. El mock ejecuta las promesas que recibe (los
-    // upserts ya se construyeron), que es el comportamiento observable que importa aquí.
-    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+  // `prisma` se referencia DENTRO de su propia definición (el mock de `$transaction` interactiva le pasa
+  // este mismo cliente como `tx`). Con `const` + inicializador la referencia se resuelve en tiempo de
+  // llamada, que es cuando ya existe.
+  const prisma: any = {
+    // D4 + v1.50.2 (BE-GE2): el `PUT` escribe dentro de `$transaction` **y ahora audita ahí dentro**,
+    // así que la transacción pasó de la forma «array de operaciones» a la INTERACTIVA (callback con
+    // `tx`). El mock soporta las dos: con callback le pasa un cliente transaccional que es el mismo
+    // prisma (los upserts y el `auditLog.create` observables siguen siéndolo).
+    $transaction: jest.fn(async (arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => Promise<unknown>)(prisma)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
     configSetting: {
       findUnique: jest.fn(async ({ where: { key } }: any) =>
         configStore.has(key) ? { key, valueJson: configStore.get(key) } : null,
@@ -166,11 +175,17 @@ describe('GET /admin/pricing/graded-estimates', () => {
     const { ctrl } = wire();
     expect(await ctrl.get()).toEqual({
       enabled: false, // seed `off`, fail-closed
+      ingestEnabled: false, // v1.50.2: 2º dial M10 (la OBTENCIÓN), también fail-closed
       grades: ['10', '9'],
       highlightGrades: ['10'],
       freshnessDays: 30,
       minUpsidePct: 30,
       gradingCostTiers: DEFAULT_GRADING_COST_TIERS,
+      manualFreshnessDays: null,
+      maxRawMultiple: 50,
+      minSampleCount: 3,
+      sourceStat: 'median',
+      ingestMaxCardsPerRun: 250,
     });
   });
 
@@ -257,6 +272,8 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     expect(after.freshnessDays).toBe(15);
     expect(after.gradingCostTiers).toEqual(DEFAULT_GRADING_COST_TIERS); // no se tocó lo no enviado
     expect(configStore.get(SettingKey.GRADING_MIN_UPSIDE_PCT)).toBe(60);
+    // v1.50.2 (BE-GE2): `audit.log` recibe ahora un SEGUNDO argumento —el cliente transaccional—,
+    // porque la bitácora se escribe DENTRO de la misma transacción que los upserts.
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         actorUserId: 'admin-1',
@@ -265,6 +282,7 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
         before: expect.objectContaining({ minUpsidePct: 30 }),
         after: expect.objectContaining({ minUpsidePct: 60 }),
       }),
+      expect.anything(),
     );
   });
 
@@ -272,8 +290,46 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     const { ctrl, prisma, upsert } = wire();
     await ctrl.put({ minUpsidePct: 60, freshnessDays: 15, grades: ['10', '9'] }, 'admin');
     expect((prisma as any).$transaction).toHaveBeenCalledTimes(1);
-    expect((prisma as any).$transaction.mock.calls[0][0]).toHaveLength(3);
+    // v1.50.2: la transacción pasó a INTERACTIVA (callback), porque además de los upserts tiene que
+    // contener la BITÁCORA. Lo que se afirma sigue siendo lo mismo: UNA transacción y TRES upserts.
+    expect(typeof (prisma as any).$transaction.mock.calls[0][0]).toBe('function');
     expect(upsert).toHaveBeenCalledTimes(3);
+  });
+
+  /**
+   * v1.50.2 — deuda BE-GE2 saldada (PARIDAD con v2.1.6/P48-B1): efecto y bitácora **commitean o
+   * revierten juntos**. Antes el `audit.log` corría DESPUÉS del commit, así que una excepción entre
+   * ambos dejaba la config de dinero cambiada y **sin registro**. Aquí se prueba lo observable: la
+   * bitácora se escribe con el cliente TRANSACCIONAL y **dentro** del callback de `$transaction`.
+   */
+  it('BE-GE2 — la bitácora se escribe DENTRO de la transacción, no después del commit', async () => {
+    const { ctrl, prisma, audit } = wire();
+    let auditDuranteTx = false;
+    (prisma as any).$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const antes = (audit.log as jest.Mock).mock.calls.length;
+      await fn(prisma);
+      auditDuranteTx = (audit.log as jest.Mock).mock.calls.length > antes;
+    });
+    await ctrl.put({ minUpsidePct: 60 }, 'admin');
+    expect(auditDuranteTx).toBe(true);
+    // Y con el `tx` como segundo argumento: si se pasara `this.prisma`, la fila se auto-commitearía
+    // fuera del alcance del rollback y el todo-o-nada sería mentira.
+    expect((audit.log as jest.Mock).mock.calls[0][1]).toBeDefined();
+  });
+
+  /**
+   * El `after` se COMPUTA (no se re-lee) para poder auditar dentro de la transacción. Este test es el
+   * candado de esa decisión: lo devuelto por el `PUT` tiene que coincidir EXACTAMENTE con lo que un
+   * `GET` posterior lee de la BD. Si algún día divergen, el operador vería una cosa y el resolver
+   * usaría otra.
+   */
+  it('BE-GE2 — el `after` computado coincide con lo que un `GET` posterior devuelve', async () => {
+    const { ctrl } = wire();
+    const after = await ctrl.put(
+      { minUpsidePct: 60, freshnessDays: 15, maxRawMultiple: 10, sourceStat: 'average' },
+      'admin',
+    );
+    expect(await ctrl.get()).toEqual(after);
   });
 
   it('D4 — la bitácora conserva el FORENSE: `storedRaw` con el valor CORRUPTO tal cual estaba', async () => {
@@ -311,7 +367,7 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     expect(despues).toMatchObject({ data: [], total: 0 }); // sin job, sin materialización
     const listado: any = await catalog.listCards({ page: 1, pageSize: 20 });
     expect(listado.data[0].salePriceCents).toBe(100_000); // ningún precio de venta cambió
-    // …y la FICHA sigue mostrando sus cifras (partición §4.35-0: el dial de curaduría no la apaga).
+    // …y la FICHA sigue mostrando sus cifras (partición §4.38-0: el dial de curaduría no la apaga).
     const ficha: any = await catalog.getCard('ca');
     expect(ficha.gradedEstimates).toHaveLength(2);
   });
@@ -380,7 +436,7 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
     const res: any = await ctrl.preview('ca');
     // El dial sigue `on` (el DTO no miente sobre el espejo de M10)…
     expect(res.enabled).toBe(true);
-    // …y aun así NADA se destaca, con la razón accionable que exige §4.35d › Observabilidad.
+    // …y aun así NADA se destaca, con la razón accionable que exige §4.38d › Observabilidad.
     expect(res.groups[0]).toMatchObject({ eligible: false, reason: 'FEATURE_OFF' });
     // El `warn` del servidor es el que dice CUÁL clave y QUÉ invariante (el DTO no lo transporta).
     expect(warn.mock.calls.some((c) => String(c[0]).includes(SettingKey.GRADING_MIN_UPSIDE_PCT))).toBe(true);
@@ -396,8 +452,18 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
       'grades',
       'gradingCostTiers',
       'highlightGrades',
+      'ingestEnabled',
+      'ingestMaxCardsPerRun',
+      'manualFreshnessDays',
+      'maxRawMultiple',
+      'minSampleCount',
       'minUpsidePct',
+      'sourceStat',
     ]);
+    // Lo que NO puede filtrarse: los flags INTERNOS del resolver (GU-A8 + el del ingest de v1.50.2).
+    for (const interno of ['estimatesEnabled', 'highlightEnabled', 'ingestConfigInvalid']) {
+      expect(res.config).not.toHaveProperty(interno);
+    }
   });
 
   it('con el dial `off` el diagnóstico SIGUE respondiendo (reason FEATURE_OFF) y muestra la tabla vigente', async () => {

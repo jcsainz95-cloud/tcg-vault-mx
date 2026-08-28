@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { formatMoneyCents } from '@/lib/format';
 import { SealedDetailView } from './SealedDetailView';
 import * as api from '@/lib/api';
 import { mockSealedGroups } from '@/lib/mock/fixtures';
@@ -30,6 +31,7 @@ function listingsOf(group: SealedGroupDTO, ids: string[]): ListingDTO[] {
     sealedCondition: group.sealedCondition,
     finish: 'normal',
     referenceValue: group.referenceValue,
+    priceBasis: group.priceBasis,
     salePriceCents: group.fromPriceCents + i * 500,
     sellable: true,
   }));
@@ -108,5 +110,105 @@ describe('SealedDetailView · sin stock', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Agregar 1 al carrito' }));
     expect(window.localStorage.getItem('tcg.cart')).toBeNull();
+  });
+});
+
+/**
+ * §21.8 — el mismo mecanismo que la ficha de carta, con DOS hechos. El sellado no cambia de
+ * matemática (conserva su spread por presentación, §K): solo obedece el `priceBasis` que el backend
+ * DERIVA de `priceSource`.
+ */
+describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', () => {
+  it('precio derivado por SPREAD (priceBasis="market"): se muestran los dos hechos', async () => {
+    mockDetail({ group: BOX_MINT });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+
+    expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
+    expect(screen.getByText('MX$3,050.00')).toBeInTheDocument();
+  });
+
+  it('la TENDENCIA de valor también obedece `priceBasis`: con override no se pinta', async () => {
+    // El objeto de la regla no es una celda: es no publicar el valor de mercado cuando el mercado
+    // no fijó el precio. «Tendencia de valor» lo pintaba a 32-40px y lo rotulaba literalmente
+    // «valor de mercado de referencia» — hacía lo que la regla prohíbe, 200px más abajo.
+    mockDetail({ group: BOX_MINOR, trendEnabled: true });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1020" />, 'es');
+
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.queryByText('Tendencia de valor')).toBeNull();
+    expect(
+      screen.queryByText('Valor de mercado de referencia (TCGCSV), actualizado a diario.'),
+    ).toBeNull();
+  });
+
+  /**
+   * Matiz de QA sobre el assert de la ficha: el de la E2E caza el **rótulo**, no la **cifra**, así
+   * que un bloque futuro que republicara el número sin la frase —un eje de gráfica, un tooltip, un
+   * `aria-label`— pasaría en verde. Aquí sí se puede afirmar por la CIFRA sin volverse frágil: el
+   * test es dueño de su fixture, así que compara contra el mismo valor que inyecta, no contra un
+   * monto global que cualquiera puede mover.
+   *
+   * El caso es además el más exigente: hay mercado CONOCIDO y aun así lo fijó un override (§K:
+   * `override manual > mercado × spread`), o sea que la cifra existe y NO debe publicarse.
+   */
+  it('con override NO se publica la CIFRA del mercado en ninguna parte, ni sin su rótulo', async () => {
+    const MARKET_CENTS = 987_654; // valor propio del test: se afirma contra él, no contra fixtures.
+    mockDetail({
+      group: {
+        ...BOX_MINOR,
+        priceBasis: 'override',
+        referenceValue: {
+          status: 'priced',
+          referenceMxnCents: MARKET_CENTS,
+          source: 'tcgcsv',
+          capturedDate: '2026-08-20',
+        },
+      },
+      trendEnabled: true,
+    });
+    // La serie de tendencia se sirve con ESE mismo mercado como valor actual (es lo que la
+    // tendencia pinta a 32-40px). Así el assert MUERDE: si el bloque volviera a renderizarse, la
+    // cifra aparecería aunque alguien le quitara la frase «valor de mercado de referencia».
+    vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue({
+      set: { id: 'sealed:box', name: 'Surging Sparks Booster Box' },
+      range: '1m',
+      points: [
+        { date: '2026-08-19', valueMxnCents: MARKET_CENTS - 1000, pricedCardCount: 1 },
+        { date: '2026-08-20', valueMxnCents: MARKET_CENTS, pricedCardCount: 1 },
+      ],
+      change: { direction: 'up', absMxnCents: 1000, pct: 1.02 },
+    });
+    const { container } = renderWithProviders(
+      <SealedDetailView inventoryItemId="inv-1020" />,
+      'es',
+    );
+
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    const formatted = formatMoneyCents(MARKET_CENTS, 'es'); // MX$9,876.54
+    // Ni con rótulo ni sin él: la cifra no aparece en el texto…
+    expect(container.textContent).not.toContain(formatted);
+    // …ni escondida en un atributo accesible o un tooltip.
+    expect(container.innerHTML).not.toContain(formatted);
+    expect(container.innerHTML).not.toContain(String(MARKET_CENTS));
+  });
+
+  it('con precio por SPREAD la tendencia SÍ se pinta (ahí el mercado explica el precio)', async () => {
+    mockDetail({ group: BOX_MINT, trendEnabled: true });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+    expect(await screen.findByText('Tendencia de valor')).toBeInTheDocument();
+  });
+
+  it('precio por OVERRIDE manual (priceBasis="override"): queda UNA sola celda a fila completa', async () => {
+    mockDetail({ group: BOX_MINOR });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1020" />, 'es');
+
+    expect(await screen.findByText('Desde')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    // No queda hueco: la celda del dinero ocupa la fila completa.
+    const cells = Array.from(
+      document.querySelectorAll('div.border-b.border-border.py-6'),
+    ) as HTMLElement[];
+    expect(cells).toHaveLength(1);
+    expect(cells[0].className).toContain('sm:col-span-2');
   });
 });

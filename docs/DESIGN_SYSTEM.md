@@ -52,8 +52,10 @@
 > (P-18), **alta rápida** de dos caminos Compra/Aportación + «Publicar todo» (P-19), **distintivo visual de
 > acabado** `FinishMark` (adelanto de P-14, lenguaje compartido con Stream C) y la teja/badge **Bounty**
 > admin + vitrina pública «Top Bounties» (P-22). §16 es aditiva; introduce **un único elemento gráfico
-> nuevo** (la banda de acabado, §16.6 — incluida la ÚNICA superficie con gradiente permitida del sistema) y
-> **cero tokens nuevos** de color/tipografía.
+> nuevo** (la banda de acabado, §16.6) y **cero tokens nuevos** de color/tipografía.
+> *(Actualización posterior: la banda de acabado colorea ESTRICTAMENTE por `finish` con colores planos —
+> reverse=rojo, holofoil=azul, 1ed=tinta — y ya no lleva gradiente; añade el token de azul
+> `--color-finish-holo`. Ver §16.6.)*
 >
 > **Añadido v1.7 (P-21 — identidad TCG HUNT) → ver §17.** Rebrand de marca: el sitio pasa a llamarse
 > **TCG HUNT** (dominio `tcghunt.mx`) con **logo de mira/crosshair** en degradado **rojo `#B31217` → vino
@@ -62,8 +64,8 @@
 > **conserva la base editorial papel/tinta** y el **bermellón `#B44B3A` se retira**: el **rojo TCG HUNT
 > `#B31217` asume todos sus roles** (accent, warning, danger, anillo de foco — mismo nombre de tokens,
 > nuevo valor; contraste sobre papel **sube** de 4.65:1 a **6.2:1**, §17.2). El degradado del logo se suma
-> como **segunda y última excepción de gradiente** (junto a la banda reverse §16.6): nunca en superficies
-> ni botones. El badge BOUNTY (§16.7b) adopta el **glifo micro oficial de la mira** en lugar del
+> como **única excepción de gradiente** del sistema (la banda reverse de §16.6 pasó a rojo sólido y ya no es
+> gradiente): nunca en superficies ni botones. El badge BOUNTY (§16.7b) adopta el **glifo micro oficial de la mira** en lugar del
 > `crosshair` de lucide. La marca visible cambia; **el nombre interno del repo/proyecto (`tcg-vault-mx`) y
 > las rutas técnicas NO cambian** (§17.4). Wordmark en **Montserrat 700** (`--font-brand`, `next/font`).
 >
@@ -149,12 +151,35 @@
 > paleta §2/§17 (tinta `#1A1A18`, rojo TCG HUNT `#B31217`, verde vivo `#4A7345`), las reglas §4.3 y
 > las tres familias §3. Refina una convención tipográfica (precios display en sans 500 `tabular-nums`,
 > dinero operativo en mono — §20.14) sin tocar contrato ni flujos.
-> **Añadido v2.1 (§N de PROJECT — «Valor estimado si se gradea», gancho de grading) → ver §21.** Tres
-> superficies nuevas sobre la piel vigente: **bloque de valores PSA 10 / PSA 9** junto al precio en la
-> ficha, **badge de estimado** en la teja de Compra y **vitrina «Joyas para gradear»** en el home. Sin
-> artboard de Claude Design: §21 se **compone íntegramente con lo ya ratificado** (celda `Fact` de la
-> ficha, `PriceTag` §7.3, chip de grado sin cert §7.2c/§16.9, patrón `Shelf` §20.5, reglas §4.3,
-> `--app-header-h` §4.5) y **no pide ni una modificación** a componentes existentes.
+>
+> **Añadido v2.1 (curva de precio por valor de mercado — P-48) → ver §21.** *(Es el «v2.0» de
+> `PROJECT.md` §N / `ARCHITECTURE.md` §4.36; aquí se numera **v2.1** porque v2.0 ya nombra el makeover
+> del storefront.)* El precio de las cartas sueltas pasa a depender **solo del valor de mercado**, con
+> **una curva por eje** editable como **tabla de puntos de longitud variable**. §21 define: (1) el
+> **editor de M2** que sustituye a las pantallas de reglas por rareza y por tier — fila de punto,
+> agregar/mover/borrar sin fragilidad (**mover = cambiar el mercado, no arrastrar**), constantes
+> **piso**/**mínimo de compra**/**escalera de redondeo**, el **momento y la forma** de los errores
+> V1–V9 (nada al teclear · campo al `blur` · **cruzados como `422` al guardar, sin guardar nada**) y
+> un **previsualizador obligatorio** (probeta con memoria de cálculo + tabla de referencia; curva
+> dibujada recomendada); (2) la regla de que el bloque **«Valor de mercado» desaparece** cuando
+> `priceBasis !== "market"`, con la **recomposición de la retícula sin hueco** (el divisor es de la
+> posición, no de la celda; la fila del dinero ocupa el ancho completo) en ficha de carta y de
+> sellado; (3) la **alerta de bounty rebasado** (`BOUNTY REBASADO`, sin glifo de mira) y el
+> **guardarraíl visible** (`·!`) en el binder de M1, más el mapa canónico **`priceBasis` → versalitas**
+> (`MERCADO/PISO/MANUAL/BOUNTY/PENDIENTE`) que sustituye a `REGLA`/`FALLBACK`. §21 **enmienda** §7.3
+> (se retira el «Valor de mercado» opcional de las tejas), §16.3, §16.7, §19.5 (re-hogar de «Unificar
+> rarezas») y **retira** el copy falso «Piso (MX$)» / «Hereda tier» con su pantalla. **Cero tokens
+> nuevos**; no hubo entrega de Claude Design para esta feature.
+>
+> **Añadido v2.2 (§O de PROJECT — «Valor estimado si se gradea», gancho de grading) → ver §22.**
+> *(Numeración: al fusionar con `main`, la **curva de precio P-48** ya ocupaba **§21** y la etiqueta
+> **v2.1** en producción, así que esta entrega pasa a **§22 / v2.2**. Es el mismo requisito, hoy **§O**
+> de `PROJECT.md`; solo cambia el número de sección.)* Tres superficies nuevas sobre la piel vigente:
+> **bloque de valores PSA 10 / PSA 9** junto al precio en la ficha, **badge de estimado** en la teja de
+> Compra y **vitrina «Joyas para gradear»** en el home. Sin artboard de Claude Design: §22 se **compone
+> íntegramente con lo ya ratificado** (celda `Fact` de la ficha, `PriceTag` §7.3, chip de grado sin cert
+> §7.2c/§16.9, patrón `Shelf` §20.5, reglas §4.3, `--app-header-h` §4.5) y **no pide ni una
+> modificación** a componentes existentes.
 > **Revisión del humano (2026-08-23), incorporada — dos cambios que definen la sección:**
 > **(1) Fuera la aritmética.** Se retiran de la UI la comparativa de tres columnas, el multiplicador, la
 > ganancia en MXN y el costo de gradeo del escalón: la ficha muestra **el precio y, junto a él, los dos
@@ -170,19 +195,30 @@
 > página**, una sola nota por página, visible sin interacción, con salto y **regreso** por teclado
 > (`tabindex="-1"` + `scroll-margin-top` sobre `--app-header-h`). Sobrevive el mejor recurso del
 > tratamiento anterior: **entradilla en negrita por párrafo**, que vuelve escaneables los seis puntos de
-> §N.5. **La nota al pie NO sustituye al aviso adyacente:** junto a **cada** cifra va también un
+> §O.5. **La nota al pie NO sustituye al aviso adyacente:** junto a **cada** cifra va también un
 > **micro-aviso visible** con las dos ideas obligatorias («ilustrativo» + «no evaluamos esta carta»), en
-> las tres superficies — §N.5 lo exige y marca su ausencia como **defecto bloqueante**, porque una nota al
+> las tres superficies — §O.5 lo exige y marca su ausencia como **defecto bloqueante**, porque una nota al
 > pie protege menos que un aviso adyacente si el comprador nunca baja. Para que quepa en la teja, **el
 > badge pierde el eyebrow** y el condicional se incorpora a la cifra («En PSA 10 vale ≈ MX$X»), y el
 > micro-aviso se pinta en **sans 11px** (prosa, más estrecha que la mono): coste **+16px en escritorio,
-> +28px en móvil**, aceptado y cuantificado. **R3 se reformula** en tres capas acopladas: toda cifra lleva
-> **micro-aviso visible** y **llamada**, toda página con cifras renderiza su **nota completa**, y las
-> cuatro se renderizan **bajo la misma condición** — si no cabe el aviso, no se muestra la cifra. Sigue
-> prohibido `<details>`, acordeón, modal, tooltip, `sr-only` como único portador, o mandar el texto a
-> términos como único acceso. Money-safe intacto (§N.4): sin dato **no se renderiza nada** — ni $0, ni
+> +28px en móvil**, aceptado y cuantificado *(y hoy casi nulo: §21.8f retira de la teja la línea «Valor
+> de mercado», que la encoge ~16px — ver §22.5)*. **R3 se reformula** en tres capas acopladas: toda cifra
+> lleva **micro-aviso visible** y **llamada**, toda página con cifras renderiza su **nota completa**, y
+> las cuatro se renderizan **bajo la misma condición** — si no cabe el aviso, no se muestra la cifra.
+> Sigue prohibido `<details>`, acordeón, modal, tooltip, `sr-only` como único portador, o mandar el texto
+> a términos como único acceso. Money-safe intacto (§O.4): sin dato **no se renderiza nada** — ni $0, ni
 > guion, ni «pendiente», ni skeleton que reserve el hueco. **Aditiva: cero tokens nuevos** de color y
 > tipografía y cero elementos gráficos nuevos.
+> **Revisión del humano (2026-08-28), incorporada — la rejilla lleva la cifra, pero solo si es
+> confiable.** De las tres opciones del mock de rejilla, el humano eligió **mostrar el monto** en la teja
+> del catálogo y en la vitrina (no el distintivo sin número), **con una condición**: en la rejilla la
+> cifra solo aparece si el número es **confiable** —**fresco**, de **origen confiable** (override manual,
+> o dato automático con **muestra suficiente de ventas**) y **coherente en magnitud** (la cota es
+> `psa10 > precio raw`; se descarta si sale **≤ raw**)—. La **ficha no aplica la coherencia con la misma
+> dureza**: informa lo que hay. Solo la **rejilla**, que es superficie de **promoción**, exige confianza.
+> Se traduce en la regla dura **R6** (§22.0) y en un **estado nuevo** en §22.7 —«hay cifra y pasa el gate
+> de ROI, pero no es confiable» ⇒ **ficha sí, teja y vitrina no**—, **indistinguible en pantalla** del
+> caso «no pasa el gate», y así debe ser (R5). Sigue **cero tokens nuevos**.
 
 ---
 
@@ -317,6 +353,8 @@ No uses los valores base directamente en componentes: usa estos tokens semántic
 | `--color-info` | Informativo | `#6E695E` |
 | `--color-info-bg` | Fondo suave info | `transparent` |
 | `--color-neutral-warm` | Acento terciario no semántico | `#9A6C57` |
+| `--color-finish-reverse` | Banda de acabado `reverse_holo` (§16.6) | `var(--color-accent)` (rojo de marca, `#B31217`) |
+| `--color-finish-holo` | Banda de acabado `holofoil` (§16.6) | `#1F5C8F` (azul acero) |
 | `--color-focus-ring` | Anillo de foco (§4.3, §8.2) | `#B44B3A` (bermellón) |
 | `--color-ink` / `--color-on-ink` | Panel de tinta / texto sobre él | `#1A1A18` / `#F4F1EA` |
 | `--color-on-ink-muted` | Texto secundario sobre tinta | `#8A857A` |
@@ -760,6 +798,9 @@ datos verificables**: **empresa + grado + número de certificado**.
   frontend); la API **no** envía el label legible, solo el enum `NM` (ver contrato v1.1).
 
 ### 7.3 Price tag (`PriceTag`) — precio de venta vs. referencia; "precio pendiente"
+> **⚠ Enmendado por §21.8f (v2.1, P-48).** La **segunda línea opcional «Valor de mercado» de las tejas de Compra
+> queda RETIRADA**: tejas y listados **no muestran** valor de mercado. El mercado vive **solo en la ficha** y solo
+> cuando `priceBasis === "market"` (§21.8). En **bóveda/portafolio** este componente **no cambia**.
 - **En Compra (precio de venta):** la cifra principal es `salePriceCents` → `MX$ 1,250.00` en
   `text-lg semibold tabular-nums`; debajo `text-xs muted` "sin IVA · 13 ago 2026". Opcionalmente, en
   segunda línea `text-xs muted`, el **valor de mercado/referencia** (`referenceValue.referenceMxnCents`)
@@ -1297,6 +1338,9 @@ Reglas derivadas:
   --color-danger:  #B44B3A; --color-danger-bg:  transparent;
   --color-info:    #6E695E; --color-info-bg:    transparent;
   --color-neutral-warm: #9A6C57;
+  /* Bandas de acabado (§16.6) — color ESTRICTAMENTE por finish, nunca por rareza */
+  --color-finish-reverse: var(--color-accent); /* rojo de marca sólido, #B31217 */
+  --color-finish-holo: #1F5C8F;                /* azul acero */
   /* Paneles de tinta (hero de auth, sidebar del back-office) */
   --color-ink: #1A1A18; --color-on-ink: #F4F1EA; --color-on-ink-muted: #8A857A;
   --color-on-ink-nav: #A39D91; --color-on-ink-rule: rgba(244,241,234,0.14);
@@ -1322,6 +1366,7 @@ colors: {
   danger:  { DEFAULT: 'var(--color-danger)',  bg: 'var(--color-danger-bg)' },
   info:    { DEFAULT: 'var(--color-info)',     bg: 'var(--color-info-bg)' },
   'neutral-warm': 'var(--color-neutral-warm)',
+  finish: { reverse: 'var(--color-finish-reverse)', holo: 'var(--color-finish-holo)' },
   ink: 'var(--color-ink)', 'on-ink': 'var(--color-on-ink)',
   'on-ink-muted': 'var(--color-on-ink-muted)', 'on-ink-nav': 'var(--color-on-ink-nav)',
   'on-ink-rule': 'var(--color-on-ink-rule)',
@@ -2113,6 +2158,12 @@ cola de pendientes de M2 (`/admin/m2?context=inventory`). Con `pendingPriceCount
 
 ### 16.3 Consola de tres precios en la teja de variante (P-18) — `VariantPriceConsole`
 
+> **⚠ Enmendado por §21.9 (v2.1, P-48).** El patrón (compacto en la teja + edición en el panel) **no cambia**, pero:
+> (a) `source` ya no es `rule|fallback` sino `PriceBasis` ⇒ el mapa de versalitas pasa a
+> **`MERCADO/PISO/MANUAL/BOUNTY/PENDIENTE`** (§21.9a); (b) se añaden los sufijos **`·P`** (ganó el piso/el mínimo) y
+> **`·!`** (retenida por el guardarraíl, §21.9b); (c) «Sugerido (regla)» → **«Sugerido (curva)»** y «Restablecer a
+> regla» → **«Restablecer a la curva»** (§21.9e).
+
 Consume `MasterSetVariantDTO.pricing` (solo scope `platform`; si `pricing` no viene, la consola no se
 renderiza — bóvedas de cliente jamás la ven). **Patrón elegido: compacto de solo-lectura en la teja +
 edición completa en el panel drill-down.** La teja informa de un vistazo; el write (que es `super_admin` y
@@ -2268,26 +2319,47 @@ vistazo. **Solución: banda superior de 3px + etiqueta mono SIEMPRE visible** (d
 es redundante, el texto porta — regla §2.4). Se define UNA vez y se usa igual en el binder M1, el
 cotizador (Stream C), bóvedas y storefront.
 
+**Convención de color de banda — ESTRICTAMENTE por `finish` (v-actual, implementada y desplegada).** El
+color de la banda depende **solo** del `finish`, **nunca** de la rareza ni de la composición de variantes.
+Cada acabado tiene UN color plano y estable (un mismo `reverse_holo` se ve idéntico en toda la app, sin
+variar a lo ancho de la teja):
+
 | `finish` | Banda (3px, borde superior de la casilla/teja) | Etiqueta mono (`text-[10px] uppercase tracking-[0.18em]`) |
 |---|---|---|
 | `normal` | **Sin banda** (el borde base `--color-border` de 1px) | `NORMAL` en `--color-text-muted` |
-| `reverse_holo` | **Gradiente lineal 90°** `#9A6C57 → #B44B3A` (neutral-warm → bermellón) | `REVERSE` en `--color-text` |
-| `holofoil` | **Sólida tinta** `#1A1A18` | `HOLO` en `--color-text` |
-| `first_edition_holofoil` | Sólida tinta `#1A1A18` | `1ED HOLO` en `--color-text` |
+| `reverse_holo` | **Rojo sólido** `var(--color-finish-reverse)` (= rojo de marca `#B31217`) | `REVERSE` en `--color-text` |
+| `holofoil` | **Azul sólido** `var(--color-finish-holo)` (`#1F5C8F`, azul acero) | `HOLO` en `--color-text` |
+| `first_edition_holofoil` | **Sólida tinta** `var(--color-ink)` (`#1A1A18`) | `1ED HOLO` en `--color-text` |
 
-- La banda de reverse es **la única superficie con gradiente permitida en todo el sistema** (guiño foil,
-  §5 "guiño de marca"): dos tonos cálidos de la propia paleta, 3px, decorativa (`aria-hidden`). No es un
-  "degradado arcoíris" (§1.3) ni un token nuevo.
-- **Accesibilidad:** la banda es decorativa; el significado lo porta la **etiqueta**, presente SIEMPRE
-  (nunca banda sin texto), + `aria-label` de la casilla: `Pikachu ex, reverse holo, 3 piezas`. Contraste de
-  la banda sobre papel: tinta ~15:1, neutral-warm ~4.0:1, bermellón ~4.6:1 — todas ≥ 3:1 (componente UI,
-  §10). Las etiquetas usan tinta/muted (AA de texto).
+- **Por qué rojo sólido en reverse (cambio):** antes la banda de reverse era un gradiente cálido 90°
+  (`#9A6C57 → #B44B3A`, marrón→bermellón) que variaba a lo ancho de la teja y leía inconsistente entre
+  superficies. Se sustituyó por **rojo de marca plano** (`--color-finish-reverse`, alias de
+  `--color-accent`). Con esto **la banda reverse ya NO es un gradiente**: la única excepción de gradiente
+  que queda en el sistema es el logo/lockup (§17.2).
+- **`--color-finish-holo` (`#1F5C8F`) es token nuevo:** no existía azul en la paleta. Es el ÚNICO azul del
+  sistema y vive **exclusivamente** como banda de acabado `holofoil`; no se usa para estados, enlaces,
+  bordes ni fondos (la semántica de atención sigue siendo el rojo, §2.4). Se ratifica el valor tal cual.
+- **Accesibilidad:** la banda es decorativa (`aria-hidden`); el significado lo porta la **etiqueta**,
+  presente SIEMPRE (nunca banda sin texto), + `aria-label` de la casilla: `Pikachu ex, reverse holo, 3
+  piezas`. Contraste de la banda sobre papel `#F4F1EA`: rojo `#B31217` ~6.2:1, azul `#1F5C8F` ~6.2:1, tinta
+  ~15:1 — todas ≥ 3:1 (componente UI, §10). Las etiquetas usan tinta/muted (AA de texto).
+- **Rojo/azul es un par seguro para daltonismo** (protanopía/deuteranopía/tritanopía): rojo y azul no se
+  confunden en ninguno de los tipos comunes y además difieren en tono y luminancia. Aun así el color
+  **nunca** es el único diferenciador: el refuerzo textual en versalitas (`REVERSE HOLO` / `HOLOFOIL` /
+  `1ED HOLO` / `NORMAL`) + el `aria-label` localizado cumplen el «no-solo-color» (§2.4) en toda superficie.
 - **Dónde:** en toda teja/casilla que represente UNA variante (binder M1, cotizador, drill-down header,
   Top Bounties). En fichas de detalle basta el `ListingSpec` (§7.2b); la banda es para retículas.
 - La etiqueta NO se traduce distinto por locale (`REVERSE`/`HOLO` son términos del hobby); el `aria-label`
   sí se localiza (`reverse holo` / `holofoil` legibles).
 
 ### 16.7 Bounty (P-22) — consola admin + vitrina pública «Top Bounties»
+
+> **⚠ Enmendado por §21.9c/d (v2.1, P-48).** El bounty se **revalida contra la curva vigente** al crear, al cotizar
+> y al publicar: un bounty por debajo —**o igual**— de la tarifa vigente **deja de aplicar** y **desaparece de la
+> vitrina**. Dos consecuencias en esta sección: (a) el copy de la validación pasa de «mayor o **igual** al sugerido»
+> a **«mayor que la tarifa vigente»** (el empate ahora se rechaza); (b) el badge de la teja gana el estado
+> **`BOUNTY REBASADO`** (sin glifo de mira) y el bloque del drill-down gana el aviso con las dos cifras. Detalle en
+> §21.9c/d.
 
 **(a) Edición en la consola (dentro de §16.3b, solo `super_admin`, solo variantes raw):** bloque «Bounty»
 al pie de la consola:
@@ -2914,10 +2986,10 @@ tinta del sello.
 - **`--hunt-tint`** existe SOLO para el fondo del shelf «Top Bounties» (§16.7c) y piezas de marca
   (OG/correo) si el frontend lo necesita; **no** rompe la regla "sin rellenos de color en estados"
   (§2.1): los `*-bg` semánticos **siguen `transparent`**. Si no se usa, mejor.
-- **El degradado `#B31217→#4A0D0D` es la SEGUNDA y última excepción de gradiente** del sistema (la
-  primera: banda reverse §16.6). Vive **exclusivamente** en el logo/lockup. Nunca en botones, fondos,
-  textos de UI ni bordes. La banda reverse de §16.6 pasa a `#9A6C57 → var(--color-accent)` (=`#B31217`)
-  — misma regla, hereda el valor por token.
+- **El degradado `#B31217→#4A0D0D` es la ÚNICA excepción de gradiente** del sistema. Vive
+  **exclusivamente** en el logo/lockup. Nunca en botones, fondos, textos de UI ni bordes. *(Actualización:
+  la banda reverse de §16.6 dejó de ser gradiente y pasó a **rojo sólido** `var(--color-finish-reverse)`
+  (=`#B31217`); ya no cuenta como excepción de gradiente. El logo es ahora el único gradiente permitido.)*
 - **Guiño de marca (§5) actualizado:** la **mira** sustituye al "rayo/holo" como guiño permitido
   (logotipo, hero, textura sutil en banners de confianza). Mismo límite: nunca compite con la carta.
 - **Semántica sin cambios:** verde = confirmado, rojo = atención (warning y danger se siguen
@@ -3097,10 +3169,12 @@ que `MasterSetBinder` (que ya comparte — hoy el problema era solo el ancho dis
 **La teja del quoter adopta el `FinishMark` de §16.6 EXACTAMENTE como la teja del binder M1** (hoy el
 `QuoterTile` no pinta la banda — esa es la brecha a cerrar):
 
-1. **`FinishBand` arriba de la teja** (primer elemento, encima del arte), idéntica a `BinderTile`:
+1. **`FinishBand` arriba de la teja** (primer elemento, encima del arte), idéntica a `BinderTile`,
+   coloreada ESTRICTAMENTE por `finish` (§16.6):
    - `normal` → sin banda (borde base).
-   - `reverse_holo` → gradiente 90° `--color-neutral-warm → --color-accent` (`#9A6C57 → #B31217`).
-   - `holofoil` / `first_edition_holofoil` → sólida tinta `#1A1A18`.
+   - `reverse_holo` → rojo sólido `var(--color-finish-reverse)` (`#B31217`).
+   - `holofoil` → azul sólido `var(--color-finish-holo)` (`#1F5C8F`).
+   - `first_edition_holofoil` → sólida tinta `var(--color-ink)` (`#1A1A18`).
    La banda es decorativa (`aria-hidden`); **nunca banda sin texto**.
 2. **La etiqueta textual** ya existe en el `TileHeader` compartido (`#4 · REVERSE HOLO`, mono 10px
    versalitas con el acabado en `--color-text`): es el canal portador (§2.4). No se duplica etiqueta:
@@ -3198,14 +3272,16 @@ metadata:
 - **Top Bounties** conserva su lenguaje (§16.7c + §17.3): chip `☩ BOUNTY` con `HuntMarkMicro`,
   precio «Pagamos» en verde, fondo `--hunt-tint` opcional. La grilla del cotizador NO adopta el
   tinte ni el glifo de mira: la jerarquía es shelf (cacería, destacado) > grilla (catálogo neutro).
-- **Sin gradientes nuevos:** las dos únicas excepciones siguen siendo la banda reverse (§16.6) y el
-  logo (§17.2). El FAB, el drawer y las tejas no llevan degradado.
+- **Sin gradientes nuevos:** la ÚNICA excepción de gradiente es el logo (§17.2); la banda reverse (§16.6)
+  ya es rojo sólido. El FAB, el drawer y las tejas no llevan degradado.
 
 ### 18.8 Accesibilidad (además de §8.2)
 
-- **Contraste (pares ya verificados, sin pares nuevos):** banda reverse sobre papel ≥ 4.0:1 (≥ 3:1
-  UI, §16.6); accent `#B31217` sobre papel 6.2:1; FAB tinta/papel ~15:1; badge contador
-  papel-sobre-accent 6.2:1 (§17.2). Nada que re-verificar en §10.
+- **Contraste (bandas de acabado, §16.6):** banda reverse (rojo `#B31217`) sobre papel 6.2:1; banda
+  holofoil (azul `#1F5C8F`) sobre papel ~6.2:1; banda 1ed (tinta) ~15:1 — todas ≥ 3:1 (componente UI).
+  Par **rojo/azul seguro para daltonismo** + refuerzo textual (`REVERSE HOLO`/`HOLOFOIL`), «no-solo-color».
+  accent `#B31217` sobre papel 6.2:1; FAB tinta/papel ~15:1; badge contador papel-sobre-accent 6.2:1
+  (§17.2). Nada más que re-verificar en §10.
 - **Targets:** FAB 56px; cerrar drawer 44px; steppers de cantidad del carrito conservan sus targets;
   el botón `Agregar` de la teja es full-width (≥ 44px de alto con `size="sm"` + padding — verificar
   en implementación; si `sm` queda < 44px de alto en táctil, subir a `min-h-[44px]`).
@@ -3270,6 +3346,14 @@ de graded/sealed (densidad §18.2). **Nada de esto toca contrato ni backend.**
 ---
 
 ## 19. Reorganización del panel M2 — catálogo/precios (v1.9)
+
+> **⚠ Enmendado por §21 (v2.1, P-48) en la zona de editores de precio.** Los editores de **reglas por rareza**
+> (Sección 4 buylist / Sección 5 venta) y de **tiers + mapa rareza→tier** **se retiran** y los sustituye el
+> **editor de la curva** (§21.1). En consecuencia: (a) las referencias de §19.1 a «Reglas buylist / Reglas venta»
+> se leen como «**Curva de precio**»; (b) **«Unificar rarezas» (§19.5) cambia de anfitrión** — se ancla al nuevo
+> bloque «Salud del catálogo de rarezas» y su microcopy se corrige (§21.7b). **Todo lo demás de §19 sigue vigente
+> tal cual**: la jerarquía de los grupos Datos / Catálogo / Avanzado, el reencuadre del selector de proveedor
+> (§19.7), estados y accesibilidad **no cambian**.
 
 > Pantalla: `/admin/m2` (`frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx`, super_admin).
 > Esta sección define SOLO **jerarquía, agrupación, etiquetas/microcopy, estados, confirmaciones y
@@ -3956,14 +4040,798 @@ Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los
 
 ---
 
-## 21. Valor estimado si se gradea — «gancho de grading» (v2.1, §N de PROJECT)
+## 21. Curva de precio por valor de mercado (v2.1 — P-48): editor de puntos, «Valor de mercado» condicional y bounty rebasado
 
-> **Qué es:** el tratamiento visual del requisito **§N de `PROJECT.md`** — sobre una carta **raw**
+> **Procedencia:** `PROJECT.md` **§N (v2.0, LOCKED)** · `docs/ARCHITECTURE.md` **§4.36** · `docs/API_CONTRACT.md`
+> rev **`v2.0-pricing-curve`** (§M2 «Curva de precio por VALOR DE MERCADO», `PricingCurveDTO`, `PriceBasis`,
+> `VariantPricingDTO`).
+> **Numeración:** en la secuencia propia de este documento esta entrega es **v2.1**, porque **v2.0 ya nombra el
+> makeover del storefront (§20)**. No son la misma entrega; el «v2.0» de PROJECT/ARCHITECTURE es esta §21.
+> **Origen: NO hubo entrega de Claude Design para esta feature.** Es una pantalla de back-office nacida del
+> contrato, más dos reglas de presentación en superficies ya diseñadas. Por eso §21 **no inventa lenguaje**:
+> extiende el vigente — papel/tinta (§2), Zen Old Mincho + Archivo + JetBrains Mono (§3), **reglas y aire en vez
+> de cajas y sombras** (§4.3), **cifras y estados en mono versalitas** (§2.4, §3.1, §20.14) y **cero rellenos de
+> color en estados** (§2.3). **Cero tokens nuevos**, cero elementos gráficos nuevos.
+
+### 21.0 Qué entra, qué se retira y qué NO se toca
+
+**Entra (tres superficies):**
+
+| # | Superficie | Qué es |
+|---|---|---|
+| 1 | **M2 › Curva de precio** (`super_admin`) | **Editor de la tabla de puntos** de longitud variable — dos curvas (venta y compra) + **piso**, **bin** y **escalera de redondeo**, con validación al guardar y **previsualización** del efecto (§21.1–§21.7) |
+| 2 | **Ficha de carta y ficha/ventana de sellado** (público) | El bloque **«Valor de mercado» desaparece** cuando el mercado no fijó el precio, y la retícula de datos **se recompone sin hueco** (§21.8) |
+| 3 | **Binder de M1** (`super_admin` / lectura `vault_operator`) | **Alerta de bounty rebasado** y **guardarraíl visible** (rareza premium en el piso/bin) en la teja y en el drill-down (§21.9) |
+
+**Se retira del diseño (con su pantalla, no se corrige — §N.9):** el editor de **reglas por rareza**, el editor de
+**tiers + mapa rareza→tier**, el eje de **reglas por acabado** y el par de modos **`fijo` / `porcentaje`**. Con ellos
+se va el **texto falso** que causó P-48: la etiqueta **«Piso (MX$)»** sobre un campo que era **precio absoluto**, el
+placeholder **«Hereda tier»** y el hint «Sin regla propia, el acabado hereda la del tier de su rareza».
+**Regla dura de esta sección: ninguna etiqueta puede prometer un comportamiento que el sistema no tiene.** Si un
+campo se llama «piso», el número **tiene** que ser un piso.
+
+**No se toca:** el **sellado** conserva su editor de **spreads por presentación** (§16.8, §K) — su precio antes y
+después es idéntico; la **bóveda/portafolio** del cliente y su gráfica de tendencia (§7.17); el **cotizador**
+(§7.14, §18) como flujo; los **overrides manuales**, que siguen siendo absolutos; y toda la piel de §2–§4.
+
+> **El sesgo de error gobierna la pantalla (PROJECT §N.0).** *Precio de más = venta perdida (recuperable); precio
+> de menos = carta perdida (irrecuperable).* Se traduce a diseño en cuatro decisiones concretas de §21: (a) **nada
+> se guarda solo** — la pantalla es un borrador con guardado explícito y diff confirmable; (b) **el previsualizador
+> es obligatorio**, porque una tabla de puntos no dice cuánto sale una carta; (c) **el error no interrumpe mientras
+> se teclea**, para que nadie aprenda a ignorarlo; (d) **lo que dejó de aplicar se dice, no se calla** (el bounty
+> rebasado y la pieza retenida por el guardarraíl tienen estado propio y visible).
+
+---
+
+### 21.1 M2 › Curva de precio — anatomía de la pantalla (`PricingCurveEditor`)
+
+Reemplaza, **en el mismo lugar** que ocupaban los editores retirados dentro de la zona «editores de reglas de
+precio» de M2 (§19.1), a: Reglas de buylist, Reglas de venta, Precios por tier y Asignación de rarezas a tiers.
+Consume `GET`/`PUT /api/v1/admin/pricing/curve` (`PricingCurveDTO`).
+
+```
+┌ CURVA DE PRECIO ─────────────────────────────────────────────┬──────────────────────────┐
+│ h2 serif  «Curva de precio»                                  │  ┌ PROBAR UN MERCADO ──┐ │
+│ lead text-sm muted (§21.1a)                                  │  │  (§21.5a)           │ │
+│                                                              │  │  sticky en ≥ xl     │ │
+│ ── CONSTANTES ─────────────────────────────────────────────  │  └─────────────────────┘ │
+│   Piso de venta [MX$ 25.00]   Mínimo de compra [MX$ 1.00]    │  ┌ TABLA DE REFERENCIA ┐ │
+│                                                              │  │  (§21.5b)           │ │
+│ ── VENTA ──────────────────────────────────────────────────  │  └─────────────────────┘ │
+│   tabla de puntos  (§21.2)                    [+ Agregar]    │  ┌ LA CURVA (opcional) ┐ │
+│   ── REDONDEO ↑ (solo venta) ── escalera (§21.3c)            │  │  (§21.5c)           │ │
+│                                                              │  └─────────────────────┘ │
+│ ── COMPRA ─────────────────────────────────────────────────  │                          │
+│   tabla de puntos  (§21.2)                    [+ Agregar]    │                          │
+└──────────────────────────────────────────────────────────────┴──────────────────────────┘
+┌ barra de guardado (sticky abajo) ──────────────────────────────────────────────────────┐
+│  2 CAMBIOS SIN GUARDAR                                     Descartar   [Guardar curva] │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Layout:** dos columnas en `≥ xl` (editor 2fr / previsualizador 1fr, el previsualizador **sticky** anclado con
+  `top-[var(--app-header-h,0px)]`, §4.5); una sola columna apilada por debajo, con el previsualizador **entre las
+  dos curvas y la barra de guardado** (nunca al final de un scroll largo).
+- **Orden VENTA → REDONDEO → COMPRA, no alfabético ni «compra primero».** Es el orden del invariante: la compra
+  vive **debajo** de la venta en todo el dominio, así que leer de arriba a abajo enseña la regla. El **redondeo
+  anida dentro de VENTA** porque solo aplica a ese eje (la compra **no se redondea**).
+- **Separadores:** cada bloque abre con `eyebrow` mono (`CONSTANTES` / `VENTA` / `REDONDEO ↑` / `COMPRA`) sobre una
+  **regla superior** de 1px (`--color-border`) y `<section role="group" aria-labelledby>` (mismo patrón §19.1). Sin
+  cajas, sin sombras, sin fondos de bloque.
+- **Rol:** todo el editor es `super_admin`. Para `vault_operator` **no se renderiza** (no es «campos deshabilitados»:
+  la curva es dinero de los dos lados). El resto de M2 no cambia de permisos.
+
+**(a) Lead de la pantalla (microcopy normativo — sustituye a todos los subtítulos de los editores retirados):**
+
+- **ES:** «El precio sale **solo del valor de mercado** de cada carta. La **rareza** y el **acabado** ya no
+  intervienen en el cálculo. Cada curva es una lista de puntos que tú defines: entre dos puntos el valor se
+  **interpola en línea recta**; antes del primero y después del último se mantiene **plano**. Los cambios surten
+  efecto **sin publicar de nuevo** y quedan en bitácora.»
+- **EN:** «Price comes **only from each card's market value**. **Rarity** and **finish** no longer take part in the
+  math. Each curve is a list of points you define: between two points the value is **interpolated in a straight
+  line**; before the first and after the last it stays **flat**. Changes take effect **without republishing** and
+  are logged.»
+
+**(b) Nota al pie fija del editor** (misma familia que §16.3b), `text-xs muted`, siempre visible:
+«Al guardar, el catálogo se repricia en el siguiente cálculo · los precios manuales (override) no se tocan ·
+queda en bitácora.»
+
+**(c) Unidades: el contrato habla en centavos y puntos base; la pantalla, en pesos, `×` y `%`.**
+**Nunca se muestran `marketCents`, `multiplierBp` ni `pctBp` crudos**, ni siquiera en `title`, `aria-label` o
+mensajes de error. La conversión vive en la capa de formato (como `formatMoneyCents`, §9.3):
+
+| Campo del DTO | En pantalla | Formato |
+|---|---|---|
+| `marketCents` | **Mercado** | `MX$ 25.00` — input dinero con prefijo `MX$` (§6.2), `inputmode="decimal"` |
+| `multiplierBp` (venta) | **Multiplicador** | `1.60×` — input numérico con sufijo `×`, **2 decimales**, mínimo `1.00` |
+| `pctBp` (compra) | **Pago** | `30%` — input numérico con sufijo `%`, **0–100**, hasta 2 decimales |
+| `floorCents` / `binCents` | **Piso de venta** / **Mínimo de compra** | `MX$ 25.00` / `MX$ 1.00` |
+| `rounding[].uptoCents` / `.stepCents` | **Hasta** / **Escalón** | `MX$ 200.00` / `MX$ 5.00`; la última banda dice `EN ADELANTE` |
+
+- El input **no reformatea mientras se teclea** (solo al `blur`), para que escribir `1.6` no se convierta en algo
+  distinto a media pulsación. Todas las cifras con `tabular-nums`.
+- **Voz tipográfica:** este es **dinero operativo** (columnas que se comparan y se suman) ⇒ **mono**, 11–14px,
+  según §20.14. No se usa el registro «precio display» sans aquí.
+
+---
+
+### 21.2 La fila de punto: agregar, mover y borrar sin que se sienta frágil (`CurvePointsTable`)
+
+Anatomía de la tabla de una curva (es un `<table>` real, §7.7; **no** una lista de tarjetas):
+
+```
+        MERCADO        MULTIPLICADOR     VENTA A ESE MERCADO
+PLANO ANTES
+        [MX$   25.00]  [ 1.60 ×]         MX$ 40.00                     [Quitar]
+        [MX$   80.00]  [ 1.15 ×]         MX$ 95.00                     [Quitar]
+PLANO DESPUÉS
+                                          + Agregar punto
+```
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| **Gutter de posición** | texto mono 10px versalitas, `--color-text-muted` | `PLANO ANTES` en la **primera** fila y `PLANO DESPUÉS` en la **última** — explican los tramos planos de los extremos, que es la primera pregunta que hace la tabla («¿por qué una carta de MX$1 usa el 1.60×?»). `NUEVO` en una fila agregada y aún no guardada |
+| **Mercado** | input dinero | El valor del punto de quiebre |
+| **Multiplicador** (venta) / **Pago** (compra) | input `×` / `%` | El valor que se interpola |
+| **Resultado a ese mercado** | **derivado, solo lectura** | Fondo `--color-surface-2` (pozo) para leerse como no editable — es una **superficie**, no un relleno de estado (§4.3). Venta = precio final **con piso y redondeo aplicados**; compra = pago final **con el mínimo aplicado**. Si ganó la constante, la celda añade la versalita **`PISO`** (§21.9a) |
+| **Acción** | botón icono 44px | `Quitar` (`aria-label` «Quitar el punto de MX$ 80.00») |
+
+**(a) Mover un punto = cambiar su mercado. No hay arrastrar y soltar.**
+El orden **no es un dato que el dueño edite**: se deriva de `marketCents` (el servidor ordena y rechaza duplicados).
+Un asa de arrastre sugeriría que el orden es independiente del valor —y en una pantalla de dinero, una fila que
+cambia de sitio con el ratón es exactamente la clase de gesto que produce un error que nadie recuerda haber hecho.
+- La tabla **reordena al `blur`** del campo Mercado, **nunca mientras se teclea**.
+- Tras reordenar, la fila movida conserva el **foco** y recibe un **realce breve** de 1.2 s: regla izquierda de 2px
+  en `--color-accent` que se desvanece (o aparece sin transición con `prefers-reduced-motion`, §8.2). Sin este
+  realce el dueño pierde de vista su propia fila.
+- El cambio de posición se anuncia con `aria-live="polite"`: «El punto de MX$ 120.00 quedó en la posición 3 de 4.»
+
+**(b) Agregar un punto es, por definición, neutro.**
+`+ Agregar punto` (botón `secondary` `sm`, ancho de la tabla) añade una fila **al final, en edición, con el foco en
+Mercado**. Al confirmar el mercado (`blur`), el valor se **rellena solo con el valor interpolado de la curva actual
+en ese mercado**, y la fila se ordena en su sitio.
+- **Por qué se prerrellena:** un punto colocado **sobre** la curva vigente no cambia **ningún** precio. Así,
+  «agregar un punto» es una operación segura por construcción y el dueño solo asume riesgo cuando **mueve** el
+  valor. El helper lo dice: «Se colocó sobre la curva actual: todavía no cambia ningún precio.» / «Placed on the
+  current curve: it doesn't change any price yet.»
+- La fila nueva lleva la versalita `NUEVO` en el gutter hasta que se guarda.
+- Si el mercado queda vacío o repetido, la fila **no se ordena**: se queda al final marcada (§21.4).
+
+**(c) Borrar: inmediato, reversible dentro del borrador.**
+No hay modal de confirmación por fila — sería un peaje en una tabla de N filas y enseñaría a confirmar sin leer. La
+red de seguridad real es que **nada de esta pantalla toca dinero hasta «Guardar curva»**:
+- Al quitar una fila aparece, al pie de esa curva, una línea mono `text-[11px]`:
+  `Punto de MX$ 80.00 eliminado · **Deshacer**` (`Deshacer` es un botón `link`). Persiste hasta que se guarda, se
+  descarta el borrador o se elimina otro punto (entonces se apila hasta 3 y luego se resume: `3 puntos eliminados ·
+  Deshacer el último`).
+- **No se puede quedar sin puntos:** con una sola fila, `Quitar` está **deshabilitado** con el motivo en `title`
+  **y** `aria-describedby`: «Una curva necesita al menos un punto.» (es el invariante V1 hecho control, §21.4).
+
+**(d) Marca de campo modificado.** Un input cuyo valor difiere del guardado gana una **regla izquierda de 2px**
+`--color-accent` y, debajo, `text-xs muted`: `Antes: 1.15×`. Es el diff **en el sitio del cambio**, sin tachados
+(§16.3b ya descartó el tachado como recurso) y sin rellenos de color.
+
+**(e) Lo que la tabla NO hace:** no numera las filas (el índice del array es un detalle del contrato, no un dato del
+dueño), no permite editar dos curvas a la vez en un mismo formulario parcial (el `PUT` reemplaza el objeto
+completo) y no ofrece «duplicar punto» ni plantillas: cada punto es una decisión de dinero, no un elemento de lista.
+
+---
+
+### 21.3 Constantes: piso, mínimo de compra y escalera de redondeo
+
+**(a) Piso de venta y Mínimo de compra (`CurveConstantsRow`)** — dos inputs de dinero en una fila de dos columnas
+separada por regla, **arriba de las dos curvas**, porque gobiernan a las dos.
+
+| | Etiqueta | Ayuda (`text-xs muted`, obligatoria) |
+|---|---|---|
+| `sale.floorCents` | **Piso de venta** | ES: «Ninguna carta se publica por debajo de este precio, aunque su mercado sea menor.» · EN: «No card is listed below this price, even if its market value is lower.» |
+| `buy.binCents` | **Mínimo de compra** | ES: «Nunca pagamos menos que esto, aunque el porcentaje dé menos.» · EN: «We never pay less than this, even if the percentage yields less.» |
+
+> **Estas dos ayudas son el antídoto de P-48 y no son opcionales.** El campo anterior decía «Piso (MX$)» y se
+> comportaba como precio absoluto. La ayuda ahora **describe el comportamiento** («no se publica por debajo»,
+> «nunca pagamos menos»), no el rol abstracto. Si algún día el comportamiento cambia, cambia el texto — no al revés.
+
+- Bajo el **Piso de venta**, segunda línea `text-xs muted` que conecta el dial con su consecuencia operativa:
+  «Una carta de **rareza premium** que aterrice en el piso **no se publica**: pasa a la cola de precio pendiente
+  para que revises su mercado.» (es el guardarraíl, §21.7c/§21.9b).
+- El **Mínimo de compra** debe quedar por debajo del **Piso de venta** (invariante V7); si no, el servidor rechaza
+  al guardar y ambos campos se marcan (§21.4).
+
+**(b) La escalera de redondeo ↑ (`RoundingLadderTable`)** — anidada dentro del bloque VENTA, con `eyebrow`
+`REDONDEO ↑ (SOLO VENTA)`:
+
+```
+        HASTA              ESCALÓN
+        [MX$  200.00]      [MX$   5.00]      [Quitar]
+        [MX$  500.00]      [MX$  10.00]      [Quitar]
+        EN ADELANTE        [MX$  25.00]
+                            + Agregar banda
+```
+
+- **La última banda no tiene input de «Hasta»:** se pinta la versalita fija `EN ADELANTE` (`uptoCents: null`). Así
+  el estado inválido «ninguna banda abierta» o «dos bandas abiertas» **no se puede expresar** desde la UI. Es la
+  mitad barata de V8 resuelta por construcción; la otra mitad (fronteras múltiplo del escalón inferior) la valida
+  el servidor.
+- `Quitar` deshabilitado en la última banda y cuando solo queda una.
+- Ayuda del bloque (`text-xs muted`): ES «El precio de venta se redondea **hacia arriba** al siguiente múltiplo del
+  escalón de su banda. La banda la decide el precio **antes** de redondear y no se vuelve a evaluar. La compra
+  **no** se redondea.» · EN «The sale price is rounded **up** to the next multiple of its band's step. The band is
+  chosen by the price **before** rounding and is not re-evaluated. Buy prices are **not** rounded.»
+
+---
+
+### 21.4 Validación V1–V9: **cuándo** aparece el error y **qué forma** tiene
+
+> **Principio de la pantalla:** *mientras se teclea no hay errores; el previsualizador enseña el problema en pesos;
+> el servidor lo nombra al guardar.* El editor **no reimplementa** los invariantes cruzados para adelantarse al
+> `422`: si el cliente inventara un rechazo que el servidor no haría, el dueño dejaría de confiar en la pantalla —
+> y la autoridad del dinero es el backend (SEC-A1).
+
+**(a) Los tres momentos.**
+
+| Momento | Qué se valida ahí | Forma | ¿Bloquea guardar? |
+|---|---|---|---|
+| **Mientras se teclea** | **nada** | ninguna. Sin rojo, sin sacudidas, sin reformateos | no |
+| **Al salir del campo (`blur`)** | lo que **un solo control** puede afirmar de sí mismo: tipos y rangos (**V3**), `multiplicador ≥ 1.00×` (**V4**), `pago` en 0–100%, `escalón ≥ MX$0.01` y `hasta` creciente (parte de **V8**) | error inline de §6.2: borde `--color-danger`, mensaje debajo, `aria-invalid` + `aria-describedby` | no lo impide, pero el botón lo advierte (ver (d)) |
+| **Al salir del campo, nivel tabla** | **V2** duplicado: dos puntos con el mismo mercado (tras reordenar quedan **adyacentes**) | ambas filas marcadas con la misma sub-fila de mensaje | no |
+| **Al guardar (`PUT` → `422`)** | los **cruzados**: **V1**, **V5** (monotonía de **venta**), **V9** (monotonía de **compra**), **V6** (compra bajo venta), **V7** (bin bajo piso) y la condición fina de **V8** | resumen anclado + marcas por punto (ver (b)) | **nada se guardó**: la curva vigente sigue viva |
+
+**(b) La forma del error al guardar.** El contrato entrega `code` + `details: { axis, index, marketCents, … }`; el
+diseño lo convierte en **tres marcas coordinadas**:
+
+1. **Resumen anclado arriba del editor** — `Banner` `danger` (§7.5, sin relleno: texto e icono sobre papel),
+   `role="alert"`, **recibe el foco** al llegar la respuesta. Título fijo, en los dos idiomas, sin ambigüedad:
+   **«No se guardó nada.»** / **«Nothing was saved.»** Cuerpo = una frase por infracción (tabla (c)) y, por cada
+   punto culpable, un botón `link` **«Ir al punto de MX$ 80.00»** que enfoca el primer input de esa fila y la lleva
+   a la vista.
+2. **La(s) fila(s) culpables** — regla izquierda de 2px `--color-danger`, `aria-invalid="true"` en sus inputs y una
+   **sub-fila** a todo el ancho de la tabla con el mensaje en mono `text-[11px]` `--color-danger`. Los errores de
+   **tramo** (V5 y V9 —las dos monotonías— y V6) marcan **los dos extremos** y escriben el mensaje bajo el segundo,
+   nombrando los dos mercados.
+   Los **cruzados de eje** (V6, V7) marcan la fila/el campo en **las dos** caras; el mensaje inline vive en el eje
+   que indica `details.axis` y el resumen es el que cuenta la historia completa.
+3. **El previsualizador** (§21.5) resalta el tramo o el mercado implicado, para que el error se **vea en pesos** y
+   no solo se lea en prosa.
+
+**(c) Copy por código (ES / EN). Frases, no álgebra: el dueño no lee `multiplierBp`.**
+
+| Código `422` | ES | EN |
+|---|---|---|
+| `CURVE_EMPTY` | «La curva de {venta\|compra} se quedó sin puntos. Agrega al menos uno.» | «The {sale\|buy} curve has no points left. Add at least one.» |
+| `DUPLICATE_BREAKPOINT` | «Hay dos puntos en el mismo mercado (MX$ {m}). Cambia uno o quita el repetido.» | «Two points share the same market (MX$ {m}). Change one or remove the duplicate.» |
+| `SALE_BELOW_MARKET` | «El punto de MX$ {m} vendería **por debajo del mercado**. El multiplicador de venta nunca puede bajar de **1.00×**.» | «The MX$ {m} point would sell **below market**. The sale multiplier can never go under **1.00×**.» |
+| `SALE_CURVE_NOT_MONOTONIC` | «Entre MX$ {m0} y MX$ {m1} el precio de venta **baja** cuando el mercado sube. Sube el multiplicador de MX$ {m1} o baja el de MX$ {m0}.» | «Between MX$ {m0} and MX$ {m1} the sale price **drops** as market goes up. Raise the MX$ {m1} multiplier or lower the MX$ {m0} one.» |
+| `BUY_CURVE_NOT_MONOTONIC` **(V9)** | «Entre MX$ {m0} y MX$ {m1} **pagarías menos** aunque el mercado suba. Sube el pago de MX$ {m1} o baja el de MX$ {m0}.» | «Between MX$ {m0} and MX$ {m1} **you would pay less** even though market goes up. Raise the MX$ {m1} pay or lower the MX$ {m0} one.» |
+| `BUY_ABOVE_SALE` | «En MX$ {m} pagarías **{pct}%** y venderías a **{mult}×**: la compra alcanza a la venta. Baja el pago de ese tramo.» | «At MX$ {m} you would pay **{pct}%** and sell at **{mult}×**: buying catches up with selling. Lower the pay for that stretch.» |
+| `BIN_ABOVE_FLOOR` | «El **mínimo de compra** (MX$ {bin}) no puede alcanzar al **piso de venta** (MX$ {floor}).» | «The **buy minimum** (MX$ {bin}) cannot reach the **sale floor** (MX$ {floor}).» |
+| `ROUNDING_LADDER_INVALID` | «La escalera de redondeo no es válida: cada frontera debe ser **múltiplo exacto** del escalón de la banda anterior (con escalón de MX$5, la frontera puede ser MX$200, no MX$203).» | «The rounding ladder is invalid: each boundary must be an **exact multiple** of the previous band's step (with a MX$5 step, the boundary can be MX$200, not MX$203).» |
+| `VALIDATION_ERROR` (rango/tipo) | se muestra **en el campo**, no en el resumen (§6.2) | idem |
+
+- **Las dos monotonías son gemelas y su copy lo refleja** (V5 venta / V9 compra): mismo esqueleto —diagnóstico en
+  una frase + remedio nombrando los dos puntos— y misma marca de tramo. Cambia el verbo, porque cambia el daño:
+  en venta el precio **baja**; en compra **pagarías menos**. El error **no explica por qué importa** (eso vive en
+  este documento y en §N.0): un mensaje de guardado tiene que ser corto y accionable.
+- **`PREMIUM_RARITY_FIXED_TIER` se retira** junto con su copy: su invariante ya no existe.
+- Cualquier otro fallo (`403`, `5xx`, red) usa el patrón genérico de §8.1 con «Reintentar»; **nunca** se deja la
+  pantalla insinuando que algo se guardó a medias.
+
+**(d) Limpieza de marcas.** Editar cualquier campo de una fila marcada **borra la marca de esa fila** (optimismo
+local). El **resumen** permanece hasta el siguiente intento de guardar o hasta `Descartar` — desaparecerlo antes
+haría creer que el problema se resolvió sin haberlo comprobado. Si hay errores **de campo** pendientes, el botón
+`Guardar curva` sigue habilitado pero la barra muestra en mono accent: `HAY CAMPOS SIN CORREGIR`; al pulsarlo, el
+foco salta al primero (no se envía).
+
+**(e) Invariante ≠ aviso: V9 y la «lectura de la curva» conviven y NO son lo mismo.**
+Son dos cosas distintas que pueden ser ciertas **a la vez sobre la misma curva**, y la pantalla tiene que dejar
+claro cuál es cuál. La regla que las separa es de una línea: **invariante = dinero; aviso = intención.**
+
+| | **V9 `BUY_CURVE_NOT_MONOTONIC`** | **Aviso «lectura de la curva» (§21.5b)** |
+|---|---|---|
+| Qué afirma | **Pagas menos por más mercado** — el **pago absoluto** baja | El **porcentaje** de compra baja (o el multiplicador de venta sube) |
+| Naturaleza | **Invariante de dinero.** Una carta que no se compra se pierde igual que una vendida barata (§N.0) | **Preferencia de negocio** (§N.1): margen grueso abajo, pago mayor arriba |
+| Momento | solo **al guardar** (`422` del servidor) | **en vivo**, mientras se edita |
+| Dónde | resumen anclado + filas marcadas en el editor + tramo en la curva dibujada | al pie de la **tabla de referencia**, en el panel de previsualización |
+| Tono | `--color-danger`, `role="alert"`, recibe el foco | mono `--color-text-muted`, `role="status"`, sin icono y **nunca en rojo** |
+| Efecto | **bloquea**: no se guarda nada | **no bloquea nada**, nunca deshabilita `Guardar` |
+
+- **Por qué V9 no exige que el pct suba** (decisión del arquitecto, y este documento la respeta): bajar el
+  porcentaje en un tramo es **legítimo** mientras el pago absoluto siga subiendo. Convertir esa preferencia en un
+  rechazo del sistema le quitaría al dueño una palanca válida — y le enseñaría a pelearse con la pantalla.
+- **Ejemplo que dispara los dos** (es el contraejemplo real de QA): `$25 ⇒ $12.50` · `$80 ⇒ $16.53` ·
+  `$100 ⇒ $10.00`. El **aviso** aparece en cuanto se teclea, porque el pct cae (50% → 20.66% → 10%); **V9** llega
+  al guardar, y solo por el tramo **$80 → $100**, donde el pago absoluto baja. El tramo `$25 → $80` **no** es un
+  error: el pct cae pero el pago sube.
+- **Nunca se sustituyen, se resumen ni se contagian.** Si coinciden, se muestran **los dos**, cada uno en su sitio
+  y con su tono. **Prohibido teñir el aviso de rojo** o darle icono de error cuando V9 esté presente: si el aviso
+  aprendiera a verse como un error, la próxima vez que aparezca solo —que es el caso normal y legítimo— se leería
+  como un fallo del que nadie tiene que hacer nada. Es la misma disciplina de §2.4: cada estado dice **una** cosa.
+- **Dónde se ve V9 antes de guardar:** en la columna derivada **«Compra a ese mercado»** (§21.2), donde el pago
+  absoluto aparece **descendiendo** de una fila a la siguiente. Es coherente con la tesis de §21.4: *el
+  previsualizador enseña el problema en pesos; el servidor lo nombra al guardar.*
+
+---
+
+### 21.5 Previsualización: la tabla de puntos es abstracta, el peso no
+
+> **Requisito de producto, no adorno.** El dueño no puede calibrar lo que no ve. Los diales de §N.2 son «un punto
+> de partida informado, no una verdad» — la pantalla tiene que responder «¿cuánto sale una carta de MX$50?» sin
+> que nadie multiplique de cabeza. **Dos capas son obligatorias (a y b); la tercera (c) es recomendada.**
+
+**(a) La probeta — `CurveProbe` (obligatoria).** Un input de mercado y el resultado, **vigente contra borrador**:
+
+```
+┌ PROBAR UN MERCADO ───────────────────────────────────┐
+│  Mercado   [ MX$   50.00 ]                           │
+│                          VIGENTE      BORRADOR       │
+│  VENTA                 MX$ 70.00     MX$ 75.00  +5.00│
+│                          MERCADO       MERCADO       │
+│  COMPRA                MX$ 16.67     MX$ 17.33  +0.66│
+│                          MERCADO       MERCADO       │
+│  ────────────────────────────────────────────────────│
+│  Venta: 50.00 × 1.4409 = 72.05 → ↑ MX$ 75.00 (paso $5)│
+│  Compra: 50.00 × 34.67% = 17.33 (mínimo MX$ 1.00)    │
+└──────────────────────────────────────────────────────┘
+```
+
+*(Ejemplo con los diales de §N.2 y un borrador que subió el punto de venta de MX$80 de `1.15×` a `1.25×` y el de
+compra de MX$25 de `30%` a `32%`. La **memoria de cálculo describe siempre la columna BORRADOR**, que es la que el
+dueño está decidiendo; con la curva vigente ese mismo mercado daría `50.00 × 1.3955 = 69.77 → ↑ MX$ 70.00`.)*
+
+- **Dos columnas siempre:** `VIGENTE` (la curva guardada, tal como la devolvió el último `GET`/`PUT`) y `BORRADOR`
+  (lo que hay en pantalla). La diferencia se pinta a la derecha en mono con signo; **sin color** si es 0, en
+  `--color-text` si cambia (no verde/rojo: subir un precio de venta no es «bueno» ni «malo» por sí mismo).
+- **Bajo cada cifra, el `priceBasis` en versalitas** (`MERCADO` / `PISO`) con el mapa canónico de §21.9a. Es la
+  misma señal que después gobierna la ficha pública: aquí el dueño ve **qué determinó** el precio.
+- **La memoria de cálculo es obligatoria** (las dos últimas líneas): multiplicador o porcentaje aplicado, producto
+  **antes** de redondear, comparación con la constante y **paso de redondeo usado**. Es lo que convierte la
+  pantalla en algo auditable a ojo. Cuando gana la constante se escribe así:
+  `Venta: 1.14 × 1.6000 = 1.82 · el piso MX$ 25.00 gana → MX$ 25.00`.
+- Cuando el resultado de venta resuelve en `PISO`, se añade `text-xs muted`: «Aquí el mercado no explica el precio:
+  en la ficha **no se muestra** el valor de mercado, y una carta **premium** en esta zona **no se publica**.» Esa
+  frase ata, en un solo lugar, el dial (§21.3a), la regla de visibilidad (§21.8) y el guardarraíl (§21.9b).
+- Estado inicial: precargada con **MX$ 50.00**. Sin mercado escrito, la probeta muestra su estado vacío
+  («Escribe un valor de mercado para ver qué precio sale»), nunca ceros.
+
+**(b) La tabla de referencia — `CurveReferenceTable` (obligatoria).** Una tabla impresa de precios: es la forma más
+natural de este sistema («el sitio se lee como una tabla de precios», §3.1).
+
+- **Filas =** los mercados de la **prueba de mesa normativa** (ARCHITECTURE §4.36.1: `1.14 · 10 · 25 · 50 · 80 ·
+  86 · 87 · 100 · 300 · 500`) **∪** el mercado de **cada punto** de las dos curvas del borrador. Deduplicadas y
+  ordenadas ascendentes.
+- **Columnas:** `MERCADO` · `VENTA VIGENTE` · `VENTA BORRADOR` · `COMPRA VIGENTE` · `COMPRA BORRADOR`. Las celdas
+  que cambian llevan la cifra en `--color-text` y el delta mono a su lado; las que no cambian, `--color-text-muted`.
+- **Es también el test de aceptación del previsualizador:** con los diales iniciales de §N.2, la tabla debe
+  reproducir **exactamente** las cifras de la prueba de mesa (`$87 ⇒ $105`, no `$110`). QA lo verifica ahí.
+- **Lectura de la curva (aviso, nunca error):** si los multiplicadores de venta **suben** con el mercado, o los
+  porcentajes de compra **bajan**, la tabla añade al pie un bloque con **eyebrow mono `LECTURA DE LA CURVA`** y una
+  línea mono muted: «La curva va al revés de lo previsto: el margen debería ser **grueso abajo y delgado arriba** en
+  venta, y el pago **mayor arriba** en compra.» Es una observación de **intención de negocio** (§N.1), **no** un
+  invariante: `role="status"`, **nunca** en rojo, **nunca** con icono de error y **no bloquea nada**.
+  > **El eyebrow no es decorativo: es lo que impide confundirlo con un error.** El aviso tiene **nombre y casa
+  > fijos** (`LECTURA DE LA CURVA`, al pie de esta tabla); ningún error de validación lleva ese rótulo ni vive aquí.
+  > **No confundir con V9 `BUY_CURVE_NOT_MONOTONIC`**, que sí es dinero y sí bloquea: que el **pct baje** es
+  > legítimo mientras el **pago absoluto suba**. Los dos pueden ser ciertos a la vez sobre la misma curva — tabla
+  > comparativa y ejemplo trabajado en **§21.4e**.
+
+**(c) La curva dibujada — `PricingCurveChart` (recomendada, no bloqueante para el primer entregable).**
+Reutiliza el lenguaje de §7.17/§7.18: SVG, línea de 1.5–2px, **sin relleno**, ejes como reglas, etiquetas mono.
+
+- **Eje Y = precio final en MXN. Eje X = mercado, en escala logarítmica**, con marcas en
+  `3 · 10 · 25 · 80 · 300` — que son exactamente las fronteras del `MarketBracket` fijo de la instrumentación
+  (§4.36.7c). Así el gráfico de calibración y el reporte `GET /admin/reports/pricing-brackets` **hablan del mismo
+  eje**, y comparar «cuánto rota cada bracket» con «qué hace mi curva ahí» es inmediato.
+- **Cuatro trazos:** venta del borrador (tinta, sólida, **con su escalera** — la venta se dibuja como escalonada
+  porque eso es lo que se cobra); compra del borrador (tinta, 1px, punteada); la curva **guardada** en muted
+  punteado detrás (para ver el cambio); y la **identidad `venta = mercado`** en muted 1px punteado, que hace
+  visible el invariante «nunca por debajo del mercado».
+- **Piso y mínimo** como reglas horizontales rotuladas en mono (`PISO MX$25`, `MÍN. MX$1`). Los puntos de quiebre
+  son marcas de 4px sobre su trazo; al pasar el foco/ratón muestran su `title` (`MX$80 · 1.15×`).
+- **Tramo con error** (tras un `422` de V5, **V9** o V6): se dibuja en `--color-danger` sobre el **trazo de su
+  eje** —venta o compra, para que se vea de cuál de las dos curvas se habla— y su marca lleva el mismo mensaje.
+- **Alternativa textual obligatoria:** la tabla (b) **es** la alternativa accesible del gráfico; el `<svg>` va con
+  `role="img"` + `aria-label` de resumen y `aria-describedby` apuntando a la tabla (mismo patrón que §7.17).
+
+**(d) De dónde salen los números del previsualizador.** El borrador se calcula **en el cliente** con la matemática
+normativa de ARCHITECTURE §4.36.1 (interpolación, `max` con la constante, escalera sin re-evaluar banda); la columna
+`VIGENTE` se calcula con **el objeto guardado** que devolvió el servidor. Reglas duras: (1) el previsualizador
+**jamás** decide un precio real — es lectura, no dinero; (2) tras un `PUT 200`, el editor **re-siembra** su curva
+vigente con la respuesta del servidor, no con su propio borrador; (3) la prueba de mesa de §4.36.1 es un test
+obligatorio del frontend. *(Solicitud abierta al arquitecto para eliminar la duplicación de la fórmula: §21.13.1.)*
+
+---
+
+### 21.6 Guardar: borrador explícito, diff legible y bitácora (`CurveSaveBar` + `CurveDiffDialog`)
+
+**(a) Barra de guardado sticky** al pie del editor (no del viewport completo; convive con la barra de M2):
+- Izquierda, mono versalitas: `SIN CAMBIOS` (muted) · `2 CAMBIOS SIN GUARDAR` (accent) · `HAY CAMPOS SIN CORREGIR`
+  (accent) · `NO SE GUARDÓ` (danger, tras un `422`, hasta el siguiente cambio).
+- Derecha: `Descartar` (`ghost`, pide confirmación si hay cambios) y **`Guardar curva`** (`primary`). Con
+  `SIN CAMBIOS` el botón está deshabilitado con motivo en `aria-describedby`.
+- **Salir con cambios sin guardar** dispara confirmación (guard de navegación + `beforeunload`). Es dinero: el
+  descarte silencioso no es una opción.
+
+**(b) Diálogo de confirmación (§7.6) — es aquí donde el cambio se lee en palabras.** Se abre siempre, incluso con
+un solo cambio: el `PUT` reemplaza **toda** la curva y repricia el catálogo entero.
+
+```
+Guardar la curva de precio
+
+  VENTA    · punto MX$ 80.00 · multiplicador  1.15× → 1.25×
+  VENTA    · punto MX$ 200.00 AGREGADO · 1.10×
+  COMPRA   · punto MX$ 25.00 · pago  30% → 32%
+  PISO     · MX$ 25.00 → MX$ 30.00
+
+  Efecto en precios (5 de 12 mercados de referencia cambian):
+    MERCADO      VENTA               COMPRA
+    MX$  10.00   MX$ 25.00 → 30.00   MX$  3.00 →  3.20
+    MX$  50.00   MX$ 70.00 → 75.00   MX$ 16.67 → 17.33
+    …y 3 más
+
+  Al guardar, el catálogo se repricia en el siguiente cálculo: cambia el precio
+  publicado de las cartas y lo que ofrece el cotizador de compra. Los precios
+  manuales (override) no se tocan.
+
+  Solo súper-admin · queda en bitácora.
+                                              Cancelar   [ Guardar curva ]
+```
+
+- El **diff** es mono, una línea por cambio, con `eje · punto · campo · antes → después`. Nunca un JSON.
+- La **tabla de impacto** es la tabla de referencia (§21.5b) reducida a las filas que cambian, tope 5 + «y N más».
+- CTA `primary` (no `destructive`: guardar no destruye nada; lo que exige cuidado es su alcance, y eso lo comunica
+  el diff). La nota «Solo súper-admin · queda en bitácora» es la de §7.6 para acciones de dinero.
+
+**(c) Después de guardar.** `200` ⇒ toast «Curva de precio guardada.» (§7.5), la barra vuelve a `SIN CAMBIOS`, la
+columna `VIGENTE` del previsualizador se re-siembra con la respuesta y se invalidan las consultas de precios de M1/M2
+(binder y cola de pendientes) para que el efecto sea visible sin recargar. **No hay «publicar de nuevo»:** el precio
+de venta se resuelve en lectura; decirle al dueño que republique sería mentirle sobre el modelo.
+
+---
+
+### 21.7 El resto de M2 alrededor del editor
+
+**(a) Lo que desaparece del panel.** Con los editores retirados se van sus bloques completos (título, subtítulo,
+tablas, selectores de modo y textos de fallback). **No queda hueco**: el editor de la curva ocupa esa zona, entre la
+cola de precio pendiente / FX / proveedor (§19.7) y los spreads del sellado (§16.8), que **no se tocan**.
+
+**(b) «Unificar rarezas» cambia de casa (enmienda §19.5).** La acción estaba anclada al **editor de reglas por
+rareza**, que ya no existe. Su nuevo anfitrión es el bloque **«Salud del catálogo de rarezas»**
+(`GET /admin/pricing/rarities`, re-propositado): una `DataTable` (§7.7) de solo lectura con `Rareza canónica ·
+Premium · Mapeada · Cartas`, ordenada por cartas desc.
+- El *information scent* de §19.5 se conserva intacto: el remedio sigue junto al síntoma (la lista fragmentada), solo
+  que la lista ya no es un editor de precios sino la vista que **respalda el guardarraíl**.
+- **El microcopy se corrige, porque «no cambia precios» ya no lo cuenta todo.** Añadir a la ayuda y al cuerpo del
+  modal: ES «**No cambia ningún precio**, pero sí puede cambiar **qué cartas quedan retenidas** por el guardarraíl,
+  porque este mira la rareza premium.» · EN «It **changes no price**, but it can change **which cards are held** by
+  the guardrail, since the guardrail looks at premium rarity.» El resto del copy de §19.5 se mantiene.
+- Subtítulo del bloque: ES «Las rarezas ya **no fijan precios**. Se conservan para filtros, presentación y para el
+  guardarraíl que retiene una carta premium cuando su precio cae al piso.» · EN «Rarities **no longer set prices**.
+  They remain for filters, presentation and for the guardrail that holds a premium card when its price falls to the
+  floor.»
+
+**(c) Cola de precio pendiente: dos motivos, un filtro (`admin.m2.pending`).** La cola ahora recibe entradas de dos
+orígenes distintos que **se arreglan de forma distinta**, así que se distinguen a la vista:
+
+| `reason` | Versalita | Significado para el dueño | Qué lo resuelve |
+|---|---|---|---|
+| `no_market` | `SIN MERCADO` (muted) | No hay dato de precio de esa variante | El siguiente barrido, **solo**. No requiere que nadie mire |
+| `premium_at_floor` | `PREMIUM EN EL PISO` (accent) | Hay dato y **parece equivocado**: una carta premium resolvió al piso o al mínimo | **Requiere mirarla**: revisar el mercado o fijar precio a mano |
+| *(ausente, filas históricas)* | `—` | — | — |
+
+- Columna `Motivo` en la tabla + **filtro** en la barra superior (`Todos` / `Sin mercado` / `Premium en el piso`)
+  mapeado a `?reason=`. El filtro es chip removible (§7.7).
+- **Encabezado con conteo por motivo**, mono: `12 SIN MERCADO · 3 PREMIUM EN EL PISO`. El segundo número es la
+  señal de calibración del piso: si crece mucho, el piso está mal puesto (o el dato de mercado está roto), y ese es
+  justo el diagnóstico que §N.5 quiere hacer visible.
+- Subtítulo actualizado (ES): «Variantes sin precio publicable, escaladas para revisarlas. El comprador nunca ve
+  este estado. **Sin dato de mercado no se publica ni se cotiza** — el piso no rellena el hueco.»
+
+---
+
+### 21.8 «Valor de mercado» que desaparece — ficha de carta y ficha de sellado
+
+**(a) La regla (contrato de UI, no interpretación).** El bloque **«Valor de mercado»** se muestra **si y solo si
+`priceBasis === "market"`** del grupo/pieza cuyo precio se está pintando. Con `floor`, `override`, `bounty` o
+`pending` **no se renderiza**: ni en cero, ni tachado, ni atenuado, ni «—», ni con `visibility:hidden`.
+- **La UI obedece, no infiere.** Está **prohibido** decidirlo comparando `referenceValue` contra `salePriceCents`.
+  Que `referenceValue` siga viajando en el DTO **no autoriza a pintarlo** (el mismo DTO alimenta superficies de
+  admin y de valuación).
+- **Empate ⇒ se muestra:** el backend ya resuelve el desempate emitiendo `market`; el front no lo re-evalúa.
+- **Cuál `priceBasis` manda:** el del **mismo grupo cuyo precio ocupa el bloque** — hoy `listings[0]` (la
+  publicación más barata, la del «desde»). Si el bloque cambiara de grupo, el basis cambia con él: **nunca** se
+  mezcla el precio de un grupo con el mercado de otro. Los renglones de «Ejemplares disponibles» **no** muestran
+  mercado (no cambian).
+- **Precio pendiente:** con `priceBasis === "pending"` la celda de venta ya pinta su estado propio (§7.3) y el
+  bloque de mercado **tampoco** aparece — es el mismo mecanismo, sin excepción.
+- **Alcance:** ficha de carta (`/catalog/[cardId]`) y ficha/ventana de sellado (`/sellado/[inventoryItemId]`).
+  **No cambian** la bóveda/portafolio (ahí el cliente ve el mercado de **lo que ya posee**, y eso es correcto), el
+  cotizador (§7.14, §18: nunca mostró mercado) ni las tejas/listados.
+
+**(b) Cómo se recompone la retícula sin dejar hueco.** Hoy la ficha pinta cuatro celdas hermanas en una retícula de
+2 columnas con reglas (`Precio de venta` · `Valor de mercado` · `Condición` · `Acabado`), y el divisor izquierdo
+está **atado a la celda** («Valor de mercado» y «Acabado» lo llevan escrito). Quitar una celda con esa estructura
+produce exactamente lo que hay que evitar: una regla que muere a media fila y un divisor heredado por quien no le
+toca. Tres reglas normativas:
+
+1. **Primero la lista, después la retícula.** Se construye la lista de **hechos visibles** evaluando `priceBasis`;
+   la retícula se pinta **sobre esa lista ya filtrada**. Un hecho oculto **no existe** (no hay celda vacía).
+2. **El divisor es de la posición, no del hecho.** `border-b` en toda celda; `border-l` **solo** en las celdas que
+   no abren fila (par en la lista filtrada, en `≥ sm`). **Prohibido** hardcodear `sm:border-l` en un hecho concreto.
+3. **La fila del dinero nunca queda coja.** Si «Valor de mercado» no está, la celda «Precio de venta» **ocupa la
+   fila completa** (`sm:col-span-2`).
+
+```
+CON mercado (4 hechos)                    SIN mercado (3 hechos)
+┌───────────────────┬───────────────────┐ ┌───────────────────────────────────────┐
+│ PRECIO DE VENTA   │ VALOR DE MERCADO  │ │ PRECIO DE VENTA                       │
+│ MX$ 1,250.00      │ MX$ 980.00        │ │ MX$ 25.00                             │
+│ sin IVA           │ 20 ago 2026       │ │ sin IVA                               │
+├───────────────────┼───────────────────┤ ├───────────────────┬───────────────────┤
+│ CONDICIÓN         │ ACABADO           │ │ CONDICIÓN         │ ACABADO           │
+│ Casi nueva (NM)   │ Reverse Holo      │ │ Casi nueva (NM)   │ Reverse Holo      │
+└───────────────────┴───────────────────┘ └───────────────────┴───────────────────┘
+   2 filas de 2 — rectángulo cerrado         1 fila de dinero + 1 fila de 2 — también cerrado
+```
+
+**Ficha de sellado:** el mismo mecanismo con dos hechos (`Desde` + `Valor de mercado`) ⇒ cuando el precio viene de
+un **override manual**, queda **una sola celda a fila completa**. Con precio derivado por spread, se muestran las dos.
+
+**(c) Nada crece para compensar.** La cifra de venta **conserva** su tamaño (30px sans 500, §20.13/§20.14), su peso
+y su posición; no se agranda, no se centra, no gana etiqueta nueva. Dos fichas del mismo set deben leerse con la
+misma jerarquía, tengan o no bloque de mercado. **El hueco no se rellena con nada**: ni un «precio fijo», ni un
+sello, ni una explicación de por qué no está el mercado (§N.7: el bloque simplemente no aparece).
+
+**(d) La nota al pie cambia con el bloque.** El párrafo `card.referenceExplainer` habla hoy del valor de mercado
+**y** describe el modelo viejo («referencia + margen»). Queda **doblemente equivocado**. Dos variantes, elegidas por
+la misma condición que el bloque:
+
+| Caso | ES | EN |
+|---|---|---|
+| **Con** bloque de mercado | «El **valor de mercado** es la referencia del día con la que valuamos las cartas. El **precio de venta** se calcula a partir de ella.» | «**Market value** is the day's reference we value cards with. The **sale price** is derived from it.» |
+| **Sin** bloque de mercado | «El **precio de venta** es el precio publicado de esta carta, sin IVA.» | «The **sale price** is this card's listed price, before tax.» |
+
+La variante «sin bloque» **no menciona** el mercado ni insinúa que falte algo: no hay nada que explicar.
+
+**(e) Sin salto de layout.** Durante la carga, el esqueleto de la ficha pinta la fila de dinero como **una sola
+celda a ancho completo** (la parte invariable) y añade la celda de mercado solo cuando llegan los datos. Así nunca
+se ve aparecer un bloque que después se retira (§8.1: los esqueletos respetan el layout final; el layout final aquí
+es el que no depende del dato).
+
+**(f) Enmienda a §7.3 (`PriceTag`).** La segunda línea **opcional** «Valor de mercado» en las tejas de Compra queda
+**retirada**: tejas y listados **no muestran** valor de mercado y no van a mostrarlo. §7.3 se lee, a partir de aquí,
+así: en Compra el `PriceTag` pinta **solo** el precio de venta + «sin IVA»; el mercado vive **exclusivamente** en la
+ficha y solo bajo la regla (a). En bóveda/portafolio, el `PriceTag` sigue **igual** (ahí la cifra **es** el valor de
+referencia y no depende de `priceBasis`).
+
+**(g) Qué NO es esta regla.** No cambia el precio que se cobra (es presentación), no oculta el estado «precio
+pendiente» donde ya vivía (bóveda/back-office, §7.3) y no toca la valuación del portafolio.
+
+---
+
+### 21.9 Binder de M1: bounty rebasado y guardarraíl visible
+
+**(a) Mapa canónico `priceBasis` → versalitas (nuevo, compartido).** Es la traducción única del enum del contrato;
+la usan la consola compacta, el drill-down, el previsualizador de §21.5 y la cola de pendientes. Sustituye al par
+`REGLA` / `FALLBACK`, que ya no existe.
+
+| `priceBasis` | Versalita ES / EN | Tinta | Sufijo en la consola compacta (§16.3a) |
+|---|---|---|---|
+| `market` | `MERCADO` / `MARKET` | `--color-text-muted` | *(ninguno — el caso normal no grita)* |
+| `floor` | `PISO` / `FLOOR` | `--color-text` (peso 500) | **`·P`** |
+| `override` | `MANUAL` / `MANUAL` | `--color-text` (peso 500) | **`·M`** *(sin cambio)* |
+| `bounty` | `BOUNTY` / `BOUNTY` | `--color-accent` | **`·B`** *(sin cambio, solo compra)* |
+| `pending` | `PENDIENTE` / `PENDING` | `--color-accent` | *(la cifra es `—`, §16.3a)* |
+
+- **`·P` es nuevo y necesario:** «el piso ganó» es justo lo que el dueño necesita ver para detectar un **piso mal
+  calibrado**, y es la causa de que la ficha pública **no** muestre el mercado. Su `title`/`aria-label`:
+  «Determinado por el piso — el mercado no explica este precio» (compra: «Determinado por el mínimo de compra»).
+- **Un solo rótulo por valor del enum** (`PISO` también en el eje de compra, donde la constante se llama «mínimo»):
+  el nombre visible espeja el contrato y la desambiguación va en el nombre accesible. Dos rótulos para un mismo
+  valor invitan a que alguien invente un sexto estado.
+
+**(b) Guardarraíl: marcador de retención `·!`.** Cuando `pricing.{buy|sell}.premiumAtFloor === true`, el renglón de
+ese eje en la consola compacta gana el sufijo **`·!`** en `--color-accent`, y **no** se pinta `·P` (la retención
+implica el piso; la causa va en el nombre accesible):
+- `title` / `aria-label` venta: «No se publica: rareza premium que aterrizó en el piso. Está en la cola de precio
+  pendiente para revisar su mercado.»
+- `title` / `aria-label` compra: «No se cotiza: rareza premium que aterrizó en el mínimo de compra.»
+- En el **drill-down** (§16.3b) la fila afectada muestra la versalita `PISO` en la columna de fuente **y** una línea
+  bajo la tabla: «Retenida por el guardarraíl · **Ver en la cola de pendientes**» (enlace a M2 con
+  `?reason=premium_at_floor`). Es la única acción: **el guardarraíl no se apaga desde aquí**.
+- La casilla del binder **no** cambia de color ni gana relleno: el marcador de dos caracteres y el texto bastan
+  (§2.4). Con ≈3 casos por cada 333 cartas, gritar sería peor que informar.
+
+**(c) Bounty rebasado — una oferta que dejó de serlo.** Con `bounty.enabled === true` y `bounty.effective === false`
+el bounty **no aplica al cotizar** y **no se publica** en la vitrina; si nadie lo dice, el dueño ve simplemente que
+su `·B` desapareció. **Se dice en tres sitios, todos donde ya trabaja:**
+
+1. **Badge de la teja (enmienda §16.7b).** El badge `BOUNTY` pasa a tener **dos estados de texto**:
+
+   | Estado | Badge | Glifo de mira | Tinta |
+   |---|---|---|---|
+   | `enabled && effective` | `BOUNTY` | **sí** (`HuntMark` micro, §17.1d, `aria-hidden`) | `--color-accent` |
+   | `enabled && !effective` | **`BOUNTY REBASADO`** / `BOUNTY OUTBID` | **no** — se retira: ya no es una caza activa | `--color-accent` |
+
+   El **texto** es el portador (§2.4): los dos estados comparten el rojo de atención y se distinguen por la palabra,
+   igual que `PENDIENTE` vs `RECHAZADA`. La ausencia del glifo es el refuerzo, no el canal. `aria-label` de la
+   casilla: «Bounty rebasado: la tarifa estándar paga más que tu oferta.» En columnas estrechas la etiqueta
+   **envuelve a dos líneas** antes que truncarse (§9.4).
+
+2. **Consola compacta (§16.3a).** El renglón `COMPRA` muestra la cifra de la **curva** (que es lo que realmente se
+   paga) **sin** `·B`. No se añade un cuarto renglón: el badge ya porta el aviso y la teja tiene que seguir
+   leyéndose de un vistazo.
+
+3. **Drill-down › bloque «Bounty» (§16.7a) — aquí están los números y el remedio.** Sobre los controles del bounty
+   aparece un aviso `Banner` `warning` (§7.5: icono + texto sobre papel, **sin relleno**), `role="status"`:
+
+   ```
+   BOUNTY REBASADO
+   Tu oferta MX$ 900.00  ·  tarifa vigente MX$ 950.00
+   Mientras esté por debajo, se paga la tarifa vigente y la carta no aparece
+   en «Top Bounties». Súbelo por encima de MX$ 950.00 o apágalo.
+   ```
+
+   - Las dos cifras son `bounty.priceCents` y `bounty.curveQuoteCents`, en mono con `tabular-nums`.
+   - **Sin acciones nuevas:** se resuelve con los controles que ya están (el input de precio o el switch). No se
+     ofrece «subir automáticamente»: cuánto pagar es una decisión del dueño, no un botón.
+   - Si `curveQuoteCents` es `null` (la curva no resuelve), **no hay aviso**: ahí el bounty explícito sigue siendo
+     efectivo por diseño.
+
+**(d) Corrección de copy en las validaciones del bounty (enmienda §16.7a).** El helper y el error decían «mayor o
+**igual** al sugerido»; el contrato ahora **rechaza el empate** (`priceCents ≤ curveQuoteCents`). Copy nuevo:
+- Helper dinámico: ES «Debe ser **mayor** que la tarifa vigente (MX$ 950.00).» · EN «It must be **higher** than the
+  current rate (MX$ 950.00).»
+- `422 BOUNTY_BELOW_RULE`: ES «Un bounty tiene que pagar **más** que la tarifa vigente (MX$ 950.00). Con el mismo
+  importe no sería una oferta.» · EN «A bounty must pay **more** than the current rate (MX$ 950.00). At the same
+  amount it wouldn't be an offer.»
+- El helper de premium sobre la regla conserva su forma, con el nombre nuevo: «Premium sobre la **curva**: +MX$
+  125.00 (+14%)»; sin curva resoluble: «Sin tarifa de curva — el bounty es el precio explícito.»
+- `BOUNTY_PRICE_REQUIRED` no cambia.
+
+**(e) Renombres derivados en la consola de precios (enmienda §16.3b).** «La regla» ya no existe como concepto:
+- Columna **«Sugerido (regla)» → «Sugerido (curva)»**; helper del campo «Sugerido por regla: MX$ 875.00» →
+  «Sugerido por la curva: MX$ 875.00».
+- Enlace **«Restablecer a regla» → «Restablecer a la curva»**; su toast «Override retirado — vuelve a regir la
+  regla.» → «Override retirado — vuelve a regir la curva.»
+- Fuente del efectivo: se sustituye `REGLA`/`FALLBACK` por el mapa de (a).
+- El resto de §16.3b (patrón compacto en teja + edición en el panel, permisos, validaciones, nota al pie) **no
+  cambia**.
+
+**(f) Sin aviso proactivo.** Decisión del humano, explícita: **basta el binder**. No se diseña correo, push, toast
+global ni tarjeta de dashboard para el bounty rebasado ni para el guardarraíl. La vitrina pública tampoco necesita
+diseño nuevo: el backend ya filtra los no efectivos y §16.7c ya manda **no renderizar** la sección cuando no queda
+ninguno.
+
+---
+
+### 21.10 Accesibilidad (además de §8.2)
+
+- **Tablas de puntos:** `<table>` con `<caption>` (visualmente oculta) «Puntos de la curva de venta», `<th scope>`
+  en la cabecera y **un `<label>` por celda-input** (`aria-label` «Mercado del punto 2», «Multiplicador del punto
+  2»). La columna derivada usa `<td>` normal, no input deshabilitado.
+- **Reordenar al `blur`** se anuncia con `aria-live="polite"` (§21.2a). El foco **nunca** se pierde: sigue a la fila.
+- **Borrar** anuncia el resultado y expone el `Deshacer` como botón real en el orden de tabulación inmediatamente
+  posterior a la tabla.
+- **Errores:** resumen `role="alert"` que recibe foco; inputs con `aria-invalid` + `aria-describedby` al mensaje;
+  los mensajes de tramo se asocian a **los dos** inputs implicados.
+- **Motivos de deshabilitado siempre anunciados** (`title` **y** `aria-describedby`): último punto, última banda,
+  `Guardar` sin cambios.
+- **Previsualizador:** la probeta anuncia el resultado con `aria-live="polite"` al terminar de escribir (debounce),
+  no en cada tecla. El gráfico opcional es `role="img"` con `aria-describedby` a la tabla de referencia.
+- **Ficha pública:** al desaparecer el bloque «Valor de mercado» **no** queda ningún nodo con texto vacío ni
+  `aria-hidden` sobre una celda fantasma. La retícula filtrada es la que se anuncia.
+- **Binder:** los marcadores `·P`, `·M`, `·B`, `·!` son texto, no iconos; llevan `title` **y** forman parte del
+  `aria-label` del renglón («Precio de venta: 25 pesos, determinado por el piso, retenida: no se publica»).
+- **Sin color como único canal en ninguna de las tres superficies:** basis, retención, bounty rebasado y motivo de
+  pendiente son **palabras en versalitas**.
+- **Objetivos táctiles ≥ 44×44** en `Quitar`, `Agregar punto`, `Agregar banda` y el `Deshacer`.
+
+### 21.11 Contraste (verificación) — **cero pares nuevos**
+
+Todo §21 se compone con pares ya verificados en §10, §17.2 y §20.15:
+
+| Par usado en §21 | Ratio | Veredicto |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel `#F4F1EA` (cifras, inputs, tablas) | ~15.5:1 | AA/AAA |
+| Tinta `#1A1A18` sobre pozo `#EFEBE2` (**columna derivada**) | ~14.7:1 | AA/AAA |
+| Muted `#6E695E` sobre papel / sobre pozo (etiquetas, `MERCADO`, ayudas) | ~4.8:1 / ~4.6:1 | AA |
+| Rojo `#B31217` sobre papel (`·!`, `·B`, `BOUNTY REBASADO`, `PREMIUM EN EL PISO`, mensajes de error) | 6.2:1 | AA |
+| Rojo `#B31217` sobre pozo (marcas en la columna derivada) | 5.9:1 | AA |
+| Regla 1–2px `--color-border` / `--color-danger` / `--color-accent` (marcas de fila) | UI ≥ 3:1 | ok |
+| Anillo de foco rojo sobre papel / pozo | 6.2:1 / 5.9:1 | AA (≥3:1 UI) |
+
+La **columna derivada sobre pozo** es la única superficie tintada que introduce §21: es un **escalón de superficie**
+(§4.3), no un relleno de estado — los estados siguen siendo texto sin caja (§2.4).
+
+### 21.12 i18n — claves nuevas y retiradas (propiedad de frontend)
+
+**Nuevas — enums compartidos (convención `status.<dominio>.<enum>`, §9.2):**
+- `status.priceBasis.{market,floor,override,bounty,pending}` → `MERCADO/PISO/MANUAL/BOUNTY/PENDIENTE`.
+- `status.pendingReason.{no_market,premium_at_floor}` → `SIN MERCADO / PREMIUM EN EL PISO`.
+- `status.bounty.{active,outbid}` → `BOUNTY / BOUNTY REBASADO`.
+
+**Nuevas — editor (`admin.m2.curve.*`):**
+- `title`, `lead`, `footerNote`
+- `constants.{floorLabel,floorHint,floorGuardrailHint,binLabel,binHint}`
+- `sale.{title,marketCol,multiplierCol,resultCol}` · `buy.{title,marketCol,payCol,resultCol}`
+- `point.{flatBefore,flatAfter,new,add,addedNeutralHint,remove,removeAria,removeLastDisabled,undoRemoved,
+  reorderAnnounce,previousValue}`
+- `rounding.{title,uptoCol,stepCol,openBand,add,remove,hint}`
+- `preview.{probeTitle,probeMarketLabel,current,draft,empty,saleMath,buyMath,floorWinsNote,
+  referenceTitle,referenceHint,shapeTitle,shapeHint,chartTitle,chartAria}` — `shapeTitle` = el eyebrow
+  **`LECTURA DE LA CURVA`** que le da nombre y casa al aviso no bloqueante (§21.5b / §21.4e)
+- `save.{noChanges,dirty,fieldErrors,notSaved,discard,discardConfirm,submit,submitting,saved,leaveConfirm}`
+- `diff.{title,body,impactTitle,impactMore,effectNote,auditNote,cta}`
+- `errors.{CURVE_EMPTY,DUPLICATE_BREAKPOINT,SALE_BELOW_MARKET,SALE_CURVE_NOT_MONOTONIC,BUY_CURVE_NOT_MONOTONIC,
+  BUY_ABOVE_SALE,BIN_ABOVE_FLOOR,ROUNDING_LADDER_INVALID,summaryTitle,goToPoint}`
+  *(`BUY_CURVE_NOT_MONOTONIC` = V9, rev `v2.1.4-buy-monotonic`; código propio, no una generalización del de venta,
+  para no tocar el copy de `SALE_CURVE_NOT_MONOTONIC` ya cerrado.)*
+
+**Nuevas — alrededores y binder:**
+- `admin.m2.rarityHealth.{title,subtitle,canonicalCol,premiumCol,mappedCol,cardCountCol}` (+ se **conserva**
+  `admin.m2.unifyRarities.*` de §19.5, con `hint`/`confirmBody` corregidos, §21.7b).
+- `admin.m2.pending.{reasonCol,filterLabel,filterAll,countsByReason,subtitle}` *(subtítulo reescrito)*.
+- `admin.m1.bounty.{outbidTitle,outbidBody,outbidYours,outbidCurrent,mustBeHigherHint}` y los mensajes corregidos
+  de `error.BOUNTY_BELOW_RULE`.
+- `admin.m1.priceConsole.{suggestedCurve,resetToCurve,resetToast,heldByGuardrail,seeInPendingQueue}`.
+- `card.referenceExplainer` pasa a **dos claves**: `card.referenceExplainerWithMarket` y
+  `card.referenceExplainerNoMarket` (§21.8d). Idéntico para la ficha de sellado si usa clave propia.
+
+**Retiradas (con sus pantallas):** `admin.m2.buylistRules.*`, `admin.m2.salesRules.*`, `admin.m2.tierRules.*`,
+`admin.m2.tierMap.*` — **incluidos** `tierRules.inheritPlaceholder` («Hereda tier»), `tierRules.finishHint`,
+`*.modeLabel.*`, `*.fallback*` y `error.PREMIUM_RARITY_FIXED_TIER`. **No se corrigen: se van con la pantalla**
+(§N.9).
+
+Recordatorio §9.4: `BOUNTY REBASADO`, `PREMIUM EN EL PISO` y `NO SE GUARDÓ` son ~30–40% más largos que su versión
+EN; las cabeceras de columna del editor deben poder envolver, y los badges de la teja envuelven a dos líneas antes
+que truncar.
+
+### 21.13 Notas para otros roles (derivadas del diseño; ninguna bloquea)
+
+1. **Arquitecto — dry-run de la curva (recomendado).** El previsualizador (§21.5) obliga hoy a **reimplementar en el
+   cliente** la matemática de §4.36.1. Funciona y es verificable (la prueba de mesa es su test), pero duplica
+   fórmula de dinero fuera del backend. Un `POST /admin/pricing/curve/preview` que reciba **el borrador** + una
+   lista de mercados y devuelva `{ market, sale: {cents, basis, roundingStepCents, rawCents}, buy: {cents, basis} }`
+   dejaría el previsualizador **exacto por construcción** y quitaría la duplicación. **El diseño está pensado para
+   funcionar sin él.**
+2. **Arquitecto / product-owner — impacto del cambio antes de guardar (deseable).** El diálogo de §21.6b muestra el
+   efecto sobre **mercados de referencia**, no sobre el inventario real, porque el contrato no expone «cuántas
+   publicaciones cambian de precio con esta curva». Un conteo (aunque sea aproximado y por bracket) haría del diff
+   una decisión con volumen. Sin él, el diseño es veraz: habla de precios, no de piezas.
+3. **Product-owner — reporte «overrides por debajo de la curva» (ya anotado en ARCHITECTURE §4.36.9c-5).** Tras el
+   cut-over pueden quedar overrides fijados creyendo en la etiqueta falsa «Piso (MX$)». Hoy el dueño puede
+   compararlos **variante por variante** en el binder (`suggestedCents` vs `overrideCents`); una lista dedicada sería
+   una mejora de UX real. **Fuera de alcance de v2.1**, pero es la superficie natural donde §21.9e ya deja las piezas.
+4. **Frontend — dónde vive la fórmula.** Si se implementa el previsualizador en cliente (mientras no exista (1)), la
+   matemática debe estar en **un solo módulo puro y testeado** contra la prueba de mesa de §4.36.1, nunca repartida
+   entre componentes. Es el equivalente frontal de la regla «un solo lector de la curva» del backend.
+5. **QA visual sugerido:** (a) ficha de una carta en zona de **piso** ⇒ el bloque «Valor de mercado» **no está en el
+   DOM** y la retícula no deja media fila; (b) ficha de sellado con **override** ⇒ una sola celda a fila completa;
+   (c) teja de Compra ⇒ **ningún** valor de mercado en ningún estado; (d) editar la curva con un punto que rompa
+   **V5** (venta) y otro que rompa **V9** (compra) ⇒ en ambos casos `422`, resumen con foco, **dos** filas marcadas
+   del eje correcto y **nada guardado** (recargar devuelve la curva anterior); (e) bounty válido → subir el mercado
+   ⇒ el badge dice `BOUNTY REBASADO`, la carta desaparece de «Top Bounties» y el drill-down muestra las dos cifras;
+   (f) variante premium en el piso ⇒ `·!` en el renglón de venta y entrada en la cola con motivo
+   `PREMIUM EN EL PISO`; (g) los diez mercados de la prueba de mesa dan en la tabla de referencia exactamente las
+   cifras de §4.36.1; (h) **curva de compra `$25⇒$12.50 · $80⇒$16.53 · $100⇒$10.00`** ⇒ el aviso
+   `LECTURA DE LA CURVA` aparece **en vivo** (muted, sin bloquear) y, al guardar, **V9** marca **solo** el tramo
+   `$80 → $100` en rojo: los dos conviven, ninguno se pinta como el otro (§21.4e).
+
+---
+
+## 22. Valor estimado si se gradea — «gancho de grading» (v2.2, §O de PROJECT)
+
+> **Numeración (resultado de la fusión con `main`).** Esta entrega nació como **§21/v2.1** y pasa a
+> **§22 / v2.2**: la **curva de precio por valor de mercado (P-48)** ya ocupaba §21, ya está en producción
+> y las referencias vivas de §7.3, §16.3, §16.7 y §19 apuntan a ese §21. Todas las referencias internas de
+> esta sección se reescribieron a **§22.x**. El requisito de origen no cambió de contenido, solo de letra:
+> **§N → §O de `PROJECT.md`** (el disclaimer es hoy **§O.5**), con el contrato en **v1.50**.
+>
+> **Qué es:** el tratamiento visual del requisito **§O de `PROJECT.md`** — sobre una carta **raw**
 > publicada en Compra, mostrar **cuánto valdría si se gradeara PSA 10 / PSA 9**, en **tres superficies**:
 > **bloque de valores** junto al precio en la **ficha**, **badge** en la teja de Compra y **vitrina «Joyas
 > para gradear»** en el home.
 >
-> **Revisión del humano (2026-08-23) — dos cambios que reescriben §21.3–§21.5:**
+> **Revisión del humano (2026-08-23) — dos cambios que reescriben §22.3–§22.5:**
 > 1. **Fuera la aritmética.** *«No hay que mostrarlo así mejor. Solo pongamos cuánto vale en PSA 10… nos
 >    quitamos talacha de calcularlo… solo bajemos el precio y desplegamos "en PSA 10 vale tanto"»*, y —
 >    preguntado por el PSA 9— **sí quiere los dos grados**. El bloque de la ficha se reduce a **el precio de
@@ -3973,50 +4841,59 @@ Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los
 >    cartas aparece el badge y qué cartas entran en la vitrina**. El cliente **nunca** ve el cálculo.
 > 2. **El disclaimer pasa a nota al pie.** *«El completo solo hagamos referencia con un asterisco donde
 >    ponemos el tag y hasta abajo de la página lo ponemos»*. Patrón clásico de **llamada + nota al pie de
->    imprenta**, no un widget: §21.4 lo trata como tipografía.
+>    imprenta**, no un widget: §22.4 lo trata como tipografía.
 >
-> **Origen:** **no hay entrega de Claude Design** para esta feature. §21 se construye **desde cero sobre la
+> **Revisión del humano (2026-08-28) — la rejilla muestra el monto, pero solo si el número es confiable.**
+> De las tres opciones del mock, el humano eligió **la que lleva la cifra** a la teja del catálogo y a la
+> vitrina (no el distintivo sin número), **con una condición**: en la rejilla la cifra solo aparece si el
+> número es **confiable** —**fresco**, de **origen confiable** (override manual, o dato automático con
+> **muestra suficiente de ventas**) y **coherente en magnitud**—. La **ficha no aplica la coherencia con la
+> misma dureza**: informa lo que hay. Solo la rejilla —superficie de **promoción**— exige confianza. Se
+> traduce en la regla dura **R6** (§22.0) y en un **estado nuevo** en §22.7.
+>
+> **Origen:** **no hay entrega de Claude Design** para esta feature. §22 se construye **desde cero sobre la
 > piel ya aprobada**: no inventa una identidad para el gancho, la **compone** con piezas ya ratificadas
 > (`Fact` de la ficha, `PriceTag` §7.3, chip de grado sin cert §7.2c/§16.9, `Shelf` §20.5, reglas §4.3,
 > `--app-header-h` §4.5, distintivo mono §20.6). Es deliberado: una feature comercial es exactamente donde
-> un sistema editorial se rompe si se le añade "un color de oferta". Tras la revisión, §21 **no pide ni una
+> un sistema editorial se rompe si se le añade "un color de oferta". Tras la revisión, §22 **no pide ni una
 > sola modificación** a componentes existentes.
 >
 > **Qué NO es (y el diseño tiene que decirlo solo):** no es un precio de venta, no es una oferta, no es una
 > promesa de grado y **no es una afirmación sobre el estado de nuestra pieza** — no hemos pre-evaluado la
-> carta. Todo el tratamiento visual de §21 está subordinado a esa frase.
+> carta. Todo el tratamiento visual de §22 está subordinado a esa frase.
 >
 > **Nota de tokens:** los valores vigentes de `--color-accent` / `--color-warning` / `--color-danger` /
 > `--color-focus-ring` son los de **§17.2** (`#B31217`, rojo TCG HUNT), no los que aún lista la tabla de
-> §2.3 (`#B44B3A`, bermellón retirado). §21 **solo referencia el token semántico**, nunca un hex.
+> §2.3 (`#B44B3A`, bermellón retirado). §22 **solo referencia el token semántico**, nunca un hex.
 
-### 21.0 Alcance y las cinco reglas duras
+### 22.0 Alcance y las seis reglas duras
 
-- **Alcance:** presentación en storefront de un dato **ya evaluado y derivado server-side** (§N.4,
-  SEC-A1). §21 no define datos, no cambia contrato, no toca precio de venta, portafolio ni buylist.
+- **Alcance:** presentación en storefront de un dato **ya evaluado y derivado server-side** (§O.4,
+  SEC-A1). §22 no define datos, no cambia contrato, no toca precio de venta, portafolio ni buylist.
 - **Aplica solo a raw publicado.** Nunca en gradeadas (ya tienen grado real, §7.2c) ni en sellado (§7.1b).
 
-| # | Regla dura de §21 | Por qué |
+| # | Regla dura de §22 | Por qué |
 |---|---|---|
-| **R1** | **Cero tokens nuevos** de color y tipografía. Las **cifras** del gancho no tienen color propio: se pintan en tinta y muted. El acento (`--color-accent`) tiene **un solo empleo** en §21: la **llamada de la nota al pie** —el asterisco— y su repetición como marcador de la nota. **Nunca** colorea una cifra, una etiqueta ni un fondo. | Un "verde de dinero" o un "rojo de oferta" convertiría un estimado informativo en una promesa comercial (§2.1). El asterisco es la excepción legítima: en este sistema el rojo es el color de **atención** (§2.4/§17.2), y la llamada no adorna el dinero — es el asa de la advertencia. Un glifo de ~6px es «avaricia» en sentido literal. |
+| **R1** | **Cero tokens nuevos** de color y tipografía. Las **cifras** del gancho no tienen color propio: se pintan en tinta y muted. El acento (`--color-accent`) tiene **un solo empleo** en §22: la **llamada de la nota al pie** —el asterisco— y su repetición como marcador de la nota. **Nunca** colorea una cifra, una etiqueta ni un fondo. | Un "verde de dinero" o un "rojo de oferta" convertiría un estimado informativo en una promesa comercial (§2.1). El asterisco es la excepción legítima: en este sistema el rojo es el color de **atención** (§2.4/§17.2), y la llamada no adorna el dinero — es el asa de la advertencia. Un glifo de ~6px es «avaricia» en sentido literal. |
 | **R2** | **El estimado nunca habla con la voz del precio real.** El precio de venta es **sans 500** (precio display, §20.14); **todo estimado por grado es mono** (dinero operativo) y, en cada superficie, **menor** que el precio de venta que lo acompaña. Corolario reforzado tras la revisión: **el bloque de estimados no contiene ningún precio real** — no repite el precio de venta dentro de sí. | La confusión precio↔estimado es el riesgo legal-comercial nº 1, y ahora R2 carga **sola** con la distinción (ya no hay comparativa que la explique). Se resuelve con familia tipográfica, tamaño y separación física, no con una advertencia extra. |
-| **R3** | **Micro-aviso adyacente + llamada + nota al pie — las tres, siempre.** (1) **Toda cifra estimada lleva, VISIBLE y adyacente, un micro-aviso con las DOS ideas obligatorias** de §N.5: **«ilustrativo»** + **«no evaluamos esta carta»**. Visible significa **pintado en pantalla para un comprador vidente**: un `sr-only`, un `title` o un tooltip **no cuentan**. (2) **Toda cifra lleva además su llamada visible** (el asterisco), anclada al micro-aviso. (3) **Toda página que renderice al menos una cifra renderiza su nota al pie completa**, en esa misma página, sin interacción. (4) **Micro-aviso, llamada, cifra y nota se renderizan bajo la MISMA condición**: si la página no puede hospedar la nota, no puede mostrar la cifra; si no cabe el micro-aviso, **no se muestra la cifra**. (5) La nota **no** vive tras `<details>`, acordeón, modal, tooltip, ni en otra página **como único acceso**, ni en el footer de marca (§20.10). (6) Nada de esto es configurable: **no existe prop, variante ni breakpoint que apague el micro-aviso**. | *Corregida (QA, bloqueante).* La versión anterior dejaba el micro-aviso en `sr-only` apoyándose en la nota al pie; `PROJECT.md` §N.5 lo prohíbe expresamente y marca **«una cifra sin llamada/micro-aviso es un defecto bloqueante»**. El argumento de producto manda y es correcto: **una nota al pie protege menos que un aviso adyacente si el comprador nunca baja**, y en el **listado de Compra** y en la **vitrina del home** eso es exactamente lo normal — se ve la cuadrícula y se hace clic sin llegar jamás al pie. Las dos ideas retenidas son las que desactivan el reclamo «me prometieron»; el resto del disclaimer sí puede vivir al pie. |
-| **R4** | **Ausencia total ante cualquier hueco** (§N.4): sin dato, dato rancio o —en badge y vitrina— gate no cumplido ⇒ **no se renderiza nada**. Ni `$0`, ni `—`, ni «precio pendiente», ni caja vacía, ni encabezado huérfano, ni **skeleton** que reserve el hueco. La teja se ve **exactamente como hoy**. | En un argumento de venta, un hueco es peor que el silencio (precedente: fast-follow de seguridad del «$0 latente»). Nótese que §21 **excluye** aquí el `PendingPriceLabel` de §7.3 a propósito. |
-| **R5** | **El cálculo no se muestra, en ninguna superficie.** Ni el costo de gradeo, ni `minUpsidePct`, ni la ganancia en MXN, ni el multiplicador, ni un porcentaje de rendimiento, ni la palabra «gate». El ROI vive **solo server-side**, decidiendo elegibilidad de badge y vitrina. | *Nueva, cambio 1.* Lo que el humano quitó no es solo la talacha de calcularlo: es la **promesa implícita** que carga un número de ganancia. Un estimado se defiende como dato de mercado; una ganancia calculada se lee como oferta. |
+| **R3** | **Micro-aviso adyacente + llamada + nota al pie — las tres, siempre.** (1) **Toda cifra estimada lleva, VISIBLE y adyacente, un micro-aviso con las DOS ideas obligatorias** de §O.5: **«ilustrativo»** + **«no evaluamos esta carta»**. Visible significa **pintado en pantalla para un comprador vidente**: un `sr-only`, un `title` o un tooltip **no cuentan**. (2) **Toda cifra lleva además su llamada visible** (el asterisco), anclada al micro-aviso. (3) **Toda página que renderice al menos una cifra renderiza su nota al pie completa**, en esa misma página, sin interacción. (4) **Micro-aviso, llamada, cifra y nota se renderizan bajo la MISMA condición**: si la página no puede hospedar la nota, no puede mostrar la cifra; si no cabe el micro-aviso, **no se muestra la cifra**. (5) La nota **no** vive tras `<details>`, acordeón, modal, tooltip, ni en otra página **como único acceso**, ni en el footer de marca (§20.10). (6) Nada de esto es configurable: **no existe prop, variante ni breakpoint que apague el micro-aviso**. | *Corregida (QA, bloqueante).* La versión anterior dejaba el micro-aviso en `sr-only` apoyándose en la nota al pie; `PROJECT.md` §O.5 lo prohíbe expresamente y marca **«una cifra sin llamada/micro-aviso es un defecto bloqueante»**. El argumento de producto manda y es correcto: **una nota al pie protege menos que un aviso adyacente si el comprador nunca baja**, y en el **listado de Compra** y en la **vitrina del home** eso es exactamente lo normal — se ve la cuadrícula y se hace clic sin llegar jamás al pie. Las dos ideas retenidas son las que desactivan el reclamo «me prometieron»; el resto del disclaimer sí puede vivir al pie. |
+| **R4** | **Ausencia total ante cualquier hueco** (§O.4): sin dato, dato rancio o —en badge y vitrina— gate no cumplido o **cifra no confiable** (R6) ⇒ **no se renderiza nada**. Ni `$0`, ni `—`, ni «precio pendiente», ni caja vacía, ni encabezado huérfano, ni **skeleton** que reserve el hueco. La teja se ve **exactamente como hoy**. | En un argumento de venta, un hueco es peor que el silencio (precedente: fast-follow de seguridad del «$0 latente»). Nótese que §22 **excluye** aquí el `PendingPriceLabel` de §7.3 a propósito. |
+| **R5** | **El cálculo no se muestra, en ninguna superficie.** Ni el costo de gradeo, ni `minUpsidePct`, ni la ganancia en MXN, ni el multiplicador, ni un porcentaje de rendimiento, ni la palabra «gate». Tampoco **el criterio de confianza** de R6: ni la muestra, ni el origen, ni la cota de magnitud. Todo eso vive **solo server-side**, decidiendo elegibilidad de badge y vitrina. | *Nueva, cambio 1.* Lo que el humano quitó no es solo la talacha de calcularlo: es la **promesa implícita** que carga un número de ganancia. Un estimado se defiende como dato de mercado; una ganancia calculada se lee como oferta. Y un sello de «confianza» sería lo mismo por la puerta de atrás: convertiría la ausencia de sello en una acusación. |
+| **R6** | **La rejilla solo promociona cifras confiables.** En **teja y vitrina** la cifra se pinta solo si el número es **confiable**: **fresco**, de **origen confiable** (**override manual** del dueño, o **dato automático con muestra suficiente de ventas** gradeadas) y **coherente en magnitud** (la cota es **`psa10 > precio raw`**: se descarta si el estimado PSA 10 sale **≤ el raw publicado**; y también si es **absurdamente mayor**, que ya es dato roto). La **ficha informa lo que hay** y **no** aplica la coherencia con la misma dureza. Se evalúa **server-side** y **nunca** se explica en pantalla (R5): una cifra suprimida por confianza es **indistinguible** de una suprimida por el gate de ROI. | La rejilla es **promoción**: ahí un número que no se sostiene es una promesa que no se sostiene, y el comprador la ve sin contexto y sin haber pedido nada. La ficha es **información**: quien la abrió ya está mirando esa carta, y esconderle un dato que existe sería paternalista. Y un PSA 10 **por debajo del raw** no es un gancho débil — es la prueba de que **no hay gancho**: promocionarlo sería anunciar lo contrario de lo que promete la vitrina. La cota mira **hacia abajo** a propósito: el fallo típico —un valor en **dólares escrito como pesos**— aterriza **por debajo**, no por encima. |
 
-### 21.1 Las dos voces del dinero aplicadas al gancho (matiz de §20.14)
+### 22.1 Las dos voces del dinero aplicadas al gancho (matiz de §20.14)
 
 §20.14 fijó dos registros; el gancho vive **siempre en el segundo** y nunca sube de tamaño al primero:
 
 | Cifra | Familia / peso | Tamaño en ficha | Tamaño en teja / vitrina |
 |---|---|---|---|
 | **Precio de venta raw** (dato real, §7.3) | **Sans 500** `tabular-nums` | 30px (celda existente, **fuera** del bloque) | 15px móvil / 17px `sm+` (sin cambio) |
-| **Estimado PSA 10** | **Mono** `tabular-nums`, tinta | **22px** (el premio mayor, §N.3) | 11px móvil / 12px `sm+` |
+| **Estimado PSA 10** | **Mono** `tabular-nums`, tinta | **22px** (el premio mayor, §O.3) | 11px móvil / 12px `sm+` |
 | **Estimado PSA 9** | **Mono** `tabular-nums`, tinta | **17px** | — (no cabe; vive en la ficha) |
 | ~~Precio raw dentro del bloque~~ | — | **retirado** (R2: el bloque no contiene precios reales) | — |
 | ~~Ganancia y multiplicador~~ | — | **retirados** (R5) | **retirados** (R5) |
 
-**El crescendo se retira — y esta es la justificación explícita.** La versión anterior de §21 ordenaba tres
+**El crescendo se retira — y esta es la justificación explícita.** La versión anterior de §22 ordenaba tres
 cifras en rampa (17 → 20 → 26px, izquierda a derecha) para que **el crecimiento tipográfico contara el
 argumento**. Con la comparativa fuera, esa rampa **ya no describe nada**: no hay tres términos, no hay
 progresión de valor que narrar y —lo decisivo— **insinuaría visualmente la aritmética que el humano acaba
@@ -4024,7 +4901,7 @@ de quitar** (R5). Un recurso narrativo sin narración que sostener es decoració
 Se sustituye por lo mínimo suficiente:
 
 - **Dos cifras del mismo tipo, jerarquizadas solo lo justo:** PSA 10 a **22px** y PSA 9 a **17px**. La
-  diferencia existe porque §N.3 pide que **PSA 10 sea el premio mayor**, pero es un escalón **dentro de una
+  diferencia existe porque §O.3 pide que **PSA 10 sea el premio mayor**, pero es un escalón **dentro de una
   misma categoría** (dos valores de referencia), no un salto entre categorías. **PSA 10 va primero** por
   orden de lectura: el énfasis lo carga la posición tanto como el tamaño.
 - **Toda la distinción precio↔estimado la carga R2, sola:** familia (**sans vs mono**), tamaño (30px vs
@@ -4034,18 +4911,18 @@ Se sustituye por lo mínimo suficiente:
 - Sigue funcionando **en escala de grises y en impresión**, que es la prueba que este sistema se
   autoimpone.
 
-### 21.2 Chip de grado **hipotético** — variante de `GradedCertChip` (§7.2c) sin cert
+### 22.2 Chip de grado **hipotético** — variante de `GradedCertChip` (§7.2c) sin cert
 
 El grado que se muestra aquí **no es de una pieza física**: no hay slab, no hay `certNumber`, no hay
 graduadora que consultar. Se reutiliza el **chip de grado sin cert** ya ratificado para la lista de
 gradeadas del admin (§16.9) — no se inventa componente — con **un solo diferenciador**:
 
-| | Grado **real** (pieza gradeada) | Grado **hipotético** (§21) |
+| | Grado **real** (pieza gradeada) | Grado **hipotético** (§22) |
 |---|---|---|
 | Contenido | `PSA 10 · CERT 12345678` (o chip + cert, §20.5) | `PSA 10` **sin cert, jamás** |
 | Borde | `1px solid var(--color-primary)` (tinta, §20.5) | **`1px dashed var(--color-border-strong)`** |
 | Texto | mono 10px 500, tracking `0.1em`, tinta | idéntico |
-| Compañía | siempre visible (`PSA`/`CGC`/…) | siempre visible; el MVP solo cubre **PSA** (§N.1) |
+| Compañía | siempre visible (`PSA`/`CGC`/…) | siempre visible; el MVP solo cubre **PSA** (§O.1) |
 | `aria-label` | «Gradeada PSA, grado 10, certificado …» | **«Grado hipotético: PSA 10. Esta carta no está gradeada.»** |
 
 - **Por qué punteado:** el sistema ya usa el trazo punteado para «valor no realizado» (el **costo base**
@@ -4056,9 +4933,9 @@ gradeadas del admin (§16.9) — no se inventa componente — con **un solo dife
   (**«SI SALE»** / **«IF IT GRADES»**). Un chip `PSA 10` suelto está **prohibido** en superficies de raw.
 - **Nunca sobre el arte** (§7.2b): el chip hipotético vive bajo la imagen o en la retícula de datos.
 - En la **teja** no se usa el chip (a 171px el borde punteado no lee): ahí el grado es texto mono plano
-  dentro de la frase condicional (§21.5).
+  dentro de la frase condicional (§22.5).
 
-### 21.3 Bloque de la ficha — `GradingEstimateBlock`
+### 22.3 Bloque de la ficha — `GradingEstimateBlock`
 
 Dos cifras de referencia, junto al precio. Nada más. *(El nombre cambia respecto a la versión anterior:
 ya no hay «upside» que nombrar.)*
@@ -4076,9 +4953,11 @@ a subir junto al precio, que es donde el gancho vende.
 - **Prosa de por medio, a propósito.** Queda **después** del `referenceExplainer` y no pegado a la retícula
   de precio: ese párrafo separa las dos zonas de dinero y evita que el ojo lea cuatro celdas de importes
   seguidas. Es la aplicación literal de R2: mono, más chico, y **separado**.
-- **Nunca dentro de la retícula de precio existente.** Añadir «SI SALE PSA 10» como quinta celda del grid
-  de «Precio de venta / Valor de mercado / Condición / Acabado» pondría un estimado en **el mismo
-  contenedor y el mismo rango** que dos cifras reales. Prohibido: mismo grid = misma categoría.
+- **El ancla no se movió con §21.8.** El párrafo `referenceExplainer` tiene desde P-48 **dos variantes**
+  (con y sin «Valor de mercado», §21.8d), pero **existe en las dos**, así que la posición del bloque es
+  estable tanto si la ficha muestra el mercado como si no. Y cuando el bloque de mercado no se renderiza,
+  la fila del dinero ocupa el ancho completo (§21.8b-3): el gancho sigue llegando **después de la prosa**,
+  nunca pegado a la retícula de precio.
 
 **Anatomía (`≥sm`):**
 
@@ -4086,23 +4965,32 @@ a subir junto al precio, que es donde el gancho vende.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  regla de tinta 1px (border-t border-text)
 VALOR ESTIMADO SI SE GRADEA            ESTIMADO · 22 AGO 2026   ← eyebrows enfrentados (§20.2.1);
                                                                    la LLAMADA (*) NO va aquí: cierra
-                                                                   el micro-aviso de abajo (§21.4a)
+                                                                   el micro-aviso de abajo (§22.4a)
 ┌────────────────────────────┬────────────────────────────┐
-│ SI SALE ⌐PSA 10⌐           │ SI SALE ⌐PSA 9⌐            │  ← eyebrow + chip hipotético punteado (§21.2)
+│ SI SALE ⌐PSA 10⌐           │ SI SALE ⌐PSA 9⌐            │  ← eyebrow + chip hipotético punteado (§22.2)
 │ MX$ 2,900.00               │ MX$ 1,450.00               │  ← mono tabular 22px / 17px, tinta
 └────────────────────────────┴────────────────────────────┘
-Cifra ilustrativa de mercado (lo que se ha pagado por esa carta  ← MICRO-AVISO de la ficha (§21.4c):
+Cifra ilustrativa de mercado (lo que se ha pagado por esa carta  ← MICRO-AVISO de la ficha (§22.4c):
 ya gradeada por terceros). No evaluamos el estado de esta carta     sans 12px / 1.6, muted, ancho
 ni garantizamos ningún grado; el gradeo y su costo corren por       completo, con las DOS ideas en
 tu cuenta.*                                                          tinta 500 y la llamada al final
 ```
 
 **Composición — cero componentes nuevos y cero modificaciones:**
-- Las dos celdas son **la misma celda `Fact`** de la ficha, en un contenedor
-  `grid border-t border-text sm:grid-cols-2` — **exactamente la misma retícula de dos columnas** que ya
-  usa la ficha para «Precio de venta / Valor de mercado». La segunda celda lleva `sm:border-l sm:pl-7`.
-  En móvil apilan solas, que es el comportamiento nativo de `Fact`.
-  > *Con esto desaparecen las dos únicas modificaciones que §21 pedía a `Fact`* (la variante `row` y el
+- Las dos celdas son **la misma celda `Fact`** de la ficha, en un **contenedor propio**
+  (`grid border-t border-text sm:grid-cols-2`, `mt-7`). Se reutiliza **la celda, no la retícula**:
+  - **No se reutiliza `FactGrid`** (§21.8b). `FactGrid` es el contenedor de los **hechos de precio** y fija
+    su propia regla superior (`border-t border-border`) y su propio `mt`; el bloque del gancho necesita
+    **regla de tinta** (`border-t border-text`), que es su único énfasis. Pedirle a `FactGrid` una prop de
+    tono sería **modificar un componente existente** —justo lo que §22 se prohíbe— y, peor, emparentaría
+    visualmente dos retículas que deben leerse como **categorías distintas** (R2).
+  - **Sí se copia su lógica de divisor, que es normativa:** **el divisor es de la posición, no del hecho**
+    (§21.8b-2). Lo lleva la celda que **no abre fila** (`sm:border-l sm:pl-7` aplicado **por posición**,
+    nunca hardcodeado en «la celda de PSA 9»). Con una sola cifra —caso normal, §22.7— la celda ocupa la
+    fila completa y **no queda ningún `sm:border-l` huérfano**: la regla que P-48 introdujo para la ficha
+    resuelve de fábrica el caso que §22.7 ya exigía a mano.
+  - En móvil apilan solas, que es el comportamiento nativo de `Fact`.
+  > *Con esto desaparecen las dos únicas modificaciones que §22 pedía a `Fact`* (la variante `row` y el
   > `leading-[1.5]` del `note`): al no haber tercera columna ni `note` que envuelva, **el componente se usa
   > tal cual está escrito hoy**.
 - La **regla superior es de tinta** (`border-text` 1px, no `border`): es el único énfasis del bloque y
@@ -4110,34 +4998,45 @@ tu cuenta.*                                                          tinta 500 y
 - **Sin título serif.** El eyebrow + la regla de tinta ya anuncian el bloque, y un `h2` serif aquí chocaría
   con el `h2` de «Ejemplares disponibles» que viene justo debajo. Menos jerarquía, más claridad.
 - **El bloque no contiene ningún precio real** (R2): ni repetido, ni citado, ni tachado.
+- **Nunca dentro de la retícula de precio existente — y ahora hay que decirlo más fuerte.** Desde §21.8b la
+  ficha arma su retícula sobre una **lista de hechos ya filtrada** (`FactSpec[]`), así que **añadir el
+  estimado como un hecho más es literalmente una línea de código**. Queda **prohibido empujar el estimado a
+  esa lista**: «SI SALE PSA 10» como quinta celda pondría un estimado en **el mismo contenedor y el mismo
+  rango** que «Precio de venta» y «Valor de mercado». Mismo grid = misma categoría. El bloque del gancho
+  tiene **contenedor propio, siempre**.
+- **El estimado nunca lleva versalita de `priceBasis`** — ni el mapa `MERCADO`/`PISO`/`MANUAL`/`BOUNTY`/
+  `PENDIENTE` de §21.9a, ni el componente `PriceBasisTag`. Un estimado **no tiene base de precio**: no lo
+  fijó el mercado, ni un piso, ni un override; **no es un precio del sistema**. Rotularlo con la misma
+  versalita que un precio real lo disfrazaría de precio real (R2). `PriceBasisTag` vive en superficies de
+  **back-office** (§21.9a) y no entra aquí.
 
 **Contenido — completo (lo que hay que mostrar es poco, y eso es la mejora):**
 
 | Elemento | Dónde | Tratamiento |
 |---|---|---|
-| Estimado **PSA 10** (el premio mayor, §N.3) | celda 1 | mono **22px** tinta + chip hipotético en la etiqueta |
+| Estimado **PSA 10** (el premio mayor, §O.3) | celda 1 | mono **22px** tinta + chip hipotético en la etiqueta |
 | Estimado **PSA 9** | celda 2 | mono **17px** tinta + chip hipotético en la etiqueta |
 | **Fecha del último refresco** | eyebrow derecho | mono 10px muted, fecha localizada (§9.3) |
-| **Micro-aviso** (obligatorio, R3) | ancho completo, bajo la retícula | **sans 12px / 1.6 muted**, 2–3 líneas; carga **las dos ideas** de §N.5 con las frases clave en **tinta 500**, y cierra con la **llamada `*`** |
-| **Llamada de la nota al pie** (`*`) | **al final del micro-aviso** | §21.4a |
+| **Micro-aviso** (obligatorio, R3) | ancho completo, bajo la retícula | **sans 12px / 1.6 muted**, 2–3 líneas; carga **las dos ideas** de §O.5 con las frases clave en **tinta 500**, y cierra con la **llamada `*`** |
+| **Llamada de la nota al pie** (`*`) | **al final del micro-aviso** | §22.4a |
 | ~~Ganancia, multiplicador, costo de gradeo~~ | — | **retirados** (R5) |
 
 **Corrección (QA, bloqueante): el micro-aviso sustituye al «renglón de procedencia».** La versión anterior
 decía *«Valores de mercado de esa carta ya gradeada por terceros. No hemos evaluado esta pieza.»* — cargaba
-la idea 2 pero **no la idea 1**, y §N.5 anticipa ese fallo con todas sus letras: *«un micro-aviso que solo
+la idea 2 pero **no la idea 1**, y §O.5 anticipa ese fallo con todas sus letras: *«un micro-aviso que solo
 diga "estimado de mercado" no cumple este requisito»*. La procedencia **no se pierde**: se conserva como
 inciso dentro del micro-aviso, que ahora hace **tres** trabajos en un solo párrafo —de dónde sale la cifra,
 que es **ilustrativa** y que **no evaluamos esta carta**—. La ficha tiene sitio de sobra, así que aquí se usa
-la **versión corta completa** de §N.5, no la ultra-corta de la teja (§21.4c).
+la **versión corta completa** de §O.5, no la ultra-corta de la teja (§22.4c).
 
 **Las dos ideas van en tinta 500 dentro del párrafo muted** — mismo recurso de entradilla que usa la nota al
-pie (§21.4b): son lo único destacado, así que se leen de un vistazo aunque nadie lea el párrafo entero.
+pie (§22.4b): son lo único destacado, así que se leen de un vistazo aunque nadie lea el párrafo entero.
 
-### 21.4 Llamada y nota al pie — el disclaimer como tipografía de imprenta
+### 22.4 Llamada y nota al pie — el disclaimer como tipografía de imprenta
 
-Los textos ES/EN son **propiedad de product-owner** y están redactados en **§N.5** (titular en mayúsculas +
+Los textos ES/EN son **propiedad de product-owner** y están redactados en **§O.5** (titular en mayúsculas +
 seis párrafos; más una versión corta que carga dos ideas obligatorias: **ilustrativo** y **no evaluamos el
-estado de esta carta**). §21 define **el tratamiento**, que tras la revisión del humano es el de una
+estado de esta carta**). §22 define **el tratamiento**, que tras la revisión del humano es el de una
 **nota al pie editorial**: **llamada junto a la etiqueta de la cifra → texto completo al final de la
 página**.
 
@@ -4145,14 +5044,14 @@ página**.
 > piel de imprenta (§1.3, §2.1): reglas, versalitas, mono para el dato, cero cajas. El aviso deja de ser un
 > parche de UI y pasa a ser una **convención de página** que el lector ya conoce de un libro o de un
 > contrato bien compuesto. Resuelve además, de un plumazo, los dos problemas que la versión anterior de
-> §21 arrastraba: el muro de siete párrafos en medio de la ficha y los ~52px de micro-aviso por teja.
+> §22 arrastraba: el muro de siete párrafos en medio de la ficha y los ~52px de micro-aviso por teja.
 
 **(a) La llamada (`*`) — una por superficie, nunca por cifra.**
 
 | | Regla |
 |---|---|
-| **Glifo** | `*` en **mono**, **`--color-accent`**, `text-[13px]`, `vertical-align: super` con `line-height: 0` (no altera la caja de línea). Único empleo del acento en §21 (R1). |
-| **Dónde se ancla** | **Al final del micro-aviso** (§21.4c), **una vez por superficie** y no repetida en cada cifra. *(Corrección QA: antes se anclaba al eyebrow. Con el micro-aviso restaurado, el asterisco pertenece ahí — es lo que convierte el aviso abreviado en «hay más abajo», que es literalmente para lo que sirve una llamada. Además es el copy que propone §N.5: «Ilustrativo; no evaluamos esta carta.\*»)* Prácticamente: una página de catálogo con 20 tejas tiene 20 asteriscos, no 40. |
+| **Glifo** | `*` en **mono**, **`--color-accent`**, `text-[13px]`, `vertical-align: super` con `line-height: 0` (no altera la caja de línea). Único empleo del acento en §22 (R1). |
+| **Dónde se ancla** | **Al final del micro-aviso** (§22.4c), **una vez por superficie** y no repetida en cada cifra. *(Corrección QA: antes se anclaba al eyebrow. Con el micro-aviso restaurado, el asterisco pertenece ahí — es lo que convierte el aviso abreviado en «hay más abajo», que es literalmente para lo que sirve una llamada. Además es el copy que propone §O.5: «Ilustrativo; no evaluamos esta carta.\*»)* Prácticamente: una página de catálogo con 20 tejas tiene 20 asteriscos, no 40. |
 | **Nunca** | Pegada a un **precio real** (desviaría la nota al dato equivocado), sobre el arte, ni dentro de una cifra (`MX$ 2,9*00`). |
 | **Tamaño mínimo** | No baja de 13px en ninguna superficie — el asterisco es **más grande que el texto que lo rodea**, a propósito: es la única señal visible de que hay aviso. |
 | **Contraste** | Acento sobre papel **6.2:1** (§17.2/§20.15) — muy por encima del mínimo, y nunca portador único (ver semántica). |
@@ -4161,7 +5060,7 @@ página**.
 
 - La llamada es un `<sup>` con el glifo `aria-hidden` **más** un texto accesible que diga **qué es**:
   basta *«Ver nota al pie»*. **No hace falta que duplique las dos ideas**, porque el **micro-aviso que la
-  precede es texto real** y el lector de pantalla ya lo anunció (§21.4c). Lo prohibido es el `*` desnudo:
+  precede es texto real** y el lector de pantalla ya lo anunció (§22.4c). Lo prohibido es el `*` desnudo:
   quien navega por audio **nunca debe oír "asterisco"** y nada más.
 - **En la ficha la llamada ES un enlace** (`<a href="#nota-estimado">`) con ese texto como `aria-label`,
   `padding: 0 4px` para agrandar el blanco de golpeo y anillo de foco estándar (§8.2).
@@ -4189,7 +5088,7 @@ contenedor de contenido:
 
 | Página | La nota va… | Se renderiza si… |
 |---|---|---|
-| **Ficha de carta** | después de las pestañas Descripción/Condición | el bloque §21.3 se renderizó |
+| **Ficha de carta** | después de las pestañas Descripción/Condición | el bloque §22.3 se renderizó |
 | **Compra (catálogo)** | después del paginador (§20.12) | **la página actual** muestra ≥ 1 badge; al paginar se reevalúa |
 | **Home** | después de la última vitrina | la vitrina «Joyas para gradear» se renderizó |
 
@@ -4215,7 +5114,7 @@ Los precios de mercado cambian todos los días…                   medida máx.
   reconozca a qué asterisco corresponde. Es la convención de imprenta, y aquí también es el ancla visual.
 - **Se conserva el recurso de las entradillas.** Cada párrafo abre con su frase-titular en **tinta peso
   500** («No garantizamos ningún grado.», «No es una oferta…», «No gradeamos ni intermediamos…»), de modo
-  que los seis puntos obligatorios de §N.5 se **barren en cinco segundos sin leer una línea de cuerpo**.
+  que los seis puntos obligatorios de §O.5 se **barren en cinco segundos sin leer una línea de cuerpo**.
   Era la mejor parte del tratamiento anterior y sobrevive intacta al cambio de ubicación.
 - **Sin caja, sin fondo, sin regla al margen.** La nota se delimita por su **regla superior** y por estar
   al final de la página; el `rule-note` de 2px al margen (§20.0) es para notas **embebidas en una columna
@@ -4227,8 +5126,8 @@ Los precios de mercado cambian todos los días…                   medida máx.
 
 **(c) El micro-aviso adyacente — obligatorio junto a CADA cifra (R3.1).**
 
-> **Corrección de un bloqueante de QA.** La versión anterior de §21 retiraba el micro-aviso visible de la
-> teja y lo dejaba en `sr-only`, apoyándose en la nota al pie. **`PROJECT.md` §N.5 lo prohíbe** y lo marca
+> **Corrección de un bloqueante de QA.** La versión anterior de §22 retiraba el micro-aviso visible de la
+> teja y lo dejaba en `sr-only`, apoyándose en la nota al pie. **`PROJECT.md` §O.5 lo prohíbe** y lo marca
 > como **defecto bloqueante**. El razonamiento de producto es correcto y prevalece: **una nota al pie
 > protege menos que un aviso adyacente si el comprador nunca baja**, y en el listado de Compra y en la
 > vitrina del home eso es lo normal. `sr-only` no es «visible». Se restaura.
@@ -4237,8 +5136,8 @@ Los precios de mercado cambian todos los días…                   medida máx.
 
 | Variante | Dónde | Tipografía | Longitud |
 |---|---|---|---|
-| **Corta** (versión corta de §N.5, con la procedencia como inciso) | **ficha** (§21.3) | **sans 12px / 1.6** muted, con las dos ideas en **tinta 500**; llamada `*` al cierre | ~190 car. ES · 2–3 líneas |
-| **Ultra-corta** (variante que §N.5 prevé «donde no cabe la anterior») | **teja** y **vitrina** (§21.5, §21.6) | **sans 11px / 1.4** muted; llamada `*` al cierre | **≤ 46 car.** · 1–2 líneas |
+| **Corta** (versión corta de §O.5, con la procedencia como inciso) | **ficha** (§22.3) | **sans 12px / 1.6** muted, con las dos ideas en **tinta 500**; llamada `*` al cierre | ~190 car. ES · 2–3 líneas |
+| **Ultra-corta** (variante que §O.5 prevé «donde no cabe la anterior») | **teja** y **vitrina** (§22.5, §22.6) | **sans 11px / 1.4** muted; llamada `*` al cierre | **≤ 46 car.** · 1–2 líneas |
 
 - **Sans, no mono.** El micro-aviso es **prosa abreviada**, no una etiqueta ni un dato: le corresponde la
   voz sans (§3.1), igual que al cuerpo de la nota al pie. Además la sans es ~20% más estrecha que la mono al
@@ -4262,18 +5161,25 @@ opcional y **no sustituye al micro-aviso**:
 | Sigue prohibido | Por qué |
 |---|---|
 | `<details>`, acordeón, modal, tooltip, «leer más», scroll interno con altura fija | Un aviso que exigió un clic admite la réplica «nunca lo abrí»; y un `<details>` cerrado no entra en la impresión, no aparece en el `Ctrl+F` del navegador y puede no exponerse en el árbol de accesibilidad. La nota al pie **está renderizada**: es contenido real de la página, encontrable, imprimible y copiable. |
-| Mandar el texto **solo** a términos/FAQ | «Otra página» sí es un salto que el usuario puede no dar. La nota vive en **la misma página** que la cifra (R3). Reflejar además el texto en términos es recomendable (§N.5), pero **como copia, no como único acceso**. |
+| Mandar el texto **solo** a términos/FAQ | «Otra página» sí es un salto que el usuario puede no dar. La nota vive en **la misma página** que la cifra (R3). Reflejar además el texto en términos es recomendable (§O.5), pero **como copia, no como único acceso**. |
 | Meter la nota dentro del footer de marca (§20.10) | Ese footer es un colofón de una línea; hospedar ahí el aviso lo disfrazaría de letra chiquita legal genérica, que es justo lo contrario de lo que se busca. |
 | Renderizar la cifra sin que la página renderice la nota | R3.(3): mismo condicional para ambos. |
-| **Sustituir el micro-aviso adyacente por la llamada** | R3.(1) y §N.5: *«una cifra sin llamada/micro-aviso es un defecto bloqueante»*. La llamada dice **que hay un aviso**; el micro-aviso **es** el aviso. |
+| **Sustituir el micro-aviso adyacente por la llamada** | R3.(1) y §O.5: *«una cifra sin llamada/micro-aviso es un defecto bloqueante»*. La llamada dice **que hay un aviso**; el micro-aviso **es** el aviso. |
 
-### 21.5 Badge de la teja de Compra — `GradingEstimateBadge`
+### 22.5 Badge de la teja de Compra — `GradingEstimateBadge`
 
 > **CORREGIDO — bloqueante de QA.** La versión anterior retiraba el micro-aviso visible («lo cubre el
 > `sr-only` + la nota al pie»). QA capturó del DOM real `ESTIMADO SI SE GRADEA*` / `PSA 10 ≈ MX$29,000.00`
-> y **ningún aviso visible para un comprador vidente**. `PROJECT.md` §N.5 lo marca como **defecto
+> y **ningún aviso visible para un comprador vidente**. `PROJECT.md` §O.5 lo marca como **defecto
 > bloqueante** y manda sobre el diseño (regla de conflicto de `CLAUDE.md`). **Se restaura**, y a cambio se
 > rediseña el badge para que quepa con dignidad.
+
+> **Opción ratificada por el humano (mock de tres opciones, 2026-08-28).** Entre mostrar **el monto**,
+> mostrar un **distintivo sin cifra** («Gradeable», «Candidata PSA») o no llevar nada a la rejilla, el
+> humano eligió **el monto**: la teja del catálogo y la vitrina llevan **la cifra**. Un distintivo sin
+> número no es el gancho —no dice cuánto— y obliga a entrar a la ficha para saber si vale la pena. **A
+> cambio, la cifra en la rejilla exige confianza** (R6, §22.7): si el número no es confiable, la teja se ve
+> **exactamente como hoy**, sin distintivo de repuesto.
 
 **Dónde va en la teja** (`CatalogTile`): **después** del precio de venta y del `StockBadge`, **antes** del
 CTA. Nunca sobre el arte (§7.2b) y **nunca por encima del precio real**: el orden de lectura obligatorio es
@@ -4296,15 +5202,15 @@ Ilustrativo; no evaluamos esta carta.*       ← MICRO-AVISO (R3.1) sans 11px/1.
 
 El problema real nunca fue el aviso: era que la teja llevaba **tres** renglones (eyebrow + cifra + aviso) y
 dos de ellos decían lo mismo. La palabra «ESTIMADO» del eyebrow y la palabra «Ilustrativo» del micro-aviso
-son **la misma idea 1**. Como §N.5 exige que las dos ideas vivan **en el micro-aviso**, lo que sobra es el
+son **la misma idea 1**. Como §O.5 exige que las dos ideas vivan **en el micro-aviso**, lo que sobra es el
 eyebrow:
 
 - **Se retira el eyebrow `ESTIMADO SI SE GRADEA`** y su condicional se **incorpora a la propia cifra**:
   «**En PSA 10 vale ≈ MX$ 29,000.00**» (`sm+`) / «**PSA 10 ≈ MX$ 29,000.00**» (móvil). Es exactamente el
-  copy que propone §N.3(2), lee mejor como gancho y **ahorra un renglón entero**.
+  copy que propone §O.3(2), lee mejor como gancho y **ahorra un renglón entero**.
 - **La condicionalidad no se pierde:** la carga la preposición «En…» + el `≈` + el micro-aviso inmediato,
   que es una salvaguarda mucho más fuerte que un eyebrow. Sigue **prohibido** «PSA 10: MX$ 29,000.00».
-- **El micro-aviso pasa a sans 11px** (§21.4c): ~20% más estrecho que la mono al mismo cuerpo, y es la voz
+- **El micro-aviso pasa a sans 11px** (§22.4c): ~20% más estrecho que la mono al mismo cuerpo, y es la voz
   que le corresponde por ser prosa. Eso es lo que hace que **quepa en un solo renglón en escritorio**.
 
 **Coste en altura — cuantificado, y aceptado:**
@@ -4315,20 +5221,27 @@ eyebrow:
 | **~200px** (`lg`, 4 col) | 1–2 renglones (2 en EN) | ~46–62px | +16 a +32px |
 | **171px** (móvil, 2 col) | 2 renglones | **~58px** | **+28px** |
 
-**Es un coste aceptado, no un defecto** (§N.5 lo declara explícitamente: *«el costo es una línea de
+**Y el coste bajó solo, por §21.8f.** La enmienda de P-48 **retira de las tejas de Compra la segunda línea
+opcional «Valor de mercado»** (§7.3, §21.8f): la teja **encoge ~16px** en todos los breakpoints. En
+escritorio eso **absorbe casi por completo** los +16px del micro-aviso —la teja queda prácticamente a la
+altura que tenía antes de esta feature— y en móvil el saldo neto baja de +28px a **~+12px**. El coste ya
+era aceptable cuando se declaró aceptado; ahora es casi nulo. *(No es una licencia para gastarlo en otra
+cosa: el espacio recuperado se queda en **aire**, no en un elemento nuevo.)*
+
+**Es un coste aceptado, no un defecto** (§O.5 lo declara explícitamente: *«el costo es una línea de
 texto»*). Y es **menor que los ~70px** que costaría conservar el eyebrow además del aviso. Tres cosas lo
 hacen soportable: (1) el bloque **solo aparece en tejas elegibles**, que en **fase 1 son las que el dueño
-cura a mano** (§N.6) — una página de catálogo tendrá unas pocas, no veinte; (2) el CTA sigue alineado abajo
+cura a mano** (§O.6) — una página de catálogo tendrá unas pocas, no veinte; (2) el CTA sigue alineado abajo
 por el `mt-auto` que ya tiene la teja, así que **la retícula no se desalinea**; (3) el aviso es la única
 prosa del bloque, en muted, bajo una regla: se lee como **pie de foto de la cifra**, no como un banner
 repetido.
 
 **Resto de reglas del badge:**
 
-- La cifra es **PSA 10**; si no existe, **no hay badge** (§21.7) — jamás se sustituye por otro grado.
+- La cifra es **PSA 10**; si no existe, **no hay badge** (§22.7) — jamás se sustituye por otro grado.
 - **Sin caja, sin icono, sin flecha, sin fecha.** El único elemento gráfico es la regla superior; el único
   color, el asterisco. La fecha vive en la ficha, a un clic.
-- **Sin chip punteado en la teja:** a 171px el borde punteado no lee (§21.2); aquí el grado es texto plano
+- **Sin chip punteado en la teja:** a 171px el borde punteado no lee (§22.2); aquí el grado es texto plano
   dentro de la frase.
 - Convive con el `StockBadge` (§20.6) sin competir: el de stock es **texto rojo o verde**; el gancho es
   **tinta + prosa muted + un asterisco rojo de 6px**, en renglones distintos separados por una regla.
@@ -4337,14 +5250,17 @@ repetido.
 - El micro-aviso es **texto real**, no `aria-label`: el `sr-only` desaparece porque **ya no hace falta** —
   lo que se ve es lo que se lee.
 
-### 21.6 Vitrina del home «Joyas para gradear» — `GradingGemsShelf`
+### 22.6 Vitrina del home «Joyas para gradear» — `GradingGemsShelf`
 
 Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con las tejas de Compra:
 
-- **Cada teja de la vitrina lleva su propio micro-aviso visible** (§21.4c, ultra-corta), igual que en el
-  catálogo y por la misma razón: §N.5 señala la **vitrina del home** como el caso donde el visitante «ve
+- **La vitrina muestra el monto, igual que la teja** (opción ratificada, §22.5) y **con la misma exigencia
+  de confianza** (R6): se compone de tejas **ya filtradas por gate Y por confianza**. Una carta puede tener
+  su ficha llena de cifras y **no aparecer aquí**; es lo normal, no una omisión.
+- **Cada teja de la vitrina lleva su propio micro-aviso visible** (§22.4c, ultra-corta), igual que en el
+  catálogo y por la misma razón: §O.5 señala la **vitrina del home** como el caso donde el visitante «ve
   el carrusel y hace clic sin llegar jamás al pie». Es la superficie donde el aviso adyacente **más** hace
-  falta, no menos. La teja de la vitrina es la de Compra **sin ninguna variación** (§21.5), micro-aviso
+  falta, no menos. La teja de la vitrina es la de Compra **sin ninguna variación** (§22.5), micro-aviso
   incluido: no existe una variante «de vitrina» más ligera.
 - **Encabezado:** `title` serif 22/29px **«Joyas para gradear»** + **`kicker`** eyebrow mono
   **«ILUSTRATIVO · NO EVALUAMOS LA PIEZA»** — el kicker, que en Gradeadas lleva «PSA · BGS · CGC», aquí se
@@ -4354,17 +5270,17 @@ Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con la
 - **`subtitle`** (14px muted): el argumento comercial, en condicional y sin superlativos («Cartas sin
   gradear cuyo valor de mercado **ya gradeadas** es muy superior»). **Prohibido** copy tipo «gana X»,
   «inversión segura», «garantizado», y **prohibido nombrar el criterio de selección** —«margen mínimo»,
-  «ROI», «vale la pena»— porque sería contar el cálculo con palabras (R5).
-- **La nota al pie va al final de la página del home** (§21.4b), **no** dentro del shelf. Si el shelf se
+  «ROI», «vale la pena», «dato confiable»— porque sería contar el cálculo con palabras (R5).
+- **La nota al pie va al final de la página del home** (§22.4b), **no** dentro del shelf. Si el shelf se
   renderiza, la nota se renderiza (R3.3); si el home no muestra ninguna cifra, no hay nota.
-- **Retícula:** hasta **8** cartas (§N.3), ya **filtradas y ordenadas por el backend** — el gate de ROI
-  decide **qué entra**, y el cliente recibe la lista resuelta sin ver ni un número del cálculo (R5).
-  `grid-cols-2` (móvil, **4 visibles**) → `sm:grid-cols-3` → `lg:grid-cols-4` (las 8 en dos filas).
-  Cada entrada es la **teja de Compra con su badge** (§21.5), sin variación.
+- **Retícula:** hasta **8** cartas (§O.3), ya **filtradas y ordenadas por el backend** — el gate de ROI y el
+  filtro de confianza deciden **qué entra**, y el cliente recibe la lista resuelta sin ver ni un número del
+  cálculo (R5). `grid-cols-2` (móvil, **4 visibles**) → `sm:grid-cols-3` → `lg:grid-cols-4` (las 8 en dos
+  filas). Cada entrada es la **teja de Compra con su badge** (§22.5), sin variación.
 - **Sin numeración mono roja.** La de §20.3 («Piezas destacadas») es orientadora; aquí implicaría un
-  *ranking de mejores oportunidades*, que es justo la afirmación que §N prohíbe. Y sería un segundo rojo.
+  *ranking de mejores oportunidades*, que es justo la afirmación que §O prohíbe. Y sería un segundo rojo.
 - **«Ver todas»:** se omite **mientras el contrato no exponga un filtro/orden de elegibles** — no se enlaza
-  a una vista que no filtra lo que promete. Solicitud anotada en §21.12.
+  a una vista que no filtra lo que promete. Solicitud anotada en §22.12.
 - **Vacío / error:** la sección **no se renderiza** (ni encabezado, ni kicker, ni regla superior) y, si no
   queda ninguna cifra en el home, **tampoco se renderiza la nota al pie** de esa página (R3.3).
 - **Carga — excepción ratificada a §8.1:** esta vitrina **no pinta skeleton**. Aparece ya resuelta o no
@@ -4372,66 +5288,102 @@ Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con la
   salto de layout exacto que R4 quiere evitar. Se prefiere **prefetch/SSR**; si se resuelve en cliente, el
   estado de carga es **nada**. (El resto de vitrinas conserva su skeleton de §18.6 sin cambios.)
 
-### 21.7 Estados — qué se renderiza y qué no
+### 22.7 Estados — qué se renderiza y qué no
 
-**Las tres superficies no se filtran igual — y hay DOS ejes independientes.** Es la consecuencia
-estructural del cambio 1: el cálculo dejó de mostrarse y pasó a **seleccionar**.
+**Las tres superficies no se filtran igual — y hay TRES ejes independientes.** Es la consecuencia
+estructural del cambio 1 (el cálculo dejó de mostrarse y pasó a **seleccionar**) y de la condición que el
+humano puso al elegir el monto para la rejilla (R6).
 
 | Eje | Qué decide | Ficha | Teja / vitrina |
 |---|---|---|---|
-| **Existencia del dato** | qué cifras hay | pinta **lo que haya** | — |
-| **Gate de ROI** (§N.2) | si la carta se **promociona** | **no aplica** | **decide si aparece** |
+| **Existencia y frescura del dato** | qué cifras hay | pinta **lo que haya** | — |
+| **Gate de ROI** (§O.2) | si la carta **merece** promoción | **no aplica** | **decide si aparece** |
+| **Confianza de la cifra** (R6) | si el número **se sostiene** como promoción | **no aplica con la misma dureza**: informa lo que hay | **decide si aparece** |
 
-- La **ficha es información**: muestra **lo que haya (PSA 10 y/o PSA 9) y NO depende del gate** (§N.3(1),
-  §N.4 «Regla por superficie»). Contrato v1.44: *«PSA 10 sin PSA 9 emite un arreglo de un elemento»*.
-- La **teja y la vitrina son promoción**: llegan **ya filtradas** por el backend (§N.4). El cliente nunca
-  ve el criterio, solo su resultado (R5).
+- La **ficha es información**: muestra **lo que haya (PSA 10 y/o PSA 9) y NO depende del gate** (§O.3(1),
+  §O.4 «Regla por superficie»). Contrato v1.50: *«PSA 10 sin PSA 9 emite un arreglo de un elemento»*.
+- La **teja y la vitrina son promoción**: llegan **ya filtradas** por el backend (§O.4) — por gate **y** por
+  confianza. El cliente nunca ve el criterio, solo su resultado (R5).
 
-| Situación (evaluada **server-side**, §N.4) | Ficha | Teja | Vitrina |
+**Qué es «confiable» (R6) — tres comprobaciones, todas server-side:**
+
+| # | Comprobación | Rejilla (teja / vitrina) | Ficha |
 |---|---|---|---|
-| PSA 10 + PSA 9, dato fresco, **gate cumplido** | **Bloque, dos cifras** (§21.3) | **Badge** con PSA 10 (§21.5) | Entra |
+| 1 | **Fresca** — dentro del umbral de frescura (§O.4) | exige | **exige igual**: un dato rancio no se pinta en ninguna superficie *(regla vieja, sin cambio)* |
+| 2 | **Origen confiable** — **override manual** del dueño, o **dato automático con muestra suficiente** de ventas gradeadas | exige | **no exige**: pinta lo que el backend emita |
+| 3 | **Coherente en magnitud** — la cota es **`psa10 > precio raw`**; se descarta si sale **≤ raw** (y también si es **absurdamente mayor**) | exige | **no la aplica con la misma dureza**: informa lo que hay |
+
+- **La frescura es la única de las tres que también gobierna la ficha.** Un dato rancio no es «lo que hay»:
+  es un dato caducado, y ahí manda R4.
+- **La cota mira hacia abajo, y esa es la dirección correcta.** El fallo real que hay que atrapar es un
+  **valor en dólares escrito como pesos**, que aterriza **por debajo** del raw, no por encima: por eso el
+  guardarraíl operativo es `psa10 > raw`. El techo por arriba («absurdamente mayor») existe, pero es un
+  caso distinto —**dato roto**, no un hecho de mercado— y la recomendación de diseño es que el backend
+  **no lo emita en ninguna superficie** (entonces aplica R4 y la ficha tampoco lo pinta). Anotado en §22.12.
+  Lo que la ficha **sí** sigue mostrando es el PSA 10 **≤ raw**: es información real y verdadera, aunque no
+  sirva de gancho.
+- **Nada de esto se explica en pantalla.** Sin «dato provisional», sin asterisco extra, sin tinta atenuada,
+  sin `title` que insinúe baja confianza: la cifra se pinta **igual que cualquier otra** o **no se pinta**.
+  Un indicador de confianza sería el cálculo contado con palabras (R5).
+
+| Situación (evaluada **server-side**, §O.4) | Ficha | Teja | Vitrina |
+|---|---|---|---|
+| PSA 10 + PSA 9, dato fresco, **gate cumplido**, cifra **confiable** | **Bloque, dos cifras** (§22.3) | **Badge** con PSA 10 (§22.5) | Entra |
 | PSA 10 + PSA 9, dato fresco, **gate NO cumplido** | **Bloque, dos cifras** (la ficha no está gateada) | **Nada** | No entra |
-| **Solo PSA 10** (sin PSA 9) | **Bloque, una cifra** (PSA 10) | **Nada** — el gate se evalúa sobre PSA 9 y sin él la carta **no es elegible** (§N.2) | No entra |
-| **Solo PSA 9** (sin PSA 10), gate cumplido | **Bloque, una cifra** (PSA 9) | **Nada** — el badge pinta el **estimado PSA 10** (§N.3(2)); sin esa cifra no hay badge, y **jamás se sustituye por otra** | No entra |
+| Cifras frescas, **gate cumplido**, pero **cifra NO confiable** (origen sin muestra suficiente, o `psa10 ≤ raw` / absurdamente mayor) | **Bloque, lo que haya** (§22.3) | **Nada** | No entra |
+| **Solo PSA 10** (sin PSA 9) | **Bloque, una cifra** (PSA 10) | **Nada** — el gate se evalúa sobre PSA 9 y sin él la carta **no es elegible** (§O.2) | No entra |
+| **Solo PSA 9** (sin PSA 10), gate cumplido | **Bloque, una cifra** (PSA 9) | **Nada** — el badge pinta el **estimado PSA 10** (§O.3(2)); sin esa cifra no hay badge, y **jamás se sustituye por otra** | No entra |
 | **Sin ningún estimado** | **Nada** | Nada | No entra |
-| **Dato rancio** (> umbral de frescura, §N.4) | Nada | Nada | No entra |
+| **Dato rancio** (> umbral de frescura, §O.4) | Nada | Nada | No entra |
 | Carta no publicada / sin precio de venta | Nada (no hay ficha vendible) | La teja no existe | No entra |
 | Producto **gradeado** o **sellado** | Nunca | Nunca | Nunca |
 | Ninguna carta elegible en el sitio | — | — | **La vitrina entera no existe** |
 | La página no puede hospedar la nota al pie | **Nada** (R3.3) | Nada | No se renderiza |
 
 **Un solo grado disponible = comportamiento NORMAL y especificado de la ficha, no una contingencia.**
-*(Corrección: la versión anterior de §21.7 exigía los dos grados. Era **arrastre** de cuando el bloque era
+*(Corrección: la versión anterior de §22.7 exigía los dos grados. Era **arrastre** de cuando el bloque era
 una comparativa de tres términos, donde faltar un término sí la rompía. Con dos cifras **independientes**
-no hay nada que se rompa, y `PROJECT.md` §N.3(1)/§N.4 y el contrato v1.44 coinciden en «se muestra lo que
+no hay nada que se rompa, y `PROJECT.md` §O.3(1)/§O.4 y el contrato v1.50 coinciden en «se muestra lo que
 haya». Manda `PROJECT.md`; esta sección se alinea.)* Cómo se pinta:
 
 - La retícula **colapsa a una columna a ancho completo** (`grid-cols-1`): el `Fact` ausente sencillamente
-  no se renderiza, y **no queda media retícula vacía** ni un `sm:border-l` huérfano.
+  no se renderiza, y **no queda media retícula vacía** ni un `sm:border-l` huérfano. Con el divisor
+  **posicional** de §22.3 esto sale solo: la única celda abre fila, y quien abre fila no lleva divisor.
 - **La cifra solitaria toma el tamaño de cabecera** —22px (20px en móvil)— **sea PSA 10 o PSA 9**. El
-  escalón 22/17 de §21.1 existe para **ordenar dos pares**; con un solo par no hay nada que ordenar, y
+  escalón 22/17 de §22.1 existe para **ordenar dos pares**; con un solo par no hay nada que ordenar, y
   dejarla en 17px la haría parecer un resto de algo que falta.
 - **La etiqueta nombra el grado que es** (`SI SALE PSA 9`) con su chip hipotético, así que una ficha de un
   solo grado **nunca es ambigua**: no hay que explicar cuál falta, porque no se insinúa que falte.
 - **Nada indica la ausencia del otro grado.** Sin «—», sin celda gris, sin «PSA 10: sin dato», sin nota que
   lo mencione. La regla money-safe se aplica al hueco igual que a la cifra: **una cifra que no existe no se
-  dibuja, y tampoco se anuncia que no existe** (§N.4).
+  dibuja, y tampoco se anuncia que no existe** (§O.4).
 - Todo lo demás del bloque es idéntico: eyebrow, fecha, **micro-aviso**, llamada `*` y nota al pie. El
   aviso **no se abrevia** por haber una cifra menos (R3).
+
+**Suprimida por confianza = comportamiento NORMAL, e indistinguible del gate — a propósito.** Una carta con
+el gate **cumplido** cuya cifra no es confiable (R6) y una carta que simplemente **no pasa el gate**
+producen **exactamente el mismo píxel**: ficha con su bloque, teja sin badge, ausencia en la vitrina. **No
+hay forma de distinguirlas en pantalla, y no debe haberla** (R5: el cliente no ve el criterio, ni el de ROI
+ni el de confianza). Para QA, en concreto: **ver el bloque en la ficha y no ver el badge en la teja NO es un
+bug**; no hay que buscar una marca diferenciadora en el DOM —no existe— ni pedir un `data-*` que la exponga,
+que sería filtrar el criterio al cliente (SEC-A1). La única forma legítima de saber por cuál de las dos
+razones no se promociona una carta es **mirar el lado servidor**.
 
 Reglas generales que siguen aplicando:
 
 - **«Nada» significa nada:** sin encabezado, sin regla superior huérfana, sin `<hr>`, sin celda vacía, sin
   espacio reservado y **sin el `PendingPriceLabel` de §7.3** — que sí es correcto en bóveda y back-office,
-  pero está **prohibido** aquí (§N.4: «ni siquiera "pendiente"»).
-- **Verificación visual — tres estados que son correctos y suelen reportarse como bugs:**
+  pero está **prohibido** aquí (§O.4: «ni siquiera "pendiente"»).
+- **Verificación visual — cuatro estados que son correctos y suelen reportarse como bugs:**
   1. Carta no elegible y carta elegible producen tejas **idénticas** salvo el bloque del badge; sin
      diferencia de altura reservada, sin borde extra.
   2. **Ficha con bloque pero carta sin badge** (gate no cumplido): **normal y esperado**.
   3. **Ficha con bloque de una sola cifra** (solo PSA 10, o solo PSA 9): **normal y esperado**, y en ambos
      casos sin badge ni entrada de vitrina.
+  4. **Ficha con bloque y sin badge, con el gate CUMPLIDO** (la cifra no pasó el filtro de confianza, R6):
+     **normal y esperado**, e **indistinguible** del caso 2 en pantalla.
 
-### 21.8 Móvil 390px
+### 22.8 Móvil 390px
 
 **El riesgo bajó mucho.** La retícula de tres cifras —lo que más amenazaba con romperse a 390px— ya no
 existe: quedan **dos cifras que apilan solas** en el comportamiento nativo de `Fact`, sin variantes ni
@@ -4439,11 +5391,11 @@ props nuevas. Lo que queda por especificar es poco:
 
 | Superficie | `≥sm` (640px+) | `<sm` (390px) |
 |---|---|---|
-| **Retícula del bloque** | 2 celdas `Fact` en fila, separadas por `sm:border-l` | **2 celdas apiladas** (label arriba, cifra debajo) — comportamiento nativo de `Fact`, sin variante `row` |
+| **Retícula del bloque** | 2 celdas `Fact` en fila, con el divisor **posicional** en la que no abre fila (§22.3) | **2 celdas apiladas** (label arriba, cifra debajo) — comportamiento nativo de `Fact`, sin variante `row` |
 | **Tamaños** | PSA 10 **22px** · PSA 9 **17px** | PSA 10 **20px** · PSA 9 **16px** |
 | **Chip hipotético** | en la etiqueta de la celda | igual; si la etiqueta envuelve, el chip baja a segunda línea, **nunca se recorta** |
-| **Micro-aviso de la ficha** | 2 líneas, sans 12px | 3 líneas, sans 12px (**no encoge**, §21.4d) |
-| **Badge de teja** | cifra 12px («En PSA 10 vale ≈ …») + micro-aviso sans 11px en 1 renglón | cifra **11px** («PSA 10 ≈ …») + micro-aviso sans 11px en **2 renglones**; ~58px de bloque (§21.5) |
+| **Micro-aviso de la ficha** | 2 líneas, sans 12px | 3 líneas, sans 12px (**no encoge**, §22.4d) |
+| **Badge de teja** | cifra 12px («En PSA 10 vale ≈ …») + micro-aviso sans 11px en 1 renglón | cifra **11px** («PSA 10 ≈ …») + micro-aviso sans 11px en **2 renglones**; ~58px de bloque (§22.5) |
 | **Llamada `*`** | 13px accent | **13px accent** — no encoge nunca; es la señal del aviso |
 | **Nota al pie** | banda a ancho completo, cuerpo 13px, medida ~720px | igual, `padding` 24/28px; **cuerpo sigue en 13px** |
 | **Vitrina** | 4 columnas × 2 filas | 2 columnas, **4 tejas visibles** |
@@ -4453,11 +5405,11 @@ Reglas de resistencia a cifras largas: todas las cifras llevan `tabular-nums` + 
 seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, baja un escalón de tamaño —
 **jamás** se trunca un monto ni se abrevia a «2.9k».
 
-### 21.9 Accesibilidad y contraste
+### 22.9 Accesibilidad y contraste
 
-**Contraste — sin pares nuevos.** §21 no introduce ningún par que §10 / §17.2 / §20.15 no hayan verificado:
+**Contraste — sin pares nuevos.** §22 no introduce ningún par que §10 / §17.2 / §20.15 no hayan verificado:
 
-| Par usado en §21 | Ratio | Veredicto |
+| Par usado en §22 | Ratio | Veredicto |
 |---|---|---|
 | Tinta `#1A1A18` sobre papel (todas las cifras del bloque y del badge) | ~15.5:1 | AA/AAA |
 | Muted `#6E695E` sobre papel (eyebrows, **micro-aviso**, cuerpo de la nota) | ~4.8:1 | AA ✓ (incluye el micro-aviso de 11px) |
@@ -4469,16 +5421,16 @@ seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, ba
 **Reglas de accesibilidad propias del gancho:**
 - **Ninguna cifra depende del color**, por construcción: todas van en tinta. El único elemento coloreado es
   la llamada, y **el color no es su significado**: lo porta su texto accesible.
-- **La llamada nunca se anuncia como «asterisco»** (§21.4a): glifo `aria-hidden` + texto accesible. Con el
+- **La llamada nunca se anuncia como «asterisco»** (§22.4a): glifo `aria-hidden` + texto accesible. Con el
   micro-aviso restaurado ese texto puede ser mucho más corto —«Ver nota al pie»— porque **las dos ideas ya
   están en el texto visible que lo precede**: el lector de pantalla las oye igual, en orden, sin
   duplicación. Lo prohibido sigue siendo un `*` desnudo en el árbol de accesibilidad.
 - **El micro-aviso es texto real, nunca `aria-label`.** Es la corrección de fondo del bloqueante: lo que se
   ve y lo que se oye son **el mismo texto**, que es la forma más robusta de accesibilidad que existe.
-- **Salto y regreso operables por teclado** (§21.4a): la llamada de la ficha es un enlace real con foco
+- **Salto y regreso operables por teclado** (§22.4a): la llamada de la ficha es un enlace real con foco
   visible; el encabezado de la nota tiene `tabindex="-1"` para recibir el foco; la nota cierra con enlace
   de regreso al punto de partida. Nadie queda varado al final de la página.
-- **El grado hipotético se anuncia como hipotético** (§21.2): `aria-label` «Grado hipotético: PSA 10. Esta
+- **El grado hipotético se anuncia como hipotético** (§22.2): `aria-label` «Grado hipotético: PSA 10. Esta
   carta no está gradeada.»
 - **Glifo `≈`:** `aria-hidden`, con la lectura en prosa («aproximadamente»). Es el único glifo que queda —
   `×` y `+` desaparecieron con el multiplicador y la ganancia (R5).
@@ -4491,13 +5443,13 @@ seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, ba
 - **Sin información solo-hover:** el `title` es siempre redundante del texto visible, nunca su única vía.
 - El estimado **no se anuncia con `aria-live`**: no es un cambio de estado, es contenido estático.
 
-### 21.10 Qué NO hacer (lista de prohibiciones — esta feature es donde el sistema se rompe)
+### 22.10 Qué NO hacer (lista de prohibiciones — esta feature es donde el sistema se rompe)
 
 1. **No** crear un color de «oferta», «ganancia», «upside» ni un verde de dinero. No hay token nuevo.
 2. **No** usar `--color-success` para la ganancia: el verde del sistema significa *confirmado/liquidado*
    (§2.4); una ganancia hipotética no está confirmada.
 3. **No** usar `--color-accent` para una cifra, una etiqueta, un fondo o un borde del gancho. Su **único**
-   papel en §21 es la **llamada `*` y su marcador en la nota** (R1). Un segundo elemento rojo en la teja
+   papel en §22 es la **llamada `*` y su marcador en la nota** (R1). Un segundo elemento rojo en la teja
    además del `StockBadge` sería ruido sin significado (§17.2); un glifo de 6px no lo es.
 4. **No** meter el bloque ni el badge en una **caja**, pastilla, panel con relleno, borde de color, sombra,
    relieve o gradiente (§2.1, §4.2, §4.3, §16.6/§17 sobre gradientes).
@@ -4508,52 +5460,59 @@ seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, ba
 7. **No** mostrar **ninguna pieza del cálculo** (R5): ni ganancia en MXN, ni multiplicador («≈ ×6»), ni
    porcentaje de rendimiento, ni costo de gradeo, ni `minUpsidePct`, ni lenguaje de instrumento financiero
    («+312% de retorno», «ROI», «rendimiento anualizado»). El ROI **solo** filtra badge y vitrina.
-8. **No** mostrar un chip `PSA 10` sin el condicional ni sin el borde punteado (§21.2).
+8. **No** mostrar un chip `PSA 10` sin el condicional ni sin el borde punteado (§22.2).
 9. **No** mostrar el estimado más grande que el precio de venta de la misma pantalla, ni en la voz sans del
-   precio display, **ni meter un estimado en la misma retícula que un precio real** (R2).
+   precio display, **ni meter un estimado en la misma retícula que un precio real** (R2) — en concreto, **no
+   empujarlo como un `FactSpec` más** a la lista de hechos de la ficha (§22.3).
 10. **No** renderizar «pendiente», `—`, `$0`, un rango inventado, un skeleton persistente ni un encabezado
     de sección vacío cuando falte el dato (R4).
 11. **No** esconder la nota tras hover, tap, `<details>`, acordeón, modal, scroll interno con altura fija o
     «ver términos» como **único** acceso; **no** llevarla a otra página; **no** meterla en el footer de
     marca; **no** bajarla de 13px de cuerpo ni de 10px en ninguna superficie; y **no** dejar una cifra en
-    una página cuya nota al pie no se renderice (R3, §21.4b, §21.4d).
+    una página cuya nota al pie no se renderice (R3, §22.4b, §22.4d).
 12. **No** dejar la llamada sin texto accesible, ni repetirla cifra por cifra, ni pegarla a un precio real
-    (§21.4a).
+    (§22.4a).
 13. **No** mostrar una cifra estimada sin su **micro-aviso adyacente VISIBLE con las dos ideas** (R3.1).
     En concreto: **no** dejarlo solo en `sr-only`, `title` o tooltip; **no** recortarlo a una sola idea;
     **no** truncarlo; **no** apagarlo por breakpoint, por densidad de retícula ni por prop. `PROJECT.md`
-    §N.5: *«una cifra sin llamada/micro-aviso es un defecto bloqueante»*. Si no cabe, **se quita la cifra**.
-13. **No** llevar el estimado a superficies de dinero real: carrito, checkout, correos de confirmación,
-    bóveda, portafolio, cotizador de buylist ni back-office financiero. §21 vive **solo** en ficha, teja de
+    §O.5: *«una cifra sin llamada/micro-aviso es un defecto bloqueante»*. Si no cabe, **se quita la cifra**.
+14. **No** llevar el estimado a superficies de dinero real: carrito, checkout, correos de confirmación,
+    bóveda, portafolio, cotizador de buylist ni back-office financiero. §22 vive **solo** en ficha, teja de
     Compra y vitrina del home.
+15. **No** delatar **por qué** una carta no se promociona: ni marca, ni versalita, ni tinta atenuada, ni
+    `title`, ni `data-*` que distinga «gate no cumplido» de «cifra no confiable» (R5, R6). Y **no** inventar
+    un distintivo sin cifra («Gradeable», «Candidata PSA») como premio de consolación cuando la cifra no es
+    confiable: la teja se queda **exactamente como hoy** (R4). Tampoco **rotular el estimado con una
+    versalita de `priceBasis`** (§22.3): un estimado no tiene base de precio.
 
-### 21.11 i18n — claves nuevas (propiedad de frontend)
+### 22.11 i18n — claves nuevas (propiedad de frontend)
 
-Convención §9.2, ES de referencia y EN obligatorio (§N.3 exige el disclaimer en ambos idiomas):
+Convención §9.2, ES de referencia y EN obligatorio (§O.3 exige el disclaimer en ambos idiomas):
 
 - `catalog.gradingEstimate.{eyebrow,updatedAt,ifGradesLabel,psa10Label,psa9Label,microNotice}` — `eyebrow`
-  es «VALOR ESTIMADO SI SE GRADEA»; **`microNotice`** es el **micro-aviso corto de la ficha** (§21.4c), que
+  es «VALOR ESTIMADO SI SE GRADEA»; **`microNotice`** es el **micro-aviso corto de la ficha** (§22.4c), que
   sustituye a la clave `provenance` de la versión anterior.
 - `catalog.gradingBadge.{figure,figureShort,microNotice}` — **`figure`** lleva el condicional incorporado
   («En PSA 10 vale ≈ {amount}») y **`figureShort`** es su forma móvil («PSA 10 ≈ {amount}»);
-  **`microNotice`** es el **micro-aviso ultra-corto** (≤ 46 car., §21.4c). *(Se retira `eyebrow`: el
-  condicional vive ahora en la cifra, §21.5.)*
+  **`microNotice`** es el **micro-aviso ultra-corto** (≤ 46 car., §22.4c). *(Se retira `eyebrow`: el
+  condicional vive ahora en la cifra, §22.5.)*
 - `catalog.gradingNote.{callSr,label,headline,p1,p2,p3,p4,p5,back}` — la nota al pie:
   - **`callSr`** = texto accesible de la llamada. Con el micro-aviso visible delante basta con «Ver nota al
     pie»; **no** debe duplicar las dos ideas, que ya se anuncian como texto real.
   - `label` = eyebrow del encabezado de la nota; `headline` = titular mono en versalitas; `p1…p5` = **una
-    clave por párrafo** (imprescindible para el tratamiento de §21.4b); `back` = enlace de regreso.
+    clave por párrafo** (imprescindible para el tratamiento de §22.4b); `back` = enlace de regreso.
   - Las **entradillas en negrita** se marcan con **rich text de next-intl** (`<b>…</b>` con
     `b: (c)=><strong>`), **nunca** partiendo la frase en dos claves ni concatenando (§9.4). Los dos
     `microNotice` usan el mismo mecanismo para poner **las dos ideas en tinta 500**.
 - `catalog.gradingEstimate.hypotheticalGradeAria` — «Grado hipotético: {company} {grade}. Esta carta no
   está gradeada.»
-- `home.gradingGems.{title,kicker,lead}` (sin `viewAll` mientras no exista el filtro, §21.6).
-- *Retiradas respecto a versiones anteriores de §21*: `rawLabel`, `rawNote`, `gainNote`, `basisLine`,
+- `home.gradingGems.{title,kicker,lead}` (sin `viewAll` mientras no exista el filtro, §22.6).
+- **No hay clave para la confianza** (R6): no se rotula, no se explica y no se traduce lo que no se pinta.
+- *Retiradas respecto a versiones anteriores de §22*: `rawLabel`, `rawNote`, `gainNote`, `basisLine`,
   `costTierNote`, `caveatMicro`, `srDisclaimer`, `gridNote`, `provenance`, `gradingBadge.eyebrow`.
 
-**Textos propuestos para los dos `microNotice` (ES/EN)** — punto de partida tomado del propio §N.5; PO
-ratifica. Las **negritas** marcan las dos ideas obligatorias, que van en tinta 500 (§21.4c):
+**Textos propuestos para los dos `microNotice` (ES/EN)** — punto de partida tomado del propio §O.5; PO
+ratifica. Las **negritas** marcan las dos ideas obligatorias, que van en tinta 500 (§22.4c):
 
 | Clave | ES | EN |
 |---|---|---|
@@ -4565,47 +5524,47 @@ poco común: dimensionar la teja por el **máximo de ambos** (2 renglones a 171p
 renglón desde ~200px en ES y ~240px en EN). «SI SALE PSA 10» / «IF IT GRADES PSA 10» tiene el mismo sesgo.
 El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin tocar tamaños.
 
-### 21.12 Notas a otros roles (ninguna bloquea el diseño)
+### 22.12 Notas a otros roles (ninguna bloquea el diseño)
 
-1. **Product-owner — §N.3 y §N.5 quedaron desalineados con lo que el humano aprobó (SOLICITUD, la más
+1. **Product-owner — §O.3 y §O.5 quedaron desalineados con lo que el humano aprobó (SOLICITUD, la más
    importante).** Los dos cambios de la revisión contradicen texto vigente de `PROJECT.md`, y el diseño
    **no puede** editarlo (regla de propiedad). Hay que actualizar:
-   - **§N.3, viñeta (1)**: la ficha ya **no** muestra «el upside frente al raw (diferencia en MXN y
+   - **§O.3, viñeta (1)**: la ficha ya **no** muestra «el upside frente al raw (diferencia en MXN y
      multiplicador)» ni «el costo de gradeo usado en el cálculo — el escalón aplicado». **Ambos se
      retiran** por instrucción del humano (R5). El costo del escalón se queda **sin superficie donde
      mostrarse**: existía solo para justificar la aritmética que ya no se pinta.
-   - *(§N.5 ya no está desalineada: la regla de presentación de `PROJECT.md` —micro-aviso adyacente
-     **además** de la llamada— es correcta y §21 se corrigió para cumplirla. Ver el punto 2.)*
+   - *(§O.5 ya no está desalineada: la regla de presentación de `PROJECT.md` —micro-aviso adyacente
+     **además** de la llamada— es correcta y §22 se corrigió para cumplirla. Ver el punto 2.)*
    - Los **criterios de aceptación 79–92** que mencionen upside, multiplicador o escalón visible deben
      revisarse a la luz de lo anterior.
 2. **Product-owner — ratificación del micro-aviso, y la recomendación que ux-ui deja por escrito.**
-   El micro-aviso adyacente **está restaurado y especificado** (§21.4c, §21.5, §21.6): §N.5 manda y el
+   El micro-aviso adyacente **está restaurado y especificado** (§22.4c, §22.5, §22.6): §O.5 manda y el
    documento se alineó. Quedan dos cosas de PO:
    - **Ratificar los textos** de `gradingBadge.microNotice` y `gradingEstimate.microNotice` (tabla de
-     §21.11; el ultra-corto es literalmente el que propone §N.5) y el de `callSr`.
+     §22.11; el ultra-corto es literalmente el que propone §O.5) y el de `callSr`.
    - **Decidir, con revisión legal, si el micro-aviso de la teja se mantiene en las retículas densas.**
      Ux-ui lo implementa como está mandado, pero deja constancia del riesgo que ve, para que quien lo
      acepte lo haga informado: **la repetición idéntica del mismo aviso en muchas tejas de una misma
      pantalla tiende a volverlo invisible** (ceguera de banner), así que la protección *real* que aporta
-     la enésima repetición decrece, mientras el coste de retícula (~+28px por teja en móvil) se paga
-     entero. *No es una objeción a mostrarlo* —el argumento de §N.5 sobre el comprador que nunca baja al
-     pie es sólido y decisivo—, sino una nota para que, si alguna vez se plantea recortarlo, la decisión
-     salga de **PO + legal** y no de una optimización de layout. **Mientras no haya esa ratificación
-     explícita, manda `PROJECT.md`: el micro-aviso va, en las tres superficies.** El diseño mitiga lo que
-     puede: economía de palabras (36 car.), voz de prosa en sans para que se lea distinto de las
-     etiquetas, y aparición **solo en tejas elegibles** —en fase 1, las que el dueño cura a mano (§N.6)—,
-     de modo que una página típica tenga unas pocas, no veinte.
-3. **Product-owner — longitud del disclaimer (recomendación, no bloqueo).** El texto de §N.5 (titular +
-   seis párrafos) **se puede tratar**: §21.4b lo hace escaneable con entradillas y, al vivir al pie, ya no
+     la enésima repetición decrece, mientras el coste de retícula se paga entero *(hoy ya casi nulo en
+     escritorio, §22.5)*. *No es una objeción a mostrarlo* —el argumento de §O.5 sobre el comprador que
+     nunca baja al pie es sólido y decisivo—, sino una nota para que, si alguna vez se plantea recortarlo,
+     la decisión salga de **PO + legal** y no de una optimización de layout. **Mientras no haya esa
+     ratificación explícita, manda `PROJECT.md`: el micro-aviso va, en las tres superficies.** El diseño
+     mitiga lo que puede: economía de palabras (36 car.), voz de prosa en sans para que se lea distinto de
+     las etiquetas, y aparición **solo en tejas elegibles** —en fase 1, las que el dueño cura a mano
+     (§O.6)—, de modo que una página típica tenga unas pocas, no veinte.
+3. **Product-owner — longitud del disclaimer (recomendación, no bloqueo).** El texto de §O.5 (titular +
+   seis párrafos) **se puede tratar**: §22.4b lo hace escaneable con entradillas y, al vivir al pie, ya no
    estorba a nadie. La recomendación se mantiene pero **baja de prioridad**: si la revisión legal pudiera
    podarlo a titular + cuatro párrafos, se leería más; con el patrón de nota al pie ya no es urgente.
-4. **Ficha con un solo grado — RESUELTO, ya no es una solicitud abierta.** `PROJECT.md` §N.3(1)/§N.4 y el
-   contrato v1.44 fijan «se muestra lo que haya»; §21.7 estaba desalineada (arrastre de la comparativa) y
+4. **Ficha con un solo grado — RESUELTO, ya no es una solicitud abierta.** `PROJECT.md` §O.3(1)/§O.4 y el
+   contrato v1.50 fijan «se muestra lo que haya»; §22.7 estaba desalineada (arrastre de la comparativa) y
    **se corrigió**: es el **comportamiento normal y especificado** de la ficha, con su forma de una sola
-   columna. Queda como supuesto abierto en `PROJECT.md` (pregunta 13 de v2.0) solo la **confirmación del
-   humano**; el diseño ya está definido para ambas respuestas —si el humano prefiriera exigir los dos
-   grados, se elimina un estado, no se rediseña nada.
-5. **Arquitecto — datos que §21 necesita del contrato (v1.43), ACTUALIZADO.** Se **reduce** lo que el
+   columna. Queda como supuesto abierto en `PROJECT.md` solo la **confirmación del humano**; el diseño ya
+   está definido para ambas respuestas —si el humano prefiriera exigir los dos grados, se elimina un
+   estado, no se rediseña nada.
+5. **Arquitecto — datos que §22 necesita del contrato (v1.50), ACTUALIZADO.** Se **reduce** lo que el
    cliente debe recibir, que es la mejor noticia de esta revisión:
    - **Sí:** estimado **PSA 10** y **PSA 9** en centavos MXN, **fecha de refresco**, y un **booleano de
      elegibilidad ya resuelto** (o, mejor, listados ya filtrados) para badge y vitrina.
@@ -4614,26 +5573,39 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
      no viaja al cliente no se puede filtrar en un DTO ni pintar por error (SEC-A1). El ROI se queda
      íntegramente del lado del servidor.
    - Si algún insumo no llega, aplica R4 y no se pinta nada.
+5-bis. **Arquitecto / backend — la confianza (R6) se resuelve server-side, igual que el gate.** El cliente
+   debe recibir **listados ya filtrados** (o, en su defecto, un **booleano de elegibilidad ya resuelto**)
+   para badge y vitrina, que combine **gate de ROI + confianza**. El storefront **no** debe recibir el
+   tamaño de la muestra, el origen del dato, los umbrales ni ninguna señal de confianza: lo que no viaja no
+   se puede pintar por error (SEC-A1), y una señal de confianza en el DTO acabaría dibujada. **Dos notas de
+   dato:** (a) la cota operativa es **`psa10 > precio raw`** —mira hacia abajo porque el fallo típico, un
+   valor en dólares escrito como pesos, aterriza por debajo—; (b) el estimado «absurdamente mayor» es **dato
+   roto**, no un hecho de mercado: mejor **no emitirlo en absoluto**, y así R4 lo tapa en todas las
+   superficies, ficha incluida.
 6. **Arquitecto — orden/filtro de elegibles:** la vitrina del home necesita el listado **ya filtrado por
-   el gate** y ordenado (cap 8). Además, para ofrecer un «Ver todas» honesto en §21.6 haría falta un
-   **filtro/orden de elegibles** en `GET /catalog/cards`. Mientras no exista, la vitrina **omite** el
-   enlace (no se enlaza a una vista que no filtra lo que promete).
-7. **Frontend:** §21 **no pide ninguna modificación** a componentes existentes. Cambios que trae esta
+   el gate** (y por confianza) y ordenado (cap 8). Además, para ofrecer un «Ver todas» honesto en §22.6
+   haría falta un **filtro/orden de elegibles** en `GET /catalog/cards`. Mientras no exista, la vitrina
+   **omite** el enlace (no se enlaza a una vista que no filtra lo que promete).
+7. **Frontend:** §22 **no pide ninguna modificación** a componentes existentes. Cambios que trae esta
    corrección respecto a lo ya implementado: (a) **el badge pierde el eyebrow** y gana la cifra con el
    condicional incorporado (`figure` / `figureShort`) más el **micro-aviso visible** en `<p>` real —el
    `sr-only` del badge **se elimina**, ya no aporta—; (b) **la ficha cambia `provenance` por
    `microNotice`** (versión corta completa, dos ideas en tinta 500); (c) la **llamada `*` se mueve** del
-   eyebrow al final del micro-aviso. Lo demás sigue igual: la nota se pinta **una clave por párrafo con
-   rich text** (§21.11), nunca como un solo string; el salto usa `tabindex="-1"` + `scroll-margin-top` con
-   `--app-header-h` (§4.5), no `top` hardcodeado; la llamada es enlace **solo** en la ficha (en la teja
-   sería un ancla anidada); y la excepción de skeleton de §21.6 es intencional (prefetch/SSR preferido).
+   eyebrow al final del micro-aviso. **Y tras la fusión con P-48:** (d) el bloque reutiliza **`Fact`, no
+   `FactGrid`**, con el divisor **posicional** (§22.3) — `FactGrid` conserva su regla `border-border` y su
+   `mt-9`, y **no** se le añade prop de tono; (e) **no** se empuja el estimado a la lista `FactSpec[]` de la
+   ficha; (f) el estimado **no** lleva `PriceBasisTag`. Lo demás sigue igual: la nota se pinta **una clave
+   por párrafo con rich text** (§22.11), nunca como un solo string; el salto usa `tabindex="-1"` +
+   `scroll-margin-top` con `--app-header-h` (§4.5), no `top` hardcodeado; la llamada es enlace **solo** en la
+   ficha (en la teja sería un ancla anidada); y la excepción de skeleton de §22.6 es intencional
+   (prefetch/SSR preferido).
 8. **QA visual sugerido:** (a) carta elegible vs. no elegible → tejas idénticas salvo el bloque del badge,
    **sin diferencia de altura reservada**; (b) subir `minUpsidePct` hasta que la carta deje de calificar →
-   desaparecen **badge y entrada de vitrina**, **el bloque de la ficha permanece** (§21.7 — es el
+   desaparecen **badge y entrada de vitrina**, **el bloque de la ficha permanece** (§22.7 — es el
    comportamiento correcto, no un bug) y el precio de venta no cambia; (**c-bis, el que falló**) **toda
    cifra estimada del DOM tiene, en su mismo contenedor, un micro-aviso VISIBLE con las dos ideas** —
    comprobar en las tres superficies con CSS activo y `sr-only` ignorado a propósito: si al ocultar los
-   `sr-only` desaparece el aviso, **es el bloqueante otra vez** (R3.1, §N.5); (c) **ninguna cifra de
+   `sr-only` desaparece el aviso, **es el bloqueante otra vez** (R3.1, §O.5); (c) **ninguna cifra de
    estimado en una página cuyo DOM no contenga la nota al pie**, y ninguna cifra sin su llamada (R3); (d) 390px: las
    dos celdas apiladas, sin scroll horizontal ni monto truncado, probado con `MX$ 999,999.00` en ES;
    (e) la nota **nunca** por debajo de 13px de cuerpo, **visible sin interacción** —sin `<details>`, sin
@@ -4643,4 +5615,10 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
    apariciones** de ganancia, multiplicador, costo de gradeo o porcentaje en todo el storefront (R5),
    incluido el payload de red; (i) el estimado **no aparece** en carrito, checkout, correos, bóveda ni
    buylist; (j) lector de pantalla: la llamada **no** se anuncia como «asterisco» sino con su texto, y el
-   chip anuncia «grado hipotético».
+   chip anuncia «grado hipotético»; (k) **cifra no confiable** —forzar muestra insuficiente, o un PSA 10 por
+   debajo del precio raw— con el gate **cumplido** ⇒ desaparecen **badge y entrada de vitrina**, **el bloque
+   de la ficha permanece** y el precio de venta no cambia; y la teja resultante es **idéntica** a la de una
+   carta que no pasa el gate — si aparece cualquier marca que las distinga, **eso** sí es el bug (R5/R6);
+   (l) ficha con `priceBasis !== "market"` (sin bloque «Valor de mercado», §21.8) ⇒ el bloque del gancho
+   **sigue en su sitio**, después del `referenceExplainer` en su variante «sin mercado», y su retícula no
+   hereda ningún divisor de la retícula de precio.

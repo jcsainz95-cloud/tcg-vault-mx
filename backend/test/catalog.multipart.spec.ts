@@ -1,6 +1,7 @@
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * P-27 (v1.33-master-set-multipart, §4.31d) — STOREFRONT del master set combinado. Con fixtures:
@@ -14,9 +15,16 @@ function pricing(): PricingService {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
-    loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn(async () => new Map()),
-    computeSalePriceForItem: jest.fn(async () => ({ salePriceCents: 11500, status: 'priced' })),
+    // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+    // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+    computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false })),
     sealedMarketGradeKeyForItem: jest.fn(() => null),
     getSealedMarketRef: jest.fn(async () => ({ status: 'pending' })),

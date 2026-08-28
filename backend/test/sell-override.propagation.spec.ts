@@ -5,23 +5,19 @@ import { MasterSetService } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { computeSalePriceForRarity, SalesRule } from '../src/common/money';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.28 (P-18, ARCHITECTURE §4.26b) — PROPAGACIÓN del sellOverride por variante (M-30) a TODOS los
  * puntos de resolución del precio de VENTA (resolver único, precedencia normativa):
- *   listPriceCents (pieza) > sellOverrideCents (variante) > regla > PRICE_PENDING
+ *   listPriceCents (pieza) > sellOverrideCents (variante) > CURVA (v2.0, P-48) > PRICE_PENDING
  *  - catálogo (`toListingDTO`, rutas batch y single);
  *  - checkout (`orders.salePriceOf`, auth + guest comparten este cuerpo);
  *  - publicación (`inventory.bulkPublish`, precio server-side SEC-A1);
  *  - binder M1 (`pricing?` por variante SOLO scope platform; OMITIDO en scopes de cliente).
- * Regresión: sin fila M-30, cada punto se comporta EXACTAMENTE como antes.
+ * v2.0 (P-48): el peldaño «regla» pasa a ser «CURVA» y el override es ABSOLUTO en los dos ejes
+ * (criterio 89). Sin fila M-30, cada punto resuelve por la curva — el MISMO número en los cuatro.
  */
-
-const SELL_RULES: Record<string, SalesRule> = { Common: { mode: 'fixed', value: 500 } };
-// v1.29 (§4.28d): el ctx de reglas es un PriceRuleSet de dos ejes (Common → rarityRules).
-const SELL_RULE_SET = { rarityRules: { Common: { mode: 'fixed' as const, value: 500 } }, finishRules: {}, fallbackPct: 15 };
-const SALES_CTX = { rules: SELL_RULE_SET, fallbackPct: 15 };
 
 const CARD = {
   id: 'c1',
@@ -86,6 +82,11 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
       ? { status: 'pending' }
       : { status: 'priced', referenceMxnCents: opts.referenceMxnCents };
   return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => ref),
     getReferencesBatch: jest.fn(async (keys: { cardId: string; productType: string; gradeKey: string; finish: string }[]) => {
@@ -99,14 +100,14 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
       if (opts.override) for (const k of keys) m.set(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`, opts.override);
       return m;
     }),
-    loadSalesRules: jest.fn(async () => SALES_CTX),
-    loadBuylistRules: jest.fn(async () => ({ rules: { rarityRules: { Common: { mode: 'fixed', value: 50 } }, finishRules: {}, fallbackPct: 40 }, fallbackPct: 40 })),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false })),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
-    computeSalePriceForItem: jest.fn(async (item: { rarity: string | null; finish: never }, refCents: number | null, controls?: never) =>
-      computeSalePriceForRarity(item.rarity, item.finish, refCents, SELL_RULES, 15, controls),
-    ),
+    // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
+    // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
+    computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn(async () => 'pend-1'),
   } as unknown as PricingService;
 }
@@ -118,7 +119,11 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
     const dto = await svc.toListingDTO(rawItem());
     expect(dto.salePriceCents).toBe(9900);
     expect(dto.sellable).toBe(true);
-    expect(dto.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: 10000 });
+    // v2.1.9 (D2): la referencia de mercado NO cambia — pero con `priceBasis='override'` ya NO VIAJA
+    // en superficie pública. El mercado no produjo este precio, así que el número no explica nada y
+    // la UI lo tenía PROHIBIDO pintar; ahora tampoco lo recibe. `status` sí viaja (carga estructural).
+    expect(dto.priceBasis).toBe('override');
+    expect(dto.referenceValue).toEqual({ status: 'priced' });
   });
 
   it('listPriceCents POR PIEZA gana al sellOverride de la variante (intención más específica)', async () => {
@@ -128,14 +133,15 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
     expect(dto.salePriceCents).toBe(12345);
   });
 
-  it('REGRESIÓN: sin fila M-30 el precio sigue siendo el de la regla', async () => {
+  it('sin fila M-30 el precio sale de la CURVA (mercado $100 ⇒ $115) con basis "market"', async () => {
     const pricing = buildPricing({ referenceMxnCents: 10000 });
     const svc = new CatalogService({} as PrismaService, pricing);
     const dto = await svc.toListingDTO(rawItem());
-    expect(dto.salePriceCents).toBe(500);
+    expect(dto.salePriceCents).toBe(11500);
+    expect(dto.priceBasis).toBe('market');
   });
 
-  it('quitar el override (fila ausente) con pct sin market → sin precio (no vendible)', async () => {
+  it('quitar el override (fila ausente) SIN market → sin precio (no vendible; el piso NO gana)', async () => {
     const pricing = buildPricing({ referenceMxnCents: null });
     const svc = new CatalogService({} as PrismaService, pricing);
     const dto = await svc.toListingDTO(rawItem({ card: { ...CARD, rarity: 'Illustration Rare' } }));
@@ -148,7 +154,7 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
     const svc = new CatalogService({} as PrismaService, pricing);
     const dto = await svc.toListingDTO(rawItem(), {
       reference: { status: 'priced', referenceMxnCents: 10000 },
-      salesRules: SALES_CTX,
+      curve: DEFAULT_PRICING_CURVE,
       variantOverride: overrideRow(8800) as never,
     });
     expect(dto.salePriceCents).toBe(8800);
@@ -212,13 +218,13 @@ describe('publicación — inventory.bulkPublish (precio server-side SEC-A1)', (
     expect(pricing.getVariantOverridesBatch).toHaveBeenCalledTimes(1);
   });
 
-  it('REGRESIÓN: sin fila publica por la regla; pct sin market escala PRICE_PENDING (④)', async () => {
-    const byRule = buildInventory({ referenceMxnCents: 10000 });
-    const ok = await byRule.svc.bulkPublish({ items: [{ inventoryItemId: 'it-1' }] } as never, 'a');
-    expect(ok.results[0]).toMatchObject({ ok: true, salePriceCents: 500 });
+  it('sin fila publica por la CURVA; sin market escala PRICE_PENDING (④)', async () => {
+    const byCurve = buildInventory({ referenceMxnCents: 10000 });
+    const ok = await byCurve.svc.bulkPublish({ items: [{ inventoryItemId: 'it-1' }] } as never, 'a');
+    expect(ok.results[0]).toMatchObject({ ok: true, salePriceCents: 11500 });
 
     const pending = buildInventory({ referenceMxnCents: null });
-    // Sin regla aplicable para la rareza premium: pct fallback sin market → PRICE_PENDING.
+    // v2.0: sin dato de mercado NO se publica (el piso NO gana) → PRICE_PENDING + escalada.
     (pending.svc as never as { prisma: { inventoryItem: { findMany: jest.Mock } } });
     const res = await pending.svc.bulkPublish({ items: [{ inventoryItemId: 'nope' }] } as never, 'a');
     expect(res.results[0].ok).toBe(false); // NOT_FOUND por id inexistente — el lote no revienta
@@ -250,21 +256,23 @@ describe('binder M1 — pricing? por variante SOLO scope platform (§4.26b)', ()
     const vNormal = cell.variants.find((v) => v.finish === 'normal')!;
     expect(vNormal.pricing).toBeDefined();
     expect(vNormal.pricing!.sell).toEqual({
-      suggestedCents: 500,
+      suggestedCents: 11500, // la CURVA de venta a mercado $100
       overrideCents: 9900,
       effectiveCents: 9900,
       source: 'override',
+      premiumAtFloor: false,
     });
     expect(vNormal.pricing!.buy).toEqual({
-      suggestedCents: 50,
+      suggestedCents: 4000, // la CURVA de compra a mercado $100
       overrideCents: null,
-      effectiveCents: 50,
-      source: 'rule',
+      effectiveCents: 4000,
+      source: 'market',
+      premiumAtFloor: false,
     });
-    // Lotes izados UNA vez (reglas + overrides) — sin N+1.
+    // v2.0 (§4.36.2): UN solo lector de la curva, izado UNA vez por request — sin N+1 y sin dos
+    // configuraciones distintas para los dos ejes.
     expect(pricing.getVariantOverridesBatch).toHaveBeenCalledTimes(1);
-    expect(pricing.loadBuylistRules).toHaveBeenCalledTimes(1);
-    expect(pricing.loadSalesRules).toHaveBeenCalledTimes(1);
+    expect(pricing.loadPricingCurve).toHaveBeenCalledTimes(1);
   });
 
   it('scope user_vault: `pricing` se OMITE SIEMPRE (la estrategia de compra no se filtra al cliente)', async () => {
@@ -275,9 +283,9 @@ describe('binder M1 — pricing? por variante SOLO scope platform (§4.26b)', ()
         expect('pricing' in v).toBe(false);
       }
     }
-    // Ni siquiera se consulta la tabla M-30 ni las reglas de compra en scopes de cliente.
+    // Ni siquiera se consulta la tabla M-30 ni la curva en scopes de cliente.
     expect(pricing.getVariantOverridesBatch).not.toHaveBeenCalled();
-    expect(pricing.loadBuylistRules).not.toHaveBeenCalled();
+    expect(pricing.loadPricingCurve).not.toHaveBeenCalled();
   });
 
   it('buyable del binder (vista cliente) usa el MISMO precio que el storefront (override)', async () => {

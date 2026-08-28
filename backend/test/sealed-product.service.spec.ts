@@ -489,6 +489,84 @@ describe('SealedProductService.syncCandidates / linkGroup', () => {
 });
 
 // ===========================================================================
+// fix/variant-composition-regression: matchScore tolerante al PREFIJO de código de TCGCSV.
+// TCGCSV nombra los grupos con prefijo de colección ("SV08: Pitch Black"); el catálogo local NO
+// ("Pitch Black"). Sin tolerancia, el match caía a 0.5 (< umbral 0.9) → "sin grupo resoluble".
+// Money-safe: sube los matches legítimos al rango auto-resoluble, PERO conserva la salvaguarda de
+// bestSetMainMatch (≥0.9 y ÚNICO en el tope): empate tras quitar prefijo → null (no adivina).
+// ===========================================================================
+describe('SealedProductService.matchScore — tolerante al prefijo de código de TCGCSV', () => {
+  it('"Pitch Black" local vs grupo "SV08: Pitch Black" (mismo año) → score ≥0.9 → auto-resuelve set_main', async () => {
+    const setRow = { id: 'set-1', name: 'Pitch Black', series: 'SV', releaseDate: '2025-06-13', tcgcsvGroupId: null };
+    const groups = [
+      { groupId: 800, name: 'SV08: Pitch Black', publishedOn: '2025-06-13' },
+      { groupId: 999, name: 'Totally Unrelated', publishedOn: '2019-01-01' },
+    ];
+
+    // syncCandidates expone el matchScore crudo: el grupo prefijado debe puntuar en rango exacto.
+    const candPrisma = buildPrisma({ sets: [{ ...setRow }] });
+    const cand = await svcOf(candPrisma, buildProvider({ groups })).syncCandidates('set-1');
+    const byId = Object.fromEntries(cand.candidates.map((c) => [c.tcgplayerGroupId, c]));
+    expect(byId[800]?.matchScore).toBeGreaterThanOrEqual(0.9);
+    expect(byId[999]).toBeUndefined(); // sin match → fuera
+
+    // sync auto-resuelve el set_main (puebla groupId) gracias al score ≥0.9 ÚNICO en el tope.
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const provider = buildProvider({ groups, productsByGroup: { 800: [{ productId: 81, name: 'Pitch Black Booster Box' }] }, pricesByGroup: {} });
+    await svcOf(prisma, provider).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(800);
+    expect(prisma._stores.sealedSetGroups.find((g: any) => g.tcgplayerGroupId === 800)).toMatchObject({ kind: 'set_main' });
+  });
+
+  it('SIN prefijo: comportamiento intacto — exacto+año=1.0, año distinto=0.7, contención=0.5', async () => {
+    const prisma = buildPrisma({ sets: [{ id: 'set-1', name: 'Prismatic Evolutions', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: null }] });
+    const provider = buildProvider({
+      groups: [
+        { groupId: 100, name: 'Prismatic Evolutions', publishedOn: '2025-01-17' }, // exacto + mismo año → 1.0
+        { groupId: 200, name: 'Prismatic Evolutions', publishedOn: '2020-01-01' }, // exacto + año distinto → 0.7
+        { groupId: 300, name: 'Prismatic Evolutions Promos', publishedOn: '2025-01-17' }, // contención → 0.5
+      ],
+    });
+    const cand = await svcOf(prisma, provider).syncCandidates('set-1');
+    const byId = Object.fromEntries(cand.candidates.map((c) => [c.tcgplayerGroupId, c]));
+    expect(byId[100].matchScore).toBeCloseTo(1.0);
+    expect(byId[200].matchScore).toBeCloseTo(0.7);
+    expect(byId[300].matchScore).toBeCloseTo(0.5);
+  });
+
+  it('empate tras quitar prefijo (dos grupos "… Pitch Black", mismo año) → NO auto-resuelve (money-safe)', async () => {
+    const prisma = buildPrisma({ sets: [{ id: 'set-1', name: 'Pitch Black', series: 'SV', releaseDate: '2025-06-13', tcgcsvGroupId: null }] });
+    const provider = buildProvider({
+      groups: [
+        { groupId: 800, name: 'SV08: Pitch Black', publishedOn: '2025-06-13' }, // base → 1.0
+        { groupId: 900, name: 'SV09: Pitch Black', publishedOn: '2025-06-13' }, // reprint → 1.0
+      ],
+      productsByGroup: {},
+      pricesByGroup: {},
+    });
+    const res = await svcOf(prisma, provider).sync({ setId: 'set-1' });
+    // Empate en el tope (ambos 1.0) → bestSetMainMatch devuelve null → no puebla groupId ni crea set_main.
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(prisma._stores.sealedSetGroups.find((g: any) => g.kind === 'set_main')).toBeUndefined();
+    expect(res.groupsPopulated).toBe(0);
+  });
+
+  it('set que NO existe en TCGCSV → sin match (0), sin falsos positivos ni auto-resolución', async () => {
+    const setRow = { id: 'set-1', name: 'Nonexistent Set XYZ', series: 'SV', releaseDate: '2025-06-13', tcgcsvGroupId: null };
+    const groups = [{ groupId: 999, name: 'Totally Unrelated', publishedOn: '2019-01-01' }];
+
+    const candPrisma = buildPrisma({ sets: [{ ...setRow }] });
+    const cand = await svcOf(candPrisma, buildProvider({ groups })).syncCandidates('set-1');
+    expect(cand.candidates).toHaveLength(0); // ningún grupo puntúa > 0
+
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const res = await svcOf(prisma, buildProvider({ groups })).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(res.groupsPopulated).toBe(0);
+  });
+});
+
+// ===========================================================================
 // H-P38-4 (TECH_DEBT): check-then-create → escritura ATÓMICA guardada contra P2002 bajo concurrencia.
 // Se simula la carrera: entre el findUnique (null) y el create de ESTA llamada, OTRO sync ya insertó la
 // misma fila (unique) → Prisma lanza P2002 → el perdedor CONVERGE en vez de romper.

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { MONEY_RE } from './utils/auth';
+import { IS_REAL, mockOnly, MONEY_RE } from './utils/auth';
 
 /**
  * Guest checkout — PROJECT §J / §J.1, criterios 45–56b; contrato §4-G.
@@ -72,8 +72,16 @@ test.describe('guest checkout · identidad y desglose', () => {
     await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('no-es-correo');
     await page.getByRole('button', { name: /Pagar/ }).click();
 
-    await expect(page.getByRole('main').getByRole('alert')).toBeVisible();
-    await expect(page.getByText(t('es', 'checkout.guest.email.invalid')).first()).toBeVisible();
+    // El invitado ve DOS avisos deliberados y distintos: el RESUMEN de errores del formulario
+    // (§15.9) y la nota bajo «Pagar» que explica el bloqueo. Se afirma el resumen POR SU
+    // CONTENIDO en vez de «el alert de main», que era ambiguo entre los dos.
+    await expect(
+      page
+        .getByRole('main')
+        .getByRole('alert')
+        .filter({ hasText: t('es', 'checkout.guest.email.invalid') }),
+    ).toBeVisible();
+    await expect(page.getByText(t('es', 'checkout.guest.formIncomplete'))).toBeVisible();
     await expect(page.getByRole('dialog')).toBeHidden();
   });
 
@@ -82,7 +90,13 @@ test.describe('guest checkout · identidad y desglose', () => {
     await page.goto('/es/checkout');
     await page.getByRole('button', { name: t('es', 'checkout.identity.guest.cta') }).click();
 
-    const vault = page.getByRole('radio', { name: new RegExp(t('es', 'checkout.destination.vault')) });
+    // N-9: el destino se ofrece DOS veces a propósito (en el formulario, con su detalle y el
+    // upsell; y otra vez justo arriba de «Pagar»), compartiendo estado. Se elige el del
+    // FORMULARIO por su nombre accesible completo — el del resumen se llama solo «Guardar en mi
+    // bóveda» —, en vez de un localizador que casa con los dos.
+    const vault = page.getByRole('radio', {
+      name: `${t('es', 'checkout.destination.vault')} ${t('es', 'checkout.destination.vaultRequiresAccount')}`,
+    });
     await expect(vault).toBeEnabled();
     await vault.check();
 
@@ -107,6 +121,13 @@ test.describe('guest checkout · identidad y desglose', () => {
    *  - real: solo se verifica que el modal se abre con el clientSecret de la sesión REAL.
    *  - mock: completa el pago simulado y confirma la pantalla de confirmación (criterio 49).
    */
+  /**
+   * ⚠️ ENTORNO (no producto): contra un stack SIN clave de Stripe este test es ROJO — el backend
+   * responde `PAYMENT_PROVIDER_UNAVAILABLE` y el modal de pago no puede abrirse. NO se salta a
+   * propósito: un smoke de dinero que se pone verde (o se salta solo) cuando no hay proveedor de
+   * pago es exactamente la clase de mentira que este arnés vino a quitar. Si sale rojo aquí,
+   * confirma primero si hay `STRIPE_SECRET_KEY` en el stack antes de reportarlo como bug.
+   */
   test('@real comprar como invitado: la sesión se crea y termina en confirmación', async ({ page }) => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
@@ -127,7 +148,13 @@ test.describe('guest checkout · identidad y desglose', () => {
     const modal = page.getByRole('dialog', { name: t('es', 'checkout.payTitle') });
     await expect(modal).toBeVisible();
 
-    if (process.env.E2E_REAL === '1') {
+    // ⚠️ Aquí vivía `process.env.E2E_REAL === '1'` CRUDO — el único sitio de `e2e/` que le
+    // preguntaba al entorno en vez de al helper. Sin la bandera puesta, este test tomaba la rama
+    // MOCK de sus asertos (clic en «Pagar» simulado + esperar `guest-order-number`) contra un modal
+    // de STRIPE REAL: la misma mentira que el arreglo del env-gating vino a matar, un piso más
+    // abajo. `IS_REAL` contesta la pregunta correcta —«¿contra qué habla la app?»— y con eso este
+    // archivo deja de obligar a `.github/` a fijar `E2E_REAL` sólo para que se comporte.
+    if (IS_REAL) {
       await expect(modal.getByText(t('es', 'payment.mockBody'))).toBeHidden();
     } else {
       await modal.getByRole('button', { name: /Pagar/ }).click();
@@ -145,7 +172,11 @@ test.describe('seguimiento público · /pedido', () => {
   test('con enlace válido muestra estado, artículos y total, sin datos sensibles (criterios 50, 51)', async ({
     page,
   }) => {
-    // MOCK: la rama mock de `trackGuestOrder` reconoce tokens que empiezan con "mock".
+    // MOCK: la rama mock de `trackGuestOrder` reconoce tokens que empiezan con "mock". Contra el
+    // backend real haría falta un pedido de invitado + su token FIRMADO, que no se puede fabricar
+    // desde el navegador. Los caminos NEUTROS (token inventado/expirado) sí corren en real: son
+    // los que importan para la seguridad, y ahí el backend es la autoridad.
+    mockOnly('token de seguimiento `mock-demo-token` que solo reconoce la rama mock');
     await page.goto('/es/pedido?token=mock-demo-token');
 
     await expect(page.getByTestId('tracking-order-number')).toBeVisible();
@@ -220,6 +251,7 @@ test.describe('seguimiento público · /pedido', () => {
   });
 
   test('un enlace de checkout VIGENTE avisa de que es temporal y remite al correo', async ({ page }) => {
+    mockOnly('token de seguimiento `mock-demo-token` que solo reconoce la rama mock');
     await page.goto('/es/pedido?token=mock-demo-token');
     // El pedido demo del mock caduca en 90 días (enlace de correo): sin aviso de temporalidad.
     await expect(page.getByTestId('tracking-order-number')).toBeVisible();

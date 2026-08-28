@@ -48,22 +48,92 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 - **P-39/P-40** · foto HD en el featured/ficha + etiqueta de **acabado**.
 - **P-36** · stepper de baja rápida: botones disabled ya no se ven «encendidos» al hover.
 
-**Al publicar (devops/Railway) — runbook en `DEVOPS_NOTES.md §27`, orquestado por `scripts/post-deploy.sh`
-(idempotente; PARA si el reshape detecta BD de precios editada a mano):**
-1. `prisma migrate deploy` → **M-39** (SealedProduct) + **M-40** (`PendingPriceEntry.sealedProductId`), aditivas.
+**Al publicar (devops/Railway) — runbook en `DEVOPS_NOTES.md §29`, orquestado por `scripts/post-deploy.sh`
+(idempotente; el paso 4 es opt-in y PARA si `publish-all` falla, conservando el cuerpo para diagnóstico):**
+1. `prisma migrate deploy` → **M-39** (SealedProduct) + **M-40** (`PendingPriceEntry.sealedProductId`) +
+   **M-41** (P-48: `pricing_curve`, `priceBasis`, `PendingPriceEntry.reason`, instrumentación), todas aditivas.
 2. `ts-node prisma/backfill-m39-sealed-product.ts` — cura ETB→Tropius (idempotente).
-3. `ts-node prisma/backfill-p34-tiered-pricing.ts` — **reshape de tiers T2=25%** (money-crítico; si imprime
-   «⚠ ACCIÓN REQUERIDA» → PARAR y escalar al humano para el mapeo a mano).
-4. `unify-rarities` (cosmético del editor M2, pendiente de P-34).
-5. *(D-3, no bloqueante)* si aparecen filas de sellado huérfanas en la cola M2 de altas previas al fix →
+3. `unify-rarities` — cosmético del editor M2. **Ya NO es prerrequisito de nada**: el guardarraíl premium
+   usa `isPremiumCanonicalRarity()`, que acepta rareza cruda o canónica (verificado por devops).
+4. **Cut-over P-48 (`RUN_PUBLISH_ALL=1`, opt-in)** — `publish-all` re-resuelve el precio con la curva.
+   NO es migración de dinero: el precio de venta se resuelve en lectura, así que repriciar es re-resolver,
+   nunca un `UPDATE` masivo. Idempotente por `batchKey` (default `p48-cutover-v2.0`).
+5. **Diagnóstico de la cola por razón** — `no_market` vs `premium_at_floor`. Línea base esperada ≈3 de
+   cada 333 (`ARCHITECTURE §4.36.9c-3`). Si `premium_at_floor` sube con `no_market` plano ⇒ piso mal
+   calibrado; si suben los dos ⇒ feed degradado y **no** hay que tocar el piso.
+6. *(D-3, no bloqueante)* si aparecen filas de sellado huérfanas en la cola M2 de altas previas al fix →
    barrido puntual (deuda backend registrada).
-6. Por cada set: «Sincronizar» trae presentaciones (requiere egress real a `tcgcsv.com`).
+7. Por cada set: «Sincronizar» trae presentaciones (requiere egress real a `tcgcsv.com`).
+
+> **Los cinco settings retirados por P-48 quedan INERTES, sin `DELETE`** (`sales_price_rules`,
+> `buylist_price_rules`, `pricing_tier_map`, `sales_price_fallback_pct`, `buylist_price_fallback_pct`).
+> Es deliberado: borrar config en el mismo paso que cambia la matemática mata el diagnóstico y el rollback
+> barato. Ojo con `sealed_spread_fallback_pct`: **se parece pero NO es una de las cinco** — el sellado sigue
+> vivo y fuera de la curva.
+>
+> **Orden entre releases (decisión del humano, pendiente):** `main` va adelante con **P-47** (flip a
+> `tcgcsv_singles`), que cambia la **fuente** del mercado; P-48 cambia la **matemática** que se le aplica.
+> Encender ambos en la misma ventana deja indiagnosticable cualquier movimiento de precio. Devops recomienda
+> serializar.
 > **Antes del deploy:** snapshot/PITR de la Postgres de prod (única vía de rollback fino del dinero del paso 3).
 > **Rollback:** migraciones aditivas → redeploy del commit anterior; backfills idempotentes/no destructivos.
 
 ---
 
 ## Abiertos
+
+### Encontrado en pruebas post-publicación (2026-08-23)
+
+#### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — EN CURSO
+- **Reportado por el humano:** en el binder, Normal/Reverse Holo/Holofoil de la misma carta muestran el
+  **mismo MERCADO** (Dartrix 1.14=1.14; Luxray reverse 2.47=holofoil 2.47). El proveedor manda precio
+  distinto por acabado; se está aplanando.
+- **Causa raíz (money-adjacent):** display y clave `PriceReference` SÍ son por-acabado (sin fallback). El
+  aplanamiento ocurre en la **ingesta**: el provider primario `PokemonPriceTrackerBulkProvider` en modo
+  `fetchPrintings` (`pokemonpricetracker-bulk.provider.ts:268-295`, `mapEntry` rama forced `:560-564`) lee el
+  `market` de **nivel carta** en las 3 pasadas → escribe el mismo precio a normal/reverse_holo/holofoil. La
+  API v2 de PPT no varía el market por `?printing=`. Test que enmascara: `fix-ppt.spec.ts:84-109` (hardcodea
+  3 markets distintos). Fuente correcta por-acabado = **TCGCSV `tcgcsv_singles`** (per subTypeName), con
+  precedencia sobre PPT, pero solo corre en refresh/import, no en el barrido diario.
+- **Parte 1 (HECHO, en prod `9c3eb3e`):** PPT ya no copia el market a las 3 impresiones — solo escribe la
+  impresión primaria real; los demás acabados quedan pendiente/«—», nunca el precio de otro. Test corregido.
+- **Parte 2 (contrato v1.44, arquitecto):** el barrido diario reprecio **por-acabado** desde TCGCSV
+  `tcgcsv_singles` (separando estructura import/--force de precio diario); apagar `fetchPrintings` de PPT;
+  §4.25a-2 corregida; §4.35 nueva.
+- **Parte 3 (EN CURSO, backend):** implementar el provider/job `TcgcsvSinglesBulkPriceProvider` (precio
+  por-acabado keyed por `cardProductId`, FX, respeta overrides), registrarlo como primario del barrido, PPT
+  LIST fallback. Money-critical → **triple veredicto (QA+techlead+seguridad) antes de desplegar**.
+- **Parte 4 (después, devops):** `PRICE_PROVIDER=tcgcsv_singles` + `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`
+  + orden del scheduler + runbook `--force` por set nuevo (tras merge de backend, NO en paralelo).
+- **Mitigación mientras tanto:** el refresh/sync TCGCSV por set (per-acabado, gana sobre PPT) da los precios
+  correctos por acabado ya.
+
+
+#### P-46 · Sincronizar sellado devuelve «0 presentaciones»: el set no resuelve grupo TCGCSV (prod)
+- **Reportado por el humano:** al Sincronizar sellado de **Pitch Black (2026)** (y Chaos Rising) sale «0
+  presentaciones». **El botón SÍ funciona** — la sync corre.
+- **Causa raíz (logs prod 2026-08-23):** `sealed-products/sync: set Pitch Black ... **sin grupo resoluble
+  (ni curado ni name-match)** → nada que sincronizar (money-safe: no se adivina)`. El set no está vinculado
+  a su **grupo de TCGCSV** (`tcgcsvGroupId`): ni curado a mano ni por name-match. Sin grupo no hay
+  presentaciones que bajar. (Egress a tcgcsv.com OK — no hubo 502/UPSTREAM.)
+- **Causa confirmada (name-match backend):** `matchScore` en `sealed-product.service.ts:777` usa
+  `normalizeSetName` sobre el nombre directo, pero TCGCSV nombra los grupos con **prefijo de código**
+  («SV08: Pitch Black» → `sv08pitchblack`) vs el catálogo local («Pitch Black» → `pitchblack`) → no empatan
+  → 0.5 < umbral 0.9 → no auto-resuelve. Ya existe `setNameCandidates` (ppt-set-mapper:145) que quita ese
+  prefijo, pero `matchScore` no la usa. **Afecta a CUALQUIER set con prefijo en TCGCSV** (no solo Pitch Black).
+- **Fix (EN CURSO, backend):** `matchScore` tolerante al prefijo (reusa `setNameCandidates`) para que los
+  matches legítimos suban a ≥0.9 y auto-resuelvan; **conserva** la salvaguarda «≥0.9 Y único en el tope →
+  si empate, null (no adivina)». Con tests. Money-safe.
+- **Workaround inmediato (humano, super_admin):** M1 → Sellado → «Agregar producto sellado» → elegir set →
+  enlace «Curar/vincular grupo» (`SealedGroupLinker`) → elegir el candidato de TCGCSV (aparece con confianza
+  media) → «Vincular» → re-sync automático baja las presentaciones.
+- **Follow-up (frontend, no bloqueante):** UX del modal cuando la sync da 0 por «sin grupo resoluble» —
+  guiar explícitamente al linker en vez de solo mostrar «0 presentaciones».
+
+#### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
+- Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
+  acabado con 0 piezas (Reverse Holo). Solo display (el dato es correcto, el otro acabado está en 0). Fix
+  frontend en curso: cada teja muestra el conteo de SU acabado. Money-safe.
 
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
@@ -130,3 +200,15 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
   cotizador aún no combina; P27-D3 validar y activar los pares Shiny Vault — ver `TECH_DEBT.md`.)*
 - **Streams A/B/C**, **P-1–P-5**, **P-11–P-22, P-24, P-25**, **P-21** (rebrand + dominio tcghunt.mx),
   **P-26** (sellado). Todo con doble/triple veredicto y en producción.
+
+## HANDOFF (2026-08-25) — Fusión curva v2 BLOQUEADA por límite de uso
+**Estado:** cierre seguro de `claude/card-pricing-rules-2e537m` (curva v2) EN CURSO, detenido por límite de uso de la cuenta (reset Aug 28, 4pm UTC). **NADA desplegado; producción intacta** (`production`=c255692). P-47 por-acabado sigue vivo en prod.
+**Plan ya decidido y documentado (no re-analizar):** ARCHITECTURE §4.36 + API_CONTRACT v1.49 «Dos capas de precio». Verificado: conviven POR-ACABADO; M-41 aditiva (no toca PriceReference).
+**Regla de fusión:** CONSERVAR provider `tcgcsv_singles` (P-47, capa REFERENCIA) + ADOPTAR curva v2 (capa REGLA). Único conflicto de código: `price-ingest.service.ts` (v2 borra el provider → RECHAZAR ese borrado). Restaurar 6 banderas (§4.36): PRICE_PROVIDER_VALUES, enum PriceSource, seed, registro NestJS del provider, tests, .env.example.
+**Resume:** rama `integration/pricing-v2-merge` (creada desde main 6ec0722). `git merge origin/claude/card-pricing-rules-2e537m`, resolver por §4.36, validar (tsc+jest+smoke per-acabado), re-gate (QA/techlead/seguridad del delta post-5bd1975 + fusión), snapshot BD (humano), deploy nativo Railway/Vercel, runbook post-deploy (UPC spreads PUT 18/22, cut-over por sets).
+**Trigger activo:** routine "Publicar curva de precios v2" (trig_01Noh8euNXLdK5uRrkTBfYh7) sigue disparando — considerar pausarla hasta el reset.
+
+## DESPLEGADO (2026-08-28) — Motor curva v2 a producción
+`production`=96580c6 (main->production). Motor de precios v2 (curva por valor de mercado) CONSERVANDO P-47 por-acabado (tcgcsv_singles). Migración M-41 aditiva. Sin snapshot (decisión del humano, opción C). Gate de release verde: QA (2139 back + 679 front), techlead (APROBADO c/deuda), seguridad (APROBADO-CON-CONDICIONES, 0 crít/0 alto).
+**Post-deploy pendiente:** (1) verificar salud + curva; (2) spreads UPC 18/22 vía PUT /admin/pricing/sealed-spreads (si no, venden 25%); (3) cut-over por sets (empezar chico).
+**Deuda aceptada (no bloqueante):** S49-M2 media (disparador DURO: cerrar antes del 1er RFC/CLABE/INE real — hoy BD sin PII real); E2E completa contra stack vivo (no re-corrida sobre árbol fusionado; 3 smokes de dinero rojos solo por falta STRIPE key, aceptados); test de wiring singles→reconcile (techlead); bump NestJS 11 (2 moderate deps, devops); S49-B3/candado no-raw-entity/R2/R4 (bajas).

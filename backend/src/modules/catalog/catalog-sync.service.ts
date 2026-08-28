@@ -813,6 +813,8 @@ export class CatalogSyncService {
 
   /** Upsert idempotente del set por externalId. */
   private async upsertSet(rs: RemoteCardSet) {
+    // PROJECTION-EXEMPT: helper PRIVADO del sync (`upsertSet`); su resultado se consume dentro del
+    // propio job para llavear las cartas. No lo devuelve ningún controller.
     return this.prisma.cardSet.upsert({
       where: { externalId: rs.id },
       create: {

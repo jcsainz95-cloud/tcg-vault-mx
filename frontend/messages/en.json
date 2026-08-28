@@ -118,14 +118,11 @@
       "cert": "Cert {num}"
     },
     "bounties": {
-      "title": "Most wanted today",
+      "title": "Top Bounties",
       "viewAll": "See the full buylist",
       "subtitle": "If you have any of these, we pay above market. Today's price, no haggling.",
-      "colCard": "Card",
-      "colCondition": "Condition",
-      "colWePay": "We pay",
-      "colWanted": "Wanted",
-      "conditionNm": "NM"
+      "wePay": "We pay",
+      "badge": "Bounty"
     },
     "how": {
       "title": "How the vault works",
@@ -273,7 +270,6 @@
     "tabDescription": "Description",
     "tabCondition": "Condition",
     "instances": "Available copies",
-    "referenceExplainer": "The market value is the daily reference used to value your portfolio. The sale price is what you pay (reference + markup).",
     "certLabel": "Certificate",
     "certCopy": "Copy",
     "certCopied": "Copied",
@@ -283,7 +279,9 @@
       "graded": "Graded",
       "sealed": "Sealed",
       "raw": "Raw"
-    }
+    },
+    "referenceExplainerWithMarket": "Market value is the day's reference we value cards with. The sale price is derived from it.",
+    "referenceExplainerNoMarket": "The sale price is this card's listed price, before tax."
   },
   "price": {
     "pendingLabel": "Price pending",
@@ -497,8 +495,8 @@
     "publishRepriceHint": "Publishing refreshes each card's market price first, then prices and lists it.",
     "publishPricePending": "{count, plural, one {# variant} other {# variants}} still had no resolvable price after the refresh and went to the pending price queue (Sales) — {count, plural, one {it was} other {they were}} NOT published.",
     "totalCount": "{count, plural, one {# piece} other {# pieces}}",
-    "cardTotalCount": "{count, plural, one {# total} other {# total}}",
-    "cardTotalCountAria": "You have {count, plural, one {# piece} other {# pieces}} of this card in total",
+    "finishOnHandCount": "{count}",
+    "finishOnHandCountAria": "You have {count, plural, one {# piece} other {# pieces}} of this finish",
     "finishChipAria": "{finish}: {count} pieces",
     "emptyBinderTitle": "No cards",
     "emptyBinderBody": "No cards match the applied filters.",
@@ -574,7 +572,8 @@
     },
     "bountyBadge": "Bounty",
     "quoterDetailAria": "View {name} ({finish}) details",
-    "quoterInCart": "In cart"
+    "quoterInCart": "In cart",
+    "bountyOutbidAria": "Bounty outbid: the standard rate pays more than your offer."
   },
   "portfolio": {
     "trend": {
@@ -726,9 +725,6 @@
       "sealed": "Sealed"
     },
     "rarityLabel": "Rarity",
-    "appliedRuleLabel": "Applied rule",
-    "ruleFixed": "{amount} fixed",
-    "rulePct": "{pct}% of reference",
     "cartTitle": "Your list",
     "cartCount": "{count} card(s)",
     "cartFab": {
@@ -776,7 +772,6 @@
       "title": "Top Bounties",
       "subtitle": "We pay top rates for these cards. Payment happens after we receive and verify your card.",
       "wePay": "We pay",
-      "remaining": "{count} left",
       "cta": "Quote this card",
       "badge": "Bounty"
     },
@@ -1356,18 +1351,18 @@
       },
       "unifyRarities": {
         "button": "Merge rarities",
-        "hint": "Groups fragmented catalog rarities into their canonical form. One-time action, does not change prices.",
+        "hint": "Groups the fragmented rarities of the catalog into their canonical form. It changes no price, but it can change which cards are held by the guardrail, since the guardrail looks at premium rarity.",
         "confirmTitle": "Merge catalog rarities",
-        "confirmBody": "Reassigns the canonical rarity of every card to collapse duplicates and spelling variants into a single rarity. This is a local one-shot operation: it queries no external source and changes NO price or rule. Afterwards the per-rarity rules editor shows one row per real rarity, without duplicates.",
+        "confirmBody": "Reassigns the canonical rarity of every card to collapse duplicates and spelling variants into a single rarity. It is a local one-pass operation: it queries no external source. It changes no price, but it can change which cards are held by the guardrail, since the guardrail looks at premium rarity.",
         "confirmCta": "Merge rarities",
         "running": "Merging…",
-        "done": "Rarities merged. The editor now reflects canonical rarities.",
+        "done": "Rarities unified. The list now reflects the canonical rarities.",
         "summary": "{updated} of {processed} card(s) updated · {distinct} distinct canonical rarit(y/ies).",
-        "unmappedTitle": "{count} raw rarit(y/ies) unmapped (add them to the canonical catalog to give them their own rule):"
+        "unmappedTitle": "{count} raw rarity(ies) unmapped (add them to the canonical catalog so the guardrail recognises them):"
       },
       "pending": {
         "title": "Pending-price queue",
-        "subtitle": "Cards without a reference price, escalated to set manually. The buyer never sees this state.",
+        "subtitle": "Variants with no listable price, escalated for review. The buyer never sees this state. With no market data nothing is listed or quoted — the floor does not fill the gap.",
         "empty": "No pending prices.",
         "bucketsLabel": "Pending-price buckets",
         "buckets": {
@@ -1387,7 +1382,13 @@
         "saveOverride": "Save price",
         "priceLabel": "Reference price (MXN)",
         "overrideInvalidValue": "Enter a valid price: an empty or malformed value can't be set (prevents publishing the item at MX$0 by a fat-finger).",
-        "finish": "Finish"
+        "finish": "Finish",
+        "reasonCol": "Reason",
+        "filterLabel": "Reason",
+        "filterAll": "All",
+        "countNoMarket": "{count} no market",
+        "countPremiumAtFloor": "{count} premium at floor",
+        "countUnknown": "{count} without reason"
       },
       "fx": {
         "title": "USD→MXN exchange rate",
@@ -1489,89 +1490,17 @@
         "refreshVariantsAllConfirmBody": "This refreshes the variants/finishes and prices of ALL already-imported sets using TCGCSV alone. It does NOT re-import cards and does NOT use pokemontcg.io. It's a massive operation that may take several minutes and runs across the whole catalog. Continue?",
         "refreshVariantsAllConfirmCta": "Yes, refresh the whole catalog"
       },
-      "buylistRules": {
-        "title": "Buylist price by rarity and finish",
-        "subtitle": "Define rules on two axes: by the card's canonical rarity and by the variant's finish (holo / reverse holo). Each rule is a fixed amount (MX$) or a percentage (% of reference). Without a rule the fallback applies. Takes effect without redeploy and is audited.",
-        "rarityAxis": "Rules by rarity",
-        "finishAxis": "Rules by finish",
-        "finishAxisHint": "Apply to the variant's finish. Without its own rule, the finish inherits its rarity's rule.",
-        "fallbackLabel": "Fallback (%)",
-        "fallbackHint": "Applies to rarities without an explicit rule (new or unconfigured).",
-        "rarity": "Rarity",
-        "finish": "Finish",
-        "cardCount": "Cards",
-        "mode": "Mode",
-        "value": "Value",
-        "source": "Source",
-        "valueMxn": "Amount (MX$)",
-        "valuePct": "Percentage",
-        "modeFor": "Mode for {rarity}",
-        "valueFor": "Value for {rarity}",
-        "modeForFinish": "Mode for finish {finish}",
-        "valueForFinish": "Value for finish {finish}",
-        "premium": "Premium",
-        "unmapped": "Unmapped",
-        "inherit": "Inherits rarity",
-        "inheritPlaceholder": "Inherits rarity",
-        "modeLabel": {
-          "fixed": "Fixed (MX$)",
-          "pct": "Percentage (%)"
-        },
-        "sourceLabel": {
-          "rule": "Rule",
-          "fallback": "Fallback"
-        },
-        "example": "Example: the % is what you PAY of the reference. At 40%, you pay MX$40 for a MX$100 card.",
-        "saved": "Buylist rules saved.",
-        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing."
-      },
-      "salesRules": {
-        "title": "Sale price rules by rarity and finish",
-        "subtitle": "Define sale rules on two axes: by canonical rarity and by finish. Each rule is a fixed amount (MX$, acts as a floor) or a percentage (% over market). Without a rule the fallback applies. Replaces the single global markup. Takes effect without redeploy and is audited.",
-        "rarityAxis": "Rules by rarity",
-        "finishAxis": "Rules by finish",
-        "finishAxisHint": "Apply to the variant's finish. Without its own rule, the finish inherits its rarity's rule.",
-        "fallbackLabel": "Fallback (% over market)",
-        "fallbackHint": "Applies to rarities without an explicit rule (new or unconfigured). It is a markup above market.",
-        "rarity": "Rarity",
-        "finish": "Finish",
-        "cardCount": "Cards",
-        "mode": "Mode",
-        "value": "Value",
-        "source": "Source",
-        "valueMxn": "Floor (MX$)",
-        "valuePct": "% over market",
-        "modeFor": "Mode for {rarity}",
-        "valueFor": "Value for {rarity}",
-        "modeForFinish": "Mode for finish {finish}",
-        "valueForFinish": "Value for finish {finish}",
-        "premium": "Premium",
-        "unmapped": "Unmapped",
-        "inherit": "Inherits rarity",
-        "inheritPlaceholder": "Inherits rarity",
-        "modeLabel": {
-          "fixed": "Fixed / floor (MX$)",
-          "pct": "% over market"
-        },
-        "sourceLabel": {
-          "rule": "Rule",
-          "fallback": "Fallback"
-        },
-        "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
-        "example": "Example: the % is what you add ON TOP of market. At +15%, you sell a MX$100 card for MX$115.",
-        "saved": "Sale rules saved.",
-        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing.",
-        "invalidValue": "Some rules have an empty or invalid value. Fix them to save: an empty or malformed value is not saved as MX$0 (prevents listing cards for free by mistake)."
-      },
       "sealedSpreads": {
         "title": "Sealed sale spreads",
         "subtitle": "Markup over market value (TCGCSV) by format. Sale price = market × (1 + spread).",
         "example": "E.g.: 15% over a MX$3,000 market = MX$3,450.",
         "fallbackLabel": "Global spread",
         "fallbackHint": "Applied to formats without their own rule.",
+      "fallbackRequired": "The global spread cannot be removed: it backs every format without its own rule. For no markup, type 0.",
         "subtype": "Format",
         "spread": "Spread",
         "spreadFor": "{subtype} spread",
+      "usesGlobal": "Uses the global ({pct}%)",
         "zeroWarning": "No margin",
         "zeroBanner": "A 0% spread sells at market cost, with no margin. Double-check before saving.",
         "prereqHint": "The spread only produces a price if the product is mapped to TCGCSV and the sealed price source is on.",
@@ -1617,62 +1546,161 @@
         "recalcHint": "Saving recomputes on the fly which cards are promoted (raising the upside or making a tier more expensive can empty the showcase). It touches no sale price, portfolio valuation or buylist quote. It is recorded in the M10 audit log.",
         "saved": "Grading hook configuration saved."
       },
-      "tierRules": {
-        "title": "Prices by tier (buy and sell)",
-        "subtitle": "Five tiers T0–T4 group every rarity. Each tier defines its BUY (buylist) and SELL rule: a fixed amount (MX$) or a percentage. The rarity-to-tier map is edited below. Replaces the ~30 rules-by-rarity editor. Takes effect without redeploy and is audited.",
-        "invariantNote": "Money-safe invariant: premium tiers (T3/T4) only allow a percentage BUY rule. A fixed amount would give away expensive cards, so the fixed BUY mode is locked on those rows.",
-        "tier": "Tier",
-        "buyAxis": "Buy (buylist)",
-        "sellAxis": "Sell",
-        "premium": "Premium",
-        "rarityCount": "{count, plural, one {# rarity} other {# rarities}}",
-        "mode": "Mode",
-        "modeLabel": {
-          "fixed": "Fixed (MX$)",
-          "pct": "Percentage (%)"
+      "curve": {
+        "title": "Price curve",
+        "lead": "Price comes only from each card's market value. Rarity and finish no longer take part in the math. Each curve is a list of points you define: between two points the value is interpolated in a straight line; before the first and after the last it stays flat. Changes take effect without republishing and are logged.",
+        "footerNote": "On save, the catalog is repriced on the next calculation · manual prices (overrides) are left untouched · it is logged.",
+        "constants": {
+          "title": "Constants",
+          "floorLabel": "Sale floor",
+          "floorHint": "No card is listed below this price, even if its market value is lower.",
+          "floorGuardrailHint": "A premium-rarity card that lands on the floor is not listed: it goes to the pending-price queue so you can review its market.",
+          "binLabel": "Buy minimum",
+          "binHint": "We never pay less than this, even if the percentage yields less."
         },
-        "valueMxn": "Amount (MX$)",
-        "valuePct": "% of reference",
-        "valueFloor": "Floor (MX$)",
-        "valueMarkup": "% over market",
-        "modeBuyFor": "Buy mode for {tier}",
-        "valueBuyFor": "Buy value for {tier}",
-        "modeSellFor": "Sell mode for {tier}",
-        "valueSellFor": "Sell value for {tier}",
-        "finishTitle": "Rules by finish",
-        "finishHint": "Apply to the variant's finish (holo / reverse holo / 1st edition). Without its own rule, the finish inherits its rarity's tier rule.",
-        "modeBuyForFinish": "Buy mode for finish {finish}",
-        "valueBuyForFinish": "Buy value for finish {finish}",
-        "modeSellForFinish": "Sell mode for finish {finish}",
-        "valueSellForFinish": "Sell value for finish {finish}",
-        "inheritPlaceholder": "Inherits tier",
-        "fallbackBuyLabel": "Buy fallback (%)",
-        "fallbackSellLabel": "Sell fallback (%)",
-        "fallbackHint": "Applies to rarities without an assigned tier (new or unconfigured): they price by percentage, never at MX$0.",
-        "pctPendingHint": "A percentage rule without a market reference leaves the price PENDING (never MX$0): it is escalated to the owner to set by hand.",
-        "invalidValue": "Some rules have an empty or invalid value. Fix them to save: an empty or malformed value is not saved as MX$0 (prevents listing/paying for cards for free by mistake).",
-        "saved": "Tier rules saved.",
-        "premiumFixedTitle": "Could not save: premium rarity on a fixed-buy tier",
-        "premiumFixedBody": "A premium rarity cannot resolve to a tier whose buy rule is fixed (it would give away expensive cards). Fix these pairs:"
+        "sale": {
+          "title": "Sale",
+          "tableCaption": "Sale curve points",
+          "marketCol": "Market",
+          "multiplierCol": "Multiplier",
+          "resultCol": "Sale at that market",
+          "marketAria": "Market of sale point {n}",
+          "removeAria": "Remove the {market} sale point"
+        },
+        "buy": {
+          "title": "Buy",
+          "tableCaption": "Buy curve points",
+          "payCol": "Pay",
+          "resultCol": "Buy at that market",
+          "marketAria": "Market of buy point {n}",
+          "removeAria": "Remove the {market} buy point"
+        },
+        "point": {
+          "positionCol": "Position",
+          "actionsCol": "Actions",
+          "flatBefore": "Flat before",
+          "flatAfter": "Flat after",
+          "new": "New",
+          "add": "+ Add point",
+          "addedNeutralHint": "Placed on the current curve: it doesn't change any price yet.",
+          "removeLastDisabled": "A curve needs at least one point.",
+          "undoRemoved": "{market} point removed ·",
+          "undoRemovedMany": "{count} points removed ·",
+          "undo": "Undo",
+          "reorderAnnounce": "The {market} point moved to position {position} of {total}.",
+          "previousValue": "Was: {value}",
+          "multiplierAria": "Multiplier of point {n}",
+          "payAria": "Pay of point {n}"
+        },
+        "rounding": {
+          "title": "Round up ↑ (sale only)",
+          "tableCaption": "Rounding ladder bands",
+          "uptoCol": "Up to",
+          "stepCol": "Step",
+          "openBand": "And above",
+          "add": "+ Add band",
+          "removeAria": "Remove band {n}",
+          "removeDisabled": "The last band (\"and above\") cannot be removed: without it there would be no step above the last boundary.",
+          "uptoAria": "Up to of band {n}",
+          "stepAria": "Step of band {n}",
+          "hint": "The sale price is rounded up to the next multiple of its band's step. The band is chosen by the price before rounding and is not re-evaluated. Buy prices are not rounded."
+        },
+        "fieldError": {
+          "required": "Enter a value: an empty field is not saved as MX$0.",
+          "negative": "The value cannot be negative.",
+          "multiplierTooLow": "The sale multiplier can never go under 1.00×: you would sell below market.",
+          "multiplierTooHigh": "The multiplier is too high (maximum 100.00×).",
+          "pctRange": "Pay must be between 0% and 100% of market.",
+          "stepTooLow": "The step must be at least MX$0.01.",
+          "uptoNotIncreasing": "Each boundary must be higher than the previous band's.",
+          "duplicateMarket": "Two points share the same market. Change one or remove the duplicate.",
+          "constantTooHigh": "Floor and bin cannot exceed MX$2,000: the floor is the price of the cheapest card in the store."
+        },
+        "preview": {
+          "probeTitle": "Try a market",
+          "probeMarketLabel": "Market",
+          "current": "Current",
+          "draft": "Draft",
+          "saleLabel": "Sale",
+          "buyLabel": "Buy",
+          "empty": "Type a market value to see the resulting price.",
+          "unavailableTitle": "Preview is unavailable right now",
+          "unavailableShort": "The reference table needs the server's calculation: no estimated figures are shown.",
+          "saleMath": "Sale: {market} × {factor} = {raw} → ↑ {result} (step {step})",
+          "saleMathFloor": "Sale: {market} × {factor} = {raw} · the {constant} floor wins → {result}",
+          "saleMathPending": "Sale: with no market data there is no price (not listed).",
+          "buyMath": "Buy: {market} × {factor} = {raw} (minimum {constant})",
+          "buyMathPending": "Buy: with no market data there is no quote.",
+          "floorWinsNote": "Here the market does not explain the price: the card page does not show market value, and a premium card in this zone is not listed.",
+          "referenceTitle": "Reference table",
+          "referenceHint": "The table-test markets plus the market of every point in your draft.",
+          "referenceCaption": "Reference prices with the current curve and with the draft",
+          "shapeTitle": "Curve reading",
+          "marketCol": "Market",
+          "saleCurrentCol": "Sale current",
+          "saleDraftCol": "Sale draft",
+          "buyCurrentCol": "Buy current",
+          "buyDraftCol": "Buy draft",
+          "shapeHint": "The curve runs opposite to the intent: the margin should be thick at the bottom and thin at the top on sale, and pay should be higher at the top on buy."
+        },
+        "save": {
+          "noChanges": "No changes",
+          "dirty": "{count, plural, one {# unsaved change} other {# unsaved changes}}",
+          "fieldErrors": "Fields still need fixing",
+          "notSaved": "Not saved",
+          "discard": "Discard",
+          "discardConfirm": "Discard the unsaved changes to the curve?",
+          "submit": "Save curve",
+          "saved": "Price curve saved."
+        },
+        "diff": {
+          "title": "Save the price curve",
+          "axis": {
+            "sale": "Sale",
+            "buy": "Buy",
+            "floor": "Floor",
+            "bin": "Buy minimum",
+            "rounding": "Rounding"
+          },
+          "lineChanged": "{axis} · {market} point · {before} → {after}",
+          "lineAdded": "{axis} · {market} point added · {after}",
+          "lineRemoved": "{axis} · {market} point removed · was {before}",
+          "lineConstant": "{axis} · {before} → {after}",
+          "impactTitle": "Effect on prices ({changed} of {total} reference markets change)",
+          "impactMore": "…and {count} more",
+          "marketCol": "Market",
+          "saleCol": "Sale",
+          "buyCol": "Buy",
+          "effectNote": "On save, the catalog is repriced on the next calculation: the listed price of cards and what the buy quoter offers both change. Manual prices (overrides) are left untouched.",
+          "auditNote": "Super-admin only · recorded in the audit log.",
+          "cta": "Save curve"
+        },
+        "diffAxis": {
+          "sale": "sale",
+          "buy": "buy"
+        },
+        "errors": {
+          "summaryTitle": "Nothing was saved.",
+          "goToPoint": "Go to the {market} point",
+          "CURVE_EMPTY": "The {axis} curve has no points left. Add at least one.",
+          "DUPLICATE_BREAKPOINT": "Two points share the same market ({market}). Change one or remove the duplicate.",
+          "SALE_BELOW_MARKET": "The {market} point would sell below market. The sale multiplier can never go under 1.00×.",
+          "SALE_CURVE_NOT_MONOTONIC": "Between {from} and {to} the sale price drops as market goes up. Raise the {to} multiplier or lower the {from} one.",
+          "BUY_CURVE_NOT_MONOTONIC": "Between {from} and {to} you would pay less even though market goes up. Raise the {to} pay or lower the {from} one.",
+          "BUY_ABOVE_SALE": "At {market} you would pay {pct}% and sell at {mult}×: buying catches up with selling. Lower the pay for that stretch.",
+          "BIN_ABOVE_FLOOR": "The buy minimum ({bin}) cannot reach the sale floor ({floor}).",
+          "ROUNDING_LADDER_INVALID": "The rounding ladder is invalid: each boundary must be an exact multiple of the previous band's step (with a MX$5 step, the boundary can be MX$200, not MX$203)."
+        }
       },
-      "tierMap": {
-        "title": "Rarity-to-tier assignment",
-        "subtitle": "Each canonical catalog rarity maps to a tier (the same map applies to buy and sell). Change only what you need. Takes effect without redeploy and is audited.",
-        "invariantNote": "Money-safe: a premium rarity cannot be assigned to a fixed-buy tier (T0/T1). The server rejects it and shows you the conflicting pairs.",
-        "rarity": "Rarity",
-        "cardCount": "Cards",
-        "tier": "Tier",
-        "source": "Source",
+      "rarityHealth": {
+        "title": "Rarity catalog health",
+        "subtitle": "Rarities no longer set prices. They remain for filters, presentation and for the guardrail that holds a premium card when its price falls to the floor.",
+        "canonicalCol": "Canonical rarity",
+        "premiumCol": "Premium",
+        "mappedCol": "Mapped",
+        "cardCountCol": "Cards",
         "premium": "Premium",
-        "unmapped": "Unmapped",
-        "offender": "Conflict",
-        "tierFor": "Tier for {rarity}",
-        "unassigned": "Unassigned (fallback)",
-        "sourceMap": "Assigned",
-        "sourceFallback": "Fallback (pending)",
-        "saved": "Rarity map saved.",
-        "premiumFixedTitle": "Could not save: premium rarity on a fixed-buy tier",
-        "premiumFixedBody": "These premium rarities would land on a fixed-buy tier, which would give away expensive cards. Assign them to a percentage-buy (premium) tier:"
+        "unmapped": "Unmapped"
       }
     },
     "m6": {
@@ -1834,6 +1862,13 @@
           "warningTitle": "This turns on a commercial claim",
           "warning": "With this dial on, the storefront publishes estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer. That legal text has NOT been signed off by the owner (nor legally reviewed). Turn it on only if that decision has been made: it changes no sale price, valuation or quote, but it does change what the store claims."
         }
+      },
+      "ingest": {
+        "title": "Bulk ingest provider (daily price sweep)",
+        "note": "Dial for the daily price sweep, SEPARATE from the per-card reference providers above. Values: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (daily per-finish pricing, P-47). Money-safe rollback: switch back to pokemontcg_io.",
+        "label": "Bulk ingest provider",
+        "save": "Save ingest provider",
+        "saved": "Ingest provider saved."
       },
       "audit": {
         "title": "Audit log",
@@ -2043,31 +2078,29 @@
         "sell": "Sell",
         "buyLong": "Buy",
         "sellLong": "Sell",
-        "suggested": "Suggested (rule)",
+        "suggested": "Suggested (curve)",
         "override": "Override",
         "effective": "Effective",
-        "source": {
-          "rule": "Rule",
-          "manual": "Manual",
-          "bounty": "Bounty",
-          "pending": "Pending"
-        },
-        "resetToRule": "Reset to rule",
         "save": "Save prices",
         "saved": "Variant prices saved.",
-        "overrideRemoved": "Override removed — the rule applies again.",
+        "overrideRemoved": "Override removed — the curve applies again.",
         "pisaNota": "Changes override what the customer sees · recorded in the audit log.",
         "pendingShort": "—",
         "pendingTitle": "Price pending — no market reference",
-        "manualTitle": "Manual price — overrides the rule",
+        "manualTitle": "Manual price — overrides the curve",
         "bountyActiveTitle": "Active bounty",
         "rowAria": "{label}: {value}",
         "rowAriaSource": "{label}: {value}, {source}",
         "mustBePositive": "The price must be greater than zero.",
-        "suggestedByRule": "Suggested by rule",
         "fixMarket": "Set market (MXN)",
         "fixMarketCta": "Set",
-        "marketFixed": "Market reference set."
+        "marketFixed": "Market reference set.",
+        "suggestedByCurve": "Suggested by the curve",
+        "resetToCurve": "Reset to the curve",
+        "heldByGuardrail": "Held by the guardrail ·",
+        "seeInPendingQueue": "See in the pending queue",
+        "heldByGuardrailSell": "Not listed: premium rarity that landed on the floor. It is in the pending-price queue for its market to be reviewed.",
+        "heldByGuardrailBuy": "Not quoted: premium rarity that landed on the buy minimum."
       }
     },
     "quickAdd": {
@@ -2189,14 +2222,19 @@
       "stateOn": "Active",
       "stateOff": "Off",
       "price": "Bounty price (MXN)",
-      "premium": "Premium over the rule: +{amount} (+{pct}%)",
-      "noSuggested": "No rule suggestion — the bounty is the explicit price.",
+      "premium": "Premium over the curve: +{amount} (+{pct}%)",
+      "noSuggested": "No curve rate — the bounty is the explicit price.",
       "targetQty": "Target quantity (optional)",
       "targetHelper": "When completed, the bounty turns itself off.",
       "progress": "{acquired} of {target} acquired",
       "completed": "Bounty completed · {date}",
       "offWithHistory": "Bounty off · {count} acquired",
-      "badge": "Bounty"
+      "badge": "Bounty",
+      "mustBeHigherHint": "It must be higher than the current rate ({amount}).",
+      "outbidTitle": "Bounty outbid",
+      "outbidYours": "Your offer {amount}",
+      "outbidCurrent": "current rate {amount}",
+      "outbidBody": "While it stays below, the current rate is paid and the card does not show in \"Top Bounties\". Raise it above {amount} or turn it off."
     },
     "sealedAdd": {
       "title": "Add sealed product",
@@ -2362,6 +2400,27 @@
     "sealedCondition": {
       "mint": "Like new",
       "minor_box_damage": "Minor box damage"
+    },
+    "priceBasis": {
+      "market": "Market",
+      "floor": "Floor",
+      "override": "Manual",
+      "bounty": "Bounty",
+      "pending": "Pending"
+    },
+    "priceBasisTitle": {
+      "floorSell": "Set by the floor — the market does not explain this price",
+      "floorBuy": "Set by the buy minimum — the market does not explain this price",
+      "override": "Manual price — overrides the curve",
+      "bounty": "Active bounty"
+    },
+    "pendingReason": {
+      "no_market": "No market",
+      "premium_at_floor": "Premium at floor"
+    },
+    "bounty": {
+      "active": "Bounty",
+      "outbid": "Bounty outbid"
     }
   },
   "error": {
@@ -2407,13 +2466,19 @@
     "ORDER_ALREADY_CLAIMED": "We couldn't link this order.",
     "CLAIM_EMAIL_MISMATCH": "We couldn't link this order.",
     "BOUNTY_PRICE_REQUIRED": "A bounty needs an explicit price.",
-    "BOUNTY_BELOW_RULE": "The bounty price must be greater than or equal to the rule suggestion ({suggested}).",
+    "BOUNTY_BELOW_RULE": "A bounty must pay more than the current rate ({suggested}). At the same amount it would not be an offer.",
     "SET_NOT_IMPORTED": "That set is not imported yet; import it before refreshing its variants.",
     "UPSTREAM_ERROR": "TCGCSV is unavailable right now. Please try again in a few minutes.",
-    "PREMIUM_RARITY_FIXED_TIER": "Could not save: a premium rarity would land on a fixed-buy tier.",
-    "UNKNOWN_RARITY": "Unknown rarity: it is not in the canonical catalog.",
     "SEALED_PRODUCT_NOT_FOUND": "That sealed product no longer exists or is inactive; sync the catalog again.",
     "MANUAL_MARKET_NOT_ALLOWED": "This presentation already has a market price; the manual price only applies when there is no market.",
+    "CURVE_EMPTY": "The curve has no points left: nothing was saved.",
+    "DUPLICATE_BREAKPOINT": "Two points share the same market: nothing was saved.",
+    "SALE_BELOW_MARKET": "A point would sell below market: nothing was saved.",
+    "SALE_CURVE_NOT_MONOTONIC": "The sale curve drops as market goes up: nothing was saved.",
+    "BUY_CURVE_NOT_MONOTONIC": "The buy curve would pay less as market goes up: nothing was saved.",
+    "BUY_ABOVE_SALE": "Buying catches up with selling somewhere: nothing was saved.",
+    "BIN_ABOVE_FLOOR": "The buy minimum reaches the sale floor: nothing was saved.",
+    "ROUNDING_LADDER_INVALID": "The rounding ladder is invalid: nothing was saved.",
     "GRADING_TIERS_EMPTY": "The tier table cannot be left empty: with no tier, no card is promoted.",
     "GRADING_TIERS_NOT_CONTIGUOUS": "Tiers must cover the whole range with no gaps or overlaps, starting at MX$0: check the end of each tier.",
     "GRADING_TIERS_NOT_OPEN_ENDED": "The last tier must be open-ended («and above») and the only one without an end, so that no expensive card is left without a tier."

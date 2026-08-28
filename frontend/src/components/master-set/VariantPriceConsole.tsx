@@ -14,9 +14,15 @@ import type {
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import { useRole } from '@/lib/role';
+import { Link } from '@/i18n/navigation';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import {
+  BASIS_SUFFIX,
+  PriceBasisTag,
+  useBasisSuffixTitle,
+} from '@/components/domain/PriceBasisTag';
 
 /**
  * Consola de TRES precios por (carta, variante) — P-18 (DESIGN_SYSTEM §16.3, ARCHITECTURE §4.26b).
@@ -66,9 +72,19 @@ function CompactRow({
             )}
           </>
         ) : (
-          <span className="text-muted" aria-hidden>
-            —
-          </span>
+          <>
+            <span className="text-muted" aria-hidden>
+              —
+            </span>
+            {/* El marcador SOBREVIVE al «—»: una variante retenida por el guardarraíl no tiene
+                precio publicable, y el `·!` es justo lo que explica por qué (§21.9b). */}
+            {suffix && (
+              <span className={suffixClass} title={suffixTitle} aria-hidden>
+                {' '}
+                {suffix}
+              </span>
+            )}
+          </>
         )}
       </span>
     </span>
@@ -76,8 +92,15 @@ function CompactRow({
 }
 
 /**
- * Bloque compacto (§16.3a): tres renglones bajo el conteo de la casilla. Solo lectura; el write
- * vive en el panel. Marcadores: `·M` (tinta) = override manual; `·B` (bermellón) = bounty (COMPRA).
+ * Bloque compacto (§16.3a + §21.9a/b): tres renglones bajo el conteo de la casilla. Solo lectura; el
+ * write vive en el panel.
+ *
+ * Marcadores (texto, no iconos): `·M` = override manual · `·B` = bounty EFECTIVO (solo compra) ·
+ * **`·P` = ganó la constante del eje** (el piso en venta, el mínimo en compra) — es nuevo y
+ * necesario: «el piso ganó» es justo lo que el dueño necesita ver para detectar un **piso mal
+ * calibrado**, y es la causa de que la ficha pública NO muestre el mercado · **`·!` = retenida por
+ * el guardarraíl** (rareza premium que aterrizó en el piso/bin): no se publica / no se cotiza. Con
+ * `·!` NO se pinta `·P` — la retención implica el piso y la causa va en el nombre accesible.
  */
 export function VariantPricingCompact({
   pricing,
@@ -87,12 +110,30 @@ export function VariantPricingCompact({
   marketRefCents: number | null | undefined;
 }) {
   const t = useTranslations('admin.pricing.console');
+  const tBasis = useTranslations('status.priceBasis');
   const locale = useLocale() as AppLocale;
+  const suffixTitle = useBasisSuffixTitle();
   const money = (c: number | null) => (c != null ? formatMoneyCents(c, locale) : t('pendingShort'));
 
-  const buySuffix =
-    pricing.buy.source === 'override' ? '·M' : pricing.buy.source === 'bounty' ? '·B' : undefined;
-  const sellSuffix = pricing.sell.source === 'override' ? '·M' : undefined;
+  const buyHeld = pricing.buy.premiumAtFloor;
+  const sellHeld = pricing.sell.premiumAtFloor;
+  const buySuffix = buyHeld ? '·!' : BASIS_SUFFIX[pricing.buy.source];
+  const sellSuffix = sellHeld ? '·!' : BASIS_SUFFIX[pricing.sell.source];
+  const buySuffixTitle = buyHeld ? t('heldByGuardrailBuy') : suffixTitle(pricing.buy.source, 'buy');
+  const sellSuffixTitle = sellHeld
+    ? t('heldByGuardrailSell')
+    : suffixTitle(pricing.sell.source, 'sell');
+  // El marcador es TEXTO y forma parte del nombre accesible del renglón (§21.10).
+  const buyAria = t('rowAriaSource', {
+    label: t('buy'),
+    value: money(pricing.buy.effectiveCents),
+    source: buyHeld ? t('heldByGuardrailBuy') : tBasis(pricing.buy.source),
+  });
+  const sellAria = t('rowAriaSource', {
+    label: t('sell'),
+    value: money(pricing.sell.effectiveCents),
+    source: sellHeld ? t('heldByGuardrailSell') : tBasis(pricing.sell.source),
+  });
 
   return (
     <span className="mt-1.5 flex flex-col gap-0.5" data-testid="variant-price-compact">
@@ -106,26 +147,22 @@ export function VariantPricingCompact({
         label={t('buy')}
         cents={pricing.buy.effectiveCents}
         suffix={buySuffix}
-        suffixTitle={buySuffix === '·B' ? t('bountyActiveTitle') : t('manualTitle')}
-        suffixClass={buySuffix === '·B' ? 'font-medium text-accent' : 'font-medium text-text'}
-        aria={t('rowAriaSource', {
-          label: t('buy'),
-          value: money(pricing.buy.effectiveCents),
-          source: t(`source.${sourceKey(pricing.buy.source)}`),
-        })}
+        suffixTitle={buySuffixTitle}
+        suffixClass={
+          buyHeld || pricing.buy.source === 'bounty'
+            ? 'font-medium text-accent'
+            : 'font-medium text-text'
+        }
+        aria={buyAria}
         pendingTitle={t('pendingTitle')}
       />
       <CompactRow
         label={t('sell')}
         cents={pricing.sell.effectiveCents}
         suffix={sellSuffix}
-        suffixTitle={t('manualTitle')}
-        suffixClass="font-medium text-text"
-        aria={t('rowAriaSource', {
-          label: t('sell'),
-          value: money(pricing.sell.effectiveCents),
-          source: t(`source.${sourceKey(pricing.sell.source)}`),
-        })}
+        suffixTitle={sellSuffixTitle}
+        suffixClass={sellHeld ? 'font-medium text-accent' : 'font-medium text-text'}
+        aria={sellAria}
         pendingTitle={t('pendingTitle')}
       />
     </span>
@@ -136,31 +173,9 @@ export function VariantPricingCompact({
 // (b) Consola completa en el panel drill-down — edición super_admin, lectura para el resto.
 // ---------------------------------------------------------------------------
 
-/** Clave i18n de la fuente (§16.10: rule/manual/bounty/pending; fallback se lee como regla). */
-function sourceKey(source: string): string {
-  if (source === 'fallback') return 'rule';
-  if (source === 'override') return 'manual';
-  return source;
-}
-
-/** Fuente del EFECTIVO como texto mono en versalitas (el color acompaña, el texto porta §2.4). */
-function SourceTag({ source }: { source: string }) {
-  const t = useTranslations('admin.pricing.console');
-  const key = sourceKey(source);
-  return (
-    <span
-      className={`font-mono text-[10px] uppercase tracking-[0.06em] ${
-        key === 'pending'
-          ? 'border border-accent px-1 text-accent'
-          : key === 'bounty'
-            ? 'text-accent'
-            : 'text-muted'
-      }`}
-    >
-      {t(`source.${key}`)}
-    </span>
-  );
-}
+// v2.0 (§21.9a): la fuente del efectivo se rotula con el MAPA CANÓNICO de `priceBasis`
+// (`PriceBasisTag`), compartido con el previsualizador del editor y la cola de pendientes. El par
+// `REGLA`/`FALLBACK` ya no existe: no hay reglas, hay una curva.
 
 /** Pesos capturados → centavos (round). '' → null (sin override). NaN → undefined (inválido). */
 function parsePesos(v: string): number | null | undefined {
@@ -231,6 +246,9 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
     pricing.sell.overrideCents != null ? String(pricing.sell.overrideCents / 100) : '',
   );
   const bounty = pricing.bounty ?? null;
+  // v2.0 (§N.6): `effective=false` ⇔ el bounty quedó por debajo (o IGUAL) de la tarifa vigente.
+  const bountyOutbid =
+    bounty?.enabled === true && bounty.effective === false && bounty.curveQuoteCents != null;
   const [bountyOn, setBountyOn] = useState(bounty?.enabled ?? false);
   const [bountyPrice, setBountyPrice] = useState(
     bounty?.priceCents != null ? String(bounty.priceCents / 100) : '',
@@ -253,7 +271,7 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
   const bountyTargetInvalid =
     bountyTarget.trim() !== '' && (!Number.isFinite(bountyTargetQty) || (bountyTargetQty ?? 0) < 1);
 
-  // Premium sobre la regla (§16.7a): bountyPrice − sugerido de compra.
+  // Premium sobre la CURVA (§16.7a + §21.9d): bountyPrice − cotización vigente de la curva.
   const premium = useMemo(() => {
     if (bountyPriceCents == null || bountyPriceCents <= 0) return null;
     const suggested = pricing.buy.suggestedCents;
@@ -406,7 +424,7 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
           </span>
         ) : (
           <div className="flex flex-col gap-2">
-            <SourceTag source="pending" />
+            <PriceBasisTag basis="pending" />
             {isSuperAdmin && (
               <div className="flex items-end gap-2">
                 <Input
@@ -438,9 +456,7 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
           <div className="flex items-center gap-2">
             <span className="eyebrow">{label}</span>
             {face.overrideCents != null && (
-              <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-text">
-                {t('source.manual')}
-              </span>
+              <PriceBasisTag basis="override" />
             )}
           </div>
           <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
@@ -455,7 +471,7 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
                   error={invalid ? t('mustBePositive') : undefined}
                 />
                 <p className="mt-1 text-xs text-muted">
-                  {t('suggestedByRule')}:{' '}
+                  {t('suggestedByCurve')}:{' '}
                   <span className="font-mono tabular-nums">
                     {face.suggestedCents != null ? money(face.suggestedCents) : '—'}
                   </span>
@@ -469,7 +485,7 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
                   {face.overrideCents != null ? money(face.overrideCents) : '—'}
                 </span>
                 <p className="text-xs text-muted">
-                  {t('suggestedByRule')}:{' '}
+                  {t('suggestedByCurve')}:{' '}
                   <span className="font-mono tabular-nums">
                     {face.suggestedCents != null ? money(face.suggestedCents) : '—'}
                   </span>
@@ -480,7 +496,9 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
               <span className="text-xs text-muted">{t('effective')}</span>
               <span className="flex items-baseline gap-2 font-mono tabular-nums text-sm text-text">
                 {face.effectiveCents != null ? money(face.effectiveCents) : '—'}
-                <SourceTag source={face.source} />
+                {/* §21.9b: con el guardarraíl disparado la columna de fuente dice PISO — la
+                    retención IMPLICA el piso, y la causa va en el texto de abajo. */}
+                <PriceBasisTag basis={face.premiumAtFloor ? 'floor' : face.source} />
               </span>
             </div>
             {isSuperAdmin && face.overrideCents != null && (
@@ -490,10 +508,23 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
                 onClick={() => resetFace(key)}
                 disabled={save.isPending}
               >
-                {t('resetToRule')}
+                {t('resetToCurve')}
               </button>
             )}
           </div>
+          {/* Guardarraíl §4.36.5 visible (§21.9b): la ÚNICA acción es ir a la cola a revisar su
+              mercado — el guardarraíl NO se apaga desde aquí. */}
+          {face.premiumAtFloor && (
+            <p className="font-mono text-[11px] text-accent">
+              {t('heldByGuardrail')}{' '}
+              <Link
+                href="/admin/m2?reason=premium_at_floor"
+                className="border-b border-accent pb-0.5 hover:border-text hover:text-text"
+              >
+                {t('seeInPendingQueue')}
+              </Link>
+            </p>
+          )}
         </div>
       ))}
 
@@ -523,6 +554,24 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
               {tb('completed', { date: formatDate(bounty.completedAt, locale) })}
             </p>
           )}
+          {/* §21.9c-3: un bounty REBASADO por la tarifa vigente dejó de ser una oferta — no aplica al
+              cotizar y no se publica en la vitrina. Si nadie lo dice, el dueño solo ve que su `·B`
+              desapareció. Aquí están las dos cifras y el remedio; SIN acciones nuevas: subir el
+              precio o apagarlo es decisión del dueño, no un botón de «subir automáticamente».
+              Con `curveQuoteCents == null` NO hay aviso: ahí el bounty explícito sigue siendo
+              efectivo por diseño. */}
+          {bountyOutbid && (
+            <Banner variant="warning" role="status" title={tb('outbidTitle')}>
+              <p className="tabular-nums font-mono text-[12px]">
+                {tb('outbidYours', { amount: money(bounty?.priceCents ?? 0) })}
+                {' · '}
+                {tb('outbidCurrent', { amount: money(bounty?.curveQuoteCents ?? 0) })}
+              </p>
+              <p className="mt-1">
+                {tb('outbidBody', { amount: money(bounty?.curveQuoteCents ?? 0) })}
+              </p>
+            </Banner>
+          )}
           {bountyOn && (
             <>
               <Input
@@ -537,10 +586,16 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
                     ? undefined
                     : premium.noSuggested
                       ? tb('noSuggested')
-                      : tb('premium', {
-                          amount: money(Math.abs(premium.abs)),
-                          pct: premium.pct,
-                        })
+                      : // El contrato rechaza el EMPATE (priceCents ≤ curveQuoteCents): con el mismo
+                        // importe no sería una oferta. El helper lo dice ANTES del 422.
+                        premium.abs <= 0
+                        ? tb('mustBeHigherHint', {
+                            amount: money(pricing.buy.suggestedCents ?? 0),
+                          })
+                        : tb('premium', {
+                            amount: money(Math.abs(premium.abs)),
+                            pct: premium.pct,
+                          })
                 }
               />
               <Input

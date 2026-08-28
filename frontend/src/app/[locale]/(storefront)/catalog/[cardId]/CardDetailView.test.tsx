@@ -56,6 +56,7 @@ function unit(id: string, over: Partial<ListingDTO> = {}): ListingDTO {
     finish: 'normal',
     referenceValue: refValue,
     salePriceCents: 140800,
+    priceBasis: 'market',
     sellable: true,
     ...over,
   };
@@ -72,6 +73,8 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
     gradeKey: 'raw:NM',
     stockCount: 1,
     salePriceCents: 140800,
+    // v2.0 (P-48): el mercado fijó el precio ⇒ la ficha SÍ muestra «Valor de mercado» (§21.8a).
+    priceBasis: 'market',
     referenceValue: refValue,
     currency: 'MXN',
     ...over,
@@ -190,7 +193,7 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
   });
 });
 
-// ===== v1.44-graded-estimate · bloque de la ficha + nota al pie (DESIGN_SYSTEM §21.3/§21.4) =====
+// ===== v1.50-graded-estimate · bloque de la ficha + nota al pie (DESIGN_SYSTEM §22.3/§22.4) =====
 const est = (gradeValue: string, cents: number): GradedEstimateDTO => ({
   gradingCompany: 'PSA',
   gradeValue,
@@ -199,7 +202,7 @@ const est = (gradeValue: string, cents: number): GradedEstimateDTO => ({
   estimate: { status: 'priced', referenceMxnCents: cents, capturedDate: '2026-08-22' },
 });
 
-describe('CardDetailView · §21.3 «valor estimado si se gradea»', () => {
+describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
   it('con `gradedEstimates` pinta el bloque junto al precio, con la fecha de refresco y su llamada', async () => {
     const { listings, units } = twoVariants();
     mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
@@ -216,7 +219,7 @@ describe('CardDetailView · §21.3 «valor estimado si se gradea»', () => {
     ).toBeInTheDocument();
   });
 
-  it('el bloque va DESPUÉS del referenceExplainer y ANTES de «Ejemplares disponibles» (§21.3)', async () => {
+  it('el bloque va DESPUÉS del referenceExplainer y ANTES de «Ejemplares disponibles» (§22.3)', async () => {
     const { listings, units } = twoVariants();
     mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -242,7 +245,7 @@ describe('CardDetailView · §21.3 «valor estimado si se gradea»', () => {
     const call = document.getElementById('llamada-estimado')!.querySelector('a')!;
     expect(call).toHaveAttribute('href', '#nota-estimado');
     // Con el micro-aviso VISIBLE delante, el texto accesible de la llamada no duplica las dos
-    // ideas (§21.11): el lector de pantalla ya las oyó como texto real, en orden.
+    // ideas (§22.11): el lector de pantalla ya las oyó como texto real, en orden.
     expect(call).toHaveAttribute('aria-label', 'Ver nota al pie.');
     // …y el aviso adyacente está, visible, en el mismo párrafo que la llamada (R3.1).
     expectVisibleMicroNotice(document.body, 'es');
@@ -259,14 +262,44 @@ describe('CardDetailView · §21.3 «valor estimado si se gradea»', () => {
     expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
   });
 
-  it('la ficha NO está gateada por el ROI: pinta el bloque aunque el grupo no traiga `gradingHighlight`', async () => {
-    // Estado NORMAL y esperado (§21.7): ficha con bloque y teja sin badge. No es un bug.
+  it('la ficha NO está gateada por el ROI: le basta `gradedEstimates` de la RAÍZ', async () => {
+    // Estado NORMAL y esperado (§22.7, caso 2): ficha con bloque y teja sin badge. No es un bug.
+    // v1.50.2: la ficha NO lee ningún marcador de la rejilla — `gradingHighlight` ya ni existe en
+    // `GroupedListingDTO` (se movió al Summary), así que este camino está cerrado por el compilador.
     const { listings, units } = twoVariants();
-    expect(listings.every((l) => l.gradingHighlight === undefined)).toBe(true);
     mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
     expect(await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).toBeInTheDocument();
+  });
+
+  /**
+   * §22.7, caso 4 (ESTADO NUEVO, R6): cifra FRESCA y con el gate de ROI CUMPLIDO que **no pasa el
+   * filtro de confianza**. La ficha informa igual —el backend le emite `gradedEstimates`, que no
+   * aplica la coherencia de magnitud— y la rejilla no la promueve. En el cliente el caso es
+   * **indistinguible** del caso 2 («no pasa el gate»), y DEBE serlo: cualquier marca, `data-*` o
+   * clase que delatara el motivo sería contar el criterio con palabras (R5 / SEC-A1).
+   */
+  it('§22.7 · cifra no confiable: la ficha pinta el bloque IGUAL y nada delata el motivo', async () => {
+    const { listings, units } = twoVariants();
+    // Cota inferior de R6: el PSA 10 sale POR DEBAJO del raw publicado (MX$1,408.00) — el caso
+    // típico del valor en dólares capturado como pesos. La ficha lo informa: es dato real.
+    mockDetail(listings, units, [est('10', 90_000), est('9', 45_000)]);
+    const { container } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    const block = (await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).closest('section')!;
+    expect(screen.getByText('MX$900.00')).toBeInTheDocument();
+    expect(screen.getByText('MX$450.00')).toBeInTheDocument();
+    // Mismo bloque, mismo micro-aviso, misma nota: sin tinta atenuada ni aviso extra.
+    expectVisibleMicroNotice(document.body, 'es');
+    expect(document.getElementById('nota-estimado')).toBeInTheDocument();
+    expect(block.className).not.toMatch(/opacity|italic|line-through/);
+    // Y NINGÚN atributo del DOM nombra el motivo de la supresión en la rejilla.
+    const attrs = Array.from(container.querySelectorAll('*')).flatMap((el) =>
+      Array.from(el.attributes).map((a) => `${a.name}=${a.value}`),
+    );
+    expect(attrs.some((a) => /confian|trust|gate|roi|eligib|sample|muestra/i.test(a))).toBe(false);
+    expect(container.textContent).not.toMatch(/confian|provisional|poco fiable|sin verificar/i);
   });
 
   it('R5 · la ficha no muestra ninguna pieza del cálculo (ganancia, multiplicador, costo, margen)', async () => {
@@ -276,5 +309,83 @@ describe('CardDetailView · §21.3 «valor estimado si se gradea»', () => {
 
     await screen.findByText('VALOR ESTIMADO SI SE GRADEA');
     expect(container.textContent).not.toMatch(/multiplic|ganancia|ROI|rendimiento|costo de grade/i);
+  });
+});
+
+/**
+ * §21.8 — «Valor de mercado» que DESAPARECE. La UI **obedece** `priceBasis`; está prohibido
+ * inferirlo comparando `referenceValue` contra `salePriceCents` (el DTO sigue trayendo la
+ * referencia porque alimenta superficies de admin y de valuación).
+ */
+describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.8)', () => {
+  it('priceBasis="market": el bloque se muestra, con su fecha y la nota al pie que lo explica', async () => {
+    mockDetail([grp()], [unit('inv-a')]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
+    expect(screen.getByText('MX$1,280.00')).toBeInTheDocument();
+    expect(
+      screen.getByText(/El valor de mercado es la referencia del día con la que valuamos las cartas/),
+    ).toBeInTheDocument();
+  });
+
+  it('priceBasis="floor": el bloque NO ESTÁ EN EL DOM — ni en cero, ni tachado, ni «—»', async () => {
+    // El piso ganó: el mercado no produjo el precio, así que el número no explica nada. La
+    // referencia SIGUE viajando en el DTO y aun así no se pinta.
+    mockDetail(
+      [grp({ priceBasis: 'floor', salePriceCents: 2500 })],
+      [unit('inv-a', { priceBasis: 'floor', salePriceCents: 2500 })],
+    );
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('Precio de venta')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    // Nada lo sustituye: ni «—» donde estaba el bloque, ni la cifra de referencia por otra vía.
+    expect(screen.queryByText('MX$1,280.00')).toBeNull();
+    // La nota al pie cambia con el bloque y NO menciona el mercado ni insinúa que falte algo.
+    expect(
+      screen.getByText('El precio de venta es el precio publicado de esta carta, sin IVA.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/valor de mercado es la referencia del día/i)).toBeNull();
+  });
+
+  it('priceBasis="override": tampoco se muestra (lo fijó una decisión humana, no el mercado)', async () => {
+    mockDetail(
+      [grp({ priceBasis: 'override' })],
+      [unit('inv-a', { priceBasis: 'override' })],
+    );
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    expect(await screen.findByText('Precio de venta')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+  });
+
+  it('§21.8b: sin mercado la fila del dinero NO queda coja y el divisor es de la POSICIÓN', async () => {
+    // Con mercado: 4 hechos ⇒ la 2ª y la 4ª celda llevan divisor izquierdo.
+    const withMarket = mockDetail([grp()], [unit('inv-a')]);
+    void withMarket;
+    const { unmount } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    await screen.findByText('Valor de mercado');
+    const cells = () =>
+      Array.from(document.querySelectorAll('div.border-b.border-border.py-6')) as HTMLElement[];
+    expect(cells()).toHaveLength(4);
+    expect(cells()[0].className).not.toContain('sm:border-l');
+    expect(cells()[1].className).toContain('sm:border-l');
+    expect(cells()[2].className).not.toContain('sm:border-l');
+    expect(cells()[3].className).toContain('sm:border-l');
+    unmount();
+
+    // Sin mercado: 3 hechos. La celda de venta ocupa la fila completa y el divisor lo hereda la
+    // celda que NO abre fila — «Acabado», no «Condición». (El bug era `sm:border-l` hardcodeado.)
+    mockDetail(
+      [grp({ priceBasis: 'floor', salePriceCents: 2500 })],
+      [unit('inv-a', { priceBasis: 'floor', salePriceCents: 2500 })],
+    );
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    await screen.findByText('Precio de venta');
+    const c = cells();
+    expect(c).toHaveLength(3);
+    expect(c[0].className).toContain('sm:col-span-2');
+    expect(c[1].className).not.toContain('sm:border-l');
+    expect(c[2].className).toContain('sm:border-l');
   });
 });
