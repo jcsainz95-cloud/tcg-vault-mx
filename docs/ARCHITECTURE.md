@@ -43,6 +43,17 @@
 >    **regla general que faltaba** (§11.0): un seed es **condición inicial, no estado deseado**; cambiarlo sobre una
 >    clave existente exige **dos artefactos**, y el segundo se ejecuta **por el `PUT` de admin, no por SQL**. Paso
 >    concreto de esta release en §4.38(p); al humano como **GU-13**.
+> **Addendum v1.50.3-b (2026-08-28) — corrección de un error MÍO, escalado por devops (regla 9):**
+> 9. **El paso 4 de §4.38(p) no era ejecutable y se reescribe.** Pedía «correr el E2E del criterio 109 contra el
+>    entorno destino»: **(1)** el arnés levanta Nest en proceso contra `DATABASE_URL`, el spec **escribe** (flip del
+>    dial, override y `updateMany` que envejece `capturedDate`) y exige el fixture `e2e-common` ⇒ **no se apunta a
+>    producción**; **(2)** aun pudiendo, **ya no detecta el seed rancio**, porque el caso `8d` —bien endurecido por
+>    devops— **fija el dial antes de asertar**. **CONFIGURACIÓN y LÓGICA se separan** (§11.0 punto 5): la primera se
+>    verifica con **`GET` + línea de inventario** (solo lectura, en prod); la segunda con el **E2E, en staging**.
+>    **La lección general, que vale más que el caso:** *un test que fija su propia configuración para ser determinista
+>    deja, por construcción, de ser un detector de configuración* — yo **generalicé un accidente a procedimiento**.
+>    Consecuencia: la **línea de inventario deja de ser un extra y pasa a REQUISITO** ((i).7). Se ratifica el
+>    procedimiento de `DEVOPS_NOTES.md` §32.5 y el comparador solo-lectura que construyó devops. §4.38(p), §11.0.
 > **Money-safe:** ningún monto de dinero real cambia; **M-42 sigue siendo DATA/seed** (mismas 12 claves, tres seeds
 > corregidos, **sin DDL**). **Ratificaciones pedidas al humano: GU-8..GU-13 (§10).** Contrato en API_CONTRACT
 > (Changelog v1.50.3). **Base previa:** v1.50.2.
@@ -7866,9 +7877,12 @@ indistinguibles justo cuando hay que decidir.
   6. **Motivos de salto del ingest CONTADOS POR SEPARADO** ((h.4)), con `SHAPE_NOT_PERSISTIBLE_S2` distinto de
      `EVIDENCE_UNKNOWN` y de `SAMPLE_TOO_SMALL`. Un contador único los vuelve indistinguibles justo cuando hay que
      decidir si escalar.
-  7. **Línea de INVENTARIO al izar la config** (§11.0): una línea `log`/`info` enumerando las claves cuyo valor
-     vigente **difiere del default de código**. **No `warn`** —los diales ajustados a propósito son normales y
-     alertar por cada uno es ruido—; la **única** excepción `warn` sigue siendo `manualFreshnessDays === null`.
+  7. **Línea de INVENTARIO al izar la config** (§11.0). **⚠️ v1.50.3-b: subió de «observabilidad barata» a
+     REQUISITO** — descartado el E2E como detector de configuración, esta línea y el `GET` son **los dos únicos
+     detectores del seed rancio**. Debe imprimir **clave + valor vigente + default** (un «difiere» sin los números no
+     es accionable) y **emitirse siempre, también cuando no hay divergencias** (una línea que solo aparece con
+     problema es indistinguible de una que no se emitió). **`log`/`info`, no `warn`**; única excepción `warn`:
+     `manualFreshnessDays === null`.
   **Tests obligatorios:** los flujos negativos de §O.7 (sin PSA 9 ⇒ **ficha sí, destacado no**; sin ningún estimado;
   graded y sealed nunca; tabla vacía/con hueco ⇒ **jamás costo 0**; estimado rancio; DTO manipulado no cambia nada) +
   **la partición (0)** (subir `minUpsidePct` vacía la vitrina **sin** apagar la ficha) + el **test de
@@ -7913,11 +7927,15 @@ indistinguibles justo cuando hay que decidir.
   (h) — todas con **default seguro**/sin default — y vigilar `dailyRemaining()` contra el tope por corrida.
   **⚠️ v1.50.3-a — PASO DE DESPLIEGUE OBLIGATORIO, no opcional:** los tres seeds corregidos **no llegan a un entorno
   ya sembrado** (`seed.ts` usa `update: {}`). En **cada** entorno existente hay que ejecutar el procedimiento de
-  **(p)**: `GET` → comparar → `PUT` solo lo que siga en el seed viejo → **verificar corriendo el E2E del criterio
-  109**. **Prohibido `UPDATE` directo a la BD** (se salta auditoría y validación). Si algún dial difiere de su seed
-  viejo, **no se pisa**: lo decide el humano clave por clave (**GU-13**). **Sin este paso el deploy pasa todos los
-  gates y la feature sigue comportándose como antes en producción** — que es la clase de falso verde que el DoD
-  existe para impedir. Documentarlo en `DEVOPS_NOTES.md` junto al rollback.
+  **(p)**: `GET` → comparar → `PUT` solo lo que siga en el seed viejo → **verificar**. **Prohibido `UPDATE` directo a
+  la BD** (se salta auditoría y validación). Si algún dial difiere de su seed viejo, **no se pisa**: lo decide el
+  humano clave por clave (**GU-13**). **Sin este paso el deploy pasa todos los gates y la feature sigue comportándose
+  como antes en producción** — que es la clase de falso verde que el DoD existe para impedir.
+  **⚠️ v1.50.3-b — la verificación de cierre son DOS cosas distintas y no son intercambiables:** en **producción**,
+  **`GET` + línea de inventario** (solo lectura); en **staging**, el **E2E del criterio 109**. El E2E **no** se apunta
+  a prod (escribe: flip del dial, override y `updateMany` de `capturedDate`; exige el fixture `e2e-common`) **y
+  además ya no detecta el seed rancio** porque fija el dial antes de asertar. **Ratifico el procedimiento de
+  `DEVOPS_NOTES.md` §32.5.** Tabla de las dos garantías en (p); documentar el paso junto al rollback.
 - **qa (gate por stream):** unitarios + contrato + smoke E2E de los flujos críticos de §O.7, **reinterpretados con la
   partición (0)**: (1) camino feliz — la carta con estimados frescos que pasa el gate sale en la **ficha**, la
   **rejilla** y la **vitrina**; (2) subir `minUpsidePct` **vacía la vitrina y quita los badges** pero **la ficha sigue
@@ -7928,11 +7946,13 @@ indistinguibles justo cuando hay que decidir.
   111(e), que hasta ahora no era verificable porque la lista no existía); (6) **v1.50.3** — un override manual de **40
   días** (el caso que QA reprodujo a mano) **desaparece de las tres superficies**, y si esa carta tiene además dato
   automático **fresco**, se muestra **el automático** en vez de nada (criterio 109 + (m)).
-  **⚠️ v1.50.3-a — el E2E del criterio 109 se corre CONTRA EL ENTORNO DESTINO, no solo contra una base recién
-  sembrada.** Es el único test que distingue «desplegado» de «desplegado **y funcionando**»: en un entorno ya sembrado
-  el dial sigue en su valor viejo y el criterio **falla**, aunque los 2378 unitarios y los 162 de integración estén en
-  verde. *(A backend le falló exactamente así al implementar. Eso no fue un defecto del test: fue el test haciendo su
-  trabajo, y es la razón por la que este bullet existe.)*
+  **⚠️ v1.50.3-b — QA NO puede certificar la configuración de un entorno con el E2E, y este bullet existe para que
+  nadie lo intente** *(corrige lo que v1.50.3-a decía aquí, que era el mismo error del paso 4 de (p))*. El E2E del
+  criterio 109 (caso `8d`) **fija `manualFreshnessDays: 30` antes de asertar** —correcto: prueba la **lógica de
+  decaimiento** con el dial en su valor nominal— y por tanto **es ciego al seed rancio del entorno**. Además
+  **escribe** (dial global, override, `updateMany` de `capturedDate`) y exige el fixture `e2e-common`, así que
+  **corre en staging/local, nunca contra producción**. **La configuración se verifica con `GET` + la línea de
+  inventario** ((i).7), que son solo-lectura y **los únicos detectores reales**. Tabla de las dos garantías en **(p)**.
 - **Zonas compartidas tocadas** (el orquestador serializa): `backend/src/common/`, `backend/src/modules/settings/`,
   `frontend/src/types/contract.ts`, `docs/API_CONTRACT.md`. **`backend/prisma/schema.prisma` NO se toca.**
 
@@ -8387,8 +8407,7 @@ y sus referencias eran correctas antes y después.
 > **Hallazgo de backend, verificado en vivo.** `prisma/seed.ts` hace `upsert` con **`update: {}`**, así que los seeds
 > corregidos en (k.0) **no alcanzan ninguna base ya sembrada** — incluida **producción**. Un entorno existente sigue
 > con `manualFreshnessDays = null`, `minSampleCount = 3` y `maxRawMultiple = 50`, **con el código nuevo desplegado y
-> los tests en verde**. El E2E del criterio 109 falla ahí hasta fijar el dial a mano, que es exactamente lo que le
-> pasó a backend. **La regla general está en §11.0; esto es su aplicación concreta a esta release.**
+> los tests en verde**. **La regla general está en §11.0; esto es su aplicación concreta a esta release.**
 
 **Sin este paso, v1.50.3 NO surte efecto donde importa.** Conviene decirlo sin eufemismos: el punto entero de esta rev
 es que un override manual de 40 días deje de promocionarse. En un entorno ya sembrado, **eso sigue pasando** después
@@ -8396,15 +8415,56 @@ del deploy. El código está bien; el dato no.
 
 **Paso (devops + el operador, en cada entorno ya sembrado: dev con base vieja, staging y prod):**
 
-1. `GET /api/v1/admin/pricing/graded-estimates` — anotar los valores **vigentes** de las tres claves.
+1. `GET /api/v1/admin/pricing/graded-estimates` — anotar los valores **vigentes** de las tres claves. *(Devops
+   construyó un **comparador solo-lectura** que hace esto e imprime el `PUT` exacto con las claves pendientes, sin
+   `--force` y sin escribir nada. **Es la herramienta sancionada para el paso 1**, no un atajo: leer y proponer sin
+   poder aplicar es exactamente el reparto de autoridad que quiere §11.0 punto 3.)*
 2. Si coinciden con los seeds viejos (`null` / `3` / `50`), **nadie los tocó**: aplicar los nuevos con **un**
    `PUT /api/v1/admin/pricing/graded-estimates` `{ "manualFreshnessDays": 30, "minSampleCount": 5,
    "maxRawMultiple": 100 }`. Queda **auditado**, **validado** (I1–I9) y surte efecto **sin redeploy**.
 3. Si **alguno difiere**, el operador lo **ajustó a propósito**: **no se pisa**. Se le presenta valor actual vs. nuevo
    default y **decide él, clave por clave**. *(§11.0 punto 3: no hay forma de distinguir «sigue en el seed viejo» de
    «lo eligió así», así que se pregunta en vez de adivinar.)*
-4. **Verificación de cierre — es parte del paso, no un extra:** repetir el `GET` y **correr el E2E del criterio 109**
-   contra ese entorno. Ese test es el único que distingue «desplegado» de «desplegado y funcionando».
+4. **Verificación de cierre — DOS verificaciones distintas, en dos entornos distintos.** Ver el recuadro de abajo:
+   la de **configuración** corre en **producción** (`GET` + línea de inventario, solo lectura); la de **lógica** corre
+   en **staging** (el E2E del criterio 109). **No son intercambiables y ninguna sustituye a la otra.**
+
+> ⛔ **CORRECCIÓN v1.50.3-b (escalada de devops, regla 9) — el paso 4 que escribí en v1.50.3-a NO ERA EJECUTABLE, y el
+> error es mío.** Decía «repetir el `GET` y **correr el E2E del criterio 109 contra ese entorno**; ese test es el único
+> que distingue *desplegado* de *desplegado y funcionando*». **Las dos mitades estaban mal.**
+>
+> **(1) No se puede correr contra producción, y tampoco se querría.** Verificado por devops: el arnés
+> (`backend/test/integration/helpers/e2e-app.ts`) levanta la app Nest **en proceso** contra `DATABASE_URL`; el spec
+> **escribe** —hace flip del dial global, un `POST /admin/pricing/override` y un `updateMany` que **envejece
+> `capturedDate`**—; y su `beforeAll` **lanza** si falta el fixture sintético `e2e-common`. Un test que muta diales y
+> fechas de captura **no se apunta a la base de producción**: sería, literalmente, mover dinero y afirmaciones
+> comerciales para comprobar que están bien.
+>
+> **(2) Y aunque se pudiera, ya no detectaría el seed rancio.** Devops endureció el caso `8d` de
+> `graded-estimate.e2e-spec.ts` para que haga `PUT { manualFreshnessDays: 30 }` **antes** de asertar. **Ese
+> endurecimiento es CORRECTO** —un test de **lógica de decaimiento** debe probarla con el dial en su valor **nominal**,
+> no a merced de lo que tenga el entorno—, pero tiene una consecuencia que hay que decir en voz alta:
+> > **«Corrí el E2E y pasó» ya NO equivale a «el dial de producción está bien».**
+>
+> **La lección general, que vale más que este caso concreto:** *un test que **fija** su propia configuración para ser
+> determinista deja, **por construcción**, de ser un detector de configuración.* Son **dos aserciones distintas** y
+> necesitan **dos mecanismos distintos**. Cuando el E2E le falló a backend por el dial viejo, yo llamé a eso «el test
+> haciendo su trabajo» — y **generalicé un accidente a procedimiento**. No lo era: era un test bajo-especificado
+> fallando por una razón que no era la suya. **Una coincidencia no es una garantía**, y el remedio correcto no es
+> preservar la coincidencia, es **sustituirla por un detector de verdad**.
+
+**Las dos garantías, separadas (NORMATIVO):**
+
+| | **Verificación de CONFIGURACIÓN** | **Verificación de LÓGICA** |
+|---|---|---|
+| Pregunta que responde | «¿este entorno tiene los diales que creemos?» | «¿el decaimiento del criterio 109 funciona?» |
+| Mecanismo | **re-`GET`** de `/admin/pricing/graded-estimates` **+ la línea de inventario de config** ((i).7, §11.0) | **E2E del criterio 109** (caso `8d`) |
+| Dónde corre | **producción** (y todo entorno), **solo lectura** | **staging** / local con fixture — **nunca prod** |
+| Escribe | **no** | **sí** (dial global, override, `updateMany` de `capturedDate`) |
+| Detecta el **seed rancio** | **SÍ — son los únicos que lo detectan** | **NO** (fija el dial antes de asertar) |
+
+**Procedimiento vigente** (el que devops dejó documentado en `DEVOPS_NOTES.md` §32.5, y que **ratifico**): el E2E del
+criterio 109 corre **en staging**; en **producción** la verificación de cierre es **re-`GET` + línea de inventario**.
 
 **⚠ Prohibido `UPDATE` directo a la BD** para esto, aunque sea más rápido: se salta la auditoría (nadie sabría quién
 cambió un dial que gobierna una afirmación comercial), se salta la validación (una clave presente-e-inválida **apaga
@@ -10297,8 +10357,10 @@ Riesgos técnicos:
   `manualFreshnessDays`, `minSampleCount` y `maxRawMultiple` **conservan sus valores viejos** en prod y staging aunque
   el código nuevo esté desplegado y los tests en verde. **Consecuencia:** el override manual de 40 días **seguiría
   promocionándose en producción**. **NO se automatiza como `UPDATE`** (pisaría en silencio ajustes deliberados del
-  operador — GU-A8): se aplica por `PUT /admin/pricing/graded-estimates`, auditado y validado, con verificación de
-  cierre = correr el E2E del criterio 109 contra el entorno destino. **Va al humano como GU-13.**
+  operador — GU-A8): se aplica por `PUT /admin/pricing/graded-estimates`, auditado y validado. **Verificación de
+  cierre (corregida en v1.50.3-b, escalada de devops): en producción es `GET` + la línea de inventario de config
+  —solo lectura, y los ÚNICOS detectores del seed rancio—; el E2E del criterio 109 corre en staging** y **no** sirve
+  para esto (escribe, exige fixture, y fija el dial antes de asertar). **Va al humano como GU-13.**
 - **✅ CERRADO por decisión de diseño, no pendiente — S2 (`gradedPrices.psaN`) NO ES PERSISTIBLE (PI-D2, escalada de
   backend; §4.38h.1-bis).** Se registra aquí porque **bloquea encender la fase 2** en el escenario en que PPT sirva
   ese shape, y porque la asimetría entre S1 y S2 dejó de ser de **forma** para ser de **capacidad**. **No es una
@@ -11130,8 +11192,10 @@ Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin bac
 > **Por qué esta regla existe y por qué es general.** Backend verificó en vivo que los tres seeds corregidos de
 > v1.50.3 **no llegan a una base ya sembrada**: `prisma/seed.ts` hace `upsert` con **`update: {}`**, así que
 > `manualFreshnessDays`, `minSampleCount` y `maxRawMultiple` **conservan sus valores viejos** en cualquier entorno
-> existente —incluida **producción**—, y el E2E del criterio 109 falló hasta fijar el dial a mano. **El hallazgo es
-> correcto y la decisión de backend de NO automatizarlo también** (registrada como `PI-D3`). Lo que faltaba —y es mío—
+> existente —incluida **producción**—, y así lo descubrió: el E2E del criterio 109 le falló hasta fijar el dial a
+> mano. **El hallazgo es correcto y la decisión de backend de NO automatizarlo también** (registrada como `PI-D3`).
+> *(Ese fallo del E2E fue el **síntoma** que reveló el problema, **no** el detector con el que se verifica: ver el
+> punto 5 y §4.38(p).)* Lo que faltaba —y es mío—
 > es la **regla general**, porque este caso no será el último: el proyecto tiene decenas de diales sembrados
 > (escalones, spreads de sellado, tiers, curva) y **cualquiera de ellos puede cambiar de default en el futuro**.
 
@@ -11161,17 +11225,47 @@ Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin bac
    redeploy**. Un `UPDATE` directo a la BD se salta las tres. **La decisión de sobrescribir es del operador, informada
    y clave por clave**, con el valor actual y el nuevo default delante.
 
-**Observabilidad que lo hace verificable (backend, barato, sin contrato):** al izar la config, el arranque emite
-**una línea `log`/`info`** enumerando las claves cuyo valor vigente **difiere de su default de código**. **No es un
-`warn` y no debe serlo** —los diales ajustados a propósito son normales y una alerta por cada uno es ruido que se
-aprende a ignorar—: es un **inventario**, para que «¿qué diales tiene realmente este entorno?» se conteste con un grep
-en vez de con una consulta a la BD. *(La **única** excepción sigue siendo `manualFreshnessDays === null`, que sí es
+**Observabilidad que lo hace verificable (backend, barato, sin contrato).** ⚠️ **v1.50.3-b: esto DEJÓ DE SER un
+extra.** Con el E2E descartado como detector de configuración (punto 5), la línea de inventario es —junto al `GET`—
+**uno de los dos únicos detectores del seed rancio**, así que su especificación se endurece:
+
+- al izar la config, el arranque emite **una línea** enumerando las claves cuyo valor vigente **difiere de su default
+  de código**;
+- **debe imprimir los DOS valores, `vigente` y `default`, y el nombre de la clave.** Un «esta clave difiere» sin los
+  números **no es accionable**: el operador tendría que ir a la BD, que es justo el viaje que esta línea evita;
+- **debe emitirse SIEMPRE**, también cuando **no** hay divergencias (con un «sin divergencias» explícito). Una línea
+  que solo aparece cuando hay problema es indistinguible de una línea que no se emitió porque el código no corrió —y
+  «no vi la alerta» pasaría por «está todo bien», que es fallar abierto;
+- **`log`/`info`, NO `warn`, y no debe serlo** —los diales ajustados a propósito son normales y una alerta por cada uno
+  es ruido que se aprende a ignorar—: es un **inventario**, para que «¿qué diales tiene realmente este entorno?» se
+  conteste con un grep en vez de con una consulta a la BD.
+
+*(La **única** excepción sigue siendo `manualFreshnessDays === null`, que sí es
 `warn` (I8-bis) porque desactiva un criterio de `PROJECT.md`.)*
 
-**Y para QA/devops, la consecuencia de proceso:** el DoD de release incluye **verificar los diales del entorno
-destino**, no asumirlos. *(Nota: el E2E del criterio 109 **falló** en un entorno con el dial viejo. Eso no es un
-defecto del test: es el test **haciendo su trabajo**. Un E2E que hubiera pasado con el dial viejo sería un E2E que no
-verifica el criterio.)*
+**5. CONFIGURACIÓN y LÓGICA son dos aserciones distintas y exigen dos mecanismos distintos** *(añadido en v1.50.3-b
+tras una escalada de devops; es la parte de esta regla que más fácil se pisa)*. El DoD de release incluye **verificar
+los diales del entorno destino, no asumirlos** — pero **no con la suite E2E**:
+
+- **Configuración** («¿este entorno tiene los diales que creemos?») → **`GET` del recurso + la línea de inventario**.
+  **Solo lectura**, corre en **cualquier entorno, producción incluida**, y son **los únicos detectores del seed
+  rancio**.
+- **Lógica** («¿la regla que gobierna ese dial funciona?») → **suite E2E**, en **staging** o local con fixture.
+  **Escribe** (en nuestro caso: flip del dial global, un `POST /admin/pricing/override` y un `updateMany` que envejece
+  `capturedDate`) y exige fixtures sintéticos ⇒ **nunca se apunta a producción**.
+
+**La regla, en una frase, para que se pueda aplicar a la siguiente suite y no solo a esta:** *un test que **fija** su
+propia configuración para ser determinista deja, **por construcción**, de ser un detector de configuración.* Y eso es
+**correcto en el test** —una prueba de lógica debe controlar sus entradas y correr con el dial en su valor
+**nominal**—, así que la conclusión no es debilitar el test: es **no confiarle una garantía que no da**.
+
+> **Cómo se aprendió, porque el error fue mío y conviene que quede.** El E2E del criterio 109 le falló a backend en un
+> entorno con el dial viejo, y yo escribí que eso era «el test haciendo su trabajo» y convertí *correr el E2E contra el
+> entorno destino* en el paso 4 de §4.38(p). **Generalicé un accidente a procedimiento.** No era el test haciendo su
+> trabajo: era un test **bajo-especificado** fallando por una razón ajena a lo que verifica. Cuando devops lo endureció
+> —correctamente— para fijar el dial antes de asertar, **el detector accidental desapareció**, y con él habría
+> desaparecido en silencio la única verificación que yo había previsto. **Una coincidencia no es una garantía**, y el
+> remedio no es preservar la coincidencia: es sustituirla por un detector diseñado para eso. De ahí el punto 5.
 
 ### v1.50-graded-estimate (nueva — M-42: diales del gancho de grading — DATA/seed, SIN DDL, §4.38)
 

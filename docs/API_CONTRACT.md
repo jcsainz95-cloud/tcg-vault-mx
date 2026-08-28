@@ -47,6 +47,11 @@
 >   operador haya ajustado a propósito): se aplican con un **`PUT /admin/pricing/graded-estimates` explícito y
 >   auditado** como paso de despliegue. Detalle en ARCHITECTURE §4.38(p); **regla general para todo `ConfigSetting`**
 >   en ARCHITECTURE §11.0.
+>   **⚠️ v1.50.3-b — cómo se VERIFICA que un entorno quedó bien, porque las dos garantías no son la misma:** la
+>   **configuración** se comprueba con **este `GET` + la línea de inventario** del arranque —solo lectura, válidas en
+>   **producción**, y **los únicos detectores del seed rancio**—; la **lógica** del criterio 109 se comprueba con el
+>   **E2E, en staging**, que **escribe** y **fija el dial antes de asertar** ⇒ **«corrí el E2E y pasó» NO significa
+>   «el dial de producción está bien»**. ARCHITECTURE §4.38(p) y §11.0 punto 5.
 > - **⚠️ ADDENDUM v1.50.3-a — el shape `gradedPrices.psaN` (S2) del ingest queda NO PERSISTIBLE**, y la escotilla
 >   `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` **se deroga**. **No afecta a este contrato** (el ingest no tiene
 >   superficie pública y la indistinguibilidad de fases se mantiene), pero se registra aquí porque **condiciona
