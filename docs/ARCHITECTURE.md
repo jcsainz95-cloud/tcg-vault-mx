@@ -54,6 +54,21 @@
 >    deja, por construcción, de ser un detector de configuración* — yo **generalicé un accidente a procedimiento**.
 >    Consecuencia: la **línea de inventario deja de ser un extra y pasa a REQUISITO** ((i).7). Se ratifica el
 >    procedimiento de `DEVOPS_NOTES.md` §32.5 y el comparador solo-lectura que construyó devops. §4.38(p), §11.0.
+> **Addendum v1.50.3-c (2026-08-28) — dos escaladas más de backend; la primera cierra otro hueco MÍO:**
+> 10. **PI-D6 — `STALE` pasa a ser enumerable en la lista de revisión (opt-in, nunca default).** Al invertir el orden
+>    en (m), `STALE` quedó **inalcanzable** en admin; **se ratifica el arreglo de backend**
+>    (`includeStaleForDiagnostics`, solo `preview`/`review`, re-inyección únicamente donde no hay fila fresca) **y se
+>    corrige el hueco que dejaba**: mi §M2 rechazaba `STALE` con `400`. Lo había agrupado con «ausencia de dato», y
+>    **no es eso**: es un dato **que existió y expiró**. Encaja en el propósito de (n) **mejor que el caso que sí
+>    admití** — una cifra caducada desaparece **en silencio** de las tres superficies, sigue en la BD y el dueño no
+>    puede encontrarla. Agravante: **creé esa categoría en esta misma rev** (seed `manualFreshnessDays=30`) y en (m)
+>    prometí que (n) la mostraría, normando a la vez su `400`. Los DTO de diagnóstico ganan **`isManual`**
+>    (admin-only) porque manual-rancia y automática-rancia exigen remedios **opuestos**. §4.38(n.2-bis).
+> 11. **PI-D7 — se ajusta el disparador de la escalada por shape:** el suelo absoluto de 5 que propuso backend haría
+>    **inalcanzable** el aviso en una tienda con menos de 5 cartas publicadas (fase 2 muerta en silencio). Pasa a
+>    **`min(5, cartas_de_la_corrida)`**, más una regla que escala **sin suelo** cuando `S1 == 0 && S2 >= 1`.
+>    §4.38(h.1-ter). *(Ratificado además, sin acción: `POST /admin/pricing/override` es `200` — backend corrigió el
+>    código en vez de pedir cambiar el contrato. GU-A26.)*
 > **Money-safe:** ningún monto de dinero real cambia; **M-42 sigue siendo DATA/seed** (mismas 12 claves, tres seeds
 > corregidos, **sin DDL**). **Ratificaciones pedidas al humano: GU-8..GU-13 (§10).** Contrato en API_CONTRACT
 > (Changelog v1.50.3). **Base previa:** v1.50.2.
@@ -7779,6 +7794,35 @@ por separado**, porque «el proveedor cambió de shape» y «esta carta tiene po
 > decisión —degradar a manual de forma permanente, buscar un segundo proveedor, o pagar el plan que sí exponga
 > `salesByGrade`— es de **producto y de costo**. Diseñar el parche antes de tener la evidencia sería reincidir en P-6.
 
+##### (h.1-ter) PI-D7 (v1.50.3-c) — el DISPARADOR concreto de esa escalada: se ajusta el suelo que propuso backend
+
+Backend necesitaba un umbral operable para «mayoritariamente» y eligió **un suelo de 5 observaciones**. **El instinto
+es correcto** —sin un mínimo de muestra, una sola carta rara dispararía una escalada— pero **un suelo absoluto tiene
+un agujero de alcanzabilidad**, que es exactamente la clase de fallo que acabamos de corregir con `STALE` en (n.2-bis):
+
+> **El alcance del ingest es «solo cartas con inventario publicado» ((h.3)) y el tope por corrida es 250.** Una tienda
+> pequeña puede tener **3 cartas raw publicadas**. Si las 3 devuelven S2, con un suelo absoluto de 5 **la escalada no
+> se dispara nunca**: la fase 2 queda **silenciosamente muerta** y el disparador diseñado para avisarlo es
+> **inalcanzable**. Es el mismo bug que `STALE` inalcanzable, en otro sitio.
+
+**Disparador NORMATIVO (sustituye al suelo fijo de 5):** sobre las cartas de la corrida que devolvieron **algún bloque
+PSA identificable** (`observadas = S1 + S2`; las que no traen nada no cuentan — no dicen nada del shape), se escala si:
+
+| # | Condición | Por qué |
+|---|---|---|
+| **A** | `S1 == 0` **y** `S2 >= 1` | **Escala SIEMPRE, sin suelo.** «Nunca hemos visto un S1» es cualitativamente distinto de «vemos una mezcla»: sugiere que el campo que necesitamos **no existe en este plan/cuenta**. Una sola observación ya es informativa, y el coste de escalar de más es **una conversación**; el de no escalar es una feature muerta en silencio |
+| **B** | `S2 > S1` **y** `observadas >= min(5, cartas_de_la_corrida)` | mayoría estricta de shape, con suelo **relativo**: si la corrida entera vio menos de 5 cartas, el suelo es **lo que haya visto**. Sin porcentajes mágicos: «S2 gana» es el criterio |
+
+**El suelo es `min(5, …)`, no 5 a secas.** Ese es el ajuste. El 5 sigue gobernando la operación normal (una tienda con
+catálogo real), pero **deja de poder bloquear el aviso** en la tienda chica, que es justo donde una fase 2 muerta
+pasaría más desapercibida.
+
+**La escalada es una SEÑAL, no un fallo:** no aborta la corrida, no apaga el ingest y no borra nada. El job termina
+normalmente —las cartas S1 válidas se escriben— y deja la traza y el `AuditLog` de (h.4) con los contadores por motivo
+**separados**. Lo que dispara es una **conversación**, y por eso el coste de un falso positivo es bajo y el umbral
+puede ser generoso. *(Si con datos reales el 5 resulta ruidoso o corto, moverlo es una constante de código, no un dial:
+no merece una clave de `ConfigSetting` una decisión que se toma una vez, al calibrar — mismo criterio que (k.1).)*
+
 **Lo que esta decisión NO cambia:** ni el contrato público, ni un solo DTO, ni el comportamiento de la fase 1 (manual),
 ni ningún monto. **No está vivo** (`graded_estimate_ingest_enabled` seed `off`). **Bloquea encender la fase 2** solo en
 el escenario en que el proveedor resulte servir S2 — y en ese escenario lo que bloquea es correcto que se bloquee.
@@ -7868,6 +7912,10 @@ indistinguibles justo cuando hay que decidir.
      `pickBestRef`** dentro de `getGradedEstimatesBatch` ((c)/(m)). **`isBetterRef` NO se toca.**
   3. **`GET /admin/pricing/graded-estimates/review`** — la lista de revisión de **(n)**, con `GRADED_REVIEW_MAX_SCAN`,
      `truncated`, y evaluación **aunque el dial esté `off`**.
+     **⚠️ v1.50.3-c añade a este endpoint:** admitir **`STALE`** como valor opt-in de `?reason=` (deja de ser `400`);
+     emitir **`isManual`** en `GradedEstimatePreviewDTO` y en el de `review`; e intercalar **`capturedDate` asc** en
+     el desempate del orden (lo más vencido primero). Se apoya en el `includeStaleForDiagnostics` que backend ya
+     construyó — **no** hay lógica nueva de frescura. §4.38(n.2-bis).
   4. **Gate de evidencia en el ingest** ((h.1)/(m.2)): no persistir filas cuya `lastSaleDate` supere `freshnessDays`;
      ausente/no parseable ⇒ no se persiste.
   **⚠️ Addendum v1.50.3-a — lo que sale de las dos escaladas de backend (PI-D2 / PI-D3):**
@@ -7945,7 +7993,11 @@ indistinguibles justo cuando hay que decidir.
   (5) **v1.50.3** — esa misma carta incoherente **aparece en la lista de revisión** de M2 con su `reason` (criterio
   111(e), que hasta ahora no era verificable porque la lista no existía); (6) **v1.50.3** — un override manual de **40
   días** (el caso que QA reprodujo a mano) **desaparece de las tres superficies**, y si esa carta tiene además dato
-  automático **fresco**, se muestra **el automático** en vez de nada (criterio 109 + (m)).
+  automático **fresco**, se muestra **el automático** en vez de nada (criterio 109 + (m));
+  (7) **v1.50.3-c** — **el cierre del bucle del caso (6)**: esa misma carta de 40 días, ya invisible en las tres
+  superficies, **se encuentra** en `review?reason=STALE` con `isManual: true` y su `capturedDate`, y **desaparece de
+  esa lista al recapturarla**. Es la verificación de que un estimado caducado **se puede volver a encontrar**, que es
+  justo lo que faltaba: sin ella, «caduca solo» sería una desaparición sin retorno.
   **⚠️ v1.50.3-b — QA NO puede certificar la configuración de un entorno con el E2E, y este bullet existe para que
   nadie lo intente** *(corrige lo que v1.50.3-a decía aquí, que era el mismo error del paso 4 de (p))*. El E2E del
   criterio 109 (caso `8d`) **fija `manualFreshnessDays: 30` antes de asertar** —correcto: prueba la **lógica de
@@ -8217,7 +8269,10 @@ simplemente deja de **exhibirse** cuando envejece, que es lo que PROJECT pide.
 **El bucle operativo que esto define (y que backend/QA deben entender):** un estimado manual **se refresca
 recapturándolo** (`POST /admin/pricing/override` escribe una fila nueva con el `capturedDate` de hoy). Es deliberado:
 convierte «el dueño puso un número una vez» en «el dueño **sostiene** ese número», que es la única lectura honesta de
-una afirmación comercial. La **lista de revisión** de (n) es la superficie donde el dueño ve qué le está por vencer.
+una afirmación comercial. La **lista de revisión** de (n), con `?reason=STALE`, es la superficie donde el dueño
+encuentra **lo que ya venció** para refrescarlo o retirarlo. *(⚠ v1.50.3-c: esta frase decía «qué le está **por**
+vencer» y **prometía de más** — (n) enumera lo **ya caducado**, no lo próximo a caducar. La vista de «vencimiento
+próximo» queda **declarada fuera de alcance** en (n.4), no implícita.)*
 
 **Seed y válvula.** `graded_estimate_manual_freshness_days` **seed 30** (= `freshnessDays`, alineado con el criterio
 109). Rango `null | [1, 3650]`. **`null` sigue siendo expresable pero deja de ser el default**, y ponerlo tiene una
@@ -8318,15 +8373,65 @@ criterio 111(e) nombra —111(b), (c) y (d)—:
 | `ABOVE_MAX_MULTIPLE` | el cero de más — **ídem** |
 | `GRADE_ORDER_INVERTED` | filas capturadas cruzadas — **ídem** |
 
-**Opt-in explícito, fuera del default:** `SLAB_PUBLISHED` (INV-D). Es accionable para el operador, pero **no es un dato
-erróneo** —es la guarda funcionando— y meterlo en el default **ahogaría la señal** justo en la lista que existe para
-que la señal se vea. Se ofrece como valor del filtro `?reason=`, no como parte del conjunto por defecto.
+**Opt-in explícito, fuera del default:** `SLAB_PUBLISHED` (INV-D) **y `STALE`** *(este último añadido en v1.50.3-c,
+PI-D6 — ver abajo)*. Los dos son **accionables** para el operador pero **no son datos erróneos**, así que meterlos en
+el default **ahogaría la señal de coherencia** justo en la lista que existe para que esa señal se vea. Se ofrecen como
+valores del filtro `?reason=`, nunca como parte del conjunto por defecto.
 
-**Explícitamente FUERA, en cualquier modo:** `STALE`, `NO_PSA10`, `NO_PSA9`, `NO_COST_TIER`, `BELOW_MIN_UPSIDE`,
-`NOT_RAW`, `NOT_PUBLISHED`. **Ninguno es una incoherencia**: son **ausencia** de dato o el gate comercial haciendo su
-trabajo. Una lista que los incluyera tendría miles de filas normales y cero valor operativo — y el criterio 111(e)
-habla de la cifra que **falla la coherencia**, no de la que falta. *(El `preview` por carta sigue reportándolos todos:
-ese es su trabajo, y no cambia.)*
+**Explícitamente FUERA, en cualquier modo:** `NO_PSA10`, `NO_PSA9`, `NO_COST_TIER`, `BELOW_MIN_UPSIDE`, `NOT_RAW`,
+`NOT_PUBLISHED`. Son **ausencia** de dato o el gate comercial haciendo su trabajo. Una lista que los incluyera tendría
+miles de filas normales y cero valor operativo — y **la ausencia de estimado es el estado NORMAL del catálogo**, no un
+pendiente ((b).4). *(El `preview` por carta sigue reportándolos todos: ese es su trabajo, y no cambia.)*
+
+##### (n.2-bis) PI-D6 (v1.50.3-c) — `STALE` SÍ es enumerable, y excluirlo era un error mío
+
+> **Escalada de backend (regla 9), a partir de un hallazgo de QA.** Tras invertir el orden (`filter(!stale)` antes de
+> `pickBestRef`, (m)), el motivo `STALE` quedó **inalcanzable en las superficies de admin**: con una fila manual de 40
+> días el diagnóstico respondía `reason: NO_PSA10, stale: false, capturedDate: null` cuando la verdad era **«tu cifra
+> expiró»**. **Backend lo recuperó sin deshacer el arreglo** —un opt-in `{ includeStaleForDiagnostics: true }` que
+> **solo** usan `preview` y `review`; la ruta pública sigue descartando lo rancio antes de `pickBestRef`, y la
+> re-inyección ocurre **solo en claves sin ninguna fila fresca**, así que no puede volver elegible a nadie ni
+> envenenar la ficha—. **Ratifico esa solución: es exactamente la forma correcta** (recuperar resolución diagnóstica
+> sin tocar la semántica pública). **Pero dejó a `review` fuera**, porque mi §M2 rechaza `STALE` con `400`.
+
+**Dictamen: `STALE` se ADMITE como valor opt-in del filtro.** Tres razones, y la tercera es la que me obliga:
+
+1. **`STALE` no pertenece al grupo donde lo metí.** Lo agrupé con `NO_PSA10`/`NO_PSA9`/`NOT_RAW` bajo la etiqueta
+   «ausencia», y **es una categoría distinta**: aquellos significan *nunca hubo dato*; `STALE` significa **hubo un
+   dato, alguien lo puso o lo ingestó, y expiró**. Lo primero es el estado normal de miles de cartas; lo segundo es un
+   hecho concreto sobre una cifra concreta que **existe en la BD ahora mismo**.
+2. **Es el mismo argumento que ya acepté para `SLAB_PUBLISHED`**, punto por punto: accionable, no erróneo, ruidoso en
+   el default, útil bajo demanda. Aplicarlo a uno y no al otro no tiene defensa.
+3. **Encaja en la definición por la que construí esta lista, y encaja MEJOR que el caso que sí admití.** Mi
+   justificación para no declarar (n) fuera de alcance fue que, sin ella, (k.3) pasa de «visible-y-corregible» a
+   «visible-y-nadie-la-corrige». **Una cifra caducada está peor situada en ese eje: no es siquiera visible.**
+   Desapareció de las tres superficies **en silencio**, sigue existiendo en la tabla, y el dueño **no tiene ninguna
+   forma de encontrarla** para refrescarla o retirarla. Es el fallo silencioso que este documento persigue en todas
+   partes.
+
+**Y hay una razón que no es de principio sino de hecho: yo creé esta categoría en esta misma revisión.** Antes de
+v1.50.3, `manualFreshnessDays` era `null` y **un override manual no caducaba nunca** ⇒ «estimado manual caducado» era
+un **conjunto vacío**. Al sembrar 30 (criterio 109) creé una clase entera de objetos nuevos —la cifra que el dueño
+fijó a propósito y que ahora expira sola— **y no le di superficie**. Peor: en (m) escribí, con estas palabras, que
+*«la lista de revisión de (n) es la superficie donde el dueño ve qué le está por vencer»*, **y acto seguido normé un
+`400` para exactamente esa consulta**. La contradicción es mía y está dentro de la misma rev.
+
+**Los dos sabores de `STALE` necesitan remedios OPUESTOS, y por eso el DTO gana un campo.** Es la diferencia entre
+capturar y refrescar que motivó toda la escalada:
+
+| Fila rancia | Qué significa | Qué hay que hacer |
+|---|---|---|
+| **manual** | la afirmación **del dueño** expiró | **recapturar** (sostener el número) o **borrarla** |
+| **automática** | el feed **dejó de cubrir esa carta** | mirar el **ingest**, no la carta (cuota, shape, carta despublicada — (h.4)) |
+
+`reason: STALE` a secas no los distingue, así que `GradedEstimateReviewItemDTO` y `GradedEstimatePreviewDTO` ganan
+**`isManual: boolean`**. Es **una sola bandera, en un DTO admin-only**, y **no viola (g)**: la garantía de
+indistinguibilidad fase 1 ⇄ fase 2 es sobre las **superficies públicas**, y (g).2 ya dice que `source`/
+`isManualOverride` **siguen disponibles para el admin**. Se emite `isManual` y **no** `source` a propósito: contesta la
+pregunta operativa («¿esta cifra la puse yo?») sin publicar la identidad del proveedor, y es el campo que las puras ya
+llevan en `GradedEstimateRef`. Sin él, cada fila `STALE` obligaría a una segunda llamada — justo la fricción del
+«solo te contesta si ya sospechabas» que (n) existe para eliminar, y el mismo motivo por el que la lista ya lleva
+`cardName`/`setName`.
 
 ##### (n.3) La lista funciona con la feature APAGADA — divergencia deliberada con el `preview`
 
@@ -8361,6 +8466,13 @@ lo que ve. *(Las cotas inferior y de orden de grados no dependen de ninguna clav
 - **No materializa nada, no hay job y no hay notificación.** Es *pull*, no *push*. Un aviso proactivo (correo/badge de
   dashboard) es otra decisión de producto — la misma que §N.6 dejó abierta para el bounty rebasado (pregunta abierta
   v2.0 #5). **No se asume.**
+- **⚠ v1.50.3-c — NO es una vista de «vencimiento próximo», y se declara para que no se implemente «de paso».**
+  `?reason=STALE` enumera lo **ya caducado**; **no** existe «caduca en N días». Reconozco que la vista de *próximos a
+  vencer* sería **más valiosa** —cuando una cifra ya venció, el daño comercial (la desaparición silenciosa de la
+  rejilla y la vitrina) **ya ocurrió**—, pero exige **una ventana parametrizable** (otro dial o un query param con su
+  validación), y eso es alcance nuevo sobre una implementación cerrada. **Queda como candidata nombrada**, con el
+  mismo tratamiento que «marcar como revisada» en (j): si el dueño la pide, es decisión de producto + arquitecto, no
+  de implementación.
 
 ##### (n.5) Consecuencia para los otros roles (la enruta el orquestador, no yo)
 
@@ -10872,6 +10984,36 @@ este documento y con `API_CONTRACT.md`.
   validado, sin redeploy)— más una **línea de inventario al arrancar** con las claves que difieren de su default
   (`log`, **no `warn`**: los diales ajustados son normales y alertar por cada uno es ruido). **→ paso de despliegue
   para devops + decisión del humano (GU-13); regla permanente para todo `ConfigSetting`, no solo para el gancho.**
+- **GU-A24 (PI-D6, escalada de backend a partir de un hallazgo de QA) — `STALE` SÍ es enumerable en la lista de
+  revisión; excluirlo era un error MÍO** (§4.38n.2-bis). Al invertir el orden en (m), `STALE` quedó **inalcanzable**
+  en las superficies de admin (una manual de 40 días respondía `NO_PSA10, stale:false, capturedDate:null`). **Se
+  ratifica la solución de backend** —opt-in `includeStaleForDiagnostics` que **solo** usan `preview` y `review`, con
+  re-inyección **únicamente** en claves sin fila fresca ⇒ no puede volver elegible a nadie ni envenenar la ficha—: es
+  la forma correcta, recupera resolución diagnóstica **sin** tocar la semántica pública. **Y se corrige el hueco que
+  quedaba en mi contrato:** `review` rechazaba `STALE` con `400`. **Razón de fondo:** metí `STALE` en el grupo
+  «ausencia» junto a `NO_PSA10`, y **no pertenece ahí** — aquellos significan *nunca hubo dato*, `STALE` significa
+  **hubo dato y expiró**. Encaja en la definición por la que construí (n) **mejor que el caso que sí admití**: una
+  cifra caducada desapareció de las tres superficies **en silencio**, sigue en la BD y el dueño **no puede
+  encontrarla**. Agravante: **yo creé esa categoría en esta misma rev** (antes de sembrar `manualFreshnessDays=30`,
+  un manual no caducaba nunca ⇒ conjunto vacío) y en (m) escribí que (n) era la superficie para verla, **normando a
+  la vez su `400`**. `STALE` pasa a **opt-in, nunca default** (mismo criterio que `SLAB_PUBLISHED`), y los DTO de
+  diagnóstico ganan **`isManual`** porque los dos sabores exigen remedios **opuestos** (recapturar vs. mirar el
+  ingest). **Admin-only; ningún DTO público cambia.**
+- **GU-A25 (PI-D7) — el disparador de la escalada por shape: se AJUSTA el suelo que propuso backend** (§4.38h.1-ter).
+  El instinto de exigir muestra mínima es correcto, pero **un suelo absoluto de 5 tiene un agujero de
+  alcanzabilidad**: con alcance «solo cartas publicadas» ((h.3)), una tienda con **3 cartas** en las que las 3
+  devuelvan S2 **nunca dispararía la escalada** ⇒ fase 2 muerta en silencio con su propio aviso inalcanzable — el
+  mismo bug que `STALE` en GU-A24, en otro sitio. **Disparador normativo:** (A) `S1 == 0 && S2 >= 1` escala
+  **siempre, sin suelo** («nunca hemos visto un S1» es cualitativamente distinto de «vemos una mezcla»); (B) `S2 > S1`
+  con suelo **`min(5, cartas_de_la_corrida)`**. El 5 sigue gobernando la operación normal pero **deja de poder
+  bloquear el aviso** donde más desapercibido pasaría. Sigue siendo **constante de código, no dial** (se calibra una
+  vez). La escalada es **señal, no fallo**: no aborta la corrida ni apaga el ingest.
+- **GU-A26 (ratificación, sin acción) — `POST /admin/pricing/override` devuelve `200`, no `201`.** QA halló que el
+  código respondía `201` contra la norma de §M2; **backend verificó que el contrato tenía razón y corrigió el código**
+  (`@HttpCode(200)`) en vez de pedir cambiar el contrato. **Es el desenlace correcto y el precedente que quiero
+  fijado:** cuando código y contrato discrepan, **manda el contrato** (CLAUDE.md, regla de conflicto) — igual que en
+  R1 del techlead, donde también se movió el código y la doctrina no se tocó. Backend avisó a frontend y QA por si
+  algún arnés asertaba el `201`. **Sin cambio documental.**
 - **GU-A21 — divergencia NUEVA detectada en este pase: la frescura del dato automático se mide contra la fecha de
   INGESTA, no contra la evidencia** (§4.38m.2). El criterio 109 exige medir contra la **fecha de la última venta
   observada**; medir contra `capturedDate` deja el fallo «fresco para siempre» (el job reescribe la fila cada día

@@ -57,6 +57,19 @@
 >   superficie pública y la indistinguibilidad de fases se mantiene), pero se registra aquí porque **condiciona
 >   encender la fase 2**: un escalar sin `count` ni fecha no puede satisfacer las pruebas 1 y 2 del gate de confianza,
 >   así que no hay superficie —**tampoco la ficha**— donde esa fila fuera admisible. ARCHITECTURE §4.38(h.1-bis).
+> - **⚠️ ADDENDUM v1.50.3-c — `STALE` deja de ser `400` en `/graded-estimates/review` y pasa a valor OPT-IN de
+>   `?reason=`; `GradedEstimatePreviewDTO` gana `isManual: boolean`.** Corrige un **error de diseño mío**: agrupé
+>   `STALE` con «ausencia de dato» (`NO_PSA10` y compañía) cuando es lo contrario — **un dato que existió y expiró**.
+>   Sin esto, una cifra caducada **desaparece de las tres superficies en silencio, sigue en la BD y el dueño no tiene
+>   forma de encontrarla** para refrescarla o retirarla; y es la categoría que ARCHITECTURE §4.38(m) ya prometía poder
+>   enumerar. `isManual` distingue los dos remedios (**manual** rancia ⇒ recapturar; **automática** rancia ⇒ mirar el
+>   ingest). **Ambos cambios son ADMIN-ONLY: ningún DTO ni superficie pública se altera**, y la indistinguibilidad de
+>   fases (§4.38g) queda intacta porque es una garantía sobre lo **público**. El orden del listado intercala
+>   `capturedDate` asc (lo más vencido primero). ARCHITECTURE §4.38(n.2-bis).
+> - **Ratificado sin cambio documental:** `POST /admin/pricing/override` responde **`200`**, como este contrato norma
+>   desde v1.50. El código devolvía `201`; **backend corrigió el código, no el contrato** (`@HttpCode(200)`). Es el
+>   desenlace correcto — **el contrato manda sobre el código**. **Frontend/QA:** revisar cualquier arnés que asertara
+>   `201`.
 > - **Sin cambios** en ningún DTO público, ruta pública, código de error existente ni monto de dinero. **M-42 sigue
 >   siendo DATA/seed, sin DDL.** **Base previa:** v1.50.2.
 >
@@ -2183,9 +2196,12 @@ GradedEstimateConfigDTO = { enabled: boolean, ingestEnabled: boolean, grades: st
 // `eligible=false` viene con `reason` accionable; los montos son null cuando no se pudieron resolver (nunca 0).
 // v1.50.2 añade `maxAllowedPsa10MxnCents` (la cota superior efectiva = salePriceCents × maxRawMultiple) y
 // `publishedSlabGrades` (los grados de esa carta con slab PUBLICADO — INV-D, §4.38l).
+// v1.50.3-c añade `isManual` (admin-only): distingue la fila rancia MANUAL (la afirmación del dueño expiró ⇒
+// recapturar o borrar) de la AUTOMÁTICA (el feed dejó de cubrir la carta ⇒ mirar el ingest). Remedios opuestos, y
+// `reason: STALE` a secas no los distingue. No viola §4.38(g): esa garantía es sobre superficies PÚBLICAS.
 GradedEstimatePreviewDTO = { representativeInventoryItemId: string, finish: Finish, salePriceCents: number,
                              psa10MxnCents: number | null, psa9MxnCents: number | null,
-                             capturedDate: string | null, stale: boolean,
+                             capturedDate: string | null, stale: boolean, isManual: boolean,
                              gradingCostTier: GradingCostTierDTO | null, gradingCostMxnCents: number | null,
                              thresholdMxnCents: number | null, netUpsidePsa9MxnCents: number | null,
                              maxAllowedPsa10MxnCents: number | null, publishedSlabGrades: string[],
@@ -2203,7 +2219,8 @@ GradedEstimateReviewItemDTO = GradedEstimatePreviewDTO & { cardId: string, cardN
                                                            setName: string, number: string }
 // Default del filtro = SOLO los tres `reason` de coherencia de magnitud (criterio 111 b/c/d):
 //   NOT_ABOVE_RAW | ABOVE_MAX_MULTIPLE | GRADE_ORDER_INVERTED
-// `SLAB_PUBLISHED` es opt-in (accionable, pero NO es un dato erróneo: en el default ahogaría la señal).
+// OPT-IN (accionables, pero NO son datos erróneos: en el default ahogarían la señal de coherencia):
+//   SLAB_PUBLISHED (INV-D)  y  STALE (v1.50.3-c, PI-D6: la cifra EXISTE y CADUCÓ — no es «ausencia»).
 // El resto de `reason` NO son enumerables aquí (400): son AUSENCIA de dato o el gate comercial funcionando.
 // `FEATURE_OFF` JAMÁS se emite: esta lista evalúa aunque el dial esté `off`, para poder limpiar ANTES de encender.
 // Ficha (GET /catalog/cards/:cardId): los grupos vendibles de esa carta + `units` = TODAS las piezas vendibles por-pieza
@@ -6476,14 +6493,23 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Query: `?reason=&page=&pageSize=` — **todos opcionales**.
   - **`reason?`** (repetible o CSV). **Default = los TRES `reason` de coherencia**: `NOT_ABOVE_RAW`,
     `ABOVE_MAX_MULTIPLE`, `GRADE_ORDER_INVERTED` (= criterio 111(b)(c)(d)).
-    **Valor extra admitido, fuera del default: `SLAB_PUBLISHED`** (INV-D) — es accionable para el operador y es el
-    conjunto expuesto al riesgo de §4.38(l.3), pero **no es un dato erróneo**, así que incluirlo por defecto
-    **ahogaría la señal**. Cualquier otro `reason` (`STALE`, `NO_PSA10`, `NO_PSA9`, `NO_COST_TIER`,
-    `BELOW_MIN_UPSIDE`, `NOT_RAW`, `NOT_PUBLISHED`, `FEATURE_OFF`) ⇒ **`400 VALIDATION_ERROR`**: no son incoherencias
-    sino **ausencia** de dato o el gate comercial haciendo su trabajo, y una lista que los incluyera tendría miles de
-    filas normales y cero valor operativo.
+    **Valores extra admitidos, fuera del default:**
+    - **`SLAB_PUBLISHED`** (INV-D) — accionable y es el conjunto expuesto al riesgo de §4.38(l.3), pero **no es un
+      dato erróneo**.
+    - **`STALE`** *(**NUEVO v1.50.3-c**, PI-D6)* — la cifra **existe y caducó**. **Corrige un `400` que era un error
+      de diseño mío:** `STALE` no es «ausencia de dato» como `NO_PSA10` (nunca hubo nada) sino **un dato que alguien
+      puso o ingestó y que expiró**, y es la categoría que la propia §4.38(m) prometía poder enumerar. Sin esto, una
+      cifra caducada **desaparece de las tres superficies en silencio, sigue en la BD, y el dueño no tiene forma de
+      encontrarla** para refrescarla o retirarla. **Es el caso que mejor encaja en el propósito de esta lista.**
+    Ambos **fuera del default** por el mismo motivo: incluirlos **ahogaría la señal de coherencia** en la lista que
+    existe para que esa señal se vea.
+    Cualquier otro `reason` (`NO_PSA10`, `NO_PSA9`, `NO_COST_TIER`, `BELOW_MIN_UPSIDE`, `NOT_RAW`, `NOT_PUBLISHED`,
+    `FEATURE_OFF`) ⇒ **`400 VALIDATION_ERROR`**: son **ausencia** de dato o el gate comercial haciendo su trabajo, y
+    una lista que los incluyera tendría miles de filas normales y cero valor operativo.
   - **`page` / `pageSize`:** default `pageSize` **25**, máx **100**. Paginación inválida ⇒ `400 VALIDATION_ERROR`.
-  - **Orden determinista** (paginación estable): `reason` asc → `cardId` asc → `representativeInventoryItemId` asc.
+  - **Orden determinista** (paginación estable): `reason` asc → **`capturedDate` asc (`null` al final)** → `cardId`
+    asc → `representativeInventoryItemId` asc. *(v1.50.3-c intercala `capturedDate`: con `?reason=STALE` **lo más
+    vencido va primero**, que es el orden en que el dueño quiere atacarlo. Sigue siendo total y estable.)*
 
   Res `200`:
   ```
@@ -6496,6 +6522,14 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   `setName`, `number`) para que la lista sea legible sin un fetch por fila. **Mismo tipo de contenido, mismos campos de
   diagnóstico** (`psa10MxnCents`, `psa9MxnCents`, `capturedDate`, `maxAllowedPsa10MxnCents`, `publishedSlabGrades`,
   `reason`) — no se inventa un DTO paralelo.
+  - **⚠️ v1.50.3-c — `isManual: boolean` se AÑADE a `GradedEstimatePreviewDTO`** (y por herencia al de `review`).
+    Nace de `STALE`: las dos clases de fila caducada exigen **remedios opuestos** —una **manual** rancia es *la
+    afirmación del dueño que expiró* ⇒ **recapturar o borrar**; una **automática** rancia es *el feed que dejó de
+    cubrir esa carta* ⇒ **mirar el ingest, no la carta**— y `reason: STALE` a secas no las distingue.
+    **No viola la indistinguibilidad de fases (ARCHITECTURE §4.38g):** esa garantía es sobre las superficies
+    **públicas**, y `source`/`isManualOverride` ya estaban disponibles para el admin. Se emite **`isManual` y no
+    `source`** a propósito: contesta la pregunta operativa («¿esta cifra la puse yo?») sin publicar la identidad del
+    proveedor. **Admin-only; ningún DTO público cambia.**
   - **⚠️ `enabled: false` NO vacía esta lista, a propósito.** El endpoint evalúa la coherencia **aunque la feature
     esté apagada**, y **`FEATURE_OFF` nunca se emite aquí**. Razón: el dial arranca en `off` precisamente para poder
     **limpiar los datos antes** de encender la afirmación comercial; una lista que solo funciona con la feature
