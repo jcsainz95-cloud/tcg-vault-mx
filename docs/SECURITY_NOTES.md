@@ -1,6 +1,65 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════
+     GATE DE RELEASE — FUSIÓN pricing-v2 × P-47 (2026-08-28) — se antepone. Todo lo anterior
+     (v2.1.9, v2.1.7/v2.1.8, P-48, histórico) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# GATE DE RELEASE · FUSIÓN curva v2 × tcgcsv_singles (P-47) · 2026-08-28 · seguridad (blue team)
+
+> **Árbol auditado:** `integration/pricing-v2-merge`, HEAD **`1268e7a`** (merge --no-ff), **working
+> tree limpio**. **Insumo:** `docs/PENTEST_NOTES.md` (pase v2.1.7/v2.1.8) + re-verificación v2.1.9 +
+> revisión del delta de fusión. **Modo:** estático dirigido sobre el árbol fusionado + `npm audit`.
+> Los commits que el handoff marcó «sin gate» (`d8c4625`, `1885b4a`, `a05a819`) son **ancestros del
+> gate v2 `7aa2081`** y SÍ fueron atacados por el pentester; re-verificados en el árbol fusionado. El
+> delta genuinamente nuevo es **la fusión** (integración P-47 provider × curva v2).
+
+## 0. VEREDICTO: ✅ APROBADO-CON-CONDICIONES · gate CERRADO con condiciones
+
+| | |
+|---|---|
+| **Críticos / Altos abiertos** | **0 / 0** ⇒ el criterio de rechazo del DoD no se dispara. |
+| **Medias abiertas** | **1** — **S49-M2** (aceptada con disparador duro). |
+| **Bajas / Info** | S49-B3 · candado `no-raw-entity` (gap estructural) · R2 · R4 · deps (2 moderate). |
+| **Cerradas y verificadas en la fusión** | R1 · S49-M1 · S49-M1-R · R3/D1 (techo de curva) · D2 (§N.7 en el emisor). |
+| **¿La fusión P-47×curva introdujo algo nuevo?** | **NO.** El eje de precios sigue money-safe. |
+
+**Mínimo para APROBADO limpio:** cerrar **S49-M2** + extender el candado `no-raw-entity-response.spec.ts`.
+**Disparador DURO de S49-M2:** se cierra **ANTES de que la plataforma almacene el primer RFC/CLABE/INE de
+un usuario real** (antes de abrir buylist/facturación a clientes reales). Hoy la BD no tiene ni un dato
+fiscal/bancario real ⇒ la condición se cumple para desplegar staging/prod sin PII real.
+
+## 1. Hallazgo abierto que condiciona el gate
+### S49-M2 · [Media · ABIERTO] · `GET /admin/orders` publica la fila `Order` cruda (con `billingSnapshot`: `rfcEnc` cifrado + metadato fiscal) al `vault_operator`
+- Confirmado: `admin-orders.controller.ts:@Get()` hace `findMany` **sin `select`** y devuelve la fila entera.
+  La ruta hermana `:id` SÍ proyecta (`billingSnapshot:null`) y `getUser` oculta `billingProfile` (SEC-A4) → es bug, no diseño.
+- El RFC viaja **cifrado** (AES-256-GCM); lo que sale en claro es metadato fiscal; sin vector anónimo/customer, sin dinero ⇒ **Media**.
+- **Dueño:** backend (proyectar el listado como el detalle) + arquitecto (declarar si `billingSnapshot` es visible a `vault_operator`).
+
+## 2. Fusión P-47 × curva — eje de precios money-safe (verificado)
+- Dial `PRICE_PROVIDER` `super_admin`-only; validador restringe a 3 valores; `PRICING_CURVE` fuera de `SETTING_DTO_MAP` (única puerta = `PUT /admin/pricing/curve`, super_admin).
+- `reconcilePublishedPrices` llavea por `cardId|productType|gradeKey|finish`; sin mercado → `pendingReason`/cola (nunca `$0`); respeta override manual por pieza; mismo seam `decideSalePrice` que publicación/checkout. `ingestSinglesForSet` upsertea referencia per-acabado respetando `isManualOverride`.
+- `source`/`isManualOverride` solo server-side; omitidos en `PriceInfo` público; solo en `vault_operator+`.
+- Techo de cordura curva (R3/D1) CERRADO: `MAX_CURVE_CONSTANT_CENTS = 200_000` acota `floorCents`/`binCents`.
+
+## 3. Deuda de seguridad aceptada (no bloqueante)
+- **S49-B3** (Baja) — `buylist.service.ts` `itemDTO` devuelve `card` cruda (catálogo público, sin secretos). Dueño: backend.
+- **Candado `no-raw-entity`** (Baja/Info) — el barrido no ve spread `{...row}` ni `include:` crudo. Dueño: backend.
+- **R2** (Baja) — `POST /buylist/quote` `@Public` emite `priceBasis`+precio (ratificado en contrato, throttled). Dueño: backend+arquitecto.
+- **R4** (Baja/Info) — filas crudas sin PII en back-office/recurso propio. Dueño: backend.
+- **Deps** (Media) — backend prod `npm audit`: 2 moderate (`@nestjs/core`, exige bump a NestJS 11), 0 high/critical. Dueño: devops.
+
+## 4. Banderas para el humano
+1. Antes de operar con dinero real: pentest de tercero + bug bounty.
+2. El disparador de S49-M2 es de negocio: el día que entre el primer RFC/CLABE/INE real, esa ruta pasa de deuda a incidente de privacidad.
+3. Custodia/PII (INE/CLABE/RFC): pendiente validación legal de retención y contrato de custodia (no es decisión de ingeniería).
+
+— SEGURIDAD (blue team / AppSec), 2026-08-28 (gate de release fusión pricing-v2 × P-47) · persistido por el orquestador
+
+---
+
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
      RE-VERIFICACIÓN DE CIERRE v2.1.9 (2026-08-24) — se antepone. Todo lo anterior
      (pase v2.1.7/v2.1.8 y el histórico) se conserva íntegro abajo.
      ════════════════════════════════════════════════════════════════════════════════════════ -->
