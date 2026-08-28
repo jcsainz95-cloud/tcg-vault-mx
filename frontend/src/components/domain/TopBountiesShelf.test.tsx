@@ -34,7 +34,7 @@ describe('TopBountiesShelf (P-22, §16.7c) · vitrina pública de /buylist', () 
     expect(screen.getByText('Se busca')).toBeInTheDocument();
     // Mensaje PAY_AFTER_RECEIPT: precio alto no cambia la regla de confianza.
     expect(
-      screen.getByText(/El pago se realiza por SPEI después de recibir y verificar tus cartas/),
+      screen.getByText(/El pago se realiza después de recibir y verificar tus cartas/),
     ).toBeInTheDocument();
     expect(screen.getByText('Pagamos')).toBeInTheDocument();
 
