@@ -183,3 +183,10 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
   cotizador aún no combina; P27-D3 validar y activar los pares Shiny Vault — ver `TECH_DEBT.md`.)*
 - **Streams A/B/C**, **P-1–P-5**, **P-11–P-22, P-24, P-25**, **P-21** (rebrand + dominio tcghunt.mx),
   **P-26** (sellado). Todo con doble/triple veredicto y en producción.
+
+## HANDOFF (2026-08-25) — Fusión curva v2 BLOQUEADA por límite de uso
+**Estado:** cierre seguro de `claude/card-pricing-rules-2e537m` (curva v2) EN CURSO, detenido por límite de uso de la cuenta (reset Aug 28, 4pm UTC). **NADA desplegado; producción intacta** (`production`=c255692). P-47 por-acabado sigue vivo en prod.
+**Plan ya decidido y documentado (no re-analizar):** ARCHITECTURE §4.36 + API_CONTRACT v1.49 «Dos capas de precio». Verificado: conviven POR-ACABADO; M-41 aditiva (no toca PriceReference).
+**Regla de fusión:** CONSERVAR provider `tcgcsv_singles` (P-47, capa REFERENCIA) + ADOPTAR curva v2 (capa REGLA). Único conflicto de código: `price-ingest.service.ts` (v2 borra el provider → RECHAZAR ese borrado). Restaurar 6 banderas (§4.36): PRICE_PROVIDER_VALUES, enum PriceSource, seed, registro NestJS del provider, tests, .env.example.
+**Resume:** rama `integration/pricing-v2-merge` (creada desde main 6ec0722). `git merge origin/claude/card-pricing-rules-2e537m`, resolver por §4.36, validar (tsc+jest+smoke per-acabado), re-gate (QA/techlead/seguridad del delta post-5bd1975 + fusión), snapshot BD (humano), deploy nativo Railway/Vercel, runbook post-deploy (UPC spreads PUT 18/22, cut-over por sets).
+**Trigger activo:** routine "Publicar curva de precios v2" (trig_01Noh8euNXLdK5uRrkTBfYh7) sigue disparando — considerar pausarla hasta el reset.
