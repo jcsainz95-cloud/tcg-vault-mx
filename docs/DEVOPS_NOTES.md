@@ -34,6 +34,20 @@
 > así que **el delta que se desplegaría ya no es el que se aprobó** y el gate de release debe re-pasarse
 > sobre el árbol final. §27 queda como **registro histórico**.
 >
+> **⇒ Actualización 2026-08-28 (v1.50.3, rama `claude/psa-graded-card-value-gmhv5u`): NUEVA §32 —
+> PROPAGACIÓN DE SEEDS.** El arquitecto publicó en **ARCHITECTURE §11.0** una **regla general normativa
+> que aplica a TODOS los diales del proyecto**, no solo a esta feature: **un seed es una condición
+> inicial, no un estado deseado** (`prisma/seed.ts` usa `update: {}`), así que **cambiar el default de
+> una clave ya sembrada NO cambia ningún entorno existente — incluida producción**. Cambiar un seed es un
+> **cambio de DATOS**, y exige **dos artefactos**: el default nuevo *y* un paso de despliegue explícito.
+> **Sin ese paso, el despliegue pasa todos los gates y la feature se comporta en producción exactamente
+> como antes.** Su aplicación concreta a esta release (§4.38p: los 3 diales `manualFreshnessDays` 30,
+> `minSampleCount` 5, `maxRawMultiple` 100), el **`UPDATE` directo prohibido**, qué hacer cuando un dial
+> **diverge** (se pregunta al humano, no se pisa), la verificación de cierre y el **rollback** están en
+> **§32**, con el comparador **solo-lectura** `scripts/check-graded-estimate-dials.sh` y el **PASO 8** de
+> `scripts/post-deploy.sh`. También ahí: **`next build` + `next start` para gates, nunca `next dev`**
+> (§32.6) y la confirmación de los dos huecos de entorno **abiertos** (§32.7).
+>
 > **Actualización 2026-08-23 (D-4 — cierre techlead, regla 10):** el release
 > `fix/variant-composition-regression` @ `9b6a81b` trae **cambios de DATOS** que `migrate deploy` NO cubre
 > solo (reshape de tiers **P-34 T2=25%** + cura del sellado **M-39/M-40**). La **secuencia exacta
@@ -480,9 +494,15 @@ plataformas (§11). Sin los secrets, `preflight` **falla** (comportamiento desea
 | **Vía Git** | `git revert <sha>` del merge problemático y push → CD redespliega la versión sana. Evitar `reset --hard` en ramas compartidas. |
 | **Migración de DB mala** | Restaurar desde **backup**/point-in-time del proveedor. Prisma no auto-revierte: preparar migración correctiva o `prisma migrate resolve`. **Tomar snapshot ANTES de cada `migrate deploy` en prod.** |
 | **Config/dial equivocado (M10)** | No requiere deploy: corregir el dial en el back-office (editable sin redeploy) — queda en `AuditLog`. |
+| **Seed corregido que NO llegó al entorno** | **NO es un rollback: es un paso de despliegue que falta.** Cambiar un default de una clave ya sembrada no cambia ningún entorno existente (`seed.ts` usa `update: {}`). Procedimiento, prohibiciones y rollback del propio dial: **§32**. |
 | **Secreto filtrado** | Rotar la clave en el proveedor (Stripe/APIs/JWT), actualizar el secret manager, redeploy. Rotar JWT secrets invalida sesiones (los usuarios re-login). |
 
 Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego código.
+
+> **Corolario que se pasa por alto y cuesta caro (§32.1):** igual que un deploy **no** cambia un dial ya
+> sembrado, **un rollback de deploy tampoco lo revierte**. Las filas de `ConfigSetting` sobreviven al
+> revert del código. Revertir **un valor** se hace con otro `PUT` de admin —auditado y validado—, nunca
+> con un `UPDATE` ni con un restore de base. Ver **§32.8**.
 
 ---
 
@@ -4432,3 +4452,349 @@ script: si aun así sale `000`, confirmar con `pgrep -af "next dev"` y `tail .na
 baja el techo de la curva a MX$2,000 + backend lo implementa, más la semilla de spreads de UPC), así que
 cualquier certificación de hoy caducaría igual que la de §29.11-bis. **Se hace con el commit final,
 cuando se me pida.**
+
+---
+
+## 32. Propagación de SEEDS a entornos ya sembrados — la regla general (§11.0) y el paso de v1.50.3 (§4.38p) — 2026-08-28
+
+> **La frase del arquitecto, sin suavizar y sin contexto que la amortigüe:**
+> **sin ese paso, el despliegue pasa todos los gates y la feature se comporta en producción
+> exactamente como antes.**
+>
+> Es un **falso verde**, y es la clase de cosa que el DoD existe para impedir. Un release puede tener CI
+> en verde, doble veredicto, SAST/DAST limpios y la E2E completa pasando — y no haber cambiado nada en
+> el entorno donde importa. Esta sección es el procedimiento que cierra ese hueco.
+
+**Aplica a esta release** (`claude/psa-graded-card-value-gmhv5u`, v1.50.3) **y a todas las que vengan**:
+§32.1 es la regla general, §32.2–§32.5 son su aplicación concreta a los tres diales de hoy.
+
+**Ámbito, para que nadie busque una migración que no existe:** **M-42 es DATA/seed, SIN DDL.** No hay
+migración de Prisma que correr por esta feature (no toca `schema.prisma`: ni tablas, ni columnas, ni
+enums, ni backfill). La única migración de este pase es **M-41** (instrumentación de la curva v2), que
+**ya está desplegada**. Lo que falta no es `migrate deploy`: es **dato de configuración**.
+
+---
+
+### 32.1 La regla general (ARCHITECTURE §11.0) en lenguaje operativo
+
+Tres frases, y de ellas se deriva todo lo demás:
+
+1. **Un seed es una CONDICIÓN INICIAL, no un estado deseado.** `prisma/seed.ts` hace `upsert` con
+   **`update: {}`** — o sea, **crea claves nuevas y NUNCA pisa las existentes**. Eso es **correcto y no
+   se toca**: es exactamente lo que impide que un deploy borre en silencio el ajuste deliberado de un
+   operador. El corolario, que es el que muerde: **cambiar un seed no cambia ningún entorno ya
+   sembrado.** Ni prod, ni staging, ni la base de quien corrió el seed una vez hace tres meses.
+
+2. **Por tanto, cambiar el seed de una clave YA EXISTENTE es un cambio de DATOS, no de código.** Y un
+   cambio de datos exige **dos artefactos, no uno**:
+
+   | Artefacto | Quién lo entrega | A quién sirve |
+   |---|---|---|
+   | (a) El **default nuevo** en `settings.constants.ts` / `common/*.ts` | backend | **Solo a entornos NUEVOS** (los que aún no han corrido el seed) |
+   | (b) Un **paso de despliegue explícito y verificable** | **devops + el operador** | A **todos los entornos ya sembrados**: dev con base vieja, staging y **prod** |
+
+   **Entregar solo (a) es entregar algo que funciona en los tests y no en producción** — que es la peor
+   forma de no entregarlo, porque además se ve verde.
+
+3. **No se automatiza como `UPDATE` incondicional.** Y el motivo no es pereza: **`ConfigSetting` guarda
+   un VALOR, no su PROCEDENCIA.** «Sigue en el seed viejo» y «el operador lo eligió así» son
+   literalmente el mismo dato en la tabla. Un `PUT`/`UPDATE` incondicional destruiría justo lo que
+   `update: {}` protege, y lo haría **en silencio**. Ver §32.4.
+
+**Por qué esto no es una anécdota de esta feature:** el proyecto tiene **decenas de diales sembrados**
+(escalones de grading, spreads de sellado, tiers, curva de precios, frescuras, cuotas de ingest).
+**Cualquiera de ellos puede cambiar de default en el futuro, y ninguno llegará solo.** Cuando eso pase,
+lo que se aplica es esta sección, no una nueva.
+
+> **Regla de trabajo de devops, derivada:** cuando un PR cambia un valor en `SETTING_DEFAULTS` o en las
+> constantes `DEFAULT_*` de una clave **que ya existía**, ese PR **no está completo** hasta que trae su
+> paso (b). Si llega sin él, el hallazgo se enruta al rol dueño del código — devops no lo inventa.
+
+---
+
+### 32.2 El paso de despliegue de esta release (§4.38p) — los tres diales de v1.50.3
+
+**Qué se corrigió en el código, y en qué dirección iba el valor viejo:**
+
+| Clave (DTO de admin) | Seed VIEJO | Default NUEVO | Dirección del viejo | Criterio que gobierna |
+|---|---|---|---|---|
+| `manualFreshnessDays` | `null` | **30** | **PERMISIVA** — `null` **deroga** el criterio | **109** — el override manual decae a los 30 días |
+| `minSampleCount` | `3` | **5** | **PERMISIVA** — admite muestras que §O.7 rechaza | **111(a)** / §O.7 — `minSalesSample` = 5 |
+| `maxRawMultiple` | `50` | **100** | Restrictiva — suprimía sin explicación 50×–100× | **111(c)** / §O.7 — `maxGradedMultiple` = 100× |
+
+**Verificado en vivo por backend, no supuesto:** en cualquier entorno ya sembrado —**incluida
+producción**— esas tres claves **conservan sus valores viejos** con el código nuevo desplegado y los
+tests en verde. El E2E del criterio 109 le falló hasta fijar el dial a mano.
+
+**El procedimiento. Se corre en CADA entorno ya sembrado** (dev con base vieja, **staging**, **prod**),
+después del deploy y **antes de anunciar el release**:
+
+```bash
+# PASO 1+2 — GET, comparar con los defaults nuevos, e IMPRIMIR el PUT exacto.
+#            Solo lectura: este script NO escribe nada, y no tiene bandera para hacerlo.
+ADMIN_BASE_URL='https://<api-del-entorno>/api/v1' \
+ADMIN_JWT='<access token de super_admin>' \
+  bash scripts/check-graded-estimate-dials.sh
+```
+
+Códigos de salida, pensados para leerse de un vistazo:
+
+| rc | Significa | Qué hacer |
+|---|---|---|
+| **0** | Los tres diales ya están en su valor de criterio | Nada. Seguir a la verificación de cierre (§32.5). |
+| **10** | Hay claves **en el seed viejo** | Ejecutar el `PUT` que el script imprimió (paso 3). |
+| **20** | Hay claves que **divergen** de ambos valores | **Preguntar al humano.** No se pisa nada. §32.4. |
+| **2** | Error de entorno, o el DTO **no trae** una de las claves | Parar. El binario desplegado no es el que creemos. |
+
+```bash
+# PASO 3 — aplicar SOLO las claves que siguen en el seed viejo. El cuerpo es PARCIAL a
+#          propósito: reenviar las que ya estaban al día es una escritura auditada sin
+#          cambio, o sea ruido en el AuditLog de un dial comercial.
+curl -X PUT "$ADMIN_BASE_URL/admin/pricing/graded-estimates" \
+     -H "Authorization: Bearer $ADMIN_JWT" \
+     -H 'Content-Type: application/json' \
+     -d '{ "manualFreshnessDays": 30, "minSampleCount": 5, "maxRawMultiple": 100 }'
+```
+
+```bash
+# PASO 4 — VERIFICACIÓN DE CIERRE. Es parte del paso, no un extra. Ver §32.5.
+bash scripts/check-graded-estimate-dials.sh   # debe salir 0, los tres AL DÍA
+```
+
+**Cableado para que no se olvide:** `scripts/post-deploy.sh` gana un **PASO 8** que corre el comparador
+(solo lectura, con `ADMIN_BASE_URL`+`ADMIN_JWT`; si faltan, imprime la instrucción manual). **No bloquea
+el post-deploy** —informa y sigue—, pero si el resultado no es `0` el resumen final imprime
+**«BLOQUEA EL ANUNCIO DEL RELEASE»**. La distinción es deliberada: el script no puede decidir por el
+operador, pero sí puede impedir que el pase termine con un «todo OK» que no es cierto.
+
+---
+
+### 32.3 PROHIBIDO `UPDATE` directo a la base — y el motivo no es estético
+
+Es más rápido. Es una línea de SQL. **No se hace**, y conviene que las tres razones estén escritas
+porque cada una tapa un agujero distinto:
+
+| Lo que da el `PUT` de admin | Lo que pasa con `UPDATE` directo |
+|---|---|
+| **Queda AUDITADO** (`AuditLog`, M10, con `before`/`after` y el `userId`): se ve **quién** tocó un dial que gobierna una **afirmación comercial** y **cuándo**. | **Cero rastro.** Dentro de seis meses, «¿por qué prod tiene 14 aquí?» no tiene respuesta. |
+| **Pasa las validaciones I1–I9** del recurso. | Puede dejar la clave **presente-e-inválida**. Y eso **no es inocuo: APAGA la feature** por fail-closed (§4.38d) — `AUSENTE ≠ INVÁLIDA`: una clave ausente cae al default de código, una clave presente-e-inválida apaga la superficie. Un `UPDATE` con el tipo equivocado apaga el gancho entero **sin que nadie lo pida**. |
+| **Surte efecto SIN REDEPLOY** (el resolver lee el setting en cada request). | Igual de inmediato, pero sin las otras dos garantías. Se pierde todo y no se gana nada. |
+
+**SQL directo se salta las tres.** No hay caso en el que compense.
+
+> Mismo criterio, distinto sitio: el **`UPDATE` masivo tampoco es la vía para repriciar** (§29 / P-48).
+> Es el mismo principio: la vía normal de operación existe porque valida, audita y es reversible.
+
+---
+
+### 32.4 Si un dial DIVERGE: **la decisión NO es de devops**
+
+**Este es el punto que más importa de toda la sección.**
+
+Si al comparar aparece un valor que **no es ni el default nuevo ni el seed viejo** —digamos
+`manualFreshnessDays = 14`— eso es señal de que **alguien lo ajustó a propósito**. Y **no hay forma de
+confirmarlo**: `ConfigSetting` guarda un valor, no su procedencia. «Se quedó así desde el seed» y «el
+operador lo eligió así» **son el mismo dato**. Peor: los valores viejos (`null`, `3`, `50`) son
+**elecciones de operador perfectamente plausibles**, así que ni siquiera el caso «coincide con el seed
+viejo» es prueba de nada — solo es lo bastante probable como para proponer el cambio.
+
+> **Se evaluó y se DESCARTA** inferir la procedencia del `AuditLog` («si nadie editó esta clave, sigue en
+> el seed»). Hacer depender la sobrescritura de un dial comercial de la **completitud de un log** falla
+> **abierto y en silencio** ante una poda de auditoría o una edición fuera de banda. Demasiado listo para
+> una ruta que decide qué se publica.
+
+**Por lo tanto, y sin ambigüedad:**
+
+- **Pisarlo es decisión del HUMANO, no de devops.** En ese caso **se pregunta, no se sobrescribe.**
+- Lo que devops entrega es **la comparación**: valor vigente, default nuevo y el criterio que gobierna,
+  **clave por clave**, para que el dueño decida con los dos números delante.
+- `scripts/check-graded-estimate-dials.sh` **no propone `PUT` para las claves divergentes**, ni tiene
+  bandera de `--force`. Sale con `rc=20` y las lista.
+- En la lista del humano esto va como **GU-13** — no porque sea difícil, sino porque **tocar diales de
+  producción no es algo que devops haga por iniciativa propia**.
+
+---
+
+### 32.5 Verificación de cierre — y el límite honesto del E2E (hallazgo de devops)
+
+Un `PUT` con HTTP 200 dice que **la escritura se aceptó**, no que **el criterio se cumple**. La
+verificación tiene tres piezas, y **no son intercambiables**:
+
+**(1) Re-leer la config.** `bash scripts/check-graded-estimate-dials.sh` → `rc=0`, los tres AL DÍA.
+Barato, seguro, y sirve **en cualquier entorno, prod incluida**.
+
+**(2) La LÍNEA DE INVENTARIO del arranque.** Backend añade al izar la config una línea **`info`**
+(deliberadamente **no `warn`**: los diales ajustados a propósito son normales, y una alerta por cada uno
+es **ruido que se aprende a ignorar**) enumerando las claves cuyo valor vigente **difiere de su default
+de código**. Para devops esto es oro: convierte **«¿qué diales tiene realmente prod?»** en un `grep`
+sobre los logs de arranque, en vez de en una consulta a la base de producción.
+
+**Verificado contra la implementación de backend (`settings.service.ts`), no supuesto — el prefijo
+exacto del log es `config inventory:`**, así que el grep es literal:
+
+```bash
+# Railway (o el agregador de logs que aplique), tras reiniciar el servicio:
+railway logs --service backend | grep 'config inventory'
+
+# Stack nativo local:
+grep 'config inventory' .native-stack/backend.log
+```
+
+Cómo se lee la salida:
+
+| Línea | Significado |
+|---|---|
+| `config inventory: las N clave(s) sembradas están en su default de código.` | El entorno está **exactamente** alineado con el código. |
+| `config inventory: M de N clave(s) DIFIEREN … → clave=valor (default …)` | Inventario de lo ajustado. **Cada entrada trae el valor vigente Y el default**, que es justo la comparación de §32.2 — pero para **todos** los diales del proyecto, no solo los tres de hoy. |
+| `config inventory: no se pudo leer ConfigSetting …` (`warn`) | Fallo de observabilidad, no de la app. No concluye nada: usar (1). |
+
+**Una clave AUSENTE no se lista** (resuelve al default, así que no difiere). Si las tres claves de esta
+release ya **no** aparecen en esa línea, el entorno está alineado con el código.
+*(Única excepción que sigue siendo `warn`: `manualFreshnessDays === null` (I8-bis), porque **desactiva un
+criterio de `PROJECT.md`**. Un `warn` ahí sí está ganado.)*
+
+**(3) El E2E del criterio 109** — **en STAGING, no en prod.** Aquí está el hallazgo que devops añade al
+paso de §4.38(p), y prefiero decirlo antes de que alguien lo intente:
+
+```bash
+# STAGING (o local con el stack nativo). DATABASE_URL apunta al entorno destino.
+cd backend
+DATABASE_URL='postgresql://…staging…' \
+  npx jest --config test/jest-integration.config.js --runInBand \
+    test/integration/graded-estimate.e2e-spec.ts -t '8d'
+```
+
+| Lo que hay que saber antes de correrlo | Consecuencia |
+|---|---|
+| El arnés (`test/integration/helpers/e2e-app.ts`) **levanta la app Nest en proceso** contra `DATABASE_URL` — no es un cliente HTTP contra una URL remota. | «Contra el entorno destino» = **apuntando a su base**, no a su URL. |
+| El spec **ESCRIBE**: `PUT /admin/settings` para encender/apagar el dial global, `PUT` de `manualFreshnessDays`, `POST /admin/pricing/override` y un `updateMany` que envejece `capturedDate`. | **No se corre contra producción.** Volcaría escrituras sobre datos reales y encendería/apagaría un dial global. |
+| `beforeAll` exige el fixture sintético `e2e-common` y **lanza** si no está (`npm run seed:synthetic`). | En prod **ni siquiera arrancaría**: no hay fixtures sintéticos y no debe haberlos. |
+| El caso **8d fija el dial él mismo** (`PUT { manualFreshnessDays: 30 }`) antes de asertar. | ⚠ **El E2E ya NO detecta el seed viejo.** Prueba el **comportamiento** con el dial en su valor de criterio; **no** prueba que el entorno lo tenga. |
+
+**Qué significa esa última fila, sin adornos:** cuando el arquitecto escribió que «el E2E del criterio 109
+falló hasta fijar el dial a mano», eso fue **antes** de que backend endureciera el test. Hoy el spec se
+autoabastece — lo cual está bien para lo que él verifica (que la lógica de decaimiento existe y funciona)
+— pero **deja de ser el detector del seed rancio**. El detector es **(1)** y **(2)**. Quien crea que
+«corrí el E2E y pasó» equivale a «el dial de prod está bien», se está engañando con la misma clase de
+verde falso que esta sección vino a quitar.
+
+**Reparto, entonces:**
+
+| Entorno | (1) `GET`/comparador | (2) Línea de inventario | (3) E2E 109 |
+|---|---|---|---|
+| Local con base vieja | Sí | Sí | Sí |
+| **Staging** | Sí | Sí | **Sí — aquí es donde corre** |
+| **Producción** | **Sí — es la verificación** | **Sí** | **NO. Nunca.** |
+
+> **Escalada al arquitecto (regla 9, no la resuelvo yo):** §4.38(p) paso 4 dice «correr el E2E del
+> criterio 109 contra ese entorno», y ese entorno incluye prod en la lista del propio paso. **Tal como
+> está escrito no es ejecutable contra producción** por las cuatro razones de la tabla. Propongo que §4.38(p)
+> paso 4 se lea: *«re-`GET` + línea de inventario en TODOS los entornos; E2E del criterio 109 en
+> staging»*. Mientras el arquitecto no lo enmiende, **el procedimiento operativo vigente es esta §32.5**,
+> y queda escrito aquí que difiere del literal del contrato en ese punto.
+
+---
+
+### 32.6 Arnés de gates: `next build` + `next start`, **nunca `next dev`**
+
+Hallazgo de frontend que afecta a cualquier gate que devops declare, así que vive aquí:
+
+**El problema.** `frontend/playwright.config.ts:71` usa **`reuseExistingServer: !isCI`**. Si hay un
+`next dev` suelto en el puerto y se corre la suite en **modo MOCK** (sin `E2E_BASE_URL`), **Playwright
+reutiliza ese servidor** en vez de levantar el suyo con `NEXT_PUBLIC_USE_MOCKS=true` ⇒ las pruebas
+**hablan con el backend real en vez de con los datos de prueba**. **Nueve specs fallaron en bloque** por
+esto, y ese rojo **no medía nada**. El modo de fallo simétrico es peor: un servidor reusado que
+*casualmente* sirva lo esperado da un **verde** que tampoco mide nada.
+
+**Y aunque no se reutilice: `next dev` no sirve para un gate.** Compila **bajo demanda** (de ahí el falso
+`frontend: 000` del `status`, §31.6), **se degrada tras varias recompilaciones**, y sobre todo **no es el
+artefacto que se despliega**.
+
+**Regla, para gates y para veredictos:**
+
+> **Un gate corre contra `next build` + `next start`. `next dev` es para desarrollar.**
+
+Lo que se cableó del lado de devops:
+
+- **`scripts/stack-native.sh up --gate`** (o `FRONTEND_MODE=build`): hornea con `next build`
+  —`NEXT_PUBLIC_USE_MOCKS=false` y la URL del backend quedan **FIJADAS en el bundle**, no dependen del
+  entorno del runtime— y sirve con `next start`.
+- **En modo `--gate` el script se NIEGA a reutilizar** lo que ya responda en el puerto: muere con
+  instrucciones para apagarlo. En modo `dev` sigue reutilizando (es cómodo y no es un gate), pero
+  **avisa** de que no verificó con qué se horneó ese proceso.
+- `stop_apps` ahora también mata `next start -p $FRONTEND_PORT`, no solo `next dev`.
+
+**Regla operativa complementaria: una sola app por puerto, y sabiendo cuál es.** Antes de correr la
+suite en modo MOCK: `./scripts/stack-native.sh down`, **o** exportar `CI=1` (desactiva
+`reuseExistingServer`). En modo GATE no aplica: `E2E_BASE_URL` desactiva el `webServer` entero.
+
+> **Hallazgo para FRONTEND (su archivo, no lo toco):** `playwright.config.ts:68` levanta `npm run dev`
+> como `webServer`, así que **incluso en CI** (`e2e.yml`, modo mock) el gate corre sobre `next dev` —
+> Playwright no lo reutiliza allí, pero lo arranca él. Y `reuseExistingServer: !isCI` hace que el
+> resultado local dependa de qué haya suelto en el puerto. Propuesta: `command` de build+start para las
+> corridas de gate, y `reuseExistingServer: false` salvo opt-in explícito. **No bloquea** el pase de hoy
+> (el gate real es `e2e-real.yml`, que va contra `E2E_BASE_URL` y no usa el `webServer`), pero mientras
+> siga así, el veredicto de un modo mock local depende del entorno de quien lo corre.
+
+---
+
+### 32.7 Huecos de entorno preexistentes — **siguen vigentes, siguen abiertos**
+
+Re-verificados en este pase. **No son nuevos y no los abre esta release**; se confirman para que nadie
+lea un verde parcial como cobertura completa. **Entre los dos dejan 4 smokes de dinero sin verificar en
+navegador.**
+
+| # | Hueco | Qué bloquea | Dueño | Estado |
+|---|---|---|---|---|
+| 1 | **Falta `STRIPE_TEST_SECRET_KEY`** (+ `STRIPE_TEST_PUBLISHABLE_KEY`) en los secrets de GitHub | **3 smokes**: `checkout`, `guest-checkout`, `shipments`. Sin clave, el backend cae a `sk_test_dummy`, `paymentIntents.create` falla y devuelve **503 `PAYMENT_PROVIDER_UNAVAILABLE`** (degrada money-safe: libera la reserva). | **HUMANO** — solo él puede crear la clave | **ABIERTO.** §31.1 sigue siendo la instrucción exacta. La fontanería ya existe (`docker-compose.staging.yml:171-173,206`) y el preflight de `e2e-real.yml` ya es gate duro en la ruta de promoción (§31.4). **No falta cableado: falta la clave.** |
+| 2 | **`scripts/stack-native.sh` no levanta MinIO/R2** | **1 smoke**: la **subida del INE del buylist** (sobre el tope AML) — el flujo `uploads` no se ejercita por la ruta nativa. | **devops** (asumido, no bloqueante) | **ABIERTO y ACEPTADO.** Documentado desde §30 (línea «Sin MinIO/R2») y avisado por el propio script al terminar. Alternativas: ruta Docker (`docker-compose.staging.yml`) o levantar MinIO aparte. |
+
+**Nota honesta sobre el hueco 1, que ya estaba en §31.3 y no ha cambiado:** aunque la clave llegue, esos
+tres verdes prueban **«la sesión de pago se crea contra Stripe de verdad»**, **no** «el pedido se
+asienta». La cadena completa navegador → Stripe → webhook → `settled` **no la cubre nadie hoy** y no la
+declaro como gate.
+
+**Y sobre correrlo aquí:** `api.stripe.com` está **bloqueado por egress** desde esta máquina
+(CONNECT → 403, §31.2). Darle la clave al stack nativo local **no** pondría esos smokes en verde: se
+quedarían rojos por timeout de red en vez de por falta de clave. **El gate vive en `e2e-real.yml`** (runner
+`ubuntu-latest`, salida abierta) o en un staging real.
+
+---
+
+### 32.8 Rollback
+
+**El rollback de un dial NO es un rollback de deploy.** Los dos casos, y son distintos:
+
+| Escenario | Acción | Por qué |
+|---|---|---|
+| **El `PUT` de §32.2 se aplicó y hay que revertirlo** | **Otro `PUT`** con el valor anterior (que el comparador te imprimió antes de aplicar — **anótalo**). Efecto inmediato, **sin redeploy**. | Es un cambio de datos por la vía normal: queda **auditado en las dos direcciones** (`before`/`after`) y validado. Nunca un `UPDATE` ni un restore de base: para revertir **un valor** no se toca un backup. |
+| **Se revierte el DEPLOY de v1.50.3** | El código vuelve atrás; **las filas `ConfigSetting` NO vuelven atrás**. | Es el **corolario simétrico de §32.1**: igual que un deploy no cambia un dial, un rollback tampoco lo revierte. Las tres claves quedan **huérfanas e inertes** (precedente `rarity_map`, §M2 v1.32) — el código viejo no las lee. **Sin riesgo de $0 ni ventana ciega**: el flag arranca `off` y el resolver es fail-closed on-read. |
+| **La feature se comporta mal tras aplicar los diales** | **Apagarla con su dial M10**: `PUT /admin/settings { "gradedEstimatesEnabled": "off" }`. No requiere deploy ni tocar los tres diales. | Fail-closed: con `off` no se evalúa nada ni se emite ningún campo. Es el rollback **más barato y más rápido** de esta feature, y el que hay que intentar primero. |
+
+⚠ **Lo que el rollback de deploy NO deshace:** las filas `PriceReference` con `gradeKey='graded:PSA:*'`
+que el admin haya fijado **sobreviven** y siguen siendo lo que ya eran antes de v1.50 (el valor de
+mercado de M1 «Gradeadas», §M1 v1.28). Eso es correcto y deliberado; no se limpian.
+
+**Recordatorio de la regla de oro (§7): datos primero, luego código.** Aquí no hay snapshot que tomar
+—**M-42 no tiene DDL**— pero sí hay algo que **anotar antes de escribir**: los tres valores vigentes que
+el comparador imprime en el paso 1. Sin ese apunte, el rollback del dial no tiene a dónde volver.
+
+---
+
+### 32.9 Checklist del pase (§4.38p) — para pegar en el ticket del release
+
+- [ ] `migrate deploy` — **nada nuevo por M-42** (es DATA/seed, sin DDL). M-41 (curva) ya está desplegada.
+- [ ] **Staging**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes **antes** de tocar nada.
+- [ ] **Staging**: aplicar el `PUT` parcial solo de las claves en el seed viejo. Divergentes → **preguntar** (§32.4).
+- [ ] **Staging**: re-`GET` (`rc=0`) + línea de inventario del arranque + **E2E del criterio 109** (`-t '8d'`).
+- [ ] **Prod**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes.
+- [ ] **Prod**: aplicar el `PUT` parcial. Divergentes → **preguntar al humano (GU-13)**, no sobrescribir.
+- [ ] **Prod**: re-`GET` (`rc=0`) + línea de inventario del arranque. **E2E 109 NO se corre aquí** (§32.5).
+- [ ] La feature sigue **APAGADA** por su dial (`graded_estimates_enabled = off`) hasta que el humano
+      apruebe el texto legal. **Encenderla no es decisión de devops** y **no es parte de este paso.**
+- [ ] Solo entonces: anunciar el release.
+
+> **El último punto no es una formalidad.** Los tres diales se alinean **con la feature apagada**. Eso es
+> lo correcto: cuando el humano la encienda, se enciende **ya con el criterio que `PROJECT.md` escribió**,
+> no con el que el código eligió por accidente. Alinear los diales **después** de encender significaría
+> publicar durante un rato afirmaciones comerciales que el producto no autorizó.

@@ -88,7 +88,7 @@ die()  { printf '\n\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 
 cd "$BACKEND_DIR"
 
-# ¿Hay credenciales de admin para los pasos por HTTP? (3, 4 y 5)
+# ¿Hay credenciales de admin para los pasos por HTTP? (3, 4, 5 y 8)
 HAS_ADMIN_HTTP=0
 if [ -n "${ADMIN_BASE_URL:-}" ] && [ -n "${ADMIN_JWT:-}" ]; then HAS_ADMIN_HTTP=1; fi
 
@@ -96,7 +96,7 @@ log "Contexto"
 echo "  backend:      $BACKEND_DIR"
 # Ofusca credenciales del DSN al imprimir (host visible, password no).
 echo "  DATABASE_URL: $(printf '%s' "$DATABASE_URL" | sed -E 's#(//[^:]+):[^@]+@#\1:****@#')"
-echo "  admin HTTP:   $([ "$HAS_ADMIN_HTTP" = 1 ] && echo 'disponible (ADMIN_BASE_URL + ADMIN_JWT)' || echo 'NO configurado → pasos 3/4/5 quedan manuales')"
+echo "  admin HTTP:   $([ "$HAS_ADMIN_HTTP" = 1 ] && echo 'disponible (ADMIN_BASE_URL + ADMIN_JWT)' || echo 'NO configurado → pasos 3/4/5/8 quedan manuales')"
 
 # -----------------------------------------------------------------------------
 # PASO 1 — Migraciones (M-39 SealedProduct + M-40 PendingPriceEntry.sealedProductId
@@ -350,10 +350,53 @@ cat <<'EOF'
   Ver DEVOPS_NOTES §27.6.
 EOF
 
+# -----------------------------------------------------------------------------
+# PASO 8 — v1.50.3 (§4.38p, regla general §11.0): los 3 diales corregidos NO llegan
+#   solos a un entorno ya sembrado. `prisma/seed.ts` hace `upsert` con `update: {}`
+#   (a propósito: protege el ajuste deliberado del operador), así que corregir el
+#   default en `settings.constants.ts` NO cambia PROD. El código nuevo se despliega,
+#   los tests pasan, y `manualFreshnessDays`/`minSampleCount`/`maxRawMultiple` siguen
+#   con `null`/`3`/`50`. Sin este paso el deploy pasa todos los gates y la feature se
+#   comporta en producción exactamente como antes: un falso verde.
+#
+#   AQUÍ SOLO SE COMPARA. El `PUT` lo ejecuta el OPERADOR a mano, porque el caso
+#   «el dial diverge» es una decisión suya, no de un script (§11.0-3/-4).
+#   NO BLOQUEA el post-deploy: informa y sigue. Lo que bloquea el anuncio del
+#   release es que el operador lo resuelva (ver el resumen final).
+# -----------------------------------------------------------------------------
+log "PASO 8 — diales de v1.50.3 (§4.38p) — comparación SOLO-LECTURA, no escribe nada"
+DIALS_RC=0
+if [ "$HAS_ADMIN_HTTP" = 1 ]; then
+  ADMIN_BASE_URL="$ADMIN_BASE_URL" ADMIN_JWT="$ADMIN_JWT" \
+    bash "$REPO_ROOT/scripts/check-graded-estimate-dials.sh" || DIALS_RC=$?
+  case "$DIALS_RC" in
+    0)  ok "Los 3 diales ya están en su valor de criterio en este entorno." ;;
+    10) warn "Hay diales EN EL SEED VIEJO. El \`PUT\` está impreso arriba: lo ejecuta el OPERADOR." ;;
+    20) warn "Hay diales que DIVERGEN: se PREGUNTA al dueño, NO se pisan (§11.0-3)." ;;
+    *)  warn "El comparador de diales no pudo concluir (rc=$DIALS_RC). Revisar antes de anunciar." ;;
+  esac
+else
+  DIALS_RC=10
+  cat <<'EOF'
+  ↷ Manual (no se definieron ADMIN_BASE_URL/ADMIN_JWT). Con un JWT de super_admin:
+      ADMIN_BASE_URL='https://<api>/api/v1' ADMIN_JWT='<super_admin>' \
+        bash scripts/check-graded-estimate-dials.sh
+    Solo lectura: hace el GET, compara y te imprime el PUT exacto. No escribe nada.
+    Ver DEVOPS_NOTES §32.
+EOF
+fi
+
 log "POST-DEPLOY COMPLETADO — pasos automatizables OK."
 echo "  Pendientes manuales: unify-rarities (si no se disparó por HTTP), el cut-over"
 echo "  publish-all (si no se pasó RUN_PUBLISH_ALL=1), la REVISIÓN DE OVERRIDES heredados"
 echo "  por el dueño (§29.5) y el sync de sellado por set (paso 7)."
+if [ "${DIALS_RC:-0}" != "0" ]; then
+  echo
+  echo "  ► BLOQUEA EL ANUNCIO DEL RELEASE (§4.38p): los diales de v1.50.3 NO están"
+  echo "    resueltos en este entorno. Mientras sigan en el seed viejo, el código nuevo"
+  echo "    está desplegado y la feature se comporta como ANTES. Resolver el paso 8 y"
+  echo "    re-verificar (script en 0 + línea de inventario del arranque). DEVOPS_NOTES §32."
+fi
 if [ -n "${PUBLISH_ALL_SET_ID:-}" ]; then
   echo
   echo "  ► CUT-OVER POR SETS: este pase cubrió UN set. Repite pasos 4+5 con el SIGUIENTE"
