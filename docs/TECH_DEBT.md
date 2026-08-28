@@ -4437,20 +4437,26 @@
 - **Disparador:** el próximo pase que toque `ingestSet`, o si el tiempo de una corrida de precios se
   vuelve un problema operativo (medir primero: nº de `card.findUnique` por corrida).
 
-#### PI-D2 · El gate de EVIDENCIA deja al shape S2 sin poder escribir, y su escotilla no aplica (Media, **decisión del arquitecto**)
-- **Dueño:** **arquitecto** (decide), backend (implementa). **Severidad:** Media.
-- **Estado:** el gate de evidencia de §4.38(m.2) se implementó **literalmente** («ausente ⇒ no se
-  escribe»). Consecuencia: el shape **S2** (`gradedPrices.psaN`, escalar) **no puede escribir nunca**,
-  porque no trae fecha de última venta por construcción ⇒ siempre `evidence_unknown`.
-- **Por qué se anota en vez de resolverse:** inventar una escotilla («acepta evidencia desconocida si el
-  operador lo pide») sería backend cambiando el diseño por su cuenta — exactamente lo que la regla 9
-  prohíbe. La escotilla existente del `count`
-  (`POKEMONPRICETRACKER_GRADED_MIN_COUNT=0`), que existía **para que S2 pudiera escribir**, deja de
-  alcanzar: ahora topa con el gate de evidencia.
-- **Impacto hoy: ninguno** — `graded_estimate_ingest_enabled` tiene seed `off`. **Bloquea encender la
-  fase 2** si la primera corrida revela que el proveedor sirve S2 y no S1.
-- **Disparador:** antes de encender el ingest. Si la respuesta real es S1 (la hipótesis principal), esto
-  se cierra como no-aplicable.
+#### PI-D2 · ~~El gate de EVIDENCIA deja al shape S2 sin poder escribir~~ → **RESUELTO por dictamen** (v1.50.3-a)
+- **Dueño:** arquitecto (decidió), backend (implementó). **Estado: CERRADO como decisión de diseño.**
+- **Desenlace (§4.38h.1-bis):** **S2 queda declarado NO PERSISTIBLE** y **no se añade una segunda
+  escotilla**. S2 no es «un S1 degradado»: el escalar no trae **ni `count` ni fecha**, o sea ninguna de
+  las dos piezas de evidencia con las que se calculan las pruebas 1 y 2 del gate de confianza ⇒ es
+  **estructuralmente incapaz** de pasarlas, y ninguna configuración lo arregla porque **no hay nada que
+  configurar**. Tampoco existe superficie donde una fila S2 fuera admisible (la ficha es más permisiva
+  en **magnitud**, no en procedencia), así que persistirla sería basura en una tabla de dinero.
+- **Corrección al planteamiento original, del arquitecto:** **S2 tampoco era persistible antes de
+  v1.50.3** — sin `count`, el punto 2 del gate ya quedaba *desconocido* ⇒ fail-closed. El único camino a
+  la BD era la escotilla, y una escotilla es *aceptar un riesgo a sabiendas*, no una vía normal. El
+  parser **ya era «de una hipótesis y media»**; v1.50.2 no lo decía en voz alta.
+- **Implementado:** `POKEMONPRICETRACKER_GRADED_MIN_COUNT` **retirada del código** (una escotilla que no
+  abre nada es peor que ninguna: alguien la pone, no ve cambio y concluye que el ingest está roto);
+  sondeo de S2 **conservado** como **diagnóstico** con motivo propio `shape_not_persistible_s2`,
+  contador `skippedShapeS2` **aparte**, y veredicto de corrida
+  `shape_not_persistible_s2_dominant` cuando `s2 > s1`.
+- **Lo que queda vivo, y NO es deuda de código:** si la primera corrida real emite ese veredicto, es
+  **escalada obligatoria al arquitecto** (regla 9) — significa que la fase 2 **no es viable con este
+  proveedor**, y la decisión es de producto y de costo. Ver PI-D5.
 
 #### PI-D3 · Los tres seeds corregidos NO llegan a una BD ya sembrada (Media, **operativa — devops**)
 - **Dueño:** **devops** (ejecuta), backend (lo documenta). **Severidad:** Media.
@@ -4461,10 +4467,42 @@
 - **Por qué NO se automatizó como migración:** un `UPDATE` incondicional destruiría exactamente lo que
   `update: {}` protege (la decisión del dueño). Un `UPDATE` condicionado a «solo si vale el valor viejo»
   es indistinguible de pisar una elección deliberada de 50×.
-- **Dirección de fix:** los tres `UPDATE` puntuales (o un `PUT /admin/pricing/graded-estimates`)
-  documentados en `BACKEND_NOTES` §0.4.6(a), como paso de post-deploy.
+- **Dirección de fix (v1.50.3-a, §4.38p + §11.0): NO es un `UPDATE`.** Es el paso de despliegue
+  explícito por la **vía normal de operación**: `GET /admin/pricing/graded-estimates` para ver lo
+  vigente y, si coincide con los seeds viejos, **un** `PUT` con los tres valores. Queda **auditado**
+  (`AuditLog`, M10), **validado** (I1–I9) y surte efecto **sin redeploy**. Si alguno difiere, el
+  operador lo ajustó a propósito y **decide él, clave por clave**. ⚠️ **Prohibido `UPDATE` directo a la
+  BD:** se salta auditoría, validación (una clave presente-e-inválida **apaga la feature**) y bitácora.
+- **Ratificado por el arquitecto:** no se automatiza porque `ConfigSetting` guarda un **valor**, no su
+  **procedencia** — «sigue en el seed viejo» y «el operador lo eligió así» son el mismo dato, y `3`,
+  `50` y `null` son elecciones plausibles. Inferirlo del `AuditLog` se **descartó**: falla abierto y en
+  silencio ante una poda. La regla general quedó en **§11.0**.
+- **Detector implementado por backend (v1.50.3-a/b):** `SettingsService.onModuleInit()` emite **una**
+  línea `log` de **inventario de configuración** (clave + vigente + default) y **siempre**, con
+  `SIN DIVERGENCIAS` explícito cuando no hay ninguna. Con el E2E descartado como detector de
+  configuración (§11.0 punto 5), esta línea y el `GET` son **los dos únicos detectores del seed rancio**.
 - **Disparador:** **antes** de dar por cumplidos los criterios 109 y 111(a)/(c) en cualquier entorno que
-  ya haya corrido el seed. Es requisito de release, no de código.
+  ya haya corrido el seed. Es requisito de release, no de código. **Va al humano como GU-13** (el paso 3
+  es una decisión suya).
+
+#### PI-D5 · Riesgo de PROVEEDOR ÚNICO para la fase 2: si PPT sirve S2, no hay sustituto (Media, **producto/costo**)
+- **Dueño:** **arquitecto/producto** (decide), backend (detecta e informa). **Severidad:** Media.
+- **Riesgo:** **solo PPT** puede entregar PSA — verificado que TCGCSV y pokemontcg.io tienen eje de
+  **acabado**, no de **grado**, así que no son sustitutos ni degradados. `PokeTraceProvider` está
+  declarado y **nunca implementado**, y no hay evidencia de que exponga PSA (diseñar contra eso sería
+  reincidir en **P-6**). Si PPT sirve **mayoritariamente S2**, la fase 2 **no es viable con este
+  proveedor**.
+- **Detección implementada (§4.38h.1-bis):** el job emite `escalation.reason =
+  shape_not_persistible_s2_dominant` (+ `logger.error` + `AuditLog`) cuando `shapeCounts.s2 >
+  shapeCounts.s1` en la corrida. Umbral de **mayoría estricta** a propósito: una escalada dispara una
+  decisión de arquitectura y presupuesto, así que tiene que **poder sostener su veredicto**.
+- **Qué NO se hace al verlo:** ni escotilla, ni dial nuevo, ni `count` inventado. **Vuelve al
+  arquitecto** (regla 9). Las opciones —degradar a manual de forma permanente, buscar un segundo
+  proveedor, o pagar el plan que exponga `salesByGrade`— son de **producto y de costo**.
+- **Impacto hoy: ninguno** (`graded_estimate_ingest_enabled` seed `off`). **No hay acantilado detrás:**
+  la degradación a manual ya está diseñada, aceptada y funcionando — es el estado de v1.50. Se pierde la
+  **automatización** de la feature, no la feature.
+- **Disparador:** la primera corrida real del ingest.
 
 #### PI-D4 · `preview` y `review` divergen en el corte por `FEATURE_OFF` (Baja, backend)
 - **Dueño:** backend. **Severidad:** Baja (aceptada; la divergencia es **deliberada** y está documentada

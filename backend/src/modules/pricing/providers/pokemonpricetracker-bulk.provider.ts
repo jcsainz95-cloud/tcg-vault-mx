@@ -185,7 +185,15 @@ export interface GradedDropSample {
     // (no escribir). Fundirlos haría indistinguible «el proveedor dejó de recibir ventas de esta carta»
     // de «el campo se llama de otra forma y hay que ajustar el dial».
     | 'evidence_too_old'
-    | 'evidence_unknown';
+    | 'evidence_unknown'
+    /**
+     * v1.50.3-a (§4.38h.1-bis) — el proveedor sirvió **S2** (`gradedPrices.psaN`, escalar), declarado
+     * **NO PERSISTIBLE**. Motivo PROPIO y contado APARTE de los otros dos a propósito: «el proveedor
+     * cambió de shape» y «esta carta tiene pocas ventas» exigen **reacciones opuestas**, y un contador
+     * único los vuelve indistinguibles **justo cuando hay que decidir si escalar**. Este motivo NO es
+     * un descarte de rutina: es la **señal de escalada** de (h.1-bis).
+     */
+    | 'shape_not_persistible_s2';
   count: number | null;
   /** Muestra CRUDA del bloque que no se reconoció (truncada). Es el insumo para confirmar el shape. */
   sample: string;
@@ -241,6 +249,18 @@ export interface GradedEstimateFetchResult {
    * veredicto ya emitido por set y no podía distinguir los dos casos.
    */
   sawGradedBlock: boolean;
+  /**
+   * v1.50.3-a (§4.38h.1-bis) — **cuántas CARTAS de este set trajeron cada shape**, contadas por
+   * ENTRADA (no por grado) porque la pregunta que responden es *«¿qué está sirviendo el proveedor?»*,
+   * no *«cuántas filas de dinero salieron»*.
+   *
+   * Es el insumo del veredicto de escalada **a escala de CORRIDA**: si PPT sirve mayoritariamente
+   * `gradedPrices` (S2), la fase 2 **no es viable con este proveedor** y la decisión —degradar a manual
+   * de forma permanente, buscar otro proveedor o pagar el plan que exponga `salesByGrade`— es de
+   * **producto y de costo**, no de código. Se cuenta aquí y se juzga arriba, por la misma razón que
+   * `sawGradedBlock`: el provider solo ve UN set y no puede sostener ese veredicto solo.
+   */
+  shapeCounts: { s1: number; s2: number };
 }
 
 /**
@@ -566,13 +586,32 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
    *
    * | | Ruta | Persiste SOLO si |
    * |---|---|---|
-   * | **S1** | `ebay.salesByGrade.psaN` (objeto) | el stat elegido es número finito **> 0** Y `count` entero **>= minSampleCount** |
-   * | **S2** | `gradedPrices.psaN` (escalar) | es número finito **> 0** Y se resuelve la regla de `count` |
+   * | **S1** | `ebay.salesByGrade.psaN` (objeto) | el stat elegido es número finito **> 0**, Y `count` entero **>= minSampleCount**, Y la **evidencia** (`lastSaleDate`) se identifica positivamente y cae dentro de `freshnessDays` |
+   * | **S2** | `gradedPrices.psaN` (escalar) | **NUNCA** — declarado **NO PERSISTIBLE** (§4.38h.1-bis). Se **detecta** y se **registra**; no se escribe |
    * | **—** | cualquier otra (array, string, null, NaN, negativo, objeto desconocido) | **NADA** + muestra cruda |
    *
-   * - **S2 no trae `count` ⇒ el punto 2 del gate de confianza queda DESCONOCIDO ⇒ fail-closed ⇒ NO se
-   *   persiste.** «Desconocido» no es «suficiente». Escotilla explícita del operador:
-   *   `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` acepta el riesgo **a sabiendas**.
+   * ### v1.50.3-a (§4.38h.1-bis) — S2 es NO PERSISTIBLE, y por qué el sondeo se conserva igual
+   * El gate de confianza de §O.7 tiene tres pruebas —**fresca**, **origen confiable**, **coherente en
+   * magnitud**— y solo la tercera se calcula con datos NUESTROS. Las otras dos se calculan con
+   * **evidencia del proveedor**: `count` y fecha de la última venta. Un escalar pelado **no trae
+   * ninguna de las dos**: no es que no las hayamos leído, es que **el shape no las contiene**. Por eso
+   * S2 no es «un S1 degradado» sino un objeto epistemológico distinto, **estructuralmente incapaz** de
+   * satisfacer las pruebas 1 y 2 — y no hay ninguna superficie (ni siquiera la ficha, que es más
+   * permisiva en MAGNITUD, no en procedencia) donde una fila S2 sería admisible. Persistirla produciría
+   * basura en una tabla de dinero a cambio de cero valor.
+   *
+   * **La escotilla `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` queda DEROGADA y se RETIRA** (no se
+   * sustituye por otra): su único propósito declarado era hacer persistible a S2, y detrás del gate de
+   * evidencia ya no abre nada. Una escotilla que no abre nada **es peor que no tenerla** — alguien la
+   * pondrá, no verá cambio alguno y concluirá que el ingest está roto: el mismo falso negativo de
+   * diagnóstico que producía el truncate de 800 chars. Para admitir muestras pequeñas en S1 la vía
+   * correcta existe y es un dial **auditado**: `graded_estimate_min_sample_count = 1`.
+   *
+   * **El sondeo de S2 se conserva con papel NUEVO: diagnóstico, no escritura.** Encontrar S2 es la
+   * señal de que el proveedor no está dando lo que la fase 2 necesita, y esa señal tiene que llegar a
+   * un humano en vez de disolverse en un contador de «saltadas» ⇒ motivo propio
+   * `shape_not_persistible_s2` + `shapeCounts`, contados APARTE.
+   *
    * - **El override del operador MANDA sobre la autodetección.** Con `POKEMONPRICETRACKER_GRADED_FORMAT`
    *   / `_GRADED_FIELD` fijados, si la respuesta no casa **no se escribe nada** y se registra la
    *   muestra: caer al otro shape derrotaría la intención explícita que el override existe para
@@ -609,6 +648,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       dailyRemaining: this.client.dailyRemaining(),
       escalate: null,
       sawGradedBlock: false,
+      shapeCounts: { s1: 0, s2: 0 },
     };
     if (!this.client.apiKey()) {
       this.logger.warn('PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).');
@@ -634,7 +674,6 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     const forcedFormat = this.gradedFormatOverride();
     const forcedField = this.gradedFieldOverride();
     const stat: GradedStat = forcedField ?? input.sourceStat;
-    const acceptUnknownCount = this.config.get<string>('POKEMONPRICETRACKER_GRADED_MIN_COUNT') === '0';
 
     const rows: GradedEstimateSourceRow[] = [];
     const drops: GradedDropSample[] = [];
@@ -642,6 +681,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     let requestOk = false;
     let dailyLimited = false;
     let sawGradedBlock = false;
+    const shapeCounts = { s1: 0, s2: 0 };
     let sample: string | null = null;
 
     try {
@@ -670,13 +710,14 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
             stat,
             forcedFormat,
             minSampleCount: input.minSampleCount,
-            acceptUnknownCount,
             format,
             evidenceField: this.gradedEvidenceField(),
             freshnessDays: input.freshnessDays,
             today: input.today,
           });
           if (parsed.sawGradedBlock) sawGradedBlock = true;
+          if (parsed.shape === 's1') shapeCounts.s1 += 1;
+          else if (parsed.shape === 's2') shapeCounts.s2 += 1;
           rows.push(...parsed.rows);
           drops.push(...parsed.drops);
         }
@@ -748,6 +789,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       dailyRemaining: this.client.dailyRemaining(),
       escalate,
       sawGradedBlock,
+      shapeCounts,
     };
   }
 
@@ -794,6 +836,9 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
   /**
    * El SONDEO, por entrada. Devuelve filas SOLO con identificación positiva; ante cualquier otra forma,
    * un `drop` con la muestra cruda y **cero escrituras**.
+   *
+   * `shape` dice **qué hipótesis casó** en esta entrada (`null` = ninguna). Sirve para contar por CARTA
+   * cuánto sirve el proveedor de cada shape (§4.38h.1-bis), que es el insumo de la escalada de corrida.
    */
   private parseGradedEntry(
     entry: unknown,
@@ -802,15 +847,24 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       stat: GradedStat;
       forcedFormat: GradedFormat;
       minSampleCount: number;
-      acceptUnknownCount: boolean;
       format: MarketFormat;
       /** v1.50.3 (§4.38m.2) — nombre del campo de la última venta dentro del bloque S1. */
       evidenceField: string;
       freshnessDays: number;
       today: string;
     },
-  ): { rows: GradedEstimateSourceRow[]; drops: GradedDropSample[]; sawGradedBlock: boolean } {
-    const out = { rows: [] as GradedEstimateSourceRow[], drops: [] as GradedDropSample[], sawGradedBlock: false };
+  ): {
+    rows: GradedEstimateSourceRow[];
+    drops: GradedDropSample[];
+    sawGradedBlock: boolean;
+    shape: 's1' | 's2' | null;
+  } {
+    const out = {
+      rows: [] as GradedEstimateSourceRow[],
+      drops: [] as GradedDropSample[],
+      sawGradedBlock: false,
+      shape: null as 's1' | 's2' | null,
+    };
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return out;
     const e = entry as Record<string, unknown>;
     const externalId = firstString(e, ['id', 'cardId']);
@@ -835,38 +889,51 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       }
       return out;
     }
+    out.shape = useS1 ? 's1' : 's2';
+
+    // ======= (§4.38h.1-bis) S2 — NO PERSISTIBLE. Se DETECTA, se REGISTRA y se sale. =======
+    //
+    // Una traza POR CARTA (no por grado): la pregunta que este motivo contesta es «¿qué está sirviendo
+    // el proveedor?», y esa pregunta es de la ENTRADA, no de cada `psaN` que traiga.
+    //
+    // No se evalúa el monto, ni el `count`, ni la evidencia — **no porque fallen, sino porque no
+    // existen**: el shape escalar no contiene las dos piezas de evidencia (muestra y fecha) que las
+    // pruebas 1 y 2 del gate de confianza necesitan. Correr los gates aquí solo produciría un motivo
+    // EQUIVOCADO (`sample_too_small` / `evidence_unknown`), que es justo la confusión que (h.1-bis)
+    // manda eliminar: haría indistinguible «el proveedor cambió de shape» —que se escala— de «esta
+    // carta tiene pocas ventas» —que no se hace nada—.
+    if (useS2) {
+      out.drops.push({
+        externalId,
+        reason: 'shape_not_persistible_s2',
+        count: null,
+        sample: truncate(JSON.stringify({ gradedPrices }), GRADED_SAMPLE_TRUNCATE),
+      });
+      return out;
+    }
 
     for (const grade of opts.grades) {
       const key = `psa${grade}`;
-      const raw = useS1 ? (salesByGrade as Record<string, unknown>)[key] : (gradedPrices as Record<string, unknown>)[key];
+      const raw = (salesByGrade as Record<string, unknown>)[key];
       if (raw === undefined) continue; // el grado sencillamente no viene: no es un error, se OMITE.
 
-      let amount: number | null = null;
-      let count: number | null = null;
-      let evidenceRaw: unknown = undefined;
-      if (useS1) {
-        // S1 EXIGE objeto. Un escalar aquí NO se acepta «por tolerancia»: sería asumir que el número
-        // suelto es el stat que pedimos, que es justo la clase de suposición que P-6 prohíbe.
-        if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
-          out.drops.push({
-            externalId,
-            reason: 'unrecognized_shape',
-            count: null,
-            sample: truncate(JSON.stringify({ [key]: raw }), GRADED_SAMPLE_TRUNCATE),
-          });
-          continue;
-        }
-        const o = raw as Record<string, unknown>;
-        const statValue = o[GRADED_STAT_FIELD[opts.stat]];
-        amount = typeof statValue === 'number' && Number.isFinite(statValue) ? statValue : null;
-        const c = o['count'];
-        count = typeof c === 'number' && Number.isInteger(c) && Number.isFinite(c) ? c : null;
-        evidenceRaw = o[opts.evidenceField];
-      } else {
-        // S2: escalar ESTRICTO. `"12.5"` (string) NO se acepta: un string es una forma distinta.
-        amount = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
-        count = null; // el shape no la trae ⇒ DESCONOCIDO.
+      // S1 EXIGE objeto. Un escalar aquí NO se acepta «por tolerancia»: sería asumir que el número
+      // suelto es el stat que pedimos, que es justo la clase de suposición que P-6 prohíbe.
+      if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+        out.drops.push({
+          externalId,
+          reason: 'unrecognized_shape',
+          count: null,
+          sample: truncate(JSON.stringify({ [key]: raw }), GRADED_SAMPLE_TRUNCATE),
+        });
+        continue;
       }
+      const o = raw as Record<string, unknown>;
+      const statValue = o[GRADED_STAT_FIELD[opts.stat]];
+      const amount = typeof statValue === 'number' && Number.isFinite(statValue) ? statValue : null;
+      const c = o['count'];
+      const count = typeof c === 'number' && Number.isInteger(c) && Number.isFinite(c) ? c : null;
+      const evidenceRaw = o[opts.evidenceField];
 
       const amountCents = toCents(amount, opts.format.unit);
       if (amountCents == null) {
@@ -878,9 +945,15 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         });
         continue;
       }
-      // Gate de ORIGEN CONFIABLE (§4.38k, punto 2) — aplicado en la ESCRITURA. `null` = DESCONOCIDO, y
-      // «desconocido» NO es «suficiente»: fail-closed, salvo escotilla explícita del operador.
-      if (count == null ? !opts.acceptUnknownCount : count < opts.minSampleCount) {
+      // Gate de ORIGEN CONFIABLE (§4.38k, punto 2) — aplicado en la ESCRITURA. `null` = DESCONOCIDO
+      // (el objeto S1 no trajo `count`, o lo trajo con una forma que no es un entero), y «desconocido»
+      // NO es «suficiente»: **fail-closed sin excepción**.
+      //
+      // ⚠️ v1.50.3-a (§4.38h.1-bis) — aquí vivía la escotilla `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0`.
+      // Se RETIRA y no se sustituye: su único propósito era hacer persistible a S2, que ahora está
+      // declarado NO PERSISTIBLE por shape. Para admitir muestras pequeñas en S1 la vía es el dial
+      // AUDITADO `graded_estimate_min_sample_count = 1`, que llega hasta aquí como `minSampleCount`.
+      if (count == null || count < opts.minSampleCount) {
         out.drops.push({
           externalId,
           reason: 'sample_too_small',
@@ -910,10 +983,19 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       // (60 d con el seed), NO los 30 literales del criterio. Es una aproximación conservadora en la
       // dirección correcta —cierra el «fresco para siempre», que era el fallo grave— pero **no es el
       // criterio al pie de la letra**; el cierre exacto es la columna `evidenceDate` de M-43.
+      //
+      // ⚠️ v1.50.3-a — **la fecha es una HIPÓTESIS, no un hecho, y se trata como tal.** El Gate 0 dejó
+      // escrito que la documentación del proveedor **se contradice a sí misma** sobre la forma del
+      // bloque PSA; `PROJECT.md` §O.6 describe `salesByGrade` con «fecha de la última venta», pero eso
+      // es **documentación del proveedor, no una respuesta observada**. Por eso el parser NO asume el
+      // nombre ni el formato del campo: lo **identifica positivamente** (`parseEvidenceDate`) o no
+      // escribe, exactamente igual que hace con el stat. Un S1 **sin** fecha no es «S1 degradado»: es
+      // una forma que no sabemos leer. Sería incoherente auto-confirmar el precio y **dar por supuesta
+      // la fecha** — eso es P-6 aplicada al campo nuevo.
       const evidenceDate = parseEvidenceDate(evidenceRaw);
       if (evidenceDate == null) {
-        // «Desconocido» NO es «fresco» — misma doctrina fail-closed que el `count` ausente de S2. Esto
-        // incluye a S2 ENTERO (su shape escalar no trae fecha): sin evidencia no se escribe dinero.
+        // «Desconocido» NO es «fresco» — misma doctrina fail-closed que el `count` ausente: se registra
+        // la muestra (con el NOMBRE del campo buscado) y no se escribe dinero.
         out.drops.push({
           externalId,
           reason: 'evidence_unknown',

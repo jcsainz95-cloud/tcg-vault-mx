@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeFeeConfig } from '../../common/money';
@@ -11,13 +11,133 @@ import {
   SettingKeyType,
 } from './settings.constants';
 
+/** Cuánto de un valor se imprime en el inventario de arranque (un dial puede ser una tabla). */
+const INVENTORY_VALUE_TRUNCATE = 160;
+
 /**
  * SettingsService — Lectura/escritura de los diales M10 (ConfigSetting).
  * Editables sin redeploy. Provee helpers tipados para el resto de módulos.
  */
 @Injectable()
-export class SettingsService {
+export class SettingsService implements OnModuleInit {
+  private readonly logger = new Logger(SettingsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * §11.0 (v1.50.3-a; **endurecido en v1.50.3-b**) — **INVENTARIO DE CONFIGURACIÓN al arrancar.** Una
+   * línea con las claves cuyo valor vigente **difiere de su default de código**.
+   *
+   * ### ⚠️ Esto NO es observabilidad opcional: es un REQUISITO load-bearing
+   * v1.50.3-b lo subió de «extra barato» a **requisito**. Devops verificó que la suite E2E **no puede**
+   * usarse como detector de configuración: **escribe** (flip del dial global, un `POST
+   * /admin/pricing/override` y un `updateMany` que envejece `capturedDate`) y exige fixtures
+   * sintéticos, así que **nunca se apunta a producción**. Descartado el E2E, esta línea y el `GET` del
+   * recurso son **los DOS ÚNICOS detectores del seed rancio** — ambos de **solo lectura**, y por eso
+   * los únicos que corren contra prod.
+   *
+   * La regla general de la que sale, y que vale más allá de este caso: *un test que **fija** su propia
+   * configuración para ser determinista deja, **por construcción**, de ser un detector de
+   * configuración*. Eso es **correcto en el test** (una prueba de lógica debe correr con el dial en su
+   * valor nominal); la conclusión no es debilitarlo, es **no confiarle una garantía que no da**.
+   * **Configuración y lógica son dos aserciones distintas y exigen dos mecanismos distintos.**
+   *
+   * ### Por qué existe
+   * `prisma/seed.ts` hace `upsert` con **`update: {}`**, y eso es **correcto**: impide que un deploy
+   * pise el ajuste deliberado de un operador. El corolario —que nadie había escrito— es que **cambiar
+   * un seed NO cambia ningún entorno ya sembrado**: ni prod, ni staging, ni la base de quien ya corrió
+   * el seed una vez. Un entorno puede quedarse con el dial viejo **con el código nuevo desplegado y
+   * todos los tests en verde**, que es la peor forma de no entregar un cambio.
+   *
+   * Esta línea convierte *«¿qué diales tiene REALMENTE este entorno?»* en un **grep**, en vez de una
+   * consulta a la BD de producción. Es el artefacto barato que hace **verificable** el paso de
+   * despliegue de §4.38(p) —y el DoD de release, que exige comprobar los diales del entorno destino en
+   * vez de asumirlos.
+   *
+   * ### Por qué se emite SIEMPRE, incluso sin divergencias
+   * Porque **una línea que solo aparece cuando hay problema es indistinguible de una línea que no se
+   * emitió porque el código no corrió** — y entonces «no vi la alerta» pasaría por «está todo bien»,
+   * que es **fallar abierto**. Con el «sin divergencias» explícito, la ausencia de la línea significa
+   * una única cosa: **esto no se ejecutó**, y eso también es información. Por la misma razón, si la
+   * lectura falla se emite un `warn` que dice que el inventario **no se pudo emitir**, en vez de
+   * quedarse callado (que se leería como «sin divergencias»).
+   *
+   * ### Por qué es `log`/`info` y NO `warn`
+   * Deliberado: **un dial ajustado a propósito es normal**, y alertar por cada uno es ruido que se
+   * aprende a ignorar — con lo que el día que haya un `warn` de verdad, nadie lo va a leer. Esto es un
+   * **inventario**, no una alarma. La **única** excepción sigue siendo `manualFreshnessDays === null`
+   * (I8-bis, §4.38m), que sí es `warn` porque **desactiva un criterio de `PROJECT.md`** — y lo emite
+   * `PricingService` al izar SU config, no aquí.
+   *
+   * ### Lo que este inventario NO hace
+   * **No sobrescribe nada.** §11.0 punto 3: `ConfigSetting` guarda un **valor**, no su **procedencia**,
+   * así que «sigue en el seed viejo» y «el operador lo eligió así» son **el mismo dato** — y los
+   * valores viejos (3, 50, `null`) son elecciones de operador perfectamente plausibles. Adivinar sería
+   * destruir en silencio justo lo que `update: {}` protege. La decisión de sobrescribir es del
+   * operador, informada y clave por clave, por la vía normal de operación (el `PUT` de admin, que deja
+   * `AuditLog` y valida). Esto solo **informa**.
+   */
+  async onModuleInit(): Promise<void> {
+    await this.logConfigInventory();
+  }
+
+  /**
+   * Emite el inventario de §11.0. **Nunca revienta el arranque**: un fallo aquí es de observabilidad,
+   * no de negocio, y tumbar la app por no poder listar diales sería peor que el problema que resuelve.
+   */
+  async logConfigInventory(): Promise<void> {
+    try {
+      const rows = await this.prisma.configSetting.findMany();
+      const diffs: string[] = [];
+      for (const row of rows) {
+        const key = row.key as SettingKeyType;
+        // Claves sin default de código (retiradas o escritas fuera de banda) no se comparan: no hay
+        // contra qué, y listarlas cada arranque sería el ruido que este formato evita.
+        // (`hasOwnProperty.call` y no `Object.hasOwn` porque el target del build es anterior a ES2022;
+        // mismo motivo que en `update()`. Propiedad PROPIA, nunca heredada del prototipo.)
+        if (!Object.prototype.hasOwnProperty.call(SETTING_DEFAULTS, key)) continue;
+        const seed = SETTING_DEFAULTS[key];
+        // ⚠️ Comparación CANÓNICA, no `JSON.stringify` directo. Postgres almacena `jsonb` y **reordena
+        // las claves de los objetos**, así que `grading_cost_tiers` vuelve de la BD con el mismo
+        // contenido y otro orden de claves: un `stringify` crudo lo declara «DIFERENTE» en CADA
+        // arranque. Un inventario que grita cuando no pasa nada es ruido que se aprende a ignorar —
+        // exactamente el modo de fallo que esta línea existe para no tener. (El orden de los ARRAYS sí
+        // se respeta: en los escalones y en la curva es significativo.)
+        if (canonicalJson(row.valueJson) === canonicalJson(seed)) continue;
+        diffs.push(
+          `${row.key}=${truncateJson(row.valueJson)} (default ${truncateJson(seed as unknown)})`,
+        );
+      }
+      // Una clave AUSENTE en la tabla no se lista: resuelve al default, así que NO difiere.
+      //
+      // ⚠️ Se emite SIEMPRE, con «sin divergencias» EXPLÍCITO (§11.0 punto 5). Callar cuando todo está
+      // bien convertiría la ausencia de la línea en ambigua —«no hay nada que reportar» vs. «esto no
+      // corrió»— y eso falla ABIERTO.
+      if (diffs.length === 0) {
+        this.logger.log(
+          `config inventory: SIN DIVERGENCIAS — las ${rows.length} clave(s) sembradas están en su ` +
+            'default de código. (§11.0: un seed es una condición inicial y los cambios de seed NO ' +
+            'llegan solos a un entorno ya sembrado; esta línea es —junto al GET del recurso— uno de ' +
+            'los dos detectores del seed rancio, así que se emite siempre, también cuando no hay nada.)',
+        );
+        return;
+      }
+      this.logger.log(
+        `config inventory: ${diffs.length} de ${rows.length} clave(s) DIFIEREN de su default de ` +
+          `código → ${diffs.sort().join('; ')}. (§11.0: es un INVENTARIO, no una alarma — un dial ` +
+          'ajustado a propósito es normal. Si alguno debía haberse actualizado con el deploy, se ' +
+          'aplica por PUT de admin —auditado y validado—, NUNCA por UPDATE directo a la BD.)',
+      );
+    } catch (e) {
+      // Se dice EN VOZ ALTA que el inventario NO se pudo emitir. El silencio aquí se leería como «sin
+      // divergencias», que es exactamente la confusión que §11.0 punto 5 prohíbe.
+      this.logger.warn(
+        `config inventory: NO SE PUDO EMITIR el inventario de arranque (§11.0): ` +
+          `${(e as Error).message}. Este entorno queda SIN uno de sus dos detectores del seed rancio ` +
+          '(el otro es GET /admin/pricing/graded-estimates). El arranque CONTINÚA.',
+      );
+    }
+  }
 
   /** Lee un dial; si no existe fila, devuelve el default. */
   async get<T = unknown>(key: SettingKeyType): Promise<T> {
@@ -169,4 +289,29 @@ export class SettingsService {
   async getRaw(key: SettingKeyType): Promise<unknown> {
     return this.get(key);
   }
+}
+
+/** Serializa un valor de dial para el log, acotado: un dial puede ser una tabla de 6 escalones. */
+function truncateJson(v: unknown): string {
+  const raw = JSON.stringify(v) ?? String(v);
+  return raw.length <= INVENTORY_VALUE_TRUNCATE ? raw : `${raw.slice(0, INVENTORY_VALUE_TRUNCATE)}…`;
+}
+
+/**
+ * JSON **canónico**: mismas claves y mismos valores ⇒ misma cadena, sin importar el orden en que el
+ * motor las devuelva. Solo se ordenan las claves de los OBJETOS; el orden de los ARRAYS se conserva
+ * porque en los diales que son listas (escalones de grading, puntos de la curva) **es significativo**.
+ */
+function canonicalJson(v: unknown): string {
+  const canon = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(canon);
+    if (x !== null && typeof x === 'object') {
+      const src = x as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(src).sort()) out[k] = canon(src[k]);
+      return out;
+    }
+    return x;
+  };
+  return JSON.stringify(canon(v)) ?? String(v);
 }

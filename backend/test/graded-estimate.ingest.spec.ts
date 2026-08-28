@@ -156,27 +156,177 @@ describe('§4.38h.1 — el gate de ORIGEN CONFIABLE se aplica AL ESCRIBIR (§4.3
     expect(res.drops[0].sample).toContain('psa10');
   });
 
-  it('S2 (escalar) NO trae `count` ⇒ DESCONOCIDO ⇒ fail-closed: no se escribe nada', async () => {
-    mockPages([pageS2(60)]);
-    const res = await call();
-    // «Desconocido» NO es «suficiente». Es la aplicación literal de la doctrina.
-    expect(res.rows).toEqual([]);
-    expect(res.drops[0]).toMatchObject({ reason: 'sample_too_small', count: null });
+  it('S1 con `count` AUSENTE o no entero ⇒ DESCONOCIDO ⇒ fail-closed, sin excepción', async () => {
+    // «Desconocido» NO es «suficiente». Es la aplicación literal de la doctrina, y desde v1.50.3-a ya
+    // no hay ninguna escotilla que la desactive.
+    for (const c of [undefined, null, 'siete', 7.5, Number.NaN]) {
+      mockPages([pageS1({ medianPrice: 60, lastSaleDate: EVIDENCIA_FRESCA, ...(c === undefined ? {} : { count: c }) })]);
+      const res = await call();
+      expect(res.rows).toEqual([]);
+      expect(res.drops).toEqual([expect.objectContaining({ reason: 'sample_too_small', count: null })]);
+    }
   });
 
-  it('`POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` es la ESCOTILLA: el operador acepta el riesgo a sabiendas', async () => {
+  /**
+   * ⚠️ **v1.50.3-a (§4.38h.1-bis) — la escotilla `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` está
+   * RETIRADA, y este test existe para que nadie la reviva por descuido.**
+   *
+   * Su único propósito declarado era hacer persistible a S2, y S2 quedó declarado **NO PERSISTIBLE por
+   * shape**: el escalar no trae `count` **ni** fecha, o sea ninguna de las dos piezas de evidencia con
+   * las que se calculan las pruebas 1 y 2 del gate de confianza. Detrás de la escotilla había una
+   * segunda puerta cerrada, así que ya no abría nada — **y una escotilla que no abre nada es peor que
+   * no tenerla**: alguien la pone, no ve ningún cambio y concluye que el ingest está roto. Es el mismo
+   * falso negativo de diagnóstico que producía el truncate de 800 chars.
+   *
+   * La vía legítima para admitir muestras pequeñas en S1 existe, y es un dial **auditado**:
+   * `graded_estimate_min_sample_count = 1` (llega al parser como `minSampleCount`).
+   */
+  it('la env `..._GRADED_MIN_COUNT=0` está RETIRADA: ponerla NO cambia absolutamente nada', async () => {
+    const conEscotilla = cfg({ POKEMONPRICETRACKER_GRADED_MIN_COUNT: '0' });
+
+    // (a) S1 con muestra corta: se sigue descartando por muestra. La env no la indulta.
+    mockPages([pageS1(s1({ count: 1 }))]);
+    const sinEnv = await call();
+    mockPages([pageS1(s1({ count: 1 }))]);
+    const conEnv = await call(provider(conEscotilla));
+    expect(conEnv.rows).toEqual([]);
+    expect(conEnv.drops).toEqual(sinEnv.drops); // MISMO resultado, byte a byte: la env es inerte.
+
+    // (b) S2: sigue siendo NO PERSISTIBLE, y el motivo lo dice por su nombre (no `sample_too_small`).
     mockPages([pageS2(60)]);
-    const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_MIN_COUNT: '0' })));
-    // ⚠️ v1.50.3 (§4.38m.2) — **la escotilla del `count` ya NO alcanza para que S2 escriba.** El GATE DE
-    // EVIDENCIA es una segunda condición independiente, y el shape S2 (`gradedPrices.psaN` ESCALAR) no
-    // trae fecha de última venta por construcción ⇒ `evidence_unknown` ⇒ no se escribe. Consecuencia
-    // declarada, no accidente: bajo la doctrina fail-closed («desconocido no es fresco») un shape que no
-    // puede probar la antigüedad de su evidencia no puede alimentar una afirmación comercial.
-    //
-    // Lo que la escotilla SIGUE haciendo es lo suyo: desactivar el gate de MUESTRA (el drop deja de ser
-    // `sample_too_small`). Que ahora tope con el de evidencia se ve en el `reason`, no en un silencio.
+    const s2ConEnv = await call(provider(conEscotilla));
+    expect(s2ConEnv.rows).toEqual([]);
+    expect(s2ConEnv.drops).toEqual([
+      expect.objectContaining({ reason: 'shape_not_persistible_s2', count: null }),
+    ]);
+  });
+
+  /**
+   * La vía correcta y auditada para muestras pequeñas: el DIAL, no una env. Que este test pase es lo
+   * que permite retirar la escotilla sin quitarle al operador ninguna capacidad legítima.
+   */
+  it('`minSampleCount = 1` SÍ admite muestras pequeñas en S1 (dial auditado, no escotilla de env)', async () => {
+    mockPages([pageS1(s1({ count: 1 }))]);
+    const res = await provider().fetchGradedEstimatesForSet({
+      set: SET,
+      providerSetId: 'sv8',
+      grades: ['10'],
+      minSampleCount: 1,
+      sourceStat: 'median',
+      freshnessDays: FRESHNESS_DAYS,
+      today: TODAY,
+    });
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].count).toBe(1);
+  });
+});
+
+/**
+ * §4.38h.1-bis (v1.50.3-a) — **S2 (`gradedPrices.psaN`) es NO PERSISTIBLE, y el sondeo se CONSERVA con
+ * papel nuevo: DIAGNÓSTICO, no escritura.**
+ *
+ * ### El marco, que es lo que importa aquí
+ * S2 **tampoco era persistible antes de v1.50.3**: sin `count`, el punto 2 del gate ya quedaba
+ * *desconocido* ⇒ fail-closed. El único camino de S2 a la base era la escotilla, y una escotilla es por
+ * definición *aceptar un riesgo a sabiendas*, no una vía normal. O sea que el parser **ya era «de una
+ * hipótesis y media»** en configuración por defecto; v1.50.2 simplemente no lo decía en voz alta. El
+ * gate de evidencia no rompió nada: puso un segundo cerrojo en una puerta ya cerrada y, al hacerlo,
+ * **hizo visible** algo que estaba implícito.
+ *
+ * ### Por qué NO se borra el sondeo
+ * Porque encontrar S2 es la señal de que el proveedor **no está dando lo que la fase 2 necesita**, y esa
+ * señal tiene que llegar a un humano en vez de disolverse en un contador de «saltadas».
+ */
+describe('§4.38h.1-bis — S2 NO PERSISTIBLE: se detecta, se registra, NUNCA se escribe', () => {
+  it('S2 ⇒ cero filas + motivo PROPIO `shape_not_persistible_s2` (no `sample_too_small`)', async () => {
+    mockPages([pageS2(60)]);
+    const res = await call();
     expect(res.rows).toEqual([]);
-    expect(res.drops).toEqual([expect.objectContaining({ reason: 'evidence_unknown', count: null })]);
+    expect(res.drops).toEqual([
+      expect.objectContaining({ reason: 'shape_not_persistible_s2', externalId: 'sv8-104' }),
+    ]);
+    // La muestra CRUDA viaja igual: es el insumo para confirmar el shape en la primera corrida real.
+    expect(res.drops[0].sample).toContain('psa10');
+  });
+
+  it('el motivo es DISTINTO de `evidence_unknown` y de `sample_too_small` — es el punto entero', async () => {
+    // «El proveedor cambió de shape» y «esta carta tiene pocas ventas» exigen reacciones OPUESTAS
+    // (escalar vs. no hacer nada). Un motivo único las volvería indistinguibles justo cuando hay que
+    // decidir si la fase 2 es viable con este proveedor.
+    mockPages([pageS2(60)]);
+    const porShape = (await call()).drops[0].reason;
+    mockPages([pageS1(s1({ count: 1 }))]);
+    const porMuestra = (await call()).drops[0].reason;
+    mockPages([pageS1({ count: 7, medianPrice: 60 })]);
+    const porEvidencia = (await call()).drops[0].reason;
+    expect(new Set([porShape, porMuestra, porEvidencia]).size).toBe(3);
+    expect(porShape).toBe('shape_not_persistible_s2');
+  });
+
+  it('la traza es POR CARTA, no por grado (la pregunta es «¿qué sirve el proveedor?»)', async () => {
+    mockPages([
+      {
+        data: [{ id: 'sv8-104', cardNumber: '104', gradedPrices: { psa10: 60, psa9: 30 } }],
+        total: 1,
+        hasMore: false,
+      },
+    ]);
+    const res = await call();
+    expect(res.drops).toHaveLength(1); // UNA traza, aunque vengan dos grados
+    expect(res.shapeCounts).toEqual({ s1: 0, s2: 1 });
+  });
+
+  it('S2 NO se escribe ni con un monto impecable ni con `minSampleCount = 1`', async () => {
+    // No es «un S1 degradado al que le falta un dato»: es un objeto epistemológico distinto. Ninguna
+    // configuración lo arregla porque **no hay nada que configurar** — el shape no contiene la
+    // evidencia. Este test es el que impide que alguien lo «arregle» bajando un umbral.
+    mockPages([pageS2(60)]);
+    const res = await provider().fetchGradedEstimatesForSet({
+      set: SET,
+      providerSetId: 'sv8',
+      grades: ['10'],
+      minSampleCount: 1,
+      sourceStat: 'median',
+      freshnessDays: 3650,
+      today: TODAY,
+    });
+    expect(res.rows).toEqual([]);
+    expect(res.drops[0].reason).toBe('shape_not_persistible_s2');
+  });
+
+  it('forzar `_GRADED_FORMAT=graded_prices` fuerza el SONDEO, no la ESCRITURA', async () => {
+    mockPages([pageS2(60)]);
+    const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_FORMAT: 'graded_prices' })));
+    expect(res.rows).toEqual([]);
+    expect(res.drops[0].reason).toBe('shape_not_persistible_s2');
+  });
+
+  it('ver S2 CUENTA como bloque PSA visto: no dispara la escalada «el proveedor ignoró includeEbay»', async () => {
+    // Son dos diagnósticos distintos y no deben confundirse: aquí el proveedor SÍ mandó el bloque; lo
+    // que pasa es que lo manda en un shape que no podemos usar. Escalarlo como «ignoró el parámetro»
+    // mandaría al arquitecto a rediseñar el barrido, que no es el problema.
+    mockPages([pageS2(60)]);
+    const res = await call();
+    expect(res.sawGradedBlock).toBe(true);
+    expect(res.escalate).toBeNull();
+  });
+
+  it('`shapeCounts` cuenta S1 y S2 por separado (insumo del veredicto de corrida)', async () => {
+    mockPages([
+      {
+        data: [
+          { id: 'sv8-1', cardNumber: '1', ebay: { salesByGrade: { psa10: s1() } } },
+          { id: 'sv8-2', cardNumber: '2', gradedPrices: { psa10: 60 } },
+          { id: 'sv8-3', cardNumber: '3', gradedPrices: { psa10: 70 } },
+          { id: 'sv8-4', cardNumber: '4', prices: { market: 12 } }, // sin bloque PSA: no cuenta
+        ],
+        total: 4,
+        hasMore: false,
+      },
+    ]);
+    const res = await call();
+    expect(res.shapeCounts).toEqual({ s1: 1, s2: 2 });
+    expect(res.rows).toHaveLength(1); // solo la S1 válida llega a dinero
   });
 });
 
@@ -304,6 +454,30 @@ describe('§4.38m.2 — GATE DE EVIDENCIA en la ESCRITURA (criterio 109 para el 
     mockPages([pageS1({ count: 7, medianPrice: 60, ultimaVenta: EVIDENCIA_FRESCA })]);
     const p = provider(cfg({ POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD: 'ultimaVenta' }));
     expect((await call(p)).rows).toHaveLength(1);
+  });
+
+  /**
+   * ⚠️ **v1.50.3-a — la fecha es una HIPÓTESIS, no un hecho.** El Gate 0 dejó escrito que la
+   * documentación del proveedor **se contradice a sí misma** sobre la forma del bloque PSA; que §O.6
+   * describa `salesByGrade` con «fecha de la última venta» es **documentación del proveedor, no una
+   * respuesta observada**. Sería incoherente auto-confirmar el precio y **dar por supuesta la fecha**:
+   * el parser aplica a la fecha exactamente el mismo estándar que al stat — **identificación positiva o
+   * no escribe**. Un S1 sin fecha legible NO es «S1 degradado»: es una forma que no sabemos leer.
+   */
+  it('S1 IMPECABLE en todo lo demás pero sin fecha legible ⇒ NO escribe (no es «S1 degradado»)', async () => {
+    mockPages([pageS1({ count: 9_999, medianPrice: 60, averagePrice: 61, smartMarketPrice: 62 })]);
+    const res = await call();
+    expect(res.rows).toEqual([]);
+    expect(res.drops).toEqual([expect.objectContaining({ reason: 'evidence_unknown', count: 9_999 })]);
+  });
+
+  it('mismo estándar que el stat: ni la fecha ni el precio se dan por supuestos', async () => {
+    // Simetría explícita. Un stat presente pero de forma equivocada (string) no se «tolera», y una
+    // fecha presente pero de forma equivocada tampoco. Las dos son P-6 aplicada a su campo.
+    mockPages([pageS1({ count: 7, medianPrice: '60', lastSaleDate: EVIDENCIA_FRESCA })]);
+    expect((await call()).rows).toEqual([]);
+    mockPages([pageS1({ count: 7, medianPrice: 60, lastSaleDate: { fecha: EVIDENCIA_FRESCA } })]);
+    expect((await call()).rows).toEqual([]);
   });
 
   it('el gate de evidencia es INDEPENDIENTE del de muestra: pasar uno no exime del otro', async () => {

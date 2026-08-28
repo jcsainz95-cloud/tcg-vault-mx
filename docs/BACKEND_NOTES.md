@@ -4,6 +4,126 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.5 v1.50.3-a/b — Cierre de las dos escaladas (PI-D2 y PI-D3) (2026-08-28)
+
+> Implementa el **addendum v1.50.3-a** (§4.38h.1-bis, §4.38p, §11.0) y el endurecimiento **v1.50.3-b**
+> (§4.38i.7, §11.0 punto 5). **Cero cambios de contrato, de DTO y de ruta.** Ninguna migración.
+> El único comportamiento nuevo observable desde fuera es de **log y bitácora**.
+
+### 0.5.1 `POKEMONPRICETRACKER_GRADED_MIN_COUNT` — RETIRADA (PI-D2)
+
+La env está **derogada y borrada del código**: `PokemonPriceTrackerBulkProvider` ya no la lee. Fijarla no
+tiene ningún efecto (hay un test que lo asserta comparando el resultado con y sin ella, drop a drop).
+
+**Por qué se retira en vez de dejarla ahí.** Su único propósito declarado era hacer persistible a S2, y S2
+quedó declarado **NO PERSISTIBLE por shape**. Una escotilla que ya no abre nada **es peor que ninguna**:
+alguien la pondrá, no verá cambio alguno, y concluirá que el ingest está roto — el mismo falso negativo de
+diagnóstico que producía el truncate de 800 chars.
+
+**Lo que el arquitecto corrigió de mi propio reporte, y conviene que se lea:** S2 **tampoco era persistible
+antes de v1.50.3**. Sin `count`, el punto 2 del gate ya quedaba *desconocido* ⇒ fail-closed. El único camino
+de S2 a la base era la escotilla, y una escotilla es por definición *aceptar un riesgo a sabiendas*, no una
+vía normal. El parser **ya era «de una hipótesis y media»** en configuración por defecto; v1.50.2 no lo
+decía en voz alta. El gate de evidencia no rompió nada: puso un segundo cerrojo en una puerta ya cerrada.
+
+**Para QA/devops — la capacidad legítima NO se pierde.** Admitir muestras pequeñas en S1 se hace con el dial
+**auditado** `graded_estimate_min_sample_count = 1`, vía `PUT /admin/pricing/graded-estimates`. Hay test.
+
+### 0.5.2 El sondeo de S2 se CONSERVA, con papel nuevo: diagnóstico, no escritura
+
+| | Antes (v1.50.3) | Ahora (v1.50.3-a) |
+|---|---|---|
+| Motivo del drop | `sample_too_small` (o `evidence_unknown` con la escotilla puesta) | **`shape_not_persistible_s2`** |
+| Contador | se fundía en `skippedSample` / `skippedEvidence` | **`skippedShapeS2`, propio** |
+| Granularidad | por grado | **por CARTA** (la pregunta es «¿qué sirve el proveedor?») |
+| Gates de dinero | se corrían y fallaban | **no se corren**: no fallan, es que **no existen** en el shape |
+
+Los tres motivos van **separados** porque «el proveedor cambió de shape» y «esta carta tiene pocas ventas»
+exigen **reacciones opuestas**, y un contador único los vuelve indistinguibles **justo cuando hay que
+decidir si escalar**. La línea de resumen del job los imprime por separado, y cada carta en S2 deja `warn`
+propio + `AuditLog` (`graded_estimate.ingest.skipped`, `reason: shape_not_persistible_s2`).
+
+**Nuevo veredicto de corrida — `shape_not_persistible_s2_dominant`.** `GradedEstimateFetchResult.shapeCounts`
+(`{ s1, s2 }`, cartas por shape) sube al orquestador, que juzga con **la corrida entera delante** (mismo
+patrón que `no_graded_block_in_response`). Si `s2 > s1`, el job deja `result.escalation`, un `logger.error`
+y una fila `graded_estimate.ingest.escalated`.
+
+- **Umbral = mayoría ESTRICTA, no «≥ 1 carta en S2»**, por la lección del 401/403 tratado como «no admite el
+  parámetro»: una escalada dispara una decisión de arquitectura y presupuesto, así que **tiene que poder
+  sostener su veredicto**. Una carta suelta en S2 queda contada y auditada, sin veredicto.
+- **No para el job ni destruye nada:** lo que sí se pudo escribir en la corrida se conserva (hay test).
+- **La escalada dura (4xx) tiene precedencia** y no se pisa con la de shape.
+
+> ⛔ **Para el orquestador, cuando la fase 2 se encienda:** si la primera corrida real emite
+> `shape_not_persistible_s2_dominant`, **el backend no parchea** (ni escotilla, ni dial nuevo, ni `count`
+> inventado): **vuelve al arquitecto**. Ese hallazgo no dice «hay un bug», dice **«la fase 2 no es viable
+> con este proveedor»**, y elegir entre degradar a manual de forma permanente, buscar un segundo proveedor
+> o pagar el plan que exponga `salesByGrade` es decisión de **producto y de costo**. **No hay acantilado
+> detrás**: la degradación a manual ya está diseñada y funciona (es el estado de v1.50).
+
+### 0.5.3 `lastSaleDate` en S1 se identifica POSITIVAMENTE
+
+Ya era el comportamiento (`parseEvidenceDate` o `evidence_unknown`); v1.50.3-a lo deja **escrito y con
+test propio**. La fecha es una **hipótesis, no un hecho**: el Gate 0 dejó registrado que la documentación
+del proveedor **se contradice a sí misma**, así que describir `salesByGrade` con «fecha de la última venta»
+es **documentación, no una respuesta observada**. Sería incoherente auto-confirmar el precio y **dar por
+supuesta la fecha**. Un S1 sin fecha legible **no es «S1 degradado»**: es una forma que no sabemos leer ⇒
+no se escribe y se registra la muestra (con el **nombre del campo buscado**, que es lo que permite
+descubrir el nombre real sin adivinar). El nombre sigue siendo dial de operador
+(`POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD`), no un alias sondeado a ciegas.
+
+### 0.5.4 Línea de INVENTARIO de configuración al arrancar (PI-D3, §11.0)
+
+`SettingsService.onModuleInit()` emite **una** línea `log`/`info` con las claves cuyo valor vigente
+**difiere de su default de código**, con **clave + vigente + default**.
+
+**⚠️ v1.50.3-b: esto es un REQUISITO, no un extra.** Descartado el E2E como detector de configuración
+(escribe y exige fixtures ⇒ nunca apunta a prod), esta línea y el `GET /admin/pricing/graded-estimates`
+son **los dos únicos detectores del seed rancio**, y los dos son de solo lectura.
+
+- **Se emite SIEMPRE**, también sin divergencias, con `SIN DIVERGENCIAS` explícito: una línea que solo
+  aparece con problema es **indistinguible de una que no se emitió**, y «no vi la alerta» pasaría por «está
+  todo bien» — fallar abierto. Si la lectura de la BD falla, se emite un `warn` que dice **`NO SE PUDO
+  EMITIR`** en vez de callar (el silencio se leería como «sin divergencias»). El arranque **nunca** se cae
+  por esto.
+- **Es `log`/`info` y NO `warn`** a propósito: un dial ajustado adrede es normal, y alertar por cada uno es
+  ruido que se aprende a ignorar. La **única** excepción `warn` sigue siendo `manualFreshnessDays === null`
+  (I8-bis), que la emite `PricingService` porque desactiva un criterio de `PROJECT.md`.
+- **No escribe nada.** Hay test que asserta que en esa ruta no hay `upsert`/`update`/`create`.
+
+**Comparación CANÓNICA (defecto encontrado corriéndolo contra la BD de dev y corregido).** Postgres guarda
+`jsonb` y **reordena las claves de los objetos**, así que `grading_cost_tiers` volvía con el mismo contenido
+en otro orden y un `JSON.stringify` crudo lo declaraba «DIFERENTE» **en cada arranque**. Un inventario con
+falsos positivos es tan inútil como el truncate de 800 con su falso negativo, y encima entrena a ignorar la
+línea. Se compara con JSON canónico: **claves de objeto ordenadas, orden de ARRAYS respetado** (en los
+escalones y en la curva el orden es significativo). Tres tests cubren las tres direcciones.
+
+**Salida real contra la base de dev de este entorno** (útil para QA/devops, y es el hallazgo PI-D3 en vivo):
+
+```
+config inventory: 3 de 41 clave(s) DIFIEREN de su default de código →
+  graded_estimate_max_raw_multiple=50 (default 100);
+  graded_estimate_min_sample_count=3 (default 5);
+  sealed_spread_pct_by_subtype={...} (default {...})
+```
+
+Es exactamente lo que §11.0 describe: **una base ya sembrada conserva los seeds viejos con el código nuevo
+desplegado y los tests en verde**. (`manual_freshness_days` ya no aparece porque se fijó a mano por el `PUT`
+cuando se reprodujo PI-D3.)
+
+### 0.5.5 Lo que NO hice, y por qué (ratificado por el arquitecto)
+
+**No automaticé la propagación de los seeds.** `prisma/seed.ts` sigue con `upsert` + `update: {}` y **no se
+toca**: es lo que impide que un deploy pise el ajuste deliberado de un operador. El obstáculo no es pereza:
+`ConfigSetting` guarda un **valor**, no su **procedencia**, así que «sigue en el seed viejo» y «el operador
+lo eligió así» son **el mismo dato** — y `3`, `50` y `null` son elecciones de operador perfectamente
+plausibles. Inferir la procedencia del `AuditLog` se evaluó y se descarta: falla **abierto y en silencio**
+ante una poda de auditoría o una edición fuera de banda.
+
+**El paso de despliegue es de devops + el humano (§4.38p, GU-13), no mío.** Backend no tiene trabajo ahí.
+
+---
+
 ## 0.4 v1.50.3 — Ronda de corrección del gate QA + techlead (2026-08-28)
 
 > Cierra el rechazo doble del pase v1.50.2. **Sin migración, sin cambio de contrato, sin cambio de forma de

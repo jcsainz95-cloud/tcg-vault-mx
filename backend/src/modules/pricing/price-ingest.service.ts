@@ -106,6 +106,14 @@ export interface GradedIngestResult {
    * diagnósticos distintos y llevan a acciones distintas.
    */
   skippedEvidence: number;
+  /**
+   * v1.50.3-a (§4.38h.1-bis) — **cartas cuyo bloque PSA venía en el shape S2** (`gradedPrices.psaN`,
+   * escalar), declarado **NO PERSISTIBLE**. Se cuenta APARTE de `skippedSample` y de `skippedEvidence`
+   * **a propósito**: «el proveedor cambió de shape» y «esta carta tiene pocas ventas» exigen
+   * **reacciones opuestas** —escalar vs. no hacer nada— y un contador único los vuelve indistinguibles
+   * justo cuando hay que decidir. No es un descarte de rutina: es la **señal de escalada**.
+   */
+  skippedShapeS2: number;
   dailyLimited: boolean;
   /** ⛔ Presente ⇒ el job PARÓ y hay que volver al ARQUITECTO (regla 9). */
   escalation: { reason: string; detail: string } | null;
@@ -888,6 +896,7 @@ export class PriceIngestService {
       unrecognized: 0,
       skippedNoGradedBlock: 0,
       skippedEvidence: 0,
+      skippedShapeS2: 0,
       dailyLimited: false,
       escalation: null,
     };
@@ -947,6 +956,11 @@ export class PriceIngestService {
     // includeEbay» solo es indistinguible si NINGÚN set del run vio el bloque.
     let anySetSawGradedBlock = false;
     const setsWithoutGradedBlock: { setExternalId: string; detail: string }[] = [];
+    // ⛔ (§4.38h.1-bis) — insumo de la ESCALADA POR SHAPE, también a escala de CORRIDA. Se cuentan las
+    // CARTAS por shape servido, no las filas escritas: la pregunta es «¿qué está sirviendo PPT?», y esa
+    // pregunta es independiente de los gates de dinero (una carta S1 descartada por muestra corta NO es
+    // evidencia de que el proveedor haya cambiado de shape).
+    const shapeCounts = { s1: 0, s2: 0 };
 
     for (const { set, allowed } of bySet.values()) {
       // BE-GE3 (techlead) — índice EN MEMORIA de las cartas de ESTE set que están en alcance. El
@@ -977,6 +991,11 @@ export class PriceIngestService {
       result.skippedEvidence += res.drops.filter(
         (d) => d.reason === 'evidence_too_old' || d.reason === 'evidence_unknown',
       ).length;
+      // Contador PROPIO (§4.38h.1-bis): NO se suma a `skippedSample` ni a `skippedEvidence`. Fundirlos
+      // haría invisible la única señal que dice «este proveedor no sirve para la fase 2».
+      result.skippedShapeS2 += res.drops.filter((d) => d.reason === 'shape_not_persistible_s2').length;
+      shapeCounts.s1 += res.shapeCounts.s1;
+      shapeCounts.s2 += res.shapeCounts.s2;
 
       if (res.sawGradedBlock) anySetSawGradedBlock = true;
 
@@ -1027,8 +1046,16 @@ export class PriceIngestService {
       // invisible para el operador (la fila sencillamente no existe y el preview dice `NO_PSA10`).
       for (const d of res.drops) {
         this.logger.warn(
-          `graded-estimate-ingest: DESCARTADA entrada (${d.reason}) set=${set.externalId} ` +
-            `card=${d.externalId ?? 'n/d'} count=${d.count ?? 'DESCONOCIDO'} muestra=${d.sample}`,
+          d.reason === 'shape_not_persistible_s2'
+            ? // (§4.38h.1-bis) — este motivo NO es «una carta menos»: es la señal de que el proveedor
+              // no está dando lo que la fase 2 necesita. Se nombra distinto en el log para que no se
+              // lea como un descarte de rutina cuando alguien greppee la corrida.
+              `graded-estimate-ingest: SHAPE NO PERSISTIBLE (S2, gradedPrices escalar) set=` +
+                `${set.externalId} card=${d.externalId ?? 'n/d'} — el escalar no trae count ni fecha ` +
+                'de última venta, así que NO puede pasar el gate de confianza por construcción. ' +
+                `NO se escribe. muestra=${d.sample}`
+            : `graded-estimate-ingest: DESCARTADA entrada (${d.reason}) set=${set.externalId} ` +
+                `card=${d.externalId ?? 'n/d'} count=${d.count ?? 'DESCONOCIDO'} muestra=${d.sample}`,
         );
         await this.auditGradedSkip('graded_estimate.ingest.skipped', null, {
           setExternalId: set.externalId,
@@ -1107,12 +1134,59 @@ export class PriceIngestService {
       });
     }
 
+    // ⛔ ESCALADA POR SHAPE (v1.50.3-a, §4.38h.1-bis) — «PPT sirve mayoritariamente S2».
+    //
+    // Qué significa y por qué NO se parchea aquí: `gradedPrices.psaN` es un ESCALAR y por construcción
+    // no trae ni `count` ni fecha de última venta, o sea **ninguna** de las dos piezas de evidencia con
+    // las que se calculan las pruebas 1 y 2 del gate de confianza (§O.7). No es un S1 degradado que se
+    // arregle con un dial: **no hay nada que configurar**. Si es lo que el proveedor sirve de forma
+    // dominante, lo que el hallazgo dice no es «hay un bug» sino **«la fase 2 no es viable con este
+    // proveedor»**, y elegir entre degradar a manual de forma permanente, buscar un segundo proveedor o
+    // pagar el plan que exponga `salesByGrade` es decisión de **producto y de costo** ⇒ vuelve al
+    // ARQUITECTO (regla 9). Diseñar el parche antes de tener la evidencia sería reincidir en P-6.
+    //
+    // **No hay acantilado detrás**: la degradación a manual ya está diseñada, aceptada y funcionando
+    // (es el estado de v1.50). No se pierde la feature, se pierde su AUTOMATIZACIÓN — por eso el job no
+    // aborta ni destruye nada: deja el veredicto, con la cuenta que lo sostiene, y sigue.
+    //
+    // El umbral es **mayoría estricta** (`s2 > s1`) y no «≥ 1 carta con S2», por la misma lección que
+    // dejó el 401/403 tratado como «no admite el parámetro»: una escalada dispara una decisión de
+    // arquitectura y de presupuesto, así que **tiene que poder sostener su veredicto**. Una carta suelta
+    // en S2 conviviendo con S1 mayoritario no es un cambio de shape del proveedor; queda contada en
+    // `skippedShapeS2` y auditada carta por carta, que es donde se ve.
+    if (!result.escalation && shapeCounts.s2 > shapeCounts.s1) {
+      result.escalation = {
+        reason: 'shape_not_persistible_s2_dominant',
+        detail:
+          `De las ${shapeCounts.s1 + shapeCounts.s2} carta(s) con bloque PSA en esta corrida, ` +
+          `${shapeCounts.s2} vinieron en el shape S2 (gradedPrices.psaN, ESCALAR) y solo ` +
+          `${shapeCounts.s1} en S1 (ebay.salesByGrade.psaN). S2 está declarado NO PERSISTIBLE ` +
+          '(§4.38h.1-bis): el escalar no trae `count` ni fecha de última venta, así que es ' +
+          'ESTRUCTURALMENTE incapaz de pasar las pruebas 1 y 2 del gate de confianza y ninguna ' +
+          'configuración lo arregla. Si esto se sostiene, la fase 2 NO es viable con este proveedor.',
+      };
+      this.logger.error(
+        `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO (regla 9, §4.38h.1-bis): ` +
+          `${result.escalation.detail} — NO se improvisa (ni escotilla, ni dial nuevo, ni «escribimos ` +
+          'con count inventado»): la decisión (degradar a manual de forma permanente, buscar otro ' +
+          'proveedor o pagar el plan que exponga salesByGrade) es de PRODUCTO y de COSTO. Mientras ' +
+          'tanto la feature sigue viva por la vía MANUAL, que es el estado de v1.50 y funciona.',
+      );
+      await this.auditGradedSkip('graded_estimate.ingest.escalated', null, {
+        ...result.escalation,
+        shapeCounts,
+      });
+    }
+
     this.logger.log(
       `graded-estimate-ingest: ${result.sets} set(s), ${result.cardsInScope} carta(s) en alcance, ` +
         `${result.written} referencia(s) escritas, ${result.skippedManual} respetando override manual, ` +
         `${result.skippedSlabPublished} con slab publicado, ${result.skippedSample} por muestra ` +
         `insuficiente, ${result.skippedEvidence} por evidencia vieja/desconocida, ` +
-        `${result.unrecognized} con forma no reconocida, ` +
+        // Los tres motivos van SEPARADOS en la misma línea a propósito (§4.38h.4): cada uno pide una
+        // reacción distinta, y un total de «saltadas» los volvería indistinguibles.
+        `${result.skippedShapeS2} en shape S2 NO PERSISTIBLE (shapes vistos: ${shapeCounts.s1} S1 / ` +
+        `${shapeCounts.s2} S2), ${result.unrecognized} con forma no reconocida, ` +
         `${result.skippedNoGradedBlock} set(s) sin bloque PSA.`,
     );
     return result;

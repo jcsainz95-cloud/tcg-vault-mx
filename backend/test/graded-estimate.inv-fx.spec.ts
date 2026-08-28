@@ -170,6 +170,9 @@ const RES_BASE = {
   dailyRemaining: 100,
   escalate: null as unknown,
   sawGradedBlock: true,
+  // v1.50.3-a (§4.38h.1-bis) — cartas por SHAPE servido. Es el insumo de la escalada «PPT sirve
+  // mayoritariamente S2», que el orquestador juzga con la corrida entera delante.
+  shapeCounts: { s1: 1, s2: 0 },
 };
 
 function wireIngest(opts: {
@@ -179,8 +182,10 @@ function wireIngest(opts: {
   cards?: unknown[];
   slabs?: Map<string, string[]>;
   providerRows?: unknown[];
+  providerDrops?: { reason: string; externalId: string | null; count: number | null; sample: string }[];
   escalate?: unknown;
   sawGradedBlock?: boolean;
+  shapeCounts?: { s1: number; s2: number };
 }) {
   const store = new Map<string, unknown>(Object.entries(opts.config ?? {}));
   const prisma = {
@@ -199,13 +204,14 @@ function wireIngest(opts: {
   const fetchGraded = jest.fn(async () => ({
     rows: opts.providerRows ?? [],
     fetchedRaw: 1,
-    drops: [],
+    drops: opts.providerDrops ?? [],
     requestOk: true,
     dailyLimited: false,
     dailyRemaining: 100,
     escalate: opts.escalate ?? null,
     // v1.50.2: el proveedor reporta si vio bloque PSA; el ORQUESTADOR decide con la corrida entera.
     sawGradedBlock: opts.sawGradedBlock ?? true,
+    shapeCounts: opts.shapeCounts ?? { s1: 1, s2: 0 },
   }));
   const pptBulk = { fetchGradedEstimatesForSet: fetchGraded } as unknown as PokemonPriceTrackerBulkProvider;
   const pptSetMapper = {
@@ -395,5 +401,121 @@ describe('§4.38h.4 — `no_graded_block_in_response`: escalada a escala de CORR
     // El proveedor RECHAZÓ el parámetro (lo dijo con un 4xx): seguir barriendo solo quema créditos.
     expect(res.escalation).toMatchObject({ reason: 'ebay_not_supported_with_set_sweep' });
     expect(res.sets).toBe(1);
+  });
+});
+
+/**
+ * §4.38h.1-bis (v1.50.3-a) — **la señal de shape S2 a escala de CORRIDA.**
+ *
+ * ### Qué protege este bloque
+ * Dos cosas que el addendum separa a propósito:
+ *
+ * 1. **El contador va APARTE.** `SHAPE_NOT_PERSISTIBLE_S2` no se suma a `skippedSample` ni a
+ *    `skippedEvidence`, porque «el proveedor cambió de shape» y «esta carta tiene pocas ventas» exigen
+ *    **reacciones opuestas** —escalar vs. no hacer nada— y un contador único los vuelve indistinguibles
+ *    **justo cuando hay que decidir**.
+ * 2. **Si S2 DOMINA, se escala; no se parchea.** Lo que ese hallazgo significa no es un problema de
+ *    código: significa que **la fase 2 no es viable con este proveedor**, y elegir entre degradar a
+ *    manual de forma permanente, cambiar de proveedor o pagar el plan que exponga `salesByGrade` es
+ *    decisión de **producto y de costo** (regla 9). Y no hay acantilado detrás: la degradación a manual
+ *    ya está diseñada y funciona.
+ */
+describe('§4.38h.1-bis — shape S2: contador propio y escalada de corrida', () => {
+  const dropS2 = (id: string) => ({
+    externalId: id,
+    reason: 'shape_not_persistible_s2',
+    count: null,
+    sample: `{"gradedPrices":{"psa10":60}}`,
+  });
+  const dropMuestra = {
+    externalId: 'sv8-9',
+    reason: 'sample_too_small',
+    count: 1,
+    sample: '{"psa10":{"count":1}}',
+  };
+
+  it('el contador de S2 es PROPIO: no contamina `skippedSample` ni `skippedEvidence`', async () => {
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1'), dropMuestra],
+      shapeCounts: { s1: 5, s2: 1 }, // S1 sigue dominando ⇒ no escala
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.skippedShapeS2).toBe(1);
+    expect(res.skippedSample).toBe(1); // el drop de muestra sigue en SU contador
+    expect(res.skippedEvidence).toBe(0); // y NO se coló en el de evidencia
+    expect(res.escalation).toBeNull(); // una carta suelta en S2 no sostiene el veredicto
+  });
+
+  it('cada carta en S2 deja TRAZA en `AuditLog` con su motivo (no se disuelve en un total)', async () => {
+    const { ingest, audit } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      shapeCounts: { s1: 3, s2: 1 },
+    });
+    await ingest.ingestGradedEstimates(FX);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'graded_estimate.ingest.skipped',
+        after: expect.objectContaining({ reason: 'shape_not_persistible_s2', providerCardId: 'sv8-1' }),
+      }),
+    );
+  });
+
+  it('si PPT sirve MAYORITARIAMENTE S2 ⇒ ESCALA al arquitecto (no se parchea ni se inventa un dial)', async () => {
+    const { ingest, audit } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1'), dropS2('sv8-2'), dropS2('sv8-3')],
+      shapeCounts: { s1: 1, s2: 3 },
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.escalation).toMatchObject({ reason: 'shape_not_persistible_s2_dominant' });
+    expect(res.escalation!.detail).toContain('NO PERSISTIBLE');
+    expect(res.skippedShapeS2).toBe(3);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'graded_estimate.ingest.escalated',
+        after: expect.objectContaining({ reason: 'shape_not_persistible_s2_dominant' }),
+      }),
+    );
+  });
+
+  it('S2 EXCLUSIVO (cero S1) también escala: es el caso más claro de «este proveedor no sirve»', async () => {
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      shapeCounts: { s1: 0, s2: 1 },
+    });
+    expect((await ingest.ingestGradedEstimates(FX)).escalation).toMatchObject({
+      reason: 'shape_not_persistible_s2_dominant',
+    });
+  });
+
+  it('la escalada NO destruye nada: lo que SÍ se pudo escribir en la corrida se conserva', async () => {
+    // No hay acantilado detrás de esta decisión: la degradación a manual ya existe y funciona. Se pierde
+    // la AUTOMATIZACIÓN de la feature, no la feature — así que el job deja el veredicto y sigue.
+    const { ingest, persist } = wireIngest({
+      config: ON,
+      providerRows: [ROW],
+      providerDrops: [dropS2('sv8-1'), dropS2('sv8-2')],
+      shapeCounts: { s1: 1, s2: 2 },
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.escalation).toMatchObject({ reason: 'shape_not_persistible_s2_dominant' });
+    expect(res.written).toBe(1);
+    expect(persist).toHaveBeenCalled();
+  });
+
+  it('la escalada DURA (4xx) tiene precedencia: no se pisa con el veredicto de shape', async () => {
+    // Son dos diagnósticos distintos y el primero PARÓ el job; sobrescribirlo mandaría al arquitecto a
+    // decidir sobre el proveedor cuando lo que hay delante es un rechazo de parámetros.
+    const { ingest } = wireIngest({
+      config: ON,
+      escalate: { reason: 'ebay_not_supported_with_set_sweep', detail: 'HTTP 400' },
+      shapeCounts: { s1: 0, s2: 5 },
+    });
+    expect((await ingest.ingestGradedEstimates(FX)).escalation).toMatchObject({
+      reason: 'ebay_not_supported_with_set_sweep',
+    });
   });
 });

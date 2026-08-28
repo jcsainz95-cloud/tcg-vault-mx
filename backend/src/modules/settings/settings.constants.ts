@@ -208,7 +208,17 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS,
   [SettingKey.GRADING_MIN_UPSIDE_PCT]: DEFAULT_GRADING_MIN_UPSIDE_PCT,
   [SettingKey.GRADED_ESTIMATES_ENABLED]: 'off',
-  // v1.50.2 — `manualFreshnessDays` arranca en `null` (el override manual NO decae, §4.38m).
+  // v1.50.3 (§4.38m, GU-A16) — `manualFreshnessDays` arranca en **30**, NO en `null`. El seed de
+  // v1.50.2 (`null` = «el override manual NUNCA caduca») desactivaba el criterio 109 para la vía
+  // manual. `null` sigue siendo EXPRESABLE (es una decisión legítima del dueño) pero ya no es el
+  // default, y elegirlo emite `warn` al izar la config (I8-bis).
+  //
+  // ⚠️ §11.0 — cambiar este seed **NO cambia ninguna base ya sembrada** (`prisma/seed.ts` hace
+  // `upsert` con `update: {}`, que es correcto y no se toca: impide que un deploy pise el ajuste
+  // deliberado de un operador). Un seed es una CONDICIÓN INICIAL, no un estado deseado, así que
+  // esto sirve **solo a entornos nuevos**; los existentes se propagan por el paso de despliegue
+  // explícito de §4.38(p) (`PUT /admin/pricing/graded-estimates`, auditado y validado). Lo mismo
+  // vale para `minSampleCount` (3 → 5) y `maxRawMultiple` (50 → 100), abajo.
   [SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS]: DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
   [SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE]: DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
