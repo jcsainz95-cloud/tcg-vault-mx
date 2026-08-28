@@ -115,6 +115,16 @@ export const ErrorCode = {
   // publicado de ese grado: esa fila es el precio de mercado REAL de esas piezas. 409 (conflicto de
   // ESTADO, no de forma: el mismo body es válido en cuanto deje de haber slabs publicados).
   GRADED_ESTIMATE_SLAB_PUBLISHED: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+  // v1.50.3 (§4.38n.3 / §M2) — `GET /admin/pricing/graded-estimates/review` con una clave de config
+  // PRESENTE-pero-INVÁLIDA de la que depende la coherencia (hoy `graded_estimate_max_raw_multiple`).
+  //
+  // Aplicación de `AUSENTE ≠ INVÁLIDA`: el dial `off` es una **decisión** y esta lista la tolera (evalúa
+  // igual, para poder limpiar ANTES de encender); una clave corrupta es **intención perdida**. Una lista
+  // de revisión calculada contra un umbral basura es PEOR que no tener lista: marcaría —o dejaría de
+  // marcar— cartas por una razón que no es la que el operador cree, y ésta es precisamente la superficie
+  // que existe para que el operador CONFÍE en lo que ve. 409 (conflicto de ESTADO: el mismo request es
+  // válido en cuanto la clave se corrija).
+  GRADED_CONFIG_INVALID: 'GRADED_CONFIG_INVALID',
 
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',

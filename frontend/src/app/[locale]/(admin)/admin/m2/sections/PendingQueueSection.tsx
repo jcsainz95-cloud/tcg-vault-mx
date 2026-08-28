@@ -64,16 +64,24 @@ export function PendingQueueSection() {
   const [overrideTarget, setOverrideTarget] = useState<PendingPriceEntryDTO | null>(null);
   const [overridePriceValue, setOverridePriceValue] = useState('');
   const overrideMutation = useMutation({
-    mutationFn: (entry: PendingPriceEntryDTO) =>
-      overridePrice({
+    mutationFn: (entry: PendingPriceEntryDTO) => {
+      const base = {
         cardId: entry.cardId,
-        productType: entry.productType,
         gradeKey: entry.gradeKey,
         // v1.8: la cola es POR ACABADO — sin `finish` el backend defaultea `normal` y el
         // pendiente real (p. ej. holofoil) quedaría abierto.
         finish: entry.finish,
         priceMxnCents: pesosToCents(overridePriceValue),
-      }),
+      };
+      // v1.50.2 (INV-D): `entry.productType` es `ProductType`, y con `graded` el contrato EXIGE
+      // `intent` (422 si falta). Un pendiente de la cola SIEMPRE es una pieza real esperando su
+      // precio publicable ⇒ `market`. Aquí NUNCA se captura un estimado del gancho: la cola no
+      // encola estimados (el contrato prohíbe que la ausencia de estimado sea un «precio
+      // pendiente»), y ese flujo vive en M2 › gancho de grading.
+      return entry.productType === 'graded'
+        ? overridePrice({ ...base, productType: 'graded', intent: 'market' })
+        : overridePrice({ ...base, productType: entry.productType });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pending-prices'] });
       setOverrideTarget(null);

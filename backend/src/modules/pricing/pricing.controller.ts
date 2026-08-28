@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
 import { FINISH_VALUES } from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
@@ -153,6 +153,8 @@ class VariantControlsDto {
 @Controller('admin/pricing')
 @Roles(Role.super_admin)
 export class PricingController {
+  private readonly logger = new Logger(PricingController.name);
+
   constructor(
     private readonly pricing: PricingService,
     private readonly fx: FxService,
@@ -247,6 +249,12 @@ export class PricingController {
     // intención** y bloquear la combinación imposible.
     if (dto.productType === 'graded') {
       if (dto.intent === undefined) {
+        // §O.8 / criterio 112(b): el intento bloqueado se AUDITA antes de rechazarlo. Sin esta línea la
+        // guarda es muda por la vía manual (el ingest ya audita en `price-ingest.service`) y nadie puede
+        // ver si el operador está chocando contra ella a diario ni por qué.
+        await this.auditGradedBlock(userId, dto, 'GRADED_INTENT_REQUIRED', {
+          reason: 'intent_missing',
+        });
         throw BusinessException.validation(
           'GRADED_INTENT_REQUIRED',
           'Para productType:"graded" debes declarar intent: "market" (precio de mercado real de un ' +
@@ -258,6 +266,11 @@ export class PricingController {
         const slabs = await this.pricing.publishedSlabsForGradeKey(dto.cardId, dto.gradeKey);
         if (slabs.length > 0) {
           const grade = dto.gradeKey.split(':')[2] ?? '';
+          await this.auditGradedBlock(userId, dto, 'GRADED_ESTIMATE_SLAB_PUBLISHED', {
+            reason: 'slab_published',
+            publishedSlabCount: slabs.length,
+            inventoryItemIds: slabs.map((i) => i.id),
+          });
           throw BusinessException.conflict(
             'GRADED_ESTIMATE_SLAB_PUBLISHED',
             `No se puede fijar un valor ESTIMADO de PSA ${grade} para esta carta: hay ${slabs.length} ` +
@@ -297,6 +310,53 @@ export class PricingController {
       },
     });
     return { data: toPriceHistoryEntry(ref) };
+  }
+
+  /**
+   * §O.8 / criterio 112(b) — **traza obligatoria del intento BLOQUEADO por la vía manual.**
+   *
+   * La guarda INV-D corta ANTES de escribir, así que sin esta bitácora un rechazo no deja ningún
+   * rastro: el `422`/`409` lo ve solo quien hizo la petición y se pierde al cerrar la pestaña. §O.8
+   * pide justo lo contrario —«que se vea si la guarda está saltando seguido y por qué»—, y la vía del
+   * ingest ya lo cumple (`PriceIngestService.auditGradedSkip`). Esto la iguala.
+   *
+   * Se registra el intento COMPLETO (qué carta, qué grado, qué monto se quiso escribir y con qué
+   * intención) porque el valor del registro está en poder reconstruir el intento, no en saber que hubo
+   * uno. `action` distinta de `pricing.override` a propósito: un intento BLOQUEADO no es un override.
+   *
+   * **Nunca convierte un rechazo en un 500:** si la bitácora falla, se loguea y el `422`/`409` sigue
+   * su curso. Perder la traza es malo; dejar pasar el intento por perderla sería peor.
+   */
+  private async auditGradedBlock(
+    userId: string,
+    dto: OverrideDto,
+    code: 'GRADED_INTENT_REQUIRED' | 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+    extra: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.audit.log({
+        actorUserId: userId,
+        action: 'pricing.override.blocked',
+        entityType: 'PriceReference',
+        entityId: dto.cardId,
+        after: {
+          code,
+          cardId: dto.cardId,
+          productType: dto.productType,
+          gradeKey: dto.gradeKey,
+          finish: dto.finish ?? 'normal',
+          // El monto que NO se escribió: es lo que permite ver si el operador insiste con la misma cifra.
+          attemptedPriceMxnCents: dto.priceMxnCents,
+          intent: dto.intent ?? null,
+          ...extra,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `pricing.override BLOQUEADO (${code}) card=${dto.cardId} gradeKey=${dto.gradeKey}: no se pudo ` +
+          `escribir la bitácora (${(e as Error).message}). El rechazo se mantiene.`,
+      );
+    }
   }
 
   /**

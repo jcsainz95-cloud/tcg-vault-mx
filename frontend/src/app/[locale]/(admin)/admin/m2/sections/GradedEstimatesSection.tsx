@@ -254,6 +254,24 @@ export function GradedEstimatesSection() {
               </div>
             </div>
 
+            {/* v1.50.3 — los diales del GATE DE CONFIANZA, VISIBLES aunque este panel aún no los
+                edite. Se muestran porque cambian el comportamiento que el operador ve y no tenía
+                dónde consultarlos: `manualFreshnessDays` decide que un estimado capturado a mano
+                CADUCA (antes no caducaba nunca) y `maxRawMultiple` es el tope contra el que se
+                compara el PSA 10 en la lista de revisión. Editarlos sigue siendo por API — deuda
+                registrada en TECH_DEBT (F-19). */}
+            <p className="text-xs text-muted">
+              {t('confidenceDials', {
+                manualFreshness:
+                  server.manualFreshnessDays == null
+                    ? t('manualFreshnessNever')
+                    : String(server.manualFreshnessDays),
+                maxRawMultiple: server.maxRawMultiple,
+                minSampleCount: server.minSampleCount,
+                sourceStat: server.sourceStat,
+              })}
+            </p>
+
             {/* Grados: son dial del servidor y NO se editan aquí (el gate SIEMPRE se evalúa con
                 PSA 9 aunque el badge pinte PSA 10). Se muestran para que el dueño sepa qué hay. */}
             <p className="text-xs text-muted">

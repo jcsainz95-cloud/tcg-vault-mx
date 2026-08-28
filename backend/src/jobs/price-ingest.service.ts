@@ -117,6 +117,13 @@ export class PriceIngestJobService {
    * Devuelve de INMEDIATO; el barrido corre secuencial (respeta el throttle/daily-stop, secuencial
    * por naturaleza) y actualiza `sync-status` por set, que el front pollea. NO bloquea el request.
    * El CRON 2×/día sigue usando `run()` (fan-out BullMQ / secuencial), sin cambios.
+   *
+   * **v1.50.2 fix (QA) — este botón TAMBIÉN refresca los estimados PSA.** `run()` llamaba a
+   * `runGradedEstimates` en sus dos ramas y esta NO, así que el «sincronizar ahora» del admin (N-11,
+   * el ÚNICO disparo manual del barrido completo) dejaba los estimados congelados hasta el siguiente
+   * cron. El operador veía la barra llegar al 100% y concluía, razonablemente, que había refrescado
+   * todo. Va DESPUÉS del barrido y encadenado (no en paralelo): el gancho depende del precio de venta
+   * raw para su gate, y correr los dos a la vez duplicaría la presión sobre la cuota del proveedor.
    */
   async runBackground(): Promise<PriceIngestTriggerResult> {
     if (this.ingest.getSyncStatus().running) {
@@ -126,9 +133,15 @@ export class PriceIngestJobService {
     const cur = await this.fx.getCurrent();
     const fx: FxSnapshot = { rate: cur.rate, bufferPct: cur.bufferPct };
     // Fire-and-forget: el request NO espera al barrido. Los errores se loguean (no se propagan).
-    void this.ingest.ingestAll(fx).catch((e) => {
-      this.logger.error(`price-ingest background falló: ${(e as Error).message}`);
-    });
+    void this.ingest
+      .ingestAll(fx)
+      .catch((e) => {
+        this.logger.error(`price-ingest background falló: ${(e as Error).message}`);
+      })
+      // `.then` tras el `.catch`: el gancho se refresca AUNQUE el barrido de venta haya fallado. La
+      // dependencia va en un solo sentido (`runGradedEstimates` ya se aísla en su propio try) y un
+      // fallo del barrido no es razón para dejar los estimados rancios.
+      .then(() => this.runGradedEstimates(fx));
     return { job: JOB, enqueued: true, background: true, alreadyRunning: false };
   }
 

@@ -7,20 +7,28 @@ import { BusinessException } from '../../common/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PricingService } from '../pricing/pricing.service';
-import { CatalogService } from './catalog.service';
-import { SettingKey, validateGradeList } from '../settings/settings.constants';
+import {
+  CatalogService,
+  GRADED_REVIEW_ALLOWED_REASONS,
+  REVIEW_PAGE_SIZE_DEFAULT,
+  REVIEW_PAGE_SIZE_MAX,
+} from './catalog.service';
+import {
+  SettingKey,
+  validateGradeList,
+  validateGradedEstimateFreshnessDays,
+  validateGradingMinUpsidePct,
+} from '../settings/settings.constants';
 import {
   validateGradingCostTiers,
   toGradedEstimateConfigDTO,
   GradedEstimateConfigDTO,
-  GRADING_MIN_UPSIDE_PCT_MAX,
-  GRADED_ESTIMATE_FRESHNESS_DAYS_MAX,
-  GRADED_ESTIMATE_FRESHNESS_DAYS_MIN,
   validateGradedEstimateIngestMaxCards,
   validateGradedEstimateManualFreshnessDays,
   validateGradedEstimateMaxRawMultiple,
   validateGradedEstimateMinSampleCount,
   validateGradedEstimateSourceStat,
+  HighlightReason,
 } from '../../common/graded-estimate';
 
 /**
@@ -114,7 +122,7 @@ export class GradedEstimatesController {
    *
    * **Recalcula el conjunto destacado AL VUELO** (no hay materialización: el gate se evalúa en cada
    * request) ⇒ subir `minUpsidePct` o encarecer un escalón vacía la vitrina y quita los badges **sin
-   * tocar ningún precio de venta** (criterio 86).
+   * tocar ningún precio de venta** (criterio 104).
    */
   @Put()
   async put(@Body() dto: GradedEstimatesPutDto, @CurrentUser('id') userId: string) {
@@ -153,34 +161,7 @@ export class GradedEstimatesController {
       writes.push({ key: SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES, value: highlightGrades });
     }
 
-    // I6 — umbrales.
-    let freshnessDays: number | undefined;
-    let minUpsidePct: number | undefined;
     let gradingCostTiers: unknown;
-    if (dto.freshnessDays !== undefined) {
-      const v = dto.freshnessDays;
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < GRADED_ESTIMATE_FRESHNESS_DAYS_MIN || v > GRADED_ESTIMATE_FRESHNESS_DAYS_MAX) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `freshnessDays must be an integer in [${GRADED_ESTIMATE_FRESHNESS_DAYS_MIN}, ${GRADED_ESTIMATE_FRESHNESS_DAYS_MAX}] (days)`,
-          { field: 'freshnessDays' },
-        );
-      }
-      writes.push({ key: SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS, value: v });
-      freshnessDays = v;
-    }
-    if (dto.minUpsidePct !== undefined) {
-      const v = dto.minUpsidePct;
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > GRADING_MIN_UPSIDE_PCT_MAX) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `minUpsidePct must be a number in [0, ${GRADING_MIN_UPSIDE_PCT_MAX}]`,
-          { field: 'minUpsidePct' },
-        );
-      }
-      writes.push({ key: SettingKey.GRADING_MIN_UPSIDE_PCT, value: v });
-      minUpsidePct = v;
-    }
 
     // I1–I5 — la tabla de escalones, con el MISMO validador compartido que usa la lectura fail-closed.
     // `costMxnCents >= 1`, JAMÁS 0: un costo de gradeo subestimado es exactamente lo que haría que el
@@ -195,11 +176,26 @@ export class GradedEstimatesController {
       gradingCostTiers = dto.gradingCostTiers;
     }
 
-    // I8/I9 (v1.50.2) — los cinco diales nuevos, con los MISMOS validadores compartidos que aplican
+    // I6 + I8/I9 — los SIETE diales escalares, todos con el MISMO validador compartido que aplican
     // `PUT /admin/settings` y la lectura fail-closed del resolver. Una sola verdad por invariante.
+    //
+    // ⚠️ `freshnessDays` y `minUpsidePct` entraron aquí en v1.50.2 (techlead): se revalidaban A MANO
+    // —`typeof v !== 'number' || !Number.isInteger(v) || v < MIN || v > MAX`— con el rango reescrito en
+    // el mensaje, mientras `validateGradedEstimateFreshnessDays` / `validateGradingMinUpsidePct` ya
+    // existían y eran los que gobernaban las otras DOS puertas a la misma clave. Tres copias del mismo
+    // invariante que nadie obliga a coincidir: relajar el rango en el validador compartido dejaba esta
+    // puerta estricta (o al revés) **sin que nada fallara**. El mensaje y el `details.field` que ve el
+    // cliente no cambian: `${field} ${err}` reproduce exactamente el texto anterior.
     const patch: Partial<Record<keyof GradedEstimateConfigDTO, unknown>> = {};
     const applyDial = (
-      field: 'manualFreshnessDays' | 'maxRawMultiple' | 'minSampleCount' | 'sourceStat' | 'ingestMaxCardsPerRun',
+      field:
+        | 'freshnessDays'
+        | 'minUpsidePct'
+        | 'manualFreshnessDays'
+        | 'maxRawMultiple'
+        | 'minSampleCount'
+        | 'sourceStat'
+        | 'ingestMaxCardsPerRun',
       key: (typeof GRADED_ESTIMATE_M2_KEYS)[number],
       validate: (v: unknown) => string | null,
     ): void => {
@@ -212,6 +208,8 @@ export class GradedEstimatesController {
       writes.push({ key, value: v as Prisma.InputJsonValue });
       patch[field] = v;
     };
+    applyDial('freshnessDays', SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS, validateGradedEstimateFreshnessDays);
+    applyDial('minUpsidePct', SettingKey.GRADING_MIN_UPSIDE_PCT, validateGradingMinUpsidePct);
     // ⚠️ `manualFreshnessDays` acepta `null` como VALOR («no decae»), no como ausencia. Por eso la
     // guarda de arriba compara contra `undefined` y no es un `!= null`: un `null` explícito SE ESCRIBE.
     applyDial(
@@ -246,8 +244,6 @@ export class GradedEstimatesController {
       ...toGradedEstimateConfigDTO(before),
       ...(dto.grades !== undefined ? { grades } : {}),
       ...(dto.highlightGrades !== undefined ? { highlightGrades } : {}),
-      ...(freshnessDays !== undefined ? { freshnessDays } : {}),
-      ...(minUpsidePct !== undefined ? { minUpsidePct } : {}),
       ...(gradingCostTiers !== undefined ? { gradingCostTiers } : {}),
       ...patch,
     } as GradedEstimateConfigDTO;
@@ -302,6 +298,75 @@ export class GradedEstimatesController {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'cardId is required', { field: 'cardId' });
     }
     return this.catalog.gradedEstimatePreview(cardId);
+  }
+
+  /**
+   * `GET /admin/pricing/graded-estimates/review` — **LISTA DE REVISIÓN** (v1.50.3, §4.38n, criterio
+   * 111(e)). `super_admin`, read-only, paginada. Query: `?reason=&page=&pageSize=`, todos opcionales.
+   *
+   * Es la **contrapartida** de §4.38(k.3): decidimos NO ocultar en la ficha la cifra incoherente, y esa
+   * decisión solo se sostiene si alguien puede enterarse de que existe. El `preview` exige `cardId`
+   * —solo contesta si ya sospechabas—; esto responde «¿de qué cartas debo sospechar?».
+   *
+   * La lógica vive en `CatalogService.gradedEstimateReview`; aquí solo el borde HTTP: validación de
+   * query con errores accionables y defaults del contrato.
+   */
+  @Get('review')
+  async review(
+    @Query('reason') reason?: string | string[],
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.catalog.gradedEstimateReview({
+      reasons: this.reviewReasons(reason),
+      page: this.reviewInt(page, 'page', 1, 1, Number.MAX_SAFE_INTEGER),
+      pageSize: this.reviewInt(pageSize, 'pageSize', REVIEW_PAGE_SIZE_DEFAULT, 1, REVIEW_PAGE_SIZE_MAX),
+    });
+  }
+
+  /**
+   * `?reason=` repetible **o** CSV (las dos formas circulan por igual en el front y en `curl`).
+   * Omitido ⇒ `undefined` ⇒ el servicio aplica el default del contrato (los TRES de coherencia).
+   *
+   * ⚠️ **Un `reason` no admitido es `400`, no un filtro vacío.** `STALE`, `NO_PSA10`, `NO_PSA9`,
+   * `NO_COST_TIER`, `BELOW_MIN_UPSIDE`, `NOT_RAW`, `NOT_PUBLISHED` y `FEATURE_OFF` **no son
+   * incoherencias**: son AUSENCIA de dato o el gate comercial haciendo su trabajo. Una lista que los
+   * aceptara tendría miles de filas normales y cero valor operativo — y el criterio 111(e) habla de la
+   * cifra que **falla la coherencia**, no de la que falta. Devolver `[]` en silencio sería peor: el
+   * operador leería «no hay nada que revisar» de una consulta que nunca podía encontrar nada.
+   */
+  private reviewReasons(raw?: string | string[]): HighlightReason[] | undefined {
+    if (raw === undefined) return undefined;
+    const values = (Array.isArray(raw) ? raw : [raw])
+      .flatMap((v) => String(v).split(','))
+      .map((v) => v.trim())
+      .filter((v) => v !== '');
+    if (values.length === 0) return undefined;
+    const invalid = values.filter((v) => !GRADED_REVIEW_ALLOWED_REASONS.includes(v as HighlightReason));
+    if (invalid.length > 0) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `reason no admitido: ${invalid.join(', ')}. Esta lista enumera INCOHERENCIAS de magnitud, no ` +
+          'ausencias de dato ni el gate comercial funcionando.',
+        { field: 'reason', invalid, allowed: [...GRADED_REVIEW_ALLOWED_REASONS] },
+      );
+    }
+    return [...new Set(values)] as HighlightReason[];
+  }
+
+  /** Entero de paginación con rango del contrato. Fuera de rango o no entero ⇒ `400` (jamás un clamp
+   * silencioso: un `pageSize=1000` recortado a 100 sin avisar hace creer que se vio todo). */
+  private reviewInt(raw: string | undefined, field: string, def: number, min: number, max: number): number {
+    if (raw === undefined || raw.trim() === '') return def;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < min || n > max) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `${field} must be an integer in [${min}, ${max === Number.MAX_SAFE_INTEGER ? '∞' : max}]`,
+        { field },
+      );
+    }
+    return n;
   }
 
   /**

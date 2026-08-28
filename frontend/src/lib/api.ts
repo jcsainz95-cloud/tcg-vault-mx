@@ -59,6 +59,7 @@ import type {
   CreateDisputeResponse,
   ClientDisputeDTO,
   ProductType,
+  PricingOverrideIntent,
   RawCondition,
   SealedSubtype,
   SealedCondition,
@@ -70,6 +71,9 @@ import type {
   SealedSpreadsUpdateRequest,
   GradedEstimateConfigDTO,
   GradedEstimateConfigInput,
+  GradedEstimatePreviewResponse,
+  GradedEstimateReviewReason,
+  GradedEstimateReviewResponse,
   Finish,
   GradingCompany,
   AcquisitionType,
@@ -639,6 +643,59 @@ export async function updateGradedEstimateConfig(
     ...fx.mockGradedEstimateConfig,
     gradingCostTiers: fx.mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
   });
+}
+
+/**
+ * Diagnóstico de CURADURÍA (contrato `GET /admin/pricing/graded-estimates/preview?cardId=`,
+ * `super_admin`, **read-only, no toca dinero**). Responde «¿por qué esta carta no está destacada?»
+ * y, sobre todo, **avisa ANTES de escribir**: `publishedSlabGrades` dice qué grados de esa carta
+ * tienen slab publicado — capturar un ESTIMADO de uno de ellos devuelve `409` (INV-D, §O.8).
+ *
+ * Es el ÚNICO sitio donde los insumos del gate se exponen; **nunca** se pintan en el storefront.
+ */
+export async function getGradedEstimatePreview(
+  cardId: string,
+): Promise<GradedEstimatePreviewResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimatePreviewResponse>('/admin/pricing/graded-estimates/preview', {
+      query: { cardId },
+    });
+  }
+  return delay(fx.mockGradedEstimatePreview(cardId));
+}
+
+export interface GradedEstimateReviewFilters {
+  /** Omitido ⇒ el backend aplica su default (los TRES motivos de coherencia). */
+  reason?: GradedEstimateReviewReason[];
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * LISTA DE REVISIÓN del gancho (contrato `GET /admin/pricing/graded-estimates/review`, v1.50.3,
+ * `super_admin`, read-only, paginada). **Es el criterio 111(e).**
+ *
+ * `preview` responde «¿por qué **esta** carta no está destacada?» y exige `cardId`: solo contesta si
+ * **ya sospechabas**. Esto responde «¿de qué cartas debo sospechar?» — la pregunta que nadie podía
+ * hacer. Es la **contrapartida** de no ocultar la cifra incoherente en la ficha: si la seguimos
+ * mostrando, alguien tiene que enterarse.
+ *
+ * `reason` viaja como **CSV** (el contrato lo admite repetible o CSV; se elige CSV por ser una sola
+ * clave de query y no depender del serializador de arrays).
+ */
+export async function getGradedEstimateReview(
+  filters: GradedEstimateReviewFilters = {},
+): Promise<GradedEstimateReviewResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateReviewResponse>('/admin/pricing/graded-estimates/review', {
+      query: {
+        reason: filters.reason?.length ? filters.reason.join(',') : undefined,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  return delay(fx.mockGradedEstimateReview(filters));
 }
 
 // ---------- Checkout / órdenes ----------
@@ -3051,9 +3108,8 @@ export async function getPendingPrices(
   return delay(fx.getMockPendingQueue(context, reason));
 }
 
-export interface PricingOverrideInput {
+interface PricingOverrideBase {
   cardId: string;
-  productType: ProductType;
   gradeKey: string;
   /**
    * v1.6-finish/v1.8: acabado a resolver (default backend `normal`). La cola de pendientes
@@ -3063,11 +3119,54 @@ export interface PricingOverrideInput {
   priceMxnCents: number;
 }
 
+/**
+ * Body de `POST /admin/pricing/override`.
+ *
+ * **UNIÓN DISCRIMINADA POR `productType` (contrato v1.50.2, BREAKING chico).** Con
+ * `productType:"graded"` el backend **exige** `intent` y responde `422 GRADED_INTENT_REQUIRED` si
+ * falta. Se modela como unión —y no como `intent?: PricingOverrideIntent`— por la misma razón por la
+ * que el backend no le pone default: **que el compilador obligue al llamador a declararlo**. Un
+ * campo opcional deja el 422 latente hasta que alguien lo dispara en producción sobre una fila de
+ * dinero; con la unión, olvidarlo **no compila**. Misma técnica que `VariantPriceConsoleProps` usa
+ * para exigir `gradeKey` en graded.
+ *
+ * En `raw`/`sealed` el contrato dice que `intent` «se ignora si viene»: el tipo lo **prohíbe**
+ * (`never`) para que nadie escriba una intención que el servidor va a tirar en silencio.
+ */
+export type PricingOverrideInput = PricingOverrideBase &
+  (
+    | { productType: 'graded'; intent: PricingOverrideIntent }
+    | { productType: 'raw' | 'sealed'; intent?: never }
+  );
+
 /** Override manual de precio; resuelve el PendingPriceEntry DE ESE ACABADO (contrato POST /admin/pricing/override). */
 export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: true }> {
   if (!config.useMocks) {
     await apiRequest<unknown>('/admin/pricing/override', { method: 'POST', body: input });
     return { ok: true };
+  }
+  // MOCK: la MISMA guarda de escritura que el backend (INV-D, contrato v1.50.2). Se replica aquí
+  // a propósito: Playwright corre en modo mocks, así que sin esto el bloqueo de §O.8 —el que impide
+  // que una cifra ilustrativa mueva el precio de un slab real— sería inverificable de punta a punta.
+  if (input.productType === 'graded' && input.intent === 'graded_estimate') {
+    const slabs = fx.publishedSlabsForGradeKey(input.cardId, input.gradeKey);
+    if (slabs.length > 0) {
+      const grade = input.gradeKey.split(':')[2] ?? '';
+      throw translateFixtureError(
+        new fx.ApiFixtureError(
+          409,
+          'GRADED_ESTIMATE_SLAB_PUBLISHED',
+          `No se puede fijar un valor ESTIMADO de PSA ${grade} para esta carta: hay ${slabs.length} ` +
+            `slab(s) PSA ${grade} publicado(s).`,
+          {
+            cardId: input.cardId,
+            gradeKey: input.gradeKey,
+            publishedSlabCount: slabs.length,
+            inventoryItemIds: slabs.map((i) => i.id),
+          },
+        ),
+      );
+    }
   }
   // MOCK: resuelve la entrada pendiente asociada a esa carta/gradeKey/acabado.
   const finish = input.finish ?? 'normal';
@@ -3079,7 +3178,14 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
   // NORMATIVA para fijar el valor de mercado por carta+grado (pestaña Gradeadas de M1).
   if (input.productType === 'graded') {
     const m = input.gradeKey.match(/^graded:([^:]+):(.+)$/);
-    if (m) fx.setMockGradedMarketRef(input.cardId, m[1], m[2], input.priceMxnCents);
+    if (m) {
+      fx.setMockGradedMarketRef(input.cardId, m[1], m[2], input.priceMxnCents);
+      // v1.50.2 (§O.6): con `graded_estimate` esta misma llamada escribe la fila que el storefront
+      // lee para el gancho — «no se construye ningún mecanismo de captura nuevo».
+      if (input.intent === 'graded_estimate') {
+        fx.setMockGradedEstimate(input.cardId, m[2], input.priceMxnCents);
+      }
+    }
   }
   return delay({ ok: true });
 }

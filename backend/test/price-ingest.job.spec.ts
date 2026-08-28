@@ -20,6 +20,9 @@ function build(hasRecentIngest = true) {
     ingestSet: jest.fn(async () => ({})),
     ingestSetByExternalId: jest.fn(async () => ({})),
     ingestAll: jest.fn(async () => ({ sets: 2, priced: 4, pending: 0, dailyLimited: false })),
+    // v1.50.2 (§4.38h): el gancho corre APARTE del barrido por set. Se mockea aquí porque las TRES
+    // vías de disparo del barrido completo (cron con cola, cron sin cola y el botón N-11) lo llaman.
+    ingestGradedEstimates: jest.fn(async () => ({ sets: 1, written: 2, escalation: null })),
     hasRecentIngest: jest.fn(async () => hasRecentIngest),
     // N-11: single-flight del disparo en background lo da el estado en memoria.
     getSyncStatus: jest.fn(() => ({ running: false })),
@@ -104,6 +107,41 @@ describe('PriceIngestJobService.runBackground — N-11 (fire-and-forget + single
 
     expect(res).toEqual({ job: 'price-ingest', enqueued: false, background: true, alreadyRunning: true });
     expect((ingest.ingestAll as jest.Mock)).not.toHaveBeenCalled();
+    // Ni el barrido ni el gancho: si NO se lanzó nada, no se refresca nada.
+    expect((ingest.ingestGradedEstimates as jest.Mock)).not.toHaveBeenCalled();
+  });
+
+  /**
+   * v1.50.2 fix (QA) — **el «sincronizar ahora» del admin TAMBIÉN refresca los estimados PSA.**
+   *
+   * `run()` (el cron) llamaba a `runGradedEstimates` en sus dos ramas; `runBackground()` —que es el
+   * ÚNICO disparo manual del barrido completo, el botón de N-11— NO. El operador veía la barra llegar
+   * al 100%, concluía que había refrescado todo, y los estimados seguían congelados hasta el cron.
+   */
+  it('refresca TAMBIÉN los estimados PSA tras el barrido (el botón N-11 no puede mentir)', async () => {
+    const { job, ingest } = build();
+
+    await job.runBackground();
+    await new Promise((r) => setImmediate(r)); // el encadenado es fire-and-forget: se deja drenar
+
+    expect((ingest.ingestAll as jest.Mock)).toHaveBeenCalledWith({ rate: 18, bufferPct: 3 });
+    expect((ingest.ingestGradedEstimates as jest.Mock)).toHaveBeenCalledWith({ rate: 18, bufferPct: 3 });
+    // ORDEN: el gancho va DESPUÉS. Su gate compara contra el precio de venta raw, que lo fija el
+    // barrido; y correr los dos a la vez duplicaría la presión sobre la cuota del proveedor.
+    const barrido = (ingest.ingestAll as jest.Mock).mock.invocationCallOrder[0];
+    const gancho = (ingest.ingestGradedEstimates as jest.Mock).mock.invocationCallOrder[0];
+    expect(gancho).toBeGreaterThan(barrido);
+  });
+
+  it('si el barrido de venta FALLA, el gancho se refresca igual (la dependencia va en un sentido)', async () => {
+    const { job, ingest } = build();
+    (ingest.ingestAll as jest.Mock).mockRejectedValue(new Error('PPT caído'));
+
+    await job.runBackground();
+    await new Promise((r) => setImmediate(r));
+
+    // Un fallo del barrido no es razón para dejar los estimados rancios, ni para tumbar el request.
+    expect((ingest.ingestGradedEstimates as jest.Mock)).toHaveBeenCalled();
   });
 });
 

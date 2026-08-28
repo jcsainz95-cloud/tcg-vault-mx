@@ -7654,25 +7654,110 @@ fecha rancia los dos casos divergen **por diseño**, que es justo lo que (m) res
 (b) la documentación del proveedor **se contradice** entre `data[i].ebay.salesByGrade.psaN` (objeto) y
 `gradedPrices.psaN` (escalar); (c) **se desconoce** si `includeEbay=true` combina con `fetchAllInSet=true`.
 
-##### (h.1) El parser AUTO-CONFIRMANTE — sondeo de dos hipótesis, escritura solo con identificación positiva
+##### (h.1) El parser AUTO-CONFIRMANTE — sondea DOS hipótesis, pero solo UNA es persistible (v1.50.3)
 
 Orden de sondeo fijo. **Nunca hay fallback silencioso entre shapes.**
 
 | | Ruta | Forma esperada | Persiste **solo si** |
 |---|---|---|---|
-| **S1** | `data[i].ebay.salesByGrade.psaN` | objeto `{ count, medianPrice, averagePrice, smartMarketPrice }` | el stat elegido por `graded_estimate_source_stat` (default `medianPrice`) es **número finito > 0** **Y** `count` es **entero finito ≥ `graded_estimate_min_sample_count`** |
-| **S2** | `gradedPrices.psaN` | escalar | es **número finito > 0** **Y** se cumple la regla de `count` de abajo |
+| **S1** | `data[i].ebay.salesByGrade.psaN` | objeto `{ count, medianPrice, averagePrice, smartMarketPrice, lastSaleDate }` | el stat elegido por `graded_estimate_source_stat` (default `medianPrice`) es **número finito > 0**, **Y** `count` es **entero finito ≥ `graded_estimate_min_sample_count`**, **Y** `lastSaleDate` es **fecha parseable dentro de `graded_estimate_freshness_days`** |
+| **S2** | `gradedPrices.psaN` | escalar | **NUNCA — declarado NO PERSISTIBLE, ver (h.1-bis)**. Se sigue **detectando** y se **registra**; no se escribe |
 | **—** | cualquier otra forma (array, string, `null`, objeto desconocido, `NaN`, negativo) | — | **NO ESCRIBE NADA** + registra la muestra cruda |
 
-- **S2 no trae `count` ⇒ el punto 2 del gate de confianza (k) queda DESCONOCIDO ⇒ fail-closed ⇒ NO se persiste.**
-  Escotilla explícita del operador: `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` acepta el riesgo a sabiendas. *(Es la
-  aplicación literal de la doctrina: «desconocido» no es «suficiente».)*
-- **⚠ v1.50.3 — TERCERA condición de escritura: GATE DE EVIDENCIA.** Además del stat > 0 y del `count`, S1 **solo
-  persiste** si la **`lastSaleDate`** de `ebay.salesByGrade` está dentro de `graded_estimate_freshness_days`.
-  **Ausente o no parseable ⇒ NO se persiste** (misma doctrina que el `count` de S2: *«desconocido» no es «fresco»*).
-  Cierra el fallo «fresco para siempre» descrito en **(m.2)**: sin este gate, cada corrida reescribiría
-  `capturedDate = hoy` sobre evidencia que ya no se mueve, y la ventana de frescura de lectura **nunca** la vencería.
-  **`graded_estimate_min_sample_count` sube a seed 5 en v1.50.3** ((k.1)); el parser no cambia, cambia el umbral.
+- **⚠ v1.50.3 — TERCERA condición de escritura para S1: GATE DE EVIDENCIA.** Además del stat > 0 y del `count`, S1
+  **solo persiste** si la **`lastSaleDate`** está dentro de `graded_estimate_freshness_days`. **Ausente o no
+  parseable ⇒ NO se persiste** (*«desconocido» no es «fresco»*). Cierra el fallo «fresco para siempre» de **(m.2)**.
+  **`graded_estimate_min_sample_count` sube a seed 5** ((k.1)); el parser no cambia, cambia el umbral.
+- **`lastSaleDate` es una HIPÓTESIS, no un hecho — y el parser debe tratarla como tal.** El Gate 0 dejó escrito que la
+  documentación del proveedor **se contradice a sí misma** sobre la forma del bloque PSA. `PROJECT.md` §O.6 / criterio
+  106 describe `ebay.salesByGrade` como «número de ventas, mediana, promedio **y fecha de la última venta**», pero eso
+  es **documentación del proveedor, no una respuesta observada**. El parser **no asume el nombre ni el formato del
+  campo**: lo **identifica positivamente** o no escribe, exactamente igual que hace con el stat. Si S1 llega **sin**
+  fecha, no es «S1 degradado»: es una forma que no sabemos leer ⇒ **no se escribe** y **se registra la muestra**.
+  *(Esto es P-6 aplicada al campo nuevo. Sería incoherente auto-confirmar el precio y dar por supuesta la fecha.)*
+- **Override del operador — MANDA sobre la autodetección.** Se conservan
+  `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` **default** | `sales_by_grade` | `graded_prices`) y
+  `POKEMONPRICETRACKER_GRADED_FIELD` (`medianPrice | averagePrice | smartMarketPrice`). **Si se fijan y la respuesta
+  no casa, NO se escribe nada** y se registra la muestra: caer al otro shape derrotaría la intención explícita del
+  operador, que es justo lo que el override existe para expresar. *(v1.50.3: fijar `FORMAT=graded_prices` sigue siendo
+  legal y sigue **sin** hacer persistible a S2 — fuerza el sondeo, no la escritura.)*
+- **Truncate del log de muestra: `800` → `4000` chars** — `pokemonpricetracker-bulk.provider.ts:209`
+  (`sample = truncate(JSON.stringify(entries[0]), 800)`). **Bloqueante del diagnóstico:** con 800 el bloque PSA queda
+  **cortado** y produce un **falso negativo** («el proveedor no manda PSA» cuando sí lo manda). Es cambio de
+  **observabilidad**, no de dinero. *(El log ya es seguro: la key va en el header, jamás en URL ni log — §4.15.)*
+
+##### (h.1-bis) DICTAMEN PI-D2 (v1.50.3, NORMATIVO) — S2 (`gradedPrices.psaN`) queda declarado NO PERSISTIBLE
+
+> **Cómo se descubrió, y por qué se escribe aquí en vez de dejarlo para la primera corrida real.** Backend implementó
+> el gate de evidencia **al pie de la letra** y encontró la consecuencia: `gradedPrices.psaN` es un **escalar** y no
+> trae fecha, así que cae siempre en `evidence_unknown` y **no puede persistir jamás**. Colateral: la escotilla
+> `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` —que existía precisamente para que S2 pudiera escribir— **ya no alcanza**,
+> porque detrás hay una segunda puerta cerrada. **Backend hizo lo correcto: no inventó un dial de evidencia análogo
+> por su cuenta y lo escaló.** Es doctrina, no implementación.
+
+**Primera corrección, y cambia el marco de la discusión: S2 no era persistible ANTES de v1.50.3 tampoco.** La regla de
+v1.50.2 ya decía que sin `count` el punto 2 del gate queda **desconocido** ⇒ fail-closed ⇒ **no se persiste**. El
+**único** camino de S2 hacia la BD era la escotilla, y una escotilla es —por definición— *aceptar un riesgo a
+sabiendas*, no una vía normal. Así que **el parser ya era «de una hipótesis y media» en configuración por defecto**;
+v1.50.2 simplemente no lo dijo en voz alta. El gate de evidencia **no rompió nada**: puso un segundo cerrojo en una
+puerta que ya estaba cerrada, y al hacerlo **hizo visible** algo que estaba implícito. Eso es exactamente lo que se le
+pide a un diseño.
+
+**Dictamen: se ACEPTA como decisión de diseño. S2 es NO PERSISTIBLE, y no se añade una segunda escotilla.**
+
+**Razón de fondo — S2 no es un S1 degradado, es un objeto epistemológico distinto.** El gate de confianza de §O.7
+tiene tres pruebas: **fresca**, **origen confiable**, **coherente en magnitud**. De las tres, la única que se calcula
+con **datos nuestros** (el precio raw publicado) es la tercera. Las otras dos se calculan con **evidencia del
+proveedor**: `count` y fecha. Un escalar pelado **no trae ninguna de las dos** — no es que no las hayamos leído: **el
+shape no las contiene**. Por tanto S2 es **estructuralmente incapaz** de satisfacer las pruebas 1 y 2, y ninguna
+configuración lo arregla, porque no hay nada que configurar.
+
+**Y no hay ninguna superficie donde una fila S2 sería admisible.** Es el remate del argumento y conviene tenerlo
+escrito, porque invita a pensar «bueno, que al menos salga en la ficha»:
+
+| Superficie | Qué exige (§O.7 «Aplicación por superficie») | ¿Admite S2? |
+|---|---|---|
+| Rejilla / vitrina | las **tres** pruebas + gate de ROI | **No** (falla 1 y 2) |
+| **Ficha** | **frescura** y **origen confiable** *(la magnitud es la que NO aplica aquí)* | **No** — falla exactamente las dos que sí aplican |
+
+La ficha es más permisiva **en magnitud**, no en procedencia. Persistir S2 produciría una fila que **no se puede
+mostrar en ningún sitio**: basura en una tabla de dinero a cambio de cero valor.
+
+**Por qué NO se concede una segunda escotilla** *(era la opción 2 sobre la mesa, y la descarto con motivo)*. Con
+`MIN_COUNT=0` **y** un hipotético `EVIDENCE_UNKNOWN=allow` abiertos a la vez, lo que queda publicándose es **un número
+del que no sabemos ni cuántas ventas lo respaldan ni de cuándo es**, con el único filtro de «está entre 1× y 100× de
+nuestro precio raw». Dos escotillas que **individualmente** dicen «acepto el riesgo a sabiendas» **se componen** en
+«no sabemos nada de esta cifra y la ponemos en la portada». Eso es precisamente lo que §O.4 —que aquí se aplica *«más
+estricta que en ningún otro lado»*— promete que no pasa. **Las escotillas no se apilan.**
+
+**Y no hay acantilado operativo detrás de esta decisión.** El plan de degradación ya existe, ya está aceptado y **ya
+funciona**: si PPT no entrega lo que la fase 2 necesita, *«la fase 2 se detiene y la feature degrada a manual — que es
+el estado de v1.50 y funciona»* (riesgo de proveedor único, más abajo en (h)). No se pierde la feature: se pierde la
+**automatización** de la feature.
+
+**Consecuencia normativa 1 — `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` queda DEROGADA; backend la retira.** Su único
+propósito declarado era hacer persistible a S2. Ya no abre nada. **Una escotilla que no abre nada es peor que no
+tenerla**: alguien la pondrá, no verá cambio alguno, y concluirá que el ingest está roto — un falso negativo de
+diagnóstico, la misma clase de fallo que el truncate de 800 chars. *(Si se quiere admitir muestras pequeñas en S1, la
+vía correcta existe y es un dial auditado: `graded_estimate_min_sample_count = 1`.)*
+
+**Consecuencia normativa 2 — detectar S2 SIGUE siendo valioso, y por eso el sondeo se conserva.** No se borra la
+hipótesis: se le cambia el papel. **S2 es una hipótesis de DIAGNÓSTICO, no de ESCRITURA.** Encontrar S2 es la señal de
+que el proveedor **no está dando lo que esta feature necesita**, y esa señal tiene que llegar a un humano en vez de
+disolverse en un contador de «saltadas». Traza obligatoria por carta (log estructurado + `AuditLog`, (h.4)) con motivo
+**`SHAPE_NOT_PERSISTIBLE_S2`**, distinto de `evidence_unknown` y de `sample_too_small`: **los tres motivos se cuentan
+por separado**, porque «el proveedor cambió de shape» y «esta carta tiene pocas ventas» exigen reacciones opuestas.
+
+> ⛔ **ESCALADA OBLIGATORIA (regla 9) — se añade a la que ya existe en (h.4).** Si la primera corrida real revela que
+> PPT sirve **mayoritariamente o exclusivamente S2**, backend **NO improvisa** (ni escotilla, ni dial nuevo, ni
+> «escribimos con `count` inventado»): **vuelve al arquitecto**, y de ahí al humano. Porque lo que ese hallazgo
+> significa **no es un problema de código**: significa que **la fase 2 no es viable con este proveedor**, y la
+> decisión —degradar a manual de forma permanente, buscar un segundo proveedor, o pagar el plan que sí exponga
+> `salesByGrade`— es de **producto y de costo**. Diseñar el parche antes de tener la evidencia sería reincidir en P-6.
+
+**Lo que esta decisión NO cambia:** ni el contrato público, ni un solo DTO, ni el comportamiento de la fase 1 (manual),
+ni ningún monto. **No está vivo** (`graded_estimate_ingest_enabled` seed `off`). **Bloquea encender la fase 2** solo en
+el escenario en que el proveedor resulte servir S2 — y en ese escenario lo que bloquea es correcto que se bloquee.
 - **Override del operador — MANDA sobre la autodetección.** Se conservan
   `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` **default** | `sales_by_grade` | `graded_prices`) y
   `POKEMONPRICETRACKER_GRADED_FIELD` (`medianPrice | averagePrice | smartMarketPrice`). **Si se fijan y la respuesta
@@ -7709,11 +7794,23 @@ clase de decisión que solo se puede afinar viendo datos reales.
 `isManualOverride`** (el override manual gana, §O.6) — mismo comportamiento que ya tiene con raw. **Cero cambio de
 contrato público, cero cambio de frontend.**
 
-**Traza obligatoria (no opcional).** Por cada carta **saltada** —muestra insuficiente, forma no reconocida, slab
-publicado ((l)), tope de cuota— el job deja línea de log estructurada **y** `AuditLog`. Sin esto, el descarte por
-`count` bajo sería invisible para el operador: el `preview` de admin lo vería como `NO_PSA10`/`NO_PSA9`, porque la
-fila sencillamente no existe. **Es una limitación diagnóstica aceptada** (consecuencia de gatear la muestra en
-escritura para no añadir columna a `PriceReference`), y la traza es su compensación.
+**Traza obligatoria (no opcional).** Por cada carta **saltada** el job deja línea de log estructurada **y**
+`AuditLog`. Sin esto, el descarte sería invisible para el operador: el `preview` de admin lo vería como
+`NO_PSA10`/`NO_PSA9`, porque la fila sencillamente no existe. **Es una limitación diagnóstica aceptada** (consecuencia
+de gatear en escritura para no añadir columna a `PriceReference`), y la traza es su compensación.
+
+**⚠ v1.50.3 — los motivos de salto se cuentan POR SEPARADO, no como un total de «saltadas».** Es la parte que hace la
+traza útil en vez de decorativa: cada motivo exige una **reacción distinta**, así que un contador único los vuelve
+indistinguibles justo cuando hay que decidir.
+
+| Motivo | Qué significa | Qué hay que hacer |
+|---|---|---|
+| `SAMPLE_TOO_SMALL` | la carta tiene pocas ventas | **nada** — el gate funcionando; si pasa en masa, calibrar `min_sample_count` |
+| `EVIDENCE_UNKNOWN` | S1 **sin** `lastSaleDate` legible | mirar la muestra cruda: puede ser un cambio de shape del proveedor |
+| `EVIDENCE_STALE` | S1 con evidencia **más vieja** que `freshnessDays` | **nada** — el gate funcionando ((m.2)) |
+| **`SHAPE_NOT_PERSISTIBLE_S2`** | el proveedor sirvió `gradedPrices.psaN` (escalar) | **señal de escalada** ((h.1-bis)): si domina, la fase 2 no es viable con este proveedor |
+| `SLAB_PUBLISHED` | INV-D ((l)) | revisar en la lista de revisión (`?reason=SLAB_PUBLISHED`, (n)) |
+| `QUOTA_EXCEEDED` | tope por corrida | subir `ingest_max_cards_per_run` o aceptar el barrido parcial |
 
 > ⛔ **ESCALADA OBLIGATORIA (regla 9) — no es decisión de implementación.** Si la observación revela que
 > `includeEbay=true` **NO** combina con `fetchAllInSet=true` (⇒ **un request por carta**), backend **NO implementa**:

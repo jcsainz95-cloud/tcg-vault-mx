@@ -130,3 +130,86 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
     );
   });
 });
+
+/**
+ * §O.8 / criterio **112(b)** — **el intento BLOQUEADO queda auditado**.
+ *
+ * ### Por qué es su propio bloque de pruebas
+ * Los tests de arriba comprueban que la guarda **no escribe** el precio. Eso es la mitad del criterio:
+ * §O.8 pide además que «todo intento bloqueado —manual o del ingest— quede **registrado**, para que se
+ * vea si la guarda está saltando seguido y por qué». Sin bitácora, el `422`/`409` lo ve **solo** quien
+ * hizo la petición y se pierde al cerrar la pestaña: la única señal de que un operador está chocando
+ * contra la guarda a diario desaparece, y con ella la evidencia de que la guarda hace falta o de que
+ * la UI está enrutando mal.
+ *
+ * La vía del **ingest** ya cumplía (`PriceIngestService.auditGradedSkip`); la **manual** no. QA lo midió
+ * contra el stack vivo: `AuditLog` 421 filas antes, 421 después de un 409 **y** un 422.
+ */
+describe('POST /admin/pricing/override — el intento BLOQUEADO se AUDITA (§O.8, criterio 112b)', () => {
+  const blocked = (audit: AuditService) =>
+    (audit.log as jest.Mock).mock.calls
+      .map(([e]) => e as { action: string; after: Record<string, unknown> })
+      .filter((e) => e.action === 'pricing.override.blocked');
+
+  it('el 422 (sin `intent`) deja fila en la bitácora ANTES de rechazar', async () => {
+    const { ctrl, audit, pricing } = build();
+    await expect(ctrl.override(body() as never, 'admin-1')).rejects.toMatchObject({ status: 422 });
+    const rows = blocked(audit);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].after).toMatchObject({
+      code: 'GRADED_INTENT_REQUIRED',
+      reason: 'intent_missing',
+      cardId: 'c1',
+      gradeKey: 'graded:PSA:10',
+      // El monto que NO se escribió: sin él la bitácora no permite ver si el operador insiste.
+      attemptedPriceMxnCents: 900_000,
+      intent: null,
+    });
+    // La traza no puede haber costado una escritura de dinero.
+    expect(pricing.manualOverride).not.toHaveBeenCalled();
+  });
+
+  it('el 409 (slab publicado) deja fila con las piezas reales que lo bloquearon', async () => {
+    const { ctrl, audit, pricing } = build([{ id: 'inv-1' }, { id: 'inv-2' }]);
+    await expect(
+      ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1'),
+    ).rejects.toMatchObject({ status: 409 });
+    const rows = blocked(audit);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].after).toMatchObject({
+      code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+      reason: 'slab_published',
+      cardId: 'c1',
+      gradeKey: 'graded:PSA:10',
+      attemptedPriceMxnCents: 900_000,
+      intent: 'graded_estimate',
+      publishedSlabCount: 2,
+      inventoryItemIds: ['inv-1', 'inv-2'],
+    });
+    expect(pricing.manualOverride).not.toHaveBeenCalled();
+  });
+
+  it('la ACCIÓN es propia (`pricing.override.blocked`): un intento bloqueado NO es un override', async () => {
+    const { ctrl, audit } = build();
+    await ctrl.override(body() as never, 'admin-1').catch(() => undefined);
+    const actions = (audit.log as jest.Mock).mock.calls.map(([e]) => e.action);
+    expect(actions).toEqual(['pricing.override.blocked']);
+    // Contarlo como `pricing.override` haría indistinguible «lo escribí» de «me lo negaron».
+    expect(actions).not.toContain('pricing.override');
+  });
+
+  it('un override LEGÍTIMO no ensucia la bitácora de bloqueos', async () => {
+    const { ctrl, audit } = build([]);
+    await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
+    expect(blocked(audit)).toHaveLength(0);
+  });
+
+  it('si la BITÁCORA falla, el rechazo SIGUE en pie (no se convierte en 500 ni se deja pasar)', async () => {
+    const { ctrl, audit } = build([{ id: 'inv-1' }]);
+    (audit.log as jest.Mock).mockRejectedValue(new Error('audit down'));
+    // Perder la traza es malo; dejar pasar el intento por perderla sería MUCHO peor.
+    await expect(
+      ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1'),
+    ).rejects.toMatchObject({ code: 'GRADED_ESTIMATE_SLAB_PUBLISHED', status: 409 });
+  });
+});

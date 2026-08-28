@@ -18,34 +18,40 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { DEFAULT_PRICING_CURVE, resolveSaleFromCurve } from '../../src/common/pricing-curve';
+import {
+  GROUPED_LISTING_KEYS as GROUPED_LISTING_KEYS_ALL,
+  GROUPED_LISTING_SUMMARY_KEYS as GROUPED_LISTING_SUMMARY_KEYS_ALL,
+} from '../helpers/dto-keys';
 
 const salePrice = (marketCents: number) => resolveSaleFromCurve(marketCents, DEFAULT_PRICING_CURVE).cents as number;
 
 /**
- * Claves EXACTAS de `GroupedListingDTO` (contrato §DTOs) para una pieza `raw` sin grading — el DTO de
- * la **FICHA** (`GroupedListingDetailResponse.listings[]`).
+ * Claves EXACTAS de `GroupedListingDTO` para una pieza `raw` sin grading — el DTO de la **FICHA**
+ * (`GroupedListingDetailResponse.listings[]`).
+ *
+ * ⚠️ **Se DERIVAN de la interfaz, no se escriben a mano** (v1.50.2, techlead). Antes esta lista era
+ * literal, que es justamente lo que `helpers/dto-keys.ts` existe para impedir: una lista que puede
+ * quedarse corta —literalmente B-1, un requerido que falta y nadie lo ve— o larga, sin que nada falle.
+ * `keysOf<T>` obliga al COMPILADOR a exigir todas las claves de la interfaz, así que añadir un campo
+ * al DTO y no declararlo allí no compila.
+ *
+ * El recorte de OPCIONALES sí va aquí, EXPLÍCITO y visible: en este escenario la pieza es `raw`, así
+ * que `gradingCompany`/`gradeValue` no viajan (un opcional ausente DESAPARECE en JSON).
  */
-const GROUPED_LISTING_KEYS = [
-  'card',
-  'currency',
-  'finish',
-  'gradeKey',
-  'priceBasis',
-  'productType',
-  'rawCondition',
-  'referenceValue',
-  'representativeInventoryItemId',
-  'salePriceCents',
-  'stockCount',
-].sort();
+const RAW_ABSENT = ['gradingCompany', 'gradeValue'];
+const GROUPED_LISTING_KEYS = GROUPED_LISTING_KEYS_ALL.filter((k) => !RAW_ABSENT.includes(k));
 
 /**
- * v2.1.9 (D2) — claves de `GroupedListingSummaryDTO`, el DTO de la **REJILLA**: el de arriba
- * **menos** `priceBasis` y `referenceValue`. §N.7 dice «SOLO fichas», y la rejilla es la superficie de
- * cosecha masiva: emitir `priceBasis` ahí publica un MAPA de qué cartas llevan override manual.
+ * v2.1.9 (D2) — claves de `GroupedListingSummaryDTO`, el DTO de la **REJILLA**: el de arriba **menos**
+ * `priceBasis` y `referenceValue` (que la interfaz ya excluye por tipo). §N.7 dice «SOLO fichas», y la
+ * rejilla es la superficie de cosecha masiva: emitir `priceBasis` ahí publica un MAPA de qué cartas
+ * llevan override manual.
+ *
+ * `gradingHighlight` se recorta además porque es OPCIONAL y su PRESENCIA **es** la elegibilidad: con
+ * el dial del gancho en `off` (seed) el campo NO existe (§4.38e).
  */
-const GROUPED_LISTING_SUMMARY_KEYS = GROUPED_LISTING_KEYS.filter(
-  (k) => k !== 'priceBasis' && k !== 'referenceValue',
+const GROUPED_LISTING_SUMMARY_KEYS = GROUPED_LISTING_SUMMARY_KEYS_ALL.filter(
+  (k) => !RAW_ABSENT.includes(k) && k !== 'gradingHighlight',
 );
 
 describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra backend vivo', () => {

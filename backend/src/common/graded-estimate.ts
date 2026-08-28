@@ -12,9 +12,17 @@
  * SEC-A1 (reforzado): de `evaluateGradingHighlight` SOLO `eligible` + `highlight` llegan al cliente
  * (y `highlight` lo hace como PRESENCIA del campo). `netUpsidePsa9MxnCents`, `thresholdMxnCents`,
  * `gradingCostTier` y `reason` alimentan el ORDEN de la vitrina y el diagnóstico de admin; JAMÁS el DTO
- * público. Por eso las puras reciben `{ gradeValue, mxnCents, capturedDate }` y NUNCA `source` /
- * `isManualOverride`: ninguna rama puede bifurcar por ORIGEN del número (indistinguibilidad fase 1 ⇄ 2,
- * §4.38g).
+ * público. Por eso las puras reciben `{ gradeValue, mxnCents, capturedDate, isManual }` y NUNCA
+ * `source` / `isManualOverride`.
+ *
+ * ⚠️ **Precisión sobre `isManual` (v1.50.2, §4.38m).** El párrafo anterior decía que las puras «nunca»
+ * saben nada del origen; desde la frescura asimétrica **sí reciben `isManual`**, y esconderlo aquí no
+ * lo hacía menos cierto. La línea que de verdad no se cruza es más estrecha y es la que importa:
+ * `isManual` decide **SI** un elemento se emite (a una decisión humana no se le aplica la frescura de
+ * *feed*), **nunca QUÉ** se emite —ni el monto, ni el shape, ni el orden— y **no viaja al DTO**. Así la
+ * indistinguibilidad fase 1 ⇄ 2 (§4.38g) sigue intacta para el cliente: mirando la respuesta no puede
+ * saber de dónde salió el número. `source` / `isManualOverride`, que sí serían origen crudo, quedan
+ * fuera del tipo (ausentes **por construcción**, no por disciplina).
  *
  * MONEY-SAFE: sin escalón NO hay destacado (jamás un costo de gradeo asumido en 0); un estimado ≤ 0 no
  * es un estimado; un arreglo vacío NUNCA se emite (el caller OMITE el campo).
@@ -104,6 +112,17 @@ export interface GradedEstimateConfig {
    * eso es escribir dinero a ciegas. Mismo espíritu que `estimatesEnabled`/`highlightEnabled`.
    */
   ingestConfigInvalid: boolean;
+  /**
+   * INTERNO (no viaja al DTO), v1.50.3 (§4.38n.3): ¿`graded_estimate_max_raw_multiple` está
+   * PRESENTE-pero-INVÁLIDA? Es la ÚNICA clave de la que depende la **coherencia de magnitud** (las
+   * cotas inferior y de orden de grados son invariantes de producto, sin dial).
+   *
+   * Existe aparte de `highlightEnabled` porque ése ya está apagado por *tres* claves distintas y no
+   * permite distinguir cuál falló. La **lista de revisión** necesita esa distinción: tolera el dial `off`
+   * (es una decisión) pero **rechaza con `409`** una config corrupta (es intención perdida), y para eso
+   * tiene que poder nombrar la clave en el error. Misma doctrina que `ingestConfigInvalid`.
+   */
+  maxRawMultipleInvalid: boolean;
 }
 
 /**
@@ -117,7 +136,7 @@ export type GradedEstimateSourceStat = 'median' | 'average' | 'smart';
 /** El `GradedEstimateConfigDTO` del contrato (§M2). Los flags internos de GU-A8 NO forman parte de él. */
 export type GradedEstimateConfigDTO = Omit<
   GradedEstimateConfig,
-  'estimatesEnabled' | 'highlightEnabled' | 'ingestConfigInvalid'
+  'estimatesEnabled' | 'highlightEnabled' | 'ingestConfigInvalid' | 'maxRawMultipleInvalid'
 >;
 
 /**
@@ -264,14 +283,42 @@ export const DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS = 30;
 export const DEFAULT_GRADING_MIN_UPSIDE_PCT = 30;
 
 // ===== v1.50.2 — seeds y rangos de los 5 diales nuevos de M2 (I8/I9, contrato §M2) =====
+//
+// ⚠️ **v1.50.3 (GU-A17, §4.38k.0) — TRES seeds corregidos, y el porqué importa más que los números.**
+// Los tres divergían de `PROJECT.md` §O.7 **en silencio**. Por la regla de conflicto, **PROJECT manda
+// sobre el contrato y el contrato sobre el código**: un seed que contradice el criterio no es una
+// «elección de implementación», es el criterio sin cumplir. Dos eran PERMISIVOS (dejaban pasar lo que
+// el criterio quería filtrar) y el tercero era conservador — pero un default conservador que nadie
+// declaró **también** miente: suprimía sin explicación justo las cartas con upside entre 50× y 100×,
+// que son las que la feature existe para encontrar.
 
-/** `null` = el override manual NO decae (§4.38m). Es el seed, y es una decisión, no un olvido. */
-export const DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS: number | null = null;
+/**
+ * ¿Cada cuántos días decae un override MANUAL? **Seed 30** (= `freshnessDays`), criterio **109**.
+ *
+ * ⚠️ **v1.50.3 — era `null` («no decae») y eso DEROGABA el criterio 109 por default** (GU-A15 derogada
+ * por GU-A16, §4.38m). §O.4 dice «mejor callar que presumir un número viejo en una promesa comercial»,
+ * y QA lo demostró: una fila manual de **40 días** seguía en la ficha y seguía promocionándose. El
+ * mecanismo funcionaba; era el **default** el que lo apagaba justo en la mitad del sistema donde el
+ * número lo puso una persona y nadie lo vuelve a mirar.
+ *
+ * `null` **sigue siendo expresable** (rango `null | [1, 3650]`), pero deja de ser el default y tiene una
+ * consecuencia declarada: **desactiva el criterio 109 para la vía manual**. Por eso el resolver emite
+ * `warn` obligatorio al izar la config con `null` (I8-bis): la misma doctrina que «la vitrina no puede
+ * vaciarse en silencio».
+ */
+export const DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS: number | null = 30;
 export const GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MIN = 1;
 export const GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS_MAX = 3650;
 
-/** Cota SUPERIOR de magnitud (§4.38k.2). */
-export const DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE = 50;
+/**
+ * Cota SUPERIOR de magnitud (§4.38k.2) = `maxGradedMultiple` de §O.7.
+ *
+ * ⚠️ **v1.50.3 — era 50; §O.7 dice 100×.** Éste era el conservador, y por eso fue el que más costó ver:
+ * un seed más estricto que el criterio no produce datos malos, produce **ausencias**. Suprimía sin
+ * explicación las cartas con múltiplo entre 50× y 100× — exactamente el tramo que la feature existe
+ * para encontrar — y quien mirara la vitrina concluiría «no hay joyas», no «el dial está mal».
+ */
+export const DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE = 100;
 /**
  * I9: `maxRawMultiple > 1` **estricto**, y NO es cosmético. Con `<= 1` la cota superior chocaría con la
  * INFERIOR (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás: una vitrina vacía
@@ -280,8 +327,13 @@ export const DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE = 50;
 export const GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MIN_EXCLUSIVE = 1;
 export const GRADED_ESTIMATE_MAX_RAW_MULTIPLE_MAX = 1000;
 
-/** Muestra mínima del proveedor, aplicada en la ESCRITURA (§4.38k.1). */
-export const DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT = 3;
+/**
+ * Muestra mínima del proveedor, aplicada en la ESCRITURA (§4.38k.1) = `minSalesSample` de §O.7.
+ *
+ * ⚠️ **v1.50.3 — era 3; §O.7 y el criterio 111(a) dicen 5.** Permisivo: dejaba entrar cifras con 3 y 4
+ * ventas, que es justo el ruido que la cota existe para filtrar.
+ */
+export const DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT = 5;
 export const GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MIN = 1;
 export const GRADED_ESTIMATE_MIN_SAMPLE_COUNT_MAX = 100;
 
@@ -321,6 +373,7 @@ export const DISABLED_GRADED_ESTIMATE_CONFIG: GradedEstimateConfig = {
   sourceStat: DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
   ingestMaxCardsPerRun: DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   ingestConfigInvalid: false,
+  maxRawMultipleInvalid: false,
 };
 
 /** I8 — `manualFreshnessDays`: `null` (no decae) o entero en `[1, 3650]`. `null` es un valor, no ausencia. */
@@ -576,13 +629,25 @@ function byGradeDesc(a: { gradeValue: string }, b: { gradeValue: string }): numb
  *                        : diff > freshnessDays
  * ```
  *
- * **Por qué el manual no decae por defecto.** `freshnessDays` existe para protegernos de un **feed**
- * rancio (un precio automático que el proveedor dejó de actualizar). Un override manual **no es un
- * feed**: es una afirmación deliberada de un humano, y la revoca otro humano, no el calendario.
- * Sin esta regla, `isBetterRef` (tier manual ABSOLUTO, §4.27f-2) elegía el manual viejo y la ventana de
- * frescura lo descartaba después ⇒ la carta se quedaba **sin estimado pese a haber dato fresco**. Es la
- * clase entera de fallo «gana y luego se tira», y se elimina aquí y no en `isBetterRef` porque
- * **degradar una invariante de DINERO para arreglar un problema de PRESENTACIÓN sería el peor cambio**.
+ * ⚠️ **v1.50.3 (GU-A16, §4.38m) — el manual SÍ decae; el seed pasó de `null` a 30.** La versión anterior
+ * de este comentario argumentaba que «un override manual no es un feed, lo revoca un humano, no el
+ * calendario». El **diagnóstico** que lo motivaba era correcto —`isBetterRef` (tier manual ABSOLUTO,
+ * §4.27f-2) elegía el manual viejo y la ventana de frescura lo descartaba después, dejando la carta sin
+ * estimado **pese a haber dato fresco**: la clase de fallo «gana y luego se tira»—, pero **el remedio
+ * era el equivocado**. El criterio **109** mide la antigüedad *«contra la fecha de captura para un
+ * override manual; el umbral es de 30 días»*, y §O.4 remata: *«mejor callar que presumir un número viejo
+ * en una promesa comercial»*. Eximir al manual del decaimiento **derogaba el criterio en silencio**.
+ *
+ * **Lo que sí se arregló es el ORDEN de las dos operaciones**, no quién decae:
+ * `PricingService.getGradedEstimatesBatch` filtra lo rancio **ANTES** de `pickBestRef`, así que un
+ * manual rancio ya no puede ganar y luego caerse — deja el paso a la automática fresca, y si no hay
+ * ninguna, **no se emite nada** (que es lo que el criterio pide). **`isBetterRef` sigue intacto**: el
+ * filtro vive FUERA del comparador y solo en la ruta de lectura del gancho, así que §4.27f-2 —una
+ * garantía de DINERO sobre escrituras— no se toca.
+ *
+ * `manualFreshnessDays == null` sigue siendo expresable y significa «no decae», pero **ya no es el
+ * default** y desactiva el criterio 109 para la vía manual ⇒ el resolver emite `warn` al izar la config
+ * (I8-bis, §4.38m). Es una decisión del humano, no un estado al que se llegue por omisión.
  */
 export function isStaleRef(
   e: GradedEstimateInput,
@@ -642,7 +707,7 @@ export function selectGradedEstimates<T extends GradedEstimateInput>(input: {
   //    Sin un umbral de frescura confiable no se puede afirmar que una cifra esté vigente, así que la
   //    ficha tampoco informa (§4.38d › «Alcance del apagado»).
   if (cfg.estimatesEnabled !== true) return [];
-  if (productType !== 'raw') return []; // 2. criterio 87: graded y sealed NUNCA.
+  if (productType !== 'raw') return []; // 2. criterio 105: graded y sealed NUNCA.
   const out: T[] = [];
   for (const g of cfg.grades) {
     // 3. ausente / <= 0 / rancio / con slab publicado ⇒ se OMITE ESE grado (son INDEPENDIENTES).
@@ -676,7 +741,7 @@ export function selectGradedEstimates<T extends GradedEstimateInput>(input: {
  * - **Aritmética ENTERA en el umbral** (MENOR-1): se compara `psa9 × 100 >= (rawSalePriceCents +
  *   tier.costMxnCents) × (100 + minUpsidePct)`. Nada de `× (1 + pct/100)`: esa forma se pasaba un centavo
  *   en ~157 000 combinaciones con umbral exacto entero (p. ej. `costBase=100000, pct=10`) y dejaba fuera
- *   a la carta que iguala EXACTAMENTE el umbral, contra el «si y solo si >=» del criterio 79. El
+ *   a la carta que iguala EXACTAMENTE el umbral, contra el «si y solo si >=» del criterio 97. El
  *   `Math.ceil` sobrevive solo para el `thresholdMxnCents` que ve el DIAGNÓSTICO de admin.
  * - `highlight` = los `cfg.highlightGrades` con dato fresco y > 0 (hoy `['10']`). El gate SIEMPRE se
  *   evalúa con PSA 9 aunque PSA 9 no se pinte.
@@ -742,14 +807,29 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   // Orden de razones: primero AUSENCIA de dato (NO_PSA10/NO_PSA9), después FRESCURA (STALE) — así el
   // admin distingue «no lo he capturado» de «lo capturé hace mucho».
   if (psa10MxnCents == null) return no('NO_PSA10'); // se necesita para resolver el ESCALÓN.
-  if (psa9MxnCents == null) return no('NO_PSA9'); // criterio 80: sin PSA 9 no se promueve.
+  if (psa9MxnCents == null) return no('NO_PSA9'); // criterio 98: sin PSA 9 no se promueve.
   if (stale) return no('STALE'); // manda el MÁS ANTIGUO de los dos.
 
-  // 6b. INV-D (§4.38l): con un SLAB PUBLICADO de cualquiera de los dos grados, esa fila es el precio de
-  //     mercado REAL de una pieza física — no un estimado — y la pieza ya se lista con su propio precio.
-  if (publishedSlabGrades.includes('10') || publishedSlabGrades.includes('9')) {
-    return no('SLAB_PUBLISHED');
-  }
+  // 6b. INV-D (§4.38l): con un SLAB PUBLICADO de un grado, esa fila es el precio de mercado REAL de una
+  //     pieza física — no un estimado — y la pieza ya se lista con su propio precio.
+  //
+  //     El bloqueo se evalúa **POR GRADO** (criterio 112c), sobre los grados que ESTE gate consumió, en
+  //     vez de contra los literales `'10'`/`'9'`. Hoy el resultado observable es el mismo, pero los
+  //     literales acoplaban la guarda al VALOR del dial: el día que `grades`/`highlightGrades` admita
+  //     otro grado, un `includes('10') || includes('9')` hardcodeado dejaría de mirarlo y la guarda de
+  //     lectura se abriría en silencio sobre una fila que SÍ es dinero. Derivarlos de las filas que el
+  //     gate ya resolvió hace que el conjunto vigilado y el conjunto usado no puedan divergir.
+  //
+  //     Sigue bloqueando el destacado ENTERO si cualquiera de los dos está tomado, y eso es correcto
+  //     aquí: el gate de ROI necesita AMBOS grados (PSA 10 fija el escalón, PSA 9 decide). La parte
+  //     «por grado» del criterio 112(c) —la carta sigue pudiendo mostrar el OTRO grado— la sostiene la
+  //     FICHA, donde `usable()` filtra grado a grado; ésta es la superficie de PROMOCIÓN, no la de
+  //     información.
+  const slabTakenGrades = [rawPsa10, rawPsa9]
+    .filter((e): e is T => e != null)
+    .map((e) => e.gradeValue)
+    .filter((g) => publishedSlabGrades.includes(g));
+  if (slabTakenGrades.length > 0) return no('SLAB_PUBLISHED');
 
   // ============================ 6c. GATE DE MAGNITUD (§4.38k.2) ============================
   // ⚠️ LEER ANTES DE RELAJAR CUALQUIERA DE LAS TRES. **NO son redundantes**: cada una ataja un error
@@ -780,7 +860,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   // v1.44 MENOR-1 — ARITMÉTICA ENTERA. `costBase * (1 + pct/100)` introduce error de flotante: con
   // `costBase=100000` y `pct=10` el umbral exacto es 110000 y esa expresión da 110000.00000000001, que
   // `Math.ceil` sube a 110001 y deja FUERA a la carta cuyo PSA 9 iguala EXACTAMENTE el umbral — contra
-  // el «si y solo si >=» del criterio 79. Se escala por 100 (`pct` es un porcentaje) y se compara en la
+  // el «si y solo si >=» del criterio 97. Se escala por 100 (`pct` es un porcentaje) y se compara en la
   // escala grande, donde con `pct` entero el producto es exacto (≤ 2.2e10 << 2^53).
   const thresholdScaled = costBase * (100 + cfg.minUpsidePct); // = umbral × 100
   const thresholdMxnCents = Math.ceil(thresholdScaled / 100); // solo para el DIAGNÓSTICO de admin

@@ -43,6 +43,24 @@ function mockPages(pages: unknown[]) {
   return spy;
 }
 
+/**
+ * v1.50.3 (§4.38m.2) — **GATE DE EVIDENCIA**. El parser ya no escribe una fila sin saber CUÁNDO fue la
+ * última venta: `lastSaleDate` ausente/no parseable o más vieja que `freshnessDays` ⇒ NO se escribe.
+ * Por eso todos los fixtures de camino feliz la traen, y hay un bloque dedicado a los que no.
+ */
+const TODAY = '2026-08-28';
+const FRESHNESS_DAYS = 30;
+const EVIDENCIA_FRESCA = '2026-08-20'; // 8 días
+const EVIDENCIA_VIEJA = '2026-05-01'; // muy fuera de la ventana
+
+/** Bloque S1 de camino feliz: stats + `count` + evidencia FRESCA. */
+const s1 = (over: Record<string, unknown> = {}) => ({
+  count: 7,
+  medianPrice: 60,
+  lastSaleDate: EVIDENCIA_FRESCA,
+  ...over,
+});
+
 /** Página con UNA entrada: la forma S1 (`ebay.salesByGrade`). */
 const pageS1 = (psa10: unknown, psa9?: unknown) => ({
   data: [
@@ -72,11 +90,13 @@ const call = (p = provider()) =>
     grades: ['10', '9'],
     minSampleCount: 3,
     sourceStat: 'median',
+    freshnessDays: FRESHNESS_DAYS,
+    today: TODAY,
   });
 
 describe('§4.38h.1 — S1 `ebay.salesByGrade.psaN` (objeto): se escribe SOLO con identificación positiva', () => {
   it('objeto con `medianPrice` y `count` suficiente ⇒ UNA fila, en USD (INV-FX: la unidad no se pierde)', async () => {
-    mockPages([pageS1({ count: 7, medianPrice: 60, averagePrice: 95, smartMarketPrice: 71 })]);
+    mockPages([pageS1(s1({ averagePrice: 95, smartMarketPrice: 71 }))]);
     const res = await call();
     expect(res.rows).toEqual([
       {
@@ -86,31 +106,37 @@ describe('§4.38h.1 — S1 `ebay.salesByGrade.psaN` (objeto): se escribe SOLO co
         amountCents: 6_000, // 60 USD → 6000 centavos de DÓLAR, no de peso
         currency: 'USD',
         count: 7,
+        // v1.50.3 (§4.38m.2): la fecha de la ÚLTIMA VENTA viaja para log/`AuditLog`. NO se persiste
+        // (`PriceReference` no tiene columna sin DDL; la lleva M-43); una fila solo llega hasta aquí si
+        // YA pasó el gate de evidencia, así que su presencia ES la prueba de que se midió.
+        evidenceDate: EVIDENCIA_FRESCA,
         source: 'pokemonpricetracker',
       },
     ]);
   });
 
   it('se publica la MEDIANA, no el promedio (una venta atípica desplaza el promedio)', async () => {
-    mockPages([pageS1({ count: 7, medianPrice: 60, averagePrice: 95, smartMarketPrice: 71 })]);
+    mockPages([pageS1(s1({ averagePrice: 95, smartMarketPrice: 71 }))]);
     const res = await call();
     expect(res.rows[0].amountCents).toBe(6_000); // 60 (mediana), NO 95 (promedio) ni 71 (smart)
   });
 
   it('el dial `sourceStat` cambia el campo leído sin tocar código (`average`)', async () => {
-    mockPages([pageS1({ count: 7, medianPrice: 60, averagePrice: 95 })]);
+    mockPages([pageS1(s1({ averagePrice: 95 }))]);
     const res = await provider().fetchGradedEstimatesForSet({
       set: SET,
       providerSetId: 'sv8',
       grades: ['10'],
       minSampleCount: 3,
       sourceStat: 'average',
+      freshnessDays: FRESHNESS_DAYS,
+      today: TODAY,
     });
     expect(res.rows[0].amountCents).toBe(9_500);
   });
 
   it('los grados son INDEPENDIENTES: PSA 10 válido + PSA 9 con muestra baja ⇒ solo PSA 10', async () => {
-    mockPages([pageS1({ count: 7, medianPrice: 60 }, { count: 1, medianPrice: 30 })]);
+    mockPages([pageS1(s1(), s1({ count: 1, medianPrice: 30 }))]);
     const res = await call();
     expect(res.rows.map((r) => r.gradeValue)).toEqual(['10']);
     expect(res.drops).toEqual([
@@ -121,7 +147,7 @@ describe('§4.38h.1 — S1 `ebay.salesByGrade.psaN` (objeto): se escribe SOLO co
 
 describe('§4.38h.1 — el gate de ORIGEN CONFIABLE se aplica AL ESCRIBIR (§4.38k.1)', () => {
   it('`count` por debajo de `minSampleCount` ⇒ NO se escribe, y queda TRAZA con la muestra', async () => {
-    mockPages([pageS1({ count: 2, medianPrice: 60 })]);
+    mockPages([pageS1(s1({ count: 2 }))]);
     const res = await call();
     expect(res.rows).toEqual([]);
     expect(res.drops[0]).toMatchObject({ reason: 'sample_too_small', count: 2 });
@@ -141,9 +167,16 @@ describe('§4.38h.1 — el gate de ORIGEN CONFIABLE se aplica AL ESCRIBIR (§4.3
   it('`POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` es la ESCOTILLA: el operador acepta el riesgo a sabiendas', async () => {
     mockPages([pageS2(60)]);
     const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_MIN_COUNT: '0' })));
-    expect(res.rows).toEqual([
-      expect.objectContaining({ gradeValue: '10', amountCents: 6_000, count: null, currency: 'USD' }),
-    ]);
+    // ⚠️ v1.50.3 (§4.38m.2) — **la escotilla del `count` ya NO alcanza para que S2 escriba.** El GATE DE
+    // EVIDENCIA es una segunda condición independiente, y el shape S2 (`gradedPrices.psaN` ESCALAR) no
+    // trae fecha de última venta por construcción ⇒ `evidence_unknown` ⇒ no se escribe. Consecuencia
+    // declarada, no accidente: bajo la doctrina fail-closed («desconocido no es fresco») un shape que no
+    // puede probar la antigüedad de su evidencia no puede alimentar una afirmación comercial.
+    //
+    // Lo que la escotilla SIGUE haciendo es lo suyo: desactivar el gate de MUESTRA (el drop deja de ser
+    // `sample_too_small`). Que ahora tope con el de evidencia se ve en el `reason`, no en un silencio.
+    expect(res.rows).toEqual([]);
+    expect(res.drops).toEqual([expect.objectContaining({ reason: 'evidence_unknown', count: null })]);
   });
 });
 
@@ -153,9 +186,9 @@ describe('§4.38h.1 — ante CUALQUIER OTRA FORMA: cero escrituras + muestra cru
     ['string', '60'],
     ['null', null],
     ['objeto desconocido', { precio: 60 }],
-    ['NaN', { count: 7, medianPrice: Number.NaN }],
-    ['negativo', { count: 7, medianPrice: -60 }],
-    ['cero', { count: 7, medianPrice: 0 }],
+    ['NaN', s1({ medianPrice: Number.NaN })],
+    ['negativo', s1({ medianPrice: -60 })],
+    ['cero', s1({ medianPrice: 0 })],
   ])('%s ⇒ NO se persiste nada y se registra la muestra', async (_n, psa10) => {
     mockPages([pageS1(psa10)]);
     const res = await call();
@@ -174,7 +207,7 @@ describe('§4.38h.1 — ante CUALQUIER OTRA FORMA: cero escrituras + muestra cru
 
 describe('§4.38h.1 — el OVERRIDE del operador MANDA sobre la autodetección', () => {
   it('`_GRADED_FORMAT=graded_prices` con respuesta S1 ⇒ NO se escribe (no cae al otro shape)', async () => {
-    mockPages([pageS1({ count: 7, medianPrice: 60 })]);
+    mockPages([pageS1(s1())]);
     const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_FORMAT: 'graded_prices' })));
     // Caer al shape detectado derrotaría la intención EXPLÍCITA que el override existe para expresar.
     expect(res.rows).toEqual([]);
@@ -188,15 +221,104 @@ describe('§4.38h.1 — el OVERRIDE del operador MANDA sobre la autodetección',
   });
 
   it('`_GRADED_FIELD` pisa al dial `sourceStat` (es el operador quien manda)', async () => {
-    mockPages([pageS1({ count: 7, medianPrice: 60, smartMarketPrice: 71 })]);
+    mockPages([pageS1(s1({ smartMarketPrice: 71 }))]);
     const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_FIELD: 'smartMarketPrice' })));
     expect(res.rows[0].amountCents).toBe(7_100);
   });
 });
 
+/**
+ * §4.38m.2 (v1.50.3) — **GATE DE EVIDENCIA: la OTRA mitad del criterio 109.**
+ *
+ * ### La divergencia que cierra (nadie la había escrito, y era permisiva)
+ * El criterio 109 y §O.7 miden la frescura del dato automático contra *«la antigüedad de la EVIDENCIA de
+ * mercado, **no la fecha en que jalamos el archivo**»*. Nuestro `stale()` de lectura mide contra
+ * `capturedDate`, que para una fila del ingest **es** la fecha en que jalamos el archivo.
+ *
+ * **El fallo concreto:** el proveedor deja de recibir ventas de una carta pero **sigue sirviendo la
+ * misma mediana**; cada corrida reescribe la fila con `capturedDate = hoy` ⇒ **la cifra parece fresca
+ * para siempre**. Es literalmente el «feed rancio» contra el que el dial existe, disfrazado de fresco
+ * **por nuestro propio job**.
+ *
+ * **Cierre sin DDL:** gatear en la ESCRITURA (misma técnica que `minSampleCount`). Una fila solo puede
+ * refrescar su `capturedDate` mientras su evidencia esté fresca; cuando la evidencia envejece el ingest
+ * deja de reescribirla, `capturedDate` se **congela** y la regla de lectura la vence dentro de
+ * `freshnessDays`. **Cota honesta: ≤ 2× freshnessDays**, no los 30 literales — el cierre exacto es la
+ * columna `evidenceDate` de M-43.
+ */
+describe('§4.38m.2 — GATE DE EVIDENCIA en la ESCRITURA (criterio 109 para el dato automático)', () => {
+  it('evidencia FRESCA ⇒ escribe, y la fecha viaja en la fila (es la prueba de que se midió)', async () => {
+    mockPages([pageS1(s1({ lastSaleDate: EVIDENCIA_FRESCA }))]);
+    const res = await call();
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].evidenceDate).toBe(EVIDENCIA_FRESCA);
+  });
+
+  it('evidencia VIEJA ⇒ NO se escribe, con traza `evidence_too_old` (es el «fresco para siempre»)', async () => {
+    mockPages([pageS1(s1({ lastSaleDate: EVIDENCIA_VIEJA }))]);
+    const res = await call();
+    expect(res.rows).toEqual([]);
+    expect(res.drops).toEqual([expect.objectContaining({ reason: 'evidence_too_old' })]);
+    // La muestra lleva la FECHA que se rechazó: sin ella el operador no puede distinguir «el proveedor
+    // dejó de recibir ventas» de «el campo se llama de otra forma».
+    expect(res.drops[0].sample).toContain(EVIDENCIA_VIEJA);
+  });
+
+  it('el BORDE: exactamente `freshnessDays` días pasa; un día más, no', async () => {
+    // TODAY = 2026-08-28, freshnessDays = 30 ⇒ 2026-07-29 son 30 días (pasa), 2026-07-28 son 31 (no).
+    mockPages([pageS1(s1({ lastSaleDate: '2026-07-29' }))]);
+    expect((await call()).rows).toHaveLength(1);
+    mockPages([pageS1(s1({ lastSaleDate: '2026-07-28' }))]);
+    expect((await call()).rows).toEqual([]);
+  });
+
+  it.each([
+    ['ausente', undefined],
+    ['null', null],
+    ['string vacío', '   '],
+    ['no parseable', 'ayer por la tarde'],
+    ['objeto', { date: '2026-08-20' }],
+    ['booleano', true],
+  ])('evidencia %s ⇒ NO se escribe: «desconocido» NO es «fresco» (fail-closed)', async (_n, value) => {
+    mockPages([pageS1({ count: 7, medianPrice: 60, ...(value === undefined ? {} : { lastSaleDate: value }) })]);
+    const res = await call();
+    expect(res.rows).toEqual([]);
+    expect(res.drops).toEqual([expect.objectContaining({ reason: 'evidence_unknown' })]);
+    // La traza nombra el CAMPO buscado: es lo que permite descubrir el nombre real sin adivinar (P-6).
+    expect(res.drops[0].sample).toContain('lastSaleDate');
+  });
+
+  it('acepta ISO-8601 completo y epoch en ms (el proveedor no promete un solo formato)', async () => {
+    mockPages([pageS1(s1({ lastSaleDate: '2026-08-20T13:45:00.000Z' }))]);
+    expect((await call()).rows[0].evidenceDate).toBe('2026-08-20');
+    mockPages([pageS1(s1({ lastSaleDate: Date.UTC(2026, 7, 20) }))]);
+    expect((await call()).rows[0].evidenceDate).toBe('2026-08-20');
+  });
+
+  it('el NOMBRE del campo es un dial de operador (`_GRADED_EVIDENCE_FIELD`), no un alias adivinado', async () => {
+    // P-6: no se sondean alias a ciegas — un nombre inventado que casualmente contenga una fecha
+    // abriría justo la puerta que este gate cierra. Si PPT lo llama distinto, se corrige SIN deploy.
+    mockPages([pageS1({ count: 7, medianPrice: 60, ultimaVenta: EVIDENCIA_FRESCA })]);
+    expect((await call()).drops[0].reason).toBe('evidence_unknown');
+
+    mockPages([pageS1({ count: 7, medianPrice: 60, ultimaVenta: EVIDENCIA_FRESCA })]);
+    const p = provider(cfg({ POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD: 'ultimaVenta' }));
+    expect((await call(p)).rows).toHaveLength(1);
+  });
+
+  it('el gate de evidencia es INDEPENDIENTE del de muestra: pasar uno no exime del otro', async () => {
+    // Muestra suficiente + evidencia vieja ⇒ se cae por evidencia (no «ya pasó un gate, adelante»).
+    mockPages([pageS1(s1({ count: 99, lastSaleDate: EVIDENCIA_VIEJA }))]);
+    expect((await call()).drops[0].reason).toBe('evidence_too_old');
+    // Muestra baja + evidencia fresca ⇒ se cae por muestra. El orden de evaluación no cambia el veredicto.
+    mockPages([pageS1(s1({ count: 1 }))]);
+    expect((await call()).drops[0].reason).toBe('sample_too_small');
+  });
+});
+
 describe('§4.38h — cuota, moneda y ESCALADA (regla 9)', () => {
   it('pide `includeEbay=true` JUNTO a `fetchAllInSet=true` (el modelo de coste del barrido por set)', async () => {
-    const spy = mockPages([pageS1({ count: 7, medianPrice: 60 })]);
+    const spy = mockPages([pageS1(s1())]);
     await call();
     const url = String((spy.mock.calls[0] as unknown[])[0]);
     expect(url).toContain('includeEbay=true');
@@ -204,25 +326,27 @@ describe('§4.38h — cuota, moneda y ESCALADA (regla 9)', () => {
     expect(url).toContain('setId=sv8');
     // La API key va en el header, JAMÁS en la URL ni en el log (§4.15). Se comprueba con una clave
     // distintiva para que la aserción no sea trivialmente cierta por ser 'k' una letra común.
-    const conClaveVisible = mockPages([pageS1({ count: 7, medianPrice: 60 })]);
+    const conClaveVisible = mockPages([pageS1(s1())]);
     await call(provider(cfg({ POKEMONPRICETRACKER_API_KEY: 'SUPER-SECRETO-123' })));
     expect(String((conClaveVisible.mock.calls[0] as unknown[])[0])).not.toContain('SUPER-SECRETO-123');
   });
 
   it('SIN formato de moneda explícito ⇒ SAMPLE-ONLY: no se persiste nada (fail-closed de dinero)', async () => {
-    mockPages([pageS1({ count: 7, medianPrice: 60 })]);
+    mockPages([pageS1(s1())]);
     const res = await call(provider(cfg({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined })));
     expect(res.rows).toEqual([]);
   });
 
   it('sin `pptSetId` NO se pide nada (jamás se cae al `externalId`, que PPT no reconoce)', async () => {
-    const spy = mockPages([pageS1({ count: 7, medianPrice: 60 })]);
+    const spy = mockPages([pageS1(s1())]);
     const res = await provider().fetchGradedEstimatesForSet({
       set: SET,
       providerSetId: null,
       grades: ['10'],
       minSampleCount: 3,
       sourceStat: 'median',
+      freshnessDays: FRESHNESS_DAYS,
+      today: TODAY,
     });
     expect(res.rows).toEqual([]);
     expect(spy).not.toHaveBeenCalled();
@@ -246,6 +370,46 @@ describe('§4.38h — cuota, moneda y ESCALADA (regla 9)', () => {
     expect(res.escalate).toMatchObject({ reason: 'ebay_not_supported_with_set_sweep' });
     expect(res.rows).toEqual([]);
     expect(spy).toHaveBeenCalledTimes(1); // una sola petición: NO se reintenta por carta
+  });
+
+  /**
+   * v1.50.2 (techlead) — **la escalada tiene que poder sostener su veredicto.**
+   *
+   * El predicado era «cualquier 4xx distinto de 429», así que un **401/403** (clave mala, vencida o sin
+   * el plan de eBay) y un **404** (`pptSetId` cacheado que ya no existe) llegaban al arquitecto como
+   * «el proveedor no admite el parámetro». Ese veredicto dispara un rediseño de arquitectura y de
+   * presupuesto —el ingest curado por lista, 2 créditos × carta— que en esos tres casos **no hacía
+   * falta**: lo que había que hacer era rotar la clave o re-mapear el set.
+   *
+   * Cada uno vuelve a lo que era: un **fallo de request normal** (no se escribe nada, los estimados
+   * previos quedan intactos, la corrida sigue con los demás sets).
+   */
+  it.each([401, 403, 404])('un HTTP %i NO es «no admite el parámetro»: fallo normal, SIN escalada', async (status) => {
+    const spy = jest.fn(async () => ({
+      ok: false,
+      status,
+      json: async () => ({ error: 'nope' }),
+      text: async () => 'nope',
+    }));
+    global.fetch = spy as unknown as typeof fetch;
+    const res = await call();
+    expect(res.escalate).toBeNull();
+    expect(res.requestOk).toBe(false);
+    // Money-safe intacto: sin escalada tampoco se escribe nada por este camino.
+    expect(res.rows).toEqual([]);
+  });
+
+  it('un 400/422 SÍ escala: ahí el proveedor está rechazando la COMBINACIÓN de parámetros', async () => {
+    for (const status of [400, 422]) {
+      global.fetch = jest.fn(async () => ({
+        ok: false,
+        status,
+        json: async () => ({ error: 'includeEbay is not supported with fetchAllInSet' }),
+        text: async () => 'includeEbay is not supported with fetchAllInSet',
+      })) as unknown as typeof fetch;
+      const res = await call();
+      expect(res.escalate).toMatchObject({ reason: 'ebay_not_supported_with_set_sweep' });
+    }
   });
 
   it('si el request PASA pero NINGUNA entrada trae bloque PSA ⇒ escala con la muestra cruda', async () => {

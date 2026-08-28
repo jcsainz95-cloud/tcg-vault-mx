@@ -17,6 +17,15 @@ import { DEFAULT_GRADING_COST_TIERS } from '../src/common/graded-estimate';
 
 const D = (s: string) => new Date(`${s}T00:00:00.000Z`);
 
+/**
+ * v1.50.3 (§4.38m) — `getGradedEstimatesBatch` exige `cfg` + `today` **sin default**, porque el filtro
+ * de FRESCURA se aplica ahí dentro, ANTES de `pickBestRef`. Un parámetro opcional habría sido
+ * fail-open sobre el criterio 109: cualquier superficie que lo olvidara leería estimados sin filtrar.
+ */
+const TODAY = '2026-08-28';
+const FRESH_CFG = { freshnessDays: 30, manualFreshnessDays: 30 as number | null };
+const cfgWith = (over: Partial<typeof FRESH_CFG> = {}) => ({ ...FRESH_CFG, ...over });
+
 function refRow(over: Partial<Record<string, unknown>> = {}) {
   return {
     cardId: 'c1',
@@ -66,7 +75,7 @@ function wire(rows: unknown[] = [], config: Record<string, unknown> = {}) {
 describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/c)', () => {
   it('consulta productType=graded, los DOS gradeKey, finish=normal y cardProductId=null — una sola vez', async () => {
     const { pricing, findMany } = wire([refRow(), refRow({ gradeKey: 'graded:PSA:9', priceMxnCents: 300_000 })]);
-    const map = await pricing.getGradedEstimatesBatch(['c1', 'c1', 'c2']);
+    const map = await pricing.getGradedEstimatesBatch(['c1', 'c1', 'c2'], FRESH_CFG, TODAY);
 
     expect(findMany).toHaveBeenCalledTimes(1); // +1 query CONSTANTE: nada de N+1.
     const where = findMany.mock.calls[0][0].where;
@@ -84,13 +93,13 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
 
   it('no consulta nada con una lista vacía', async () => {
     const { pricing, findMany } = wire();
-    expect((await pricing.getGradedEstimatesBatch([])).size).toBe(0);
+    expect((await pricing.getGradedEstimatesBatch([], FRESH_CFG, TODAY)).size).toBe(0);
     expect(findMany).not.toHaveBeenCalled();
   });
 
   it('INDISTINGUIBILIDAD (§4.38g): el resultado NO transporta `source` ni `isManualOverride`', async () => {
     const { pricing } = wire([refRow()]);
-    const [ref] = (await pricing.getGradedEstimatesBatch(['c1'])).get('c1')!;
+    const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
     expect(ref).toEqual({
       gradeValue: '10',
       gradeKey: 'graded:PSA:10',
@@ -112,7 +121,7 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
       refRow({ capturedDate: D('2026-08-23'), priceMxnCents: 222_222, source: 'pokemonpricetracker', isManualOverride: false }),
       refRow({ capturedDate: D('2026-08-23'), priceMxnCents: 333_333, source: 'manual', isManualOverride: true }),
     ]);
-    const [ref] = (await pricing.getGradedEstimatesBatch(['c1'])).get('c1')!;
+    const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
     // §O.6: override manual > ingest automático, resuelto DENTRO de la tabla por `isBetterRef`.
     expect(ref.mxnCents).toBe(333_333);
     expect(ref.capturedDate).toBe('2026-08-23');
@@ -120,7 +129,75 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
 
   it('MONEY-SAFE: una fila con importe <= 0 NO produce estimado (un 0 no es un estimado)', async () => {
     const { pricing } = wire([refRow({ priceMxnCents: 0 }), refRow({ gradeKey: 'graded:PSA:9', priceMxnCents: -5 })]);
-    expect((await pricing.getGradedEstimatesBatch(['c1'])).get('c1')).toBeUndefined();
+    expect((await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')).toBeUndefined();
+  });
+
+  /**
+   * v1.50.3 (GU-A16, §4.38m) — **PRIMERO se descarta lo rancio, DESPUÉS gana el mejor.**
+   *
+   * Este bloque **cambió de signo** respecto de v1.50.2 y hay que leer por qué antes de revertirlo.
+   * v1.50.2 curó el fallo «gana y luego se tira» **eximiendo al manual del decaimiento**
+   * (`manualFreshnessDays: null`). El diagnóstico era bueno; el remedio derogaba el **criterio 109** en
+   * silencio: un estimado que un humano tecleó una vez podía quedarse en portada para siempre, que es
+   * exactamente lo que §O.4 promete que no pasa. QA lo reprodujo con una fila manual de 40 días.
+   *
+   * La clase de fallo **no venía del decaimiento, venía de filtrar DESPUÉS de resolver**. Invertir el
+   * orden la elimina sin eximir a nadie y **sin tocar `isBetterRef`** (§4.27f-2 es una garantía de
+   * DINERO sobre escrituras y sobre el comparador; el filtro de frescura es un predicado de EXHIBICIÓN
+   * que vive fuera del comparador y solo en esta ruta de lectura).
+   */
+  describe('el filtro de FRESCURA corre ANTES de pickBestRef (los tres casos de §4.38(i))', () => {
+    const HOY = '2026-08-28';
+    const VIEJO = D('2026-02-09'); // 200 días
+    const FRESCO = D('2026-08-27'); // ayer
+
+    const manual = (over = {}) =>
+      refRow({ capturedDate: VIEJO, priceMxnCents: 111_111, isManualOverride: true, source: 'manual', ...over });
+    const automatica = (over = {}) =>
+      refRow({
+        capturedDate: FRESCO,
+        priceMxnCents: 222_222,
+        isManualOverride: false,
+        source: 'pokemonpricetracker',
+        ...over,
+      });
+
+    it('(a) manual RANCIO + automática FRESCA ⇒ se muestra la AUTOMÁTICA (antes: NADA)', async () => {
+      const { pricing } = wire([manual(), automatica()]);
+      const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY)).get('c1')!;
+      // El fallo silencioso de v1.50.2: el manual ganaba por tier absoluto y la frescura lo tiraba
+      // DESPUÉS ⇒ la carta se quedaba sin estimado **pese a tener dato fresco disponible**.
+      expect(ref.mxnCents).toBe(222_222);
+      expect(ref.capturedDate).toBe('2026-08-27');
+      expect(ref.isManual).toBe(false);
+    });
+
+    it('(b) manual RANCIO SIN automática ⇒ NO se muestra NADA (criterio 109; antes se mostraba)', async () => {
+      const { pricing } = wire([manual()]);
+      // §O.4: «mejor callar que presumir un número viejo en una promesa comercial». Éste es el caso
+      // que QA reprodujo a mano con 40 días y que v1.50.2 dejaba pasar.
+      expect((await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY)).get('c1')).toBeUndefined();
+    });
+
+    it('(c) manual FRESCO + automática fresca ⇒ gana el MANUAL (§4.27f-2 INTACTO)', async () => {
+      const { pricing } = wire([manual({ capturedDate: FRESCO }), automatica()]);
+      const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY)).get('c1')!;
+      // Entre las FRESCAS el comparador manda igual que siempre: el override manual sigue siendo tier
+      // superior absoluto. Lo que cambió es el CONJUNTO sobre el que compara, no el comparador.
+      expect(ref.mxnCents).toBe(111_111);
+      expect(ref.isManual).toBe(true);
+    });
+
+    it('con `manualFreshnessDays: null` el manual rancio vuelve a ganar (la válvula sigue viva)', async () => {
+      const { pricing } = wire([manual(), automatica()]);
+      const map = await pricing.getGradedEstimatesBatch(['c1'], cfgWith({ manualFreshnessDays: null }), HOY);
+      expect(map.get('c1')![0].mxnCents).toBe(111_111);
+    });
+
+    it('la frescura del FEED sigue siendo independiente: una automática rancia se descarta igual', async () => {
+      const { pricing } = wire([automatica({ capturedDate: VIEJO })]);
+      expect((await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY)).get('c1')).toBeUndefined();
+    });
   });
 
   it('una referencia en USD se RECOMPUTA con la FX vigente (mismo lector que getReference)', async () => {
@@ -132,7 +209,7 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
       getCurrent: jest.fn(async () => ({ rate: 20, bufferPct: 3 })),
     } as unknown as FxService;
     void prisma;
-    const [ref] = (await pricing.getGradedEstimatesBatch(['c1'])).get('c1')!;
+    const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
     expect(ref.mxnCents).toBe(206_000);
   });
 });
@@ -201,18 +278,41 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', ()
       freshnessDays: 30,
       minUpsidePct: 30,
       gradingCostTiers: DEFAULT_GRADING_COST_TIERS,
-      // v1.50.2 — los seeds de los 5 diales nuevos + el 2º interruptor M10. `manualFreshnessDays:
-      // null` es el que hay que mirar dos veces: significa «el override manual NO decae» (§4.38m), y
-      // es un VALOR deliberado, no una clave sin escribir. `ingestEnabled: false` = fail-closed: el
+      // v1.50.3 — seeds ALINEADOS a `PROJECT.md` §O.7 (GU-A17). Los tres corregidos van con su valor
+      // del criterio, no con el que el código eligió: `manualFreshnessDays` 30 (era `null` ⇒ derogaba
+      // el criterio 109), `minSampleCount` 5 (era 3 ⇒ permisivo) y `maxRawMultiple` 100 (era 50 ⇒
+      // suprimía sin explicación las cartas de 50×–100×). `ingestEnabled: false` = fail-closed: el
       // ingest no gasta un solo crédito hasta que el dueño lo encienda.
       ingestEnabled: false,
-      manualFreshnessDays: null,
-      maxRawMultiple: 50,
-      minSampleCount: 3,
+      manualFreshnessDays: 30,
+      maxRawMultiple: 100,
+      minSampleCount: 5,
       sourceStat: 'median',
       ingestMaxCardsPerRun: 250,
       ingestConfigInvalid: false,
+      // v1.50.3 (§4.38n.3): flag INTERNO —no viaja al DTO— que la LISTA DE REVISIÓN usa para decidir
+      // entre evaluar (dial `off` = decisión) y `409` (clave corrupta = intención perdida).
+      maxRawMultipleInvalid: false,
     });
+  });
+
+  /**
+   * v1.50.3 (GU-A17) — **un test que lee EL SEED, no el comportamiento.**
+   *
+   * Los tres diales divergían de `PROJECT.md` §O.7 y **nadie lo notó durante todo un pase**: un seed
+   * equivocado no rompe nada, no lanza, no falla ningún test de comportamiento — simplemente hace que
+   * el sistema aplique un criterio distinto del que el producto escribió. Por eso el candado tiene que
+   * ser sobre **el valor**, con el número del criterio escrito al lado: es lo único que convierte una
+   * regresión de seed en un test rojo en vez de en una divergencia silenciosa de otro año.
+   */
+  it.each([
+    ['manualFreshnessDays', 30, 'criterio 109: el override manual decae a los 30 días'],
+    ['minSampleCount', 5, 'criterio 111(a) / §O.7: `minSalesSample` = 5 ventas mínimas'],
+    ['maxRawMultiple', 100, 'criterio 111(c) / §O.7: `maxGradedMultiple` = 100×'],
+  ])('el SEED de `%s` es %i — %s', async (key, expected) => {
+    const { pricing } = wire([], { ...SEEDED_TIERS, ...ON });
+    const cfg = await pricing.loadGradedEstimateConfig();
+    expect(cfg[key as 'minSampleCount']).toBe(expected);
   });
 
   it('R1 — clave `grading_cost_tiers` AUSENTE ⇒ tabla VACÍA (NO cae al seed de código)', async () => {
@@ -377,6 +477,37 @@ describe('GU-A8 — AUSENTE ≠ INVÁLIDA: los tres estados de cada clave (§4.3
       const warn = warnSpy();
       const { pricing } = wire([], { ...SEEDED_TIERS, ...ON }); // umbrales/listas ausentes
       await pricing.loadGradedEstimateConfig();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    /**
+     * I8-bis (v1.50.3, §4.38m) — `manualFreshnessDays: null` **no es una clave corrupta**: es una
+     * decisión legítima del dueño. Pero **desactiva el criterio 109 para la vía manual** (un estimado
+     * tecleado a mano puede quedarse en portada indefinidamente), así que no puede tomarse en silencio.
+     * Es la misma doctrina que «la vitrina no puede vaciarse en silencio»: lo que se exige no es
+     * prohibirlo, es que sea AUDIBLE.
+     */
+    it('I8-bis — `manualFreshnessDays: null` emite `warn` (desactiva el criterio 109) SIN apagar nada', async () => {
+      const warn = warnSpy();
+      const { pricing } = wire([], {
+        ...SEEDED_TIERS,
+        ...ON,
+        [SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS]: null,
+      });
+      const cfg = await pricing.loadGradedEstimateConfig();
+      const msgs = warn.mock.calls.map((c) => String(c[0]));
+      expect(msgs.some((m) => m.includes(SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS))).toBe(true);
+      expect(msgs.some((m) => m.includes('109'))).toBe(true); // el criterio que se desactiva, por número
+      // …y NO apaga ninguna superficie: `null` es válido, solo es ruidoso.
+      expect(cfg.estimatesEnabled).toBe(true);
+      expect(cfg.highlightEnabled).toBe(true);
+      expect(cfg.manualFreshnessDays).toBeNull();
+    });
+
+    it('el seed 30 NO genera ruido (solo el `null` explícito lo hace)', async () => {
+      const warn = warnSpy();
+      const { pricing } = wire([], { ...SEEDED_TIERS, ...ON });
+      expect((await pricing.loadGradedEstimateConfig()).manualFreshnessDays).toBe(30);
       expect(warn).not.toHaveBeenCalled();
     });
 

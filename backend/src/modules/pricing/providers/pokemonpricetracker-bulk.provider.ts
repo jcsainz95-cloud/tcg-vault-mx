@@ -14,6 +14,9 @@ import {
   normalizeVerifiedFinishAlias,
 } from '../pricing.types';
 import { PptApiClient, PptDailyLimitError, PptHttpError, PptResponse } from './ppt-api.client';
+// v1.50.3 (§4.38m.2): el gate de EVIDENCIA reusa el MISMO predicado de antigüedad que la lectura. Dos
+// implementaciones de «¿esto es viejo?» serían dos verdades sobre la frescura.
+import { isStaleEstimate } from '../../../common/graded-estimate';
 
 /**
  * Formato de precio del proveedor de paga = **moneda + unidad**, FIJADO EXPLÍCITAMENTE por el
@@ -119,6 +122,33 @@ const GRADED_STAT_FIELD = {
 type GradedStat = keyof typeof GRADED_STAT_FIELD;
 
 /**
+ * v1.50.3 (§4.38m.2) — **GATE DE EVIDENCIA**: campo del bloque S1 que trae la fecha de la **última
+ * venta observada**. Es el nombre que el arquitecto declaró; si el proveedor usara otro, el operador lo
+ * corrige **sin deploy** con `POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD` (mismo patrón que
+ * `POKEMONPRICETRACKER_GRADED_FIELD`). **No se sondean alias a ciegas** (P-6): un nombre adivinado que
+ * casualmente contenga una fecha abriría la puerta que este gate existe para cerrar.
+ */
+const GRADED_EVIDENCE_FIELD_DEFAULT = 'lastSaleDate';
+
+/**
+ * Parsea la fecha de EVIDENCIA a `YYYY-MM-DD`. Acepta `YYYY-MM-DD`, ISO-8601 completo y epoch en ms
+ * (número). **Cualquier otra cosa ⇒ `null` = DESCONOCIDO**, y «desconocido» NO es «fresco»: misma
+ * doctrina fail-closed que el `count` desconocido de S2 en (h.1).
+ */
+function parseEvidenceDate(v: unknown): string | null {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  }
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (t === '') return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const d = new Date(t);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+/**
  * UNA fila de estimado PSA identificada POSITIVAMENTE por el parser. `amountCents` va en la moneda de
  * `currency` (INV-FX: quien persiste decide dónde cae el numeral, §4.38a).
  */
@@ -134,16 +164,55 @@ export interface GradedEstimateSourceRow {
    * NUNCA se persiste en la tabla de dinero: va a log + `AuditLog` del job (§4.38k.1).
    */
   count: number | null;
+  /**
+   * v1.50.3 (§4.38m.2) — fecha de la ÚLTIMA VENTA observada (`YYYY-MM-DD`), la que el criterio 109 dice
+   * que de verdad importa. **No se persiste** (`PriceReference` no tiene columna sin DDL, y M-43 la
+   * llevará): viaja para log/`AuditLog` y porque una fila solo llega aquí si YA pasó el gate.
+   */
+  evidenceDate: string;
   source: PriceSource;
 }
 
 /** Por qué se DESCARTÓ una entrada (traza obligatoria del job, §4.38h.4). */
 export interface GradedDropSample {
   externalId: string | null;
-  reason: 'unrecognized_shape' | 'sample_too_small' | 'not_a_positive_amount';
+  reason:
+    | 'unrecognized_shape'
+    | 'sample_too_small'
+    | 'not_a_positive_amount'
+    // v1.50.3 (§4.38m.2) — GATE DE EVIDENCIA. Separados a propósito: «la venta es vieja» y «no sé
+    // cuándo fue la venta» son diagnósticos DISTINTOS para el operador, aunque la acción sea la misma
+    // (no escribir). Fundirlos haría indistinguible «el proveedor dejó de recibir ventas de esta carta»
+    // de «el campo se llama de otra forma y hay que ajustar el dial».
+    | 'evidence_too_old'
+    | 'evidence_unknown';
   count: number | null;
   /** Muestra CRUDA del bloque que no se reconoció (truncada). Es el insumo para confirmar el shape. */
   sample: string;
+}
+
+/**
+ * ¿Este 4xx significa «el proveedor NO admite el parámetro»? (v1.50.2, techlead)
+ *
+ * El predicado era `status !== 429 && 400 <= status < 500`, o sea **cualquier** 4xx. Un veredicto de
+ * ESCALADA no es un error más: dispara una decisión de ARQUITECTURA y de PRESUPUESTO (rediseñar el
+ * ingest hacia «una petición por carta», 2 créditos × carta, con curaduría por lista). Emitirlo por un
+ * 401 le cuesta al equipo un rediseño que no hacía falta, cuando lo que había que hacer era **rotar la
+ * clave**. Los tres excluidos son, cada uno, un diagnóstico DISTINTO y ninguno habla del parámetro:
+ *
+ *  - **401 / 403** — la credencial: clave ausente, mal escrita, vencida o sin el plan que incluye eBay.
+ *    El servidor está diciendo «no sé quién eres», no «ese parámetro no existe».
+ *  - **404** — el recurso: el `pptSetId` cacheado en `CardSet.pptSetId` dejó de existir del lado del
+ *    proveedor. Se arregla re-mapeando el set, no rediseñando el barrido.
+ *
+ * Todos ellos caen a la rama de FALLO DE REQUEST NORMAL: se loguea, no se escribe nada, los estimados
+ * previos quedan intactos y **la corrida sigue con los demás sets**. Fail-closed sin falsa alarma.
+ *
+ * `429` sigue fuera por su propia razón (cuota; lo maneja `PptDailyLimitError` / el throttle).
+ */
+const NOT_A_PARAM_REJECTION = [401, 403, 404, 429] as const;
+function isParamRejection(status: number): boolean {
+  return status >= 400 && status < 500 && !NOT_A_PARAM_REJECTION.includes(status as 401);
 }
 
 export interface GradedEstimateFetchResult {
@@ -162,6 +231,16 @@ export interface GradedEstimateFetchResult {
    * ARQUITECTURA y de COSTO, no de implementación. El job **para** y **no** cae al modo por carta.
    */
   escalate: { reason: 'ebay_not_supported_with_set_sweep' | 'no_graded_block_in_response'; detail: string } | null;
+  /**
+   * v1.50.2 (techlead) — ¿ALGUNA entrada de ESTE set traía bloque de grados reconocible?
+   *
+   * Es el insumo que permite al orquestador evaluar la ambigüedad de `no_graded_block_in_response` **a
+   * escala de CORRIDA** en vez de por set: en cuanto UN set del run vio el bloque, el shape queda
+   * CONFIRMADO y los demás sets sin bloque son un estado de datos normal (un set sin ventas PSA), no
+   * evidencia de que el proveedor ignorara `includeEbay`. Sin este campo, el orquestador solo veía el
+   * veredicto ya emitido por set y no podía distinguir los dos casos.
+   */
+  sawGradedBlock: boolean;
 }
 
 /**
@@ -513,6 +592,13 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     minSampleCount: number;
     /** `graded_estimate_source_stat` — cuál número del proveedor ES el precio. */
     sourceStat: GradedStat;
+    /**
+     * v1.50.3 (§4.38m.2) — GATE DE EVIDENCIA: ventana máxima, en días, de la **última venta observada**.
+     * Es `graded_estimate_freshness_days`, el MISMO dial que la lectura, aplicado en la ESCRITURA.
+     */
+    freshnessDays: number;
+    /** Fecha de negocio (`YYYY-MM-DD`) contra la que se mide la evidencia. */
+    today: string;
   }): Promise<GradedEstimateFetchResult> {
     const empty: GradedEstimateFetchResult = {
       rows: [],
@@ -522,6 +608,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       dailyLimited: false,
       dailyRemaining: this.client.dailyRemaining(),
       escalate: null,
+      sawGradedBlock: false,
     };
     if (!this.client.apiKey()) {
       this.logger.warn('PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).');
@@ -585,6 +672,9 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
             minSampleCount: input.minSampleCount,
             acceptUnknownCount,
             format,
+            evidenceField: this.gradedEvidenceField(),
+            freshnessDays: input.freshnessDays,
+            today: input.today,
           });
           if (parsed.sawGradedBlock) sawGradedBlock = true;
           rows.push(...parsed.rows);
@@ -597,7 +687,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       if (e instanceof PptDailyLimitError) {
         dailyLimited = true;
         this.logger.warn(`PPT graded: 429 DAILY en el set ${input.set.externalId} → PARADA. ${e.message}`);
-      } else if (e instanceof PptHttpError && e.status !== 429 && e.status >= 400 && e.status < 500) {
+      } else if (e instanceof PptHttpError && isParamRejection(e.status)) {
         // ⛔ ESCALADA: el proveedor RECHAZA la combinación `includeEbay=true` + `fetchAllInSet=true`.
         // NO se cae a «una petición por carta»: eso cambia el modelo de coste (2 créditos × carta) y
         // el de barrido, y es decisión del ARQUITECTO (regla 9), no un fallback de implementación.
@@ -612,17 +702,32 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
           },
         };
       } else {
+        // Incluye 401/403 (credencial) y 404 (`pptSetId` que ya no existe): fallo de request NORMAL,
+        // NO una escalada. El diagnóstico va en el log para que se actúe sobre la causa real.
+        const status = e instanceof PptHttpError ? e.status : null;
+        const pista =
+          status === 401 || status === 403
+            ? ' → revisa POKEMONPRICETRACKER_API_KEY (ausente, vencida o sin el plan que incluye eBay).'
+            : status === 404
+              ? ` → el pptSetId cacheado del set ${input.set.externalId} ya no existe en el proveedor; re-mapéalo.`
+              : '';
         this.logger.warn(
           `PPT graded: EL REQUEST FALLÓ para el set ${input.set.externalId}: ${(e as Error).message} ` +
-            '(no se escribe nada; los estimados previos quedan intactos).',
+            `(no se escribe nada; los estimados previos quedan intactos).${pista}`,
         );
       }
     }
 
-    // ⛔ ESCALADA (2ª forma, la silenciosa): el request PASÓ pero NINGUNA entrada trae bloque de
-    // grados. No podemos distinguir «el set no tiene ventas PSA» de «el proveedor IGNORÓ includeEbay»,
-    // y adivinar entre esas dos es exactamente lo que P-6 prohíbe ⇒ se reporta para que un humano lo
-    // resuelva con la muestra cruda delante, y NO se escribe nada por este camino.
+    // ⚠️ CANDIDATO A ESCALADA (2ª forma, la silenciosa): el request PASÓ pero NINGUNA entrada de ESTE
+    // set trae bloque de grados. Aisladamente no podemos distinguir «este set no tiene ventas PSA» de
+    // «el proveedor IGNORÓ includeEbay», y adivinar entre esas dos es lo que P-6 prohíbe.
+    //
+    // ⚠️ **Es un candidato, no un veredicto** (v1.50.2, techlead). El proveedor solo ve UN set, así que
+    // esto es lo máximo que puede afirmar; quien decide si hay que escalar es el ORQUESTADOR
+    // (`PriceIngestService.ingestGradedEstimates`), que ve la CORRIDA entera y usa `sawGradedBlock`:
+    // si algún set del run vio el bloque, el shape está confirmado y éste es un set sin ventas PSA —un
+    // estado de datos perfectamente normal— que se salta con traza. Solo cuando NINGÚN set lo vio la
+    // hipótesis «ignoró el parámetro» es de verdad indistinguible, y ahí sí se escala.
     const escalate =
       requestOk && fetchedRaw > 0 && !sawGradedBlock
         ? {
@@ -642,6 +747,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       dailyLimited,
       dailyRemaining: this.client.dailyRemaining(),
       escalate,
+      sawGradedBlock,
     };
   }
 
@@ -655,6 +761,20 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       `PPT graded: POKEMONPRICETRACKER_GRADED_FORMAT="${raw}" no es ${GRADED_FORMATS.join('|')} → se usa auto.`,
     );
     return 'auto';
+  }
+
+  /**
+   * `POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD` — nombre del campo de la ÚLTIMA VENTA dentro del bloque
+   * S1 (§4.38m.2). Existe como env y no como constante porque es el único dato del gate cuyo NOMBRE
+   * depende del proveedor: si PPT lo llama distinto, el operador lo corrige **sin deploy** en vez de
+   * quedarse con el ingest escribiendo cero filas y sin saber por qué. **No se sondean alias a ciegas**
+   * (P-6): el drop `evidence_unknown` lleva el nombre del campo buscado en su muestra cruda, que es lo
+   * que permite descubrir el nombre real mirando la traza.
+   */
+  private gradedEvidenceField(): string {
+    const raw = this.config.get<string>('POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD');
+    const v = raw?.trim();
+    return v ? v : GRADED_EVIDENCE_FIELD_DEFAULT;
   }
 
   /** `POKEMONPRICETRACKER_GRADED_FIELD` — override del operador sobre el dial `sourceStat`. */
@@ -684,6 +804,10 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       minSampleCount: number;
       acceptUnknownCount: boolean;
       format: MarketFormat;
+      /** v1.50.3 (§4.38m.2) — nombre del campo de la última venta dentro del bloque S1. */
+      evidenceField: string;
+      freshnessDays: number;
+      today: string;
     },
   ): { rows: GradedEstimateSourceRow[]; drops: GradedDropSample[]; sawGradedBlock: boolean } {
     const out = { rows: [] as GradedEstimateSourceRow[], drops: [] as GradedDropSample[], sawGradedBlock: false };
@@ -719,6 +843,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
 
       let amount: number | null = null;
       let count: number | null = null;
+      let evidenceRaw: unknown = undefined;
       if (useS1) {
         // S1 EXIGE objeto. Un escalar aquí NO se acepta «por tolerancia»: sería asumir que el número
         // suelto es el stat que pedimos, que es justo la clase de suposición que P-6 prohíbe.
@@ -736,6 +861,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         amount = typeof statValue === 'number' && Number.isFinite(statValue) ? statValue : null;
         const c = o['count'];
         count = typeof c === 'number' && Number.isInteger(c) && Number.isFinite(c) ? c : null;
+        evidenceRaw = o[opts.evidenceField];
       } else {
         // S2: escalar ESTRICTO. `"12.5"` (string) NO se acepta: un string es una forma distinta.
         amount = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
@@ -763,6 +889,49 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         });
         continue;
       }
+      // ============ GATE DE EVIDENCIA (v1.50.3, §4.38m.2) — la OTRA mitad del criterio 109 ============
+      //
+      // El criterio 109 y §O.7 miden la frescura del dato automático contra «la antigüedad de la
+      // EVIDENCIA de mercado, **no la fecha en que jalamos el archivo**». Nuestro `stale()` de lectura
+      // mide contra `capturedDate`, que para una fila del ingest ES la fecha en que jalamos el archivo.
+      //
+      // El fallo que eso abre: el proveedor deja de recibir ventas de la carta pero **sigue sirviendo la
+      // misma mediana**; cada corrida reescribe la fila con `capturedDate = hoy` ⇒ **la cifra parece
+      // fresca para siempre**. Es el feed rancio disfrazado de fresco por nuestro propio job — justo lo
+      // que el dial existía para impedir.
+      //
+      // Se cierra SIN DDL, con la misma técnica que `minSampleCount`: **gatear en la ESCRITURA**. Una
+      // fila solo puede refrescar su `capturedDate` mientras su evidencia esté fresca; en cuanto la
+      // evidencia envejece, el ingest deja de reescribirla, `capturedDate` se CONGELA y la regla de
+      // lectura la vence dentro de `freshnessDays`.
+      //
+      // ⚠️ Cota HONESTA y declarada: la antigüedad máxima de la evidencia exhibida es
+      // `freshnessDays` (al escribir) + `freshnessDays` (desde esa escritura) = **≤ 2× freshnessDays**
+      // (60 d con el seed), NO los 30 literales del criterio. Es una aproximación conservadora en la
+      // dirección correcta —cierra el «fresco para siempre», que era el fallo grave— pero **no es el
+      // criterio al pie de la letra**; el cierre exacto es la columna `evidenceDate` de M-43.
+      const evidenceDate = parseEvidenceDate(evidenceRaw);
+      if (evidenceDate == null) {
+        // «Desconocido» NO es «fresco» — misma doctrina fail-closed que el `count` ausente de S2. Esto
+        // incluye a S2 ENTERO (su shape escalar no trae fecha): sin evidencia no se escribe dinero.
+        out.drops.push({
+          externalId,
+          reason: 'evidence_unknown',
+          count,
+          sample: truncate(JSON.stringify({ [key]: raw, evidenceField: opts.evidenceField }), GRADED_SAMPLE_TRUNCATE),
+        });
+        continue;
+      }
+      if (isStaleEstimate(evidenceDate, opts.today, opts.freshnessDays)) {
+        out.drops.push({
+          externalId,
+          reason: 'evidence_too_old',
+          count,
+          sample: truncate(JSON.stringify({ [key]: raw, evidenceDate }), GRADED_SAMPLE_TRUNCATE),
+        });
+        continue;
+      }
+
       out.rows.push({
         externalId,
         number,
@@ -770,6 +939,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         amountCents,
         currency: opts.format.currency,
         count,
+        evidenceDate,
         source: this.source,
       });
     }

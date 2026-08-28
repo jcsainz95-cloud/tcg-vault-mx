@@ -2907,6 +2907,12 @@
   (§21.8f retira «Valor de mercado» de las tejas y `SealedShopView`/`SealedDetailView` se movieron con la
   curva). La entrada **no se cierra desde frontend**: quien la abrió (QA) debe reconfirmarla en su entorno,
   porque el fallo original se observó ahí y un verde local no es evidencia suficiente para darla por muerta.
+- **✅ CERRADA (2026-08-28, pase `intent` v1.50.2/v1.50.3).** La reconfirmación que faltaba **ya la hizo QA**:
+  `catalog.spec.ts` corre **12/12** en mocks y **tampoco falla contra el stack real**. Con eso se cumple la
+  condición que la entrada se había puesto a sí misma (que la cerrara quien la abrió, en su entorno), así que
+  el hallazgo **está muerto** y deja de bloquear el uso de la suite Playwright como gate «todo verde».
+  **No hubo fix**: el cambio que lo mató vino de `main` con la curva. Se deja la entrada como registro de
+  procedencia, no como deuda abierta.
 
 ### F-18 · El mock del storefront no simula el interruptor `gradedEstimatesEnabled` (Baja)
 - **Dónde:** `frontend/src/lib/mock/fixtures.ts` (`mockSettings.gradedEstimatesEnabled`, hoy `'on'`) frente a
@@ -2943,6 +2949,24 @@
 - **Disparador:** si QA detecta drift entre lo que el backend emite y la lista blanca de D2, pedir al
   arquitecto un caso de contrato explícito («la rejilla no emite `priceBasis` ni `referenceValue`») antes de
   añadir nada en el cliente.
+
+### F-20 · Los cinco diales del gate de confianza se MUESTRAN en M2 pero no se EDITAN ahí (Baja)
+- **Dueño:** frontend. **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/sections/GradedEstimatesSection.tsx`.
+- **Estado actual:** el contrato (`PUT /admin/pricing/graded-estimates`, v1.50.2/v1.50.3) admite editar
+  `manualFreshnessDays`, `maxRawMultiple`, `minSampleCount`, `sourceStat` e `ingestMaxCardsPerRun`. El panel
+  los **pinta read-only** —se añadieron en este pase porque cambian lo que el operador ve y no tenía dónde
+  consultarlos: con `manualFreshnessDays: 30` un estimado capturado a mano **caduca**, y `maxRawMultiple` es
+  el tope contra el que la lista de revisión marca `ABOVE_MAX_MULTIPLE`— pero **no son editables** desde ahí.
+- **Por qué se dejó así:** cada uno trae su propio rango normativo (`(1,1000]`, `[1,100]`, `null | [1,3650]`,
+  enum de 3 valores, `[1,5000]`) y el editor de esta sección presume invariantes **por construcción**, no por
+  regaño. Añadir cinco campos con validación propia en el pase que arregla el bloqueante de `intent` habría
+  mezclado dos cosas y ampliado la superficie de un formulario que toca la curaduría del gancho.
+- **Impacto:** bajo — se editan por API, y los seeds v1.50.3 ya son los correctos. Lo que NO se puede es
+  ajustarlos sin llamada directa, que es exactamente lo que el criterio 110(e) pide para los **escalones**
+  (esos sí se editan) pero no exige literalmente para estos cinco.
+- **Disparador:** que el dueño necesite mover `maxRawMultiple` o `manualFreshnessDays` en caliente (p. ej.
+  porque la lista de revisión marque demasiado o demasiado poco). Acción: extender el editor con los cinco
+  campos y sus rangos, reusando el mismo patrón «bloquea el guardado, no regaña después».
 
 ### Pase `pulido-precios-display` — deuda del pulido de display de precios (2026-08-19, no bloqueante)
 
@@ -4384,3 +4408,75 @@
 - **Disparador:** cuando el inventario publicado supere ~5k piezas, o antes de exponer Compra a tráfico
   no autenticado real (lo que ocurra primero). Medir primero: `fetchSellable` con `EXPLAIN ANALYZE` y el
   p95 de `GET /catalog/cards` bajo carga.
+
+### Ronda de corrección del gate QA + techlead + rev v1.50.3 del arquitecto (rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-28) — deuda del pase (dueño: **backend**, no bloqueante)
+
+> Todos los hallazgos enrutados a backend en esta ronda **se arreglaron en el pase** (bloqueante de
+> auditoría, `runBackground`, renumeración, las dos escaladas del ingest, los menores del techlead, y los
+> cuatro puntos de la rev v1.50.3 del arquitecto). Lo que queda aquí es lo que **NO** se arregló, con el
+> porqué y el disparador.
+
+#### PI-D1 · `resolveCardId` sigue haciendo 1-3 queries POR FILA en el ingest de MERCADO (Media, backend)
+- **Dueño:** backend. **Severidad:** Media (aceptada).
+- **Deuda:** el techlead señaló el N+1 del bucle del ingest de **estimados** y ahí **se cerró**
+  (`buildGradedCardIndex` + `resolveGradedCardId`, resolución en memoria, cero queries en el bucle). El
+  ingest de **MERCADO** (`PriceIngestService.ingestSet`, `price-ingest.service.ts:~437`) sigue llamando
+  al `resolveCardId` por-fila: `findUnique` por `externalId` → `findFirst` por `(setId, number)` →
+  `findMany` por variantes del número. Un set de 250 cartas puede costar hasta ~750 round-trips.
+- **Por qué NO se hizo en este pase, y no es pereza:** son dos diferencias reales, no una repetición.
+  (1) El ingest de estimados tenía el conjunto **ya materializado en memoria** (`allowed` por set) y
+  acotado por el tope de cuota; el de mercado resuelve contra **todo el set** y en scope `full` no tiene
+  un conjunto permitido, así que el índice hay que **traerlo** — es una query nueva y una decisión de
+  memoria, no un `Map.get` gratis. (2) Es la ruta que escribe el **precio de venta** de todo el
+  catálogo: cambiar su resolución carta↔proveedor es tocar dinero en el mismo diff en el que se están
+  corrigiendo otras cinco cosas del gancho, y ninguna revisión posterior podría separar qué rompió qué.
+- **Dirección de fix (probada ya):** el patrón está implementado y con tests en el gancho — un índice por
+  set (`byExternalId` / `byNumber` con desempate por `cardNumberVariants`, ambigüedad ⇒ se omite) y un
+  resolver **puro** que recibe el logger como callback. Portarlo es mecánico; lo que hay que decidir es
+  de dónde sale el índice cuando el scope es `full`.
+- **Disparador:** el próximo pase que toque `ingestSet`, o si el tiempo de una corrida de precios se
+  vuelve un problema operativo (medir primero: nº de `card.findUnique` por corrida).
+
+#### PI-D2 · El gate de EVIDENCIA deja al shape S2 sin poder escribir, y su escotilla no aplica (Media, **decisión del arquitecto**)
+- **Dueño:** **arquitecto** (decide), backend (implementa). **Severidad:** Media.
+- **Estado:** el gate de evidencia de §4.38(m.2) se implementó **literalmente** («ausente ⇒ no se
+  escribe»). Consecuencia: el shape **S2** (`gradedPrices.psaN`, escalar) **no puede escribir nunca**,
+  porque no trae fecha de última venta por construcción ⇒ siempre `evidence_unknown`.
+- **Por qué se anota en vez de resolverse:** inventar una escotilla («acepta evidencia desconocida si el
+  operador lo pide») sería backend cambiando el diseño por su cuenta — exactamente lo que la regla 9
+  prohíbe. La escotilla existente del `count`
+  (`POKEMONPRICETRACKER_GRADED_MIN_COUNT=0`), que existía **para que S2 pudiera escribir**, deja de
+  alcanzar: ahora topa con el gate de evidencia.
+- **Impacto hoy: ninguno** — `graded_estimate_ingest_enabled` tiene seed `off`. **Bloquea encender la
+  fase 2** si la primera corrida revela que el proveedor sirve S2 y no S1.
+- **Disparador:** antes de encender el ingest. Si la respuesta real es S1 (la hipótesis principal), esto
+  se cierra como no-aplicable.
+
+#### PI-D3 · Los tres seeds corregidos NO llegan a una BD ya sembrada (Media, **operativa — devops**)
+- **Dueño:** **devops** (ejecuta), backend (lo documenta). **Severidad:** Media.
+- **Deuda:** `prisma/seed.ts` upsertea `SETTING_DEFAULTS` con **`update: {}`** (no pisa ediciones del
+  admin), así que la corrección de v1.50.3 —`manualFreshnessDays` `null`→30, `minSampleCount` 3→5,
+  `maxRawMultiple` 50→100— **solo aplica a bases nuevas**. Verificado en vivo: el E2E del criterio 109
+  falló contra el stack local hasta fijar el dial explícitamente.
+- **Por qué NO se automatizó como migración:** un `UPDATE` incondicional destruiría exactamente lo que
+  `update: {}` protege (la decisión del dueño). Un `UPDATE` condicionado a «solo si vale el valor viejo»
+  es indistinguible de pisar una elección deliberada de 50×.
+- **Dirección de fix:** los tres `UPDATE` puntuales (o un `PUT /admin/pricing/graded-estimates`)
+  documentados en `BACKEND_NOTES` §0.4.6(a), como paso de post-deploy.
+- **Disparador:** **antes** de dar por cumplidos los criterios 109 y 111(a)/(c) en cualquier entorno que
+  ya haya corrido el seed. Es requisito de release, no de código.
+
+#### PI-D4 · `preview` y `review` divergen en el corte por `FEATURE_OFF` (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada; la divergencia es **deliberada** y está documentada
+  en §4.38n.3).
+- **Deuda:** el `preview` corta en `FEATURE_OFF` y la **lista de revisión** no (evalúa igual con el dial
+  apagado, forzando `estimatesEnabled`/`highlightEnabled` a `true` sobre la config real). Son dos
+  comportamientos distintos de la misma función pura, y quien lea uno puede asumir el otro.
+- **Por qué la asimetría es CORRECTA y no se unificó:** la lista existe para **limpiar los datos antes**
+  de encender la afirmación comercial; si solo funcionara encendida, obligaría a **publicar las cifras
+  malas para poder descubrirlas**. El `preview`, en cambio, responde «¿por qué no está destacada?» y
+  `FEATURE_OFF` **es** una respuesta correcta a esa pregunta. Unificarlos empeoraría uno de los dos.
+- **Dirección de fix (si se decide):** el arquitecto lo dejó como «candidato de limpieza posterior» —
+  parametrizar el corte del dial en las puras (`ignoreFeatureFlag`) en vez de forzar la config desde el
+  caller, que es lo que hoy hace `gradedEstimateReview`. **No** unificar el comportamiento.
+- **Disparador:** una tercera superficie que necesite el mismo cálculo con otra política de dial.

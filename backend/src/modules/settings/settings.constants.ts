@@ -369,7 +369,8 @@ export const FEATURE_FLAG_VALUES = ['on', 'off'];
 /**
  * v1.44-graded-estimate (I7, §4.38d) — valida una LISTA de grados (`grades` / `highlightGrades`):
  * array de strings ⊆ `{"10","9"}`, NO vacío y sin duplicados. Lista cerrada a propósito: otros grados
- * (PSA <= 8) y otras graduadoras quedan fuera de alcance (§N.1), y una key desconocida sembraría un
+ * (PSA <= 8) y otras graduadoras quedan fuera de alcance (§O.1 — era §N.1 antes de que el merge de
+ * pricing v2 desplazara el bloque del gancho), y una key desconocida sembraría un
  * grado que el resolver nunca podría leer.
  */
 export function validateGradeList(v: unknown): string | null {

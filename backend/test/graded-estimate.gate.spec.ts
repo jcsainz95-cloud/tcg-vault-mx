@@ -250,7 +250,7 @@ describe('selectGradedEstimates — FICHA (SIN gate de ROI)', () => {
     ).toEqual([]);
   });
 
-  it('criterio 87 — una GRADEADA y un SELLADO nunca traen estimados', () => {
+  it('criterio 105 — una GRADEADA y un SELLADO nunca traen estimados', () => {
     for (const productType of ['graded', 'sealed'] as const) {
       expect(
         selectGradedEstimates({
@@ -337,7 +337,7 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
   it('MENOR-1 — umbral EXACTAMENTE entero: `psa9 === umbral` pasa (aritmética entera, sin deriva de flotante)', () => {
     // `costBase = 30000 + 70000 = 100000`; con `minUpsidePct = 10` el umbral EXACTO es 110000.
     // `100000 × (1 + 10/100)` da 110000.00000000001 en IEEE-754 ⇒ `ceil` = 110001 ⇒ la carta que
-    // IGUALA el umbral quedaba fuera, contra el «si y solo si >=» del criterio 79.
+    // IGUALA el umbral quedaba fuera, contra el «si y solo si >=» del criterio 97.
     const tiers: GradingCostTier[] = [{ minValueMxnCents: 0, maxValueMxnCents: null, costMxnCents: 70_000 }];
     const at = evaluateGradingHighlight({
       productType: 'raw',
@@ -408,7 +408,7 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
     expect(cara.thresholdMxnCents!).toBeGreaterThan(barata.thresholdMxnCents!);
   });
 
-  it('criterio 80 — sin PSA 9 NO se promueve (aunque el PSA 10 sea enorme)', () => {
+  it('criterio 98 — sin PSA 9 NO se promueve (aunque el PSA 10 sea enorme)', () => {
     const r = evaluateGradingHighlight({ ...base, estimates: [est('10', 9_000_000)], cfg: cfg() });
     expect(r.eligible).toBe(false);
     expect(r.reason).toBe('NO_PSA9');

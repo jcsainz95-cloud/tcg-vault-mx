@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { t } from './utils/i18n';
+import { loginAs, mockOnly } from './utils/auth';
 
 /**
  * Flujo: **«Valor estimado si se gradea» — el gancho de grading** en sus TRES superficies
@@ -228,5 +229,104 @@ test.describe('Gancho de grading · vitrina del home (§22.6)', () => {
     await hideScreenReaderOnly(page);
     await expect(page.getByText(/we haven't assessed this card/i).first()).toBeVisible();
     await expect(page.locator('#nota-estimado')).toContainText(plain('en', NOTE_HEADLINE));
+  });
+});
+
+test.describe('Gancho de grading · BACK-OFFICE: la captura manual de estimados (§O.6 / §O.8)', () => {
+  /**
+   * El agujero que cierra este bloque: hasta v1.50.2 **ninguna superficie del back-office** podía
+   * mandar `intent:"graded_estimate"`, así que la captura manual —que §O.6 conserva como
+   * herramienta de curaduría y respaldo del ingest— era inalcanzable, y el «Fijar valor…» de M1
+   * (que sí toca dinero) llevaba días devolviendo `422 GRADED_INTENT_REQUIRED`.
+   *
+   * `mockOnly`: la captura escribe una `PriceReference` de verdad; contra el stack real la vía de
+   * verificación es el 422/409, no una escritura sobre datos vivos.
+   */
+  test('separa las dos intenciones y el bloqueo de §O.8 le llega al operador POR GRADO', async ({
+    page,
+  }) => {
+    mockOnly('la captura escribe una PriceReference real; contra el stack real no se ejecuta');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+
+    const section = page.locator('section', {
+      hasText: t('es', 'admin.m2.gradedEstimateCapture.title'),
+    });
+    // La frontera con M1 › Gradeadas se dice VISIBLEMENTE, no en un `title` ni solo para el lector
+    // de pantalla: es la confusión que mueve dinero (§O.8).
+    await expect(
+      page.getByText(t('es', 'admin.m2.gradedEstimateCapture.boundaryTitle')),
+    ).toBeVisible();
+
+    await section
+      .getByLabel(t('es', 'admin.m2.gradedEstimateCapture.searchLabel'))
+      .fill('Charizard');
+    await section.getByRole('button', { name: /Charizard/ }).first().click();
+
+    // Fixture: `c-charizard` tiene una PSA 9 PUBLICADA. Esa fila es el precio de venta REAL de esa
+    // pieza, así que el estimado de ese grado se rechaza (409) — mientras que el PSA 10, libre, sí
+    // se publica. Los dos grados van en el MISMO guardado: el bloqueo de uno no apaga el otro.
+    const psa10 = section.getByLabel(
+      t('es', 'admin.m2.gradedEstimateCapture.gradeLabel', { grade: '10' }),
+    );
+    const psa9 = section.getByLabel(
+      t('es', 'admin.m2.gradedEstimateCapture.gradeLabel', { grade: '9' }),
+    );
+    await psa10.fill('29000');
+    await psa9.fill('9000');
+    await section
+      .getByRole('button', { name: t('es', 'admin.m2.gradedEstimateCapture.save') })
+      .click();
+
+    await expect(
+      section.getByText(t('es', 'admin.m2.gradedEstimateCapture.resultOk', { grade: '10' })),
+    ).toBeVisible();
+    // El 409 llega TRADUCIDO y con su detalle (cuántas piezas y de qué grado), no como código.
+    await expect(section.getByRole('alert')).toContainText('una pieza PSA 9 publicada');
+    await expect(section.getByRole('alert')).toContainText('dinero real');
+  });
+});
+
+test.describe('Gancho de grading · BACK-OFFICE: la lista de revisión (criterio 111(e), v1.50.3)', () => {
+  /**
+   * La contrapartida de §4.38(k.3): la cifra incoherente **no se oculta** en la ficha, así que
+   * alguien tiene que enterarse. Este smoke fija lo único que no se puede relajar sin convertir la
+   * lista en algo peor que no tenerla: que el **default** sean los tres motivos de coherencia y que
+   * `SLAB_PUBLISHED` entre **solo** al pedirlo.
+   */
+  test('lista por defecto las cifras incoherentes; el slab publicado entra solo al pedirlo', async ({
+    page,
+  }) => {
+    mockOnly('el conjunto de cartas marcadas es dato de fixture');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+
+    const section = page.locator('section', {
+      hasText: t('es', 'admin.m2.gradedEstimateReview.title'),
+    });
+    await expect(section.getByText(t('es', 'admin.m2.gradedEstimateReview.subtitle'))).toBeVisible();
+
+    // Default: los tres motivos de COHERENCIA. El error de unidades (USD como MXN) se nombra por
+    // lo que es, no por su código.
+    // `exact: true`: sin él, «Slab publicado» casaría por subcadena con la propia etiqueta de la
+    // casilla («…con slab publicado de ese grado») y el aserto de AUSENCIA sería siempre falso.
+    const slabBadge = section.getByText(
+      t('es', 'admin.m2.gradedEstimateReview.reasonShort.SLAB_PUBLISHED'),
+      { exact: true },
+    );
+    await expect(
+      section
+        .getByText(t('es', 'admin.m2.gradedEstimateReview.reasonShort.NOT_ABOVE_RAW'), {
+          exact: true,
+        })
+        .first(),
+    ).toBeVisible();
+    await expect(slabBadge).toHaveCount(0);
+
+    // Opt-in: al pedirlo, aparece — y sigue siendo una categoría distinta, no un dato erróneo.
+    await section
+      .getByLabel(t('es', 'admin.m2.gradedEstimateReview.includeSlabPublished'))
+      .check();
+    await expect(slabBadge.first()).toBeVisible();
   });
 });

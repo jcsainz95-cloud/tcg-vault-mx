@@ -12,6 +12,8 @@ import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.
 import { orderFinishes } from '../../common/card-order';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido.
 import { hasManualPrice } from '../../common/money';
+// v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
+import { businessDateCdmx } from '../../common/graded-estimate';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
@@ -31,6 +33,52 @@ interface SetScopeInfo {
 export type FxSnapshot = { rate: number; bufferPct: number };
 
 /** v1.50.2 (§4.38h) — resultado de UNA corrida del ingest de estimados PSA. Todo es observabilidad. */
+/**
+ * BE-GE3 (v1.50.2) — índice EN MEMORIA de las cartas EN ALCANCE de un set, por los dos identificadores
+ * que trae el proveedor. Reemplaza las 1-3 queries POR FILA que `resolveCardId` hacía dentro del bucle.
+ */
+interface GradedCardIndex {
+  /** `Card.externalId` → `cardId` (clave PRIMARIA de resolución). */
+  byExternalId: Map<string, string>;
+  /** `Card.number` → `cardId[]` (fallback; una lista porque el número NO es único por construcción). */
+  byNumber: Map<string, string[]>;
+}
+
+/**
+ * Resuelve la fila del proveedor contra el índice del set. **Función pura** (por eso vive fuera de la
+ * clase y recibe el logger como callback): su regla es exactamente la de `resolveCardId` —externalId
+ * primero, número después, variantes del número al final— y así puede probarse sin BD.
+ *
+ * ⚠️ **Ambigüedad ⇒ se OMITE.** Si el número (o sus variantes) casa con más de una carta del set, no
+ * se devuelve ninguna: escribir un precio en la carta equivocada es peor que no escribirlo.
+ */
+function resolveGradedCardId(
+  index: GradedCardIndex,
+  externalId: string | null | undefined,
+  number: string | null | undefined,
+  onAmbiguous: (number: string, matches: number) => void,
+): string | null {
+  if (externalId) {
+    const byExt = index.byExternalId.get(externalId);
+    if (byExt) return byExt;
+  }
+  if (number) {
+    const exact = index.byNumber.get(number);
+    if (exact?.length === 1) return exact[0];
+    if (exact && exact.length > 1) {
+      onAmbiguous(number, exact.length);
+      return null;
+    }
+    const matches = new Set<string>();
+    for (const v of cardNumberVariants(number)) {
+      for (const id of index.byNumber.get(v) ?? []) matches.add(id);
+    }
+    if (matches.size === 1) return [...matches][0];
+    if (matches.size > 1) onAmbiguous(number, matches.size);
+  }
+  return null;
+}
+
 export interface GradedIngestResult {
   /** ¿El dial `graded_estimate_ingest_enabled` estaba `on` **y** la config del ingest era válida? */
   enabled: boolean;
@@ -45,6 +93,19 @@ export interface GradedIngestResult {
   skippedSample: number;
   /** Entradas cuya forma el parser NO identificó positivamente ⇒ **no se escribió nada** de ellas. */
   unrecognized: number;
+  /**
+   * Sets que devolvieron entradas pero NINGUNA con bloque PSA (v1.50.2, techlead). Con al menos un set
+   * del run que SÍ lo vio, esto es un estado de datos NORMAL —sets sin ventas PSA— y se cuenta aquí en
+   * vez de parar la corrida. Solo si el run entero queda a 0 sets con bloque, se escala.
+   */
+  skippedNoGradedBlock: number;
+  /**
+   * v1.50.3 (§4.38m.2) — filas NO escritas por el **gate de evidencia**: la última venta observada es
+   * más vieja que `freshnessDays`, o el proveedor no dijo cuándo fue. Se cuenta APARTE de
+   * `skippedSample` a propósito: «no hay ventas recientes de esta carta» y «la muestra es corta» son
+   * diagnósticos distintos y llevan a acciones distintas.
+   */
+  skippedEvidence: number;
   dailyLimited: boolean;
   /** ⛔ Presente ⇒ el job PARÓ y hay que volver al ARQUITECTO (regla 9). */
   escalation: { reason: string; detail: string } | null;
@@ -825,6 +886,8 @@ export class PriceIngestService {
       skippedSlabPublished: 0,
       skippedSample: 0,
       unrecognized: 0,
+      skippedNoGradedBlock: 0,
+      skippedEvidence: 0,
       dailyLimited: false,
       escalation: null,
     };
@@ -859,10 +922,14 @@ export class PriceIngestService {
 
     const cards = await this.prisma.card.findMany({
       where: { id: { in: cardIds } },
-      select: { id: true, setId: true, set: true },
+      // `externalId`/`number` se traen AQUÍ para poder resolver carta↔fila del proveedor EN MEMORIA
+      // (BE-GE3): son los dos identificadores que usa `resolveCardId`, y el conjunto ya está acotado.
+      select: { id: true, setId: true, set: true, externalId: true, number: true },
     });
     const bySet = new Map<string, { set: CardSet; allowed: Set<string> }>();
+    const cardsById = new Map<string, { id: string; externalId: string | null; number: string | null }>();
     for (const c of cards) {
+      cardsById.set(c.id, { id: c.id, externalId: c.externalId, number: c.number });
       if (!c.set) continue;
       const entry = bySet.get(c.setId) ?? { set: c.set, allowed: new Set<string>() };
       entry.allowed.add(c.id);
@@ -871,7 +938,24 @@ export class PriceIngestService {
     // INV-D — una sola query batcheada para TODO el alcance (jamás una por carta).
     const slabsByCard = await this.pricing.getPublishedSlabGradesBatch(cardIds);
 
+    // Fecha de negocio de la corrida: UNA sola para todo el run. El gate de EVIDENCIA (§4.38m.2) mide
+    // contra ella, y una corrida larga que cruzara la medianoche no puede cambiar de criterio a medias.
+    const today = businessDateCdmx();
+
+    // ⛔ ESCALADA silenciosa, evaluada A ESCALA DE CORRIDA (v1.50.2, techlead). Ver el bloque tras el
+    // bucle: un set sin bloque PSA es un estado de datos NORMAL; la hipótesis «el proveedor ignoró
+    // includeEbay» solo es indistinguible si NINGÚN set del run vio el bloque.
+    let anySetSawGradedBlock = false;
+    const setsWithoutGradedBlock: { setExternalId: string; detail: string }[] = [];
+
     for (const { set, allowed } of bySet.values()) {
+      // BE-GE3 (techlead) — índice EN MEMORIA de las cartas de ESTE set que están en alcance. El
+      // resolver por fila hacía 1-3 queries DENTRO del bucle del ingest (externalId → (set,number) →
+      // variantes de número) sobre un conjunto que ya teníamos materializado: con 250 cartas por
+      // corrida eso son hasta 750 round-trips para responder algo que es un `Map.get`. Se resuelve
+      // contra las cartas EN ALCANCE a propósito: la línea de abajo ya descarta todo lo que no esté
+      // en `allowed`, así que acotar el índice no cambia ni una decisión.
+      const index = this.buildGradedCardIndex(cardsById, allowed);
       const map = await this.pptSetMapper.resolveForSets([set]);
       const providerSetId = map.get(set.id) ?? null;
       const res = await this.pptBulk.fetchGradedEstimatesForSet({
@@ -880,12 +964,50 @@ export class PriceIngestService {
         grades: cfg.grades,
         minSampleCount: cfg.minSampleCount,
         sourceStat: cfg.sourceStat,
+        // v1.50.3 (§4.38m.2) — GATE DE EVIDENCIA: el MISMO `freshnessDays` que aplica la lectura, pero
+        // aplicado en la ESCRITURA contra la fecha de la ÚLTIMA VENTA del proveedor. Sin él, cada
+        // corrida reescribía `capturedDate = hoy` sobre una mediana congelada y la cifra parecía fresca
+        // PARA SIEMPRE: el feed rancio disfrazado de fresco por nuestro propio job.
+        freshnessDays: cfg.freshnessDays,
+        today,
       });
       result.sets += 1;
       result.unrecognized += res.drops.filter((d) => d.reason === 'unrecognized_shape').length;
       result.skippedSample += res.drops.filter((d) => d.reason === 'sample_too_small').length;
+      result.skippedEvidence += res.drops.filter(
+        (d) => d.reason === 'evidence_too_old' || d.reason === 'evidence_unknown',
+      ).length;
 
-      // ⛔ ESCALADA — se PARA y se devuelve; no se intenta ninguna vía alternativa.
+      if (res.sawGradedBlock) anySetSawGradedBlock = true;
+
+      // ⚠️ AMBIGÜEDAD SILENCIOSA — se evalúa a escala de CORRIDA, no de set (v1.50.2, techlead).
+      //
+      // Antes, el primer set que devolvía entradas sin bloque PSA PARABA la corrida entera. La condición
+      // es ambigua por naturaleza («no hay ventas PSA de este set» vs «el proveedor ignoró includeEbay»)
+      // —eso no cambió—, pero la CONSECUENCIA estaba mal calibrada: **un set sin ventas PSA es un estado
+      // de datos normal**, así que un set inocente abortaba el run habiendo gastado ya sus créditos, y
+      // encima le entregaba al arquitecto un veredicto que la evidencia no sostenía.
+      //
+      // La ambigüedad es real solo si NINGÚN set del run vio el bloque. En cuanto uno lo ve, el shape
+      // queda CONFIRMADO y los demás son un `skip` con traza. Por eso aquí solo se acumula.
+      if (res.escalate?.reason === 'no_graded_block_in_response') {
+        result.skippedNoGradedBlock += 1;
+        setsWithoutGradedBlock.push({ setExternalId: set.externalId, detail: res.escalate.detail });
+        this.logger.warn(
+          `graded-estimate-ingest: set ${set.externalId} devolvió entradas SIN bloque PSA → se SALTA ` +
+            '(un set sin ventas PSA es normal). Si NINGÚN set del run lo trae, se escala al cierre.',
+        );
+        await this.auditGradedSkip('graded_estimate.ingest.skipped', null, {
+          setExternalId: set.externalId,
+          reason: 'no_graded_block_in_response',
+          detail: res.escalate.detail,
+        });
+        continue;
+      }
+
+      // ⛔ ESCALADA DURA — se PARA y se devuelve; no se intenta ninguna vía alternativa. Aquí el
+      // proveedor RECHAZÓ el parámetro (no es ambiguo: lo dijo con un 4xx), así que seguir barriendo
+      // solo quemaría créditos para obtener el mismo rechazo set tras set.
       if (res.escalate) {
         result.escalation = res.escalate;
         this.logger.error(
@@ -918,9 +1040,12 @@ export class PriceIngestService {
       }
 
       for (const row of res.rows) {
-        const cardId = await this.resolveCardId(
-          { externalId: row.externalId, number: row.number } as BulkPriceRow,
-          set,
+        // BE-GE3: resolución EN MEMORIA — cero queries dentro del bucle (antes: 1-3 por fila).
+        const cardId = resolveGradedCardId(index, row.externalId, row.number, (n, matches) =>
+          this.logger.warn(
+            `graded-estimate-ingest: el número "${n}" del proveedor casa con ${matches} cartas del set ` +
+              `${set.externalId} → se OMITE (no se adivina la carta).`,
+          ),
         );
         if (!cardId || !allowed.has(cardId)) continue; // fuera del alcance publicado ⇒ no se escribe.
         // INV-D: con slab publicado de ese grado, esa fila es DINERO de una pieza real.
@@ -954,13 +1079,70 @@ export class PriceIngestService {
       }
     }
 
+    // ⛔ ESCALADA SILENCIOSA — el veredicto se emite AQUÍ, con la corrida entera delante.
+    //
+    // La regla: se escala **solo si NINGÚN set del run vio bloque PSA**. Ése es el único estado en que
+    // «el proveedor ignoró includeEbay» y «ninguno de estos sets tiene ventas PSA» son de verdad
+    // indistinguibles, y por tanto el único en que la decisión le toca a un humano. Si al menos un set
+    // lo vio, el shape está CONFIRMADO por observación y los sets sin bloque quedan como `skip` con
+    // traza (ya auditados arriba, uno por uno). Es la diferencia entre un veredicto que la evidencia
+    // sostiene y uno que dispara un rediseño de arquitectura y presupuesto sin motivo.
+    if (!anySetSawGradedBlock && setsWithoutGradedBlock.length > 0) {
+      result.escalation = {
+        reason: 'no_graded_block_in_response',
+        detail:
+          `NINGUNO de los ${setsWithoutGradedBlock.length} set(s) barridos con includeEbay=true trajo un ` +
+          'bloque PSA reconocible en toda la corrida. Con cero observaciones positivas no se puede ' +
+          'distinguir «estos sets no tienen ventas PSA» de «el proveedor IGNORÓ el parámetro». Sets: ' +
+          `${setsWithoutGradedBlock.map((x) => x.setExternalId).join(', ')}. Muestra del primero: ` +
+          `${setsWithoutGradedBlock[0].detail}`,
+      };
+      this.logger.error(
+        `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO (regla 9, §4.38h.4): ${result.escalation.reason}. ` +
+          `${result.escalation.detail}`,
+      );
+      await this.auditGradedSkip('graded_estimate.ingest.escalated', null, {
+        ...result.escalation,
+        setsWithoutGradedBlock: setsWithoutGradedBlock.map((x) => x.setExternalId),
+      });
+    }
+
     this.logger.log(
       `graded-estimate-ingest: ${result.sets} set(s), ${result.cardsInScope} carta(s) en alcance, ` +
         `${result.written} referencia(s) escritas, ${result.skippedManual} respetando override manual, ` +
         `${result.skippedSlabPublished} con slab publicado, ${result.skippedSample} por muestra ` +
-        `insuficiente, ${result.unrecognized} con forma no reconocida.`,
+        `insuficiente, ${result.skippedEvidence} por evidencia vieja/desconocida, ` +
+        `${result.unrecognized} con forma no reconocida, ` +
+        `${result.skippedNoGradedBlock} set(s) sin bloque PSA.`,
     );
     return result;
+  }
+
+  /**
+   * BE-GE3 (v1.50.2, techlead) — índice EN MEMORIA para resolver carta↔fila del proveedor **sin tocar
+   * la BD dentro del bucle del ingest**.
+   *
+   * Mismas dos claves que `resolveCardId` (`externalId` primario, `number` fallback) y la misma regla
+   * de desempate por variantes de número (`cardNumberVariants`): una sola coincidencia resuelve, dos o
+   * más **se omiten** (no se adivina la carta). Lo único que cambia es de dónde sale la respuesta.
+   */
+  private buildGradedCardIndex(
+    cardsById: Map<string, { id: string; externalId: string | null; number: string | null }>,
+    allowed: Set<string>,
+  ): GradedCardIndex {
+    const byExternalId = new Map<string, string>();
+    const byNumber = new Map<string, string[]>();
+    for (const id of allowed) {
+      const c = cardsById.get(id);
+      if (!c) continue;
+      if (c.externalId) byExternalId.set(c.externalId, c.id);
+      if (c.number) {
+        const arr = byNumber.get(c.number);
+        if (arr) arr.push(c.id);
+        else byNumber.set(c.number, [c.id]);
+      }
+    }
+    return { byExternalId, byNumber };
   }
 
   /** Traza obligatoria en `AuditLog` (§4.38h.4). Nunca revienta el job por un fallo de bitácora. */

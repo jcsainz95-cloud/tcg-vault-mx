@@ -4,6 +4,170 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §26 · El *breaking* de `intent`, la captura manual y la lista de revisión (contrato v1.50.2 / v1.50.3) — 2026-08-28
+
+> Rama `claude/psa-graded-card-value-gmhv5u`, sobre `397db13`. Cierra el **bloqueante** del rechazo
+> de QA + techlead, más el trabajo adicional de la rev **v1.50.3** del arquitecto.
+
+### 1. El bloqueante: `intent` no existía **en el tipo**, así que nadie podía mandarlo
+
+`POST /admin/pricing/override` empezó a exigir `intent` con `productType:"graded"`
+(`422 GRADED_INTENT_REQUIRED`). El cliente no lo mandaba en ningún sitio — y no por descuido: el
+campo **no existía en `PricingOverrideInput`**. Tres superficies vivas de dinero devolvían 422
+contra el backend real: M1 › Gradeadas (la vía que el contrato llama *normativa* para el valor de
+mercado por carta+grado), `VariantPriceConsole.fixMarket` con `productType="graded"` desde el cajón
+de variante, y cualquier pendiente `graded` de la cola de M2.
+
+**El arreglo no es «pasar el campo»: es que el compilador no deje NO pasarlo.**
+`PricingOverrideInput` pasa de interfaz plana a **unión discriminada por `productType`**, la misma
+técnica que `VariantPriceConsoleProps` ya usaba para exigir `gradeKey` en graded:
+
+| Rama | Exige | Prohíbe |
+|---|---|---|
+| `{ productType: 'graded'; intent: PricingOverrideIntent }` | `intent` | — |
+| `{ productType: 'raw' \| 'sealed'; intent?: never }` | — | `intent` (el contrato lo ignoraría) |
+
+Con eso, **olvidar `intent` no compila**, y el fallo no puede repetirse por el mismo camino. Los
+tres llamadores declaran **`market`**: los tres fijan el precio real de piezas publicadas. En
+`PendingQueueSection` el `entry.productType` es `ProductType`, así que el body se arma **por rama**
+en vez de con un spread — el compilador obliga a decidir, que es justo el punto.
+
+`intent?: never` en raw/sealed es deliberado: el contrato dice que ahí «se ignora si viene», y un
+campo que el servidor tira en silencio no debe poder escribirse.
+
+### 2. El agujero de producto: **no existía UI capaz de mandar `graded_estimate`**
+
+`grep -rn "intent" frontend/src` daba **cero**. La captura manual que §O.6 conserva como herramienta
+de curaduría y respaldo del ingest era **inalcanzable desde el back-office**: el gancho dependía por
+completo del ingest automático, que está apagado.
+
+Nueva **Sección 5d de M2 · `GradedEstimateCaptureSection`** (`super_admin`, como todo M2):
+
+- **Buscador de carta** sobre `GET /buylist/cards` (todo el catálogo, no solo lo publicado: la fila
+  de estimado cuelga de `Card`, no del inventario).
+- **Pre-vuelo** con `GET /admin/pricing/graded-estimates/preview` — endpoint que el cliente **no
+  consumía** y que ya existía en contrato y backend. De ahí sale `publishedSlabGrades`: el grado con
+  slab publicado se **deshabilita con el motivo a la vista**, antes de escribir.
+- **Una petición por grado**, secuencial y tolerante: un `Promise.all` habría que abortarlo entero
+  al primer 409 y perdería la escritura del grado legítimo. El grado que falla **conserva** lo
+  tecleado; el que se guarda se limpia.
+- **Money-safe:** campo vacío o `≤ 0` no se manda (no se publica una cifra de MX$0), y los campos
+  vacíos no se tocan.
+
+**Por qué el pre-vuelo no sustituye al 409.** Puede estar rancio (alguien publica un slab entre la
+lectura y el guardado) y, sobre todo, `publishedSlabGrades` viaja **dentro de cada grupo raw**: una
+carta sin grupo raw publicado no tiene de dónde sacarlo. En ese caso **no hay pre-vuelo** y el 409 es
+la única guarda — por eso se muestra por grado, traducido y con sus `details`.
+
+**La frontera con M1 › Gradeadas se dice en la UI, no solo en un comentario.** La misma fila la
+escriben dos flujos con intenciones opuestas, así que cada superficie declara cuál es la suya: banner
+`boundaryTitle`/`boundaryBody` en M2 y una línea visible (no `sr-only`, no `title`) en M1 ›
+Gradeadas, más el `fixValueHelper` reescrito.
+
+### 3. Traducciones de los códigos nuevos — y el `details` que sí se aprovecha
+
+`GRADED_INTENT_REQUIRED`, `GRADED_ESTIMATE_SLAB_PUBLISHED`, `GRADING_SORT_REQUIRES_FILTER` y
+`GRADED_CONFIG_INVALID` daban `null` en `messages/{es,en}.json` ⇒ el operador leía el volcado crudo
+del backend (o el genérico).
+
+Lo interesante es el **409**: trae `details` accionables (`publishedSlabCount`, `gradeKey`), y el
+mensaje que §O.8 exige —«esta carta ya tiene N PSA 10 publicadas; eso es dinero real»— **necesita esa
+cifra**. `useErrorMessage` gana una tabla `DETAILED_ERRORS`: si el código tiene variante
+`error.<CODE>_WITH_DETAILS` **y** el backend mandó lo necesario, se usa el copy rico; si no, el copy
+base. **Nunca** se pinta un placeholder crudo ni se inventa un número. El mapeo es explícito por
+código, no mágico: un `t(key, details)` a ciegas renderizaría `{count}` en cuanto un backend dejara
+de mandar el campo.
+
+`gradeKey` deja de interpolarse a mano en cuatro sitios: `lib/gradeKey.ts`
+(`buildGradedKey`/`parseGradedKey`/`gradeLabelFromKey`). Un `gradeKey` mal armado no falla
+ruidosamente — **escribe otra fila**, y el síntoma aparece después y en otro sitio.
+
+### 4. v1.50.3 · Lista de revisión (criterio 111(e)) — Sección 5e de M2
+
+Es la **contrapartida** de §4.38(k.3): aceptamos no ocultar la cifra incoherente en la ficha *a
+cambio* de que alguien pudiera revisarla. Sin la lista publicábamos el número malo **y** perdíamos la
+señal. `preview` exige `cardId` («¿por qué **esta** carta?»); esto contesta «¿de qué cartas debo
+sospechar?».
+
+Las cuatro reglas que la UI **no** puede relajar, cada una con su test:
+
+1. **Default = los tres motivos de coherencia.** `SLAB_PUBLISHED` entra por casilla opt-in: es
+   accionable pero **no es un dato erróneo**, y por defecto ahogaría la señal. Se afirma sobre la
+   **query real** (`reason=NOT_ABOVE_RAW,ABOVE_MAX_MULTIPLE,GRADE_ORDER_INVERTED`), no sobre un espía.
+2. **`truncated` se pinta** como alerta con el conteo escaneado. Truncar en silencio produce la falsa
+   confianza de «no hay nada que revisar», que es peor que no tener lista.
+3. **Con la feature apagada la tabla sigue**, y se avisa. Si solo funcionara encendida, habría que
+   **publicar las cifras malas para poder descubrirlas**.
+4. **`409 GRADED_CONFIG_INVALID` no se degrada a lista vacía**: se muestra el error y **no** una tabla.
+
+Cada fila explica **qué error suele haber detrás** (`NOT_ABOVE_RAW` → «suele ser un importe en
+dólares capturado como pesos»), que es lo que la convierte en una acción y no en una etiqueta. El
+«marcar como revisada» y los avisos proactivos se declaran **fuera de alcance en la propia pantalla**,
+en vez de fingir que existen.
+
+**No hizo falta patrón nuevo del sistema de diseño**: es `DataTable` + el mismo pager server-side de
+M3/M5. No se inventó nada visual.
+
+### 5. Seeds v1.50.3 y los cinco diales del gate de confianza
+
+`GradedEstimateConfigDTO` estaba **desactualizado** respecto del contrato: le faltaban
+`ingestEnabled`, `manualFreshnessDays`, `maxRawMultiple`, `minSampleCount`, `sourceStat` e
+`ingestMaxCardsPerRun`. Se alinea el espejo y se corrigen los seeds del mock
+(`manualFreshnessDays: null → 30`, `minSampleCount 5`, `maxRawMultiple 100`).
+
+El panel los **muestra read-only**: cambian lo que el operador ve —con 30 días un estimado capturado
+a mano **caduca**, y `maxRawMultiple` es el tope contra el que la lista marca `ABOVE_MAX_MULTIPLE`— y
+no había dónde consultarlos. **Editarlos** sigue siendo por API: cada uno trae su rango normativo
+propio y meter cinco campos con validación en el pase que arregla el bloqueante habría mezclado dos
+cosas. Deuda registrada como **F-20**.
+
+### 6. La cobertura que ata el cuerpo de la petición al contrato
+
+**El hueco estructural** que dejó pasar todo esto: los tests de las pantallas que fijan precio
+**espían `api.overridePrice`** y afirman *que se llamó*. Nadie miraba **qué se manda**, así que el
+*breaking* pasó la suite entera en verde mientras tres superficies de dinero devolvían 422.
+
+`src/test/pricing-override-intent.test.tsx` cierra eso: `config.useMocks = false`, `fetch` **ruteado
+por URL**, componentes reales, y se afirma el **body HTTP literal** de cada superficie —incluido que
+raw manda `finish` y **ningún** `intent`, y que graded **omite** `finish`—. Más los dos códigos de
+error nuevos vistos por el operador. 10 tests. La lista de revisión añade otros 7 con la misma
+técnica sobre la **query**.
+
+En E2E se añaden dos casos a `e2e/grading-estimate.spec.ts`: el bloqueo de §O.8 llegando al operador
+**por grado** (PSA 10 se publica, PSA 9 rebota con su 409 traducido) y el default/opt-in de la lista
+de revisión.
+
+**Los mocks replican la guarda, no la esquivan:** `overridePrice` en modo mock aplica el mismo
+`publishedSlabsForGradeKey` que el backend y lanza el 409 con sus `details`. Sin eso, Playwright
+—que corre en mocks— no podía verificar de punta a punta el bloqueo que §O.8 exige.
+
+### 7. Verde (números reales, esta rama)
+
+`npx tsc --noEmit` ✓ 0 errores · `npx next lint` ✓ 0 warnings · `npx vitest run` **90 archivos /
+751 tests, 751 passed** ✓ (734 → 751: **+17** de este pase) · `npx next build` ✓ (compilado + 62
+páginas estáticas) · `npx playwright test e2e/grading-estimate.spec.ts` **11/11 passed** ✓ ·
+**suite Playwright COMPLETA: 97/97 passed** ✓ — incluido `catalog.spec.ts`, que confirma una vez más
+que **F-17 está muerto**.
+
+> ⚠️ **Nota de arnés para QA/devops (no es un fallo de producto).** En este entorno había **otro
+> `next dev` en el puerto 3000 levantado sin `NEXT_PUBLIC_USE_MOCKS`**, y `playwright.config.ts` usa
+> `reuseExistingServer: !isCI` ⇒ Playwright **reutilizó ese server** y los 9 specs del gancho
+> fallaron en bloque hablando con el backend real. Se corrió contra un server propio
+> (`E2E_BASE_URL=http://localhost:3100 E2E_MOCKS=1`, build de producción). Un `next dev` reusado
+> también se degradó tras varias recompilaciones (`<main>` vacío) y volvió a la normalidad al
+> reiniciar: **para gates, `next build` + `next start`, no `next dev`**.
+
+### 8. Para el arquitecto (no bloquea; nada se resolvió por cuenta propia)
+
+1. **`publishedSlabGrades` es un hecho de CARTA que solo viaja dentro de `groups[]`.** Si la carta no
+   tiene ningún grupo raw publicado, `groups: []` y el pre-vuelo **no puede avisar** del bloqueo
+   INV-D, aunque el 409 sí llegue. Es exactamente el caso de curaduría interesante: carta con slab
+   publicado y sin raw en venta. Si se quiere pre-vuelo completo, el sitio natural sería subir
+   `publishedSlabGrades` a la **raíz** de `GradedEstimatePreviewResponse` (aditivo, sin romper nada).
+   **No se ha asumido**: hoy la UI se apoya en el 409, que es la guarda autoritativa.
+2. **La vitrina sigue sin «Ver todas»** (§22.6 / §22.12 nº6): no existe una vista de Compra filtrada
+   por elegibles a la que enlazar sin mentir. Se mantiene omitido. *(Heredado de §25.)*
+
 ## §25 · Fusión del gancho de grading con `main` (pricing v2 / P-48) — 2026-08-28
 
 > Merge de `origin/main` (curva de precio por valor de mercado, **ya en producción**) sobre la rama
@@ -107,11 +271,13 @@ arrastraba de `origin/main` **no reprodujo** en este entorno (mock mode); se dej
 
 ### 7. Para el arquitecto (no bloquea; ninguna se resolvió por cuenta propia)
 
-1. **Bullet contradictorio vivo en el contrato.** `API_CONTRACT.md` §DTOs base deroga expresamente
-   que los `listings[i]` de la ficha traigan `gradingHighlight`, pero la ficha de
-   `GET /catalog/cards/:cardId` **sigue afirmándolo** («Los `listings[i]` de esta misma respuesta
-   pueden traer su `gradingHighlight?`»). El cliente implementó la derogación (manda la sección de
-   DTOs); conviene borrar el bullet superviviente para que no reaparezca en un backend futuro.
+1. ~~**Bullet contradictorio vivo en el contrato.**~~ **✅ CERRADO (2026-08-28).** El arquitecto lo
+   derogó **explícitamente** en `API_CONTRACT.md:3004` («⛔ v1.50.2 — los `listings[i]` de esta
+   respuesta NO traen `gradingHighlight`. *Este bullet decía lo contrario hasta v1.50.2 y queda
+   DEROGADO*»). Ya no hay dos afirmaciones opuestas: el contrato dice una sola cosa y es la que el
+   cliente implementó. **Nada que hacer en el cliente** — el tipo ya lo impide (`gradingHighlight`
+   vive solo en `GroupedListingSummaryDTO`). Se deja tachado, no borrado, para que la petición no se
+   reabra por olvido.
 2. **La vitrina sigue sin «Ver todas»** (§22.6 / §22.12 nº6): no existe una vista de Compra filtrada
    por elegibles a la que enlazar sin mentir. Se mantiene omitido.
 

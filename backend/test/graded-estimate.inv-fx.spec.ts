@@ -138,14 +138,49 @@ describe('INV-FX (§4.38a) — el ingest escribe USD + fxRate, JAMÁS el numeral
 
 // ---------------------------------------------------------------------------------------------
 
-const CARD = { id: 'c1', setId: 's1', set: { id: 's1', externalId: 'sv8', name: 'Surging Sparks' } };
+// v1.50.2 (BE-GE3): la carta trae `externalId`/`number` porque el ingest resuelve carta↔fila del
+// proveedor **en memoria** (índice por set) en vez de una query por fila. El `select` real los pide.
+const CARD = {
+  id: 'c1',
+  setId: 's1',
+  externalId: 'sv8-104',
+  number: '104',
+  set: { id: 's1', externalId: 'sv8', name: 'Surging Sparks' },
+};
+
+/** Dos sets con una carta EN ALCANCE cada uno (para probar la escalada a escala de corrida). */
+const DOS_SETS = [
+  CARD,
+  {
+    id: 'c2',
+    setId: 's2',
+    externalId: 'sv9-001',
+    number: '001',
+    set: { id: 's2', externalId: 'sv9', name: 'Journey Together' },
+  },
+];
+const DOS_CARTAS = [{ cardId: 'c1' }, { cardId: 'c2' }];
+/** Respuesta del proveedor SIN novedades (cada test sobreescribe lo que le interesa). */
+const RES_BASE = {
+  rows: [] as unknown[],
+  fetchedRaw: 1,
+  drops: [],
+  requestOk: true,
+  dailyLimited: false,
+  dailyRemaining: 100,
+  escalate: null as unknown,
+  sawGradedBlock: true,
+};
 
 function wireIngest(opts: {
   config?: Record<string, unknown>;
   published?: { cardId: string }[];
+  /** Cartas que devuelve `card.findMany` (default: solo `CARD`). */
+  cards?: unknown[];
   slabs?: Map<string, string[]>;
   providerRows?: unknown[];
   escalate?: unknown;
+  sawGradedBlock?: boolean;
 }) {
   const store = new Map<string, unknown>(Object.entries(opts.config ?? {}));
   const prisma = {
@@ -155,7 +190,7 @@ function wireIngest(opts: {
       ),
     },
     inventoryItem: { findMany: jest.fn(async () => opts.published ?? [{ cardId: 'c1' }]) },
-    card: { findMany: jest.fn(async () => [CARD]), findUnique: jest.fn(async () => ({ id: 'c1' })) },
+    card: { findMany: jest.fn(async () => opts.cards ?? [CARD]), findUnique: jest.fn(async () => ({ id: 'c1' })) },
   } as unknown as PrismaService;
   const settings = new SettingsService(prisma);
   const pricing = new PricingService(prisma, settings, {} as unknown as FxService, {} as never, {} as never, {} as never);
@@ -169,6 +204,8 @@ function wireIngest(opts: {
     dailyLimited: false,
     dailyRemaining: 100,
     escalate: opts.escalate ?? null,
+    // v1.50.2: el proveedor reporta si vio bloque PSA; el ORQUESTADOR decide con la corrida entera.
+    sawGradedBlock: opts.sawGradedBlock ?? true,
   }));
   const pptBulk = { fetchGradedEstimatesForSet: fetchGraded } as unknown as PokemonPriceTrackerBulkProvider;
   const pptSetMapper = {
@@ -285,5 +322,78 @@ describe('§4.38h — el job del ingest: diales, alcance e INV-D', () => {
     expect(res.escalation).toMatchObject({ reason: 'ebay_not_supported_with_set_sweep' });
     expect(res.written).toBe(0);
     expect(persist).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * v1.50.2 (techlead) — **la ambigüedad silenciosa se evalúa a escala de CORRIDA, no de set.**
+ *
+ * `no_graded_block_in_response` («el request pasó pero ninguna entrada trae bloque PSA») es ambiguo por
+ * naturaleza: no distingue «este set no tiene ventas PSA» de «el proveedor ignoró `includeEbay`». Lo que
+ * estaba mal calibrado era la CONSECUENCIA: paraba la corrida entera. **Un set sin ventas PSA es un
+ * estado de datos normal**, así que un set inocente abortaba el run —con sus créditos ya gastados— y le
+ * entregaba al arquitecto un veredicto que la evidencia no sostenía.
+ *
+ * La regla nueva: se escala **solo si NINGÚN set del run vio bloque PSA**. En cuanto uno lo ve, el shape
+ * está confirmado por observación y los demás son un `skip` con traza.
+ */
+describe('§4.38h.4 — `no_graded_block_in_response`: escalada a escala de CORRIDA', () => {
+  const SIN_BLOQUE = {
+    reason: 'no_graded_block_in_response' as const,
+    detail: 'El barrido del set sv8 devolvió 12 entradas … Muestra cruda: {...}',
+  };
+
+  it('NINGÚN set vio bloque PSA ⇒ SÍ escala (ahí la hipótesis «ignoró el parámetro» es indistinguible)', async () => {
+    const { ingest, audit } = wireIngest({
+      config: ON,
+      providerRows: [ROW],
+      escalate: SIN_BLOQUE,
+      sawGradedBlock: false,
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.escalation).toMatchObject({ reason: 'no_graded_block_in_response' });
+    expect(res.skippedNoGradedBlock).toBe(1);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'graded_estimate.ingest.escalated' }),
+    );
+  });
+
+  it('con AL MENOS UN set con bloque PSA ⇒ NO escala: el shape queda confirmado', async () => {
+    // Dos sets: el primero trae bloque (y escribe), el segundo no. El segundo es un set sin ventas PSA.
+    const { ingest, fetchGraded, audit } = wireIngest({ config: ON, cards: DOS_SETS, published: DOS_CARTAS });
+    (fetchGraded as jest.Mock)
+      .mockResolvedValueOnce({ ...RES_BASE, rows: [ROW], sawGradedBlock: true })
+      .mockResolvedValueOnce({ ...RES_BASE, rows: [], sawGradedBlock: false, escalate: SIN_BLOQUE });
+
+    const res = await ingest.ingestGradedEstimates(FX);
+
+    expect(res.escalation).toBeNull();
+    expect(res.sets).toBe(2); // ⚠️ el set inocente NO abortó la corrida
+    expect(res.skippedNoGradedBlock).toBe(1);
+    expect(res.written).toBe(1); // lo del primer set se escribió
+    // …y el salto DEJA TRAZA: invisible no es aceptable, solo no es motivo de escalada.
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'graded_estimate.ingest.skipped',
+        after: expect.objectContaining({ reason: 'no_graded_block_in_response' }),
+      }),
+    );
+    expect(audit.log).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'graded_estimate.ingest.escalated' }),
+    );
+  });
+
+  it('la escalada DURA (4xx del proveedor) sigue PARANDO en el acto, sin esperar al cierre', async () => {
+    const { ingest, fetchGraded } = wireIngest({ config: ON, cards: DOS_SETS, published: DOS_CARTAS });
+    (fetchGraded as jest.Mock).mockResolvedValue({
+      ...RES_BASE,
+      rows: [],
+      sawGradedBlock: false,
+      escalate: { reason: 'ebay_not_supported_with_set_sweep', detail: 'HTTP 400' },
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    // El proveedor RECHAZÓ el parámetro (lo dijo con un 4xx): seguir barriendo solo quema créditos.
+    expect(res.escalation).toMatchObject({ reason: 'ebay_not_supported_with_set_sweep' });
+    expect(res.sets).toBe(1);
   });
 });

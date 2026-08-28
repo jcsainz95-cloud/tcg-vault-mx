@@ -146,7 +146,25 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
       ),
       upsert,
     },
-    priceReference: { findMany: jest.fn(async (args: any) => refs.filter((r) => matchWhere(r, args.where))) },
+    priceReference: {
+      // v1.50.3: la LISTA DE REVISIÓN pide `distinct: ['cardId']` + `take`, así que el mock los honra.
+      // Sin `distinct`, una carta con PSA 10 **y** PSA 9 entraría dos veces al conjunto motor y el
+      // `scannedCards` mentiría — que es justo el número que el operador usa para confiar en la lista.
+      findMany: jest.fn(async (args: any) => {
+        let out = refs.filter((r) => matchWhere(r, args.where));
+        if (Array.isArray(args.distinct)) {
+          const seen = new Set<string>();
+          out = out.filter((r: any) => {
+            const k = (args.distinct as string[]).map((f) => String(r[f])).join('|');
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+        }
+        if (typeof args.take === 'number') out = out.slice(0, args.take);
+        return out;
+      }),
+    },
     variantPriceOverride: { findMany: jest.fn(async () => []) },
     inventoryItem: { findMany: jest.fn(async (args: any) => items.filter((i) => matchWhere(i, args.where))) },
     card: {
@@ -181,9 +199,10 @@ describe('GET /admin/pricing/graded-estimates', () => {
       freshnessDays: 30,
       minUpsidePct: 30,
       gradingCostTiers: DEFAULT_GRADING_COST_TIERS,
-      manualFreshnessDays: null,
-      maxRawMultiple: 50,
-      minSampleCount: 3,
+      // v1.50.3 (GU-A17): seeds ALINEADOS a `PROJECT.md` §O.7 — 30 / 100 / 5, no `null` / 50 / 3.
+      manualFreshnessDays: 30,
+      maxRawMultiple: 100,
+      minSampleCount: 5,
       sourceStat: 'median',
       ingestMaxCardsPerRun: 250,
     });
@@ -237,6 +256,39 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     await expect(ctrl.put({ minUpsidePct: -1 }, 'admin')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(ctrl.put({ freshnessDays: 0 }, 'admin')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(ctrl.put({ freshnessDays: 366 }, 'admin')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  /**
+   * v1.50.2 (techlead) — **I6 usa los validadores COMPARTIDOS, no una copia local.**
+   *
+   * `freshnessDays`/`minUpsidePct` se revalidaban aquí a mano (`typeof v !== 'number' || …`) con el
+   * rango reescrito en el mensaje, mientras `validateGradedEstimateFreshnessDays` /
+   * `validateGradingMinUpsidePct` ya gobernaban las otras dos puertas a la MISMA clave
+   * (`PUT /admin/settings` y la lectura fail-closed). Tres copias del mismo invariante que nadie obliga
+   * a coincidir: relajar el rango compartido dejaba esta puerta estricta **sin que nada fallara**.
+   *
+   * Esta prueba fija lo observable —el MENSAJE y el `details.field`— que es lo que se prometió no
+   * cambiar al unificarlos, y comprueba el tipo (no solo el rango), que es lo que el validador
+   * compartido aporta.
+   */
+  it('I6 — el 422 sale del validador COMPARTIDO: mismo mensaje, mismo `field`, y también caza el TIPO', async () => {
+    const { ctrl } = wire();
+    const err = async (body: Record<string, unknown>) => ctrl.put(body as never, 'admin').catch((e) => e);
+
+    expect(await err({ freshnessDays: 366 })).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: 'freshnessDays must be an integer in [1, 365] (days)',
+      details: { field: 'freshnessDays' },
+    });
+    expect(await err({ minUpsidePct: 1001 })).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: 'minUpsidePct must be a number in [0, 1000]',
+      details: { field: 'minUpsidePct' },
+    });
+    // Tipos: un string o un no-entero no pasan por «venir dentro del rango».
+    for (const body of [{ freshnessDays: '30' }, { freshnessDays: 1.5 }, { minUpsidePct: '30' }, { minUpsidePct: NaN }]) {
+      expect(await err(body)).toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
   });
 
   it('I7 — grados fuera de {"10","9"}, duplicados o `highlightGrades` huérfano ⇒ 422', async () => {
@@ -356,7 +408,7 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     expect(after.gradingCostTiers).toEqual([tier(0, null, 90_000)]);
   });
 
-  it('criterio 86 — subir `minUpsidePct` VACÍA la vitrina AL VUELO sin tocar el precio de venta', async () => {
+  it('criterio 104 — subir `minUpsidePct` VACÍA la vitrina AL VUELO sin tocar el precio de venta', async () => {
     const { ctrl, catalog } = wire([rawItem()], [psaRef('10', 900_000), psaRef('9', 500_000)], ON);
     const antes: any = await catalog.listCards({ page: 1, pageSize: 20, gradingHighlight: 'true' });
     expect(antes.total).toBe(1);
@@ -484,5 +536,181 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
     await expect(ctrl.preview(undefined)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(ctrl.preview('  ')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await expect(ctrl.preview('no-existe')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
+/**
+ * v1.50.3 (§4.38n, API_CONTRACT §M2) — **LISTA DE REVISIÓN** del back-office
+ * (`GET /admin/pricing/graded-estimates/review`). Es el **criterio 111(e)**, que hasta este pase no
+ * tenía implementación **ni estaba declarado fuera de alcance**.
+ *
+ * ### La deuda que cierra, y por qué no se podía declarar fuera de alcance
+ * §4.38(k.3) decidió **no ocultar** en la ficha la cifra que falla la coherencia de magnitud, y esa
+ * decisión se justificó **precisamente** por esta contrapartida: *«si decidimos seguir mostrándola,
+ * alguien tiene que enterarse»* (§O.7, con esas palabras). Sin lista, (k.3) dejaba de ser
+ * «visible-y-corregible» y pasaba a ser «visible-y-nadie-la-corrige» — **peor que ocultarla**:
+ * publicamos el número malo **y** perdemos la señal. Las dos mitades se sostienen juntas o se caen
+ * juntas.
+ *
+ * El `preview` exige `cardId`: solo contesta si **ya sospechabas**. Esto responde **«¿de qué cartas
+ * debo sospechar?»**, que es la pregunta que nadie podía hacer.
+ */
+describe('GET /admin/pricing/graded-estimates/review — la lista de revisión (criterio 111e)', () => {
+  /** Raw a MX$1,000. PSA 10 por DEBAJO del raw ⇒ `NOT_ABOVE_RAW` (el error de unidades USD/MXN). */
+  const incoherente = () => wire([rawItem()], [psaRef('10', 60_000), psaRef('9', 50_000)], ON);
+  /** Cifras sanas: pasa los dos gates ⇒ NO entra a la lista. */
+  const sana = () => wire([rawItem()], [psaRef('10', 900_000), psaRef('9', 500_000)], ON);
+
+  it('enumera la carta incoherente con su `reason` y la identidad legible (sin fetch por fila)', async () => {
+    const { ctrl } = incoherente();
+    const res = await ctrl.review();
+    expect(res.total).toBe(1);
+    expect(res.data[0]).toMatchObject({
+      cardId: 'ca',
+      cardName: 'Pikachu',
+      setName: 'Surging Sparks',
+      number: '1',
+      reason: 'NOT_ABOVE_RAW',
+      eligible: false,
+      psa10MxnCents: 60_000,
+      psa9MxnCents: 50_000,
+    });
+    expect(res.scannedCards).toBe(1);
+    expect(res.truncated).toBe(false);
+  });
+
+  it('una carta SANA no entra: la lista es de incoherencias, no un volcado', async () => {
+    const { ctrl } = sana();
+    const res = await ctrl.review();
+    expect(res.data).toEqual([]);
+    expect(res.total).toBe(0);
+    // `data: []` NO es un error y NO es un estado a celebrar: es «no hay nada que revisar».
+    expect(res.scannedCards).toBe(1);
+  });
+
+  /**
+   * §4.38n.3 — **divergencia deliberada con el `preview`, y es la decisión más importante del endpoint.**
+   * El dial arranca en `off` precisamente para poder **limpiar los datos antes** de encender la
+   * afirmación comercial. Una lista que solo funcionara con la feature encendida obligaría a **publicar
+   * las cifras malas para poder descubrirlas** — el orden correcto de las operaciones, al revés.
+   */
+  it('FUNCIONA con la feature APAGADA, y `FEATURE_OFF` nunca se emite', async () => {
+    const { ctrl } = wire([rawItem()], [psaRef('10', 60_000), psaRef('9', 50_000)]); // sin ON
+    const res = await ctrl.review();
+    expect(res.enabled).toBe(false); // el front avisa «hay cifras marcadas, pero no se publica nada»
+    expect(res.total).toBe(1);
+    expect(res.data[0].reason).toBe('NOT_ABOVE_RAW');
+    expect(res.data.some((d) => d.reason === 'FEATURE_OFF')).toBe(false);
+  });
+
+  it('el DEFAULT son los TRES `reason` de coherencia; `SLAB_PUBLISHED` es opt-in', async () => {
+    // Carta con slab PSA 10 publicado ⇒ `SLAB_PUBLISHED`. Con el default NO aparece: es la guarda
+    // FUNCIONANDO, no un dato erróneo, y meterla al default ahogaría la señal que la lista existe para
+    // mostrar.
+    const slab = {
+      ...rawItem({ id: 'i2', productType: 'graded', gradingCompany: 'PSA', gradeValue: '10', listPriceCents: 900_000 }),
+    };
+    const { ctrl } = wire([rawItem(), slab], [psaRef('10', 900_000), psaRef('9', 500_000)], ON);
+
+    expect((await ctrl.review()).data).toEqual([]);
+    const optIn = await ctrl.review('SLAB_PUBLISHED');
+    expect(optIn.data.map((d) => d.reason)).toEqual(['SLAB_PUBLISHED']);
+  });
+
+  it.each(['STALE', 'NO_PSA10', 'NO_PSA9', 'NO_COST_TIER', 'BELOW_MIN_UPSIDE', 'NOT_RAW', 'NOT_PUBLISHED', 'FEATURE_OFF'])(
+    '`reason=%s` ⇒ 400: es AUSENCIA de dato o el gate comercial, no una incoherencia',
+    async (reason) => {
+      const { ctrl } = incoherente();
+      // Devolver `[]` en silencio sería peor: el operador leería «no hay nada que revisar» de una
+      // consulta que nunca podía encontrar nada.
+      await expect(ctrl.review(reason)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'reason' },
+      });
+    },
+  );
+
+  it('`?reason=` acepta CSV y repetido, y deduplica', async () => {
+    const { ctrl } = incoherente();
+    expect((await ctrl.review('NOT_ABOVE_RAW,ABOVE_MAX_MULTIPLE')).total).toBe(1);
+    expect((await ctrl.review(['NOT_ABOVE_RAW', 'NOT_ABOVE_RAW'])).total).toBe(1);
+    // Un `reason` válido que NO es el de esta carta ⇒ lista vacía (filtro, no error).
+    expect((await ctrl.review('GRADE_ORDER_INVERTED')).total).toBe(0);
+  });
+
+  it('paginación: defaults del contrato y `400` fuera de rango (jamás un clamp silencioso)', async () => {
+    const { ctrl } = incoherente();
+    const res = await ctrl.review();
+    expect(res).toMatchObject({ page: 1, pageSize: 25 });
+    for (const bad of [['page', '0'], ['page', '1.5'], ['pageSize', '0'], ['pageSize', '101'], ['pageSize', 'x']] as const) {
+      const call = bad[0] === 'page' ? ctrl.review(undefined, bad[1]) : ctrl.review(undefined, undefined, bad[1]);
+      // Un `pageSize=1000` recortado a 100 sin avisar hace creer que se vio todo.
+      await expect(call).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: bad[0] } });
+    }
+  });
+
+  /**
+   * §4.38n.3 — **«apagada» ≠ «corrupta».** El dial `off` es una DECISIÓN (se tolera); una clave
+   * presente-pero-inválida es **intención perdida**. Una lista de revisión calculada contra un umbral
+   * basura marcaría —o dejaría de marcar— cartas por una razón que no es la que el operador cree, justo
+   * en la superficie que existe para que el operador CONFÍE en lo que ve.
+   */
+  it('config CORRUPTA ⇒ 409 GRADED_CONFIG_INVALID nombrando la clave, no un resultado dudoso', async () => {
+    const { ctrl } = wire([rawItem()], [psaRef('10', 60_000), psaRef('9', 50_000)], {
+      ...ON,
+      [SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE]: 'muchísimo',
+    });
+    await expect(ctrl.review()).rejects.toMatchObject({
+      code: 'GRADED_CONFIG_INVALID',
+      status: 409,
+      details: { key: SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE },
+    });
+  });
+
+  /**
+   * §4.38n.1 — **el coste se mide como INVARIANZA, no como un número mágico.** Un tope absoluto («≤ 4
+   * queries») envejece con cualquier refactor de `fetchSellable` y acaba relajándose sin que nadie
+   * piense. Lo que de verdad importa es que el conteo **NO crezca con el nº de cartas**: ésa es la
+   * diferencia entre O(1) y el N+1 que §4.38(c) declara bloqueante.
+   */
+  it('COSTE: el nº de queries NO crece con el nº de cartas (O(1), no N+1)', async () => {
+    const cardsN = (n: number) => {
+      const items = Array.from({ length: n }, (_, i) => rawItem({ id: `i${i}`, cardId: `c${i}` }));
+      const refs = Array.from({ length: n }, (_, i) => [
+        { ...psaRef('10', 60_000), cardId: `c${i}` },
+        { ...psaRef('9', 50_000), cardId: `c${i}` },
+        // Referencia de mercado RAW: sin ella `fetchSellable` cae a su ruta por-pieza (el `reference`
+        // del lote sale `undefined` y `toListingDTO` lo resuelve solo), que es una N+1 PREEXISTENTE de
+        // esa función y no de este endpoint. Con el dato presente se mide lo que se quiere medir.
+        { ...psaRef('10', 100_000), cardId: `c${i}`, productType: 'raw', gradeKey: 'raw:NM' },
+      ]).flat();
+      return wire(items, refs, ON);
+    };
+    const count = async (n: number) => {
+      const { ctrl, prisma } = cardsN(n);
+      await ctrl.review();
+      return {
+        refs: (prisma as any).priceReference.findMany.mock.calls.length,
+        items: (prisma as any).inventoryItem.findMany.mock.calls.length,
+      };
+    };
+    expect(await count(1)).toEqual(await count(25));
+  });
+
+  it('el conjunto motor son las cartas CON fila de estimado, no el catálogo', async () => {
+    const { ctrl, prisma } = incoherente();
+    await ctrl.review();
+    const where = (prisma as any).priceReference.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ productType: 'graded', finish: 'normal', cardProductId: null });
+    // Sin este recorte el endpoint sería un barrido de catálogo y no debería existir (§4.38n.1).
+    expect((prisma as any).priceReference.findMany.mock.calls[0][0].distinct).toEqual(['cardId']);
+  });
+
+  it('NO escribe nada: es read-only y no toca dinero', async () => {
+    const { ctrl, prisma, upsert, audit } = incoherente();
+    await ctrl.review();
+    expect(upsert).not.toHaveBeenCalled();
+    expect((prisma as any).$transaction).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
   });
 });

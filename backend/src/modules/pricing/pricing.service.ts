@@ -50,7 +50,9 @@ import {
   GRADED_ESTIMATE_GRADE_KEYS,
   GRADED_ESTIMATE_GRADE_VALUES,
   GradedEstimateConfig,
+  GradedEstimateInput,
   gradedEstimateGradeKey,
+  isStaleRef,
   GradedEstimateSourceStat,
   sanitizeGradingCostTiers,
   validateGradedEstimateIngestMaxCards,
@@ -86,9 +88,13 @@ function today(): Date {
 }
 
 /**
- * v1.44-graded-estimate (§4.38d) — las 6 claves del gancho: el dial maestro M10 + las 5 de M2. Se leen
- * TODAS en una sola query (`SettingsService.getRawMany`) para que la config del gancho cueste **+1
- * query constante** por request en vez de 6 lecturas sueltas (`SettingsService` no cachea).
+ * v1.44-graded-estimate (§4.38d) — las **12** claves del gancho: los DOS diales M10 (exhibición e
+ * ingest) + las 10 de M2. Se leen TODAS en una sola query (`SettingsService.getRawMany`) para que la
+ * config del gancho cueste **+1 query constante** por request en vez de 12 lecturas sueltas
+ * (`SettingsService` no cachea).
+ *
+ * ⚠️ El número está escrito porque su VALOR es la garantía: añadir un dial y leerlo aparte devuelve el
+ * coste a +N, que es exactamente la regresión que QA midió (+7). Si esta lista crece, crece AQUÍ.
  */
 const GRADED_ESTIMATE_SETTING_KEYS = [
   SettingKey.GRADED_ESTIMATES_ENABLED,
@@ -286,25 +292,25 @@ export interface PriceInfo {
 }
 
 /**
- * v1.50-graded-estimate (§4.38a/g) — UN estimado por grado tal como sale del batch. Extiende
- * `GradedEstimateInput` (lo que consumen las puras) con el `gradeKey` canónico para el render.
+ * v1.50-graded-estimate (§4.38a/g) — UN estimado por grado tal como sale del batch. **EXTIENDE**
+ * `GradedEstimateInput` (lo que consumen las puras) y le añade UNA cosa: el `gradeKey` canónico, que la
+ * composición necesita para el render y las puras no.
+ *
+ * ⚠️ **`extends`, no una copia.** Hasta v1.50.2 este tipo REDECLARABA a mano los cuatro campos de
+ * `GradedEstimateInput`, contra la promesa de §4.38c de que hay **UNA sola definición** de la forma que
+ * consumen las puras. Dos listas de campos que deben coincidir y que nadie obliga a coincidir divergen:
+ * añadir un campo al input (como pasó con `isManual`) y olvidarlo aquí compila, y el batch empieza a
+ * producir filas que las puras leen como `undefined`. Con `extends`, el compilador lo sostiene.
  *
  * **NO lleva `source` ni `isManualOverride`, y eso es el contrato, no un olvido:** es la garantía
- * ESTRUCTURAL de que ninguna rama de composición pueda decidir nada por el ORIGEN del número. Es lo que
- * hace INDISTINGUIBLES la fase 1 (valor fijado a mano por el admin) y la fase 2 (ingest automático) para
- * el cliente. La precedencia `override manual > ingest` ya la resolvió `isBetterRef` DENTRO de la tabla.
+ * ESTRUCTURAL de que ninguna rama de composición pueda decidir nada por el ORIGEN CRUDO del número. Es
+ * lo que hace INDISTINGUIBLES la fase 1 (valor fijado a mano por el admin) y la fase 2 (ingest
+ * automático) para el cliente. La precedencia `override manual > ingest` ya la resolvió `isBetterRef`
+ * DENTRO de la tabla; `isManual` (heredado) solo decide SI la fila se emite, jamás QUÉ (§4.38m).
  */
-export interface GradedEstimateRef {
-  gradeValue: string;
+export interface GradedEstimateRef extends GradedEstimateInput {
+  /** Clave canónica `graded:PSA:<grado>` — lo ÚNICO que este tipo añade sobre `GradedEstimateInput`. */
   gradeKey: string;
-  mxnCents: number;
-  capturedDate: string;
-  /**
-   * v1.50.2 (§4.38m) — ¿la fila que ganó la resolución es un OVERRIDE MANUAL? Es INTERNO: decide **si**
-   * el elemento se emite (la frescura de feed no se aplica a una decisión humana), **nunca qué** se
-   * emite. NO viaja al DTO público, así que la indistinguibilidad de fases (§4.38g) queda intacta.
-   */
-  isManual: boolean;
 }
 
 /**
@@ -998,9 +1004,10 @@ export class PricingService {
    * distinción que §4.38d exige. (En una BD sembrada — `prisma/seed.ts` escribe una fila por cada
    * `SETTING_DEFAULTS` — el comportamiento observable no cambia; lo que cambia es el caso degradado.)
    *
-   * **v1.44 IMPORTANTE-2 — coste real:** las 6 claves se leen en **UNA** query (antes: 1 `findUnique` del
-   * dial + 5 `getRaw()` sin caché = 6). El coste del gancho por request queda en **+1 query con el dial
-   * `off`** y **+2 con `on`** (esta + el batch de estimados de §4.38c). Sigue siendo O(1).
+   * **v1.44 IMPORTANTE-2 — coste real:** las **12** claves se leen en **UNA** query (antes: 1
+   * `findUnique` del dial + N `getRaw()` sin caché). El coste del gancho por request queda en **+1
+   * query con el dial `off`** y **+3 con `on`** (esta + el batch de estimados de §4.38c + el batch de
+   * slabs publicados de INV-D §4.38l). Sigue siendo O(1) respecto del tamaño de la página.
    */
   async loadGradedEstimateConfig(): Promise<GradedEstimateConfig> {
     const raw = await this.settings.getRawMany(GRADED_ESTIMATE_SETTING_KEYS);
@@ -1121,6 +1128,22 @@ export class PricingService {
     //  · `minSampleCount`/`sourceStat`/`ingestMaxCardsPerRun` son del INGEST: NO apagan ninguna
     //    superficie de LECTURA (corromperlos no puede vaciar una vitrina cuyo dato ya está escrito).
     //    Lo que hacen es que el INGEST se niegue a escribir — fail-closed en su propia ruta.
+    // ⚠️ v1.50.3 (I8-bis, §4.38m) — `manualFreshnessDays == null` significa «el override manual NO
+    // decae», y eso **desactiva el criterio 109 para la vía manual**: un número que un humano tecleó una
+    // vez puede quedarse en portada para siempre, que es exactamente lo que §O.4 promete que no pasa.
+    //
+    // Sigue siendo EXPRESABLE (es una decisión legítima del dueño) pero **no puede tomarse en silencio**:
+    // misma doctrina que «la vitrina no puede vaciarse en silencio» (§4.38d › Observabilidad). Nótese
+    // que NO apaga nada — no es una clave corrupta, es una decisión válida; solo se hace audible.
+    if (manualFreshRes.value === null && !manualFreshRes.invalid) {
+      this.logger.warn(
+        `graded-estimate config: '${SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS}' = null ⇒ el ` +
+          'override MANUAL nunca caduca. Esto DESACTIVA el criterio 109 para la vía manual: un estimado ' +
+          'capturado a mano puede seguir exhibiéndose indefinidamente. Es una decisión válida, pero ' +
+          'deliberada — el seed es 30 días. Ajústalo con PUT /admin/pricing/graded-estimates.',
+      );
+    }
+
     const estimatesEnabled =
       enabled && !gradesRes.invalid && !freshRes.invalid && !manualFreshRes.invalid;
     const highlightEnabled =
@@ -1142,6 +1165,10 @@ export class PricingService {
       sourceStat: sourceStatRes.value,
       ingestMaxCardsPerRun: ingestMaxRes.value,
       ingestConfigInvalid: minSampleRes.invalid || sourceStatRes.invalid || ingestMaxRes.invalid,
+      // v1.50.3 (§4.38n.3): se expone POR SEPARADO de `highlightEnabled` —que ya está apagado por tres
+      // claves distintas— porque la LISTA DE REVISIÓN necesita poder NOMBRAR la clave corrupta en su
+      // `409`. Un «algo está mal» no sirve en la superficie que existe para que el operador confíe.
+      maxRawMultipleInvalid: maxMultipleRes.invalid,
     };
   }
 
@@ -1188,8 +1215,50 @@ export class PricingService {
    * `getReference`. **El valor devuelto NO transporta `source` ni `isManualOverride`**: es la garantía
    * ESTRUCTURAL de que ninguna rama de composición pueda bifurcar por origen del número, y por tanto de
    * que la fase 1 (manual) y la fase 2 (ingest) sean indistinguibles para el cliente (§4.38g).
+   *
+   * ---
+   * ## ⚠️ v1.50.3 (GU-A16, §4.38m) — **PRIMERO se descarta lo rancio, DESPUÉS gana el mejor**
+   *
+   * ```
+   * frescas := candidatas.filter(c => !stale(c, cfg, today))   // 1) el filtro va ANTES
+   * si frescas está vacío -> ese grado NO se emite             //    (callar > presumir, §O.4)
+   * return pickBestRef(frescas)                                // 2) el manual sigue ganando ENTRE las frescas
+   * ```
+   *
+   * **El fallo que cierra.** Antes se resolvía primero y se filtraba después, así que un override manual
+   * de 200 días **ganaba** por tier absoluto (§4.27f-2, correcto) y **luego** la ventana de frescura lo
+   * tiraba: la carta acababa **sin estimado pese a haber dato automático fresco disponible**. Fallo
+   * silencioso — el dato existía, lo teníamos, y la vitrina se vaciaba sin que nadie se enterara.
+   *
+   * v1.50.2 lo curó **eximiendo al manual del decaimiento** (`manualFreshnessDays` seed `null`). El
+   * diagnóstico era bueno; el remedio, no: derogaba el **criterio 109** en silencio y dejaba un manual de
+   * dos años en portada, que es exactamente lo que §O.4 promete que no pasa. **La clase de fallo no venía
+   * del decaimiento, venía de filtrar DESPUÉS de resolver.** Invertir el orden la elimina sin eximir a
+   * nadie:
+   *
+   * | Caso | Antes (v1.50.2) | Ahora (v1.50.3) |
+   * |---|---|---|
+   * | manual 200 d + automática fresca | **nada** (fallo silencioso) | **la automática fresca** |
+   * | manual 200 d, sin automática | el manual de 200 d *(⛔ criterio 109)* | **nada** *(✅ criterio 109)* |
+   * | manual 5 d + automática 1 d | gana el manual | gana el manual *(sin cambio)* |
+   *
+   * **`isBetterRef` NO se toca, y eso es el punto.** §4.27f-2 es una garantía **money-safe** sobre
+   * ESCRITURAS y sobre el COMPARADOR; el filtro de frescura es un **predicado de exhibición** que vive
+   * **fuera** del comparador y **solo** en esta ruta de lectura del gancho (aditiva: `getReference` /
+   * `getReferencesBatch` no cambian). El override manual no se borra, no se degrada y no pierde su rango
+   * — solo deja de **exhibirse** cuando envejece. Se refresca **recapturándolo**, que convierte «el dueño
+   * puso un número una vez» en «el dueño **sostiene** ese número».
+   *
+   * @param cfg config del gancho ya izada por el caller (una sola lectura por request) — se exige
+   *   EXPLÍCITAMENTE, sin default, para que ninguna superficie pueda leer estimados **sin** el filtro de
+   *   frescura por olvidar un parámetro opcional. Un default aquí sería fail-open sobre el criterio 109.
+   * @param today fecha de negocio (`YYYY-MM-DD`, CDMX) — la misma que consumen las puras.
    */
-  async getGradedEstimatesBatch(cardIds: string[]): Promise<Map<string, GradedEstimateRef[]>> {
+  async getGradedEstimatesBatch(
+    cardIds: string[],
+    cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
+    today: string,
+  ): Promise<Map<string, GradedEstimateRef[]>> {
     const map = new Map<string, GradedEstimateRef[]>();
     const ids = [...new Set(cardIds)];
     if (ids.length === 0) return map;
@@ -1210,6 +1279,24 @@ export class PricingService {
     const fx = await this.fxSnapshotSafe();
     const bestByKey = new Map<string, (typeof rows)[number]>();
     for (const r of rows) {
+      // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleRef` es el
+      // MISMO predicado que aplican las puras (`usable()`), así que no hay dos verdades sobre qué es
+      // fresco; lo único que cambia es CUÁNDO se aplica.
+      if (
+        isStaleRef(
+          {
+            gradeValue: r.gradeKey.split(':')[2] ?? '',
+            mxnCents: 0, // irrelevante para la frescura; el monto se evalúa más abajo.
+            capturedDate: r.capturedDate.toISOString().slice(0, 10),
+            isManual: r.isManualOverride === true || r.source === 'manual',
+          },
+          today,
+          cfg,
+        )
+      ) {
+        continue;
+      }
+      // PASO 2: entre las FRESCAS, gana el mejor con el comparador de siempre (§4.27f-2 intacto).
       const k = `${r.cardId}|${r.gradeKey}`;
       const cur = bestByKey.get(k);
       if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);

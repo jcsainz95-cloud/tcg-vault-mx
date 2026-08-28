@@ -1,8 +1,9 @@
 /**
  * graded-estimate.e2e-spec.ts — «Gancho de grading» de punta a punta contra la app REAL + Postgres
- * REAL (v1.44, PROJECT §N, ARCHITECTURE §4.38, API_CONTRACT §2/§M2). Propiedad: backend; la EJECUTA QA.
+ * REAL (v1.44, PROJECT §O, ARCHITECTURE §4.38, API_CONTRACT §2/§M2). Propiedad: backend; la EJECUTA QA.
  *
- * Reproduce el flujo de FASE 1 tal cual lo hará el humano (§N.6, manual-first):
+ * Reproduce el flujo de captura MANUAL tal cual lo hace el humano (§O.6: el override manual es el
+ * respaldo de máxima precedencia sobre el ingest automático):
  *   1. el admin fija los estimados con `POST /admin/pricing/override` (endpoint YA existente),
  *   2. enciende el interruptor maestro en M10 (`gradedEstimatesEnabled`, seed `off`),
  *   3. la ficha informa, la teja y la vitrina promueven — y solo si el gate de ROI se cumple,
@@ -44,7 +45,14 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
       await setDial('off');
       await h.api('PUT', '/admin/pricing/graded-estimates', {
         token: adminToken,
-        json: { minUpsidePct: 30, freshnessDays: 30, grades: ['10', '9'], highlightGrades: ['10'] },
+        json: {
+          minUpsidePct: 30,
+          freshnessDays: 30,
+          grades: ['10', '9'],
+          highlightGrades: ['10'],
+          // v1.50.3: el seed del criterio 109. Se restaura explícitamente porque 8d lo fija.
+          manualFreshnessDays: 30,
+        },
       });
     }
     if (cardId) {
@@ -140,6 +148,10 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
    * **exigir que se declare la intención** y bloquear la combinación imposible.
    */
   it('3b) INV-D — `intent` OBLIGATORIO en graded: 422 sin él, 409 sobre una carta con slab publicado', async () => {
+    // §O.8 / criterio 112(b): «todo intento bloqueado queda REGISTRADO». Se mide contra el stack vivo,
+    // porque es lo que QA midió cuando la guarda resultó ser MUDA: 421 filas antes, 421 después.
+    const auditBefore = await h.prisma.auditLog.count({ where: { action: 'pricing.override.blocked' } });
+
     // (a) SIN `intent` ⇒ 422. Es BREAKING a propósito: un default a `market` sería fail-open.
     const sinIntent = await h.api('POST', '/admin/pricing/override', {
       token: adminToken,
@@ -170,6 +182,27 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
       orderBy: { capturedDate: 'desc' },
     });
     expect(ref?.priceMxnCents).not.toBe(123_456);
+
+    // (d) criterio 112(b) — LOS DOS intentos bloqueados dejaron rastro, con lo necesario para actuar.
+    //     Sin esto la guarda es muda: el 422/409 lo ve solo quien hizo la petición y se pierde al
+    //     cerrar la pestaña, así que nadie puede ver si el operador choca contra ella a diario.
+    const auditAfter = await h.prisma.auditLog.findMany({
+      where: { action: 'pricing.override.blocked' },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(auditAfter.length).toBe(auditBefore + 2);
+    const codes = auditAfter.slice(-2).map((r) => (r.after as { code?: string } | null)?.code);
+    expect(codes).toEqual(['GRADED_INTENT_REQUIRED', 'GRADED_ESTIMATE_SLAB_PUBLISHED']);
+    const ultimo = auditAfter[auditAfter.length - 1].after as Record<string, unknown>;
+    expect(ultimo).toMatchObject({
+      cardId: conSlab!.id,
+      gradeKey: 'graded:PSA:10',
+      intent: 'graded_estimate',
+      reason: 'slab_published',
+      // El monto que NO se escribió: es lo que permite ver si el operador insiste con la misma cifra.
+      attemptedPriceMxnCents: 123_456,
+    });
+    expect(auditAfter[auditAfter.length - 1].actorUserId).not.toBeNull();
 
     // (c) `intent:"market"` sobre esa MISMA carta sí es legítimo: es fijar el precio real del slab.
     //     (No se ejecuta la escritura para no ensuciar la BD compartida; lo cubre el spec unitario.)
@@ -240,7 +273,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(zeroCost.status).toBe(422);
   });
 
-  it('8) criterio 86/90 — subir `minUpsidePct` vacía la vitrina AL VUELO, sin mover ningún precio', async () => {
+  it('8) criterio 104/108 — subir `minUpsidePct` vacía la vitrina AL VUELO, sin mover ningún precio', async () => {
     const antes = await h.api('GET', `/catalog/cards/${cardId}`);
     const precioAntes = antes.body.listings.find((l: any) => l.productType === 'raw').salePriceCents;
 
@@ -307,6 +340,113 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(fix.body.minUpsidePct).toBe(30);
     const vuelve = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
     expect(vuelve.body.data.find((g2: any) => g2.card.id === cardId)).toBeDefined();
+  });
+
+  /**
+   * v1.50.3 — **criterio 111(e) contra el stack vivo.** Hasta este pase no era verificable porque la
+   * lista **no existía**: §4.38(k.3) decidió no ocultar la cifra incoherente en la ficha, y esa decisión
+   * solo se sostiene si alguien puede enterarse de que existe. Aquí se comprueban las tres mitades a la
+   * vez sobre la MISMA carta: **no** en la rejilla, **sí** en la ficha, **sí** en la lista de revisión.
+   */
+  it('8c) criterio 111(e) — la cifra incoherente NO se promociona, SÍ se informa y SÍ sale en la lista', async () => {
+    await setDial('on');
+    // Se fuerza la INCOHERENCIA por la cota inferior (el error de unidades USD/MXN): un PSA 10 por
+    // DEBAJO del precio raw. Es el caso que §O.7 nombra y el que el criterio 111(b) exige.
+    const bajo = await h.api('POST', '/admin/pricing/override', {
+      token: adminToken,
+      json: {
+        cardId,
+        productType: 'graded',
+        gradeKey: 'graded:PSA:10',
+        priceMxnCents: Math.floor(E2E_LIST_OVERRIDE_CENTS / 2),
+        intent: 'graded_estimate',
+      },
+    });
+    expect(bajo.status).toBe(201);
+
+    // (1) NO se promociona.
+    const vitrina = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
+    expect(vitrina.body.data.find((g: any) => g.card.id === cardId)).toBeUndefined();
+    // (2) …pero la FICHA sigue informando (§4.38k.3: informar ≠ promover).
+    const ficha = await h.api('GET', `/catalog/cards/${cardId}`);
+    expect(ficha.body.gradedEstimates.length).toBeGreaterThan(0);
+    // (3) …y por eso TIENE que aparecer en la lista de revisión: es la contrapartida de (2).
+    const review = await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', {
+      token: adminToken,
+    });
+    expect(review.status).toBe(200);
+    const fila = review.body.data.find((x: any) => x.cardId === cardId);
+    expect(fila).toBeDefined();
+    expect(fila.reason).toBe('NOT_ABOVE_RAW');
+    // La lista se lee sin un fetch por fila: trae la identidad de la carta.
+    expect(fila).toMatchObject({ cardName: expect.any(String), setName: expect.any(String), number: expect.any(String) });
+    expect(review.body).toMatchObject({ page: 1, pageSize: 100, enabled: true, truncated: false });
+    expect(review.body.scannedCards).toBeGreaterThan(0);
+
+    // Un `reason` que NO es una incoherencia ⇒ 400 (no una lista vacía que parezca «nada que revisar»).
+    const malo = await h.api('GET', '/admin/pricing/graded-estimates/review?reason=STALE', { token: adminToken });
+    expect(malo.status).toBe(400);
+
+    // Se restaura el PSA 10 sano para no ensuciar los tests siguientes (la BD es compartida).
+    await h.api('POST', '/admin/pricing/override', {
+      token: adminToken,
+      json: { cardId, productType: 'graded', gradeKey: 'graded:PSA:10', priceMxnCents: PSA10_CENTS, intent: 'graded_estimate' },
+    });
+  });
+
+  /**
+   * v1.50.3 (GU-A16, §4.38m) — **el override manual DECAE**, criterio 109. Es el caso que QA reprodujo
+   * a mano: una fila manual de **40 días** seguía en la ficha y seguía promocionándose. §O.4: «mejor
+   * callar que presumir un número viejo en una promesa comercial».
+   */
+  it('8d) criterio 109 — un override manual de 40 días desaparece de LAS TRES superficies', async () => {
+    await setDial('on');
+    // ⚠️ El dial se fija EXPLÍCITAMENTE, no se confía en el seed. `prisma/seed.ts` usa
+    // `update: {}` (respeta ediciones del admin), así que el seed corregido de v1.50.3
+    // (`manualFreshnessDays` `null` → 30) **NO llega a una BD ya sembrada**: ahí la fila conserva el
+    // valor viejo. Es una corrección de DATOS pendiente para devops, no un fallo de código — y por eso
+    // el candado del SEED vive en `test/graded-estimate.batch.spec.ts` (lee la constante) y este E2E
+    // prueba el COMPORTAMIENTO con el dial en su valor de criterio.
+    const dial = await h.api('PUT', '/admin/pricing/graded-estimates', {
+      token: adminToken,
+      json: { manualFreshnessDays: 30 },
+    });
+    expect(dial.status).toBe(200);
+    expect(dial.body.manualFreshnessDays).toBe(30);
+    // Se envejece la fila por SQL (el `POST` siempre escribe con la fecha de hoy, que es justo el bucle
+    // operativo que el criterio define: el manual se refresca RECAPTURÁNDOLO).
+    const hace40 = new Date(Date.now() - 40 * 86_400_000);
+    hace40.setUTCHours(0, 0, 0, 0);
+    await h.prisma.priceReference.updateMany({
+      where: { cardId, productType: 'graded', gradeKey: { in: ['graded:PSA:10', 'graded:PSA:9'] } },
+      data: { capturedDate: hace40 },
+    });
+
+    const ficha = await h.api('GET', `/catalog/cards/${cardId}`);
+    expect(ficha.body.gradedEstimates).toBeUndefined(); // (1) la ficha calla
+    const rejilla = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.common.name)}&pageSize=20`);
+    const teja = rejilla.body.data.find((g: any) => g.card.id === cardId && g.productType === 'raw');
+    expect(teja.gradingHighlight).toBeUndefined(); // (2) la teja no pinta badge
+    const vitrina = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
+    expect(vitrina.body.data.find((g: any) => g.card.id === cardId)).toBeUndefined(); // (3) ni la vitrina
+
+    // …y el precio de venta de la carta NO se movió por nada de esto (el estimado nunca fue dinero).
+    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(
+      E2E_LIST_OVERRIDE_CENTS,
+    );
+
+    // Recapturar lo revive: «el dueño SOSTIENE ese número», que es la lectura honesta del criterio.
+    for (const [gradeKey, priceMxnCents] of [
+      ['graded:PSA:10', PSA10_CENTS],
+      ['graded:PSA:9', PSA9_CENTS],
+    ] as const) {
+      await h.api('POST', '/admin/pricing/override', {
+        token: adminToken,
+        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, intent: 'graded_estimate' },
+      });
+    }
+    const revive = await h.api('GET', `/catalog/cards/${cardId}`);
+    expect(revive.body.gradedEstimates).toHaveLength(2);
   });
 
   it('9) apagar el dial deja el catálogo EXACTAMENTE como antes de la feature', async () => {

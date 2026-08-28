@@ -1,4 +1,5 @@
 import {
+  DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   DEFAULT_GRADING_COST_TIERS,
   DISABLED_GRADED_ESTIMATE_CONFIG,
   GradedEstimateConfig,
@@ -105,11 +106,13 @@ describe('§4.38k.2 — COTA SUPERIOR `psa10 <= salePriceCents × maxRawMultiple
     expect(r.eligible).toBe(false);
     expect(r.reason).toBe('ABOVE_MAX_MULTIPLE');
     // El operador ve CONTRA QUÉ se comparó (§M2: `maxAllowedPsa10MxnCents` viaja al preview de admin).
-    expect(r.maxAllowedPsa10MxnCents).toBe(RAW_400 * 50);
+    // v1.50.3: el múltiplo se lee del SEED (100× por §O.7), no se reescribe aquí — un literal duplicado
+    // convertiría una corrección de dial en un test rojo que nadie sabe si es la regresión o el cambio.
+    expect(r.maxAllowedPsa10MxnCents).toBe(RAW_400 * DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE);
   });
 
   it('el borde es INCLUSIVO: exactamente `raw × maxRawMultiple` pasa; un centavo más, no', () => {
-    const enElBorde = RAW_400 * 50;
+    const enElBorde = RAW_400 * DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE;
     expect(
       evaluateGradingHighlight({ ...base, estimates: [est('10', enElBorde), est('9', enElBorde)], cfg: cfg() })
         .reason,
@@ -207,6 +210,41 @@ describe('§4.38l — INV-D: con SLAB PUBLICADO esa fila es DINERO, no un estima
     expect(r.reason).toBe('SLAB_PUBLISHED');
   });
 
+  /**
+   * v1.50.2 (QA, criterio **112c**) — **el bloqueo se evalúa POR GRADO, no contra literales.**
+   *
+   * El guard de la rejilla comparaba `publishedSlabGrades.includes('10') || includes('9')`: dos valores
+   * HARDCODEADOS, acoplados al valor por defecto del dial. Hoy el resultado observable coincide, pero el
+   * día que `grades` admita otro grado, un literal que no se actualiza deja de mirarlo y la guarda de
+   * LECTURA se abre en silencio sobre una fila que sí es dinero. Ahora los grados vigilados se DERIVAN
+   * de las filas que el gate resolvió, así que el conjunto vigilado y el usado no pueden divergir.
+   */
+  it.each([['10'], ['9']])('un slab publicado de PSA %s basta para NO promover (por grado, sin literales)', (g) => {
+    const r = evaluateGradingHighlight({
+      productType: 'raw',
+      rawSalePriceCents: 100_000,
+      estimates: sanos,
+      publishedSlabGrades: [g],
+      today: TODAY,
+      cfg: cfg(),
+    });
+    expect(r.reason).toBe('SLAB_PUBLISHED');
+  });
+
+  it('un slab de un grado que el gate NO usa (PSA 8) no bloquea el destacado', () => {
+    // La guarda vigila los grados que ESTE gate consumió, no cualquier slab publicado de la carta.
+    const r = evaluateGradingHighlight({
+      productType: 'raw',
+      rawSalePriceCents: 100_000,
+      estimates: sanos,
+      publishedSlabGrades: ['8'],
+      today: TODAY,
+      cfg: cfg(),
+    });
+    expect(r.eligible).toBe(true);
+    expect(r.highlight.map((e) => e.gradeValue)).toEqual(['10']);
+  });
+
   it('la FICHA omite SOLO ese grado — los grados son independientes, no se apaga la carta entera', () => {
     const ficha = selectGradedEstimates({
       productType: 'raw',
@@ -234,50 +272,67 @@ describe('§4.38l — INV-D: con SLAB PUBLICADO esa fila es DINERO, no un estima
   });
 });
 
-describe('§4.38m — la frescura NO se aplica a un override MANUAL', () => {
+/**
+ * §4.38m — **v1.50.3: la frescura SÍ aplica al override MANUAL.** Este bloque CAMBIÓ DE SIGNO respecto
+ * de v1.50.2 y hay que leer por qué antes de "arreglarlo" de vuelta.
+ *
+ * v1.50.2 dictaminó «`freshnessDays` no se aplica a filas manuales» y sembró
+ * `manualFreshnessDays = null`. El **diagnóstico** que lo motivaba era correcto —`isBetterRef` (tier
+ * manual ABSOLUTO, §4.27f-2) elige el manual viejo y **después** la ventana de frescura lo descarta ⇒
+ * la carta se queda **sin estimado pese a haber dato fresco**, la clase de fallo «gana y luego se
+ * tira»—, pero **el remedio era el equivocado**: eximir al manual del decaimiento **derogaba el
+ * criterio 109 en silencio**. QA lo demostró en vivo: una fila manual de **40 días** seguía en la ficha
+ * y seguía promocionándose; la misma fila marcada como automática salía `STALE`.
+ *
+ * **Lo que se arregló es el ORDEN, no quién decae** (GU-A16): `getGradedEstimatesBatch` filtra lo
+ * rancio **ANTES** de `pickBestRef`. Este archivo prueba el PREDICADO; los tres casos de la
+ * interacción manual ⇄ automática viven en `graded-estimate.batch.spec.ts`, que es donde vive el orden.
+ */
+describe('§4.38m — la frescura SÍ aplica al override MANUAL (v1.50.3, GU-A16)', () => {
   const HACE_200_DIAS = '2026-02-09';
+  const HACE_40_DIAS = '2026-07-19'; // el caso EXACTO que QA reprodujo a mano
 
-  /**
-   * El fallo silencioso que esto cierra: `isBetterRef` elige el manual (tier ABSOLUTO, §4.27f-2) y
-   * **después** la ventana de frescura lo descarta ⇒ la carta se queda **sin estimado PESE A HABER
-   * dato fresco disponible**. La clase entera de fallo es «gana y luego se tira».
-   *
-   * Se arregla AQUÍ y no en `isBetterRef` a propósito: tocar el comparador habría **degradado una
-   * invariante de DINERO** (ninguna escritura automática pisa un precio humano) para resolver un
-   * problema de **presentación**.
-   */
-  it('un override manual de hace 200 días NO es rancio con el seed (`manualFreshnessDays: null`)', () => {
+  it('un override manual de hace 200 días SÍ es rancio con el seed (`manualFreshnessDays: 30`)', () => {
     const manualViejo = est('10', 900_000, { capturedDate: HACE_200_DIAS, isManual: true });
-    expect(isStaleRef(manualViejo, TODAY, cfg())).toBe(false);
+    expect(isStaleRef(manualViejo, TODAY, cfg())).toBe(true);
   });
 
-  it('la MISMA fila, si fuera AUTOMÁTICA, sí sería rancia (la asimetría es real, no un no-op)', () => {
-    const autoViejo = est('10', 900_000, { capturedDate: HACE_200_DIAS, isManual: false });
-    expect(isStaleRef(autoViejo, TODAY, cfg())).toBe(true);
-  });
-
-  it('regresión (m): override manual VIEJO + automático fresco ⇒ se MUESTRA el manual', () => {
-    // `getGradedEstimatesBatch` ya resolvió la precedencia DENTRO de la tabla y entregó el MANUAL
-    // (tier absoluto). Lo que se prueba aquí es que la capa de frescura no lo tire después.
-    const ganador = [
-      est('10', 900_000, { capturedDate: HACE_200_DIAS, isManual: true }),
-      est('9', 500_000, { capturedDate: HACE_200_DIAS, isManual: true }),
+  it('el caso de QA: manual de 40 días ⇒ RANCIO, y desaparece de la ficha (criterio 109)', () => {
+    const manual40 = [
+      est('10', 900_000, { capturedDate: HACE_40_DIAS, isManual: true }),
+      est('9', 500_000, { capturedDate: HACE_40_DIAS, isManual: true }),
     ];
-    const ficha = selectGradedEstimates({ productType: 'raw', estimates: ganador, today: TODAY, cfg: cfg() });
-    expect(ficha.map((e) => e.mxnCents)).toEqual([900_000, 500_000]);
+    // §O.4: «mejor callar que presumir un número viejo en una promesa comercial».
+    expect(selectGradedEstimates({ productType: 'raw', estimates: manual40, today: TODAY, cfg: cfg() })).toEqual([]);
     const r = evaluateGradingHighlight({
       productType: 'raw',
       rawSalePriceCents: 100_000,
-      estimates: ganador,
+      estimates: manual40,
       today: TODAY,
       cfg: cfg(),
     });
-    expect(r.eligible).toBe(true);
+    expect(r.eligible).toBe(false);
+    expect(r.reason).toBe('STALE');
   });
 
-  it('`manualFreshnessDays` es la VÁLVULA: fijado, el manual también decae (sin cambio de contrato)', () => {
+  it('el manual conserva su VENTANA PROPIA: 40 días es rancio a 30, fresco a 60', () => {
+    const manual40 = est('10', 900_000, { capturedDate: HACE_40_DIAS, isManual: true });
+    // El dial sigue existiendo y sigue siendo asimétrico: lo que cambió es su DEFAULT, no el mecanismo.
+    expect(isStaleRef(manual40, TODAY, cfg({ manualFreshnessDays: 30 }))).toBe(true);
+    expect(isStaleRef(manual40, TODAY, cfg({ manualFreshnessDays: 60 }))).toBe(false);
+    // …y sigue siendo INDEPENDIENTE del de feed: subir el del feed no rescata al manual.
+    expect(isStaleRef(manual40, TODAY, cfg({ freshnessDays: 365, manualFreshnessDays: 30 }))).toBe(true);
+  });
+
+  it('`null` sigue siendo EXPRESABLE («no decae»), pero ya no es el default', () => {
     const manualViejo = est('10', 900_000, { capturedDate: HACE_200_DIAS, isManual: true });
-    expect(isStaleRef(manualViejo, TODAY, cfg({ manualFreshnessDays: 30 }))).toBe(true);
-    expect(isStaleRef(manualViejo, TODAY, cfg({ manualFreshnessDays: 3650 }))).toBe(false);
+    // Es una decisión legítima del dueño — que desactiva el criterio 109 para la vía manual, y por eso
+    // el resolver emite `warn` al izarla (I8-bis; se prueba en `graded-estimate.batch.spec.ts`).
+    expect(isStaleRef(manualViejo, TODAY, cfg({ manualFreshnessDays: null }))).toBe(false);
+  });
+
+  it('una fila AUTOMÁTICA de 200 días también es rancia (la regla no se invirtió, se ALINEÓ)', () => {
+    const autoViejo = est('10', 900_000, { capturedDate: HACE_200_DIAS, isManual: false });
+    expect(isStaleRef(autoViejo, TODAY, cfg())).toBe(true);
   });
 });

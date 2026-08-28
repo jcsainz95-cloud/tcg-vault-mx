@@ -248,7 +248,7 @@ describe('Ficha vs teja — la partición INFORMAR ≠ PROMOVER (§4.38-0)', () 
     expect('gradingHighlight' in list.data[0]).toBe(false);
   });
 
-  it('criterio 80 — con PSA 10 y SIN PSA 9: ficha SÍ (una cifra), destacado NO', async () => {
+  it('criterio 98 — con PSA 10 y SIN PSA 9: ficha SÍ (una cifra), destacado NO', async () => {
     const { catalog } = wire(A_ITEMS, [psaRef('ca', '10', 900_000)], ON);
     const ficha: any = await catalog.getCard('ca');
     expect(ficha.gradedEstimates).toHaveLength(1);
@@ -279,7 +279,7 @@ describe('Ficha vs teja — la partición INFORMAR ≠ PROMOVER (§4.38-0)', () 
     expect('gradingHighlight' in list.data[0]).toBe(false);
   });
 
-  it('criterio 87 — un grupo GRADEADO nunca trae el gancho, y su ficha no trae `gradedEstimates`', async () => {
+  it('criterio 105 — un grupo GRADEADO nunca trae el gancho, y su ficha no trae `gradedEstimates`', async () => {
     const slab = item('ig', 'ca', {
       productType: 'graded',
       rawCondition: null,
@@ -448,7 +448,7 @@ describe('Dial maestro `gradedEstimatesEnabled` (seed `off`, fail-closed) — §
     expect(res).toMatchObject({ data: [], total: 0 });
   });
 
-  it('criterio 90 — encender/apagar la feature NO cambia NINGÚN precio de venta ni la valuación', async () => {
+  it('criterio 108 — encender/apagar la feature NO cambia NINGÚN precio de venta ni la valuación', async () => {
     const off: any = await wire(A_ITEMS, A_REFS).catalog.listCards({ page: 1, pageSize: 20 });
     const on: any = await wire(A_ITEMS, A_REFS, ON).catalog.listCards({ page: 1, pageSize: 20 });
     const strip = (g: any) => {
@@ -511,7 +511,7 @@ describe('GU-A8 — una clave corrupta apaga SOLO su superficie (§4.38d)', () =
     expect('gradingHighlight' in ficha.listings[0]).toBe(false);
   });
 
-  it('criterio 90 se mantiene: ninguna clave corrupta mueve un precio de venta', async () => {
+  it('criterio 108 se mantiene: ninguna clave corrupta mueve un precio de venta', async () => {
     for (const cfg of [
       corrupt(SettingKey.GRADING_MIN_UPSIDE_PCT, 'mucho'),
       corrupt(SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS, 0),

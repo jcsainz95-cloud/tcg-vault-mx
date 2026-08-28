@@ -16,10 +16,16 @@ import { GradedEstimatesSection } from './GradedEstimatesSection';
 /** Seed de §O.2.1 en centavos, servido FRESCO en cada test (el mock del módulo es mutable). */
 const seed = (): GradedEstimateConfigDTO => ({
   enabled: true,
+  ingestEnabled: false,
   grades: ['10', '9'],
   highlightGrades: ['10'],
   freshnessDays: 30,
   minUpsidePct: 30,
+  manualFreshnessDays: null,
+  maxRawMultiple: 100,
+  minSampleCount: 5,
+  sourceStat: 'median',
+  ingestMaxCardsPerRun: 250,
   gradingCostTiers: [
     { minValueMxnCents: 0, maxValueMxnCents: 200_000, costMxnCents: 70_000 },
     { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },

@@ -151,7 +151,7 @@ const withoutGrading = (keys: string[]) =>
       k !== 'gradeValue' &&
       // v1.50.2: `gradingHighlight` es OPCIONAL y su PRESENCIA **es** la elegibilidad. En estos
       // escenarios el dial del gancho está apagado ⇒ el campo NO existe y la teja se ve EXACTAMENTE
-      // como antes de la feature (criterio 82). Su emisión se prueba en `graded-estimate.*.spec.ts`.
+      // como antes de la feature (criterio 100). Su emisión se prueba en `graded-estimate.*.spec.ts`.
       k !== 'gradingHighlight',
   );
 
