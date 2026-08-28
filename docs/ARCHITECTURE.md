@@ -69,6 +69,20 @@
 >    **`min(5, cartas_de_la_corrida)`**, más una regla que escala **sin suelo** cuando `S1 == 0 && S2 >= 1`.
 >    §4.38(h.1-ter). *(Ratificado además, sin acción: `POST /admin/pricing/override` es `200` — backend corrigió el
 >    código en vez de pedir cambiar el contrato. GU-A26.)*
+> **Addendum v1.50.3-d (2026-08-28) — escalada de frontend al cerrar el arnés E2E; cierra un hueco que este documento
+> arrastraba desde v1.46:**
+> 12. **Se DISEÑA `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`.** El contrato prometía en **cuatro
+>    sitios** una «limpieza/borrado explícito» de la fila de override que **no existía como endpoint**: hoy el
+>    back-office **solo puede pisar** una cifra, nunca **quitarla**. **No es alcance opcional:** `PROJECT.md` §O.7
+>    exige que el dueño pueda *«corregirla con override **o descartarla**»*. Agravante propio: con la caducidad de 30
+>    días que sembré en (m), una cifra manual **errónea** desaparece de las superficies, **sigue en la tabla** y es
+>    enumerable por `?reason=STALE` — el dueño la encuentra y **su único gesto era capturar otra cifra indeseada**.
+>    Borra **todas** las filas de la clave en transacción (borrar solo la vigente **haría reaparecer** una más vieja),
+>    **auditado con `before`**, **`404`** si no hay nada, y con la **guarda INV-D ⇒ `409`**. ⚠ **No mitiga INV-D
+>    inverso** —la inferencia es tentadora y falsa—: ahí el slab está publicado y la guarda **debe** disparar. §4.38(q).
+> 13. **`raw` / `sealed` siguen SIN borrado, y ahora está declarado en vez de prometido.** Un `DELETE` genérico sobre
+>    la tabla de precios **mueve precios de venta publicados** y necesita su propio diseño. Texto de §4.27f-2 y del
+>    contrato **corregidos**; hueco con nombre en §9. Y **dos filas nuevas de fixture** en `seed-e2e.ts` (GU-A28).
 > **Money-safe:** ningún monto de dinero real cambia; **M-42 sigue siendo DATA/seed** (mismas 12 claves, tres seeds
 > corregidos, **sin DDL**). **Ratificaciones pedidas al humano: GU-8..GU-13 (§10).** Contrato en API_CONTRACT
 > (Changelog v1.50.3). **Base previa:** v1.50.2.
@@ -157,7 +171,10 @@
 > el barrido lo pisaba cada día siguiente por fecha. **Dictamen (§4.27f-2, NORMATIVO):** el override manual es un tier
 > SUPERIOR ABSOLUTO, DURABLE cross-day; `isBetterRef` iza el split manual/no-manual **por encima** de `capturedDate`;
 > la frescura desempata **solo dentro del mismo tier** (entre no-manuales, o entre dos manuales). Solo revoca un
-> override manual **otro override manual** posterior o la **limpieza explícita por `super_admin`** — **ninguna**
+> override manual **otro override manual** posterior o la **limpieza explícita por `super_admin`** *(⚠️ **v1.50.3-d:**
+> esa «limpieza» **no existía como endpoint** cuando se escribió esto; hoy existe **solo para estimados por grado** —
+> §4.38(q)—, y para `raw`/`sealed` la revocación real es **únicamente** otro override posterior. §4.27f-2, §9)* —
+> **ninguna**
 > escritura automática. Es **precedencia de LECTURA** (no reintroduce escritura PPT; `tcgcsv_singles` sigue único
 > escritor del barrido). **Sin migración, sin re-resolución de precios persistidos** (el fix vive en el comparador
 > puro; la siguiente lectura ya elige el override existente), **sin cambio de forma de contrato**. Money-safe
@@ -5783,6 +5800,18 @@ explícito** de la fila de override por `super_admin` (permiso money — §4.26/
 automáticas vuelven a aflorar por (f). **Ninguna** escritura automática (`tcgcsv_singles`, PPT, pokemontcg.io),
 por más fresca que sea, revoca ni pisa un override manual — es exactamente la garantía de §K/§E.1.
 
+> ⚠️ **CORRECCIÓN v1.50.3-d — la vía (b) NO EXISTÍA como endpoint, y este texto llevaba desde v1.46 prometiéndola.**
+> Lo detectó **frontend** al cerrar el arnés E2E. Consecuencia real, no teórica: hasta v1.50.3-d, un override manual
+> **solo podía sustituirse, nunca retirarse** — «durable indefinidamente» era, en la práctica, **irrevocable salvo
+> por otro número**. Estado tras esta rev:
+> - **Estimados por grado (`graded:PSA:*`): CERRADO.** Existe `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`
+>   (§4.38q), `super_admin`, auditado, con la guarda INV-D.
+> - **Overrides `raw` y `sealed`: SIGUE ABIERTO.** No hay borrado, y **no se abre en esta rev**: un `DELETE` genérico
+>   sobre la tabla de precios **cambia precios de venta publicados** de forma inmediata, y ese radio de explosión
+>   necesita su propio diseño (¿qué pasa con lo publicado que se queda sin referencia? ¿`PRICE_PENDING` y se
+>   despublica?). **Queda declarado como hueco con nombre**, no como capacidad existente. Mientras tanto, la
+>   revocación real para `raw`/`sealed` es **(a) y solo (a)**. Registrado en §9.
+
 **3) Es un cambio de precedencia de LECTURA (no reintroduce escritura).** `isBetterRef` es una función **pura**
 de resolución; corre al RESOLVER la referencia (`getReference`, `getReferenceByCardProduct`,
 `getReferencesBatch`, `getSeparateProductsByCard`, vía `pickBestRef`). No cambia **qué** se escribe ni **quién**
@@ -7916,6 +7945,16 @@ indistinguibles justo cuando hay que decidir.
      emitir **`isManual`** en `GradedEstimatePreviewDTO` y en el de `review`; e intercalar **`capturedDate` asc** en
      el desempate del orden (lo más vencido primero). Se apoya en el `includeStaleForDiagnostics` que backend ya
      construyó — **no** hay lógica nueva de frescura. §4.38(n.2-bis).
+  8. **v1.50.3-d — `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`** (§4.38q): borra **todas** las filas
+     de la clave canónica en **transacción**, `deletedCount` en la respuesta, **auditado con `before`**, guarda
+     **INV-D ⇒ `409`**, **`404` si no había nada**, y funciona con el dial `off`.
+  9. **v1.50.3-d — dos filas nuevas en el fixture `backend/prisma/seed-e2e.ts`** (petición de frontend, **aceptada**;
+     los tests ya están escritos y marcados `needsSeed`):
+     - **una carta con grupo raw publicado Y slab publicado del MISMO grado** — desbloquea el pre-vuelo de INV-D y el
+       `SLAB_PUBLISHED` de (n) en modo real. **Sirve además para el `409` del `DELETE` nuevo**, que sin esta fila no
+       es verificable de punta a punta: es exactamente la situación que la guarda protege.
+     - **una tercera carta raw publicada** — permite cubrir a la vez «un solo grado» y «dos grados sin destacar».
+     *(El fixture es de backend; aquí consta **qué debe existir** y por qué, no cómo se escribe.)*
   4. **Gate de evidencia en el ingest** ((h.1)/(m.2)): no persistir filas cuya `lastSaleDate` supere `freshnessDays`;
      ausente/no parseable ⇒ no se persiste.
   **⚠️ Addendum v1.50.3-a — lo que sale de las dos escaladas de backend (PI-D2 / PI-D3):**
@@ -7998,6 +8037,11 @@ indistinguibles justo cuando hay que decidir.
   superficies, **se encuentra** en `review?reason=STALE` con `isManual: true` y su `capturedDate`, y **desaparece de
   esa lista al recapturarla**. Es la verificación de que un estimado caducado **se puede volver a encontrar**, que es
   justo lo que faltaba: sin ella, «caduca solo» sería una desaparición sin retorno.
+  (8) **v1.50.3-d** — **el bucle completo de la lista de revisión**: la carta incoherente aparece en `review`, se
+  **borra** con el `DELETE` de (q), **desaparece de la lista y de la ficha**, y **ningún precio de venta cambia**; y
+  sobre la carta con **slab publicado**, el mismo `DELETE` responde **`409`** y **el precio del slab es idéntico antes
+  y después** (es el criterio 112 aplicado al verbo destructivo). Sin esta pareja de casos, «se corrige o se descarta»
+  seguiría sin ser verificable.
   **⚠️ v1.50.3-b — QA NO puede certificar la configuración de un entorno con el E2E, y este bullet existe para que
   nadie lo intente** *(corrige lo que v1.50.3-a decía aquí, que era el mismo error del paso 4 de (p))*. El E2E del
   criterio 109 (caso `8d`) **fija `manualFreshnessDays: 30` antes de asertar** —correcto: prueba la **lógica de
@@ -8460,7 +8504,10 @@ lo que ve. *(Las cotas inferior y de orden de grados no dependen de ninguna clav
 - **No es público, ni lo será:** expone insumos del gate (SEC-A1). `super_admin`, igual que el `preview`.
 - **No escribe nada y no toca dinero** — sin `MoneyOutGuard`, como el `preview`. **No** corrige, **no** descarta y
   **no** silencia: el operador actúa con las herramientas que ya existen (`POST /admin/pricing/override` con
-  `intent:"graded_estimate"`, o borrando el dato). *(Un «marcar como revisada» exigiría **estado persistido** ⇒ tabla
+  `intent:"graded_estimate"`, o **borrando el dato** con `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`
+  — **(q)**, que es el endpoint que esta frase daba por existente desde v1.50.3 y que **no existía**; cerrar ese hueco
+  es lo que convierte esta lista en una **lista de trabajo** y no en un museo de cifras que no se pueden retirar).
+  *(Un «marcar como revisada» exigiría **estado persistido** ⇒ tabla
   nueva ⇒ DDL. **Queda fuera de alcance de v1.50.3, declarado aquí para que no se cuele por la puerta de atrás.** Si
   el volumen operativo lo pide, es decisión de producto + arquitecto.)*
 - **No materializa nada, no hay job y no hay notificación.** Es *pull*, no *push*. Un aviso proactivo (correo/badge de
@@ -8584,6 +8631,90 @@ la feature** por (d)) y se salta el `AuditLog` que M10 exige. Ver §11.0 punto 4
 
 **Va a la lista del humano como GU-13** — no porque sea difícil, sino porque el paso 3 **es una decisión suya** y
 porque tocar diales de producción no es algo que devops deba hacer por iniciativa propia.
+
+#### (q) BORRADO del estimado (v1.50.3-d, NORMATIVO) — el remedio que tres documentos prometían y nadie había construido
+
+> **Escalada de frontend (regla 9), al cerrar el arnés E2E.** El contrato afirma que un override manual *«solo lo
+> revoca otro override o la **limpieza/borrado explícito** de la fila por `super_admin`»*. **Ese borrado no existe
+> como endpoint.** No es un detalle de ergonomía: hoy el back-office **solo puede pisar** una cifra, nunca quitarla.
+
+**Esto no es alcance nuevo que yo elija: `PROJECT.md` lo pide.** §O.7 dice que la carta entra a la lista de revisión
+*«para que el dueño la corrija con override **o la descarte**»*. **Descartar** no es **pisar**. Por la regla de
+conflicto, PROJECT manda, así que **no puedo declararlo fuera de alcance**: o se construye, o hay que ir al humano a
+enmendar §O.7. Se construye. Además lo prometen, hoy, **cuatro** sitios: §4.27f-2(b), la cabecera de la rev v1.46, mi
+propio (n.4) y su gemelo en `API_CONTRACT` §M2.
+
+**El caso que duele es exactamente el que (n) existe para atender.** Una cifra que **no debería estar ahí en
+absoluto** —un error de captura, una carta que dejó de tener sentido promocionar— **no tiene forma de irse**.
+Sustituirla por otro número no la retira: deja otra afirmación comercial en su lugar.
+
+**Y hay un caso peor que se sigue de MI decisión de esta ronda.** Con `manualFreshnessDays = 30`, una cifra manual
+errónea **desaparece de las tres superficies** pero **sigue en la tabla**, y ahora es enumerable por
+`?reason=STALE` ((n.2-bis)). El dueño la encuentra, ve que está mal… **y su único gesto disponible es capturar otra
+cifra igual de indeseada.** Construí el detector y dejé al operador sin la herramienta. Cerrar el bucle
+—encontrarla **y** poder quitarla— es lo que hace de (n) una lista de trabajo y no un museo.
+
+##### (q.1) Forma
+
+`DELETE /api/v1/admin/pricing/graded-estimates/:cardId/:gradeValue` — `super_admin`, **auditado**. Contrato exacto en
+`API_CONTRACT` §M2. Lo normativo:
+
+- **Alcance deliberadamente ESTRECHO: solo la fila del estimado por grado.** Se descarta la alternativa
+  `DELETE /admin/pricing/override` —simétrica del `POST`— porque ese endpoint cubre **raw y sellado**, cuyo borrado
+  **cambia el precio de venta publicado** de forma inmediata y masiva. Abrir un borrado genérico sobre la tabla de
+  precios para resolver una necesidad del gancho es un **radio de explosión** que nadie pidió. Lo que PROJECT exige es
+  descartar **un estimado**; eso es lo que se construye.
+- **`:gradeValue`** (`"10"` / `"9"`), no el `gradeKey` crudo: el servidor deriva la clave canónica con `buildGradeKey`
+  y **exige que el grado esté en `cfg.grades`** (si no, `400`). Así **solo se pueden borrar los grados que esta
+  feature gobierna**, y una ruta destructiva no acepta claves arbitrarias con dos puntos escapados.
+- **Borra TODAS las filas de la clave canónica** `(cardId, 'graded', gradeKey, 'normal', cardProductId=null)`,
+  **cualquiera que sea su `capturedDate`**, y en **una transacción**. **No es un detalle:** la unique incluye
+  `capturedDate`, así que borrar solo la vigente haría **aflorar una fila más vieja** y la cifra **reaparecería** —una
+  resurrección silenciosa en una superficie comercial, que es peor que no haber borrado. «Quitar el dato» significa
+  quitarlo.
+- **Responde `deletedCount`**, para que el operador vea **cuántas** filas se llevó por delante y no descubra después
+  que había historial.
+- **Auditoría obligatoria** (`AuditLog action=pricing.graded_estimate.delete`) con **`before` = las filas borradas**
+  (valores y fechas) y `after: null`. Un borrado en una tabla de dinero sin registro de qué había es inaceptable —y es
+  además **la única forma de deshacer** una equivocación: recapturar el número que estaba.
+- **Nada que borrar ⇒ `404 NOT_FOUND`, no un `200` silencioso.** Mismo precedente que `PUT` con body vacío ⇒ `422`
+  (GU-A10b): responder éxito cuando no pasó nada **le haría creer al operador que limpió algo que no limpió**.
+- **Funciona con la feature `off`**, igual que (n.3) y por la misma razón: hay que poder **limpiar antes de encender**.
+
+##### (q.2) La guarda INV-D — y un error de razonamiento que hay que matar aquí mismo
+
+**Si existe un slab publicado de ese grado ⇒ `409 GRADED_ESTIMATE_SLAB_PUBLISHED`**, exactamente el mismo código y la
+misma guarda que la **escritura** ((l.1)). Frontend lo propuso así y es correcto.
+
+**Por qué, y es la parte que importa:** por **INV-D**, cuando hay un slab publicado de ese grado esa fila **ya no es un
+estimado — ES la referencia de mercado real de una pieza física**. Borrarla no «quita un estimado»: le **quita el
+sustento de precio a un slab que se está vendiendo**. La guarda no es simetría burocrática con el `POST`: es la misma
+invariante de dinero, aplicada al otro verbo.
+
+> ⛔ **Y por eso NO se puede decir que este `DELETE` mitiga INV-D inverso ((l.3)). No lo hace, y la inferencia es
+> tentadora.** Yo mismo estuve a punto de escribirlo: «con `review?reason=SLAB_PUBLISHED` encuentro las cartas
+> expuestas y borro la fila del estimado». **Es falso y sería peligroso.** En ese escenario el slab **ya está
+> publicado**, así que la guarda dispara `409` — y **debe disparar**: si el borrado se permitiera, el slab quedaría
+> sin referencia ⇒ `PRICE_PENDING` ⇒ despublicado. Despublicar una pieza real por «limpiar» es una **acción de
+> negocio**, no una limpieza.
+> **El remedio correcto en ese caso sigue siendo el de §M1 v1.28:** **repreciar con `intent:"market"`** —un acto de
+> dinero, deliberado y auditado—, que es justo lo que `intent` existe para obligar a declarar. **INV-D inverso sigue
+> abierto y sigue necesitando M-43 (GU-8).** Este endpoint **no** lo toca.
+
+##### (q.3) Lo que este endpoint NO hace
+
+**No** borra filas `raw` ni `sealed`, **no** despublica inventario, **no** crea `PendingPriceEntry` (la ausencia de
+estimado **no** es un precio pendiente — doctrina (b).4), **no** toca `listPriceCents` y **no** apaga ningún dial.
+Retira una fila informativa y nada más.
+
+##### (q.4) Efecto colateral bienvenido: el arnés E2E puede limpiar lo que siembra
+
+Frontend reportó que las filas que siembra el arnés **quedan escritas** en cada corrida del gate, y lo **mitigó bien y
+lo declaró** en vez de disimularlo (siembra idempotente + dial devuelto a `off` en el teardown global, así que **nada
+se publica**). Con `DELETE` disponible, un teardown puede además **retirar** lo sembrado. **Cómo se escriba ese
+teardown es de quien posee la suite** (frontend/backend), no mío; aquí solo consta que **la herramienta que faltaba
+para poder hacerlo ya está normada**. *(La mitigación vigente es correcta y no urge cambiarla: la huella no publica
+nada.)*
 
 ---
 
@@ -10464,6 +10595,16 @@ Riesgos técnicos:
   **Recomendación (decisión del humano, siguiente release):** valor `graded_estimate` en el enum `PriceSource` con
   `sourceRank` por debajo de toda fuente real ⇒ **M-43**, DDL aditivo de un valor de enum, sin backfill. **Se
   recomienda empaquetar en la MISMA M-43** la columna nullable `evidenceDate` de §4.38(m.2).
+- **⚠ HUECO ABIERTO CON NOMBRE — no existe borrado de overrides `raw` / `sealed` (detectado por frontend, v1.50.3-d,
+  §4.27f-2).** El documento afirma desde **v1.46** que un override manual «solo lo revoca otro override o la
+  **limpieza/borrado explícito** por `super_admin`», y **esa segunda vía nunca se construyó**. Efecto real: un
+  override manual de `raw` o `sellado` **solo puede sustituirse, nunca retirarse** — «durable indefinidamente» es, en
+  la práctica, **irrevocable salvo por otro número**. **Cerrado en v1.50.3-d SOLO para estimados por grado**
+  (`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`, §4.38q), porque es lo que `PROJECT.md` §O.7 exige.
+  **NO se abre para `raw`/`sealed` en esta rev, deliberadamente:** un borrado ahí **cambia precios de venta
+  publicados** y necesita su propio diseño (qué pasa con lo publicado que se queda sin referencia — ¿`PRICE_PENDING`
+  y se despublica?). **Mitigación vigente:** sustituir por otro override. **Corregido el texto** en §4.27f-2 y en
+  `API_CONTRACT` para que deje de prometer lo que no hay.
 - **⚠ REQUISITO DE DESPLIEGUE ABIERTO — los seeds corregidos de v1.50.3 NO llegan a un entorno ya sembrado (PI-D3,
   hallazgo de backend; §4.38p, regla general en §11.0).** `prisma/seed.ts` hace `upsert` con `update: {}`, así que
   `manualFreshnessDays`, `minSampleCount` y `maxRawMultiple` **conservan sus valores viejos** en prod y staging aunque
@@ -11008,6 +11149,25 @@ este documento y con `API_CONTRACT.md`.
   con suelo **`min(5, cartas_de_la_corrida)`**. El 5 sigue gobernando la operación normal pero **deja de poder
   bloquear el aviso** donde más desapercibido pasaría. Sigue siendo **constante de código, no dial** (se calibra una
   vez). La escalada es **señal, no fallo**: no aborta la corrida ni apaga el ingest.
+- **GU-A27 (PI-frontend, v1.50.3-d) — se DISEÑA el borrado del estimado; no se declara fuera de alcance**
+  (§4.38q). Frontend halló que el contrato promete —en **cuatro** sitios, desde v1.46— una «limpieza/borrado
+  explícito» que **no existe como endpoint**: el back-office solo puede **pisar** una cifra, nunca **quitarla**.
+  **No es alcance que yo elija:** `PROJECT.md` §O.7 pide que el dueño *«la corrija con override **o la descarte**»*,
+  y PROJECT manda ⇒ o se construye, o hay que ir al humano a enmendar §O.7. **Se construye.** Agravante propio: con
+  la caducidad que sembré esta ronda, una cifra manual errónea **desaparece de las superficies, sigue en la tabla** y
+  es enumerable por `?reason=STALE` — **construí el detector y dejé al operador sin la herramienta**.
+  **Decisiones de diseño:** alcance **estrecho** (solo el estimado por grado; se descarta el `DELETE` genérico sobre
+  `/pricing/override` porque cubriría `raw`/`sealed`, cuyo borrado mueve precios publicados); **borra todas las filas
+  de la clave** en transacción (borrar solo la vigente haría **reaparecer** una más vieja); **`404` si no hay nada**
+  (no un `200` silencioso); **auditado con `before`**, que es la única forma de deshacer; y **guarda INV-D ⇒ `409`**.
+  **Se deja escrito, porque la inferencia contraria es tentadora y falsa: este `DELETE` NO mitiga INV-D inverso** —
+  ahí el slab ya está publicado, la guarda dispara, y **debe disparar** (borrar dejaría al slab sin sustento de
+  precio). **`raw`/`sealed` siguen sin borrado**, declarado como hueco con nombre en §9 y corregido el texto de
+  §4.27f-2. **→ trabajo para backend.**
+- **GU-A28 (v1.50.3-d, aceptada sin reservas) — dos filas nuevas en `seed-e2e.ts`** (petición de frontend): una carta
+  con **grupo raw publicado + slab publicado del mismo grado**, y una **tercera carta raw publicada**. Desbloquean el
+  pre-vuelo de INV-D, el `SLAB_PUBLISHED` de (n) en modo real, y la combinación «un grado» / «dos grados sin
+  destacar». **La primera es además la única forma de verificar el `409` del `DELETE` nuevo de punta a punta.**
 - **GU-A26 (ratificación, sin acción) — `POST /admin/pricing/override` devuelve `200`, no `201`.** QA halló que el
   código respondía `201` contra la norma de §M2; **backend verificó que el contrato tenía razón y corrigió el código**
   (`@HttpCode(200)`) en vez de pedir cambiar el contrato. **Es el desenlace correcto y el precedente que quiero

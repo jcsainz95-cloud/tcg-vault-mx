@@ -66,6 +66,16 @@
 >   ingest). **Ambos cambios son ADMIN-ONLY: ningún DTO ni superficie pública se altera**, y la indistinguibilidad de
 >   fases (§4.38g) queda intacta porque es una garantía sobre lo **público**. El orden del listado intercala
 >   `capturedDate` asc (lo más vencido primero). ARCHITECTURE §4.38(n.2-bis).
+> - **⚠️ ADDENDUM v1.50.3-d — NUEVO `DELETE /api/v1/admin/pricing/graded-estimates/:cardId/:gradeValue`
+>   (`super_admin`, auditado). Cierra un hueco que este contrato arrastraba desde v1.46:** afirmaba que un override
+>   manual «solo lo revoca otro override o la **limpieza/borrado explícito** por `super_admin`», **y ese borrado no
+>   existía** — el back-office solo podía **pisar** una cifra, nunca **quitarla**. `PROJECT.md` §O.7 exige que el
+>   dueño pueda *«corregirla con override **o descartarla**»*, así que no era opcional. Borra **todas** las filas de la
+>   clave canónica en transacción, responde `deletedCount`, **`404` si no había nada** (no un `200` silencioso), y
+>   lleva la **misma guarda INV-D que la escritura ⇒ `409 GRADED_ESTIMATE_SLAB_PUBLISHED`**. **Admin-only; ninguna
+>   superficie pública cambia.** ⚠️ **`raw` y `sealed` siguen sin borrado** (un `DELETE` ahí mueve precios de venta
+>   publicados y necesita su propio diseño): corregidas las frases que lo daban por existente. ARCHITECTURE §4.38(q),
+>   §4.27f-2, §9.
 > - **Ratificado sin cambio documental:** `POST /admin/pricing/override` responde **`200`**, como este contrato norma
 >   desde v1.50. El código devolvía `201`; **backend corrigió el código, no el contrato** (`@HttpCode(200)`). Es el
 >   desenlace correcto — **el contrato manda sobre el código**. **Frontend/QA:** revisar cualquier arnés que asertara
@@ -281,7 +291,10 @@
 > manual es un **tier SUPERIOR ABSOLUTO, DURABLE cross-day**; `isBetterRef` iza el split manual/no-manual **por encima**
 > de `capturedDate`; la frescura desempata **solo dentro del mismo tier**. Un override manual **solo** lo revoca otro
 > override manual posterior o la **limpieza explícita por `super_admin`** (`POST /api/v1/admin/pricing/override` de
-> nuevo, o borrado money-scoped) — **ninguna** escritura automática lo pisa. Efecto observable en el contrato: cualquier
+> nuevo, o borrado money-scoped) — **ninguna** escritura automática lo pisa. *(⚠️ **v1.50.3-d:** el «borrado
+> money-scoped» de esta frase **no existía como endpoint**. Hoy existe **solo para estimados por grado**
+> —`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`, §M2—; para overrides **`raw` y `sealed` sigue sin
+> existir**, así que ahí la revocación real es **únicamente** otro override posterior. Ver ARCHITECTURE §4.27f-2 y §9.)* Efecto observable en el contrato: cualquier
 > DTO con `marketReferenceMxnCents` / `referenceMxnCents` / `source` / `isManualOverride` (binder, valuación de bóveda,
 > `variants[]`, sellado) que tenga un override manual persistido **refleja ese valor de forma estable día tras día**, no
 > solo el día de captura. Sin cambio de forma; nota reforzada en `POST /admin/pricing/override` (§ pricing admin) y en
@@ -6545,7 +6558,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     grupo.** El conjunto motor son **solo las cartas que tienen fila de estimado**, no el catálogo.
   - **Money-safe:** todo monto no resoluble es **`null`**, nunca `0`. **No escribe nada, no corrige, no descarta y no
     silencia** (sin `MoneyOutGuard`). El operador actúa con las herramientas que ya existen
-    (`POST /admin/pricing/override` con `intent:"graded_estimate"`, o borrando el dato). *(Un «marcar como revisada»
+    (`POST /admin/pricing/override` con `intent:"graded_estimate"`, o **borrando el dato** con el `DELETE` de abajo).
+    *(Un «marcar como revisada»
     exigiría estado persistido ⇒ tabla nueva ⇒ DDL: **fuera de alcance de v1.50.3**, declarado para que no se cuele
     por la puerta de atrás.)*
   - **`data: []`** = no hay ninguna cifra incoherente. **No es un error** y **no es un estado a celebrar en la UI con
@@ -6557,6 +6571,34 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     revisión calculada contra un umbral corrupto es **peor que no tener lista**.
   - **No es público, ni lo será** (expone insumos del gate, SEC-A1). Err `400 VALIDATION_ERROR` (`reason` no admitido
     o paginación inválida), `403`, **`409 GRADED_CONFIG_INVALID`**.
+- `DELETE /api/v1/admin/pricing/graded-estimates/:cardId/:gradeValue` — **(NUEVO v1.50.3-d, `super_admin`,
+  AUDITADO)** retira el estimado de esa carta y ese grado. **Cierra un hueco de contrato:** este documento y
+  ARCHITECTURE §4.27f-2 venían afirmando —desde v1.46— que un override manual *«solo lo revoca otro override o la
+  limpieza/borrado explícito por `super_admin`»*, **y ese borrado no existía**: el back-office solo podía **pisar** una
+  cifra, nunca **quitarla**. `PROJECT.md` §O.7 pide explícitamente que el dueño pueda *«corregirla con override **o
+  descartarla**»*. Detalle normativo en ARCHITECTURE §4.38(q).
+  - **`:gradeValue`** = `"10"` | `"9"` (no el `gradeKey` crudo). **Debe estar en `grades`** de la config; si no ⇒
+    `400 VALIDATION_ERROR`. Una ruta destructiva no acepta claves arbitrarias: solo los grados que la feature gobierna.
+  - **Borra TODAS las filas de la clave canónica** `(cardId, 'graded', buildGradeKey(gradeValue), 'normal',
+    cardProductId=null)` **sea cual sea su `capturedDate`**, en **una transacción**. **No se borra «solo la
+    vigente»:** la unique incluye `capturedDate`, así que eso haría **aflorar una fila más vieja** y la cifra
+    **reaparecería sola** en la ficha — una resurrección silenciosa, peor que no haber borrado.
+  - Res `200`: `{ cardId, gradeValue, deletedCount: number }`. **Auditado**
+    (`AuditLog action=pricing.graded_estimate.delete`, **`before` = las filas borradas** con sus valores y fechas,
+    `after: null`). Ese `before` es **la única forma de deshacer** un borrado equivocado (recapturar lo que había).
+  - **⚠️ `409 GRADED_ESTIMATE_SLAB_PUBLISHED` si existe un slab publicado de ese grado** — **la misma guarda INV-D que
+    la escritura** (`POST /admin/pricing/override`, §4.38l.1). Por INV-D, con slab publicado esa fila **ya no es un
+    estimado: es la referencia de mercado real de una pieza física**, y borrarla **le quitaría el sustento de precio a
+    un slab que se está vendiendo** (⇒ `PRICE_PENDING` ⇒ despublicado). **Corolario que conviene no deducir al revés:
+    este `DELETE` NO es un remedio para INV-D inverso** (§4.38l.3) — ahí el slab ya está publicado, así que dispara
+    `409`; el remedio correcto sigue siendo **repreciar con `intent:"market"`**.
+  - **`404 NOT_FOUND` si no había nada que borrar** — **no** un `200` silencioso. Mismo criterio que el `PUT` con body
+    vacío ⇒ `422`: responder éxito cuando no pasó nada le haría creer al operador que **limpió algo que no limpió**.
+  - **Funciona con `gradedEstimatesEnabled=off`** (mismo motivo que `/review`: hay que poder limpiar **antes** de
+    encender).
+  - **NO** borra filas `raw` ni `sealed`, **no** despublica inventario, **no** encola `PendingPriceEntry` (la ausencia
+    de estimado no es un «precio pendiente») y **no** toca `listPriceCents`.
+  - Err `400 VALIDATION_ERROR`, `403`, `404 NOT_FOUND`, `409 GRADED_ESTIMATE_SLAB_PUBLISHED`.
   - **Frontend:** esta lista necesita superficie en **M2**, junto al editor de diales del gancho. **Sin UI el criterio
     111(e) NO se cumple** — «aparece en la lista de revisión» es una afirmación sobre lo que el dueño **ve**.
 
