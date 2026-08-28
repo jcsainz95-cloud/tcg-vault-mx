@@ -15,8 +15,9 @@ import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
  * «Top Bounties» — P-22 (DESIGN_SYSTEM §16.7c). Vitrina pública ARRIBA de /buylist, antes del
  * selector de set. Consume GET /buylist/bounties (cap 50; se pintan las primeras 12).
  * Reglas de honestidad: sin bounties activos la sección NO se renderiza (nunca un shelf vacío);
- * en error se OCULTA (es vitrina, no bloquea el flujo de venta); `QUEDAN N` solo con objetivo
- * real (nunca inventar escasez). El pago sigue siendo tras recibir y verificar (PAY_AFTER_RECEIPT).
+ * en error se OCULTA (es vitrina, no bloquea el flujo de venta). La cantidad restante NO se
+ * muestra al cliente (no revelar cuántas piezas se compran). El pago sigue siendo tras recibir
+ * y verificar (PAY_AFTER_RECEIPT).
  */
 export function TopBountiesShelf({
   onQuote,
@@ -116,11 +117,9 @@ export function BountyCard({
           {formatMoneyCents(bounty.bountyPriceCents, locale)}
         </span>
       </p>
-      {bounty.remainingQty != null && (
-        <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
-          {t('remaining', { count: bounty.remainingQty })}
-        </p>
-      )}
+      {/* La cantidad restante NO se revela al cliente en la vitrina pública (decisión del
+          dueño: no exponer cuántas piezas se están comprando). El dato sigue en el DTO y en
+          la consola de admin. */}
       <div className="mt-auto pt-3">
         <Button variant="secondary" size="sm" className="w-full" onClick={() => onQuote?.(bounty)}>
           {t('cta')}
