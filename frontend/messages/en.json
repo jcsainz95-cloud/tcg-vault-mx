@@ -118,13 +118,11 @@
       "cert": "Cert {num}"
     },
     "bounties": {
-      "title": "Most wanted today",
+      "title": "Top Bounties",
       "viewAll": "See the full buylist",
       "subtitle": "If you have any of these, we pay above market. Today's price, no haggling.",
-      "colCard": "Card",
-      "colCondition": "Condition",
-      "colWePay": "We pay",
-      "conditionNm": "NM"
+      "wePay": "We pay",
+      "badge": "Bounty"
     },
     "how": {
       "title": "How the vault works",

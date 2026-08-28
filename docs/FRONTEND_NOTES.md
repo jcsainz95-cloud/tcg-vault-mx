@@ -4,6 +4,37 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §22 · Home «Top Bounties» — de tabla a tarjetas con imagen (2026-08-28, `main`)
+
+Cambio visual pedido por el dueño: la sección de bounties de la home (`_home/BountyBoard.tsx`,
+montada en `page.tsx:128`) pasa de **tabla compacta** («Lo que más buscamos hoy») a **tarjetas con
+imagen de la carta**, y se retitula **«Top Bounties»** para quedar consistente con la vitrina de
+`/buylist` (`components/domain/TopBountiesShelf.tsx`).
+
+- **i18n:** `home.bounties.title` → «Top Bounties» (es/en). Subtítulo se conserva (ya era coherente).
+  Se **retiraron** las claves solo-tabla `colCard`/`colCondition`/`colWePay`/`conditionNm` y se
+  añadieron `home.bounties.wePay` («Pagamos» / «We pay») y `home.bounties.badge` («Bounty») para la
+  tarjeta. Verificado que `home.bounties.*` no lo comparte otra superficie (solo BountyBoard); la
+  vitrina de `/buylist` vive en un namespace aparte, `buylist.bounties.*` (intacto).
+- **Presentación:** el marco de estante (`_shared/Shelf.tsx`, título + «ver todo» → `/buylist`) se
+  mantiene; el interior pasa a una rejilla `grid-cols-2 lg:grid-cols-4` de tarjetas que **reutilizan
+  el lenguaje visual** de `TopBountiesShelf.BountyCard` (FinishBand + imagen `aspect-[5/7]` + chip
+  ☩ BOUNTY sobre scrim de tinta + nombre serif + set·número mono + precio héroe verde «Pagamos»).
+  No se reusó el componente `BountyCard` tal cual porque incluye el CTA «Cotizar esta carta» que
+  necesita el cotizador de `BuylistView` (`onQuote`); en la home no hay cotizador, así que cada
+  tarjeta es un `Link` a `/buylist` sin CTA muerto. Se evitó tocar `TopBountiesShelf` (regla: ya está
+  bien). La imagen usa `alt={name}` (antes `alt=""` aria-hidden en la vitrina) porque aquí es el
+  contenido accesible del enlace.
+- **Sin fuga de demanda:** la tarjeta NO reintroduce `remainingQty`/`targetQty` (se quitaron a
+  propósito en `e3f76e2`/`df50e60`/`965e9f2`). Confirmado por grep: la home no referencia
+  `remainingQty`/`targetQty`/`colWanted` fuera de comentarios y del fixture de test.
+- **Condicional intacto:** sin bounties o en error ⇒ la sección desaparece (misma regla de honestidad
+  que la vitrina).
+- **Tests:** nuevo `_home/BountyBoard.test.tsx` (4 casos): tarjetas con imagen + título «Top
+  Bounties» + precio «Pagamos», enlace a `/buylist`, no-fuga de cantidades, y ocultamiento en
+  vacío/error. `tsc --noEmit` ✓ · `vitest run` BountyBoard + TopBountiesShelf + home `page.test`
+  verdes.
+
 ## §21 · P-48 (v2.0) — precio puro por valor de mercado: editor de la curva, «Valor de mercado» condicional y bounty rebasado (2026-08-24, rama `claude/card-pricing-rules-2e537m`)
 
 > Etapa **E9** de `ARCHITECTURE §4.36.11`. Fuentes: `PROJECT §N` (LOCKED) · `API_CONTRACT`
