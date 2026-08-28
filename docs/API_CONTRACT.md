@@ -38,6 +38,20 @@
 > - **`freshnessDays` gana un segundo efecto en el INGEST** (no cambia el contrato, es comportamiento del job): no se
 >   persiste una fila cuya `lastSaleDate` del proveedor supere la ventana; ausente/no parseable ⇒ no se escribe. Cierra
 >   el «fresco para siempre» de ARCHITECTURE §4.38(m.2). **Bloquea encender la fase 2**, que hoy está `off`.
+> - **⚠️ ADDENDUM v1.50.3-a — LOS TRES SEEDS NO LLEGAN A UN ENTORNO YA SEMBRADO. Léase antes de dar por hecho que la
+>   tabla de arriba describe producción.** `prisma/seed.ts` hace `upsert` con **`update: {}`**, así que un entorno que
+>   ya corrió el seed **conserva los valores viejos** (`manualFreshnessDays: null`, `minSampleCount: 3`,
+>   `maxRawMultiple: 50`) **aunque el código nuevo esté desplegado y los tests en verde**. Los valores de este
+>   contrato son los **defaults de código**; el estado real de un entorno se consulta con
+>   `GET /admin/pricing/graded-estimates`. **No se automatiza un `UPDATE`** (pisaría en silencio cualquier dial que el
+>   operador haya ajustado a propósito): se aplican con un **`PUT /admin/pricing/graded-estimates` explícito y
+>   auditado** como paso de despliegue. Detalle en ARCHITECTURE §4.38(p); **regla general para todo `ConfigSetting`**
+>   en ARCHITECTURE §11.0.
+> - **⚠️ ADDENDUM v1.50.3-a — el shape `gradedPrices.psaN` (S2) del ingest queda NO PERSISTIBLE**, y la escotilla
+>   `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` **se deroga**. **No afecta a este contrato** (el ingest no tiene
+>   superficie pública y la indistinguibilidad de fases se mantiene), pero se registra aquí porque **condiciona
+>   encender la fase 2**: un escalar sin `count` ni fecha no puede satisfacer las pruebas 1 y 2 del gate de confianza,
+>   así que no hay superficie —**tampoco la ficha**— donde esa fila fuera admisible. ARCHITECTURE §4.38(h.1-bis).
 > - **Sin cambios** en ningún DTO público, ruta pública, código de error existente ni monto de dinero. **M-42 sigue
 >   siendo DATA/seed, sin DDL.** **Base previa:** v1.50.2.
 >
@@ -6337,6 +6351,10 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   - **v1.50.2 — los cinco diales del GATE DE CONFIANZA y del INGEST** (ARCHITECTURE §4.38k/§4.38h).
     **⚠️ v1.50.3 corrige TRES seeds** para alinearlos con `PROJECT.md` (regla de conflicto: PROJECT manda sobre el
     contrato). **Solo cambia el valor sembrado; ningún shape, ruta, rango ni código de error se altera.**
+    **⚠️ Estos son los defaults de CÓDIGO, y no describen necesariamente el entorno que estés mirando.** El seed usa
+    `update: {}`, así que **una base ya sembrada conserva los valores viejos** hasta que alguien los cambie por este
+    mismo `PUT`. Para saber qué tiene un entorno, **consulta el `GET`** — no supongas esta tabla. Paso de despliegue
+    en ARCHITECTURE §4.38(p); regla general en ARCHITECTURE §11.0.
 
     | Campo | Seed **v1.50.3** | *(antes)* | Rango | Qué gobierna |
     |---|---|---|---|---|

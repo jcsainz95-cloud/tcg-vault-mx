@@ -30,8 +30,21 @@
 >    delante**, y se recomienda empaquetar en la misma migración la columna `evidenceDate` de la divergencia **nueva**
 >    detectada en este pase (§4.38m.2: la frescura del dato automático se mide contra la fecha de ingesta, no contra
 >    la evidencia — permisiva, no viva porque el ingest está `off`, **bloquea encender la fase 2**). §4.38(l.3), §9.
+> **Addendum v1.50.3-a (2026-08-28) — dos consecuencias que backend encontró al IMPLEMENTAR la rev, escaladas antes de
+> improvisar. Ambas son de doctrina, no de código, y las cierro aquí:**
+> 7. **PI-D2 — el shape `S2` (`gradedPrices.psaN`) queda declarado NO PERSISTIBLE.** El gate de evidencia lo deja sin
+>    poder escribir nunca (es un **escalar sin fecha**). **Se acepta como decisión, y no se concede una segunda
+>    escotilla.** Matiz que cambia el marco: **S2 tampoco era persistible antes** (sin `count`, fail-closed); su único
+>    camino era la escotilla `MIN_COUNT=0` ⇒ el parser **ya era «de una hipótesis y media»** y v1.50.3 solo lo hizo
+>    visible. `MIN_COUNT=0` queda **DEROGADA** (ya no abre nada). El sondeo de S2 se conserva como **diagnóstico**,
+>    con motivo de traza propio, y si el proveedor resulta servir S2 es **escalada obligatoria**, no parche. §4.38(h.1-bis).
+> 8. **PI-D3 — un cambio de seed NO llega a un entorno ya sembrado.** `seed.ts` usa `update: {}` ⇒ los tres seeds
+>    corregidos **no alcanzan producción**. **Se ratifica la decisión de backend de no automatizarlo** y se añade la
+>    **regla general que faltaba** (§11.0): un seed es **condición inicial, no estado deseado**; cambiarlo sobre una
+>    clave existente exige **dos artefactos**, y el segundo se ejecuta **por el `PUT` de admin, no por SQL**. Paso
+>    concreto de esta release en §4.38(p); al humano como **GU-13**.
 > **Money-safe:** ningún monto de dinero real cambia; **M-42 sigue siendo DATA/seed** (mismas 12 claves, tres seeds
-> corregidos, **sin DDL**). **Ratificaciones pedidas al humano: GU-8..GU-12 (§10).** Contrato en API_CONTRACT
+> corregidos, **sin DDL**). **Ratificaciones pedidas al humano: GU-8..GU-13 (§10).** Contrato en API_CONTRACT
 > (Changelog v1.50.3). **Base previa:** v1.50.2.
 > Rev v1.50.2-graded-estimate-confidence-gate (2026-08-28, rama `claude/psa-graded-card-value-gmhv5u`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND). **Dictamen de fusión del gancho de grading con pricing v2
@@ -7846,6 +7859,16 @@ indistinguibles justo cuando hay que decidir.
      `truncated`, y evaluación **aunque el dial esté `off`**.
   4. **Gate de evidencia en el ingest** ((h.1)/(m.2)): no persistir filas cuya `lastSaleDate` supere `freshnessDays`;
      ausente/no parseable ⇒ no se persiste.
+  **⚠️ Addendum v1.50.3-a — lo que sale de las dos escaladas de backend (PI-D2 / PI-D3):**
+  5. **Retirar `POKEMONPRICETRACKER_GRADED_MIN_COUNT`** (la escotilla `=0`): **derogada**, ya no abre nada
+     ((h.1-bis)). Dejarla viva es una trampa de diagnóstico. La vía legítima para admitir muestras pequeñas en S1 es
+     el dial auditado `graded_estimate_min_sample_count = 1`.
+  6. **Motivos de salto del ingest CONTADOS POR SEPARADO** ((h.4)), con `SHAPE_NOT_PERSISTIBLE_S2` distinto de
+     `EVIDENCE_UNKNOWN` y de `SAMPLE_TOO_SMALL`. Un contador único los vuelve indistinguibles justo cuando hay que
+     decidir si escalar.
+  7. **Línea de INVENTARIO al izar la config** (§11.0): una línea `log`/`info` enumerando las claves cuyo valor
+     vigente **difiere del default de código**. **No `warn`** —los diales ajustados a propósito son normales y
+     alertar por cada uno es ruido—; la **única** excepción `warn` sigue siendo `manualFreshnessDays === null`.
   **Tests obligatorios:** los flujos negativos de §O.7 (sin PSA 9 ⇒ **ficha sí, destacado no**; sin ningún estimado;
   graded y sealed nunca; tabla vacía/con hueco ⇒ **jamás costo 0**; estimado rancio; DTO manipulado no cambia nada) +
   **la partición (0)** (subir `minUpsidePct` vacía la vitrina **sin** apagar la ficha) + el **test de
@@ -7888,6 +7911,13 @@ indistinguibles justo cuando hay que decidir.
   **ux-ui** en `DESIGN_SYSTEM.md` — no lo inventa ni el arquitecto ni frontend.
 - **devops:** ninguna env nueva **obligatoria** para fase 1 (los diales son `ConfigSetting`). Para fase 2, las envs de
   (h) — todas con **default seguro**/sin default — y vigilar `dailyRemaining()` contra el tope por corrida.
+  **⚠️ v1.50.3-a — PASO DE DESPLIEGUE OBLIGATORIO, no opcional:** los tres seeds corregidos **no llegan a un entorno
+  ya sembrado** (`seed.ts` usa `update: {}`). En **cada** entorno existente hay que ejecutar el procedimiento de
+  **(p)**: `GET` → comparar → `PUT` solo lo que siga en el seed viejo → **verificar corriendo el E2E del criterio
+  109**. **Prohibido `UPDATE` directo a la BD** (se salta auditoría y validación). Si algún dial difiere de su seed
+  viejo, **no se pisa**: lo decide el humano clave por clave (**GU-13**). **Sin este paso el deploy pasa todos los
+  gates y la feature sigue comportándose como antes en producción** — que es la clase de falso verde que el DoD
+  existe para impedir. Documentarlo en `DEVOPS_NOTES.md` junto al rollback.
 - **qa (gate por stream):** unitarios + contrato + smoke E2E de los flujos críticos de §O.7, **reinterpretados con la
   partición (0)**: (1) camino feliz — la carta con estimados frescos que pasa el gate sale en la **ficha**, la
   **rejilla** y la **vitrina**; (2) subir `minUpsidePct` **vacía la vitrina y quita los badges** pero **la ficha sigue
@@ -7898,6 +7928,11 @@ indistinguibles justo cuando hay que decidir.
   111(e), que hasta ahora no era verificable porque la lista no existía); (6) **v1.50.3** — un override manual de **40
   días** (el caso que QA reprodujo a mano) **desaparece de las tres superficies**, y si esa carta tiene además dato
   automático **fresco**, se muestra **el automático** en vez de nada (criterio 109 + (m)).
+  **⚠️ v1.50.3-a — el E2E del criterio 109 se corre CONTRA EL ENTORNO DESTINO, no solo contra una base recién
+  sembrada.** Es el único test que distingue «desplegado» de «desplegado **y funcionando**»: en un entorno ya sembrado
+  el dial sigue en su valor viejo y el criterio **falla**, aunque los 2378 unitarios y los 162 de integración estén en
+  verde. *(A backend le falló exactamente así al implementar. Eso no fue un defecto del test: fue el test haciendo su
+  trabajo, y es la razón por la que este bullet existe.)*
 - **Zonas compartidas tocadas** (el orquestador serializa): `backend/src/common/`, `backend/src/modules/settings/`,
   `frontend/src/types/contract.ts`, `docs/API_CONTRACT.md`. **`backend/prisma/schema.prisma` NO se toca.**
 
@@ -8346,6 +8381,37 @@ que son de `main` y **siguen correctas tal cual**):
 **Referencias corregidas:** en esta §4.38 (algoritmos de (c), (d), (e), (f)) y en §10; en `API_CONTRACT.md`, el
 changelog v1.50, §DTOs base, §2 (rejilla y ficha) y §M2/§M10. **No se tocó ninguna cita de §4.36/§N**: 79–96 son suyos
 y sus referencias eran correctas antes y después.
+
+#### (p) PASO DE DESPLIEGUE OBLIGATORIO (PI-D3) — los tres seeds NO llegan solos a un entorno ya sembrado
+
+> **Hallazgo de backend, verificado en vivo.** `prisma/seed.ts` hace `upsert` con **`update: {}`**, así que los seeds
+> corregidos en (k.0) **no alcanzan ninguna base ya sembrada** — incluida **producción**. Un entorno existente sigue
+> con `manualFreshnessDays = null`, `minSampleCount = 3` y `maxRawMultiple = 50`, **con el código nuevo desplegado y
+> los tests en verde**. El E2E del criterio 109 falla ahí hasta fijar el dial a mano, que es exactamente lo que le
+> pasó a backend. **La regla general está en §11.0; esto es su aplicación concreta a esta release.**
+
+**Sin este paso, v1.50.3 NO surte efecto donde importa.** Conviene decirlo sin eufemismos: el punto entero de esta rev
+es que un override manual de 40 días deje de promocionarse. En un entorno ya sembrado, **eso sigue pasando** después
+del deploy. El código está bien; el dato no.
+
+**Paso (devops + el operador, en cada entorno ya sembrado: dev con base vieja, staging y prod):**
+
+1. `GET /api/v1/admin/pricing/graded-estimates` — anotar los valores **vigentes** de las tres claves.
+2. Si coinciden con los seeds viejos (`null` / `3` / `50`), **nadie los tocó**: aplicar los nuevos con **un**
+   `PUT /api/v1/admin/pricing/graded-estimates` `{ "manualFreshnessDays": 30, "minSampleCount": 5,
+   "maxRawMultiple": 100 }`. Queda **auditado**, **validado** (I1–I9) y surte efecto **sin redeploy**.
+3. Si **alguno difiere**, el operador lo **ajustó a propósito**: **no se pisa**. Se le presenta valor actual vs. nuevo
+   default y **decide él, clave por clave**. *(§11.0 punto 3: no hay forma de distinguir «sigue en el seed viejo» de
+   «lo eligió así», así que se pregunta en vez de adivinar.)*
+4. **Verificación de cierre — es parte del paso, no un extra:** repetir el `GET` y **correr el E2E del criterio 109**
+   contra ese entorno. Ese test es el único que distingue «desplegado» de «desplegado y funcionando».
+
+**⚠ Prohibido `UPDATE` directo a la BD** para esto, aunque sea más rápido: se salta la auditoría (nadie sabría quién
+cambió un dial que gobierna una afirmación comercial), se salta la validación (una clave presente-e-inválida **apaga
+la feature** por (d)) y se salta el `AuditLog` que M10 exige. Ver §11.0 punto 4.
+
+**Va a la lista del humano como GU-13** — no porque sea difícil, sino porque el paso 3 **es una decisión suya** y
+porque tocar diales de producción no es algo que devops deba hacer por iniciativa propia.
 
 ---
 
@@ -10226,6 +10292,21 @@ Riesgos técnicos:
   **Recomendación (decisión del humano, siguiente release):** valor `graded_estimate` en el enum `PriceSource` con
   `sourceRank` por debajo de toda fuente real ⇒ **M-43**, DDL aditivo de un valor de enum, sin backfill. **Se
   recomienda empaquetar en la MISMA M-43** la columna nullable `evidenceDate` de §4.38(m.2).
+- **⚠ REQUISITO DE DESPLIEGUE ABIERTO — los seeds corregidos de v1.50.3 NO llegan a un entorno ya sembrado (PI-D3,
+  hallazgo de backend; §4.38p, regla general en §11.0).** `prisma/seed.ts` hace `upsert` con `update: {}`, así que
+  `manualFreshnessDays`, `minSampleCount` y `maxRawMultiple` **conservan sus valores viejos** en prod y staging aunque
+  el código nuevo esté desplegado y los tests en verde. **Consecuencia:** el override manual de 40 días **seguiría
+  promocionándose en producción**. **NO se automatiza como `UPDATE`** (pisaría en silencio ajustes deliberados del
+  operador — GU-A8): se aplica por `PUT /admin/pricing/graded-estimates`, auditado y validado, con verificación de
+  cierre = correr el E2E del criterio 109 contra el entorno destino. **Va al humano como GU-13.**
+- **✅ CERRADO por decisión de diseño, no pendiente — S2 (`gradedPrices.psaN`) NO ES PERSISTIBLE (PI-D2, escalada de
+  backend; §4.38h.1-bis).** Se registra aquí porque **bloquea encender la fase 2** en el escenario en que PPT sirva
+  ese shape, y porque la asimetría entre S1 y S2 dejó de ser de **forma** para ser de **capacidad**. **No es una
+  regresión de v1.50.3:** S2 ya era no-persistible por falta de `count`; su único camino era la escotilla
+  `MIN_COUNT=0`, ahora **derogada** (backend la retira: ya no abre nada). El sondeo de S2 **se conserva como
+  diagnóstico** con motivo de traza propio `SHAPE_NOT_PERSISTIBLE_S2`. **Si la primera corrida real revela que PPT
+  sirve mayoritariamente S2 ⇒ ESCALADA (regla 9), no parche:** significa que la fase 2 no es viable con este
+  proveedor, y eso es decisión de producto/costo, no de código.
 - **⚠ DESVIACIÓN ABIERTA — frescura del dato AUTOMÁTICO medida contra la fecha de INGESTA, no contra la evidencia
   (arquitecto, detectada en v1.50.3, §4.38(m.2)). Permisiva.** El **criterio 109** exige medir contra la **fecha de la
   última venta observada**; `stale()` mide contra `capturedDate`, que en una fila del ingest es la fecha en que se
@@ -10619,6 +10700,15 @@ este documento y con `API_CONTRACT.md`.
   `maxRawMultiple`; §O.7 los llama `minSalesSample` / `maxGradedMultiple`. Los **valores** ya están alineados y la
   equivalencia está tabulada en §4.38(k.0). **Petición a product-owner** (no al humano): adoptar el alias en §O.7 —
   `maxRawMultiple` describe mejor la operación real (el múltiplo va sobre el precio **raw**).
+- **GU-13 (de despliegue, NUEVA — nace de los tres seeds) — los diales corregidos NO llegan solos a producción.**
+  `prisma/seed.ts` usa `update: {}`, así que un entorno ya sembrado **conserva los valores viejos** (`null` / `3` /
+  `50`) con el código nuevo desplegado y los tests en verde. **Sin este paso, v1.50.3 no surte efecto donde importa:**
+  el override manual de 40 días **seguiría promocionándose** en prod. **Default aplicado:** paso de despliegue
+  explícito y auditado vía `PUT /admin/pricing/graded-estimates` (§4.38p), **no** un `UPDATE` automático — que pisaría
+  en silencio cualquier valor que usted haya ajustado a propósito. **Decisión pedida:** autorizar el paso, y —si algún
+  dial difiere de su seed viejo, señal de que **alguien lo ajustó**— decidir **clave por clave** si se adopta el nuevo
+  default o se conserva el suyo. *(La regla general, para que esto no se redescubra en el siguiente cambio de dial,
+  queda en §11.0.)*
 - **GU-12 — `manualFreshnessDays = null` deja de ser el default y pasa a ser decisión suya.** Si el humano decide que
   un override manual **no** debe caducar nunca (que era el comportamiento sembrado por v1.50.2), la vía correcta es
   **poner el dial en `null` explícitamente Y pedir a product-owner que enmiende el criterio 109** — no dejar el
@@ -10693,6 +10783,33 @@ este documento y con `API_CONTRACT.md`.
   **`gradingHighlight` se re-verificó bajo la regla enmendada y sigue pasando las tres**, y la condición 3 la pasa en
   su forma fuerte: la vitrina la exige `PROJECT.md` §O.3(3) / criterio 101, es **anterior e independiente** de la
   decisión de pintar la cifra por fila. **Sin cambio de código.**
+- **GU-A22 (PI-D2, escalada de backend tras implementar v1.50.3) — S2 (`gradedPrices.psaN`) queda declarado NO
+  PERSISTIBLE; NO se añade una segunda escotilla** (§4.38h.1-bis). Al implementar el gate de evidencia al pie de la
+  letra, S2 —que es un **escalar sin fecha**— cae siempre en `evidence_unknown` y no puede escribir jamás.
+  **Primera corrección al marco:** S2 **tampoco era persistible antes** (sin `count`, fail-closed); su único camino
+  era la escotilla `MIN_COUNT=0`, que es *aceptar riesgo a sabiendas*, no una vía normal. **El parser ya era «de una
+  hipótesis y media» por defecto; v1.50.3 lo hizo visible en vez de romperlo.** **Razón de fondo:** S2 no es un S1
+  degradado, es un objeto distinto — de las tres pruebas de §O.7, las dos que dependen de evidencia del proveedor
+  (`count` y fecha) son **estructuralmente insatisfacibles** por ese shape, y **no hay superficie** donde una fila así
+  sea admisible (la ficha es más permisiva en **magnitud**, no en **procedencia**). **Segunda escotilla rechazada:**
+  `MIN_COUNT=0` + `EVIDENCE_UNKNOWN=allow` se **componen** en «un número del que no sabemos nada, en portada» — §O.4
+  se aplica aquí *más estricta que en ningún otro lado*, y **las escotillas no se apilan**. **Consecuencias:**
+  `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` queda **DEROGADA** y backend la retira (una escotilla que ya no abre nada
+  es una trampa de diagnóstico); el **sondeo de S2 se conserva** con papel de **diagnóstico** y motivo de traza propio
+  `SHAPE_NOT_PERSISTIBLE_S2`; y si la primera corrida real revela que PPT sirve mayoritariamente S2, es **escalada
+  obligatoria** (regla 9), no un parche — significa que la fase 2 **no es viable con este proveedor**, decisión de
+  producto y de costo. **No cambia contrato, ni DTO, ni fase 1; no está vivo (ingest `off`).**
+- **GU-A23 (PI-D3, hallazgo de backend) — REGLA GENERAL DE PROPAGACIÓN DE SEEDS** (§11.0, y su aplicación concreta en
+  §4.38p). `prisma/seed.ts` usa `update: {}`, así que **un cambio de seed no llega a ningún entorno ya sembrado**,
+  producción incluida. **La decisión de backend de NO automatizar un `UPDATE` se RATIFICA**: destruiría lo que
+  `update: {}` protege y lo haría en silencio (GU-A8), y (b) «sigue en el seed viejo» es **indistinguible** de
+  (c) «el operador lo eligió así» porque `ConfigSetting` guarda valor, no procedencia. *(Se evaluó inferir la
+  procedencia del `AuditLog` y se **descarta**: falla abierto ante poda de logs o edición fuera de banda.)* Lo que se
+  añade es la **regla general** —un seed es **condición inicial**, no estado deseado; cambiarlo sobre una clave
+  existente exige **dos artefactos**, y el segundo se ejecuta **por el `PUT` de admin, no por SQL** (auditado,
+  validado, sin redeploy)— más una **línea de inventario al arrancar** con las claves que difieren de su default
+  (`log`, **no `warn`**: los diales ajustados son normales y alertar por cada uno es ruido). **→ paso de despliegue
+  para devops + decisión del humano (GU-13); regla permanente para todo `ConfigSetting`, no solo para el gancho.**
 - **GU-A21 — divergencia NUEVA detectada en este pase: la frescura del dato automático se mide contra la fecha de
   INGESTA, no contra la evidencia** (§4.38m.2). El criterio 109 exige medir contra la **fecha de la última venta
   observada**; medir contra `capturedDate` deja el fallo «fresco para siempre» (el job reescribe la fila cada día
@@ -11007,6 +11124,54 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### 11.0 REGLA DE PROPAGACIÓN DE SEEDS (v1.50.3, NORMATIVA, GENERAL — aplica a TODO `ConfigSetting`)
+
+> **Por qué esta regla existe y por qué es general.** Backend verificó en vivo que los tres seeds corregidos de
+> v1.50.3 **no llegan a una base ya sembrada**: `prisma/seed.ts` hace `upsert` con **`update: {}`**, así que
+> `manualFreshnessDays`, `minSampleCount` y `maxRawMultiple` **conservan sus valores viejos** en cualquier entorno
+> existente —incluida **producción**—, y el E2E del criterio 109 falló hasta fijar el dial a mano. **El hallazgo es
+> correcto y la decisión de backend de NO automatizarlo también** (registrada como `PI-D3`). Lo que faltaba —y es mío—
+> es la **regla general**, porque este caso no será el último: el proyecto tiene decenas de diales sembrados
+> (escalones, spreads de sellado, tiers, curva) y **cualquiera de ellos puede cambiar de default en el futuro**.
+
+**Los cuatro puntos, normativos:**
+
+1. **UN SEED ES UNA CONDICIÓN INICIAL, NO UN ESTADO DESEADO.** `update: {}` es **correcto y no se toca**: es lo que
+   impide que un deploy pise el ajuste deliberado de un operador. **Corolario que nadie había escrito, y del que se
+   derivan los otros tres: cambiar un seed NO cambia ningún entorno ya sembrado.** Ni prod, ni staging, ni la base de
+   quien ya corrió el seed una vez.
+2. **Por tanto, cambiar el seed de una clave YA EXISTENTE es un cambio de DATOS, no de código**, y exige **dos
+   artefactos, no uno**: (a) el default nuevo en `settings.constants.ts` —que sirve **solo a entornos nuevos**— y
+   (b) un **paso de despliegue explícito y verificable** para los existentes. Entregar solo (a) es entregar un cambio
+   que **funciona en los tests y no en producción**, que es la peor forma de no entregarlo.
+3. **NO se automatiza como `UPDATE` incondicional.** Destruiría exactamente lo que `update: {}` protege, **y lo haría
+   en silencio** — el mismo modo de fallo que GU-A8 (quedar *más permisivo que la intención del admin, sin avisar*).
+   El obstáculo no es pereza: **es que (b) es indistinguible de (c)**. `ConfigSetting` guarda un **valor**, no su
+   **procedencia**, así que «sigue en el seed viejo» y «el operador eligió deliberadamente ese valor» son el mismo
+   dato — y en nuestro caso los valores viejos (3, 50, `null`) son **elecciones de operador perfectamente
+   plausibles**. *(Se evaluó y se **descarta** inferir la procedencia del `AuditLog` —«si nadie editó esta clave, sigue
+   en el seed»—: hacer depender la sobrescritura de un dial comercial de la **completitud de un log** falla abierto y
+   en silencio ante una poda de auditoría o una edición fuera de banda. Demasiado listo para una ruta que decide qué
+   se publica.)*
+4. **El paso (b) se ejecuta por la VÍA NORMAL DE OPERACIÓN, no por SQL.** Es decir, por el `PUT` de admin que gobierna
+   esa clave (aquí `PUT /admin/pricing/graded-estimates`). Tres razones y las tres importan: queda **auditado**
+   (`AuditLog`, M10 — se ve **quién** cambió el dial y **cuándo**), pasa por las **validaciones** del recurso (I1–I9;
+   un `UPDATE` puede dejar la clave presente-e-inválida, que por (d) **apaga la feature**), y surte efecto **sin
+   redeploy**. Un `UPDATE` directo a la BD se salta las tres. **La decisión de sobrescribir es del operador, informada
+   y clave por clave**, con el valor actual y el nuevo default delante.
+
+**Observabilidad que lo hace verificable (backend, barato, sin contrato):** al izar la config, el arranque emite
+**una línea `log`/`info`** enumerando las claves cuyo valor vigente **difiere de su default de código**. **No es un
+`warn` y no debe serlo** —los diales ajustados a propósito son normales y una alerta por cada uno es ruido que se
+aprende a ignorar—: es un **inventario**, para que «¿qué diales tiene realmente este entorno?» se conteste con un grep
+en vez de con una consulta a la BD. *(La **única** excepción sigue siendo `manualFreshnessDays === null`, que sí es
+`warn` (I8-bis) porque desactiva un criterio de `PROJECT.md`.)*
+
+**Y para QA/devops, la consecuencia de proceso:** el DoD de release incluye **verificar los diales del entorno
+destino**, no asumirlos. *(Nota: el E2E del criterio 109 **falló** en un entorno con el dial viejo. Eso no es un
+defecto del test: es el test **haciendo su trabajo**. Un E2E que hubiera pasado con el dial viejo sería un E2E que no
+verifica el criterio.)*
 
 ### v1.50-graded-estimate (nueva — M-42: diales del gancho de grading — DATA/seed, SIN DDL, §4.38)
 
