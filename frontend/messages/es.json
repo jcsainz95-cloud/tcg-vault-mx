@@ -118,13 +118,11 @@
       "cert": "Cert {num}"
     },
     "bounties": {
-      "title": "Lo que más buscamos hoy",
+      "title": "Top Bounties",
       "viewAll": "Ver la buylist completa",
       "subtitle": "Si tienes alguna de estas, pagamos por encima del mercado. Precio del día, sin regateo.",
-      "colCard": "Carta",
-      "colCondition": "Condición",
-      "colWePay": "Pagamos",
-      "conditionNm": "NM"
+      "wePay": "Pagamos",
+      "badge": "Bounty"
     },
     "how": {
       "title": "Cómo funciona la bóveda",
