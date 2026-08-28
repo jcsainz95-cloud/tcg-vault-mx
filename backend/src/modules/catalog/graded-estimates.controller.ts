@@ -328,12 +328,18 @@ export class GradedEstimatesController {
    * `?reason=` repetible **o** CSV (las dos formas circulan por igual en el front y en `curl`).
    * Omitido ⇒ `undefined` ⇒ el servicio aplica el default del contrato (los TRES de coherencia).
    *
-   * ⚠️ **Un `reason` no admitido es `400`, no un filtro vacío.** `STALE`, `NO_PSA10`, `NO_PSA9`,
-   * `NO_COST_TIER`, `BELOW_MIN_UPSIDE`, `NOT_RAW`, `NOT_PUBLISHED` y `FEATURE_OFF` **no son
-   * incoherencias**: son AUSENCIA de dato o el gate comercial haciendo su trabajo. Una lista que los
-   * aceptara tendría miles de filas normales y cero valor operativo — y el criterio 111(e) habla de la
-   * cifra que **falla la coherencia**, no de la que falta. Devolver `[]` en silencio sería peor: el
-   * operador leería «no hay nada que revisar» de una consulta que nunca podía encontrar nada.
+   * ⚠️ **Un `reason` no admitido es `400`, no un filtro vacío.** `NO_PSA10`, `NO_PSA9`, `NO_COST_TIER`,
+   * `BELOW_MIN_UPSIDE`, `NOT_RAW`, `NOT_PUBLISHED` y `FEATURE_OFF` **no son incoherencias**: son
+   * AUSENCIA de dato o el gate comercial haciendo su trabajo, y **la ausencia de estimado es el estado
+   * NORMAL del catálogo** (§4.38b.4). Una lista que los aceptara tendría miles de filas normales y cero
+   * valor operativo. Devolver `[]` en silencio sería peor: el operador leería «no hay nada que revisar»
+   * de una consulta que nunca podía encontrar nada.
+   *
+   * ⚠️ **v1.50.3-c (§4.38n.2-bis, GU-A24): `STALE` SALIÓ de esa lista y ahora se ADMITE** (opt-in,
+   * nunca en el default). Estaba agrupado con la «ausencia» y no pertenecía ahí: `NO_PSA10` significa
+   * *nunca hubo dato*; `STALE` significa **hubo un dato, alguien lo puso o lo ingestó, y expiró** —una
+   * cifra que existe en la BD **ahora mismo** y que desapareció de las tres superficies en silencio—.
+   * Fuera del default por el mismo motivo que `SLAB_PUBLISHED`: ahogaría la señal de coherencia.
    */
   private reviewReasons(raw?: string | string[]): HighlightReason[] | undefined {
     if (raw === undefined) return undefined;
@@ -346,8 +352,9 @@ export class GradedEstimatesController {
     if (invalid.length > 0) {
       throw BusinessException.badRequest(
         'VALIDATION_ERROR',
-        `reason no admitido: ${invalid.join(', ')}. Esta lista enumera INCOHERENCIAS de magnitud, no ` +
-          'ausencias de dato ni el gate comercial funcionando.',
+        `reason no admitido: ${invalid.join(', ')}. Esta lista enumera INCOHERENCIAS de magnitud (y, ` +
+          'como opt-in, `SLAB_PUBLISHED` y `STALE`), no ausencias de dato ni el gate comercial ' +
+          'funcionando.',
         { field: 'reason', invalid, allowed: [...GRADED_REVIEW_ALLOWED_REASONS] },
       );
     }

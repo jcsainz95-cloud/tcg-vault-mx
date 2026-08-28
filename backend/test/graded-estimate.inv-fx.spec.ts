@@ -472,16 +472,18 @@ describe('§4.38h.1-bis — shape S2: contador propio y escalada de corrida', ()
     const { ingest, audit } = wireIngest({
       config: ON,
       providerDrops: [dropS2('sv8-1'), dropS2('sv8-2'), dropS2('sv8-3')],
-      // Mayoría estricta SOBRE el suelo de muestra (6 observaciones ≥ 5) y con `forcedFormat: auto`:
-      // las dos condiciones que hacen que el veredicto hable del PROVEEDOR y no de nosotros.
+      // Vía (B): mayoría estricta SOBRE el suelo (6 observaciones ≥ min(5, 8 en alcance)) y con
+      // `forcedFormat: auto`. Las dos condiciones que hacen que el veredicto hable del PROVEEDOR.
+      published: Array.from({ length: 8 }, (_, i) => ({ cardId: `c${i + 1}` })),
       shapeCounts: { s1: 2, s2: 4 },
     });
     const res = await ingest.ingestGradedEstimates(FX);
     expect(res.escalation).toMatchObject({ reason: 'shape_not_persistible_s2_dominant' });
     expect(res.escalation!.detail).toContain('NO PERSISTIBLE');
     // v1.50.3-c: la PROCEDENCIA del veredicto viaja con el veredicto — sin abrir el log se ve que el
-    // conteo es una observación (formato `auto`) sobre una muestra que pasa el suelo.
+    // conteo es una observación (formato `auto`), por qué vía se disparó y contra qué suelo.
     expect(res.escalation!.detail).toContain('GRADED_FORMAT=auto');
+    expect(res.escalation!.detail).toContain('regla B');
     expect(res.escalation!.detail).toContain('suelo de 5');
     expect(res.skippedShapeS2).toBe(3);
     expect(audit.log).toHaveBeenCalledWith(
@@ -503,35 +505,105 @@ describe('§4.38h.1-bis — shape S2: contador propio y escalada de corrida', ()
     });
   });
 
+  /**
+   * v1.50.3-c — **REGLA (A) del arquitecto (§4.38h.1-ter): «cero S1» escala SIN suelo.**
+   *
+   * «Nunca hemos visto un S1» es **cualitativamente distinto** de «vemos una mezcla en la que S2 gana»:
+   * sugiere que `ebay.salesByGrade` **no existe en este plan o en esta cuenta**, y ahí una sola
+   * observación ya es informativa. El coste de escalar de más es **una conversación**; el de no escalar
+   * es una feature muerta sin que nadie se entere.
+   */
+  it('REGLA A — UNA sola observación, cero S1, alcance grande ⇒ escala igual (el suelo NO aplica)', async () => {
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      // 40 cartas en alcance ⇒ el suelo de la vía (B) sería 5 y NO se alcanzaría con 1 observación.
+      published: Array.from({ length: 40 }, (_, i) => ({ cardId: `c${i + 1}` })),
+      shapeCounts: { s1: 0, s2: 1 },
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.escalation).toMatchObject({ reason: 'shape_not_persistible_s2_dominant' });
+    // El veredicto DICE por qué vía se disparó: (A) y (B) piden lecturas distintas del hallazgo.
+    expect(res.escalation!.detail).toContain('regla A');
+    expect(res.escalation!.detail).toContain('CERO observaciones S1');
+  });
+
+  it('REGLA A — el formato FORZADO la desactiva también: con `graded_prices` el «cero S1» lo ordenamos nosotros', async () => {
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      shapeCounts: { s1: 0, s2: 3 },
+      forcedFormat: 'graded_prices',
+    });
+    expect((await ingest.ingestGradedEstimates(FX)).escalation).toBeNull();
+  });
+
   // ───────────── v1.50.3-c (techlead): la escalada NO puede AUTOINDUCIR su veredicto ─────────────
   //
   // Mismo criterio que ya justificaba la mayoría estricta («una escalada tiene que poder sostener su
   // veredicto»), aplicado a las dos vías por las que el conteo deja de ser evidencia sobre el proveedor.
 
-  it('SUELO DE MUESTRA: `1 > 0` es mayoría estricta pero NO escala — un denominador de 1 no sostiene una decisión de arquitectura', async () => {
+  it('REGLA B — una MEZCLA por debajo del suelo NO escala: `2 > 1` sobre 3 observaciones con 40 cartas en alcance', async () => {
     const { ingest, audit } = wireIngest({
       config: ON,
       providerDrops: [dropS2('sv8-1')],
-      shapeCounts: { s1: 0, s2: 1 },
+      published: Array.from({ length: 40 }, (_, i) => ({ cardId: `c${i + 1}` })),
+      shapeCounts: { s1: 1, s2: 2 }, // hay S1 ⇒ la vía (A) no aplica; 3 < min(5, 40) = 5
     });
     const res = await ingest.ingestGradedEstimates(FX);
     expect(res.escalation).toBeNull();
-    // La carta se sigue saltando y contando: la señal no se pierde, solo no se presenta como veredicto.
+    // La señal no se pierde: se sigue saltando, contando y auditando carta por carta.
     expect(res.skippedShapeS2).toBe(1);
     expect(audit.log).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'graded_estimate.ingest.escalated' }),
     );
   });
 
-  it('SUELO DE MUESTRA: justo EN el suelo (5 observaciones) sí escala — el corte es `< 5`, no `<= 5`', async () => {
+  it('REGLA B — justo EN el suelo (5 observaciones, 40 en alcance) sí escala: el corte es `< suelo`, no `<= suelo`', async () => {
     const { ingest } = wireIngest({
       config: ON,
       providerDrops: [dropS2('sv8-1')],
+      published: Array.from({ length: 40 }, (_, i) => ({ cardId: `c${i + 1}` })),
       shapeCounts: { s1: 2, s2: 3 },
     });
     expect((await ingest.ingestGradedEstimates(FX)).escalation).toMatchObject({
       reason: 'shape_not_persistible_s2_dominant',
     });
+  });
+
+  /**
+   * v1.50.3-c — **el ajuste del arquitecto (§4.38h.1-ter / GU-A25): el suelo es `min(5, alcance)`.**
+   *
+   * El suelo ABSOLUTO de 5 que propuso backend tenía **el mismo bug que el `STALE` inalcanzable** que
+   * este pase acababa de arreglar: el alcance del ingest es «solo cartas con inventario publicado», así
+   * que **una tienda con 3 cartas nunca llegaría a 5** y la fase 2 moriría en silencio con su propio
+   * aviso apagado. Éste es el caso que el suelo relativo rescata.
+   */
+  it('TIENDA CHICA — 3 cartas en alcance, las 3 con S2 mayoritario: escala porque el suelo es min(5, 3) = 3', async () => {
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      published: [{ cardId: 'c1' }, { cardId: 'c2' }, { cardId: 'c3' }],
+      shapeCounts: { s1: 1, s2: 2 }, // hay S1 (no es la vía A) y 3 observaciones == el suelo relativo
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.escalation).toMatchObject({ reason: 'shape_not_persistible_s2_dominant' });
+    // El veredicto explica CONTRA QUÉ suelo se midió — auditable meses después, cuando el alcance ya
+    // sea otro (por eso el suelo efectivo y `cardsInScope` van también a la bitácora).
+    expect(res.escalation!.detail).toContain('suelo de 3');
+    expect(res.escalation!.detail).toContain('3 carta(s) en alcance');
+  });
+
+  it('TIENDA CHICA — con el MISMO conteo pero 40 cartas en alcance, NO escala (el suelo vuelve a ser 5)', async () => {
+    // El mismo `shapeCounts` da veredictos distintos según el TAMAÑO de la corrida, y eso es el punto:
+    // 3 de 3 es «todo lo que vimos», 3 de 40 es una esquina del catálogo.
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      published: Array.from({ length: 40 }, (_, i) => ({ cardId: `c${i + 1}` })),
+      shapeCounts: { s1: 1, s2: 2 },
+    });
+    expect((await ingest.ingestGradedEstimates(FX)).escalation).toBeNull();
   });
 
   it('FORMATO FORZADO: con GRADED_FORMAT=graded_prices NO escala — el conteo mide lo que PEDIMOS, no lo que el proveedor sirve', async () => {

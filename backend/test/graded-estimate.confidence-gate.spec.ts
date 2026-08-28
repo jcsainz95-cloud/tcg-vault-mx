@@ -336,3 +336,99 @@ describe('§4.38m — la frescura SÍ aplica al override MANUAL (v1.50.3, GU-A16
     expect(isStaleRef(autoViejo, TODAY, cfg())).toBe(true);
   });
 });
+
+/**
+ * v1.50.3-c (§4.38n.2-bis, GU-A24) — **`isManual` en el diagnóstico: los dos sabores de `STALE`.**
+ *
+ * Nace del `?reason=STALE` de la lista de revisión. Una fila rancia **manual** es *la afirmación del
+ * dueño que expiró* ⇒ **recapturar o borrar**; una **automática** es *el feed que dejó de cubrir esa
+ * carta* ⇒ **mirar el ingest, no la carta**. Remedios **opuestos**, y `reason: STALE` a secas no los
+ * distingue: sin este campo cada fila obligaría a una segunda llamada, la fricción que la lista existe
+ * para eliminar.
+ *
+ * **Invariante que estas pruebas fijan:** `isManual` y `capturedDate` describen **LA MISMA fila** (la
+ * más antigua de las presentes, que es la que decide la frescura). Una fecha de una fila y un remedio
+ * de otra sería peor que no dar el remedio.
+ */
+describe('§4.38n.2-bis — `isManual` acompaña a `capturedDate` (misma fila)', () => {
+  const VIEJO = '2026-02-09'; // 200 días
+  const AYER = '2026-08-27';
+
+  it('con una sola fila, `isManual` es el origen de esa fila', () => {
+    for (const manual of [true, false]) {
+      const r = evaluateGradingHighlight({
+        ...base,
+        estimates: [est('10', 900_000, { capturedDate: VIEJO, isManual: manual })],
+        cfg: cfg(),
+      });
+      expect(r.reason).toBe('NO_PSA9'); // sin PSA 9 no se llega a STALE; el campo se emite igual
+      expect(r.capturedDate).toBe(VIEJO);
+      expect(r.isManual).toBe(manual);
+    }
+  });
+
+  it('con dos grados, manda la MÁS ANTIGUA — la misma que reporta `capturedDate`', () => {
+    // PSA 10 fresco automático + PSA 9 viejo MANUAL ⇒ la que decide la frescura (y el remedio) es el
+    // PSA 9 manual. Reportar `isManual:false` aquí mandaría al operador a mirar el ingest por una
+    // cifra que puso él.
+    const r = evaluateGradingHighlight({
+      ...base,
+      estimates: [
+        est('10', 900_000, { capturedDate: AYER, isManual: false }),
+        est('9', 500_000, { capturedDate: VIEJO, isManual: true }),
+      ],
+      cfg: cfg(),
+    });
+    expect(r.reason).toBe('STALE');
+    expect(r.capturedDate).toBe(VIEJO);
+    expect(r.isManual).toBe(true);
+  });
+
+  it('y al revés: PSA 9 fresco manual + PSA 10 viejo automático ⇒ `isManual:false` (mirar el ingest)', () => {
+    const r = evaluateGradingHighlight({
+      ...base,
+      estimates: [
+        est('10', 900_000, { capturedDate: VIEJO, isManual: false }),
+        est('9', 500_000, { capturedDate: AYER, isManual: true }),
+      ],
+      cfg: cfg(),
+    });
+    expect(r.reason).toBe('STALE');
+    expect(r.capturedDate).toBe(VIEJO);
+    expect(r.isManual).toBe(false);
+  });
+
+  it('empate de fechas ⇒ manda PSA 10 (determinista y estable, no «la que salga»)', () => {
+    const r = evaluateGradingHighlight({
+      ...base,
+      estimates: [
+        est('10', 900_000, { capturedDate: VIEJO, isManual: true }),
+        est('9', 500_000, { capturedDate: VIEJO, isManual: false }),
+      ],
+      cfg: cfg(),
+    });
+    expect(r.isManual).toBe(true);
+  });
+
+  it('sin ninguna fila ⇒ `isManual:false` con `capturedDate:null` — el dato que manda es la fecha', () => {
+    // `false` significa «no lo puso una persona», NO «lo puso el ingest»: para eso hace falta que exista
+    // fila, y eso lo dice `capturedDate`. El contrato declara `isManual: boolean`, no anulable.
+    const r = evaluateGradingHighlight({ ...base, estimates: [], cfg: cfg() });
+    expect(r.reason).toBe('NO_PSA10');
+    expect(r.capturedDate).toBeNull();
+    expect(r.isManual).toBe(false);
+  });
+
+  it('se emite también cuando la carta SÍ es elegible (es diagnóstico, no un flag de error)', () => {
+    const r = evaluateGradingHighlight({
+      ...base,
+      estimates: [
+        est('10', 900_000, { isManual: true }),
+        est('9', 500_000, { isManual: true }),
+      ],
+      cfg: cfg(),
+    });
+    expect(r.eligible).toBe(true);
+    expect(r.isManual).toBe(true);
+  });
+});

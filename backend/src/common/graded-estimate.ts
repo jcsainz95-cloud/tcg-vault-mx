@@ -252,6 +252,28 @@ export interface GradingHighlightResult<T extends GradedEstimateInput = GradedEs
   stale: boolean;
   /** El `capturedDate` MÁS ANTIGUO entre los grados presentes (el que manda para la frescura). */
   capturedDate: string | null;
+  /**
+   * v1.50.3-c (§4.38n.2-bis, GU-A24) — ORIGEN de **la MISMA fila que reporta `capturedDate`** (la más
+   * antigua de las presentes, que es la que decide la frescura). Los dos campos describen una sola
+   * fila a propósito: si `isManual` hablara de otra, el operador leería una fecha de una y un remedio
+   * de otra.
+   *
+   * **Por qué existe:** los dos sabores de `STALE` exigen remedios **OPUESTOS** — una **manual** rancia
+   * es *la afirmación del dueño que expiró* ⇒ **recapturar o borrar**; una **automática** rancia es *el
+   * feed que dejó de cubrir esa carta* ⇒ **mirar el ingest, no la carta**. `reason: STALE` a secas no
+   * los distingue, y sin este campo cada fila obligaría a una segunda llamada: justo la fricción que la
+   * lista de revisión existe para eliminar.
+   *
+   * **`isManual` y NO `source`**: contesta la pregunta operativa («¿esta cifra la puse yo?») sin
+   * publicar la identidad del proveedor. **No viola §4.38(g)** — la indistinguibilidad fase 1 ⇄ fase 2
+   * es una garantía sobre las superficies **PÚBLICAS**, y (g).2 ya dejaba `source`/`isManualOverride`
+   * disponibles para el admin. Este campo **jamás** viaja a una superficie anónima.
+   *
+   * ⚠️ Sin ninguna fila presente vale **`false`** (el contrato lo declara `boolean`, no anulable): ahí
+   * el dato que manda es `capturedDate: null`. `false` significa «no lo puso una persona», no «lo puso
+   * el ingest» — para eso hace falta que exista fila, y eso lo dice `capturedDate`.
+   */
+  isManual: boolean;
 }
 
 /** MVP: única graduadora soportada (§O.1; CGC/BGS/TAG fuera de alcance). */
@@ -815,16 +837,21 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     e != null && isInt(e.mxnCents) && e.mxnCents > 0 ? e.mxnCents : null;
   const psa10MxnCents = amountOf(rawPsa10);
   const psa9MxnCents = amountOf(rawPsa9);
-  // Diagnóstico: manda el capturedDate MÁS ANTIGUO de los grados presentes (el que decide la frescura).
-  const dates = [rawPsa10, rawPsa9]
-    .filter((e): e is T => e != null)
-    .map((e) => e.capturedDate)
-    .sort();
-  const capturedDate = dates.length > 0 ? dates[0] : null;
+  // Diagnóstico: manda la fila MÁS ANTIGUA de los grados presentes (la que decide la frescura). Se
+  // resuelve la FILA, no solo su fecha, porque v1.50.3-c también reporta su ORIGEN (`isManual`) y los
+  // dos campos tienen que describir LA MISMA fila: una fecha de una y un remedio de otra sería peor que
+  // no dar el remedio. Empate de fechas ⇒ gana PSA 10 (orden del arreglo): determinista y estable.
+  const present = [rawPsa10, rawPsa9].filter((e): e is T => e != null);
+  const oldest = present.reduce<T | null>(
+    (acc, e) => (acc == null || e.capturedDate < acc.capturedDate ? e : acc),
+    null,
+  );
+  const capturedDate = oldest != null ? oldest.capturedDate : null;
+  // `false` sin fila presente: el contrato lo declara `boolean`, y ahí el dato que manda es
+  // `capturedDate: null` («no hay fila»), no este flag.
+  const isManual = oldest?.isManual === true;
   // v1.50.2: la frescura se evalúa POR FILA (asimétrica manual/automática, §4.38m), no por fecha suelta.
-  const stale = [rawPsa10, rawPsa9]
-    .filter((e): e is T => e != null)
-    .some((e) => isStaleRef(e, today, cfg));
+  const stale = present.some((e) => isStaleRef(e, today, cfg));
   // Cota SUPERIOR efectiva. Se trunca a ENTERO de centavos: `psa10 > floor(raw × mult)` es equivalente a
   // `psa10 > raw × mult` para `psa10` entero, y así el número que ve el operador en el `preview` es
   // exactamente el que se comparó (nada de un umbral flotante que no coincide con lo que se decidió).
@@ -846,6 +873,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     psa9MxnCents,
     stale,
     capturedDate,
+    isManual,
   });
 
   // GU-A8 (§4.38d): apagado por dial M10 `off` **o** por una clave PRESENTE-e-INVÁLIDA que gobierne la
@@ -877,8 +905,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   //     «por grado» del criterio 112(c) —la carta sigue pudiendo mostrar el OTRO grado— la sostiene la
   //     FICHA, donde `usable()` filtra grado a grado; ésta es la superficie de PROMOCIÓN, no la de
   //     información.
-  const slabTakenGrades = [rawPsa10, rawPsa9]
-    .filter((e): e is T => e != null)
+  const slabTakenGrades = present
     .map((e) => e.gradeValue)
     .filter((g) => publishedSlabGrades.includes(g));
   if (slabTakenGrades.length > 0) return no('SLAB_PUBLISHED');
@@ -927,6 +954,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     psa9MxnCents,
     stale,
     capturedDate,
+    isManual,
   };
   // Insumo del diagnóstico: `netUpsidePsa9MxnCents` puede ser <= 0 aquí (por eso NO se usa como prueba
   // de elegibilidad — la prueba es el UMBRAL).

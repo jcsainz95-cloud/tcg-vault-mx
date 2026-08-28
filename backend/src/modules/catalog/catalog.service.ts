@@ -352,6 +352,12 @@ export interface GradedEstimateReviewItemDTO {
   psa9MxnCents: number | null;
   capturedDate: string | null;
   stale: boolean;
+  /**
+   * v1.50.3-c (§4.38n.2-bis) — origen de la fila que reporta `capturedDate`. Distingue los DOS sabores
+   * de `STALE`, que exigen remedios OPUESTOS: **manual** rancia ⇒ recapturar o borrar; **automática**
+   * rancia ⇒ mirar el ingest, no la carta. **Admin-only** (§4.38g es sobre lo público).
+   */
+  isManual: boolean;
   gradingCostTier: GradingCostTier | null;
   gradingCostMxnCents: number | null;
   thresholdMxnCents: number | null;
@@ -376,13 +382,25 @@ export const GRADED_REVIEW_DEFAULT_REASONS: readonly HighlightReason[] = [
 ];
 
 /**
- * `SLAB_PUBLISHED` es **opt-in explícito, fuera del default**: es accionable para el operador —es el
- * conjunto expuesto al riesgo de §4.38(l.3)— pero **no es un dato erróneo**, es la guarda funcionando.
- * Meterlo en el default **ahogaría la señal** justo en la lista que existe para que la señal se vea.
+ * Los DOS **opt-in explícitos, fuera del default** (§4.38n.2 / n.2-bis). Los dos son **accionables**
+ * para el operador pero **no son datos erróneos**, así que meterlos en el default **ahogaría la señal
+ * de coherencia** justo en la lista que existe para que esa señal se vea.
+ *
+ * - **`SLAB_PUBLISHED`** (INV-D): es el conjunto expuesto al riesgo de §4.38(l.3) — la guarda
+ *   funcionando, no un dato malo.
+ * - **`STALE`** (v1.50.3-c, GU-A24 / PI-D6): la cifra **existe y CADUCÓ**. El arquitecto lo tenía
+ *   agrupado con la «ausencia de dato» (`NO_PSA10` y compañía) y **no pertenece ahí**: aquéllos
+ *   significan *nunca hubo dato* —el estado NORMAL de miles de cartas—; éste significa **hubo un dato,
+ *   alguien lo puso o lo ingestó, y expiró**. Sin este valor, una cifra caducada **desaparece de las
+ *   tres superficies en silencio, sigue en la BD y el dueño no tiene forma de encontrarla** para
+ *   refrescarla o retirarla: el fallo silencioso que §4.38 persigue en todas partes. Y la categoría la
+ *   creó esta misma revisión al sembrar `manualFreshnessDays = 30` (antes, un manual no caducaba nunca
+ *   ⇒ el conjunto era vacío).
  */
 export const GRADED_REVIEW_ALLOWED_REASONS: readonly HighlightReason[] = [
   ...GRADED_REVIEW_DEFAULT_REASONS,
   'SLAB_PUBLISHED',
+  'STALE',
 ];
 
 /**
@@ -1273,6 +1291,9 @@ export class CatalogService {
           psa9MxnCents: r.psa9MxnCents,
           capturedDate: r.capturedDate,
           stale: r.stale,
+          // v1.50.3-c (§4.38n.2-bis): el ORIGEN de esa misma fila. Sin él, `STALE` no dice si el
+          // remedio es «recapturar» (manual) o «mirar el ingest» (automática).
+          isManual: r.isManual,
           gradingCostTier: r.gradingCostTier,
           gradingCostMxnCents: r.gradingCostMxnCents,
           thresholdMxnCents: r.thresholdMxnCents,
@@ -1391,14 +1412,11 @@ export class CatalogService {
     const today = businessDateCdmx();
     const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: cardIds } }));
     const [estimatesByCard, slabsByCard] = await Promise.all([
-      // v1.50.3-c (QA): misma resolución que el `preview` — se ven también las filas que el filtro de
+      // v1.50.3-c: misma resolución que el `preview` — se ven también las filas que el filtro de
       // frescura descartó, para que la lista pueda decir «esta cifra CADUCÓ» en vez de «no hay cifra».
-      // ⚠️ Alcance real HOY: `reason` se ordena AUSENCIA → FRESCURA → coherencia, así que una fila
-      // rancia produce `STALE`, y `STALE` **no es filtrable** en este endpoint (§M2: cualquier `reason`
-      // fuera de los cuatro admitidos ⇒ `400`). O sea: los ítems caducados se calculan ya con la verdad
-      // correcta, pero el operador no puede ENUMERARLOS. Cerrar eso exige admitir `STALE` como filtro
-      // opt-in ⇒ cambio de CONTRATO ⇒ arquitecto (regla 9); NO se hace aquí. Lo que sí queda arreglado:
-      // los ítems que la lista emite llevan `stale`/`capturedDate` resueltos contra la fila real.
+      // **Es lo que hace posible `?reason=STALE`** (§4.38n.2-bis, GU-A24): sin esta re-inyección, una
+      // carta cuya única fila caducó resolvía a `NO_PSA10` —«nunca la capturaste»— y quedaba fuera de
+      // toda consulta posible, desaparecida de las tres superficies y aun así presente en la BD.
       this.pricing.getGradedEstimatesBatch(cardIds, cfg, today, { includeStaleForDiagnostics: true }),
       this.pricing.getPublishedSlabGradesBatch(cardIds),
     ]);
@@ -1436,6 +1454,7 @@ export class CatalogService {
         psa9MxnCents: r.psa9MxnCents,
         capturedDate: r.capturedDate,
         stale: r.stale,
+        isManual: r.isManual,
         gradingCostTier: r.gradingCostTier,
         gradingCostMxnCents: r.gradingCostMxnCents,
         thresholdMxnCents: r.thresholdMxnCents,
@@ -1447,11 +1466,25 @@ export class CatalogService {
       });
     }
 
-    // ORDEN DETERMINISTA (§M2): `reason` asc → `cardId` asc → representante asc. Sin él la paginación
-    // baila entre requests y el operador ve la misma carta dos veces (o ninguna).
+    // ORDEN DETERMINISTA (§M2): `reason` asc → **`capturedDate` asc (`null` al final)** → `cardId` asc
+    // → representante asc. Sin él la paginación baila entre requests y el operador ve la misma carta
+    // dos veces (o ninguna).
+    //
+    // v1.50.3-c intercala `capturedDate`: con `?reason=STALE` **lo más vencido va primero**, que es el
+    // orden en que el dueño quiere atacarlo (la cifra de hace 200 días miente más que la de hace 31).
+    // `null` al final y no al principio: una fila sin fecha no es «la más vieja», es una fila de la que
+    // no sabemos nada — encabezar la lista con ella empujaría lo accionable fuera de la primera página.
+    // El orden sigue siendo TOTAL y estable: los dos últimos criterios son únicos por construcción.
+    const byCapturedDate = (a: string | null, b: string | null): number => {
+      if (a === b) return 0;
+      if (a == null) return 1; // `null` al final
+      if (b == null) return -1;
+      return a < b ? -1 : 1; // `YYYY-MM-DD` ordena lexicográficamente = cronológicamente
+    };
     items.sort(
       (a, b) =>
         String(a.reason).localeCompare(String(b.reason)) ||
+        byCapturedDate(a.capturedDate, b.capturedDate) ||
         a.cardId.localeCompare(b.cardId) ||
         a.representativeInventoryItemId.localeCompare(b.representativeInventoryItemId),
     );

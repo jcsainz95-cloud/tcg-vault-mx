@@ -617,7 +617,7 @@ describe('GET /admin/pricing/graded-estimates/review — la lista de revisión (
     expect(optIn.data.map((d) => d.reason)).toEqual(['SLAB_PUBLISHED']);
   });
 
-  it.each(['STALE', 'NO_PSA10', 'NO_PSA9', 'NO_COST_TIER', 'BELOW_MIN_UPSIDE', 'NOT_RAW', 'NOT_PUBLISHED', 'FEATURE_OFF'])(
+  it.each(['NO_PSA10', 'NO_PSA9', 'NO_COST_TIER', 'BELOW_MIN_UPSIDE', 'NOT_RAW', 'NOT_PUBLISHED', 'FEATURE_OFF'])(
     '`reason=%s` ⇒ 400: es AUSENCIA de dato o el gate comercial, no una incoherencia',
     async (reason) => {
       const { ctrl } = incoherente();
@@ -629,6 +629,127 @@ describe('GET /admin/pricing/graded-estimates/review — la lista de revisión (
       });
     },
   );
+
+  /**
+   * v1.50.3-c (§4.38n.2-bis, GU-A24) — **`STALE` SALIÓ de esa lista de rechazados.**
+   *
+   * El arquitecto lo había agrupado con la «ausencia de dato» y **no pertenecía ahí**: `NO_PSA10`
+   * significa *nunca hubo dato* (el estado normal de miles de cartas); `STALE` significa **hubo un dato,
+   * alguien lo puso o lo ingestó, y expiró** — una cifra que **existe en la BD ahora mismo**, que
+   * desapareció de las tres superficies **en silencio**, y que el dueño no tenía forma de encontrar para
+   * refrescarla o retirarla. Agravante: la categoría la creó esta misma revisión al sembrar
+   * `manualFreshnessDays = 30` (antes un manual no caducaba nunca ⇒ el conjunto era vacío).
+   */
+  describe('`?reason=STALE` — la cifra que EXISTE y CADUCÓ (v1.50.3-c)', () => {
+    const HACE_40_DIAS = new Date(Date.now() - 40 * 86_400_000);
+    /** Las dos cifras sanas del criterio 111, pero capturadas hace 40 días (seed: caducan a los 30). */
+    const caducada = (over: Record<string, unknown> = {}) =>
+      wire(
+        [rawItem()],
+        [
+          { ...psaRef('10', 900_000, HACE_40_DIAS), ...over },
+          { ...psaRef('9', 500_000, HACE_40_DIAS), ...over },
+        ],
+        ON,
+      );
+
+    it('deja de ser `400` y ENUMERA la carta caducada (era una consulta imposible)', async () => {
+      const { ctrl } = caducada();
+      const res = await ctrl.review('STALE');
+      expect(res.total).toBe(1);
+      expect(res.data[0]).toMatchObject({
+        cardId: 'ca',
+        cardName: 'Pikachu', // se lee sin un fetch por fila, igual que el resto de la lista
+        reason: 'STALE',
+        eligible: false,
+        stale: true,
+        // La cifra caducada se VE: es lo que el dueño necesita para decidir si la sostiene o la retira.
+        psa10MxnCents: 900_000,
+        psa9MxnCents: 500_000,
+      });
+      expect(res.data[0].capturedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('sigue FUERA del default: en el default ahogaría la señal de coherencia', async () => {
+      // Mismo motivo que `SLAB_PUBLISHED`: accionable, pero no es un dato erróneo. La lista existe para
+      // que la señal de incoherencia se vea, y una tienda con muchas cifras viejas la taparía.
+      expect((await caducada().ctrl.review()).total).toBe(0);
+    });
+
+    it('`isManual: true` en la fila MANUAL — el remedio es RECAPTURAR (o borrar)', async () => {
+      const { ctrl } = caducada();
+      expect((await ctrl.review('STALE')).data[0].isManual).toBe(true);
+    });
+
+    it('`isManual: false` en la AUTOMÁTICA — el remedio es MIRAR EL INGEST, no la carta', async () => {
+      // Los dos sabores de `STALE` exigen remedios OPUESTOS y `reason: STALE` a secas no los distingue;
+      // sin este campo, cada fila obligaría a una segunda llamada — la fricción que la lista elimina.
+      const { ctrl } = caducada({ isManualOverride: false, source: 'pokemonpricetracker' });
+      const [fila] = (await ctrl.review('STALE')).data;
+      expect(fila.reason).toBe('STALE');
+      expect(fila.isManual).toBe(false);
+    });
+
+    it('NO publica `source`: contesta «¿la puse yo?» sin revelar la identidad del proveedor', async () => {
+      const { ctrl } = caducada({ isManualOverride: false, source: 'pokemonpricetracker' });
+      const [fila] = (await ctrl.review('STALE')).data;
+      expect(fila).not.toHaveProperty('source');
+      expect(fila).not.toHaveProperty('isManualOverride');
+      expect(JSON.stringify(fila)).not.toContain('pokemonpricetracker');
+    });
+
+    it('`SLAB_PUBLISHED` y `STALE` se pueden pedir juntos (los dos opt-in conviven)', async () => {
+      const { ctrl } = caducada();
+      expect((await ctrl.review('SLAB_PUBLISHED,STALE')).total).toBe(1);
+    });
+  });
+
+  /**
+   * v1.50.3-c (§M2) — **`capturedDate` asc se INTERCALA en el orden determinista**, entre `reason` y
+   * `cardId`. Con `?reason=STALE`, **lo más vencido va primero**: es el orden en que el dueño quiere
+   * atacarlo (la cifra de hace 200 días miente más que la de hace 31). El orden sigue siendo TOTAL y
+   * estable — los dos últimos criterios (`cardId`, representante) son únicos por construcción.
+   */
+  describe('orden determinista con `capturedDate` asc (v1.50.3-c)', () => {
+    const CARD_B = { ...CARD, id: 'cb', name: 'Charizard' };
+    const dias = (n: number) => new Date(Date.now() - n * 86_400_000);
+
+    it('entre dos cifras caducadas, la MÁS VIEJA va primero', async () => {
+      const { ctrl } = wire(
+        [rawItem(), rawItem({ id: 'i2', cardId: 'cb', card: CARD_B })],
+        [
+          // `ca` caducó hace 40 días; `cb` hace 200. El `cardId` los ordenaría al revés (ca < cb), así
+          // que este test SOLO pasa si `capturedDate` manda sobre `cardId`.
+          { ...psaRef('10', 900_000, dias(40)) },
+          { ...psaRef('9', 500_000, dias(40)) },
+          { ...psaRef('10', 900_000, dias(200)), cardId: 'cb' },
+          { ...psaRef('9', 500_000, dias(200)), cardId: 'cb' },
+        ],
+        ON,
+      );
+      const res = await ctrl.review('STALE');
+      expect(res.data.map((d) => d.cardId)).toEqual(['cb', 'ca']);
+    });
+
+    it('`capturedDate: null` va al FINAL, no al principio', async () => {
+      // Una fila sin fecha no es «la más vieja»: es una de la que no sabemos nada. Encabezar con ella
+      // empujaría lo accionable fuera de la primera página.
+      const { ctrl } = wire(
+        [rawItem(), rawItem({ id: 'i2', cardId: 'cb', card: CARD_B })],
+        [
+          // `ca`: incoherente por unidades y SIN fecha resoluble (no hay filas ⇒ capturedDate null).
+          { ...psaRef('10', 60_000, dias(1)) },
+          { ...psaRef('9', 50_000, dias(1)) },
+          { ...psaRef('10', 60_000, dias(1)), cardId: 'cb' },
+          { ...psaRef('9', 50_000, dias(1)), cardId: 'cb' },
+        ],
+        ON,
+      );
+      const res = await ctrl.review('NOT_ABOVE_RAW');
+      // Mismo `reason` y misma fecha ⇒ desempata `cardId`: el orden sigue siendo TOTAL.
+      expect(res.data.map((d) => d.cardId)).toEqual(['ca', 'cb']);
+    });
+  });
 
   it('`?reason=` acepta CSV y repetido, y deduplica', async () => {
     const { ctrl } = incoherente();

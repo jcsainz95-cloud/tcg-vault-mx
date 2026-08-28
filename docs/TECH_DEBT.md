@@ -4523,11 +4523,26 @@
 
 > Los tres hallazgos enrutados a backend en esta ronda **se arreglaron en el pase** (los cuatro
 > comentarios derogados de `graded-estimate.ts`, la recuperación de `STALE` en el diagnóstico, y las dos
-> guardas de la escalada por shape), junto con los cinco menores. Lo que queda aquí es lo que **NO** se
-> pudo cerrar en `backend/` porque la decisión no es de backend.
+> guardas de la escalada por shape), junto con los cinco menores. Se escalaron dos cosas al arquitecto
+> (regla 9) y **las dos volvieron resueltas en el commit `515a4be`**, implementadas en el mismo pase; lo
+> que sigue abierto aquí es solo la calibración de PI-D7.
 
-#### PI-D6 · La lista de revisión sigue sin poder ENUMERAR una cifra caducada (Media, **arquitecto** — cambio de contrato)
-- **Dueño:** **arquitecto** (decide), backend (implementaría). **Severidad:** Media. **Escalado por regla 9.**
+#### PI-D6 · ~~La lista de revisión sigue sin poder ENUMERAR una cifra caducada~~ → **RESUELTA** (v1.50.3-c, commit `515a4be`)
+- **Estado: CERRADA.** El arquitecto aceptó la propuesta **tal cual** (GU-A24, §4.38n.2-bis) y declaró
+  el `400` un **error de diseño propio**: había agrupado `STALE` con la «ausencia de dato» cuando es lo
+  contrario —**un dato que existió y expiró**—, y en §4.38(m) había escrito que la lista era la
+  superficie donde el dueño ve lo que le vence **normando a la vez el rechazo de esa consulta exacta**.
+  Agravante que él mismo señala: la categoría **la creó esa misma revisión** al sembrar
+  `manualFreshnessDays = 30` (antes era el conjunto vacío).
+- **Implementado por backend en el mismo pase:** `STALE` opt-in en `?reason=` (nunca default),
+  `isManual: boolean` en los DTO de diagnóstico (`isManual` sí, `source` no) y `capturedDate` asc
+  intercalado en el orden (lo más vencido primero, `null` al final). Ver `BACKEND_NOTES` §0.7.1.
+- **Lo que queda vivo y NO es deuda:** la vista de **«próximo a vencer»** (`caduca en N días`) quedó
+  **declarada fuera de alcance** por el arquitecto en §4.38(n.4) —exige una ventana parametrizable, o
+  sea alcance nuevo—, con el mismo trato que «marcar como revisada». Si el dueño la pide, es decisión de
+  producto + arquitecto.
+- *(Registro original de la escalada, conservado para trazabilidad:)*
+- **Dueño:** **arquitecto** (decidió), backend (implementó). **Severidad:** Media. **Escalado por regla 9.**
 - **Qué SÍ quedó arreglado en este pase:** `preview` volvió a emitir `STALE` / `stale: true` /
   `capturedDate` / el monto de la fila caducada (antes respondía `NO_PSA10` + `capturedDate: null`, o
   sea «nunca la capturaste» sobre una cifra que sí existía). `review` calcula ahora con esa misma
@@ -4546,17 +4561,20 @@
   `reason`, igual que `SLAB_PUBLISHED` — **nunca** en el default, porque ahogaría la señal de coherencia
   (mismo argumento que ya se aplicó a `SLAB_PUBLISHED`). Coste en backend: una constante
   (`GRADED_REVIEW_ALLOWED_REASONS`) y sus tests. Cero cambios de DTO, de query y de cálculo.
-- **Disparador:** decisión del arquitecto. Mientras tanto, el camino del operador para una cifra caducada
-  sigue siendo `preview` con `cardId` — que **solo contesta si ya sospechabas**, que es exactamente la
-  limitación que `review` existe para cerrar.
+- **Disparador:** decisión del arquitecto. **Llegó en `515a4be`: aceptada e implementada** (ver arriba).
 
-#### PI-D7 · El suelo de muestra de la escalada por shape es un número elegido, no medido (Baja, backend)
-- **Dueño:** backend. **Severidad:** Baja (aceptada).
-- **Deuda:** `GRADED_SHAPE_ESCALATION_MIN_CARDS = 5` acota el falso positivo de «1 > 0 es mayoría
-  estricta», pero el valor **no sale de una medición**: este job barre lo que hay, no muestrea, así que
-  no hay una noción de significancia que calcular. Elegido bajo a propósito — el defecto opuesto
-  (silenciar un cambio de shape real en una instalación pequeña) es peor, y por eso por debajo del suelo
-  la señal **se informa con `warn`** en vez de perderse.
+#### PI-D7 · El suelo de muestra de la escalada por shape (Baja, backend) — **AJUSTADO por el arquitecto** (v1.50.3-c, `515a4be`)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Estado: el defecto de alcanzabilidad está CERRADO;
+  la calibración del número sigue abierta.**
+- **Lo que se corrigió (GU-A25, §4.38h.1-ter):** mi suelo **absoluto** de 5 tenía **el mismo bug que el
+  `STALE` inalcanzable** de PI-D6 — con alcance «solo cartas publicadas», una tienda con **3 cartas** no
+  llegaría nunca a 5 y la fase 2 moriría en silencio con su propio aviso apagado. Ahora: **(A)**
+  `S1 == 0 && S2 >= 1` escala **sin suelo**; **(B)** `S2 > S1` con suelo **`min(5, cartas en alcance)`**.
+- **Lo que queda como deuda (Baja):** el **5** sigue siendo un número **elegido, no medido**. Este job
+  barre lo que hay, no muestrea, así que no hay significancia que calcular; se eligió bajo a propósito
+  porque el defecto opuesto —silenciar un cambio de shape real— es peor, y por debajo del suelo la señal
+  **se informa con `warn`** en vez de perderse. Sigue siendo **constante de código, no dial**
+  (§4.38h.1-ter: se calibra una vez).
 - **Disparador:** la primera corrida real del ingest con `graded_estimate_ingest_enabled = on`. Si el
   `warn` de «no se escala por muestra corta» aparece de forma sostenida sobre corridas de alcance normal,
-  el suelo está mal calibrado y ahí sí habrá datos para elegir el número.
+  el número está mal calibrado y ahí sí habrá datos para elegirlo.

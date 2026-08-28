@@ -4,6 +4,106 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.7 v1.50.3-c (cont.) — Las dos escaladas resueltas por el arquitecto (`515a4be`) (2026-08-28)
+
+> Implementa **§4.38(n.2-bis) / GU-A24** (PI-D6) y **§4.38(h.1-ter) / GU-A25** (PI-D7). **Cero DTO
+> públicos tocados, cero rutas nuevas, cero migraciones.** Todo se apoya en el
+> `includeStaleForDiagnostics` de §0.6.2: **no hay lógica nueva de frescura**.
+
+### 0.7.1 PI-D6 — `STALE` es enumerable, y el diagnóstico dice de qué SABOR es
+
+Tres cambios, todos en superficies **admin-only**:
+
+1. **`STALE` admitido en `?reason=`** de `GET /admin/pricing/graded-estimates/review`
+   (`GRADED_REVIEW_ALLOWED_REASONS`). **Opt-in, jamás en el default** — mismo trato que
+   `SLAB_PUBLISHED` y por el mismo motivo: en el default **ahogaría la señal de coherencia** en la
+   lista que existe para que esa señal se vea. Deja de ser `400`.
+2. **`isManual: boolean`** en `GradingHighlightResult`, en `GradedEstimatePreviewDTO` y en
+   `GradedEstimateReviewItemDTO`. Se emite **`isManual` y no `source`**: contesta la pregunta operativa
+   («¿esta cifra la puse yo?») sin publicar la identidad del proveedor.
+3. **`capturedDate` asc intercalado** en el orden determinista (`reason` → `capturedDate` → `cardId` →
+   representante). Con `?reason=STALE`, **lo más vencido primero**. `null` **al final**: una fila sin
+   fecha no es «la más vieja», es una de la que no sabemos nada, y encabezar con ella empujaría lo
+   accionable fuera de la primera página. El orden sigue siendo **total y estable**.
+
+**La decisión de implementación que importa: `isManual` describe LA MISMA FILA que `capturedDate`** (la
+más antigua de las presentes, que es la que decide la frescura; empate ⇒ PSA 10, determinista). Antes,
+la pura solo conservaba la *fecha* mínima; ahora resuelve la **fila** mínima y deriva las dos cosas de
+ella. Si no coincidieran, el operador leería la fecha de una fila y el remedio de otra —y el remedio es
+justo lo que este campo existe para dar:
+
+| Fila rancia | Qué significa | Qué hacer |
+|---|---|---|
+| **manual** (`isManual: true`) | la afirmación **del dueño** expiró | **recapturar** (sostener el número) o **borrarla** |
+| **automática** (`isManual: false`) | el feed **dejó de cubrir esa carta** | mirar el **ingest**, no la carta (cuota, shape, carta despublicada) |
+
+**Sin fila presente ⇒ `isManual: false` con `capturedDate: null`.** El contrato lo declara `boolean`, no
+anulable; el dato que manda ahí es la fecha. `false` significa «no lo puso una persona», **no** «lo puso
+el ingest» — para eso hace falta que exista fila, y eso lo dice `capturedDate`. Está documentado en el
+tipo para que nadie lo lea al revés.
+
+**Por qué esto no viola §4.38(g)** (indistinguibilidad fase 1 ⇄ fase 2): esa garantía es sobre las
+superficies **PÚBLICAS**, y (g).2 ya dejaba `source`/`isManualOverride` disponibles para el admin.
+`GradedEstimateRef` ya llevaba `isManual` porque la frescura asimétrica lo necesita; lo único nuevo es
+que **el diagnóstico lo publica al admin**. Hay un test que verifica que el ítem **no** trae `source`
+ni `isManualOverride` y que el nombre del proveedor no aparece en el JSON.
+
+### 0.7.2 PI-D7 — el suelo pasa a `min(5, cartas en alcance)` + la regla «cero S1»
+
+El arquitecto ratificó la exigencia de muestra mínima y **corrigió su forma**: mi suelo **absoluto** de 5
+tenía **el mismo defecto que el `STALE` inalcanzable que este pase acababa de arreglar**. El alcance del
+ingest es «solo cartas con inventario publicado» (§4.38h.3), así que **una tienda con 3 cartas publicadas
+nunca llegaría a 5**: si las 3 devolvieran S2, la fase 2 quedaría muerta **en silencio** con su propio
+detector apagado por construcción.
+
+Disparador implementado (§4.38h.1-ter), sobre las cartas que devolvieron **algún** bloque PSA:
+
+| Vía | Condición | Lectura |
+|---|---|---|
+| **A** | `S1 == 0 && S2 >= 1` | **escala SIEMPRE, sin suelo** — «nunca hemos visto el shape bueno» sugiere que `ebay.salesByGrade` no existe en este plan/cuenta; una sola observación ya es informativa |
+| **B** | `S2 > S1` y `observadas >= min(5, cardsInScope)` | mayoría estricta con **suelo relativo** |
+
+**Detalle de implementación no obvio: el denominador del suelo es `cardsInScope`** (las cartas que la
+corrida **miró**), no `shapeObservations` (las que trajeron bloque PSA). Con `min(5, observadas)` la
+condición sería `observadas >= observadas` —siempre verdadera— y **el suelo no existiría**. El suelo tiene
+que hablar del **tamaño de la corrida**, que es lo que el argumento de la tienda chica describe.
+
+**La guarda del formato forzado se mantiene y aplica a LAS DOS vías.** Con
+`POKEMONPRICETRACKER_GRADED_FORMAT=graded_prices`, el «cero S1» de la vía (A) es **literalmente lo que
+ordenamos que pasara** (`useS1 = false` por decreto), así que tampoco ahí el conteo habla del proveedor.
+Hay un test específico para eso.
+
+El veredicto lleva **por qué vía se disparó** en el `detail` y en el `AuditLog` (`rule`, `shapeFloor`,
+`cardsInScope`, `shapeObservations`, `forcedFormat`): sin el suelo efectivo y el alcance, el veredicto no
+sería auditable meses después, cuando `cardsInScope` ya sea otro. `GRADED_SHAPE_ESCALATION_MIN_CARDS`
+sigue siendo **constante de código, no dial** (§4.38h.1-ter: se calibra una vez). La escalada es **señal,
+no fallo** — no aborta la corrida ni apaga el ingest, así que un falso positivo cuesta una conversación.
+
+### 0.7.3 Verificación
+
+| Suite | Resultado |
+|---|---|
+| `npm test` (unitarios) | **200 suites / 2443 tests — todo verde** |
+| `npm run test:integration` | **12 suites / 162 tests — todo verde** |
+| `npx tsc --noEmit` / `eslint` | limpio (2 warnings preexistentes, ajenos) |
+
+Tests nuevos de este tramo: 6 sobre `?reason=STALE` / `isManual` / no-fuga de `source` y 2 de orden por
+`capturedDate` en `graded-estimate.admin.spec.ts`; 6 sobre el invariante «`isManual` y `capturedDate`
+describen la misma fila» en `graded-estimate.confidence-gate.spec.ts`; 6 sobre las vías A/B y el suelo
+relativo (incluido el caso **tienda chica de 3 cartas** y su contraste con 40 en alcance) en
+`graded-estimate.inv-fx.spec.ts`.
+
+**Y el caso que pidió el arquitecto para QA (§4.38i punto 7), en el E2E `8d)` contra el stack vivo:** la
+carta de 40 días, ya invisible en las tres superficies, **se encuentra** en `review?reason=STALE` con
+`isManual: true`, su `capturedDate` y su cifra; **no** aparece en el default; y **desaparece de esa lista
+al recapturarla**. Sin esa segunda mitad, «caduca solo» sería una **desaparición sin retorno** — y una
+lista de pendientes que no se vacía al resolver el pendiente enseña a ignorarla. La búsqueda es por
+`cardId` y no por `data[0]` a propósito: la lista es **global** por diseño, así que filas ajenas al
+fixture pueden convivir sin invalidar el caso (es la sensibilidad de estado que reportó QA).
+
+**Nota para frontend/QA:** en el E2E `8c)` el ejemplo de `reason` inválido dejó de poder ser `STALE`
+(ahora es admitido); se cambió a `NO_PSA10`, que sigue siendo `400`.
+
 ## 0.6 v1.50.3-c — Ronda de corrección QA + techlead sobre el gancho PSA (2026-08-28)
 
 > **Cero cambios de contrato, de schema y de ruta.** Una migración: ninguna. Lo que cambia hacia fuera
@@ -66,14 +166,12 @@ Tres propiedades que sostienen que esto no reabre nada:
 3. **La única divergencia posible con el storefront viene ETIQUETADA** con la razón que la explica
    (`STALE`), en vez de ser silenciosa.
 
-**⚠️ Discrepancia con el contrato — para el ARQUITECTO (regla 9; NO se tocó nada).** Con esto, `preview`
-queda completo. **`review` NO**, y el motivo es del contrato, no del código: §M2 declara que cualquier
-`reason` fuera de `NOT_ABOVE_RAW | ABOVE_MAX_MULTIPLE | GRADE_ORDER_INVERTED | SLAB_PUBLISHED` ⇒
-**`400 VALIDATION_ERROR`**, `STALE` incluido. Y el orden de razones de la pura es AUSENCIA → FRESCURA →
-coherencia, así que una carta con cifra caducada resuelve a `STALE` y **no es enumerable** por el
-operador. Es decir: **la lista de revisión sigue sin poder mostrar una cifra caducada**, y cerrarlo exige
-admitir `STALE` como valor **opt-in** del filtro (nunca en el default: ahogaría la señal de coherencia,
-que es el mismo argumento con el que `SLAB_PUBLISHED` quedó opt-in). Queda **escalado, no arreglado**.
+**Discrepancia con el contrato — escalada (regla 9) y YA RESUELTA por el arquitecto.** Con lo anterior,
+`preview` quedaba completo y **`review` no**: §M2 rechazaba `STALE` con `400`, así que una carta con
+cifra caducada resolvía a `STALE` y **no era enumerable**. Se escaló sin tocar el contrato; el arquitecto
+lo resolvió en el commit `515a4be` (**GU-A24 / §4.38n.2-bis**) aceptando la propuesta tal cual y
+declarando el `400` un **error de diseño propio** («agrupé `STALE` con la ausencia de dato, y no es eso:
+es un dato que existió y expiró»). **Implementado en §0.7.**
 
 ### 0.6.3 La escalada por shape podía AUTOINDUCIR su veredicto (techlead)
 
@@ -89,14 +187,15 @@ este proveedor» — un veredicto de **arquitectura y presupuesto**. Dos formas 
   bastaba. Con el alcance acotado por diseño (curaduría manual en fase 1 + `ingestMaxCardsPerRun`), los
   denominadores diminutos son **normales**.
 
-Ahora el predicado exige `forcedFormat === 'auto'` **y** ≥ `GRADED_SHAPE_ESCALATION_MIN_CARDS` (**5**)
-observaciones. En los dos casos suprimidos el job hace **exactamente lo mismo con las cartas** (S2 sigue
+Ahora el predicado exige `forcedFormat === 'auto'` **y** un suelo de muestra. *(⚠️ El suelo que propuse
+—5 absoluto— lo **corrigió el arquitecto** en el mismo commit: ver §0.7.2. La guarda del formato forzado
+queda como estaba.)* En los dos casos suprimidos el job hace **exactamente lo mismo con las cartas** (S2 sigue
 siendo no persistible y se sigue saltando y auditando carta por carta): lo único que cambia es que no se
 emite un veredicto que la evidencia no sostiene — y se deja un `warn` que dice **cuál de las dos
 condiciones faltó y cómo obtener un veredicto válido** (correr con `auto` / ampliar el alcance). El suelo
 es deliberadamente bajo: no busca significancia estadística, solo evitar que una o dos observaciones se
 presenten como el shape dominante del proveedor. La escalada lleva ahora su propia procedencia en el
-`detail` y en la bitácora (`forcedFormat`, `shapeObservations`, `minObservations`).
+`detail` y en la bitácora (`forcedFormat`, `shapeObservations`, el suelo efectivo y la vía que disparó).
 
 **No muerde hoy** (el dial `graded_estimate_ingest_enabled` está `off`), pero queda cerrado **antes** de
 encenderlo, que era la condición.

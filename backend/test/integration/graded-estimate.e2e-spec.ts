@@ -386,7 +386,11 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(review.body.scannedCards).toBeGreaterThan(0);
 
     // Un `reason` que NO es una incoherencia ⇒ 400 (no una lista vacía que parezca «nada que revisar»).
-    const malo = await h.api('GET', '/admin/pricing/graded-estimates/review?reason=STALE', { token: adminToken });
+    // ⚠️ v1.50.3-c: el ejemplo ya NO puede ser `STALE` —pasó a opt-in admitido (§4.38n.2-bis)—, así que
+    // se usa uno de los que siguen siendo AUSENCIA de dato. El caso `STALE` se prueba en `8d)`.
+    const malo = await h.api('GET', '/admin/pricing/graded-estimates/review?reason=NO_PSA10', {
+      token: adminToken,
+    });
     expect(malo.status).toBe(400);
 
     // Se restaura el PSA 10 sano para no ensuciar los tests siguientes (la BD es compartida).
@@ -455,6 +459,34 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(grupo.capturedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/); // …con la fecha que la delata
     expect(grupo.eligible).toBe(false); // exhibir la caducada en el diagnóstico NO la vuelve elegible
 
+    // (5) v1.50.3-c (§4.38i punto 7, GU-A24) — **EL CIERRE DEL BUCLE, y es lo que faltaba.**
+    //
+    // Sin esto, «caduca solo» sería una **desaparición sin retorno**: la cifra se va de las tres
+    // superficies en silencio, sigue en la BD, y el dueño no tiene ninguna forma de encontrarla para
+    // refrescarla o retirarla. `?reason=STALE` es esa forma — era un `400` hasta este pase.
+    const caducadas = await h.api('GET', '/admin/pricing/graded-estimates/review?reason=STALE&pageSize=100', {
+      token: adminToken,
+    });
+    expect(caducadas.status).toBe(200); // antes: 400 VALIDATION_ERROR
+    // Se busca ESTA carta, no `data[0]`: la lista es GLOBAL por diseño (su conjunto motor son todas las
+    // cartas con fila de estimado), así que filas ajenas al fixture pueden convivir sin invalidar nada.
+    const pendiente = caducadas.body.data.find((x: any) => x.cardId === cardId);
+    expect(pendiente).toBeDefined();
+    expect(pendiente).toMatchObject({
+      reason: 'STALE',
+      stale: true,
+      eligible: false,
+      // El ORIGEN dice qué hacer: manual ⇒ recapturar o borrar (automática ⇒ mirar el ingest).
+      isManual: true,
+      psa10MxnCents: PSA10_CENTS, // la cifra caducada se VE: es lo que hace falta para decidir
+    });
+    expect(pendiente.capturedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // …y NO aparece en el default (los tres de coherencia): `STALE` es opt-in, o ahogaría la señal.
+    const porDefecto = await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', {
+      token: adminToken,
+    });
+    expect(porDefecto.body.data.find((x: any) => x.cardId === cardId)).toBeUndefined();
+
     // Recapturar lo revive: «el dueño SOSTIENE ese número», que es la lectura honesta del criterio.
     for (const [gradeKey, priceMxnCents] of [
       ['graded:PSA:10', PSA10_CENTS],
@@ -467,6 +499,13 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     }
     const revive = await h.api('GET', `/catalog/cards/${cardId}`);
     expect(revive.body.gradedEstimates).toHaveLength(2);
+
+    // (6) …y DESAPARECE de la lista de caducadas. Es la otra mitad de (5): una lista de pendientes que
+    // no se vacía al resolver el pendiente enseña a ignorarla.
+    const tras = await h.api('GET', '/admin/pricing/graded-estimates/review?reason=STALE&pageSize=100', {
+      token: adminToken,
+    });
+    expect(tras.body.data.find((x: any) => x.cardId === cardId)).toBeUndefined();
   });
 
   it('9) apagar el dial deja el catálogo EXACTAMENTE como antes de la feature', async () => {

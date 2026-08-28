@@ -26,18 +26,30 @@ import { AuditService } from '../audit/audit.service';
 const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
 
 /**
- * v1.50.3-c (techlead, §4.38h.1-bis) — **SUELO DE MUESTRA de la escalada por shape**: mínimo de cartas
- * con bloque PSA (S1 + S2) que una corrida debe haber observado para que «PPT sirve mayoritariamente
- * S2» pueda emitirse como veredicto.
+ * v1.50.3-c (techlead + arquitecto, §4.38h.1-ter / GU-A25) — **TECHO del suelo de muestra** de la
+ * escalada por shape. El suelo EFECTIVO de cada corrida es `min(este número, cartas en alcance)`.
  *
- * Sin suelo, `1 > 0` satisface la mayoría estricta y **una sola carta** escalaba a una decisión de
+ * ### Por qué hay suelo
+ * Sin él, `1 > 0` satisface la mayoría estricta y **una sola carta** escalaría a una decisión de
  * arquitectura y presupuesto. Con el alcance acotado por diseño (curaduría manual en fase 1 y
  * `graded_estimate_ingest_max_cards_per_run` por corrida), los denominadores diminutos son normales.
  *
- * El número es deliberadamente BAJO: no busca significancia estadística —este job no muestrea, barre lo
- * que hay— sino descartar el ruido de una o dos observaciones. Subirlo mucho tendría el defecto opuesto
- * (silenciar un cambio de shape REAL en una instalación pequeña), y por eso por debajo del suelo la
- * señal **se informa** con `warn` en vez de perderse.
+ * ### Por qué es RELATIVO y no absoluto (la corrección del arquitecto)
+ * Mi propuesta era un suelo absoluto de 5, y **tenía el mismo defecto que el `STALE` inalcanzable que
+ * este mismo pase acababa de arreglar**: el alcance del ingest es «solo cartas con inventario
+ * publicado» (§4.38h.3), así que **una tienda con 3 cartas publicadas nunca llegaría a 5** — si las 3
+ * devolvieran S2, la fase 2 quedaría muerta **en silencio** y el detector diseñado para avisarlo estaría
+ * apagado por construcción. Con `min(5, …)`, el 5 sigue gobernando la operación normal (catálogo real)
+ * pero **pierde la capacidad de bloquear el aviso** justo donde más desapercibido pasaría.
+ *
+ * ### Lo que este número NO es
+ * No busca significancia estadística —este job no muestrea, barre lo que hay—; solo descarta el ruido de
+ * una o dos observaciones. Y **no gobierna la vía (A)** (`s1 == 0 && s2 >= 1`), que escala **sin suelo**
+ * porque «nunca hemos visto un S1» es cualitativamente distinto de «vemos una mezcla».
+ *
+ * **Constante de código, NO dial** (§4.38h.1-ter): se calibra una vez, con datos reales, y no merece una
+ * clave de `ConfigSetting` — mismo criterio que (k.1). La escalada es **señal, no fallo**: no aborta la
+ * corrida ni apaga el ingest, así que un falso positivo cuesta una conversación.
  */
 const GRADED_SHAPE_ESCALATION_MIN_CARDS = 5;
 
@@ -1173,11 +1185,11 @@ export class PriceIngestService {
     // (es el estado de v1.50). No se pierde la feature, se pierde su AUTOMATIZACIÓN — por eso el job no
     // aborta ni destruye nada: deja el veredicto, con la cuenta que lo sostiene, y sigue.
     //
-    // El umbral es **mayoría estricta** (`s2 > s1`) y no «≥ 1 carta con S2», por la misma lección que
-    // dejó el 401/403 tratado como «no admite el parámetro»: una escalada dispara una decisión de
-    // arquitectura y de presupuesto, así que **tiene que poder sostener su veredicto**. Una carta suelta
-    // en S2 conviviendo con S1 mayoritario no es un cambio de shape del proveedor; queda contada en
-    // `skippedShapeS2` y auditada carta por carta, que es donde se ve.
+    // El umbral de la vía (B) es **mayoría estricta** (`s2 > s1`) y no «≥ 1 carta con S2», por la misma
+    // lección que dejó el 401/403 tratado como «no admite el parámetro»: una escalada dispara una
+    // decisión de arquitectura y de presupuesto, así que **tiene que poder sostener su veredicto**. Una
+    // carta suelta en S2 conviviendo con S1 mayoritario no es un cambio de shape del proveedor; queda
+    // contada en `skippedShapeS2` y auditada carta por carta, que es donde se ve.
     //
     // ── v1.50.3-c (techlead) — DOS FORMAS DE AUTOINDUCIR EL VEREDICTO, ambas cerradas ──────────────
     // Mismo criterio declarado («una escalada tiene que poder sostener su veredicto»), aplicado a la
@@ -1194,42 +1206,65 @@ export class PriceIngestService {
     //  (b) **Sin SUELO DE MUESTRA, `1 > 0` satisface la mayoría estricta.** Una corrida con UNA sola
     //      carta con bloque PSA bastaba para disparar una decisión de arquitectura y presupuesto. Con
     //      el alcance acotado por diseño (curaduría manual en fase 1, `ingestMaxCardsPerRun` por
-    //      corrida) los denominadores diminutos son **normales**, no excepcionales. El suelo es
-    //      deliberadamente BAJO (`GRADED_SHAPE_ESCALATION_MIN_CARDS`): no pretende dar significancia
-    //      estadística —para eso haría falta un muestreo que este job no hace—, solo evitar que el
-    //      ruido de una o dos observaciones se presente como el shape dominante del proveedor. Por
-    //      debajo del suelo **se informa y no se escala**: la evidencia no se pierde, se acumula en el
-    //      log y en `skippedShapeS2`, y la siguiente corrida con más cartas la sostendrá o la
-    //      desmentirá.
+    //      corrida) los denominadores diminutos son **normales**, no excepcionales. El suelo no
+    //      pretende dar significancia estadística —para eso haría falta un muestreo que este job no
+    //      hace—, solo evitar que el ruido de una o dos observaciones se presente como el shape
+    //      dominante del proveedor. Por debajo del suelo **se informa y no se escala**: la evidencia no
+    //      se pierde, se acumula en el log y en `skippedShapeS2`, y la siguiente corrida con más cartas
+    //      la sostendrá o la desmentirá.
     //
     // En los dos casos el job hace exactamente lo mismo que antes con las cartas (S2 sigue siendo NO
     // PERSISTIBLE y se sigue saltando carta por carta): lo único que cambia es que **no se emite un
     // veredicto que la evidencia no sostiene**.
+    //
+    // ── v1.50.3-c (ARQUITECTO, §4.38h.1-ter / GU-A25) — el suelo de (b) se AJUSTA, y hay una vía (A) ──
+    // El arquitecto ratificó la exigencia de muestra mínima y **corrigió su forma**: un suelo ABSOLUTO
+    // de 5 era él mismo un aviso inalcanzable (ver el bloque de `shapeFloor`, abajo). Queda:
+    //   (A) `s1 == 0 && s2 >= 1`  ⇒ escala SIEMPRE, sin suelo.
+    //   (B) `s2 > s1`             ⇒ escala con suelo `min(5, cartas en alcance de la corrida)`.
+    // La guarda del formato forzado (a) **se mantiene y aplica a las dos vías**: un conteo inducido por
+    // nuestro propio override no es evidencia sobre el proveedor, venga por (A) o por (B) — con
+    // `GRADED_FORMAT=graded_prices` el «cero S1» es literalmente lo que ordenamos que pasara.
     const shapeObservations = shapeCounts.s1 + shapeCounts.s2;
     const shapeVerdictInduced = forcedFormatSeen !== 'auto';
-    const shapeSampleTooSmall = shapeObservations < GRADED_SHAPE_ESCALATION_MIN_CARDS;
-    if (!result.escalation && shapeCounts.s2 > shapeCounts.s1 && (shapeVerdictInduced || shapeSampleTooSmall)) {
+    // ⚠️ SUELO **RELATIVO** (§4.38h.1-ter, GU-A25). El suelo absoluto de 5 que propuse tenía **el mismo
+    // bug que acabábamos de arreglar con `STALE`**: un aviso INALCANZABLE. El alcance del ingest es
+    // «solo cartas con inventario publicado» (§4.38h.3), así que una tienda con **3 cartas** en las que
+    // las 3 devuelvan S2 nunca llegaría a 5 ⇒ la fase 2 quedaría muerta **en silencio**, con su propio
+    // detector apagado. `min(5, cartasDeLaCorrida)` deja al 5 gobernando la operación normal (catálogo
+    // real) y le quita la capacidad de **bloquear el aviso** justo donde más desapercibido pasaría.
+    //
+    // El denominador del suelo es `cardsInScope` —las cartas que la corrida MIRÓ— y no `shapeObservations`
+    // (las que trajeron bloque PSA): con `min(5, observadas)` la condición sería `observadas >= observadas`,
+    // o sea siempre verdadera, y el suelo no existiría. El suelo tiene que hablar del TAMAÑO DE LA CORRIDA.
+    const shapeFloor = Math.min(GRADED_SHAPE_ESCALATION_MIN_CARDS, result.cardsInScope);
+    // (A) NUNCA hemos visto un S1 ⇒ escala **sin suelo**. «Cero S1» es cualitativamente distinto de «una
+    //     mezcla en la que S2 gana»: sugiere que el campo que necesitamos **no existe en este plan o en
+    //     esta cuenta**, y ahí una sola observación ya es informativa. El coste de escalar de más es una
+    //     conversación; el de no escalar es una feature muerta sin que nadie se entere.
+    const neverSawS1 = shapeCounts.s1 === 0 && shapeCounts.s2 >= 1;
+    // (B) MAYORÍA ESTRICTA con suelo relativo. Sin porcentajes mágicos: el criterio es «S2 gana».
+    const s2DominantWithFloor = shapeCounts.s2 > shapeCounts.s1 && shapeObservations >= shapeFloor;
+    const shapeTriggered = neverSawS1 || s2DominantWithFloor;
+    if (!result.escalation && shapeCounts.s2 > shapeCounts.s1 && (shapeVerdictInduced || !shapeTriggered)) {
       this.logger.warn(
         `graded-estimate-ingest: S2 mayoritario (${shapeCounts.s2} S2 / ${shapeCounts.s1} S1 sobre ` +
-          `${shapeObservations} carta(s) con bloque PSA) pero NO se escala — ` +
+          `${shapeObservations} carta(s) con bloque PSA, ${result.cardsInScope} en alcance) pero NO se ` +
+          'escala — ' +
           (shapeVerdictInduced
             ? `la corrida fue con POKEMONPRICETRACKER_GRADED_FORMAT="${forcedFormatSeen}" (formato ` +
               'FORZADO, §4.38h.1-bis): el conteo refleja lo que le pedimos mirar al proveedor, no lo ' +
               'que sirve, así que no puede sostener «la fase 2 no es viable». Vuelve a correr con ' +
               'GRADED_FORMAT=auto para obtener un veredicto sobre el PROVEEDOR.'
-            : `la corrida vio menos de ${GRADED_SHAPE_ESCALATION_MIN_CARDS} carta(s) con bloque PSA y ` +
-              'una mayoría sobre un denominador diminuto no sostiene una decisión de arquitectura y ' +
-              'presupuesto. Amplía el alcance (más sets / graded_estimate_ingest_max_cards_per_run) y ' +
-              'vuelve a correr.') +
+            : `la corrida vio ${shapeObservations} carta(s) con bloque PSA y el suelo de esta corrida ` +
+              `es ${shapeFloor} (= min(${GRADED_SHAPE_ESCALATION_MIN_CARDS}, ${result.cardsInScope} en ` +
+              'alcance)): una mayoría sobre un denominador diminuto no sostiene una decisión de ' +
+              'arquitectura y presupuesto. Amplía el alcance (más inventario publicado / ' +
+              'graded_estimate_ingest_max_cards_per_run) y vuelve a correr.') +
           ' Las cartas S2 se siguieron saltando como NO PERSISTIBLES (skippedShapeS2), nada se escribió.',
       );
     }
-    if (
-      !result.escalation &&
-      shapeCounts.s2 > shapeCounts.s1 &&
-      !shapeVerdictInduced &&
-      !shapeSampleTooSmall
-    ) {
+    if (!result.escalation && shapeTriggered && !shapeVerdictInduced) {
       result.escalation = {
         reason: 'shape_not_persistible_s2_dominant',
         detail:
@@ -1240,10 +1275,17 @@ export class PriceIngestService {
           'ESTRUCTURALMENTE incapaz de pasar las pruebas 1 y 2 del gate de confianza y ninguna ' +
           'configuración lo arregla. Si esto se sostiene, la fase 2 NO es viable con este proveedor. ' +
           // La procedencia del veredicto viaja CON el veredicto: quien lo reciba tiene que poder ver,
-          // sin abrir el log, que el conteo es una observación (formato `auto`) sobre una muestra que
-          // pasa el suelo — y no un eco de un override del operador.
-          `Evidencia: GRADED_FORMAT=auto (autodetección, sin override) y ${shapeObservations} ` +
-          `observación(es) ≥ el suelo de ${GRADED_SHAPE_ESCALATION_MIN_CARDS}.`,
+          // sin abrir el log, POR QUÉ vía se disparó y que el conteo es una observación (formato
+          // `auto`), no un eco de un override nuestro. Las dos vías piden lecturas distintas: (A) dice
+          // «el campo puede que no exista en este plan»; (B) dice «lo hay, pero domina el malo».
+          `Evidencia: GRADED_FORMAT=auto (autodetección, sin override) y ` +
+          (neverSawS1
+            ? `CERO observaciones S1 en toda la corrida (regla A, §4.38h.1-ter): no se escala por ` +
+              'mayoría sino porque **nunca hemos visto el shape bueno**, lo que sugiere que ' +
+              '`ebay.salesByGrade` no existe en este plan/cuenta. Una sola observación basta aquí.'
+            : `${shapeObservations} observación(es) ≥ el suelo de ${shapeFloor} (regla B, ` +
+              `§4.38h.1-ter = min(${GRADED_SHAPE_ESCALATION_MIN_CARDS}, ${result.cardsInScope} ` +
+              'carta(s) en alcance)).'),
       };
       this.logger.error(
         `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO (regla 9, §4.38h.1-bis): ` +
@@ -1257,7 +1299,11 @@ export class PriceIngestService {
         shapeCounts,
         shapeObservations,
         forcedFormat: forcedFormatSeen,
-        minObservations: GRADED_SHAPE_ESCALATION_MIN_CARDS,
+        // El SUELO EFECTIVO de esta corrida (no la constante), la vía que disparó y el alcance: es lo
+        // que hace auditable el veredicto meses después, cuando `cardsInScope` ya sea otro.
+        shapeFloor,
+        cardsInScope: result.cardsInScope,
+        rule: neverSawS1 ? 'A_no_s1_observed' : 'B_s2_majority',
       });
     }
 
