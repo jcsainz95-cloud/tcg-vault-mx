@@ -4518,3 +4518,45 @@
   parametrizar el corte del dial en las puras (`ignoreFeatureFlag`) en vez de forzar la config desde el
   caller, que es lo que hoy hace `gradedEstimateReview`. **No** unificar el comportamiento.
 - **Disparador:** una tercera superficie que necesite el mismo cálculo con otra política de dial.
+
+### Ronda de corrección v1.50.3-c (QA + techlead) (rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-28) — deuda del pase (dueño: **backend**, no bloqueante)
+
+> Los tres hallazgos enrutados a backend en esta ronda **se arreglaron en el pase** (los cuatro
+> comentarios derogados de `graded-estimate.ts`, la recuperación de `STALE` en el diagnóstico, y las dos
+> guardas de la escalada por shape), junto con los cinco menores. Lo que queda aquí es lo que **NO** se
+> pudo cerrar en `backend/` porque la decisión no es de backend.
+
+#### PI-D6 · La lista de revisión sigue sin poder ENUMERAR una cifra caducada (Media, **arquitecto** — cambio de contrato)
+- **Dueño:** **arquitecto** (decide), backend (implementaría). **Severidad:** Media. **Escalado por regla 9.**
+- **Qué SÍ quedó arreglado en este pase:** `preview` volvió a emitir `STALE` / `stale: true` /
+  `capturedDate` / el monto de la fila caducada (antes respondía `NO_PSA10` + `capturedDate: null`, o
+  sea «nunca la capturaste» sobre una cifra que sí existía). `review` calcula ahora con esa misma
+  verdad: los ítems que emite llevan `stale` y `capturedDate` resueltos contra la fila real.
+- **Lo que NO se puede cerrar sin tocar el contrato:** API_CONTRACT §M2 declara que en
+  `GET /admin/pricing/graded-estimates/review` cualquier `reason` fuera de `NOT_ABOVE_RAW |
+  ABOVE_MAX_MULTIPLE | GRADE_ORDER_INVERTED | SLAB_PUBLISHED` ⇒ **`400 VALIDATION_ERROR`**, y `STALE`
+  está nombrado explícitamente entre los rechazados. Como el orden de razones de la pura es AUSENCIA →
+  FRESCURA → coherencia, una carta con cifra caducada resuelve a `STALE` y **queda fuera de toda consulta
+  posible**: la lista que existe para «sacar a flote lo que hay que mirar» no puede mostrar la cifra
+  expirada.
+- **Por qué importa:** «captura una cifra» y «refresca la que tienes» son remedios **opuestos**, y el
+  bucle operativo del criterio 109 es precisamente *recapturar*. Una cifra caducada es trabajo pendiente
+  del operador con la misma legitimidad que una incoherente.
+- **Dirección de fix propuesta (NO implementada):** admitir `STALE` como valor **opt-in** del filtro
+  `reason`, igual que `SLAB_PUBLISHED` — **nunca** en el default, porque ahogaría la señal de coherencia
+  (mismo argumento que ya se aplicó a `SLAB_PUBLISHED`). Coste en backend: una constante
+  (`GRADED_REVIEW_ALLOWED_REASONS`) y sus tests. Cero cambios de DTO, de query y de cálculo.
+- **Disparador:** decisión del arquitecto. Mientras tanto, el camino del operador para una cifra caducada
+  sigue siendo `preview` con `cardId` — que **solo contesta si ya sospechabas**, que es exactamente la
+  limitación que `review` existe para cerrar.
+
+#### PI-D7 · El suelo de muestra de la escalada por shape es un número elegido, no medido (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** `GRADED_SHAPE_ESCALATION_MIN_CARDS = 5` acota el falso positivo de «1 > 0 es mayoría
+  estricta», pero el valor **no sale de una medición**: este job barre lo que hay, no muestrea, así que
+  no hay una noción de significancia que calcular. Elegido bajo a propósito — el defecto opuesto
+  (silenciar un cambio de shape real en una instalación pequeña) es peor, y por eso por debajo del suelo
+  la señal **se informa con `warn`** en vez de perderse.
+- **Disparador:** la primera corrida real del ingest con `graded_estimate_ingest_enabled = on`. Si el
+  `warn` de «no se escala por muestra corta» aparece de forma sostenida sobre corridas de alcance normal,
+  el suelo está mal calibrado y ahí sí habrá datos para elegir el número.

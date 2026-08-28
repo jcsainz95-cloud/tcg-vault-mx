@@ -112,6 +112,19 @@ describe('§M2 — las dos rutas normadas devuelven `{ data }` proyectado', () =
     }
   });
 
+  /**
+   * v1.50.3-c (QA MENOR-1) — **el CÓDIGO DE ESTADO también es contrato.** API_CONTRACT norma
+   * «Res `200` NORMADA en v2.1.7» para este endpoint, y `@Post` de Nest responde `201` por default: el
+   * cuerpo cumplía la norma y el estado no. Se comprueba sobre la METADATA del handler porque es lo que
+   * decide la respuesta real, y así el candado no depende de levantar el stack.
+   *
+   * Semánticamente `200` es además lo correcto: el endpoint no crea un recurso direccionable —el `id`
+   * de la `PriceReference` va a la BITÁCORA, no a la respuesta— y no hay `Location` que devolver.
+   */
+  it('`POST /admin/pricing/override` responde 200 (lo que NORMA el contrato), no el 201 por default', () => {
+    expect(Reflect.getMetadata('__httpCode__', PricingController.prototype.override)).toBe(200);
+  });
+
   it('el `id` sigue yendo a la BITÁCORA (donde se necesita para trazar), no a la respuesta', async () => {
     const pricing = {
       manualOverride: jest.fn(async () => FULL_ROW),

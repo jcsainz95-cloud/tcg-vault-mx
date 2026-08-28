@@ -110,7 +110,7 @@ type ZeroReason =
 const GRADED_SAMPLE_TRUNCATE = 4000;
 
 /** Las dos hipótesis de shape que el parser SONDEA, en orden fijo (§4.38h.1). */
-type GradedFormat = 'auto' | 'sales_by_grade' | 'graded_prices';
+export type GradedFormat = 'auto' | 'sales_by_grade' | 'graded_prices';
 const GRADED_FORMATS: readonly GradedFormat[] = ['auto', 'sales_by_grade', 'graded_prices'];
 
 /** Qué campo del objeto S1 es el precio. Empata 1:1 con el dial `graded_estimate_source_stat`. */
@@ -261,6 +261,18 @@ export interface GradedEstimateFetchResult {
    * `sawGradedBlock`: el provider solo ve UN set y no puede sostener ese veredicto solo.
    */
   shapeCounts: { s1: number; s2: number };
+  /**
+   * v1.50.3-c (techlead) — **qué le PEDIMOS mirar al proveedor en esta llamada**
+   * (`POKEMONPRICETRACKER_GRADED_FORMAT`: `auto` | `sales_by_grade` | `graded_prices`).
+   *
+   * Viaja con el resultado porque `shapeCounts` **no es interpretable sin él**: con `graded_prices`
+   * forzado, `parseGradedEntry` pone `useS1 = false` por decreto del operador, así que TODA carta con
+   * bloque `gradedPrices` se cuenta como S2 y el conteo deja de decir «esto sirve PPT» para decir
+   * «esto es lo que le pedimos». Un veredicto de arquitectura y presupuesto no puede sostenerse sobre
+   * un conteo que nosotros mismos inducimos (misma clase de falso positivo que el 401/403 leído como
+   * «no admite el parámetro»), y §4.38h.1-bis declara ese forzado explícitamente LEGAL.
+   */
+  forcedFormat: GradedFormat;
 }
 
 /**
@@ -649,6 +661,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       escalate: null,
       sawGradedBlock: false,
       shapeCounts: { s1: 0, s2: 0 },
+      forcedFormat: this.gradedFormatOverride(),
     };
     if (!this.client.apiKey()) {
       this.logger.warn('PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).');
@@ -790,6 +803,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       escalate,
       sawGradedBlock,
       shapeCounts,
+      forcedFormat,
     };
   }
 

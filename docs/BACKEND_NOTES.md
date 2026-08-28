@@ -4,6 +4,158 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.6 v1.50.3-c — Ronda de corrección QA + techlead sobre el gancho PSA (2026-08-28)
+
+> **Cero cambios de contrato, de schema y de ruta.** Una migración: ninguna. Lo que cambia hacia fuera
+> son **tres cosas observables**: el `reason` que emite el diagnóstico de admin cuando una cifra caducó,
+> el **código de estado** de `POST /admin/pricing/override` (`201` → `200`, que es lo que el contrato
+> norma) y dos líneas de log (inventario de config y escalada por shape).
+>
+> Contexto: **techlead APROBÓ con deuda**; **QA rechazó por el arnés de pruebas**, no por este código
+> (sus dos bloqueantes son de devops y frontend). Esta ronda cierra lo que sí era de backend.
+
+### 0.6.1 El archivo más leído de la feature documentaba los seeds DEROGADOS (techlead, bloqueante del pase)
+
+`backend/src/common/graded-estimate.ts` — el docblock de la **interfaz** `GradedEstimateConfig` seguía
+diciendo `manualFreshnessDays` «seed `null` = no decae», `maxRawMultiple` «seed 50» y `minSampleCount`
+«seed 3», y **repetía entero el razonamiento v1.50.2** que §4.38(m) derogó («un override manual no es un
+feed… su vigencia la revoca otro humano, no el calendario»). Los tres contradecían los `DEFAULT_*` del
+**mismo archivo** (30 / 100 / 5) y contradecían la arquitectura. `isStaleRef` remataba con un
+`// seed: el manual NUNCA es rancio` que ya no era el seed.
+
+La ronda anterior declaró atendido «comentarios invalidados» (M6) y **este archivo se quedó fuera**. Por
+qué es corrección y no deuda: **quien mantenga esto en seis meses lee la interfaz, no las constantes**, y
+concluiría lo contrario de lo que el código hace **sobre el predicado que gobierna una afirmación
+comercial** (criterio 109). Los cuatro comentarios quedan corregidos, cada uno declarando el valor
+vigente, el valor derogado y **por qué** se derogó; `DEFAULT_GRADED_ESTIMATE_*` queda nombrado como la
+fuente de verdad para que la próxima divergencia no pueda pasar por «documentación».
+
+### 0.6.2 El motivo `STALE` era CÓDIGO MUERTO en las dos superficies de admin (QA, medido en vivo)
+
+**El defecto.** El arreglo del orden (v1.50.3) metió el filtro de frescura **dentro** de
+`getGradedEstimatesBatch`, y `preview`/`review` consumen ese batch **a propósito** (para no diagnosticar
+sobre una verdad distinta a la del storefront). Efecto: las filas rancias dejaron de existir también para
+el diagnóstico. Con una fila manual de 40 días, `preview` respondía:
+
+```
+{ reason: 'NO_PSA10', stale: false, psa10MxnCents: null, capturedDate: null }
+```
+
+…cuando la verdad era **«tu cifra expiró»**. `API_CONTRACT §M2` enumera `STALE` entre los `reason`
+emitibles y `stale` entre los campos de diagnóstico: los dos eran inalcanzables.
+
+**Por qué no es cosmético.** Los dos remedios son **opuestos**: «captura una cifra» vs. «refresca la que
+tienes». Un diagnóstico que los funde manda al operador a teclear de cero un número que ya está en la
+tabla — y el bucle operativo del criterio 109 es exactamente *recapturar*.
+
+**El arreglo, sin deshacer el anterior.** `getGradedEstimatesBatch` gana un opt-in
+`{ includeStaleForDiagnostics: true }` que **solo** usan `preview` y `review`:
+
+| | Ruta pública (ficha, teja, vitrina) | `preview` / `review` |
+|---|---|---|
+| Filtro de frescura antes de `pickBestRef` | **sí** (sin cambios) | **sí** (sin cambios) |
+| Fila rancia re-inyectada | nunca | **solo** en las claves sin NINGUNA fila fresca |
+| Resultado con «manual 200 d + automática fresca» | la automática | **la automática** (cero divergencia) |
+| Resultado con «manual 40 d, sin automática» | nada (criterio 109) | `STALE` + monto + `capturedDate` |
+
+Tres propiedades que sostienen que esto no reabre nada:
+1. **No puede volver elegible a nadie.** Las filas re-inyectadas son rancias por construcción y
+   `evaluateGradingHighlight` corta en `STALE` **antes** de resolver escalón, umbral y cotas.
+2. **No puede envenenar la ficha.** Si alguien pasara ese mapa a `selectGradedEstimates`, `usable()`
+   vuelve a filtrar por frescura: la defensa de las puras sigue en su sitio.
+3. **La única divergencia posible con el storefront viene ETIQUETADA** con la razón que la explica
+   (`STALE`), en vez de ser silenciosa.
+
+**⚠️ Discrepancia con el contrato — para el ARQUITECTO (regla 9; NO se tocó nada).** Con esto, `preview`
+queda completo. **`review` NO**, y el motivo es del contrato, no del código: §M2 declara que cualquier
+`reason` fuera de `NOT_ABOVE_RAW | ABOVE_MAX_MULTIPLE | GRADE_ORDER_INVERTED | SLAB_PUBLISHED` ⇒
+**`400 VALIDATION_ERROR`**, `STALE` incluido. Y el orden de razones de la pura es AUSENCIA → FRESCURA →
+coherencia, así que una carta con cifra caducada resuelve a `STALE` y **no es enumerable** por el
+operador. Es decir: **la lista de revisión sigue sin poder mostrar una cifra caducada**, y cerrarlo exige
+admitir `STALE` como valor **opt-in** del filtro (nunca en el default: ahogaría la señal de coherencia,
+que es el mismo argumento con el que `SLAB_PUBLISHED` quedó opt-in). Queda **escalado, no arreglado**.
+
+### 0.6.3 La escalada por shape podía AUTOINDUCIR su veredicto (techlead)
+
+`shapeCounts.s2 > shapeCounts.s1` disparaba «PPT sirve mayoritariamente S2 ⇒ la fase 2 no es viable con
+este proveedor» — un veredicto de **arquitectura y presupuesto**. Dos formas de engañarlo:
+
+- **Formato forzado.** Con `POKEMONPRICETRACKER_GRADED_FORMAT=graded_prices`, el `forcedFormat` del
+  parser pone `useS1 = false`, así que **toda** carta con bloque `gradedPrices` se cuenta como S2 aunque
+  traiga `ebay.salesByGrade` perfectamente persistible. Ese hallazgo **no habla del proveedor: habla de
+  lo que nosotros le pedimos mirar** — y §4.38h.1-bis declara ese forzado explícitamente legal. Mismo
+  falso positivo que el `jsonb` reordenado del inventario: gritar por algo que hicimos nosotros.
+- **Sin suelo de muestra.** `1 > 0` satisface la mayoría estricta: **una sola carta** con bloque PSA
+  bastaba. Con el alcance acotado por diseño (curaduría manual en fase 1 + `ingestMaxCardsPerRun`), los
+  denominadores diminutos son **normales**.
+
+Ahora el predicado exige `forcedFormat === 'auto'` **y** ≥ `GRADED_SHAPE_ESCALATION_MIN_CARDS` (**5**)
+observaciones. En los dos casos suprimidos el job hace **exactamente lo mismo con las cartas** (S2 sigue
+siendo no persistible y se sigue saltando y auditando carta por carta): lo único que cambia es que no se
+emite un veredicto que la evidencia no sostiene — y se deja un `warn` que dice **cuál de las dos
+condiciones faltó y cómo obtener un veredicto válido** (correr con `auto` / ampliar el alcance). El suelo
+es deliberadamente bajo: no busca significancia estadística, solo evitar que una o dos observaciones se
+presenten como el shape dominante del proveedor. La escalada lleva ahora su propia procedencia en el
+`detail` y en la bitácora (`forcedFormat`, `shapeObservations`, `minObservations`).
+
+**No muerde hoy** (el dial `graded_estimate_ingest_enabled` está `off`), pero queda cerrado **antes** de
+encenderlo, que era la condición.
+
+### 0.6.4 Menores del techlead y de QA
+
+- **Inventario de configuración: recorte alrededor de la primera diferencia.** `INVENTORY_VALUE_TRUNCATE`
+  son 160 chars y el JSON de `grading_cost_tiers` ronda los **420**: si la divergencia caía en el escalón
+  4, la línea imprimía **dos prefijos idénticos** y decía «X difiere de Y» con X == Y — el falso negativo
+  de diagnóstico que esa línea existe para no tener, en el único dial que es una tabla. Ahora se imprime
+  el **JSON canónico** (el mismo con el que se decide si hay divergencia) recortado en una **ventana
+  común a los dos lados** centrada en el primer char divergente, más el **ancla** `[1ª diferencia en char
+  N]`. Los valores que caben se siguen imprimiendo enteros.
+- **«SIN DIVERGENCIAS» ya no sobre-afirma.** El denominador era `rows.length`, que incluye las claves
+  **sin default de código** (las que salta el `hasOwnProperty`): afirmaba «las N claves están en su
+  default» sobre filas que nunca miró. Ahora cuenta las **comparables** y declara aparte cuántas filas
+  hay en la tabla. En una línea cuyo único valor es que se pueda confiar en ella, afirmar de más es el
+  peor defecto posible.
+- **Acoplamiento documentado: `freshnessDays` hace DOS trabajos.** Ventana de **lectura** (ficha y
+  vitrina) y ventana de **evidencia en la escritura** (§4.38m.2). Consecuencia al mover el dial, ahora
+  escrita en su docblock: bajarlo a 7 aprieta las dos; subirlo a 90 afloja las dos y admite hasta **180
+  días** de antigüedad exhibida (90 de evidencia al escribir + 90 de exhibición desde la captura).
+- **`isStaleByOrigin(capturedDate, isManual, today, cfg)`** en `common/graded-estimate.ts`.
+  `getGradedEstimatesBatch` derivaba `isManual` **dos veces** en la misma función y fabricaba un
+  `GradedEstimateInput` falso con **`mxnCents: 0`** solo para llamar a `isStaleRef`. Funcionaba (el
+  predicado ignora el monto) pero un `0` es un centinela **inválido** en cualquier otro punto de ese
+  archivo —`usable()` lo trata como «no es un estimado», money-safe— y era una trampa para el siguiente
+  lector que lo copiara. `isStaleRef` queda como envoltorio: **una sola verdad sobre qué es fresco**.
+- **`POST /admin/pricing/override` ahora responde `200`** (QA MENOR-1). El contrato lo norma
+  explícitamente («Res `200` NORMADA en v2.1.7») y `@Post` de Nest respondía el `201` por default; el
+  **cuerpo** ya era el normado. Manda el contrato sobre el código, así que se corrigió el código —**no
+  hubo que escalar**. `200` es además lo correcto en semántica: no crea recurso direccionable (el `id` de
+  la `PriceReference` va a la bitácora, no a la respuesta) y no hay `Location`. **Aviso a frontend/QA:**
+  cualquier arnés que asertara `201` sobre esta ruta debe actualizarse (en `backend/` ya está hecho, en
+  dos specs de integración).
+
+### 0.6.5 Verificación
+
+| Suite | Resultado |
+|---|---|
+| `npm test` (unitarios) | **200 suites / 2426 tests — todo verde** |
+| `npm run test:integration` | **12 suites / 162 tests — todo verde** |
+| `npx tsc --noEmit` | limpio |
+
+Tests nuevos (todos en `backend/test/`): 7 sobre `includeStaleForDiagnostics` en
+`graded-estimate.batch.spec.ts` (incluida la no-divergencia con el storefront y el money-safe del `<= 0`),
+4 sobre las dos guardas de la escalada por shape en `graded-estimate.inv-fx.spec.ts`, 4 sobre el recorte
+por diferencia y el denominador en `settings.config-inventory.spec.ts`, 1 sobre el `@HttpCode(200)` en
+`pricing.declared-shapes.spec.ts` y 1 aserción nueva en el E2E `8d)` que comprueba `STALE` +
+`capturedDate` + monto contra el stack real (era el caso exacto que QA midió).
+
+**Nota sobre la sensibilidad al estado de la BD que reportó QA:** en esta corrida la suite de integración
+dio 162/162 sin normalizar nada. El E2E `8d)` **fija el dial explícitamente** antes de asertar (no confía
+en el seed) y limpia sus filas `PriceReference` graded en el `afterAll`; el riesgo que QA vio viene de
+filas graded **ajenas al seed** que la lista de revisión sí barre por diseño (su conjunto motor son *todas*
+las cartas con fila de estimado). No es un defecto del código ni del test: es que `review` es global por
+definición. Si vuelve a aparecer, el discriminante es mirar si las filas extra tienen `source` distinto
+del que el E2E escribe.
+
 ## 0.5 v1.50.3-a/b — Cierre de las dos escaladas (PI-D2 y PI-D3) (2026-08-28)
 
 > Implementa el **addendum v1.50.3-a** (§4.38h.1-bis, §4.38p, §11.0) y el endurecimiento **v1.50.3-b**

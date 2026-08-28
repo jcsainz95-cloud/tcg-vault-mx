@@ -6,7 +6,10 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PricingService } from './pricing.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
-import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
+import {
+  GradedFormat,
+  PokemonPriceTrackerBulkProvider,
+} from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
 import { orderFinishes } from '../../common/card-order';
@@ -21,6 +24,22 @@ import { AuditService } from '../audit/audit.service';
 
 /** InventoryStatus que NO cuentan como "activo" para el scope parcial (regla del PO: no withdrawn/lost). */
 const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
+
+/**
+ * v1.50.3-c (techlead, §4.38h.1-bis) — **SUELO DE MUESTRA de la escalada por shape**: mínimo de cartas
+ * con bloque PSA (S1 + S2) que una corrida debe haber observado para que «PPT sirve mayoritariamente
+ * S2» pueda emitirse como veredicto.
+ *
+ * Sin suelo, `1 > 0` satisface la mayoría estricta y **una sola carta** escalaba a una decisión de
+ * arquitectura y presupuesto. Con el alcance acotado por diseño (curaduría manual en fase 1 y
+ * `graded_estimate_ingest_max_cards_per_run` por corrida), los denominadores diminutos son normales.
+ *
+ * El número es deliberadamente BAJO: no busca significancia estadística —este job no muestrea, barre lo
+ * que hay— sino descartar el ruido de una o dos observaciones. Subirlo mucho tendría el defecto opuesto
+ * (silenciar un cambio de shape REAL en una instalación pequeña), y por eso por debajo del suelo la
+ * señal **se informa** con `warn` en vez de perderse.
+ */
+const GRADED_SHAPE_ESCALATION_MIN_CARDS = 5;
 
 /** Scope resuelto de un set para la ingesta de PPT (+ cartas permitidas en el caso parcial). */
 interface SetScopeInfo {
@@ -961,6 +980,10 @@ export class PriceIngestService {
     // pregunta es independiente de los gates de dinero (una carta S1 descartada por muestra corta NO es
     // evidencia de que el proveedor haya cambiado de shape).
     const shapeCounts = { s1: 0, s2: 0 };
+    // ⛔ (§4.38h.1-bis, v1.50.3-c) — ¿el conteo de shapes es una OBSERVACIÓN o un ECO de lo que pedimos?
+    // `POKEMONPRICETRACKER_GRADED_FORMAT` viaja en el resultado de cada set; basta con que UNA llamada
+    // de la corrida haya ido forzada para que el conteo global deje de ser evidencia sobre el proveedor.
+    let forcedFormatSeen: GradedFormat = 'auto';
 
     for (const { set, allowed } of bySet.values()) {
       // BE-GE3 (techlead) — índice EN MEMORIA de las cartas de ESTE set que están en alcance. El
@@ -996,6 +1019,7 @@ export class PriceIngestService {
       result.skippedShapeS2 += res.drops.filter((d) => d.reason === 'shape_not_persistible_s2').length;
       shapeCounts.s1 += res.shapeCounts.s1;
       shapeCounts.s2 += res.shapeCounts.s2;
+      if (res.forcedFormat !== 'auto') forcedFormatSeen = res.forcedFormat;
 
       if (res.sawGradedBlock) anySetSawGradedBlock = true;
 
@@ -1154,16 +1178,72 @@ export class PriceIngestService {
     // arquitectura y de presupuesto, así que **tiene que poder sostener su veredicto**. Una carta suelta
     // en S2 conviviendo con S1 mayoritario no es un cambio de shape del proveedor; queda contada en
     // `skippedShapeS2` y auditada carta por carta, que es donde se ve.
-    if (!result.escalation && shapeCounts.s2 > shapeCounts.s1) {
+    //
+    // ── v1.50.3-c (techlead) — DOS FORMAS DE AUTOINDUCIR EL VEREDICTO, ambas cerradas ──────────────
+    // Mismo criterio declarado («una escalada tiene que poder sostener su veredicto»), aplicado a la
+    // corrida entera y no solo al umbral:
+    //
+    //  (a) **Formato FORZADO por el operador.** Con `POKEMONPRICETRACKER_GRADED_FORMAT=graded_prices`,
+    //      `parseGradedEntry` fija `useS1 = false` y TODA carta con bloque `gradedPrices` se cuenta
+    //      como S2 — aunque la misma entrada traiga `ebay.salesByGrade` perfectamente persistible. El
+    //      conteo resultante no habla del proveedor: habla de **lo que nosotros le pedimos mirar**, y
+    //      §4.38h.1-bis declara ese forzado explícitamente LEGAL (es la vía para inspeccionar un shape).
+    //      Escalar ahí es el mismo falso positivo que el `jsonb` reordenado del inventario: gritar por
+    //      algo que hicimos nosotros. ⇒ con `forcedFormat !== 'auto'` **no se escala**; se deja `warn`
+    //      con el conteo, para que el operador vea que su override es lo que está tapando la señal.
+    //  (b) **Sin SUELO DE MUESTRA, `1 > 0` satisface la mayoría estricta.** Una corrida con UNA sola
+    //      carta con bloque PSA bastaba para disparar una decisión de arquitectura y presupuesto. Con
+    //      el alcance acotado por diseño (curaduría manual en fase 1, `ingestMaxCardsPerRun` por
+    //      corrida) los denominadores diminutos son **normales**, no excepcionales. El suelo es
+    //      deliberadamente BAJO (`GRADED_SHAPE_ESCALATION_MIN_CARDS`): no pretende dar significancia
+    //      estadística —para eso haría falta un muestreo que este job no hace—, solo evitar que el
+    //      ruido de una o dos observaciones se presente como el shape dominante del proveedor. Por
+    //      debajo del suelo **se informa y no se escala**: la evidencia no se pierde, se acumula en el
+    //      log y en `skippedShapeS2`, y la siguiente corrida con más cartas la sostendrá o la
+    //      desmentirá.
+    //
+    // En los dos casos el job hace exactamente lo mismo que antes con las cartas (S2 sigue siendo NO
+    // PERSISTIBLE y se sigue saltando carta por carta): lo único que cambia es que **no se emite un
+    // veredicto que la evidencia no sostiene**.
+    const shapeObservations = shapeCounts.s1 + shapeCounts.s2;
+    const shapeVerdictInduced = forcedFormatSeen !== 'auto';
+    const shapeSampleTooSmall = shapeObservations < GRADED_SHAPE_ESCALATION_MIN_CARDS;
+    if (!result.escalation && shapeCounts.s2 > shapeCounts.s1 && (shapeVerdictInduced || shapeSampleTooSmall)) {
+      this.logger.warn(
+        `graded-estimate-ingest: S2 mayoritario (${shapeCounts.s2} S2 / ${shapeCounts.s1} S1 sobre ` +
+          `${shapeObservations} carta(s) con bloque PSA) pero NO se escala — ` +
+          (shapeVerdictInduced
+            ? `la corrida fue con POKEMONPRICETRACKER_GRADED_FORMAT="${forcedFormatSeen}" (formato ` +
+              'FORZADO, §4.38h.1-bis): el conteo refleja lo que le pedimos mirar al proveedor, no lo ' +
+              'que sirve, así que no puede sostener «la fase 2 no es viable». Vuelve a correr con ' +
+              'GRADED_FORMAT=auto para obtener un veredicto sobre el PROVEEDOR.'
+            : `la corrida vio menos de ${GRADED_SHAPE_ESCALATION_MIN_CARDS} carta(s) con bloque PSA y ` +
+              'una mayoría sobre un denominador diminuto no sostiene una decisión de arquitectura y ' +
+              'presupuesto. Amplía el alcance (más sets / graded_estimate_ingest_max_cards_per_run) y ' +
+              'vuelve a correr.') +
+          ' Las cartas S2 se siguieron saltando como NO PERSISTIBLES (skippedShapeS2), nada se escribió.',
+      );
+    }
+    if (
+      !result.escalation &&
+      shapeCounts.s2 > shapeCounts.s1 &&
+      !shapeVerdictInduced &&
+      !shapeSampleTooSmall
+    ) {
       result.escalation = {
         reason: 'shape_not_persistible_s2_dominant',
         detail:
-          `De las ${shapeCounts.s1 + shapeCounts.s2} carta(s) con bloque PSA en esta corrida, ` +
+          `De las ${shapeObservations} carta(s) con bloque PSA en esta corrida, ` +
           `${shapeCounts.s2} vinieron en el shape S2 (gradedPrices.psaN, ESCALAR) y solo ` +
           `${shapeCounts.s1} en S1 (ebay.salesByGrade.psaN). S2 está declarado NO PERSISTIBLE ` +
           '(§4.38h.1-bis): el escalar no trae `count` ni fecha de última venta, así que es ' +
           'ESTRUCTURALMENTE incapaz de pasar las pruebas 1 y 2 del gate de confianza y ninguna ' +
-          'configuración lo arregla. Si esto se sostiene, la fase 2 NO es viable con este proveedor.',
+          'configuración lo arregla. Si esto se sostiene, la fase 2 NO es viable con este proveedor. ' +
+          // La procedencia del veredicto viaja CON el veredicto: quien lo reciba tiene que poder ver,
+          // sin abrir el log, que el conteo es una observación (formato `auto`) sobre una muestra que
+          // pasa el suelo — y no un eco de un override del operador.
+          `Evidencia: GRADED_FORMAT=auto (autodetección, sin override) y ${shapeObservations} ` +
+          `observación(es) ≥ el suelo de ${GRADED_SHAPE_ESCALATION_MIN_CARDS}.`,
       };
       this.logger.error(
         `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO (regla 9, §4.38h.1-bis): ` +
@@ -1175,6 +1255,9 @@ export class PriceIngestService {
       await this.auditGradedSkip('graded_estimate.ingest.escalated', null, {
         ...result.escalation,
         shapeCounts,
+        shapeObservations,
+        forcedFormat: forcedFormatSeen,
+        minObservations: GRADED_SHAPE_ESCALATION_MIN_CARDS,
       });
     }
 

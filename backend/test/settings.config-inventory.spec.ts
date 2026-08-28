@@ -90,7 +90,7 @@ describe('§11.0 — inventario de configuración al arrancar', () => {
     expect(l).toContain('graded_estimate_manual_freshness_days=null (default 30)');
     expect(l).toContain('graded_estimate_min_sample_count=3 (default 5)');
     expect(l).toContain('graded_estimate_max_raw_multiple=50 (default 100)');
-    expect(l).toContain('3 de 4 clave(s) DIFIEREN');
+    expect(l).toContain('3 de 4 clave(s) comparables DIFIEREN');
     expect(l).not.toContain('graded_estimate_freshness_days'); // está en su default
   });
 
@@ -115,6 +115,26 @@ describe('§11.0 — inventario de configuración al arrancar', () => {
     expect(linea()).toContain('SIN DIVERGENCIAS');
   });
 
+  /**
+   * v1.50.3-c (techlead) — **el denominador no puede SOBRE-AFIRMAR.** El mensaje contaba `rows.length`,
+   * que incluye las claves sin default de código: decía «las N claves están en su default» sobre filas
+   * que el `hasOwnProperty` ni siquiera había mirado. En una línea cuyo único valor es que se pueda
+   * confiar en ella, afirmar de más es el peor defecto posible — y el más difícil de notar, porque el
+   * mensaje suena bien.
+   */
+  it('el «SIN DIVERGENCIAS» cuenta las claves COMPARABLES, no las filas de la tabla', async () => {
+    await wire([
+      { key: SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT, valueJson: 5 }, // comparable, en default
+      { key: 'stripe_fee_iva_pct', valueJson: 0.16 }, // SIN default de código: no se compara
+      { key: 'clave_retirada_hace_dos_versiones', valueJson: 'x' }, // ídem
+    ]).logConfigInventory();
+    const l = linea()!;
+    expect(l).toContain('SIN DIVERGENCIAS');
+    expect(l).toContain('las 1 clave(s) COMPARABLES');
+    expect(l).toContain('de 3 fila(s) en la tabla'); // las otras dos se declaran, no se esconden
+    expect(l).not.toContain('las 3 clave(s)'); // <- la sobre-afirmación que se corrigió
+  });
+
   it('un valor grande (la tabla de escalones) se TRUNCA: la línea tiene que seguir siendo greppeable', async () => {
     await wire([
       { key: SettingKey.GRADING_COST_TIERS, valueJson: [{ minValueMxnCents: 0, maxValueMxnCents: null, costMxnCents: 99_999 }] },
@@ -122,6 +142,50 @@ describe('§11.0 — inventario de configuración al arrancar', () => {
     const l = linea()!;
     expect(l).toContain('grading_cost_tiers=');
     expect(l).toContain('…'); // el default (6 escalones) no cabe entero, y no debe caber
+  });
+
+  /**
+   * v1.50.3-c (techlead) — **el recorte va ALREDEDOR de la primera diferencia, no por el principio.**
+   *
+   * `grading_cost_tiers` es el ÚNICO dial que es una tabla: ~420 chars contra un tope de 160. Con un
+   * recorte por el principio, una divergencia en el escalón 4 imprimía **dos prefijos IDÉNTICOS** y la
+   * línea decía «X difiere de Y» mostrando X == Y: el operador no podía ver qué cambió. Es exactamente
+   * el falso negativo de diagnóstico que este inventario existe para no tener, en el único dial donde
+   * el recorte muerde.
+   */
+  it('con la divergencia en un escalón TARDÍO, los dos valores impresos NO son idénticos', async () => {
+    const tiers = SETTING_DEFAULTS[SettingKey.GRADING_COST_TIERS] as Record<string, unknown>[];
+    expect(tiers.length).toBeGreaterThanOrEqual(4); // la premisa del caso: la divergencia cabe «tarde»
+    const cuarto = { ...tiers[3], costMxnCents: 4_242_424 }; // un costo imposible de confundir
+    const conCuartoDistinto = tiers.map((t, i) => (i === 3 ? cuarto : t));
+    await wire([{ key: SettingKey.GRADING_COST_TIERS, valueJson: conCuartoDistinto }]).logConfigInventory();
+
+    const l = linea()!;
+    expect(l).toContain('DIFIEREN');
+    // 1) El valor divergente REAL aparece impreso (antes se quedaba fuera del prefijo de 160).
+    expect(l).toContain('4242424');
+    // 2) Los dos lados impresos difieren entre sí — la aserción que el defecto rompía.
+    const m = l.match(/grading_cost_tiers=(.+?) \(default (.+?)\)( \[1ª diferencia en char (\d+)\])?/)!;
+    expect(m[1]).not.toBe(m[2]);
+    // 3) Y se imprime el ancla para localizarlo en la tabla completa.
+    expect(l).toMatch(/\[1ª diferencia en char \d+\]/);
+  });
+
+  it('el recorte respeta el tope: la línea sigue siendo una LÍNEA, no un volcado de la tabla', async () => {
+    const tiers = SETTING_DEFAULTS[SettingKey.GRADING_COST_TIERS] as Record<string, unknown>[];
+    const conCuartoDistinto = tiers.map((t, i) => (i === 3 ? { ...t, costMxnCents: 4_242_424 } : t));
+    await wire([{ key: SettingKey.GRADING_COST_TIERS, valueJson: conCuartoDistinto }]).logConfigInventory();
+    const m = linea()!.match(/grading_cost_tiers=(.+?) \(default (.+?)\) \[/)!;
+    // 160 chars + hasta dos elipsis por lado.
+    expect(m[1].length).toBeLessThanOrEqual(162);
+    expect(m[2].length).toBeLessThanOrEqual(162);
+  });
+
+  it('un valor que CABE entero se imprime entero, sin ventana ni ancla (no se complica lo simple)', async () => {
+    await wire([{ key: SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT, valueJson: 3 }]).logConfigInventory();
+    const l = linea()!;
+    expect(l).toContain('graded_estimate_min_sample_count=3 (default 5)');
+    expect(l).not.toContain('1ª diferencia en char');
   });
 
   /**

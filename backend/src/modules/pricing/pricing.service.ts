@@ -52,7 +52,7 @@ import {
   GradedEstimateConfig,
   GradedEstimateInput,
   gradedEstimateGradeKey,
-  isStaleRef,
+  isStaleByOrigin,
   GradedEstimateSourceStat,
   sanitizeGradingCostTiers,
   validateGradedEstimateIngestMaxCards,
@@ -1249,15 +1249,49 @@ export class PricingService {
    * — solo deja de **exhibirse** cuando envejece. Se refresca **recapturándolo**, que convierte «el dueño
    * puso un número una vez» en «el dueño **sostiene** ese número».
    *
+   * ---
+   * ## ⚠️ v1.50.3-c (QA) — el diagnóstico de admin VE lo que se descartó por rancio
+   *
+   * **La contrapartida no declarada del arreglo de arriba.** Al mover el filtro DENTRO de este batch, las
+   * filas rancias dejaron de existir para todo el que lo consume — incluidos `preview` y `review`, que lo
+   * consumen **a propósito** para no diagnosticar sobre una verdad distinta a la del storefront. Efecto
+   * medido por QA con una fila manual de 40 días: el diagnóstico respondía
+   * `reason: NO_PSA10, stale: false, psa10MxnCents: null, capturedDate: null` cuando la verdad era **«tu
+   * cifra expiró»**. `STALE` y `stale:true` quedaron INALCANZABLES en las dos superficies de admin, pese
+   * a estar normados en API_CONTRACT §M2.
+   *
+   * **Importa porque los dos remedios son distintos:** «captura una cifra» (no hay nada) vs. «refresca la
+   * que tienes» (hay una, caducada). Un diagnóstico que los confunde manda al operador a capturar de cero
+   * un número que ya está en la tabla.
+   *
+   * **Cómo se recupera SIN deshacer el arreglo.** El orden no se toca y la ruta pública no cambia ni un
+   * byte: lo rancio se sigue descartando **antes** de `pickBestRef`. Lo único que se añade es que las
+   * descartadas se guardan aparte y, **solo con `includeStaleForDiagnostics`**, se re-inyecta la mejor
+   * rancia **de las claves que no tienen NINGUNA fila fresca**. Consecuencias, todas queridas:
+   *
+   * - *«manual 200 d + automática fresca»* ⇒ el diagnóstico sigue viendo **la automática fresca**, igual
+   *   que el storefront. La rancia NO se re-inyecta (esa clave tiene fresca) ⇒ **cero divergencia** en el
+   *   caso que motivó el arreglo, que es justo donde una divergencia sería intolerable.
+   * - *«manual 40 d, sin automática»* ⇒ el storefront no emite nada (criterio 109) y el diagnóstico
+   *   responde `STALE` con su `capturedDate` y su monto: la única divergencia posible viene **etiquetada
+   *   con la razón que la explica**.
+   * - **No puede volver elegible a nadie:** las filas re-inyectadas son rancias por construcción, y
+   *   `evaluateGradingHighlight` corta en `STALE` antes de resolver escalón, umbral o cotas. Y si alguien
+   *   pasa este mapa a `selectGradedEstimates`, `usable()` vuelve a filtrar por frescura — la ficha no se
+   *   puede envenenar desde aquí ni por accidente.
+   *
    * @param cfg config del gancho ya izada por el caller (una sola lectura por request) — se exige
    *   EXPLÍCITAMENTE, sin default, para que ninguna superficie pueda leer estimados **sin** el filtro de
    *   frescura por olvidar un parámetro opcional. Un default aquí sería fail-open sobre el criterio 109.
    * @param today fecha de negocio (`YYYY-MM-DD`, CDMX) — la misma que consumen las puras.
+   * @param opts.includeStaleForDiagnostics **SOLO superficies de ADMIN** (`preview`, `review`). Es
+   *   opt-in y no tiene default a propósito: la ruta pública no puede activarlo por omisión.
    */
   async getGradedEstimatesBatch(
     cardIds: string[],
     cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
     today: string,
+    opts?: { includeStaleForDiagnostics?: boolean },
   ): Promise<Map<string, GradedEstimateRef[]>> {
     const map = new Map<string, GradedEstimateRef[]>();
     const ids = [...new Set(cardIds)];
@@ -1277,31 +1311,32 @@ export class PricingService {
     if (rows.length === 0) return map;
     // FX izada UNA vez por request (no por fila), igual que en `getReferencesBatch`.
     const fx = await this.fxSnapshotSafe();
-    const bestByKey = new Map<string, (typeof rows)[number]>();
+    const bestFreshByKey = new Map<string, (typeof rows)[number]>();
+    // v1.50.3-c: la MEJOR de las DESCARTADAS por frescura, por clave. Solo la consumen `preview` y
+    // `review` (`includeStaleForDiagnostics`); en la ruta pública se calcula y se tira.
+    const bestStaleByKey = new Map<string, (typeof rows)[number]>();
     for (const r of rows) {
-      // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleRef` es el
-      // MISMO predicado que aplican las puras (`usable()`), así que no hay dos verdades sobre qué es
-      // fresco; lo único que cambia es CUÁNDO se aplica.
-      if (
-        isStaleRef(
-          {
-            gradeValue: r.gradeKey.split(':')[2] ?? '',
-            mxnCents: 0, // irrelevante para la frescura; el monto se evalúa más abajo.
-            capturedDate: r.capturedDate.toISOString().slice(0, 10),
-            isManual: r.isManualOverride === true || r.source === 'manual',
-          },
-          today,
-          cfg,
-        )
-      ) {
-        continue;
-      }
-      // PASO 2: entre las FRESCAS, gana el mejor con el comparador de siempre (§4.27f-2 intacto).
+      // `isManual` se deriva UNA vez por fila y se reusa (antes se calculaba dos veces en este mismo
+      // método): las dos señales son SEPARADAS —una fila puede venir marcada manual con un `source`
+      // distinto de `manual`—, así que la regla vive en un solo sitio.
+      const isManual = r.isManualOverride === true || r.source === 'manual';
       const k = `${r.cardId}|${r.gradeKey}`;
-      const cur = bestByKey.get(k);
-      if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);
+      // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleByOrigin` es
+      // el MISMO predicado que aplican las puras (`usable()`/`isStaleRef`), así que no hay dos verdades
+      // sobre qué es fresco; lo único que cambia es CUÁNDO se aplica.
+      const target = isStaleByOrigin(r.capturedDate.toISOString().slice(0, 10), isManual, today, cfg)
+        ? bestStaleByKey
+        : bestFreshByKey;
+      // PASO 2: dentro de CADA cubeta gana el mejor con el comparador de siempre (§4.27f-2 intacto).
+      const cur = target.get(k);
+      if (cur == null || isBetterRef(r, cur)) target.set(k, r);
     }
-    for (const r of bestByKey.values()) {
+    // ⚠️ FALLBACK DE DIAGNÓSTICO (v1.50.3-c) — **solo** si el caller lo pide, y **solo** para las claves
+    // que NO tienen ninguna fila fresca. Ver el bloque «El diagnóstico ve...» del docblock.
+    if (opts?.includeStaleForDiagnostics === true) {
+      for (const [k, r] of bestStaleByKey) if (!bestFreshByKey.has(k)) bestFreshByKey.set(k, r);
+    }
+    for (const r of bestFreshByKey.values()) {
       const mxnCents = this.liveMxnCents(r, fx);
       // Money-safe: un `<= 0` NO es un estimado (no se emite ni se usa para resolver escalón).
       if (!Number.isInteger(mxnCents) || mxnCents <= 0) continue;
@@ -1312,9 +1347,8 @@ export class PricingService {
         gradeKey: r.gradeKey,
         mxnCents,
         capturedDate: r.capturedDate.toISOString().slice(0, 10),
-        // v1.50.2 (§4.38m): el ORIGEN de la fila que GANÓ la resolución. Se calcula igual que
-        // `sourceRank` (las dos señales son SEPARADAS: una fila puede venir marcada manual con un
-        // `source` distinto de `manual`). Solo decide SI el elemento se emite; nunca qué.
+        // v1.50.2 (§4.38m): el ORIGEN de la fila que GANÓ la resolución. Solo decide SI el elemento se
+        // emite (y con qué ventana de frescura se mide); nunca QUÉ se emite.
         isManual: r.isManualOverride === true || r.source === 'manual',
       };
       if (list) list.push(ref);

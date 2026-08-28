@@ -286,7 +286,9 @@ describe('E2E — §M2: rutas de pricing con forma DECLARADA', () => {
       token: admin,
       json: { cardId, productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 123400, finish: 'normal' },
     });
-    expect(res.status).toBe(201);
+    // v1.50.3-c (QA MENOR-1): el contrato norma `200` para este endpoint («Res `200` NORMADA en
+    // v2.1.7»); `@Post` de Nest respondía `201` por default. El CUERPO ya era el normado.
+    expect(res.status).toBe(200);
     expect(Object.keys(res.body)).toEqual(['data']);
     expect(Object.keys(res.body.data).sort()).toEqual(PRICE_HISTORY_KEYS);
     // Lo que el schema publicaba solo:

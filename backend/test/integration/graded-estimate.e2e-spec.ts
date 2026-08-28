@@ -75,7 +75,9 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         // Aquí es `graded_estimate` porque esto ES la captura del gancho; sin él la ruta responde 422.
         json: { cardId, productType: 'graded', gradeKey, priceMxnCents, intent: 'graded_estimate' },
       });
-      expect(res.status).toBe(201);
+      // v1.50.3-c (QA MENOR-1): `200`, no `201`. API_CONTRACT norma `200` para este endpoint y el
+      // código respondía el `201` por default de `@Post` de Nest. Manda el contrato sobre el código.
+      expect(res.status).toBe(200);
     }
     // La clave canónica quedó escrita tal cual la lee el storefront.
     const rows = await h.prisma.priceReference.findMany({
@@ -362,7 +364,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         intent: 'graded_estimate',
       },
     });
-    expect(bajo.status).toBe(201);
+    expect(bajo.status).toBe(200); // v1.50.3-c: el contrato norma 200 (antes respondía el 201 de Nest)
 
     // (1) NO se promociona.
     const vitrina = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
@@ -434,6 +436,24 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(ficha.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(
       E2E_LIST_OVERRIDE_CENTS,
     );
+
+    // (4) v1.50.3-c (QA) — **el DIAGNÓSTICO de admin distingue «caducó» de «nunca se capturó».**
+    //
+    // Ésta es la contrapartida del arreglo del orden: con el filtro de frescura DENTRO del batch, el
+    // preview respondía `reason:'NO_PSA10'`, `stale:false`, `psa10MxnCents:null`, `capturedDate:null`
+    // sobre esta MISMA fila de 40 días — o sea «no la has capturado» cuando la verdad era «expiró».
+    // Los dos remedios son OPUESTOS (capturar de cero vs. recapturar), y el paso siguiente de este
+    // mismo test —recapturar y ver que revive— es justo el que el diagnóstico tiene que saber sugerir.
+    const diag = await h.api('GET', `/admin/pricing/graded-estimates/preview?cardId=${cardId}`, {
+      token: adminToken,
+    });
+    expect(diag.status).toBe(200);
+    const grupo = diag.body.groups.find((x: any) => x.finish === 'normal');
+    expect(grupo.reason).toBe('STALE'); // era `NO_PSA10` (código muerto pese a estar normado en §M2)
+    expect(grupo.stale).toBe(true);
+    expect(grupo.psa10MxnCents).toBe(PSA10_CENTS); // la cifra que expiró se SIGUE viendo…
+    expect(grupo.capturedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/); // …con la fecha que la delata
+    expect(grupo.eligible).toBe(false); // exhibir la caducada en el diagnóstico NO la vuelve elegible
 
     // Recapturar lo revive: «el dueño SOSTIENE ese número», que es la lectura honesta del criterio.
     for (const [gradeKey, priceMxnCents] of [

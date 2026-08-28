@@ -1236,10 +1236,16 @@ export class CatalogService {
     const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId }));
     const previewToday = businessDateCdmx();
     const [estimatesByCard, slabsByCard] = await Promise.all([
-      // v1.50.3 (§4.38m): el diagnóstico ve EXACTAMENTE lo que ve el storefront — incluido el descarte
-      // por frescura ANTES de resolver. Si el preview no filtrara igual, el operador vería un estimado
-      // que la ficha no muestra, que es la peor forma posible de un diagnóstico.
-      this.pricing.getGradedEstimatesBatch([cardId], cfg, previewToday),
+      // v1.50.3 (§4.38m) + v1.50.3-c (QA): el diagnóstico resuelve con la MISMA regla que el storefront
+      // —lo rancio se descarta ANTES de `pickBestRef`, así que donde hay dato fresco el operador ve
+      // exactamente lo que ve la ficha—, y ADEMÁS ve las filas que ese descarte se llevó, pero **solo
+      // donde no quedó ninguna fresca**. Sin esto, «tu cifra de 40 días expiró» se reportaba como
+      // `NO_PSA10` + `capturedDate: null`, o sea «nunca la capturaste»: dos problemas con remedios
+      // OPUESTOS (refrescar vs. capturar) fundidos en un mismo veredicto, y `STALE` —normado en §M2—
+      // convertido en código muerto. La divergencia con la ficha viene siempre etiquetada `STALE`.
+      this.pricing.getGradedEstimatesBatch([cardId], cfg, previewToday, {
+        includeStaleForDiagnostics: true,
+      }),
       this.pricing.getPublishedSlabGradesBatch([cardId]),
     ]);
     const estimates = estimatesByCard.get(cardId) ?? [];
@@ -1385,7 +1391,15 @@ export class CatalogService {
     const today = businessDateCdmx();
     const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: cardIds } }));
     const [estimatesByCard, slabsByCard] = await Promise.all([
-      this.pricing.getGradedEstimatesBatch(cardIds, cfg, today),
+      // v1.50.3-c (QA): misma resolución que el `preview` — se ven también las filas que el filtro de
+      // frescura descartó, para que la lista pueda decir «esta cifra CADUCÓ» en vez de «no hay cifra».
+      // ⚠️ Alcance real HOY: `reason` se ordena AUSENCIA → FRESCURA → coherencia, así que una fila
+      // rancia produce `STALE`, y `STALE` **no es filtrable** en este endpoint (§M2: cualquier `reason`
+      // fuera de los cuatro admitidos ⇒ `400`). O sea: los ítems caducados se calculan ya con la verdad
+      // correcta, pero el operador no puede ENUMERARLOS. Cerrar eso exige admitir `STALE` como filtro
+      // opt-in ⇒ cambio de CONTRATO ⇒ arquitecto (regla 9); NO se hace aquí. Lo que sí queda arreglado:
+      // los ítems que la lista emite llevan `stale`/`capturedDate` resueltos contra la fila real.
+      this.pricing.getGradedEstimatesBatch(cardIds, cfg, today, { includeStaleForDiagnostics: true }),
       this.pricing.getPublishedSlabGradesBatch(cardIds),
     ]);
 

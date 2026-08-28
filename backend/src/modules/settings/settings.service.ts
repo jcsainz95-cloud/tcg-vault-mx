@@ -13,6 +13,8 @@ import {
 
 /** Cuánto de un valor se imprime en el inventario de arranque (un dial puede ser una tabla). */
 const INVENTORY_VALUE_TRUNCATE = 160;
+/** Contexto que se imprime ANTES de la primera diferencia, para que se lea con qué contrasta. */
+const INVENTORY_DIFF_LEAD = 40;
 
 /**
  * SettingsService — Lectura/escritura de los diales M10 (ConfigSetting).
@@ -89,6 +91,12 @@ export class SettingsService implements OnModuleInit {
     try {
       const rows = await this.prisma.configSetting.findMany();
       const diffs: string[] = [];
+      // v1.50.3-c (techlead): denominador = las claves COMPARABLES, no `rows.length`. La tabla puede
+      // tener claves sin default de código (retiradas, o escritas fuera de banda) que el `continue` de
+      // abajo salta; contarlas afirmaba «las N claves están en su default» sobre filas que ni siquiera
+      // se miraron. En una línea cuyo único propósito es que se pueda confiar en ella, sobre-afirmar
+      // es el peor defecto posible.
+      let comparable = 0;
       for (const row of rows) {
         const key = row.key as SettingKeyType;
         // Claves sin default de código (retiradas o escritas fuera de banda) no se comparan: no hay
@@ -96,6 +104,7 @@ export class SettingsService implements OnModuleInit {
         // (`hasOwnProperty.call` y no `Object.hasOwn` porque el target del build es anterior a ES2022;
         // mismo motivo que en `update()`. Propiedad PROPIA, nunca heredada del prototipo.)
         if (!Object.prototype.hasOwnProperty.call(SETTING_DEFAULTS, key)) continue;
+        comparable += 1;
         const seed = SETTING_DEFAULTS[key];
         // ⚠️ Comparación CANÓNICA, no `JSON.stringify` directo. Postgres almacena `jsonb` y **reordena
         // las claves de los objetos**, así que `grading_cost_tiers` vuelve de la BD con el mismo
@@ -103,10 +112,14 @@ export class SettingsService implements OnModuleInit {
         // arranque. Un inventario que grita cuando no pasa nada es ruido que se aprende a ignorar —
         // exactamente el modo de fallo que esta línea existe para no tener. (El orden de los ARRAYS sí
         // se respeta: en los escalones y en la curva es significativo.)
-        if (canonicalJson(row.valueJson) === canonicalJson(seed)) continue;
-        diffs.push(
-          `${row.key}=${truncateJson(row.valueJson)} (default ${truncateJson(seed as unknown)})`,
-        );
+        const actualJson = canonicalJson(row.valueJson);
+        const seedJson = canonicalJson(seed);
+        if (actualJson === seedJson) continue;
+        // Recorte ALREDEDOR de la primera diferencia (no por el principio): con `grading_cost_tiers`
+        // —~420 chars contra un tope de 160— un recorte por el principio imprimía DOS PREFIJOS
+        // IDÉNTICOS cuando la divergencia caía en un escalón tardío.
+        const shown = truncatePairJson(actualJson, seedJson);
+        diffs.push(`${row.key}=${shown.actual} (default ${shown.seed})${shown.note}`);
       }
       // Una clave AUSENTE en la tabla no se lista: resuelve al default, así que NO difiere.
       //
@@ -115,7 +128,9 @@ export class SettingsService implements OnModuleInit {
       // corrió»— y eso falla ABIERTO.
       if (diffs.length === 0) {
         this.logger.log(
-          `config inventory: SIN DIVERGENCIAS — las ${rows.length} clave(s) sembradas están en su ` +
+          `config inventory: SIN DIVERGENCIAS — las ${comparable} clave(s) COMPARABLES (de ` +
+            `${rows.length} fila(s) en la tabla; el resto no tiene default de código contra el que ` +
+            'contrastar) están en su ' +
             'default de código. (§11.0: un seed es una condición inicial y los cambios de seed NO ' +
             'llegan solos a un entorno ya sembrado; esta línea es —junto al GET del recurso— uno de ' +
             'los dos detectores del seed rancio, así que se emite siempre, también cuando no hay nada.)',
@@ -123,7 +138,8 @@ export class SettingsService implements OnModuleInit {
         return;
       }
       this.logger.log(
-        `config inventory: ${diffs.length} de ${rows.length} clave(s) DIFIEREN de su default de ` +
+        `config inventory: ${diffs.length} de ${comparable} clave(s) comparables DIFIEREN de su ` +
+          `default de ` +
           `código → ${diffs.sort().join('; ')}. (§11.0: es un INVENTARIO, no una alarma — un dial ` +
           'ajustado a propósito es normal. Si alguno debía haberse actualizado con el deploy, se ' +
           'aplica por PUT de admin —auditado y validado—, NUNCA por UPDATE directo a la BD.)',
@@ -291,9 +307,57 @@ export class SettingsService implements OnModuleInit {
   }
 }
 
-/** Serializa un valor de dial para el log, acotado: un dial puede ser una tabla de 6 escalones. */
-function truncateJson(v: unknown): string {
-  const raw = JSON.stringify(v) ?? String(v);
+/**
+ * v1.50.3-c (techlead) — serializa el par (valor vigente, default) para el log **recortando ALREDEDOR
+ * DE LA PRIMERA DIFERENCIA**, no por el principio.
+ *
+ * ### El defecto que cierra
+ * `grading_cost_tiers` es el único dial que es una TABLA: su JSON ronda los **420 chars** contra un
+ * recorte de 160. Si la divergencia está en el escalón 4, los dos prefijos de 160 chars son
+ * **IDÉNTICOS** y la línea dice literalmente «X difiere de Y» mostrando X == Y. El operador no ve qué
+ * cambió — exactamente el falso negativo de diagnóstico que este inventario existe para no tener, y
+ * justo en el único dial donde el recorte muerde.
+ *
+ * ### Tres decisiones
+ * 1. **Se imprime el JSON CANÓNICO**, no el crudo: Postgres reordena las claves de los objetos `jsonb`,
+ *    así que sin canonizar los dos lados no son alineables y el «primer char que difiere» sería un
+ *    artefacto del orden de claves, no una diferencia real. Es la MISMA función con la que se decide si
+ *    hay divergencia ⇒ lo que se imprime es exactamente lo que se comparó.
+ * 2. **La ventana es la misma para los dos lados** (mismo `start`), que es lo que permite leerlos en
+ *    paralelo. Con ventanas independientes volveríamos a comparar cosas distintas.
+ * 3. **Se imprime el índice del char divergente** cuando hubo recorte: es el ancla para localizar el
+ *    elemento en la tabla completa (que sigue estando en la BD y en el `GET` del recurso).
+ */
+function truncatePairJson(actual: string, seed: string): { actual: string; seed: string; note: string } {
+  const at = firstDiffIndex(actual, seed);
+  const fits = actual.length <= INVENTORY_VALUE_TRUNCATE && seed.length <= INVENTORY_VALUE_TRUNCATE;
+  if (fits || at < 0) {
+    return { actual: truncateJson(actual), seed: truncateJson(seed), note: '' };
+  }
+  const start = Math.max(0, at - INVENTORY_DIFF_LEAD);
+  return {
+    actual: windowOf(actual, start),
+    seed: windowOf(seed, start),
+    note: ` [1ª diferencia en char ${at}]`,
+  };
+}
+
+/** Ventana de `INVENTORY_VALUE_TRUNCATE` chars desde `start`, con elipsis en el lado que se recortó. */
+function windowOf(raw: string, start: number): string {
+  const from = Math.min(start, Math.max(0, raw.length - 1));
+  const end = Math.min(raw.length, from + INVENTORY_VALUE_TRUNCATE);
+  return `${from > 0 ? '…' : ''}${raw.slice(from, end)}${end < raw.length ? '…' : ''}`;
+}
+
+/** Índice del primer char en que difieren; `-1` si son iguales. Si una es prefijo de la otra, su fin. */
+function firstDiffIndex(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return i;
+  return a.length === b.length ? -1 : n;
+}
+
+/** Recorte simple por el principio — para los valores que caben o que no tienen con qué contrastarse. */
+function truncateJson(raw: string): string {
   return raw.length <= INVENTORY_VALUE_TRUNCATE ? raw : `${raw.slice(0, INVENTORY_VALUE_TRUNCATE)}…`;
 }
 

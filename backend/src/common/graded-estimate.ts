@@ -67,7 +67,19 @@ export interface GradedEstimateConfig {
   grades: string[];
   /** Grados que el BADGE pinta (⊆ `grades`; seed `["10"]`). */
   highlightGrades: string[];
-  /** Ventana de frescura en días (seed 30) — aplica a las DOS superficies. */
+  /**
+   * Ventana de frescura en días (seed 30) — aplica a las DOS superficies de LECTURA (ficha y vitrina).
+   *
+   * ⚠️ **ACOPLAMIENTO v1.50.3 (§4.38m.2): esta clave hace DOS trabajos, no uno.** Además de la ventana
+   * de LECTURA, es la ventana de EVIDENCIA en la ESCRITURA: el ingest descarta la fila del proveedor
+   * cuya **última venta observada** sea más vieja que `freshnessDays` (sin ese gate, cada corrida
+   * reescribía `capturedDate = hoy` sobre una mediana congelada y el feed rancio parecía fresco para
+   * siempre). Consecuencia operativa **al mover el dial**: bajarlo a 7 aprieta las dos (se exhibe menos
+   * **y** se ingesta menos); subirlo a 90 afloja las dos y admite hasta **180 días** de antigüedad
+   * exhibida (90 de evidencia en el momento de escribir + 90 de exhibición desde la captura). Es un
+   * solo dial a propósito —dos ventanas independientes se desincronizarían sin que nadie lo note—, pero
+   * quien lo mueve tiene que saber que mueve las dos.
+   */
   freshnessDays: number;
   /** Umbral de ROI del gate de CURADURÍA (seed 30). NO afecta la ficha. */
   minUpsidePct: number;
@@ -84,20 +96,36 @@ export interface GradedEstimateConfig {
    */
   ingestEnabled: boolean;
   /**
-   * Decaimiento del OVERRIDE MANUAL (seed `null` = **no decae**), §4.38m. `freshnessDays` protege
-   * contra un **feed** rancio; un override manual **no es un feed**: es una afirmación deliberada de un
-   * humano, y su vigencia la revoca otro humano, no el calendario. Sin esta asimetría, un manual viejo
-   * ganaba la resolución (`isBetterRef`, tier absoluto) y **después** la frescura lo tiraba ⇒ la carta
-   * quedaba sin estimado PESE A HABER dato fresco disponible: un fallo silencioso.
+   * Decaimiento del OVERRIDE MANUAL, **seed 30** (= `freshnessDays`), §4.38m / criterio 109. El
+   * override manual **SÍ caduca**, y se mide contra su fecha de captura.
+   *
+   * ⚠️ **El seed `null` («no decae») quedó DEROGADO en v1.50.3** (GU-A16 deroga GU-A15). El argumento
+   * anterior —«un override manual no es un feed; su vigencia la revoca otro humano, no el calendario»—
+   * está **retirado**: derogaba el criterio 109 por default justo en la mitad del sistema donde el
+   * número lo puso una persona y nadie lo vuelve a mirar. El fallo que aquel seed intentaba curar (un
+   * manual viejo ganaba por tier absoluto y **después** la frescura lo tiraba, dejando la carta sin
+   * estimado pese a haber dato fresco) se arregló donde tocaba: **invirtiendo el ORDEN** —
+   * `PricingService.getGradedEstimatesBatch` descarta lo rancio **antes** de `pickBestRef`.
+   *
+   * `null` **sigue siendo expresable** (rango `null | [1, 3650]`) y significa «no decae», pero es una
+   * decisión explícita del humano con consecuencia declarada —desactiva el criterio 109 para la vía
+   * manual— y el resolver emite `warn` obligatorio al izarla (I8-bis). Valor efectivo y rango:
+   * `DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS` (más abajo en este archivo) es la fuente de verdad.
    */
   manualFreshnessDays: number | null;
-  /** Cota SUPERIOR de magnitud (seed 50), §4.38k.2. Solo la REJILLA la aplica; la ficha nunca. */
+  /**
+   * Cota SUPERIOR de magnitud, **seed 100** (`maxGradedMultiple` de §O.7 / criterio 111c), §4.38k.2.
+   * Solo la REJILLA la aplica; la ficha nunca. *(Era 50 hasta v1.50.3: un seed más estricto que el
+   * criterio no produce datos malos, produce **ausencias** — suprimía el tramo 50×–100× sin explicarlo.)*
+   */
   maxRawMultiple: number;
   /**
-   * Muestra mínima del proveedor para aceptar una fila AUTOMÁTICA (seed 3), §4.38k.1. Se aplica **en la
-   * ESCRITURA** (ingest): `PriceReference` no tiene dónde persistir el `count` sin DDL, y gatearlo al
-   * escribir mantiene M-42 como DATA/seed puro. Consecuencia asumida: cambiarlo afecta solo a
-   * escrituras futuras (para re-aplicarlo hay que re-correr el ingest).
+   * Muestra mínima del proveedor para aceptar una fila AUTOMÁTICA, **seed 5** (`minSalesSample` de §O.7
+   * / criterio 111a), §4.38k.1. *(Era 3 hasta v1.50.3: dejaba entrar cifras de 3 y 4 ventas, que es
+   * justo el ruido que la cota existe para filtrar.)* Se aplica **en la ESCRITURA** (ingest):
+   * `PriceReference` no tiene dónde persistir el `count` sin DDL, y gatearlo al escribir mantiene M-42
+   * como DATA/seed puro. Consecuencia asumida: cambiarlo afecta solo a escrituras futuras (para
+   * re-aplicarlo hay que re-correr el ingest).
    */
   minSampleCount: number;
   /** Cuál número del proveedor ES el precio (seed `median`), §4.38h.2. */
@@ -654,11 +682,35 @@ export function isStaleRef(
   today: string,
   cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
 ): boolean {
-  if (e.isManual === true) {
-    if (cfg.manualFreshnessDays == null) return false; // seed: el manual NUNCA es rancio.
-    return isStaleEstimate(e.capturedDate, today, cfg.manualFreshnessDays);
+  return isStaleByOrigin(e.capturedDate, e.isManual === true, today, cfg);
+}
+
+/**
+ * v1.50.3-c (techlead) — **el MISMO predicado de `isStaleRef`, sobre los dos datos que de verdad
+ * decide**: la fecha de captura y el ORIGEN de la fila. Nada más.
+ *
+ * Existe porque el llamador de la ruta de lectura (`PricingService.getGradedEstimatesBatch`) tiene
+ * filas de `PriceReference`, no `GradedEstimateInput`, y para preguntar «¿está rancia?» fabricaba un
+ * objeto falso con **`mxnCents: 0`**. Funcionaba —el predicado ignora el monto— pero un `0` es un
+ * centinela **inválido** en cualquier otro contexto de este archivo (`usable()` lo trata como «no es un
+ * estimado», money-safe), así que era una trampa esperando al siguiente lector que lo copiara.
+ *
+ * `isStaleRef` queda como el envoltorio para quien ya tiene el input completo: **una sola verdad sobre
+ * qué es fresco**, dos formas de preguntarla.
+ */
+export function isStaleByOrigin(
+  capturedDate: string,
+  isManual: boolean,
+  today: string,
+  cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
+): boolean {
+  if (isManual) {
+    // `null` NO es el seed (lo fue hasta v1.50.3, GU-A15 derogada): es una elección explícita del
+    // operador que desactiva el criterio 109 para la vía manual, y se izó con `warn` (I8-bis).
+    if (cfg.manualFreshnessDays == null) return false;
+    return isStaleEstimate(capturedDate, today, cfg.manualFreshnessDays);
   }
-  return isStaleEstimate(e.capturedDate, today, cfg.freshnessDays);
+  return isStaleEstimate(capturedDate, today, cfg.freshnessDays);
 }
 
 /**

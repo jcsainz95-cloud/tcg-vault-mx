@@ -173,6 +173,7 @@ const RES_BASE = {
   // v1.50.3-a (§4.38h.1-bis) — cartas por SHAPE servido. Es el insumo de la escalada «PPT sirve
   // mayoritariamente S2», que el orquestador juzga con la corrida entera delante.
   shapeCounts: { s1: 1, s2: 0 },
+  forcedFormat: 'auto' as const,
 };
 
 function wireIngest(opts: {
@@ -186,6 +187,8 @@ function wireIngest(opts: {
   escalate?: unknown;
   sawGradedBlock?: boolean;
   shapeCounts?: { s1: number; s2: number };
+  /** v1.50.3-c: qué le PEDIMOS mirar al proveedor. `auto` = autodetección (default). */
+  forcedFormat?: 'auto' | 'sales_by_grade' | 'graded_prices';
 }) {
   const store = new Map<string, unknown>(Object.entries(opts.config ?? {}));
   const prisma = {
@@ -212,6 +215,9 @@ function wireIngest(opts: {
     // v1.50.2: el proveedor reporta si vio bloque PSA; el ORQUESTADOR decide con la corrida entera.
     sawGradedBlock: opts.sawGradedBlock ?? true,
     shapeCounts: opts.shapeCounts ?? { s1: 1, s2: 0 },
+    // v1.50.3-c (§4.38h.1-bis): sin esto, `shapeCounts` no es interpretable — con el formato FORZADO
+    // el conteo dice lo que pedimos, no lo que el proveedor sirve.
+    forcedFormat: opts.forcedFormat ?? 'auto',
   }));
   const pptBulk = { fetchGradedEstimatesForSet: fetchGraded } as unknown as PokemonPriceTrackerBulkProvider;
   const pptSetMapper = {
@@ -466,11 +472,17 @@ describe('§4.38h.1-bis — shape S2: contador propio y escalada de corrida', ()
     const { ingest, audit } = wireIngest({
       config: ON,
       providerDrops: [dropS2('sv8-1'), dropS2('sv8-2'), dropS2('sv8-3')],
-      shapeCounts: { s1: 1, s2: 3 },
+      // Mayoría estricta SOBRE el suelo de muestra (6 observaciones ≥ 5) y con `forcedFormat: auto`:
+      // las dos condiciones que hacen que el veredicto hable del PROVEEDOR y no de nosotros.
+      shapeCounts: { s1: 2, s2: 4 },
     });
     const res = await ingest.ingestGradedEstimates(FX);
     expect(res.escalation).toMatchObject({ reason: 'shape_not_persistible_s2_dominant' });
     expect(res.escalation!.detail).toContain('NO PERSISTIBLE');
+    // v1.50.3-c: la PROCEDENCIA del veredicto viaja con el veredicto — sin abrir el log se ve que el
+    // conteo es una observación (formato `auto`) sobre una muestra que pasa el suelo.
+    expect(res.escalation!.detail).toContain('GRADED_FORMAT=auto');
+    expect(res.escalation!.detail).toContain('suelo de 5');
     expect(res.skippedShapeS2).toBe(3);
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -484,11 +496,70 @@ describe('§4.38h.1-bis — shape S2: contador propio y escalada de corrida', ()
     const { ingest } = wireIngest({
       config: ON,
       providerDrops: [dropS2('sv8-1')],
-      shapeCounts: { s1: 0, s2: 1 },
+      shapeCounts: { s1: 0, s2: 5 }, // cero S1, y con muestra suficiente para sostenerlo
     });
     expect((await ingest.ingestGradedEstimates(FX)).escalation).toMatchObject({
       reason: 'shape_not_persistible_s2_dominant',
     });
+  });
+
+  // ───────────── v1.50.3-c (techlead): la escalada NO puede AUTOINDUCIR su veredicto ─────────────
+  //
+  // Mismo criterio que ya justificaba la mayoría estricta («una escalada tiene que poder sostener su
+  // veredicto»), aplicado a las dos vías por las que el conteo deja de ser evidencia sobre el proveedor.
+
+  it('SUELO DE MUESTRA: `1 > 0` es mayoría estricta pero NO escala — un denominador de 1 no sostiene una decisión de arquitectura', async () => {
+    const { ingest, audit } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      shapeCounts: { s1: 0, s2: 1 },
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.escalation).toBeNull();
+    // La carta se sigue saltando y contando: la señal no se pierde, solo no se presenta como veredicto.
+    expect(res.skippedShapeS2).toBe(1);
+    expect(audit.log).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'graded_estimate.ingest.escalated' }),
+    );
+  });
+
+  it('SUELO DE MUESTRA: justo EN el suelo (5 observaciones) sí escala — el corte es `< 5`, no `<= 5`', async () => {
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      shapeCounts: { s1: 2, s2: 3 },
+    });
+    expect((await ingest.ingestGradedEstimates(FX)).escalation).toMatchObject({
+      reason: 'shape_not_persistible_s2_dominant',
+    });
+  });
+
+  it('FORMATO FORZADO: con GRADED_FORMAT=graded_prices NO escala — el conteo mide lo que PEDIMOS, no lo que el proveedor sirve', async () => {
+    // El `forcedFormat` pone `useS1 = false` en el parser, así que TODA carta con bloque `gradedPrices`
+    // se cuenta como S2 aunque traiga `ebay.salesByGrade` persistible: el 100% de S2 es un ECO del
+    // override del operador. Y §4.38h.1-bis declara ese forzado explícitamente LEGAL.
+    const { ingest, audit } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1'), dropS2('sv8-2')],
+      shapeCounts: { s1: 0, s2: 20 }, // abrumador, y aun así NO es evidencia sobre el proveedor
+      forcedFormat: 'graded_prices',
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.escalation).toBeNull();
+    expect(res.skippedShapeS2).toBe(2); // se siguen saltando como NO PERSISTIBLES: nada se escribió
+    expect(audit.log).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'graded_estimate.ingest.escalated' }),
+    );
+  });
+
+  it('FORMATO FORZADO: basta que UN set de la corrida haya ido forzado para invalidar el conteo global', async () => {
+    const { ingest } = wireIngest({
+      config: ON,
+      providerDrops: [dropS2('sv8-1')],
+      shapeCounts: { s1: 1, s2: 9 },
+      forcedFormat: 'sales_by_grade',
+    });
+    expect((await ingest.ingestGradedEstimates(FX)).escalation).toBeNull();
   });
 
   it('la escalada NO destruye nada: lo que SÍ se pudo escribir en la corrida se conserva', async () => {
@@ -498,7 +569,7 @@ describe('§4.38h.1-bis — shape S2: contador propio y escalada de corrida', ()
       config: ON,
       providerRows: [ROW],
       providerDrops: [dropS2('sv8-1'), dropS2('sv8-2')],
-      shapeCounts: { s1: 1, s2: 2 },
+      shapeCounts: { s1: 2, s2: 4 },
     });
     const res = await ingest.ingestGradedEstimates(FX);
     expect(res.escalation).toMatchObject({ reason: 'shape_not_persistible_s2_dominant' });

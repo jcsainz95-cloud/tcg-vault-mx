@@ -198,6 +198,87 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
       const { pricing } = wire([automatica({ capturedDate: VIEJO })]);
       expect((await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY)).get('c1')).toBeUndefined();
     });
+
+    /**
+     * v1.50.3-c (QA) — **la contrapartida no declarada del arreglo de arriba.**
+     *
+     * Al mover el filtro DENTRO del batch, las filas rancias dejaron de existir para TODO el que lo
+     * consume — incluidos `preview` y `review`, que lo consumen a propósito. Medido por QA con una fila
+     * manual de 40 días, el diagnóstico de admin respondía
+     * `{reason:'NO_PSA10', stale:false, psa10MxnCents:null, capturedDate:null}` cuando la verdad era
+     * **«tu cifra expiró»**: `STALE` y `stale:true` quedaron INALCANZABLES pese a estar normados en
+     * API_CONTRACT §M2.
+     *
+     * **No es cosmético: los dos remedios son OPUESTOS.** «No hay cifra» ⇒ captúrala; «la cifra caducó»
+     * ⇒ refréscala. Un diagnóstico que los funde manda al operador a teclear de cero un número que ya
+     * está en la tabla.
+     *
+     * El opt-in `includeStaleForDiagnostics` recupera la resolución **sin deshacer el arreglo**: el
+     * orden no se toca, la ruta pública no cambia, y la fila rancia se re-inyecta **solo** donde no
+     * quedó ninguna fresca.
+     */
+    describe('`includeStaleForDiagnostics` — el admin ve lo que el filtro se llevó (v1.50.3-c)', () => {
+      const DIAG = { includeStaleForDiagnostics: true };
+
+      it('sin el opt-in (ruta PÚBLICA) el manual rancio sigue sin existir: el arreglo NO se deshace', async () => {
+        const { pricing } = wire([manual()]);
+        expect((await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY)).get('c1')).toBeUndefined();
+      });
+
+      it('con el opt-in, la fila rancia SÍ aparece — con su monto y su fecha reales', async () => {
+        const { pricing } = wire([manual()]);
+        const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY, DIAG)).get('c1')!;
+        expect(ref.mxnCents).toBe(111_111); // «hay una cifra, y CADUCÓ» ≠ «no hay cifra»
+        expect(ref.capturedDate).toBe('2026-02-09');
+        expect(ref.isManual).toBe(true); // el ORIGEN viaja: es lo que decide con qué ventana se midió
+      });
+
+      it('NO divergE del storefront donde hay dato fresco: la rancia solo entra si no quedó ninguna fresca', async () => {
+        // El caso que motivó el arreglo del orden (manual 200 d + automática fresca). Aquí una
+        // divergencia sería intolerable: el operador vería un número que la ficha no muestra **sin**
+        // que nada se lo explique. Por eso el fallback es por CLAVE y solo cuando la cubeta fresca
+        // está vacía.
+        const { pricing } = wire([manual(), automatica()]);
+        const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY, DIAG)).get('c1')!;
+        expect(ref.mxnCents).toBe(222_222);
+        expect(ref.isManual).toBe(false);
+      });
+
+      it('es POR GRADO: PSA 10 fresco convive con un PSA 9 caducado re-inyectado', async () => {
+        const { pricing } = wire([
+          automatica(), // PSA 10 fresco
+          manual({ gradeKey: 'graded:PSA:9', priceMxnCents: 333_333 }), // PSA 9 rancio, sin fresca
+        ]);
+        const refs = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY, DIAG)).get('c1')!;
+        const byGrade = Object.fromEntries(refs.map((r) => [r.gradeValue, r]));
+        expect(byGrade['10'].mxnCents).toBe(222_222);
+        expect(byGrade['9'].mxnCents).toBe(333_333); // sin esto, el gate diría NO_PSA9 («captúralo»)
+      });
+
+      it('entre RANCIAS también gana el mejor con el comparador de siempre (no «la primera que salga»)', async () => {
+        const { pricing } = wire([
+          automatica({ capturedDate: VIEJO, priceMxnCents: 555_555 }),
+          manual({ priceMxnCents: 111_111 }),
+        ]);
+        const [ref] = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY, DIAG)).get('c1')!;
+        expect(ref.mxnCents).toBe(111_111); // tier manual absoluto (§4.27f-2), igual que en la fresca
+      });
+
+      it('money-safe: una rancia con monto <= 0 NO se re-inyecta (un 0 no es un estimado)', async () => {
+        const { pricing } = wire([manual({ priceMxnCents: 0 })]);
+        expect(
+          (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY, DIAG)).get('c1'),
+        ).toBeUndefined();
+      });
+
+      it('`includeStaleForDiagnostics: false` es exactamente la ruta pública (el opt-in no tiene default)', async () => {
+        const { pricing } = wire([manual()]);
+        const map = await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, HOY, {
+          includeStaleForDiagnostics: false,
+        });
+        expect(map.get('c1')).toBeUndefined();
+      });
+    });
   });
 
   it('una referencia en USD se RECOMPUTA con la FX vigente (mismo lector que getReference)', async () => {

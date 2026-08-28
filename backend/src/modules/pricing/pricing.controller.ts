@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Logger, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Logger, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
 import { FINISH_VALUES } from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
@@ -237,6 +237,12 @@ export class PricingController {
    * **en el borde HTTP**, que es donde se decide la forma de la API.
    */
   @Post('override')
+  // v1.50.3-c (QA MENOR-1): el contrato NORMA `200` («Res `200` NORMADA en v2.1.7») y `@Post` de Nest
+  // responde `201` por default, así que el código venía incumpliendo su propia especificación. Manda el
+  // contrato sobre el código (regla de conflicto), y `200` es además lo correcto en semántica: este
+  // endpoint no crea un recurso direccionable —el `id` de la `PriceReference` va a la BITÁCORA, no a la
+  // respuesta— y no hay `Location` que devolver.
+  @HttpCode(200)
   async override(@Body() dto: OverrideDto, @CurrentUser('id') userId: string) {
     // ===== v1.50.2 (INV-D, §4.38l.1) — guarda de ESCRITURA, ANTES de tocar la tabla de dinero =====
     //
