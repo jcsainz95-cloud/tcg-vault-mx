@@ -13,7 +13,8 @@ const MAX_ROWS = 5;
  * «Lo que más buscamos hoy» (makeover 1a §7): tabla de bounties públicos. CONDICIONAL:
  * solo se renderiza si GET /buylist/bounties regresa elementos (misma regla de honestidad
  * que TopBountiesShelf: sin bounties o con error, la sección desaparece — es vitrina).
- * «Pagamos» = bountyPriceCents del server; «Buscadas» = remainingQty/targetQty reales.
+ * «Pagamos» = bountyPriceCents del server. NO se expone la cantidad buscada/restante al
+ * cliente (fuga de inventario/demanda): la columna «Buscadas» se retiró intencionalmente.
  * Condición: la buylist solo compra NM (política global del contrato), por eso la
  * columna pinta la constante honesta "NM" — no existe condición por-bounty en el DTO.
  *
@@ -48,7 +49,7 @@ export function BountyBoard() {
         <div role="table" aria-label={t('bounties.title')}>
           <div
             role="row"
-            className="hidden grid-cols-[2fr_1fr_1fr_1fr] gap-5 border-b border-border-strong pb-2.5 sm:grid"
+            className="hidden grid-cols-[2fr_1fr_1fr] gap-5 border-b border-border-strong pb-2.5 sm:grid"
           >
             <span role="columnheader" className="eyebrow">
               {t('bounties.colCard')}
@@ -59,17 +60,13 @@ export function BountyBoard() {
             <span role="columnheader" className="eyebrow text-right">
               {t('bounties.colWePay')}
             </span>
-            <span role="columnheader" className="eyebrow text-right">
-              {t('bounties.colWanted')}
-            </span>
           </div>
           {rows.map((b) => {
-            const wanted = b.remainingQty ?? b.targetQty;
             return (
               <div
                 key={`${b.cardId}:${b.finish}`}
                 role="row"
-                className="grid grid-cols-[1fr_auto] items-baseline gap-x-5 border-b border-border py-[15px] sm:grid-cols-[2fr_1fr_1fr_1fr]"
+                className="grid grid-cols-[1fr_auto] items-baseline gap-x-5 border-b border-border py-[15px] sm:grid-cols-[2fr_1fr_1fr]"
               >
                 <span
                   role="cell"
@@ -83,9 +80,6 @@ export function BountyBoard() {
                 </span>
                 <span role="cell" className="tabular text-right font-mono text-[14px] text-text lg:text-[15px]">
                   {formatMoneyCents(b.bountyPriceCents, locale)}
-                </span>
-                <span role="cell" className="tabular hidden text-right font-mono text-xs text-muted sm:block">
-                  {wanted != null ? wanted : '—'}
                 </span>
               </div>
             );
