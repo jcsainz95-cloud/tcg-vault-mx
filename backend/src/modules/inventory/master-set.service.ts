@@ -3,7 +3,8 @@ import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
-import { computeSalePriceForRarity } from '../../common/money';
+// H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
+import { hasManualPrice } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
 import { VariantPricingDTO, composeVariantPricing } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
@@ -686,6 +687,9 @@ export class MasterSetService implements OnModuleInit {
         number: true,
         name: true,
         rarity: true,
+        // v2.0 (§4.36.5): la rareza CANÓNICA alimenta el veredicto del guardarraíl (`premiumAtFloor`
+        // del binder). No entra al monto — solo decide publicar/no publicar (criterio 84).
+        rarityCanonical: true,
         imageSmallUrl: true,
         availableFinishes: true,
         // v1.22 (M-26): se LEEN de la columna; ya no se derivan en memoria (ARCHITECTURE 4.22b).
@@ -752,9 +756,8 @@ export class MasterSetService implements OnModuleInit {
     // de compra/venta izadas UNA vez + overrides M-30 en UNA query (mismo lote del universo); la
     // referencia reusa `marketRefs` (mismo batch). En scopes de cliente NO se computa ni viaja.
     const includePricing = scope.kind === 'platform';
-    const pricingRules = includePricing
-      ? { buy: await this.pricing.loadBuylistRules(), sell: await this.pricing.loadSalesRules() }
-      : null;
+    // v2.0 (P-48, §4.36.2): UNA curva izada una vez por request, compartida por los dos ejes.
+    const pricingCurve = includePricing ? await this.pricing.loadPricingCurve() : null;
     const variantOverrides = includePricing
       ? await this.pricing.getVariantOverridesBatch(universeKeys)
       : new Map<string, never>();
@@ -805,14 +808,14 @@ export class MasterSetService implements OnModuleInit {
               ? { capturedDate: mref.capturedDate }
               : {}),
             // v1.28 (P-18): consola de tres precios — SOLO scope platform (regla dura §4.26b).
-            ...(pricingRules
+            ...(pricingCurve
               ? {
                   pricing: composeVariantPricing(
-                    c.rarity,
-                    finish,
                     marketReferenceMxnCents,
-                    pricingRules,
+                    pricingCurve,
                     variantOverrides.get(`${c.id}|raw|raw:NM|${finish}`) ?? null,
+                    // v2.0 (§4.36.5): la rareza SOLO para el veredicto del guardarraíl (`premiumAtFloor`).
+                    c.rarityCanonical ?? c.rarity,
                   ),
                 }
               : {}),
@@ -922,10 +925,17 @@ export class MasterSetService implements OnModuleInit {
   /**
    * v1.20 §4.20d — resuelve en LOTE la pieza `listed` de plataforma MÁS BARATA por (cardId, finish)
    * para las variantes faltantes del binder del cliente. Precio con el MISMO criterio de la ficha
-   * (§4.9): `listPriceCents` override manual o derivado de las reglas de venta por rareza+acabado
-   * (§4.14, SEC-A1). Si el precio no resuelve (pct sin market) esa pieza NO es buyable. SIN N+1:
-   * 1 findMany de listadas + reglas izadas UNA vez + 1 lote de referencias (getReferencesBatch).
+   * (§4.9): `listPriceCents` override manual POR PIEZA, o derivado server-side (SEC-A1) por el SEAM
+   * ÚNICO del eje de venta (`pricing.decideSalePrice`, v2.0 §4.36.5b) sobre el valor de mercado.
+   * SIN N+1: 1 findMany de listadas + curva izada UNA vez + 1 lote de referencias + 1 lote de overrides.
    * El binder NO crea órdenes ni reservas: el CTA lleva a la ficha/checkout normal.
+   *
+   * v2.0 (P-48, gate techlead) — el binder pasa por el MISMO seam que el storefront y el checkout, así
+   * que hereda el GUARDARRAÍL: una premium cuyo precio aterriza en el piso deja de ofrecerse como
+   * `buyable` aquí igual que deja de publicarse allá. Antes este call site calculaba el monto con la
+   * función pura y se saltaba el veredicto: el binder ofrecía a MX$25 —con CTA a un checkout que
+   * respondía `PRICE_PENDING`— justo la carta que el storefront ya ocultaba. Dos superficies de la
+   * MISMA decisión de dinero discrepando; por eso el veredicto ya no es opcional en la firma.
    */
   private async resolveBuyables(
     pairs: { cardId: string; finish: Finish }[],
@@ -948,9 +958,10 @@ export class MasterSetService implements OnModuleInit {
     const candidates = listed.filter((i) => wanted.has(`${i.cardId}|${i.finish}`));
     if (candidates.length === 0) return map;
 
-    const { rules, fallbackPct } = await this.pricing.loadSalesRules();
+    const curve = await this.pricing.loadPricingCurve();
     const derivableKeys = candidates
-      .filter((i) => i.listPriceCents == null)
+      // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ esas piezas también derivan precio.
+      .filter((i) => !hasManualPrice(i))
       .map((i) => ({
         cardId: i.cardId,
         productType: i.productType,
@@ -958,26 +969,28 @@ export class MasterSetService implements OnModuleInit {
         finish: i.finish,
       }));
     const refs = await this.pricing.getReferencesBatch(derivableKeys);
-    // v1.28 (P-18, §4.26b): el `buyable` del binder cobra EXACTAMENTE lo que el storefront —
-    // sellOverride de la variante (M-30) pisa la regla (mismo resolver único; lote sin N+1).
+    // v1.28 (P-18, §4.26b) · v2.0 (§4.36): el `buyable` del binder cobra EXACTAMENTE lo que el
+    // storefront — misma CURVA, mismo sellOverride de variante (mismo cuerpo único; lote sin N+1).
     const variantOverrides = await this.pricing.getVariantOverridesBatch(derivableKeys);
 
     for (const item of candidates) {
       let salePriceCents: number | null;
-      if (item.listPriceCents != null) {
+      if (hasManualPrice(item)) {
         salePriceCents = item.listPriceCents; // override manual POR PIEZA gana siempre (§4.9/§4.26b)
       } else {
         const gradeKey = this.pricing.gradeKeyFor(item);
-        const ref = refs.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
+        const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
+        const ref = refs.get(key);
         const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-        salePriceCents = computeSalePriceForRarity(
-          item.card.rarity,
-          item.finish,
-          refCents,
-          rules,
-          fallbackPct,
-          variantOverrides.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`) ?? null,
-        ).salePriceCents;
+        // SEAM ÚNICO (§4.36.5b): monto + veredicto juntos. Una variante bloqueada por el guardarraíl
+        // vuelve con `priceCents=null` y cae en el `continue` de abajo — NO se ofrece como buyable.
+        salePriceCents = this.pricing.decideSalePrice({
+          referenceMxnCents: refCents,
+          // SOLO para el veredicto (criterio 84): no entra al monto.
+          rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+          controls: variantOverrides.get(key) ?? null,
+          curve,
+        }).priceCents;
       }
       // Sin precio resoluble (>0) → no comprable (paridad con `sellable` de la ficha §4.9).
       if (salePriceCents == null || salePriceCents <= 0) continue;

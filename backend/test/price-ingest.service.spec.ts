@@ -3,6 +3,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { usdToMxnCents } from '../src/common/money';
 import { cardNumberVariants } from '../src/modules/pricing/pricing.types';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * WS-A (v1.14-price-ingest, §4.15c/§4.15d) — PriceIngestService:
@@ -108,6 +109,9 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
         findMany: jest.fn(async () => []),
         update: jest.fn(async () => ({})),
       },
+      // v2.1.1 (§4.36.5b-ter): el pase posterior al barrido re-resuelve las piezas PUBLICADAS del set.
+      // Por defecto no hay inventario publicado ⇒ no hay nada que reconciliar.
+      inventoryItem: { findMany: jest.fn(async () => []) },
       ...overrides,
     } as any;
   }
@@ -683,5 +687,113 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
     const res = await svc.ingestSet('local-sv8', fx);
     expect(pricing.persistMarketReference).not.toHaveBeenCalled();
     expect(res.unresolved).toBe(1);
+  });
+});
+
+/**
+ * v2.1.1 (P-48, §4.36.5b-ter / E4-ter) — CONTINUIDAD DEL GUARDARRAÍL.
+ *
+ * §4.36.5c ató la SALIDA de la cola al barrido diario, pero la ENTRADA quedó atada solo a eventos de
+ * publicación: el guardarraíl se cerraba solo y NO se abría solo, así que cada degradación futura del
+ * feed dependía de que alguien pulsara «publicar». Aquí se cierra la asimetría: el MISMO pase que ya
+ * cierra entradas ahora también las ABRE, re-resolviendo las piezas publicadas del set repreciado.
+ */
+describe('PriceIngestService — E4-ter: el barrido ABRE la cola, no solo la cierra (§4.36.5b-ter)', () => {
+  const fx = { rate: 18, bufferPct: 3 };
+  const listedItem = (over: Record<string, unknown> = {}) => ({
+    id: 'inv-1',
+    cardId: 'db-1',
+    productType: 'raw',
+    finish: 'normal',
+    rawCondition: 'NM',
+    gradingCompany: null,
+    gradeValue: null,
+    ownerType: 'platform',
+    status: 'listed',
+    listPriceCents: null,
+    // Illustration Rare = rareza PREMIUM: si el precio cae al piso, el guardarraíl dispara.
+    card: { rarity: 'Illustration Rare', rarityCanonical: null },
+    ...over,
+  });
+
+  function buildIngest(items: Record<string, unknown>[], referenceMxnCents: number | null) {
+    const settled: Array<{ reason: unknown; key: Record<string, unknown> }> = [];
+    const prisma: any = {
+      cardSet: { findUnique: jest.fn(async () => SET) },
+      card: {
+        findUnique: jest.fn(async ({ where }: any) => (where.externalId === 'sv8-1' ? { id: 'db-1' } : null)),
+        findFirst: jest.fn(async () => null),
+        findMany: jest.fn(async () => []),
+        update: jest.fn(async () => ({})),
+      },
+      inventoryItem: { findMany: jest.fn(async () => items) },
+    };
+    const real = PricingService.prototype;
+    const pricing: any = {
+      persistMarketReference: jest.fn(async () => {}),
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      gradeKeyFor: jest.fn(() => 'raw:NM'),
+      getReferencesBatch: jest.fn(async () =>
+        referenceMxnCents == null
+          ? new Map()
+          : new Map([['db-1|raw|raw:NM|normal', { status: 'priced', referenceMxnCents }]]),
+      ),
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      // CUERPO REAL del seam de venta: el barrido no puede concluir algo distinto del storefront.
+      decideSalePrice: jest.fn(real.decideSalePrice),
+      settlePendingForVariant: jest.fn(async (reason: unknown, key: Record<string, unknown>) => {
+        settled.push({ reason, key });
+        return reason != null ? 'pend-1' : undefined;
+      }),
+    };
+    const provider = providerMock('pokemonpricetracker', [
+      { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 150, currency: 'USD' },
+    ]);
+    const svc = new PriceIngestService(
+      prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any,
+      {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any,
+    );
+    return { svc, pricing, settled, prisma };
+  }
+
+  it('feed DEGRADADO: la pieza publicada entra a la cola tras el barrido, SIN intervención manual', async () => {
+    // Mercado absurdo ($10) para una premium ⇒ la curva la manda al PISO ⇒ `premium_at_floor`.
+    const h = buildIngest([listedItem()], 1000);
+    await h.svc.ingestSet('local-sv8', fx);
+    expect(h.settled).toHaveLength(1);
+    expect(h.settled[0].reason).toBe('premium_at_floor');
+    expect(h.settled[0].key).toMatchObject({ cardId: 'db-1', productType: 'raw', finish: 'normal' });
+  });
+
+  it('feed que DEJA de reportar la variante: entra como `no_market`', async () => {
+    const h = buildIngest([listedItem()], null);
+    await h.svc.ingestSet('local-sv8', fx);
+    expect(h.settled[0].reason).toBe('no_market');
+  });
+
+  it('mercado SANO: el mismo pase CIERRA (reason=null) — la salida sigue siendo simétrica', async () => {
+    const h = buildIngest([listedItem()], 100000);
+    await h.svc.ingestSet('local-sv8', fx);
+    expect(h.settled).toHaveLength(1);
+    expect(h.settled[0].reason).toBeNull();
+  });
+
+  it('override manual POR PIEZA: el barrido no opina sobre su cola (ni abre ni cierra)', async () => {
+    const h = buildIngest([listedItem({ listPriceCents: 9900 })], null);
+    await h.svc.ingestSet('local-sv8', fx);
+    expect(h.settled).toHaveLength(0);
+  });
+
+  it('el pase NO cambia el status de la pieza (§4.36.5b-bis decisión 3): nunca escribe inventoryItem', async () => {
+    const h = buildIngest([listedItem()], 1000);
+    await h.svc.ingestSet('local-sv8', fx);
+    expect(h.prisma.inventoryItem.update).toBeUndefined();
+    expect(h.prisma.inventoryItem.updateMany).toBeUndefined();
+  });
+
+  it('falla-seguro: si la reconciliación revienta, la ingesta NO se cae (los precios ya se persistieron)', async () => {
+    const h = buildIngest([listedItem()], 1000);
+    h.pricing.settlePendingForVariant.mockRejectedValue(new Error('boom'));
+    await expect(h.svc.ingestSet('local-sv8', fx)).resolves.toMatchObject({ priced: 1 });
   });
 });

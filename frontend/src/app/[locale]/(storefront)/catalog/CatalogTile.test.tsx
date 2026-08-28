@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { CatalogTile } from './CatalogTile';
-import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
+import type { CardDTO, GroupedListingSummaryDTO } from '@/types/contract';
 
 // La teja usa <Link> y useRouter de next-intl; se mockean para aislarla del router.
 vi.mock('@/i18n/navigation', () => ({
@@ -30,14 +30,10 @@ const card: CardDTO = {
   availableFinishes: ['normal', 'holofoil'],
 };
 
-const refValue: ListingDTO['referenceValue'] = {
-  status: 'priced',
-  referenceMxnCents: 128000,
-  source: 'pokemontcg_io',
-  capturedDate: '2026-08-13',
-};
-
-function listing(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
+// v2.1.9 (D2): la teja recibe el DTO de la REJILLA — SIN `priceBasis` ni `referenceValue`. El
+// fixture los omite a propósito: si la teja empezara a leerlos, esto no compilaría (que es
+// justamente lo que el tipo propio compra frente a un campo opcional).
+function listing(over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSummaryDTO {
   return {
     representativeInventoryItemId: 'inv-a',
     card,
@@ -47,7 +43,6 @@ function listing(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
     gradeKey: 'raw:NM',
     stockCount: 2,
     salePriceCents: 140800,
-    referenceValue: refValue,
     currency: 'MXN',
     ...over,
   };

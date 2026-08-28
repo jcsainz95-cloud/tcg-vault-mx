@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { NOT_ON_HAND } from '../src/modules/inventory/master-set.service';
 import { buildGradeKey } from '../src/modules/pricing/pricing.types';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.28 (P-25 + P-20, §4.26g/h / API_CONTRACT §M1) — pestañas «Sellado» (por SET) y «Gradeadas»:
@@ -34,6 +35,11 @@ function buildPricing(refsByKey: Record<string, { cents: number; capturedDate?: 
   });
   return {
     pricing: {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: (i: any) => buildGradeKey(i),
       getReferencesBatch,
     } as unknown as PricingService,

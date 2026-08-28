@@ -52,9 +52,16 @@ describe('ShopFilters (§7.16)', () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ setId: 'sv08' }));
   });
 
-  it('tipo sellado: muestra el sub-filtro de subtipo alimentado por facets', () => {
-    setup({ productType: 'sealed' });
-    expect(screen.getByLabelText('Subtipo de sellado')).toBeInTheDocument();
+  it('Compra solo ofrece SINGLES: no hay casilla «Sellado» (vive en su propia pestaña)', () => {
+    setup();
+    // `GroupedListingDTO.productType ∈ {raw, graded}` — el endpoint de Compra JAMÁS emite un grupo
+    // sellado (contrato §DTOs, H9), así que filtrar por «Sellado» aquí solo podía devolver
+    // «Ninguna carta coincide». El sellado tiene su catálogo y su pestaña propios (§2-S).
+    expect(screen.getByRole('button', { name: 'Raw (NM)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Graded' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sellado' })).toBeNull();
+    // Con la casilla se va su sub-filtro, que solo se abría bajo ella.
+    expect(screen.queryByLabelText('Subtipo de sellado')).toBeNull();
   });
 
   it('tipo raw: expone el sublabel de condición NM (único valor)', () => {

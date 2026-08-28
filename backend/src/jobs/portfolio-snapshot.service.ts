@@ -52,6 +52,8 @@ export class PortfolioSnapshotJobService {
     const { portfolio } = await this.vault.holdings(userId);
     const costBasisMxnCents = await this.vault.costBasisCents(userId);
     const asOfDate = this.today();
+    // PROJECTION-EXEMPT: job programado, no hay respuesta HTTP. `PortfolioSnapshot` no viaja al
+    // cliente por aquí; la serie se sirve proyectada desde `VaultService.portfolioHistory`.
     return this.prisma.portfolioSnapshot.upsert({
       where: { userId_asOfDate: { userId, asOfDate } },
       create: {

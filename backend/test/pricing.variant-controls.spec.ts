@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { PrismaClient } from '@prisma/client';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.28 (P-18/P-22, §M2 / ARCHITECTURE §4.26a-b) — consola de precios por variante:
@@ -21,15 +22,10 @@ const CARD = {
   availableFinishes: ['normal', 'reverse_holo'],
 };
 
-// v1.29 (§4.28d): PriceRuleSet de dos ejes (Common → rarityRules).
-const BUY = {
-  rules: { rarityRules: { Common: { mode: 'fixed' as const, value: 50 } }, finishRules: {}, fallbackPct: 40 },
-  fallbackPct: 40,
-};
-const SELL = {
-  rules: { rarityRules: { Common: { mode: 'fixed' as const, value: 500 } }, finishRules: {}, fallbackPct: 15 },
-  fallbackPct: 15,
-};
+// v2.0 (P-48, §4.36.2): UNA curva para los dos ejes. Con mercado $100: compra 40 % = $40 (4000c);
+// venta 1.15× = $115 (11500c, ya múltiplo de $5).
+const CURVE_BUY_AT_100 = 4000;
+const CURVE_SELL_AT_100 = 11500;
 
 function overrideRow(over: Record<string, unknown> = {}) {
   return {
@@ -55,7 +51,16 @@ function overrideRow(over: Record<string, unknown> = {}) {
 function build(opts: { existing?: ReturnType<typeof overrideRow> | null; referenceMxnCents?: number | null; card?: object | null } = {}) {
   const existing = opts.existing ?? null;
   const prisma = {
-    card: { findUnique: jest.fn(async () => (opts.card === undefined ? CARD : opts.card)) },
+    card: {
+      findUnique: jest.fn(async () => (opts.card === undefined ? CARD : opts.card)),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). Delega en el MISMO `findUnique` del fixture (`this`).
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
+    },
     variantPriceOverride: {
       findUnique: jest.fn(async () => existing),
       upsert: jest.fn(async ({ create, update }: any) =>
@@ -65,8 +70,11 @@ function build(opts: { existing?: ReturnType<typeof overrideRow> | null; referen
     },
   } as unknown as PrismaService;
   const pricing = {
-    loadBuylistRules: jest.fn(async () => BUY),
-    loadSalesRules: jest.fn(async () => SELL),
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReference: jest.fn(async () =>
       opts.referenceMxnCents == null
         ? { status: 'pending' }
@@ -174,16 +182,19 @@ describe('PATCH parcial: omitido no toca, null limpia; fila vacía se borra', ()
     );
     expect(res).toMatchObject({ cardId: 'card-1', productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' });
     expect(res.pricing.sell).toEqual({
-      suggestedCents: 500, // la regla HOY (fixed 500), no el override
+      suggestedCents: CURVE_SELL_AT_100, // la CURVA hoy, no el override
       overrideCents: 9900,
       effectiveCents: 9900,
       source: 'override',
+      premiumAtFloor: false,
     });
+    // v2.0 (criterio 89): el override de compra ($3) queda POR DEBAJO de la curva ($40) y se respeta.
     expect(res.pricing.buy).toEqual({
-      suggestedCents: 50,
+      suggestedCents: CURVE_BUY_AT_100,
       overrideCents: 300,
       effectiveCents: 300,
       source: 'override',
+      premiumAtFloor: false,
     });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'pricing.variant_controls', actorUserId: 'admin-1' }),
@@ -198,7 +209,7 @@ describe('PATCH parcial: omitido no toca, null limpia; fila vacía se borra', ()
     const upsert = (prisma.variantPriceOverride.upsert as unknown as jest.Mock).mock.calls[0][0];
     expect(upsert.update).toMatchObject({ sellOverrideCents: 9900, buyOverrideCents: null });
     expect(res.pricing.sell.effectiveCents).toBe(9900);
-    expect(res.pricing.buy).toMatchObject({ overrideCents: null, effectiveCents: 50, source: 'rule' });
+    expect(res.pricing.buy).toMatchObject({ overrideCents: null, effectiveCents: CURVE_BUY_AT_100, source: 'market' });
   });
 
   it('quitar el último control BORRA la fila (equivalente observable a "sin fila")', async () => {
@@ -207,8 +218,8 @@ describe('PATCH parcial: omitido no toca, null limpia; fila vacía se borra', ()
     const res = await svc.update('card-1', 'normal', { sellOverrideCents: null }, 'admin-1');
     expect(prisma.variantPriceOverride.delete).toHaveBeenCalledWith({ where: { id: 'vpo-1' } });
     expect(prisma.variantPriceOverride.upsert).not.toHaveBeenCalled();
-    // Sin fila: todo por regla y SIN bloque bounty.
-    expect(res.pricing.sell).toMatchObject({ overrideCents: null, effectiveCents: 500, source: 'rule' });
+    // Sin fila: todo por la CURVA y SIN bloque bounty.
+    expect(res.pricing.sell).toMatchObject({ overrideCents: null, effectiveCents: CURVE_SELL_AT_100, source: 'market' });
     expect('bounty' in res.pricing).toBe(false);
   });
 
@@ -226,7 +237,7 @@ describe('PATCH parcial: omitido no toca, null limpia; fila vacía se borra', ()
     expect(prisma.variantPriceOverride.upsert).not.toHaveBeenCalled();
     expect(prisma.variantPriceOverride.delete).not.toHaveBeenCalled();
     expect(audit.log).toHaveBeenCalled();
-    expect(res.pricing.buy.source).toBe('rule');
+    expect(res.pricing.buy.source).toBe('market');
   });
 });
 
@@ -250,22 +261,40 @@ describe('bounty (P-22: persistencia + invariantes; vitrina/conteo son de fase p
     ).rejects.toMatchObject({ code: 'BOUNTY_PRICE_REQUIRED' });
   });
 
-  it('priceCents por DEBAJO del sugerido por regla (resoluble) → 422 BOUNTY_BELOW_RULE', async () => {
-    // Regla Common fixed 50: un bounty de 49 no es bounty.
+  it('priceCents por DEBAJO de la cotización de la CURVA → 422 BOUNTY_BELOW_RULE', async () => {
+    // Curva de compra a mercado $100 = $40: un bounty de $39.99 no es bounty.
     const { svc } = build({ referenceMxnCents: 10000 });
     await expect(
-      svc.update('card-1', 'normal', { bounty: { enabled: true, priceCents: 49 } }, 'a'),
+      svc.update('card-1', 'normal', { bounty: { enabled: true, priceCents: CURVE_BUY_AT_100 - 1 } }, 'a'),
     ).rejects.toMatchObject({ code: 'BOUNTY_BELOW_RULE' });
   });
 
-  it('priceCents IGUAL al sugerido se acepta (la regla es `<`, no `<=`)', async () => {
+  it('v2.0 ENDURECIDO: priceCents IGUAL a la curva se RECHAZA (`<=`, antes `<`)', async () => {
+    // Sin este endurecimiento, un bounty EXACTAMENTE igual a la curva pasaría el alta y sería
+    // INVISIBLE en runtime (el predicado exige estrictamente mayor, criterio 91) — incoherencia
+    // entre alta y ejecución. Reversible en dato: subir el bounty $0.01.
     const { svc } = build({ referenceMxnCents: 10000 });
-    const res = await svc.update('card-1', 'normal', { bounty: { enabled: true, priceCents: 50 } }, 'a');
-    expect(res.pricing.buy).toMatchObject({ effectiveCents: 50, source: 'bounty' });
+    await expect(
+      svc.update('card-1', 'normal', { bounty: { enabled: true, priceCents: CURVE_BUY_AT_100 } }, 'a'),
+    ).rejects.toMatchObject({
+      code: 'BOUNTY_BELOW_RULE',
+      details: { curveQuoteCents: CURVE_BUY_AT_100, priceCents: CURVE_BUY_AT_100 },
+    });
   });
 
-  it('sugerido PENDING (pct sin referencia) → se ACEPTA cualquier precio explícito', async () => {
-    // Sin regla para la rareza ⇒ fallback pct sin referencia ⇒ sugerido null.
+  it('priceCents ESTRICTAMENTE mayor que la curva se acepta y gana la precedencia #1', async () => {
+    const { svc } = build({ referenceMxnCents: 10000 });
+    const res = await svc.update(
+      'card-1',
+      'normal',
+      { bounty: { enabled: true, priceCents: CURVE_BUY_AT_100 + 1 } },
+      'a',
+    );
+    expect(res.pricing.buy).toMatchObject({ effectiveCents: CURVE_BUY_AT_100 + 1, source: 'bounty' });
+  });
+
+  it('curva PENDING (sin referencia de mercado) → se ACEPTA cualquier precio explícito', async () => {
+    // Sin mercado la curva no resuelve ⇒ el bounty explícito manda (es donde más se necesita).
     const { svc } = build({ referenceMxnCents: null, card: { ...CARD, rarity: 'Illustration Rare' } });
     const res = await svc.update('card-1', 'normal', { bounty: { enabled: true, priceCents: 10 } }, 'a');
     expect(res.pricing.buy).toMatchObject({ suggestedCents: null, effectiveCents: 10, source: 'bounty' });
@@ -277,10 +306,11 @@ describe('bounty (P-22: persistencia + invariantes; vitrina/conteo son de fase p
     await expect(
       svc.update('card-1', 'normal', { bounty: { enabled: true, priceCents: 100, targetQty: 0 } }, 'a'),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    // v2.0: el precio debe superar la curva ($40) o el gate BOUNTY_BELOW_RULE lo rechaza antes.
     const res = await svc.update(
       'card-1',
       'normal',
-      { bounty: { enabled: true, priceCents: 100, targetQty: null } },
+      { bounty: { enabled: true, priceCents: CURVE_BUY_AT_100 + 100, targetQty: null } },
       'a',
     );
     expect(res.pricing.bounty).toMatchObject({ targetQty: null });
@@ -302,7 +332,7 @@ describe('bounty (P-22: persistencia + invariantes; vitrina/conteo son de fase p
       bountyAcquiredQty: 2,
     });
     // Apagado ⇒ la COMPRA regresa a la regla (el bounty ya no juega).
-    expect(res.pricing.buy).toMatchObject({ effectiveCents: 50, source: 'rule' });
+    expect(res.pricing.buy).toMatchObject({ effectiveCents: CURVE_BUY_AT_100, source: 'market' });
     expect(res.pricing.bounty).toMatchObject({ enabled: false, acquiredQty: 2 });
   });
 
@@ -334,30 +364,30 @@ describe('bounty (P-22: persistencia + invariantes; vitrina/conteo son de fase p
   });
 });
 
-describe('composeVariantPricing — proyección del DTO (§DTOs v1.28)', () => {
-  const rules = { buy: BUY, sell: SELL };
-
-  it('sin fila: sugerido=efectivo por regla, overrides null, SIN bloque bounty', () => {
-    const dto = composeVariantPricing('Common', 'normal', 10000, rules, null);
+describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualizado v2.0)', () => {
+  it('sin fila: sugerido=efectivo por la CURVA, overrides null, SIN bloque bounty', () => {
+    const dto = composeVariantPricing(10000, DEFAULT_PRICING_CURVE, null);
     expect(dto).toEqual({
-      buy: { suggestedCents: 50, overrideCents: null, effectiveCents: 50, source: 'rule' },
-      sell: { suggestedCents: 500, overrideCents: null, effectiveCents: 500, source: 'rule' },
+      buy: { suggestedCents: 4000, overrideCents: null, effectiveCents: 4000, source: 'market', premiumAtFloor: false },
+      sell: { suggestedCents: 11500, overrideCents: null, effectiveCents: 11500, source: 'market', premiumAtFloor: false },
     });
   });
 
   it('no resoluble → null + source=pending (money-safe, nunca 0)', () => {
-    const dto = composeVariantPricing('Illustration Rare', 'holofoil', null, rules, null);
+    const dto = composeVariantPricing(null, DEFAULT_PRICING_CURVE, null);
     expect(dto.buy).toEqual({
       suggestedCents: null,
       overrideCents: null,
       effectiveCents: null,
       source: 'pending',
+      premiumAtFloor: false,
     });
     expect(dto.sell).toEqual({
       suggestedCents: null,
       overrideCents: null,
       effectiveCents: null,
       source: 'pending',
+      premiumAtFloor: false,
     });
   });
 
@@ -370,14 +400,18 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28)', () => {
       bountyTargetQty: 3,
       bountyAcquiredQty: 1,
     }) as never;
-    const dto = composeVariantPricing('Common', 'normal', 10000, rules, row);
-    expect(dto.buy).toEqual({ suggestedCents: 50, overrideCents: 300, effectiveCents: 7500, source: 'bounty' });
-    expect(dto.sell).toEqual({ suggestedCents: 500, overrideCents: 9900, effectiveCents: 9900, source: 'override' });
+    const dto = composeVariantPricing(10000, DEFAULT_PRICING_CURVE, row);
+    // Bounty $75 > curva $40 ⇒ EFECTIVO, gana la precedencia #1.
+    expect(dto.buy).toEqual({ suggestedCents: 4000, overrideCents: 300, effectiveCents: 7500, source: 'bounty', premiumAtFloor: false });
+    expect(dto.sell).toEqual({ suggestedCents: 11500, overrideCents: 9900, effectiveCents: 9900, source: 'override', premiumAtFloor: false });
     expect(dto.bounty).toEqual({
       enabled: true,
       priceCents: 7500,
       targetQty: 3,
       acquiredQty: 1,
+      // v2.0 (§4.36.6): la ALERTA DEL BINDER. 7500 > curva 4000 ⇒ efectivo.
+      effective: true,
+      curveQuoteCents: 4000,
       completedAt: null,
     });
   });

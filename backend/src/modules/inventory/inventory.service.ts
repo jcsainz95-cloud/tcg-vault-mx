@@ -1,14 +1,21 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
+  AcquisitionType,
   AdjustmentReason,
   Card,
   Finish,
+  GradingCompany,
   InventoryStatus,
   MovementReason,
+  OwnerType,
+  OwnershipStatus,
   Prisma,
   ProductType,
+  RawCondition,
+  SealedCondition,
   SealedSubtype,
   VariantPriceOverride,
+  VaultZone,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -17,12 +24,10 @@ import { buildGradeKey, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import {
-  SalesRule,
-  PriceRuleSet,
-  computeAportacionCostCents,
-  computeSalePriceForRarity,
-} from '../../common/money';
+// H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
+import { computeAportacionCostCents, firstPresentAmount, hasManualPrice } from '../../common/money';
+// v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
+import { PricingCurve } from '../../common/pricing-curve';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -118,9 +123,22 @@ export interface PublishAllResponse {
   summary: {
     selected: number;
     published: number;
+    /**
+     * v2.1.1 (§4.36.5b-bis): CAMBIA DE SIGNIFICADO — de «no la toqué» a «la RE-VERIFIQUÉ y sigue
+     * sana». Una pieza `listed` que vuelve a resolver precio cuenta aquí (no-op observable: no se
+     * re-cobra y no cambia el precio, que no está persistido).
+     */
     alreadyListed: number;
     pendingPrice: number;
     failed: number;
+    /**
+     * v2.1.1 (§4.36.5b-bis) — SUBCONJUNTO de `pendingPrice`, FUERA de la partición: piezas que
+     * estaban `listed` y ya NO resuelven precio (escalaron a la cola y SIGUEN `listed`). Contesta la
+     * pregunta del dueño: «de lo que ya estaba a la venta, ¿cuánto quedó roto?». No se puede deducir
+     * de `pendingPrice` (mezcla lo que nunca estuvo publicado) ni de `alreadyListed`. El invariante
+     * `selected = published + alreadyListed + pendingPrice + failed` NO cambia.
+     */
+    listedNowPending: number;
   };
   failures: PublishAllFailure[];
 }
@@ -136,8 +154,8 @@ export const PUBLISH_ALL_FAILURES_CAP = 200;
  * `bulkPublish` y `publishAll` — el pipeline por-pieza es IDÉNTICO por contrato (§4.26c).
  */
 interface PublishPricingCtx {
-  rules: PriceRuleSet<SalesRule>;
-  fallbackPct: number;
+  /** v2.0 (P-48, §4.36.2): la CURVA izada UNA vez por request/corrida (BE-25). */
+  curve: PricingCurve;
   sealed: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
   refs: Map<string, PriceInfo>;
   variantOverrides: Map<string, VariantPriceOverride>;
@@ -246,6 +264,104 @@ export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: stri
   { header: 'Precio compra MXN', key: 'buyMxn', width: 18 },
   { header: 'Precio venta MXN', key: 'sellMxn', width: 18 },
 ];
+
+/**
+ * v2.1.9 (S49-R4) — **lista blanca de `InventoryItem` para las respuestas de BACK-OFFICE (M1).**
+ *
+ * `updateItem`, `moveItem`, `markItem` y `createLocation` devolvían la entidad Prisma cruda. Hoy
+ * `InventoryItem` no guarda ni PII ni secretos, así que esta lista **no cambia nada visible**: fija
+ * la forma ACTUAL para que la próxima columna del schema no se auto-publique. Es la misma doctrina
+ * que `toAdminSellRequestDTO` (buylist) y `toAdminShipmentRow` (envíos).
+ *
+ * Es explícitamente una lista de columnas de **back-office**: costo (`acquisitionCostCents`),
+ * procedencia (`acquisitionType`, `sourceSellRequestItemId`) y ubicación (`locationId`) NO viajan a
+ * superficies de cliente — para eso están `HoldingDTO` (§3) y `ListingDTO` (§DTOs), que se
+ * construyen aparte y NO deben "unificarse" con esta.
+ */
+function toAdminInventoryItemRow(i: {
+  id: string;
+  folio: string;
+  cardId: string;
+  productType: ProductType;
+  rawCondition: RawCondition | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition | null;
+  gradingCompany: GradingCompany | null;
+  gradeValue: string | null;
+  certNumber: string | null;
+  locationId: string | null;
+  ownerType: OwnerType;
+  ownerUserId: string | null;
+  ownershipStatus: OwnershipStatus | null;
+  status: InventoryStatus;
+  finish: Finish;
+  listPriceCents: number | null;
+  acquisitionType: AcquisitionType;
+  acquisitionCostCents: number | null;
+  acquisitionPct: number | null;
+  sourceSellRequestItemId: string | null;
+  tcgplayerProductId: number | null;
+  tcgplayerGroupId: number | null;
+  sealedImageUrl: string | null;
+  sealedProductName: string | null;
+  sealedProductId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: i.id,
+    folio: i.folio,
+    cardId: i.cardId,
+    productType: i.productType,
+    rawCondition: i.rawCondition,
+    sealedSubtype: i.sealedSubtype,
+    sealedCondition: i.sealedCondition,
+    gradingCompany: i.gradingCompany,
+    gradeValue: i.gradeValue,
+    certNumber: i.certNumber,
+    locationId: i.locationId,
+    ownerType: i.ownerType,
+    ownerUserId: i.ownerUserId,
+    ownershipStatus: i.ownershipStatus,
+    status: i.status,
+    finish: i.finish,
+    listPriceCents: i.listPriceCents,
+    acquisitionType: i.acquisitionType,
+    acquisitionCostCents: i.acquisitionCostCents,
+    acquisitionPct: i.acquisitionPct,
+    sourceSellRequestItemId: i.sourceSellRequestItemId,
+    tcgplayerProductId: i.tcgplayerProductId,
+    tcgplayerGroupId: i.tcgplayerGroupId,
+    sealedImageUrl: i.sealedImageUrl,
+    sealedProductName: i.sealedProductName,
+    sealedProductId: i.sealedProductId,
+    createdAt: i.createdAt,
+    updatedAt: i.updatedAt,
+  };
+}
+
+/** v2.1.9 (S49-R4) — lista blanca de `VaultLocation` (M1 · ubicaciones CAJA/FILA/SLOT). */
+function toVaultLocationDTO(l: {
+  id: string;
+  zone: VaultZone;
+  box: string;
+  row: string;
+  slot: string;
+  label: string;
+  isActive: boolean;
+  createdAt: Date;
+}) {
+  return {
+    id: l.id,
+    zone: l.zone,
+    box: l.box,
+    row: l.row,
+    slot: l.slot,
+    label: l.label,
+    isActive: l.isActive,
+    createdAt: l.createdAt,
+  };
+}
 
 @Injectable()
 export class InventoryService {
@@ -942,13 +1058,16 @@ export class InventoryService {
   /**
    * v1.16-master-set (§4.17b) — PUBLICAR POR LOTE (varias piezas → `listed`). Por línea:
    *  - `listPriceCents` presente → override manual; ausente → precio de venta **derivado** server-side
-   *    de las reglas por rareza+acabado (§4.14, SEC-A1) reusando `computeSalePriceForRarity`.
-   *  - Una pieza cuyo precio NO se resuelve (`pct` sin market) → `PRICE_PENDING`, NO se publica
-   *    (regla "solo se lista lo que tiene precio", §4.9). Sellado sin override → `PRICE_PENDING`.
+   *    de la curva de precios (v2.0, §4.36.1, SEC-A1) vía el SEAM ÚNICO `pricing.decideSalePrice` —
+   *    sin rareza ni acabado como parámetro de monto (criterio 84); la rareza solo alimenta el
+   *    veredicto del guardarraíl, que el propio seam devuelve junto al precio.
+   *  - Una pieza cuyo precio NO se resuelve (sin `PriceReference`) o cuyo guardarraíl premium-en-el-
+   *    piso dispara → `PRICE_PENDING`, NO se publica (regla "solo se lista lo que tiene precio",
+   *    §4.9). Sellado sin override → `PRICE_PENDING`.
    *  - **Errores por-línea** (no encontrada, no `platform`, graded sin certNumber, precio pendiente)
    *    no tumban las demás → HTTP 200. Re-publicar una `listed` = no-op idempotente (`ok:true`).
-   *  - Pago mínimo de BE-25: iza `SALES_PRICE_RULES`+fallback UNA vez y usa `getReferencesBatch` (1
-   *    lote de referencias) — sin N+1 de settings ni de referencias.
+   *  - Pago mínimo de BE-25: iza la curva (`PricingService.loadPricingCurve()`) UNA vez y usa
+   *    `getReferencesBatch` (1 lote de referencias) — sin N+1 de settings ni de referencias.
    */
   async bulkPublish(req: BulkPublishRequest, actorUserId: string): Promise<BulkPublishResponse> {
     // Idempotencia opcional del lote (si trae batchKey) — replay devuelve lo guardado.
@@ -977,11 +1096,13 @@ export class InventoryService {
       const freshPairs = req.items
         .map((line) => ({ line, item: byId.get(line.inventoryItemId) }))
         .filter(
+          // H-1 (E5-bis): `<= 0` es AUSENTE en los dos niveles (línea y pieza), así que esa pieza SÍ
+          // va a derivar precio y por tanto SÍ necesita el reprecio fresco.
           ({ line, item }) =>
             item != null &&
             item.productType === 'raw' &&
-            line.listPriceCents == null &&
-            item.listPriceCents == null,
+            !hasManualPrice(line) &&
+            !hasManualPrice(item),
         )
         .map(({ item }) => item!);
       const freshCardIds = [...new Set(freshPairs.map((i) => i.cardId))];
@@ -1074,12 +1195,13 @@ export class InventoryService {
    */
   private async loadPublishPricingCtx(
     items: PublishableItem[],
-    base?: Pick<PublishPricingCtx, 'rules' | 'fallbackPct' | 'sealed'>,
+    base?: Pick<PublishPricingCtx, 'curve' | 'sealed'>,
   ): Promise<PublishPricingCtx> {
-    const { rules, fallbackPct } = base ?? (await this.pricing.loadSalesRules());
+    const curve = base?.curve ?? (await this.pricing.loadPricingCurve());
     const sealed = base?.sealed ?? (await this.pricing.loadSealedSpreads());
     const derivable = items
-      .filter((i) => i.listPriceCents == null)
+      // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ la pieza deriva precio y necesita su referencia en el lote.
+      .filter((i) => !hasManualPrice(i))
       .flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
         if (i.productType === 'sealed') {
           const gk = this.pricing.sealedMarketGradeKeyForItem(i);
@@ -1091,7 +1213,7 @@ export class InventoryService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       derivable.filter((d) => d.productType !== 'sealed'),
     );
-    return { rules, fallbackPct, sealed, refs, variantOverrides };
+    return { curve, sealed, refs, variantOverrides };
   }
 
   /**
@@ -1133,7 +1255,10 @@ export class InventoryService {
     lineListPriceCents: number | null,
     ctx: PublishPricingCtx,
   ): Promise<PublishPriceResolution> {
-    const manual = lineListPriceCents ?? item.listPriceCents;
+    // H-1 (E5-bis): precedencia línea → pieza con «presente ⇔ > 0». Con `??` un `0` en la LÍNEA
+    // cortocircuitaba y enmascaraba el override de la pieza; con `firstPresentAmount` cae al
+    // siguiente peldaño, que es lo que dice §4.36.6.
+    const manual = firstPresentAmount(lineListPriceCents, item.listPriceCents);
     if (manual != null) {
       return { ok: true, salePriceCents: manual, priceSource: 'manual' };
     }
@@ -1165,37 +1290,52 @@ export class InventoryService {
       }
       return { ok: true, salePriceCents: sale.salePriceCents, priceSource: 'derived' };
     }
-    // raw/graded — derivado server-side (SEC-A1): rareza de Card.rarity, acabado del item; el
-    // sellOverride de la variante (M-30) pisa la regla (misma precedencia que storefront/checkout).
+    // raw/graded — v2.0 (P-48, §4.36.1): derivado server-side (SEC-A1) por la CURVA sobre el VALOR DE
+    // MERCADO del acabado de ESTA pieza. Ya no depende de la rareza ni del acabado (criterio 84); el
+    // sellOverride de la variante (M-30) pisa la curva (misma precedencia que storefront/checkout).
+    // SIN dato de mercado ⇒ PRICE_PENDING y escala a la cola: el PISO NO gana (decisión LOCKED).
     const gradeKey = this.pricing.gradeKeyFor(item);
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-    const sale = computeSalePriceForRarity(
-      item.card.rarity,
-      item.finish,
-      refCents,
-      ctx.rules,
-      ctx.fallbackPct,
-      ctx.variantOverrides.get(key) ?? null,
-    );
-    if (sale.salePriceCents == null) {
-      // ④: escala con el gradeKey server-side + acabado del item (la cola es POR acabado, M-19).
-      const pendingPriceEntryId = await this.pricing.escalatePending(
-        item.cardId,
-        item.productType,
-        gradeKey,
+    // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO del eje de venta (versión síncrona: la curva ya viene izada
+    // por el lote, BE-25). Monto + veredicto en UNA llamada: `no_market` (sin dato ⇒ el piso NO gana) o
+    // `premium_at_floor` (guardarraíl: una chase en el piso solo puede significar dato de mercado malo).
+    // NO dispara con override ni bounty.
+    const sale = this.pricing.decideSalePrice({
+      referenceMxnCents: refCents,
+      // SOLO para el veredicto (criterio 84): no entra al monto.
+      rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+      controls: ctx.variantOverrides.get(key) ?? null,
+      curve: ctx.curve,
+    });
+    const pendingReason = sale.pendingReason;
+    if (pendingReason != null || sale.priceCents == null) {
+      // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR acabado,
+      // M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
+      const pendingPriceEntryId = await this.pricing.settlePendingForVariant(
+        pendingReason ?? 'no_market',
+        { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
         'inventory',
-        undefined,
-        item.finish,
       );
       return {
         ok: false,
-        message: 'No resolvable sale price (pct without market); not published',
+        message:
+          pendingReason === 'premium_at_floor'
+            ? 'Premium rarity resolved to the floor (bad market data); not published — escalated to the pending queue'
+            : 'No resolvable sale price (no market reference); not published',
         pendingPriceEntryId,
       };
     }
-    return { ok: true, salePriceCents: sale.salePriceCents, priceSource: 'derived' };
+    // §4.36.5c — SALIDA SIMÉTRICA: el MISMO seam que escala CIERRA. Si el barrido ya escribió una
+    // `PriceReference` real y el precio volvió a resolver, la entrada `open` de esta clave se cierra
+    // SOLA aquí, sin intervención manual.
+    await this.pricing.settlePendingForVariant(
+      null,
+      { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
+      'inventory',
+    );
+    return { ok: true, salePriceCents: sale.priceCents, priceSource: 'derived' };
   }
 
   /**
@@ -1227,13 +1367,20 @@ export class InventoryService {
 
   /**
    * v1.28 (P-19, §4.26c) — POST /admin/inventory/publish-all: publicar TODO el inventario (o un
-   * filtro) de golpe. Selección SERVER-SIDE (`ownerType=platform` + `status=in_stock` ± `setId`/
-   * `productType`), SIN cap de selección (proceso por chunks); pipeline por-pieza IDÉNTICO a
+   * filtro) de golpe. Selección SERVER-SIDE (`ownerType=platform` + `status ∈ {in_stock, listed}` ±
+   * `setId`/`productType`), SIN cap de selección (proceso por chunks); pipeline por-pieza IDÉNTICO a
    * `bulk-publish` (helpers compartidos): precio server-side SEC-A1 con la precedencia v1.28,
-   * PRICE_PENDING escala (④) y NO publica, `listed` = no-op idempotente. **Tolerante por-ítem: el
-   * lote JAMÁS revienta completo.** Idempotencia por `batchKey` (`InventoryBatch kind='publish_all'`;
-   * replay ⇒ resultado guardado + `idempotentReplay:true`). La auditoría (`inventory.publish_all`)
-   * la escribe el controller.
+   * PRICE_PENDING escala (④) y NO publica. **Tolerante por-ítem: el lote JAMÁS revienta completo.**
+   * Idempotencia por `batchKey` (`InventoryBatch kind='publish_all'`; replay ⇒ resultado guardado +
+   * `idempotentReplay:true`). La auditoría (`inventory.publish_all`) la escribe el controller.
+   *
+   * v2.1.1 (§4.36.5b-bis) — este endpoint ES el paso 2 del CUT-OVER de la curva (§4.36.9c): como el
+   * precio de venta se resuelve EN LECTURA y no está persistido, «repriciar el catálogo» = RE-RESOLVER,
+   * y esto es lo que lo hace. Por eso la selección incluye lo ya `listed` y su rama RE-RESUELVE:
+   * - vuelve a resolver ⇒ sigue `listed`, cuenta en `alreadyListed` (que ahora significa
+   *   «re-verificada y sana», no «no la toqué»);
+   * - no resuelve ⇒ escala a la cola con su `reason`, cuenta en `pendingPrice` Y en el subcontador
+   *   `listedNowPending`, y **NO cambia de status**.
    */
   async publishAll(req: PublishAllRequestDto, actorUserId: string): Promise<PublishAllResponse> {
     // Replay idempotente por batchKey. Un batchKey ya usado por OTRO tipo de lote no se "replay-ea"
@@ -1265,14 +1412,25 @@ export class InventoryService {
       }
     }
 
-    // Selección server-side: SNAPSHOT de ids (solo ids — sin cap). Iterar por snapshot (y no
-    // re-consultando `in_stock`) garantiza terminación: una pieza PRICE_PENDING queda `in_stock`
-    // y no debe re-seleccionarse en un loop infinito.
+    // Selección server-side: SNAPSHOT de ids (solo ids — sin cap).
+    //
+    // ⚠️ NO SUSTITUIR POR UN RE-QUERY DEL PREDICADO (§4.36.5b-bis, nota de implementación). Iterar
+    // por snapshot es lo que GARANTIZA TERMINACIÓN, y con `listed` dentro de la allowlist pasa de
+    // conveniente a IMPRESCINDIBLE: una pieza que escala SIGUE `listed` (decisión 3: escalar no le
+    // cambia el status), así que seguiría casando el predicado y un re-query en bucle no terminaría
+    // nunca. Lo mismo valía antes para la `in_stock` que queda PRICE_PENDING.
+    //
+    // v2.1.1 (§4.36.5b-bis): la selección se ensancha a `{in_stock, listed}` — la MISMA allowlist
+    // `PUBLISHABLE_ORIGIN_STATUSES` que `bulkPublish` usa desde v1.16.1. No ensucia la semántica del
+    // endpoint, la CORRIGE: el contrato ya declaraba su pipeline «IDÉNTICO a bulk-publish» y no lo
+    // era. Sin esto, una pieza publicada cuyo mercado se degrada después dejaba de venderse en
+    // SILENCIO y no entraba a la cola — lo contrario de §N.5 — y el paso 2 del cut-over (§4.36.9c)
+    // daba un falso negativo justo sobre las piezas del reporte del dueño, que están `listed`.
     const selectedIds = (
       await this.prisma.inventoryItem.findMany({
         where: {
           ownerType: 'platform',
-          status: 'in_stock',
+          status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
           ...(req.productType ? { productType: req.productType } : {}),
           ...(req.setId ? { card: { setId: req.setId } } : {}),
         },
@@ -1281,9 +1439,9 @@ export class InventoryService {
       })
     ).map((r) => r.id);
 
-    // Reglas/spreads izados UNA vez por corrida; referencias/overrides en lote POR CHUNK
+    // Curva/spreads izados UNA vez por corrida; referencias/overrides en lote POR CHUNK
     // (memoria acotada; sigue sin N+1 por pieza).
-    const { rules, fallbackPct } = await this.pricing.loadSalesRules();
+    const curve = await this.pricing.loadPricingCurve();
     const sealed = await this.pricing.loadSealedSpreads();
 
     const summary = {
@@ -1292,6 +1450,7 @@ export class InventoryService {
       alreadyListed: 0,
       pendingPrice: 0,
       failed: 0,
+      listedNowPending: 0,
     };
     const failures: PublishAllFailure[] = [];
     const pushFailure = (f: PublishAllFailure) => {
@@ -1305,19 +1464,24 @@ export class InventoryService {
         where: { id: { in: chunkIds } },
         include: { card: true },
       });
-      const ctx = await this.loadPublishPricingCtx(items, { rules, fallbackPct, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
       for (const item of items) {
         try {
-          // `listed` = no-op idempotente (la selección fue `in_stock`; solo llega aquí por una
-          // transición concurrente o un chunk repetido — no re-cobra, no cambia precio).
-          if (item.status === 'listed') {
-            summary.alreadyListed++;
-            continue;
-          }
+          // v2.1.1 (§4.36.5b-bis) — la rama `listed` YA NO ES CORTO-CIRCUITO: se RE-RESUELVE.
+          // Corto-circuitarla dejaba el punto ciego intacto y encima lo DISFRAZABA — cada pieza
+          // degradada se contaba como `alreadyListed`, que se lee como «ésta ya estaba bien».
+          // Seleccionar `listed` sin esto sería peor que no seleccionarla.
+          const wasListed = item.status === 'listed';
           this.assertPublishableGuards(item);
           const resolved = await this.resolvePublishSalePrice(item, null, ctx);
           if (!resolved.ok) {
+            // Ya escaló a la cola con su `reason` dentro de `resolvePublishSalePrice`. Si estaba
+            // publicada, NO se le cambia el status: sigue `listed` (§4.36.5b-bis decisión 3). No hay
+            // exposición que cerrar —la resolución EN LECTURA ya la sacó de Compra y de `stockCount`
+            // (§4.9a)— y un flip `listed → in_stock` competiría con un checkout en vuelo que la
+            // tenga reservada. La SEÑAL es la entrada en la cola, no el status.
             summary.pendingPrice++;
+            if (wasListed) summary.listedNowPending++;
             pushFailure({
               inventoryItemId: item.id,
               folio: item.folio,
@@ -1326,6 +1490,12 @@ export class InventoryService {
                 ? { pendingPriceEntryId: resolved.pendingPriceEntryId }
                 : {}),
             });
+            continue;
+          }
+          if (wasListed) {
+            // Re-verificada y SANA: no-op observable. No se re-cobra y no cambia el precio (que no
+            // está persistido, §4.26b), así que ni siquiera se toca la fila.
+            summary.alreadyListed++;
             continue;
           }
           await this.claimListed(item);
@@ -1535,6 +1705,7 @@ export class InventoryService {
       },
     });
     if (!item) throw BusinessException.notFound();
+    const relations = { card: item.card, location: item.location, movements: item.movements };
     // v1.19-sealed-tcgcsv (§M1): el detalle de un sellado expone la referencia TCGCSV
     // (read-only). Misma regla que el listado: null sin mapeo o sin ingest.
     if (item.productType === 'sealed') {
@@ -1548,9 +1719,11 @@ export class InventoryService {
         );
         ref = found.status === 'priced' ? found : null;
       }
-      return { ...item, sealedMarketRef: ref };
+      return { ...toAdminInventoryItemRow(item), ...relations, sealedMarketRef: ref };
     }
-    return item;
+    // S49-R4: la cabecera pasa por la lista blanca; las relaciones del `include` se adjuntan aparte
+    // (`card`, `location`, `movements` son la vista de detalle de M1, no columnas de la fila).
+    return { ...toAdminInventoryItemRow(item), ...relations };
   }
 
   async updateItem(id: string, dto: UpdateItemDto) {
@@ -1574,7 +1747,8 @@ export class InventoryService {
         'graded items require certNumber to be published',
       );
     }
-    return this.prisma.inventoryItem.update({ where: { id }, data: dto });
+    // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
+    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: dto }));
   }
 
   async moveItem(id: string, dto: MoveItemDto, actorUserId: string) {
@@ -1591,10 +1765,13 @@ export class InventoryService {
         note: dto.note,
       },
     });
-    return this.prisma.inventoryItem.update({
-      where: { id },
-      data: { locationId: dto.toLocationId },
-    });
+    // S49-R4: proyectado.
+    return toAdminInventoryItemRow(
+      await this.prisma.inventoryItem.update({
+        where: { id },
+        data: { locationId: dto.toLocationId },
+      }),
+    );
   }
 
   async markItem(id: string, dto: MarkItemDto, actorUserId: string) {
@@ -1610,7 +1787,8 @@ export class InventoryService {
         note: dto.note,
       },
     });
-    return this.prisma.inventoryItem.update({ where: { id }, data: { status } });
+    // S49-R4: proyectado.
+    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: { status } }));
   }
 
   // ---------------- v1.20 §4.20e — Ajuste por levantamiento físico ----------------
@@ -2150,7 +2328,10 @@ export class InventoryService {
       const marketCents =
         market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
       const buyCents = ov?.buyOverrideCents ?? null;
-      const sellCents = it.listPriceCents ?? ov?.sellOverrideCents ?? null;
+      // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
+      // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
+      // «presente ⇔ > 0».
+      const sellCents = firstPresentAmount(it.listPriceCents, ov?.sellOverrideCents);
       sheet.addRow({
         folio: it.folio,
         card: it.card?.name ?? '',
@@ -2216,12 +2397,13 @@ export class InventoryService {
   // ---------------- Locations ----------------
 
   async listLocations() {
-    const data = await this.prisma.vaultLocation.findMany({ orderBy: { label: 'asc' } });
-    return { data };
+    const rows = await this.prisma.vaultLocation.findMany({ orderBy: { label: 'asc' } });
+    return { data: rows.map(toVaultLocationDTO) }; // S49-R4
   }
 
   async createLocation(dto: CreateLocationDto) {
     const label = `${dto.box}-${dto.row}-${dto.slot}`;
-    return this.prisma.vaultLocation.create({ data: { ...dto, label } });
+    // S49-R4: proyectado.
+    return toVaultLocationDTO(await this.prisma.vaultLocation.create({ data: { ...dto, label } }));
   }
 }

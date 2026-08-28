@@ -1,13 +1,21 @@
 import {
   MAX_CENTS,
   clampCents,
-  computeSalePriceForRarity,
-  quoteAcquisitionForFinish,
+  computeSalePriceFromCurve,
+  quoteAcquisitionFromCurve,
   computeSealedSalePrice,
   usdToMxnCents,
   computeSalePriceCents,
   computeAportacionCostCents,
 } from './money';
+import { DEFAULT_PRICING_CURVE, PricingCurve } from './pricing-curve';
+
+/** Curva con el markup topado (100×) para forzar el desbordamiento con un mercado absurdo. */
+const EXTREME_CURVE: PricingCurve = {
+  ...DEFAULT_PRICING_CURVE,
+  sale: { ...DEFAULT_PRICING_CURVE.sale, points: [{ marketCents: 1, multiplierBp: 1_000_000 }] },
+  buy: { ...DEFAULT_PRICING_CURVE.buy, points: [{ marketCents: 1, pctBp: 10_000 }] },
+};
 
 /**
  * BE-27 (money-safety) — clamp FINAL a MAX_CENTS (Int32) sobre los importes `*Cents` persistibles.
@@ -26,21 +34,28 @@ describe('BE-27 — clampCents y clamp final en money.ts', () => {
     expect(clampCents(9_999_999_999)).toBe(MAX_CENTS);
   });
 
-  it('computeSalePriceForRarity (pct) con market gigante → acotado a MAX_CENTS', () => {
-    const res = computeSalePriceForRarity('Ultra Rare', 'normal', 5_000_000_000, {}, 100);
-    expect(res.salePriceCents).toBe(MAX_CENTS);
-    expect(res.status).toBe('priced');
+  it('v2.0 — la CURVA de venta con mercado gigante → acotada a MAX_CENTS', () => {
+    const res = computeSalePriceFromCurve(5_000_000_000, EXTREME_CURVE);
+    expect(res.priceCents).toBe(MAX_CENTS);
+    expect(res.basis).toBe('market');
   });
 
-  it('computeSalePriceForRarity normal (sin overflow) NO cambia el resultado', () => {
-    // market 1000_00 con fallback 15% → round(100000 * 1.15) = 115000, intacto.
-    const res = computeSalePriceForRarity('SomeRare', 'normal', 100000, {}, 15);
-    expect(res.salePriceCents).toBe(115000);
+  it('v2.0 — la CURVA de venta normal (sin overflow) NO cambia el resultado', () => {
+    // $1,000 de mercado × 1.15 = $1,150 (múltiplo de $25: el redondeo no lo mueve).
+    expect(computeSalePriceFromCurve(100000, DEFAULT_PRICING_CURVE).priceCents).toBe(115000);
   });
 
-  it('quoteAcquisitionForFinish (pct) con market gigante → acotado a MAX_CENTS', () => {
-    const res = quoteAcquisitionForFinish('SomeRare', 'normal', 5_000_000_000, {}, 100);
-    expect(res.quotedPriceCents).toBe(MAX_CENTS);
+  it('v2.0 — la CURVA de compra con mercado gigante → acotada a MAX_CENTS', () => {
+    expect(quoteAcquisitionFromCurve(5_000_000_000, EXTREME_CURVE).priceCents).toBe(MAX_CENTS);
+  });
+
+  it('v2.0 — un override absurdo también se acota (BE-27 en el peldaño de override)', () => {
+    expect(
+      computeSalePriceFromCurve(100000, DEFAULT_PRICING_CURVE, { sellOverrideCents: MAX_CENTS + 5 }).priceCents,
+    ).toBe(MAX_CENTS);
+    expect(
+      quoteAcquisitionFromCurve(100000, DEFAULT_PRICING_CURVE, { buyOverrideCents: MAX_CENTS + 5 }).priceCents,
+    ).toBe(MAX_CENTS);
   });
 
   it('computeSealedSalePrice (market×spread) gigante → acotado a MAX_CENTS', () => {
@@ -61,8 +76,9 @@ describe('BE-27 — clampCents y clamp final en money.ts', () => {
     expect(computeAportacionCostCents(100000, 70)).toBe(70000);
   });
 
-  it('respeta null/pending: sin market un pct sigue pending (no se clava a 0)', () => {
-    expect(computeSalePriceForRarity('SomeRare', 'normal', null, {}, 15).salePriceCents).toBeNull();
+  it('respeta null/pending: SIN mercado el precio queda null (nunca se clava a 0)', () => {
+    expect(computeSalePriceFromCurve(null, DEFAULT_PRICING_CURVE).priceCents).toBeNull();
+    expect(quoteAcquisitionFromCurve(null, DEFAULT_PRICING_CURVE).priceCents).toBeNull();
     expect(computeSealedSalePrice(null, 'box', null, { box: 20 }, 25).salePriceCents).toBeNull();
   });
 });

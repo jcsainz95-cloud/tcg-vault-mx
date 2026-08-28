@@ -5,6 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { maskRfc } from '../src/common/crypto/pii-mask';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * SEC-A4 + endurecimiento PII: la CLABE/RFC viven CIFRADOS en reposo y en la ficha 360°
@@ -79,6 +80,11 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     // v1.x-fx-live (BE): ownedItemRefs recalcula el MXN con la FX vigente. Stub sin FX (fxSnapshotSafe
     // → null) ⇒ liveMxnCents devuelve el priceMxnCents almacenado (congelado), como el modelo previo.
     const pricing = {
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,

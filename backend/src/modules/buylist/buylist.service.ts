@@ -1,6 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
-  BuylistRuleMode,
   Card,
   Finish,
   MovementReason,
@@ -20,17 +19,150 @@ import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
+// v2.0 (P-48, §4.36): la CURVA de compra sustituye a la tabla por rareza/acabado. UN solo cuerpo de
+// precedencia (`quoteAcquisitionFromCurve`) para quote, batch, createRequest y la vitrina de bounties.
+import { CurvePriceResult, PriceBasis, quoteAcquisitionFromCurve } from '../../common/money';
 import {
-  AcquisitionRuleSource,
-  BuylistRule,
-  PriceRuleSet,
-  toPriceRuleSet,
-  quoteAcquisitionForFinish,
-} from '../../common/money';
-import { TierId } from '../../common/pricing-tiers';
+  MarketBracket as MarketBracketType,
+  PendingReason,
+  PricingCurve,
+  isBountyEffective,
+  marketBracketOf,
+  resolvePendingReason,
+} from '../../common/pricing-curve';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
+
+/**
+ * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
+ * paginación: es una vitrina, no un listado). `CANDIDATE` acota la lectura ANTES del filtro por
+ * efectividad, para que el endpoint anónimo no haga una lectura sin cota.
+ */
+const BOUNTY_SHOWCASE_CAP = 50;
+const BOUNTY_CANDIDATE_CAP = 500;
+
+/**
+ * S49-M1 — **la proyección de `SellRequest` hacia una respuesta HTTP, en UN solo sitio.**
+ *
+ * ### El fallo que cierra
+ * `SellRequest.clabeSnapshotEnc` es el blob AES-256-GCM de la CLABE del vendedor, y el contrato
+ * (§M5) es literal: «**nunca** el snapshot cifrado». `getMine`/`adminGet` ya lo sacaban a mano con un
+ * destructuring, pero **el mismo archivo** devolvía la fila CRUDA en cinco rutas más — `respond`
+ * (decline/accept, **al propio cliente**), `receive`, `verify` (alcanzables por `vault_operator`) y
+ * `pay-spei`. El descarte a mano funciona hasta que alguien escribe el siguiente `return`: la regla
+ * vivía en la memoria del que edita, no en el código.
+ *
+ * ### Por qué lista BLANCA y no `delete`/rest-destructuring
+ * Una lista negra sólo protege de las columnas que existían el día que se escribió: la próxima
+ * columna sensible del schema **se auto-publica**. Con lista blanca, una columna nueva **no sale**
+ * hasta que alguien la añada aquí a propósito — y ese alguien está mirando este comentario.
+ * `reveal-clabe` sigue siendo el ÚNICO punto autorizado para la CLABE (con `@MoneyOut()` + auditoría).
+ */
+function toAdminSellRequestDTO(r: {
+  id: string;
+  userId: string;
+  status: SellRequestStatus;
+  quotedTotalCents: number;
+  approvedTotalCents: number | null;
+  ineRequired: boolean;
+  ineProvided: boolean;
+  speiReference: string | null;
+  paidBy: string | null;
+  paidAt: Date | null;
+  createdAt: Date;
+  receivedAt: Date | null;
+  verifiedAt: Date | null;
+  approvedAt: Date | null;
+  adjustmentSentAt: Date | null;
+  deadlineAt: Date | null;
+  closedAt: Date | null;
+}) {
+  return {
+    id: r.id,
+    userId: r.userId,
+    status: r.status,
+    quotedTotalCents: r.quotedTotalCents,
+    approvedTotalCents: r.approvedTotalCents,
+    ineRequired: r.ineRequired,
+    ineProvided: r.ineProvided,
+    speiReference: r.speiReference,
+    // Identidad del súper-admin que liquidó: back-office legítimo, NUNCA en la vista del cliente.
+    paidBy: r.paidBy,
+    paidAt: r.paidAt,
+    createdAt: r.createdAt,
+    receivedAt: r.receivedAt,
+    verifiedAt: r.verifiedAt,
+    approvedAt: r.approvedAt,
+    adjustmentSentAt: r.adjustmentSentAt,
+    deadlineAt: r.deadlineAt,
+    // SEC-D2: dato INTERNO de cumplimiento (ancla la retención de INE). Va en la vista admin; el
+    // schema lo marca «NO se expone en DTOs de cliente», y por eso NO está en la proyección de abajo.
+    closedAt: r.closedAt,
+  };
+}
+
+/**
+ * S49-M1 — proyección de `SellRequest` hacia el **CLIENTE** (`POST /buylist/requests/:id/respond`,
+ * `GET /buylist/requests/:id`). Es la de admin **menos** los dos campos internos: `closedAt` (el
+ * schema: «NO se expone en DTOs de cliente») y `paidBy` (uuid del staff que ejecutó el SPEI — el
+ * vendedor no tiene por qué recibir la identidad del operador). `clabeSnapshotEnc` no aparece en
+ * NINGUNA de las dos: sólo `reveal-clabe` devuelve la CLABE, y en claro.
+ */
+function toCustomerSellRequestDTO(r: Parameters<typeof toAdminSellRequestDTO>[0]) {
+  const { closedAt: _closedAt, paidBy: _paidBy, ...safe } = toAdminSellRequestDTO(r);
+  return safe;
+}
+
+/**
+ * S49-R4 — proyección de `SellRequestItem` para las respuestas de back-office
+ * (`PATCH /admin/buylist/items/:itemId/decision`). Hoy el modelo no tiene columnas sensibles, así
+ * que esta lista NO cambia lo que se ve: fija la forma ACTUAL para que la siguiente columna del
+ * schema **no se publique sola**. Misma doctrina de lista blanca que `toAdminSellRequestDTO`.
+ * (Las relaciones del `include` —`sellRequest`, `card`— quedan fuera por construcción: eran las que
+ * antes se descartaban a mano en la rama idempotente.)
+ */
+function toAdminSellItemRow(i: {
+  id: string;
+  sellRequestId: string;
+  cardId: string;
+  productType: ProductType;
+  rawCondition: RawCondition | null;
+  finish: Finish;
+  cardProductId: number | null;
+  rarity: string | null;
+  marketMxnCents: number | null;
+  priceBasis: PriceBasis | null;
+  marketBracket: MarketBracketType | null;
+  quotedPriceCents: number | null;
+  approvedPriceCents: number | null;
+  itemStatus: SellItemStatus;
+  inventoryItemId: string | null;
+  rejectedAt: Date | null;
+  rejectionReason: string | null;
+}) {
+  return {
+    id: i.id,
+    sellRequestId: i.sellRequestId,
+    cardId: i.cardId,
+    productType: i.productType,
+    rawCondition: i.rawCondition,
+    finish: i.finish,
+    cardProductId: i.cardProductId,
+    rarity: i.rarity,
+    marketMxnCents: i.marketMxnCents,
+    priceBasis: i.priceBasis,
+    marketBracket: i.marketBracket,
+    quotedPriceCents: i.quotedPriceCents,
+    approvedPriceCents: i.approvedPriceCents,
+    itemStatus: i.itemStatus,
+    inventoryItemId: i.inventoryItemId,
+    rejectedAt: i.rejectedAt,
+    rejectionReason: i.rejectionReason,
+    // `category`/`ruleMode`/`ruleValue`/`ruleSource` son columnas LEGACY (v2.0 P-48: nada nuevo las
+    // escribe). Se dejan FUERA a propósito: proyectar es también dejar de publicar lo muerto.
+  };
+}
 
 interface QuoteItemInput {
   cardId: string;
@@ -55,10 +187,10 @@ export interface BuylistQuotePayload {
   // v1.30 (§4.29a): eco del productId cotizado (snapshot). Ausente ⇒ línea de set_base. La rareza sigue
   // saliendo de la carta; solo el ancla de la línea cambia.
   productId?: number;
-  // v1.28 (P-18/P-22, §6): `source` gana "bounty" | "override" (ADITIVO; el front DEBE tolerarlos)
-  // cuando el control por variante (M-30) pisó la regla. Aplica a quote, quote/batch y al snapshot
-  // `ruleSource` de createRequest (habilita el conteo de bounty al pagar, fase P-22).
-  appliedRule: { mode: BuylistRuleMode; value: number; source: AcquisitionRuleSource };
+  // v2.0 (P-48, §4.36.7a) — `appliedRule` RETIRADO (ya no hay `{mode,value}`: no hay reglas, hay CURVA).
+  // Lo reemplaza `priceBasis`: QUÉ determinó el monto. Valores alcanzables en el eje de COMPRA:
+  // "bounty" | "override" | "market" | "floor" | "pending". `precio_pendiente` ⇔ `priceBasis="pending"`.
+  priceBasis: PriceBasis;
   quote: { status: 'cotizada' | 'precio_pendiente'; quotedPriceCents: number | null; currency: 'MXN' };
   referencePrice: { status: 'priced'; priceMxnCents: number } | { status: 'pending' };
   paymentNotice: 'PAY_AFTER_RECEIPT';
@@ -82,6 +214,28 @@ export type BuylistBatchQuoteResult =
         message: string;
       };
     };
+
+/**
+ * v2.0 (P-48, §4.36.5b) — LA DECISIÓN DE COMPRA de UNA línea: acabado resuelto, de qué variante se
+ * leyó el mercado, monto **y** veredicto. Es lo que devuelve el cuerpo único `decideBuyLine`, y lo
+ * consumen por igual la cotización pública (que solo lo pinta) y `createRequest` (que además lo
+ * congela y lo escala). Mismo invariante que el eje de venta: `pendingReason != null` ⇒
+ * `quotedPriceCents === null` y `priceBasis === 'pending'`.
+ */
+interface BuyLineDecision {
+  /** Acabado VALIDADO server-side (SEC-A1), ya sea contra `Card.availableFinishes` o `CardProduct.finishes`. */
+  finish: Finish;
+  gradeKey: string;
+  /** Valor de MERCADO que entró al cálculo (de la variante correcta: set_base o producto separado). */
+  referenceMxnCents: number | null;
+  /** Resultado crudo de la precedencia de compra (bounty > override > curva > pendiente). */
+  quote: CurvePriceResult;
+  /** `null` = se cotiza. No-null = bloqueada: `no_market` o el guardarraíl `premium_at_floor`. */
+  pendingReason: PendingReason | null;
+  /** Monto FINAL a pagar por la línea; `null` ⇔ bloqueada. */
+  quotedPriceCents: number | null;
+  priceBasis: PriceBasis;
+}
 
 @Injectable()
 export class BuylistService {
@@ -197,8 +351,8 @@ export class BuylistService {
     // v1.30 (§4.29): productId TCGplayer OPCIONAL. Presente ⇒ la línea es ESE CardProduct separado.
     productId?: number,
   ): Promise<BuylistQuotePayload> {
-    // Carga la tabla de reglas UNA vez y delega en el núcleo compartido (mismo que usa el batch).
-    const { rules, fallbackPct } = await this.buylistRules();
+    // v2.0 (P-48, §4.36.2): iza la CURVA UNA vez y delega en el núcleo compartido (el mismo del batch).
+    const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18): control por variante (bounty/override pisan la regla, §4.26b). Un solo ítem ⇒
     // lectura single (misma vía batch de una clave). v1.30: el override (M-30, clave sin cardProductId)
     // aplica SOLO a la línea de set_base; en la rama `productId` se IGNORA (ver quoteCardForFinish).
@@ -209,24 +363,15 @@ export class BuylistService {
       key.gradeKey,
       key.finish,
     );
-    return this.quoteCardForFinish(
-      cardId,
-      productType,
-      rawCondition,
-      finish,
-      rules,
-      fallbackPct,
-      override,
-      productId,
-    );
+    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, curve, override, productId);
   }
 
   /**
    * v1.15 (§4.16b) — cotización en LOTE (`POST /buylist/quote/batch`, public, READ-ONLY). Mata el
    * fan-out FE-12: cotiza N cartas en 1 request. Es un `map` de la MISMA lógica por-carta
-   * (`quoteCardForFinish`) compartiendo `buylistRules()` (un solo read de config) → misma matemática
-   * y mismos guardarraíles (gate premium, BUYLIST_PRICE_RULES + fallback, referencia por acabado, FX
-   * ya bakeada en PriceReference). SEC-A1 intacto.
+   * (`quoteCardForFinish`) compartiendo la curva izada UNA vez (`PricingService.loadPricingCurve()`,
+   * v2.0 §4.36.2) → misma matemática y mismos guardarraíles (gate premium-en-el-piso, referencia por
+   * acabado, FX ya bakeada en PriceReference). SEC-A1 intacto.
    *
    * ERRORES POR-ÍTEM: una carta inválida (NOT_FOUND / FINISH_NOT_AVAILABLE) NO tumba las demás — su
    * resultado sale `ok:false` con el `error` de ESE ítem; el HTTP global es 200. Correlación por
@@ -234,7 +379,7 @@ export class BuylistService {
    * NO escala a PendingPriceEntry (endpoint anónimo; la escalada sigue solo en `createRequest`).
    */
   async batchQuote(items: QuoteItemInput[]): Promise<{ results: BuylistBatchQuoteResult[] }> {
-    const { rules, fallbackPct } = await this.buylistRules();
+    const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18): overrides por variante leídos EN LOTE (UNA query por request, §4.26b — sin N+1).
     const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
     const results: BuylistBatchQuoteResult[] = [];
@@ -247,8 +392,7 @@ export class BuylistService {
           it.productType,
           it.rawCondition,
           it.finish,
-          rules,
-          fallbackPct,
+          curve,
           overrides.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) ?? null,
           it.productId,
         );
@@ -303,28 +447,62 @@ export class BuylistService {
     productType: ProductType,
     rawCondition: RawCondition | undefined,
     finish: Finish | undefined,
-    rules: PriceRuleSet<BuylistRule>,
-    fallbackPct: number,
+    // v2.0 (P-48, §4.36.2): la CURVA izada por el caller (una lectura por request, BE-25).
+    curve: PricingCurve,
     // v1.28 (P-18/P-22, §4.26b): fila M-30 de la variante, pre-cargada por el caller (single o en
-    // lote). `null`/omitida = sin control ⇒ cadena de reglas de SIEMPRE, sin cambio.
+    // lote). `null`/omitida = sin control ⇒ solo la curva.
     override?: VariantPriceOverride | null,
     // v1.30 (§4.29): productId TCGplayer. Presente ⇒ la línea es ESE CardProduct separado.
     productId?: number,
   ): Promise<BuylistQuotePayload> {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
+    // TODO el dinero de esta respuesta sale del cuerpo compartido; aquí solo se arma el DTO.
+    const line = await this.decideBuyLine({ card, productType, rawCondition, finish, curve, override, productId });
+    return this.toQuotePayload(card, line, productId);
+  }
+
+  /**
+   * v2.0 (P-48, §4.36.5b / gate techlead) — **CUERPO ÚNICO de la DECISIÓN DE COMPRA de UNA línea**:
+   * resuelve el acabado válido, DE QUÉ variante se lee el mercado, el override EFECTIVO, aplica la
+   * precedencia de compra y devuelve el veredicto del guardarraíl. Lo consumen las TRES superficies:
+   * `POST /buylist/quote` y `/quote/batch` (vía `quoteCardForFinish`) y `POST /buylist/requests`
+   * (`createRequest`).
+   *
+   * **Por qué un solo cuerpo y no dos que hoy coinciden.** `createRequest` reimplementaba esta misma
+   * secuencia —rama `productId`, rama `set_base`, `quoteAcquisitionFromCurve`, `resolvePendingReason`
+   * y la derivación de `quotedPriceCents`/`priceBasis`— y aunque los dos cuerpos daban EXACTAMENTE el
+   * mismo número, la spec exige uno solo por una razón concreta: la cotización pública y la solicitud
+   * que se paga no pueden divergir. **El vendedor ve un número y firma otro.** Cualquier matiz futuro
+   * (un tope, una condición, un segundo control por variante) entraría en uno de los dos y la
+   * divergencia solo se descubriría por una queja. Lo ÚNICO propio de `createRequest` es lo que no es
+   * decisión de precio: la instrumentación que se congela y el `settlePendingForVariant`.
+   *
+   * `card` llega YA cargada (single o en lote) para que el caller controle el N+1.
+   * READ-ONLY: no escribe en la cola ni en ningún lado — quien escala sigue siendo `createRequest`.
+   */
+  private async decideBuyLine(input: {
+    card: Card;
+    productType: ProductType;
+    rawCondition?: RawCondition;
+    finish?: Finish;
+    curve: PricingCurve;
+    override?: VariantPriceOverride | null;
+    productId?: number;
+  }): Promise<BuyLineDecision> {
+    const { card, productType, rawCondition, finish, curve, productId } = input;
     const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
 
     let f: Finish;
     let referenceMxnCents: number | null;
-    let effectiveOverride: VariantPriceOverride | null | undefined = override;
+    let effectiveOverride: VariantPriceOverride | null | undefined = input.override;
     if (productId != null) {
       // v1.30 (§4.29b): rama PRODUCTO SEPARADO. La identidad de la línea es ESE CardProduct: whitelist de
       // acabado = CardProduct.finishes (NO Card.availableFinishes); la referencia se lee filtrada por su
       // cardProductId (precio propio del producto). El override M-30 (clave sin cardProductId) NO aplica
       // aquí: mapea a la variante set_base, no a este producto — aplicarlo sería fusión de precios
       // (money-safe: se IGNORA). La rareza NO cambia de fuente (sale de la carta).
-      const cp = await this.resolveCardProductForCard(cardId, productId);
+      const cp = await this.resolveCardProductForCard(card.id, productId);
       f = this.assertFinishForProduct(cp.finishes, finish);
       const ref = await this.pricing.getReferenceByCardProduct(cp.id, productType, gradeKey, f);
       referenceMxnCents =
@@ -334,68 +512,64 @@ export class BuylistService {
       // Rama SET_BASE (comportamiento v1.29 idéntico).
       // SEC-A1: el acabado se valida contra los acabados REALES de la carta antes de cotizar.
       f = this.assertFinishAvailable(card, finish);
-      // v1.6-finish: la referencia del `pct` es la del ACABADO cotizado.
-      const ref = await this.pricing.getReference(cardId, productType, gradeKey, f);
+      // v1.6-finish: la referencia es la del ACABADO cotizado.
+      const ref = await this.pricing.getReference(card.id, productType, gradeKey, f);
       referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     }
-    // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
-    // v1.28: precedencia NORMATIVA bounty > override > regla > pendiente (un solo cuerpo, money.ts).
-    const quote = quoteAcquisitionForFinish(
-      card.rarity,
-      f,
-      referenceMxnCents,
-      rules,
-      fallbackPct,
-      effectiveOverride,
-    );
+    // v2.0 (P-48, §4.36.1): el monto sale SOLO del valor de mercado — NO de la rareza ni del acabado
+    // (criterio 84). El acabado ya hizo su único trabajo: elegir DE QUÉ VARIANTE se lee el mercado.
+    // Precedencia NORMATIVA bounty VÁLIDO > override > curva > pendiente (un solo cuerpo, money.ts);
+    // el bounty se revalida AQUÍ contra la curva vigente, no solo al crearlo (§4.36.6).
+    // SEC-A1: mercado y acabado derivados server-side, jamás del DTO del cliente.
+    const quote = quoteAcquisitionFromCurve(referenceMxnCents, curve, effectiveOverride);
+    // v2.0 (P-48, §4.36.5b) — GUARDARRAÍL del eje de COMPRA: una rareza PREMIUM que aterriza en el BIN
+    // NO se cotiza. Pagar de menos es la MISMA pérdida irreversible que vender de menos (§N.0), y que
+    // una chase resuelva al bin solo puede significar que su dato de mercado está mal. NO dispara con
+    // override ni bounty (decisiones deliberadas del admin).
+    const pendingReason = resolvePendingReason(quote.basis, card.rarityCanonical ?? card.rarity);
+    const quotedPriceCents = pendingReason == null ? quote.priceCents : null;
     return {
-      rarity: card.rarity ?? null,
       finish: f,
+      gradeKey,
+      referenceMxnCents,
+      quote,
+      pendingReason,
+      quotedPriceCents,
+      // MISMO invariante que el eje de venta: monto en `null` ⇔ basis `pending`.
+      priceBasis: pendingReason == null ? quote.basis : 'pending',
+    };
+  }
+
+  /**
+   * DTO de cotización a partir de la decisión compartida. Presentación pura: NO decide dinero.
+   * READ-ONLY (doctrina v1.12 de endpoints anónimos): reporta `precio_pendiente` SIN escribir en la
+   * cola; quien escala sigue siendo `createRequest`.
+   */
+  private toQuotePayload(card: Card, line: BuyLineDecision, productId?: number): BuylistQuotePayload {
+    return {
+      // `rarity` se conserva como dato INFORMATIVO/de display del catálogo: el monto NO depende de ella.
+      rarity: card.rarity ?? null,
+      finish: line.finish,
       // v1.30: eco del productId cotizado (ausente en la rama set_base).
       ...(productId != null ? { productId } : {}),
-      appliedRule: {
-        mode: quote.appliedRule.mode,
-        value: quote.appliedRule.value,
-        source: quote.ruleSource,
-      },
+      priceBasis: line.priceBasis,
       quote: {
-        status: quote.status,
-        quotedPriceCents: quote.quotedPriceCents,
+        status: line.quotedPriceCents != null ? ('cotizada' as const) : ('precio_pendiente' as const),
+        quotedPriceCents: line.quotedPriceCents,
         currency: 'MXN' as const,
       },
       referencePrice:
-        referenceMxnCents != null
-          ? { status: 'priced' as const, priceMxnCents: referenceMxnCents }
+        line.referenceMxnCents != null
+          ? { status: 'priced' as const, priceMxnCents: line.referenceMxnCents }
           : { status: 'pending' as const },
       paymentNotice: 'PAY_AFTER_RECEIPT' as const,
     };
   }
 
-  /**
-   * Lee la tabla de precio de buylist por rareza (dial M2) + el fallback %.
-   * BUYLIST_PRICE_RULES = `{ [rarity]: { mode, value } }`; BUYLIST_PRICE_FALLBACK_PCT = número.
-   * v1.3.1 reemplaza el antiguo `rarity_map` (deprecado, ya no se lee en la ruta de cotización).
-   * v1.28: `PricingService.loadBuylistRules()` lee las MISMAS claves para la consola/binder — si
-   * cambia el formato del dial, cambian juntos (misma SettingKey, misma forma).
-   */
-  async buylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    // v1.37 (§4.33c): iza también PRICING_TIER_MAP y DERIVA el `PriceRuleSet` efectivo si el setting trae
-    // el shape por tiers (post-M-38); compat on-read con `{ rarityRules, ... }`/plano (§4.28d) sin el mapa.
-    // Money-safe: rareza sin tier ⇒ sin entrada ⇒ fallback pct (nunca $0 ni bin fijo).
-    const rawTierMap = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
-    const tierMap =
-      rawTierMap != null && typeof rawTierMap === 'object' && !Array.isArray(rawTierMap)
-        ? (rawTierMap as Record<string, TierId>)
-        : {};
-    const rules = toPriceRuleSet<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-      fallbackPct,
-      tierMap,
-    );
-    return { rules, fallbackPct };
-  }
+  // v2.0 (P-48, §4.36.2) — `buylistRules()` RETIRADO. Era el segundo lector de configuración de dinero
+  // del backend (no delegaba en `PricingService`), así que compra y venta podían ver tablas distintas.
+  // Ahora hay UN SOLO lector de la curva en todo el backend: `PricingService.loadPricingCurve()`.
 
   /**
    * v1.28 (P-22, §4.26e / API_CONTRACT §6) — GET /buylist/bounties: vitrina pública «Top
@@ -420,13 +594,44 @@ export class BuylistService {
       remainingQty: number | null;
     }[];
   }> {
-    const rows = await this.prisma.variantPriceOverride.findMany({
+    // v2.0 (P-48, §4.36.6, criterios 90/91) — SEAM «PUBLICAR» de la revalidación del bounty.
+    // ORDEN DE OPERACIONES NORMATIVO (importa): seleccionar candidatos activos → resolver el mercado
+    // en LOTE → FILTRAR los no efectivos → ordenar `bountyPriceCents desc` → tomar el TOP 50.
+    // Filtrar DESPUÉS del cap dejaría huecos silenciosos en la vitrina.
+    // Efecto garantizado: para TODO bounty visible aquí, `/buylist/quote` cotiza EXACTAMENTE ese monto
+    // y es ESTRICTAMENTE mayor que la tarifa estándar de esa variante.
+    const candidates = await this.prisma.variantPriceOverride.findMany({
       where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
       // Desempate estable por edición más reciente (el contrato solo norma el precio desc).
       orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
-      take: 50,
+      // Cap de CANDIDATOS (no de la vitrina): el endpoint es público/anónimo y una lectura sin cota
+      // es superficie de abuso. Muy por encima del cap 50 de la vitrina, así que el filtro por
+      // efectividad no se queda sin material salvo en un escenario que no existe (>500 bounties
+      // activos, todos rebasados por la curva).
+      take: BOUNTY_CANDIDATE_CAP,
       include: { card: { include: { set: true } } },
     });
+    const curve = await this.pricing.loadPricingCurve();
+    // Mercado EN LOTE (una query), mismo lote que usa el resto del eje de compra.
+    const refs = await this.pricing.getReferencesBatch(
+      candidates.map((r) => ({
+        cardId: r.cardId,
+        productType: r.productType,
+        gradeKey: r.gradeKey,
+        finish: r.finish,
+      })),
+    );
+    const rows = candidates.filter((r) => {
+      const ref = refs.get(`${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`);
+      const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+      // MISMO cuerpo de precedencia que la cotización ⇒ el número publicado ES el que se paga.
+      const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
+      return isBountyEffective(r.bountyPriceCents, curveQuoteCents);
+    })
+      // Re-orden explícito tras el filtro (el `orderBy` del query ya lo daba; se conserva por claridad
+      // de que el ORDEN es parte del contrato de la vitrina) y CAP de la vitrina.
+      .sort((a, b) => (b.bountyPriceCents as number) - (a.bountyPriceCents as number))
+      .slice(0, BOUNTY_SHOWCASE_CAP);
     const data = rows.map((r) => ({
       cardId: r.cardId,
       name: r.card.name,
@@ -493,13 +698,15 @@ export class BuylistService {
       effectiveClabe = onFile;
     }
 
-    // Cotiza cada item. SEC-A1: la regla (que determina el monto a pagar) NO se toma del DTO
-    // del cliente; se DERIVA server-side de la RAREZA REAL de la carta (Card.rarity) vía la
-    // tabla BUYLIST_PRICE_RULES (dial M2). Así un DTO malicioso no puede inflar `quotedTotalCents`.
-    // Se snapshotea la regla aplicada (rarity/ruleMode/ruleValue/ruleSource) para auditoría.
-    const { rules, fallbackPct } = await this.buylistRules();
+    // Cotiza cada item. SEC-A1: el monto a pagar NO se toma del DTO del cliente; se DERIVA server-side
+    // del VALOR DE MERCADO REAL de la variante (§4.36.1). Así un DTO malicioso no puede inflar
+    // `quotedTotalCents`.
+    // v2.0 (P-48, §4.36.7c): se snapshotea `priceBasis` (QUÉ determinó el precio) en la MISMA
+    // transacción que congela `quotedPriceCents`. Los `ruleMode`/`ruleValue`/`ruleSource` quedan LEGACY:
+    // nada nuevo los escribe (no hay reglas que snapshotear).
+    const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18/P-22, §4.26b): overrides por variante EN LOTE (una query por request). El snapshot
-    // `ruleSource` gana los valores "bounty" | "override" — habilita el conteo de bounty al pagar (P-22).
+    // `priceBasis="bounty"` es el que habilita el conteo de bounty al pagar (P-22).
     const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
     const itemsData: {
       cardId: string;
@@ -509,68 +716,84 @@ export class BuylistService {
       // v1.30 (§4.29d): snapshot del productId TCGplayer cuando la línea es un producto separado.
       cardProductId?: number;
       rarity: string | null;
-      ruleMode: BuylistRuleMode;
-      ruleValue: number;
-      ruleSource: string;
+      // v2.0 (P-48, §4.36.7c / §N.8): INSTRUMENTACIÓN DE COMPRA — los cinco datos se congelan en la
+      // MISMA transacción que `quotedPriceCents` (que es el precio final) y con el `finish` que ya
+      // tenía. Un AJUSTE posterior del admin (`approvedPriceCents`) NO los reescribe: la serie mide
+      // LA DECISIÓN DE LA CURVA, y el monto realmente pagado se lee de `approvedPriceCents ?? quoted`.
+      priceBasis: PriceBasis;
+      marketMxnCents: number | null;
+      marketBracket: MarketBracketType | null;
       quotedPriceCents: number | null;
       itemStatus: 'cotizada' | 'precio_pendiente';
     }[] = [];
     let quotedTotalCents = 0;
+    /**
+     * v2.1.6 (fase de seguridad) — INTENCIONES de cola, a aplicar SOLO si la solicitud se crea.
+     *
+     * Antes, el bucle escribía en `PendingPriceEntry` **antes** de los topes y del umbral de INE y
+     * **fuera** de la transacción: una solicitud RECHAZADA por tope dejaba igualmente su rastro en la
+     * cola del dueño — y, peor, podía **CERRAR** entradas (`reason=null`) por una solicitud que nunca
+     * existió. Es la misma clase que S48-M1 (un cliente moviendo la cola del dueño) por otra puerta.
+     */
+    const pendingSettlements: Array<{
+      reason: PendingReason | null;
+      key: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; cardProductId: number | null };
+    }> = [];
+    // Cartas EN LOTE (una query por request): antes se hacía un `findUnique` POR ÍTEM dentro del
+    // bucle mientras el override sí venía en lote — N+1 que este refactor cierra de paso.
+    const cardsById = new Map(
+      (
+        await this.prisma.card.findMany({ where: { id: { in: [...new Set(items.map((it) => it.cardId))] } } })
+      ).map((c) => [c.id, c]),
+    );
     for (const it of items) {
-      const card = await this.prisma.card.findUnique({ where: { id: it.cardId } });
+      const card = cardsById.get(it.cardId);
       if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
-      const gradeKey = this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition });
-
-      let f: Finish;
-      let referenceMxnCents: number | null;
-      let override: VariantPriceOverride | null;
-      if (it.productId != null) {
-        // v1.30 (§4.29b): línea de PRODUCTO SEPARADO. Whitelist por CardProduct.finishes; referencia por
-        // su cardProductId; override M-30 NO aplica (money-safe, mismo criterio que el quote).
-        const cp = await this.resolveCardProductForCard(it.cardId, it.productId);
-        f = this.assertFinishForProduct(cp.finishes, it.finish);
-        const ref = await this.pricing.getReferenceByCardProduct(cp.id, it.productType, gradeKey, f);
-        referenceMxnCents =
-          ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-        override = null;
-      } else {
-        // SEC-A1: valida el acabado contra los acabados REALES de la carta (422 si no).
-        f = this.assertFinishAvailable(card, it.finish);
-        // v1.6-finish: referencia del ACABADO cotizado.
-        const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey, f);
-        referenceMxnCents =
-          ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-        // v1.28 (P-18): mismo núcleo único de precedencia que quote/batch (bounty > override > regla).
-        override = overrides.get(`${it.cardId}|${it.productType}|${gradeKey}|${f}`) ?? null;
-      }
-      const q = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct, override);
-      if (q.status === 'precio_pendiente') {
-        // v1.8-ronda-c: escala el pendiente del ACABADO cotizado (cola por acabado, M-19).
-        // v1.30 (§4.29d): con productId, la entrada lleva su cardProductId a la clave lógica de la cola —
-        // resolver el set_base NO cierra la del producto separado (money-safe).
-        await this.pricing.escalatePending(
-          it.cardId,
-          it.productType,
-          gradeKey,
-          'buylist',
-          undefined,
-          f,
-          it.productId ?? null,
-        );
-      }
-      quotedTotalCents += q.quotedPriceCents ?? 0;
+      // v2.0 (P-48, §4.36.5b / gate techlead) — MISMO cuerpo que `POST /buylist/quote` y `/quote/batch`:
+      // el vendedor firma EXACTAMENTE el número que le cotizamos. Aquí no se re-deriva nada de dinero;
+      // lo único propio de `createRequest` es lo de abajo (instrumentación + escalada a la cola).
+      const line = await this.decideBuyLine({
+        card,
+        productType: it.productType,
+        rawCondition: it.rawCondition,
+        finish: it.finish,
+        curve,
+        // v1.28 (P-18): el override de la variante viene del LOTE. La rama `productId` lo ignora
+        // dentro del cuerpo compartido (money-safe: no se fusionan precios de dos identidades).
+        override:
+          overrides.get(
+            `${it.cardId}|${it.productType}|${this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition })}|${it.finish ?? 'normal'}`,
+          ) ?? null,
+        productId: it.productId,
+      });
+      // v2.1.6 (fase de seguridad) — la escritura en la cola se DIFIERE hasta después de que la
+      // solicitud exista de verdad (ver abajo). Aquí solo se ACUMULA la intención.
+      pendingSettlements.push({
+        reason: line.pendingReason,
+        key: {
+          cardId: it.cardId,
+          productType: it.productType,
+          gradeKey: line.gradeKey,
+          finish: line.finish,
+          cardProductId: it.productId ?? null,
+        },
+      });
+      quotedTotalCents += line.quotedPriceCents ?? 0;
       itemsData.push({
         cardId: it.cardId,
         productType: it.productType,
         rawCondition: it.rawCondition,
-        finish: f,
+        finish: line.finish,
         ...(it.productId != null ? { cardProductId: it.productId } : {}),
+        // Dato de display del catálogo; el monto NO depende de él (criterio 84).
         rarity: card.rarity ?? null,
-        ruleMode: q.appliedRule.mode,
-        ruleValue: q.appliedRule.value,
-        ruleSource: q.ruleSource,
-        quotedPriceCents: q.quotedPriceCents,
-        itemStatus: q.status,
+        priceBasis: line.priceBasis,
+        // Sin mercado (override/bounty sin referencia, o pendiente) van en `null`: honesto, jamás un
+        // 0 inventado. El BRACKET es un índice de conveniencia; el dato real es el monto crudo.
+        marketMxnCents: line.quote.marketMxnCents,
+        marketBracket: marketBracketOf(line.quote.marketMxnCents),
+        quotedPriceCents: line.quotedPriceCents,
+        itemStatus: line.quotedPriceCents != null ? 'cotizada' : 'precio_pendiente',
       });
     }
 
@@ -649,6 +872,8 @@ export class BuylistService {
             wouldBeCents: monthUsed + quotedTotalCents,
           });
         }
+        // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller (`createRequest`)
+        // proyecta a `{ sellRequestId, status, quotedTotalCents, ineRequired, items }` (contrato §6).
         return tx.sellRequest.create({
           data: {
             userId,
@@ -664,6 +889,18 @@ export class BuylistService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+
+    // v2.1.6 — AHORA sí: la solicitud EXISTE, así que la cola refleja un hecho real. Va DESPUÉS del
+    // commit y no dentro de la transacción serializable a propósito: meter N escrituras de cola en
+    // la tx del tope mensual alargaría su ventana de conflicto sin ganar nada — el seam es idempotente
+    // y simétrico, así que si el proceso muriera entre el commit y esto, la siguiente cotización o el
+    // siguiente `publish-all` vuelven a escalar. Perder una escalada es recuperable; escribir la cola
+    // por una solicitud que NO se creó, no.
+    for (const s of pendingSettlements) {
+      // v1.8-ronda-c: la cola es POR acabado (M-19). v1.30 (§4.29d): con productId, la entrada lleva
+      // su cardProductId a la clave lógica. §4.36.5c: el MISMO seam CIERRA (salida simétrica).
+      await this.pricing.settlePendingForVariant(s.reason, s.key, 'buylist');
+    }
 
     return {
       sellRequestId: request.id,
@@ -694,6 +931,38 @@ export class BuylistService {
     return agg._sum.quotedTotalCents ?? 0;
   }
 
+  /**
+   * v2.1.6 (AML-1, §4.36.6a) — acumulado **PAGADO** del mes del vendedor: *el dinero que SALIÓ*.
+   *
+   * **Por qué no basta el acumulado de intake** (`monthUsedCentsTx`, que suma `quotedTotalCents`): el
+   * tope se evaluaba sobre la COTIZACIÓN de entrada, pero el dinero sale en la APROBACIÓN. Una línea
+   * `precio_pendiente` entra al mes consumiendo **$0**; si después el dueño le fija precio y la
+   * aprueba, ese monto **sí es dinero que sale** y hasta v2.1.5 **nada lo medía**. Con suficientes
+   * líneas pendientes, el pago mensual real podía superar el tope sin que ningún control lo notara.
+   *
+   * Y este cambio **amplió la población de líneas en `$0`**: la curva trajo dos vías nuevas hacia
+   * `precio_pendiente` (sin mercado —el bin NO gana— y el guardarraíl `premium_at_floor`). Por eso el
+   * hueco es responsabilidad de este pase aunque el remedio viva en el seam de M5.
+   *
+   * Se suma en memoria porque el monto que salió es `approvedTotalCents ?? quotedTotalCents` — un
+   * COALESCE que `_sum` de Prisma no expresa, y sumar el campo equivocado sería exactamente el error
+   * que este control viene a cerrar. El conjunto está acotado por el propio tope (las solicitudes
+   * PAGADAS de UN vendedor en UN mes).
+   */
+  private async monthPaidOutCentsTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+    const start = new Date();
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+    const rows = await tx.sellRequest.findMany({
+      // Ancla en `paidAt` (cuándo salió el dinero), no en `createdAt` (cuándo entró la solicitud):
+      // una solicitud de diciembre que se paga en enero consume tope de ENERO, que es el mes en que
+      // el dinero sale.
+      where: { userId, status: 'pagada', paidAt: { gte: start } },
+      select: { approvedTotalCents: true, quotedTotalCents: true },
+    });
+    return rows.reduce((acc, r) => acc + (r.approvedTotalCents ?? r.quotedTotalCents ?? 0), 0);
+  }
+
   private itemDTO(i: {
     id: string;
     card: { id: string; name: string; number: string } | null;
@@ -704,9 +973,11 @@ export class BuylistService {
     // v1.30 (§4.29): snapshot del productId TCGplayer (null = línea de set_base).
     cardProductId?: number | null;
     rarity?: string | null;
-    ruleMode?: BuylistRuleMode | null;
-    ruleValue?: number | null;
-    ruleSource?: string | null;
+    // v2.0 (P-48, §4.36.7a/c): `priceBasis` reemplaza al trío legacy `ruleMode`/`ruleValue`/`ruleSource`
+    // (que sobrevive en BD por retención de filas históricas, pero nada nuevo lo escribe ni lo expone).
+    priceBasis?: PriceBasis | null;
+    marketMxnCents?: number | null;
+    marketBracket?: MarketBracketType | null;
     quotedPriceCents: number | null;
     approvedPriceCents: number | null;
     itemStatus: string;
@@ -726,7 +997,7 @@ export class BuylistService {
             ...rejectDeadlines(i.rejectedAt),
           }
         : {};
-    // v1.3.1: `category` reemplazado por `rarity` + `appliedRule` (SellItemDTO). API_CONTRACT §11.
+    // v1.3.1: `category` reemplazado por `rarity`; v2.0 (P-48): `appliedRule` → `priceBasis`.
     return {
       id: i.id,
       cardId: i.cardId,
@@ -738,11 +1009,12 @@ export class BuylistService {
       // v1.30 (§4.29): eco del productId cotizado (omitido si la línea es de set_base).
       ...(i.cardProductId != null ? { productId: i.cardProductId } : {}),
       rarity: i.rarity ?? undefined,
-      appliedRule:
-        i.ruleMode != null && i.ruleValue != null
-          ? // v1.28 (P-18/P-22): `source` puede ser además "bounty" | "override" (snapshot M-30).
-            { mode: i.ruleMode, value: i.ruleValue, source: (i.ruleSource ?? 'rule') as AcquisitionRuleSource }
-          : undefined,
+      // v2.0 (P-48): `appliedRule` RETIRADO del DTO (no hay `{mode,value}`). Lo reemplaza `priceBasis`
+      // (§4.36.7a); `null` en filas históricas anteriores a M-41, que se omiten.
+      ...(i.priceBasis != null ? { priceBasis: i.priceBasis } : {}),
+      // v2.0 (§N.8): instrumentación de COMPRA. `null` en filas anteriores a M-41 (se omiten).
+      ...(i.marketMxnCents !== undefined ? { marketMxnCents: i.marketMxnCents } : {}),
+      ...(i.marketBracket !== undefined ? { marketBracket: i.marketBracket } : {}),
       quotedPriceCents: i.quotedPriceCents ?? undefined,
       approvedPriceCents: i.approvedPriceCents ?? undefined,
       itemStatus: i.itemStatus,
@@ -780,13 +1052,14 @@ export class BuylistService {
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     // v1.18-buylist-rejects (§6): los items del detalle del PROPIO cliente se proyectan como
     // SellItemDTO — cuando itemStatus='rechazada' exponen rejectionReason/rejectedAt y los plazos
-    // derivados (la misma información del correo de rechazo). Además, el snapshot CIFRADO de la
-    // CLABE jamás sale en la respuesta (el contrato: "nunca se devuelve").
-    const { clabeSnapshotEnc: _enc, items, ...rest } = req;
+    // derivados (la misma información del correo de rechazo).
+    // S49-M1: la CABECERA pasa por la MISMA lista blanca de cliente que `respond`. Antes se
+    // descartaba `clabeSnapshotEnc` a mano y el resto se esparcía crudo — así se colaba `closedAt`
+    // (interno, SEC-D2) y se colaría cualquier columna sensible futura del schema.
     return {
-      ...rest,
+      ...toCustomerSellRequestDTO(req),
       sellRequestId: req.id,
-      items: items.map((i) => this.itemDTO(i)),
+      items: req.items.map((i) => this.itemDTO(i)),
     };
   }
 
@@ -796,20 +1069,27 @@ export class BuylistService {
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     if (decision === 'decline') {
       // SEC-D2: transición a estado TERMINAL → sella closedAt (ancla la retención de INE al cierre real).
-      return this.prisma.sellRequest.update({
-        where: { id },
-        data: { status: 'rechazada', closedAt: new Date() },
-      });
+      // S49-M1: la fila resultante se PROYECTA — `closedAt` se acaba de escribir aquí mismo y es
+      // interno, y la fila cruda arrastraría `clabeSnapshotEnc` hasta el cuerpo de la respuesta.
+      return toCustomerSellRequestDTO(
+        await this.prisma.sellRequest.update({
+          where: { id },
+          data: { status: 'rechazada', closedAt: new Date() },
+        }),
+      );
     }
     // accept: mueve items 'ajustada' a 'aprobada' y limpia el plazo de 7d.
     await this.prisma.sellRequestItem.updateMany({
       where: { sellRequestId: id, itemStatus: 'ajustada' },
       data: { itemStatus: 'aprobada' },
     });
-    return this.prisma.sellRequest.update({
-      where: { id },
-      data: { adjustmentSentAt: null, status: 'aprobada', approvedAt: new Date() },
-    });
+    // S49-M1: misma proyección de cliente que la rama `decline` (esta ruta la llama el VENDEDOR).
+    return toCustomerSellRequestDTO(
+      await this.prisma.sellRequest.update({
+        where: { id },
+        data: { adjustmentSentAt: null, status: 'aprobada', approvedAt: new Date() },
+      }),
+    );
   }
 
   // ---------------- Admin M5 ----------------
@@ -922,13 +1202,14 @@ export class BuylistService {
     if (!req) throw BusinessException.notFound();
     // La CLABE cifrada NUNCA se expone en la vista de detalle; solo por el reveal dedicado.
     // El join de User tampoco se propaga crudo: se proyecta SOLO el AdminSellerRef.
-    const { clabeSnapshotEnc: _enc, user, items, ...safe } = req;
+    // S49-M1: la cabecera pasa por la MISMA lista blanca que `receive`/`verify`/`pay-spei` — antes
+    // era un rest-destructuring (lista NEGRA de un solo campo).
     return {
-      ...safe,
-      seller: this.sellerRef(user),
+      ...toAdminSellRequestDTO(req),
+      seller: this.sellerRef(req.user),
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
-      items: (items ?? []).map((i) => this.itemDTO(i)),
-      clabeMasked: maskClabe(this.pii.decryptOptional(_enc)),
+      items: (req.items ?? []).map((i) => this.itemDTO(i)),
+      clabeMasked: maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc)),
     };
   }
 
@@ -958,10 +1239,14 @@ export class BuylistService {
       where: { sellRequestId: id, itemStatus: { in: ['cotizada', 'precio_pendiente'] } },
       data: { itemStatus: 'recibida' },
     });
-    return this.prisma.sellRequest.update({
-      where: { id },
-      data: { status: 'recibida', receivedAt: new Date() },
-    });
+    // S49-M1: proyección admin (sin `clabeSnapshotEnc`). Ruta alcanzable por `vault_operator`, que
+    // es justamente el rol de MENOR confianza del back-office (SEC-A4) — no debe ver PII bancaria.
+    return toAdminSellRequestDTO(
+      await this.prisma.sellRequest.update({
+        where: { id },
+        data: { status: 'recibida', receivedAt: new Date() },
+      }),
+    );
   }
 
   async verify(id: string) {
@@ -970,10 +1255,13 @@ export class BuylistService {
       where: { sellRequestId: id, itemStatus: 'recibida' },
       data: { itemStatus: 'verificacion' },
     });
-    return this.prisma.sellRequest.update({
-      where: { id },
-      data: { status: 'verificacion', verifiedAt: new Date() },
-    });
+    // S49-M1: proyección admin (sin `clabeSnapshotEnc`), igual que `receive`.
+    return toAdminSellRequestDTO(
+      await this.prisma.sellRequest.update({
+        where: { id },
+        data: { status: 'verificacion', verifiedAt: new Date() },
+      }),
+    );
   }
 
   /**
@@ -1046,8 +1334,9 @@ export class BuylistService {
       // Idempotencia: re-reject sobre un ítem ya `rechazada` = no-op (200 con el estado actual;
       // NO re-fija rejectedAt, NO re-envía correo).
       if (item.itemStatus === 'rechazada') {
-        const { sellRequest: _sr, card: _card, ...plain } = item;
-        return plain;
+        // S49-R4: lista blanca en vez del rest-destructuring (que sólo excluía las dos relaciones
+        // del `include` y dejaba pasar cualquier columna futura de `SellRequestItem`).
+        return toAdminSellItemRow(item);
       }
       // `reason` obligatorio (3–500 chars tras trim). El DTO ya lo valida (400 VALIDATION_ERROR);
       // esto es defensa en profundidad para llamadas internas/whitespace-only.
@@ -1078,7 +1367,7 @@ export class BuylistService {
       // reject, TRAS el recompute. Si NO queda ningún ítem no-rechazado, cierra la solicitud a
       // `rechazada`+`closedAt`. NO toca montos (BL-1 ya lo hizo) NI envía correos.
       await this.maybeAutoRejectRequest(item.sellRequestId);
-      return updated;
+      return toAdminSellItemRow(updated); // S49-R4
     }
     // RB-3: cap AML efectivo = override por-KYC del usuario si existe, si no el dial global.
     // Misma fuente que honra `createRequest` (evita rechazar una aprobación legítima de un
@@ -1121,7 +1410,7 @@ export class BuylistService {
     // RB-6 / SEC-D3: deriva y persiste `approvedTotalCents` server-side desde los montos aprobados
     // por ítem, en el punto donde esos montos cambian. Lo lee el P&L / la tarjeta "buylist del periodo".
     await this.recomputeApprovedTotal(item.sellRequestId);
-    return updated;
+    return toAdminSellItemRow(updated); // S49-R4
   }
 
   /**
@@ -1447,7 +1736,7 @@ export class BuylistService {
    * API_CONTRACT §M5, PROJECT criterio 26.
    *
    * v1.28 (P-22, §4.26e): la transición a `pagada` y el CONTEO de bounty
-   * (`bountyAcquiredQty` por cada ítem con snapshot `ruleSource='bounty'`, con auto-apagado al
+   * (`bountyAcquiredQty` por cada ítem con snapshot `priceBasis='bounty'`, con auto-apagado al
    * alcanzar `bountyTargetQty`) corren en la MISMA transacción — o se paga Y se cuenta, o nada.
    * Idempotente ante replays: el conteo solo corre en la llamada que HACE la transición
    * (updateMany count===1); un re-POST/replay ve `pagada` y devuelve el estado sin re-contar.
@@ -1457,8 +1746,10 @@ export class BuylistService {
     if (!req) throw BusinessException.notFound();
     // SEC-M5: idempotencia — si ya está pagada, no se hace un segundo asiento; se
     // devuelve el estado existente (dos POST /pay-spei concurrentes o reintentos).
+    // S49-M1: proyectado — este `req` viene de un `findUnique` SIN select, o sea con el snapshot
+    // cifrado de la CLABE dentro. Es el camino MÁS fácil de alcanzar (basta re-postear el pago).
     if (req.status === 'pagada') {
-      return req;
+      return toAdminSellRequestDTO(req);
     }
     if (!['aprobada', 'verificacion'].includes(req.status) || !req.verifiedAt) {
       throw BusinessException.validation(
@@ -1466,23 +1757,52 @@ export class BuylistService {
         'Payment allowed only after receipt/verification and approval',
       );
     }
+    // v2.1.6 (AML-1, §4.36.6a) — TOPE MENSUAL SOBRE EL DINERO QUE SALE, no solo sobre la cotización
+    // de entrada. Se lee el override de KYC del VENDEDOR (mismo criterio que el intake).
+    const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: req.userId } });
+    const capPerMonth =
+      kyc?.capPerMonthCentsOverride ??
+      (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_MONTH_CENTS));
+
     // SEC-M5: transición atómica con guardia de estado (patrón count===1). El
     // `updateMany` solo prospera si la solicitud sigue en un estado pagable; dos
     // llamadas concurrentes → solo una hace la transición a `pagada` (y solo esa CUENTA bounty).
-    const paid = await this.prisma.$transaction(async (tx) => {
-      const res = await tx.sellRequest.updateMany({
-        where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
-        // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
-        data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
-      });
-      if (res.count !== 1) return null;
-      // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
-      await this.countBountyAcquisitionsTx(tx, id, paidBy);
-      return tx.sellRequest.findUnique({ where: { id } });
-    });
+    //
+    // v2.1.6 (AML-1): SERIALIZABLE, por la misma razón que el intake (SEC-A2). Sin ella, dos
+    // `pay-spei` concurrentes de solicitudes distintas del MISMO vendedor leen el mismo acumulado y
+    // las dos pasan — el bypass clásico del tope. Con serializable, una de las dos entra en conflicto
+    // y no liquida.
+    const paid = await this.prisma.$transaction(
+      async (tx) => {
+        // Lo que REALMENTE sale por esta solicitud: lo aprobado manda; sin cherry-pick, lo cotizado.
+        const payoutCents = req.approvedTotalCents ?? req.quotedTotalCents ?? 0;
+        const alreadyPaid = await this.monthPaidOutCentsTx(tx, req.userId);
+        if (alreadyPaid + payoutCents > capPerMonth) {
+          throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month payout cap exceeded', {
+            scope: 'per_month_payout',
+            capCents: capPerMonth,
+            wouldBeCents: alreadyPaid + payoutCents,
+          });
+        }
+        const res = await tx.sellRequest.updateMany({
+          where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
+          // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
+          data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
+        });
+        if (res.count !== 1) return null;
+        // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
+        await this.countBountyAcquisitionsTx(tx, id, paidBy);
+        const row = await tx.sellRequest.findUnique({ where: { id } });
+        // S49-M1: se proyecta DENTRO de la tx, para que el snapshot cifrado no sobreviva ni como
+        // variable local del método (`paid` es lo que se devuelve tal cual al controller).
+        return row ? toAdminSellRequestDTO(row) : null;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({ where: { id } });
-      if (current?.status === 'pagada') return current;
+      // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
+      if (current?.status === 'pagada') return toAdminSellRequestDTO(current);
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'Payment allowed only after receipt/verification and approval',
@@ -1493,7 +1813,7 @@ export class BuylistService {
 
   /**
    * v1.28 (P-22, §4.26e) — conteo TRANSACCIONAL de bounty al pagar: por cada `SellRequestItem`
-   * de la solicitud con snapshot `ruleSource='bounty'` se incrementa `bountyAcquiredQty` de SU
+   * de la solicitud con snapshot `priceBasis='bounty'` se incrementa `bountyAcquiredQty` de SU
    * fila M-30 (clave `(cardId, productType, gradeKey, finish)` del ítem — misma derivación que la
    * cotización). Reglas money-safe:
    *  - B-1 (mismo filtro que la invariante BL-1 de `recomputeApprovedTotal`): los ítems
@@ -1519,7 +1839,9 @@ export class BuylistService {
   ): Promise<void> {
     const bountyItems = await tx.sellRequestItem.findMany({
       // B-1: mismo filtro que BL-1 — un ítem rechazado NO se compró, así que NO cuenta bounty.
-      where: { sellRequestId, ruleSource: 'bounty', itemStatus: { not: 'rechazada' } },
+      // v2.0 (P-48): el snapshot pasa de `ruleSource='bounty'` a `priceBasis='bounty'` (mismo criterio,
+      // campo nuevo). Las filas históricas con `ruleSource='bounty'` ya se pagaron o son legacy.
+      where: { sellRequestId, priceBasis: 'bounty', itemStatus: { not: 'rechazada' } },
       select: { cardId: true, productType: true, rawCondition: true, finish: true },
     });
     if (bountyItems.length === 0) return;

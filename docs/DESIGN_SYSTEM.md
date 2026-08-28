@@ -151,6 +151,25 @@
 > paleta §2/§17 (tinta `#1A1A18`, rojo TCG HUNT `#B31217`, verde vivo `#4A7345`), las reglas §4.3 y
 > las tres familias §3. Refina una convención tipográfica (precios display en sans 500 `tabular-nums`,
 > dinero operativo en mono — §20.14) sin tocar contrato ni flujos.
+>
+> **Añadido v2.1 (curva de precio por valor de mercado — P-48) → ver §21.** *(Es el «v2.0» de
+> `PROJECT.md` §N / `ARCHITECTURE.md` §4.36; aquí se numera **v2.1** porque v2.0 ya nombra el makeover
+> del storefront.)* El precio de las cartas sueltas pasa a depender **solo del valor de mercado**, con
+> **una curva por eje** editable como **tabla de puntos de longitud variable**. §21 define: (1) el
+> **editor de M2** que sustituye a las pantallas de reglas por rareza y por tier — fila de punto,
+> agregar/mover/borrar sin fragilidad (**mover = cambiar el mercado, no arrastrar**), constantes
+> **piso**/**mínimo de compra**/**escalera de redondeo**, el **momento y la forma** de los errores
+> V1–V9 (nada al teclear · campo al `blur` · **cruzados como `422` al guardar, sin guardar nada**) y
+> un **previsualizador obligatorio** (probeta con memoria de cálculo + tabla de referencia; curva
+> dibujada recomendada); (2) la regla de que el bloque **«Valor de mercado» desaparece** cuando
+> `priceBasis !== "market"`, con la **recomposición de la retícula sin hueco** (el divisor es de la
+> posición, no de la celda; la fila del dinero ocupa el ancho completo) en ficha de carta y de
+> sellado; (3) la **alerta de bounty rebasado** (`BOUNTY REBASADO`, sin glifo de mira) y el
+> **guardarraíl visible** (`·!`) en el binder de M1, más el mapa canónico **`priceBasis` → versalitas**
+> (`MERCADO/PISO/MANUAL/BOUNTY/PENDIENTE`) que sustituye a `REGLA`/`FALLBACK`. §21 **enmienda** §7.3
+> (se retira el «Valor de mercado» opcional de las tejas), §16.3, §16.7, §19.5 (re-hogar de «Unificar
+> rarezas») y **retira** el copy falso «Piso (MX$)» / «Hereda tier» con su pantalla. **Cero tokens
+> nuevos**; no hubo entrega de Claude Design para esta feature.
 
 ---
 
@@ -730,6 +749,9 @@ datos verificables**: **empresa + grado + número de certificado**.
   frontend); la API **no** envía el label legible, solo el enum `NM` (ver contrato v1.1).
 
 ### 7.3 Price tag (`PriceTag`) — precio de venta vs. referencia; "precio pendiente"
+> **⚠ Enmendado por §21.8f (v2.1, P-48).** La **segunda línea opcional «Valor de mercado» de las tejas de Compra
+> queda RETIRADA**: tejas y listados **no muestran** valor de mercado. El mercado vive **solo en la ficha** y solo
+> cuando `priceBasis === "market"` (§21.8). En **bóveda/portafolio** este componente **no cambia**.
 - **En Compra (precio de venta):** la cifra principal es `salePriceCents` → `MX$ 1,250.00` en
   `text-lg semibold tabular-nums`; debajo `text-xs muted` "sin IVA · 13 ago 2026". Opcionalmente, en
   segunda línea `text-xs muted`, el **valor de mercado/referencia** (`referenceValue.referenceMxnCents`)
@@ -2087,6 +2109,12 @@ cola de pendientes de M2 (`/admin/m2?context=inventory`). Con `pendingPriceCount
 
 ### 16.3 Consola de tres precios en la teja de variante (P-18) — `VariantPriceConsole`
 
+> **⚠ Enmendado por §21.9 (v2.1, P-48).** El patrón (compacto en la teja + edición en el panel) **no cambia**, pero:
+> (a) `source` ya no es `rule|fallback` sino `PriceBasis` ⇒ el mapa de versalitas pasa a
+> **`MERCADO/PISO/MANUAL/BOUNTY/PENDIENTE`** (§21.9a); (b) se añaden los sufijos **`·P`** (ganó el piso/el mínimo) y
+> **`·!`** (retenida por el guardarraíl, §21.9b); (c) «Sugerido (regla)» → **«Sugerido (curva)»** y «Restablecer a
+> regla» → **«Restablecer a la curva»** (§21.9e).
+
 Consume `MasterSetVariantDTO.pricing` (solo scope `platform`; si `pricing` no viene, la consola no se
 renderiza — bóvedas de cliente jamás la ven). **Patrón elegido: compacto de solo-lectura en la teja +
 edición completa en el panel drill-down.** La teja informa de un vistazo; el write (que es `super_admin` y
@@ -2276,6 +2304,13 @@ variar a lo ancho de la teja):
   sí se localiza (`reverse holo` / `holofoil` legibles).
 
 ### 16.7 Bounty (P-22) — consola admin + vitrina pública «Top Bounties»
+
+> **⚠ Enmendado por §21.9c/d (v2.1, P-48).** El bounty se **revalida contra la curva vigente** al crear, al cotizar
+> y al publicar: un bounty por debajo —**o igual**— de la tarifa vigente **deja de aplicar** y **desaparece de la
+> vitrina**. Dos consecuencias en esta sección: (a) el copy de la validación pasa de «mayor o **igual** al sugerido»
+> a **«mayor que la tarifa vigente»** (el empate ahora se rechaza); (b) el badge de la teja gana el estado
+> **`BOUNTY REBASADO`** (sin glifo de mira) y el bloque del drill-down gana el aviso con las dos cifras. Detalle en
+> §21.9c/d.
 
 **(a) Edición en la consola (dentro de §16.3b, solo `super_admin`, solo variantes raw):** bloque «Bounty»
 al pie de la consola:
@@ -3263,6 +3298,14 @@ de graded/sealed (densidad §18.2). **Nada de esto toca contrato ni backend.**
 
 ## 19. Reorganización del panel M2 — catálogo/precios (v1.9)
 
+> **⚠ Enmendado por §21 (v2.1, P-48) en la zona de editores de precio.** Los editores de **reglas por rareza**
+> (Sección 4 buylist / Sección 5 venta) y de **tiers + mapa rareza→tier** **se retiran** y los sustituye el
+> **editor de la curva** (§21.1). En consecuencia: (a) las referencias de §19.1 a «Reglas buylist / Reglas venta»
+> se leen como «**Curva de precio**»; (b) **«Unificar rarezas» (§19.5) cambia de anfitrión** — se ancla al nuevo
+> bloque «Salud del catálogo de rarezas» y su microcopy se corrige (§21.7b). **Todo lo demás de §19 sigue vigente
+> tal cual**: la jerarquía de los grupos Datos / Catálogo / Avanzado, el reencuadre del selector de proveedor
+> (§19.7), estados y accesibilidad **no cambian**.
+
 > Pantalla: `/admin/m2` (`frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx`, super_admin).
 > Esta sección define SOLO **jerarquía, agrupación, etiquetas/microcopy, estados, confirmaciones y
 > accesibilidad** de las **acciones de import/precio** del panel. **No cambia el contrato** (mismos
@@ -3945,3 +3988,781 @@ Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los
    distintivo «N en stock» en singles mientras el contrato no exponga conteos; (c) foco visible
    recorrible por toda la home incluida la banda oscura; (d) móvil 390: sin scroll horizontal
    fantasma con el carrusel presente; (e) paginador ausente cuando `total ≤ pageSize`.
+
+---
+
+## 21. Curva de precio por valor de mercado (v2.1 — P-48): editor de puntos, «Valor de mercado» condicional y bounty rebasado
+
+> **Procedencia:** `PROJECT.md` **§N (v2.0, LOCKED)** · `docs/ARCHITECTURE.md` **§4.36** · `docs/API_CONTRACT.md`
+> rev **`v2.0-pricing-curve`** (§M2 «Curva de precio por VALOR DE MERCADO», `PricingCurveDTO`, `PriceBasis`,
+> `VariantPricingDTO`).
+> **Numeración:** en la secuencia propia de este documento esta entrega es **v2.1**, porque **v2.0 ya nombra el
+> makeover del storefront (§20)**. No son la misma entrega; el «v2.0» de PROJECT/ARCHITECTURE es esta §21.
+> **Origen: NO hubo entrega de Claude Design para esta feature.** Es una pantalla de back-office nacida del
+> contrato, más dos reglas de presentación en superficies ya diseñadas. Por eso §21 **no inventa lenguaje**:
+> extiende el vigente — papel/tinta (§2), Zen Old Mincho + Archivo + JetBrains Mono (§3), **reglas y aire en vez
+> de cajas y sombras** (§4.3), **cifras y estados en mono versalitas** (§2.4, §3.1, §20.14) y **cero rellenos de
+> color en estados** (§2.3). **Cero tokens nuevos**, cero elementos gráficos nuevos.
+
+### 21.0 Qué entra, qué se retira y qué NO se toca
+
+**Entra (tres superficies):**
+
+| # | Superficie | Qué es |
+|---|---|---|
+| 1 | **M2 › Curva de precio** (`super_admin`) | **Editor de la tabla de puntos** de longitud variable — dos curvas (venta y compra) + **piso**, **bin** y **escalera de redondeo**, con validación al guardar y **previsualización** del efecto (§21.1–§21.7) |
+| 2 | **Ficha de carta y ficha/ventana de sellado** (público) | El bloque **«Valor de mercado» desaparece** cuando el mercado no fijó el precio, y la retícula de datos **se recompone sin hueco** (§21.8) |
+| 3 | **Binder de M1** (`super_admin` / lectura `vault_operator`) | **Alerta de bounty rebasado** y **guardarraíl visible** (rareza premium en el piso/bin) en la teja y en el drill-down (§21.9) |
+
+**Se retira del diseño (con su pantalla, no se corrige — §N.9):** el editor de **reglas por rareza**, el editor de
+**tiers + mapa rareza→tier**, el eje de **reglas por acabado** y el par de modos **`fijo` / `porcentaje`**. Con ellos
+se va el **texto falso** que causó P-48: la etiqueta **«Piso (MX$)»** sobre un campo que era **precio absoluto**, el
+placeholder **«Hereda tier»** y el hint «Sin regla propia, el acabado hereda la del tier de su rareza».
+**Regla dura de esta sección: ninguna etiqueta puede prometer un comportamiento que el sistema no tiene.** Si un
+campo se llama «piso», el número **tiene** que ser un piso.
+
+**No se toca:** el **sellado** conserva su editor de **spreads por presentación** (§16.8, §K) — su precio antes y
+después es idéntico; la **bóveda/portafolio** del cliente y su gráfica de tendencia (§7.17); el **cotizador**
+(§7.14, §18) como flujo; los **overrides manuales**, que siguen siendo absolutos; y toda la piel de §2–§4.
+
+> **El sesgo de error gobierna la pantalla (PROJECT §N.0).** *Precio de más = venta perdida (recuperable); precio
+> de menos = carta perdida (irrecuperable).* Se traduce a diseño en cuatro decisiones concretas de §21: (a) **nada
+> se guarda solo** — la pantalla es un borrador con guardado explícito y diff confirmable; (b) **el previsualizador
+> es obligatorio**, porque una tabla de puntos no dice cuánto sale una carta; (c) **el error no interrumpe mientras
+> se teclea**, para que nadie aprenda a ignorarlo; (d) **lo que dejó de aplicar se dice, no se calla** (el bounty
+> rebasado y la pieza retenida por el guardarraíl tienen estado propio y visible).
+
+---
+
+### 21.1 M2 › Curva de precio — anatomía de la pantalla (`PricingCurveEditor`)
+
+Reemplaza, **en el mismo lugar** que ocupaban los editores retirados dentro de la zona «editores de reglas de
+precio» de M2 (§19.1), a: Reglas de buylist, Reglas de venta, Precios por tier y Asignación de rarezas a tiers.
+Consume `GET`/`PUT /api/v1/admin/pricing/curve` (`PricingCurveDTO`).
+
+```
+┌ CURVA DE PRECIO ─────────────────────────────────────────────┬──────────────────────────┐
+│ h2 serif  «Curva de precio»                                  │  ┌ PROBAR UN MERCADO ──┐ │
+│ lead text-sm muted (§21.1a)                                  │  │  (§21.5a)           │ │
+│                                                              │  │  sticky en ≥ xl     │ │
+│ ── CONSTANTES ─────────────────────────────────────────────  │  └─────────────────────┘ │
+│   Piso de venta [MX$ 25.00]   Mínimo de compra [MX$ 1.00]    │  ┌ TABLA DE REFERENCIA ┐ │
+│                                                              │  │  (§21.5b)           │ │
+│ ── VENTA ──────────────────────────────────────────────────  │  └─────────────────────┘ │
+│   tabla de puntos  (§21.2)                    [+ Agregar]    │  ┌ LA CURVA (opcional) ┐ │
+│   ── REDONDEO ↑ (solo venta) ── escalera (§21.3c)            │  │  (§21.5c)           │ │
+│                                                              │  └─────────────────────┘ │
+│ ── COMPRA ─────────────────────────────────────────────────  │                          │
+│   tabla de puntos  (§21.2)                    [+ Agregar]    │                          │
+└──────────────────────────────────────────────────────────────┴──────────────────────────┘
+┌ barra de guardado (sticky abajo) ──────────────────────────────────────────────────────┐
+│  2 CAMBIOS SIN GUARDAR                                     Descartar   [Guardar curva] │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Layout:** dos columnas en `≥ xl` (editor 2fr / previsualizador 1fr, el previsualizador **sticky** anclado con
+  `top-[var(--app-header-h,0px)]`, §4.5); una sola columna apilada por debajo, con el previsualizador **entre las
+  dos curvas y la barra de guardado** (nunca al final de un scroll largo).
+- **Orden VENTA → REDONDEO → COMPRA, no alfabético ni «compra primero».** Es el orden del invariante: la compra
+  vive **debajo** de la venta en todo el dominio, así que leer de arriba a abajo enseña la regla. El **redondeo
+  anida dentro de VENTA** porque solo aplica a ese eje (la compra **no se redondea**).
+- **Separadores:** cada bloque abre con `eyebrow` mono (`CONSTANTES` / `VENTA` / `REDONDEO ↑` / `COMPRA`) sobre una
+  **regla superior** de 1px (`--color-border`) y `<section role="group" aria-labelledby>` (mismo patrón §19.1). Sin
+  cajas, sin sombras, sin fondos de bloque.
+- **Rol:** todo el editor es `super_admin`. Para `vault_operator` **no se renderiza** (no es «campos deshabilitados»:
+  la curva es dinero de los dos lados). El resto de M2 no cambia de permisos.
+
+**(a) Lead de la pantalla (microcopy normativo — sustituye a todos los subtítulos de los editores retirados):**
+
+- **ES:** «El precio sale **solo del valor de mercado** de cada carta. La **rareza** y el **acabado** ya no
+  intervienen en el cálculo. Cada curva es una lista de puntos que tú defines: entre dos puntos el valor se
+  **interpola en línea recta**; antes del primero y después del último se mantiene **plano**. Los cambios surten
+  efecto **sin publicar de nuevo** y quedan en bitácora.»
+- **EN:** «Price comes **only from each card's market value**. **Rarity** and **finish** no longer take part in the
+  math. Each curve is a list of points you define: between two points the value is **interpolated in a straight
+  line**; before the first and after the last it stays **flat**. Changes take effect **without republishing** and
+  are logged.»
+
+**(b) Nota al pie fija del editor** (misma familia que §16.3b), `text-xs muted`, siempre visible:
+«Al guardar, el catálogo se repricia en el siguiente cálculo · los precios manuales (override) no se tocan ·
+queda en bitácora.»
+
+**(c) Unidades: el contrato habla en centavos y puntos base; la pantalla, en pesos, `×` y `%`.**
+**Nunca se muestran `marketCents`, `multiplierBp` ni `pctBp` crudos**, ni siquiera en `title`, `aria-label` o
+mensajes de error. La conversión vive en la capa de formato (como `formatMoneyCents`, §9.3):
+
+| Campo del DTO | En pantalla | Formato |
+|---|---|---|
+| `marketCents` | **Mercado** | `MX$ 25.00` — input dinero con prefijo `MX$` (§6.2), `inputmode="decimal"` |
+| `multiplierBp` (venta) | **Multiplicador** | `1.60×` — input numérico con sufijo `×`, **2 decimales**, mínimo `1.00` |
+| `pctBp` (compra) | **Pago** | `30%` — input numérico con sufijo `%`, **0–100**, hasta 2 decimales |
+| `floorCents` / `binCents` | **Piso de venta** / **Mínimo de compra** | `MX$ 25.00` / `MX$ 1.00` |
+| `rounding[].uptoCents` / `.stepCents` | **Hasta** / **Escalón** | `MX$ 200.00` / `MX$ 5.00`; la última banda dice `EN ADELANTE` |
+
+- El input **no reformatea mientras se teclea** (solo al `blur`), para que escribir `1.6` no se convierta en algo
+  distinto a media pulsación. Todas las cifras con `tabular-nums`.
+- **Voz tipográfica:** este es **dinero operativo** (columnas que se comparan y se suman) ⇒ **mono**, 11–14px,
+  según §20.14. No se usa el registro «precio display» sans aquí.
+
+---
+
+### 21.2 La fila de punto: agregar, mover y borrar sin que se sienta frágil (`CurvePointsTable`)
+
+Anatomía de la tabla de una curva (es un `<table>` real, §7.7; **no** una lista de tarjetas):
+
+```
+        MERCADO        MULTIPLICADOR     VENTA A ESE MERCADO
+PLANO ANTES
+        [MX$   25.00]  [ 1.60 ×]         MX$ 40.00                     [Quitar]
+        [MX$   80.00]  [ 1.15 ×]         MX$ 95.00                     [Quitar]
+PLANO DESPUÉS
+                                          + Agregar punto
+```
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| **Gutter de posición** | texto mono 10px versalitas, `--color-text-muted` | `PLANO ANTES` en la **primera** fila y `PLANO DESPUÉS` en la **última** — explican los tramos planos de los extremos, que es la primera pregunta que hace la tabla («¿por qué una carta de MX$1 usa el 1.60×?»). `NUEVO` en una fila agregada y aún no guardada |
+| **Mercado** | input dinero | El valor del punto de quiebre |
+| **Multiplicador** (venta) / **Pago** (compra) | input `×` / `%` | El valor que se interpola |
+| **Resultado a ese mercado** | **derivado, solo lectura** | Fondo `--color-surface-2` (pozo) para leerse como no editable — es una **superficie**, no un relleno de estado (§4.3). Venta = precio final **con piso y redondeo aplicados**; compra = pago final **con el mínimo aplicado**. Si ganó la constante, la celda añade la versalita **`PISO`** (§21.9a) |
+| **Acción** | botón icono 44px | `Quitar` (`aria-label` «Quitar el punto de MX$ 80.00») |
+
+**(a) Mover un punto = cambiar su mercado. No hay arrastrar y soltar.**
+El orden **no es un dato que el dueño edite**: se deriva de `marketCents` (el servidor ordena y rechaza duplicados).
+Un asa de arrastre sugeriría que el orden es independiente del valor —y en una pantalla de dinero, una fila que
+cambia de sitio con el ratón es exactamente la clase de gesto que produce un error que nadie recuerda haber hecho.
+- La tabla **reordena al `blur`** del campo Mercado, **nunca mientras se teclea**.
+- Tras reordenar, la fila movida conserva el **foco** y recibe un **realce breve** de 1.2 s: regla izquierda de 2px
+  en `--color-accent` que se desvanece (o aparece sin transición con `prefers-reduced-motion`, §8.2). Sin este
+  realce el dueño pierde de vista su propia fila.
+- El cambio de posición se anuncia con `aria-live="polite"`: «El punto de MX$ 120.00 quedó en la posición 3 de 4.»
+
+**(b) Agregar un punto es, por definición, neutro.**
+`+ Agregar punto` (botón `secondary` `sm`, ancho de la tabla) añade una fila **al final, en edición, con el foco en
+Mercado**. Al confirmar el mercado (`blur`), el valor se **rellena solo con el valor interpolado de la curva actual
+en ese mercado**, y la fila se ordena en su sitio.
+- **Por qué se prerrellena:** un punto colocado **sobre** la curva vigente no cambia **ningún** precio. Así,
+  «agregar un punto» es una operación segura por construcción y el dueño solo asume riesgo cuando **mueve** el
+  valor. El helper lo dice: «Se colocó sobre la curva actual: todavía no cambia ningún precio.» / «Placed on the
+  current curve: it doesn't change any price yet.»
+- La fila nueva lleva la versalita `NUEVO` en el gutter hasta que se guarda.
+- Si el mercado queda vacío o repetido, la fila **no se ordena**: se queda al final marcada (§21.4).
+
+**(c) Borrar: inmediato, reversible dentro del borrador.**
+No hay modal de confirmación por fila — sería un peaje en una tabla de N filas y enseñaría a confirmar sin leer. La
+red de seguridad real es que **nada de esta pantalla toca dinero hasta «Guardar curva»**:
+- Al quitar una fila aparece, al pie de esa curva, una línea mono `text-[11px]`:
+  `Punto de MX$ 80.00 eliminado · **Deshacer**` (`Deshacer` es un botón `link`). Persiste hasta que se guarda, se
+  descarta el borrador o se elimina otro punto (entonces se apila hasta 3 y luego se resume: `3 puntos eliminados ·
+  Deshacer el último`).
+- **No se puede quedar sin puntos:** con una sola fila, `Quitar` está **deshabilitado** con el motivo en `title`
+  **y** `aria-describedby`: «Una curva necesita al menos un punto.» (es el invariante V1 hecho control, §21.4).
+
+**(d) Marca de campo modificado.** Un input cuyo valor difiere del guardado gana una **regla izquierda de 2px**
+`--color-accent` y, debajo, `text-xs muted`: `Antes: 1.15×`. Es el diff **en el sitio del cambio**, sin tachados
+(§16.3b ya descartó el tachado como recurso) y sin rellenos de color.
+
+**(e) Lo que la tabla NO hace:** no numera las filas (el índice del array es un detalle del contrato, no un dato del
+dueño), no permite editar dos curvas a la vez en un mismo formulario parcial (el `PUT` reemplaza el objeto
+completo) y no ofrece «duplicar punto» ni plantillas: cada punto es una decisión de dinero, no un elemento de lista.
+
+---
+
+### 21.3 Constantes: piso, mínimo de compra y escalera de redondeo
+
+**(a) Piso de venta y Mínimo de compra (`CurveConstantsRow`)** — dos inputs de dinero en una fila de dos columnas
+separada por regla, **arriba de las dos curvas**, porque gobiernan a las dos.
+
+| | Etiqueta | Ayuda (`text-xs muted`, obligatoria) |
+|---|---|---|
+| `sale.floorCents` | **Piso de venta** | ES: «Ninguna carta se publica por debajo de este precio, aunque su mercado sea menor.» · EN: «No card is listed below this price, even if its market value is lower.» |
+| `buy.binCents` | **Mínimo de compra** | ES: «Nunca pagamos menos que esto, aunque el porcentaje dé menos.» · EN: «We never pay less than this, even if the percentage yields less.» |
+
+> **Estas dos ayudas son el antídoto de P-48 y no son opcionales.** El campo anterior decía «Piso (MX$)» y se
+> comportaba como precio absoluto. La ayuda ahora **describe el comportamiento** («no se publica por debajo»,
+> «nunca pagamos menos»), no el rol abstracto. Si algún día el comportamiento cambia, cambia el texto — no al revés.
+
+- Bajo el **Piso de venta**, segunda línea `text-xs muted` que conecta el dial con su consecuencia operativa:
+  «Una carta de **rareza premium** que aterrice en el piso **no se publica**: pasa a la cola de precio pendiente
+  para que revises su mercado.» (es el guardarraíl, §21.7c/§21.9b).
+- El **Mínimo de compra** debe quedar por debajo del **Piso de venta** (invariante V7); si no, el servidor rechaza
+  al guardar y ambos campos se marcan (§21.4).
+
+**(b) La escalera de redondeo ↑ (`RoundingLadderTable`)** — anidada dentro del bloque VENTA, con `eyebrow`
+`REDONDEO ↑ (SOLO VENTA)`:
+
+```
+        HASTA              ESCALÓN
+        [MX$  200.00]      [MX$   5.00]      [Quitar]
+        [MX$  500.00]      [MX$  10.00]      [Quitar]
+        EN ADELANTE        [MX$  25.00]
+                            + Agregar banda
+```
+
+- **La última banda no tiene input de «Hasta»:** se pinta la versalita fija `EN ADELANTE` (`uptoCents: null`). Así
+  el estado inválido «ninguna banda abierta» o «dos bandas abiertas» **no se puede expresar** desde la UI. Es la
+  mitad barata de V8 resuelta por construcción; la otra mitad (fronteras múltiplo del escalón inferior) la valida
+  el servidor.
+- `Quitar` deshabilitado en la última banda y cuando solo queda una.
+- Ayuda del bloque (`text-xs muted`): ES «El precio de venta se redondea **hacia arriba** al siguiente múltiplo del
+  escalón de su banda. La banda la decide el precio **antes** de redondear y no se vuelve a evaluar. La compra
+  **no** se redondea.» · EN «The sale price is rounded **up** to the next multiple of its band's step. The band is
+  chosen by the price **before** rounding and is not re-evaluated. Buy prices are **not** rounded.»
+
+---
+
+### 21.4 Validación V1–V9: **cuándo** aparece el error y **qué forma** tiene
+
+> **Principio de la pantalla:** *mientras se teclea no hay errores; el previsualizador enseña el problema en pesos;
+> el servidor lo nombra al guardar.* El editor **no reimplementa** los invariantes cruzados para adelantarse al
+> `422`: si el cliente inventara un rechazo que el servidor no haría, el dueño dejaría de confiar en la pantalla —
+> y la autoridad del dinero es el backend (SEC-A1).
+
+**(a) Los tres momentos.**
+
+| Momento | Qué se valida ahí | Forma | ¿Bloquea guardar? |
+|---|---|---|---|
+| **Mientras se teclea** | **nada** | ninguna. Sin rojo, sin sacudidas, sin reformateos | no |
+| **Al salir del campo (`blur`)** | lo que **un solo control** puede afirmar de sí mismo: tipos y rangos (**V3**), `multiplicador ≥ 1.00×` (**V4**), `pago` en 0–100%, `escalón ≥ MX$0.01` y `hasta` creciente (parte de **V8**) | error inline de §6.2: borde `--color-danger`, mensaje debajo, `aria-invalid` + `aria-describedby` | no lo impide, pero el botón lo advierte (ver (d)) |
+| **Al salir del campo, nivel tabla** | **V2** duplicado: dos puntos con el mismo mercado (tras reordenar quedan **adyacentes**) | ambas filas marcadas con la misma sub-fila de mensaje | no |
+| **Al guardar (`PUT` → `422`)** | los **cruzados**: **V1**, **V5** (monotonía de **venta**), **V9** (monotonía de **compra**), **V6** (compra bajo venta), **V7** (bin bajo piso) y la condición fina de **V8** | resumen anclado + marcas por punto (ver (b)) | **nada se guardó**: la curva vigente sigue viva |
+
+**(b) La forma del error al guardar.** El contrato entrega `code` + `details: { axis, index, marketCents, … }`; el
+diseño lo convierte en **tres marcas coordinadas**:
+
+1. **Resumen anclado arriba del editor** — `Banner` `danger` (§7.5, sin relleno: texto e icono sobre papel),
+   `role="alert"`, **recibe el foco** al llegar la respuesta. Título fijo, en los dos idiomas, sin ambigüedad:
+   **«No se guardó nada.»** / **«Nothing was saved.»** Cuerpo = una frase por infracción (tabla (c)) y, por cada
+   punto culpable, un botón `link` **«Ir al punto de MX$ 80.00»** que enfoca el primer input de esa fila y la lleva
+   a la vista.
+2. **La(s) fila(s) culpables** — regla izquierda de 2px `--color-danger`, `aria-invalid="true"` en sus inputs y una
+   **sub-fila** a todo el ancho de la tabla con el mensaje en mono `text-[11px]` `--color-danger`. Los errores de
+   **tramo** (V5 y V9 —las dos monotonías— y V6) marcan **los dos extremos** y escriben el mensaje bajo el segundo,
+   nombrando los dos mercados.
+   Los **cruzados de eje** (V6, V7) marcan la fila/el campo en **las dos** caras; el mensaje inline vive en el eje
+   que indica `details.axis` y el resumen es el que cuenta la historia completa.
+3. **El previsualizador** (§21.5) resalta el tramo o el mercado implicado, para que el error se **vea en pesos** y
+   no solo se lea en prosa.
+
+**(c) Copy por código (ES / EN). Frases, no álgebra: el dueño no lee `multiplierBp`.**
+
+| Código `422` | ES | EN |
+|---|---|---|
+| `CURVE_EMPTY` | «La curva de {venta\|compra} se quedó sin puntos. Agrega al menos uno.» | «The {sale\|buy} curve has no points left. Add at least one.» |
+| `DUPLICATE_BREAKPOINT` | «Hay dos puntos en el mismo mercado (MX$ {m}). Cambia uno o quita el repetido.» | «Two points share the same market (MX$ {m}). Change one or remove the duplicate.» |
+| `SALE_BELOW_MARKET` | «El punto de MX$ {m} vendería **por debajo del mercado**. El multiplicador de venta nunca puede bajar de **1.00×**.» | «The MX$ {m} point would sell **below market**. The sale multiplier can never go under **1.00×**.» |
+| `SALE_CURVE_NOT_MONOTONIC` | «Entre MX$ {m0} y MX$ {m1} el precio de venta **baja** cuando el mercado sube. Sube el multiplicador de MX$ {m1} o baja el de MX$ {m0}.» | «Between MX$ {m0} and MX$ {m1} the sale price **drops** as market goes up. Raise the MX$ {m1} multiplier or lower the MX$ {m0} one.» |
+| `BUY_CURVE_NOT_MONOTONIC` **(V9)** | «Entre MX$ {m0} y MX$ {m1} **pagarías menos** aunque el mercado suba. Sube el pago de MX$ {m1} o baja el de MX$ {m0}.» | «Between MX$ {m0} and MX$ {m1} **you would pay less** even though market goes up. Raise the MX$ {m1} pay or lower the MX$ {m0} one.» |
+| `BUY_ABOVE_SALE` | «En MX$ {m} pagarías **{pct}%** y venderías a **{mult}×**: la compra alcanza a la venta. Baja el pago de ese tramo.» | «At MX$ {m} you would pay **{pct}%** and sell at **{mult}×**: buying catches up with selling. Lower the pay for that stretch.» |
+| `BIN_ABOVE_FLOOR` | «El **mínimo de compra** (MX$ {bin}) no puede alcanzar al **piso de venta** (MX$ {floor}).» | «The **buy minimum** (MX$ {bin}) cannot reach the **sale floor** (MX$ {floor}).» |
+| `ROUNDING_LADDER_INVALID` | «La escalera de redondeo no es válida: cada frontera debe ser **múltiplo exacto** del escalón de la banda anterior (con escalón de MX$5, la frontera puede ser MX$200, no MX$203).» | «The rounding ladder is invalid: each boundary must be an **exact multiple** of the previous band's step (with a MX$5 step, the boundary can be MX$200, not MX$203).» |
+| `VALIDATION_ERROR` (rango/tipo) | se muestra **en el campo**, no en el resumen (§6.2) | idem |
+
+- **Las dos monotonías son gemelas y su copy lo refleja** (V5 venta / V9 compra): mismo esqueleto —diagnóstico en
+  una frase + remedio nombrando los dos puntos— y misma marca de tramo. Cambia el verbo, porque cambia el daño:
+  en venta el precio **baja**; en compra **pagarías menos**. El error **no explica por qué importa** (eso vive en
+  este documento y en §N.0): un mensaje de guardado tiene que ser corto y accionable.
+- **`PREMIUM_RARITY_FIXED_TIER` se retira** junto con su copy: su invariante ya no existe.
+- Cualquier otro fallo (`403`, `5xx`, red) usa el patrón genérico de §8.1 con «Reintentar»; **nunca** se deja la
+  pantalla insinuando que algo se guardó a medias.
+
+**(d) Limpieza de marcas.** Editar cualquier campo de una fila marcada **borra la marca de esa fila** (optimismo
+local). El **resumen** permanece hasta el siguiente intento de guardar o hasta `Descartar` — desaparecerlo antes
+haría creer que el problema se resolvió sin haberlo comprobado. Si hay errores **de campo** pendientes, el botón
+`Guardar curva` sigue habilitado pero la barra muestra en mono accent: `HAY CAMPOS SIN CORREGIR`; al pulsarlo, el
+foco salta al primero (no se envía).
+
+**(e) Invariante ≠ aviso: V9 y la «lectura de la curva» conviven y NO son lo mismo.**
+Son dos cosas distintas que pueden ser ciertas **a la vez sobre la misma curva**, y la pantalla tiene que dejar
+claro cuál es cuál. La regla que las separa es de una línea: **invariante = dinero; aviso = intención.**
+
+| | **V9 `BUY_CURVE_NOT_MONOTONIC`** | **Aviso «lectura de la curva» (§21.5b)** |
+|---|---|---|
+| Qué afirma | **Pagas menos por más mercado** — el **pago absoluto** baja | El **porcentaje** de compra baja (o el multiplicador de venta sube) |
+| Naturaleza | **Invariante de dinero.** Una carta que no se compra se pierde igual que una vendida barata (§N.0) | **Preferencia de negocio** (§N.1): margen grueso abajo, pago mayor arriba |
+| Momento | solo **al guardar** (`422` del servidor) | **en vivo**, mientras se edita |
+| Dónde | resumen anclado + filas marcadas en el editor + tramo en la curva dibujada | al pie de la **tabla de referencia**, en el panel de previsualización |
+| Tono | `--color-danger`, `role="alert"`, recibe el foco | mono `--color-text-muted`, `role="status"`, sin icono y **nunca en rojo** |
+| Efecto | **bloquea**: no se guarda nada | **no bloquea nada**, nunca deshabilita `Guardar` |
+
+- **Por qué V9 no exige que el pct suba** (decisión del arquitecto, y este documento la respeta): bajar el
+  porcentaje en un tramo es **legítimo** mientras el pago absoluto siga subiendo. Convertir esa preferencia en un
+  rechazo del sistema le quitaría al dueño una palanca válida — y le enseñaría a pelearse con la pantalla.
+- **Ejemplo que dispara los dos** (es el contraejemplo real de QA): `$25 ⇒ $12.50` · `$80 ⇒ $16.53` ·
+  `$100 ⇒ $10.00`. El **aviso** aparece en cuanto se teclea, porque el pct cae (50% → 20.66% → 10%); **V9** llega
+  al guardar, y solo por el tramo **$80 → $100**, donde el pago absoluto baja. El tramo `$25 → $80` **no** es un
+  error: el pct cae pero el pago sube.
+- **Nunca se sustituyen, se resumen ni se contagian.** Si coinciden, se muestran **los dos**, cada uno en su sitio
+  y con su tono. **Prohibido teñir el aviso de rojo** o darle icono de error cuando V9 esté presente: si el aviso
+  aprendiera a verse como un error, la próxima vez que aparezca solo —que es el caso normal y legítimo— se leería
+  como un fallo del que nadie tiene que hacer nada. Es la misma disciplina de §2.4: cada estado dice **una** cosa.
+- **Dónde se ve V9 antes de guardar:** en la columna derivada **«Compra a ese mercado»** (§21.2), donde el pago
+  absoluto aparece **descendiendo** de una fila a la siguiente. Es coherente con la tesis de §21.4: *el
+  previsualizador enseña el problema en pesos; el servidor lo nombra al guardar.*
+
+---
+
+### 21.5 Previsualización: la tabla de puntos es abstracta, el peso no
+
+> **Requisito de producto, no adorno.** El dueño no puede calibrar lo que no ve. Los diales de §N.2 son «un punto
+> de partida informado, no una verdad» — la pantalla tiene que responder «¿cuánto sale una carta de MX$50?» sin
+> que nadie multiplique de cabeza. **Dos capas son obligatorias (a y b); la tercera (c) es recomendada.**
+
+**(a) La probeta — `CurveProbe` (obligatoria).** Un input de mercado y el resultado, **vigente contra borrador**:
+
+```
+┌ PROBAR UN MERCADO ───────────────────────────────────┐
+│  Mercado   [ MX$   50.00 ]                           │
+│                          VIGENTE      BORRADOR       │
+│  VENTA                 MX$ 70.00     MX$ 75.00  +5.00│
+│                          MERCADO       MERCADO       │
+│  COMPRA                MX$ 16.67     MX$ 17.33  +0.66│
+│                          MERCADO       MERCADO       │
+│  ────────────────────────────────────────────────────│
+│  Venta: 50.00 × 1.4409 = 72.05 → ↑ MX$ 75.00 (paso $5)│
+│  Compra: 50.00 × 34.67% = 17.33 (mínimo MX$ 1.00)    │
+└──────────────────────────────────────────────────────┘
+```
+
+*(Ejemplo con los diales de §N.2 y un borrador que subió el punto de venta de MX$80 de `1.15×` a `1.25×` y el de
+compra de MX$25 de `30%` a `32%`. La **memoria de cálculo describe siempre la columna BORRADOR**, que es la que el
+dueño está decidiendo; con la curva vigente ese mismo mercado daría `50.00 × 1.3955 = 69.77 → ↑ MX$ 70.00`.)*
+
+- **Dos columnas siempre:** `VIGENTE` (la curva guardada, tal como la devolvió el último `GET`/`PUT`) y `BORRADOR`
+  (lo que hay en pantalla). La diferencia se pinta a la derecha en mono con signo; **sin color** si es 0, en
+  `--color-text` si cambia (no verde/rojo: subir un precio de venta no es «bueno» ni «malo» por sí mismo).
+- **Bajo cada cifra, el `priceBasis` en versalitas** (`MERCADO` / `PISO`) con el mapa canónico de §21.9a. Es la
+  misma señal que después gobierna la ficha pública: aquí el dueño ve **qué determinó** el precio.
+- **La memoria de cálculo es obligatoria** (las dos últimas líneas): multiplicador o porcentaje aplicado, producto
+  **antes** de redondear, comparación con la constante y **paso de redondeo usado**. Es lo que convierte la
+  pantalla en algo auditable a ojo. Cuando gana la constante se escribe así:
+  `Venta: 1.14 × 1.6000 = 1.82 · el piso MX$ 25.00 gana → MX$ 25.00`.
+- Cuando el resultado de venta resuelve en `PISO`, se añade `text-xs muted`: «Aquí el mercado no explica el precio:
+  en la ficha **no se muestra** el valor de mercado, y una carta **premium** en esta zona **no se publica**.» Esa
+  frase ata, en un solo lugar, el dial (§21.3a), la regla de visibilidad (§21.8) y el guardarraíl (§21.9b).
+- Estado inicial: precargada con **MX$ 50.00**. Sin mercado escrito, la probeta muestra su estado vacío
+  («Escribe un valor de mercado para ver qué precio sale»), nunca ceros.
+
+**(b) La tabla de referencia — `CurveReferenceTable` (obligatoria).** Una tabla impresa de precios: es la forma más
+natural de este sistema («el sitio se lee como una tabla de precios», §3.1).
+
+- **Filas =** los mercados de la **prueba de mesa normativa** (ARCHITECTURE §4.36.1: `1.14 · 10 · 25 · 50 · 80 ·
+  86 · 87 · 100 · 300 · 500`) **∪** el mercado de **cada punto** de las dos curvas del borrador. Deduplicadas y
+  ordenadas ascendentes.
+- **Columnas:** `MERCADO` · `VENTA VIGENTE` · `VENTA BORRADOR` · `COMPRA VIGENTE` · `COMPRA BORRADOR`. Las celdas
+  que cambian llevan la cifra en `--color-text` y el delta mono a su lado; las que no cambian, `--color-text-muted`.
+- **Es también el test de aceptación del previsualizador:** con los diales iniciales de §N.2, la tabla debe
+  reproducir **exactamente** las cifras de la prueba de mesa (`$87 ⇒ $105`, no `$110`). QA lo verifica ahí.
+- **Lectura de la curva (aviso, nunca error):** si los multiplicadores de venta **suben** con el mercado, o los
+  porcentajes de compra **bajan**, la tabla añade al pie un bloque con **eyebrow mono `LECTURA DE LA CURVA`** y una
+  línea mono muted: «La curva va al revés de lo previsto: el margen debería ser **grueso abajo y delgado arriba** en
+  venta, y el pago **mayor arriba** en compra.» Es una observación de **intención de negocio** (§N.1), **no** un
+  invariante: `role="status"`, **nunca** en rojo, **nunca** con icono de error y **no bloquea nada**.
+  > **El eyebrow no es decorativo: es lo que impide confundirlo con un error.** El aviso tiene **nombre y casa
+  > fijos** (`LECTURA DE LA CURVA`, al pie de esta tabla); ningún error de validación lleva ese rótulo ni vive aquí.
+  > **No confundir con V9 `BUY_CURVE_NOT_MONOTONIC`**, que sí es dinero y sí bloquea: que el **pct baje** es
+  > legítimo mientras el **pago absoluto suba**. Los dos pueden ser ciertos a la vez sobre la misma curva — tabla
+  > comparativa y ejemplo trabajado en **§21.4e**.
+
+**(c) La curva dibujada — `PricingCurveChart` (recomendada, no bloqueante para el primer entregable).**
+Reutiliza el lenguaje de §7.17/§7.18: SVG, línea de 1.5–2px, **sin relleno**, ejes como reglas, etiquetas mono.
+
+- **Eje Y = precio final en MXN. Eje X = mercado, en escala logarítmica**, con marcas en
+  `3 · 10 · 25 · 80 · 300` — que son exactamente las fronteras del `MarketBracket` fijo de la instrumentación
+  (§4.36.7c). Así el gráfico de calibración y el reporte `GET /admin/reports/pricing-brackets` **hablan del mismo
+  eje**, y comparar «cuánto rota cada bracket» con «qué hace mi curva ahí» es inmediato.
+- **Cuatro trazos:** venta del borrador (tinta, sólida, **con su escalera** — la venta se dibuja como escalonada
+  porque eso es lo que se cobra); compra del borrador (tinta, 1px, punteada); la curva **guardada** en muted
+  punteado detrás (para ver el cambio); y la **identidad `venta = mercado`** en muted 1px punteado, que hace
+  visible el invariante «nunca por debajo del mercado».
+- **Piso y mínimo** como reglas horizontales rotuladas en mono (`PISO MX$25`, `MÍN. MX$1`). Los puntos de quiebre
+  son marcas de 4px sobre su trazo; al pasar el foco/ratón muestran su `title` (`MX$80 · 1.15×`).
+- **Tramo con error** (tras un `422` de V5, **V9** o V6): se dibuja en `--color-danger` sobre el **trazo de su
+  eje** —venta o compra, para que se vea de cuál de las dos curvas se habla— y su marca lleva el mismo mensaje.
+- **Alternativa textual obligatoria:** la tabla (b) **es** la alternativa accesible del gráfico; el `<svg>` va con
+  `role="img"` + `aria-label` de resumen y `aria-describedby` apuntando a la tabla (mismo patrón que §7.17).
+
+**(d) De dónde salen los números del previsualizador.** El borrador se calcula **en el cliente** con la matemática
+normativa de ARCHITECTURE §4.36.1 (interpolación, `max` con la constante, escalera sin re-evaluar banda); la columna
+`VIGENTE` se calcula con **el objeto guardado** que devolvió el servidor. Reglas duras: (1) el previsualizador
+**jamás** decide un precio real — es lectura, no dinero; (2) tras un `PUT 200`, el editor **re-siembra** su curva
+vigente con la respuesta del servidor, no con su propio borrador; (3) la prueba de mesa de §4.36.1 es un test
+obligatorio del frontend. *(Solicitud abierta al arquitecto para eliminar la duplicación de la fórmula: §21.13.1.)*
+
+---
+
+### 21.6 Guardar: borrador explícito, diff legible y bitácora (`CurveSaveBar` + `CurveDiffDialog`)
+
+**(a) Barra de guardado sticky** al pie del editor (no del viewport completo; convive con la barra de M2):
+- Izquierda, mono versalitas: `SIN CAMBIOS` (muted) · `2 CAMBIOS SIN GUARDAR` (accent) · `HAY CAMPOS SIN CORREGIR`
+  (accent) · `NO SE GUARDÓ` (danger, tras un `422`, hasta el siguiente cambio).
+- Derecha: `Descartar` (`ghost`, pide confirmación si hay cambios) y **`Guardar curva`** (`primary`). Con
+  `SIN CAMBIOS` el botón está deshabilitado con motivo en `aria-describedby`.
+- **Salir con cambios sin guardar** dispara confirmación (guard de navegación + `beforeunload`). Es dinero: el
+  descarte silencioso no es una opción.
+
+**(b) Diálogo de confirmación (§7.6) — es aquí donde el cambio se lee en palabras.** Se abre siempre, incluso con
+un solo cambio: el `PUT` reemplaza **toda** la curva y repricia el catálogo entero.
+
+```
+Guardar la curva de precio
+
+  VENTA    · punto MX$ 80.00 · multiplicador  1.15× → 1.25×
+  VENTA    · punto MX$ 200.00 AGREGADO · 1.10×
+  COMPRA   · punto MX$ 25.00 · pago  30% → 32%
+  PISO     · MX$ 25.00 → MX$ 30.00
+
+  Efecto en precios (5 de 12 mercados de referencia cambian):
+    MERCADO      VENTA               COMPRA
+    MX$  10.00   MX$ 25.00 → 30.00   MX$  3.00 →  3.20
+    MX$  50.00   MX$ 70.00 → 75.00   MX$ 16.67 → 17.33
+    …y 3 más
+
+  Al guardar, el catálogo se repricia en el siguiente cálculo: cambia el precio
+  publicado de las cartas y lo que ofrece el cotizador de compra. Los precios
+  manuales (override) no se tocan.
+
+  Solo súper-admin · queda en bitácora.
+                                              Cancelar   [ Guardar curva ]
+```
+
+- El **diff** es mono, una línea por cambio, con `eje · punto · campo · antes → después`. Nunca un JSON.
+- La **tabla de impacto** es la tabla de referencia (§21.5b) reducida a las filas que cambian, tope 5 + «y N más».
+- CTA `primary` (no `destructive`: guardar no destruye nada; lo que exige cuidado es su alcance, y eso lo comunica
+  el diff). La nota «Solo súper-admin · queda en bitácora» es la de §7.6 para acciones de dinero.
+
+**(c) Después de guardar.** `200` ⇒ toast «Curva de precio guardada.» (§7.5), la barra vuelve a `SIN CAMBIOS`, la
+columna `VIGENTE` del previsualizador se re-siembra con la respuesta y se invalidan las consultas de precios de M1/M2
+(binder y cola de pendientes) para que el efecto sea visible sin recargar. **No hay «publicar de nuevo»:** el precio
+de venta se resuelve en lectura; decirle al dueño que republique sería mentirle sobre el modelo.
+
+---
+
+### 21.7 El resto de M2 alrededor del editor
+
+**(a) Lo que desaparece del panel.** Con los editores retirados se van sus bloques completos (título, subtítulo,
+tablas, selectores de modo y textos de fallback). **No queda hueco**: el editor de la curva ocupa esa zona, entre la
+cola de precio pendiente / FX / proveedor (§19.7) y los spreads del sellado (§16.8), que **no se tocan**.
+
+**(b) «Unificar rarezas» cambia de casa (enmienda §19.5).** La acción estaba anclada al **editor de reglas por
+rareza**, que ya no existe. Su nuevo anfitrión es el bloque **«Salud del catálogo de rarezas»**
+(`GET /admin/pricing/rarities`, re-propositado): una `DataTable` (§7.7) de solo lectura con `Rareza canónica ·
+Premium · Mapeada · Cartas`, ordenada por cartas desc.
+- El *information scent* de §19.5 se conserva intacto: el remedio sigue junto al síntoma (la lista fragmentada), solo
+  que la lista ya no es un editor de precios sino la vista que **respalda el guardarraíl**.
+- **El microcopy se corrige, porque «no cambia precios» ya no lo cuenta todo.** Añadir a la ayuda y al cuerpo del
+  modal: ES «**No cambia ningún precio**, pero sí puede cambiar **qué cartas quedan retenidas** por el guardarraíl,
+  porque este mira la rareza premium.» · EN «It **changes no price**, but it can change **which cards are held** by
+  the guardrail, since the guardrail looks at premium rarity.» El resto del copy de §19.5 se mantiene.
+- Subtítulo del bloque: ES «Las rarezas ya **no fijan precios**. Se conservan para filtros, presentación y para el
+  guardarraíl que retiene una carta premium cuando su precio cae al piso.» · EN «Rarities **no longer set prices**.
+  They remain for filters, presentation and for the guardrail that holds a premium card when its price falls to the
+  floor.»
+
+**(c) Cola de precio pendiente: dos motivos, un filtro (`admin.m2.pending`).** La cola ahora recibe entradas de dos
+orígenes distintos que **se arreglan de forma distinta**, así que se distinguen a la vista:
+
+| `reason` | Versalita | Significado para el dueño | Qué lo resuelve |
+|---|---|---|---|
+| `no_market` | `SIN MERCADO` (muted) | No hay dato de precio de esa variante | El siguiente barrido, **solo**. No requiere que nadie mire |
+| `premium_at_floor` | `PREMIUM EN EL PISO` (accent) | Hay dato y **parece equivocado**: una carta premium resolvió al piso o al mínimo | **Requiere mirarla**: revisar el mercado o fijar precio a mano |
+| *(ausente, filas históricas)* | `—` | — | — |
+
+- Columna `Motivo` en la tabla + **filtro** en la barra superior (`Todos` / `Sin mercado` / `Premium en el piso`)
+  mapeado a `?reason=`. El filtro es chip removible (§7.7).
+- **Encabezado con conteo por motivo**, mono: `12 SIN MERCADO · 3 PREMIUM EN EL PISO`. El segundo número es la
+  señal de calibración del piso: si crece mucho, el piso está mal puesto (o el dato de mercado está roto), y ese es
+  justo el diagnóstico que §N.5 quiere hacer visible.
+- Subtítulo actualizado (ES): «Variantes sin precio publicable, escaladas para revisarlas. El comprador nunca ve
+  este estado. **Sin dato de mercado no se publica ni se cotiza** — el piso no rellena el hueco.»
+
+---
+
+### 21.8 «Valor de mercado» que desaparece — ficha de carta y ficha de sellado
+
+**(a) La regla (contrato de UI, no interpretación).** El bloque **«Valor de mercado»** se muestra **si y solo si
+`priceBasis === "market"`** del grupo/pieza cuyo precio se está pintando. Con `floor`, `override`, `bounty` o
+`pending` **no se renderiza**: ni en cero, ni tachado, ni atenuado, ni «—», ni con `visibility:hidden`.
+- **La UI obedece, no infiere.** Está **prohibido** decidirlo comparando `referenceValue` contra `salePriceCents`.
+  Que `referenceValue` siga viajando en el DTO **no autoriza a pintarlo** (el mismo DTO alimenta superficies de
+  admin y de valuación).
+- **Empate ⇒ se muestra:** el backend ya resuelve el desempate emitiendo `market`; el front no lo re-evalúa.
+- **Cuál `priceBasis` manda:** el del **mismo grupo cuyo precio ocupa el bloque** — hoy `listings[0]` (la
+  publicación más barata, la del «desde»). Si el bloque cambiara de grupo, el basis cambia con él: **nunca** se
+  mezcla el precio de un grupo con el mercado de otro. Los renglones de «Ejemplares disponibles» **no** muestran
+  mercado (no cambian).
+- **Precio pendiente:** con `priceBasis === "pending"` la celda de venta ya pinta su estado propio (§7.3) y el
+  bloque de mercado **tampoco** aparece — es el mismo mecanismo, sin excepción.
+- **Alcance:** ficha de carta (`/catalog/[cardId]`) y ficha/ventana de sellado (`/sellado/[inventoryItemId]`).
+  **No cambian** la bóveda/portafolio (ahí el cliente ve el mercado de **lo que ya posee**, y eso es correcto), el
+  cotizador (§7.14, §18: nunca mostró mercado) ni las tejas/listados.
+
+**(b) Cómo se recompone la retícula sin dejar hueco.** Hoy la ficha pinta cuatro celdas hermanas en una retícula de
+2 columnas con reglas (`Precio de venta` · `Valor de mercado` · `Condición` · `Acabado`), y el divisor izquierdo
+está **atado a la celda** («Valor de mercado» y «Acabado» lo llevan escrito). Quitar una celda con esa estructura
+produce exactamente lo que hay que evitar: una regla que muere a media fila y un divisor heredado por quien no le
+toca. Tres reglas normativas:
+
+1. **Primero la lista, después la retícula.** Se construye la lista de **hechos visibles** evaluando `priceBasis`;
+   la retícula se pinta **sobre esa lista ya filtrada**. Un hecho oculto **no existe** (no hay celda vacía).
+2. **El divisor es de la posición, no del hecho.** `border-b` en toda celda; `border-l` **solo** en las celdas que
+   no abren fila (par en la lista filtrada, en `≥ sm`). **Prohibido** hardcodear `sm:border-l` en un hecho concreto.
+3. **La fila del dinero nunca queda coja.** Si «Valor de mercado» no está, la celda «Precio de venta» **ocupa la
+   fila completa** (`sm:col-span-2`).
+
+```
+CON mercado (4 hechos)                    SIN mercado (3 hechos)
+┌───────────────────┬───────────────────┐ ┌───────────────────────────────────────┐
+│ PRECIO DE VENTA   │ VALOR DE MERCADO  │ │ PRECIO DE VENTA                       │
+│ MX$ 1,250.00      │ MX$ 980.00        │ │ MX$ 25.00                             │
+│ sin IVA           │ 20 ago 2026       │ │ sin IVA                               │
+├───────────────────┼───────────────────┤ ├───────────────────┬───────────────────┤
+│ CONDICIÓN         │ ACABADO           │ │ CONDICIÓN         │ ACABADO           │
+│ Casi nueva (NM)   │ Reverse Holo      │ │ Casi nueva (NM)   │ Reverse Holo      │
+└───────────────────┴───────────────────┘ └───────────────────┴───────────────────┘
+   2 filas de 2 — rectángulo cerrado         1 fila de dinero + 1 fila de 2 — también cerrado
+```
+
+**Ficha de sellado:** el mismo mecanismo con dos hechos (`Desde` + `Valor de mercado`) ⇒ cuando el precio viene de
+un **override manual**, queda **una sola celda a fila completa**. Con precio derivado por spread, se muestran las dos.
+
+**(c) Nada crece para compensar.** La cifra de venta **conserva** su tamaño (30px sans 500, §20.13/§20.14), su peso
+y su posición; no se agranda, no se centra, no gana etiqueta nueva. Dos fichas del mismo set deben leerse con la
+misma jerarquía, tengan o no bloque de mercado. **El hueco no se rellena con nada**: ni un «precio fijo», ni un
+sello, ni una explicación de por qué no está el mercado (§N.7: el bloque simplemente no aparece).
+
+**(d) La nota al pie cambia con el bloque.** El párrafo `card.referenceExplainer` habla hoy del valor de mercado
+**y** describe el modelo viejo («referencia + margen»). Queda **doblemente equivocado**. Dos variantes, elegidas por
+la misma condición que el bloque:
+
+| Caso | ES | EN |
+|---|---|---|
+| **Con** bloque de mercado | «El **valor de mercado** es la referencia del día con la que valuamos las cartas. El **precio de venta** se calcula a partir de ella.» | «**Market value** is the day's reference we value cards with. The **sale price** is derived from it.» |
+| **Sin** bloque de mercado | «El **precio de venta** es el precio publicado de esta carta, sin IVA.» | «The **sale price** is this card's listed price, before tax.» |
+
+La variante «sin bloque» **no menciona** el mercado ni insinúa que falte algo: no hay nada que explicar.
+
+**(e) Sin salto de layout.** Durante la carga, el esqueleto de la ficha pinta la fila de dinero como **una sola
+celda a ancho completo** (la parte invariable) y añade la celda de mercado solo cuando llegan los datos. Así nunca
+se ve aparecer un bloque que después se retira (§8.1: los esqueletos respetan el layout final; el layout final aquí
+es el que no depende del dato).
+
+**(f) Enmienda a §7.3 (`PriceTag`).** La segunda línea **opcional** «Valor de mercado» en las tejas de Compra queda
+**retirada**: tejas y listados **no muestran** valor de mercado y no van a mostrarlo. §7.3 se lee, a partir de aquí,
+así: en Compra el `PriceTag` pinta **solo** el precio de venta + «sin IVA»; el mercado vive **exclusivamente** en la
+ficha y solo bajo la regla (a). En bóveda/portafolio, el `PriceTag` sigue **igual** (ahí la cifra **es** el valor de
+referencia y no depende de `priceBasis`).
+
+**(g) Qué NO es esta regla.** No cambia el precio que se cobra (es presentación), no oculta el estado «precio
+pendiente» donde ya vivía (bóveda/back-office, §7.3) y no toca la valuación del portafolio.
+
+---
+
+### 21.9 Binder de M1: bounty rebasado y guardarraíl visible
+
+**(a) Mapa canónico `priceBasis` → versalitas (nuevo, compartido).** Es la traducción única del enum del contrato;
+la usan la consola compacta, el drill-down, el previsualizador de §21.5 y la cola de pendientes. Sustituye al par
+`REGLA` / `FALLBACK`, que ya no existe.
+
+| `priceBasis` | Versalita ES / EN | Tinta | Sufijo en la consola compacta (§16.3a) |
+|---|---|---|---|
+| `market` | `MERCADO` / `MARKET` | `--color-text-muted` | *(ninguno — el caso normal no grita)* |
+| `floor` | `PISO` / `FLOOR` | `--color-text` (peso 500) | **`·P`** |
+| `override` | `MANUAL` / `MANUAL` | `--color-text` (peso 500) | **`·M`** *(sin cambio)* |
+| `bounty` | `BOUNTY` / `BOUNTY` | `--color-accent` | **`·B`** *(sin cambio, solo compra)* |
+| `pending` | `PENDIENTE` / `PENDING` | `--color-accent` | *(la cifra es `—`, §16.3a)* |
+
+- **`·P` es nuevo y necesario:** «el piso ganó» es justo lo que el dueño necesita ver para detectar un **piso mal
+  calibrado**, y es la causa de que la ficha pública **no** muestre el mercado. Su `title`/`aria-label`:
+  «Determinado por el piso — el mercado no explica este precio» (compra: «Determinado por el mínimo de compra»).
+- **Un solo rótulo por valor del enum** (`PISO` también en el eje de compra, donde la constante se llama «mínimo»):
+  el nombre visible espeja el contrato y la desambiguación va en el nombre accesible. Dos rótulos para un mismo
+  valor invitan a que alguien invente un sexto estado.
+
+**(b) Guardarraíl: marcador de retención `·!`.** Cuando `pricing.{buy|sell}.premiumAtFloor === true`, el renglón de
+ese eje en la consola compacta gana el sufijo **`·!`** en `--color-accent`, y **no** se pinta `·P` (la retención
+implica el piso; la causa va en el nombre accesible):
+- `title` / `aria-label` venta: «No se publica: rareza premium que aterrizó en el piso. Está en la cola de precio
+  pendiente para revisar su mercado.»
+- `title` / `aria-label` compra: «No se cotiza: rareza premium que aterrizó en el mínimo de compra.»
+- En el **drill-down** (§16.3b) la fila afectada muestra la versalita `PISO` en la columna de fuente **y** una línea
+  bajo la tabla: «Retenida por el guardarraíl · **Ver en la cola de pendientes**» (enlace a M2 con
+  `?reason=premium_at_floor`). Es la única acción: **el guardarraíl no se apaga desde aquí**.
+- La casilla del binder **no** cambia de color ni gana relleno: el marcador de dos caracteres y el texto bastan
+  (§2.4). Con ≈3 casos por cada 333 cartas, gritar sería peor que informar.
+
+**(c) Bounty rebasado — una oferta que dejó de serlo.** Con `bounty.enabled === true` y `bounty.effective === false`
+el bounty **no aplica al cotizar** y **no se publica** en la vitrina; si nadie lo dice, el dueño ve simplemente que
+su `·B` desapareció. **Se dice en tres sitios, todos donde ya trabaja:**
+
+1. **Badge de la teja (enmienda §16.7b).** El badge `BOUNTY` pasa a tener **dos estados de texto**:
+
+   | Estado | Badge | Glifo de mira | Tinta |
+   |---|---|---|---|
+   | `enabled && effective` | `BOUNTY` | **sí** (`HuntMark` micro, §17.1d, `aria-hidden`) | `--color-accent` |
+   | `enabled && !effective` | **`BOUNTY REBASADO`** / `BOUNTY OUTBID` | **no** — se retira: ya no es una caza activa | `--color-accent` |
+
+   El **texto** es el portador (§2.4): los dos estados comparten el rojo de atención y se distinguen por la palabra,
+   igual que `PENDIENTE` vs `RECHAZADA`. La ausencia del glifo es el refuerzo, no el canal. `aria-label` de la
+   casilla: «Bounty rebasado: la tarifa estándar paga más que tu oferta.» En columnas estrechas la etiqueta
+   **envuelve a dos líneas** antes que truncarse (§9.4).
+
+2. **Consola compacta (§16.3a).** El renglón `COMPRA` muestra la cifra de la **curva** (que es lo que realmente se
+   paga) **sin** `·B`. No se añade un cuarto renglón: el badge ya porta el aviso y la teja tiene que seguir
+   leyéndose de un vistazo.
+
+3. **Drill-down › bloque «Bounty» (§16.7a) — aquí están los números y el remedio.** Sobre los controles del bounty
+   aparece un aviso `Banner` `warning` (§7.5: icono + texto sobre papel, **sin relleno**), `role="status"`:
+
+   ```
+   BOUNTY REBASADO
+   Tu oferta MX$ 900.00  ·  tarifa vigente MX$ 950.00
+   Mientras esté por debajo, se paga la tarifa vigente y la carta no aparece
+   en «Top Bounties». Súbelo por encima de MX$ 950.00 o apágalo.
+   ```
+
+   - Las dos cifras son `bounty.priceCents` y `bounty.curveQuoteCents`, en mono con `tabular-nums`.
+   - **Sin acciones nuevas:** se resuelve con los controles que ya están (el input de precio o el switch). No se
+     ofrece «subir automáticamente»: cuánto pagar es una decisión del dueño, no un botón.
+   - Si `curveQuoteCents` es `null` (la curva no resuelve), **no hay aviso**: ahí el bounty explícito sigue siendo
+     efectivo por diseño.
+
+**(d) Corrección de copy en las validaciones del bounty (enmienda §16.7a).** El helper y el error decían «mayor o
+**igual** al sugerido»; el contrato ahora **rechaza el empate** (`priceCents ≤ curveQuoteCents`). Copy nuevo:
+- Helper dinámico: ES «Debe ser **mayor** que la tarifa vigente (MX$ 950.00).» · EN «It must be **higher** than the
+  current rate (MX$ 950.00).»
+- `422 BOUNTY_BELOW_RULE`: ES «Un bounty tiene que pagar **más** que la tarifa vigente (MX$ 950.00). Con el mismo
+  importe no sería una oferta.» · EN «A bounty must pay **more** than the current rate (MX$ 950.00). At the same
+  amount it wouldn't be an offer.»
+- El helper de premium sobre la regla conserva su forma, con el nombre nuevo: «Premium sobre la **curva**: +MX$
+  125.00 (+14%)»; sin curva resoluble: «Sin tarifa de curva — el bounty es el precio explícito.»
+- `BOUNTY_PRICE_REQUIRED` no cambia.
+
+**(e) Renombres derivados en la consola de precios (enmienda §16.3b).** «La regla» ya no existe como concepto:
+- Columna **«Sugerido (regla)» → «Sugerido (curva)»**; helper del campo «Sugerido por regla: MX$ 875.00» →
+  «Sugerido por la curva: MX$ 875.00».
+- Enlace **«Restablecer a regla» → «Restablecer a la curva»**; su toast «Override retirado — vuelve a regir la
+  regla.» → «Override retirado — vuelve a regir la curva.»
+- Fuente del efectivo: se sustituye `REGLA`/`FALLBACK` por el mapa de (a).
+- El resto de §16.3b (patrón compacto en teja + edición en el panel, permisos, validaciones, nota al pie) **no
+  cambia**.
+
+**(f) Sin aviso proactivo.** Decisión del humano, explícita: **basta el binder**. No se diseña correo, push, toast
+global ni tarjeta de dashboard para el bounty rebasado ni para el guardarraíl. La vitrina pública tampoco necesita
+diseño nuevo: el backend ya filtra los no efectivos y §16.7c ya manda **no renderizar** la sección cuando no queda
+ninguno.
+
+---
+
+### 21.10 Accesibilidad (además de §8.2)
+
+- **Tablas de puntos:** `<table>` con `<caption>` (visualmente oculta) «Puntos de la curva de venta», `<th scope>`
+  en la cabecera y **un `<label>` por celda-input** (`aria-label` «Mercado del punto 2», «Multiplicador del punto
+  2»). La columna derivada usa `<td>` normal, no input deshabilitado.
+- **Reordenar al `blur`** se anuncia con `aria-live="polite"` (§21.2a). El foco **nunca** se pierde: sigue a la fila.
+- **Borrar** anuncia el resultado y expone el `Deshacer` como botón real en el orden de tabulación inmediatamente
+  posterior a la tabla.
+- **Errores:** resumen `role="alert"` que recibe foco; inputs con `aria-invalid` + `aria-describedby` al mensaje;
+  los mensajes de tramo se asocian a **los dos** inputs implicados.
+- **Motivos de deshabilitado siempre anunciados** (`title` **y** `aria-describedby`): último punto, última banda,
+  `Guardar` sin cambios.
+- **Previsualizador:** la probeta anuncia el resultado con `aria-live="polite"` al terminar de escribir (debounce),
+  no en cada tecla. El gráfico opcional es `role="img"` con `aria-describedby` a la tabla de referencia.
+- **Ficha pública:** al desaparecer el bloque «Valor de mercado» **no** queda ningún nodo con texto vacío ni
+  `aria-hidden` sobre una celda fantasma. La retícula filtrada es la que se anuncia.
+- **Binder:** los marcadores `·P`, `·M`, `·B`, `·!` son texto, no iconos; llevan `title` **y** forman parte del
+  `aria-label` del renglón («Precio de venta: 25 pesos, determinado por el piso, retenida: no se publica»).
+- **Sin color como único canal en ninguna de las tres superficies:** basis, retención, bounty rebasado y motivo de
+  pendiente son **palabras en versalitas**.
+- **Objetivos táctiles ≥ 44×44** en `Quitar`, `Agregar punto`, `Agregar banda` y el `Deshacer`.
+
+### 21.11 Contraste (verificación) — **cero pares nuevos**
+
+Todo §21 se compone con pares ya verificados en §10, §17.2 y §20.15:
+
+| Par usado en §21 | Ratio | Veredicto |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel `#F4F1EA` (cifras, inputs, tablas) | ~15.5:1 | AA/AAA |
+| Tinta `#1A1A18` sobre pozo `#EFEBE2` (**columna derivada**) | ~14.7:1 | AA/AAA |
+| Muted `#6E695E` sobre papel / sobre pozo (etiquetas, `MERCADO`, ayudas) | ~4.8:1 / ~4.6:1 | AA |
+| Rojo `#B31217` sobre papel (`·!`, `·B`, `BOUNTY REBASADO`, `PREMIUM EN EL PISO`, mensajes de error) | 6.2:1 | AA |
+| Rojo `#B31217` sobre pozo (marcas en la columna derivada) | 5.9:1 | AA |
+| Regla 1–2px `--color-border` / `--color-danger` / `--color-accent` (marcas de fila) | UI ≥ 3:1 | ok |
+| Anillo de foco rojo sobre papel / pozo | 6.2:1 / 5.9:1 | AA (≥3:1 UI) |
+
+La **columna derivada sobre pozo** es la única superficie tintada que introduce §21: es un **escalón de superficie**
+(§4.3), no un relleno de estado — los estados siguen siendo texto sin caja (§2.4).
+
+### 21.12 i18n — claves nuevas y retiradas (propiedad de frontend)
+
+**Nuevas — enums compartidos (convención `status.<dominio>.<enum>`, §9.2):**
+- `status.priceBasis.{market,floor,override,bounty,pending}` → `MERCADO/PISO/MANUAL/BOUNTY/PENDIENTE`.
+- `status.pendingReason.{no_market,premium_at_floor}` → `SIN MERCADO / PREMIUM EN EL PISO`.
+- `status.bounty.{active,outbid}` → `BOUNTY / BOUNTY REBASADO`.
+
+**Nuevas — editor (`admin.m2.curve.*`):**
+- `title`, `lead`, `footerNote`
+- `constants.{floorLabel,floorHint,floorGuardrailHint,binLabel,binHint}`
+- `sale.{title,marketCol,multiplierCol,resultCol}` · `buy.{title,marketCol,payCol,resultCol}`
+- `point.{flatBefore,flatAfter,new,add,addedNeutralHint,remove,removeAria,removeLastDisabled,undoRemoved,
+  reorderAnnounce,previousValue}`
+- `rounding.{title,uptoCol,stepCol,openBand,add,remove,hint}`
+- `preview.{probeTitle,probeMarketLabel,current,draft,empty,saleMath,buyMath,floorWinsNote,
+  referenceTitle,referenceHint,shapeTitle,shapeHint,chartTitle,chartAria}` — `shapeTitle` = el eyebrow
+  **`LECTURA DE LA CURVA`** que le da nombre y casa al aviso no bloqueante (§21.5b / §21.4e)
+- `save.{noChanges,dirty,fieldErrors,notSaved,discard,discardConfirm,submit,submitting,saved,leaveConfirm}`
+- `diff.{title,body,impactTitle,impactMore,effectNote,auditNote,cta}`
+- `errors.{CURVE_EMPTY,DUPLICATE_BREAKPOINT,SALE_BELOW_MARKET,SALE_CURVE_NOT_MONOTONIC,BUY_CURVE_NOT_MONOTONIC,
+  BUY_ABOVE_SALE,BIN_ABOVE_FLOOR,ROUNDING_LADDER_INVALID,summaryTitle,goToPoint}`
+  *(`BUY_CURVE_NOT_MONOTONIC` = V9, rev `v2.1.4-buy-monotonic`; código propio, no una generalización del de venta,
+  para no tocar el copy de `SALE_CURVE_NOT_MONOTONIC` ya cerrado.)*
+
+**Nuevas — alrededores y binder:**
+- `admin.m2.rarityHealth.{title,subtitle,canonicalCol,premiumCol,mappedCol,cardCountCol}` (+ se **conserva**
+  `admin.m2.unifyRarities.*` de §19.5, con `hint`/`confirmBody` corregidos, §21.7b).
+- `admin.m2.pending.{reasonCol,filterLabel,filterAll,countsByReason,subtitle}` *(subtítulo reescrito)*.
+- `admin.m1.bounty.{outbidTitle,outbidBody,outbidYours,outbidCurrent,mustBeHigherHint}` y los mensajes corregidos
+  de `error.BOUNTY_BELOW_RULE`.
+- `admin.m1.priceConsole.{suggestedCurve,resetToCurve,resetToast,heldByGuardrail,seeInPendingQueue}`.
+- `card.referenceExplainer` pasa a **dos claves**: `card.referenceExplainerWithMarket` y
+  `card.referenceExplainerNoMarket` (§21.8d). Idéntico para la ficha de sellado si usa clave propia.
+
+**Retiradas (con sus pantallas):** `admin.m2.buylistRules.*`, `admin.m2.salesRules.*`, `admin.m2.tierRules.*`,
+`admin.m2.tierMap.*` — **incluidos** `tierRules.inheritPlaceholder` («Hereda tier»), `tierRules.finishHint`,
+`*.modeLabel.*`, `*.fallback*` y `error.PREMIUM_RARITY_FIXED_TIER`. **No se corrigen: se van con la pantalla**
+(§N.9).
+
+Recordatorio §9.4: `BOUNTY REBASADO`, `PREMIUM EN EL PISO` y `NO SE GUARDÓ` son ~30–40% más largos que su versión
+EN; las cabeceras de columna del editor deben poder envolver, y los badges de la teja envuelven a dos líneas antes
+que truncar.
+
+### 21.13 Notas para otros roles (derivadas del diseño; ninguna bloquea)
+
+1. **Arquitecto — dry-run de la curva (recomendado).** El previsualizador (§21.5) obliga hoy a **reimplementar en el
+   cliente** la matemática de §4.36.1. Funciona y es verificable (la prueba de mesa es su test), pero duplica
+   fórmula de dinero fuera del backend. Un `POST /admin/pricing/curve/preview` que reciba **el borrador** + una
+   lista de mercados y devuelva `{ market, sale: {cents, basis, roundingStepCents, rawCents}, buy: {cents, basis} }`
+   dejaría el previsualizador **exacto por construcción** y quitaría la duplicación. **El diseño está pensado para
+   funcionar sin él.**
+2. **Arquitecto / product-owner — impacto del cambio antes de guardar (deseable).** El diálogo de §21.6b muestra el
+   efecto sobre **mercados de referencia**, no sobre el inventario real, porque el contrato no expone «cuántas
+   publicaciones cambian de precio con esta curva». Un conteo (aunque sea aproximado y por bracket) haría del diff
+   una decisión con volumen. Sin él, el diseño es veraz: habla de precios, no de piezas.
+3. **Product-owner — reporte «overrides por debajo de la curva» (ya anotado en ARCHITECTURE §4.36.9c-5).** Tras el
+   cut-over pueden quedar overrides fijados creyendo en la etiqueta falsa «Piso (MX$)». Hoy el dueño puede
+   compararlos **variante por variante** en el binder (`suggestedCents` vs `overrideCents`); una lista dedicada sería
+   una mejora de UX real. **Fuera de alcance de v2.1**, pero es la superficie natural donde §21.9e ya deja las piezas.
+4. **Frontend — dónde vive la fórmula.** Si se implementa el previsualizador en cliente (mientras no exista (1)), la
+   matemática debe estar en **un solo módulo puro y testeado** contra la prueba de mesa de §4.36.1, nunca repartida
+   entre componentes. Es el equivalente frontal de la regla «un solo lector de la curva» del backend.
+5. **QA visual sugerido:** (a) ficha de una carta en zona de **piso** ⇒ el bloque «Valor de mercado» **no está en el
+   DOM** y la retícula no deja media fila; (b) ficha de sellado con **override** ⇒ una sola celda a fila completa;
+   (c) teja de Compra ⇒ **ningún** valor de mercado en ningún estado; (d) editar la curva con un punto que rompa
+   **V5** (venta) y otro que rompa **V9** (compra) ⇒ en ambos casos `422`, resumen con foco, **dos** filas marcadas
+   del eje correcto y **nada guardado** (recargar devuelve la curva anterior); (e) bounty válido → subir el mercado
+   ⇒ el badge dice `BOUNTY REBASADO`, la carta desaparece de «Top Bounties» y el drill-down muestra las dos cifras;
+   (f) variante premium en el piso ⇒ `·!` en el renglón de venta y entrada en la cola con motivo
+   `PREMIUM EN EL PISO`; (g) los diez mercados de la prueba de mesa dan en la tabla de referencia exactamente las
+   cifras de §4.36.1; (h) **curva de compra `$25⇒$12.50 · $80⇒$16.53 · $100⇒$10.00`** ⇒ el aviso
+   `LECTURA DE LA CURVA` aparece **en vivo** (muted, sin bloquear) y, al guardar, **V9** marca **solo** el tramo
+   `$80 → $100` en rojo: los dos conviven, ninguno se pinta como el otro (§21.4e).

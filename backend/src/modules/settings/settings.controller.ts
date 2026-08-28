@@ -30,14 +30,25 @@ export class SettingsController {
     @CurrentUser('role') role: Role,
   ) {
     const before = await this.settings.getAllDto();
-    const applied = await this.settings.update(body, userId);
-    await this.audit.log({
-      actorUserId: userId,
-      actorRole: role,
-      action: 'settings.update',
-      entityType: 'ConfigSetting',
-      before,
-      after: applied,
+    // v2.1.6 (P48-B1, fase de seguridad) — la bitácora se escribe DENTRO de la transacción que
+    // persiste los diales, no después de que `update()` retorne.
+    //
+    // Antes, una excepción a mitad **saltaba** este `audit.log`: el dial que sí se había persistido
+    // no dejaba entrada en la bitácora — en el endpoint que gobierna IVA, comisiones, topes AML y el
+    // umbral de INE. Con el `auditWithin`, efecto y bitácora **commitean o revierten juntos**: es
+    // imposible que exista uno sin el otro, en cualquier orden de fallo.
+    await this.settings.update(body, userId, async (tx, applied) => {
+      await this.audit.log(
+        {
+          actorUserId: userId,
+          actorRole: role,
+          action: 'settings.update',
+          entityType: 'ConfigSetting',
+          before,
+          after: applied,
+        },
+        tx,
+      );
     });
     return this.settings.getAllDto();
   }

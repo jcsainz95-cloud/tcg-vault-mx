@@ -50,6 +50,7 @@ function unit(id: string, over: Partial<ListingDTO> = {}): ListingDTO {
     finish: 'normal',
     referenceValue: refValue,
     salePriceCents: 140800,
+    priceBasis: 'market',
     sellable: true,
     ...over,
   };
@@ -66,6 +67,8 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
     gradeKey: 'raw:NM',
     stockCount: 1,
     salePriceCents: 140800,
+    // v2.0 (P-48): el mercado fijó el precio ⇒ la ficha SÍ muestra «Valor de mercado» (§21.8a).
+    priceBasis: 'market',
     referenceValue: refValue,
     currency: 'MXN',
     ...over,
@@ -172,5 +175,83 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
     const disabledCta = await screen.findByRole('button', { name: 'No disponible' });
     expect(disabledCta).toBeDisabled();
     expect(screen.getAllByRole('button', { name: 'Comprar' })).toHaveLength(1);
+  });
+});
+
+/**
+ * §21.8 — «Valor de mercado» que DESAPARECE. La UI **obedece** `priceBasis`; está prohibido
+ * inferirlo comparando `referenceValue` contra `salePriceCents` (el DTO sigue trayendo la
+ * referencia porque alimenta superficies de admin y de valuación).
+ */
+describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.8)', () => {
+  it('priceBasis="market": el bloque se muestra, con su fecha y la nota al pie que lo explica', async () => {
+    mockDetail([grp()], [unit('inv-a')]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
+    expect(screen.getByText('MX$1,280.00')).toBeInTheDocument();
+    expect(
+      screen.getByText(/El valor de mercado es la referencia del día con la que valuamos las cartas/),
+    ).toBeInTheDocument();
+  });
+
+  it('priceBasis="floor": el bloque NO ESTÁ EN EL DOM — ni en cero, ni tachado, ni «—»', async () => {
+    // El piso ganó: el mercado no produjo el precio, así que el número no explica nada. La
+    // referencia SIGUE viajando en el DTO y aun así no se pinta.
+    mockDetail(
+      [grp({ priceBasis: 'floor', salePriceCents: 2500 })],
+      [unit('inv-a', { priceBasis: 'floor', salePriceCents: 2500 })],
+    );
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('Precio de venta')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+    // Nada lo sustituye: ni «—» donde estaba el bloque, ni la cifra de referencia por otra vía.
+    expect(screen.queryByText('MX$1,280.00')).toBeNull();
+    // La nota al pie cambia con el bloque y NO menciona el mercado ni insinúa que falte algo.
+    expect(
+      screen.getByText('El precio de venta es el precio publicado de esta carta, sin IVA.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/valor de mercado es la referencia del día/i)).toBeNull();
+  });
+
+  it('priceBasis="override": tampoco se muestra (lo fijó una decisión humana, no el mercado)', async () => {
+    mockDetail(
+      [grp({ priceBasis: 'override' })],
+      [unit('inv-a', { priceBasis: 'override' })],
+    );
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    expect(await screen.findByText('Precio de venta')).toBeInTheDocument();
+    expect(screen.queryByText('Valor de mercado')).toBeNull();
+  });
+
+  it('§21.8b: sin mercado la fila del dinero NO queda coja y el divisor es de la POSICIÓN', async () => {
+    // Con mercado: 4 hechos ⇒ la 2ª y la 4ª celda llevan divisor izquierdo.
+    const withMarket = mockDetail([grp()], [unit('inv-a')]);
+    void withMarket;
+    const { unmount } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    await screen.findByText('Valor de mercado');
+    const cells = () =>
+      Array.from(document.querySelectorAll('div.border-b.border-border.py-6')) as HTMLElement[];
+    expect(cells()).toHaveLength(4);
+    expect(cells()[0].className).not.toContain('sm:border-l');
+    expect(cells()[1].className).toContain('sm:border-l');
+    expect(cells()[2].className).not.toContain('sm:border-l');
+    expect(cells()[3].className).toContain('sm:border-l');
+    unmount();
+
+    // Sin mercado: 3 hechos. La celda de venta ocupa la fila completa y el divisor lo hereda la
+    // celda que NO abre fila — «Acabado», no «Condición». (El bug era `sm:border-l` hardcodeado.)
+    mockDetail(
+      [grp({ priceBasis: 'floor', salePriceCents: 2500 })],
+      [unit('inv-a', { priceBasis: 'floor', salePriceCents: 2500 })],
+    );
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    await screen.findByText('Precio de venta');
+    const c = cells();
+    expect(c).toHaveLength(3);
+    expect(c[0].className).toContain('sm:col-span-2');
+    expect(c[1].className).not.toContain('sm:border-l');
+    expect(c[2].className).toContain('sm:border-l');
   });
 });

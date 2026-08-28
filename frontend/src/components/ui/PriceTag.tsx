@@ -64,15 +64,15 @@ export function PriceTag({ reference, salePriceCents, mode = 'sale', size = 'md'
     );
   }
 
+  // §21.8f (enmienda a §7.3): la segunda línea «Valor de mercado» queda RETIRADA del modo venta.
+  // Tejas y listados NO muestran valor de mercado y no van a mostrarlo: el mercado vive
+  // EXCLUSIVAMENTE en la ficha, y ahí solo cuando `priceBasis === 'market'` (§21.8a). En
+  // bóveda/portafolio el PriceTag sigue igual (mode='reference': ahí la cifra ES la referencia y no
+  // depende de `priceBasis`).
   return (
     <div className="flex flex-col gap-1.5">
       <span className={amountClass}>{formatMoneyCents(salePriceCents, locale)}</span>
-      <span className="font-mono text-[11px] leading-relaxed text-muted">
-        {t('common.withoutIva')}
-        {reference.referenceMxnCents != null
-          ? ` · ${t('catalog.marketValue')} ${formatMoneyCents(reference.referenceMxnCents, locale)}`
-          : ''}
-      </span>
+      <span className="font-mono text-[11px] leading-relaxed text-muted">{t('common.withoutIva')}</span>
     </div>
   );
 }

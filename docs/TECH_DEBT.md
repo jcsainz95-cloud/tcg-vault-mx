@@ -2529,6 +2529,69 @@
 > (F-2: re-quote tras `ITEM_UNAVAILABLE`/`NOT_FOUND` en session) **ya se corrigió en la misma rama**
 > y no figura aquí. Todos los ítems son no bloqueantes; dueño **frontend**.
 
+### F-P48-1 · Gráfico de la curva (`PricingCurveChart`, DS §21.5c) no implementado (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/curve/CurvePreview.tsx` — el previsualizador
+  entrega las **dos capas obligatorias** de §21.5 (probeta con memoria de cálculo + tabla de
+  referencia). Falta la tercera, **recomendada y explícitamente no bloqueante** para el primer
+  entregable: el SVG con eje X logarítmico en las fronteras del `MarketBracket`, los cuatro trazos
+  (venta borrador con su escalera, compra borrador, curva guardada detrás y la identidad
+  `venta = mercado`) y las reglas horizontales de piso/mínimo.
+- **Impacto:** bajo. La **alternativa accesible obligatoria del gráfico es la tabla de referencia**
+  (§21.5b), que sí está: no hay pérdida de información ni de accesibilidad, solo de lectura rápida
+  de la FORMA de la curva al calibrar. El aviso textual «la curva va al revés de lo previsto»
+  (§21.5b) cubre el caso que el gráfico haría obvio de un vistazo.
+- **Disparador:** cuando el dueño empiece a calibrar con el reporte `GET /admin/reports/pricing-brackets`
+  (§N.8): ahí el gráfico y el reporte **hablan del mismo eje** y compararlos deja de ser mental.
+  Los datos ya vienen servidos por el dry-run (`rows`), así que es trabajo de dibujo, no de cálculo.
+
+### F-P48-2 · El previsualizador no funciona en modo mock (Baja, deliberada)
+- **Dónde:** `frontend/src/lib/api.ts` → `previewPricingCurve` **no tiene rama mock**: siempre llama
+  al backend (`POST /admin/pricing/curve/preview`).
+- **Por qué es deliberado:** fingir el cálculo en el cliente —aunque fuera «solo para la demo»— es
+  exactamente la duplicación de fórmula de dinero que ese endpoint existe para matar (ARCH §4.36.8a).
+  Un mock plausible se convierte, con el tiempo, en la cifra contra la que alguien calibra.
+- **Impacto:** con `NEXT_PUBLIC_USE_MOCKS` (dev sin backend y los E2E de Playwright en modo mock) el
+  previsualizador muestra su **estado de error honesto** («no se muestran cifras estimadas») y la
+  columna derivada de cada fila queda en «—». El editor sigue siendo operable: constantes, puntos,
+  reorden, borrado, diff y guardado funcionan contra el mock del `PUT`. **No hay riesgo de dinero**:
+  la pantalla nunca inventa un precio.
+- **Disparador:** si se quiere E2E de las cifras de la prueba de mesa (§21.13.5g) en el pipeline de
+  mock, la salida correcta **no** es escribir la fórmula en el cliente: es levantar el backend
+  (`E2E_REAL=1`) o servir un *fixture grabado* de la respuesta real del dry-run.
+- **`fixtures.ts` › `mockDemoBuyQuote`: la distinción, y su corrección de 2026-08-24.** El mock del
+  cotizador **sí** evalúa la curva de compra en cliente para que la demo no quede vacía. **Rellenar
+  una demo no es calibrar:** el previsualizador existe para que el dueño **elija los puntos**
+  mirando una cifra —si fuera local, elegiría contra un número que el backend no produce, P-48 en
+  espejo—; en la demo nadie toma una decisión de dinero con ese número y el monto real siempre lo
+  deriva el backend (SEC-A1).
+  **Pero la demo tampoco puede estar 67% equivocada.** QA lo midió contra el stack vivo: con
+  constantes idénticas, un mercado de MX$1,000 pagaba **MX$300** en mock y **MX$500** en real,
+  porque el mock aplicaba el pct del PRIMER punto a todo el dominio. Corregido (v2.1.7): el mock
+  **interpola**, y hay un test que fija que reproduce la **prueba de mesa de compra** de
+  ARCHITECTURE §4.36.1 (`$10⇒$3 · $25⇒$7.50 · $100⇒$40 · $300⇒$135 · $500⇒$250`). El eje de compra
+  queda estructuralmente completo (no se redondea); **el de VENTA sigue sin la escalera**, así que
+  un monto de venta del modo demo puede diferir del real hasta un escalón.
+- **Consecuencia práctica que sigue vigente:** **un E2E en modo mock que afirme MONTOS de VENTA no
+  verifica el precio del producto.** El único assert de dinero del cotizador
+  (`e2e/buylist.spec.ts`) usa `MONEY_RE` — **formato**, no monto — y queda anotado ahí mismo. Los
+  montos exactos de otros specs (`inventory-stream-b.spec.ts`) son valores de mercado, spread de
+  sellado y precios de bounty **explícitos**: ninguno pasa por la curva.
+
+### F-P48-3 · ~~Conteo por motivo de la cola derivado de la página cargada~~ — **RESUELTA (2026-08-24)**
+- **Estaba mal clasificada.** Se registró como «espera solicitud abierta al arquitecto», pero la
+  solicitud **se resolvió mientras el frontend trabajaba**: el contrato **v2.1** norma
+  `counts: { no_market, premium_at_floor, unknown }` en el **cuerpo** de `GET /admin/pricing/pending`
+  (`API_CONTRACT` §M2) y el backend ya lo devuelve. Lo que quedaba era **drift del lado del
+  frontend**, no deuda de producto.
+- **Cerrado:** `frontend/src/types/contract.ts` declara `PendingPriceCountsDTO` /
+  `PendingPriceQueueResponse`; `getPendingPrices` devuelve `{ data, counts }`; y
+  `PendingQueueSection.tsx` pinta los counts **verbatim** — no los recalcula ni los filtra en
+  cliente, porque el contrato manda que **ignoren `?reason=` y la paginación pero respeten
+  `?context=`**. Se pinta también `unknown` (filas anteriores a M-41) cuando es > 0: sostiene el
+  invariante `no_market + premium_at_floor + unknown === entradas open de esa cola`; sin ella los
+  números no cuadran con la lista y parece un bug del backend. Cubierto por tres tests en
+  `M2View.test.tsx` (counts verbatim, el filtro no mueve el encabezado, y `unknown` pintado).
+
 ### F-1 · Efecto de poda duplicado en CheckoutView/GuestCheckoutView (Baja)
 - **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` y
   `GuestCheckoutView.tsx` — el mismo par `pushUnavailableNotice(unavailable)` +
@@ -3881,3 +3944,283 @@
   quedan como filas huérfanas `open` que ensucian la cola M2. No bloquea nada.
 - **Disparador / dirección de fix:** script de saneo **idempotente** (o barrido puntual) que remapee/cierre las
   entradas legacy huérfanas pertenecientes a piezas con `sealedProductId`.
+
+---
+
+### Gate techlead P-48 / v2.0-pricing-curve (rama `claude/card-pricing-rules-2e537m`, 2026-08-24) — deuda del veredicto (APROBADO CON DEUDA ANOTADA, no bloqueante)
+
+> El techlead **no rechazó el diseño** de la curva (la abstracción simplifica de verdad y la matemática
+> vive en un solo sitio); rechazó tres huecos concretos, ya **corregidos con tests** en este mismo pase
+> (guardarraíl ausente en `MasterSetService`, dos cuerpos en el eje de compra, y —vía arquitecto— el
+> punto ciego del inventario ya `listed`). Lo de abajo es lo **menor no bloqueante** que se acepta
+> anotado. Dueño de las tres: **backend**.
+
+#### D1 · `resolvePendingReason` recibe la rareza CRUDA en cuatro de cinco call sites — **RESUELTA (2026-08-24)**
+- **Dueño:** backend. **Severidad:** Baja hoy, **money-adjacent** (el parámetro gobierna un veredicto que bloquea dinero).
+- **Deuda (como la reportó el techlead):** el parámetro se llama `rarityCanonical`, pero cuatro call sites le
+  pasaban `card.rarity` **crudo** (`catalog:311`, `inventory:1179`, `orders:139`, `buylist:565`) y solo
+  `master-set:817` pasaba `rarityCanonical ?? rarity`. Era inocuo **hoy** porque `isPremiumCanonicalRarity`
+  normaliza por dentro; el riesgo era futuro: si alguien endurecía el predicado a canónica pura, cuatro caminos
+  de dinero degradaban **en silencio** (una chase dejaría de estar protegida por el guardarraíl sin que nada
+  fallara). Cinco call sites, un solo criterio.
+- **Por qué se cerró en vez de anotarse:** el refactor del BLOQUEO 1 obligaba a tocar los cinco call sites de
+  todos modos (el seam ahora **exige** la rareza en la firma), así que unificar costaba una línea por sitio.
+  Los cinco pasan hoy `card.rarityCanonical ?? card.rarity`, que era el criterio del sitio «bueno».
+- **Residual aceptado (Baja):** `rarityCanonical` puede quedar **stale** en BD si el catálogo cambió su
+  normalización después de escribir la fila; el `?? rarity` cubre el caso `null`, no el caso obsoleto. Lo cura
+  el backfill de normalización de rarezas (`unify-rarities`), no este seam.
+
+#### D2 · Residuos de E8 (retiro «sin residuos» del modelo de reglas) (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (ruido/mantenibilidad; (b) es money-adjacent por naturaleza).
+- **Deuda, en tres piezas:**
+  - **(a) Códigos de error sin emisor.** `common/error-codes.ts:83` (`PREMIUM_RARITY_FIXED_TIER`) y `:87`
+    (`UNKNOWN_RARITY`) siguen declarados, con comentarios que describen `PUT /admin/pricing/tier-map` — un
+    endpoint que **ya no existe**. El contrato los declara **retirados en v2.0** y `grep` confirma que **nadie
+    los emite**. Retirarlos toca el enum central (superficie de contrato) ⇒ pasa por el arquitecto (regla 9).
+  - **(b) `computeSalePriceCents` (`common/money.ts:74`) está MUERTA y su `@deprecated` miente.** Solo la tocan
+    dos specs (`be27-clamp-cents.spec.ts`, `money.spec.ts`); ningún código de producción la llama. Su
+    `@deprecated` apunta a `computeSalePriceForRarity`, **que E8 borró**. Es la **única función que produce un
+    precio de venta fuera de la curva**, así que dejarla viva es dejar una segunda puerta al dinero: o se retira
+    o se justifica explícitamente. **Corrección de mi propia nota:** `docs/BACKEND_NOTES.md` §E8 afirmaba que
+    «sigue en uso» — **es falso** y queda rectificado aquí y en esa nota.
+  - **(c) Docstrings obsoletos** que describen el modelo retirado: `master-set.service.ts:924-931` (**ya
+    corregido** en este pase, al reescribir `resolveBuyables`) y `rarity-catalog.ts:15-24,89,96` (pendiente).
+- **Disparador / dirección de fix:** (a) y (b) juntos, en el próximo pase que toque `common/` — (b) requiere
+  decisión explícita («se retira» vs «se justifica») porque toca la superficie de dinero; (a) requiere al
+  arquitecto por ser el enum de contrato.
+
+#### D5 · Dos criterios para la presencia del override POR PIEZA (`listPriceCents`) — **RESUELTA (2026-08-24, E5-bis)**
+> Cerrada por el arquitecto en §4.36.6 (E5-bis) y ejecutada: `<= 0` es AUSENTE en los **seis** seams, con un
+> **predicado único** (`hasManualPrice`/`isPresentAmount`/`firstPresentAmount` en `common/money.ts`) y validación de
+> escritura `@Min(1)` en los cinco DTOs que escriben la columna. **Mi nota original listaba cuatro sitios y eran
+> seis:** el quinto (`inventory:2211`) usaba `??`, que solo salta `null`/`undefined` y por tanto dejaba que un `0`
+> enmascarara el `sellOverrideCents` de la variante; el sexto (`price-ingest:507`) lo abrió el propio bucle de
+> reconciliación de E4-ter en este mismo pase — saltaba la pieza al repreciar, así que **nunca se reconciliaba**.
+> Se deja el texto original abajo como registro de qué se corrigió.
+
+#### D5 (texto original) · Dos criterios para la presencia del override POR PIEZA (`listPriceCents`) (Media, backend)
+- **Dueño:** backend. **Severidad:** Media (**es dinero, y es divergencia observable entre superficies**).
+- **Deuda:** la doctrina **H-1** («presente ⇔ `> 0`») está bien resuelta en `money.ts` para los overrides de
+  **variante** (M-30) y para el **sellado**, pero el **peldaño 1** de la precedencia —el override por pieza— no
+  la heredó: `orders.service.ts:98` exige `listPriceCents != null && > 0`, mientras `catalog.service.ts:274`,
+  `master-set.service.ts:969` e `inventory.service.ts:1135` solo exigen `!= null`.
+- **Efecto concreto de un `listPriceCents = 0`:** el **checkout** lo trata como AUSENTE y cae a la curva
+  (cobra el precio derivado); el **storefront**, el **binder** y la **publicación** lo tratan como PRESENTE y
+  resuelven a `0` ⇒ no vendible / `pending`. La misma pieza se comporta distinto en cada superficie, y la
+  divergencia es justo del tipo que este pase acaba de cerrar en el eje de venta (un solo cuerpo, un solo
+  criterio).
+- **Por qué se anota y no se corrige aquí:** unificar cambia **comportamiento de dinero** en un peldaño de la
+  precedencia normativa (§4.36.6) — hay que decidir cuál de los dos criterios es el correcto (`0` = ausente,
+  como en H-1, es lo coherente) y eso es decisión del **arquitecto**, no un refactor de backend.
+- **Disparador:** antes de operar con dinero real, o en cuanto aparezca una pieza con `listPriceCents = 0` en
+  producción. Fix esperado: extender H-1 al peldaño 1 en un único predicado compartido, como ya se hizo con los
+  otros dos niveles.
+
+#### D6 · Detalles menores del gate (preferencia del techlead, no bloquean) — **RESUELTOS (2026-08-24)**
+- `collectCurveViolations` (`pricing-curve.ts`) anunciaba en su JSDoc el orden «forma → V1 → V3 → V4 → V2»
+  mientras el código evalúa V2 antes que V4: el docblock se corrigió al orden real.
+- El test «el markup cambia peso a peso» (`pricing-curve.spec.ts`) fijaba `a - b < 200`, un umbral atado a la
+  pendiente del seed vigente que se rompería por una razón **distinta** de la que el test quiere proteger
+  (que no haya escalones). Se re-expresó contra la propiedad, no contra el número.
+
+#### D7 · `reconcilePublishedPrices` escribe pieza por pieza (`await` secuencial) (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada; **anotar, no hacer** — petición explícita del techlead).
+- **Deuda:** `price-ingest.service.ts` (bucle de E4-ter) hace un `await settlePendingForVariant(...)` **por pieza**,
+  secuencial. En un **job nocturno** es perfectamente aceptable —el barrido no compite con nadie y la latencia no le
+  importa a ningún usuario—, pero el patrón no debe copiarse a un camino de **request**.
+- **Por qué se anota igual:** el riesgo no es este bucle, es que alguien lo tome como plantilla. Queda escrito para
+  que la próxima lectura sepa que la tolerancia es del contexto (job), no del patrón.
+- **Disparador / dirección de fix:** si alguna vez se llama desde un endpoint, agrupar por clave y cerrar/abrir en
+  lote (`updateMany` por conjunto) en vez de N escrituras.
+
+#### D8 · `batchQuote` sigue con `findUnique` + `getReference` por línea (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** `buylist.service.ts` `batchQuote` iza la curva y los overrides **en lote** (BE-25), pero cada línea sigue
+  haciendo su `card.findUnique` y su `getReference`. `createRequest` ya cerró su N+1 de cartas en este pase.
+- **Por qué ahora es barato:** desde el gate del techlead las **tres** superficies comparten `decideBuyLine`, así que
+  batchear dentro de ese cuerpo es un cambio **local** — antes habría habido que tocar dos implementaciones y
+  arriesgar que divergieran. La deuda se abarató por el propio refactor.
+- **Disparador / dirección de fix:** pre-cargar cartas y referencias en lote en `batchQuote` (espejo de lo que ya hace
+  `createRequest`) y pasarlas a `decideBuyLine`. Endpoint público y anónimo ⇒ vale la pena antes de tráfico real.
+
+#### D9 · `GET /admin/reports/pricing-brackets` escanea sin cota (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada; admin-only). **La validación de fechas del mismo hallazgo SÍ se
+  cerró** (v2.1.6): una fecha basura daba **500** y un rango invertido devolvía un reporte vacío indistinguible de «no
+  hubo operaciones»; ahora las dos son `422` con el campo señalado, para todos los reportes que comparten `range()`.
+- **Deuda:** `admin.service.ts` `pricingBrackets` hace `findMany` sobre **todos** los `OrderItem` liquidados (y todos
+  los `SellRequestItem` pagados) del rango y agrega **en memoria**. Sin `from`/`to` eso es «todo el histórico».
+- **Por qué NO se resolvió con un `take`:** un cap de filas **truncaría el agregado en silencio** y el reporte
+  reportaría **menos dinero del que hubo** — que en un reporte de calibración es peor que tardar. Un límite que
+  produce un número plausible pero falso es exactamente lo que este proyecto ha estado corrigiendo todo el pase.
+- **Por qué tampoco una ventana por defecto:** cambiaría lo que devuelve una llamada sin filtros (hoy «todo»), y eso
+  es superficie de contrato ⇒ decisión del arquitecto, no del implementador.
+- **Dirección de fix:** agregar **en la base** con `groupBy(['marketBracket','priceBasis'])` + `_count`/`_sum`, que
+  deja la memoria en O(brackets × basis) ≈ 30 filas sea cual sea el volumen y **no cambia ni un número**. Nota para
+  quien lo tome: el eje de COMPRA suma `approvedPriceCents ?? quotedPriceCents`, un COALESCE que `_sum` de Prisma no
+  expresa — ese eje necesita SQL crudo o dos sumas reconciliadas. Esa asimetría es la razón de que no entrara en el
+  pase de seguridad.
+- **Disparador:** cuando el histórico de operaciones deje de caber cómodamente en memoria, o antes de exponer el
+  reporte a un rol con menos fricción que `super_admin`.
+
+#### D10 · Endpoints que aún devuelven entidades Prisma sin forma declarada (Media, backend + arquitecto)
+- **Dueño:** el **arquitecto** declara la forma; **backend** proyecta. **Severidad:** Media (no hay credenciales ni
+  PII sensible en los que quedan; lo que hay es la **máquina** que produce cambios de contrato silenciosos).
+- **Contexto:** v2.1.7 elevó a norma que *ningún endpoint devuelve una entidad Prisma directamente*. El arquitecto
+  normó las **dos** rutas de §M2 y dejó a backend **auditar el resto**. Esta es esa auditoría, completa.
+- **Ya cerrados en v2.1.7:** `GET /admin/pricing/card/:cardId`, `POST /admin/pricing/override` (rutas normadas) y
+  `PATCH /admin/users/:id/status` — este último **devolvía `passwordHash`**, y se proyectó con el `select` que ya
+  usaba `listUsers` (no hubo que inventar forma).
+- **Pendientes, con archivo:línea.** Ninguno expone credenciales; todos comparten el defecto estructural:
+
+  | Endpoint / servicio | Sitio | Entidad devuelta |
+  |---|---|---|
+  | `POST`/`PATCH /users/me/addresses` | `users.service.ts:81,91` | `Address` |
+  | Seguimiento de pedido invitado | `guest-checkout.service.ts:291` | `Order` |
+  | `PATCH /admin/inventory/items/:id` (y `move`/`mark`) | `inventory.service.ts:1642,1659,1678` | `InventoryItem` |
+  | `POST /admin/inventory/locations` | `inventory.service.ts:2293` | `VaultLocation` |
+  | `POST /buylist/requests/:id/respond` y transiciones admin | `buylist.service.ts:947,957,1109,1121` | `SellRequest` |
+  | Transición de envío | `shipments.service.ts:564` | `ShipmentRequest` |
+  | Transición de disputa | `disputes.service.ts:152,163` | `Dispute` |
+  | KYC admin | `admin.service.ts:385` | `KycProfile` |
+
+- **Por qué NO se proyectaron en este pase, y es deliberado:** el contrato **no declara** la forma de ninguna de
+  esas respuestas — de hecho `AddressDTO` se **referencia** en §5 pero **nunca se define**. Proyectarlas ahora
+  significaría que backend **inventa** ocho formas por su cuenta… que es **exactamente el «acuerdo tácito» que
+  produjo B-1** y que esta misma revisión vino a erradicar. Hacerlo en vísperas del gate de release, además, mete
+  riesgo de regresión en rutas de dinero (buylist, shipments, orders) sin ganancia de seguridad.
+- **Disparador / dirección de fix:** el arquitecto declara los DTOs (o confirma que la entidad ES la forma
+  contractual para cada caso) y backend proyecta contra lo declarado, con el patrón ya probado: **tipo declarado +
+  builder anotado + test de conjunto exacto de claves sobre el JSON**. Prioridad sugerida por superficie:
+  `guest-checkout` (semi-pública, con token) → `users/addresses` (PII de domicilio) → el resto (admin).
+
+---
+
+### Pase v2.1.9 (`claude/card-pricing-rules-2e537m`, 2026-08-24) — enrutado por el gate de release
+
+> **D10 queda CERRADO por este pase.** La tabla de arriba listaba ocho sitios que devolvían entidades
+> Prisma y argumentaba —correctamente en su momento— que proyectarlas significaría *inventar* formas sin
+> contrato. Lo que cambió el cálculo es que dos de esos ocho **sí llevaban secreto**: `SellRequest`
+> arrastra `clabeSnapshotEnc` (el blob AES-256-GCM de la CLABE) por cinco rutas —dos de ellas **al
+> cliente**— y `KycProfile` arrastra `clabeHmac`, el *blind index* determinista. Con eso, «esperar al
+> contrato» dejó de ser prudencia y pasó a ser exposición. Los seis restantes se proyectaron **fijando
+> la forma ACTUAL** (lista blanca de las columnas que ya viajaban): cero cambio visible, cero forma
+> inventada, y la columna sensible de mañana ya no se auto-publica. La norma quedó además **mecanizada**
+> en `test/no-raw-entity-response.spec.ts` (barrido de `src/` + marca `PROJECTION-EXEMPT: <motivo>`).
+
+#### D-a · `pricing.declared-shapes.spec.ts` enuncia la norma en absoluto y se cumple en 3 de 11 rutas (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada; documental, no funcional).
+- **Deuda:** el docstring de `test/pricing.declared-shapes.spec.ts:8-9` dice que los DTOs de `§M2` están
+  declarados **como norma general**, pero el spec cubre **3** de las ~11 rutas del módulo. Quien lo lea
+  concluye «cerrado» y no lo está.
+- **Por qué importa aunque sea documental:** un candado que **parece** universal desactiva la búsqueda.
+  Es la misma mecánica que hizo que la norma de «ningún endpoint devuelve una entidad Prisma» viviera
+  dos releases aplicada a dos sitios.
+- **Dirección de fix:** acotar el enunciado a lo que el spec realmente cubre y **referenciar D10** (y
+  esta entrada) para el resto. Si se prefiere ampliar la cobertura en vez de acotar el texto, el patrón
+  ya está probado: tipo declarado + builder anotado + conjunto exacto de claves sobre el JSON.
+- **Disparador:** el próximo pase que toque `§M2`.
+
+#### D-b · Proyección de usuario duplicada en `admin.service.ts` (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** `listUsers` (`:201`) y `updateUserStatus` (`:421`) declaran el **mismo `select` literal**
+  (`id,email,name,role,status,createdAt`). Sólo `:421` tiene test (`no-raw-entity-response` + el de
+  v2.1.7), así que la copia de `listUsers` puede derivar sin que nada lo note.
+- **Por qué no se extrajo en este pase:** el pase ya toca nueve archivos de proyección; meter un
+  refactor cosmético en `admin.service` junto al fix de PII de R1 mezcla dos revisiones distintas en el
+  mismo diff. La duplicación es **literal e idéntica hoy** (verificado), así que no hay divergencia viva.
+- **Dirección de fix:** extraer `ADMIN_USER_SELECT` + `toAdminUserDTO` (espejo de `ADMIN_KYC_SELECT` /
+  `toAdminKycDTO`, que este pase sí introdujo) y apuntar las dos rutas ahí.
+- **Disparador:** al añadir o quitar cualquier columna de la proyección de usuario — que es justo cuando
+  la duplicación cobra.
+
+#### D-c · Seis re-derivaciones de enums que puentean `enum-values.ts` (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** `Object.values(<PrismaEnum>)` re-derivado en `catalog.service.ts:23-26`,
+  `variant-controls.service.ts:46` e `inventory.controller.ts:44-45`, en vez de importar de
+  `common/enum-values.ts`. Además `SEALED_SUBTYPE_KEYS` (`settings.constants.ts:192`) se exporta como
+  **`string[]` mutable**, no `readonly`.
+- **Impacto real hoy: ninguno** — derivan del mismo enum, así que el valor es idéntico. Lo que se pierde
+  es el **punto único**: el docstring de `enum-values.ts` (que explica clase E vs clase R, y por qué
+  `RawCondition` salió de ahí) no se lee en un `Object.values` suelto. Ahí es donde se toma la decisión
+  equivocada la próxima vez.
+- **Nota:** `catalog.service.ts:24` **sí se corrigió** en este pase, pero por otra razón: era el filtro
+  público de condición y pasó a `ACCEPTED_RAW_CONDITIONS` (clase R, D4). Las otras cinco siguen.
+- **Dirección de fix:** importar de `common/enum-values.ts` y tipar `SEALED_SUBTYPE_KEYS` como
+  `readonly string[]`.
+- **Disparador:** el próximo enum que crezca (el ancla de `enum-values-parity.spec.ts` obligará a pasar
+  por ahí de todos modos).
+
+#### D-d · El escáner de residuo de enums escanea LÍNEA POR LÍNEA (Media, backend)
+- **Dueño:** backend. **Severidad:** Media (aceptada; es un candado con un punto ciego conocido).
+- **Deuda:** `test/enum-values-parity.spec.ts` (bloque «residuo») detecta una lista escrita a mano
+  exigiendo **≥2 valores del enum en la MISMA línea**. Un `@IsIn([...])` con **un valor por línea** —muy
+  plausible con siete valores y un formateador de por medio— lo **evade entero**.
+- **Por qué no se cerró aquí:** el pase ya reescribió ese archivo para quitar la tautología de la
+  paridad y montar las tres bandas (schema ⇄ `enum-values.ts` ⇄ contrato). Cambiar además el motor del
+  escáner a AST (o a ventana multilínea) es un segundo cambio con su propia superficie de falsos
+  positivos, y mezclarlo habría hecho ilegible qué fijó qué.
+- **Dirección de fix:** escanear sobre el **statement** (unir líneas hasta equilibrar corchetes) en vez
+  de la línea, o pasar a AST. Referencia de estilo: el barrido de `no-raw-entity-response.spec.ts` ya
+  hace balanceo de paréntesis para leer un statement completo.
+- **Disparador:** antes de confiar en ese candado para un enum nuevo, o si aparece un `@IsIn` multilínea.
+
+#### D-e · `GROUPED_LISTING_KEYS` duplicado sin vínculo con la interfaz — **CERRADO en este pase**
+- Vivía a mano en dos specs. Ahora se deriva con `Record<keyof DTO, true>` en `test/helpers/dto-keys.ts`:
+  añadir un campo al DTO y no declararlo **no compila**. Se anota como cerrado para que la referencia
+  del techlead no quede huérfana.
+
+#### D-f · `sealed-catalog.service.ts:104` interpola la clave de variante a mano (Baja, backend)
+- **Dueño:** backend. **Severidad:** Baja (aceptada).
+- **Deuda:** `refs.get(`${item.cardId}|sealed|${gk}|normal`)` construye la clave `K` **a mano** en vez de
+  usar `variantKey()` — el helper que P-30 H2 introdujo precisamente porque la interpolación estaba
+  repetida en tres sitios de `catalog.service.ts` y podía derivar en silencio.
+- **Por qué es sutil:** el consumidor y el **productor** de ese mapa (`getReferencesBatch`) deben llavear
+  con el MISMO cuerpo. Si `variantKey()` cambia (un separador, un orden), este sitio no lo sigue, el
+  `get` devuelve `undefined` y el efecto es **un sellado que aparece sin valor de mercado** — un fallo
+  silencioso de precio, no un error.
+- **Dirección de fix:** `variantKey({ cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' })`.
+  Cambio de una línea; no entró aquí para no mezclar un refactor de llaves con el recorte de D2 sobre
+  los mismos DTOs.
+- **Disparador:** cualquier cambio a `common/variant-key.ts`, o el próximo pase que toque el sellado.
+
+#### S49-B2 · Los 3 endpoints `@Public` de catálogo leen sin `take` y paginan en memoria (Media, backend)
+- **Dueño:** backend. **Severidad:** Media (aceptada). **Juzgado explícitamente: NO es barato de
+  arreglar, y el arreglo «barato» sería peor que la deuda.**
+- **Deuda:** `catalog.service.ts` `fetchSellable` y `sealed-catalog.service.ts` `loadPricedSealed` hacen
+  `findMany` **sin `take`** y luego `slice()` en memoria. Alimentan `GET /catalog/cards`,
+  `GET /catalog/facets` y `GET /catalog/sealed` — los tres **anónimos**. El coste por request crece
+  **lineal con el inventario publicado, independientemente de `pageSize`**.
+- **Por qué NO se puede empujar el `take` a SQL:** el `salePriceCents` **no está persistido** — se
+  resuelve **en LECTURA** con la curva vigente, y eso es una decisión deliberada (§4.36.9c: mover un
+  punto de la curva repricia sin republicar nada). Como consecuencia, las tres operaciones que definen
+  la página —**agrupar** por `K=(cardId,productType,gradeKey,finish)`, **filtrar** por
+  `minPriceCents`/`maxPriceCents` y **ordenar** por precio— dependen de un valor que la base no conoce.
+  Un `take` en la query paginaría **piezas**, no **grupos**, y aplicaría el filtro de precio sobre un
+  subconjunto arbitrario: la página saldría **incompleta y con precios filtrados mal**.
+- **Por qué tampoco un cap de seguridad (p. ej. `take: 5000`):** truncaría el catálogo **en silencio**.
+  Inventario publicado que no aparece en Compra es inventario que **no se vende**, y un fallo silencioso
+  de visibilidad de dinero es peor que un coste alto — es la misma regla por la que D9 rechazó su cap.
+- **Mitigación vigente:** superficie de sólo lectura, sin escrituras ni escalada de pendientes (doctrina
+  v1.12 de anónimos), tras el throttler global (300/min) y con el fan-out más caro (`quote/batch`) ya
+  acotado a 12/min por B-C1.
+- **✅ DICTAMEN DEL ARQUITECTO — `ARCHITECTURE §4.36.9(e)` (2026-08-24).** La escalada se resolvió y el
+  invariante queda **fijado**, así que quien lo retome **no discute desde cero**:
+
+  > Una proyección persistida puede gobernar el **ORDEN**, el **FILTRO** y la **PAGINACIÓN**.
+  > Nunca el precio que se **COBRA**.
+
+  O sea: persistir una **clave de orden invalidable** (para `ORDER BY`, rango de precio y corte de
+  página) **NO** revierte §4.36.9c, **mientras** el `salePriceCents` del DTO, del carrito y del
+  checkout se sigan resolviendo **en lectura**. La asimetría que lo decide es la que motivó negarse a
+  la solución barata: una **clave rancia** pone una carta unas posiciones fuera de sitio —invisible y
+  recuperable—; un **precio rancio cobra mal**, y eso es **irreversible** en cuanto alguien paga.
+- **Corolarios que fijó el dictamen** (condiciones de la solución, no sugerencias): la clave se
+  **invalida en los mismos seams que ya reprician**; **puede estar rancia sin romper nada** (esa
+  tolerancia es justo lo que la hace admisible); y **no se emite en ningún DTO** — en cuanto un cliente
+  pueda leerla, alguien la usará para pintar un precio, y ahí se pierde la garantía entera.
+- **Dirección de fix (real, no barata):** persistir esa **clave de orden** con su invalidación, y recién
+  entonces paginar/ordenar/filtrar en SQL. **NO** persistir el precio que se cobra. El diseño concreto
+  vuelve por el **arquitecto** cuando toque (el invariante ya está; falta la forma).
+- **Disparador:** cuando el inventario publicado supere ~5k piezas, o antes de exponer Compra a tráfico
+  no autenticado real (lo que ocurra primero). Medir primero: `fetchSellable` con `EXPLAIN ANALYZE` y el
+  p95 de `GET /catalog/cards` bajo carga.

@@ -30,6 +30,8 @@ function build() {
       upsert: jest.fn(async () => ({ id: 'ref-1' })),
     },
     pendingPriceEntry: {
+      // v2.1 (§4.36.5c): `pendingQueue` agrega los counts por motivo en el MISMO snapshot.
+      groupBy: jest.fn(async () => []),
       updateMany: jest.fn(async (args: any) => {
         updateManyCalls.push(args);
         return { count: 1 };

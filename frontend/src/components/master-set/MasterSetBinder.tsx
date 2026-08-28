@@ -200,7 +200,7 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinder
             status: r.quote.status,
             quotedPriceCents: r.quote.quotedPriceCents,
             rarity: r.rarity,
-            appliedRule: r.appliedRule,
+            priceBasis: r.priceBasis,
             referencePrice: r.referencePrice,
           }
         : null;
@@ -729,6 +729,7 @@ function BinderTile({
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
+  const tStatus = useTranslations('status.bounty');
   const locale = useLocale() as AppLocale;
   const finishLabel = tFinish(variant.finish);
   const isGap = !variant.covered;
@@ -746,6 +747,11 @@ function BinderTile({
   // precios (MERCADO/COMPRA/VENTA con marcador de origen) en lugar del renglón único P-15.
   const pricing = variant.pricing;
   const bountyOn = pricing?.bounty?.enabled === true;
+  // §21.9c-1: el badge tiene DOS estados de texto. El TEXTO es el portador (§2.4): los dos
+  // comparten el rojo de atención y se distinguen por la palabra, igual que PENDIENTE vs RECHAZADA.
+  // La ausencia del glifo de mira es el refuerzo, no el canal: un bounty rebasado ya no es una caza
+  // activa. `effective === false` ⇔ la tarifa vigente paga más que la oferta.
+  const bountyOutbid = bountyOn && pricing?.bounty?.effective === false;
   return (
     <button
       type="button"
@@ -787,11 +793,16 @@ function BinderTile({
             {t('totalCount', { count: variant.count })}
           </span>
         )}
-        {/* Badge bounty (P-22, §16.7b): mono en accent + glifo micro oficial de la
-            mira TCG HUNT (§17.1d, sustituye al crosshair de lucide). */}
+        {/* Badge bounty (P-22, §16.7b + enmienda §21.9c-1): mono en accent + glifo micro oficial de
+            la mira TCG HUNT (§17.1d). Rebasado ⇒ se RETIRA el glifo y cambia la palabra; en
+            columnas estrechas la etiqueta ENVUELVE a dos líneas antes que truncarse (§9.4). */}
         {bountyOn && (
-          <span className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.06em] text-accent">
-            <HuntMarkMicro size={14} /> {t('bountyBadge')}
+          <span
+            className="flex items-center gap-1 font-mono text-[10px] uppercase leading-tight tracking-[0.06em] text-accent"
+            aria-label={bountyOutbid ? t('bountyOutbidAria') : undefined}
+          >
+            {!bountyOutbid && <HuntMarkMicro size={14} />}
+            {bountyOutbid ? tStatus('outbid') : tStatus('active')}
           </span>
         )}
       </span>
@@ -1022,7 +1033,7 @@ function SeparateProductTile({
                   rarity: quoteOk.rarity ?? '',
                   finish: quoteOk.finish,
                   productId: quoteOk.productId ?? product.productId,
-                  appliedRule: quoteOk.appliedRule,
+                  priceBasis: quoteOk.priceBasis,
                   quote: quoteOk.quote,
                   referencePrice: quoteOk.referencePrice,
                   paymentNotice: 'PAY_AFTER_RECEIPT',

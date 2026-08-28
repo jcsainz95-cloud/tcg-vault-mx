@@ -1,3 +1,4 @@
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
@@ -29,9 +30,27 @@ function buildPricing(over: any = {}): PricingService {
   return {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),
-    getReferencesBatch: jest.fn(async () => new Map()),
-    loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    // v2.0 (P-48): el precio de venta SALE del mercado, así que el lote de referencias debe traerlo
+    // (antes bastaba la regla `fixed` de bulk, que publicaba sin mercado). $100 ⇒ 1.15× ⇒ $115.
+    getReferencesBatch: jest.fn(async (keys: any[]) => {
+      const m = new Map<string, any>();
+      for (const k of keys) {
+        m.set(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`, {
+          status: 'priced',
+          referenceMxnCents: 10000,
+        });
+      }
+      return m;
+    }),
+    // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     // v1.23-sealed-sales: contexto/ helpers del sellado (default: dial off → sellado solo por override).
     loadSealedSpreads: jest.fn(async () => ({
       spreadPctBySubtype: { box: 18, etb: 22, bundle: 25, tin: 30, blister: 35 },
@@ -69,6 +88,14 @@ function buildPrisma(over: any = {}) {
           ? null
           : { id: where.id, rarity: 'Common', availableFinishes: ['normal', 'reverse_holo'] },
       ),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
     },
     nextFolio: jest.fn(async () => `INV-${String(++folioSeq).padStart(6, '0')}`),
     nextFolios: jest.fn(async (n: number) => {
@@ -289,23 +316,17 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     ...over,
   });
 
-  it('deriva el precio server-side (fixed → piso) y publica', async () => {
+  it('deriva el precio server-side por la CURVA (mercado $100 ⇒ $115) y publica', async () => {
     const items = [baseItem()];
     const prisma = prismaWithItems(items);
-    const pricing = buildPricing({
-      loadSalesRules: jest.fn(async () => ({
-        rules: { Common: { mode: 'fixed', value: 500 } },
-        fallbackPct: 15,
-      })),
-      getReferencesBatch: jest.fn(async () => new Map()),
-    });
+    const pricing = buildPricing();
     const svc = new InventoryService(prisma as PrismaService, pricing, settings);
     const req: BulkPublishRequest = { items: [{ inventoryItemId: 'i1' }] };
     const res = await svc.bulkPublish(req, 'admin');
     expect(res.results[0]).toMatchObject({
       ok: true,
       status: 'listed',
-      salePriceCents: 500,
+      salePriceCents: 11500,
       priceSource: 'derived',
     });
     expect(res.summary.published).toBe(1);
@@ -322,7 +343,12 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     const items = [baseItem({ id: 'i2', cardId: 'c2', card: { rarity: 'Illustration Rare' } })];
     const prisma = prismaWithItems(items);
     const pricing = buildPricing({
-      loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+      // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).
+      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+      // puede divergir de producción ni reimplementar la matemática.
+      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       getReferencesBatch: jest.fn(async () => new Map()), // sin referencia
     });
     const svc = new InventoryService(prisma as PrismaService, pricing, settings);
@@ -348,20 +374,17 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     expect(res.summary).toEqual({ requested: 2, published: 1, failedLines: 1 });
   });
 
-  it('BE-25: iza SALES_PRICE_RULES una vez y resuelve referencias en 1 lote (sin N+1)', async () => {
+  it('BE-25: iza la CURVA una vez y resuelve referencias en 1 lote (sin N+1)', async () => {
     const items = [
       baseItem({ id: 'a', cardId: 'c1' }),
       baseItem({ id: 'b', cardId: 'c2' }),
     ];
     const prisma = prismaWithItems(items);
-    const pricing = buildPricing({
-      loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
-      getReferencesBatch: jest.fn(async () => new Map()),
-    });
+    const pricing = buildPricing();
     const svc = new InventoryService(prisma as PrismaService, pricing, settings);
     await svc.bulkPublish({ items: [{ inventoryItemId: 'a' }, { inventoryItemId: 'b' }] }, 'admin');
-    // 1 sola lectura de reglas + 1 solo lote de referencias para las 2 piezas.
-    expect((pricing.loadSalesRules as jest.Mock).mock.calls).toHaveLength(1);
+    // 1 sola lectura de la CURVA + 1 solo lote de referencias para las 2 piezas.
+    expect((pricing.loadPricingCurve as jest.Mock).mock.calls).toHaveLength(1);
     expect((pricing.getReferencesBatch as jest.Mock).mock.calls).toHaveLength(1);
   });
 
@@ -370,9 +393,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
   it('[MONEY] OMITE (ITEM_NOT_PUBLISHABLE) una pieza `reserved` — no la re-abre a un 2º checkout', async () => {
     const items = [baseItem({ id: 'r1', status: 'reserved' })];
     const prisma = prismaWithItems(items);
-    const pricing = buildPricing({
-      loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
-    });
+    const pricing = buildPricing();
     const svc = new InventoryService(prisma as PrismaService, pricing, settings);
     const res = await svc.bulkPublish({ items: [{ inventoryItemId: 'r1' }] }, 'admin');
     expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
@@ -387,9 +408,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     const items = [baseItem({ id: 'race1', status: 'in_stock' })];
     const prisma = prismaWithItems(items);
     prisma.inventoryItem.updateMany = jest.fn(async () => ({ count: 0 }));
-    const pricing = buildPricing({
-      loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
-    });
+    const pricing = buildPricing();
     const svc = new InventoryService(prisma as PrismaService, pricing, settings);
     const res = await svc.bulkPublish({ items: [{ inventoryItemId: 'race1' }] }, 'admin');
     expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
@@ -400,9 +419,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     for (const status of ['lost', 'damaged', 'in_custody', 'shipped', 'withdrawn'] as const) {
       const items = [baseItem({ id: status, status })];
       const prisma = prismaWithItems(items);
-      const pricing = buildPricing({
-        loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
-      });
+      const pricing = buildPricing();
       const svc = new InventoryService(prisma as PrismaService, pricing, settings);
       const res = await svc.bulkPublish({ items: [{ inventoryItemId: status }] }, 'admin');
       expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
@@ -416,9 +433,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
       baseItem({ id: 'stock1', status: 'in_stock' }),
     ];
     const prisma = prismaWithItems(items);
-    const pricing = buildPricing({
-      loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
-    });
+    const pricing = buildPricing();
     const svc = new InventoryService(prisma as PrismaService, pricing, settings);
     const res = await svc.bulkPublish(
       { items: [{ inventoryItemId: 'listed1' }, { inventoryItemId: 'stock1' }] },

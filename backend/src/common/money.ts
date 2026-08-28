@@ -4,11 +4,24 @@
  *
  * Toda cantidad es un entero de centavos MXN. No se usan floats para persistir dinero.
  */
-// v1.29 (§4.28): la ÚNICA verdad de «premium» y la normalización de rareza viven en el catálogo
-// canónico (pure, sin infra) — money.ts las CONSUME (no duplica regex). El lookup de reglas normaliza
-// AMBOS lados (rareza y key) para empatar 1:1 con la forma canónica del ingest.
-import { isPremiumCanonicalRarity, normalizeRarity } from './rarity-catalog';
-import type { TierId } from './pricing-tiers';
+// v2.0 (P-48, §4.36): LA CURVA. La matemática pura (interpolación, redondeo, invariantes, guardarraíl
+// y predicado de bounty) vive en `common/pricing-curve.ts`; aquí solo se le aplican las PRECEDENCIAS
+// de §4.36.6 y el clamp de persistencia (BE-27). Dirección de dependencia ÚNICA: money.ts →
+// pricing-curve.ts (nunca al revés), para que no haya ciclo.
+import {
+  PricingCurve,
+  resolveBuyFromCurve,
+  resolveSaleFromCurve,
+  isBountyEffective,
+} from './pricing-curve';
+import type { PriceBasis } from './pricing-curve';
+
+/**
+ * §4.36.7a — los CINCO valores LOCKED de PROJECT §N.7. Se DEFINE en `pricing-curve.ts` (que no importa
+ * nada de aquí) y se re-exporta desde `money.ts` porque es el tipo de retorno de las dos funciones de
+ * dinero. UNA sola definición, dos puertas de importación.
+ */
+export type { PriceBasis };
 
 /**
  * BE-27 (money-safety): techo Int32 de Postgres. Toda columna `*Cents` persistible es `Int`, cuyo
@@ -70,28 +83,76 @@ export function computeAportacionCostCents(referenceMxnCents: number, aportacion
 }
 
 /**
- * AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL. ARCHITECTURE §4.2 (v1.3.1).
- * Reemplaza el esquema de 3 categorías (BuylistCategory). El monto se resuelve con la regla
- * por rareza real de la carta (`Card.rarity`), editable en M2.
+ * v2.0 (P-48, §4.36.4) — **BLOQUE DE REGLAS RETIRADO SIN RESIDUOS** (criterio 96).
+ *
+ * Aquí vivían `quoteAcquisition`, `quoteAcquisitionForFinish`, `computeSalePriceForRarity`,
+ * `applyRule`, `resolveRuleForFinish`, `resolveTwoAxisRule`, `ruleKeyCandidates`, `finishRuleFor`,
+ * `lookupRarityRule`, `toPriceRuleSet`, `buildEffectiveRuleSet`, `isPriceRuleSet`, `isTieredRuleSet`,
+ * `isHoloRarity`, `isPremiumRarity` y los tipos `BuylistRule`/`SalesRule`/`PriceRuleSet`/
+ * `TieredRuleSet` con sus modos `fixed`/`pct`.
+ *
+ * **Se retiran del todo**, no se deprecan: el `mode:'fixed'` documentado como PISO pero implementado
+ * como PRECIO ABSOLUTO fue la causa raíz de P-48 (cartas publicadas a MX$1.31 con un piso de MX$15), y
+ * el eje de ACABADO que no consultaba la regla de la rareza fue la otra mitad. Dejarlos «por si acaso»
+ * sería dejar en pie la complejidad que produjo el error. Los sustituye **UNA curva por eje**
+ * (`computeSalePriceFromCurve` / `quoteAcquisitionFromCurve`, abajo), donde no hay reglas que
+ * resolver, no hay ejes que se pisen y no hay rarezas sin mapear.
+ *
+ * `VariantPriceControls` SOBREVIVE (la fila M-30 sigue siendo el peldaño de override/bounty).
  */
-export type BuylistRuleMode = 'fixed' | 'pct';
-/** value = centavos MXN si mode='fixed'; porcentaje [0,100] de la referencia si mode='pct'. */
-export interface BuylistRule {
-  mode: BuylistRuleMode;
-  value: number;
+
+/**
+ * v1.6-finish — el ACABADO sigue siendo la IDENTIDAD de la variante (§4.36.10): inventario,
+ * overrides, bounties, `availableFinishes`, ficha y bóveda siguen siendo por acabado, y sigue
+ * eligiendo DE QUÉ VARIANTE se lee el mercado. Lo ÚNICO que perdió en v2.0 es tener regla de precio
+ * propia.
+ */
+export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
+
+/**
+ * **H-1, EL PREDICADO** (v2.1.4, §4.36.6 / E5-bis) — «presente ⇔ `> 0`», en UN solo cuerpo.
+ *
+ * La doctrina existía desde v1.24 y estaba bien resuelta para los overrides de **variante** (M-30) y
+ * para el **sellado**… pero el **peldaño 1** de la precedencia —el `listPriceCents` POR PIEZA— no la
+ * heredó, y el `> 0` se repetía a mano seam por seam. Resultado: `orders` exigía `> 0` y otros cinco
+ * sitios solo `!= null`, así que un `listPriceCents = 0` se comportaba **distinto en cada superficie**
+ * (el checkout cobraba la curva; storefront, binder y publicación lo daban por presente y resolvían a
+ * `0` ⇒ no vendible). **Repetir el `> 0` a mano en seis sitios es literalmente cómo se llegó al
+ * hueco**, así que ahora hay un predicado y los seis lo llaman.
+ */
+export function isPresentAmount(cents: number | null | undefined): cents is number {
+  return cents != null && cents > 0;
 }
 
 /**
- * v1.28 (P-18/P-22, ARCHITECTURE §4.26b) — fuente del peldaño que GANÓ la cotización de compra.
- * ADITIVO: se añaden `bounty` (bounty activo, paga el premium) y `override` (buyOverrideCents de
- * `VariantPriceOverride`, M-30) a los dos valores previos. El front DEBE tolerarlos (contrato §6).
+ * H-1 en el **peldaño 1** de la precedencia de venta: ¿esta pieza trae override manual POR PIEZA?
+ *
+ * `<= 0` ⇒ **AUSENTE** ⇒ cae al siguiente peldaño (variante → curva), que es lo que `orders` ya hacía
+ * y lo que H-1 dice para los otros dos niveles. La alternativa («`0` = presente e inválido ⇒
+ * `PRICE_PENDING`») se DESCARTA: escondría inventario por un accidente de captura. Con §N.0: que una
+ * pieza quede priceada por curva —quizá más cara de lo que alguien tecleó— es el error RECUPERABLE;
+ * que quede invisible o se venda en `0` es el irrecuperable.
  */
-export type AcquisitionRuleSource = 'bounty' | 'override' | 'rule' | 'fallback';
+export function hasManualPrice<T extends { listPriceCents?: number | null }>(
+  item: T,
+): item is T & { listPriceCents: number } {
+  return isPresentAmount(item.listPriceCents);
+}
 
 /**
- * v1.28 (P-18/P-22, §4.26a/M-30) — contexto de CONTROLES por variante para los resolvers de
- * precedencia. Es la proyección relevante de una fila `VariantPriceOverride` (o `null`/omitido =
- * SIN fila ⇒ comportamiento actual intacto, cadena de reglas de siempre).
+ * Primer monto PRESENTE (H-1) de una cadena de candidatos, o `null` si ninguno lo está. Es el `??` de
+ * la precedencia, pero con la semántica correcta: `??` solo salta `null`/`undefined`, así que un `0`
+ * lo cortocircuitaba y **enmascaraba el siguiente peldaño** (ese era el bug de `inventory:2211`, donde
+ * un `listPriceCents = 0` tapaba el `sellOverrideCents` de la variante).
+ */
+export function firstPresentAmount(...candidates: (number | null | undefined)[]): number | null {
+  for (const c of candidates) if (isPresentAmount(c)) return c;
+  return null;
+}
+
+/**
+ * v1.28 (P-18/P-22, §4.26a/M-30) — CONTROLES por variante para los resolvers de precedencia. Es la
+ * proyección relevante de una fila `VariantPriceOverride` (o `null`/omitido = SIN fila).
  *
  * REGLA money-safe de presencia (misma doctrina H-1 del sellado): un override/bounty se considera
  * PRESENTE solo si su monto es `> 0`. Un `<= 0` es input degenerado (las validaciones del write lo
@@ -104,506 +165,112 @@ export interface VariantPriceControls {
   bountyPriceCents?: number | null;
 }
 
-export interface AcquisitionQuote {
-  quotedPriceCents: number | null;
-  status: 'cotizada' | 'precio_pendiente';
-  /** Regla efectivamente aplicada (explícita o fallback; bounty/override ⇒ fixed sintética). */
-  appliedRule: BuylistRule;
+
+// ============================================================================
+// v2.0 (P-48, §4.36.2/§4.36.6) — PRECIO PURO POR VALOR DE MERCADO: las DOS funciones de dinero.
+//
+// SUSTITUYEN (en E8 se BORRA lo viejo): applyRule, resolveRuleForFinish, resolveTwoAxisRule,
+// ruleKeyCandidates, finishRuleFor, lookupRarityRule, toPriceRuleSet, buildEffectiveRuleSet,
+// isPriceRuleSet, isTieredRuleSet, quoteAcquisitionForFinish, computeSalePriceForRarity e
+// isPremiumRarity/PREMIUM_RARITY_PATTERNS.
+//
+// NI `rarity` NI `finish` SON PARÁMETROS — es el criterio 84 hecho tipo: *no se puede* consultar la
+// rareza desde el pricing porque NO ESTÁ EN LA FIRMA. El acabado sigue determinando DE QUÉ VARIANTE se
+// lee el mercado (`getReference(cardId, productType, gradeKey, finish)`), pero eso ocurre ANTES, en la
+// capa de servicio.
+// ============================================================================
+
+/** Resultado de dinero de la curva, con la señal server-side de QUÉ lo determinó. */
+export interface CurvePriceResult {
+  /** `null` ⇔ `basis === 'pending'`. JAMÁS MX$0 ni un precio inventado. */
+  priceCents: number | null;
+  basis: PriceBasis;
   /**
-   * "rule" = fila explícita en BUYLIST_PRICE_RULES; "fallback" = BUYLIST_PRICE_FALLBACK_PCT.
-   * v1.28: además "bounty" | "override" cuando el control por variante (M-30) ganó la precedencia.
+   * El mercado que ENTRÓ al cálculo, CRUDO en centavos (instrumentación §4.36.7c). Es passthrough
+   * honesto del insumo: `null` cuando no había referencia (aunque un override/bounty haya fijado el
+   * monto). Jamás un 0 inventado.
    */
-  ruleSource: AcquisitionRuleSource;
-}
-
-/**
- * AcquisitionPricer (función pura, v1.3.1). ARCHITECTURE §4.2.
- * - Busca la regla por la RAREZA OFICIAL real (exact match sobre `Card.rarity`). Sin regla → fallback %.
- * - fixed → monto fijo en centavos; NO depende de la referencia → siempre 'cotizada'.
- * - pct   → round(referencia × value/100). Si falta referencia → 'precio_pendiente' (escala al dueño).
- *
- * SEC-A1: la `rarity` se deriva server-side de la carta real, nunca del DTO del cliente.
- */
-export function quoteAcquisition(
-  rarity: string | null,
-  referenceMxnCents: number | null,
-  rules: Record<string, BuylistRule>,
-  fallbackPct: number,
-): AcquisitionQuote {
-  const explicit = rarity != null ? rules[rarity] : undefined;
-  const rule: BuylistRule = explicit ?? { mode: 'pct', value: fallbackPct };
-  const ruleSource: 'rule' | 'fallback' = explicit ? 'rule' : 'fallback';
-
-  if (rule.mode === 'fixed') {
-    // BE-27: clamp final (no-op para un fixed ya validado <= FIXED_CENTS_MAX; defensivo si se coló).
-    return { quotedPriceCents: clampCents(rule.value), status: 'cotizada', appliedRule: rule, ruleSource };
-  }
-  // pct
-  if (referenceMxnCents == null) {
-    return { quotedPriceCents: null, status: 'precio_pendiente', appliedRule: rule, ruleSource };
-  }
-  return {
-    quotedPriceCents: clampCents(Math.round((referenceMxnCents * rule.value) / 100)),
-    status: 'cotizada',
-    appliedRule: rule,
-    ruleSource,
-  };
-}
-
-/**
- * v1.6-finish — resolver finish→regla determinista (ARCHITECTURE §4.2.1).
- * El acabado seleccionado determina (a) qué regla de BUYLIST_PRICE_RULES aplica y (b) qué
- * referencia de mercado usa el `pct` (la del ACABADO cotizado). NO se mete en gradeKey: es
- * ortogonal. El monto se deriva SIEMPRE server-side de (Card.rarity, finish) validado (SEC-A1).
- */
-export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
-
-/**
- * Una rareza "ya es holo" si su string (pokemontcg.io) contiene "holo" (case-insensitive):
- * "Rare Holo", "Rare Holo EX/GX/V/VMAX/VSTAR"… (NO "Ultra Rare"/"Illustration Rare").
- */
-export function isHoloRarity(rarity: string | null): boolean {
-  return rarity != null && rarity.toLowerCase().includes('holo');
-}
-
-/**
- * Fase 0.1 / v1.29 (§4.28e) — Clasificador de rareza PREMIUM (chase / alto valor).
- *
- * Regla de negocio del humano: SOLO Common/Uncommon y el "holo/reverse común" son precio FIJO de
- * bulk; todo lo más raro es un % arriba de MERCADO. Una rareza premium por tanto NUNCA debe poder
- * caer al bin fijo barato de bulk: debe resolver por su PROPIA regla explícita o, en su defecto, al
- * fallback pct (% de mercado).
- *
- * v1.29: DELEGA en la ÚNICA definición del catálogo canónico (`isPremiumCanonicalRarity`,
- * `common/rarity-catalog.ts`). Se RETIRA `PREMIUM_RARITY_PATTERNS` (que divergía de la de
- * `ppt-sync-scope.ts`); ahora hay UNA sola verdad de «premium» en todo el sistema (§4.28e). Los
- * verdictos en conflicto («Rare Holo» = NO premium, «Double Rare» = SÍ premium) los fija el catálogo.
- */
-export function isPremiumRarity(rarity: string | null): boolean {
-  return isPremiumCanonicalRarity(rarity);
-}
-
-/**
- * Candidatos de ruleKey EN ORDEN DE PRIORIDAD (gana el primero con regla explícita en
- * BUYLIST_PRICE_RULES; si ninguno → BUYLIST_PRICE_FALLBACK_PCT).
- *
- * Fase 0.1 (fix bug de dinero): la RAREZA REAL SIEMPRE va primero en los candidatos. Además, para
- * finish holofoil/1st-ed una rareza PREMIUM (chase) NO puede incluir la clave sintética "Holo"
- * (que el admin puede tener fija barata de bulk): solo su propia regla o el fallback pct. Antes,
- * una holo premium sin "holo" en el string (Illustration/Ultra/Double Rare, etc.) resolvía a
- * `['Holo']` y una chase de miles de pesos cotizaba al bin fijo barato — bug estructural.
- *
- *  - reverse_holo            → ["Reverse Holo"]
- *  - holofoil / 1st ed holo  → premium              ? [rarity]           (propia regla o fallback pct; NUNCA "Holo")
- *                              : isHoloRarity(rarity)? [rarity, "Holo"]  (holo de bulk: rareza real primero, luego "Holo")
- *                              :                        ["Holo"]          (Common/Uncommon: % del market holofoil, §4.2.1)
- *  - normal                  → [rarity] (regla de la rareza base)
- */
-export function ruleKeyCandidates(rarity: string | null, finish: Finish): string[] {
-  switch (finish) {
-    case 'reverse_holo':
-      return ['Reverse Holo'];
-    case 'holofoil':
-    case 'first_edition_holofoil':
-      // Fase 0.1 (fix bug de dinero): una rareza PREMIUM (chase) NUNCA incluye "Holo" ni ningún bin
-      // fijo de bulk. Solo su propia regla explícita o el fallback pct (% de mercado). La rareza real
-      // va SIEMPRE primero. Cierra la vía por la que Illustration/Ultra/Double Rare, etc. (holo sin
-      // "holo" en el string) cotizaban al bin fijo barato `['Holo']`.
-      if (isPremiumRarity(rarity)) {
-        return [rarity as string];
-      }
-      // NO premium: se preserva la semántica documentada en ARCHITECTURE §4.2.1 (guarda isHoloRarity):
-      //  - holo de bulk (p. ej. "Rare Holo") → [rarity, "Holo"] (rareza real primero, luego "Holo").
-      //  - Common/Uncommon (no-holo) → ["Holo"] → market holofoil (% ), NO su regla fija $0.50 de bulk
-      //    (una copia holofoil de una común vale un % de su market holofoil, no $0.50). Ver §4.2.1.
-      return isHoloRarity(rarity) ? [rarity as string, 'Holo'] : ['Holo'];
-    case 'normal':
-      return rarity != null ? [rarity] : [];
-    default:
-      return [];
-  }
-}
-
-// ============================================================================
-// v1.29 (§4.28d) — REGLAS DE PRECIO EN DOS EJES: rareza (de la carta) × acabado (de la variante).
-// Reemplaza el mapa PLANO que mezclaba keys de rareza (`Common`) con keys SINTÉTICAS por-acabado
-// (`Holo`/`Reverse Holo`, parcheadas a mano en el front INV-1). `rarityRules` se keyea por la RAREZA
-// CANÓNICA; `finishRules` por el enum `Finish`. La precedencia CONSERVA la semántica de negocio
-// vigente de `ruleKeyCandidates` (sin colisión de strings). Money-safe: rareza sin regla → fallback pct.
-// ============================================================================
-export interface PriceRuleSet<R extends BuylistRule | SalesRule = BuylistRule> {
-  rarityRules: Record<string, R>; // eje RAREZA (de la carta), keyeado por rareza canónica
-  finishRules: Partial<Record<Finish, R>>; // eje ACABADO (de la variante), keyeado por enum Finish
-  fallbackPct: number;
-}
-
-/** ¿El objeto es un `PriceRuleSet` (dos ejes) y no un mapa plano legacy `Record<rarity, Rule>`? */
-export function isPriceRuleSet(v: unknown): v is PriceRuleSet<BuylistRule | SalesRule> {
-  return (
-    v != null &&
-    typeof v === 'object' &&
-    !Array.isArray(v) &&
-    'rarityRules' in (v as object) &&
-    'finishRules' in (v as object)
-  );
-}
-
-// ============================================================================
-// v1.37 (§4.33, P-34) — PRICING POR TIERS. El eje RAREZA de `PriceRuleSet` se re-expresa como «una regla
-// por TIER» (5 peldaños T0–T4, `common/pricing-tiers.ts`) + un MAPA rareza canónica → tier. `finishRules`
-// y `fallbackPct` NO cambian (eje acabado intacto, §4.28d). La ÚNICA función pura nueva DERIVA el
-// `PriceRuleSet` de siempre a partir de (tiers × mapa) y se lo pasa al resolver EXISTENTE sin tocarlo:
-// así la precedencia, el gate premium (§4.2.1) y el manejo money-safe quedan VERBATIM.
-// ============================================================================
-
-/**
- * §4.33b — reglas de precio expresadas por TIER (persistido en `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES`
- * tras el reshape M-38). `tierRules` (5 entradas, keyeadas por `TierId`) reemplaza el `rarityRules` de
- * `PriceRuleSet`; `finishRules` y `fallbackPct` son IDÉNTICOS a §4.28d (el eje acabado NO se tieriza).
- */
-export interface TieredRuleSet<R extends BuylistRule | SalesRule = BuylistRule> {
-  tierRules: Partial<Record<TierId, R>>;
-  finishRules: Partial<Record<Finish, R>>;
-  fallbackPct: number;
-}
-
-/** ¿El objeto es un `TieredRuleSet` (tiene `tierRules`) y no un `PriceRuleSet`/mapa plano legacy? */
-export function isTieredRuleSet(v: unknown): v is TieredRuleSet<BuylistRule | SalesRule> {
-  return (
-    v != null &&
-    typeof v === 'object' &&
-    !Array.isArray(v) &&
-    'tierRules' in (v as object) &&
-    (v as { tierRules?: unknown }).tierRules != null &&
-    typeof (v as { tierRules: unknown }).tierRules === 'object'
-  );
-}
-
-/**
- * §4.33c — función pura ÚNICA que DERIVA el `PriceRuleSet` efectivo de siempre a partir de (tiers × mapa).
- * Cada rareza mapeada hereda `rarityRules[canonical] = tierRules[map[canonical]]`; `finishRules`/`fallbackPct`
- * pasan verbatim. El resultado se le entrega a `resolveTwoAxisRule`/`quoteAcquisitionForFinish`/
- * `computeSalePriceForRarity` SIN cambiarlos. Money-safe: una rareza ausente del mapa (o mapeada a un tier
- * sin regla) NO produce entrada en `rarityRules` ⇒ cae al `fallbackPct` (nunca $0 ni bin fijo). Una rareza
- * premium mapeada a un tier `pct` produce un `rarityRules[canonical]` `pct` ⇒ el gate premium (§4.2.1) la
- * resuelve por su regla, jamás por el bin de acabado — exactamente como hoy.
- */
-export function buildEffectiveRuleSet<R extends BuylistRule | SalesRule>(
-  tiered: TieredRuleSet<R>,
-  tierMap: Record<string, TierId>,
-): PriceRuleSet<R> {
-  const rarityRules: Record<string, R> = {};
-  for (const [canonical, tierId] of Object.entries(tierMap)) {
-    const rule = tiered.tierRules[tierId];
-    if (rule != null) rarityRules[canonical] = rule;
-  }
-  return {
-    rarityRules,
-    finishRules: tiered.finishRules ?? {},
-    fallbackPct: tiered.fallbackPct,
-  };
-}
-
-/** Normaliza para el lookup case/espacio-insensible (empate 1:1 con la forma canónica del ingest). */
-function normRuleKey(raw: string): string {
-  return raw.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-}
-
-/**
- * v1.29 (§4.28d) — construye un `PriceRuleSet` desde el valor almacenado, MIGRANDO EL LEGACY on-read:
- *  - si `raw` ya es dos ejes (`{ rarityRules, finishRules }`) → se usa tal cual;
- *  - si `raw` es el mapa PLANO legacy → se PARTE: `Holo`→`finishRules.holofoil`, `Reverse Holo`→
- *    `finishRules.reverse_holo`; el resto → `rarityRules` con su key CANONICALIZADA. Reproduce EXACTO
- *    el negocio vigente (§E.1). `fallbackPct` viene del dial separado (money-safe: rareza sin regla → fallback).
- */
-export function toPriceRuleSet<R extends BuylistRule | SalesRule>(
-  raw: unknown,
-  fallbackPct: number,
-  // v1.37 (§4.33c) — COMPAT ON-READ de AMBOS shapes: si `raw` es un `TieredRuleSet` (post-M-38), se
-  // DERIVA el `PriceRuleSet` efectivo con `buildEffectiveRuleSet(tiered, tierMap)`. Si el `tierMap` no se
-  // pasa (caller aún no izó el mapa), se aplica un mapa VACÍO ⇒ `rarityRules = {}` ⇒ toda rareza cae al
-  // `fallbackPct` (money-safe: nunca $0 ni bin fijo; `finishRules` se conservan). Si `raw` es el shape
-  // `{ rarityRules, ... }` (pre-M-38) o el mapa plano legacy, el `tierMap` se IGNORA (comportamiento §4.28d).
-  tierMap?: Record<string, TierId>,
-): PriceRuleSet<R> {
-  if (isTieredRuleSet(raw)) {
-    const tiered = raw as TieredRuleSet<R>;
-    const fp = typeof tiered.fallbackPct === 'number' ? tiered.fallbackPct : fallbackPct;
-    return buildEffectiveRuleSet<R>({ ...tiered, fallbackPct: fp }, tierMap ?? {});
-  }
-  if (isPriceRuleSet(raw)) {
-    const rs = raw as PriceRuleSet<R>;
-    return {
-      rarityRules: rs.rarityRules ?? {},
-      finishRules: rs.finishRules ?? {},
-      fallbackPct: typeof rs.fallbackPct === 'number' ? rs.fallbackPct : fallbackPct,
-    };
-  }
-  const flat =
-    raw != null && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, R>) : {};
-  const rarityRules: Record<string, R> = {};
-  const finishRules: Partial<Record<Finish, R>> = {};
-  for (const [k, v] of Object.entries(flat)) {
-    const nk = normRuleKey(k);
-    if (nk === 'holo' || nk === 'holofoil') finishRules.holofoil = v;
-    else if (nk === 'reverseholo' || nk === 'reverseholofoil') finishRules.reverse_holo = v;
-    else if (nk === '1steditionholofoil' || nk === 'firsteditionholofoil')
-      finishRules.first_edition_holofoil = v;
-    else rarityRules[normalizeRarity(k) ?? k] = v;
-  }
-  return { rarityRules, finishRules, fallbackPct };
-}
-
-/** Regla de FINISH para el acabado dado (1st-ed holo hereda la de holofoil si no tiene propia). */
-function finishRuleFor<R extends BuylistRule | SalesRule>(
-  finish: Finish,
-  set: PriceRuleSet<R>,
-): R | undefined {
-  switch (finish) {
-    case 'reverse_holo':
-      return set.finishRules.reverse_holo;
-    case 'holofoil':
-      return set.finishRules.holofoil;
-    case 'first_edition_holofoil':
-      return set.finishRules.first_edition_holofoil ?? set.finishRules.holofoil;
-    default:
-      return undefined; // `normal` no tiene eje de acabado
-  }
-}
-
-/**
- * §4.28d — resolver de DOS EJES. Espeja EXACTAMENTE `ruleKeyCandidates` sin fabricar keys sintéticas:
- *  - `normal`        → regla de RAREZA (canónica) o fallback.
- *  - `reverse_holo`  → regla de ACABADO `finishRules.reverse_holo` o fallback (NUNCA usa rareza).
- *  - `holofoil`/1st  → premium ⇒ regla de RAREZA o fallback (jamás el bin de acabado de bulk);
- *                      no-premium & holo (p. ej. «Rare Holo») ⇒ rareza ?? finishRule ?? fallback;
- *                      no-premium & no-holo (Common/Uncommon) ⇒ finishRule (% del market holofoil) o fallback.
- * La rareza se NORMALIZA a canónica antes del lookup (§4.28c, «cinturón y tirantes»).
- */
-function resolveTwoAxisRule<R extends BuylistRule | SalesRule>(
-  rarity: string | null,
-  finish: Finish,
-  set: PriceRuleSet<R>,
-): R | null {
-  const canonical = normalizeRarity(rarity);
-  const rarityRule = lookupRarityRule(set.rarityRules, canonical);
-  const premium = isPremiumCanonicalRarity(rarity);
-  switch (finish) {
-    case 'reverse_holo':
-      return finishRuleFor(finish, set) ?? null;
-    case 'holofoil':
-    case 'first_edition_holofoil':
-      if (premium) return rarityRule ?? null;
-      if (isHoloRarity(canonical)) return rarityRule ?? finishRuleFor(finish, set) ?? null;
-      return finishRuleFor(finish, set) ?? null;
-    case 'normal':
-      return rarityRule ?? null;
-    default:
-      return null;
-  }
-}
-
-/** Busca la regla por rareza CANÓNICA (exacta primero, luego normalizada — case/espacio-insensible). */
-function lookupRarityRule<R extends BuylistRule | SalesRule>(
-  rarityRules: Record<string, R>,
-  canonical: string | null,
-): R | undefined {
-  if (canonical == null) return undefined;
-  if (rarityRules[canonical] != null) return rarityRules[canonical];
-  const target = normRuleKey(canonical);
-  for (const [k, v] of Object.entries(rarityRules)) {
-    if (normRuleKey(k) === target) return v;
-  }
-  return undefined;
-}
-
-/**
- * Resuelve la regla efectiva `(rarity, finish)` sobre CUALQUIERA de las dos formas de tabla:
- *  - `PriceRuleSet` (dos ejes, PRODUCCIÓN v1.29) → `resolveTwoAxisRule`.
- *  - `Record<string, Rule>` (mapa PLANO legacy / tests) → `ruleKeyCandidates` + lookup normalizado.
- * Devuelve `{ rule, ruleSource }`; sin regla explícita ⇒ `{ pct fallbackPct, 'fallback' }`.
- */
-function resolveRuleForFinish<R extends BuylistRule | SalesRule>(
-  rarity: string | null,
-  finish: Finish,
-  rules: PriceRuleSet<R> | Record<string, R>,
-  fallbackPct: number,
-): { rule: R | BuylistRule; ruleSource: 'rule' | 'fallback' } {
-  if (isPriceRuleSet(rules)) {
-    const rule = resolveTwoAxisRule(rarity, finish, rules as PriceRuleSet<R>);
-    return rule != null ? { rule, ruleSource: 'rule' } : { rule: { mode: 'pct', value: fallbackPct }, ruleSource: 'fallback' };
-  }
-  // Mapa PLANO legacy: candidatos sintéticos + lookup exacto y normalizado (§4.28c).
-  const flat = rules as Record<string, R>;
-  const candidates = ruleKeyCandidates(rarity, finish);
-  for (const k of candidates) {
-    if (flat[k] != null) return { rule: flat[k], ruleSource: 'rule' };
-  }
-  for (const c of candidates) {
-    const target = normRuleKey(c);
-    for (const [k, v] of Object.entries(flat)) {
-      if (normRuleKey(k) === target) return { rule: v, ruleSource: 'rule' };
-    }
-  }
-  return { rule: { mode: 'pct', value: fallbackPct }, ruleSource: 'fallback' };
-}
-
-/** Aplica una regla ya resuelta (misma lógica que quoteAcquisition §4.2). */
-function applyRule(
-  rule: BuylistRule,
-  ruleSource: AcquisitionRuleSource,
-  referenceMxnCents: number | null,
-): AcquisitionQuote {
-  if (rule.mode === 'fixed') {
-    // BE-27: clamp final (no-op para un fixed ya validado <= FIXED_CENTS_MAX; defensivo si se coló).
-    return { quotedPriceCents: clampCents(rule.value), status: 'cotizada', appliedRule: rule, ruleSource };
-  }
-  if (referenceMxnCents == null) {
-    return { quotedPriceCents: null, status: 'precio_pendiente', appliedRule: rule, ruleSource };
-  }
-  return {
-    quotedPriceCents: clampCents(Math.round((referenceMxnCents * rule.value) / 100)),
-    status: 'cotizada',
-    appliedRule: rule,
-    ruleSource,
-  };
-}
-
-/**
- * AcquisitionPricer POR ACABADO (v1.6-finish, función pura). ARCHITECTURE §4.2.1.
- * `referenceMxnCentsForFinish` = PriceReference.priceMxnCents del ACABADO cotizado
- * (`getReference(..., finish)`). Para `first_edition_holofoil`, esa referencia es la de la
- * llave `1stEditionHolofoil`. SEC-A1: rarity/finish derivados server-side y finish validado
- * contra card.availableFinishes por el caller ANTES de cotizar.
- *
- * v1.28 (P-18/P-22, §4.26b) — GANA el parámetro opcional `controls` (fila M-30 de la variante;
- * omitido/null = comportamiento actual intacto). Precedencia NORMATIVA de COMPRA (money-safe):
- *   1. bountyEnabled && bountyPriceCents > 0 → bountyPriceCents      (source = "bounty")
- *   2. buyOverrideCents > 0                  → buyOverrideCents      (source = "override")
- *   3. BUYLIST_PRICE_RULES / fallback (hoy)  → fixed | pct × ref     (source = "rule" | "fallback")
- *   4. pct sin referencia                    → precio_pendiente/null (JAMÁS inventar)
- * Bounty y override actúan como `fixed`: NO dependen de la referencia ⇒ siempre 'cotizada'.
- * Este es el ÚNICO cuerpo de la precedencia de compra: publicQuote, batchQuote, createRequest y
- * (P-22) /buylist/bounties DEBEN pasar por aquí — prohibido duplicarlo.
- */
-export function quoteAcquisitionForFinish(
-  rarity: string | null,
-  finish: Finish,
-  referenceMxnCentsForFinish: number | null,
-  // v1.29 (§4.28d): acepta el `PriceRuleSet` de DOS EJES (producción) o el mapa PLANO legacy (tests).
-  rules: PriceRuleSet<BuylistRule> | Record<string, BuylistRule>,
-  fallbackPct: number,
-  controls?: VariantPriceControls | null,
-): AcquisitionQuote {
-  // 1. Bounty activo (precio SIEMPRE explícito > 0; un <= 0 degenerado se trata como ausente).
-  if (controls?.bountyEnabled && controls.bountyPriceCents != null && controls.bountyPriceCents > 0) {
-    return applyRule({ mode: 'fixed', value: controls.bountyPriceCents }, 'bounty', referenceMxnCentsForFinish);
-  }
-  // 2. Override manual de compra de la variante (misma regla de presencia > 0).
-  if (controls?.buyOverrideCents != null && controls.buyOverrideCents > 0) {
-    return applyRule({ mode: 'fixed', value: controls.buyOverrideCents }, 'override', referenceMxnCentsForFinish);
-  }
-  // 3./4. Cadena de reglas de SIEMPRE (dos ejes o plano; misma semántica de negocio).
-  const { rule, ruleSource } = resolveRuleForFinish(rarity, finish, rules, fallbackPct);
-  return applyRule(rule as BuylistRule, ruleSource, referenceMxnCentsForFinish);
-}
-
-/**
- * v1.13-sales-pricing (§4.14b) — precio de VENTA por RAREZA. Misma FORMA que BuylistRule pero la
- * matemática del `pct` es DISTINTA (ver `computeSalePriceForRarity`).
- * value = centavos MXN (piso) si mode='fixed'; % de MARKUP ARRIBA de mercado si mode='pct'.
- */
-export type SalesRuleMode = 'fixed' | 'pct';
-export interface SalesRule {
-  mode: SalesRuleMode;
-  value: number;
-}
-
-/**
- * v1.28 (P-18, §4.26b) — fuente del peldaño que GANÓ el precio de venta derivado. ADITIVO:
- * `override` = sellOverrideCents de la variante (M-30). El paso 1 de la precedencia de VENTA
- * (`InventoryItem.listPriceCents`, POR PIEZA) NO pasa por aquí: lo aplican los callers ANTES
- * (comportamiento actual intacto — la intención más específica gana).
- */
-export type SaleRuleSource = 'override' | 'rule' | 'fallback';
-
-export interface SalePriceResult {
-  salePriceCents: number | null;
-  status: 'priced' | 'pending';
-  /** Regla efectivamente aplicada (explícita o fallback; override ⇒ fixed sintética). */
-  appliedRule: SalesRule;
+  marketMxnCents: number | null;
   /**
-   * "rule" = fila explícita en SALES_PRICE_RULES; "fallback" = SALES_PRICE_FALLBACK_PCT.
-   * v1.28: además "override" cuando el sellOverride por variante (M-30) ganó la precedencia.
+   * Lo que da LA CURVA hoy para ese mercado, INDEPENDIENTEMENTE de qué peldaño ganó. Dos consumidores
+   * lo necesitan y por eso se devuelve en vez de recalcularse: (1) la REVALIDACIÓN DEL BOUNTY
+   * (§4.36.6 — un bounty por debajo o igual de esto deja de ser bounty) y (2) el `suggestedCents` de
+   * la consola del binder. `null` = la curva no resuelve (sin mercado).
    */
-  ruleSource: SaleRuleSource;
+  curveQuoteCents: number | null;
 }
 
 /**
- * Precio de VENTA por RAREZA (función pura, v1.13-sales-pricing). ARCHITECTURE §4.14b.
- * Análoga a `quoteAcquisitionForFinish` (§4.2.1): REUSA `ruleKeyCandidates(rarity, finish)`, por lo
- * que hereda el **gate premium de Fase 0** — una rareza chase en holofoil/1st-ed holo NUNCA cae al
- * piso fijo sintético "Holo" de bulk: resuelve por su propia regla o el fallback pct (markup sobre market).
- *
- *   - fixed → PISO en centavos; NO depende del mercado → SIEMPRE precia (mejora: una bulk sin market
- *     obtiene precio de venta piso y puede volverse sellable).
- *   - pct   → MARKUP ARRIBA DE MERCADO: sale = round(market × (1 + value/100)). Si falta referencia →
- *     'pending' (sin precio; el llamador decide, como el legacy computeSalePrice).
- *
- * DIVERGENCIA DE SEMÁNTICA vs. COMPRA (crítico, no confundir): en buylist/compra (§4.2) `pct` = *% de*
- * la referencia → `round(ref × value/100)`; aquí `pct` = *% ARRIBA de* mercado → `round(ref × (1 +
- * value/100))`. Un mismo value=40 da 40% del market comprando y 140% del market vendiendo. La forma del
- * dato es idéntica; solo cambia la fórmula del pct.
- *
- * SEC-A1: rarity de `Card.rarity` (BD), finish de `InventoryItem.finish` (BD); nunca del cliente.
- *
- * v1.28 (P-18, §4.26b) — GANA el parámetro opcional `controls` (fila M-30 de la variante; omitido/
- * null = comportamiento actual intacto). Precedencia NORMATIVA de VENTA (money-safe):
- *   1. item.listPriceCents (POR PIEZA)  → la aplican los CALLERS antes de llamar aquí (intacto)
- *   2. sellOverrideCents > 0 (variante) → fija el precio publicado    (ruleSource = "override")
- *   3. SALES_PRICE_RULES / fallback     → derivado por rareza+acabado (ruleSource = "rule"|"fallback")
- *   4. no resoluble                     → 'pending' / null            (PRICE_PENDING, jamás inventar)
- * El override actúa como `fixed`: NO depende del mercado ⇒ siempre 'priced'. Un sellOverride <= 0
- * es input degenerado y se trata como AUSENTE (misma regla H-1; BE-26 en los callers remata).
+ * VENTA (§4.36.6). Precedencia NORMATIVA:
+ *   1. `InventoryItem.listPriceCents` (POR PIEZA) → la aplican los CALLERS antes de llamar aquí
+ *      (la intención más específica gana); su basis también es `override`.
+ *   2. `sellOverrideCents` (variante, M-30) → `override`. **ABSOLUTO**: puede quedar POR DEBAJO de la
+ *      curva —decisión deliberada del admin— y NO se convierte en piso. PROHIBIDO envolverlo en un
+ *      `max(...)` con la curva: sería reintroducir en espejo el bug que este cambio cierra.
+ *   3. CURVA `redondeo↑(max(piso, mercado × markup(mercado)))` → `market` | `floor`.
+ *   4. sin resolver → `pending` (no se publica; el guardarraíl y la cola los aplica el servicio).
  */
-export function computeSalePriceForRarity(
-  rarity: string | null,
-  finish: Finish,
-  referenceMxnCents: number | null,
-  // v1.29 (§4.28d): acepta el `PriceRuleSet` de DOS EJES (producción) o el mapa PLANO legacy (tests).
-  rules: PriceRuleSet<SalesRule> | Record<string, SalesRule>,
-  fallbackPct: number,
+export function computeSalePriceFromCurve(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
   controls?: VariantPriceControls | null,
-): SalePriceResult {
-  // 2. Override de venta de la variante (M-30): fixed sintético, siempre 'priced'.
+): CurvePriceResult {
+  const fromCurve = resolveSaleFromCurve(marketMxnCents, curve);
+  const curveQuoteCents = fromCurve.cents == null ? null : clampCents(fromCurve.cents);
+  // 2. Override de venta de la variante. Regla de presencia H-1: presente ⇔ > 0 (un <= 0 es input
+  //    degenerado y se trata como AUSENTE — jamás se vende gratis por un dato corrupto).
   if (controls?.sellOverrideCents != null && controls.sellOverrideCents > 0) {
     return {
-      salePriceCents: clampCents(controls.sellOverrideCents),
-      status: 'priced',
-      appliedRule: { mode: 'fixed', value: controls.sellOverrideCents },
-      ruleSource: 'override',
+      priceCents: clampCents(controls.sellOverrideCents),
+      basis: 'override',
+      marketMxnCents,
+      curveQuoteCents,
     };
   }
-  // §4.28d — dos ejes o plano; hereda el gate premium (§4.2.1) vía la misma precedencia.
-  const resolved = resolveRuleForFinish(rarity, finish, rules, fallbackPct);
-  const rule: SalesRule = resolved.rule as SalesRule;
-  const ruleSource: 'rule' | 'fallback' = resolved.ruleSource;
+  // 3./4. La curva (o pendiente).
+  return { priceCents: curveQuoteCents, basis: fromCurve.basis, marketMxnCents, curveQuoteCents };
+}
 
-  if (rule.mode === 'fixed') {
-    // PISO fijo en centavos; NO depende de la referencia → siempre 'priced'.
-    // BE-27: clamp final (no-op para un fixed ya validado <= FIXED_CENTS_MAX; defensivo si se coló).
-    return { salePriceCents: clampCents(rule.value), status: 'priced', appliedRule: rule, ruleSource };
+/**
+ * COMPRA (§4.36.6). Precedencia NORMATIVA:
+ *   1. **bounty VÁLIDO** → `bounty`. Válido = habilitado, `priceCents > 0` y **ESTRICTAMENTE MAYOR**
+ *      que la cotización de la curva vigente (criterio 91). Un bounty rebasado por la curva DEJA DE
+ *      SER BOUNTY: se salta este peldaño y se paga la curva. El bounty NUNCA se compara contra el
+ *      mercado — solo contra la curva (vive en la escala de compra, 30–50 % del mercado).
+ *   2. `buyOverrideCents` (variante, M-30) → `override`. **ABSOLUTO**, igual que en venta.
+ *   3. CURVA `max(bin, mercado × pct(mercado))` (SIN redondeo) → `market` | `floor`.
+ *   4. sin resolver → `pending`.
+ *
+ * Este es el ÚNICO cuerpo de la precedencia de compra: quote público, quote batch, createRequest y la
+ * vitrina `/buylist/bounties` DEBEN pasar por aquí — prohibido duplicarlo.
+ */
+export function quoteAcquisitionFromCurve(
+  marketMxnCents: number | null,
+  curve: PricingCurve,
+  controls?: VariantPriceControls | null,
+): CurvePriceResult {
+  const fromCurve = resolveBuyFromCurve(marketMxnCents, curve);
+  const curveQuoteCents = fromCurve.cents == null ? null : clampCents(fromCurve.cents);
+  // 1. Bounty, REVALIDADO contra la curva vigente (no solo al crear: también aquí, al cotizar).
+  if (controls?.bountyEnabled && isBountyEffective(controls.bountyPriceCents ?? null, curveQuoteCents)) {
+    return {
+      priceCents: clampCents(controls.bountyPriceCents as number),
+      basis: 'bounty',
+      marketMxnCents,
+      curveQuoteCents,
+    };
   }
-  // pct = MARKUP ARRIBA DE MERCADO (DISTINTO de buylist, que es ref × value/100).
-  if (referenceMxnCents == null) {
-    return { salePriceCents: null, status: 'pending', appliedRule: rule, ruleSource };
+  // 2. Override manual de compra (ABSOLUTO; puede quedar por debajo de la curva a propósito).
+  if (controls?.buyOverrideCents != null && controls.buyOverrideCents > 0) {
+    return {
+      priceCents: clampCents(controls.buyOverrideCents),
+      basis: 'override',
+      marketMxnCents,
+      curveQuoteCents,
+    };
   }
-  return {
-    salePriceCents: clampCents(Math.round(referenceMxnCents * (1 + rule.value / 100))),
-    status: 'priced',
-    appliedRule: rule,
-    ruleSource,
-  };
+  // 3./4. La curva (o pendiente).
+  return { priceCents: curveQuoteCents, basis: fromCurve.basis, marketMxnCents, curveQuoteCents };
 }
 
 /**
@@ -663,6 +330,24 @@ export function computeSealedSalePrice(
     source,
     appliedSpreadPct: spread,
   };
+}
+
+/**
+ * v2.0 (P-48, §4.36.7a) — `priceBasis` DERIVADO del sellado. **La matemática del sellado NO cambia**
+ * (§4.23/§K: `override > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`,
+ * con sus semillas box 18 / etb 22 / bundle 25 / tin 30 / blister 35 / global 25). Lo único que gana es
+ * esta señal, para que el front tenga UNA SOLA regla de visibilidad del «Valor de mercado» en las dos
+ * fichas (carta y sellado), sin ramas por tipo de producto:
+ *
+ *   `override`                       ⇒ `override` ⇒ NO se muestra
+ *   `subtype_spread | global_spread` ⇒ `market`   ⇒ SÍ se muestra
+ *   sin precio (PRICE_PENDING)       ⇒ `pending`  ⇒ NO se muestra
+ *
+ * Verificable: el PRECIO de un sellado antes y después de v2.0 es IDÉNTICO (criterio 85).
+ */
+export function sealedPriceBasisOf(result: SealedSpreadResult): PriceBasis {
+  if (result.status === 'pending' || result.salePriceCents == null) return 'pending';
+  return result.source === 'override' ? 'override' : 'market';
 }
 
 export interface BreakdownDTO {

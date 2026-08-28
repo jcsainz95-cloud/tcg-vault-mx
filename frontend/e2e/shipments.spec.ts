@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, IS_REAL, MONEY_RE } from './utils/auth';
+import { loginAs, mockOnly, IS_REAL, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: retiro / envío (PROJECT §D / AC 9, 10, 31; contrato §5).
@@ -19,6 +19,13 @@ test.describe('retiro · envío nacional', () => {
    *  - real: "Solicitar retiro" crea la `ShipmentRequest` y abre el modal de Stripe
    *    (confirma que la sesión de cobro REAL se creó).
    *  - mock: conserva el camino simulado (completa el pago y cierra el modal).
+   */
+  /**
+   * ⚠️ ENTORNO (no producto): contra un stack SIN clave de Stripe este test es ROJO — el backend
+   * responde `PAYMENT_PROVIDER_UNAVAILABLE` y el modal de pago no puede abrirse. NO se salta a
+   * propósito: un smoke de dinero que se pone verde (o se salta solo) cuando no hay proveedor de
+   * pago es exactamente la clase de mentira que este arnés vino a quitar. Si sale rojo aquí,
+   * confirma primero si hay `STRIPE_SECRET_KEY` en el stack antes de reportarlo como bug.
    */
   test('@real retirar: cotiza envío y el cobro abre el modal de pago', async ({ page }) => {
     await loginAs(page, 'customer');
@@ -51,8 +58,10 @@ test.describe('retiro · envío nacional', () => {
   test('solo nacional: el aviso MX-only es visible (país fijo en el alta de dirección)', async ({
     page,
   }) => {
-    // Copy/i18n: no necesita backend. El rechazo de direcciones no-MX ahora es estructural
-    // (el formulario fija país=MX; el backend mantiene el guardarraíl 422 ADDRESS_NOT_MX).
+    // Copy/i18n, pero /shipments es RUTA PRIVADA (PrivateRouteGuard): en mock el guard es
+    // inerte y bastaba con navegar; contra el stack real hay que traer sesión o el guard
+    // redirige a /login y el copy no llega a pintarse nunca.
+    await loginAs(page, 'customer');
     await page.goto('/es/shipments');
     await expect(page.getByText(t('es', 'shipments.onlySettledNotice'))).toBeVisible();
     await expect(page.getByText(t('es', 'shipments.flatFeeNotice'))).toBeVisible();
@@ -60,7 +69,10 @@ test.describe('retiro · envío nacional', () => {
   });
 
   test('lista cartas no elegibles (no settled)', async ({ page }) => {
-    // Mock-only (no @real): el seed real puede no traer piezas pending.
+    // Mock-only (ya lo decía el comentario, ahora lo dice el arnés): la sección solo aparece si
+    // el cliente tiene piezas NO liquidadas, y el seed real no promete ninguna.
+    mockOnly('requiere un holding pending, que el seed real no garantiza');
+    await loginAs(page, 'customer');
     await page.goto('/es/shipments');
     await expect(page.getByText(t('es', 'shipments.ineligibleTitle'))).toBeVisible();
   });
@@ -71,6 +83,10 @@ test.describe('retiro · envío nacional', () => {
    * (deep-link GET /shipments/:id). Mock-only: depende del fixture de retiros del cliente.
    */
   test('rastreo: lista un retiro con sus cartas y abre el detalle', async ({ page }) => {
+    // Mock-only: afirma ids y nombres LITERALES del fixture (`shp-7001`, Charizard, la caja de
+    // Surging Sparks) y dos retiros en etapas concretas. Nada de eso lo promete el seed real.
+    mockOnly('ids/nombres literales del fixture de retiros (shp-7001, Charizard)');
+    await loginAs(page, 'customer');
     await page.goto('/es/shipments');
 
     // Sección "Mis retiros".

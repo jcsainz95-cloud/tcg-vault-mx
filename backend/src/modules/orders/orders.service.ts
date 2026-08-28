@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryItem, Card, CardSet, MovementReason, Prisma } from '@prisma/client';
+import { InventoryItem, Card, CardSet, Finish, MarketBracket, MovementReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -7,7 +7,8 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
-import { computeCartBreakdown, BreakdownDTO } from '../../common/money';
+import { computeCartBreakdown, BreakdownDTO, PriceBasis, sealedPriceBasisOf, hasManualPrice } from '../../common/money';
+import { marketBracketOf } from '../../common/pricing-curve';
 
 /**
  * Titularidad a escribir al RESERVAR una pieza (T2). Es el único eje en el que difieren las dos
@@ -32,6 +33,31 @@ export interface UnavailableCartItemDTO {
   cardName: string | null;
 }
 
+/**
+ * v2.0 (P-48, §4.36.7c / PROJECT §N.8) — la DECISIÓN de venta de UNA pieza: el monto y los cuatro
+ * datos de instrumentación que se congelan con él. El quinto dato de §N.8 (el precio final) ES
+ * `unitPriceCents`.
+ */
+interface SaleDecision {
+  unitPriceCents: number;
+  priceBasis: PriceBasis;
+  /** Mercado CRUDO en centavos que entró al cálculo. `null` = no lo hubo (jamás un 0 inventado). */
+  marketMxnCents: number | null;
+  marketBracket: MarketBracket | null;
+  finish: Finish;
+}
+
+/** Línea de orden lista para persistir: el snapshot de dinero + su instrumentación. */
+type OrderLineData = {
+  inventoryItemId: string;
+  cardSnapshot: object;
+  unitPriceCents: number;
+  marketMxnCents: number | null;
+  priceBasis: PriceBasis;
+  marketBracket: MarketBracket | null;
+  finish: Finish;
+};
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -46,7 +72,35 @@ export class OrdersService {
   private async salePriceOf(
     item: InventoryItem & { card: Card & { set?: CardSet | null } },
   ): Promise<number> {
-    if (item.listPriceCents != null && item.listPriceCents > 0) return item.listPriceCents;
+    return (await this.resolveSaleDecision(item)).unitPriceCents;
+  }
+
+  /**
+   * v2.0 (P-48, §4.36.7c / PROJECT §N.8) — la DECISIÓN de venta completa: el monto Y la
+   * instrumentación que se congela con él (mercado CRUDO, `priceBasis`, `marketBracket`, `finish`).
+   *
+   * Se resuelve AQUÍ, no en el momento de escribir, porque los cinco datos de §N.8 tienen que salir
+   * del MISMO cálculo que fijó `unitPriceCents`: reconstruirlos después sería medir otra cosa.
+   * `salePriceOf` queda como envoltorio para los callers que solo quieren el monto.
+   */
+  private async resolveSaleDecision(
+    item: InventoryItem & { card: Card & { set?: CardSet | null } },
+  ): Promise<SaleDecision> {
+    // Sin mercado (override/bounty sin referencia, o pendiente): `marketMxnCents`/`marketBracket` van
+    // en `null`. Honesto; jamás un 0 inventado (§4.36.7c).
+    const instrument = (unitPriceCents: number, basis: PriceBasis, marketMxnCents: number | null): SaleDecision => ({
+      unitPriceCents,
+      priceBasis: basis,
+      marketMxnCents,
+      marketBracket: marketBracketOf(marketMxnCents),
+      finish: item.finish,
+    });
+    // H-1 (E5-bis): el MISMO predicado que los otros cinco seams. Este sitio ya exigía `> 0` a mano y
+    // era el único correcto; ahora la corrección vive en un cuerpo y no en la memoria de quien lea.
+    if (hasManualPrice(item)) {
+      // Peldaño 1 de la precedencia de VENTA: override POR PIEZA (§4.36.6) ⇒ basis `override`.
+      return instrument(item.listPriceCents, 'override', null);
+    }
     // v1.23-sealed-sales (§4.23d): el SELLADO deriva por mercado×spread. H-1 (v1.24): resolver ÚNICO
     // `resolveSealedSalePrice` (mismo cuerpo que catálogo/grid/bulk-publish, incluida la regla
     // override=0). Sin override>0 y sin mercado → PRICE_PENDING (money-safe, no se vende a precio basura).
@@ -60,17 +114,19 @@ export class OrdersService {
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) {
         throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
       }
-      return sale.salePriceCents;
+      // §4.36.7a: el SELLADO no cambia de matemática; su basis se DERIVA de `priceSource`.
+      const sealedMarket = this.pricing.gateSealedMarketCents(marketRef, ctx.sourceOn);
+      return instrument(sale.salePriceCents, sealedPriceBasisOf(sale), sealedMarket);
     }
     const gradeKey = this.pricing.gradeKeyFor(item);
     // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
     const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
     const referenceMxnCents = ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-    // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity, acabado
-    // de InventoryItem.finish). Con `fixed` devuelve el PISO aunque no haya market; con `pct` y sin
-    // referencia → 'pending' → PRICE_PENDING (se conserva el comportamiento previo).
-    // v1.28 (P-18, §4.26b): el sellOverride de la VARIANTE (M-30) pisa la regla — checkout (auth +
-    // guest) cobra EXACTAMENTE el mismo precio que publica el storefront (mismo resolver único).
+    // v2.0 (P-48, §4.36.1/§4.36.5b): precio de venta por la CURVA sobre el valor de mercado, vía el
+    // SEAM ÚNICO del eje de venta — el checkout (auth Y guest) cobra EXACTAMENTE lo que publica el
+    // storefront porque ambos pasan por el mismo cuerpo. SIN dato de mercado ⇒ `pending` ⇒
+    // PRICE_PENDING (el PISO NO gana; jamás se cobra un precio inventado).
+    // v1.28 (P-18, §4.26b): el sellOverride de la VARIANTE (M-30) pisa la curva y es ABSOLUTO.
     // El listPriceCents POR PIEZA ya ganó arriba (paso 1 de la precedencia, intacto).
     const variantOverride = await this.pricing.getVariantOverride(
       item.cardId,
@@ -78,17 +134,25 @@ export class OrdersService {
       gradeKey,
       item.finish,
     );
-    const sale = await this.pricing.computeSalePriceForItem(
-      { rarity: item.card.rarity, finish: item.finish },
+    // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO: monto + GUARDARRAÍL en la misma llamada. En el checkout
+    // (auth Y guest) una premium en el piso NO se vende: el storefront ya no la publica y esto cierra
+    // la puerta de atrás (un `inventoryItemId` conocido que intente comprarse igual). Mismo código de
+    // error que siempre.
+    const sale = await this.pricing.computeSalePriceForItem({
       referenceMxnCents,
-      variantOverride,
-    );
-    // BE-26 (money-safety): un precio de venta <= 0 (p. ej. regla `fixed:0`) NO es vendible. Se
+      // SOLO para el veredicto del guardarraíl (criterio 84): no entra al monto.
+      rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+      controls: variantOverride,
+    });
+    if (sale.pendingReason != null) {
+      throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no publishable price`);
+    }
+    // BE-26 (money-safety): un precio de venta <= 0 (p. ej. un override degenerado) NO es vendible. Se
     // rechaza igual que `== null` para que ninguna línea de session entre a $0.
-    if (sale.salePriceCents == null || sale.salePriceCents <= 0) {
+    if (sale.priceCents == null || sale.priceCents <= 0) {
       throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
     }
-    return sale.salePriceCents;
+    return instrument(sale.priceCents, sale.basis, sale.marketMxnCents);
   }
 
   private async loadItems(ids: string[]) {
@@ -119,19 +183,22 @@ export class OrdersService {
    */
   private async buildLines(
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[],
-  ): Promise<{
-    subtotalCents: number;
-    lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
-  }> {
-    const lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[] = [];
+  ): Promise<{ subtotalCents: number; lines: OrderLineData[] }> {
+    const lines: OrderLineData[] = [];
     let subtotalCents = 0;
     for (const item of items) {
-      const price = await this.salePriceOf(item);
-      subtotalCents += price;
+      const d = await this.resolveSaleDecision(item);
+      subtotalCents += d.unitPriceCents;
       lines.push({
         inventoryItemId: item.id,
         cardSnapshot: this.cardSnapshot(item),
-        unitPriceCents: price,
+        unitPriceCents: d.unitPriceCents,
+        // v2.0 (§N.8): los cuatro campos de instrumentación viajan CON la línea, así que se persisten
+        // en la MISMA transacción que congela `unitPriceCents` — no pueden desincronizarse.
+        marketMxnCents: d.marketMxnCents,
+        priceBasis: d.priceBasis,
+        marketBracket: d.marketBracket,
+        finish: d.finish,
       });
     }
     return { subtotalCents, lines };
@@ -150,7 +217,7 @@ export class OrdersService {
   async priceCartForOrder(inventoryItemIds: string[]): Promise<{
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
     subtotalCents: number;
-    lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
+    lines: OrderLineData[];
   }> {
     const items = await this.loadItems(inventoryItemIds);
     for (const item of items) {
@@ -177,7 +244,7 @@ export class OrdersService {
   async priceCartForQuote(inventoryItemIds: string[]): Promise<{
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
     subtotalCents: number;
-    lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
+    lines: OrderLineData[];
     unavailableItems: UnavailableCartItemDTO[];
   }> {
     // Un id repetido en el carrito no debe cotizar (ni podar) dos veces la misma pieza única.

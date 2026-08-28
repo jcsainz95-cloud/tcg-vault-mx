@@ -254,6 +254,48 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await priceRef(E2E_CARDS.reverse.externalId, 'raw', 'raw:NM', E2E_CARDS.reverse.refNmCents);
   await priceRef(E2E_CARDS.graded.externalId, 'graded', 'graded:PSA:10', E2E_CARDS.graded.refPsa10Cents);
   await priceRef(E2E_CARDS.highvalue.externalId, 'raw', 'raw:NM', E2E_CARDS.highvalue.refNmCents);
+  // v2.1.7: mercado ABSURDO para una premium ⇒ la venta aterriza en el PISO (guardarraíl §4.36.5).
+  await priceRef(E2E_CARDS.floorpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.floorpremium.refNmCents!);
+
+  // 6-bis. COLA DE PRECIO PENDIENTE (v2.1.7) — la cola de triage de P-48 no tenía NINGÚN dato real:
+  // sus `counts` estaban verificados en forma pero no en número. Se siembran las DOS razones, y las
+  // dos son ESTADOS VERDADEROS de estas cartas, no filas decorativas:
+  //
+  //   · `no_market`        → `nopref` NO tiene `PriceReference` (ningún flujo se la da).
+  //   · `premium_at_floor` → `floorpremium` es premium con mercado de MX$10: la venta cae al piso.
+  //
+  // Estables durante la suite: el eje de COMPRA sí resuelve para `floorpremium`, pero desde v2.1.6
+  // un cierre del eje de compra NO puede cerrar un `premium_at_floor` abierto por `inventory`
+  // (S48-M1) — así que una cotización de buylist no vacía esta cola por accidente. Eso es
+  // precisamente lo que protege esa corrección, y aquí queda ejercitado con datos reales.
+  const seedPending = async (
+    cardExt: string,
+    reason: 'no_market' | 'premium_at_floor',
+    gradeKey = 'raw:NM',
+  ) => {
+    const cardId = cardIds[cardExt];
+    const existing = await prisma.pendingPriceEntry.findFirst({
+      where: { cardId, productType: 'raw', gradeKey, finish: 'normal', status: 'open' },
+    });
+    if (existing) {
+      await prisma.pendingPriceEntry.update({ where: { id: existing.id }, data: { reason } });
+      return;
+    }
+    await prisma.pendingPriceEntry.create({
+      data: {
+        cardId,
+        productType: 'raw',
+        gradeKey,
+        finish: 'normal',
+        // El eje de VENTA es quien escala en `inventory` (§4.36.5b).
+        context: 'inventory',
+        status: 'open',
+        reason,
+      },
+    });
+  };
+  await seedPending(E2E_CARDS.nopref.externalId, 'no_market');
+  await seedPending(E2E_CARDS.floorpremium.externalId, 'premium_at_floor');
 
   // 7. Inventario. Los E2E-LST-* se RESETEAN a plataforma/listed en cada corrida.
   const upsertItem = async (

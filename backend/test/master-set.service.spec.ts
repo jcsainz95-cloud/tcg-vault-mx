@@ -5,6 +5,7 @@ import {
 } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * WS-E (v1.16-master-set, §4.17a) — LECTURA AGREGADA del inventario:
@@ -58,9 +59,12 @@ function buildPrisma(over: any = {}) {
 
 function buildPricing(over: any = {}) {
   return {
-    loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
-    loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
