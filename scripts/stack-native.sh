@@ -52,6 +52,8 @@
 #   FRONTEND_MODE  dev    — `dev` (next dev, cómodo, NO apto para gates) | `build`
 #                           (next build + next start). `up --gate` fija `build`.
 #                           PARA GATES: SIEMPRE `build`. Ver DEVOPS_NOTES §32.6.
+#                           El NODE_ENV del frontend lo fija el modo (build→production),
+#                           NO se hereda el `development` del backend. Ver §32.10.
 #   PG_CLUSTER     16/main
 #   DATABASE_URL   postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace
 #                  (credenciales de DESARROLLO LOCAL, las mismas de `.env.example`; jamás
@@ -99,9 +101,15 @@ psql_as_postgres() {
 }
 
 # --- Env de DESARROLLO LOCAL -------------------------------------------------
-# NODE_ENV=development es deliberado: `backend/src/config/env.validation.ts` exige
-# DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND solo en entornos NO-locales. En local
-# degrada seguro (mail → NoopMailAdapter). NUNCA uses este bloque para staging/prod.
+# NODE_ENV=development es deliberado y es **DEL BACKEND**: `backend/src/config/
+# env.validation.ts` exige DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND solo en entornos
+# NO-locales. En local degrada seguro (mail → NoopMailAdapter). NUNCA uses este bloque
+# para staging/prod.
+#
+# OJO — `export` alcanza a TODO hijo, incluido `next build`, y ahí NO es inocuo: rompe
+# el prerender de las páginas de error y mata el build (BLOQ-1 de QA · §32.10). Por eso
+# `start_frontend()` FIJA su propio NODE_ENV por modo (build→production, dev→development)
+# en vez de heredar éste. Si tocas esta línea, no deshagas aquella.
 export NODE_ENV="${NODE_ENV:-development}"
 export PORT="$BACKEND_PORT"
 export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace?schema=public}"
@@ -244,7 +252,9 @@ start_frontend() {
       die "Ya hay ALGO sirviendo en :$FRONTEND_PORT y esto es una corrida de GATE.
      No se reutiliza: ese proceso pudo hornearse con mocks=true o contra otro backend,
      y un gate que reusa un servidor ajeno mide otra cosa de la que dice medir.
-     Apágalo primero:  ./scripts/stack-native.sh down    (o  pkill -f 'next (dev|start) -p $FRONTEND_PORT')"
+     Apágalo primero:  ./scripts/stack-native.sh down
+     (a mano NO basta con pkill -f 'next start -p $FRONTEND_PORT': ese proceso se renombra a
+      «next-server (vX.Y.Z)» y ese patrón no lo encuentra. Usa el \`down\`, que ya lo contempla.)"
     fi
     ok "ya respondía en :$FRONTEND_PORT (modo dev: se reutiliza)."
     warn "No se verificó CON QUÉ se horneó ese proceso. Para un GATE usa 'up --gate'."
@@ -253,24 +263,67 @@ start_frontend() {
 
   [ -d "$FRONTEND_DIR/node_modules" ] || die "Falta $FRONTEND_DIR/node_modules. Corre: cd frontend && npm ci"
 
+  # ---------------------------------------------------------------------------
+  # NODE_ENV DEL FRONTEND — NO se hereda el del backend.  (BLOQ-1 de QA, §32.10)
+  #
+  # La línea 105 exporta `NODE_ENV=development` PARA EL BACKEND: `env.validation.ts`
+  # solo exige DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND en entornos NO-locales, y
+  # sin esa variable el backend ni arranca aquí. Pero `export` es del PROCESO ENTERO:
+  # también llegaba a `npx next build`, y ahí NO es inocuo:
+  #     ⚠ You are using a non-standard "NODE_ENV" value in your environment.
+  #     Error: <Html> should not be imported outside of pages/_document.
+  #     Error occurred prerendering page "/500". Export encountered an error on /_error
+  # Con NODE_ENV≠production Next mete el runtime de desarrollo en el prerender estático
+  # de las páginas de error y el build MUERE. QA lo reprodujo 2 de 2 (la segunda corrida
+  # reventó distinto —`Cannot read properties of null (reading 'useContext')` en
+  # /es/forgot-password—: mismo modo de fallo, otra página). Con NODE_ENV=production:
+  # exit 0. Es decir: el gate documentado (§32.6) era el ÚNICO camino a una corrida de
+  # gate y no existía; QA tuvo que hornear el bundle a mano.
+  #
+  # CI no estaba afectado: `Dockerfile.frontend` no exporta NODE_ENV en su etapa de
+  # build, así que allí resuelve a `production`. El fallo era exclusivo de este arnés.
+  #
+  # Por eso el valor se fija AQUÍ, por modo, y no se hereda:
+  #   build → production  (es el artefacto que se despliega; lo mismo que hace CI)
+  #   dev   → development (lo que `next dev` espera de todos modos)
+  # El backend, que se lanzó antes en otro subshell, conserva su `development`: son
+  # procesos distintos y ninguno pisa al otro.
+  # ---------------------------------------------------------------------------
+  local NEXT_NODE_ENV
+
   if [ "$FRONTEND_MODE" = "build" ]; then
+    NEXT_NODE_ENV=production
     # `next build` hornea NEXT_PUBLIC_* en el bundle: mocks=false y la URL del backend
     # quedan FIJADAS en el artefacto, no dependen del entorno del runtime.
-    log "next build (mocks=FALSE horneado en el bundle) — tarda unos minutos"
+    log "next build (NODE_ENV=$NEXT_NODE_ENV, mocks=FALSE horneado en el bundle) — tarda unos minutos"
     ( cd "$FRONTEND_DIR" \
-      && NEXT_PUBLIC_USE_MOCKS=false \
+      && NODE_ENV="$NEXT_NODE_ENV" \
+         NEXT_PUBLIC_USE_MOCKS=false \
          NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
          npx next build > "$RUN_DIR/frontend-build.log" 2>&1 ) \
       || { tail -60 "$RUN_DIR/frontend-build.log"; die "\`next build\` falló. Log: $RUN_DIR/frontend-build.log
      Si es un error de código y no de entorno, el hallazgo es del rol FRONTEND (devops no lo corrige)."; }
-    ok "build listo."
+    # Detector de REGRESIÓN del propio arnés: si alguien vuelve a dejar filtrar un
+    # NODE_ENV no estándar al build, Next lo AVISA pero puede terminar en 0 igualmente
+    # (el fallo del prerender es intermitente: QA vio dos páginas distintas romperse).
+    # Un build verde horneado con el runtime de desarrollo es peor que uno rojo: el gate
+    # correría sobre un artefacto que no es el que se despliega. Aquí se para en seco.
+    if grep -q 'non-standard "NODE_ENV"' "$RUN_DIR/frontend-build.log"; then
+      die "El build se horneó con un NODE_ENV no estándar (Next lo avisó en $RUN_DIR/frontend-build.log).
+     Un GATE no corre sobre ese artefacto. Revisa que nada exporte NODE_ENV por encima de
+     este script (\`env | grep NODE_ENV\`) — ver DEVOPS_NOTES §32.10."
+    fi
+    ok "build listo (NODE_ENV=$NEXT_NODE_ENV, sin aviso de NODE_ENV no estándar)."
     ( cd "$FRONTEND_DIR" \
-      && NEXT_PUBLIC_USE_MOCKS=false \
+      && NODE_ENV="$NEXT_NODE_ENV" \
+         NEXT_PUBLIC_USE_MOCKS=false \
          NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
          nohup npx next start -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
   else
+    NEXT_NODE_ENV=development
     ( cd "$FRONTEND_DIR" \
-      && NEXT_PUBLIC_USE_MOCKS=false \
+      && NODE_ENV="$NEXT_NODE_ENV" \
+         NEXT_PUBLIC_USE_MOCKS=false \
          NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
          nohup npx next dev -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
   fi
@@ -308,6 +361,32 @@ stop_apps() {
   pkill -f "ts-node --transpile-only src/main.ts" 2>/dev/null || true
   pkill -f "next dev -p $FRONTEND_PORT"           2>/dev/null || true
   pkill -f "next start -p $FRONTEND_PORT"         2>/dev/null || true
+  # `next start` se RENOMBRA a «next-server (vX.Y.Z)» en cuanto arranca, así que los dos
+  # `pkill` de arriba NO lo matan: sólo matan al `npx` que lo lanzó. Y el pidfile guarda
+  # ese `npx`, no al servidor. Resultado observado: `down` decía «frontend detenido»,
+  # el pidfile quedaba huérfano y el puerto SEGUÍA sirviendo 200 — con lo que el
+  # siguiente `up --gate` moría con «Ya hay ALGO sirviendo en :$FRONTEND_PORT».
+  # El arnés dejaba de ser repetible por su propio apagado. (§32.10)
+  # El patrón va ANCLADO (`^next-server `): sin el `^`, un `pkill -f next-server` mata
+  # también a cualquier shell cuya LÍNEA DE COMANDO mencione la cadena — incluido el
+  # `bash -c` que esté ejecutando este mismo `down` desde una sesión de agente. Probado:
+  # se suicidó (exit 144). El proceso real se llama literalmente «next-server (v15.5.23)».
+  pkill -f "^next-server "                        2>/dev/null || true
+
+  # Verificación de que el apagado APAGÓ. Sin esto, `down` informa éxito por haber
+  # ejecutado los kills, no por haber liberado el puerto: el mismo «enforcement de
+  # honor» que el techlead señaló en otro sitio, pero aquí en el propio script.
+  for i in $(seq 1 10); do
+    curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  if curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1; then
+    warn "OJO: :$FRONTEND_PORT SIGUE respondiendo tras el apagado — hay un proceso que no lancé yo."
+    warn "Identifícalo ANTES de matarlo (puede ser el stack de otro rol):  pgrep -af 'next|node'"
+  fi
+  if curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1; then
+    warn "OJO: :$BACKEND_PORT SIGUE respondiendo tras el apagado. Mismo criterio: identifícalo antes de matarlo."
+  fi
 }
 
 print_e2e_instructions() {

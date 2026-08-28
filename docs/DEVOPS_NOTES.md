@@ -48,6 +48,19 @@
 > `scripts/post-deploy.sh`. También ahí: **`next build` + `next start` para gates, nunca `next dev`**
 > (§32.6) y la confirmación de los dos huecos de entorno **abiertos** (§32.7).
 >
+> **⇒ Actualización 2026-08-28, 2ª ronda (rechazo de QA + revisión del techlead):**
+> **§32.10 — el arnés de gate no arrancaba.** `up --seed --gate` moría en el `next build` porque el
+> `NODE_ENV=development` que el backend necesita **se filtraba** al build del frontend (BLOQ-1 de QA).
+> El modo gate de §32.6 era, literalmente, **el único camino documentado y no existía**. Arreglado
+> (el `NODE_ENV` del frontend lo fija el modo, no se hereda), con **detector de regresión** que mata el
+> build si vuelve a aparecer el aviso de Next, y con `down` arreglado para que **libere el puerto de
+> verdad** (`next start` se renombra a `next-server` y quedaba huérfano). **Verificado corriéndolo, 2/2
+> en verde**, no por inspección.
+> **§32.11 — hueco de enforcement anotado, no cerrado.** La verificación de diales del DoD depende hoy de
+> que un humano recuerde correr `post-deploy.sh`: **enforcement de honor** (techlead). Sigue manual **por
+> decisión escrita**, con su contrapartida real (automatizarlo exige un JWT `super_admin` de prod en CI) y
+> con una **vía barata propuesta sin secretos nuevos** (`config inventory` sobre `railway logs`).
+>
 > **Actualización 2026-08-23 (D-4 — cierre techlead, regla 10):** el release
 > `fix/variant-composition-regression` @ `9b6a81b` trae **cambios de DATOS** que `migrate deploy` NO cubre
 > solo (reshape de tiers **P-34 T2=25%** + cura del sellado **M-39/M-40**). La **secuencia exacta
@@ -4697,6 +4710,10 @@ verde falso que esta sección vino a quitar.
 
 ### 32.6 Arnés de gates: `next build` + `next start`, **nunca `next dev`**
 
+> ⚠ **Léase junto con §32.10.** Este arnés estuvo **roto desde que se escribió**: el `NODE_ENV=development`
+> que el backend necesita se filtraba al `next build` y lo mataba, así que el modo gate que esta sección
+> documenta **no era ejecutable**. Arreglado y verificado corriéndolo (2/2 en verde) el 2026-08-28 — §32.10.
+
 Hallazgo de frontend que afecta a cualquier gate que devops declare, así que vive aquí:
 
 **El problema.** `frontend/playwright.config.ts:71` usa **`reuseExistingServer: !isCI`**. Si hay un
@@ -4798,3 +4815,180 @@ el comparador imprime en el paso 1. Sin ese apunte, el rollback del dial no tien
 > lo correcto: cuando el humano la encienda, se enciende **ya con el criterio que `PROJECT.md` escribió**,
 > no con el que el código eligió por accidente. Alinear los diales **después** de encender significaría
 > publicar durante un rato afirmaciones comerciales que el producto no autorizó.
+
+---
+
+### 32.10 El arnés de gate no arrancaba: el `NODE_ENV` del backend se filtraba al `next build` — 2026-08-28
+
+**Rechazo de QA, BLOQ-1, y es mío.** La ironía no se me escapa: el bloqueante estaba en el arnés que
+§32.6 añadió justamente para cerrar la trampa anterior (gates corriendo sobre `next dev`). Un arnés que
+no arranca no es mejor que no tener arnés — es peor, porque *parece* que hay un camino.
+
+**Síntoma.** `./scripts/stack-native.sh up --seed --gate` moría en el build del frontend:
+
+```
+⚠ You are using a non-standard "NODE_ENV" value in your environment.
+Error: <Html> should not be imported outside of pages/_document.
+Error occurred prerendering page "/500".
+Export encountered an error on /_error: /500, exiting the build.
+```
+
+**Causa raíz** (aislada por QA con un experimento controlado: mismo comando, mismo directorio, misma env
+salvo **una** variable):
+
+| Pieza | Qué hacía |
+|---|---|
+| `stack-native.sh` (antes, línea 105) | `export NODE_ENV="${NODE_ENV:-development}"` — **necesario**: `backend/src/config/env.validation.ts` solo exige DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND en entornos no-locales; sin `development` el backend **ni arranca** aquí. |
+| `export` | Alcanza a **todo** proceso hijo, incluido `npx next build`. |
+| `next build` con `NODE_ENV≠production` | Mete el runtime de desarrollo en el prerender estático de las páginas de error y **revienta**. |
+
+La variable estaba puesta por una razón legítima **para el backend**, y se cobraba una víctima que no
+tenía nada que ver. Reproducido **2 de 2** por QA; la segunda corrida falló **distinto**
+(`TypeError: Cannot read properties of null (reading 'useContext')` en `/es/forgot-password`): mismo
+modo de fallo, otra página. Con `NODE_ENV=production`: **exit 0**.
+
+**CI nunca estuvo afectado** — `Dockerfile.frontend` no exporta `NODE_ENV` en su etapa de build, así que
+allí resuelve a `production` (y el runtime fija `ENV NODE_ENV=production` explícito). El fallo era
+**exclusivo de la ruta nativa local**, que es precisamente el único camino ejecutable en este entorno
+(§29.10: aquí no hay demonio de Docker). Resultado práctico: **el modo gate documentado en §32.6 no
+existía**, y QA tuvo que hornear el bundle a mano para poder verificar. Ningún gate debe depender de que
+quien verifica parchee el arnés.
+
+**Arreglo (`scripts/stack-native.sh`, `start_frontend()`).** El `NODE_ENV` del frontend lo fija **el
+modo**, y no se hereda:
+
+| Modo | `NODE_ENV` | Por qué |
+|---|---|---|
+| `build` (`up --gate`) | `production` | Es el artefacto que se despliega; **lo mismo que hace CI**. |
+| `dev` | `development` | Es lo que `next dev` espera de todos modos. |
+
+El backend conserva su `development`: se lanzó antes, en otro subshell, y son procesos distintos. La
+línea 105 sigue donde estaba, ahora con el comentario que dice **por qué no se puede borrar y por qué no
+basta con ella**.
+
+**Detector de regresión, no sólo arreglo.** Tras el build, el script hace `grep` del aviso
+`non-standard "NODE_ENV"` en `frontend-build.log` y **muere si aparece**. Motivo: el fallo del prerender
+es *intermitente* (QA vio romperse dos páginas distintas en dos corridas), así que un futuro escape de
+`NODE_ENV` podría dar un build **verde** horneado con el runtime de desarrollo — y eso es peor que un
+rojo: el gate correría sobre un artefacto que no es el que se despliega. Next **siempre** avisa; el
+script convierte ese aviso en un fallo duro.
+
+**Segundo defecto, encontrado al verificar (y por eso se verifica corriendo, no leyendo).** `down` decía
+«frontend detenido» y el puerto **seguía sirviendo 200**:
+
+- `next start` se **renombra** a `next-server (vX.Y.Z)` en cuanto arranca ⇒ los `pkill -f "next start -p …"`
+  no lo tocaban.
+- El pidfile guarda el `npx` que lo lanzó, no al servidor ⇒ matar el pidfile dejaba al servidor **huérfano**.
+- Y el siguiente `up --gate` moría con «Ya hay ALGO sirviendo en :3000» (esa guarda es correcta: un gate
+  no reutiliza un servidor ajeno, §32.6).
+
+⇒ **el arnés dejaba de ser repetible por culpa de su propio apagado.** Corregido: `stop_apps()` añade
+`pkill -f "^next-server "` y **verifica que los puertos quedaron libres**, avisando si algo sigue vivo
+(sin matarlo a ciegas: puede ser el stack de otro rol).
+
+> El patrón va **anclado** (`^next-server `) a propósito. Sin el `^`, `pkill -f next-server` mata también
+> a cualquier shell cuya *línea de comando* mencione la cadena — incluido el `bash -c` que esté
+> ejecutando el propio `down`. Probado en vivo: se suicidó con exit 144.
+
+**Verificación — corrido de verdad, dos veces, no por inspección:**
+
+| Comprobación | Resultado |
+|---|---|
+| `./scripts/stack-native.sh up --seed --gate` | **exit 0**, dos corridas limpias consecutivas (`down` entre medias) |
+| Aviso `non-standard "NODE_ENV"` en el build | **0 ocurrencias** |
+| `<Html> should not be imported` / `Export encountered an error` | **0 ocurrencias** |
+| Prerender | `✓ Generating static pages (62/62)` |
+| `GET :3000/es` (modo `build`) | **200** |
+| `GET :3099/api/v1/health` | `{"status":"ok","db":"up","redis":"up"}` |
+| `down` → `GET :3000/es` | **000** (el puerto queda libre; ya no hay huérfano) |
+
+**Lo que NO verifiqué corriendo, y lo digo en vez de dejarlo implícito.** La rama `dev`
+(`next dev`) recibió la misma línea (`NODE_ENV=development`, que es lo que `next dev` usa de todos modos)
+pero **no la ejecuté de punta a punta**: hacerlo habría pisado el `frontend.pid` del stack en modo gate
+que queda levantado para QA (`RUN_DIR` es único). Está comprobada la sintaxis, no el arranque. Se
+ejercita sola en el primer `up` sin `--gate` que alguien haga.
+
+**Divergencia conocida que queda abierta (menor, anotada para que no sorprenda).** `next start` avisa
+`"next start" does not work with "output: standalone" configuration`. Sirve igual (200 verificado) y el
+**build** es el mismo, pero producción arranca por `node server.js` desde `.next/standalone`
+(`Dockerfile.frontend:92`), no por `next start`. El arnés prueba **el mismo artefacto compilado servido
+por otro entrypoint**. Para lo que el gate mide (¿concuerdan frontend y backend?) es suficiente; para
+validar el *empaquetado* standalone el gate sigue siendo `e2e-real.yml` con la imagen, como ya decía
+§29.10. No se cambia ahora: acercarlo exigiría copiar `static/` y `public/` dentro de `.next/standalone`
+a mano, que es más máquina —y más formas de equivocarse— que fidelidad ganada.
+
+---
+
+### 32.11 El hueco que señaló el techlead: la verificación de diales tiene **enforcement de honor**
+
+**El hueco, dicho sin adornos.** El DoD exige que los diales de §32.2 estén resueltos en el entorno. Hoy
+lo único que hay en el pipeline es esto (`.github/workflows/deploy.yml:324-330`):
+
+```yaml
+- name: Recordatorio de secuencia POST-DEPLOY (no automatizada, a propósito)
+  run: |
+    echo "::notice::El deploy NO termina aquí: corre la secuencia post-deploy."
+    echo "::notice::  railway run --service backend --environment production bash scripts/post-deploy.sh"
+```
+
+Un `::notice::` que le pide a un humano que corra `post-deploy.sh`, que a su vez corre el comparador
+(PASO 8). Techlead lo llamó **«una regla normativa con enforcement de honor»**, y tiene razón: **un
+detector que sólo funciona si te acuerdas es indistinguible de uno que no corrió.** Es el mismo criterio
+con el que el arquitecto exigió que la línea de inventario se emita **siempre** — y que aquí no se
+aplicó. Queda anotado como hueco, **no** como diseño.
+
+**La contrapartida real de automatizarlo (por qué no es gratis).** El comparador
+(`scripts/check-graded-estimate-dials.sh`) necesita `ADMIN_JWT` = **bearer de `super_admin`**. Ponerlo en
+CI significa un secreto de GitHub que abre **el rol más privilegiado del sistema** contra producción,
+disponible para cualquier job del workflow. El comparador es solo-lectura, pero **el token no**: con él se
+puede `PUT /admin/settings` cualquier dial (tarifas, topes AML, markup) y disparar jobs de admin. Cambiar
+«el operador debe acordarse» por «hay una llave maestra de prod guardada en CI» **no es obviamente mejor**,
+y no es una decisión que devops tome solo. Por eso hoy sigue manual — pero ahora **por decisión escrita, no
+por inercia**, que es exactamente la diferencia que pedía el techlead.
+
+**Vía barata que SÍ existe y no expone credenciales nuevas (propuesta, no cableada).**
+La línea de inventario de §32.5 se emite **siempre** en el arranque del backend y **ya contiene el
+conjunto divergente completo**, con valor vigente y default. Leerla no necesita JWT de admin: necesita
+acceso a los **logs**, y el workflow **ya tiene `RAILWAY_TOKEN`**:
+
+```bash
+railway logs --service backend --environment production | grep 'config inventory'
+```
+
+Un job post-deploy que haga ese `grep` y publique el conjunto divergente en el *summary* del run
+convierte «si te acuerdas» en «sale siempre», **sin un solo secreto nuevo**. Semántica que propongo, en
+espejo de los códigos del comparador:
+
+| Hallazgo | Acción del job |
+|---|---|
+| Una de las 3 claves está en **el valor exacto del seed viejo** (`null`/`3`/`50`) | **Falla el job.** Es la firma inequívoca del seed rancio (rc=10 del comparador). |
+| Una de las 3 diverge con **otro** valor | **Avisa, no bloquea.** Es una elección plausible del operador: se pregunta, no se pisa (§32.4, rc=20). |
+| No se pudieron leer los logs | **Avisa y lo dice explícitamente: «no concluye».** No se finge verde ni se bloquea por retención de logs. |
+
+**Por qué la dejo propuesta y no cableada, con dos razones y ninguna es pereza:**
+
+1. **No puedo verificarla aquí.** No hay acceso a Railway en este entorno. Cablear en `deploy.yml` un
+   paso que no he visto correr sería repetir el pecado que esta sección denuncia: un detector cuya
+   ejecución se da por supuesta. Se cablea cuando haya una ventana con acceso real para probarlo.
+2. **`deploy.yml` no es el camino de deploy que se usa.** El CD por Actions está **desactivado por
+   defecto** (`workflow_dispatch` only): los deploys reales van por las integraciones nativas
+   push-to-deploy de Vercel/Railway (cabecera de `deploy.yml`, líneas 34-48). Un gate ahí sería
+   enforcement **sobre una vía que casi nadie recorre** — verde de otro color. El punto de enforcement
+   honesto hoy es `post-deploy.sh` (que el operador **sí** corre, y donde el PASO 8 ya está cableado y ya
+   **bloquea el anuncio del release** si `DIALS_RC != 0`).
+
+**La sugerencia del techlead que NO es mía y aquí queda enrutada.** Propuso exponer el conjunto divergente
+**en la UI de M2**, donde el operador ya está, en vez de sólo en logs. Estoy de acuerdo y es la mejor de
+las tres opciones —el operador no tiene que acordarse de nada porque *lo ve*—, pero **es trabajo de
+frontend** (y del backend si hace falta endpoint), no de devops. Queda como hallazgo enrutado a esos
+roles; el dato ya existe y ya es de solo-lectura.
+
+**Estado, para que nadie lo lea como cerrado:**
+
+| | |
+|---|---|
+| **Hueco** | La verificación de diales del DoD no tiene enforcement automático en el camino de deploy. |
+| **Mitigación vigente** | `post-deploy.sh` PASO 8 (cableado, bloquea el anuncio) + línea de inventario del arranque (se emite siempre) + checklist §32.9. |
+| **Contrapartida de cerrarlo del todo** | Un `super_admin` JWT de producción guardado en CI. **Decisión del humano, no de devops.** |
+| **Vía barata propuesta** | Job post-deploy con `railway logs` \| `grep 'config inventory'` — cero secretos nuevos. **Sin cablear** hasta poder probarla contra Railway. |
+| **Mejor solución** | Exponerlo en la UI de M2 (techlead). **Enrutado a frontend/backend.** |
