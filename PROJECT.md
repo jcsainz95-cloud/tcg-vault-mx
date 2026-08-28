@@ -61,7 +61,7 @@
 > de este documento. (1) **Actualizado: el precio del sellado deja de ser "manual-único" y pasa a DERIVADO
 > por spread sobre precio de mercado; TCGCSV pasa de "solo informativa" a ser la BASE del precio de venta del
 > sellado (vía el mapeo curado existente) — decisión del PO, ago-2026.** La precedencia money-safe es:
-> `override manual > (mercado × spread por presentación) > (mercado × spread global de respaldo) > sin precio
+> `override manual > spread por presentación > spread global de respaldo > sin precio
 > ⇒ no se publica (PRICE_PENDING)`. El override manual sigue disponible como **máxima precedencia**. Esto
 > **SOLO aplica al sellado**: para **cartas sueltas (raw/singles) nada cambia** (TCGCSV sigue sin usarse como
 > fuente de su precio). (2) **El sellado es SOLO VENTA** (plataforma→cliente): **no se compra sellado a
@@ -106,6 +106,58 @@
 > arquitecto; NO cambia la matemática fijo/% ni la precedencia money-safe de compra/venta más allá del cambio
 > intencional de T2 a `pct`.** **Bloque LOCKED — listo para el arquitecto.** Los defaults reproducen el
 > comportamiento vigente salvo el cambio intencional de T2.
+> **Requisito v2.0 — PRECIO PURO POR VALOR DE MERCADO (2026-08-24, DECISIONES DEL HUMANO YA TOMADAS —
+> LOCKED, P-48):** el dueño detectó cartas publicadas a **MX$1.31 / MX$3.71** creyendo tener un **piso de
+> MX$15**. La causa raíz fue doble: (a) una regla con `mode: 'fixed'` está **documentada como PISO** —y el
+> editor de M2 la etiqueta literalmente **«Piso (MX$)»**— pero se implementa como **precio absoluto** (nunca
+> se compara contra el mercado), y (b) el eje de **acabado** no consulta la regla del tier de su rareza, así
+> que una variante sin regla propia cae al **`%` de respaldo**. Tras verlo, el humano **amplió el alcance**:
+> en vez de parchar los dos ejes, **se retiran la rareza y el acabado del pricing** y el precio pasa a
+> depender **solo del valor de mercado**, con **UNA curva** por eje:
+> **`venta = redondeo↑( max( piso , mercado × markup(mercado) ) )`** y
+> **`compra = max( bin , mercado × pct(mercado) )`**, con `markup` que **baja** conforme sube el valor y
+> `pct` de compra que **sube**, ambos **interpolados** entre puntos de quiebre (nunca escalonados).
+> Desaparecen los **5 tiers**, el **mapa rareza→tier**, las **reglas por acabado** y la distinción
+> **`fixed` vs `pct`** como modos excluyentes. **La rareza no sale del sistema: sale del PRICING y entra a la
+> VALIDACIÓN** — una carta de rareza **premium** que aterrice **en el piso** **no se publica** (cola de precio
+> pendiente, se escala al dueño), que es el guardarraíl que sustituye al invariante `premium ⇒ pct`. Se suman
+> **bounty revalidado contra la regla vigente** (un bounty por debajo de la tarifa estándar deja de ser
+> bounty), la **escalera de redondeo hacia arriba** ($5 bajo $200 · $10 bajo $500 · $25 arriba) y la
+> **instrumentación** de cada venta y cada compra (mercado del día, precio final, qué lo determinó, acabado y
+> bracket). Se conserva la regla de que **el «Valor de mercado» solo se muestra cuando el mercado fijó el
+> precio**. **Entrega: UN SOLO CAMBIO con etapas verificables y UN SOLO DEPLOY** — el paso intermedio
+> («`fixed` pasa a ser piso» conservando tiers y reglas por acabado) **ya no se entrega por separado**, porque
+> la curva **elimina el modo `fixed`** y ese código se tiraría; sigue siendo cierto como **comportamiento
+> objetivo**, no como fase. **El negocio TODAVÍA NO ESTÁ EN VIVO**: no hay exposición viva que proteger, ni
+> ventas ni cotizaciones reales afectadas. Ver **§N** (nueva), §A, §E.1, §M (superseded), criterios **79–96**
+> y las **Decisiones (v2.0, P-48)** al final. **Bloque LOCKED — listo para el arquitecto.** Dos reglas
+> money-safe quedaron **cerradas por el humano** (ya no son supuestos): **sin dato de mercado ⇒ «precio
+> pendiente»** —no se publica ni se cotiza, el piso **no** gana (§N.2)— y el **guardarraíl aplica a los DOS
+> ejes** (§N.5).
+> **Decisión del dueño 2026-08-24 — SELLADO: son SIETE presentaciones, no cinco (`upc` 18 % · `collection`
+> 22 %):** el dueño **confirmó que vende UPC** (Ultra Premium Collection) y **eligió los dos spreads que
+> faltaban**: **`upc` = 18 %** (es la pieza más grande y cara del catálogo ⇒ mismo % que `box`) y
+> **`collection` = 22 %** (comparable a un ETB ⇒ mismo % que `etb`). Salió a la luz porque un hueco de
+> validación hacía que **no se pudiera capturar una pieza UPC en inventario** ni **fijarle precio** desde M2
+> —ambas presentaciones caían al **global de respaldo (25 %)**, un número que nadie eligió para la pieza más
+> cara que vendemos—; el hueco **ya está corregido**. Lo que faltaba era de **propiedad del documento**: los
+> dos números vivían solo en `docs/API_CONTRACT.md` §M2 y en la semilla del código, mientras **§K seguía
+> enumerando cinco**. Por la **regla de conflicto** (*PROJECT manda sobre el contrato*), el contrato no puede
+> ser el **origen** de un número de negocio: debe **citarlo**. Con esta revisión **§K es el origen único** de
+> la tabla de spreads y enuncia el **criterio que la ordena — «ítem más chico ⇒ % mayor»**; el resto del
+> documento **deja de enumerar presentaciones a mano** y apunta a §K (las copias en prosa son las que se
+> desincronizan, porque ningún test las mira). Tabla completa: **box 18 · etb 22 · bundle 25 · tin 30 ·
+> blister 35 · upc 18 · collection 22**, global de respaldo **25**. **No se cambia ningún número ni el
+> criterio** — esta revisión solo los **registra donde les toca**. Se cierran además dos cosas que salieron
+> del mismo hilo: **(a) regla de negocio firme** — *toda presentación nueva llega con spread elegido a
+> propósito, nunca cae al global en silencio* (era supuesto; el dueño lo confirmó, y es lo que evita repetir
+> lo del UPC vendiéndose meses al 25 % porque nadie lo eligió); y **(b) corrección de REDACCIÓN de la
+> fórmula**: donde el documento decía `mercado × spread` ahora dice **`mercado × (1 + spread)`** — el spread
+> es un **markup ARRIBA del mercado** (caja de mercado MX$2,000 al 18 % ⇒ **MX$2,360**, no MX$360). **Eso NO
+> cambió en agosto de 2026**: el código y el contrato siempre lo hicieron así; era taquigrafía heredada de
+> v1.6 en el texto, y se corrige porque este documento manda sobre el contrato. La **fórmula queda con origen
+> único en §K** y sus citas la referencian en vez de repetirla. Ver **§K**, criterios **3e/18/57/60/60b** y
+> **decisiones 35/35b/35c/35d**.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -117,7 +169,10 @@ lo pide, para completar colecciones sin envíos innecesarios.
 ## Problema que resuelve
 Completar una colección de cartas hoy implica compras dispersas, envíos repetidos y caros, dudas
 de autenticidad/condición y precios opacos. Este marketplace resuelve:
-- **Precio real y transparente**: cada carta muestra un precio de referencia de mercado (commodity).
+- **Precio real y transparente**: el precio de venta se **deriva del valor de mercado** de la carta (§N) y la
+  ficha muestra ese **valor de referencia de mercado** *(actualizado v2.0: se muestra **cuando el mercado fue
+  lo que fijó el precio**; en la zona de **piso** no se muestra, porque ahí el mercado no explica el precio —
+  §N.7)*.
 - **Cero envíos innecesarios**: las cartas compradas viven en la bóveda; el usuario acumula y pide
   el retiro cuando le conviene, pagando un solo envío.
 - **Confianza**: cada carta se autentica una vez al ingresar a la bóveda; se garantiza autenticidad
@@ -165,24 +220,28 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Ficha de carta que distingue **dos valores**: (a) el **valor de referencia/mercado** (la referencia
       del día, es lo que se muestra como "valor de mercado" y se usa para valuar portafolio) y (b) el
       **precio de venta** = **referencia + markup configurable** (dial en M10). El valor de referencia se
-      muestra convertido a MXN, refresco diario. Fuente según tipo de producto (ver "Fuentes de precio" en
-      Restricciones técnicas):
+      muestra convertido a MXN, refresco diario. **Actualizado v2.0 (§N)**: el **precio de venta** deja de
+      derivarse de reglas por rareza/acabado y pasa a la **curva por valor de mercado** (§N.1), y el bloque
+      **"Valor de mercado" solo se muestra cuando el precio publicado lo determinó el MERCADO**; si lo
+      determinó el **piso** o un **override manual**, **no se muestra** (§N.7). Fuente según tipo de producto
+      (ver "Fuentes de precio" en Restricciones técnicas):
       - **raw / singles**: TCGPlayer "Market Price" vía **pokemontcg.io**.
       - **gradeadas (PSA/CGC)**: **PokemonPriceTracker** o **PokeTrace** (free tier), con **override
         manual del admin** siempre disponible como respaldo.
       - **sellado** *(actualizado v1.6)*: **precio de venta DERIVADO del precio de mercado de TCGCSV** (vía
-        el mapeo curado existente), con la precedencia money-safe `override manual > (mercado × spread por
-        presentación) > (mercado × spread global de respaldo) > sin precio ⇒ no se publica (PRICE_PENDING)`.
+        el mapeo curado existente), con la precedencia money-safe `override manual > spread por presentación >
+        spread global de respaldo > sin precio ⇒ no se publica (PRICE_PENDING)` (fórmula en §K).
         TCGCSV es la **base del precio del sellado** (ya no "solo informativa"); el **override manual** sigue
         siendo la máxima precedencia. Ver §K. *(Supersede la decisión previa "sellado = precio manual".)*
 - [ ] Tipos de producto vendibles: **gradeadas (PSA/CGC)** (el **slab** es la garantía: se muestra
       **empresa + grado + número de certificado**, verificable en la web de la graduadora; se captura
-      `certNumber`), **producto sellado** (sets cerrados: booster box, ETB, bundle, tin, blister…) y
+      `certNumber`), **producto sellado** (sets cerrados: booster box, ETB, bundle, tin, blister, **UPC**
+      —Ultra Premium Collection— y colección; las **siete presentaciones** están en §K) y
       **raw en Near Mint (NM)** (**estándar de condición propio**, sin foto). **La ficha usa la imagen de
       catálogo de pokemontcg.io**; el producto no lleva fotos propias.
 - [ ] **Venta de producto sellado** *(actualizado v1.6, ver §K)*: se vende en Compra con **precio de venta
-      DERIVADO** de la referencia TCGCSV por spread (precedencia `override manual > mercado × spread por
-      presentación > mercado × spread global > PRICE_PENDING`); es **solo venta** (plataforma→cliente, **sin
+      DERIVADO** de la referencia TCGCSV por spread (precedencia `override manual > spread por presentación >
+      spread global > PRICE_PENDING`, fórmula en §K); es **solo venta** (plataforma→cliente, **sin
       buylist de sellado**); **sin rareza**, pero **con condición propia** (default Mint, opción "Detalle
       menor en caja"; visible al comprador y **sin efecto en el precio**). Como en Compra solo se lista lo que
       tiene precio, un sellado en **PRICE_PENDING** (sin override y sin spread aplicable) **no se publica**.
@@ -272,6 +331,11 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       - **Reverse Holo**: **MX$1.50** (regla **fijo**)
       - **EX o superior** (Rare Holo EX/GX/V/VMAX/VSTAR, Ultra Rare, Illustration Rare, Special Illustration
         Rare, Hyper Rare, Secret Rare, etc.): **40% del precio de referencia** (regla **porcentaje**)
+      - **⚠ SUPERSEDED por §N (v2.0)**: la cotización **ya no depende de la rareza ni del acabado**. El
+        cotizador sigue igual como **flujo** (el vendedor elige carta y captura acabado, la condición sigue
+        fija en NM), pero el monto sale de la **curva de compra** `max(bin, mercado × pct(mercado))` sobre el
+        **precio de mercado del acabado cotizado**. El acabado **sigue capturándose** porque define **de qué
+        variante** se toma el mercado (§N.4).
 - [ ] **Política de compra NM-only (enfatizada)**: "Solo compramos cartas en **Near Mint (NM)**; si al
       recibir/verificar no está en NM, no se compra." Visible en el **cotizador**, la **guía de envío** y los
       **términos**. Carta recibida no-NM → **rechazo (no se paga)** → devolución según plazos (§H: 7 días,
@@ -295,6 +359,12 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       (Ver soporte AML en "Riesgos y banderas para el humano".)
 
 ### E.1 Precio de buylist por rareza (configurable desde admin) — NUEVO (v1.3)
+> **⚠ SUPERSEDED por §N (v2.0, LOCKED):** el precio de compra **ya no depende de la rareza ni del acabado**.
+> Desaparecen la tabla por rareza, los tiers, las reglas por acabado y la distinción `fixed`/`pct`: queda
+> **una curva por valor de mercado** (`compra = max(bin, mercado × pct(mercado))`, §N.1). Lo único que
+> **sobrevive** de esta sección es el principio money-safe de **«sin dato ⇒ precio pendiente, jamás MX$0 ni
+> precio inventado»** y la **derivación server-side** (SEC-A1). Se conserva abajo como **registro histórico**
+> de por qué el sistema llegó a donde está.
 > **Superseded por §M (v1.9, LOCKED):** el editor pasa de «una regla por **rareza**» a «una regla por **tier**»
 > con un mapa rareza→tier (compra y venta). Lo de abajo describe la mecánica `fixed`/`pct` y money-safe que
 > **sigue vigente** (el `tier` solo decide qué regla aplica a qué rareza); para la taxonomía final ver §M.
@@ -305,6 +375,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Regla por rareza (fijo o porcentaje)**: para **cada rareza** la tabla define una regla con **dos
       naturalezas posibles**, ambas editables desde admin:
       - **FIJO (MX$)**: monto fijo en pesos (caso bulk). **No requiere** precio de referencia → siempre cotiza.
+        *(Retirado en v2.0, §N.1: el modo `fixed` desaparece; su papel lo toma el **bin único de compra**
+        —un solo valor global, no por rareza ni por acabado— dentro de `max(bin, mercado × pct(mercado))`.)*
       - **PORCENTAJE (% de la referencia de mercado)**: se paga un % del **precio de referencia** del día. Si
         la carta **no tiene referencia** → queda **"precio pendiente"** y se escala al dueño (comportamiento
         actual; nunca se descarta).
@@ -362,11 +434,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M2 — Catálogo y precios**: **sync de precios** de las cartas en bóveda desde las fuentes según tipo
       (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; **sellado con precio de
       venta DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K)* — precedencia `override manual >
-      mercado × spread por presentación > mercado × spread global > PRICE_PENDING`), **override manual** de
+      spread por presentación > spread global > PRICE_PENDING`, fórmula en §K), **override manual** de
       precio siempre disponible (máxima precedencia), **editor de spreads del sellado por presentación**
-      (box/etb/bundle/tin/blister + global; ver §K), **cache diario**, **tipo de cambio USD→MXN con colchón**
-      configurable, y **editor de precio de buylist por rareza** (una fila por rareza oficial: **regla fijo/%
-      + valor**, ver §E.1; reemplaza la antigua tabla rareza→categoría). **Sync de catálogo** desde la fuente de referencia (pokemontcg.io):
+      (**las siete presentaciones** + el global de respaldo; la tabla y sus valores viven en **§K**, que es su
+      origen único), **cache diario**, **tipo de cambio USD→MXN con colchón**
+      configurable, y **editor de la curva de precio por valor de mercado** *(v2.0, §N.3 — supersede el editor
+      «por rareza / por tier»)*: **tabla de puntos de quiebre** de venta y compra donde el dueño puede
+      **agregar, mover y borrar** renglones, más **piso**, **bin** y **escalera de redondeo**, con las
+      **validaciones** de §N.3. **Sync de catálogo** desde la fuente de referencia (pokemontcg.io):
       por defecto importa **sets de 2024 en adelante** y permite **backfill** de colecciones anteriores por
       **lotes automatizados** + **importación puntual** de sets; captura las **rarezas modernas** (Art/
       Illustration Rare, Special Illustration Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare,
@@ -466,6 +541,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       inventario vendible** (se segrega/descarta, nunca se pone a la venta).
 
 ### I. Acabado / versión de carta (transversal — NUEVO v1.4)
+> **⚠ Actualizado por §N (v2.0):** el acabado **deja de tener regla de precio propia** — el mapeo «acabado →
+> regla de buylist» de esta sección queda **superseded** por la **curva por valor de mercado** (§N.1), y
+> `finishRules` se retira. **Todo lo demás de §I sigue VIGENTE**: el acabado sigue siendo la **identidad de la
+> variante** (inventario, overrides, bounties, `availableFinishes`, ficha, bóveda, filtros y captura en el
+> cotizador), y el **precio de mercado por acabado** se sigue usando — es precisamente el **`mercado` que
+> alimenta la curva**. **No se elimina el acabado del modelo** (§N.4).
 > Una misma carta del catálogo puede existir en **varios acabados** (versiones de impresión). Hoy el modelo
 > guarda **una sola fila `Card` con un solo `rarity`** y **descarta** los precios por acabado de
 > `tcgplayer.prices` al importar. Se introduce el concepto de **acabado (finish)** como atributo transversal
@@ -617,7 +698,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > un pedido **ya reclamado** no puede vincularse a una segunda cuenta.
 
 ### K. Sellado (producto cerrado) — venta con precio derivado (transversal — NUEVO v1.6)
-> **Qué es**: el **producto sellado** (booster box, ETB, bundle, tin, blister…) se consolida aquí con las
+> **Qué es**: el **producto sellado** (booster box, ETB, bundle, tin, blister, **UPC**, colección — las
+> **siete presentaciones** de la tabla de spreads, abajo) se consolida aquí con las
 > decisiones cerradas del work stream de Sellado (2026-08-19). **SUPERSEDE** dos decisiones previas del
 > documento: (1) "sellado = precio manual único" → ahora el precio es **derivado por spread**; (2) "TCGCSV
 > solo informativa" → ahora TCGCSV es la **base del precio de venta del sellado** (solo del sellado; para
@@ -634,23 +716,92 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       `contacto@tcgvaultmx.com` (dominio `tcgvaultmx.com`); las disputas siguen en `soporte@tcgvault.mx`
       (dominio `tcgvault.mx`). Son propósitos y dominios distintos; ambos son correctos y no se unifican.)*
 
-**Precio de venta derivado (money-safe, server-side)**
+**Precio de venta derivado (money-safe, server-side)** — ⚠️ **ORIGEN ÚNICO de la fórmula**
+> **La fórmula y la precedencia se definen AQUÍ una sola vez.** El resto del documento nombra la
+> **precedencia** (qué regla gana) y **apunta a §K** para la aritmética; **no la repite**. Una fórmula de
+> dinero copiada quince veces es la próxima contradicción esperando — es la misma razón por la que la tabla
+> de spreads también tiene un solo origen.
+
 - [ ] El **precio de venta del sellado** se **deriva del precio de mercado de TCGCSV** (vía el **mapeo curado**
       ya existente entre nuestro producto sellado y el ítem de TCGCSV) con esta **precedencia** estricta:
       1. **override manual** del admin (máxima precedencia; siempre disponible),
-      2. **mercado × spread por presentación** (spread según box/etb/bundle/tin/blister),
-      3. **mercado × spread global de respaldo** (cuando falta el spread por presentación),
+      2. **spread por presentación** ⇒ `precio = mercado × (1 + spread)` con el spread de su presentación
+         (**tabla de spreads**, abajo),
+      3. **spread global de respaldo** ⇒ `precio = mercado × (1 + global)`, cuando no aplica un spread por
+         presentación,
       4. **sin precio** ⇒ el ítem queda en **PRICE_PENDING** y **NO se publica** en Compra.
+- [ ] **El spread es un MARKUP ARRIBA del mercado, no una fracción del mercado.** Con `box` al **18 %**, una
+      caja cuyo mercado es **MX$2,000** se vende en **MX$2,360** (`2,000 × 1.18`) — **no** en MX$360. Es la
+      misma semántica que el markup de venta de las cartas, y es **distinta** de la del buylist (donde el `%`
+      sí es "% de la referencia", §E.1).
+      > **📌 Corrección de REDACCIÓN, no de semántica (2026-08-24, autorizada por el dueño).** Hasta esta
+      > fecha §K y sus citas escribían la fórmula como `mercado × spread`, que leída al pie significa
+      > `mercado × 0.18` — es decir, **vender la caja a MX$360**. Era **taquigrafía heredada de la redacción
+      > de v1.6**: el código (`money.ts`) y el contrato (`API_CONTRACT §M2`, *"markup % ARRIBA de mercado"*)
+      > **siempre** hicieron `mercado × (1 + spread)`. **NO cambió ningún precio, ni el markup, ni la
+      > matemática en agosto de 2026**: lo único que cambió es que el documento rector ahora **dice** lo que
+      > el sistema **siempre hizo**. Se corrige porque `PROJECT.md` manda sobre el contrato (`CLAUDE.md` ›
+      > Regla de conflicto), así que una fórmula mal escrita aquí es la versión que gana.
 - [ ] **TCGCSV es la BASE del precio del sellado** (deja de ser "solo informativa"). Este cambio **aplica
       únicamente al sellado**; el precio de **cartas sueltas (raw/singles)** sigue calculándose como hoy
       (pokemontcg.io/TCGPlayer + markup) y **TCGCSV no se usa como su fuente**.
 - [ ] El precio derivado se **calcula server-side** (no se toma del cliente), consistente con la protección
       anti-manipulación existente (SEC-A1).
 
-**Spreads configurables por presentación (ConfigSetting)**
+**Spreads configurables por presentación (ConfigSetting)** — ⚠️ **ORIGEN ÚNICO de estos números**
+> Esta tabla es **la fuente de verdad** de los spreads del sellado. El contrato (`API_CONTRACT §M2`) y la
+> semilla del código **la citan**; no la originan. Cualquier otra mención en este documento debe **apuntar
+> aquí** en vez de volver a enumerar las presentaciones: las copias en prosa se desincronizan porque
+> ningún test las mira (fue exactamente lo que pasó con `upc` y `collection`, ver abajo).
+
 - [ ] Los spreads son **diales configurables** (ConfigSetting, editables sin deploy y auditados en M10),
-      **uno por presentación** más un **global de respaldo**. **Semillas** (editables por el dueño):
-      **box 18%**, **etb 22%**, **bundle 25%**, **tin 30%**, **blister 35%**, **global 25%**.
+      **uno por presentación** más un **global de respaldo**. Son **siete presentaciones** (no cinco).
+      **Semillas** (editables por el dueño en M2), en esta tabla:
+
+| Presentación | Spread semilla | Origen |
+|---|---|---|
+| `box` (booster box) | **18 %** | v1.6 (2026-08-19) |
+| `etb` (Elite Trainer Box) | **22 %** | v1.6 (2026-08-19) |
+| `bundle` | **25 %** | v1.6 (2026-08-19) |
+| `tin` (lata) | **30 %** | v1.6 (2026-08-19) |
+| `blister` | **35 %** | v1.6 (2026-08-19) |
+| **`upc`** (Ultra Premium Collection) | **18 %** | **decisión del dueño, 2026-08-24** (= `box`) |
+| **`collection`** (caja/set de colección) | **22 %** | **decisión del dueño, 2026-08-24** (= `etb`) |
+| **global de respaldo** | **25 %** | v1.6 (2026-08-19) |
+
+- [ ] **Criterio que ordena la tabla (enunciado, para ubicar cualquier presentación futura): «ítem más chico
+      ⇒ % mayor».** El orden `box 18 < etb 22 < bundle 25 < tin 30 < blister 35` no es arbitrario: en una
+      pieza **grande y cara** un porcentaje gordo se vuelve un **monto absoluto** que mata la venta; en una
+      pieza **barata** hace falta un porcentaje mayor para que el margen absoluto **pague el manejo y el
+      envío**. De ahí salen los dos valores nuevos: un **UPC** es la pieza **más grande y cara** del
+      catálogo ⇒ va con `box` (**18 %**); una **`collection`** es comparable a un **ETB** ⇒ va con `etb`
+      (**22 %**).
+- [ ] **`upc` y `collection` — decisión del dueño del 2026-08-24 (el dueño SÍ vende UPC).** Se registran
+      aquí porque hasta v1.6 este documento solo enumeraba **cinco** presentaciones, y esas dos **caían al
+      global de respaldo (25 %) por omisión** — un número que nadie eligió para la pieza más cara del
+      catálogo. Peor: por un hueco de validación **no se podía capturar una pieza UPC en inventario** ni
+      **fijarle spread** desde M2. El hueco ya está corregido; lo que faltaba era que la **decisión de
+      negocio** viviera en este documento y no solo en el contrato y el seed.
+- [ ] **REGLA DE NEGOCIO (firme, confirmada por el dueño el 2026-08-24) — toda presentación nueva llega con
+      spread elegido a propósito; NUNCA cae al global en silencio.** Agregar una presentación al catálogo
+      **incluye elegirle su spread**: es parte del alta, no un paso opcional. El **global de respaldo es una
+      EXCEPCIÓN explícita**, no el destino de lo que nadie pensó — solo aplica a una pieza **sin presentación**
+      o a una regla que el dueño **retiró deliberadamente**.
+      > **Por qué es regla y no recomendación (razón del dueño):** es exactamente lo que evita que se repita
+      > lo del **UPC**, que llevaba **meses vendiéndose al 25 %** porque **nadie lo eligió** — el default
+      > silencioso no se ve, no duele y no avisa. **La máquina ya lo sostiene**: backend ancló la cobertura de
+      > **todos** los `SealedSubtype` con un test, así que un subtipo nuevo **rompe el test** y obliga a
+      > elegirle spread a propósito. Regla y máquina ya coinciden; esto solo lo deja escrito en el documento
+      > rector.
+      *(SUPUESTO: las etiquetas legibles en español de cada presentación —"lata", "caja de colección"— son
+      del sistema de diseño/UI, no de este documento; aquí solo se fija la llave y su spread.)*
+- [ ] **📌 Nota para ux-ui (próximo ciclo, no bloquea) — choque de nomenclatura con «Collection».** La palabra
+      tiene **dos acepciones no relacionadas** en este producto y ambas van a querer llamarse "Colección" en
+      pantalla: (a) **`collection`**, la **presentación sellada** de esta tabla (una caja/set de colección,
+      spread 22 %), y (b) **"Classic Collection"** de **§L**, que es un **subset de cartas** de un master set
+      multi-parte (Celebrations `cel25c`). Son cosas distintas —producto cerrado vs. agrupación de catálogo— y
+      un filtro o etiqueta ambigua las confundiría. Que ux-ui les fije nombres visibles distintos en el
+      siguiente ciclo; aquí solo queda anotado el riesgo.
 
 **Condición del sellado (no altera el precio)**
 - [ ] El sellado tiene **condición propia** (independiente del NM del raw y del slab de gradeadas): **default
@@ -747,6 +898,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       vista nunca es la fuente de verdad del inventario ni del precio).
 
 ### M. Pricing por tiers — agrupar rarezas en peldaños (transversal — v1.9, P-34, LOCKED)
+> **⚠ SUPERSEDED COMPLETO por §N (v2.0, LOCKED).** Los **5 tiers**, el **mapa rareza→tier**, las **reglas por
+> acabado** y los modos **`fixed`/`pct`** **se retiran**: el precio pasa a depender **solo del valor de
+> mercado** (§N.1). El invariante money-safe de esta sección (**`premium ⇒ pct`**, M.4) queda **sin sentido**
+> y lo **sustituye el guardarraíl de §N.5**: una carta de rareza **premium** que aterrice en el **piso** **no
+> se publica** (cola de precio pendiente). Lo que **sobrevive**: la rareza **canónica** (`rarity-catalog.ts`)
+> y su marca `premium` siguen existiendo como **dato del catálogo** —se usan para el **guardarraíl**, filtros
+> y presentación—, **pero ya no calculan precio**. Los **criterios 73–78** quedan **superseded** por los
+> **79–96**. Esta sección se conserva como **registro histórico** de la taxonomía previa.
 > **Qué es**: reemplazar «**una regla por cada rareza**» por «**una regla por cada `tier`**» y un **mapa
 > rareza canónica → tier**. Hoy el editor de M2 (§E.1) muestra una fila por cada rareza distinta del catálogo
 > sincronizado (~30 tras el sync); el dueño tiene que configurar 30 reglas. Con tiers configura **5** y cada
@@ -785,6 +944,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > Esto **NO** es un bug ni una regresión: es una decisión de negocio para que la banda intermedia se pague a
 > mercado. La money-safety se mantiene: si el `pct` de T2 no tiene referencia de mercado, la carta cae en
 > **«precio pendiente»** (nunca $0, nunca bin fijo).
+> **⚠ Retirado en v2.0 (§N.1)**: esta tabla de tiers **desaparece**. Ninguno de sus valores (T0 $0.50, T1
+> $1.50, T2 25%, T3/T4 40%) sobrevive: los sustituyen el **piso único**, el **bin único** y las **curvas de
+> `markup` y `pct`** por valor de mercado (§N.2).
 > **Alcance compra + venta (LOCKED)**: la misma taxonomía de tiers aplica a **AMBOS** la tabla de **COMPRA**
 > (buylist, `pct` = «% de la referencia») y la de **VENTA** (`computeSalePriceForRarity`, §A/M2, donde `pct` =
 > «markup ARRIBA de mercado»). Es **un** mapa rareza→tier compartido con **dos juegos de valores por tier**
@@ -876,6 +1038,258 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       preserva el bin fijo anterior). Las reglas por-rareza actuales se migran a su tier; las tres rarezas
       `unmapped` (M.3) se seedan a su canónica+tier premium.
 
+### N. Precio puro por valor de mercado (transversal — v2.0, P-48, LOCKED)
+> **Qué es**: el precio de una carta pasa a depender **solo de su valor de mercado**. Se **retiran del
+> pricing la rareza y el acabado**: ya no hay dos ejes, ni precedencia entre ejes, ni mapa de ~30 rarezas → 5
+> tiers, ni `finishRules`. Desaparece también la distinción **`fixed` vs `pct`** como modos excluyentes:
+> queda **UNA curva** por eje de dinero. **§M (tiers) y la tabla por rareza de §E.1 quedan superseded.**
+> **Contexto**: el dueño vio cartas publicadas a **MX$1.31** y **MX$3.71** creyendo tener un **piso de
+> MX$15**. Causa doble: (a) `mode: 'fixed'` está documentado como **PISO** y el editor de M2 lo etiqueta
+> **«Piso (MX$)»**, pero se comporta como **precio absoluto** —devuelve el valor configurado y **nunca lo
+> compara contra el mercado**—; y (b) el eje de **acabado** no consulta la regla del tier de su rareza, así
+> que una variante sin regla propia cae al **`%` de respaldo** y el piso ni siquiera participa. Efecto vivo:
+> una **Common** que vale $400 se **vende en $15** y en **buylist se paga $0.50**; y una carta barata se
+> publica en **$1.31** aunque haya un piso configurado. El invariante «premium ⇒ `pct`» (§M.4) no tapa nada de
+> esto, porque **Common no es premium**.
+> **Por qué se amplió el alcance**: parchar los dos ejes (hacer que `fixed` sea piso de verdad) **arregla solo
+> la mitad** y deja en pie la complejidad que produjo el error. La curva por valor de mercado elimina la clase
+> entera de bugs: no hay reglas que resolver, no hay ejes que se pisen, no hay rarezas sin mapear.
+> **El negocio todavía NO está en vivo**: no hay ventas ni cotizaciones de clientes reales afectadas, así que
+> **no hay exposición viva que proteger**, no se requiere migración de dinero ni comunicación a clientes, y
+> **no hace falta entregar el paso intermedio por separado** (ver N.9).
+> **Alcance de esta feature**: la **matemática del precio** de **cartas sueltas** (raw **y gradeadas**) en sus
+> dos ejes de dinero (venta y compra/buylist), el **editor** que la configura, el **guardarraíl** de
+> validación, la **revalidación del bounty**, la **regla de visibilidad** del valor de mercado en la ficha, y
+> la **instrumentación** de cada operación. El **cómo** (schema, migración, nombres de campos, forma del
+> contrato) lo define el **arquitecto**.
+
+**N.0 — Principio de sesgo de error (gobierna toda decisión de precio, presente y futura)**
+- [ ] **Precio de más = venta perdida (recuperable); precio de menos = carta perdida (irrecuperable).** Una
+      carta publicada cara no se vende hoy y se puede rebajar mañana; una carta vendida barata o comprada
+      barata **ya no vuelve**. Por eso **toda regla de precio se sesga hacia el primer error**: ante empate o
+      duda entre dos precios, gana el más alto en venta y el más alto en compra. Este principio es **norma de
+      producto**, no una preferencia estética: cualquier regla futura de pricing debe poder justificarse
+      contra él.
+
+**N.1 — La curva única: el precio sale del valor de mercado (LOCKED)**
+> Un solo cálculo por eje, sin rareza, sin acabado, sin tiers y sin modos excluyentes:
+>
+>     venta  = redondeo↑( max( piso , mercado × markup(mercado) ) )
+>     compra =            max( bin  , mercado × pct(mercado)    )
+>
+- [ ] **`markup(mercado)` BAJA conforme sube el valor** (margen grueso en cartas baratas, delgado en cartas
+      caras) y **`pct(mercado)` de compra SUBE** (se paga proporcionalmente más por lo que vale más).
+- [ ] **Interpolación obligatoria, nunca escalones**: entre dos puntos de quiebre el valor se **interpola**
+      (lineal). **Prohibido** un tramo plano/escalonado: un escalón produce **saltos de precio** entre dos
+      mercados casi iguales y, **arriba de ~$25 de mercado, es matemáticamente imposible sin vender por
+      debajo del mercado**. Los tramos **antes del primer punto y después del último** sí son planos (se
+      extiende el valor del extremo).
+- [ ] **El piso y el bin son ÚNICOS y globales**: **un** piso de venta y **un** bin de compra para todo el
+      catálogo de cartas — **no** por acabado, **no** por rareza, **no** por tier. El humano **aceptó
+      explícitamente** que quitar el piso diferenciado por acabado cuesta **~2% de utilidad** y **no vale su
+      complejidad**.
+- [ ] **El redondeo hacia arriba aplica SOLO a la venta** (N.2). La **compra no se redondea**.
+- [ ] **Derivación server-side (SEC-A1) intacta**: el mercado y el precio se derivan **siempre en el backend**
+      a partir del dato real de la variante; **nunca** del DTO del cliente.
+- [ ] **Money-safe**: el precio **jamás se inventa**. **Sin dato de mercado no hay curva y no hay piso: la
+      variante queda en «precio pendiente»** (N.2), y el **guardarraíl** de N.5 cubre el caso del dato **malo**
+      (presente pero corrupto).
+- [ ] *(Comportamiento objetivo que esta curva absorbe)*: el **piso es piso de verdad** (el `max` lo garantiza
+      en los dos ejes) y **la compra sube donde el mercado supera el bin** —una Common de $400 deja de
+      recibir $0.50—. Eso **ya no se entrega como fase aparte**: llega dentro de la curva (N.9).
+
+**N.2 — Diales iniciales y escalera de redondeo (LOCKED; son DIALES, no constantes de código)**
+> Todos estos valores son **calibrables desde admin** (N.3), **en MXN**, y **arrancan** así:
+
+| Dial | Valor inicial |
+|---|---|
+| **Piso de venta** | **MX$25** (único, global) |
+| **Curva de `markup` (venta)** | **1.60×** hasta **$25** de mercado → **baja lineal** hasta **1.15×** en **$80** → **1.15×** de ahí en adelante |
+| **Bin de compra** | **MX$1** (único, global) |
+| **Curva de `pct` (compra)** | **30%** hasta **$25** → **40%** en **$100** → **50%** en **$500** → **50%** de ahí en adelante |
+| **Redondeo↑ de venta (decisión 5)** | múltiplo de **$5** por debajo de **$200** · **$10** por debajo de **$500** · **$25** de ahí en adelante |
+
+- [ ] **El paso de $5 llega hasta $200, no hasta $100** *(decisión 5, corrección explícita)*: con la escalera
+      anterior, un mercado de **$86** producía **$100** y uno de **$87** producía **$110** — un **brinco
+      injustificado** por cruzar el umbral. Con $5 hasta $200, **$87 ⇒ $105**.
+- [ ] **Ejemplos de referencia (con los diales iniciales; sirven de prueba de mesa)**:
+      mercado **$1.14 ⇒ venta $25** (gana el piso) · **$25 ⇒ $40** · **$50 ⇒ $70** (markup interpolado
+      ≈1.3955 ⇒ 69.77 ⇒ ↑$5) · **$80 ⇒ $95** (92 ⇒ ↑$5) · **$86 ⇒ $100** · **$87 ⇒ $105**.
+      Compra: mercado **$0.50 ⇒ $1** (gana el bin) · **$10 ⇒ $3** · **$25 ⇒ $7.50** · **$100 ⇒ $40** ·
+      **$300 ⇒ $135** (pct interpolado 45%) · **$500 ⇒ $250**.
+- [ ] *(SUPUESTO — confirmar, ver preguntas abiertas v2.0)*: **la banda de redondeo la decide el monto de
+      venta ANTES de redondear**, y se elige **una sola vez** (si el redondeo cruza el umbral, no se
+      re-evalúa). Bandas: `< $200` ⇒ $5; `$200 ≤ x < $500` ⇒ $10; `≥ $500` ⇒ $25.
+- [ ] **SIN DATO DE MERCADO ⇒ «PRECIO PENDIENTE» (LOCKED — decidido por el humano, money-safe):** si la
+      variante **no tiene precio de mercado**, **no se publica y no se cotiza**. **El piso NO gana**: sin
+      mercado no hay curva, y el piso **no** actúa como precio de respaldo. La variante entra a la **cola de
+      precio pendiente** y se **escala al dueño**, en venta **y** en compra. **Nunca MX$0, nunca un precio
+      inventado.**
+- [ ] **Por qué el piso no puede rescatar a una carta sin dato** *(razón que gobierna, conviene tenerla
+      escrita)*: el único filtro que quedaría para atrapar el error sería el **guardarraíl**, y el guardarraíl
+      **se apoya en la rareza** — justamente **el proxy malo que este cambio retira del pricing**. Atraparía
+      una **Secret Rare** con dato corrupto, pero **no** una **Common de $400 sin dato**, que se publicaría
+      **al piso de $25**. Eso sería **reabrir el hueco exacto que esta feature cierra** (§N contexto: la
+      Common de $400 vendida en $15). Por eso el respaldo ante la **ausencia** de dato es **detenerse**, no
+      poner un número.
+- [ ] **Ojo con la diferencia (no confundir los dos casos)**: **dato AUSENTE ⇒ precio pendiente** (esta
+      regla); **dato PRESENTE pero malo** (aplanado, absurdo, demasiado bajo) ⇒ la curva sí calcula y puede
+      aterrizar en el **piso**, y ahí es donde actúa el **guardarraíl** de N.5.
+
+**N.3 — La tabla de puntos se edita desde admin (LOCKED — requisito explícito del humano)**
+- [ ] **Agregar, mover y borrar renglones**: el súper-admin administra los **puntos de quiebre** de las dos
+      curvas (`markup` de venta y `pct` de compra) desde el back-office: puede **añadir** un punto nuevo,
+      **moverlo** (cambiar su mercado o su valor) y **borrarlo**. **NO es una estructura fija de N puntos**:
+      la curva es tan fina o tan gruesa como el dueño quiera.
+- [ ] **Sin redeploy y auditado** (M10), como el resto de los diales; un cambio **repricia** todo lo afectado
+      en el siguiente cálculo.
+- [ ] **Validaciones que el sistema debe imponer al guardar** (money-safe; si algo falla, **no se guarda** y
+      el error dice **qué punto** lo rompe):
+      - la **curva de venta resultante es monótona creciente** — más mercado **nunca** produce menos precio;
+      - la **compra siempre queda por debajo de la venta** en todo el rango;
+      - **ningún precio de venta cae por debajo del mercado**.
+- [ ] También son editables el **piso**, el **bin** y la **escalera de redondeo**.
+
+**N.4 — Qué sale del pricing y qué NO se toca (leer con cuidado)**
+- [ ] **Sale del pricing: la RAREZA.** Ningún cálculo de precio la consulta. **No desaparece del sistema**:
+      la rareza canónica y su marca `premium` siguen existiendo como **dato del catálogo** y se usan para el
+      **guardarraíl** (N.5), los **filtros** y la **presentación**.
+- [ ] **Sale del pricing: el ACABADO.** Ya no existe una **regla de precio por acabado** (`finishRules`).
+      **⚠ El acabado NO se elimina del modelo**: sigue siendo la **identidad de la variante**. Siguen siendo
+      **por acabado** el **inventario**, los **overrides**, los **bounties** y `availableFinishes`, y la ficha
+      y la bóveda **siguen mostrando** el acabado. Lo único que desaparece es que el acabado **tenga regla de
+      precio propia**. *(Se redacta así de explícito para que nadie interprete «el acabado sale del pricing»
+      como «bórrese el acabado del modelo».)*
+- [ ] **Aplica igual a raw y a GRADEADAS** (confirmado por el humano): misma curva, mismo piso, mismo bin. El
+      **slab** sigue siendo la garantía de condición (§H) y la **fuente** de su precio de mercado sigue siendo
+      la suya (§«Fuentes de precio»); lo que cambia es **cómo se convierte ese mercado en precio**.
+- [ ] **El SELLADO NO cambia**: conserva su **spread por presentación** (§K) — precedencia `override manual >
+      spread por presentación > spread global > PRICE_PENDING`, con **la fórmula y las semillas de §K** (las
+      **siete** presentaciones + global de respaldo). El sellado **no entra a la curva**.
+- [ ] **Tampoco cambian**: el resto de §K, la **bóveda/portafolio** y su valuación (§C), el **cotizador** como
+      flujo (§E), la política de **«precio pendiente»** (§H) ni la **derivación server-side** (SEC-A1).
+
+**N.5 — Guardarraíl: la rareza sale del pricing y entra a la VALIDACIÓN (LOCKED)**
+> Sustituye al invariante **`premium ⇒ pct`** de §M.4, que con la curva **queda sin sentido** (ya no hay
+> modos). Sin guardarraíl, **un dato de mercado malo en una carta cara la vendería al piso**, que es
+> exactamente la **pérdida irreversible** que el principio de N.0 manda evitar.
+- [ ] **Regla — aplica a los DOS EJES (LOCKED, confirmado por el humano; ya no es supuesto)**: si una carta
+      de **rareza premium** (catálogo canónico de rarezas) **aterriza en el piso o en el bin**:
+      - **VENTA**: **no se publica** — entra a la **cola de precio pendiente** y se **escala al dueño**;
+      - **COMPRA**: **no se cotiza** — misma cola, mismo escalado (ofrecer el bin de $1 por una chase es
+        **pagar de menos = carta perdida**, la pérdida irreversible de N.0).
+      En ambos casos se libera cuando el **siguiente barrido** corrija el dato de mercado (o el dueño fije el
+      precio a mano).
+- [ ] **Por qué funciona**: que una chase resuelva al **piso/bin** solo puede significar que **su dato de
+      mercado está mal** (aplanado, absurdo o demasiado bajo). El guardarraíl convierte un error de dinero
+      silencioso en una **cola visible**.
+- [ ] **Qué NO cubre el guardarraíl (por eso existe la regla de N.2)**: el caso del **dato ausente**. El
+      guardarraíl **se apoya en la rareza**, que es el **proxy malo** que este cambio retira del pricing:
+      atraparía una Secret Rare con dato corrupto, pero **dejaría pasar una Common de $400 sin dato**
+      publicándola al piso. Por eso la **ausencia** de dato se resuelve **antes**, con «**precio pendiente**»
+      para **todas** las rarezas (N.2), y el guardarraíl solo se ocupa del **dato presente pero malo**.
+- [ ] **Volumen esperado**: medido sobre un **master set completo**, ≈ **3 cartas de 333**. **No es una alarma
+      ruidosa** y por eso puede bloquear publicación y cotización sin entorpecer la operación.
+
+**N.6 — Precedencia, override y bounty revalidado (decisión 4, LOCKED)**
+- [ ] **Precedencia de VENTA**: `override por pieza > override de variante > curva (piso / mercado) >
+      precio pendiente`.
+- [ ] **Precedencia de COMPRA**: `bounty válido > override de compra > curva (bin / mercado) >
+      precio pendiente`.
+- [ ] **El override manual de compra SIGUE SIENDO ABSOLUTO**: puede quedar **por debajo** de la regla vigente
+      —es una **decisión deliberada del admin** para esa variante— y **NO se convierte en piso**. Lo mismo
+      aplica a los overrides de venta.
+- [ ] **Qué es el bounty (contexto de negocio)**: es la **sección de ofertas** del dueño para **animar a la
+      gente a vender**. Vive en la **escala de COMPRA** (30–50% del mercado) y por definición está **siempre
+      por debajo del mercado**: **nunca se compara contra el mercado**, solo **contra la regla de compra**.
+      Ya existe (variante + cupo `bountyTargetQty` + vitrina en Home y en Vender + precedencia #1 en compra +
+      guard `BOUNTY_BELOW_RULE` al crear).
+- [ ] **El hueco que se cierra**: hoy `BOUNTY_BELOW_RULE` se valida **solo al crear**. Si después **sube el
+      mercado** y la regla estándar **rebasa** al bounty, la «oferta» publicada **paga MENOS que la tarifa
+      normal** y aun así **sigue publicada y ganando la precedencia**.
+- [ ] **Regla nueva**: un bounty **por debajo de la regla vigente deja de ser bounty**:
+      - **no aplica en la cotización** (se paga la regla estándar),
+      - **no se publica en la vitrina** (ni Home ni Vender),
+      - **genera alerta en el binder** para que el dueño lo actualice.
+      Se valida **al CREAR, al COTIZAR y al PUBLICAR** (las tres, no solo la primera).
+- [ ] **Efecto buscado**: **el número publicado es exactamente lo que se paga**, y **todo lo que aparece en la
+      vitrina es por definición mejor que la tarifa estándar**.
+
+**N.7 — «Valor de mercado» solo se muestra cuando el mercado fijó el precio (decisión 2, LOCKED)**
+- [ ] **Regla (solo lado VENTA)**: en la ficha de producto, el bloque **«Valor de mercado»**
+      - **se muestra** si el precio publicado lo determinó el **mercado**;
+      - **NO se muestra** si el precio publicado lo determinó el **piso** (el piso ganó el `max`) **ni** si lo
+        determinó un **override**.
+- [ ] **Por qué**: en zona de piso el mercado **no fue lo que produjo el precio**, así que el número **no
+      explica nada**. Con un piso alto, mostrar «venta $25 / mercado $1.14» publica un **múltiplo de 22×**
+      sin informar al comprador.
+- [ ] **No se muestra = no aparece**: nada de mostrarlo en cero, tachado, atenuado o como «—». El bloque
+      **desaparece** de la ficha; el precio de venta queda como el único número de esa zona.
+- [ ] **Aplica SOLO a la ficha** (respuesta del humano): la **ficha de carta** (Compra) y la **ficha/ventana
+      de sellado**. Las **tejas y listados no muestran** valor de mercado hoy **y no van a mostrarlo**. Para
+      el **sellado**, la regla se traduce así: precio derivado por **spread sobre mercado** ⇒ **se muestra**;
+      precio fijado por **override manual** ⇒ **no se muestra** (§K).
+- [ ] **Empate ⇒ se muestra**: si `piso == mercado × markup`, el precio se considera **determinado por el
+      mercado** y el valor de mercado **sí** se muestra. (Desempate fijado para que la regla sea determinista
+      y verificable.)
+- [ ] **La señal la produce el backend — `priceBasis` (respuesta del humano: SÍ se necesita)**: el sistema
+      **registra y expone server-side qué determinó el precio**, con estos valores:
+      **`mercado` / `piso` / `override` / `bounty` / `pendiente`**. La UI **no infiere** nada comparando
+      números en pantalla: **obedece** ese dato. Es lo que hace **visible el guardarraíl** (N.5) y lo que
+      permite **detectar pisos mal calibrados** desde el back-office. *(El nombre exacto y la forma del campo
+      los define el arquitecto.)*
+- [ ] **Qué NO cambia**:
+      - el **cotizador de buylist** sigue **sin** mostrar valor de mercado (solo lo menciona en el
+        subtítulo) — **no se toca**;
+      - la **bóveda / portafolio del cliente NO cambia**: ahí el cliente ve el **valor de mercado de lo que ya
+        posee**, y eso es correcto y deseable (valuación, gráfica de tendencia y §C intactos);
+      - una carta en **«precio pendiente»** sigue **sin publicarse** en Compra (§A) y el comprador **nunca**
+        ve ese estado — y bajo la curva llegan ahí **dos casos**: **sin dato de mercado** (N.2, cualquier
+        rareza) y **premium aterrizando en el piso/bin** (N.5);
+      - el **precio cobrado** no cambia por esta regla: es una regla de **presentación**, no de dinero.
+
+**N.8 — Instrumentación: medir para poder calibrar (requisito nuevo, LOCKED)**
+> **Por qué**: hoy **no se puede contestar «¿qué tan rápido rota cada bracket?»**, y ese es justamente el dato
+> que falta para **calibrar la curva con realidad en vez de con supuestos**. Los valores de N.2 son un punto
+> de partida informado, no una verdad: sin medición no hay forma de saber si el 1.60× de la banda baja frena
+> las ventas o si el 1.15× de la banda alta deja utilidad en la mesa.
+- [ ] **Cada VENTA y cada COMPRA registran**: **mercado del día**, **precio final**, **qué lo determinó**
+      (`priceBasis`, N.7), **acabado** y **bracket de mercado**.
+- [ ] El registro debe permitir **agregar por bracket** para responder preguntas de rotación y margen
+      («cuánto vendí, a qué velocidad y con qué margen en cada bracket»), y es la entrada de la **calibración
+      futura** de la curva.
+- [ ] Es un **requisito de producto**, no una métrica de vanidad: sin él, cada ajuste de la curva vuelve a ser
+      una corazonada.
+
+**N.9 — Entrega: UN SOLO CAMBIO, con etapas verificables (LOCKED)**
+- [ ] **No se despliegan por separado** el paso intermedio («`fixed` pasa a ser piso real en los dos ejes»,
+      conservando tiers y reglas por acabado) ni la regla de visibilidad. **Se funden con la curva en un solo
+      cambio con etapas verificables y UN SOLO DEPLOY.**
+- [ ] **Por qué**: (a) **no hay exposición viva que proteger** —el negocio no está en vivo—, y (b) la curva
+      **elimina el modo `fixed` por completo**, así que el código del paso intermedio **se tiraría**. Sigue
+      siendo cierto como **comportamiento objetivo** (el piso es piso; la compra sube donde el mercado supera
+      el bin), pero **deja de ser una fase entregable**.
+- [ ] **Se retira del producto (sin residuos)**: los modos **`fixed`/`pct`** como reglas excluyentes, los **5
+      tiers**, el **mapa rareza→tier**, las **reglas por acabado** (`finishRules`) y la **pantalla de M2** que
+      los editaba — junto con su **texto falso** («Sin regla propia, el acabado hereda la del tier de su
+      rareza» y el placeholder «Hereda tier»), que **desaparece con la pantalla** en vez de corregirse. En su
+      lugar queda el **editor de la tabla de puntos** (N.3).
+- [ ] **Migración de datos y cambio de contrato**: los hay, y los diseña el **arquitecto**. Como no hay dinero
+      vivo, la migración **no requiere ventana de riesgo**; sí requiere que el **catálogo quede repriciado por
+      completo** antes de publicar (ninguna variante puede quedar con precio calculado con la lógica vieja).
+
+**N.10 — Fuera de alcance de v2.0**
+- [ ] **Sellado por curva**: el sellado conserva su spread por presentación (§K). Migrarlo a la curva sería
+      otra decisión.
+- [ ] **Piso o bin diferenciados por acabado**: **descartado explícitamente por el humano** (cuesta ~2% de
+      utilidad y no vale su complejidad). No se implementa «por si acaso».
+- [ ] **Curvas distintas por rareza, por acabado o por set**: la rareza y el acabado **salieron** del pricing;
+      volver a meterlos por otra puerta contradice la decisión.
+- [ ] **Calibración automática de la curva** a partir de la instrumentación (N.8): en v2.0 el dato **se
+      recolecta** y la calibración es **manual** (el dueño mueve los puntos). Un ajuste automático sería fase
+      posterior.
+- [ ] **Convertir el override manual en piso**: descartado (N.6) — el override es absoluto por diseño.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
 - **Order-book / trading instantáneo** (compra/venta digital tipo bolsa dentro de la bóveda).
@@ -923,6 +1337,19 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Auto-detección de pares padre→subset** *(v1.7, §L)*: en el MVP el mapa padre→subset es **curado/explícito**
   (se declara y se extiende a mano). Inferir automáticamente qué set-ids son subset de cuál (por naming, fecha
   o heurística) queda fuera de alcance.
+- **Sellado por curva de valor de mercado** *(v2.0, §N.10)*: el **sellado conserva su spread por
+  presentación** (§K: `override > spread por presentación > spread global > PRICE_PENDING`, con la fórmula y
+  las semillas de **§K** — siete presentaciones + global). Migrarlo a la
+  curva de §N sería **otra decisión**, no entra en v2.0.
+- **Piso o bin diferenciados por acabado** *(v2.0, §N.10)*: **descartado explícitamente por el humano** —
+  cuesta **~2% de utilidad** y **no vale su complejidad**. El piso de venta y el bin de compra son **únicos y
+  globales**.
+- **Curvas de precio distintas por rareza, acabado o set** *(v2.0, §N.10)*: la rareza y el acabado **salen del
+  pricing** (§N.4); reintroducirlos como eje de precio por otra puerta contradice la decisión.
+- **Calibración automática de la curva** *(v2.0, §N.10)*: en v2.0 la instrumentación (§N.8) **recolecta** el
+  dato y el dueño **mueve los puntos a mano**. Que el sistema ajuste la curva solo es fase posterior.
+- **Herencia «acabado → regla del tier de su rareza»** *(v2.0)*: **superada** — con la curva **no hay tier del
+  cual heredar**; la pantalla que lo prometía se retira (§N.9).
 
 ## Restricciones y preferencias técnicas
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
@@ -933,12 +1360,35 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Precio de venta vs valor de mercado**: el **valor de referencia/mercado** (mostrado y usado para valuar
   portafolio) es la referencia del día; el **precio de venta** que se cobra es **referencia + markup
   configurable** (dial en M10).
+- **Precio de cartas = curva por valor de mercado** *(v2.0, §N.1, supersede el pricing por rareza/tier)*:
+  `venta = redondeo↑(max(piso, mercado × markup(mercado)))` y `compra = max(bin, mercado × pct(mercado))`, con
+  `markup` decreciente y `pct` creciente, **interpolados** entre puntos de quiebre (**nunca escalonados**).
+  **Piso y bin únicos y globales** (no por rareza ni por acabado). Diales iniciales (MXN, calibrables):
+  **piso $25**; **markup 1.60× ≤$25 → 1.15× en $80 → plano**; **bin $1**; **pct 30% ≤$25 → 40% en $100 → 50%
+  en $500 → plano**; **redondeo↑ $5 <$200 · $10 <$500 · $25 arriba**. Aplica a **raw y gradeadas**; el
+  **sellado no** (§K). La **rareza sale del pricing y entra a la validación** (§N.5) y el **acabado sigue
+  siendo identidad de variante** aunque ya no tenga regla de precio (§N.4).
+- **Tabla de puntos editable desde admin** *(v2.0, §N.3)*: se pueden **agregar, mover y borrar** renglones
+  (no es una estructura fija de N puntos), sin redeploy y auditado; con **validaciones** que rechazan una
+  curva de venta no monótona, una compra ≥ venta o un precio de venta por debajo del mercado.
+- **`priceBasis` — qué determinó el precio** *(v2.0, §N.7)*: el backend **registra y expone**
+  `mercado / piso / override / bounty / pendiente` por variante. Alimenta la regla de visibilidad, el
+  guardarraíl y la detección de pisos mal calibrados; **no se infiere en el cliente**.
+- **Visibilidad del «valor de mercado»** *(v2.0, §N.7)*: del lado de **venta** (**solo** ficha de carta y
+  ficha de sellado; no tejas ni listados) el valor de mercado **solo se muestra cuando el mercado determinó
+  el precio publicado**; si lo determinó el **piso** o un **override**, no se muestra. La **bóveda/portafolio
+  del cliente no cambia** y el **cotizador de buylist tampoco**.
+- **Bounty revalidado contra la regla vigente** *(v2.0, §N.6)*: un bounty por debajo de la regla de compra
+  vigente **deja de ser bounty** (no aplica en cotización, no se publica, alerta en el binder); se valida
+  **al crear, al cotizar y al publicar**. El **override manual de compra sigue siendo absoluto**.
+- **Instrumentación de dinero** *(v2.0, §N.8)*: cada venta y cada compra registran **mercado del día, precio
+  final, qué lo determinó, acabado y bracket de mercado**, para poder calibrar la curva con datos.
 - **Fuentes de precio (MVP = 100% free tier)**, tras un **`PricingProvider` intercambiable**:
   | Tipo de producto | Fuente primaria | Respaldo |
   |---|---|---|
   | raw / singles | TCGPlayer "Market Price" vía **pokemontcg.io** | override manual del admin |
   | gradeadas (PSA/CGC) | **PokemonPriceTracker** (free 100/día) o **PokeTrace** (free 250/día) | override manual del admin |
-  | sellado *(actualizado v1.6, §K)* | **precio DERIVADO de TCGCSV** (mercado × spread por presentación) vía mapeo curado | **override manual del admin** (máxima precedencia); sin spread aplicable ⇒ **PRICE_PENDING** (no se publica) |
+  | sellado *(actualizado v1.6, §K)* | **precio DERIVADO de TCGCSV** (spread por presentación; fórmula en §K) vía mapeo curado | **override manual del admin** (máxima precedencia); sin spread aplicable ⇒ **PRICE_PENDING** (no se publica) |
   - Solo se prician las cartas **en bóveda** (no el catálogo completo) + **cache diario**, para que el free
     tier alcance. **PriceCharting no se usa en el MVP.** **TCGCSV es fuente de precio SOLO del sellado**; para
     raw/singles no cambia nada (sigue pokemontcg.io/TCGPlayer).
@@ -993,9 +1443,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Sección de compra = "Compra"** (antes "Catálogo"): muestra el **inventario propio publicado** a la venta;
   solo se lista lo que tiene **precio de venta fijado** (nunca "precio pendiente" al comprador).
 - **Precio del sellado** *(actualizado v1.6, §K)*: **DERIVADO del precio de mercado de TCGCSV** por spread,
-  con precedencia `override manual > mercado × spread por presentación > mercado × spread global >
-  PRICE_PENDING`. Spreads configurables (ConfigSetting, M10): box 18% / etb 22% / bundle 25% / tin 30% /
-  blister 35% / global 25%. **Solo venta (sin buylist de sellado)**; **condición propia** (default Mint /
+  con precedencia `override manual > spread por presentación > spread global > PRICE_PENDING`. Spreads
+  configurables (ConfigSetting, M10), **uno por cada una de las siete presentaciones + global de respaldo**:
+  la **fórmula** (`mercado × (1 + spread)`, markup arriba del mercado), la tabla de valores y el criterio que
+  la ordena («ítem más chico ⇒ % mayor») viven en **§K**, que es su origen único. **Solo venta (sin buylist de sellado)**; **condición propia** (default Mint /
   "Detalle menor en caja") **sin efecto en el precio**. *(Supersede "sellado = precio manual" y "TCGCSV solo
   informativa" — decisión del PO, ago-2026.)*
 - **Branch de trabajo**: `claude/tcg-cards-marketplace-oijthj`.
@@ -1003,6 +1454,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 
 ## Criterios de aceptación
 > QA usa esto como checklist. Cada criterio debe ser verificable.
+> **⚠ Actualización v2.0 (P-48):** los criterios que describen el precio por **rareza / tier / acabado** quedan
+> **SUPERSEDED** por los **79–96** (§N, precio puro por valor de mercado): **12, 12b, 12c, 13**, la parte de
+> *precio* de **38**, **43** y **73–78**. **QA no los verifica**; se conservan como registro histórico. De
+> ellos **sigue vigente**: la **derivación server-side** (SEC-A1), el principio «**sin dato ⇒ precio
+> pendiente, jamás MX$0 ni precio inventado**», y que el cotizador **captura el acabado** (ahora para saber
+> **de qué variante** tomar el precio de mercado, no para elegir regla).
 
 **Catálogo y precio**
 1. En la sección **Compra**, un visitante navega **nuestro inventario publicado a la venta** y filtra por
@@ -1014,8 +1471,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 2. Una ficha muestra el precio de referencia en MXN (sin IVA) según la fuente que corresponde a
    su tipo de producto —pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas (con
    override manual como respaldo); el **sellado** lleva **precio de venta DERIVADO de TCGCSV por spread**
-   *(actualizado v1.6)* con la precedencia `override manual > mercado × spread por presentación > mercado ×
-   spread global > PRICE_PENDING`—, con fecha del último refresco; el refresco (cache diario) ocurre al menos
+   *(actualizado v1.6)* con la precedencia `override manual > spread por presentación > spread global >
+   PRICE_PENDING` (fórmula en §K)—, con fecha del último refresco; el refresco (cache diario) ocurre al menos
    una vez al día y solo cubre las cartas/ítems en bóveda.
 2b. La ficha de Compra muestra la **imagen de catálogo de pokemontcg.io** (remota) y **no muestra fotos
    propias** de la carta; no existe subida de imágenes de producto en ningún flujo del MVP.
@@ -1037,9 +1494,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    NM"**; una carta recibida que **no es NM** se **rechaza (no se paga)** y se devuelve según plazos (7 días,
    **a costo del usuario**; abandono a 30 días), y una carta **abandonada no-NM NO entra al inventario
    vendible**.
-3e. El **producto sellado** (booster box, ETB, bundle, tin, blister…) se vende en Compra con **precio de venta
+3e. El **producto sellado** (las **siete presentaciones** de §K: booster box, ETB, bundle, tin, blister, **UPC**
+   y colección) se vende en Compra con **precio de venta
    DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K y criterios 57–64)*: la precedencia es `override
-   manual > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, y un ítem en
+   manual > spread por presentación > spread global > PRICE_PENDING` (fórmula en §K), y un ítem en
    **PRICE_PENDING** (sin override y sin spread aplicable) **no se publica**. El sellado es **solo venta (sin
    buylist)**, **no lleva rareza**, y **sí lleva condición propia** (default Mint / "Detalle menor en caja",
    visible y sin efecto en el precio).
@@ -1113,9 +1571,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 18. En M2 se puede sincronizar precios de las cartas en bóveda desde la fuente que corresponde a cada tipo
     (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; el **sellado** se pricia
     **derivado de TCGCSV por spread** *(actualizado v1.6)*), hacer **override manual** siempre (máxima
-    precedencia), **editar los spreads del sellado por presentación** (box/etb/bundle/tin/blister + global),
-    y configurar el **tipo de cambio USD→MXN con colchón**, el **editor de precio de buylist por rareza**
-    (regla fijo/% + valor, ver §E.1) y el **`PricingProvider`** por tipo de producto.
+    precedencia), **editar los spreads del sellado de las siete presentaciones de §K + el global de respaldo**
+    (ninguna presentación soportada puede quedar fuera del editor),
+    y configurar el **tipo de cambio USD→MXN con colchón**, el **editor de la curva de precio por valor de
+    mercado** *(v2.0, §N.3: tabla de puntos con agregar/mover/borrar + piso + bin + redondeo; supersede el
+    editor por rareza/tier — ver criterios 86–87)* y el **`PricingProvider`** por tipo de producto.
 19. En M3 una orden refleja los estados `pending/settled/fallida/reembolsada/contracargo` con desglose
     que incluye la **línea de Stripe**, y el súper-admin puede emitir un **reembolso**.
 20. En M4 existe una **lista de picking ordenada por ubicación**.
@@ -1255,19 +1715,29 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 
 **Sellado (producto cerrado) — v1.6**
 57. El **precio de venta del sellado** se **deriva de TCGCSV** con la precedencia exacta: **(a)** si hay
-    **override manual**, gana el override; **(b)** si no, **mercado × spread de la presentación**
-    (box/etb/bundle/tin/blister); **(c)** si no hay spread por presentación, **mercado × spread global**;
+    **override manual**, gana el override; **(b)** si no, el **spread de su presentación** (cualquiera de las
+    **siete** de §K); **(c)** si no aplica un spread por presentación, el **spread global de respaldo**;
     **(d)** si no hay ninguno, el ítem queda en **PRICE_PENDING**. El precio se calcula **server-side** (no
-    se toma del cliente).
+    se toma del cliente) con la **fórmula de §K** — el spread es un **markup ARRIBA del mercado**.
+    **Verificable**: en las vías derivadas (b) y (c) el precio publicado **nunca queda por debajo del precio
+    de mercado** del ítem (con spread 0 quedaría exactamente en el mercado). Un **override** sí puede estar
+    deliberadamente por debajo (p. ej. descontar una caja con detalle); las vías derivadas **no**.
 58. Un sellado en **PRICE_PENDING** (sin override y sin spread/mercado aplicable) **no aparece en Compra**;
-    en cuanto adquiere precio (override o spread × mercado) puede publicarse.
+    en cuanto adquiere precio (override, o mercado + spread según §K) puede publicarse.
 59. El cambio de **base de precio a TCGCSV aplica SOLO al sellado**: el precio de un **raw/single** o de una
     **gradeada** **no** cambia por esto (siguen sus fuentes actuales), verificable comparando que la fuente
     de precio de una carta suelta sigue siendo pokemontcg.io/TCGPlayer y no TCGCSV.
-60. El **súper-admin edita en M2** los **spreads del sellado por presentación** (semillas box 18% / etb 22%
-    / bundle 25% / tin 30% / blister 35% / global 25%); el cambio **surte efecto sin redeploy**, queda
-    **auditado** (M10) y **recalcula** el precio derivado de los sellados afectados (salvo los que tengan
+60. El **súper-admin edita en M2** los **spreads del sellado por presentación**, con **las semillas de la
+    tabla de §K** (las **siete** presentaciones + global de respaldo); el cambio **surte efecto sin redeploy**,
+    queda **auditado** (M10) y **recalcula** el precio derivado de los sellados afectados (salvo los que tengan
     override).
+60b. **Las siete presentaciones son operables de punta a punta** *(añadido 2026-08-24 con la decisión del
+    dueño sobre `upc`/`collection`)*: para **cada una** de las siete se puede (a) **dar de alta una pieza en
+    inventario** y (b) **fijarle spread desde M2** sin que la operación sea rechazada. Verificable con `upc` y
+    `collection`, que antes fallaban en ambas puntas (no se podían capturar y el guardado devolvía error), y
+    cuyo precio caía al global de respaldo por omisión. Ninguna presentación soportada llega al global **por
+    olvido**: el global queda para piezas **sin presentación** o para una regla **retirada a propósito** por el
+    dueño.
 61. El **sellado es solo venta**: **no existe** flujo de **buylist de sellado** (ni cotizador ni pipeline);
     la **ficha/ventana de sellado muestra el call-out `mailto`** para revender (a `contacto@tcgvaultmx.com`),
     que es un enlace de correo y **no** un flujo dentro de la app.
@@ -1305,7 +1775,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     carta del subset sigue operando por su **set-id real** (`cel25c`) y **no depende** de la vista de master
     set; la agrupación es solo de presentación y nunca es la fuente de verdad del inventario o del precio.
 
-**Pricing por tiers — v1.9 (P-34, LOCKED)**
+**Pricing por tiers — v1.9 (P-34)** · **⚠ SUPERSEDED por v2.0 (P-48): los criterios 73–78 NO se verifican.**
+> Los tiers, el mapa rareza→tier y las reglas por acabado **se retiran** (§N). QA verifica en su lugar los
+> **criterios 79–96**. Se conservan como registro histórico del comportamiento anterior.
 73. El editor de precios de M2 gestiona **una regla por `tier`** (**5 tiers**: T0 Bulk, T1 Uncommon/Reverse, T2
     Rare/Holo, T3 Premium/Chase, T4 Ultra/Grail), no una por rareza: al abrir el editor tras un sync con ~30
     rarezas, el dueño configura **5 reglas** (una por tier) y **cada rareza hereda la regla de su tier**, sin
@@ -1336,6 +1808,94 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     una Rare/Rare Holo que antes cotizaba al bin fijo ahora cotiza al 25% de su referencia, y sin referencia cae
     en «precio pendiente»). La derivación del monto sigue siendo **server-side** desde la rareza real (SEC-A1),
     en compra y en venta.
+
+**Precio puro por valor de mercado — v2.0 (P-48, LOCKED)**
+79. **Curva de VENTA (money)**: el precio publicado de una carta es
+    **`redondeo↑( max( piso, mercado × markup(mercado) ) )`**, con `markup` **interpolado** entre los puntos
+    de la tabla. Verificable con los diales iniciales (§N.2): mercado **$1.14 ⇒ $25** (gana el piso) ·
+    **$25 ⇒ $40** · **$50 ⇒ $70** · **$80 ⇒ $95**. El precio **no depende de la rareza ni del acabado**.
+80. **Curva de COMPRA (money)**: la oferta de buylist es **`max( bin, mercado × pct(mercado) )`**, con `pct`
+    **interpolado** y **sin redondeo**. Verificable con los diales iniciales: mercado **$0.50 ⇒ $1** (gana el
+    bin) · **$10 ⇒ $3** · **$25 ⇒ $7.50** · **$100 ⇒ $40** · **$300 ⇒ $135** · **$500 ⇒ $250**. En particular,
+    una **Common que vale cientos de pesos deja de recibir MX$0.50**.
+81. **Interpolada, nunca escalonada**: entre dos puntos de quiebre el valor se **interpola**; **no existe
+    ningún tramo escalonado** dentro del rango. Verificable barriendo el mercado peso a peso: **no hay saltos
+    de `markup`/`pct`** entre dos mercados contiguos (solo los saltos del redondeo, criterio 82), y **ningún
+    precio de venta queda por debajo del mercado** en ningún punto del rango.
+82. **Escalera de redondeo hacia arriba (decisión 5)**: el precio de venta se redondea **hacia arriba** a
+    múltiplo de **$5 por debajo de $200**, **$10 por debajo de $500** y **$25 de ahí en adelante**.
+    Verificable en el brinco corregido: mercado **$86 ⇒ $100** y mercado **$87 ⇒ $105** (**no $110**). El
+    redondeo aplica **solo a venta**; la **compra no se redondea**.
+83. **Un solo piso y un solo bin**: piso de venta **$25** y bin de compra **$1**, **globales**. Verificable:
+    **dos variantes de acabado distinto de la misma carta con el mismo mercado producen el mismo precio**, y
+    dos cartas de **rarezas muy distintas** con el mismo mercado **cotizan idéntico** (en venta y en compra).
+84. **La rareza y el acabado salen del pricing, pero el acabado NO sale del modelo**: ningún cálculo de precio
+    consulta rareza, tier, mapa rareza→tier ni regla por acabado. Al mismo tiempo, **inventario, overrides,
+    bounties y `availableFinishes` siguen siendo por acabado**, y ficha y bóveda **siguen mostrando** el
+    acabado. Verificable: dar de alta dos piezas de acabados distintos sigue produciendo **dos variantes
+    distinguibles**.
+85. **Alcance: raw y gradeadas sí; sellado no**: la curva aplica igual a **raw** y a **gradeadas**. El
+    **precio del sellado no cambia** — conserva `override > spread por presentación > spread global >
+    PRICE_PENDING` con su fórmula y sus semillas (§K). Verificable comparando el precio de un sellado antes
+    y después: **idéntico**.
+86. **Tabla de puntos editable — agregar, mover y borrar**: el súper-admin puede **añadir** un punto de
+    quiebre, **moverlo** y **borrarlo** en las curvas de venta y de compra desde el back-office, **sin
+    redeploy** y **auditado** (M10); **no** es una estructura fija de N puntos. Cambiar un punto **repricia**
+    lo afectado en el siguiente cálculo. También son editables **piso**, **bin** y **escalera de redondeo**.
+87. **Validaciones de la tabla (money-safe)**: el sistema **rechaza guardar** una tabla que (a) produzca una
+    **curva de venta no monótona creciente**, (b) deje la **compra ≥ venta** en algún punto del rango, o
+    (c) permita un **precio de venta por debajo del mercado**; el error indica **qué punto** lo rompe.
+    Verificable intentando guardar cada uno de los tres casos.
+87b. **SIN DATO DE MERCADO ⇒ «PRECIO PENDIENTE», el piso NO rescata (money — LOCKED)**: una variante **sin
+    precio de mercado** **no se publica y no se cotiza**, **sea cual sea su rareza**: entra a la **cola de
+    precio pendiente** y se escala al dueño. Verificable en los **dos ejes**: una carta **Common** sin dato
+    **no aparece en Compra a MX$25** (el piso **no** se usa como respaldo) y **no recibe cotización de MX$1**
+    en el cotizador; en ningún caso se muestra **MX$0** ni un precio inventado. *(Razón: el guardarraíl del
+    criterio 88 se apoya en la rareza —el proxy que este cambio retira del pricing— y **no atraparía** una
+    Common de $400 sin dato; ver §N.2.)*
+88. **Guardarraíl — premium en el piso/bin, en los DOS ejes**: si una carta de **rareza premium** (catálogo
+    canónico) resuelve su precio **al piso** (venta) o **al bin** (compra) **teniendo dato de mercado**,
+    **no se publica** y **no se cotiza**: entra a la **cola de precio pendiente** y se **escala al dueño**,
+    hasta que un barrido posterior corrija el dato o el dueño fije el precio. Verificable forzando un mercado
+    **presente pero absurdamente bajo** (aplanado, no ausente — ese caso es el 87b) en una
+    Illustration/Ultra Rare: **no aparece en Compra**, **no se cotiza en el cotizador** y **sí aparece en la
+    cola**. El volumen es **≈3 de 333** cartas de un master set completo (no debe ser una alarma ruidosa).
+89. **Precedencia de precio (money-safe)**: venta = `override por pieza > override de variante > curva >
+    pendiente`; compra = `bounty válido > override de compra > curva > pendiente`. El **override manual de
+    compra sigue siendo ABSOLUTO**: puesto **por debajo** de la regla vigente, **paga exactamente ese monto**
+    y **no** se levanta al nivel de la curva.
+90. **Bounty revalidado contra la regla vigente (decisión 4)**: un bounty **por debajo de la regla de compra
+    vigente** **deja de ser bounty**: **no aplica en la cotización** (se paga la regla), **no aparece en la
+    vitrina** (ni Home ni Vender) y **genera alerta en el binder**. Se valida **al crear, al cotizar y al
+    publicar** (hoy solo al crear). Verificable: crear un bounty válido, **subir el mercado** hasta que la
+    regla lo rebase ⇒ desaparece de la vitrina, la cotización paga **la regla** y aparece **la alerta**.
+91. **El número publicado es el que se paga**: para **todo** bounty visible en la vitrina, la cotización del
+    cotizador es **exactamente ese monto** y es **estrictamente mayor** que la tarifa estándar de esa variante.
+92. **`priceBasis` — qué determinó el precio**: el backend **registra y expone** por variante qué determinó el
+    precio publicado: **`mercado` / `piso` / `override` / `bounty` / `pendiente`**. La UI y el back-office lo
+    **consumen**; **no** se infiere en el cliente comparando cifras. Verificable en el contrato y en la
+    respuesta de la API, y usable para **detectar pisos mal calibrados**.
+93. **«Valor de mercado» solo si el mercado fijó el precio**: en la **ficha de carta** y en la **ficha de
+    sellado**, el bloque «Valor de mercado» se muestra **solo** cuando `priceBasis = mercado` (en sellado:
+    precio derivado por **spread**); si lo determinó el **piso** o un **override**, **no aparece** (ni en cero,
+    ni tachado, ni «—»). Aplica **solo a la ficha**: tejas y listados no muestran mercado. **Empate**
+    (`piso == mercado × markup`) cuenta como **mercado** y **sí** se muestra.
+94. **Lo que NO cambia con la visibilidad**: (a) el **cotizador de buylist** sigue **sin** mostrar valor de
+    mercado (solo la mención del subtítulo); (b) la **bóveda/portafolio del cliente** sigue mostrando el
+    **valor de mercado** de lo que ya posee, con valuación y gráfica de tendencia **idénticas**; (c) una
+    carta en **«precio pendiente»** sigue **sin publicarse** en Compra y el comprador **nunca** ve ese estado
+    (los dos caminos a esa cola son los criterios **87b** y **88**); (d) el **precio cobrado no cambia** por
+    esta regla (es presentación, no dinero).
+95. **Instrumentación**: **cada venta y cada compra** registran **mercado del día**, **precio final**, **qué
+    lo determinó** (`priceBasis`), **acabado** y **bracket de mercado**. Verificable: tras una venta y una
+    compra existe el registro con los **cinco** campos, y permite **agregar por bracket** para responder
+    «¿qué tan rápido rota cada bracket?».
+96. **Retiro de lo viejo, sin residuos**: desaparecen del producto los modos **`fixed`/`pct`** como reglas
+    excluyentes, los **5 tiers**, el **mapa rareza→tier** y las **reglas por acabado**, junto con la pantalla
+    de M2 que los editaba y su **texto falso** («Sin regla propia, el acabado hereda la del tier de su
+    rareza» / «Hereda tier»). Verificable: **no queda en la UI ninguna pantalla que pida una regla por
+    rareza, tier o acabado**, el editor de precios es el de la **tabla de puntos** (criterio 86), y **ninguna
+    variante conserva un precio calculado con la lógica vieja** tras el repricio completo del catálogo.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -1480,13 +2040,36 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    Ver §J y criterios 54–56.
 
 **Decisiones v1.6 — sellado (producto cerrado) (2026-08-19, tomadas por el humano; SUPERSEDEN decisiones 4 y 16):**
-33. **Precio del sellado = DERIVADO por spread** (ya no manual-único): precedencia `override manual >
-   (mercado × spread por presentación) > (mercado × spread global de respaldo) > sin precio ⇒ PRICE_PENDING
-   (no se publica)`. **Supersede** la parte de sellado de la decisión 4 ("sellado = precio manual") y la 16.
+33. **Precio del sellado = DERIVADO por spread** (ya no manual-único): precedencia `override manual > spread
+   por presentación > spread global de respaldo > sin precio ⇒ PRICE_PENDING (no se publica)`; la **fórmula**
+   (markup arriba del mercado) vive en **§K**. **Supersede** la parte de sellado de la decisión 4 ("sellado =
+   precio manual") y la 16.
 34. **TCGCSV = BASE del precio de venta del sellado** (ya no "solo informativa"), vía el **mapeo curado
    existente**. Aplica **solo al sellado**; para **raw/singles no cambia nada**.
 35. **Spreads configurables por presentación** (ConfigSetting, M10): semillas **box 18% / etb 22% / bundle
-   25% / tin 30% / blister 35% / global 25%** (editables, auditados).
+   25% / tin 30% / blister 35% / global de respaldo 25%** (editables, auditados). *(Ampliado el 2026-08-24:
+   ver 35b — son **siete** presentaciones, no cinco. La tabla completa vive en §K.)*
+35b. **`upc` 18% y `collection` 22%** (2026-08-24, **elegidos por el dueño**, que **confirmó que vende UPC**
+   —Ultra Premium Collection—): un **UPC** es la pieza **más grande y cara** del catálogo ⇒ mismo % que
+   **`box`**; una **`collection`** es comparable a un **ETB** ⇒ mismo % que **`etb`**. Se enuncia además el
+   **criterio que ordena toda la tabla**: **«ítem más chico ⇒ % mayor»** (un % gordo sobre una pieza cara es
+   un monto que mata la venta; una pieza barata necesita más % para que el margen pague manejo y envío).
+   Hasta esta decisión ambas caían al **global de respaldo (25%)** por omisión, y por un hueco de validación
+   **no se podía capturar una pieza UPC en inventario ni fijarle spread** desde M2 (ya corregido). Ver §K.
+35c. **Toda presentación nueva llega con spread elegido a propósito — nunca cae al global en silencio**
+   (2026-08-24, **confirmado por el dueño** como **regla de negocio firme**, ya no supuesto): elegir el
+   spread es **parte del alta** de una presentación. El **global de respaldo queda como excepción explícita**
+   (pieza sin presentación, o regla retirada a propósito), no como default de lo que nadie pensó. Razón: es
+   lo que evita repetir lo del **UPC**, que llevaba **meses vendiéndose al 25 %** porque nadie lo eligió.
+   Backend ya lo sostiene con un **test de cobertura de todos los `SealedSubtype`**. Ver §K.
+35d. **Corrección de REDACCIÓN de la fórmula del spread — NO cambia ningún precio** (2026-08-24, autorizada
+   por el dueño): el documento escribía `mercado × spread`, que leído al pie significa `mercado × 0.18`
+   (vender una caja de MX$2,000 en **MX$360**). La fórmula real, **siempre** implementada así en `money.ts` y
+   **siempre** bien descrita en `API_CONTRACT §M2` ("markup % ARRIBA de mercado"), es **`mercado × (1 +
+   spread)`** ⇒ **MX$2,360**. Era **taquigrafía heredada de la redacción de v1.6**, no una decisión de
+   negocio distinta. **En agosto de 2026 no cambió el markup, ni un precio, ni la matemática**: solo se
+   corrigió el texto del documento rector, que por la regla de conflicto es la versión que gana. La fórmula
+   queda con **origen único en §K** y las ~15 citas pasan a nombrar la **precedencia** y apuntar a §K.
 36. **Sellado = solo venta** (plataforma→cliente): **sin buylist de sellado**; call-out `mailto`
    (`contacto@tcgvaultmx.com`) para revender fuera de la app.
 37. **Condición del sellado**: default **Mint**, opción **"Detalle menor en caja"**; visible al comprador,
@@ -1631,3 +2214,128 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 **operativo/de implementación**: (a) el **barrido completo de rarezas `unmapped`** contra el catálogo real
 (punto 4) y (b) los **valores por defecto de venta por tier** que reproduzcan el markup vigente (los fija
 backend/arquitecto al implementar, sin decisión de producto adicional).
+
+## Decisiones (v2.0, P-48) — precio puro por valor de mercado (LOCKED)
+> Decisiones del humano **ya tomadas** en conversación (2026-08-24), a partir del hallazgo de cartas
+> publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**. Tras ver la causa raíz, el humano
+> **amplió el alcance**: en vez de parchar los dos ejes existentes, **retira la rareza y el acabado del
+> pricing**. Quedan **cerradas** y son la entrada para el arquitecto. **No se re-litigan.** El negocio
+> **todavía no está en vivo**. Ver **§N** y criterios **79–96**.
+1. **PRECIO PURO POR VALOR DE MERCADO** (LOCKED, §N.1 — la grande): el precio depende **solo del valor de
+   mercado**. `venta = redondeo↑(max(piso, mercado × markup(mercado)))`;
+   `compra = max(bin, mercado × pct(mercado))`. **Se retiran del pricing la rareza y el acabado**: no hay dos
+   ejes, ni precedencia entre ejes, ni mapa de ~30 rarezas → 5 tiers, ni `finishRules`. **Desaparece la
+   distinción `fixed` vs `pct`** como modos excluyentes: queda **una curva**.
+2. **`markup` baja, `pct` de compra sube, ambos INTERPOLADOS** (LOCKED): nunca escalonados. Un escalón plano
+   produce **saltos de precio** y, **arriba de ~$25 de mercado, es matemáticamente imposible sin vender por
+   debajo del mercado**.
+3. **Diales iniciales** (LOCKED, calibrables — §N.2): **piso $25** · **markup 1.60× hasta $25 → baja lineal a
+   1.15× en $80 → 1.15× arriba** · **bin de compra $1** · **pct de compra 30% hasta $25 → 40% en $100 → 50%
+   en $500 → 50% arriba**.
+4. **Piso y bin ÚNICOS** (LOCKED): uno solo para todo el catálogo, **ya no por acabado**. El humano aceptó
+   explícitamente que quitar el piso diferenciado por acabado **cuesta ~2% de utilidad y no vale su
+   complejidad**.
+5. **Escalera de redondeo hacia arriba** (LOCKED, **decisión 5**): **$5 bajo $200 · $10 bajo $500 · $25
+   arriba**. El paso de $5 llega hasta **$200, no hasta $100**: así se corrige el **brinco injustificado de
+   $100→$110** entre mercado $86 y $87 ($87 ⇒ **$105**). Solo aplica a **venta**.
+6. **Tabla de puntos EDITABLE desde admin** (LOCKED, requisito explícito): se pueden **agregar, mover y
+   borrar** renglones — **no** es una estructura fija de N puntos. **Validaciones**: curva de venta
+   **monótona creciente**, **compra siempre menor que la venta**, y **ningún precio de venta por debajo del
+   mercado**.
+7. **Alcance** (LOCKED): aplica igual a **raw y a GRADEADAS**. El **SELLADO NO cambia** (conserva su spread
+   por presentación, con la tabla de **§K**: siete presentaciones + global de respaldo). **El ACABADO SIGUE
+   EXISTIENDO como identidad de variante** —inventario, overrides, bounties y `availableFinishes` siguen
+   siendo por acabado—: lo único que desaparece es que el acabado tenga **regla de precio propia**.
+8. **GUARDARRAÍL — la rareza sale del pricing y entra a la VALIDACIÓN, en los DOS EJES** (LOCKED, §N.5):
+   sustituye al invariante `premium ⇒ pct`, que queda sin sentido. Si una carta de **rareza premium**
+   aterriza en el **piso** (venta) o en el **bin** (compra) **teniendo dato de mercado**, **no se publica** y
+   **no se cotiza**: cola de **precio pendiente** y escalado al dueño hasta que el siguiente barrido corrija
+   el dato. Sin él, un dato malo en una carta cara la vendería al piso —o la compraría al bin—, la **pérdida
+   irreversible**. **Los dos ejes quedaron confirmados por el humano** (ya no es supuesto). Volumen medido:
+   **≈3 de 333** cartas de un master set (no es alarma ruidosa).
+8b. **SIN DATO DE MERCADO ⇒ «PRECIO PENDIENTE»; el piso NO rescata** (LOCKED, §N.2 — money-safe): una
+   variante **sin precio de mercado no se publica y no se cotiza**, **sea cual sea su rareza**. **El piso no
+   es un precio de respaldo.** La razón que gobierna: el único filtro que quedaría sería el **guardarraíl**,
+   que **se apoya en la rareza** —el **proxy malo** que este cambio retira del pricing—; atraparía una Secret
+   Rare con dato corrupto pero **no** una **Common de $400 sin dato**, que se publicaría al piso de $25. Eso
+   sería **reabrir el hueco exacto que la feature cierra**. Ante la **ausencia** de dato el sistema **se
+   detiene**, no pone un número. *(No confundir: dato **ausente** ⇒ esta regla; dato **presente pero malo**
+   ⇒ guardarraíl, decisión 8.)*
+9. **BOUNTY revalidado contra la regla** (LOCKED, **decisión 4**, §N.6): un bounty **por debajo de la regla
+   vigente deja de ser bounty** — no aplica en la cotización, no se publica en la vitrina y **genera alerta en
+   el binder**. Se valida **al CREAR, al COTIZAR y al PUBLICAR** (hoy solo al crear). Efecto buscado: **el
+   número publicado es exactamente lo que se paga**, y **todo lo de la vitrina es mejor que la tarifa
+   estándar**. El bounty es la **sección de ofertas** del dueño: vive en la escala de **compra** (30–50% del
+   mercado), **siempre por debajo del mercado**, y **nunca se compara contra el mercado, solo contra la
+   regla**.
+10. **El override manual de compra SIGUE SIENDO ABSOLUTO** (LOCKED): puede quedar **por debajo** de la regla
+   —es decisión deliberada del admin— y **no se convierte en piso**.
+11. **«Valor de mercado» solo cuando el mercado fijó el precio** (LOCKED, **decisión 2**, §N.7): si lo
+   determinó el **mercado** ⇒ se muestra; si lo determinó el **piso** (o un **override**) ⇒ **no se muestra**.
+   En zona de piso el mercado no produjo el precio («venta $25 / mercado $1.14» publica un múltiplo de 22×
+   sin informar). **Solo ficha de carta y ficha de sellado**; tejas y listados **no** muestran mercado.
+12. **`priceBasis` — registrar y exponer qué determinó el precio** (LOCKED): **mercado / piso / override /
+   bounty / pendiente**. Es lo que hace **visible el guardarraíl** y permite **detectar pisos mal
+   calibrados**.
+13. **INSTRUMENTACIÓN** (LOCKED, §N.8): cada **venta** y cada **compra** registran **mercado del día**,
+   **precio final**, **qué lo determinó**, **acabado** y **bracket de mercado**. Razón: hoy no se puede
+   contestar **«¿qué tan rápido rota cada bracket?»**, y ese es el dato que falta para **calibrar la curva con
+   realidad en vez de con supuestos**.
+14. **Principio de sesgo de error** (LOCKED, §N.0): *precio de más = venta perdida (recuperable); precio de
+   menos = carta perdida (irrecuperable)*. **Toda regla de precio se sesga hacia el primer error.** Gobierna
+   las decisiones futuras de pricing, no solo esta.
+15. **UN SOLO CAMBIO, UN SOLO DEPLOY** (LOCKED, §N.9): **ya no se despliegan por separado** las decisiones 1
+   («`fixed` pasa a ser piso real») y 2 (visibilidad). Se **funden** con la curva en un cambio con **etapas
+   verificables**. Razón: **no hay exposición viva que proteger** y la curva **elimina el modo `fixed` por
+   completo**, así que ese código **se tiraría**. Siguen siendo ciertas como **comportamiento objetivo**, no
+   como fase entregable. **La pantalla de M2 con el texto falso («Hereda tier») se retira con la lógica vieja**
+   en vez de corregirse.
+
+**Respuestas del humano a las preguntas abiertas de v2.0 (todas resueltas):**
+1. **¿Qué `%` usa el lado de mercado de un `fixed`?** → **SUPERADA** por la decisión 1: ya no existen reglas
+   `fixed` sin `%` propio. *(El supuesto era correcto para el diseño intermedio, que ya no se entrega solo.)*
+2. **¿Overrides y bounty absolutos o piso?** → **Override ABSOLUTO; bounty con REVALIDACIÓN** (decisión 9/10).
+   Verificado además que en **venta** el override sale por su propio retorno y nunca toca la rama `fixed`,
+   mientras que en **compra** sí pasaba por la aplicación de la regla —ese era el riesgo real—. Con la curva
+   la rama desaparece, pero **la distinción override/bounty se respeta explícitamente**.
+3. **¿Piso universal más allá de `fixed`?** → **SUPERADA**: con la curva **no existe la distinción
+   fixed/pct** y **el piso aplica a todo**.
+4. **¿Herencia real acabado → tier?** → **SUPERADA**: el eje de acabado **desaparece del pricing**; **no hay
+   tier del cual heredar**. El texto falso **se elimina junto con la pantalla vieja**.
+5. **¿Ocultar mercado solo en ficha o también en tejas?** → **Solo ficha de carta y ficha de sellado.** Las
+   tejas y listados **no muestran mercado hoy y no van a mostrarlo**.
+6. **¿Señal de qué determinó el precio?** → **SÍ, se necesita** (decisión 12): `priceBasis` registrado y
+   expuesto.
+
+## Preguntas abiertas — precio puro por valor de mercado (v2.0, P-48)
+> Las decisiones de v2.0 están **cerradas** y redactadas en §N; las 6 preguntas del borrador anterior quedaron
+> **respondidas** (arriba). Lo que sigue son los **huecos que aparecieron al ampliar el alcance**. Las **dos
+> primeras (las que movían dinero) YA ESTÁN RESUELTAS** por el humano y se conservan **con su respuesta** para
+> dejar rastro de por qué se decidió así; **las tres restantes siguen abiertas** y tienen supuesto por defecto
+> en §N, así que **no bloquean el arranque**.
+1. ~~**¿Qué pasa cuando NO hay dato de mercado?**~~ → **RESUELTA (money, LOCKED): sin dato de mercado ⇒
+   «PRECIO PENDIENTE»** — no se publica y no se cotiza, **el piso NO gana** (§N.2, decisión **8b**,
+   criterio **87b**). *(Rastro: el borrador proponía lo contrario —«gana el piso / el bin»— por analogía con
+   el `fixed` de hoy. **El humano lo cerró al revés**, y la razón es la que gobierna: el único filtro que
+   quedaría sería el **guardarraíl**, que **se apoya en la rareza**, justo el **proxy malo** que este cambio
+   retira del pricing. Atraparía una Secret Rare con dato corrupto pero **no** una **Common de $400 sin
+   dato**, que se publicaría al piso de $25 — **reabriendo el hueco exacto que la feature cierra**. El
+   argumento del borrador de «deja de vender bulk sin referencia» se descartó: vender barato lo que vale caro
+   es la **pérdida irreversible** de N.0.)*
+2. ~~**¿El guardarraíl aplica también a la COMPRA?**~~ → **RESUELTA: SÍ, aplica a los DOS EJES** (§N.5,
+   decisión **8**, criterio **88**). Premium en el **piso** no se publica; premium en el **bin** no se
+   cotiza. *(Rastro: estaba redactado solo sobre la publicación y se asumió la simetría; el humano la
+   **confirmó explícitamente**, así que dejó de ser supuesto.)*
+3. **¿Qué es un «bracket» para la instrumentación?** El dato pedido incluye **bracket de mercado**, pero los
+   puntos de la curva son **editables** (se agregan, mueven y borran): si el bracket se define por los puntos
+   vigentes, **la serie histórica deja de ser comparable** cada vez que muevas la curva. ¿Prefieres (a) una
+   **escala de brackets fija e independiente** de la curva (p. ej. $0–25 / 25–80 / 80–200 / 200–500 / 500+),
+   o (b) el bracket vigente al momento de la operación, **guardando también sus límites** para poder
+   reconstruir la comparación?
+4. **Detalles menores del redondeo** *(supuestos ya redactados en §N.2, confirmar de paso)*: la **banda** se
+   elige por el **monto de venta antes de redondear** y **una sola vez** (si el redondeo cruza el umbral, no
+   se re-evalúa); las fronteras son `< $200` ⇒ $5, `$200 ≤ x < $500` ⇒ $10, `≥ $500` ⇒ $25; y **todos los
+   diales están en MXN**.
+5. **¿La alerta del bounty por debajo de la regla necesita aviso activo?** El supuesto es que basta la
+   **alerta en el binder** (visible cuando el dueño entra). ¿Quieres además un aviso proactivo (correo/
+   dashboard) cuando un bounty publicado queda rebasado por la regla?

@@ -7,14 +7,15 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogService } from './catalog.service';
 import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
+import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 
 /** v1.23-sealed-sales (§2-S): «avísame cuando vuelva». Identidad = productId o cardId(+subtype). */
 class RestockSubscriptionDto {
   @IsString() email!: string;
   @IsOptional() @IsInt() tcgplayerProductId?: number;
   @IsOptional() @IsString() cardId?: string;
-  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
-  @IsIn(['mint', 'minor_box_damage']) sealedCondition!: SealedCondition;
+  @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
+  @IsIn(SEALED_CONDITION_VALUES) sealedCondition!: SealedCondition;
 }
 
 @Controller('catalog')

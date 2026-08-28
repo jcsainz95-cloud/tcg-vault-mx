@@ -1,6 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, MONEY_RE } from './utils/auth';
+import { loginAs, mockOnly, needsSeed, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: buylist (PROJECT §E / AC 12, 13, 33, 34; contrato §6).
@@ -63,9 +63,32 @@ async function addFromBinder(page: Page, name: string, finish = 'Normal') {
     .click();
 }
 
-/** Abre el DRAWER del carrito con el FAB (P-16, §18.4): el carrito ya no es columna lateral. */
+/**
+ * Localizador del carrito de venta **agnóstico del layout**. El carrito tiene DOS encarnaciones
+ * (`BuylistView`, mitigación H1): en **desktop (≥1024px)** es un `<aside>` fijo siempre visible; en
+ * **móvil** es un `role="dialog"` que abre el FAB. Ambos comparten el MISMO `SellCartContents` y el
+ * MISMO `aria-label`, así que se localiza por ahí en vez de por rol — que es lo único que cambia.
+ */
+function cartPanel(page: Page) {
+  // El aria-label lleva el conteo («Carrito de venta (2)»), así que se ancla por prefijo.
+  const prefix = t('es', 'buylist.cartDrawer.ariaLabel', { count: 0 }).replace(/\s*\(0\)\s*$/, '');
+  return page.locator(`[aria-label^="${prefix}"]`);
+}
+
+/**
+ * Deja el carrito VISIBLE, sea cual sea el viewport. En móvil abre el drawer con el FAB; en
+ * desktop no hay nada que abrir (el `<aside>` ya está en pantalla).
+ *
+ * Antes clicaba el FAB a secas y, con el viewport por defecto de la suite (1280×800), ese FAB
+ * **no existe** — el carrito es la columna lateral. De ahí el timeout de ocho specs.
+ */
 async function openCart(page: Page) {
-  await page.getByTestId('sell-cart-fab').click();
+  const fab = page.getByTestId('sell-cart-fab');
+  if ((await fab.count()) > 0) {
+    await fab.click();
+    return;
+  }
+  await expect(cartPanel(page)).toBeVisible();
 }
 
 /**
@@ -84,11 +107,42 @@ async function addFirstSellableCard(page: Page) {
   // Primera fila HABILITADA: una carta puede no cotizar en graded (p. ej. fixtures
   // holofoil-only → FINISH_NOT_AVAILABLE por-ítem) y su fila queda deshabilitada sin
   // tumbar el grid — se descubre la primera cotizable, no la primera a secas.
-  await page
-    .getByRole('list', { name: t('es', 'buylist.searchResults') })
-    .getByRole('button', { disabled: false })
-    .first()
-    .click();
+  //
+  // ⚠️ Acotado a los botones de AGREGAR por su nombre accesible. Un `getByRole('button',
+  // { disabled: false })` a secas también casaba con el «Ver detalle de …» de cada fila (P-43),
+  // que está siempre habilitado: el helper abría el pop-up de detalle y NO agregaba nada, y el
+  // fallo aparecía después, al buscar el total en un carrito vacío.
+  const addPrefix = t('es', 'buylist.addFinishAria', { name: '\u0000', finish: '\u0000' }).split(
+    '\u0000',
+  )[0];
+  const list = page.getByRole('list', { name: t('es', 'buylist.searchResults') });
+  const rows = list.getByRole('listitem');
+  const addBtn = (row: Locator) =>
+    row.getByRole('button', { name: new RegExp(`^${addPrefix}`), disabled: false });
+
+  // ⚠️ Enumerar filas NO auto-espera: `count()`/`innerText()` leen el DOM del instante. El código
+  // anterior clicaba `.first()`, que sí auto-espera, y eso TAPABA la ausencia de espera. Se espera
+  // explícitamente a que el batch de estimados habilite al menos una fila antes de recorrerlas.
+  await expect(addBtn(list).first()).toBeVisible({ timeout: 30_000 });
+
+  // Se elige la fila cotizable MÁS BARATA, no la primera. Motivo money: contra el stack real la
+  // curva de compra cotiza de verdad, y una carta cara empuja la solicitud por encima del TOPE AML
+  // — la UI entonces exige INE (anverso y reverso) antes de confirmar, que es el guardarraíl
+  // AML-1 haciendo su trabajo. El smoke quiere recorrer VENDER de punta a punta, no pelearse con
+  // un control de lavado de dinero; la más barata lo deja del lado correcto del tope sin
+  // hardcodear ningún monto (sigue siendo descubrimiento puro).
+  const count = await rows.count();
+  let best: { row: Locator; cents: number } | null = null;
+  for (let i = 0; i < count; i += 1) {
+    const row = rows.nth(i);
+    if ((await addBtn(row).count()) === 0) continue;
+    const text = (await row.innerText()).replace(/\s+/g, ' ');
+    const m = text.match(/MX\$([\d,]+)\.(\d{2})/);
+    const cents = m ? Number(m[1].replace(/,/g, '')) * 100 + Number(m[2]) : Number.MAX_SAFE_INTEGER;
+    if (!best || cents < best.cents) best = { row, cents };
+  }
+  if (!best) throw new Error('No hay ninguna fila cotizable en el grid');
+  await addBtn(best.row).first().click();
 }
 
 test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del carrito', () => {
@@ -97,9 +151,10 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await expect(page.getByText(t('es', 'buylist.payAfterReceipt')).first()).toBeVisible();
   });
 
-  test('clic en una teja de acabado agrega DIRECTO al carrito; el detalle expandible muestra referencia y regla', async ({
+  test('clic en una teja de acabado agrega DIRECTO al carrito; el detalle expandible muestra la referencia', async ({
     page,
   }) => {
+    mockOnly('carta literal «Charizard» del fixture (el seed real la llama «E2E Charizard»)');
     await page.goto('/es/buylist');
     await addFromBinder(page, 'Charizard');
 
@@ -109,14 +164,16 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await openCart(page);
     await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
 
-    // Transparencia: el detalle expandible trae valor de referencia + regla aplicada.
+    // Transparencia: el detalle expandible trae el valor de referencia y el acabado.
+    // v2.0 (P-48): la fila «Regla aplicada» SE RETIRÓ — no hay reglas por rareza/acabado, hay una
+    // curva; dejar el rótulo habría sido, otra vez, texto que promete lo que el sistema no hace.
     await page.getByRole('button', { name: t('es', 'buylist.lineDetailShow') }).click();
     await expect(page.getByText(t('es', 'buylist.referencePrice'), { exact: true })).toBeVisible();
-    await expect(page.getByText(t('es', 'buylist.appliedRuleLabel'), { exact: true })).toBeVisible();
-    await expect(page.getByText('40% de referencia')).toBeVisible();
+    await expect(page.getByText('Regla aplicada')).toHaveCount(0);
   });
 
   test('la misma carta en DISTINTO acabado entra como línea separada del carrito', async ({ page }) => {
+    mockOnly('carta literal «Charizard» del fixture con normal + reverse holo');
     await page.goto('/es/buylist');
     await addFromBinder(page, 'Charizard', 'Normal');
     await addFromBinder(page, 'Charizard', 'Reverse Holo');
@@ -127,6 +184,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
   });
 
   test('agrega varias cartas al carrito y suma un total estimado', async ({ page }) => {
+    mockOnly('cartas literales «Charizard» y «Pikachu» del fixture');
     await loginAs(page, 'customer');
     await page.goto('/es/buylist');
     await addFromBinder(page, 'Charizard');
@@ -141,6 +199,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
   test('carta sin referencia entra a "precio pendiente" (estimado pendiente, backend lo fija)', async ({
     page,
   }) => {
+    mockOnly('«Zapdos» con referencia PENDIENTE es un estado fabricado por el fixture');
     await page.goto('/es/buylist');
     // Zapdos tiene referencia pendiente en los fixtures: su teja lo dice y sigue agregable.
     await openBaseSet(page);
@@ -178,12 +237,23 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
 
 test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', () => {
   test('el grid lista cada carta con su estimado (una fila por tipo, sin panel COTIZACIÓN)', async ({ page }) => {
+    // Doble dependencia, verificada contra el stack vivo: (a) el botón se llama «Agregar E2E
+    // Charizard…» con el seed real; (b) la gradeada del seed NO tiene referencia de mercado, así
+    // que el grid pinta «Precio pendiente» — que es el comportamiento money-safe CORRECTO, no un
+    // fallo: sin dato no se inventa cifra. Por eso no hay importe que afirmar.
+    mockOnly('nombre literal «Charizard» + gradeada sin referencia en el seed (estimado pendiente)');
     await page.goto('/es/buylist');
     await selectGraded(page);
     await searchFor(page, 'Charizard');
 
     // Leyenda del grid + estimado con formato MXN dentro de la lista de resultados,
     // SIN seleccionar nada (el batch cotiza cada carta de la página).
+    //
+    // ⚠️ Se afirma el FORMATO (`MONEY_RE`), NO el monto. En modo mock el estimado lo produce
+    // `fx.mockDemoBuyQuote` —una aproximación de demo de la curva de compra, sin interpolar ni
+    // redondear—, así que un assert de monto exacto aquí NO verificaría el precio del producto:
+    // verificaría el mock. Las cifras de la curva se comprueban contra el backend real
+    // (`E2E_REAL=1`) y en los unitarios del dry-run.
     await expect(page.getByText(t('es', 'buylist.gridEstimateLegend'))).toBeVisible();
     await expect(
       page.getByRole('list', { name: t('es', 'buylist.searchResults') }).getByText(MONEY_RE).first(),
@@ -197,6 +267,7 @@ test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', (
   });
 
   test('bulk: multi-selección en el grid y agregar varias de golpe', async ({ page }) => {
+    mockOnly('set literal `base1` y cartas «Charizard»/«Pikachu» del fixture');
     await page.goto('/es/buylist');
     await selectGraded(page);
     await page.getByLabel(t('es', 'buylist.filterBySet')).selectOption('base1');
@@ -212,9 +283,16 @@ test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', (
 });
 
 test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14/P-16 — §18.11.3)', () => {
+  // El FAB + drawer es la encarnación MÓVIL del carrito: arriba de 1024px el carrito es el
+  // `<aside>` fijo y el FAB ni se monta (`isDesktopCart`, mitigación H1). Este bloque describe
+  // literalmente «badge del FAB» y «cerrar regresa el foco al FAB», así que corre en el viewport
+  // donde ese comportamiento existe — el 390px de los patrones móviles de §20.11.
+  test.use({ viewport: { width: 390, height: 844 } });
+
   test('smoke: agregar desde la teja → badge del FAB sube → drawer con FinishMark → cerrar regresa el foco', async ({
     page,
   }) => {
+    mockOnly('teja literal «Charizard (Reverse Holo)» del fixture');
     await page.goto('/es/buylist');
 
     // Binder quoter (raw, default): elegir Base Set desde su propio índice «Buscar set».
@@ -257,6 +335,8 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
   }) => {
     // Mock-only: asume KYC sin CLABE/INE en archivo (fixtures) para mostrar ambos uploaders.
     // El seed real puede traer CLABE/INE en archivo → el modal usa atajos (cubierto por @real).
+    // Y además arranca agregando la carta literal «Charizard» del fixture.
+    mockOnly('KYC vacío + carta literal «Charizard» del fixture');
     await loginAs(page, 'customer');
     await page.goto('/es/buylist');
     // Charizard tiene referencia → su teja del binder trae estimado y el clic la agrega al carrito.
@@ -311,6 +391,25 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     }
 
     await dialog.getByRole('button', { name: t('es', 'buylist.submit') }).click();
-    await expect(page.getByText(t('es', 'buylist.created'))).toBeVisible();
+
+    // Dos desenlaces LEGÍTIMOS, y el test afirma en ambos (ninguno es un no-op):
+    //  (a) la solicitud se crea → confirmación;
+    //  (b) el estimado cruzó el TOPE AML y la UI exige INE antes de confirmar (AML-1). Eso NO es
+    //      un fallo del producto: es el guardarraíl de dinero saliente funcionando. Lo que el test
+    //      exige entonces es que el bloqueo sea HONESTO — mensaje accionable, la sección de INE
+    //      ofrecida, y NINGUNA confirmación de solicitud creada.
+    const created = page.getByText(t('es', 'buylist.created'));
+    const ineRequired = dialog.getByText(t('es', 'buylist.ineRequiredError'));
+    await expect(created.or(ineRequired).first()).toBeVisible();
+
+    if (await ineRequired.count()) {
+      await expect(dialog.getByText(t('es', 'buylist.ineSectionTitle'))).toBeVisible();
+      await expect(dialog.getByText(t('es', 'ine.front'))).toBeVisible();
+      await expect(dialog.getByText(t('es', 'ine.back'))).toBeVisible();
+      // Money-safe: sin INE la solicitud NO se creó.
+      await expect(created).toHaveCount(0);
+    } else {
+      await expect(created).toBeVisible();
+    }
   });
 });

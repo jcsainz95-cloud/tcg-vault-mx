@@ -144,6 +144,77 @@ describe('VaultService.sealedTab — agregación + valuación de la bóveda sell
     expect(res.data[0].imageUrl).toBe('https://img/s.png');
   });
 
+  /**
+   * v2.1.9 · MENOR 3 (QA) — **el filtro `sealedSubtype`, que es donde el bug MENTÍA.**
+   *
+   * Este spec no ejercitaba `sealedSubtype` con NINGÚN valor, y es justo el sitio del fallo de
+   * v2.1.8: la lista de subtipos era de cinco a mano, así que `?sealedSubtype=upc` **no fallaba —
+   * MENTÍA**: `SEALED_SUBTYPE_SET.has('upc')` daba `false`, el `if` no entraba, el WHERE salía sin
+   * el filtro y el cliente recibía **todo su sellado** creyendo estar viendo solo sus UPC. «Se
+   * ignoran silenciosamente los valores que no matchean» es correcto para basura desconocida; para
+   * un valor que **existe en el schema**, el silencio escondía el bug.
+   *
+   * QA no pudo probarlo por comportamiento porque la bóveda del seed está vacía de sellado: se
+   * verifica sobre el **WHERE que llega a Prisma**, que es donde el filtro se perdía.
+   */
+  it.each(['box', 'etb', 'bundle', 'tin', 'blister', 'upc', 'collection'])(
+    'MENOR 3 — `sealedSubtype=%s` LLEGA al WHERE (los SIETE, no cinco)',
+    async (subtype) => {
+      const { prisma, svc } = build([], new Map());
+      await svc.sealedTab('u1', { sealedSubtype: subtype });
+      const where = (prisma.inventoryItem.findMany as jest.Mock).mock.calls[0][0].where;
+      expect(where.sealedSubtype).toBe(subtype);
+    },
+  );
+
+  it('MENOR 3 — `upc` FILTRA de verdad: la caja de otro subtipo no vuelve (antes volvía todo)', async () => {
+    // Comportamiento, no solo forma: con el filtro perdido el servicio devolvía el sellado ENTERO.
+    // El mock de Prisma respeta el WHERE para que el test mida el efecto, no la intención.
+    const all = [
+      piece({ id: 'a', sealedSubtype: 'upc', tcgplayerProductId: 100 }),
+      piece({ id: 'b', sealedSubtype: 'box', tcgplayerProductId: 101 }),
+    ];
+    const prisma = {
+      inventoryItem: {
+        findMany: jest.fn(async (args: any) =>
+          all.filter((i) => !args?.where?.sealedSubtype || i.sealedSubtype === args.where.sealedSubtype),
+        ),
+      },
+    } as unknown as PrismaService;
+    const refs = new Map<string, any>([
+      ['c1|sealed|sealed:tcg:100|normal', { status: 'priced', referenceMxnCents: 100000 }],
+      ['c1|sealed|sealed:tcg:101|normal', { status: 'priced', referenceMxnCents: 200000 }],
+    ]);
+    const { pricing } = build([], refs);
+    const svc = new VaultService(prisma, pricing);
+
+    const upcOnly = await svc.sealedTab('u1', { sealedSubtype: 'upc' });
+    expect(upcOnly.data).toHaveLength(1);
+    expect(upcOnly.data[0].sealedSubtype).toBe('upc');
+
+    // Sin filtro vuelven los dos: así se ve que el 1 de arriba es EL FILTRO y no una bóveda vacía.
+    const unfiltered = await svc.sealedTab('u1', {});
+    expect(unfiltered.data).toHaveLength(2);
+  });
+
+  it('un subtipo INEXISTENTE se sigue ignorando (tolerar basura desconocida SÍ es correcto)', async () => {
+    // La distinción del hallazgo: ignorar un valor que el schema NO conoce está bien; ignorar uno
+    // que SÍ conoce es esconder un bug. Este test fija que el arreglo no volvió estricto lo otro.
+    const { prisma, svc } = build([], new Map());
+    await svc.sealedTab('u1', { sealedSubtype: 'no_existe' });
+    const where = (prisma.inventoryItem.findMany as jest.Mock).mock.calls[0][0].where;
+    expect(where.sealedSubtype).toBeUndefined();
+  });
+
+  it('el filtro de `condition` viaja igual (los DOS valores del enum)', async () => {
+    for (const cond of ['mint', 'minor_box_damage']) {
+      const { prisma, svc } = build([], new Map());
+      await svc.sealedTab('u1', { condition: cond });
+      const where = (prisma.inventoryItem.findMany as jest.Mock).mock.calls[0][0].where;
+      expect(where.sealedCondition).toBe(cond);
+    }
+  });
+
   it('usa el filtro de status "en bóveda" (excluye withdrawn/shipped/delivered/lost/damaged)', async () => {
     const { prisma, svc } = build([], new Map());
     await svc.sealedTab('u1', {});

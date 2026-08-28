@@ -10,9 +10,31 @@
 #   "funciona de verdad": levanta el STACK REAL (Postgres 16 + Redis 7 + MinIO +
 #   backend NestJS + frontend con NEXT_PUBLIC_USE_MOCKS=false) y corre un SMOKE de
 #   los flujos críticos de PROJECT.md contra endpoints reales:
-#     - comprar -> orden        (checkout.spec.ts)
-#     - retirar -> envío        (shipments.spec.ts)
-#     - vender/buylist -> solicitud (buylist.spec.ts)
+#     - comprar -> orden                 (checkout.spec.ts)
+#     - comprar como INVITADO -> pedido  (guest-checkout.spec.ts)   <- añadido 2026-08-24
+#     - retirar -> envío                 (shipments.spec.ts)
+#     - vender/buylist -> solicitud      (buylist.spec.ts)
+#
+# LOS TRES FLUJOS DE DINERO (2026-08-24, decisión del dueño — DEVOPS_NOTES §31):
+#   El dueño eligió verificar comprar · comprar-como-invitado · retirar EN NAVEGADOR
+#   antes de desplegar, con clave de PRUEBA de Stripe (no aceptación formal). Faltaba
+#   `guest-checkout.spec.ts` en el smoke: el gate cubría dos de los tres. Ya está.
+#   Los tres necesitan un proveedor de pago REAL: sin `sk_test_…` válido el backend
+#   responde 503 PAYMENT_PROVIDER_UNAVAILABLE, libera la reserva (money-safe) y los
+#   tres salen ROJOS. Eso es correcto y deliberado (frontend NO los salta): un smoke
+#   de dinero que se salta solo cuando no hay proveedor es la mentira que quitamos.
+#
+# E2E_REAL=1 EN EL PASO DE PLAYWRIGHT (2026-08-24):
+#   Antes este workflow fijaba `E2E_BASE_URL` y NO `E2E_REAL`. Con el helper viejo
+#   (`IS_REAL = E2E_REAL === '1'`) eso significaba que el gate «real» autenticaba con
+#   el token inventado 'mock.session.token'. Frontend ya arregló el helper (ahora
+#   `E2E_BASE_URL` implica auth real), así que el gate quedó correcto SIN tocar este
+#   archivo — pero se fija `E2E_REAL=1` igualmente por dos razones verificadas:
+#     1. `guest-checkout.spec.ts:151` ramifica con `process.env.E2E_REAL` CRUDO, no
+#        con `IS_REAL`. Sin la bandera toma la rama MOCK de sus asertos (clic dentro
+#        del modal + copy de confirmación simulada) contra un modal de Stripe REAL.
+#     2. Alinea las tres preguntas en una sola respuesta: qué specs corro, contra qué
+#        habla la app y cómo autentico. Es el criterio de DEVOPS_NOTES §30.1.
 #
 # SEPARACIÓN mock vs real:
 #   - MOCK (rápido, feedback de PR): job `frontend-e2e` de e2e.yml (webServer del
@@ -46,7 +68,7 @@ on:
       smoke_specs:
         description: "Specs de smoke a correr (relativos a frontend/e2e, separados por espacio)"
         type: string
-        default: "checkout.spec.ts shipments.spec.ts buylist.spec.ts"
+        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts"
   # Invocable desde deploy.yml como gate previo a producción.
   workflow_call:
     inputs:
@@ -54,7 +76,12 @@ on:
         description: "Specs de smoke a correr (relativos a frontend/e2e, separados por espacio)"
         type: string
         required: false
-        default: "checkout.spec.ts shipments.spec.ts buylist.spec.ts"
+        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts"
+      require_real_stripe:
+        description: "Exigir STRIPE_TEST_SECRET_KEY real (sk_test_…). La ruta de PROMOCIÓN a prod lo pone en true."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: e2e-real-${{ github.ref }}
@@ -74,7 +101,7 @@ jobs:
       FRONTEND_URL: http://localhost:3010
       BACKEND_HEALTH: http://localhost:3011/api/v1/health
       # Smoke por defecto (workflow_call/dispatch lo pueden sobreescribir).
-      SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts shipments.spec.ts buylist.spec.ts' }}
+      SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts' }}
       # Stripe SIEMPRE en modo TEST en staging/E2E (nunca claves live).
       STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
@@ -209,10 +236,42 @@ jobs:
           echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
           echo "Chromium instalado: $CHROMIUM_BIN"
 
+      # -----------------------------------------------------------------------
+      # Clasifica el proveedor de pago ANTES de correr, para que un rojo de los
+      # smokes de dinero sea diagnosticable en un vistazo y NUNCA se confunda con
+      # un bug de producto. `sk_test_e2e_dummy` es el fallback de este workflow:
+      # no es una clave de Stripe, así que `paymentIntents.create` falla -> 503.
+      # -----------------------------------------------------------------------
+      - name: Preflight — ¿hay clave de PRUEBA de Stripe real?
+        run: |
+          set -euo pipefail
+          case "$STRIPE_TEST_SECRET_KEY" in
+            sk_test_e2e_dummy)
+              if [ "${{ inputs.require_real_stripe }}" = "true" ]; then
+                echo "::error title=Falta STRIPE_TEST_SECRET_KEY::Esta corrida es el GATE de promoción a prod y exige clave de PRUEBA real (sk_test_…). Los tres smokes de dinero (comprar · invitado · retirar) no pueden pasar sin proveedor de pago: el backend responde 503 PAYMENT_PROVIDER_UNAVAILABLE y libera la reserva. Crea el secret STRIPE_TEST_SECRET_KEY (ver DEVOPS_NOTES §31.1). NUNCA una clave live."
+                exit 1
+              fi
+              echo "::warning title=Stripe en modo DUMMY::Sin secret STRIPE_TEST_SECRET_KEY. Los smokes de dinero (checkout · guest-checkout · shipments) saldrán ROJOS por FALTA DE PROVEEDOR, no por bug de producto (503 PAYMENT_PROVIDER_UNAVAILABLE). Ver DEVOPS_NOTES §31."
+              ;;
+            sk_live_*)
+              echo "::error title=CLAVE LIVE EN STAGING::STRIPE_TEST_SECRET_KEY empieza con sk_live_. Staging y E2E NUNCA usan claves live. Abortado."
+              exit 1
+              ;;
+            sk_test_*)
+              echo "::notice title=Stripe en modo TEST::Clave de prueba presente; los smokes de dinero son gate real."
+              ;;
+            *)
+              echo "::error title=STRIPE_TEST_SECRET_KEY con formato inesperado::Debe empezar con sk_test_. Abortado sin imprimir el valor."
+              exit 1
+              ;;
+          esac
+
       - name: Playwright smoke — flujos críticos (REAL)
         working-directory: frontend
         env:
           E2E_BASE_URL: ${{ env.FRONTEND_URL }}
+          # Alinea selección de specs, rama de asertos y autenticación. Ver cabecera.
+          E2E_REAL: '1'
         run: |
           echo "Smoke (real) specs: $SMOKE_SPECS"
           # shellcheck disable=SC2086

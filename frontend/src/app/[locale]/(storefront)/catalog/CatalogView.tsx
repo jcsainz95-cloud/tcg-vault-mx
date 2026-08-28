@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import type { ReadonlyURLSearchParams } from 'next/navigation';
 import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } from '@/lib/api';
-import type { Finish, GroupedListingDTO, SealedSubtype } from '@/types/contract';
+import { SEALED_SUBTYPES, type Finish, type GroupedListingSummaryDTO, type SealedSubtype } from '@/types/contract';
 import { FINISH_ORDER } from '@/lib/finish';
 import { useCart } from '@/lib/cart';
 import { useRouter } from '@/i18n/navigation';
@@ -136,7 +136,7 @@ export function CatalogView() {
 
   // v1.38-grouped-listings (P-30): la teja es un GRUPO; el add-to-cart de 1 usa la pieza más barata
   // (representativeInventoryItemId). El carrito sigue siendo por-pieza (deduplicado por id).
-  function onAdd(group: GroupedListingDTO) {
+  function onAdd(group: GroupedListingSummaryDTO) {
     cart.add(group.representativeInventoryItemId);
     setAddedSignal(Date.now());
   }
@@ -318,8 +318,6 @@ export function CatalogView() {
   );
 }
 
-const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
-
 /**
  * Filtros iniciales desde la URL (enlaces del Home: `?setId=<id>`,
  * `?productType=graded`; la pestaña Gradeadas usa `?type=graded`). Solo se
@@ -338,7 +336,9 @@ function parseUrlFilters(sp: ReadonlyURLSearchParams | null): CatalogFilters {
   const finish = sp.get('finish');
   if (finish && (FINISH_ORDER as string[]).includes(finish)) f.finish = finish as Finish;
   const sub = sp.get('sealedSubtype');
-  if (f.productType === 'sealed' && sub && (SEALED_SUBTYPES as string[]).includes(sub))
+  // T-1: la lista blanca es la del CONTRATO (`SEALED_SUBTYPES`, los siete), no una copia local de
+  // cinco: `?sealedSubtype=upc` se descartaba en silencio aunque el backend lo sirve (200).
+  if (f.productType === 'sealed' && sub && (SEALED_SUBTYPES as readonly string[]).includes(sub))
     f.sealedSubtype = sub as SealedSubtype;
   const rarity = sp.get('rarity');
   if (rarity) {

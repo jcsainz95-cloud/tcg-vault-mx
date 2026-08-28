@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, MONEY_RE } from './utils/auth';
+import { loginAs, mockOnly, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: Mi bóveda / portafolio (PROJECT §C / AC 5, 6, 8, 10; contrato §3).
@@ -29,6 +29,8 @@ test.describe('bóveda · portafolio y titularidad', () => {
 
   test('distingue titularidad pending vs settled', async ({ page }) => {
     // Mock-only: los fixtures traen ambas titularidades; el seed real puede no traer pending.
+    mockOnly('exige una pieza pending Y una settled a la vez en la misma bóveda');
+    await loginAs(page, 'customer');
     await page.goto('/es/vault');
     await expect(page.getByText(t('es', 'status.ownership.settled')).first()).toBeVisible();
     await expect(page.getByText(t('es', 'status.ownership.pending')).first()).toBeVisible();
@@ -36,6 +38,8 @@ test.describe('bóveda · portafolio y titularidad', () => {
 
   test('retiro solo habilitado para cartas settled', async ({ page }) => {
     // Mock-only: requiere una pieza settled Y una pending para contrastar el estado.
+    mockOnly('exige una pieza pending Y una settled para contrastar el botón deshabilitado');
+    await loginAs(page, 'customer');
     await page.goto('/es/vault');
     await expect(page.getByText(t('es', 'vault.onlySettled')).first()).toBeVisible();
 
@@ -53,6 +57,8 @@ test.describe('bóveda · portafolio y titularidad', () => {
    * = fuente única de verdad). Mock-only: el fixture trae una pieza en retiro (`enviado`).
    */
   test('marca EN RETIRO y deshabilita RETIRAR en un holding con envío activo', async ({ page }) => {
+    mockOnly('exige un holding con envío ACTIVO en etapa `enviado` (fixture)');
+    await loginAs(page, 'customer');
     await page.goto('/es/vault');
     await expect(page.getByRole('heading', { name: t('es', 'vault.title') })).toBeVisible();
 
@@ -71,6 +77,8 @@ test.describe('bóveda · portafolio y titularidad', () => {
    * GET /shipments/:id). Mock-only. Al hacer clic, se abre el detalle con las cartas del retiro.
    */
   test('el badge EN RETIRO enlaza al detalle del retiro', async ({ page }) => {
+    mockOnly('deep-link al retiro `shp-7001` del fixture');
+    await loginAs(page, 'customer');
     await page.goto('/es/vault');
     await page.getByRole('link', { name: new RegExp(t('es', 'vault.trackWithdrawal')) }).first().click();
 

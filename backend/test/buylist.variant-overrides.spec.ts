@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 const VALID_CLABE = '012345678901234567';
@@ -14,12 +15,13 @@ const VALID_CLABE = '012345678901234567';
  * y createRequest) consulta el control por variante (M-30) ANTES de la cadena de reglas:
  * bounty > override > regla > precio_pendiente. Verifica:
  *  - override pisa la regla y bounty pisa al override (misma precedencia en los 3 consumidores);
- *  - `appliedRule.source` gana "bounty" | "override" y `createRequest` los SNAPSHOTEA en
- *    `ruleSource` (habilita el conteo del bounty al pagar, fase P-22);
+ *  - v2.0 (P-48): `priceBasis` reemplaza a `appliedRule.source` y `createRequest` lo SNAPSHOTEA
+ *    (habilita el conteo del bounty al pagar, fase P-22); el peldaño «regla» pasa a ser «CURVA»;
  *  - overrides leídos EN LOTE en batch/createRequest (UNA query por request — sin N+1);
  *  - bounty/override cotizan SIN referencia (siempre `cotizada`, sin escalar pendientes);
  *  - los topes de buylist NO cambian y aplican igual sobre montos bounty;
- *  - REGRESIÓN: sin fila M-30 todo se comporta EXACTAMENTE como antes.
+ *  - v2.0: el override de compra es ABSOLUTO — por DEBAJO de la curva se paga verbatim (criterio 89);
+ *  - v2.0: el bounty se revalida contra la curva AL COTIZAR (§4.36.6), no solo al crearlo.
  */
 
 type OverrideRow = {
@@ -48,7 +50,17 @@ function buildPricing(opts: {
       overridesByKey[`${cardId}|${productType}|${gradeKey}|${finish}`] ?? null,
   );
   const escalatePending = jest.fn().mockResolvedValue(undefined);
+  // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola. Delega en el mock de escalada cuando hay
+  // razón, para que los asserts de «no escala» sigan siendo válidos.
+  const settlePendingForVariant = jest.fn(async (reason: string | null) =>
+    reason == null ? undefined : escalatePending(),
+  );
   const pricing = {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(({ rawCondition }: { rawCondition?: string }) => `raw:${rawCondition ?? 'NM'}`),
     getReference: jest.fn(async () =>
       opts.referenceMxnCents == null
@@ -56,6 +68,7 @@ function buildPricing(opts: {
         : { status: 'priced', referenceMxnCents: opts.referenceMxnCents },
     ),
     escalatePending,
+    settlePendingForVariant,
     getVariantOverridesBatch,
     getVariantOverride,
   } as unknown as PricingService;
@@ -83,6 +96,14 @@ function buildPrisma(rarity: string | null = 'Common') {
         rarity,
         availableFinishes: ['normal', 'reverse_holo'],
       }),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
+      }),
     },
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
     sellRequest: {
@@ -100,9 +121,7 @@ function buildPrisma(rarity: string | null = 'Common') {
           rawCondition: it.rawCondition ?? null,
           finish: it.finish,
           rarity: it.rarity,
-          ruleMode: it.ruleMode,
-          ruleValue: it.ruleValue,
-          ruleSource: it.ruleSource,
+          priceBasis: it.priceBasis,
           quotedPriceCents: it.quotedPriceCents,
           approvedPriceCents: null,
           itemStatus: it.itemStatus,
@@ -131,14 +150,14 @@ function buildSvc(opts: Parameters<typeof buildPricing>[0] & { rarity?: string |
 const K = 'c1|raw|raw:NM|normal';
 
 describe('publicQuote — override/bounty pisan la regla (§4.26b)', () => {
-  it('buyOverride pisa la regla: quoted=override, appliedRule {mode:fixed, source:override}', async () => {
+  it('buyOverride pisa la CURVA y es ABSOLUTO: $3 se paga aunque la curva daría $40 (criterio 89)', async () => {
     const { svc } = buildSvc({
       referenceMxnCents: 10000,
       overridesByKey: { [K]: { buyOverrideCents: 300 } },
     });
     const res = await svc.publicQuote('c1', 'raw' as never, 'NM' as never, 'normal' as never);
     expect(res.quote).toEqual({ status: 'cotizada', quotedPriceCents: 300, currency: 'MXN' });
-    expect(res.appliedRule).toEqual({ mode: 'fixed', value: 300, source: 'override' });
+    expect(res.priceBasis).toBe('override');
   });
 
   it('bounty activo pisa al override (precedencia bounty > override)', async () => {
@@ -147,8 +166,8 @@ describe('publicQuote — override/bounty pisan la regla (§4.26b)', () => {
       overridesByKey: { [K]: { buyOverrideCents: 300, bountyEnabled: true, bountyPriceCents: 7500 } },
     });
     const res = await svc.publicQuote('c1', 'raw' as never, 'NM' as never, 'normal' as never);
-    expect(res.quote.quotedPriceCents).toBe(7500);
-    expect(res.appliedRule.source).toBe('bounty');
+    expect(res.quote.quotedPriceCents).toBe(7500); // 7500 > curva 4000 ⇒ bounty EFECTIVO
+    expect(res.priceBasis).toBe('bounty');
   });
 
   it('lee el control con la clave EXACTA de la variante (cardId|productType|gradeKey|finish)', async () => {
@@ -157,11 +176,11 @@ describe('publicQuote — override/bounty pisan la regla (§4.26b)', () => {
     expect(getVariantOverride).toHaveBeenCalledWith('c1', 'raw', 'raw:NM', 'reverse_holo');
   });
 
-  it('REGRESIÓN: sin fila M-30 la cotización es idéntica a la previa (regla fixed Common=50)', async () => {
+  it('sin fila M-30 la cotización sale de la CURVA (mercado $100 ⇒ 40 % = $40)', async () => {
     const { svc } = buildSvc({ referenceMxnCents: 10000 });
     const res = await svc.publicQuote('c1', 'raw' as never, 'NM' as never, 'normal' as never);
-    expect(res.quote.quotedPriceCents).toBe(50);
-    expect(res.appliedRule.source).toBe('rule');
+    expect(res.quote.quotedPriceCents).toBe(4000);
+    expect(res.priceBasis).toBe('market');
   });
 
   it('override cotiza SIN referencia (fixed ⇒ siempre cotizada, jamás precio_pendiente)', async () => {
@@ -174,6 +193,7 @@ describe('publicQuote — override/bounty pisan la regla (§4.26b)', () => {
     });
     const res = await svc.publicQuote('c1', 'raw' as never, 'NM' as never, 'normal' as never);
     expect(res.quote).toEqual({ status: 'cotizada', quotedPriceCents: 120000, currency: 'MXN' });
+    expect(res.priceBasis).toBe('override');
     expect(res.referencePrice).toEqual({ status: 'pending' }); // la referencia sigue honesta
   });
 });
@@ -193,16 +213,17 @@ describe('batchQuote — lote con overrides EN LOTE (sin N+1)', () => {
     const [normal, reverse] = res.results as any[];
     expect(normal.ok).toBe(true);
     expect(normal.quote.quotedPriceCents).toBe(300); // override SOLO en la variante normal
-    expect(normal.appliedRule.source).toBe('override');
+    expect(normal.priceBasis).toBe('override');
     expect(reverse.ok).toBe(true);
-    expect(reverse.appliedRule.source).toBe('fallback'); // reverse sin fila → cadena de siempre
+    expect(reverse.priceBasis).toBe('market'); // reverse sin fila → la CURVA
+    expect(reverse.quote.quotedPriceCents).toBe(4000);
   });
 });
 
 describe('createRequest — snapshot de la regla aplicada + topes intactos', () => {
   const item = { cardId: 'c1', productType: 'raw' as never, rawCondition: 'NM' as never, finish: 'normal' as never };
 
-  it('snapshotea ruleSource="override" con ruleMode=fixed y ruleValue=el override', async () => {
+  it('snapshotea priceBasis="override" (y NADA en las columnas legacy ruleMode/ruleValue/ruleSource)', async () => {
     const { svc, prisma, getVariantOverridesBatch, escalatePending } = buildSvc({
       referenceMxnCents: 10000,
       overridesByKey: { [K]: { buyOverrideCents: 300 } },
@@ -212,17 +233,20 @@ describe('createRequest — snapshot de la regla aplicada + topes intactos', () 
     expect(res.quotedTotalCents).toBe(300);
     // Snapshot PERSISTIDO en SellRequestItem (lo que habilita el conteo P-22 al pagar).
     const created = (prisma.sellRequest.create as jest.Mock).mock.calls[0][0].data.items.create[0];
-    expect(created).toMatchObject({ ruleSource: 'override', ruleMode: 'fixed', ruleValue: 300 });
-    // DTO de respuesta: appliedRule refleja el snapshot.
+    expect(created).toMatchObject({ priceBasis: 'override' });
+    expect(created.ruleMode).toBeUndefined();
+    expect(created.ruleValue).toBeUndefined();
+    expect(created.ruleSource).toBeUndefined();
+    // DTO de respuesta: `priceBasis` refleja el snapshot (`appliedRule` está RETIRADO).
     expect(res.items[0]).toMatchObject({
-      appliedRule: { mode: 'fixed', value: 300, source: 'override' },
+      priceBasis: 'override',
       quotedPriceCents: 300,
       itemStatus: 'cotizada',
     });
     expect(escalatePending).not.toHaveBeenCalled();
   });
 
-  it('snapshotea ruleSource="bounty" (habilita el conteo al pagar, P-22) incluso SIN referencia', async () => {
+  it('snapshotea priceBasis="bounty" (habilita el conteo al pagar, P-22) incluso SIN referencia', async () => {
     const { svc, escalatePending } = buildSvc({
       rarity: 'Illustration Rare',
       referenceMxnCents: null,
@@ -231,11 +255,11 @@ describe('createRequest — snapshot de la regla aplicada + topes intactos', () 
     });
     const res = await svc.createRequest('user-1', [item], VALID_CLABE);
     expect(res.items[0]).toMatchObject({
-      appliedRule: { mode: 'fixed', value: 250000, source: 'bounty' },
+      priceBasis: 'bounty',
       quotedPriceCents: 250000,
       itemStatus: 'cotizada',
     });
-    // fixed ⇒ cotizada ⇒ NO escala pendiente aunque no haya referencia.
+    // El bounty es precio explícito ⇒ cotizada ⇒ NO escala pendiente aunque la curva no resuelva.
     expect(escalatePending).not.toHaveBeenCalled();
   });
 
@@ -250,9 +274,9 @@ describe('createRequest — snapshot de la regla aplicada + topes intactos', () 
     });
   });
 
-  it('REGRESIÓN: sin fila M-30 el snapshot es el previo (rule/fallback)', async () => {
+  it('sin fila M-30 el snapshot es el de la CURVA (priceBasis="market")', async () => {
     const { svc } = buildSvc({ referenceMxnCents: 10000 });
     const res = await svc.createRequest('user-1', [item], VALID_CLABE);
-    expect(res.items[0]).toMatchObject({ appliedRule: { mode: 'fixed', value: 50, source: 'rule' } });
+    expect(res.items[0]).toMatchObject({ priceBasis: 'market', quotedPriceCents: 4000 });
   });
 });

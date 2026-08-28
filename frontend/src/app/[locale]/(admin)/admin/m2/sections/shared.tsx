@@ -3,23 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import type {
-  BuylistRuleMode,
-  SalesRuleMode,
-  SealedSubtype,
-  Finish,
-} from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
 
-export const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
-export const SALES_RULE_MODES: SalesRuleMode[] = ['fixed', 'pct'];
+// ⛔ v2.0 (P-48): `RULE_MODES` / `SALES_RULE_MODES` retirados con el editor de reglas — no hay
+// modos fixed/pct, hay UNA CURVA por eje (§21.0).
 // P-33: `PRICE_PROVIDERS` (dial del proveedor de respaldo) se retiró junto con PriceProviderSection.
-// v1.23-sealed-sales: presentaciones del sellado con spread editable (§M2 sealed-spreads).
-export const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
-// v1.29 (§4.28d): acabados que tienen su PROPIO eje de regla (finishRules). `normal` NO lleva
-// finish-rule (usa la rareza), por eso queda fuera. Reemplazan las viejas keys sintéticas
-// "Holo"/"Reverse Holo" del mapa plano (parche INV-1 retirado).
-export const FINISH_RULE_KEYS: Finish[] = ['reverse_holo', 'holofoil', 'first_edition_holofoil'];
+// ⛔ T-1 (techlead): `SEALED_SUBTYPES` vivía AQUÍ como una lista de CINCO escrita a mano que tapaba la
+// unión de SIETE del contrato ⇒ el editor de spreads (una fila por elemento) no pintaba fila para
+// `upc` ni `collection` y el dueño no podía ponerles precio. Ahora la lista es ÚNICA y vive junto a la
+// unión en `@/types/contract`; se importa desde ahí (§M2 sealed-spreads).
+// ⛔ v2.0 (P-48): `FINISH_RULE_KEYS` retirado — el ACABADO sale del pricing (ya no tiene regla de
+// precio propia). Sigue siendo identidad de variante en inventario, overrides, bounties y ficha.
 
 /** Convierte pesos (texto) a centavos enteros. */
 export function pesosToCents(value: string): number {

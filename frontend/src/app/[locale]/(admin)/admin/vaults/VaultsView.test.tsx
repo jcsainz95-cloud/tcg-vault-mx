@@ -4,6 +4,17 @@ import { renderWithProviders } from '@/test/render';
 import { VaultsView } from './VaultsView';
 import * as api from '@/lib/api';
 
+// `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
+// Lo necesita el enlace del guardarraíl («Ver en la cola de pendientes») de la consola de precios.
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });

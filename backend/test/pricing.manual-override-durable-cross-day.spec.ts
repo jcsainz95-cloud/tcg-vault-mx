@@ -107,8 +107,10 @@ describe('PricingService — override manual DURABLE cross-day (§4.27f-2 / P47-
     const info = await svc.getReference('c1', 'raw', 'raw:NM', 'normal');
     expect(info.status).toBe('priced');
     expect(info.referenceMxnCents).toBe(MANUAL_PRICE); // NO la automática fresca.
+    // §4.36.7 (adopción v2): `isManualOverride` SE RETIRA del DTO `PriceInfo`; el discriminante público
+    // del override manual es `source === 'manual'` (arriba). El invariante money-safe (el override humano
+    // gana cross-day a los barridos automáticos) queda cubierto por status/referenceMxnCents/source.
     expect(info.source).toBe('manual');
-    expect(info.isManualOverride).toBe(true);
     // La lectura hace DOS queries: una CAPADA (take 32, tier automático) y una DIRIGIDA (sin take,
     // filas manuales). El manual sobrevive porque la dirigida no tiene cota de fecha.
     const capped = findManyArgs.find((a) => a.take != null);

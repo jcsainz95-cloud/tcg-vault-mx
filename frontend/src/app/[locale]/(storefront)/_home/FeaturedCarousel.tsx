@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getCatalog } from '@/lib/api';
-import type { GroupedListingDTO } from '@/types/contract';
+import type { GroupedListingSummaryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
@@ -20,13 +20,13 @@ import { cn } from '@/lib/cn';
 const FEATURED = 8;
 
 /** Renglón mono de la teja: set · #num (+ empresa/grado si es gradeada). */
-function tileMeta(l: GroupedListingDTO): string {
+function tileMeta(l: GroupedListingSummaryDTO): string {
   const base = `${l.card.setName} · #${l.card.number}`;
   return l.gradingCompany ? `${base} · ${l.gradingCompany} ${l.gradeValue ?? ''}`.trim() : base;
 }
 
 /** Precio de la teja: SIEMPRE formateado del server; sin precio ⇒ "pendiente", nunca $0. */
-function TilePrice({ l, locale, big = false }: { l: GroupedListingDTO; locale: AppLocale; big?: boolean }) {
+function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; locale: AppLocale; big?: boolean }) {
   if (l.salePriceCents == null) {
     return <PendingPriceLabel className="mt-3 block" />;
   }
@@ -47,7 +47,8 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingDTO; locale: A
  * más caras del inventario publicado (el backend ordena por salePriceCents server-side).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
  * §20.3). v1.38-grouped-listings (P-30): la fuente (GET /catalog/cards) es AGRUPADA, así que
- * cada teja es un `GroupedListingDTO` con `stockCount` real (badge Queda 1 / N en stock).
+ * cada teja es un `GroupedListingSummaryDTO` (v2.1.9/D2: la rejilla ya no recibe `priceBasis`
+ * ni `referenceValue`) con `stockCount` real (badge Queda 1 / N en stock).
  */
 export function FeaturedCarousel() {
   const t = useTranslations('home');

@@ -5,11 +5,11 @@
  * conversión a inventario, y pago SPEI (money-out solo super_admin).
  * API_CONTRACT §6, §M5; ARCHITECTURE §4.2; PROJECT criterios 12–16, 26.
  *
- * v1.3.1 / v1.37 (P-34, M-38): el cotizador devuelve `rarity` + `appliedRule` (en vez de `category`).
- * Con el seed TIERED por defecto (`pricing_tier_map` + `tierRules`): Common (T0) = fixed 50c, Reverse
- * Holo (acabado) = fixed 150c, Rare/Rare Holo (T2) = **pct 25%** (decisión LOCKED P-34, antes fallback
- * 40%), y una rareza SIN tier en el mapa (p. ej. Rare Secret) cae al fallback 40% de la referencia.
- * `POST /buylist/requests` ya no recibe `category` (el backend deriva la regla server-side de Card.rarity).
+ * ⚠ v2.0 (P-48, ARCHITECTURE §4.36): el cotizador devuelve `rarity` (INFORMATIVO) + **`priceBasis`**;
+ * `appliedRule` se RETIRÓ (ya no hay `{mode,value}`: no hay reglas, hay CURVA). El monto **no depende
+ * de la rareza ni del acabado** (criterio 84): sale de `max(bin, mercado × pct(mercado))` con el seed
+ * de §N.2 (30 % hasta $25 → 40 % en $100 → 50 % en $500, plano de ahí). Y **sin dato de mercado la
+ * línea queda `precio_pendiente`: el BIN NO gana** (§4.36.0).
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
@@ -44,34 +44,36 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
   });
 
   describe('cotizador público (por rareza)', () => {
-    it('Common = fixed 50, Reverse Holo = fixed 150, Rare Holo = 25% (T2, regla — P-34)', async () => {
+    it('el monto sale de la CURVA sobre el mercado: ni la rareza ni el acabado lo cambian (criterios 83/84)', async () => {
+      // Common, mercado $50 ⇒ pct interpolado 33.33 % ⇒ $16.67.
       const comun = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.common, productType: 'raw', rawCondition: 'NM' },
       });
-      expect(comun.body.rarity).toBe('Common');
-      expect(comun.body.appliedRule).toMatchObject({ mode: 'fixed', value: 50, source: 'rule' });
-      expect(comun.body.quote.quotedPriceCents).toBe(50);
+      expect(comun.body.rarity).toBe('Common'); // dato de DISPLAY; no entra al monto
+      expect(comun.body.priceBasis).toBe('market');
+      expect(comun.body.appliedRule).toBeUndefined(); // RETIRADO en v2.0
+      expect(comun.body.quote.quotedPriceCents).toBe(1667);
 
+      // Reverse Holo, mercado $30 ⇒ 30.67 % ⇒ $9.20. El acabado ya NO tiene regla propia.
       const reverse = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.reverse, productType: 'raw', rawCondition: 'NM' },
       });
-      expect(reverse.body.appliedRule).toMatchObject({ mode: 'fixed', value: 150, source: 'rule' });
-      expect(reverse.body.quote.quotedPriceCents).toBe(150);
+      expect(reverse.body.quote.quotedPriceCents).toBe(920);
 
+      // Rare Holo, mercado $1,000 ⇒ 50 % (tramo plano final) ⇒ $500.
       const rareHolo = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' },
       });
-      // v1.37 (P-34): Rare Holo → T2 → pct 25% (regla derivada del tier, NO fallback). Antes fallback 40%.
-      expect(rareHolo.body.appliedRule).toMatchObject({ mode: 'pct', value: 25, source: 'rule' });
-      expect(rareHolo.body.quote.quotedPriceCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.25));
+      expect(rareHolo.body.priceBasis).toBe('market');
+      expect(rareHolo.body.quote.quotedPriceCents).toBe(E2E_CARDS.charizard.refNmCents / 2);
       expect(rareHolo.body.paymentNotice).toBe('PAY_AFTER_RECEIPT');
     });
 
-    it('rareza con regla pct pero SIN referencia entra a "precio pendiente" (no cotiza automático)', async () => {
+    it('SIN referencia de mercado entra a "precio pendiente": el BIN no gana (§4.36.0)', async () => {
       const res = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.nopref, productType: 'raw', rawCondition: 'NM' },
       });
-      expect(res.body.appliedRule.mode).toBe('pct'); // fallback pct
+      expect(res.body.priceBasis).toBe('pending');
       expect(res.body.quote.status).toBe('precio_pendiente');
       expect(res.body.quote.quotedPriceCents).toBeNull();
     });
@@ -87,13 +89,13 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         },
       });
       expect(res.status).toBe(201);
-      expect(res.body.quotedTotalCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.25));
+      expect(res.body.quotedTotalCents).toBe(E2E_CARDS.charizard.refNmCents / 2); // 50 % de $1,000
       expect(res.body.ineRequired).toBe(false);
     });
 
     it('bloquea si supera el tope por solicitud (BUYLIST_LIMIT_EXCEEDED)', async () => {
-      // P-34: Rare Holo → T2 25% × 100000 = 25000/carta; 13 × 25000 = 325000 > 300000 (cap por solicitud).
-      const items = Array.from({ length: 13 }, () => ({
+      // v2.0: la CURVA paga 50 % de $1,000 = $500/carta; 7 × 50000 = 350000 > 300000 (cap por solicitud).
+      const items = Array.from({ length: 7 }, () => ({
         cardId: cardId.charizard,
         productType: 'raw' as const,
         rawCondition: 'NM' as const,
@@ -108,7 +110,8 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
     });
 
     it('exige INE cuando la cotización alcanza el umbral (INE_REQUIRED)', async () => {
-      // highvalue Rare Holo → T2 25% × 1200000 = 300000 = umbral INE (P-34); sin INE → bloqueo.
+      // v2.0: highvalue, mercado $6,000 ⇒ 50 % = 300000 = EXACTAMENTE el umbral INE (y el cap, que
+      // usa `>`, así que el empate lo pasa y sí llega al gate de INE). Sin INE → bloqueo.
       const res = await h.api('POST', '/buylist/requests', {
         token: customerToken,
         json: {

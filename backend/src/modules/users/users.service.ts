@@ -18,6 +18,41 @@ export function isValidClabe(clabe: string): boolean {
   return /^\d{18}$/.test(clabe);
 }
 
+/**
+ * v2.1.9 (S49-R4) — **`Address` se proyecta al `AddressDTO` del contrato (§DTOs).**
+ *
+ * Tres rutas devolvían la fila cruda (`GET/POST /users/me/addresses`, `PATCH .../:id`), o sea también
+ * `userId`, `createdAt` y `updatedAt`. No hay secreto ahí — la dirección es del propio usuario que
+ * pregunta — pero la norma «ningún endpoint devuelve una entidad Prisma» sólo vale si es universal:
+ * mientras la respuesta SEA la fila, cualquier columna futura (una geocodificación, un flag de
+ * verificación, un id de proveedor logístico) viaja al cliente sin que nadie lo decida.
+ */
+function toAddressDTO(a: {
+  id: string;
+  line1: string;
+  line2: string | null;
+  neighborhood: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+  isDefault: boolean;
+}) {
+  return {
+    id: a.id,
+    line1: a.line1,
+    line2: a.line2,
+    neighborhood: a.neighborhood,
+    city: a.city,
+    state: a.state,
+    postalCode: a.postalCode,
+    country: a.country,
+    phone: a.phone,
+    isDefault: a.isDefault,
+  };
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -63,8 +98,8 @@ export class UsersService {
   // ---------------- Addresses (solo MX) ----------------
 
   async listAddresses(userId: string) {
-    const data = await this.prisma.address.findMany({ where: { userId } });
-    return { data };
+    const rows = await this.prisma.address.findMany({ where: { userId } });
+    return { data: rows.map(toAddressDTO) }; // S49-R4
   }
 
   private assertMx(country: string) {
@@ -78,7 +113,7 @@ export class UsersService {
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
-    return this.prisma.address.create({ data: { ...dto, userId } });
+    return toAddressDTO(await this.prisma.address.create({ data: { ...dto, userId } })); // S49-R4
   }
 
   async updateAddress(userId: string, id: string, dto: UpdateAddressDto) {
@@ -88,7 +123,7 @@ export class UsersService {
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
-    return this.prisma.address.update({ where: { id }, data: dto });
+    return toAddressDTO(await this.prisma.address.update({ where: { id }, data: dto })); // S49-R4
   }
 
   async deleteAddress(userId: string, id: string) {

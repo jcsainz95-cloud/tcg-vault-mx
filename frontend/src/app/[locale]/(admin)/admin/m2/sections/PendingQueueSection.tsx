@@ -7,7 +7,7 @@ import { ExternalLink } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 import { getPendingPrices, overridePrice } from '@/lib/api';
-import type { PendingPriceEntryDTO } from '@/types/contract';
+import type { PendingPriceEntryDTO, PendingPriceReason } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
@@ -39,16 +39,21 @@ function pendingDisplayName(e: PendingPriceEntryDTO): string {
 export function PendingQueueSection() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
+  const tReason = useTranslations('status.pendingReason');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage();
 
   const [bucket, setBucket] = useState<'venta' | 'compra'>('venta');
+  // §21.7c: la cola recibe entradas de DOS orígenes que se arreglan de forma distinta, así que se
+  // distinguen a la vista y se pueden filtrar. El segundo conteo es la señal de calibración del
+  // piso: si crece mucho, el piso está mal puesto (o el dato de mercado está roto).
+  const [reason, setReason] = useState<PendingPriceReason | 'all'>('all');
   // Cada bucket pide SOLO su contexto y solo cuando su pestaña está activa (calca M6). El override
   // invalida el prefijo ['pending-prices'] → refresca el bucket VENTA al cerrar el pendiente.
   const ventaPending = useQuery({
-    queryKey: ['pending-prices', 'inventory'],
-    queryFn: () => getPendingPrices('inventory'),
+    queryKey: ['pending-prices', 'inventory', reason],
+    queryFn: () => getPendingPrices('inventory', reason === 'all' ? undefined : reason),
     enabled: bucket === 'venta',
   });
   const compraPending = useQuery({
@@ -100,6 +105,24 @@ export function PendingQueueSection() {
     },
     { key: 'context', header: t('pending.context'), render: (e) => <Badge tone="warning" shape="outline">{e.context}</Badge> },
     {
+      key: 'reason',
+      header: t('pending.reasonCol'),
+      render: (e) =>
+        e.reason ? (
+          <span
+            className={cn(
+              'font-mono text-[10px] uppercase tracking-[0.06em]',
+              e.reason === 'premium_at_floor' ? 'text-accent' : 'text-muted',
+            )}
+          >
+            {tReason(e.reason)}
+          </span>
+        ) : (
+          // Filas históricas (anteriores a v2.0) no traen motivo: se dice, no se inventa.
+          <span className="text-muted">—</span>
+        ),
+    },
+    {
       key: 'actions',
       header: '',
       align: 'right',
@@ -140,11 +163,49 @@ export function PendingQueueSection() {
   // salesRules: solo es fijable un valor no vacío que parsea a número finito → si no, se bloquea.
   const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue);
 
+  // v2.1: el conteo por motivo VIENE SERVIDO en el cuerpo de la respuesta y se pinta VERBATIM.
+  // NO se recalcula ni se filtra en cliente: los `counts` del contrato IGNORAN `?reason=` y la
+  // paginación pero RESPETAN `?context=` — derivarlos de la página cargada era justo el defecto
+  // (con un filtro activo el encabezado describía el subconjunto, y el número mentía cuando el
+  // dueño filtraba para triar, que es cuando más lo mira).
+  const countsByReason = ventaPending.data?.counts ?? null;
+
   return (
     <>
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('pending.title')}</h2>
         <p className="text-sm text-muted">{t('pending.subtitle')}</p>
+        {/* §21.7c + ARCH §4.36.5c — los dos primeros números JUNTOS son un DIAGNÓSTICO, no volumen
+            de trabajo: contra la línea base ≈3/333, `premium_at_floor` subiendo con `no_market`
+            PLANO ⇒ hay dato de mercado y está bajo el piso ⇒ PISO MAL CALIBRADO; subiendo LOS DOS
+            ⇒ feed de mercado degradado, y tocar el piso empeoraría las cosas. Por eso el segundo
+            va en tinta de atención y no se entierra entre el resto del encabezado. */}
+        {bucket === 'venta' && countsByReason && (
+          <p
+            className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted"
+            data-testid="pending-counts"
+          >
+            <span className="tabular-nums">
+              {t('pending.countNoMarket', { count: countsByReason.no_market })}
+            </span>
+            {' · '}
+            <span className="tabular-nums font-medium text-accent">
+              {t('pending.countPremiumAtFloor', { count: countsByReason.premium_at_floor })}
+            </span>
+            {/* `unknown` (filas anteriores a M-41, sin motivo) NO es adorno: sostiene el invariante
+                `no_market + premium_at_floor + unknown === entradas open de esta cola`. Sin pintarla,
+                los números no cuadrarían con la lista y parecería un bug del backend. Se omite
+                cuando es 0 para no añadir ruido a la cola sana. */}
+            {countsByReason.unknown > 0 && (
+              <>
+                {' · '}
+                <span className="tabular-nums">
+                  {t('pending.countUnknown', { count: countsByReason.unknown })}
+                </span>
+              </>
+            )}
+          </p>
+        )}
 
         {/* Pestañas VENTA / COMPRA (patrón de tabs de M6) */}
         <div role="tablist" aria-label={t('pending.bucketsLabel')} className="flex flex-wrap gap-1 border-b border-border">
@@ -167,16 +228,35 @@ export function PendingQueueSection() {
 
         {/* VENTA (context=inventory): fijable por override → publica el ítem */}
         {bucket === 'venta' && (
-          <div role="tabpanel">
+          <div role="tabpanel" className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="eyebrow">{t('pending.filterLabel')}</span>
+              {(['all', 'no_market', 'premium_at_floor'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={reason === k}
+                  onClick={() => setReason(k)}
+                  className={cn(
+                    'min-h-[44px] px-3 font-mono text-[11px] uppercase tracking-[0.06em] sm:min-h-0 sm:py-2',
+                    reason === k
+                      ? 'border-b-2 border-accent text-text'
+                      : 'border-b-2 border-transparent text-muted hover:text-text',
+                  )}
+                >
+                  {k === 'all' ? t('pending.filterAll') : tReason(k)}
+                </button>
+              ))}
+            </div>
             <QueryState
               isLoading={ventaPending.isLoading}
               isError={ventaPending.isError}
               error={ventaPending.error}
               onRetry={() => ventaPending.refetch()}
             >
-              {ventaPending.data && ventaPending.data.length > 0 ? (
+              {ventaPending.data && ventaPending.data.data.length > 0 ? (
                 <div className="rounded-lg border border-border bg-surface p-2">
-                  <DataTable columns={pendingColumns} rows={ventaPending.data} rowKey={(e) => e.id} />
+                  <DataTable columns={pendingColumns} rows={ventaPending.data.data} rowKey={(e) => e.id} />
                 </div>
               ) : (
                 <EmptyState tone="positive" title={t('pending.ventaEmpty')} />
@@ -200,9 +280,9 @@ export function PendingQueueSection() {
               error={compraPending.error}
               onRetry={() => compraPending.refetch()}
             >
-              {compraPending.data && compraPending.data.length > 0 ? (
+              {compraPending.data && compraPending.data.data.length > 0 ? (
                 <div className="rounded-lg border border-border bg-surface p-2">
-                  <DataTable columns={compraColumns} rows={compraPending.data} rowKey={(e) => e.id} />
+                  <DataTable columns={compraColumns} rows={compraPending.data.data} rowKey={(e) => e.id} />
                 </div>
               ) : (
                 <EmptyState tone="positive" title={t('pending.compraEmpty')} />

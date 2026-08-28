@@ -6,9 +6,17 @@ export const config = {
   googleClientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? '',
   defaultLocale: process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? 'es',
   /**
-   * MOCK: pendiente de backend. Mientras el backend no esté corriendo se usan
-   * fixtures que respetan los shapes del contrato. Poner NEXT_PUBLIC_USE_MOCKS=false
-   * (o definir el backend) activa las llamadas reales al API.
+   * Modo MOCK: sirve fixtures locales en vez de llamar al API. Es una herramienta de
+   * demo/desarrollo, no un modo de producción.
+   *
+   * ⚠️ **OPT-IN EXPLÍCITO (fail-safe).** Antes era `!== 'false'`, o sea **encendido por defecto**:
+   * un build donde se olvidara `NEXT_PUBLIC_USE_MOCKS=false` servía **fixtures en silencio** —
+   * precios de mentira, inventario de mentira, sin un solo error en pantalla. Un default tiene que
+   * fallar hacia el lado seguro, y el lado seguro aquí es hablar con el backend: si la API no está,
+   * la UI muestra su estado de error honesto (§8.1) en vez de inventar datos.
+   *
+   * Los caminos que SÍ quieren mocks lo declaran: `playwright.config.ts` (webServer),
+   * `vitest.config.ts` (suite unitaria) y quien levante el front en modo demo.
    */
-  useMocks: process.env.NEXT_PUBLIC_USE_MOCKS !== 'false',
+  useMocks: process.env.NEXT_PUBLIC_USE_MOCKS === 'true',
 };

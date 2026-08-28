@@ -21,6 +21,17 @@ vi.mock('@/lib/api', () => ({
 import { MasterSetBinder } from './MasterSetBinder';
 import { getMasterSetBinder } from '@/lib/api';
 
+// `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
+// Lo necesita el enlace del guardarraíl («Ver en la cola de pendientes») de la consola de precios.
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+
 const set: MasterSetSummaryDTO = {
   setId: 'sv08',
   name: 'Surging Sparks',
@@ -191,5 +202,78 @@ describe('MasterSetBinder · banda de acabado estrictamente por finish (independ
     await screen.findAllByText('Pikachu ex');
     const normalTile = tileFor('Normal');
     expect(normalTile.querySelector('[data-testid="finish-band"]')).toBeNull();
+  });
+});
+
+/**
+ * §21.9c-1 — **bounty rebasado**. Con `enabled && !effective` el bounty no aplica al cotizar y no se
+ * publica en la vitrina; si nadie lo dice, el dueño solo ve que su `·B` desapareció. El **texto** es
+ * el portador del estado (§2.4): los dos estados comparten el rojo y se distinguen por la palabra;
+ * la ausencia del glifo de mira es el refuerzo, no el canal.
+ */
+describe('MasterSetBinder · badge de bounty rebasado (P-48, §21.9c)', () => {
+  function cellWithBounty(effective: boolean): MasterSetCardCellDTO {
+    return {
+      ...spinarakCell,
+      variants: [
+        {
+          finish: 'normal',
+          count: 2,
+          covered: true,
+          pricing: {
+            buy: {
+              suggestedCents: 95_000,
+              overrideCents: null,
+              // Rebasado: se paga la CURVA, no la oferta.
+              effectiveCents: effective ? 90_000 : 95_000,
+              source: effective ? 'bounty' : 'market',
+              premiumAtFloor: false,
+            },
+            sell: {
+              suggestedCents: 169_000,
+              overrideCents: null,
+              effectiveCents: 169_000,
+              source: 'market',
+              premiumAtFloor: false,
+            },
+            bounty: {
+              enabled: true,
+              priceCents: 90_000,
+              targetQty: null,
+              acquiredQty: 0,
+              completedAt: null,
+              effective,
+              curveQuoteCents: 95_000,
+            },
+          },
+        },
+        { finish: 'reverse_holo', count: 0, covered: false },
+      ],
+    };
+  }
+
+  it('bounty EFECTIVO: badge «Bounty» (con glifo) y el renglón de compra lleva ·B', async () => {
+    vi.mocked(getMasterSetBinder).mockResolvedValue({ ...response, cells: [cellWithBounty(true)] });
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} />,
+    );
+    await screen.findAllByText('Spinarak');
+    const tile = tileFor('Normal');
+    expect(within(tile).getByText('Bounty')).toBeInTheDocument();
+    expect(within(tile).queryByText('Bounty rebasado')).toBeNull();
+    expect(within(tile).getByText('·B')).toBeInTheDocument();
+  });
+
+  it('bounty REBASADO: badge «Bounty rebasado» sin ·B — la cifra es la de la curva', async () => {
+    vi.mocked(getMasterSetBinder).mockResolvedValue({ ...response, cells: [cellWithBounty(false)] });
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} />,
+    );
+    await screen.findAllByText('Spinarak');
+    const tile = tileFor('Normal');
+    expect(within(tile).getByText('Bounty rebasado')).toBeInTheDocument();
+    // No se añade un cuarto renglón: el badge ya porta el aviso y la teja se lee de un vistazo.
+    expect(within(tile).queryByText('·B')).toBeNull();
+    expect(within(tile).getByText('MX$950.00')).toBeInTheDocument();
   });
 });

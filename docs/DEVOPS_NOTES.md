@@ -20,6 +20,20 @@
 > `MARKET_FORMAT`, rollback por dial) y el bloque de precios/scheduling de `.env.example`. El **scheduler** y
 > `env.validation.ts` los cabla **backend** (devops no toca `backend/`).
 >
+> **⇒ Actualización 2026-08-24 (P-48 / v2.0 — «precio puro por valor de mercado»): EL RUNBOOK
+> OPERATIVO VIGENTE ES §29.** Tres veredictos **aprobados** (QA · techlead con deuda · seguridad
+> **0 críticos / 0 altos**) y **tres decisiones del dueño** ya reflejadas ahí:
+> **(1)** **P-47 primero, P-48 después** — la fuente del precio se estabiliza **antes** de cambiar la
+> matemática que se le aplica (§29.3, con criterio de corte explícito).
+> **(2)** El cut-over va **POR SETS**, empezando por uno chico, leyendo `summary.listedNowPending` y los
+> `counts` de la cola entre set y set (§29.4b/§29.4c).
+> **(3)** La **brecha de E2E contra mocks** se cierra **antes** de desplegar, por la **ruta NATIVA sin
+> Docker** de **§29.10** (`scripts/stack-native.sh` + subset `@real`). **La ejecuta QA.**
+> **Estado del DoD y qué falta exactamente: §29.11 — y OBLIGATORIO leer §29.11-bis**, que corrige el
+> veredicto: tras certificar, la rama **se movió** (`d8c4625` + trabajo sin commitear de backend/frontend),
+> así que **el delta que se desplegaría ya no es el que se aprobó** y el gate de release debe re-pasarse
+> sobre el árbol final. §27 queda como **registro histórico**.
+>
 > **Actualización 2026-08-23 (D-4 — cierre techlead, regla 10):** el release
 > `fix/variant-composition-regression` @ `9b6a81b` trae **cambios de DATOS** que `migrate deploy` NO cubre
 > solo (reshape de tiers **P-34 T2=25%** + cura del sellado **M-39/M-40**). La **secuencia exacta
@@ -30,6 +44,12 @@
 ---
 
 ## 0. Estado actual (cierre)
+
+> **⚠ Esta sección quedó FECHADA. El estado vigente es §29.11-bis + §30.6 (2026-08-24).** Lo de abajo
+> describe un cierre anterior a la fase de seguridad y a P-48. **Hoy el DoD está REVOCADO** (el árbol se
+> movió después de los veredictos) y **no hay deploy ni tag**. Antes de citar nada de esta sección como
+> estado actual, lee **§30** (pase de infraestructura tras el gate de release) y **§30.6** (condiciones
+> abiertas del DoD).
 
 - **Código presente**: `backend/` (NestJS + Prisma) y `frontend/` (Next.js 14) existen, compilan y
   pasan `lint + typecheck + test + build` con los scripts que espera el CI.
@@ -216,6 +236,15 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 
 > **Actualización 2026-08-17 (devops):** se separó el E2E en dos caminos porque el
 > "verde" que veía QA corría **contra mocks**, lo que dejó pasar flujos reales rotos.
+>
+> ### ⚠️ Actualización 2026-08-24 — **si no tienes demonio de Docker, ve a §29.10.**
+> Los comandos `docker compose` de esta sección **siguen siendo la ruta canónica en CI** y no
+> cambian. Pero en la **máquina de trabajo del equipo NO hay demonio de Docker**
+> (`/var/run/docker.sock` no existe), así que aquí **no arrancan**. La alternativa **soportada
+> y verificada** es la **ruta NATIVA** de **§29.10** (`scripts/stack-native.sh`): mismo Postgres,
+> mismo Redis, mismo backend Nest completo, frontend con `NEXT_PUBLIC_USE_MOCKS=false`, y el
+> subset **`@real`** de Playwright contra `E2E_BASE_URL`. **No leas esta sección como si fuera el
+> único camino:** fue justamente ese callejón sin salida el que dejó la verificación real sin correr.
 
 ### El problema (por qué "QA verde" no bastaba)
 
@@ -2849,6 +2878,17 @@ entero, `groupId = pptSetId`). Es decir: das el `externalId` al endpoint, y el r
 
 ## 27. Runbook de release — SECUENCIA POST-DEPLOY money-crítica (M-39/M-40 + reshape P-34) — 2026-08-23
 
+> ### ⛔ AVISO 2026-08-24 — el **PASO 3 de esta sección ya NO EXISTE**. Ver **§29**.
+> El **backfill P-34 (reshape de tiers)** se **retiró del pipeline**: la etapa **E8 de P-48/v2.0** borró
+> `backend/prisma/backfill-p34-tiered-pricing.ts` junto con toda la superficie de tiers, y
+> `scripts/post-deploy.sh` ya **no** lo invoca (su llamada rompía el post-deploy entero por
+> `set -euo pipefail`). **No se reemplazó por otro script**: las cinco claves que migraba
+> (`sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`,
+> `buylist_price_fallback_pct`, `pricing_tier_map`) **ya no las lee nadie**; sus filas quedan
+> huérfanas e **inertes** en `ConfigSetting` a propósito (§4.36.9b: rollback barato + diagnóstico).
+> **Esta sección se conserva como REGISTRO HISTÓRICO** del release 2026-08-23 (M-39/M-40 siguen
+> vigentes y ya están en `origin/main`/`origin/production`). **El runbook operativo vigente es §29.**
+>
 > **Rama:** `fix/variant-composition-regression` @ `9b6a81b`. **Origen:** el techlead marcó **D-4** — el
 > script money-crítico de **reshape de tiers (P-34 T2=25%)** **no estaba en el runbook de deploy** y la
 > **regla 10** de `CLAUDE.md` exige cerrarlo ANTES de prod. Esta sección cablea la **secuencia exacta
@@ -2882,7 +2922,7 @@ entero, `groupId = pptSetId`). Es decir: das el `externalId` al endpoint, y el r
 |---|---|---|---|---|
 | 1 | **Migraciones** M-39 (`SealedProduct`) + M-40 (`PendingPriceEntry.sealedProductId`, FK nullable `onDelete SET NULL`). Ambas **aditivas**. | `npx prisma migrate deploy` (ya corre al arrancar el contenedor; el orquestador la re-verifica salvo `SKIP_MIGRATE=1`) | No-op si ya aplicaron (`_prisma_migrations`). | Falla atómica dentro de su tx → Railway mantiene el deploy anterior. Rollback = redeploy del commit previo (§27.4). |
 | 2 | **Backfill M-39** — cura el **ETB→Tropius** (deriva `SealedProduct` de items ya mapeados y liga `sealedProductId`). | `npx ts-node prisma/backfill-m39-sealed-product.ts` | `upsert` + solo liga items sin FK ⇒ 2ª corrida no duplica. | Reimprime reconciliación de sellados **SIN MAPEO** (quedan `null`, no bloquea). Si el script sale ≠0, revisar log y re-correr; no es destructivo. |
-| 3 | **Backfill P-34 — RESHAPE de tiers (T2=25%). MONEY-CRÍTICO.** Migra las reglas legacy plano/dos-ejes al shape tiered canónico. | `npx ts-node prisma/backfill-p34-tiered-pricing.ts` | Ve `tierRules` ⇒ NO-OP. Nunca escribe $0. | **Si imprime «⚠ ACCIÓN REQUERIDA»** (una tabla de M2 fue editada a mano y DIVERGE del default): **NO la toca (money-safe)** → **PARAR y escalar al humano/arquitecto** para definir el mapeo rareza→tier a mano. **El release NO se anuncia** hasta cerrarlo. `post-deploy.sh` **para solo** ante ese texto. |
+| ~~3~~ | ⛔ **RETIRADO 2026-08-24 (P-48/E8) — el script YA NO EXISTE, no lo busques ni lo re-crees (§29.2).** ~~Backfill P-34 — RESHAPE de tiers (T2=25%). MONEY-CRÍTICO.~~ Migra las reglas legacy plano/dos-ejes al shape tiered canónico. | `npx ts-node prisma/backfill-p34-tiered-pricing.ts` | Ve `tierRules` ⇒ NO-OP. Nunca escribe $0. | **Si imprime «⚠ ACCIÓN REQUERIDA»** (una tabla de M2 fue editada a mano y DIVERGE del default): **NO la toca (money-safe)** → **PARAR y escalar al humano/arquitecto** para definir el mapeo rareza→tier a mano. **El release NO se anuncia** hasta cerrarlo. `post-deploy.sh` **para solo** ante ese texto. |
 | 4 | **unify-rarities** — pendiente **cosmético** de P-34 (re-deriva `Card.rarityCanonical`). Es endpoint HTTP, no script de DB. | `curl -X POST "$ADMIN_BASE_URL/admin/catalog/unify-rarities" -H "Authorization: Bearer <super_admin_JWT>" -H "Content-Type: application/json"` | Idempotente (2ª corrida = 0 updates). | Cosmético: **NO bloquea**. Reintentar a mano cuando se tenga JWT. El orquestador lo dispara solo si se le pasan `ADMIN_BASE_URL` + `ADMIN_JWT`. |
 | 5 | **Nota de saneo legacy (deuda D-3)** — filas pendientes de sellado duplicadas/huérfanas (`gradeKey='sealed'` sin `sealedProductId`) de altas previas al fix. | *(barrido puntual, registrado en `TECH_DEBT`/`BACKEND_NOTES`)* | — | **Deuda de rol BACKEND, NO devops. NO bloquea el deploy.** Solo se observa en la cola de precio pendiente de M2 y se enruta a backend. |
 | 6 | **Sincronizar sellado por set** — «Sincronizar» trae presentaciones de sellado desde **tcgcsv.com** (egress real; en local/CI daba **403**). | Back-office M2 «Sincronizar» por set, o el endpoint por-set con super_admin (ver §26.6). | Idempotente / money-safe (repuebla presentaciones y precio; no borra `PriceReference`). | Requiere egress a tcgcsv.com. Si da 403/timeout, es red/egress: reintentar desde un entorno con salida a Internet; no altera dinero existente. |
@@ -3148,3 +3188,1247 @@ Estado de ramas (verificado con git, 2026-08-24):
 > `tcgcsv_singles` fallara por un bug del provider (p. ej. resolución de `groupId`, mapeo de `subTypeName`),
 > el arreglo es de **rol backend**; devops reporta el error exacto y NO lo corrige. Si el set de verificación
 > no existe aún en el catálogo, el import de metadata es prerequisito (§24).
+## 29. Cut-over de **v2.0 — precio puro por valor de mercado** (P-48, M-41) — 2026-08-24
+
+> **Rama:** `claude/card-pricing-rules-2e537m` (etapas **E0–E9**, de `586f736` a `HEAD`).
+> **Fuente normativa:** `ARCHITECTURE.md` **§4.36** (spec) y **§4.36.9** (migración + cut-over).
+>
+> ### ✅ ESTADO: **TRES VEREDICTOS APROBADOS. Runbook LISTO. Deploy NO EJECUTADO.**
+> | Gate | Estado |
+> |---|---|
+> | **QA** | ✅ aprobado — con una **brecha declarada** (los 80/80 de Playwright corrieron contra **mocks**). Se cierra por §29.10 **antes** del deploy. |
+> | **techlead** | ✅ aprobado **con deuda** (no bloqueante, registrada en `docs/TECH_DEBT.md`). |
+> | **seguridad** | ✅ **APROBADO — 0 críticos, 0 altos** (`docs/SECURITY_NOTES.md`, pase P-48; los medios/bajos S48-M1/M2 y P48-B1 se cerraron después en `6322ee3`, `a2d238e`, `1771a47`). |
+>
+> **Por qué sigue sin desplegarse, y no es un olvido:** faltan **dos insumos que solo aporta el dueño** —
+> el **snapshot/PITR de la Postgres de producción** (paso 0, la red de seguridad del release) y la
+> **ventana** en que se ejecuta. Devops no tiene egress a prod ni acceso a los dashboards; ese límite es
+> el mismo de §26/§28 y no se disimula aquí. Lo que sí está listo es todo lo demás: pipeline sano,
+> secuencia, verificación, rollback y el orden entre releases.
+>
+> **Numeración:** esta sección es **§29 y no §28** a propósito: `origin/main` ya tiene un
+> **§28** (runbook de activación del dial `tcgcsv_singles`, P-47). Numerarla §29 evita el choque
+> de encabezados cuando este stream mergee a `main`.
+>
+> **Cambios de esta revisión (2026-08-24, tras las tres decisiones del dueño):** §29.3 pasa de
+> *recomendación* a **orden normativo** (P-47 primero, P-48 después, con criterio de corte explícito);
+> §29.4 se parte en **29.4a deploy / 29.4b cut-over POR SETS / 29.4c lectura entre set y set**; y se añade
+> **§29.10** (ruta NATIVA sin Docker para cerrar la brecha de E2E) y **§29.11** (verificación del DoD).
+
+### 29.1 Resumen para el operador: qué cambia en INFRA (y qué NO)
+
+| Dimensión | v2.0 (P-48) |
+|---|---|
+| **Variables de entorno** | **NINGUNA nueva.** La curva es **DATO** (setting `pricing_curve` en `ConfigSetting`), no configuración de entorno: se edita en M2 sin redeploy. Si algún día un cambio de pricing pide un env nuevo, es señal de diseño equivocado → **reportar al arquitecto, no agregarlo**. |
+| **Migración** | **M-41** `20260824120000_m41_pricing_curve_instrumentation` — **ADITIVA PURA**: 3 enums + 8 columnas **nullable** + 1 índice. **Sin `DROP`, sin backfill, sin migración de dinero.** Segura con la app corriendo. |
+| **Migración de dinero** | **NO EXISTE.** El precio de venta **no está persistido**: se resuelve **en lectura** (§4.26b). No hay filas de precio que reescribir. |
+| **«Repriciar el catálogo»** | Es **RE-RESOLVER**, no un `UPDATE` masivo → `POST /admin/inventory/publish-all` (§29.4b), **por sets**. |
+| **Settings viejos** | Las **cinco** claves retiradas quedan **huérfanas e INERTES**, **sin `DELETE`**: `sales_price_rules`, `sales_price_fallback_pct`, `buylist_price_rules`, `buylist_price_fallback_pct`, `pricing_tier_map`. **NO LAS BORRES** (§29.8). |
+| **Seed** | **No se necesita** para el cut-over. Si la fila `pricing_curve` no existe, `SettingsService.get()` devuelve el **default de §N.2** (`SETTING_DEFAULTS`) — exactamente lo que el seed escribiría. La fila se materializa sola con el primer `PUT /admin/pricing/curve`. Correr `prisma/seed.ts` completo contra prod **no** es parte de este runbook (siembra usuarios/cartas demo). |
+| **Sellado** | **Fuera de la curva** (§4.36.10): conserva íntegro su spread por presentación y su dial `sealed_spread_fallback_pct`. Verificable: **el precio de un sellado antes y después es idéntico**. |
+| **Docker / compose / CI** | **Sin cambios.** Mismo `Dockerfile.backend` (su `CMD` corre `migrate deploy` antes de servir), mismos workflows, mismos gates SAST/DAST/E2E. |
+
+### 29.2 Bloqueo resuelto — `post-deploy.sh` invocaba un script **borrado**
+
+**Síntoma:** `scripts/post-deploy.sh` línea 87 hacía
+`npx ts-node prisma/backfill-p34-tiered-pricing.ts`, y ese archivo **ya no existe**: la etapa **E8** lo
+borró como parte del retiro sin residuos de la superficie de tiers. Con `set -euo pipefail`, el
+post-deploy **entero** abortaba ahí → **release imposible de completar**.
+
+**Arreglo (no sustitución):** el paso se **retiró del pipeline**. No hay nada que poner en su lugar:
+
+- Ese backfill era el de **P-34/M-38** (reshape rareza→tier) y **ya cumplió su función**.
+- Migraba justo las claves que v2.0 **dejó de leer**. Aunque no hubiera corrido, hoy sería un **no-op de
+  comportamiento**: ningún camino de código lee esas cinco claves (verificado por grep en `backend/src/`
+  y `backend/prisma/`; solo quedan comentarios de retiro explícitos).
+- Con él se fue su **parada controlada** por «ACCIÓN REQUERIDA» (la ambigüedad rareza→tier de una tabla
+  editada a mano). Ya no aplica: **no hay tablas de reglas** que colapsar — hay **una curva**.
+
+**Además, en el mismo pase:**
+
+- `post-deploy.sh` se renumeró (1 migraciones · 2 backfill M-39 · 3 unify-rarities · 4 **cut-over
+  publish-all** · 5 **diagnóstico de la cola** · 6 nota D-3 · 7 sync de sellado) y su cabecera describe
+  el estado real del release.
+- **Verificado `bash -n scripts/post-deploy.sh` → OK** (y de nuevo tras los cambios de §29.4b).
+- **Barrido de referencias muertas** en territorio devops (`scripts/`, `.github/workflows/`, `security/`,
+  `docker-compose*.yml`, `Dockerfile.*`, `railway.json`, `.env.example`): **sin residuos** de
+  `backfill-p34`, `tiered-pricing`, `pricing/tiers`, `tier-map`, `buylist-rules`, `sales-rules`,
+  `sales-rarities` ni de las cinco claves retiradas. La **única** referencia viva estaba en la línea 87.
+- **Fuera de mi territorio** (queda para su rol): `PENDIENTES.md` (líneas ~53-55) todavía lista
+  `ts-node prisma/backfill-p34-tiered-pricing.ts` como paso 3 del «Al publicar». Es del **orquestador**;
+  `docs/BACKEND_NOTES.md` §del backfill P-34 es de **backend**. Ninguna de las dos rompe el deploy
+  (son documentación), pero conviene alinearlas para no reintroducir el paso muerto.
+
+---
+
+### 29.3 ORDEN ENTRE RELEASES — **P-47 PRIMERO, P-48 DESPUÉS** (decisión del dueño, NORMATIVA)
+
+> **Esto ya no es una recomendación de devops: es el orden acordado.** Devops lo propuso, el dueño lo
+> aceptó. Ejecutar los dos en la misma ventana **queda descartado**.
+
+#### 29.3-1 Por qué, en una línea que conviene no olvidar
+
+**P-47 cambia la FUENTE del precio de mercado** (flip del dial `price_provider` → `tcgcsv_singles`,
+precio por-acabado diario desde TCGCSV, §28). **P-48 cambia la MATEMÁTICA que se aplica a esa fuente**
+(la curva: `venta = redondeo↑(max(piso, mercado × markup(mercado)))`).
+
+Y el detalle que obliga al orden, no solo lo aconseja: **P-48 pone el 100 % del peso sobre el dato de
+mercado.** Con la curva no hay reglas por rareza ni por acabado que amortigüen un dato malo — si el
+mercado dice una cifra, esa cifra decide el precio, y si no dice nada la pieza se retiene. Por eso **el
+dato tiene que ser confiable ANTES de que la curva empiece a decidir precios**.
+
+Si se encienden juntos y un precio se mueve raro, **no hay forma de separar si fue la fuente o la
+matemática**: las dos variables cambiaron a la vez y no queda una lectura limpia contra la cual comparar.
+Serializados, cada movimiento tiene un solo sospechoso.
+
+#### 29.3-2 Secuencia
+
+| Fase | Qué se hace | Runbook |
+|---|---|---|
+| **1** | **P-47**: merge/deploy + flip del dial a `tcgcsv_singles` + primer barrido | **§28** (ya en `origin/main`) |
+| **2** | **VERIFICACIÓN de P-47** contra cartas conocidas — abajo | §29.3-3 |
+| **3** | **CORTE**: ¿P-47 está estable? — criterio explícito abajo | §29.3-4 |
+| **4** | **P-48**: merge/deploy de esta rama + cut-over **por sets** | §29.4a/§29.4b |
+
+**Entre la fase 1 y la 4 tiene que haber al menos un ciclo COMPLETO del `price-ingest`.** El job corre
+**2×/día (00:00 y 12:00 UTC)**; un barrido forzado (`POST /admin/jobs/price-ingest`) sirve para adelantar
+sets concretos, pero el criterio de corte se toma sobre una corrida **programada** que haya pasado por el
+catálogo en scope, no sobre un `--force` puntual. Un `--force` prueba que la ruta funciona; no prueba que
+el barrido diario cubre el catálogo.
+
+#### 29.3-3 Qué se verifica ENTRE uno y otro (contra cartas conocidas)
+
+La verificación de §28.4e sigue siendo la base. Lo que se añade aquí es **el ancla contra cartas que el
+dueño conoce de memoria**, que es lo único que detecta un dato *plausible pero equivocado* —un feed puede
+devolver cifras perfectamente bien formadas y aun así estar mal mapeado:
+
+1. **Elegir 8–10 cartas cuyo precio real el dueño sepa de memoria**, repartidas a propósito:
+   - **al menos 2 de valor alto** (una chase moderna) — el tramo donde la curva aplica el markup más bajo
+     y un error de fuente se traduce en pesos de inmediato;
+   - **al menos 2 baratas** (bulk) — el tramo donde la curva topa contra el **piso**;
+   - **al menos 2 con reverse holo y holofoil de la misma carta** — es exactamente lo que P-47 aporta
+     (precio distinto por acabado) y lo que el proveedor viejo aplanaba.
+2. **Comparar el mercado del día contra lo que el dueño espera**, por acabado:
+   ```sql
+   SELECT c.name, pr."finish", pr."priceMxnCents", pr."source", pr."capturedDate", pr."isManualOverride"
+   FROM "PriceReference" pr
+   JOIN "Card" c ON c.id = pr."cardId"
+   WHERE c.name IN ('<carta 1>', '<carta 2>', '…')
+     AND pr."capturedDate" = CURRENT_DATE
+   ORDER BY c.name, pr."finish";
+   ```
+   **Éxito** = para una misma carta, `normal` / `reverse_holo` / `holofoil` dan cifras **distintas**, con
+   `source='tcgcsv_singles'` y `capturedDate` de **hoy**, y los montos **caen donde el dueño espera**
+   (no se busca el centavo exacto: se busca que no haya un orden de magnitud de diferencia ni un acabado
+   pegado al de otro).
+3. **Cobertura, no solo puntería.** Una fuente puede acertar en las 10 cartas del muestreo y aun así
+   dejar medio catálogo sin dato — y bajo la curva, **sin dato = pieza retenida**:
+   ```sql
+   -- % de variantes en inventario de plataforma CON mercado de hoy
+   SELECT round(100.0 * count(pr.id) FILTER (WHERE pr.id IS NOT NULL) / NULLIF(count(*), 0), 1) AS pct_con_mercado,
+          count(*) AS variantes
+   FROM (SELECT DISTINCT i."cardId", i."finish", i."productType"
+         FROM "InventoryItem" i
+         WHERE i."ownerType" = 'platform' AND i.status IN ('in_stock','listed')) v
+   LEFT JOIN "PriceReference" pr
+     ON pr."cardId" = v."cardId" AND pr."finish" = v."finish"
+    AND pr."productType" = v."productType" AND pr."capturedDate" = CURRENT_DATE;
+   ```
+4. **Los overrides manuales siguen ganando** (P47-2, durable cross-day). Ya se verifica en §28.4e-2; se
+   repite aquí porque bajo la curva el override es **absoluto** (§N.6) y conviene saber que sobrevivió al
+   cambio de fuente **antes** de que la curva entre en juego.
+
+#### 29.3-4 CRITERIO DE CORTE — «P-47 está estable, procede P-48»
+
+Se procede con P-48 cuando **los cinco** se cumplen. Si falta uno, **no se procede**; y lo que falla se
+enruta a su rol (fuente/ingest ⇒ **backend**; egress/dial/env ⇒ **devops**; dato de negocio ⇒ **dueño**).
+
+| # | Condición | Cómo se comprueba |
+|---|---|---|
+| 1 | **≥ 2 corridas programadas** de `price-ingest` con `tcgcsv_singles` **sin fallo de barrido** | `GET /admin/pricing/sync-status` + logs; sin `403`/timeouts recurrentes contra `tcgcsv.com` |
+| 2 | **`capturedDate` de HOY** para la mayoría del inventario de plataforma | la consulta de cobertura de §29.3-3-3 |
+| 3 | **Cobertura ≥ 95 %** de variantes en inventario con mercado del día | misma consulta. **Este es el número que más importa para P-48**: bajo la curva, la variante sin dato **no se publica** — una cobertura del 80 % significa que **1 de cada 5 piezas se retiene** en el cut-over, y eso se leería como «la curva rompió el catálogo» cuando en realidad fue la fuente |
+| 4 | **Precio distinto por acabado** en las cartas de muestreo, y **coherente** con lo que el dueño espera | §29.3-3-1/2 |
+| 5 | **Sin sorpresas en la cola** durante ≥ 24 h con P-47 solo | `GET /admin/pricing/pending` → `counts`. `no_market` **estable o a la baja**. Si `no_market` está **subiendo** con P-47 solo, la fuente todavía se está asentando: **esperar**. Encender la curva sobre un `no_market` en ascenso garantiza no poder distinguir después qué causó qué |
+
+> **La condición 5 es la que hace que el orden sirva de algo.** Es la lectura de la cola **antes** de que
+> la curva exista, es decir, **la línea base**. Sin ella, el `counts` posterior al cut-over no se compara
+> contra nada y la regla de diagnóstico de §29.4c se queda sin denominador. **Anota los dos números
+> (`no_market` y `premium_at_floor`) en el momento del corte** — son el «antes» del release.
+>
+> **Ojo:** con P-47 solo, `premium_at_floor` **debería ser 0** — esa razón la introduce el guardarraíl de
+> P-48 y antes del cut-over no existe. Si apareciera con valor > 0, es que ya hay código de v2.0
+> desplegado y el orden se rompió: **parar**.
+
+---
+
+### 29.4 Secuencia de cut-over (§4.36.9c) — **con los tres veredictos ya dados**
+
+Orquestada por `scripts/post-deploy.sh` (idempotente). Patrón §11.F para el env de prod.
+
+#### 29.4a Deploy y salud (pasos 0–4)
+
+| # | Paso | Comando / dónde | Bloquea | Notas |
+|---|---|---|---|---|
+| **−1** | **P-47 estable** (§29.3-4) | los 5 criterios de corte | **SÍ** | Prerrequisito de orden. No se salta. |
+| **−0.5** | **E2E contra el stack real** (§29.10) | lo corre **QA** | **SÍ** | Cierra la brecha declarada por QA. El «verde» de mocks no autoriza un deploy que toca dinero. |
+| 0 | **Snapshot / PITR de la Postgres de prod** | Railway → Postgres → Backups → *Create backup* | **SÍ** | Orden de oro (§7): **datos primero, código después**. Aquí no hay dinero que migrar, pero el snapshot es la red para cualquier sorpresa. **Lo aporta el dueño; devops no tiene acceso.** |
+| 1 | **Merge a `main` + deploy** (Railway backend + Vercel frontend) | `deploy.yml` (auto desde `main`) o §26.3 | **SÍ** | Al arrancar, el contenedor aplica **M-41**. El frontend v2.0 (editor de curva) y el backend deben ir **juntos**: el editor de tiers ya no existe. |
+| 2 | **Salud** | `GET /api/v1/health` → 200 (Redis `up`) | **SÍ** | No se toca dato hasta que la app esté sana. |
+| 3 | **Verificar M-41 aplicada** | SQL de §29.6 | **SÍ** | 1 fila en `_prisma_migrations` + columnas/enums presentes. |
+| 4 | **(Opcional) Fijar la curva** | M2 → editor de curva, o `PUT /admin/pricing/curve` | No | Si no se toca, rige el **default de §N.2** (idéntico al seed). El `POST /admin/pricing/curve/preview` permite **dry-run** antes de guardar. |
+
+> **Entre el paso 1 y el 5 el catálogo YA está bajo la curva.** El precio de venta se resuelve **en
+> lectura** (§4.26b): lo que estaba publicado adopta la curva **con el deploy**, sin que nadie corra nada.
+> El `publish-all` **no es** lo que aplica la curva — es lo que **re-evalúa** cada pieza para publicar la
+> que ahora resuelve y **retener** (escalar a la cola) la que no. Por eso el cut-over por sets es una
+> operación de **observación y control**, no de aplicación.
+
+#### 29.4b CUT-OVER **POR SETS** (paso 5) — decisión del dueño
+
+> **No se repricia el catálogo completo de una sola vez.** La secuencia es: **repriciar UN set → revisar
+> la cola de pendientes y unos cuantos precios → seguir con el siguiente**. `publish-all` acepta
+> `setId`/`productType` justamente para esto.
+
+**Por qué por sets, ahora que la cola ya no se vacía sola.** Con v2.1.1 una pieza `listed` que deja de
+resolver precio **se escala a la cola y SIGUE `listed`** (escalar no le cambia el status). Eso convierte
+el cut-over en algo **verificable de verdad**: hay un número —`summary.listedNowPending`— que dice *«de lo
+que ya estaba a la venta, cuánto quedó retenido»*, y ese número **solo es interpretable en lotes chicos**.
+Sobre el catálogo entero, un `listedNowPending` de 40 no dice si el problema está en un set concreto o
+repartido; sobre un set de 30 piezas, sí.
+
+##### Cómo se dispara
+
+```bash
+# Un set, desde el orquestador post-deploy (la batchKey se deriva del set — ver la trampa de abajo):
+RUN_PUBLISH_ALL=1 \
+PUBLISH_ALL_SET_ID='<uuid interno de CardSet>' \
+ADMIN_BASE_URL='https://<API_BASE>/api/v1' ADMIN_JWT='<JWT super_admin>' \
+  bash scripts/post-deploy.sh
+
+# O a mano:
+curl -X POST "$ADMIN_BASE_URL/admin/inventory/publish-all" \
+     -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
+     -d '{"batchKey":"p48-cutover-<setId>","setId":"<uuid interno de CardSet>"}'
+```
+
+##### ⚠️ Dos trampas verificadas en el código — leerlas antes del primer set
+
+1. **`setId` es el `CardSet.id` INTERNO (uuid), NO el `externalId`.**
+   `InventoryService.publishAll` resuelve `cardSet.findUnique({ where: { id: req.setId } })`, y el DTO
+   (`PublishAllRequestDto`) solo valida `@IsString()`. Mandar `sv8pt5` o `cel25` da
+   **`400 VALIDATION_ERROR`**. Es **asimétrico con `POST /admin/jobs/price-ingest`**, que sí acepta
+   externalId o id interno (§28.4d) — no lo asumas por analogía. Cómo obtener el uuid:
+   ```sql
+   SELECT id, "externalId", name, "releaseDate" FROM "CardSet"
+   WHERE "externalId" = 'sv8pt5';        -- o:  WHERE name ILIKE '%prismatic%'
+   ```
+   *(Paridad `externalId` en `publish-all` sería una mejora razonable; es **decisión del arquitecto** y
+   cambio de **backend**, no de devops. Queda anotado, no ejecutado.)*
+
+2. **La idempotencia por `batchKey` se evalúa ANTES de mirar los filtros.** El fast-path del
+   `InventoryBatch` consulta la clave y, si existe, **devuelve el `resultJson` guardado** con
+   `idempotentReplay:true` sin llegar a la selección. Consecuencia directa sobre el cut-over por sets:
+   **reusar la misma `batchKey` con otro `setId` NO repricia el set nuevo** — devuelve el resumen del set
+   **anterior**, y el operador lee un «ya está» que es **falso**. Por eso `post-deploy.sh` deriva la clave
+   del set (`p48-cutover-<setId>`) y avisa en voz alta si detecta un replay. Si fijas
+   `PUBLISH_ALL_BATCH_KEY` a mano, **que sea distinta por set**.
+
+##### Qué set escoger primero — **recomendación, no imposición**
+
+El objetivo del primer set no es repriciar mucho: es **calibrar la lectura** con el mínimo dinero
+expuesto. Criterios, en orden de importancia:
+
+| Criterio | Por qué |
+|---|---|
+| **Pocas piezas publicadas** (~10–40) | `listedNowPending` tiene que ser un número que se pueda **mirar pieza por pieza**. Si el primer set retiene 3, se abren 3 fichas y se entiende qué pasó. Con 300 no se entiende nada. |
+| **Mercado bien cubierto** (≥ 95 % de sus variantes con `PriceReference` de hoy) | Es lo que separa las dos causas. Si el set entra con cobertura pobre, `no_market` se dispara **por la fuente**, no por la curva, y la primera lectura del release queda contaminada. |
+| **Con rarezas premium publicadas** (≥ 3 piezas) | Sin premium, el guardarraíl `premium_at_floor` **nunca se dispara** y el set no prueba la mitad del cambio. Un set de puro bulk sale «perfecto» sin haber ejercitado nada. |
+| **Precios repartidos** (barato / medio / caro) | La curva **interpola** entre puntos de quiebre. Un set de un solo bracket verifica un solo tramo. |
+| **Un solo set-id** (no multi-parte) | Los master sets de §L (Celebrations `cel25`+`cel25c`, Shiny Vault `swsh45sv`, `sma`) viven como **dos** set-ids: el filtro `setId` toma **una sola parte** y el binder mostraría el set **repriciado a medias**. Confunde la lectura sin ganar nada. |
+| **Que NO sea el set destacado del home** (`HOME_FEATURED_SET_ID`, hoy `sv8pt5` Prismatic Evolutions) | Es el hero de la portada: máximo radio de exposición. Mal candidato para el primer intento. |
+| **Que NO sea el set que se esté validando en P-47** (p. ej. Pitch Black / ME05, §26.6) | Su cobertura de mercado es **justo la variable bajo prueba** en la fase anterior. Usarlo confunde fuente con matemática — exactamente lo que §29.3 evita. |
+| **Que NO sea sellado** (`productType=sealed`) | El sellado está **fuera de la curva** (§4.36.10): repriciarlo no prueba nada de P-48. `post-deploy.sh` avisa si se pide. |
+
+**Consulta para rankear candidatos** (correr en prod, solo lectura):
+
+```sql
+WITH inv AS (
+  SELECT i.id, i."cardId", i.finish, i."productType", i.status, c."setId", c.rarity
+  FROM "InventoryItem" i
+  JOIN "Card" c ON c.id = i."cardId"
+  WHERE i."ownerType" = 'platform'
+    AND i.status IN ('in_stock','listed')
+    AND i."productType" <> 'sealed'          -- el sellado no entra a la curva
+), cov AS (
+  SELECT inv.*, (pr.id IS NOT NULL) AS con_mercado
+  FROM inv
+  LEFT JOIN "PriceReference" pr
+    ON pr."cardId" = inv."cardId" AND pr.finish = inv.finish
+   AND pr."productType" = inv."productType" AND pr."capturedDate" = CURRENT_DATE
+)
+SELECT s.id                AS set_uuid,          -- ← ESTE es el valor de PUBLISH_ALL_SET_ID
+       s."externalId", s.name, s."releaseDate",
+       count(*)                                          AS piezas,
+       count(*) FILTER (WHERE status = 'listed')         AS publicadas,
+       round(100.0 * count(*) FILTER (WHERE con_mercado) / count(*), 1) AS pct_mercado_hoy,
+       count(*) FILTER (WHERE rarity IS NOT NULL AND rarity NOT IN
+         ('Common','Uncommon','Rare','Rare Holo','Reverse Holo','Promo'))  AS piezas_premium_aprox
+FROM cov JOIN "CardSet" s ON s.id = cov."setId"
+GROUP BY s.id, s."externalId", s.name, s."releaseDate"
+HAVING count(*) FILTER (WHERE status = 'listed') BETWEEN 10 AND 40
+ORDER BY (round(100.0 * count(*) FILTER (WHERE con_mercado) / count(*), 1)) DESC,
+         count(*) FILTER (WHERE status = 'listed') ASC;
+```
+
+> `piezas_premium_aprox` es una **aproximación operativa**: excluye las seis canónicas NO premium del
+> catálogo (`backend/src/common/rarity-catalog.ts`). La **autoridad** es `isPremiumCanonicalRarity()`, que
+> además resuelve alias y patrones; para una lectura exacta por rareza, `GET /admin/pricing/rarities`.
+> Si la consulta y esta guía se contradicen, **manda la consulta**: describe el inventario real de prod,
+> que devops no puede ver desde aquí.
+
+**Recomendación concreta:** el **primer candidato de esa lista** (mayor cobertura, menos piezas
+publicadas) que además traiga **≥ 3 premium**. Si el ranking deja arriba un set con 0 premium, tómalo
+igual como **primer set** —es el más barato de equivocarse— pero **no des el guardarraíl por verificado**:
+elige como **segundo** uno con premium, y hasta entonces no lo declares probado.
+Y si `HAVING` devuelve vacío (ningún set entre 10 y 40 publicadas), afloja el rango antes que abandonar la
+secuencia por sets: **un set grande revisado sigue siendo mejor que el catálogo entero sin revisar**.
+
+#### 29.4c Lectura ENTRE set y set — los tres números que decide el dueño
+
+Después de **cada** set, antes de disparar el siguiente. `post-deploy.sh` imprime los tres.
+
+**① `summary.listedNowPending`** — *de lo que ya estaba a la venta, cuánto quedó retenido.*
+
+Es el número que contesta la pregunta del dueño, y **no se deduce de ningún otro**: `pendingPrice` mezcla
+lo que **nunca** estuvo publicado, y `alreadyListed` **cambió de significado** en v2.1.1 (pasó de «no la
+toqué» a «la re-verifiqué y está **sana**»). Va **fuera** de la partición
+`selected = published + alreadyListed + pendingPrice + failed`.
+
+| Lectura | Qué significa | Qué se hace |
+|---|---|---|
+| `listedNowPending = 0` | Nada de lo que se vendía dejó de venderse. | Seguir con el siguiente set. |
+| **Unas pocas** (1–3 en un set chico) | Piezas que la matemática vieja publicaba **mal** y la curva retiene. **Es el cambio funcionando, no un fallo.** | Abrir esas fichas en M2 y confirmar una por una que el precio viejo era el equivocado. Recién ahí, seguir. |
+| **Muchas** (una fracción visible del set) | La curva está reteniendo inventario sano. | **PARAR.** No repriciar el siguiente set. Ir a ②/③ para saber si es piso o feed. |
+
+> Estas piezas **siguen `listed`** pero están **fuera de Compra** y **no cuentan en `stockCount`** — no hay
+> exposición abierta ni dinero en riesgo, pero **tampoco se venden**. La retención es visible en la cola,
+> que es exactamente la diferencia contra el bug original: antes esto pasaba **en silencio**.
+
+**② y ③ `counts` de la cola por razón** — `GET /admin/pricing/pending` → `{ no_market, premium_at_floor, unknown }`.
+
+Los `counts` **ignoran `?reason=` y la paginación** y **respetan `?context=`**: describen **la cola**, no
+la página que estés viendo. (Derivarlos de la página cargada mentiría justo cuando el dueño filtra para
+triar.)
+
+> ### REGLA DE DIAGNÓSTICO (`ARCHITECTURE §4.36.5c`) — los dos conteos SOLO se leen JUNTOS
+>
+> | Patrón | Diagnóstico | Acción |
+> |---|---|---|
+> | **`premium_at_floor` SUBE** y **`no_market` PLANO** | **PISO MAL CALIBRADO.** Hay dato de mercado (por eso `no_market` no se mueve), pero la curva aterriza cartas premium en el piso ⇒ el piso está por debajo de lo que esas cartas valen. | **Se corrige en el EDITOR de la curva (M2)**: subir el piso, `POST /admin/pricing/curve/preview` para ver el efecto **en pesos** antes de guardar, `PUT` y **repriciar el mismo set con otra `batchKey`**. |
+> | **SUBEN LOS DOS** | **FEED DEGRADADO.** Falta dato de mercado en volumen; las premium que sí lo tienen caen al piso por arrastre. | **NO TOCAR EL PISO.** Un piso inflado para tapar un feed caído **empeora el precio cuando el feed se recupere** — y ese precio malo ya no se nota, porque el síntoma desapareció. Se arregla el **ingest** (rol **backend**) y se repricia después. |
+>
+> **Línea base esperada: `premium_at_floor` ≈ 3 de cada 333 cartas** (§4.36.9c-3) — algo así como **0,9 %**.
+> Muy por encima **no es un guardarraíl ruidoso**: es una de las dos causas de arriba.
+
+**Si el PRIMER set se sale de la línea base:**
+
+1. **PARAR.** No repriciar el siguiente set. Cada set adicional añade ruido a un diagnóstico que todavía
+   no está hecho.
+2. **Clasificar** con la tabla de arriba, comparando contra la línea base que se anotó en el corte de
+   P-47 (§29.3-4-5). Sin ese «antes», los `counts` no se comparan contra nada.
+3. **Enrutar** — **no lo arregla devops**:
+   - **piso mal calibrado ⇒ el DUEÑO**, en el editor de la curva (M2). Es un dial de negocio, sin deploy.
+   - **feed degradado ⇒ BACKEND** (ingest/proveedor). Puede implicar volver a `pokemontcg_io` (§28.6):
+     ojo, **eso es rollback de P-47, no de P-48** — y confirma que serializar fue lo correcto, porque
+     revertir la fuente **sin** tocar la matemática es una operación limpia.
+   - **la curva en sí está mal especificada ⇒ ARQUITECTO** (§4.36).
+4. **No se anuncia el release.** Un set repriciado con la cola fuera de rango no es un cut-over parcial
+   exitoso: es un diagnóstico pendiente.
+5. **Repetir el set** tras el arreglo, **con otra `batchKey`** (misma clave = replay, §29.4b-2).
+
+**Además de los tres números, mirar unos cuantos PRECIOS** (es lo que el dueño pidió y ningún contador
+sustituye): abrir 5–10 fichas del set en Compra y confirmar que el precio publicado tiene sentido — sobre
+todo en los **extremos** (la más barata y la más cara), que son los tramos donde la curva y el piso se
+encuentran. El bug original (**MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**) se veía a simple
+vista en una ficha; no hacía falta un reporte.
+
+#### 29.4d Cierre (pasos 6–8)
+
+| # | Paso | Comando / dónde | Bloquea | Notas |
+|---|---|---|---|---|
+| 6 | **Revisión de OVERRIDES heredados** | M2, binder por variante (§29.5) | No (pero es **del dueño**) | Tarea humana, no automatizable. |
+| 7 | **Instrumentación viva** | `GET /admin/reports/pricing-brackets?axis=sale\|buy` | No | Tras la primera venta y la primera compra deben existir los cinco campos y agregar por bracket. |
+| 8 | **Anunciar / taggear** | tag de release | — | Solo con **todos los sets** repriciados, la cola dentro de la línea base y §29.10 en verde. |
+
+### 29.5 Overrides heredados — **tarea del dueño, no del script** (§4.36.9c-5)
+
+Los overrides manuales (`InventoryItem.listPriceCents`, `VariantPriceOverride.sellOverrideCents` /
+`buyOverrideCents`) **se conservan intactos**: §N.6 los declara **absolutos**. Pero algunos pudieron
+fijarse creyendo la etiqueta falsa «Piso (MX$)» del editor viejo — **la causa raíz de P-48**. Con la
+curva, ese override **sigue ganando** y puede quedar por debajo de lo que la curva cobraría/pagaría hoy.
+
+**El código no puede distinguir un override deliberado de uno mal informado**, y adivinar sería
+exactamente el error que este cambio corrige. **Norma: no se tocan automáticamente.** La comparación ya
+es visible sin endpoint nuevo: el binder expone `pricing.buy/sell.suggestedCents` (curva) junto a
+`overrideCents`. **Ningún script de devops modifica overrides** — ni este ni ninguno.
+
+> **Nota para el cut-over por sets:** una pieza con override **no aparece** en `listedNowPending` (su
+> precio resuelve, por el override). Es decir, **el recorrido por sets no revela los overrides mal
+> informados**: son un barrido aparte, del dueño, y no bloquean el release.
+
+### 29.6 Verificación post-deploy (SQL + HTTP)
+
+```sql
+-- 1) M-41 aplicada
+SELECT migration_name FROM "_prisma_migrations"
+WHERE migration_name = '20260824120000_m41_pricing_curve_instrumentation'
+  AND finished_at IS NOT NULL;                      -- → 1 fila
+
+-- 2) Instrumentación presente (venta y compra)
+SELECT table_name, column_name FROM information_schema.columns
+WHERE (table_name = 'OrderItem'      AND column_name IN ('marketMxnCents','priceBasis','marketBracket','finish'))
+   OR (table_name = 'SellRequestItem' AND column_name IN ('marketMxnCents','priceBasis','marketBracket'))
+   OR (table_name = 'PendingPriceEntry' AND column_name = 'reason');   -- → 8 filas
+
+-- 3) Enums nuevos
+SELECT unnest(enum_range(NULL::"MarketBracket"));   -- → lt_3 … gte_300 (escala FIJA)
+SELECT unnest(enum_range(NULL::"PriceBasis"));      -- → market, floor, override, bounty, pending
+
+-- 4) La curva (0 filas = corriendo con el default de §N.2, es VÁLIDO)
+SELECT key, "updatedBy" FROM "ConfigSetting" WHERE key = 'pricing_curve';
+
+-- 5) Las cinco INERTES deben SEGUIR AHÍ (NO se borran — §29.8)
+SELECT key FROM "ConfigSetting" WHERE key IN
+  ('sales_price_rules','sales_price_fallback_pct','buylist_price_rules',
+   'buylist_price_fallback_pct','pricing_tier_map');
+
+-- 6) Sellado INTACTO (§4.36.10: fuera de la curva). Anota el precio de 2-3 sellados ANTES
+--    del deploy y compáralo DESPUÉS: debe ser IDÉNTICO (criterio 85).
+SELECT i.folio, i."sealedProductName", i."listPriceCents"
+FROM "InventoryItem" i WHERE i."productType" = 'sealed' AND i.status = 'listed' LIMIT 5;
+```
+
+**HTTP (super_admin):**
+
+```bash
+curl -sS "$ADMIN_BASE_URL/admin/pricing/curve"           -H "Authorization: Bearer $ADMIN_JWT"
+curl -sS "$ADMIN_BASE_URL/admin/pricing/pending"         -H "Authorization: Bearer $ADMIN_JWT"   # counts por razón
+curl -sS "$ADMIN_BASE_URL/admin/reports/pricing-brackets?axis=sale" -H "Authorization: Bearer $ADMIN_JWT"
+```
+
+**Señal de alarma en logs:** `[MONEY] El setting pricing_curve es INVÁLIDO en BD` significa que alguien
+editó la fila a mano y quedó corrupta: el backend **no apaga el catálogo** (cae al seed de §N.2 —
+«siempre hay curva»), pero **el precio publicado no es el configurado**. Se arregla con
+`PUT /admin/pricing/curve`. **Alerta pendiente sobre ese patrón en el log drain** (§8) — es la deuda
+**S48-I4** de `SECURITY_NOTES §5`, dueño **devops**, disparador «con el primer alerting real».
+
+### 29.7 Rollback
+
+**Rollback = redeploy del commit anterior. No se restaura la DB para revertir código.**
+
+| Escenario | Acción |
+|---|---|
+| **App v2.0 rota / precios inesperados** | Railway (`backend` → Deployments → **Redeploy** del deploy previo bueno) y Vercel (**Promote to Production** del build previo). Alternativa Git: `git revert` del merge + push. **Backend y frontend se revierten JUNTOS** (el M2 v2.0 habla con endpoints que el backend viejo no tiene, y viceversa). |
+| **¿Y las columnas de M-41?** | **Aditiva ⇒ no estorba.** Para el código viejo, las 8 columnas nullable y el índice son **inertes**; sigue insertando `null` en ellas. **No se revierte la migración** (no hace falta y `migrate resolve --rolled-back` sobre una aditiva solo genera ruido). |
+| **¿Y la matemática?** | El resolver viejo **vuelve solo**: sigue en la imagen anterior y sus cinco settings **siguen en BD, íntegros** (por eso **no se borran**). Rollback barato **exactamente** por esa decisión. |
+| **¿Y la fila `pricing_curve`?** | Inerte para el código viejo (nadie la lee). Se deja; si se vuelve a v2.0, la configuración del dueño sigue ahí. |
+| **¿Y lo que publicó el cut-over?** | Esas piezas quedan `listed` y, bajo el código viejo, **vuelven a precio con la matemática vieja** (la de P-48, la del bug). No hay corrupción de datos, pero **es la consecuencia real de revertir**: si se revierte, se revierte el precio de todo, no solo de lo nuevo. Despublicar pieza por pieza es manual (M2) y solo se hace si el dueño lo pide. |
+| **Rollback a MITAD del cut-over por sets** | **No hay estado partido que reparar.** Los sets ya repriciados no quedan «a medio migrar»: el precio se resuelve **en lectura**, así que al revertir el código **todos** los sets —repriciados o no— vuelven a la matemática vieja a la vez. Las entradas de cola creadas por el guardarraíl quedan **abiertas e inertes** (el código viejo no las lee) y se cierran solas al volver a v2.0 y re-resolver. Los `InventoryBatch` de las `batchKey` usadas **se conservan**: si se vuelve a v2.0, hay que usar **claves nuevas** para repriciar de verdad (§29.4b-2). |
+| **Rollback SOLO de la fuente (P-47)** | Flip inverso del dial: `PUT /admin/settings` `{"price_provider":"pokemontcg_io"}` (§28.6). **Sin redeploy y sin migración.** Que esto sea una palanca independiente de la curva es **el beneficio operativo de haber serializado** (§29.3). |
+| **Migración falla al aplicar** | Prisma envuelve cada migración en su tx → **rollback atómico**; el contenedor sale ≠0, Railway **mantiene activo el deploy anterior**. Prod sigue sirviendo el código viejo. |
+| **Corrupción de datos (no rollback de código)** | Única razón para restaurar el snapshot del paso 0. |
+
+**No se requiere ventana de riesgo** (§4.36.9d / §N.9): no hay dinero vivo en tránsito que la migración
+toque. Aun así, el cut-over se hace **fuera de hora pico** por el volumen del `publish-all`.
+
+### 29.8 Anti-checklist — lo que **NO** se hace en este release
+
+1. **NO borrar** las cinco claves inertes (`sales_price_rules`, `sales_price_fallback_pct`,
+   `buylist_price_rules`, `buylist_price_fallback_pct`, `pricing_tier_map`). Borrar configuración en el
+   mismo paso que cambia la matemática **mata el diagnóstico y el rollback barato** (§4.36.9b, mismo
+   precedente que `rarity_map` en v1.32). La limpieza es un **follow-up** posterior, con su propia
+   migración y su propia decisión. **Ojo al parecido:** `sealed_spread_fallback_pct` **NO** es una de
+   ellas — el sellado sigue vivo y fuera de la curva.
+2. **NO hacer `UPDATE` masivo de precios.** No hay precio de venta persistido que actualizar.
+3. **NO tocar** `InventoryItem.listPriceCents` ni `VariantPriceOverride.*` (§29.5).
+4. **NO agregar variables de entorno.** La curva es dato. Si algo parece necesitar env nuevo →
+   **reportar al arquitecto**.
+5. **NO correr `prisma/seed.ts` completo contra prod** (siembra demo). El default de la curva ya aplica
+   por lectura.
+6. **NO re-crear** `backfill-p34-tiered-pricing.ts` ni ningún equivalente.
+7. **NO encender P-47 y P-48 en la misma ventana** (§29.3). Decisión del dueño, no preferencia de devops.
+8. **NO repriciar el catálogo completo de una pasada** salvo que el recorrido por sets ya haya cerrado y
+   solo quede el remanente (§29.4b).
+9. **NO reusar la misma `batchKey` entre sets** — devuelve el resumen del set anterior y el set nuevo no
+   se repricia (§29.4b-2).
+10. **NO subir el piso para acallar la cola sin haber mirado `no_market`** (§29.4c). Si el feed está
+    degradado, el piso inflado **empeora el precio cuando el feed vuelva**, y ya sin síntoma que lo delate.
+11. **NO desplegar con el «verde» de mocks como única evidencia de E2E** (§29.10).
+
+### 29.9 M-41: contenido y serialización de migraciones
+
+**Contenido** (`backend/prisma/migrations/20260824120000_m41_pricing_curve_instrumentation/`):
+
+1. `CREATE TYPE "PriceBasis"` (`market`, `floor`, `override`, `bounty`, `pending`).
+2. `CREATE TYPE "MarketBracket"` (`lt_3`, `r3_10`, `r10_25`, `r25_80`, `r80_300`, `gte_300`) — **escala
+   fija**: cambiarla parte la serie histórica.
+3. `CREATE TYPE "PendingPriceReason"` (`no_market`, `premium_at_floor`).
+4. `OrderItem` += `marketMxnCents`, `priceBasis`, `marketBracket`, `finish` (todas nullable).
+5. `SellRequestItem` += `marketMxnCents`, `priceBasis`, `marketBracket` (nullable).
+6. `PendingPriceEntry` += `reason` (nullable) + índice `PendingPriceEntry_reason_idx`.
+
+**Sin `DROP`, sin `UPDATE`, sin backfill.** Las filas históricas quedan en `null` a propósito (`null` =
+«anterior a M-41»); `reason` **no** entra a la clave de dedupe de la cola, así que filas viejas y nuevas
+conviven sin duplicar.
+
+**¿Hay que serializar M-41 contra otras migraciones pendientes? — Verificado con git: NO hay conflicto.**
+
+| Ref | Última migración | Nota |
+|---|---|---|
+| `origin/main` (`d9c8c91`) | `20260823130000_m40_pending_sealed_product` | M-39/M-40 ya mergeadas; trae P-47/§28. |
+| `origin/production` (`c255692`) | `20260823130000_m40_pending_sealed_product` | Rama-registro de releases. |
+| `origin/claude/card-pricing-rules-2e537m` (esta) | **`20260824120000_m41_…`** | **Única migración por delante de `main`.** |
+| Resto de ramas remotas | ≤ M-40 | Ninguna otra rama abierta añade migraciones. |
+
+- **M-41 es la única migración pendiente del repo.** No hay colisión de timestamp ni orden ambiguo:
+  Prisma aplica por nombre (lexicográfico) y `20260824120000` > `20260823130000`.
+- La **serialización** que pide `ARCHITECTURE §4.36.9a` es la de **zona compartida** (`backend/prisma/`,
+  regla de work streams): **este stream es el único que la toca** en la ventana actual. Mientras M-41 no
+  esté en `main`, **ningún otro stream debe crear migraciones**; si lo hace, el orquestador serializa
+  (M-41 primero, y la otra se re-fecha por encima).
+- **P-47 no añade migración** (§28.1), así que el orden P-47→P-48 de §29.3 **no** condiciona el orden de
+  migraciones: son dos ejes independientes. El merge de esta rama sobre `main` **incorpora** P-47 (que ya
+  está allí) y no lo revierte.
+- **`migrate deploy` corre solo:** el `CMD` de `Dockerfile.backend`
+  (`prisma migrate deploy && node dist/main.js`) garantiza **migración antes de servir**. El código v2.0
+  nunca sirve sin las columnas de M-41. `healthcheckTimeout: 300` en `railway.json` da holgura.
+
+---
+
+### 29.10 E2E: cerrar la brecha de los MOCKS — **ruta NATIVA soportada** (sin Docker)
+
+> **Hallazgo de QA, aceptado:** los **80/80 de Playwright corrieron contra MOCKS.** Sin `E2E_BASE_URL`,
+> `frontend/playwright.config.ts:65-73` levanta `npm run dev` con **`NEXT_PUBLIC_USE_MOCKS=true`**. Ese
+> verde demuestra **«la UI es consistente con sus propias simulaciones»**, **no** «frontend y backend
+> concuerdan». Para un release que **cambia la matemática del dinero en los dos ejes**, no alcanza.
+>
+> **Reparto:** **devops CABLEA el camino** (esta sección + `scripts/stack-native.sh`); **QA lo EJECUTA y
+> emite el veredicto** (`CLAUDE.md`: las suites las escriben frontend/backend, QA las corre).
+
+#### 29.10-1 Por qué la ruta documentada en §5.1 no basta hoy
+
+`e2e-real.yml` y `docker-compose.staging.yml` **siguen siendo la ruta canónica en CI** y no cambian.
+Pero **en el entorno de trabajo del equipo NO hay demonio de Docker** (`/var/run/docker.sock` no
+existe), así que `docker compose -f docker-compose.staging.yml up` **no arranca**. Documentar solo esa
+ruta equivale a no documentar ninguna: es la razón por la que la verificación real se venía saltando y el
+verde de mocks pasaba por suficiente.
+
+#### 29.10-2 La ruta NATIVA — verificada, no supuesta
+
+Tres agentes la recorrieron en este entorno:
+
+| Quién | Qué levantó | Resultado |
+|---|---|---|
+| **QA** | `pg_ctlcluster 16 main start` + `redis-server --daemonize yes` + `prisma migrate deploy` | **126/127** de integración |
+| **pentester** | stack **Nest completo** con `ts-node src/main.ts` en `localhost:3099` | todos los guards y pipes **activos** (no un arnés recortado) |
+| **devops** | `scripts/stack-native.sh` (une las dos + el frontend) | Stack COMPLETO arriba: `GET :3099/api/v1/health` → **200** (`db:up`, `redis:up`), M-41 aplicada, `GET :3000/es/compra` → **200**. Y **el cableado frontend→backend verificado, no supuesto**: los chunks servidos (`app/[locale]/(storefront)/compra/page.js`, `layout.js`) llevan **`localhost:3099`** horneado ⇒ `NEXT_PUBLIC_API_BASE_URL` se inyectó y `NEXT_PUBLIC_USE_MOCKS=false` está en efecto |
+
+```bash
+# 1) Stack real nativo (Postgres + Redis + migraciones + backend :3099 + frontend :3000 con mocks=false)
+./scripts/stack-native.sh up
+
+# variantes
+./scripts/stack-native.sh up --infra   # solo PG + Redis + migrate  → para `npm run test:integration`
+./scripts/stack-native.sh up --seed    # + npm run seed:synthetic (datos E2E deterministas)
+./scripts/stack-native.sh status
+./scripts/stack-native.sh down         # apaga apps; PG/Redis siguen (datos intactos)
+./scripts/stack-native.sh down --all   # + para PG y Redis
+```
+
+> **Si un componente se cae entre sesiones, vuelve a correr `up`: es idempotente.** Observado en este
+> entorno — un proceso lanzado en una shell puede no sobrevivir a que esa shell termine (el backend
+> aguantó, el `next dev` no). `up` detecta lo que ya responde y **solo levanta lo que falta**; no
+> reinicia lo sano, no re-migra y **no toca datos**. Antes de correr la suite, un
+> `./scripts/stack-native.sh status` con **200 en backend y frontend** ahorra diagnosticar como bug de
+> la app lo que es un proceso caído.
+
+#### 29.10-3 El subset `@real` de Playwright — **ya está cableado en `frontend/`**
+
+Verificado en `frontend/playwright.config.ts`: **no hace falta tocar nada del frontend.**
+
+- **`E2E_BASE_URL` presente ⇒ `webServer: undefined`** — Playwright **NO** levanta su server de mocks.
+  Ésa es, literalmente, la línea que cierra la brecha.
+- **`E2E_REAL=1` ⇒ `grep: /@real/`** — corre **solo** los specs diseñados para el backend real
+  (autentican de verdad vía `utils/auth.loginAs`, descubren datos del seed y asertan **estructura**, no
+  montos de fixture). Hoy son **8 archivos**: `catalog` · `checkout` · `shipments` · `buylist` ·
+  `guest-checkout` · `vault` · `master-set` · `pricing-curve`.
+
+```bash
+cd frontend
+# ✅ MODO GATE — el subset @real contra el stack vivo. Es el ÚNICO que contesta
+#    «¿frontend y backend concuerdan?». Número legítimo: TODO en verde.
+E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npm run test:e2e
+
+# ⚠ MODO EXPLORATORIO — NO ES GATE. Suite completa sin E2E_REAL ⇒ sin grep…
+#   …pero TAMPOCO hay login real (ver el recuadro de abajo). Su rojo no mide nada.
+E2E_BASE_URL=http://localhost:3000 npm run test:e2e
+```
+
+> **⚠ CORRECCIÓN 2026-08-24 (IMPORTANTE-2 de QA). Esta sección afirmaba que la suite completa contra el
+> stack real era «la corrida que de verdad contesta ¿frontend y backend concuerdan?». ERA FALSO, y falso
+> POR CONSTRUCCIÓN.** `E2E_REAL` es **una sola bandera con dos efectos**:
+>
+> | Efecto | Dónde | Qué hace |
+> |---|---|---|
+> | Selecciona el modo | `playwright.config.ts:40` | `grep: /@real/` |
+> | **Enciende el login real** | `e2e/utils/auth.ts:24` (`IS_REAL`) | `loginAs()` canjea las credenciales del seed contra `POST /auth/login` |
+>
+> Sin `E2E_REAL`, `loginAs()` cae a su rama mock e inyecta un token de mentira
+> (`'mock.session.token'`, `e2e/utils/auth.ts:112-127`) **mientras la app habla con el backend REAL**.
+> El backend responde **401** y la app rebota a login en bucle: **todo lo que exija sesión muere ahí**,
+> incluidos los `@real` (que en este modo corren sin el filtro *y* sin login real). Es decir: **el modo
+> que el runbook vendía como gate es exactamente el que no puede autenticar.**
+>
+> **Medición de QA (24-ago-2026): 59 rojos de 85.** Esa cifra es un **artefacto del helper**, no una
+> señal del stack: **no se lee como gate ni se cita como cobertura en ningún veredicto.** La causa **no**
+> son «specs mock-only con fixtures», como decía la redacción anterior.
+>
+> **Qué esperar de cada modo, hoy:**
+>
+> | Modo | ¿Gate? | Número legítimo |
+> |---|---|---|
+> | `E2E_BASE_URL` + `E2E_REAL=1` | **SÍ** | **subset `@real` entero en verde** (8 archivos: `catalog` · `checkout` · `shipments` · `buylist` · `guest-checkout` · `vault` · `master-set` · `pricing-curve`). Un rojo aquí SÍ es hallazgo: o el stack no concuerda, o falta `up --seed`. |
+> | `E2E_BASE_URL` sin `E2E_REAL` | **NO** | **ninguno**. Sólo sirve para lo que no toca sesión (copy/i18n, términos, rutas públicas). |
+>
+> **Dueño del arreglo: `frontend`** (`frontend/e2e/utils/auth.ts` es suyo; devops no toca `frontend/`).
+> Ya está enrutado. **Hasta que frontend reporte que este modo autentica de verdad, aquí no se promete
+> ningún número** — y cuando lo reporte, esta sección y `scripts/stack-native.sh` se actualizan otra vez.
+>
+> **Chromium:** el config apunta a `/opt/pw-browsers/chromium`. Si no existe:
+> `npx playwright install --with-deps chromium` (o `PLAYWRIGHT_CHROMIUM_PATH=…`).
+
+#### 29.10-4 Qué NO cubre la ruta nativa (dicho, no disimulado)
+
+| Hueco | Consecuencia | Mitigación |
+|---|---|---|
+| **Sin MinIO/R2** | La subida del **INE del buylist** (sobre el tope AML) no se ejercita. | Ruta Docker en CI, o levantar MinIO aparte. **Fuera del delta de P-48** (`uploads` no se tocó). |
+| **Corre `ts-node` sobre el fuente, no la imagen de `Dockerfile.backend`** | Prueba el **código**, no el **artefacto** de producción. | El gate del artefacto sigue siendo **`e2e-real.yml` en CI**, que sí construye y usa la imagen. La ruta nativa **complementa**, no sustituye. |
+| **Sin egress** | `pokemontcg.io` / `tcgcsv.com` → **403**. El catch-up de `price-ingest` lo registra al arrancar. | **Esperado y money-safe**: deja precios **STALE**, no borra ni escribe $0. Sembrar `PriceReference` con el seed sintético para los flujos que necesiten mercado. |
+| **Sin Stripe real** | El webhook firmado no viaja. | Ya cubierto por la suite de **integración** del backend (webhook firmado) — es la que corrió 126/127. |
+
+#### 29.10-5 CI: sin cambios, y por qué
+
+`e2e-real.yml` (nightly + `workflow_call` desde `deploy.yml`, con `needs` sobre la promoción a prod) y
+`e2e.yml` (mock, cada PR) **quedan como están**. La ruta nativa es para **la máquina del equipo**, donde
+Docker no existe; en CI sí existe y la ruta canónica es la buena. Añadir un job nativo duplicaría el gate
+sin añadir garantía.
+
+---
+
+### 29.11 Verificación del **DoD** (`CLAUDE.md`) — responsabilidad de devops
+
+| # | Ítem del DoD | Estado | Evidencia / qué falta |
+|---|---|---|---|
+| 1 | **Criterios de aceptación de `PROJECT.md`** cumplidos | ⚠️ **cumplidos salvo verificación E2E real** | QA los verificó con la suite de **integración** (126/127) y con Playwright **en mocks**. Los criterios **79–96** (§N, v2.0) tocan dinero: la evidencia de punta a punta contra el stack vivo se cierra con **§29.10**. **Responsable: QA** (devops ya dejó el camino). |
+| 2 | **QA aprobó** + **techlead aprobó** | ✅ | QA aprobado con brecha declarada (→ ítem 1). Techlead **aprobado con deuda**, registrada y no bloqueante. |
+| 3 | **Fase de seguridad aprobada**, sin críticos/altos abiertos, aceptados registrados | ✅ | `docs/PENTEST_NOTES.md` (red team, `6657196`) + `docs/SECURITY_NOTES.md` (blue team, `2469e6a`): **0 críticos, 0 altos**. Los medios/bajos **S48-M1**, **S48-M2**, **P48-B1** y **AML-1** se **cerraron** después (`6322ee3`, `a2d238e`, `1771a47`, `d38aacf`, `5bd1975`). La deuda aceptada queda en **`SECURITY_NOTES §5`** con dueño y disparador. **⚠️ Alcance: ese veredicto cubre el delta hasta `5bd1975`, que YA NO es `HEAD` — ver §29.11-bis.** |
+| 4 | **`docs/` al día** (incl. `PENTEST_NOTES` y `SECURITY_NOTES`) | ✅ | `ARCHITECTURE §4.36` · `API_CONTRACT` v2.0→**v2.1.6** *(al corte de `5bd1975`)* · `DESIGN_SYSTEM §21` · `BACKEND_NOTES` · `FRONTEND_NOTES` · `PENTEST_NOTES` · `SECURITY_NOTES` · **este §29**. |
+| 5 | **devops desplegó** + despliegue **y rollback** documentados | ⏸️ **runbook COMPLETO; deploy NO ejecutado** | Despliegue: §29.3 (orden) + §29.4a/b/c/d. Rollback: **§29.7**, incluida la fila nueva «rollback a mitad del cut-over por sets» y el rollback independiente de P-47. **Bloqueado por dos insumos del dueño: el snapshot/PITR de la Postgres de prod (paso 0) y la ventana.** Devops no tiene egress a prod ni acceso a los dashboards. |
+| 6 | **Gate de seguridad (SAST por PR + DAST staging) y harness E2E cableados en CI** | ✅ | SAST: `security-sast.yml` (semgrep + gitleaks) en **cada push y PR** (`branches: ["**"]`). DAST: job `dast-staging` de `deploy.yml` (ZAP baseline `fail_action:true` + nuclei), **`needs` de la promoción a prod**. E2E: job `e2e-real` (`uses: ./.github/workflows/e2e-real.yml`). **Los dos son `needs` de `promote-production-backend`/`-frontend`** (verificado sobre el YAML: `needs: [dast-staging, e2e-real]`), así que **bloquean** la promoción; no son informativos. |
+| 7 | **Sin deuda técnica bloqueante**; la no bloqueante registrada | ✅ **sin deuda bloqueante de infraestructura** | La de código está en `docs/TECH_DEBT.md` (techlead) y la de seguridad en `SECURITY_NOTES §5`. **Deuda devops abierta, toda no bloqueante:** **S48-I3** (`ADMIN_JWT` de post-deploy: emitir **efímero**, revocarlo al terminar el release — disparador: **antes del primer deploy con dinero real**), **S48-I4** (alerta de log drain sobre `[MONEY] pricing_curve INVÁLIDO`, §29.6), **S48-I2** (`json({ limit })` explícito), y el carryover **throttler in-memory** (multi-instancia multiplica el límite por N réplicas). |
+
+#### VEREDICTO DE DoD — **NO SE CIERRA TODAVÍA. Faltan 2 ítems, ninguno de contenido.**
+
+**Lo que falta, con su dueño:**
+
+1. **[QA] Correr la suite E2E contra el stack REAL** (§29.10) y emitir veredicto sobre esa corrida.
+   El camino está cableado y verificado; falta ejecutarlo. Es el ítem 1 del DoD y **la única brecha
+   sustantiva** — mientras siga abierta, «QA aprobó» descansa sobre mocks para la capa de UI.
+2. **[DUEÑO] Aportar el snapshot/PITR de la Postgres de producción y fijar la ventana** (§29.4a, paso 0).
+   Sin él no se ejecuta el paso 1. Devops no puede aportarlo: no hay egress a prod desde aquí.
+
+**Lo que NO falta:** los tres veredictos existen, `docs/` está al día, los gates de CI están cableados,
+no hay deuda bloqueante y el runbook cubre despliegue **y** rollback.
+
+**Cuando esos dos ítems se cierren**, la secuencia es: **P-47 estable (§29.3-4) → deploy P-48 (§29.4a) →
+cut-over por sets (§29.4b/c) → tag de release**. Nada más queda por decidir.
+
+---
+
+### 29.11-bis El árbol SE MOVIÓ (y SIGUE moviéndose) después de los veredictos — 2026-08-24, tarde
+
+> Al volver a mirar el repo para dejar el stack listo, la rama **ya no estaba donde la certifiqué**.
+> Lo registro porque **verificar el DoD es responsabilidad de devops** y un DoD se verifica contra un
+> árbol **quieto**: si el código se mueve por debajo, lo que certifiqué describe un commit que ya pasó.
+
+**Qué cambió.**
+
+| Hecho | Detalle |
+|---|---|
+| **Commits nuevos encima de los míos** | En el rato que tardé en dejar el stack listo entraron **`d8c4625`** (*DTOs de grupo emiten `priceBasis`; falta de credencial = 401*), **`1885b4a`** (*E2E contra backend VIVO de la funcionalidad central de P-48*) y **`a05a819`** (*docs de B-1/B-2/I-1*). Roles **backend**/**frontend**. Mis dos commits (`6216ccc`, `167d830`) **siguen en la historia** (`git merge-base --is-ancestor`): no se perdió nada. |
+| **Trabajo EN VUELO, sin commitear** | Al cierre de este pase, specs de `frontend/e2e/`. Antes hubo seeds y fixtures de `backend/prisma/`, que ya se commitearon. **No toqué ninguno** (no son territorio devops). |
+| **⚠️ La lista de arriba CADUCA** | La escribo con fecha porque **el árbol se estaba moviendo mientras la escribía** — entre dos comandos `git status` cambió dos veces. **No la leas como inventario**; léela como síntoma. El inventario se saca en el momento: `git log --oneline 5bd1975..HEAD` y `git status --short`. |
+
+**Qué NO se rompió de este runbook — re-verificado contra `HEAD`, no asumido:**
+
+- **`d8c4625` NO añade migración.** `M-41` sigue siendo la **única** migración por delante de `origin/main`
+  (`git diff --name-only origin/main..HEAD -- backend/prisma/migrations`). **§29.9 sigue vigente tal cual.**
+- **No añade variables de entorno**, no toca `scripts/`, `.github/workflows/`, `Dockerfile.*`,
+  `docker-compose*.yml` ni `railway.json`. Los gates de CI y el pipeline de §29.4 no cambian.
+- **B-1/B-2 no cambian el contrato: lo CUMPLEN.** `API_CONTRACT.md:192` ya declaraba que `priceBasis`
+  «viaja en `ListingDTO`, `GroupedListingDTO`, `SealedGroupDTO` y `BuylistQuotePayload`»; el código
+  **omitía** el campo en los DTOs de grupo. Es corrección de una desviación código↔contrato, **no** una
+  superficie nueva ⇒ **no abre hueco de `docs/`** (fila 4 del DoD se mantiene).
+
+**Qué SÍ cambia el veredicto, y es lo que hay que leer:**
+
+1. **Los tres veredictos cubren hasta `5bd1975`; `HEAD` ya está por delante.** Los commits
+   posteriores al gate de seguridad que **sí** estaban cubiertos eran los **cierres que la propia
+   seguridad pidió** (S48-M1/M2, P48-B1, AML-1). **Lo que entró después no es eso**: es comportamiento
+   **nuevo**, no solicitado por ese pase, y **nadie lo ha verificado todavía** — ni QA, ni techlead, ni
+   seguridad. *(Que parte de ese trabajo sea **más tests** —`1885b4a` trae E2E contra backend vivo, justo
+   la brecha de §29.10— es buena noticia y no cambia el punto: **tests nuevos también son delta nuevo**, y
+   el verde lo emite **QA**, no el rol que escribió la suite.)*
+2. **Y cae justo en dos superficies sensibles**, lo que desaconseja tratarlo como trivial: (a) **qué
+   emiten los DTOs públicos de grupo** —la misma familia que seguridad acababa de cerrar en **S48-M2**,
+   aunque aquí el movimiento va en la dirección contraria (falta**ba** un campo, no sobraba)— y
+   (b) el **código de error de un guard de autenticación** (422 → 401). **No estoy dictaminando riesgo:
+   no es mi rol.** Estoy diciendo que **el delta que se despliega ya no es el delta que se aprobó**.
+3. **Esto no es una excepción: es la cadencia de `CLAUDE.md` funcionando.** «Por release (antes de deploy
+   a staging→prod): **qa** corre la **suite E2E completa** con todos los streams ya mergeados, y corre la
+   **fase de seguridad completa**». El gate de release corre sobre el **árbol final**, no sobre el árbol
+   de ayer. Que haya entrado código después de los veredictos por-stream es normal; **desplegar sin
+   re-pasar el gate de release sobre él, no.**
+4. **Consecuencia operativa para §29.10 (la corrida de QA):** debe hacerse sobre un **árbol quieto y
+   commiteado**. Con `frontend/e2e/*.spec.ts` y los seeds **modificados sin commitear**, una corrida hoy
+   verifica una suite y unos datos que **no son los que se van a desplegar**, y su verde no sería
+   trazable a ningún commit. **Primero se asienta el árbol, después corre la suite.**
+5. **Detalle que hace más urgente el punto 4, no menos:** el propio `d8c4625` explica que, hasta él, el
+   «Valor de mercado» **no aparecía en NINGUNA ficha de single** — la regla de visibilidad de **§N.7**
+   estaba **invertida** en el 100 % de las fichas. O sea: **cualquier verificación manual de §N.7 hecha
+   antes de `d8c4625` era vacía**, y el criterio de aceptación que la cubre solo se volvió comprobable
+   con ese commit. Es exactamente el tipo de cosa que la corrida real de §29.10 existe para atrapar.
+
+**Veredicto de DoD, actualizado: sigue SIN cerrarse, y ahora son TRES los ítems abiertos.**
+
+| # | Falta | Dueño |
+|---|---|---|
+| 1 | **Asentar el árbol**: commitear (o descartar) el trabajo en vuelo de `backend/`+`frontend/` y fijar el commit del release | **backend** / **frontend**, coordinados por el **orquestador** |
+| 2 | **Re-pasar el gate de RELEASE sobre el delta final** — QA (suite E2E completa contra el stack real, §29.10) y la **fase de seguridad** sobre lo que entró después de `5bd1975` | **QA** · **pentester + seguridad** |
+| 3 | **Snapshot/PITR de la Postgres de prod + ventana** | **dueño** |
+
+**Lo que sigue sin faltar:** el runbook (despliegue **y** rollback), los gates de CI cableados y
+bloqueantes, `M-41` como única migración, y la ausencia de deuda bloqueante de infraestructura.
+**No he desplegado y no he creado tag**, que es justo lo que corresponde con el DoD abierto.
+
+---
+
+## 30. Pase de infraestructura tras el gate de release (P1–P4) — 2026-08-24, noche
+
+> **Contexto:** el gate de release cerró con **tres veredictos aprobados** (qa · techlead · seguridad;
+> 0 críticos, 0 altos). Este pase atiende las cuatro cosas enrutadas a **devops**. **No se cierra el DoD
+> aquí** — sigue revocado desde §29.11-bis y `backend`/`frontend` estaban commiteando arreglos del gate
+> mientras esto se escribía. **Nada de esto tocó el stack vivo** (`:3099` / `:3000`): sólo scripts y
+> documentación.
+
+### 30.1 P1 — El runbook de E2E afirmaba algo **falso por construcción** (IMPORTANTE-2 de QA)
+
+**Qué decía** `scripts/stack-native.sh` (bloque `print_e2e_instructions`) y **§29.10-3** de este mismo
+documento: que correr la suite **sin `E2E_REAL` pero con `E2E_BASE_URL`** era *«la corrida más exigente y
+la que de verdad contesta ¿frontend y backend concuerdan?»*, y que los rojos esperables venían de *«specs
+mock-only (copy/i18n con fixtures)»*.
+
+**Por qué era falso.** `E2E_REAL` no es una bandera de filtrado: es **una bandera con dos efectos**.
+
+| Efecto | Dónde | Qué hace |
+|---|---|---|
+| Selecciona el modo | `frontend/playwright.config.ts:40` | `grep: isReal ? /@real/ : undefined` |
+| **Enciende el login real** | `frontend/e2e/utils/auth.ts:24` → `IS_REAL` | `loginAs()` canjea credenciales del seed contra `POST /auth/login` y persiste el TokenPair real |
+
+Sin `E2E_REAL`, `loginAs()` cae a su rama mock e inyecta `accessToken: 'mock.session.token'`
+(`frontend/e2e/utils/auth.ts:112-127`) **mientras la app habla con el backend REAL** — porque
+`stack-native.sh` levanta el frontend con `NEXT_PUBLIC_USE_MOCKS=false`. El backend responde **401** y la
+app rebota a login en bucle. **El modo que el runbook vendía como gate es precisamente el que no puede
+autenticar.** No hay configuración que lo salve: la misma bandera que elige el modo es la que enciende el
+login, así que **ese modo no puede autenticar por construcción**.
+
+**Consecuencia que pesa.** El dueño eligió explícitamente *«cerrar la brecha de E2E antes de desplegar»*,
+y este runbook —escrito por devops— le vendió ese modo como la prueba de que front y back concuerdan. QA
+lo corrió y obtuvo **59 rojos de 85**, incluidos los `@real`. **Ese número no mide desacuerdo
+frontend↔backend: mide el helper.** No se lee como gate ni se cita como cobertura en ningún veredicto.
+
+**Qué se corrigió (sólo la afirmación; el helper NO es mío).**
+
+| Archivo | Cambio |
+|---|---|
+| `scripts/stack-native.sh` | `print_e2e_instructions` reescrito: dos bloques rotulados **«MODO GATE»** y **«MODO EXPLORATORIO — NO ES GATE»**, con la mecánica de las dos caras de `E2E_REAL`, las referencias exactas (`playwright.config.ts:40`, `:65-73`; `auth.ts:24`, `:112-127`) y el número legítimo de cada modo |
+| `docs/DEVOPS_NOTES.md` §29.10-3 | recuadro **«⚠ CORRECCIÓN 2026-08-24»** con la misma tabla, la medición de QA fechada y la causa real; se corrigió también el inventario de specs `@real` (eran **8** archivos, no 7: faltaba `catalog`) |
+
+**Número legítimo a esperar, hoy:**
+
+| Modo | ¿Gate? | Número legítimo |
+|---|---|---|
+| `E2E_BASE_URL` + `E2E_REAL=1` | **SÍ** | subset `@real` **entero en verde**. Un rojo es hallazgo (o el stack no concuerda, o falta `up --seed`). |
+| `E2E_BASE_URL` sin `E2E_REAL` | **NO** | **ninguno**. Sólo cubre lo que no toca sesión: copy/i18n, términos, rutas públicas. |
+
+**Lo que deliberadamente NO se escribió:** ninguna promesa sobre el modo exploratorio. El helper lo
+arregla **frontend** (dueño de `frontend/`, ya enrutado). **Cuando frontend reporte que ese modo autentica
+de verdad, se actualizan los dos sitios de arriba — no antes.** Escribir hoy «ya funciona» sería repetir
+exactamente el error que esta entrada corrige.
+
+> **ACTUALIZACIÓN (misma noche) — frontend reportó, y lo verifiqué.** `frontend/e2e/utils/auth.ts:55-70`
+> ahora decide con `IS_REAL = !FORCE_MOCK && (APP_IS_EXTERNAL || REAL_SUBSET_SELECTED)`: **`E2E_BASE_URL`
+> implica autenticación real**. El modo suite-completa **ya autentica**, y su número reportado sobre el
+> stack final es **48 verdes / 3 rojos / 35 saltados**, con los 3 rojos siendo los smokes de dinero por
+> **falta de clave de Stripe** (entorno, no producto). `scripts/stack-native.sh` está actualizado en
+> consecuencia. **Sigue sin ser el gate de dinero** — ése es `e2e-real.yml` con clave de prueba: **§31**.
+>
+> **Efecto colateral que este arreglo cierra sin tocar `.github/`:** el gate de CI `e2e-real.yml` fijaba
+> `E2E_BASE_URL` y **no** `E2E_REAL` (verificado: `E2E_REAL` no aparecía en ninguna línea de `.github/`),
+> así que **el gate que bloquea la promoción a prod también autenticaba con `'mock.session.token'`**. Era
+> el mismo género de afirmación falsa que esta entrada corrige, **en mi propio carril**. Ver §31.4.
+
+### 30.2 P2 — Interpolación sin escapar en el SQL de arranque (MENOR-2 de QA)
+
+**Qué había** (`scripts/stack-native.sh`, bloque de rol/base):
+
+```bash
+db_pass="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[a-z]+://[^:]+:([^@]+)@.*#\1#')"
+su postgres -c "psql -c \"CREATE ROLE $db_user LOGIN PASSWORD '$db_pass';\""
+```
+
+Un valor sacado de `DATABASE_URL` con `sed` se interpolaba **sin escapar** dentro de un literal SQL, que a
+su vez viajaba dentro de `su postgres -c "…"`: **dos reparsings encadenados** (shell interno → SQL). Una
+contraseña con `'` cierra el literal SQL; con `"`, `$` o backtick rompe el shell interno; un `;` en
+posición de identificador inyecta SQL **como superusuario de Postgres**. Que hoy sea una credencial fija
+de desarrollo no lo vuelve seguro — lo vuelve seguro **por suerte**, y `DATABASE_URL` es una variable de
+entorno que cualquiera puede exportar.
+
+**Cómo quedó.** Se eliminó la construcción de SQL por concatenación de shell:
+
+- helper nuevo `psql_as_postgres <user> <pass> <db>` — el SQL entra por **STDIN** (`psql -f -`) desde un
+  **heredoc citado** (`<<'SQL'`), así que el shell no lo expande;
+- los tres valores viajan por **ARGV** hasta `psql -v u=… -v p=… -v n=…`, y es **psql** quien los cita:
+  `:'u'` → literal de cadena escapado, `:"u"` → identificador escapado;
+- el `--` de `su … -c '…' -- _ "$1" "$2" "$3"` **no es decorativo**: sin él, `su` (util-linux 2.39) parsea
+  como opción propia cualquier valor que empiece con `-` y aborta con `invalid option`;
+- **guarda de parseo**: `sed` sin match devuelve la cadena entera, así que un `DATABASE_URL` con otra
+  forma seguía de largo y habría creado rol/base con nombre basura. Ahora `db_user` y `db_name` deben
+  casar `^[A-Za-z0-9_]+$` y la contraseña no puede ser vacía; si no, `die`.
+
+**Verificado en esta máquina, sin tocar el stack** (sólo `SELECT`s):
+
+```
+carga: it's; DROP DATABASE tcg_marketplace; --     → psql la devuelve como DATO
+carga: a'b;$(id)`id`"c                             → llega literal, sin expansión ni ejecución
+base tcg_marketplace: intacta · rol/base detectados como existentes (idempotente)
+DATABASE_URL="postgres://ev il:x@h/ba;d"           → die «usuario 'ev il' no parsea»
+```
+
+*(Nota fuera de alcance, para quien retome esto: si algún día la contraseña de `DATABASE_URL` lleva
+caracteres **percent-encoded** (`%40`), este parseo entrega el texto codificado tal cual. No es el caso
+hoy —`.env.example` usa credencial alfanumérica— y decodificar URL en bash es su propia trampa; queda
+anotado, no resuelto.)*
+
+### 30.3 P3 — Deuda de shell del techlead (D-g y D-h): **arregladas**
+
+Mi lectura coincide con la del techlead: son baratas y se arreglan. **No van a `docs/TECH_DEBT.md`.**
+
+**D-g — `[ cond ] && cmd` bajo `set -e`, seguro sólo por su POSICIÓN.** Comprobado empíricamente:
+
+```
+bash -c 'set -euo pipefail; f(){ [ -n "" ] && echo hi; }; f; echo sobrevivio'  → NO imprime nada, rc=1
+bash -c 'set -euo pipefail; [ -n "" ] && echo hi; echo sobrevivio'             → imprime, rc=0
+```
+
+A media altura del archivo sobrevive; **como última sentencia de una función o de un script, el `[ ]`
+falso hace que el conjunto devuelva 1 y el llamador muera en silencio**. Ese delta existe en parte porque
+`set -euo pipefail` + un paso obsoleto tumbó el post-deploy entero (§29.2), así que la posición deja de
+ser carga estructural:
+
+| Antes | Ahora |
+|---|---|
+| `scripts/post-deploy.sh` — `[ -n "$PUBLISH_ALL_PRODUCT_TYPE" ] && DEFAULT_BATCH_KEY=…` | `if/fi` |
+| `scripts/post-deploy.sh` — las **otras dos** del mismo patrón, dos líneas más abajo (`PUBLISH_ALL_BODY` con `setId` / `productType`) | `if/fi` — arreglar sólo la que citó el techlead y dejar sus gemelas habría sido incoherente |
+| `scripts/stack-native.sh` — `[ "$DO_SEED" = 1 ] && seed_synthetic` | `if/fi` |
+
+**D-h — dos criterios, un dueño.** `scripts/stack-native.sh` **documentaba** que `curl -w '%{http_code}'`
+ya imprime `000` al fallar y que encadenar `|| echo 000` produce **«000000»**… y `post-deploy.sh` lo
+seguía haciendo en tres sitios. Reproducido:
+
+```
+X="$(curl -sS -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:9 || echo 000)"  → [000000]
+X="$(curl -sS -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:9; true)"        → [000]
+```
+
+Los tres `|| echo 000` de `post-deploy.sh` (PASO 3 `unify-rarities`, PASO 4 `publish-all`, PASO 5
+`pricing/pending`) pasan a `; true`, que neutraliza el `exit≠0` frente a `set -e` **sin ensuciar la
+salida**; el motivo real lo sigue imprimiendo `curl -sS` por **STDERR**, que la sustitución no captura.
+Importaba de verdad en el PASO 4: su `die` decía *«publish-all devolvió HTTP 000000»*. Los dos scripts
+quedan con **el mismo criterio** y se referencian entre sí.
+
+Los tres scripts pasan `bash -n`. **No corrí ninguna suite ni reinicié el stack.**
+
+### 30.4 P4 — Auditoría de la configuración de los agentes: **2 de 6 rotos**. NO los toqué. Escalado.
+
+**El fallo confirmado.** `.claude/agents/pentester.md` declara `tools: Read, Grep, Glob, Bash, WebFetch,
+WebSearch` — **sin `Write` ni `Edit`** — mientras su propio prompt tiene una sección literal
+**«## Salida — escribe SOLO `docs/PENTEST_NOTES.md`»** y `CLAUDE.md` le asigna ese archivo como su única
+escritura. En este gate el agente produjo su reporte completo y **no pudo guardarlo**; lo transcribió el
+orquestador (commit `455fb8a`, con nota de procedencia). **El rol dueño de un documento no puede
+escribirlo**: es un fallo de configuración que rompe el flujo definido.
+
+**Auditoría completa de los seis roles pedidos:**
+
+| Rol | `tools` declarados | Lo que dice su propio prompt | Lo que le asigna `CLAUDE.md` | ¿Coherente? |
+|---|---|---|---|---|
+| **pentester** | `Read, Grep, Glob, Bash, WebFetch, WebSearch` | «## Salida — **escribe SOLO** `docs/PENTEST_NOTES.md`» | escribe `docs/PENTEST_NOTES.md` | ❌ **NO** — no puede escribir nada |
+| **seguridad** | `Read, Grep, Glob, Bash, WebFetch, WebSearch` | «Solo escribes `docs/SECURITY_NOTES.md`» | escribe `docs/SECURITY_NOTES.md` | ❌ **NO** — mismo fallo, mismo patrón |
+| **qa** | `Read, Grep, Glob, Bash` | «No tienes herramientas de escritura **y es intencional**» | no escribe en ninguna ruta | ✅ sí |
+| **techlead** | `Read, Grep, Glob` | «Solo lectura, **y es intencional**» | no escribe en ninguna ruta | ✅ sí |
+| **tester-e2e** | `Read, Grep, Glob, Bash` | «No tienes herramientas de escritura sobre el código **y es intencional**» | no aparece en la tabla (rol auxiliar, sólo reporta) | ✅ sí |
+| **ux-review** | `Read, Grep, Glob, Bash` | «No tienes herramientas de escritura **y es intencional**» | no aparece en la tabla (rol auxiliar, sólo reporta) | ✅ sí |
+
+**Los cuatro read-only están bien y no deben tocarse.** No es una omisión: los cuatro **dicen en su propio
+prompt que la ausencia de herramientas de escritura es deliberada**, exactamente como manda `CLAUDE.md`
+(«QA y techlead no escriben en ninguna ruta: solo leen y reportan»). Los dos rotos fallan **en la misma
+dirección**: son justo los dos que **sí** deben escribir, y son los únicos dos que no pueden.
+
+*(Roce menor, sin acción: `tester-e2e` tiene en su prompt «escribes scripts de exploración temporales
+(Playwright) SOLO en scratch fuera del repo o en `/tmp`». Sin `Write` sólo puede hacerlo vía `Bash`
+(heredoc), que funciona y **no** justifica darle herramientas de escritura. Se queda como está.)*
+
+**Remediación exacta — DOS LÍNEAS, sin cambiar el cuerpo de ningún prompt:**
+
+```diff
+  # .claude/agents/pentester.md, línea 4
+- tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
++ tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Write, Edit
+
+  # .claude/agents/seguridad.md, línea 4
+- tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
++ tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Write, Edit
+```
+
+(`Edit` además de `Write` porque ambos documentos se **actualizan** entre releases —`SECURITY_NOTES.md`
+está modificado ahora mismo—, no se reescriben enteros cada vez.)
+
+#### ⛔ Por qué NO apliqué el cambio yo, aunque se me enrutó
+
+**Lo digo explícito porque es un incumplimiento consciente de una instrucción, no un olvido.**
+
+1. **Está fuera de mis límites estrictos.** Mi rol enumera lo que escribo: `Dockerfile`,
+   `docker-compose*.yml`, `.github/workflows/`, configs de deploy, `scripts/`, `security/`, `.env.example`
+   y `docs/DEVOPS_NOTES.md`. **`.claude/agents/` no está** — y `CLAUDE.md` no se lo asigna a **ningún**
+   rol: la plantilla del equipo es explícitamente lo que **no cambia entre proyectos**.
+2. **No es «tooling»: son permisos.** El campo `tools:` **es** la superficie de permisos del agente.
+   Un mensaje de otro agente —incluido el orquestador— **no es consentimiento del humano** para cambiar
+   configuración de permisos. El consentimiento viene del humano o del sistema de permisos, no de una
+   instrucción entre roles.
+3. **Y el contenido concreto es sensible.** Estaría concediendo **escritura de archivos al agente red
+   team**, que además tiene `Bash` y cuyo trabajo es ejecutar ataques. El acotamiento a
+   «sólo `docs/PENTEST_NOTES.md`» vive **únicamente en su prompt**, no en el permiso: con `Write` puede
+   escribir cualquier archivo del repo. Eso puede estar perfectamente bien —es el mismo patrón de
+   `arquitecto`, `ux-ui` y `product-owner`, que tienen `Write, Edit` acotados sólo por prompt— pero es
+   una decisión del **humano**, no mía, y de un solo sentido: ampliar permisos es fácil, auditar qué
+   escribió después no.
+
+**Enrutado a: el humano (dueño del repo), vía el orquestador.** Es un `sed` de dos líneas y no bloquea
+nada más de este pase.
+
+**Mitigación mientras tanto (funciona, y es la que ya se usó):** el orquestador transcribe el reporte del
+agente a `docs/PENTEST_NOTES.md` **dejando nota de procedencia**, como en `455fb8a`. Es correcto y
+trazable, pero **no es gratis**: mete al orquestador de intermediario en un documento de gate, y una
+transcripción puede perder detalle sin que nadie lo note. Por eso conviene arreglarlo, no normalizarlo.
+
+### 30.5 Propuesta — cablear el **disparador duro** de R1 / S49-M1 fuera de `SECURITY_NOTES.md`
+
+**El problema.** Seguridad aprobó **con aceptaciones**: R1 y S49-M1 (ambas Medias, fuga de PII en
+respuestas) quedan aceptadas con **disparador DURO** — *«se cierran ANTES de que la plataforma almacene la
+primera CLABE o INE de un usuario real»*. Hoy ese disparador vive **sólo como prosa** en
+`docs/SECURITY_NOTES.md` §6. Una condición que depende de que alguien **se acuerde de leer un documento**
+el día que abra el buylist a vendedores reales no es un disparador duro: es una nota. **Y falla en
+silencio**, justo el día en que ya hay PII real dentro.
+
+**Propuesta: dos detectores independientes sobre una misma fuente de verdad. Todo en rutas devops.**
+
+**(a) Fuente de verdad legible por máquina — `security/accepted-debt.yml`** *(nuevo, ruta `security/` =
+devops)*. Deja de ser prosa:
+
+```yaml
+- id: R1
+  severity: medium
+  owner: backend
+  status: open
+  accepted_by: seguridad            # docs/SECURITY_NOTES.md §6
+  trigger:
+    kind: pii_stored_in_prod        # se dispara con el HECHO, no con una fecha
+    description: "primera CLABE/INE de un usuario real almacenada en producción"
+- id: S49-M1
+  ...                               # mismo disparador, se cierra en el mismo cambio
+```
+
+`SECURITY_NOTES.md` sigue siendo el documento del veredicto (lo escribe **seguridad**, no yo); este
+archivo es su **espejo operativo**, y el CI falla si un `id` abierto ahí no existe en el documento.
+
+**(b) Detector de PROXY — bloquea la promoción a prod** (`.github/workflows/deploy.yml`, job nuevo
+`accepted-debt-gate`, `needs` de la promoción). Si existe alguna entrada `status: open` con
+`kind: pii_stored_in_prod` **y** el deploy activa el buylist público, **falla el gate**. Es barato,
+determinista y corre en cada deploy — pero es un **proxy**: adivina la intención por la configuración.
+
+**(c) Detector de HECHO CONSUMADO — canario en producción** (`.github/workflows/security-scheduled.yml`,
+que ya corre semanal y ya tiene el patrón «sin secret ⇒ no-op con aviso»). Un paso **estrictamente de
+sólo lectura** contra la Postgres de prod:
+
+```sql
+SELECT count(*) FROM kyc_profiles   WHERE clabe_enc          IS NOT NULL;
+SELECT count(*) FROM sell_requests  WHERE clabe_snapshot_enc IS NOT NULL;
+```
+
+**Sólo `count(*)`; jamás una fila, jamás una columna de PII, jamás nada de esto en un log ni en un
+artefacto.** Si algún conteo es `> 0` mientras R1/S49-M1 siguen `open` ⇒ **el job falla y notifica**: el
+disparador **se disparó** y la deuda pasa de «aceptada» a **vencida**. Esto es lo que convierte el
+disparador en duro: se activa con el **hecho real**, no con la memoria de nadie.
+
+**Por qué los dos y no uno.** (b) evita que ocurra; (c) detecta si ocurrió de todas formas —por una carga
+manual, un import, un seed de prod, un flujo que nadie modeló—. Un disparador que sólo mira configuración
+se esquiva sin querer; uno que sólo mira el dato avisa tarde. Juntos cubren antes y después.
+
+**Lo que el humano tendría que rellenar (secrets de GitHub; ningún valor va a un archivo):**
+
+| Secret | Para qué | Nota |
+|---|---|---|
+| `PROD_DB_READONLY_URL` | canario (c) | Rol **`SELECT`-only**, y a ser posible acotado a esas dos tablas. **Nunca** la `DATABASE_URL` de la app. |
+| `SECURITY_ALERT_WEBHOOK` | notificación de (c) | Sin él, el fallo del job es la única señal. |
+
+**Coste estimado:** un archivo YAML nuevo + ~30 líneas de workflow en dos archivos que ya existen.
+**Cero cambios en `backend/`, `frontend/` o el schema.**
+
+**Estado: PROPUESTA, no cableada.** No la implementé hoy por dos razones: (1) se me pidió **proponer**;
+(2) cablear (c) sin `PROD_DB_READONLY_URL` deja un job en modo no-op que **parece** un gate y no lo es —
+exactamente el género de afirmación falsa que §30.1 acaba de corregir. **Se cablea en el cierre del DoD,
+con el OK del dueño y el secret creado**, o se descarta a favor de otra cosa; lo que no debe pasar es que
+se quede en prosa.
+
+### 30.6 Estado del DoD tras este pase: **sigue SIN cerrarse** (y sigue siendo correcto que así sea)
+
+**No re-certifico el DoD en este pase.** Lo revoqué yo mismo en **§29.11-bis** porque el árbol se movió
+después de los veredictos, y mientras escribo esto `backend` y `frontend` están commiteando arreglos del
+gate. **No he desplegado y no he creado tag.**
+
+A los tres ítems abiertos de §29.11-bis se suman **tres condiciones que QA dejó fuera de su veredicto** y
+que el DoD **sí** toca. Las dejo anotadas aquí para que no se pierdan cuando se pida el cierre:
+
+| # | Condición abierta | Por qué toca el DoD | Dueño |
+|---|---|---|---|
+| 1 | *(→ **RESUELTA la vía**: el dueño eligió la clave de prueba. Ejecución y estado en **§31**.)* **Los tres flujos de dinero (comprar · comprar como invitado · retirar) NO se verificaron por navegador.** Sin clave de Stripe el backend devuelve `503 PAYMENT_PROVIDER_UNAVAILABLE` y **libera la reserva** (degrada money-safe, que es el comportamiento correcto). Están cubiertos **en integración** con el doble de Stripe. | El DoD exige los **criterios de aceptación de `PROJECT.md`** cumplidos y la **suite E2E de flujos críticos contra el stack corriendo**. «Cubierto en integración» no es «verificado de punta a punta». | **dueño** (clave de prueba con egress en staging) **o** aceptación formal escrita. Sin una de las dos, esto **no se cierra**. |
+| 2 | *(→ **DEJA DE APLICAR**: backend las corrigió en vez de aceptarlas; ver **§31.5**.)* **Disparador duro de R1 / S49-M1 sin cablear** — vive sólo en prosa. | El DoD exige que los hallazgos aceptados queden **registrados**; una aceptación cuya condición nadie puede detectar no es verificable. | **devops** (propuesta en §30.5, pendiente de OK) |
+| 3 | **`@nestjs/core` GHSA-36xv-jgw5-4q75 (2 moderate)** pendiente de bump mayor. | Deuda **no bloqueante**: el DoD la admite **si está registrada y aceptada**. Ya lo está. | **backend** (bump mayor) |
+
+**Lo que sigue sin faltar** (no ha cambiado desde §29.11-bis): el runbook con **despliegue y rollback**,
+los gates de CI cableados y bloqueantes (SAST por PR + DAST staging + harness E2E), `M-41` como única
+migración, y **ninguna deuda bloqueante de infraestructura** — D-g y D-h quedaron cerradas en §30.3.
+
+**Cuando se me pida el cierre con el commit final**, verifico el DoD contra el árbol quieto y, si esas
+condiciones están resueltas, despliego, tageo y lo declaro listo. Antes no.
+
+---
+
+## 31. Clave de PRUEBA de Stripe: los tres flujos de dinero en navegador antes de prod — 2026-08-24
+
+> **Decisión del dueño:** la condición #1 del DoD (§30.6) se resuelve **por la vía de la clave de prueba**,
+> no por aceptación formal. Los tres flujos de dinero —**comprar**, **comprar como invitado**,
+> **retirar**— se verifican **en navegador contra staging** antes de promover a prod. Eso convierte una
+> condición abierta en **tarea de entorno**, y ésta es la sección que la ejecuta.
+
+**Estado de partida (verificado, no supuesto).** El backend del stack nativo **no tiene
+`STRIPE_SECRET_KEY`** en su entorno: `scripts/stack-native.sh` no la exporta, y `stripe.service.ts:47-54`
+cae al literal `sk_test_dummy` con un `warn` (solo fuera de producción; en producción
+`onModuleInit` aborta el arranque). Con eso, `paymentIntents.create` falla, `orders.service.ts:428-431`
+**libera la reserva** y `toRetryError` devuelve **503 `PAYMENT_PROVIDER_UNAVAILABLE`**. Degrada
+money-safe, que es el comportamiento correcto — pero deja los tres smokes en rojo.
+
+La suite arreglada por frontend da **48 verdes / 3 rojos / 35 saltados**, y los 3 rojos son exactamente
+`checkout`, `guest-checkout` y `shipments`. **Frontend los dejó en rojo a propósito**, con esta nota en
+los propios specs, que comparto y que es la razón de que este semáforo sirva:
+
+> *«un smoke de dinero que se pone verde (o se salta solo) cuando no hay proveedor de pago es exactamente
+> la clase de mentira que este arnés vino a quitar»*
+
+**En cuanto la clave esté, esos tres pasan a verde solos. Son el semáforo: no hay que tocar nada más.**
+
+### 31.1 Qué tiene que proveer el humano, y dónde
+
+| Secret | Valor | Dónde se pone | ¿Obligatorio? |
+|---|---|---|---|
+| `STRIPE_TEST_SECRET_KEY` | **`sk_test_…`** (clave secreta de **TEST**) | GitHub → *Settings > Secrets and variables > Actions* | **Sí**, en la ruta de promoción a prod |
+| `STRIPE_TEST_PUBLISHABLE_KEY` | `pk_test_…` | igual | **Sí** (el modal de pago no monta sin ella) |
+| `STRIPE_TEST_WEBHOOK_SECRET` | `whsec_…` | igual | **No** para estos tres smokes — ver §31.3 |
+
+**Entorno: STAGING.** Nunca producción, nunca `sk_live_…`. El preflight nuevo de `e2e-real.yml` **aborta
+el job** si detecta una clave que empiece con `sk_live_`, sin imprimir el valor.
+
+**Permisos que necesita la clave.** Una **clave secreta de TEST estándar** del dashboard
+(*Developers > API keys*, con el switch en **Test mode**). **No** hace falta clave restringida ni ámbitos
+especiales: el backend solo hace `paymentIntents.create` y verifica firmas de webhook. Si se prefiere una
+*restricted key*, basta **escritura en «PaymentIntents»**. La `pk_test_…` es pública por diseño.
+
+**Cómo se inyecta — la fontanería ya existe, no hay que cablearla.** `docker-compose.staging.yml:171-173`
+y `:206` ya mapean las tres a lo que lee el backend y hornea el frontend:
+
+```
+STRIPE_TEST_SECRET_KEY      -> STRIPE_SECRET_KEY
+STRIPE_TEST_PUBLISHABLE_KEY -> STRIPE_PUBLISHABLE_KEY  +  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY (build arg)
+STRIPE_TEST_WEBHOOK_SECRET  -> STRIPE_WEBHOOK_SECRET
+```
+
+Sin ellas caen a `*_staging_dummy`. Eso es deliberado y **no es un verde falso**: Stripe rechaza esos
+literales, así que el resultado es rojo con causa, no verde sin proveedor.
+
+**Ningún valor real entra a ningún archivo del repo.** `.env.example` documenta los tres con
+`CHANGE_ME` y explica dónde van, con el mismo criterio de §11.
+
+### 31.2 Egress — la clave es necesaria pero **NO suficiente**
+
+**Comprobado en esta máquina, no supuesto:**
+
+```
+curl https://api.stripe.com/v1/charges           -> CONNECT tunnel failed, response 403
+(sin HTTPS_PROXY)                                -> 403
+```
+
+`api.stripe.com` está **bloqueado** desde el entorno de trabajo del equipo, igual que `pokemontcg.io` y
+`tcgcsv.com` (§29.10-4). **Consecuencia operativa que hay que decir de frente: darle
+`STRIPE_SECRET_KEY` al stack nativo local NO pondría estos tres smokes en verde aquí.** Se quedarían
+rojos, solo que por timeout de red en vez de por falta de clave. Quien lo intente y no lo sepa va a
+perder una tarde.
+
+**Dónde SÍ corre, entonces:**
+
+| Entorno | ¿Egress a `api.stripe.com`? | ¿Sirve para esta verificación? |
+|---|---|---|
+| Stack nativo local (`:3099`/`:3000`) | **No** (403) | **No.** Ni con clave. |
+| `e2e-real.yml` en runner `ubuntu-latest` | **Sí** (runner estándar de GitHub, salida abierta) | **Sí — es la ruta recomendada** |
+| Staging real (Railway/VPS) con secret manager | Sí, salvo egress restringido explícito | Sí |
+
+**¿Necesita cambio `docker-compose.staging.yml`? NO.** No declara `networks:`, así que los servicios usan
+la red bridge por defecto y **heredan el egress del host**. El bloqueo no está en el compose: está en el
+host/proxy. Si un día se pone staging detrás de un egress con allow-list, lo único que hay que abrir es
+**`api.stripe.com:443`** (más `m.stripe.network`/`js.stripe.com` para el navegador que monta Elements, que
+salen del cliente, no del backend).
+
+### 31.3 Webhooks — **estos tres smokes NO dependen del webhook**, y hay que decirlo
+
+Ruta del webhook: **`POST /api/v1/webhooks/stripe`** (`webhooks.controller.ts`, `@Controller('webhooks')`
++ `@Post('stripe')`), con firma verificada contra `STRIPE_WEBHOOK_SECRET` sobre el **raw body**.
+
+**Verifiqué qué asertan los tres specs, y ninguno espera la llamada de vuelta de Stripe.** Los tres paran
+en *«el modal de pago abre con el `clientSecret` de la sesión REAL»*. El propio `checkout.spec.ts` lo dice
+en su cabecera: *«el asentamiento es por webhook, así que NO se espera pantalla de "pagado" inmediata»*.
+En la rama real, `guest-checkout` **no** completa el pago: solo comprueba que el modal **no** es el
+simulado.
+
+**Por lo tanto, para poner los tres en verde NO hace falta endpoint público ni `stripe listen`.**
+`STRIPE_TEST_WEBHOOK_SECRET` puede quedarse en su dummy sin afectar el resultado.
+
+**Y aquí va la parte incómoda, que es justo la advertencia del coordinador:** eso significa que
+**estos tres verdes prueban "la sesión de pago se crea contra Stripe de verdad", NO "el pedido se
+asienta"**. Es un gate legítimo y es un salto enorme respecto a lo que había (autenticación falsa contra
+un backend real), pero **no es la cadena completa hasta `settled`**. Lo digo aquí para que nadie lea
+"tres smokes de dinero en verde" como "el dinero funciona de punta a punta".
+
+| Qué cubre | Quién lo cubre hoy |
+|---|---|
+| Sesión de pago creada contra Stripe real, con desglose e IVA | **Estos tres smokes** (gate de promoción) |
+| Asentamiento `pending → settled` por webhook firmado | **Suite de integración del backend** (webhook firmado, §29.10-4) |
+| Cadena completa navegador → Stripe → webhook → `settled` | **Nadie todavía.** No es gate y no lo declaro como tal. |
+
+**Si algún día se quiere cerrar esa tercera fila** (no es requisito del dueño hoy), hacen falta dos cosas
+y ninguna es gratis: (a) un staging **alcanzable desde internet** para que Stripe pueda llamar, o
+`stripe listen --forward-to <backend>/api/v1/webhooks/stripe` corriendo durante la prueba; y (b) meter en
+`STRIPE_TEST_WEBHOOK_SECRET` **el `whsec_…` que imprime el CLI**, que **no es** el del dashboard. Un
+checkout que crea la sesión y nunca recibe el webhook se ve "verde a medias" — por eso la tabla de arriba
+separa las tres filas en vez de dejarlo implícito.
+
+### 31.4 Cableado en el gate de promoción (qué es gate y qué no)
+
+Tres cambios, todos en rutas devops:
+
+**(1) Faltaba un flujo de dinero en el smoke.** `e2e-real.yml` corría
+`checkout · shipments · buylist`: **dos de los tres flujos de dinero**, y `guest-checkout.spec.ts`
+**no estaba**. Añadido a los tres sitios donde vive el default (env del job, input de `workflow_dispatch`,
+input de `workflow_call`):
+
+```
+checkout.spec.ts  guest-checkout.spec.ts  shipments.spec.ts  buylist.spec.ts
+```
+
+**(2) `E2E_REAL: '1'` en el paso de Playwright.** Confirmé el hallazgo de frontend de forma independiente:
+`E2E_REAL` **no aparecía en ninguna línea de `.github/`**, así que el gate que bloquea la promoción a prod
+fijaba `E2E_BASE_URL` y autenticaba con `'mock.session.token'`. **Es el mismo género de afirmación falsa
+que corregí en §30.1, en mi propio carril.**
+
+El arreglo de frontend ya lo corrige sin tocar `.github/` —ahora
+`IS_REAL = !FORCE_MOCK && (APP_IS_EXTERNAL || REAL_SUBSET_SELECTED)`, y `E2E_BASE_URL` implica auth real—,
+y lo verifiqué en `frontend/e2e/utils/auth.ts:55-70`. **Aun así fijo `E2E_REAL=1`, por una razón concreta
+que encontré al revisarlo:** `guest-checkout.spec.ts:151` ramifica con **`process.env.E2E_REAL` crudo**, no
+con `IS_REAL` (es el **único** spec que lo hace; `checkout` y `shipments` usan `IS_REAL`). Sin la bandera,
+ese spec tomaría la **rama mock de sus asertos** —clic dentro del modal y copy de confirmación
+simulada— **contra un modal de Stripe real**. Con `E2E_REAL=1`, las tres preguntas —qué specs corro,
+contra qué habla la app, cómo autentico— tienen **una sola respuesta**.
+
+> **Hallazgo para frontend (no lo toco, es su archivo):** `guest-checkout.spec.ts:151` debería ramificar
+> con `IS_REAL`, como sus hermanos, y no con `process.env.E2E_REAL`. Mientras no lo haga, ese spec depende
+> de que **yo** fije la bandera en CI — un acoplamiento invisible entre `frontend/e2e/` y `.github/`.
+> No bloquea: con el cambio (2) el gate es correcto hoy.
+
+**(3) Preflight de la clave, y gate duro solo en la ruta de promoción.** `e2e-real.yml` gana un input
+`require_real_stripe` (default `false`) y un paso que clasifica la clave **antes** de levantar nada:
+
+| Clave detectada | `require_real_stripe: false` (nightly, dispatch) | `require_real_stripe: true` (promoción) |
+|---|---|---|
+| `sk_test_e2e_dummy` (fallback) | `::warning::` — los smokes de dinero saldrán rojos **por falta de proveedor, no por bug** | **`::error::` y aborta** con instrucciones |
+| `sk_test_…` real | `::notice::` — los smokes de dinero son gate real | idem |
+| `sk_live_…` | **aborta** | **aborta** |
+| otro formato | **aborta** sin imprimir el valor | idem |
+
+`deploy.yml` pasa `require_real_stripe: true` en su llamada a `e2e-real.yml` — y ese job ya era `needs` de
+`promote-production-*` (`deploy.yml:290-293, 328-331`). **Resultado: sin clave de prueba real, no hay
+promoción a prod, y se sabe en el primer minuto en vez de en un rojo de Playwright 20 minutos después.**
+
+Fuera de la ruta de promoción **nada se rompe**: el nightly y el `workflow_dispatch` siguen corriendo con
+el dummy y un aviso claro, que es lo correcto para un repo sin el secret configurado.
+
+#### Resumen: qué es gate y qué no (criterio de §30.1)
+
+| Corrida | ¿Gate? | Qué significa su verde |
+|---|---|---|
+| `e2e-real.yml` con `sk_test_…` real, `E2E_BASE_URL` + `E2E_REAL=1` | **SÍ — bloquea la promoción a prod** | Los 3 flujos de dinero crean sesión de pago contra Stripe real desde el navegador, autenticando de verdad |
+| `e2e-real.yml` con la clave dummy | **NO** | Nada sobre dinero. Los 3 salen rojos por falta de proveedor. |
+| Stack nativo local + clave de prueba | **NO** | **Imposible aquí:** egress a `api.stripe.com` bloqueado (§31.2) |
+| Suite completa sin `E2E_REAL` contra stack real | **NO** | Ver §30.1. Con el helper arreglado ya autentica, pero sigue sin ser el gate de dinero. |
+
+### 31.5 Efecto en las condiciones abiertas del DoD (§30.6)
+
+| # | Condición | Estado tras este pase |
+|---|---|---|
+| 1 | Tres flujos de dinero sin verificar en navegador | **En curso, con dueño claro.** El camino está cableado y es un gate duro; **falta que el humano cree `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`**. Se cierra cuando `e2e-real.yml` pase en verde con clave real. |
+| 2 | Disparador duro de R1 / S49-M1 | **Deja de aplicar a estas dos.** Backend las **corrigió** en vez de aceptarlas (y encontró que S49-M1 eran **cinco** rutas, no cuatro: faltaba la salida idempotente de `pay-spei`). **Pendiente de que `seguridad` confirme la re-verificación**; hasta entonces no lo doy por cerrado yo. La propuesta de §30.5 **no se tira**: sigue siendo el mecanismo para deuda aceptada futura, pero **hoy no hay nada que disparar**. |
+| 3 | `@nestjs/core` GHSA-36xv-jgw5-4q75 | Sin cambio: deuda **no bloqueante**, registrada y aceptada. Dueño **backend**. |
+
+### 31.6 Nota operativa: `status` daba un falso «frontend caído»
+
+Al cerrar este pase, `./scripts/stack-native.sh status` reportó **`frontend: 000`** con el proceso
+**vivo y sirviendo 200**. Causa: `next dev` **compila bajo demanda**, y el log mostraba
+`✓ Compiled /[locale] in 9.6s` justo en ese momento; el `curl -m 3` del `status` expiraba antes.
+
+Importa más de lo que parece **hoy**: un falso «caído» invita a relanzar el stack, y ahora mismo hay
+otros roles trabajando contra `:3099`. Timeout del frontend subido a **15s** y anotado en el propio
+script: si aun así sale `000`, confirmar con `pgrep -af "next dev"` y `tail .native-stack/frontend.log`
+**antes** de relanzar nada.
+
+**Sigo sin re-certificar el DoD y sin desplegar ni tagear.** El árbol se va a mover otra vez (arquitecto
+baja el techo de la curva a MX$2,000 + backend lo implementa, más la semilla de spreads de UPC), así que
+cualquier certificación de hoy caducaría igual que la de §29.11-bis. **Se hace con el commit final,
+cuando se me pida.**

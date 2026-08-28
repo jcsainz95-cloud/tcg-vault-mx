@@ -1,6 +1,7 @@
 import { MasterSetService } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.42 (BLOQ-3/3b, §4.20b/§4.20d) — el binder de master set cuenta SOLO SINGLES:
@@ -23,8 +24,11 @@ function buildPrisma() {
 
 function buildPricing(over: any = {}) {
   return {
-    loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
-    loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),

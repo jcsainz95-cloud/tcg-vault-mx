@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Card, CardProduct, CardProductKind, Finish, PriceReference, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
+import { Card, CardProduct, CardProductKind, Finish, PriceReference, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -20,17 +20,27 @@ import {
 } from './pricing.types';
 import {
   usdToMxnCents,
-  computeSalePriceForRarity,
+  computeSalePriceFromCurve,
   computeSealedSalePrice,
-  toPriceRuleSet,
-  PriceRuleSet,
-  BuylistRule,
-  SalePriceResult,
-  SalesRule,
+  CurvePriceResult,
+  PriceBasis,
   SealedSpreadResult,
   VariantPriceControls,
 } from '../../common/money';
-import { TierId } from '../../common/pricing-tiers';
+// v2.0 (P-48, §4.36.2): LA CURVA. Un solo lector en todo el backend (`loadPricingCurve`), para que no
+// vuelva a haber dos rutas de dinero leyendo configuraciones potencialmente distintas.
+import {
+  CurveLegTrace,
+  CurveValidationError,
+  PendingReason,
+  PricingCurve,
+  collectCurveViolations,
+  explainBuyFromCurve,
+  explainSaleFromCurve,
+  normalizePricingCurve,
+  resolvePendingReason,
+  sanitizePricingCurve,
+} from '../../common/pricing-curve';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish).
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
@@ -172,15 +182,152 @@ export function pickBestRef<T extends RefRow>(rows: T[]): T | null {
   return best;
 }
 
+/**
+ * `PriceInfo` describe el VALOR DE REFERENCIA (valor de mercado), no el precio de venta.
+ *
+ * ### v2.1.6 (S48-M2, fase de seguridad) — DTO CERRADO
+ * `isManualOverride` **SE RETIRA**. Nunca estuvo declarado en el contrato y el backend lo emitía
+ * igual **a endpoints anónimos**: un mapa **scrapeable** de qué cartas llevan precio fijado a mano —
+ * o sea dónde falló el feed automático y dónde es más probable que el precio esté desalineado. No se
+ * reubica en una superficie admin porque es **REDUNDANTE**: `source === 'manual'` carga exactamente
+ * el mismo bit, y mantener dos nombres para un mismo hecho es cómo se diverge.
+ *
+ * ⚠️ **Quitarlo no basta:** `PriceSource` incluye el valor `manual`, así que **`source` filtra la
+ * MISMA señal**. Norma: `source` se **OMITE en toda superficie pública/anónima** (`/catalog/*`,
+ * `/buylist/*`) vía `toPublicPriceInfo` y solo viaja en `vault_operator+`. El campo YA era opcional,
+ * así que omitirlo no cambia el tipo ni hace que `PriceInfo` signifique cosas distintas según la ruta
+ * (eso sí está prohibido para `referenceMxnCents`, que es la CARGA; `source` es **procedencia**).
+ * `capturedDate` sí puede viajar en público: la frescura del dato es información legítima de compra.
+ */
 export interface PriceInfo {
   status: 'priced' | 'pending';
   referenceMxnCents?: number;
+  /** PROCEDENCIA — `vault_operator+` únicamente. En público se OMITE (`toPublicPriceInfo`). */
   source?: PriceSourceStr;
-  // v1.43 (IMP-C, §4.23a): discriminante del override manual de MERCADO. `manualOverride()` siempre
-  // escribe `source='manual'` (por eso `source` basta), pero se expone el flag explícito para que el
-  // gate H-1 (`gateSealedMarketCents`) case el predicado normativo sin depender solo del string.
-  isManualOverride?: boolean;
   capturedDate?: string;
+}
+
+/**
+ * v2.1.6 (S48-M2) — proyección PÚBLICA de un `PriceInfo`: **quita la procedencia**. Es el único
+ * cuerpo que decide qué sale a superficie anónima; los seams públicos (`catalog`, `buylist`) lo
+ * aplican al construir su DTO.
+ *
+ * Un DTO es **CERRADO**: emitir un campo no declarado es violación de contrato, no una adición
+ * inocua. «Aditivo es seguro» vale para el **consumidor**, no para el **emisor** — publicar de más no
+ * rompe a nadie, **filtra**.
+ *
+ * ### v2.1.9 (D2) — la regla de visibilidad de §N.7 se impone en el EMISOR, no en el navegador
+ * `priceBasis` parametriza el recorte. En superficie **pública**:
+ *
+ * ```
+ * referenceValue.referenceMxnCents PRESENTE  ⇔  priceBasis === 'market'
+ * ```
+ *
+ * Con `floor`/`override`/`pending` el `PriceInfo` público sale como `{ status }` a secas —
+ * `capturedDate` acompaña al número (sin número, la frescura no informa) y `status` viaja SIEMPRE
+ * (es la carga estructural, no procedencia).
+ *
+ * **Por qué aquí y no repartido por seams:** el argumento viejo («el mismo DTO alimenta admin y
+ * valuación, así que stripearlo por endpoint haría que `PriceInfo` significara cosas distintas según
+ * la ruta») quedó **derogado por escrito**: este proyector YA recorta por superficie (quita `source`),
+ * así que la premisa era falsa. El PoC del pentester era literal — `GET /catalog/listings/<id>` **sin
+ * token** devolvía `priceBasis:"override"` **+ el número de mercado**, o sea justo el bloque que la UI
+ * tiene PROHIBIDO pintar. Una regla que solo vive en el navegador no es una regla: es una sugerencia.
+ *
+ * ⚠️ Esto **NO releva al front** de obedecer `priceBasis`: es defensa en profundidad, no permiso para
+ * inferir comparando cifras.
+ *
+ * ⚠️ **Omitir `priceBasis` es deliberado en bóveda/portafolio y admin** (`/vault/*`, `/admin/*`):
+ * §N.7 las excluye explícitamente — ahí el cliente ve el mercado de lo que **ya posee** y el
+ * back-office necesita la procedencia. No "unifiques" pasando el basis también ahí.
+ *
+ * @param priceBasis Presente ⇒ superficie sujeta a §N.7 (Compra/ficha). Ausente ⇒ sin recorte por basis.
+ */
+export function toPublicPriceInfo(info: PriceInfo, priceBasis?: PriceBasis): PriceInfo {
+  // Se construye por LISTA BLANCA (no `delete`): si mañana `PriceInfo` gana un campo interno, este
+  // proyector NO lo deja salir por omisión. Es la diferencia entre cerrar una fuga y cerrar la clase.
+  const out: PriceInfo = { status: info.status };
+  // v2.1.9 (D2): el NÚMERO de mercado viaja si y solo si el mercado produjo el precio. Omitir el
+  // `priceBasis` = superficie NO sujeta a §N.7 (bóveda/portafolio/admin) ⇒ comportamiento de siempre.
+  if (priceBasis !== undefined && priceBasis !== 'market') return out;
+  if (info.referenceMxnCents !== undefined) out.referenceMxnCents = info.referenceMxnCents;
+  if (info.capturedDate !== undefined) out.capturedDate = info.capturedDate;
+  return out;
+}
+
+/**
+ * `GET /admin/pricing/card/:cardId` — historial por fecha/fuente (v2.1.7).
+ *
+ * Devolvía **filas Prisma crudas** (`id`, `cardProductId`, `fxRate`, `fxBufferPct`, `createdAt`) y la
+ * fecha en ISO completo. Es `super_admin`, así que no había fuga pública — pero es la misma doctrina
+ * de S48-M2: **un DTO es CERRADO**, y publicar internos de fila invita a que alguien dependa de ellos.
+ *
+ * La forma es la que el frontend ya declaró como **SUPUESTO** en `contract.ts` (el contrato dice
+ * «historial por fecha/fuente» sin fijar campos): alinearse con ella es lo correcto — inventar otra
+ * habría roto su pantalla sin ganar nada.
+ *
+ * `isManualOverride` **sí** viaja aquí, y no contradice S48-M2: allá se retiró de `PriceInfo` por ser
+ * REDUNDANTE con `source` en superficie **anónima**; ésta es `super_admin`, donde la procedencia es
+ * justamente el dato que se está consultando.
+ *
+ * ⚠️ Para el arquitecto: esta forma sigue **sin estar declarada** en el contrato. Backend y frontend
+ * coinciden hoy por acuerdo tácito, que es exactamente la condición que produjo B-1.
+ */
+export interface PriceHistoryEntryDTO {
+  /** `YYYY-MM-DD` — día de captura, NO instante (igual que `PriceInfo.capturedDate`). */
+  capturedDate: string;
+  /**
+   * ⚠️ El **ENUM**, no `string` (v2.1.7). El acuerdo tácito ya tenía una GRIETA: backend tipaba
+   * `string` y frontend `PriceSource`. Con `string`, un valor fuera del enum **compila** de este lado
+   * y **rompe el render** del otro sin que nada avise — justo en el campo del que trata la ruta.
+   */
+  source: PriceSource;
+  gradeKey: string;
+  productType: ProductType;
+  priceMxnCents: number;
+  /**
+   * Viaja aquí y NO contradice su retiro de `PriceInfo` (v2.1.6): allá era superficie **anónima** y
+   * `source === 'manual'` la determinaba por completo; aquí es `super_admin` de **auditoría**, la
+   * procedencia **es** la pregunta que el endpoint contesta, y **no es redundante per-fila** —
+   * `sourceRank` trata las dos señales como SEPARADAS (`isManualOverride || source === 'manual'`),
+   * así que una fila puede venir marcada manual con un `source` distinto de `manual`.
+   *
+   * La regla que generaliza: la pregunta correcta nunca es «¿este campo es sensible?» sino
+   * **«¿es sensible PARA QUIEN LEE ESTA RUTA?»**.
+   */
+  isManualOverride: boolean;
+}
+
+/**
+ * v2.1.7 — **LA proyección** de una `PriceReference` a su forma declarada. Un solo cuerpo para el
+ * historial y para la respuesta del override manual.
+ *
+ * ### La norma que la obliga (§M2, y es la causa raíz de esta familia de bugs)
+ * **Ningún endpoint devuelve una entidad Prisma directamente; siempre una proyección declarada.**
+ * Cuando la respuesta **ES** la entidad, la forma de la API la define el **schema**, no el contrato —
+ * y entonces **cada migración es un cambio de contrato silencioso**. M-41 añadió columnas a tres
+ * modelos; con el patrón anterior, cualquier columna futura se **auto-publicaba** sin que nadie lo
+ * decidiera. Es la misma máquina que produjo el hueco de `details`, el de `PriceInfo` y B-1.
+ *
+ * Se construye por **lista blanca** (no `delete`, no spread de la fila): una columna nueva NO sale por
+ * omisión, que es exactamente la propiedad que se busca.
+ */
+export function toPriceHistoryEntry(row: {
+  capturedDate: Date;
+  source: PriceSource;
+  gradeKey: string;
+  productType: ProductType;
+  priceMxnCents: number;
+  isManualOverride: boolean;
+}): PriceHistoryEntryDTO {
+  return {
+    capturedDate: row.capturedDate.toISOString().slice(0, 10),
+    source: row.source,
+    gradeKey: row.gradeKey,
+    productType: row.productType,
+    priceMxnCents: row.priceMxnCents,
+    isManualOverride: row.isManualOverride,
+  };
 }
 
 /** v1.29 (§4.27i) — precio por variante de un producto separado (CardProductDTO.prices). */
@@ -212,6 +359,24 @@ export interface RefreshCardPricesResult {
 
 /** v1.26 (P-7 ⑤) — cota DURA de cartas por llamada de reprecio fresco (nunca un barrido). */
 export const MAX_FRESH_REPRICE_CARDS = 50;
+
+/**
+ * v2.0 (P-48, §4.36.5b) — LA DECISIÓN DE VENTA de una variante: monto **y** veredicto, juntos e
+ * inseparables. Es lo que devuelve el seam único del eje de venta (`decideSalePrice` /
+ * `computeSalePriceForItem`).
+ *
+ * INVARIANTE que sostiene todo lo demás: `pendingReason != null` ⇒ `priceCents === null` y
+ * `basis === 'pending'`. Un caller no puede leer un precio publicable de una variante bloqueada
+ * porque **no existe tal precio en el objeto** — el guardarraíl deja de depender de que cada
+ * consumidor se acuerde de consultarlo.
+ */
+export interface SalePriceDecision extends CurvePriceResult {
+  /**
+   * `null` = se puede publicar/cobrar/ofrecer. No-null = BLOQUEADA, con el motivo que hace TRIABLE la
+   * cola: `no_market` (lo cura solo el barrido) vs `premium_at_floor` (necesita que el dueño mire).
+   */
+  pendingReason: PendingReason | null;
+}
 
 /**
  * PricingService — Orquesta el pricing (ARCHITECTURE §4.1):
@@ -348,7 +513,6 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
-      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -360,6 +524,8 @@ export class PricingService {
    * cardId → PRODUCT_CARD_MISMATCH). Reusa el `@unique tcgplayerProductId` de M-31 (§4.27b).
    */
   async findCardProductByTcgId(tcgplayerProductId: number): Promise<CardProduct | null> {
+    // PROJECTION-EXEMPT: lectura interna de resolución (`findCardProductByTcgId`); el caller decide
+    // PRODUCT_NOT_FOUND / PRODUCT_CARD_MISMATCH y proyecta lo que expone (`CardProductDTO`).
     return this.prisma.cardProduct.findUnique({ where: { tcgplayerProductId } });
   }
 
@@ -406,7 +572,6 @@ export class PricingService {
       status: 'priced',
       referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
-      isManualOverride: ref.isManualOverride,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
   }
@@ -458,7 +623,6 @@ export class PricingService {
         status: 'priced',
         referenceMxnCents: this.liveMxnCents(r, fx),
         source: r.source as PriceSourceStr,
-        isManualOverride: r.isManualOverride,
         capturedDate: r.capturedDate.toISOString().slice(0, 10),
       });
     }
@@ -608,60 +772,89 @@ export class PricingService {
   }
 
   /**
-   * v1.28 (P-18) — iza `BUYLIST_PRICE_RULES` + fallback UNA vez por request (espejo de
-   * `loadSalesRules`), para consola/binder. OJO: `BuylistService.buylistRules()` NO delega aquí —
-   * son DOS lecturas paralelas de la MISMA config (mismas SettingKey, misma forma; decisión
-   * justificada para no acoplar módulos, registrada como deuda SB-D2). El cuerpo normativo de la
-   * semántica de precio es la matemática compartida en `money.ts`; si cambia el formato del dial,
-   * ambos reads cambian juntos.
+   * v2.0 (P-48, §4.36.2) — EL ÚNICO LECTOR DE LA CURVA en todo el backend. Funde
+   * `loadBuylistRules()` + `loadSalesRules()` (y el `BuylistService.buylistRules()` que no delegaba en
+   * este servicio) en un solo loader: la curva vive en UNA clave, así que dos loaders solo abrirían la
+   * puerta a leerla dos veces y ver dos versiones. Se iza UNA VEZ por request (patrón BE-25) y se
+   * comparte entre los dos ejes.
+   *
+   * Money-safe: un valor persistido inválido (edición manual en BD) NO apaga la publicación y la
+   * cotización de todo el catálogo — cae al seed de §N.2 y lo GRITA en el log. «Siempre hay curva» es
+   * invariante de diseño (§4.36.2: ya no existe el caso «sin regla»).
    */
-  async loadBuylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    // v1.37 (§4.33c): iza también PRICING_TIER_MAP y DERIVA el `PriceRuleSet` efectivo si el setting trae
-    // el shape por tiers (post-M-38); compat on-read con `{ rarityRules, ... }`/plano (§4.28d) sin el mapa.
-    const tierMap = await this.loadTierMap();
-    const rules = toPriceRuleSet<BuylistRule>(
-      await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
-      fallbackPct,
-      tierMap,
-    );
-    return { rules, fallbackPct };
+  async loadPricingCurve(): Promise<PricingCurve> {
+    const raw = await this.settings.getRaw(SettingKey.PRICING_CURVE);
+    const { curve, fellBack } = sanitizePricingCurve(raw);
+    if (fellBack) {
+      this.logger.error(
+        `[MONEY] El setting ${SettingKey.PRICING_CURVE} es INVÁLIDO en BD: se está usando el seed de PROJECT §N.2. ` +
+          'Revísalo en M2 (PUT /admin/pricing/curve) — el precio publicado y el cotizado NO son los configurados.',
+      );
+    }
+    return curve;
   }
 
   /**
-   * v1.37 (§4.33b/c) — iza el mapa COMPARTIDO `PRICING_TIER_MAP` (`Record<canonicalRarity, TierId>`) para
-   * derivar el `PriceRuleSet` efectivo (compra y venta lo comparten). Rareza ausente ⇒ sin entrada ⇒
-   * fallbackPct (money-safe). Forma degenerada del setting ⇒ `{}` (todo al fallback, nunca $0).
+   * v2.1 (P-48, §4.36.8a) — **DRY-RUN de la curva**. Evalúa una curva BORRADOR contra N mercados de
+   * sonda y devuelve, por sonda, el resultado con el borrador Y con la curva **VIGENTE** (que se lee
+   * de ESTE almacén, jamás del cliente: si el cliente pudiera echarla de vuelta, un cliente rancio
+   * pintaría una columna «VIGENTE» que no es la vigente — y ésa es contra la que el dueño mide su
+   * cambio).
+   *
+   * **No persiste, no audita, no autoriza.** No evalúa el guardarraíl ni consulta rareza, overrides,
+   * bounties ni inventario: opera sobre mercados HIPOTÉTICOS, así que `basis` solo puede valer
+   * `market | floor | pending`.
+   *
+   * Usa las MISMAS puras que el precio real (`explainSaleFromCurve`/`explainBuyFromCurve` son el
+   * cuerpo de `resolveSale/BuyFromCurve`) y el MISMO validador que el `PUT` — que es todo el punto:
+   * sin este endpoint el editor reimplementaría la aritmética Y los invariantes en el cliente, y el
+   * dueño calibraría contra un número que el backend no produce (el bug de P-48 en espejo).
    */
-  async loadTierMap(): Promise<Record<string, TierId>> {
-    const raw = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
-    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return {};
-    return raw as Record<string, TierId>;
+  async previewCurve(
+    draft: PricingCurve,
+    marketsCents: number[],
+  ): Promise<{
+    rows: {
+      marketCents: number;
+      draft: { sale: CurveLegTrace; buy: CurveLegTrace };
+      saved: { sale: CurveLegTrace; buy: CurveLegTrace };
+      deltaCents: { sale: number | null; buy: number | null };
+    }[];
+    violations: CurveValidationError[];
+  }> {
+    // La VIGENTE la resuelve el servidor con SU almacén, al atender la petición.
+    const saved = await this.loadPricingCurve();
+    const normalizedDraft = normalizePricingCurve(draft);
+    // El server DEDUPLICA y ORDENA ascendente (la tabla de referencia del editor los quiere así, y
+    // dejarlo aquí evita otra reimplementación en el cliente, por pequeña que sea).
+    const probes = Array.from(new Set(marketsCents)).sort((a, b) => a - b);
+    const rows = probes.map((marketCents) => {
+      const d = { sale: explainSaleFromCurve(marketCents, normalizedDraft), buy: explainBuyFromCurve(marketCents, normalizedDraft) };
+      const v = { sale: explainSaleFromCurve(marketCents, saved), buy: explainBuyFromCurve(marketCents, saved) };
+      const delta = (a: number | null, b: number | null) => (a == null || b == null ? null : a - b);
+      return {
+        marketCents,
+        draft: d,
+        saved: v,
+        deltaCents: { sale: delta(d.sale.priceCents, v.sale.priceCents), buy: delta(d.buy.priceCents, v.buy.priceCents) },
+      };
+    });
+    // Solo las NO bloqueantes: las bloqueantes ya cortaron con 422 en el controller.
+    return { rows, violations: collectCurveViolations(draft).filter((e) => !e.blocking) };
   }
 
-  /**
-   * v1.16-master-set (BE-25, pago mínimo) — iza `SALES_PRICE_RULES` + fallback en **1** par de
-   * lecturas por request (en vez de 2 lecturas de settings por ítem). Lo usan `bulk-publish` y
-   * `fetchSellable` con `computeSalePriceForRarity` (pura) para evitar el N+1 de settings.
-   */
-  async loadSalesRules(): Promise<{ rules: PriceRuleSet<SalesRule>; fallbackPct: number }> {
-    const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
-    // v1.37 (§4.33c): DERIVA el `PriceRuleSet` efectivo desde (tierRules × PRICING_TIER_MAP) si el setting
-    // trae el shape por tiers; compat on-read con `{ rarityRules, ... }`/plano (§4.28d).
-    const tierMap = await this.loadTierMap();
-    const rules = toPriceRuleSet<SalesRule>(
-      await this.settings.getRaw(SettingKey.SALES_PRICE_RULES),
-      fallbackPct,
-      tierMap,
-    );
-    return { rules, fallbackPct };
-  }
+  // v2.0 (P-48, §4.36.2/§4.36.4) — `loadBuylistRules()`, `loadSalesRules()` y `loadTierMap()`
+  // RETIRADOS: las cinco claves que leían (`buylist_price_rules`, `buylist_price_fallback_pct`,
+  // `sales_price_rules`, `sales_price_fallback_pct`, `pricing_tier_map`) ya no se leen, escriben ni
+  // siembran. Las sustituye `loadPricingCurve()` (arriba), ÚNICO lector de configuración de dinero.
+  // Sus filas quedan huérfanas e inertes en `ConfigSetting` a propósito (§4.36.9b): borrar config en
+  // el mismo paso que cambia la matemática elimina la vía de diagnóstico y el rollback barato.
 
   /**
    * v1.23-sealed-sales (§4.23b/§4.23c/§4.23d) — CONTEXTO de precio del SELLADO izado en UNA lectura
-   * por request (espejo de `loadSalesRules`, pago mínimo de BE-25): spreads por presentación +
-   * fallback + estado del dial `sealedPriceSource`. `sourceOn=false` (dial off) ⇒ el sellado solo se
-   * vende con override manual (el `sealedMarketRef` queda inerte, ARCHITECTURE §4.23a).
+   * por request (mecanismo INDEPENDIENTE de la curva de precios, pago mínimo de BE-25): spreads por
+   * presentación + fallback + estado del dial `sealedPriceSource`. `sourceOn=false` (dial off) ⇒ el
+   * sellado solo se vende con override manual (el `sealedMarketRef` queda inerte, ARCHITECTURE §4.23a).
    */
   async loadSealedSpreads(): Promise<{
     spreadPctBySubtype: Record<string, number>;
@@ -725,7 +918,10 @@ export class PricingService {
     if (ref?.status !== 'priced' || ref.referenceMxnCents == null || ref.referenceMxnCents <= 0)
       return null;
     // Override manual de mercado: sobrevive al dial (decisión humana explícita, máxima precedencia §K).
-    if (ref.isManualOverride === true || ref.source === 'manual') return ref.referenceMxnCents;
+    // v2.1.6: el discriminante es `source === 'manual'` — `manualOverride()` SIEMPRE lo escribe así, y
+    // el flag paralelo `isManualOverride` se retiró del DTO por redundante (dos nombres para el mismo
+    // hecho es cómo se diverge). El flag sigue existiendo en la FILA de BD, que es donde importa.
+    if (ref.source === 'manual') return ref.referenceMxnCents;
     // Mercado de fuente automática (tcgcsv): gateado por el dial.
     return sourceOn ? ref.referenceMxnCents : null;
   }
@@ -885,6 +1081,10 @@ export class PricingService {
     // vs blíster) son SEPARADAS — resolver el override de uno NO cierra el otro (money-safe). `null`
     // (default) = raw/graded o sellado legacy sin ligar (residual: colapsa bajo 'sealed' hasta curarse).
     sealedProductId: string | null = null,
+    // v2.0 (M-41.6, §4.36.5c): POR QUÉ entra a la cola. `no_market` = sin referencia; `premium_at_floor`
+    // = guardarraíl. NO entra a la clave de dedupe: si la entrada ya existe con otra razón, se ACTUALIZA
+    // (la cola debe reflejar el problema VIGENTE para ser triable, no el de la primera vez).
+    reason: PendingReason | null = null,
   ): Promise<string> {
     // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
@@ -893,7 +1093,12 @@ export class PricingService {
     const open = await this.prisma.pendingPriceEntry.findFirst({
       where: { cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status: 'open' },
     });
-    if (open) return open.id;
+    if (open) {
+      if (reason != null && open.reason !== reason) {
+        await this.prisma.pendingPriceEntry.update({ where: { id: open.id }, data: { reason } });
+      }
+      return open.id;
+    }
     const created = await this.prisma.pendingPriceEntry.create({
       data: {
         cardId,
@@ -905,9 +1110,137 @@ export class PricingService {
         context,
         refId,
         status: 'open',
+        reason,
       },
     });
     return created.id;
+  }
+
+  /**
+   * v2.0 (§4.36.5c) — **SALIDA de la cola, simétrica a la entrada**. Cierra las entradas `open` de esa
+   * clave cuando el precio VUELVE a resolver (`basis ∈ {market, override, bounty}`). Es COMPORTAMIENTO
+   * NUEVO: hasta v1.44 el ingest no cerraba nada y la cola solo se vaciaba con el override manual.
+   *
+   * Efecto: cuando el siguiente barrido (`price-ingest`) escribe una `PriceReference` real, la entrada
+   * se cierra SOLA en la siguiente resolución (publicación, re-publicación o `publish-all`), sin
+   * intervención manual. La vía manual (`POST /admin/pricing/override`) NO cambia.
+   *
+   * ### v2.1.6 (S48-M1) — se cierra por (VARIANTE, EJE, RAZÓN), no por variante
+   *
+   * Hasta aquí esto era **context-agnóstico a propósito**, con este argumento (v1.26): «la
+   * `PriceReference` es COMPARTIDA por clave, así que si el mercado resolvió, resolvió para las dos
+   * caras; cerrar solo la del propio contexto dejaría la otra abierta para siempre».
+   *
+   * **Ese argumento era válido cuando había UNA sola razón** (`no_market`), que efectivamente depende
+   * de un dato compartido. **`premium_at_floor` (v2.0) NO lo es:** depende de constantes **distintas
+   * por eje** (`sale.floorCents` vs `buy.binCents`, con V7 garantizando `bin < floor`), así que las
+   * dos caras **ya no resuelven juntas**. Con el seed y mercado de MX$10:
+   *
+   * ```
+   * VENTA  → 2500c, basis 'floor',  reason 'premium_at_floor'   (bloqueada)
+   * COMPRA →  300c, basis 'market', reason  null                (resuelve)
+   * ```
+   *
+   * …así que un cliente autenticado que mandara esa variante en `POST /buylist/requests` **cerraba la
+   * entrada que el eje de VENTA había abierto**. No perdía el bloqueo —el seam re-bloquea y re-escala
+   * en el siguiente `publish-all`— pero **perdía el AVISO**, que es justo la entrada que §4.36.5c
+   * describe como «la que necesita que el dueño mire». Y el peor momento para que la cola se vacíe
+   * sola es el **cut-over**, que es cuando más entradas hay.
+   *
+   * **Regla nueva, por razón:**
+   *  - `no_market` ⇒ se cierra **desde cualquier eje** (el argumento v1.26 sigue intacto: el dato que
+   *    faltaba es la `PriceReference`, y es compartida).
+   *  - `premium_at_floor` ⇒ se cierra **solo desde el eje que la abrió** (`context`). Que mi eje haya
+   *    salido del piso no dice NADA sobre el otro.
+   *  - `reason = null` (filas históricas anteriores a M-41) ⇒ como `no_market`: son de cuando esa era
+   *    la única razón posible. Preserva el comportamiento v1.26 para lo ya escrito.
+   */
+  async closePendingForVariant(
+    cardId: string,
+    productType: ProductType,
+    gradeKey: string,
+    finish: Finish = 'normal',
+    cardProductId: number | null = null,
+    sealedProductId: string | null = null,
+    // v2.1.6 (S48-M1): eje que CIERRA. Omitirlo conserva el cierre total (vía manual del admin, que
+    // arregla el dato de mercado compartido — raíz de las DOS razones).
+    context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
+  ): Promise<number> {
+    const res = await this.prisma.pendingPriceEntry.updateMany({
+      where: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        cardProductId,
+        sealedProductId,
+        status: 'open',
+        ...(context
+          ? {
+              OR: [
+                // Dato COMPARTIDO ⇒ resolvió para las dos caras (invariante v1.26, intacto).
+                { reason: 'no_market' as const },
+                { reason: null },
+                // Constante POR EJE ⇒ solo puede cerrarla quien la abrió.
+                { reason: 'premium_at_floor' as const, context },
+              ],
+            }
+          : {}),
+      },
+      data: { status: 'resolved', resolvedAt: new Date() },
+    });
+    return res.count;
+  }
+
+  /**
+   * v2.0 (§4.36.5c) — **EL MISMO SEAM que escala CIERRA**. Un solo cuerpo para las dos direcciones:
+   *  - `reason != null` ⇒ escala (o actualiza la razón de la entrada abierta) y devuelve su id;
+   *  - `reason == null` ⇒ cierra las entradas `open` de esa clave y devuelve `undefined`.
+   *
+   * Tenerlo en UNA función es lo que impide que la salida se olvide en un call-site (que es
+   * exactamente lo que pasó hasta ahora: había entrada y no había salida).
+   */
+  async settlePendingForVariant(
+    reason: PendingReason | null,
+    key: {
+      cardId: string;
+      productType: ProductType;
+      gradeKey: string;
+      finish?: Finish;
+      cardProductId?: number | null;
+      sealedProductId?: string | null;
+    },
+    context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
+    refId?: string,
+  ): Promise<string | undefined> {
+    const finish = key.finish ?? 'normal';
+    const cardProductId = key.cardProductId ?? null;
+    const sealedProductId = key.sealedProductId ?? null;
+    if (reason != null) {
+      return this.escalatePending(
+        key.cardId,
+        key.productType,
+        key.gradeKey,
+        context,
+        refId,
+        finish,
+        cardProductId,
+        sealedProductId,
+        reason,
+      );
+    }
+    // v2.1.6 (S48-M1): el EJE viaja al cierre. Sin él, el eje de compra podía apagar el aviso que
+    // había abierto el de venta (razones con constantes distintas por eje).
+    await this.closePendingForVariant(
+      key.cardId,
+      key.productType,
+      key.gradeKey,
+      finish,
+      cardProductId,
+      sealedProductId,
+      context,
+    );
+    return undefined;
   }
 
   /**
@@ -1192,16 +1525,47 @@ export class PricingService {
    * campos del modelo `PendingPriceEntry` (incluido `finish`, M-19) + `cardName` (conveniencia
    * plana que consume el front) + `card { id, name, number, setName }`.
    */
-  async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory') {
+  async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory', reason?: PendingReason) {
     // P-6 (§M2): filtro opcional por `context` para los dos buckets de M2 (VENTA=`inventory`,
     // COMPRA=`buylist` read-only). Sin arg → todos los pendientes (back-compat). Shape sin cambios.
     // v1.42 (BLOQ-2b): `sealedProduct` para resolver la identidad de display de la cola (cascada §4.34a:
     // SealedProduct vivo → snapshot ausente aquí → Card.name). Presente solo cuando la entrada trae FK.
     const rows = await this.prisma.pendingPriceEntry.findMany({
-      where: { status: 'open', ...(context ? { context } : {}) },
+      // v2.0 (§M2): filtro `?reason=` — `no_market` la cura sola el barrido; `premium_at_floor` necesita
+      // que el dueño mire. Omitido = todas (retro-compatible; `null` en filas históricas).
+      where: { status: 'open', ...(context ? { context } : {}), ...(reason ? { reason } : {}) },
       orderBy: { createdAt: 'asc' },
       include: { card: { include: { set: true } }, sealedProduct: true },
     });
+    // v2.1 (§4.36.5c / API_CONTRACT §M2) — CONTEO POR MOTIVO sobre la cola COMPLETA, en el MISMO
+    // snapshot que la lista (encabezado y filas se pintan del mismo `load` ⇒ no pueden contradecirse).
+    //
+    // ⚠️ NORMATIVO: los counts IGNORAN `?reason=` pero RESPETAN `?context=`. Es la distinción que hace
+    // que el número no mienta: `reason` filtra DENTRO de la cola que el dueño está triando, mientras
+    // que `context` elige QUÉ COLA ES (VENTA=`inventory` vs COMPRA=`buylist`, §4.24c). Si respetaran
+    // `reason`, al filtrar «premium en el piso» el encabezado diría `0 SIN MERCADO` — mentiría justo
+    // cuando más se mira. Si ignoraran `context`, el bucket de VENTA sumaría pendientes de COMPRA.
+    //
+    // Solo `status='open'`: la cola es una BANDEJA DE TRABAJO; una entrada resuelta no es trabajo.
+    //
+    // Los DOS números juntos son un DIAGNÓSTICO, no dos cifras (§4.36.9c-3): contra la línea base
+    // ≈3/333, `premium_at_floor` subiendo con `no_market` PLANO ⇒ PISO MAL CALIBRADO (hay dato y está
+    // por debajo del piso); AMBOS subiendo ⇒ FEED DE MERCADO DEGRADADO — y ahí tocar el piso sería
+    // tratar el síntoma y empeorar el precio cuando el feed se recupere.
+    const grouped = await this.prisma.pendingPriceEntry.groupBy({
+      by: ['reason'],
+      where: { status: 'open', ...(context ? { context } : {}) },
+      _count: { _all: true },
+    });
+    // `unknown` = filas con `reason=null` (anteriores a M-41). Existe para que valga el invariante
+    // `no_market + premium_at_floor + unknown === nº de entradas open de esa cola`: sin ella, una cola
+    // con filas históricas no cuadraría con la lista y parecería un bug del backend.
+    const counts = { no_market: 0, premium_at_floor: 0, unknown: 0 };
+    for (const g of grouped) {
+      const key = g.reason ?? 'unknown';
+      counts[key as keyof typeof counts] += g._count._all;
+    }
+
     const data = rows.map(({ card, sealedProduct, ...entry }) => ({
       ...entry,
       cardName: card.name,
@@ -1222,48 +1586,97 @@ export class PricingService {
           }
         : {}),
     }));
-    return { data };
+    return { data, counts };
   }
 
-  async priceHistory(cardId: string) {
-    return this.prisma.priceReference.findMany({
+  async priceHistory(cardId: string): Promise<PriceHistoryEntryDTO[]> {
+    const rows = await this.prisma.priceReference.findMany({
       where: { cardId },
       orderBy: { capturedDate: 'desc' },
+      // Lista blanca: se selecciona lo que el DTO expone, no la fila entera.
+      select: {
+        capturedDate: true,
+        source: true,
+        gradeKey: true,
+        productType: true,
+        priceMxnCents: true,
+        isManualOverride: true,
+      },
     });
+    return rows.map(toPriceHistoryEntry);
+  }
+
+  // v2.0 (P-48) — `computeSalePrice(ref)` (markup GLOBAL único `SALES_MARKUP_PCT`) RETIRADO: era la
+  // palanca de rollback del pricing anterior a v1.13, y con la curva no hay a qué volver. El precio de
+  // venta lo resuelve `computeSalePriceForItem` (seam único, §4.36.5b).
+
+  /**
+   * v2.0 (P-48, §4.36.5b) — **SEAM ÚNICO DEL EJE DE VENTA**, versión SÍNCRONA (curva ya izada por el
+   * caller, patrón BE-25). Devuelve una **DECISIÓN**, no un monto: el precio y el veredicto de
+   * publicación salen JUNTOS de la misma llamada.
+   *
+   * **Por qué la decisión y no el monto (techlead, gate v2.0).** Mientras el seam solo cargaba config y
+   * delegaba en la función pura, el guardarraíl vivía FUERA y cada consumidor tenía que acordarse de
+   * llamarlo: uno de cinco (`master-set.resolveBuyables`) no se acordó, y el binder ofrecía como
+   * `buyable` una premium que el storefront ya ocultaba y el checkout ya rechazaba. La regla «un solo
+   * cuerpo» no se sostiene con disciplina; se sostiene con tipos. Aquí es IMPOSIBLE obtener el precio
+   * sin recibir el veredicto, y cuando el veredicto bloquea el monto viene en `null`:
+   * `pendingReason != null` ⇒ `priceCents === null` y `basis === 'pending'`, sin excepción.
+   *
+   * **La rareza NO entra al monto (criterio 84).** Entra a `resolvePendingReason`, que devuelve un
+   * veredicto —jamás una cantidad— y solo puede SUPRIMIR el precio, nunca fijarlo. La matemática pura
+   * de `common/` sigue sin `rarity` ni `finish` en su firma, que es donde §4.36.4 lo exige «hecho tipo».
+   *
+   * `marketMxnCents` y `curveQuoteCents` se devuelven SIEMPRE (aunque el veredicto bloquee): son la
+   * instrumentación honesta del insumo (§4.36.7c) y el diagnóstico del piso mal calibrado que la consola
+   * del binder necesita para explicar POR QUÉ se bloqueó.
+   */
+  decideSalePrice(input: {
+    /** Valor de MERCADO de la variante, ya resuelto por el caller (SEC-A1: de BD, jamás del DTO). */
+    referenceMxnCents: number | null;
+    /**
+     * Rareza CANÓNICA — SOLO para el veredicto del guardarraíl (§4.36.5). No entra al monto.
+     * Obligatoria (no opcional) A PROPÓSITO: un caller no puede «olvidarla» sin que el compilador lo
+     * pare, que es justo la falla que este seam cierra.
+     */
+    rarityCanonical: string | null;
+    /** Fila M-30 de la variante (sellOverrideCents). El `listPriceCents` POR PIEZA lo aplica el caller ANTES. */
+    controls?: VariantPriceControls | null;
+    /** Curva izada UNA vez por request (BE-25). */
+    curve: PricingCurve;
+  }): SalePriceDecision {
+    // 1. EL MONTO — solo del valor de mercado (§4.36.1): `redondeo↑(max(piso, mercado × markup(mercado)))`,
+    //    precedencia `sellOverrideCents > curva > pendiente`. Sin rareza, sin acabado.
+    const price = computeSalePriceFromCurve(input.referenceMxnCents, input.curve, input.controls);
+    // 2. EL VEREDICTO — `no_market` (sin dato el PISO no gana, decisión LOCKED §4.36.0) o el guardarraíl
+    //    `premium_at_floor` (una chase en el piso solo puede significar dato de mercado malo). NO dispara
+    //    con `override` ni `bounty`: son decisiones deliberadas del admin y no se corrigen (§4.36.6).
+    const pendingReason = resolvePendingReason(price.basis, input.rarityCanonical);
+    if (pendingReason != null) {
+      // El monto se SUPRIME aquí, en el seam, y no en cada caller: así ninguna superficie puede
+      // publicar/cobrar/ofrecer un precio que otra superficie ya considera no publicable.
+      return { ...price, priceCents: null, basis: 'pending', pendingReason };
+    }
+    return { ...price, pendingReason: null };
   }
 
   /**
-   * @deprecated v1.13-sales-pricing (§4.14d): reemplazado por `computeSalePriceForItem` (precio de
-   * venta por RAREZA). Ya NO lo llama la ruta de venta (los 2 call-sites migraron: catalog.toListingDTO
-   * y orders.salePriceOf). Se conserva como palanca de ROLLBACK del markup GLOBAL único
-   * (SALES_MARKUP_PCT). Retiro definitivo = follow-up del humano (decisión abierta v1.13-3).
+   * v2.0 (P-48, §4.36.5b) — el MISMO seam para uso SINGLE: iza la curva por sí mismo cuando el caller
+   * no la trae (una sola lectura, `loadPricingCurve`). Delegación pura a `decideSalePrice`: un solo
+   * cuerpo, cero matemática propia.
    *
-   * Precio de venta = referencia × (1 + markup). ARCHITECTURE §10.1.
+   * Consumidores que DEBEN pasar por aquí o por `decideSalePrice` (§4.36.5b):
+   * `catalog.fetchSellable`/`toListingDTO`, `orders.salePriceOf` (checkout auth Y guest),
+   * `inventory.bulkPublish`, `publish-all` y el binder de master-set (`resolveBuyables`).
    */
-  async computeSalePrice(referenceMxnCents: number): Promise<number> {
-    const markup = await this.settings.getNumber(SettingKey.SALES_MARKUP_PCT);
-    return Math.round(referenceMxnCents * (1 + markup / 100));
-  }
-
-  /**
-   * v1.13-sales-pricing (§4.14d) — precio de VENTA por RAREZA. Lee la tabla `SALES_PRICE_RULES` + el
-   * fallback y aplica `computeSalePriceForRarity` (que reusa el gate premium de Fase 0).
-   *
-   * - `rarity` sale de `Card.rarity` (BD) y `finish` de `InventoryItem.finish` (BD) — SEC-A1, nunca del
-   *   cliente. `referenceMxnCents` es la `PriceReference` del ACABADO del item (getReference(...,finish)).
-   * - Con una regla `fixed`, una carta bulk SIN market obtiene precio de venta (piso) → puede ser
-   *   sellable. Con `pct` sin market → `pending` (sin precio; igual que hoy).
-   * - v1.28 (P-18, §4.26b): `controls` opcional = fila M-30 de la variante (sellOverride pisa la
-   *   regla; omitido/null = comportamiento actual). El paso 1 (`listPriceCents` por pieza) lo
-   *   aplican los callers ANTES, como siempre.
-   */
-  async computeSalePriceForItem(
-    item: { rarity: string | null; finish: Finish },
-    referenceMxnCents: number | null,
-    controls?: VariantPriceControls | null,
-  ): Promise<SalePriceResult> {
-    const { rules, fallbackPct } = await this.loadSalesRules();
-    return computeSalePriceForRarity(item.rarity, item.finish, referenceMxnCents, rules, fallbackPct, controls);
+  async computeSalePriceForItem(input: {
+    referenceMxnCents: number | null;
+    rarityCanonical: string | null;
+    controls?: VariantPriceControls | null;
+    curve?: PricingCurve;
+  }): Promise<SalePriceDecision> {
+    const curve = input.curve ?? (await this.loadPricingCurve());
+    return this.decideSalePrice({ ...input, curve });
   }
 
   gradeKeyFor(item: {

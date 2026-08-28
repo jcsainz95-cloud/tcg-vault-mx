@@ -106,11 +106,13 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     expect(
       screen.getByRole('button', { name: /^Agregar Charizard \(Holofoil\) a la venta/ }),
     ).toBeInTheDocument();
-    // Estimado del acabado normal: Rare Holo (fallback 40%) sobre MX$48,500 → MX$19,400.00.
+    // Estimado del acabado normal: la CURVA de compra sobre el mercado del acabado. El mercado
+    // (MX$48,500) queda por encima del último punto ⇒ tramo plano final 50% ⇒ MX$24,250.00.
+    // La rareza NO interviene en el monto (criterio 84).
     // N-16 rejilla plana: el botón "Agregar" es su propia acción; el precio va en su etiqueta
     // accesible (aria-label) y en el renglón mono de la tarjeta, no dentro del texto del botón.
     await waitFor(() => expect(normal).toBeEnabled());
-    expect(normal.getAttribute('aria-label')).toContain('MX$19,400.00');
+    expect(normal.getAttribute('aria-label')).toContain('MX$24,250.00');
   });
 
   it('clic en una casilla agrega la carta DIRECTO al carrito con su estimado', async () => {
@@ -210,7 +212,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
  * cotización llega del batch client-side del binder Master Set en vez del grid plano.
  */
 describe('BuylistView · detalle expandible por línea', () => {
-  it('muestra valor de referencia + regla aplicada + acabado al expandir', async () => {
+  it('muestra valor de referencia + rareza + acabado al expandir (SIN «regla aplicada», v2.0)', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
     await addCard('Charizard');
@@ -222,13 +224,16 @@ describe('BuylistView · detalle expandible por línea', () => {
     const cartDialog = screen.getByRole('dialog', { name: 'Carrito de venta (1)' });
     expect(within(cartDialog).getByText('Valor de referencia')).toBeInTheDocument();
     expect(within(cartDialog).getByText('MX$48,500.00')).toBeInTheDocument();
-    expect(within(cartDialog).getByText('Regla aplicada')).toBeInTheDocument();
-    expect(within(cartDialog).getByText('40% de referencia')).toBeInTheDocument();
+    // v2.0 (P-48): la fila «Regla aplicada» SE RETIRÓ — no hay reglas por rareza/acabado que
+    // rotular, y dejarla habría sido texto falso (la clase de bug que P-48 existe para cerrar).
+    expect(within(cartDialog).queryByText('Regla aplicada')).toBeNull();
+    expect(within(cartDialog).queryByText('40% de referencia')).toBeNull();
+    // La rareza SÍ sigue: es dato informativo del catálogo (ya no decide el monto).
     expect(within(cartDialog).getByText('Rare Holo')).toBeInTheDocument();
 
     // El toggle colapsa de vuelta.
     fireEvent.click(screen.getByRole('button', { name: 'Ocultar detalle' }));
-    expect(screen.queryByText('Regla aplicada')).not.toBeInTheDocument();
+    expect(screen.queryByText('Valor de referencia')).not.toBeInTheDocument();
   });
 
   it('una línea pendiente explica el "precio pendiente" en su detalle', async () => {
@@ -415,7 +420,7 @@ describe('BuylistView · carrito de venta', () => {
     expect(await screen.findByText('Resumen de tu venta')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Carrito de venta (1)' })).not.toBeInTheDocument();
     // El total estimado aparece en el modal: línea (unitario × cantidad) + total.
-    expect(screen.getAllByText('MX$19,400.00').length).toBeGreaterThan(1);
+    expect(screen.getAllByText('MX$24,250.00').length).toBeGreaterThan(1);
     // Aviso de vigencia del estimado (en la página y en el modal).
     expect(screen.getAllByText(/estimado con los precios de hoy/).length).toBeGreaterThan(1);
   });
@@ -507,7 +512,7 @@ describe('BuylistView · graded/sealed (grid plano, sin variantes por acabado)',
               ok: true as const,
               rarity: 'Rare Holo',
               finish: it.finish ?? ('normal' as const),
-              appliedRule: { mode: 'pct' as const, value: 40, source: 'fallback' as const },
+              priceBasis: 'market' as const,
               quote: { status: 'cotizada' as const, quotedPriceCents: 1940000, currency: 'MXN' as const },
               referencePrice: { status: 'priced' as const, priceMxnCents: 4850000 },
               paymentNotice: 'PAY_AFTER_RECEIPT' as const,

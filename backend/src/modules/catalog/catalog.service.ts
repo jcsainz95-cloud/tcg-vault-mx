@@ -1,13 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
+import { Card, CardSet, Finish, GradingCompany, InventoryItem, Prisma, ProductType, RawCondition, SealedCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo } from '../pricing/pricing.service';
-import { computeSalePriceForRarity, SalesRule, PriceRuleSet } from '../../common/money';
+import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
+// v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
+// el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
+// visibilidad del «Valor de mercado» en las dos fichas.
+import { sealedPriceBasisOf, PriceBasis, hasManualPrice } from '../../common/money';
+import { PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
 // antes interpolada a mano en 3 sitios de este archivo (riesgo de drift silencioso). Mismo string.
 import { variantKey } from '../../common/variant-key';
+// v2.1.9 (D4): lista de CLASE R — «raw = solo NM» (PROJECT §H). Ver `common/business-rules.ts`.
+import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
 // v1.33 (P-27, §4.31d): master set combinado en el STOREFRONT. `GET /catalog/sets`+`/facets` PLIEGAN
 // el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
 // presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
@@ -17,9 +23,68 @@ import { MASTER_SET_GROUPS, partExternalIds } from '../../config/master-set-grou
 // fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
 // se rechaza con 400 VALIDATION_ERROR (ver `validateEnum`).
 const PRODUCT_TYPES = new Set<string>(Object.values(ProductType));
-const RAW_CONDITIONS = new Set<string>(Object.values(RawCondition));
+// v2.1.9 (D4, §4.37): el filtro público de condición es CLASE R, no un espejo del schema. PROJECT §H:
+// «el filtro de condición para raw refleja únicamente NM». Derivarlo de `RawCondition` haría que un
+// valor nuevo del enum se volviera filtrable en Compra el mismo día, sin decisión de nadie.
+const RAW_CONDITIONS = new Set<string>(ACCEPTED_RAW_CONDITIONS);
 const SEALED_SUBTYPES = new Set<string>(Object.values(SealedSubtype));
 const FINISHES = new Set<string>(Object.values(Finish));
+
+/**
+ * `CardDTO` del contrato (§DTOs), **declarado como INTERFAZ que espeja el CONTRATO** (v2.1.9, T-2).
+ *
+ * ### Por qué no `ReturnType<typeof toCardDTO>`
+ * Ése era el tipo que usaban `GroupedListingDTO.card` y `SealedGroupDTO.card`: **el tipo espejaba la
+ * IMPLEMENTACIÓN, no el contrato**. Si el builder perdiera `displayFinishes`, el tipo lo seguiría sin
+ * chistar y ningún test lo vería (las aserciones de forma solo cubrían el primer nivel). Es B-1 un
+ * nivel más abajo: un campo requerido que desaparece y el compilador «tiene razón».
+ *
+ * Con la interfaz declarada, quitar un campo del builder **no compila** — que es el candado más
+ * barato que existe para un contrato.
+ */
+export interface CardDTO {
+  id: string;
+  externalId: string;
+  name: string;
+  number: string;
+  /** v1.22 (M-26, §4.22b): claves persistidas del ORDEN NATURAL. */
+  numberSort: number | null;
+  numberPrefix: string | null;
+  rarity: string | null;
+  supertype: string | null;
+  subtypes: string[];
+  setId: string;
+  setName: string | null;
+  imageSmallUrl: string | null;
+  imageLargeUrl: string | null;
+  availableFinishes: Finish[];
+  /** v1.22-2 / N-15: subconjunto DISPLAY-only (⊆ availableFinishes, nunca vacío). */
+  displayFinishes: Finish[];
+}
+
+/**
+ * `ListingDTO` del contrato (§DTOs), **declarado** (v2.1.9, T-2). El retorno de `toListingDTO` era
+ * **inferido**: la misma clase que B-1 cerró en `GroupedListingDTO` seguía abierta en el DTO
+ * por-pieza, que es el que alimenta `units[]`, `GET /catalog/listings/:id` y la ficha de sellado.
+ */
+export interface ListingDTO {
+  inventoryItemId: string;
+  card: CardDTO;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
+  /** v1.23-sealed-sales: condición del sellado; `undefined` en raw/graded. */
+  sealedCondition?: SealedCondition;
+  finish: Finish;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  certNumber?: string;
+  referenceValue: PriceInfo;
+  salePriceCents?: number;
+  /** v2.0 (P-48, §N.7): QUÉ determinó el precio. REQUERIDO — su ausencia es lo que invirtió B-1. */
+  priceBasis: PriceBasis;
+  sellable: boolean;
+}
 
 /**
  * @param pricedFinishes v1.22-2 / N-15 (§4.22a-6): acabados de ESTA carta con `hasPricedRef`
@@ -32,7 +97,7 @@ const FINISHES = new Set<string>(Object.values(Finish));
 export function toCardDTO(
   card: Card & { set?: CardSet | null },
   pricedFinishes?: Iterable<Finish>,
-) {
+): CardDTO {
   // v1.6-finish: acabados en que existe la carta (lista blanca de validación). [normal] por default.
   const availableFinishes = (card.availableFinishes ?? ['normal']) as Finish[];
   return {
@@ -68,6 +133,79 @@ export function yearFromReleaseDate(releaseDate?: string | null): number | null 
 
 type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
 
+/**
+ * `GroupedListingDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
+ *
+ * ### Por qué existe este tipo
+ * El DTO se construía como un objeto literal SIN tipo, así que **omitir un campo requerido no era un
+ * error de compilación**. Se emitió sin `priceBasis` durante todo P-48 y ninguna de las tres capas de
+ * verificación lo vio: los fixtures del front lo **horneaban**, el test de forma miraba el
+ * `ListingDTO` (por-pieza) y no el de GRUPO, y ningún test `@real` abría una ficha.
+ *
+ * El daño fue invertir la regla de visibilidad de §N.7: el front decide con
+ * `priceBasis === 'market'`, y con `undefined` esa comparación es **siempre falsa** ⇒ «Valor de
+ * mercado» no se mostraba NUNCA, ni cuando el mercado sí había fijado el precio. Declarar el tipo
+ * convierte esa clase entera de fallo en un error de `tsc`.
+ */
+/**
+ * v2.1.9 (D2, contrato §DTOs `GroupedListingSummaryDTO`) — **el DTO de la REJILLA de singles:
+ * `GroupedListingDTO` MENOS las dos señales de precio.**
+ *
+ * ### Por qué la rejilla no recibe `priceBasis` ni `referenceValue`
+ * §N.7 dice literal «SOLO fichas»: tejas y listados no muestran valor de mercado hoy y no van a
+ * mostrarlo, así que en esta superficie **nadie consume** ninguno de los dos. Y por la convención de
+ * DTOs cerrados —«lo que no debe salir, PROHIBIDO»: publicar de más no rompe a nadie, **filtra**— un
+ * campo no consumido aquí no se emite.
+ *
+ * Lo que cierra: la rejilla es la superficie de **cosecha masiva** (N filas por request, paginada).
+ * Emitir `priceBasis` ahí publica un **mapa completo** de qué cartas llevan override manual — o sea
+ * dónde falló el feed y dónde el precio puede estar desalineado. Es exactamente la clase que v2.1.6
+ * cerró retirando `isManualOverride`/`source`. En la FICHA `priceBasis` sí es público, y a propósito
+ * (la UI lo OBEDECE, decisión LOCKED de §N.7): lo que cambia entre las dos superficies no es el
+ * secreto, es la **economía** de enumerarlo.
+ *
+ * ### Por qué TIPO PROPIO y no `priceBasis?`
+ * Un campo opcional cuya ausencia apaga una regla es **literalmente B-1**: `undefined === 'market'`
+ * es false SIEMPRE, así que «Valor de mercado» no se mostraba NUNCA. Con dos tipos, omitirlo en la
+ * ficha **no compila** y emitirlo en la rejilla tampoco. El compilador sostiene la diferencia; el
+ * test es la red.
+ */
+export interface GroupedListingSummaryDTO {
+  representativeInventoryItemId: string;
+  card: CardDTO;
+  productType: 'raw' | 'graded';
+  finish: Finish;
+  rawCondition?: RawCondition;
+  gradeKey: string;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  stockCount: number;
+  salePriceCents: number;
+  currency: 'MXN';
+}
+
+export interface GroupedListingDTO {
+  representativeInventoryItemId: string;
+  card: CardDTO;
+  productType: 'raw' | 'graded';
+  finish: Finish;
+  rawCondition?: RawCondition;
+  gradeKey: string;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  stockCount: number;
+  salePriceCents: number;
+  /**
+   * v2.0 (P-48) — el basis del REPRESENTANTE (la pieza más barata). Las piezas de un grupo comparten
+   * clave K ⇒ comparten curva y override de variante ⇒ comparten basis, SALVO que alguna traiga
+   * `listPriceCents` manual: ahí el representante es esa y el basis del grupo es `override`. El basis
+   * EXACTO por pieza vive en `units[]` (`ListingDTO.priceBasis`).
+   */
+  priceBasis: PriceBasis;
+  referenceValue: PriceInfo;
+  currency: 'MXN';
+}
+
 @Injectable()
 export class CatalogService {
   constructor(
@@ -80,11 +218,13 @@ export class CatalogService {
    * `status=listed`, plataforma. El comprador NUNCA ve "precio pendiente".
    *
    * v1.13-sales-pricing (§4.14d): el gate coarse en DB YA NO puede filtrar por existencia de precio.
-   * Con las reglas de venta por rareza, una regla `fixed` da PISO a una carta bulk SIN `PriceReference`
-   * (antes se excluía), volviéndola sellable — la resolubilidad depende de `SALES_PRICE_RULES`, que la
-   * DB no evalúa. Por eso el gate coarse se reduce a `platform + listed`; el precio EXACTO y la
-   * comprabilidad (`sellable`) se confirman al construir el ListingDTO (`fetchSellable` descarta los no
-   * resolubles: `pct` sin market → pending → no vendible).
+   * Con la curva de precios (v2.0, §4.36.1), el PISO da un precio a una carta bulk incluso SIN
+   * `PriceReference` de mercado (antes se excluía), volviéndola candidata a sellable — la
+   * resolubilidad depende de la curva y del guardarraíl premium-en-el-piso, que la DB no evalúa. Por
+   * eso el gate coarse se reduce a `platform + listed`; el precio EXACTO y la comprabilidad
+   * (`sellable`) se confirman al construir el ListingDTO (`fetchSellable` descarta los no resolubles:
+   * sin mercado y sin piso aplicable → `pending` → no vendible; guardarraíl premium-en-el-piso →
+   * `pending` también).
    */
   private publishedWhere(extra: Prisma.InventoryItemWhereInput = {}): Prisma.InventoryItemWhereInput {
     return {
@@ -120,7 +260,7 @@ export class CatalogService {
   /**
    * Trae items publicados que efectivamente son comprables (precio resoluble).
    *
-   * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza `SALES_PRICE_RULES`+fallback **una vez** por
+   * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza la curva de precios **una vez** por
    * request y resuelve las referencias en **un** lote (`getReferencesBatch`) en vez de 2 lecturas de
    * settings + 1 `getReference` **por ítem** (N+1). Cada DTO se construye con el contexto pre-cargado.
    */
@@ -134,7 +274,7 @@ export class CatalogService {
     });
     if (items.length === 0) return [];
 
-    const salesRules = await this.pricing.loadSalesRules();
+    const curve = await this.pricing.loadPricingCurve();
     // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (pago mínimo BE-25).
     const sealedSpreads = await this.pricing.loadSealedSpreads();
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
@@ -156,7 +296,8 @@ export class CatalogService {
     // cadena H-1 intacta). UNA query por request, misma clave que el lote de referencias.
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       items
-        .filter((i) => i.productType !== 'sealed' && i.listPriceCents == null)
+        // H-1 (E5-bis): `<= 0` es AUSENTE, así que esas piezas TAMBIÉN necesitan precio derivado.
+        .filter((i) => i.productType !== 'sealed' && !hasManualPrice(i))
         .map((i) => ({
           cardId: i.cardId,
           productType: i.productType,
@@ -170,7 +311,7 @@ export class CatalogService {
       const reference = this.refFromBatch(refs, item);
       const dto = await this.toListingDTO(item, {
         reference,
-        salesRules,
+        curve,
         sealedSpreads,
         pricedFinishes: pricedByCard.get(item.cardId),
         variantOverride:
@@ -215,6 +356,8 @@ export class CatalogService {
    * (valor de mercado) de salePriceCents (precio de venta). El sellado lleva sealedSubtype
    * y NO lleva rawCondition/grade/rareza.
    */
+  // v2.1.9 (T-2): retorno DECLARADO. Era inferido, así que perder un campo requerido no era un
+  // error de compilación — la misma clase que B-1 cerró en el DTO de GRUPO, abierta en el de PIEZA.
   async toListingDTO(
     item: ItemWithCard,
     ctx?: {
@@ -222,19 +365,23 @@ export class CatalogService {
       // venta izadas una vez) para evitar el N+1 de referencias/settings. Opcional: sin él el método
       // resuelve todo por sí mismo (uso single).
       reference?: PriceInfo;
-      salesRules?: { rules: PriceRuleSet<SalesRule>; fallbackPct: number };
+      // v2.0 (P-48, §4.36.2): la CURVA izada una vez por request (BE-25) — sustituye a `salesRules`.
+      curve?: PricingCurve;
       // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
       // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
       sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
       // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
       pricedFinishes?: Iterable<Finish>;
       // v1.28 (P-18, §4.26b): fila M-30 de la variante (del lote de `fetchSellable`; `null` = sin
-      // fila). Su presencia va atada a `salesRules` (batch); en uso single se resuelve aquí mismo.
+      // fila). Su presencia va atada a `curve` (batch); en uso single se resuelve aquí mismo.
       variantOverride?: VariantPriceOverride | null;
     },
-  ) {
+  ): Promise<ListingDTO> {
     let referenceValue: PriceInfo;
     let salePriceCents: number | undefined;
+    // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este
+    // dato para la regla de visibilidad del «Valor de mercado» — jamás lo infiere comparando cifras.
+    let priceBasis: PriceBasis = 'pending';
 
     if (item.productType === 'sealed') {
       // v1.23-sealed-sales (§4.23a/§4.23b): precio del sellado por precedencia money-safe
@@ -250,6 +397,9 @@ export class CatalogService {
       const marketPriced = this.pricing.gateSealedMarketCents(marketRef, sealedCtx.sourceOn) != null;
       const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx);
       if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+      // v2.0 (§4.36.7a): el sellado NO cambia de matemática (criterio 85) — solo DERIVA su basis del
+      // `priceSource` que ya tenía: override⇒override; subtype/global_spread⇒market; sin precio⇒pending.
+      priceBasis = sealedPriceBasisOf(sale);
       referenceValue = marketPriced ? marketRef! : { status: 'pending' };
     } else {
       const gradeKey = this.pricing.gradeKeyFor(item);
@@ -258,21 +408,27 @@ export class CatalogService {
         ctx?.reference ??
         (await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
 
-      if (item.listPriceCents != null) {
+      if (hasManualPrice(item)) {
         // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
         // específica — v1.28 §4.26b: gana también sobre el sellOverride de la variante).
+        // v2.0 (§4.36.6): peldaño 1 de la precedencia de VENTA ⇒ `priceBasis = "override"` (y por
+        // §N.7 la ficha NO muestra «Valor de mercado»: el mercado no produjo este precio).
         salePriceCents = item.listPriceCents;
+        priceBasis = 'override';
       } else {
-        // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity,
-        // acabado de InventoryItem.finish). Con regla `fixed` una bulk SIN market obtiene piso (sellable);
-        // con `pct` sin market → pending (sin precio, no vendible), igual que antes.
-        // v1.28 (P-18, §4.26b): sellOverride de la VARIANTE (M-30) pisa la regla — resuelto en
+        // v2.0 (P-48, §4.36.1): precio de venta por la CURVA sobre el VALOR DE MERCADO — ya no
+        // depende de la rareza ni del acabado (criterio 84). SEC-A1: el mercado sale de la
+        // `PriceReference` del acabado de ESTA copia, jamás del DTO. SIN dato de mercado ⇒ `pending`
+        // (el PISO NO gana): sin referencia no se publica — decisión LOCKED que corrige el supuesto
+        // de §N.2, porque un guardarraíl por rareza no atraparía una Common de $400 sin dato.
+        // v1.28 (P-18, §4.26b): sellOverride de la VARIANTE (M-30) pisa la curva — resuelto en
         // LECTURA, por eso surte efecto inmediato en toda pieza publicada sin manual.
         const referenceMxnCents =
           referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
         // BE-25: si viene el contexto pre-cargado usa la función pura (sin leer settings por ítem);
-        // si no, delega al servicio (que iza reglas por sí mismo) y resuelve el override single.
-        const variantOverride = ctx?.salesRules
+        // si no, delega al SEAM ÚNICO del eje de venta (que iza la curva por sí mismo) y resuelve el
+        // override single.
+        const variantOverride = ctx?.curve
           ? (ctx.variantOverride ?? null)
           : await this.pricing.getVariantOverride(
               item.cardId,
@@ -280,21 +436,28 @@ export class CatalogService {
               this.pricing.gradeKeyFor(item),
               item.finish,
             );
-        const sale = ctx?.salesRules
-          ? computeSalePriceForRarity(
-              item.card.rarity,
-              item.finish,
-              referenceMxnCents,
-              ctx.salesRules.rules,
-              ctx.salesRules.fallbackPct,
-              variantOverride,
-            )
-          : await this.pricing.computeSalePriceForItem(
-              { rarity: item.card.rarity, finish: item.finish },
-              referenceMxnCents,
-              variantOverride,
-            );
-        if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+        // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO del eje de venta: el monto y el GUARDARRAÍL vienen de la
+        // MISMA llamada. Una carta de rareza PREMIUM que aterriza en el PISO NO se publica —que una
+        // chase resuelva al piso solo puede significar que su dato de mercado está mal (ausente,
+        // aplanado o absurdo), y venderla ahí es la pérdida IRREVERSIBLE que §N.0 manda evitar—; el
+        // seam ya devuelve `priceCents=null` + `basis='pending'` en ese caso, así que aquí no hay
+        // ningún veredicto que «acordarse» de consultar. NO dispara con override ni bounty.
+        // Esta ruta es LECTURA PÚBLICA: NO escala a la cola — quien escala es la publicación (§4.36.5b).
+        const decision = {
+          referenceMxnCents,
+          // La rareza SOLO alimenta el veredicto (criterio 84); jamás el monto.
+          rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
+          controls: variantOverride,
+        };
+        const sale = ctx?.curve
+          ? this.pricing.decideSalePrice({ ...decision, curve: ctx.curve })
+          : await this.pricing.computeSalePriceForItem(decision);
+        if (sale.priceCents != null) {
+          salePriceCents = sale.priceCents;
+          priceBasis = sale.basis;
+        } else {
+          priceBasis = 'pending';
+        }
       }
     }
 
@@ -315,8 +478,20 @@ export class CatalogService {
       gradeValue: item.gradeValue ?? undefined,
       // v1.2 (M-12): nº de certificado PSA/CGC (verificable en la graduadora); null en raw/sealed.
       certNumber: item.certNumber ?? undefined,
-      referenceValue,
+      // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ se proyecta SIN `source`. `PriceSource` incluye
+      // `manual`, así que dejarlo pasar publicaría un mapa scrapeable de qué cartas llevan precio
+      // fijado a mano — o sea dónde falló el feed y dónde el precio puede estar desalineado. La
+      // frescura (`capturedDate`) sí es información legítima de compra y sigue viajando.
+      //
+      // v2.1.9 (D2): y AHORA el número de mercado viaja **si y solo si `priceBasis === 'market'`**.
+      // La regla de §N.7 deja de vivir solo en el navegador: este DTO es el de la FICHA, `units[]` y
+      // `GET /catalog/listings/:id` — el endpoint del PoC del pentester, que SIN TOKEN devolvía
+      // `priceBasis:"override"` + el número que la UI tiene PROHIBIDO pintar.
+      referenceValue: toPublicPriceInfo(referenceValue, priceBasis),
       salePriceCents,
+      // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad. `referenceValue` sigue
+      // viajando (el mismo DTO alimenta superficies admin y de valuación); el front OBEDECE esto.
+      priceBasis,
       sellable,
       // v1.2 (M-13): sin fotos propias — la imagen es la de catálogo remota (CardDTO.imageSmallUrl/Large).
     };
@@ -462,7 +637,8 @@ export class CatalogService {
       )[0];
       const item = cheapest.item;
       const salePriceCents = cheapest.dto.salePriceCents!; // garantizado por fetchSellable (nunca null aquí)
-      const dto = {
+      // ANOTADO con el tipo del contrato: omitir un campo requerido ya no compila (v2.1.7).
+      const dto: GroupedListingDTO = {
         representativeInventoryItemId: item.id,
         card: cheapest.dto.card,
         productType: item.productType as 'raw' | 'graded',
@@ -474,11 +650,42 @@ export class CatalogService {
         gradeValue: item.gradeValue ?? undefined,
         stockCount: members.length,
         salePriceCents,
-        referenceValue: cheapest.dto.referenceValue, // único por K (misma PriceReference), informativo.
+        // v2.0 (P-48, contrato §DTOs `GroupedListingDTO`) — REQUERIDO, y se omitía.
+        //
+        // Es el basis del REPRESENTANTE (la pieza más barata). Todas las piezas de un grupo comparten
+        // clave K ⇒ comparten curva y override de variante ⇒ comparten basis, SALVO que alguna traiga
+        // `listPriceCents` manual: en ese caso el representante es esa y el basis del grupo es
+        // `override`. El basis EXACTO por pieza vive en `units[]` (`ListingDTO.priceBasis`).
+        //
+        // ⚠️ Omitirlo INVERTÍA la regla de visibilidad de §N.7. El front hace
+        // `primary?.priceBasis === 'market'` para decidir si pinta «Valor de mercado»; con
+        // `undefined` la comparación es SIEMPRE falsa, así que el bloque no se mostraba NUNCA —ni
+        // siquiera cuando el mercado sí fijó el precio— en el 100% de las fichas de single. El dato
+        // estaba a mano en `cheapest.dto` (la línea de abajo ya lo usaba para `referenceValue`).
+        priceBasis: cheapest.dto.priceBasis,
+        // Ya viene proyectado por `toListingDTO` (mismo K ⇒ misma PriceReference), informativo.
+        referenceValue: cheapest.dto.referenceValue,
         currency: 'MXN' as const,
+      };
+      // v2.1.9 (D2): la REJILLA recibe el mismo grupo MENOS `priceBasis` y `referenceValue`. Se
+      // construye por lista blanca desde el mismo objeto (una sola fuente de agrupación), y el tipo
+      // propio hace que emitir cualquiera de los dos aquí NO COMPILE.
+      const summary: GroupedListingSummaryDTO = {
+        representativeInventoryItemId: dto.representativeInventoryItemId,
+        card: dto.card,
+        productType: dto.productType,
+        finish: dto.finish,
+        rawCondition: dto.rawCondition,
+        gradeKey: dto.gradeKey,
+        gradingCompany: dto.gradingCompany,
+        gradeValue: dto.gradeValue,
+        stockCount: dto.stockCount,
+        salePriceCents: dto.salePriceCents,
+        currency: dto.currency,
       };
       return {
         dto,
+        summary,
         salePriceCents,
         // 'newest' del grupo = la pieza más nueva (createdAt desc) — contrato §2 GET /catalog/cards.
         newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
@@ -538,7 +745,8 @@ export class CatalogService {
 
     const total = groups.length;
     const start = (q.page - 1) * q.pageSize;
-    const data = groups.slice(start, start + q.pageSize).map((g) => g.dto);
+    // v2.1.9 (D2): la REJILLA emite `GroupedListingSummaryDTO` — sin `priceBasis` ni `referenceValue`.
+    const data = groups.slice(start, start + q.pageSize).map((g) => g.summary);
     return { data, page: q.page, pageSize: q.pageSize, total };
   }
 

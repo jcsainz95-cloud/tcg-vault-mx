@@ -3,6 +3,7 @@ import { computeDisplayFinishes } from '../src/common/card-order';
 import { MasterSetService } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * v1.29 (ARCHITECTURE §4.27c) — `displayFinishes` queda DEPRECADO: como tras §4.27 ya no hay casilla
@@ -11,7 +12,6 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
  * como shim PURO (= availableFinishes) por compat de contrato hasta el retiro del campo.
  */
 
-const EMPTY_RULESET = { rarityRules: {}, finishRules: {}, fallbackPct: 15 };
 
 describe('computeDisplayFinishes (§4.27c) — shim DEPRECADO: = availableFinishes (sin supresión)', () => {
   it('premium con normal+holofoil ⇒ NO oculta nada (= availableFinishes)', () => {
@@ -56,8 +56,11 @@ function buildPrisma(over: any = {}) {
 
 function buildPricing(pricedByCard: Map<string, Set<Finish>>): PricingService {
   return {
-    loadSalesRules: jest.fn().mockResolvedValue({ rules: EMPTY_RULESET, fallbackPct: 15 }),
-    loadBuylistRules: jest.fn().mockResolvedValue({ rules: { ...EMPTY_RULESET, fallbackPct: 40 }, fallbackPct: 40 }),
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(pricedByCard),
     getSeparateProductsByCard: jest.fn(async () => new Map()),

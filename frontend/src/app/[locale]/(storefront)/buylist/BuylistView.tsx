@@ -74,7 +74,7 @@ function batchResultToQuote(r: Extract<BuylistBatchQuoteResultDTO, { ok: true }>
   return {
     rarity: r.rarity ?? '',
     finish: r.finish,
-    appliedRule: r.appliedRule,
+    priceBasis: r.priceBasis,
     quote: r.quote,
     referencePrice: r.referencePrice,
     paymentNotice: r.paymentNotice,
@@ -307,7 +307,7 @@ export function BuylistView() {
       const quote: BuylistQuoteResponse = {
         rarity: variant.quote.rarity ?? '',
         finish: variant.finish,
-        appliedRule: variant.quote.appliedRule,
+        priceBasis: variant.quote.priceBasis,
         quote: { status: variant.quote.status, quotedPriceCents: variant.quote.quotedPriceCents, currency: 'MXN' },
         referencePrice: variant.quote.referencePrice,
         paymentNotice: 'PAY_AFTER_RECEIPT',

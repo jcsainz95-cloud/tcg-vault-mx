@@ -3,6 +3,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
  * H-1 (v1.24-sealed-dedup) — el gating del precio de VENTA del sellado (gate del mercado por dial +
@@ -245,7 +246,7 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
     } as any;
 
     const pricingInv = new PricingService(prismaInv, {} as any, {} as any, {} as any, {} as any, {} as any);
-    jest.spyOn(pricingInv, 'loadSalesRules').mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 });
+    jest.spyOn(pricingInv, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
     jest.spyOn(pricingInv, 'loadSealedSpreads').mockResolvedValue(CTX_ON);
     jest
       .spyOn(pricingInv, 'getReferencesBatch')
@@ -393,9 +394,7 @@ describe('H-1 v1.43 (IMP-C) — bucle cerrado: dial OFF + override manual mata e
 
     const pricing = new PricingService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
     // Dial OFF (sourceOn=false): el mercado de FUENTE (tcgcsv) quedaría inerte; el override manual NO.
-    jest
-      .spyOn(pricing, 'loadSalesRules')
-      .mockResolvedValue({ rules: { rarityRules: {}, finishRules: {}, fallbackPct: 15 }, fallbackPct: 15 } as any);
+    jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
     jest.spyOn(pricing, 'loadSealedSpreads').mockResolvedValue(CTX_OFF);
     jest.spyOn(pricing, 'getVariantOverridesBatch').mockResolvedValue(new Map());
 

@@ -48,16 +48,33 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 - **P-39/P-40** · foto HD en el featured/ficha + etiqueta de **acabado**.
 - **P-36** · stepper de baja rápida: botones disabled ya no se ven «encendidos» al hover.
 
-**Al publicar (devops/Railway) — runbook en `DEVOPS_NOTES.md §27`, orquestado por `scripts/post-deploy.sh`
-(idempotente; PARA si el reshape detecta BD de precios editada a mano):**
-1. `prisma migrate deploy` → **M-39** (SealedProduct) + **M-40** (`PendingPriceEntry.sealedProductId`), aditivas.
+**Al publicar (devops/Railway) — runbook en `DEVOPS_NOTES.md §29`, orquestado por `scripts/post-deploy.sh`
+(idempotente; el paso 4 es opt-in y PARA si `publish-all` falla, conservando el cuerpo para diagnóstico):**
+1. `prisma migrate deploy` → **M-39** (SealedProduct) + **M-40** (`PendingPriceEntry.sealedProductId`) +
+   **M-41** (P-48: `pricing_curve`, `priceBasis`, `PendingPriceEntry.reason`, instrumentación), todas aditivas.
 2. `ts-node prisma/backfill-m39-sealed-product.ts` — cura ETB→Tropius (idempotente).
-3. `ts-node prisma/backfill-p34-tiered-pricing.ts` — **reshape de tiers T2=25%** (money-crítico; si imprime
-   «⚠ ACCIÓN REQUERIDA» → PARAR y escalar al humano para el mapeo a mano).
-4. `unify-rarities` (cosmético del editor M2, pendiente de P-34).
-5. *(D-3, no bloqueante)* si aparecen filas de sellado huérfanas en la cola M2 de altas previas al fix →
+3. `unify-rarities` — cosmético del editor M2. **Ya NO es prerrequisito de nada**: el guardarraíl premium
+   usa `isPremiumCanonicalRarity()`, que acepta rareza cruda o canónica (verificado por devops).
+4. **Cut-over P-48 (`RUN_PUBLISH_ALL=1`, opt-in)** — `publish-all` re-resuelve el precio con la curva.
+   NO es migración de dinero: el precio de venta se resuelve en lectura, así que repriciar es re-resolver,
+   nunca un `UPDATE` masivo. Idempotente por `batchKey` (default `p48-cutover-v2.0`).
+5. **Diagnóstico de la cola por razón** — `no_market` vs `premium_at_floor`. Línea base esperada ≈3 de
+   cada 333 (`ARCHITECTURE §4.36.9c-3`). Si `premium_at_floor` sube con `no_market` plano ⇒ piso mal
+   calibrado; si suben los dos ⇒ feed degradado y **no** hay que tocar el piso.
+6. *(D-3, no bloqueante)* si aparecen filas de sellado huérfanas en la cola M2 de altas previas al fix →
    barrido puntual (deuda backend registrada).
-6. Por cada set: «Sincronizar» trae presentaciones (requiere egress real a `tcgcsv.com`).
+7. Por cada set: «Sincronizar» trae presentaciones (requiere egress real a `tcgcsv.com`).
+
+> **Los cinco settings retirados por P-48 quedan INERTES, sin `DELETE`** (`sales_price_rules`,
+> `buylist_price_rules`, `pricing_tier_map`, `sales_price_fallback_pct`, `buylist_price_fallback_pct`).
+> Es deliberado: borrar config en el mismo paso que cambia la matemática mata el diagnóstico y el rollback
+> barato. Ojo con `sealed_spread_fallback_pct`: **se parece pero NO es una de las cinco** — el sellado sigue
+> vivo y fuera de la curva.
+>
+> **Orden entre releases (decisión del humano, pendiente):** `main` va adelante con **P-47** (flip a
+> `tcgcsv_singles`), que cambia la **fuente** del mercado; P-48 cambia la **matemática** que se le aplica.
+> Encender ambos en la misma ventana deja indiagnosticable cualquier movimiento de precio. Devops recomienda
+> serializar.
 > **Antes del deploy:** snapshot/PITR de la Postgres de prod (única vía de rollback fino del dinero del paso 3).
 > **Rollback:** migraciones aditivas → redeploy del commit anterior; backfills idempotentes/no destructivos.
 

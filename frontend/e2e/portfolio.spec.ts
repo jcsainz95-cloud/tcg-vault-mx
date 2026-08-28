@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
+import { loginAs } from './utils/auth';
 
 /**
  * Flujo: gráfica de tendencia del portafolio en "Mi bóveda" (PROJECT §C / AC 8b;
@@ -8,6 +9,7 @@ import { t } from './utils/i18n';
  */
 test.describe('bóveda · gráfica de tendencia del portafolio', () => {
   test('muestra la gráfica con encabezado de valor y toggle de rangos', async ({ page }) => {
+    await loginAs(page, 'customer');
     await page.goto('/es/vault');
     await expect(page.getByText(t('es', 'portfolio.trend.title'))).toBeVisible();
 
@@ -18,6 +20,7 @@ test.describe('bóveda · gráfica de tendencia del portafolio', () => {
   });
 
   test('cambiar de rango actualiza la gráfica (mock genera la serie)', async ({ page }) => {
+    await loginAs(page, 'customer');
     await page.goto('/es/vault');
     const group = page.getByRole('group', { name: t('es', 'portfolio.trend.rangesAria') });
     await group.getByRole('button', { name: t('es', 'portfolio.trend.ranges.6m'), exact: true }).click();

@@ -64,6 +64,21 @@ export const ErrorCode = {
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
   BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
+  // v2.0 (P-48, §4.36.3 / API_CONTRACT §Errores) — códigos de la CURVA. Todos son 422, todos se
+  // validan AL GUARDAR (no solo en runtime), todos se evalúan sobre el OBJETO COMPLETO y todos
+  // indican QUÉ PUNTO lo rompe en `details: { axis, index, marketCents, … }` (criterio 87).
+  // Los emiten `PUT /admin/pricing/curve` y —los que impiden calcular— `POST .../curve/preview`.
+  CURVE_EMPTY: 'CURVE_EMPTY', // sin puntos no hay curva que interpolar
+  DUPLICATE_BREAKPOINT: 'DUPLICATE_BREAKPOINT', // dos puntos en el mismo mercado ⇒ interpolación ambigua
+  SALE_BELOW_MARKET: 'SALE_BELOW_MARKET', // algún multiplierBp < 10000: la venta caería bajo el mercado
+  SALE_CURVE_NOT_MONOTONIC: 'SALE_CURVE_NOT_MONOTONIC', // más mercado produciría MENOS precio
+  // v2.1.4 (V9): simétrico del anterior en el eje de COMPRA — más mercado PAGARÍA menos. V6 ataba la
+  // compra solo en RELATIVO (por debajo de la venta), así que el monto absoluto podía bajar. Misma
+  // clase que I1, sin la amplificación de la escalera: pierde dinero en silencio.
+  BUY_CURVE_NOT_MONOTONIC: 'BUY_CURVE_NOT_MONOTONIC',
+  BUY_ABOVE_SALE: 'BUY_ABOVE_SALE', // la compra alcanza o supera la venta en algún punto del dominio
+  BIN_ABOVE_FLOOR: 'BIN_ABOVE_FLOOR', // binCents >= floorCents (ambos ejes saturando en su constante)
+  ROUNDING_LADDER_INVALID: 'ROUNDING_LADDER_INVALID', // escalera mal formada (o frontera no múltiplo del paso)
   // v1.37 (pricing por tiers, P-34, §4.33d): en PUT /admin/pricing/tier-map o PUT /admin/pricing/tiers,
   // la edición dejaría una rareza `premium:true` (catálogo canónico, §4.28e) resolviendo en un tier cuya
   // regla de COMPRA es `fixed` (con el seed: T0/T1). Guardarraíl money-safe: una chase jamás cotiza al bin

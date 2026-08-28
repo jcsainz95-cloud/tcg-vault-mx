@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 const VALID_CLABE = '012345678901234567'; // 18 dígitos
@@ -17,10 +18,17 @@ const VALID_CLABE = '012345678901234567'; // 18 dígitos
 
 function buildPricing(referenceMxnCents: number | null): PricingService {
   return {
+    loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
+    // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
+    // puede divergir de producción ni reimplementar la matemática.
+    decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn().mockResolvedValue(
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),
+    // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
+    settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
     getVariantOverridesBatch: jest.fn(async () => new Map()),
@@ -50,6 +58,14 @@ function buildPrisma(rarity: string | null) {
         id: 'c1',
         rarity,
         availableFinishes: ['normal', 'holofoil'],
+      }),
+      // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
+      // `findUnique` por ítem). El mock delega en el MISMO `findUnique` del fixture
+      // (`this` = este objeto `card`), para no duplicar datos ni criterios.
+      findMany: jest.fn(async function (this: any, args: any) {
+        const ids: string[] = args?.where?.id?.in ?? [];
+        const rows = await Promise.all(ids.map((id) => this.findUnique({ where: { id } })));
+        return rows.filter(Boolean);
       }),
     },
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
@@ -126,7 +142,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
   });
 
   it('sin líneas pendientes y bajo el umbral → NO exige INE (control sin cambios)', async () => {
-    // Common (bulk fijo $0.50) CON o SIN referencia siempre cotiza → nunca pendiente.
+    // v2.0 (P-48): ya no hay «bulk fijo que cotiza sin mercado». Una línea cotiza ⇔ HAY mercado.
     const prisma = buildPrisma('Common');
     const settings = {
       getRaw: jest.fn(async () => ({ Common: { mode: 'fixed', value: 50 } })),
@@ -140,7 +156,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
     } as unknown as SettingsService;
     const svc = new BuylistService(
       prisma as PrismaService,
-      buildPricing(null),
+      buildPricing(12500),
       settings,
       {} as UsersService,
       pii,

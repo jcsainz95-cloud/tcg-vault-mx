@@ -1,7 +1,5 @@
-import { premiumFixedOffenders, TierId } from '../src/common/pricing-tiers';
 import { isPremiumCanonicalRarity } from '../src/common/rarity-catalog';
 import { variantKey } from '../src/common/variant-key';
-import { SETTING_DEFAULTS, SettingKey } from '../src/modules/settings/settings.constants';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -9,8 +7,6 @@ import { FxService } from '../src/modules/pricing/fx.service';
 
 /**
  * Deuda técnica backend (TECH_DEBT) — guards unitarios:
- *  - P-34 H4: el seed `DEFAULT_SETTINGS` CUMPLE el invariante money-safe premium→pct
- *    (`premiumFixedOffenders(seedMap, seedBuyTiers) === []`).
  *  - P-34 H5: `premiumByPattern` (vía `isPremiumCanonicalRarity`) reconoce `mega`/`blackwhite`, cerrando
  *    la clase R-5 money-losing (una variante string premium NUEVA no-alias caería a bin holo barato).
  *  - P-30 H2: el helper único `variantKey` produce la clave K exacta (sin drift entre call-sites) Y
@@ -19,31 +15,12 @@ import { FxService } from '../src/modules/pricing/fx.service';
  */
 
 // ===========================================================================
-describe('P-34 H4 · el seed DEFAULT_SETTINGS cumple el invariante premium→pct (§4.33d)', () => {
-  const seedMap = SETTING_DEFAULTS[SettingKey.PRICING_TIER_MAP] as Record<string, TierId>;
-  const seedBuyTiers = (
-    SETTING_DEFAULTS[SettingKey.BUYLIST_PRICE_RULES] as {
-      tierRules: Partial<Record<TierId, { mode: string; value: number }>>;
-    }
-  ).tierRules;
-
-  it('premiumFixedOffenders(seedMap, seedBuyTiers) === [] (ninguna rareza premium cae a un tier fijo)', () => {
-    expect(premiumFixedOffenders(seedMap, seedBuyTiers)).toEqual([]);
-  });
-
-  it('sanity: el helper SÍ detecta un infractor si una rareza premium se mapea a un tier de COMPRA fixed', () => {
-    // T0 es fixed en el seed; forzar 'Ultra Rare' (premium) → T0 debe reportarse como infractor.
-    const badMap = { ...seedMap, 'Ultra Rare': 'T0' as TierId };
-    expect(premiumFixedOffenders(badMap, seedBuyTiers)).toContainEqual({ rarity: 'Ultra Rare', tierId: 'T0' });
-  });
-
-  it('un tier SIN regla de compra (undefined) NO es infractor (cae al fallback pct = money-safe)', () => {
-    // Sin reglas de compra: aunque haya premium mapeadas, ninguna es `fixed` ⇒ [].
-    expect(premiumFixedOffenders(seedMap, {})).toEqual([]);
-  });
-});
-
 // ===========================================================================
+// v2.0 (P-48, §4.36.4): el bloque «P-34 H4 · el seed cumple premium→pct» se RETIRA con los tiers.
+// El invariante `premium ⇒ pct` quedó SIN SENTIDO (ya no hay modos que refinar) y lo SUSTITUYE el
+// GUARDARRAÍL de §4.36.5 — mismo objetivo money-safe, otro mecanismo: la rareza deja de FIJAR precio
+// y pasa a BLOQUEAR publicación/cotización. Su guard vive en `test/pricing.premium-floor-guard.spec.ts`.
+
 describe('P-34 H5 · premiumByPattern reconoce mega/blackwhite (clase R-5 money-losing cerrada)', () => {
   it('una variante string «Mega …» NO-alias cae a premium por PATRÓN (no al bin holo barato)', () => {
     // 'Mega Brilliant Rare' no es un alias del catálogo → resuelve por patrón → premium.
