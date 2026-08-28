@@ -745,7 +745,6 @@
       "title": "Top Bounties",
       "subtitle": "We pay top rates for these cards. Payment happens after we receive and verify your card.",
       "wePay": "We pay",
-      "remaining": "{count} left",
       "cta": "Quote this card",
       "badge": "Bounty"
     },
