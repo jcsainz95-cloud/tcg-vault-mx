@@ -124,7 +124,6 @@
       "colCard": "Carta",
       "colCondition": "Condición",
       "colWePay": "Pagamos",
-      "colWanted": "Buscadas",
       "conditionNm": "NM"
     },
     "how": {
@@ -745,7 +744,6 @@
       "title": "Top Bounties",
       "subtitle": "Estas cartas las pagamos mejor. El pago se realiza después de recibir y verificar tu carta.",
       "wePay": "Pagamos",
-      "remaining": "Quedan {count}",
       "cta": "Cotizar esta carta",
       "badge": "Bounty"
     },
