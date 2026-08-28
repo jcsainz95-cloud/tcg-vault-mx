@@ -7354,3 +7354,181 @@ los specs le preguntan a él.**
 
 `tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **84 archivos / 677 tests** ✓ · E2E contra el stack
 vivo (`admin` + `pricing-curve`): **13 verdes / 0 rojos** (6 saltados, clasificados).
+
+---
+
+## v1.50.3-e2e — El gancho de grading entra al gate, y el gate deja de depender de los núcleos
+
+> **Rechazo de QA (dos bloqueantes, ambos del arnés, ninguno de producto).** QA verificó **en vivo**
+> que la feature funciona: el `intent` viaja, la sección de captura existe y su pre-vuelo bloquea el
+> grado con slab, la lista de revisión cumple sus cuatro reglas y las traducciones están. Lo que
+> **no** existía era una prueba automatizada que lo dijera contra el stack corriendo.
+
+### 1. El bloqueante real: la feature no estaba en el gate (no eran «9 rojos»)
+
+Los 9 specs de `grading-estimate.spec.ts` navegaban a **ids de fixture** (`c-blastoise`,
+`c-milotic-fa`, `c-eevee`, `c-pikachu`) y asertaban **montos de fixture** (`MX$29,000.00`), sin
+declarar `mockOnly`. Contra el stack vivo eso son 9 rojos, sí — pero el daño de verdad es otro:
+
+- **en modo mock**, el gancho se probaba contra **sus propias simulaciones**;
+- **en modo real**, las dos únicas specs escritas de forma agnóstica (la captura de back-office y la
+  lista de revisión) llevaban `mockOnly` y se **saltaban** ⇒ **no se probaba nada**;
+- el subset **`@real`**, que es el gate que corre contra la plataforma levantada, **no contenía ni un
+  solo test del gancho**.
+
+Un «97/97» medido en modo mock es cierto y **no puede emitir veredicto** sobre esta feature. QA tenía
+razón: la cobertura que suplió a mano no queda cableada en CI, así que no cuenta.
+
+#### Qué se hizo: reescribirlos agnósticos (la opción cara), no taparlos con `mockOnly`
+
+`e2e/utils/grading.ts` resuelve **qué cartas usar** según el entorno:
+
+| | MOCK | REAL |
+|---|---|---|
+| origen de las cartas | ids de `src/lib/mock/fixtures.ts` | **descubiertas** de `GET /catalog/cards` |
+| origen de las cifras | fixtures | **sembradas por la API del contrato** |
+| oráculo del gate | fixture `mockGradingShowcaseCardIds` | **`GET /admin/pricing/graded-estimates/preview`** |
+| I/O | ninguno | login admin compartido + 5 llamadas |
+
+La siembra usa **exactamente los endpoints que usa el back-office**, no una puerta trasera:
+`PUT /admin/settings { gradedEstimatesEnabled: "on" }` (interruptor maestro §M10, seed `off`
+fail-closed) y `POST /admin/pricing/override` con **`intent:"graded_estimate"`** — que es, por
+§O.6/decisión 47, **la captura de fase 1 del gancho**. Sembrar por ahí ejercita de punta a punta la
+vía que el producto usa de verdad, incluida la obligatoriedad de `intent` (§4.38l); un seed con la
+fila ya puesta probaría **menos**.
+
+**Ningún monto se hornea.** Los importes se derivan de los **diales vivos** del entorno
+(`minUpsidePct`, `gradingCostTiers`, `maxRawMultiple`), resolviendo el escalón de costo por valor
+declarado igual que §O.2.1, y con holgura para no quedar en el filo de un redondeo. Quien dictamina
+si la carta quedó destacada **no es el test**: es el backend, vía `preview` (`eligible` + `reason`).
+El test **elige datos**; el gate lo evalúa el servidor. Si la siembra no consigue dejar la carta
+elegible, el helper **falla ahí** con el `preview` completo en el mensaje, no tres asserts después.
+
+**Los asserts pasan a ser de ESTRUCTURA**: una cifra por grado del dial `grades` (contada sobre el
+texto renderizado, no con `getByText(MONEY_RE).count()` — el selector de texto casa también
+contenedores intermedios y aquí el número exacto *es* la aserción), `MX$…` por formato, y el
+condicional de la teja derivado de la **clave i18n** (`catalog.gradingBadge.figure` cortada en su
+`<approx>`), nunca copiado a mano.
+
+**Resultado: el subset `@real` pasa de 0 a 11 tests del gancho** — ficha (4), teja de Compra (3),
+vitrina del home (2) y back-office (2) —, y **los mismos asserts** corren en los dos modos.
+
+#### Huella en el entorno, declarada
+
+- El dial `gradedEstimatesEnabled` se enciende y **se restaura en `globalTeardown`**
+  (`e2e/global-teardown.ts`), leyendo el valor previo de un archivo de estado. Se hace ahí y **no en
+  un `afterAll`** a propósito: `afterAll` corre **por worker** y apagaría el interruptor con otros
+  workers todavía navegando. Verificado en vivo: tras la corrida, `GET /admin/settings` devuelve
+  `gradedEstimatesEnabled = off`.
+- Las `PriceReference` de estimado **quedan escritas**: el contrato **no expone borrado**. La siembra
+  es **idempotente** (un override posterior supersede al anterior) y con el dial en `off` nada de eso
+  se publica. Ver «Peticiones al arquitecto» abajo.
+
+#### Lo que sigue sin poder correr en real, y por qué (clasificado, no escondido)
+
+| Caso | Marca | Motivo |
+|---|---|---|
+| Pre-vuelo del grado con slab (§O.8 / INV-D) | `mockOnly` | `publishedSlabGrades` viaja **por grupo raw**; hace falta una carta con **raw publicado Y slab publicado del mismo grado**, y el seed sintético no la tiene (su única gradeada no tiene raw publicado). El test además asserta el copy del 409 con literales de fixture. **La cobertura real de esa superficie no se pierde**: la da el nuevo test `@real` de captura. |
+| Lista de revisión: default vs opt-in por conjunto de cartas | `mockOnly` | el conjunto marcado es dato de fixture. Sustituido en real por un test que **compara el resumen de la UI contra la respuesta del contrato** (`total`/`scannedCards`, y el aviso de truncado ausente si el backend no truncó). |
+| «Dos grados con dato y sin destacar» | `needsSeed` | el seed sintético solo tiene **dos** cartas raw publicadas; con dos no se pueden tener a la vez «un solo grado» y «dos grados sin destacar». |
+
+#### Candado para que no vuelva a pasar
+
+`src/test/e2e-harness.test.ts` gana dos casos: (1) `grading-estimate.spec.ts` debe conservar
+cobertura `@real`; (2) **ningún test que navegue a un id de fixture (`/catalog/c-…`) puede correr en
+real sin declararse `mockOnly`/`needsSeed`**. Es el mismo patrón del candado de `process.env.E2E_REAL`:
+la regla deja de depender de que alguien se acuerde.
+
+### 2. El otro bloqueante: «un gate cuyo verde depende de cuántos núcleos tenga la máquina no es un gate»
+
+`loginAs` memoizaba la sesión en un `Map` **a nivel de módulo** ⇒ **por worker**, que en Playwright es
+un **proceso**. Con `fullyParallel: true` y `workers: undefined` fuera de CI eso son
+**`roles × núcleos`** canjes contra `POST /auth/login`, que el backend limita —legítimamente— a
+**5/min por IP** (`@Throttle({ ttl: 60_000, limit: 5 })`, `auth.controller.ts`). Desde dos núcleos la
+suite se comía su propio cupo: `429 RATE_LIMITED` en `checkout.spec.ts:12/87/100`, y el login del
+stack inservible ~60 s para quien estuviera mirando en paralelo.
+
+**El throttler no se toca** — es una defensa legítima del producto y el pentester la va a querer viva.
+Lo que se arregla es el arnés:
+
+- **`e2e/utils/state.ts` (nuevo)** — estado compartido **entre procesos**: caché en disco con
+  escritura atómica (`rename`), exclusión mutua con **`mkdir`** (atómico; `writeFile` no lo es),
+  detección de candado rancio, y `sharedOnce` con **doble comprobación** dentro del candado. Ese
+  segundo `readState` es lo que evita la estampida: los N-1 workers que esperaban encuentran el valor
+  ya publicado y **no** recalculan.
+- **`e2e/utils/env.ts` (nuevo)** — se extrae de `auth.ts` todo el plumbing de entorno (`IS_REAL`,
+  credenciales, resolución de la API, canje de token, helpers `apiAs`/`apiAsOk`) **sin importar
+  `@playwright/test`**, para que el `globalTeardown` —que corre fuera del runner— pueda reutilizarlo.
+  `auth.ts` mantiene todos sus exports: ningún spec cambia sus imports.
+- **Cota dura: 3 logins por API y por corrida** (uno por rol), **independiente de los núcleos**.
+- La caché se valida por el **`exp` real del JWT** (no solo por la edad del archivo), con 3 min de
+  colchón sobre los 15 min del contrato: una corrida que reutiliza estado de otra reciente no arranca
+  con un token muerto y no vuelve a fabricar el 401 silencioso.
+- El **backoff ante `429` cubre >60 s** (6 intentos: 1+2+4+8+16+32 s) — la ventana **completa** del
+  throttler. El anterior (4 intentos, ~15 s) se rendía **dentro** de la ventana: por eso «reintentaba,
+  pero no lo suficiente». Solo el 429 se reintenta; un 401 es credencial mala y reintentarlo solo
+  gasta cupo.
+
+**Presupuesto de logins de la suite completa en real:** 3 (API, compartidos) + 2 (formulario, los dos
+`login se muestra y redirige [es|en]` de `auth.spec.ts`, que **deben** teclear credenciales reales)
+= **5**, que es exactamente el cupo. Si alguien añade otro login por formulario, hay que etiquetarlo
+o subir el límite en el entorno de pruebas. Queda anotado aquí para que no se descubra por sorpresa.
+
+### 3. El `webServer` de Playwright: build de producción y nada de reutilizar lo que haya
+
+`playwright.config.ts` usaba `command: 'npm run dev'` + `reuseExistingServer: !isCI`. Dos trampas
+encadenadas:
+
+1. **`next dev` no es la app que se despliega** (otro compilador, sin `NODE_ENV=production`, otro
+   comportamiento de RSC/caché). Un verde en `dev` no autoriza un deploy.
+2. **`reuseExistingServer: true` fabrica falsos verdes silenciosos**: si en :3000 ya hay un Next
+   —el del stack real de devops, por ejemplo—, Playwright **no** levanta el suyo, **no** aplica
+   `NEXT_PUBLIC_USE_MOCKS=true`, y la suite «de mocks» corre contra el backend real sin decirlo.
+
+Ahora: **`next build && next start`** y `reuseExistingServer: false` salvo opt-in
+(`E2E_REUSE_SERVER=1`); `E2E_DEV_SERVER=1` recupera `next dev` para iterar en local (no es el gate).
+
+Y dos parámetros nuevos que **hacen posible correr los dos modos en la misma máquina**, que es como
+se verifica de verdad:
+
+- **`E2E_MOCK_PORT`** (default `3000`) — el server de mocks ya no choca con el stack real.
+- **`NEXT_DIST_DIR`** (`next.config.mjs`) — el bundle de mocks se hornea en **`.next-e2e-mock`**.
+  Es indispensable: `NEXT_PUBLIC_USE_MOCKS` **se hornea en el artefacto**, así que compilar los mocks
+  sobre `.next` convertiría en modo-fixtures el `next start` que devops tenga corriendo. Añadido a
+  `frontend/.gitignore`, y `.next-e2e-mock/types/**` queda pre-registrado en el `include` de
+  `tsconfig.json` para que `next build` no reescriba (y reformatee) ese archivo en cada corrida.
+
+### Verificación (números reales de las dos corridas)
+
+| Comando | Resultado |
+|---|---|
+| `npx tsc --noEmit` | ✓ |
+| `npx next lint` | ✓ sin warnings |
+| `npx vitest run` | ✓ **90 archivos / 753 tests** |
+| `npx next build` | ✓ (verificado con `NEXT_DIST_DIR=.next-e2e-verify` para no pisar el `.next` del stack vivo) |
+| **MOCK** — `E2E_MOCK_PORT=3010 npx playwright test` (build de producción + `next start`) | **98 passed / 0 failed / 2 skipped** (los 2 saltados son los `realOnly`, que por definición no corren aquí) |
+| **REAL** — `E2E_BASE_URL=http://localhost:3000 npx playwright test` (4 workers, stack vivo) | **59 passed / 3 failed / 38 skipped** |
+| **REAL, segunda corrida consecutiva** | **59 / 3 / 38** — idéntica |
+| **Gate `@real`** — `E2E_BASE_URL=… E2E_REAL=1 npx playwright test` | **21 passed / 3 failed** de 24; **11 de los 21 son del gancho** (antes: 0 tests del gancho en el subset) |
+
+Los **3 rojos en real** son el hueco de entorno preexistente de **Stripe** (`checkout.spec.ts:57`,
+`guest-checkout.spec.ts:131`, `shipments.spec.ts:30`: el modal de pago no abre sin claves de Stripe).
+**No queda ningún rojo de los 9 del gancho ni de los 3 del throttler.** Comprobado además el síntoma
+que QA midió desde fuera: **inmediatamente** después de la suite, tres `POST /auth/login` manuales
+seguidos devuelven `200`, `200`, `200` — antes quedaba `429` ~60 s.
+
+### Peticiones al arquitecto (no se toca `API_CONTRACT.md`)
+
+1. **Borrado/retirada de una `PriceReference` de estimado.** El contrato dice que el override manual
+   «solo lo revoca otro override o la limpieza/borrado explícito de la fila por `super_admin`», pero
+   **no hay endpoint** para esa limpieza. Sin él: (a) el back-office no puede *quitar* una cifra
+   errónea, solo pisarla —y la lista de revisión (§111(e)) dice explícitamente «se corrige
+   recapturando el estimado, **o borrando el dato**», un gesto hoy imposible por API—; y (b) el arnés
+   E2E no puede dejar el entorno como lo encontró. Propuesta: `DELETE /admin/pricing/override`
+   (o `.../graded-estimates/:cardId/:gradeKey`), `super_admin`, auditado, con la misma guarda INV-D.
+2. **Seed sintético — dos filas que faltan** (petición a backend vía arquitecto, `seed-e2e.ts`):
+   - una carta con **grupo raw publicado Y slab publicado del mismo grado** ⇒ desbloquea el
+     pre-vuelo de §O.8/INV-D y el `SLAB_PUBLISHED` de la lista de revisión en modo real;
+   - una **tercera carta raw publicada** ⇒ permite cubrir a la vez «un solo grado» y «dos grados sin
+     destacar» sin que un caso pise al otro.
+   Los tests ya están escritos y marcados `needsSeed`: pasarán el día que existan las filas.

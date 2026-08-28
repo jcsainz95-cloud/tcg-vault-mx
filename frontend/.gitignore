@@ -1,5 +1,7 @@
 /node_modules
 /.next
+# Bundle de MOCKS que hornea el `webServer` de Playwright (ver playwright.config.ts).
+/.next-e2e-mock
 /out
 /build
 next-env.d.ts
