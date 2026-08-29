@@ -76,6 +76,40 @@ export const E2E_CARDS = {
    * triage y su asimetría quedan cubiertas con datos de verdad y no solo en forma.
    */
   floorpremium: { externalId: 'e2e-floor-premium', name: 'E2E Floor Premium', number: '98', rarity: 'Rare Secret', refNmCents: 1000, availableFinishes: ['normal'] },
+  /**
+   * v1.50.3-d (§4.38i.9, petición de frontend vía arquitecto) — **la carta con grupo raw publicado Y
+   * slab PSA 10 publicado del MISMO grado**. Es la ÚNICA situación que la API no puede fabricar sola
+   * (publicar una pieza física es inventario, no precios), y sin ella tres cosas no eran verificables
+   * de punta a punta contra el stack vivo:
+   *   1. el **pre-vuelo de INV-D** del back-office (`publishedSlabGrades` viaja POR grupo raw, así que
+   *      hace falta que la carta TENGA grupo raw — la gradeada `graded` de arriba no lo tiene);
+   *   2. el **`SLAB_PUBLISHED`** de la lista de revisión (§4.38n) en modo real;
+   *   3. el **`409` del `DELETE`** de §4.38(q) — es exactamente la situación que esa guarda protege.
+   *
+   * `refPsa10Cents` NO es un estimado del gancho: es la **referencia de MERCADO** de la pieza PSA 10
+   * publicada (la fila y el estimado son la MISMA clave — ése es todo el problema de INV-D). Por eso
+   * la ficha NO la muestra como estimado: `usable()` la omite por tener slab publicado.
+   *
+   * ⚠️ **Sin fila PSA 9 a propósito.** Un estimado de PSA 9 aquí es exactamente lo que la API sí puede
+   * sembrar (`POST /admin/pricing/override` con `intent:"graded_estimate"`, que en ese grado no choca
+   * con ninguna pieza publicada), y es lo que hace falta para ver `reason: SLAB_PUBLISHED` en la lista
+   * de revisión — el arnés lo captura cuando lo necesita y lo retira con el `DELETE` nuevo. Ponerlo en
+   * el seed haría que la ficha de esta carta mostrara el gancho de forma permanente, y el arnés del
+   * front elige su carta «sin gancho» tomando el primer grupo NO raw del catálogo.
+   *
+   * Precio raw deliberadamente BAJO (por debajo de `common`, MX$600): el arnés del front toma las DOS
+   * raw MÁS CARAS como cartas del escenario, y sembrarles estimados sobre una carta con slab publicado
+   * chocaría contra INV-D con un `409` en la propia siembra.
+   */
+  slabbed: { externalId: 'e2e-slab-raw', name: 'E2E Slab And Raw', number: '30', rarity: 'Rare Holo', refNmCents: 30000, refPsa10Cents: 800000, availableFinishes: ['normal'] },
+  /**
+   * v1.50.3-d (§4.38i.9) — **TERCERA carta raw publicada.** Con solo dos (charizard y common) el arnés
+   * del front no podía cubrir a la vez «un solo grado» (ficha informa, teja no promueve) y «dos grados
+   * SIN destacar»: un caso pisaba al otro sobre la misma carta. Su precio queda entre `common` y
+   * `slabbed` para que el orden por precio del arnés sea estable y esta sea la 3ª raw, no una de las
+   * dos del escenario.
+   */
+  thirdraw: { externalId: 'e2e-third-raw', name: 'E2E Third Bird', number: '31', rarity: 'Common', refNmCents: 40000, availableFinishes: ['normal'] },
 } as const;
 
 /**
@@ -110,7 +144,8 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // v2.1.7: entra `98` (E2E Floor Premium, la carta del guardarraíl). El oráculo se mantiene EXPLÍCITO
 // —y no derivado de `E2E_CARDS`— a propósito: si se derivara, un fixture mal ordenado se auto-
 // justificaría y el test dejaría de comprobar el orden natural, que es justo lo que vigila.
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '98', '99'] as const;
+// v1.50.3-d: entran `30` (E2E Slab And Raw, la carta de INV-D) y `31` (la tercera raw publicada).
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '98', '99'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
@@ -124,6 +159,12 @@ export const E2E_FOLIOS = {
   listedPending: 'E2E-LST-0004', // nopref → precio pendiente, sellable=false
   custSettled: 'E2E-CUS-0001', // customer, settled, in_custody (charizard) → retirable
   custPending: 'E2E-CUS-0002', // customer, pending, in_custody (common) → NO retirable
+  // v1.50.3-d (§4.38i.9): las DOS piezas de `slabbed` — el grupo raw y el SLAB PSA 10 — sobre la MISMA
+  // carta. Ese cruce es lo que hace disparar INV-D (la fila del estimado y la referencia de mercado
+  // del slab son la misma clave).
+  listedSlabRaw: 'E2E-LST-0005', // platform listed raw de la carta que ADEMÁS tiene slab publicado
+  listedSlab: 'E2E-LST-0006', // platform listed graded PSA10 de esa MISMA carta → dispara INV-D
+  listedThirdRaw: 'E2E-LST-0007', // platform listed raw: la TERCERA carta raw publicada
 } as const;
 
 export const E2E_LOCATIONS = {

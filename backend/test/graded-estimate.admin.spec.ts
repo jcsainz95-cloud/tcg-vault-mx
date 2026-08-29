@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -163,6 +164,14 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
         }
         if (typeof args.take === 'number') out = out.slice(0, args.take);
         return out;
+      }),
+      // v1.50.3-d — el BORRADO del estimado (§4.38q). Muta el mismo array `refs` que lee `findMany`,
+      // así que las pruebas pueden comprobar el efecto observable (la fila deja de existir) y no solo
+      // que se llamó al mock: «borró» tiene que significar «ya no está».
+      deleteMany: jest.fn(async (args: any) => {
+        const doomed = refs.filter((r) => matchWhere(r, args.where));
+        for (const r of doomed) refs.splice(refs.indexOf(r), 1);
+        return { count: doomed.length };
       }),
     },
     variantPriceOverride: { findMany: jest.fn(async () => []) },
@@ -833,5 +842,228 @@ describe('GET /admin/pricing/graded-estimates/review — la lista de revisión (
     expect(upsert).not.toHaveBeenCalled();
     expect((prisma as any).$transaction).not.toHaveBeenCalled();
     expect(audit.log).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * v1.50.3-d (§4.38q, API_CONTRACT §M2) — **BORRADO del estimado**
+ * (`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`).
+ *
+ * ### El hueco que cierra
+ * `PROJECT.md` §O.7 pide que el dueño pueda «corregirla con override **o descartarla**», y **descartar
+ * no es pisar**: sustituir la cifra por otra deja **otra** afirmación comercial en su lugar. El
+ * contrato afirmaba desde v1.46 que un override manual «solo lo revoca otro override o la
+ * limpieza/borrado explícito por `super_admin`» — y ese borrado **no existía**. Con la caducidad de
+ * §4.38(m) el hueco se volvió agudo: una cifra manual errónea desaparece de las tres superficies,
+ * **sigue en la tabla**, es enumerable por `?reason=STALE`… y el único gesto disponible del operador
+ * era **capturar otra cifra igual de indeseada**. Se construyó el detector y se dejó al operador sin
+ * la herramienta.
+ *
+ * Cada `it` de aquí abajo es UNA de las decisiones no obvias de §4.38(q), a propósito: relajar una
+ * tiene que romper su propia prueba.
+ */
+describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descartar, no pisar (§4.38q)', () => {
+  /** Fila de estimado con `id` (el `before` de la bitácora los registra: es el material para deshacer). */
+  const ref = (gradeValue: '10' | '9', mxnCents: number, capturedDate: Date, id: string) => ({
+    id,
+    ...psaRef(gradeValue, mxnCents, capturedDate),
+  });
+  const AYER = new Date(Date.now() - 86_400_000);
+  const ANTIER = new Date(Date.now() - 2 * 86_400_000);
+
+  /** Slab PSA `grade` PUBLICADO (plataforma, `listed`) de la misma carta — el insumo de INV-D. */
+  const slabItem = (grade: '10' | '9', id = 'slab1') =>
+    rawItem({
+      id,
+      productType: 'graded',
+      rawCondition: null,
+      gradingCompany: 'PSA',
+      gradeValue: grade,
+      listPriceCents: null,
+    });
+
+  it('borra TODAS las filas de la clave, no solo la vigente (o la cifra REAPARECERÍA sola)', async () => {
+    // Dos filas del MISMO grado con `capturedDate` distinta: la `@@unique` incluye la fecha, así que
+    // esto es un estado NORMAL de la tabla, no un caso raro. Borrar solo la de hoy haría aflorar la de
+    // ayer y el estimado volvería a la ficha — una resurrección silenciosa en superficie comercial.
+    const refs = [ref('10', 900_000, new Date(), 'r-hoy'), ref('10', 800_000, AYER, 'r-ayer')];
+    const { ctrl } = wire([rawItem()], refs, ON);
+    expect(await ctrl.remove('ca', '10', 'admin')).toEqual({
+      cardId: 'ca',
+      gradeValue: '10',
+      // `deletedCount` va en la respuesta para que el operador vea CUÁNTO historial se llevó y no lo
+      // descubra después.
+      deletedCount: 2,
+    });
+    expect(refs).toHaveLength(0);
+  });
+
+  it('el borrado es QUIRÚRGICO: no toca el otro grado, ni otra carta, ni las filas raw', async () => {
+    const otroGrado = ref('9', 500_000, new Date(), 'r-9');
+    const otraCarta = { ...ref('10', 900_000, new Date(), 'r-otra'), cardId: 'cb' };
+    const rawRow = {
+      ...ref('10', 100_000, new Date(), 'r-raw'),
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+    };
+    const refs = [ref('10', 900_000, new Date(), 'r-10'), otroGrado, otraCarta, rawRow];
+    const { ctrl } = wire([rawItem()], refs, ON);
+    expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+    // §4.38(q.3): este endpoint NO borra `raw` ni `sealed` — ahí un borrado movería precios de venta
+    // publicados y necesita su propio diseño (hueco declarado en §9, no capacidad prometida).
+    expect(refs).toEqual([otroGrado, otraCarta, rawRow]);
+  });
+
+  it('nada que borrar ⇒ 404, JAMÁS un `200` con `deletedCount: 0`', async () => {
+    // Mismo precedente que el `PUT` con body vacío ⇒ 422 (GU-A10b): responder éxito cuando no pasó
+    // nada le haría creer al operador que limpió algo que no limpió.
+    const { ctrl, audit } = wire([rawItem()], [ref('9', 500_000, new Date(), 'r-9')], ON);
+    await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // Un borrado que no borró nada tampoco deja bitácora de borrado (no hubo `before` que registrar).
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('`:gradeValue` fuera de `grades` ⇒ 400, y NO se toca la tabla (ruta destructiva, clave cerrada)', async () => {
+    const refs = [ref('10', 900_000, new Date(), 'r-10')];
+    const { ctrl, prisma } = wire([rawItem()], refs, ON);
+    for (const malo of ['8', 'graded:PSA:10', '', ' ', '10.0']) {
+      await expect(ctrl.remove('ca', malo, 'admin')).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { field: 'gradeValue' },
+      });
+    }
+    expect(refs).toHaveLength(1);
+    expect((prisma as any).$transaction).not.toHaveBeenCalled();
+  });
+
+  it('el grado se deriva a la clave CANÓNICA (`graded:PSA:N`, `normal`, `cardProductId: null`)', async () => {
+    const { ctrl, prisma } = wire([rawItem()], [ref('10', 900_000, new Date(), 'r-10')], ON);
+    await ctrl.remove('ca', '10', 'admin');
+    // La MISMA clave con la que se leyó: borrar por una clave más ancha que la leída sería un borrado
+    // a ciegas (y el `before` de la bitácora no describiría lo que se fue).
+    expect((prisma as any).priceReference.deleteMany.mock.calls[0][0].where).toEqual({
+      cardId: 'ca',
+      productType: 'graded',
+      gradeKey: 'graded:PSA:10',
+      finish: 'normal',
+      cardProductId: null,
+    });
+  });
+
+  it('AUDITADO con `before` = las filas borradas (la ÚNICA forma de deshacer) y `after` nulo', async () => {
+    const { ctrl, audit } = wire(
+      [rawItem()],
+      [ref('10', 900_000, new Date(), 'r-hoy'), ref('10', 800_000, ANTIER, 'r-antier')],
+      ON,
+    );
+    await ctrl.remove('ca', '10', 'admin');
+    const entry = (audit.log as jest.Mock).mock.calls[0][0];
+    expect(entry).toMatchObject({
+      actorUserId: 'admin',
+      action: 'pricing.graded_estimate.delete',
+      entityType: 'PriceReference',
+      entityId: 'ca',
+    });
+    expect(entry.before).toMatchObject({ cardId: 'ca', gradeValue: '10', deletedCount: 2 });
+    // Valores Y fechas: un borrado en una tabla de dinero sin registro de qué había es inaceptable, y
+    // recapturar el número que estaba es la única marcha atrás que existe.
+    expect(entry.before.rows.map((r: any) => [r.id, r.priceMxnCents])).toEqual([
+      ['r-hoy', 900_000],
+      ['r-antier', 800_000],
+    ]);
+    expect(entry.before.rows.every((r: any) => /^\d{4}-\d{2}-\d{2}$/.test(r.capturedDate))).toBe(true);
+    expect(entry.before.rows.every((r: any) => r.isManualOverride === true)).toBe(true);
+    // `after: null` del contrato = la columna en NULL. `Prisma.DbNull` es cómo se pide eso; el `null`
+    // literal de Prisma significa «JSON null», que es otra cosa (un valor, no la ausencia de valor).
+    expect(entry.after).toBe(Prisma.DbNull);
+  });
+
+  it('efecto y bitácora en la MISMA transacción (commitean o revierten juntos)', async () => {
+    const { ctrl, prisma, audit } = wire([rawItem()], [ref('10', 900_000, new Date(), 'r-10')], ON);
+    let auditDuranteTx = false;
+    (prisma as any).$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const antes = (audit.log as jest.Mock).mock.calls.length;
+      const out = await fn(prisma);
+      auditDuranteTx = (audit.log as jest.Mock).mock.calls.length > antes;
+      return out;
+    });
+    await ctrl.remove('ca', '10', 'admin');
+    expect(auditDuranteTx).toBe(true);
+    // Con el `tx` como 2º argumento: con `this.prisma` la fila se auto-commitearía fuera del rollback
+    // y el todo-o-nada sería mentira.
+    expect((audit.log as jest.Mock).mock.calls[0][1]).toBeDefined();
+  });
+
+  it('funciona con la feature APAGADA (hay que poder limpiar ANTES de encender)', async () => {
+    const refs = [ref('10', 900_000, new Date(), 'r-10')];
+    const { ctrl } = wire([rawItem()], refs, {}); // dial `off` (el seed fail-closed)
+    expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+    expect(refs).toHaveLength(0);
+  });
+
+  /**
+   * INV-D sobre el verbo destructivo (§4.38q.2). Con un slab PUBLICADO de ese grado la fila **ya no es
+   * un estimado: es la referencia de mercado real de una pieza física**, y borrarla le quitaría el
+   * sustento de precio a un slab que se está vendiendo (⇒ `PRICE_PENDING` ⇒ despublicado).
+   */
+  describe('guarda INV-D — `409` y DEBE dispararse', () => {
+    it('con slab publicado del grado ⇒ 409 y la fila SIGUE AHÍ (no se borró «casi»)', async () => {
+      const refs = [ref('10', 900_000, new Date(), 'r-10')];
+      const { ctrl, prisma } = wire([rawItem(), slabItem('10')], refs, ON);
+      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+        code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+        details: { publishedSlabCount: 1, inventoryItemIds: ['slab1'] },
+      });
+      expect(refs).toHaveLength(1);
+      expect((prisma as any).$transaction).not.toHaveBeenCalled();
+    });
+
+    /**
+     * ⛔ El corolario que NO hay que deducir al revés (§4.38q.2): este `DELETE` **no** es un remedio
+     * para INV-D inverso (§4.38l.3). «Busco las expuestas con `?reason=SLAB_PUBLISHED` y borro la
+     * fila» es tentador y **falso**: ahí el slab ya está publicado, así que la guarda dispara — y debe
+     * disparar. El remedio correcto sigue siendo **repreciar con `intent:"market"`**.
+     */
+    it('el intento BLOQUEADO deja rastro propio (si no, la guarda es muda por esta vía)', async () => {
+      const { ctrl, audit } = wire([rawItem(), slabItem('10')], [ref('10', 900_000, new Date(), 'r')], ON);
+      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+        code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+      });
+      const entry = (audit.log as jest.Mock).mock.calls[0][0];
+      // `action` PROPIA: un borrado bloqueado no es un override bloqueado, y fundirlos rompería el
+      // conteo de aquél (§O.8 / criterio 112b).
+      expect(entry.action).toBe('pricing.graded_estimate.delete.blocked');
+      expect(entry.after).toMatchObject({
+        code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+        cardId: 'ca',
+        gradeValue: '10',
+        publishedSlabCount: 1,
+      });
+    });
+
+    it('la guarda es POR GRADO: con slab PSA 10 publicado, el PSA 9 SÍ se puede borrar', async () => {
+      // El PSA 9 de esa carta sigue siendo un estimado (no hay pieza PSA 9 publicada que dependa de
+      // él), así que bloquearlo sería extender la guarda a dinero que no existe.
+      const refs = [ref('10', 900_000, new Date(), 'r-10'), ref('9', 500_000, new Date(), 'r-9')];
+      const { ctrl } = wire([rawItem(), slabItem('10')], refs, ON);
+      expect((await ctrl.remove('ca', '9', 'admin')).deletedCount).toBe(1);
+      expect(refs.map((r) => r.id)).toEqual(['r-10']);
+    });
+
+    it('la guarda corre ANTES de mirar la tabla: sin fila y con slab publicado ⇒ 409, no 404', async () => {
+      // Es una precondición sobre el ESTADO DEL MUNDO, no sobre el contenido de la tabla: un `404` ahí
+      // invitaría a reintentar el borrado después de capturar la fila.
+      const { ctrl } = wire([rawItem(), slabItem('10')], [], ON);
+      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+        code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+      });
+    });
+
+    it('un slab NO publicado (en bóveda de cliente / retirado) no bloquea: no es dinero vivo', async () => {
+      const refs = [ref('10', 900_000, new Date(), 'r-10')];
+      const enCustodia = { ...slabItem('10'), ownerType: 'customer', status: 'in_custody' };
+      const { ctrl } = wire([rawItem(), enCustodia], refs, ON);
+      expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+    });
   });
 });

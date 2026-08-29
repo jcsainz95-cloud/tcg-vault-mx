@@ -4,6 +4,126 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.8 v1.50.3-d — El BORRADO del estimado (§4.38q) + las dos filas que faltaban en el seed E2E (2026-08-28)
+
+> Implementa **ARCHITECTURE §4.38(q)** y los **ítems 8 y 9 de §4.38(i)**, contra `API_CONTRACT` §M2
+> (addendum v1.50.3-d). **Cero DTO públicos tocados, cero migraciones, cero cambios de precio.** Una ruta
+> nueva, admin-only; el resto es fixture de pruebas.
+
+### 0.8.1 `DELETE /api/v1/admin/pricing/graded-estimates/:cardId/:gradeValue`
+
+`super_admin`, **auditado**, funciona con el dial `off`. Vive en `GradedEstimatesController`
+(`src/modules/catalog/graded-estimates.controller.ts`), junto al resto del recurso M2 — el prefijo de ruta
+es el del contrato, independiente del módulo que lo aloja (misma razón que ya documenta el `GET`).
+
+Respuesta `200`: `{ cardId, gradeValue, deletedCount }`. Errores: `400 VALIDATION_ERROR` (grado fuera de
+`grades`), `403`, `404 NOT_FOUND` (nada que borrar), `409 GRADED_ESTIMATE_SLAB_PUBLISHED` (INV-D).
+
+**Lo que hay que saber para consumirlo o revisarlo:**
+
+1. **Alcance ESTRECHO a propósito.** Solo la fila del estimado por grado. **`raw` y `sealed` siguen sin
+   borrado** y eso es deliberado (§4.38q.1 / §9): un `DELETE` genérico sobre la tabla de precios cambiaría
+   **precios de venta publicados** de forma inmediata. Si alguien necesita eso, es un diseño nuevo del
+   arquitecto, no una ampliación de esta ruta.
+2. **`:gradeValue` es `"10"`/`"9"`, no el `gradeKey` crudo.** El servidor deriva la clave canónica
+   (`gradedEstimateGradeKey`) y **exige que el grado esté en `cfg.grades`**; si no, `400`. Una ruta
+   destructiva no acepta claves arbitrarias con dos puntos escapados.
+3. **Borra TODAS las filas de la clave `(cardId,'graded',gradeKey,'normal',cardProductId=null)`, en UNA
+   transacción**, sea cual sea su `capturedDate`. No es un detalle de eficiencia: la `@@unique` incluye la
+   fecha, así que borrar «solo la vigente» haría **aflorar una fila más vieja** y la cifra **reaparecería
+   sola** en la ficha. `deletedCount` sale en la respuesta para que el operador vea cuánto historial se
+   llevó por delante.
+4. **`404` si no había nada, jamás un `200` con `deletedCount: 0`.** Mismo precedente que el `PUT` con body
+   vacío ⇒ `422`: responder éxito cuando no pasó nada le haría creer al operador que limpió algo que no
+   limpió.
+5. **Auditoría `pricing.graded_estimate.delete`** con `before` = **las filas borradas** (id, monto, USD/FX,
+   `source`, `isManualOverride`, `capturedDate`) y `after` NULO. Ese `before` es **la única forma de
+   deshacer**: recapturar lo que estaba. Efecto y bitácora van en la **misma transacción** (paridad con
+   BE-GE2 del `PUT`): commitean o revierten juntos.
+   - Detalle de implementación por si aparece en un `SELECT`: el `after: null` del contrato es la **columna
+     en NULL**, y se pide con `Prisma.DbNull` — el `null` literal de Prisma significa «JSON null», que es
+     un valor, no la ausencia de valor.
+
+**La guarda INV-D dispara y DEBE disparar.** Con un slab publicado de ese grado ⇒ `409`, la MISMA guarda
+que la escritura (`publishedSlabsForGradeKey`, §4.38l.1): esa fila **ya no es un estimado, es la referencia
+de mercado real de una pieza física**, y borrarla dejaría al slab sin precio (⇒ `PRICE_PENDING` ⇒
+**despublicado**).
+
+> ⛔ **Aviso a QA / frontend / seguridad — la inferencia tentadora y FALSA.** Este `DELETE` **NO** mitiga
+> INV-D inverso (§4.38l.3). «Busco las cartas expuestas con `review?reason=SLAB_PUBLISHED` y borro la
+> fila» **choca con el `409`, y es correcto que choque**. El remedio ahí sigue siendo **repreciar con
+> `intent:"market"`** (`POST /admin/pricing/override`), que es un acto de dinero deliberado y auditado.
+> INV-D inverso sigue **abierto** y sigue necesitando **M-43 (GU-8)**.
+
+Dos decisiones de implementación que no están en el contrato y que conviene conocer:
+
+- **La guarda corre ANTES de mirar la tabla.** Es una precondición sobre el estado del mundo, no sobre el
+  contenido de la tabla: con slab publicado y sin fila la respuesta es `409`, no `404`. Un `404` ahí
+  invitaría a reintentar el borrado después de capturar la fila.
+- **El intento BLOQUEADO se audita** con `action='pricing.graded_estimate.delete.blocked'` (§O.8 / criterio
+  112b aplicado al verbo destructivo: sin traza, la guarda es muda por esta vía y el `409` se pierde al
+  cerrar la pestaña). **`action` propia**, distinta de `pricing.override.blocked`, para no contaminar el
+  conteo de aquélla. Si la bitácora falla, se loguea y el `409` sigue su curso — perder la traza es malo;
+  dejar pasar el borrado por perderla sería peor.
+- **La guarda es POR GRADO.** Con un slab PSA 10 publicado, el estimado de **PSA 9** de esa misma carta
+  **sí** se puede borrar: no hay ninguna pieza PSA 9 publicada que dependa de él.
+
+### 0.8.2 Seed E2E — las dos filas que pedía frontend (§4.38i.9)
+
+En `prisma/e2e-fixtures.ts` + `prisma/seed-e2e.ts` (idempotentes, como todo el fixture):
+
+| Carta | Número | Qué es | Qué desbloquea |
+|---|---|---|---|
+| `slabbed` (`e2e-slab-raw`, «E2E Slab And Raw») | `30` | raw publicado (`E2E-LST-0005`, venta MX$350) **Y** slab PSA 10 publicado (`E2E-LST-0006`, venta MX$9,200) de la MISMA carta, con su `graded:PSA:10` de mercado | el **pre-vuelo de INV-D** del back-office, el **`SLAB_PUBLISHED`** de la lista de revisión en real y el **`409` del `DELETE`** — sin ella no era verificable de punta a punta |
+| `thirdraw` (`e2e-third-raw`, «E2E Third Bird») | `31` | **tercera** carta raw publicada (`E2E-LST-0007`, venta MX$460) | cubrir a la vez «un solo grado» y «dos grados sin destacar» sin que un caso pise al otro |
+
+**Tres cosas que hay que saber antes de tocar estos fixtures:**
+
+1. **`E2E_SET_EXPECTED_NUMBERS` se actualizó** a `['4','16','17','20','25','30','31','98','99']` — es el
+   oráculo EXPLÍCITO de `buylist-cards-order.e2e-spec.ts` y sigue verde.
+2. **`refPsa10Cents` de `slabbed` NO es un estimado**: es la **referencia de mercado** del slab publicado
+   (la fila del estimado y la del mercado del slab son la MISMA clave — eso *es* INV-D). Por eso la ficha de
+   esa carta **no** muestra el gancho: `usable()` omite el grado con slab publicado.
+3. **`slabbed` se sembró SIN fila PSA 9, a propósito.** Ese estimado es justo lo que la API **sí** puede
+   crear (`POST /admin/pricing/override` con `intent:"graded_estimate"`, que en el grado 9 no choca con
+   nada) y es lo que hace falta para ver `reason: SLAB_PUBLISHED` en la lista de revisión: **captúralo y
+   retíralo con el `DELETE` nuevo**, que es exactamente lo que hace el caso `8e` del E2E. Ponerlo en el
+   seed haría que la ficha de esa carta mostrara el gancho de forma permanente, y el arnés del front elige
+   su carta «sin gancho» (`bare`) tomando el **primer grupo NO raw** del catálogo — que hoy es justamente
+   el slab de esta carta. Verificado contra el stack vivo: `curated`/`informed` siguen siendo Charizard y
+   Pidgey (las dos raw más caras), `rawGroups[2]` es la tercera raw limpia y `bare` sigue sin gancho.
+
+### 0.8.3 Cobertura
+
+- **Unitarios** (`test/graded-estimate.admin.spec.ts`, 13 casos nuevos): borra todas las filas de la clave;
+  borrado quirúrgico (no toca el otro grado, ni otra carta, ni `raw`); `404` sin filas (y sin bitácora);
+  `400` con grado fuera de `grades` (y sin tocar la tabla); clave canónica exacta en el `deleteMany`;
+  bitácora con `before`/`after` y **dentro** de la transacción; funciona con el dial `off`; y los cinco de
+  INV-D (409 con la fila intacta, traza del bloqueo, guarda **por grado**, `409` antes que `404`, y que un
+  slab **no publicado** —bóveda de cliente/retirado— no bloquea).
+- **E2E** (`test/integration/graded-estimate.e2e-spec.ts`, caso `8e` = **criterio 8 del gate de QA**): la
+  carta incoherente aparece en `review`, se **borra** (con **más de una fila** en la clave, porque `8d` la
+  envejeció y recapturó: la resurrección se prueba con datos reales), **desaparece de la ficha y de las tres
+  consultas de `review`**, el precio de venta **no se mueve**, no se encola ningún `PendingPriceEntry`,
+  queda auditada, y repetir el borrado da **`404`**; y sobre la carta con slab el mismo `DELETE` responde
+  **`409`** con **el precio del slab idéntico antes y después**, mientras el estimado de **PSA 9** de esa
+  misma carta sí se enumera (`?reason=SLAB_PUBLISHED`) y sí se retira.
+- **E2E, autorización** (caso `8f`): una ruta destructiva sobre la tabla de dinero es `super_admin` y punto
+  — `vault_operator`, `customer` y anónimo reciben `401/403` **y la fila sigue ahí** (un `403` que aun así
+  borrara sería el peor de los mundos).
+
+### 0.8.4 Verificación
+
+- `npm test` (unitarios): **200 suites / 2456 tests, todo verde**.
+- `npm run test:integration`: **12 suites / 164 tests, todo verde**, y **repetido dos veces seguidas contra
+  la MISMA BD** con resultado idéntico (E2E-1: el caso `8e` escribe y borra, así que su idempotencia se
+  comprobó, no se supuso).
+- `npx tsc --noEmit` limpio; `npm run lint` sin errores (las 2 advertencias son preexistentes y ajenas).
+
+### 0.8.5 Escaladas
+
+**Ninguna.** El contrato era implementable tal cual; no hubo ambigüedad que requiriera regla 9.
+
 ## 0.7 v1.50.3-c (cont.) — Las dos escaladas resueltas por el arquitecto (`515a4be`) (2026-08-28)
 
 > Implementa **§4.38(n.2-bis) / GU-A24** (PI-D6) y **§4.38(h.1-ter) / GU-A25** (PI-D7). **Cero DTO

@@ -60,6 +60,16 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         where: { cardId, productType: 'graded', gradeKey: { in: ['graded:PSA:10', 'graded:PSA:9'] } },
       });
     }
+    // v1.50.3-d: el caso `8e` captura un estimado PSA 9 sobre la carta con SLAB publicado (para ver
+    // `?reason=SLAB_PUBLISHED` en real) y lo retira él mismo. Esto lo repite por si el caso falló a
+    // media ejecución: la fila PSA 10 de esa carta es del SEED (el precio de mercado del slab) y NO se
+    // toca — borrarla dejaría al slab sin referencia.
+    const slab = await h.prisma.card.findFirst({ where: { externalId: E2E_CARDS.slabbed.externalId } });
+    if (slab) {
+      await h.prisma.priceReference.deleteMany({
+        where: { cardId: slab.id, productType: 'graded', gradeKey: 'graded:PSA:9' },
+      });
+    }
     await h?.close();
   });
 
@@ -506,6 +516,217 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
       token: adminToken,
     });
     expect(tras.body.data.find((x: any) => x.cardId === cardId)).toBeUndefined();
+  });
+
+  /**
+   * v1.50.3-d (§4.38q, criterio 8 del gate de QA) — **EL BUCLE COMPLETO DE LA LISTA DE REVISIÓN.**
+   *
+   * `PROJECT.md` §O.7 dice que la carta entra a la lista de revisión para que el dueño «la corrija con
+   * override **o la descarte**», y **descartar no es pisar**. Hasta este pase el back-office solo podía
+   * PISAR una cifra: el remedio disponible para un número que no debería existir era **otro número**.
+   * Con la caducidad de §4.38(m) el hueco se volvió agudo — la cifra errónea desaparece de las tres
+   * superficies, sigue en la tabla y ahora es enumerable: se construyó el detector y se dejó al
+   * operador sin la herramienta.
+   *
+   * Se prueban las DOS mitades, que no son intercambiables:
+   *  (A) la carta INCOHERENTE se **borra**, desaparece de `review` y de la ficha, y **ningún precio de
+   *      venta cambia**;
+   *  (B) sobre la carta con **slab publicado**, el MISMO `DELETE` responde **`409`** y el precio del
+   *      slab es **idéntico antes y después** — el criterio 112 aplicado al verbo destructivo.
+   *
+   * Sin la pareja, «se corrige o se descarta» seguiría sin ser verificable.
+   */
+  it('8e) criterio 8 — la incoherente se BORRA y desaparece; sobre el slab el mismo DELETE es 409', async () => {
+    await setDial('on');
+    const delEstimate = (card: string, grade: string) =>
+      h.api('DELETE', `/admin/pricing/graded-estimates/${card}/${grade}`, { token: adminToken });
+    const gradedRows = (card: string, gradeKey: string) =>
+      h.prisma.priceReference.findMany({
+        where: { cardId: card, productType: 'graded', gradeKey, finish: 'normal', cardProductId: null },
+      });
+
+    // ───────────────── (A) la carta incoherente: encontrarla, descartarla, comprobar que se fue ────
+    // Se vuelve a forzar la incoherencia por la cota inferior (el error de unidades USD/MXN), que es el
+    // caso que §O.7 nombra: un PSA 10 por DEBAJO del precio raw.
+    const incoherente = await h.api('POST', '/admin/pricing/override', {
+      token: adminToken,
+      json: {
+        cardId,
+        productType: 'graded',
+        gradeKey: 'graded:PSA:10',
+        priceMxnCents: Math.floor(E2E_LIST_OVERRIDE_CENTS / 2),
+        intent: 'graded_estimate',
+      },
+    });
+    expect(incoherente.status).toBe(200);
+
+    const antes = await h.api('GET', `/catalog/cards/${cardId}`);
+    const precioAntes = antes.body.listings.find((l: any) => l.productType === 'raw').salePriceCents;
+    expect(antes.body.gradedEstimates.length).toBeGreaterThan(0);
+    const revisionAntes = await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', {
+      token: adminToken,
+    });
+    expect(revisionAntes.body.data.find((x: any) => x.cardId === cardId)?.reason).toBe('NOT_ABOVE_RAW');
+
+    // El estado REAL de la tabla: el test `8d` envejeció las filas a 40 días y luego RECAPTURÓ, así que
+    // esta clave tiene MÁS de una fila (la `@@unique` incluye `capturedDate`). Es justo el caso que
+    // obliga a borrar TODAS: borrar «solo la vigente» haría aflorar la vieja y la cifra REAPARECERÍA.
+    const filas10 = await gradedRows(cardId, 'graded:PSA:10');
+    expect(filas10.length).toBeGreaterThan(1);
+
+    const borrado10 = await delEstimate(cardId, '10');
+    expect(borrado10.status).toBe(200);
+    expect(borrado10.body).toMatchObject({ cardId, gradeValue: '10', deletedCount: filas10.length });
+    // …y no queda NINGUNA fila de esa clave: sin esto, la ficha resucitaría la cifra más vieja sola.
+    expect(await gradedRows(cardId, 'graded:PSA:10')).toHaveLength(0);
+
+    // El PSA 9 se descarta igual (son grados INDEPENDIENTES): «descartar el estimado de esta carta».
+    expect((await delEstimate(cardId, '9')).status).toBe(200);
+
+    // (1) desaparece de la FICHA…
+    const despues = await h.api('GET', `/catalog/cards/${cardId}`);
+    expect(despues.body.gradedEstimates).toBeUndefined();
+    // (2) …y de la LISTA DE REVISIÓN, también con los opt-in (`STALE` incluido: la fila no existe, no
+    //     es que haya caducado). Una lista de trabajo que no se vacía al resolver enseña a ignorarla.
+    for (const q of ['?pageSize=100', '?reason=STALE&pageSize=100', '?reason=SLAB_PUBLISHED&pageSize=100']) {
+      const lista = await h.api(`GET`, `/admin/pricing/graded-estimates/review${q}`, { token: adminToken });
+      expect(lista.status).toBe(200);
+      expect(lista.body.data.find((x: any) => x.cardId === cardId)).toBeUndefined();
+    }
+    // (3) …y NINGÚN precio de venta cambió: el estimado nunca fue dinero (§4.38q.3).
+    expect(despues.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(precioAntes);
+    expect(precioAntes).toBe(E2E_LIST_OVERRIDE_CENTS);
+    // (4) …y la AUSENCIA de estimado NO es un «precio pendiente» (doctrina §4.38b.4): borrar no encola.
+    expect(
+      await h.prisma.pendingPriceEntry.findMany({ where: { cardId, productType: 'graded' } }),
+    ).toHaveLength(0);
+
+    // (5) AUDITADO con `before` = las filas borradas. Es la ÚNICA forma de deshacer (recapturar lo que
+    //     había): un borrado en una tabla de dinero sin registro de qué había es inaceptable.
+    const bitacora = await h.prisma.auditLog.findMany({
+      where: { action: 'pricing.graded_estimate.delete', entityId: cardId },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(bitacora.length).toBeGreaterThanOrEqual(2);
+    const ultimoBorrado = bitacora[bitacora.length - 2].before as Record<string, any>;
+    expect(ultimoBorrado).toMatchObject({ cardId, gradeValue: '10', deletedCount: filas10.length });
+    expect(ultimoBorrado.rows.map((r: any) => r.priceMxnCents).sort()).toEqual(
+      filas10.map((r) => r.priceMxnCents).sort(),
+    );
+    expect(bitacora[bitacora.length - 1].after).toBeNull();
+
+    // (6) Repetir el borrado ⇒ `404`, JAMÁS un `200` silencioso: responder éxito cuando no pasó nada
+    //     le haría creer al operador que limpió algo que no limpió (mismo criterio que el `PUT` vacío).
+    const otraVez = await delEstimate(cardId, '10');
+    expect(otraVez.status).toBe(404);
+    // Y una clave arbitraria no se acepta en una ruta destructiva: solo los grados que la feature
+    // gobierna (`grades`), nunca el `gradeKey` crudo con dos puntos escapados.
+    expect((await delEstimate(cardId, '8')).status).toBe(400);
+    expect((await delEstimate(cardId, 'graded%3APSA%3A10')).status).toBe(400);
+
+    // ───────────────── (B) la carta con SLAB PUBLICADO: la guarda INV-D dispara y DEBE disparar ─────
+    const conSlab = await h.prisma.card.findFirst({ where: { externalId: E2E_CARDS.slabbed.externalId } });
+    if (!conSlab) throw new Error('fixture e2e-slab-raw no encontrado: corre `npm run seed:synthetic`');
+
+    const fichaSlabAntes = await h.api('GET', `/catalog/cards/${conSlab.id}`);
+    const slabAntes = fichaSlabAntes.body.listings.find((l: any) => l.productType === 'graded');
+    expect(slabAntes.salePriceCents).toBeGreaterThan(0); // el slab se está VENDIENDO con ese precio
+    // La fila `graded:PSA:10` de esta carta NO es un estimado: con el slab publicado es la referencia de
+    // mercado REAL de una pieza física — y por eso la ficha no la muestra como estimado (INV-D lectura).
+    expect(fichaSlabAntes.body.gradedEstimates).toBeUndefined();
+
+    const bloqueado = await delEstimate(conSlab.id, '10');
+    expect(bloqueado.status).toBe(409);
+    expect(bloqueado.body.error.code).toBe('GRADED_ESTIMATE_SLAB_PUBLISHED');
+    expect(bloqueado.body.error.details.publishedSlabCount).toBeGreaterThanOrEqual(1);
+
+    // El precio del slab es IDÉNTICO antes y después: la guarda corta ANTES de tocar la tabla. Si el
+    // borrado se permitiera, esa pieza quedaría sin referencia ⇒ PRICE_PENDING ⇒ DESPUBLICADA, y
+    // despublicar una pieza real por «limpiar» es una acción de negocio, no una limpieza.
+    const fichaSlabDespues = await h.api('GET', `/catalog/cards/${conSlab.id}`);
+    const slabDespues = fichaSlabDespues.body.listings.find((l: any) => l.productType === 'graded');
+    expect(slabDespues.salePriceCents).toBe(slabAntes.salePriceCents);
+    expect(await gradedRows(conSlab.id, 'graded:PSA:10')).toHaveLength(1);
+
+    // ⛔ La inferencia que NO hay que hacer (§4.38q.2): este `DELETE` **no** es el remedio de INV-D
+    // inverso. Aquí se ve el bucle real del operador — la carta expuesta se ENCUENTRA con
+    // `?reason=SLAB_PUBLISHED`, pero el borrado de ESE grado está bloqueado; lo que sí se puede retirar
+    // es el estimado de OTRO grado, porque ahí no hay ninguna pieza publicada que dependa de él.
+    expect(
+      (
+        await h.api('POST', '/admin/pricing/override', {
+          token: adminToken,
+          json: {
+            cardId: conSlab.id,
+            productType: 'graded',
+            gradeKey: 'graded:PSA:9',
+            priceMxnCents: 600_000,
+            intent: 'graded_estimate',
+          },
+        })
+      ).status,
+    ).toBe(200);
+    const expuestas = await h.api(
+      'GET',
+      '/admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED&pageSize=100',
+      { token: adminToken },
+    );
+    expect(expuestas.status).toBe(200);
+    expect(expuestas.body.data.find((x: any) => x.cardId === conSlab.id)).toMatchObject({
+      reason: 'SLAB_PUBLISHED',
+      publishedSlabGrades: ['10'],
+    });
+    // La guarda es POR GRADO: el PSA 9 sí se retira (y así el fixture queda como estaba).
+    const borrado9 = await delEstimate(conSlab.id, '9');
+    expect(borrado9.status).toBe(200);
+    expect(borrado9.body.deletedCount).toBe(1);
+    expect(
+      (
+        await h.api('GET', '/admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED&pageSize=100', {
+          token: adminToken,
+        })
+      ).body.data.find((x: any) => x.cardId === conSlab.id),
+    ).toBeUndefined();
+    // …y el precio del slab sigue sin moverse tras TODO el ejercicio.
+    const fichaSlabFinal = await h.api('GET', `/catalog/cards/${conSlab.id}`);
+    expect(
+      fichaSlabFinal.body.listings.find((l: any) => l.productType === 'graded').salePriceCents,
+    ).toBe(slabAntes.salePriceCents);
+
+    // Se recapturan los estimados de la carta del fixture para que los tests siguientes (9) partan del
+    // mismo estado que antes de este caso.
+    for (const [gradeKey, priceMxnCents] of [
+      ['graded:PSA:10', PSA10_CENTS],
+      ['graded:PSA:9', PSA9_CENTS],
+    ] as const) {
+      await h.api('POST', '/admin/pricing/override', {
+        token: adminToken,
+        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, intent: 'graded_estimate' },
+      });
+    }
+  });
+
+  /**
+   * §7 / SEC — una ruta **destructiva** sobre la tabla de dinero es `super_admin` y punto. Se prueba con
+   * los DOS roles que no lo son (y con el anónimo), y se comprueba que la fila **sigue ahí**: un `403`
+   * que aun así borrara sería el peor de los mundos.
+   */
+  it('8f) el borrado es `super_admin`: operador, cliente y anónimo reciben 401/403 y NADA se borra', async () => {
+    const antes = await h.prisma.priceReference.count({
+      where: { cardId, productType: 'graded', gradeKey: 'graded:PSA:10' },
+    });
+    expect(antes).toBeGreaterThan(0);
+    const operador = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
+    const cliente = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+    for (const token of [operador, cliente, undefined]) {
+      const res = await h.api('DELETE', `/admin/pricing/graded-estimates/${cardId}/10`, { token });
+      expect([401, 403]).toContain(res.status);
+    }
+    expect(
+      await h.prisma.priceReference.count({
+        where: { cardId, productType: 'graded', gradeKey: 'graded:PSA:10' },
+      }),
+    ).toBe(antes);
   });
 
   it('9) apagar el dial deja el catálogo EXACTAMENTE como antes de la feature', async () => {

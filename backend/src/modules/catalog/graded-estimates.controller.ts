@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Logger, Param, Put, Query } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { Allow } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -28,6 +28,7 @@ import {
   validateGradedEstimateMaxRawMultiple,
   validateGradedEstimateMinSampleCount,
   validateGradedEstimateSourceStat,
+  gradedEstimateGradeKey,
   HighlightReason,
 } from '../../common/graded-estimate';
 
@@ -95,6 +96,8 @@ class GradedEstimatesPutDto {
 @Controller('admin/pricing/graded-estimates')
 @Roles(Role.super_admin)
 export class GradedEstimatesController {
+  private readonly logger = new Logger(GradedEstimatesController.name);
+
   constructor(
     private readonly pricing: PricingService,
     private readonly catalog: CatalogService,
@@ -322,6 +325,201 @@ export class GradedEstimatesController {
       page: this.reviewInt(page, 'page', 1, 1, Number.MAX_SAFE_INTEGER),
       pageSize: this.reviewInt(pageSize, 'pageSize', REVIEW_PAGE_SIZE_DEFAULT, 1, REVIEW_PAGE_SIZE_MAX),
     });
+  }
+
+  /**
+   * `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` — **BORRADO del estimado**
+   * (v1.50.3-d, §4.38q, API_CONTRACT §M2). `super_admin`, **auditado**, funciona con el dial `off`.
+   *
+   * ## Por qué existe
+   * `PROJECT.md` §O.7 pide que el dueño pueda «corregirla con override **o descartarla**», y
+   * **descartar no es pisar**: sustituir la cifra por otra deja OTRA afirmación comercial en su lugar.
+   * El contrato venía afirmando desde v1.46 que un override manual «solo lo revoca otro override o la
+   * limpieza/borrado explícito por `super_admin`» — y ese borrado **no existía**. Con la caducidad de
+   * §4.38(m) el hueco se volvió agudo: una cifra manual errónea desaparece de las tres superficies,
+   * **sigue en la tabla**, ahora es enumerable por `?reason=STALE` … y el único gesto disponible del
+   * operador era **capturar otra cifra igual de indeseada**. Esto cierra ese bucle.
+   *
+   * ## Las cuatro decisiones no obvias (§4.38q.1)
+   *
+   * 1. **Alcance ESTRECHO — solo la fila del estimado por grado**, y NO un `DELETE
+   *    /admin/pricing/override` genérico simétrico del `POST`. El genérico cubriría `raw` y `sealed`,
+   *    cuyo borrado **cambia el precio de venta publicado** de forma inmediata: no se abre ese radio de
+   *    explosión para resolver una necesidad del gancho. (`raw`/`sealed` siguen **sin** borrado; es un
+   *    hueco declarado en §9, no una capacidad prometida.)
+   * 2. **`:gradeValue`** (`"10"`/`"9"`), **nunca el `gradeKey` crudo**: el servidor deriva la clave
+   *    canónica y **exige que el grado esté en `cfg.grades`**. Una ruta destructiva no acepta claves
+   *    arbitrarias — solo se pueden borrar los grados que esta feature gobierna.
+   * 3. **Borra TODAS las filas de la clave, en UNA transacción.** La `@@unique` incluye `capturedDate`,
+   *    así que borrar «solo la vigente» haría **aflorar una fila más vieja** y la cifra **reaparecería
+   *    sola** en la ficha. Una resurrección silenciosa en una superficie comercial es peor que no haber
+   *    borrado. `deletedCount` va en la respuesta para que el operador vea cuánto historial se llevó.
+   * 4. **`404` si no había nada, jamás un `200` silencioso** (mismo precedente que el `PUT` con body
+   *    vacío ⇒ `422`): responder éxito cuando no pasó nada le haría creer al operador que limpió algo
+   *    que no limpió.
+   *
+   * ## La guarda INV-D — y el razonamiento que NO hay que hacer
+   * Si hay un **slab publicado** de ese grado ⇒ **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`**, la MISMA
+   * guarda que la escritura (§4.38l.1): con el slab publicado esa fila **ya no es un estimado, es la
+   * referencia de mercado real de una pieza física**, y borrarla le quitaría el sustento de precio a un
+   * slab que se está vendiendo (⇒ `PRICE_PENDING` ⇒ despublicado).
+   *
+   * ⛔ **Por eso este `DELETE` NO mitiga INV-D inverso (§4.38l.3), y la inferencia contraria es
+   * tentadora y falsa:** «busco las expuestas con `?reason=SLAB_PUBLISHED` y borro la fila» **dispara
+   * `409` — y DEBE dispararlo**. El remedio correcto ahí sigue siendo **repreciar con `intent:"market"`**
+   * (un acto de dinero, deliberado y auditado). INV-D inverso sigue abierto y sigue necesitando M-43.
+   *
+   * La guarda corre **ANTES** de mirar si hay filas: es una precondición sobre el estado del mundo, no
+   * sobre el contenido de la tabla. Con slab publicado la respuesta correcta es «no se toca esto»,
+   * exista o no la fila — un `404` ahí invitaría a reintentar tras capturarla.
+   */
+  @Delete(':cardId/:gradeValue')
+  async remove(
+    @Param('cardId') cardId: string,
+    @Param('gradeValue') gradeValue: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    // Config COMPLETA (aunque el dial esté `off`): hay que poder limpiar ANTES de encender, igual que
+    // `/review` (§4.38n.3). Una limpieza que exigiera la feature encendida obligaría a **publicar** la
+    // cifra mala para poder retirarla.
+    const cfg = await this.pricing.loadGradedEstimateConfigForAdmin();
+    const grade = (gradeValue ?? '').trim();
+    if (!cfg.grades.includes(grade)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `gradeValue '${grade}' no está en los grados que gobierna esta feature. Una ruta destructiva ` +
+          'solo acepta los grados de `grades` (GET /admin/pricing/graded-estimates), nunca una clave ' +
+          'arbitraria.',
+        { field: 'gradeValue', allowed: [...cfg.grades] },
+      );
+    }
+    const gradeKey = gradedEstimateGradeKey(grade);
+
+    // ===== INV-D (§4.38q.2) — la MISMA guarda que la escritura, aplicada al verbo destructivo =====
+    const slabs = await this.pricing.publishedSlabsForGradeKey(cardId, gradeKey);
+    if (slabs.length > 0) {
+      // §O.8 / criterio 112(b) aplicado al borrado: un intento BLOQUEADO deja rastro. Sin esto la
+      // guarda sería muda por esta vía (el `409` lo ve solo quien hizo la petición y se pierde al
+      // cerrar la pestaña), justo como lo era la del override antes de v1.50.3. `action` PROPIA: un
+      // borrado bloqueado no es un override bloqueado, y confundirlos rompería el conteo de aquél.
+      await this.auditDeleteBlocked(userId, cardId, grade, gradeKey, slabs);
+      throw BusinessException.conflict(
+        'GRADED_ESTIMATE_SLAB_PUBLISHED',
+        `No se puede BORRAR la referencia PSA ${grade} de esta carta: hay ${slabs.length} slab(s) ` +
+          `PSA ${grade} publicado(s). Con el slab publicado esa fila ya no es un estimado — es el ` +
+          'precio de mercado real de esas piezas —, y borrarla las dejaría sin precio (PRICE_PENDING ' +
+          '⇒ despublicadas). Si lo que hay que corregir es ese precio, reprécialo con ' +
+          'POST /admin/pricing/override e intent:"market".',
+        {
+          cardId,
+          gradeKey,
+          publishedSlabCount: slabs.length,
+          inventoryItemIds: slabs.map((i) => i.id),
+        },
+      );
+    }
+
+    // Clave CANÓNICA del estimado (§4.38a): `cardProductId: null` y `finish: 'normal'` — el grado NO se
+    // cruza con el acabado. Se escribe UNA vez y se reutiliza en la lectura y en el borrado para que no
+    // puedan divergir (borrar por una clave más ancha que la que se leyó sería un borrado a ciegas).
+    const where = {
+      cardId,
+      productType: 'graded' as const,
+      gradeKey,
+      finish: 'normal' as const,
+      cardProductId: null,
+    };
+
+    const { deletedCount } = await this.prisma.$transaction(async (tx) => {
+      // Se LEEN primero porque el `before` de la bitácora **es la única forma de deshacer** (recapturar
+      // lo que había). Dentro de la transacción, así que nadie puede insertar una fila entre la lectura
+      // y el borrado y dejar la bitácora incompleta.
+      const rows = await tx.priceReference.findMany({
+        where,
+        orderBy: { capturedDate: 'desc' },
+      });
+      if (rows.length === 0) {
+        // `404`, no un `200` con `deletedCount: 0` (§4.38q.1): responder éxito cuando no pasó nada le
+        // haría creer al operador que limpió algo que no limpió.
+        throw BusinessException.notFound(
+          'NOT_FOUND',
+          `No hay ninguna referencia PSA ${grade} que borrar para esta carta (${cardId}).`,
+        );
+      }
+      const del = await tx.priceReference.deleteMany({ where });
+      await this.audit.log(
+        {
+          actorUserId: userId,
+          action: 'pricing.graded_estimate.delete',
+          entityType: 'PriceReference',
+          // No hay UN id (se borran N filas): la entidad de la acción es la CARTA, mismo criterio que
+          // `pricing.override.blocked`. Los ids concretos van en el `before`.
+          entityId: cardId,
+          before: {
+            cardId,
+            gradeValue: grade,
+            gradeKey,
+            finish: 'normal',
+            deletedCount: del.count,
+            // Valores y fechas de CADA fila borrada: es el material para recapturar lo que estaba.
+            rows: rows.map((r) => ({
+              id: r.id,
+              priceMxnCents: r.priceMxnCents,
+              priceUsdCents: r.priceUsdCents,
+              fxRate: r.fxRate == null ? null : r.fxRate.toString(),
+              source: r.source,
+              isManualOverride: r.isManualOverride,
+              capturedDate: r.capturedDate.toISOString().slice(0, 10),
+            })),
+          },
+          // El contrato pide `after: null`. En la fila eso es la columna en NULL; `Prisma.DbNull` es la
+          // forma de pedirlo explícitamente (el `null` literal de Prisma significa «JSON null»).
+          after: Prisma.DbNull,
+        },
+        tx,
+      );
+      // Efecto y bitácora commitean o revierten JUNTOS (misma paridad que el `PUT`, BE-GE2): un borrado
+      // en una tabla de dinero sin registro de qué había es inaceptable, en cualquier orden de fallo.
+      return { deletedCount: del.count };
+    });
+
+    return { cardId, gradeValue: grade, deletedCount };
+  }
+
+  /**
+   * Traza del borrado BLOQUEADO por INV-D. **Nunca convierte el rechazo en un 500:** si la bitácora
+   * falla se loguea y el `409` sigue su curso — perder la traza es malo; dejar pasar el borrado por
+   * perderla sería peor (mismo criterio que `auditGradedBlock` del override).
+   */
+  private async auditDeleteBlocked(
+    userId: string,
+    cardId: string,
+    gradeValue: string,
+    gradeKey: string,
+    slabs: { id: string }[],
+  ): Promise<void> {
+    try {
+      await this.audit.log({
+        actorUserId: userId,
+        action: 'pricing.graded_estimate.delete.blocked',
+        entityType: 'PriceReference',
+        entityId: cardId,
+        after: {
+          code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+          cardId,
+          gradeValue,
+          gradeKey,
+          finish: 'normal',
+          publishedSlabCount: slabs.length,
+          inventoryItemIds: slabs.map((i) => i.id),
+        },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `graded_estimate.delete BLOQUEADO por INV-D card=${cardId} gradeKey=${gradeKey}: no se pudo ` +
+          `escribir la bitácora (${(e as Error).message}). El rechazo se mantiene.`,
+      );
+    }
   }
 
   /**

@@ -256,6 +256,15 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await priceRef(E2E_CARDS.highvalue.externalId, 'raw', 'raw:NM', E2E_CARDS.highvalue.refNmCents);
   // v2.1.7: mercado ABSURDO para una premium ⇒ la venta aterriza en el PISO (guardarraíl §4.36.5).
   await priceRef(E2E_CARDS.floorpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.floorpremium.refNmCents!);
+  // v1.50.3-d (§4.38i.9) — la carta con raw publicado Y slab PSA 10 publicado. Las DOS filas son de la
+  // MISMA carta y NO significan lo mismo: `raw:NM` es el mercado del single, y `graded:PSA:10` es la
+  // referencia de mercado REAL del slab publicado — **no** un estimado del gancho, aunque sea la misma
+  // clave que usaría un estimado (eso ES INV-D, §4.38l). El `DELETE` de §4.38(q) responde `409` sobre
+  // ella y este seed es lo que lo vuelve verificable de punta a punta.
+  await priceRef(E2E_CARDS.slabbed.externalId, 'raw', 'raw:NM', E2E_CARDS.slabbed.refNmCents);
+  await priceRef(E2E_CARDS.slabbed.externalId, 'graded', 'graded:PSA:10', E2E_CARDS.slabbed.refPsa10Cents);
+  // v1.50.3-d — la TERCERA carta raw publicada (§4.38i.9).
+  await priceRef(E2E_CARDS.thirdraw.externalId, 'raw', 'raw:NM', E2E_CARDS.thirdraw.refNmCents);
 
   // 6-bis. COLA DE PRECIO PENDIENTE (v2.1.7) — la cola de triage de P-48 no tenía NINGÚN dato real:
   // sus `counts` estaban verificados en forma pero no en número. Se siembran las DOS razones, y las
@@ -365,6 +374,57 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       ownerType: 'platform',
       status: 'listed',
       acquisitionType: 'compra',
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+
+  // v1.50.3-d (§4.38i.9) — las DOS piezas de la carta de INV-D, sobre la MISMA carta: el grupo raw
+  // publicado y el slab PSA 10 publicado. Con las dos a la vez, `getPublishedSlabGradesBatch` devuelve
+  // `['10']` para esa carta y por fin se puede ejercitar contra el stack vivo lo que hasta ahora solo
+  // existía en pruebas unitarias: el pre-vuelo del back-office, el `SLAB_PUBLISHED` de la lista de
+  // revisión y el `409` del `DELETE` de §4.38(q).
+  await upsertItem(
+    E2E_FOLIOS.listedSlabRaw,
+    {
+      cardId: cardIds[E2E_CARDS.slabbed.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 20000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+  await upsertItem(
+    E2E_FOLIOS.listedSlab,
+    {
+      cardId: cardIds[E2E_CARDS.slabbed.externalId],
+      productType: 'graded',
+      gradingCompany: 'PSA',
+      gradeValue: '10',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 500000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+  // v1.50.3-d — la TERCERA raw publicada (§4.38i.9): permite cubrir «un solo grado» y «dos grados sin
+  // destacar» a la vez, sin que un caso pise al otro sobre la misma carta.
+  await upsertItem(
+    E2E_FOLIOS.listedThirdRaw,
+    {
+      cardId: cardIds[E2E_CARDS.thirdraw.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 25000,
       locationId: platformLoc.id,
     },
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
