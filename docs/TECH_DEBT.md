@@ -4602,3 +4602,42 @@
 - **Disparador:** la primera corrida real del ingest con `graded_estimate_ingest_enabled = on`. Si el
   `warn` de «no se escala por muestra corta» aparece de forma sostenida sobre corridas de alcance normal,
   el número está mal calibrado y ahí sí habrá datos para elegirlo.
+
+### Cierre del stream del gancho de grading — IMP-A / IMP-B / D3 / D5 / D6 (rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-29) — deuda del pase (dueño: **frontend**, no bloqueante)
+
+> Los cinco hallazgos del cierre se **arreglaron en el pase** (higiene de credenciales del arnés,
+> `@real` del borrado, guardarraíl de `bare`, candado anti-regresión reescrito y la errata de copy).
+> Lo que queda aquí es lo que **no depende de mí**, escrito para que no se pierda.
+
+#### GR-D1 · El opt-in `STALE` y el origen `ingest` de la lista de revisión no tienen cobertura `@real` (Baja, frontend — bloqueada por DATO de seed)
+- **Dueño:** frontend (el test), **desbloquea:** backend (`prisma/seed-e2e.ts`). **Severidad:** Baja.
+- **Qué falta:** el smoke de «lo caducado se puede pedir y se distingue su origen» sigue `mockOnly`.
+  Una cifra **caducada** exige una `capturedDate` anterior a `manualFreshnessDays`, y una de origen
+  **automático** exige `isManual:false`. **Ninguna de las dos se puede fabricar por la API del
+  contrato**: `POST /admin/pricing/override` escribe siempre manual y con fecha de hoy. No es una
+  limitación del test —está escrito agnóstico— sino la ausencia del dato.
+- **Lo que SÍ quedó cubierto en real:** el **borrado** de punta a punta a nivel UI, con el gesto del
+  operador y verificación por contrato (`preview` + segundo `DELETE` ⇒ `404` + grado auxiliar intacto).
+- **Disparador:** dos filas en el seed sintético — una `PriceReference` `graded:PSA:*` con
+  `capturedDate` vieja y otra con origen ingest. El test pasa tal cual el día que existan.
+
+#### GR-D2 · Falta una CUARTA carta raw publicada y libre en el seed (Baja, frontend — bloqueada por DATO de seed)
+- **Dueño:** frontend (el test), **desbloquea:** backend. **Severidad:** Baja.
+- **Qué falta:** el escenario real ya consume las tres raw publicadas (`curated`, `informed` y
+  `deletable`, esta última elegida **sin slab publicado** para que el `DELETE` no choque con INV-D).
+  El caso «dos grados con dato y SIN destacar» necesita una cuarta y sigue `needsSeed`.
+- **Disparador:** una cuarta carta raw publicada en `seed-e2e.ts`. El test no cambia.
+
+#### GR-D3 · La suite E2E no purga los estimados que siembra (Media→Baja, frontend — decisión, no olvido)
+- **Dueño:** frontend. **Severidad:** Baja (mitigada). **Estado: aceptada.**
+- **Qué pasa:** el arnés siembra `PriceReference` de estimado en `curated`/`informed` y **no** las
+  retira en el `globalTeardown`, aunque el `DELETE` del contrato ya existe y ya está cableado en el
+  cliente. **Motivo:** el módulo **no puede distinguir** la fila que escribió él de la que trae el seed
+  —la clave canónica es la misma— y una purga indiscriminada se llevaría dato del entorno por delante.
+- **Mitigación vigente (por qué es Baja):** la siembra es **idempotente** (un override posterior
+  supersede al anterior), el dial vuelve a `off` en el teardown ⇒ **nada de lo sembrado se publica**, y
+  contra el residuo de una corrida cuyo teardown no llegó a correr los **guardarraíles** de `informed`
+  y `bare` fallan con el remedio literal («borra esto con este endpoint») en vez de con un rojo de UI.
+  El único caso que sí se limpia solo es el del smoke de borrado, que retira lo que siembra.
+- **Disparador para cerrarla:** que el arnés pueda marcar sus propias filas (p. ej. una carta de seed
+  reservada al E2E cuyo estimado sea siempre desechable). Es alcance nuevo, no un arreglo.

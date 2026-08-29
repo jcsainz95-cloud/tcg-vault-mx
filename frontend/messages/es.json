@@ -1624,7 +1624,7 @@
         "deleteConfirmCta": "Retirar PSA {grade}",
         "cancel": "Cancelar",
         "deleteFailedTitle": "No se retiró",
-        "deleteSlabPublishedNote": "Esto es la guarda haciendo su trabajo, no una falla: insistir en borrar no es el camino. Represa la pieza en Inventario › Gradeadas con «Fijar valor» (intención «market»), que es un acto de dinero deliberado y auditado.",
+        "deleteSlabPublishedNote": "Esto es la guarda haciendo su trabajo, no una falla: insistir en borrar no es el camino. Reprecia la pieza en Inventario › Gradeadas con «Fijar valor» (intención «market»), que es un acto de dinero deliberado y auditado.",
         "deleteOk": "Se retiró el estimado PSA {grade} de {card}: {count, plural, one {# captura borrada} other {# capturas borradas}}. La lista ya no la incluye.",
         "deleteNothingTitle": "No había nada que borrar",
         "deleteNothingBody": "El estimado PSA {grade} de {card} ya no estaba en la tabla: alguien lo retiró antes o este listado venía rancio. No se borró nada porque no había nada. La lista se acaba de actualizar.",

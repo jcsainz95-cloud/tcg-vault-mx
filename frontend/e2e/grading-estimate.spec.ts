@@ -1,8 +1,8 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { t } from './utils/i18n';
 import { MONEY_RE, loginAs, mockOnly, needsSeed, realOnly } from './utils/auth';
-import { apiAsOk } from './utils/env';
-import { gradingScenario, type GradingScenario } from './utils/grading';
+import { apiAs, apiAsOk } from './utils/env';
+import { gradingScenario, seedIncoherentEstimate, type GradingScenario } from './utils/grading';
 
 /**
  * Flujo: **«Valor estimado si se gradea» — el gancho de grading** en sus superficies
@@ -56,6 +56,23 @@ const NOTE_HEADLINE = 'catalog.gradingNote.headline';
 
 function escapeRe(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Importe MXN tal como lo pinta la UI en `es` (`formatMoneyCents`, DESIGN_SYSTEM §9.3). Se replica
+ * aquí —tres líneas— en vez de importar `src/lib/format`: los E2E **no importan código de la app** a
+ * propósito (importarlo sería medir el módulo contra sí mismo). El `replace` cubre las dos salidas
+ * posibles de ICU para `es-MX`+MXN (`$` y `MX$`), que difieren entre Node y Chromium.
+ */
+function mxn(cents: number): string {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+    .format(cents / 100)
+    .replace(/^\$/, 'MX$');
 }
 
 /**
@@ -439,7 +456,18 @@ test.describe('Gancho de grading · BACK-OFFICE: la captura manual de estimados 
   });
 });
 
-test.describe('Gancho de grading · BACK-OFFICE: la lista de revisión (criterio 111(e), v1.50.3)', () => {
+test.describe('Gancho de grading · BACK-OFFICE: la lista de revisión y el RETIRO (criterio 111(e) / §O.7)', () => {
+  /**
+   * ⚠️ **SERIAL a propósito.** Estos tests comparten un recurso GLOBAL del entorno: el conjunto de
+   * cifras marcadas, que es lo que la lista cuenta. El smoke del borrado **siembra una cifra
+   * incoherente y la retira**, así que mueve `total`/`scannedCards`; y el smoke del resumen afirma
+   * que el número pintado por la UI es **exactamente** el que devolvió la API. En paralelo, un
+   * borrado colado entre la llamada a la API y el render de la página fabricaría un rojo que no
+   * dice nada del producto. `fullyParallel: true` sigue valiendo para todo lo demás del archivo:
+   * el orden se serializa **solo** donde hay estado compartido, que es donde debe.
+   */
+  test.describe.configure({ mode: 'serial' });
+
   /**
    * La contrapartida de §4.38(k.3): la cifra incoherente **no se oculta** en la ficha, así que
    * alguien tiene que enterarse. Este smoke fija lo único que no se puede relajar sin convertir la
@@ -545,11 +573,9 @@ test.describe('Gancho de grading · BACK-OFFICE: la lista de revisión (criterio
       ),
     ).toBeVisible();
   });
-});
 
-test.describe('Gancho de grading · BACK-OFFICE: RETIRAR una cifra (criterio 111(e) / §O.7, v1.50.3-d)', () => {
   /**
-   * **El bucle que este bloque cierra.** La lista de revisión enseñaba la cifra mala y el único
+   * **El bucle que la mitad de abajo cierra.** La lista de revisión enseñaba la cifra mala y el único
    * gesto disponible era **capturar otra** — pisar no es descartar, deja otra afirmación comercial
    * en su lugar. `PROJECT.md` §O.7 pide que el dueño pueda *«corregirla con override **o
    * descartarla»*, y desde v1.50.3-d existe el `DELETE`. Sin **este botón**, el endpoint obligaría
@@ -562,12 +588,16 @@ test.describe('Gancho de grading · BACK-OFFICE: RETIRAR una cifra (criterio 111
   test('lo caducado se puede pedir, se distingue su origen, y se RETIRA desde la propia lista', async ({
     page,
   }) => {
+    // Lo mock-only de este caso es **el dato**, no el gesto: una cifra CADUCADA exige una
+    // `capturedDate` vieja y una de origen INGEST exige `isManual:false`, y ninguna de las dos se
+    // puede fabricar por la API del contrato (`POST /admin/pricing/override` escribe siempre
+    // manual y con fecha de hoy). El BORRADO contra el backend real ya no falta: lo cubre el test
+    // `@real` de más abajo, que siembra una cifra incoherente, la retira desde esta misma lista y
+    // comprueba con el contrato que se fue. Lo que sigue sin cobertura real es el opt-in `STALE`,
+    // y eso es una petición de DATO al seed (docs/FRONTEND_NOTES.md).
     mockOnly(
-      'el conjunto de cifras caducadas es dato de fixture, y el DELETE (contrato v1.50.3-d) todavía ' +
-        'no está VIVO en el stack: el código existe (backend fea436c) pero el proceso :3099 arrancó ' +
-        'antes y la ruta responde 404. Cuando se redespliegue, la cobertura real de este flujo es ' +
-        'un test que siembre una cifra incoherente, la encuentre en la lista y la retire — y que se ' +
-        'limpia a sí mismo, justo lo que este DELETE habilita. Anotado en docs/FRONTEND_NOTES.md.',
+      'las cifras CADUCADAS y las de origen ingest son dato de fixture: no se pueden fabricar por ' +
+        'la API del contrato (el override escribe siempre manual y con fecha de hoy)',
     );
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m2');
@@ -695,20 +725,127 @@ test.describe('Gancho de grading · BACK-OFFICE: RETIRAR una cifra (criterio 111
       section.getByText(t('es', 'admin.m2.gradedEstimateReview.deleteBlockedBody')),
     ).toBeVisible();
   });
+
+  /**
+   * **IMP-B (QA) — el borrado, de punta a punta y a nivel UI, contra el backend REAL.**
+   *
+   * Lo que faltaba, dicho con precisión: la ruta `DELETE` estaba verificada por API (QA la probó a
+   * mano: `409` y `404` incluidos) y la UI estaba verificada contra fixtures, pero
+   * `deleteGradedEstimate()` de `src/lib/api.ts` **nunca había hablado con el backend real en
+   * ninguna suite** — los dos smokes de arriba son `mockOnly`. El riesgo residual no era el
+   * contrato: era **el pegamento del cliente HTTP** (la URL que se compone, el verbo, el
+   * `Authorization`, el parseo del `deletedCount`, la invalidación de la caché de React Query).
+   * Eso es exactamente lo que este test mide, y lo mide con el gesto del operador, no con `fetch`.
+   *
+   * Se limpia a sí mismo por construcción: siembra la cifra incoherente que va a retirar (la carta
+   * `deletable` del escenario está elegida **sin slab publicado**, si no el `DELETE` daría `409`
+   * por INV-D) y la retira desde la lista. El entorno queda como estaba.
+   */
+  test('@real retira la cifra desde la lista y el contrato confirma que se fue', async ({
+    page,
+  }) => {
+    realOnly('borra de verdad por DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue');
+    const { deletable, detailGrades } = await scenario();
+    const [grade, otherGrade] = detailGrades;
+
+    // 1. Se siembra AQUÍ, no en el escenario compartido: la fila existe la ventana más corta
+    //    posible y el test no depende del TTL de la caché del escenario.
+    const seeded = await seedIncoherentEstimate(deletable, grade, otherGrade);
+    const cents = seeded.high;
+
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+    const section = page.locator('section', {
+      hasText: t('es', 'admin.m2.gradedEstimateReview.title'),
+    });
+    await expect(section.getByText(t('es', 'admin.m2.gradedEstimateReview.subtitle'))).toBeVisible();
+
+    // 2. La fila está en el DEFAULT (no supera el raw: es la categoría de coherencia, sin opt-in)
+    //    y la lista pinta el importe que se acaba de escribir — no un fixture.
+    const cta = section
+      .getByRole('button', {
+        name: t('es', 'admin.m2.gradedEstimateReview.deleteCtaLabel', {
+          grade,
+          card: deletable.name,
+        }),
+      })
+      .first();
+    await expect(cta).toBeEnabled();
+    await expect(section.getByText(mxn(cents)).first()).toBeVisible();
+
+    // 3. Confirmación: es destructivo, es dinero y es `super_admin`.
+    await cta.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByText(t('es', 'admin.m2.gradedEstimateReview.deleteConfirmAllRows')),
+    ).toBeVisible();
+    await dialog
+      .getByRole('button', {
+        name: t('es', 'admin.m2.gradedEstimateReview.deleteConfirmCta', { grade }),
+      })
+      .click();
+
+    // 4. Desenlace en la UI: se dice cuántas filas se fueron y la fila desaparece sin recargar.
+    const okPrefix = t('es', 'admin.m2.gradedEstimateReview.deleteOk', {
+      grade,
+      card: deletable.name,
+    }).split('{')[0];
+    await expect(section.getByText(okPrefix, { exact: false })).toBeVisible();
+    await expect(
+      section.getByRole('button', {
+        name: t('es', 'admin.m2.gradedEstimateReview.deleteCtaLabel', {
+          grade,
+          card: deletable.name,
+        }),
+      }),
+    ).toHaveCount(0);
+
+    // 5. …y el CONTRATO confirma que el borrado ocurrió de verdad, no solo en la pantalla: la cifra
+    //    ya no está en el diagnóstico, y un segundo borrado responde `404` («no había nada»), que es
+    //    la prueba de que el primero se llevó TODAS las filas de la clave.
+    const previewPath = `/admin/pricing/graded-estimates/preview?cardId=${encodeURIComponent(deletable.id)}`;
+    const preview = await apiAsOk<{
+      groups: { psa10MxnCents: number | null; psa9MxnCents: number | null }[];
+    }>('admin', 'GET', previewPath);
+    expect(preview.groups[0]?.psa10MxnCents, 'la cifra debía irse de la tabla').toBeNull();
+    // …y el grado que NO se pidió sigue ahí: la guarda y el borrado son **por grado**, no por carta.
+    expect(
+      preview.groups[0]?.psa9MxnCents,
+      `retirar PSA ${grade} no puede llevarse por delante el PSA ${otherGrade}`,
+    ).toBe(seeded.low);
+    const again = await apiAs(
+      'admin',
+      'DELETE',
+      `/admin/pricing/graded-estimates/${encodeURIComponent(deletable.id)}/${encodeURIComponent(grade)}`,
+    );
+    expect(again.status, 'un segundo borrado no puede encontrar nada').toBe(404);
+
+    // 6. Limpieza del grado auxiliar. Se afirma sobre ella en vez de esconderla: el `200` con su
+    //    `deletedCount` es la última pieza del contrato de esta ruta, y deja el entorno como estaba.
+    const cleanup = await apiAs<{ deletedCount: number }>(
+      'admin',
+      'DELETE',
+      `/admin/pricing/graded-estimates/${encodeURIComponent(deletable.id)}/${encodeURIComponent(otherGrade)}`,
+    );
+    expect(cleanup.status, 'el grado auxiliar tenía que poder retirarse').toBe(200);
+    expect(cleanup.body.deletedCount).toBeGreaterThan(0);
+  });
 });
 
 /**
- * Casos de forma que el seed sintético todavía no puede producir (solo tiene DOS cartas raw
- * publicadas). Están escritos de forma agnóstica y pasarán tal cual el día que el seed siembre una
- * tercera: es una petición accionable a backend, no una limitación del test. Ver
- * `docs/FRONTEND_NOTES.md`.
+ * Casos de forma que el seed sintético todavía no puede producir. Están escritos de forma agnóstica
+ * y pasarán tal cual el día que el seed siembre la fila que falta: es una petición accionable a
+ * backend, no una limitación del test. Ver `docs/FRONTEND_NOTES.md`.
  */
 test.describe('Gancho de grading · estados que faltan en el seed', () => {
   test('dos grados con dato y SIN destacar: la ficha informa y la teja no promueve', async ({
     page,
   }) => {
     needsSeed(
-      'hace falta una TERCERA carta raw publicada para tener a la vez «un solo grado» y «dos grados sin destacar»',
+      'hace falta una CUARTA carta raw publicada y libre: las tres que hay ya son la curada, la ' +
+        'informada y la del smoke de borrado, y este caso necesita una más con DOS grados que no ' +
+        'pasen el gate',
     );
     // Fixture: `c-milotic-fa` tiene PSA 10 y PSA 9 y no pasa el gate.
     await page.goto('/es/catalog/c-milotic-fa');

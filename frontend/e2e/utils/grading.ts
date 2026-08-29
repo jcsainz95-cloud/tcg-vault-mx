@@ -37,11 +37,16 @@ import { readState, sharedOnce, writeState, clearState } from './state';
  *    (`restoreGradingDial`), leyendo el valor previo de un archivo de estado.
  *  - Las `PriceReference` de estimado quedan escritas. La mitigación vigente es que la siembra sea
  *    IDEMPOTENTE (un override posterior supersede al anterior) y que el dial vuelva a `off`: **nada
- *    de lo sembrado se publica**. *(v1.50.3-d: el contrato **ya norma** el borrado —`DELETE
- *    /admin/pricing/graded-estimates/:cardId/:gradeValue`—, así que el teardown podrá además
- *    **retirar** lo sembrado. No se cablea aquí todavía: el endpoint aún no está desplegado en el
- *    stack real y un teardown que llama a una ruta inexistente solo añade ruido a corridas ya
- *    terminadas. Anotado en `docs/FRONTEND_NOTES.md`.)*
+ *    de lo sembrado se publica**.
+ *  - **El `DELETE` del contrato (v1.50.3-d) ya está VIVO** y el smoke del borrado lo usa: la cifra
+ *    incoherente que siembra (`seedIncoherentEstimate`) la **retira el propio test**, así que ese
+ *    caso se limpia solo. Lo que NO se hace es una purga general en el teardown: este módulo no
+ *    puede distinguir la fila que escribió él de la que trae el seed —la clave canónica es la
+ *    misma— y un borrado indiscriminado se llevaría dato del entorno por delante. Es una decisión,
+ *    no un olvido; está anotada en `docs/FRONTEND_NOTES.md`.
+ *  - Contra el residuo de una corrida cuyo teardown no llegó a correr, la defensa son los
+ *    GUARDARRAÍLES de `informed` y `bare`: si una carta llega sucia, el error dice **qué borrar y
+ *    con qué endpoint**, en vez de fallar como un rojo de UI.
  * ─────────────────────────────────────────────────────────────────────────────────────
  */
 
@@ -50,6 +55,8 @@ export interface GradingCard {
   id: string;
   /** Nombre visible: sirve de ancla para esperar a que la ficha/teja resuelva. */
   name: string;
+  /** Precio raw publicado, cuando la carta lo tiene. Los montos se derivan de él, nunca se hornean. */
+  salePriceCents?: number;
 }
 
 export interface GradingScenario {
@@ -66,6 +73,13 @@ export interface GradingScenario {
   informed: GradingCard;
   /** Carta cuya ficha **no debe** mostrar el gancho en absoluto (R4: ni bloque, ni nota, ni rastro). */
   bare: GradingCard;
+  /**
+   * Carta raw **libre** (ni `curated` ni `informed`, y **sin slab publicado** de ningún grado) sobre
+   * la que el smoke del BORRADO siembra una cifra incoherente y la retira. Que no tenga slab es la
+   * condición dura: con slab el `DELETE` responde `409` por INV-D y el test mediría la guarda, no
+   * el borrado.
+   */
+  deletable: GradingCard;
   /** Grados que la FICHA pinta (dial `grades`). Se lee del entorno, no se hornea. */
   detailGrades: string[];
   /** Grados que el BADGE pinta (dial `highlightGrades`). */
@@ -77,6 +91,9 @@ const MOCK_SCENARIO: GradingScenario = {
   curated: { id: 'c-blastoise', name: 'Blastoise' },
   informed: { id: 'c-eevee', name: 'Eevee' },
   bare: { id: 'c-pikachu', name: 'Pikachu' },
+  // En mock nadie la usa (el smoke del borrado es `@real`); se declara para no tener un tipo
+  // opcional que obligue a `!` en cada uso.
+  deletable: { id: 'c-zapdos', name: 'Zapdos', salePriceCents: 100000 },
   detailGrades: ['10', '9'],
   badgeGrades: ['10'],
 };
@@ -109,6 +126,8 @@ interface PreviewGroup {
   salePriceCents: number | null;
   psa10MxnCents: number | null;
   psa9MxnCents: number | null;
+  /** Grados de esa carta con un slab PUBLICADO: con uno, el `DELETE` de ese grado da `409` (INV-D). */
+  publishedSlabGrades: string[];
   eligible: boolean;
   reason?: string;
 }
@@ -214,6 +233,51 @@ async function previewOf(cardId: string): Promise<PreviewResponse> {
   );
 }
 
+/** ¿Esta carta tiene alguna cifra de estimado escrita (en cualquier grado)? */
+async function hasAnyEstimate(cardId: string): Promise<boolean> {
+  const preview = await previewOf(cardId);
+  return preview.groups.some((g) => g.psa10MxnCents !== null || g.psa9MxnCents !== null);
+}
+
+/** Grados con slab PUBLICADO en cualquiera de los grupos raw de la carta (INV-D ⇒ `409` al borrar). */
+async function publishedSlabGrades(cardId: string): Promise<string[]> {
+  const preview = await previewOf(cardId);
+  return [...new Set(preview.groups.flatMap((g) => g.publishedSlabGrades ?? []))];
+}
+
+/**
+ * Siembra una cifra deliberadamente INCOHERENTE (`NOT_ABOVE_RAW`) para el smoke de BORRADO:
+ * **medio precio raw** en el grado alto, derivado del entorno y no horneado. `NOT_ABOVE_RAW` es una
+ * de las tres categorías del DEFAULT de la lista de revisión, así que la fila aparece sin activar
+ * ningún opt-in.
+ *
+ * **Se escriben los DOS grados, y no es un adorno:** verificado contra el stack real, la lista de
+ * revisión solo llega a evaluar la coherencia cuando la carta tiene **ambos** grados — con un solo
+ * PSA 10 el diagnóstico se detiene antes, en `NO_PSA9`, y la carta **no** entra en la lista. El
+ * PSA 9 va por debajo del PSA 10 a propósito: si fuera mayor el motivo sería `GRADE_ORDER_INVERTED`
+ * y estaríamos midiendo otra categoría.
+ *
+ * Se expone porque el smoke la siembra **dentro del propio test**, no en el escenario compartido:
+ * así la fila existe durante la ventana más corta posible y el test es independiente del TTL de la
+ * caché del escenario (una segunda corrida dentro de los 30 min reutilizaría el escenario y, sin
+ * esto, no encontraría nada que borrar).
+ */
+export async function seedIncoherentEstimate(
+  card: GradingCard,
+  gradeHigh: string,
+  gradeLow: string,
+): Promise<{ high: number; low: number }> {
+  const raw = card.salePriceCents;
+  if (!raw) {
+    throw new Error(`La carta ${card.name} no trae precio raw: no se puede derivar la cifra.`);
+  }
+  const high = Math.max(200, Math.floor(raw / 2)); // ≤ raw ⇒ NOT_ABOVE_RAW
+  const low = Math.floor(high * 0.8); // < high ⇒ el motivo NO es GRADE_ORDER_INVERTED
+  await captureEstimate(card.id, gradeHigh, high);
+  await captureEstimate(card.id, gradeLow, low);
+  return { high, low };
+}
+
 /**
  * Siembra el escenario contra el backend REAL y devuelve las cartas descubiertas.
  * Corre **una vez por corrida** (candado compartido entre workers, ver `./state`).
@@ -230,20 +294,11 @@ async function seedRealScenario(): Promise<GradingScenario> {
     .filter((g) => g.productType === 'raw' && (g.salePriceCents ?? 0) > 0)
     .sort((a, b) => (b.salePriceCents ?? 0) - (a.salePriceCents ?? 0));
 
-  if (rawGroups.length < 2) {
+  if (rawGroups.length < 3) {
     throw new Error(
-      `El gancho de grading necesita al menos DOS cartas raw publicadas en el seed y hay ` +
-        `${rawGroups.length}. Corre \`npm run seed:synthetic\` en backend/.`,
-    );
-  }
-
-  // «Sin gancho»: preferentemente una GRADEADA — el contrato prohíbe el gancho ahí (§2: nunca
-  // para una gradeada), así que es un caso más fuerte que «una raw a la que no le escribimos».
-  const notRaw = groups.find((g) => g.productType !== 'raw');
-  const bareGroup = notRaw ?? rawGroups[2];
-  if (!bareGroup) {
-    throw new Error(
-      'El seed no tiene ninguna carta gradeada/sellada ni una tercera raw para el caso «sin gancho».',
+      `El gancho de grading necesita al menos TRES cartas raw publicadas en el seed y hay ` +
+        `${rawGroups.length} (curada + informada + la del smoke de borrado). ` +
+        `Corre \`npm run seed:synthetic\` en backend/.`,
     );
   }
 
@@ -295,10 +350,77 @@ async function seedRealScenario(): Promise<GradingScenario> {
     );
   }
 
+  // 6. `deletable` — la carta del smoke de BORRADO. Requisitos duros, verificados contra el
+  //    contrato y no supuestos: (a) no es `curated` ni `informed` —el borrado no puede sabotear los
+  //    asserts de otros tests—, y (b) **ningún grado suyo tiene slab publicado**, porque con slab el
+  //    `DELETE` responde `409` por INV-D y el test mediría la guarda en vez del borrado.
+  const usedCardIds = new Set([curated.card.id, informed.card.id]);
+  let deletableGroup: CatalogGroup | null = null;
+  const slabbed: string[] = [];
+  for (const g of rawGroups) {
+    if (usedCardIds.has(g.card.id)) continue;
+    const slabs = await publishedSlabGrades(g.card.id);
+    if (slabs.length > 0) {
+      slabbed.push(`${g.card.name} (slab publicado: PSA ${slabs.join(', PSA ')})`);
+      continue;
+    }
+    deletableGroup = g;
+    break;
+  }
+  if (!deletableGroup) {
+    throw new Error(
+      `El smoke de BORRADO necesita una TERCERA carta raw publicada SIN slab publicado, y el seed ` +
+        `no la tiene. Raw publicadas: ${rawGroups.map((g) => g.card.name).join(', ')}` +
+        (slabbed.length ? `; descartadas por slab: ${slabbed.join('; ')}` : '') +
+        `. Es una petición de DATO a backend (backend/prisma/seed-e2e.ts), no un fallo de la UI.`,
+    );
+  }
+  usedCardIds.add(deletableGroup.card.id);
+
+  // 7. `bare` — «sin gancho». Preferentemente una GRADEADA/SELLADA: el contrato prohíbe el gancho
+  //    ahí (§2), así que es un caso más fuerte que «una raw a la que no le escribimos».
+  //
+  //    ⚠️ D5 (techlead) — GUARDARRAÍL, el mismo que ya tenía `informed`. Este caso afirma una
+  //    AUSENCIA («ni bloque, ni nota, ni rastro»), y una ausencia es exactamente lo que una corrida
+  //    anterior puede haber roto sin que nada lo delate: si el ranking de precio se mueve, una carta
+  //    a la que ya se le sembró una cifra puede caer aquí y el test fallaría como un rojo de UI («la
+  //    ficha muestra el gancho») en vez de decir qué borrar. Por eso NO se toma la primera candidata
+  //    a ciegas: se comprueba **contra el contrato** que no tiene ninguna cifra escrita, y si
+  //    ninguna candidata está limpia se falla con el remedio literal.
+  const bareCandidates = [
+    ...groups.filter((g) => g.productType !== 'raw'),
+    ...rawGroups, // último recurso: una raw libre
+  ].filter((g) => !usedCardIds.has(g.card.id));
+
+  let bareGroup: CatalogGroup | null = null;
+  const dirty: string[] = [];
+  for (const candidate of bareCandidates) {
+    if (await hasAnyEstimate(candidate.card.id)) {
+      dirty.push(`${candidate.card.name} (${candidate.card.id})`);
+      continue;
+    }
+    bareGroup = candidate;
+    break;
+  }
+  if (!bareGroup) {
+    throw new Error(
+      `El caso «sin gancho» necesita una carta SIN ninguna cifra de estimado y todas las candidatas ` +
+        `ya tienen uno: ${dirty.join(', ') || '(no hay candidatas)'}. Casi siempre es el residuo de ` +
+        `una corrida anterior cuyo teardown no llegó a correr. Retíralo con ` +
+        `DELETE /admin/pricing/graded-estimates/<cardId>/10 (y /9 si lo tiene, contrato v1.50.3-d), ` +
+        `o re-siembra la base (npm run seed:synthetic).`,
+    );
+  }
+
   return {
     curated: { id: curated.card.id, name: curated.card.name },
     informed: { id: informed.card.id, name: informed.card.name },
     bare: { id: bareGroup.card.id, name: bareGroup.card.name },
+    deletable: {
+      id: deletableGroup.card.id,
+      name: deletableGroup.card.name,
+      salePriceCents: deletableGroup.salePriceCents ?? undefined,
+    },
     detailGrades: [...cfg.grades].sort((a, b) => Number(b) - Number(a)),
     badgeGrades: [...cfg.highlightGrades].sort((a, b) => Number(b) - Number(a)),
   };

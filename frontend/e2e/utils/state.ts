@@ -43,8 +43,40 @@ import path from 'node:path';
 export const STATE_DIR =
   process.env.E2E_STATE_DIR ?? path.join(os.tmpdir(), 'tcg-vault-e2e-state');
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────
+ * IMP-A (QA) — ESTE DIRECTORIO GUARDA CREDENCIALES DE VERDAD, ASÍ QUE SE TRATA COMO TAL.
+ *
+ * `sessionFor` (`./env`) publica aquí el `TokenPair` COMPLETO —access **y refresh**— del seed,
+ * incluido el de `super_admin`. Con el modo por defecto eso quedaba `0644` en un `/tmp`
+ * compartido: **legible por cualquier usuario de la máquina**. Hoy son credenciales sintéticas
+ * y el riesgo es bajo, pero `scripts/stack-native.sh` y `DEVOPS_NOTES` documentan correr esta
+ * misma suite con `E2E_BASE_URL` apuntando a **staging**, y ahí lo que queda world-readable es
+ * el refresh token de un `super_admin` de staging — es decir, sesión renovable, no un access
+ * token que caduca en 15 min.
+ *
+ * Tres medidas, y ninguna es opcional:
+ *  1. **Directorio `0700`** y **archivos `0600`** (el `chmod` explícito además del `mode`: el
+ *     `mode` de `mkdir`/`writeFile` sólo aplica **al crear** y lo recorta el `umask`, así que un
+ *     directorio o un temporal heredado de una corrida anterior seguiría siendo `0644`).
+ *  2. **Purga en el `globalTeardown`** (`clearStateByPrefix('session:')`): el token no sobrevive
+ *     a la corrida que lo creó. Antes se limpiaban `dial` y `scenario` y **nunca** la sesión.
+ *  3. Cada entrada guarda su **clave lógica** en el sobre, porque el nombre del archivo es un
+ *     hash: sin eso no hay forma de purgar «todas las sesiones» sin poder hablar con la API.
+ * ─────────────────────────────────────────────────────────────────────────────────────
+ */
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+
 function ensureDir(): string {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.mkdirSync(STATE_DIR, { recursive: true, mode: DIR_MODE });
+  try {
+    // `mode` de `mkdirSync` sólo aplica a la CREACIÓN (y lo recorta el `umask`): un directorio
+    // que quedó de una corrida anterior con `0755` hay que estrecharlo a mano.
+    fs.chmodSync(STATE_DIR, DIR_MODE);
+  } catch {
+    /* otro dueño / FS sin permisos POSIX (Win32): no es motivo para tumbar la suite */
+  }
   return STATE_DIR;
 }
 
@@ -57,6 +89,14 @@ function fileFor(name: string): string {
 export interface StateEnvelope<T> {
   /** Epoch ms en que se publicó el valor (TTL lo evalúa quien lee). */
   at: number;
+  /**
+   * Clave LÓGICA de la entrada (`session:…`, `grading:scenario:…`). Va dentro del sobre porque el
+   * nombre del archivo es un **hash** irreversible: sin esto, «purga todas las sesiones» sólo se
+   * podría hacer recalculando cada clave —lo que exige resolver la API base y, si el stack ya se
+   * cayó, dejaría los tokens en disco justo en el caso en que más molesta—.
+   * Opcional al LEER: un archivo de una corrida anterior no lo trae y debe seguir siendo válido.
+   */
+  name?: string;
   value: T;
 }
 
@@ -71,11 +111,25 @@ export function readState<T>(name: string): StateEnvelope<T> | null {
   }
 }
 
-/** Escritura ATÓMICA: se escribe a un temporal y se renombra (rename es atómico en el mismo FS). */
+/**
+ * Escritura ATÓMICA: se escribe a un temporal y se renombra (rename es atómico en el mismo FS).
+ * **`0600` desde el primer byte** (y `chmod` explícito por si el temporal ya existía de una
+ * corrida abortada): aquí dentro viajan tokens reales — ver la nota de IMP-A arriba.
+ */
 export function writeState<T>(name: string, value: T): void {
   const target = fileFor(name);
   const tmp = `${target}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ at: Date.now(), value } satisfies StateEnvelope<T>));
+  fs.writeFileSync(
+    tmp,
+    JSON.stringify({ at: Date.now(), name, value } satisfies StateEnvelope<T>),
+    { mode: FILE_MODE },
+  );
+  try {
+    fs.chmodSync(tmp, FILE_MODE);
+  } catch {
+    /* FS sin permisos POSIX */
+  }
+  // `rename` CONSERVA el modo del origen, así que el destino queda 0600 también.
   fs.renameSync(tmp, target);
 }
 
@@ -85,6 +139,66 @@ export function clearState(name: string): void {
   } catch {
     /* nada que borrar */
   }
+}
+
+/** Recorre los archivos del estado (incluidos los `.tmp`) y entrega el sobre ya parseado. */
+function forEachStateFile(fn: (envelope: StateEnvelope<unknown>, path: string) => void): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(STATE_DIR);
+  } catch {
+    return; // el directorio no existe: nada que recorrer
+  }
+  for (const entry of entries) {
+    // Los `.tmp` cuentan: un worker que muriera a media escritura deja ahí el MISMO contenido
+    // —tokens incluidos— y el `rename` nunca llegó a limpiarlo.
+    if (!entry.endsWith('.json') && !entry.endsWith('.tmp')) continue;
+    const full = path.join(STATE_DIR, entry);
+    try {
+      fn(JSON.parse(fs.readFileSync(full, 'utf8')) as StateEnvelope<unknown>, full);
+    } catch {
+      /* archivo a medias, corrupto o borrado por otro proceso: se ignora */
+    }
+  }
+}
+
+/**
+ * Borra TODA entrada cuya **clave lógica** empiece por `prefix`, sin necesitar la clave exacta
+ * (IMP-A: el `globalTeardown` tiene que poder purgar `session:*` aunque el stack ya no conteste y
+ * no se pueda resolver la API base con la que se formó la clave).
+ *
+ * Devuelve cuántos archivos se llevó, para que el llamador pueda decirlo en voz alta.
+ */
+export function clearStateByPrefix(prefix: string): number {
+  let removed = 0;
+  forEachStateFile((envelope, full) => {
+    if (typeof envelope?.name !== 'string' || !envelope.name.startsWith(prefix)) return;
+    fs.rmSync(full, { force: true });
+    removed += 1;
+  });
+  return removed;
+}
+
+/**
+ * Red de seguridad **por CONTENIDO**: borra toda entrada que guarde un token, se llame como se
+ * llame. Cubre los dos casos que una purga por prefijo no puede ver:
+ *  - archivos de corridas **anteriores a este arreglo**, que no llevan `name` en el sobre (son
+ *    justo los que QA encontró con `0644` y sin dueño que los limpiara), y
+ *  - cualquier consumidor futuro que cachee credenciales bajo otra clave.
+ *
+ * La garantía que se persigue es «al terminar la corrida no queda un token en disco», y ésa se
+ * afirma sobre el contenido, no sobre el nombre del archivo.
+ */
+export function clearTokenState(): number {
+  let removed = 0;
+  forEachStateFile((envelope, full) => {
+    const value = envelope?.value as Record<string, unknown> | null | undefined;
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.accessToken !== 'string' && typeof value.refreshToken !== 'string') return;
+    fs.rmSync(full, { force: true });
+    removed += 1;
+  });
+  return removed;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

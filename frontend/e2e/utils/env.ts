@@ -1,4 +1,4 @@
-import { sharedOnce } from './state';
+import { clearStateByPrefix, clearTokenState, sharedOnce } from './state';
 
 /**
  * Plumbing de ENTORNO de los E2E: qué backend hay detrás, con qué credenciales se entra y cómo
@@ -179,6 +179,39 @@ async function loginViaApi(
 }
 
 /**
+ * Prefijo de TODA entrada de estado que contenga credenciales. Lo comparten `sessionKey` y
+ * `clearSessions`: la purga de IMP-A se apoya en que ningún otro tipo de estado lo use.
+ */
+const SESSION_KEY_PREFIX = 'session:';
+
+function sessionKey(apiBase: string, role: SeedRole, email: string): string {
+  return `${SESSION_KEY_PREFIX}${apiBase}:${role}:${email}`;
+}
+
+/**
+ * IMP-A (QA) — **borra del disco todos los `TokenPair` que la corrida dejó**.
+ *
+ * Lo llama el `globalTeardown`. No resuelve la API base ni habla con la red **a propósito**: el
+ * caso en que más importa purgar es justamente aquel en que el stack se cayó a mitad, y un
+ * teardown que necesitara la API para saber qué borrar dejaría los tokens ahí. Por eso la purga
+ * es **por prefijo de la clave lógica** (ver `clearStateByPrefix`).
+ *
+ * Lo que se borra son ACCESS **y REFRESH** tokens reales del seed —incluido el de `super_admin`—
+ * y con `E2E_BASE_URL` apuntando a staging serían los de staging. Que caduquen solos no es una
+ * mitigación: el refresh renueva la sesión.
+ *
+ * Efecto colateral aceptado y declarado: si dos corridas comparten `E2E_STATE_DIR`, la que
+ * termine primero invalida la caché de sesión de la otra, que volverá a hacer login (a lo sumo
+ * 3 canjes). Aislar corridas concurrentes es para lo que existe `E2E_STATE_DIR`.
+ */
+export function clearSessions(): number {
+  // Dos redes, y las dos hacen falta: por CLAVE (lo que esta corrida escribió) y por CONTENIDO
+  // (los archivos que dejaron corridas anteriores a este arreglo, que no llevan la clave en el
+  // sobre — son exactamente los `0644` que QA encontró y que nadie iba a limpiar nunca).
+  return clearStateByPrefix(SESSION_KEY_PREFIX) + clearTokenState();
+}
+
+/**
  * ─────────────────────────────────────────────────────────────────────────────────────
  * SESIÓN REAL COMPARTIDA ENTRE WORKERS (bloqueante de QA: la suite en modo real no era
  * reproducible).
@@ -202,7 +235,7 @@ export async function sessionFor(role: SeedRole = 'customer'): Promise<InjectedS
   const apiBase = await resolveApiBaseUrl();
   // La clave incluye la API y el email: cambiar de stack o de credenciales INVALIDA la caché,
   // en vez de reutilizar en silencio un token de otro entorno.
-  return sharedOnce<InjectedSession>(`session:${apiBase}:${role}:${creds.email}`, {
+  return sharedOnce<InjectedSession>(sessionKey(apiBase, role, creds.email), {
     isFresh: sessionIsFresh,
     compute: () => loginViaApi(apiBase, role, creds),
     // El que espera puede quedarse hasta ~2.5 min: el que tiene el candado puede estar dentro del

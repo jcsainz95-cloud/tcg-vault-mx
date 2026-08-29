@@ -7675,3 +7675,159 @@ a sí mismo**: es justo lo que este `DELETE` habilita (ARCHITECTURE §4.38q.4).
 
 **Sin peticiones nuevas al arquitecto.** `raw` y `sealed` siguen sin borrado, pero eso está declarado
 como hueco en el contrato, no prometido: no lo necesito para esta superficie.
+
+---
+
+## §27 · Cierre del stream: higiene de credenciales del arnés, el `@real` que faltaba y dos candados que medían mal — 2026-08-29
+
+> Rama `claude/psa-graded-card-value-gmhv5u`, sobre `eaea9e9`. Cinco hallazgos del cierre de QA +
+> techlead (IMP-A, IMP-B, D3, D5, D6). Ningún cambio de contrato; ninguna superficie pública se toca.
+
+### 1. IMP-A (QA, **seguridad**) — el arnés dejaba JWT reales de `super_admin` en `/tmp` con `0644`
+
+**El hallazgo, medido:** `e2e/utils/state.ts` cachea en disco el `TokenPair` **completo** (access **y
+refresh**) de cada rol del seed —incluido `super_admin`— para no comerse el rate-limit de
+`POST /auth/login` (5/min por IP). Se escribía con el modo por defecto y **nunca se borraba**: el
+`globalTeardown` limpiaba `dial` y `scenario`, y la sesión no la limpiaba nadie.
+
+**Por qué no era «bajo riesgo y ya».** Hoy son credenciales sintéticas, cierto. Pero
+`scripts/stack-native.sh` y `DEVOPS_NOTES` documentan correr **esta misma suite** con `E2E_BASE_URL`
+apuntando a **staging**, y ahí lo que queda legible por cualquier usuario del runner es el **refresh
+token** de un `super_admin` de staging: una sesión **renovable**, no un access token que expira en 15
+minutos. Que caduque solo no es una mitigación.
+
+**El arreglo, en tres piezas** (`e2e/utils/state.ts`, `e2e/utils/env.ts`, `e2e/global-teardown.ts`):
+
+| Pieza | Qué hace | Por qué así |
+|---|---|---|
+| Directorio `0700`, archivos `0600` | `mkdirSync({ mode })` + **`chmodSync` explícito**; `writeFileSync({ mode })` + `chmod` del temporal antes del `rename` | el `mode` de `mkdir`/`writeFile` solo aplica **al crear** y lo recorta el `umask`: un directorio heredado de una corrida anterior seguiría siendo `0755`. El `chmod` es lo que **retro-arregla** lo que ya estaba en disco |
+| `clearStateByPrefix('session:')` | purga por **clave lógica**, que ahora viaja dentro del sobre (`{ at, name, value }`) | el nombre del archivo es un **hash**: sin la clave en el sobre, «purga todas las sesiones» exigiría resolver la API base — justo lo que no se puede hacer si el stack se cayó a mitad, que es cuando más molesta dejar tokens |
+| `clearTokenState()` | purga por **CONTENIDO**: cualquier entrada cuyo valor tenga `accessToken`/`refreshToken` | alcanza los archivos de corridas **anteriores a este arreglo** (no llevan `name`) y a cualquier consumidor futuro que cachee credenciales con otra clave. La garantía que se quiere es «al terminar la corrida no queda un token en disco», y esa se afirma sobre el contenido |
+
+El `globalTeardown` llama a la purga en un **`finally`** y **fuera** del `if (IS_REAL)`: si restaurar
+el dial revienta (stack caído), los tokens se borran igual. Se imprime cuántos archivos se llevó.
+
+**Verificado en el entorno real, no en teoría.** Antes de la corrida, `/tmp/tcg-vault-e2e-state` era
+`drwxr-xr-x` con dos `-rw-r--r--` llenos de tokens de la corrida de QA. Después de la primera suite
+real con el arreglo: **directorio `drwx------` y vacío** — el barrido por contenido se llevó también
+los dos archivos legados. Cada corrida posterior imprime
+`[e2e] Estado de sesión purgado del disco: 2 archivo(s) con tokens.`
+
+**Efecto colateral declarado:** dos corridas que compartan `E2E_STATE_DIR` se invalidan la caché de
+sesión mutuamente (a lo sumo 3 logins extra). Aislar corridas concurrentes es exactamente para lo que
+`E2E_STATE_DIR` existe.
+
+### 2. IMP-B (QA) — decisión: **sí es viable**, y el `@real` está subido
+
+QA lo dejó dicho con precisión: la ruta `DELETE` estaba verificada **a nivel API** (409/404 por
+`curl`) y la UI **contra fixtures**, pero `deleteGradedEstimate()` de `src/lib/api.ts` **nunca había
+hablado con el backend real en ninguna suite**. El riesgo residual no era el contrato: era el
+**pegamento del cliente HTTP** (URL compuesta, verbo, `Authorization`, parseo de `deletedCount`,
+invalidación de React Query). Los dos impedimentos anteriores desaparecieron —la ruta está viva en
+`:3099` y las dos filas de seed existen—, así que **se sube el `@real`**:
+
+`grading-estimate.spec.ts` › *«@real retira la cifra desde la lista y el contrato confirma que se
+fue»*. Siembra una cifra incoherente en la carta `deletable`, la encuentra en la lista de revisión,
+la retira **con el gesto del operador** (botón → modal → confirmar) y luego comprueba contra el
+contrato que se fue de verdad: `preview` sin la cifra, un **segundo `DELETE` que responde `404`** (la
+prueba de que el primero se llevó todas las filas de la clave) y el grado auxiliar **intacto** (la
+guarda y el borrado son **por grado**, no por carta). **Se limpia solo:** el entorno queda como
+estaba, verificado tras la corrida.
+
+**Descubrimiento del camino, y es una petición al arquitecto (§5).** La primera versión sembraba
+**solo** el grado alto y el test fallaba: la fila no aparecía en la lista de revisión. Contra el
+stack real, `GET /admin/pricing/graded-estimates/review` **solo llega a evaluar la coherencia cuando
+la carta tiene los DOS grados**; con un único PSA 10 el diagnóstico se detiene antes, en `NO_PSA9`.
+El arnés se adaptó (siembra ambos grados, el bajo por debajo del alto para que el motivo sea
+`NOT_ABOVE_RAW` y no `GRADE_ORDER_INVERTED`), pero el hallazgo se escala tal cual.
+
+**Lo que sigue sin cobertura real, y es DATO, no gesto:** el opt-in `?reason=STALE` y la columna de
+origen `ingest`. Una cifra **caducada** exige una `capturedDate` vieja y una de origen **automático**
+exige `isManual:false`, y **ninguna de las dos se puede fabricar por la API del contrato**
+(`POST /admin/pricing/override` escribe siempre manual y con fecha de hoy). El smoke de esos dos
+sigue `mockOnly`, ahora con **ese** motivo escrito, no con el de «la ruta no está desplegada».
+
+### 3. D5 (techlead) — `bare` ya tiene el guardarraíl que su vecino tenía
+
+El caso «sin gancho» afirma una **ausencia**, y una ausencia es justo lo que una corrida anterior
+puede haber roto sin que nada lo delate: si el ranking de precio se mueve, una carta a la que ya se le
+sembró una cifra cae en `bare` y el test falla como un **rojo de UI** («la ficha muestra el gancho»)
+en vez de decir qué hacer. Ahora la candidata **no se toma a ciegas**: se verifica contra `preview`
+que no tiene ninguna cifra escrita, se recorren las candidatas y, si ninguna está limpia, el error
+nombra **qué borrar y con qué endpoint** —`DELETE …/graded-estimates/<cardId>/10`—, igual que el de
+`informed`.
+
+De paso, la selección del escenario pasó a ser explícita y verificada contra el contrato: `curated` y
+`informed` por precio, **`deletable`** = primera raw libre **sin slab publicado** (con slab el `DELETE`
+daría `409` por INV-D y el test mediría la guarda, no el borrado), y `bare` = primera candidata
+limpia, preferentemente no-raw. El suelo de cartas raw del seed sube de 2 a **3**, con el mensaje
+diciendo para qué es cada una.
+
+### 4. D3 (techlead) — el candado anti-regresión medía otra cosa
+
+Cinco defectos, cinco arreglos (`src/test/e2e-harness.test.ts`):
+
+1. **Contaba `@real` sobre el fuente crudo** y 3 de las 8 ocurrencias vivían en **comentarios**: el
+   umbral se sostenía sobre prosa. Ahora todo se mide sobre código sin comentarios (`stripComments`,
+   extraída y compartida — la técnica ya estaba en el `describe` de arriba, solo no se aplicó aquí).
+2. **Contaba ETIQUETAS, no TESTS.** Playwright hace `grep` sobre el **título completo**
+   (`describe` + `test`): una etiqueta en el `describe` cubre N tests y otra en un `test` cubre uno.
+   Ahora se resuelve la herencia y se cuenta **cuántos tests seleccionaría el gate**. Contrastado con
+   el propio Playwright: `--list --grep @real` dice **«25 tests in 9 files»** y el candado calcula
+   exactamente 25 y 9.
+3. **Solo miraba `grading-estimate.spec.ts`** — protegía el archivo, no la clase. Las reglas
+   estructurales se aplican ahora a **toda** la carpeta `e2e/`, con pisos de suite (≥24 tests `@real`,
+   9 archivos con cobertura).
+4. **`src.split(/\n\s*test\(/)` descartaba la cabecera**, así que una navegación a un id de fixture
+   desde un `beforeEach` **esquivaba el candado** y arrastraba a todos los tests del `describe`,
+   `@real` incluidos. Ahora el fuente se parte en segmentos con dueño —módulo, preámbulo de cada
+   `describe` (sus hooks) y cada test— y un id de fixture fuera de un test es offender **siempre**: un
+   hook no puede declararse `mockOnly` por sus tests.
+5. **Regla nueva:** ningún test `@real` puede llamar `mockOnly()` en su cuerpo. Es el mismo agujero
+   con otra forma —el gate lo selecciona y lo salta siempre—.
+
+Y se añadieron tres tests que fijan IMP-A: permisos `0700`/`0600` reales sobre disco, purga por clave
+respetando el resto del estado, y purga por contenido alcanzando los archivos legados sin `name`.
+
+### 5. D6 (techlead) — la errata que dejaba muda la frase del remedio
+
+`messages/es.json` › `admin.m2.gradedEstimateReview.deleteSlabPublishedNote`: **«Represa la pieza»** →
+**«Reprecia la pieza»**. Es la frase exacta que dirige al operador al **único** remedio correcto del
+`409` de INV-D, y tal como estaba no decía nada. La versión `en` («Reprice the piece») ya era correcta.
+
+### Verificación (números reales, no «pasa todo»)
+
+| Comprobación | Resultado |
+|---|---|
+| `npx tsc --noEmit` | limpio |
+| `npx next lint` | 0 warnings, 0 errors |
+| `npx vitest run` | **767 pasan / 90 archivos** (eran 766/90: +4 de IMP-A y D3, −3 del candado viejo reemplazado) |
+| `npx next build` | verde, sin aviso de `NODE_ENV` no estándar |
+| Playwright **mock** (`E2E_MOCK_PORT=3020`) | **100 pasan, 3 saltados** (los tres `realOnly`) de 103 |
+| Playwright **real** (`E2E_BASE_URL=http://localhost:3000 E2E_REAL=1`) | **22 pasan, 3 fallan** de 25 — los 3 son el hueco de entorno de Stripe (checkout, guest-checkout, shipments: el modal «Completar pago» no abre). **Cero rojos del gancho** |
+| Solo `grading-estimate.spec.ts` en real | **12/12**, incluido el `@real` del borrado |
+| Huella en el entorno tras la corrida | dial `gradedEstimatesEnabled` = `off`; carta `deletable` sin cifras; `/tmp/tcg-vault-e2e-state` `0700` y **vacío** |
+
+**Nota para devops (entorno, no código).** Al verificar el build corrí `npx next build` **sin** las
+variables que usa `scripts/stack-native.sh`, y eso horneó `.next` con la URL de API por defecto
+(`:3001`) bajo el `next start` que estaba sirviendo en `:3000` — la primera corrida real dio 25 rojos
+por eso, no por producto. **Reparado:** se reconstruyó con `NODE_ENV=production
+NEXT_PUBLIC_USE_MOCKS=false NEXT_PUBLIC_API_BASE_URL=http://localhost:3099/api/v1` (idéntico al
+script) y se reinició el proceso de `:3000` con esas mismas variables. El artefacto y el proceso vivo
+vuelven a coincidir. La verificación final de `next build` se hizo contra `NEXT_DIST_DIR=.next-verify`
+(borrado después) **precisamente para no volver a tocar** el artefacto que el stack sirve.
+
+### Peticiones al arquitecto
+
+1. **`review` y la carta con un solo grado (Media).** El contrato §M2 declara que `NOT_ABOVE_RAW` se
+   dispara cuando `psa10 <= salePriceCents`, sin condicionarlo a que exista PSA 9. En el stack real,
+   una carta con **solo** PSA 10 incoherente (verificado: raw MX$460, PSA 10 MX$230) **no aparece** en
+   `GET /admin/pricing/graded-estimates/review`: el diagnóstico resuelve `NO_PSA9` y se detiene antes
+   de la coherencia. Importa porque el error que esa categoría existe para cazar —**USD capturados
+   como MXN**— es más probable en la **primera** captura de una carta, que es justo cuando todavía
+   solo hay un grado. O el contrato dice que la lista exige ambos grados, o el orden de razones deja
+   pasar la coherencia antes que la ausencia del otro grado. **No toco nada:** lo dejo escrito y el
+   arnés se adapta sembrando los dos grados.
+2. **Seed — sigue faltando una CUARTA carta raw publicada y libre.** Las tres que hay ya son `curated`,
+   `informed` y `deletable`. El test `needsSeed` de «dos grados con dato y sin destacar» pasará tal
+   cual el día que exista. No bloquea nada.
