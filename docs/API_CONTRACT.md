@@ -2,7 +2,43 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-28 (rev v1.50.3-project-reconciliation).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-29 (rev **v1.50.3-f**).
+>
+> **Changelog v1.50.3-f — DICTAMEN GE-1 / `M-43`: la NATURALEZA de la fila de precio (2026-08-29, arquitecto;
+> lo implementa BACKEND. ARCHITECTURE §4.38(l.4)/(l.5), §9, §11 `v1.50.3-f-graded-estimate-kind`):**
+> ⚠️ **Cierra un hallazgo ALTO reproducido en vivo por el pentester (GE-1, `PENTEST_NOTES.md`): un slab PSA 10 que con
+> referencia correcta lista a MX$9,200 quedó publicado a MX$460 —5% de su valor— heredando la fila del «estimado si se
+> gradea»; con el estimado rancio a −400 días siguió a MX$460.** Es **INV-D en la dirección inversa** (capturar el
+> estimado ANTES, publicar el slab DESPUÉS), que v1.50.2 declaró abierta. **Cambios de contrato: dos campos aditivos
+> admin-only, una precisión de semántica en `DELETE`, y una regla normativa de resolución de precio. Ninguna
+> superficie pública cambia de shape.**
+> - **`PriceReference` gana `refKind` (`"market" | "graded_estimate"`, default `market`) — NATURALEZA, ortogonal a
+>   `source` (procedencia).** Regla normativa, y es el corazón del cambio: **una fila `graded_estimate` NUNCA resuelve
+>   `salePriceCents`, ni oferta de buylist, ni valuación** — no «pierde la precedencia»: **no es candidata**. Un slab
+>   sin fila `market` responde `PRICE_PENDING` y **no es vendible** (fail-closed). ARCHITECTURE §4.38(l.4.4)A.
+> - **`intent` del `POST /admin/pricing/override` deja de vivir solo en la bitácora y pasa a FIJAR `refKind`**
+>   (`"market"` ⇒ `market`; `"graded_estimate"` ⇒ `graded_estimate`). El `422 GRADED_INTENT_REQUIRED` y el
+>   `409 GRADED_ESTIMATE_SLAB_PUBLISHED` **no cambian** (defensa en profundidad: el `409` sigue existiendo porque
+>   capturar un estimado sobre un grado con pieza publicada es una **intención equivocada**, aunque ya no mueva dinero).
+> - **`PriceHistoryEntryDTO` y `GradedEstimatePreviewDTO` ganan `refKind`** (ambos `super_admin`; **aditivo**). En el
+>   diagnóstico distingue «cifra que puedo recapturar o borrar» de «**dinero** de una pieza real, no la toques».
+> - **`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` borra SOLO las filas `refKind="graded_estimate"`**
+>   (antes: todas las de la clave). Sin esto, el verbo destructivo del gancho podría llevarse una fila de **mercado** —
+>   justo el radio de explosión que v1.50.3-d se negó a abrir para `raw`/`sealed`. `404` si no había filas **de esa
+>   naturaleza**, aunque existan filas `market`. La guarda `409` corre antes y no cambia.
+> - **⛔ DEROGADA la recomendación de v1.50.3** («valor `graded_estimate` en el enum `PriceSource` con `sourceRank`
+>   bajo toda fuente real»): **`PriceSource` NO cambia** y el conjunto de valores del enum del contrato **queda
+>   intacto**. El PoC probó que ordenar no sirve — el estimado suele ser la **única** candidata de su clave y gana con
+>   cualquier rango. Hacía falta **excluir**, no ordenar. ARCHITECTURE §4.38(l.4.1).
+> - **CONDICIONAL (solo si el humano ejerce la «vía B» de §4.38(l.5), es decir, fusionar antes de que M-43 esté
+>   desplegado): `409 GRADED_ESTIMATE_DISABLED`** en `POST /admin/pricing/override` con `intent:"graded_estimate"`
+>   mientras `gradedEstimatesEnabled` esté `off`. **Transitorio**: se retira con M-43. Si M-43 entra en este mismo
+>   pase, **este código nunca se emite** y desaparece del contrato en la siguiente rev.
+> - **GE-2 (Media, rechazos 401/403 sin fila en `AuditLog`): NO es cambio de contrato.** Dictamen en ARCHITECTURE §9:
+>   es **hardening del plano de observabilidad (devops)**, no requisito de la bitácora de negocio — el `401` no tiene
+>   «quién» (criterio 23) y auditarlo le daría a un anónimo una **primitiva de escritura** sobre una tabla
+>   money-adjacent. Ningún endpoint cambia.
+> - **Sin cambios** en la curva (§N/§4.36), en ningún DTO público, ruta pública ni monto. **Base previa:** v1.50.3-e.
 >
 > **Changelog v1.50.3-project-reconciliation (2026-08-28, arquitecto — pase de RECONCILIACIÓN con `PROJECT.md` tras el
 > rechazo de QA + techlead; lo implementan BACKEND + FRONTEND. ARCHITECTURE §4.38 rev v1.50.3.):**
@@ -2014,6 +2050,15 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
 // ===== v2.0 (P-48) — `priceBasis` ADITIVO y NORMATIVO =====
 //   * `priceBasis` = QUÉ determinó `salePriceCents` (server-side, §ARCH 4.36.7a). Valores alcanzables en el eje de
 //     VENTA: "market" | "floor" | "override" | "pending". ("bounty" NUNCA aparece en venta: vive en el eje de compra.)
+//   * ===== v1.50.3-f (M-43) — QUÉ FILA PUEDE SER «market» (NORMATIVO, DINERO) =====
+//     `priceBasis:"market"` solo puede provenir de una `PriceReference` con `refKind:"market"`. Una fila
+//     `refKind:"graded_estimate"` —el «valor estimado si se gradea», §4.38— **NUNCA** resuelve `salePriceCents`, ni
+//     oferta de buylist, ni valuación de bóveda/set: no pierde la precedencia, **no entra como candidata**. Si la
+//     única fila de la clave es un estimado, el resultado es `priceBasis:"pending"` (`salePriceCents` ausente,
+//     `sellable:false`) — fail-closed, y es deliberado: una pieza sin precio no le cuesta dinero a nadie; una pieza
+//     al 5% de su valor sí (medición del pentester: MX$9,200 → MX$460). **La curva no cambia** (§N/§4.36): la
+//     exclusión ocurre AGUAS ARRIBA, al resolver la referencia, nunca dentro del seam de precio.
+//     ARCHITECTURE §4.38(l.4).
 //   * ⚠️ REGLA DE VISIBILIDAD (contrato, no sugerencia): en la FICHA de carta y en la FICHA de sellado el bloque
 //     «Valor de mercado» se muestra **si y solo si `priceBasis === "market"`**. Con floor/override/pending el bloque
 //     DESAPARECE — ni en cero, ni tachado, ni atenuado, ni «—». En TEJAS y LISTADOS no se muestra mercado (no se
@@ -2221,9 +2266,15 @@ GradedEstimateConfigDTO = { enabled: boolean, ingestEnabled: boolean, grades: st
 // v1.50.3-c añade `isManual` (admin-only): distingue la fila rancia MANUAL (la afirmación del dueño expiró ⇒
 // recapturar o borrar) de la AUTOMÁTICA (el feed dejó de cubrir la carta ⇒ mirar el ingest). Remedios opuestos, y
 // `reason: STALE` a secas no los distingue. No viola §4.38(g): esa garantía es sobre superficies PÚBLICAS.
+// v1.50.3-f (M-43) añade `refKind` (admin-only): NATURALEZA de la fila que este diagnóstico está reportando.
+// `"graded_estimate"` ⇒ es una cifra del gancho: se puede recapturar o borrar. `"market"` ⇒ es DINERO (la referencia
+// de mercado de M1 «Gradeadas»): el gancho la MUESTRA cuando la carta no tiene slab de ese grado (§4.38l.4.4B), pero
+// **no se toca desde aquí** — el `DELETE` del gancho no la borra. Sin este campo, la lista de revisión invita a
+// borrar filas de mercado. ARCHITECTURE §4.38(l.4.4)B / (l.4.5).
 GradedEstimatePreviewDTO = { representativeInventoryItemId: string, finish: Finish, salePriceCents: number,
                              psa10MxnCents: number | null, psa9MxnCents: number | null,
                              capturedDate: string | null, stale: boolean, isManual: boolean,
+                             refKind: "market" | "graded_estimate",
                              gradingCostTier: GradingCostTierDTO | null, gradingCostMxnCents: number | null,
                              thresholdMxnCents: number | null, netUpsidePsa9MxnCents: number | null,
                              maxAllowedPsa10MxnCents: number | null, publishedSlabGrades: string[],
@@ -5287,6 +5338,31 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     | `intent:"graded_estimate"` **y existe ≥1 slab publicado** de ese `(cardId, gradingCompany, gradeValue)` | **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`** |
     | `intent:"market"` | comportamiento **vigente, sin cambios** (§M1 v1.28) |
     | `productType` ≠ `"graded"` | `intent` se **ignora** si viene; nada cambia |
+    - **⚠️ v1.50.3-f — `intent` FIJA la NATURALEZA de la fila (`refKind`), y ésa es la que decide si el número puede
+      ser dinero.** `intent:"market"` (y todo `productType` ≠ `graded`) ⇒ `refKind="market"`;
+      `intent:"graded_estimate"` ⇒ `refKind="graded_estimate"`. **Regla normativa (ARCHITECTURE §4.38l.4):** *una fila
+      `graded_estimate` **nunca** resuelve precio de venta, oferta de compra ni valuación* — no es que pierda la
+      precedencia: **no entra como candidata**. Cierra **INV-D en la dirección inversa** (capturar el estimado antes y
+      publicar el slab después), que el pentester reprodujo en vivo: **MX$9,200 → MX$460**.
+      - **Consecuencia observable, y hay que leerla antes de desplegar:** un slab publicado cuya **única** fila de esa
+        clave sea un estimado pasa a `priceBasis:"pending"` / `PRICE_PENDING` y **deja de ser vendible** hasta que
+        alguien capture su precio real con `intent:"market"`. Es **deliberado y fail-closed** (mejor sin precio que al
+        5%). El procedimiento de cut-over —enumerar con `/graded-estimates/review?reason=SLAB_PUBLISHED` y
+        **re-afirmar cada slab con `intent:"market"` ANTES de migrar**— es **obligatorio**: sin él una pieza puede
+        apagarse en silencio. ARCHITECTURE §4.38(l.4.7).
+      - **El `409` y el `422` NO se retiran** (defensa en profundidad): con slab publicado, «capturar un estimado»
+        sigue siendo una intención equivocada y el sistema lo dice, aunque ya no mueva dinero.
+      - **El ingest de fase 2 escribe siempre `refKind="graded_estimate"` y NUNCA degrada una fila `market`** (si la
+        fila del día ya es de mercado, hace *skip* + traza, igual que ante `isManualOverride`).
+      - **`PriceSource` NO cambia** (⛔ derogada la vía «enum + `sourceRank` bajo»: ordenar no excluye, y el estimado
+        suele ser la única candidata de su clave). ARCHITECTURE §4.38(l.4.1).
+    - **CONDICIONAL — `409 GRADED_ESTIMATE_DISABLED` (solo bajo la «vía B» de ARCHITECTURE §4.38l.5).** Si el humano
+      decide fusionar **antes** de que M-43 esté desplegado, `intent:"graded_estimate"` responde `409` mientras
+      `gradedEstimatesEnabled` esté `off` (el `DELETE` y `/review` **siguen funcionando** con el dial apagado: se
+      gatea **crear**, nunca limpiar ni diagnosticar). **Transitorio**: se retira al desplegar M-43. Si M-43 entra en
+      este pase, este código **no llega a existir**.
+      Mensaje: «El gancho de grading está apagado (`gradedEstimatesEnabled=off`): no se pueden capturar estimados
+      hasta encenderlo.» `details: { cardId, gradeKey }`.
     - **Mensaje del `422`:** «Para `productType:"graded"` debes declarar `intent`: `"market"` (precio de mercado real
       de un slab publicado) o `"graded_estimate"` (valor estimado si se gradea).»
     - **Mensaje del `409`:** «No se puede fijar un valor ESTIMADO de PSA {grade} para esta carta: hay {n} slab(s)
@@ -6610,6 +6686,11 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     cardProductId=null)` **sea cual sea su `capturedDate`**, en **una transacción**. **No se borra «solo la
     vigente»:** la unique incluye `capturedDate`, así que eso haría **aflorar una fila más vieja** y la cifra
     **reaparecería sola** en la ficha — una resurrección silenciosa, peor que no haber borrado.
+    - **⚠️ v1.50.3-f (M-43) — y SOLO las de `refKind="graded_estimate"`.** Con la naturaleza en la fila, «todas las de
+      la clave» podría llevarse una fila **`market`**, que es **dinero de una pieza real** — exactamente el radio de
+      explosión que este mismo endpoint se negó a abrir para `raw`/`sealed`. `deletedCount` cuenta **solo** las
+      borradas; si la clave únicamente tenía filas `market` ⇒ **`404`** (no hay estimado que retirar), y el operador
+      ve en `/review` que esa cifra es `refKind:"market"` y que no se toca por esta vía. ARCHITECTURE §4.38(l.4.5).
   - Res `200`: `{ cardId, gradeValue, deletedCount: number }`. **Auditado**
     (`AuditLog action=pricing.graded_estimate.delete`, **`before` = las filas borradas** con sus valores y fechas,
     `after: null`). Ese `before` es **la única forma de deshacer** un borrado equivocado (recapturar lo que había).
@@ -6618,7 +6699,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     estimado: es la referencia de mercado real de una pieza física**, y borrarla **le quitaría el sustento de precio a
     un slab que se está vendiendo** (⇒ `PRICE_PENDING` ⇒ despublicado). **Corolario que conviene no deducir al revés:
     este `DELETE` NO es un remedio para INV-D inverso** (§4.38l.3) — ahí el slab ya está publicado, así que dispara
-    `409`; el remedio correcto sigue siendo **repreciar con `intent:"market"`**.
+    `409`; el remedio correcto sigue siendo **repreciar con `intent:"market"`**. *(v1.50.3-f: INV-D inverso lo cierra
+    **M-43** con `refKind`, no este endpoint; el `409` y este corolario **no cambian**.)*
   - **`404 NOT_FOUND` si no había nada que borrar** — **no** un `200` silencioso. Mismo criterio que el `PUT` con body
     vacío ⇒ `422`: responder éxito cuando no pasó nada le haría creer al operador que **limpió algo que no limpió**.
   - **Funciona con `gradedEstimatesEnabled=off`** (mismo motivo que `/review`: hay que poder limpiar **antes** de
@@ -7160,8 +7242,13 @@ PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, cardProd
 //     `PriceSource` en este contrato — que es el punto de tener un enum.
 //   * `isManualOverride` SÍ va aquí (superficie `super_admin` de auditoría, donde la procedencia ES el dato; y NO es
 //     redundante con `source` per-fila — ver §M2). Contrasta con `PriceInfo`, de donde se RETIRÓ (v2.1.6).
+//   * v1.50.3-f (M-43): `refKind` = **NATURALEZA** de la fila, ORTOGONAL a `source` (procedencia) y a
+//     `isManualOverride`. `"market"` = puede resolver dinero; `"graded_estimate"` = **jamás** resuelve dinero
+//     (§4.38l.4). En una superficie de auditoría es el dato que explica por qué una fila con número no está priciando
+//     nada. **Aditivo**: las filas previas a M-43 son `"market"` por default de columna.
 PriceHistoryEntryDTO = { capturedDate: string, source: PriceSource, gradeKey: string,
-                         productType: ProductType, priceMxnCents: number, isManualOverride: boolean }
+                         productType: ProductType, priceMxnCents: number, isManualOverride: boolean,
+                         refKind: "market" | "graded_estimate" }
 // v2.1 (P-48): conteo por motivo del encabezado de la cola (DESIGN_SYSTEM §21.7c: «12 SIN MERCADO · 3 PREMIUM EN EL
 // PISO»). Viaja en el CUERPO de GET /admin/pricing/pending, junto a `data`.
 //   * Se calculan sobre la cola COMPLETA: IGNORAN `?reason=` y la paginación. Si respetaran `reason`, el encabezado

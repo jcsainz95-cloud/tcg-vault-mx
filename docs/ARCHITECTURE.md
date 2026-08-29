@@ -97,6 +97,28 @@
 > 13. **`raw` / `sealed` siguen SIN borrado, y ahora está declarado en vez de prometido.** Un `DELETE` genérico sobre
 >    la tabla de precios **mueve precios de venta publicados** y necesita su propio diseño. Texto de §4.27f-2 y del
 >    contrato **corregidos**; hueco con nombre en §9. Y **dos filas nuevas de fixture** en `seed-e2e.ts` (GU-A28).
+> **Addendum v1.50.3-f (2026-08-29) — DICTAMEN sobre GE-1 (pentester, ALTA, PoC en vivo). Cierra §4.38(l.3) y
+> CORRIGE la recomendación que yo mismo había escrito. Tres puntos:**
+> 16. **INV-D inverso se cierra separando la NATURALEZA de la fila, no guardando la transición.** El hallazgo dejó de
+>    ser «riesgo residual» y tiene **cifra**: un slab PSA 10 que con referencia correcta lista a **MX$9,200** quedó
+>    publicado a **MX$460** (5%) heredando un estimado con error USD-como-MXN, y con `capturedDate` a −400 días
+>    **siguió** a MX$460. **M-43 se dictamina y se especifica en §4.38(l.4):** columna `refKind`
+>    (`market` | `graded_estimate`, default `market`) en `PriceReference` + **exclusión** de las filas de naturaleza
+>    estimado en **toda** lectura de dinero. Es DDL **aditivo**, no toca la `@@unique`, y en producción el backfill es
+>    **verificablemente vacío** (la vía de captura del estimado vive en esta rama, no en `main`).
+> 17. **⛔ SE DEROGA el mecanismo que yo había recomendado en (l.3) y en §10 (GU-8): «valor `graded_estimate` en el
+>    enum `PriceSource` con `sourceRank` por debajo de toda fuente real».** El PoC prueba que **no habría cerrado
+>    nada**: `sourceRank` solo **desempata entre candidatas**, y en el caso medido la fila del estimado era la
+>    **ÚNICA** candidata de esa clave ⇒ gana por ausencia de rival, con cualquier rango. Lo que hace falta no es
+>    **rango**, es **exclusión**; y una vez que el criterio es «esta fila no es dinero», su sitio es una columna de
+>    **naturaleza**, no la columna de **procedencia**. Habría sido un arreglo que pasa la revisión y no arregla.
+>    §4.38(l.4.1).
+> 18. **La cota de magnitud NO se traslada a la captura y la guarda simétrica en publicación se RECHAZA como
+>    solución.** La primera contradice el **criterio 54** de `PROJECT.md` (la ficha informa, no promueve) y además no
+>    atrapa la variante *rancia*, que el pentester midió igual de cara. La segunda sostiene un invariante de dinero
+>    con **disciplina en N call-sites** en vez de con la **forma del dato** —lo contrario de la doctrina que el gate
+>    v2.0 dejó escrita («la regla “un solo cuerpo” no se sostiene con disciplina; se sostiene con tipos»)— y **bloquea
+>    el camino feliz** de la propia feature (estimo → gradeo → publico el slab). §4.38(l.4.4).
 > **Money-safe:** ningún monto de dinero real cambia; **M-42 sigue siendo DATA/seed** (mismas 12 claves, tres seeds
 > corregidos, **sin DDL**). **Ratificaciones pedidas al humano: GU-8..GU-13 (§10).** Contrato en API_CONTRACT
 > (Changelog v1.50.3). **Base previa:** v1.50.2.
@@ -8296,6 +8318,247 @@ expuestas a esta dirección del riesgo. No lo cierra (la fila sigue viva en la B
 convierte «hay que acordarse de revisar» en «hay una lista que se puede mirar». Se registra en §9 «Desviaciones y
 riesgos abiertos».
 
+> ⛔ **(l.3) QUEDA CERRADA POR (l.4) — v1.50.3-f.** Todo lo de arriba sigue siendo el **diagnóstico** correcto y se
+> conserva por trazabilidad, pero **su recomendación de cierre está DEROGADA** (ver (l.4.1)) y el riesgo deja de estar
+> «escalado sin diseño»: **(l.4) es el diseño**. Lo que cambió: el pentester lo reprodujo **en vivo con precio en
+> pesos** (GE-1, `PENTEST_NOTES.md`) — un slab PSA 10 de **MX$9,200** publicado a **MX$460**, y **rancio a −400 días
+> seguía a MX$460**. La frescura no rescata, la ficha no acota, y la fase 2 lo escribiría **sin humano en el ciclo**.
+
+##### (l.4) DICTAMEN v1.50.3-f — **M-43: la NATURALEZA de la fila** (cierre de INV-D inverso, NORMATIVO, DINERO)
+
+**El marco, corregido.** La pregunta no es «¿separo las dos cosas o guardo la transición?», porque *guardar la
+transición* ni siquiera es una alternativa al mismo problema: una guarda vigila **un** camino hacia la fila, y la fila
+tiene —y va a tener— **varios** (override manual, ingest de fase 2, alta de inventario, corrección de datos, la ruta
+que alguien escriba dentro de seis meses). La pregunta correcta es **quién decide si una fila es dinero**: hoy lo
+decide **el lector**, por inferencia, a partir del estado del mundo (¿hay slab publicado?) — y por eso el mismo dato
+significa dos cosas distintas en dos instantes distintos **sin que nada cambie en la fila**. El cierre consiste en
+mover esa decisión al **escritor**, que es el único que conoce la intención, y **congelarla en el dato**.
+
+**Dictamen: la fila DECLARA su naturaleza. `M-43` = una columna, no una tabla.**
+
+###### (l.4.0) Esto es CUMPLIMIENTO de `PROJECT.md`, no alcance nuevo (y por eso no puede quedar como deuda aceptada)
+
+El **criterio 55** (§O.8) cierra con cinco palabras que lo deciden todo: **«La pieza real manda siempre.»** El texto
+del criterio describe la dirección directa (no capturar un estimado sobre un grado con pieza publicada) porque es la
+que el PO tenía delante, pero **el principio que enuncia no tiene dirección**: si la pieza real manda siempre,
+entonces una cifra capturada como *estimado* **no puede gobernar el precio de una pieza real**, se haya capturado
+antes o después. Por la **regla de conflicto** (PROJECT manda sobre el contrato y sobre el código), cerrar la
+dirección inversa **no es una feature nueva que el humano deba autorizar: es la aplicación literal de un criterio de
+aceptación ya aprobado**. Consecuencia de gobierno, explícita: **el DoD no admite marcarlo como «deuda técnica
+aceptada»** — un criterio de aceptación incumplido no es deuda, es alcance faltante.
+
+###### (l.4.1) ⛔ DEROGACIÓN — por qué `sourceRank` NO habría cerrado esto (error MÍO, corregido con el PoC delante)
+
+(l.3) y §10 (GU-8) recomendaban: *«valor `graded_estimate` en el enum `PriceSource`, con `sourceRank` por debajo de
+toda fuente real, de modo que jamás gane una lectura de dinero»*. **Es falso, y el PoC lo prueba.** `sourceRank` vive
+dentro de `isBetterRef`, que es un **desempate entre candidatas**:
+
+```
+pickBestRef([estimado])  ->  estimado        // única candidata: gana con CUALQUIER rango
+```
+
+En el caso medido, la clave `(cardId,'graded','graded:PSA:10','normal',cardProductId=null)` tenía **una sola fila** —la
+del estimado— porque **no existe ningún escritor automático de referencia de mercado para `graded`** ((l.4.6),
+candado 4). Un rango bajo solo cambia el resultado cuando hay contra quién perder; aquí no lo hay. **Ordenar no es
+excluir.** Se deroga el mecanismo y se conserva la lección, que vale más que el caso: *un control que solo actúa en el
+desempate no protege el caso de candidata única, que es justamente el caso degradado.*
+
+Segunda razón, de diseño: `source` es **procedencia** (quién produjo el número: manual, `tcgcsv_singles`, PPT…).
+La pregunta que hay que contestar es de **naturaleza** (qué afirma el número: precio de mercado de una pieza real vs.
+estimado hipotético). Son **ejes ortogonales** —un estimado puede ser manual **o** automático, y la fase 2 necesita
+seguir sabiendo **qué proveedor** lo escribió (§4.38m.2)— y colapsarlos en una columna habría destruido información
+que otras reglas ya usan (`sourceRank`, `MANUAL_REF_PREDICATE`, el `isManual` de los DTO de diagnóstico).
+
+###### (l.4.2) El schema (DDL **aditivo**, sin tocar la `@@unique`, sin backfill obligatorio)
+
+```prisma
+enum PriceRefKind {
+  market            // referencia de MERCADO: puede resolver precio de venta/compra. Default.
+  graded_estimate   // «valor estimado si se gradea» (§4.38): JAMÁS resuelve dinero.
+}
+
+model PriceReference {
+  // …sin cambios…
+  refKind      PriceRefKind @default(market)   // M-43 (§4.38l.4) — NATURALEZA, ortogonal a `source` (procedencia)
+  evidenceDate DateTime?    @db.Date           // M-43 (§4.38m.2) — fecha de la EVIDENCIA (última venta); null en la vía manual
+  @@index([refKind])                           // opcional; el predicado entra en lecturas ya indexadas por cardId
+}
+```
+
+- **`@default(market)`** hace la migración segura por construcción: toda fila existente conserva exactamente el
+  significado que tenía. **No hay riesgo de despublicar nada por el mero hecho de migrar.**
+- **La `@@unique` NO se toca** (`[cardId, productType, gradeKey, finish, capturedDate, cardProductId]`), y hay que
+  entender la consecuencia: **`refKind` no entra a la clave**, así que para una carta+grado+día sigue habiendo **una
+  sola fila**, sea de la naturaleza que sea. Eso es **deliberado y correcto**: las dos naturalezas son
+  **mutuamente excluyentes por INV-D**, no dos datos que deban coexistir. Lo que la transición hace es **cambiar la
+  naturaleza de la fila del día**, no crear una segunda. De ahí la regla dura de (l.4.3): **todo escritor fija
+  `refKind` explícitamente también en el `update`**.
+- **`evidenceDate` viaja en la MISMA migración** (recomendación de (m.2), ratificada): dos columnas aditivas de la
+  misma tabla, una sola ventana. Si el humano aprueba solo una, **la que entra es `refKind`** (`evidenceDate` no
+  bloquea el encendido de la fase 1; `refKind` sí).
+
+###### (l.4.3) Reglas de ESCRITURA (NORMATIVO)
+
+| Escritor | `refKind` que DEBE fijar |
+|---|---|
+| `POST /admin/pricing/override` con `intent:"market"` (o `productType` ≠ `graded`) | **`market`** |
+| `POST /admin/pricing/override` con `intent:"graded_estimate"` | **`graded_estimate`** |
+| `persistGradedEstimateReference` (ingest de fase 2, §4.38h) | **`graded_estimate`** |
+| `persistMarketReference`, sellado (§4.19d), catálogo/FX | **`market`** (default; no requiere cambio) |
+
+1. **`refKind` se fija en el `create` Y en el `update`.** El `update` in-place de la fila del día (que hoy escribe
+   `{source, priceMxnCents, isManualOverride}`) **debe** incluir `refKind`. Si no lo incluye, un `intent:"market"`
+   que caiga sobre la fila-estimado del mismo día **la deja clasificada como estimado** y el slab se queda **sin
+   precio** — un fallo silencioso en dirección segura, pero fallo. Es el trampolín obvio de esta migración y por eso
+   va escrito aquí.
+2. **El ingest NUNCA degrada una fila `market` a `graded_estimate`.** Si la fila del día existe y es `market`, el
+   escritor de estimados **hace skip + traza** ((h.4)), exactamente igual que ya hace ante `isManualOverride=true`.
+   Regla general: *la naturaleza solo la sube un humano con `intent:"market"`; la automática nunca la baja.*
+3. **La guarda directa (l.1) NO se retira.** Sigue siendo `409 GRADED_ESTIMATE_SLAB_PUBLISHED`. Con `refKind` el
+   `409` dejaría de ser estrictamente necesario para el dinero, pero sigue siendo **necesario para el operador**: si
+   hay slab publicado, «capturar un estimado» es una intención equivocada y el sistema debe decirlo, no absorberla en
+   silencio. **Defensa en profundidad; ninguna de las dos se apoya en la otra.**
+
+###### (l.4.4) Reglas de LECTURA (NORMATIVO) — asimétricas **a propósito**
+
+**A. Ruta de DINERO — exclusión estricta, fail-closed.**
+
+```
+// NORMATIVO. Predicado compartido, análogo a BASE_CARD_REF_WHERE.
+MONEY_REF_WHERE := { refKind: 'market' }
+```
+
+Se aplica —vía `AND`, para no colisionar con el `OR` de `BASE_CARD_REF_WHERE`— a **toda** lectura de
+`PriceReference` cuyo resultado pueda terminar en un monto que alguien cobre, ofrezca o valúe. Seams conocidos a la
+fecha de esta rev: `getReference` (**las dos** queries: bloque reciente **y** `MANUAL_REF_PREDICATE`),
+`getReferenceByCardProduct`, `getReferencesBatch` (todas sus queries), la valuación de set (`set-value.service`), la
+valuación de bóveda, el sellado (`sealed-catalog.service`) y cualquier lectura del reporte de dinero de admin.
+**La regla que gobierna las rutas futuras, y que es lo que de verdad cierra la causa:** *el default de toda lectura de
+`PriceReference` es **excluir** las filas que no son `market`; incluirlas es **opt-in explícito** y solo lo hacen las
+tres superficies del gancho.* Un lector nuevo que se olvide del predicado **hereda el comportamiento seguro**, que es
+exactamente lo contrario de lo que pasa hoy.
+
+- **`isBetterRef` / `sourceRank` / §4.27f-2 NO se tocan.** El estimado no «pierde el desempate»: **no es candidata**.
+  La garantía money-safe del comparador (ninguna escritura automática pisa un precio humano) queda intacta, igual que
+  en (m) — misma técnica: **filtrar antes de comparar, nunca dentro del comparador**.
+- **Efecto sobre el slab expuesto hoy:** su clave se queda **sin candidata** ⇒ `getReference` devuelve `pending` ⇒
+  `decideSalePrice` devuelve `pendingReason='no_market'`, `priceCents=null`, `basis='pending'` ⇒ **la pieza deja de
+  ser vendible en la siguiente lectura**, sin necesidad de barrido ni de migración de datos. **Es la dirección
+  correcta del fallo:** una pieza sin precio no le cuesta dinero a nadie; una pieza al 5% sí. Pero **no es gratis** y
+  por eso lleva el procedimiento de (l.4.7): sin él, un slab se apaga **en silencio**.
+
+**B. Ruta del GANCHO (ficha, rejilla, vitrina, `preview`, `review`) — inclusiva, y sigue omitiendo por slab.**
+
+`getGradedEstimatesBatch` lee **ambas** naturalezas de las claves `graded:PSA:N` y **conserva sin cambio** la
+omisión de (l.2) por slab publicado. **Por qué no la simétrica (leer solo `graded_estimate`):** las filas capturadas
+por la pestaña **Gradeadas de M1** (§M1 v1.28, `intent:"market"`) sobre cartas **sin slab** son, de hecho, la mejor
+estimación disponible de lo que valdría esa carta gradeada, y son las que hoy hacen que el gancho tenga algo que
+mostrar el día 1. Excluirlas **vaciaría la vitrina en silencio** — el modo de fallo que este documento persigue en
+todas partes ((d), (m), (n)). La asimetría tiene una regla detrás, y conviene enunciarla porque se va a volver a
+necesitar: **en la dirección del dinero se falla cerrando (mejor sin precio que con precio malo); en la dirección de
+la exhibición se falla informando (mejor mostrar el dato que tenerlo y callar), porque ahí la seguridad ya la dan
+otros dos controles —la omisión por slab publicado y el gate de confianza—.**
+
+- Los DTO de diagnóstico (`GradedEstimatePreviewDTO`) ganan **`refKind`** (admin-only): distingue «esta cifra es un
+  estimado que puedo recapturar o borrar» de «esta cifra es **dinero** de una pieza real, no la toques». Sin él, la
+  lista de revisión invita a borrar filas de mercado.
+
+###### (l.4.5) El `DELETE` de (q) pasa a ser de naturaleza, no de clave
+
+`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` borra **solo las filas `refKind='graded_estimate'`** de
+la clave. Razón: con `refKind`, borrar «todas las filas de la clave» podría llevarse una fila **`market`** —
+exactamente el radio de explosión que (q.1) decisión 1 se negó a abrir para `raw`/`sealed`. `deletedCount` cuenta las
+borradas; si no había ninguna de esa naturaleza ⇒ **`404`** (aunque existan filas `market`). La guarda
+`409 GRADED_ESTIMATE_SLAB_PUBLISHED` **corre antes y no cambia**.
+
+###### (l.4.6) Coexistencia con **pricing v2** (la curva) — verificación de los candados
+
+Verificado contra el código de la rama, **no hay colisión**. Los tres candados que el orquestador enumeró **se
+confirman**, y hay un **cuarto** que nadie había escrito y que es el que abarata todo el arreglo:
+
+| # | Candado | Estado |
+|---|---|---|
+| 1 | `reconcilePublishedPrices` solo re-precia inventario **raw** (`productType:'raw'` en el `where`) | **CONFIRMADO** |
+| 2 | `persistMarketReference` tiene `productType='raw'` / `gradeKey='raw:NM'` **hardcodeados** | **CONFIRMADO** |
+| 3 | El precio de venta se **resuelve en lectura** (`decideSalePrice`), no se persiste | **CONFIRMADO** |
+| 4 | **NO existe ningún escritor automático de referencia de mercado `graded`** — los providers PPT/PokeTrace son *stubs* que devuelven `null`, y `persistGradedEstimateReference` solo escribe **estimados**. La referencia de mercado de un slab es **siempre** una captura humana con `intent:"market"` | **NUEVO (v1.50.3-f)** |
+
+**Lo que el candado 4 implica, y es el argumento de coste del dictamen:** excluir los estimados de la ruta de dinero
+**no puede romper ningún precio automático de slabs, porque no hay ninguno**. El flujo legítimo —publicar un slab y
+fijarle su precio de mercado a mano (§M1 v1.28)— **no cambia en absoluto**. Lo único que M-43 quita es la
+**sustitución silenciosa** de esa captura por una cifra que se capturó para otra cosa. Dicho al revés: hoy el sistema
+«ahorra» al operador la captura de precio del slab usando el estimado, y ese ahorro es precisamente el defecto.
+
+**La curva no se toca:** `computeSalePriceFromCurve`, `resolvePendingReason`, los tramos, el piso y el markup son
+**ciegos a la naturaleza** — consumen `referenceMxnCents` ya resuelto. La exclusión vive **aguas arriba del seam**,
+en la resolución de la referencia, **jamás dentro del seam** (mismo principio que (m): el predicado se aplica sobre
+las candidatas, no dentro del comparador ni dentro de la matemática). **§4.36 no cambia ni una línea.**
+
+**Interacción a declarar (para QA y para el tablero de M2):** el día de la migración, cada slab que hoy se estuviera
+priciando desde un estimado pasa a `no_market`. Si esos slabs se re-afirman **antes** ((l.4.7)), el conteo no se
+mueve. Si no, el encabezado de la cola de §M2 puede mostrar un salto de `no_market` que **no** es degradación del
+feed: el diagnóstico documentado en §M2 («suben los dos a la vez ⇒ feed degradado») **no aplica** a ese salto.
+
+###### (l.4.7) Procedimiento de migración (obligatorio, y el orden importa)
+
+1. **CONTAR primero, en cada entorno que venda (solo lectura, sin escrituras).** Cuántas filas
+   `productType='graded'` con `gradeKey LIKE 'graded:PSA:%'` y `cardProductId IS NULL` existen, y de ésas cuántas
+   pertenecen a cartas **con slab publicado** de ese grado. **Expectativa declarada para producción: cero**, porque
+   la vía de captura del estimado (`intent`) **vive en esta rama y nunca se desplegó**. *Expectativa, no supuesto:
+   si el conteo no da cero, se para y se escala al arquitecto* — significaría que existe otra vía de escritura que
+   este documento no conoce.
+2. **ENUMERAR la coexistencia** con `GET /admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED` (§4.38n): son
+   exactamente las piezas expuestas a GE-1 **hoy**.
+3. **RE-AFIRMAR el precio de cada una** con `POST /admin/pricing/override` + `intent:"market"` **antes** de migrar.
+   Es un acto de dinero deliberado y auditado, que es justo lo que el hallazgo pide sustituir por la herencia. Tras
+   este paso, la migración **no puede apagar ninguna pieza**.
+4. **MIGRAR** (DDL aditivo + `@default(market)`; el backfill de clasificación es **innecesario** si (1) dio cero, y
+   si no dio cero se clasifica con el resultado de (2): con slab ⇒ `market`, sin slab ⇒ `graded_estimate`).
+5. **VERIFICAR** con la línea de inventario / lectura pública: los slabs re-afirmados conservan su precio; una carta
+   con estimado y **sin** slab sigue mostrando su gancho.
+6. **Rollback:** revertir el código (el predicado de exclusión) es suficiente; la columna es aditiva y puede quedarse.
+   **No se revierte la columna en caliente** — dejarla sin código que la lea es inocuo, quitarla con código vivo no.
+
+###### (l.4.8) Alternativas descartadas (y por qué), incluidas las tres que planteó el orquestador
+
+| Alternativa | Veredicto |
+|---|---|
+| **(a) Guarda simétrica en el alta/publicación de inventario graded** (409 si existe estimado) | **RECHAZADA como solución.** Es un **parche que deja la causa viva**: sostiene un invariante de dinero con **disciplina en cada call-site** en vez de con la forma del dato (contra la doctrina del gate v2.0: *«no se sostiene con disciplina; se sostiene con tipos»*); **bloquea el camino feliz** de la feature (estimo → gradeo → publico), entrenando al operador a borrar-y-publicar hasta que el 409 es ruido; **no alcanza** la coexistencia ya existente; **vive en `inventory`**, que es **otro work stream**; y con la fase 2 escribiendo estimados sobre todo el catálogo raw, **saltaría en cada publicación de slab**. |
+| **(b1) Tabla aparte para estimados** | **RECHAZADA por coste sin beneficio marginal.** Duplicaría FX/`liveMxnCents`, frescura, `pickBestRef`, historial y las tres superficies, y rompería la **indistinguibilidad de fases** (§4.38g) que hoy sale gratis de compartir fila. La exclusión por defecto de (l.4.4) da la misma garantía por una columna. |
+| **(b2) `productType` propio (`graded_estimate` como ProductType)** | **RECHAZADA.** `ProductType` es el eje de **qué se vende** y lo consumen inventario, órdenes, buylist, la cola de pendientes y `gradeKeyFor`. Meter ahí un valor **no vendible** obliga a tocar todos esos `switch` y cambia el significado de la `@@unique`. Contamina cinco módulos para resolver un problema de una tabla. |
+| **(b3) Columna discriminante de naturaleza** | **ADOPTADA** = `refKind` (l.4.2). |
+| **(c) Aplicar la cota de magnitud también en la captura** | **RECHAZADA, y la contradicción no es aceptable.** Choca de frente con el **criterio 54** de `PROJECT.md` (la ficha *informa*, no promueve) y con (k.3), y **PROJECT manda**. Además **no cierra el hallazgo**: la cota es **relativa al precio raw** (una carta sin raw publicado no tiene cota ⇒ fail-open) y **no ve** la variante *rancia* que el pentester midió — un estimado correcto de hace 400 días pasa cualquier cota de magnitud y sigue priciando el slab al precio equivocado. Cerraría **una instancia** (el error de unidades) y dejaría la causa y la otra variante vivas. |
+
+###### (l.4.9) Lo que M-43 **no** cierra (residual declarado, para que nadie lo dé por cerrado)
+
+- **Un `intent:"market"` mal tecleado sigue moviendo el precio de un slab.** Es el riesgo inherente de cualquier
+  override de dinero, existía antes del gancho y su remedio es la auditoría + la revisión, no esta columna. Lo que
+  M-43 garantiza es que **una cifra que nadie afirmó como precio de venta jamás se convierta en uno**.
+- **El barrido de reconciliación sigue siendo `raw`-only**, así que un slab que se quede sin referencia **no entra a
+  `PendingPriceEntry`**: deja de venderse pero no aparece en la cola de M2. Con el procedimiento de (l.4.7) no puede
+  pasar en la migración, pero puede pasar después (p. ej. si se borra una referencia de mercado). **Deuda técnica
+  NO bloqueante, dueño backend:** extender `reconcilePublishedPrices` a `productType='graded'`. Se registra en
+  `TECH_DEBT.md`.
+
+##### (l.5) VÍA B — contingencia **solo** si el humano decide fusionar antes de que M-43 esté listo
+
+**No es la solución** (la solución es (l.4)); es el **mecanismo que hace exigible** el «no encender» del pentester, en
+lugar de dejarlo como nota de procedimiento. Consiste en **gatear la CREACIÓN de estimados por el interruptor
+maestro**: con `gradedEstimatesEnabled = off`, `POST /admin/pricing/override` con `intent:"graded_estimate"` responde
+**`409 GRADED_ESTIMATE_DISABLED`**, y el escritor de la fase 2 hace skip + traza.
+
+- **Qué compra:** con el dial `off` en producción **no se puede fabricar la precondición de GE-1** (una fila de
+  estimado), así que el hallazgo queda **inalcanzable** en el entorno que vende, sin DDL y en horas.
+- **Qué NO compra:** en cuanto alguien encienda el dial, GE-1 vuelve tal cual. Por eso **encender sigue prohibido
+  hasta M-43**, y ahora la prohibición tiene un mecanismo detrás.
+- **Compatibilidad:** `DELETE` (q) y `/review` (n) **siguen funcionando con el dial `off`** (§4.38n.3/q) — se gatea
+  **crear**, nunca **limpiar ni diagnosticar**. Se pierde la capacidad de **pre-cargar** estimados con la feature
+  apagada; es deliberado: pre-cargar afirmaciones comerciales que nadie está exhibiendo ni revisando es justamente lo
+  que produce filas huérfanas.
+- **Vida útil: transitoria.** Con M-43 desplegado, capturar un estimado es **demostrablemente inerte para el dinero**
+  y este gate se **retira** (no se queda como restricción permanente).
+- ⚠ **Si se ejerce la vía B, backend debe revisar los E2E que asuman que la captura funciona con el dial `off`.**
+
 #### (m) Frescura × tier manual absoluto (v1.50.2, **REVISADO v1.50.3**, NORMATIVO) — interacción con §4.27f-2/f-3
 
 **La interacción, en concreto.** Desde v1.46, `isBetterRef` trata el override manual como **tier superior absoluto y
@@ -10711,9 +10974,33 @@ Riesgos técnicos:
   no cierra el riesgo, lo hace **visible**.
   **⚠️ Aclaración anti-confusión:** el nuevo decaimiento del override manual (§4.38m) **NO mitiga esto**. La frescura
   es un predicado de **exhibición**; no retira la fila del resolver de dinero.
-  **Recomendación (decisión del humano, siguiente release):** valor `graded_estimate` en el enum `PriceSource` con
-  `sourceRank` por debajo de toda fuente real ⇒ **M-43**, DDL aditivo de un valor de enum, sin backfill. **Se
-  recomienda empaquetar en la MISMA M-43** la columna nullable `evidenceDate` de §4.38(m.2).
+  ~~**Recomendación (decisión del humano, siguiente release):** valor `graded_estimate` en el enum `PriceSource` con
+  `sourceRank` por debajo de toda fuente real…~~ ⛔ **DEROGADO en v1.50.3-f: no habría cerrado nada** (`sourceRank`
+  solo desempata; en el caso medido el estimado era la **única** candidata ⇒ ganaba con cualquier rango). §4.38(l.4.1).
+  **✅ ESTADO v1.50.3-f — DICTAMINADO Y DISEÑADO, ya no es «riesgo escalado sin diseño».** El pentester lo reprodujo
+  **en vivo y en pesos** (GE-1, `PENTEST_NOTES.md`): slab PSA 10 de **MX$9,200 publicado a MX$460** (5%), y **con el
+  estimado rancio a −400 días siguió a MX$460** ⇒ ni la frescura ni la cota de magnitud lo rescatan, y la fase 2 lo
+  escribiría **sin humano en el ciclo**. **Cierre normado en §4.38(l.4) = `M-43`:** columna `refKind`
+  (`market | graded_estimate`, default `market`) + **exclusión** —no rango— de las filas de naturaleza estimado en
+  toda lectura de dinero, con `evidenceDate` (§4.38m.2) en la misma migración. **Dueño: backend.** **Por (l.4.0) NO
+  es deuda aceptable:** es la aplicación literal del **criterio 55** («la pieza real manda siempre»), o sea un
+  criterio de aceptación, y el DoD no admite cerrar con criterios incumplidos. **Bloquea encender el gancho en
+  cualquier entorno que venda**; contingencia de fusión en §4.38(l.5).
+- **⚠ ACEPTADA COMO HARDENING, NO COMO REQUISITO — los rechazos por credenciales (401/403) no dejan fila en
+  `AuditLog` (GE-2 del pentester, Media, v1.50.3-f).** Los bloqueos de **negocio** sí se auditan
+  (`pricing.override.blocked`, `pricing.graded_estimate.delete.blocked`, `auditGradedSkip`); los rechazos de los
+  guards no. **Dictamen: es correcto que `AuditLog` no los lleve, y la razón no es de esfuerzo.** (1) El
+  **criterio 23** de `PROJECT.md` define la bitácora como **«quién / qué / cuándo»**: un `401` **no tiene quién**
+  (no hay actor identificado) y **no tiene qué** (nada ocurrió); meterlo ahí desnaturaliza el registro que los
+  auditores de dinero leen. (2) Peor: auditar el `401` **le regala a un anónimo una primitiva de escritura** sobre
+  una tabla money-adjacent —un bucle `curl` sin credenciales infla `AuditLog` a voluntad—, convirtiendo un control
+  de detección en un vector de DoS/ruido. **Dónde vive la responsabilidad:** en el **plano de observabilidad**, no en
+  el de negocio — **devops**: log de acceso estructurado (ruta, método, `status`, `ip`, actor si lo hay) con
+  **alerta por umbral** de 401/403 por actor/IP/ventana sobre `/admin/*`. **Matiz sobre el `403`:** ahí **sí** hay
+  actor identificado y es señal de sondeo interno; **se permite** —no se exige— registrarlo en `AuditLog`
+  (`action=authz.denied`) **si y solo si** va **deduplicado/con techo por actor+ventana**; sin ese techo, la misma
+  objeción de (2) aplica en menor escala. **No cambia el contrato ni bloquea nada.** Se registra en `TECH_DEBT.md`
+  (dueño **devops**) y **seguridad** lo consolida en `SECURITY_NOTES.md`.
 - **⚠ HUECO ABIERTO CON NOMBRE — no existe borrado de overrides `raw` / `sealed` (detectado por frontend, v1.50.3-d,
   §4.27f-2).** El documento afirma desde **v1.46** que un override manual «solo lo revoca otro override o la
   **limpieza/borrado explícito** por `super_admin`», y **esa segunda vía nunca se construyó**. Efecto real: un
@@ -11112,14 +11399,24 @@ este documento y con `API_CONTRACT.md`.
 > `PROJECT.md`**, que es lo que manda. Lo que sigue es lo que **solo el humano** puede decidir, con el default ya
 > aplicado y declarado.
 
-- **GU-8 (DINERO, la importante) — `M-43`: cerrar INV-D en la dirección inversa. AHORA CON MEDICIÓN.** §4.38(l.3) lo
-  declaró como riesgo abierto; **QA lo midió**: alteró la curva y el precio publicado de una carta gradeada pasó de
-  `575000` a `1000000` = `500000 × 2.0`, donde `500000` es su fila `graded:PSA:10`. **La fila del estimado alimenta de
-  verdad el precio de venta del slab.** No es teórico. **Default vigente:** mitigación operativa (publicar un graded
-  no adopta precio automáticamente) + la lista de revisión de (n) permite **enumerar** los casos expuestos
-  (`?reason=SLAB_PUBLISHED`). **Decisión pedida:** aprobar **M-43** = valor `graded_estimate` en el enum `PriceSource`
-  con `sourceRank` bajo toda fuente real. **Se recomienda empaquetar en la misma M-43 la columna nullable
-  `evidenceDate`** de GU-9. Ambas son DDL aditivo sobre `PriceReference`, sin tocar la unique y sin backfill.
+- **GU-8 (DINERO, la importante) — `M-43`: cerrar INV-D en la dirección inversa. ⚠️ v1.50.3-f: LA PREGUNTA CAMBIA.**
+  §4.38(l.3) lo declaró riesgo abierto; QA lo midió sobre la curva (`575000 → 1000000`); **el pentester lo reprodujo
+  en vivo y en pesos:** un slab PSA 10 que con referencia correcta lista a **MX$9,200** quedó publicado a **MX$460**
+  (5% de su valor), y con el estimado **rancio a −400 días siguió a MX$460**.
+  **Lo que ya NO se pregunta:** *si* se cierra. Por §4.38(l.4.0) esto es la aplicación literal del **criterio 55**
+  («la pieza real manda siempre»), o sea **un criterio de aceptación ya aprobado**, no alcance nuevo — y el DoD no
+  admite cerrar el proyecto con un criterio incumplido. El arquitecto **dictamina** el diseño en §4.38(l.4).
+  ⛔ **Corrección de una recomendación MÍA:** la de v1.50.3 (valor `graded_estimate` en `PriceSource` con `sourceRank`
+  bajo) **no habría cerrado nada** — el estimado suele ser la **única** candidata de su clave y gana con cualquier
+  rango. El mecanismo correcto es **exclusión**, no orden. §4.38(l.4.1).
+  **Lo que SÍ se pregunta al humano (dos cosas, ambas de calendario/coste, no de diseño):**
+  1. **¿M-43 entra en ESTE pase (recomendado) o se fusiona antes con la vía B?** M-43 = **1 columna** (`refKind`)
+     + predicado de exclusión + el `refKind` en los escritores; **DDL aditivo, sin tocar la unique, backfill
+     verificablemente vacío en producción**. Estimación: **1–2 días de backend**, no un rediseño. La **vía B**
+     (§4.38l.5) permite fusionar hoy con el gancho **apagado y bloqueado por mecanismo**, a coste de horas — pero
+     **encender sigue requiriendo M-43**.
+  2. **¿`evidenceDate` viaja en la misma migración?** (GU-9). **Sí, recomendado** (dos columnas aditivas, una sola
+     ventana). Si solo se aprueba una, **entra `refKind`**: es la que bloquea el encendido de la fase 1.
 - **GU-9 — cierre exacto del criterio 109 para el dato automático** (§4.38m.2). El default aplicado (gate de evidencia
   en la escritura, sin DDL) acota la antigüedad a **≤ 2 × freshnessDays = 60 días**, no a los **30** que dice el
   criterio. **Decisión pedida:** ¿basta la cota conservadora, o se aprueba la columna `evidenceDate` (en M-43) para
@@ -11758,6 +12055,28 @@ de Prisma** (ni tablas, ni columnas, ni enums, ni `DROP`, ni backfill).
 > porque el flag arranca `off` y el resolver es **fail-closed on-read** (tabla ausente/corrupta ⇒ nada elegible). Las
 > filas `PriceReference` con `gradeKey='graded:PSA:*'` que el admin haya fijado **sobreviven** al rollback y siguen
 > siendo lo que ya eran antes de v1.50: el valor de mercado de M1 «Gradeadas» (§M1, v1.28).
+
+### v1.50.3-f-graded-estimate-kind (nueva — **M-43**: naturaleza de la fila de precio — **DDL ADITIVO**, §4.38l.4)
+
+⚠️ **`backend/prisma/`, `backend/src/common/` y `backend/src/modules/pricing/` son ZONA COMPARTIDA:** el orquestador
+**serializa M-43** frente a cualquier otro stream. Cierra **INV-D inverso** (GE-1 del pentester, ALTA) y es la
+aplicación literal del **criterio 55** de `PROJECT.md`.
+
+| # | Artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-43 | `enum PriceRefKind` (NUEVO) | `market \| graded_estimate` | **DDL aditivo** | Enum nuevo; ningún consumidor previo lo lee. |
+| M-43 | `PriceReference.refKind` (NUEVA columna) | `PriceRefKind @default(market)` | **DDL aditivo** | **NO entra a la `@@unique`** (§4.38l.4.2). Default = toda fila existente conserva su significado ⇒ **la migración no puede mover ningún precio publicado**. |
+| M-43 | `PriceReference.evidenceDate` (NUEVA columna) | `DateTime? @db.Date` | **DDL aditivo** | (m.2): fecha de la **evidencia** (última venta del proveedor); `null` en la vía manual. `stale()` pasa a medir contra `evidenceDate ?? capturedDate`. **Empaquetada aquí por recomendación**; si el humano aprueba solo una columna, entra `refKind`. |
+| M-43 | `MONEY_REF_WHERE` (NUEVO, `pricing.service.ts`) | `{ refKind: 'market' }` aplicado vía `AND` en **toda** lectura de dinero | Código (compartido) | Seams en §4.38(l.4.4)A. **Exclusión, no rango**: `isBetterRef`/`sourceRank`/§4.27f-2 **no se tocan**. |
+| M-43 | Escritores (`manualOverride`, `persistGradedEstimateReference`) | Fijan `refKind` **en `create` Y en `update`** | Código | Tabla de escritores en §4.38(l.4.3). El `update` que lo omita deja un `intent:"market"` clasificado como estimado. |
+| M-43 | `getGradedEstimatesBatch` / `preview` / `review` / `DELETE` | Lectura **inclusiva** (ambas naturalezas, menos slab publicado); el `DELETE` borra **solo** `graded_estimate` | Código | §4.38(l.4.4)B y (l.4.5). |
+| M-43 | Backfill | **Ninguno obligatorio** | Data | Expectativa declarada: **0 filas** de estimado en producción (la vía `intent` nunca se desplegó). **Se verifica contando antes de migrar**; si no da cero, se clasifica con la lista de coexistencia (§4.38l.4.7 pasos 1–3). |
+
+> **Compat / reversibilidad:** aditiva pura y segura con la app corriendo. **Revertir = revertir el código** (el
+> predicado de exclusión); la columna puede quedarse, inerte. **No se quita la columna en caliente.** El
+> procedimiento de cut-over —contar, enumerar `?reason=SLAB_PUBLISHED`, **re-afirmar con `intent:"market"`**,
+> migrar, verificar— es **obligatorio y en ese orden**: sin el paso 3, un slab puede dejar de venderse en silencio
+> (§4.38l.4.7 y el residual de (l.4.9)).
 
 > **v1.43-sealed-manual-override-survives-dial (IMP-C) — SIN migración.** El fix es lógica pura en `gateSealedMarketCents`
 > (resolver H-1); no toca schema, ni `ConfigSetting`, ni forma de contrato. El discriminante del override manual ya vive
