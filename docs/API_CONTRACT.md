@@ -2,7 +2,34 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-29 (rev **v1.50.3-f**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-29 (rev **v1.50.3-g**).
+>
+> **Changelog v1.50.3-g — DICTAMEN del gate de seguridad / `M-44` + `M-45` (2026-08-29, arquitecto;
+> lo implementa BACKEND. ARCHITECTURE §4.38(l.4.10)–(l.4.13), §9, §11):**
+> ⚠️ **Cierra SEC-M43-1 (Media, reproducida en vivo por el blue team) y la mitad de contrato de SEC-M43-2.
+> UN código de error nuevo, UNA precisión de validación, cero cambios de shape, cero superficies públicas tocadas.**
+> - **NUEVO `409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF` en `POST /admin/pricing/override`** (`M-44`,
+>   **BREAKING chico**, `super_admin`). `intent:"graded_estimate"` **ya no puede caer sobre una fila `market` del
+>   mismo día**: la reclasificaba a estimado **y le pisaba el monto**, con `200` y sin `409`, siempre que el slab
+>   estuviera fuera de `platform+listed` — reserva, picking, pre-publicación **o custodia de cliente**. Medido:
+>   `500000 · market → 1234 · graded_estimate` ⇒ al republicar el slab, `listings: []` y **ninguna cola lo ve**.
+>   **La regla que ya regía al ingest pasa a regir al humano:** *la naturaleza de una fila solo se SUBE
+>   (`graded_estimate → market`), y solo por acto humano declarado; bajarla no es una operación que ofrezca este
+>   sistema.* **NO se ensancha la guarda a `in_stock`** (ARCHITECTURE §4.38q.2 sigue intacta: contesta otra pregunta).
+> - **Qué cambia del `200`, explícito:** su **forma no cambia** (`{ data: PriceHistoryEntryDTO }`). Cambia **qué
+>   llamadas la reciben**: un subconjunto que hoy responde `200` pasa a responder `409`. Misma clase y misma
+>   justificación que el `422 GRADED_INTENT_REQUIRED` de v1.50.2.
+> - **Precisión de validación en `POST /admin/pricing/override` (SEC-M43-4, aditiva, NO breaking):** `productType`
+>   fuera del conjunto ⇒ **`422 VALIDATION_ERROR`**; `cardId` inexistente ⇒ **`404 NOT_FOUND`**; `gradeKey` no
+>   generable por `gradeKeyFor` (p. ej. `graded:PSA:11`) ⇒ **`422`**. Hoy los dos primeros devuelven **`500`**: es el
+>   **código apartándose del contrato**, que ya normaba `422`. Se escribe caso por caso para que no vuelva a pasar.
+> - **`M-44b` (no es contrato de API, se anota para trazabilidad):** `AuditLog` de `pricing.override` registra
+>   **`before`** además de `after` — hoy el monto pisado **no es reconstruible** desde la bitácora.
+> - **`M-45` — el runbook de cut-over se corrige en ARCHITECTURE §4.38(l.4.7)/(l.4.11)** (congelación, censo que
+>   **para y escala** sin rama alternativa, re-censo como gate, **sin backfill**, check **negativo** en la
+>   verificación, rollback con precondición de cero). **No toca ningún endpoint**; se cita aquí porque la nota de
+>   cut-over del `POST /admin/pricing/override` remitía al procedimiento derogado.
+> - **Sin cambios** en superficies públicas, DTOs, curva (§N/§4.36) ni montos. **Base previa:** v1.50.3-f.
 >
 > **Changelog v1.50.3-f — DICTAMEN GE-1 / `M-43`: la NATURALEZA de la fila de precio (2026-08-29, arquitecto;
 > lo implementa BACKEND. ARCHITECTURE §4.38(l.4)/(l.5), §9, §11 `v1.50.3-f-graded-estimate-kind`):**
@@ -5336,8 +5363,51 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     |---|---|
     | `productType:"graded"` **sin** `intent` | **`422 GRADED_INTENT_REQUIRED`** |
     | `intent:"graded_estimate"` **y existe ≥1 slab publicado** de ese `(cardId, gradingCompany, gradeValue)` | **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`** |
+    | `intent:"graded_estimate"` **y la fila del día de esa clave existe con `refKind:"market"`** | **`409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF`** *(NUEVO v1.50.3-g, `M-44`)* |
     | `intent:"market"` | comportamiento **vigente, sin cambios** (§M1 v1.28) |
     | `productType` ≠ `"graded"` | `intent` se **ignora** si viene; nada cambia |
+    - **⚠️ v1.50.3-g — `409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF` (`M-44`, BREAKING chico, `super_admin`).**
+      **Regla normativa (ARCHITECTURE §4.38l.4.3 regla 2, ampliada, y §4.38l.4.10):** *la naturaleza de una fila solo
+      se **SUBE** (`graded_estimate → market`), y solo por acto humano declarado (`intent:"market"`). **Bajarla no es
+      una operación que ofrezca este sistema** — ni automática ni manual.* Hasta v1.50.3-f la prohibición solo pesaba
+      sobre el **ingest**; el escritor humano tenía el hueco abierto y el blue team lo reprodujo en vivo.
+      - **Condición exacta que dispara el `409`:** `intent:"graded_estimate"` **y** ya existe fila para
+        `(cardId, productType:"graded", gradeKey, finish, capturedDate = hoy, cardProductId)` **con
+        `refKind:"market"`**. La fila **no se toca**: ni su `refKind` ni su `priceMxnCents`. El bloqueo **se audita**
+        (`AuditLog`), igual que sus hermanas.
+      - **⚠️ El alcance es LA FILA DEL DÍA, y es deliberado.** `refKind` **no** está en la `@@unique`, así que la
+        colisión destructiva solo existe dentro del mismo `capturedDate`. **Cross-day no se prohíbe nada**: un
+        estimado capturado hoy crea **otra** fila y la fila `market` de ayer **sigue siendo candidata de dinero
+        perenne** (override manual durable, v1.46 / §4.27f-2) ⇒ el slab —de plataforma **o de custodia**— conserva su
+        precio. Prohibirlo cross-day mataría el caso legítimo (una carta que tuvo slab, se vendió, y hoy se quiere
+        exhibir su estimado) y **vaciaría la vitrina en silencio**.
+      - **Precedencia:** si se cumplen las dos condiciones (slab publicado **y** fila `market` del día), gana
+        **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`** — es la preexistente y su mensaje es más útil al operador. `M-44`
+        cubre **exactamente el complemento**: el hueco que la otra no ve (slab en `in_stock`/`reserved`/`picking`/
+        envío, slab **en custodia de cliente**, o sin slab alguno).
+      - **Transaccionalidad (normativo):** la comprobación de naturaleza es **parte de la escritura**, no de su
+        antesala — va en la **misma transacción** que el upsert. Un pre-vuelo fuera de la transacción es **opcional y
+        solo para construir el mensaje**. Sin esto, dos peticiones concurrentes (`intent:"market"` /
+        `intent:"graded_estimate"`) pueden consumar la degradación por TOCTOU.
+      - **Mensaje:** «No se puede convertir en ESTIMADO la referencia de MERCADO de PSA {grade} de esta carta: la
+        fila de hoy vale {monto} y fue afirmada como precio de mercado. Si quieres cambiar ese precio, usa
+        `intent:"market"`; si quieres retirar el dato, hazlo con el borrado del gancho.»
+        `details: { cardId, gradeKey, currentRefKind: "market", capturedDate }`. **`priceMxnCents` actual NO viaja en
+        `details`** (no aporta a la decisión y es dato comercial; el operador lo ve en `priceHistory`).
+      - **Fricción aceptada y declarada** (para que nadie la «arregle» luego creyendo que endurece): quien capture
+        `intent:"market"` por error y quiera corregirlo a estimado **el mismo día** recibe `409` y **no tiene
+        escotilla** — el `DELETE` del gancho borra **solo** filas `graded_estimate`. El coste máximo es que el gancho
+        de esa carta espere a mañana; el beneficio es que **un verbo informativo no puede destruir un dato de
+        dinero**. ARCHITECTURE §4.38(l.4.10).
+    - **⚠️ v1.50.3-g — validación del borde (SEC-M43-4; precisión ADITIVA, el contrato ya normaba `422`):**
+      | Entrada | Respuesta normada | Hoy devuelve |
+      |---|---|---|
+      | `productType` fuera del conjunto soportado (`raw`/`graded`/`sealed`) | **`422 VALIDATION_ERROR`** | `500` ⛔ |
+      | `cardId` que no existe | **`404 NOT_FOUND`** | `500` ⛔ |
+      | `gradeKey` que no corresponde a una clave generable por `gradeKeyFor` (p. ej. `graded:PSA:11`) | **`422 VALIDATION_ERROR`** | `200` ⛔ (crea fila para un grado inexistente) |
+      Un `500` en un endpoint de dinero es indistinguible de una caída real y contamina cualquier alerta de
+      401/403 que se monte sobre `/admin/*`. **No hay fuga de información** (el filtro devuelve `INTERNAL` sin
+      detalle), por eso es **Baja** y no bloquea; **conviene cerrarlo junto a C4**.
     - **⚠️ v1.50.3-f — `intent` FIJA la NATURALEZA de la fila (`refKind`), y ésa es la que decide si el número puede
       ser dinero.** `intent:"market"` (y todo `productType` ≠ `graded`) ⇒ `refKind="market"`;
       `intent:"graded_estimate"` ⇒ `refKind="graded_estimate"`. **Regla normativa (ARCHITECTURE §4.38l.4):** *una fila
@@ -5349,7 +5419,13 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
         alguien capture su precio real con `intent:"market"`. Es **deliberado y fail-closed** (mejor sin precio que al
         5%). El procedimiento de cut-over —enumerar con `/graded-estimates/review?reason=SLAB_PUBLISHED` y
         **re-afirmar cada slab con `intent:"market"` ANTES de migrar**— es **obligatorio**: sin él una pieza puede
-        apagarse en silencio. ARCHITECTURE §4.38(l.4.7).
+        apagarse en silencio. ARCHITECTURE §4.38(l.4.7). **⚠️ v1.50.3-g (`M-45`): ese procedimiento fue REESCRITO**
+        (congelación de publicaciones `graded` durante la ventana; censo que **para y escala** sin rama alternativa;
+        re-censo como gate previo al deploy; **sin backfill**; verificación con check **positivo Y negativo**;
+        rollback con **precondición de cero** filas `graded_estimate`). **El `UPDATE` de clasificación que circulaba
+        en el runbook queda ⛔ DEROGADO**: usaba el predicado de una **guarda** (`platform+listed`) para una decisión
+        de **naturaleza**, y en una BD real habría marcado como estimado la referencia de mercado de todo slab no
+        listado en ese instante, **incluidos los de custodia de clientes**. ARCHITECTURE §4.38(l.4.7)/(l.4.7-bis)/(l.4.11).
       - **El `409` y el `422` NO se retiran** (defensa en profundidad): con slab publicado, «capturar un estimado»
         sigue siendo una intención equivocada y el sistema lo dice, aunque ya no mueva dinero.
       - **El ingest de fase 2 escribe siempre `refKind="graded_estimate"` y NUNCA degrada una fila `market`** (si la
