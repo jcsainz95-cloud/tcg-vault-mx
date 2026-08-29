@@ -80,6 +80,20 @@
 >    Borra **todas** las filas de la clave en transacción (borrar solo la vigente **haría reaparecer** una más vieja),
 >    **auditado con `before`**, **`404`** si no hay nada, y con la **guarda INV-D ⇒ `409`**. ⚠ **No mitiga INV-D
 >    inverso** —la inferencia es tentadora y falsa—: ahí el slab está publicado y la guarda **debe** disparar. §4.38(q).
+> **Addendum v1.50.3-e (2026-08-29) — hallazgo de frontend en la suite real + dos consultas cerradas. Todo se cierra;
+> nada queda como deuda:**
+> 14. **La red de coherencia NO se ponía con UN SOLO grado, y el defecto es mío.** Medido: raw $460 + PSA 10 $230 sin
+>    PSA 9 ⇒ `review` daba `total: 0`, porque `NO_PSA9` **corta antes** del gate de magnitud. **Segunda ocurrencia de
+>    la misma causa raíz que el punto 10** (`STALE` inalcanzable): una **superficie de diagnóstico** heredando el
+>    **cortocircuito de una superficie de decisión**. Arreglo en la **causa**, no en la instancia: la pura emite
+>    **`reasons[]`** (todas las condiciones) además de `reason` (primer bloqueante, **sin cambio**), y (n) filtra sobre
+>    `reasons`. **`eligible` no cambia — money-neutral.** Gravedad por encima de su apariencia: el USD-como-MXN es más
+>    probable en la **primera captura**, y ahí la cifra **no se promociona pero SÍ se ve en la ficha** ⇒ visible al
+>    comprador, invisible para el operador. §4.38(c), (n.2-ter).
+> 15. **MEN-B cerrada sin código:** `isManual` describe **la fila que el diagnóstico reporta** (la que eligió
+>    `pickBestRef`), no «la más antigua». El remedio señalado es correcto **por construcción**, también con diales
+>    asimétricos. Residual declarado. **R1 del techlead cerrada como «sin cambio»:** la guarda del `DELETE` **no** se
+>    extiende a slabs `in_stock` — hacerlo **institucionalizaría INV-D inverso**. §4.38(n.2-bis), (q.2).
 > 13. **`raw` / `sealed` siguen SIN borrado, y ahora está declarado en vez de prometido.** Un `DELETE` genérico sobre
 >    la tabla de precios **mueve precios de venta publicados** y necesita su propio diseño. Texto de §4.27f-2 y del
 >    contrato **corregidos**; hueco con nombre en §9. Y **dos filas nuevas de fixture** en `seed-e2e.ts` (GU-A28).
@@ -7229,6 +7243,9 @@ export function evaluateGradingHighlight(input: {
   publishedSlabGrades: string[];   // v1.50.2 — ver (l)
   today: string; cfg: GradedEstimateConfig;
 }): { eligible: boolean; reason?: HighlightReason;
+      // v1.50.3-e — TODAS las condiciones detectadas, no solo la primera. `reason` sigue siendo el PRIMER bloqueante
+      // (decisión de promoción, sin cambio); `reasons` es el DIAGNÓSTICO completo y es lo que consumen preview/review.
+      reasons: HighlightReason[];
       highlight: GradedEstimateRef[];        // vacío si !eligible
       gradingCostTier: GradingCostTier | null; gradingCostMxnCents: number | null;
       thresholdMxnCents: number | null; netUpsidePsa9MxnCents: number | null };
@@ -7278,6 +7295,23 @@ default:
 - **El paso 6c va ANTES del 7 a propósito.** Un valor incoherente en magnitud **no debe** resolver escalón: si el
   número está en unidades equivocadas, el escalón que elija es basura y el `threshold` que produzca también. Se
   descarta antes de que contamine el resto del cálculo.
+
+> ⛔ **v1.50.3-e — EL CORTOCIRCUITO NO APLICA AL DIAGNÓSTICO: se emite `reasons[]` además de `reason` (NORMATIVO).**
+> El algoritmo de arriba **para en el primer bloqueante** y devuelve **ese** `reason`. Para decidir **si se
+> promociona**, eso es correcto y no cambia. Pero **`preview` y `review` no preguntan lo mismo**, y yo les di la
+> misma función: preguntan **«¿qué le pasa a esta carta?»**, y esa respuesta **no cabe en un escalar** — una carta
+> puede fallar **varias** condiciones a la vez.
+>
+> **Regla nueva:** la pura evalúa **todas** las condiciones aplicables y devuelve **`reasons: HighlightReason[]`** en
+> **orden canónico** (el de los pasos 1→8). **`reason` se conserva sin cambio** = `reasons[0]` = primer bloqueante.
+> - **`eligible` NO cambia nunca:** es la conjunción de todos los pasos, y **el orden de evaluación jamás la
+>   alteró** — reordenar o completar el diagnóstico es **money-neutral por construcción**. Lo único que cambiaba con
+>   el orden era **qué motivo se reporta**, nunca **qué se promociona**.
+> - **Una condición cuyos insumos no existen NO se evalúa y NO se lista.** `GRADE_ORDER_INVERTED` sin PSA 9 no
+>   aparece. ⚠ **Ausencia de un `reason` NO significa «pasó esa prueba»**: significa «no se pudo comprobar». Para el
+>   enumerador de (n) da igual —solo enumera positivos—, pero quien lea `reasons` para otra cosa debe saberlo.
+> - **Coste:** un puñado de comparaciones enteras sobre datos que ya están en memoria. Las queries —la parte cara— ya
+>   ocurrieron. **No añade ni una.**
 - **La ficha y el destacado se evalúan por separado y con reglas distintas.** Caso normal y esperado: una carta con
   PSA 10 y PSA 9 frescos que **no** pasa el gate ⇒ la ficha muestra **las dos cifras** y la teja **no muestra nada**.
   Caso también normal: PSA 10 fresco sin PSA 9 ⇒ la ficha muestra **una** cifra y la teja **nada** (`NO_PSA9`).
@@ -7954,7 +7988,14 @@ indistinguibles justo cuando hay que decidir.
        `SLAB_PUBLISHED` de (n) en modo real. **Sirve además para el `409` del `DELETE` nuevo**, que sin esta fila no
        es verificable de punta a punta: es exactamente la situación que la guarda protege.
      - **una tercera carta raw publicada** — permite cubrir a la vez «un solo grado» y «dos grados sin destacar».
+     - **v1.50.3-e: una CUARTA carta raw publicada y libre** (petición de frontend, **aceptada**): las tres anteriores
+       ya se consumen entre escenarios y los tests empiezan a pisarse. Un fixture que obliga a reciclar cartas entre
+       casos crea **acoplamiento entre pruebas** —la que corre segunda hereda el estado de la primera—, que es
+       justo lo que un fixture sintético existe para evitar.
      *(El fixture es de backend; aquí consta **qué debe existir** y por qué, no cómo se escribe.)*
+  10. **v1.50.3-e — `reasons: HighlightReason[]` en `evaluateGradingHighlight`** ((c)) y **el filtro de (n) evaluado
+     sobre `reasons`**, no sobre `reason`. **`reason` y `eligible` NO cambian de semántica** — es aditivo. Cierra el
+     agujero medido de la red de coherencia con un solo grado ((n.2-ter)). **No añade ninguna query.**
   4. **Gate de evidencia en el ingest** ((h.1)/(m.2)): no persistir filas cuya `lastSaleDate` supere `freshnessDays`;
      ausente/no parseable ⇒ no se persiste.
   **⚠️ Addendum v1.50.3-a — lo que sale de las dos escaladas de backend (PI-D2 / PI-D3):**
@@ -8042,6 +8083,11 @@ indistinguibles justo cuando hay que decidir.
   sobre la carta con **slab publicado**, el mismo `DELETE` responde **`409`** y **el precio del slab es idéntico antes
   y después** (es el criterio 112 aplicado al verbo destructivo). Sin esta pareja de casos, «se corrige o se descarta»
   seguiría sin ser verificable.
+  (9) **v1.50.3-e — la red de coherencia con UN SOLO grado** (regresión de (n.2-ter), y es el caso que más importa
+  porque es donde el error de unidades es más probable): carta raw **$460** con **solo PSA 10 = $230** y **sin PSA 9**
+  ⇒ **aparece en `review?reason=NOT_ABOVE_RAW`** (antes: `total: 0`), **sigue sin promocionarse** (`reason` sigue
+  siendo `NO_PSA9`) y **sigue mostrándose en la ficha** ((k.3), sin cambio). Es la prueba de que el diagnóstico dejó
+  de heredar el cortocircuito de la decisión.
   **⚠️ v1.50.3-b — QA NO puede certificar la configuración de un entorno con el E2E, y este bullet existe para que
   nadie lo intente** *(corrige lo que v1.50.3-a decía aquí, que era el mismo error del paso 4 de (p))*. El E2E del
   criterio 109 (caso `8d`) **fija `manualFreshnessDays: 30` antes de asertar** —correcto: prueba la **lógica de
@@ -8468,6 +8514,21 @@ capturar y refrescar que motivó toda la escalada:
 | **manual** | la afirmación **del dueño** expiró | **recapturar** (sostener el número) o **borrarla** |
 | **automática** | el feed **dejó de cubrir esa carta** | mirar el **ingest**, no la carta (cuota, shape, carta despublicada — (h.4)) |
 
+**MEN-B (v1.50.3-e) — qué fila describe `isManual`, exactamente.** Backend preguntó si debe describir **la más
+antigua** o **la que caducó**, notando que con diales de frescura **asimétricos** podría señalar el remedio contrario.
+**Definición normativa: `isManual` describe la fila que el diagnóstico está REPORTANDO** — la que `pickBestRef`
+eligió entre las candidatas consideradas: las **frescas** en el caso normal, o la **rancia re-inyectada** cuando no
+hay ninguna fresca. **Ni «la más antigua» ni «la que caducó» como conceptos independientes.**
+
+**Y por eso el remedio señalado es correcto por construcción, también con diales asimétricos:** la re-inyección usa
+**el mismo comparador** que elegiría al ganador si las filas estuvieran frescas ⇒ la fila reportada **es** la que
+volvería a mostrarse al refrescarla. Decir «refresca ésta» nunca apunta a la fila equivocada.
+
+*(**Residual aceptado y declarado:** si conviven una manual rancia y una automática rancia, `pickBestRef` iza la
+manual por tier, así que el operador **no se entera** de que el feed también se quedó atrás. No es una señal
+**errónea** —recapturar la manual sí restaura la exhibición— sino **incompleta**. El lado del feed ya tiene su propia
+superficie: los contadores por motivo del ingest ((h.4)). **No se añade nada por esto.**)*
+
 `reason: STALE` a secas no los distingue, así que `GradedEstimateReviewItemDTO` y `GradedEstimatePreviewDTO` ganan
 **`isManual: boolean`**. Es **una sola bandera, en un DTO admin-only**, y **no viola (g)**: la garantía de
 indistinguibilidad fase 1 ⇄ fase 2 es sobre las **superficies públicas**, y (g).2 ya dice que `source`/
@@ -8476,6 +8537,40 @@ pregunta operativa («¿esta cifra la puse yo?») sin publicar la identidad del 
 llevan en `GradedEstimateRef`. Sin él, cada fila `STALE` obligaría a una segunda llamada — justo la fricción del
 «solo te contesta si ya sospechabas» que (n) existe para eliminar, y el mismo motivo por el que la lista ya lleva
 `cardName`/`setName`.
+
+##### (n.2-ter) v1.50.3-e — la red de coherencia NO se ponía con un solo grado. Y es la MISMA causa raíz que (n.2-bis)
+
+> **Medido por frontend contra el stack vivo:** raw **MX$460** + PSA 10 **MX$230**, sin PSA 9 ⇒ `review` devuelve
+> **`total: 0`**. Añadiendo PSA 9 ⇒ **`total: 1, NOT_ABOVE_RAW`**. **El código es fiel a mi algoritmo**: el paso 5
+> (`NO_PSA9`) **corta antes** del paso 6c (magnitud). **El defecto es del diseño, no de la implementación.**
+
+**La causa raíz, dicha entera — y es la segunda vez que aparece.** Construí (n) sobre `evaluateGradingHighlight`, cuyo
+`reason` significa **«primer bloqueante para PROMOCIONAR»**, y luego lo leí como si significara **«el diagnóstico de
+esta carta»**. **No son lo mismo**, y un **escalar** no puede expresar el segundo: una carta puede fallar **varias**
+condiciones a la vez. Es **exactamente** la misma clase de error que dejó `STALE` inalcanzable en (n.2-bis): una
+**superficie de diagnóstico heredando el cortocircuito de una superficie de decisión**. Dos ocurrencias del mismo
+fallo en el mismo pase **ya no son un accidente: son el síntoma de haber reutilizado la función sin reexaminar la
+semántica de su salida.** Por eso el arreglo de esta vez **no es reordenar pasos** —eso taparía este caso y dejaría el
+siguiente— sino **emitir `reasons[]`** ((c)): se ataca la causa, no la instancia.
+
+**Por qué importa más de lo que su severidad sugiere, y frontend tiene razón en los dos tramos:**
+
+1. **El error que esta categoría existe para cazar es MÁS probable justo donde la red no estaba.** `NOT_ABOVE_RAW` caza
+   el **USD capturado como MXN** ((k.2)) — y ese error ocurre típicamente en la **primera captura**, cuando el
+   operador acaba de teclear **un solo grado**. La protección faltaba **precisamente en el momento de máximo riesgo**.
+2. **El efecto compuesto con mis propias reglas produce el fallo que juré evitar.** Con un solo grado el gate **nunca
+   promociona** (exige PSA 9, criterio 98) ⇒ la cifra errónea **no llega a la rejilla**. Pero **la ficha SÍ la
+   muestra**, porque la ficha informa lo que hay y **no aplica magnitud** ((k.3)). Resultado: **una cifra en unidades
+   equivocadas, visible al comprador, y no enumerable en la lista de revisión.** Eso es, palabra por palabra,
+   **«publicamos la cifra mala y nadie se entera»** — el argumento con el que me negué a declarar (n) fuera de
+   alcance. La red de seguridad tenía un agujero **con la forma exacta de lo que debía atrapar**.
+
+**Efecto del arreglo en el caso medido:** `reasons: ["NO_PSA9", "NOT_ABOVE_RAW"]`. `reason` sigue siendo `NO_PSA9`
+(la promoción no cambia: sin PSA 9 no se promociona, y así seguirá), pero la carta **ya aparece** en
+`review?reason=NOT_ABOVE_RAW`, que es donde el operador puede verla y corregirla o borrarla ((q)).
+
+**El filtro de (n) pasa a evaluarse sobre `reasons`, no sobre `reason`:** una fila entra si
+`reasons ∩ {reasons pedidos} ≠ ∅`.
 
 ##### (n.3) La lista funciona con la feature APAGADA — divergencia deliberada con el `preview`
 
@@ -8700,6 +8795,30 @@ invariante de dinero, aplicada al otro verbo.
 > **El remedio correcto en ese caso sigue siendo el de §M1 v1.28:** **repreciar con `intent:"market"`** —un acto de
 > dinero, deliberado y auditado—, que es justo lo que `intent` existe para obligar a declarar. **INV-D inverso sigue
 > abierto y sigue necesitando M-43 (GU-8).** Este endpoint **no** lo toca.
+
+**R1 del techlead (v1.50.3-e) — ¿la guarda debe cubrir también slabs `in_stock` NO publicados? RESPUESTA: NO, y no
+por benignidad sino porque lo contrario sería ACTIVAMENTE DAÑINO.**
+
+El razonamiento fácil sería «la consecuencia es leve» (borrar el estimado deja al slab sin referencia y, al
+publicarlo, cae en `PRICE_PENDING`). Es cierto, y además ese estado es **ruidoso y visible** —tiene cola propia en
+M2—, no un fallo silencioso. Pero **no es el argumento que decide**:
+
+> **Extender la guarda a `in_stock` PRESERVARÍA la fila de estimado precisamente para que, al publicar el slab,
+> pasara a determinar su precio. Eso es INV-D inverso — el riesgo que QA MIDIÓ (`575000 → 1000000`, §(l.3))—
+> institucionalizado como comportamiento deseado.** La guarda ampliada protegería el mecanismo del fallo.
+
+**La línea correcta es «¿hay ahora mismo una publicación viva que dependa de esta fila?»**, y esa línea es
+exactamente `published`:
+- **Slab PUBLICADO** → la fila **es** la referencia de mercado de un listado vivo; borrarla **despreciaría una pieza
+  a la venta** ⇒ `409`. Superficie de dinero activa.
+- **Slab `in_stock` NO publicado** → **nada vivo depende de esa fila**. Borrarla obliga a que, al publicar, el
+  operador **fije un precio deliberado**, que es justo lo que §M1 v1.28 ya manda y lo que INV-D quiere: **una pieza
+  real se precia a propósito, no hereda el número de un estimado olvidado.**
+
+**Se cierra como «sin cambio», con el porqué escrito** — no como deuda: dejarlo abierto invitaría a que alguien
+«complete» la guarda más adelante creyendo que endurece, cuando estaría reabriendo el agujero. *(Fricción aceptada y
+declarada: el operador puede sorprenderse en el momento de publicar. Es visible, es la cola de pendientes de M2, y es
+el momento correcto para pensar el precio de una pieza real.)*
 
 ##### (q.3) Lo que este endpoint NO hace
 
@@ -11168,6 +11287,36 @@ este documento y con `API_CONTRACT.md`.
   con **grupo raw publicado + slab publicado del mismo grado**, y una **tercera carta raw publicada**. Desbloquean el
   pre-vuelo de INV-D, el `SLAB_PUBLISHED` de (n) en modo real, y la combinación «un grado» / «dos grados sin
   destacar». **La primera es además la única forma de verificar el `409` del `DELETE` nuevo de punta a punta.**
+- **GU-A29 (v1.50.3-e, hallazgo de frontend) — el diagnóstico deja de heredar el cortocircuito de la decisión:
+  `reasons[]`** (§4.38c, n.2-ter). Medido: raw $460 + PSA 10 $230 **sin PSA 9** ⇒ `review` devolvía `total: 0`, porque
+  el paso `NO_PSA9` **corta antes** del gate de magnitud. **El código era fiel a mi algoritmo: el defecto es mío.**
+  **Causa raíz, y es la SEGUNDA vez en este pase** (la primera fue `STALE` inalcanzable, GU-A24): construí una
+  **superficie de diagnóstico** sobre una función cuyo `reason` significa **«primer bloqueante para promocionar»**, y
+  lo leí como «el diagnóstico de la carta». **No caben en un escalar.** Por eso el arreglo **no es reordenar pasos**
+  —taparía esta instancia y dejaría la siguiente— sino emitir **`reasons[]`** con todas las condiciones detectadas.
+  **`reason` y `eligible` no cambian** (`eligible` es la conjunción de todos los pasos: el orden **nunca** la alteró
+  ⇒ money-neutral). **Severidad real por encima de su apariencia:** el error que `NOT_ABOVE_RAW` caza —USD como MXN—
+  es **más probable en la primera captura, con un solo grado**, y ahí la carta **nunca se promociona** pero **sí se
+  muestra en la ficha** ⇒ cifra en unidades equivocadas **visible al comprador e inencontrable para el operador**:
+  literalmente el «publicamos la cifra mala y nadie se entera» con el que me negué a declarar (n) fuera de alcance.
+  **→ trabajo para backend.**
+- **GU-A30 (MEN-B, v1.50.3-e) — definición de `isManual`; sin cambio de código.** Describe **la fila que el
+  diagnóstico reporta** (la que eligió `pickBestRef` entre las candidatas consideradas: frescas, o la rancia
+  re-inyectada si no hay frescas), **no** «la más antigua» ni «la que caducó». **El remedio señalado es correcto por
+  construcción incluso con diales asimétricos**, porque la re-inyección usa el **mismo comparador** que elegiría al
+  ganador si estuvieran frescas ⇒ la fila reportada **es** la que volvería a mostrarse al refrescarla. **Residual
+  aceptado:** con manual y automática rancias a la vez, se iza la manual por tier y el operador no se entera de que
+  el feed también se atrasó — señal **incompleta**, no **errónea**, y el lado del feed ya tiene los contadores por
+  motivo de (h.4). **No se añade nada.**
+- **GU-A31 (R1 del techlead, v1.50.3-e) — la guarda del `DELETE` NO se extiende a slabs `in_stock`; se cierra como
+  "sin cambio"** (§4.38q.2). **Y no por benignidad:** extenderla **preservaría** la fila de estimado justo para que,
+  al publicar el slab, pasara a determinar su precio — o sea, **institucionalizaría INV-D inverso**, el riesgo que QA
+  **midió** (`575000 → 1000000`). La línea correcta es **«¿hay ahora mismo una publicación viva que dependa de esta
+  fila?»**, y esa línea es exactamente `published`. Con el slab **sin publicar**, borrar el estimado obliga a fijar un
+  precio **deliberado** al publicar, que es lo que §M1 v1.28 ya manda. **Se cierra en vez de dejarlo como deuda
+  a propósito:** abierto, invitaría a que alguien «complete» la guarda creyendo que endurece, **reabriendo el
+  agujero**. *(Fricción aceptada: el operador puede sorprenderse al publicar; es `PRICE_PENDING`, visible y con cola
+  propia en M2.)*
 - **GU-A26 (ratificación, sin acción) — `POST /admin/pricing/override` devuelve `200`, no `201`.** QA halló que el
   código respondía `201` contra la norma de §M2; **backend verificó que el contrato tenía razón y corrigió el código**
   (`@HttpCode(200)`) en vez de pedir cambiar el contrato. **Es el desenlace correcto y el precedente que quiero

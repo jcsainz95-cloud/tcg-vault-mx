@@ -76,6 +76,15 @@
 >   superficie pública cambia.** ⚠️ **`raw` y `sealed` siguen sin borrado** (un `DELETE` ahí mueve precios de venta
 >   publicados y necesita su propio diseño): corregidas las frases que lo daban por existente. ARCHITECTURE §4.38(q),
 >   §4.27f-2, §9.
+> - **⚠️ ADDENDUM v1.50.3-e — `GradedEstimatePreviewDTO` gana `reasons: HighlightReason[]`; el filtro de `/review` se
+>   evalúa sobre `reasons`, no sobre `reason`.** Cierra un **agujero medido en la red de coherencia**: con **un solo
+>   grado** (raw $460 + PSA 10 $230, sin PSA 9) la evaluación cortaba en `NO_PSA9` y **`NOT_ABOVE_RAW` nunca se
+>   comprobaba** ⇒ `total: 0`. Es el peor sitio posible para esa falta: el error **USD-como-MXN** es más probable en
+>   la **primera captura** (un grado), y como sin PSA 9 la carta **nunca se promociona**, la cifra errónea **no llega
+>   a la rejilla pero SÍ se muestra en la ficha** ⇒ **visible al comprador, inencontrable para el operador**.
+>   **`reason` y `eligible` NO cambian de semántica** (`reason` = primer bloqueante = `reasons[0]`; `eligible` es la
+>   conjunción de todos los pasos y el orden nunca la alteró). **Aditivo, admin-only, ninguna query nueva.**
+>   ARCHITECTURE §4.38(c), §4.38(n.2-ter).
 > - **Ratificado sin cambio documental:** `POST /admin/pricing/override` responde **`200`**, como este contrato norma
 >   desde v1.50. El código devolvía `201`; **backend corrigió el código, no el contrato** (`@HttpCode(200)`). Es el
 >   desenlace correcto — **el contrato manda sobre el código**. **Frontend/QA:** revisar cualquier arnés que asertara
@@ -2219,10 +2228,19 @@ GradedEstimatePreviewDTO = { representativeInventoryItemId: string, finish: Fini
                              thresholdMxnCents: number | null, netUpsidePsa9MxnCents: number | null,
                              maxAllowedPsa10MxnCents: number | null, publishedSlabGrades: string[],
                              eligible: boolean,
-                             reason?: "FEATURE_OFF" | "NOT_RAW" | "NOT_PUBLISHED" | "NO_PSA10" | "NO_PSA9"
-                                    | "STALE" | "NO_COST_TIER" | "BELOW_MIN_UPSIDE"
-                                    | "SLAB_PUBLISHED" | "NOT_ABOVE_RAW" | "ABOVE_MAX_MULTIPLE"
-                                    | "GRADE_ORDER_INVERTED" }
+                             reason?: HighlightReason,      // PRIMER bloqueante (decisión de promoción) — sin cambio
+                             reasons: HighlightReason[] }   // v1.50.3-e: TODAS las condiciones detectadas (diagnóstico)
+HighlightReason = "FEATURE_OFF" | "NOT_RAW" | "NOT_PUBLISHED" | "NO_PSA10" | "NO_PSA9"
+                | "STALE" | "NO_COST_TIER" | "BELOW_MIN_UPSIDE"
+                | "SLAB_PUBLISHED" | "NOT_ABOVE_RAW" | "ABOVE_MAX_MULTIPLE" | "GRADE_ORDER_INVERTED"
+// ⚠️ v1.50.3-e — POR QUÉ HAY DOS CAMPOS. `reason` responde «¿qué impide promocionar?» y se detiene en el primer
+// bloqueante: correcto para decidir, INSUFICIENTE para diagnosticar, porque una carta puede fallar VARIAS cosas a la
+// vez. Medido: raw $460 + PSA 10 $230 SIN PSA 9 cortaba en NO_PSA9 y la incoherencia NOT_ABOVE_RAW nunca se
+// evaluaba ⇒ una cifra en unidades equivocadas, VISIBLE en la ficha, INVISIBLE en la lista de revisión.
+// `reasons` lista todas las condiciones en orden canónico; `reason` === `reasons[0]`. `eligible` NO cambia (es la
+// conjunción de todos los pasos; el orden de evaluación nunca la alteró).
+// ⚠️ Una condición cuyos INSUMOS no existen no se evalúa y NO se lista (p.ej. GRADE_ORDER_INVERTED sin PSA 9):
+// la AUSENCIA de un reason significa «no se pudo comprobar», NO «pasó esa prueba».
 // ---- LISTA DE REVISIÓN (GET /admin/pricing/graded-estimates/review, §M2, super_admin) — NUEVO v1.50.3. ----
 // Es el criterio 111(e), y la CONTRAPARTIDA de §4.38(k.3): la cifra incoherente NO se oculta en la ficha, así que
 // alguien tiene que enterarse. `preview` responde «¿por qué ESTA carta no está destacada?» (exige cardId: solo
@@ -6516,13 +6534,22 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       encontrarla** para refrescarla o retirarla. **Es el caso que mejor encaja en el propósito de esta lista.**
     Ambos **fuera del default** por el mismo motivo: incluirlos **ahogaría la señal de coherencia** en la lista que
     existe para que esa señal se vea.
+    - **⚠️ v1.50.3-e — el filtro se evalúa sobre `reasons`, NO sobre `reason`:** una fila entra si
+      `reasons ∩ {reasons pedidos} ≠ ∅`. **Corrige un agujero medido en la red de coherencia:** con **un solo grado**
+      (raw $460 + PSA 10 $230, sin PSA 9) la evaluación cortaba en `NO_PSA9` y **`NOT_ABOVE_RAW` nunca se
+      comprobaba** ⇒ `total: 0`. Y ese es el peor sitio donde faltaba: el error **USD-como-MXN** es más probable en la
+      **primera captura** (un solo grado), y como sin PSA 9 la carta **nunca se promociona**, la cifra errónea **no
+      llega a la rejilla pero SÍ se muestra en la ficha** —que no aplica magnitud— ⇒ **visible al comprador e
+      inencontrable para el operador**. Con `reasons`, esa carta aparece bajo `?reason=NOT_ABOVE_RAW`.
     Cualquier otro `reason` (`NO_PSA10`, `NO_PSA9`, `NO_COST_TIER`, `BELOW_MIN_UPSIDE`, `NOT_RAW`, `NOT_PUBLISHED`,
     `FEATURE_OFF`) ⇒ **`400 VALIDATION_ERROR`**: son **ausencia** de dato o el gate comercial haciendo su trabajo, y
     una lista que los incluyera tendría miles de filas normales y cero valor operativo.
   - **`page` / `pageSize`:** default `pageSize` **25**, máx **100**. Paginación inválida ⇒ `400 VALIDATION_ERROR`.
-  - **Orden determinista** (paginación estable): `reason` asc → **`capturedDate` asc (`null` al final)** → `cardId`
-    asc → `representativeInventoryItemId` asc. *(v1.50.3-c intercala `capturedDate`: con `?reason=STALE` **lo más
-    vencido va primero**, que es el orden en que el dueño quiere atacarlo. Sigue siendo total y estable.)*
+  - **Orden determinista** (paginación estable): **`reason` PRIMARIO MATCHEADO** asc → **`capturedDate` asc (`null`
+    al final)** → `cardId` asc → `representativeInventoryItemId` asc. El «primario matcheado» = el primer elemento de
+    `reasons` que esté en el conjunto pedido (orden canónico) — no `reasons[0]` a secas, que podría ser un motivo que
+    el operador **no** pidió. *(v1.50.3-c intercaló `capturedDate`: con `?reason=STALE` **lo más vencido va
+    primero**. Sigue siendo total y estable.)*
 
   Res `200`:
   ```
