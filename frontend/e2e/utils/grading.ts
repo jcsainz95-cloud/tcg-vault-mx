@@ -35,10 +35,13 @@ import { readState, sharedOnce, writeState, clearState } from './state';
  * HUELLA QUE DEJA EN EL ENTORNO (declarada, no escondida):
  *  - El dial `gradedEstimatesEnabled` se enciende y **se restaura en `globalTeardown`**
  *    (`restoreGradingDial`), leyendo el valor previo de un archivo de estado.
- *  - Las `PriceReference` de estimado quedan escritas. **El contrato no expone borrado**, así que
- *    no se pueden retirar: la siembra es IDEMPOTENTE (un override posterior supersede al
- *    anterior) y con el dial restaurado a `off` nada de eso se publica. Queda anotado en
- *    `docs/FRONTEND_NOTES.md` como petición al arquitecto.
+ *  - Las `PriceReference` de estimado quedan escritas. La mitigación vigente es que la siembra sea
+ *    IDEMPOTENTE (un override posterior supersede al anterior) y que el dial vuelva a `off`: **nada
+ *    de lo sembrado se publica**. *(v1.50.3-d: el contrato **ya norma** el borrado —`DELETE
+ *    /admin/pricing/graded-estimates/:cardId/:gradeValue`—, así que el teardown podrá además
+ *    **retirar** lo sembrado. No se cablea aquí todavía: el endpoint aún no está desplegado en el
+ *    stack real y un teardown que llama a una ruta inexistente solo añade ruido a corridas ya
+ *    terminadas. Anotado en `docs/FRONTEND_NOTES.md`.)*
  * ─────────────────────────────────────────────────────────────────────────────────────
  */
 
@@ -286,8 +289,9 @@ async function seedRealScenario(): Promise<GradingScenario> {
     throw new Error(
       `La carta «informada» (${informed.card.name}) debía quedar con UN solo grado y sin destacar ` +
         `(reason NO_PSA9), y quedó: ${JSON.stringify(informedGroup)}. ` +
-        `Probablemente una corrida anterior le escribió un PSA ${gradeLow}; el contrato no expone ` +
-        `borrado de PriceReference, así que hay que re-sembrar la base (npm run seed:synthetic).`,
+        `Probablemente una corrida anterior le escribió un PSA ${gradeLow}: retíralo con ` +
+        `DELETE /admin/pricing/graded-estimates/${informed.card.id}/${gradeLow} (contrato ` +
+        `v1.50.3-d) o re-siembra la base (npm run seed:synthetic).`,
     );
   }
 

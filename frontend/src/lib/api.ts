@@ -71,6 +71,7 @@ import type {
   SealedSpreadsUpdateRequest,
   GradedEstimateConfigDTO,
   GradedEstimateConfigInput,
+  GradedEstimateDeleteResponse,
   GradedEstimatePreviewResponse,
   GradedEstimateReviewReason,
   GradedEstimateReviewResponse,
@@ -696,6 +697,39 @@ export async function getGradedEstimateReview(
     });
   }
   return delay(fx.mockGradedEstimateReview(filters));
+}
+
+/**
+ * **RETIRAR** el estimado de una carta y un grado (contrato `DELETE
+ * /admin/pricing/graded-estimates/:cardId/:gradeValue`, §M2 v1.50.3-d, `super_admin`, **auditado**).
+ *
+ * **Es el otro verbo que `PROJECT.md` §O.7 pide** —«que el dueño la corrija con override **o la
+ * descarte**»— y que hasta ahora no existía: el back-office solo podía **pisar** una cifra. Pisar no
+ * es descartar: deja otra afirmación comercial en su lugar.
+ *
+ * Tres cosas que el llamador no puede reinterpretar:
+ *  - **`404` = «no había nada que borrar»**, no un fallo del sistema. El contrato lo elige a
+ *    propósito frente a un `200` silencioso, que le haría creer al operador que limpió algo.
+ *  - **`409 GRADED_ESTIMATE_SLAB_PUBLISHED` = la guarda INV-D funcionando.** Con un slab publicado
+ *    de ese grado la fila **ya no es un estimado**: es la referencia de mercado de una pieza física,
+ *    y borrarla la dejaría sin sustento de precio (⇒ `PRICE_PENDING` ⇒ despublicada). El remedio es
+ *    **repreciar con `intent:"market"`**, no insistir en borrar.
+ *  - **`deletedCount` puede ser > 1**: el borrado se lleva TODAS las filas de la clave, sea cual sea
+ *    su `capturedDate`. No se asume 1.
+ */
+export async function deleteGradedEstimate(
+  cardId: string,
+  gradeValue: string,
+): Promise<GradedEstimateDeleteResponse> {
+  const path = `/admin/pricing/graded-estimates/${encodeURIComponent(cardId)}/${encodeURIComponent(gradeValue)}`;
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateDeleteResponse>(path, { method: 'DELETE' });
+  }
+  try {
+    return await delay(fx.deleteMockGradedEstimate(cardId, gradeValue));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 // ---------- Checkout / órdenes ----------

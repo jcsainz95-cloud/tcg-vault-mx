@@ -2625,6 +2625,15 @@ export interface GradedEstimatePreviewDTO {
   maxAllowedPsa10MxnCents: number | null;
   /** Grados de esta carta con slab **PUBLICADO** (INV-D): capturar un ESTIMADO de uno de ellos da 409. */
   publishedSlabGrades: string[];
+  /**
+   * v1.50.3-c — ¿la cifra la puso **una persona** (override manual) o el **ingest**? Describe la
+   * MISMA fila que `capturedDate`. Existe porque los dos remedios de una cifra **caducada** son
+   * OPUESTOS: una manual rancia es la afirmación del dueño que expiró ⇒ **recapturar o retirar**;
+   * una automática rancia es el feed que dejó de cubrir esa carta ⇒ **mirar el ingest, no la
+   * carta**. Se emite el booleano y **no** `source`: contesta «¿esto lo puse yo?» sin publicar la
+   * identidad del proveedor. Admin-only; ningún DTO público cambia (§4.38g intacta).
+   */
+  isManual: boolean;
   eligible: boolean;
   reason?: GradedEstimatePreviewReason;
 }
@@ -2641,17 +2650,23 @@ export interface GradedEstimatePreviewResponse {
 /**
  * Los ÚNICOS `reason` enumerables por esta lista (contrato §M2; cualquier otro ⇒ `400`).
  *
- * **Default = los tres de coherencia de magnitud** (criterio 111 b/c/d). `SLAB_PUBLISHED` es
- * **opt-in**: es accionable, pero **no es un dato erróneo** y en el default ahogaría la señal.
- * El resto (`STALE`, `NO_PSA10`, `BELOW_MIN_UPSIDE`…) no son incoherencias, sino **ausencia** de
- * dato o el gate comercial funcionando: una lista que los incluyera tendría miles de filas normales
- * y cero valor operativo.
+ * **Default = los tres de coherencia de magnitud** (criterio 111 b/c/d). `SLAB_PUBLISHED` y
+ * `STALE` son **opt-in**: son accionables, pero **no son datos erróneos** y en el default ahogarían
+ * la señal de coherencia. El resto (`NO_PSA10`, `NO_PSA9`, `BELOW_MIN_UPSIDE`…) ⇒ `400`: no son
+ * incoherencias, sino **ausencia** de dato o el gate comercial funcionando, y una lista que los
+ * incluyera tendría miles de filas normales y cero valor operativo.
+ *
+ * **`STALE` (v1.50.3-c) no es «ausencia de dato»: es un dato que EXISTIÓ y expiró.** Sin él, una
+ * cifra caducada desaparece de las tres superficies en silencio, sigue en la BD y **nadie puede
+ * encontrarla** para refrescarla o retirarla. Es el caso que mejor encaja en el propósito de la
+ * lista, y el que da sentido al `DELETE` de §M2 v1.50.3-d.
  */
 export type GradedEstimateReviewReason =
   | 'NOT_ABOVE_RAW'
   | 'ABOVE_MAX_MULTIPLE'
   | 'GRADE_ORDER_INVERTED'
-  | 'SLAB_PUBLISHED';
+  | 'SLAB_PUBLISHED'
+  | 'STALE';
 
 /** Los tres motivos de COHERENCIA (default del endpoint). `SLAB_PUBLISHED` queda fuera a propósito. */
 export const GRADED_REVIEW_DEFAULT_REASONS: GradedEstimateReviewReason[] = [
@@ -2684,6 +2699,23 @@ export interface GradedEstimateReviewResponse {
   enabled: boolean;
   scannedCards: number;
   truncated: boolean;
+}
+
+/**
+ * Respuesta de `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` (§M2 v1.50.3-d).
+ *
+ * **`deletedCount` NO es decorativo:** el endpoint borra **todas** las filas de la clave canónica
+ * —cualquiera que sea su `capturedDate`— en una transacción, porque la unique incluye la fecha y
+ * quitar solo la vigente **haría aflorar una más vieja**: la cifra reaparecería sola en la ficha.
+ * El número dice cuántas se llevó por delante, para que el operador no descubra después que había
+ * historial. **`404` cuando no había nada** (nunca un `200` silencioso) y **`409
+ * GRADED_ESTIMATE_SLAB_PUBLISHED`** cuando hay un slab publicado de ese grado: ahí la fila ya no es
+ * un estimado, es la referencia de mercado de una pieza física.
+ */
+export interface GradedEstimateDeleteResponse {
+  cardId: string;
+  gradeValue: string;
+  deletedCount: number;
 }
 
 export interface AuditLogDTO {

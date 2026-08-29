@@ -179,6 +179,8 @@ const cleanPreview: GradedEstimatePreviewResponse = {
       netUpsidePsa9MxnCents: null,
       maxAllowedPsa10MxnCents: 15000000,
       publishedSlabGrades: [],
+      // v1.50.3-c: el origen viaja siempre; sin cifra capturada da igual, pero el DTO lo exige.
+      isManual: false,
       eligible: false,
       reason: 'NO_PSA10',
     },

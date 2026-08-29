@@ -3970,6 +3970,10 @@ export function mockGradedEstimatePreview(
         netUpsidePsa9MxnCents: psa9 != null && cost != null ? psa9 - g.salePriceCents - cost : null,
         maxAllowedPsa10MxnCents: maxAllowed,
         publishedSlabGrades,
+        // v1.50.3-c: en el fixture TODA cifra del gancho es un override manual (la fase 2 del
+        // ingest no está encendida), así que `isManual` es true siempre que haya fila. Sin fila no
+        // hay origen que declarar y se emite `false` (no `null`: el contrato lo tipa booleano).
+        isManual: estimates.length > 0,
         eligible: reason === undefined,
         ...(reason ? { reason } : {}),
       };
@@ -3988,7 +3992,14 @@ export function mockGradedEstimatePreview(
  *    **BAJO** el raw, así que el múltiplo máximo no lo ve; lo caza la cota inferior.
  *  - `GRADE_ORDER_INVERTED` — las dos filas capturadas **cruzadas**.
  *  - `SLAB_PUBLISHED` — **opt-in**: `c-charizard` tiene de verdad una PSA 9 publicada en estas
- *    fixtures, así que su fila de estimado es, literalmente, el precio de esa pieza (INV-D).
+ *    fixtures, así que su fila de estimado es, literalmente, el precio de esa pieza (INV-D). Es
+ *    también la única carta del fixture que produce el **`409` del borrado**, y debe producirlo.
+ *  - `STALE` (v1.50.3-c) — **opt-in**: la cifra existió y caducó. Dos filas, porque los remedios
+ *    son opuestos según `isManual` (manual ⇒ recapturar o **retirar**; automática ⇒ mirar el ingest).
+ *
+ * **El array es MUTABLE a propósito** (`deleteMockGradedEstimate` lo edita): retirar una cifra tiene
+ * que hacer desaparecer su fila de la lista, igual que en el backend, o el flujo «encontrarla y
+ * descartarla» no sería verificable de punta a punta.
  *
  * Las cartas elegidas **no** están en `mockGradedEstimatesByCardId` a propósito: ese mapa es la
  * proyección que el STOREFRONT lee, y mezclar ahí cifras rotas cambiaría lo que el gancho pinta en
@@ -4014,6 +4025,7 @@ const mockReviewRows: import('@/types/contract').GradedEstimateReviewItemDTO[] =
     netUpsidePsa9MxnCents: null,
     maxAllowedPsa10MxnCents: 12_800_000,
     publishedSlabGrades: [],
+    isManual: true,
     eligible: false,
     reason: 'NOT_ABOVE_RAW',
   },
@@ -4036,6 +4048,7 @@ const mockReviewRows: import('@/types/contract').GradedEstimateReviewItemDTO[] =
     netUpsidePsa9MxnCents: 448_000,
     maxAllowedPsa10MxnCents: 13_200_000,
     publishedSlabGrades: [],
+    isManual: true,
     eligible: false,
     reason: 'GRADE_ORDER_INVERTED',
   },
@@ -4057,8 +4070,61 @@ const mockReviewRows: import('@/types/contract').GradedEstimateReviewItemDTO[] =
     netUpsidePsa9MxnCents: null,
     maxAllowedPsa10MxnCents: 485_000_000,
     publishedSlabGrades: ['9'],
+    isManual: true,
     eligible: false,
     reason: 'SLAB_PUBLISHED',
+  },
+  // ── v1.50.3-c/-d · las dos filas CADUCADAS. Son opt-in (`?reason=STALE`) y existen aquí porque
+  // son el caso central del borrado: la cifra ya no se publica en ninguna superficie, PERO sigue en
+  // la tabla. Sin poder enumerarlas y retirarlas, el único gesto disponible sería capturar otra
+  // cifra indeseada. `isManual` separa los dos remedios, que son OPUESTOS.
+  {
+    // MANUAL rancia: la afirmación del dueño expiró ⇒ recapturar o RETIRAR. Es la fila que el
+    // botón «Retirar» existe para poder descartar.
+    cardId: 'c-zapdos',
+    cardName: 'Zapdos',
+    setName: 'Base Set',
+    number: '16',
+    representativeInventoryItemId: 'inv-rev-4',
+    finish: 'holofoil',
+    salePriceCents: 210_000,
+    psa10MxnCents: 1_600_000,
+    psa9MxnCents: 640_000,
+    capturedDate: '2026-06-02',
+    stale: true,
+    gradingCostTier: { minValueMxnCents: 1_000_000, maxValueMxnCents: 2_000_000, costMxnCents: 300_000 },
+    gradingCostMxnCents: 300_000,
+    thresholdMxnCents: 663_000,
+    netUpsidePsa9MxnCents: 130_000,
+    maxAllowedPsa10MxnCents: 21_000_000,
+    publishedSlabGrades: [],
+    isManual: true,
+    eligible: false,
+    reason: 'STALE',
+  },
+  {
+    // AUTOMÁTICA rancia: el feed dejó de cubrir esa carta ⇒ el remedio es MIRAR EL INGEST, no la
+    // carta. Se lista igual, pero el copy no manda a borrar: borrar aquí no arregla el proveedor.
+    cardId: 'c-machamp',
+    cardName: 'Machamp',
+    setName: 'Base Set',
+    number: '8',
+    representativeInventoryItemId: 'inv-rev-5',
+    finish: 'normal',
+    salePriceCents: 46_000,
+    psa10MxnCents: 380_000,
+    psa9MxnCents: 152_000,
+    capturedDate: '2026-05-18',
+    stale: true,
+    gradingCostTier: { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },
+    gradingCostMxnCents: 110_000,
+    thresholdMxnCents: 202_800,
+    netUpsidePsa9MxnCents: -4_000,
+    maxAllowedPsa10MxnCents: 4_600_000,
+    publishedSlabGrades: [],
+    isManual: false,
+    eligible: false,
+    reason: 'STALE',
   },
 ];
 
@@ -4075,10 +4141,20 @@ export function mockGradedEstimateReview(filters: {
   const filtered = mockReviewRows.filter(
     (r) => r.reason !== undefined && (reasons as readonly string[]).includes(r.reason),
   );
-  // Orden determinista del contrato (paginación estable): reason → cardId → representante.
+  // Orden determinista del contrato (paginación estable), v1.50.3-c: reason → capturedDate asc con
+  // los `null` AL FINAL → cardId → representante. La fecha se intercala para que con
+  // `?reason=STALE` lo más vencido vaya primero; una fila SIN fecha no es «la más vieja», y
+  // encabezar con ella empujaría lo accionable fuera de la primera página.
   filtered.sort(
     (a, b) =>
       (a.reason ?? '').localeCompare(b.reason ?? '') ||
+      (a.capturedDate === b.capturedDate
+        ? 0
+        : a.capturedDate === null
+          ? 1
+          : b.capturedDate === null
+            ? -1
+            : a.capturedDate.localeCompare(b.capturedDate)) ||
       a.cardId.localeCompare(b.cardId) ||
       a.representativeInventoryItemId.localeCompare(b.representativeInventoryItemId),
   );
@@ -4095,6 +4171,83 @@ export function mockGradedEstimateReview(filters: {
     scannedCards: new Set(Object.keys(mockGradedEstimatesByCardId).concat(mockReviewRows.map((r) => r.cardId))).size,
     truncated: false,
   };
+}
+
+/**
+ * MOCK del BORRADO del estimado (`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`,
+ * §M2 v1.50.3-d). Replica **las tres reglas que la UI tiene que poder ejercitar de punta a punta**
+ * —Playwright corre en modo mocks, así que sin esto el flujo «encontrarla y retirarla» sería
+ * inverificable—:
+ *
+ *  1. **Grado fuera de `grades` ⇒ `400`.** Una ruta destructiva no acepta claves arbitrarias.
+ *  2. **Slab publicado de ese grado ⇒ `409 GRADED_ESTIMATE_SLAB_PUBLISHED`**, la MISMA guarda INV-D
+ *     que la escritura y con los mismos `details`. Con el slab publicado esa fila ya no es un
+ *     estimado: es la referencia de mercado de una pieza física, y borrarla la dejaría sin sustento
+ *     de precio. **Debe** disparar.
+ *  3. **Nada que borrar ⇒ `404`**, nunca un `200` silencioso: responder éxito sin haber hecho nada
+ *     le haría creer al operador que limpió algo que no limpió.
+ *
+ * **Divergencia declarada del mock:** el backend borra **todas** las filas de la clave —cualquiera
+ * que sea su `capturedDate`— y puede devolver `deletedCount > 1`; el fixture guarda **una sola
+ * proyección por (carta, grado)**, así que aquí `deletedCount` es 1. La UI **no** puede asumir 1:
+ * pinta el número que venga.
+ */
+export function deleteMockGradedEstimate(
+  cardId: string,
+  gradeValue: string,
+): import('@/types/contract').GradedEstimateDeleteResponse {
+  if (!mockGradedEstimateConfig.grades.includes(gradeValue)) {
+    throw new ApiFixtureError(
+      400,
+      'VALIDATION_ERROR',
+      `gradeValue "${gradeValue}" no está en los grados que gobierna el gancho.`,
+    );
+  }
+  const gradeKey = `graded:PSA:${gradeValue}`;
+  const slabs = publishedSlabsForGradeKey(cardId, gradeKey);
+  if (slabs.length > 0) {
+    throw new ApiFixtureError(
+      409,
+      'GRADED_ESTIMATE_SLAB_PUBLISHED',
+      `No se puede retirar el estimado PSA ${gradeValue} de esta carta: hay ${slabs.length} ` +
+        `slab(s) PSA ${gradeValue} publicado(s).`,
+      {
+        cardId,
+        gradeKey,
+        publishedSlabCount: slabs.length,
+        inventoryItemIds: slabs.map((i) => i.id),
+      },
+    );
+  }
+
+  // La clave canónica es (carta, grado): una sola fila lógica, aunque la lean dos proyecciones del
+  // fixture (la del storefront y la de la lista de revisión) y aunque la lista la muestre una vez
+  // por grupo raw. Por eso el conteo NO se acumula por proyección ni por fila pintada.
+  const field = gradeValue === '10' ? 'psa10MxnCents' : gradeValue === '9' ? 'psa9MxnCents' : null;
+  const storefront = mockGradedEstimatesByCardId[cardId] ?? [];
+  const inStorefront = storefront.some((e) => e.gradeValue === gradeValue);
+  const inReview =
+    field !== null && mockReviewRows.some((r) => r.cardId === cardId && r[field] !== null);
+  if (!inStorefront && !inReview) {
+    throw new ApiFixtureNotFound(`no hay estimado PSA ${gradeValue} para ${cardId}`);
+  }
+
+  if (inStorefront) {
+    mockGradedEstimatesByCardId[cardId] = storefront.filter((e) => e.gradeValue !== gradeValue);
+  }
+  if (field !== null) {
+    for (const r of mockReviewRows) if (r.cardId === cardId) r[field] = null;
+    // Sin la cifra, el motivo de esas filas pasa a ser `NO_PSA10`/`NO_PSA9` — AUSENCIA de dato, que
+    // esta lista no enumera (⇒ `400` si se pidiera). Así que la fila desaparece del listado, que es
+    // exactamente lo que el operador debe ver tras retirar el dato.
+    for (let i = mockReviewRows.length - 1; i >= 0; i--) {
+      const r = mockReviewRows[i];
+      if (r.cardId === cardId && (r.psa10MxnCents === null || r.psa9MxnCents === null)) {
+        mockReviewRows.splice(i, 1);
+      }
+    }
+  }
+  return { cardId, gradeValue, deletedCount: 1 };
 }
 
 /** Tendencia de valor de mercado de un producto sellado (misma forma que SetValueHistoryResponse). */

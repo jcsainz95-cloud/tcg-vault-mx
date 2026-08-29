@@ -7532,3 +7532,146 @@ seguidos devuelven `200`, `200`, `200` — antes quedaba `429` ~60 s.
    - una **tercera carta raw publicada** ⇒ permite cubrir a la vez «un solo grado» y «dos grados sin
      destacar» sin que un caso pise al otro.
    Los tests ya están escritos y marcados `needsSeed`: pasarán el día que existan las filas.
+
+---
+
+## v1.50.3-d · «Retirar» — el consumidor del `DELETE` que mi propio hallazgo pidió (2026-08-29, rama `claude/psa-graded-card-value-gmhv5u`)
+
+**Qué se entrega.** La **acción de retirar** un estimado en la lista de revisión de M2, consumiendo
+`DELETE /api/v1/admin/pricing/graded-estimates/:cardId/:gradeValue` (contrato §M2 v1.50.3-d,
+`super_admin`, auditado), **más** las dos mitades de v1.50.3-c que el front aún no consumía y sin las
+cuales el botón no sirve para su caso central: el **opt-in `?reason=STALE`** y el campo **`isManual`**.
+
+### Por qué el botón entra en la misma entrega que el endpoint
+
+Porque enviar el endpoint sin superficie repetiría **exactamente** el error que esta ronda corrigió:
+construir el detector y dejar al operador sin la herramienta. La justificación entera del `DELETE` es
+que el dueño **encuentra** la cifra mala **en esta lista** y necesita **descartarla**; sin botón,
+tendría que hacerlo con `curl`. Y el criterio 111(e) es una afirmación sobre lo que el dueño **ve**.
+
+### Por qué `STALE` + `isManual` venían en el mismo paquete (no es alcance que me inventé)
+
+El caso de uso central del borrado **es una fila caducada**: con `manualFreshnessDays = 30` una cifra
+errónea desaparece de las tres superficies **en silencio** y **sigue en la tabla**. El contrato ya la
+hacía enumerable (`?reason=STALE`, addendum v1.50.3-c) y el backend ya la emitía (commit `76e6d98`),
+pero **el front no lo consumía**: `GradedEstimateReviewReason` no incluía `STALE` y
+`GradedEstimatePreviewDTO` no tenía `isManual`. Sin eso, el botón «Retirar» existiría pero **la fila
+que más justifica su existencia sería inalcanzable desde la UI**. `isManual` no es decorado: separa
+dos remedios **opuestos** —manual rancia ⇒ recapturar o **retirar**; automática rancia ⇒ **mirar el
+ingest, no la carta**— y se pinta pegado a la fecha porque describe **la misma fila** que ella.
+
+### Las seis reglas del contrato que la UI implementa, y por qué cada una
+
+1. **Confirmación previa, siempre** (DESIGN_SYSTEM §7.6): es destructivo, es dinero y es
+   `super_admin`. Modal con verbo explícito («Retirar PSA 10»), importe a la vista y la nota «solo
+   súper-admin · queda en bitácora».
+2. **El copy NO dice «la última»:** dice que se borran **todas** las capturas de ese grado,
+   historial incluido, **y por qué** — si solo se quitara la vigente, afloraría una más vieja y la
+   cifra **reaparecería sola**. Un copy que insinuara «se quita la última» describiría un
+   comportamiento que el backend no tiene y prometería una resurrección que sí ocurriría.
+3. **`deletedCount` se pinta tal cual** (plural ICU). No se asume `1`: el operador tiene que
+   enterarse de cuánto historial se fue.
+4. **`409 GRADED_ESTIMATE_SLAB_PUBLISHED` no se trata como fallo del sistema.** Doble tratamiento,
+   el mismo que la captura de 5d: **pre-vuelo** (con slab publicado de ese grado el botón queda
+   deshabilitado, con el motivo y el remedio a la vista, una sola vez y no repetido por fila) **y**
+   manejo del `409` real por si el pre-vuelo iba rancio. El mensaje explica que **con el slab
+   publicado esa fila ya no es un estimado —es la referencia de mercado de una pieza física— y
+   borrarla dejaría sin sustento de precio a un slab que se está vendiendo**, y orienta al remedio
+   correcto: **repreciar con `intent:"market"`** (M1 › Gradeadas), nunca insistir en borrar. La
+   inferencia contraria («busco las expuestas con `?reason=SLAB_PUBLISHED` y las borro») es tentadora
+   y falsa; el copy la cierra explícitamente.
+5. **`404` significa «no había nada», y se dice con esas palabras.** Se cierra el diálogo, se pinta
+   un aviso **`info` (no `alert`)** —«No había nada que borrar… no se borró nada porque no había
+   nada»— y **se refresca la lista**, que es justo lo que estaba desactualizado.
+6. **Tras el borrado no se recarga la página:** se invalidan `['graded-estimate-review']` (todas sus
+   páginas y filtros, no solo la vista actual) y `['graded-estimate-preview']` (la sección 5d muestra
+   las mismas cifras). La fila desaparece sola.
+
+**Detalles de UI que son decisiones, no estilo:**
+- **Un botón por grado, y solo si ese grado tiene cifra.** El `DELETE` es por `(cardId, gradeValue)`
+  y el DTO trae los montos en campos fijos; ofrecer «Retirar PSA 9» en una fila sin PSA 9 sería
+  ofrecer un gesto que **solo puede dar `404`**.
+- **La guarda es por GRADO, no por carta:** en una carta con PSA 9 publicada, el PSA 10 sí se puede
+  retirar. La UI lo refleja (uno deshabilitado, el otro activo) porque es lo que hace el backend.
+- El desenlace se pinta en **banner persistente, no en toast**: DESIGN_SYSTEM §7.5 prohíbe el toast
+  para resultados de dinero.
+
+### Mock: qué replica y en qué diverge (declarado)
+
+`deleteMockGradedEstimate` replica las **tres** reglas que el flujo necesita ejercitar de punta a
+punta en Playwright (que corre en modo mocks): `400` si el grado no está en `grades`, `409` con los
+mismos `details` si hay slab publicado de ese grado, y `404` si no había nada. Al retirar, la fila
+**desaparece de la lista** (sin la cifra su motivo pasa a `NO_PSA10`/`NO_PSA9`, que esta lista no
+enumera), que es lo que el operador debe ver. **Divergencia declarada:** el fixture guarda **una**
+proyección por `(carta, grado)`, así que `deletedCount` es siempre `1`; el backend borra todas las
+filas de la clave y puede devolver más — por eso la UI **pinta el número que venga** y no lo asume.
+Se añadieron dos filas `STALE` a los fixtures de la lista (una manual, una del ingest) porque los
+remedios son opuestos y había que poder verlos.
+
+### Verificación (números reales, dos modos)
+
+| Comando | Resultado |
+|---|---|
+| `npx tsc --noEmit` | ✓ |
+| `npx next lint` | ✓ sin warnings |
+| `npx vitest run` | ✓ **90 archivos / 761 tests** (antes 753: +8 nuevos — 2 de `STALE`/origen, 6 del borrado) |
+| `npx next build` | ✓ |
+| **MOCK** — `E2E_MOCK_PORT=3010 npx playwright test` | **100 passed / 0 failed / 2 skipped** (los 2 son los `realOnly`) |
+| **REAL** — `E2E_BASE_URL=http://localhost:3000 npx playwright test` | **59 passed / 3 failed / 40 skipped** |
+| **Gate `@real`** — `… E2E_REAL=1` | **21 passed / 3 failed** de 24 |
+
+Los **3 rojos en real** son el **hueco de entorno preexistente de Stripe** (`checkout.spec.ts:57`,
+`guest-checkout.spec.ts:131`, `shipments.spec.ts:30`: el modal de pago no abre sin claves). Son los
+mismos tres de la corrida anterior, ni uno más. Los `skipped` suben de 38 a 40 porque esta entrega
+añade **dos** E2E `mockOnly` (ver abajo).
+
+> **⚠️ Dos incidencias de ENTORNO que encontré por el camino, y que no son del código:**
+>
+> 1. **El frontend de `:3000` estaba sirviendo un bundle roto.** El proceso arrancó a las 22:56 y el
+>    `.next` del disco se reconstruyó después (23:31), así que el manifiesto en memoria apuntaba a
+>    chunks que ya no existían: `GET /_next/static/chunks/2799-….js` → **400**, la app se quedaba en
+>    «Verificando sesión…» y la suite real daba **62 rojos**, todos ambientales. Lo **rehorneé y
+>    reinicié** con exactamente el mismo comando y entorno que `scripts/stack-native.sh`
+>    (`NODE_ENV=production`, `NEXT_PUBLIC_USE_MOCKS=false`,
+>    `NEXT_PUBLIC_API_BASE_URL=http://localhost:3099/api/v1`, `next build && next start -p 3000`),
+>    verificando que los chunks responden `200` y que `localhost:3099` quedó horneado. Actualicé
+>    `.native-stack/frontend.pid` y `frontend.log` para que el `down` de devops siga funcionando —
+>    **no toqué el script ni el backend** (`start_backend` no se reinició: lleva arriba desde las
+>    22:55 sin interrupción). Con el bundle sano, la corrida real vuelve al baseline documentado.
+>    **Devops:** conviene que `up --gate` detecte este caso (proceso vivo con `BUILD_ID` más nuevo que
+>    su arranque), porque produce 62 rojos que parecen del producto y no lo son.
+> 2. **No se puede correr la suite real contra un frontend en otro puerto.** Lo intenté en `:3012`
+>    para no tocar el stack: **43 rojos** en bloque, porque la allow-list de CORS del backend sale de
+>    `APP_BASE_URL` y es **solo** `http://localhost:3000` (`main.ts:resolveCorsOrigins`, S-M2). La
+>    guarda es correcta y no se toca; queda anotado para que nadie repita el diagnóstico.
+
+### Cobertura E2E del borrado: qué se cubre hoy y qué falta (y por qué)
+
+**Hoy, en modo mock (2 tests nuevos, verdes):** (a) el opt-in de lo caducado + el origen de la cifra +
+el ciclo completo **confirmar → `DELETE` → la fila desaparece** con su conteo; (b) el pre-vuelo INV-D:
+el grado con slab publicado **no ofrece** borrado, el otro grado sí, y la UI nombra el remedio.
+
+**En real, todavía no**, y no por el test: **la ruta no está viva**. El código del backend está en el
+repo (commit `fea436c`) pero el proceso de `:3099` arrancó **antes** (`ts-node`, sin recarga), y
+`DELETE …/graded-estimates/abc/10` responde **404** (una ruta existente daría `401`). En cuanto
+devops/backend redespliegue el proceso, la cobertura real natural es un test que **siembre una cifra
+incoherente, la encuentre en la lista y la retire desde la UI** — y que, por primera vez, **se limpia
+a sí mismo**: es justo lo que este `DELETE` habilita (ARCHITECTURE §4.38q.4).
+
+### Estado de mis peticiones anteriores al arquitecto
+
+1. **Borrado del estimado — ✅ RESUELTA y consumida.** El arquitecto la normó (contrato v1.50.3-d,
+   ARCHITECTURE §4.38q) y encontró que el hueco era **mayor**: cuatro sitios lo prometían. Esta
+   entrega es su consumidor. Se actualizaron los dos comentarios de `e2e/utils/grading.ts` que
+   afirmaban «el contrato no expone borrado» — ya no es cierto y habría desorientado a quien los
+   leyera. **El teardown E2E todavía NO retira lo que siembra**: la mitigación vigente (siembra
+   idempotente + dial devuelto a `off`, así que nada se publica) sigue siendo correcta, y cablear un
+   `DELETE` contra una ruta que hoy da 404 solo añadiría ruido a corridas ya terminadas. Se cablea
+   cuando la ruta esté viva.
+2. **Seed sintético — dos filas.** Aceptadas y en curso. La de «raw publicado + slab del mismo grado»
+   desbloquea **tres** cosas, no dos: el pre-vuelo de INV-D, el `SLAB_PUBLISHED` de la lista en real
+   y —lo notó el arquitecto— es la **única** forma de verificar el `409` de este `DELETE` de punta a
+   punta. Los tests `needsSeed` pasarán tal cual cuando existan.
+
+**Sin peticiones nuevas al arquitecto.** `raw` y `sealed` siguen sin borrado, pero eso está declarado
+como hueco en el contrato, no prometido: no lo necesito para esta superficie.

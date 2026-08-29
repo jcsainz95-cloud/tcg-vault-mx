@@ -547,6 +547,156 @@ test.describe('Gancho de grading · BACK-OFFICE: la lista de revisión (criterio
   });
 });
 
+test.describe('Gancho de grading · BACK-OFFICE: RETIRAR una cifra (criterio 111(e) / §O.7, v1.50.3-d)', () => {
+  /**
+   * **El bucle que este bloque cierra.** La lista de revisión enseñaba la cifra mala y el único
+   * gesto disponible era **capturar otra** — pisar no es descartar, deja otra afirmación comercial
+   * en su lugar. `PROJECT.md` §O.7 pide que el dueño pueda *«corregirla con override **o
+   * descartarla»*, y desde v1.50.3-d existe el `DELETE`. Sin **este botón**, el endpoint obligaría
+   * al dueño a retirar la cifra con `curl`: exactamente el error que la lista corrigió (construir el
+   * detector y dejar al operador sin la herramienta).
+   *
+   * El caso central es la cifra **caducada**: ya no se ve en ninguna superficie, pero **sigue en la
+   * tabla**. Se encuentra con el opt-in `?reason=STALE` y se retira aquí mismo.
+   */
+  test('lo caducado se puede pedir, se distingue su origen, y se RETIRA desde la propia lista', async ({
+    page,
+  }) => {
+    mockOnly(
+      'el conjunto de cifras caducadas es dato de fixture, y el DELETE (contrato v1.50.3-d) todavía ' +
+        'no está VIVO en el stack: el código existe (backend fea436c) pero el proceso :3099 arrancó ' +
+        'antes y la ruta responde 404. Cuando se redespliegue, la cobertura real de este flujo es ' +
+        'un test que siembre una cifra incoherente, la encuentre en la lista y la retire — y que se ' +
+        'limpia a sí mismo, justo lo que este DELETE habilita. Anotado en docs/FRONTEND_NOTES.md.',
+    );
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+
+    const section = page.locator('section', {
+      hasText: t('es', 'admin.m2.gradedEstimateReview.title'),
+    });
+
+    // 1. `STALE` es OPT-IN: no está en el default (si entrara, ahogaría la señal de coherencia).
+    const staleBadge = section.getByText(
+      t('es', 'admin.m2.gradedEstimateReview.reasonShort.STALE'),
+      { exact: true },
+    );
+    await expect(section.getByText(t('es', 'admin.m2.gradedEstimateReview.subtitle'))).toBeVisible();
+    await expect(staleBadge).toHaveCount(0);
+
+    await section.getByLabel(t('es', 'admin.m2.gradedEstimateReview.includeStale')).check();
+    await expect(staleBadge.first()).toBeVisible();
+
+    // 2. El ORIGEN se pinta, porque decide el remedio: una manual rancia se recaptura o se retira;
+    //    una automática rancia manda a mirar el ingest, NO a tocar la carta.
+    await expect(
+      section.getByText(t('es', 'admin.m2.gradedEstimateReview.originManual')).first(),
+    ).toBeVisible();
+    await expect(
+      section.getByText(t('es', 'admin.m2.gradedEstimateReview.originIngest')).first(),
+    ).toBeVisible();
+
+    // 3. Retirar exige CONFIRMACIÓN (es destructivo, es dinero y es super_admin), y la confirmación
+    //    dice que se lleva TODAS las capturas del grado — no «la última».
+    await expect(section.getByText('Zapdos').first()).toBeVisible();
+    await section
+      .getByRole('button', {
+        name: t('es', 'admin.m2.gradedEstimateReview.deleteCtaLabel', {
+          grade: '10',
+          card: 'Zapdos',
+        }),
+      })
+      .first()
+      .click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByText(t('es', 'admin.m2.gradedEstimateReview.deleteConfirmAllRows')),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText(t('es', 'admin.m2.gradedEstimateReview.deleteConfirmAudit')),
+    ).toBeVisible();
+
+    await dialog
+      .getByRole('button', {
+        name: t('es', 'admin.m2.gradedEstimateReview.deleteConfirmCta', { grade: '10' }),
+      })
+      .click();
+
+    // 4. Desenlace: se dice cuántas filas se fueron y la fila DESAPARECE de la lista sin recargar.
+    //    (El prefijo se deriva de la propia clave: su cola es un plural ICU que el helper no expande.)
+    const okPrefix = t('es', 'admin.m2.gradedEstimateReview.deleteOk', {
+      grade: '10',
+      card: 'Zapdos',
+    }).split('{')[0];
+    await expect(section.getByText(okPrefix, { exact: false })).toBeVisible();
+    // La fila se fue de la LISTA (se asserta sobre su acción, no sobre el nombre de la carta: el
+    // propio aviso de éxito nombra la carta y haría verde un aserto por texto suelto).
+    await expect(
+      section.getByRole('button', {
+        name: t('es', 'admin.m2.gradedEstimateReview.deleteCtaLabel', {
+          grade: '10',
+          card: 'Zapdos',
+        }),
+      }),
+    ).toHaveCount(0);
+  });
+
+  /**
+   * La otra mitad, y la que **no** se puede relajar: con un slab publicado de ese grado la fila
+   * **ya no es un estimado** —es la referencia de mercado de una pieza física en venta— y borrarla
+   * la dejaría sin precio. La UI lo previene con el mismo pre-vuelo de la captura (§O.8) y **nombra
+   * el remedio correcto: repreciar, no borrar**.
+   */
+  test('el grado con slab publicado NO ofrece borrado, y la UI manda a repreciar en vez de insistir', async ({
+    page,
+  }) => {
+    mockOnly('la carta con slab publicado + raw publicado es dato de fixture (INV-D, §O.8)');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m2');
+
+    const section = page.locator('section', {
+      hasText: t('es', 'admin.m2.gradedEstimateReview.title'),
+    });
+    await section
+      .getByLabel(t('es', 'admin.m2.gradedEstimateReview.includeSlabPublished'))
+      .check();
+    await expect(section.getByText('Charizard').first()).toBeVisible();
+
+    // Fixture: `c-charizard` tiene una PSA 9 PUBLICADA. Ese grado no se retira…
+    await expect(
+      section
+        .getByRole('button', {
+          name: t('es', 'admin.m2.gradedEstimateReview.deleteCtaLabel', {
+            grade: '9',
+            card: 'Charizard',
+          }),
+        })
+        .first(),
+    ).toBeDisabled();
+    // …y el PSA 10, libre, SÍ: la guarda es por grado, no por carta.
+    await expect(
+      section
+        .getByRole('button', {
+          name: t('es', 'admin.m2.gradedEstimateReview.deleteCtaLabel', {
+            grade: '10',
+            card: 'Charizard',
+          }),
+        })
+        .first(),
+    ).toBeEnabled();
+
+    // El «no se puede» viene con su porqué y con el remedio, no como un botón apagado y mudo.
+    await expect(
+      section.getByText(t('es', 'admin.m2.gradedEstimateReview.deleteBlockedTitle')),
+    ).toBeVisible();
+    await expect(
+      section.getByText(t('es', 'admin.m2.gradedEstimateReview.deleteBlockedBody')),
+    ).toBeVisible();
+  });
+});
+
 /**
  * Casos de forma que el seed sintético todavía no puede producir (solo tiene DOS cartas raw
  * publicadas). Están escritos de forma agnóstica y pasarán tal cual el día que el seed siembre una
