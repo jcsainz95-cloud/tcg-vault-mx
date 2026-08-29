@@ -166,8 +166,10 @@ export interface GradedEstimateSourceRow {
   count: number | null;
   /**
    * v1.50.3 (§4.38m.2) — fecha de la ÚLTIMA VENTA observada (`YYYY-MM-DD`), la que el criterio 109 dice
-   * que de verdad importa. **No se persiste** (`PriceReference` no tiene columna sin DDL, y M-43 la
-   * llevará): viaja para log/`AuditLog` y porque una fila solo llega aquí si YA pasó el gate.
+   * que de verdad importa. **Sigue sin persistirse**: la columna `PriceReference.evidenceDate` YA
+   * existe (M-43, v1.50.3-f), pero **cablear el escritor y el `stale()` contra `evidenceDate ??
+   * capturedDate` no entró en el alcance de M-43** — queda anotado en `TECH_DEBT.md`. Hoy viaja para
+   * log/`AuditLog` y porque una fila solo llega aquí si YA pasó el gate de evidencia de la escritura.
    */
   evidenceDate: string;
   source: PriceSource;
@@ -996,7 +998,9 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       // `freshnessDays` (al escribir) + `freshnessDays` (desde esa escritura) = **≤ 2× freshnessDays**
       // (60 d con el seed), NO los 30 literales del criterio. Es una aproximación conservadora en la
       // dirección correcta —cierra el «fresco para siempre», que era el fallo grave— pero **no es el
-      // criterio al pie de la letra**; el cierre exacto es la columna `evidenceDate` de M-43.
+      // criterio al pie de la letra**; el cierre exacto es la columna `evidenceDate`, que M-43
+      // (v1.50.3-f) YA creó pero que **este pase no cablea** (ni escritor ni `stale()`): sigue viva la
+      // aproximación de arriba. Ver `TECH_DEBT.md`.
       //
       // ⚠️ v1.50.3-a — **la fecha es una HIPÓTESIS, no un hecho, y se trata como tal.** El Gate 0 dejó
       // escrito que la documentación del proveedor **se contradice a sí misma** sobre la forma del

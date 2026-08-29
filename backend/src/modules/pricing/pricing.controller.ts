@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Logger, Param, Post, Put, Query } from '@nestjs/common';
-import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
+import { Finish, PendingPriceContext, Prisma, PriceRefKind, ProductType, Role } from '@prisma/client';
 import { FINISH_VALUES } from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -293,12 +293,30 @@ export class PricingController {
         }
       }
     }
+    // ===== v1.50.3-f (M-43, §4.38l.4.3) — el `intent` deja de vivir SOLO en la bitácora =====
+    //
+    // Hasta aquí el `intent` era una etiqueta de auditoría: las dos intenciones escribían una fila
+    // IDÉNTICA, y quién decidía si esa fila era dinero era el LECTOR, por inferencia sobre el estado
+    // del mundo (¿hay un slab publicado?). Por eso el mismo dato significaba dos cosas distintas en
+    // dos instantes distintos **sin que nada cambiara en la fila** — y por eso capturar el estimado
+    // ANTES y publicar el slab DESPUÉS priciaba el slab con el estimado (GE-1: MX$9,200 → MX$460).
+    // Ahora la decisión la toma el ESCRITOR, que es el único que conoce la intención, y queda
+    // CONGELADA en el dato.
+    //
+    // `productType` ≠ `graded` ⇒ `market` (el `intent` se ignora aunque venga, contrato §M2).
+    const refKind: PriceRefKind =
+      dto.productType === 'graded' && dto.intent === 'graded_estimate'
+        ? PriceRefKind.graded_estimate
+        : PriceRefKind.market;
     const ref = await this.pricing.manualOverride(
       dto.cardId,
       dto.productType,
       dto.gradeKey,
       dto.priceMxnCents,
       dto.finish ?? 'normal',
+      undefined,
+      undefined,
+      refKind,
     );
     await this.audit.log({
       actorUserId: userId,

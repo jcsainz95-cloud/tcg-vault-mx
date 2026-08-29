@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Finish, ProductType } from '@prisma/client';
+import { Finish, PriceRefKind, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FinishReconciler } from './finish-reconciler.service';
 import { FxService } from '../pricing/fx.service';
@@ -187,6 +187,9 @@ export class CardProductResolverService {
       fxBufferPct: fx.bufferPct,
       priceMxnCents,
       isManualOverride: false,
+      // v1.50.3-f (M-43, §4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO, en el `create` **y** en
+      // el `update` del upsert (aquí `data` sirve a los dos, que es justo lo que la regla pide).
+      refKind: PriceRefKind.market,
     };
     await this.prisma.priceReference.upsert({
       where: key,

@@ -58,11 +58,15 @@ const est = (
   mxnCents: number,
   capturedDate = TODAY,
   isManual = false,
+  // M-43 (§4.38l.4.4B): la ruta del gancho lee las DOS naturalezas; el gate es CIEGO a `refKind`. El
+  // default replica el de la columna para que ningún caso de este archivo dependa de la naturaleza.
+  refKind: GradedEstimateInput['refKind'] = 'market',
 ): GradedEstimateInput => ({
   gradeValue,
   mxnCents,
   capturedDate,
   isManual,
+  refKind,
 });
 
 // El helper `estManual` (fila fijada a mano) vive en `graded-estimate.confidence-gate.spec.ts`, que es

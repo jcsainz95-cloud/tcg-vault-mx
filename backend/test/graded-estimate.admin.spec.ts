@@ -100,7 +100,17 @@ const rawItem = (over: Partial<any> = {}) => ({
   ...over,
 });
 
-const psaRef = (gradeValue: '10' | '9', mxnCents: number, capturedDate = RECENT) => ({
+// v1.50.3-f (M-43): la NATURALEZA por defecto de este helper es `graded_estimate` — es el helper de
+// «una fila del gancho», y ésa es exactamente la naturaleza que la fase 1 escribe con
+// `intent:"graded_estimate"`. Los casos que necesitan una fila de DINERO en esta misma clave (la
+// referencia de mercado de un slab publicado) la piden EXPLÍCITAMENTE con el 4.º argumento: que haya
+// que pedirla es el punto, porque en esa clave las dos cosas se ven igual y solo `refKind` las separa.
+const psaRef = (
+  gradeValue: '10' | '9',
+  mxnCents: number,
+  capturedDate = RECENT,
+  refKind: 'market' | 'graded_estimate' = 'graded_estimate',
+) => ({
   cardId: 'ca',
   productType: 'graded',
   gradeKey: `graded:PSA:${gradeValue}`,
@@ -111,6 +121,7 @@ const psaRef = (gradeValue: '10' | '9', mxnCents: number, capturedDate = RECENT)
   source: 'manual',
   capturedDate,
   cardProductId: null,
+  refKind,
 });
 
 function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknown> = {}) {
@@ -812,7 +823,10 @@ describe('GET /admin/pricing/graded-estimates/review — la lista de revisión (
         // Referencia de mercado RAW: sin ella `fetchSellable` cae a su ruta por-pieza (el `reference`
         // del lote sale `undefined` y `toListingDTO` lo resuelve solo), que es una N+1 PREEXISTENTE de
         // esa función y no de este endpoint. Con el dato presente se mide lo que se quiere medir.
-        { ...psaRef('10', 100_000), cardId: `c${i}`, productType: 'raw', gradeKey: 'raw:NM' },
+        // M-43: la referencia RAW es DINERO (`refKind:'market'`); si se sembrara como estimado,
+        // `getReferencesBatch` la excluiría y `fetchSellable` volvería a su ruta por-pieza — el test
+        // mediría una N+1 preexistente en vez del coste de este endpoint.
+        { ...psaRef('10', 100_000, RECENT, 'market'), cardId: `c${i}`, productType: 'raw', gradeKey: 'raw:NM' },
       ]).flat();
       return wire(items, refs, ON);
     };
@@ -986,6 +1000,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
       ...ref('10', 100_000, new Date(), 'r-raw'),
       productType: 'raw',
       gradeKey: 'raw:NM',
+      refKind: 'market',
     };
     const refs = [ref('10', 900_000, new Date(), 'r-10'), otroGrado, otraCarta, rawRow];
     const { ctrl } = wire([rawItem()], refs, ON);
@@ -993,6 +1008,36 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     // §4.38(q.3): este endpoint NO borra `raw` ni `sealed` — ahí un borrado movería precios de venta
     // publicados y necesita su propio diseño (hueco declarado en §9, no capacidad prometida).
     expect(refs).toEqual([otroGrado, otraCarta, rawRow]);
+  });
+
+  /**
+   * ===== v1.50.3-f (M-43, §4.38l.4.5) — el borrado es de NATURALEZA, no de clave =====
+   *
+   * La decisión 1 de (q.1) se negó a abrir un `DELETE` genérico porque borrar una referencia de `raw`
+   * o `sealed` **cambia el precio de venta publicado** de una pieza. Con `refKind`, «todas las filas de
+   * la clave `graded:PSA:N`» pasó a poder incluir **exactamente eso**: la referencia de mercado real de
+   * un slab. Estos dos casos son el acote.
+   */
+  it('M-43 — NO se lleva la fila `market` de la misma clave: es DINERO de una pieza real', async () => {
+    const estimado = ref('10', 900_000, new Date(), 'r-est');
+    // MISMA carta, MISMO grado, MISMA clave canónica: solo las separa la naturaleza. Es el estado que
+    // la transición produce (se capturó un estimado y luego alguien afirmó el precio real del slab).
+    const dinero = { ...psaRef('10', 8_000_00, AYER, 'market'), id: 'r-mkt' };
+    const refs = [estimado, dinero];
+    const { ctrl } = wire([rawItem()], refs, ON);
+    expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+    expect(refs).toEqual([dinero]);
+  });
+
+  it('M-43 — si la clave SOLO tiene filas `market` ⇒ 404, aunque la clave no esté vacía', async () => {
+    // `404` = «no hay ESTIMADO que retirar», no «no hay nada». Un `200 deletedCount:0` le haría creer
+    // al operador que limpió algo; un borrado real le habría quitado el precio a un slab vivo.
+    const dinero = { ...psaRef('10', 8_000_00, new Date(), 'market'), id: 'r-mkt' };
+    const refs = [dinero];
+    const { ctrl, audit } = wire([rawItem()], refs, ON);
+    await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(refs).toEqual([dinero]);
+    expect(audit.log).not.toHaveBeenCalled();
   });
 
   it('nada que borrar ⇒ 404, JAMÁS un `200` con `deletedCount: 0`', async () => {
@@ -1028,6 +1073,10 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
       gradeKey: 'graded:PSA:10',
       finish: 'normal',
       cardProductId: null,
+      // v1.50.3-f (M-43, §4.38l.4.5): la clave gana la NATURALEZA. El alcance del borrado se ESTRECHA
+      // —«todas las de la clave» pasa a «todas las de la clave DE ESA naturaleza»—, porque con la
+      // columna nueva «todas» podría llevarse una fila de MERCADO, o sea dinero de una pieza real.
+      refKind: 'graded_estimate',
     });
   });
 

@@ -50,6 +50,9 @@ const est = (
   mxnCents,
   capturedDate: TODAY,
   isManual: false,
+  // M-43: la NATURALEZA no participa de este gate (la ruta del gancho es INCLUSIVA, §4.38l.4.4B).
+  // Se fija al default de la columna para que los casos sigan describiendo SOLO la frescura.
+  refKind: 'market',
   ...over,
 });
 

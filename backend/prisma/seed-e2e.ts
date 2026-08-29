@@ -20,7 +20,7 @@
  * «actualizar la del día» NO basta para ser idempotente entre días). De modo que una 2ª corrida
  * de `test:integration` vuelve a partir de cero.
  */
-import { Finish, Prisma, PrismaClient } from '@prisma/client';
+import { Finish, Prisma, PriceRefKind, PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
 import { deriveNumberParts } from '../src/common/card-order';
@@ -327,6 +327,12 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       // con `source: 'manual'` sería un dato imposible que volvería verde una prueba por el motivo
       // equivocado.
       source: e.isManual ? 'manual' : 'pokemonpricetracker',
+      // v1.50.3-f (M-43, §4.38l.4.2) — **NATURALEZA explícita: son ESTIMADOS del gancho, no dinero.**
+      // Es la única carta del fixture cuyas filas `graded:PSA:*` son estimados: las de `graded` y
+      // `slabbed` son la referencia de MERCADO de sus slabs publicados y se quedan con el default
+      // `market` (sembrarlas como estimado las dejaría **sin precio**, que es exactamente el efecto
+      // que M-43 produce y que el cut-over existe para evitar).
+      refKind: PriceRefKind.graded_estimate,
       priceMxnCents: e.priceMxnCents,
       // Sin `priceUsdCents`: el monto es MXN nativo y NINGUNA FX puede reinterpretarlo (`liveMxnCents`
       // solo recalcula cuando hay USD). El fixture promete un número, no una conversión del día.

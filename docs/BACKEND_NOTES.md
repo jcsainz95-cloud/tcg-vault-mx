@@ -4,6 +4,237 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.11 v1.50.3-f — **M-43: la NATURALEZA de la fila de precio** (cierre de GE-1 / INV-D inverso) (2026-08-29)
+
+> Implementa **ARCHITECTURE §4.38(l.4)** (dictamen completo: l.4.0 gobierno → l.4.9 residual), **§10
+> (GU-8)** y **§11 `v1.50.3-f-graded-estimate-kind`**, contra **`API_CONTRACT` rev v1.50.3-f**.
+> Cierra el hallazgo **ALTO GE-1** del pentester (`PENTEST_NOTES.md` § «PASE FEATURE»), que era
+> **BLOQUEANTE del encendido** del gancho de grading. **Vía A** (la del dictamen); la **vía B** de
+> §4.38(l.5) —gatear la creación de estimados con el dial `off`— **NO se implementó** y ya no hace
+> falta: `409 GRADED_ESTIMATE_DISABLED` **no existe** en el código.
+
+### 0.11.1 El defecto, en una línea, y por qué las guardas de v1.50.2 no lo tocaban
+
+La fila del «valor estimado si se gradea» y la referencia de mercado real de un slab PSA publicado son
+**LA MISMA FILA** (`cardId` + `graded` + `graded:PSA:N` + `finish='normal'` + `cardProductId=null`). El
+`422`/`409` cubre *capturar un estimado sobre una carta que YA tiene slab*. **La dirección inversa no
+tenía guarda**: capturar el estimado primero (permitido — no hay slab) y publicar el slab después.
+Medido en vivo por el pentester: un slab PSA 10 que con referencia correcta lista a **MX$9,200** quedó
+publicado a **MX$460** (5 % de su valor), y con el estimado **rancio a −400 días siguió** a MX$460.
+
+Lo que hasta hoy decidía si esa fila era dinero era **el LECTOR**, por inferencia sobre el estado del
+mundo (*¿hay slab publicado?*). Por eso el mismo dato significaba dos cosas distintas en dos instantes
+distintos **sin que nada cambiara en la fila**. M-43 mueve esa decisión al **ESCRITOR** —el único que
+conoce la intención— y la **congela en el dato**.
+
+⛔ **Derogado, y conviene que quede escrito porque es la lección reusable:** la recomendación previa
+(§4.38l.3, §10 GU-8) era meter `graded_estimate` en `PriceSource` con `sourceRank` bajo. **No habría
+cerrado nada.** `sourceRank` vive dentro de `isBetterRef`, que es un **desempate entre candidatas**, y
+la clave del estimado tiene casi siempre **UNA sola fila** (no existe escritor automático de mercado
+`graded`): con una sola candidata gana con **cualquier** rango. *Ordenar no es excluir. Un control que
+solo actúa en el desempate no protege el caso de candidata única, que es justo el caso degradado.*
+`PriceSource` **no cambió**.
+
+### 0.11.2 Qué se implementó (mapa de artefactos)
+
+| Artefacto | Cambio |
+|---|---|
+| `prisma/schema.prisma` | `enum PriceRefKind { market, graded_estimate }`; `PriceReference.refKind PriceRefKind @default(market)`; `PriceReference.evidenceDate DateTime? @db.Date`; `@@index([refKind])`. **La `@@unique` NO se tocó.** |
+| `prisma/migrations/20260829120000_m43_graded_estimate_kind/` | El DDL. Aditivo puro: 1 enum + 2 columnas + 1 índice, **sin `DROP`, sin backfill, sin `UPDATE` de dinero**. |
+| `pricing.service.ts` | **`MONEY_REF_WHERE = { refKind: 'market' }`** (exportado) aplicado a todos los seams de dinero; `PRICE_REF_SELECT` gana `refKind`; `manualOverride` gana el 8.º parámetro `refKind`; `syncCardPrice`, `persistMarketReference`, `persistGradedEstimateReference`, `persistSealedMarketReference` fijan la naturaleza; `PriceHistoryEntryDTO`/`toPriceHistoryEntry` ganan `refKind`. |
+| `pricing.controller.ts` | `intent` ⇒ `refKind` (`"graded_estimate"` ⇒ estimado; **todo lo demás** ⇒ `market`). |
+| `graded-estimates.controller.ts` | El `DELETE` acota su `where` a `refKind='graded_estimate'`; el `404` explica el caso `market`; el `before` de la bitácora registra la naturaleza de cada fila borrada. |
+| `catalog.service.ts` | `GradedEstimateReviewItemDTO.refKind` + emisión en `preview` y `review`. |
+| `common/graded-estimate.ts` | `GradedEstimateInput.refKind` y `GradingHighlightResult.refKind` (la misma fila que reportan `capturedDate`/`isManual`). |
+| `set-value.service.ts`, `sealed-catalog.service.ts`, `admin.service.ts`, `card-product-resolver.service.ts`, `price-ingest.service.ts` | Predicado de dinero / naturaleza explícita en su escritor. |
+| `prisma/seed-e2e.ts` | Los estimados de `e2e-stale-est` se siembran `graded_estimate`; **las filas `graded:PSA:10` de `e2e-graded` y `e2e-slab-raw` se quedan `market`** — son el precio de sus slabs publicados, y sembrarlas como estimado las apagaría. |
+
+### 0.11.3 La regla que hay que conocer para escribir código nuevo aquí
+
+> **El default de TODA lectura de `PriceReference` es EXCLUIR lo que no es `market`. Incluir las dos
+> naturalezas es opt-in explícito.**
+
+Un lector nuevo que se olvide del predicado **hereda el comportamiento seguro** — exactamente lo
+contrario de lo que pasaba antes. Las **únicas cuatro** lecturas inclusivas, y por qué:
+
+| Lectura inclusiva | Por qué |
+|---|---|
+| `getGradedEstimatesBatch` (ficha, rejilla, vitrina, `preview`, `review`) | Ruta del **gancho**, no del dinero. Las filas `market` de cartas **sin** slab son la mejor estimación disponible de lo que valdría esa carta gradeada y son las que hacen que la vitrina tenga algo que mostrar el día 1; filtrarlas la **vaciaría en silencio**. La seguridad de esta ruta la dan la omisión por slab publicado (§4.38l.2, intacta) y el gate de confianza. |
+| El conjunto motor de `/review` (`catalog.service`) | Debe poder listar la coexistencia; el `refKind` por fila es lo que evita que el operador borre dinero. |
+| El `findMany` del `DELETE` | Lee la clave completa… pero **borra** solo `graded_estimate` (ver 0.11.5). |
+| `priceHistory` | Superficie de **auditoría**: `refKind` es justamente el dato que explica **por qué una fila con número no está priciando nada**. |
+
+La regla general detrás de la asimetría, porque se va a volver a necesitar: **en la dirección del DINERO
+se falla cerrando** (mejor sin precio que con precio malo); **en la dirección de la EXHIBICIÓN se falla
+informando** (mejor mostrar el dato que tenerlo y callar).
+
+Seams de dinero cubiertos: `getReference` (**las dos** queries), `getReferenceByCardProduct` (**las
+dos**), `getReferencesBatch`, `getPricedRawFinishesBatch`, `getSeparateProductsByCard`, el cache diario
+de `syncCardPrice`, `set-value.service` (valuación de set), `sealed-catalog.service` (serie de valor del
+sellado), `admin.service` (reporte de dinero de admin) y `price-ingest.hasRecentIngest`. Bóveda, binder,
+buylist, checkout y `bulk-publish` entran por `getReference`/`getReferencesBatch`, así que quedan
+cubiertos sin tocarlos. **`isBetterRef` / `sourceRank` / §4.27f-2 / la curva (§4.36) no se tocaron**: se
+filtra **aguas arriba**, sobre las candidatas, nunca dentro del comparador ni de la matemática.
+
+⚠️ **La query que es fácil olvidar y que es LA importante:** el estimado se escribe siempre por la vía
+manual (`isManualOverride=true`), así que la que lo traía al resolver es la lectura de **candidatas
+PERENNES** (`MANUAL_REF_PREDICATE`, **sin cota de fecha**) — por eso el estimado a −400 días seguía
+priciando. `MONEY_REF_WHERE` va en **las dos** queries de `getReference` y de
+`getReferenceByCardProduct`; hay un test que lo comprueba estructuralmente.
+
+### 0.11.4 ⚠️ El trampolín: `refKind` en el `update`, no solo en el `create`
+
+`refKind` **no entra a la `@@unique`**, así que para carta+grado+día sigue habiendo **una sola fila**: un
+`intent:"market"` que caiga sobre la fila-estimado del mismo día **reusa esa fila**. Si el `update` del
+escritor omitiera `refKind`, la fila seguiría clasificada como estimado y **el slab se quedaría sin
+precio aunque el operador acabara de afirmarlo** — fallo silencioso en dirección segura, pero fallo, y
+además **rompería el paso 3 del cut-over**. Todos los escritores fijan la naturaleza en `create` **y**
+en `update`, y hay dos tests dedicados (uno unitario, uno E2E contra la tabla real).
+
+Corolario de escritura (§4.38l.4.3 regla 2): **el ingest NUNCA degrada una fila `market`.** Si la fila
+del día ya es de mercado, `persistGradedEstimateReference` hace **skip + traza** (`warn` con carta y
+grado; el job lo cuenta en `skippedManual`, que pasa a significar «saltadas por respetar lo que ya
+había»). *La naturaleza solo la SUBE un humano con `intent:"market"`; la automática nunca la baja.*
+El mismo criterio se aplicó al cache diario de `syncCardPrice`: si la fila del día es un estimado, ni la
+sirve como precio ni la pisa — devuelve `pending` y escala a la cola.
+
+### 0.11.5 Cambios observables para otros roles
+
+- **Frontend:** ninguna superficie **pública** cambia de shape. Dos campos **aditivos** y **admin-only**:
+  `PriceHistoryEntryDTO.refKind` y `GradedEstimatePreviewDTO.refKind` (también en
+  `GradedEstimateReviewItemDTO`). **Recomendación (decide ux-ui/frontend, no backend):** en la lista de
+  revisión de M2, una fila `refKind:"market"` **no debe ofrecer el botón de borrar** — el `DELETE` le
+  responderá `404`, y ofrecer una acción imposible es peor que no ofrecerla.
+- **`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`** borra **solo** las filas
+  `graded_estimate`. Si la clave solo tenía filas `market` ⇒ **`404`** (aunque la clave no esté vacía).
+  El `409 GRADED_ESTIMATE_SLAB_PUBLISHED` corre antes y **no cambió**.
+- **QA / M2:** el día del cut-over, cada slab que se estuviera priciando desde un estimado pasa a
+  `no_market`. Si se re-afirman antes (paso 3), el conteo **no se mueve**. Si no, el encabezado de la
+  cola puede mostrar un salto de `no_market` que **NO** es degradación del feed: el diagnóstico de §M2
+  («suben los dos a la vez ⇒ feed degradado») **no aplica** a ese salto.
+- **Efecto fail-closed, declarado:** un slab cuya única fila sea un estimado deja de ser vendible —
+  `fetchSellable` lo descarta, así que **desaparece del storefront** y `GET /catalog/listings/:id`
+  responde `404`. Es deliberado: una pieza sin precio no le cuesta dinero a nadie; una al 5 % sí.
+
+### 0.11.6 CUT-OVER (§4.38l.4.7) — **obligatorio y EN ESTE ORDEN**, para devops
+
+**Sin el paso 3 una pieza puede apagarse en silencio.** Los pasos 1–3 corren **ANTES** de aplicar la
+migración y **no** referencian `refKind` (por eso son ejecutables pre-DDL).
+
+**Paso 1 — CONTAR (solo lectura), en cada entorno que venda.** Expectativa declarada en producción:
+**cero** (la vía `intent` vive en esta rama y nunca se desplegó). *Si no da cero, se PARA y se escala al
+arquitecto*: significaría que existe otra vía de escritura que el diseño no conoce.
+
+```sql
+-- 1a) censo de filas candidatas a ser estimados del gancho
+SELECT count(*) AS filas_psa, count(DISTINCT "cardId") AS cartas
+FROM "PriceReference"
+WHERE "productType"='graded' AND "gradeKey" LIKE 'graded:PSA:%' AND "cardProductId" IS NULL;
+
+-- 1b) de ésas, las que COEXISTEN con un slab PUBLICADO de ESE grado = las expuestas a GE-1 hoy
+--     y las que el paso 3 obliga a re-afirmar. Es la MISMA definición de «publicado» que usa
+--     `publishedSlabsForGradeKey`: plataforma + listed + PSA + mismo gradeValue.
+SELECT r."cardId", c."externalId", r."gradeKey", r."priceMxnCents", r."capturedDate"
+FROM "PriceReference" r
+JOIN "Card" c ON c.id = r."cardId"
+WHERE r."productType"='graded' AND r."gradeKey" LIKE 'graded:PSA:%' AND r."cardProductId" IS NULL
+  AND EXISTS (
+    SELECT 1 FROM "InventoryItem" i
+    WHERE i."cardId" = r."cardId" AND i."productType"='graded'
+      AND i."ownerType"='platform' AND i.status='listed'
+      AND i."gradingCompany"='PSA' AND ('graded:PSA:' || i."gradeValue") = r."gradeKey"
+  )
+ORDER BY c."externalId";
+```
+
+**Paso 2 — ENUMERAR por la API** (la lista que el operador mira, y la que ya trae `refKind` por fila).
+Funciona con el dial `off`:
+
+```bash
+curl -s -H "Authorization: Bearer $SUPER_ADMIN" \
+  "$API/admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED&pageSize=200"
+```
+
+**Paso 3 — RE-AFIRMAR cada slab de esa lista con `intent:"market"`, ANTES de migrar.** Es un acto de
+dinero deliberado y auditado (`AuditLog action=pricing.override`), que es exactamente lo que el hallazgo
+pide que sustituya a la herencia silenciosa. Tras este paso, **la migración no puede apagar ninguna
+pieza**:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $SUPER_ADMIN" -H 'Content-Type: application/json' \
+  -d '{"cardId":"<id>","productType":"graded","gradeKey":"graded:PSA:10",
+       "priceMxnCents":<precio REAL del slab>,"intent":"market"}' \
+  "$API/admin/pricing/override"
+```
+
+**Paso 4 — MIGRAR:** `npx prisma migrate deploy` (aplica `20260829120000_m43_graded_estimate_kind`).
+Backfill **innecesario** si el paso 1 dio cero. Si no dio cero, se clasifica con el resultado del paso
+1b: **con slab ⇒ `market`** (ya lo son por el `@default`, y el paso 3 las dejó afirmadas), **sin slab ⇒
+`graded_estimate`**:
+
+```sql
+-- SOLO si el paso 1 no dio cero. Marca como ESTIMADO las filas PSA que NO tienen slab publicado.
+UPDATE "PriceReference" r SET "refKind" = 'graded_estimate'
+WHERE r."productType"='graded' AND r."gradeKey" LIKE 'graded:PSA:%' AND r."cardProductId" IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM "InventoryItem" i
+    WHERE i."cardId" = r."cardId" AND i."productType"='graded'
+      AND i."ownerType"='platform' AND i.status='listed'
+      AND i."gradingCompany"='PSA' AND ('graded:PSA:' || i."gradeValue") = r."gradeKey"
+  );
+```
+
+**Paso 5 — VERIFICAR:** los slabs re-afirmados conservan su precio (`GET /catalog/cards/:id` ⇒ el grupo
+`graded` sigue ahí con `priceBasis:"market"`), y una carta con estimado y **sin** slab sigue mostrando
+su gancho.
+
+**Paso 6 — ROLLBACK:** revertir el **código** (el predicado) es suficiente. **La columna se queda**, es
+aditiva e inerte sin código que la lea. **No se revierte la columna en caliente** — quitarla con código
+vivo sí rompe.
+
+### 0.11.7 Lo que M-43 **NO** cierra (residual declarado)
+
+1. **Un `intent:"market"` mal tecleado sigue moviendo el precio de un slab.** Riesgo inherente de
+   cualquier override de dinero; su remedio es la auditoría y la revisión, no esta columna. Lo que M-43
+   garantiza es que **una cifra que nadie afirmó como precio de venta jamás se convierta en uno**.
+2. **`reconcilePublishedPrices` sigue siendo `raw`-only** ⇒ un slab que se quede sin referencia no entra
+   a `PendingPriceEntry`. Con el cut-over no puede pasar al migrar, pero sí después. **Deuda no
+   bloqueante, dueño backend — anotada en `TECH_DEBT.md`.**
+3. **`evidenceDate` entró como COLUMNA pero NO se cableó.** Ni escritor (el ingest sigue sin
+   persistirla) ni lector (`stale()` sigue midiendo contra `capturedDate`). Con la columna en `null` en
+   toda fila, `evidenceDate ?? capturedDate` sería idéntico a hoy, así que **no hay cambio de
+   comportamiento y no hay regresión**: la aproximación conservadora vigente —el gate de evidencia en la
+   **escritura** del ingest, cota `≤ 2 × freshnessDays`— sigue siendo la que cumple el criterio 109, y
+   sigue declarada como desviación en §9. El alcance que el arquitecto asignó a M-43 pide **la columna**;
+   el cierre exacto del criterio 109 **no estaba en él** y **no se hizo por cuenta propia**. Anotado en
+   `TECH_DEBT.md` y pendiente de que arquitecto/orquestador lo enruten.
+
+### 0.11.8 Higiene de la BD de integración (hallazgo del pase, para devops/QA)
+
+Correr la suite de integración falló al principio en el caso 6 del gancho con unos escalones de coste
+que **no venían de este pase**: `ConfigSetting['grading_cost_tiers']` tenía 2 escalones en vez de 6,
+residuo de la sesión del pentester. **`npm run seed:synthetic` NO lo arregla**, porque el seed hace
+`upsert` con `update: {}` (deuda ya declarada en §11.0) ⇒ **una config editada sobrevive al resembrado**.
+Se hicieron dos cosas: (a) restaurar el valor al del seed en la BD local, y (b) que el `afterAll` de
+`graded-estimate.e2e-spec.ts` **restaure también `gradingCostTiers`**, que es lo único que cierra ese
+modo de fallo desde la suite. Si una corrida de integración falla con números de gate inexplicables, **lo
+primero que hay que mirar es si alguna `ConfigSetting` quedó editada**: el resembrado no la va a salvar.
+
+### 0.11.9 Verificación
+
+| Suite | Resultado |
+|---|---|
+| `npx tsc --noEmit` | limpio |
+| `npm test` (unitarios) | **2 486 / 2 486** en **201** suites (base 2 469 / 200; +17 tests, +1 suite) |
+| `npm run test:integration` | **177 / 177** en **14** suites (base 171 / 13; +6 casos, +1 suite), **dos corridas con `npm run seed:synthetic` en medio** ⇒ el sembrado sigue siendo idempotente |
+
+**La prueba que justifica el pase** es `test/integration/graded-estimate-inv-d-inverse.e2e-spec.ts`: el
+PoC de GE-1 paso por paso contra la app real. Se **verificó que detecta el ataque** neutralizando
+temporalmente `MONEY_REF_WHERE` (`{}`), con lo que la ficha volvió a emitir exactamente la medición del
+pentester —`salePriceCents: 46000`, `priceBasis:"market"`, `sellable:true`, y lo mismo con el estimado a
+`capturedDate: 2025-07-25`— y los casos (A) y (B) fallaron. Con el predicado puesto, el slab queda
+`pending`, desaparece del storefront y la ruta por-pieza responde `404`.
+
 ## 0.10 v1.50.3-e — `reasons[]`: el DIAGNÓSTICO deja de heredar el cortocircuito de la DECISIÓN (2026-08-29)
 
 > Implementa **ARCHITECTURE §4.38(i) ítems 9 y 10** / **§4.38(c)** / **§4.38(n.2-ter)**, contra

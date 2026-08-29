@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Logger, Param, Put, Query } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, PriceRefKind, Role } from '@prisma/client';
 import { Allow } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -354,6 +354,9 @@ export class GradedEstimatesController {
    *    así que borrar «solo la vigente» haría **aflorar una fila más vieja** y la cifra **reaparecería
    *    sola** en la ficha. Una resurrección silenciosa en una superficie comercial es peor que no haber
    *    borrado. `deletedCount` va en la respuesta para que el operador vea cuánto historial se llevó.
+   *    **v1.50.3-f (M-43, §4.38l.4.5): «todas las de la clave» pasa a ser «todas las de la clave DE ESA
+   *    NATURALEZA»** (`refKind='graded_estimate'`). El alcance no se ensancha: se ESTRECHA. Sin este
+   *    acote, la columna nueva habría convertido un verbo del gancho en un borrador de dinero.
    * 4. **`404` si no había nada, jamás un `200` silencioso** (mismo precedente que el `PUT` con body
    *    vacío ⇒ `422`): responder éxito cuando no pasó nada le haría creer al operador que limpió algo
    *    que no limpió.
@@ -367,7 +370,11 @@ export class GradedEstimatesController {
    * ⛔ **Por eso este `DELETE` NO mitiga INV-D inverso (§4.38l.3), y la inferencia contraria es
    * tentadora y falsa:** «busco las expuestas con `?reason=SLAB_PUBLISHED` y borro la fila» **dispara
    * `409` — y DEBE dispararlo**. El remedio correcto ahí sigue siendo **repreciar con `intent:"market"`**
-   * (un acto de dinero, deliberado y auditado). INV-D inverso sigue abierto y sigue necesitando M-43.
+   * (un acto de dinero, deliberado y auditado).
+   *
+   * **v1.50.3-f — INV-D inverso ya NO está abierto: lo cierra M-43** (`refKind` + `MONEY_REF_WHERE`,
+   * §4.38l.4), **no este endpoint**, y por eso el `409` y este corolario **no cambian** ni una línea.
+   * Lo único que M-43 le cambia a esta ruta es el ALCANCE del borrado (decisión 3).
    *
    * La guarda corre **ANTES** de mirar si hay filas: es una precondición sobre el estado del mundo, no
    * sobre el contenido de la tabla. Con slab publicado la respuesta correcta es «no se toca esto»,
@@ -422,12 +429,21 @@ export class GradedEstimatesController {
     // Clave CANÓNICA del estimado (§4.38a): `cardProductId: null` y `finish: 'normal'` — el grado NO se
     // cruza con el acabado. Se escribe UNA vez y se reutiliza en la lectura y en el borrado para que no
     // puedan divergir (borrar por una clave más ancha que la que se leyó sería un borrado a ciegas).
+    //
+    // ⚠️ v1.50.3-f (M-43, §4.38l.4.5) — **el borrado pasa a ser de NATURALEZA, no de clave.** Se acota
+    // a `refKind='graded_estimate'`: con la naturaleza en la fila, «todas las filas de la clave» podría
+    // llevarse una fila **`market`**, que es DINERO de una pieza real — exactamente el radio de
+    // explosión que la decisión 1 de (q.1) se negó a abrir para `raw`/`sealed`. `deletedCount` cuenta
+    // **solo** las borradas, y si la clave únicamente tenía filas `market` ⇒ **`404`** (no hay estimado
+    // que retirar), aunque la clave no esté vacía: el operador ve en `/review` que esa cifra es
+    // `refKind:"market"` y que no se toca por esta vía (el remedio es repreciar con `intent:"market"`).
     const where = {
       cardId,
       productType: 'graded' as const,
       gradeKey,
       finish: 'normal' as const,
       cardProductId: null,
+      refKind: PriceRefKind.graded_estimate,
     };
 
     // MEN-C (QA): slabs que aparecieron ENTRE el pre-vuelo y la transacción. Se guardan aquí para
@@ -471,7 +487,11 @@ export class GradedEstimatesController {
           // haría creer al operador que limpió algo que no limpió.
           throw BusinessException.notFound(
             'NOT_FOUND',
-            `No hay ninguna referencia PSA ${grade} que borrar para esta carta (${cardId}).`,
+            `No hay ningún ESTIMADO PSA ${grade} que borrar para esta carta (${cardId}). ` +
+              'Si en `/admin/pricing/graded-estimates/review` ves una cifra para este grado con ' +
+              '`refKind: "market"`, es la referencia de MERCADO de una pieza real: no se retira por ' +
+              'esta vía (M-43, §4.38l.4.5) — se corrige repreciando con POST /admin/pricing/override ' +
+              'e intent:"market".',
           );
         }
         const del = await tx.priceReference.deleteMany({ where });
@@ -497,6 +517,10 @@ export class GradedEstimatesController {
                 fxRate: r.fxRate == null ? null : r.fxRate.toString(),
                 source: r.source,
                 isManualOverride: r.isManualOverride,
+                // M-43: la naturaleza forma parte de «lo que había». Recapturar sin ella recrearía la
+                // fila con la naturaleza equivocada, que es el único modo de que deshacer un borrado
+                // mueva dinero.
+                refKind: r.refKind,
                 capturedDate: r.capturedDate.toISOString().slice(0, 10),
               })),
             },

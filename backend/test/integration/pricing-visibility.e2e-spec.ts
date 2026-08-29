@@ -255,6 +255,11 @@ describe('E2E — §M2: rutas de pricing con forma DECLARADA', () => {
     'isManualOverride',
     'priceMxnCents',
     'productType',
+    // v1.50.3-f (M-43, contrato rev v1.50.3-f): la NATURALEZA de la fila entra al DTO de auditoría —
+    // es lo que explica por qué una fila CON número no está priciando nada. `evidenceDate`, la otra
+    // columna de la misma migración, NO entra: la lista blanca sigue siendo una decisión, no un espejo
+    // del schema, y este conjunto exacto es lo que lo garantiza.
+    'refKind',
     'source',
   ].sort();
 

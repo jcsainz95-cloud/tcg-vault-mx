@@ -123,6 +123,10 @@ function psaRef(cardId: string, gradeValue: '10' | '9', mxnCents: number, captur
     source: 'manual',
     capturedDate,
     cardProductId: null,
+    // v1.50.3-f (M-43): fila del GANCHO ⇒ naturaleza `graded_estimate`. Esta suite compone las
+    // superficies PÚBLICAS, y la ruta del gancho es INCLUSIVA (lee las dos naturalezas), así que
+    // ninguna aserción de aquí cambia — pero el fixture deja de mentir sobre lo que la fila ES.
+    refKind: 'graded_estimate',
     ...over,
   };
 }
@@ -348,6 +352,9 @@ const rawRef = (cardId: string, mxnCents = 100_000) => ({
   source: 'manual',
   capturedDate: RECENT,
   cardProductId: null,
+  // M-43: es DINERO (la referencia de mercado del raw). Sin esta línea `MONEY_REF_WHERE` la excluye y
+  // el `PriceInfo` sale `pending` — que es, literalmente, la demostración de que el predicado corre.
+  refKind: 'market',
 });
 
 describe('SEC-A1 — el cliente no recibe NINGÚN insumo del cálculo (§4.38e)', () => {

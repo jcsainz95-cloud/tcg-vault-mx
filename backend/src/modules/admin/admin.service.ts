@@ -16,7 +16,7 @@ import {
   UserStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo, isBetterRef } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, MONEY_REF_WHERE, isBetterRef } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
@@ -541,7 +541,11 @@ export class AdminService {
     if (items.length === 0) return [];
     const cardIds = [...new Set(items.map((i) => i.cardId))];
     const refs = await this.prisma.priceReference.findMany({
-      where: { cardId: { in: cardIds } },
+      // v1.50.3-f (M-43, §4.38l.4.4A): «cualquier lectura del reporte de dinero de admin» está
+      // ENUMERADA en el dictamen. Este `findMany` alimenta el `referenceValue` y el valor de inventario
+      // de la consola: sin el predicado, el estimado de un slab seguiría valuando la pieza en admin
+      // aunque el storefront ya no la pricie — dos verdades del mismo dinero, que es peor que una mala.
+      where: { cardId: { in: cardIds }, ...MONEY_REF_WHERE },
       orderBy: [{ capturedDate: 'desc' }, { createdAt: 'desc' }],
     });
     // §4.27f-2 (P47-2, v1.46): Mapa (cardId|productType|gradeKey|finish) → MEJOR referencia por el

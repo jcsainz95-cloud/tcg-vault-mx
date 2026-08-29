@@ -13,6 +13,7 @@
  * la suite comparte la BD con las demás y el dial es global.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { DEFAULT_GRADING_COST_TIERS } from '../../src/common/graded-estimate';
 import {
   E2E_CARDS,
   E2E_LIST_OVERRIDE_CENTS,
@@ -57,6 +58,13 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
           highlightGrades: ['10'],
           // v1.50.3: el seed del criterio 109. Se restaura explícitamente porque 8d lo fija.
           manualFreshnessDays: 30,
+          // v1.50.3-f — **la tabla de escalones también se restaura, y no es paranoia.** `seed-e2e`
+          // hace `upsert` con `update: {}` (deuda declarada, §11.0), así que una `ConfigSetting`
+          // editada **sobrevive a `npm run seed:synthetic`**: si una corrida deja aquí unos tiers de
+          // prueba, la siguiente falla en el caso 6 con unos números que nadie sabe de dónde salen y
+          // el resembrado NO la arregla. Restaurar el valor del seed en el `afterAll` es lo único que
+          // cierra ese modo de fallo desde esta suite.
+          gradingCostTiers: DEFAULT_GRADING_COST_TIERS,
         },
       });
     }

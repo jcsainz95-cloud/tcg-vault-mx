@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { SetValueService, SET_VALUE_RULE } from '../src/modules/catalog/set-value.service';
-import { BASE_CARD_REF_WHERE } from '../src/modules/pricing/pricing.service';
+import { BASE_CARD_REF_WHERE, MONEY_REF_WHERE } from '../src/modules/pricing/pricing.service';
 import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -82,8 +82,12 @@ describe('SetValueService.computeSetValue — SEC-A1, batch sin N+1', () => {
       finish: SET_VALUE_RULE.finish,
     });
     expect(where.cardId).toEqual({ in: ['c1', 'c2', 'c3'] });
-    // P-32: EXCLUYE deck_exclusive/promo — el where lleva el filtro compartido BASE_CARD_REF_WHERE.
-    expect(where.OR).toEqual(BASE_CARD_REF_WHERE.OR);
+    // P-32 + M-43 (§4.38l.4.4A): los DOS predicados compartidos viajan por `AND` — `BASE_CARD_REF_WHERE`
+    // (excluye deck_exclusive/promo) y `MONEY_REF_WHERE` (excluye lo que no es referencia de MERCADO).
+    // El `AND` no es cosmético: `BASE_CARD_REF_WHERE` es un `OR`, y spreadear los dos a nivel raíz haría
+    // que un predicado futuro con `OR` pisara al otro en silencio.
+    expect(where.AND).toEqual([MONEY_REF_WHERE, BASE_CARD_REF_WHERE]);
+    expect(MONEY_REF_WHERE).toEqual({ refKind: 'market' });
   });
 
   it('P-32: excluye deck_exclusive/promo y toma el precio del set_base (no el producto separado)', async () => {

@@ -29,6 +29,9 @@ const PRICE_HISTORY_KEYS = [
   'priceMxnCents',
   'productType',
   'source',
+  // v1.50.3-f (M-43): entra al contrato de forma DELIBERADA — se añade a la lista blanca, que es la
+  // única vía por la que una columna nueva puede salir a la API.
+  'refKind',
 ].sort();
 
 /** Una fila `PriceReference` COMPLETA, tal como sale de Prisma (con todo lo que NO debe viajar). */
@@ -46,6 +49,8 @@ const FULL_ROW = {
   fxBufferPct: 3,
   capturedDate: new Date('2026-08-24T00:00:00.000Z'),
   isManualOverride: false,
+  refKind: 'market' as const,
+  evidenceDate: null,
   createdAt: new Date('2026-08-24T11:22:33.000Z'),
 };
 

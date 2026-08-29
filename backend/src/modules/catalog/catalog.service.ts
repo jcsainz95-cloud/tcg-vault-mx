@@ -358,6 +358,14 @@ export interface GradedEstimateReviewItemDTO {
    * rancia ⇒ mirar el ingest, no la carta. **Admin-only** (§4.38g es sobre lo público).
    */
   isManual: boolean;
+  /**
+   * v1.50.3-f (M-43, §4.38l.4.4B / (l.4.5), contrato v1.50.3-f) — **NATURALEZA** de esa misma fila,
+   * ORTOGONAL a `isManual` (procedencia). `"graded_estimate"` ⇒ es una cifra del gancho: se puede
+   * recapturar o **borrar**. `"market"` ⇒ es **DINERO** (la referencia de mercado de M1 «Gradeadas»):
+   * el gancho la MUESTRA cuando la carta no tiene slab de ese grado, pero **no se toca desde aquí** —
+   * el `DELETE` del gancho no la borra. **Admin-only** (§4.38g es una garantía sobre lo PÚBLICO).
+   */
+  refKind: 'market' | 'graded_estimate';
   gradingCostTier: GradingCostTier | null;
   gradingCostMxnCents: number | null;
   thresholdMxnCents: number | null;
@@ -395,8 +403,12 @@ export const GRADED_REVIEW_DEFAULT_REASONS: readonly HighlightReason[] = [
  * para el operador pero **no son datos erróneos**, así que meterlos en el default **ahogaría la señal
  * de coherencia** justo en la lista que existe para que esa señal se vea.
  *
- * - **`SLAB_PUBLISHED`** (INV-D): es el conjunto expuesto al riesgo de §4.38(l.3) — la guarda
- *   funcionando, no un dato malo.
+ * - **`SLAB_PUBLISHED`** (INV-D): la guarda funcionando, no un dato malo. Hasta v1.50.3-e era además
+ *   *«el conjunto expuesto al riesgo de §4.38(l.3)»* (INV-D inverso). **Desde M-43 ya no lo es:** un
+ *   estimado no puede pricear un slab, así que este filtro deja de ser una lista de piezas en riesgo y
+ *   pasa a ser lo que su nombre dice — cartas donde estimado y pieza real COEXISTEN. Sigue siendo el
+ *   opt-in del **paso 2 del cut-over** (§4.38l.4.7): las que hay que re-afirmar con `intent:"market"`
+ *   ANTES de migrar, para que ninguna se apague en silencio.
  * - **`STALE`** (v1.50.3-c, GU-A24 / PI-D6): la cifra **existe y CADUCÓ**. El arquitecto lo tenía
  *   agrupado con la «ausencia de dato» (`NO_PSA10` y compañía) y **no pertenece ahí**: aquéllos
  *   significan *nunca hubo dato* —el estado NORMAL de miles de cartas—; éste significa **hubo un dato,
@@ -1303,6 +1315,12 @@ export class CatalogService {
           // v1.50.3-c (§4.38n.2-bis): el ORIGEN de esa misma fila. Sin él, `STALE` no dice si el
           // remedio es «recapturar» (manual) o «mirar el ingest» (automática).
           isManual: r.isManual,
+          // v1.50.3-f (M-43, §4.38l.4.4B): la NATURALEZA de esa MISMA fila. Distingue «esta cifra es un
+          // estimado que puedo recapturar o borrar» de «esta cifra es DINERO de una pieza real, no la
+          // toques»: el gancho MUESTRA las filas `market` de cartas sin slab de ese grado, pero el
+          // `DELETE` del gancho no se las lleva (§4.38l.4.5). Sin este campo, el diagnóstico invita a
+          // borrar filas de mercado.
+          refKind: r.refKind,
           gradingCostTier: r.gradingCostTier,
           gradingCostMxnCents: r.gradingCostMxnCents,
           thresholdMxnCents: r.thresholdMxnCents,
@@ -1484,6 +1502,9 @@ export class CatalogService {
         capturedDate: r.capturedDate,
         stale: r.stale,
         isManual: r.isManual,
+        // M-43 (§4.38l.4.4B): mismo campo que el `preview`, misma fila. En la LISTA importa aún más:
+        // es el verbo destructivo el que se ofrece por fila.
+        refKind: r.refKind,
         gradingCostTier: r.gradingCostTier,
         gradingCostMxnCents: r.gradingCostMxnCents,
         thresholdMxnCents: r.thresholdMxnCents,

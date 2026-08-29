@@ -93,7 +93,10 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
     const { ctrl, pricing } = build([]);
     const res = await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
     expect(res.data.priceMxnCents).toBe(900_000);
-    expect(pricing.manualOverride).toHaveBeenCalledWith('c1', 'graded', 'graded:PSA:10', 900_000, 'normal');
+    // v1.50.3-f (M-43, §4.38l.4.3): el 8.º argumento es la NATURALEZA que el `intent` fija.
+    expect(pricing.manualOverride).toHaveBeenCalledWith(
+      'c1', 'graded', 'graded:PSA:10', 900_000, 'normal', undefined, undefined, 'graded_estimate',
+    );
   });
 
   it('`intent:"market"` NO consulta la guarda: es el comportamiento vigente de §M1 v1.28, intacto', async () => {
@@ -102,7 +105,43 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
     expect(res.data.priceMxnCents).toBe(900_000);
     // Con un slab publicado, `market` es EXACTAMENTE lo que el operador quiere hacer: fijar su precio.
     expect(pricing.publishedSlabsForGradeKey).not.toHaveBeenCalled();
-    expect(pricing.manualOverride).toHaveBeenCalled();
+    expect(pricing.manualOverride).toHaveBeenCalledWith(
+      'c1', 'graded', 'graded:PSA:10', 900_000, 'normal', undefined, undefined, 'market',
+    );
+  });
+
+  /**
+   * ===== v1.50.3-f (M-43, §4.38l.4.3) — el `intent` FIJA la naturaleza, no solo la bitácora =====
+   *
+   * Hasta v1.50.3-e las dos intenciones escribían una fila IDÉNTICA y el `intent` solo viajaba al
+   * `AuditLog`. Ése era el hueco: quién decidía si la fila era dinero era el LECTOR, por inferencia
+   * sobre el estado del mundo, así que el mismo dato significaba dos cosas distintas en dos instantes
+   * distintos **sin que nada cambiara en la fila**. Estos casos fijan el mapeo en el borde HTTP.
+   */
+  it('M-43 — `intent` ⇒ `refKind`: "market"⇒market, "graded_estimate"⇒graded_estimate', async () => {
+    const { ctrl, pricing } = build([]);
+    await ctrl.override(body({ intent: 'market' }) as never, 'admin-1');
+    await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
+    const kinds = (pricing.manualOverride as jest.Mock).mock.calls.map((c) => c[7]);
+    expect(kinds).toEqual(['market', 'graded_estimate']);
+  });
+
+  it('M-43 — con `productType` ≠ graded la naturaleza es SIEMPRE `market`, aunque venga un `intent`', async () => {
+    // El contrato dice que fuera de `graded` el `intent` se IGNORA. «Ignorar» tiene que significar
+    // `market`: un `intent:"graded_estimate"` colado en un `raw` NO puede sacar del dinero la
+    // referencia de una carta suelta — sería una forma de despublicar inventario por un campo que la
+    // ruta declara irrelevante.
+    const { ctrl, pricing } = build([]);
+    await ctrl.override(
+      { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
+      'admin-1',
+    );
+    await ctrl.override(
+      { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
+      'admin-1',
+    );
+    const kinds = (pricing.manualOverride as jest.Mock).mock.calls.map((c) => c[7]);
+    expect(kinds).toEqual(['market', 'market']);
   });
 
   it('con `productType` distinto de `graded` el `intent` NI SE EXIGE NI ESTORBA (raw/sealed intactos)', async () => {
@@ -119,7 +158,10 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
     expect(pricing.publishedSlabsForGradeKey).not.toHaveBeenCalled();
   });
 
-  it('el `intent` queda en la BITÁCORA: es lo único que distingue las dos capturas sobre la MISMA fila', async () => {
+  // v1.50.3-f: el `intent` ya NO es «lo único» que distingue las dos capturas —desde M-43 lo dice la
+  // propia fila (`refKind`)—, pero la bitácora sigue siendo la que reconstruye la INTENCIÓN del
+  // operador, y eso no lo sustituye una columna de estado.
+  it('el `intent` queda en la BITÁCORA: es lo que reconstruye la intención del operador', async () => {
     const { ctrl, audit } = build([]);
     await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
     expect(audit.log).toHaveBeenCalledWith(

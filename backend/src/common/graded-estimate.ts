@@ -204,6 +204,26 @@ export interface GradedEstimateInput {
    * intacta: un cliente no puede distinguir una fila manual de una automática mirando la respuesta.
    */
   isManual: boolean;
+  /**
+   * v1.50.3-f (M-43, §4.38l.4.4B) — **NATURALEZA** de la fila (`'market' | 'graded_estimate'`).
+   *
+   * ⚠️ **NO decide nada aquí, y eso es el diseño.** La ruta del GANCHO es deliberadamente **INCLUSIVA**:
+   * lee las DOS naturalezas. La simétrica («mostrar solo `graded_estimate`») sería el error obvio —
+   * las filas capturadas por la pestaña «Gradeadas» de M1 con `intent:"market"` sobre cartas **sin**
+   * slab son, de hecho, la mejor estimación disponible de lo que valdría esa carta gradeada, y son las
+   * que hacen que la vitrina tenga algo que mostrar el día 1: excluirlas la **vaciaría en silencio**.
+   *
+   * La asimetría tiene una regla detrás, y conviene enunciarla porque se va a volver a necesitar: *en
+   * la dirección del DINERO se falla cerrando (mejor sin precio que con precio malo); en la dirección
+   * de la EXHIBICIÓN se falla informando (mejor mostrar el dato que tenerlo y callar)*, porque ahí la
+   * seguridad ya la dan otros dos controles — la omisión por slab publicado ((l.2)) y el gate de
+   * confianza.
+   *
+   * Su único consumidor es el **diagnóstico de admin** (`GradedEstimatePreviewDTO.refKind`), donde
+   * distingue «esta cifra es un estimado que puedo recapturar o borrar» de «esta cifra es **DINERO** de
+   * una pieza real, no la toques». Sin él, la lista de revisión invita a borrar filas de mercado.
+   */
+  refKind: 'market' | 'graded_estimate';
 }
 
 /** Razón accionable por la que un grupo NO quedó destacado (solo admin/diagnóstico, §4.38d). */
@@ -311,6 +331,21 @@ export interface GradingHighlightResult<T extends GradedEstimateInput = GradedEs
    * el ingest» — para eso hace falta que exista fila, y eso lo dice `capturedDate`.
    */
   isManual: boolean;
+  /**
+   * v1.50.3-f (M-43, §4.38l.4.4B / (l.4.5)) — NATURALEZA de **la MISMA fila** que reportan
+   * `capturedDate` e `isManual` (la más antigua de las presentes, la que decide la frescura). Los tres
+   * campos describen una sola fila a propósito.
+   *
+   * **Para qué sirve en la lista de revisión:** `"graded_estimate"` ⇒ el `DELETE` del gancho se la
+   * lleva; `"market"` ⇒ es la referencia de mercado de M1 «Gradeadas», el gancho la **muestra** cuando
+   * la carta no tiene slab de ese grado, pero **no se toca desde aquí** — el `DELETE` no la borra
+   * (§4.38l.4.5) y el remedio, si la cifra está mal, es repreciarla con `intent:"market"`.
+   *
+   * ⚠️ Sin ninguna fila presente vale **`'market'`** (el contrato lo declara no-anulable): es el default
+   * de la columna y el valor conservador para una superficie con un verbo DESTRUCTIVO al lado — «no
+   * hay nada que borrar aquí» se lee en `capturedDate: null`, que es el campo que manda en ese caso.
+   */
+  refKind: 'market' | 'graded_estimate';
 }
 
 /** MVP: única graduadora soportada (§O.1; CGC/BGS/TAG fuera de alcance). */
@@ -893,6 +928,9 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   // `false` sin fila presente: el contrato lo declara `boolean`, y ahí el dato que manda es
   // `capturedDate: null` («no hay fila»), no este flag.
   const isManual = oldest?.isManual === true;
+  // M-43 (§4.38l.4.4B): la naturaleza de ESA misma fila. `'market'` sin fila presente — ver el docblock
+  // del campo: es el default de la columna y el valor conservador junto a un verbo destructivo.
+  const refKind: 'market' | 'graded_estimate' = oldest?.refKind ?? 'market';
   // v1.50.2: la frescura se evalúa POR FILA (asimétrica manual/automática, §4.38m), no por fecha suelta.
   const stale = present.some((e) => isStaleRef(e, today, cfg));
   // Cota SUPERIOR efectiva. Se trunca a ENTERO de centavos: `psa10 > floor(raw × mult)` es equivalente a
@@ -1030,6 +1068,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     stale,
     capturedDate,
     isManual,
+    refKind,
   };
 
   // Los montos del escalón se emiten **solo** cuando el cálculo llegó de verdad hasta ellos: si algo

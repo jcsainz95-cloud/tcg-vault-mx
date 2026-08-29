@@ -4,7 +4,7 @@ import { CardSet, Finish } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import { PricingService } from './pricing.service';
+import { MONEY_REF_WHERE, PricingService } from './pricing.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import {
   GradedFormat,
@@ -319,7 +319,11 @@ export class PriceIngestService {
     since.setUTCHours(0, 0, 0, 0);
     since.setUTCDate(since.getUTCDate() - 1);
     const row = await this.prisma.priceReference.findFirst({
-      where: { capturedDate: { gte: since }, isManualOverride: false },
+      // v1.50.3-f (M-43, §4.38l.4.4A): la pregunta es «¿corrió el barrido de MERCADO?», así que una
+      // fila de ESTIMADO no la contesta. Sin el predicado, una corrida del ingest de fase 2 (que
+      // escribe `graded_estimate` sobre cartas raw publicadas) haría creer al catch-up del boot que el
+      // mercado ya se ingirió y **saltaría el barrido** — un fail-open operativo por la puerta de atrás.
+      where: { capturedDate: { gte: since }, isManualOverride: false, ...MONEY_REF_WHERE },
       select: { id: true },
     });
     return row !== null;
@@ -1132,7 +1136,14 @@ export class PriceIngestService {
           fx,
         );
         if (wrote) result.written += 1;
-        else result.skippedManual += 1; // el override MANUAL gana (§O.6): no se pisa, se cuenta.
+        // El escritor NO pisó la fila del día. Dos motivos posibles, ambos «hay algo mejor ahí y no se
+        // toca»: (a) override MANUAL (§O.6) — el caso normal —, y desde v1.50.3-f (M-43, §4.38l.4.3
+        // regla 2) (b) la fila ya es `refKind='market'`, o sea DINERO de una pieza real, que el ingest
+        // jamás degrada a estimado. El contador se comparte a propósito: es «saltadas por respetar lo
+        // que ya había», y el motivo exacto queda en la traza del escritor (warn con card/grado). (b)
+        // es hoy inalcanzable —no existe escritor automático de mercado `graded` (§4.38l.4.6, candado
+        // 4) y toda captura humana con `intent:"market"` deja `isManualOverride=true`, que cae en (a).
+        else result.skippedManual += 1;
       }
 
       if (res.dailyLimited) {
