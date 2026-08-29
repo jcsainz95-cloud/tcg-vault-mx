@@ -430,58 +430,95 @@ export class GradedEstimatesController {
       cardProductId: null,
     };
 
-    const { deletedCount } = await this.prisma.$transaction(async (tx) => {
-      // Se LEEN primero porque el `before` de la bitácora **es la única forma de deshacer** (recapturar
-      // lo que había). Dentro de la transacción, así que nadie puede insertar una fila entre la lectura
-      // y el borrado y dejar la bitácora incompleta.
-      const rows = await tx.priceReference.findMany({
-        where,
-        orderBy: { capturedDate: 'desc' },
-      });
-      if (rows.length === 0) {
-        // `404`, no un `200` con `deletedCount: 0` (§4.38q.1): responder éxito cuando no pasó nada le
-        // haría creer al operador que limpió algo que no limpió.
-        throw BusinessException.notFound(
-          'NOT_FOUND',
-          `No hay ninguna referencia PSA ${grade} que borrar para esta carta (${cardId}).`,
-        );
-      }
-      const del = await tx.priceReference.deleteMany({ where });
-      await this.audit.log(
-        {
-          actorUserId: userId,
-          action: 'pricing.graded_estimate.delete',
-          entityType: 'PriceReference',
-          // No hay UN id (se borran N filas): la entidad de la acción es la CARTA, mismo criterio que
-          // `pricing.override.blocked`. Los ids concretos van en el `before`.
-          entityId: cardId,
-          before: {
-            cardId,
-            gradeValue: grade,
-            gradeKey,
-            finish: 'normal',
-            deletedCount: del.count,
-            // Valores y fechas de CADA fila borrada: es el material para recapturar lo que estaba.
-            rows: rows.map((r) => ({
-              id: r.id,
-              priceMxnCents: r.priceMxnCents,
-              priceUsdCents: r.priceUsdCents,
-              fxRate: r.fxRate == null ? null : r.fxRate.toString(),
-              source: r.source,
-              isManualOverride: r.isManualOverride,
-              capturedDate: r.capturedDate.toISOString().slice(0, 10),
-            })),
+    // MEN-C (QA): slabs que aparecieron ENTRE el pre-vuelo y la transacción. Se guardan aquí para
+    // poder auditar el bloqueo FUERA de la transacción (que se revierte entera al lanzar).
+    let slabsEnCarrera: { id: string }[] = [];
+    const { deletedCount } = await this.prisma
+      .$transaction(async (tx) => {
+        // ===== INV-D otra vez, ahora DENTRO de la transacción (MEN-C) =====
+        // La guarda de arriba es el PRE-VUELO: responde y audita el `409` sin abrir transacción, que es
+        // el 99.99 % de los casos. Esta repetición cierra la ventana TOCTOU: entre aquella lectura y
+        // este borrado alguien pudo publicar un slab de este grado, y entonces el borrado dejaría a una
+        // pieza REAL sin referencia (⇒ PRICE_PENDING ⇒ despublicada). Cuesta una consulta en una ruta
+        // manual de `super_admin`; el precio de perder la carrera se paga en dinero publicado.
+        slabsEnCarrera = await this.pricing.publishedSlabsForGradeKey(cardId, gradeKey, tx);
+        if (slabsEnCarrera.length > 0) {
+          throw BusinessException.conflict(
+            'GRADED_ESTIMATE_SLAB_PUBLISHED',
+            `No se puede BORRAR la referencia PSA ${grade} de esta carta: hay ` +
+              `${slabsEnCarrera.length} slab(s) PSA ${grade} publicado(s) (se publicó mientras se ` +
+              'procesaba este borrado). Con el slab publicado esa fila ya no es un estimado — es el ' +
+              'precio de mercado real de esas piezas —, y borrarla las dejaría sin precio ' +
+              '(PRICE_PENDING ⇒ despublicadas). Si lo que hay que corregir es ese precio, reprécialo ' +
+              'con POST /admin/pricing/override e intent:"market".',
+            {
+              cardId,
+              gradeKey,
+              publishedSlabCount: slabsEnCarrera.length,
+              inventoryItemIds: slabsEnCarrera.map((i) => i.id),
+            },
+          );
+        }
+        // Se LEEN primero porque el `before` de la bitácora **es la única forma de deshacer** (recapturar
+        // lo que había). Dentro de la transacción, así que nadie puede insertar una fila entre la lectura
+        // y el borrado y dejar la bitácora incompleta.
+        const rows = await tx.priceReference.findMany({
+          where,
+          orderBy: { capturedDate: 'desc' },
+        });
+        if (rows.length === 0) {
+          // `404`, no un `200` con `deletedCount: 0` (§4.38q.1): responder éxito cuando no pasó nada le
+          // haría creer al operador que limpió algo que no limpió.
+          throw BusinessException.notFound(
+            'NOT_FOUND',
+            `No hay ninguna referencia PSA ${grade} que borrar para esta carta (${cardId}).`,
+          );
+        }
+        const del = await tx.priceReference.deleteMany({ where });
+        await this.audit.log(
+          {
+            actorUserId: userId,
+            action: 'pricing.graded_estimate.delete',
+            entityType: 'PriceReference',
+            // No hay UN id (se borran N filas): la entidad de la acción es la CARTA, mismo criterio que
+            // `pricing.override.blocked`. Los ids concretos van en el `before`.
+            entityId: cardId,
+            before: {
+              cardId,
+              gradeValue: grade,
+              gradeKey,
+              finish: 'normal',
+              deletedCount: del.count,
+              // Valores y fechas de CADA fila borrada: es el material para recapturar lo que estaba.
+              rows: rows.map((r) => ({
+                id: r.id,
+                priceMxnCents: r.priceMxnCents,
+                priceUsdCents: r.priceUsdCents,
+                fxRate: r.fxRate == null ? null : r.fxRate.toString(),
+                source: r.source,
+                isManualOverride: r.isManualOverride,
+                capturedDate: r.capturedDate.toISOString().slice(0, 10),
+              })),
+            },
+            // El contrato pide `after: null`. En la fila eso es la columna en NULL; `Prisma.DbNull` es la
+            // forma de pedirlo explícitamente (el `null` literal de Prisma significa «JSON null»).
+            after: Prisma.DbNull,
           },
-          // El contrato pide `after: null`. En la fila eso es la columna en NULL; `Prisma.DbNull` es la
-          // forma de pedirlo explícitamente (el `null` literal de Prisma significa «JSON null»).
-          after: Prisma.DbNull,
-        },
-        tx,
-      );
-      // Efecto y bitácora commitean o revierten JUNTOS (misma paridad que el `PUT`, BE-GE2): un borrado
-      // en una tabla de dinero sin registro de qué había es inaceptable, en cualquier orden de fallo.
-      return { deletedCount: del.count };
-    });
+          tx,
+        );
+        // Efecto y bitácora commitean o revierten JUNTOS (misma paridad que el `PUT`, BE-GE2): un borrado
+        // en una tabla de dinero sin registro de qué había es inaceptable, en cualquier orden de fallo.
+        return { deletedCount: del.count };
+      })
+      .catch(async (e) => {
+        // El `409` de la CARRERA se audita aquí, ya fuera de la transacción: escrito dentro se habría
+        // revertido con ella y el bloqueo quedaría mudo. Misma `action` que el bloqueo del pre-vuelo —
+        // es el mismo hecho de negocio, solo que detectado un instante más tarde.
+        if (e instanceof BusinessException && e.code === 'GRADED_ESTIMATE_SLAB_PUBLISHED') {
+          await this.auditDeleteBlocked(userId, cardId, grade, gradeKey, slabsEnCarrera);
+        }
+        throw e;
+      });
 
     return { cardId, gradeValue: grade, deletedCount };
   }

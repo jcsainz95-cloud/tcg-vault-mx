@@ -630,6 +630,12 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
 
     const fichaSlabAntes = await h.api('GET', `/catalog/cards/${conSlab.id}`);
     const slabAntes = fichaSlabAntes.body.listings.find((l: any) => l.productType === 'graded');
+    // El criterio es «el `409` no borró NADA», así que se mide EL MISMO conteo antes y después —igual
+    // que con el precio del slab— y no una longitud absoluta. Cuántas filas-día tenga esa clave es
+    // asunto del fixture, no de esta prueba: fijar «exactamente 1» acoplaba el caso a que el seed no
+    // hubiera corrido nunca otro día (fue el BLOQ-A que QA cazó).
+    const filasSlabAntes = (await gradedRows(conSlab.id, 'graded:PSA:10')).length;
+    expect(filasSlabAntes).toBeGreaterThan(0);
     expect(slabAntes.salePriceCents).toBeGreaterThan(0); // el slab se está VENDIENDO con ese precio
     // La fila `graded:PSA:10` de esta carta NO es un estimado: con el slab publicado es la referencia de
     // mercado REAL de una pieza física — y por eso la ficha no la muestra como estimado (INV-D lectura).
@@ -646,7 +652,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const fichaSlabDespues = await h.api('GET', `/catalog/cards/${conSlab.id}`);
     const slabDespues = fichaSlabDespues.body.listings.find((l: any) => l.productType === 'graded');
     expect(slabDespues.salePriceCents).toBe(slabAntes.salePriceCents);
-    expect(await gradedRows(conSlab.id, 'graded:PSA:10')).toHaveLength(1);
+    expect(await gradedRows(conSlab.id, 'graded:PSA:10')).toHaveLength(filasSlabAntes);
 
     // ⛔ La inferencia que NO hay que hacer (§4.38q.2): este `DELETE` **no** es el remedio de INV-D
     // inverso. Aquí se ve el bucle real del operador — la carta expuesta se ENCUENTRA con

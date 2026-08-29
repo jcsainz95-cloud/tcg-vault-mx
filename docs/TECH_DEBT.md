@@ -289,6 +289,26 @@
   tests** verdes. El **verde de E2E lo confirma el runner** (egress local bloquea el pull de imágenes Docker
   de los services). Detalle en `docs/BACKEND_NOTES.md`.
 
+#### E2E-1-bis · La idempotencia de 2026-08-16 era **intra-día**: dos agujeros más — RESUELTOS (2026-08-29, v1.50.3-e)
+- **Dueño:** backend. **Estado:** **RESUELTO** (solo `backend/prisma/seed-e2e.ts` + suites; producción intacta).
+- **Por qué se reabre la entrada:** el fix de E2E-1 afirmaba «correr `test:integration` DOS veces seguidas
+  sobre la misma DB ya no rompe», y era cierto **el mismo día**. QA (BLOQ-A, gate de v1.50.3-d) encontró dos
+  casos que el criterio no cubría, y los dos hacen que **el arnés se rompa por su propia operación**:
+  1. **Entre DÍAS:** la `@@unique` de `PriceReference` incluye `capturedDate` y el seed «actualizaba la fila
+     del día» ⇒ sembrar hoy sobre una BD sembrada ayer **insertaba** una segunda fila de la misma clave
+     lógica (el fixture del slab acababa con dos `graded:PSA:10` y el criterio 8 fallaba en la 2ª corrida).
+  2. **Estado sin `userId`:** los **pedidos de invitado** (v1.21/M-25) no los alcanzaba ningún reset
+     por-usuario y se acumulaban sin límite; al pasar de 100 envíos `picking` históricos, el tope duro de
+     paginación de `GET /admin/shipments` dejó fuera al envío recién creado y el caso de la cola de M4 de
+     `guest-checkout.e2e-spec` empezó a fallar solo en máquinas con historial.
+- **Fix:** `PriceReference` de las cartas del fixture pasa a **borra-y-declara transaccional**, y el seed
+  resetea pedidos/envíos de invitado del dominio reservado `@example.com`. Detalle en
+  `docs/BACKEND_NOTES.md` §0.9.
+- **Lección que sí es deuda de PROCESO (no de código):** en CI la BD es **efímera**, así que esta familia
+  entera sale **verde siempre** y solo muerde a quien verifica en local. Por eso ahora existe un test que la
+  vigila explícitamente: `backend/test/integration/seed-idempotency.e2e-spec.ts`. Cualquier estado nuevo del
+  arnés que **no cuelgue de `userId`** o que dependa de **la fecha** debe entrar ahí a la vez que al seed.
+
 ### BE-1 · La recompra de disputa no ejecuta reembolso Stripe real — RESUELTA/OBSOLETA
 - **Dónde:** `src/modules/disputes/disputes.service.ts` → `resolve(resolution='repurchase')`.
 - **Estado actual (2026-08-13):** **resuelta.** Con la política de **VENTAS FINALES**, la recompra por
@@ -310,6 +330,10 @@
 - **Disparador:** cuando haya más de un operador concurrente, o antes de automatizar buylist. Solución:
   `unique constraint` (p. ej. `SellRequestItem.inventoryItemId` único; `ShipmentItem.inventoryItemId`
   único sobre envíos activos) y/o transacción con `updateMany`+count como ya se hizo en checkout (#1).
+- **Nota (2026-08-29, v1.50.3-e):** el caso hermano que QA marcó como MEN-C —la guarda INV-D del `DELETE`
+  de estimados corriendo fuera de la transacción— **ya no aplica**: la guarda se repite **dentro** de la
+  transacción antes de borrar (`publishedSlabsForGradeKey` acepta el cliente transaccional). Los tres casos
+  de arriba siguen abiertos.
 
 ### BE-3 · `buylist-sweep` a 30 días marca `abandonada` pero no convierte a inventario
 - **Dónde:** `src/jobs/buylist-sweep.service.ts`.

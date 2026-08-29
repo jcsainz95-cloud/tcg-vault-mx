@@ -1417,13 +1417,17 @@ export class PricingService {
   async publishedSlabsForGradeKey(
     cardId: string,
     gradeKey: string,
+    // MEN-C (QA): cliente OPCIONAL para poder correr la guarda DENTRO de una transacción del caller
+    // (el `DELETE` de §4.38q la repite ahí para cerrar la ventana TOCTOU entre el pre-vuelo y el
+    // borrado). Omitido ⇒ el cliente de siempre: ningún call-site existente cambia.
+    client: Pick<Prisma.TransactionClient, 'inventoryItem'> = this.prisma,
   ): Promise<{ id: string }[]> {
     const parts = gradeKey.split(':');
     if (parts.length !== 3 || parts[0] !== 'graded') return [];
     const [, company, gradeValue] = parts;
     if (!company || !gradeValue) return [];
     if (!(GRADING_COMPANY_VALUES as readonly string[]).includes(company)) return [];
-    return this.prisma.inventoryItem.findMany({
+    return client.inventoryItem.findMany({
       where: {
         cardId,
         productType: 'graded',

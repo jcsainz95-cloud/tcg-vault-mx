@@ -1019,6 +1019,35 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     });
 
     /**
+     * MEN-C (QA) — la guarda se REPITE dentro de la transacción. El pre-vuelo de arriba resuelve el
+     * caso normal sin abrir transacción, pero por sí solo deja una ventana TOCTOU: entre esa lectura y
+     * el `deleteMany` alguien puede publicar un slab de ese grado, y el borrado dejaría a una pieza
+     * REAL vendiéndose sin referencia (⇒ PRICE_PENDING ⇒ despublicada). La ventana es estrecha y la
+     * ruta es manual de `super_admin`, pero el precio de perderla se paga en dinero publicado.
+     */
+    it('MEN-C: si el slab se publica ENTRE el pre-vuelo y la transacción ⇒ 409, y la fila SIGUE AHÍ', async () => {
+      const refs = [ref('10', 900_000, new Date(), 'r-10')];
+      const items: any[] = [rawItem()]; // el pre-vuelo NO ve ningún slab publicado
+      const { ctrl, prisma, audit } = wire(items, refs, ON);
+      // La carrera, exacta: el slab aparece justo al entrar en la transacción.
+      (prisma as any).$transaction.mockImplementationOnce(async (cb: any) => {
+        items.push(slabItem('10'));
+        return cb(prisma);
+      });
+      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+        code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+        details: { publishedSlabCount: 1, inventoryItemIds: ['slab1'] },
+      });
+      // El borrado se revirtió con la transacción: «casi borrado» no existe.
+      expect(refs).toHaveLength(1);
+      // …y el bloqueo por carrera deja el MISMO rastro que el del pre-vuelo (se escribe FUERA de la
+      // transacción a propósito: dentro se habría revertido con ella y la guarda quedaría muda).
+      const entry = (audit.log as jest.Mock).mock.calls.map((c) => c[0]).pop();
+      expect(entry.action).toBe('pricing.graded_estimate.delete.blocked');
+      expect(entry.after).toMatchObject({ code: 'GRADED_ESTIMATE_SLAB_PUBLISHED', publishedSlabCount: 1 });
+    });
+
+    /**
      * ⛔ El corolario que NO hay que deducir al revés (§4.38q.2): este `DELETE` **no** es un remedio
      * para INV-D inverso (§4.38l.3). «Busco las expuestas con `?reason=SLAB_PUBLISHED` y borro la
      * fila» es tentador y **falso**: ahí el slab ya está publicado, así que la guarda dispara — y debe

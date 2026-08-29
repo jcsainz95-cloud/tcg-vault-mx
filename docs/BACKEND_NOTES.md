@@ -4,6 +4,97 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.9 v1.50.3-e — El ARNÉS deja de romperse solo: seed idempotente entre días (BLOQ-A de QA) (2026-08-29)
+
+> Cierra el rechazo de QA al pase v1.50.3-d. **La funcionalidad no cambió**: QA verificó el `409` a mano
+> contra el stack vivo con el precio del slab intacto en 920 000, y la suite dio 15/15 en una BD limpia. Lo
+> que fallaba era el **fixture**. Cero cambios de contrato, cero migraciones, cero cambios de precio.
+
+### 0.9.1 BLOQ-A — el seed no era idempotente ENTRE DÍAS (`prisma/seed-e2e.ts`)
+
+**El defecto.** La `@@unique` de `PriceReference` incluye `capturedDate`, y el helper `priceRef()` buscaba
+la fila existente **filtrando por `capturedDate: day`**. Sembrar hoy sobre una BD sembrada ayer **no
+actualizaba: insertaba**. El estado que QA midió tras su `up --seed --gate`:
+
+```
+e2e-slab-raw | graded:PSA:10 | 800000 | 2026-08-28
+e2e-slab-raw | graded:PSA:10 | 800000 | 2026-08-29
+```
+
+…y con eso el criterio 8 (`graded-estimate.e2e-spec.ts`) reventaba en la **segunda** corrida. Peor: una
+corrida **fallida** dejaba estimados a medio recapturar y filas envejecidas a 40 días (las que el caso `8d`
+crea a propósito para probar la caducidad) que la corrida siguiente heredaba. En CI —BD efímera— sale
+**verde siempre**: solo muerde a quien verifica en local, que es el modo de fallo que peor enseña.
+
+**La corrección.** El seed pasa de «actualiza la fila de hoy» a **BORRA-Y-DECLARA**: elimina TODAS las
+`PriceReference` de las cartas del fixture (cualquier día, cualquier acabado, cualquier `cardProductId`) y
+escribe exactamente las que declara, **en una sola transacción** (para que un stack vivo con `up --seed`
+nunca observe la ventana intermedia sin precio, que despublicaría piezas por `PRICE_PENDING`). El
+`deleteMany` está **acotado por `cardId` a las cartas del fixture**: el seed sintético no gobierna —ni
+toca— referencias de ninguna otra carta.
+
+Consecuencia para QA/devops: **sembrar N veces, el mismo día o en días distintos, sobre BD limpia o sucia,
+deja siempre el mismo estado** (9 filas de precio, una por clave lógica, con la fecha de hoy).
+
+### 0.9.2 La aserción sobre-especificada (`graded-estimate.e2e-spec.ts:649`)
+
+El criterio es «el `409` **no borró nada**», no «hay exactamente una fila». El caso comparaba
+`toHaveLength(1)`, lo que lo acoplaba a que el seed no hubiera corrido nunca otro día. Ahora **mide el
+conteo antes y después** —igual que ya hacía con el precio del slab— y sigue exigiendo que la guarda corte
+antes de tocar la tabla. (El segundo rojo, `8f` en la 718, era cascada: `8e` abortaba antes de su bloque de
+recaptura.)
+
+### 0.9.3 Prueba NUEVA: `test/integration/seed-idempotency.e2e-spec.ts`
+
+El arnés se prueba a sí mismo. Cinco casos, contra Postgres real (sin levantar la app):
+
+1. sembrar dos veces el mismo día ⇒ estado idéntico y una sola fila por clave lógica;
+2. **BLOQ-A**: se retrasa un día todo lo que el seed escribió (indistinguible de «se sembró ayer»), se
+   siembra, y no hay duplicados — con el síntoma exacto que QA midió nombrado en la aserción (el slab
+   con UNA fila `graded:PSA:10` a 800 000);
+3. corrida fallida simulada (estimados a medio recapturar + filas a 40 días + un precio pisado por
+   override) ⇒ el seed restituye el estado declarado;
+4. el borra-y-declara **no toca** las referencias de una carta ajena al fixture;
+5. los pedidos/envíos de **invitado** no se acumulan entre corridas (§0.9.4).
+
+### 0.9.4 Hallazgo propio de la misma familia: los pedidos de INVITADO se acumulaban sin límite
+
+Verificando BLOQ-A apareció un rojo distinto en `guest-checkout.e2e-spec.ts` («el envío de invitado aparece
+en la cola de M4»). **Misma raíz, otra tabla:** los pedidos de invitado no cuelgan de `userId` —por
+definición—, así que el reset por-usuario del seed nunca los alcanzaba y se apilaban corrida tras corrida.
+`GET /admin/shipments` pagina con un **tope duro de 100** (el contrato lo capa), y al pasar de 100 envíos
+`picking` históricos el envío recién creado dejó de caber en la primera página. En esta máquina había 104.
+El seed ahora borra los pedidos de invitado del dominio **reservado `@example.com`** (RFC 2606, el que usan
+todos los fixtures de invitado y que ningún cliente real puede tener) y sus envíos —primero los envíos, que
+la FK `orderId` es `Restrict`—. Los pedidos de invitado **ya reclamados** entran también: nacieron
+invitados y su envío tiene `userId = null`, así que sin esto bloqueaban por `Restrict` el borrado
+por-usuario.
+
+### 0.9.5 MEN-C — la guarda INV-D del `DELETE`, ahora también DENTRO de la transacción
+
+Era barato, así que se hizo. La guarda de pre-vuelo se queda (responde y **audita** el `409` sin abrir
+transacción, que es el caso normal) y se **repite dentro de la transacción** antes de borrar:
+`publishedSlabsForGradeKey` gana un parámetro **opcional** de cliente (`Pick<Prisma.TransactionClient,
+'inventoryItem'>`, por defecto el de siempre ⇒ ningún call-site existente cambia). Si el slab aparece en la
+carrera, el `409` se lanza dentro, la transacción **revierte entera** y el bloqueo se audita **fuera** de
+ella (escrito dentro se habría revertido con ella y la guarda quedaría muda). Cubierto por un unitario que
+publica el slab justo al entrar en la transacción.
+
+### 0.9.6 D2 (techlead) — la cita del inventario de configuración estaba desactualizada
+
+`§0.5` citaba una salida que ya no era la que el código emite: la deriva la introdujo la propia mejora del
+denominador **comparable**. La cita se **recapturó arrancando el backend contra esta BD** el 2026-08-29 y
+se añadieron las otras dos formas literales (`SIN DIVERGENCIAS …` y `NO SE PUDO EMITIR …`), más la nota de
+que el denominador son las claves **comparables** (36), no las filas de la tabla (41).
+
+### 0.9.7 Lo que NO toqué (es del arquitecto)
+
+- **MEN-B / R1**: si `isManual` debe describir la fila más antigua o la que caducó, y si la guarda del
+  `DELETE` debe cubrir también slabs `in_stock` no publicados. Son decisiones de contrato/diseño, no de
+  implementación: no las toco por mi cuenta (CLAUDE.md regla 9).
+
+---
+
 ## 0.8 v1.50.3-d — El BORRADO del estimado (§4.38q) + las dos filas que faltaban en el seed E2E (2026-08-28)
 
 > Implementa **ARCHITECTURE §4.38(q)** y los **ítems 8 y 9 de §4.38(i)**, contra `API_CONTRACT` §M2
@@ -469,13 +560,28 @@ falsos positivos es tan inútil como el truncate de 800 con su falso negativo, y
 línea. Se compara con JSON canónico: **claves de objeto ordenadas, orden de ARRAYS respetado** (en los
 escalones y en la curva el orden es significativo). Tres tests cubren las tres direcciones.
 
-**Salida real contra la base de dev de este entorno** (útil para QA/devops, y es el hallazgo PI-D3 en vivo):
+**Salida real contra la base de dev de este entorno** (útil para QA/devops, y es el hallazgo PI-D3 en vivo).
+**Recapturada el 2026-08-29 arrancando el backend contra esta BD** (v1.50.3-e, corrección D2 del techlead: la
+cita anterior era de antes del cambio de denominador y ya no era la línea que el código emite — un ejemplo
+desactualizado en la sección que existe para sustituir una verificación manual es exactamente el defecto que
+esta sección persigue). Se transcribe **literal**, en una sola línea como sale:
 
 ```
-config inventory: 3 de 41 clave(s) DIFIEREN de su default de código →
-  graded_estimate_max_raw_multiple=50 (default 100);
-  graded_estimate_min_sample_count=3 (default 5);
-  sealed_spread_pct_by_subtype={...} (default {...})
+config inventory: 3 de 36 clave(s) comparables DIFIEREN de su default de código → graded_estimate_max_raw_multiple=50 (default 100); graded_estimate_min_sample_count=3 (default 5); sealed_spread_pct_by_subtype={"blister":35,"box":18,"bundle":25,"etb":22,"tin":30} (default {"blister":35,"box":18,"bundle":25,"collection":22,"etb":22,"tin":30,"upc":18}). (§11.0: es un INVENTARIO, no una alarma — un dial ajustado a propósito es normal. Si alguno debía haberse actualizado con el deploy, se aplica por PUT de admin —auditado y validado—, NUNCA por UPDATE directo a la BD.)
+```
+
+⚠️ **El denominador son las claves COMPARABLES, no las filas de la tabla** (`36`, no `41`): las filas sin
+default de código —retiradas o escritas fuera de banda— no se comparan, y contarlas afirmaba «están en su
+default» sobre filas que ni se miraron. Por eso la línea dice `N de M clave(s) comparables DIFIEREN` y no
+`N de M clave(s) DIFIEREN`.
+
+Las otras dos formas exactas que emite el mismo método, para que QA/devops sepan qué buscar (`grep 'config
+inventory'`). Los números de la primera son los REALES de esta BD (36 comparables de 41 filas), aunque hoy la
+línea que sale es la de arriba porque sí hay divergencias:
+
+```
+config inventory: SIN DIVERGENCIAS — las 36 clave(s) COMPARABLES (de 41 fila(s) en la tabla; el resto no tiene default de código contra el que contrastar) están en su default de código. (§11.0: un seed es una condición inicial y los cambios de seed NO llegan solos a un entorno ya sembrado; esta línea es —junto al GET del recurso— uno de los dos detectores del seed rancio, así que se emite siempre, también cuando no hay nada.)
+config inventory: NO SE PUDO EMITIR el inventario de arranque (§11.0): <error>. Este entorno queda SIN uno de sus dos detectores del seed rancio (el otro es GET /admin/pricing/graded-estimates). El arranque CONTINÚA.
 ```
 
 Es exactamente lo que §11.0 describe: **una base ya sembrada conserva los seeds viejos con el código nuevo
@@ -2915,6 +3021,11 @@ npm run seed:synthetic          # = ts-node prisma/seed-e2e.ts  (datos FICTICIOS
 - `prisma/seed-e2e.ts` exporta `seedE2E(prisma)` (reutilizable) + runner CLI. Idempotente:
   resetea el estado transaccional E2E en cada corrida. Constantes en `prisma/e2e-fixtures.ts`
   (usuarios por rol, cartas, folios, referencias, diales deterministas). **Nada de datos reales.**
+- **v1.50.3-e (§0.9): idempotente también ENTRE DÍAS y tras una corrida FALLIDA.** Las
+  `PriceReference` de las cartas del fixture se **borran y se declaran** en una transacción (su
+  `@@unique` incluye `capturedDate`, así que «actualizar la del día» insertaba una fila nueva al
+  día siguiente), y los pedidos/envíos de invitado `@example.com` se resetean (no cuelgan de
+  `userId`, así que se acumulaban). Lo vigila `test/integration/seed-idempotency.e2e-spec.ts`.
 - Usuarios sembrados: `customer@e2e.local` / `Customer123!`, `customer2@e2e.local`,
   `operator@e2e.local` / `Operator123!` (vault_operator), `admin@e2e.local` / `Admin123!` (super_admin).
 - `scripts/seed-synthetic.sh` ya prefiere `npm run seed:synthetic` (coincide con su convención).
