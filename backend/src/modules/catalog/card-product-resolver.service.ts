@@ -177,6 +177,9 @@ export class CardProductResolverService {
         cardProductId,
       },
     };
+    // MONEY-REF-EXEMPT: lectura de la CLAVE del upsert de un ESCRITOR (tcgcsv_singles por producto),
+    // no de candidatas de precio. Filtrar por naturaleza dejaría de ver la fila del día y el `create`
+    // colisionaría con la `@@unique` (que no incluye `refKind`).
     const existing = await this.prisma.priceReference.findUnique({ where: key });
     if (existing?.isManualOverride) return; // §4.27f: el override de MERCADO manda
     const priceMxnCents = usdToMxnCents(marketUsdCents, fx.rate, fx.bufferPct);

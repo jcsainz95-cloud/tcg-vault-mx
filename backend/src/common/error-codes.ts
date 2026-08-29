@@ -115,6 +115,19 @@ export const ErrorCode = {
   // publicado de ese grado: esa fila es el precio de mercado REAL de esas piezas. 409 (conflicto de
   // ESTADO, no de forma: el mismo body es válido en cuanto deje de haber slabs publicados).
   GRADED_ESTIMATE_SLAB_PUBLISHED: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+  // v1.50.3-g (M-44, §4.38l.4.10 · SEC-M43-1) — se intentó BAJAR la naturaleza de la fila del DÍA:
+  // `intent:"graded_estimate"` sobre una fila que ya existe con `refKind='market'`. Como `refKind` NO
+  // está en la `@@unique`, esa escritura **reusa la misma fila**: la reclasifica Y le pisa el monto, o
+  // sea que un verbo INFORMATIVO destruye un dato de DINERO. La guarda hermana
+  // (`GRADED_ESTIMATE_SLAB_PUBLISHED`) solo ve `platform + listed`, así que no cubre el slab en
+  // `in_stock`/`reserved`/`picking`/envío ni el de **custodia de cliente** — el hueco que el blue team
+  // reprodujo en vivo (`500000 · market → 1234 · graded_estimate`, pieza real invisible y sin cola).
+  //
+  // Regla sin sujeto (§4.38l.4.3 regla 2, ampliada): *la naturaleza de una fila solo se SUBE, y solo por
+  // acto humano declarado (`intent:"market"`); BAJARLA no es una operación que ofrezca este sistema.*
+  // 409 y no 422: el body es sintácticamente impecable — el conflicto es con el ESTADO del recurso, y
+  // lo que hay que cambiar es la INTENCIÓN, no el cuerpo.
+  GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF: 'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
   // v1.50.3 (§4.38n.3 / §M2) — `GET /admin/pricing/graded-estimates/review` con una clave de config
   // PRESENTE-pero-INVÁLIDA de la que depende la coherencia (hoy `graded_estimate_max_raw_multiple`).
   //

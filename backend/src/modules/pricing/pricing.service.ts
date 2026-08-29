@@ -3,6 +3,7 @@ import { Card, CardProduct, CardProductKind, Finish, GradingCompany, PriceRefere
 // v1.50.2 (§4.38l): la lista blanca de graduadoras — la guarda INV-D no puede consultar por un valor
 // que el enum de Prisma no admite (sería un 500 en una ruta de dinero).
 import { GRADING_COMPANY_VALUES } from '../../common/enum-values';
+import { BusinessException } from '../../common/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -186,6 +187,74 @@ export const BASE_CARD_REF_WHERE: Prisma.PriceReferenceWhereInput = {
  * §4.38(l.4.7) exige **re-afirmar cada slab con `intent:"market"` ANTES** de migrar.
  */
 export const MONEY_REF_WHERE: Prisma.PriceReferenceWhereInput = { refKind: 'market' };
+
+/** Entrada de `applyManualOverride` (objeto, no 8 posicionales: el 9.º parámetro ya no cabía). */
+export interface ManualOverrideInput {
+  cardId: string;
+  productType: ProductType;
+  gradeKey: string;
+  priceMxnCents: number;
+  finish?: Finish;
+  /** H-1 (SEC): cliente transaccional del caller, cuando el override es parte de una tx mayor. */
+  tx?: Prisma.TransactionClient;
+  /** SEC N-3: claves LÓGICAS de dedupe del pendiente que se resuelve. */
+  pending?: { sealedProductId?: string | null; cardProductId?: number | null };
+  /** M-43 (§4.38l.4.3): NATURALEZA de la fila. Default `market` (ver el porqué en `manualOverride`). */
+  refKind?: PriceRefKind;
+}
+
+/**
+ * M-44b (§4.38l.4.10 punto 5) — lo que había en la fila del día ANTES de pisarla. Son exactamente los
+ * tres campos que el dictamen enumera: el monto destruido, su naturaleza y su procedencia.
+ */
+export interface ManualOverrideBefore {
+  priceMxnCents: number;
+  refKind: PriceRefKind;
+  source: PriceSource;
+}
+
+export interface ManualOverrideResult {
+  ref: PriceReference;
+  /** `null` ⇔ no había fila del día (la escritura CREÓ, no pisó). */
+  before: ManualOverrideBefore | null;
+}
+
+/** `1234` ⇒ `MX$12.34`. Solo para el mensaje del `409` de M-44 (el operador lee pesos, no centavos). */
+function mxn(cents: number): string {
+  const neg = cents < 0;
+  const abs = Math.abs(cents);
+  const pesos = String(Math.trunc(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${neg ? '-' : ''}MX$${pesos}.${String(abs % 100).padStart(2, '0')}`;
+}
+
+/**
+ * **M-44 (§4.38l.4.10 · API_CONTRACT v1.50.3-g)** — el `409` que impide que un verbo INFORMATIVO
+ * destruya un dato de DINERO.
+ *
+ * El `message` sí nombra el monto vigente (es lo que le dice al operador que está a punto de pisar algo
+ * afirmado como precio); el `details` **NO lo lleva**: no aporta a la decisión, es dato comercial y el
+ * operador lo tiene en `priceHistory`. Contrato, literal.
+ */
+function degradeMarketRefConflict(
+  cardId: string,
+  gradeKey: string,
+  row: { refKind: PriceRefKind; priceMxnCents: number },
+  capturedDate: Date,
+): BusinessException {
+  const grade = gradeKey.split(':')[2] ?? '';
+  return BusinessException.conflict(
+    'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
+    `No se puede convertir en ESTIMADO la referencia de MERCADO de PSA ${grade} de esta carta: la fila ` +
+      `de hoy vale ${mxn(row.priceMxnCents)} y fue afirmada como precio de mercado. Si quieres cambiar ` +
+      'ese precio, usa intent:"market"; si quieres retirar el dato, hazlo con el borrado del gancho.',
+    {
+      cardId,
+      gradeKey,
+      currentRefKind: row.refKind,
+      capturedDate: capturedDate.toISOString().slice(0, 10),
+    },
+  );
+}
 
 /**
  * Columnas mínimas que necesita la valuación (incl. `source` para la precedencia §4.27f y
@@ -1380,6 +1449,10 @@ export class PricingService {
     const map = new Map<string, GradedEstimateRef[]>();
     const ids = [...new Set(cardIds)];
     if (ids.length === 0) return map;
+    // MONEY-REF-EXEMPT: ruta del GANCHO, no del dinero (§4.38l.4.4B). Es INCLUSIVA a propósito: las
+    // filas `market` de cartas SIN slab son la mejor estimación disponible y son las que hacen que la
+    // vitrina tenga algo que mostrar; excluirlas la vaciaría en silencio. La seguridad de esta ruta la
+    // dan la omisión por slab publicado (l.2) y el gate de confianza.
     const rows = await this.prisma.priceReference.findMany({
       where: {
         cardId: { in: ids },
@@ -1663,6 +1736,9 @@ export class PricingService {
     // `@@unique` NO incluye `refKind`, así que una fila de estimado del mismo día es INVISIBLE para el
     // filtro pero **sigue ocupando la clave**, y el `create` de abajo reventaría con P2002. Se lee la
     // fila real y se decide con ella delante.
+    // MONEY-REF-EXEMPT: declarado y razonado en el comentario de arriba — la fila del día se lee SIN
+    // filtrar y se RAMIFICA por `refKind`, porque filtrarla la volvería invisible para el `create` y
+    // éste reventaría con P2002 (la `@@unique` no incluye `refKind`).
     const existing = await this.prisma.priceReference.findFirst({
       where: {
         cardId: card.id,
@@ -1974,6 +2050,7 @@ export class PricingService {
     const capturedDate = today();
     // v1.29 (M-31): `cardProductId` es `null` en este fallback (PPT/graded). Prisma no tipa `null` en
     // la clave compuesta ⇒ findFirst + update-by-id/create (invariante de un renglón/día por app).
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (mercado raw). Ver arriba.
     const existing = await this.prisma.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId },
     });
@@ -2050,6 +2127,9 @@ export class PricingService {
     const gradeKey = gradedEstimateGradeKey(gradeValue);
     const finish: Finish = 'normal'; // §4.38a: el grado NO se cruza con el acabado, SIEMPRE `normal`.
     const capturedDate = today();
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA del ESCRITOR del ingest de estimados — y es la
+    // que sostiene la regla 2 de (l.4.3): necesita VER la fila `market` para hacer skip en vez de
+    // degradarla. Con el predicado puesto no la vería y la pisaría, que es el fallo exacto.
     const existing = await this.prisma.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
     });
@@ -2211,6 +2291,8 @@ export class PricingService {
     const finish: Finish = 'normal';
     const capturedDate = today();
     // v1.29 (M-31): sellado no usa CardProduct ⇒ `cardProductId=null` (findFirst + update/create).
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (sellado). No es candidata de
+    // precio; filtrar por naturaleza aquí crearía una segunda fila para la misma clave+día.
     const existing = await this.prisma.priceReference.findFirst({
       where: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
     });
@@ -2236,7 +2318,13 @@ export class PricingService {
     }
   }
 
-  /** Override manual del admin (respaldo siempre disponible). Resuelve pendientes. */
+  /**
+   * Override manual del admin (respaldo siempre disponible). Resuelve pendientes.
+   *
+   * Envoltorio de compatibilidad de `applyManualOverride`: devuelve **solo** la fila escrita, que es lo
+   * único que necesitan los call-sites que no auditan (el alta de sellado, §4.19). Quien necesite el
+   * `before` para la bitácora (M-44b) usa `applyManualOverride`.
+   */
   async manualOverride(
     cardId: string,
     productType: ProductType,
@@ -2270,39 +2358,104 @@ export class PricingService {
     // exigiría afirmar algo que su `productType` ya determina.
     refKind: PriceRefKind = PriceRefKind.market,
   ): Promise<PriceReference> {
-    const db = tx ?? this.prisma;
+    const res = await this.applyManualOverride({
+      cardId,
+      productType,
+      gradeKey,
+      priceMxnCents,
+      finish,
+      tx,
+      pending,
+      refKind,
+    });
+    return res.ref;
+  }
+
+  /**
+   * v1.50.3-g (**M-44** + **M-44b**, §4.38l.4.10) — el override manual, con el `before` que la bitácora
+   * necesita y con la guarda de NO-DEGRADACIÓN dentro de la escritura.
+   *
+   * Devuelve la fila escrita **y** el estado de la fila del día ANTES de escribirla (`null` si no
+   * existía). El `before` es requisito de diseño de (l.4.10) punto 5: hasta v1.50.3-f la bitácora de
+   * `pricing.override` registraba solo el `after`, así que **el monto pisado no era reconstruible desde
+   * el audit trail** — ni el que destruye M-44 (ya imposible) ni el del residual (l.4.9) punto 1, el
+   * `intent:"market"` mal tecleado, que sigue siendo un riesgo inherente de cualquier override.
+   */
+  async applyManualOverride(input: ManualOverrideInput): Promise<ManualOverrideResult> {
+    const { cardId, productType, gradeKey, priceMxnCents } = input;
+    const finish: Finish = input.finish ?? 'normal';
+    const refKind: PriceRefKind = input.refKind ?? PriceRefKind.market;
+    const pending = input.pending;
+    const db = input.tx ?? this.prisma;
     // v1.29 (M-31): el override manual de MERCADO se guarda con `cardProductId=null` (el precio
     // por-producto es del TCGCSV de singles; el override del admin es genérico por carta). findFirst +
     // update-by-id/create (Prisma no tipa `null` en la clave compuesta).
     const cap = today();
+    // MONEY-REF-EXEMPT: es la lectura de la CLAVE DEL DÍA de un ESCRITOR (upsert), no una lectura de
+    // candidatas. Filtrar por naturaleza aquí rompería el invariante «una fila por clave+día» (`refKind`
+    // NO está en la `@@unique`): dejaría de ver la fila que existe y crearía una segunda.
     const prior = await db.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, capturedDate: cap, cardProductId: null },
     });
-    const ref = prior
-      ? await db.priceReference.update({
-          where: { id: prior.id },
-          // ⚠️ M-43 (§4.38l.4.3 regla 1) — `refKind` va en el `update` **igual que en el `create`**, y
-          // ésta es LA línea que el dictamen marca como el trampolín de la migración. La `@@unique` NO
-          // incluye `refKind`, así que un `intent:"market"` que caiga sobre la fila-estimado del MISMO
-          // día reusa esa fila; omitir aquí la naturaleza la dejaría clasificada como estimado y el
-          // slab se quedaría **sin precio** — fallo silencioso, en dirección segura, pero fallo. Es
-          // además el gesto exacto que exige el paso 3 del cut-over («re-afirmar cada slab con
-          // `intent:"market"` ANTES de migrar»), así que sin esta línea el cut-over no funciona.
-          data: { source: 'manual', priceMxnCents, isManualOverride: true, refKind },
-        })
-      : await db.priceReference.create({
-          data: {
-            cardId,
-            productType,
-            gradeKey,
-            finish,
-            source: 'manual',
-            priceMxnCents,
-            capturedDate: cap,
-            isManualOverride: true,
-            refKind,
-          },
-        });
+    // M-44b: la foto de lo que había, tomada dentro del mismo gesto que lo pisa.
+    const before: ManualOverrideBefore | null = prior
+      ? { priceMxnCents: prior.priceMxnCents, refKind: prior.refKind, source: prior.source }
+      : null;
+    // ⚠️ M-43 (§4.38l.4.3 regla 1) — `refKind` va en el `update` **igual que en el `create`**, y ésta es
+    // LA línea que el dictamen marca como el trampolín de la migración. La `@@unique` NO incluye
+    // `refKind`, así que un `intent:"market"` que caiga sobre la fila-estimado del MISMO día reusa esa
+    // fila; omitir aquí la naturaleza la dejaría clasificada como estimado y el slab se quedaría **sin
+    // precio** — fallo silencioso, en dirección segura, pero fallo. Es además el gesto exacto que exige
+    // el paso 3 del cut-over («re-afirmar cada slab con `intent:"market"` ANTES de migrar»), así que sin
+    // esta línea el cut-over no funciona.
+    const data = { source: 'manual' as const, priceMxnCents, isManualOverride: true, refKind };
+    const createData = {
+      cardId,
+      productType,
+      gradeKey,
+      finish,
+      source: 'manual' as const,
+      priceMxnCents,
+      capturedDate: cap,
+      isManualOverride: true,
+      refKind,
+    };
+    let ref: PriceReference;
+    if (!prior) {
+      // Sin fila del día no hay nada que degradar: se crea. La carrera contra un `intent:"market"`
+      // concurrente NO puede consumar la degradación por este camino — a lo sumo deja las dos filas, y
+      // la de MERCADO sigue siendo candidata de dinero (`MONEY_REF_WHERE`), que es el invariante.
+      ref = await db.priceReference.create({ data: createData });
+    } else if (refKind !== PriceRefKind.graded_estimate) {
+      ref = await db.priceReference.update({ where: { id: prior.id }, data });
+    } else {
+      // ===== M-44 (§4.38l.4.10, NORMATIVO, DINERO) — BAJAR la naturaleza NO es una operación =====
+      //
+      // La comprobación es **parte de la escritura, no de su antesala** (punto 4 del dictamen): el
+      // `updateMany` lleva la naturaleza en su propio `where`, así que entre decidir y confirmar **no
+      // hay ventana**. Postgres re-evalúa el predicado sobre la versión ya confirmada de la fila, de
+      // modo que un `intent:"market"` concurrente que gane la carrera deja este `updateMany` en
+      // `count = 0` en vez de pisarlo. El `if` de abajo es el **pre-vuelo**, y existe solo para dar el
+      // mensaje con el monto vigente; quien manda es el `rowcount`.
+      if (prior.refKind === PriceRefKind.market) {
+        throw degradeMarketRefConflict(cardId, gradeKey, prior, cap);
+      }
+      const claimed = await db.priceReference.updateMany({
+        where: { id: prior.id, refKind: { not: PriceRefKind.market } },
+        data,
+      });
+      // MONEY-REF-EXEMPT: re-lectura POR ID de la fila que este mismo escritor acaba de reclamar; no
+      // es una candidata de precio, es el resultado de la escritura.
+      const actual = await db.priceReference.findUnique({ where: { id: prior.id } });
+      if (claimed.count === 0) {
+        // Se perdió la carrera. Si la fila sigue ahí, ahora es de MERCADO: es exactamente la
+        // degradación que M-44 prohíbe, y se rechaza igual que en el pre-vuelo.
+        if (actual) throw degradeMarketRefConflict(cardId, gradeKey, actual, cap);
+        // Si desapareció (el `DELETE` del gancho borra filas `graded_estimate`, §4.38q) no hay dato de
+        // dinero que proteger: se crea de nuevo. Un 409 aquí sería mentira.
+      }
+      ref = actual ?? (await db.priceReference.create({ data: createData }));
+    }
     // v1.8-ronda-c FIX: resuelve SOLO el pendiente de ESTE acabado. Antes el where omitía
     // `finish`, así que un override de `normal` cerraba también el pendiente de `holofoil`.
     // SEC N-3: si el caller aporta la identidad (`sealedProductId`/`cardProductId`), se añade al where
@@ -2321,7 +2474,7 @@ export class PricingService {
       },
       data: { status: 'resolved', resolvedPriceRefId: ref.id, resolvedAt: new Date() },
     });
-    return ref;
+    return { ref, before };
   }
 
   /**
@@ -2396,6 +2549,9 @@ export class PricingService {
   }
 
   async priceHistory(cardId: string): Promise<PriceHistoryEntryDTO[]> {
+    // MONEY-REF-EXEMPT: superficie de AUDITORÍA (`priceHistory`, admin-only). `refKind` es aquí
+    // justamente el dato que EXPLICA por qué una fila con número no está priciando nada; filtrarla
+    // dejaría el historial mudo sobre el caso que más se consulta. §4.38(l.4.4)B.
     const rows = await this.prisma.priceReference.findMany({
       where: { cardId },
       orderBy: { capturedDate: 'desc' },

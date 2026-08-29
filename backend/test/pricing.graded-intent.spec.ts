@@ -33,15 +33,25 @@ const REF = {
 
 function build(publishedSlabs: { id: string }[] = []) {
   const pricing = {
+    // v1.50.3-g (M-44b): el borde llama a `applyManualOverride` (devuelve `{ref, before}`) para poder
+    // auditar el monto pisado. `manualOverride` se conserva en el doble porque es el envoltorio que
+    // siguen usando los otros call-sites del servicio.
     manualOverride: jest.fn(async () => REF),
+    applyManualOverride: jest.fn(async () => ({ ref: REF, before: null })),
     publishedSlabsForGradeKey: jest.fn(async () => publishedSlabs),
   } as unknown as PricingService;
   const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
+  // v1.50.3-g (SEC-M43-4): el borde exige que la carta EXISTA (antes: `500` por violación de FK).
+  const prisma = { card: { findUnique: jest.fn(async () => ({ id: 'c1' })) } };
   const ctrl = new PricingController(
-    pricing, {} as never, {} as never, audit, {} as never, {} as never, {} as never, {} as never,
+    pricing, {} as never, {} as never, audit, prisma as never, {} as never, {} as never, {} as never,
   );
-  return { ctrl, pricing, audit };
+  return { ctrl, pricing, audit, prisma };
 }
+
+/** Los argumentos con los que el borde invocó la escritura (M-44b: ahora es un objeto). */
+const wrote = (pricing: PricingService) =>
+  (pricing.applyManualOverride as jest.Mock).mock.calls.map(([a]) => a as Record<string, unknown>);
 
 const body = (over: Record<string, unknown> = {}) => ({
   cardId: 'c1',
@@ -59,7 +69,7 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
       status: 422,
     });
     // Lo importante no es el código: es que la tabla de dinero NO se tocó.
-    expect(pricing.manualOverride).not.toHaveBeenCalled();
+    expect(pricing.applyManualOverride).not.toHaveBeenCalled();
   });
 
   it('el 422 dice QUÉ hacer: nombra las dos intenciones y qué significa cada una', async () => {
@@ -86,17 +96,24 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
     });
     // …y el mensaje enruta a la salida correcta, no solo prohíbe.
     expect(err.message).toContain('intent:"market"');
-    expect(pricing.manualOverride).not.toHaveBeenCalled();
+    expect(pricing.applyManualOverride).not.toHaveBeenCalled();
   });
 
   it('`intent:"graded_estimate"` SIN slab publicado ⇒ escribe (es el flujo normal del gancho, fase 1)', async () => {
     const { ctrl, pricing } = build([]);
     const res = await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
     expect(res.data.priceMxnCents).toBe(900_000);
-    // v1.50.3-f (M-43, §4.38l.4.3): el 8.º argumento es la NATURALEZA que el `intent` fija.
-    expect(pricing.manualOverride).toHaveBeenCalledWith(
-      'c1', 'graded', 'graded:PSA:10', 900_000, 'normal', undefined, undefined, 'graded_estimate',
-    );
+    // v1.50.3-f (M-43, §4.38l.4.3): la NATURALEZA la fija el `intent` y viaja a la escritura.
+    expect(wrote(pricing)).toEqual([
+      {
+        cardId: 'c1',
+        productType: 'graded',
+        gradeKey: 'graded:PSA:10',
+        priceMxnCents: 900_000,
+        finish: 'normal',
+        refKind: 'graded_estimate',
+      },
+    ]);
   });
 
   it('`intent:"market"` NO consulta la guarda: es el comportamiento vigente de §M1 v1.28, intacto', async () => {
@@ -105,9 +122,7 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
     expect(res.data.priceMxnCents).toBe(900_000);
     // Con un slab publicado, `market` es EXACTAMENTE lo que el operador quiere hacer: fijar su precio.
     expect(pricing.publishedSlabsForGradeKey).not.toHaveBeenCalled();
-    expect(pricing.manualOverride).toHaveBeenCalledWith(
-      'c1', 'graded', 'graded:PSA:10', 900_000, 'normal', undefined, undefined, 'market',
-    );
+    expect(wrote(pricing)[0]).toMatchObject({ gradeKey: 'graded:PSA:10', refKind: 'market' });
   });
 
   /**
@@ -122,8 +137,7 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
     const { ctrl, pricing } = build([]);
     await ctrl.override(body({ intent: 'market' }) as never, 'admin-1');
     await ctrl.override(body({ intent: 'graded_estimate' }) as never, 'admin-1');
-    const kinds = (pricing.manualOverride as jest.Mock).mock.calls.map((c) => c[7]);
-    expect(kinds).toEqual(['market', 'graded_estimate']);
+    expect(wrote(pricing).map((a) => a.refKind)).toEqual(['market', 'graded_estimate']);
   });
 
   it('M-43 — con `productType` ≠ graded la naturaleza es SIEMPRE `market`, aunque venga un `intent`', async () => {
@@ -140,8 +154,7 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
       { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
       'admin-1',
     );
-    const kinds = (pricing.manualOverride as jest.Mock).mock.calls.map((c) => c[7]);
-    expect(kinds).toEqual(['market', 'market']);
+    expect(wrote(pricing).map((a) => a.refKind)).toEqual(['market', 'market']);
   });
 
   it('con `productType` distinto de `graded` el `intent` NI SE EXIGE NI ESTORBA (raw/sealed intactos)', async () => {
@@ -154,7 +167,7 @@ describe('POST /admin/pricing/override — `intent` con `productType:"graded"` (
       { cardId: 'c1', productType: 'sealed', gradeKey: 'sealed', priceMxnCents: 115_000, intent: 'graded_estimate' } as never,
       'admin-1',
     );
-    expect(pricing.manualOverride).toHaveBeenCalledTimes(2);
+    expect(pricing.applyManualOverride).toHaveBeenCalledTimes(2);
     expect(pricing.publishedSlabsForGradeKey).not.toHaveBeenCalled();
   });
 
@@ -208,7 +221,7 @@ describe('POST /admin/pricing/override — el intento BLOQUEADO se AUDITA (§O.8
       intent: null,
     });
     // La traza no puede haber costado una escritura de dinero.
-    expect(pricing.manualOverride).not.toHaveBeenCalled();
+    expect(pricing.applyManualOverride).not.toHaveBeenCalled();
   });
 
   it('el 409 (slab publicado) deja fila con las piezas reales que lo bloquearon', async () => {
@@ -228,7 +241,7 @@ describe('POST /admin/pricing/override — el intento BLOQUEADO se AUDITA (§O.8
       publishedSlabCount: 2,
       inventoryItemIds: ['inv-1', 'inv-2'],
     });
-    expect(pricing.manualOverride).not.toHaveBeenCalled();
+    expect(pricing.applyManualOverride).not.toHaveBeenCalled();
   });
 
   it('la ACCIÓN es propia (`pricing.override.blocked`): un intento bloqueado NO es un override', async () => {

@@ -478,6 +478,9 @@ export class GradedEstimatesController {
         // Se LEEN primero porque el `before` de la bitácora **es la única forma de deshacer** (recapturar
         // lo que había). Dentro de la transacción, así que nadie puede insertar una fila entre la lectura
         // y el borrado y dejar la bitácora incompleta.
+        // MONEY-REF-EXEMPT: el `where` COMPARTIDO con el `deleteMany` ya lleva
+        // `refKind: 'graded_estimate'` (§4.38l.4.5) — es más estricto que el predicado de dinero, no
+        // más laxo: esta vía no puede tocar una fila `market` ni para leerla como `before`.
         const rows = await tx.priceReference.findMany({
           where,
           orderBy: { capturedDate: 'desc' },

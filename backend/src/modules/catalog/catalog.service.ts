@@ -1413,6 +1413,9 @@ export class CatalogService {
 
     // (1) CONJUNTO MOTOR: `distinct cardId` de las filas de estimado. `take` = la cota + 1, para poder
     // DISTINGUIR «justo en el límite» de «se pasó» sin una segunda query de conteo.
+    // MONEY-REF-EXEMPT: conjunto motor de `/review` (diagnóstico admin-only, §4.38l.4.4B). Tiene que
+    // poder listar la COEXISTENCIA de las dos naturalezas: el `refKind` por fila es justamente lo que
+    // impide que el operador borre una cifra que es el precio de una pieza física viva.
     const withEstimates = await this.prisma.priceReference.findMany({
       where: {
         productType: 'graded',

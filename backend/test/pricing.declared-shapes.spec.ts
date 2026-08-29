@@ -90,13 +90,22 @@ describe('§M2 — las dos rutas normadas devuelven `{ data }` proyectado', () =
     const pricing = {
       priceHistory: jest.fn(async () => rows.map(toPriceHistoryEntry)),
       manualOverride: jest.fn(async () => FULL_ROW),
+      // v1.50.3-g (M-44b): el borde usa `applyManualOverride` para poder auditar el `before`.
+      applyManualOverride: jest.fn(async () => ({ ref: FULL_ROW, before: null })),
     } as unknown as PricingService;
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     // Orden real del constructor: (pricing, fx, settings, audit, prisma, priceSync, priceIngest, variantControls)
     return new PricingController(
-      pricing, {} as never, {} as never, audit, {} as never, {} as never, {} as never, {} as never,
+      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never,
     );
   }
+
+  /**
+   * v1.50.3-g (SEC-M43-4): el borde comprueba que la carta EXISTE antes de escribir dinero (un
+   * `cardId` inventado producía un `500` por violación de FK). El doble la da por existente.
+   */
+  const prismaDouble = () =>
+    ({ card: { findUnique: jest.fn(async () => ({ id: 'c1' })) } }) as never;
 
   it('`GET /admin/pricing/card/:cardId` ⇒ `{ data: PriceHistoryEntryDTO[] }`', async () => {
     const res = await build().history('c1');
@@ -133,11 +142,12 @@ describe('§M2 — las dos rutas normadas devuelven `{ data }` proyectado', () =
   it('el `id` sigue yendo a la BITÁCORA (donde se necesita para trazar), no a la respuesta', async () => {
     const pricing = {
       manualOverride: jest.fn(async () => FULL_ROW),
+      applyManualOverride: jest.fn(async () => ({ ref: FULL_ROW, before: null })),
       priceHistory: jest.fn(async () => []),
     } as unknown as PricingService;
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     const ctrl = new PricingController(
-      pricing, {} as never, {} as never, audit, {} as never, {} as never, {} as never, {} as never,
+      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never,
     );
     const res = await ctrl.override(
       { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 1 } as never,

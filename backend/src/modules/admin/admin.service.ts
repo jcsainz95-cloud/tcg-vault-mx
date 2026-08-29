@@ -1151,7 +1151,12 @@ export class AdminService {
         this.prisma.pendingPriceEntry.count({ where: { status: 'open' } }),
         this.prisma.sellRequest.aggregate({ where: { status: 'pagada', paidAt: period }, _sum: { approvedTotalCents: true } }),
         this.prisma.sellRequest.count({ where: { status: 'pagada', paidAt: period } }),
-        this.prisma.priceReference.findFirst({ orderBy: { createdAt: 'desc' } }),
+        // SEC-M43-5 (§4.38l.4.13) — «última sincronización» del tablero. NO es dinero (nadie cobra ni
+        // valúa con esta fecha), pero **es la señal que el operador mira para decidir si confía en los
+        // precios**: sin el predicado, una corrida de la fase 2 —que escribe `graded_estimate` sobre
+        // todo el catálogo raw publicado— haría que el tablero reporte el feed de MERCADO como recién
+        // sincronizado cuando no lo está. Mismo modo de fallo, y mismo remedio, que `hasRecentIngest`.
+        this.prisma.priceReference.findFirst({ where: MONEY_REF_WHERE, orderBy: { createdAt: 'desc' } }),
         this.prisma.fxRate.findFirst({ orderBy: { createdAt: 'desc' } }),
         this.prisma.user.count({ where: { role: 'customer' } }),
         this.prisma.order.count({ where: { status: 'settled' } }),

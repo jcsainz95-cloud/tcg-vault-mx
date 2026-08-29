@@ -4,6 +4,156 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.12 v1.50.3-g — **M-44 / M-44b: bajar la naturaleza deja de ser una operación** (cierre de SEC-M43-1) (2026-08-29)
+
+> Implementa **ARCHITECTURE §4.38(l.4.10)** (las cinco precisiones) y **§4.38(l.4.13)** (SEC-M43-3/4/5),
+> contra **`API_CONTRACT` rev v1.50.3-g**. Cierra **SEC-M43-1** (Media, reproducida en vivo por el blue
+> team), **SEC-M43-3**, **SEC-M43-4** y **SEC-M43-5**, y espeja el runbook `M-45` reescrito (§0.11.6).
+> **Fuera de alcance por decisión del arquitecto:** `M43-D1` (satisfacible por devops, vía (ii)) y
+> `M43-D2` (`evidenceDate`, disparador «antes de la fase 2»). Siguen en `TECH_DEBT.md`.
+
+### 0.12.1 El defecto, en una línea
+
+M-43 prohibió que **el ingest** degradara una fila `market`; **el escritor humano tenía el hueco
+abierto**. Con el slab fuera de `platform + listed` —`in_stock` pre-publicación, `reserved`, `picking`,
+envío en curso **o `ownerType='customer'` en custodia**— un `intent:"graded_estimate"` caía sobre la
+fila del día, **la reclasificaba y le pisaba el `priceMxnCents`**, con `200` y sin `409`. Medido:
+`graded:PSA:10 = 500000 · market → 1234 · graded_estimate`; al republicar el slab,
+`GET /catalog/cards/:id` devolvía `listings: []` y `GET /admin/pricing/pending` **no lo contenía**. Una
+**pieza real, invisible, y ninguna cola la ve** (`reconcilePublishedPrices` es `raw`-only, M43-D1).
+
+La regla que rige desde ahora **no tiene sujeto** (§4.38l.4.3 regla 2, ampliada):
+
+> **La naturaleza de una fila solo se SUBE (`graded_estimate → market`), y solo por acto humano
+> declarado (`intent:"market"`). BAJARLA no es una operación que ofrezca este sistema — ni automática ni
+> manual.**
+
+### 0.12.2 Qué se implementó (mapa de artefactos)
+
+| Artefacto | Cambio |
+|---|---|
+| `common/error-codes.ts` | **`GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF`** (409). |
+| `pricing.service.ts` | **`applyManualOverride(input)`** — el override con el `before` y con la guarda de no-degradación **dentro de la escritura**; `manualOverride(...)` queda como envoltorio de compatibilidad que devuelve solo la fila. Tipos nuevos exportados: `ManualOverrideInput`, `ManualOverrideBefore`, `ManualOverrideResult`. |
+| `pricing.controller.ts` | Usa `applyManualOverride`; audita el bloqueo de M-44 (`pricing.override.blocked`, `reason: would_degrade_market_ref`) y el **`before`** en `pricing.override`; valida `productType`/`gradeKey`/`cardId` en el borde (SEC-M43-4). |
+| `pricing.types.ts` | **`isCanonicalGradeKey(productType, gradeKey)`** — la inversa de `buildGradeKey`/`sealedMarketGradeKey`. |
+| `admin.service.ts` | `lastSync` del dashboard con `MONEY_REF_WHERE` (**SEC-M43-5**). |
+| `pricing.service.ts`, `catalog.service.ts`, `graded-estimates.controller.ts`, `card-product-resolver.service.ts` | Marcas **`MONEY-REF-EXEMPT: <motivo>`** en los 10 lectores inclusivos (**SEC-M43-3**). |
+| `test/pricing.m44-no-degrade.spec.ts` (nuevo) | 20 casos: la guarda, el TOCTOU, el `before`, la precedencia, la bitácora y los tres bordes de SEC-M43-4. |
+| `test/pricing.money-ref-lock.spec.ts` (nuevo) | El **candado estructural** de SEC-M43-3. |
+| `test/integration/graded-estimate-degrade-market-ref.e2e-spec.ts` (nuevo) | El PoC de SEC-M43-1 de punta a punta, incluida la **custodia de cliente**. |
+
+### 0.12.3 La regla que hay que conocer para escribir código nuevo aquí
+
+> **Escribir un `graded_estimate` sobre una fila `market` del día NO es un caso a manejar: es un `409`.**
+> Si necesitas cambiar ese precio, `intent:"market"`. Si necesitas retirar el dato, el `DELETE` del
+> gancho (que solo borra `graded_estimate`). **No existe tercera vía, y es deliberado.**
+
+Tres cosas que conviene saber antes de tocar `applyManualOverride`:
+
+1. **La guarda vive en la sentencia que escribe, no antes.** El `updateMany` lleva
+   `refKind: { not: 'market' }` en su propio `where`, así que **no hay ventana** entre decidir y
+   confirmar: si un `intent:"market"` concurrente gana la carrera, el `updateMany` devuelve `count = 0`
+   y **de ahí** sale el `409`. El `if` previo es un **pre-vuelo para el mensaje** (necesita el monto
+   vigente), no la guarda. Moverla al controlador reabriría el TOCTOU que (l.4.10) punto 4 prohíbe.
+2. **`count = 0` + fila ausente ⇒ se CREA, no se rechaza.** La fila pudo desaparecer en la ventana (el
+   `DELETE` del gancho borra estimados): ahí no hay dato de dinero que proteger y un `409` sería mentira.
+3. **El alcance es LA FILA DEL DÍA, y es una decisión.** `refKind` no está en la `@@unique`, así que la
+   colisión destructiva solo existe dentro del mismo `capturedDate`. **Cross-day no se prohíbe nada**:
+   el estimado de hoy crea **otra** fila y la `market` de ayer sigue siendo candidata **perenne** ⇒ el
+   slab conserva su precio. Ensancharlo mataría el caso legítimo (una carta que tuvo slab, se vendió, y
+   hoy se quiere exhibir su estimado) y **vaciaría la vitrina en silencio**.
+
+**Precedencia:** si se cumplen las dos condiciones (slab publicado **y** fila `market` del día) gana
+**`409 GRADED_ESTIMATE_SLAB_PUBLISHED`**, porque su pre-vuelo corre antes en el controlador. Es la
+preexistente, su mensaje es más útil y su `details` enumera los `inventoryItemIds`.
+
+**Fricción aceptada y declarada** (para que nadie la «arregle» luego creyendo que endurece): quien
+capture `intent:"market"` por error y quiera corregirlo a estimado **el mismo día** recibe `409` y **no
+tiene escotilla**. El coste máximo es que el gancho de esa carta espere a mañana; el beneficio es que un
+verbo informativo **no puede destruir un dato de dinero**.
+
+### 0.12.4 M-44b — la bitácora ahora permite deshacer
+
+`AuditLog action=pricing.override` registra **`before: { priceMxnCents, refKind, source } | null`**
+además del `after`. `null` ⇔ la escritura **creó** la fila (estrenar la clave no es lo mismo que
+corregir un número). Cubre además el residual que M-43 **no** cierra ((l.4.9) punto 1): el
+`intent:"market"` mal tecleado sigue siendo posible por diseño — lo que M-44b garantiza es que se pueda
+**reconstruir**. No cambia el contrato de la API (`AuditLog` es superficie interna) ni la forma del `200`.
+
+### 0.12.5 Cambios observables para otros roles
+
+- **Contrato (`super_admin`, BREAKING chico):** un subconjunto de llamadas que hoy responden `200` pasa a
+  **`409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF`**. La **forma** del `200` no cambia.
+  `details: { cardId, gradeKey, currentRefKind, capturedDate }` — **sin `priceMxnCents`** (dato
+  comercial; el operador lo ve en `priceHistory`). El **mensaje** sí nombra el monto vigente, formateado
+  en pesos (`MX$5,000.00`), porque es lo que le dice al operador qué está a punto de pisar.
+- **Frontend / ux-ui:** el estado de error nuevo necesita texto. **Recomendación (decide ux-ui):** el
+  mensaje ya enruta a las dos salidas legítimas (`intent:"market"` o el borrado del gancho); si M2 ofrece
+  un botón «capturar estimado» sobre una carta cuya fila del día es `market`, conviene **deshabilitarlo**
+  en vez de dejar que choque — ofrecer una acción imposible es peor que no ofrecerla (mismo criterio que
+  ya se aplicó al `DELETE` sobre filas `market`).
+- **QA:** tres respuestas cambian en `POST /admin/pricing/override` (SEC-M43-4): `productType` fuera del
+  conjunto ⇒ **`422`** (antes `500`), `cardId` inexistente ⇒ **`404`** (antes `500`), `gradeKey` no
+  generable —p. ej. `graded:PSA:11`— ⇒ **`422`** (antes `200`, y **creaba una fila de dinero** para un
+  grado que ninguna pieza puede llevar).
+  ⚠️ **Nota de implementación, por si sorprende:** esas tres validaciones están **en el handler**, no
+  como `@IsIn` en el DTO. El `ValidationPipe` global responde **400** y el contrato norma **422** para
+  estos casos; manda el contrato.
+- **devops:** el dashboard reporta `lastSync` **solo sobre filas `market`** (SEC-M43-5), así que una
+  corrida de la fase 2 ya no puede hacer parecer fresco el feed de mercado.
+
+### 0.12.6 SEC-M43-3 — el candado estructural (lo que hace que M-43 siga cerrado en seis meses)
+
+El arquitecto aceptó que su frase «un lector nuevo que se olvide del predicado hereda el comportamiento
+seguro» **es falsa a nivel de mecanismo**: en Prisma, omitir `refKind` del `where` **incluye** las dos
+naturalezas — el default real es el **inseguro**. Lo que había era una **norma**, y una norma sin candado
+se erosiona.
+
+`test/pricing.money-ref-lock.spec.ts` la convierte en mecanismo, al estilo del candado `no-raw-entity`
+que ya existía: **todo call-site de `priceReference.find*` en `src/` o contiene `MONEY_REF_WHERE` en su
+propia sentencia, o lleva `MONEY-REF-EXEMPT: <motivo>` en las líneas previas.** La exención es **por
+call-site, no por archivo** (`pricing.service.ts` tiene las dos clases a la vez), y el barrido incluye un
+**control de no-vacuidad** para que un refactor no lo deje midiendo el vacío.
+
+> **Si ese test se pone rojo con una query nueva, la pregunta no es «¿cómo lo callo?»** sino *¿esta
+> lectura puede terminar en un monto que alguien cobre, ofrezca o valúe?* Si sí ⇒ `MONEY_REF_WHERE` por
+> `AND`. Si no ⇒ la marca **con el motivo**, que es lo que se lee en la revisión.
+
+Hoy hay **14** lectores con predicado y **9** exentos con motivo (gancho, `/review`, `priceHistory`, el
+`DELETE` —cuyo `where` es **más** estricto— y las lecturas de clave-del-día de los escritores, que
+**deben** ver la fila `market` para poder hacer skip en vez de pisarla).
+
+### 0.12.7 Verificación
+
+| Suite | Resultado |
+|---|---|
+| `npx tsc --noEmit` | limpio |
+| `npm run lint` | 0 errores (2 warnings preexistentes, ajenos a este pase) |
+| `npm test` (unitarios) | **2 510 / 2 510** en **203** suites (base 2 486 / 201; +24 tests, +2 suites) |
+| `npm run test:integration` | **183 / 183** en **15** suites (base 177 / 14; +6 casos, +1 suite), **dos corridas con `npm run seed:synthetic` en medio** ⇒ el sembrado sigue siendo idempotente |
+
+**La prueba que justifica el pase** es `test/integration/graded-estimate-degrade-market-ref.e2e-spec.ts`:
+el PoC de SEC-M43-1 contra la app real y Postgres real, incluido el caso `ownerType='customer'` y la
+verificación de que la pieza **sigue vendible al republicar**.
+
+**Se verificó que la prueba DETECTA el ataque** (no es decorativa): neutralizando la guarda de M-44 —
+dejando el `update` incondicional previo a v1.50.3-g— la suite se puso en rojo reproduciendo la
+degradación **literal**:
+
+```
+● A) el PoC: … la fila NO se toca
+    - Expected            + Received
+      Object {
+    -   "priceMxnCents": 500000,     +   "priceMxnCents": 1234,
+    -   "refKind": "market",         +   "refKind": "graded_estimate",
+      }
+● A2) al REPUBLICAR, la pieza sigue vendible …   ⇒ el grupo `graded` NO existe (pieza invisible)
+● B) CUSTODIA DE CLIENTE …                       ⇒ 200 en vez de 409 sobre la pieza de un tercero
+```
+
+Con la guarda restaurada, los 6 casos vuelven a verde. El candado de SEC-M43-3 se verificó igual:
+quitando `MONEY_REF_WHERE` de un seam de dinero, el barrido lo **nombra con archivo y línea**.
+
 ## 0.11 v1.50.3-f — **M-43: la NATURALEZA de la fila de precio** (cierre de GE-1 / INV-D inverso) (2026-08-29)
 
 > Implementa **ARCHITECTURE §4.38(l.4)** (dictamen completo: l.4.0 gobierno → l.4.9 residual), **§10
@@ -116,14 +266,34 @@ sirve como precio ni la pisa — devuelve `pending` y escala a la cola.
   `fetchSellable` lo descarta, así que **desaparece del storefront** y `GET /catalog/listings/:id`
   responde `404`. Es deliberado: una pieza sin precio no le cuesta dinero a nadie; una al 5 % sí.
 
-### 0.11.6 CUT-OVER (§4.38l.4.7) — **obligatorio y EN ESTE ORDEN**, para devops
+### 0.11.6 CUT-OVER (§4.38l.4.7) — **REESCRITO en v1.50.3-g (`M-45`)**, obligatorio y EN ESTE ORDEN, para devops
 
-**Sin el paso 3 una pieza puede apagarse en silencio.** Los pasos 1–3 corren **ANTES** de aplicar la
-migración y **no** referencian `refKind` (por eso son ejecutables pre-DDL).
+> ⛔ **DEROGADA la versión anterior de este apartado, y su defecto valía el aviso**: su **paso 4** traía
+> un `UPDATE` masivo de clasificación, listo para copiar y pegar, para el caso «el paso 1 no dio cero»…
+> que es exactamente el caso en el que el **paso 1 manda PARARSE**. Un runbook que se contradice en la
+> rama que corre cuando el mundo no es el esperado no es un runbook, y ésa es la rama en la que un
+> `UPDATE` sobre la tabla de dinero es más peligroso. Además su predicado era el equivocado: copiaba el
+> de `publishedSlabsForGradeKey` (`platform` + `listed`), que responde *«¿hay ahora una publicación viva
+> que dependa de esta fila?»* —pregunta de **guarda**— y no *«¿qué quiso afirmar el humano que la
+> escribió?»*, que es lo que un **backfill de naturaleza** necesita. En una BD real habría marcado como
+> estimado la referencia de mercado de todo slab no listado **en ese segundo**: `in_stock` a punto de
+> publicarse, `reserved`, `picking`, envío en curso **y los `ownerType='customer'` en custodia**.
+> Escalado por `SECURITY_NOTES.md` §2(b) / **SEC-M43-2**; dictamen en ARCHITECTURE §4.38(l.4.7),
+> (l.4.7-bis) y (l.4.11). **Este apartado es el espejo de aquél; si divergen, manda ARCHITECTURE.**
+
+**Los pasos 0–3 corren ANTES de aplicar la migración** y no referencian `refKind` (son ejecutables
+pre-DDL).
+
+**Paso 0 — CONGELAR la publicación de slabs `graded`**, desde el censo (paso 1) hasta la verificación
+(paso 5). El censo es una **foto**, y entre ella y el deploy sigue corriendo el código **viejo**, donde
+publicar un slab sobre una carta con estimado es una operación normal y silenciosa: toda pieza que entre
+a `listed` en esa ventana **no fue re-afirmada y se apaga al desplegar**. La ventana son minutos;
+congelarla es más barato que perseguirla. **La congelación es PROCEDIMENTAL** (aviso al operador +
+ventana de mantenimiento), **no un dial nuevo**: no se construye mecanismo para un evento único.
+**Dueño: devops.**
 
 **Paso 1 — CONTAR (solo lectura), en cada entorno que venda.** Expectativa declarada en producción:
-**cero** (la vía `intent` vive en esta rama y nunca se desplegó). *Si no da cero, se PARA y se escala al
-arquitecto*: significaría que existe otra vía de escritura que el diseño no conoce.
+**cero** (la vía `intent` vive en esta rama y nunca se desplegó).
 
 ```sql
 -- 1a) censo de filas candidatas a ser estimados del gancho
@@ -132,7 +302,7 @@ FROM "PriceReference"
 WHERE "productType"='graded' AND "gradeKey" LIKE 'graded:PSA:%' AND "cardProductId" IS NULL;
 
 -- 1b) de ésas, las que COEXISTEN con un slab PUBLICADO de ESE grado = las expuestas a GE-1 hoy
---     y las que el paso 3 obliga a re-afirmar. Es la MISMA definición de «publicado» que usa
+--     y las que el paso 3 obliga a re-afirmar. Misma definición de «publicado» que
 --     `publishedSlabsForGradeKey`: plataforma + listed + PSA + mismo gradeValue.
 SELECT r."cardId", c."externalId", r."gradeKey", r."priceMxnCents", r."capturedDate"
 FROM "PriceReference" r
@@ -147,6 +317,15 @@ WHERE r."productType"='graded' AND r."gradeKey" LIKE 'graded:PSA:%' AND r."cardP
 ORDER BY c."externalId";
 ```
 
+> ⛔ **Si 1a NO da cero: SE PARA Y SE ESCALA AL ARQUITECTO. No hay rama alternativa en este runbook.**
+> Un censo no-cero **falsifica la premisa** sobre la que está construido todo el procedimiento (existe
+> una vía de escritura que este diseño no conoce), y derivar de una premisa recién falsificada un
+> `UPDATE` masivo sobre la tabla de dinero es exactamente al revés. La regla con la que el arquitecto
+> emitirá el dictamen de clasificación está escrita por adelantado en **§4.38(l.4.7-bis)** —y su
+> discriminante **no** es «¿está listado?» sino **«¿existe la pieza física?»** (cualquier `status`,
+> cualquier `ownerType`)—, pero **hasta que ese dictamen exista para la lista concreta, el cut-over no
+> continúa**.
+
 **Paso 2 — ENUMERAR por la API** (la lista que el operador mira, y la que ya trae `refKind` por fila).
 Funciona con el dial `off`:
 
@@ -156,9 +335,9 @@ curl -s -H "Authorization: Bearer $SUPER_ADMIN" \
 ```
 
 **Paso 3 — RE-AFIRMAR cada slab de esa lista con `intent:"market"`, ANTES de migrar.** Es un acto de
-dinero deliberado y auditado (`AuditLog action=pricing.override`), que es exactamente lo que el hallazgo
-pide que sustituya a la herencia silenciosa. Tras este paso, **la migración no puede apagar ninguna
-pieza**:
+dinero deliberado y auditado (`AuditLog action=pricing.override`, y desde **M-44b** con `before`), que
+es exactamente lo que el hallazgo pide que sustituya a la herencia silenciosa. Tras este paso, **la
+migración no puede apagar ninguna pieza**:
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $SUPER_ADMIN" -H 'Content-Type: application/json' \
@@ -167,30 +346,78 @@ curl -s -X POST -H "Authorization: Bearer $SUPER_ADMIN" -H 'Content-Type: applic
   "$API/admin/pricing/override"
 ```
 
+**Paso 3-bis — RE-CORRER el censo 1b como GATE, inmediatamente antes del deploy.** Es la verificación de
+que el paso 0 aguantó. **Si devuelve una sola fila que no esté en la lista re-afirmada del paso 3, el
+cut-over SE DETIENE** y se vuelve al paso 2. *(Con la congelación esto debe dar vacío siempre; su valor
+es detectar que la congelación no se respetó, no sustituirla.)*
+
 **Paso 4 — MIGRAR:** `npx prisma migrate deploy` (aplica `20260829120000_m43_graded_estimate_kind`).
-Backfill **innecesario** si el paso 1 dio cero. Si no dio cero, se clasifica con el resultado del paso
-1b: **con slab ⇒ `market`** (ya lo son por el `@default`, y el paso 3 las dejó afirmadas), **sin slab ⇒
-`graded_estimate`**:
+**Backfill: NINGUNO.** Y no es «innecesario si el paso 1 dio cero»: **el único mundo en el que este paso
+4 se ejecuta es aquel en el que el paso 1 dio cero**, y en ese mundo no hay nada que clasificar. **El
+`UPDATE` de clasificación queda ⛔ DEROGADO y no figura aquí ni como ejemplo** — un `UPDATE` masivo sobre
+la tabla de dinero, listo para copiar y pegar, dentro de un procedimiento cuyo paso 1 dice «párate», *se
+acaba ejecutando*. El único que puede existir es el que emita el dictamen de (l.4.7-bis), escrito para la
+lista concreta y con visto bueno **explícito** del arquitecto.
 
-```sql
--- SOLO si el paso 1 no dio cero. Marca como ESTIMADO las filas PSA que NO tienen slab publicado.
-UPDATE "PriceReference" r SET "refKind" = 'graded_estimate'
-WHERE r."productType"='graded' AND r."gradeKey" LIKE 'graded:PSA:%' AND r."cardProductId" IS NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM "InventoryItem" i
-    WHERE i."cardId" = r."cardId" AND i."productType"='graded'
-      AND i."ownerType"='platform' AND i.status='listed'
-      AND i."gradingCompany"='PSA' AND ('graded:PSA:' || i."gradeValue") = r."gradeKey"
-  );
-```
+**Paso 5 — VERIFICAR con los DOS checks, el positivo y el negativo.** El positivo solo no basta: es una
+comprobación **sobre la lista que ya conocíamos**, ciega a todo lo que no estaba en ella.
 
-**Paso 5 — VERIFICAR:** los slabs re-afirmados conservan su precio (`GET /catalog/cards/:id` ⇒ el grupo
-`graded` sigue ahí con `priceBasis:"market"`), y una carta con estimado y **sin** slab sigue mostrando
-su gancho.
+- **(+)** los slabs re-afirmados conservan su precio (`GET /catalog/cards/:id` ⇒ grupo `graded` con
+  `priceBasis:"market"`), y una carta con estimado y **sin** slab sigue mostrando su gancho.
+- **(−) el que cierra el hueco:** **cero** `InventoryItem` `productType='graded'` en `status='listed'`
+  —**cualquier `ownerType`**— cuyo precio resuelva con `priceBasis != 'market'`. Un solo resultado ⇒ hay
+  una pieza apagada en silencio ⇒ **se re-afirma antes de dar por bueno el cut-over.**
+  **Este mismo predicado es el detector recurrente de (l.4.12)(ii): se escribe una vez y se usa dos.**
 
-**Paso 6 — ROLLBACK:** revertir el **código** (el predicado) es suficiente. **La columna se queda**, es
-aditiva e inerte sin código que la lea. **No se revierte la columna en caliente** — quitarla con código
-vivo sí rompe.
+  Enumeración barata en la BD (**solo lectura**) del caso que importa —la pieza publicada **sin ninguna**
+  referencia de mercado en su clave, que es la que resuelve `pending` y desaparece del storefront—:
+
+  ```sql
+  -- Debe devolver CERO filas. Cualquiera que salga es una pieza publicada y sin precio.
+  SELECT i.folio, i."ownerType", i.status, c."externalId", i."gradingCompany", i."gradeValue"
+  FROM "InventoryItem" i
+  JOIN "Card" c ON c.id = i."cardId"
+  WHERE i."productType"='graded' AND i.status='listed'
+    AND NOT EXISTS (
+      SELECT 1 FROM "PriceReference" r
+      WHERE r."cardId" = i."cardId" AND r."productType"='graded'
+        AND r."gradeKey" = ('graded:' || i."gradingCompany" || ':' || i."gradeValue")
+        AND r.finish = i.finish
+        AND r."refKind" = 'market'   -- SIN cota de fecha: el override manual es candidata PERENNE
+    );
+  ```
+
+  ⚠️ **Qué NO ve esta consulta, dicho para que nadie la tome por el check entero:** `priceBasis` lo
+  calcula la app (`'market' | 'floor' | 'override' | 'bounty' | 'pending'`), no el SQL. Esta enumeración
+  cubre el caso **silencioso** (`pending` por falta de referencia de mercado), que es el que introduce
+  M-43; una pieza con `listPriceCents` resuelve `override` y **está preciada a propósito**. El check
+  normativo sigue siendo el de la app: si el SQL da cero y aun así una pieza aparece con
+  `priceBasis != 'market'`, **se escala, no se re-afirma a ciegas**.
+
+**Paso 6 — ROLLBACK (§4.38l.4.11): revertir el código NO es suficiente, y hay que elegir el escenario.**
+«Revertir basta; la columna se queda» es cierto **para el DDL** y **falso para el riesgo**: en el momento
+del rollback ya existen filas `refKind='graded_estimate'` escritas por la vía manual, y esas filas llevan
+`isManualOverride=true` / `source='manual'` ⇒ al quitar el predicado vuelven a ser candidatas
+**perennes** (`MANUAL_REF_PREDICATE`, sin cota de fecha) ⇒ **rollback = GE-1 restaurado, con la munición
+ya cargada y sin caducidad.**
+
+- **(A) URGENCIA (algo va mal y hay que apagarlo YA): la palanca es el DIAL, no el `git revert`.**
+  `gradedEstimatesEnabled = off` detiene la exhibición —y, bajo (l.5), la **creación** de estimados—, es
+  instantáneo, reversible y **deja M-43/M-44 en pie**, o sea que el predicado de exclusión sigue
+  protegiendo el dinero. **Revertir el código en caliente es la peor opción en casi cualquier incidente
+  imaginable**, porque quita la protección justo cuando el sistema **ya tiene filas de estimado
+  escritas**. Se declara aquí para que en el incidente no haya que decidirlo.
+- **(B) RETIRADA ORDENADA (decisión de producto, con tiempo): precondición de CERO.**
+  1. `gradedEstimatesEnabled = off` (que no entren más mientras se limpia).
+  2. Por cada fila `refKind='graded_estimate'`: **sin pieza física** de esa compañía+grado (cualquier
+     `status`, cualquier `ownerType`) ⇒ `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`
+     (borra **exactamente** esa naturaleza, §4.38l.4.5). **Con pieza física** ⇒
+     `POST /admin/pricing/override` con `intent:"market"` al precio real (acto de dinero, auditado).
+     *Es el mismo par de gestos del paso 3 y de (l.4.7-bis): un solo criterio para todo el runbook.*
+  3. **Verificar `SELECT count(*) FROM "PriceReference" WHERE "refKind"='graded_estimate'` = 0.** Es
+     **precondición dura del revert**, no una recomendación.
+  4. Recién entonces, revertir el código. **La columna se queda** (aditiva e inerte sin lector). **No se
+     quita la columna en caliente.**
 
 ### 0.11.7 Lo que M-43 **NO** cierra (residual declarado)
 
@@ -198,8 +425,12 @@ vivo sí rompe.
    cualquier override de dinero; su remedio es la auditoría y la revisión, no esta columna. Lo que M-43
    garantiza es que **una cifra que nadie afirmó como precio de venta jamás se convierta en uno**.
 2. **`reconcilePublishedPrices` sigue siendo `raw`-only** ⇒ un slab que se quede sin referencia no entra
-   a `PendingPriceEntry`. Con el cut-over no puede pasar al migrar, pero sí después. **Deuda no
-   bloqueante, dueño backend — anotada en `TECH_DEBT.md`.**
+   a `PendingPriceEntry`. Con el cut-over no puede pasar al migrar, pero sí después. ~~**Deuda no
+   bloqueante, dueño backend**~~ ⚠️ **RECLASIFICADO en v1.50.3-g (§4.38l.4.12):** sigue sin bloquear la
+   fusión, pero pasa a ser **precondición del cut-over de producción**, y se satisface por la vía **(ii)**
+   —detector recurrente con alerta sobre el predicado del paso 5(−), **dueño devops**— o por la **(i)**
+   —extender el barrido a `graded`, dueño backend—. **M-44 no lo implementa: fuera de alcance por
+   decisión del arquitecto.** Anotado en `TECH_DEBT.md` (M43-D1).
 3. **`evidenceDate` entró como COLUMNA pero NO se cableó.** Ni escritor (el ingest sigue sin
    persistirla) ni lector (`stale()` sigue midiendo contra `capturedDate`). Con la columna en `null` en
    toda fila, `evidenceDate ?? capturedDate` sería idéntico a hoy, así que **no hay cambio de
