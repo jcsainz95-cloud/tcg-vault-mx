@@ -518,20 +518,46 @@ devops** — el runbook de verificación en vivo debería empezar por un check d
 
 ---
 
-## 10. Estado de la BD del entorno de pruebas (aviso al orquestador)
+## 10. Estado de la BD del entorno de pruebas (aviso al orquestador) — **LIMPIA, no hay que resembrar**
 
-**Reinicié el stack** (`stack-native.sh down` + `up --seed`) al detectar SEC-M43-6, así que la suciedad del
-pase del red team quedó limpia. **Después ensucié yo, con los PoC de §1.1 y §5.1:**
-- `e2e-fourth-raw`: fila `graded:PSA:10 = 40000 · graded_estimate` + slab inyectado `folio='SEC-INVD-0001'`
-  (PSA 10, platform, listed);
-- `e2e-graded`: su fila `graded:PSA:10` pasó de `500000 · market` a **`1234 · graded_estimate`** (es el PoC
-  de SEC-M43-1); el slab `E2E-LST-0003` quedó de vuelta en `listed` y **hoy no es vendible**;
-- `e2e-common`: fila basura `graded:PSA:11 = 999 · graded_estimate` (PoC de SEC-M43-4).
+> **Actualizado al cierre del pase.** Una versión anterior de esta sección pedía resembrar; **ya no hace
+> falta** y se corrige aquí para que nadie actúe sobre información vencida.
 
-**Los dos diales quedaron verificados en `off`** (`graded_estimates_enabled='off'`,
-`graded_estimate_ingest_enabled='off'`) — los encendí para medir las superficies de lectura y los apagué,
-comprobándolo en `ConfigSetting`.
-**Resembrar antes de seguir:** `cd backend && npm run seed:synthetic` (o `./scripts/stack-native.sh up --seed`).
+**Secuencia:** reinicié el stack (`stack-native.sh down` + `up --seed`) al detectar SEC-M43-6; ensucié la
+BD con los PoC de §1.1, §5.1 y §5.4; y la fase final de ese mismo `up --seed` (el subconjunto E2E real que
+el script corre contra el stack levantado) **volvió a sembrar**, dejando el entorno en estado de seed.
+
+**Verificado a mano al cerrar** (`psql`, no inferido del log):
+
+| Comprobación | Resultado |
+|---|---|
+| `count(*) PriceReference` | **13** — idéntico al seed (11 `market` + 2 `graded_estimate`) |
+| `e2e-graded` → `graded:PSA:10` | **`500000 · market`** — la degradación a `1234 · graded_estimate` del PoC de SEC-M43-1 **revertida** |
+| `e2e-fourth-raw` → fila `graded` | **ausente** (el estimado de 40000 se fue) |
+| `e2e-common` → `graded:PSA:11` | **ausente** (la fila basura de SEC-M43-4 se fue) |
+| Slab inyectado `folio='SEC-INVD-0001'` | **ausente**; el inventario `graded` son solo `E2E-LST-0003` y `E2E-LST-0006`, ambos `platform`/`listed` |
+| Folios no-`E2E-*` | solo la serie `INV-0000xx` del **seed sintético** — ningún residuo de PoC |
+| `graded_estimates_enabled` / `graded_estimate_ingest_enabled` | **`"off"` / `"off"`** — los encendí para medir las superficies de lectura (§1.1) y los apagué, comprobándolo en `ConfigSetting` |
+
+**Estado de los procesos al cerrar:** **Postgres y Redis siguen ARRIBA** (los datos se conservan, verificado
+con `psql` y `redis-cli ping`); **backend (:3099) y frontend (:3000) quedaron ABAJO** — el
+`stack-native.sh up --seed` los apagó al terminar su fase E2E. Quien retome el trabajo en vivo debe
+**volver a levantarlos**, y —por SEC-M43-6— confirmar que lo hace sobre el commit que pretende medir.
+
+**Conclusión: no hay acción pendiente sobre los DATOS.** Para retomar:
+`./scripts/stack-native.sh up --seed`.
+
+**Nota de validez de las mediciones (importante, y por eso se escribe):** el reseed ocurrió **después** de
+todas las mediciones de este documento. Cada PoC de §1.1, §5.1 y §5.4 fue observado y verificado contra la
+BD **en el momento**, con el backend post-`1f73654` corriendo (ver SEC-M43-6). Que el entorno esté hoy
+limpio **no invalida ninguna evidencia**; sí significa que **reproducirla exige rehacer los pasos**, no
+mirar la BD actual.
+
+**Apunte del arnés E2E, para QA/devops (no es hallazgo de seguridad):** esa corrida terminó
+**48 verdes · 3 rojos · 35 saltados**, y los 3 rojos son los smokes de dinero (checkout, guest-checkout,
+shipments) por **falta de egress a `api.stripe.com` en esta máquina** — el backend responde `503
+PAYMENT_PROVIDER_UNAVAILABLE` y **libera la reserva**, que es el comportamiento money-safe correcto. Es
+entorno, no producto (`DEVOPS_NOTES` §31), **no toca el eje de este gate** y **no cambia el veredicto**.
 
 ---
 
