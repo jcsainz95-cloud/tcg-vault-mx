@@ -843,6 +843,87 @@ describe('GET /admin/pricing/graded-estimates/review — la lista de revisión (
     expect((prisma as any).$transaction).not.toHaveBeenCalled();
     expect(audit.log).not.toHaveBeenCalled();
   });
+
+  /**
+   * v1.50.3-e (§4.38n.2-ter) — **EL FILTRO SE EVALÚA SOBRE `reasons`, NO SOBRE `reason`.**
+   *
+   * Agujero MEDIDO contra el stack vivo: una carta raw con **un solo grado** (PSA 10 por debajo del
+   * raw, **sin** PSA 9) devolvía `total: 0`, porque la evaluación cortaba en `NO_PSA9` (paso 5) y la
+   * cota de magnitud (paso 6c) nunca se comprobaba. Añadiendo un PSA 9, la misma carta aparecía al
+   * instante con `NOT_ABOVE_RAW`.
+   *
+   * **Es el peor sitio donde podía faltar la red**: `NOT_ABOVE_RAW` caza el USD-como-MXN, típico de la
+   * PRIMERA captura (un solo grado); y como sin PSA 9 la carta nunca se promociona, la cifra errónea
+   * **no llega a la rejilla pero SÍ se muestra en la ficha** (§4.38k.3) ⇒ visible al comprador,
+   * inencontrable para el operador — «publicamos la cifra mala y nadie se entera», que es exactamente
+   * el fallo que esta lista existe para impedir.
+   */
+  describe('la red de coherencia con UN SOLO grado (v1.50.3-e)', () => {
+    /** Raw MX$1,000 y **solo** PSA 10 = MX$500 (la mitad: el error de unidades). Sin PSA 9. */
+    const unSoloGrado = () => wire([rawItem()], [psaRef('10', 50_000)], ON);
+
+    it('ENUMERA la carta bajo `NOT_ABOVE_RAW` aunque `reason` sea `NO_PSA9` (antes: total 0)', async () => {
+      const res = await unSoloGrado().ctrl.review('NOT_ABOVE_RAW');
+      expect(res.total).toBe(1);
+      expect(res.data[0]).toMatchObject({
+        cardId: 'ca',
+        // La DECISIÓN no cambia: sin PSA 9 no se promociona, y el DTO sigue emitiendo el PRIMER
+        // bloqueante tal como lo declara el contrato.
+        reason: 'NO_PSA9',
+        eligible: false,
+        psa10MxnCents: 50_000,
+        psa9MxnCents: null, // money-safe: no resoluble es `null`, jamás 0
+      });
+      // …y el DIAGNÓSTICO completo viaja, que es lo que hace la fila accionable.
+      expect(res.data[0].reasons).toEqual(['NO_PSA9', 'NOT_ABOVE_RAW']);
+    });
+
+    it('sale también en el DEFAULT (los tres de coherencia): es una cifra que hay que revisar', async () => {
+      expect((await unSoloGrado().ctrl.review()).total).toBe(1);
+    });
+
+    it('y NO se promociona: la lista es un detector, no un ascensor', async () => {
+      // La otra mitad del caso 9 del gate de QA: aparecer en `review` no la vuelve elegible.
+      const { ctrl } = unSoloGrado();
+      expect((await ctrl.review('NOT_ABOVE_RAW')).data[0].eligible).toBe(false);
+      const ficha: any = await ctrl.preview('ca');
+      // …y la FICHA la sigue mostrando (§4.38k.3): informar ≠ promover. Por eso hace falta la lista.
+      expect(ficha.groups[0]).toMatchObject({ reason: 'NO_PSA9', psa10MxnCents: 50_000 });
+      expect(ficha.groups[0].reasons).toEqual(['NO_PSA9', 'NOT_ABOVE_RAW']);
+    });
+
+    it('una carta COHERENTE con un solo grado NO entra: no se enumera «tener un grado»', async () => {
+      // El complemento imprescindible: si bastara con `reasons` no vacío, la lista se llenaría de
+      // cartas normales (la ausencia de PSA 9 es el estado NORMAL del catálogo, §4.38b.4).
+      const { ctrl } = wire([rawItem()], [psaRef('10', 900_000)], ON);
+      expect((await ctrl.review()).total).toBe(0);
+      expect((await ctrl.review('NOT_ABOVE_RAW')).total).toBe(0);
+    });
+
+    /**
+     * §M2 — el ORDEN primario es el **`reason` MATCHEADO**, no `reasons[0]`. Con `reasons[0]` la carta
+     * de un solo grado ordenaría por `NO_PSA9`, un motivo que el operador **no pidió** y que no aparece
+     * en ninguna parte de la respuesta: la lista se barajaría por un criterio invisible.
+     */
+    it('el orden usa el `reason` MATCHEADO, no `reasons[0]`', async () => {
+      const CARD_B = { ...CARD, id: 'cb', name: 'Charizard' };
+      const { ctrl } = wire(
+        [rawItem(), rawItem({ id: 'i2', cardId: 'cb', card: CARD_B })],
+        [
+          // `ca`: un solo grado ⇒ reasons ['NO_PSA9','NOT_ABOVE_RAW'] ⇒ matchea NOT_ABOVE_RAW.
+          psaRef('10', 50_000),
+          // `cb`: dos grados cruzados y coherentes en magnitud ⇒ matchea GRADE_ORDER_INVERTED.
+          { ...psaRef('10', 400_000), cardId: 'cb' },
+          { ...psaRef('9', 500_000), cardId: 'cb' },
+        ],
+        ON,
+      );
+      const res = await ctrl.review();
+      // GRADE_ORDER_INVERTED < NOT_ABOVE_RAW alfabéticamente ⇒ `cb` primero. Ordenar por `reasons[0]`
+      // daría 'NO_PSA9' para `ca` y lo pondría antes, por un motivo que ni se pidió ni se emite.
+      expect(res.data.map((d) => d.cardId)).toEqual(['cb', 'ca']);
+    });
+  });
 });
 
 /**

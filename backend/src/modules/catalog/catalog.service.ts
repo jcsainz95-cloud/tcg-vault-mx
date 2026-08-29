@@ -365,7 +365,16 @@ export interface GradedEstimateReviewItemDTO {
   maxAllowedPsa10MxnCents: number | null;
   publishedSlabGrades: string[];
   eligible: boolean;
+  /** PRIMER bloqueante de la promoción (`reasons[0]`). Sin cambio de semántica en v1.50.3-e. */
   reason?: HighlightReason;
+  /**
+   * v1.50.3-e (§4.38n.2-ter, API_CONTRACT §M2) — **todas** las condiciones detectadas, en orden
+   * canónico. Es lo que el filtro de esta lista evalúa (una fila entra si `reasons ∩ pedidos ≠ ∅`),
+   * y por eso la carta de **un solo grado** con el error de unidades ya es enumerable: `reason` sigue
+   * siendo `NO_PSA9` —sin PSA 9 no se promociona, y así seguirá— pero `reasons` incluye
+   * `NOT_ABOVE_RAW`, que es lo que el operador puede ver y corregir.
+   */
+  reasons: HighlightReason[];
 }
 
 /**
@@ -1305,6 +1314,11 @@ export class CatalogService {
           publishedSlabGrades,
           eligible: r.eligible,
           ...(r.reason ? { reason: r.reason } : {}),
+          // v1.50.3-e (§4.38n.2-ter): TODAS las condiciones detectadas, no solo la primera. `reason`
+          // sigue siendo el primer bloqueante —la pregunta «¿por qué no se promociona?»—; `reasons`
+          // contesta «¿qué le pasa a esta carta?», que es la que el operador trae y que un ESCALAR no
+          // puede responder: una carta puede fallar varias condiciones a la vez.
+          reasons: r.reasons,
         };
       });
     // `config` = la config EFECTIVA (la misma que usa el resolver, ya saneada fail-closed): si el admin
@@ -1427,7 +1441,13 @@ export class CatalogService {
     // ser alcanzable por construcción, que es justo lo que §4.38n.3 pide.
     const evalCfg: GradedEstimateConfig = { ...cfg, estimatesEnabled: true, highlightEnabled: true };
 
-    const items: GradedEstimateReviewItemDTO[] = [];
+    // v1.50.3-e (§4.38n.2-ter): cada fila viaja con su **`reason` PRIMARIO MATCHEADO** —el primero de
+    // `reasons` que está en el conjunto PEDIDO—, que es la clave de orden del contrato §M2. NO es
+    // `reasons[0]` a secas: ése puede ser un motivo que el operador **no** pidió (la carta de un solo
+    // grado entra por `NOT_ABOVE_RAW` y su `reasons[0]` es `NO_PSA9`), y ordenar por él mezclaría la
+    // lista por un criterio invisible desde la respuesta. El DTO sigue emitiendo `reason` = el primer
+    // bloqueante, tal como lo declara el contrato.
+    const matched: { key: string; item: GradedEstimateReviewItemDTO }[] = [];
     for (const g of this.buildGroups(rows)) {
       if (g.dto.productType !== 'raw') continue;
       const card = g.dto.card;
@@ -1441,8 +1461,17 @@ export class CatalogService {
         today,
         cfg: evalCfg,
       });
-      if (r.reason == null || !reasons.includes(r.reason)) continue;
-      items.push({
+      // ⚠️ EL FILTRO SE EVALÚA SOBRE `reasons`, NO SOBRE `reason` (§4.38n.2-ter, contrato §M2). Con
+      // `reason` a secas la red de coherencia **no se ponía con un solo grado**: raw $460 + PSA 10 $230
+      // sin PSA 9 cortaba en `NO_PSA9` y `NOT_ABOVE_RAW` nunca se comprobaba ⇒ `total: 0`. Y es el peor
+      // sitio donde podía faltar: el error USD-como-MXN es más probable en la PRIMERA captura (un solo
+      // grado), y como sin PSA 9 la carta nunca se promociona, la cifra errónea **no llega a la rejilla
+      // pero SÍ se muestra en la ficha** (§4.38k.3) ⇒ visible al comprador, inencontrable para el
+      // operador. Justo «publicamos la cifra mala y nadie se entera», que es el fallo que esta lista
+      // existe para impedir.
+      const primary = r.reasons.find((x) => reasons.includes(x));
+      if (primary == null) continue;
+      const item: GradedEstimateReviewItemDTO = {
         cardId: card.id,
         cardName: card.name,
         setName: card.setName ?? '',
@@ -1463,10 +1492,13 @@ export class CatalogService {
         publishedSlabGrades,
         eligible: r.eligible,
         reason: r.reason,
-      });
+        reasons: r.reasons,
+      };
+      matched.push({ key: primary, item });
     }
 
-    // ORDEN DETERMINISTA (§M2): `reason` asc → **`capturedDate` asc (`null` al final)** → `cardId` asc
+    // ORDEN DETERMINISTA (§M2): **`reason` PRIMARIO MATCHEADO** asc → **`capturedDate` asc (`null` al
+    // final)** → `cardId` asc
     // → representante asc. Sin él la paginación baila entre requests y el operador ve la misma carta
     // dos veces (o ninguna).
     //
@@ -1481,18 +1513,20 @@ export class CatalogService {
       if (b == null) return -1;
       return a < b ? -1 : 1; // `YYYY-MM-DD` ordena lexicográficamente = cronológicamente
     };
-    items.sort(
+    // v1.50.3-e: el primario es el `reason` MATCHEADO (`key`), no `reasons[0]`. Ver el comentario del
+    // filtro: `reasons[0]` puede ser un motivo que el operador no pidió.
+    matched.sort(
       (a, b) =>
-        String(a.reason).localeCompare(String(b.reason)) ||
-        byCapturedDate(a.capturedDate, b.capturedDate) ||
-        a.cardId.localeCompare(b.cardId) ||
-        a.representativeInventoryItemId.localeCompare(b.representativeInventoryItemId),
+        a.key.localeCompare(b.key) ||
+        byCapturedDate(a.item.capturedDate, b.item.capturedDate) ||
+        a.item.cardId.localeCompare(b.item.cardId) ||
+        a.item.representativeInventoryItemId.localeCompare(b.item.representativeInventoryItemId),
     );
     const start = (params.page - 1) * params.pageSize;
     return {
       ...empty,
-      data: items.slice(start, start + params.pageSize),
-      total: items.length,
+      data: matched.slice(start, start + params.pageSize).map((m) => m.item),
+      total: matched.length,
     };
   }
 

@@ -33,12 +33,25 @@ import {
   E2E_LOCATIONS,
   E2E_SET,
   E2E_SETTINGS,
+  E2E_STALE_ESTIMATES,
   E2E_USERS,
 } from './e2e-fixtures';
 
 function todayUtc(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * v1.50.3-e — fecha de captura RETRODATADA, en la misma convención date-only UTC que `todayUtc()`.
+ * Es lo único que la API del contrato no puede producir: `POST /admin/pricing/override` escribe
+ * SIEMPRE con la fecha de hoy (a propósito: el manual se refresca recapturándolo, §4.38m), así que
+ * sin esto el fixture no puede ofrecer una fila **vencida** de forma estable.
+ */
+function daysAgoUtc(days: number): Date {
+  const d = todayUtc();
+  d.setUTCDate(d.getUTCDate() - days);
   return d;
 }
 
@@ -294,6 +307,34 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   priceRef(E2E_CARDS.slabbed.externalId, 'graded', 'graded:PSA:10', E2E_CARDS.slabbed.refPsa10Cents);
   // v1.50.3-d — la TERCERA carta raw publicada (§4.38i.9).
   priceRef(E2E_CARDS.thirdraw.externalId, 'raw', 'raw:NM', E2E_CARDS.thirdraw.refNmCents);
+  // v1.50.3-e — la CUARTA raw publicada y LIBRE: SOLO su referencia raw. **Ninguna fila de estimado a
+  // propósito**: nace limpia para que el caso que la use no herede el estado de otro (§4.38i.9).
+  priceRef(E2E_CARDS.fourthraw.externalId, 'raw', 'raw:NM', E2E_CARDS.fourthraw.refNmCents);
+  // v1.50.3-e (petición de QA) — la carta de los estimados que la API NO puede fabricar: su raw, más
+  // las DOS filas `graded:PSA:*` con `capturedDate` VIEJA, una de ellas **automática**
+  // (`isManualOverride: false`, `source` de proveedor). Sin ellas, `?reason=STALE` con origen
+  // automático y el `isManual: false` del diagnóstico solo existían en unitarios con dobles: el
+  // override manual escribe siempre manual y siempre con fecha de hoy.
+  priceRef(E2E_CARDS.staleest.externalId, 'raw', 'raw:NM', E2E_CARDS.staleest.refNmCents);
+  for (const e of E2E_STALE_ESTIMATES) {
+    priceRefs.push({
+      cardId: cardIds[E2E_CARDS.staleest.externalId],
+      productType: 'graded',
+      gradeKey: e.gradeKey,
+      finish: 'normal',
+      // Las DOS señales de origen se siembran COHERENTES entre sí: el resolver considera manual una
+      // fila con `isManualOverride` **o** con `source: 'manual'` (§4.38m), así que una fila «automática»
+      // con `source: 'manual'` sería un dato imposible que volvería verde una prueba por el motivo
+      // equivocado.
+      source: e.isManual ? 'manual' : 'pokemonpricetracker',
+      priceMxnCents: e.priceMxnCents,
+      // Sin `priceUsdCents`: el monto es MXN nativo y NINGUNA FX puede reinterpretarlo (`liveMxnCents`
+      // solo recalcula cuando hay USD). El fixture promete un número, no una conversión del día.
+      capturedDate: daysAgoUtc(e.daysAgo),
+      isManualOverride: e.isManual,
+      cardProductId: null,
+    });
+  }
   // El BORRA-Y-DECLARA atómico. `deleteMany` acotado a las cartas del fixture: el seed sintético no
   // gobierna —ni toca— referencias de ninguna otra carta que hubiera en la BD.
   await prisma.$transaction([
@@ -460,6 +501,42 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       status: 'listed',
       acquisitionType: 'compra',
       acquisitionCostCents: 25000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+
+  // v1.50.3-e (§4.38i.9) — la CUARTA raw publicada y LIBRE. Existe para que los escenarios dejen de
+  // reciclarse entre casos: un fixture que obliga a reutilizar la misma carta crea ACOPLAMIENTO entre
+  // pruebas (la segunda hereda el estado de la primera), que es justo lo que un fixture sintético
+  // existe para evitar. No lleva NINGUNA fila de estimado: quien la use la captura y la retira.
+  await upsertItem(
+    E2E_FOLIOS.listedFourthRaw,
+    {
+      cardId: cardIds[E2E_CARDS.fourthraw.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 22000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+  // v1.50.3-e (QA) — la pieza raw de la carta de los estimados RANCIOS. Tiene que estar PUBLICADA:
+  // la lista de revisión (y el `preview`) solo producen filas para cartas con **grupo raw publicado**,
+  // así que sin esta pieza las dos filas de estimado no serían observables por ninguna superficie.
+  await upsertItem(
+    E2E_FOLIOS.listedStaleEst,
+    {
+      cardId: cardIds[E2E_CARDS.staleest.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 15000,
       locationId: platformLoc.id,
     },
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },

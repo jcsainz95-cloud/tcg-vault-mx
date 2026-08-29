@@ -228,7 +228,44 @@ export type HighlightReason =
 
 export interface GradingHighlightResult<T extends GradedEstimateInput = GradedEstimateInput> {
   eligible: boolean;
+  /**
+   * PRIMER bloqueante de la PROMOCIÓN (decisión). **Sin cambio de semántica en v1.50.3-e**: es
+   * exactamente `reasons[0]`, y `undefined` cuando `eligible`.
+   */
   reason?: HighlightReason;
+  /**
+   * v1.50.3-e (§4.38c / §4.38n.2-ter) — **TODAS las condiciones detectadas, en orden canónico**
+   * (pasos 1→8), no solo la primera. `[]` ⟺ `eligible`.
+   *
+   * ## Por qué existen DOS campos y no uno
+   * `reason` contesta **«¿qué impide PROMOCIONAR?»** y se detiene en el primer bloqueante: correcto
+   * para **decidir**, insuficiente para **diagnosticar** — una carta puede fallar **varias**
+   * condiciones a la vez, y un **escalar** no puede expresarlo. `preview` y `review` no preguntan lo
+   * mismo que la vitrina: preguntan **«¿qué le pasa a esta carta?»**.
+   *
+   * **El agujero medido que cierra** (§4.38n.2-ter): raw MX$460 + PSA 10 MX$230 **sin PSA 9** ⇒ la
+   * evaluación cortaba en `NO_PSA9` (paso 5) y la incoherencia `NOT_ABOVE_RAW` (paso 6c) **nunca se
+   * comprobaba** ⇒ `review` devolvía `total: 0`. Y es el peor sitio posible para esa falta: el error
+   * **USD-como-MXN** es más probable en la **primera captura** (un solo grado), y como sin PSA 9 la
+   * carta **nunca se promociona**, la cifra errónea **no llega a la rejilla pero SÍ se muestra en la
+   * ficha** (que no aplica magnitud, §4.38k.3) ⇒ **visible al comprador, inencontrable para el
+   * operador**. Exactamente «publicamos la cifra mala y nadie se entera», que es el fallo que la lista
+   * de revisión existe para impedir.
+   *
+   * **Por qué NO se arregló reordenando los pasos:** es la SEGUNDA vez en el mismo pase que una
+   * superficie de **diagnóstico** hereda el cortocircuito de una superficie de **decisión** (la
+   * primera fue `STALE` inalcanzable, §4.38n.2-bis). Reordenar taparía esta instancia y dejaría la
+   * siguiente; emitir la lista completa ataca la causa.
+   *
+   * ## Reglas
+   * - **`eligible` NO cambia jamás**: es la conjunción de todos los pasos, así que el orden de
+   *   evaluación nunca la alteró. `eligible ⟺ reasons.length === 0`. **Money-neutral por
+   *   construcción**, y sin una sola query nueva (son comparaciones enteras sobre datos ya en memoria).
+   * - **Una condición cuyos INSUMOS no existen NO se evalúa y NO se lista** (`GRADE_ORDER_INVERTED`
+   *   sin PSA 9 no aparece; las cotas de magnitud sin precio de venta tampoco).
+   *   ⚠️ **La AUSENCIA de un `reason` significa «no se pudo comprobar», NO «pasó esa prueba».**
+   */
+  reasons: HighlightReason[];
   /** Vacío si `!eligible`. El caller OMITE el campo público cuando está vacío (jamás emite `[]`). */
   highlight: T[];
   gradingCostTier: GradingCostTier | null;
@@ -799,6 +836,12 @@ export function selectGradedEstimates<T extends GradedEstimateInput>(input: {
  * TEJA / VITRINA (`gradingHighlight`) — CON gate de ROI sobre PSA 9 (§4.38c, decisión 41). Cada paso
  * produce un `reason` accionable; JAMÁS un default silencioso.
  *
+ * ⚠️ **v1.50.3-e — DOS salidas, dos preguntas distintas (§4.38n.2-ter).** `reason` = el **PRIMER**
+ * bloqueante = «¿qué impide PROMOCIONAR?» (decisión, **sin cambio**). `reasons` = **todas** las
+ * condiciones aplicables que fallan, en el orden de abajo = «¿qué le PASA a esta carta?» (diagnóstico,
+ * lo que consumen `preview` y `review`). `reason === reasons[0]`, `eligible ⟺ reasons.length === 0`.
+ * Los pasos **NO se reordenan**: el orden de la tabla ES el orden canónico de `reasons`.
+ *
  * ```
  * 1  !enabled            -> FEATURE_OFF     6  alguno rancio      -> STALE
  * 2  productType != raw  -> NOT_RAW         6b slab publicado     -> SLAB_PUBLISHED     (v1.50.2, INV-D)
@@ -860,35 +903,44 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
       ? Math.floor(rawSalePriceCents * cfg.maxRawMultiple)
       : null;
 
-  const no = (reason: HighlightReason): GradingHighlightResult<T> => ({
-    eligible: false,
-    reason,
-    highlight: [],
-    gradingCostTier: null,
-    gradingCostMxnCents: null,
-    thresholdMxnCents: null,
-    netUpsidePsa9MxnCents: null,
-    maxAllowedPsa10MxnCents,
-    psa10MxnCents,
-    psa9MxnCents,
-    stale,
-    capturedDate,
-    isManual,
-  });
+  // ================= v1.50.3-e — EL DIAGNÓSTICO NO HEREDA EL CORTOCIRCUITO (§4.38c, n.2-ter) =========
+  // Se evalúan **TODAS** las condiciones aplicables, en ORDEN CANÓNICO (los pasos 1→8 de arriba), y se
+  // acumulan en `reasons`. `reason` = `reasons[0]` = el PRIMER bloqueante = **exactamente** lo que este
+  // gate devolvía antes: la DECISIÓN de promoción no cambia ni un byte, y `eligible` tampoco puede
+  // cambiar —era la conjunción de estos mismos pasos, y una conjunción no depende del orden en que se
+  // evalúa—. Lo único que el orden decidía era **qué motivo se reporta**, nunca **qué se promociona**:
+  // money-neutral por construcción. Y **cero queries nuevas**: todo lo de aquí abajo son comparaciones
+  // enteras sobre datos que YA están en memoria.
+  //
+  // ⚠️ **POR QUÉ NO SE REORDENAN LOS PASOS, que es la tentación obvia.** El defecto medido —raw $460 +
+  // PSA 10 $230 **sin PSA 9**: el paso 5 (`NO_PSA9`) corta antes del 6c y la carta queda INENUMERABLE
+  // en la lista de revisión, con una cifra en unidades equivocadas visible en la ficha— se «arreglaba»
+  // moviendo la cota de magnitud delante. No se hace: sería la **segunda** vez en el mismo pase que una
+  // superficie de **DIAGNÓSTICO** hereda el cortocircuito de una de **DECISIÓN** (la primera fue `STALE`
+  // inalcanzable, §4.38n.2-bis), y reordenar cierra **la instancia** dejando viva **la causa**. La causa
+  // es que `reason` es un **escalar** y «¿qué le pasa a esta carta?» no cabe en uno.
+  //
+  // **Regla de aplicabilidad:** una condición cuyos INSUMOS no existen no se evalúa y no se lista (p. ej.
+  // `GRADE_ORDER_INVERTED` sin PSA 9). Ausencia de un `reason` = «no se pudo comprobar», NO «pasó».
+  const reasons: HighlightReason[] = [];
+  // Precio de venta USABLE: el mismo predicado que gobernaba `NOT_PUBLISHED` y `maxAllowedPsa10MxnCents`
+  // (una sola verdad sobre «hay precio contra el que comparar»).
+  const salePriceCents =
+    rawSalePriceCents != null && isInt(rawSalePriceCents) && rawSalePriceCents > 0
+      ? rawSalePriceCents
+      : null;
 
-  // GU-A8 (§4.38d): apagado por dial M10 `off` **o** por una clave PRESENTE-e-INVÁLIDA que gobierne la
-  // promoción (`minUpsidePct`, `highlightGrades`) o la ficha (`grades`, `freshnessDays`). Un valor
-  // corrupto es evidencia de que la intención del admin se perdió: **no se adivina**, se apaga.
-  if (cfg.highlightEnabled !== true) return no('FEATURE_OFF');
-  if (productType !== 'raw') return no('NOT_RAW');
-  if (rawSalePriceCents == null || !isInt(rawSalePriceCents) || rawSalePriceCents <= 0) {
-    return no('NOT_PUBLISHED'); // sin precio de venta no hay comparación posible.
-  }
+  // 1. GU-A8 (§4.38d): apagado por dial M10 `off` **o** por una clave PRESENTE-e-INVÁLIDA que gobierne
+  //    la promoción (`minUpsidePct`, `highlightGrades`) o la ficha (`grades`, `freshnessDays`). Un valor
+  //    corrupto es evidencia de que la intención del admin se perdió: **no se adivina**, se apaga.
+  if (cfg.highlightEnabled !== true) reasons.push('FEATURE_OFF');
+  if (productType !== 'raw') reasons.push('NOT_RAW'); // 2. criterio 105.
+  if (salePriceCents == null) reasons.push('NOT_PUBLISHED'); // 3. sin precio no hay comparación posible.
   // Orden de razones: primero AUSENCIA de dato (NO_PSA10/NO_PSA9), después FRESCURA (STALE) — así el
   // admin distingue «no lo he capturado» de «lo capturé hace mucho».
-  if (psa10MxnCents == null) return no('NO_PSA10'); // se necesita para resolver el ESCALÓN.
-  if (psa9MxnCents == null) return no('NO_PSA9'); // criterio 98: sin PSA 9 no se promueve.
-  if (stale) return no('STALE'); // manda el MÁS ANTIGUO de los dos.
+  if (psa10MxnCents == null) reasons.push('NO_PSA10'); // 4. se necesita para resolver el ESCALÓN.
+  if (psa9MxnCents == null) reasons.push('NO_PSA9'); // 5. criterio 98: sin PSA 9 no se promueve.
+  if (stale) reasons.push('STALE'); // 6. manda el MÁS ANTIGUO de los dos.
 
   // 6b. INV-D (§4.38l): con un SLAB PUBLICADO de un grado, esa fila es el precio de mercado REAL de una
   //     pieza física — no un estimado — y la pieza ya se lista con su propio precio.
@@ -908,7 +960,7 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   const slabTakenGrades = present
     .map((e) => e.gradeValue)
     .filter((g) => publishedSlabGrades.includes(g));
-  if (slabTakenGrades.length > 0) return no('SLAB_PUBLISHED');
+  if (slabTakenGrades.length > 0) reasons.push('SLAB_PUBLISHED');
 
   // ============================ 6c. GATE DE MAGNITUD (§4.38k.2) ============================
   // ⚠️ LEER ANTES DE RELAJAR CUALQUIERA DE LAS TRES. **NO son redundantes**: cada una ataja un error
@@ -923,32 +975,55 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
   //  (2) SUPERIOR `psa10 <= salePriceCents × maxRawMultiple` → caza el **cero de más** / typo al alza.
   //  (3) DE ORDEN `psa10 >= psa9` → caza el **grado INTERCAMBIADO** (las dos filas capturadas cruzadas).
   //
-  // Va ANTES de resolver el escalón (paso 7) A PROPÓSITO: si el número está en unidades equivocadas, el
-  // escalón que elija es basura y el `threshold` que produzca también. Se descarta antes de contaminar
-  // el resto del cálculo. La FICHA no aplica NADA de esto (§4.38k.3): informar ≠ promover.
-  if (psa10MxnCents <= rawSalePriceCents) return no('NOT_ABOVE_RAW');
-  if (maxAllowedPsa10MxnCents != null && psa10MxnCents > maxAllowedPsa10MxnCents) {
-    return no('ABOVE_MAX_MULTIPLE');
+  // **v1.50.3-e — las tres se comprueban aunque un paso anterior ya haya bloqueado**, siempre que sus
+  // insumos existan. Ese es el arreglo entero: con un solo grado (sin PSA 9) las cotas (1) y (2) SÍ son
+  // computables —solo necesitan `psa10` y el precio de venta— y son justo las que cazan el error de
+  // unidades de la PRIMERA captura. La (3) necesita PSA 9, así que sin él no se evalúa ni se lista.
+  // La FICHA no aplica NADA de esto (§4.38k.3): informar ≠ promover.
+  if (salePriceCents != null && psa10MxnCents != null) {
+    if (psa10MxnCents <= salePriceCents) reasons.push('NOT_ABOVE_RAW');
+    // Independiente, no `else`: con un `maxRawMultiple < 1` las dos cotas pueden fallar a la vez, y el
+    // diagnóstico debe decirlo. `reason` sigue siendo la primera en orden canónico.
+    if (maxAllowedPsa10MxnCents != null && psa10MxnCents > maxAllowedPsa10MxnCents) {
+      reasons.push('ABOVE_MAX_MULTIPLE');
+    }
   }
-  if (psa10MxnCents < psa9MxnCents) return no('GRADE_ORDER_INVERTED');
+  // La cota de ORDEN **no depende del precio de venta**: sus únicos insumos son los dos grados. Va
+  // fuera del bloque de arriba a propósito — un grupo sin precio publicado (`NOT_PUBLISHED`) con las
+  // dos filas capturadas CRUZADAS sigue teniendo ese defecto, y ocultarlo sería el mismo cortocircuito
+  // que este cambio existe para quitar.
+  if (psa10MxnCents != null && psa9MxnCents != null && psa10MxnCents < psa9MxnCents) {
+    reasons.push('GRADE_ORDER_INVERTED');
+  }
 
-  const tier = findGradingCostTier(cfg.gradingCostTiers, psa10MxnCents);
-  if (tier == null) return no('NO_COST_TIER'); // SIN ESCALÓN, SIN DESTACADO — jamás costo 0.
+  // El corte de los pasos 1→6c: si ALGO de arriba bloqueó, los montos derivados del escalón siguen
+  // siendo `null` **exactamente como antes** (el escalón NO se resuelve sobre un número que ya sabemos
+  // incoherente — §4.38c, «el paso 6c va ANTES del 7 a propósito»). Lo que sí se sigue evaluando es el
+  // DIAGNÓSTICO, que es aditivo y no alimenta ninguna decisión.
+  const blockedBeforeTier = reasons.length > 0;
 
-  const costBase = rawSalePriceCents + tier.costMxnCents;
+  // 7. Escalón. Su único insumo es `psa10`: si existe, la condición es comprobable y se lista.
+  const tier = psa10MxnCents != null ? findGradingCostTier(cfg.gradingCostTiers, psa10MxnCents) : null;
+  if (psa10MxnCents != null && tier == null) reasons.push('NO_COST_TIER'); // jamás costo 0.
+
+  // 8. Gate de ROI sobre PSA 9 (decisión 41). Insumos: escalón + precio de venta + PSA 9.
+  //
   // v1.44 MENOR-1 — ARITMÉTICA ENTERA. `costBase * (1 + pct/100)` introduce error de flotante: con
   // `costBase=100000` y `pct=10` el umbral exacto es 110000 y esa expresión da 110000.00000000001, que
   // `Math.ceil` sube a 110001 y deja FUERA a la carta cuyo PSA 9 iguala EXACTAMENTE el umbral — contra
   // el «si y solo si >=» del criterio 97. Se escala por 100 (`pct` es un porcentaje) y se compara en la
   // escala grande, donde con `pct` entero el producto es exacto (≤ 2.2e10 << 2^53).
-  const thresholdScaled = costBase * (100 + cfg.minUpsidePct); // = umbral × 100
-  const thresholdMxnCents = Math.ceil(thresholdScaled / 100); // solo para el DIAGNÓSTICO de admin
-  const netUpsidePsa9MxnCents = psa9MxnCents - costBase;
-  const base = {
-    gradingCostTier: tier,
-    gradingCostMxnCents: tier.costMxnCents,
-    thresholdMxnCents,
-    netUpsidePsa9MxnCents,
+  const costBase = tier != null && salePriceCents != null ? salePriceCents + tier.costMxnCents : null;
+  const thresholdScaled = costBase != null ? costBase * (100 + cfg.minUpsidePct) : null; // = umbral × 100
+  if (thresholdScaled != null && psa9MxnCents != null && psa9MxnCents * 100 < thresholdScaled) {
+    reasons.push('BELOW_MIN_UPSIDE');
+  }
+
+  // ⟹ `eligible` es la CONJUNCIÓN de todos los pasos, igual que siempre. Se deriva de `reasons` para que
+  // no puedan divergir: una condición nueva que se olvide de apagar la elegibilidad es imposible aquí.
+  const eligible = reasons.length === 0;
+  const reasonField = reasons.length > 0 ? { reason: reasons[0] } : {};
+  const diag = {
     maxAllowedPsa10MxnCents,
     psa10MxnCents,
     psa9MxnCents,
@@ -956,13 +1031,38 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     capturedDate,
     isManual,
   };
-  // Insumo del diagnóstico: `netUpsidePsa9MxnCents` puede ser <= 0 aquí (por eso NO se usa como prueba
-  // de elegibilidad — la prueba es el UMBRAL).
-  // La DECISIÓN usa la escala entera, no el `thresholdMxnCents` redondeado: `psa9 × 100 >= umbral × 100`
-  // ⟺ `psa9 >= ceil(umbral)` (psa9 es entero), así que el diagnóstico y el gate siguen coincidiendo.
-  if (psa9MxnCents * 100 < thresholdScaled) {
-    return { eligible: false, reason: 'BELOW_MIN_UPSIDE', highlight: [], ...base };
+
+  // Los montos del escalón se emiten **solo** cuando el cálculo llegó de verdad hasta ellos: si algo
+  // bloqueó antes del paso 7, o no hay escalón, siguen siendo `null` como en v1.50.3-d. Money-safe: un
+  // monto no resoluble es `null`, JAMÁS `0` (§M2).
+  if (blockedBeforeTier || tier == null || costBase == null || thresholdScaled == null) {
+    return {
+      eligible: false, // `blockedBeforeTier || tier == null` ⇒ `reasons` no está vacío.
+      ...reasonField,
+      reasons,
+      highlight: [],
+      gradingCostTier: null,
+      gradingCostMxnCents: null,
+      thresholdMxnCents: null,
+      netUpsidePsa9MxnCents: null,
+      ...diag,
+    };
   }
+
+  const thresholdMxnCents = Math.ceil(thresholdScaled / 100); // solo para el DIAGNÓSTICO de admin
+  const netUpsidePsa9MxnCents = psa9MxnCents != null ? psa9MxnCents - costBase : null;
+  const base = {
+    gradingCostTier: tier,
+    gradingCostMxnCents: tier.costMxnCents,
+    thresholdMxnCents,
+    // Insumo del diagnóstico: puede ser <= 0 aquí (por eso NO se usa como prueba de elegibilidad — la
+    // prueba es el UMBRAL). La DECISIÓN usa la escala entera, no el `thresholdMxnCents` redondeado:
+    // `psa9 × 100 >= umbral × 100` ⟺ `psa9 >= ceil(umbral)` (psa9 es entero), así que el diagnóstico y
+    // el gate siguen coincidiendo.
+    netUpsidePsa9MxnCents,
+    ...diag,
+  };
+  if (!eligible) return { eligible: false, ...reasonField, reasons, highlight: [], ...base };
 
   const highlight: T[] = [];
   for (const g of cfg.highlightGrades) {
@@ -970,5 +1070,5 @@ export function evaluateGradingHighlight<T extends GradedEstimateInput>(input: {
     if (e != null) highlight.push(e);
   }
   // `netUpsidePsa9MxnCents > 0` garantizado aquí (psa9 >= threshold >= costBase, con minUpsidePct >= 0).
-  return { eligible: true, highlight: highlight.sort(byGradeDesc), ...base };
+  return { eligible: true, reasons, highlight: highlight.sort(byGradeDesc), ...base };
 }

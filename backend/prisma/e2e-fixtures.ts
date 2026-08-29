@@ -110,7 +110,61 @@ export const E2E_CARDS = {
    * dos del escenario.
    */
   thirdraw: { externalId: 'e2e-third-raw', name: 'E2E Third Bird', number: '31', rarity: 'Common', refNmCents: 40000, availableFinishes: ['normal'] },
+  /**
+   * v1.50.3-e (§4.38i.9) — **CUARTA carta raw publicada, y LIBRE**: nace SIN ninguna fila de estimado
+   * y ningún caso la deja con estado propio.
+   *
+   * La razón va más allá del hueco puntual que la pidió: con tres cartas, los escenarios empezaban a
+   * **reciclarse** entre casos, y un fixture que obliga a reciclar crea **acoplamiento entre pruebas**
+   * —la que corre segunda hereda el estado que dejó la primera—, que es exactamente lo que un fixture
+   * sintético existe para evitar. Aquí la usa el caso de la **red de coherencia con UN SOLO grado**
+   * (§4.38n.2-ter): PSA 10 por debajo del raw, **sin** PSA 9.
+   *
+   * Precio DEBAJO de `thirdraw` y ENCIMA de `slabbed`: el arnés del front toma las dos raw más caras
+   * como cartas de escenario y `thirdraw` como la tercera; entrar por debajo de ambas deja ese orden
+   * intacto y hace de ésta la CUARTA por precio, que es lo que su nombre promete.
+   */
+  fourthraw: { externalId: 'e2e-fourth-raw', name: 'E2E Fourth Bird', number: '32', rarity: 'Common', refNmCents: 35000, availableFinishes: ['normal'] },
+  /**
+   * v1.50.3-e (petición de QA) — **la carta de las DOS filas que la API del contrato NO puede
+   * fabricar**: un estimado con `capturedDate` VIEJA y un estimado de origen **automático**
+   * (`isManualOverride: false`). El `POST /admin/pricing/override` escribe **siempre** manual y
+   * **siempre** con la fecha de hoy, así que sin seed no había forma de ejercitar contra el stack vivo
+   * ni `?reason=STALE` con una fila **automática**, ni el sabor de `isManual: false` del diagnóstico.
+   *
+   * Sin ella, esas dos superficies solo estaban cubiertas por unitarios con dobles: el E2E fabricaba lo
+   * rancio con un `updateMany` de `capturedDate` sobre una fila MANUAL (caso `8d`), que es el otro
+   * sabor — el que tiene el remedio **opuesto** (recapturar vs. mirar el ingest, §4.38n.2-bis).
+   *
+   * **Carta PROPIA y no una reutilizada, por la misma razón que `fourthraw`**: sus filas viven ahí
+   * permanentemente (siempre rancias, por construcción), y colgarlas de una carta de escenario habría
+   * metido ruido `STALE` en todos los casos que la usan.
+   *
+   * Las cifras son COHERENTES a propósito (PSA 10 > raw, muy por debajo del múltiplo máximo, PSA 10 >
+   * PSA 9): así esta carta **nunca** entra al filtro por defecto de la lista de revisión —que es la
+   * señal de incoherencia y no debe ensuciarse— y solo aparece bajo el opt-in `?reason=STALE`.
+   * Precio raw por debajo de todas las demás raw publicadas: entra al final del orden por precio.
+   */
+  staleest: { externalId: 'e2e-stale-est', name: 'E2E Stale Estimate', number: '33', rarity: 'Common', refNmCents: 25000, availableFinishes: ['normal'] },
 } as const;
+
+/**
+ * v1.50.3-e — los estimados PSA de `staleest`, con su ANTIGÜEDAD y su ORIGEN. Se declaran aquí (y no
+ * enterrados en el seed) porque son el ORÁCULO de los tests: `capturedDate` a `daysAgo` días de hoy y
+ * `isManual` explícito por fila.
+ *
+ * - **PSA 10 automática y la MÁS ANTIGUA de las dos**: por eso el diagnóstico reporta `isManual:
+ *   false` para esta carta (§4.38n.2-bis: `isManual` describe **la fila que se está reportando**, la
+ *   que `pickBestRef` eligió entre las candidatas consideradas). Es el sabor cuyo remedio es **mirar
+ *   el ingest**, no la carta.
+ * - **PSA 9 manual**, también rancia: las dos ventanas de frescura (automática `freshnessDays`,
+ *   manual `manualFreshnessDays`) tienen seed 30, y 120 / 90 días las rebasan **con margen** para que
+ *   ningún cambio razonable de dial vuelva fresca una fila que el fixture promete rancia.
+ */
+export const E2E_STALE_ESTIMATES = [
+  { gradeValue: '10', gradeKey: 'graded:PSA:10', priceMxnCents: 250000, daysAgo: 120, isManual: false },
+  { gradeValue: '9', gradeKey: 'graded:PSA:9', priceMxnCents: 150000, daysAgo: 90, isManual: true },
+] as const;
 
 /**
  * Cartas del `E2E_ORDER_SET`, declaradas a propósito en orden NO natural para que el seed no pueda
@@ -145,7 +199,8 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // —y no derivado de `E2E_CARDS`— a propósito: si se derivara, un fixture mal ordenado se auto-
 // justificaría y el test dejaría de comprobar el orden natural, que es justo lo que vigila.
 // v1.50.3-d: entran `30` (E2E Slab And Raw, la carta de INV-D) y `31` (la tercera raw publicada).
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '98', '99'] as const;
+// v1.50.3-e: entran `32` (la CUARTA raw, libre) y `33` (la carta de los estimados rancios/automáticos).
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '98', '99'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
@@ -165,6 +220,10 @@ export const E2E_FOLIOS = {
   listedSlabRaw: 'E2E-LST-0005', // platform listed raw de la carta que ADEMÁS tiene slab publicado
   listedSlab: 'E2E-LST-0006', // platform listed graded PSA10 de esa MISMA carta → dispara INV-D
   listedThirdRaw: 'E2E-LST-0007', // platform listed raw: la TERCERA carta raw publicada
+  // v1.50.3-e (§4.38i.9): la CUARTA raw publicada y LIBRE (sin estimados ni estado heredado), y la
+  // carta de los estimados RANCIOS/AUTOMÁTICOS que la API del contrato no puede fabricar.
+  listedFourthRaw: 'E2E-LST-0008',
+  listedStaleEst: 'E2E-LST-0009',
 } as const;
 
 export const E2E_LOCATIONS = {

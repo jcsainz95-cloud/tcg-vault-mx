@@ -481,3 +481,144 @@ describe('evaluateGradingHighlight — TEJA/VITRINA (CON gate de ROI sobre PSA 9
     ).toEqual(['10', '9']);
   });
 });
+
+/**
+ * v1.50.3-e (§4.38c, §4.38n.2-ter) — **`reasons[]`: el DIAGNÓSTICO deja de heredar el cortocircuito de
+ * la DECISIÓN.**
+ *
+ * ## El defecto, medido contra el stack vivo
+ * Carta raw **MX$460** con **solo PSA 10 = MX$230** y **sin PSA 9**: la evaluación cortaba en el paso 5
+ * (`NO_PSA9`) y la cota de magnitud del paso 6c **nunca se comprobaba** ⇒ la lista de revisión devolvía
+ * `total: 0`. Añadiendo un PSA 9, la MISMA carta aparecía al instante con `NOT_ABOVE_RAW`.
+ *
+ * Y es el peor sitio donde podía faltar: `NOT_ABOVE_RAW` caza el **USD capturado como MXN**, un error
+ * típico de la **PRIMERA captura** (cuando solo hay un grado); y como sin PSA 9 la carta **nunca se
+ * promociona**, la cifra errónea **no llega a la rejilla pero SÍ se muestra en la ficha** —que no aplica
+ * magnitud (§4.38k.3)—: **visible al comprador, inencontrable para el operador**.
+ *
+ * ## Por qué el arreglo NO es reordenar los pasos
+ * Mover el 6c delante del 5 cerraría **esta** instancia dejando viva **la causa**: `reason` significa
+ * «primer bloqueante para PROMOCIONAR» y se estaba leyendo como «el diagnóstico de esta carta», que **no
+ * cabe en un escalar**. Es la SEGUNDA vez en el mismo pase que una superficie de diagnóstico hereda el
+ * cortocircuito de una de decisión (la primera: `STALE` inalcanzable, §4.38n.2-bis). Por eso se emite la
+ * lista completa.
+ *
+ * ## Lo que estas pruebas vigilan
+ * `eligible` NO cambia jamás (es la conjunción de los mismos pasos), `reason === reasons[0]`, y una
+ * condición sin insumos no se lista.
+ */
+describe('evaluateGradingHighlight — `reasons[]`, el diagnóstico COMPLETO (v1.50.3-e)', () => {
+  const base = { productType: 'raw' as const, rawSalePriceCents: 100_000, today: TODAY };
+
+  it('EL CASO MEDIDO: raw $460 + PSA 10 $230 SIN PSA 9 ⇒ `reasons` incluye `NOT_ABOVE_RAW`', () => {
+    const r = evaluateGradingHighlight({
+      ...base,
+      rawSalePriceCents: 46_000, // MX$460 — el grupo raw publicado
+      estimates: [est('10', 23_000)], // MX$230 — la mitad del raw: el error de unidades USD→MXN
+      cfg: cfg(),
+    });
+    // La DECISIÓN no cambia: sin PSA 9 no se promociona, y así seguirá (criterio 98).
+    expect(r.eligible).toBe(false);
+    expect(r.reason).toBe('NO_PSA9');
+    // El DIAGNÓSTICO sí: la incoherencia de magnitud ya se comprobó y se reporta. Antes: solo NO_PSA9.
+    expect(r.reasons).toEqual(['NO_PSA9', 'NOT_ABOVE_RAW']);
+  });
+
+  it('`reason` es SIEMPRE `reasons[0]`, y `reasons` está vacío exactamente cuando es elegible', () => {
+    const casos = [
+      { ...base, estimates: [est('10', 900_000), est('9', 500_000)], cfg: cfg() }, // elegible
+      { ...base, estimates: [est('10', 23_000)], cfg: cfg() },
+      { ...base, estimates: [], cfg: cfg() },
+      { ...base, rawSalePriceCents: null, estimates: [est('10', 900_000)], cfg: cfg() },
+      { ...base, productType: 'sealed' as const, estimates: [est('10', 900_000)], cfg: cfg() },
+      { ...base, estimates: [est('10', 900_000), est('9', 500_000)], cfg: cfg({ enabled: false }) },
+      { ...base, estimates: [est('10', 400_000), est('9', 500_000)], cfg: cfg() }, // grados cruzados
+      { ...base, estimates: [est('10', 90_000_000), est('9', 500_000)], cfg: cfg() }, // cero de más
+      { ...base, estimates: [est('10', 900_000, '2020-01-01'), est('9', 500_000)], cfg: cfg() }, // rancio
+    ];
+    for (const input of casos) {
+      const r = evaluateGradingHighlight(input);
+      expect(r.reason).toBe(r.reasons[0]); // `undefined === undefined` cuando es elegible
+      expect(r.eligible).toBe(r.reasons.length === 0);
+    }
+  });
+
+  it('una condición SIN INSUMOS no se evalúa y NO se lista (ausencia ≠ «pasó la prueba»)', () => {
+    // `GRADE_ORDER_INVERTED` compara PSA 10 con PSA 9: sin PSA 9 no es comprobable.
+    const sinPsa9 = evaluateGradingHighlight({ ...base, estimates: [est('10', 23_000)], cfg: cfg() });
+    expect(sinPsa9.reasons).not.toContain('GRADE_ORDER_INVERTED');
+    // Las dos cotas contra el raw necesitan precio de venta: sin él tampoco se listan.
+    const sinPrecio = evaluateGradingHighlight({
+      ...base,
+      rawSalePriceCents: null,
+      estimates: [est('10', 23_000), est('9', 500_000)],
+      cfg: cfg(),
+    });
+    expect(sinPrecio.reasons).toEqual(['NOT_PUBLISHED', 'GRADE_ORDER_INVERTED']);
+    expect(sinPrecio.reasons).not.toContain('NOT_ABOVE_RAW');
+    expect(sinPrecio.reasons).not.toContain('ABOVE_MAX_MULTIPLE');
+    // Y el escalón/umbral necesitan PSA 10 / PSA 9: sin ninguna fila no hay nada que comprobar.
+    const vacio = evaluateGradingHighlight({ ...base, estimates: [], cfg: cfg() });
+    expect(vacio.reasons).toEqual(['NO_PSA10', 'NO_PSA9']);
+  });
+
+  it('ORDEN CANÓNICO (pasos 1→8): varias condiciones a la vez salen en el orden del algoritmo', () => {
+    const r = evaluateGradingHighlight({
+      ...base,
+      productType: 'sealed', // 2
+      rawSalePriceCents: null, // 3
+      estimates: [], // 4 y 5
+      cfg: cfg({ enabled: false }), // 1
+    });
+    expect(r.reasons).toEqual(['FEATURE_OFF', 'NOT_RAW', 'NOT_PUBLISHED', 'NO_PSA10', 'NO_PSA9']);
+  });
+
+  it('MONEY-NEUTRAL: los montos del escalón siguen siendo `null` cuando algo bloqueó antes del paso 7', () => {
+    // El paso 6c va ANTES del 7 a propósito: un PSA 10 en unidades equivocadas no debe resolver
+    // escalón, porque el umbral que produzca es basura. Diagnosticar de más NO relaja eso.
+    const r = evaluateGradingHighlight({
+      ...base,
+      estimates: [est('10', 50_000), est('9', 40_000)], // PSA 10 por debajo del raw
+      cfg: cfg(),
+    });
+    expect(r.reasons[0]).toBe('NOT_ABOVE_RAW');
+    expect(r.gradingCostTier).toBeNull();
+    expect(r.gradingCostMxnCents).toBeNull();
+    expect(r.thresholdMxnCents).toBeNull();
+    expect(r.netUpsidePsa9MxnCents).toBeNull(); // jamás un 0 que parezca «sin ganancia»
+    // Los insumos del diagnóstico sí viajan (son lo que el operador necesita para corregir).
+    expect(r.psa10MxnCents).toBe(50_000);
+    expect(r.psa9MxnCents).toBe(40_000);
+  });
+
+  it('elegible ⇒ `reasons: []` y el resultado del gate no cambia en nada (aditivo)', () => {
+    const r = evaluateGradingHighlight({
+      ...base,
+      estimates: [est('10', 900_000), est('9', 500_000)],
+      cfg: cfg(),
+    });
+    expect(r.eligible).toBe(true);
+    expect(r.reasons).toEqual([]);
+    expect(r.reason).toBeUndefined();
+    expect(r.highlight.map((e) => e.gradeValue)).toEqual(['10']);
+    expect(r.thresholdMxnCents).toBe(364_000); // ceil((100 000 + 180 000) × 1.30)
+    expect(r.netUpsidePsa9MxnCents).toBe(500_000 - (100_000 + 180_000));
+  });
+
+  it('lo RANCIO no impide diagnosticar la incoherencia que hay debajo', () => {
+    // Antes, `STALE` (paso 6) tapaba el paso 6c igual que `NO_PSA9`. Una cifra caducada Y en unidades
+    // equivocadas es exactamente la que más urge encontrar: lleva más tiempo publicada.
+    const r = evaluateGradingHighlight({
+      ...base,
+      estimates: [est('10', 50_000, '2020-01-01'), est('9', 40_000, '2020-01-01')],
+      cfg: cfg(),
+    });
+    expect(r.reason).toBe('STALE'); // la decisión sigue reportando el primer bloqueante
+    // `BELOW_MIN_UPSIDE` también entra: sus insumos existen, así que la condición ES comprobable y la
+    // regla es mecánica (insumos ⇒ se evalúa). No ensucia la lista de revisión —no es enumerable ahí—
+    // y meter un «solo si el número es coherente» reintroduciría, en pequeño, el cortocircuito que este
+    // cambio quita.
+    expect(r.reasons).toEqual(['STALE', 'NOT_ABOVE_RAW', 'BELOW_MIN_UPSIDE']);
+    expect(r.eligible).toBe(false);
+  });
+});

@@ -87,6 +87,22 @@ describe('E2E — el SEED sintético es REPETIBLE (idempotente entre corridas y 
   /** La clave lógica SIN el día: dos filas que la compartan son el duplicado que BLOQ-A describía. */
   const claveSinDia = (fila: string) => fila.split('|').slice(0, 4).join('|');
 
+  /**
+   * Mueve `n` días el campo de fecha de una fila del `snapshot()` (posición 5), dejando el resto
+   * intacto. Sirve para expresar «la BD se sembró ayer» **sin** asumir que todas las filas del fixture
+   * tienen la fecha de hoy: desde v1.50.3-e algunas son RETRODATADAS por diseño (los estimados rancios
+   * de `e2e-stale-est`, que existen porque el `POST /admin/pricing/override` escribe SIEMPRE con la
+   * fecha de hoy y sin ellas el sabor «automático» de `?reason=STALE` no es ejercitable contra el
+   * stack vivo).
+   */
+  const desplazaUnDia = (fila: string, n: number): string => {
+    const campos = fila.split('|');
+    const d = new Date(`${campos[5]}T00:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    campos[5] = isoDay(d);
+    return campos.join('|');
+  };
+
   it('1) sembrar DOS veces el mismo día deja EXACTAMENTE el mismo estado y una sola fila por clave', async () => {
     const primera = await snapshot();
     expect(primera.length).toBeGreaterThan(0);
@@ -114,7 +130,13 @@ describe('E2E — el SEED sintético es REPETIBLE (idempotente entre corridas y 
       });
     }
     const deAyer = await snapshot();
-    expect(deAyer.every((f) => f.includes(`|${isoDay(ayer)}|`))).toBe(true);
+    // ⚠️ v1.50.3-e — el oráculo NO puede ser «todas las filas son de ayer»: desde esta versión el
+    // fixture incluye a propósito filas RETRODATADAS (los estimados rancios de `e2e-stale-est`, que
+    // son lo único que la API del contrato no puede fabricar). Lo que se afirma es lo que de verdad
+    // se simuló: **cada fila retrocedió exactamente un día**, conserve la antigüedad que conserve.
+    expect(deAyer).toEqual(esperado.map((f) => desplazaUnDia(f, -1)).sort());
+    // …y al menos una es de ayer (si no, el escenario «se sembró ayer» no se estaría simulando).
+    expect(deAyer.some((f) => f.includes(`|${isoDay(ayer)}|`))).toBe(true);
 
     await seedE2E(prisma);
 

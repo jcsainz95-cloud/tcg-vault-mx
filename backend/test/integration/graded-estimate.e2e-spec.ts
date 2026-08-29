@@ -13,7 +13,12 @@
  * la suite comparte la BD con las demás y el dial es global.
  */
 import { E2EHarness } from './helpers/e2e-app';
-import { E2E_CARDS, E2E_LIST_OVERRIDE_CENTS, E2E_USERS } from '../../prisma/e2e-fixtures';
+import {
+  E2E_CARDS,
+  E2E_LIST_OVERRIDE_CENTS,
+  E2E_STALE_ESTIMATES,
+  E2E_USERS,
+} from '../../prisma/e2e-fixtures';
 
 describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
   let h: E2EHarness;
@@ -686,11 +691,35 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const borrado9 = await delEstimate(conSlab.id, '9');
     expect(borrado9.status).toBe(200);
     expect(borrado9.body.deletedCount).toBe(1);
+    // ⚠️ v1.50.3-e — **la carta SIGUE en `?reason=SLAB_PUBLISHED`, y eso es lo CORRECTO.** Hasta este
+    // pase esta assertion esperaba que desapareciera, y lo hacía por el motivo equivocado: sin PSA 9 la
+    // evaluación cortaba en `NO_PSA9` y **nunca llegaba a comprobar `SLAB_PUBLISHED`** — la carta salía
+    // de la lista por un cortocircuito, no porque la exposición hubiera terminado.
+    //
+    // La exposición NO ha terminado: la fila `graded:PSA:10` sigue ahí (es la referencia de mercado del
+    // slab publicado) y **es indistinguible de un estimado** — eso ES §4.38(l.3), el riesgo declarado, y
+    // este filtro opt-in se define justamente como «el conjunto expuesto a él». Lo que cambió es que
+    // ahora el conjunto está COMPLETO: antes solo se veían las cartas que además tuvieran el otro grado.
+    const trasBorrar9 = await h.api(
+      'GET',
+      '/admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED&pageSize=100',
+      { token: adminToken },
+    );
+    const expuestaAun = trasBorrar9.body.data.find((x: any) => x.cardId === conSlab.id);
+    expect(expuestaAun).toMatchObject({
+      reason: 'NO_PSA9', // el PRIMER bloqueante de la PROMOCIÓN — la decisión no cambia
+      psa9MxnCents: null, // el estimado retirado ya no está: el borrado SÍ surtió efecto
+      psa10MxnCents: E2E_CARDS.slabbed.refPsa10Cents, // …y la fila del SLAB sigue intacta
+      publishedSlabGrades: ['10'],
+      eligible: false,
+    });
+    // El diagnóstico completo nombra la exposición aunque no sea el primer bloqueante.
+    expect(expuestaAun.reasons).toEqual(['NO_PSA9', 'SLAB_PUBLISHED']);
+    // …y NO entra al filtro por DEFECTO: `SLAB_PUBLISHED` es la guarda funcionando, no un dato malo, y
+    // meterlo ahí ahogaría la señal de incoherencia (§4.38n.2).
     expect(
       (
-        await h.api('GET', '/admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED&pageSize=100', {
-          token: adminToken,
-        })
+        await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', { token: adminToken })
       ).body.data.find((x: any) => x.cardId === conSlab.id),
     ).toBeUndefined();
     // …y el precio del slab sigue sin moverse tras TODO el ejercicio.
@@ -733,6 +762,161 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         where: { cardId, productType: 'graded', gradeKey: 'graded:PSA:10' },
       }),
     ).toBe(antes);
+  });
+
+  /**
+   * v1.50.3-e (§4.38i.9 caso 9, §4.38n.2-ter) — **LA RED DE COHERENCIA CON UN SOLO GRADO.**
+   *
+   * Es el caso que más importa de toda la lista de revisión, porque es donde el error de unidades es
+   * **más probable**: `NOT_ABOVE_RAW` caza el **USD capturado como MXN**, y ese error ocurre típicamente
+   * en la **primera captura**, cuando el operador acaba de teclear **un solo grado**. La protección
+   * faltaba precisamente en el momento de máximo riesgo.
+   *
+   * Medido antes del arreglo: raw MX$460 + PSA 10 MX$230 **sin PSA 9** ⇒ `review` devolvía `total: 0`
+   * (la evaluación cortaba en `NO_PSA9` y la cota de magnitud nunca se comprobaba); **añadiendo** un PSA
+   * 9, la misma carta aparecía al instante. Y el efecto compuesto es el fallo que §4.38 jura evitar: sin
+   * PSA 9 la carta **nunca se promociona** (criterio 98) pero **la ficha SÍ muestra la cifra** (§4.38k.3,
+   * la ficha no aplica magnitud) ⇒ **una cifra en unidades equivocadas, visible al comprador y no
+   * enumerable para el operador**.
+   *
+   * Se ejecuta sobre la **CUARTA carta raw** del fixture, que nace **libre**: las tres anteriores ya se
+   * consumen entre escenarios, y reciclar una aquí haría que este caso heredara el estado del anterior
+   * — el acoplamiento entre pruebas que un fixture sintético existe para evitar. Termina **borrando** su
+   * estimado, así que la deja como la encontró.
+   */
+  it('8g) caso 9 — un solo grado incoherente: NO se promociona, SÍ en la ficha y SÍ en `review`', async () => {
+    await setDial('on');
+    const cuarta = await h.prisma.card.findFirst({
+      where: { externalId: E2E_CARDS.fourthraw.externalId },
+    });
+    if (!cuarta) throw new Error('fixture e2e-fourth-raw no encontrado: corre `npm run seed:synthetic`');
+
+    // El precio de venta se LEE del catálogo (no se asume): es contra lo que la cota inferior compara,
+    // y clavarlo a mano ataría el caso a la curva de precios vigente.
+    const antes = await h.api('GET', `/catalog/cards/${cuarta.id}`);
+    expect(antes.status).toBe(200);
+    const grupoRaw = antes.body.listings.find((l: any) => l.productType === 'raw');
+    const precioRaw = grupoRaw.salePriceCents;
+    expect(precioRaw).toBeGreaterThan(0);
+    // La carta parte LIMPIA: sin esto, un residuo de otra corrida haría verde este caso por accidente.
+    expect(antes.body.gradedEstimates).toBeUndefined();
+
+    // UN SOLO GRADO, y en unidades equivocadas: PSA 10 por DEBAJO del raw. **Sin PSA 9 a propósito.**
+    const captura = await h.api('POST', '/admin/pricing/override', {
+      token: adminToken,
+      json: {
+        cardId: cuarta.id,
+        productType: 'graded',
+        gradeKey: 'graded:PSA:10',
+        priceMxnCents: Math.floor(precioRaw / 2),
+        intent: 'graded_estimate',
+      },
+    });
+    expect(captura.status).toBe(200);
+
+    // (1) NO se promociona — ni teja ni vitrina. `reason` sigue siendo `NO_PSA9`: la DECISIÓN no cambió.
+    const rejilla = await h.api(
+      'GET',
+      `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.fourthraw.name)}&pageSize=20`,
+    );
+    const teja = rejilla.body.data.find((g: any) => g.card.id === cuarta.id && g.productType === 'raw');
+    expect(teja).toBeDefined();
+    expect(teja.gradingHighlight).toBeUndefined();
+    const vitrina = await h.api('GET', '/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8');
+    expect(vitrina.body.data.find((g: any) => g.card.id === cuarta.id)).toBeUndefined();
+
+    // (2) …pero la FICHA la sigue mostrando (§4.38k.3). Ésta es la mitad que obliga a la otra.
+    const ficha = await h.api('GET', `/catalog/cards/${cuarta.id}`);
+    expect(ficha.body.gradedEstimates).toHaveLength(1);
+    expect(ficha.body.gradedEstimates[0].gradeValue).toBe('10');
+
+    // (3) …y AHORA sí aparece en la lista de revisión. Antes de v1.50.3-e: `total: 0`, invisible.
+    const porMotivo = await h.api(
+      'GET',
+      '/admin/pricing/graded-estimates/review?reason=NOT_ABOVE_RAW&pageSize=100',
+      { token: adminToken },
+    );
+    expect(porMotivo.status).toBe(200);
+    const fila = porMotivo.body.data.find((x: any) => x.cardId === cuarta.id);
+    expect(fila).toBeDefined();
+    expect(fila).toMatchObject({
+      reason: 'NO_PSA9', // el PRIMER bloqueante, sin cambio de semántica (contrato §M2)
+      eligible: false, // enumerarla NO la vuelve elegible
+      psa10MxnCents: Math.floor(precioRaw / 2),
+      psa9MxnCents: null, // money-safe: no resoluble es `null`, jamás 0
+      salePriceCents: precioRaw,
+    });
+    // El diagnóstico COMPLETO es lo que la hace accionable: `reason` solo no bastaba.
+    expect(fila.reasons).toEqual(['NO_PSA9', 'NOT_ABOVE_RAW']);
+    // …y también con el filtro por DEFECTO (los tres de coherencia), que es como la mira el operador.
+    const porDefecto = await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', {
+      token: adminToken,
+    });
+    expect(porDefecto.body.data.find((x: any) => x.cardId === cuarta.id)).toBeDefined();
+
+    // (4) …y NINGÚN precio de venta se movió: el estimado nunca fue dinero (criterio 112).
+    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(precioRaw);
+
+    // (5) El bucle se cierra con el remedio de §4.38(q) y la carta queda LIBRE otra vez (el fixture no
+    //     se degrada corrida a corrida, que es justo por lo que esta carta existe).
+    const borrado = await h.api('DELETE', `/admin/pricing/graded-estimates/${cuarta.id}/10`, {
+      token: adminToken,
+    });
+    expect(borrado.status).toBe(200);
+    const tras = await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', {
+      token: adminToken,
+    });
+    expect(tras.body.data.find((x: any) => x.cardId === cuarta.id)).toBeUndefined();
+    const fichaFinal = await h.api('GET', `/catalog/cards/${cuarta.id}`);
+    expect(fichaFinal.body.gradedEstimates).toBeUndefined();
+    expect(fichaFinal.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(precioRaw);
+  });
+
+  /**
+   * v1.50.3-e (petición de QA) — **las dos filas que la API del contrato NO puede fabricar**: un
+   * estimado con `capturedDate` VIEJA y uno de origen **AUTOMÁTICO**. `POST /admin/pricing/override`
+   * escribe siempre manual y siempre con la fecha de hoy (a propósito, §4.38m: el manual se refresca
+   * recapturándolo), así que el sabor **automático** de `STALE` —el que tiene el remedio OPUESTO:
+   * mirar el ingest, no la carta— solo estaba cubierto por unitarios con dobles.
+   *
+   * Con la carta `e2e-stale-est` del fixture ese sabor queda ejercitado contra el stack vivo.
+   */
+  it('8h) `?reason=STALE` con una fila AUTOMÁTICA: `isManual:false` (remedio = mirar el ingest)', async () => {
+    await setDial('on');
+    const rancia = await h.prisma.card.findFirst({
+      where: { externalId: E2E_CARDS.staleest.externalId },
+    });
+    if (!rancia) throw new Error('fixture e2e-stale-est no encontrado: corre `npm run seed:synthetic`');
+    const [psa10Seed] = E2E_STALE_ESTIMATES;
+
+    const caducadas = await h.api('GET', '/admin/pricing/graded-estimates/review?reason=STALE&pageSize=100', {
+      token: adminToken,
+    });
+    expect(caducadas.status).toBe(200);
+    const fila = caducadas.body.data.find((x: any) => x.cardId === rancia.id);
+    expect(fila).toBeDefined();
+    expect(fila).toMatchObject({
+      reason: 'STALE',
+      stale: true,
+      eligible: false,
+      // La fila REPORTADA es la más antigua de las presentes (§4.38n.2-bis, MEN-B), que aquí es la
+      // AUTOMÁTICA: por eso el remedio que señala es «mirar el ingest», no «recapturar».
+      isManual: false,
+      psa10MxnCents: psa10Seed.priceMxnCents,
+    });
+    // …y NO revela la identidad del proveedor: contesta «¿la puse yo?», nada más (§4.38g/n.2-bis).
+    expect(fila).not.toHaveProperty('source');
+    expect(JSON.stringify(fila)).not.toContain('pokemonpricetracker');
+
+    // Las cifras del fixture son COHERENTES: esta carta NO debe ensuciar la señal de incoherencia.
+    const porDefecto = await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', {
+      token: adminToken,
+    });
+    expect(porDefecto.body.data.find((x: any) => x.cardId === rancia.id)).toBeUndefined();
+
+    // Y lo rancio NO se exhibe: la ficha calla aunque las filas existan en la tabla (criterio 109).
+    const ficha = await h.api('GET', `/catalog/cards/${rancia.id}`);
+    expect(ficha.body.gradedEstimates).toBeUndefined();
   });
 
   it('9) apagar el dial deja el catálogo EXACTAMENTE como antes de la feature', async () => {

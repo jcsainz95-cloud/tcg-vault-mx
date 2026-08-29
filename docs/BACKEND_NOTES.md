@@ -4,6 +4,131 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.10 v1.50.3-e — `reasons[]`: el DIAGNÓSTICO deja de heredar el cortocircuito de la DECISIÓN (2026-08-29)
+
+> Implementa **ARCHITECTURE §4.38(i) ítems 9 y 10** / **§4.38(c)** / **§4.38(n.2-ter)**, contra
+> `API_CONTRACT` §M2 (addendum v1.50.3-e). **Aditivo y admin-only: cero DTO públicos tocados, cero
+> migraciones, cero queries nuevas, cero cambios de precio.** `eligible` **no puede** cambiar por
+> construcción (ver 0.10.2).
+
+### 0.10.1 El defecto, y por qué el arreglo NO fue reordenar pasos
+
+Medido por frontend contra el stack vivo sobre `e2e-third-raw` (venta raw **MX$460**):
+
+```
+PSA 10 = MX$230, sin PSA 9   →  review: total = 0        ← invisible
++ PSA 9 = MX$150             →  review: NOT_ABOVE_RAW    ← aparece
+```
+
+`evaluateGradingHighlight` corta en el paso 5 (`NO_PSA9`) y la cota de magnitud del paso 6c **nunca se
+comprueba**. El código era **fiel al algoritmo**: el defecto estaba en usar una salida de **decisión**
+(`reason` = «primer bloqueante para PROMOCIONAR») como si fuera una de **diagnóstico** («qué le pasa a
+esta carta»), que **no cabe en un escalar**.
+
+Mover el 6c delante del 5 lo habría tapado. No se hizo, y la razón es que **es la segunda vez en el
+mismo pase**: `STALE` inalcanzable (PI-D6, §4.38n.2-bis) fue exactamente la misma clase de error. Se
+ataca la causa: **la pura emite la lista completa**.
+
+### 0.10.2 Qué cambió en la pura (`src/common/graded-estimate.ts`)
+
+`GradingHighlightResult` gana **`reasons: HighlightReason[]`** con **todas** las condiciones que fallan,
+en **orden canónico** (los pasos 1→8 del algoritmo, que **no se reordenan**).
+
+- **`reason` se conserva sin cambio** = `reasons[0]` = primer bloqueante.
+- **`eligible ⟺ reasons.length === 0`**, y ahora **se deriva de ahí** en vez de ser un camino aparte: era
+  ya la conjunción de los mismos pasos, y una conjunción no depende del orden de evaluación. **Money-neutral
+  por construcción**; lo único que el orden decidía era *qué motivo se reporta*, nunca *qué se promociona*.
+- **Regla de aplicabilidad:** una condición cuyos **insumos no existen** no se evalúa y **no se lista**
+  (`GRADE_ORDER_INVERTED` sin PSA 9; las dos cotas contra el raw sin precio de venta publicado). ⚠️ La
+  **ausencia** de un `reason` significa **«no se pudo comprobar»**, no «pasó esa prueba».
+- **La cota de ORDEN de grados quedó FUERA del bloque que exige precio de venta**: sus únicos insumos son
+  los dos grados. Con el precio ausente, `NOT_PUBLISHED` no debe tapar unas filas capturadas cruzadas.
+- **Los montos derivados del escalón siguen intactos**: si algo bloqueó antes del paso 7, `gradingCostTier`,
+  `gradingCostMxnCents`, `thresholdMxnCents` y `netUpsidePsa9MxnCents` siguen siendo `null` **exactamente
+  como antes** (el paso 6c va antes del 7 a propósito: un PSA 10 en unidades equivocadas no debe resolver
+  escalón). Diagnosticar de más no relaja eso, y money-safe sigue siendo `null`, jamás `0`.
+- **Coste: ninguna query nueva.** Son comparaciones enteras sobre datos que ya estaban en memoria.
+
+**Nota para quien lea `reasons` en el `preview`:** `NO_COST_TIER` y `BELOW_MIN_UPSIDE` **sí** aparecen
+aunque una cota de magnitud haya fallado antes, porque sus insumos existen y la regla es mecánica. No
+ensucian la lista de revisión (no son enumerables ahí) y meter un «solo si el número es coherente»
+reintroduciría, en pequeño, el cortocircuito que este cambio quita.
+
+### 0.10.3 Qué cambió en las superficies de admin (`catalog.service.ts`)
+
+- **`GradedEstimatePreviewDTO` y `GradedEstimateReviewItemDTO` ganan `reasons: HighlightReason[]`**
+  (contrato §M2). `reason` sigue siendo el primer bloqueante, tal como el contrato lo declara.
+- **El filtro de `/review` se evalúa sobre `reasons`**: una fila entra si `reasons ∩ {reasons pedidos} ≠ ∅`.
+- **El ORDEN primario es el `reason` MATCHEADO** —el primero de `reasons` que está en el conjunto pedido—,
+  **no `reasons[0]`**: para la carta de un solo grado, `reasons[0]` es `NO_PSA9`, un motivo que el operador
+  no pidió y que no explica su presencia en la lista. Ordenar por él barajaría la lista por un criterio
+  invisible desde la respuesta. El resto del orden (`capturedDate` asc con `null` al final → `cardId` →
+  representante) no cambia.
+
+**⚠️ Consecuencia observable para QA/frontend, y es la correcta:** el conjunto de
+`?reason=SLAB_PUBLISHED` **crece**. Una carta con slab PSA 10 publicado y su fila `graded:PSA:10` ahora
+aparece **aunque no tenga PSA 9**; antes desaparecía por el cortocircuito `NO_PSA9`, no porque la
+exposición hubiera terminado. La fila sigue siendo indistinguible de un estimado —eso **es** §4.38(l.3)— y
+este filtro se define precisamente como «el conjunto expuesto a ese riesgo». La assertion de `8e` que
+esperaba lo contrario se corrigió (y ahora afirma lo que de verdad ocurre, con `psa9MxnCents: null` para
+probar que el borrado sí surtió efecto). `SLAB_PUBLISHED` **sigue fuera del filtro por defecto**.
+
+### 0.10.4 Fixture E2E: dos cartas nuevas (`prisma/e2e-fixtures.ts`, `prisma/seed-e2e.ts`)
+
+- **`e2e-fourth-raw` (n.º 32) — CUARTA carta raw publicada y LIBRE** (§4.38i.9, v1.50.3-e). Nace **sin
+  ninguna fila de estimado** y el caso que la usa la deja como la encontró. La razón va más allá del hueco
+  puntual: con tres cartas los escenarios se **reciclaban**, y un fixture que obliga a reciclar crea
+  **acoplamiento entre pruebas** —la que corre segunda hereda el estado de la primera—, justo lo que un
+  fixture sintético existe para evitar. Precio por **debajo** de `thirdraw` y por **encima** de `slabbed`:
+  el orden por precio que usa el arnés del front (dos raw más caras = escenario, `thirdraw` = tercera) no
+  se altera.
+- **`e2e-stale-est` (n.º 33) — las DOS filas que la API del contrato NO puede fabricar** (petición de QA):
+  un estimado con **`capturedDate` vieja** (120 días, **automática**: `source: pokemonpricetracker`,
+  `isManualOverride: false`) y otro **manual** de 90 días. `POST /admin/pricing/override` escribe
+  **siempre** manual y **siempre** con la fecha de hoy (a propósito, §4.38m), así que sin seed el sabor
+  **automático** de `?reason=STALE` —el del remedio **opuesto**: mirar el ingest, no la carta— solo existía
+  en unitarios con dobles. Las cifras son **coherentes** a propósito (PSA 10 > raw, muy por debajo del
+  múltiplo máximo, PSA 10 > PSA 9): la carta **nunca** entra al filtro por defecto y solo aparece bajo el
+  opt-in `STALE`. Las dos señales de origen se siembran coherentes entre sí (`isManualOverride` **y**
+  `source`), porque el resolver considera manual una fila con cualquiera de las dos.
+- Nuevos folios `E2E-LST-0008` / `E2E-LST-0009` y `E2E_SET_EXPECTED_NUMBERS` con `32` y `33`.
+- **La idempotencia del seed se mantiene** (§0.9): las fechas retrodatadas se calculan **relativas a hoy**,
+  así que sembrar N veces deja siempre el mismo estado. El oráculo de `seed-idempotency` caso 2 se ajustó:
+  ya no puede afirmar «todas las filas son de hoy» —hay filas viejas por diseño— sino lo que de verdad se
+  simula, **«cada fila retrocedió exactamente un día»**, que además es una afirmación más fuerte.
+
+### 0.10.5 Pruebas
+
+- **Unitarias, pura** (`test/graded-estimate.gate.spec.ts`, +7): el caso medido (raw $460 + PSA 10 $230 sin
+  PSA 9 ⇒ `reasons: ['NO_PSA9','NOT_ABOVE_RAW']`); `reason === reasons[0]` y `eligible ⟺ reasons=[]` sobre
+  una matriz de 9 escenarios; condiciones sin insumos que **no** se listan; orden canónico con cinco
+  motivos a la vez; money-neutralidad de los montos del escalón; y que lo **rancio** ya no tapa la
+  incoherencia que hay debajo.
+- **Unitarias, `/review`** (`test/graded-estimate.admin.spec.ts`, +5): la carta de un solo grado enumerada
+  bajo `NOT_ABOVE_RAW` con `reason: NO_PSA9` y `eligible: false`; que **también** sale en el default; que
+  una carta coherente de un solo grado **no** entra (si bastara con `reasons` no vacío, la lista se
+  llenaría de cartas normales); y que el orden usa el `reason` matcheado.
+- **Integración** (`test/integration/graded-estimate.e2e-spec.ts`, +2): **`8g)` = el caso 9 del gate de
+  QA** —un solo grado incoherente sobre la carta libre: no se promociona, sí en la ficha, sí en
+  `review?reason=NOT_ABOVE_RAW`, ningún precio se mueve, y se borra al final— y **`8h)`** el `?reason=STALE`
+  con fila **automática** (`isManual: false`, sin filtrarse el `source`).
+
+**Números reales** (2026-08-29, stack nativo): `npm test` **2 469/2 469** en 200 suites;
+`npm run test:integration` **171/171** en 13 suites, corrido **dos veces con `npm run seed:synthetic` en
+medio** (misma cifra las dos veces). `eslint`: 0 errores (2 warnings preexistentes, ajenos a este cambio).
+
+### 0.10.6 Lo que NO toqué (cerrado por el arquitecto sin código)
+
+- **MEN-B**: `isManual` describe **la fila que el diagnóstico está reportando** (la que `pickBestRef`
+  eligió entre las candidatas consideradas), ni «la más antigua» ni «la que caducó» como conceptos
+  sueltos. Mi objeción por los diales asimétricos se disuelve: la re-inyección usa **el mismo
+  comparador**, así que la fila reportada **es** la que volvería a mostrarse al refrescarla.
+- **R1**: la guarda del `DELETE` **no** se ensancha a slabs `in_stock`. Extenderla preservaría la fila del
+  estimado precisamente para que, al publicar el slab, pasara a determinar su precio — institucionalizaría
+  INV-D inverso. Queda cerrada **en vez de** abierta para que nadie la «complete» creyendo que endurece.
+
+---
+
 ## 0.9 v1.50.3-e — El ARNÉS deja de romperse solo: seed idempotente entre días (BLOQ-A de QA) (2026-08-29)
 
 > Cierra el rechazo de QA al pase v1.50.3-d. **La funcionalidad no cambió**: QA verificó el `409` a mano
