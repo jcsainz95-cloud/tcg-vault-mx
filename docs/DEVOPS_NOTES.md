@@ -4270,6 +4270,17 @@ condiciones están resueltas, despliego, tageo y lo declaro listo. Antes no.
 
 ## 31. Clave de PRUEBA de Stripe: los tres flujos de dinero en navegador antes de prod — 2026-08-24
 
+> **⚠ LEER ANTES QUE ESTA SECCIÓN (añadido 2026-08-30, §33).** Dos afirmaciones de aquí abajo se han
+> quedado cortas o mezcladas:
+> 1. **§31.2 diagnostica el caso LOCAL** (egress a `api.stripe.com` bloqueado). **En CI la causa es
+>    otra**: la clave es de **relleno**. Mismo síntoma —los mismos 3 rojos—, dos causas que se arreglan
+>    con cosas distintas. La tabla que las separa está en **§33.5**.
+> 2. **El preflight de §31.4 comprobaba PRESENCIA, no VALIDEZ**, y podía anunciar en verde un gate de
+>    dinero inexistente. Corregido en **§33.2/§33.3**: ahora clasifica por FORMA y, sin credencial,
+>    **salta** los tres smokes declarándolo (la ruta de promoción sigue siendo rojo inmediato).
+> 3. La tabla «qué es gate y qué no» de §31.4 asume que `deploy.yml` es el camino de deploy. **No lo
+>    es** — ver **§33.4**.
+
 > **Decisión del dueño:** la condición #1 del DoD (§30.6) se resuelve **por la vía de la clave de prueba**,
 > no por aceptación formal. Los tres flujos de dinero —**comprar**, **comprar como invitado**,
 > **retirar**— se verifican **en navegador contra staging** antes de promover a prod. Eso convierte una
@@ -4992,3 +5003,246 @@ roles; el dato ya existe y ya es de solo-lectura.
 | **Contrapartida de cerrarlo del todo** | Un `super_admin` JWT de producción guardado en CI. **Decisión del humano, no de devops.** |
 | **Vía barata propuesta** | Job post-deploy con `railway logs` \| `grep 'config inventory'` — cero secretos nuevos. **Sin cablear** hasta poder probarla contra Railway. |
 | **Mejor solución** | Exponerlo en la UI de M2 (techlead). **Enrutado a frontend/backend.** |
+
+---
+
+## 33. El preflight de Stripe mentía: 13 corridas rojas y un verde que no era verde — 2026-08-30
+
+> **Resumen en una línea:** `e2e-real.yml` —el gate que decide la promoción a producción— llevaba
+> **13 corridas de 13 en rojo desde el día que existe** (2026-08-18), y el paso que debía explicarlo
+> comprobaba que la variable **existiera**, no que **sirviera**. Dos mentiras encadenadas: un rojo
+> diario que nadie miraba y un preflight capaz de decir «clave de prueba presente, los smokes de
+> dinero son gate real» sobre un relleno.
+
+### 33.1 Lo que se creía y lo que dice el registro
+
+Lo que §31 daba por hecho era que el nightly funcionaba y que sólo los tres smokes de dinero salían
+rojos «por falta de proveedor». La primera mitad es falsa. Consultado el historial del workflow
+(API de Actions, no memoria):
+
+| Corridas de `e2e-real.yml` | 13 (nº 1 el 2026-08-18, nº 13 el 2026-08-29) |
+|---|---|
+| Verdes | **0** |
+| Rojas | **13** |
+| Paso donde muere | **siempre** el mismo: `Playwright smoke — flujos críticos (REAL)` |
+
+No son «tres días sin mirar el tablero»: son **doce días y todas las corridas que ha habido**. El
+workflow nunca ha estado verde ni un solo día. Esto importa para el DoD, porque §31.4 lo declaraba
+gate de promoción — un gate que nunca ha pasado no ha bloqueado nada, ha sido decorativo.
+
+Del log de la corrida 13 (`33255299677`, job `99107828594`), el detalle que cierra el diagnóstico:
+
+```
+STRIPE_TEST_SECRET_KEY: sk_test_e2e_dummy
+STRIPE_TEST_PUBLISHABLE_KEY: pk_test_e2e_dummy
+STRIPE_TEST_WEBHOOK_SECRET: whsec_e2e_dummy
+→ 3 failed, 1 passed   (18 × "element(s) not found", 9 × toBeVisible failed)
+```
+
+### 33.2 El defecto real: presencia ≠ validez, y por qué se elige SALTAR
+
+El paso 11 se llamaba **«Preflight — ¿hay clave de PRUEBA de Stripe real?»** y su lógica era un `case`
+sobre el valor con una rama por el literal `sk_test_e2e_dummy`. Todo lo demás que empezara por
+`sk_test_` caía en la rama optimista e imprimía en verde *«Clave de prueba presente; los smokes de
+dinero son gate real»*. Es decir: `sk_test_CHANGE_ME` —**el valor que este mismo repo pone en
+`.env.example`**— habría anunciado un gate de dinero que no existía. **Es el patrón de §32 (el seed que
+no pisa lo existente) y el de §30.1 (el test que fijaba su propia configuración): un detector que se
+cree a sí mismo.**
+
+**Contexto que decide el diseño, y que hay que dejar escrito porque lo cambia todo:** el dueño **no ha
+configurado Stripe A PROPÓSITO** y no lo hará hasta que la plataforma esté al 100%. `sk_test_e2e_dummy`
+no es un olvido ni una credencial vencida: es un **estado deliberado y duradero** del proyecto.
+
+De las dos salidas honestas posibles, **se elige SALTAR** los tres smokes de dinero declarándolos
+saltados, y **no** fallar el preflight. El porqué, sin adornos:
+
+1. **Fallar sería gritar todos los días por una decisión consciente del dueño.** Un rojo que sale
+   siempre no es una alarma: es ruido. Y el ruido diario es *exactamente* el mecanismo por el que
+   nadie miró este tablero durante 12 días. Una alarma que suena siempre ya se apagó, sólo que en la
+   cabeza del equipo en vez de en el YAML.
+2. **Fallar tira la señal de lo que sí funciona.** Hoy el job tarda ~6 minutos en morir por algo que se
+   sabía en el segundo 0, y de paso pierde el resultado de los flujos no monetarios.
+3. **Saltar sólo es honesto si el salto es de primera clase**, y por eso viene con los cuatro
+   requisitos de abajo. Un salto silencioso sería peor que el rojo.
+
+Lo que **no** se negocia y está cableado así:
+
+| Requisito | Cómo se cumple |
+|---|---|
+| Los tres tests **nunca** se borran, ni se marcan `.skip`, ni salen de `SMOKE_SPECS` | El salto lo decide el **entorno en tiempo de corrida** (`scripts/stripe-test-key-preflight.sh` filtra la lista efectiva). `frontend/e2e/` no se toca: es del rol frontend. |
+| Vuelven a ser **obligatorios solos** cuando aparezca la credencial | La detección es **por forma del valor**. No hay bandera `skip_money=true` que alguien tenga que acordarse de quitar — ese es justo el patrón que ya nos mordió dos veces. |
+| El estado se lee **sin abrir logs** | Bloque en el *Summary* del run (primer paso del job) + veredicto final de una línea + anotación `::warning`. |
+| La promoción a prod **no salta nada** | `deploy.yml` llama con `require_real_stripe: true` → el preflight **falla en el segundo 0** con la variable nombrada, el motivo («valor de relleno») y dónde se pone la buena. |
+
+### 33.3 Cómo distingue «clave real» de «relleno» (y el falso positivo que evité)
+
+`scripts/stripe-test-key-preflight.sh` clasifica **por forma, en este orden**:
+
+| Regla | Qué caza | Falsos positivos |
+|---|---|---|
+| Prefijo `sk_live_`/`pk_live_` | clave live en staging → **aborta siempre** | ninguno |
+| Prefijo distinto de `sk_test_`/`rk_test_`/`pk_test_` | formato desconocido → **aborta** | ninguno |
+| **Longitud** del sufijo < 24 | `e2e_dummy` (9), `CHANGE_ME` (9), `xxx` | **imposible**: las claves de Stripe traen 24 (legacy) o ~99 (`sk_test_51…`) |
+| **Alfabeto** ≠ `[A-Za-z0-9]` | cualquier cosa con `_`, guion, espacio o comilla → la escribió una persona, no Stripe | **imposible** |
+| **Vocabulario** (`dummy`, `changeme`, `placeholder`, `example`, `fake`, `invalid`, …) y 4 caracteres idénticos seguidos | relleno largo y alfanumérico (`sk_test_dummydummydummy…`) | ~1e-4 |
+
+**El falso positivo que casi introduzco, porque es la misma clase de error que esta sección corrige.**
+Mi primera versión buscaba también tokens de 3 letras (`xxx`, `foo`, `bar`, `tbd`) como subcadena. Una
+clave **auténtica** es una cadena alfanumérica de ~99 caracteres: la probabilidad de que contenga por
+azar alguno de esos trigramas es **~2%**. Un preflight que declara «relleno» una clave buena una de
+cada cincuenta veces —y bloquea una promoción a prod por ello— es otro detector que miente, sólo que
+en la dirección contraria. Se quitaron: los rellenos cortos ya los cazan las dos reglas **exactas**
+(longitud y alfabeto), que no tienen falsos positivos posibles. **Dos reglas exactas y una heurística
+conservadora, en ese orden.**
+
+**Lo que este preflight promete, literalmente: «esto no es un relleno». Nada más.** No llama a
+`api.stripe.com` — (a) desde la máquina de trabajo el egress a Stripe está bloqueado (§31.2) y un
+preflight dependiente de red sería inestable; (b) una clave con forma real pero **revocada** la caza el
+propio smoke, que es donde debe caerse. Decirlo importa: prometer «clave válida» sería la tercera
+mentira de esta cadena.
+
+**Nunca imprime el valor.** Sólo prefijo (8 caracteres) y longitud total.
+
+### 33.4 `deploy.yml`: la puerta no se está saltando — **nunca estuvo en el camino**
+
+Pregunta del coordinador: si el E2E real no puede estar verde sin Stripe, ¿cómo se promovió la curva v2
+a producción el 28 de agosto? Respuesta, con el registro de Actions delante:
+
+**No se promovió por ahí. `deploy.yml` no corrió el 28 de agosto, ni el 27, ni ningún día desde el 25.**
+
+| Dato verificado | |
+|---|---|
+| Última corrida de `deploy.yml` | nº 52, **2026-08-25**, `workflow_dispatch`, conclusión **success** |
+| Qué hizo esa corrida «verde» | `secrets-gate` → `ready=false` (faltan los 6 secrets de deploy) → **`ci-ok`, `preflight`, `deploy-staging-*`, `e2e-real`, `dast-staging` y los dos `promote-production-*` quedaron TODOS en `skipped`** |
+| Corridas de `deploy.yml` el 26–30 de agosto | **ninguna** |
+| Camino real de los deploys | integraciones **nativas** push-to-deploy de Vercel/Railway (documentado en la cabecera de `deploy.yml`, líneas 34-48) |
+
+Conclusión, y es más grave que el falso verde que vine a arreglar:
+
+- **La puerta no se está esquivando: no existe en el camino que se usa.** El CD por Actions está
+  desactivado por diseño (`workflow_dispatch` only) y, sin los 6 secrets, se auto-salta. Vercel y
+  Railway despliegan al hacer push y **no consultan el resultado de ningún workflow de GitHub**. El
+  gate E2E real, el DAST de staging y la aprobación del *environment* `production` **no intervienen en
+  un solo deploy real**.
+- **Y esa corrida nº 52 es, ella misma, otro miembro de la familia:** un run llamado
+  «Deploy (staging → prod)» que terminó en **verde** habiendo desplegado **nada**. Jobs saltados cuentan
+  como neutrales, así que el check verde es indistinguible de un despliegue correcto.
+- Por tanto **la promoción a producción no está «estructuralmente bloqueada» por la falta de Stripe**.
+  Lo estaría si el camino pasara por `deploy.yml`; hoy no pasa.
+
+**No he tocado `deploy.yml`** (instrucción explícita del coordinador: la decisión de cómo cerrar esa
+puerta es suya con el dueño). Las tres opciones, con su contrapartida, para esa conversación:
+
+| Opción | Qué implica |
+|---|---|
+| Dejarlo como está y **decirlo en `deploy.yml` y en el DoD**: los gates son *advisory*, no bloqueantes | Cuesta cero. Pero el DoD dice «gate de seguridad y harness E2E cableados en CI» y hoy eso es cierto sólo en el papel del workflow, no en el camino real. |
+| **Branch protection** con `e2e-real` / SAST como *required status checks* de la rama que Vercel/Railway despliegan | Es el único punto donde un gate muerde el camino nativo: si no se puede mergear, no hay push que desplegar. No necesita los 6 secrets de deploy. |
+| Activar el CD por Actions (cargar los 6 secrets, quitar el push-to-deploy nativo) | Restaura la puerta entera tal como está escrita, pero cambia el modelo operativo del dueño. |
+
+Nota para la opción 2: con Stripe deliberadamente ausente, `e2e-real` como *required check* sólo tiene
+sentido **con el salto declarado de §33.2**; con el comportamiento anterior habría bloqueado todos los
+merges para siempre.
+
+### 33.5 Local vs CI: el mismo síntoma con dos causas distintas (corrige la lectura de §31)
+
+§31 metía los dos casos bajo la misma etiqueta y eso confunde el diagnóstico. Quedan separados:
+
+| | **Local** (stack nativo / docker en la máquina del equipo) | **CI** (`e2e-real.yml`, runner `ubuntu-latest`) |
+|---|---|---|
+| Causa de los 3 rojos | **Egress bloqueado**: `CONNECT api.stripe.com` → 403 (§31.2) | **Clave de relleno**: `sk_test_e2e_dummy` (fallback del workflow) |
+| ¿Se arregla con la clave? | **NO.** Con clave real seguiría rojo, ahora por timeout de red | **SÍ.** Es lo único que falta |
+| ¿Se arregla con egress? | Sí, más la clave | No aplica: el runner ya tiene salida |
+| Qué hace el preflight | No corre aquí | Lo detecta en el segundo 0 y salta los 3 declarándolo |
+
+Quien pruebe en local y vea los mismos tres rojos **no está viendo el mismo problema**: darle la clave
+al stack local no los pone en verde (§31.2). Es la advertencia que hace perder una tarde.
+
+### 33.6 Qué imprime ahora, en cada rama
+
+Probado con `scripts/stripe-test-key-preflight.sh` a mano (15 casos: fallback, secret ausente,
+`CHANGE_ME`, relleno alfanumérico largo, repeticiones, 23 caracteres, clave con forma real, `rk_test_`
+restringida, secret real + publicable de relleno, clave live, formato desconocido, promoción con y sin
+credencial, lista sólo-dinero, y specs con ruta `e2e/…`).
+
+**Rama A — relleno, nightly (`require_real_stripe: false`) → verde PARCIAL declarado, `exit 0`:**
+
+```
+| STRIPE_TEST_SECRET_KEY      | sk_test_… (17 caracteres en total) | VALOR DE RELLENO (no es una credencial) |
+| STRIPE_TEST_PUBLISHABLE_KEY | pk_test_… (17 caracteres en total) | VALOR DE RELLENO (no es una credencial) |
+
+Gate de dinero: INACTIVO — los smokes de dinero se SALTAN por falta de credencial.
+  Saltados (no ejecutados, NO aprobados): checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts
+  Sí se ejecutan: buylist.spec.ts
+
+::warning title=SIN GATE DE DINERO — 3 smokes SALTADOS::…
+::warning title=Verde PARCIAL — 1 flujo corrido, 3 de dinero SALTADOS::Este run NO probó comprar,
+        comprar-como-invitado ni retirar…  El verde de este workflow NO es un verde de dinero.
+```
+
+**Rama B — clave con forma real → todo corre, gate ACTIVO, `exit 0` (comportamiento intacto):**
+
+```
+| STRIPE_TEST_SECRET_KEY | sk_test_… (58 caracteres en total) | clave con forma de credencial real |
+
+Gate de dinero: ACTIVO. …los tres smokes de dinero corren y son OBLIGATORIOS.
+  Specs que corren: checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts
+  Specs saltados: ninguno
+::notice title=Gate de dinero ACTIVO::…
+> Un rojo en checkout · guest-checkout · shipments a partir de aquí ES UN BUG DE PRODUCTO.
+```
+
+**Rama C — promoción a prod sin credencial (`require_real_stripe: true`) → `exit 1` en el segundo 0:**
+
+```
+::error title=Gate de promocion sin clave de PRUEBA real::STRIPE_TEST_SECRET_KEY: VALOR DE RELLENO
+        (no es una credencial); STRIPE_TEST_PUBLISHABLE_KEY: VALOR DE RELLENO… Pon los secrets
+        STRIPE_TEST_SECRET_KEY (sk_test_...) y STRIPE_TEST_PUBLISHABLE_KEY (pk_test_...) en
+        Settings > Secrets and variables > Actions. Ver DEVOPS_NOTES 31.1. Nunca una clave live.
+```
+
+Otros abortos duros, en cualquier rama: **clave live** (`sk_live_`/`pk_live_`), **formato desconocido**,
+y **«no queda ningún smoke que correr»** (si alguien invoca el workflow con una lista compuesta sólo de
+specs de dinero, saltarlos dejaría el job **vacío** — y un job vacío en verde es este mismo falso verde
+con otra cara).
+
+**Verificación del cambio:** `actionlint 1.7.7` + `shellcheck 0.10.0` sobre `e2e-real.yml` y sobre el
+script: **0 hallazgos**. El paso de veredicto se ejecutó fuera de CI con `GITHUB_STEP_SUMMARY` simulado
+en las tres combinaciones (gate on / gate off / Playwright rojo).
+
+### 33.7 Novedad importante: el **publicable** también es credencial
+
+El preflight exige que **las dos** claves tengan forma real. Sin `pk_test_…` el modal de Stripe **no
+monta en el navegador** aunque el backend cree la sesión: los tres smokes fallarían igual, y con el
+agravante de parecer un bug de producto (el backend responde 200 y la UI no muestra nada). §31.1 ya
+marcaba la publicable como obligatoria en prosa; ahora está **comprobado en el gate**.
+
+### 33.8 Limitación que dejo escrita en vez de esconder
+
+Con el gate de dinero apagado, el smoke por defecto se queda en **un solo spec** (`buylist.spec.ts`):
+3 de los 4 son de dinero. Es señal, y es más que el cero de hoy, pero **es delgada**.
+
+**No amplío la lista por defecto en este pase, y el motivo no es pereza:** los demás specs
+(`catalog`, `auth`, `vault`, `portfolio`, `admin`, …) **nunca han corrido en modo real**. Meterlos de
+golpe en el nightly tiene una probabilidad alta de reintroducir el rojo diario que esta sección viene a
+eliminar — cambiar un ruido por otro. El camino correcto es una corrida manual:
+
+```
+Actions → «E2E real (stack real)» → Run workflow →
+  smoke_specs: "buylist.spec.ts catalog.spec.ts auth.spec.ts vault.spec.ts portfolio.spec.ts"
+```
+
+y ampliar el default **sólo** con los que pasen. Queda como tarea abierta de devops, no como algo
+resuelto.
+
+### 33.9 Qué le queda al humano
+
+| Acción | Efecto | ¿Bloquea algo hoy? |
+|---|---|---|
+| **Nada, si la decisión sigue siendo no configurar Stripe** | El nightly queda **verde parcial declarado**: corre los flujos no monetarios y dice en el resumen que saltó 3 y por qué | No. Es el estado esperado y estable. |
+| Crear los secrets `STRIPE_TEST_SECRET_KEY` (`sk_test_…`) y `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`) en *Settings > Secrets and variables > Actions* (§31.1) | Los tres smokes de dinero **se activan solos** y vuelven a ser obligatorios. Sin tocar código ni quitar banderas. | Es lo único que separa el gate de dinero de existir |
+| **Decidir con el coordinador qué hacer con §33.4** | Hoy ningún deploy real pasa por gate alguno | **Sí — es el hueco grande de este pase**, y no lo cierra devops en solitario |
+
+**Lo que sigue sin ser cierto, y no lo declaro cerrado:** los tres flujos de dinero **siguen sin
+verificarse en navegador** (condición #1 del DoD, §30.6/§31.5). Este pase **no** los verifica: hace que
+el sistema **diga la verdad** sobre que no están verificados, en vez de fingir un gate que no existía.
+Son dos cosas distintas y conviene no confundirlas al leer el tablero.
