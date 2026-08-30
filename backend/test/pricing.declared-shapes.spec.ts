@@ -29,6 +29,9 @@ const PRICE_HISTORY_KEYS = [
   'priceMxnCents',
   'productType',
   'source',
+  // v1.50.3-f (M-43): entra al contrato de forma DELIBERADA — se añade a la lista blanca, que es la
+  // única vía por la que una columna nueva puede salir a la API.
+  'refKind',
 ].sort();
 
 /** Una fila `PriceReference` COMPLETA, tal como sale de Prisma (con todo lo que NO debe viajar). */
@@ -46,6 +49,8 @@ const FULL_ROW = {
   fxBufferPct: 3,
   capturedDate: new Date('2026-08-24T00:00:00.000Z'),
   isManualOverride: false,
+  refKind: 'market' as const,
+  evidenceDate: null,
   createdAt: new Date('2026-08-24T11:22:33.000Z'),
 };
 
@@ -85,13 +90,22 @@ describe('§M2 — las dos rutas normadas devuelven `{ data }` proyectado', () =
     const pricing = {
       priceHistory: jest.fn(async () => rows.map(toPriceHistoryEntry)),
       manualOverride: jest.fn(async () => FULL_ROW),
+      // v1.50.3-g (M-44b): el borde usa `applyManualOverride` para poder auditar el `before`.
+      applyManualOverride: jest.fn(async () => ({ ref: FULL_ROW, before: null })),
     } as unknown as PricingService;
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     // Orden real del constructor: (pricing, fx, settings, audit, prisma, priceSync, priceIngest, variantControls)
     return new PricingController(
-      pricing, {} as never, {} as never, audit, {} as never, {} as never, {} as never, {} as never,
+      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never,
     );
   }
+
+  /**
+   * v1.50.3-g (SEC-M43-4): el borde comprueba que la carta EXISTE antes de escribir dinero (un
+   * `cardId` inventado producía un `500` por violación de FK). El doble la da por existente.
+   */
+  const prismaDouble = () =>
+    ({ card: { findUnique: jest.fn(async () => ({ id: 'c1' })) } }) as never;
 
   it('`GET /admin/pricing/card/:cardId` ⇒ `{ data: PriceHistoryEntryDTO[] }`', async () => {
     const res = await build().history('c1');
@@ -112,14 +126,28 @@ describe('§M2 — las dos rutas normadas devuelven `{ data }` proyectado', () =
     }
   });
 
+  /**
+   * v1.50.3-c (QA MENOR-1) — **el CÓDIGO DE ESTADO también es contrato.** API_CONTRACT norma
+   * «Res `200` NORMADA en v2.1.7» para este endpoint, y `@Post` de Nest responde `201` por default: el
+   * cuerpo cumplía la norma y el estado no. Se comprueba sobre la METADATA del handler porque es lo que
+   * decide la respuesta real, y así el candado no depende de levantar el stack.
+   *
+   * Semánticamente `200` es además lo correcto: el endpoint no crea un recurso direccionable —el `id`
+   * de la `PriceReference` va a la BITÁCORA, no a la respuesta— y no hay `Location` que devolver.
+   */
+  it('`POST /admin/pricing/override` responde 200 (lo que NORMA el contrato), no el 201 por default', () => {
+    expect(Reflect.getMetadata('__httpCode__', PricingController.prototype.override)).toBe(200);
+  });
+
   it('el `id` sigue yendo a la BITÁCORA (donde se necesita para trazar), no a la respuesta', async () => {
     const pricing = {
       manualOverride: jest.fn(async () => FULL_ROW),
+      applyManualOverride: jest.fn(async () => ({ ref: FULL_ROW, before: null })),
       priceHistory: jest.fn(async () => []),
     } as unknown as PricingService;
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     const ctrl = new PricingController(
-      pricing, {} as never, {} as never, audit, {} as never, {} as never, {} as never, {} as never,
+      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never,
     );
     const res = await ctrl.override(
       { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 1 } as never,

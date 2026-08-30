@@ -14,6 +14,7 @@ import * as fx from './mock/fixtures';
 import type {
   Paginated,
   ListingDTO,
+  GroupedListingSummaryDTO,
   GroupedListingListResponse,
   GroupedListingDetailResponse,
   CardSetDTO,
@@ -58,6 +59,7 @@ import type {
   CreateDisputeResponse,
   ClientDisputeDTO,
   ProductType,
+  PricingOverrideIntent,
   RawCondition,
   SealedSubtype,
   SealedCondition,
@@ -67,6 +69,12 @@ import type {
   VaultSealedResponse,
   SealedSpreadsDTO,
   SealedSpreadsUpdateRequest,
+  GradedEstimateConfigDTO,
+  GradedEstimateConfigInput,
+  GradedEstimateDeleteResponse,
+  GradedEstimatePreviewResponse,
+  GradedEstimateReviewReason,
+  GradedEstimateReviewResponse,
   Finish,
   GradingCompany,
   AcquisitionType,
@@ -211,7 +219,9 @@ function mockTempPassword(): string {
 }
 
 // ---------- Catálogo / "Compra" (contrato §2) ----------
-export type CatalogSort = 'price_asc' | 'price_desc' | 'newest';
+// v1.44-graded-estimate: `grading_showcase` es un orden que RESUELVE EL SERVIDOR y cuyo nombre es
+// deliberadamente neutro (no nombra el criterio). Solo es válido junto a `gradingHighlight: true`.
+export type CatalogSort = 'price_asc' | 'price_desc' | 'newest' | 'grading_showcase';
 
 export interface CatalogFilters {
   q?: string;
@@ -228,11 +238,19 @@ export interface CatalogFilters {
   sort?: CatalogSort;
   page?: number;
   pageSize?: number;
+  /**
+   * v1.50-graded-estimate (§O.3(3)): vitrina «Joyas para gradear» del home. **Solo se acepta
+   * `true`** (fail-closed: un `false` «filtrando lo no destacado» sería una superficie comercial
+   * invertida). Presente ⇒ el servidor devuelve únicamente los grupos que pasan el gate de ROI.
+   * `data: []` ES la señal normativa de «no renderizar la vitrina completa».
+   */
+  gradingHighlight?: true;
 }
 
 /**
  * v1.38-grouped-listings (P-30): GET /catalog/cards devuelve el shape AGRUPADO
- * (`GroupedListingDTO[]`), UNA publicación por (carta, productType, gradeKey, finish) con
+ * (`GroupedListingSummaryDTO[]`, v2.1.9/D2), UNA publicación por (carta, productType, gradeKey,
+ * finish) con
  * `stockCount`, no una fila por copia física. `total` = nº de GRUPOS. El re-quote/cobro sigue
  * siendo por-pieza (GET /catalog/listings/:inventoryItemId, sin cambio).
  */
@@ -254,8 +272,19 @@ export async function getCatalog(
       sort: filters.sort,
       page: filters.page,
       pageSize: filters.pageSize,
+      // v1.50: solo se manda cuando es `true`; omitido ⇒ comportamiento idéntico a hoy.
+      gradingHighlight: filters.gradingHighlight ? 'true' : undefined,
     };
     return apiRequest<GroupedListingListResponse>('/catalog/cards', { query });
+  }
+  // v1.50 (paridad con el contrato): `sort=grading_showcase` SIN `gradingHighlight=true` es un
+  // 400 GRADING_SORT_REQUIRES_FILTER — si se aceptara, los grupos no destacados irían a la cola con
+  // clave de orden indefinida y la vitrina podría pintarlos al paginar.
+  if (filters.sort === 'grading_showcase' && !filters.gradingHighlight) {
+    throw new ApiClientError(400, {
+      code: 'GRADING_SORT_REQUIRES_FILTER',
+      message: 'sort=grading_showcase requires gradingHighlight=true',
+    });
   }
   // MOCK: filtra las PIEZAS publicadas (raw/graded; el sellado tiene su propio catálogo, H9) y
   // luego AGRUPA por (carta, productType, gradeKey, finish). Los filtros de precio/orden aplican
@@ -273,14 +302,35 @@ export async function getCatalog(
   if (filters.productType) pieces = pieces.filter((l) => l.productType === filters.productType);
   if (filters.condition) pieces = pieces.filter((l) => l.rawCondition === filters.condition);
   if (filters.finish) pieces = pieces.filter((l) => l.finish === filters.finish);
-  let data = fx.groupMockListings(pieces);
+  // v1.50.2: la rejilla usa el DTO del Summary (sin `priceBasis`/`referenceValue`, con el marcador
+  // `gradingHighlight` ya resuelto por el servidor).
+  let data = fx.groupMockSummaries(pieces);
   if (filters.minPriceCents != null)
     data = data.filter((g) => g.salePriceCents >= filters.minPriceCents!);
   if (filters.maxPriceCents != null)
     data = data.filter((g) => g.salePriceCents <= filters.maxPriceCents!);
   if (filters.sort === 'price_asc') data.sort((a, b) => a.salePriceCents - b.salePriceCents);
   if (filters.sort === 'price_desc') data.sort((a, b) => b.salePriceCents - a.salePriceCents);
-  return delay({ data, page: 1, pageSize: 20, total: data.length });
+  // v1.50: la vitrina «Joyas para gradear» = subconjunto YA CURADO del catálogo (mismo DTO, misma
+  // teja). El filtro es la PRESENCIA del marcador; el orden lo dicta el fixture (lo resolvió el
+  // servidor). El cliente no reevalúa el gate ni deriva ganancia/costo alguno.
+  if (filters.gradingHighlight) {
+    data = data.filter((g) => !!g.gradingHighlight);
+    if (filters.sort === 'grading_showcase') {
+      const order = fx.mockGradingShowcaseCardIds;
+      const rank = (g: GroupedListingSummaryDTO) => {
+        const i = order.indexOf(g.card.id);
+        return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+      };
+      data.sort(
+        (a, b) =>
+          rank(a) - rank(b) ||
+          a.representativeInventoryItemId.localeCompare(b.representativeInventoryItemId),
+      );
+    }
+  }
+  const pageSize = filters.pageSize ?? 20;
+  return delay({ data: data.slice(0, pageSize), page: 1, pageSize, total: data.length });
 }
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets, v1.1). */
@@ -553,6 +603,133 @@ export async function updateSealedSpreads(
     spreadPctBySubtype: { ...fx.mockSealedSpreads.spreadPctBySubtype },
     fallbackPct: fx.mockSealedSpreads.fallbackPct,
   });
+}
+
+// ---------- Admin M2 · config del «gancho de grading» (contrato §M2, `super_admin`) ----------
+/**
+ * Config completa del gancho (contrato `GET /admin/pricing/graded-estimates`). **Nada de esto viaja
+ * al cliente**: es el gate de curaduría (escalones de costo + margen mínimo), la frescura y los
+ * grados. `enabled` llega como **espejo read-only** del dial M10.
+ */
+export async function getGradedEstimateConfig(): Promise<GradedEstimateConfigDTO> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateConfigDTO>('/admin/pricing/graded-estimates');
+  }
+  return delay({
+    ...fx.mockGradedEstimateConfig,
+    gradingCostTiers: fx.mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
+  });
+}
+
+/**
+ * Actualiza la config (contrato `PUT /admin/pricing/graded-estimates`). Body **parcial por campo**,
+ * salvo `gradingCostTiers`, que se **reemplaza COMPLETO** cuando viene: un patch por fila no puede
+ * validar contigüidad. `enabled` **no se envía nunca** (se edita en M10; el backend lo ignoraría).
+ *
+ * La validación I1–I7 (tabla no vacía, contigüidad sin huecos ni solapes, escalón final abierto,
+ * `costMxnCents ≥ 1`…) es **server-side y fail-closed**; el editor la previene en cliente para no
+ * gastar un viaje, pero **la fuente de verdad es el 422 del backend**, que se muestra tal cual.
+ */
+export async function updateGradedEstimateConfig(
+  input: GradedEstimateConfigInput,
+): Promise<GradedEstimateConfigDTO> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateConfigDTO>('/admin/pricing/graded-estimates', {
+      method: 'PUT',
+      body: input,
+    });
+  }
+  fx.setMockGradedEstimateConfig(input);
+  return delay({
+    ...fx.mockGradedEstimateConfig,
+    gradingCostTiers: fx.mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
+  });
+}
+
+/**
+ * Diagnóstico de CURADURÍA (contrato `GET /admin/pricing/graded-estimates/preview?cardId=`,
+ * `super_admin`, **read-only, no toca dinero**). Responde «¿por qué esta carta no está destacada?»
+ * y, sobre todo, **avisa ANTES de escribir**: `publishedSlabGrades` dice qué grados de esa carta
+ * tienen slab publicado — capturar un ESTIMADO de uno de ellos devuelve `409` (INV-D, §O.8).
+ *
+ * Es el ÚNICO sitio donde los insumos del gate se exponen; **nunca** se pintan en el storefront.
+ */
+export async function getGradedEstimatePreview(
+  cardId: string,
+): Promise<GradedEstimatePreviewResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimatePreviewResponse>('/admin/pricing/graded-estimates/preview', {
+      query: { cardId },
+    });
+  }
+  return delay(fx.mockGradedEstimatePreview(cardId));
+}
+
+export interface GradedEstimateReviewFilters {
+  /** Omitido ⇒ el backend aplica su default (los TRES motivos de coherencia). */
+  reason?: GradedEstimateReviewReason[];
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * LISTA DE REVISIÓN del gancho (contrato `GET /admin/pricing/graded-estimates/review`, v1.50.3,
+ * `super_admin`, read-only, paginada). **Es el criterio 111(e).**
+ *
+ * `preview` responde «¿por qué **esta** carta no está destacada?» y exige `cardId`: solo contesta si
+ * **ya sospechabas**. Esto responde «¿de qué cartas debo sospechar?» — la pregunta que nadie podía
+ * hacer. Es la **contrapartida** de no ocultar la cifra incoherente en la ficha: si la seguimos
+ * mostrando, alguien tiene que enterarse.
+ *
+ * `reason` viaja como **CSV** (el contrato lo admite repetible o CSV; se elige CSV por ser una sola
+ * clave de query y no depender del serializador de arrays).
+ */
+export async function getGradedEstimateReview(
+  filters: GradedEstimateReviewFilters = {},
+): Promise<GradedEstimateReviewResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateReviewResponse>('/admin/pricing/graded-estimates/review', {
+      query: {
+        reason: filters.reason?.length ? filters.reason.join(',') : undefined,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  return delay(fx.mockGradedEstimateReview(filters));
+}
+
+/**
+ * **RETIRAR** el estimado de una carta y un grado (contrato `DELETE
+ * /admin/pricing/graded-estimates/:cardId/:gradeValue`, §M2 v1.50.3-d, `super_admin`, **auditado**).
+ *
+ * **Es el otro verbo que `PROJECT.md` §O.7 pide** —«que el dueño la corrija con override **o la
+ * descarte**»— y que hasta ahora no existía: el back-office solo podía **pisar** una cifra. Pisar no
+ * es descartar: deja otra afirmación comercial en su lugar.
+ *
+ * Tres cosas que el llamador no puede reinterpretar:
+ *  - **`404` = «no había nada que borrar»**, no un fallo del sistema. El contrato lo elige a
+ *    propósito frente a un `200` silencioso, que le haría creer al operador que limpió algo.
+ *  - **`409 GRADED_ESTIMATE_SLAB_PUBLISHED` = la guarda INV-D funcionando.** Con un slab publicado
+ *    de ese grado la fila **ya no es un estimado**: es la referencia de mercado de una pieza física,
+ *    y borrarla la dejaría sin sustento de precio (⇒ `PRICE_PENDING` ⇒ despublicada). El remedio es
+ *    **repreciar con `intent:"market"`**, no insistir en borrar.
+ *  - **`deletedCount` puede ser > 1**: el borrado se lleva TODAS las filas de la clave, sea cual sea
+ *    su `capturedDate`. No se asume 1.
+ */
+export async function deleteGradedEstimate(
+  cardId: string,
+  gradeValue: string,
+): Promise<GradedEstimateDeleteResponse> {
+  const path = `/admin/pricing/graded-estimates/${encodeURIComponent(cardId)}/${encodeURIComponent(gradeValue)}`;
+  if (!config.useMocks) {
+    return apiRequest<GradedEstimateDeleteResponse>(path, { method: 'DELETE' });
+  }
+  try {
+    return await delay(fx.deleteMockGradedEstimate(cardId, gradeValue));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 // ---------- Checkout / órdenes ----------
@@ -2965,9 +3142,8 @@ export async function getPendingPrices(
   return delay(fx.getMockPendingQueue(context, reason));
 }
 
-export interface PricingOverrideInput {
+interface PricingOverrideBase {
   cardId: string;
-  productType: ProductType;
   gradeKey: string;
   /**
    * v1.6-finish/v1.8: acabado a resolver (default backend `normal`). La cola de pendientes
@@ -2977,11 +3153,54 @@ export interface PricingOverrideInput {
   priceMxnCents: number;
 }
 
+/**
+ * Body de `POST /admin/pricing/override`.
+ *
+ * **UNIÓN DISCRIMINADA POR `productType` (contrato v1.50.2, BREAKING chico).** Con
+ * `productType:"graded"` el backend **exige** `intent` y responde `422 GRADED_INTENT_REQUIRED` si
+ * falta. Se modela como unión —y no como `intent?: PricingOverrideIntent`— por la misma razón por la
+ * que el backend no le pone default: **que el compilador obligue al llamador a declararlo**. Un
+ * campo opcional deja el 422 latente hasta que alguien lo dispara en producción sobre una fila de
+ * dinero; con la unión, olvidarlo **no compila**. Misma técnica que `VariantPriceConsoleProps` usa
+ * para exigir `gradeKey` en graded.
+ *
+ * En `raw`/`sealed` el contrato dice que `intent` «se ignora si viene»: el tipo lo **prohíbe**
+ * (`never`) para que nadie escriba una intención que el servidor va a tirar en silencio.
+ */
+export type PricingOverrideInput = PricingOverrideBase &
+  (
+    | { productType: 'graded'; intent: PricingOverrideIntent }
+    | { productType: 'raw' | 'sealed'; intent?: never }
+  );
+
 /** Override manual de precio; resuelve el PendingPriceEntry DE ESE ACABADO (contrato POST /admin/pricing/override). */
 export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: true }> {
   if (!config.useMocks) {
     await apiRequest<unknown>('/admin/pricing/override', { method: 'POST', body: input });
     return { ok: true };
+  }
+  // MOCK: la MISMA guarda de escritura que el backend (INV-D, contrato v1.50.2). Se replica aquí
+  // a propósito: Playwright corre en modo mocks, así que sin esto el bloqueo de §O.8 —el que impide
+  // que una cifra ilustrativa mueva el precio de un slab real— sería inverificable de punta a punta.
+  if (input.productType === 'graded' && input.intent === 'graded_estimate') {
+    const slabs = fx.publishedSlabsForGradeKey(input.cardId, input.gradeKey);
+    if (slabs.length > 0) {
+      const grade = input.gradeKey.split(':')[2] ?? '';
+      throw translateFixtureError(
+        new fx.ApiFixtureError(
+          409,
+          'GRADED_ESTIMATE_SLAB_PUBLISHED',
+          `No se puede fijar un valor ESTIMADO de PSA ${grade} para esta carta: hay ${slabs.length} ` +
+            `slab(s) PSA ${grade} publicado(s).`,
+          {
+            cardId: input.cardId,
+            gradeKey: input.gradeKey,
+            publishedSlabCount: slabs.length,
+            inventoryItemIds: slabs.map((i) => i.id),
+          },
+        ),
+      );
+    }
   }
   // MOCK: resuelve la entrada pendiente asociada a esa carta/gradeKey/acabado.
   const finish = input.finish ?? 'normal';
@@ -2993,7 +3212,14 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
   // NORMATIVA para fijar el valor de mercado por carta+grado (pestaña Gradeadas de M1).
   if (input.productType === 'graded') {
     const m = input.gradeKey.match(/^graded:([^:]+):(.+)$/);
-    if (m) fx.setMockGradedMarketRef(input.cardId, m[1], m[2], input.priceMxnCents);
+    if (m) {
+      fx.setMockGradedMarketRef(input.cardId, m[1], m[2], input.priceMxnCents);
+      // v1.50.2 (§O.6): con `graded_estimate` esta misma llamada escribe la fila que el storefront
+      // lee para el gancho — «no se construye ningún mecanismo de captura nuevo».
+      if (input.intent === 'graded_estimate') {
+        fx.setMockGradedEstimate(input.cardId, m[2], input.priceMxnCents);
+      }
+    }
   }
   return delay({ ok: true });
 }

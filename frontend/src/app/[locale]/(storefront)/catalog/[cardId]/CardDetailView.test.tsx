@@ -1,9 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { expectVisibleMicroNotice } from '@/test/grading';
 import { CardDetailView } from './CardDetailView';
 import * as api from '@/lib/api';
-import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
+import type {
+  CardDTO,
+  GradedEstimateDTO,
+  GroupedListingDTO,
+  ListingDTO,
+} from '@/types/contract';
 
 // El CTA «En el carrito» navega con el router de next-intl; se mockea para
 // aislar la vista y espiar la navegación (mismo patrón que BuylistView.test).
@@ -75,8 +81,17 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
   };
 }
 
-function mockDetail(listings: GroupedListingDTO[], units: ListingDTO[]) {
-  vi.spyOn(api, 'getCardDetail').mockResolvedValue({ card, listings, units });
+function mockDetail(
+  listings: GroupedListingDTO[],
+  units: ListingDTO[],
+  gradedEstimates?: GradedEstimateDTO[],
+) {
+  vi.spyOn(api, 'getCardDetail').mockResolvedValue({
+    card,
+    listings,
+    units,
+    ...(gradedEstimates ? { gradedEstimates } : {}),
+  });
 }
 
 /** Ficha con DOS variantes (dos grupos), cada una con una pieza: el CTA es por grupo. */
@@ -175,6 +190,125 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
     const disabledCta = await screen.findByRole('button', { name: 'No disponible' });
     expect(disabledCta).toBeDisabled();
     expect(screen.getAllByRole('button', { name: 'Comprar' })).toHaveLength(1);
+  });
+});
+
+// ===== v1.50-graded-estimate · bloque de la ficha + nota al pie (DESIGN_SYSTEM §22.3/§22.4) =====
+const est = (gradeValue: string, cents: number): GradedEstimateDTO => ({
+  gradingCompany: 'PSA',
+  gradeValue,
+  gradeKey: `graded:PSA:${gradeValue}`,
+  // El contrato OMITE `source` siempre: fase manual y fase automática son indistinguibles.
+  estimate: { status: 'priced', referenceMxnCents: cents, capturedDate: '2026-08-22' },
+});
+
+describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
+  it('con `gradedEstimates` pinta el bloque junto al precio, con la fecha de refresco y su llamada', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).toBeInTheDocument();
+    expect(screen.getByText('MX$29,000.00')).toBeInTheDocument();
+    expect(screen.getByText('MX$14,500.00')).toBeInTheDocument();
+    expect(screen.getByText('ESTIMADO · 22 ago 2026')).toBeInTheDocument();
+    // Chip de grado HIPOTÉTICO (punteado, sin cert) y siempre tras el condicional «SI SALE».
+    expect(screen.getAllByText('SI SALE')).toHaveLength(2);
+    expect(
+      screen.getByText('Grado hipotético: PSA 10. Esta carta no está gradeada.'),
+    ).toBeInTheDocument();
+  });
+
+  it('el bloque va DESPUÉS del referenceExplainer y ANTES de «Ejemplares disponibles» (§22.3)', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    const block = (await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).closest('section')!;
+    const instances = screen.getByRole('heading', { name: 'Ejemplares disponibles' });
+    expect(block.compareDocumentPosition(instances) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // El bloque NO vive dentro de la retícula del precio real (mismo grid = misma categoría, R2).
+    expect(block.contains(screen.getByText('Precio de venta'))).toBe(false);
+  });
+
+  it('R3 · la ficha con bloque renderiza SIEMPRE la nota al pie completa, sin interacción', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findByText('VALOR ESTIMADO SI SE GRADEA');
+    const note = document.getElementById('nota-estimado')!;
+    expect(note).toBeInTheDocument();
+    expect(note.querySelector('details')).toBeNull();
+    expect(screen.getByText(/INFORMACIÓN ILUSTRATIVA/)).toBeInTheDocument();
+    // La llamada de la FICHA sí es un enlace al pie (la de la teja no: sería un ancla anidada).
+    const call = document.getElementById('llamada-estimado')!.querySelector('a')!;
+    expect(call).toHaveAttribute('href', '#nota-estimado');
+    // Con el micro-aviso VISIBLE delante, el texto accesible de la llamada no duplica las dos
+    // ideas (§22.11): el lector de pantalla ya las oyó como texto real, en orden.
+    expect(call).toHaveAttribute('aria-label', 'Ver nota al pie.');
+    // …y el aviso adyacente está, visible, en el mismo párrafo que la llamada (R3.1).
+    expectVisibleMicroNotice(document.body, 'es');
+  });
+
+  it('R4 · sin `gradedEstimates` no se pinta nada: ni bloque, ni nota al pie, ni «pendiente»', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findAllByRole('button', { name: 'Comprar' });
+    expect(screen.queryByText('VALOR ESTIMADO SI SE GRADEA')).not.toBeInTheDocument();
+    expect(document.getElementById('nota-estimado')).toBeNull();
+    expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
+  });
+
+  it('la ficha NO está gateada por el ROI: le basta `gradedEstimates` de la RAÍZ', async () => {
+    // Estado NORMAL y esperado (§22.7, caso 2): ficha con bloque y teja sin badge. No es un bug.
+    // v1.50.2: la ficha NO lee ningún marcador de la rejilla — `gradingHighlight` ya ni existe en
+    // `GroupedListingDTO` (se movió al Summary), así que este camino está cerrado por el compilador.
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).toBeInTheDocument();
+  });
+
+  /**
+   * §22.7, caso 4 (ESTADO NUEVO, R6): cifra FRESCA y con el gate de ROI CUMPLIDO que **no pasa el
+   * filtro de confianza**. La ficha informa igual —el backend le emite `gradedEstimates`, que no
+   * aplica la coherencia de magnitud— y la rejilla no la promueve. En el cliente el caso es
+   * **indistinguible** del caso 2 («no pasa el gate»), y DEBE serlo: cualquier marca, `data-*` o
+   * clase que delatara el motivo sería contar el criterio con palabras (R5 / SEC-A1).
+   */
+  it('§22.7 · cifra no confiable: la ficha pinta el bloque IGUAL y nada delata el motivo', async () => {
+    const { listings, units } = twoVariants();
+    // Cota inferior de R6: el PSA 10 sale POR DEBAJO del raw publicado (MX$1,408.00) — el caso
+    // típico del valor en dólares capturado como pesos. La ficha lo informa: es dato real.
+    mockDetail(listings, units, [est('10', 90_000), est('9', 45_000)]);
+    const { container } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    const block = (await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).closest('section')!;
+    expect(screen.getByText('MX$900.00')).toBeInTheDocument();
+    expect(screen.getByText('MX$450.00')).toBeInTheDocument();
+    // Mismo bloque, mismo micro-aviso, misma nota: sin tinta atenuada ni aviso extra.
+    expectVisibleMicroNotice(document.body, 'es');
+    expect(document.getElementById('nota-estimado')).toBeInTheDocument();
+    expect(block.className).not.toMatch(/opacity|italic|line-through/);
+    // Y NINGÚN atributo del DOM nombra el motivo de la supresión en la rejilla.
+    const attrs = Array.from(container.querySelectorAll('*')).flatMap((el) =>
+      Array.from(el.attributes).map((a) => `${a.name}=${a.value}`),
+    );
+    expect(attrs.some((a) => /confian|trust|gate|roi|eligib|sample|muestra/i.test(a))).toBe(false);
+    expect(container.textContent).not.toMatch(/confian|provisional|poco fiable|sin verificar/i);
+  });
+
+  it('R5 · la ficha no muestra ninguna pieza del cálculo (ganancia, multiplicador, costo, margen)', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
+    const { container } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findByText('VALOR ESTIMADO SI SE GRADEA');
+    expect(container.textContent).not.toMatch(/multiplic|ganancia|ROI|rendimiento|costo de grade/i);
   });
 });
 

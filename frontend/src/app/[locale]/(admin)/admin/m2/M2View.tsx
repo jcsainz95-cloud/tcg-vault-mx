@@ -8,6 +8,9 @@ import { FxSection } from './sections/FxSection';
 import { PricingCurveSection } from './curve/PricingCurveSection';
 import { RarityHealthSection } from './sections/RarityHealthSection';
 import { SealedSpreadsSection } from './sections/SealedSpreadsSection';
+import { GradedEstimatesSection } from './sections/GradedEstimatesSection';
+import { GradedEstimateCaptureSection } from './sections/GradedEstimateCaptureSection';
+import { GradedEstimateReviewSection } from './sections/GradedEstimateReviewSection';
 import { CatalogSyncSection } from './sections/CatalogSyncSection';
 
 /**
@@ -51,6 +54,22 @@ export function M2View() {
 
       {/* Sección 5b · spreads de VENTA del SELLADO por presentación (v1.23-sealed-sales) */}
       <SealedSpreadsSection />
+
+      {/* Sección 5c · config del «gancho de grading»: escalones de costo de gradeo + margen mínimo
+          + frescura (v1.44-graded-estimate, criterio 110(e)). El interruptor maestro vive en M10. */}
+      <GradedEstimatesSection />
+
+      {/* Sección 5d · CAPTURA MANUAL de estimados (§O.6). Va justo debajo de su config porque son
+          la misma feature: arriba se decide QUÉ se promociona, aquí se escribe la cifra. Es la
+          única superficie que manda `intent:"graded_estimate"` — el precio de mercado de un slab
+          real se fija en M1 › Gradeadas (`intent:"market"`), y el copy lo dice en ambas. */}
+      <GradedEstimateCaptureSection />
+
+      {/* Sección 5e · LISTA DE REVISIÓN (v1.50.3, criterio 111(e)). Es la CONTRAPARTIDA de no
+          ocultar en la ficha una cifra incoherente: si la seguimos mostrando, alguien tiene que
+          enterarse. Va después de la captura porque la acción que produce —recapturar o borrar el
+          dato— se ejecuta justo arriba. */}
+      <GradedEstimateReviewSection />
 
       {/* §19 · los TRES grupos de sync de catálogo (Datos/Catálogo/Avanzado) + tabla de sets + modales */}
       <CatalogSyncSection catalog={catalog} />

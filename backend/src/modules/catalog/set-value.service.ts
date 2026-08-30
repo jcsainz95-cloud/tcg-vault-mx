@@ -6,6 +6,7 @@ import { BusinessException } from '../../common/business.exception';
 import {
   PricingService,
   BASE_CARD_REF_WHERE,
+  MONEY_REF_WHERE,
   isBetterRef,
   RefRow,
 } from '../pricing/pricing.service';
@@ -191,7 +192,10 @@ export class SetValueService {
         // P-32: SOLO el precio de la carta de set (set_base/other o legacy cardProductId=null);
         // EXCLUYE deck_exclusive/promo (su precio vive en su producto separado). Mismo filtro que
         // `getReference`/`getReferencesBatch` (M-31 §4.27f) para que ESCRITURA y LECTURA no diverjan.
-        ...BASE_CARD_REF_WHERE,
+        // v1.50.3-f (M-43, §4.38l.4.4A): + `MONEY_REF_WHERE`. La valuación de set es una RUTA DE
+        // DINERO explícitamente enumerada por el dictamen: un estimado que se colara aquí inflaría (o
+        // desinflaría) el valor agregado de un set entero y su serie histórica.
+        AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE],
       },
       // Mejor candidata primero: día más reciente y, a igual día, la variante resuelta antes que la
       // genérica (NULLS LAST). El desempate fino lo cierra `isBetterRef` en memoria.

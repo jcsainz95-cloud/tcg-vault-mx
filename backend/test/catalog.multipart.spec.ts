@@ -32,6 +32,17 @@ function pricing(): PricingService {
     resolveSealedSalePrice: () => ({ salePriceCents: null, status: 'pending' }),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
+    // v1.44-graded-estimate (§4.35): dial maestro APAGADO (seed `off`) ⇒ el gancho no se evalúa y el
+    // batch de estimados no se llama. El DTO sale EXACTAMENTE como antes de v1.44.
+    loadGradedEstimateConfig: jest.fn(async () => ({
+      enabled: false,
+      grades: [],
+      highlightGrades: [],
+      freshnessDays: 30,
+      minUpsidePct: 30,
+      gradingCostTiers: [],
+    })),
+    getGradedEstimatesBatch: jest.fn(async () => new Map()),
   } as unknown as PricingService;
 }
 

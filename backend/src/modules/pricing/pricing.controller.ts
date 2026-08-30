@@ -1,11 +1,12 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
-import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
-import { FINISH_VALUES } from '../../common/enum-values';
+import { Body, Controller, Get, HttpCode, Logger, Param, Post, Put, Query } from '@nestjs/common';
+import { Finish, PendingPriceContext, Prisma, PriceRefKind, ProductType, Role } from '@prisma/client';
+import { FINISH_VALUES, PRODUCT_TYPE_VALUES } from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
-import { PricingService, toPriceHistoryEntry } from './pricing.service';
+import { ManualOverrideResult, PricingService, toPriceHistoryEntry } from './pricing.service';
+import { isCanonicalGradeKey } from './pricing.types';
 import { FxService } from './fx.service';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -64,6 +65,16 @@ class CurvePreviewDto {
   @Allow() marketsCents!: number[];
 }
 
+/**
+ * v1.50.2 (§M2 / ARCHITECTURE §4.38l.1) — discriminante OBLIGATORIO cuando `productType:'graded'`.
+ *
+ *  - `market`          → precio de mercado REAL de un slab publicado (comportamiento vigente, §M1 v1.28).
+ *  - `graded_estimate` → «valor estimado si se gradea» del gancho (§4.38): informativo, NO es dinero…
+ *    **salvo que exista un slab publicado de ese grado**, y por eso ese caso se BLOQUEA con 409.
+ */
+const GRADED_INTENT_VALUES = ['market', 'graded_estimate'] as const;
+type GradedIntent = (typeof GRADED_INTENT_VALUES)[number];
+
 class OverrideDto {
   @IsString() cardId!: string;
   @IsString() productType!: ProductType;
@@ -74,6 +85,16 @@ class OverrideDto {
   // v1.6-finish: override por acabado (default normal). Cada acabado tiene su PriceReference.
   @IsOptional() @IsIn(FINISH_VALUES)
   finish?: Finish;
+  /**
+   * v1.50.2 — **OBLIGATORIO con `productType:'graded'`** (la exigencia se aplica en el handler, que es
+   * quien conoce el `productType`; aquí solo se acota el DOMINIO). Con otro `productType` se IGNORA.
+   *
+   * ⚠️ **Deliberadamente SIN default.** Un `intent` que cayera a `'market'` por omisión es FAIL-OPEN:
+   * el operador que olvida el campo obtendría, en silencio, la ruta que MUEVE DINERO (la fila que fija
+   * el precio de venta de un slab publicado). Cuando la intención se perdió, no se adivina.
+   */
+  @IsOptional() @IsIn(GRADED_INTENT_VALUES)
+  intent?: GradedIntent;
 }
 
 /**
@@ -133,6 +154,8 @@ class VariantControlsDto {
 @Controller('admin/pricing')
 @Roles(Role.super_admin)
 export class PricingController {
+  private readonly logger = new Logger(PricingController.name);
+
   constructor(
     private readonly pricing: PricingService,
     private readonly fx: FxService,
@@ -215,23 +238,219 @@ export class PricingController {
    * **en el borde HTTP**, que es donde se decide la forma de la API.
    */
   @Post('override')
+  // v1.50.3-c (QA MENOR-1): el contrato NORMA `200` («Res `200` NORMADA en v2.1.7») y `@Post` de Nest
+  // responde `201` por default, así que el código venía incumpliendo su propia especificación. Manda el
+  // contrato sobre el código (regla de conflicto), y `200` es además lo correcto en semántica: este
+  // endpoint no crea un recurso direccionable —el `id` de la `PriceReference` va a la BITÁCORA, no a la
+  // respuesta— y no hay `Location` que devolver.
+  @HttpCode(200)
   async override(@Body() dto: OverrideDto, @CurrentUser('id') userId: string) {
-    const ref = await this.pricing.manualOverride(
-      dto.cardId,
-      dto.productType,
-      dto.gradeKey,
-      dto.priceMxnCents,
-      dto.finish ?? 'normal',
-    );
+    // ===== v1.50.3-g (SEC-M43-4) — VALIDACIÓN DEL BORDE, antes de cualquier otra cosa ==============
+    //
+    // Los tres casos que el blue team midió en vivo: `productType:"banana"` ⇒ **500**, `cardId`
+    // inexistente ⇒ **500** (violación de FK en el `create`), `gradeKey:"graded:PSA:11"` ⇒ **200** con
+    // una fila de dinero para un grado que no existe. No es laguna del contrato —ya normaba entrada
+    // inválida—: es el CÓDIGO apartándose de él. Un `500` en un endpoint de dinero es indistinguible de
+    // una caída real y contamina cualquier alerta que se monte sobre `/admin/*`.
+    //
+    // ⚠️ **Por qué a mano y no con `@IsIn` en el DTO**: el `ValidationPipe` global responde **400** y el
+    // contrato norma **422** para estos tres casos (`API_CONTRACT` §M2, rev v1.50.3-g). Manda el
+    // contrato. `finish` e `intent` sí quedan en el DTO porque su fallo no está normado aquí.
+    if (!(PRODUCT_TYPE_VALUES as readonly string[]).includes(dto.productType)) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        `productType "${dto.productType}" no existe. Valores soportados: ${PRODUCT_TYPE_VALUES.join(', ')}.`,
+        { field: 'productType', allowed: [...PRODUCT_TYPE_VALUES] },
+      );
+    }
+    if (!isCanonicalGradeKey(dto.productType, dto.gradeKey)) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        `gradeKey "${dto.gradeKey}" no es una clave que este sistema pueda generar para ` +
+          `productType:"${dto.productType}". Una fila de precio con una clave imposible es dinero que ` +
+          'ninguna pieza puede leer.',
+        { field: 'gradeKey' },
+      );
+    }
+    const card = await this.prisma.card.findUnique({
+      where: { id: dto.cardId },
+      select: { id: true },
+    });
+    if (!card) {
+      throw BusinessException.notFound('NOT_FOUND', `La carta ${dto.cardId} no existe.`);
+    }
+    // ===== v1.50.2 (INV-D, §4.38l.1) — guarda de ESCRITURA, ANTES de tocar la tabla de dinero =====
+    //
+    // El problema, en una frase: la fila del ESTIMADO y la referencia de mercado real de una pieza PSA N
+    // PUBLICADA son **la misma fila** (`cardId` + `graded` + `gradeKey` + `finish='normal'`). Fijar un
+    // «estimado» sobre una carta que además tiene un slab publicado de ese grado **cambia el precio de
+    // venta real de esa pieza**. Es preexistente; el gancho lo AMPLIFICA porque vuelve esa captura una
+    // tarea rutinaria de curaduría. La solución NO es duplicar la verdad con una clave paralela (el
+    // admin tendría que capturar dos veces y las dos filas divergirían): es **exigir que se declare la
+    // intención** y bloquear la combinación imposible.
+    if (dto.productType === 'graded') {
+      if (dto.intent === undefined) {
+        // §O.8 / criterio 112(b): el intento bloqueado se AUDITA antes de rechazarlo. Sin esta línea la
+        // guarda es muda por la vía manual (el ingest ya audita en `price-ingest.service`) y nadie puede
+        // ver si el operador está chocando contra ella a diario ni por qué.
+        await this.auditGradedBlock(userId, dto, 'GRADED_INTENT_REQUIRED', {
+          reason: 'intent_missing',
+        });
+        throw BusinessException.validation(
+          'GRADED_INTENT_REQUIRED',
+          'Para productType:"graded" debes declarar intent: "market" (precio de mercado real de un ' +
+            'slab publicado) o "graded_estimate" (valor estimado si se gradea).',
+          { field: 'intent', allowed: [...GRADED_INTENT_VALUES] },
+        );
+      }
+      if (dto.intent === 'graded_estimate') {
+        const slabs = await this.pricing.publishedSlabsForGradeKey(dto.cardId, dto.gradeKey);
+        if (slabs.length > 0) {
+          const grade = dto.gradeKey.split(':')[2] ?? '';
+          await this.auditGradedBlock(userId, dto, 'GRADED_ESTIMATE_SLAB_PUBLISHED', {
+            reason: 'slab_published',
+            publishedSlabCount: slabs.length,
+            inventoryItemIds: slabs.map((i) => i.id),
+          });
+          throw BusinessException.conflict(
+            'GRADED_ESTIMATE_SLAB_PUBLISHED',
+            `No se puede fijar un valor ESTIMADO de PSA ${grade} para esta carta: hay ${slabs.length} ` +
+              `slab(s) PSA ${grade} publicado(s). Esa fila es el precio de mercado real de esas piezas ` +
+              'y cambiaría su precio de venta. Usa intent:"market" si lo que quieres es fijar el precio ' +
+              'de mercado del slab.',
+            {
+              cardId: dto.cardId,
+              gradeKey: dto.gradeKey,
+              publishedSlabCount: slabs.length,
+              inventoryItemIds: slabs.map((i) => i.id),
+            },
+          );
+        }
+      }
+    }
+    // ===== v1.50.3-f (M-43, §4.38l.4.3) — el `intent` deja de vivir SOLO en la bitácora =====
+    //
+    // Hasta aquí el `intent` era una etiqueta de auditoría: las dos intenciones escribían una fila
+    // IDÉNTICA, y quién decidía si esa fila era dinero era el LECTOR, por inferencia sobre el estado
+    // del mundo (¿hay un slab publicado?). Por eso el mismo dato significaba dos cosas distintas en
+    // dos instantes distintos **sin que nada cambiara en la fila** — y por eso capturar el estimado
+    // ANTES y publicar el slab DESPUÉS priciaba el slab con el estimado (GE-1: MX$9,200 → MX$460).
+    // Ahora la decisión la toma el ESCRITOR, que es el único que conoce la intención, y queda
+    // CONGELADA en el dato.
+    //
+    // `productType` ≠ `graded` ⇒ `market` (el `intent` se ignora aunque venga, contrato §M2).
+    const refKind: PriceRefKind =
+      dto.productType === 'graded' && dto.intent === 'graded_estimate'
+        ? PriceRefKind.graded_estimate
+        : PriceRefKind.market;
+    // ===== v1.50.3-g (M-44, §4.38l.4.10) — la decisión de NATURALEZA viaja DENTRO de la escritura ====
+    //
+    // La guarda que impide DEGRADAR una fila `market` **no está aquí**: está en `applyManualOverride`,
+    // en la misma sentencia que escribe (punto 4 del dictamen). Repetirla como pre-vuelo en el
+    // controlador sería exactamente el TOCTOU que el dictamen prohíbe: dos peticiones concurrentes
+    // —una `intent:"market"`, otra `intent:"graded_estimate"`— pueden dejar la degradación consumada si
+    // el pre-vuelo del estimado leyó antes de que la otra confirmara. Lo que SÍ pasa aquí es la
+    // BITÁCORA del bloqueo, porque el `userId` solo lo conoce el borde.
+    //
+    // **Precedencia (l.4.10 punto 2):** el `409 GRADED_ESTIMATE_SLAB_PUBLISHED` de arriba corre ANTES y
+    // por eso gana cuando las dos condiciones se cumplen. Es la preexistente, su mensaje es más útil al
+    // operador y su `details` enumera los `inventoryItemIds`. M-44 cubre **el complemento**.
+    let result: ManualOverrideResult;
+    try {
+      result = await this.pricing.applyManualOverride({
+        cardId: dto.cardId,
+        productType: dto.productType,
+        gradeKey: dto.gradeKey,
+        priceMxnCents: dto.priceMxnCents,
+        finish: dto.finish ?? 'normal',
+        refKind,
+      });
+    } catch (e) {
+      if (
+        e instanceof BusinessException &&
+        e.code === 'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF'
+      ) {
+        await this.auditGradedBlock(userId, dto, e.code, {
+          reason: 'would_degrade_market_ref',
+          ...e.details,
+        });
+      }
+      throw e;
+    }
+    const ref = result.ref;
     await this.audit.log({
       actorUserId: userId,
       action: 'pricing.override',
       entityType: 'PriceReference',
       // El `id` sigue yendo a la BITÁCORA (donde se necesita para trazar), no a la respuesta.
       entityId: ref.id,
-      after: { priceMxnCents: dto.priceMxnCents, finish: dto.finish ?? 'normal' },
+      // ⚠️ v1.50.3-g (**M-44b**, §4.38l.4.10 punto 5) — **el monto pisado tiene que ser recuperable.**
+      // Hasta v1.50.3-f esta bitácora registraba solo el `after`, así que el valor anterior **no se
+      // podía reconstruir desde el audit trail**: quedaba la afirmación nueva y ningún rastro de la que
+      // sustituyó. `null` ⇔ no había fila del día (la escritura creó, no pisó) — y esa distinción
+      // también es información: dice si el operador estrenó la clave o corrigió algo.
+      //
+      // Cubre además el residual que M-43 NO cierra ((l.4.9) punto 1): el `intent:"market"` mal
+      // tecleado sigue moviendo el precio de un slab, y su remedio es exactamente éste — auditoría con
+      // la que se pueda deshacer. Precedente: el `before` del `DELETE` del gancho (§4.38q).
+      before: result.before,
+      // v1.50.2: el `intent` va a la BITÁCORA. Es la única señal que distingue «fijé el mercado de un
+      // slab» de «capturé un estimado del gancho» sobre una fila idéntica; sin él, la auditoría no
+      // puede reconstruir qué quiso hacer el operador.
+      after: {
+        priceMxnCents: dto.priceMxnCents,
+        finish: dto.finish ?? 'normal',
+        ...(dto.productType === 'graded' ? { intent: dto.intent } : {}),
+      },
     });
     return { data: toPriceHistoryEntry(ref) };
+  }
+
+  /**
+   * §O.8 / criterio 112(b) — **traza obligatoria del intento BLOQUEADO por la vía manual.**
+   *
+   * La guarda INV-D corta ANTES de escribir, así que sin esta bitácora un rechazo no deja ningún
+   * rastro: el `422`/`409` lo ve solo quien hizo la petición y se pierde al cerrar la pestaña. §O.8
+   * pide justo lo contrario —«que se vea si la guarda está saltando seguido y por qué»—, y la vía del
+   * ingest ya lo cumple (`PriceIngestService.auditGradedSkip`). Esto la iguala.
+   *
+   * Se registra el intento COMPLETO (qué carta, qué grado, qué monto se quiso escribir y con qué
+   * intención) porque el valor del registro está en poder reconstruir el intento, no en saber que hubo
+   * uno. `action` distinta de `pricing.override` a propósito: un intento BLOQUEADO no es un override.
+   *
+   * **Nunca convierte un rechazo en un 500:** si la bitácora falla, se loguea y el `422`/`409` sigue
+   * su curso. Perder la traza es malo; dejar pasar el intento por perderla sería peor.
+   */
+  private async auditGradedBlock(
+    userId: string,
+    dto: OverrideDto,
+    code: 'GRADED_INTENT_REQUIRED' | 'GRADED_ESTIMATE_SLAB_PUBLISHED' | 'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
+    extra: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.audit.log({
+        actorUserId: userId,
+        action: 'pricing.override.blocked',
+        entityType: 'PriceReference',
+        entityId: dto.cardId,
+        after: {
+          code,
+          cardId: dto.cardId,
+          productType: dto.productType,
+          gradeKey: dto.gradeKey,
+          finish: dto.finish ?? 'normal',
+          // El monto que NO se escribió: es lo que permite ver si el operador insiste con la misma cifra.
+          attemptedPriceMxnCents: dto.priceMxnCents,
+          intent: dto.intent ?? null,
+          ...extra,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `pricing.override BLOQUEADO (${code}) card=${dto.cardId} gradeKey=${dto.gradeKey}: no se pudo ` +
+          `escribir la bitácora (${(e as Error).message}). El rechazo se mantiene.`,
+      );
+    }
   }
 
   /**

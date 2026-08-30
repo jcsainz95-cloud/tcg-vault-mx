@@ -321,9 +321,21 @@ jobs:
           echo "Desplegando servicio '$RAILWAY_BACKEND_SERVICE' a Railway (production)..."
           railway up --service "$RAILWAY_BACKEND_SERVICE" --environment production --ci
           # `prisma migrate deploy` corre en el arranque del contenedor (Dockerfile CMD).
-      - name: Recordatorio de secuencia POST-DEPLOY (no automatizada, a propósito)
+      # ATENCIÓN a lo que este paso ES y a lo que NO ES (hueco anotado, DEVOPS_NOTES §32.11):
+      # esto es un RECORDATORIO, no un gate. La verificación de diales que el DoD exige
+      # (§32.2) depende hoy de que un humano corra `post-deploy.sh`. Techlead lo llamó
+      # «enforcement de honor» y tiene razón: un detector que sólo funciona si te acuerdas
+      # es indistinguible de uno que no corrió. Sigue manual por una contrapartida real
+      # —automatizarlo exige un JWT de `super_admin` de PROD guardado en CI, que es una
+      # llave maestra para cualquier job del workflow—, y eso es decisión del humano, no
+      # de devops. La vía barata sin secretos nuevos (grep de `config inventory` sobre
+      # `railway logs`, que ya usa el RAILWAY_TOKEN existente) está PROPUESTA y SIN CABLEAR
+      # en §32.11: no se cablea un detector que no se ha visto correr.
+      # El `::warning::` es deliberado: un `::notice::` se pierde; un warning sale en el
+      # resumen del run.
+      - name: Recordatorio de secuencia POST-DEPLOY (NO es un gate — ver DEVOPS_NOTES §32.11)
         run: |
-          echo "::notice::El deploy NO termina aquí: corre la secuencia post-deploy."
+          echo "::warning title=Post-deploy manual pendiente::El deploy NO termina aquí y este paso NO lo verifica. Los diales de §32.2 siguen sin comprobar hasta que corras post-deploy.sh (enforcement manual, DEVOPS_NOTES §32.11)."
           echo "::notice::  railway run --service backend --environment production bash scripts/post-deploy.sh"
           echo "::notice::Runbook vigente: DEVOPS_NOTES §29 (cut-over v2.0/P-48). Histórico: §27."
           echo "::notice::v2.0: 'repriciar' = RE-RESOLVER (publish-all, opt-in RUN_PUBLISH_ALL=1), no un UPDATE masivo."

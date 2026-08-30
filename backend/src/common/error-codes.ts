@@ -89,6 +89,55 @@ export const ErrorCode = {
   // rareza canónica del catálogo (§4.28c). Money-safe: el mapa solo asigna tiers a rarezas conocidas; una
   // key desconocida se rechaza en vez de crear una entrada muerta. Distinto de VALIDATION_ERROR. 422.
   UNKNOWN_RARITY: 'UNKNOWN_RARITY',
+  // v1.50-graded-estimate («gancho de grading», §4.38d / §M2). Invariantes de la tabla de escalones de
+  // COSTO de gradeo, validados en CADA `PUT /admin/pricing/graded-estimates` (fail-closed). Son códigos
+  // propios —y no un VALIDATION_ERROR genérico— porque el error es ENTRE FILAS y el editor de M2 tiene
+  // que poder señalar QUÉ par de escalones no empalma. 422.
+  GRADING_TIERS_EMPTY: 'GRADING_TIERS_EMPTY', // I1: array vacío (sin tabla no hay gate; jamás costo 0).
+  GRADING_TIERS_NOT_CONTIGUOUS: 'GRADING_TIERS_NOT_CONTIGUOUS', // I3/I4: hueco, solape, desorden o no arranca en 0.
+  GRADING_TIERS_NOT_OPEN_ENDED: 'GRADING_TIERS_NOT_OPEN_ENDED', // I5: el ÚLTIMO escalón (y solo él) debe ser abierto.
+  // v1.50 (§4.38f / §2): `?sort=grading_showcase` SIN `?gradingHighlight=true`. Fail-closed: si se
+  // aceptara, los grupos NO destacados irían a la cola del listado con clave de orden indefinida y la
+  // vitrina podría pintarlos al paginar. Mejor un error honesto que una superficie comercial
+  // contaminada. 400.
+  GRADING_SORT_REQUIRES_FILTER: 'GRADING_SORT_REQUIRES_FILTER',
+  // v1.50.2 (INV-D, §4.38l / §M2) — la colisión entre el ESTIMADO y el SLAB REAL publicado. La fila del
+  // «valor estimado si se gradea» y la referencia de mercado de una pieza PSA N **publicada** son LA
+  // MISMA FILA (`cardId` + `graded` + `gradeKey` + `finish='normal'`), así que un «estimado» tecleado
+  // sobre una carta con slab publicado **cambia el precio de venta real de esa pieza**.
+  //
+  // `intent` es OBLIGATORIO (no opcional-con-default) a propósito: un default a `"market"` sería
+  // FAIL-OPEN — el operador que olvida el campo obtendría, en silencio, la ruta que MUEVE DINERO. Se
+  // acepta un breaking chico en una ruta `super_admin` a cambio de que la ambigüedad sea imposible de
+  // expresar. Misma doctrina que «sin escalón no hay destacado» y «AUSENTE ≠ INVÁLIDA». 422.
+  GRADED_INTENT_REQUIRED: 'GRADED_INTENT_REQUIRED',
+  // Se intentó fijar un ESTIMADO (`intent:"graded_estimate"`) sobre una carta que YA tiene >= 1 slab
+  // publicado de ese grado: esa fila es el precio de mercado REAL de esas piezas. 409 (conflicto de
+  // ESTADO, no de forma: el mismo body es válido en cuanto deje de haber slabs publicados).
+  GRADED_ESTIMATE_SLAB_PUBLISHED: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
+  // v1.50.3-g (M-44, §4.38l.4.10 · SEC-M43-1) — se intentó BAJAR la naturaleza de la fila del DÍA:
+  // `intent:"graded_estimate"` sobre una fila que ya existe con `refKind='market'`. Como `refKind` NO
+  // está en la `@@unique`, esa escritura **reusa la misma fila**: la reclasifica Y le pisa el monto, o
+  // sea que un verbo INFORMATIVO destruye un dato de DINERO. La guarda hermana
+  // (`GRADED_ESTIMATE_SLAB_PUBLISHED`) solo ve `platform + listed`, así que no cubre el slab en
+  // `in_stock`/`reserved`/`picking`/envío ni el de **custodia de cliente** — el hueco que el blue team
+  // reprodujo en vivo (`500000 · market → 1234 · graded_estimate`, pieza real invisible y sin cola).
+  //
+  // Regla sin sujeto (§4.38l.4.3 regla 2, ampliada): *la naturaleza de una fila solo se SUBE, y solo por
+  // acto humano declarado (`intent:"market"`); BAJARLA no es una operación que ofrezca este sistema.*
+  // 409 y no 422: el body es sintácticamente impecable — el conflicto es con el ESTADO del recurso, y
+  // lo que hay que cambiar es la INTENCIÓN, no el cuerpo.
+  GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF: 'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
+  // v1.50.3 (§4.38n.3 / §M2) — `GET /admin/pricing/graded-estimates/review` con una clave de config
+  // PRESENTE-pero-INVÁLIDA de la que depende la coherencia (hoy `graded_estimate_max_raw_multiple`).
+  //
+  // Aplicación de `AUSENTE ≠ INVÁLIDA`: el dial `off` es una **decisión** y esta lista la tolera (evalúa
+  // igual, para poder limpiar ANTES de encender); una clave corrupta es **intención perdida**. Una lista
+  // de revisión calculada contra un umbral basura es PEOR que no tener lista: marcaría —o dejaría de
+  // marcar— cartas por una razón que no es la que el operador cree, y ésta es precisamente la superficie
+  // que existe para que el operador CONFÍE en lo que ve. 409 (conflicto de ESTADO: el mismo request es
+  // válido en cuanto la clave se corrija).
+  GRADED_CONFIG_INVALID: 'GRADED_CONFIG_INVALID',
 
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',

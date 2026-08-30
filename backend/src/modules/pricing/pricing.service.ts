@@ -1,8 +1,21 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Card, CardProduct, CardProductKind, Finish, PriceReference, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
+import { Card, CardProduct, CardProductKind, Finish, GradingCompany, PriceReference, PriceRefKind, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
+// v1.50.2 (§4.38l): la lista blanca de graduadoras — la guarda INV-D no puede consultar por un valor
+// que el enum de Prisma no admite (sería un 500 en una ruta de dinero).
+import { GRADING_COMPANY_VALUES } from '../../common/enum-values';
+import { BusinessException } from '../../common/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { SettingKey } from '../settings/settings.constants';
+import {
+  SettingKey,
+  SettingKeyType,
+  SETTING_DEFAULTS,
+  // v1.44-graded-estimate (§4.38d): los MISMOS validadores que aplica el PUT de M2, reusados en la
+  // lectura fail-closed de la config (un valor fuera de rango cae a su seed, nunca rompe el request).
+  validateGradeList,
+  validateGradedEstimateFreshnessDays,
+  validateGradingMinUpsidePct,
+} from '../settings/settings.constants';
 import { FxService } from './fx.service';
 import { PokemonTcgIoProvider } from './providers/pokemontcg-io.provider';
 import {
@@ -27,6 +40,29 @@ import {
   SealedSpreadResult,
   VariantPriceControls,
 } from '../../common/money';
+// MERGE v1.50.2: se BORRA `import { TierId } from '../../common/pricing-tiers'` — P-48 (§4.36) eliminó
+// `common/pricing-tiers.ts` junto con `loadSalesRules`/`loadTierMap`. No quedaba ningún uso de `TierId`
+// en este archivo; conservar el import «por si acaso» simplemente no compila.
+// v1.50-graded-estimate (§4.38): config + claves canónicas del «gancho de grading». La lógica del gate
+// vive en la pura `common/graded-estimate.ts`; aquí solo se IZA la config y se LEE el dato.
+import {
+  DISABLED_GRADED_ESTIMATE_CONFIG,
+  GRADED_ESTIMATE_COMPANY,
+  GRADED_ESTIMATE_GRADE_KEYS,
+  GRADED_ESTIMATE_GRADE_VALUES,
+  GradedEstimateConfig,
+  GradedEstimateInput,
+  gradedEstimateGradeKey,
+  isStaleByOrigin,
+  GradedEstimateSourceStat,
+  sanitizeGradingCostTiers,
+  validateGradedEstimateIngestMaxCards,
+  validateGradedEstimateManualFreshnessDays,
+  validateGradedEstimateMaxRawMultiple,
+  validateGradedEstimateMinSampleCount,
+  validateGradedEstimateSourceStat,
+  validateGradingCostTiers,
+} from '../../common/graded-estimate';
 // v2.0 (P-48, §4.36.2): LA CURVA. Un solo lector en todo el backend (`loadPricingCurve`), para que no
 // vuelva a haber dos rutas de dinero leyendo configuraciones potencialmente distintas.
 import {
@@ -53,6 +89,55 @@ function today(): Date {
 }
 
 /**
+ * v1.44-graded-estimate (§4.38d) — las **12** claves del gancho: los DOS diales M10 (exhibición e
+ * ingest) + las 10 de M2. Se leen TODAS en una sola query (`SettingsService.getRawMany`) para que la
+ * config del gancho cueste **+1 query constante** por request en vez de 12 lecturas sueltas
+ * (`SettingsService` no cachea).
+ *
+ * ⚠️ El número está escrito porque su VALOR es la garantía: añadir un dial y leerlo aparte devuelve el
+ * coste a +N, que es exactamente la regresión que QA midió (+7). Si esta lista crece, crece AQUÍ.
+ */
+const GRADED_ESTIMATE_SETTING_KEYS = [
+  SettingKey.GRADED_ESTIMATES_ENABLED,
+  SettingKey.GRADED_ESTIMATE_GRADES,
+  SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+  SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
+  SettingKey.GRADING_MIN_UPSIDE_PCT,
+  SettingKey.GRADING_COST_TIERS,
+  // v1.50.2 — las 6 nuevas (5 de M2 + el 2º dial M10). Siguen yendo en la MISMA query: el coste de la
+  // config es +1 constante por request, y añadir diales no puede volver a convertirlo en +N (la
+  // regresión que QA midió como +7 fue exactamente eso: una lectura por clave).
+  SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+  SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
+  SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
+  SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
+  SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+  SettingKey.GRADED_ESTIMATE_INGEST_ENABLED,
+] as const satisfies readonly SettingKeyType[];
+
+/**
+ * Dial maestro M10 `graded_estimates_enabled` (seed `off`): SOLO el string `'on'` enciende. Clave
+ * ausente, `null`, `true`, `'ON'` o basura ⇒ APAGADO (fail-closed por construcción).
+ */
+function gradedEstimatesEnabledFrom(raw: Map<SettingKeyType, unknown>): boolean {
+  return featureDialOn(raw, SettingKey.GRADED_ESTIMATES_ENABLED);
+}
+
+/**
+ * v1.50.2 — SEGUNDO dial M10 `graded_estimate_ingest_enabled` (seed `off`): gobierna la OBTENCIÓN
+ * (créditos + escrituras), no la exhibición. Mismo fail-closed por construcción.
+ */
+function gradedEstimateIngestEnabledFrom(raw: Map<SettingKeyType, unknown>): boolean {
+  return featureDialOn(raw, SettingKey.GRADED_ESTIMATE_INGEST_ENABLED);
+}
+
+/** SOLO el string `'on'` enciende. Ausente, `null`, `true`, `'ON'` o basura ⇒ APAGADO. */
+function featureDialOn(raw: Map<SettingKeyType, unknown>, key: SettingKeyType): boolean {
+  const v = raw.has(key) ? raw.get(key) : SETTING_DEFAULTS[key];
+  return v === 'on';
+}
+
+/**
  * v1.29 (M-31, §4.27f) — filtro de `PriceReference` para la referencia de la CARTA DE SET: incluye las
  * filas legacy/fallback (`cardProductId=null`: PPT, pokemontcg.io, manual, sellado) y las del producto
  * `set_base`/`other`; EXCLUYE las de `deck_exclusive`/`promo` (su precio vive en su producto separado).
@@ -65,8 +150,119 @@ export const BASE_CARD_REF_WHERE: Prisma.PriceReferenceWhereInput = {
 };
 
 /**
+ * v1.50.3-f (M-43, ARCHITECTURE §4.38l.4.4A, NORMATIVO, DINERO) — **PREDICADO DE LA RUTA DE DINERO.**
+ *
+ * Se aplica —vía `AND`, para no colisionar con el `OR` de `BASE_CARD_REF_WHERE`— a **TODA** lectura de
+ * `PriceReference` cuyo resultado pueda terminar en un monto que alguien cobre, ofrezca o valúe.
+ *
+ * ### Por qué EXCLUIR y no ordenar (⛔ derogación explícita, §4.38l.4.1)
+ * La recomendación previa era meter `graded_estimate` en `PriceSource` con `sourceRank` por debajo de
+ * toda fuente real. **Es falsa, y el PoC de GE-1 lo probó:** `sourceRank` vive dentro de `isBetterRef`,
+ * que es un **desempate entre candidatas**, y la clave del estimado tiene —casi siempre— **UNA sola
+ * fila** (no existe ningún escritor automático de referencia de mercado `graded`, §4.38l.4.6 candado 4):
+ *
+ * ```
+ * pickBestRef([estimado]) -> estimado     // única candidata: gana con CUALQUIER rango
+ * ```
+ *
+ * **Ordenar no es excluir.** Un control que solo actúa en el desempate no protege el caso de candidata
+ * única, que es justamente el caso degradado. Por eso el estimado **no pierde la precedencia: no es
+ * candidata**, y `isBetterRef` / `sourceRank` / §4.27f-2 **no se tocan** (misma técnica que §4.38m:
+ * filtrar ANTES de comparar, nunca dentro del comparador ni dentro de la matemática de la curva).
+ *
+ * ### La regla que gobierna las rutas FUTURAS (es lo que de verdad cierra la causa)
+ * *El default de toda lectura de `PriceReference` es **excluir** las filas que no son `market`;
+ * incluirlas es **opt-in explícito** y solo lo hacen las superficies del gancho* (`getGradedEstimatesBatch`,
+ * el conjunto motor de `/review` y el `DELETE` de estimados) **más el historial de auditoría**
+ * (`priceHistory`, que es donde `refKind` EXPLICA por qué una fila con número no está priciando nada).
+ * Un lector nuevo que se olvide del predicado **hereda el comportamiento seguro** — exactamente lo
+ * contrario de lo que pasaba antes de M-43.
+ *
+ * ### Consecuencia declarada (deliberada, fail-closed)
+ * Un slab publicado cuya ÚNICA fila de la clave sea un estimado se queda **sin candidata** ⇒
+ * `getReference` devuelve `pending` ⇒ `decideSalePrice` da `pendingReason='no_market'` /
+ * `basis='pending'` ⇒ **deja de ser vendible en la siguiente lectura**, sin barrido ni migración de
+ * datos. Es la dirección correcta del fallo: *una pieza sin precio no le cuesta dinero a nadie; una
+ * pieza al 5% de su valor sí* (GE-1: MX$9,200 → MX$460). No es gratis, y por eso el cut-over de
+ * §4.38(l.4.7) exige **re-afirmar cada slab con `intent:"market"` ANTES** de migrar.
+ */
+export const MONEY_REF_WHERE: Prisma.PriceReferenceWhereInput = { refKind: 'market' };
+
+/** Entrada de `applyManualOverride` (objeto, no 8 posicionales: el 9.º parámetro ya no cabía). */
+export interface ManualOverrideInput {
+  cardId: string;
+  productType: ProductType;
+  gradeKey: string;
+  priceMxnCents: number;
+  finish?: Finish;
+  /** H-1 (SEC): cliente transaccional del caller, cuando el override es parte de una tx mayor. */
+  tx?: Prisma.TransactionClient;
+  /** SEC N-3: claves LÓGICAS de dedupe del pendiente que se resuelve. */
+  pending?: { sealedProductId?: string | null; cardProductId?: number | null };
+  /** M-43 (§4.38l.4.3): NATURALEZA de la fila. Default `market` (ver el porqué en `manualOverride`). */
+  refKind?: PriceRefKind;
+}
+
+/**
+ * M-44b (§4.38l.4.10 punto 5) — lo que había en la fila del día ANTES de pisarla. Son exactamente los
+ * tres campos que el dictamen enumera: el monto destruido, su naturaleza y su procedencia.
+ */
+export interface ManualOverrideBefore {
+  priceMxnCents: number;
+  refKind: PriceRefKind;
+  source: PriceSource;
+}
+
+export interface ManualOverrideResult {
+  ref: PriceReference;
+  /** `null` ⇔ no había fila del día (la escritura CREÓ, no pisó). */
+  before: ManualOverrideBefore | null;
+}
+
+/** `1234` ⇒ `MX$12.34`. Solo para el mensaje del `409` de M-44 (el operador lee pesos, no centavos). */
+function mxn(cents: number): string {
+  const neg = cents < 0;
+  const abs = Math.abs(cents);
+  const pesos = String(Math.trunc(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${neg ? '-' : ''}MX$${pesos}.${String(abs % 100).padStart(2, '0')}`;
+}
+
+/**
+ * **M-44 (§4.38l.4.10 · API_CONTRACT v1.50.3-g)** — el `409` que impide que un verbo INFORMATIVO
+ * destruya un dato de DINERO.
+ *
+ * El `message` sí nombra el monto vigente (es lo que le dice al operador que está a punto de pisar algo
+ * afirmado como precio); el `details` **NO lo lleva**: no aporta a la decisión, es dato comercial y el
+ * operador lo tiene en `priceHistory`. Contrato, literal.
+ */
+function degradeMarketRefConflict(
+  cardId: string,
+  gradeKey: string,
+  row: { refKind: PriceRefKind; priceMxnCents: number },
+  capturedDate: Date,
+): BusinessException {
+  const grade = gradeKey.split(':')[2] ?? '';
+  return BusinessException.conflict(
+    'GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF',
+    `No se puede convertir en ESTIMADO la referencia de MERCADO de PSA ${grade} de esta carta: la fila ` +
+      `de hoy vale ${mxn(row.priceMxnCents)} y fue afirmada como precio de mercado. Si quieres cambiar ` +
+      'ese precio, usa intent:"market"; si quieres retirar el dato, hazlo con el borrado del gancho.',
+    {
+      cardId,
+      gradeKey,
+      currentRefKind: row.refKind,
+      capturedDate: capturedDate.toISOString().slice(0, 10),
+    },
+  );
+}
+
+/**
  * Columnas mínimas que necesita la valuación (incl. `source` para la precedencia §4.27f y
  * `cardProductId` para el desempate DETERMINISTA money-safe de M-31, ver `isBetterRef`).
+ *
+ * v1.50.3-f (M-43): incluye `refKind` porque el batch del GANCHO —única lectura INCLUSIVA de las dos
+ * naturalezas— lo proyecta al diagnóstico de admin (`GradedEstimatePreviewDTO.refKind`). En la ruta de
+ * dinero es redundante por construcción (`MONEY_REF_WHERE` ya la filtró), y esa redundancia es barata.
  */
 const PRICE_REF_SELECT = {
   cardId: true,
@@ -79,6 +275,7 @@ const PRICE_REF_SELECT = {
   source: true,
   capturedDate: true,
   cardProductId: true,
+  refKind: true,
 } as const;
 
 /**
@@ -208,6 +405,28 @@ export interface PriceInfo {
 }
 
 /**
+ * v1.50-graded-estimate (§4.38a/g) — UN estimado por grado tal como sale del batch. **EXTIENDE**
+ * `GradedEstimateInput` (lo que consumen las puras) y le añade UNA cosa: el `gradeKey` canónico, que la
+ * composición necesita para el render y las puras no.
+ *
+ * ⚠️ **`extends`, no una copia.** Hasta v1.50.2 este tipo REDECLARABA a mano los cuatro campos de
+ * `GradedEstimateInput`, contra la promesa de §4.38c de que hay **UNA sola definición** de la forma que
+ * consumen las puras. Dos listas de campos que deben coincidir y que nadie obliga a coincidir divergen:
+ * añadir un campo al input (como pasó con `isManual`) y olvidarlo aquí compila, y el batch empieza a
+ * producir filas que las puras leen como `undefined`. Con `extends`, el compilador lo sostiene.
+ *
+ * **NO lleva `source` ni `isManualOverride`, y eso es el contrato, no un olvido:** es la garantía
+ * ESTRUCTURAL de que ninguna rama de composición pueda decidir nada por el ORIGEN CRUDO del número. Es
+ * lo que hace INDISTINGUIBLES la fase 1 (valor fijado a mano por el admin) y la fase 2 (ingest
+ * automático) para el cliente. La precedencia `override manual > ingest` ya la resolvió `isBetterRef`
+ * DENTRO de la tabla; `isManual` (heredado) solo decide SI la fila se emite, jamás QUÉ (§4.38m).
+ */
+export interface GradedEstimateRef extends GradedEstimateInput {
+  /** Clave canónica `graded:PSA:<grado>` — lo ÚNICO que este tipo añade sobre `GradedEstimateInput`. */
+  gradeKey: string;
+}
+
+/**
  * v2.1.6 (S48-M2) — proyección PÚBLICA de un `PriceInfo`: **quita la procedencia**. Es el único
  * cuerpo que decide qué sale a superficie anónima; los seams públicos (`catalog`, `buylist`) lo
  * aplican al construir su DTO.
@@ -296,6 +515,19 @@ export interface PriceHistoryEntryDTO {
    * **«¿es sensible PARA QUIEN LEE ESTA RUTA?»**.
    */
   isManualOverride: boolean;
+  /**
+   * v1.50.3-f (M-43, contrato §DTOs) — **NATURALEZA** de la fila, ORTOGONAL a `source` (procedencia) y
+   * a `isManualOverride`. `"market"` = puede resolver dinero; `"graded_estimate"` = **jamás** lo
+   * resuelve (§4.38l.4).
+   *
+   * En una superficie de AUDITORÍA es el dato que explica **por qué una fila con número no está
+   * priciando nada** — sin él, el historial muestra una cifra viva junto a una pieza sin precio y no
+   * hay forma de reconciliar las dos observaciones. Por eso `priceHistory` es una de las lecturas que
+   * **no** aplica `MONEY_REF_WHERE`: aquí las dos naturalezas se ven, y este campo las distingue.
+   *
+   * **Aditivo**: las filas anteriores a M-43 son `"market"` por el default de la columna.
+   */
+  refKind: PriceRefKind;
 }
 
 /**
@@ -319,6 +551,7 @@ export function toPriceHistoryEntry(row: {
   productType: ProductType;
   priceMxnCents: number;
   isManualOverride: boolean;
+  refKind: PriceRefKind;
 }): PriceHistoryEntryDTO {
   return {
     capturedDate: row.capturedDate.toISOString().slice(0, 10),
@@ -327,6 +560,9 @@ export function toPriceHistoryEntry(row: {
     productType: row.productType,
     priceMxnCents: row.priceMxnCents,
     isManualOverride: row.isManualOverride,
+    // M-43: la lista blanca se AMPLÍA explícitamente (una columna nueva no sale por omisión; ésa es la
+    // propiedad que la proyección existe para tener). Contrato v1.50.3-f, `PriceHistoryEntryDTO`.
+    refKind: row.refKind,
   };
 }
 
@@ -494,15 +730,27 @@ export class PricingService {
     // MANUAL es candidata PERENNE (durable cross-day). Se une una lectura DIRIGIDA de TODAS las filas
     // manuales de la clave SIN cota de fecha ni `take`, de modo que un override humano de meses atrás
     // nunca cae fuera de la ventana ni lo pisa el barrido diario. `pickBestRef` desempata el conjunto.
+    // v1.50.3-f (M-43, §4.38l.4.4A): `MONEY_REF_WHERE` en **las dos** queries — el bloque reciente y el
+    // `MANUAL_REF_PREDICATE`. Olvidarlo en la segunda habría dejado vivo el caso exacto de GE-1: el
+    // estimado se escribe SIEMPRE con `isManualOverride=true` por la vía manual, así que es justamente
+    // la fila que la lectura de candidatas PERENNES trae sin cota de fecha (y por eso el estimado
+    // rancio a −400 días seguía priciando el slab). Se aplica por `AND` para no colisionar con el `OR`
+    // de `BASE_CARD_REF_WHERE`.
     const [dayRows, manualRows] = await Promise.all([
       this.prisma.priceReference.findMany({
-        where: { cardId, productType, gradeKey, finish, ...BASE_CARD_REF_WHERE },
+        where: { cardId, productType, gradeKey, finish, AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE] },
         orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
         select: PRICE_REF_SELECT,
         take: SAME_DAY_REF_CANDIDATES,
       }),
       this.prisma.priceReference.findMany({
-        where: { cardId, productType, gradeKey, finish, AND: [BASE_CARD_REF_WHERE, MANUAL_REF_PREDICATE] },
+        where: {
+          cardId,
+          productType,
+          gradeKey,
+          finish,
+          AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE, MANUAL_REF_PREDICATE],
+        },
         select: PRICE_REF_SELECT,
       }),
     ]);
@@ -549,7 +797,7 @@ export class PricingService {
     // cota de fecha ni `take`), para que el override manual siga siendo candidata perenne durable.
     const [dayRows, manualRows] = await Promise.all([
       this.prisma.priceReference.findMany({
-        where: { cardProductId: cardProductInternalId, productType, gradeKey, finish },
+        where: { cardProductId: cardProductInternalId, productType, gradeKey, finish, ...MONEY_REF_WHERE },
         orderBy: { capturedDate: 'desc' },
         select: PRICE_REF_SELECT,
         take: SAME_DAY_REF_CANDIDATES,
@@ -560,7 +808,11 @@ export class PricingService {
           productType,
           gradeKey,
           finish,
-          ...MANUAL_REF_PREDICATE,
+          // M-43 (§4.38l.4.4A): también aquí, y también en LAS DOS queries. Hoy una fila de estimado
+          // nunca lleva `cardProductId` (§4.38a: el estimado es de la CARTA), así que el predicado es
+          // redundante — se pone igual porque la regla es del LECTOR, no del escritor: la garantía debe
+          // sobrevivir a que mañana alguien escriba un estimado por producto.
+          AND: [MONEY_REF_WHERE, MANUAL_REF_PREDICATE],
         },
         select: PRICE_REF_SELECT,
       }),
@@ -602,7 +854,10 @@ export class PricingService {
         gradeKey: { in: [...new Set(items.map((i) => i.gradeKey))] },
         finish: { in: [...new Set(items.map((i) => i.finish))] },
         // v1.29 (M-31, §4.27f): excluye filas de deck_exclusive/promo del precio de la carta de set.
-        ...BASE_CARD_REF_WHERE,
+        // v1.50.3-f (M-43, §4.38l.4.4A): + la naturaleza. Éste es el seam que alimenta bulk-publish,
+        // bóveda, binder, buylist y los reportes de dinero de admin: un estimado que se colara aquí
+        // pricearía a la vez decenas de piezas.
+        AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE],
       },
       orderBy: { capturedDate: 'desc' },
       select: PRICE_REF_SELECT,
@@ -651,7 +906,10 @@ export class PricingService {
         gradeKey: 'raw:NM',
         priceMxnCents: { gt: 0 },
         // v1.29 (M-31): un precio de deck_exclusive/promo NO cuenta como precio de la carta de set.
-        ...BASE_CARD_REF_WHERE,
+        // M-43: y un estimado tampoco «tiene precio» a efectos de display. Redundante hoy (esta query
+        // es `raw:NM` y el estimado es `graded:PSA:*`), presente por la regla del lector: el default de
+        // toda lectura de `PriceReference` es EXCLUIR lo que no es `market` (§4.38l.4.4A).
+        AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE],
       },
       select: { cardId: true, finish: true },
       distinct: ['cardId', 'finish'],
@@ -687,7 +945,8 @@ export class PricingService {
 
     const productIds = products.map((p) => p.id);
     const refs = await this.prisma.priceReference.findMany({
-      where: { cardProductId: { in: productIds }, productType: 'raw', gradeKey: 'raw:NM' },
+      // M-43 (§4.38l.4.4A): `marketReferenceMxnCents` es dinero que ve el operador ⇒ solo `market`.
+      where: { cardProductId: { in: productIds }, productType: 'raw', gradeKey: 'raw:NM', ...MONEY_REF_WHERE },
       orderBy: { capturedDate: 'desc' },
       select: PRICE_REF_SELECT, // incluye `cardProductId` (M-31 MAYOR-3).
     });
@@ -872,6 +1131,486 @@ export class PricingService {
   }
 
   /**
+   * v1.44-graded-estimate (§4.38c/d) — CONFIG del «gancho de grading» izada UNA vez por request
+   * (espejo de `loadSealedSpreads`, pago mínimo de BE-25). Lectura FAIL-CLOSED en dos niveles:
+   *
+   * 1. **Dial maestro primero:** con `graded_estimates_enabled != 'on'` se devuelve la config APAGADA
+   *    (y el caller NO lee precios: con el dial `off` el backend «ni siquiera evalúa nada», §M10).
+   * 2. **`AUSENTE ≠ INVÁLIDA` (GU-A8, v1.44.1).** Tres estados por clave, no dos:
+   *
+   *    | Estado | `grading_cost_tiers` | `minUpsidePct` / `freshnessDays` / `grades` / `highlightGrades` |
+   *    |---|---|---|
+   *    | Válida | se usa | se usa |
+   *    | **AUSENTE** | tabla VACÍA ⇒ nada se destaca | **seed** (es el estado del primer deploy antes de M-41) |
+   *    | **PRESENTE pero INVÁLIDA** | tabla VACÍA ⇒ nada se destaca | **nada se destaca** (NO cae al seed) |
+   *
+   *    Un valor **corrupto** es evidencia de que la intención del admin **se perdió**, así que no se
+   *    adivina. Caer al seed sería *más permisivo que su intención, en silencio*: con la tabla válida y
+   *    `grading_min_upside_pct` corrupto, un 200 configurado se volvía el seed 30. Nunca hay default de
+   *    código para el COSTO, en ningún estado.
+   *
+   *
+   * **v1.44 R1 — por qué `getRawMany` y no `getRaw`:** `SettingsService.get()/getRaw()` hacen fallback a
+   * `SETTING_DEFAULTS`, así que **no distinguen clave AUSENTE de clave presente con el valor del seed**.
+   * Con `getRaw` la doctrina (2) era falsa para el caso «ausente»: el resolver veía la tabla completa de
+   * 6 escalones y el gate corría normal. `getRawMany` devuelve **solo las filas existentes**, que es la
+   * distinción que §4.38d exige. (En una BD sembrada — `prisma/seed.ts` escribe una fila por cada
+   * `SETTING_DEFAULTS` — el comportamiento observable no cambia; lo que cambia es el caso degradado.)
+   *
+   * **v1.44 IMPORTANTE-2 — coste real:** las **12** claves se leen en **UNA** query (antes: 1
+   * `findUnique` del dial + N `getRaw()` sin caché). El coste del gancho por request queda en **+1
+   * query con el dial `off`** y **+3 con `on`** (esta + el batch de estimados de §4.38c + el batch de
+   * slabs publicados de INV-D §4.38l). Sigue siendo O(1) respecto del tamaño de la página.
+   */
+  async loadGradedEstimateConfig(): Promise<GradedEstimateConfig> {
+    const raw = await this.settings.getRawMany(GRADED_ESTIMATE_SETTING_KEYS);
+    // Config apagada INERTE — con `grades`/`gradingCostTiers` vacíos, las puras devuelven `[]` y
+    // `FEATURE_OFF` aunque alguien las llamara por error.
+    if (!gradedEstimatesEnabledFrom(raw)) {
+      // La constante compartida `DISABLED_GRADED_ESTIMATE_CONFIG` (common/) — una sola definición del
+      // estado apagado, para que añadir un dial no deje tres copias divergentes. `ingestEnabled` sigue
+      // reflejando el dial REAL: el ingest puede rodar en observación con la exhibición apagada (§4.38d).
+      return { ...DISABLED_GRADED_ESTIMATE_CONFIG, ingestEnabled: gradedEstimateIngestEnabledFrom(raw) };
+    }
+    return this.buildGradedEstimateConfig(raw, true);
+  }
+
+  /**
+   * v1.44 — variante para las superficies de ADMIN (`GET/PUT /admin/pricing/graded-estimates` y su
+   * `/preview`): lee la config COMPLETA **aunque el interruptor maestro esté apagado**, porque el editor
+   * de M2 tiene que poder ver y editar los escalones antes de encender la feature, y el diagnóstico
+   * tiene que poder explicar `FEATURE_OFF` mostrando la tabla vigente. `enabled` es el ESPEJO
+   * READ-ONLY del dial M10 (se edita en `PUT /admin/settings`, no aquí).
+   *
+   * Devuelve la config **EFECTIVA** (la misma que ve el resolver): si la fila de `grading_cost_tiers`
+   * NO existe, el editor ve `[]` — que es exactamente lo que el gate aplicaría — y no una tabla
+   * fantasma que nadie escribió nunca.
+   */
+  async loadGradedEstimateConfigForAdmin(): Promise<GradedEstimateConfig> {
+    const raw = await this.settings.getRawMany(GRADED_ESTIMATE_SETTING_KEYS);
+    return this.buildGradedEstimateConfig(raw, gradedEstimatesEnabledFrom(raw));
+  }
+
+  /**
+   * SANEA las 5 claves de config del gancho ya leídas, aplicando la regla `AUSENTE ≠ INVÁLIDA`
+   * (GU-A8, §4.38d). Ver la tabla de tres estados en el docstring de `loadGradedEstimateConfig`.
+   *
+   * `enabled` es el ESPEJO del dial M10 y **no** lo apaga una clave corrupta (el contrato lo define
+   * así); lo que se apaga son `estimatesEnabled` / `highlightEnabled`, y el admin se entera por el
+   * `warn` y por el `reason: FEATURE_OFF` del preview.
+   */
+  private buildGradedEstimateConfig(
+    raw: Map<SettingKeyType, unknown>,
+    enabled: boolean,
+  ): GradedEstimateConfig {
+    /**
+     * Resuelve UNA clave a sus tres estados. `invalid: true` significa **presente pero inválida**:
+     * el valor devuelto es el seed (para que el DTO de admin siga siendo mostrable y tipado), pero el
+     * caller **apaga la superficie** en vez de usarlo — que es justo lo contrario de caer al seed.
+     */
+    const resolve = <T>(
+      key: SettingKeyType,
+      validate: (v: unknown) => string | null,
+    ): { value: T; invalid: boolean } => {
+      const seed = SETTING_DEFAULTS[key] as T;
+      if (!raw.has(key)) return { value: seed, invalid: false }; // AUSENTE ⇒ seed (deliberado).
+      const stored = raw.get(key);
+      const err = validate(stored);
+      if (err == null) return { value: stored as T, invalid: false }; // VÁLIDA.
+      this.warnInvalidGradedEstimateKey(key, err); // PRESENTE pero INVÁLIDA ⇒ apagar, no adivinar.
+      return { value: seed, invalid: true };
+    };
+
+    const gradesRes = resolve<string[]>(SettingKey.GRADED_ESTIMATE_GRADES, validateGradeList);
+    const highlightRes = resolve<string[]>(
+      SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+      validateGradeList,
+    );
+    const freshRes = resolve<number>(
+      SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
+      validateGradedEstimateFreshnessDays,
+    );
+    const minUpsideRes = resolve<number>(
+      SettingKey.GRADING_MIN_UPSIDE_PCT,
+      validateGradingMinUpsidePct,
+    );
+    // v1.50.2 — las 5 claves nuevas, con la MISMA regla de tres estados (AUSENTE ≠ INVÁLIDA).
+    const manualFreshRes = resolve<number | null>(
+      SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+      validateGradedEstimateManualFreshnessDays,
+    );
+    const maxMultipleRes = resolve<number>(
+      SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
+      validateGradedEstimateMaxRawMultiple,
+    );
+    const minSampleRes = resolve<number>(
+      SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
+      validateGradedEstimateMinSampleCount,
+    );
+    const sourceStatRes = resolve<GradedEstimateSourceStat>(
+      SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
+      validateGradedEstimateSourceStat,
+    );
+    const ingestMaxRes = resolve<number>(
+      SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+      validateGradedEstimateIngestMaxCards,
+    );
+
+    // COSTO: se lee del Map SIN consultar `SETTING_DEFAULTS` en NINGÚN estado. Ausente ⇒ `undefined`,
+    // corrupta ⇒ el valor tal cual; el saneador devuelve `[]` en ambos casos (money-safe, §4.38d).
+    // Su corrupción NO necesita apagar nada: la tabla vacía ya produce `NO_COST_TIER`, que es un
+    // diagnóstico MÁS preciso que `FEATURE_OFF` y con el mismo efecto (nada se destaca).
+    const tiersRaw = raw.get(SettingKey.GRADING_COST_TIERS);
+    if (tiersRaw !== undefined) {
+      const tiersErr = validateGradingCostTiers(tiersRaw);
+      if (tiersErr) this.warnInvalidGradedEstimateKey(SettingKey.GRADING_COST_TIERS, tiersErr.message);
+    }
+
+    const grades = gradesRes.value;
+    // `highlightGrades ⊆ grades` (I7) también EN LECTURA: si una edición fuera de banda dejó un grado
+    // huérfano, el badge no puede pintar un grado que la ficha no expone.
+    const highlightGrades = highlightRes.value.filter((g) => grades.includes(g));
+
+    // Alcance del apagado (§4.38d): `grades`/`freshnessDays` gobiernan TAMBIÉN la ficha — sin umbral de
+    // frescura confiable no se puede afirmar que una cifra esté vigente. `minUpsidePct`/`highlightGrades`
+    // solo gobiernan la promoción, así que la ficha sobrevive a su corrupción.
+    //
+    // v1.50.2 — dónde cae cada clave NUEVA (§4.38d › «Alcance del apagado», y el contrato lo repite):
+    //  · `manualFreshnessDays` gobierna la FICHA además de la rejilla (es frescura) ⇒ apaga las dos.
+    //  · `maxRawMultiple` NO participa en la ficha (§4.38k.3) ⇒ apaga solo la promoción.
+    //  · `minSampleCount`/`sourceStat`/`ingestMaxCardsPerRun` son del INGEST: NO apagan ninguna
+    //    superficie de LECTURA (corromperlos no puede vaciar una vitrina cuyo dato ya está escrito).
+    //    Lo que hacen es que el INGEST se niegue a escribir — fail-closed en su propia ruta.
+    // ⚠️ v1.50.3 (I8-bis, §4.38m) — `manualFreshnessDays == null` significa «el override manual NO
+    // decae», y eso **desactiva el criterio 109 para la vía manual**: un número que un humano tecleó una
+    // vez puede quedarse en portada para siempre, que es exactamente lo que §O.4 promete que no pasa.
+    //
+    // Sigue siendo EXPRESABLE (es una decisión legítima del dueño) pero **no puede tomarse en silencio**:
+    // misma doctrina que «la vitrina no puede vaciarse en silencio» (§4.38d › Observabilidad). Nótese
+    // que NO apaga nada — no es una clave corrupta, es una decisión válida; solo se hace audible.
+    if (manualFreshRes.value === null && !manualFreshRes.invalid) {
+      this.logger.warn(
+        `graded-estimate config: '${SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS}' = null ⇒ el ` +
+          'override MANUAL nunca caduca. Esto DESACTIVA el criterio 109 para la vía manual: un estimado ' +
+          'capturado a mano puede seguir exhibiéndose indefinidamente. Es una decisión válida, pero ' +
+          'deliberada — el seed es 30 días. Ajústalo con PUT /admin/pricing/graded-estimates.',
+      );
+    }
+
+    const estimatesEnabled =
+      enabled && !gradesRes.invalid && !freshRes.invalid && !manualFreshRes.invalid;
+    const highlightEnabled =
+      estimatesEnabled && !minUpsideRes.invalid && !highlightRes.invalid && !maxMultipleRes.invalid;
+
+    return {
+      enabled,
+      estimatesEnabled,
+      highlightEnabled,
+      ingestEnabled: gradedEstimateIngestEnabledFrom(raw),
+      grades,
+      highlightGrades,
+      freshnessDays: freshRes.value,
+      minUpsidePct: minUpsideRes.value,
+      gradingCostTiers: sanitizeGradingCostTiers(tiersRaw),
+      manualFreshnessDays: manualFreshRes.value,
+      maxRawMultiple: maxMultipleRes.value,
+      minSampleCount: minSampleRes.value,
+      sourceStat: sourceStatRes.value,
+      ingestMaxCardsPerRun: ingestMaxRes.value,
+      ingestConfigInvalid: minSampleRes.invalid || sourceStatRes.invalid || ingestMaxRes.invalid,
+      // v1.50.3 (§4.38n.3): se expone POR SEPARADO de `highlightEnabled` —que ya está apagado por tres
+      // claves distintas— porque la LISTA DE REVISIÓN necesita poder NOMBRAR la clave corrupta en su
+      // `409`. Un «algo está mal» no sirve en la superficie que existe para que el operador confíe.
+      maxRawMultipleInvalid: maxMultipleRes.invalid,
+    };
+  }
+
+  /**
+   * GU-A8 › Observabilidad (OBLIGATORIA): una clave presente-e-inválida se loguea con `warn`
+   * identificando **la clave y el invariante violado**. Un apagado silencioso sería tan malo como el
+   * default silencioso que esta regla evita: el dueño debe poder enterarse de por qué se le vació la
+   * vitrina. Solo se dispara por edición **fuera de banda** (SQL directo, restore parcial, migración a
+   * medias) — el `PUT` de M2 rechaza lo inválido con `422`.
+   */
+  private warnInvalidGradedEstimateKey(key: SettingKeyType, invariant: string): void {
+    this.logger.warn(
+      `graded-estimate config: la clave '${key}' está PRESENTE pero es INVÁLIDA (${invariant}). ` +
+        'GU-A8 (§4.38d): NO se cae al seed — se apaga la superficie que gobierna. ' +
+        'Corrige el valor con PUT /admin/pricing/graded-estimates (o revisa la edición fuera de banda).',
+    );
+  }
+
+  /**
+   * v1.44-graded-estimate (§4.38c) — BATCH DEDICADO de los estimados PSA por carta. **UNA** query,
+   * `+1 constante` por request (catálogo, vitrina y ficha); `0` en el resto del sistema.
+   *
+   * Clave canónica (§4.38a): `(cardId, productType='graded', gradeKey ∈ {graded:PSA:10, graded:PSA:9},
+   * finish='normal', cardProductId=null)`. `finish='normal'` SIEMPRE — el grado NO se cruza con el
+   * acabado (doctrina ya vigente para `graded`), así que el estimado es **por CARTA**, no por variante.
+   *
+   * **Por qué un método DEDICADO y NO `getReferencesBatch`:** ese método arma el `WHERE` como PRODUCTO
+   * CARTESIANO de los conjuntos distintos (`cardId × productType × gradeKey × finish`) y filtra después
+   * en memoria contra `wanted`.
+   *
+   * *(MERGE v1.50.2 — RANGO CORREGIDO: `getReferencesBatch` está hoy en **`:688-730`** de este archivo
+   * — en `main`, antes de la fusión, estaba en `:588-631`; el `:365-408` que citaba esta nota quedó
+   * obsoleto hace dos refactors. **La justificación se re-verificó contra el cuerpo actual y sigue
+   * siendo literalmente cierta**: el `where` sigue armándose como producto cartesiano de conjuntos y
+   * el filtrado exacto sigue haciéndose en memoria contra `wanted`. Se corrige el número, no el
+   * argumento.)* Mezclar los ítems raw del listado con los graded del gancho en
+   * UNA llamada haría que el SQL trajera `productType in ('raw','graded') × gradeKey in ('raw:NM',
+   * 'graded:PSA:10','graded:PSA:9') × finish in (todos)`: un **over-fetch combinatorio** sobre la tabla
+   * más caliente del sistema. Un método aparte cuesta +1 query constante y NO toca la ruta de dinero del
+   * raw (riesgo de regresión cero).
+   *
+   * Mismo desempate determinista (`pickBestRef`/`isBetterRef`, que resuelve la precedencia
+   * `override manual > ingest` DENTRO de la tabla) y mismo recomputo FX (`liveMxnCents`) que
+   * `getReference`. **El valor devuelto NO transporta `source` ni `isManualOverride`**: es la garantía
+   * ESTRUCTURAL de que ninguna rama de composición pueda bifurcar por origen del número, y por tanto de
+   * que la fase 1 (manual) y la fase 2 (ingest) sean indistinguibles para el cliente (§4.38g).
+   *
+   * ---
+   * ## ⚠️ v1.50.3 (GU-A16, §4.38m) — **PRIMERO se descarta lo rancio, DESPUÉS gana el mejor**
+   *
+   * ```
+   * frescas := candidatas.filter(c => !stale(c, cfg, today))   // 1) el filtro va ANTES
+   * si frescas está vacío -> ese grado NO se emite             //    (callar > presumir, §O.4)
+   * return pickBestRef(frescas)                                // 2) el manual sigue ganando ENTRE las frescas
+   * ```
+   *
+   * **El fallo que cierra.** Antes se resolvía primero y se filtraba después, así que un override manual
+   * de 200 días **ganaba** por tier absoluto (§4.27f-2, correcto) y **luego** la ventana de frescura lo
+   * tiraba: la carta acababa **sin estimado pese a haber dato automático fresco disponible**. Fallo
+   * silencioso — el dato existía, lo teníamos, y la vitrina se vaciaba sin que nadie se enterara.
+   *
+   * v1.50.2 lo curó **eximiendo al manual del decaimiento** (`manualFreshnessDays` seed `null`). El
+   * diagnóstico era bueno; el remedio, no: derogaba el **criterio 109** en silencio y dejaba un manual de
+   * dos años en portada, que es exactamente lo que §O.4 promete que no pasa. **La clase de fallo no venía
+   * del decaimiento, venía de filtrar DESPUÉS de resolver.** Invertir el orden la elimina sin eximir a
+   * nadie:
+   *
+   * | Caso | Antes (v1.50.2) | Ahora (v1.50.3) |
+   * |---|---|---|
+   * | manual 200 d + automática fresca | **nada** (fallo silencioso) | **la automática fresca** |
+   * | manual 200 d, sin automática | el manual de 200 d *(⛔ criterio 109)* | **nada** *(✅ criterio 109)* |
+   * | manual 5 d + automática 1 d | gana el manual | gana el manual *(sin cambio)* |
+   *
+   * **`isBetterRef` NO se toca, y eso es el punto.** §4.27f-2 es una garantía **money-safe** sobre
+   * ESCRITURAS y sobre el COMPARADOR; el filtro de frescura es un **predicado de exhibición** que vive
+   * **fuera** del comparador y **solo** en esta ruta de lectura del gancho (aditiva: `getReference` /
+   * `getReferencesBatch` no cambian). El override manual no se borra, no se degrada y no pierde su rango
+   * — solo deja de **exhibirse** cuando envejece. Se refresca **recapturándolo**, que convierte «el dueño
+   * puso un número una vez» en «el dueño **sostiene** ese número».
+   *
+   * ---
+   * ## ⚠️ v1.50.3-c (QA) — el diagnóstico de admin VE lo que se descartó por rancio
+   *
+   * **La contrapartida no declarada del arreglo de arriba.** Al mover el filtro DENTRO de este batch, las
+   * filas rancias dejaron de existir para todo el que lo consume — incluidos `preview` y `review`, que lo
+   * consumen **a propósito** para no diagnosticar sobre una verdad distinta a la del storefront. Efecto
+   * medido por QA con una fila manual de 40 días: el diagnóstico respondía
+   * `reason: NO_PSA10, stale: false, psa10MxnCents: null, capturedDate: null` cuando la verdad era **«tu
+   * cifra expiró»**. `STALE` y `stale:true` quedaron INALCANZABLES en las dos superficies de admin, pese
+   * a estar normados en API_CONTRACT §M2.
+   *
+   * **Importa porque los dos remedios son distintos:** «captura una cifra» (no hay nada) vs. «refresca la
+   * que tienes» (hay una, caducada). Un diagnóstico que los confunde manda al operador a capturar de cero
+   * un número que ya está en la tabla.
+   *
+   * **Cómo se recupera SIN deshacer el arreglo.** El orden no se toca y la ruta pública no cambia ni un
+   * byte: lo rancio se sigue descartando **antes** de `pickBestRef`. Lo único que se añade es que las
+   * descartadas se guardan aparte y, **solo con `includeStaleForDiagnostics`**, se re-inyecta la mejor
+   * rancia **de las claves que no tienen NINGUNA fila fresca**. Consecuencias, todas queridas:
+   *
+   * - *«manual 200 d + automática fresca»* ⇒ el diagnóstico sigue viendo **la automática fresca**, igual
+   *   que el storefront. La rancia NO se re-inyecta (esa clave tiene fresca) ⇒ **cero divergencia** en el
+   *   caso que motivó el arreglo, que es justo donde una divergencia sería intolerable.
+   * - *«manual 40 d, sin automática»* ⇒ el storefront no emite nada (criterio 109) y el diagnóstico
+   *   responde `STALE` con su `capturedDate` y su monto: la única divergencia posible viene **etiquetada
+   *   con la razón que la explica**.
+   * - **No puede volver elegible a nadie:** las filas re-inyectadas son rancias por construcción, y
+   *   `evaluateGradingHighlight` corta en `STALE` antes de resolver escalón, umbral o cotas. Y si alguien
+   *   pasa este mapa a `selectGradedEstimates`, `usable()` vuelve a filtrar por frescura — la ficha no se
+   *   puede envenenar desde aquí ni por accidente.
+   *
+   * @param cfg config del gancho ya izada por el caller (una sola lectura por request) — se exige
+   *   EXPLÍCITAMENTE, sin default, para que ninguna superficie pueda leer estimados **sin** el filtro de
+   *   frescura por olvidar un parámetro opcional. Un default aquí sería fail-open sobre el criterio 109.
+   * @param today fecha de negocio (`YYYY-MM-DD`, CDMX) — la misma que consumen las puras.
+   * @param opts.includeStaleForDiagnostics **SOLO superficies de ADMIN** (`preview`, `review`). Es
+   *   opt-in y no tiene default a propósito: la ruta pública no puede activarlo por omisión.
+   */
+  async getGradedEstimatesBatch(
+    cardIds: string[],
+    cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
+    today: string,
+    opts?: { includeStaleForDiagnostics?: boolean },
+  ): Promise<Map<string, GradedEstimateRef[]>> {
+    const map = new Map<string, GradedEstimateRef[]>();
+    const ids = [...new Set(cardIds)];
+    if (ids.length === 0) return map;
+    // MONEY-REF-EXEMPT: ruta del GANCHO, no del dinero (§4.38l.4.4B). Es INCLUSIVA a propósito: las
+    // filas `market` de cartas SIN slab son la mejor estimación disponible y son las que hacen que la
+    // vitrina tenga algo que mostrar; excluirlas la vaciaría en silencio. La seguridad de esta ruta la
+    // dan la omisión por slab publicado (l.2) y el gate de confianza.
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardId: { in: ids },
+        productType: 'graded',
+        gradeKey: { in: [...GRADED_ESTIMATE_GRADE_KEYS] },
+        // §4.38a: el estimado es de la CARTA, no de un CardProduct (§4.27) — se filtra explícitamente.
+        finish: 'normal',
+        cardProductId: null,
+        // ⚠️ v1.50.3-f (M-43, §4.38l.4.4B) — **AQUÍ NO VA `MONEY_REF_WHERE`, Y ES DELIBERADO.** Ésta es
+        // la ruta del GANCHO (ficha, rejilla, vitrina, `preview`, `review`), no la del dinero: lee las
+        // DOS naturalezas. Las filas `market` capturadas por la pestaña «Gradeadas» de M1 sobre cartas
+        // SIN slab son la mejor estimación disponible de lo que valdría esa carta gradeada, y son las
+        // que hacen que la vitrina tenga algo que mostrar el día 1; filtrarlas la **vaciaría en
+        // silencio** — el modo de fallo que §4.38 persigue en todas partes. La seguridad de esta ruta
+        // la dan la omisión por slab publicado ((l.2), intacta) y el gate de confianza, no la
+        // naturaleza. Un lector nuevo que copie esta query DEBE copiar también este comentario o
+        // añadir el predicado: la excepción es de estas tres superficies, no del método.
+      },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+    });
+    if (rows.length === 0) return map;
+    // FX izada UNA vez por request (no por fila), igual que en `getReferencesBatch`.
+    const fx = await this.fxSnapshotSafe();
+    const bestFreshByKey = new Map<string, (typeof rows)[number]>();
+    // v1.50.3-c: la MEJOR de las DESCARTADAS por frescura, por clave. Solo la consumen `preview` y
+    // `review` (`includeStaleForDiagnostics`); en la ruta pública se calcula y se tira.
+    const bestStaleByKey = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      // `isManual` se deriva UNA vez por fila y se reusa (antes se calculaba dos veces en este mismo
+      // método): las dos señales son SEPARADAS —una fila puede venir marcada manual con un `source`
+      // distinto de `manual`—, así que la regla vive en un solo sitio.
+      const isManual = r.isManualOverride === true || r.source === 'manual';
+      const k = `${r.cardId}|${r.gradeKey}`;
+      // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleByOrigin` es
+      // el MISMO predicado que aplican las puras (`usable()`/`isStaleRef`), así que no hay dos verdades
+      // sobre qué es fresco; lo único que cambia es CUÁNDO se aplica.
+      const target = isStaleByOrigin(r.capturedDate.toISOString().slice(0, 10), isManual, today, cfg)
+        ? bestStaleByKey
+        : bestFreshByKey;
+      // PASO 2: dentro de CADA cubeta gana el mejor con el comparador de siempre (§4.27f-2 intacto).
+      const cur = target.get(k);
+      if (cur == null || isBetterRef(r, cur)) target.set(k, r);
+    }
+    // ⚠️ FALLBACK DE DIAGNÓSTICO (v1.50.3-c) — **solo** si el caller lo pide, y **solo** para las claves
+    // que NO tienen ninguna fila fresca. Ver el bloque «El diagnóstico ve...» del docblock.
+    if (opts?.includeStaleForDiagnostics === true) {
+      for (const [k, r] of bestStaleByKey) if (!bestFreshByKey.has(k)) bestFreshByKey.set(k, r);
+    }
+    for (const r of bestFreshByKey.values()) {
+      const mxnCents = this.liveMxnCents(r, fx);
+      // Money-safe: un `<= 0` NO es un estimado (no se emite ni se usa para resolver escalón).
+      if (!Number.isInteger(mxnCents) || mxnCents <= 0) continue;
+      const gradeValue = r.gradeKey.split(':')[2] ?? '';
+      const list = map.get(r.cardId);
+      const ref: GradedEstimateRef = {
+        gradeValue,
+        gradeKey: r.gradeKey,
+        mxnCents,
+        capturedDate: r.capturedDate.toISOString().slice(0, 10),
+        // v1.50.2 (§4.38m): el ORIGEN de la fila que GANÓ la resolución. Solo decide SI el elemento se
+        // emite (y con qué ventana de frescura se mide); nunca QUÉ se emite.
+        isManual: r.isManualOverride === true || r.source === 'manual',
+        // v1.50.3-f (M-43, §4.38l.4.4B): la NATURALEZA de esa misma fila. Viaja **solo** al diagnóstico
+        // de admin; ninguna rama de composición del storefront la lee (la indistinguibilidad de fases
+        // de (g) sigue intacta) y ninguna decisión de esta ruta depende de ella.
+        refKind: r.refKind,
+      };
+      if (list) list.push(ref);
+      else map.set(r.cardId, [ref]);
+    }
+    return map;
+  }
+
+  /**
+   * v1.50.2 (§4.38l, INV-D) — GRADOS CON SLAB PUBLICADO por carta. **UNA** query batcheada, nunca una
+   * por grupo: es la 3ª (y última) del gancho, la que lleva el coste a **+3 con el dial `on`**.
+   *
+   * ### Por qué existe (y por qué es dinero, no cosmética)
+   * La fila del **estimado** y la **referencia de mercado real de una pieza PSA N publicada** son **LA
+   * MISMA FILA** (`cardId` + `productType='graded'` + `gradeKey` + `finish='normal'`). Cuando la carta
+   * tiene un slab publicado de ese grado, ese número **alimenta el precio de venta real de esa pieza**.
+   * Un «estimado» tecleado ahí **mueve dinero**. La guarda de ESCRITURA (`422`/`409` en el override)
+   * impide capturas nuevas; ésta, la de LECTURA, **neutraliza además las filas escritas ANTES de la
+   * regla**, que la guarda de escritura por sí sola no puede alcanzar.
+   *
+   * Devuelve los `gradeValue` (`"10"`, `"9"`), no las claves: es lo que consumen las puras de §4.38c.
+   * Solo cuenta inventario **vendible de plataforma** (`ownerType='platform'`, `status='listed'`) — un
+   * slab en bóveda de un cliente, o retirado, no es una publicación cuyo precio podamos mover.
+   */
+  async getPublishedSlabGradesBatch(cardIds: string[]): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    const ids = [...new Set(cardIds)];
+    if (ids.length === 0) return map;
+    const rows = await this.prisma.inventoryItem.findMany({
+      where: {
+        cardId: { in: ids },
+        productType: 'graded',
+        ownerType: 'platform',
+        status: 'listed',
+        gradingCompany: GRADED_ESTIMATE_COMPANY,
+        gradeValue: { in: [...GRADED_ESTIMATE_GRADE_VALUES] },
+      },
+      select: { cardId: true, gradeValue: true },
+      distinct: ['cardId', 'gradeValue'],
+    });
+    for (const r of rows) {
+      if (r.gradeValue == null) continue;
+      const list = map.get(r.cardId);
+      if (list) {
+        if (!list.includes(r.gradeValue)) list.push(r.gradeValue);
+      } else {
+        map.set(r.cardId, [r.gradeValue]);
+      }
+    }
+    return map;
+  }
+
+  /**
+   * v1.50.2 (§4.38l.1, INV-D) — GUARDA DE ESCRITURA del override manual con `productType:'graded'`.
+   *
+   * Devuelve las piezas **publicadas** (plataforma, `listed`) de ese `(cardId, gradingCompany,
+   * gradeValue)`. Si hay al menos una, la fila `(cardId,'graded',gradeKey,'normal')` **no es un
+   * estimado**: es la referencia de mercado REAL de esas piezas, y escribir un «estimado» ahí les
+   * cambiaría el precio de venta. El caller responde `409 GRADED_ESTIMATE_SLAB_PUBLISHED`.
+   *
+   * El `gradeKey` es la fuente de verdad de la identidad de grado (`graded:<company>:<grade>`), la
+   * MISMA que produce `buildGradeKey`: así la guarda no puede desalinearse de la clave que se escribe.
+   * Un `gradeKey` con otra forma ⇒ `[]` (no bloquea): la validación de forma es de la ruta, no de esta
+   * guarda, y bloquear por no-parsear convertiría un error de forma en un `409` engañoso.
+   */
+  async publishedSlabsForGradeKey(
+    cardId: string,
+    gradeKey: string,
+    // MEN-C (QA): cliente OPCIONAL para poder correr la guarda DENTRO de una transacción del caller
+    // (el `DELETE` de §4.38q la repite ahí para cerrar la ventana TOCTOU entre el pre-vuelo y el
+    // borrado). Omitido ⇒ el cliente de siempre: ningún call-site existente cambia.
+    client: Pick<Prisma.TransactionClient, 'inventoryItem'> = this.prisma,
+  ): Promise<{ id: string }[]> {
+    const parts = gradeKey.split(':');
+    if (parts.length !== 3 || parts[0] !== 'graded') return [];
+    const [, company, gradeValue] = parts;
+    if (!company || !gradeValue) return [];
+    if (!(GRADING_COMPANY_VALUES as readonly string[]).includes(company)) return [];
+    return client.inventoryItem.findMany({
+      where: {
+        cardId,
+        productType: 'graded',
+        ownerType: 'platform',
+        status: 'listed',
+        gradingCompany: company as GradingCompany,
+        gradeValue,
+      },
+      select: { id: true },
+    });
+  }
+
+  /**
    * gradeKey de la referencia de MERCADO del sellado de UN item (`sealed:tcg:<productId>`), o `null`
    * si el item no está mapeado (sin productId → sin mercado). Lo usan los call-sites que batchean
    * referencias de sellado (grid, bulk-publish, bóveda sellada) para no reinventar la clave.
@@ -991,6 +1730,15 @@ export class PricingService {
     // Cache diario: ¿ya hay fila de hoy para ESTE acabado?
     // v1.29 (M-31): esta ruta (graded/sealed/market genérico) escribe con `cardProductId=null`. Como
     // Prisma no tipa `null` en la clave compuesta, la lectura del día usa `findFirst` con el filtro.
+    //
+    // ⚠️ v1.50.3-f (M-43) — la fila se lee SIN filtrar por naturaleza **a propósito**, y luego se
+    // ramifica. Filtrar aquí por `refKind:'market'` habría sido lo natural y habría estado MAL: la
+    // `@@unique` NO incluye `refKind`, así que una fila de estimado del mismo día es INVISIBLE para el
+    // filtro pero **sigue ocupando la clave**, y el `create` de abajo reventaría con P2002. Se lee la
+    // fila real y se decide con ella delante.
+    // MONEY-REF-EXEMPT: declarado y razonado en el comentario de arriba — la fila del día se lee SIN
+    // filtrar y se RAMIFICA por `refKind`, porque filtrarla la volvería invisible para el `create` y
+    // éste reventaría con P2002 (la `@@unique` no incluye `refKind`).
     const existing = await this.prisma.priceReference.findFirst({
       where: {
         cardId: card.id,
@@ -1001,7 +1749,11 @@ export class PricingService {
         cardProductId: null,
       },
     });
-    if (existing) {
+    // M-43 (§4.38l.4.4A): el cache de dinero solo lo sirve una fila de MERCADO. Un estimado del día
+    // NO es un precio cacheado — devolverlo aquí sería GE-1 por otra puerta (`price-sync` corre sobre
+    // el inventario en bóveda, y para un slab `gradeKeyFor` produce EXACTAMENTE `graded:PSA:<n>`, la
+    // clave del estimado).
+    if (existing && existing.refKind === 'market') {
       return {
         status: 'priced',
         referenceMxnCents: existing.priceMxnCents,
@@ -1037,6 +1789,25 @@ export class PricingService {
       priceMxnCents = usdToMxnCents(priceUsdCents, fx.rate, fx.bufferPct);
     }
 
+    // M-43 (§4.38l.4.3 regla 2) — **la naturaleza solo la SUBE un humano con `intent:"market"`; ningún
+    // escritor automático la mueve.** Si la fila del día es un estimado, este barrido NO la pisa (ni la
+    // promueve ni la degrada): hace skip + traza y devuelve `pending`, exactamente igual que ya hacía
+    // ante un `isManualOverride`. Con `escalate` la pieza entra a la cola de precio pendiente, que es
+    // la señal honesta («esta pieza no tiene precio de mercado»), no un precio heredado.
+    // Hoy es un camino inalcanzable —no existe ningún proveedor de mercado `graded` (§4.38l.4.6,
+    // candado 4: son *stubs* que devuelven `null`)—; se escribe porque el día que exista, el fallo
+    // silencioso sería un P2002 en un job y un precio que nadie explica.
+    if (existing) {
+      this.logger.warn(
+        `price-sync: fila de hoy de ${card.id}/${gradeKey}/${finish} es refKind='${existing.refKind}' ` +
+          '(no `market`): NO se escribe la referencia de mercado (M-43, §4.38l.4.3). Retira el estimado ' +
+          'o fija el precio con POST /admin/pricing/override e intent:"market".',
+      );
+      if (escalate) {
+        await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
+      }
+      return { status: 'pending' };
+    }
     const ref = await this.prisma.priceReference.create({
       data: {
         cardId: card.id,
@@ -1050,6 +1821,9 @@ export class PricingService {
         priceMxnCents,
         capturedDate: today(),
         isManualOverride: false,
+        // M-43 (§4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO. Coincide con el default de la
+        // columna, y se escribe igual: la tabla de escritores de (l.4.3) no admite «lo pone el default».
+        refKind: 'market',
       },
     });
     return {
@@ -1276,6 +2050,7 @@ export class PricingService {
     const capturedDate = today();
     // v1.29 (M-31): `cardProductId` es `null` en este fallback (PPT/graded). Prisma no tipa `null` en
     // la clave compuesta ⇒ findFirst + update-by-id/create (invariante de un renglón/día por app).
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (mercado raw). Ver arriba.
     const existing = await this.prisma.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId },
     });
@@ -1295,6 +2070,11 @@ export class PricingService {
       fxBufferPct,
       priceMxnCents,
       isManualOverride: false,
+      // M-43 (§4.38l.4.3) — escritor de MERCADO ⇒ `market`, en el `create` **Y** en el `update`. Aquí
+      // `productType`/`gradeKey` están HARDCODEADOS a `raw`/`raw:NM` (§4.38l.4.6, candado 2), así que
+      // esta fila nunca puede ser la del estimado; se fija igual porque la regla de (l.4.3) es del
+      // ESCRITOR y no admite excepciones «porque en este call-site no puede pasar».
+      refKind: PriceRefKind.market,
     };
     if (existing) {
       await this.prisma.priceReference.update({ where: { id: existing.id }, data });
@@ -1311,6 +2091,89 @@ export class PricingService {
         },
       });
     }
+  }
+
+  /**
+   * v1.50.2 (§4.38a INV-FX / §4.38h.4) — ESCRITOR del estimado PSA de la **fase 2** (ingest automático).
+   *
+   * Escribe la clave canónica del gancho: `(cardId, 'graded', 'graded:PSA:<grade>', finish='normal',
+   * cardProductId=null)` — la MISMA fila que lee el storefront y que escribe el override manual.
+   *
+   * ### INV-FX (NORMATIVO, de dinero) — por qué esto NO es `persistMarketReference` con otro gradeKey
+   * Las dos vías de escritura de esta misma fila usan **unidades distintas**:
+   *  - **fase 1 (manual)** → `POST /admin/pricing/override` recibe **MXN directo**, sin FX;
+   *  - **fase 2 (este método)** → **PPT entrega USD**, así que se persiste `priceUsdCents` + `fxRate`
+   *    (+ `fxBufferPct`), exactamente como ya hace `sealed-price-ingest`, y `liveMxnCents` recompone.
+   *
+   * **Está PROHIBIDO escribir el numeral USD en `priceMxnCents`.** No es pedantería: un PSA 10 de
+   * USD 60 guardado como MX$60 queda ~**19× BAJO** —no alto—, así que ninguna cota superior lo ve, y el
+   * gate de magnitud tendría que cazarlo aguas abajo por la cota INFERIOR (§4.38k.2). Es más barato
+   * prevenirlo en origen. Por eso el `currency` es un parámetro OBLIGATORIO y no un default.
+   *
+   * Respeta el override MANUAL (§O.6: `override manual > ingest automático`): si la fila del día ya
+   * está marcada manual, **no se toca** — misma guarda que `persistMarketReference`.
+   *
+   * @returns `true` si escribió, `false` si respetó un override manual (para la traza del job).
+   */
+  async persistGradedEstimateReference(
+    cardId: string,
+    gradeValue: string,
+    market: { amountCents: number; currency: 'USD' | 'MXN'; source: PriceSourceStr },
+    fx: { rate: number; bufferPct: number },
+  ): Promise<boolean> {
+    // Money-safe redundante (el parser ya lo garantiza): un <= 0 NO es un estimado.
+    if (!Number.isInteger(market.amountCents) || market.amountCents <= 0) return false;
+    const productType: ProductType = 'graded';
+    const gradeKey = gradedEstimateGradeKey(gradeValue);
+    const finish: Finish = 'normal'; // §4.38a: el grado NO se cruza con el acabado, SIEMPRE `normal`.
+    const capturedDate = today();
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA del ESCRITOR del ingest de estimados — y es la
+    // que sostiene la regla 2 de (l.4.3): necesita VER la fila `market` para hacer skip en vez de
+    // degradarla. Con el predicado puesto no la vería y la pisaría, que es el fallo exacto.
+    const existing = await this.prisma.priceReference.findFirst({
+      where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
+    });
+    if (existing?.isManualOverride) return false; // el override manual gana (§O.6).
+    // ⚠️ v1.50.3-f (M-43, §4.38l.4.3 regla 2) — **EL INGEST NUNCA DEGRADA UNA FILA `market`.**
+    // Si la fila del día ya es una referencia de MERCADO (el precio real de un slab publicado, fijado
+    // por un humano con `intent:"market"`), escribir el estimado encima la reclasificaría como
+    // `graded_estimate` y **dejaría al slab sin precio** — un fallo silencioso en dirección segura,
+    // pero fallo. Skip + traza, exactamente igual que ante `isManualOverride` (misma doctrina (h.4)).
+    // Regla general: *la naturaleza solo la SUBE un humano con `intent:"market"`; la automática nunca
+    // la baja.* El `return false` es el mismo canal de traza que ya consume el job.
+    if (existing != null && existing.refKind === PriceRefKind.market) {
+      this.logger.warn(
+        `graded-estimate-ingest: SALTADA card=${cardId} PSA ${gradeValue} — la fila de hoy es ` +
+          "refKind='market' (referencia de MERCADO de una pieza real): el ingest NO la degrada a " +
+          'estimado (M-43, §4.38l.4.3 regla 2).',
+      );
+      return false;
+    }
+    const isUsd = market.currency === 'USD';
+    const data = {
+      source: market.source,
+      // INV-FX: el numeral USD va a `priceUsdCents`, JAMÁS a `priceMxnCents`.
+      priceUsdCents: isUsd ? market.amountCents : null,
+      fxRate: isUsd ? fx.rate : null,
+      fxBufferPct: isUsd ? fx.bufferPct : null,
+      priceMxnCents: isUsd
+        ? usdToMxnCents(market.amountCents, fx.rate, fx.bufferPct)
+        : market.amountCents,
+      isManualOverride: false,
+      // M-43 (§4.38l.4.3): el ingest de fase 2 escribe SIEMPRE `graded_estimate`, en el `create` **Y**
+      // en el `update`. El `update` sin esta línea sería el trampolín de la migración por el otro lado:
+      // dejaría una fila del gancho clasificada como dinero. (La degradación inversa ya la cortó el
+      // `return false` de arriba, así que aquí el `update` solo puede caer sobre otra fila de estimado.)
+      refKind: PriceRefKind.graded_estimate,
+    };
+    if (existing) {
+      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
+    } else {
+      await this.prisma.priceReference.create({
+        data: { cardId, productType, gradeKey, finish, capturedDate, ...data },
+      });
+    }
+    return true;
   }
 
   /**
@@ -1428,6 +2291,8 @@ export class PricingService {
     const finish: Finish = 'normal';
     const capturedDate = today();
     // v1.29 (M-31): sellado no usa CardProduct ⇒ `cardProductId=null` (findFirst + update/create).
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (sellado). No es candidata de
+    // precio; filtrar por naturaleza aquí crearía una segunda fila para la misma clave+día.
     const existing = await this.prisma.priceReference.findFirst({
       where: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
     });
@@ -1441,6 +2306,8 @@ export class PricingService {
       fxBufferPct: fx.bufferPct,
       priceMxnCents,
       isManualOverride: false,
+      // M-43 (§4.38l.4.3): escritor de MERCADO (sellado) ⇒ `market` en `create` y en `update`.
+      refKind: PriceRefKind.market,
     };
     if (existing) {
       await this.prisma.priceReference.update({ where: { id: existing.id }, data });
@@ -1451,7 +2318,13 @@ export class PricingService {
     }
   }
 
-  /** Override manual del admin (respaldo siempre disponible). Resuelve pendientes. */
+  /**
+   * Override manual del admin (respaldo siempre disponible). Resuelve pendientes.
+   *
+   * Envoltorio de compatibilidad de `applyManualOverride`: devuelve **solo** la fila escrita, que es lo
+   * único que necesitan los call-sites que no auditan (el alta de sellado, §4.19). Quien necesite el
+   * `before` para la bitácora (M-44b) usa `applyManualOverride`.
+   */
   async manualOverride(
     cardId: string,
     productType: ProductType,
@@ -1471,32 +2344,118 @@ export class PricingService {
     // MAPEADO ya segrega por gradeKey='sealed:tcg:<id>', así que no lo necesita. `undefined` (default) o
     // clave ausente ⇒ NO se restringe: retrocompat total del override standalone y de raw/graded.
     pending?: { sealedProductId?: string | null; cardProductId?: number | null },
+    // ⚠️ v1.50.3-f (M-43, §4.38l.4.3) — **NATURALEZA de la fila que se escribe.** La fija el `intent`
+    // del `POST /admin/pricing/override` (`"market"` ⇒ `market`; `"graded_estimate"` ⇒
+    // `graded_estimate`), y con `productType` ≠ `graded` es SIEMPRE `market`.
+    //
+    // **Por qué el default es `market` aquí y por qué eso NO es fail-open** (la pregunta obvia, dado
+    // que §4.38l.1 prohíbe expresamente un `intent` opcional-con-default): el fail-open que aquella
+    // regla evita es el del **borde HTTP**, donde un operador puede omitir el campo — y ahí el `intent`
+    // sigue siendo OBLIGATORIO (`422 GRADED_INTENT_REQUIRED`, sin default, sin cambios). Este parámetro
+    // no es la intención del operador: es la naturaleza YA DECIDIDA por el llamador. Los otros
+    // call-sites del servicio (alta de sellado con precio manual, §4.19) escriben `sealed`, que es
+    // mercado por definición y no tiene intención que declarar. Un parámetro obligatorio aquí les
+    // exigiría afirmar algo que su `productType` ya determina.
+    refKind: PriceRefKind = PriceRefKind.market,
   ): Promise<PriceReference> {
-    const db = tx ?? this.prisma;
+    const res = await this.applyManualOverride({
+      cardId,
+      productType,
+      gradeKey,
+      priceMxnCents,
+      finish,
+      tx,
+      pending,
+      refKind,
+    });
+    return res.ref;
+  }
+
+  /**
+   * v1.50.3-g (**M-44** + **M-44b**, §4.38l.4.10) — el override manual, con el `before` que la bitácora
+   * necesita y con la guarda de NO-DEGRADACIÓN dentro de la escritura.
+   *
+   * Devuelve la fila escrita **y** el estado de la fila del día ANTES de escribirla (`null` si no
+   * existía). El `before` es requisito de diseño de (l.4.10) punto 5: hasta v1.50.3-f la bitácora de
+   * `pricing.override` registraba solo el `after`, así que **el monto pisado no era reconstruible desde
+   * el audit trail** — ni el que destruye M-44 (ya imposible) ni el del residual (l.4.9) punto 1, el
+   * `intent:"market"` mal tecleado, que sigue siendo un riesgo inherente de cualquier override.
+   */
+  async applyManualOverride(input: ManualOverrideInput): Promise<ManualOverrideResult> {
+    const { cardId, productType, gradeKey, priceMxnCents } = input;
+    const finish: Finish = input.finish ?? 'normal';
+    const refKind: PriceRefKind = input.refKind ?? PriceRefKind.market;
+    const pending = input.pending;
+    const db = input.tx ?? this.prisma;
     // v1.29 (M-31): el override manual de MERCADO se guarda con `cardProductId=null` (el precio
     // por-producto es del TCGCSV de singles; el override del admin es genérico por carta). findFirst +
     // update-by-id/create (Prisma no tipa `null` en la clave compuesta).
     const cap = today();
+    // MONEY-REF-EXEMPT: es la lectura de la CLAVE DEL DÍA de un ESCRITOR (upsert), no una lectura de
+    // candidatas. Filtrar por naturaleza aquí rompería el invariante «una fila por clave+día» (`refKind`
+    // NO está en la `@@unique`): dejaría de ver la fila que existe y crearía una segunda.
     const prior = await db.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, capturedDate: cap, cardProductId: null },
     });
-    const ref = prior
-      ? await db.priceReference.update({
-          where: { id: prior.id },
-          data: { source: 'manual', priceMxnCents, isManualOverride: true },
-        })
-      : await db.priceReference.create({
-          data: {
-            cardId,
-            productType,
-            gradeKey,
-            finish,
-            source: 'manual',
-            priceMxnCents,
-            capturedDate: cap,
-            isManualOverride: true,
-          },
-        });
+    // M-44b: la foto de lo que había, tomada dentro del mismo gesto que lo pisa.
+    const before: ManualOverrideBefore | null = prior
+      ? { priceMxnCents: prior.priceMxnCents, refKind: prior.refKind, source: prior.source }
+      : null;
+    // ⚠️ M-43 (§4.38l.4.3 regla 1) — `refKind` va en el `update` **igual que en el `create`**, y ésta es
+    // LA línea que el dictamen marca como el trampolín de la migración. La `@@unique` NO incluye
+    // `refKind`, así que un `intent:"market"` que caiga sobre la fila-estimado del MISMO día reusa esa
+    // fila; omitir aquí la naturaleza la dejaría clasificada como estimado y el slab se quedaría **sin
+    // precio** — fallo silencioso, en dirección segura, pero fallo. Es además el gesto exacto que exige
+    // el paso 3 del cut-over («re-afirmar cada slab con `intent:"market"` ANTES de migrar»), así que sin
+    // esta línea el cut-over no funciona.
+    const data = { source: 'manual' as const, priceMxnCents, isManualOverride: true, refKind };
+    const createData = {
+      cardId,
+      productType,
+      gradeKey,
+      finish,
+      source: 'manual' as const,
+      priceMxnCents,
+      capturedDate: cap,
+      isManualOverride: true,
+      refKind,
+    };
+    let ref: PriceReference;
+    if (!prior) {
+      // Sin fila del día no hay nada que degradar: se crea. La carrera contra un `intent:"market"`
+      // concurrente NO puede consumar la degradación por este camino — a lo sumo deja las dos filas, y
+      // la de MERCADO sigue siendo candidata de dinero (`MONEY_REF_WHERE`), que es el invariante.
+      ref = await db.priceReference.create({ data: createData });
+    } else if (refKind !== PriceRefKind.graded_estimate) {
+      ref = await db.priceReference.update({ where: { id: prior.id }, data });
+    } else {
+      // ===== M-44 (§4.38l.4.10, NORMATIVO, DINERO) — BAJAR la naturaleza NO es una operación =====
+      //
+      // La comprobación es **parte de la escritura, no de su antesala** (punto 4 del dictamen): el
+      // `updateMany` lleva la naturaleza en su propio `where`, así que entre decidir y confirmar **no
+      // hay ventana**. Postgres re-evalúa el predicado sobre la versión ya confirmada de la fila, de
+      // modo que un `intent:"market"` concurrente que gane la carrera deja este `updateMany` en
+      // `count = 0` en vez de pisarlo. El `if` de abajo es el **pre-vuelo**, y existe solo para dar el
+      // mensaje con el monto vigente; quien manda es el `rowcount`.
+      if (prior.refKind === PriceRefKind.market) {
+        throw degradeMarketRefConflict(cardId, gradeKey, prior, cap);
+      }
+      const claimed = await db.priceReference.updateMany({
+        where: { id: prior.id, refKind: { not: PriceRefKind.market } },
+        data,
+      });
+      // MONEY-REF-EXEMPT: re-lectura POR ID de la fila que este mismo escritor acaba de reclamar; no
+      // es una candidata de precio, es el resultado de la escritura.
+      const actual = await db.priceReference.findUnique({ where: { id: prior.id } });
+      if (claimed.count === 0) {
+        // Se perdió la carrera. Si la fila sigue ahí, ahora es de MERCADO: es exactamente la
+        // degradación que M-44 prohíbe, y se rechaza igual que en el pre-vuelo.
+        if (actual) throw degradeMarketRefConflict(cardId, gradeKey, actual, cap);
+        // Si desapareció (el `DELETE` del gancho borra filas `graded_estimate`, §4.38q) no hay dato de
+        // dinero que proteger: se crea de nuevo. Un 409 aquí sería mentira.
+      }
+      ref = actual ?? (await db.priceReference.create({ data: createData }));
+    }
     // v1.8-ronda-c FIX: resuelve SOLO el pendiente de ESTE acabado. Antes el where omitía
     // `finish`, así que un override de `normal` cerraba también el pendiente de `holofoil`.
     // SEC N-3: si el caller aporta la identidad (`sealedProductId`/`cardProductId`), se añade al where
@@ -1515,7 +2474,7 @@ export class PricingService {
       },
       data: { status: 'resolved', resolvedPriceRefId: ref.id, resolvedAt: new Date() },
     });
-    return ref;
+    return { ref, before };
   }
 
   /**
@@ -1590,6 +2549,9 @@ export class PricingService {
   }
 
   async priceHistory(cardId: string): Promise<PriceHistoryEntryDTO[]> {
+    // MONEY-REF-EXEMPT: superficie de AUDITORÍA (`priceHistory`, admin-only). `refKind` es aquí
+    // justamente el dato que EXPLICA por qué una fila con número no está priciando nada; filtrarla
+    // dejaría el historial mudo sobre el caso que más se consulta. §4.38(l.4.4)B.
     const rows = await this.prisma.priceReference.findMany({
       where: { cardId },
       orderBy: { capturedDate: 'desc' },
@@ -1601,6 +2563,10 @@ export class PricingService {
         productType: true,
         priceMxnCents: true,
         isManualOverride: true,
+        // M-43 (§4.38l.4): el historial es la superficie de AUDITORÍA y lee **las dos** naturalezas —
+        // NO lleva `MONEY_REF_WHERE`. Ocultar aquí las filas de estimado dejaría al auditor sin poder
+        // explicar por qué un slab no tiene precio teniendo una cifra en su clave.
+        refKind: true,
       },
     });
     return rows.map(toPriceHistoryEntry);

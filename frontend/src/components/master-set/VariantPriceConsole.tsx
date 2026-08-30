@@ -314,13 +314,27 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
   // dispara `onChanged` para que el dueño de la vista refetchee el estado real.
   const fixMarket = useMutation({
     mutationFn: () =>
-      overridePrice({
-        cardId,
-        productType,
-        gradeKey: marketGradeKey,
-        finish: productType === 'raw' ? finish : undefined,
-        priceMxnCents: Math.round(Number(marketInput) * 100),
-      }),
+      overridePrice(
+        // v1.50.2 (INV-D): el body es una UNIÓN DISCRIMINADA por `productType` — con `graded` el
+        // contrato EXIGE `intent` (422 si falta), así que se arma por rama y no con un spread. Esta
+        // consola siempre fija el PRECIO DE MERCADO de la variante que tiene abierta (es dinero:
+        // alimenta el precio publicado), nunca un estimado ilustrativo ⇒ `intent: 'market'`.
+        props.productType === 'graded'
+          ? {
+              cardId,
+              productType: 'graded',
+              gradeKey: marketGradeKey,
+              priceMxnCents: Math.round(Number(marketInput) * 100),
+              intent: 'market',
+            }
+          : {
+              cardId,
+              productType: 'raw',
+              gradeKey: marketGradeKey,
+              finish,
+              priceMxnCents: Math.round(Number(marketInput) * 100),
+            },
+      ),
     onSuccess: () => {
       const msg = t('marketFixed');
       if (onToast) onToast(msg);

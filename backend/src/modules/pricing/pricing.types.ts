@@ -1,5 +1,7 @@
 import { Card, CardSet, Finish, PriceSource, ProductType } from '@prisma/client';
 import { orderFinishes } from '../../common/card-order';
+import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
+import { GRADING_COMPANY_VALUES } from '../../common/enum-values';
 
 // v1.19-sealed-tcgcsv: += 'tcgcsv' (referencia de mercado del SELLADO, M-23).
 // v1.29 (M-31): += 'tcgcsv_singles' (PRIMARIO de precio de singles por variante, §4.27f).
@@ -571,5 +573,47 @@ export function buildGradeKey(input: {
       return 'sealed';
     default:
       return 'unknown';
+  }
+}
+
+/**
+ * v1.50.3-g (**SEC-M43-4**, §4.38l.4.13 · `API_CONTRACT` §M2) — **¿es `gradeKey` una clave que este
+ * sistema puede GENERAR?**
+ *
+ * Es la inversa de `buildGradeKey` + `sealedMarketGradeKey`, y vive pegada a ellas a propósito: si
+ * alguien cambia la forma de una clave, las dos mitades están a la vista en el mismo archivo. El blue
+ * team midió que `POST /admin/pricing/override` con `gradeKey:"graded:PSA:11"` respondía **`200`** y
+ * **creaba una fila de precio para un grado que no existe** — dinero con una clave que ninguna pieza
+ * puede llevar, invisible para toda lectura y para el operador.
+ *
+ * ⚠️ **El rango de grados es una regla de NEGOCIO, no un espejo del schema** (`InventoryItem.gradeValue`
+ * es `String` libre): las escalas de PSA y CGC llegan **hasta 10**, con medios grados en CGC/BGS. Por eso
+ * se declara aquí, literal, en vez de derivarse de nada. Ensancharla es una decisión, no un `Object.values`.
+ */
+const CANONICAL_GRADE_VALUE = /^(?:10|[1-9](?:\.5)?)$/;
+
+/** `sealed:tcg:<productId>` — el productId de TCGplayer es un entero positivo. */
+const CANONICAL_SEALED_MARKET_KEY = /^sealed:tcg:[1-9]\d*$/;
+
+export function isCanonicalGradeKey(productType: ProductType, gradeKey: string): boolean {
+  switch (productType) {
+    case 'raw':
+      // `buildGradeKey` produce `raw:<RawCondition>`, y el marketplace solo opera NM (`PROJECT.md` §H).
+      return (ACCEPTED_RAW_CONDITIONS as readonly string[]).some((c) => gradeKey === `raw:${c}`);
+    case 'graded': {
+      const parts = gradeKey.split(':');
+      return (
+        parts.length === 3 &&
+        parts[0] === 'graded' &&
+        (GRADING_COMPANY_VALUES as readonly string[]).includes(parts[1]) &&
+        CANONICAL_GRADE_VALUE.test(parts[2])
+      );
+    }
+    case 'sealed':
+      // Las DOS claves legítimas: la legacy del override manual (`'sealed'`, §4.19d) y la de mercado
+      // por producto TCGplayer.
+      return gradeKey === 'sealed' || CANONICAL_SEALED_MARKET_KEY.test(gradeKey);
+    default:
+      return false;
   }
 }

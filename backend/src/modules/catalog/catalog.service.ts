@@ -1,7 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { Card, CardSet, Finish, GradingCompany, InventoryItem, Prisma, ProductType, RawCondition, SealedCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
+// MERGE v1.50.2: `GradedEstimateRef` (gancho de grading) entra JUNTO a lo de main. Lo que se BORRA es
+// `computeSalePriceForRarity`/`SalesRule`/`PriceRuleSet` y `common/pricing-tiers`: P-48 (§4.36) los
+// eliminó al sustituir las reglas por rareza/acabado por la CURVA. Conservarlos «por si acaso» no
+// compilaba: ya no existen.
+import {
+  PricingService,
+  PriceInfo,
+  GradedEstimateRef,
+  toPublicPriceInfo,
+} from '../pricing/pricing.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
 // el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
 // visibilidad del «Valor de mercado» en las dos fichas.
@@ -18,6 +27,23 @@ import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
 // el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
 // presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
 import { MASTER_SET_GROUPS, partExternalIds } from '../../config/master-set-groups';
+// v1.50.3: la lista de revisión nombra la clave corrupta en su `409` (§4.38n.3).
+import { SettingKey } from '../settings/settings.constants';
+// v1.50-graded-estimate (§4.38): «gancho de grading». La DECISIÓN (qué se emite y qué se destaca) vive
+// en las PURAS de `common/graded-estimate.ts`; aquí solo se compone el DTO. Partición §4.38-0:
+// `gradedEstimates` (ficha, SIN gate) ≠ `gradingHighlight` (teja/vitrina, CON gate de curaduría).
+import {
+  businessDateCdmx,
+  evaluateGradingHighlight,
+  GRADED_ESTIMATE_COMPANY,
+  GRADED_ESTIMATE_GRADE_KEYS,
+  GradedEstimateConfig,
+  GradingCostTier,
+  GradingHighlightResult,
+  HighlightReason,
+  selectGradedEstimates,
+  toGradedEstimateConfigDTO,
+} from '../../common/graded-estimate';
 
 // Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
 // fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
@@ -124,6 +150,59 @@ export function toCardDTO(
   };
 }
 
+/**
+ * v1.44-graded-estimate (§DTOs base / §4.38e) — `GradedEstimateDTO` público. Tres reglas NORMATIVAS que
+ * este constructor hace CIERTAS POR CONSTRUCCIÓN (no por convención):
+ *  - `estimate.status` es SIEMPRE `"priced"` — un `pending` en un argumento de venta está PROHIBIDO
+ *    (§N.4). Si no hay dato, el elemento NO se emite (el caller filtra antes de llegar aquí).
+ *  - `referenceMxnCents` y `capturedDate` SIEMPRE presentes.
+ *  - **`source` se OMITE SIEMPRE** (y `isManualOverride` jamás viaja): es el ÚNICO campo que delataría
+ *    si el número lo tecleó el admin (fase 1) o lo trajo el ingest (fase 2). El objeto se construye con
+ *    exactamente tres campos, así que no hay forma de que se cuele. Ver §4.38g.
+ *
+ * Nada del cálculo viaja: ni multiplicador, ni ganancia, ni costo de gradeo, ni umbral (SEC-A1
+ * reforzado — el cliente no puede reconstruir el gate porque los números no salen del servidor).
+ */
+export interface GradedEstimateDTO {
+  gradingCompany: typeof GRADED_ESTIMATE_COMPANY;
+  gradeValue: string;
+  gradeKey: string;
+  /** `PriceInfo` con `status` SIEMPRE `"priced"`, `referenceMxnCents`/`capturedDate` siempre, y `source` NUNCA. */
+  estimate: { status: 'priced'; referenceMxnCents: number; capturedDate: string };
+}
+
+function toGradedEstimateDTO(e: GradedEstimateRef): GradedEstimateDTO {
+  return {
+    gradingCompany: GRADED_ESTIMATE_COMPANY,
+    gradeValue: e.gradeValue,
+    gradeKey: e.gradeKey,
+    estimate: {
+      status: 'priced' as const,
+      referenceMxnCents: e.mxnCents,
+      capturedDate: e.capturedDate,
+    },
+  };
+}
+
+/**
+ * v1.44 — contexto del gancho izado UNA vez por request (§4.38c): config + los estimados de las cartas
+ * del conjunto ya materializado (+1 query constante) + la fecha de negocio. `null` ⇒ el dial está
+ * apagado o no hay carta raw que evaluar ⇒ **no se emite ninguno de los dos campos y no se hace ninguna
+ * query extra**.
+ */
+interface GradingContext {
+  cfg: GradedEstimateConfig;
+  byCard: Map<string, GradedEstimateRef[]>;
+  /**
+   * v1.50.2 (§4.38l, INV-D) — grados con SLAB PUBLICADO por carta. Se iza en el MISMO punto que los
+   * estimados (una query batcheada, nunca por grupo) porque las dos superficies lo necesitan: sin él,
+   * un «estimado» sobre una carta con slab publicado se mostraría como estimado cuando en realidad es
+   * el precio de mercado REAL de esa pieza.
+   */
+  slabsByCard: Map<string, string[]>;
+  today: string;
+}
+
 /** Deriva el año del set desde `releaseDate` (`yyyy/MM/dd` de pokemontcg.io). v1.1. */
 export function yearFromReleaseDate(releaseDate?: string | null): number | null {
   if (!releaseDate) return null;
@@ -182,6 +261,28 @@ export interface GroupedListingSummaryDTO {
   stockCount: number;
   salePriceCents: number;
   currency: 'MXN';
+  /**
+   * v1.50.2 (contrato §DTOs base, ARCHITECTURE §4.38e) — **MOVIDO desde `GroupedListingDTO`**.
+   *
+   * ### Por qué vive aquí y no en la ficha
+   * Tras D2, `GroupedListingDTO` es el DTO de la FICHA y `GroupedListingSummaryDTO` el de la REJILLA.
+   * El destacado es **superficie de PROMOCIÓN** (rejilla de Compra + vitrina del home), que es
+   * exactamente esta. La ficha ya expone `gradedEstimates` en su raíz — más rico (PSA 10 **y** 9) y
+   * sin gatear —, así que un segundo campo gateado allá duplicaba superficie sin añadir información.
+   *
+   * ### Por qué añadirlo a la lista blanca de D2 NO reabre lo que D2 cerró
+   * D2 excluye `priceBasis`/`referenceValue` porque publican **señal operativa** (el mapa de qué cartas
+   * van por override). `GradedEstimateDTO` **no puede** expresar esa señal: no tiene `priceBasis`, ni
+   * `source`, ni `isManualOverride` — están ausentes **por tipo**, no por olvido de serializar. Y el
+   * argumento de «economía de enumeración» no aplica: para este campo **existe un enumerador público
+   * deliberado** (`?gradingHighlight=true&sort=grading_showcase`), así que publicarlo por fila no crea
+   * ninguna capacidad nueva. La regla generalizada de admisión está en §4.38(e); `priceBasis` sigue
+   * fuera porque falla dos de sus tres condiciones.
+   *
+   * **PRESENCIA ⇔ ELEGIBILIDAD.** No existe `eligible:false` ni `[]`: ausente ⇒ la teja se ve
+   * exactamente como hoy (criterio 100).
+   */
+  gradingHighlight?: GradedEstimateDTO[];
 }
 
 export interface GroupedListingDTO {
@@ -204,6 +305,147 @@ export interface GroupedListingDTO {
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
   currency: 'MXN';
+}
+
+/**
+ * `GroupedListingDetailResponse` del contrato (§2 `GET /catalog/cards/:cardId`) — **el SOBRE de la
+ * ficha, DECLARADO** (v1.50.2, techlead).
+ *
+ * ### Por qué el sobre necesita tipo y no basta con que lo tengan sus piezas
+ * `getCard` devolvía un **literal sin anotar**, así que el tipo de la respuesta salía de lo que la
+ * expresión resultara ser. Eso deja abierta exactamente la clase de regresión que `main` ya pagó cara
+ * en B-1: cambiar `.map((g) => g.dto)` por `.map((g) => g.summary)` —dos propiedades del MISMO objeto,
+ * un carácter de diferencia— **compilaba** y la ficha empezaba a servir el DTO de la REJILLA, que por
+ * D2 no lleva `priceBasis` ni `referenceValue`. Es decir: reintroducir la inversión de §N.7 en el 100%
+ * de las fichas sin un solo error de compilación. Con el sobre anotado, ese cambio **no compila**.
+ *
+ * `gradedEstimates` es OPCIONAL porque se OMITE cuando no hay ningún grado que exponer: jamás viaja
+ * `[]` (un arreglo vacío es un contenedor renderizable, y su presencia filtraría la decisión del gate).
+ */
+export interface GroupedListingDetailResponse {
+  card: CardDTO;
+  /** Publicaciones AGRUPADAS de la FICHA ⇒ `GroupedListingDTO`, **nunca** `GroupedListingSummaryDTO`. */
+  listings: GroupedListingDTO[];
+  /** Piezas por-pieza (add-to-cart por `inventoryItemId`, `certNumber` de cada slab). */
+  units: ListingDTO[];
+  gradedEstimates?: GradedEstimateDTO[];
+}
+
+/**
+ * v1.50.3 (§4.38n / API_CONTRACT §M2) — `GradedEstimateReviewItemDTO`: **el DTO del `preview` por grupo
+ * + la identidad de la carta**, para que la lista se lea sin un `fetch` por fila.
+ *
+ * No es un DTO paralelo: son exactamente los mismos campos de diagnóstico que ya emite el `preview`
+ * (`psa10MxnCents`, `psa9MxnCents`, `capturedDate`, `maxAllowedPsa10MxnCents`, `publishedSlabGrades`,
+ * `reason`), producidos por **la misma función pura**. Un segundo evaluador de «qué es incoherente»
+ * sería una segunda verdad, que es la clase de duplicación que §4.38 rechaza en todas partes.
+ */
+export interface GradedEstimateReviewItemDTO {
+  cardId: string;
+  cardName: string;
+  setName: string;
+  number: string;
+  representativeInventoryItemId: string;
+  finish: Finish;
+  salePriceCents: number;
+  psa10MxnCents: number | null;
+  psa9MxnCents: number | null;
+  capturedDate: string | null;
+  stale: boolean;
+  /**
+   * v1.50.3-c (§4.38n.2-bis) — origen de la fila que reporta `capturedDate`. Distingue los DOS sabores
+   * de `STALE`, que exigen remedios OPUESTOS: **manual** rancia ⇒ recapturar o borrar; **automática**
+   * rancia ⇒ mirar el ingest, no la carta. **Admin-only** (§4.38g es sobre lo público).
+   */
+  isManual: boolean;
+  /**
+   * v1.50.3-f (M-43, §4.38l.4.4B / (l.4.5), contrato v1.50.3-f) — **NATURALEZA** de esa misma fila,
+   * ORTOGONAL a `isManual` (procedencia). `"graded_estimate"` ⇒ es una cifra del gancho: se puede
+   * recapturar o **borrar**. `"market"` ⇒ es **DINERO** (la referencia de mercado de M1 «Gradeadas»):
+   * el gancho la MUESTRA cuando la carta no tiene slab de ese grado, pero **no se toca desde aquí** —
+   * el `DELETE` del gancho no la borra. **Admin-only** (§4.38g es una garantía sobre lo PÚBLICO).
+   */
+  refKind: 'market' | 'graded_estimate';
+  gradingCostTier: GradingCostTier | null;
+  gradingCostMxnCents: number | null;
+  thresholdMxnCents: number | null;
+  netUpsidePsa9MxnCents: number | null;
+  maxAllowedPsa10MxnCents: number | null;
+  publishedSlabGrades: string[];
+  eligible: boolean;
+  /** PRIMER bloqueante de la promoción (`reasons[0]`). Sin cambio de semántica en v1.50.3-e. */
+  reason?: HighlightReason;
+  /**
+   * v1.50.3-e (§4.38n.2-ter, API_CONTRACT §M2) — **todas** las condiciones detectadas, en orden
+   * canónico. Es lo que el filtro de esta lista evalúa (una fila entra si `reasons ∩ pedidos ≠ ∅`),
+   * y por eso la carta de **un solo grado** con el error de unidades ya es enumerable: `reason` sigue
+   * siendo `NO_PSA9` —sin PSA 9 no se promociona, y así seguirá— pero `reasons` incluye
+   * `NOT_ABOVE_RAW`, que es lo que el operador puede ver y corregir.
+   */
+  reasons: HighlightReason[];
+}
+
+/**
+ * `reason` ENUMERABLES por `GET /admin/pricing/graded-estimates/review` (§4.38n.2).
+ *
+ * **Default = los TRES de coherencia de magnitud**, que son los que el criterio 111(e) nombra —111(b),
+ * (c) y (d)—: cada uno es una cifra que **se sigue mostrando en la ficha** (§4.38k.3) y que por tanto
+ * alguien tiene que revisar. Ésa es la contrapartida entera de no ocultarla.
+ */
+export const GRADED_REVIEW_DEFAULT_REASONS: readonly HighlightReason[] = [
+  'NOT_ABOVE_RAW',
+  'ABOVE_MAX_MULTIPLE',
+  'GRADE_ORDER_INVERTED',
+];
+
+/**
+ * Los DOS **opt-in explícitos, fuera del default** (§4.38n.2 / n.2-bis). Los dos son **accionables**
+ * para el operador pero **no son datos erróneos**, así que meterlos en el default **ahogaría la señal
+ * de coherencia** justo en la lista que existe para que esa señal se vea.
+ *
+ * - **`SLAB_PUBLISHED`** (INV-D): la guarda funcionando, no un dato malo. Hasta v1.50.3-e era además
+ *   *«el conjunto expuesto al riesgo de §4.38(l.3)»* (INV-D inverso). **Desde M-43 ya no lo es:** un
+ *   estimado no puede pricear un slab, así que este filtro deja de ser una lista de piezas en riesgo y
+ *   pasa a ser lo que su nombre dice — cartas donde estimado y pieza real COEXISTEN. Sigue siendo el
+ *   opt-in del **paso 2 del cut-over** (§4.38l.4.7): las que hay que re-afirmar con `intent:"market"`
+ *   ANTES de migrar, para que ninguna se apague en silencio.
+ * - **`STALE`** (v1.50.3-c, GU-A24 / PI-D6): la cifra **existe y CADUCÓ**. El arquitecto lo tenía
+ *   agrupado con la «ausencia de dato» (`NO_PSA10` y compañía) y **no pertenece ahí**: aquéllos
+ *   significan *nunca hubo dato* —el estado NORMAL de miles de cartas—; éste significa **hubo un dato,
+ *   alguien lo puso o lo ingestó, y expiró**. Sin este valor, una cifra caducada **desaparece de las
+ *   tres superficies en silencio, sigue en la BD y el dueño no tiene forma de encontrarla** para
+ *   refrescarla o retirarla: el fallo silencioso que §4.38 persigue en todas partes. Y la categoría la
+ *   creó esta misma revisión al sembrar `manualFreshnessDays = 30` (antes, un manual no caducaba nunca
+ *   ⇒ el conjunto era vacío).
+ */
+export const GRADED_REVIEW_ALLOWED_REASONS: readonly HighlightReason[] = [
+  ...GRADED_REVIEW_DEFAULT_REASONS,
+  'SLAB_PUBLISHED',
+  'STALE',
+];
+
+/**
+ * Cota DURA del conjunto motor (§4.38n.1). El endpoint evalúa en memoria y pagina después —paginar
+ * antes de filtrar produciría páginas vacías intercaladas y un `total` que no significa nada—, así que
+ * necesita un tope. **Prohibido truncar en silencio:** si se excede, la respuesta lo dice con
+ * `truncated: true` y el `scannedCards` real. Una lista de revisión incompleta presentada como completa
+ * es peor que no tenerla: produce la falsa confianza de «no hay nada que revisar».
+ */
+export const GRADED_REVIEW_MAX_SCAN = 5_000;
+
+/** Paginación del contrato (§M2): default 25, máximo 100. */
+export const REVIEW_PAGE_SIZE_DEFAULT = 25;
+export const REVIEW_PAGE_SIZE_MAX = 100;
+
+export interface GradedEstimateReviewResponse {
+  data: GradedEstimateReviewItemDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+  /** Estado del dial M10 — la lista evalúa igual con `off`; el front avisa «no se está publicando». */
+  enabled: boolean;
+  scannedCards: number;
+  truncated: boolean;
 }
 
 @Injectable()
@@ -617,6 +859,9 @@ export class CatalogService {
    */
   private buildGroups(
     rows: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[],
+    // v1.44-graded-estimate (§4.38e): contexto del gancho. Ausente/`null` ⇒ ningún grupo trae
+    // `gradingHighlight` (dial off, o superficie que no lo compone) — el DTO sale EXACTAMENTE como hoy.
+    grading?: GradingContext | null,
   ) {
     const groups = new Map<string, typeof rows>();
     for (const r of rows) {
@@ -637,6 +882,30 @@ export class CatalogService {
       )[0];
       const item = cheapest.item;
       const salePriceCents = cheapest.dto.salePriceCents!; // garantizado por fetchSellable (nunca null aquí)
+
+      // v1.50-graded-estimate (§4.38c/e) — GATE DE CURADURÍA, a nivel de GRUPO: compara contra
+      // `salePriceCents`, que ES del grupo. Una carta con `normal` y `reverse_holo` publicados tiene UN
+      // solo par de estimados (son de la CARTA) pero DOS precios raw ⇒ puede quedar destacada en un
+      // acabado y no en el otro. Es deliberado y money-safe.
+      const highlightResult = grading
+        ? evaluateGradingHighlight<GradedEstimateRef>({
+            productType: item.productType,
+            rawSalePriceCents: salePriceCents,
+            estimates: grading.byCard.get(item.cardId) ?? [],
+            // v1.50.2 (§4.38l, INV-D): si la carta tiene un SLAB PUBLICADO de ese grado, esa fila no es
+            // un estimado — es el precio de mercado REAL de la pieza. La guarda de LECTURA la omite.
+            publishedSlabGrades: grading.slabsByCard.get(item.cardId) ?? [],
+            today: grading.today,
+            cfg: grading.cfg,
+          })
+        : null;
+      // PRESENCIA ⇔ ELEGIBILIDAD: sin gate cumplido el campo NO EXISTE. Jamás `eligible:false`, jamás
+      // `[]` (un arreglo vacío es un contenedor renderizable y filtraría la decisión del gate).
+      const gradingHighlight =
+        highlightResult?.eligible && highlightResult.highlight.length > 0
+          ? highlightResult.highlight.map(toGradedEstimateDTO)
+          : null;
+
       // ANOTADO con el tipo del contrato: omitir un campo requerido ya no compila (v2.1.7).
       const dto: GroupedListingDTO = {
         representativeInventoryItemId: item.id,
@@ -666,10 +935,19 @@ export class CatalogService {
         // Ya viene proyectado por `toListingDTO` (mismo K ⇒ misma PriceReference), informativo.
         referenceValue: cheapest.dto.referenceValue,
         currency: 'MXN' as const,
+        // ⚠️ MERGE v1.50.2 — `gradingHighlight` NO va aquí. Tras D2, `GroupedListingDTO` es el DTO de la
+        // FICHA, y la ficha expone `gradedEstimates` en su raíz (más rico: PSA 10 y 9, y sin gatear).
+        // El destacado vive en `GroupedListingSummaryDTO` (la REJILLA), abajo. Contrato §DTOs base
+        // (v1.50.2) y ARCHITECTURE §4.38(0)/(e): la partición informar≠promover la sostiene el
+        // COMPILADOR (dos tipos), no la disciplina.
       };
       // v2.1.9 (D2): la REJILLA recibe el mismo grupo MENOS `priceBasis` y `referenceValue`. Se
       // construye por lista blanca desde el mismo objeto (una sola fuente de agrupación), y el tipo
       // propio hace que emitir cualquiera de los dos aquí NO COMPILE.
+      //
+      // ⚠️ La lista blanca es también la razón por la que `gradingHighlight` tuvo que MOVERSE
+      // explícitamente: un campo que no se copia aquí desaparece EN SILENCIO (compila, la teja queda
+      // vacía). Dictamen del arquitecto en §4.38(e) — entra a la rejilla, y con gate de confianza (k).
       const summary: GroupedListingSummaryDTO = {
         representativeInventoryItemId: dto.representativeInventoryItemId,
         card: dto.card,
@@ -682,6 +960,10 @@ export class CatalogService {
         stockCount: dto.stockCount,
         salePriceCents: dto.salePriceCents,
         currency: dto.currency,
+        // v1.50.2 (ADITIVO): presente ⇔ el gate de ROI **y** el de confianza (§4.38k) se cumplen.
+        // Omitido en cualquier otro caso (incluido el dial `off`) ⇒ la teja se ve EXACTAMENTE como hoy
+        // (criterio 100). Jamás `[]`, jamás `eligible:false`.
+        ...(gradingHighlight ? { gradingHighlight } : {}),
       };
       return {
         dto,
@@ -689,8 +971,82 @@ export class CatalogService {
         salePriceCents,
         // 'newest' del grupo = la pieza más nueva (createdAt desc) — contrato §2 GET /catalog/cards.
         newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
+        // Claves de ORDEN de la vitrina (`sort=grading_showcase`) y del diagnóstico de admin. NINGUNA
+        // viaja al cliente (SEC-A1, §4.38e): el servidor las usa solo para decidir presencia y orden.
+        highlightResult,
       };
     });
+  }
+
+  /**
+   * v1.44-graded-estimate (§4.38c) — iza el contexto del gancho para un conjunto YA materializado de
+   * piezas vendibles.
+   *
+   * **Coste REAL, medido (IMPORTANTE-2):** **+1 query con el dial `off`** (la lectura de config: las
+   * **12** claves del gancho van en UN `findMany`, ver `PricingService.loadGradedEstimateConfig`) y
+   * **+3 con el dial `on`** (esa + el batch de estimados + el batch de slabs publicados de INV-D, los
+   * dos sobre los `cardId` DISTINTOS de las filas **raw**). Nunca una query por grupo ni por carta: es
+   * O(1) respecto del tamaño de la página.
+   *
+   * ⚠️ Los números de arriba son la MEDICIÓN, no una aspiración: v1.50.2 añadió 6 diales y el batch de
+   * INV-D, así que «6 claves / +2» quedó obsoleto. Si vuelve a cambiar, se actualiza aquí — un coste
+   * documentado que no corresponde con el real es peor que no documentarlo (§4.38c › «Nota de método»).
+   *
+   * Devuelve `null` —y NO hace la query de precios— cuando:
+   *  - el dial maestro está `off` (§M10: con `off` el backend «ni siquiera evalúa nada»), o
+   *  - no hay ninguna pieza **raw** vendible en el conjunto (el gancho no aplica a graded ni a sealed,
+   *    criterio 105).
+   */
+  private async loadGradingContext(
+    rows: { item: ItemWithCard }[],
+  ): Promise<GradingContext | null> {
+    const cfg = await this.pricing.loadGradedEstimateConfig();
+    if (!cfg.enabled) return null;
+    const cardIds = [
+      ...new Set(rows.filter((r) => r.item.productType === 'raw').map((r) => r.item.cardId)),
+    ];
+    if (cardIds.length === 0) return null;
+    // Las DOS lecturas van sobre el MISMO conjunto de `cardId` distintos y fuera de todo bucle: el
+    // coste del gancho es +3 con el dial `on` y +1 con `off`, CONSTANTE respecto del nº de grupos, de
+    // cartas de la página y de acabados. Si una medición futura escala con `pageSize`, hay un N+1 nuevo
+    // y es un bloqueante (§4.38c › «Nota de método»).
+    // v1.50.3 (§4.38m): `cfg` + `today` van al batch porque el filtro de FRESCURA se aplica AHÍ,
+    // **antes** de `pickBestRef` — así un manual rancio deja pasar a la automática fresca en vez de
+    // ganar y caerse después. Es el mismo `today` que consumen las puras: una sola fecha por request.
+    const today = businessDateCdmx();
+    const [byCard, slabsByCard] = await Promise.all([
+      this.pricing.getGradedEstimatesBatch(cardIds, cfg, today),
+      this.pricing.getPublishedSlabGradesBatch(cardIds),
+    ]);
+    return { cfg, byCard, slabsByCard, today };
+  }
+
+  /**
+   * v1.44-graded-estimate (§4.38f / API_CONTRACT §2) — valida los DOS query params nuevos de la vitrina
+   * ANTES de tocar la base (fail-closed, y el error no depende de si la feature está encendida):
+   *  - `gradingHighlight` **solo acepta `"true"`**: un `false` «filtrando lo no destacado» sería una
+   *    superficie comercial invertida que nadie pidió ⇒ `400 VALIDATION_ERROR`.
+   *  - `sort=grading_showcase` **exige** el filtro ⇒ si no, `400 GRADING_SORT_REQUIRES_FILTER`: sin él,
+   *    los grupos NO destacados irían a la cola del listado con clave de orden indefinida y la vitrina
+   *    podría pintarlos al paginar.
+   */
+  private validateGradingQuery(q: { gradingHighlight?: string; sort?: string }): boolean {
+    const onlyHighlighted = q.gradingHighlight !== undefined;
+    if (onlyHighlighted && q.gradingHighlight !== 'true') {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'gradingHighlight only accepts "true"', {
+        field: 'gradingHighlight',
+        value: q.gradingHighlight,
+        allowed: ['true'],
+      });
+    }
+    if (q.sort === 'grading_showcase' && !onlyHighlighted) {
+      throw BusinessException.badRequest(
+        'GRADING_SORT_REQUIRES_FILTER',
+        'sort=grading_showcase requires gradingHighlight=true',
+        { field: 'sort' },
+      );
+    }
+    return onlyHighlighted;
   }
 
   async listCards(q: {
@@ -706,7 +1062,11 @@ export class CatalogService {
     page: number;
     pageSize: number;
     sort?: string;
+    /** v1.44 (§4.38f): vitrina «Joyas para gradear». Solo se acepta `"true"`. */
+    gradingHighlight?: string;
   }) {
+    // v1.44: se valida ANTES de la query (un sort inválido no debe costar una lectura).
+    const onlyHighlighted = this.validateGradingQuery(q);
     // Endpoint PÚBLICO: los filtros enum se validan contra la taxonomía real ANTES de
     // llegar a Prisma. Un valor inválido (p. ej. ?condition=LP, ?productType=foo) hoy
     // rompía con PrismaClientValidationError (500); ahora responde 400 VALIDATION_ERROR.
@@ -729,9 +1089,19 @@ export class CatalogService {
     // H9 / SB-D5: la vista de SINGLES excluye el sellado (guardarraíl interino) — ver singlesPublishedWhere.
     const rows = await this.fetchSellable(this.singlesPublishedWhere(extra));
 
+    // v1.44-graded-estimate (§4.38c): +1 query constante (0 si el dial está off o no hay raw).
+    const grading = await this.loadGradingContext(rows);
+
     // v1.38-grouped-listings (P-30, §4.9a): AGRUPA en lectura por K=(cardId,productType,gradeKey,finish).
     // `total` = nº de GRUPOS (publicaciones únicas), no de piezas. Todo grupo emitido tiene stockCount≥1.
-    let groups = this.buildGroups(rows);
+    let groups = this.buildGroups(rows, grading);
+
+    // v1.44 (§4.38f) — VITRINA: subconjunto ordenado de Compra, no un endpoint aparte (mismo
+    // `GroupedListingSummaryDTO` que la rejilla —tras D2 ése ES el DTO de la rejilla, no
+    // `GroupedListingDTO`, que quedó para la ficha— ⇒ misma teja, misma cifra, cero drift). Con el dial
+    // `off` ningún grupo trae `gradingHighlight` ⇒ `{ data: [], total: 0 }`, la señal de «no renderizar»
+    // (criterio 101). No es un error: es la feature apagada.
+    if (onlyHighlighted) groups = groups.filter((g) => g.summary.gradingHighlight != null);
 
     // Rango de precio sobre el salePriceCents del GRUPO (contrato §2): el mínimo del grupo (= el del
     // representante). En el caso normal todas las piezas comparten precio, así que equivale a filtrar por
@@ -741,7 +1111,22 @@ export class CatalogService {
 
     if (q.sort === 'price_asc') groups.sort((a, b) => a.salePriceCents - b.salePriceCents);
     else if (q.sort === 'price_desc') groups.sort((a, b) => b.salePriceCents - a.salePriceCents);
-    else groups.sort((a, b) => b.newestAt - a.newestAt); // 'newest' (default): pieza más nueva del grupo.
+    else if (q.sort === 'grading_showcase') {
+      // v1.44 (§4.38f) — nombre deliberadamente NEUTRO: no nombra el criterio, así que ajustar la
+      // política comercial es un cambio server-side con CERO impacto en contrato y cliente. Criterio
+      // vigente: mayor GANANCIA NETA SOBRE PSA 9 (el escenario realista, no el optimista), con desempate
+      // DETERMINISTA para que la paginación no baile: neta desc → PSA 10 desc → representante asc.
+      // Ninguna de esas claves viaja al cliente.
+      groups.sort((a, b) => {
+        const an = a.highlightResult?.netUpsidePsa9MxnCents ?? 0;
+        const bn = b.highlightResult?.netUpsidePsa9MxnCents ?? 0;
+        if (an !== bn) return bn - an;
+        const a10 = a.highlightResult?.psa10MxnCents ?? 0;
+        const b10 = b.highlightResult?.psa10MxnCents ?? 0;
+        if (a10 !== b10) return b10 - a10;
+        return a.dto.representativeInventoryItemId.localeCompare(b.dto.representativeInventoryItemId);
+      });
+    } else groups.sort((a, b) => b.newestAt - a.newestAt); // 'newest' (default): pieza más nueva del grupo.
 
     const total = groups.length;
     const start = (q.page - 1) * q.pageSize;
@@ -809,7 +1194,7 @@ export class CatalogService {
     };
   }
 
-  async getCard(cardId: string) {
+  async getCard(cardId: string): Promise<GroupedListingDetailResponse> {
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
       include: { set: true },
@@ -819,9 +1204,11 @@ export class CatalogService {
     const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId }));
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes de la ficha usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([cardId]);
+    // v1.44-graded-estimate (§4.38c): +1 query constante (batch de UN cardId; 0 si el dial está off).
+    const grading = await this.loadGradingContext(rows);
     // v1.38-grouped-listings (P-30, §4.9a): `listings` = publicaciones AGRUPADAS (una por
     // (productType,gradeKey,finish) con stockCount≥1), cheapest-first — es la grilla de la ficha.
-    const listings = this.buildGroups(rows)
+    const listings = this.buildGroups(rows, grading)
       .sort((a, b) => a.salePriceCents - b.salePriceCents)
       .map((g) => g.dto);
     // `units` = TODAS las piezas vendibles POR-PIEZA (cheapest-first) para el add-to-cart por
@@ -829,7 +1216,342 @@ export class CatalogService {
     const units = [...rows]
       .sort((a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0))
       .map((r) => r.dto);
-    return { card: toCardDTO(card, pricedByCard.get(cardId)), listings, units };
+
+    // v1.44-graded-estimate (§4.38-0/e, API_CONTRACT §2) — FICHA: `gradedEstimates` a nivel de CARTA y
+    // **SIN gatear** (informar ≠ promover). Se emite siempre que haya dato FRESCO, aunque el gate de
+    // curaduría NO se cumpla y la carta no salga destacada en Compra ni en el home: eso es exactamente
+    // lo buscado, no una inconsistencia. Los grados son INDEPENDIENTES (PSA 10 sin PSA 9 ⇒ un elemento).
+    // NUNCA aparece sin grupos RAW publicados (una gradeada o un sellado jamás lo traen, criterio 105).
+    // v1.44 R2: la ausencia de grupos raw publicados se resuelve con una GUARDA EXPLÍCITA, no pasando
+    // un `productType` falso a la pura. Inyectar `'graded'` como centinela funcionaba (el criterio 105
+    // hace que la pura devuelva `[]`), pero MENTÍA en un parámetro de dominio: una carta sin grupos raw
+    // publicados no es «graded», y en una función cuyo criterio es «graded y sealed NUNCA» ese atajo es
+    // justo el que el siguiente lector «arregla» y rompe.
+    const hasPublishedRawGroup = listings.some((l) => l.productType === 'raw');
+    const gradedEstimates =
+      grading && hasPublishedRawGroup
+        ? selectGradedEstimates<GradedEstimateRef>({
+            productType: 'raw',
+            estimates: grading.byCard.get(cardId) ?? [],
+            // v1.50.2 (INV-D): un grado con slab PUBLICADO se OMITE también en la ficha — ahí esa fila
+            // no es un estimado, es el precio real de una pieza que ya se lista con su propio precio.
+            // (Es lo ÚNICO que la ficha suprime; la coherencia de MAGNITUD sí la informa, §4.38k.3.)
+            publishedSlabGrades: grading.slabsByCard.get(cardId) ?? [],
+            today: grading.today,
+            cfg: grading.cfg,
+          }).map(toGradedEstimateDTO)
+        : [];
+
+    return {
+      card: toCardDTO(card, pricedByCard.get(cardId)),
+      listings,
+      units,
+      // Sin ningún grado que exponer ⇒ el campo se OMITE (nunca `[]`): el front no pinta NADA — ni
+      // contenedor, ni skeleton, ni «—», ni $0, ni «pendiente» (criterio 102).
+      ...(gradedEstimates.length > 0 ? { gradedEstimates } : {}),
+    };
+  }
+
+  /**
+   * v1.44-graded-estimate (§4.38d, API_CONTRACT §M2) — DIAGNÓSTICO DE CURADURÍA
+   * (`GET /admin/pricing/graded-estimates/preview?cardId=`, `super_admin`, read-only): responde
+   * «¿por qué esta carta no está destacada?». Es el ÚNICO lugar donde los insumos del gate se exponen —
+   * al ADMIN, jamás al cliente — y su existencia es lo que permite que el DTO público sea tan chico.
+   *
+   * Una entrada **por grupo raw publicado** (la misma `K` de `GroupedListingDTO`). `groups: []` = la
+   * carta no tiene ningún grupo raw publicado (NO es un error). Money-safe: todo monto no resoluble es
+   * `null`, **nunca `0`**. No escribe nada y no toca dinero.
+   *
+   * A diferencia del storefront, el batch se lee **aunque el dial esté `off`** (si no, el diagnóstico
+   * sería inútil justo en el estado por defecto): el gate devuelve `FEATURE_OFF` y todos los montos que
+   * dependen del escalón quedan en `null`.
+   */
+  async gradedEstimatePreview(cardId: string) {
+    const card = await this.prisma.card.findUnique({ where: { id: cardId }, select: { id: true } });
+    if (!card) throw BusinessException.notFound();
+    // Config COMPLETA (no la abreviada del storefront): el editor de M2 necesita ver los escalones y
+    // los umbrales aunque el interruptor maestro esté apagado.
+    const cfg = await this.pricing.loadGradedEstimateConfigForAdmin();
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId }));
+    const previewToday = businessDateCdmx();
+    const [estimatesByCard, slabsByCard] = await Promise.all([
+      // v1.50.3 (§4.38m) + v1.50.3-c (QA): el diagnóstico resuelve con la MISMA regla que el storefront
+      // —lo rancio se descarta ANTES de `pickBestRef`, así que donde hay dato fresco el operador ve
+      // exactamente lo que ve la ficha—, y ADEMÁS ve las filas que ese descarte se llevó, pero **solo
+      // donde no quedó ninguna fresca**. Sin esto, «tu cifra de 40 días expiró» se reportaba como
+      // `NO_PSA10` + `capturedDate: null`, o sea «nunca la capturaste»: dos problemas con remedios
+      // OPUESTOS (refrescar vs. capturar) fundidos en un mismo veredicto, y `STALE` —normado en §M2—
+      // convertido en código muerto. La divergencia con la ficha viene siempre etiquetada `STALE`.
+      this.pricing.getGradedEstimatesBatch([cardId], cfg, previewToday, {
+        includeStaleForDiagnostics: true,
+      }),
+      this.pricing.getPublishedSlabGradesBatch([cardId]),
+    ]);
+    const estimates = estimatesByCard.get(cardId) ?? [];
+    // v1.50.2 (INV-D): viaja al DTO del preview para que el operador vea POR QUÉ un grado desapareció
+    // sin tener que leer la BD — la fila existe, pero es dinero de un slab, no un estimado.
+    const publishedSlabGrades = slabsByCard.get(cardId) ?? [];
+    const today = previewToday;
+    const groups = this.buildGroups(rows)
+      .filter((g) => g.dto.productType === 'raw')
+      .sort((a, b) => a.salePriceCents - b.salePriceCents)
+      .map((g) => {
+        const r: GradingHighlightResult<GradedEstimateRef> = evaluateGradingHighlight<GradedEstimateRef>({
+          productType: 'raw',
+          rawSalePriceCents: g.salePriceCents,
+          estimates,
+          publishedSlabGrades,
+          today,
+          cfg,
+        });
+        return {
+          representativeInventoryItemId: g.dto.representativeInventoryItemId,
+          finish: g.dto.finish,
+          salePriceCents: g.salePriceCents,
+          psa10MxnCents: r.psa10MxnCents,
+          psa9MxnCents: r.psa9MxnCents,
+          capturedDate: r.capturedDate,
+          stale: r.stale,
+          // v1.50.3-c (§4.38n.2-bis): el ORIGEN de esa misma fila. Sin él, `STALE` no dice si el
+          // remedio es «recapturar» (manual) o «mirar el ingest» (automática).
+          isManual: r.isManual,
+          // v1.50.3-f (M-43, §4.38l.4.4B): la NATURALEZA de esa MISMA fila. Distingue «esta cifra es un
+          // estimado que puedo recapturar o borrar» de «esta cifra es DINERO de una pieza real, no la
+          // toques»: el gancho MUESTRA las filas `market` de cartas sin slab de ese grado, pero el
+          // `DELETE` del gancho no se las lleva (§4.38l.4.5). Sin este campo, el diagnóstico invita a
+          // borrar filas de mercado.
+          refKind: r.refKind,
+          gradingCostTier: r.gradingCostTier,
+          gradingCostMxnCents: r.gradingCostMxnCents,
+          thresholdMxnCents: r.thresholdMxnCents,
+          netUpsidePsa9MxnCents: r.netUpsidePsa9MxnCents,
+          // v1.50.2 — los dos campos nuevos del contrato: la cota SUPERIOR efectiva contra la que se
+          // comparó (`salePriceCents × maxRawMultiple`) y los grados con slab publicado (INV-D). Sin
+          // ellos, `ABOVE_MAX_MULTIPLE` y `SLAB_PUBLISHED` serían veredictos sin evidencia.
+          maxAllowedPsa10MxnCents: r.maxAllowedPsa10MxnCents,
+          publishedSlabGrades,
+          eligible: r.eligible,
+          ...(r.reason ? { reason: r.reason } : {}),
+          // v1.50.3-e (§4.38n.2-ter): TODAS las condiciones detectadas, no solo la primera. `reason`
+          // sigue siendo el primer bloqueante —la pregunta «¿por qué no se promociona?»—; `reasons`
+          // contesta «¿qué le pasa a esta carta?», que es la que el operador trae y que un ESCALAR no
+          // puede responder: una carta puede fallar varias condiciones a la vez.
+          reasons: r.reasons,
+        };
+      });
+    // `config` = la config EFECTIVA (la misma que usa el resolver, ya saneada fail-closed): si el admin
+    // ve `gradingCostTiers: []` aquí, eso ES la explicación de por qué nada se destaca. Se PROYECTA al
+    // DTO del contrato: los flags internos de GU-A8 no viajan (cuando apagan algo, el admin lo ve en el
+    // `reason: FEATURE_OFF` de cada grupo y en el `warn` del servidor, §4.38d › Observabilidad).
+    return {
+      cardId,
+      enabled: cfg.enabled,
+      config: toGradedEstimateConfigDTO(cfg),
+      groups,
+    };
+  }
+
+  /**
+   * v1.50.3 (§4.38n, API_CONTRACT §M2) — **LISTA DE REVISIÓN** del back-office
+   * (`GET /admin/pricing/graded-estimates/review`, `super_admin`, read-only, paginada).
+   *
+   * ## Por qué existe (es el criterio 111(e), y era una deuda)
+   * §4.38(k.3) decidió **no ocultar** en la ficha la cifra que falla la coherencia de magnitud, y esa
+   * decisión se justificó **precisamente** por esta contrapartida: *«si decidimos seguir mostrándola,
+   * alguien tiene que enterarse»* (§O.7, con esas palabras). Sin lista, (k.3) dejaba de ser
+   * «visible-y-corregible» y pasaba a ser «visible-y-nadie-la-corrige» — que es **peor que ocultarla**:
+   * publicamos el número malo **y** perdemos la señal. Las dos mitades se sostienen juntas.
+   *
+   * `preview` responde «¿por qué **esta** carta no está destacada?» y exige `cardId`: solo contesta si
+   * **ya sospechabas**. Esto responde **«¿de qué cartas debo sospechar?»**, que es la pregunta que nadie
+   * podía hacer. **Mismo cálculo, misma pura, mismos `reason`** — lo que cambia es la dirección.
+   *
+   * ## Las cuatro decisiones no obvias
+   *
+   * 1. **Conjunto motor = las cartas que TIENEN fila de estimado**, no el catálogo. Es pequeño y
+   *    acotado por diseño (fase 1: curación a mano; fase 2: `ingestMaxCardsPerRun` por corrida). **Sin
+   *    ese recorte esto sería un barrido de catálogo y no debería existir.**
+   * 2. **Coste CONSTANTE en queries** (1 config + 1 `distinct cardId` + 1 batch de estimados + 1 lote
+   *    de piezas publicadas + 1 batch de slabs): jamás una query por carta ni por grupo, misma regla
+   *    que §4.38(c).
+   * 3. **Funciona con la feature APAGADA**, y `FEATURE_OFF` **nunca se emite**. El dial arranca en `off`
+   *    para poder **limpiar antes** de encender la afirmación comercial; una lista que solo funcionara
+   *    encendida obligaría a **publicar las cifras malas para poder descubrirlas** — el orden exacto al
+   *    revés. Por eso se evalúa con una config forzada a `highlightEnabled` (ver abajo).
+   * 4. **«Apagada» ≠ «corrupta».** El dial `off` es una decisión y se tolera; una clave **presente pero
+   *    inválida** es intención perdida ⇒ **`409 GRADED_CONFIG_INVALID`** nombrando la clave, en vez de
+   *    evaluar contra un umbral basura. Una lista calculada con un umbral corrupto marcaría (o dejaría
+   *    de marcar) cartas por una razón que no es la que el operador cree, justo en la superficie que
+   *    existe para que el operador **confíe** en lo que ve.
+   *
+   * **No escribe nada, no corrige, no descarta y no silencia.** «Marcar como revisada» exigiría estado
+   * persistido ⇒ DDL ⇒ **fuera de alcance de v1.50.3** (§4.38n.4), declarado para que no se cuele.
+   */
+  async gradedEstimateReview(params: {
+    reasons?: HighlightReason[];
+    page: number;
+    pageSize: number;
+  }): Promise<GradedEstimateReviewResponse> {
+    const cfg = await this.pricing.loadGradedEstimateConfigForAdmin();
+
+    // (4) `AUSENTE ≠ INVÁLIDA`. Solo interesa la corrupción de las claves de las que depende LA
+    // COHERENCIA. Las cotas inferior y de orden de grados no dependen de ninguna clave (son invariantes
+    // de producto), pero NO se sirve un resultado parcial haciéndolo pasar por completo — mismo motivo
+    // que `truncated`.
+    if (cfg.maxRawMultipleInvalid) {
+      throw BusinessException.conflict(
+        'GRADED_CONFIG_INVALID',
+        'La lista de revisión no puede calcularse: `graded_estimate_max_raw_multiple` está PRESENTE ' +
+          'pero es INVÁLIDA, y la cota superior de coherencia depende de ella. Evaluar con un umbral ' +
+          'basura marcaría (o dejaría de marcar) cartas por una razón que no es la que crees. ' +
+          'Corrígela con PUT /admin/pricing/graded-estimates.',
+        { key: SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE },
+      );
+    }
+
+    const reasons = params.reasons ?? [...GRADED_REVIEW_DEFAULT_REASONS];
+
+    // (1) CONJUNTO MOTOR: `distinct cardId` de las filas de estimado. `take` = la cota + 1, para poder
+    // DISTINGUIR «justo en el límite» de «se pasó» sin una segunda query de conteo.
+    // MONEY-REF-EXEMPT: conjunto motor de `/review` (diagnóstico admin-only, §4.38l.4.4B). Tiene que
+    // poder listar la COEXISTENCIA de las dos naturalezas: el `refKind` por fila es justamente lo que
+    // impide que el operador borre una cifra que es el precio de una pieza física viva.
+    const withEstimates = await this.prisma.priceReference.findMany({
+      where: {
+        productType: 'graded',
+        gradeKey: { in: [...GRADED_ESTIMATE_GRADE_KEYS] },
+        finish: 'normal',
+        cardProductId: null,
+      },
+      select: { cardId: true },
+      distinct: ['cardId'],
+      orderBy: { cardId: 'asc' },
+      take: GRADED_REVIEW_MAX_SCAN + 1,
+    });
+    const truncated = withEstimates.length > GRADED_REVIEW_MAX_SCAN;
+    const cardIds = withEstimates.slice(0, GRADED_REVIEW_MAX_SCAN).map((r) => r.cardId);
+    const empty: GradedEstimateReviewResponse = {
+      data: [],
+      page: params.page,
+      pageSize: params.pageSize,
+      total: 0,
+      enabled: cfg.enabled,
+      scannedCards: cardIds.length,
+      truncated,
+    };
+    if (cardIds.length === 0) return empty;
+
+    // (2) COSTE CONSTANTE: el lote de piezas publicadas de ESAS cartas + los dos batches, todos fuera
+    // de cualquier bucle. `fetchSellable` resuelve el precio de venta con la curva vigente, que es
+    // contra lo que se comparan las cotas — leerlo de otro sitio sería una segunda verdad del precio.
+    const today = businessDateCdmx();
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: cardIds } }));
+    const [estimatesByCard, slabsByCard] = await Promise.all([
+      // v1.50.3-c: misma resolución que el `preview` — se ven también las filas que el filtro de
+      // frescura descartó, para que la lista pueda decir «esta cifra CADUCÓ» en vez de «no hay cifra».
+      // **Es lo que hace posible `?reason=STALE`** (§4.38n.2-bis, GU-A24): sin esta re-inyección, una
+      // carta cuya única fila caducó resolvía a `NO_PSA10` —«nunca la capturaste»— y quedaba fuera de
+      // toda consulta posible, desaparecida de las tres superficies y aun así presente en la BD.
+      this.pricing.getGradedEstimatesBatch(cardIds, cfg, today, { includeStaleForDiagnostics: true }),
+      this.pricing.getPublishedSlabGradesBatch(cardIds),
+    ]);
+
+    // (3) La feature puede estar `off`: se evalúa con los interruptores de GU-A8 FORZADOS a `true`, que
+    // es lo único que se fuerza. Todo lo demás —umbrales, escalones, grados— sale de la config REAL, así
+    // que el veredicto es el mismo que el storefront daría con el dial encendido. `FEATURE_OFF` deja de
+    // ser alcanzable por construcción, que es justo lo que §4.38n.3 pide.
+    const evalCfg: GradedEstimateConfig = { ...cfg, estimatesEnabled: true, highlightEnabled: true };
+
+    // v1.50.3-e (§4.38n.2-ter): cada fila viaja con su **`reason` PRIMARIO MATCHEADO** —el primero de
+    // `reasons` que está en el conjunto PEDIDO—, que es la clave de orden del contrato §M2. NO es
+    // `reasons[0]` a secas: ése puede ser un motivo que el operador **no** pidió (la carta de un solo
+    // grado entra por `NOT_ABOVE_RAW` y su `reasons[0]` es `NO_PSA9`), y ordenar por él mezclaría la
+    // lista por un criterio invisible desde la respuesta. El DTO sigue emitiendo `reason` = el primer
+    // bloqueante, tal como lo declara el contrato.
+    const matched: { key: string; item: GradedEstimateReviewItemDTO }[] = [];
+    for (const g of this.buildGroups(rows)) {
+      if (g.dto.productType !== 'raw') continue;
+      const card = g.dto.card;
+      const estimates = estimatesByCard.get(card.id) ?? [];
+      const publishedSlabGrades = slabsByCard.get(card.id) ?? [];
+      const r = evaluateGradingHighlight<GradedEstimateRef>({
+        productType: 'raw',
+        rawSalePriceCents: g.salePriceCents,
+        estimates,
+        publishedSlabGrades,
+        today,
+        cfg: evalCfg,
+      });
+      // ⚠️ EL FILTRO SE EVALÚA SOBRE `reasons`, NO SOBRE `reason` (§4.38n.2-ter, contrato §M2). Con
+      // `reason` a secas la red de coherencia **no se ponía con un solo grado**: raw $460 + PSA 10 $230
+      // sin PSA 9 cortaba en `NO_PSA9` y `NOT_ABOVE_RAW` nunca se comprobaba ⇒ `total: 0`. Y es el peor
+      // sitio donde podía faltar: el error USD-como-MXN es más probable en la PRIMERA captura (un solo
+      // grado), y como sin PSA 9 la carta nunca se promociona, la cifra errónea **no llega a la rejilla
+      // pero SÍ se muestra en la ficha** (§4.38k.3) ⇒ visible al comprador, inencontrable para el
+      // operador. Justo «publicamos la cifra mala y nadie se entera», que es el fallo que esta lista
+      // existe para impedir.
+      const primary = r.reasons.find((x) => reasons.includes(x));
+      if (primary == null) continue;
+      const item: GradedEstimateReviewItemDTO = {
+        cardId: card.id,
+        cardName: card.name,
+        setName: card.setName ?? '',
+        number: card.number,
+        representativeInventoryItemId: g.dto.representativeInventoryItemId,
+        finish: g.dto.finish,
+        salePriceCents: g.salePriceCents,
+        psa10MxnCents: r.psa10MxnCents,
+        psa9MxnCents: r.psa9MxnCents,
+        capturedDate: r.capturedDate,
+        stale: r.stale,
+        isManual: r.isManual,
+        // M-43 (§4.38l.4.4B): mismo campo que el `preview`, misma fila. En la LISTA importa aún más:
+        // es el verbo destructivo el que se ofrece por fila.
+        refKind: r.refKind,
+        gradingCostTier: r.gradingCostTier,
+        gradingCostMxnCents: r.gradingCostMxnCents,
+        thresholdMxnCents: r.thresholdMxnCents,
+        netUpsidePsa9MxnCents: r.netUpsidePsa9MxnCents,
+        maxAllowedPsa10MxnCents: r.maxAllowedPsa10MxnCents,
+        publishedSlabGrades,
+        eligible: r.eligible,
+        reason: r.reason,
+        reasons: r.reasons,
+      };
+      matched.push({ key: primary, item });
+    }
+
+    // ORDEN DETERMINISTA (§M2): **`reason` PRIMARIO MATCHEADO** asc → **`capturedDate` asc (`null` al
+    // final)** → `cardId` asc
+    // → representante asc. Sin él la paginación baila entre requests y el operador ve la misma carta
+    // dos veces (o ninguna).
+    //
+    // v1.50.3-c intercala `capturedDate`: con `?reason=STALE` **lo más vencido va primero**, que es el
+    // orden en que el dueño quiere atacarlo (la cifra de hace 200 días miente más que la de hace 31).
+    // `null` al final y no al principio: una fila sin fecha no es «la más vieja», es una fila de la que
+    // no sabemos nada — encabezar la lista con ella empujaría lo accionable fuera de la primera página.
+    // El orden sigue siendo TOTAL y estable: los dos últimos criterios son únicos por construcción.
+    const byCapturedDate = (a: string | null, b: string | null): number => {
+      if (a === b) return 0;
+      if (a == null) return 1; // `null` al final
+      if (b == null) return -1;
+      return a < b ? -1 : 1; // `YYYY-MM-DD` ordena lexicográficamente = cronológicamente
+    };
+    // v1.50.3-e: el primario es el `reason` MATCHEADO (`key`), no `reasons[0]`. Ver el comentario del
+    // filtro: `reasons[0]` puede ser un motivo que el operador no pidió.
+    matched.sort(
+      (a, b) =>
+        a.key.localeCompare(b.key) ||
+        byCapturedDate(a.item.capturedDate, b.item.capturedDate) ||
+        a.item.cardId.localeCompare(b.item.cardId) ||
+        a.item.representativeInventoryItemId.localeCompare(b.item.representativeInventoryItemId),
+    );
+    const start = (params.page - 1) * params.pageSize;
+    return {
+      ...empty,
+      data: matched.slice(start, start + params.pageSize).map((m) => m.item),
+      total: matched.length,
+    };
   }
 
   async getListing(inventoryItemId: string) {
