@@ -2,6 +2,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 
 /**
  * MENOR (QA) — los filtros enum del endpoint PÚBLICO GET /catalog/cards se validan contra la
@@ -22,6 +23,11 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
       // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
       // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
       computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
+      // v1.50-graded-estimate (§4.38): dial maestro APAGADO (seed `off`) ⇒ el gancho no se evalúa y no
+      // hace NINGUNA de sus dos queries (el coste extra con `off` es solo la lectura de config).
+      loadGradedEstimateConfig: jest.fn(async () => DISABLED_GRADED_ESTIMATE_CONFIG),
+      getGradedEstimatesBatch: jest.fn(async () => new Map()),
+      getPublishedSlabGradesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
     return { svc: new CatalogService(prisma as PrismaService, pricing), prisma };
   }

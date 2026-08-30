@@ -106,6 +106,50 @@
 > arquitecto; NO cambia la matemática fijo/% ni la precedencia money-safe de compra/venta más allá del cambio
 > intencional de T2 a `pct`.** **Bloque LOCKED — listo para el arquitecto.** Los defaults reproducen el
 > comportamiento vigente salvo el cambio intencional de T2.
+> **Requisito v2.0 — VALOR ESTIMADO SI SE GRADEA («gancho de grading») (2026-08-23, ACTUALIZADO
+> 2026-08-28; BORRADOR del product-owner sobre DECISIONES YA TOMADAS por el humano — EN REVISIÓN solo por el
+> texto del disclaimer y los huecos menores):** en la tienda se muestra, sobre una carta **raw**, **el precio
+> de la carta + cuánto vale estimado en PSA 10 y en PSA 9**. Es un **gancho comercial** (cita del humano: *«si
+> compras esta que no vale mucho sin gradear y la gradeas podría valer tanto más, y que se animen a comprar más
+> mis cartas»*) y es **estrictamente un estimado ilustrativo con disclaimer**: **NUNCA** un precio de venta,
+> una oferta ni una promesa de grado. Decisiones cerradas del humano: **(1) tres superficies** —**ficha**,
+> **badge** en las tejas de Compra y **vitrina «Joyas para gradear»** en el home—, con la **superficie visible
+> simplificada** *(actualización 2026-08-23: **fuera** el multiplicador, la ganancia calculada y toda
+> comparativa; cita: «solo bajemos el precio y desplegamos "en PSA 10 vale tanto"», y confirmó que **quiere los
+> dos grados**)*; **(2) gate de ROI sobre PSA 9** (no sobre PSA 10) con la fórmula
+> `estimadoPSA9 >= (precioVentaRaw + gradingCost) × (1 + minUpsidePct)`, que *(actualización 2026-08-23)* pasa
+> a ser **criterio de curaduría interno**: la **ficha** muestra los estimados **siempre que haya dato**, y
+> **teja y vitrina** —donde promocionamos activamente— **solo** llevan cartas que pasan el gate, **ordenadas la
+> vitrina por mayor ganancia neta sobre PSA 9**; **el resultado del cálculo nunca se expone al cliente**; y
+> **dos diales configurables** — **`gradingCostTiers`**, una **tabla de escalones** valor de carta → costo de
+> gradeo *(actualización 2026-08-23: sustituye al costo plano de MX$600; PSA cobra por nivel de servicio según
+> valor declarado y el costo debe incluir **envío internacional y retorno a México**, ver §O.2.1)*, y
+> `minUpsidePct` default **30%**; **(3) FUENTE AUTOMÁTICA** *(actualización 2026-08-28 — **supersede el
+> arranque manual-first**)*: el estimado se alimenta **automáticamente desde PokemonPriceTracker** (proveedor
+> **ya contratado**), que **no valúa nada**: entrega **ventas cerradas reales de eBay agrupadas por grado**
+> (`ebay.salesByGrade`, con **número de ventas de la muestra, mediana, promedio y fecha de la última venta**).
+> El **override manual del admin se conserva** como respaldo y para **curar cartas concretas**, con la
+> **máxima precedencia**; **(4) la cifra SÍ se pinta en la REJILLA de Compra y en la VITRINA del home**
+> *(nuevo 2026-08-28)*, pero **condicionada a un GATE DE CONFIANZA**: el número debe ser **fresco**, de
+> **origen confiable** (override manual, o dato automático con **muestra suficiente de ventas**) y
+> **coherente en magnitud**. La **ficha no aplica la coherencia de magnitud con la misma dureza** —informa lo
+> que hay—: solo la rejilla y la vitrina, que son **superficie de promoción**, exigen confianza (**§O.7**);
+> **(5) GUARDA DE DINERO** *(nuevo 2026-08-28)*: se **bloquea capturar un estimado** de un grado cuando esa
+> carta ya tiene una **pieza real de ese grado publicada** en inventario —comparten la **misma fila de
+> precio**, así que un «estimado» capturado a mano **movería el precio de venta real del slab** (**§O.8**).
+> **Money-safe (regla dura):** una cifra que no existe **no se dibuja**, y sin gate cumplido el badge/entrada
+> de vitrina **no se renderiza** — nunca **$0**, nunca un guion, y en un argumento de venta **ni siquiera
+> «pendiente»**. Todo se deriva **server-side** (SEC-A1), **reforzado** porque el cliente ya ni recibe los
+> insumos del cálculo. **Disclaimer completo = nota al pie** con **llamada (asterisco)** junto a la cifra, más
+> un **micro-aviso mínimo adyacente** («ilustrativo» + «no evaluamos esta carta») *(decisión del PO, ver §O.5
+> y pregunta abierta 12)*. **Desambiguación de alcance:** «Grading propio o integración directa con PSA/CGC»
+> (Fuera de alcance) se refiere a **gradear cartas / verificar slabs nosotros**, **NO** a **mostrar estimados
+> de valor por grado**, que **sí** entran al MVP. **PriceCharting sigue fuera.** **Disclaimer:** el humano
+> pidió que sea **súper enfático en que es información ilustrativa y que NO refleja el estado de nuestras
+> cartas** (no inspeccionamos ni pre-evaluamos la pieza que vendemos); texto ES/EN reescrito en **§O.5**,
+> pendiente de su visto bueno final — y **la feature se entrega detrás de feature-flag APAGADO hasta que ese
+> texto quede aprobado**. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–112**, decisiones
+> **40–55** y las **preguntas abiertas v2.0** al final.
 > **Requisito v2.0 — PRECIO PURO POR VALOR DE MERCADO (2026-08-24, DECISIONES DEL HUMANO YA TOMADAS —
 > LOCKED, P-48):** el dueño detectó cartas publicadas a **MX$1.31 / MX$3.71** creyendo tener un **piso de
 > MX$15**. La causa raíz fue doble: (a) una regla con `mode: 'fixed'` está **documentada como PISO** —y el
@@ -250,6 +294,16 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Cartas sin precio en la web de referencia: quedan en estado **"precio pendiente"** en
       adquisición/buylist/back-office y **NO se publican en Compra** hasta que el dueño les fija precio a
       mano (el comprador nunca ve "precio pendiente").
+- [ ] **Valor estimado si se gradea — «gancho de grading»** *(NUEVO v2.0, ver §O)*: sobre una carta **raw**
+      publicada, la tienda muestra **el precio de la carta + cuánto vale estimado en PSA 10 y en PSA 9**, en
+      **tres superficies**: **ficha**, **badge en las tejas** y **vitrina «Joyas para gradear» en el home**.
+      **Solo eso: sin multiplicador, sin ganancia calculada, sin comparativa** *(simplificación 2026-08-23)*.
+      Es un **estimado ilustrativo con disclaimer obligatorio** —**nunca** un precio de venta ni una promesa de
+      grado—. El **gate de ROI sobre PSA 9** (§O.2) es **criterio de curaduría interno**: la **ficha** muestra
+      lo que haya, y **teja y vitrina** solo llevan cartas que pasan el gate. **La cifra SÍ se pinta en la
+      rejilla y en la vitrina** *(2026-08-28)*, pero solo si además **supera el gate de confianza** (§O.7):
+      dato **fresco**, de **origen confiable** y **coherente en magnitud**. **Money-safe**: una cifra que no
+      existe **no se dibuja** (ni **$0**, ni guion, ni «pendiente»). No aplica a **gradeadas** ni a **sellado**.
 - [ ] Registro/login de usuario **por email/contraseña o con Google** (ver Restricciones técnicas).
 
 ### B. Compra y checkout (Stripe)
@@ -1290,12 +1344,543 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       posterior.
 - [ ] **Convertir el override manual en piso**: descartado (N.6) — el override es absoluto por diseño.
 
+### O. Valor estimado si se gradea — «gancho de grading» (transversal — NUEVO v2.0)
+> **Qué es**: sobre una carta **raw** publicada en Compra, la tienda muestra **cuánto valdría esa misma carta
+> si se gradeara PSA 10 o PSA 9**, comparado con su **precio de venta raw actual**.
+> **Por qué (comercial)**: es un **argumento de venta**, pedido así por el humano — *«si compras esta que no
+> vale mucho sin gradear y la gradeas podría valer tanto más, y que se animen a comprar más mis cartas»*.
+> Convierte inventario raw barato o de rotación lenta en una **historia de upside** («esta cuesta MX$120; si
+> sale PSA 10 vale MX$1,900»), sube el ticket promedio y da una razón para volver al catálogo, **sin bajar
+> precios ni regalar margen**.
+> **Qué NO es (crítico, legal-comercial)**: es un **estimado informativo con disclaimer**. **No** es un precio
+> de venta, **no** es una oferta, **no** es una promesa de que la carta obtenga ese grado, **no** es un
+> compromiso de recompra, y **no** se usa para valuar el portafolio, fijar el precio de venta ni cotizar
+> buylist. Ver **§O.5** (disclaimer) y «Fuera de alcance».
+> **Alcance de esta feature**: la **presentación** en el storefront (ficha, tejas de Compra, home) más la
+> **derivación server-side** del estimado, de su **confianza** y de su **elegibilidad**. **No** cambia el
+> precio de venta, el buylist, la bóveda, el inventario ni el P&L. El schema, el contrato y el caching los
+> diseña el arquitecto; aquí solo se fija el requisito de producto. *(Nota operativa: la arquitectura va en
+> `docs/ARCHITECTURE.md` **§4.38**, el contrato de API en **v1.50** y su seed en **M-42**; el tratamiento
+> visual, en `docs/DESIGN_SYSTEM.md` **§22**.)*
+> **Estado de entrega — FEATURE-FLAG APAGADO**: la feature se entrega **cableada pero apagada** por defecto y
+> **solo se enciende cuando el humano apruebe el texto legal del disclaimer** (§O.5). Mientras el flag esté
+> apagado, ninguna de las tres superficies muestra cifra estimada.
+> **Relación con §N (precio puro)**: son bloques distintos y **no se pisan**. §N fija **dinero real** (el
+> precio publicado sale de la curva por valor de mercado); §O es **presentación** y **consume** ese precio
+> publicado como `precioVentaRaw` sin alterarlo nunca.
+
+**O.1 — Dónde aplica (alcance del producto)**
+- [ ] Aplica **solo a cartas raw (singles)** de nuestro inventario **publicado en Compra** — es decir, con
+      **precio de venta fijado** (se respeta la **Regla de Compra**, §A: lo que no tiene precio no se lista, y
+      esta feature **no** publica nada que hoy no se publique). Bajo §N eso significa que una variante en
+      **«precio pendiente»** (§N.2 / §N.5) **nunca** llega al gancho: no está publicada.
+- [ ] **No aplica a gradeadas** (ya tienen grado real: el slab con empresa + grado + `certNumber` es el dato,
+      §H) **ni a sellado** (§K).
+- [ ] **Grados cubiertos en el MVP: PSA 10 y PSA 9, únicamente.** Otras graduadoras (CGC/BGS/TAG) y otros
+      grados (PSA 8 o menos) quedan **fuera de alcance**.
+- [ ] El estimado se muestra en **MXN**, con el mismo tratamiento de conversión y **refresco diario** del
+      resto de precios (§A / «Fuentes de precio»), y **solo para las cartas que ya priciamos** (las que están
+      en bóveda/inventario), para no romper los límites del proveedor.
+
+**O.2 — Gate de ROI sobre PSA 9 = CRITERIO DE CURADURÍA INTERNO (ACTUALIZADO 2026-08-23)**
+> **Qué hace el gate**: decide **qué cartas promocionamos activamente**, no qué se le enseña al cliente.
+> Selecciona las cartas en las que el comprador **gana incluso en el peor caso razonable** —que la carta salga
+> **PSA 9** en vez de PSA 10—, comparando el estimado de **PSA 9** contra **lo que le cuesta la jugada
+> completa** (lo que paga por la carta raw **más** lo que le costará gradearla), con un **margen mínimo**.
+> **Cambio de papel (decisión del humano, 2026-08-23)**: el gate **ya no condiciona que se vea el gancho**;
+> ahora **gobierna la curaduría de las superficies de promoción**. Cita del humano: *«calcúlalo para que
+> podamos ponerlo en la sección de destacado algo que valga la pena»*. Concretamente:
+> - **Ficha de carta** → los estimados se muestran **siempre que haya dato**, **sin** condicionar al gate. Es
+>   información para quien **ya está viendo esa carta**; no le estamos vendiendo la idea, se la estamos dando.
+> - **Teja de catálogo y vitrina del home** → aparecen **SOLO si el gate se cumple** *(y, desde 2026-08-28,
+>   solo si además la cifra **supera el gate de confianza** de §O.7)*. Son las superficies donde
+>   **promocionamos activamente**, y ahí solo entra lo que **de verdad vale la pena**.
+> **El resultado del cálculo NUNCA se expone al cliente**: ni la ganancia neta, ni el escalón de costo
+> aplicado, ni un multiplicador, ni el margen. El gate vive **entero del lado del servidor** y su única huella
+> visible es **qué cartas aparecen** en teja/vitrina y **en qué orden**. Esto **refuerza SEC-A1**: el cliente
+> ya ni siquiera recibe los insumos del cálculo, así que no hay nada que manipular.
+
+- [ ] **Fórmula de curaduría** (se evalúa **server-side** y **no se expone**, ver §O.4):
+
+```
+gradingCost   =  costo del ESCALÓN cuyo rango contiene el valor declarado de la carta   (tabla §O.2.1)
+
+promocionable ⇔  estimadoPSA9  ≥  (precioVentaRaw + gradingCost) × (1 + minUpsidePct)
+                 Y  la cifra supera el GATE DE CONFIANZA de §O.7
+
+gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO para ordenar la vitrina;
+                                                                      NUNCA se muestra al cliente
+```
+
+> **La matemática del gate no cambió** respecto a la decisión original del humano: sigue siendo «el comprador
+> debe ganar incluso saliendo PSA 9», y `gradingCost` se sigue **resolviendo por escalones** (§O.2.1). Lo que
+> cambió *(2026-08-23)* es **para qué sirve el resultado**: antes decidía si se veía el gancho; ahora decide
+> **qué se promociona y en qué orden**. Lo que se suma *(2026-08-28)* es que la **calidad del dato** también
+> condiciona la promoción (§O.7): un número que no es confiable **no se promociona aunque pase el ROI**.
+
+- [ ] **Dos diales configurables por el admin** (editables **sin deploy** y **auditados** en M10):
+
+| Dial | Qué representa (lenguaje de producto) | Default |
+|---|---|---|
+| `gradingCostTiers` | **Tabla de escalones**: rangos de **valor declarado** de la carta → **costo de gradeo estimado en MXN**. Imita cómo cobra **PSA**, que cobra **por nivel de servicio según el valor declarado**: entre más vale la carta, más caro sale gradearla. Ver **§O.2.1**. | ver tabla §O.2.1 |
+| `minUpsidePct` | **Margen mínimo** que le debe quedar al comprador **por encima** del costo total para que **valga la pena promocionar** esa carta. Debajo de eso, la ganancia es tan chica que no justifica ponerla en portada. | **30%** |
+
+**O.2.1 — Tabla de escalones del costo de gradeo (`gradingCostTiers`) — ACTUALIZADO 2026-08-23**
+> **Por qué escalones y no un costo plano** *(decisión del humano; corrige el supuesto anterior de MX$600
+> plano)*: **PSA cobra por nivel de servicio según el valor declarado** de la carta. Un costo plano se queda
+> **corto justo en las cartas caras**, que es donde el comprador arriesga más dinero — y el gate saldría
+> **optimista precisamente donde más duele**. Con escalones, una carta cara tiene que superar un costo de
+> gradeo mayor para ganarse el gancho.
+> **Qué incluye cada escalón (importante)**: no es solo la cuota de PSA. Cada escalón cubre el **costo total
+> puerta a puerta para un comprador en México**: **cuota de PSA + envío internacional (México → EE. UU.) +
+> retorno asegurado a México + logística/manejo**. Omitir el envío internacional volvería el gate optimista
+> otra vez: para un mexicano ese costo es **real y significativo**, muchas veces comparable a la propia cuota.
+
+| # | Valor declarado de la carta (MXN) | Costo de gradeo estimado (MXN) |
+|---|---|---|
+| 1 | hasta **$2,000** | **$700** |
+| 2 | **$2,001 – $5,000** | **$1,100** |
+| 3 | **$5,001 – $10,000** | **$1,800** |
+| 4 | **$10,001 – $20,000** | **$3,000** |
+| 5 | **$20,001 – $50,000** | **$6,000** |
+| 6 | **de $50,001 en adelante** *(escalón final abierto)* | **$12,000** |
+
+- [ ] **Cobertura total sin huecos**: la tabla debe cubrir **todo el rango de valores** de forma **contigua**
+      (el límite superior de un escalón es el inicio del siguiente) y **terminar en un escalón abierto**
+      («de X en adelante»). **Ningún valor de carta puede quedarse sin escalón**: si por una edición del admin
+      quedara un hueco o la tabla estuviera vacía, la carta **no es elegible** y **no se muestra nada** (regla
+      money-safe de §O.4; jamás se asume costo $0 ni se cae a un default silencioso).
+- [ ] **Qué valor se usa para buscar el escalón** *(SUPUESTO, conservador)*: el **valor declarado = el estimado
+      PSA 10** de la carta. Es lo que un comprador declararía a la graduadora y es el **escenario más caro**,
+      así que empuja a la carta al **escalón más alto posible** → costo mayor → **gate más estricto**. Confirmar
+      con el humano si prefiere usar el **estimado PSA 9** o el **precio de venta raw** (ambos darían un gate
+      más permisivo).
+- [ ] **Los valores por defecto de la tabla son un SUPUESTO revisable por el humano**: son cifras de arranque
+      razonables y deliberadamente **conservadoras** (mejor sobreestimar el costo que prometer de más), pero el
+      dueño debe validarlas contra lo que realmente le cuesta gradear hoy —cuotas vigentes de PSA, su
+      transportista y el tipo de cambio— y ajustarlas desde el admin **sin deploy**.
+- [ ] **Editable y auditado**: el admin puede **añadir, quitar y editar escalones** (rango + costo) desde el
+      back-office; el cambio surte efecto **sin redeploy**, queda **auditado** (M10) y **recalcula el conjunto
+      de cartas elegibles**.
+- [ ] *(Nota para el arquitecto — no es decisión de producto: el patrón que se citaba antes, el editor de
+      **tiers de rareza** (`GET/PUT /admin/pricing/tiers`), **se retira** con §N —criterio 96—, así que ya no
+      sirve de referencia. El patrón vivo equivalente es el **editor de la tabla de puntos de la curva**
+      (§N.3, criterio 86): tabla editable por admin, sin redeploy, validada y auditada. Se **sugiere reusar
+      ese** —mismo estilo de endpoint, validación y auditoría— en vez de inventar uno nuevo. La decisión de
+      diseño es del arquitecto.)*
+
+- [ ] **El PSA 10 es el premio mayor, no el juez**: el PSA 10 es la cifra que ilusiona y se muestra en la
+      ficha, pero **lo que decide si promocionamos la carta es exclusivamente el PSA 9**.
+      **Racional de producto (por qué el gate NO es sobre PSA 10)**: si promocionáramos con base en PSA 10, un
+      cliente al que le **salga PSA 9** —el resultado más común— podría **perder dinero** después de pagar la
+      carta y el gradeo. Eso **quema la reputación de la tienda** y convierte el gancho en una queja. Con el
+      gate sobre **PSA 9**, casi cualquier resultado razonable le deja ganancia, y el PSA 10 es upside extra.
+- [ ] **Sin estimado de PSA 9 no se promociona**: si existe estimado de **PSA 10** pero **no** de **PSA 9**, la
+      carta **no entra** a teja ni a vitrina (no se infiere, no se interpola, no se aproxima el PSA 9 a partir
+      del PSA 10). *(En la **ficha** sí puede mostrarse el PSA 10 que sí existe — ver §O.3.)*
+- [ ] *(SUPUESTO: el cálculo usa el **precio de venta raw sin IVA** —el mismo número que ve el comprador en la
+      ficha, §B— y **no** incluye el envío de la carta ni el IVA en `precioVentaRaw`. Confirmar con el humano
+      si quiere una curaduría aún más conservadora incluyendo esos conceptos; ver preguntas abiertas v2.0.)*
+
+**O.3 — Las tres superficies (SIMPLIFICADAS — ACTUALIZADO 2026-08-28)**
+> **Decisión del humano (cita textual)**: *«no hay que mostrarlo así mejor. Solo pongamos cuánto vale en
+> PSA 10… nos quitamos talacha de calcularlo… solo bajemos el precio y desplegamos "en PSA 10 vale tanto"»*.
+> Preguntado explícitamente por el PSA 9, confirmó que **quiere los dos grados**.
+> **Lo que el cliente ve, en total**: el **precio de la carta** + los **valores estimados PSA 10 y PSA 9**.
+> **Nada más.** **Se elimina** el multiplicador («×6»), la **diferencia/ganancia calculada**, el **costo de
+> gradeo mostrado**, el **margen** y cualquier **comparativa** o narrativa de rendimiento.
+> **Por qué es mejor** (y no solo más simple): (a) le quita a la tienda la **talacha de calcular y explicar**;
+> (b) **baja el riesgo legal** —una cifra de referencia es un dato; una ganancia calculada se parece mucho a
+> una promesa—; (c) el número **habla solo**: si la carta cuesta MX$120 y el PSA 10 vale MX$1,900, el
+> comprador saca su propia conclusión sin que nosotros se la afirmemos.
+> **Cierre 2026-08-28 — la cifra SÍ se pinta en rejilla y vitrina**: dejaba de estar en duda si esas dos
+> superficies llevaban **el número** o solo el enlace. Llevan **el número**, con una condición: en ellas la
+> cifra **tiene que ser confiable** (§O.7). Son **superficie de promoción**; la ficha es **superficie
+> informativa** y por eso su listón es distinto.
+
+- [ ] **(1) Ficha de carta** *(§A)* — la superficie informativa. Muestra **únicamente**:
+      - el **precio de venta de la carta** (el que ya se muestra hoy, sin cambio),
+      - el **estimado PSA 10**,
+      - el **estimado PSA 9**,
+      - la **fecha del dato** —para el dato automático, la **fecha de la última venta observada**; para un
+        override manual, la fecha en que el admin lo fijó (§O.6),
+      - la **llamada al disclaimer** (asterisco) y su **nota al pie** (§O.5).
+      **Nada calculado**: sin multiplicador, sin diferencia, sin ganancia, sin costo de gradeo, sin
+      comparativa. **No está condicionada al gate de ROI**: si hay dato, se muestra.
+      **Si solo existe uno de los dos grados**, se muestra **el que exista** *(SUPUESTO: es información, no
+      promoción; ver preguntas abiertas v2.0)*.
+- [ ] **(2) Rejilla de Compra — badge con la cifra en la teja** *(§A)* — superficie de **promoción**: aparece
+      **solo en cartas que pasan el gate de ROI** (§O.2) **y el gate de confianza** (§O.7). Badge compacto que
+      **muestra el estimado PSA 10**.
+      *(SUPUESTO de copy, para aprobación: **«En PSA 10 vale ≈ MX$X»**; en móvil, **«PSA 10 ≈ MX$X»**.)*
+      Lleva su **micro-aviso + llamada al pie** (§O.5). Las tejas que **no** pasan se ven **exactamente
+      como hoy**: **no hay badge vacío, tachado ni en gris**.
+- [ ] **(3) Vitrina en el home: «Joyas para gradear»** — superficie de **campaña**: solo cartas que **pasan
+      ambos gates**, **publicadas y disponibles**, cada una con su teja + badge (con la cifra) y enlace a su
+      ficha.
+      **Orden: por mayor `gananciaNeta` sobre PSA 9** (el escenario **realista**, no el optimista) — así lo
+      primero que ve el visitante es lo que mejor sostiene el argumento aun en el caso conservador.
+      **El criterio de orden es interno: la cifra que ordena NUNCA se muestra ni se envía al cliente.**
+      *(SUPUESTO: hasta **8** cartas; ver preguntas abiertas v2.0.)*
+      **Si ninguna carta pasa, la vitrina completa NO se renderiza** (no aparece vacía, ni con
+      placeholder, ni con «próximamente»).
+- [ ] **Regla transversal — el cálculo no se filtra**: en **ninguna** de las tres superficies se muestra (ni se
+      envía al cliente en el payload) la **ganancia neta**, el **escalón de costo aplicado**, el
+      **multiplicador**, el **margen**, el **flag de elegibilidad**, el **tamaño de la muestra de ventas** ni
+      los **umbrales de confianza**. Lo único observable desde fuera es **qué cartas aparecen** y **en qué
+      orden**.
+- [ ] **Bilingüe (§ i18n, criterio 32)**: todos los textos de las tres superficies —incluidos el micro-aviso y
+      la nota al pie— existen en **español e inglés**, con default español. Los **datos del catálogo** siguen
+      en inglés.
+
+**O.4 — Money-safe y derivación server-side (regla dura, no negociable)**
+> Esta feature es **un argumento de venta**, así que la regla money-safe se aplica **más estricta que en
+> ningún otro lado**: en una promesa comercial no se muestra un hueco. El precedente es el fast-follow de
+> seguridad que cerró el **«$0 latente»** — un $0 o un guion en un gancho de venta es peor que no mostrar nada.
+
+- [ ] **Ausencia total de render ante cualquier hueco**: **una cifra que no existe no se dibuja**. Si falta un
+      estimado, **esa cifra no aparece**; si no falta ninguno pero falta el precio de venta, la carta ni
+      siquiera está publicada (§A). **Nunca** se muestra **$0**, **nunca** un guion (`—`), **nunca** un rango
+      inventado, y —a diferencia de otros módulos— **ni siquiera «precio pendiente»**: el estado «pendiente» es
+      un concepto de back-office, no algo que se le enseñe al comprador.
+- [ ] **Regla por superficie** *(actualizada 2026-08-28)*:
+      **Ficha** → se muestra **lo que haya** (PSA 10 y/o PSA 9), **sin** depender del gate de ROI y con el
+      listón de confianza **más bajo** (§O.7).
+      **Rejilla y vitrina** → **solo** si se cumplen **el gate de ROI y el de confianza**; si falla cualquiera,
+      o si falta cualquier insumo (PSA 9, precio, escalón, muestra), **no se renderiza el badge ni la entrada
+      de vitrina** — y **sin dejar rastro visual**.
+- [ ] **Sin escalón, no se promociona**: si el valor de la carta **no cae en ningún escalón** de
+      `gradingCostTiers` (tabla vacía, con huecos o mal editada), la carta **no pasa el gate** y por tanto **no
+      entra a teja ni a vitrina**. **Jamás** se asume costo **$0** ni se cae a un default silencioso — un costo
+      de gradeo subestimado es exactamente lo que haría que promocionáramos una carta en la que el comprador
+      pierde dinero. *(La **ficha** no se ve afectada: ahí el estimado es información, no promoción.)*
+- [ ] **Curaduría y montos derivados server-side (SEC-A1) — REFORZADO**: el backend evalúa ambos gates y ordena
+      la vitrina a partir del precio de venta real, los estimados reales, la **tabla de escalones real**, la
+      **muestra real de ventas** y los diales reales. El cliente **recibe únicamente la lista ya curada y
+      ordenada, más las cifras que se pintan** (PSA 10 / PSA 9). **No recibe los insumos del cálculo** —ni
+      `gradingCost`, ni `minUpsidePct`, ni `minSalesSample`, ni `maxGradedMultiple`, ni el tamaño de la
+      muestra, ni la ganancia neta, ni un flag de elegibilidad—, así que **no hay nada que manipular**: un DTO
+      alterado no puede meter una carta a la vitrina, cambiar su posición ni alterar una cifra. *(Simplificar
+      la superficie visible (§O.3) **redujo la superficie de ataque**: menos datos expuestos, menos que
+      proteger.)*
+- [ ] **El estimado no toca dinero real**: **no** modifica el precio de venta (§A/§B/§N), **no** entra en la
+      **valuación ni en la tendencia del portafolio** (§C), **no** afecta la **cotización de buylist** (§E/§M),
+      **no** afecta el **costo/P&L de M7** y **no** cambia el **valor de inventario**. Es una **capa de
+      presentación** alimentada por precios de referencia, igual que cualquier otro precio mostrado. El caso
+      límite en que **sí** podría tocar dinero real —el estimado escribiendo sobre el precio de un slab
+      publicado— está cerrado en **§O.8**.
+- [ ] *(SUPUESTO — desambiguación con §N.7: el bloque «**Valor de mercado**» de la ficha y el bloque del
+      **estimado por grado** son **cosas distintas**. La regla de visibilidad de §N.7 (mostrar «Valor de
+      mercado» solo si `priceBasis = mercado`) **gobierna solo ese bloque** y **no** condiciona al gancho de
+      grading, que se rige por §O.7. Confirmar de paso con el humano.)*
+- [ ] **Frescura del dato**: un estimado **rancio deja de mostrarse** (mejor callar que presumir un número
+      viejo en una promesa comercial). El umbral y cómo se mide están en **§O.7**.
+
+**O.5 — Disclaimer (ES / EN) — BORRADOR PARA APROBACIÓN DEL HUMANO — ACTUALIZADO 2026-08-23**
+> **Este texto es una propuesta del product-owner y requiere aprobación explícita del humano** (idealmente con
+> revisión legal, ver «Riesgos y banderas»). **Hasta que esa aprobación llegue, la feature permanece detrás de
+> un feature-flag APAGADO.**
+> **Tono pedido por el humano (2026-08-23)**: *«súper enfático que es información ilustrativa, que no refleja
+> el estado de nuestras cartas»*. El objetivo es que **nadie pueda alegar después que se le prometió algo** —
+> pero sin convertirlo en un muro de letra chiquita ilegible: tiene que poder leerlo un comprador normal.
+> **El punto nuevo y más importante** (que el borrador anterior NO cubría): el estimado es un dato de mercado
+> **genérico de esa carta**, y **NO es una evaluación de la pieza concreta que estamos vendiendo** — no hemos
+> inspeccionado ni pre-evaluado su condición, centrado, superficie ni bordes para efectos de gradeo. Una carta
+> raw de nuestro inventario puede perfectamente tener defectos que **jamás** sacarían PSA 10.
+> **Los seis elementos obligatorios** del texto: (1) es **información ilustrativa / de referencia de
+> mercado**, no una valuación de nuestra carta; (2) **no refleja ni evalúa el estado de la carta que
+> vendemos** (no la inspeccionamos ni opinamos sobre qué grado obtendría); (3) **no garantizamos ningún
+> grado** —lo determina PSA de forma independiente y puede ser **mucho menor**, o la carta puede no ser
+> elegible—; (4) **no es oferta, ni garantía de precio, ni compromiso de recompra**; (5) **no gradeamos ni
+> intermediamos el gradeo**: costo, envío y tiempos corren por cuenta del comprador; (6) los **precios de
+> mercado cambian a diario** y el estimado puede quedar desactualizado.
+> **Nota de precisión (2026-08-28) — el texto no cambia, gana exactitud**: con la fuente automática de §O.6, la
+> frase «**dato de referencia de mercado sobre ese modelo de carta ya gradeado por terceros**» deja de ser una
+> aproximación cómoda y pasa a ser **literalmente exacta**: PokemonPriceTracker **no valúa nada**, entrega
+> **ventas cerradas reales de eBay agrupadas por grado**. La cifra es, al pie de la letra, **lo que compradores
+> reales pagaron por ese modelo ya gradeado por un tercero**. Esto **no modifica ni una palabra** del
+> disclaimer aprobado abajo —solo lo vuelve más defendible—: seguimos sin evaluar la pieza que vendemos, que
+> es exactamente lo que el texto dice.
+
+- [ ] **Versión completa (ficha de carta) — ES** *(borrador)*:
+      > **INFORMACIÓN ILUSTRATIVA. NO ES UNA VALUACIÓN DE ESTA CARTA.**
+      >
+      > Las cifras de **PSA 10 / PSA 9** son un **dato de referencia de mercado** sobre **ese modelo de carta
+      > ya gradeado por terceros**. Se muestran para ilustrar cómo se comporta el mercado, **nada más**.
+      >
+      > **NO reflejan ni evalúan el estado de la carta que estás comprando.** **No** hemos inspeccionado,
+      > medido ni pre-evaluado esta pieza para efectos de gradeo —ni su centrado, ni su superficie, ni sus
+      > bordes, ni sus esquinas— y **no opinamos sobre qué grado obtendría**. Vendemos esta carta como **raw
+      > (sin gradear) en Near Mint** según nuestro propio estándar de condición, que es **una cosa distinta**
+      > de un grado de PSA.
+      >
+      > **NO garantizamos ningún grado.** El grado lo determina **PSA**, de forma **independiente** y bajo sus
+      > propios criterios. El resultado **puede ser muy inferior** al que aquí se ilustra, y la carta **puede
+      > incluso no ser elegible** para gradeo. **Gradear es una apuesta y el riesgo es enteramente tuyo.**
+      >
+      > **Esto no es una oferta, ni una garantía de precio, ni un compromiso de recompra** por parte de TCG
+      > Vault MX. Si mandas la carta a gradear y el resultado no es el que esperabas, **no hay reembolso,
+      > compensación ni devolución por ese motivo** (aplica nuestra política de ventas finales).
+      >
+      > **TCG Vault MX no gradea cartas ni intermedia el servicio de gradeo.** La **cuota de PSA, el envío
+      > internacional, el retorno a México, los seguros y los tiempos de espera corren por tu cuenta**.
+      >
+      > **Los precios de mercado cambian todos los días** y este estimado puede quedar desactualizado en
+      > cualquier momento.
+
+- [ ] **Versión completa (ficha de carta) — EN** *(borrador)*:
+      > **ILLUSTRATIVE INFORMATION ONLY. THIS IS NOT AN APPRAISAL OF THIS CARD.**
+      >
+      > The **PSA 10 / PSA 9** figures are **market reference data** for **that card model as graded by third
+      > parties**. They are shown to illustrate how the market behaves — **nothing more**.
+      >
+      > **They do NOT reflect or evaluate the condition of the card you are buying.** We have **not**
+      > inspected, measured or pre-screened this specific copy for grading purposes — not its centering, not
+      > its surface, not its edges, not its corners — and **we offer no opinion on what grade it would
+      > receive**. We sell this card as **raw (ungraded) Near Mint** under our own condition standard, which
+      > is **a different thing** from a PSA grade.
+      >
+      > **We guarantee no grade whatsoever.** The grade is determined by **PSA**, **independently** and under
+      > its own criteria. The result **may be far below** what is illustrated here, and the card **may not
+      > even be eligible** for grading. **Grading is a gamble and the risk is entirely yours.**
+      >
+      > **This is not an offer, not a price guarantee, and not a buy-back commitment** by TCG Vault MX. If you
+      > send the card in for grading and the result is not what you hoped for, **there is no refund,
+      > compensation or return on that basis** (our final-sale policy applies).
+      >
+      > **TCG Vault MX does not grade cards and does not broker grading services.** **PSA fees, international
+      > shipping, return shipping to Mexico, insurance and turnaround times are entirely on you.**
+      >
+      > **Market prices change every day** and this estimate may become outdated at any time.
+
+> **Dónde vive este texto completo** *(actualizado 2026-08-23)*: **al pie de la página**, referenciado con una
+> **llamada (asterisco)** junto a cada cifra. Ver «Regla de presentación» abajo.
+
+- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — ES** *(borrador)*:
+      > *Cifra **ilustrativa** de mercado. **No evaluamos el estado de esta carta** ni garantizamos ningún
+      > grado; el gradeo y su costo corren por tu cuenta.*
+      > *(Variante ultra-corta para el badge, donde no cabe la anterior: **«Ilustrativo; no evaluamos esta
+      > carta.\***».)*
+- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — EN** *(borrador)*:
+      > ***Illustrative** market figure. **We have not assessed this card's condition** and guarantee no
+      > grade; grading and its cost are on you.*
+      > *(Ultra-short variant for the badge: **«Illustrative; we haven't assessed this card.\***».)*
+
+**Regla de presentación — PATRÓN DE NOTA AL PIE (ACTUALIZADO 2026-08-23)**
+> **Decisión del humano (cita textual)**: *«El completo solo hagamos referencia con un asterisco donde ponemos
+> el tag y hasta abajo de la página lo ponemos»*. **El texto completo NO se poda** —el humano lo quiso
+> íntegro—: cambia **dónde vive**, no qué dice. El **tratamiento visual** lo diseña **ux-ui**
+> (`docs/DESIGN_SYSTEM.md` **§22**); aquí solo se fija la **regla de producto**.
+
+- [ ] **Llamada + nota al pie**: **toda cifra estimada** (PSA 10 o PSA 9, en cualquier superficie) lleva una
+      **llamada visible** (asterisco) junto a ella, y la **página que la contiene** lleva el **texto completo
+      del disclaimer al pie**. La llamada y su nota deben estar **vinculadas** (que se pueda llegar del
+      asterisco al texto).
+- [ ] **Ninguna página huérfana**: **ninguna página que muestre una cifra estimada puede carecer de su nota al
+      pie completa**, y **ninguna cifra estimada puede carecer de su llamada**. Aplica a las tres superficies:
+      **home** (vitrina), **listado de Compra** (tejas) y **ficha**. Si una página muestra varias cifras, basta
+      **una** nota al pie que las cubra todas.
+- [ ] **DECISIÓN DE PRODUCTO — se conserva un micro-aviso junto a la cifra, ADEMÁS de la llamada**: la llamada
+      al pie **no sustituye** a las dos ideas obligatorias. Junto a la cifra (en el badge y en el bloque de la
+      ficha) va un **micro-aviso mínimo** que carga **«ilustrativo»** + **«no evaluamos esta carta»**, y el
+      asterisco lleva al texto completo.
+      *(SUPUESTO de copy, para aprobación — ES: **«Ilustrativo; no evaluamos esta carta.\***» · EN:
+      **«Illustrative; we haven't assessed this card.\***».)*
+      **Argumento de la decisión**: una nota al pie **protege menos que un aviso adyacente** si el comprador
+      **nunca baja** — y en la **vitrina del home** y en el **listado de Compra** eso es lo normal: el
+      visitante ve un carrusel o una cuadrícula y hace clic sin llegar jamás al pie de página. Las dos ideas
+      que retenemos son **exactamente las que desactivan el reclamo «me prometieron»**: que la cifra es
+      ilustrativa y que **no opinamos sobre esta pieza**. Todo lo demás del disclaimer (grado no garantizado,
+      no es oferta, costos por cuenta del comprador, precios cambian) **sí** puede vivir al pie sin pérdida
+      práctica, porque son matices de algo que el micro-aviso ya encuadró. El costo es **una línea de texto
+      chiquita**; el beneficio es que **no dependemos de que el usuario haga scroll** para estar cubiertos.
+      *(Si el humano prefiere prescindir del micro-aviso y dejar solo la llamada, es una decisión suya —
+      conviene que la tome con revisión legal, porque debilita la cobertura en home y listado.)*
+- [ ] **La versión corta / micro-aviso debe cargar las dos ideas clave**: que es **ilustrativo** y que **no
+      evaluamos esta carta**. Un micro-aviso que solo diga «estimado de mercado» **no cumple** este requisito.
+- [ ] **El texto completo es el mismo en todas las páginas** (no hay versiones recortadas por superficie) y
+      existe en **ES y EN** (criterio 32).
+- [ ] *(SUPUESTO: el disclaimer se muestra **en línea** junto a la cifra, no solo en términos/FAQ. Se
+      recomienda además reflejar el mismo texto en la **página de términos/políticas**; confirmar con el
+      humano y con revisión legal.)*
+
+**O.6 — Fuente del dato: INGEST AUTOMÁTICO desde PokemonPriceTracker (REESCRITA 2026-08-28)**
+> **Qué cambió y por qué**: la entrega original dejaba los valores PSA **capturados a mano** (fase 1
+> manual-first) porque el formato del payload del proveedor no estaba confirmado. El humano preguntó *«¿no
+> tenemos algo automático?»* y tiene razón: **PokemonPriceTracker ya está contratado y sí trae el dato**. El
+> marco de dos fases con la fase 2 bloqueada **queda superseded**: la fuente es **automática desde el
+> arranque**, con el **override manual conservado** como respaldo y como herramienta de curaduría.
+> **Qué entrega exactamente el proveedor (importante para el disclaimer)**: **PPT no valúa nada**. No emite una
+> opinión de valor, un índice ni un precio sugerido. Entrega **ventas cerradas reales de eBay agrupadas por
+> grado** (`ebay.salesByGrade`), y de cada grado da: **número de ventas de la muestra**, **mediana**,
+> **promedio** y **fecha de la última venta**. Eso es lo que hace que el disclaimer de §O.5 sea **exacto y no
+> una aproximación**: la cifra es, literalmente, **lo que compradores reales pagaron por ese modelo ya
+> gradeado por terceros** — no una valuación nuestra ni del proveedor.
+> **Lo que NO cambia para el usuario**: mismas tres superficies, mismo gate de ROI, mismo disclaimer, mismas
+> reglas money-safe, mismo feature-flag apagado hasta la aprobación legal.
+
+- [ ] **Fuente primaria — automática**: los valores **PSA 10 / PSA 9** se alimentan del ingest de
+      **PokemonPriceTracker** sobre `ebay.salesByGrade` (proveedor **ya contratado**; API key gestionada en el
+      **entorno de despliegue**, Railway, **nunca** en el repositorio).
+- [ ] **Qué estadístico se publica** *(SUPUESTO)*: la **mediana** de la muestra de ese grado, **no** el
+      promedio. La mediana **aguanta el outlier** (una venta atípica no arrastra la cifra) y es la elección
+      money-safe para un número que va en portada. Confirmar con el humano; ver preguntas abiertas v2.0.
+- [ ] **El override manual se conserva y manda**: sigue siendo la **máxima precedencia** y es la herramienta
+      para **curar cartas concretas** —corregir un dato malo, empujar una pieza gancho o tapar un hueco del
+      proveedor—. Precedencia completa:
+      **override manual del admin > dato automático con muestra suficiente (§O.7) > sin dato ⇒ no se
+      renderiza** (§O.4).
+- [ ] **Nunca se inventa un dato**: una carta **sin dato automático y sin override** simplemente **no muestra
+      cifra estimada** en ninguna superficie. No se infiere, no se aproxima, no se interpola desde el precio
+      raw ni desde el otro grado, y **no se rellena con el promedio de nada**.
+- [ ] **El dato del proveedor no se publica a ciegas**: todo valor automático pasa por el **gate de confianza**
+      de §O.7 antes de poder promocionarse. Un ingest automático **sin** ese filtro sería peor que la captura
+      manual, porque nadie está mirando cada número.
+- [ ] **Guarda de escritura**: el ingest **no escribe** un estimado que caiga bajo el bloqueo de **§O.8** (grado
+      con pieza real publicada). La pieza real manda **siempre**.
+- [ ] **PriceCharting sigue fuera del MVP** (sin cambio respecto a «Fuera de alcance»).
+- [ ] *(Nota operativa para el arquitecto — no es decisión de producto: siguen vivos dos asuntos de **costo de
+      operación**, no de producto: el dato exige un **parámetro extra que duplica el consumo de créditos**, y
+      hay que confirmar si llega en el **barrido por set** o exige **una petición por carta**. Eso condiciona
+      el diseño del ingest y su caching, no el comportamiento visible. Lo que **sí** se despeja es el bloqueo
+      anterior: **el formato del payload ya se conoce** — `ebay.salesByGrade`.)*
+
+**O.7 — Confianza del dato: cuándo una cifra se puede PROMOCIONAR (NUEVA 2026-08-28)**
+> **El problema que resuelve**: con fuente automática, nadie mira número por número. Una cifra puede llegar
+> **vieja**, **apoyada en una sola venta rara**, o **sencillamente mal** (un cero de más, un importe en
+> dólares tratado como pesos, las filas de dos grados intercambiadas). Publicar eso **en la rejilla o en la
+> portada** es un argumento de venta sostenido por basura.
+> **La regla de fondo, en una frase**: **la ficha informa, la rejilla promociona** — y **promocionar exige
+> confianza**. Por eso el listón es distinto en cada superficie y **no** es una inconsistencia.
+> **Todo esto se evalúa server-side y ninguno de sus insumos viaja al cliente** (extiende SEC-A1).
+
+- [ ] **Prueba 1 — FRESCO**: la cifra debe caer dentro de la **ventana de frescura de 30 días** (umbral **sin
+      cambio**). *(SUPUESTO sobre cómo se mide)*: para el **dato automático**, la ventana se mide contra la
+      **fecha de la última venta de la muestra** —esa es la frescura que de verdad importa: la antigüedad de la
+      **evidencia de mercado**, no la fecha en que jalamos el archivo—; para un **override manual**, contra la
+      fecha en que el admin lo fijó. Confirmar con el humano; ver preguntas abiertas v2.0.
+- [ ] **Prueba 2 — ORIGEN CONFIABLE**: la cifra debe venir de **una de dos** fuentes:
+      (a) un **override manual del admin** —una persona lo puso a propósito—, o
+      (b) un **dato automático con muestra suficiente**: al menos **`minSalesSample`** ventas cerradas de ese
+      grado en la muestra del proveedor.
+      **Dial nuevo `minSalesSample`, default 5** *(SUPUESTO revisable)*. Con muy pocas ventas la mediana deja
+      de significar algo: una sola operación atípica la desplaza entera, y esa cifra acabaría en portada.
+- [ ] **Prueba 3 — COHERENTE EN MAGNITUD**: la cifra tiene que ser creíble frente al precio raw publicado de la
+      misma carta. Son **tres cotas complementarias, no redundantes** — cada una caza un error distinto, así
+      que **ninguna se puede relajar** por creerla cubierta por otra:
+
+| Cota | Regla | Qué error caza |
+|---|---|---|
+| **Inferior** *(invariante, no es dial)* | `estimadoPSA10 > precioVentaRaw` | El **error de unidades USD/MXN** y el **dato absurdo**. Un PSA 10 de **USD 60** capturado como pesos queda en **MX$60** frente a un raw de **MX$400**: la cifra aterriza **por debajo** del precio raw. Un PSA 10 que «vale» menos o igual que la carta sin gradear no es una oportunidad: es un dato roto. |
+| **Superior** *(dial `maxGradedMultiple`, default **100×**, SUPUESTO)* | `estimadoPSA10 ≤ precioVentaRaw × maxGradedMultiple` | El **cero de más** (error de dedo al alza). Un múltiplo de upside enorme existe de verdad en cartas reales, así que la cota va holgada; lo que atrapa es el salto de orden de magnitud. |
+| **Orden de grados** | `estimadoPSA10 ≥ estimadoPSA9` (cuando existen los dos) | Las **filas con el grado intercambiado**. Un PSA 9 que vale más que su PSA 10 es, en la práctica, un cruce de datos. |
+
+- [ ] **Aplicación por superficie — el punto de la decisión**:
+      **Rejilla de Compra y vitrina del home** *(promoción)* → exigen **las tres pruebas** **y** el gate de ROI
+      (§O.2). Si falla cualquiera, la teja se ve **exactamente como hoy** y la carta **no entra** a la vitrina:
+      sin badge vacío, sin $0, sin guion, sin rastro visual.
+      **Ficha** *(información)* → **informa lo que hay**. Aplican **frescura** y **origen confiable**; la
+      **coherencia de magnitud NO se aplica con la misma dureza**: una cifra incoherente **no se oculta en la
+      ficha**, pero **sí bloquea la promoción**.
+- [ ] **Una cifra incoherente levanta alerta interna** *(SUPUESTO)*: cuando falla la prueba 3, la carta entra a
+      una **lista de revisión en el back-office** para que el dueño la corrija con override o la descarte. Es
+      la contrapartida de no ocultarla en la ficha: si decidimos seguir mostrándola, alguien tiene que
+      enterarse. Confirmar con el humano; ver preguntas abiertas v2.0.
+- [ ] **Diales nuevos, editables sin deploy y auditados** (M10, junto al resto):
+      **`minSalesSample`** (default **5**) y **`maxGradedMultiple`** (default **100×**). La cota inferior
+      (`PSA10 > raw`) y el orden de grados **no son diales**: son invariantes de producto.
+- [ ] **Nada de esto se filtra**: ni el **tamaño de la muestra**, ni los **umbrales**, ni el **resultado** del
+      gate viajan al cliente. Lo único observable desde fuera es **qué cartas llevan cifra en la rejilla y
+      cuáles no**.
+
+**O.8 — Guarda de dinero: un estimado NUNCA pisa el precio de una pieza real (NUEVA 2026-08-28)**
+> **El invariante**: **un estimado jamás puede determinar el precio de venta de una pieza real.**
+> **Por qué existe esta guarda**: el estimado por grado y el precio de un **slab real** de ese mismo grado
+> **comparten la misma fila de precio** (carta + grado). Así que si el admin captura «PSA 10 ≈ MX$9,000» como
+> **estimado** de una carta de la que **ya tenemos un PSA 10 publicado en inventario**, ese número **cambia el
+> precio al que se está vendiendo el slab**. Es dinero real movido por una cifra ilustrativa — exactamente lo
+> que §O.4 promete que no puede pasar.
+
+- [ ] **Bloqueo duro de captura**: el back-office **rechaza** capturar o editar un **estimado** del grado **G**
+      para una carta que tiene **al menos una pieza real de grado G publicada** en inventario. El error
+      **explica el porqué** en lenguaje de negocio, no un código: *«Esta carta ya tiene una PSA 10 publicada.
+      Ese precio es dinero real, no un estimado; para cambiarlo, edita el precio de la pieza.»*
+- [ ] **Aplica igual al ingest automático** (§O.6): si el proveedor trae un valor para el grado G y existe una
+      pieza real publicada de ese grado, **no se escribe**. La **pieza real manda siempre**.
+- [ ] **El bloqueo no apaga el gancho** *(SUPUESTO)*: la carta raw sigue mostrando —y pudiendo promocionarse
+      por— **el otro grado**, si ese otro grado sí tiene cifra y pasa sus gates.
+- [ ] **Sentido inverso** *(SUPUESTO — complemento necesario, confirmar)*: si **después** se publica una pieza
+      real de grado G y esa carta ya tenía un estimado de G, el estimado **deja de gobernar ese precio y deja
+      de usarse** como estimado para ese grado. No puede quedar un estimado viejo determinando el precio de un
+      slab que se está vendiendo.
+- [ ] **Auditado** (M10): todo intento bloqueado —manual o del ingest— queda **registrado**, para que se vea si
+      la guarda está saltando seguido y por qué.
+
+**O.9 — Flujos críticos (base para el E2E de QA)**
+> **Camino feliz — el gancho hace su trabajo:**
+> 1. El admin tiene publicada en Compra una carta **raw** con precio de venta fijado (precio derivado de la
+>    curva de §N), y el **ingest automático** (§O.6) trae sus valores **PSA 10 y PSA 9** desde
+>    `ebay.salesByGrade` con **muestra suficiente**.
+> 2. La cifra **pasa el gate de confianza** (§O.7: fresca, origen confiable, coherente en magnitud) y los
+>    valores **pasan el gate de ROI** con los diales por defecto (**escalón de costo** que corresponda a esa
+>    carta según §O.2.1 + `minUpsidePct` 30%) → la carta queda **promocionable**.
+> 3. Un visitante entra al **home** y ve la vitrina **«Joyas para gradear»** con esa carta **y su cifra**.
+> 4. Entra a **Compra** y ve la **teja con el badge y la cifra** (estimado PSA 10 + micro-aviso + llamada), y
+>    la página lleva su **nota al pie completa**.
+> 5. Abre la **ficha** y ve **solo**: el **precio de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
+>    la **fecha del dato**, el **micro-aviso** y la **llamada al pie**. **No ve** multiplicador, ganancia,
+>    costo de gradeo, tamaño de muestra ni comparativa alguna.
+> 6. Cambia el idioma a **inglés** y todos esos textos —micro-aviso y nota al pie incluidos— salen en inglés.
+>
+> **Flujo crítico — la curaduría protege al comprador:** el admin sube `minUpsidePct` (o el estimado PSA 9
+> baja) de modo que la carta **deja de pasar el gate de ROI** → al recargar, **desaparecen el badge y su
+> entrada en la vitrina** sin dejar rastro visual (ni hueco, ni $0, ni «pendiente»); **la ficha sigue mostrando
+> sus estimados** (ahí no aplica el gate de ROI) y **el precio de venta de la carta no cambió**.
+>
+> **Flujo crítico — el gate de confianza filtra basura:** tres cartas con dato automático —una con **muestra
+> por debajo de `minSalesSample`**, otra con **PSA 10 por debajo de su precio raw** (el caso del importe en
+> dólares tratado como pesos) y otra con **PSA 10 por encima de `maxGradedMultiple`** (el cero de más)—
+> **no aparecen en rejilla ni en vitrina**. Las dos últimas **sí siguen informándose en su ficha** y **sí
+> aparecen en la lista de revisión** del back-office.
+>
+> **Flujo crítico — el estimado no puede mover dinero real:** una carta con un **PSA 10 real publicado**; el
+> admin intenta capturarle un **estimado PSA 10** → **se rechaza con mensaje explicativo**, el **precio del
+> slab queda idéntico** y el intento queda **auditado**. El ingest automático, con el mismo escenario,
+> **tampoco escribe**.
+>
+> **Flujo crítico — los escalones encarecen las cartas caras:** dos cartas con el **mismo múltiplo** de upside
+> pero **valores muy distintos** (una de ~MX$1,500 y otra de ~MX$60,000) resuelven **escalones diferentes**
+> (MX$700 vs MX$12,000) → la cara necesita **mucho más** upside para promocionarse. Verificable construyendo
+> el caso en que la barata **sí** entra a la vitrina y la cara **no**.
+>
+> **Flujo crítico — orden de la vitrina:** con tres cartas promocionables de **ganancia neta sobre PSA 9**
+> distinta, la vitrina las lista **de mayor a menor ganancia neta** — verificable **por el orden**, ya que la
+> cifra que ordena **no se muestra ni viaja al cliente**.
+>
+> **Flujos negativos que QA debe cubrir:** carta **sin estimado PSA 9** (aunque tenga PSA 10) → **no entra** a
+> teja ni vitrina, pero **la ficha sí muestra el PSA 10**; carta **sin dato y sin override** → no muestra cifra
+> en ninguna superficie; carta **gradeada** y **sellado** → nunca muestran cifra estimada; **cero cartas
+> promocionables** → la vitrina del home **no se renderiza**; **tabla de escalones vacía o con hueco** → la
+> carta no se promociona y **nunca** se asume costo $0; **payload inspeccionado desde el cliente** → **no
+> contiene** ganancia neta, escalón de costo, `minUpsidePct`, `minSalesSample`, `maxGradedMultiple`, tamaño de
+> muestra ni flag de elegibilidad (SEC-A1); **DTO manipulado** → no mete cartas a la vitrina, no cambia el
+> orden ni las cifras; **estimado rancio** (última venta de más de 30 días) → no se muestra; **PSA 9 mayor que
+> el PSA 10** → no se promociona; **feature-flag apagado** → ninguna superficie muestra cifra; **página con
+> cifra estimada pero sin nota al pie**, o **cifra sin llamada/micro-aviso** → defecto **bloqueante**.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
 - **Order-book / trading instantáneo** (compra/venta digital tipo bolsa dentro de la bóveda).
 - **Wallet de saldo** para usuarios (el dinero se liquida por transacción).
 - **Pagos y logística automatizados** (guías automáticas, pagos SPEI automáticos): en MVP son manuales.
-- **Grading propio o integración directa con PSA/CGC**.
+- **Grading propio o integración directa con PSA/CGC** *(alcance ACLARADO en v2.0 — ver §O)*: lo que queda
+  fuera es **gradear cartas nosotros**, **ofrecer o intermediar el servicio de gradeo**, **enviar cartas del
+  cliente a PSA/CGC**, y **verificar slabs por integración** (API de submission o de verificación de
+  certificados; el `certNumber` se verifica **a mano** en la web de la graduadora, §H).
+  **Esta exclusión NO cubre mostrar estimados informativos de valor por grado**: el **valor estimado si se
+  gradea** (**§O**, PSA 10 / PSA 9) es una **función de presentación de precios de mercado** —igual que
+  cualquier otro precio de referencia que ya mostramos— y **SÍ está DENTRO del MVP**. Mostrar cuánto vale una
+  carta gradeada ≠ gradearla.
 - **App móvil nativa** (el panel es web responsive; no hay captura de fotos porque el producto no lleva
   fotos propias).
 - **Object storage / bucket de archivos (p. ej. R2) — uso para fotos de producto y de disputa**: **fuera del
@@ -1320,8 +1905,13 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   correo queda fuera de este alcance.
 - **Historial/portafolio para invitados** *(v1.5)*: un invitado ve **un** pedido por su enlace; no hay
   "mis pedidos" sin cuenta ni consulta de pedidos por correo.
-- **Plan de pago de proveedor de precios** (~$9.99/mes): no se contrata en MVP; el `PricingProvider`
-  intercambiable permite subir a él más adelante sin tocar el resto del sistema.
+- ~~**Plan de pago de proveedor de precios** (~$9.99/mes): no se contrata en MVP~~ — **SUPERADO (v2.0,
+  2026-08-23, confirmado por el humano)**: **PokemonPriceTracker YA está contratado** y su API key vive en el
+  entorno de despliegue (Railway). El `PricingProvider` intercambiable sigue siendo el mecanismo para cambiar
+  de proveedor sin tocar el resto del sistema. *(**Actualizado 2026-08-28**: el **ingest automático de valores
+  PSA** —que en la redacción anterior quedaba en «fase 2 bloqueada»— **ENTRA al MVP**: el formato del payload
+  ya se conoce (`ebay.salesByGrade`) y la fuente del gancho de grading pasa a ser **automática**, con override
+  manual como respaldo — ver **§O.6**.)*
 - **Compra/buylist de sellado a clientes** *(v1.6)*: el sellado es **solo venta**; la plataforma **no**
   compra producto cerrado a clientes por la app (solo el call-out `mailto` para cotizar por fuera). Un
   buylist de sellado sería fase 2 si se decide.
@@ -1337,6 +1927,33 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Auto-detección de pares padre→subset** *(v1.7, §L)*: en el MVP el mapa padre→subset es **curado/explícito**
   (se declara y se extiende a mano). Inferir automáticamente qué set-ids son subset de cuál (por naming, fecha
   o heurística) queda fuera de alcance.
+- **Vender el servicio de gradeo** *(v2.0, §O)*: **no** ofrecemos, cobramos ni intermediamos el gradeo de
+  cartas; **no** recibimos cartas para mandarlas a PSA, **no** hay "manda tu carta a gradear con nosotros", ni
+  ahora ni como upsell del checkout. El gancho **solo informa** un valor estimado.
+- **Garantizar el grado** *(v2.0, §O)*: la plataforma **no promete** que una carta obtenga PSA 10, PSA 9 ni
+  ningún grado, y **no** ofrece compensación, recompra ni devolución si el grado obtenido resulta menor al
+  estimado mostrado. El estimado **no crea ningún derecho** para el comprador (ver disclaimer, §O.5).
+- **Integración con PSA (o cualquier graduadora) para enviar/verificar cartas** *(v2.0, §O)*: sin API de
+  submission, sin seguimiento de envíos a la graduadora, sin verificación automática de `certNumber`. El slab
+  se sigue verificando **a mano** en la web de la graduadora (§H).
+- **PriceCharting como fuente del estimado por grado** *(v2.0, §O)*: **sigue fuera del MVP** (sin cambio
+  respecto al punto de PriceCharting de arriba). La fuente del estimado es **PokemonPriceTracker** (ingest
+  automático sobre `ebay.salesByGrade`) + **override manual del admin**.
+- **Otras graduadoras y otros grados** *(v2.0, §O)*: el MVP cubre **solo PSA 10 y PSA 9**. **CGC / BGS / TAG**
+  y los grados **PSA 8 o menores** quedan fuera; añadirlos es fase 2.
+- **Estimado por grado en gradeadas y en sellado** *(v2.0, §O)*: el gancho es **solo para raw**. Una carta ya
+  gradeada tiene grado real (el slab) y el sellado no se gradea.
+- **Usar el estimado por grado como dinero real** *(v2.0, §O)*: el estimado **nunca** alimenta el precio de
+  venta, la valuación/tendencia del portafolio, la cotización de buylist, el costo de inventario ni el P&L de
+  M7. Es exclusivamente presentación — y **§O.8** cierra el único caso en que podría dejar de serlo.
+- **Historial / gráfica de tendencia del valor gradeado** *(v2.0, §O)*: en el MVP se muestra el **estimado del
+  día**, no una serie histórica del precio PSA 10/9. Es fase 2 si se decide.
+- **Calculadora interactiva de ROI de gradeo** *(v2.0, §O)*: el comprador **no** ajusta parámetros (costo de
+  gradeo, grado objetivo, cantidad) desde la tienda. Los diales son **del admin** y el cálculo es
+  **server-side**; una calculadora para el cliente sería fase 2.
+- **Mostrar el tamaño de la muestra de ventas al comprador** *(v2.0, §O.7)*: el **número de ventas** que
+  sostiene la cifra es un **insumo interno** del gate de confianza; no se pinta ni viaja al cliente. Exponerlo
+  como señal de credibilidad sería ampliar la superficie visible y es otra decisión (ver preguntas abiertas).
 - **Sellado por curva de valor de mercado** *(v2.0, §N.10)*: el **sellado conserva su spread por
   presentación** (§K: `override > spread por presentación > spread global > PRICE_PENDING`, con la fórmula y
   las semillas de **§K** — siete presentaciones + global). Migrarlo a la
@@ -1392,6 +2009,27 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   - Solo se prician las cartas **en bóveda** (no el catálogo completo) + **cache diario**, para que el free
     tier alcance. **PriceCharting no se usa en el MVP.** **TCGCSV es fuente de precio SOLO del sellado**; para
     raw/singles no cambia nada (sigue pokemontcg.io/TCGPlayer).
+- **Fuente del valor estimado por grado (§O, v2.0) — INGEST AUTOMÁTICO + override manual** *(actualizado
+  2026-08-28; supersede el arranque «manual-first»)*: el estimado **PSA 10 / PSA 9** se alimenta
+  **automáticamente desde PokemonPriceTracker** —proveedor **ya contratado**, API key en el **entorno de
+  despliegue (Railway)**, no en el repositorio—. El proveedor **no valúa nada**: entrega **ventas cerradas
+  reales de eBay agrupadas por grado** (`ebay.salesByGrade`) con **número de ventas de la muestra, mediana,
+  promedio y fecha de la última venta**; publicamos la **mediana** *(SUPUESTO)*. El **override manual de
+  precio que ya existe** (`POST /admin/pricing/override`) se **conserva** como respaldo y para **curar cartas
+  concretas**, y mantiene la **máxima precedencia**. Todo valor pasa por el **gate de confianza** de §O.7
+  antes de poder promocionarse. **PriceCharting sigue fuera del MVP.** El estimado es **presentación**: no
+  alimenta precio de venta, portafolio, buylist ni P&L —y **§O.8** bloquea el único caso en que podría hacerlo
+  (capturar un estimado de un grado que ya tiene pieza real publicada)—.
+- **Diales del gancho de grading (§O, v2.0)**: **`gradingCostTiers`** —**tabla de escalones** rango de valor
+  declarado → costo de gradeo en MXN, imitando el cobro por nivel de servicio de PSA e **incluyendo envío
+  internacional y retorno a México** (defaults en §O.2.1, **SUPUESTO revisable**)—, **`minUpsidePct`** (default
+  **30%**) y, desde 2026-08-28, los dos del **gate de confianza**: **`minSalesSample`** (default **5**,
+  SUPUESTO) y **`maxGradedMultiple`** (default **100×**, SUPUESTO). Todos **editables sin deploy** y
+  **auditados**. *(SUPUESTO: viven en **M10 (Config y bitácora)** con el resto de diales; alternativa razonable
+  es M2 por ser pricing. Confirmar; ver preguntas abiertas v2.0.)* *(Nota para el arquitecto: el patrón de
+  tabla configurable que se citaba antes —tiers de rareza, `GET/PUT /admin/pricing/tiers`— **se retira** con
+  §N (criterio 96); el patrón vivo equivalente es el **editor de la tabla de puntos de la curva** (§N.3,
+  criterio 86).)*
 - **Valuación de portafolio del usuario**: base en las fuentes anteriores, en **MXN**, **refresco diario**.
 - **Alcance geográfico**: **solo nacional (todo México)** en el MVP; internacional es fase 2.
 - **Plataforma bilingüe ES/EN (i18n)**: toda la **UI/plataforma** (todos los textos de la aplicación) debe
@@ -1897,6 +2535,139 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     rareza, tier o acabado**, el editor de precios es el de la **tabla de puntos** (criterio 86), y **ninguna
     variante conserva un precio calculado con la lógica vieja** tras el repricio completo del catálogo.
 
+**Valor estimado si se gradea — «gancho de grading» — v2.0 (§O)**
+> **Nota de numeración**: este bloque se numeraba **79–92** en su borrador. Como los criterios **79–96** ya
+> están tomados por **§N (precio puro, LOCKED, en producción)**, se **renumera a 97–112**. El contenido de
+> cada criterio no cambió por la renumeración; lo que cambió por decisión de producto está marcado.
+
+> **Nota de verificación 1 (actualizada 2026-08-28)**: la fuente del estimado es el **ingest automático** de
+> PokemonPriceTracker sobre `ebay.salesByGrade` (§O.6), con **override manual** como respaldo y máxima
+> precedencia. QA puede montar cualquiera de estos criterios **con override manual** cuando necesite fijar
+> valores exactos; el comportamiento visible es el mismo venga el número de donde venga.
+
+> **Nota de verificación 2 (2026-08-23)**: el cálculo del gate **no se pinta**, así que estos criterios se
+> verifican por **presencia/ausencia** (qué carta aparece en qué superficie), por **orden** (el de la vitrina)
+> y por **inspección del payload** (que no viajen los insumos del cálculo) — **no** comparando cifras
+> derivadas en pantalla.
+
+> **Nota de verificación 3 (2026-08-28)**: la feature vive tras un **feature-flag apagado** hasta que el
+> humano apruebe el texto legal (§O.5). QA verifica estos criterios **con el flag encendido** en el entorno de
+> prueba, y verifica **además** que con el flag apagado **ninguna** superficie muestra cifra estimada.
+
+97. **El gate decide QUÉ SE PROMOCIONA (curaduría), no qué se ve**: una carta raw publicada entra a **teja y
+    vitrina** **si y solo si** `estimadoPSA9 ≥ (precioVentaRaw + gradingCost) × (1 + minUpsidePct)` —con
+    `gradingCost` = **escalón** que corresponde a esa carta (criterio 110) y `minUpsidePct` default **30%**—
+    **y además** la cifra supera el **gate de confianza** (criterio 111). Verificable con dos cartas límite:
+    una que pasa **por poco** (**aparece** el badge / entra a la vitrina) y otra **justo por debajo** (**no
+    aparece**). En **ambos casos la ficha muestra sus estimados**, porque la ficha **no depende del gate de
+    ROI**. El **PSA 10 no interviene**: una carta con PSA 10 altísimo pero PSA 9 que no pasa el gate **no se
+    promociona**.
+98. **Sin estimado PSA 9 no se promociona, pero la ficha sí informa**: una carta con estimado **PSA 10** pero
+    **sin** estimado **PSA 9** **no entra** a teja ni a vitrina; **su ficha sí muestra el PSA 10**. El sistema
+    **no infiere ni interpola** el PSA 9 a partir del PSA 10.
+99. **Ficha: solo precio + los dos estimados (verificación de AUSENCIA)**: la ficha de una carta raw con dato
+    muestra **exactamente**: el **precio de venta de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
+    la **fecha del dato**, el **micro-aviso** y la **llamada al pie** (criterio 103). Y **NO muestra** —en
+    ninguna forma— **multiplicador**, **diferencia/ganancia**, **porcentaje de rendimiento**, **costo de
+    gradeo**, **escalón aplicado**, **tamaño de la muestra de ventas** ni **comparativa**. Verificable buscando
+    en la página renderizada la ausencia de esos elementos.
+100. **La cifra SÍ se pinta en la rejilla de Compra** *(actualizado 2026-08-28)*: una teja de carta que pasa
+    **el gate de ROI y el de confianza** muestra el badge **con el estimado PSA 10** (más micro-aviso y
+    llamada); una teja que **falla cualquiera de los dos** se ve **exactamente igual que hoy** —**sin** badge
+    vacío, tachado, en gris ni con placeholder—.
+101. **Vitrina «Joyas para gradear»: la cifra, el contenido y el ORDEN** *(actualizado 2026-08-28)*: el home
+    muestra una vitrina con cartas que pasan **ambos gates**, **publicadas y disponibles**, **cada una con su
+    cifra visible** y **ordenadas de mayor a menor ganancia neta sobre PSA 9**. Verificable con tres cartas de
+    ganancia neta conocida y distinta: **aparecen en ese orden**. La **cifra que ordena no se muestra ni viaja
+    al cliente** (criterio 107). Si **ninguna carta pasa**, la **vitrina completa no se renderiza** (no aparece
+    vacía, ni con placeholder, ni con «próximamente»).
+102. **Money-safe — una cifra que no existe (o no es confiable) no se dibuja** *(actualizado 2026-08-28)*: si
+    falta un estimado, **esa cifra no aparece**; si falta el PSA 9, el precio o el escalón, **o si la cifra no
+    supera el gate de confianza**, la carta **no se promociona**. En **ninguna** superficie aparece **$0**, un
+    **guion (`—`)**, un rango inventado ni el texto **«precio pendiente»**. Verificable inspeccionando el HTML
+    entregado: **no hay contenedor vacío ni skeleton permanente**.
+103. **Disclaimer — patrón de llamada + nota al pie, con micro-aviso adyacente**: verificable en las **tres**
+    superficies (home, listado de Compra, ficha):
+    (a) **toda cifra estimada** lleva una **llamada visible** (asterisco) y un **micro-aviso** junto a ella que
+    carga las dos ideas obligatorias — **«ilustrativo»** y **«no evaluamos esta carta»**;
+    (b) **toda página que muestre al menos una cifra estimada** contiene el **texto completo del disclaimer al
+    pie**, y la llamada **lleva** a ese texto;
+    (c) el **texto completo es el mismo** en todas las páginas (sin versiones recortadas) y afirma
+    explícitamente los **seis** elementos: es **información ilustrativa**, **no evalúa la carta que vendemos**
+    (no inspeccionada ni pre-evaluada), **no garantiza ningún grado** (lo determina PSA y puede ser mucho
+    menor), **no es oferta/garantía de precio/recompra**, **no gradeamos ni intermediamos** (costo, envío y
+    tiempos por cuenta del comprador) y los **precios cambian a diario**;
+    (d) todo lo anterior existe en **ES y EN** y cambia con el toggle de idioma (criterio 32).
+    **Una página con cifra estimada y sin nota al pie, o una cifra sin llamada/micro-aviso, es un defecto
+    bloqueante.**
+104. **Diales editables sin deploy y auditados** *(actualizado 2026-08-28)*: el súper-admin edita la **tabla de
+    escalones** (`gradingCostTiers`), `minUpsidePct`, **`minSalesSample`** y **`maxGradedMultiple`**; el cambio
+    **surte efecto sin redeploy**, queda **auditado** en la bitácora (M10) y **recalcula qué se promociona**
+    (verificable: subir `minUpsidePct` de 30% a un valor alto, encarecer un escalón, o subir `minSalesSample`
+    por encima de la muestra disponible, **vacía la vitrina y quita los badges**, **sin tocar ningún precio de
+    venta** y **sin alterar lo que muestran las fichas**).
+105. **Solo raw**: una carta **gradeada (PSA/CGC)** y un **producto sellado** **nunca** muestran cifra estimada
+    ni badge, y **nunca** entran a la vitrina, en ninguna superficie.
+106. **Fuente automática + override manual** *(REESCRITO 2026-08-28; supersede el criterio de «fase 1
+    manual-first»)*: el estimado se alimenta **automáticamente** desde PokemonPriceTracker a partir de
+    **ventas cerradas de eBay agrupadas por grado** (`ebay.salesByGrade`: número de ventas, mediana, promedio y
+    fecha de la última venta), **sin intervención humana**. Verificable: (a) una carta raw publicada con
+    muestra suficiente **muestra su cifra** sin que nadie la capture; (b) el **override manual del admin
+    conserva la máxima precedencia** —fijado a mano sobre una carta que ya tenía dato automático, **gana el
+    manual**—; (c) una carta **sin dato automático y sin override** **no muestra cifra estimada** en ninguna
+    superficie; (d) **jamás** se muestra una cifra inferida, aproximada, interpolada desde el otro grado o de
+    respaldo inventada.
+107. **El cálculo NO se filtra al cliente (SEC-A1 reforzado)** *(ampliado 2026-08-28)*: inspeccionando la
+    **respuesta del servidor** que alimenta home, listado y ficha, **no aparecen** la **ganancia neta**, el
+    **escalón / costo de gradeo**, `minUpsidePct`, `minSalesSample`, `maxGradedMultiple`, el **tamaño de la
+    muestra de ventas**, ni un **flag de elegibilidad**: solo las **cifras que se pintan** (PSA 10 / PSA 9) y
+    la **lista ya curada y ordenada**. En consecuencia, un **DTO manipulado** desde el cliente **no puede**
+    meter una carta a la vitrina, **cambiar su posición** ni **alterar una cifra**.
+108. **El estimado no contamina el dinero real**: activar o desactivar esta feature **no cambia** el **precio
+    de venta** de ninguna carta, el **valor ni la tendencia del portafolio** (§C), la **cotización de buylist**
+    (§E/§M), el **costo de inventario** ni el **P&L de M7** — verificable comparando esos valores con la
+    feature encendida y apagada.
+109. **Frescura del estimado** *(actualizado 2026-08-28)*: un estimado **rancio deja de mostrarse** en las tres
+    superficies (y la carta deja de promocionarse). La antigüedad se mide contra la **fecha de la última venta
+    observada** para el dato automático, y contra la **fecha de captura** para un override manual; el umbral
+    es de **30 días** *(umbral y forma de medirlo sujetos a confirmación del humano — ver preguntas abiertas
+    v2.0)*.
+110. **Costo de gradeo por ESCALONES (no plano)**: el `gradingCost` del gate se **resuelve por tabla de
+    escalones** (`gradingCostTiers`, §O.2.1) según el **valor de la carta**, imitando cómo cobra PSA por nivel
+    de servicio. Como el costo **no se muestra**, se verifica por **efecto en la curaduría**:
+    (a) **dos cartas de valor muy distinto resuelven escalones distintos** —con upside proporcional
+    equivalente, la **barata entra** a la vitrina y la **cara no**, porque su escalón es mucho más caro—;
+    (b) la tabla **cubre todo el rango sin huecos** y su **último escalón es abierto** («de X en adelante»),
+    así que **ninguna carta, por cara que sea, se queda sin escalón**;
+    (c) si el valor de la carta **no cae en ningún escalón** (tabla vacía o mal editada), la carta **no se
+    promociona** y **no se asume costo $0** ni un default silencioso;
+    (d) el costo del escalón **incluye envío internacional y retorno a México** además de la cuota de PSA —lo
+    que se refleja en que los defaults **no son la cuota pelona de PSA**—;
+    (e) el súper-admin puede **añadir/quitar/editar escalones** sin redeploy, con **auditoría** (M10) y
+    **recálculo** de qué se promociona.
+111. **NUEVO — Gate de confianza: solo se promociona una cifra confiable** (§O.7): una carta entra a **rejilla
+    y vitrina** solo si su cifra es **fresca**, de **origen confiable** y **coherente en magnitud**.
+    Verificable caso por caso, y en los tres casos la carta **no aparece en rejilla ni en vitrina**:
+    (a) **muestra insuficiente** — dato automático con **menos de `minSalesSample` (default 5)** ventas en su
+    grado;
+    (b) **cota inferior — `estimadoPSA10 ≤ precioVentaRaw`** — es el caso del **error de unidades USD/MXN**
+    (un PSA 10 de USD 60 capturado como pesos queda en MX$60 frente a un raw de MX$400, o sea **por debajo**)
+    y el del dato absurdo;
+    (c) **cota superior — `estimadoPSA10 > precioVentaRaw × maxGradedMultiple` (default 100×)** — es el caso
+    del **cero de más**;
+    (d) **orden de grados — `estimadoPSA9 > estimadoPSA10`** — filas con el grado intercambiado;
+    (e) en los casos **(b), (c) y (d) la ficha SIGUE informando la cifra** (ahí la coherencia de magnitud no se
+    aplica con la misma dureza) y la carta **aparece en la lista de revisión** del back-office;
+    (f) **ningún insumo del gate** —tamaño de muestra, umbrales o resultado— **viaja al cliente**.
+    Las cotas (b), (c) y (d) son **complementarias, no redundantes**: cada una caza un error distinto, así que
+    ninguna puede relajarse por creerla cubierta por otra.
+112. **NUEVO — Un estimado nunca pisa el precio de una pieza real** (§O.8): con una **PSA 10 real publicada**
+    de la carta C, intentar capturar un **estimado PSA 10** para C **se rechaza** con un mensaje que explica el
+    porqué en lenguaje de negocio, y **el precio publicado del slab es idéntico antes y después** del intento.
+    Verificable además: (a) el **ingest automático** tampoco escribe ese valor cuando existe la pieza real;
+    (b) el intento bloqueado queda **auditado** (M10); (c) el bloqueo es **por grado** — la misma carta sigue
+    pudiendo mostrar y promocionar **el otro grado** si tiene cifra válida.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
@@ -1931,6 +2702,28 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   impone ninguno** (ver preguntas abiertas v1.5).
 - **Fiscal/legal — valuación en MXN a mercado**: confirmar que mostrar valor de portafolio a clientes no
   crea expectativa contractual de recompra a ese valor (más allá del remedio de recompra ya definido).
+- **Legal/publicidad — el gancho de grading es una afirmación comercial** *(v2.0, §O)*: mostrar «si la gradeas
+  podría valer X» en una **página de venta** es publicidad sobre un **resultado incierto que depende de un
+  tercero (PSA)**. Riesgo de **publicidad engañosa** ante PROFECO si el comprador entiende el estimado como
+  promesa. Mitigaciones ya incorporadas: gate conservador sobre **PSA 9** (§O.2), **gate de confianza** que
+  impide promocionar cifras poco sólidas o incoherentes (§O.7), **disclaimer obligatorio en toda superficie**
+  (§O.5), **exclusión explícita de garantía de grado** (Fuera de alcance) y **feature-flag apagado hasta la
+  aprobación del texto**. *(Refuerzo 2026-08-28: con la fuente automática, la cifra son **ventas cerradas
+  reales de eBay por grado**, no una valuación nuestra — el disclaimer describe la realidad al pie de la
+  letra, lo que mejora la posición.)* **Validar con abogado**: (a) que el **texto del disclaimer** (borrador
+  en §O.5) sea suficiente y esté también en **términos/políticas**, (b) que el estimado **no cree derecho** a
+  compensación si el grado sale menor, y (c) que el uso de la marca **«PSA»** para nombrar el grado en la UI
+  sea un **uso descriptivo/nominativo admisible** y no sugiera afiliación, aval o asociación con PSA.
+- **Comercial — expectativa del cliente y soporte** *(v2.0, §O)*: aunque legalmente esté cubierto, un cliente
+  que compre por el gancho y **saque PSA 8** volverá a soporte. Conviene decidir el **guion de respuesta** y
+  confirmar que la política de **ventas finales** (§H) aplica sin excepción a este caso —el estimado **no** es
+  una de las dos excepciones de reembolso—; hoy el documento asume que **no** crea ninguna excepción nueva.
+- **ToS del proveedor del estimado por grado** *(v2.0, §O — MÁS RELEVANTE desde 2026-08-28)*: con el paso a
+  **ingest automático**, dejamos de consumir el dato a mano y pasamos a **redistribuir sistemáticamente**
+  derivados de `ebay.salesByGrade`. Revisar los **términos de PokemonPriceTracker** para confirmar que está
+  permitido **mostrar públicamente** valores de mercado de cartas gradeadas **con fines comerciales** dentro de
+  una tienda, bajo qué **atribución** y con qué **límites de rate/caching** (el diseño ya mitiga priciando solo
+  lo que está en bóveda + cache diario). Confirmar también si la **atribución al proveedor** debe ser visible.
 
 ## Métricas de éxito del MVP / definición de "lanzado"
 El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un periodo de **30–60 días**:
@@ -2079,6 +2872,115 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 39. **Diferenciadores cableados pero apagados** (feature-flag off): **tendencia de valor del sellado** y
    **"avísame cuando vuelva" (restock)**; se encienden después sin nuevo desarrollo.
 
+**Decisiones v2.0 — gancho de grading (2026-08-23, tomadas por el humano):**
+40. **Alcance completo, tres superficies**: **ficha** + **badge en las tejas de Compra** + **vitrina «Joyas
+   para gradear» en el home**. No es una prueba en una sola pantalla. Ver §O.3. *(ACTUALIZADO 2026-08-23 — ver
+   decisión 50: la ficha deja de ser un «bloque comparativo» y pasa a mostrar solo precio + PSA 10 + PSA 9.
+   ACTUALIZADO 2026-08-28 — ver decisión 54: en rejilla y vitrina **se pinta la cifra**, condicionada al gate
+   de confianza.)*
+41. **Gate de ROI sobre PSA 9, NO sobre PSA 10** — `estimadoPSA9 ≥ (precioVentaRaw + gradingCost) ×
+   (1 + minUpsidePct)`. El **PSA 10 ilusiona pero no decide**. Racional: con el gate en PSA 10, a un cliente
+   que saque PSA 9 podría **costarle dinero**, y eso quema la reputación de la tienda. Ver §O.2.
+   *(ACTUALIZADO 2026-08-23 — ver decisión 51: el gate **cambia de papel**, de «se ve o no se ve el gancho» a
+   **criterio de curaduría** de las superficies de promoción; la matemática no cambia.)*
+42. **Dos diales configurables por el admin**: **`gradingCostTiers`** y `minUpsidePct` (default **30%**),
+   editables **sin deploy** y **auditados**. *(ACTUALIZADO 2026-08-23 — ver decisión 46: el costo de gradeo
+   pasó de escalar plano a **tabla de escalones**.)*
+43. **Fuente = PokemonPriceTracker (ya contratado) + override manual del admin** como respaldo y máxima
+   precedencia. **PriceCharting sigue fuera.** *(ACTUALIZADO 2026-08-23 — ver decisión 47: la feature arranca
+   **manual-first**; el ingest automático es **fase 2** y está bloqueado. **SUPERSEDED 2026-08-28 — ver
+   decisión 53**: la fuente es **automática desde el arranque**; esta decisión 43 vuelve a leerse tal como se
+   escribió originalmente.)* Ver §O.6.
+44. **Estimado informativo con disclaimer, nunca un precio de venta ni una promesa de grado**; **money-safe
+   extremo**: sin dato o sin gate cumplido, el bloque/badge **no se renderiza** — ni **$0**, ni guion, ni
+   **«pendiente»** (en un argumento de venta no se muestra un hueco). Elegibilidad y montos **server-side**
+   (SEC-A1). Ver §O.4 y §O.5.
+45. **Desambiguación de alcance de grading**: «Grading propio o integración directa con PSA/CGC» (Fuera de
+   alcance) significa **no gradeamos cartas ni verificamos slabs por integración**; **NO** prohíbe **mostrar
+   estimados de valor por grado**, que **sí** entran al MVP. Mostrar cuánto vale una carta gradeada ≠
+   gradearla.
+
+**Decisiones v2.0 — correcciones tras la revisión del humano (2026-08-23):**
+46. **Costo de gradeo POR ESCALONES, no plano** *(supersede la parte de costo de la decisión 42)*: el dial
+   deja de ser un escalar y pasa a ser una **tabla de escalones configurable por admin** —rango de **valor
+   declarado** → **costo de gradeo en MXN**— imitando cómo cobra **PSA** (por nivel de servicio según valor
+   declarado). Debe **cubrir todo el rango sin huecos**, terminar en un **escalón abierto**, e **incluir la
+   cuota de PSA + envío internacional + retorno a México**. Motivo: un costo plano se queda **corto en cartas
+   caras** y el gate saldría **optimista justo donde el cliente pierde más**. El **gate de ROI no cambia**:
+   solo cambia cómo se resuelve `gradingCost`. Defaults en **§O.2.1**, marcados como **SUPUESTO revisable**.
+47. ~~**La feature arranca MANUAL-FIRST (fase 1) y el ingest automático es fase 2 bloqueada**~~ —
+   **SUPERSEDED 2026-08-28 por la decisión 53.** *(Se conserva como rastro de por qué se decidió así en su
+   momento.)* La verificación técnica del proveedor (doctrina **P-6**) concluyó entonces que **no se podía
+   construir el ingest** —parámetro extra que **duplica el consumo de créditos**, **formato de payload no
+   confirmado** (documentación contradictoria) y **se desconocía** si el dato venía en el barrido por set o
+   exigía una petición por carta—, así que se entregaba en **fase 1** con valores PSA **fijados a mano** por el
+   admin vía el **override manual existente** (`POST /admin/pricing/override`). **Lo que cambió**: el humano
+   preguntó *«¿no tenemos algo automático?»* y **el formato del payload ya se conoce** (`ebay.salesByGrade`),
+   así que el bloqueo desaparece. De lo que quedaba vivo, **sigue vigente**: el **override manual** como
+   respaldo y máxima precedencia, y que **el comportamiento visible al usuario no depende del origen del
+   dato**. Los criterios de este bloque son ahora los **97–112**.
+48. **Disclaimer súper enfático — «ilustrativo, no refleja el estado de nuestras cartas»** *(petición textual
+   del humano; supersede el borrador anterior de §O.5)*: el texto sube de tono a **inequívoco**, con un
+   elemento nuevo que era el más importante y faltaba: el estimado es un dato de mercado **genérico de ese
+   modelo de carta** y **NO evalúa la pieza concreta que vendemos** —no la hemos inspeccionado ni
+   pre-evaluado (centrado, superficie, bordes, esquinas) y **no opinamos sobre qué grado obtendría**—. Los
+   **seis elementos obligatorios** y los textos ES/EN (completo y corto) están en **§O.5**; la **versión corta**
+   también debe cargar «ilustrativo» + «no evaluamos esta carta».
+49. **Proveedor ya contratado — se cierra la contradicción del documento**: **PokemonPriceTracker está
+   contratado** y su key vive en Railway; la línea de «Fuera de alcance» que decía que **no se contrata plan
+   de pago de proveedor de precios en el MVP** queda **SUPERADA** y así está marcada.
+
+**Decisiones v2.0 — simplificación de la superficie visible (2026-08-23, tercera ronda del humano):**
+50. **Fuera el multiplicador y la comparativa** *(cita: «no hay que mostrarlo así mejor. Solo pongamos cuánto
+   vale en PSA 10… nos quitamos talacha de calcularlo… solo bajemos el precio y desplegamos "en PSA 10 vale
+   tanto"»; preguntado por el PSA 9, confirmó que **quiere los dos grados**)*: la superficie visible queda en
+   **precio de la carta + estimado PSA 10 + estimado PSA 9**. **Se elimina** el multiplicador, la
+   diferencia/ganancia calculada, el costo de gradeo mostrado, el margen y toda comparativa. Beneficio doble:
+   **menos talacha** y **menos riesgo legal** (un dato de referencia no es una promesa de ganancia). Ver §O.3.
+51. **El gate cambia de papel: de condición de render a CRITERIO DE CURADURÍA** *(cita: «calcúlalo para que
+   podamos ponerlo en la sección de destacado algo que valga la pena»)*: el gate y la tabla de escalones
+   (§O.2.1) **se conservan íntegros**, pero ahora deciden **qué promocionamos**, no qué se enseña.
+   **Ficha** → muestra los estimados **siempre que haya dato**, sin condicionar al gate. **Teja y vitrina** →
+   **solo si el gate se cumple**. **Vitrina ordenada por mayor ganancia neta sobre PSA 9** (escenario
+   realista, no optimista). **El resultado del cálculo NUNCA se expone al cliente** —ni ganancia, ni escalón,
+   ni multiplicador, ni flag—; lo único observable es **qué cartas aparecen y en qué orden**. Esto **refuerza
+   SEC-A1**: el cliente ya ni recibe los insumos del cálculo. Ver §O.2 y §O.3.
+52. **Disclaimer completo = NOTA AL PIE, con llamada junto a la cifra** *(cita: «El completo solo hagamos
+   referencia con un asterisco donde ponemos el tag y hasta abajo de la página lo ponemos»)*: **el texto
+   completo NO se poda** —cambia dónde vive, no qué dice—. Regla de producto: **ninguna página que muestre una
+   cifra estimada carece de su nota al pie completa** y **ninguna cifra carece de su llamada**.
+   **Decisión del PO (con peso legal, para validar con el humano/abogado): se CONSERVA un micro-aviso mínimo
+   junto a la cifra**, además de la llamada, cargando las dos ideas obligatorias («ilustrativo» + «no
+   evaluamos esta carta»). Motivo: **la nota al pie protege menos que un aviso adyacente si el comprador nunca
+   baja**, y en **home** y **listado** eso es lo normal. El resto del disclaimer sí vive al pie sin pérdida
+   práctica. Ver §O.5.
+
+**Decisiones v2.0 — gancho de grading, cuarta ronda del humano (2026-08-28):**
+53. **FUENTE AUTOMÁTICA desde PokemonPriceTracker** *(supersede la decisión 47; matiza la 43)*: el humano
+   preguntó *«¿no tenemos algo automático?»* y tiene razón — el proveedor **ya se paga** y **sí trae el dato**.
+   El estimado **PSA 10 / PSA 9** deja de capturarse a mano y se alimenta del **ingest automático** sobre
+   **`ebay.salesByGrade`**. Dato relevante de producto: **PPT no valúa nada**; entrega **ventas cerradas reales
+   de eBay agrupadas por grado**, con **número de ventas de la muestra, mediana, promedio y fecha de la última
+   venta**. Eso hace que el disclaimer de §O.5 sea **exacto y no una aproximación**: la cifra es, literalmente,
+   **lo que compradores reales pagaron por ese modelo ya gradeado por terceros**. El **override manual se
+   conserva** como respaldo y para **curar cartas concretas**, con **máxima precedencia**. **El texto del
+   disclaimer no cambia** —solo gana precisión—. Ver §O.6 y criterio **106**.
+54. **LA CIFRA SÍ SE MUESTRA EN LA REJILLA Y EN LA VITRINA, condicionada a un GATE DE CONFIANZA** *(cierra la
+   duda que quedaba abierta)*: rejilla de Compra y vitrina del home **pintan el número**, pero solo si es
+   **confiable**: **fresco**, de **origen confiable** (override manual, o dato automático con **muestra
+   suficiente de ventas**) y **coherente en magnitud**. La **ficha no aplica la coherencia de magnitud con la
+   misma dureza**: **informa lo que hay**, porque es superficie **informativa**; solo la rejilla y la vitrina,
+   que son **superficie de promoción**, exigen confianza. Las cotas de magnitud son **complementarias**: la
+   **inferior** (`PSA10 > raw`) caza el **error de unidades USD/MXN** y el dato absurdo, la **superior**
+   (`PSA10 ≤ raw × maxGradedMultiple`) caza el **cero de más**, y el **orden de grados** (`PSA10 ≥ PSA9`) caza
+   las **filas con el grado intercambiado**. Ver §O.7 y criterio **111**.
+55. **GUARDA DE DINERO — no se captura un estimado de un grado que ya tiene pieza real publicada**: el estimado
+   por grado y el precio de un **slab real** de ese grado **comparten la misma fila de precio**, así que un
+   «estimado» capturado a mano **movería el precio de venta real del slab**. Se **bloquea la captura** (y la
+   escritura del ingest) del estimado del grado **G** cuando esa carta ya tiene **al menos una pieza real de
+   grado G publicada** en inventario, con **mensaje explicativo** y **auditoría** del intento. **La pieza real
+   manda siempre.** Ver §O.8 y criterio **112**.
+
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
   ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
@@ -2215,6 +3117,102 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 (punto 4) y (b) los **valores por defecto de venta por tier** que reproduzcan el markup vigente (los fija
 backend/arquitecto al implementar, sin decisión de producto adicional).
 
+## Preguntas abiertas — gancho de grading (v2.0, §O)
+> Las **decisiones de fondo están cerradas** (alcance de tres superficies, gate sobre PSA 9, los dos diales y
+> sus defaults, la fuente automática del dato, el gate de confianza, la guarda de dinero y la regla money-safe;
+> ver decisiones 40–45 y 53–55). Lo que sigue son **el texto del disclaimer** —que necesita aprobación
+> explícita y **mantiene la feature apagada** hasta que llegue— y **huecos menores**, todos con un supuesto ya
+> redactado en §O para **no bloquear** al arquitecto.
+
+1. **Texto del disclaimer (la más importante — es legal-comercial, y hoy es lo único que bloquea encender la
+   feature)** — *ACTUALIZADA 2026-08-28*: el humano pidió que fuera **«súper enfático que es información
+   ilustrativa, que no refleja el estado de nuestras cartas»**, y §O.5 ya está **reescrita** con ese tono y con
+   los **seis elementos obligatorios** (incluido el nuevo y más importante: **no evaluamos la condición de la
+   pieza que vendemos**). *(Novedad que juega a favor: al pasar a la fuente automática, la cifra son **ventas
+   cerradas reales de eBay por grado**, así que la frase «dato de referencia de mercado sobre ese modelo ya
+   gradeado por terceros» es ahora **literalmente exacta**. El texto **no cambió**; solo es más defendible.)*
+   **Falta tu visto bueno final** sobre el texto ES/EN ya redactado: ¿lo apruebas tal cual, lo ajustas, o lo
+   pasas antes por **revisión legal**? ¿Quieres además que el mismo texto viva en la **página de
+   términos/políticas**? **Mientras no lo apruebes, el feature-flag sigue apagado.**
+2. **Base de comparación del gate**: el supuesto es comparar contra el **precio de venta raw sin IVA** (el
+   número que ya ve el comprador), **sin** sumar IVA ni envío al lado del costo. ¿Confirmas, o prefieres un
+   gate **aún más conservador** que incluya IVA y/o el envío de MX$175 en `precioVentaRaw`?
+3. ~~**Costo de gradeo plano vs. por nivel de servicio**~~ — **RESUELTA (2026-08-23)**: el humano eligió
+   **escalones por valor declarado**. El costo plano de MX$600 queda **eliminado** del documento y sustituido
+   por la tabla **`gradingCostTiers`** (**§O.2.1**), que además debe **incluir envío internacional y retorno a
+   México**. Ver decisión **46** y criterio **110**. *(Sub-pregunta que queda viva dentro de §O.2.1: los
+   **valores por defecto** de la tabla son un **SUPUESTO** y conviene que los valides contra lo que realmente
+   te cuesta gradear hoy; y **qué valor se usa para buscar el escalón** —el supuesto es el **estimado PSA 10**,
+   por ser el más conservador—.)*
+4. **Copy del badge** — *ACTUALIZADA 2026-08-23*: tras quitar el multiplicador, el supuesto es
+   **«En PSA 10 vale ≈ MX$X»** (y en móvil **«PSA 10 ≈ MX$X»**), alineado con tu frase *«desplegamos "en
+   PSA 10 vale tanto"»*. ¿Te gusta ese texto o prefieres otro? *(Ya no se contempla mostrar multiplicador.)*
+5. ~~**Cómo se expresa el upside en la ficha**~~ — **SIN OBJETO (2026-08-23)**: decidiste **no mostrar
+   comparativa ni multiplicador**. La ficha muestra **precio + PSA 10 + PSA 9** y nada calculado. Ver decisión
+   **50** y criterio **99**.
+6. **Vitrina del home — tamaño**: el **orden ya está decidido** (mayor **ganancia neta sobre PSA 9**, criterio
+   101). Lo que queda abierto es el **tamaño**: el supuesto es **hasta 8 cartas**. ¿Te sirve 8, prefieres otro
+   número, o quieres además poder **fijar/curar a mano** alguna carta en la vitrina desde el admin?
+7. **Umbral de frescura y CONTRA QUÉ FECHA se mide** — *ACTUALIZADA 2026-08-28*: el umbral sigue siendo
+   **30 días** (sin cambio). Lo que la fuente automática abre es **contra qué fecha** se mide: el supuesto es
+   que para el **dato automático** se mide contra la **fecha de la última venta de la muestra** —la antigüedad
+   de la **evidencia de mercado**, que es la que de verdad importa, no la fecha en que jalamos el archivo— y
+   para un **override manual**, contra la fecha en que lo fijaste. ¿Confirmas? ¿Y 30 días te parece bien, o
+   prefieres 7/14?
+8. **Ubicación de los diales**: se propone **M10 (Config y bitácora)** junto al resto de diales; la alternativa
+   es **M2 (Catálogo y precios)** por ser pricing. ¿Cuál prefieres?
+9. ~~**PokemonPriceTracker ya contratado vs. «plan de pago fuera del MVP»**~~ — **RESUELTA (2026-08-23)**:
+   confirmado por el humano — **el proveedor ya está contratado** y la key vive en Railway. La línea de «Fuera
+   de alcance» quedó marcada como **SUPERADA** y el documento ya no se contradice. Ver decisión **49**.
+   *(ACTUALIZADO 2026-08-28: la nota que decía «esto **no** desbloquea el ingest automático, que sigue en fase
+   2 por razones técnicas» **ya no aplica**. El ingest **sí se construye**: el formato del payload se conoce
+   (`ebay.salesByGrade`) y la fuente pasa a ser automática — ver §O.6 y decisión **53**.)*
+10. **¿El gancho puede convivir con «ventas finales»?** Se asume que el estimado **no crea ninguna excepción
+    nueva** a la política de reembolsos (§H): si el cliente gradea y saca menos, **no hay compensación**.
+    ¿Confirmas esa postura tal cual, o quieres algún gesto comercial discrecional documentado?
+11. **Visibilidad para invitados**: se asume que el gancho es **público** (lo ve cualquier visitante sin
+    sesión, igual que el precio). ¿De acuerdo, o lo quieres como beneficio de usuarios registrados para
+    empujar el registro?
+12. **¿Micro-aviso junto a la cifra, o solo la llamada al pie?** *(NUEVA, 2026-08-23 — decisión con peso
+    legal)*: pediste que el disclaimer completo viva **al pie con un asterisco**. Yo **conservé además un
+    micro-aviso mínimo junto a la cifra** («Ilustrativo; no evaluamos esta carta.\*») porque **la nota al pie
+    protege menos que un aviso adyacente si el comprador nunca baja** — y en el **home** y el **listado** eso
+    es lo normal. ¿Lo confirmas, o prefieres **solo el asterisco** sin micro-aviso? *(Si eliges solo el
+    asterisco, conviene validarlo con abogado: es justo la cobertura que se debilita.)*
+13. **Ficha con un solo grado disponible** *(NUEVA, 2026-08-23)*: si una carta tiene **PSA 10 pero no PSA 9**
+    (o al revés), el supuesto es que **la ficha muestra el que exista** —es información, no promoción— aunque
+    esa carta **no** pueda promocionarse en teja/vitrina. ¿De acuerdo, o prefieres que la ficha **exija los dos
+    grados** para mostrar algo?
+14. **Umbrales del gate de confianza** *(NUEVA, 2026-08-28 — son los dos números que deciden qué llega a
+    portada)*: **`minSalesSample` = 5** ventas cerradas mínimas para publicar una cifra automática, y
+    **`maxGradedMultiple` = 100×** el precio raw como techo de credibilidad. Los dos son **SUPUESTO** y
+    **diales editables sin deploy**. Puse 5 y no 3 **a propósito**, del lado conservador: con tres ventas una
+    sola operación atípica desplaza la mediana entera, y esa cifra acabaría en la portada. El costo de subirlo
+    es que **entran menos cartas** al gancho. ¿Confirmas 5 y 100×, o prefieres otros valores?
+15. **¿Mediana o promedio?** *(NUEVA, 2026-08-28)*: el proveedor entrega **las dos** por grado. El supuesto es
+    publicar la **mediana**, porque **aguanta el outlier** —una venta rara no arrastra el número— y eso es lo
+    money-safe para una cifra que va en portada. El promedio reaccionaría más rápido a un cambio real de
+    mercado. ¿Mediana (supuesto) o promedio?
+16. **Cifra incoherente en magnitud: ¿la ficha la muestra igual?** *(NUEVA, 2026-08-28 — es el matiz que tú
+    mismo marcaste)*: dijiste que **la ficha no aplica la coherencia de magnitud con la misma dureza**, así que
+    el supuesto es que **la ficha sigue mostrando** la cifra aunque sea incoherente (p. ej. un PSA 10 por
+    debajo del precio raw), **sin promocionarla** y **levantando una alerta interna** para que la revises o la
+    corrijas con override. La alternativa es **ocultarla también en la ficha**. ¿Confirmas el supuesto, o
+    prefieres ocultarla en todos lados? *(Ojo: si la ficha la muestra, estamos publicando un número que
+    sabemos que huele mal; la alerta interna es lo que compensa eso.)*
+17. **Sentido inverso de la guarda de dinero** *(NUEVA, 2026-08-28)*: la decisión 55 bloquea **capturar** un
+    estimado cuando ya hay pieza real publicada de ese grado. El caso simétrico —**publicar** un slab real de
+    un grado que ya tenía estimado— tiene el mismo riesgo de dinero. El supuesto es que en ese momento el
+    estimado **deja de gobernar ese precio y deja de usarse** para ese grado. ¿Confirmas?
+18. **¿Mostrar el número de ventas de la muestra?** *(NUEVA, 2026-08-28)*: hoy el supuesto es **NO** —el
+    tamaño de la muestra es un insumo interno del gate y no se pinta ni viaja al cliente, para no ampliar la
+    superficie visible que tú mismo mandaste simplificar—. Pero decir *«basado en 12 ventas reales»* sería una
+    señal de credibilidad fuerte y coherente con el disclaimer. ¿Lo dejamos fuera (supuesto) o lo quieres?
+19. **Carta con slab real publicado: ¿enlazar a la pieza en vez de callar ese grado?** *(NUEVA, 2026-08-28)*:
+    cuando bloqueamos el estimado PSA 10 porque **ya tenemos una PSA 10 real a la venta**, la ficha del raw
+    simplemente **no muestra ese grado**. Podría ser mejor negocio **enlazar a la pieza real** («¿la quieres ya
+    gradeada? tenemos esta»). Hoy queda **fuera de alcance** por no inventar superficie nueva. ¿Te interesa
+    para el MVP o lo dejamos para después?
 ## Decisiones (v2.0, P-48) — precio puro por valor de mercado (LOCKED)
 > Decisiones del humano **ya tomadas** en conversación (2026-08-24), a partir del hallazgo de cartas
 > publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**. Tras ver la causa raíz, el humano

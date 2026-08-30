@@ -4,6 +4,7 @@ import { PricingService, toPublicPriceInfo } from '../src/modules/pricing/pricin
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 import { computeSealedSalePrice } from '../src/common/money';
 import { onWire } from './helpers/dto-keys';
 
@@ -82,6 +83,12 @@ const MARKET_REF = { status: 'priced', referenceMxnCents: 500_000, capturedDate:
 function pricingMock(ref: Record<string, unknown> | undefined = MARKET_REF) {
   return {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // MERGE v1.50.2 — el gancho de grading se compone en `buildGroups`/`getCard`, así que TODO mock de
+    // `PricingService` que pase por ahí debe traer sus tres seams. Dial APAGADO (seed `off`): el gancho
+    // no evalúa nada y el DTO sale EXACTAMENTE como sin la feature, que es lo que estos tests afirman.
+    loadGradedEstimateConfig: jest.fn(async () => DISABLED_GRADED_ESTIMATE_CONFIG),
+    getGradedEstimatesBatch: jest.fn(async () => new Map()),
+    getPublishedSlabGradesBatch: jest.fn(async () => new Map()),
     getReferencesBatch: jest.fn(async () => new Map(ref ? [['c1|raw|raw:NM|normal', ref]] : [])),
     getReference: jest.fn(async () => ref ?? { status: 'pending' }),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),

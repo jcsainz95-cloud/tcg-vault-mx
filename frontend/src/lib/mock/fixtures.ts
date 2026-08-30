@@ -87,7 +87,10 @@ import type {
   SealedSubtype,
   SealedGroupDTO,
   SealedGroupDetailResponse,
+  GradedEstimateDTO,
+  GradedEstimateConfigDTO,
   GroupedListingDTO,
+  GroupedListingSummaryDTO,
   GroupedListingDetailResponse,
   VaultSealedResponse,
   SealedSpreadsDTO,
@@ -460,6 +463,124 @@ export const mockListings: ListingDTO[] = [
   },
 ];
 
+// ===== v1.44-graded-estimate: «gancho de grading» (PROJECT §O, contrato §DTOs base) =====
+// MOCK: pendiente de backend real. Reproduce lo que el SERVIDOR ya resolvió, nunca su cálculo:
+//   * `mockGradedEstimatesByCardId` = lo que la FICHA recibe (`gradedEstimates`, SIN gatear).
+//   * `mockGradingHighlightGrades` = los grados que el BADGE pinta (dial `highlightGrades`, hoy ["10"]).
+//   * `mockGradingShowcaseCardIds` = la lista YA CURADA Y ORDENADA por el gate de ROI (teja + vitrina).
+//     El orden es un dato del fixture, no un cálculo del cliente: la ganancia neta, el costo de gradeo
+//     y el margen NUNCA viajan ni se derivan aquí (§22 R5 / SEC-A1).
+// Cobertura deliberada de estados (§22.7):
+//   - c-blastoise / c-pikachu-ir → dos grados + destacadas (bloque en ficha + badge + vitrina).
+//   - c-milotic-fa → dos grados y NO destacada: ficha CON bloque y teja SIN badge. Estado NORMAL
+//     (la ficha informa, la teja promueve), no un bug.
+//   - c-eevee → un solo grado con dato (PROJECT §O.3(1): «se muestra el que exista»).
+//   - c-pikachu → sin estimados: no se pinta nada, en ninguna superficie.
+const gradedEstimate = (
+  gradeValue: string,
+  referenceMxnCents: number,
+  capturedDate = '2026-08-22',
+): GradedEstimateDTO => ({
+  gradingCompany: 'PSA',
+  gradeValue,
+  gradeKey: `graded:PSA:${gradeValue}`,
+  // `source` se OMITE SIEMPRE (contrato): es lo que hace INDISTINGUIBLE la fase manual de la
+  // automática para el cliente. `status` siempre "priced" — un `pending` está prohibido aquí.
+  estimate: { status: 'priced', referenceMxnCents, capturedDate },
+});
+
+export const mockGradedEstimatesByCardId: Record<string, GradedEstimateDTO[]> = {
+  // Orden: grado descendente (el servidor lo garantiza). El cliente NO debe depender de él.
+  'c-blastoise': [gradedEstimate('10', 2_900_000), gradedEstimate('9', 1_450_000)],
+  'c-pikachu-ir': [gradedEstimate('10', 1_250_000), gradedEstimate('9', 620_000)],
+  'c-milotic-fa': [gradedEstimate('10', 980_000), gradedEstimate('9', 300_000)],
+  'c-eevee': [gradedEstimate('10', 145_000)],
+};
+
+/** Dial `highlightGrades` del servidor: qué grados pinta el badge (hoy, una sola cifra). */
+const mockGradingHighlightGrades = ['10'];
+
+/**
+ * MOCK del recurso de config `GET/PUT /admin/pricing/graded-estimates` (§M2). Los escalones son el
+ * seed de PROJECT §O.2.1 en centavos: contiguos `[min, max)`, arrancando en 0 y con el ÚLTIMO
+ * abierto (`maxValueMxnCents: null`). `enabled` es ESPEJO del dial M10 (se edita en M10, no aquí).
+ */
+export let mockGradedEstimateConfig: GradedEstimateConfigDTO = {
+  enabled: true,
+  ingestEnabled: false,
+  grades: ['10', '9'],
+  highlightGrades: [...mockGradingHighlightGrades],
+  freshnessDays: 30,
+  minUpsidePct: 30,
+  // v1.50.2 — seeds del contrato: el override MANUAL no decae (`null`), la cota superior de
+  // magnitud es 100×, la muestra mínima del ingest 5 y el estadístico publicado la mediana.
+  // v1.50.3: el override manual SÍ caduca (criterio 109) — antes `null` («no decae»).
+  manualFreshnessDays: 30,
+  maxRawMultiple: 100,
+  minSampleCount: 5,
+  sourceStat: 'median',
+  ingestMaxCardsPerRun: 250,
+  gradingCostTiers: [
+    { minValueMxnCents: 0, maxValueMxnCents: 200_000, costMxnCents: 70_000 },
+    { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },
+    { minValueMxnCents: 500_000, maxValueMxnCents: 1_000_000, costMxnCents: 180_000 },
+    { minValueMxnCents: 1_000_000, maxValueMxnCents: 2_000_000, costMxnCents: 300_000 },
+    { minValueMxnCents: 2_000_000, maxValueMxnCents: 5_000_000, costMxnCents: 600_000 },
+    { minValueMxnCents: 5_000_000, maxValueMxnCents: null, costMxnCents: 1_200_000 },
+  ],
+};
+
+/**
+ * Aplica un PUT parcial al mock. Reproduce las dos cosas del contrato que la UI debe respetar:
+ * `gradingCostTiers` se **reemplaza completo** y `enabled` se **ignora** (vive en M10). La
+ * validación I1–I7 es SERVER-SIDE: el mock no la simula (el editor la previene en cliente y el
+ * backend real la aplica de verdad).
+ */
+export function setMockGradedEstimateConfig(patch: Partial<GradedEstimateConfigDTO>) {
+  const { enabled: _ignored, ...rest } = patch;
+  mockGradedEstimateConfig = {
+    ...mockGradedEstimateConfig,
+    ...rest,
+    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+  };
+}
+
+/**
+ * MOCK de la ESCRITURA del gancho: `POST /admin/pricing/override` con
+ * `intent:"graded_estimate"` escribe **exactamente** la fila que la ficha lee. Upsert por
+ * `(cardId, gradeValue)`, ordenado por grado descendente como lo garantiza el servidor.
+ *
+ * **Divergencia consciente del mock:** el backend real escribe UNA fila que tienen DOS lectores
+ * (el estimado del storefront y `marketReferenceMxnCents` de M1 › Gradeadas); el fixture guarda dos
+ * proyecciones, y solo el intent `graded_estimate` alimenta la del storefront. Alimentarla también
+ * desde `market` haría que «Fijar valor» de M1 publicara un estimado en cartas con slab publicado
+ * — justo el caso que INV-D obliga a OMITIR en el storefront y que este fixture no modela.
+ */
+export function setMockGradedEstimate(cardId: string, gradeValue: string, cents: number): void {
+  const list = (mockGradedEstimatesByCardId[cardId] ?? []).filter((e) => e.gradeValue !== gradeValue);
+  list.push(gradedEstimate(gradeValue, cents, new Date().toISOString().slice(0, 10)));
+  list.sort((a, b) => Number(b.gradeValue) - Number(a.gradeValue));
+  mockGradedEstimatesByCardId[cardId] = list;
+}
+
+/** Resultado del gate de ROI (server-side) + orden `sort=grading_showcase`, ya resuelto. */
+export const mockGradingShowcaseCardIds = ['c-blastoise', 'c-pikachu-ir'];
+
+/**
+ * `gradingHighlight` de un grupo de la REJILLA: presencia ⇔ el gate de ROI **y** el de confianza se
+ * cumplieron (los dos server-side; el cliente jamás ve el criterio, solo su resultado). Solo raw,
+ * solo los grados del dial, y solo si esos grados tienen dato (money-safe: sin cifra no hay
+ * marcador).
+ */
+function mockGradingHighlightFor(g: GroupedListingSummaryDTO): GradedEstimateDTO[] | undefined {
+  if (g.productType !== 'raw') return undefined;
+  if (!mockGradingShowcaseCardIds.includes(g.card.id)) return undefined;
+  const all = mockGradedEstimatesByCardId[g.card.id] ?? [];
+  // Se ITERA leyendo gradeValue (nunca por índice).
+  const shown = all.filter((e) => mockGradingHighlightGrades.includes(e.gradeValue));
+  return shown.length > 0 ? shown : undefined;
+}
+
 // ===== v1.38-grouped-listings (P-30): agrupación de SINGLES para GET /catalog/cards* =====
 // gradeKey canónico (== gradeKeyFor del backend): "raw:NM" | "graded:PSA:9". Encapsula condición/grado.
 export function gradeKeyOf(l: ListingDTO): string {
@@ -494,7 +615,7 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   for (const bucket of map.values()) {
     const sorted = [...bucket].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
     const rep = sorted[0];
-    groups.push({
+    const group: GroupedListingDTO = {
       representativeInventoryItemId: rep.inventoryItemId,
       card: rep.card,
       productType: rep.productType as 'raw' | 'graded',
@@ -509,9 +630,29 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
       priceBasis: rep.priceBasis,
       referenceValue: rep.referenceValue,
       currency: 'MXN',
-    });
+    };
+    groups.push(group);
   }
   return groups;
+}
+
+/**
+ * v1.50.2: el DTO de la REJILLA (`GroupedListingSummaryDTO`) — el de la ficha MENOS las dos señales
+ * de precio de D2 (`priceBasis`, `referenceValue`) y MÁS `gradingHighlight`. Se deriva del mismo
+ * agrupador para que rejilla y ficha no puedan divergir en stock, precio ni representante.
+ *
+ * El marcador es ADITIVO y OPCIONAL: se OMITE (nunca `[]`) cuando la carta no se promociona, sea
+ * porque no pasa el gate de ROI o porque su cifra no es confiable. **Las dos causas producen la
+ * misma salida a propósito** (§22.7): el motivo no viaja.
+ */
+export function groupMockSummaries(items: ListingDTO[]): GroupedListingSummaryDTO[] {
+  return groupMockListings(items).map((g) => {
+    const { priceBasis: _priceBasis, referenceValue: _referenceValue, ...rest } = g;
+    const summary: GroupedListingSummaryDTO = { ...rest };
+    const highlight = mockGradingHighlightFor(summary);
+    if (highlight) summary.gradingHighlight = highlight;
+    return summary;
+  });
 }
 
 /** Ficha agrupada de una carta (GET /catalog/cards/:cardId): grupos + units por-pieza (cheapest-first). */
@@ -526,7 +667,18 @@ export function mockGroupedDetail(cardId: string): GroupedListingDetailResponse 
   const card = cardUnits[0]?.card ?? mockCards.find((c) => c.id === cardId);
   if (!card) throw new ApiFixtureNotFound('Card not found');
   const units = [...cardUnits].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
-  return { card, listings: groupMockListings(cardUnits), units };
+  const listings = groupMockListings(cardUnits);
+  // v1.44: `gradedEstimates` vive en la RAÍZ (nivel CARTA) y NO va gateado por el ROI. Solo se emite
+  // si la carta tiene grupos RAW publicados; sin ningún grado, el campo se OMITE (nunca `[]`).
+  const estimates = listings.some((l) => l.productType === 'raw')
+    ? mockGradedEstimatesByCardId[card.id]
+    : undefined;
+  return {
+    card,
+    listings,
+    units,
+    ...(estimates && estimates.length > 0 ? { gradedEstimates: estimates } : {}),
+  };
 }
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets) — sobre lo publicado. */
@@ -2624,6 +2776,11 @@ export let mockSettings: SettingsDTO = {
   // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
   priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
+  // v1.44-graded-estimate: interruptor maestro del gancho (contrato §M10; **seed real = `off`**,
+  // fail-closed). MOCK: el fixture lo representa YA ENCENDIDO —como un staging donde el dueño lo
+  // prendió— para poder ejercitar las tres superficies sin backend. El gate y el interruptor son
+  // SERVER-SIDE y no se simulan: apagarlo aquí desde M10 no apaga las cifras del mock.
+  gradedEstimatesEnabled: 'on',
 };
 export function setMockSettings(patch: Partial<SettingsDTO>) {
   mockSettings = { ...mockSettings, ...patch };
@@ -3645,6 +3802,31 @@ export function setMockGradedMarketRef(
   });
 }
 
+/**
+ * v1.50.2 (INV-D) — espejo del `publishedSlabsForGradeKey` del backend: las piezas **publicadas**
+ * (plataforma, `listed`) de ese `(cardId, gradingCompany, gradeValue)` derivado del `gradeKey`.
+ * Si hay al menos una, la fila `(cardId,'graded',gradeKey,'normal')` **no es un estimado**: es el
+ * precio de mercado real de esas piezas. Un `gradeKey` con otra forma devuelve `[]` (no bloquea:
+ * validar la forma es de la ruta, y bloquear por no-parsear daría un 409 engañoso).
+ */
+export function publishedSlabsForGradeKey(cardId: string, gradeKey: string): { id: string }[] {
+  const parts = gradeKey.split(':');
+  if (parts.length !== 3 || parts[0] !== 'graded') return [];
+  const [, company, gradeValue] = parts;
+  if (!company || !gradeValue) return [];
+  return mockInventory
+    .filter(
+      (i) =>
+        i.card.id === cardId &&
+        i.productType === 'graded' &&
+        i.ownerType === 'platform' &&
+        i.status === 'listed' &&
+        i.gradingCompany === company &&
+        i.gradeValue === gradeValue,
+    )
+    .map((i) => ({ id: i.id }));
+}
+
 export function mockGradedInventory(params: {
   q?: string;
   page?: number;
@@ -3690,6 +3872,382 @@ export function mockGradedInventory(params: {
   const total = data.length;
   const start = (page - 1) * pageSize;
   return { data: data.slice(start, start + pageSize), page, pageSize, total };
+}
+
+/**
+ * MOCK del diagnóstico de curaduría (`GET /admin/pricing/graded-estimates/preview?cardId=`).
+ * Reproduce el ORDEN de evaluación del servidor —dial maestro → grupo raw publicado → hay cifras →
+ * frescura → coherencia de magnitud → escalón → margen— para que el `reason` que ve el operador sea
+ * el mismo que daría el backend. **No calcula nada que viaje al cliente**: esta respuesta es
+ * `super_admin` y se queda en el back-office (SEC-A1).
+ *
+ * Money-safe: todo monto no resoluble queda `null`, nunca 0.
+ */
+export function mockGradedEstimatePreview(
+  cardId: string,
+): import('@/types/contract').GradedEstimatePreviewResponse {
+  const card = mockCards.find((c) => c.id === cardId);
+  if (!card) throw new ApiFixtureNotFound('card not found');
+  const cfg: GradedEstimateConfigDTO = {
+    ...mockGradedEstimateConfig,
+    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    gradingCostTiers: mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
+  };
+  const estimates = mockGradedEstimatesByCardId[cardId] ?? [];
+  const centsOf = (grade: string): number | null =>
+    estimates.find((e) => e.gradeValue === grade)?.estimate.referenceMxnCents ?? null;
+  const capturedDate =
+    estimates.map((e) => e.estimate.capturedDate).filter((d): d is string => !!d).sort()[0] ?? null;
+  const publishedSlabGrades = [
+    ...new Set(
+      mockInventory
+        .filter(
+          (i) =>
+            i.card.id === cardId &&
+            i.productType === 'graded' &&
+            i.ownerType === 'platform' &&
+            i.status === 'listed' &&
+            i.gradeValue,
+        )
+        .map((i) => i.gradeValue as string),
+    ),
+  ];
+  const ageDays = capturedDate
+    ? Math.floor((Date.now() - new Date(capturedDate).getTime()) / 86_400_000)
+    : null;
+
+  const groups = groupMockListings(mockListings)
+    .filter((g) => g.card.id === cardId && g.productType === 'raw')
+    .map((g): import('@/types/contract').GradedEstimatePreviewDTO => {
+      const psa10 = centsOf('10');
+      const psa9 = centsOf('9');
+      const tier =
+        psa10 != null
+          ? cfg.gradingCostTiers.find(
+              (t) => psa10 >= t.minValueMxnCents && (t.maxValueMxnCents === null || psa10 < t.maxValueMxnCents),
+            ) ?? null
+          : null;
+      const cost = tier?.costMxnCents ?? null;
+      const threshold =
+        cost != null ? Math.ceil((g.salePriceCents + cost) * (1 + cfg.minUpsidePct / 100)) : null;
+      const maxAllowed = Math.round(g.salePriceCents * cfg.maxRawMultiple);
+      // El override MANUAL no decae cuando `manualFreshnessDays === null` (v1.50.2): en el fixture
+      // todas las cifras son manuales, así que la prueba de frescura solo aplica si hay ventana.
+      const stale =
+        cfg.manualFreshnessDays != null && ageDays != null ? ageDays > cfg.manualFreshnessDays : false;
+      const reason: import('@/types/contract').GradedEstimatePreviewReason | undefined = !cfg.enabled
+        ? 'FEATURE_OFF'
+        : psa10 == null
+          ? 'NO_PSA10'
+          : psa9 == null
+            ? 'NO_PSA9'
+            : stale
+              ? 'STALE'
+              : publishedSlabGrades.length > 0
+                ? 'SLAB_PUBLISHED'
+                : psa10 <= g.salePriceCents
+                  ? 'NOT_ABOVE_RAW'
+                  : psa10 > maxAllowed
+                    ? 'ABOVE_MAX_MULTIPLE'
+                    : psa10 < psa9
+                      ? 'GRADE_ORDER_INVERTED'
+                      : cost == null
+                        ? 'NO_COST_TIER'
+                        : threshold != null && psa9 < threshold
+                          ? 'BELOW_MIN_UPSIDE'
+                          : undefined;
+      return {
+        representativeInventoryItemId: g.representativeInventoryItemId,
+        finish: g.finish,
+        salePriceCents: g.salePriceCents,
+        psa10MxnCents: psa10,
+        psa9MxnCents: psa9,
+        capturedDate,
+        stale,
+        gradingCostTier: tier ? { ...tier } : null,
+        gradingCostMxnCents: cost,
+        thresholdMxnCents: threshold,
+        netUpsidePsa9MxnCents: psa9 != null && cost != null ? psa9 - g.salePriceCents - cost : null,
+        maxAllowedPsa10MxnCents: maxAllowed,
+        publishedSlabGrades,
+        // v1.50.3-c: en el fixture TODA cifra del gancho es un override manual (la fase 2 del
+        // ingest no está encendida), así que `isManual` es true siempre que haya fila. Sin fila no
+        // hay origen que declarar y se emite `false` (no `null`: el contrato lo tipa booleano).
+        isManual: estimates.length > 0,
+        eligible: reason === undefined,
+        ...(reason ? { reason } : {}),
+      };
+    });
+  return { cardId, enabled: cfg.enabled, config: cfg, groups };
+}
+
+/**
+ * MOCK de la LISTA DE REVISIÓN (`GET /admin/pricing/graded-estimates/review`, v1.50.3).
+ *
+ * **Misma doctrina que `mockGradingShowcaseCardIds`:** el fixture reproduce **el veredicto que el
+ * servidor ya resolvió**, no su cálculo. El barrido real recorre todas las cartas con fila de
+ * estimado y aplica la MISMA función pura que el `preview`; aquí se sirven filas fijas que cubren
+ * los estados que la UI tiene que saber pintar:
+ *  - `NOT_ABOVE_RAW` — el **error de unidades** (USD capturado como MXN): el PSA 10 queda ~19×
+ *    **BAJO** el raw, así que el múltiplo máximo no lo ve; lo caza la cota inferior.
+ *  - `GRADE_ORDER_INVERTED` — las dos filas capturadas **cruzadas**.
+ *  - `SLAB_PUBLISHED` — **opt-in**: `c-charizard` tiene de verdad una PSA 9 publicada en estas
+ *    fixtures, así que su fila de estimado es, literalmente, el precio de esa pieza (INV-D). Es
+ *    también la única carta del fixture que produce el **`409` del borrado**, y debe producirlo.
+ *  - `STALE` (v1.50.3-c) — **opt-in**: la cifra existió y caducó. Dos filas, porque los remedios
+ *    son opuestos según `isManual` (manual ⇒ recapturar o **retirar**; automática ⇒ mirar el ingest).
+ *
+ * **El array es MUTABLE a propósito** (`deleteMockGradedEstimate` lo edita): retirar una cifra tiene
+ * que hacer desaparecer su fila de la lista, igual que en el backend, o el flujo «encontrarla y
+ * descartarla» no sería verificable de punta a punta.
+ *
+ * Las cartas elegidas **no** están en `mockGradedEstimatesByCardId` a propósito: ese mapa es la
+ * proyección que el STOREFRONT lee, y mezclar ahí cifras rotas cambiaría lo que el gancho pinta en
+ * las tres superficies —que es justo lo que los E2E del gancho fijan—.
+ */
+const mockReviewRows: import('@/types/contract').GradedEstimateReviewItemDTO[] = [
+  {
+    cardId: 'c-latias-sir',
+    cardName: 'Latias ex',
+    setName: 'Surging Sparks',
+    number: '186',
+    representativeInventoryItemId: 'inv-rev-1',
+    finish: 'normal',
+    salePriceCents: 128_000,
+    // MX$60 «PSA 10» = USD 60 capturado como pesos. Por debajo del raw ⇒ dato roto, no oportunidad.
+    psa10MxnCents: 6_000,
+    psa9MxnCents: 4_000,
+    capturedDate: '2026-08-20',
+    stale: false,
+    gradingCostTier: { minValueMxnCents: 0, maxValueMxnCents: 200_000, costMxnCents: 70_000 },
+    gradingCostMxnCents: 70_000,
+    thresholdMxnCents: 257_400,
+    netUpsidePsa9MxnCents: null,
+    maxAllowedPsa10MxnCents: 12_800_000,
+    publishedSlabGrades: [],
+    isManual: true,
+    eligible: false,
+    reason: 'NOT_ABOVE_RAW',
+  },
+  {
+    cardId: 'c-latias-sir',
+    cardName: 'Latias ex',
+    setName: 'Surging Sparks',
+    number: '186',
+    representativeInventoryItemId: 'inv-rev-2',
+    finish: 'reverse_holo',
+    salePriceCents: 132_000,
+    psa10MxnCents: 400_000,
+    // El 9 vale más que el 10: las dos filas se capturaron cruzadas.
+    psa9MxnCents: 690_000,
+    capturedDate: '2026-08-21',
+    stale: false,
+    gradingCostTier: { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },
+    gradingCostMxnCents: 110_000,
+    thresholdMxnCents: 314_600,
+    netUpsidePsa9MxnCents: 448_000,
+    maxAllowedPsa10MxnCents: 13_200_000,
+    publishedSlabGrades: [],
+    isManual: true,
+    eligible: false,
+    reason: 'GRADE_ORDER_INVERTED',
+  },
+  {
+    cardId: 'c-charizard',
+    cardName: 'Charizard',
+    setName: 'Base Set',
+    number: '4',
+    representativeInventoryItemId: 'inv-rev-3',
+    finish: 'normal',
+    salePriceCents: 4_850_000,
+    psa10MxnCents: 9_800_000,
+    psa9MxnCents: 3_260_000,
+    capturedDate: '2026-08-19',
+    stale: false,
+    gradingCostTier: { minValueMxnCents: 5_000_000, maxValueMxnCents: null, costMxnCents: 1_200_000 },
+    gradingCostMxnCents: 1_200_000,
+    thresholdMxnCents: 7_865_000,
+    netUpsidePsa9MxnCents: null,
+    maxAllowedPsa10MxnCents: 485_000_000,
+    publishedSlabGrades: ['9'],
+    isManual: true,
+    eligible: false,
+    reason: 'SLAB_PUBLISHED',
+  },
+  // ── v1.50.3-c/-d · las dos filas CADUCADAS. Son opt-in (`?reason=STALE`) y existen aquí porque
+  // son el caso central del borrado: la cifra ya no se publica en ninguna superficie, PERO sigue en
+  // la tabla. Sin poder enumerarlas y retirarlas, el único gesto disponible sería capturar otra
+  // cifra indeseada. `isManual` separa los dos remedios, que son OPUESTOS.
+  {
+    // MANUAL rancia: la afirmación del dueño expiró ⇒ recapturar o RETIRAR. Es la fila que el
+    // botón «Retirar» existe para poder descartar.
+    cardId: 'c-zapdos',
+    cardName: 'Zapdos',
+    setName: 'Base Set',
+    number: '16',
+    representativeInventoryItemId: 'inv-rev-4',
+    finish: 'holofoil',
+    salePriceCents: 210_000,
+    psa10MxnCents: 1_600_000,
+    psa9MxnCents: 640_000,
+    capturedDate: '2026-06-02',
+    stale: true,
+    gradingCostTier: { minValueMxnCents: 1_000_000, maxValueMxnCents: 2_000_000, costMxnCents: 300_000 },
+    gradingCostMxnCents: 300_000,
+    thresholdMxnCents: 663_000,
+    netUpsidePsa9MxnCents: 130_000,
+    maxAllowedPsa10MxnCents: 21_000_000,
+    publishedSlabGrades: [],
+    isManual: true,
+    eligible: false,
+    reason: 'STALE',
+  },
+  {
+    // AUTOMÁTICA rancia: el feed dejó de cubrir esa carta ⇒ el remedio es MIRAR EL INGEST, no la
+    // carta. Se lista igual, pero el copy no manda a borrar: borrar aquí no arregla el proveedor.
+    cardId: 'c-machamp',
+    cardName: 'Machamp',
+    setName: 'Base Set',
+    number: '8',
+    representativeInventoryItemId: 'inv-rev-5',
+    finish: 'normal',
+    salePriceCents: 46_000,
+    psa10MxnCents: 380_000,
+    psa9MxnCents: 152_000,
+    capturedDate: '2026-05-18',
+    stale: true,
+    gradingCostTier: { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },
+    gradingCostMxnCents: 110_000,
+    thresholdMxnCents: 202_800,
+    netUpsidePsa9MxnCents: -4_000,
+    maxAllowedPsa10MxnCents: 4_600_000,
+    publishedSlabGrades: [],
+    isManual: false,
+    eligible: false,
+    reason: 'STALE',
+  },
+];
+
+export function mockGradedEstimateReview(filters: {
+  reason?: import('@/types/contract').GradedEstimateReviewReason[];
+  page?: number;
+  pageSize?: number;
+}): import('@/types/contract').GradedEstimateReviewResponse {
+  const reasons =
+    filters.reason && filters.reason.length > 0
+      ? filters.reason
+      : // Default del contrato: SOLO los tres de coherencia (SLAB_PUBLISHED es opt-in).
+        (['NOT_ABOVE_RAW', 'ABOVE_MAX_MULTIPLE', 'GRADE_ORDER_INVERTED'] as const);
+  const filtered = mockReviewRows.filter(
+    (r) => r.reason !== undefined && (reasons as readonly string[]).includes(r.reason),
+  );
+  // Orden determinista del contrato (paginación estable), v1.50.3-c: reason → capturedDate asc con
+  // los `null` AL FINAL → cardId → representante. La fecha se intercala para que con
+  // `?reason=STALE` lo más vencido vaya primero; una fila SIN fecha no es «la más vieja», y
+  // encabezar con ella empujaría lo accionable fuera de la primera página.
+  filtered.sort(
+    (a, b) =>
+      (a.reason ?? '').localeCompare(b.reason ?? '') ||
+      (a.capturedDate === b.capturedDate
+        ? 0
+        : a.capturedDate === null
+          ? 1
+          : b.capturedDate === null
+            ? -1
+            : a.capturedDate.localeCompare(b.capturedDate)) ||
+      a.cardId.localeCompare(b.cardId) ||
+      a.representativeInventoryItemId.localeCompare(b.representativeInventoryItemId),
+  );
+  const pageSize = filters.pageSize ?? 25;
+  const page = filters.page ?? 1;
+  const start = (page - 1) * pageSize;
+  return {
+    data: filtered.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total: filtered.length,
+    // La lista evalúa AUNQUE el dial esté apagado (para poder limpiar antes de encender).
+    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    scannedCards: new Set(Object.keys(mockGradedEstimatesByCardId).concat(mockReviewRows.map((r) => r.cardId))).size,
+    truncated: false,
+  };
+}
+
+/**
+ * MOCK del BORRADO del estimado (`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`,
+ * §M2 v1.50.3-d). Replica **las tres reglas que la UI tiene que poder ejercitar de punta a punta**
+ * —Playwright corre en modo mocks, así que sin esto el flujo «encontrarla y retirarla» sería
+ * inverificable—:
+ *
+ *  1. **Grado fuera de `grades` ⇒ `400`.** Una ruta destructiva no acepta claves arbitrarias.
+ *  2. **Slab publicado de ese grado ⇒ `409 GRADED_ESTIMATE_SLAB_PUBLISHED`**, la MISMA guarda INV-D
+ *     que la escritura y con los mismos `details`. Con el slab publicado esa fila ya no es un
+ *     estimado: es la referencia de mercado de una pieza física, y borrarla la dejaría sin sustento
+ *     de precio. **Debe** disparar.
+ *  3. **Nada que borrar ⇒ `404`**, nunca un `200` silencioso: responder éxito sin haber hecho nada
+ *     le haría creer al operador que limpió algo que no limpió.
+ *
+ * **Divergencia declarada del mock:** el backend borra **todas** las filas de la clave —cualquiera
+ * que sea su `capturedDate`— y puede devolver `deletedCount > 1`; el fixture guarda **una sola
+ * proyección por (carta, grado)**, así que aquí `deletedCount` es 1. La UI **no** puede asumir 1:
+ * pinta el número que venga.
+ */
+export function deleteMockGradedEstimate(
+  cardId: string,
+  gradeValue: string,
+): import('@/types/contract').GradedEstimateDeleteResponse {
+  if (!mockGradedEstimateConfig.grades.includes(gradeValue)) {
+    throw new ApiFixtureError(
+      400,
+      'VALIDATION_ERROR',
+      `gradeValue "${gradeValue}" no está en los grados que gobierna el gancho.`,
+    );
+  }
+  const gradeKey = `graded:PSA:${gradeValue}`;
+  const slabs = publishedSlabsForGradeKey(cardId, gradeKey);
+  if (slabs.length > 0) {
+    throw new ApiFixtureError(
+      409,
+      'GRADED_ESTIMATE_SLAB_PUBLISHED',
+      `No se puede retirar el estimado PSA ${gradeValue} de esta carta: hay ${slabs.length} ` +
+        `slab(s) PSA ${gradeValue} publicado(s).`,
+      {
+        cardId,
+        gradeKey,
+        publishedSlabCount: slabs.length,
+        inventoryItemIds: slabs.map((i) => i.id),
+      },
+    );
+  }
+
+  // La clave canónica es (carta, grado): una sola fila lógica, aunque la lean dos proyecciones del
+  // fixture (la del storefront y la de la lista de revisión) y aunque la lista la muestre una vez
+  // por grupo raw. Por eso el conteo NO se acumula por proyección ni por fila pintada.
+  const field = gradeValue === '10' ? 'psa10MxnCents' : gradeValue === '9' ? 'psa9MxnCents' : null;
+  const storefront = mockGradedEstimatesByCardId[cardId] ?? [];
+  const inStorefront = storefront.some((e) => e.gradeValue === gradeValue);
+  const inReview =
+    field !== null && mockReviewRows.some((r) => r.cardId === cardId && r[field] !== null);
+  if (!inStorefront && !inReview) {
+    throw new ApiFixtureNotFound(`no hay estimado PSA ${gradeValue} para ${cardId}`);
+  }
+
+  if (inStorefront) {
+    mockGradedEstimatesByCardId[cardId] = storefront.filter((e) => e.gradeValue !== gradeValue);
+  }
+  if (field !== null) {
+    for (const r of mockReviewRows) if (r.cardId === cardId) r[field] = null;
+    // Sin la cifra, el motivo de esas filas pasa a ser `NO_PSA10`/`NO_PSA9` — AUSENCIA de dato, que
+    // esta lista no enumera (⇒ `400` si se pidiera). Así que la fila desaparece del listado, que es
+    // exactamente lo que el operador debe ver tras retirar el dato.
+    for (let i = mockReviewRows.length - 1; i >= 0; i--) {
+      const r = mockReviewRows[i];
+      if (r.cardId === cardId && (r.psa10MxnCents === null || r.psa9MxnCents === null)) {
+        mockReviewRows.splice(i, 1);
+      }
+    }
+  }
+  return { cardId, gradeValue, deletedCount: 1 };
 }
 
 /** Tendencia de valor de mercado de un producto sellado (misma forma que SetValueHistoryResponse). */

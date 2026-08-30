@@ -53,6 +53,11 @@ export function GradedTab({ onOpenGroup, onAddGraded, onToast }: GradedTabProps)
         productType: 'graded',
         gradeKey: `graded:${g.gradingCompany}:${g.gradeValue}`,
         priceMxnCents: Math.round(Number(fixInput) * 100),
+        // v1.50.2 (INV-D): esta pestaña lista PIEZAS REALES en inventario, así que lo que se fija
+        // aquí es el PRECIO DE MERCADO de esos slabs — dinero, no una cifra ilustrativa. El
+        // estimado «si se gradea» (`graded_estimate`) se captura en M2 › gancho de grading, sobre
+        // cartas RAW. Declararlo es obligatorio: sin `intent` el backend responde 422.
+        intent: 'market',
       }),
     onSuccess: () => {
       setFixingKey(null);
@@ -187,6 +192,12 @@ export function GradedTab({ onOpenGroup, onAddGraded, onToast }: GradedTabProps)
           <Plus size={18} /> {t('addGraded')}
         </Button>
       </div>
+      {/* v1.50.2 (INV-D): la MISMA fila de precio la escriben dos flujos con intenciones OPUESTAS
+          («Fijar valor…» manda `intent:"market"`; la captura de estimados de M2 manda
+          `intent:"graded_estimate"`). Decir VISIBLEMENTE cuál es éste —no en un `title`, no solo
+          para lector de pantalla— es lo que evita que alguien capture aquí una cifra ilustrativa y
+          mueva sin querer el precio de venta de un slab publicado (§O.8). */}
+      {isSuperAdmin && <p className="text-xs text-muted">{t('intentNote')}</p>}
       {fixValue.isError && (
         <Banner variant="danger" role="alert">
           {errorMessage(fixValue.error)}

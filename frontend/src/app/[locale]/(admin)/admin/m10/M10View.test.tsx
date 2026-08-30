@@ -37,6 +37,33 @@ describe('M10View · Config y bitácora', () => {
     expect(screen.queryByLabelText(/Colchón FX/)).not.toBeInTheDocument();
   });
 
+  /**
+   * D2 (techlead): sin este dial en la UI, encender la feature exigía `curl` — y el criterio 110(e)
+   * pide «desde el back-office, sin redeploy, auditado». El PUT parcial de M10 ya es auditado.
+   */
+  it('v1.44 · el gancho de grading tiene su interruptor maestro (Select off/on, no texto libre)', async () => {
+    renderWithProviders(<M10View />, 'es');
+    const dial = (await screen.findByLabelText(/Valor estimado si se gradea/)) as HTMLSelectElement;
+    expect(dial.tagName).toBe('SELECT');
+    expect(Array.from(dial.options).map((o) => o.value)).toEqual(['off', 'on']);
+  });
+
+  it('v1.44 · al encenderlo la UI advierte que publica una afirmación comercial sin visto bueno legal', async () => {
+    renderWithProviders(<M10View />, 'es');
+    const dial = (await screen.findByLabelText(/Valor estimado si se gradea/)) as HTMLSelectElement;
+
+    fireEvent.change(dial, { target: { value: 'off' } });
+    expect(screen.queryByText(/afirmación comercial/i)).not.toBeInTheDocument();
+
+    fireEvent.change(dial, { target: { value: 'on' } });
+    // El aviso sube a `role="alert"` justo cuando se está encendiendo (aún sin guardar).
+    const warning = screen.getByRole('alert');
+    expect(warning.textContent).toMatch(/disclaimer|visto bueno/i);
+    expect(warning.textContent).toMatch(/no cambia ningún precio de venta/i);
+    // Y se guarda como un dial más: PUT parcial auditado, sin redeploy.
+    expect(screen.getByRole('button', { name: /Guardar 1/ })).toBeEnabled();
+  });
+
   it('el proveedor de referencia por-carta es un Select validado (no texto libre)', async () => {
     renderWithProviders(<M10View />, 'es');
     const raw = (await screen.findByLabelText(/Proveedor de referencia por-carta \(raw\)/)) as

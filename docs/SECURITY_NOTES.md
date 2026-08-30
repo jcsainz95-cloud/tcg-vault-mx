@@ -1,4 +1,574 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
+     GATE DE SEGURIDAD — FEATURE «gancho de grading» × M-43 (2026-08-29) — se antepone.
+     Todo lo anterior (P-47/curva v2, v2.1.9, P-48, histórico) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# GATE DE SEGURIDAD · «valor estimado si se gradea» + M-43 (`refKind`) · 2026-08-29 · seguridad (blue team)
+
+> **Árbol auditado:** rama `claude/psa-graded-card-value-gmhv5u`, HEAD **`1f73654`** (`fix(pricing): M-43
+> cierra INV-D inverso`). **Insumo:** `docs/PENTEST_NOTES.md` § «PASE FEATURE — valor estimado si se
+> gradea» (GE-1…GE-5), `docs/ARCHITECTURE.md` §4.38(l.4) + §9/§10 (dictamen del arquitecto),
+> `docs/BACKEND_NOTES.md` §0.11.6-0.11.8, `docs/TECH_DEBT.md` (M43-D1/D2).
+> **Modo:** revisión estática dirigida del diff **+ verificación EN VIVO** contra el stack local
+> autorizado (`http://localhost:3099/api/v1`, Postgres `tcg_marketplace`) **+** `npm audit` **+**
+> ejecución de las suites de M-43. **No se corrigió código** (regla del rol); todo hallazgo va enrutado.
+> **Estado del blanco al cerrar:** ver §7 «Estado de la BD» — **hay que resembrar**.
+
+---
+
+## 0. VEREDICTO: ✅ **APROBADO-CON-CONDICIONES**
+
+| | |
+|---|---|
+| **Críticos abiertos** | **0** |
+| **Altos abiertos** | **0** — **GE-1 (ALTA) queda CERRADA y verificada en vivo** (§1). |
+| **Medias abiertas** | **3** — GE-2 (aceptada, del pentester) · **SEC-M43-1** (nueva, mía) · **SEC-M43-2** (nueva, mía, cut-over). Ninguna es explotable por un actor no-`super_admin` y las tres fallan en dirección segura. |
+| **Bajas / Info** | GE-3 (confirmada y acotada) · GE-4 (ratificada, no material) · **SEC-M43-3/4/5/6** (nuevas). |
+| **Criterio del DoD** | «sin hallazgos **críticos o altos** abiertos; los aceptados quedan registrados» ⇒ **NO se dispara el rechazo**. |
+| **¿Se puede encender el dial `gradedEstimatesEnabled`?** | **SÍ**, con las condiciones **C1-C2** de §6 (acompañan, no bloquean). |
+| **¿Se puede encender la FASE 2 (`graded_estimate_ingest_enabled`)?** | **NO todavía** — condición **C0** de §6 (bloqueante). |
+| **¿Se puede correr el cut-over de producción tal como está escrito?** | **NO** — condición **C3** de §6 (bloqueante **del cut-over**, no del encendido en staging). |
+
+**Lectura de una línea:** el arreglo es correcto y está bien hecho — la decisión pasó del **lector** al
+**escritor** y quedó congelada en el dato, que es la forma correcta de cerrar esta clase de fallo. Lo que
+queda abierto no es el agujero de GE-1 sino su **perímetro**: un verbo del gancho todavía puede *destruir*
+(no heredar) una fila de dinero, el **procedimiento** de cut-over tiene tres huecos y el rollback
+reabre GE-1 por diseño sin decirlo.
+
+---
+
+## 1. GE-1 (ALTA) — INV-D inverso · **CERRADA · VERIFICADA EN VIVO** ✅
+
+**Dictamen: el hallazgo del red team era real, la severidad ALTA era correcta, y M-43 lo cierra.**
+No me apoyo en el commit message: lo reproduje.
+
+### 1.1 Verificación en vivo (PoC del pentester, re-ejecutado contra el stack con el código de `1f73654`)
+
+> ⚠️ **Antes que nada, un hallazgo operativo (SEC-M43-6):** el backend que estaba corriendo al empezar
+> este pase se había arrancado a las **20:10**, y el commit del arreglo es de las **21:34** ⇒ **el stack
+> vivo NO tenía M-43**. La primera corrida del PoC devolvió `refKind: "market"` para un
+> `intent:"graded_estimate"` (el default de la columna) y estuve a punto de firmar un ALTO abierto que no
+> existía. Reinicié el stack (`stack-native.sh down` + `up --seed`) y repetí **todo** contra el binario
+> correcto. **Cualquier medición en vivo de este pase que no venga de un stack reiniciado después de
+> `1f73654` es inválida.**
+
+**PoC exacto del pentester, post-M-43:**
+
+```
+PASO 1  POST /admin/pricing/override  {productType:"graded", gradeKey:"graded:PSA:10",
+                                       priceMxnCents:40000, intent:"graded_estimate"}
+        → 200 · {"refKind":"graded_estimate"}            ← la naturaleza YA viaja en la respuesta
+        → fila en BD: graded:PSA:10 | 40000 | graded_estimate
+
+PASO 2  INSERT InventoryItem (PSA 10, platform, listed)  ← publicar el slab DESPUÉS
+
+PASO 3  GET /catalog/cards/<e2e-fourth-raw>
+        → listings: [ {raw, raw:NM, 41000, market} ]     ← el grupo `graded` NO EXISTE
+        → gradedEstimates: undefined
+```
+
+- **Antes (medición del red team):** `slab PSA10 salePriceCents = 46000 basis = market` — MX$460 por una
+  pieza de MX$9,200 (**5 %**).
+- **Ahora:** el grupo `graded` **no se emite**: la clave se queda sin candidata ⇒ `pending` ⇒ la pieza no
+  es vendible. **Fail-closed, que es la dirección correcta.** No hay precio que un comprador externo pueda
+  tomar.
+- **Control positivo (no se rompió el flujo legítimo):** `e2e-slab-raw`, cuya `graded:PSA:10` es una fila
+  `market` de 800000, **sigue publicada a `salePriceCents 920000` / `basis market`** (MX$9,200). M-43 no
+  despublicó nada que estuviera bien.
+- **Variante RANCIA (la segunda del pentester):** cubierta por construcción — la exclusión es por
+  **naturaleza**, no por fecha, así que el estimado de −400 días tampoco es candidata. Cubierta además por
+  el caso B del E2E.
+- **Superficies de LECTURA del gancho con el dial ON** (lo encendí, medí y lo **devolví a `off`**):
+  `e2e-fourth-raw` (estimado + slab publicado) ⇒ `gradedEstimates: undefined` — la omisión de (l.2) sigue
+  intacta; `e2e-stale-est` (estimados rancios) ⇒ `undefined`; el grid no emitió ningún `gradingHighlight`.
+  **Las dos direcciones de INV-D cerradas a la vez.**
+
+### 1.2 Enumeración de seams de DINERO — uno por uno, sin dar nada por herencia
+
+Censo exhaustivo: **33** call-sites de `prisma.priceReference` / `tx.priceReference` en `backend/src`
+(`grep -rn "priceReference" --include=*.ts src/`). No hay **ningún** acceso por `$queryRaw` a esta tabla
+(los cuatro `$queryRaw` del repo son `nextval`, `SELECT 1` de health y dos agregados de `master-set`, todos
+parametrizados por tagged template). El predicado es `MONEY_REF_WHERE = { refKind: 'market' }`,
+`pricing.service.ts:188`.
+
+| # | Seam (archivo:línea) | ¿Es dinero? | Predicado | Veredicto |
+|---|---|---|---|---|
+| 1 | `pricing.service.ts:671` `getReference` — bloque reciente | sí | `AND:[MONEY_REF_WHERE, BASE_CARD_REF_WHERE]` | ✅ |
+| 2 | `pricing.service.ts:677` `getReference` — `MANUAL_REF_PREDICATE` (perenne, **sin cota de fecha**) | sí | `AND:[MONEY, BASE, MANUAL]` :683 | ✅ **la crítica** — sin ella el estimado manual entraba perenne |
+| 3 | `pricing.service.ts:730` `getReferenceByCardProduct` — reciente | sí | `...MONEY_REF_WHERE` | ✅ |
+| 4 | `pricing.service.ts:736` `getReferenceByCardProduct` — manual | sí | `AND:[MONEY, MANUAL]` :746 | ✅ |
+| 5 | `pricing.service.ts:781` `getReferencesBatch` | sí (bulk-publish, bóveda, binder, buylist, admin) | `AND:[MONEY, BASE]` :791 | ✅ |
+| 6 | `pricing.service.ts:833` `getPricedRawFinishesBatch` | display de precio | `AND:[MONEY, BASE]` :843 | ✅ (redundante hoy, correcto por regla) |
+| 7 | `pricing.service.ts:878` `getSeparateProductsByCard` | sí (`marketReferenceMxnCents`) | `...MONEY_REF_WHERE` :880 | ✅ |
+| 8 | `pricing.service.ts:1666` `syncCardPrice` — cache diario | sí | **lee sin filtro y ramifica** (`existing.refKind === 'market'`) | ✅ **y es lo correcto**: `refKind` no está en la `@@unique`, filtrar aquí habría reventado con `P2002` |
+| 9 | `set-value.service.ts:184` valuación de set | sí | `AND:[MONEY, BASE]` :198 | ✅ |
+| 10 | `sealed-catalog.service.ts:335` serie de valor del sellado | sí | `...MONEY_REF_WHERE` :344 | ✅ |
+| 11 | `admin.service.ts:543` reporte/valor de inventario | sí | `...MONEY_REF_WHERE` :548 | ✅ |
+| 12 | `price-ingest.service.ts:321` `hasRecentIngest` | fail-open operativo | `...MONEY_REF_WHERE` :326 | ✅ **buen catch de backend**: sin él, una corrida de fase 2 hacía creer al catch-up que el mercado ya se ingirió |
+| 13 | `card-product-resolver.service.ts:180` `findUnique` de la clave del día | escritor (upsert) | n/a — es lectura de clave, no de candidata | ✅ |
+| 14 | `catalog.service.ts:1416` conjunto motor de `/review` | **no** — diagnóstico admin | sin predicado, **deliberado** | ✅ correcto (por eso el DTO gana `refKind`) |
+| 15 | `pricing.service.ts:1383` `getGradedEstimatesBatch` | **no** — ruta del gancho | sin predicado, **deliberado** + comentario normativo | ✅ correcto (la simétrica vaciaría la vitrina) |
+| 16 | `pricing.service.ts:2399` `priceHistory` | **no** — auditoría admin | sin predicado, **deliberado** | ✅ correcto |
+| 17 | `graded-estimates.controller.ts:481/497` `DELETE` | destructivo | `refKind: graded_estimate` en el `where` **compartido** por lectura y borrado | ✅ ver §1.4 |
+| 18 | `admin.service.ts:1154` `lastSync` del dashboard | indicador de frescura del feed | **sin predicado** | ⚠️ **SEC-M43-5** (Baja, §5.5) |
+
+**Las rutas «por herencia» que backend declaró — CONFIRMADAS, no asumidas.** Verifiqué que **ningún**
+módulo de bóveda, órdenes, buylist, checkout, envíos ni disputas toca `prisma.priceReference`
+directamente: todos resuelven por `getReference` / `getReferenceByCardProduct` / `getReferencesBatch`
+(`vault.service.ts:157,340,425` · `admin-vaults.service.ts:102` · `orders.service.ts:123` ·
+`buylist.service.ts:507,516,616` · `inventory.service.ts:549,685,834,1212,1677,1714,2298` ·
+`master-set.service.ts:749,971`). La herencia es **real y estructural**, no una promesa: el acceso a la
+tabla está concentrado en 8 archivos.
+
+### 1.3 Escritores — `create` **Y** `update`, uno por uno
+
+| Escritor | `create` | `update` | Veredicto |
+|---|---|---|---|
+| `manualOverride` (`pricing.service.ts:2278-2295`) | `refKind` explícito | **`refKind` explícito** — la línea que el dictamen marcó como trampolín | ✅ **verificado en vivo**: `intent:"graded_estimate"` produjo `refKind:"graded_estimate"` |
+| `persistMarketReference` (:1977-2010) | `market` | `market` (mismo objeto `data`) | ✅ |
+| `persistGradedEstimateReference` (:2053-2098) | `graded_estimate` | `graded_estimate` | ✅ **+ guarda de no-degradación** (`return false` + `warn` si la fila del día es `market`) |
+| `persistSealedMarketReference` (:2214-2237) | `market` | `market` | ✅ |
+| `syncCardPrice` (:1735) | `market` explícito (no se apoya en el default) | n/a (no hace `update`; si la fila del día no es `market`, **hace skip + escala pendiente**) | ✅ |
+| `card-product-resolver.upsertVariantPrice` (:194) | `market` | `market` (el objeto `data` sirve a los dos ramos del `upsert`) | ✅ |
+| **Borde HTTP** `pricing.controller.ts:305-308` | `productType==='graded' && intent==='graded_estimate' ? graded_estimate : market` | — | ✅ `intent` sigue **obligatorio sin default** para `graded` (`422 GRADED_INTENT_REQUIRED`); el default `market` del **parámetro de servicio** no es fail-open porque el fail-open que (l.4.3) evita es el del borde, y ahí no hay default |
+| Único otro call-site del servicio: `inventory.service.ts:732` (alta de sellado con precio manual, dentro de `tx`) | hereda `market` por default | ídem | ✅ correcto — `sealed` es mercado por definición |
+
+**No encontré ningún escritor que pueda dejar `refKind` mal en la dirección peligrosa** (una fila que
+alguien afirmó como precio de venta clasificada como estimado, o al revés por vía automática).
+
+### 1.4 Degradación `market → graded_estimate`: la automática está cerrada, **la manual NO** (→ SEC-M43-1)
+
+- **Ingest (fase 2):** ✅ cerrado y probado. `persistGradedEstimateReference` hace skip + traza ante una
+  fila `market`. Test `pricing.money-ref-kind.spec.ts` «EL INGEST NUNCA DEGRADA una fila `market`».
+- **Race / TOCTOU:** ✅ **inocuo post-M-43.** El `POST /admin/pricing/override` no repite su guarda dentro
+  de una transacción (el `DELETE` sí lo hace, `graded-estimates.controller.ts:460`), pero el peor
+  resultado de perder la carrera es *una fila `graded_estimate` conviviendo con un slab publicado* ⇒ el
+  slab queda **sin precio**, no con un precio malo. La ventana existe y falla cerrando.
+- **Manual:** ⚠️ **abierta** — ver **SEC-M43-1** (§5.1). Un `super_admin` con
+  `intent:"graded_estimate"` **sí** degrada una fila `market` del mismo día, y además **le sobrescribe el
+  monto**, cuando el slab de esa carta no está en `platform + listed`.
+
+### 1.5 `DELETE` — ✅ no puede llevarse una referencia de mercado (verificado en vivo)
+
+`where` **compartido** por la lectura del `before` y el `deleteMany` (`graded-estimates.controller.ts:434-441`),
+con `refKind: graded_estimate` dentro. Probado contra el stack: `DELETE /admin/pricing/graded-estimates/<card>/10`
+sobre una carta cuya única fila `graded:PSA:10` es `market` (500000) devolvió **`404 NOT_FOUND`** con el
+mensaje correcto, y **la fila sobrevivió intacta**. El `409 GRADED_ESTIMATE_SLAB_PUBLISHED` (pre-vuelo +
+repetición dentro de la transacción) también sigue en pie: verificado **409** en vivo.
+Único apunte: el `where` es un objeto literal local, no la constante compartida — si mañana alguien
+duplica el endpoint, no hereda nada (cubierto por SEC-M43-3).
+
+### 1.6 Lo que la prueba de backend **NO** cubre
+
+Validé aparte que la prueba **detecta** (el orquestador ya lo había hecho neutralizando el predicado) y
+corrí las suites: `pricing.money-ref-kind.spec.ts` + `set-value.spec.ts` + `pricing.graded-intent.spec.ts`
+⇒ **48/48 verde**. Lo que **queda fuera** de la red:
+
+1. **No hay candado estructural sobre lectores NUEVOS.** Los 6 casos del E2E y los 13 unitarios verifican
+   los seams **conocidos**. La afirmación de §4.38(l.4.4A) —«un lector nuevo que se olvide del predicado
+   hereda el comportamiento seguro»— es **falsa a nivel de mecanismo**: en Prisma, un `where` sin
+   `refKind` **incluye** las dos naturalezas. Es una **convención documentada**, no un default seguro.
+   ⇒ **SEC-M43-3**.
+2. **No hay prueba de la degradación MANUAL** de una fila `market`. La regla 2 («la automática nunca la
+   baja») está probada; su hueco simétrico no. ⇒ **SEC-M43-1**.
+3. **El SQL del cut-over no lo ejecuta nadie.** El `UPDATE` de backfill del paso 4 vive en un `.md` y no
+   tiene test, dry-run ni assert de `rowcount`. ⇒ **SEC-M43-2**.
+4. **El rollback no está probado ni acotado.** Ninguna prueba cubre «revertir el código con filas
+   `graded_estimate` ya escritas». ⇒ **SEC-M43-2 (c)**.
+5. **`evidenceDate` inerte** — declarado y aceptado (`TECH_DEBT` M43-D2); sin regresión porque la columna
+   está `null` en todas las filas. Ratificado.
+
+---
+
+## 2. Cut-over (`BACKEND_NOTES.md` §0.11.6) — **NO es suficiente como está escrito** → SEC-M43-2
+
+**Pregunta que se me hizo: ¿es seguro y suficiente? Respuesta: seguro en el camino feliz, insuficiente en
+tres puntos, y uno de ellos es el rollback.** Los pasos 1-3 son la idea correcta (re-afirmar es un acto de
+dinero deliberado y auditado, que es exactamente lo que el hallazgo pide). Los huecos:
+
+**(a) El censo del paso 1b es una foto, y el mundo se mueve entre el paso 3 y el paso 4.**
+1b enumera la intersección `fila PSA` × `slab platform+listed` **en el instante del censo**. Entre ese
+instante y el deploy del código sigue corriendo el código VIEJO, donde publicar un slab sobre una carta con
+estimado es una operación normal y silenciosa. Toda pieza que entre a `listed` en esa ventana **no fue
+re-afirmada** y se apaga al desplegar. El paso 5 **no lo detecta**: solo verifica que «los re-afirmados
+conservan su precio» — es un check **positivo sobre la lista que ya conocía**, sin check **negativo** sobre
+el universo.
+*Lo que falta:* (i) re-afirmar sobre un predicado más ancho que `platform+listed` (ver (b)); (ii) **re-correr
+1b inmediatamente antes del deploy como gate** (si devuelve filas nuevas, se paran los pasos); (iii) añadir
+al paso 5 el check negativo: *«cero piezas `graded` en `listed` con `priceBasis != market`»*.
+
+**(b) El `UPDATE` de backfill del paso 4 es una escritura masiva sin guardas sobre la tabla de dinero, y
+su predicado es el equivocado.** El `NOT EXISTS` copia la definición de `publishedSlabsForGradeKey`
+(`platform` + `listed`). Esa definición responde «¿hay ahora mismo una publicación viva que dependa de esta
+fila?» —correcta para una **guarda**— pero **no** responde «¿qué quiso afirmar el humano que escribió esta
+fila?», que es lo que un **backfill de naturaleza** necesita. Consecuencia: en una BD real, ese `UPDATE`
+marca como **`graded_estimate`** la referencia de mercado de todo slab que no esté listado **en ese
+segundo**, incluyendo:
+- slabs `in_stock` a punto de publicarse,
+- slabs en `reserved` / `picking` / envío en curso,
+- **slabs `ownerType='customer'` en custodia** — el corazón del negocio de `PROJECT.md`. Para éstos el
+  argumento de §4.38(q.2) («si no está `listed`, **nada vivo depende de esa fila**») **no se sostiene**: de
+  esa fila depende la valuación de la bóveda del cliente (`vault.service.ts:157,340,425`), el
+  `admin-vaults`, el snapshot de portafolio y la oferta de buylist.
+
+  Además: `ARCHITECTURE.md` §4.38(l.4.7) paso 1 dice **«si el conteo no da cero, se PARA y se escala al
+  arquitecto»**; `BACKEND_NOTES.md` §0.11.6 paso 4 dice, para ese mismo caso, «se clasifica» y entrega el
+  `UPDATE`. **Los dos documentos se contradicen justo en la rama que corre cuando el mundo no es el que el
+  diseño esperaba** — el peor momento para un `UPDATE` masivo no revisado. Por la regla de conflicto del
+  proyecto, **manda ARCHITECTURE**: se para y se escala.
+  *Lo que falta:* el `UPDATE` debe (i) ir precedido de un `SELECT` de conteo y un backup/snapshot, (ii)
+  correr en `BEGIN; … verificar rowcount; COMMIT;`, (iii) **excluir explícitamente** toda carta con
+  **cualquier** `InventoryItem graded` de ese grado (cualquier `status`, cualquier `ownerType`), no solo
+  `platform+listed`, y (iv) llevar escrito que **solo se ejecuta con visto bueno del arquitecto**.
+
+**(c) El paso 6 (rollback) reabre GE-1, y no lo dice.** «Revertir el código es suficiente; la columna se
+queda» es cierto **para el DDL** y **falso para el riesgo**: en el momento del rollback ya existen filas
+`refKind='graded_estimate'` escritas por la vía manual, y esas filas llevan `isManualOverride=true` /
+`source='manual'`, o sea que al quitar el predicado vuelven a ser candidatas **perennes**
+(`MANUAL_REF_PREDICATE`, sin cota de fecha, §4.27f-3). **Rollback = GE-1 restaurado con munición ya
+cargada**, y no solo para el día.
+*Lo que falta:* el paso 6 debe exigir, **antes** de revertir el código, retirar o re-afirmar toda fila
+`graded_estimate` escrita desde el deploy (`DELETE` del gancho para las que no tengan slab; `intent:"market"`
+para las que sí), y dejar el conteo en cero como precondición del revert.
+
+**Si el operador lo corre fuera de orden o a medias:** saltarse el paso 3 (o hacerlo a medias) **no rompe
+dinero** —nadie cobra de menos— pero **apaga piezas en silencio**: no hay `PendingPriceEntry` porque
+`reconcilePublishedPrices` es `raw`-only (`TECH_DEBT` M43-D1), no hay alerta y el paso 5 no lo mira. Lo
+**demostré en vivo**: tras degradar la fila de `e2e-graded`, la pieza `E2E-LST-0003` (`platform`, `listed`)
+desapareció por completo de `GET /catalog/cards/:id` (`listings: []`) y **la cola `GET /admin/pricing/pending`
+no la contenía** (solo entradas `raw`). Eso convierte M43-D1 de «deuda cómoda» en **el único detector que
+tendríamos**, y hoy no existe.
+
+---
+
+## 3. GE-2 (Media) — 401/403 sin rastro en `AuditLog` · **ACEPTADA, con disenso parcial acotado**
+
+**Confirmo el hallazgo:** `roles.guard.ts` y `jwt-auth.guard.ts` lanzan `BusinessException` sin escribir
+`AuditLog`; `all-exceptions.filter.ts:50` solo hace `logger.error` para excepciones **no** controladas, así
+que un 401/403 **no deja absolutamente ninguna huella**. Verificado también que **no existe ninguna capa de
+access-log** en el repo (`main.ts` monta `helmet()` + CORS allow-list + `trust proxy`, sin `morgan`/`pino`
+ni middleware de logging; no hay nginx ni config de reverse-proxy en `docker-compose*.yml` / `railway.json`
+/ `security/`).
+
+**Sobre los dos argumentos del arquitecto:**
+
+1. **«Un `401` no tiene quién» — de acuerdo, y decide el caso del 401.** Coincido con el criterio 23:
+   `AuditLog` es el registro que leen los auditores de dinero, y un rechazo anónimo no tiene actor ni
+   efecto. *(Apunte técnico sin consecuencia: `AuditLog.actorUserId` **sí** es nullable —
+   `schema.prisma:1217` — así que es una **decisión de diseño**, no un límite del schema. La decisión me
+   parece bien tomada.)*
+2. **«Auditar el 401 le regala a un anónimo una primitiva de escritura sobre una tabla money-adjacent» —
+   de acuerdo, y es el argumento más fuerte de los dos.** Un bucle `curl` sin credenciales inflando
+   `AuditLog` convierte un control de detección en un vector de ruido/DoS y contamina la evidencia
+   forense del dinero. **Suscrito sin reservas para el 401.**
+
+**Donde matizo (y el arquitecto ya lo había concedido en §9, lo hago exigible con disparador):** el
+**403 sí tiene quién**. `RolesGuard` corre **después** de que `JwtAuthGuard` pobló `req.user`, así que un
+`customer`/`vault_operator` sondeando `/admin/pricing/*` o `/admin/jobs/*` es un actor **identificado,
+autenticado y limitado por el throttler** (300/60 s global; 5/60 s en login). La objeción (2) no aplica con
+la misma fuerza: no hay amplificación anónima. Y ése es **exactamente** el caso que §O.8 pide poder ver
+(«si la guarda está saltando seguido y por qué») y el que importa en un negocio de custodia: **abuso
+interno de autorización sobre superficies de dinero**.
+
+**Mi posición:** ✅ **acepto la reclasificación a hardening y NO bloqueo el encendido**, con **una
+corrección de fondo al razonamiento**: el dictamen mueve la responsabilidad al «plano de observabilidad
+(devops: access log estructurado + alerta por umbral)», y **ese plano no existe hoy**. Aceptar GE-2 tal
+cual no es aceptar «lo cubre otra capa»: es aceptar **un punto ciego real y sin mitigación**. Se acepta
+**solo** como deuda con dueño y **disparador duro** (§6, C4): antes de operar con **dinero real**.
+
+**Rol dueño:** **devops** (access log estructurado ruta/método/`status`/`ip`/actor + alerta por umbral de
+401/403 por actor·IP·ventana sobre `/admin/*`) · **backend** *opcional y solo para el 403*
+(`AuditLog action=authz.denied`, **con dedupe/techo por actor+ventana**, tal como lo condiciona §9).
+
+---
+
+## 4. GE-3 (Baja) — dependencias · **CONFIRMADA y acotada: NO llegan a producción** ✅
+
+Verificado por mi cuenta, no por lectura del reporte:
+
+| Comprobación | Resultado |
+|---|---|
+| `frontend$ npm audit` | 1 critical (`vitest`) + 1 high (`vite`) + 3 moderate |
+| `frontend$ npm audit --omit=dev` | **`found 0 vulnerabilities`** |
+| `frontend/package.json` → `dependencies` | `@stripe/react-stripe-js, @stripe/stripe-js, @tanstack/react-query, clsx, lucide-react, next, next-intl, react, react-dom, recharts, tailwind-merge` — **ni `vitest` ni `vite`** |
+| Origen | `vitest ^2.1.3` es **devDependency**; `vite` entra **transitivo** de `vitest` (`effects: ["@vitest/mocker","vite-node","vitest"]`) |
+| `backend$ npm audit --omit=dev` | **2 moderate** (`@nestjs/core` / `platform-express`) — **0 high/critical**, ya registrado como N-0 |
+| Versión de Next | **15.5.23** — por encima de 15.2.3, o sea **no** afectada por el bypass de middleware CVE-2025-29927 |
+
+**Conclusión: el critical y el high son estrictamente tooling de desarrollo y no viajan al bundle de
+producción.** El critical de `vitest` solo se explota con el **Vitest UI server** levantado — algo que no
+ocurre en prod y que **sí** puede ocurrir en la máquina de un dev o en un runner de CI. Riesgo real
+acotado a CI/dev. **Rol dueño: devops** (bump `vitest`/`vite`; cablear el gate de `npm audit` en CI para
+que **falle con high/critical de PROD** (`--omit=dev`) y solo **avise** con los de dev — un gate que falle
+con dev-tooling se desactiva solo por ruido).
+
+---
+
+## 5. Barrido propio (blue team) — hallazgos NO reportados por el red team
+
+### 5.1 SEC-M43-1 (Media) — el escritor **manual** sí degrada una fila `market`, y le sobrescribe el monto · **[VIVO]**
+
+**Ubicación:** `pricing.controller.ts:305-318` (`override`) + `pricing.service.ts:1514-1538`
+(`publishedSlabsForGradeKey`) + `pricing.service.ts:2278-2296` (`manualOverride`).
+
+**El fallo:** la guarda `409 GRADED_ESTIMATE_SLAB_PUBLISHED` mira **solo** `ownerType='platform' AND
+status='listed'`. Fuera de esa foto, un `intent:"graded_estimate"` reusa la fila del día
+(`refKind` **no** está en la `@@unique`) y **(a)** la reclasifica a `graded_estimate` y **(b)** le pisa el
+`priceMxnCents`. El resultado es que un verbo *informativo* del gancho **destruye un dato de dinero**.
+La asimetría no está escrita en ningún lado: (l.4.3) regla 2 prohíbe la degradación **automática** y guarda
+silencio sobre la **manual**.
+
+**PoC (reproducido en vivo, stack post-`1f73654`):**
+```
+estado inicial : e2e-graded → PriceReference(graded:PSA:10) = 500000 · refKind=market
+                 InventoryItem E2E-LST-0003 (PSA 10, platform, listed)
+
+1) slab fuera de `listed`  (UPDATE ... status='in_stock')   ← reserva / picking / venta / pre-publicación
+2) POST /admin/pricing/override {graded, graded:PSA:10, 1234, intent:"graded_estimate"}
+   → 200  (NO hay 409: la guarda no ve el slab)
+   → fila: graded:PSA:10 | 1234 | graded_estimate      ← la referencia de MERCADO fue destruida
+3) republicar el slab (status='listed')
+   → GET /catalog/cards/<e2e-graded>  ⇒  listings: []          ← pieza REAL, invisible
+   → GET /admin/pricing/pending       ⇒  no la contiene         ← ninguna cola la ve
+```
+
+**Impacto:** fail-**closed** (nadie cobra de menos, no hay pérdida de dinero directa), pero:
+- una pieza física publicable queda **silenciosamente fuera de venta**, sin entrada en ninguna cola (M43-D1);
+- si el slab es `ownerType='customer'`, la **valuación de bóveda del cliente** de esa pieza cae a `pending`
+  — dato de custodia, con lectura legal y de confianza en `PROJECT.md`;
+- el monto anterior **no queda en la bitácora**: `pricing.override` registra `after` pero **no** `before`,
+  así que el valor destruido no es recuperable desde el audit trail (sí lo es la fila de un día previo, si
+  la hubo).
+
+**Severidad: Media, no Alta** — requiere `super_admin` (el rol que ya mueve dinero), falla cerrando, y es
+**estrictamente mejor que antes de M-43** (donde la misma llamada dejaba el slab priciado a 1234 × markup).
+**No bloquea el encendido.**
+
+**Rol dueño: backend.** Camino recomendado — **y explícitamente NO es «ensanchar la guarda a `in_stock`»**,
+que §4.38(q.2) rechazó con buen argumento para el `DELETE`. Lo que pido es la regla que el propio dictamen
+ya escribió para el ingest, aplicada al escritor humano: **una fila `market` no se degrada; se pisa
+declarando `intent:"market"`, o se retira, o se crea otra**. Concretamente: si la fila del día es
+`market`, `intent:"graded_estimate"` responde `409` (o `422`) con el motivo, **audita el bloqueo** como ya
+hacen sus hermanas, y no toca la fila. Eso conserva intacto el razonamiento de (q.2) —que es sobre qué
+**depende** de la fila— y cierra el que aquí importa: quién puede **cambiarle la naturaleza** a un dato de
+dinero. **Decisión de contrato ⇒ pasa por arquitecto** (regla 9).
+
+### 5.2 SEC-M43-2 (Media) — el cut-over: censo-foto, backfill sin guardas y rollback que reabre GE-1
+Desarrollado en §2. **Rol dueño: devops** (ejecuta y debe corregir el runbook) · **backend** (dueño de
+`BACKEND_NOTES.md` §0.11.6) · **arquitecto** (resolver la contradicción del paso 1 no-cero y aprobar el
+predicado del backfill). **Bloquea el cut-over de producción; no bloquea el encendido en staging.**
+
+### 5.3 SEC-M43-3 (Baja) — «seguro por defecto» es una convención, no un mecanismo
+`§4.38(l.4.4A)` afirma que «un lector nuevo que se olvide del predicado hereda el comportamiento seguro».
+**No es así:** en Prisma, omitir `refKind` del `where` **incluye** las dos naturalezas; el default real es
+el inseguro. Hoy está bien porque los 8 archivos que tocan la tabla están todos revisados, pero la garantía
+depende de que cada autor futuro lea el comentario. **Rol dueño: backend.** Remedio barato y de una vez:
+una prueba estructural (estilo el candado `no-raw-entity` que ya existe en este repo) que recorra los
+call-sites de `priceReference.find*` y exija que cada uno **o** contenga `MONEY_REF_WHERE` **o** esté en una
+lista blanca explícita de superficies gancho/auditoría. Convierte la doctrina en un candado.
+
+### 5.4 SEC-M43-4 (Baja) — validación de `OverrideDto` en el borde de dinero · **[VIVO]**
+`pricing.controller.ts:77-97`: `productType` es `@IsString()` (**no** `@IsIn(PRODUCT_TYPE_VALUES)`) y
+`gradeKey` es `@IsString()` libre. Medido en vivo:
+
+| Entrada | Respuesta |
+|---|---|
+| `productType:"banana"` | **500 INTERNAL** (debería ser 422 `VALIDATION_ERROR`) |
+| `cardId:"no-existe"` | **500 INTERNAL** (debería ser 404/422) |
+| `gradeKey:"graded:PSA:11"` + `intent:"graded_estimate"` | **200** — crea una fila para un grado inexistente |
+
+**Sin fuga de información**: el `all-exceptions.filter` devuelve `{"code":"INTERNAL","message":"Internal
+server error","details":{}}`, sin stack ni detalle de Prisma. ✅
+Es `super_admin`, **pre-existente** (no lo introduce M-43) y money-safe (las filas basura tienen
+`refKind='graded_estimate'` ⇒ excluidas del dinero por construcción). **Baja.** Molesta porque un 500 en un
+endpoint de dinero es indistinguible de una caída real y ensucia cualquier alerta que se monte para GE-2.
+**Rol dueño: backend.**
+
+### 5.5 SEC-M43-5 (Baja/Info) — `lastSync` del dashboard sin predicado de naturaleza
+`admin.service.ts:1154`: `priceReference.findFirst({ orderBy: { createdAt: 'desc' } })` alimenta el
+indicador «última sincronización» de la consola. Sin `MONEY_REF_WHERE`, **una corrida de la fase 2**
+—que escribe `graded_estimate` sobre todo el catálogo raw publicado— haría que el tablero reporte el feed
+de **mercado** como recién sincronizado cuando no lo está. No es dinero (no se cobra ni se valúa con él),
+pero **sí es la señal que un operador mira para decidir si confiar en los precios**, y es el mismo modo de
+fallo que backend cerró bien en `hasRecentIngest` (`price-ingest.service.ts:326`). **Disparador: antes de
+encender la fase 2.** **Rol dueño: backend.**
+
+### 5.6 SEC-M43-6 (Info, operativo) — el stack «vivo» corría código anterior al arreglo
+Descrito en §1.1. Sin impacto en producción; impacto **alto en el proceso de verificación**: cualquier
+medición en vivo hecha entre `1f73654` y el reinicio de las 21:38 mide el código viejo. **Rol dueño:
+devops** — el runbook de verificación en vivo debería empezar por un check de versión/commit del proceso
+(p. ej. exponer el SHA en `/health`), que hoy no existe.
+
+### 5.7 Superficies nuevas — revisadas sin hallazgo adicional ✅
+- **`common/graded-estimate.ts`** (lógica pura): `refKind` entra al tipo pero **no decide nada** en la ruta
+  de exhibición (correcto: la inclusiva es deliberada). Sin fila presente ⇒ `'market'`, el valor
+  conservador junto a un verbo destructivo. Money-safe intacto: sin escalón no hay destacado, `≤ 0` no es
+  estimado, arreglo vacío nunca se emite.
+- **Fuga de datos comerciales:** ✅ **`refKind` NO llega a ninguna superficie pública.** El DTO público
+  (`GradedEstimateDTO`) es `{gradingCompany, gradeValue, gradeKey, estimate}` — sin `source`, sin
+  `priceBasis`, sin `isManual`, sin `refKind`. `refKind` solo entra a DTO **admin-only** (`preview`,
+  `review`, `priceHistory`), y hay **prueba de forma exacta** que lo blinda
+  (`pricing.declared-shapes.spec.ts` + `pricing-visibility.e2e-spec.ts`: lista blanca explícita, con
+  `evidenceDate` **excluida** a propósito). La indistinguibilidad fase 1 ⇄ 2 de §4.38(g) sigue intacta.
+- **Autorización:** `PricingController` y `GradedEstimatesController` llevan `@Roles(Role.super_admin)` a
+  **nivel de clase** — ningún método puede escaparse por olvido. Sin `@Public()`. Matriz del pentester
+  re-verificada por muestreo (409 y 404 llegaron con token de admin; sin token no se pasa del guard).
+- **Inyección:** cero `$queryRaw` sobre `PriceReference`; todo Prisma parametrizado. Host del proveedor PPT
+  **hardcodeado** (`ppt-api.client.ts:85`), `setId` vía `URLSearchParams` ⇒ SSRF descartado (ratifico GE-5).
+- **Secretos:** `.env` fuera del repo (`.gitignore` 4-10, solo `.env.example` versionado); barrido de
+  `sk_live|sk_test|whsec_|AKIA|BEGIN PRIVATE KEY` en `backend/src` + `frontend/src` ⇒ sin hallazgo (el
+  único match es el `sk_test_dummy` de no-producción, que **falla duro en prod** por diseño). La API key de
+  PPT se lee solo de `ConfigService` y viaja en header, nunca a log. **M-43 no añade superficie de
+  secretos.**
+- **Transporte/cabeceras:** `helmet()` + CORS con **allow-list** desde `APP_BASE_URL` (nunca `origin:true`
+  con credenciales) + `trust proxy`. Sin cambios en este pase.
+- **Mostrarle al comprador una cifra falsa:** los tres caminos que revisé fallan cerrando —
+  `@Min(1)` en el override (nunca `$0` ni negativo), presencia ⇔ elegibilidad en el grid (nunca contenedor
+  vacío), gate de frescura y omisión por slab publicado verificados en vivo con el dial ON, y `estimates.ts`
+  del frontend (`isRenderable`) exige `status==='priced'` + entero finito `> 0` antes de pintar. Los
+  componentes del gancho no usan `dangerouslySetInnerHTML` ni `innerHTML` (verificado). El acoplamiento
+  llamada↔nota al pie es fail-closed por contexto de React: fuera de la boundary, los componentes devuelven
+  `null` en vez de una cifra huérfana. **Buen diseño; sin hallazgo.**
+
+### 5.8 GE-4 y GE-5 — ratificados
+- **GE-4 (Info):** **de acuerdo con el descarte.** `sort=grading_showcase` ordena por
+  `netUpsidePsa9MxnCents` / `psa10MxnCents`, campos que **no** están en la lista blanca del DTO de rejilla.
+  El orden revela ranking relativo entre piezas ya destacadas públicamente; no expone montos adicionales ni
+  distingue manual de automático. **No es fuga explotable.** Sin dueño; se acepta.
+- **GE-5 (Info+):** control positivo ratificado; re-verifiqué por muestreo el fail-closed de los diales,
+  la matriz de authz, el hardcodeo del host PPT y la integridad de la cifra. **Añado a la lista de
+  controles que resistieron:** el `DELETE` acotado por naturaleza (§1.5), la no-degradación automática del
+  ingest (§1.4) y la lista blanca de forma del DTO admin (§5.7).
+
+---
+
+## 6. Condiciones — qué bloquea y qué acompaña
+
+| # | Condición | Dueño | ¿Bloquea? |
+|---|---|---|---|
+| **C0** | **La fase 2 (`graded_estimate_ingest_enabled`) se queda en `off`.** Es lo que vuelve rutinaria la escritura masiva de estimados y lo que el propio red team señaló como la vía de escalada de GE-1 a CRÍTICA. Antes de encenderla: M43-D1 (cola para `graded`), M43-D2 (`evidenceDate` cableada) y SEC-M43-5. | backend / arquitecto | **SÍ — bloquea la fase 2** (no el gancho) |
+| **C1** | Encender **solo** `gradedEstimatesEnabled` y verificar en staging con la lectura pública: un slab con estimado preexistente **no** debe emitir grupo `graded`; un slab con referencia `market` **sí** conserva su precio. | devops / QA | No — acompaña |
+| **C2** | Dejar **SEC-M43-1** abierto y enrutado a backend (vía arquitecto por ser cambio de contrato) con fecha, **antes** de que exista inventario `graded` en custodia de clientes en el entorno encendido. | backend / arquitecto | No — acompaña |
+| **C3** | **Corregir el runbook de cut-over antes de ejecutarlo en producción**: (a) re-correr el censo 1b como gate inmediatamente antes del deploy; (b) check **negativo** en el paso 5 («cero `graded` en `listed` con `priceBasis != market`»); (c) el `UPDATE` del paso 4 en transacción, con conteo previo, excluyendo cartas con **cualquier** `InventoryItem graded` de ese grado y **solo con visto bueno del arquitecto** — o, alineado con ARCHITECTURE §4.38(l.4.7) paso 1, **no ejecutarlo y escalar**; (d) el paso 6 (rollback) debe exigir dejar en **cero** las filas `graded_estimate` antes de revertir el código. | devops (ejecuta) · backend (documento) · arquitecto (dictamen) | **SÍ — bloquea el cut-over de producción** |
+| **C4** | **GE-2** se acepta como deuda **con disparador duro**: access log estructurado + alerta por umbral de 401/403 sobre `/admin/*` **antes de operar con dinero real**. No se acepta como «lo cubre otra capa», porque esa capa **no existe hoy**. | devops (+ backend opcional para el 403) | No — acompaña, con disparador |
+| **C5** | **GE-3**: bump `vitest`/`vite` y gate de `npm audit` en CI que falle con high/critical de **PROD** (`--omit=dev`) y solo avise con los de dev. | devops | No — acompaña |
+| **C6** | **SEC-M43-3**: candado estructural sobre lectores nuevos de `PriceReference`. Es lo que hace que M-43 **siga** cerrado dentro de seis meses. | backend | No — acompaña |
+
+---
+
+## 7. Deuda de seguridad ACEPTADA (no bloqueante, registrada)
+
+| ID | Descripción | Impacto | Disparador |
+|---|---|---|---|
+| **GE-2** | Rechazos 401/403 sin rastro (ni `AuditLog` ni access log) | Abuso interno de authz sobre superficies de dinero es invisible para forense/alerta | **Antes de operar con dinero real** (C4) |
+| **GE-3** | `vitest` critical + `vite` high, dev-only (`--omit=dev` ⇒ 0) | Riesgo en CI/dev, **cero en el bundle de prod** | Próxima ventana de mantenimiento de deps (C5) |
+| **GE-4** | Oráculo de orden de `sort=grading_showcase` | Ninguno material (ranking relativo de lo ya público) | — (se acepta y se cierra) |
+| **SEC-M43-1** | Degradación manual de una fila `market` | Pieza real apagada en silencio; valuación de custodia a `pending`; monto anterior no recuperable del audit trail | Antes de que haya `graded` en custodia de clientes en el entorno encendido (C2) |
+| **SEC-M43-3** | «Seguro por defecto» sin mecanismo | Un lector futuro reabre GE-1 sin que nada avise | Próximo cambio en `pricing.service` (C6) |
+| **SEC-M43-4** | `OverrideDto` sin `@IsIn` en `productType`; `cardId` inexistente ⇒ 500 | 500 en endpoint de dinero (ruido de alerta); filas basura money-safe | Junto con C4 (un 500 espurio contamina la alerta de 401/403) |
+| **SEC-M43-5** | `lastSync` del dashboard sin `MONEY_REF_WHERE` | Tablero reporta el feed de mercado como fresco tras una corrida de fase 2 | **Antes de encender la fase 2** (C0) |
+| **SEC-M43-6** | Sin forma de saber qué commit corre un stack | Verificaciones en vivo contra binario equivocado | Próximo trabajo de observabilidad de devops |
+| **M43-D1** *(ya en `TECH_DEBT.md`)* | `reconcilePublishedPrices` sigue `raw`-only | **Reclasificado por seguridad: sube de «cómoda» a relevante** — es el **único** detector posible de SEC-M43-1 y del cut-over a medias, y hoy no existe | **Al encender el gancho** (ratifico el disparador que backend ya escribió) |
+| **M43-D2** *(ya en `TECH_DEBT.md`)* | `evidenceDate` creada pero no cableada | Sin regresión (columna `null` en todas las filas); criterio 109 sigue con su aproximación declarada en §9 | **Antes de encender la fase 2** (C0) |
+
+---
+
+## 8. Banderas para el humano
+
+1. **Pentest de tercero + bug bounty antes de operar con dinero real.** Este pase (y los anteriores) son
+   red/blue team **internos** sobre un blanco **local**. Antes de custodiar bienes ajenos y mover dinero
+   real hacen falta: pentest externo con alcance de pagos/custodia, DAST contra staging **con datos
+   realistas**, y un canal de divulgación responsable. Nada en este veredicto sustituye eso.
+2. **El gancho es una afirmación comercial sobre dinero futuro.** «Esta carta valdría X si saliera PSA 10»
+   es publicidad de valor. Recomiendo revisión legal del texto de la nota al pie (el frontend la construyó
+   fail-closed y bien, §5.7) y **retención de evidencia**: hoy `evidenceDate` está creada pero vacía
+   (M43-D2), así que **no se puede probar contra qué venta real se emitió una cifra** que un cliente vio.
+   Si alguien reclama, la respuesta es «capturamos el dato tal día», no «la evidencia era de tal venta».
+   **Cablear `evidenceDate` tiene valor legal, no solo de precisión.**
+3. **Custodia y PII no se tocaron en este pase.** M-43 no roza INE/CLABE ni el flujo de dinero saliente.
+   Los veredictos previos sobre esos ejes siguen vigentes tal como están abajo en este documento.
+4. **Decisión de negocio que no me corresponde:** M-43 cambia el modo de fallo de «vendo barato» a «no
+   vendo». Es la dirección correcta desde seguridad y desde el criterio 55, **pero cuesta ventas** y hoy
+   **nadie recibe una alerta cuando pasa** (M43-D1). Si se enciende antes de cerrar M43-D1, conviene que el
+   dueño lo sepa y mire la cola de `no_market` a mano durante los primeros días.
+5. **El cut-over lo ejecuta un humano contra la BD de producción con un `UPDATE` masivo en la tabla de
+   dinero.** Aunque la expectativa declarada es que ese paso no corra nunca (censo = cero), pido
+   explícitamente: snapshot/backup verificado **antes** del paso 4, y que el paso 4 **no** se ejecute sin
+   visto bueno del arquitecto (§2(b), C3).
+
+---
+
+## 9. Ruteo por rol
+
+- **backend:** **SEC-M43-1** (degradación manual — vía **arquitecto**, es contrato) · **SEC-M43-3**
+  (candado estructural) · **SEC-M43-4** (validación del `OverrideDto`) · **SEC-M43-5** (`lastSync`) ·
+  §0.11.6 del runbook (los cuatro arreglos de C3) · M43-D1 y M43-D2 según sus disparadores · *(opcional,
+  solo 403)* `authz.denied` con dedupe/techo.
+- **devops:** **C3** (ejecutar el cut-over solo con el runbook corregido; backup previo) · **GE-2/C4**
+  (access log estructurado + alerta por umbral sobre `/admin/*`) · **GE-3/C5** (bump `vitest`/`vite` +
+  gate de `npm audit --omit=dev` en CI) · **SEC-M43-6** (commit/SHA visible en el stack) · resembrar el
+  entorno (§10).
+- **arquitecto:** resolver la **contradicción** entre ARCHITECTURE §4.38(l.4.7) paso 1 («se para y se
+  escala») y BACKEND_NOTES §0.11.6 paso 4 («se clasifica» + `UPDATE`) · dictaminar **SEC-M43-1** ·
+  aprobar el predicado del backfill si alguna vez corre.
+- **frontend:** **sin hallazgos.** Los componentes del gancho están bien construidos y fallan cerrando.
+- **QA:** al validar el encendido, incluir el **check negativo** del paso 5 (cero `graded` en `listed` con
+  `priceBasis != market`) — hoy la suite solo tiene el positivo.
+
+---
+
+## 10. Estado de la BD del entorno de pruebas (aviso al orquestador) — **LIMPIA, no hay que resembrar**
+
+> **Actualizado al cierre del pase.** Una versión anterior de esta sección pedía resembrar; **ya no hace
+> falta** y se corrige aquí para que nadie actúe sobre información vencida.
+
+**Secuencia:** reinicié el stack (`stack-native.sh down` + `up --seed`) al detectar SEC-M43-6; ensucié la
+BD con los PoC de §1.1, §5.1 y §5.4; y la fase final de ese mismo `up --seed` (el subconjunto E2E real que
+el script corre contra el stack levantado) **volvió a sembrar**, dejando el entorno en estado de seed.
+
+**Verificado a mano al cerrar** (`psql`, no inferido del log):
+
+| Comprobación | Resultado |
+|---|---|
+| `count(*) PriceReference` | **13** — idéntico al seed (11 `market` + 2 `graded_estimate`) |
+| `e2e-graded` → `graded:PSA:10` | **`500000 · market`** — la degradación a `1234 · graded_estimate` del PoC de SEC-M43-1 **revertida** |
+| `e2e-fourth-raw` → fila `graded` | **ausente** (el estimado de 40000 se fue) |
+| `e2e-common` → `graded:PSA:11` | **ausente** (la fila basura de SEC-M43-4 se fue) |
+| Slab inyectado `folio='SEC-INVD-0001'` | **ausente**; el inventario `graded` son solo `E2E-LST-0003` y `E2E-LST-0006`, ambos `platform`/`listed` |
+| Folios no-`E2E-*` | solo la serie `INV-0000xx` del **seed sintético** — ningún residuo de PoC |
+| `graded_estimates_enabled` / `graded_estimate_ingest_enabled` | **`"off"` / `"off"`** — los encendí para medir las superficies de lectura (§1.1) y los apagué, comprobándolo en `ConfigSetting` |
+
+**Estado de los procesos al cerrar:** **Postgres y Redis siguen ARRIBA** (los datos se conservan, verificado
+con `psql` y `redis-cli ping`); **backend (:3099) y frontend (:3000) quedaron ABAJO** — el
+`stack-native.sh up --seed` los apagó al terminar su fase E2E. Quien retome el trabajo en vivo debe
+**volver a levantarlos**, y —por SEC-M43-6— confirmar que lo hace sobre el commit que pretende medir.
+
+**Conclusión: no hay acción pendiente sobre los DATOS.** Para retomar:
+`./scripts/stack-native.sh up --seed`.
+
+**Nota de validez de las mediciones (importante, y por eso se escribe):** el reseed ocurrió **después** de
+todas las mediciones de este documento. Cada PoC de §1.1, §5.1 y §5.4 fue observado y verificado contra la
+BD **en el momento**, con el backend post-`1f73654` corriendo (ver SEC-M43-6). Que el entorno esté hoy
+limpio **no invalida ninguna evidencia**; sí significa que **reproducirla exige rehacer los pasos**, no
+mirar la BD actual.
+
+**Apunte del arnés E2E, para QA/devops (no es hallazgo de seguridad):** esa corrida terminó
+**48 verdes · 3 rojos · 35 saltados**, y los 3 rojos son los smokes de dinero (checkout, guest-checkout,
+shipments) por **falta de egress a `api.stripe.com` en esta máquina** — el backend responde `503
+PAYMENT_PROVIDER_UNAVAILABLE` y **libera la reserva**, que es el comportamiento money-safe correcto. Es
+entorno, no producto (`DEVOPS_NOTES` §31), **no toca el eje de este gate** y **no cambia el veredicto**.
+
+---
+
+**VEREDICTO FINAL: ✅ APROBADO-CON-CONDICIONES.** 0 críticos, 0 altos abiertos ⇒ el criterio de rechazo del
+DoD no se dispara. **GE-1 cerrada y verificada en vivo.** Se puede **encender `gradedEstimatesEnabled`**
+con C1-C2 acompañando. **NO** se puede encender la fase 2 (C0) ni ejecutar el cut-over de producción con el
+runbook actual (C3). Las medias abiertas (GE-2, SEC-M43-1, SEC-M43-2) quedan registradas aquí con dueño y
+disparador, tal como exige el DoD.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-29 · HEAD `1f73654` · verificado en vivo contra stack reiniciado
+
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════
      GATE DE RELEASE — FUSIÓN pricing-v2 × P-47 (2026-08-28) — se antepone. Todo lo anterior

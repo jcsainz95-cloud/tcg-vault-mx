@@ -4,6 +4,490 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §26 · El *breaking* de `intent`, la captura manual y la lista de revisión (contrato v1.50.2 / v1.50.3) — 2026-08-28
+
+> Rama `claude/psa-graded-card-value-gmhv5u`, sobre `397db13`. Cierra el **bloqueante** del rechazo
+> de QA + techlead, más el trabajo adicional de la rev **v1.50.3** del arquitecto.
+
+### 1. El bloqueante: `intent` no existía **en el tipo**, así que nadie podía mandarlo
+
+`POST /admin/pricing/override` empezó a exigir `intent` con `productType:"graded"`
+(`422 GRADED_INTENT_REQUIRED`). El cliente no lo mandaba en ningún sitio — y no por descuido: el
+campo **no existía en `PricingOverrideInput`**. Tres superficies vivas de dinero devolvían 422
+contra el backend real: M1 › Gradeadas (la vía que el contrato llama *normativa* para el valor de
+mercado por carta+grado), `VariantPriceConsole.fixMarket` con `productType="graded"` desde el cajón
+de variante, y cualquier pendiente `graded` de la cola de M2.
+
+**El arreglo no es «pasar el campo»: es que el compilador no deje NO pasarlo.**
+`PricingOverrideInput` pasa de interfaz plana a **unión discriminada por `productType`**, la misma
+técnica que `VariantPriceConsoleProps` ya usaba para exigir `gradeKey` en graded:
+
+| Rama | Exige | Prohíbe |
+|---|---|---|
+| `{ productType: 'graded'; intent: PricingOverrideIntent }` | `intent` | — |
+| `{ productType: 'raw' \| 'sealed'; intent?: never }` | — | `intent` (el contrato lo ignoraría) |
+
+Con eso, **olvidar `intent` no compila**, y el fallo no puede repetirse por el mismo camino. Los
+tres llamadores declaran **`market`**: los tres fijan el precio real de piezas publicadas. En
+`PendingQueueSection` el `entry.productType` es `ProductType`, así que el body se arma **por rama**
+en vez de con un spread — el compilador obliga a decidir, que es justo el punto.
+
+`intent?: never` en raw/sealed es deliberado: el contrato dice que ahí «se ignora si viene», y un
+campo que el servidor tira en silencio no debe poder escribirse.
+
+### 2. El agujero de producto: **no existía UI capaz de mandar `graded_estimate`**
+
+`grep -rn "intent" frontend/src` daba **cero**. La captura manual que §O.6 conserva como herramienta
+de curaduría y respaldo del ingest era **inalcanzable desde el back-office**: el gancho dependía por
+completo del ingest automático, que está apagado.
+
+Nueva **Sección 5d de M2 · `GradedEstimateCaptureSection`** (`super_admin`, como todo M2):
+
+- **Buscador de carta** sobre `GET /buylist/cards` (todo el catálogo, no solo lo publicado: la fila
+  de estimado cuelga de `Card`, no del inventario).
+- **Pre-vuelo** con `GET /admin/pricing/graded-estimates/preview` — endpoint que el cliente **no
+  consumía** y que ya existía en contrato y backend. De ahí sale `publishedSlabGrades`: el grado con
+  slab publicado se **deshabilita con el motivo a la vista**, antes de escribir.
+- **Una petición por grado**, secuencial y tolerante: un `Promise.all` habría que abortarlo entero
+  al primer 409 y perdería la escritura del grado legítimo. El grado que falla **conserva** lo
+  tecleado; el que se guarda se limpia.
+- **Money-safe:** campo vacío o `≤ 0` no se manda (no se publica una cifra de MX$0), y los campos
+  vacíos no se tocan.
+
+**Por qué el pre-vuelo no sustituye al 409.** Puede estar rancio (alguien publica un slab entre la
+lectura y el guardado) y, sobre todo, `publishedSlabGrades` viaja **dentro de cada grupo raw**: una
+carta sin grupo raw publicado no tiene de dónde sacarlo. En ese caso **no hay pre-vuelo** y el 409 es
+la única guarda — por eso se muestra por grado, traducido y con sus `details`.
+
+**La frontera con M1 › Gradeadas se dice en la UI, no solo en un comentario.** La misma fila la
+escriben dos flujos con intenciones opuestas, así que cada superficie declara cuál es la suya: banner
+`boundaryTitle`/`boundaryBody` en M2 y una línea visible (no `sr-only`, no `title`) en M1 ›
+Gradeadas, más el `fixValueHelper` reescrito.
+
+### 3. Traducciones de los códigos nuevos — y el `details` que sí se aprovecha
+
+`GRADED_INTENT_REQUIRED`, `GRADED_ESTIMATE_SLAB_PUBLISHED`, `GRADING_SORT_REQUIRES_FILTER` y
+`GRADED_CONFIG_INVALID` daban `null` en `messages/{es,en}.json` ⇒ el operador leía el volcado crudo
+del backend (o el genérico).
+
+Lo interesante es el **409**: trae `details` accionables (`publishedSlabCount`, `gradeKey`), y el
+mensaje que §O.8 exige —«esta carta ya tiene N PSA 10 publicadas; eso es dinero real»— **necesita esa
+cifra**. `useErrorMessage` gana una tabla `DETAILED_ERRORS`: si el código tiene variante
+`error.<CODE>_WITH_DETAILS` **y** el backend mandó lo necesario, se usa el copy rico; si no, el copy
+base. **Nunca** se pinta un placeholder crudo ni se inventa un número. El mapeo es explícito por
+código, no mágico: un `t(key, details)` a ciegas renderizaría `{count}` en cuanto un backend dejara
+de mandar el campo.
+
+`gradeKey` deja de interpolarse a mano en cuatro sitios: `lib/gradeKey.ts`
+(`buildGradedKey`/`parseGradedKey`/`gradeLabelFromKey`). Un `gradeKey` mal armado no falla
+ruidosamente — **escribe otra fila**, y el síntoma aparece después y en otro sitio.
+
+### 4. v1.50.3 · Lista de revisión (criterio 111(e)) — Sección 5e de M2
+
+Es la **contrapartida** de §4.38(k.3): aceptamos no ocultar la cifra incoherente en la ficha *a
+cambio* de que alguien pudiera revisarla. Sin la lista publicábamos el número malo **y** perdíamos la
+señal. `preview` exige `cardId` («¿por qué **esta** carta?»); esto contesta «¿de qué cartas debo
+sospechar?».
+
+Las cuatro reglas que la UI **no** puede relajar, cada una con su test:
+
+1. **Default = los tres motivos de coherencia.** `SLAB_PUBLISHED` entra por casilla opt-in: es
+   accionable pero **no es un dato erróneo**, y por defecto ahogaría la señal. Se afirma sobre la
+   **query real** (`reason=NOT_ABOVE_RAW,ABOVE_MAX_MULTIPLE,GRADE_ORDER_INVERTED`), no sobre un espía.
+2. **`truncated` se pinta** como alerta con el conteo escaneado. Truncar en silencio produce la falsa
+   confianza de «no hay nada que revisar», que es peor que no tener lista.
+3. **Con la feature apagada la tabla sigue**, y se avisa. Si solo funcionara encendida, habría que
+   **publicar las cifras malas para poder descubrirlas**.
+4. **`409 GRADED_CONFIG_INVALID` no se degrada a lista vacía**: se muestra el error y **no** una tabla.
+
+Cada fila explica **qué error suele haber detrás** (`NOT_ABOVE_RAW` → «suele ser un importe en
+dólares capturado como pesos»), que es lo que la convierte en una acción y no en una etiqueta. El
+«marcar como revisada» y los avisos proactivos se declaran **fuera de alcance en la propia pantalla**,
+en vez de fingir que existen.
+
+**No hizo falta patrón nuevo del sistema de diseño**: es `DataTable` + el mismo pager server-side de
+M3/M5. No se inventó nada visual.
+
+### 5. Seeds v1.50.3 y los cinco diales del gate de confianza
+
+`GradedEstimateConfigDTO` estaba **desactualizado** respecto del contrato: le faltaban
+`ingestEnabled`, `manualFreshnessDays`, `maxRawMultiple`, `minSampleCount`, `sourceStat` e
+`ingestMaxCardsPerRun`. Se alinea el espejo y se corrigen los seeds del mock
+(`manualFreshnessDays: null → 30`, `minSampleCount 5`, `maxRawMultiple 100`).
+
+El panel los **muestra read-only**: cambian lo que el operador ve —con 30 días un estimado capturado
+a mano **caduca**, y `maxRawMultiple` es el tope contra el que la lista marca `ABOVE_MAX_MULTIPLE`— y
+no había dónde consultarlos. **Editarlos** sigue siendo por API: cada uno trae su rango normativo
+propio y meter cinco campos con validación en el pase que arregla el bloqueante habría mezclado dos
+cosas. Deuda registrada como **F-20**.
+
+### 6. La cobertura que ata el cuerpo de la petición al contrato
+
+**El hueco estructural** que dejó pasar todo esto: los tests de las pantallas que fijan precio
+**espían `api.overridePrice`** y afirman *que se llamó*. Nadie miraba **qué se manda**, así que el
+*breaking* pasó la suite entera en verde mientras tres superficies de dinero devolvían 422.
+
+`src/test/pricing-override-intent.test.tsx` cierra eso: `config.useMocks = false`, `fetch` **ruteado
+por URL**, componentes reales, y se afirma el **body HTTP literal** de cada superficie —incluido que
+raw manda `finish` y **ningún** `intent`, y que graded **omite** `finish`—. Más los dos códigos de
+error nuevos vistos por el operador. 10 tests. La lista de revisión añade otros 7 con la misma
+técnica sobre la **query**.
+
+En E2E se añaden dos casos a `e2e/grading-estimate.spec.ts`: el bloqueo de §O.8 llegando al operador
+**por grado** (PSA 10 se publica, PSA 9 rebota con su 409 traducido) y el default/opt-in de la lista
+de revisión.
+
+**Los mocks replican la guarda, no la esquivan:** `overridePrice` en modo mock aplica el mismo
+`publishedSlabsForGradeKey` que el backend y lanza el 409 con sus `details`. Sin eso, Playwright
+—que corre en mocks— no podía verificar de punta a punta el bloqueo que §O.8 exige.
+
+### 7. Verde (números reales, esta rama)
+
+`npx tsc --noEmit` ✓ 0 errores · `npx next lint` ✓ 0 warnings · `npx vitest run` **90 archivos /
+751 tests, 751 passed** ✓ (734 → 751: **+17** de este pase) · `npx next build` ✓ (compilado + 62
+páginas estáticas) · `npx playwright test e2e/grading-estimate.spec.ts` **11/11 passed** ✓ ·
+**suite Playwright COMPLETA: 97/97 passed** ✓ — incluido `catalog.spec.ts`, que confirma una vez más
+que **F-17 está muerto**.
+
+> ⚠️ **Nota de arnés para QA/devops (no es un fallo de producto).** En este entorno había **otro
+> `next dev` en el puerto 3000 levantado sin `NEXT_PUBLIC_USE_MOCKS`**, y `playwright.config.ts` usa
+> `reuseExistingServer: !isCI` ⇒ Playwright **reutilizó ese server** y los 9 specs del gancho
+> fallaron en bloque hablando con el backend real. Se corrió contra un server propio
+> (`E2E_BASE_URL=http://localhost:3100 E2E_MOCKS=1`, build de producción). Un `next dev` reusado
+> también se degradó tras varias recompilaciones (`<main>` vacío) y volvió a la normalidad al
+> reiniciar: **para gates, `next build` + `next start`, no `next dev`**.
+
+### 8. Para el arquitecto (no bloquea; nada se resolvió por cuenta propia)
+
+1. **`publishedSlabGrades` es un hecho de CARTA que solo viaja dentro de `groups[]`.** Si la carta no
+   tiene ningún grupo raw publicado, `groups: []` y el pre-vuelo **no puede avisar** del bloqueo
+   INV-D, aunque el 409 sí llegue. Es exactamente el caso de curaduría interesante: carta con slab
+   publicado y sin raw en venta. Si se quiere pre-vuelo completo, el sitio natural sería subir
+   `publishedSlabGrades` a la **raíz** de `GradedEstimatePreviewResponse` (aditivo, sin romper nada).
+   **No se ha asumido**: hoy la UI se apoya en el 409, que es la guarda autoritativa.
+2. **La vitrina sigue sin «Ver todas»** (§22.6 / §22.12 nº6): no existe una vista de Compra filtrada
+   por elegibles a la que enlazar sin mentir. Se mantiene omitido. *(Heredado de §25.)*
+
+## §25 · Fusión del gancho de grading con `main` (pricing v2 / P-48) — 2026-08-28
+
+> Merge de `origin/main` (curva de precio por valor de mercado, **ya en producción**) sobre la rama
+> del gancho. Seis conflictos en `frontend/` + este documento. Fuente de verdad tras la fusión:
+> contrato **v1.50 / v1.50.2**, `DESIGN_SYSTEM §22` (renumerado desde §21, que main ocupó con la
+> curva) y `PROJECT §O` (criterios **97–112**, antes §N / 79–92).
+
+### 1. El cambio de shape que desbloqueó todo: `gradingHighlight` se MUEVE al Summary
+
+Main partió el DTO de singles en dos (**D2**): `GroupedListingDTO` es el de la **ficha** y
+`GroupedListingSummaryDTO` el de la **rejilla** (catálogo + home), con lista blanca de campos —sin
+`priceBasis` ni `referenceValue`—. Mi marcador de curaduría vivía en `GroupedListingDTO`, así que
+**se caía de la rejilla en silencio**: la teja compilaba y no pintaba nunca.
+
+El arquitecto resolvió (contrato **v1.50.2**) admitirlo en el Summary: D2 protege la *economía de
+enumerar*, y ese argumento decae cuando existe un **enumerador público** del propio campo — y aquí
+existe porque lo construimos a propósito (`?gradingHighlight=true&sort=grading_showcase`). Aplicado
+en el cliente:
+
+| Antes (v1.50) | Ahora (v1.50.2) |
+|---|---|
+| `GroupedListingDTO.gradingHighlight?` | **`GroupedListingSummaryDTO.gradingHighlight?`** |
+| ficha podía leerlo en `listings[i]` | **derogado**: la ficha usa `gradedEstimates` de la raíz |
+
+- `types/contract.ts`: el campo **se mueve** (no se duplica). Que sean dos tipos distintos es lo que
+  hace que el compilador —y no una convención— cierre el camino derogado: releer el marcador desde
+  `listings[i]` de la ficha ya no compila.
+- Retipados contra el Summary: `_shared/grading/estimates.ts` (`badgeEstimatesOf`,
+  `pageHasGradingFigures`), `GradingEstimateBadge.tsx` y `_home/GradingGemsShelf.tsx` (`gemsOf`).
+- `lib/mock/fixtures.ts`: `groupMockListings()` queda como agrupador de la **ficha** y se añade
+  **`groupMockSummaries()`**, que deriva del mismo agrupador el DTO de rejilla (quita las dos
+  señales de precio de D2, añade el marcador). `getCatalog()` mock consume el segundo. Rejilla y
+  ficha no pueden divergir en stock, precio ni representante porque salen de la misma función.
+- El DTO de la **ficha** conserva `gradedEstimates` en la raíz, sin cambios: sigue **sin gatear**.
+
+### 2. `Fact` extraída vs. `FactGrid` de main — el conflicto con miga
+
+Main añadió a `CardDetailView` una `interface FactSpec` + una `FactGrid` **exactamente donde yo había
+extraído la celda `Fact`** a `_shared/Fact.tsx`. Resolución:
+
+- Se conservan **`FactSpec` y `FactGrid` de main** (arman la retícula de precio sobre la lista de
+  hechos ya filtrada por `priceBasis`, §21.8b-1) y **se borra la `Fact` inline**: la celda vive en
+  `_shared/Fact.tsx` y `FactGrid` la importa. Compatibilidad verificada campo por campo — `FactGrid`
+  pasa `label` (string ⊂ `ReactNode`), `note?: string` y `className?: string`, que es exactamente lo
+  que la celda extraída acepta. Cero cambio visual en la ficha.
+- El bloque del gancho **reutiliza la celda, nunca `FactGrid`** (§22.3): `FactGrid` es el contenedor
+  de los hechos de **precio** y fija su propia regla (`border-border`); el gancho necesita **regla de
+  tinta** y debe leerse como **otra categoría** (R2). Pedirle una prop de tono a `FactGrid` sería
+  modificar un componente existente, que es justo lo que §22 se prohíbe.
+- **Divisor posicional (§21.8b-2, norma de main).** El bloque pasa de `i > 0` a **`i % 2 !== 0`**:
+  el divisor es de la **posición**, no del hecho. Con `i > 0`, una tercera cifra —si el dial `grades`
+  creciera— heredaría un `sm:border-l` **abriendo fila**, que es el bug exacto que esa norma cerró.
+- **Prohibido** empujar el estimado como quinto `FactSpec` (mismo grid = misma categoría) y el
+  estimado **nunca lleva versalita de `priceBasis`/`PriceBasisTag`**: un estimado no tiene base de
+  precio. Ninguna de las dos cosas se hizo; quedan anotadas porque ahora son **una línea de código**.
+- Bonus de §21.8f: main retira la línea «Valor de mercado» de las tejas de Compra ⇒ la teja **encoge
+  ~16px** y el coste del micro-aviso (§22.5) queda casi nulo en escritorio. El espacio recuperado se
+  queda en **aire**, no en un elemento nuevo.
+
+### 3. Estado nuevo en la tabla de §22.7: fresca + gate cumplido + **no confiable**
+
+Caso que antes no existía (**R6**): la ficha **sí** pinta el bloque, la teja y la vitrina **no**. Es
+**indistinguible en el DOM** del caso «no pasa el gate de ROI» —y **debe** serlo (R5 / SEC-A1: el
+criterio no se filtra al cliente)—. No se añadió marca, ni `data-*`, ni clase, ni tinta atenuada.
+Cubierto como estado **correcto** en dos tests nuevos:
+
+- `CardDetailView.test.tsx` — con un PSA 10 por **debajo** del raw (la cota inferior de R6: el error
+  de USD capturado como MXN) la ficha informa igual, con su micro-aviso y su nota; se afirma que
+  **ningún atributo del DOM** menciona confianza/gate/muestra y que el texto tampoco.
+- `CatalogTile.test.tsx` — las dos causas de supresión producen el **mismo `outerHTML`**, y la teja
+  no expone atributo alguno que nombre el criterio.
+
+### 4. Mensajes (`messages/{es,en}.json`)
+
+- Hunk 1: main **borra** `admin.m2.tierRules`/`tierMap` (los sustituye la curva) y añade
+  `admin.m2.curve`. Resolución: **`curve` + `gradedEstimates`**, tirando `tierRules`/`tierMap`. El
+  marcador de conflicto cortaba a media estructura, así que se resolvió por bloques completos y se
+  verificó **con el JSON parseado**, no a ojo: **cero** claves de main perdidas, **cero** valores
+  divergentes, y las claves de bounties que main añadió después intactas.
+- Hunk 2: códigos de error disjuntos ⇒ se conservan **todos** (`CURVE_*`/`BUY_*`/`BIN_*` de main +
+  `GRADING_TIERS_*` míos).
+- Paridad ES/EN verificada por script: **2179 claves, cero asimetrías**, con 59 claves del gancho.
+
+### 5. Renumeración aplicada
+
+`§21.x → §22.x` y `§N.x → §O.x` **solo en los archivos del gancho**; los `§21` que el propio §22 cita
+**hacia la curva de main** (§21.8/§21.8b-2/§21.8f, `PriceBasisTag` §21.9a) son **cruzados a
+propósito** y se conservan. Igual con `§N` cuando habla de la curva (`fixtures.ts` seed de la curva,
+bounty rebasado §N.6, `priceBasis` §N.7). Criterios de aceptación: **+18** (79–92 → 97–110); las
+referencias a `criterio 84` de main (rareza que no interviene en el monto) **no** se tocaron.
+Etiquetas de contrato `v1.44-graded-estimate` → **`v1.50`/`v1.50.2`**.
+
+### 6. Verde tras la fusión (números reales, esta rama, modo mocks)
+
+`npx tsc --noEmit` ✓ (0 errores) · `npx next lint` ✓ (0 warnings) · `npx vitest run` **88 archivos /
+734 tests, 734 passed** ✓ · `npx next build` ✓ (compilado + 62 páginas estáticas) ·
+`npx playwright test e2e/grading-estimate.spec.ts` **9/9 passed** ✓.
+Adicional: `npx playwright test e2e/catalog.spec.ts` **13/13 passed** — el fallo **F-17** que se
+arrastraba de `origin/main` **no reprodujo** en este entorno (mock mode); se deja la anotación de
+`docs/TECH_DEBT.md` como está, porque no es mío ni lo toqué.
+
+### 7. Para el arquitecto (no bloquea; ninguna se resolvió por cuenta propia)
+
+1. ~~**Bullet contradictorio vivo en el contrato.**~~ **✅ CERRADO (2026-08-28).** El arquitecto lo
+   derogó **explícitamente** en `API_CONTRACT.md:3004` («⛔ v1.50.2 — los `listings[i]` de esta
+   respuesta NO traen `gradingHighlight`. *Este bullet decía lo contrario hasta v1.50.2 y queda
+   DEROGADO*»). Ya no hay dos afirmaciones opuestas: el contrato dice una sola cosa y es la que el
+   cliente implementó. **Nada que hacer en el cliente** — el tipo ya lo impide (`gradingHighlight`
+   vive solo en `GroupedListingSummaryDTO`). Se deja tachado, no borrado, para que la petición no se
+   reabra por olvido.
+2. **La vitrina sigue sin «Ver todas»** (§22.6 / §22.12 nº6): no existe una vista de Compra filtrada
+   por elegibles a la que enlazar sin mentir. Se mantiene omitido.
+
+## §24 · «Valor estimado si se gradea» — gancho de grading (2026-08-23, contrato v1.50-graded-estimate / DESIGN_SYSTEM §22)
+
+> Rama `claude/psa-graded-card-value-gmhv5u`. Implementa PROJECT §O (v2.0), contrato
+> **v1.50-graded-estimate** y **DESIGN_SYSTEM §22**. Cambio **aditivo**: sin `gradedEstimates` /
+> `gradingHighlight` en la respuesta, todas las superficies se ven **exactamente como hoy**.
+
+### Piezas nuevas
+| Archivo | Qué es |
+|---|---|
+| `(storefront)/_shared/grading/estimates.ts` | Predicados de render (`renderableEstimates`, `blockEstimatesOf`, `badgeEstimatesOf`, `pageHasGradingFigures`, `oldestCapturedDate`). **Única** fuente de verdad de «¿hay cifra que pintar?». |
+| `(storefront)/_shared/grading/GradingFootnote.tsx` | `GradingFootnoteBoundary` (contexto + nota), `GradingNoteCall` (la llamada `*`) y la nota al pie. |
+| `(storefront)/_shared/grading/GradingEstimateBlock.tsx` | Bloque de la ficha (§22.3). |
+| `(storefront)/_shared/grading/GradingEstimateBadge.tsx` | Badge de la teja / vitrina (§22.5). |
+| `(storefront)/_shared/grading/GradingMicroNotice.tsx` | **El micro-aviso adyacente visible** (§22.4c) + su llamada `*`. Único portador del aviso en las tres superficies. |
+| `(storefront)/_shared/grading/HypotheticalGradeChip.tsx` | Chip de grado hipotético, borde punteado (§22.2). |
+| `(storefront)/_home/GradingGemsShelf.tsx` | Vitrina «Joyas para gradear» + `useGradingGems()` (§22.6). |
+| `(storefront)/_shared/Fact.tsx` | La celda `Fact` de la ficha, **extraída tal cual** de `CardDetailView` para reusarla en el bloque. Único ensanchamiento: `label` pasa de `string` a `ReactNode` (la etiqueta del gancho lleva el chip). Cero cambio visual. |
+
+Tocados: `types/contract.ts` (espejo del contrato), `lib/api.ts` (`gradingHighlight` + `sort=grading_showcase`), `lib/mock/fixtures.ts`, `catalog/CatalogTile.tsx`, `catalog/CatalogView.tsx`, `catalog/[cardId]/CardDetailView.tsx`, `(storefront)/page.tsx`, `messages/{es,en}.json`.
+
+### Cómo se resolvió el acoplamiento llamada ↔ nota (§22 R3.3) — lo importante
+El requisito es que **un refactor no pueda dejar cifras huérfanas**. En vez de repetir la condición
+en cada sitio, hay **un solo booleano por página** que hace **dos cosas a la vez**:
+
+```tsx
+<GradingFootnoteContext.Provider value={active ? anchors : null}>
+  {children}
+  {active && <GradingEstimateNote />}
+</GradingFootnoteContext.Provider>
+```
+
+- **Toda** cifra (`GradingEstimateBlock`, `GradingEstimateBadge`) y la propia `GradingNoteCall`
+  **exigen el contexto**: sin boundary activa devuelven `null`. Mover un badge a una página que no
+  hospeda la nota **no produce una cifra sin aviso: produce nada** (fail-closed, la dirección
+  correcta del error en una superficie comercial).
+- El `active` de cada página se deriva **siempre** de los helpers de `estimates.ts`, nunca de una
+  regla copiada: ficha `blockEstimatesOf(detail) !== null`; Compra
+  `pageHasGradingFigures(catalogQuery.data?.data)` (se reevalúa al filtrar/paginar, §22.4b); home
+  `pageHasGradingFigures(gemsOf(gems.data))` — la **misma** query que alimenta la vitrina, deduplicada
+  por `queryKey`, así que vitrina y nota no pueden divergir.
+- El `Provider` se renderiza **siempre** (solo conmuta su valor): cambiar el tipo de nodo al paginar
+  desmontaría la vista y perdería el estado de filtros.
+- Enlace de regreso: la boundary recibe `returnToId` (ficha → la llamada, que ahí **sí** es enlace;
+  Compra → `#catalogo-resultados`; home → `#joyas-para-gradear`). Todos con
+  `scroll-mt-[calc(var(--app-header-h,0px)+16px)]`, nada de `top` hardcodeado.
+- Tests que lo fijan: `gradingEstimates.test.tsx` («fuera de una boundary activa, ninguna cifra se
+  pinta»), `CatalogView.test.tsx` (página con badges ⇒ nota; pestaña Gradeadas ⇒ ni cifra ni nota) y
+  `CardDetailView.test.tsx` (ficha con bloque ⇒ nota completa sin interacción).
+
+### Iteración por `gradeValue`, nunca por índice
+`GradedEstimateDTO[]` se recorre leyendo `gradeValue`/`gradingCompany`; **no hay ningún `[0]`** ni
+supuesto de longitud. Añadir o quitar un grado (diales `grades` / `highlightGrades`) **no toca el
+cliente**: el bloque pinta una celda por elemento y el badge un renglón por elemento. La única
+lectura posicional es **tipográfica** (la primera cifra es el premio mayor, §O.3/§22.1), que es
+justo lo que el diseño pide y no rompe si cambia el conjunto de grados.
+
+### Colores y tipografía — cero tokens nuevos
+- **Ningún hex literal** y **ningún token nuevo**. Solo utilidades ya mapeadas a tokens semánticos:
+  `text-text`, `text-muted`, `border-border`, `border-border-strong`, `border-text`, `text-accent`.
+  Por eso la trampa de §2.3 (que aún lista el bermellón retirado `#B44B3A` en vez del rojo TCG HUNT
+  vigente) es inocua: `text-accent` resuelve a `--color-accent` en runtime.
+- El acento tiene **un solo empleo**: la llamada `*` y su marcador en la nota (R1). Ninguna cifra,
+  etiqueta, fondo o borde del gancho lleva color. Sin verde de dinero, sin rojo de oferta, sin cajas.
+- Voz (R2): el precio de venta sigue en sans 500 30px; los estimados son **mono tabular** 22/17px
+  (20/16 móvil) en un contenedor aparte con su regla de tinta, y **el bloque no contiene ningún
+  precio real**.
+
+### Money-safe
+`renderableEstimates` descarta cualquier elemento sin `referenceMxnCents > 0` o con
+`status !== 'priced'`, y devuelve **`null`** (no `[]`) cuando no queda nada — así es imposible
+renderizar un contenedor vacío por descuido. Nunca `$0`, ni `—`, ni «pendiente», ni **skeleton**: la
+vitrina del home es la excepción ratificada a §8.1 (aparece resuelta o no aparece).
+
+### i18n
+Claves nuevas bajo `catalog.gradingEstimate`, `catalog.gradingBadge`, `catalog.gradingNote` y
+`home.gradingGems`, en ES y EN (el test de paridad las cubre). El disclaimer se pinta **una clave por
+párrafo con rich text** (`<b>` → `<strong>`), jamás concatenando. Dos desviaciones deliberadas del
+esquema de §22.11, ambas para poder copiar el texto aprobado **sin reescribirlo**:
+- **`p1…p6`** (no `p1…p5`): el texto de PROJECT §O.5 tiene **seis** párrafos y el humano lo quiso
+  íntegro; el diagrama de §22.4b omite el primero.
+- **Sin `psa10Label` / `psa9Label`**: serían claves por grado cableado, que contradicen la regla de
+  iteración del contrato. La etiqueta de celda es `ifGradesLabel` («SI SALE») + el chip, que ya
+  compone «SI SALE PSA 10» para cualquier grado que mande el servidor.
+- `catalog.gradingBadge.approx` es nueva y existe por accesibilidad: el glifo `≈` va `aria-hidden` y
+  su lectura («aproximadamente») viaja en `sr-only` dentro del mismo `t.rich` (§22.9).
+
+### Textos MARCADOR DE POSICIÓN (pendientes de PO — §22.12 nº2)
+Los dos `microNotice` (`catalog.gradingBadge.microNotice`, `catalog.gradingEstimate.microNotice`) y
+`catalog.gradingNote.callSr` usan **los textos propuestos por ux-ui en §22.11**, tomados a su vez de
+§O.5. Son texto legal-comercial: los fija PO (idealmente con la misma revisión legal del
+disclaimer). Cambiarlos es editar `messages/{es,en}.json`, sin tocar código.
+
+### Un solo grado disponible — RESUELTO (ya no hay discrepancia)
+La versión anterior de estas notas reportaba una discrepancia con §22.7 («falta un grado ⇒ nada» en
+la ficha). **Ya no existe:** ux-ui alineó §22.7 con `PROJECT §O.3(1)/§O.4` y el contrato v1.50 —
+«se muestra lo que haya»— y añadió la forma: con **una sola cifra la retícula colapsa a una
+columna** a ancho completo. El código ya hacía lo primero y ahora hace también lo segundo (ver
+«Ronda de corrección», D6). No queda nada abierto para PO/ux-ui por este punto.
+
+### Mocks (`lib/mock/fixtures.ts`) — MOCK: pendiente de backend real
+`mockGradedEstimatesByCardId` (ficha, sin gatear), `mockGradingShowcaseCardIds` (lista **ya curada y
+ordenada** por el gate) y `mockGradingHighlightGrades` (dial del badge). El fixture **no calcula** el
+gate ni la ganancia: reproduce el **resultado** que el servidor ya resolvió. Cobertura de estados:
+Blastoise / Pikachu IR (bloque + badge + vitrina), Milotic FA (**bloque sí, badge no** — estado
+normal de §22.7, no un bug), Eevee (un solo grado), Pikachu (sin estimados ⇒ nada).
+
+### Verde (gate pre-publicación — primera entrega)
+`tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **81 archivos / 653 tests** ✓ (33 nuevos) ·
+`next build` ✓. Nota: `page.test.tsx` del home necesitó `useRouter`/`usePathname` en su mock de
+`@/i18n/navigation` porque la vitrina reusa la teja de Compra.
+
+## §24b · Gancho de grading · RONDA DE CORRECCIÓN tras el rechazo de QA (2026-08-23)
+
+> Rama `claude/psa-graded-card-value-gmhv5u`. Cierra el **bloqueante de QA** (cifras estimadas sin
+> aviso visible), el **IMPORTANTE-1** (cero cobertura Playwright), **D2** (el humano no podía
+> encender ni configurar su propia feature) y la deuda **D5/D6/D7** del techlead. La raíz del
+> bloqueante era de diseño y **ya venía corregida**: se implementa `DESIGN_SYSTEM §22` en su
+> versión con el micro-aviso restaurado (commit `6569df6`).
+
+### 1. El bloqueante: micro-aviso VISIBLE, no `sr-only` (R3, §22.4c)
+Lo que QA capturó del DOM (`ESTIMADO SI SE GRADEA*` / `PSA 10 ≈ MX$29,000.00` **sin aviso visible**)
+ya no se puede producir, porque el aviso dejó de ser un detalle de cada superficie y pasó a ser **un
+componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
+
+- **`GradingMicroNotice` es el único portador del aviso** y **lleva la llamada `*` dentro**: aviso y
+  llamada son inseparables por construcción. No tiene prop para apagarse, ni variante corta que
+  pierda una idea, ni `truncate`/`line-clamp`. Fuera de una boundary de nota al pie devuelve `null`
+  —el mismo fail-closed que la cifra—, así que **no puede existir cifra sin aviso ni aviso huérfano**.
+- **La teja pierde el eyebrow** y su `sr-only`. «ESTIMADO» y «Ilustrativo» eran **la misma idea**, y
+  §O.5 exige que las dos ideas vivan **en el micro-aviso**: lo que sobraba era el eyebrow. El
+  condicional se incorporó a la cifra —`figure` «En PSA 10 vale ≈ {amount}» (`sm+`) y `figureShort`
+  «PSA 10 ≈ {amount}» (móvil)—, con lo que el aviso **cabe sin añadir un tercer renglón**.
+  Las dos longitudes se resuelven con `hidden sm:inline` / `sm:hidden` (el mismo patrón que ya usa el
+  CTA de la teja): solo una se renderiza a la vez, así que **no hay texto duplicado** para el lector
+  de pantalla.
+- **La ficha cambia `provenance` por `microNotice`**: el renglón viejo cargaba «no evaluamos esta
+  pieza» pero **no** «ilustrativo», y §O.5 anticipa ese fallo con todas sus letras. La procedencia se
+  conserva como inciso dentro del aviso. La **llamada `*` se movió del eyebrow al final del aviso**
+  (en la ficha es un enlace real al pie; en la teja, un `<sup>` — la teja entera ya es un enlace).
+- **`callSr` se acorta a «Ver nota al pie.»** (§22.11): con el aviso visible delante, duplicar las
+  dos ideas en el texto accesible las haría oírse dos veces seguidas.
+- **i18n:** nuevas `catalog.gradingEstimate.microNotice`, `catalog.gradingBadge.{figure,figureShort,
+  microNotice}`; retiradas `catalog.gradingEstimate.provenance` y `catalog.gradingBadge.eyebrow`.
+  Las dos ideas van en **tinta 500** con rich text (`<b>`), nunca partiendo la frase en dos claves.
+
+### 2. Deuda del techlead cerrada en código (D5, D6, D7)
+- **D5 — la fecha ahora es la MÁS ANTIGUA.** `latestCapturedDate` → **`oldestCapturedDate`**. Un solo
+  rótulo cubre todas las cifras del bloque: con PSA 10 de hoy y PSA 9 de hace 29 días, «hoy» estaría
+  **afirmando de más** sobre un dato de casi un mes. La lectura conservadora coincide además con el
+  criterio de frescura del backend.
+- **D6 — la retícula colapsa con un solo grado.** `grid sm:grid-cols-2` pasa a
+  `cn('grid', items.length > 1 && 'sm:grid-cols-2')`, tal como pide §22.7: sin media retícula vacía
+  ni `sm:border-l` huérfano. El test nuevo verifica **la retícula**, no solo el texto.
+- **D7 — nota obsoleta retirada.** La sección «Discrepancia REPORTADA» y el `⚠️` de
+  `gradingEstimates.test.tsx` desaparecen: §22.7 ya está alineada y el código era correcto.
+
+### 3. D2 — el dueño ya puede encender y configurar su feature (criterio 110(e))
+- **M10 · interruptor maestro:** `gradedEstimatesEnabled` entra en `DIALS` como dial **`onOff`**
+  (Select cerrado `off | on`, no texto libre) y viaja por el `PUT` parcial de siempre —**sin
+  redeploy y auditado**—. Un dial ausente en la respuesta se lee **`off`** (fail-closed, como el seed).
+- **La UI advierte lo que ese dial hace.** Encenderlo **publica una afirmación comercial** cuyo
+  disclaimer aún espera el visto bueno del humano: al tocarlo y dejarlo encendido aparece un aviso
+  `role="alert"` que lo dice, y que aclara que **no cambia ningún precio de venta, valuación ni
+  cotización** (criterio 108). Hay además una nota permanente que remite a M2 para el resto de la config.
+- **M2 · Sección 5c `GradedEstimatesSection`:** editor de los **escalones de costo de gradeo**, el
+  **margen mínimo** y la **frescura**, con el `enabled` como **espejo read-only** de M10.
+  **Los invariantes I1–I5 se cumplen por CONSTRUCCIÓN, no por regaño:** la tabla no pide `min` y `max`
+  por fila —así es como se producen huecos y solapes—, pide **una frontera por escalón**; el `min` se
+  **deriva** del `max` anterior, el primero es **0** y el último es **abierto**. No existe el campo que
+  rompería la contigüidad. El último escalón **no se puede borrar** (I1) y el costo se valida contra
+  **`≥ MX$0.01` y `≤ MX$100,000`** (I2): un costo en 0 promocionaría cartas en las que el comprador
+  pierde dinero, así que **bloquea el guardado** en vez de viajar al servidor.
+  La **fuente de verdad sigue siendo el backend**: los 422 (`GRADING_TIERS_EMPTY`,
+  `..._NOT_CONTIGUOUS`, `..._NOT_OPEN_ENDED`) tienen copy propio en `error.*` y se muestran
+  accionables, no como «error genérico».
+- **API/mocks:** `getGradedEstimateConfig` / `updateGradedEstimateConfig` (`enabled` **nunca** se
+  envía: se edita en M10) + `mockGradedEstimateConfig` con el seed de §O.2.1 en centavos.
+
+### 4. Playwright — `e2e/grading-estimate.spec.ts` (IMPORTANTE-1)
+Nueve smoke sobre las **tres superficies**, en modo mocks:
+
+- **Con dato se pinta / sin dato no se pinta nada:** ficha de Blastoise (dos cifras), Eevee (un solo
+  grado), Pikachu (sin estimados ⇒ ni bloque, ni nota, ni rastro), y Milotic ex —**ficha con bloque y
+  teja sin badge**, el estado normal de §22.7 que suele reportarse como bug—.
+- **El caso que QA pidió explícitamente:** se inyecta `.sr-only { display: none !important }` y se
+  comprueba que **el aviso sigue visible** en ficha, teja y vitrina; en el listado y en el home se
+  cuentan los avisos visibles contra las cifras, para que **ninguna quede huérfana en una retícula**.
+- **D8 (techlead), aserción transversal:** `expectFigureImpliesFootnote` afirma **cifra ⇔ nota al
+  pie** en cada escenario, en ambos sentidos (una nota huérfana también falla). La presencia de cifra
+  se detecta por marcas que **solo** produce el gancho (el glifo `≈` y el eyebrow del bloque) y
+  **nunca** por el micro-aviso: usarlo sería circular.
+- El helper `src/test/grading.ts` hace lo mismo en unitarios (`sightedText` retira los `sr-only` del
+  árbol antes de afirmar), así que el bloqueante está cubierto en los dos niveles.
+- **Aviso:** `e2e/catalog.spec.ts:36` («tarjeta de SELLADO») **ya fallaba en `origin/main`**; se
+  reconfirmó en esta rama y **no se tocó** (QA lo excluyó). Queda anotado como **F-17** en
+  `docs/TECH_DEBT.md`.
+
+### 5. Cero tokens nuevos (se mantiene)
+Ni un hex, ni un token nuevo, ni una caja. El micro-aviso es **sans muted** (§22.4c: es prosa, no una
+etiqueta) con las dos ideas en `text-text font-medium`; el acento sigue teniendo **un solo empleo**:
+la llamada `*` y su marcador en la nota.
+
+### Verde (gate de esta ronda)
+`tsc --noEmit` ✓ · `next lint` ✓ (0 warnings) · `vitest run` **82 archivos / 671 tests** ✓ ·
+`next build` ✓ · `playwright test e2e/grading-estimate.spec.ts` **9/9** ✓ ·
+`playwright test e2e/catalog.spec.ts` **9 passed / 1 failed** (el fallo preexistente F-17).
+
 ## §22 · Home «Top Bounties» — de tabla a tarjetas con imagen (2026-08-28, `main`)
 
 Cambio visual pedido por el dueño: la sección de bounties de la home (`_home/BountyBoard.tsx`,
@@ -6870,3 +7354,480 @@ los specs le preguntan a él.**
 
 `tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **84 archivos / 677 tests** ✓ · E2E contra el stack
 vivo (`admin` + `pricing-curve`): **13 verdes / 0 rojos** (6 saltados, clasificados).
+
+---
+
+## v1.50.3-e2e — El gancho de grading entra al gate, y el gate deja de depender de los núcleos
+
+> **Rechazo de QA (dos bloqueantes, ambos del arnés, ninguno de producto).** QA verificó **en vivo**
+> que la feature funciona: el `intent` viaja, la sección de captura existe y su pre-vuelo bloquea el
+> grado con slab, la lista de revisión cumple sus cuatro reglas y las traducciones están. Lo que
+> **no** existía era una prueba automatizada que lo dijera contra el stack corriendo.
+
+### 1. El bloqueante real: la feature no estaba en el gate (no eran «9 rojos»)
+
+Los 9 specs de `grading-estimate.spec.ts` navegaban a **ids de fixture** (`c-blastoise`,
+`c-milotic-fa`, `c-eevee`, `c-pikachu`) y asertaban **montos de fixture** (`MX$29,000.00`), sin
+declarar `mockOnly`. Contra el stack vivo eso son 9 rojos, sí — pero el daño de verdad es otro:
+
+- **en modo mock**, el gancho se probaba contra **sus propias simulaciones**;
+- **en modo real**, las dos únicas specs escritas de forma agnóstica (la captura de back-office y la
+  lista de revisión) llevaban `mockOnly` y se **saltaban** ⇒ **no se probaba nada**;
+- el subset **`@real`**, que es el gate que corre contra la plataforma levantada, **no contenía ni un
+  solo test del gancho**.
+
+Un «97/97» medido en modo mock es cierto y **no puede emitir veredicto** sobre esta feature. QA tenía
+razón: la cobertura que suplió a mano no queda cableada en CI, así que no cuenta.
+
+#### Qué se hizo: reescribirlos agnósticos (la opción cara), no taparlos con `mockOnly`
+
+`e2e/utils/grading.ts` resuelve **qué cartas usar** según el entorno:
+
+| | MOCK | REAL |
+|---|---|---|
+| origen de las cartas | ids de `src/lib/mock/fixtures.ts` | **descubiertas** de `GET /catalog/cards` |
+| origen de las cifras | fixtures | **sembradas por la API del contrato** |
+| oráculo del gate | fixture `mockGradingShowcaseCardIds` | **`GET /admin/pricing/graded-estimates/preview`** |
+| I/O | ninguno | login admin compartido + 5 llamadas |
+
+La siembra usa **exactamente los endpoints que usa el back-office**, no una puerta trasera:
+`PUT /admin/settings { gradedEstimatesEnabled: "on" }` (interruptor maestro §M10, seed `off`
+fail-closed) y `POST /admin/pricing/override` con **`intent:"graded_estimate"`** — que es, por
+§O.6/decisión 47, **la captura de fase 1 del gancho**. Sembrar por ahí ejercita de punta a punta la
+vía que el producto usa de verdad, incluida la obligatoriedad de `intent` (§4.38l); un seed con la
+fila ya puesta probaría **menos**.
+
+**Ningún monto se hornea.** Los importes se derivan de los **diales vivos** del entorno
+(`minUpsidePct`, `gradingCostTiers`, `maxRawMultiple`), resolviendo el escalón de costo por valor
+declarado igual que §O.2.1, y con holgura para no quedar en el filo de un redondeo. Quien dictamina
+si la carta quedó destacada **no es el test**: es el backend, vía `preview` (`eligible` + `reason`).
+El test **elige datos**; el gate lo evalúa el servidor. Si la siembra no consigue dejar la carta
+elegible, el helper **falla ahí** con el `preview` completo en el mensaje, no tres asserts después.
+
+**Los asserts pasan a ser de ESTRUCTURA**: una cifra por grado del dial `grades` (contada sobre el
+texto renderizado, no con `getByText(MONEY_RE).count()` — el selector de texto casa también
+contenedores intermedios y aquí el número exacto *es* la aserción), `MX$…` por formato, y el
+condicional de la teja derivado de la **clave i18n** (`catalog.gradingBadge.figure` cortada en su
+`<approx>`), nunca copiado a mano.
+
+**Resultado: el subset `@real` pasa de 0 a 11 tests del gancho** — ficha (4), teja de Compra (3),
+vitrina del home (2) y back-office (2) —, y **los mismos asserts** corren en los dos modos.
+
+#### Huella en el entorno, declarada
+
+- El dial `gradedEstimatesEnabled` se enciende y **se restaura en `globalTeardown`**
+  (`e2e/global-teardown.ts`), leyendo el valor previo de un archivo de estado. Se hace ahí y **no en
+  un `afterAll`** a propósito: `afterAll` corre **por worker** y apagaría el interruptor con otros
+  workers todavía navegando. Verificado en vivo: tras la corrida, `GET /admin/settings` devuelve
+  `gradedEstimatesEnabled = off`.
+- Las `PriceReference` de estimado **quedan escritas**: el contrato **no expone borrado**. La siembra
+  es **idempotente** (un override posterior supersede al anterior) y con el dial en `off` nada de eso
+  se publica. Ver «Peticiones al arquitecto» abajo.
+
+#### Lo que sigue sin poder correr en real, y por qué (clasificado, no escondido)
+
+| Caso | Marca | Motivo |
+|---|---|---|
+| Pre-vuelo del grado con slab (§O.8 / INV-D) | `mockOnly` | `publishedSlabGrades` viaja **por grupo raw**; hace falta una carta con **raw publicado Y slab publicado del mismo grado**, y el seed sintético no la tiene (su única gradeada no tiene raw publicado). El test además asserta el copy del 409 con literales de fixture. **La cobertura real de esa superficie no se pierde**: la da el nuevo test `@real` de captura. |
+| Lista de revisión: default vs opt-in por conjunto de cartas | `mockOnly` | el conjunto marcado es dato de fixture. Sustituido en real por un test que **compara el resumen de la UI contra la respuesta del contrato** (`total`/`scannedCards`, y el aviso de truncado ausente si el backend no truncó). |
+| «Dos grados con dato y sin destacar» | `needsSeed` | el seed sintético solo tiene **dos** cartas raw publicadas; con dos no se pueden tener a la vez «un solo grado» y «dos grados sin destacar». |
+
+#### Candado para que no vuelva a pasar
+
+`src/test/e2e-harness.test.ts` gana dos casos: (1) `grading-estimate.spec.ts` debe conservar
+cobertura `@real`; (2) **ningún test que navegue a un id de fixture (`/catalog/c-…`) puede correr en
+real sin declararse `mockOnly`/`needsSeed`**. Es el mismo patrón del candado de `process.env.E2E_REAL`:
+la regla deja de depender de que alguien se acuerde.
+
+### 2. El otro bloqueante: «un gate cuyo verde depende de cuántos núcleos tenga la máquina no es un gate»
+
+`loginAs` memoizaba la sesión en un `Map` **a nivel de módulo** ⇒ **por worker**, que en Playwright es
+un **proceso**. Con `fullyParallel: true` y `workers: undefined` fuera de CI eso son
+**`roles × núcleos`** canjes contra `POST /auth/login`, que el backend limita —legítimamente— a
+**5/min por IP** (`@Throttle({ ttl: 60_000, limit: 5 })`, `auth.controller.ts`). Desde dos núcleos la
+suite se comía su propio cupo: `429 RATE_LIMITED` en `checkout.spec.ts:12/87/100`, y el login del
+stack inservible ~60 s para quien estuviera mirando en paralelo.
+
+**El throttler no se toca** — es una defensa legítima del producto y el pentester la va a querer viva.
+Lo que se arregla es el arnés:
+
+- **`e2e/utils/state.ts` (nuevo)** — estado compartido **entre procesos**: caché en disco con
+  escritura atómica (`rename`), exclusión mutua con **`mkdir`** (atómico; `writeFile` no lo es),
+  detección de candado rancio, y `sharedOnce` con **doble comprobación** dentro del candado. Ese
+  segundo `readState` es lo que evita la estampida: los N-1 workers que esperaban encuentran el valor
+  ya publicado y **no** recalculan.
+- **`e2e/utils/env.ts` (nuevo)** — se extrae de `auth.ts` todo el plumbing de entorno (`IS_REAL`,
+  credenciales, resolución de la API, canje de token, helpers `apiAs`/`apiAsOk`) **sin importar
+  `@playwright/test`**, para que el `globalTeardown` —que corre fuera del runner— pueda reutilizarlo.
+  `auth.ts` mantiene todos sus exports: ningún spec cambia sus imports.
+- **Cota dura: 3 logins por API y por corrida** (uno por rol), **independiente de los núcleos**.
+- La caché se valida por el **`exp` real del JWT** (no solo por la edad del archivo), con 3 min de
+  colchón sobre los 15 min del contrato: una corrida que reutiliza estado de otra reciente no arranca
+  con un token muerto y no vuelve a fabricar el 401 silencioso.
+- El **backoff ante `429` cubre >60 s** (6 intentos: 1+2+4+8+16+32 s) — la ventana **completa** del
+  throttler. El anterior (4 intentos, ~15 s) se rendía **dentro** de la ventana: por eso «reintentaba,
+  pero no lo suficiente». Solo el 429 se reintenta; un 401 es credencial mala y reintentarlo solo
+  gasta cupo.
+
+**Presupuesto de logins de la suite completa en real:** 3 (API, compartidos) + 2 (formulario, los dos
+`login se muestra y redirige [es|en]` de `auth.spec.ts`, que **deben** teclear credenciales reales)
+= **5**, que es exactamente el cupo. Si alguien añade otro login por formulario, hay que etiquetarlo
+o subir el límite en el entorno de pruebas. Queda anotado aquí para que no se descubra por sorpresa.
+
+### 3. El `webServer` de Playwright: build de producción y nada de reutilizar lo que haya
+
+`playwright.config.ts` usaba `command: 'npm run dev'` + `reuseExistingServer: !isCI`. Dos trampas
+encadenadas:
+
+1. **`next dev` no es la app que se despliega** (otro compilador, sin `NODE_ENV=production`, otro
+   comportamiento de RSC/caché). Un verde en `dev` no autoriza un deploy.
+2. **`reuseExistingServer: true` fabrica falsos verdes silenciosos**: si en :3000 ya hay un Next
+   —el del stack real de devops, por ejemplo—, Playwright **no** levanta el suyo, **no** aplica
+   `NEXT_PUBLIC_USE_MOCKS=true`, y la suite «de mocks» corre contra el backend real sin decirlo.
+
+Ahora: **`next build && next start`** y `reuseExistingServer: false` salvo opt-in
+(`E2E_REUSE_SERVER=1`); `E2E_DEV_SERVER=1` recupera `next dev` para iterar en local (no es el gate).
+
+Y dos parámetros nuevos que **hacen posible correr los dos modos en la misma máquina**, que es como
+se verifica de verdad:
+
+- **`E2E_MOCK_PORT`** (default `3000`) — el server de mocks ya no choca con el stack real.
+- **`NEXT_DIST_DIR`** (`next.config.mjs`) — el bundle de mocks se hornea en **`.next-e2e-mock`**.
+  Es indispensable: `NEXT_PUBLIC_USE_MOCKS` **se hornea en el artefacto**, así que compilar los mocks
+  sobre `.next` convertiría en modo-fixtures el `next start` que devops tenga corriendo. Añadido a
+  `frontend/.gitignore`, y `.next-e2e-mock/types/**` queda pre-registrado en el `include` de
+  `tsconfig.json` para que `next build` no reescriba (y reformatee) ese archivo en cada corrida.
+
+### Verificación (números reales de las dos corridas)
+
+| Comando | Resultado |
+|---|---|
+| `npx tsc --noEmit` | ✓ |
+| `npx next lint` | ✓ sin warnings |
+| `npx vitest run` | ✓ **90 archivos / 753 tests** |
+| `npx next build` | ✓ (verificado con `NEXT_DIST_DIR=.next-e2e-verify` para no pisar el `.next` del stack vivo) |
+| **MOCK** — `E2E_MOCK_PORT=3010 npx playwright test` (build de producción + `next start`) | **98 passed / 0 failed / 2 skipped** (los 2 saltados son los `realOnly`, que por definición no corren aquí) |
+| **REAL** — `E2E_BASE_URL=http://localhost:3000 npx playwright test` (4 workers, stack vivo) | **59 passed / 3 failed / 38 skipped** |
+| **REAL, segunda corrida consecutiva** | **59 / 3 / 38** — idéntica |
+| **Gate `@real`** — `E2E_BASE_URL=… E2E_REAL=1 npx playwright test` | **21 passed / 3 failed** de 24; **11 de los 21 son del gancho** (antes: 0 tests del gancho en el subset) |
+
+Los **3 rojos en real** son el hueco de entorno preexistente de **Stripe** (`checkout.spec.ts:57`,
+`guest-checkout.spec.ts:131`, `shipments.spec.ts:30`: el modal de pago no abre sin claves de Stripe).
+**No queda ningún rojo de los 9 del gancho ni de los 3 del throttler.** Comprobado además el síntoma
+que QA midió desde fuera: **inmediatamente** después de la suite, tres `POST /auth/login` manuales
+seguidos devuelven `200`, `200`, `200` — antes quedaba `429` ~60 s.
+
+### Peticiones al arquitecto (no se toca `API_CONTRACT.md`)
+
+1. **Borrado/retirada de una `PriceReference` de estimado.** El contrato dice que el override manual
+   «solo lo revoca otro override o la limpieza/borrado explícito de la fila por `super_admin`», pero
+   **no hay endpoint** para esa limpieza. Sin él: (a) el back-office no puede *quitar* una cifra
+   errónea, solo pisarla —y la lista de revisión (§111(e)) dice explícitamente «se corrige
+   recapturando el estimado, **o borrando el dato**», un gesto hoy imposible por API—; y (b) el arnés
+   E2E no puede dejar el entorno como lo encontró. Propuesta: `DELETE /admin/pricing/override`
+   (o `.../graded-estimates/:cardId/:gradeKey`), `super_admin`, auditado, con la misma guarda INV-D.
+2. **Seed sintético — dos filas que faltan** (petición a backend vía arquitecto, `seed-e2e.ts`):
+   - una carta con **grupo raw publicado Y slab publicado del mismo grado** ⇒ desbloquea el
+     pre-vuelo de §O.8/INV-D y el `SLAB_PUBLISHED` de la lista de revisión en modo real;
+   - una **tercera carta raw publicada** ⇒ permite cubrir a la vez «un solo grado» y «dos grados sin
+     destacar» sin que un caso pise al otro.
+   Los tests ya están escritos y marcados `needsSeed`: pasarán el día que existan las filas.
+
+---
+
+## v1.50.3-d · «Retirar» — el consumidor del `DELETE` que mi propio hallazgo pidió (2026-08-29, rama `claude/psa-graded-card-value-gmhv5u`)
+
+**Qué se entrega.** La **acción de retirar** un estimado en la lista de revisión de M2, consumiendo
+`DELETE /api/v1/admin/pricing/graded-estimates/:cardId/:gradeValue` (contrato §M2 v1.50.3-d,
+`super_admin`, auditado), **más** las dos mitades de v1.50.3-c que el front aún no consumía y sin las
+cuales el botón no sirve para su caso central: el **opt-in `?reason=STALE`** y el campo **`isManual`**.
+
+### Por qué el botón entra en la misma entrega que el endpoint
+
+Porque enviar el endpoint sin superficie repetiría **exactamente** el error que esta ronda corrigió:
+construir el detector y dejar al operador sin la herramienta. La justificación entera del `DELETE` es
+que el dueño **encuentra** la cifra mala **en esta lista** y necesita **descartarla**; sin botón,
+tendría que hacerlo con `curl`. Y el criterio 111(e) es una afirmación sobre lo que el dueño **ve**.
+
+### Por qué `STALE` + `isManual` venían en el mismo paquete (no es alcance que me inventé)
+
+El caso de uso central del borrado **es una fila caducada**: con `manualFreshnessDays = 30` una cifra
+errónea desaparece de las tres superficies **en silencio** y **sigue en la tabla**. El contrato ya la
+hacía enumerable (`?reason=STALE`, addendum v1.50.3-c) y el backend ya la emitía (commit `76e6d98`),
+pero **el front no lo consumía**: `GradedEstimateReviewReason` no incluía `STALE` y
+`GradedEstimatePreviewDTO` no tenía `isManual`. Sin eso, el botón «Retirar» existiría pero **la fila
+que más justifica su existencia sería inalcanzable desde la UI**. `isManual` no es decorado: separa
+dos remedios **opuestos** —manual rancia ⇒ recapturar o **retirar**; automática rancia ⇒ **mirar el
+ingest, no la carta**— y se pinta pegado a la fecha porque describe **la misma fila** que ella.
+
+### Las seis reglas del contrato que la UI implementa, y por qué cada una
+
+1. **Confirmación previa, siempre** (DESIGN_SYSTEM §7.6): es destructivo, es dinero y es
+   `super_admin`. Modal con verbo explícito («Retirar PSA 10»), importe a la vista y la nota «solo
+   súper-admin · queda en bitácora».
+2. **El copy NO dice «la última»:** dice que se borran **todas** las capturas de ese grado,
+   historial incluido, **y por qué** — si solo se quitara la vigente, afloraría una más vieja y la
+   cifra **reaparecería sola**. Un copy que insinuara «se quita la última» describiría un
+   comportamiento que el backend no tiene y prometería una resurrección que sí ocurriría.
+3. **`deletedCount` se pinta tal cual** (plural ICU). No se asume `1`: el operador tiene que
+   enterarse de cuánto historial se fue.
+4. **`409 GRADED_ESTIMATE_SLAB_PUBLISHED` no se trata como fallo del sistema.** Doble tratamiento,
+   el mismo que la captura de 5d: **pre-vuelo** (con slab publicado de ese grado el botón queda
+   deshabilitado, con el motivo y el remedio a la vista, una sola vez y no repetido por fila) **y**
+   manejo del `409` real por si el pre-vuelo iba rancio. El mensaje explica que **con el slab
+   publicado esa fila ya no es un estimado —es la referencia de mercado de una pieza física— y
+   borrarla dejaría sin sustento de precio a un slab que se está vendiendo**, y orienta al remedio
+   correcto: **repreciar con `intent:"market"`** (M1 › Gradeadas), nunca insistir en borrar. La
+   inferencia contraria («busco las expuestas con `?reason=SLAB_PUBLISHED` y las borro») es tentadora
+   y falsa; el copy la cierra explícitamente.
+5. **`404` significa «no había nada», y se dice con esas palabras.** Se cierra el diálogo, se pinta
+   un aviso **`info` (no `alert`)** —«No había nada que borrar… no se borró nada porque no había
+   nada»— y **se refresca la lista**, que es justo lo que estaba desactualizado.
+6. **Tras el borrado no se recarga la página:** se invalidan `['graded-estimate-review']` (todas sus
+   páginas y filtros, no solo la vista actual) y `['graded-estimate-preview']` (la sección 5d muestra
+   las mismas cifras). La fila desaparece sola.
+
+**Detalles de UI que son decisiones, no estilo:**
+- **Un botón por grado, y solo si ese grado tiene cifra.** El `DELETE` es por `(cardId, gradeValue)`
+  y el DTO trae los montos en campos fijos; ofrecer «Retirar PSA 9» en una fila sin PSA 9 sería
+  ofrecer un gesto que **solo puede dar `404`**.
+- **La guarda es por GRADO, no por carta:** en una carta con PSA 9 publicada, el PSA 10 sí se puede
+  retirar. La UI lo refleja (uno deshabilitado, el otro activo) porque es lo que hace el backend.
+- El desenlace se pinta en **banner persistente, no en toast**: DESIGN_SYSTEM §7.5 prohíbe el toast
+  para resultados de dinero.
+
+### Mock: qué replica y en qué diverge (declarado)
+
+`deleteMockGradedEstimate` replica las **tres** reglas que el flujo necesita ejercitar de punta a
+punta en Playwright (que corre en modo mocks): `400` si el grado no está en `grades`, `409` con los
+mismos `details` si hay slab publicado de ese grado, y `404` si no había nada. Al retirar, la fila
+**desaparece de la lista** (sin la cifra su motivo pasa a `NO_PSA10`/`NO_PSA9`, que esta lista no
+enumera), que es lo que el operador debe ver. **Divergencia declarada:** el fixture guarda **una**
+proyección por `(carta, grado)`, así que `deletedCount` es siempre `1`; el backend borra todas las
+filas de la clave y puede devolver más — por eso la UI **pinta el número que venga** y no lo asume.
+Se añadieron dos filas `STALE` a los fixtures de la lista (una manual, una del ingest) porque los
+remedios son opuestos y había que poder verlos.
+
+### Verificación (números reales, dos modos)
+
+| Comando | Resultado |
+|---|---|
+| `npx tsc --noEmit` | ✓ |
+| `npx next lint` | ✓ sin warnings |
+| `npx vitest run` | ✓ **90 archivos / 761 tests** (antes 753: +8 nuevos — 2 de `STALE`/origen, 6 del borrado) |
+| `npx next build` | ✓ |
+| **MOCK** — `E2E_MOCK_PORT=3010 npx playwright test` | **100 passed / 0 failed / 2 skipped** (los 2 son los `realOnly`) |
+| **REAL** — `E2E_BASE_URL=http://localhost:3000 npx playwright test` | **59 passed / 3 failed / 40 skipped** |
+| **Gate `@real`** — `… E2E_REAL=1` | **21 passed / 3 failed** de 24 |
+
+Los **3 rojos en real** son el **hueco de entorno preexistente de Stripe** (`checkout.spec.ts:57`,
+`guest-checkout.spec.ts:131`, `shipments.spec.ts:30`: el modal de pago no abre sin claves). Son los
+mismos tres de la corrida anterior, ni uno más. Los `skipped` suben de 38 a 40 porque esta entrega
+añade **dos** E2E `mockOnly` (ver abajo).
+
+> **⚠️ Dos incidencias de ENTORNO que encontré por el camino, y que no son del código:**
+>
+> 1. **El frontend de `:3000` estaba sirviendo un bundle roto.** El proceso arrancó a las 22:56 y el
+>    `.next` del disco se reconstruyó después (23:31), así que el manifiesto en memoria apuntaba a
+>    chunks que ya no existían: `GET /_next/static/chunks/2799-….js` → **400**, la app se quedaba en
+>    «Verificando sesión…» y la suite real daba **62 rojos**, todos ambientales. Lo **rehorneé y
+>    reinicié** con exactamente el mismo comando y entorno que `scripts/stack-native.sh`
+>    (`NODE_ENV=production`, `NEXT_PUBLIC_USE_MOCKS=false`,
+>    `NEXT_PUBLIC_API_BASE_URL=http://localhost:3099/api/v1`, `next build && next start -p 3000`),
+>    verificando que los chunks responden `200` y que `localhost:3099` quedó horneado. Actualicé
+>    `.native-stack/frontend.pid` y `frontend.log` para que el `down` de devops siga funcionando —
+>    **no toqué el script ni el backend** (`start_backend` no se reinició: lleva arriba desde las
+>    22:55 sin interrupción). Con el bundle sano, la corrida real vuelve al baseline documentado.
+>    **Devops:** conviene que `up --gate` detecte este caso (proceso vivo con `BUILD_ID` más nuevo que
+>    su arranque), porque produce 62 rojos que parecen del producto y no lo son.
+> 2. **No se puede correr la suite real contra un frontend en otro puerto.** Lo intenté en `:3012`
+>    para no tocar el stack: **43 rojos** en bloque, porque la allow-list de CORS del backend sale de
+>    `APP_BASE_URL` y es **solo** `http://localhost:3000` (`main.ts:resolveCorsOrigins`, S-M2). La
+>    guarda es correcta y no se toca; queda anotado para que nadie repita el diagnóstico.
+
+### Cobertura E2E del borrado: qué se cubre hoy y qué falta (y por qué)
+
+**Hoy, en modo mock (2 tests nuevos, verdes):** (a) el opt-in de lo caducado + el origen de la cifra +
+el ciclo completo **confirmar → `DELETE` → la fila desaparece** con su conteo; (b) el pre-vuelo INV-D:
+el grado con slab publicado **no ofrece** borrado, el otro grado sí, y la UI nombra el remedio.
+
+**En real, todavía no**, y no por el test: **la ruta no está viva**. El código del backend está en el
+repo (commit `fea436c`) pero el proceso de `:3099` arrancó **antes** (`ts-node`, sin recarga), y
+`DELETE …/graded-estimates/abc/10` responde **404** (una ruta existente daría `401`). En cuanto
+devops/backend redespliegue el proceso, la cobertura real natural es un test que **siembre una cifra
+incoherente, la encuentre en la lista y la retire desde la UI** — y que, por primera vez, **se limpia
+a sí mismo**: es justo lo que este `DELETE` habilita (ARCHITECTURE §4.38q.4).
+
+### Estado de mis peticiones anteriores al arquitecto
+
+1. **Borrado del estimado — ✅ RESUELTA y consumida.** El arquitecto la normó (contrato v1.50.3-d,
+   ARCHITECTURE §4.38q) y encontró que el hueco era **mayor**: cuatro sitios lo prometían. Esta
+   entrega es su consumidor. Se actualizaron los dos comentarios de `e2e/utils/grading.ts` que
+   afirmaban «el contrato no expone borrado» — ya no es cierto y habría desorientado a quien los
+   leyera. **El teardown E2E todavía NO retira lo que siembra**: la mitigación vigente (siembra
+   idempotente + dial devuelto a `off`, así que nada se publica) sigue siendo correcta, y cablear un
+   `DELETE` contra una ruta que hoy da 404 solo añadiría ruido a corridas ya terminadas. Se cablea
+   cuando la ruta esté viva.
+2. **Seed sintético — dos filas.** Aceptadas y en curso. La de «raw publicado + slab del mismo grado»
+   desbloquea **tres** cosas, no dos: el pre-vuelo de INV-D, el `SLAB_PUBLISHED` de la lista en real
+   y —lo notó el arquitecto— es la **única** forma de verificar el `409` de este `DELETE` de punta a
+   punta. Los tests `needsSeed` pasarán tal cual cuando existan.
+
+**Sin peticiones nuevas al arquitecto.** `raw` y `sealed` siguen sin borrado, pero eso está declarado
+como hueco en el contrato, no prometido: no lo necesito para esta superficie.
+
+---
+
+## §27 · Cierre del stream: higiene de credenciales del arnés, el `@real` que faltaba y dos candados que medían mal — 2026-08-29
+
+> Rama `claude/psa-graded-card-value-gmhv5u`, sobre `eaea9e9`. Cinco hallazgos del cierre de QA +
+> techlead (IMP-A, IMP-B, D3, D5, D6). Ningún cambio de contrato; ninguna superficie pública se toca.
+
+### 1. IMP-A (QA, **seguridad**) — el arnés dejaba JWT reales de `super_admin` en `/tmp` con `0644`
+
+**El hallazgo, medido:** `e2e/utils/state.ts` cachea en disco el `TokenPair` **completo** (access **y
+refresh**) de cada rol del seed —incluido `super_admin`— para no comerse el rate-limit de
+`POST /auth/login` (5/min por IP). Se escribía con el modo por defecto y **nunca se borraba**: el
+`globalTeardown` limpiaba `dial` y `scenario`, y la sesión no la limpiaba nadie.
+
+**Por qué no era «bajo riesgo y ya».** Hoy son credenciales sintéticas, cierto. Pero
+`scripts/stack-native.sh` y `DEVOPS_NOTES` documentan correr **esta misma suite** con `E2E_BASE_URL`
+apuntando a **staging**, y ahí lo que queda legible por cualquier usuario del runner es el **refresh
+token** de un `super_admin` de staging: una sesión **renovable**, no un access token que expira en 15
+minutos. Que caduque solo no es una mitigación.
+
+**El arreglo, en tres piezas** (`e2e/utils/state.ts`, `e2e/utils/env.ts`, `e2e/global-teardown.ts`):
+
+| Pieza | Qué hace | Por qué así |
+|---|---|---|
+| Directorio `0700`, archivos `0600` | `mkdirSync({ mode })` + **`chmodSync` explícito**; `writeFileSync({ mode })` + `chmod` del temporal antes del `rename` | el `mode` de `mkdir`/`writeFile` solo aplica **al crear** y lo recorta el `umask`: un directorio heredado de una corrida anterior seguiría siendo `0755`. El `chmod` es lo que **retro-arregla** lo que ya estaba en disco |
+| `clearStateByPrefix('session:')` | purga por **clave lógica**, que ahora viaja dentro del sobre (`{ at, name, value }`) | el nombre del archivo es un **hash**: sin la clave en el sobre, «purga todas las sesiones» exigiría resolver la API base — justo lo que no se puede hacer si el stack se cayó a mitad, que es cuando más molesta dejar tokens |
+| `clearTokenState()` | purga por **CONTENIDO**: cualquier entrada cuyo valor tenga `accessToken`/`refreshToken` | alcanza los archivos de corridas **anteriores a este arreglo** (no llevan `name`) y a cualquier consumidor futuro que cachee credenciales con otra clave. La garantía que se quiere es «al terminar la corrida no queda un token en disco», y esa se afirma sobre el contenido |
+
+El `globalTeardown` llama a la purga en un **`finally`** y **fuera** del `if (IS_REAL)`: si restaurar
+el dial revienta (stack caído), los tokens se borran igual. Se imprime cuántos archivos se llevó.
+
+**Verificado en el entorno real, no en teoría.** Antes de la corrida, `/tmp/tcg-vault-e2e-state` era
+`drwxr-xr-x` con dos `-rw-r--r--` llenos de tokens de la corrida de QA. Después de la primera suite
+real con el arreglo: **directorio `drwx------` y vacío** — el barrido por contenido se llevó también
+los dos archivos legados. Cada corrida posterior imprime
+`[e2e] Estado de sesión purgado del disco: 2 archivo(s) con tokens.`
+
+**Efecto colateral declarado:** dos corridas que compartan `E2E_STATE_DIR` se invalidan la caché de
+sesión mutuamente (a lo sumo 3 logins extra). Aislar corridas concurrentes es exactamente para lo que
+`E2E_STATE_DIR` existe.
+
+### 2. IMP-B (QA) — decisión: **sí es viable**, y el `@real` está subido
+
+QA lo dejó dicho con precisión: la ruta `DELETE` estaba verificada **a nivel API** (409/404 por
+`curl`) y la UI **contra fixtures**, pero `deleteGradedEstimate()` de `src/lib/api.ts` **nunca había
+hablado con el backend real en ninguna suite**. El riesgo residual no era el contrato: era el
+**pegamento del cliente HTTP** (URL compuesta, verbo, `Authorization`, parseo de `deletedCount`,
+invalidación de React Query). Los dos impedimentos anteriores desaparecieron —la ruta está viva en
+`:3099` y las dos filas de seed existen—, así que **se sube el `@real`**:
+
+`grading-estimate.spec.ts` › *«@real retira la cifra desde la lista y el contrato confirma que se
+fue»*. Siembra una cifra incoherente en la carta `deletable`, la encuentra en la lista de revisión,
+la retira **con el gesto del operador** (botón → modal → confirmar) y luego comprueba contra el
+contrato que se fue de verdad: `preview` sin la cifra, un **segundo `DELETE` que responde `404`** (la
+prueba de que el primero se llevó todas las filas de la clave) y el grado auxiliar **intacto** (la
+guarda y el borrado son **por grado**, no por carta). **Se limpia solo:** el entorno queda como
+estaba, verificado tras la corrida.
+
+**Descubrimiento del camino, y es una petición al arquitecto (§5).** La primera versión sembraba
+**solo** el grado alto y el test fallaba: la fila no aparecía en la lista de revisión. Contra el
+stack real, `GET /admin/pricing/graded-estimates/review` **solo llega a evaluar la coherencia cuando
+la carta tiene los DOS grados**; con un único PSA 10 el diagnóstico se detiene antes, en `NO_PSA9`.
+El arnés se adaptó (siembra ambos grados, el bajo por debajo del alto para que el motivo sea
+`NOT_ABOVE_RAW` y no `GRADE_ORDER_INVERTED`), pero el hallazgo se escala tal cual.
+
+**Lo que sigue sin cobertura real, y es DATO, no gesto:** el opt-in `?reason=STALE` y la columna de
+origen `ingest`. Una cifra **caducada** exige una `capturedDate` vieja y una de origen **automático**
+exige `isManual:false`, y **ninguna de las dos se puede fabricar por la API del contrato**
+(`POST /admin/pricing/override` escribe siempre manual y con fecha de hoy). El smoke de esos dos
+sigue `mockOnly`, ahora con **ese** motivo escrito, no con el de «la ruta no está desplegada».
+
+### 3. D5 (techlead) — `bare` ya tiene el guardarraíl que su vecino tenía
+
+El caso «sin gancho» afirma una **ausencia**, y una ausencia es justo lo que una corrida anterior
+puede haber roto sin que nada lo delate: si el ranking de precio se mueve, una carta a la que ya se le
+sembró una cifra cae en `bare` y el test falla como un **rojo de UI** («la ficha muestra el gancho»)
+en vez de decir qué hacer. Ahora la candidata **no se toma a ciegas**: se verifica contra `preview`
+que no tiene ninguna cifra escrita, se recorren las candidatas y, si ninguna está limpia, el error
+nombra **qué borrar y con qué endpoint** —`DELETE …/graded-estimates/<cardId>/10`—, igual que el de
+`informed`.
+
+De paso, la selección del escenario pasó a ser explícita y verificada contra el contrato: `curated` y
+`informed` por precio, **`deletable`** = primera raw libre **sin slab publicado** (con slab el `DELETE`
+daría `409` por INV-D y el test mediría la guarda, no el borrado), y `bare` = primera candidata
+limpia, preferentemente no-raw. El suelo de cartas raw del seed sube de 2 a **3**, con el mensaje
+diciendo para qué es cada una.
+
+### 4. D3 (techlead) — el candado anti-regresión medía otra cosa
+
+Cinco defectos, cinco arreglos (`src/test/e2e-harness.test.ts`):
+
+1. **Contaba `@real` sobre el fuente crudo** y 3 de las 8 ocurrencias vivían en **comentarios**: el
+   umbral se sostenía sobre prosa. Ahora todo se mide sobre código sin comentarios (`stripComments`,
+   extraída y compartida — la técnica ya estaba en el `describe` de arriba, solo no se aplicó aquí).
+2. **Contaba ETIQUETAS, no TESTS.** Playwright hace `grep` sobre el **título completo**
+   (`describe` + `test`): una etiqueta en el `describe` cubre N tests y otra en un `test` cubre uno.
+   Ahora se resuelve la herencia y se cuenta **cuántos tests seleccionaría el gate**. Contrastado con
+   el propio Playwright: `--list --grep @real` dice **«25 tests in 9 files»** y el candado calcula
+   exactamente 25 y 9.
+3. **Solo miraba `grading-estimate.spec.ts`** — protegía el archivo, no la clase. Las reglas
+   estructurales se aplican ahora a **toda** la carpeta `e2e/`, con pisos de suite (≥24 tests `@real`,
+   9 archivos con cobertura).
+4. **`src.split(/\n\s*test\(/)` descartaba la cabecera**, así que una navegación a un id de fixture
+   desde un `beforeEach` **esquivaba el candado** y arrastraba a todos los tests del `describe`,
+   `@real` incluidos. Ahora el fuente se parte en segmentos con dueño —módulo, preámbulo de cada
+   `describe` (sus hooks) y cada test— y un id de fixture fuera de un test es offender **siempre**: un
+   hook no puede declararse `mockOnly` por sus tests.
+5. **Regla nueva:** ningún test `@real` puede llamar `mockOnly()` en su cuerpo. Es el mismo agujero
+   con otra forma —el gate lo selecciona y lo salta siempre—.
+
+Y se añadieron tres tests que fijan IMP-A: permisos `0700`/`0600` reales sobre disco, purga por clave
+respetando el resto del estado, y purga por contenido alcanzando los archivos legados sin `name`.
+
+### 5. D6 (techlead) — la errata que dejaba muda la frase del remedio
+
+`messages/es.json` › `admin.m2.gradedEstimateReview.deleteSlabPublishedNote`: **«Represa la pieza»** →
+**«Reprecia la pieza»**. Es la frase exacta que dirige al operador al **único** remedio correcto del
+`409` de INV-D, y tal como estaba no decía nada. La versión `en` («Reprice the piece») ya era correcta.
+
+### Verificación (números reales, no «pasa todo»)
+
+| Comprobación | Resultado |
+|---|---|
+| `npx tsc --noEmit` | limpio |
+| `npx next lint` | 0 warnings, 0 errors |
+| `npx vitest run` | **767 pasan / 90 archivos** (eran 766/90: +4 de IMP-A y D3, −3 del candado viejo reemplazado) |
+| `npx next build` | verde, sin aviso de `NODE_ENV` no estándar |
+| Playwright **mock** (`E2E_MOCK_PORT=3020`) | **100 pasan, 3 saltados** (los tres `realOnly`) de 103 |
+| Playwright **real** (`E2E_BASE_URL=http://localhost:3000 E2E_REAL=1`) | **22 pasan, 3 fallan** de 25 — los 3 son el hueco de entorno de Stripe (checkout, guest-checkout, shipments: el modal «Completar pago» no abre). **Cero rojos del gancho** |
+| Solo `grading-estimate.spec.ts` en real | **12/12**, incluido el `@real` del borrado |
+| Huella en el entorno tras la corrida | dial `gradedEstimatesEnabled` = `off`; carta `deletable` sin cifras; `/tmp/tcg-vault-e2e-state` `0700` y **vacío** |
+
+**Nota para devops (entorno, no código).** Al verificar el build corrí `npx next build` **sin** las
+variables que usa `scripts/stack-native.sh`, y eso horneó `.next` con la URL de API por defecto
+(`:3001`) bajo el `next start` que estaba sirviendo en `:3000` — la primera corrida real dio 25 rojos
+por eso, no por producto. **Reparado:** se reconstruyó con `NODE_ENV=production
+NEXT_PUBLIC_USE_MOCKS=false NEXT_PUBLIC_API_BASE_URL=http://localhost:3099/api/v1` (idéntico al
+script) y se reinició el proceso de `:3000` con esas mismas variables. El artefacto y el proceso vivo
+vuelven a coincidir. La verificación final de `next build` se hizo contra `NEXT_DIST_DIR=.next-verify`
+(borrado después) **precisamente para no volver a tocar** el artefacto que el stack sirve.
+
+### Peticiones al arquitecto
+
+1. **`review` y la carta con un solo grado (Media).** El contrato §M2 declara que `NOT_ABOVE_RAW` se
+   dispara cuando `psa10 <= salePriceCents`, sin condicionarlo a que exista PSA 9. En el stack real,
+   una carta con **solo** PSA 10 incoherente (verificado: raw MX$460, PSA 10 MX$230) **no aparece** en
+   `GET /admin/pricing/graded-estimates/review`: el diagnóstico resuelve `NO_PSA9` y se detiene antes
+   de la coherencia. Importa porque el error que esa categoría existe para cazar —**USD capturados
+   como MXN**— es más probable en la **primera** captura de una carta, que es justo cuando todavía
+   solo hay un grado. O el contrato dice que la lista exige ambos grados, o el orden de razones deja
+   pasar la coherencia antes que la ausencia del otro grado. **No toco nada:** lo dejo escrito y el
+   arnés se adapta sembrando los dos grados.
+2. **Seed — sigue faltando una CUARTA carta raw publicada y libre.** Las tres que hay ya son `curated`,
+   `informed` y `deletable`. El test `needsSeed` de «dos grados con dato y sin destacar» pasará tal
+   cual el día que exista. No bloquea nada.

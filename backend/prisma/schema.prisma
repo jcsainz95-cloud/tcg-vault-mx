@@ -209,6 +209,23 @@ enum PriceSource {
   tcgcsv_singles
 }
 
+/// v1.50.3-f (M-43, ARCHITECTURE §4.38l.4.2) — **NATURALEZA** de una `PriceReference`: qué AFIRMA el
+/// número. Es un eje **ORTOGONAL** a `PriceSource`, que es la **PROCEDENCIA** (quién produjo el número:
+/// `manual`, `tcgcsv_singles`, PPT…). Un estimado puede ser manual **o** automático, y la fase 2 del
+/// gancho necesita seguir sabiendo qué proveedor lo escribió (§4.38m.2): colapsar los dos ejes en una
+/// columna habría destruido información que ya consumen `sourceRank`, `MANUAL_REF_PREDICATE` y el
+/// `isManual` de los DTO de diagnóstico. Por eso `PriceSource` **NO cambia** (⛔ derogada la vía
+/// «`graded_estimate` en `PriceSource` con `sourceRank` bajo»: ordenar no excluye — el estimado suele
+/// ser la ÚNICA candidata de su clave y gana con cualquier rango, §4.38l.4.1).
+enum PriceRefKind {
+  /// Referencia de MERCADO: **puede** resolver precio de venta, oferta de compra y valuación. Default,
+  /// de modo que toda fila anterior a M-43 conserva EXACTAMENTE el significado que ya tenía.
+  market
+  /// «Valor estimado si se gradea» (§4.38): **JAMÁS** resuelve dinero. No pierde la precedencia — no
+  /// entra como candidata (`MONEY_REF_WHERE`, §4.38l.4.4A).
+  graded_estimate
+}
+
 // v1.29 (M-31, ARCHITECTURE §4.27b): naturaleza del producto TCGplayer bajo una MISMA carta de
 // colección. Una `Card` (identidad = externalId pokemontcg.io) agrupa N `CardProduct`, uno por
 // `productId`. `set_base` es el producto de set «normal» (el que hoy ancla `Card.tcgplayerId`);
@@ -841,11 +858,42 @@ model PriceReference {
   priceMxnCents    Int
   capturedDate     DateTime     @db.Date
   isManualOverride Boolean      @default(false)
+  // v1.50.3-f (M-43, §4.38l.4.2) — NATURALEZA de la fila (qué AFIRMA el número), ORTOGONAL a `source`
+  // (procedencia) y a `isManualOverride`. Cierra INV-D **inverso** (GE-1): la fila del «estimado si se
+  // gradea» y la referencia de mercado real de un slab PSA publicado son LA MISMA FILA, y hasta M-43
+  // quién decidía si esa fila era dinero era el LECTOR, por inferencia sobre el estado del mundo
+  // (¿hay slab publicado?). La decisión pasa al ESCRITOR —el único que conoce la intención— y se
+  // CONGELA en el dato.
+  //
+  // ⚠️ `refKind` **NO entra a la `@@unique`**, y la consecuencia es deliberada: para una
+  // carta+grado+día sigue habiendo UNA sola fila, sea de la naturaleza que sea. Las dos naturalezas son
+  // **mutuamente excluyentes por INV-D**, no dos datos que deban coexistir; la transición CAMBIA la
+  // naturaleza de la fila del día, no crea una segunda. De ahí la regla dura de (l.4.3): **todo
+  // escritor fija `refKind` explícitamente también en el `update`**.
+  //
+  // `@default(market)` hace la migración segura por construcción: ninguna fila existente cambia de
+  // significado ⇒ **migrar no puede mover ningún precio publicado**.
+  refKind          PriceRefKind @default(market)
+  // v1.50.3-f (M-43, §4.38m.2) — fecha de la EVIDENCIA de mercado (la última venta observada por el
+  // proveedor), distinta de `capturedDate` (el día en que jalamos el archivo). `null` en la vía MANUAL:
+  // ahí la afirmación ES del humano y su fecha de captura es la evidencia.
+  //
+  // Entra en esta migración por EMPAQUETADO (dos columnas aditivas de la misma tabla, una sola
+  // ventana; §4.38l.4.2). **Hoy ningún escritor la puebla y ninguna lectura la consume**: el cierre
+  // exacto del criterio 109 —que `stale()` mida contra `evidenceDate ?? capturedDate`— NO entra en este
+  // pase (no está en el alcance de M-43 que el arquitecto asignó, y la aproximación conservadora
+  // vigente —el gate de evidencia en la escritura del ingest, ≤ 2 × freshnessDays— sigue declarada como
+  // desviación en §9). Queda anotado en `TECH_DEBT.md` y en `BACKEND_NOTES.md`. La columna se siembra
+  // ahora para no pagar una segunda ventana de migración cuando ese cierre se autorice.
+  evidenceDate     DateTime?    @db.Date
   createdAt        DateTime     @default(now())
 
   @@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId])
   @@index([cardId])
   @@index([cardProductId])
+  // M-43: el predicado `MONEY_REF_WHERE` entra por `AND` en lecturas que YA filtran por `cardId`
+  // (índice existente); este índice sirve a los barridos/censos por naturaleza del cut-over (§4.38l.4.7).
+  @@index([refKind])
 }
 
 model PendingPriceEntry {

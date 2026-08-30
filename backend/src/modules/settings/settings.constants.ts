@@ -2,6 +2,34 @@
  * settings.constants.ts — Diales M10 (ConfigSetting). ARCHITECTURE §3.2, §5.1.
  * Los valores viven en DB (editables sin redeploy). Aquí solo las KEYS y los DEFAULTS.
  */
+// MERGE v1.50.2: se BORRA `import { TIER_IDS, isTierId } from '../../common/pricing-tiers'` — P-48
+// (§4.36.2) retiró `pricing_tier_map` y con él `common/pricing-tiers.ts`. Sus únicos usos en este
+// archivo eran el validador de esa clave retirada.
+// v1.50-graded-estimate (M-42, §4.38): seeds + validadores del «gancho de grading» viven en la zona
+// compartida `common/graded-estimate.ts` (pura, sin infra), igual que `pricing-curve.ts`. Aquí solo se
+// cablean como diales.
+import {
+  DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
+  DEFAULT_GRADED_ESTIMATE_GRADES,
+  DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+  DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+  DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+  DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
+  DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
+  DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
+  DEFAULT_GRADING_COST_TIERS,
+  DEFAULT_GRADING_MIN_UPSIDE_PCT,
+  GRADED_ESTIMATE_FRESHNESS_DAYS_MAX,
+  GRADED_ESTIMATE_FRESHNESS_DAYS_MIN,
+  GRADED_ESTIMATE_GRADE_VALUES,
+  GRADING_MIN_UPSIDE_PCT_MAX,
+  validateGradedEstimateIngestMaxCards,
+  validateGradedEstimateManualFreshnessDays,
+  validateGradedEstimateMaxRawMultiple,
+  validateGradedEstimateMinSampleCount,
+  validateGradedEstimateSourceStat,
+  validateGradingCostTiers,
+} from '../../common/graded-estimate';
 // v2.0 (P-48, §4.36.2): la CURVA vive en `common/` (zona compartida, sin infra) para que el seed, las
 // migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
 // validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
@@ -68,6 +96,32 @@ export const SettingKey = {
   // Dial interno (LFPDPPP): NO se expone en el DTO de M10 hasta que el arquitecto lo
   // formalice en el contrato (ver docs/BACKEND_NOTES.md).
   INE_RETENTION_DAYS: 'ine_retention_days',
+  // v1.44-graded-estimate (M-41, §4.38d): «gancho de grading» — SEIS claves, DATA/seed (sin DDL).
+  // Las CINCO primeras se editan en M2 (GET/PUT /admin/pricing/graded-estimates), NO por
+  // PUT /admin/settings (mismo criterio que los spreads del sellado). `grading_cost_tiers` y
+  // `grading_min_upside_pct` gobiernan EXCLUSIVAMENTE la CURADURÍA (teja/vitrina): subir el umbral vacía
+  // la vitrina pero la FICHA sigue mostrando sus estimados (partición §4.38-0).
+  GRADED_ESTIMATE_GRADES: 'graded_estimate_grades',
+  GRADED_ESTIMATE_HIGHLIGHT_GRADES: 'graded_estimate_highlight_grades',
+  GRADED_ESTIMATE_FRESHNESS_DAYS: 'graded_estimate_freshness_days',
+  GRADING_COST_TIERS: 'grading_cost_tiers',
+  GRADING_MIN_UPSIDE_PCT: 'grading_min_upside_pct',
+  // Interruptor MAESTRO (M10, seed `off` FAIL-CLOSED): con `off` el backend NI SIQUIERA evalúa el gate.
+  // Expuesto en el DTO de M10 y editable por PUT /admin/settings (patrón sealedValueTrend).
+  GRADED_ESTIMATES_ENABLED: 'graded_estimates_enabled',
+  // ===== v1.50.2 (§4.38k/h) — las 6 claves nuevas: 5 de M2 + el 2º interruptor M10 =====
+  // Las cinco de M2 se editan en `PUT /admin/pricing/graded-estimates` (NO aquí, igual que las otras
+  // cinco de arriba): el recurso dedicado es el único que puede validar invariantes ENTRE filas.
+  GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS: 'graded_estimate_manual_freshness_days',
+  GRADED_ESTIMATE_MAX_RAW_MULTIPLE: 'graded_estimate_max_raw_multiple',
+  GRADED_ESTIMATE_MIN_SAMPLE_COUNT: 'graded_estimate_min_sample_count',
+  GRADED_ESTIMATE_SOURCE_STAT: 'graded_estimate_source_stat',
+  GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN: 'graded_estimate_ingest_max_cards_per_run',
+  // Segundo interruptor M10 (seed `off` FAIL-CLOSED) — gobierna la OBTENCIÓN (¿gastamos créditos y
+  // escribimos filas?), no la EXHIBICIÓN. Son dos diales a propósito (§4.38d): con uno solo, el
+  // operador tendría que elegir entre «no puedo probar el ingest sin publicar» y «no puedo publicar
+  // sin encender el gasto». Con dos puede rodar el ingest EN OBSERVACIÓN con la vitrina apagada.
+  GRADED_ESTIMATE_INGEST_ENABLED: 'graded_estimate_ingest_enabled',
   // v1.1 (M-9): frontera por defecto del sync de catálogo (POST /admin/catalog/sync sin setId).
   // Formato pokemontcg.io `yyyy/MM/dd`. ConfigSetting de primera clase: expuesto en el DTO de
   // M10 (`catalogSyncFromDate`), legible y editable por GET/PUT /admin/settings.
@@ -143,6 +197,35 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // después; el súper-admin los enciende sin redeploy (PUT /admin/settings).
   [SettingKey.SEALED_VALUE_TREND]: 'off',
   [SettingKey.SEALED_RESTOCK_ALERTS]: 'off',
+  // v1.44-graded-estimate (M-41, §4.38d): seed del «gancho de grading». La tabla de escalones y los
+  // umbrales viven en `common/graded-estimate.ts` (pura, sin infra) para que seed, validadores y gate
+  // compartan UNA sola fuente. `graded_estimates_enabled` arranca en **off** (fail-closed): el código se
+  // despliega INVISIBLE hasta que el humano dé el visto bueno al disclaimer (§N.5) — encenderlo NO es
+  // decisión de devops.
+  [SettingKey.GRADED_ESTIMATE_GRADES]: DEFAULT_GRADED_ESTIMATE_GRADES,
+  [SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES]: DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
+  [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]: DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
+  [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS,
+  [SettingKey.GRADING_MIN_UPSIDE_PCT]: DEFAULT_GRADING_MIN_UPSIDE_PCT,
+  [SettingKey.GRADED_ESTIMATES_ENABLED]: 'off',
+  // v1.50.3 (§4.38m, GU-A16) — `manualFreshnessDays` arranca en **30**, NO en `null`. El seed de
+  // v1.50.2 (`null` = «el override manual NUNCA caduca») desactivaba el criterio 109 para la vía
+  // manual. `null` sigue siendo EXPRESABLE (es una decisión legítima del dueño) pero ya no es el
+  // default, y elegirlo emite `warn` al izar la config (I8-bis).
+  //
+  // ⚠️ §11.0 — cambiar este seed **NO cambia ninguna base ya sembrada** (`prisma/seed.ts` hace
+  // `upsert` con `update: {}`, que es correcto y no se toca: impide que un deploy pise el ajuste
+  // deliberado de un operador). Un seed es una CONDICIÓN INICIAL, no un estado deseado, así que
+  // esto sirve **solo a entornos nuevos**; los existentes se propagan por el paso de despliegue
+  // explícito de §4.38(p) (`PUT /admin/pricing/graded-estimates`, auditado y validado). Lo mismo
+  // vale para `minSampleCount` (3 → 5) y `maxRawMultiple` (50 → 100), abajo.
+  [SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS]: DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
+  [SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE]: DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
+  [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
+  [SettingKey.GRADED_ESTIMATE_SOURCE_STAT]: DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
+  [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]:
+    DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+  [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: 'off',
 };
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
@@ -151,9 +234,9 @@ const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'm
  * v1.14-price-ingest (WS-A, §4.15h): valores válidos del dial `price_provider` (BulkPriceProvider).
  * Proveedores de ingest masivo (NO poketrace/manual, que son del pricing per-carta).
  *
- * v1.44 (P-47, §4.35): += `tcgcsv_singles` — PRIMARIO del barrido de singles por-acabado desde TCGCSV
+ * v1.44 (P-47, §4.38): += `tcgcsv_singles` — PRIMARIO del barrido de singles por-acabado desde TCGCSV
  * (reverse_holo/holofoil con SU marketPrice). El default sigue en `pokemontcg_io` (seed); devops flipea
- * el dial a `tcgcsv_singles` en staging→prod (config/env es de devops, §4.35e). PPT queda como fallback.
+ * el dial a `tcgcsv_singles` en staging→prod (config/env es de devops, §4.38e). PPT queda como fallback.
  */
 export const PRICE_PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'tcgcsv_singles'];
 
@@ -294,6 +377,42 @@ export function validateFxManualOverrideRate(v: unknown): string | null {
 export const FEATURE_FLAG_VALUES = ['on', 'off'];
 
 /**
+ * v1.44-graded-estimate (I7, §4.38d) — valida una LISTA de grados (`grades` / `highlightGrades`):
+ * array de strings ⊆ `{"10","9"}`, NO vacío y sin duplicados. Lista cerrada a propósito: otros grados
+ * (PSA <= 8) y otras graduadoras quedan fuera de alcance (§O.1 — era §N.1 antes de que el merge de
+ * pricing v2 desplazara el bloque del gancho), y una key desconocida sembraría un
+ * grado que el resolver nunca podría leer.
+ */
+export function validateGradeList(v: unknown): string | null {
+  if (!Array.isArray(v) || v.length === 0) {
+    return `must be a non-empty array of grades (${GRADED_ESTIMATE_GRADE_VALUES.join('|')})`;
+  }
+  const seen = new Set<string>();
+  for (const g of v) {
+    if (typeof g !== 'string' || !GRADED_ESTIMATE_GRADE_VALUES.includes(g)) {
+      return `invalid grade "${String(g)}": must be one of ${GRADED_ESTIMATE_GRADE_VALUES.join('|')}`;
+    }
+    if (seen.has(g)) return `duplicate grade "${g}"`;
+    seen.add(g);
+  }
+  return null;
+}
+
+/** v1.44 (I6): `grading_min_upside_pct` = número en [0, 1000] (% de upside exigido por la curaduría). */
+export function validateGradingMinUpsidePct(v: unknown): string | null {
+  return isNum(v) && v >= 0 && v <= GRADING_MIN_UPSIDE_PCT_MAX
+    ? null
+    : `must be a number in [0, ${GRADING_MIN_UPSIDE_PCT_MAX}]`;
+}
+
+/** v1.44 (I6): `graded_estimate_freshness_days` = entero en [1, 365]. */
+export function validateGradedEstimateFreshnessDays(v: unknown): string | null {
+  return isInt(v) && v >= GRADED_ESTIMATE_FRESHNESS_DAYS_MIN && v <= GRADED_ESTIMATE_FRESHNESS_DAYS_MAX
+    ? null
+    : `must be an integer in [${GRADED_ESTIMATE_FRESHNESS_DAYS_MIN}, ${GRADED_ESTIMATE_FRESHNESS_DAYS_MAX}] (days)`;
+}
+
+/**
  * Validadores por dial (fix correctness #2). Cada uno devuelve un mensaje de error o
  * `null` si es válido. Rangos coherentes con la matemática de `money.ts` para que un
  * dial mal escrito NO rompa el checkout (NaN / división por cero / negativos).
@@ -342,6 +461,29 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   [SettingKey.SEALED_RESTOCK_ALERTS]: (v) =>
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
+  // v1.44-graded-estimate (M-41, §4.38d): los cinco diales de M2 se editan por
+  // GET/PUT /admin/pricing/graded-estimates (no por PUT /admin/settings), pero se validan igual —
+  // misma doctrina que los spreads del sellado. `grading_cost_tiers` usa el validador COMPARTIDO
+  // I1–I5 de `common/graded-estimate.ts` (el mismo que aplica el PUT y la lectura fail-closed).
+  [SettingKey.GRADED_ESTIMATE_GRADES]: validateGradeList,
+  [SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES]: validateGradeList,
+  [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]: validateGradedEstimateFreshnessDays,
+  [SettingKey.GRADING_COST_TIERS]: (v) => validateGradingCostTiers(v)?.message ?? null,
+  [SettingKey.GRADING_MIN_UPSIDE_PCT]: validateGradingMinUpsidePct,
+  // Interruptor maestro (M10): on|off, seed off. Sí editable por PUT /admin/settings.
+  [SettingKey.GRADED_ESTIMATES_ENABLED]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
+  // v1.50.2 (I8/I9) — MISMOS validadores compartidos que aplica el `PUT` de M2 y la lectura fail-closed
+  // del resolver. Una sola verdad por invariante: si divergieran, el `422` y el apagado on-read dirían
+  // cosas distintas sobre el mismo valor.
+  [SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS]: validateGradedEstimateManualFreshnessDays,
+  [SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE]: validateGradedEstimateMaxRawMultiple,
+  [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: validateGradedEstimateMinSampleCount,
+  [SettingKey.GRADED_ESTIMATE_SOURCE_STAT]: validateGradedEstimateSourceStat,
+  [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: validateGradedEstimateIngestMaxCards,
+  // 2º interruptor M10 (seed `off`): on|off, editable por PUT /admin/settings.
+  [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>
@@ -375,6 +517,12 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   // exponen aquí ni se editan por PUT /admin/settings: solo por GET/PUT /admin/pricing/sealed-spreads.
   sealedValueTrend: SettingKey.SEALED_VALUE_TREND,
   sealedRestockAlerts: SettingKey.SEALED_RESTOCK_ALERTS,
+  // v1.44-graded-estimate (§M10): interruptor MAESTRO del gancho de grading (seed `off`). El RESTO de
+  // la config del gancho (escalones, minUpsidePct, frescura, grados) NO se expone aquí: vive en los
+  // endpoints M2 dedicados GET/PUT /admin/pricing/graded-estimates (como los spreads del sellado).
+  gradedEstimatesEnabled: SettingKey.GRADED_ESTIMATES_ENABLED,
+  // v1.50.2 (§M10): el SEGUNDO interruptor — el del INGEST (fase 2). Ver §4.38d para por qué son dos.
+  gradedEstimateIngestEnabled: SettingKey.GRADED_ESTIMATE_INGEST_ENABLED,
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,

@@ -36,6 +36,8 @@
 #   ./scripts/stack-native.sh up          # infra + migraciones + backend + frontend
 #   ./scripts/stack-native.sh up --infra  # solo Postgres + Redis + migraciones
 #   ./scripts/stack-native.sh up --seed   # + `npm run seed:synthetic` (datos E2E)
+#   ./scripts/stack-native.sh up --gate   # frontend con `next build` + `next start`
+#                                         #   ⇒ el ÚNICO modo válido para una corrida de GATE
 #   ./scripts/stack-native.sh status      # qué está arriba y en qué puerto
 #   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
 #   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
@@ -46,7 +48,12 @@
 #
 # VARIABLES (todas con default; ninguna es un secreto real):
 #   BACKEND_PORT   3099   — puerto del backend nativo (evita chocar con el 3001 del compose)
-#   FRONTEND_PORT  3000   — Next dev; DEBE estar en la allow-list CORS de APP_BASE_URL
+#   FRONTEND_PORT  3000   — DEBE estar en la allow-list CORS de APP_BASE_URL
+#   FRONTEND_MODE  dev    — `dev` (next dev, cómodo, NO apto para gates) | `build`
+#                           (next build + next start). `up --gate` fija `build`.
+#                           PARA GATES: SIEMPRE `build`. Ver DEVOPS_NOTES §32.6.
+#                           El NODE_ENV del frontend lo fija el modo (build→production),
+#                           NO se hereda el `development` del backend. Ver §32.10.
 #   PG_CLUSTER     16/main
 #   DATABASE_URL   postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace
 #                  (credenciales de DESARROLLO LOCAL, las mismas de `.env.example`; jamás
@@ -62,6 +69,11 @@ RUN_DIR="$ROOT_DIR/.native-stack"
 
 BACKEND_PORT="${BACKEND_PORT:-3099}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+# `dev` (next dev) | `build` (next build + next start). `up --gate` lo fija en `build`.
+# Un GATE NUNCA corre sobre `next dev`: compila bajo demanda, se degrada tras varias
+# recompilaciones y no es el artefacto que se despliega. Ver DEVOPS_NOTES §32.6.
+FRONTEND_MODE="${FRONTEND_MODE:-dev}"
+case "$FRONTEND_MODE" in dev|build) ;; *) echo "FRONTEND_MODE debe ser 'dev' o 'build' (recibí '$FRONTEND_MODE')" >&2; exit 1 ;; esac
 PG_CLUSTER="${PG_CLUSTER:-16/main}"
 PG_VER="${PG_CLUSTER%%/*}"
 PG_NAME="${PG_CLUSTER##*/}"
@@ -89,9 +101,15 @@ psql_as_postgres() {
 }
 
 # --- Env de DESARROLLO LOCAL -------------------------------------------------
-# NODE_ENV=development es deliberado: `backend/src/config/env.validation.ts` exige
-# DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND solo en entornos NO-locales. En local
-# degrada seguro (mail → NoopMailAdapter). NUNCA uses este bloque para staging/prod.
+# NODE_ENV=development es deliberado y es **DEL BACKEND**: `backend/src/config/
+# env.validation.ts` exige DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND solo en entornos
+# NO-locales. En local degrada seguro (mail → NoopMailAdapter). NUNCA uses este bloque
+# para staging/prod.
+#
+# OJO — `export` alcanza a TODO hijo, incluido `next build`, y ahí NO es inocuo: rompe
+# el prerender de las páginas de error y mata el build (BLOQ-1 de QA · §32.10). Por eso
+# `start_frontend()` FIJA su propio NODE_ENV por modo (build→production, dev→development)
+# en vez de heredar éste. Si tocas esta línea, no deshagas aquella.
 export NODE_ENV="${NODE_ENV:-development}"
 export PORT="$BACKEND_PORT"
 export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace?schema=public}"
@@ -217,23 +235,110 @@ start_backend() {
 # Frontend nativo con mocks=false apuntando al backend REAL
 # -----------------------------------------------------------------------------
 start_frontend() {
-  log "Frontend Next (mocks=FALSE) en :$FRONTEND_PORT → API :$BACKEND_PORT"
-  if curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1; then
-    ok "ya respondía en :$FRONTEND_PORT."
+  log "Frontend Next (mocks=FALSE, modo $FRONTEND_MODE) en :$FRONTEND_PORT → API :$BACKEND_PORT"
+
+  # -------------------------------------------------------------------------
+  # NO REUTILIZAR UN SERVIDOR AJENO EN MODO GATE.
+  # Un Next que ya responde en el puerto pudo hornearse con `NEXT_PUBLIC_USE_MOCKS=true`
+  # o contra OTRO backend. Reutilizarlo da una corrida verde que no mide lo que dice
+  # medir — es exactamente el mismo modo de fallo que `reuseExistingServer: !isCI` de
+  # `frontend/playwright.config.ts` (DEVOPS_NOTES §32.6): nueve specs fallaron en bloque
+  # porque Playwright reusó un `next dev` suelto y las pruebas hablaron con el backend
+  # real en vez de con los datos de prueba. En modo `dev` se sigue reutilizando (es
+  # cómodo y no es un gate); en modo `build` se PARA.
+  # -------------------------------------------------------------------------
+  if curl -sf -m 15 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1; then
+    if [ "$FRONTEND_MODE" = "build" ]; then
+      die "Ya hay ALGO sirviendo en :$FRONTEND_PORT y esto es una corrida de GATE.
+     No se reutiliza: ese proceso pudo hornearse con mocks=true o contra otro backend,
+     y un gate que reusa un servidor ajeno mide otra cosa de la que dice medir.
+     Apágalo primero:  ./scripts/stack-native.sh down
+     (a mano NO basta con pkill -f 'next start -p $FRONTEND_PORT': ese proceso se renombra a
+      «next-server (vX.Y.Z)» y ese patrón no lo encuentra. Usa el \`down\`, que ya lo contempla.)"
+    fi
+    ok "ya respondía en :$FRONTEND_PORT (modo dev: se reutiliza)."
+    warn "No se verificó CON QUÉ se horneó ese proceso. Para un GATE usa 'up --gate'."
     return 0
   fi
+
   [ -d "$FRONTEND_DIR/node_modules" ] || die "Falta $FRONTEND_DIR/node_modules. Corre: cd frontend && npm ci"
-  ( cd "$FRONTEND_DIR" \
-    && NEXT_PUBLIC_USE_MOCKS=false \
-       NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
-       nohup npx next dev -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+
+  # ---------------------------------------------------------------------------
+  # NODE_ENV DEL FRONTEND — NO se hereda el del backend.  (BLOQ-1 de QA, §32.10)
+  #
+  # La línea 105 exporta `NODE_ENV=development` PARA EL BACKEND: `env.validation.ts`
+  # solo exige DATABASE_URL/JWT/STRIPE/APP_BASE_URL/RESEND en entornos NO-locales, y
+  # sin esa variable el backend ni arranca aquí. Pero `export` es del PROCESO ENTERO:
+  # también llegaba a `npx next build`, y ahí NO es inocuo:
+  #     ⚠ You are using a non-standard "NODE_ENV" value in your environment.
+  #     Error: <Html> should not be imported outside of pages/_document.
+  #     Error occurred prerendering page "/500". Export encountered an error on /_error
+  # Con NODE_ENV≠production Next mete el runtime de desarrollo en el prerender estático
+  # de las páginas de error y el build MUERE. QA lo reprodujo 2 de 2 (la segunda corrida
+  # reventó distinto —`Cannot read properties of null (reading 'useContext')` en
+  # /es/forgot-password—: mismo modo de fallo, otra página). Con NODE_ENV=production:
+  # exit 0. Es decir: el gate documentado (§32.6) era el ÚNICO camino a una corrida de
+  # gate y no existía; QA tuvo que hornear el bundle a mano.
+  #
+  # CI no estaba afectado: `Dockerfile.frontend` no exporta NODE_ENV en su etapa de
+  # build, así que allí resuelve a `production`. El fallo era exclusivo de este arnés.
+  #
+  # Por eso el valor se fija AQUÍ, por modo, y no se hereda:
+  #   build → production  (es el artefacto que se despliega; lo mismo que hace CI)
+  #   dev   → development (lo que `next dev` espera de todos modos)
+  # El backend, que se lanzó antes en otro subshell, conserva su `development`: son
+  # procesos distintos y ninguno pisa al otro.
+  # ---------------------------------------------------------------------------
+  local NEXT_NODE_ENV
+
+  if [ "$FRONTEND_MODE" = "build" ]; then
+    NEXT_NODE_ENV=production
+    # `next build` hornea NEXT_PUBLIC_* en el bundle: mocks=false y la URL del backend
+    # quedan FIJADAS en el artefacto, no dependen del entorno del runtime.
+    log "next build (NODE_ENV=$NEXT_NODE_ENV, mocks=FALSE horneado en el bundle) — tarda unos minutos"
+    ( cd "$FRONTEND_DIR" \
+      && NODE_ENV="$NEXT_NODE_ENV" \
+         NEXT_PUBLIC_USE_MOCKS=false \
+         NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
+         npx next build > "$RUN_DIR/frontend-build.log" 2>&1 ) \
+      || { tail -60 "$RUN_DIR/frontend-build.log"; die "\`next build\` falló. Log: $RUN_DIR/frontend-build.log
+     Si es un error de código y no de entorno, el hallazgo es del rol FRONTEND (devops no lo corrige)."; }
+    # Detector de REGRESIÓN del propio arnés: si alguien vuelve a dejar filtrar un
+    # NODE_ENV no estándar al build, Next lo AVISA pero puede terminar en 0 igualmente
+    # (el fallo del prerender es intermitente: QA vio dos páginas distintas romperse).
+    # Un build verde horneado con el runtime de desarrollo es peor que uno rojo: el gate
+    # correría sobre un artefacto que no es el que se despliega. Aquí se para en seco.
+    if grep -q 'non-standard "NODE_ENV"' "$RUN_DIR/frontend-build.log"; then
+      die "El build se horneó con un NODE_ENV no estándar (Next lo avisó en $RUN_DIR/frontend-build.log).
+     Un GATE no corre sobre ese artefacto. Revisa que nada exporte NODE_ENV por encima de
+     este script (\`env | grep NODE_ENV\`) — ver DEVOPS_NOTES §32.10."
+    fi
+    ok "build listo (NODE_ENV=$NEXT_NODE_ENV, sin aviso de NODE_ENV no estándar)."
+    ( cd "$FRONTEND_DIR" \
+      && NODE_ENV="$NEXT_NODE_ENV" \
+         NEXT_PUBLIC_USE_MOCKS=false \
+         NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
+         nohup npx next start -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+  else
+    NEXT_NODE_ENV=development
+    ( cd "$FRONTEND_DIR" \
+      && NODE_ENV="$NEXT_NODE_ENV" \
+         NEXT_PUBLIC_USE_MOCKS=false \
+         NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
+         nohup npx next dev -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+  fi
+
   for i in $(seq 1 40); do
-    curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 && break
+    curl -sf -m 15 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 && break
     sleep 3
   done
-  curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 \
+  curl -sf -m 15 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 \
     || { tail -40 "$RUN_DIR/frontend.log"; die "El frontend no respondió. Log: $RUN_DIR/frontend.log"; }
-  ok "arriba en http://localhost:$FRONTEND_PORT"
+  ok "arriba en http://localhost:$FRONTEND_PORT (modo $FRONTEND_MODE)"
+  if [ "$FRONTEND_MODE" = "dev" ]; then
+    warn "Modo \`next dev\`: compila BAJO DEMANDA y se DEGRADA tras varias recompilaciones."
+    warn "Sirve para desarrollar. Para un GATE usa 'up --gate' (next build + next start)."
+  fi
 }
 
 seed_synthetic() {
@@ -255,6 +360,33 @@ stop_apps() {
   done
   pkill -f "ts-node --transpile-only src/main.ts" 2>/dev/null || true
   pkill -f "next dev -p $FRONTEND_PORT"           2>/dev/null || true
+  pkill -f "next start -p $FRONTEND_PORT"         2>/dev/null || true
+  # `next start` se RENOMBRA a «next-server (vX.Y.Z)» en cuanto arranca, así que los dos
+  # `pkill` de arriba NO lo matan: sólo matan al `npx` que lo lanzó. Y el pidfile guarda
+  # ese `npx`, no al servidor. Resultado observado: `down` decía «frontend detenido»,
+  # el pidfile quedaba huérfano y el puerto SEGUÍA sirviendo 200 — con lo que el
+  # siguiente `up --gate` moría con «Ya hay ALGO sirviendo en :$FRONTEND_PORT».
+  # El arnés dejaba de ser repetible por su propio apagado. (§32.10)
+  # El patrón va ANCLADO (`^next-server `): sin el `^`, un `pkill -f next-server` mata
+  # también a cualquier shell cuya LÍNEA DE COMANDO mencione la cadena — incluido el
+  # `bash -c` que esté ejecutando este mismo `down` desde una sesión de agente. Probado:
+  # se suicidó (exit 144). El proceso real se llama literalmente «next-server (v15.5.23)».
+  pkill -f "^next-server "                        2>/dev/null || true
+
+  # Verificación de que el apagado APAGÓ. Sin esto, `down` informa éxito por haber
+  # ejecutado los kills, no por haber liberado el puerto: el mismo «enforcement de
+  # honor» que el techlead señaló en otro sitio, pero aquí en el propio script.
+  for i in $(seq 1 10); do
+    curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  if curl -sf -m 3 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1; then
+    warn "OJO: :$FRONTEND_PORT SIGUE respondiendo tras el apagado — hay un proceso que no lancé yo."
+    warn "Identifícalo ANTES de matarlo (puede ser el stack de otro rol):  pgrep -af 'next|node'"
+  fi
+  if curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1; then
+    warn "OJO: :$BACKEND_PORT SIGUE respondiendo tras el apagado. Mismo criterio: identifícalo antes de matarlo."
+  fi
 }
 
 print_e2e_instructions() {
@@ -308,6 +440,20 @@ print_e2e_instructions() {
    alguna vez aparece en un gate, ese gate deja de medir el stack real. Hoy NO está en
    \`.github/\` (comprobado).
 
+ TRAMPA DEL ARNÉS — \`reuseExistingServer\` (hallazgo de frontend, DEVOPS_NOTES §32.6)
+ · \`frontend/playwright.config.ts:71\` usa \`reuseExistingServer: !isCI\`. Si corres la
+   suite en modo MOCK (SIN \`E2E_BASE_URL\`) con un \`next dev\` suelto en :$FRONTEND_PORT,
+   Playwright REUTILIZA ese servidor en vez de levantar el suyo con mocks=true ⇒ las
+   pruebas hablan con el BACKEND REAL en lugar de con los datos de prueba. Nueve specs
+   fallaron en bloque exactamente por esto, y el rojo no significaba nada.
+ · Regla operativa: **una sola app por puerto, y sabiendo cuál es.** Antes de correr el
+   modo MOCK: \`./scripts/stack-native.sh down\` (o exporta \`CI=1\`, que desactiva la
+   reutilización). Para el modo GATE no aplica: \`E2E_BASE_URL\` desactiva el webServer.
+ · Y para CUALQUIER gate el frontend va horneado, no en \`next dev\`:
+   \`./scripts/stack-native.sh up --seed --gate\`  (next build + next start).
+   \`next dev\` compila bajo demanda y se DEGRADA tras varias recompilaciones; además
+   no es el artefacto que se despliega.
+
  Chromium: el config usa \`/opt/pw-browsers/chromium\`. Si no existe en esta máquina:
    cd frontend && npx playwright install --with-deps chromium
    (o exporta PLAYWRIGHT_CHROMIUM_PATH=/ruta/al/chromium)
@@ -325,7 +471,8 @@ case "${1:-up}" in
       case "$a" in
         --infra) ONLY_INFRA=1 ;;
         --seed)  DO_SEED=1 ;;
-        *) die "Opción desconocida: $a (usa --infra | --seed)" ;;
+        --gate)  FRONTEND_MODE=build ;;
+        *) die "Opción desconocida: $a (usa --infra | --seed | --gate)" ;;
       esac
     done
     [ -d "$BACKEND_DIR" ] || die "No existe $BACKEND_DIR."
@@ -344,7 +491,9 @@ case "${1:-up}" in
     fi
     start_backend
     start_frontend
-    warn "SIN MinIO/R2: los flujos de subida del INE (buylist sobre el tope) NO se cubren por esta ruta."
+    warn "SIN MinIO/R2: la subida del INE del buylist (sobre el tope AML) NO se cubre por esta ruta."
+    warn "Junto con la falta de STRIPE_TEST_SECRET_KEY son los DOS huecos de entorno que dejan"
+    warn "4 smokes de dinero sin verificar en navegador. Ambos siguen ABIERTOS — DEVOPS_NOTES §31/§32.7."
     print_e2e_instructions
     ;;
   status)
@@ -374,6 +523,6 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    die "Uso: $0 {up [--infra|--seed] | status | down [--all]}"
+    die "Uso: $0 {up [--infra|--seed|--gate] | status | down [--all]}"
     ;;
 esac

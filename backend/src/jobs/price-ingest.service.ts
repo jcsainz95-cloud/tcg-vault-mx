@@ -68,6 +68,11 @@ export class PriceIngestJobService {
 
     if (this.queue) {
       const jobId = await this.enqueueAllSets(fx);
+      // v1.50.2 (§4.38h): el ingest de estimados PSA corre APARTE del fan-out por set. No se encola
+      // por set a propósito: su alcance es «cartas con inventario publicado», que es transversal a los
+      // sets y ya viene acotado por su propio tope de cuota. Con el dial `off` (seed) es un no-op de
+      // una sola lectura de config.
+      await this.runGradedEstimates(fx);
       return { job: JOB, enqueued: true, jobId };
     }
 
@@ -79,10 +84,31 @@ export class PriceIngestJobService {
     this.running = true;
     try {
       await this.ingest.ingestAll(fx);
+      await this.runGradedEstimates(fx);
     } finally {
       this.running = false;
     }
     return { job: JOB, enqueued: true };
+  }
+
+  /**
+   * v1.50.2 (§4.38h) — ingest de ESTIMADOS PSA (fase 2), fail-closed por su PROPIO dial.
+   *
+   * Se aísla en su propio `try` **a propósito**: un fallo del gancho —que es informativo— **no puede**
+   * tumbar ni ensuciar el barrido de precios de venta, que sí es dinero. La relación de dependencia va
+   * en un solo sentido y así se mantiene.
+   */
+  private async runGradedEstimates(fx: FxSnapshot): Promise<void> {
+    try {
+      const res = await this.ingest.ingestGradedEstimates(fx);
+      if (res.escalation) {
+        this.logger.error(
+          `⛔ graded-estimate-ingest requiere DECISIÓN DEL ARQUITECTO (regla 9): ${res.escalation.reason}.`,
+        );
+      }
+    } catch (e) {
+      this.logger.error(`graded-estimate-ingest falló: ${(e as Error).message} (no afecta al barrido).`);
+    }
   }
 
   /**
@@ -91,6 +117,13 @@ export class PriceIngestJobService {
    * Devuelve de INMEDIATO; el barrido corre secuencial (respeta el throttle/daily-stop, secuencial
    * por naturaleza) y actualiza `sync-status` por set, que el front pollea. NO bloquea el request.
    * El CRON 2×/día sigue usando `run()` (fan-out BullMQ / secuencial), sin cambios.
+   *
+   * **v1.50.2 fix (QA) — este botón TAMBIÉN refresca los estimados PSA.** `run()` llamaba a
+   * `runGradedEstimates` en sus dos ramas y esta NO, así que el «sincronizar ahora» del admin (N-11,
+   * el ÚNICO disparo manual del barrido completo) dejaba los estimados congelados hasta el siguiente
+   * cron. El operador veía la barra llegar al 100% y concluía, razonablemente, que había refrescado
+   * todo. Va DESPUÉS del barrido y encadenado (no en paralelo): el gancho depende del precio de venta
+   * raw para su gate, y correr los dos a la vez duplicaría la presión sobre la cuota del proveedor.
    */
   async runBackground(): Promise<PriceIngestTriggerResult> {
     if (this.ingest.getSyncStatus().running) {
@@ -100,9 +133,15 @@ export class PriceIngestJobService {
     const cur = await this.fx.getCurrent();
     const fx: FxSnapshot = { rate: cur.rate, bufferPct: cur.bufferPct };
     // Fire-and-forget: el request NO espera al barrido. Los errores se loguean (no se propagan).
-    void this.ingest.ingestAll(fx).catch((e) => {
-      this.logger.error(`price-ingest background falló: ${(e as Error).message}`);
-    });
+    void this.ingest
+      .ingestAll(fx)
+      .catch((e) => {
+        this.logger.error(`price-ingest background falló: ${(e as Error).message}`);
+      })
+      // `.then` tras el `.catch`: el gancho se refresca AUNQUE el barrido de venta haya fallado. La
+      // dependencia va en un solo sentido (`runGradedEstimates` ya se aísla en su propio try) y un
+      // fallo del barrido no es razón para dejar los estimados rancios.
+      .then(() => this.runGradedEstimates(fx));
     return { job: JOB, enqueued: true, background: true, alreadyRunning: false };
   }
 

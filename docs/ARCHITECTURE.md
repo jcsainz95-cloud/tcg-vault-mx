@@ -2,6 +2,208 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+> Rev **v1.50.3-project-reconciliation** (2026-08-28, rama `claude/psa-graded-card-value-gmhv5u`, arquitecto —
+> DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND). **Pase de reconciliación con `PROJECT.md` tras el rechazo de
+> QA + techlead.** No añade features: **cierra divergencias en las que el contrato/código se apartó de `PROJECT.md`
+> sin actualizar el criterio**, y por la regla de conflicto **PROJECT manda**. Seis puntos:
+> 1. **El override manual VUELVE A CADUCAR** (criterio 109). `graded_estimate_manual_freshness_days`: seed `null` →
+>    **30**. El dictamen de v1.50.2 (**GU-A15**) queda **DEROGADO**: su diagnóstico era correcto pero su remedio
+>    contradecía PROJECT. El fallo «el manual gana y luego la frescura lo tira» se cierra **filtrando la frescura
+>    ANTES de elegir al ganador**, no eximiendo del decaimiento — **`isBetterRef` y §4.27f-2 quedan intactos**.
+>    §4.38(m).
+> 2. **Los seeds del gate de confianza se alinean a `PROJECT.md`:** `minSampleCount` **3 → 5** (criterio 111(a),
+>    desviación **permisiva**) y `maxRawMultiple` **50 → 100** (criterio 111(c)). Se añade el **glosario normativo de
+>    nombres** PROJECT ⇄ contrato ⇄ `SettingKey`, cuya ausencia es lo que permitió que los valores divergieran en
+>    silencio. Los **nombres NO se renombran** y aquí queda escrito por qué. §4.38(k.0).
+> 3. **Se DISEÑA la lista de revisión del back-office** (criterio 111(e)), que no existía y que es la **contrapartida
+>    explícita** de la decisión de (k.3) de **no ocultar** la cifra incoherente en la ficha. Endpoint enumerador
+>    `GET /admin/pricing/graded-estimates/review` + su superficie en M2. §4.38(n).
+> 4. **Renumeración 79–92 → 97–112** en todas las citas de esta §4.38, de §10 y de `API_CONTRACT`. Los números viejos
+>    **hoy son criterios vivos de `main`** (§N, la curva, en producción): las citas apuntaban a otra cosa. Se verificó
+>    **caso por caso**; las citas de §4.36/§N **no se tocaron**. §4.38(o).
+> 5. **Enmiendas del techlead a la regla de admisión: ACEPTADAS LAS DOS.** La condición 2 pasa de **lista negra por
+>    nombre** a **criterio positivo** (+ cláusula de derivación); la condición 3 gana el requisito de **justificación
+>    independiente**, que cierra el trinquete «construyo el enumerador y así admito el campo». `gradingHighlight` se
+>    **re-verificó** bajo la regla enmendada y sigue pasando las tres. §4.38(e).
+> 6. **INV-D inverso: el riesgo dejó de ser teórico.** QA midió el precio publicado de un slab moviéndose de `575000`
+>    a `1000000` = `500000 × 2.0` desde su fila `graded:PSA:10`. **M-43 va a decisión del humano con ese dato
+>    delante**, y se recomienda empaquetar en la misma migración la columna `evidenceDate` de la divergencia **nueva**
+>    detectada en este pase (§4.38m.2: la frescura del dato automático se mide contra la fecha de ingesta, no contra
+>    la evidencia — permisiva, no viva porque el ingest está `off`, **bloquea encender la fase 2**). §4.38(l.3), §9.
+> **Addendum v1.50.3-a (2026-08-28) — dos consecuencias que backend encontró al IMPLEMENTAR la rev, escaladas antes de
+> improvisar. Ambas son de doctrina, no de código, y las cierro aquí:**
+> 7. **PI-D2 — el shape `S2` (`gradedPrices.psaN`) queda declarado NO PERSISTIBLE.** El gate de evidencia lo deja sin
+>    poder escribir nunca (es un **escalar sin fecha**). **Se acepta como decisión, y no se concede una segunda
+>    escotilla.** Matiz que cambia el marco: **S2 tampoco era persistible antes** (sin `count`, fail-closed); su único
+>    camino era la escotilla `MIN_COUNT=0` ⇒ el parser **ya era «de una hipótesis y media»** y v1.50.3 solo lo hizo
+>    visible. `MIN_COUNT=0` queda **DEROGADA** (ya no abre nada). El sondeo de S2 se conserva como **diagnóstico**,
+>    con motivo de traza propio, y si el proveedor resulta servir S2 es **escalada obligatoria**, no parche. §4.38(h.1-bis).
+> 8. **PI-D3 — un cambio de seed NO llega a un entorno ya sembrado.** `seed.ts` usa `update: {}` ⇒ los tres seeds
+>    corregidos **no alcanzan producción**. **Se ratifica la decisión de backend de no automatizarlo** y se añade la
+>    **regla general que faltaba** (§11.0): un seed es **condición inicial, no estado deseado**; cambiarlo sobre una
+>    clave existente exige **dos artefactos**, y el segundo se ejecuta **por el `PUT` de admin, no por SQL**. Paso
+>    concreto de esta release en §4.38(p); al humano como **GU-13**.
+> **Addendum v1.50.3-b (2026-08-28) — corrección de un error MÍO, escalado por devops (regla 9):**
+> 9. **El paso 4 de §4.38(p) no era ejecutable y se reescribe.** Pedía «correr el E2E del criterio 109 contra el
+>    entorno destino»: **(1)** el arnés levanta Nest en proceso contra `DATABASE_URL`, el spec **escribe** (flip del
+>    dial, override y `updateMany` que envejece `capturedDate`) y exige el fixture `e2e-common` ⇒ **no se apunta a
+>    producción**; **(2)** aun pudiendo, **ya no detecta el seed rancio**, porque el caso `8d` —bien endurecido por
+>    devops— **fija el dial antes de asertar**. **CONFIGURACIÓN y LÓGICA se separan** (§11.0 punto 5): la primera se
+>    verifica con **`GET` + línea de inventario** (solo lectura, en prod); la segunda con el **E2E, en staging**.
+>    **La lección general, que vale más que el caso:** *un test que fija su propia configuración para ser determinista
+>    deja, por construcción, de ser un detector de configuración* — yo **generalicé un accidente a procedimiento**.
+>    Consecuencia: la **línea de inventario deja de ser un extra y pasa a REQUISITO** ((i).7). Se ratifica el
+>    procedimiento de `DEVOPS_NOTES.md` §32.5 y el comparador solo-lectura que construyó devops. §4.38(p), §11.0.
+> **Addendum v1.50.3-c (2026-08-28) — dos escaladas más de backend; la primera cierra otro hueco MÍO:**
+> 10. **PI-D6 — `STALE` pasa a ser enumerable en la lista de revisión (opt-in, nunca default).** Al invertir el orden
+>    en (m), `STALE` quedó **inalcanzable** en admin; **se ratifica el arreglo de backend**
+>    (`includeStaleForDiagnostics`, solo `preview`/`review`, re-inyección únicamente donde no hay fila fresca) **y se
+>    corrige el hueco que dejaba**: mi §M2 rechazaba `STALE` con `400`. Lo había agrupado con «ausencia de dato», y
+>    **no es eso**: es un dato **que existió y expiró**. Encaja en el propósito de (n) **mejor que el caso que sí
+>    admití** — una cifra caducada desaparece **en silencio** de las tres superficies, sigue en la BD y el dueño no
+>    puede encontrarla. Agravante: **creé esa categoría en esta misma rev** (seed `manualFreshnessDays=30`) y en (m)
+>    prometí que (n) la mostraría, normando a la vez su `400`. Los DTO de diagnóstico ganan **`isManual`**
+>    (admin-only) porque manual-rancia y automática-rancia exigen remedios **opuestos**. §4.38(n.2-bis).
+> 11. **PI-D7 — se ajusta el disparador de la escalada por shape:** el suelo absoluto de 5 que propuso backend haría
+>    **inalcanzable** el aviso en una tienda con menos de 5 cartas publicadas (fase 2 muerta en silencio). Pasa a
+>    **`min(5, cartas_de_la_corrida)`**, más una regla que escala **sin suelo** cuando `S1 == 0 && S2 >= 1`.
+>    §4.38(h.1-ter). *(Ratificado además, sin acción: `POST /admin/pricing/override` es `200` — backend corrigió el
+>    código en vez de pedir cambiar el contrato. GU-A26.)*
+> **Addendum v1.50.3-d (2026-08-28) — escalada de frontend al cerrar el arnés E2E; cierra un hueco que este documento
+> arrastraba desde v1.46:**
+> 12. **Se DISEÑA `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`.** El contrato prometía en **cuatro
+>    sitios** una «limpieza/borrado explícito» de la fila de override que **no existía como endpoint**: hoy el
+>    back-office **solo puede pisar** una cifra, nunca **quitarla**. **No es alcance opcional:** `PROJECT.md` §O.7
+>    exige que el dueño pueda *«corregirla con override **o descartarla**»*. Agravante propio: con la caducidad de 30
+>    días que sembré en (m), una cifra manual **errónea** desaparece de las superficies, **sigue en la tabla** y es
+>    enumerable por `?reason=STALE` — el dueño la encuentra y **su único gesto era capturar otra cifra indeseada**.
+>    Borra **todas** las filas de la clave en transacción (borrar solo la vigente **haría reaparecer** una más vieja),
+>    **auditado con `before`**, **`404`** si no hay nada, y con la **guarda INV-D ⇒ `409`**. ⚠ **No mitiga INV-D
+>    inverso** —la inferencia es tentadora y falsa—: ahí el slab está publicado y la guarda **debe** disparar. §4.38(q).
+> **Addendum v1.50.3-e (2026-08-29) — hallazgo de frontend en la suite real + dos consultas cerradas. Todo se cierra;
+> nada queda como deuda:**
+> 14. **La red de coherencia NO se ponía con UN SOLO grado, y el defecto es mío.** Medido: raw $460 + PSA 10 $230 sin
+>    PSA 9 ⇒ `review` daba `total: 0`, porque `NO_PSA9` **corta antes** del gate de magnitud. **Segunda ocurrencia de
+>    la misma causa raíz que el punto 10** (`STALE` inalcanzable): una **superficie de diagnóstico** heredando el
+>    **cortocircuito de una superficie de decisión**. Arreglo en la **causa**, no en la instancia: la pura emite
+>    **`reasons[]`** (todas las condiciones) además de `reason` (primer bloqueante, **sin cambio**), y (n) filtra sobre
+>    `reasons`. **`eligible` no cambia — money-neutral.** Gravedad por encima de su apariencia: el USD-como-MXN es más
+>    probable en la **primera captura**, y ahí la cifra **no se promociona pero SÍ se ve en la ficha** ⇒ visible al
+>    comprador, invisible para el operador. §4.38(c), (n.2-ter).
+> 15. **MEN-B cerrada sin código:** `isManual` describe **la fila que el diagnóstico reporta** (la que eligió
+>    `pickBestRef`), no «la más antigua». El remedio señalado es correcto **por construcción**, también con diales
+>    asimétricos. Residual declarado. **R1 del techlead cerrada como «sin cambio»:** la guarda del `DELETE` **no** se
+>    extiende a slabs `in_stock` — hacerlo **institucionalizaría INV-D inverso**. §4.38(n.2-bis), (q.2).
+> 13. **`raw` / `sealed` siguen SIN borrado, y ahora está declarado en vez de prometido.** Un `DELETE` genérico sobre
+>    la tabla de precios **mueve precios de venta publicados** y necesita su propio diseño. Texto de §4.27f-2 y del
+>    contrato **corregidos**; hueco con nombre en §9. Y **dos filas nuevas de fixture** en `seed-e2e.ts` (GU-A28).
+> **Addendum v1.50.3-f (2026-08-29) — DICTAMEN sobre GE-1 (pentester, ALTA, PoC en vivo). Cierra §4.38(l.3) y
+> CORRIGE la recomendación que yo mismo había escrito. Tres puntos:**
+> 16. **INV-D inverso se cierra separando la NATURALEZA de la fila, no guardando la transición.** El hallazgo dejó de
+>    ser «riesgo residual» y tiene **cifra**: un slab PSA 10 que con referencia correcta lista a **MX$9,200** quedó
+>    publicado a **MX$460** (5%) heredando un estimado con error USD-como-MXN, y con `capturedDate` a −400 días
+>    **siguió** a MX$460. **M-43 se dictamina y se especifica en §4.38(l.4):** columna `refKind`
+>    (`market` | `graded_estimate`, default `market`) en `PriceReference` + **exclusión** de las filas de naturaleza
+>    estimado en **toda** lectura de dinero. Es DDL **aditivo**, no toca la `@@unique`, y en producción el backfill es
+>    **verificablemente vacío** (la vía de captura del estimado vive en esta rama, no en `main`).
+> 17. **⛔ SE DEROGA el mecanismo que yo había recomendado en (l.3) y en §10 (GU-8): «valor `graded_estimate` en el
+>    enum `PriceSource` con `sourceRank` por debajo de toda fuente real».** El PoC prueba que **no habría cerrado
+>    nada**: `sourceRank` solo **desempata entre candidatas**, y en el caso medido la fila del estimado era la
+>    **ÚNICA** candidata de esa clave ⇒ gana por ausencia de rival, con cualquier rango. Lo que hace falta no es
+>    **rango**, es **exclusión**; y una vez que el criterio es «esta fila no es dinero», su sitio es una columna de
+>    **naturaleza**, no la columna de **procedencia**. Habría sido un arreglo que pasa la revisión y no arregla.
+>    §4.38(l.4.1).
+> 18. **La cota de magnitud NO se traslada a la captura y la guarda simétrica en publicación se RECHAZA como
+>    solución.** La primera contradice el **criterio 54** de `PROJECT.md` (la ficha informa, no promueve) y además no
+>    atrapa la variante *rancia*, que el pentester midió igual de cara. La segunda sostiene un invariante de dinero
+>    con **disciplina en N call-sites** en vez de con la **forma del dato** —lo contrario de la doctrina que el gate
+>    v2.0 dejó escrita («la regla “un solo cuerpo” no se sostiene con disciplina; se sostiene con tipos»)— y **bloquea
+>    el camino feliz** de la propia feature (estimo → gradeo → publico el slab). §4.38(l.4.4).
+> **Addendum v1.50.3-g (2026-08-29) — DICTAMEN sobre el gate del blue team (`SECURITY_NOTES.md` §5.1/§5.2,
+> APROBADO-CON-CONDICIONES). Cierra SEC-M43-1 y SEC-M43-2, y CORRIGE una contradicción interna MÍA. Cuatro puntos:**
+> 19. **`M-44` — la no-degradación deja de ser una regla del ingest y pasa a ser una regla de la TABLA.** (l.4.3)
+>    regla 2 prohibía que el escritor **automático** bajara una fila `market` a `graded_estimate` y **guardaba
+>    silencio sobre el humano**. El blue team reprodujo el hueco en vivo: con el slab fuera de `listed` —reserva,
+>    picking, pre-publicación **o custodia de cliente**— un `intent:"graded_estimate"` reclasifica la fila `market`
+>    del día **y le pisa el monto**, con `200` y sin `409`. **Dictamen: `409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF`**
+>    — nuevo código, cambio de contrato, **BREAKING chico** (`super_admin`). **NO se ensancha la guarda a `in_stock`**:
+>    (q.2) sigue vigente sin una coma de cambio, porque contesta otra pregunta. §4.38(l.4.10).
+> 20. **`M-45` — el cut-over se reescribe, y la contradicción que señaló seguridad es MÍA y estaba DENTRO de este
+>    documento.** Mi (l.4.7) paso 1 decía «si el censo no da cero **se para y se escala**» y mi propio paso 4 decía,
+>    para ese mismo caso, «se clasifica: con slab ⇒ `market`, sin slab ⇒ `graded_estimate`». Backend implementó
+>    fielmente mi paso 4 y escribió el `UPDATE`. **Manda el paso 1: se PARA y se ESCALA**, y el paso 4 queda
+>    **⛔ DEROGADO**. Además el predicado de ese `UPDATE` era el equivocado (usaba la definición de una **guarda** para
+>    una decisión de **naturaleza**) y en una BD real habría marcado como estimado la referencia de mercado de todo
+>    slab no listado en ese segundo, **incluidos los de custodia**. §4.38(l.4.7) reescrito.
+> 21. **El rollback (paso 6) reabría GE-1 en silencio: corregido.** «Revertir el código basta» es cierto para el
+>    **DDL** y falso para el **riesgo**: al revertir, las filas `graded_estimate` ya escritas vuelven a ser candidatas
+>    **perennes** (`MANUAL_REF_PREDICATE`, sin cota de fecha). El revert gana **precondición de cero** y, para la
+>    urgencia, se declara cuál es la palanca rápida: **el dial, no el `git revert`**. §4.38(l.4.11).
+> 22. **`M43-D1` (reconciliación `raw`-only) se reclasifica.** No bloquea la fusión ni el encendido en staging;
+>    **es precondición del cut-over de producción**, porque después del cut-over es el **único** detector del modo de
+>    fallo que M-43 introduce a cambio («no vendo» en vez de «vendo barato»), y ese modo es **silencioso**. Se admiten
+>    **dos vías** para satisfacerlo, y la barata es de devops. §4.38(l.4.12).
+> **Money-safe:** ningún monto de dinero real cambia; **M-42 sigue siendo DATA/seed** (mismas 12 claves, tres seeds
+> corregidos, **sin DDL**). **Ratificaciones pedidas al humano: GU-8..GU-13 (§10).** Contrato en API_CONTRACT
+> (Changelog v1.50.3). **Base previa:** v1.50.2.
+> Rev v1.50.2-graded-estimate-confidence-gate (2026-08-28, rama `claude/psa-graded-card-value-gmhv5u`, arquitecto —
+> DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND). **Dictamen de fusión del gancho de grading con pricing v2
+> (§4.36, contrato v1.49) + cuatro decisiones del humano.** Cinco cosas, todas normativas:
+> 1. **`gradingHighlight` ENTRA a la lista blanca de la rejilla — y se MUEVE de DTO.** Main creó
+>    `GroupedListingSummaryDTO` (D2 / gate S48-M2) y mi campo se caía de la lista **en silencio**. **Dictamen: NO
+>    viola D2.** D2 protege la **economía de enumerar** un mapa de defectos operativos (`priceBasis` ⇒ qué cartas van
+>    por override); ese argumento **solo se sostiene mientras no exista un enumerador público**, y aquí lo
+>    construimos a propósito (`?gradingHighlight=true&sort=grading_showcase`) ⇒ publicar la cifra **no crea capacidad
+>    nueva**. Además `GradedEstimateDTO` **no tiene** `priceBasis`/`source`/`isManualOverride` (ausencia
+>    **estructural**, no filtrado al serializar). ⚠ **CAMBIO DE SHAPE:** `gradingHighlight?` pasa de
+>    `GroupedListingDTO` (que tras D2 es DTO **de ficha**) a **`GroupedListingSummaryDTO`** — así la partición
+>    **informar ≠ promover** la sostiene el **compilador**, igual que D2 sostiene el split de `priceBasis`. Regla
+>    generalizada de admisión a la lista blanca en §4.38(e).
+> 2. **GATE DE CONFIANZA (nuevo).** La cifra se emite en la **rejilla/vitrina** solo si es **fresca**, de **origen
+>    confiable** (manual, o automática con muestra suficiente) y **coherente en magnitud**. La **ficha NO aplica la
+>    coherencia de magnitud**: informa lo que hay. Solo la superficie de **promoción** exige confianza. §4.38(k).
+> 3. **La fase 2 se DESBLOQUEA — parser AUTO-CONFIRMANTE.** Se deroga «fase 2 BLOQUEADA por P-6»: P-6 prohíbe
+>    *codificar contra un esquema no confirmado*, y este parser no **asume** — **prueba dos hipótesis** y solo
+>    persiste lo que identifica **positivamente** como monto; ante cualquier otra forma **no escribe nada**. P-6
+>    queda **satisfecha, no dispensada**. Incluye **INV-FX** (nuevo, de dinero): PPT entrega **USD** ⇒ el ingest
+>    **DEBE** convertir con `FxRate`, mientras la vía manual sigue en **MXN directo**. §4.38(h).
+> 4. **Colisión estimado ↔ slab real PSA 10 publicado (dinero): se cierra la captura.** Son **la misma fila**, así
+>    que un «estimado» sobre una carta con slab publicado **cambia el precio de venta real del slab**. `intent`
+>    **obligatorio** (no opcional con default: un default en ruta de dinero es **fail-open**) + `409`. §4.38(l).
+> 5. ~~**Frescura × `isBetterRef` (v1.46/v1.47): la frescura NO aplica a filas manuales.** El dial protege contra un
+>    **feed** rancio, no contra una decisión del dueño; elimina la clase «el manual gana y luego la frescura lo
+>    tira».~~ ⛔ **DEROGADO por v1.50.3** (contradecía el criterio 109 de `PROJECT.md`). El fallo se cierra
+>    **filtrando la frescura antes de elegir al ganador**, no eximiendo del decaimiento. §4.38(m).
+> **Money-safe:** ningún monto de dinero real cambia; las dos capas de §4.36 (REFERENCIA × REGLA) quedan intactas.
+> **M-42** sigue siendo DATA/seed (pasa de 6 a **12** claves; **sin DDL**). **Coste de queries corregido a +1 dial
+> `off` / +3 dial `on`** (config + batch de estimados + batch de slabs publicados). Contrato en API_CONTRACT
+> (Changelog v1.50.2). **Base previa:** v1.50.1.
+> **Enmienda v1.50.1 (2026-08-23, post-gates QA+techlead):** (1) **fail-closed refinado — `AUSENTE ≠ INVÁLIDA`**: una
+> clave de config **presente pero corrupta** apaga el destacado (antes caía al seed, quedando **más permisiva que la
+> intención del admin, en silencio**) — §4.38(d), **corrección pendiente para backend**; (2) **coste de queries
+> corregido** a la cifra medida (**+1 dial `off` / +2 dial `on`**; la vieja «+1 constante» contaba solo la query de
+> precios) — §4.38(c) *(re-corregido a +1/+3 en v1.50.2)*; (3) §4.38(c) **retro-alimentada** a la firma implementada
+> `Map<cardId, GradedEstimateRef[]>`, que es mejor porque no hardcodea los grados y **no transporta `PriceInfo`** (la
+> ausencia estructural de `source` es lo que garantiza la indistinguibilidad de fases); (4) registradas dos decisiones
+> de implementación para que no se reviertan: endpoints en `CatalogModule` (anti-ciclo, **rutas del contrato sin
+> cambio**) y `PUT` vacío ⇒ `422`. Trazabilidad en §10 (GU-A8..A10). **Base previa:** v1.50.
+> Rev v1.50-graded-estimate (2026-08-23, rama `claude/psa-graded-card-value-gmhv5u`, arquitecto — DISEÑO EN PAPEL;
+> backend/frontend implementan). **PROJECT §O v2.0 «gancho de grading» + REDUCCIÓN DE ALCANCE del humano (2026-08-23):**
+> sobre una carta **raw publicada**, el storefront muestra **cuánto valdría gradeada**. **La interfaz NO muestra
+> multiplicador, ganancia calculada ni comparativa** (el humano los retiró) ⇒ el contrato público **no** transporta el
+> cálculo. **El gate de ROI sobre PSA 9 sobrevive completo pero cambia de PAPEL: pasa a ser criterio de CURADURÍA**, el
+> que decide dónde promovemos. De ahí la partición que gobierna todo: **`gradedEstimates` (FICHA, nivel carta, PSA 10 +
+> PSA 9, SIN gatear)** vs **`gradingHighlight` (REJILLA + VITRINA, nivel grupo, GATEADO)** — informar ≠ promover. Todo
+> **ADITIVO, RETROCOMPATIBLE y MONEY-SAFE** (ningún monto de dinero real cambia).
+> Nuevo **§4.38**. **SIN migración de esquema** — `PriceReference` ya admite la fila
+> `(cardId,'graded','graded:PSA:10|9','normal',cardProductId=null)` **sin exigir pieza física** (FK a `Card`,
+> `schema.prisma:782`); **M-42** es DATA/seed de `ConfigSetting`. Claves: la **presencia** del campo **ES** la
+> elegibilidad (no hay `eligible:false` ni `[]`); **SEC-A1 sale reforzado** — el cliente ya ni recibe los insumos del
+> gate, que solo se exponen al admin en `.../graded-estimates/preview`; **sin escalón de costo no hay destacado**
+> (jamás costo $0 ni default silencioso); `source` **NO** viaja al cliente (garantía de indistinguibilidad **fase 1
+> manual ⇄ fase 2 ingest**). Feature flag `graded_estimates_enabled` **seed `off`** (fail-closed: el disclaimer §O.5 aún
+> espera el visto bueno legal del humano). Contrato en API_CONTRACT (Changelog
+> v1.50-graded-estimate). Detalle normativo: §4.38, §10, §11. **Base previa:** v1.49-pricing-two-layers-merge.
 > Rev v1.47-manual-override-perennial-candidate (2026-08-24, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementa BACKEND). **Re-gate seguridad + techlead sobre P47-2.** El re-gate halló que el
 > **punto 4 de §4.27f-2 (v1.46) era INCOMPLETO**: afirmaba «el fix vive por completo en el comparador; ninguna
@@ -29,7 +231,10 @@
 > el barrido lo pisaba cada día siguiente por fecha. **Dictamen (§4.27f-2, NORMATIVO):** el override manual es un tier
 > SUPERIOR ABSOLUTO, DURABLE cross-day; `isBetterRef` iza el split manual/no-manual **por encima** de `capturedDate`;
 > la frescura desempata **solo dentro del mismo tier** (entre no-manuales, o entre dos manuales). Solo revoca un
-> override manual **otro override manual** posterior o la **limpieza explícita por `super_admin`** — **ninguna**
+> override manual **otro override manual** posterior o la **limpieza explícita por `super_admin`** *(⚠️ **v1.50.3-d:**
+> esa «limpieza» **no existía como endpoint** cuando se escribió esto; hoy existe **solo para estimados por grado** —
+> §4.38(q)—, y para `raw`/`sealed` la revocación real es **únicamente** otro override posterior. §4.27f-2, §9)* —
+> **ninguna**
 > escritura automática. Es **precedencia de LECTURA** (no reintroduce escritura PPT; `tcgcsv_singles` sigue único
 > escritor del barrido). **Sin migración, sin re-resolución de precios persistidos** (el fix vive en el comparador
 > puro; la siguiente lectura ya elige el override existente), **sin cambio de forma de contrato**. Money-safe
@@ -5655,6 +5860,18 @@ explícito** de la fila de override por `super_admin` (permiso money — §4.26/
 automáticas vuelven a aflorar por (f). **Ninguna** escritura automática (`tcgcsv_singles`, PPT, pokemontcg.io),
 por más fresca que sea, revoca ni pisa un override manual — es exactamente la garantía de §K/§E.1.
 
+> ⚠️ **CORRECCIÓN v1.50.3-d — la vía (b) NO EXISTÍA como endpoint, y este texto llevaba desde v1.46 prometiéndola.**
+> Lo detectó **frontend** al cerrar el arnés E2E. Consecuencia real, no teórica: hasta v1.50.3-d, un override manual
+> **solo podía sustituirse, nunca retirarse** — «durable indefinidamente» era, en la práctica, **irrevocable salvo
+> por otro número**. Estado tras esta rev:
+> - **Estimados por grado (`graded:PSA:*`): CERRADO.** Existe `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`
+>   (§4.38q), `super_admin`, auditado, con la guarda INV-D.
+> - **Overrides `raw` y `sealed`: SIGUE ABIERTO.** No hay borrado, y **no se abre en esta rev**: un `DELETE` genérico
+>   sobre la tabla de precios **cambia precios de venta publicados** de forma inmediata, y ese radio de explosión
+>   necesita su propio diseño (¿qué pasa con lo publicado que se queda sin referencia? ¿`PRICE_PENDING` y se
+>   despublica?). **Queda declarado como hueco con nombre**, no como capacidad existente. Mientras tanto, la
+>   revocación real para `raw`/`sealed` es **(a) y solo (a)**. Registrado en §9.
+
 **3) Es un cambio de precedencia de LECTURA (no reintroduce escritura).** `isBetterRef` es una función **pura**
 de resolución; corre al RESOLVER la referencia (`getReference`, `getReferenceByCardProduct`,
 `getReferencesBatch`, `getSeparateProductsByCard`, vía `pickBestRef`). No cambia **qué** se escribe ni **quién**
@@ -6893,6 +7110,2262 @@ Con el seed, la cotización de **COMPRA** (finish `normal`) cambia SOLO en:
 - **Barrido de `unmapped` (implementación, §M.3):** además de los tres casos cerrados, backend recorre TODAS las rarezas
   distintas del catálogo real tras el sync y cierra las `unmapped` restantes con la MISMA política (premium por patrón
   ⇒ canónica+tier premium; jamás T0/T1). Tarea de implementación con política fijada, no hueco de producto.
+
+---
+
+### 4.38 «Gancho de grading» — valor estimado si se gradea (v1.50, PROJECT §O v2.0, NORMATIVO)
+
+> **Nota de ubicación (merge v1.50.2):** esta sección va numerada **§4.38** porque §4.35 (fuente por-acabado, P-47),
+> §4.36 (curva v2) y §4.37 (listas de validación) ya estaban tomadas en `main`. Se mantiene **físicamente aquí**, antes
+> de §4.35, para no reescribir 500 líneas ajenas en el merge — el fichero ya tiene precedente de secciones fuera de
+> orden (§4.34 antes de §4.33). **La numeración manda sobre la posición.**
+
+> **Propósito (PROJECT §O).** Sobre una carta **raw publicada**, el storefront muestra **cuánto valdría si se gradeara**.
+> Es un **estimado informativo con disclaimer**, **nunca** un precio de venta, una oferta ni una promesa de grado.
+> **Alcance de esta sección:** la capa de **lectura y composición** (dónde vive el dato, cómo se decide qué se emite,
+> qué DTO sale y qué NO puede tocar) + los **diales** + el **ingest de la fase 2**. **NO cambia** el precio de
+> venta, el buylist, la bóveda, el inventario ni el P&L.
+> **Sin migración de esquema (M-42 es DATA/seed):** `PriceReference` ya admite las filas que esta feature necesita.
+> **Relación con §4.36 (curva v2):** son **ortogonales**. El gancho **lee** filas `graded:PSA:*` que **ninguna** capa de
+> §4.36 consume; la curva deriva compra/venta desde `raw:NM`. Encender o apagar el gancho **no puede** mover un precio.
+
+> **⚠ REDUCCIÓN DE ALCANCE (2026-08-23, humano) — supersede la presentación descrita en `PROJECT.md` §O.3.**
+> La interfaz **NO muestra multiplicador, ni ganancia calculada, ni comparativa de columnas** («no hay que mostrarlo
+> así… nos quitamos talacha de calcularlo»). La superficie visible se reduce a **la cifra por grado junto al precio**.
+> **El gate de ROI sobrevive completo —con la tabla de escalones de §O.2.1— pero cambia de PAPEL:** deja de ser
+> información al cliente y pasa a ser **criterio de CURADURÍA**, el que decide **dónde promocionamos activamente**
+> («calcúlalo para que podamos ponerlo en la sección de destacado algo que valga la pena»). **product-owner** debe
+> actualizar `PROJECT.md` §O.3 para que vuelva a mandar sobre el contrato (regla de conflicto).
+
+#### (0) La partición que gobierna todo lo demás: INFORMAR ≠ PROMOVER
+
+**Desde v1.50.2 la partición la sostiene el COMPILADOR**, no la disciplina: cada mitad vive en un **DTO distinto**.
+Es la misma técnica que `main` usó en D2 para separar `priceBasis` (ficha) de su ausencia en la rejilla.
+
+| | **FICHA** | **REJILLA de Compra + VITRINA del home** |
+|---|---|---|
+| Campo | `GroupedListingDetailResponse.gradedEstimates?` | **`GroupedListingSummaryDTO.gradingHighlight?`** |
+| Nivel | **CARTA** (el estimado no se cruza con el acabado, (a)) | **GRUPO** (el gate compara contra `salePriceCents`, que es del grupo) |
+| Gate de ROI | **NO** — se emite con solo tener dato fresco | **SÍ** — solo si el gate se cumple |
+| Gate de confianza (k) | frescura + origen; **NO** magnitud | frescura + origen + **magnitud** |
+| Contenido | **PSA 10 y PSA 9**, tal cual | los grados que el badge pinta (`highlightGrades`, hoy `["10"]`) |
+| Papel | **informar** a quien ya está viendo esa carta | **promover** activamente lo que le conviene al comprador |
+
+> ⚠ **`GroupedListingDTO` (el DTO de la FICHA tras D2) NO lleva ninguno de los dos campos.** `gradingHighlight` vivía
+> ahí antes de la fusión; **se movió** a `GroupedListingSummaryDTO` en v1.50.2 (dictamen en (e)). Los `listings[i]` de
+> la ficha **no traen destacado**: la ficha ya expone `gradedEstimates` en su raíz, que es más rico y no va gateado.
+
+**Consecuencia deliberada:** una carta puede **mostrar sus estimados en la ficha y NO estar destacada** en Compra ni en
+el home. Eso es exactamente lo buscado, no una inconsistencia.
+
+**SEC-A1 sale REFORZADO por la reducción de alcance:** el cliente ya ni siquiera recibe los **insumos** del cálculo
+(ganancia neta, escalón aplicado, umbral, multiplicador) — solo su **resultado binario** = la presencia del campo. Un
+DTO manipulado **no puede reconstruir el gate porque los números no viajan**. Los insumos existen **solo** en el
+diagnóstico de admin (§4.38d, `GET /admin/pricing/graded-estimates/preview`).
+
+#### (a) Dónde vive el dato — CERO schema nuevo (verificado contra el código)
+
+El estimado por grado **ya es representable hoy**. `PriceReference` (`backend/prisma/schema.prisma:782`) tiene
+`@@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId])` y su **FK es a `Card`**, no a
+`InventoryItem`: se puede escribir una fila por **carta** aunque **no exista ninguna pieza física gradeada** en
+inventario. `buildGradeKey` (`pricing.types.ts:544`) ya produce exactamente esas claves.
+
+**Clave canónica del estimado (NORMATIVA):**
+
+```
+(cardId, productType='graded', gradeKey='graded:PSA:10' | 'graded:PSA:9', finish='normal', cardProductId=null)
+```
+
+- **`finish='normal'` SIEMPRE — el grado NO se cruza con el acabado.** Es la doctrina ya vigente para `graded` en todo
+  el proyecto (`POST /admin/pricing/override` con `productType='graded'` omite `finish` ⇒ `normal`, §M2 v1.28;
+  `PUT /admin/pricing/variant-controls` **exige** `finish=normal` para graded). El estimado es, por tanto, **por CARTA**,
+  no por variante. **Consecuencia normativa que backend DEBE respetar:** una carta con dos acabados publicados
+  (`normal` y `reverse_holo`) tiene **un solo** par de estimados pero **dos** grupos con **precios raw distintos** ⇒ la
+  **ficha muestra las MISMAS cifras** (es dato de carta) mientras que el **gate de curaduría se evalúa POR GRUPO** y
+  puede destacar un acabado y el otro no. **Es deliberado y money-safe**: nunca se inventa un estimado por acabado que
+  la fuente no da, y nunca se promueve una oferta que no pasa el gate solo porque su hermana sí lo pasó.
+- **`cardProductId=null`**: el estimado es de la carta, no de un `CardProduct` (§4.27). El resolver lo filtra
+  explícitamente.
+- **`priceMxnCents` y la MONEDA — INV-FX (NORMATIVO, de dinero).** Las dos vías de escritura de esta misma fila usan
+  **unidades distintas**, y confundirlas produce un error de **~19×**:
+  - **Fase 1 (manual)** — `POST /admin/pricing/override` recibe **MXN directo** (`priceMxnCents`), sin
+    `priceUsdCents`, **sin FX** ⇒ `liveMxnCents` lo devuelve verbatim.
+  - **Fase 2 (ingest PPT)** — el proveedor entrega **USD**. El ingest **DEBE** persistir `priceUsdCents` + `fxRate`
+    (FX Banxico + colchón, §FX) exactamente como ya hace `sealed-price-ingest`; `liveMxnCents` recompone con la FX
+    vigente. **Está PROHIBIDO escribir el numeral USD en `priceMxnCents`.**
+  - **Ambos caminos salen por el MISMO lector** — ver (g). El invariante vive en la **escritura** precisamente para
+    que el lector no tenga que saber de qué fase viene el número.
+  - *(Por qué se escribe como invariante numerado y no como nota: dos rutas con unidades distintas hacia la misma
+    fila es el mecanismo exacto del error de unidades que el gate de confianza (k) tiene que atajar aguas abajo. Es
+    más barato prevenirlo en origen que detectarlo por magnitud.)*
+
+#### (b) Doctrina dura — las filas PSA son INFORMATIVAS (la trampa más fácil de pisar)
+
+> Un estimado PSA es **una referencia de mercado de un producto que NO tenemos**. Escribir esa fila **no puede** tener
+> ningún efecto colateral sobre el dinero, el inventario ni la estructura de variantes. Backend implementa esto como
+> **omisión explícita**, no como consecuencia accidental.
+
+Una `PriceReference` con `productType='graded'` y `gradeKey='graded:PSA:*'`:
+
+1. **NO fija `listPriceCents`** ni entra en `computeSalePriceForRarity` / la cadena de venta del raw (§4.14, §4.26b).
+   El `salePriceCents` de un grupo raw se sigue resolviendo **exclusivamente** contra `raw:NM` del acabado.
+2. **NO publica inventario**: no crea `InventoryItem`, no cambia `status`, no vuelve `sellable` nada. Una carta puede
+   tener estimados PSA y **no estar publicada** — entonces simplemente no hay superficie donde mostrarlos.
+3. **NO entra en la evidencia de acabados**: excluida de `getPricedRawFinishesBatch` (ya filtra `productType='raw'`),
+   de `pricedFinishesSnapshot`, de `structuralFinishes` y por tanto de `availableFinishes`/`displayFinishes`
+   (§4.22a, §4.25e). **Un estimado PSA JAMÁS crea una variante ni una casilla del binder.**
+4. **NO encola `PendingPriceEntry`.** La **ausencia** de estimado PSA **no es** un «precio pendiente»: es el estado
+   NORMAL del catálogo en fase 1 (§O.6 — el humano cura a mano sus cartas gancho). Escalar esto a la cola de M2 la
+   inundaría con miles de entradas falsas. *(El comportamiento vigente de `POST /admin/pricing/override` —que
+   **resuelve** el pendiente de la clave escrita si existiera— no se toca; solo se prohíbe **crear** pendientes por
+   falta de estimado.)*
+5. **NO entra en la valuación**: ni en el portafolio ni en su tendencia (§C), ni en `GET /admin/finance/inventory-value`,
+   ni en el P&L (M7), ni en `SetValueSnapshot` (§4.12c, que ya filtra `raw`/`raw:NM`).
+6. **NO afecta el cotizador de buylist** (§4.2/§4.33) ni `VariantPriceOverride` (§4.26b).
+7. **NO cuenta en `stockCount`** ni convierte el grupo raw en graded: el `productType` del `GroupedListingDTO` lo
+   sigue fijando la pieza física.
+
+**Coexistencia con M1 «Gradeadas» (v1.28) — bandera explícita.** La fila
+`(cardId,'graded','graded:PSA:10','normal')` es **la misma** que hoy alimenta
+`GradedInventoryGroupDTO.marketReferenceMxnCents` (§M1, P-20). **Una sola fila, dos lectores.** Fijar el estimado para el
+gancho **también** cambia el «valor de mercado» que M1 muestra para los slabs de esa carta+grado, y viceversa.
+
+> ⛔ **CORRECCIÓN v1.50.2 — la redacción anterior de este párrafo era FALSA y hay que leerla entera.** Decía que la
+> coexistencia «**no mueve dinero en ninguno de los dos lados**». **Sí lo mueve**, en un caso concreto: cuando la carta
+> tiene un **slab de ese grado PUBLICADO**, esa fila **es** su referencia de mercado y por tanto **alimenta su precio de
+> venta real**. Un «estimado» tecleado ahí **cambia el precio al que se vende una pieza física**. El error de la
+> redacción original fue generalizar desde el caso «carta sin slab» (donde en efecto no hay dinero) al caso general.
+> **La regla correcta y el cierre están en (l) — INV-D.** El resto del párrafo (una sola fila, no inventar clave
+> paralela) **sigue vigente**: la solución NO es duplicar la verdad, es **impedir la captura ambigua**.
+
+**Backend NO debe inventar una clave paralela** para «separarlos»: duplicaría la verdad y obligaría al admin a capturar
+dos veces. Lo que sí debe hacer es **exigir que se declare la intención** al escribir — ver (l).
+
+#### (c) Resolución server-side — función pura + un batch, sin N+1
+
+**Ubicación:** funciones **puras** nuevas en la zona compartida `backend/src/common/graded-estimate.ts` (patrón
+`money.ts` / `pricing-tiers.ts`: sin infra, importables desde tests/seeds). Los servicios (`catalog`) izan la config
+**una vez por request** (patrón BE-25) y llaman a las puras por carta/grupo.
+
+```ts
+// backend/src/common/graded-estimate.ts  (NUEVO — zona compartida common/)
+export interface GradingCostTier { minValueMxnCents: number; maxValueMxnCents: number | null; costMxnCents: number }
+export interface GradedEstimateConfig {
+  enabled: boolean;                 // dial M10 graded_estimates_enabled (fail-closed, seed off)
+  grades: string[];                 // grados que la FICHA expone            — seed ['10','9']
+  highlightGrades: string[];        // grados que el BADGE pinta (⊆ grades)  — seed ['10']
+  freshnessDays: number;            // seed 30      (filas AUTOMÁTICAS — ver (m))
+  minUpsidePct: number;             // seed 30      (solo gate de curaduría)
+  gradingCostTiers: GradingCostTier[]; //           (solo gate de curaduría)
+  // --- v1.50.2: gate de confianza (k) ---
+  manualFreshnessDays: number | null;  // v1.50.3: seed 30 (criterio 109). `null` = NO decae, pero deja de ser el
+                                       // default y exige decisión del humano + `warn` al izar la config — ver (m)
+  maxRawMultiple: number;              // v1.50.3: seed 100 (= `maxGradedMultiple` de §O.7)  — (k) punto 3(b)
+}
+// Ref MÍNIMA del estimado. Se declara AQUÍ (common/) y `pricing.service.ts` la importa para tipar el retorno de
+// `getGradedEstimatesBatch` — UNA sola definición. Deliberadamente NO es un `PriceInfo`: ver el recuadro de abajo.
+// `isManual` (v1.50.2) es INTERNO: decide SI el elemento se emite (frescura, (m)), nunca QUÉ se emite. NO viaja
+// al DTO público — la indistinguibilidad de fases (g) se mantiene intacta.
+export interface GradedEstimateRef {
+  gradeValue: string; mxnCents: number; capturedDate: string /* YYYY-MM-DD */; isManual: boolean;
+}
+
+/** FICHA (SIN gate de ROI, SIN cota de magnitud): los grados con dato FRESCO y de ORIGEN CONFIABLE, orden desc.
+ *  `[]` ⇒ el caller OMITE el campo (nunca emite []). */
+export function selectGradedEstimates(input: {
+  productType: 'raw' | 'graded' | 'sealed';
+  estimates: GradedEstimateRef[];  // los que trajo el batch, por grado
+  publishedSlabGrades: string[];   // v1.50.2 — grados con slab PUBLICADO ⇒ ese grado se OMITE, ver (l)
+  today: string; cfg: GradedEstimateConfig;
+}): GradedEstimateRef[];
+
+/** REJILLA/VITRINA (CON gate de ROI + gate de confianza COMPLETO, incl. magnitud).
+ *  Devuelve el resultado COMPLETO; el DTO público solo usa `eligible` + `highlight`.
+ *  `netUpsidePsa9MxnCents` es la clave de ORDEN de la vitrina y el insumo del preview de admin — NO viaja al cliente. */
+export function evaluateGradingHighlight(input: {
+  productType: 'raw' | 'graded' | 'sealed';
+  rawSalePriceCents: number | null;
+  estimates: GradedEstimateRef[];
+  publishedSlabGrades: string[];   // v1.50.2 — ver (l)
+  today: string; cfg: GradedEstimateConfig;
+}): { eligible: boolean; reason?: HighlightReason;
+      // v1.50.3-e — TODAS las condiciones detectadas, no solo la primera. `reason` sigue siendo el PRIMER bloqueante
+      // (decisión de promoción, sin cambio); `reasons` es el DIAGNÓSTICO completo y es lo que consumen preview/review.
+      reasons: HighlightReason[];
+      highlight: GradedEstimateRef[];        // vacío si !eligible
+      gradingCostTier: GradingCostTier | null; gradingCostMxnCents: number | null;
+      thresholdMxnCents: number | null; netUpsidePsa9MxnCents: number | null };
+```
+
+**Algoritmo NORMATIVO de la FICHA** (`selectGradedEstimates`) — **sin gate**:
+
+```
+1. cfg.enabled !== true                                   -> []   // fail-closed (dial M10, seed off)
+2. productType !== 'raw'                                  -> []   // criterio 105: graded y sealed NUNCA
+3. por cada g in cfg.grades (orden desc: '10','9'):
+     e = estimates[g];  si e == null            -> se OMITE ESE GRADO   (los grados son INDEPENDIENTES)
+     si e.mxnCents <= 0                         -> se OMITE ESE GRADO   (un 0 NO es un estimado)
+     si stale(e)                                -> se OMITE ESE GRADO
+     si g in publishedSlabGrades                -> se OMITE ESE GRADO   // (l) INV-D: es precio REAL, no estimado
+     si no                                      -> entra al arreglo
+4. resultado vacío -> []  ⇒ el caller OMITE el campo (JAMÁS emite `[]`)
+
+// La FICHA NO aplica la cota de MAGNITUD (k, punto 3): informa lo que hay. Solo la REJILLA la aplica.
+```
+
+**Algoritmo NORMATIVO del DESTACADO** (`evaluateGradingHighlight`) — **con gate**; cada paso es un `reason`, jamás un
+default:
+
+```
+1. cfg.enabled !== true                      -> FEATURE_OFF
+2. productType !== 'raw'                     -> NOT_RAW
+3. rawSalePriceCents == null || <= 0         -> NOT_PUBLISHED     // sin precio de venta no hay comparación
+4. psa10 ausente o <= 0                      -> NO_PSA10          // se necesita para resolver el ESCALÓN
+5. psa9  ausente o <= 0                      -> NO_PSA9           // criterio 98: sin PSA 9 no se promueve
+6. stale(psa10) || stale(psa9)               -> STALE             // manda el MÁS ANTIGUO de los dos
+6b. '10' in publishedSlabGrades || '9' in publishedSlabGrades
+                                             -> SLAB_PUBLISHED    // (l) INV-D
+6c. GATE DE MAGNITUD (k, punto 3) — SOLO aquí, NUNCA en la ficha:
+    psa10.mxnCents <= rawSalePriceCents                      -> NOT_ABOVE_RAW
+    psa10.mxnCents >  rawSalePriceCents * cfg.maxRawMultiple -> ABOVE_MAX_MULTIPLE
+    psa10.mxnCents <  psa9.mxnCents                          -> GRADE_ORDER_INVERTED
+7. tier = findTier(cfg.gradingCostTiers, psa10.mxnCents)
+   tier == null                              -> NO_COST_TIER      // SIN ESCALÓN, SIN DESTACADO — jamás costo 0
+8. threshold = ceil((rawSalePriceCents + tier.costMxnCents) * (1 + cfg.minUpsidePct/100))
+   psa9.mxnCents < threshold                 -> BELOW_MIN_UPSIDE  // gate de ROI sobre PSA 9 (decisión 41)
+9. eligible = true
+   netUpsidePsa9MxnCents = psa9.mxnCents - (rawSalePriceCents + tier.costMxnCents)   // > 0 garantizado
+   highlight = los grades de cfg.highlightGrades que estén FRESCOS y > 0             // hoy ['10']
+```
+
+- **El paso 6c va ANTES del 7 a propósito.** Un valor incoherente en magnitud **no debe** resolver escalón: si el
+  número está en unidades equivocadas, el escalón que elija es basura y el `threshold` que produzca también. Se
+  descarta antes de que contamine el resto del cálculo.
+
+> ⛔ **v1.50.3-e — EL CORTOCIRCUITO NO APLICA AL DIAGNÓSTICO: se emite `reasons[]` además de `reason` (NORMATIVO).**
+> El algoritmo de arriba **para en el primer bloqueante** y devuelve **ese** `reason`. Para decidir **si se
+> promociona**, eso es correcto y no cambia. Pero **`preview` y `review` no preguntan lo mismo**, y yo les di la
+> misma función: preguntan **«¿qué le pasa a esta carta?»**, y esa respuesta **no cabe en un escalar** — una carta
+> puede fallar **varias** condiciones a la vez.
+>
+> **Regla nueva:** la pura evalúa **todas** las condiciones aplicables y devuelve **`reasons: HighlightReason[]`** en
+> **orden canónico** (el de los pasos 1→8). **`reason` se conserva sin cambio** = `reasons[0]` = primer bloqueante.
+> - **`eligible` NO cambia nunca:** es la conjunción de todos los pasos, y **el orden de evaluación jamás la
+>   alteró** — reordenar o completar el diagnóstico es **money-neutral por construcción**. Lo único que cambiaba con
+>   el orden era **qué motivo se reporta**, nunca **qué se promociona**.
+> - **Una condición cuyos insumos no existen NO se evalúa y NO se lista.** `GRADE_ORDER_INVERTED` sin PSA 9 no
+>   aparece. ⚠ **Ausencia de un `reason` NO significa «pasó esa prueba»**: significa «no se pudo comprobar». Para el
+>   enumerador de (n) da igual —solo enumera positivos—, pero quien lea `reasons` para otra cosa debe saberlo.
+> - **Coste:** un puñado de comparaciones enteras sobre datos que ya están en memoria. Las queries —la parte cara— ya
+>   ocurrieron. **No añade ni una.**
+- **La ficha y el destacado se evalúan por separado y con reglas distintas.** Caso normal y esperado: una carta con
+  PSA 10 y PSA 9 frescos que **no** pasa el gate ⇒ la ficha muestra **las dos cifras** y la teja **no muestra nada**.
+  Caso también normal: PSA 10 fresco sin PSA 9 ⇒ la ficha muestra **una** cifra y la teja **nada** (`NO_PSA9`).
+- **`stale(e)`** *(REDEFINIDA en v1.50.2; **seed corregido y ORDEN DE APLICACIÓN normado en v1.50.3** — ver (m) para
+  el porqué completo)*:
+  ```
+  stale(e) := e.isManual
+                ? (cfg.manualFreshnessDays == null ? false
+                                                   : diffDays(today, e.capturedDate) > cfg.manualFreshnessDays)
+                : diffDays(today, e.capturedDate) > cfg.freshnessDays
+  ```
+  `today` = **fecha de negocio CDMX**, date-only (misma convención que `capturedDate`, columna `@db.Date`). Un
+  `capturedDate` futuro (reloj torcido) **no** es rancio; es fresco.
+  ⚠ **v1.50.3 — dos correcciones NORMATIVAS sobre este predicado:**
+  1. **`manualFreshnessDays` tiene seed 30, no `null`** (criterio 109): con el seed, un override manual **SÍ** caduca a
+     los 30 días. `null` sigue siendo un valor legal pero **desactiva el criterio 109** ⇒ decisión del humano + `warn`.
+  2. **`stale()` se aplica ANTES de elegir el ganador entre candidatas**, no después (`filter` → `pickBestRef`, nunca
+     al revés). Es lo que elimina la clase «el manual gana y luego la frescura lo tira» **sin** eximir a nadie del
+     decaimiento y **sin** tocar `isBetterRef`. Pseudocódigo normativo en (m).
+- **`findTier(tiers, v)`** := la fila con `v >= minValueMxnCents && (maxValueMxnCents == null || v < maxValueMxnCents)`.
+  **Intervalos semiabiertos `[min, max)`** — ver (d). Tabla vacía, con hueco o no ordenada ⇒ `null` ⇒ `NO_COST_TIER`.
+- **Valor declarado = el estimado PSA 10** (PROJECT §O.2.1, SUPUESTO conservador del PO): es el escenario más caro ⇒
+  empuja al escalón más alto ⇒ **gate más estricto**. Si el humano cambia el criterio (PSA 9 o precio raw), es un
+  cambio de **una línea** en la pura y **cero cambio de contrato**.
+- **Redondeo:** `threshold` con **`Math.ceil`** (redondea en la dirección que hace el gate **más estricto**). Todo en
+  **enteros de centavos**; prohibido flotante en la comparación.
+- **Nada de `evaluateGradingHighlight` salvo `eligible` y `highlight` sale del servidor hacia el cliente.**
+  `netUpsidePsa9MxnCents`, `thresholdMxnCents`, `gradingCostTier` y `reason` alimentan **el orden de la vitrina** y el
+  **diagnóstico de admin** (d). Es una regla de contrato, no una recomendación.
+
+**Lectura del dato — batch dedicado, sin N+1 (NORMATIVO):**
+
+```ts
+// pricing.service.ts (aditivo; NO altera getReference/getReferencesBatch)
+/** Ref MÍNIMA del estimado: lo justo que necesitan las puras de (c). NO es un PriceInfo. */
+export interface GradedEstimateRef {
+  gradeValue: string; mxnCents: number; capturedDate: string /* YYYY-MM-DD */; isManual: boolean;
+}
+
+getGradedEstimatesBatch(cardIds: string[]): Promise<Map<string, GradedEstimateRef[]>>
+
+// v1.50.2 — (l) INV-D. Grados con SLAB PUBLICADO por carta. UNA query batcheada, nunca por grupo.
+getPublishedSlabGradesBatch(cardIds: string[]): Promise<Map<string, string[]>>
+```
+
+**UNA** query: `where { cardId: { in }, productType: 'graded', gradeKey: { in: <las claves de cfg.grades> },
+finish: 'normal', cardProductId: null }`, `orderBy capturedDate desc`, con el **mismo** desempate determinista
+(`pickBestRef`/`isBetterRef`) y el **mismo** recomputo FX (`liveMxnCents`) que `getReference`.
+
+> ⚠ **v1.50.3 — ORDEN DE OPERACIONES NORMATIVO dentro de este batch: `filter(stale)` ANTES de `pickBestRef`.** Por
+> grado, primero se **descartan las candidatas rancias** y **después** se elige la mejor entre las que quedan. Nunca al
+> revés. Esto obliga a que el batch reciba la config y `today` (o un predicado de frescura); **no añade ninguna query**
+> —las candidatas ya venían todas, sin `take`— y **no toca `isBetterRef`**, que sigue siendo el mismo comparador
+> money-safe de §4.27f-2. El porqué está en (m); el efecto observable es que un override manual **rancio** ya no
+> bloquea la exhibición de una fila automática **fresca**, y que un manual rancio **sin** automática ya no se exhibe.
+
+> ⚠ **`getGradedEstimatesBatch` NO lleva `take` — y NO debe ganarlo nunca (candidata perenne, §4.27f-3).** Hoy ya
+> cumple. Se hace explícito porque P47-2 demostró que una cota `take SAME_DAY_REF_CANDIDATES` bajo
+> `orderBy capturedDate desc` **saca al override manual de la ventana** tras ~32 días y el comparador nunca lo ve.
+> Añadir aquí un cap «por rendimiento» reintroduciría exactamente ese fallo silencioso. La query ya está acotada por
+> `cardIds` y por `gradeKey`.
+
+> **Por qué la firma es `Map<cardId, GradedEstimateRef[]>` y NO `{ psa10?, psa9? }` (retro-alimentado desde la
+> implementación, P2 del techlead — la implementada es MEJOR y se adopta como normativa):**
+> 1. **No hardcodea los grados.** Un objeto con llaves `psa10`/`psa9` contradice el diseño entero, cuyo objetivo es que
+>    **añadir o quitar un grado sea editar un dial** (`grades`/`highlightGrades`, (d)) y no un cambio de tipo que se
+>    propaga por batch → puras → DTO. Con el arreglo, el `gradeKey: { in: … }` se **deriva de la config** y el resto del
+>    camino no se entera.
+> 2. **No transporta `PriceInfo`.** `PriceInfo` lleva `source` e `isManualOverride`; que esos campos **ni siquiera
+>    existan** en el tipo que cruza la frontera hacia las puras y el DTO es lo que hace la indistinguibilidad de fases
+>    (g) una propiedad **estructural**, no una disciplina que alguien deba recordar al serializar. Es la misma razón por
+>    la que las puras de (c) reciben `{ gradeValue, mxnCents, capturedDate, isManual }` y nada más. *(v1.50.2: `isManual`
+>    se añade porque (m) lo exige para NO aplicar frescura de feed a una decisión humana. Sigue **sin viajar al DTO**:
+>    gobierna **si** el elemento se emite, no **qué** se emite — la garantía (g) queda intacta.)*
+> 3. Alinea 1:1 con `selectGradedEstimates` / `evaluateGradingHighlight`, que ya consumen arreglos por grado.
+>
+> **Por qué un método DEDICADO y no reusar `getReferencesBatch`:** ese método construye el `WHERE` como **producto
+> cartesiano** de los conjuntos distintos (`cardId in … × productType in … × gradeKey in … × finish in …`) y filtra
+> después en memoria contra `wanted` (`pricing.service.ts:365-408`). Mezclar los ítems raw y graded en **una sola**
+> llamada haría que el SQL trajera `productType in ('raw','graded') × gradeKey in ('raw:NM','graded:PSA:10',
+> 'graded:PSA:9') × finish in (todos)` — un **over-fetch combinatorio** sobre la tabla más caliente del sistema.
+> Un método aparte cuesta **una** query por request y **no toca** la ruta de dinero del raw (riesgo de regresión cero).
+
+**Coste por endpoint (invariante de diseño; cifras MEDIDAS por QA tras el fix de memoización):**
+
+| Superficie | Dial `off` | Dial `on` | Nota |
+|---|---|---|---|
+| `GET /catalog/cards` (rejilla) | **+1** | **+3** | 1 = lectura **memoizada** de las claves de config; 2ª = `getGradedEstimatesBatch` sobre los `cardId` **distintos** de las filas raw vendibles que `fetchSellable` ya cargó; 3ª = `getPublishedSlabGradesBatch` sobre esos mismos `cardId` (v1.50.2, (l)). |
+| `GET /catalog/cards?gradingHighlight=true` (vitrina) | **+1** | **+3** | `listCards` ya materializa, filtra y pagina **en memoria** (`catalog.service.ts:523-542`); filtrar por elegibilidad y ordenar por ganancia neta es en memoria sobre ese mismo conjunto. |
+| `GET /catalog/cards/:cardId` (ficha) | **+1** | **+3** | los dos batches con un solo `cardId`. |
+| `GET /catalog/sealed*`, `/vault/*`, checkout, buylist | **0** | **0** | no se tocan (doctrina (b)). |
+
+> **Historia de la cifra (dos correcciones, las dos instructivas).**
+> 1. **Gate de QA (2026-08-23).** La rev inicial publicaba «**+1 constante**» contando **solo** la query de precios. QA
+>    midió **+7** con el dial `on`: `SettingsService.get()` **no memoizaba** y hacía un `findUnique` por cada clave de
+>    config. Backend lo corrigió izando todas en **una sola** query por request ⇒ **+1/+2**.
+> 2. **Fusión v1.50.2.** El guard de slab publicado ((l) INV-D) añade **un** batch más ⇒ **+1/+3**. Es el precio de
+>    cerrar un agujero de dinero, y se paga una vez por request, no por grupo.
+>
+> **Regla normativa que se deriva y que backend NO debe perder:** la config del gancho se lee **una vez por request**
+> (patrón BE-25) y **nunca** dentro del bucle de grupos; con el dial `off` se **corta antes** de tocar `PriceReference`
+> (por eso el coste baja a +1). **Los tests de coste deben contar TODAS las queries del request**, no solo las de
+> graded — contar un subconjunto fue exactamente lo que dejó pasar el +7.
+
+> **Nota de método para quien vuelva a tocar esto:** el coste es **constante** — no depende del nº de grupos, de cartas
+> de la página ni de acabados. Si una medición futura escala con `pageSize`, hay un N+1 nuevo y es un bloqueante.
+
+*(Recomendación no normativa para devops/backend: cache server-side corto —60–300 s— sobre la vitrina del home, mismo
+criterio que el hero de set, §4.12d. La config se iza una vez por request; no se relee por grupo.)*
+
+#### (d) Los diales — recurso M2 propio, NO se reusa `/admin/pricing/tiers`
+
+**Decisión del arquitecto** (PROJECT §O.2.1 sugería reusar el patrón de `GET/PUT /admin/pricing/tiers`; la elección de
+diseño es del arquitecto): se **reusa el PATRÓN, no el RECURSO**. Endpoints dedicados
+`GET/PUT /api/v1/admin/pricing/graded-estimates` (+ el diagnóstico `.../preview`, §M2 del contrato), con el mismo
+estilo que `GET/PUT /admin/pricing/sealed-spreads`: JSON en `ConfigSetting`, `super_admin`, **auditado**, **sin
+redeploy**, validación total en el `PUT` con códigos de error propios.
+
+> **Por qué NO reusar `/admin/pricing/tiers`:** son tablas con **contratos opuestos**. Los tiers de rareza son una
+> **taxonomía LOCKED** de 5 filas nombradas (`id`/`name`/`premium` no editables, el `PUT` **exige** las 5, §4.33a) cuyo
+> invariante es el **refinamiento premium**. `gradingCostTiers` es lo contrario: el admin **añade y quita** escalones
+> (criterio 110(e)), las filas son **rangos** sin nombre, y su invariante es **cobertura contigua + escalón final
+> abierto**. Meter ambos en un endpoint obligaría a dos validadores incompatibles bajo un mismo `PUT` y a un `422`
+> ambiguo. Tampoco caben en `PUT /admin/settings`, que valida **key por key** y no puede expresar un invariante
+> **entre filas** con un error accionable (qué par de escalones no empalma).
+
+**DOCE claves de `ConfigSetting`** (M-42, DATA/seed, sin DDL). Las seis primeras son de v1.50; las seis últimas las
+añade v1.50.2 (gate de confianza (k) + ingest (h)):
+
+| Key | `SettingKey` | Tipo | Seed | Gobierna | Se edita en |
+|---|---|---|---|---|---|
+| `graded_estimate_grades` | `GRADED_ESTIMATE_GRADES` | JSON `string[]` | `["10","9"]` | qué grados expone la **FICHA** | **M2** `PUT /admin/pricing/graded-estimates` |
+| `graded_estimate_highlight_grades` | `GRADED_ESTIMATE_HIGHLIGHT_GRADES` | JSON `string[]` | `["10"]` | qué grados pinta el **BADGE** (⊆ anterior) | **M2** (mismo `PUT`) |
+| `graded_estimate_freshness_days` | `GRADED_ESTIMATE_FRESHNESS_DAYS` | int | **30** | frescura de las filas **AUTOMÁTICAS** (ambas superficies) | **M2** (mismo `PUT`) |
+| `grading_cost_tiers` | `GRADING_COST_TIERS` | JSON array | tabla §O.2.1 (abajo) | **gate de curaduría** (solo rejilla/vitrina) | **M2** (mismo `PUT`) |
+| `grading_min_upside_pct` | `GRADING_MIN_UPSIDE_PCT` | number | **30** | **gate de curaduría** (solo rejilla/vitrina) | **M2** (mismo `PUT`) |
+| `graded_estimates_enabled` | `GRADED_ESTIMATES_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | **interruptor maestro** | **M10** `PUT /admin/settings` |
+| `graded_estimate_manual_freshness_days` | `GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS` | int \| `null` | **30** *(v1.50.3; era `null`)* | decaimiento del **override manual** — criterio 109, (m). `null` = no decae ⇒ **desactiva el criterio 109**: decisión del humano + `warn` obligatorio | **M2** (mismo `PUT`) |
+| `graded_estimate_max_raw_multiple` | `GRADED_ESTIMATE_MAX_RAW_MULTIPLE` | number | **100** *(v1.50.3; era 50)* | cota **superior** de magnitud — (k) 3(b); = `maxGradedMultiple` de §O.7 | **M2** (mismo `PUT`) |
+| `graded_estimate_min_sample_count` | `GRADED_ESTIMATE_MIN_SAMPLE_COUNT` | int | **5** *(v1.50.3; era 3)* | muestra mínima del proveedor — (k) 2, aplicado en el **ingest**; = `minSalesSample` de §O.7 | **M2** (mismo `PUT`) |
+| `graded_estimate_source_stat` | `GRADED_ESTIMATE_SOURCE_STAT` | `'median'\|'average'\|'smart'` | **`median`** | cuál número del proveedor **es** el precio — (h) | **M2** (mismo `PUT`) |
+| `graded_estimate_ingest_max_cards_per_run` | `GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN` | int | **250** | tope **duro** de cuota por corrida — (h) | **M2** (mismo `PUT`) |
+| `graded_estimate_ingest_enabled` | `GRADED_ESTIMATE_INGEST_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | interruptor de la **fase 2** — (h) | **M10** `PUT /admin/settings` |
+
+> **Por qué DOS interruptores y no uno.** `graded_estimates_enabled` gobierna la **exhibición** (¿el comprador ve la
+> cifra?); `graded_estimate_ingest_enabled` gobierna la **obtención** (¿gastamos créditos y escribimos filas?). Son
+> decisiones de dueño distintas y con riesgos distintos —una es legal/comercial, la otra es de **coste** y de calidad
+> de dato— y colapsarlas obligaría a elegir entre «no puedo probar el ingest sin publicar» y «no puedo publicar sin
+> encender el gasto». Con dos diales el operador puede **rodar el ingest en observación con la vitrina apagada**, que
+> es exactamente la secuencia de encendido que pide (h).
+
+**El flag `graded_estimates_enabled` (seed `off`) es una decisión deliberada, no un adorno.** Tres razones:
+(1) el **disclaimer de §O.5 aún NO tiene el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial) — el
+código puede desplegarse antes que el texto se apruebe **sin** que la afirmación comercial salga a producción por
+accidente; (2) da a QA el on/off que el **criterio 108** exige verificar («con la feature encendida y apagada, ningún
+precio de venta cambia»); (3) es el mismo patrón fail-closed ya vigente para `sealedValueTrend`/`sealedRestockAlerts`
+(§4.23h) y `sealedPriceSource` (§4.19e). Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates`
+ni `gradingHighlight`, y `?gradingHighlight=true` devuelve `data: []`.
+
+> **Nota de separación de diales (importante para el operador):** `grading_cost_tiers` y `grading_min_upside_pct`
+> gobiernan **exclusivamente la CURADURÍA** (dónde promovemos). **No afectan a la ficha**: subir `minUpsidePct` vacía la
+> vitrina y quita los badges, pero la ficha de esa carta **sigue mostrando sus estimados**. Es la consecuencia directa
+> de la partición (0) y debe quedar claro en la UI de M2 para que el dueño no crea que «apagó» el estimado.
+
+**Seed de `grading_cost_tiers` — intervalos SEMIABIERTOS `[min, max)`, centavos MXN:**
+
+| # | `minValueMxnCents` | `maxValueMxnCents` | `costMxnCents` | Lectura |
+|---|---|---|---|---|
+| 1 | `0` | `200000` | `70000` | hasta $2,000 → $700 |
+| 2 | `200000` | `500000` | `110000` | $2,000–$5,000 → $1,100 |
+| 3 | `500000` | `1000000` | `180000` | $5,000–$10,000 → $1,800 |
+| 4 | `1000000` | `2000000` | `300000` | $10,000–$20,000 → $3,000 |
+| 5 | `2000000` | `5000000` | `600000` | $20,000–$50,000 → $6,000 |
+| 6 | `5000000` | `null` | `1200000` | de $50,000 en adelante *(escalón abierto)* |
+
+> **Por qué semiabiertos y no «$2,001»:** PROJECT §O.2.1 exige cobertura **contigua sin huecos** («el límite superior de
+> un escalón es el inicio del siguiente»). Con límites **inclusivos** en pesos ($2,000 / $2,001) un valor de $2,000.50
+> (200050 centavos) caería en un **hueco** ⇒ carta no elegible por un defecto de modelado. Con `[min, max)` la tabla
+> cubre **todos** los enteros ≥ 0 por construcción. El único delta contra la tabla del PO es que **exactamente
+> $2,000.00 cae en el escalón siguiente** (más caro): desviación de 1 centavo en la dirección **conservadora**
+> (encarece el gate), coherente con «mejor sobreestimar el costo que prometer de más». Reversible por el admin.
+
+**Invariantes del `PUT` (validados server-side, fail-closed, en CADA write):**
+
+| # | Invariante | Error |
+|---|---|---|
+| I1 | `gradingCostTiers` es array **no vacío** | `422 GRADING_TIERS_EMPTY` |
+| I2 | cada fila: `minValueMxnCents` int ≥ 0; `maxValueMxnCents` int > min **o** `null`; `costMxnCents` int **≥ 1** y ≤ `GRADING_COST_MAX_CENTS` (10 000 000 = $100 000, anti-typo) | `422 VALIDATION_ERROR` |
+| I3 | orden ascendente por `minValueMxnCents` y **primera fila `min === 0`** (cobertura desde cero) | `422 GRADING_TIERS_NOT_CONTIGUOUS` |
+| I4 | **contigüidad:** `tiers[i].maxValueMxnCents === tiers[i+1].minValueMxnCents` para todo `i < n-1` (sin huecos **ni** solapes) | `422 GRADING_TIERS_NOT_CONTIGUOUS` (body: los pares `(i, i+1)` infractores) |
+| I5 | **último escalón abierto:** `tiers[n-1].maxValueMxnCents === null` y **ninguna otra** fila `null` | `422 GRADING_TIERS_NOT_OPEN_ENDED` |
+| I6 | `minUpsidePct` número en `[0, 1000]`; `freshnessDays` int en `[1, 365]` | `422 VALIDATION_ERROR` |
+| I7 | `grades` / `highlightGrades` ⊆ `{"10","9"}`, no vacíos, sin duplicados, y **`highlightGrades` ⊆ `grades`** | `422 VALIDATION_ERROR` |
+| **I8** | *(v1.50.2)* `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en `[1, 5000]` | `422 VALIDATION_ERROR` |
+| **I9** | *(v1.50.2)* `maxRawMultiple` número **> 1** y ≤ `1000`. **El `> 1` no es cosmético:** con `≤ 1` la cota superior chocaría con la inferior (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás — una vitrina vacía permanente y sin explicación | `422 VALIDATION_ERROR` |
+
+- **`costMxnCents ≥ 1`, jamás 0** — es la misma regla L1 de dinero que ya aplica `OverrideDto` (`@Min(1)`,
+  `pricing.controller.ts:52`). Un costo de gradeo 0 es **exactamente** lo que haría que el comprador pierda dinero.
+- **El `PUT` de `gradingCostTiers` es TOTAL** (reemplaza el array completo): un patch por fila no puede validar
+  contigüidad. Los demás campos sí son parciales.
+- **Auditado:** `AuditLog action=pricing.graded_estimates.update` con `before`/`after` (M10). **Recalcula el conjunto
+  destacado al vuelo** (no hay materialización: el gate se evalúa en cada request) ⇒ criterio 104 se cumple sin job.
+- **Fail-closed on-read — regla NORMATIVA: AUSENTE ≠ INVÁLIDA.** *(Refinada 2026-08-23 tras P1 del techlead; supersede
+  la redacción anterior de este bullet.)* El lector de config distingue **tres** estados por clave y los trata distinto:
+
+  | Estado de la clave | `grading_cost_tiers` | Las demás (`grading_min_upside_pct`, `graded_estimate_freshness_days`, `grades`/`highlightGrades`, y las 5 de M2 de v1.50.2) |
+  |---|---|---|
+  | **Válida** | se usa | se usa |
+  | **AUSENTE** (nunca escrita) | **nada se destaca** | **seed** (30 / 30 / `["10","9"]` / `["10"]` / `null` / 50 / 3 / `median` / 250) |
+  | **PRESENTE pero INVÁLIDA** (corrupta, fuera de rango, tipo equivocado, o incumple I1–I9) | **nada se destaca** | **nada se destaca** |
+
+  **Por qué la fila de «inválida» cambió** (hueco real que encontró el techlead y que **acepto**): la justificación
+  original —«su ausencia no puede producir un gate optimista porque sin tabla no hay gate»— **solo vale si AMBAS claves
+  están mal a la vez**. Con la tabla de escalones **válida** y `grading_min_upside_pct` **corrupto** por una edición
+  fuera de banda, el gate caería al **seed de 30** cuando el admin había puesto, digamos, **200**: **más permisivo que
+  su intención, en silencio, en la superficie que promociona**. Mismo patrón con `freshnessDays` (30 vs un 7
+  configurado): mostraría como fresco un dato que el dueño ya consideraba rancio. **Un valor corrupto es evidencia de
+  que la intención del admin se perdió**, así que no se adivina: se **apaga la promoción**.
+  - **AUSENTE sí cae a seed, y es deliberado:** es el estado del **primer deploy** antes de correr M-42. Tratar la
+    ausencia como fallo dejaría la feature inarrancable sin aportar seguridad (con el dial **`off`** de fábrica no hay
+    nada que proteger todavía).
+  - **Alcance del apagado:** una clave inválida apaga **el destacado** (rejilla + vitrina). Si la clave inválida es
+    `freshnessDays`, `manualFreshnessDays` o `grades` —que también gobiernan la ficha— **apaga también la ficha**,
+    porque sin umbral de frescura confiable no se puede afirmar que una cifra esté vigente. `minUpsidePct`,
+    `grading_cost_tiers` y `maxRawMultiple` inválidos **NO** apagan la ficha (no participan en ella, ver el recuadro
+    de separación de diales).
+  - **Nunca se cae a un default de código para el COSTO**, en ningún estado (PROJECT §O.4).
+  - **Observabilidad (obligatoria):** una clave presente-e-inválida se **loguea con `warn`** identificando la clave y el
+    invariante violado. Un apagado silencioso sería tan malo como el default silencioso que esta regla evita: el dueño
+    debe poder enterarse de por qué se le vació la vitrina. El diagnóstico de admin lo refleja con
+    `reason: "FEATURE_OFF"`.
+  - *(El **`PUT`** de M2 sigue rechazando lo inválido con su `422`, así que este camino solo se dispara por edición
+    fuera de banda —SQL directo, restore parcial, migración a medias—, que es exactamente cuando conviene ser
+    paranoico.)*
+
+**Alojamiento de los endpoints — `admin/pricing/graded-estimates*` viven en `CatalogModule`, NO en `PricingModule`**
+*(decisión de implementación de backend, RATIFICADA y elevada aquí para que nadie la «arregle» de vuelta; P3 del
+techlead).* Las **rutas del contrato no cambian** (`/api/v1/admin/pricing/graded-estimates[…]`): lo que cambia es en qué
+módulo Nest se declara el controller. **Motivo:** el resolver del gancho necesita la composición de grupos vendibles de
+`catalog` (`fetchSellable`/`buildGroups`) **y** el batch de `pricing`; declararlo en `PricingModule` crearía un **ciclo
+de dependencias `Pricing ↔ Catalog`**. `Catalog` ya depende de `Pricing` (dirección **única** y sana), así que el
+controller vive del lado que ya conoce a los dos. **Regla:** mover estos endpoints a `PricingModule` «por coherencia de
+nombre» **revive el ciclo** — si alguien quiere hacerlo, primero hay que extraer un módulo compartido, y eso pasa por
+el arquitecto (regla 9). La **ruta HTTP es la fuente de verdad del contrato**, no el módulo que la aloja.
+
+**`PUT /admin/pricing/graded-estimates` con body vacío ⇒ `422`** *(decisión de implementación de backend, RATIFICADA;
+P3 del techlead).* Un `PUT` con `{}` no toca ninguna clave: es **casi siempre** un bug del cliente (campo mal nombrado,
+serialización rota) y aceptarlo con `200` devolvería la config sin cambios, dando al operador la impresión de que
+**guardó** algo que no guardó — en un dial que gobierna una afirmación comercial. Se rechaza con
+`422 VALIDATION_ERROR`. **Es coherente con el precedente de `PUT /admin/fx`**, que también exige al menos uno de sus
+dos campos opcionales. No confundir con la parcialidad: el body **sigue siendo parcial** (se envían solo las claves a
+cambiar); lo que se prohíbe es que **no venga ninguna**.
+
+**Diagnóstico de curaduría — `GET /admin/pricing/graded-estimates/preview?cardId=` (`super_admin`, read-only).** Es el
+**único** lugar donde los insumos del gate se exponen, y su existencia es lo que permite que el DTO público sea tan
+chico. Responde **«¿por qué esta carta no está destacada?»** devolviendo, **por grupo raw publicado**, los estimados,
+el **escalón aplicado**, el **umbral**, la **ganancia neta sobre PSA 9**, `eligible` y un **`reason` accionable**
+(`FEATURE_OFF | NOT_RAW | NOT_PUBLISHED | NO_PSA10 | NO_PSA9 | STALE | NO_COST_TIER | BELOW_MIN_UPSIDE`
+**+ v1.50.2: `SLAB_PUBLISHED | NOT_ABOVE_RAW | ABOVE_MAX_MULTIPLE | GRADE_ORDER_INVERTED`**) — exactamente
+los `reason` que devuelve `evaluateGradingHighlight` en (c), sin lógica duplicada. Es indispensable en fase 1, donde el
+humano **cura a mano** (§O.6): sin él, «fijé el precio y no salió» sería una caja negra. **No escribe, no toca dinero,
+no aparece en ninguna superficie pública**; montos no resolubles = `null`, **nunca `0`**.
+
+#### (e) Superficies y forma del DTO — presencia ⇔ elegibilidad
+
+Contrato exacto en `API_CONTRACT` §DTOs base / §2 / §M2. Lo normativo aquí:
+
+- **NO existe un campo `eligible: boolean` ni un `[]` vacío.** La **presencia** del campo **ES** la elegibilidad. Un
+  `eligible:false` invitaría al front a pintar un badge tachado/gris — exactamente lo que el **criterio 100** prohíbe; un
+  `[]` sería un contenedor vacío renderizable.
+- **`gradingHighlight?: GradedEstimateDTO[]` vive en `GroupedListingSummaryDTO`** (nivel **grupo**, no carta ni pieza)
+  — **MOVIDO desde `GroupedListingDTO` en v1.50.2**. Justificación de nivel: el gate compara contra `precioVentaRaw`,
+  que **es** el precio del grupo (`salePriceCents`, mínimo/«desde» de la publicación agrupada, §4.9a); y el
+  `GroupedListingSummaryDTO` es la unidad de render de las **dos** superficies de promoción (rejilla de Compra y
+  vitrina) ⇒ **un solo componente, un solo badge, cero drift**. Ponerlo en `CardDTO` obligaría a un gate por carta con
+  un precio que no existe; ponerlo en `ListingDTO` (por pieza) lo recalcularía N veces por grupo, sin ganar nada y
+  metiendo el gancho en la ruta del carrito/checkout.
+
+##### DICTAMEN v1.50.2 — por qué añadirlo a la lista blanca de la rejilla NO viola D2
+
+> **Contexto.** `main` cerró D2 (gate S48-M2) creando `GroupedListingSummaryDTO`: la rejilla dejó de emitir
+> `priceBasis` y `referenceValue`, con la razón escrita en el código de que *«emitir `priceBasis` por fila publicaría
+> el mapa de qué cartas van por override»*. `gradingHighlight` se caía de esa lista **en silencio** (compila, la teja
+> queda vacía). El humano decidió que **sí** quiere la cifra en la rejilla, **condicionada a que el número sea
+> confiable**. Dictamen del arquitecto: **entra**, y el gate de confianza es (k).
+
+**Las cuatro razones, en orden de peso:**
+
+1. **La señal que D2 protege está ESTRUCTURALMENTE ausente, no filtrada.** `GradedEstimateDTO` no tiene `priceBasis`,
+   ni `source`, ni `isManualOverride` — (g) los omite **por tipo**. No es «nos acordamos de no serializarlos»: no
+   existen en el camino batch → puras → DTO. Un `GroupedListingSummaryDTO` con `gradingHighlight` sigue sin poder
+   expresar el secreto de D2.
+2. **La presencia NO correlaciona con el `priceBasis` del raw.** El gate compara `psa9` contra `salePriceCents` (ya
+   público en la rejilla) más el escalón de costo. Es **ortogonal** a de dónde salió el precio raw: ver el badge no
+   dice si ese raw fue `market`, `floor` u `override`. El mapa de defectos sigue sin publicarse.
+3. **El argumento de «economía de enumeración» no aplica aquí — y ésta es la distinción normativa que hay que
+   retener.** D2 dice, con razón, que lo que cambia entre ficha y rejilla «no es el secreto, es la **economía de
+   enumerarlo**». Ese argumento **solo se sostiene mientras no exista un enumerador público del campo**. Para
+   `priceBasis` no existe ninguno, y por eso D2 acierta. Para `gradingHighlight` **existe y lo construimos a
+   propósito**: `?gradingHighlight=true&sort=grading_showcase` es un enumerador **paginado y ordenado** de
+   exactamente ese conjunto (§4.38f). Publicar la cifra por fila **no crea ninguna capacidad nueva** para nadie.
+4. **No debilita SEC-A1.** Invertir el gate para recuperar `gradingCostTiers`/`minUpsidePct` exige `psa9`, que **no
+   viaja en la rejilla** (`highlightGrades = ["10"]`) — solo en la ficha. Ese análisis de frontera ya es posible hoy
+   combinando vitrina + ficha; añadir la cifra a la rejilla **no lo abarata ni lo mejora**.
+
+**Y una razón de fondo:** la cifra **no es dinero**. No fija precio, no entra al carrito, no valúa nada (doctrina (b),
+siete puntos). D2 protege una señal **operativa** sobre dinero real; esto es una **afirmación de marketing** que
+publicamos deliberadamente.
+
+**REGLA GENERALIZADA DE ADMISIÓN A `GroupedListingSummaryDTO` (normativa — para no re-litigar campo por campo).**
+*(ENMENDADA en v1.50.3 a petición del **techlead**, que aprobó el dictamen sobre `gradingHighlight` pero halló dos
+defectos en la regla **como regla**. Ambas enmiendas se **ACEPTAN**; el porqué está debajo de la tabla.)*
+
+Un campo puede entrar **si y solo si** cumple las **tres**:
+
+| # | Condición (redacción vigente v1.50.3) |
+|---|---|
+| **1** | la **rejilla lo consume** (si nadie lo pinta, no se emite — convención de DTOs cerrados de D2) |
+| **2** | **el campo no correlaciona con el ORIGEN del precio ni con ESTADO OPERATIVO del inventario** — ni directamente, ni por **derivación combinándolo con los demás campos ya emitidos**. *(Ejemplos no exhaustivos de lo que falla esta condición: `priceBasis`, `source`, `isManualOverride`, `pendingReason`, `referenceValue`, cualquier `capturedDate` de un **precio de venta**, y cualquier marca de reservado / congelado / en disputa.)* |
+| **3** | **ya existe una superficie pública que lo enumera, Y esa superficie se justificó POR SÍ SOLA** — es decir, existiría igual aunque este campo nunca se emitiera en la rejilla. Una superficie construida **para** habilitar esta emisión **no cuenta**. |
+
+**Enmienda a la condición 2 — de lista negra a criterio positivo.** La redacción anterior **excluía por nombre** cinco
+campos. Techlead tiene razón: *una lista negra no sobrevive a un campo nuevo*. El sexto campo peligroso que alguien
+invente no está en la lista, así que la lista lo **admite por omisión** — que es exactamente el modo de fallo
+fail-open que este documento rechaza en todas partes. La condición pasa a ser un **predicado sobre lo que el campo
+significa**, y los cinco nombres bajan a **ejemplos**. Se añade además la cláusula de **derivación**: un campo puede
+ser inocuo solo y delator **en combinación** con los que ya viajan, y esa es la forma en que la señal de D2 volvería a
+publicarse sin que nadie lo llame `priceBasis`.
+
+**Enmienda a la condición 3 — cierre del trinquete (el defecto más grave de los dos).** Techlead señala que la tercera
+razón del dictamen es **circular**: «ya existe un enumerador público» es trivialmente cierto cuando **el mismo diseño
+que la invoca acaba de construir el enumerador**. Como regla general eso es un **trinquete**: *cualquier* campo futuro
+se admite construyendo antes su enumerador, y la regla no filtra nada. **Se acepta sin reservas** y se le añade el
+requisito de **justificación independiente**.
+
+**Re-verificación obligada de `gradingHighlight` bajo la regla enmendada** *(porque enmendar la condición que sostuvo
+el dictamen sin revisar el dictamen sería exactamente el descuido que la enmienda persigue)*:
+- **(1) ✅** — la teja pinta la cifra de PSA 10; es su razón de existir.
+- **(2) ✅** — `GradedEstimateDTO` no tiene `priceBasis`/`source`/`isManualOverride` (**ausencia estructural**, (g)), no
+  transporta estado operativo, y su presencia es **ortogonal** al `priceBasis` del raw: ver el badge no dice si ese
+  precio raw salió de `market`, `floor` u `override`. Por **derivación** tampoco: invertir el gate exigiría `psa9`, que
+  **no viaja en la rejilla** (`highlightGrades = ["10"]`).
+- **(3) ✅, y esta es la que había que probar de verdad.** La vitrina «Joyas para gradear» —y por tanto el enumerador
+  `?gradingHighlight=true&sort=grading_showcase`— **es un requisito de producto anterior e independiente**: lo pide
+  `PROJECT.md` §O.3(3) y lo exige el **criterio 101**, que obliga a una vitrina en el home ordenada por ganancia neta.
+  **Existiría igual aunque la cifra nunca se emitiera por fila en la rejilla** (la decisión de pintarla en la rejilla
+  es posterior y del humano, 2026-08-28). No se construyó **para** habilitar esta emisión: se construyó porque el
+  producto lo pidió, y la emisión se apoyó en él **después**. La condición 3 se cumple en su forma fuerte.
+
+`priceBasis` sigue fallando (2) y (3) — **sigue fuera, y este dictamen no lo reabre**.
+
+> **Nota para quien mantenga esto:** si algún día se retira el filtro `?gradingHighlight=true` **o** se elimina la
+> vitrina de §O.3(3), decae la condición (3) y **este dictamen deja de aplicar**: habría que re-evaluar la emisión en
+> la rejilla. La dependencia es real, no retórica.
+- **`gradedEstimates?: GradedEstimateDTO[]` vive en la raíz de `GroupedListingDetailResponse`** (nivel **carta**),
+  porque el estimado **es** por carta (ver (a)) y porque **no va gateado** — no puede colgar de un campo cuya presencia
+  significa «gate cumplido».
+- **Mismo tipo de elemento en los dos campos** (`GradedEstimateDTO[]`): un solo helper de render en el front, y el
+  cliente **debe iterar leyendo `gradeValue`** (prohibido asumir `[0] === PSA 10` o longitud fija). Es lo que permite
+  añadir o quitar un grado —en cualquiera de las dos superficies— **sin tocar contrato ni cliente**.
+- **`GroupedListingDTO` (ficha) NO lleva `gradingHighlight`.** El bullet de v1.50 que decía «los `listings[i]` de la
+  ficha pueden traer su `gradingHighlight?`» queda **DEROGADO**: la ficha ya expone `gradedEstimates` en su raíz, que
+  es más rico (PSA 10 **y** 9) y no va gateado. Mantener un segundo campo gateado ahí duplicaba la superficie sin
+  añadir información y rompía la limpieza del split por DTO.
+- **`GradedEstimateDTO.estimate` es un `PriceInfo`** (no se inventa otro tipo de dinero) con tres reglas normativas:
+  `status` es **SIEMPRE `"priced"`** (un `pending` en un argumento de venta está prohibido, §O.4);
+  `referenceMxnCents` y `capturedDate` **siempre presentes**; y **`source` se OMITE SIEMPRE** — ver (g).
+- **Qué NO viaja, y es el corazón de la reducción de alcance:** ni `multiplier`, ni `upsideMxnCents`, ni
+  `netUpsidePsa9MxnCents`, ni `gradingCost*`, ni `minUpsidePct`, ni `threshold`. Nadie los pinta. Que no viajen es lo
+  que hace que **el cliente no pueda reconstruir el gate** (SEC-A1 reforzado) y que ajustar el criterio comercial no
+  toque el contrato.
+- **Regla de render (para frontend, verificable por QA en el HTML):** campo ausente ⇒ **no se pinta contenedor, ni
+  skeleton, ni `—`, ni `$0`, ni «pendiente»**. Prohibido cualquier `…?.[0]?.estimate.referenceMxnCents ?? 0`.
+- **El disclaimer NO viaja por la API.** Es copy i18n del front (`es.json`/`en.json`), misma doctrina que el label de
+  NM (§DTOs base), y su **patrón de presentación —nota al pie con llamada (asterisco) junto a la cifra— lo define
+  ux-ui** en `DESIGN_SYSTEM.md` **§22**. Pero es **regla de contrato**: renderizar **cualquier** cifra de
+  `gradingHighlight`/`gradedEstimates` sin su disclaimer accesible es un **defecto bloqueante** (criterio 103).
+
+#### (f) Vitrina «Joyas para gradear» — se reusa `GET /catalog/cards`, no un endpoint nuevo
+
+`GET /api/v1/catalog/cards?gradingHighlight=true&sort=grading_showcase&pageSize=8`.
+
+- **Justificación:** la vitrina es, literalmente, «cartas destacadas con **su teja** y enlace a su ficha» (§O.3(3)) — un
+  **subconjunto ordenado de Compra**, no otra entidad. Un endpoint propio duplicaría la ruta de composición
+  (`fetchSellable` → `buildGroups` → gate) y crearía justo el riesgo que money-safe teme: **que el badge de la vitrina y
+  el de Compra se desincronicen**. Además `listCards` ya filtra, ordena y pagina **en memoria** sobre el conjunto
+  vendible (`catalog.service.ts:527-542`), así que el filtro y el orden nuevos son ~10 líneas y **ningún** query extra.
+- **`sort=grading_showcase` — nombre deliberadamente NEUTRO.** No nombra el criterio, así que ajustar la política
+  comercial es un cambio **server-side** con **cero** impacto en contrato y cliente (mismo motivo por el que el DTO ya
+  no publica el cálculo). Criterio **vigente (confirmado por el humano)**: **mayor `netUpsidePsa9MxnCents` desc** — el
+  escenario **realista**, no el optimista. **Desempate determinista y estable** para que la paginación no baile:
+  `netUpsidePsa9MxnCents desc → estimado PSA 10 desc → representativeInventoryItemId asc`. **Ninguna de esas claves
+  viaja al cliente.**
+- **`sort=grading_showcase` SIN `gradingHighlight=true` ⇒ `400 VALIDATION_ERROR`** (`GRADING_SORT_REQUIRES_FILTER`).
+  Fail-closed: si se aceptara, los grupos **no destacados** irían en la cola del listado con clave de orden indefinida y
+  la vitrina podría pintarlos al paginar. Es preferible un error honesto a una superficie comercial contaminada.
+- **Vitrina vacía:** `{ data: [], total: 0 }`. Ese `data: []` **es** la señal normativa de «**no renderizar la vitrina
+  completa**» (criterio 101): sin encabezado, sin placeholder, sin «próximamente».
+
+#### (g) Fase 1 ⇄ Fase 2 indistinguibles para el cliente — el criterio de éxito
+
+> **Compromiso de diseño:** cambiar el **origen** del número **no debe tocar ni el contrato ni el cliente**. Cuatro
+> garantías, todas verificables **hoy**, en fase 1.
+
+1. **Un solo punto de lectura.** El storefront lee **siempre** `PriceReference` por la clave canónica de (a), vía
+   `getGradedEstimatesBatch`. **Nunca** consulta al proveedor, ni a un endpoint de overrides, ni bifurca por origen. La
+   **precedencia** de §O.6 (**override manual > ingest automático > sin dato ⇒ no se renderiza**) la resuelve
+   `pickBestRef`/`isBetterRef` **dentro de la tabla**, exactamente como ya ocurre con raw (§4.15) y sellado (§4.23a).
+2. **`source` NO viaja al cliente.** Es el **único** campo que delataría la fase (`manual` vs `pokemonpricetracker`), y
+   además decirle al comprador que el número lo tecleó el vendedor es pésimo en un argumento de venta. `source` (y
+   `isManualOverride`) siguen disponibles para el admin en `GET /admin/pricing/card/:cardId` (§M2).
+3. **`capturedDate` SÍ viaja** y es semánticamente idéntico en ambas fases (fecha de la fila vigente) — alimenta la
+   «fecha del último refresco» de la ficha y el gate de frescura.
+4. **Ninguna rama de código consulta `isManualOverride`/`source`** para decidir **montos ni render**. Las puras de (c)
+   reciben `{ gradeValue, mxnCents, capturedDate, isManual }`.
+   > **Matiz v1.50.2, ACTUALIZADO en v1.50.3 — `isManual` sigue decidiendo ELEGIBILIDAD, pero MUCHO menos.** El
+   > dictamen de v1.50.2 hacía que la frescura **no se aplicara** a filas manuales, así que el origen decidía **si un
+   > elemento caduca o no**. Con el dictamen revisado de (m), **ambos orígenes caducan**; lo único que `isManual`
+   > sigue eligiendo es **contra qué dial** se mide (`manualFreshnessDays` vs `freshnessDays`) — y con el seed de
+   > v1.50.3 **los dos valen 30**, así que en configuración por defecto el origen **no cambia nada observable**.
+   > La garantía (g) sale **reforzada**, no debilitada: el origen no cambia el número, ni el shape, ni el render, y
+   > **no viaja**. Un cliente no puede distinguir una fila manual de una automática **mirando la respuesta**. *(Si el
+   > humano separa los dos umbrales, `isManual` vuelve a influir en la caducidad — sigue sin viajar y sigue sin ser
+   > inferible salvo observando la persistencia de una cifra durante meses, que es lo que `capturedDate` ya revela.)*
+
+**Test de indistinguibilidad (para QA, ejecutable en fase 1):** escribir la misma clave con `source='manual'` y luego
+con `source='pokemonpricetracker'` (mismo monto y **misma fecha, dentro de la ventana de frescura**) y comprobar que el
+JSON público es **idéntico byte a byte**. *(La igualdad de fecha y la ventana son parte del test desde v1.50.2: con una
+fecha rancia los dos casos divergen **por diseño**, que es justo lo que (m) resuelve.)*
+
+#### (h) Fase 2 (BLOQUEADA) — plan condicional y gate de instrumentación
+
+> **Estado v1.50.2: DESBLOQUEADA.** La entrega v1.50 dejó el ingest **manual** invocando la doctrina **P-6** («no
+> construir un parser sobre un esquema no confirmado»). **El humano cuestionó ese bloqueo y tiene razón.** Lo que P-6
+> prohíbe es **codificar contra un esquema que se asume**; un parser que **no asume nada**, **prueba** las hipótesis
+> candidatas y **se niega a escribir** lo que no identifica positivamente como monto **no viola P-6: la satisface por
+> construcción**. La primera corrida real confirma el formato **con cero datos malos en la BD**. Se deroga el rótulo
+> «fase 2 BLOQUEADA» en todo el documento y en el contrato.
+
+**Hechos del Gate 0 (2026-08-23) que siguen siendo ciertos y que el diseño debe respetar:** (a) PSA exige
+`includeEbay=true`, que cuesta **2 créditos por carta** (presupuesto vigilado por `PptApiClient.dailyRemaining()`);
+(b) la documentación del proveedor **se contradice** entre `data[i].ebay.salesByGrade.psaN` (objeto) y
+`gradedPrices.psaN` (escalar); (c) **se desconoce** si `includeEbay=true` combina con `fetchAllInSet=true`.
+
+##### (h.1) El parser AUTO-CONFIRMANTE — sondea DOS hipótesis, pero solo UNA es persistible (v1.50.3)
+
+Orden de sondeo fijo. **Nunca hay fallback silencioso entre shapes.**
+
+| | Ruta | Forma esperada | Persiste **solo si** |
+|---|---|---|---|
+| **S1** | `data[i].ebay.salesByGrade.psaN` | objeto `{ count, medianPrice, averagePrice, smartMarketPrice, lastSaleDate }` | el stat elegido por `graded_estimate_source_stat` (default `medianPrice`) es **número finito > 0**, **Y** `count` es **entero finito ≥ `graded_estimate_min_sample_count`**, **Y** `lastSaleDate` es **fecha parseable dentro de `graded_estimate_freshness_days`** |
+| **S2** | `gradedPrices.psaN` | escalar | **NUNCA — declarado NO PERSISTIBLE, ver (h.1-bis)**. Se sigue **detectando** y se **registra**; no se escribe |
+| **—** | cualquier otra forma (array, string, `null`, objeto desconocido, `NaN`, negativo) | — | **NO ESCRIBE NADA** + registra la muestra cruda |
+
+- **⚠ v1.50.3 — TERCERA condición de escritura para S1: GATE DE EVIDENCIA.** Además del stat > 0 y del `count`, S1
+  **solo persiste** si la **`lastSaleDate`** está dentro de `graded_estimate_freshness_days`. **Ausente o no
+  parseable ⇒ NO se persiste** (*«desconocido» no es «fresco»*). Cierra el fallo «fresco para siempre» de **(m.2)**.
+  **`graded_estimate_min_sample_count` sube a seed 5** ((k.1)); el parser no cambia, cambia el umbral.
+- **`lastSaleDate` es una HIPÓTESIS, no un hecho — y el parser debe tratarla como tal.** El Gate 0 dejó escrito que la
+  documentación del proveedor **se contradice a sí misma** sobre la forma del bloque PSA. `PROJECT.md` §O.6 / criterio
+  106 describe `ebay.salesByGrade` como «número de ventas, mediana, promedio **y fecha de la última venta**», pero eso
+  es **documentación del proveedor, no una respuesta observada**. El parser **no asume el nombre ni el formato del
+  campo**: lo **identifica positivamente** o no escribe, exactamente igual que hace con el stat. Si S1 llega **sin**
+  fecha, no es «S1 degradado»: es una forma que no sabemos leer ⇒ **no se escribe** y **se registra la muestra**.
+  *(Esto es P-6 aplicada al campo nuevo. Sería incoherente auto-confirmar el precio y dar por supuesta la fecha.)*
+- **Override del operador — MANDA sobre la autodetección.** Se conservan
+  `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` **default** | `sales_by_grade` | `graded_prices`) y
+  `POKEMONPRICETRACKER_GRADED_FIELD` (`medianPrice | averagePrice | smartMarketPrice`). **Si se fijan y la respuesta
+  no casa, NO se escribe nada** y se registra la muestra: caer al otro shape derrotaría la intención explícita del
+  operador, que es justo lo que el override existe para expresar. *(v1.50.3: fijar `FORMAT=graded_prices` sigue siendo
+  legal y sigue **sin** hacer persistible a S2 — fuerza el sondeo, no la escritura.)*
+- **Truncate del log de muestra: `800` → `4000` chars** — `pokemonpricetracker-bulk.provider.ts:209`
+  (`sample = truncate(JSON.stringify(entries[0]), 800)`). **Bloqueante del diagnóstico:** con 800 el bloque PSA queda
+  **cortado** y produce un **falso negativo** («el proveedor no manda PSA» cuando sí lo manda). Es cambio de
+  **observabilidad**, no de dinero. *(El log ya es seguro: la key va en el header, jamás en URL ni log — §4.15.)*
+
+##### (h.1-bis) DICTAMEN PI-D2 (v1.50.3, NORMATIVO) — S2 (`gradedPrices.psaN`) queda declarado NO PERSISTIBLE
+
+> **Cómo se descubrió, y por qué se escribe aquí en vez de dejarlo para la primera corrida real.** Backend implementó
+> el gate de evidencia **al pie de la letra** y encontró la consecuencia: `gradedPrices.psaN` es un **escalar** y no
+> trae fecha, así que cae siempre en `evidence_unknown` y **no puede persistir jamás**. Colateral: la escotilla
+> `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` —que existía precisamente para que S2 pudiera escribir— **ya no alcanza**,
+> porque detrás hay una segunda puerta cerrada. **Backend hizo lo correcto: no inventó un dial de evidencia análogo
+> por su cuenta y lo escaló.** Es doctrina, no implementación.
+
+**Primera corrección, y cambia el marco de la discusión: S2 no era persistible ANTES de v1.50.3 tampoco.** La regla de
+v1.50.2 ya decía que sin `count` el punto 2 del gate queda **desconocido** ⇒ fail-closed ⇒ **no se persiste**. El
+**único** camino de S2 hacia la BD era la escotilla, y una escotilla es —por definición— *aceptar un riesgo a
+sabiendas*, no una vía normal. Así que **el parser ya era «de una hipótesis y media» en configuración por defecto**;
+v1.50.2 simplemente no lo dijo en voz alta. El gate de evidencia **no rompió nada**: puso un segundo cerrojo en una
+puerta que ya estaba cerrada, y al hacerlo **hizo visible** algo que estaba implícito. Eso es exactamente lo que se le
+pide a un diseño.
+
+**Dictamen: se ACEPTA como decisión de diseño. S2 es NO PERSISTIBLE, y no se añade una segunda escotilla.**
+
+**Razón de fondo — S2 no es un S1 degradado, es un objeto epistemológico distinto.** El gate de confianza de §O.7
+tiene tres pruebas: **fresca**, **origen confiable**, **coherente en magnitud**. De las tres, la única que se calcula
+con **datos nuestros** (el precio raw publicado) es la tercera. Las otras dos se calculan con **evidencia del
+proveedor**: `count` y fecha. Un escalar pelado **no trae ninguna de las dos** — no es que no las hayamos leído: **el
+shape no las contiene**. Por tanto S2 es **estructuralmente incapaz** de satisfacer las pruebas 1 y 2, y ninguna
+configuración lo arregla, porque no hay nada que configurar.
+
+**Y no hay ninguna superficie donde una fila S2 sería admisible.** Es el remate del argumento y conviene tenerlo
+escrito, porque invita a pensar «bueno, que al menos salga en la ficha»:
+
+| Superficie | Qué exige (§O.7 «Aplicación por superficie») | ¿Admite S2? |
+|---|---|---|
+| Rejilla / vitrina | las **tres** pruebas + gate de ROI | **No** (falla 1 y 2) |
+| **Ficha** | **frescura** y **origen confiable** *(la magnitud es la que NO aplica aquí)* | **No** — falla exactamente las dos que sí aplican |
+
+La ficha es más permisiva **en magnitud**, no en procedencia. Persistir S2 produciría una fila que **no se puede
+mostrar en ningún sitio**: basura en una tabla de dinero a cambio de cero valor.
+
+**Por qué NO se concede una segunda escotilla** *(era la opción 2 sobre la mesa, y la descarto con motivo)*. Con
+`MIN_COUNT=0` **y** un hipotético `EVIDENCE_UNKNOWN=allow` abiertos a la vez, lo que queda publicándose es **un número
+del que no sabemos ni cuántas ventas lo respaldan ni de cuándo es**, con el único filtro de «está entre 1× y 100× de
+nuestro precio raw». Dos escotillas que **individualmente** dicen «acepto el riesgo a sabiendas» **se componen** en
+«no sabemos nada de esta cifra y la ponemos en la portada». Eso es precisamente lo que §O.4 —que aquí se aplica *«más
+estricta que en ningún otro lado»*— promete que no pasa. **Las escotillas no se apilan.**
+
+**Y no hay acantilado operativo detrás de esta decisión.** El plan de degradación ya existe, ya está aceptado y **ya
+funciona**: si PPT no entrega lo que la fase 2 necesita, *«la fase 2 se detiene y la feature degrada a manual — que es
+el estado de v1.50 y funciona»* (riesgo de proveedor único, más abajo en (h)). No se pierde la feature: se pierde la
+**automatización** de la feature.
+
+**Consecuencia normativa 1 — `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` queda DEROGADA; backend la retira.** Su único
+propósito declarado era hacer persistible a S2. Ya no abre nada. **Una escotilla que no abre nada es peor que no
+tenerla**: alguien la pondrá, no verá cambio alguno, y concluirá que el ingest está roto — un falso negativo de
+diagnóstico, la misma clase de fallo que el truncate de 800 chars. *(Si se quiere admitir muestras pequeñas en S1, la
+vía correcta existe y es un dial auditado: `graded_estimate_min_sample_count = 1`.)*
+
+**Consecuencia normativa 2 — detectar S2 SIGUE siendo valioso, y por eso el sondeo se conserva.** No se borra la
+hipótesis: se le cambia el papel. **S2 es una hipótesis de DIAGNÓSTICO, no de ESCRITURA.** Encontrar S2 es la señal de
+que el proveedor **no está dando lo que esta feature necesita**, y esa señal tiene que llegar a un humano en vez de
+disolverse en un contador de «saltadas». Traza obligatoria por carta (log estructurado + `AuditLog`, (h.4)) con motivo
+**`SHAPE_NOT_PERSISTIBLE_S2`**, distinto de `evidence_unknown` y de `sample_too_small`: **los tres motivos se cuentan
+por separado**, porque «el proveedor cambió de shape» y «esta carta tiene pocas ventas» exigen reacciones opuestas.
+
+> ⛔ **ESCALADA OBLIGATORIA (regla 9) — se añade a la que ya existe en (h.4).** Si la primera corrida real revela que
+> PPT sirve **mayoritariamente o exclusivamente S2**, backend **NO improvisa** (ni escotilla, ni dial nuevo, ni
+> «escribimos con `count` inventado»): **vuelve al arquitecto**, y de ahí al humano. Porque lo que ese hallazgo
+> significa **no es un problema de código**: significa que **la fase 2 no es viable con este proveedor**, y la
+> decisión —degradar a manual de forma permanente, buscar un segundo proveedor, o pagar el plan que sí exponga
+> `salesByGrade`— es de **producto y de costo**. Diseñar el parche antes de tener la evidencia sería reincidir en P-6.
+
+##### (h.1-ter) PI-D7 (v1.50.3-c) — el DISPARADOR concreto de esa escalada: se ajusta el suelo que propuso backend
+
+Backend necesitaba un umbral operable para «mayoritariamente» y eligió **un suelo de 5 observaciones**. **El instinto
+es correcto** —sin un mínimo de muestra, una sola carta rara dispararía una escalada— pero **un suelo absoluto tiene
+un agujero de alcanzabilidad**, que es exactamente la clase de fallo que acabamos de corregir con `STALE` en (n.2-bis):
+
+> **El alcance del ingest es «solo cartas con inventario publicado» ((h.3)) y el tope por corrida es 250.** Una tienda
+> pequeña puede tener **3 cartas raw publicadas**. Si las 3 devuelven S2, con un suelo absoluto de 5 **la escalada no
+> se dispara nunca**: la fase 2 queda **silenciosamente muerta** y el disparador diseñado para avisarlo es
+> **inalcanzable**. Es el mismo bug que `STALE` inalcanzable, en otro sitio.
+
+**Disparador NORMATIVO (sustituye al suelo fijo de 5):** sobre las cartas de la corrida que devolvieron **algún bloque
+PSA identificable** (`observadas = S1 + S2`; las que no traen nada no cuentan — no dicen nada del shape), se escala si:
+
+| # | Condición | Por qué |
+|---|---|---|
+| **A** | `S1 == 0` **y** `S2 >= 1` | **Escala SIEMPRE, sin suelo.** «Nunca hemos visto un S1» es cualitativamente distinto de «vemos una mezcla»: sugiere que el campo que necesitamos **no existe en este plan/cuenta**. Una sola observación ya es informativa, y el coste de escalar de más es **una conversación**; el de no escalar es una feature muerta en silencio |
+| **B** | `S2 > S1` **y** `observadas >= min(5, cartas_de_la_corrida)` | mayoría estricta de shape, con suelo **relativo**: si la corrida entera vio menos de 5 cartas, el suelo es **lo que haya visto**. Sin porcentajes mágicos: «S2 gana» es el criterio |
+
+**El suelo es `min(5, …)`, no 5 a secas.** Ese es el ajuste. El 5 sigue gobernando la operación normal (una tienda con
+catálogo real), pero **deja de poder bloquear el aviso** en la tienda chica, que es justo donde una fase 2 muerta
+pasaría más desapercibida.
+
+**La escalada es una SEÑAL, no un fallo:** no aborta la corrida, no apaga el ingest y no borra nada. El job termina
+normalmente —las cartas S1 válidas se escriben— y deja la traza y el `AuditLog` de (h.4) con los contadores por motivo
+**separados**. Lo que dispara es una **conversación**, y por eso el coste de un falso positivo es bajo y el umbral
+puede ser generoso. *(Si con datos reales el 5 resulta ruidoso o corto, moverlo es una constante de código, no un dial:
+no merece una clave de `ConfigSetting` una decisión que se toma una vez, al calibrar — mismo criterio que (k.1).)*
+
+**Lo que esta decisión NO cambia:** ni el contrato público, ni un solo DTO, ni el comportamiento de la fase 1 (manual),
+ni ningún monto. **No está vivo** (`graded_estimate_ingest_enabled` seed `off`). **Bloquea encender la fase 2** solo en
+el escenario en que el proveedor resulte servir S2 — y en ese escenario lo que bloquea es correcto que se bloquee.
+- **Override del operador — MANDA sobre la autodetección.** Se conservan
+  `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` **default** | `sales_by_grade` | `graded_prices`) y
+  `POKEMONPRICETRACKER_GRADED_FIELD` (`medianPrice | averagePrice | smartMarketPrice`). **Si se fijan y la respuesta
+  no casa, NO se escribe nada** y se registra la muestra: caer al otro shape derrotaría la intención explícita del
+  operador, que es justo lo que el override existe para expresar.
+- **Truncate del log de muestra: `800` → `4000` chars** — `pokemonpricetracker-bulk.provider.ts:209`
+  (`sample = truncate(JSON.stringify(entries[0]), 800)`). **Bloqueante del diagnóstico:** con 800 el bloque PSA queda
+  **cortado** y produce un **falso negativo** («el proveedor no manda PSA» cuando sí lo manda). Es cambio de
+  **observabilidad**, no de dinero. *(El log ya es seguro: la key va en el header, jamás en URL ni log — §4.15.)*
+
+##### (h.2) Cuál número ES «el precio»: la MEDIANA
+
+`medianPrice`, con `count` como **señal de fiabilidad** (no como precio). Razones:
+- **el promedio lo distorsiona una sola venta atípica** — y en PSA 10 de cartas caras, una venta atípica es lo normal;
+- **`smartMarketPrice` es una derivación propietaria no documentada**: construir sobre ella es *exactamente* lo que
+  P-6 prohíbe, y además nos ataría a un cambio silencioso del proveedor.
+
+Cambiable **sin deploy** con `graded_estimate_source_stat`. Que sea un dial y no una constante es deliberado: es la
+clase de decisión que solo se puede afinar viendo datos reales.
+
+##### (h.3) Alcance, cuota y moneda
+
+- **Solo cartas con INVENTARIO PUBLICADO** (`InventoryItem` vendible, `productType='raw'`), **no** el catálogo entero.
+  Con ese recorte, los 2 créditos/carta de `includeEbay` dejan de ser un problema de cuota: se pide precio de gradeo
+  **solo de lo que efectivamente estamos vendiendo**.
+- **Tope duro adicional:** `graded_estimate_ingest_max_cards_per_run` (seed **250**). Un error de alcance no puede
+  quemar la cuota del día.
+- **INV-FX (ver (a)) — el ingest escribe `priceUsdCents` + `fxRate`, JAMÁS el numeral USD en `priceMxnCents`.**
+- **Interruptor propio:** `graded_estimate_ingest_enabled` (**seed `off`**), independiente de la exhibición.
+
+##### (h.4) Encendido y escaladas
+
+**Encendido.** `price-ingest` escribe la clave canónica de (a) con `source='pokemonpricetracker'`, **respetando
+`isManualOverride`** (el override manual gana, §O.6) — mismo comportamiento que ya tiene con raw. **Cero cambio de
+contrato público, cero cambio de frontend.**
+
+**Traza obligatoria (no opcional).** Por cada carta **saltada** el job deja línea de log estructurada **y**
+`AuditLog`. Sin esto, el descarte sería invisible para el operador: el `preview` de admin lo vería como
+`NO_PSA10`/`NO_PSA9`, porque la fila sencillamente no existe. **Es una limitación diagnóstica aceptada** (consecuencia
+de gatear en escritura para no añadir columna a `PriceReference`), y la traza es su compensación.
+
+**⚠ v1.50.3 — los motivos de salto se cuentan POR SEPARADO, no como un total de «saltadas».** Es la parte que hace la
+traza útil en vez de decorativa: cada motivo exige una **reacción distinta**, así que un contador único los vuelve
+indistinguibles justo cuando hay que decidir.
+
+| Motivo | Qué significa | Qué hay que hacer |
+|---|---|---|
+| `SAMPLE_TOO_SMALL` | la carta tiene pocas ventas | **nada** — el gate funcionando; si pasa en masa, calibrar `min_sample_count` |
+| `EVIDENCE_UNKNOWN` | S1 **sin** `lastSaleDate` legible | mirar la muestra cruda: puede ser un cambio de shape del proveedor |
+| `EVIDENCE_STALE` | S1 con evidencia **más vieja** que `freshnessDays` | **nada** — el gate funcionando ((m.2)) |
+| **`SHAPE_NOT_PERSISTIBLE_S2`** | el proveedor sirvió `gradedPrices.psaN` (escalar) | **señal de escalada** ((h.1-bis)): si domina, la fase 2 no es viable con este proveedor |
+| `SLAB_PUBLISHED` | INV-D ((l)) | revisar en la lista de revisión (`?reason=SLAB_PUBLISHED`, (n)) |
+| `QUOTA_EXCEEDED` | tope por corrida | subir `ingest_max_cards_per_run` o aceptar el barrido parcial |
+
+> ⛔ **ESCALADA OBLIGATORIA (regla 9) — no es decisión de implementación.** Si la observación revela que
+> `includeEbay=true` **NO** combina con `fetchAllInSet=true` (⇒ **un request por carta**), backend **NO implementa**:
+> **vuelve al arquitecto antes que a implementación**. Un request por carta invalida el modelo de barrido por set y
+> obligaría a rediseñar hacia un **ingest curado por lista** (solo las cartas gancho que el admin marque), con su
+> propio recurso de curaduría y su propio presupuesto de cuota — decisión de **arquitectura y de costo**, no de código.
+
+> ⚠ **RIESGO ACEPTADO — proveedor único.** **Solo PPT puede entregar PSA**: verificado que TCGCSV y pokemontcg.io
+> tienen eje de **acabado**, no de **grado**, así que no son sustitutos ni siquiera degradados. Existe un segundo
+> proveedor **declarado y nunca implementado**, `PokeTraceProvider`. **No se diseña ahora** (no hay evidencia de que
+> exponga PSA, y diseñar contra eso sería reincidir en P-6). Queda como **riesgo de concentración aceptado**: si PPT
+> cambia el shape o retira el dato, la fase 2 se detiene y la feature **degrada a manual** — que es el estado de
+> v1.50 y funciona. El apunte de deuda va a `docs/TECH_DEBT.md` **por el rol dueño del código**, no por el arquitecto.
+
+#### (i) Reparto de trabajo (work stream «Catálogo y precios»)
+
+- **backend** (módulos `pricing`, `catalog`; común `backend/src/common/graded-estimate.ts` **NUEVO**,
+  `modules/settings/settings.constants.ts`): las **12** `SettingKey` + validadores (I1–I9) + seed **M-42**;
+  `getGradedEstimatesBatch`; las puras `selectGradedEstimates` / `evaluateGradingHighlight`; composición en
+  `buildGroups` (highlight) y `getCard` (estimados de ficha); filtro `gradingHighlight` + sort `grading_showcase` en
+  `listCards`; `GET/PUT /admin/pricing/graded-estimates` + `/preview` + auditoría; el flag M10; el ingest de (h).
+  **v1.50.2 añade:** mover `gradingHighlight` a `GroupedListingSummaryDTO`; las **6 `SettingKey` nuevas** + **I8/I9**;
+  el **gate de magnitud** en `evaluateGradingHighlight` (**y NO en `selectGradedEstimates`**); ~~`stale()` que ignora
+  filas manuales~~ ⛔ **DEROGADO en v1.50.3, ver abajo**; `getPublishedSlabGradesBatch`; `intent` + `422`/`409` en el
+  override; el **parser auto-confirmante** + truncate 4000 + **INV-FX**.
+  **⚠️ v1.50.3 añade (todo esto es CAMBIO DE CÓDIGO para backend, no solo de documento):**
+  1. **Seeds corregidos** en `settings.constants.ts` / M-42: `graded_estimate_manual_freshness_days` `null` → **30**;
+     `graded_estimate_min_sample_count` 3 → **5**; `graded_estimate_max_raw_multiple` 50 → **100**. Con `warn` al izar
+     la config si `manualFreshnessDays == null` ((m)).
+  2. **`stale()` vuelve a aplicar a filas manuales**, y **el filtro de frescura pasa a ejecutarse ANTES de
+     `pickBestRef`** dentro de `getGradedEstimatesBatch` ((c)/(m)). **`isBetterRef` NO se toca.**
+  3. **`GET /admin/pricing/graded-estimates/review`** — la lista de revisión de **(n)**, con `GRADED_REVIEW_MAX_SCAN`,
+     `truncated`, y evaluación **aunque el dial esté `off`**.
+     **⚠️ v1.50.3-c añade a este endpoint:** admitir **`STALE`** como valor opt-in de `?reason=` (deja de ser `400`);
+     emitir **`isManual`** en `GradedEstimatePreviewDTO` y en el de `review`; e intercalar **`capturedDate` asc** en
+     el desempate del orden (lo más vencido primero). Se apoya en el `includeStaleForDiagnostics` que backend ya
+     construyó — **no** hay lógica nueva de frescura. §4.38(n.2-bis).
+  8. **v1.50.3-d — `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`** (§4.38q): borra **todas** las filas
+     de la clave canónica en **transacción**, `deletedCount` en la respuesta, **auditado con `before`**, guarda
+     **INV-D ⇒ `409`**, **`404` si no había nada**, y funciona con el dial `off`.
+  9. **v1.50.3-d — dos filas nuevas en el fixture `backend/prisma/seed-e2e.ts`** (petición de frontend, **aceptada**;
+     los tests ya están escritos y marcados `needsSeed`):
+     - **una carta con grupo raw publicado Y slab publicado del MISMO grado** — desbloquea el pre-vuelo de INV-D y el
+       `SLAB_PUBLISHED` de (n) en modo real. **Sirve además para el `409` del `DELETE` nuevo**, que sin esta fila no
+       es verificable de punta a punta: es exactamente la situación que la guarda protege.
+     - **una tercera carta raw publicada** — permite cubrir a la vez «un solo grado» y «dos grados sin destacar».
+     - **v1.50.3-e: una CUARTA carta raw publicada y libre** (petición de frontend, **aceptada**): las tres anteriores
+       ya se consumen entre escenarios y los tests empiezan a pisarse. Un fixture que obliga a reciclar cartas entre
+       casos crea **acoplamiento entre pruebas** —la que corre segunda hereda el estado de la primera—, que es
+       justo lo que un fixture sintético existe para evitar.
+     *(El fixture es de backend; aquí consta **qué debe existir** y por qué, no cómo se escribe.)*
+  10. **v1.50.3-e — `reasons: HighlightReason[]` en `evaluateGradingHighlight`** ((c)) y **el filtro de (n) evaluado
+     sobre `reasons`**, no sobre `reason`. **`reason` y `eligible` NO cambian de semántica** — es aditivo. Cierra el
+     agujero medido de la red de coherencia con un solo grado ((n.2-ter)). **No añade ninguna query.**
+  4. **Gate de evidencia en el ingest** ((h.1)/(m.2)): no persistir filas cuya `lastSaleDate` supere `freshnessDays`;
+     ausente/no parseable ⇒ no se persiste.
+  **⚠️ Addendum v1.50.3-a — lo que sale de las dos escaladas de backend (PI-D2 / PI-D3):**
+  5. **Retirar `POKEMONPRICETRACKER_GRADED_MIN_COUNT`** (la escotilla `=0`): **derogada**, ya no abre nada
+     ((h.1-bis)). Dejarla viva es una trampa de diagnóstico. La vía legítima para admitir muestras pequeñas en S1 es
+     el dial auditado `graded_estimate_min_sample_count = 1`.
+  6. **Motivos de salto del ingest CONTADOS POR SEPARADO** ((h.4)), con `SHAPE_NOT_PERSISTIBLE_S2` distinto de
+     `EVIDENCE_UNKNOWN` y de `SAMPLE_TOO_SMALL`. Un contador único los vuelve indistinguibles justo cuando hay que
+     decidir si escalar.
+  7. **Línea de INVENTARIO al izar la config** (§11.0). **⚠️ v1.50.3-b: subió de «observabilidad barata» a
+     REQUISITO** — descartado el E2E como detector de configuración, esta línea y el `GET` son **los dos únicos
+     detectores del seed rancio**. Debe imprimir **clave + valor vigente + default** (un «difiere» sin los números no
+     es accionable) y **emitirse siempre, también cuando no hay divergencias** (una línea que solo aparece con
+     problema es indistinguible de una que no se emitió). **`log`/`info`, no `warn`**; única excepción `warn`:
+     `manualFreshnessDays === null`.
+  **Tests obligatorios:** los flujos negativos de §O.7 (sin PSA 9 ⇒ **ficha sí, destacado no**; sin ningún estimado;
+  graded y sealed nunca; tabla vacía/con hueco ⇒ **jamás costo 0**; estimado rancio; DTO manipulado no cambia nada) +
+  **la partición (0)** (subir `minUpsidePct` vacía la vitrina **sin** apagar la ficha) + el **test de
+  indistinguibilidad** de (g) + los **7 puntos de la doctrina (b)** + **v1.50.2:** las **tres cotas de magnitud por
+  separado** (una prueba por cota, para que relajar una rompa su propia prueba), el **caso USD-como-MXN** de (k),
+  `409` sobre carta con slab publicado.
+  **⚠️ v1.50.3 — el test de regresión de (m) CAMBIA DE SIGNO y hay que reescribirlo.** Donde v1.50.2 pedía «override
+  manual viejo + dato automático fresco ⇒ **se muestra el manual**», ahora se exigen **tres** casos:
+  (a) manual **rancio** + automático **fresco** ⇒ **se muestra el automático**;
+  (b) manual **rancio** **sin** automático ⇒ **no se muestra nada** (criterio 109 — este es el que QA reprodujo a
+  mano con 40 días y hoy falla);
+  (c) manual **fresco** + automático fresco ⇒ **gana el manual** (§4.27f-2 intacto).
+  Más: **el seed de cada uno de los tres diales corregidos** asertado explícitamente (un test que lea el seed, para
+  que una regresión de valor no vuelva a pasar inadvertida) y la **lista de revisión** enumerando las tres cartas
+  incoherentes de §O.9 con su `reason`.
+  - **La ASERCIÓN DE EMISIÓN de la rejilla es del TEST DE CONTRATO, no del cliente (dictamen v1.50.2, cierra F-19).**
+    Frontend anotó que el cliente no verifica que el backend **no emita** `priceBasis`/`referenceValue` en la rejilla,
+    y **tiene razón en no hacerlo**: un guard en el front inventaría una regla de emisión **en la capa equivocada** —
+    el front no puede saber si un campo ausente es una decisión del contrato o un fallo del emisor, así que su única
+    conducta correcta es **no consumirlo**. La verificación vive donde vive la regla: en un **spec sobre el JSON
+    serializado** de `GET /catalog/cards`, propiedad de **backend**, que asserta la lista blanca **en las dos
+    direcciones**:
+    1. **no aparecen** `priceBasis`, `referenceValue`, `source`, `isManualOverride` ni `pendingReason` (D2);
+    2. **sí aparece** `gradingHighlight` cuando el grupo pasa ambos gates, y **no aparece** cuando no (v1.50.2);
+    3. la ficha sigue emitiendo `priceBasis` **requerido** — la prueba de la rejilla no debe poder pasar borrándolo
+       de todas partes.
+    Es la misma exigencia que §9 (D2-EMISOR) ya impone para D2; v1.50.2 solo añade el punto 2. **F-19 se cierra como
+    cobertura de contrato, no como deuda del frontend.**
+- **frontend** (stream «Catálogo y precios», `(storefront)`): cifras por grado en la ficha, badge en la rejilla,
+  vitrina del home, i18n ES/EN del disclaimer (completo + corto) con el patrón de **nota al pie** que defina ux-ui
+  (`DESIGN_SYSTEM.md` **§22**). **No recalcula nada** — ni elegibilidad, ni multiplicador, ni ganancia (ya no existen
+  en el DTO): **renderiza lo que llega o no renderiza**. **v1.50.2:** leer `gradingHighlight` del
+  **`GroupedListingSummaryDTO`** y **eliminar** cualquier lectura en `listings[i]` de la ficha. Zona compartida a
+  serializar: `frontend/src/types/contract.ts` (tipo espejo).
+  **⚠️ v1.50.3 añade una superficie NUEVA de back-office:** la **lista de revisión** de (n) en **M2 (`(admin)`)**,
+  junto al editor de diales del gancho — tabla paginada con filtro por `reason`, aviso visible cuando
+  `truncated: true` y aviso cuando `enabled: false` («hay cifras marcadas, pero la feature está apagada»).
+  **Sin esta UI el criterio 111(e) NO se cumple**: «aparece en la lista de revisión» es una afirmación sobre lo que el
+  dueño **ve**, no sobre lo que el endpoint devuelve. Si hace falta un patrón de tabla de revisión, lo define
+  **ux-ui** en `DESIGN_SYSTEM.md` — no lo inventa ni el arquitecto ni frontend.
+- **devops:** ninguna env nueva **obligatoria** para fase 1 (los diales son `ConfigSetting`). Para fase 2, las envs de
+  (h) — todas con **default seguro**/sin default — y vigilar `dailyRemaining()` contra el tope por corrida.
+  **⚠️ v1.50.3-a — PASO DE DESPLIEGUE OBLIGATORIO, no opcional:** los tres seeds corregidos **no llegan a un entorno
+  ya sembrado** (`seed.ts` usa `update: {}`). En **cada** entorno existente hay que ejecutar el procedimiento de
+  **(p)**: `GET` → comparar → `PUT` solo lo que siga en el seed viejo → **verificar**. **Prohibido `UPDATE` directo a
+  la BD** (se salta auditoría y validación). Si algún dial difiere de su seed viejo, **no se pisa**: lo decide el
+  humano clave por clave (**GU-13**). **Sin este paso el deploy pasa todos los gates y la feature sigue comportándose
+  como antes en producción** — que es la clase de falso verde que el DoD existe para impedir.
+  **⚠️ v1.50.3-b — la verificación de cierre son DOS cosas distintas y no son intercambiables:** en **producción**,
+  **`GET` + línea de inventario** (solo lectura); en **staging**, el **E2E del criterio 109**. El E2E **no** se apunta
+  a prod (escribe: flip del dial, override y `updateMany` de `capturedDate`; exige el fixture `e2e-common`) **y
+  además ya no detecta el seed rancio** porque fija el dial antes de asertar. **Ratifico el procedimiento de
+  `DEVOPS_NOTES.md` §32.5.** Tabla de las dos garantías en (p); documentar el paso junto al rollback.
+- **qa (gate por stream):** unitarios + contrato + smoke E2E de los flujos críticos de §O.7, **reinterpretados con la
+  partición (0)**: (1) camino feliz — la carta con estimados frescos que pasa el gate sale en la **ficha**, la
+  **rejilla** y la **vitrina**; (2) subir `minUpsidePct` **vacía la vitrina y quita los badges** pero **la ficha sigue
+  mostrando sus cifras** y **ningún precio de venta cambia**; (3) dos cartas de valor muy distinto resuelven
+  **escalones distintos** y la cara necesita más upside para ser destacada; (4) **v1.50.2** — una carta con estimado
+  **incoherente** (p. ej. PSA 10 por debajo del raw) **sigue apareciendo en su ficha** y **no** en la rejilla;
+  (5) **v1.50.3** — esa misma carta incoherente **aparece en la lista de revisión** de M2 con su `reason` (criterio
+  111(e), que hasta ahora no era verificable porque la lista no existía); (6) **v1.50.3** — un override manual de **40
+  días** (el caso que QA reprodujo a mano) **desaparece de las tres superficies**, y si esa carta tiene además dato
+  automático **fresco**, se muestra **el automático** en vez de nada (criterio 109 + (m));
+  (7) **v1.50.3-c** — **el cierre del bucle del caso (6)**: esa misma carta de 40 días, ya invisible en las tres
+  superficies, **se encuentra** en `review?reason=STALE` con `isManual: true` y su `capturedDate`, y **desaparece de
+  esa lista al recapturarla**. Es la verificación de que un estimado caducado **se puede volver a encontrar**, que es
+  justo lo que faltaba: sin ella, «caduca solo» sería una desaparición sin retorno.
+  (8) **v1.50.3-d** — **el bucle completo de la lista de revisión**: la carta incoherente aparece en `review`, se
+  **borra** con el `DELETE` de (q), **desaparece de la lista y de la ficha**, y **ningún precio de venta cambia**; y
+  sobre la carta con **slab publicado**, el mismo `DELETE` responde **`409`** y **el precio del slab es idéntico antes
+  y después** (es el criterio 112 aplicado al verbo destructivo). Sin esta pareja de casos, «se corrige o se descarta»
+  seguiría sin ser verificable.
+  (9) **v1.50.3-e — la red de coherencia con UN SOLO grado** (regresión de (n.2-ter), y es el caso que más importa
+  porque es donde el error de unidades es más probable): carta raw **$460** con **solo PSA 10 = $230** y **sin PSA 9**
+  ⇒ **aparece en `review?reason=NOT_ABOVE_RAW`** (antes: `total: 0`), **sigue sin promocionarse** (`reason` sigue
+  siendo `NO_PSA9`) y **sigue mostrándose en la ficha** ((k.3), sin cambio). Es la prueba de que el diagnóstico dejó
+  de heredar el cortocircuito de la decisión.
+  **⚠️ v1.50.3-b — QA NO puede certificar la configuración de un entorno con el E2E, y este bullet existe para que
+  nadie lo intente** *(corrige lo que v1.50.3-a decía aquí, que era el mismo error del paso 4 de (p))*. El E2E del
+  criterio 109 (caso `8d`) **fija `manualFreshnessDays: 30` antes de asertar** —correcto: prueba la **lógica de
+  decaimiento** con el dial en su valor nominal— y por tanto **es ciego al seed rancio del entorno**. Además
+  **escribe** (dial global, override, `updateMany` de `capturedDate`) y exige el fixture `e2e-common`, así que
+  **corre en staging/local, nunca contra producción**. **La configuración se verifica con `GET` + la línea de
+  inventario** ((i).7), que son solo-lectura y **los únicos detectores reales**. Tabla de las dos garantías en **(p)**.
+- **Zonas compartidas tocadas** (el orquestador serializa): `backend/src/common/`, `backend/src/modules/settings/`,
+  `frontend/src/types/contract.ts`, `docs/API_CONTRACT.md`. **`backend/prisma/schema.prisma` NO se toca.**
+
+#### (j) Lo que esta sección deja explícitamente FUERA
+
+Gradear cartas, intermediar el gradeo, verificar slabs por integración con PSA/CGC, otras graduadoras (CGC/BGS/TAG),
+otros grados (PSA ≤ 8), estimados sobre **gradeadas** o **sellado**, PriceCharting, y cualquier efecto sobre el precio
+de venta, la valuación de portafolio, el buylist o el P&L. Ver «Fuera de alcance» de `PROJECT.md` (aclarado en v2.0,
+decisión 45: **mostrar** un estimado por grado ≠ **gradear**).
+
+**Añadido en v1.50.3, para que no se cuele por la puerta de atrás:** la lista de revisión de **(n)** es de **solo
+lectura**. **Marcar una carta como «revisada»/«ignorar»** exigiría **estado persistido** ⇒ tabla nueva ⇒ **DDL**, y
+queda **explícitamente fuera de alcance**; igual que un **aviso proactivo** (correo o badge de dashboard) cuando
+aparecen cifras incoherentes, que es la misma decisión de producto que §N.6 dejó abierta para el bounty rebasado
+(pregunta abierta v2.0 #5). Si el volumen operativo los pide, son decisión de **producto + arquitecto**, no de
+implementación. *(Se declara aquí precisamente porque (n) es nueva: lo que una sección nueva no acota, alguien lo
+implementa «de paso».)*
+
+#### (k) GATE DE CONFIANZA (v1.50.2, NORMATIVO) — la rejilla exige confiabilidad; la ficha no
+
+> **La decisión del humano fue: sí quiero la cifra en la rejilla, condicionada a que el número sea confiable.** La
+> rejilla es la superficie de **promoción masiva**: ahí un número malo no es un dato feo, es una **afirmación
+> comercial falsa multiplicada por N filas**. La ficha es **informativa** y su contrato con el lector es distinto:
+> muestra lo que hay, con su disclaimer.
+
+**La cifra se emite en la REJILLA/VITRINA solo si se cumplen las TRES condiciones:**
+
+| # | Condición | Regla | Dónde se evalúa | Ficha | Rejilla |
+|---|---|---|---|---|---|
+| **1** | **Fresca** | `stale()` de (c), con los **dos** umbrales de (m) (manual y automático; ambos seed 30 desde v1.50.3) | pura compartida, ambas superficies | **SÍ** | **SÍ** |
+| **2** | **Origen confiable** | fila **manual** (`isManual`), **o** automática cuyo `count` del proveedor fue **≥ `graded_estimate_min_sample_count`** (**seed 5** desde v1.50.3) | **en la ESCRITURA** (ingest, (h.1)); en lectura, `source` debe estar en la allow-list | **SÍ** *(por construcción)* | **SÍ** |
+| **3** | **Coherencia de magnitud** | las **tres cotas** de abajo | `evaluateGradingHighlight` **ÚNICAMENTE** | **NO** | **SÍ** |
+
+##### (k.0) Glosario NORMATIVO de nombres — `PROJECT.md` ⇄ contrato ⇄ `ConfigSetting` (v1.50.3)
+
+> **Por qué existe esta tabla.** Los diales del gate llegaron con **dos vocabularios**: la prosa de `PROJECT.md` §O.7 y
+> los identificadores implementados. La divergencia **no estaba documentada en ningún sitio**, y eso permitió que
+> también divergieran los **valores** sin que nadie lo notara (v1.50.2 sembró 3 donde §O.7 dice 5, y 50 donde dice
+> 100×). **Los valores se alinean a PROJECT** (abajo). **Los nombres NO se renombran**, y aquí queda escrito por qué,
+> para que la equivalencia deje de ser folclore.
+
+| `PROJECT.md` §O.7 (prosa) | Campo del contrato (`GradedEstimateConfigDTO`) | `SettingKey` | Seed v1.50.2 | **Seed v1.50.3** |
+|---|---|---|---|---|
+| `minSalesSample` | `minSampleCount` | `graded_estimate_min_sample_count` | 3 | **5** (§O.7) |
+| `maxGradedMultiple` | `maxRawMultiple` | `graded_estimate_max_raw_multiple` | 50 | **100** (§O.7) |
+| *(ventana de frescura, override manual)* | `manualFreshnessDays` | `graded_estimate_manual_freshness_days` | `null` | **30** (criterio 109) |
+| `minUpsidePct` | `minUpsidePct` | `grading_min_upside_pct` | 30 | 30 *(sin cambio)* |
+| `gradingCostTiers` | `gradingCostTiers` | `grading_cost_tiers` | §O.2.1 | *(sin cambio)* |
+
+**Dictamen sobre los NOMBRES: se conservan los identificadores implementados; se documenta la equivalencia.** Tres
+razones, en orden de peso:
+1. **`PROJECT.md` nombra conceptos, no identificadores.** Nunca ha pretendido fijar nombres de campo de API ni de
+   `SettingKey` — eso es competencia del arquitecto (misma frontera que ya rige en todo el documento). Alinear los
+   **valores** es obligatorio por la regla de conflicto; alinear los **símbolos** no lo es.
+2. **Renombrar cuesta un breaking de admin + una migración de datos, a cambio de cero comportamiento.** Cambiaría el
+   DTO de `GET/PUT /admin/pricing/graded-estimates`, las `SettingKey` sembradas por M-42 (que dejaría de ser DATA/seed
+   puro: habría que **migrar filas ya escritas**), el editor de M2 y los tests. En una rama que ya carga un breaking
+   deliberado (`intent`), añadir un segundo breaking cosmético es mal negocio.
+3. **`maxRawMultiple` es, además, el nombre CORRECTO.** El múltiplo se aplica sobre el precio **raw**
+   (`psa10 <= salePriceCents × k`), no sobre el gradeado; `maxGradedMultiple` sugiere lo contrario y es justo la clase
+   de nombre que hace que alguien invierta la comparación al mantenerla. **Petición a product-owner** (vía el
+   orquestador, no la ejecuto yo): adoptar el alias en §O.7 —o al menos citarlo— para que el vocabulario converja en
+   la dirección buena.
+
+##### (k.1) Por qué el punto 2 se gatea al ESCRIBIR y no al leer
+
+`PriceReference` **no cambia** (verificado byte a byte: la unique y `cardProductId` nullable siguen igual), así que no
+hay dónde persistir el `count` sin DDL. Gatearlo en la **escritura** mantiene **M-42 como DATA/seed puro**.
+**Trade-off que se asume y se documenta:** cambiar `graded_estimate_min_sample_count` afecta **solo a escrituras
+futuras**; para re-aplicarlo retroactivamente hay que **re-correr el ingest** (que reescribe la fila del día) o
+limpiar. Es aceptable porque el umbral es una decisión que se toma **una vez**, al calibrar, no una palanca de
+operación diaria. El `count` observado se registra en **log + `AuditLog`** del job — **nunca** en la tabla de dinero.
+
+> ⚠ **v1.50.3 — el seed sube de 3 a 5, alineado con `PROJECT.md`.** El **criterio 111(a)** y §O.7 (prueba 2) dicen
+> `minSalesSample` **default 5**; v1.50.2 sembró **3** y la divergencia **no estaba documentada en ninguna parte**.
+> Por la regla de conflicto, PROJECT manda — y aquí además manda en la dirección correcta: la desviación era
+> **permisiva** (admitía cifras con **menos** respaldo) sobre la superficie que hace **afirmaciones comerciales**. El
+> argumento de §O.7 es el que gobierna y no ha sido rebatido: *«con muy pocas ventas la mediana deja de significar
+> algo: una sola operación atípica la desplaza entera, y esa cifra acabaría en portada»* — y una mediana de **tres**
+> ventas la mueve **una** venta atípica. Como el gate es de **escritura**, subir el seed **no re-filtra** lo ya
+> escrito: si hubiera filas ingestadas con `count ∈ {3,4}`, hay que **re-correr el ingest o limpiarlas**. Hoy el
+> ingest está `off` (seed), así que en la práctica no hay nada que re-aplicar; **si eso cambia antes del deploy, es
+> tarea de backend dejarlo consistente.**
+
+##### (k.2) Las TRES cotas de magnitud — complementarias, NO redundantes
+
+> ⚠ **Leer esto antes de relajar cualquiera de las tres.** Cada una ataja un error distinto. Quitar una no «simplifica»:
+> abre exactamente su agujero.
+
+| Cota | Regla | Qué error ataja |
+|---|---|---|
+| **inferior** | `psa10 > salePriceCents` (estricto) | **EL ERROR DE UNIDADES (USD escrito donde van MXN).** Un PSA 10 de **USD 60** guardado como **MX$60** queda ~19× **BAJO**, no alto — así que el múltiplo máximo **no lo ve**. Contra un raw de MX$400, `60 <= 400` lo descarta. Ataja también el sinsentido de promover «gradéala para que valga menos» |
+| **superior** | `psa10 <= salePriceCents × graded_estimate_max_raw_multiple` (**seed 100 desde v1.50.3**; era 50) | **el cero de más / el typo al alza.** Un PSA 10 de MX$19,000 tecleado como MX$190,000 sobre un raw de MX$400 da múltiplo 475 ⇒ fuera |
+| **de orden** | si hay ambos grados, `psa10 >= psa9` | **el grado intercambiado.** Un PSA 10 por debajo de su PSA 9 es incoherente por construcción y delata que las dos filas se capturaron cruzadas |
+
+**La dirección del error de unidades es el punto que más fácil se malinterpreta**, y por eso queda escrito: intuitivamente
+uno espera que un error de moneda infle el número, pero **USD→MXN mal aplicado lo DEPRIME** (el numeral en dólares es
+~19× menor que su equivalente en pesos). Por eso la cota **inferior** es la que lo caza, y **no es redundante** con la
+superior ni con el gate de ROI. *(El gate de ROI sobre PSA 9 impone de hecho una cota inferior más fuerte cuando hay
+PSA 9 fresco — pero se evalúa **después** (paso 8) y **solo** con PSA 9 presente; la cota de magnitud actúa antes,
+sobre PSA 10, y protege el `findTier`.)*
+
+**Prevención en origen:** INV-FX (ver (a)) impide que el ingest produzca este error. La cota inferior es la **segunda
+línea de defensa**, para la captura manual y para cualquier ruta futura.
+
+> ⚠ **v1.50.3 — la cota superior se alinea a `PROJECT.md`: seed 50 → 100.** El **criterio 111(c)** y §O.7 dicen
+> `maxGradedMultiple` **default 100×**; v1.50.2 sembró **50** sin documentarlo. Aquí la desviación era **conservadora**
+> (filtraba **de más**), así que no era peligrosa — pero **sigue siendo una divergencia silenciosa contra PROJECT**, y
+> el modo de fallo que produce es igual de indeseable: las cartas con upside real entre **50× y 100×** —exactamente
+> las que esta feature existe para encontrar— quedaban **fuera de la vitrina sin que nadie supiera por qué**. §O.7 ya
+> razonó el número: *«un múltiplo de upside enorme existe de verdad en cartas reales, así que la cota va holgada; lo
+> que atrapa es el salto de orden de magnitud»*. **Se adopta 100.**
+> **Recomendación operativa del arquitecto (NO bloquea, es un dial):** si al calibrar con datos reales el dueño
+> prefiere apretar a 50, es **editar el dial**, sin deploy y sin tocar contrato. Se registra en §10 como punto de
+> ratificación opcional del humano, porque el número lo marcó el PO como **SUPUESTO revisable** y quien lo revisa es
+> él, no el arquitecto.
+
+##### (k.3) Por qué la ficha NO aplica la cota de magnitud
+
+Porque **informar ≠ promover** (partición (0)). Si el dueño fijó a mano un estimado raro, la ficha debe **mostrárselo**
+—es su dato, con su disclaimer, y ocultarlo le impediría darse cuenta del error—, mientras que la rejilla **no debe
+usarlo para promocionar**. Suprimirlo también en la ficha convertiría un dato visible-y-corregible en una **desaparición
+silenciosa**, que es la clase de fallo que este documento persigue en todas partes. El operador lo ve además en el
+`preview` con su `reason` exacto (`NOT_ABOVE_RAW` / `ABOVE_MAX_MULTIPLE` / `GRADE_ORDER_INVERTED`).
+
+#### (l) INV-D (v1.50.2, NORMATIVO, DINERO) — colisión entre el estimado y el slab REAL publicado
+
+> **El problema, en una frase:** la fila del **estimado** y la **referencia de mercado de una pieza PSA 10 real
+> publicada** son **la misma fila** (`cardId` + `productType='graded'` + `gradeKey` + `finish='normal'`). Si el admin
+> fija un «estimado» en una carta que además tiene un slab publicado de ese grado, ese número **entra a la cadena de
+> precio del slab y cambia su precio de venta real**. Es **preexistente**; la fusión lo **amplifica** porque el gancho
+> convierte esa captura en una tarea rutinaria de curaduría.
+
+**INV-D.** Para un `(cardId, grade)` dado, la fila `(cardId,'graded','graded:PSA:N','normal',cardProductId=null)` es
+**O BIEN** un **estimado** (no hay slab publicado de ese grado) **O BIEN** la **referencia de mercado real** de los
+slabs publicados. **Nunca ambas cosas.**
+
+##### (l.1) Guarda de ESCRITURA — decisión del humano: se BLOQUEA la captura
+
+`POST /api/v1/admin/pricing/override` gana un discriminante **OBLIGATORIO cuando `productType:"graded"`**:
+`intent: "market" | "graded_estimate"`.
+
+| Caso | Respuesta |
+|---|---|
+| `productType:"graded"` **sin** `intent` | **`422 GRADED_INTENT_REQUIRED`** |
+| `intent:"graded_estimate"` **y existe ≥1 slab publicado** de ese `(cardId, gradingCompany, gradeValue)` | **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`** |
+| `intent:"market"` | comportamiento **vigente sin cambios** (§M1 v1.28) |
+
+**Por qué OBLIGATORIO y no opcional-con-default.** Un `intent` opcional que caiga a `"market"` es **fail-open**: el
+operador que olvida el campo obtiene, en silencio, la ruta que **mueve dinero**. Se acepta el coste de un *breaking*
+pequeño en una ruta `super_admin` a cambio de que **la ambigüedad sea imposible de expresar**. Es la misma doctrina que
+«sin escalón no hay destacado» y que «AUSENTE ≠ INVÁLIDA»: cuando la intención se perdió, no se adivina.
+
+**El ingest de fase 2 aplica la MISMA guarda:** salta esas cartas y deja `AuditLog` ((h.4)).
+
+##### (l.2) Guarda de LECTURA — complemento necesario, coste cero de schema
+
+Las puras de (c) reciben `publishedSlabGrades` y **omiten ese grado**: si hay slab publicado, el número **es un precio
+real**, no un estimado, y la pieza ya se lista con su propio precio. Esto **también neutraliza las filas escritas antes
+de esta regla**, que la guarda de escritura por sí sola no podría alcanzar. `reason`: `SLAB_PUBLISHED`. Es la query
+extra que lleva el coste a **+3** con el dial `on` (ver (c)).
+
+##### (l.3) ⚠ RIESGO RESIDUAL ABIERTO — la dirección inversa (escalado, NO cerrado aquí) — **MEDIDO por QA en v1.50.3**
+
+**Publicar un slab sobre una carta que YA tiene fila de estimado.** Con (l.1)+(l.2) el estimado deja de **mostrarse**,
+pero **sigue existiendo** y el resolver de mercado **la encuentra** ⇒ puede alimentar el precio del slab recién
+publicado. **No lo cierro a medias y no lo cierro por mi cuenta**, porque la guarda completa exige distinguir
+«fila-de-origen-estimado» de «fila-de-mercado-real», y eso **no es expresable con el schema actual**.
+
+> ⚠️ **v1.50.3 — EL RIESGO DEJÓ DE SER TEÓRICO. QA lo MIDIÓ.** Alteró la curva y el **precio publicado** de una carta
+> gradeada pasó de **`575000`** a **`1000000`** — exactamente **`500000 × 2.0`**, donde `500000` es su fila
+> `graded:PSA:10`. **La fila del estimado alimenta de verdad el precio de venta del slab**, con la aritmética a la
+> vista. Lo que v1.50.2 declaró como «riesgo residual abierto» está **demostrado en ejecución**, no inferido del
+> schema. Esto **no cambia el dictamen** —sigue sin ser cerrable sin DDL, y sigue sin ser mío el cerrarlo— pero **sí
+> cambia su peso**: pasa de «cabo suelto documentado» a **hallazgo con evidencia sobre una ruta de dinero**, y con ese
+> dato delante es como el humano debe decidir **M-43**.
+>
+> **Nota importante para no confundir mitigaciones:** el cambio de frescura de (m) —que el override manual ahora
+> caduque a los 30 días— **NO mitiga esto en absoluto**. La frescura es un **predicado de EXHIBICIÓN**: decide qué se
+> pinta, y **jamás** retira la fila del resolver de dinero. Una fila de estimado rancia deja de verse en la ficha y
+> **sigue** alimentando el precio del slab exactamente igual. Quien lea (m) y crea que ya cubre (l.3) se equivoca.
+
+**Recomendación del arquitecto (para decisión del humano, siguiente release):** añadir el valor **`graded_estimate` al
+enum `PriceSource`**, con `sourceRank` **por debajo de toda fuente real**, de modo que **jamás** gane una lectura de
+dinero. Es **DDL aditivo de un valor de enum** (sin tocar la unique, sin backfill) ⇒ sería **M-43**. Con eso, (l.2) se
+vuelve exacto y la dirección inversa queda cerrada de raíz.
+
+> **v1.50.3 — se recomienda que M-43 lleve DOS cosas, no una.** La segunda es la columna nullable `evidenceDate`
+> (`@db.Date`) de **(m.2)**, que cierra al pie de la letra la otra mitad del criterio 109. Ambas son **DDL aditivo
+> sobre `PriceReference`**, ninguna toca la unique ni exige backfill, y pagar **dos** ventanas de migración por dos
+> columnas aditivas de la misma tabla no tiene defensa. **Es una recomendación de empaquetado, no un cambio de
+> dictamen:** si el humano aprueba solo una, se hace solo esa.
+
+**Mientras tanto — mitigación operativa vigente:** publicar un slab graded **no adopta automáticamente** un precio;
+sigue el flujo manual de §M1 v1.28. El riesgo se materializa solo si el operador publica y **no** revisa el precio.
+**Refuerzo v1.50.3, sin código:** la lista de revisión de **(n)** acepta `?reason=SLAB_PUBLISHED` como filtro opt-in,
+de modo que el operador puede **enumerar** las cartas donde estimado y slab coexisten — que son exactamente las
+expuestas a esta dirección del riesgo. No lo cierra (la fila sigue viva en la BD y el resolver la sigue viendo), pero
+convierte «hay que acordarse de revisar» en «hay una lista que se puede mirar». Se registra en §9 «Desviaciones y
+riesgos abiertos».
+
+> ⛔ **(l.3) QUEDA CERRADA POR (l.4) — v1.50.3-f.** Todo lo de arriba sigue siendo el **diagnóstico** correcto y se
+> conserva por trazabilidad, pero **su recomendación de cierre está DEROGADA** (ver (l.4.1)) y el riesgo deja de estar
+> «escalado sin diseño»: **(l.4) es el diseño**. Lo que cambió: el pentester lo reprodujo **en vivo con precio en
+> pesos** (GE-1, `PENTEST_NOTES.md`) — un slab PSA 10 de **MX$9,200** publicado a **MX$460**, y **rancio a −400 días
+> seguía a MX$460**. La frescura no rescata, la ficha no acota, y la fase 2 lo escribiría **sin humano en el ciclo**.
+
+##### (l.4) DICTAMEN v1.50.3-f — **M-43: la NATURALEZA de la fila** (cierre de INV-D inverso, NORMATIVO, DINERO)
+
+**El marco, corregido.** La pregunta no es «¿separo las dos cosas o guardo la transición?», porque *guardar la
+transición* ni siquiera es una alternativa al mismo problema: una guarda vigila **un** camino hacia la fila, y la fila
+tiene —y va a tener— **varios** (override manual, ingest de fase 2, alta de inventario, corrección de datos, la ruta
+que alguien escriba dentro de seis meses). La pregunta correcta es **quién decide si una fila es dinero**: hoy lo
+decide **el lector**, por inferencia, a partir del estado del mundo (¿hay slab publicado?) — y por eso el mismo dato
+significa dos cosas distintas en dos instantes distintos **sin que nada cambie en la fila**. El cierre consiste en
+mover esa decisión al **escritor**, que es el único que conoce la intención, y **congelarla en el dato**.
+
+**Dictamen: la fila DECLARA su naturaleza. `M-43` = una columna, no una tabla.**
+
+###### (l.4.0) Esto es CUMPLIMIENTO de `PROJECT.md`, no alcance nuevo (y por eso no puede quedar como deuda aceptada)
+
+El **criterio 55** (§O.8) cierra con cinco palabras que lo deciden todo: **«La pieza real manda siempre.»** El texto
+del criterio describe la dirección directa (no capturar un estimado sobre un grado con pieza publicada) porque es la
+que el PO tenía delante, pero **el principio que enuncia no tiene dirección**: si la pieza real manda siempre,
+entonces una cifra capturada como *estimado* **no puede gobernar el precio de una pieza real**, se haya capturado
+antes o después. Por la **regla de conflicto** (PROJECT manda sobre el contrato y sobre el código), cerrar la
+dirección inversa **no es una feature nueva que el humano deba autorizar: es la aplicación literal de un criterio de
+aceptación ya aprobado**. Consecuencia de gobierno, explícita: **el DoD no admite marcarlo como «deuda técnica
+aceptada»** — un criterio de aceptación incumplido no es deuda, es alcance faltante.
+
+###### (l.4.1) ⛔ DEROGACIÓN — por qué `sourceRank` NO habría cerrado esto (error MÍO, corregido con el PoC delante)
+
+(l.3) y §10 (GU-8) recomendaban: *«valor `graded_estimate` en el enum `PriceSource`, con `sourceRank` por debajo de
+toda fuente real, de modo que jamás gane una lectura de dinero»*. **Es falso, y el PoC lo prueba.** `sourceRank` vive
+dentro de `isBetterRef`, que es un **desempate entre candidatas**:
+
+```
+pickBestRef([estimado])  ->  estimado        // única candidata: gana con CUALQUIER rango
+```
+
+En el caso medido, la clave `(cardId,'graded','graded:PSA:10','normal',cardProductId=null)` tenía **una sola fila** —la
+del estimado— porque **no existe ningún escritor automático de referencia de mercado para `graded`** ((l.4.6),
+candado 4). Un rango bajo solo cambia el resultado cuando hay contra quién perder; aquí no lo hay. **Ordenar no es
+excluir.** Se deroga el mecanismo y se conserva la lección, que vale más que el caso: *un control que solo actúa en el
+desempate no protege el caso de candidata única, que es justamente el caso degradado.*
+
+Segunda razón, de diseño: `source` es **procedencia** (quién produjo el número: manual, `tcgcsv_singles`, PPT…).
+La pregunta que hay que contestar es de **naturaleza** (qué afirma el número: precio de mercado de una pieza real vs.
+estimado hipotético). Son **ejes ortogonales** —un estimado puede ser manual **o** automático, y la fase 2 necesita
+seguir sabiendo **qué proveedor** lo escribió (§4.38m.2)— y colapsarlos en una columna habría destruido información
+que otras reglas ya usan (`sourceRank`, `MANUAL_REF_PREDICATE`, el `isManual` de los DTO de diagnóstico).
+
+###### (l.4.2) El schema (DDL **aditivo**, sin tocar la `@@unique`, sin backfill obligatorio)
+
+```prisma
+enum PriceRefKind {
+  market            // referencia de MERCADO: puede resolver precio de venta/compra. Default.
+  graded_estimate   // «valor estimado si se gradea» (§4.38): JAMÁS resuelve dinero.
+}
+
+model PriceReference {
+  // …sin cambios…
+  refKind      PriceRefKind @default(market)   // M-43 (§4.38l.4) — NATURALEZA, ortogonal a `source` (procedencia)
+  evidenceDate DateTime?    @db.Date           // M-43 (§4.38m.2) — fecha de la EVIDENCIA (última venta); null en la vía manual
+  @@index([refKind])                           // opcional; el predicado entra en lecturas ya indexadas por cardId
+}
+```
+
+- **`@default(market)`** hace la migración segura por construcción: toda fila existente conserva exactamente el
+  significado que tenía. **No hay riesgo de despublicar nada por el mero hecho de migrar.**
+- **La `@@unique` NO se toca** (`[cardId, productType, gradeKey, finish, capturedDate, cardProductId]`), y hay que
+  entender la consecuencia: **`refKind` no entra a la clave**, así que para una carta+grado+día sigue habiendo **una
+  sola fila**, sea de la naturaleza que sea. Eso es **deliberado y correcto**: las dos naturalezas son
+  **mutuamente excluyentes por INV-D**, no dos datos que deban coexistir. Lo que la transición hace es **cambiar la
+  naturaleza de la fila del día**, no crear una segunda. De ahí la regla dura de (l.4.3): **todo escritor fija
+  `refKind` explícitamente también en el `update`**.
+- **`evidenceDate` viaja en la MISMA migración** (recomendación de (m.2), ratificada): dos columnas aditivas de la
+  misma tabla, una sola ventana. Si el humano aprueba solo una, **la que entra es `refKind`** (`evidenceDate` no
+  bloquea el encendido de la fase 1; `refKind` sí).
+
+###### (l.4.3) Reglas de ESCRITURA (NORMATIVO)
+
+| Escritor | `refKind` que DEBE fijar |
+|---|---|
+| `POST /admin/pricing/override` con `intent:"market"` (o `productType` ≠ `graded`) | **`market`** |
+| `POST /admin/pricing/override` con `intent:"graded_estimate"` | **`graded_estimate`** |
+| `persistGradedEstimateReference` (ingest de fase 2, §4.38h) | **`graded_estimate`** |
+| `persistMarketReference`, sellado (§4.19d), catálogo/FX | **`market`** (default; no requiere cambio) |
+
+1. **`refKind` se fija en el `create` Y en el `update`.** El `update` in-place de la fila del día (que hoy escribe
+   `{source, priceMxnCents, isManualOverride}`) **debe** incluir `refKind`. Si no lo incluye, un `intent:"market"`
+   que caiga sobre la fila-estimado del mismo día **la deja clasificada como estimado** y el slab se queda **sin
+   precio** — un fallo silencioso en dirección segura, pero fallo. Es el trampolín obvio de esta migración y por eso
+   va escrito aquí.
+2. **NINGÚN escritor degrada una fila `market` a `graded_estimate`. ⚠️ AMPLIADO en v1.50.3-g (`M-44`).** La
+   redacción original de esta regla decía «el **ingest** nunca degrada» y remataba con *«la naturaleza solo la sube un
+   humano; la automática nunca la baja»*. **Esa frase dejaba fuera al escritor humano y el blue team entró por ahí**
+   (SEC-M43-1). La regla correcta, y la que rige desde v1.50.3-g, **no tiene sujeto**:
+   > **La naturaleza de una fila solo se SUBE (`graded_estimate → market`), y solo por acto humano declarado
+   > (`intent:"market"`). BAJARLA no es una operación que ofrezca este sistema — ni automática ni manual.**
+   - **Ingest (fase 2):** ante una fila `market` del día ⇒ **skip + traza** ((h.4)), igual que ante
+     `isManualOverride=true`. *(Sin cambio; ya estaba implementado y probado.)*
+   - **Humano (`POST /admin/pricing/override` con `intent:"graded_estimate"`):** ante una fila `market` del día ⇒
+     **`409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF`**, no se toca la fila, se audita el bloqueo. **`M-44`, §4.38(l.4.10).**
+3. **La guarda directa (l.1) NO se retira.** Sigue siendo `409 GRADED_ESTIMATE_SLAB_PUBLISHED`. Con `refKind` el
+   `409` dejaría de ser estrictamente necesario para el dinero, pero sigue siendo **necesario para el operador**: si
+   hay slab publicado, «capturar un estimado» es una intención equivocada y el sistema debe decirlo, no absorberla en
+   silencio. **Defensa en profundidad; ninguna de las dos se apoya en la otra.**
+
+###### (l.4.4) Reglas de LECTURA (NORMATIVO) — asimétricas **a propósito**
+
+**A. Ruta de DINERO — exclusión estricta, fail-closed.**
+
+```
+// NORMATIVO. Predicado compartido, análogo a BASE_CARD_REF_WHERE.
+MONEY_REF_WHERE := { refKind: 'market' }
+```
+
+Se aplica —vía `AND`, para no colisionar con el `OR` de `BASE_CARD_REF_WHERE`— a **toda** lectura de
+`PriceReference` cuyo resultado pueda terminar en un monto que alguien cobre, ofrezca o valúe. Seams conocidos a la
+fecha de esta rev: `getReference` (**las dos** queries: bloque reciente **y** `MANUAL_REF_PREDICATE`),
+`getReferenceByCardProduct`, `getReferencesBatch` (todas sus queries), la valuación de set (`set-value.service`), la
+valuación de bóveda, el sellado (`sealed-catalog.service`) y cualquier lectura del reporte de dinero de admin.
+**La regla que gobierna las rutas futuras, y que es lo que de verdad cierra la causa:** *el default de toda lectura de
+`PriceReference` es **excluir** las filas que no son `market`; incluirlas es **opt-in explícito** y solo lo hacen las
+tres superficies del gancho.* Un lector nuevo que se olvide del predicado **hereda el comportamiento seguro**, que es
+exactamente lo contrario de lo que pasa hoy.
+
+- **`isBetterRef` / `sourceRank` / §4.27f-2 NO se tocan.** El estimado no «pierde el desempate»: **no es candidata**.
+  La garantía money-safe del comparador (ninguna escritura automática pisa un precio humano) queda intacta, igual que
+  en (m) — misma técnica: **filtrar antes de comparar, nunca dentro del comparador**.
+- **Efecto sobre el slab expuesto hoy:** su clave se queda **sin candidata** ⇒ `getReference` devuelve `pending` ⇒
+  `decideSalePrice` devuelve `pendingReason='no_market'`, `priceCents=null`, `basis='pending'` ⇒ **la pieza deja de
+  ser vendible en la siguiente lectura**, sin necesidad de barrido ni de migración de datos. **Es la dirección
+  correcta del fallo:** una pieza sin precio no le cuesta dinero a nadie; una pieza al 5% sí. Pero **no es gratis** y
+  por eso lleva el procedimiento de (l.4.7): sin él, un slab se apaga **en silencio**.
+
+**B. Ruta del GANCHO (ficha, rejilla, vitrina, `preview`, `review`) — inclusiva, y sigue omitiendo por slab.**
+
+`getGradedEstimatesBatch` lee **ambas** naturalezas de las claves `graded:PSA:N` y **conserva sin cambio** la
+omisión de (l.2) por slab publicado. **Por qué no la simétrica (leer solo `graded_estimate`):** las filas capturadas
+por la pestaña **Gradeadas de M1** (§M1 v1.28, `intent:"market"`) sobre cartas **sin slab** son, de hecho, la mejor
+estimación disponible de lo que valdría esa carta gradeada, y son las que hoy hacen que el gancho tenga algo que
+mostrar el día 1. Excluirlas **vaciaría la vitrina en silencio** — el modo de fallo que este documento persigue en
+todas partes ((d), (m), (n)). La asimetría tiene una regla detrás, y conviene enunciarla porque se va a volver a
+necesitar: **en la dirección del dinero se falla cerrando (mejor sin precio que con precio malo); en la dirección de
+la exhibición se falla informando (mejor mostrar el dato que tenerlo y callar), porque ahí la seguridad ya la dan
+otros dos controles —la omisión por slab publicado y el gate de confianza—.**
+
+- Los DTO de diagnóstico (`GradedEstimatePreviewDTO`) ganan **`refKind`** (admin-only): distingue «esta cifra es un
+  estimado que puedo recapturar o borrar» de «esta cifra es **dinero** de una pieza real, no la toques». Sin él, la
+  lista de revisión invita a borrar filas de mercado.
+
+###### (l.4.5) El `DELETE` de (q) pasa a ser de naturaleza, no de clave
+
+`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` borra **solo las filas `refKind='graded_estimate'`** de
+la clave. Razón: con `refKind`, borrar «todas las filas de la clave» podría llevarse una fila **`market`** —
+exactamente el radio de explosión que (q.1) decisión 1 se negó a abrir para `raw`/`sealed`. `deletedCount` cuenta las
+borradas; si no había ninguna de esa naturaleza ⇒ **`404`** (aunque existan filas `market`). La guarda
+`409 GRADED_ESTIMATE_SLAB_PUBLISHED` **corre antes y no cambia**.
+
+###### (l.4.6) Coexistencia con **pricing v2** (la curva) — verificación de los candados
+
+Verificado contra el código de la rama, **no hay colisión**. Los tres candados que el orquestador enumeró **se
+confirman**, y hay un **cuarto** que nadie había escrito y que es el que abarata todo el arreglo:
+
+| # | Candado | Estado |
+|---|---|---|
+| 1 | `reconcilePublishedPrices` solo re-precia inventario **raw** (`productType:'raw'` en el `where`) | **CONFIRMADO** |
+| 2 | `persistMarketReference` tiene `productType='raw'` / `gradeKey='raw:NM'` **hardcodeados** | **CONFIRMADO** |
+| 3 | El precio de venta se **resuelve en lectura** (`decideSalePrice`), no se persiste | **CONFIRMADO** |
+| 4 | **NO existe ningún escritor automático de referencia de mercado `graded`** — los providers PPT/PokeTrace son *stubs* que devuelven `null`, y `persistGradedEstimateReference` solo escribe **estimados**. La referencia de mercado de un slab es **siempre** una captura humana con `intent:"market"` | **NUEVO (v1.50.3-f)** |
+
+**Lo que el candado 4 implica, y es el argumento de coste del dictamen:** excluir los estimados de la ruta de dinero
+**no puede romper ningún precio automático de slabs, porque no hay ninguno**. El flujo legítimo —publicar un slab y
+fijarle su precio de mercado a mano (§M1 v1.28)— **no cambia en absoluto**. Lo único que M-43 quita es la
+**sustitución silenciosa** de esa captura por una cifra que se capturó para otra cosa. Dicho al revés: hoy el sistema
+«ahorra» al operador la captura de precio del slab usando el estimado, y ese ahorro es precisamente el defecto.
+
+**La curva no se toca:** `computeSalePriceFromCurve`, `resolvePendingReason`, los tramos, el piso y el markup son
+**ciegos a la naturaleza** — consumen `referenceMxnCents` ya resuelto. La exclusión vive **aguas arriba del seam**,
+en la resolución de la referencia, **jamás dentro del seam** (mismo principio que (m): el predicado se aplica sobre
+las candidatas, no dentro del comparador ni dentro de la matemática). **§4.36 no cambia ni una línea.**
+
+**Interacción a declarar (para QA y para el tablero de M2):** el día de la migración, cada slab que hoy se estuviera
+priciando desde un estimado pasa a `no_market`. Si esos slabs se re-afirman **antes** ((l.4.7)), el conteo no se
+mueve. Si no, el encabezado de la cola de §M2 puede mostrar un salto de `no_market` que **no** es degradación del
+feed: el diagnóstico documentado en §M2 («suben los dos a la vez ⇒ feed degradado») **no aplica** a ese salto.
+
+###### (l.4.7) Procedimiento de migración — **`M-45`, REESCRITO en v1.50.3-g** (obligatorio, y el orden importa)
+
+> ⛔ **DEROGADA la versión v1.50.3-f de este apartado**, y el defecto es **mío**: su **paso 1** decía «si el censo no
+> da cero **se para y se escala**» y su **paso 4** decía, para exactamente ese caso, «se clasifica: con slab ⇒
+> `market`, sin slab ⇒ `graded_estimate`». **Un runbook que se contradice en la rama que corre cuando el mundo no es
+> el esperado no es un runbook**, y es justo la rama en la que un `UPDATE` masivo sobre la tabla de dinero es más
+> peligroso. Backend implementó fielmente mi paso 4 y escribió el SQL (`BACKEND_NOTES.md` §0.11.6 paso 4); el
+> hallazgo **no es de backend**. **Manda el paso 1.** Por la regla de conflicto, ARCHITECTURE manda sobre
+> `BACKEND_NOTES.md`, pero aquí ni siquiera hace falta invocarla: la fuente del conflicto estaba dentro de este
+> documento y se elimina en la fuente. Escalado por `SECURITY_NOTES.md` §2(b) / SEC-M43-2; ratifico su lectura entera.
+
+**Principio que ordena los pasos, y que hay que tener delante para no volver a mezclarlos:**
+
+> **`publishedSlabsForGradeKey` (`platform` + `listed`) es el predicado de una GUARDA.** Contesta *«¿hay ahora mismo
+> una publicación viva que dependa de esta fila?»*. **Un backfill de naturaleza contesta otra pregunta:** *«¿qué
+> quiso afirmar el humano que escribió esta fila?»*. **Usar el predicado de la guarda para la decisión de naturaleza
+> es un error de categoría**, y su consecuencia en una BD real es marcar como estimado la referencia de mercado de
+> todo slab que no esté listado **en ese segundo**: `in_stock` a punto de publicarse, `reserved`, `picking`, envío en
+> curso — **y los `ownerType='customer'` en custodia**. Para éstos, el argumento de (q.2) («si no está `listed`, nada
+> vivo depende de esa fila») **es falso**: de esa fila dependen la valuación de la bóveda del cliente
+> (`vault.service`), `admin-vaults`, el snapshot de portafolio y la oferta de buylist. **(q.2) sigue siendo correcta
+> para lo que decide —a qué se le niega el `DELETE`— y no se toca; lo que no se puede es reutilizar su predicado
+> fuera de su pregunta.**
+
+**Paso 0 — CONGELAR la publicación de slabs `graded`** desde el censo (paso 1) hasta la verificación (paso 5).
+El censo es una **foto** y entre ella y el deploy sigue corriendo el código **viejo**, donde publicar un slab sobre
+una carta con estimado es una operación normal y silenciosa: toda pieza que entre a `listed` en esa ventana **no fue
+re-afirmada y se apaga al desplegar**. La ventana son minutos; congelarla es más barato que perseguirla. **La
+congelación es procedimental** (aviso al operador + ventana de mantenimiento), no un dial nuevo: no se construye
+mecanismo para un evento único. **Dueño: devops.**
+
+1. **CONTAR primero, en cada entorno que venda (solo lectura, sin escrituras).** Cuántas filas
+   `productType='graded'` con `gradeKey LIKE 'graded:PSA:%'` y `cardProductId IS NULL` existen, y de ésas cuántas
+   pertenecen a cartas **con slab publicado** de ese grado. **Expectativa declarada para producción: cero**, porque
+   la vía de captura del estimado (`intent`) **vive en esta rama y nunca se desplegó**.
+   **⛔ Si el conteo NO da cero: SE PARA Y SE ESCALA AL ARQUITECTO. No hay rama alternativa en este runbook.**
+   Un censo no-cero **falsifica la premisa** sobre la que está construido todo el procedimiento (existe una vía de
+   escritura que este diseño no conoce), y derivar un `UPDATE` masivo de una premisa recién falsificada es
+   exactamente al revés. Lo que produce la escalada está en (l.4.7-bis); **hasta que ese dictamen exista, el cut-over
+   no continúa.**
+2. **ENUMERAR la coexistencia** con `GET /admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED` (§4.38n): son
+   exactamente las piezas expuestas a GE-1 **hoy**.
+3. **RE-AFIRMAR el precio de cada una** con `POST /admin/pricing/override` + `intent:"market"` **antes** de migrar.
+   Es un acto de dinero deliberado y auditado, que es justo lo que el hallazgo pide sustituir por la herencia. Tras
+   este paso, la migración **no puede apagar ninguna pieza**.
+3-bis. **RE-CORRER el censo 1b como GATE, inmediatamente antes del deploy.** Es la verificación de que el paso 0
+   aguantó. **Si devuelve una sola fila que no esté en la lista re-afirmada del paso 3, el cut-over se detiene** y se
+   vuelve al paso 2. *(Con la congelación, esto debe dar vacío siempre; su valor es detectar que la congelación no se
+   respetó, no sustituirla.)*
+4. **MIGRAR:** DDL aditivo + `@default(market)`. **Backfill: NINGUNO.** No es «innecesario si el paso 1 dio cero»:
+   **es que el único mundo en el que este paso 4 se ejecuta es aquel en el que el paso 1 dio cero**, y en ese mundo no
+   hay nada que clasificar. **El `UPDATE` de clasificación queda DEROGADO como parte de este runbook** y no debe
+   figurar en él ni como ejemplo: un `UPDATE` masivo sobre la tabla de dinero, listo para copiar y pegar, dentro de un
+   procedimiento cuyo paso 1 dice «párate», **se acaba ejecutando**. Solo puede existir el que emita el dictamen de
+   (l.4.7-bis), escrito para el caso concreto y con visto bueno explícito del arquitecto. **Enrutado a backend:
+   retirar el bloque SQL del paso 4 de `BACKEND_NOTES.md` §0.11.6 y sustituirlo por el corte de (l.4.7-bis).**
+5. **VERIFICAR — con los DOS checks, el positivo y el negativo.** El positivo ya estaba y no basta: es una
+   comprobación **sobre la lista que ya conocíamos**, ciega a todo lo que no estaba en ella.
+   - **(+)** los slabs re-afirmados conservan su precio (`GET /catalog/cards/:id` ⇒ grupo `graded` con
+     `priceBasis:"market"`), y una carta con estimado y **sin** slab sigue mostrando su gancho.
+   - **(−) NUEVO, y es el que cierra el hueco:** **cero** `InventoryItem` `productType='graded'` en `status='listed'`
+     —**cualquier `ownerType`**— cuyo precio resuelva con `priceBasis != 'market'`. Un solo resultado ⇒ hay una pieza
+     apagada en silencio ⇒ se re-afirma antes de dar por bueno el cut-over. **Este mismo predicado es el detector
+     recurrente de (l.4.12): se escribe una vez y se usa dos veces.**
+6. **Rollback:** ver **(l.4.11)** — la versión de v1.50.3-f («revertir el código basta») está **derogada** por
+   incompleta.
+
+###### (l.4.7-bis) Qué produce la escalada del paso 1 (para que «se para y se escala» no sea un callejón)
+
+«Se para» tiene que llevar a algún sitio, o el operador improvisa. **Si el censo del paso 1 no da cero, el arquitecto
+emite un dictamen de clasificación sobre la lista concreta del paso 1b** —que es **finita y enumerable**, no un
+universo— y solo entonces se autoriza escritura alguna. Este apartado fija por adelantado **la regla con la que se
+emitirá ese dictamen**, para que la escalada sea rápida y no una página en blanco:
+
+**Regla de clasificación (NORMATIVA). El discriminante NO es «¿está listado?», es «¿existe la pieza física?».**
+
+| Situación de la fila `graded:<CO>:<N>` de una carta | Clasificación |
+|---|---|
+| Existe **algún** `InventoryItem` `productType='graded'` de esa compañía+grado para esa carta, en **cualquier `status`** y con **cualquier `ownerType`** (incluido `customer`) | **NO se clasifica automáticamente.** Entra a la lista de **re-afirmación humana** (paso 3 ampliado) y **se queda `market`** por el `@default` hasta que un humano afirme su precio con `intent:"market"`. |
+| **Cero** `InventoryItem` `graded` de esa compañía+grado para esa carta, en cualquier estado y de cualquier dueño | **`graded_estimate`.** Es seguro: no hay pieza física a la que ese número pueda ponerle precio, y la ruta del gancho es **inclusiva** ((l.4.4)B), así que la cifra **se sigue exhibiendo**. |
+
+**Por qué el ambiguo se resuelve con un humano y no con un default.** Los dos defaults fallan, y en direcciones
+opuestas: clasificar de más apaga piezas reales **en silencio** (el modo de fallo que este documento persigue en todas
+partes); clasificar de menos deja viva la munición de GE-1. **Cuando ningún default es seguro, la respuesta no es
+elegir el menos malo: es que decida quien sabe** — y aquí sí se puede, porque la lista es corta por construcción (si
+fuera larga, la premisa falsificada sería otra y el dictamen también). La re-afirmación no es carga inventada: es el
+**mismo acto del paso 3**, aplicado a un universo más ancho.
+
+**Consecuencia deliberada, alineada con (q.2), no contra ella.** Una fila que se clasifique `graded_estimate` por no
+tener pieza alguna deja de poder priciar un slab que se publique después: al publicarlo, el operador **fija un precio
+deliberado**. Eso es literalmente lo que (q.2) manda («una pieza real se precia a propósito, no hereda el número de un
+estimado olvidado»), y por eso esta regla y aquélla no se rozan: **(q.2) decide a qué se le niega el `DELETE`; ésta
+decide qué afirmó el escritor. Predicados distintos porque son preguntas distintas.**
+
+###### (l.4.8) Alternativas descartadas (y por qué), incluidas las tres que planteó el orquestador
+
+| Alternativa | Veredicto |
+|---|---|
+| **(a) Guarda simétrica en el alta/publicación de inventario graded** (409 si existe estimado) | **RECHAZADA como solución.** Es un **parche que deja la causa viva**: sostiene un invariante de dinero con **disciplina en cada call-site** en vez de con la forma del dato (contra la doctrina del gate v2.0: *«no se sostiene con disciplina; se sostiene con tipos»*); **bloquea el camino feliz** de la feature (estimo → gradeo → publico), entrenando al operador a borrar-y-publicar hasta que el 409 es ruido; **no alcanza** la coexistencia ya existente; **vive en `inventory`**, que es **otro work stream**; y con la fase 2 escribiendo estimados sobre todo el catálogo raw, **saltaría en cada publicación de slab**. |
+| **(b1) Tabla aparte para estimados** | **RECHAZADA por coste sin beneficio marginal.** Duplicaría FX/`liveMxnCents`, frescura, `pickBestRef`, historial y las tres superficies, y rompería la **indistinguibilidad de fases** (§4.38g) que hoy sale gratis de compartir fila. La exclusión por defecto de (l.4.4) da la misma garantía por una columna. |
+| **(b2) `productType` propio (`graded_estimate` como ProductType)** | **RECHAZADA.** `ProductType` es el eje de **qué se vende** y lo consumen inventario, órdenes, buylist, la cola de pendientes y `gradeKeyFor`. Meter ahí un valor **no vendible** obliga a tocar todos esos `switch` y cambia el significado de la `@@unique`. Contamina cinco módulos para resolver un problema de una tabla. |
+| **(b3) Columna discriminante de naturaleza** | **ADOPTADA** = `refKind` (l.4.2). |
+| **(c) Aplicar la cota de magnitud también en la captura** | **RECHAZADA, y la contradicción no es aceptable.** Choca de frente con el **criterio 54** de `PROJECT.md` (la ficha *informa*, no promueve) y con (k.3), y **PROJECT manda**. Además **no cierra el hallazgo**: la cota es **relativa al precio raw** (una carta sin raw publicado no tiene cota ⇒ fail-open) y **no ve** la variante *rancia* que el pentester midió — un estimado correcto de hace 400 días pasa cualquier cota de magnitud y sigue priciando el slab al precio equivocado. Cerraría **una instancia** (el error de unidades) y dejaría la causa y la otra variante vivas. |
+
+###### (l.4.9) Lo que M-43 **no** cierra (residual declarado, para que nadie lo dé por cerrado)
+
+- **Un `intent:"market"` mal tecleado sigue moviendo el precio de un slab.** Es el riesgo inherente de cualquier
+  override de dinero, existía antes del gancho y su remedio es la auditoría + la revisión, no esta columna. Lo que
+  M-43 garantiza es que **una cifra que nadie afirmó como precio de venta jamás se convierta en uno**.
+- **El barrido de reconciliación sigue siendo `raw`-only**, así que un slab que se quede sin referencia **no entra a
+  `PendingPriceEntry`**: deja de venderse pero no aparece en la cola de M2. Con el procedimiento de (l.4.7) no puede
+  pasar en la migración, pero puede pasar después (p. ej. si se borra una referencia de mercado). ~~**Deuda técnica
+  NO bloqueante, dueño backend**~~ ⚠️ **RECLASIFICADO en v1.50.3-g: sigue sin bloquear la fusión, pero pasa a ser
+  PRECONDICIÓN DEL CUT-OVER DE PRODUCCIÓN.** Ver **(l.4.12)**.
+
+###### (l.4.10) `M-44` — DICTAMEN SEC-M43-1: el escritor humano tampoco degrada (NORMATIVO, DINERO, **cambio de contrato**)
+
+**El hallazgo, ratificado sin rebaja.** La guarda `409 GRADED_ESTIMATE_SLAB_PUBLISHED` mira `platform` + `listed`.
+Con el slab fuera de esa foto —`in_stock` pre-publicación, `reserved`, `picking`, envío en curso, **o
+`ownerType='customer'` en custodia**— un `intent:"graded_estimate"` cae sobre la fila del día, **la reclasifica a
+`graded_estimate` y le pisa el `priceMxnCents`**, con `200` y sin `409`. Reproducido en vivo por el blue team:
+`graded:PSA:10 = 500000 · market → 1234 · graded_estimate`; al republicar el slab, `GET /catalog/cards/:id` devuelve
+`listings: []` y `GET /admin/pricing/pending` **no lo contiene**. **Una pieza real, invisible, y ninguna cola la ve.**
+
+**El caso de custodia decide la severidad del argumento, no la del hallazgo.** Sostuve en (q.2) que si el slab no está
+`listed` «nada vivo depende de esa fila». **Para `ownerType='customer'` eso es falso y lo declaro:** de esa fila
+cuelgan la valuación de la bóveda del cliente, `admin-vaults`, el snapshot de portafolio y la oferta de buylist —
+bienes de un tercero, con lectura de confianza y legal en `PROJECT.md`. La frase de (q.2) queda **acotada a su
+contexto** (qué depende de la fila **para venderse**) y **no se puede citar fuera de él**. La conclusión de (q.2) —no
+ensanchar la guarda del `DELETE` a `in_stock`— **no cambia**: sigue siendo correcta y por la misma razón (ensancharla
+preservaría la fila de estimado justo para que priciara el slab al publicarlo = INV-D inverso institucionalizado).
+
+**Dictamen: NO se ensancha ninguna guarda. Se aplica al humano la regla que ya escribí para la máquina.**
+
+> **`M-44` (NORMATIVO).** `POST /admin/pricing/override` con `intent:"graded_estimate"`, cuando **la fila del día**
+> de esa clave `(cardId, productType='graded', gradeKey, finish, capturedDate=hoy, cardProductId)` **existe y tiene
+> `refKind='market'`** ⇒ **`409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF`**. La fila **no se toca** (ni naturaleza ni
+> monto), y el bloqueo **se audita**, igual que sus hermanas.
+
+**Cinco precisiones que son parte del dictamen, no comentario:**
+
+1. **Por qué `409` y no `422`.** No es una petición malformada —es sintácticamente impecable— sino un **conflicto con
+   el estado actual del recurso**, que es exactamente la semántica de `409` y la de su hermana
+   `GRADED_ESTIMATE_SLAB_PUBLISHED`. Un `422` invitaría a leerlo como «arregla el cuerpo del request», y no hay nada
+   que arreglar en el cuerpo: lo que hay que cambiar es la **intención**.
+2. **Precedencia entre las dos guardas:** si ambas condiciones se cumplen (slab publicado **y** fila `market` del
+   día), **gana `409 GRADED_ESTIMATE_SLAB_PUBLISHED`**. Es la preexistente, su mensaje es más informativo para el
+   operador y su `details` ya enumera los `inventoryItemIds`. `M-44` cubre **exactamente** el complemento: el hueco
+   que la primera no ve.
+3. **⚠️ El alcance es LA FILA DEL DÍA, y esto es una decisión, no un descuido.** `refKind` no está en la `@@unique`
+   ((l.4.2)), así que **la colisión solo existe dentro del mismo `capturedDate`**: es el único caso en el que
+   «escribir un estimado» se convierte físicamente en «destruir una referencia de mercado». **Cross-day no hay nada
+   que cerrar y cerrarlo sería un error:** un `intent:"graded_estimate"` de hoy crea **otra** fila, y la fila `market`
+   de ayer **sigue siendo candidata de dinero perenne** por `MANUAL_REF_PREDICATE` (§4.27f-2, sin cota de fecha) ⇒ el
+   slab —de plataforma o de custodia— **conserva su precio**. Prohibir el estimado siempre que exista *alguna* fila
+   `market` histórica **mataría el caso legítimo** (una carta que tuvo slab, se vendió, y hoy el dueño quiere exhibir
+   su estimado) y vaciaría la vitrina en silencio, que es el modo de fallo que (l.4.4)B evita a propósito.
+4. **TOCTOU: la decisión de naturaleza y la escritura van en la MISMA transacción.** El `POST` hoy **no** repite su
+   guarda dentro de la transacción (el `DELETE` sí lo hace, y bien). Con `M-44` eso deja de ser inocuo: dos peticiones
+   concurrentes —una `intent:"market"`, otra `intent:"graded_estimate"`— pueden dejar la degradación consumada si el
+   pre-vuelo del estimado leyó antes de que la otra confirmara. **Normativo:** la comprobación de naturaleza es parte
+   de la escritura, no de su antesala; un pre-vuelo fuera de la transacción es **opcional y solo para el mensaje**.
+   *(La forma concreta —re-lectura dentro de `tx`, o `update` condicionado por `refKind` y ramificar por `rowcount`—
+   la elige backend; el invariante es que ninguna ventana entre la decisión y el `commit` pueda cambiar la fila.)*
+5. **El monto destruido tiene que ser recuperable: `pricing.override` audita `before`.** Hoy la bitácora registra
+   `after` y **no** `before`, así que el valor pisado **no se puede reconstruir desde el audit trail**. Es barato, ya
+   existe el precedente (el `DELETE` del gancho se audita con `before`, §4.38q) y cubre además el residual que `M-43`
+   **no** cierra ((l.4.9) punto 1: el `intent:"market"` mal tecleado). **Se norma aquí: toda escritura de
+   `POST /admin/pricing/override` audita `{ before: { priceMxnCents, refKind, source } | null, after: {…} }`.**
+   No es cambio de contrato de la API pública ni del `200` (`AuditLog` es superficie interna); es requisito de diseño.
+
+**Lo que `M-44` cambia del `200` — dicho explícitamente porque se me pidió numerarlo.** La **forma** de la respuesta
+`200` (`{ data: PriceHistoryEntryDTO }`) **no cambia**. Lo que cambia es **qué llamadas la reciben**: un subconjunto
+de peticiones que hoy responden `200` pasa a responder `409`. Es **BREAKING chico** sobre una ruta `super_admin` —
+misma clase y misma justificación que el `422 GRADED_INTENT_REQUIRED` de v1.50.2: *se paga un breaking pequeño a
+cambio de que la operación peligrosa sea imposible de expresar.* Contrato en `API_CONTRACT.md` rev **v1.50.3-g**.
+
+**Fricción aceptada y declarada** (mismo estilo que (q.2), para que nadie la «arregle» luego creyendo que endurece):
+un operador que capture `intent:"market"` por error y quiera corregirlo a estimado **el mismo día** recibe `409` y no
+tiene escotilla —el `DELETE` del gancho borra **solo** `graded_estimate` ((l.4.5)) y no puede llevarse una fila de
+mercado—. **Se acepta**: el coste máximo es que el gancho de esa carta espere a mañana; el beneficio es que un verbo
+informativo **no puede destruir un dato de dinero**. Asimetría deliberada: equivocarse hacia «no exhibo» es barato,
+equivocarse hacia «destruyo la referencia de una pieza en custodia» no lo es.
+
+**Severidad y disparador.** Coincido con la **Media** del blue team: exige `super_admin`, falla **cerrando** y es
+estrictamente mejor que antes de `M-43`. **No bloquea la fusión ni el encendido en staging con datos sintéticos.**
+**Sí es precondición de encender `gradedEstimatesEnabled` en cualquier entorno con inventario `graded` real** — de
+plataforma **o de custodia**, y esto último afila la condición **C2** del blue team: el disparador no es «que haya
+custodia», es «que haya piezas reales», porque el modo de fallo (pieza apagada en silencio, sin cola que la vea)
+aplica igual a las de plataforma. **Rol dueño: backend.**
+
+###### (l.4.11) Rollback (paso 6) — REESCRITO: revertir el código **no** es suficiente
+
+**Ratifico SEC-M43-2(c) entero.** «Revertir el código basta; la columna se queda» es cierto **para el DDL** y falso
+**para el riesgo**, y mi redacción anterior lo presentaba como una sola cosa. En el momento del rollback ya existen
+filas `refKind='graded_estimate'` escritas por la vía manual, y esas filas llevan `isManualOverride=true` /
+`source='manual'`: al quitar el predicado de exclusión vuelven a ser candidatas **perennes** por
+`MANUAL_REF_PREDICATE` (sin cota de fecha, §4.27f-3). **Rollback = GE-1 restaurado, con la munición ya cargada y sin
+caducidad.** Nada en el paso 6 lo decía.
+
+**Procedimiento correcto, en dos escenarios distintos — y elegir el escenario es la mitad del arreglo:**
+
+- **(A) URGENCIA (algo va mal y hay que apagarlo ya): la palanca es el DIAL, no el `git revert`.**
+  `gradedEstimatesEnabled = off` detiene la exhibición y —bajo (l.5)— la **creación** de estimados, es instantáneo,
+  reversible y **deja `M-43` en pie**, o sea que el predicado de exclusión sigue protegiendo el dinero. **Revertir el
+  código en caliente es la opción peor en casi todos los incidentes imaginables**, porque quita la protección justo
+  cuando el sistema ya tiene filas de estimado escritas. Se declara aquí para que en el incidente no se decida.
+- **(B) RETIRADA ORDENADA de `M-43` (decisión de producto, con tiempo): precondición de CERO.** Antes de revertir el
+  código hay que **dejar en cero** las filas `refKind='graded_estimate'` del entorno:
+  1. `gradedEstimatesEnabled = off` (que no entren más mientras se limpia).
+  2. Para cada fila: **sin pieza física** de esa compañía+grado (cualquier `status`, cualquier `ownerType`) ⇒
+     `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`, que por (l.4.5) borra exactamente esa naturaleza.
+     **Con pieza física** ⇒ `POST /admin/pricing/override` con `intent:"market"` al precio real (acto de dinero,
+     auditado). *(Es el mismo par de gestos del paso 3 y de (l.4.7-bis): un solo criterio para todo el runbook.)*
+  3. **Verificar `count(*) WHERE refKind='graded_estimate'` = 0.** Es **precondición dura del revert**, no una
+     recomendación.
+  4. Recién entonces, revertir el código. **La columna se queda** (aditiva e inerte sin lector) — eso de mi versión
+     anterior era y sigue siendo correcto. **No se quita la columna en caliente.**
+
+###### (l.4.12) `M43-D1` — dictamen: sigue siendo deuda, pero cambia de puerta
+
+**Se me pregunta si sigue siendo «no bloqueante». Respuesta: sí para la fusión, no para el cut-over.**
+
+`M-43` cambia deliberadamente el modo de fallo de **«vendo barato»** a **«no vendo»** — dirección correcta por el
+criterio 55 y no la discuto. Pero el nuevo modo es **silencioso**: `reconcilePublishedPrices` es `raw`-only, así que
+un slab sin referencia de mercado **no genera `PendingPriceEntry`**, no aparece en la cola de M2 y no dispara nada.
+El blue team lo midió: tras degradar la fila, la pieza desapareció de `GET /catalog/cards/:id` y **la cola no la
+contenía**. **Un control que solo falla en dirección segura sigue necesitando que alguien se entere.**
+
+**Dónde queda la puerta, y por qué ahí:**
+
+- **NO bloquea la fusión.** Nada de esto se activa por fusionar: el dial arranca `off` y el cut-over es un acto
+  aparte. Bloquear la fusión con esto sería inflar el alcance.
+- **NO bloquea el encendido en staging con datos sintéticos.** No hay piezas reales que apagar.
+- **SÍ es precondición del cut-over de producción**, y **cabalga sobre la puerta que ya está cerrada** (la condición
+  **C3** del blue team) en vez de abrir una nueva: después del cut-over, éste es el **único** detector del modo de
+  fallo que `M-43` introduce, y el paso 5(−) solo cubre **el instante** del cut-over, no el día siguiente.
+
+**Se satisface por cualquiera de estas dos vías — y la barata no es de backend:**
+
+| Vía | Dueño | Qué es |
+|---|---|---|
+| **(i) Extender `reconcilePublishedPrices` a `productType='graded'`** | backend | La solución de fondo: el slab sin referencia entra a `PendingPriceEntry` y sale en la cola de M2, junto a los `raw`. **Cuidado declarado:** revisar que no inunde la cola el día del encendido. |
+| **(ii) Detector recurrente sobre el predicado del paso 5(−)** | devops | *Cero* `InventoryItem graded` en `listed` (cualquier `ownerType`) con `priceBasis != 'market'`, corriendo periódicamente y **con alerta**. Es la **misma consulta que ya hay que escribir para el paso 5**, agendada. |
+
+**La (ii) es suficiente para abrir la puerta del cut-over**; la (i) sigue siendo lo correcto y se conserva en
+`TECH_DEBT.md` con su disparador propio. **Preferir (ii) para el cut-over no es conformarse:** el detector avisa, que
+es lo que falta hoy; el enrutamiento a la cola de M2 es una mejora de flujo de trabajo, no de detección, y no tiene
+por qué bloquear un deploy.
+
+###### (l.4.13) Los otros hallazgos del gate — dictamen breve (para no dejarlos sin dueño ni sin criterio)
+
+- **SEC-M43-3 (Baja) — «seguro por defecto» es convención, no mecanismo. ACEPTO LA CORRECCIÓN, es un error mío.**
+  (l.4.4)A afirma que «un lector nuevo que se olvide del predicado hereda el comportamiento seguro». **A nivel de
+  mecanismo es falso:** en Prisma, un `where` sin `refKind` **incluye** las dos naturalezas; el default real es el
+  inseguro. Lo que (l.4.4)A describe es la **norma**, y la norma sin candado se erosiona. **La frase queda corregida
+  aquí:** *el default de toda lectura de dinero **debe ser** excluir; hoy eso lo sostiene la revisión, no el tipo.*
+  **Remedio dictaminado, dueño backend:** prueba estructural al estilo del candado `no-raw-entity` que ya existe en
+  el repo — todo call-site de `priceReference.find*` **o** contiene `MONEY_REF_WHERE` **o** está en una lista blanca
+  explícita de superficies gancho/auditoría/diagnóstico. **No bloquea nada; disparador: el próximo cambio en
+  `pricing.service`.** Es lo que hace que `M-43` siga cerrado dentro de seis meses.
+- **SEC-M43-4 (Baja) — `OverrideDto`: NO es cambio de contrato, es una DESVIACIÓN del código respecto al contrato.**
+  El contrato ya norma `422 VALIDATION_ERROR` para entradas inválidas; que `productType:"banana"` devuelva **`500`**
+  es el código apartándose de él, no una laguna del contrato. Dictamen sobre los tres casos medidos, en
+  `API_CONTRACT.md` §pricing admin (precisión aditiva, sin breaking): `productType` fuera del conjunto ⇒ **`422`**;
+  `cardId` inexistente ⇒ **`404 NOT_FOUND`**; `gradeKey` que no corresponda a una clave generable por `gradeKeyFor`
+  (p. ej. `graded:PSA:11`) ⇒ **`422`**. **Dueño backend.** No bloquea; **conviene junto a C4**, porque un `500`
+  espurio en un endpoint de dinero es indistinguible de una caída real y contamina cualquier alerta que se monte.
+- **SEC-M43-5 (Baja) — `lastSync` sin `MONEY_REF_WHERE`: de acuerdo, y es el mismo modo de fallo que backend ya cerró
+  bien en `hasRecentIngest`.** No es dinero, pero **es la señal que un operador mira para decidir si confía en los
+  precios**, y una corrida de fase 2 la volvería mentirosa. **Dueño backend; disparador: antes de encender la fase 2
+  (C0).** Sin cambio de contrato (el DTO no cambia de forma; cambia el predicado que lo llena).
+- **GE-2 (Media) — ratifico el dictamen de §9 y ACEPTO la corrección de fondo del blue team.** Mi razonamiento sobre
+  el `401` se sostiene (no tiene «quién», y auditarlo le regala a un anónimo una primitiva de escritura sobre una
+  tabla money-adjacent). Lo que **acepto como corrección**: dije que el caso quedaba cubierto por «el plano de
+  observabilidad (devops)» y **ese plano no existe hoy** — o sea que lo que se acepta no es «lo cubre otra capa» sino
+  **un punto ciego real y sin mitigación**. Queda con el disparador duro de **C4** (antes de operar con dinero real).
+  **Sin cambio de contrato. Dueño devops** (+ backend opcional para el `403`, con dedupe/techo).
+
+##### (l.5) VÍA B — contingencia **solo** si el humano decide fusionar antes de que M-43 esté listo
+
+**No es la solución** (la solución es (l.4)); es el **mecanismo que hace exigible** el «no encender» del pentester, en
+lugar de dejarlo como nota de procedimiento. Consiste en **gatear la CREACIÓN de estimados por el interruptor
+maestro**: con `gradedEstimatesEnabled = off`, `POST /admin/pricing/override` con `intent:"graded_estimate"` responde
+**`409 GRADED_ESTIMATE_DISABLED`**, y el escritor de la fase 2 hace skip + traza.
+
+- **Qué compra:** con el dial `off` en producción **no se puede fabricar la precondición de GE-1** (una fila de
+  estimado), así que el hallazgo queda **inalcanzable** en el entorno que vende, sin DDL y en horas.
+- **Qué NO compra:** en cuanto alguien encienda el dial, GE-1 vuelve tal cual. Por eso **encender sigue prohibido
+  hasta M-43**, y ahora la prohibición tiene un mecanismo detrás.
+- **Compatibilidad:** `DELETE` (q) y `/review` (n) **siguen funcionando con el dial `off`** (§4.38n.3/q) — se gatea
+  **crear**, nunca **limpiar ni diagnosticar**. Se pierde la capacidad de **pre-cargar** estimados con la feature
+  apagada; es deliberado: pre-cargar afirmaciones comerciales que nadie está exhibiendo ni revisando es justamente lo
+  que produce filas huérfanas.
+- **Vida útil: transitoria.** Con M-43 desplegado, capturar un estimado es **demostrablemente inerte para el dinero**
+  y este gate se **retira** (no se queda como restricción permanente).
+- ⚠ **Si se ejerce la vía B, backend debe revisar los E2E que asuman que la captura funciona con el dial `off`.**
+
+#### (m) Frescura × tier manual absoluto (v1.50.2, **REVISADO v1.50.3**, NORMATIVO) — interacción con §4.27f-2/f-3
+
+**La interacción, en concreto.** Desde v1.46, `isBetterRef` trata el override manual como **tier superior absoluto y
+durable**: gana **sin mirar `capturedDate`**. En **fase automática** eso produce una secuencia rota:
+
+```
+1. la carta tiene un override manual de hace 200 días  +  una fila automática FRESCA de hoy
+2. getGradedEstimatesBatch → isBetterRef elige el MANUAL (tier absoluto, correcto)
+3. la ventana de frescura (30 d) descarta el manual por rancio
+4. resultado: la carta NO muestra estimado  — PESE A TENER DATO FRESCO DISPONIBLE
+```
+
+Es un **fallo silencioso**: el dato existe, el sistema lo tenía, y la vitrina se vacía sin que nadie se entere.
+
+> ⛔ **DICTAMEN REVISADO EN v1.50.3 — el de v1.50.2 queda DEROGADO y hay que leer por qué.** v1.50.2 dictaminó
+> «`freshnessDays` **NO** se aplica a filas manuales» y sembró `graded_estimate_manual_freshness_days = null` (no
+> decae). **Ese dictamen contradice `PROJECT.md` y por la regla de conflicto PROJECT manda.** El **criterio 109** dice
+> literalmente que la antigüedad se mide *«contra la **fecha de captura** para un override manual; el umbral es de **30
+> días**»*, y **§O.4** remata *«mejor callar que presumir un número viejo en una promesa comercial»*. Un estimado
+> manual de dos años en portada es **exactamente** lo que §O.4 promete que no pasa. QA lo demostró en vivo: una fila
+> manual de **40 días** seguía en la ficha **y** seguía promocionándose en la rejilla; la misma fila marcada como
+> automática salía `STALE`. El mecanismo funciona — era el **default** el que lo apagaba justo en la mitad del sistema
+> donde el número lo puso una persona y nadie lo vuelve a mirar.
+> **El error del dictamen anterior no fue el diagnóstico, fue el remedio.** El fallo «gana y luego se tira» es real;
+> lo que estaba mal es haberlo curado **eximiendo del decaimiento** en vez de **ordenar las dos operaciones**.
+
+**Dictamen v1.50.3 (NORMATIVO): la frescura SÍ aplica a filas manuales, y se aplica ANTES de elegir al ganador.**
+
+La clase de fallo «gana y luego se tira» no viene del decaimiento: viene de **filtrar después de resolver**. Se cierra
+invirtiendo el orden, **sin tocar `isBetterRef` y sin eximir a nadie**:
+
+```
+// NORMATIVO — vive en la ruta de LECTURA DEL GANCHO (getGradedEstimatesBatch), jamás en el resolver de dinero.
+seleccionarPorGrado(candidatas, cfg, today):
+  frescas := candidatas.filter(c => !stale(c, cfg, today))   // 1) PRIMERO se descarta lo rancio
+  si frescas está vacío -> ese grado NO se emite              //    (callar > presumir un número viejo, §O.4)
+  return pickBestRef(frescas)                                 // 2) DESPUÉS gana el mejor: el manual sigue ganando
+                                                              //    entre las frescas (isBetterRef SIN CAMBIOS)
+
+stale(e) := e.isManual
+              ? (cfg.manualFreshnessDays == null ? false : diffDays(today, e.capturedDate) > cfg.manualFreshnessDays)
+              : diffDays(today, e.capturedDate) > cfg.freshnessDays
+```
+
+**Qué gana cada parte con esto:**
+
+| | Antes (v1.50.2) | Ahora (v1.50.3) |
+|---|---|---|
+| Manual de 200 d + automática fresca | no se muestra **nada** (fallo silencioso) | se muestra **la automática fresca** |
+| Manual de 200 d, sin automática | se muestra el manual de 200 d *(contra criterio 109)* | **no se muestra nada** *(criterio 109)* |
+| Manual de 5 d + automática de 1 d | gana el manual | gana el manual *(sin cambio)* |
+| `isBetterRef` / §4.27f-2 | intacto | **intacto** |
+
+**Por qué esto NO reabre el riesgo money-safe que v1.50.2 temía.** `§4.27f-2` es una garantía sobre **escrituras**
+(ninguna escritura automática pisa un precio humano) y sobre el **comparador**. Aquí no se toca ninguno de los dos: el
+filtro de frescura es un **predicado de exhibición** que se aplica sobre las candidatas **antes** de comparar, y **solo
+en la ruta de lectura del gancho** (`getGradedEstimatesBatch`, que es aditiva y no altera
+`getReference`/`getReferencesBatch`, ver (c)). El override manual **no se borra, no se degrada y no pierde su rango**:
+simplemente deja de **exhibirse** cuando envejece, que es lo que PROJECT pide.
+
+**El bucle operativo que esto define (y que backend/QA deben entender):** un estimado manual **se refresca
+recapturándolo** (`POST /admin/pricing/override` escribe una fila nueva con el `capturedDate` de hoy). Es deliberado:
+convierte «el dueño puso un número una vez» en «el dueño **sostiene** ese número», que es la única lectura honesta de
+una afirmación comercial. La **lista de revisión** de (n), con `?reason=STALE`, es la superficie donde el dueño
+encuentra **lo que ya venció** para refrescarlo o retirarlo. *(⚠ v1.50.3-c: esta frase decía «qué le está **por**
+vencer» y **prometía de más** — (n) enumera lo **ya caducado**, no lo próximo a caducar. La vista de «vencimiento
+próximo» queda **declarada fuera de alcance** en (n.4), no implícita.)*
+
+**Seed y válvula.** `graded_estimate_manual_freshness_days` **seed 30** (= `freshnessDays`, alineado con el criterio
+109). Rango `null | [1, 3650]`. **`null` sigue siendo expresable pero deja de ser el default**, y ponerlo tiene una
+consecuencia declarada: **desactiva el criterio 109 para la vía manual**, así que es una **decisión del humano**, no de
+operación. Para que no pueda hacerse en silencio, el backend **DEBE emitir `warn` al izar la config** cuando
+`manualFreshnessDays == null` (misma doctrina que «la vitrina no puede vaciarse en silencio», (d)).
+
+**Alternativa descartada, y por qué (se conserva del dictamen anterior, sigue siendo válida).** Tocar `isBetterRef`
+para que la frescura pudiera vencer al tier manual **dentro del comparador** habría debilitado §4.27f-2, que es una
+garantía **money-safe**, para arreglar un problema que **no es de dinero**. Se rechaza igual que antes — y por eso el
+filtro va **fuera** del comparador, no dentro.
+
+**Consistencia con §4.27f-3 (candidata perenne):** `getGradedEstimatesBatch` **no lleva `take`** y no debe ganarlo — ver
+el recuadro en (c). Las dos capas de la durabilidad (comparador **y** selección de candidatas) valen igual aquí.
+
+##### (m.2) La OTRA mitad del criterio 109: contra qué fecha se mide la fila AUTOMÁTICA (divergencia detectada en v1.50.3)
+
+**Nadie la había escrito, y es permisiva.** El criterio 109 y §O.7 (prueba 1) dicen que para el **dato automático** la
+ventana se mide contra la **fecha de la última venta observada** —*«esa es la frescura que de verdad importa: la
+antigüedad de la evidencia de mercado, no la fecha en que jalamos el archivo»*—. El `stale()` de (c) mide contra
+**`capturedDate`**, que para una fila del ingest **es la fecha en que jalamos el archivo**. No hay columna donde
+persistir la fecha de la evidencia sin DDL (`PriceReference` no cambia, (k.1)).
+
+**El fallo concreto que abre:** el proveedor deja de recibir ventas nuevas de una carta, pero **sigue sirviendo la
+misma mediana**; cada corrida del ingest reescribe la fila con `capturedDate = hoy` ⇒ **la cifra parece fresca para
+siempre**. Es literalmente el «feed rancio» contra el que el dial existe, disfrazado de fresco por nuestro propio job.
+*(No está vivo hoy: `graded_estimate_ingest_enabled` tiene seed `off`. Debe cerrarse **antes** de encenderlo.)*
+
+**Dictamen v1.50.3 — GATE DE EVIDENCIA EN LA ESCRITURA (misma técnica que `minSampleCount`, cero DDL).** El ingest
+**NO persiste** una fila cuya `lastSaleDate` de `ebay.salesByGrade` sea más vieja que `freshnessDays`:
+
+| Estado de `lastSaleDate` en la respuesta | Acción del ingest |
+|---|---|
+| presente y `diffDays(hoy, lastSaleDate) <= freshnessDays` | **escribe** |
+| presente y más vieja que `freshnessDays` | **NO escribe** + traza obligatoria ((h.4)) |
+| **ausente / no parseable** | **NO escribe** + traza — *«desconocido» no es «fresco»*, misma doctrina fail-closed que S2 sin `count` en (h.1) |
+
+**Por qué esto basta sin columna nueva.** Una fila solo puede **refrescar su `capturedDate` mientras su evidencia esté
+fresca**; en cuanto la evidencia envejece, el ingest deja de reescribirla, `capturedDate` **se congela** y la regla de
+lectura la vence dentro de `freshnessDays`. **Cota honesta y declarada:** la antigüedad máxima de la evidencia
+exhibida es `freshnessDays` (evidencia al escribir) + `freshnessDays` (desde esa escritura) = **≤ 2 × freshnessDays**
+(60 d con el seed), no los 30 exactos que dice el criterio 109. **Es una aproximación conservadora en dirección
+correcta —cierra el «fresco para siempre», que era el fallo grave— pero NO es el criterio literal.** Queda registrada
+como desviación en §9 y su cierre exacto va en **M-43** (abajo).
+
+**Cierre exacto (escalado al humano, junto con M-43):** añadir a `PriceReference` una columna **nullable**
+`evidenceDate` (`@db.Date`) que el ingest llene con la `lastSaleDate` del proveedor y la vía manual deje en `null`.
+Con eso `stale()` mide contra `evidenceDate ?? capturedDate` y el criterio 109 se cumple **al pie de la letra**, sin
+tocar la unique ni requerir backfill. **Se recomienda meterla en la MISMA migración M-43** que ya va a decisión del
+humano por INV-D inverso ((l.3)): las dos son DDL aditivo sobre la misma tabla y no tiene sentido pagar dos ventanas
+de migración.
+
+#### (n) LISTA DE REVISIÓN del back-office (v1.50.3, NORMATIVO) — la contrapartida que faltaba de (k.3)
+
+> **La deuda, dicha sin adornos.** El **criterio 111(e)** exige que, cuando una cifra falla la coherencia de magnitud,
+> *«la carta **aparece en la lista de revisión** del back-office»*. **No existe.** El único diagnóstico es
+> `GET /admin/pricing/graded-estimates/preview`, que es **por carta y con `cardId` OBLIGATORIO**: solo te contesta si
+> **ya sospechabas** de esa carta. Resultado neto: **publicamos la cifra incoherente en la ficha y nadie se entera
+> nunca.** Ni este documento ni el contrato la listaban siquiera como fuera de alcance.
+>
+> **Por qué NO se puede declarar fuera de alcance.** La decisión de (k.3) —**no ocultar** la cifra incoherente en la
+> ficha— se justificó **precisamente** por esta contrapartida: *«si decidimos seguir mostrándola, alguien tiene que
+> enterarse»* (§O.7, con esas palabras). Sin lista de revisión, (k.3) deja de ser «visible-y-corregible» y pasa a ser
+> «visible-y-nadie-la-corrige», que es peor que ocultarla: publicamos el número malo **y** perdemos la señal. Las dos
+> mitades se sostienen juntas o se caen juntas. **Se diseña el enumerador y (k.3) queda ratificada.**
+
+##### (n.1) Forma: un ENUMERADOR, no un `preview` sin `cardId`
+
+`GET /api/v1/admin/pricing/graded-estimates/review` — `super_admin`, **read-only**, paginado. Contrato exacto en
+`API_CONTRACT` §M2. Lo normativo aquí:
+
+- **Es el MISMO cálculo, no uno paralelo.** Reusa `evaluateGradingHighlight` y **los mismos `reason`** de (k)/(d). Un
+  segundo evaluador de coherencia sería una segunda verdad sobre qué es «incoherente» — la clase de duplicación que
+  este documento rechaza en todas partes. *(Misma doctrina que GU-A7 para el `preview`.)*
+- **Conjunto motor = las cartas que TIENEN fila de estimado**, no el catálogo entero:
+  `PriceReference where productType='graded' AND gradeKey LIKE 'graded:PSA:%' AND cardProductId IS NULL`, `distinct
+  cardId`. Es un conjunto **pequeño y acotado por diseño** (fase 1: curación a mano; fase 2: `≤
+  graded_estimate_ingest_max_cards_per_run` por corrida). **Sin este recorte el endpoint sería un barrido de catálogo
+  y no debería existir.**
+- **Coste: constante en número de queries, lineal en el conjunto motor.** Por request: 1 config + 1 `distinct cardId` +
+  1 batch de estimados + 1 batch de precios raw publicados + 1 batch de slabs publicados (INV-D). **Jamás una query por
+  carta ni por grupo** — la misma regla que (c).
+- **Evalúa en memoria, luego pagina** (mismo patrón que `listCards`, §4.38f), porque paginar **antes** de filtrar
+  produciría páginas vacías intercaladas y un `total` que no significa nada. A cambio exige la cota siguiente.
+- **Cota dura `GRADED_REVIEW_MAX_SCAN` (constante de código, 5 000 cartas).** Si el conjunto motor la excede, la
+  respuesta trae **`truncated: true`** y el `scannedCards` real. **Prohibido truncar en silencio:** una lista de
+  revisión incompleta que se presenta como completa es peor que no tenerla, porque genera la falsa confianza de «no
+  hay nada que revisar». Es la misma doctrina de (d): *la vitrina no puede vaciarse en silencio*.
+
+##### (n.2) Qué entra a la lista — y qué NO, que es igual de importante
+
+**Conjunto normativo (default):** exactamente los tres `reason` de la coherencia de magnitud, que son los que el
+criterio 111(e) nombra —111(b), (c) y (d)—:
+
+| `reason` | Por qué está en la lista |
+|---|---|
+| `NOT_ABOVE_RAW` | error de unidades USD/MXN o dato absurdo — **la cifra se sigue mostrando en la ficha** ((k.3)) |
+| `ABOVE_MAX_MULTIPLE` | el cero de más — **ídem** |
+| `GRADE_ORDER_INVERTED` | filas capturadas cruzadas — **ídem** |
+
+**Opt-in explícito, fuera del default:** `SLAB_PUBLISHED` (INV-D) **y `STALE`** *(este último añadido en v1.50.3-c,
+PI-D6 — ver abajo)*. Los dos son **accionables** para el operador pero **no son datos erróneos**, así que meterlos en
+el default **ahogaría la señal de coherencia** justo en la lista que existe para que esa señal se vea. Se ofrecen como
+valores del filtro `?reason=`, nunca como parte del conjunto por defecto.
+
+**Explícitamente FUERA, en cualquier modo:** `NO_PSA10`, `NO_PSA9`, `NO_COST_TIER`, `BELOW_MIN_UPSIDE`, `NOT_RAW`,
+`NOT_PUBLISHED`. Son **ausencia** de dato o el gate comercial haciendo su trabajo. Una lista que los incluyera tendría
+miles de filas normales y cero valor operativo — y **la ausencia de estimado es el estado NORMAL del catálogo**, no un
+pendiente ((b).4). *(El `preview` por carta sigue reportándolos todos: ese es su trabajo, y no cambia.)*
+
+##### (n.2-bis) PI-D6 (v1.50.3-c) — `STALE` SÍ es enumerable, y excluirlo era un error mío
+
+> **Escalada de backend (regla 9), a partir de un hallazgo de QA.** Tras invertir el orden (`filter(!stale)` antes de
+> `pickBestRef`, (m)), el motivo `STALE` quedó **inalcanzable en las superficies de admin**: con una fila manual de 40
+> días el diagnóstico respondía `reason: NO_PSA10, stale: false, capturedDate: null` cuando la verdad era **«tu cifra
+> expiró»**. **Backend lo recuperó sin deshacer el arreglo** —un opt-in `{ includeStaleForDiagnostics: true }` que
+> **solo** usan `preview` y `review`; la ruta pública sigue descartando lo rancio antes de `pickBestRef`, y la
+> re-inyección ocurre **solo en claves sin ninguna fila fresca**, así que no puede volver elegible a nadie ni
+> envenenar la ficha—. **Ratifico esa solución: es exactamente la forma correcta** (recuperar resolución diagnóstica
+> sin tocar la semántica pública). **Pero dejó a `review` fuera**, porque mi §M2 rechaza `STALE` con `400`.
+
+**Dictamen: `STALE` se ADMITE como valor opt-in del filtro.** Tres razones, y la tercera es la que me obliga:
+
+1. **`STALE` no pertenece al grupo donde lo metí.** Lo agrupé con `NO_PSA10`/`NO_PSA9`/`NOT_RAW` bajo la etiqueta
+   «ausencia», y **es una categoría distinta**: aquellos significan *nunca hubo dato*; `STALE` significa **hubo un
+   dato, alguien lo puso o lo ingestó, y expiró**. Lo primero es el estado normal de miles de cartas; lo segundo es un
+   hecho concreto sobre una cifra concreta que **existe en la BD ahora mismo**.
+2. **Es el mismo argumento que ya acepté para `SLAB_PUBLISHED`**, punto por punto: accionable, no erróneo, ruidoso en
+   el default, útil bajo demanda. Aplicarlo a uno y no al otro no tiene defensa.
+3. **Encaja en la definición por la que construí esta lista, y encaja MEJOR que el caso que sí admití.** Mi
+   justificación para no declarar (n) fuera de alcance fue que, sin ella, (k.3) pasa de «visible-y-corregible» a
+   «visible-y-nadie-la-corrige». **Una cifra caducada está peor situada en ese eje: no es siquiera visible.**
+   Desapareció de las tres superficies **en silencio**, sigue existiendo en la tabla, y el dueño **no tiene ninguna
+   forma de encontrarla** para refrescarla o retirarla. Es el fallo silencioso que este documento persigue en todas
+   partes.
+
+**Y hay una razón que no es de principio sino de hecho: yo creé esta categoría en esta misma revisión.** Antes de
+v1.50.3, `manualFreshnessDays` era `null` y **un override manual no caducaba nunca** ⇒ «estimado manual caducado» era
+un **conjunto vacío**. Al sembrar 30 (criterio 109) creé una clase entera de objetos nuevos —la cifra que el dueño
+fijó a propósito y que ahora expira sola— **y no le di superficie**. Peor: en (m) escribí, con estas palabras, que
+*«la lista de revisión de (n) es la superficie donde el dueño ve qué le está por vencer»*, **y acto seguido normé un
+`400` para exactamente esa consulta**. La contradicción es mía y está dentro de la misma rev.
+
+**Los dos sabores de `STALE` necesitan remedios OPUESTOS, y por eso el DTO gana un campo.** Es la diferencia entre
+capturar y refrescar que motivó toda la escalada:
+
+| Fila rancia | Qué significa | Qué hay que hacer |
+|---|---|---|
+| **manual** | la afirmación **del dueño** expiró | **recapturar** (sostener el número) o **borrarla** |
+| **automática** | el feed **dejó de cubrir esa carta** | mirar el **ingest**, no la carta (cuota, shape, carta despublicada — (h.4)) |
+
+**MEN-B (v1.50.3-e) — qué fila describe `isManual`, exactamente.** Backend preguntó si debe describir **la más
+antigua** o **la que caducó**, notando que con diales de frescura **asimétricos** podría señalar el remedio contrario.
+**Definición normativa: `isManual` describe la fila que el diagnóstico está REPORTANDO** — la que `pickBestRef`
+eligió entre las candidatas consideradas: las **frescas** en el caso normal, o la **rancia re-inyectada** cuando no
+hay ninguna fresca. **Ni «la más antigua» ni «la que caducó» como conceptos independientes.**
+
+**Y por eso el remedio señalado es correcto por construcción, también con diales asimétricos:** la re-inyección usa
+**el mismo comparador** que elegiría al ganador si las filas estuvieran frescas ⇒ la fila reportada **es** la que
+volvería a mostrarse al refrescarla. Decir «refresca ésta» nunca apunta a la fila equivocada.
+
+*(**Residual aceptado y declarado:** si conviven una manual rancia y una automática rancia, `pickBestRef` iza la
+manual por tier, así que el operador **no se entera** de que el feed también se quedó atrás. No es una señal
+**errónea** —recapturar la manual sí restaura la exhibición— sino **incompleta**. El lado del feed ya tiene su propia
+superficie: los contadores por motivo del ingest ((h.4)). **No se añade nada por esto.**)*
+
+`reason: STALE` a secas no los distingue, así que `GradedEstimateReviewItemDTO` y `GradedEstimatePreviewDTO` ganan
+**`isManual: boolean`**. Es **una sola bandera, en un DTO admin-only**, y **no viola (g)**: la garantía de
+indistinguibilidad fase 1 ⇄ fase 2 es sobre las **superficies públicas**, y (g).2 ya dice que `source`/
+`isManualOverride` **siguen disponibles para el admin**. Se emite `isManual` y **no** `source` a propósito: contesta la
+pregunta operativa («¿esta cifra la puse yo?») sin publicar la identidad del proveedor, y es el campo que las puras ya
+llevan en `GradedEstimateRef`. Sin él, cada fila `STALE` obligaría a una segunda llamada — justo la fricción del
+«solo te contesta si ya sospechabas» que (n) existe para eliminar, y el mismo motivo por el que la lista ya lleva
+`cardName`/`setName`.
+
+##### (n.2-ter) v1.50.3-e — la red de coherencia NO se ponía con un solo grado. Y es la MISMA causa raíz que (n.2-bis)
+
+> **Medido por frontend contra el stack vivo:** raw **MX$460** + PSA 10 **MX$230**, sin PSA 9 ⇒ `review` devuelve
+> **`total: 0`**. Añadiendo PSA 9 ⇒ **`total: 1, NOT_ABOVE_RAW`**. **El código es fiel a mi algoritmo**: el paso 5
+> (`NO_PSA9`) **corta antes** del paso 6c (magnitud). **El defecto es del diseño, no de la implementación.**
+
+**La causa raíz, dicha entera — y es la segunda vez que aparece.** Construí (n) sobre `evaluateGradingHighlight`, cuyo
+`reason` significa **«primer bloqueante para PROMOCIONAR»**, y luego lo leí como si significara **«el diagnóstico de
+esta carta»**. **No son lo mismo**, y un **escalar** no puede expresar el segundo: una carta puede fallar **varias**
+condiciones a la vez. Es **exactamente** la misma clase de error que dejó `STALE` inalcanzable en (n.2-bis): una
+**superficie de diagnóstico heredando el cortocircuito de una superficie de decisión**. Dos ocurrencias del mismo
+fallo en el mismo pase **ya no son un accidente: son el síntoma de haber reutilizado la función sin reexaminar la
+semántica de su salida.** Por eso el arreglo de esta vez **no es reordenar pasos** —eso taparía este caso y dejaría el
+siguiente— sino **emitir `reasons[]`** ((c)): se ataca la causa, no la instancia.
+
+**Por qué importa más de lo que su severidad sugiere, y frontend tiene razón en los dos tramos:**
+
+1. **El error que esta categoría existe para cazar es MÁS probable justo donde la red no estaba.** `NOT_ABOVE_RAW` caza
+   el **USD capturado como MXN** ((k.2)) — y ese error ocurre típicamente en la **primera captura**, cuando el
+   operador acaba de teclear **un solo grado**. La protección faltaba **precisamente en el momento de máximo riesgo**.
+2. **El efecto compuesto con mis propias reglas produce el fallo que juré evitar.** Con un solo grado el gate **nunca
+   promociona** (exige PSA 9, criterio 98) ⇒ la cifra errónea **no llega a la rejilla**. Pero **la ficha SÍ la
+   muestra**, porque la ficha informa lo que hay y **no aplica magnitud** ((k.3)). Resultado: **una cifra en unidades
+   equivocadas, visible al comprador, y no enumerable en la lista de revisión.** Eso es, palabra por palabra,
+   **«publicamos la cifra mala y nadie se entera»** — el argumento con el que me negué a declarar (n) fuera de
+   alcance. La red de seguridad tenía un agujero **con la forma exacta de lo que debía atrapar**.
+
+**Efecto del arreglo en el caso medido:** `reasons: ["NO_PSA9", "NOT_ABOVE_RAW"]`. `reason` sigue siendo `NO_PSA9`
+(la promoción no cambia: sin PSA 9 no se promociona, y así seguirá), pero la carta **ya aparece** en
+`review?reason=NOT_ABOVE_RAW`, que es donde el operador puede verla y corregirla o borrarla ((q)).
+
+**El filtro de (n) pasa a evaluarse sobre `reasons`, no sobre `reason`:** una fila entra si
+`reasons ∩ {reasons pedidos} ≠ ∅`.
+
+##### (n.3) La lista funciona con la feature APAGADA — divergencia deliberada con el `preview`
+
+`evaluateGradingHighlight` corta en el paso 1 con `FEATURE_OFF`. **Este endpoint NO aplica ese corte**: evalúa la
+coherencia **aunque `graded_estimates_enabled` esté `off`**, y **echa el estado del dial en la respuesta**
+(`enabled: boolean`) para que el operador sepa que ahora mismo no se está publicando nada.
+
+**Por qué la asimetría es correcta y no un descuido:** el flag arranca en `off` (GU-A6) precisamente para poder
+construir y **limpiar los datos** antes de encender la afirmación comercial. Una lista de revisión que solo funciona
+con la feature encendida obliga a **encender primero y limpiar después** — es decir, a publicar las cifras malas para
+poder descubrirlas. Se invierte el orden correcto de las operaciones. `FEATURE_OFF` **no es un `reason` emitible por
+este endpoint**. *(La asimetría con el `preview`, que sí corta, queda registrada a propósito; unificarlos es candidato
+de limpieza posterior y lo anota el rol dueño del código en `TECH_DEBT.md`, no el arquitecto.)*
+
+**Pero «apagada» ≠ «corrupta», y aquí la distinción importa** *(aplicación de `AUSENTE ≠ INVÁLIDA`, (d))*. El dial
+`off` es una **decisión**; una clave **presente pero inválida** es **intención perdida**. Si alguna clave de la que
+depende la coherencia —hoy `graded_estimate_max_raw_multiple`— está presente-e-inválida, este endpoint **NO evalúa con
+un umbral basura ni cae al seed**: responde **`409 GRADED_CONFIG_INVALID`** nombrando la clave. Una lista de revisión
+calculada contra un umbral corrupto es **peor que no tener lista**: marcaría o dejaría de marcar cartas por una razón
+que no es la que el operador cree, y esta es precisamente la superficie que existe para que el operador **confíe** en
+lo que ve. *(Las cotas inferior y de orden de grados no dependen de ninguna clave —son invariantes de producto—, pero
+**no** se sirve un resultado parcial haciéndolo pasar por completo: mismo motivo que `truncated`.)*
+
+##### (n.4) Lo que este endpoint NO es
+
+- **No es público, ni lo será:** expone insumos del gate (SEC-A1). `super_admin`, igual que el `preview`.
+- **No escribe nada y no toca dinero** — sin `MoneyOutGuard`, como el `preview`. **No** corrige, **no** descarta y
+  **no** silencia: el operador actúa con las herramientas que ya existen (`POST /admin/pricing/override` con
+  `intent:"graded_estimate"`, o **borrando el dato** con `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`
+  — **(q)**, que es el endpoint que esta frase daba por existente desde v1.50.3 y que **no existía**; cerrar ese hueco
+  es lo que convierte esta lista en una **lista de trabajo** y no en un museo de cifras que no se pueden retirar).
+  *(Un «marcar como revisada» exigiría **estado persistido** ⇒ tabla
+  nueva ⇒ DDL. **Queda fuera de alcance de v1.50.3, declarado aquí para que no se cuele por la puerta de atrás.** Si
+  el volumen operativo lo pide, es decisión de producto + arquitecto.)*
+- **No materializa nada, no hay job y no hay notificación.** Es *pull*, no *push*. Un aviso proactivo (correo/badge de
+  dashboard) es otra decisión de producto — la misma que §N.6 dejó abierta para el bounty rebasado (pregunta abierta
+  v2.0 #5). **No se asume.**
+- **⚠ v1.50.3-c — NO es una vista de «vencimiento próximo», y se declara para que no se implemente «de paso».**
+  `?reason=STALE` enumera lo **ya caducado**; **no** existe «caduca en N días». Reconozco que la vista de *próximos a
+  vencer* sería **más valiosa** —cuando una cifra ya venció, el daño comercial (la desaparición silenciosa de la
+  rejilla y la vitrina) **ya ocurrió**—, pero exige **una ventana parametrizable** (otro dial o un query param con su
+  validación), y eso es alcance nuevo sobre una implementación cerrada. **Queda como candidata nombrada**, con el
+  mismo tratamiento que «marcar como revisada» en (j): si el dueño la pide, es decisión de producto + arquitecto, no
+  de implementación.
+
+##### (n.5) Consecuencia para los otros roles (la enruta el orquestador, no yo)
+
+- **backend:** el endpoint, su reuso de las puras y la cota `GRADED_REVIEW_MAX_SCAN`.
+- **frontend:** la lista **es back-office**, así que necesita una superficie en **M2** junto al editor de diales del
+  gancho; sin UI, el criterio 111(e) no se cumple («aparece en la lista de revisión» es una afirmación sobre lo que el
+  dueño **ve**). **Si ux-ui necesita un patrón de tabla de revisión, lo define en `DESIGN_SYSTEM.md`** — yo no lo
+  invento aquí.
+- **QA:** el criterio 111(e) pasa a ser verificable de punta a punta: montar las tres cartas de §O.9 («el gate de
+  confianza filtra basura»), comprobar que **no** aparecen en rejilla/vitrina, que **sí** siguen informándose en su
+  ficha, y que **sí** aparecen en esta lista con el `reason` que les toca.
+
+#### (o) Renumeración de criterios 79–92 → 97–112 (v1.50.3) — cierre de una divergencia de referencias
+
+`PROJECT.md` renumeró el bloque de criterios del gancho de **79–92** a **97–110** (+ los nuevos **111** y **112**)
+porque **79–96 los tomó §N (la curva, LOCKED, en producción)**. `FRONTEND_NOTES.md` siguió la renumeración;
+**`API_CONTRACT.md` y esta §4.38 NO**, así que todas sus citas apuntaban a **criterios vivos de `main` que hablan de
+otra cosa** («criterio 84» ya no es «la rareza no entra al monto», es «money-safe: la cifra que no existe no se
+dibuja»). No es cosmético: una cita que apunta al criterio equivocado hace que QA verifique lo que no es.
+
+**Corregido en v1.50.3, caso por caso** (desplazamiento **+18**; se verificó cada cita para no tocar las de §N/§4.36,
+que son de `main` y **siguen correctas tal cual**):
+
+| Antes | Ahora | Contenido del criterio |
+|---|---|---|
+| 79 → | **97** | el gate decide qué se promociona (curaduría) |
+| 80 → | **98** | sin PSA 9 no se promociona; la ficha sí informa |
+| 81 → | **99** | ficha: solo precio + los dos estimados (verificación de ausencia) |
+| 82 → | **100** | la cifra sí se pinta en la rejilla; sin badge vacío/tachado/gris |
+| 83 → | **101** | vitrina «Joyas para gradear»: cifra, contenido y orden; vacía ⇒ no se renderiza |
+| 84 → | **102** | money-safe: una cifra que no existe (o no es confiable) no se dibuja |
+| 85 → | **103** | disclaimer: llamada + micro-aviso + nota al pie, ES/EN |
+| 86 → | **104** | diales editables sin deploy y auditados |
+| 87 → | **105** | solo raw (gradeadas y sellado nunca) |
+| 90 → | **108** | el estimado no contamina el dinero real (feature on/off) |
+| 92 → | **110** | costo de gradeo por escalones |
+
+**Referencias corregidas:** en esta §4.38 (algoritmos de (c), (d), (e), (f)) y en §10; en `API_CONTRACT.md`, el
+changelog v1.50, §DTOs base, §2 (rejilla y ficha) y §M2/§M10. **No se tocó ninguna cita de §4.36/§N**: 79–96 son suyos
+y sus referencias eran correctas antes y después.
+
+#### (p) PASO DE DESPLIEGUE OBLIGATORIO (PI-D3) — los tres seeds NO llegan solos a un entorno ya sembrado
+
+> **Hallazgo de backend, verificado en vivo.** `prisma/seed.ts` hace `upsert` con **`update: {}`**, así que los seeds
+> corregidos en (k.0) **no alcanzan ninguna base ya sembrada** — incluida **producción**. Un entorno existente sigue
+> con `manualFreshnessDays = null`, `minSampleCount = 3` y `maxRawMultiple = 50`, **con el código nuevo desplegado y
+> los tests en verde**. **La regla general está en §11.0; esto es su aplicación concreta a esta release.**
+
+**Sin este paso, v1.50.3 NO surte efecto donde importa.** Conviene decirlo sin eufemismos: el punto entero de esta rev
+es que un override manual de 40 días deje de promocionarse. En un entorno ya sembrado, **eso sigue pasando** después
+del deploy. El código está bien; el dato no.
+
+**Paso (devops + el operador, en cada entorno ya sembrado: dev con base vieja, staging y prod):**
+
+1. `GET /api/v1/admin/pricing/graded-estimates` — anotar los valores **vigentes** de las tres claves. *(Devops
+   construyó un **comparador solo-lectura** que hace esto e imprime el `PUT` exacto con las claves pendientes, sin
+   `--force` y sin escribir nada. **Es la herramienta sancionada para el paso 1**, no un atajo: leer y proponer sin
+   poder aplicar es exactamente el reparto de autoridad que quiere §11.0 punto 3.)*
+2. Si coinciden con los seeds viejos (`null` / `3` / `50`), **nadie los tocó**: aplicar los nuevos con **un**
+   `PUT /api/v1/admin/pricing/graded-estimates` `{ "manualFreshnessDays": 30, "minSampleCount": 5,
+   "maxRawMultiple": 100 }`. Queda **auditado**, **validado** (I1–I9) y surte efecto **sin redeploy**.
+3. Si **alguno difiere**, el operador lo **ajustó a propósito**: **no se pisa**. Se le presenta valor actual vs. nuevo
+   default y **decide él, clave por clave**. *(§11.0 punto 3: no hay forma de distinguir «sigue en el seed viejo» de
+   «lo eligió así», así que se pregunta en vez de adivinar.)*
+4. **Verificación de cierre — DOS verificaciones distintas, en dos entornos distintos.** Ver el recuadro de abajo:
+   la de **configuración** corre en **producción** (`GET` + línea de inventario, solo lectura); la de **lógica** corre
+   en **staging** (el E2E del criterio 109). **No son intercambiables y ninguna sustituye a la otra.**
+
+> ⛔ **CORRECCIÓN v1.50.3-b (escalada de devops, regla 9) — el paso 4 que escribí en v1.50.3-a NO ERA EJECUTABLE, y el
+> error es mío.** Decía «repetir el `GET` y **correr el E2E del criterio 109 contra ese entorno**; ese test es el único
+> que distingue *desplegado* de *desplegado y funcionando*». **Las dos mitades estaban mal.**
+>
+> **(1) No se puede correr contra producción, y tampoco se querría.** Verificado por devops: el arnés
+> (`backend/test/integration/helpers/e2e-app.ts`) levanta la app Nest **en proceso** contra `DATABASE_URL`; el spec
+> **escribe** —hace flip del dial global, un `POST /admin/pricing/override` y un `updateMany` que **envejece
+> `capturedDate`**—; y su `beforeAll` **lanza** si falta el fixture sintético `e2e-common`. Un test que muta diales y
+> fechas de captura **no se apunta a la base de producción**: sería, literalmente, mover dinero y afirmaciones
+> comerciales para comprobar que están bien.
+>
+> **(2) Y aunque se pudiera, ya no detectaría el seed rancio.** Devops endureció el caso `8d` de
+> `graded-estimate.e2e-spec.ts` para que haga `PUT { manualFreshnessDays: 30 }` **antes** de asertar. **Ese
+> endurecimiento es CORRECTO** —un test de **lógica de decaimiento** debe probarla con el dial en su valor **nominal**,
+> no a merced de lo que tenga el entorno—, pero tiene una consecuencia que hay que decir en voz alta:
+> > **«Corrí el E2E y pasó» ya NO equivale a «el dial de producción está bien».**
+>
+> **La lección general, que vale más que este caso concreto:** *un test que **fija** su propia configuración para ser
+> determinista deja, **por construcción**, de ser un detector de configuración.* Son **dos aserciones distintas** y
+> necesitan **dos mecanismos distintos**. Cuando el E2E le falló a backend por el dial viejo, yo llamé a eso «el test
+> haciendo su trabajo» — y **generalicé un accidente a procedimiento**. No lo era: era un test bajo-especificado
+> fallando por una razón que no era la suya. **Una coincidencia no es una garantía**, y el remedio correcto no es
+> preservar la coincidencia, es **sustituirla por un detector de verdad**.
+
+**Las dos garantías, separadas (NORMATIVO):**
+
+| | **Verificación de CONFIGURACIÓN** | **Verificación de LÓGICA** |
+|---|---|---|
+| Pregunta que responde | «¿este entorno tiene los diales que creemos?» | «¿el decaimiento del criterio 109 funciona?» |
+| Mecanismo | **re-`GET`** de `/admin/pricing/graded-estimates` **+ la línea de inventario de config** ((i).7, §11.0) | **E2E del criterio 109** (caso `8d`) |
+| Dónde corre | **producción** (y todo entorno), **solo lectura** | **staging** / local con fixture — **nunca prod** |
+| Escribe | **no** | **sí** (dial global, override, `updateMany` de `capturedDate`) |
+| Detecta el **seed rancio** | **SÍ — son los únicos que lo detectan** | **NO** (fija el dial antes de asertar) |
+
+**Procedimiento vigente** (el que devops dejó documentado en `DEVOPS_NOTES.md` §32.5, y que **ratifico**): el E2E del
+criterio 109 corre **en staging**; en **producción** la verificación de cierre es **re-`GET` + línea de inventario**.
+
+**⚠ Prohibido `UPDATE` directo a la BD** para esto, aunque sea más rápido: se salta la auditoría (nadie sabría quién
+cambió un dial que gobierna una afirmación comercial), se salta la validación (una clave presente-e-inválida **apaga
+la feature** por (d)) y se salta el `AuditLog` que M10 exige. Ver §11.0 punto 4.
+
+**Va a la lista del humano como GU-13** — no porque sea difícil, sino porque el paso 3 **es una decisión suya** y
+porque tocar diales de producción no es algo que devops deba hacer por iniciativa propia.
+
+#### (q) BORRADO del estimado (v1.50.3-d, NORMATIVO) — el remedio que tres documentos prometían y nadie había construido
+
+> **Escalada de frontend (regla 9), al cerrar el arnés E2E.** El contrato afirma que un override manual *«solo lo
+> revoca otro override o la **limpieza/borrado explícito** de la fila por `super_admin`»*. **Ese borrado no existe
+> como endpoint.** No es un detalle de ergonomía: hoy el back-office **solo puede pisar** una cifra, nunca quitarla.
+
+**Esto no es alcance nuevo que yo elija: `PROJECT.md` lo pide.** §O.7 dice que la carta entra a la lista de revisión
+*«para que el dueño la corrija con override **o la descarte**»*. **Descartar** no es **pisar**. Por la regla de
+conflicto, PROJECT manda, así que **no puedo declararlo fuera de alcance**: o se construye, o hay que ir al humano a
+enmendar §O.7. Se construye. Además lo prometen, hoy, **cuatro** sitios: §4.27f-2(b), la cabecera de la rev v1.46, mi
+propio (n.4) y su gemelo en `API_CONTRACT` §M2.
+
+**El caso que duele es exactamente el que (n) existe para atender.** Una cifra que **no debería estar ahí en
+absoluto** —un error de captura, una carta que dejó de tener sentido promocionar— **no tiene forma de irse**.
+Sustituirla por otro número no la retira: deja otra afirmación comercial en su lugar.
+
+**Y hay un caso peor que se sigue de MI decisión de esta ronda.** Con `manualFreshnessDays = 30`, una cifra manual
+errónea **desaparece de las tres superficies** pero **sigue en la tabla**, y ahora es enumerable por
+`?reason=STALE` ((n.2-bis)). El dueño la encuentra, ve que está mal… **y su único gesto disponible es capturar otra
+cifra igual de indeseada.** Construí el detector y dejé al operador sin la herramienta. Cerrar el bucle
+—encontrarla **y** poder quitarla— es lo que hace de (n) una lista de trabajo y no un museo.
+
+##### (q.1) Forma
+
+`DELETE /api/v1/admin/pricing/graded-estimates/:cardId/:gradeValue` — `super_admin`, **auditado**. Contrato exacto en
+`API_CONTRACT` §M2. Lo normativo:
+
+- **Alcance deliberadamente ESTRECHO: solo la fila del estimado por grado.** Se descarta la alternativa
+  `DELETE /admin/pricing/override` —simétrica del `POST`— porque ese endpoint cubre **raw y sellado**, cuyo borrado
+  **cambia el precio de venta publicado** de forma inmediata y masiva. Abrir un borrado genérico sobre la tabla de
+  precios para resolver una necesidad del gancho es un **radio de explosión** que nadie pidió. Lo que PROJECT exige es
+  descartar **un estimado**; eso es lo que se construye.
+- **`:gradeValue`** (`"10"` / `"9"`), no el `gradeKey` crudo: el servidor deriva la clave canónica con `buildGradeKey`
+  y **exige que el grado esté en `cfg.grades`** (si no, `400`). Así **solo se pueden borrar los grados que esta
+  feature gobierna**, y una ruta destructiva no acepta claves arbitrarias con dos puntos escapados.
+- **Borra TODAS las filas de la clave canónica** `(cardId, 'graded', gradeKey, 'normal', cardProductId=null)`,
+  **cualquiera que sea su `capturedDate`**, y en **una transacción**. **No es un detalle:** la unique incluye
+  `capturedDate`, así que borrar solo la vigente haría **aflorar una fila más vieja** y la cifra **reaparecería** —una
+  resurrección silenciosa en una superficie comercial, que es peor que no haber borrado. «Quitar el dato» significa
+  quitarlo.
+- **Responde `deletedCount`**, para que el operador vea **cuántas** filas se llevó por delante y no descubra después
+  que había historial.
+- **Auditoría obligatoria** (`AuditLog action=pricing.graded_estimate.delete`) con **`before` = las filas borradas**
+  (valores y fechas) y `after: null`. Un borrado en una tabla de dinero sin registro de qué había es inaceptable —y es
+  además **la única forma de deshacer** una equivocación: recapturar el número que estaba.
+- **Nada que borrar ⇒ `404 NOT_FOUND`, no un `200` silencioso.** Mismo precedente que `PUT` con body vacío ⇒ `422`
+  (GU-A10b): responder éxito cuando no pasó nada **le haría creer al operador que limpió algo que no limpió**.
+- **Funciona con la feature `off`**, igual que (n.3) y por la misma razón: hay que poder **limpiar antes de encender**.
+
+##### (q.2) La guarda INV-D — y un error de razonamiento que hay que matar aquí mismo
+
+**Si existe un slab publicado de ese grado ⇒ `409 GRADED_ESTIMATE_SLAB_PUBLISHED`**, exactamente el mismo código y la
+misma guarda que la **escritura** ((l.1)). Frontend lo propuso así y es correcto.
+
+**Por qué, y es la parte que importa:** por **INV-D**, cuando hay un slab publicado de ese grado esa fila **ya no es un
+estimado — ES la referencia de mercado real de una pieza física**. Borrarla no «quita un estimado»: le **quita el
+sustento de precio a un slab que se está vendiendo**. La guarda no es simetría burocrática con el `POST`: es la misma
+invariante de dinero, aplicada al otro verbo.
+
+> ⛔ **Y por eso NO se puede decir que este `DELETE` mitiga INV-D inverso ((l.3)). No lo hace, y la inferencia es
+> tentadora.** Yo mismo estuve a punto de escribirlo: «con `review?reason=SLAB_PUBLISHED` encuentro las cartas
+> expuestas y borro la fila del estimado». **Es falso y sería peligroso.** En ese escenario el slab **ya está
+> publicado**, así que la guarda dispara `409` — y **debe disparar**: si el borrado se permitiera, el slab quedaría
+> sin referencia ⇒ `PRICE_PENDING` ⇒ despublicado. Despublicar una pieza real por «limpiar» es una **acción de
+> negocio**, no una limpieza.
+> **El remedio correcto en ese caso sigue siendo el de §M1 v1.28:** **repreciar con `intent:"market"`** —un acto de
+> dinero, deliberado y auditado—, que es justo lo que `intent` existe para obligar a declarar. **INV-D inverso sigue
+> abierto y sigue necesitando M-43 (GU-8).** Este endpoint **no** lo toca.
+
+**R1 del techlead (v1.50.3-e) — ¿la guarda debe cubrir también slabs `in_stock` NO publicados? RESPUESTA: NO, y no
+por benignidad sino porque lo contrario sería ACTIVAMENTE DAÑINO.**
+
+El razonamiento fácil sería «la consecuencia es leve» (borrar el estimado deja al slab sin referencia y, al
+publicarlo, cae en `PRICE_PENDING`). Es cierto, y además ese estado es **ruidoso y visible** —tiene cola propia en
+M2—, no un fallo silencioso. Pero **no es el argumento que decide**:
+
+> **Extender la guarda a `in_stock` PRESERVARÍA la fila de estimado precisamente para que, al publicar el slab,
+> pasara a determinar su precio. Eso es INV-D inverso — el riesgo que QA MIDIÓ (`575000 → 1000000`, §(l.3))—
+> institucionalizado como comportamiento deseado.** La guarda ampliada protegería el mecanismo del fallo.
+
+**La línea correcta es «¿hay ahora mismo una publicación viva que dependa de esta fila?»**, y esa línea es
+exactamente `published`:
+- **Slab PUBLICADO** → la fila **es** la referencia de mercado de un listado vivo; borrarla **despreciaría una pieza
+  a la venta** ⇒ `409`. Superficie de dinero activa.
+- **Slab `in_stock` NO publicado** → **nada vivo depende de esa fila**. Borrarla obliga a que, al publicar, el
+  operador **fije un precio deliberado**, que es justo lo que §M1 v1.28 ya manda y lo que INV-D quiere: **una pieza
+  real se precia a propósito, no hereda el número de un estimado olvidado.**
+
+**Se cierra como «sin cambio», con el porqué escrito** — no como deuda: dejarlo abierto invitaría a que alguien
+«complete» la guarda más adelante creyendo que endurece, cuando estaría reabriendo el agujero. *(Fricción aceptada y
+declarada: el operador puede sorprenderse en el momento de publicar. Es visible, es la cola de pendientes de M2, y es
+el momento correcto para pensar el precio de una pieza real.)*
+
+##### (q.3) Lo que este endpoint NO hace
+
+**No** borra filas `raw` ni `sealed`, **no** despublica inventario, **no** crea `PendingPriceEntry` (la ausencia de
+estimado **no** es un precio pendiente — doctrina (b).4), **no** toca `listPriceCents` y **no** apaga ningún dial.
+Retira una fila informativa y nada más.
+
+##### (q.4) Efecto colateral bienvenido: el arnés E2E puede limpiar lo que siembra
+
+Frontend reportó que las filas que siembra el arnés **quedan escritas** en cada corrida del gate, y lo **mitigó bien y
+lo declaró** en vez de disimularlo (siembra idempotente + dial devuelto a `off` en el teardown global, así que **nada
+se publica**). Con `DELETE` disponible, un teardown puede además **retirar** lo sembrado. **Cómo se escriba ese
+teardown es de quien posee la suite** (frontend/backend), no mío; aquí solo consta que **la herramienta que faltaba
+para poder hacerlo ya está normada**. *(La mitigación vigente es correcta y no urge cambiarla: la huella no publica
+nada.)*
 
 ---
 
@@ -8754,6 +11227,100 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **⚠️ NUEVAS (v1.50.3-g) — desviaciones detectadas por el gate de seguridad, enrutadas, ninguna corregida por mí.**
+  Dictamen completo en §4.38(l.4.10)-(l.4.13); aquí queda el registro con dueño y puerta:
+  | # | Desviación | Dueño | Puerta |
+  |---|---|---|---|
+  | **SEC-M43-1** | El escritor **humano** degrada una fila `market` a `graded_estimate` y le pisa el monto (la guarda `409` solo ve `platform+listed`) ⇒ pieza real apagada en silencio; **valuación de custodia a `pending`** | backend | **Antes de encender `gradedEstimatesEnabled` en un entorno con inventario `graded` real.** Cierre = **`M-44`** (§4.38l.4.10) |
+  | **SEC-M43-2** | Runbook de cut-over: censo-foto, backfill con el predicado equivocado, rollback que reabre GE-1 | devops (ejecuta) · backend (documento) | **Bloquea el cut-over de producción.** Cierre = **`M-45`** (§4.38l.4.7/l.4.11) |
+  | **SEC-M43-3** | (l.4.4)A decía «un lector nuevo hereda el comportamiento seguro»: **falso a nivel de mecanismo** (en Prisma, omitir `refKind` **incluye** las dos naturalezas). Corregido el texto; falta el candado | backend | Próximo cambio en `pricing.service` |
+  | **SEC-M43-4** | `OverrideDto`: `productType` libre ⇒ **`500`**; `cardId` inexistente ⇒ **`500`**; `graded:PSA:11` ⇒ `200`. **El contrato ya decía `422`** — desviación del código, no laguna del contrato | backend | Junto a C4 (un `500` espurio contamina la alerta de 401/403) |
+  | **SEC-M43-5** | `lastSync` del dashboard sin `MONEY_REF_WHERE` ⇒ tras una corrida de fase 2 el tablero reporta el feed de mercado como fresco | backend | **Antes de encender la fase 2** (C0) |
+  | **M43-D1** | `reconcilePublishedPrices` `raw`-only ⇒ el slab sin referencia no entra a ninguna cola: **único detector del modo de fallo silencioso de `M-43`** | backend **o** devops (dos vías, §4.38l.4.12) | **Precondición del cut-over de producción** (no de la fusión) |
+  | **GE-2** | 401/403 sin rastro ni en `AuditLog` ni en access log — **y el «plano de observabilidad» al que lo derivé no existe hoy**: se acepta un punto ciego, no una cobertura | devops | Antes de operar con **dinero real** (C4) |
+
+- **⚠ RIESGO ABIERTO — INV-D dirección inversa (arquitecto → humano, v1.50.2; **evidencia de QA añadida en v1.50.3**,
+  §4.38(l.3)). NO es un bug de código: es un límite del schema, y lo declaro en vez de cerrarlo a medias.** Publicar un
+  slab graded sobre una carta que **ya tiene** una fila de estimado deja esa fila viva y **encontrable por el resolver
+  de mercado**, de modo que puede alimentar el precio de venta del slab recién publicado. Las guardas de v1.50.2
+  —`intent` obligatorio + `409` en la escritura, y omisión en la lectura— cubren la dirección **estimado sobre slab ya
+  publicado**, pero **no** la inversa, porque distinguir «fila-de-origen-estimado» de «fila-de-mercado-real» **no es
+  expresable con el schema actual**.
+  **⚠️ MEDIDO, ya no inferido (QA, v1.50.3):** alterando la curva, el **precio publicado** de una carta gradeada pasó
+  de **`575000`** a **`1000000`** = **`500000 × 2.0`**, siendo `500000` su fila `graded:PSA:10`. **La fila del estimado
+  alimenta el precio de venta del slab, con la aritmética a la vista.** El riesgo residual **no es teórico**.
+  **Mitigación vigente:** publicar un graded **no adopta precio automáticamente** (flujo manual §M1 v1.28); el riesgo
+  se materializa solo si el operador publica y **no** revisa el precio. **v1.50.3 añade** la posibilidad de
+  **enumerar** los casos expuestos con `GET /admin/pricing/graded-estimates/review?reason=SLAB_PUBLISHED` (§4.38n) —
+  no cierra el riesgo, lo hace **visible**.
+  **⚠️ Aclaración anti-confusión:** el nuevo decaimiento del override manual (§4.38m) **NO mitiga esto**. La frescura
+  es un predicado de **exhibición**; no retira la fila del resolver de dinero.
+  ~~**Recomendación (decisión del humano, siguiente release):** valor `graded_estimate` en el enum `PriceSource` con
+  `sourceRank` por debajo de toda fuente real…~~ ⛔ **DEROGADO en v1.50.3-f: no habría cerrado nada** (`sourceRank`
+  solo desempata; en el caso medido el estimado era la **única** candidata ⇒ ganaba con cualquier rango). §4.38(l.4.1).
+  **✅ ESTADO v1.50.3-f — DICTAMINADO Y DISEÑADO, ya no es «riesgo escalado sin diseño».** El pentester lo reprodujo
+  **en vivo y en pesos** (GE-1, `PENTEST_NOTES.md`): slab PSA 10 de **MX$9,200 publicado a MX$460** (5%), y **con el
+  estimado rancio a −400 días siguió a MX$460** ⇒ ni la frescura ni la cota de magnitud lo rescatan, y la fase 2 lo
+  escribiría **sin humano en el ciclo**. **Cierre normado en §4.38(l.4) = `M-43`:** columna `refKind`
+  (`market | graded_estimate`, default `market`) + **exclusión** —no rango— de las filas de naturaleza estimado en
+  toda lectura de dinero, con `evidenceDate` (§4.38m.2) en la misma migración. **Dueño: backend.** **Por (l.4.0) NO
+  es deuda aceptable:** es la aplicación literal del **criterio 55** («la pieza real manda siempre»), o sea un
+  criterio de aceptación, y el DoD no admite cerrar con criterios incumplidos. **Bloquea encender el gancho en
+  cualquier entorno que venda**; contingencia de fusión en §4.38(l.5).
+- **⚠ ACEPTADA COMO HARDENING, NO COMO REQUISITO — los rechazos por credenciales (401/403) no dejan fila en
+  `AuditLog` (GE-2 del pentester, Media, v1.50.3-f).** Los bloqueos de **negocio** sí se auditan
+  (`pricing.override.blocked`, `pricing.graded_estimate.delete.blocked`, `auditGradedSkip`); los rechazos de los
+  guards no. **Dictamen: es correcto que `AuditLog` no los lleve, y la razón no es de esfuerzo.** (1) El
+  **criterio 23** de `PROJECT.md` define la bitácora como **«quién / qué / cuándo»**: un `401` **no tiene quién**
+  (no hay actor identificado) y **no tiene qué** (nada ocurrió); meterlo ahí desnaturaliza el registro que los
+  auditores de dinero leen. (2) Peor: auditar el `401` **le regala a un anónimo una primitiva de escritura** sobre
+  una tabla money-adjacent —un bucle `curl` sin credenciales infla `AuditLog` a voluntad—, convirtiendo un control
+  de detección en un vector de DoS/ruido. **Dónde vive la responsabilidad:** en el **plano de observabilidad**, no en
+  el de negocio — **devops**: log de acceso estructurado (ruta, método, `status`, `ip`, actor si lo hay) con
+  **alerta por umbral** de 401/403 por actor/IP/ventana sobre `/admin/*`. **Matiz sobre el `403`:** ahí **sí** hay
+  actor identificado y es señal de sondeo interno; **se permite** —no se exige— registrarlo en `AuditLog`
+  (`action=authz.denied`) **si y solo si** va **deduplicado/con techo por actor+ventana**; sin ese techo, la misma
+  objeción de (2) aplica en menor escala. **No cambia el contrato ni bloquea nada.** Se registra en `TECH_DEBT.md`
+  (dueño **devops**) y **seguridad** lo consolida en `SECURITY_NOTES.md`.
+- **⚠ HUECO ABIERTO CON NOMBRE — no existe borrado de overrides `raw` / `sealed` (detectado por frontend, v1.50.3-d,
+  §4.27f-2).** El documento afirma desde **v1.46** que un override manual «solo lo revoca otro override o la
+  **limpieza/borrado explícito** por `super_admin`», y **esa segunda vía nunca se construyó**. Efecto real: un
+  override manual de `raw` o `sellado` **solo puede sustituirse, nunca retirarse** — «durable indefinidamente» es, en
+  la práctica, **irrevocable salvo por otro número**. **Cerrado en v1.50.3-d SOLO para estimados por grado**
+  (`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`, §4.38q), porque es lo que `PROJECT.md` §O.7 exige.
+  **NO se abre para `raw`/`sealed` en esta rev, deliberadamente:** un borrado ahí **cambia precios de venta
+  publicados** y necesita su propio diseño (qué pasa con lo publicado que se queda sin referencia — ¿`PRICE_PENDING`
+  y se despublica?). **Mitigación vigente:** sustituir por otro override. **Corregido el texto** en §4.27f-2 y en
+  `API_CONTRACT` para que deje de prometer lo que no hay.
+- **⚠ REQUISITO DE DESPLIEGUE ABIERTO — los seeds corregidos de v1.50.3 NO llegan a un entorno ya sembrado (PI-D3,
+  hallazgo de backend; §4.38p, regla general en §11.0).** `prisma/seed.ts` hace `upsert` con `update: {}`, así que
+  `manualFreshnessDays`, `minSampleCount` y `maxRawMultiple` **conservan sus valores viejos** en prod y staging aunque
+  el código nuevo esté desplegado y los tests en verde. **Consecuencia:** el override manual de 40 días **seguiría
+  promocionándose en producción**. **NO se automatiza como `UPDATE`** (pisaría en silencio ajustes deliberados del
+  operador — GU-A8): se aplica por `PUT /admin/pricing/graded-estimates`, auditado y validado. **Verificación de
+  cierre (corregida en v1.50.3-b, escalada de devops): en producción es `GET` + la línea de inventario de config
+  —solo lectura, y los ÚNICOS detectores del seed rancio—; el E2E del criterio 109 corre en staging** y **no** sirve
+  para esto (escribe, exige fixture, y fija el dial antes de asertar). **Va al humano como GU-13.**
+- **✅ CERRADO por decisión de diseño, no pendiente — S2 (`gradedPrices.psaN`) NO ES PERSISTIBLE (PI-D2, escalada de
+  backend; §4.38h.1-bis).** Se registra aquí porque **bloquea encender la fase 2** en el escenario en que PPT sirva
+  ese shape, y porque la asimetría entre S1 y S2 dejó de ser de **forma** para ser de **capacidad**. **No es una
+  regresión de v1.50.3:** S2 ya era no-persistible por falta de `count`; su único camino era la escotilla
+  `MIN_COUNT=0`, ahora **derogada** (backend la retira: ya no abre nada). El sondeo de S2 **se conserva como
+  diagnóstico** con motivo de traza propio `SHAPE_NOT_PERSISTIBLE_S2`. **Si la primera corrida real revela que PPT
+  sirve mayoritariamente S2 ⇒ ESCALADA (regla 9), no parche:** significa que la fase 2 no es viable con este
+  proveedor, y eso es decisión de producto/costo, no de código.
+- **⚠ DESVIACIÓN ABIERTA — frescura del dato AUTOMÁTICO medida contra la fecha de INGESTA, no contra la evidencia
+  (arquitecto, detectada en v1.50.3, §4.38(m.2)). Permisiva.** El **criterio 109** exige medir contra la **fecha de la
+  última venta observada**; `stale()` mide contra `capturedDate`, que en una fila del ingest es la fecha en que se
+  jaló el archivo ⇒ un proveedor que sirve la misma mediana sin ventas nuevas produce una cifra **perpetuamente
+  fresca**. **No está viva** (`graded_estimate_ingest_enabled` seed `off`), pero **debe cerrarse antes de encender la
+  fase 2**. **Mitigación normada para backend (sin DDL):** gate de evidencia **en la escritura** — el ingest no
+  persiste filas cuya `lastSaleDate` supere `freshnessDays`, y trata «ausente/no parseable» como **no fresco**. Deja
+  una cota honesta de **≤ 2 × freshnessDays**, no los 30 exactos. **Cierre exacto:** columna `evidenceDate` en M-43.
+- **GRADED-INTENT (backend, v1.50.2) — `POST /admin/pricing/override` gana un campo OBLIGATORIO en la rama graded.**
+  Es un *breaking* pequeño y **deliberado** en ruta `super_admin` (§4.38(l.1)): sin `intent`, `422
+  GRADED_INTENT_REQUIRED`. Cualquier llamador interno o script existente que escriba `productType:"graded"` **debe
+  actualizarse**; un default habría sido fail-open hacia la ruta que mueve dinero.
 - **MERGE-P47xCURVA (backend, v1.49, rama v2 `origin/claude/card-pricing-rules-2e537m`) — el pase de curva v2 BORRA el
   provider `TcgcsvSinglesBulkPriceProvider` (P-47), re-aplanando el precio por-acabado.** Estado detectado (diff de la
   rama sobre `price-ingest.service.ts` + `providers/`): v2 elimina el import, el parámetro del constructor, el registro en
@@ -9021,6 +11588,326 @@ este documento y con `API_CONTRACT.md`.
 - **Efecto en implementación:** backend había implementado `1_000_000`; re-apuntar la constante y los dos casos de
   regresión a `200000 ⇒ 200` / `200001 ⇒ 422` (§9, D1-TECHO). Nada más cambia: ni la forma del error, ni el `details`,
   ni el reparto `PUT`/`preview`, ni ningún DTO.
+
+### Preguntas abiertas y decisiones del arquitecto (v1.50-graded-estimate — gancho de grading, §4.38)
+
+> Ninguna bloquea al backend ni al frontend: **todas tienen un default ya fijado en §4.38 o en `PROJECT.md` §O**, y las
+> tres primeras son **diales editables sin deploy**, así que la respuesta del humano se aplica sin tocar código.
+
+**Decisiones tomadas por el arquitecto (no requieren al humano; se registran para trazabilidad):**
+
+- **GU-A1 — los diales viven en un recurso M2 propio** (`GET/PUT /admin/pricing/graded-estimates`), no en una extensión
+  de `GET/PUT /admin/pricing/tiers`. Se reusa el **patrón** (M2 dedicado, JSON en `ConfigSetting`, auditado, sin
+  redeploy), no el **recurso**: los tiers de rareza son taxonomía LOCKED de 5 filas nombradas con invariante de
+  refinamiento premium; los escalones de costo son filas **añadibles/eliminables** que son **rangos** con invariante de
+  **contigüidad + escalón abierto**. Razonamiento completo en §4.38(d). *(PROJECT §O.2.1 marcó esta decisión como del
+  arquitecto.)*
+- **GU-A2 — intervalos SEMIABIERTOS `[min, max)`** en vez de los límites inclusivos «$2,000 / $2,001» de la tabla del
+  PO: los inclusivos dejan un **hueco** en los centavos intermedios. Delta observable: exactamente $2,000.00 cae en el
+  escalón siguiente (1 centavo en dirección **conservadora**). §4.38(d).
+- **GU-A3 — el estimado es por CARTA (`finish='normal'`), el gate del destacado es por GRUPO.** Coherente con la
+  doctrina graded ya vigente (§M2 v1.28, `variant-controls` exige `finish=normal` en graded). Consecuencia asumida: una
+  carta con dos acabados publicados puede quedar destacada en uno y no en el otro, aunque su **ficha** muestre las
+  mismas cifras en ambos. §4.38(a).
+- **GU-A4 — `source` NO se emite en las superficies públicas del gancho.** Es la garantía técnica de que fase 1 y fase 2
+  son indistinguibles para el cliente, y evita decirle al comprador que la cifra la tecleó el vendedor. §4.38(g).
+- **GU-A5 — `sort=grading_showcase` exige `gradingHighlight=true`** (`400 GRADING_SORT_REQUIRES_FILTER`), fail-closed
+  para que la vitrina no pueda paginar hacia grupos no destacados. El **nombre del sort es neutro a propósito** (no
+  nombra el criterio) para que ajustar la política comercial no toque el contrato. §4.38(f).
+- **GU-A6 — feature flag `graded_estimates_enabled` con seed `off`.** No estaba pedido en `PROJECT.md`; se añade porque
+  (1) el disclaimer §O.5 **aún no tiene el visto bueno legal del humano** y el código no debe poder salir a producción
+  con la afirmación comercial encendida por accidente, y (2) el **criterio 108** exige poder verificar el sistema «con la
+  feature encendida y apagada». §4.38(d).
+- **GU-A7 — el diagnóstico `.../graded-estimates/preview` es de ADMIN, no público.** Es la contrapartida necesaria de un
+  DTO público tan chico: sin él, «fijé el valor y la carta no salió destacada» sería una caja negra para el humano que
+  **cura a mano** (§O.6). Reusa los `reason` de la misma función pura, sin duplicar lógica. §4.38(d).
+
+**Correcciones post-gate (2026-08-23) — cerradas por el arquitecto tras QA y techlead:**
+
+- **GU-A8 (P1 del techlead, ACEPTADA — refina §4.38d) — `AUSENTE ≠ INVÁLIDA` en el fail-closed de config.** La
+  justificación original de la excepción de seed («sin tabla no hay gate») **solo valía si ambas claves fallaban a la
+  vez**: con la tabla válida y `grading_min_upside_pct` corrupto, el gate caía al seed 30 aunque el admin hubiera puesto
+  200 ⇒ **más permisivo que su intención, en silencio**. Regla nueva: **presente-pero-inválida ⇒ nada se destaca** (para
+  cualquier clave, no solo la tabla); **ausente ⇒ seed** (es el estado del primer deploy antes de M-42). Con `warn`
+  obligatorio: la vitrina no puede vaciarse en silencio. Tabla completa en §4.38(d). **→ backend debe implementar esta
+  corrección.**
+- **GU-A9 (P2 del techlead, ACEPTADA — el documento se retro-alimenta del código).** La firma implementada
+  `Map<cardId, GradedEstimateRef[]>` **supera** al `{ psa10?, psa9? }` que describía §4.38c: no hardcodea los grados
+  (el diseño entero quiere que añadir un grado sea editar un dial) y **no transporta `PriceInfo`**, cuya ausencia
+  **estructural** de `source`/`isManualOverride` es lo que hace la indistinguibilidad de fases (g) una propiedad del
+  tipo y no una disciplina. Documento actualizado a lo implementado; **sin cambio de código**.
+- **GU-A10 (P3, decisiones de implementación RATIFICADAS y elevadas del `BACKEND_NOTES` para que nadie las revierta):**
+  (a) los endpoints `admin/pricing/graded-estimates*` viven en **`CatalogModule`** para evitar el ciclo
+  `Pricing ↔ Catalog` — **las rutas del contrato no cambian**, y moverlos «por coherencia de nombre» revive el ciclo;
+  (b) **`PUT` con body vacío ⇒ `422`** (parcial ≠ vacío), mismo precedente que `PUT /admin/fx`. Ambas en §4.38(d).
+- **Coste de queries — cifra CORREGIDA (dos veces).** El contrato publicaba «+1 constante» contando solo la query de
+  precios; el real medido fue **+1 `off` / +2 `on`**. **Y en v1.50.2 vuelve a subir a +1 `off` / +3 `on`** por el batch
+  de slabs publicados que exige INV-D (§4.38l). Corregido en §4.38(c) y en `API_CONTRACT` (changelog y §2). *(La causa
+  del +7 que midió QA —`SettingsService.get()` sin memoizar, un `findUnique` por clave— ya la cerró backend.)*
+- **(R1 del techlead) — NO requirió enmienda de doctrina.** El fail-closed no cubría la clave ausente en el **código**
+  (caía a `SETTING_DEFAULTS`), contra lo que afirmaba §4.38d. Backend **corrigió el código, no la doctrina**, así que
+  §4.38d quedó literalmente verdadera y **no se tocó**. Es el desenlace correcto: cuando el código y el diseño
+  discrepan en una regla money-safe, se mueve el código.
+
+**Para el humano (con default aplicado; responder cuando pueda):**
+
+- **GU-1 (la importante, legal) — texto del disclaimer §O.5 sin aprobar.** `PROJECT.md` marca la pregunta abierta #1 de
+  v2.0 como pendiente del visto bueno (idealmente con revisión legal). **Mitigación de arquitectura:** el flag
+  `graded_estimates_enabled` arranca en **`off`**; el equipo puede construir, testear y desplegar sin exponer la
+  afirmación. **Encenderlo en producción requiere el visto bueno del humano** — es una decisión de negocio/legal, no de
+  devops. **Nota para ux-ui:** con el patrón de **nota al pie** (asterisco junto a la cifra + texto al final de la
+  página) sigue habiendo **dos** textos —el completo de la ficha y el corto de rejilla/vitrina— y el criterio 103 exige
+  que **ninguna cifra aparezca sin al menos el corto**. Patrón definido en `DESIGN_SYSTEM.md` **§22**.
+- **GU-2 — valor usado para buscar el escalón** (§O.2.1, SUPUESTO del PO): se implementa el **estimado PSA 10** (el más
+  conservador). Cambiarlo a PSA 9 o al precio raw es **una línea** de la función pura y **cero** cambio de contrato.
+- **GU-3 — base de comparación del gate** (pregunta abierta v2.0 #2): se implementa **precio de venta raw sin IVA y sin
+  envío**, tal como el comprador lo ve. Si el humano lo quiere más conservador (sumar IVA y/o los MX$175 de envío al
+  lado del costo), es un cambio de **una expresión** en la pura; **cero** cambio de contrato ni de DTO.
+- **GU-4 — umbral de frescura** (pregunta abierta v2.0 #7): se implementa como **dial**
+  `graded_estimate_freshness_days` (seed 30) en vez de constante, precisamente porque la pregunta está viva.
+  Responder 7/14/30 = editar el dial.
+- **GU-5 — tamaño y orden de la vitrina** (pregunta abierta v2.0 #6): el tamaño lo decide el **cliente** (`pageSize`, el
+  front pide 8) y el orden **confirmado** es **mayor ganancia neta sobre PSA 9** desc. Cambiar el criterio (más baratas
+  primero, rotación diaria, mayor razón PSA10/raw) es **server-side puro** gracias al nombre neutro del sort — **cero**
+  cambio de contrato. *(«Curada a mano» sería lo único que necesitaría schema/recurso nuevo — escalar al arquitecto si
+  el humano lo pide.)*
+- **GU-6 — visibilidad para invitados** (pregunta abierta v2.0 #11): se implementa **público** (`@Public()`, igual que el
+  precio) porque vive en endpoints ya públicos. Restringirlo a usuarios registrados sería un cambio de **autorización**
+  en `/catalog/cards*` con impacto en cache/CDN ⇒ **escalar al arquitecto**, no resolver en implementación.
+
+**⚠️ PARA EL HUMANO — RATIFICACIONES PEDIDAS EN v1.50.3 (van juntas; el orquestador las lleva).**
+> Ninguna bloquea el trabajo de backend/frontend: **las cuatro divergencias ya se resolvieron alineando a
+> `PROJECT.md`**, que es lo que manda. Lo que sigue es lo que **solo el humano** puede decidir, con el default ya
+> aplicado y declarado.
+
+- **GU-8 (DINERO, la importante) — `M-43`: cerrar INV-D en la dirección inversa. ⚠️ v1.50.3-f: LA PREGUNTA CAMBIA.**
+  §4.38(l.3) lo declaró riesgo abierto; QA lo midió sobre la curva (`575000 → 1000000`); **el pentester lo reprodujo
+  en vivo y en pesos:** un slab PSA 10 que con referencia correcta lista a **MX$9,200** quedó publicado a **MX$460**
+  (5% de su valor), y con el estimado **rancio a −400 días siguió a MX$460**.
+  **Lo que ya NO se pregunta:** *si* se cierra. Por §4.38(l.4.0) esto es la aplicación literal del **criterio 55**
+  («la pieza real manda siempre»), o sea **un criterio de aceptación ya aprobado**, no alcance nuevo — y el DoD no
+  admite cerrar el proyecto con un criterio incumplido. El arquitecto **dictamina** el diseño en §4.38(l.4).
+  ⛔ **Corrección de una recomendación MÍA:** la de v1.50.3 (valor `graded_estimate` en `PriceSource` con `sourceRank`
+  bajo) **no habría cerrado nada** — el estimado suele ser la **única** candidata de su clave y gana con cualquier
+  rango. El mecanismo correcto es **exclusión**, no orden. §4.38(l.4.1).
+  **Lo que SÍ se pregunta al humano (dos cosas, ambas de calendario/coste, no de diseño):**
+  1. **¿M-43 entra en ESTE pase (recomendado) o se fusiona antes con la vía B?** M-43 = **1 columna** (`refKind`)
+     + predicado de exclusión + el `refKind` en los escritores; **DDL aditivo, sin tocar la unique, backfill
+     verificablemente vacío en producción**. Estimación: **1–2 días de backend**, no un rediseño. La **vía B**
+     (§4.38l.5) permite fusionar hoy con el gancho **apagado y bloqueado por mecanismo**, a coste de horas — pero
+     **encender sigue requiriendo M-43**.
+  2. **¿`evidenceDate` viaja en la misma migración?** (GU-9). **Sí, recomendado** (dos columnas aditivas, una sola
+     ventana). Si solo se aprueba una, **entra `refKind`**: es la que bloquea el encendido de la fase 1.
+- **GU-9 — cierre exacto del criterio 109 para el dato automático** (§4.38m.2). El default aplicado (gate de evidencia
+  en la escritura, sin DDL) acota la antigüedad a **≤ 2 × freshnessDays = 60 días**, no a los **30** que dice el
+  criterio. **Decisión pedida:** ¿basta la cota conservadora, o se aprueba la columna `evidenceDate` (en M-43) para
+  cumplirlo al pie de la letra? **No urge hasta encender la fase 2** (`graded_estimate_ingest_enabled` seed `off`),
+  pero **debe estar resuelto antes** de encenderla.
+- **GU-10 (opcional, es un dial) — `maxGradedMultiple`: ¿100× o 50×?** Se sembró **100** porque es lo que dice §O.7 /
+  criterio 111(c) y PROJECT manda. El arquitecto **preferiría 50** por money-safety en una superficie comercial, pero
+  el número lo marcó el PO como **SUPUESTO revisable por el humano** y no es del arquitecto revisarlo. **Cambiarlo es
+  editar un dial**: sin deploy, sin contrato, sin código. **Decisión pedida:** ratificar 100 o apretar a 50 al
+  calibrar con datos reales.
+- **GU-11 (opcional, cosmético) — vocabulario de los diales.** El contrato conserva `minSampleCount` /
+  `maxRawMultiple`; §O.7 los llama `minSalesSample` / `maxGradedMultiple`. Los **valores** ya están alineados y la
+  equivalencia está tabulada en §4.38(k.0). **Petición a product-owner** (no al humano): adoptar el alias en §O.7 —
+  `maxRawMultiple` describe mejor la operación real (el múltiplo va sobre el precio **raw**).
+- **GU-13 (de despliegue, NUEVA — nace de los tres seeds) — los diales corregidos NO llegan solos a producción.**
+  `prisma/seed.ts` usa `update: {}`, así que un entorno ya sembrado **conserva los valores viejos** (`null` / `3` /
+  `50`) con el código nuevo desplegado y los tests en verde. **Sin este paso, v1.50.3 no surte efecto donde importa:**
+  el override manual de 40 días **seguiría promocionándose** en prod. **Default aplicado:** paso de despliegue
+  explícito y auditado vía `PUT /admin/pricing/graded-estimates` (§4.38p), **no** un `UPDATE` automático — que pisaría
+  en silencio cualquier valor que usted haya ajustado a propósito. **Decisión pedida:** autorizar el paso, y —si algún
+  dial difiere de su seed viejo, señal de que **alguien lo ajustó**— decidir **clave por clave** si se adopta el nuevo
+  default o se conserva el suyo. *(La regla general, para que esto no se redescubra en el siguiente cambio de dial,
+  queda en §11.0.)*
+- **GU-12 — `manualFreshnessDays = null` deja de ser el default y pasa a ser decisión suya.** Si el humano decide que
+  un override manual **no** debe caducar nunca (que era el comportamiento sembrado por v1.50.2), la vía correcta es
+  **poner el dial en `null` explícitamente Y pedir a product-owner que enmiende el criterio 109** — no dejar el
+  contrato contradiciendo a PROJECT. **El arquitecto NO lo recomienda:** en una feature con exposición legal, un
+  estimado de hace dos años en portada es exactamente lo que §O.4 promete que no pasa.
+- **GU-7 (para product-owner, no bloqueante) — `PROJECT.md` §O.3 quedó SUPERADO en su parte de presentación.** Describe
+  un **bloque comparativo** con precio raw, upside en MXN, **multiplicador** y **escalón de costo visible**; el humano
+  retiró todo eso el 2026-08-23. Lo que sobrevive de §O.3: las **tres superficies**, el **disclaimer obligatorio**, la
+  **i18n** y la regla de **no renderizar nada** sin dato. `PROJECT.md` debe actualizarse para volver a mandar sobre el
+  contrato (regla de conflicto). **Los criterios 97–110 siguen verificables**, salvo la parte de **99** que enumera
+  upside/multiplicador/escalón visibles. *(Renumerados en v1.50.3: el PO movió el bloque del gancho de **79–92** a
+  **97–112** porque 79–96 los tomó §N/la curva; este documento arrastraba la numeración vieja. Ver §4.38(o).)*
+
+**Decisiones de la fusión con pricing v2 (v1.50.2, 2026-08-28) — cerradas por el arquitecto:**
+
+- **GU-A11 — `gradingHighlight` ENTRA a `GroupedListingSummaryDTO` y NO viola D2.** Ver el dictamen completo en
+  §4.38(e). Lo esencial: D2 no protege un secreto, protege la **economía de enumerar** un mapa de defectos
+  operativos, y ese argumento **solo vale mientras no exista un enumerador público del campo**. Aquí el enumerador
+  es una superficie que **construimos a propósito** (`?gradingHighlight=true&sort=grading_showcase`), así que
+  publicar la cifra por fila **no crea ninguna capacidad nueva**. Se registra además la **regla generalizada de
+  admisión** (tres condiciones) para que el siguiente campo no se re-litigue desde cero. **Consecuencia de shape que
+  backend y frontend DEBEN aplicar:** el campo se **mueve** de `GroupedListingDTO` a `GroupedListingSummaryDTO`.
+- **GU-A12 — gate de confianza de tres condiciones, asimétrico ficha/rejilla** (§4.38k). La ficha **informa**; la
+  rejilla **promueve**, y solo la promoción exige confianza. Las **tres cotas de magnitud son complementarias, no
+  redundantes** — quien las relaje en el futuro debe leer primero el porqué de cada una en §4.38(k).
+- **GU-A13 — la fase 2 se DESBLOQUEA con un parser auto-confirmante** (§4.38h). P-6 prohíbe *codificar contra un
+  esquema no confirmado*; un parser que **prueba** hipótesis y **no escribe nada** ante lo que no identifica
+  positivamente **no viola P-6, la satisface**. La doctrina no se dispensa: se cumple por construcción.
+- **GU-A14 — `intent` OBLIGATORIO en el override graded, no opcional con default** (§4.38l). Un default en una ruta
+  que mueve dinero es **fail-open**: el operador que olvida el campo obtiene silenciosamente el comportamiento
+  peligroso. Se acepta el coste de un breaking chico en una ruta `super_admin` a cambio de que la ambigüedad sea
+  **imposible de expresar**.
+- ~~**GU-A15 — la frescura no aplica a filas manuales** (§4.38m).~~ ⛔ **DEROGADA en v1.50.3 — ver GU-A16.** El
+  argumento («el dial protege contra un **feed** rancio, no contra una decisión del dueño») era bueno, pero
+  **contradice el criterio 109 de `PROJECT.md`**, y PROJECT manda sobre el contrato. El diagnóstico se conserva; el
+  remedio se sustituye. La alternativa que GU-A15 descartaba —tocar `isBetterRef`— **sigue descartada** por la misma
+  razón money-safe.
+
+**Decisiones del pase de reconciliación con `PROJECT.md` (v1.50.3, 2026-08-28) — cerradas por el arquitecto:**
+
+- **GU-A16 — la frescura SÍ aplica a filas manuales; el orden de operaciones es lo que se arregla** (§4.38m).
+  `graded_estimate_manual_freshness_days` pasa de seed `null` a **30** (criterio 109 + §O.4). La clase de fallo «gana
+  y luego se tira» que motivó GU-A15 se cierra **filtrando la frescura ANTES de `pickBestRef`**, no eximiendo del
+  decaimiento: con eso, un manual rancio deja paso a la automática fresca en vez de vaciar la carta, y un manual
+  rancio sin respaldo **deja de exhibirse**, que es lo que PROJECT pide. **`isBetterRef` y §4.27f-2 quedan
+  intactos** — el filtro vive fuera del comparador y solo en la ruta de lectura del gancho. **→ cambio de código para
+  backend** (seed + orden de operaciones + `warn` si el dial queda en `null`).
+- **GU-A17 — los seeds del gate de confianza se alinean a `PROJECT.md`** (§4.38k.0): `minSampleCount` **3 → 5**
+  (criterio 111(a)) y `maxRawMultiple` **50 → 100** (criterio 111(c)). La primera desviación era **permisiva** sobre
+  una superficie que hace afirmaciones comerciales —una mediana de tres ventas la mueve una sola venta atípica— y la
+  segunda era conservadora pero igual de silenciosa: suprimía sin explicación las cartas con upside entre 50× y 100×,
+  que son justo las que la feature busca. **Ninguna estaba documentada en ningún sitio**, que es el defecto de fondo.
+  **→ cambio de código para backend** (seeds + un test que asserte cada seed, para que una regresión de valor no
+  vuelva a pasar inadvertida).
+- **GU-A18 — los NOMBRES de los diales NO se renombran; se documenta la equivalencia** (§4.38k.0). `PROJECT.md` nombra
+  **conceptos**, no identificadores de API; renombrar costaría un breaking de admin + migración de `SettingKey` ya
+  sembradas a cambio de cero comportamiento; y `maxRawMultiple` es además **más correcto** que `maxGradedMultiple`
+  (el múltiplo se aplica sobre el precio raw). Se pide a **product-owner** adoptar el alias en §O.7.
+- **GU-A19 — se DISEÑA la lista de revisión; NO se declara fuera de alcance** (§4.38n). El criterio 111(e) la exige y
+  es la **contrapartida explícita** de (k.3): la decisión de **no ocultar** la cifra incoherente en la ficha se
+  justificó por ella. Sin lista, (k.3) pasa de «visible-y-corregible» a «visible-y-nadie-la-corrige», que es peor que
+  ocultarla. Es un **enumerador** (`GET /admin/pricing/graded-estimates/review`), no un `preview` sin `cardId`: reusa
+  las mismas puras y los mismos `reason`, se apoya en el conjunto acotado de cartas **con fila de estimado**, y
+  **funciona con la feature apagada** para poder limpiar antes de encender. **→ trabajo nuevo para backend Y
+  frontend** (sin UI en M2 el criterio no se cumple).
+- **GU-A20 — enmiendas del techlead a la regla de admisión: ACEPTADAS LAS DOS** (§4.38e). (1) La condición 2 deja de
+  ser **lista negra por nombre** y pasa a **criterio positivo** («no correlaciona con el origen del precio ni con
+  estado operativo del inventario»), con los cinco nombres como ejemplos y una cláusula de **derivación** —una lista
+  negra no sobrevive a un campo nuevo, lo admite por omisión. (2) La condición 3 gana el requisito de
+  **justificación independiente** («…y esa superficie se justificó por sí sola, no para habilitar esta emisión»):
+  sin él la regla es un **trinquete** que admite cualquier campo futuro con solo construirle antes su enumerador.
+  **`gradingHighlight` se re-verificó bajo la regla enmendada y sigue pasando las tres**, y la condición 3 la pasa en
+  su forma fuerte: la vitrina la exige `PROJECT.md` §O.3(3) / criterio 101, es **anterior e independiente** de la
+  decisión de pintar la cifra por fila. **Sin cambio de código.**
+- **GU-A22 (PI-D2, escalada de backend tras implementar v1.50.3) — S2 (`gradedPrices.psaN`) queda declarado NO
+  PERSISTIBLE; NO se añade una segunda escotilla** (§4.38h.1-bis). Al implementar el gate de evidencia al pie de la
+  letra, S2 —que es un **escalar sin fecha**— cae siempre en `evidence_unknown` y no puede escribir jamás.
+  **Primera corrección al marco:** S2 **tampoco era persistible antes** (sin `count`, fail-closed); su único camino
+  era la escotilla `MIN_COUNT=0`, que es *aceptar riesgo a sabiendas*, no una vía normal. **El parser ya era «de una
+  hipótesis y media» por defecto; v1.50.3 lo hizo visible en vez de romperlo.** **Razón de fondo:** S2 no es un S1
+  degradado, es un objeto distinto — de las tres pruebas de §O.7, las dos que dependen de evidencia del proveedor
+  (`count` y fecha) son **estructuralmente insatisfacibles** por ese shape, y **no hay superficie** donde una fila así
+  sea admisible (la ficha es más permisiva en **magnitud**, no en **procedencia**). **Segunda escotilla rechazada:**
+  `MIN_COUNT=0` + `EVIDENCE_UNKNOWN=allow` se **componen** en «un número del que no sabemos nada, en portada» — §O.4
+  se aplica aquí *más estricta que en ningún otro lado*, y **las escotillas no se apilan**. **Consecuencias:**
+  `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` queda **DEROGADA** y backend la retira (una escotilla que ya no abre nada
+  es una trampa de diagnóstico); el **sondeo de S2 se conserva** con papel de **diagnóstico** y motivo de traza propio
+  `SHAPE_NOT_PERSISTIBLE_S2`; y si la primera corrida real revela que PPT sirve mayoritariamente S2, es **escalada
+  obligatoria** (regla 9), no un parche — significa que la fase 2 **no es viable con este proveedor**, decisión de
+  producto y de costo. **No cambia contrato, ni DTO, ni fase 1; no está vivo (ingest `off`).**
+- **GU-A23 (PI-D3, hallazgo de backend) — REGLA GENERAL DE PROPAGACIÓN DE SEEDS** (§11.0, y su aplicación concreta en
+  §4.38p). `prisma/seed.ts` usa `update: {}`, así que **un cambio de seed no llega a ningún entorno ya sembrado**,
+  producción incluida. **La decisión de backend de NO automatizar un `UPDATE` se RATIFICA**: destruiría lo que
+  `update: {}` protege y lo haría en silencio (GU-A8), y (b) «sigue en el seed viejo» es **indistinguible** de
+  (c) «el operador lo eligió así» porque `ConfigSetting` guarda valor, no procedencia. *(Se evaluó inferir la
+  procedencia del `AuditLog` y se **descarta**: falla abierto ante poda de logs o edición fuera de banda.)* Lo que se
+  añade es la **regla general** —un seed es **condición inicial**, no estado deseado; cambiarlo sobre una clave
+  existente exige **dos artefactos**, y el segundo se ejecuta **por el `PUT` de admin, no por SQL** (auditado,
+  validado, sin redeploy)— más una **línea de inventario al arrancar** con las claves que difieren de su default
+  (`log`, **no `warn`**: los diales ajustados son normales y alertar por cada uno es ruido). **→ paso de despliegue
+  para devops + decisión del humano (GU-13); regla permanente para todo `ConfigSetting`, no solo para el gancho.**
+- **GU-A24 (PI-D6, escalada de backend a partir de un hallazgo de QA) — `STALE` SÍ es enumerable en la lista de
+  revisión; excluirlo era un error MÍO** (§4.38n.2-bis). Al invertir el orden en (m), `STALE` quedó **inalcanzable**
+  en las superficies de admin (una manual de 40 días respondía `NO_PSA10, stale:false, capturedDate:null`). **Se
+  ratifica la solución de backend** —opt-in `includeStaleForDiagnostics` que **solo** usan `preview` y `review`, con
+  re-inyección **únicamente** en claves sin fila fresca ⇒ no puede volver elegible a nadie ni envenenar la ficha—: es
+  la forma correcta, recupera resolución diagnóstica **sin** tocar la semántica pública. **Y se corrige el hueco que
+  quedaba en mi contrato:** `review` rechazaba `STALE` con `400`. **Razón de fondo:** metí `STALE` en el grupo
+  «ausencia» junto a `NO_PSA10`, y **no pertenece ahí** — aquellos significan *nunca hubo dato*, `STALE` significa
+  **hubo dato y expiró**. Encaja en la definición por la que construí (n) **mejor que el caso que sí admití**: una
+  cifra caducada desapareció de las tres superficies **en silencio**, sigue en la BD y el dueño **no puede
+  encontrarla**. Agravante: **yo creé esa categoría en esta misma rev** (antes de sembrar `manualFreshnessDays=30`,
+  un manual no caducaba nunca ⇒ conjunto vacío) y en (m) escribí que (n) era la superficie para verla, **normando a
+  la vez su `400`**. `STALE` pasa a **opt-in, nunca default** (mismo criterio que `SLAB_PUBLISHED`), y los DTO de
+  diagnóstico ganan **`isManual`** porque los dos sabores exigen remedios **opuestos** (recapturar vs. mirar el
+  ingest). **Admin-only; ningún DTO público cambia.**
+- **GU-A25 (PI-D7) — el disparador de la escalada por shape: se AJUSTA el suelo que propuso backend** (§4.38h.1-ter).
+  El instinto de exigir muestra mínima es correcto, pero **un suelo absoluto de 5 tiene un agujero de
+  alcanzabilidad**: con alcance «solo cartas publicadas» ((h.3)), una tienda con **3 cartas** en las que las 3
+  devuelvan S2 **nunca dispararía la escalada** ⇒ fase 2 muerta en silencio con su propio aviso inalcanzable — el
+  mismo bug que `STALE` en GU-A24, en otro sitio. **Disparador normativo:** (A) `S1 == 0 && S2 >= 1` escala
+  **siempre, sin suelo** («nunca hemos visto un S1» es cualitativamente distinto de «vemos una mezcla»); (B) `S2 > S1`
+  con suelo **`min(5, cartas_de_la_corrida)`**. El 5 sigue gobernando la operación normal pero **deja de poder
+  bloquear el aviso** donde más desapercibido pasaría. Sigue siendo **constante de código, no dial** (se calibra una
+  vez). La escalada es **señal, no fallo**: no aborta la corrida ni apaga el ingest.
+- **GU-A27 (PI-frontend, v1.50.3-d) — se DISEÑA el borrado del estimado; no se declara fuera de alcance**
+  (§4.38q). Frontend halló que el contrato promete —en **cuatro** sitios, desde v1.46— una «limpieza/borrado
+  explícito» que **no existe como endpoint**: el back-office solo puede **pisar** una cifra, nunca **quitarla**.
+  **No es alcance que yo elija:** `PROJECT.md` §O.7 pide que el dueño *«la corrija con override **o la descarte**»*,
+  y PROJECT manda ⇒ o se construye, o hay que ir al humano a enmendar §O.7. **Se construye.** Agravante propio: con
+  la caducidad que sembré esta ronda, una cifra manual errónea **desaparece de las superficies, sigue en la tabla** y
+  es enumerable por `?reason=STALE` — **construí el detector y dejé al operador sin la herramienta**.
+  **Decisiones de diseño:** alcance **estrecho** (solo el estimado por grado; se descarta el `DELETE` genérico sobre
+  `/pricing/override` porque cubriría `raw`/`sealed`, cuyo borrado mueve precios publicados); **borra todas las filas
+  de la clave** en transacción (borrar solo la vigente haría **reaparecer** una más vieja); **`404` si no hay nada**
+  (no un `200` silencioso); **auditado con `before`**, que es la única forma de deshacer; y **guarda INV-D ⇒ `409`**.
+  **Se deja escrito, porque la inferencia contraria es tentadora y falsa: este `DELETE` NO mitiga INV-D inverso** —
+  ahí el slab ya está publicado, la guarda dispara, y **debe disparar** (borrar dejaría al slab sin sustento de
+  precio). **`raw`/`sealed` siguen sin borrado**, declarado como hueco con nombre en §9 y corregido el texto de
+  §4.27f-2. **→ trabajo para backend.**
+- **GU-A28 (v1.50.3-d, aceptada sin reservas) — dos filas nuevas en `seed-e2e.ts`** (petición de frontend): una carta
+  con **grupo raw publicado + slab publicado del mismo grado**, y una **tercera carta raw publicada**. Desbloquean el
+  pre-vuelo de INV-D, el `SLAB_PUBLISHED` de (n) en modo real, y la combinación «un grado» / «dos grados sin
+  destacar». **La primera es además la única forma de verificar el `409` del `DELETE` nuevo de punta a punta.**
+- **GU-A29 (v1.50.3-e, hallazgo de frontend) — el diagnóstico deja de heredar el cortocircuito de la decisión:
+  `reasons[]`** (§4.38c, n.2-ter). Medido: raw $460 + PSA 10 $230 **sin PSA 9** ⇒ `review` devolvía `total: 0`, porque
+  el paso `NO_PSA9` **corta antes** del gate de magnitud. **El código era fiel a mi algoritmo: el defecto es mío.**
+  **Causa raíz, y es la SEGUNDA vez en este pase** (la primera fue `STALE` inalcanzable, GU-A24): construí una
+  **superficie de diagnóstico** sobre una función cuyo `reason` significa **«primer bloqueante para promocionar»**, y
+  lo leí como «el diagnóstico de la carta». **No caben en un escalar.** Por eso el arreglo **no es reordenar pasos**
+  —taparía esta instancia y dejaría la siguiente— sino emitir **`reasons[]`** con todas las condiciones detectadas.
+  **`reason` y `eligible` no cambian** (`eligible` es la conjunción de todos los pasos: el orden **nunca** la alteró
+  ⇒ money-neutral). **Severidad real por encima de su apariencia:** el error que `NOT_ABOVE_RAW` caza —USD como MXN—
+  es **más probable en la primera captura, con un solo grado**, y ahí la carta **nunca se promociona** pero **sí se
+  muestra en la ficha** ⇒ cifra en unidades equivocadas **visible al comprador e inencontrable para el operador**:
+  literalmente el «publicamos la cifra mala y nadie se entera» con el que me negué a declarar (n) fuera de alcance.
+  **→ trabajo para backend.**
+- **GU-A30 (MEN-B, v1.50.3-e) — definición de `isManual`; sin cambio de código.** Describe **la fila que el
+  diagnóstico reporta** (la que eligió `pickBestRef` entre las candidatas consideradas: frescas, o la rancia
+  re-inyectada si no hay frescas), **no** «la más antigua» ni «la que caducó». **El remedio señalado es correcto por
+  construcción incluso con diales asimétricos**, porque la re-inyección usa el **mismo comparador** que elegiría al
+  ganador si estuvieran frescas ⇒ la fila reportada **es** la que volvería a mostrarse al refrescarla. **Residual
+  aceptado:** con manual y automática rancias a la vez, se iza la manual por tier y el operador no se entera de que
+  el feed también se atrasó — señal **incompleta**, no **errónea**, y el lado del feed ya tiene los contadores por
+  motivo de (h.4). **No se añade nada.**
+- **GU-A31 (R1 del techlead, v1.50.3-e) — la guarda del `DELETE` NO se extiende a slabs `in_stock`; se cierra como
+  "sin cambio"** (§4.38q.2). **Y no por benignidad:** extenderla **preservaría** la fila de estimado justo para que,
+  al publicar el slab, pasara a determinar su precio — o sea, **institucionalizaría INV-D inverso**, el riesgo que QA
+  **midió** (`575000 → 1000000`). La línea correcta es **«¿hay ahora mismo una publicación viva que dependa de esta
+  fila?»**, y esa línea es exactamente `published`. Con el slab **sin publicar**, borrar el estimado obliga a fijar un
+  precio **deliberado** al publicar, que es lo que §M1 v1.28 ya manda. **Se cierra en vez de dejarlo como deuda
+  a propósito:** abierto, invitaría a que alguien «complete» la guarda creyendo que endurece, **reabriendo el
+  agujero**. *(Fricción aceptada: el operador puede sorprenderse al publicar; es `PRICE_PENDING`, visible y con cola
+  propia en M2.)*
+- **GU-A26 (ratificación, sin acción) — `POST /admin/pricing/override` devuelve `200`, no `201`.** QA halló que el
+  código respondía `201` contra la norma de §M2; **backend verificó que el contrato tenía razón y corrigió el código**
+  (`@HttpCode(200)`) en vez de pedir cambiar el contrato. **Es el desenlace correcto y el precedente que quiero
+  fijado:** cuando código y contrato discrepan, **manda el contrato** (CLAUDE.md, regla de conflicto) — igual que en
+  R1 del techlead, donde también se movió el código y la doctrina no se tocó. Backend avisó a frontend y QA por si
+  algún arnés asertaba el `201`. **Sin cambio documental.**
+- **GU-A21 — divergencia NUEVA detectada en este pase: la frescura del dato automático se mide contra la fecha de
+  INGESTA, no contra la evidencia** (§4.38m.2). El criterio 109 exige medir contra la **fecha de la última venta
+  observada**; medir contra `capturedDate` deja el fallo «fresco para siempre» (el job reescribe la fila cada día
+  sobre evidencia que ya no se mueve). Se cierra **sin DDL** con un **gate de evidencia en la escritura** del ingest
+  (misma técnica que `minSampleCount`; «desconocido» no es «fresco»), que acota la antigüedad a **≤ 2 ×
+  freshnessDays** — conservador y honesto, pero **no** el criterio literal. El cierre exacto necesita columna y va a
+  M-43. **No está viva** (ingest `off`), pero **bloquea encender la fase 2**. **→ cambio de código para backend.**
 
 ### Supuestos abiertos (v1.23-sealed-sales — venta de producto cerrado) — confirmar con PO
 
@@ -9328,6 +12215,156 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### 11.0 REGLA DE PROPAGACIÓN DE SEEDS (v1.50.3, NORMATIVA, GENERAL — aplica a TODO `ConfigSetting`)
+
+> **Por qué esta regla existe y por qué es general.** Backend verificó en vivo que los tres seeds corregidos de
+> v1.50.3 **no llegan a una base ya sembrada**: `prisma/seed.ts` hace `upsert` con **`update: {}`**, así que
+> `manualFreshnessDays`, `minSampleCount` y `maxRawMultiple` **conservan sus valores viejos** en cualquier entorno
+> existente —incluida **producción**—, y así lo descubrió: el E2E del criterio 109 le falló hasta fijar el dial a
+> mano. **El hallazgo es correcto y la decisión de backend de NO automatizarlo también** (registrada como `PI-D3`).
+> *(Ese fallo del E2E fue el **síntoma** que reveló el problema, **no** el detector con el que se verifica: ver el
+> punto 5 y §4.38(p).)* Lo que faltaba —y es mío—
+> es la **regla general**, porque este caso no será el último: el proyecto tiene decenas de diales sembrados
+> (escalones, spreads de sellado, tiers, curva) y **cualquiera de ellos puede cambiar de default en el futuro**.
+
+**Los cuatro puntos, normativos:**
+
+1. **UN SEED ES UNA CONDICIÓN INICIAL, NO UN ESTADO DESEADO.** `update: {}` es **correcto y no se toca**: es lo que
+   impide que un deploy pise el ajuste deliberado de un operador. **Corolario que nadie había escrito, y del que se
+   derivan los otros tres: cambiar un seed NO cambia ningún entorno ya sembrado.** Ni prod, ni staging, ni la base de
+   quien ya corrió el seed una vez.
+2. **Por tanto, cambiar el seed de una clave YA EXISTENTE es un cambio de DATOS, no de código**, y exige **dos
+   artefactos, no uno**: (a) el default nuevo en `settings.constants.ts` —que sirve **solo a entornos nuevos**— y
+   (b) un **paso de despliegue explícito y verificable** para los existentes. Entregar solo (a) es entregar un cambio
+   que **funciona en los tests y no en producción**, que es la peor forma de no entregarlo.
+3. **NO se automatiza como `UPDATE` incondicional.** Destruiría exactamente lo que `update: {}` protege, **y lo haría
+   en silencio** — el mismo modo de fallo que GU-A8 (quedar *más permisivo que la intención del admin, sin avisar*).
+   El obstáculo no es pereza: **es que (b) es indistinguible de (c)**. `ConfigSetting` guarda un **valor**, no su
+   **procedencia**, así que «sigue en el seed viejo» y «el operador eligió deliberadamente ese valor» son el mismo
+   dato — y en nuestro caso los valores viejos (3, 50, `null`) son **elecciones de operador perfectamente
+   plausibles**. *(Se evaluó y se **descarta** inferir la procedencia del `AuditLog` —«si nadie editó esta clave, sigue
+   en el seed»—: hacer depender la sobrescritura de un dial comercial de la **completitud de un log** falla abierto y
+   en silencio ante una poda de auditoría o una edición fuera de banda. Demasiado listo para una ruta que decide qué
+   se publica.)*
+4. **El paso (b) se ejecuta por la VÍA NORMAL DE OPERACIÓN, no por SQL.** Es decir, por el `PUT` de admin que gobierna
+   esa clave (aquí `PUT /admin/pricing/graded-estimates`). Tres razones y las tres importan: queda **auditado**
+   (`AuditLog`, M10 — se ve **quién** cambió el dial y **cuándo**), pasa por las **validaciones** del recurso (I1–I9;
+   un `UPDATE` puede dejar la clave presente-e-inválida, que por (d) **apaga la feature**), y surte efecto **sin
+   redeploy**. Un `UPDATE` directo a la BD se salta las tres. **La decisión de sobrescribir es del operador, informada
+   y clave por clave**, con el valor actual y el nuevo default delante.
+
+**Observabilidad que lo hace verificable (backend, barato, sin contrato).** ⚠️ **v1.50.3-b: esto DEJÓ DE SER un
+extra.** Con el E2E descartado como detector de configuración (punto 5), la línea de inventario es —junto al `GET`—
+**uno de los dos únicos detectores del seed rancio**, así que su especificación se endurece:
+
+- al izar la config, el arranque emite **una línea** enumerando las claves cuyo valor vigente **difiere de su default
+  de código**;
+- **debe imprimir los DOS valores, `vigente` y `default`, y el nombre de la clave.** Un «esta clave difiere» sin los
+  números **no es accionable**: el operador tendría que ir a la BD, que es justo el viaje que esta línea evita;
+- **debe emitirse SIEMPRE**, también cuando **no** hay divergencias (con un «sin divergencias» explícito). Una línea
+  que solo aparece cuando hay problema es indistinguible de una línea que no se emitió porque el código no corrió —y
+  «no vi la alerta» pasaría por «está todo bien», que es fallar abierto;
+- **`log`/`info`, NO `warn`, y no debe serlo** —los diales ajustados a propósito son normales y una alerta por cada uno
+  es ruido que se aprende a ignorar—: es un **inventario**, para que «¿qué diales tiene realmente este entorno?» se
+  conteste con un grep en vez de con una consulta a la BD.
+
+*(La **única** excepción sigue siendo `manualFreshnessDays === null`, que sí es
+`warn` (I8-bis) porque desactiva un criterio de `PROJECT.md`.)*
+
+**5. CONFIGURACIÓN y LÓGICA son dos aserciones distintas y exigen dos mecanismos distintos** *(añadido en v1.50.3-b
+tras una escalada de devops; es la parte de esta regla que más fácil se pisa)*. El DoD de release incluye **verificar
+los diales del entorno destino, no asumirlos** — pero **no con la suite E2E**:
+
+- **Configuración** («¿este entorno tiene los diales que creemos?») → **`GET` del recurso + la línea de inventario**.
+  **Solo lectura**, corre en **cualquier entorno, producción incluida**, y son **los únicos detectores del seed
+  rancio**.
+- **Lógica** («¿la regla que gobierna ese dial funciona?») → **suite E2E**, en **staging** o local con fixture.
+  **Escribe** (en nuestro caso: flip del dial global, un `POST /admin/pricing/override` y un `updateMany` que envejece
+  `capturedDate`) y exige fixtures sintéticos ⇒ **nunca se apunta a producción**.
+
+**La regla, en una frase, para que se pueda aplicar a la siguiente suite y no solo a esta:** *un test que **fija** su
+propia configuración para ser determinista deja, **por construcción**, de ser un detector de configuración.* Y eso es
+**correcto en el test** —una prueba de lógica debe controlar sus entradas y correr con el dial en su valor
+**nominal**—, así que la conclusión no es debilitar el test: es **no confiarle una garantía que no da**.
+
+> **Cómo se aprendió, porque el error fue mío y conviene que quede.** El E2E del criterio 109 le falló a backend en un
+> entorno con el dial viejo, y yo escribí que eso era «el test haciendo su trabajo» y convertí *correr el E2E contra el
+> entorno destino* en el paso 4 de §4.38(p). **Generalicé un accidente a procedimiento.** No era el test haciendo su
+> trabajo: era un test **bajo-especificado** fallando por una razón ajena a lo que verifica. Cuando devops lo endureció
+> —correctamente— para fijar el dial antes de asertar, **el detector accidental desapareció**, y con él habría
+> desaparecido en silencio la única verificación que yo había previsto. **Una coincidencia no es una garantía**, y el
+> remedio no es preservar la coincidencia: es sustituirla por un detector diseñado para eso. De ahí el punto 5.
+
+### v1.50-graded-estimate (nueva — M-42: diales del gancho de grading — DATA/seed, SIN DDL, §4.38)
+
+⚠️ **`backend/src/common/` y `backend/src/modules/settings/` son ZONA COMPARTIDA:** el orquestador serializa **M-42**
+frente a cualquier otro stream que toque `common/` o los diales. **`backend/prisma/schema.prisma` NO se toca: no hay DDL
+de Prisma** (ni tablas, ni columnas, ni enums, ni `DROP`, ni backfill).
+
+> **No confundir con `M-41`**, que es la migración **DDL real de la curva v2** (§4.36.9, enums + columnas nullable de
+> instrumentación). Son migraciones **distintas y de streams distintos**; esta renumeró de `M-41` a **`M-42`** en el
+> merge v1.50.2 precisamente por esa colisión.
+
+> **Por qué NO hay migración de esquema (verificado contra el código, no supuesto):** `PriceReference`
+> (`schema.prisma:782`) ya tiene `@@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId])` y su
+> **FK apunta a `Card`**, no a `InventoryItem` ⇒ una fila `(cardId, 'graded', 'graded:PSA:10'|'graded:PSA:9', 'normal',
+> hoy, null)` es **válida hoy** para una carta **sin ninguna pieza gradeada en inventario**. `buildGradeKey`
+> (`pricing.types.ts:544`) ya produce esas claves, y `POST /admin/pricing/override`
+> (`OverrideDto`, `pricing.controller.ts:46-56`) ya escribe exactamente esas filas — en **MXN directo**, sin FX. La
+> **fase 1 (manual-first)** no necesita ni una línea de schema ni un mecanismo de captura nuevo.
+
+| # | Artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-42 | `common/graded-estimate.ts` (NUEVO) | Puras `selectGradedEstimates` (ficha, sin gate de ROI ni de magnitud) + `evaluateGradingHighlight` (rejilla/vitrina, gate completo) + tipos `GradingCostTier`/`GradedEstimateConfig`/`GradedEstimateRef` | Código (común) | La partición informar/promover, el lookup de escalón, el **gate de confianza (k)** y todas las guardas money-safe (§4.38c). Sin infra, testeable sin BD. |
+| M-42 | `ConfigSetting['graded_estimate_grades']` (NUEVO `SettingKey`) | Seed `["10","9"]` | Data/seed | Grados que expone la **FICHA** (orden desc). |
+| M-42 | `ConfigSetting['graded_estimate_highlight_grades']` (NUEVO) | Seed `["10"]` | Data/seed | Grados que pinta el **BADGE**; debe ser ⊆ del anterior (I7). |
+| M-42 | `ConfigSetting['graded_estimate_freshness_days']` (NUEVO) | Seed **30** | Data/seed | Rango `[1, 365]`. Filas **AUTOMÁTICAS** (las manuales usan su propio dial, con el **mismo** seed 30 desde v1.50.3 — §4.38m). Gobierna además el **gate de evidencia del ingest** (§4.38m.2). Es dial (no constante) porque la pregunta abierta v2.0 #7 sigue viva (GU-4). |
+| M-42 | `ConfigSetting['grading_cost_tiers']` (NUEVO) | Seed de los **6 escalones** semiabiertos `[min,max)` de §4.38(d) | Data/seed | Cobertura contigua desde `0`, último `maxValueMxnCents: null`. `costMxnCents ≥ 1` **siempre**. Solo gate de curaduría. |
+| M-42 | `ConfigSetting['grading_min_upside_pct']` (NUEVO) | Seed **30** | Data/seed | Rango `[0, 1000]`. Solo gate de curaduría (no afecta la ficha). |
+| M-42 | `ConfigSetting['graded_estimates_enabled']` (NUEVO) | Seed **`'off'`** | Data/seed | **Fail-closed.** Editable en M10 (`PUT /admin/settings`), no en M2. Con `off` no se evalúa nada ni se emite ningún campo. |
+| **M-42** | `ConfigSetting['graded_estimate_manual_freshness_days']` (NUEVO, v1.50.2) | Seed **30** *(**v1.50.3**; era `null`)* | Data/seed | El override manual **SÍ decae**, criterio 109 (§4.38m). Rango `null \| [1, 3650]` (I8); `null` desactiva el criterio ⇒ decisión del humano + `warn`. |
+| **M-42** | `ConfigSetting['graded_estimate_max_raw_multiple']` (NUEVO, v1.50.2) | Seed **100** *(**v1.50.3**; era 50)* | Data/seed | Cota **superior** de magnitud (§4.38k.2) = `maxGradedMultiple` de §O.7. **> 1** obligatorio (I9): con `≤ 1` la vitrina quedaría vacía para siempre. |
+| **M-42** | `ConfigSetting['graded_estimate_min_sample_count']` (NUEVO, v1.50.2) | Seed **5** *(**v1.50.3**; era 3)* | Data/seed | Muestra mínima del proveedor = `minSalesSample` de §O.7. Se aplica **en el ingest (escritura)**, no en lectura (§4.38k.1). Rango `[1, 100]`. |
+| **M-42** | `ConfigSetting['graded_estimate_source_stat']` (NUEVO, v1.50.2) | Seed **`'median'`** | Data/seed | Cuál número del proveedor **es** el precio (§4.38h.2). Enum `median\|average\|smart`. |
+| **M-42** | `ConfigSetting['graded_estimate_ingest_max_cards_per_run']` (NUEVO, v1.50.2) | Seed **250** | Data/seed | Tope **duro** de cuota por corrida (§4.38h.3). Rango `[1, 5000]`. |
+| **M-42** | `ConfigSetting['graded_estimate_ingest_enabled']` (NUEVO, v1.50.2) | Seed **`'off'`** | Data/seed | **Fail-closed.** Interruptor de la **fase 2**, independiente de la exhibición. Editable en **M10**. |
+| M-42 | `settings.constants.ts` | **12** keys + validadores (`validateGradingCostTiers` con I1–I5, `validateGradedEstimateGrades` con I7, **I8/I9** de v1.50.2; §4.38d) | Código (común) | Las **10** keys de M2 **NO** se editan por `PUT /admin/settings` (endpoint M2 dedicado); se validan igual, como los spreads del sellado. Las **2** de M10 (`graded_estimates_enabled`, `graded_estimate_ingest_enabled`) sí. |
+
+> **Compat / reversibilidad:** las 12 claves son **nuevas**; ningún consumidor previo las lee. Revertir el deploy deja
+> filas `ConfigSetting` huérfanas e inertes (como `rarity_map`, §M2 v1.32) — **sin** riesgo de $0 ni ventana ciega,
+> porque el flag arranca `off` y el resolver es **fail-closed on-read** (tabla ausente/corrupta ⇒ nada elegible). Las
+> filas `PriceReference` con `gradeKey='graded:PSA:*'` que el admin haya fijado **sobreviven** al rollback y siguen
+> siendo lo que ya eran antes de v1.50: el valor de mercado de M1 «Gradeadas» (§M1, v1.28).
+
+### v1.50.3-f-graded-estimate-kind (nueva — **M-43**: naturaleza de la fila de precio — **DDL ADITIVO**, §4.38l.4)
+
+⚠️ **`backend/prisma/`, `backend/src/common/` y `backend/src/modules/pricing/` son ZONA COMPARTIDA:** el orquestador
+**serializa M-43** frente a cualquier otro stream. Cierra **INV-D inverso** (GE-1 del pentester, ALTA) y es la
+aplicación literal del **criterio 55** de `PROJECT.md`.
+
+| # | Artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-43 | `enum PriceRefKind` (NUEVO) | `market \| graded_estimate` | **DDL aditivo** | Enum nuevo; ningún consumidor previo lo lee. |
+| M-43 | `PriceReference.refKind` (NUEVA columna) | `PriceRefKind @default(market)` | **DDL aditivo** | **NO entra a la `@@unique`** (§4.38l.4.2). Default = toda fila existente conserva su significado ⇒ **la migración no puede mover ningún precio publicado**. |
+| M-43 | `PriceReference.evidenceDate` (NUEVA columna) | `DateTime? @db.Date` | **DDL aditivo** | (m.2): fecha de la **evidencia** (última venta del proveedor); `null` en la vía manual. `stale()` pasa a medir contra `evidenceDate ?? capturedDate`. **Empaquetada aquí por recomendación**; si el humano aprueba solo una columna, entra `refKind`. |
+| M-43 | `MONEY_REF_WHERE` (NUEVO, `pricing.service.ts`) | `{ refKind: 'market' }` aplicado vía `AND` en **toda** lectura de dinero | Código (compartido) | Seams en §4.38(l.4.4)A. **Exclusión, no rango**: `isBetterRef`/`sourceRank`/§4.27f-2 **no se tocan**. |
+| M-43 | Escritores (`manualOverride`, `persistGradedEstimateReference`) | Fijan `refKind` **en `create` Y en `update`** | Código | Tabla de escritores en §4.38(l.4.3). El `update` que lo omita deja un `intent:"market"` clasificado como estimado. |
+| M-43 | `getGradedEstimatesBatch` / `preview` / `review` / `DELETE` | Lectura **inclusiva** (ambas naturalezas, menos slab publicado); el `DELETE` borra **solo** `graded_estimate` | Código | §4.38(l.4.4)B y (l.4.5). |
+| M-43 | Backfill | **Ninguno** | Data | ⚠️ **CORREGIDO en v1.50.3-g.** Antes decía «ninguno obligatorio… si no da cero se clasifica». **El único mundo en el que el paso 4 se ejecuta es aquel en el que el censo dio cero**, y ahí no hay nada que clasificar. Si el censo NO da cero ⇒ **se para y se escala** (§4.38l.4.7 paso 1); la regla del dictamen de clasificación está en **(l.4.7-bis)**. El `UPDATE` de `BACKEND_NOTES.md` §0.11.6 paso 4 queda **⛔ DEROGADO**. |
+| **M-44** | `POST /admin/pricing/override` + `intent:"graded_estimate"` sobre fila `market` **del día** | **`409 GRADED_ESTIMATE_WOULD_DEGRADE_MARKET_REF`**; la fila no se toca; bloqueo auditado; decisión de naturaleza **dentro de la transacción** | **Código** (sin DDL, sin data) | §4.38(l.4.10). **BREAKING chico** (`super_admin`): un subconjunto de llamadas que hoy dan `200` pasa a `409`. Cierra SEC-M43-1. Contrato: `API_CONTRACT.md` v1.50.3-g. |
+| **M-44b** | `AuditLog` de `pricing.override` | Registra **`before`** (`priceMxnCents`, `refKind`, `source`) además de `after` | **Código** (superficie interna) | §4.38(l.4.10) punto 5. Sin cambio de contrato de API. Hace recuperable el monto pisado — cubre también el residual (l.4.9) punto 1. |
+| **M-45** | Runbook de cut-over | Paso 0 (congelación) · paso 1 **para y escala** (sin rama alternativa) · paso 3-bis (re-censo como gate) · paso 4 **sin backfill** · paso 5 con check **negativo** · paso 6 reescrito | **Procedimiento** | §4.38(l.4.7)/(l.4.11). Dueño de ejecución: **devops**; dueño del documento espejo (`BACKEND_NOTES.md` §0.11.6): **backend**. Cierra SEC-M43-2. |
+
+> **Compat / reversibilidad:** aditiva pura y segura con la app corriendo. ~~**Revertir = revertir el código**~~
+> ⛔ **CORREGIDO en v1.50.3-g: revertir el código NO es suficiente.** Al quitar el predicado de exclusión, las filas
+> `graded_estimate` ya escritas vuelven a ser candidatas **perennes** (`MANUAL_REF_PREDICATE`, sin cota de fecha) ⇒
+> **el rollback reabre GE-1**. Procedimiento correcto en **§4.38(l.4.11)**: en urgencia se apaga el **dial** (no se
+> revierte el código); en retirada ordenada, **precondición de cero filas `graded_estimate`** antes del revert. La
+> columna sí puede quedarse, inerte; **no se quita en caliente**. El procedimiento de cut-over —congelar, contar,
+> enumerar `?reason=SLAB_PUBLISHED`, **re-afirmar con `intent:"market"`**, re-censar como gate, migrar, verificar con
+> los **dos** checks— es **obligatorio y en ese orden**: sin el paso 3, un slab puede dejar de venderse en silencio
+> (§4.38l.4.7 y el residual de (l.4.9)).
 
 > **v1.43-sealed-manual-override-survives-dial (IMP-C) — SIN migración.** El fix es lógica pura en `gateSealedMarketCents`
 > (resolver H-1); no toca schema, ni `ConfigSetting`, ni forma de contrato. El discriminante del override manual ya vive

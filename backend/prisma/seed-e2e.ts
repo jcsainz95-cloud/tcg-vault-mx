@@ -11,12 +11,16 @@
  *   import { seedE2E } from './seed-e2e'  // reutilizable desde las suites (beforeAll)
  *
  * Requiere: DATABASE_URL + migraciones aplicadas (`prisma migrate deploy`).
- * Idempotente (E2E-1): se puede correr N veces sobre la MISMA DB sin romper. Todos los
- * fixtures con clave única usan `upsert`; además resetea el estado transaccional por-usuario
- * Y el estado E2E que no cuelga de userId (ProcessedStripeEvent + InventoryMovement de piezas
- * de plataforma), de modo que una 2ª corrida de `test:integration` vuelve a partir de cero.
+ * Idempotente (E2E-1): se puede correr N veces sobre la MISMA DB —el mismo día o en días
+ * DISTINTOS, sobre una BD limpia o sobre una que dejó sucia una corrida fallida— sin romper y
+ * dejando siempre el MISMO estado. Todos los fixtures con clave única usan `upsert`; además
+ * resetea el estado transaccional por-usuario, el estado E2E que no cuelga de userId
+ * (ProcessedStripeEvent + InventoryMovement de piezas de plataforma) y las `PriceReference` de
+ * las cartas del fixture (borra-y-declara, §6: su clave única incluye `capturedDate`, así que
+ * «actualizar la del día» NO basta para ser idempotente entre días). De modo que una 2ª corrida
+ * de `test:integration` vuelve a partir de cero.
  */
-import { Finish, PrismaClient } from '@prisma/client';
+import { Finish, Prisma, PriceRefKind, PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
 import { deriveNumberParts } from '../src/common/card-order';
@@ -29,12 +33,25 @@ import {
   E2E_LOCATIONS,
   E2E_SET,
   E2E_SETTINGS,
+  E2E_STALE_ESTIMATES,
   E2E_USERS,
 } from './e2e-fixtures';
 
 function todayUtc(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * v1.50.3-e — fecha de captura RETRODATADA, en la misma convención date-only UTC que `todayUtc()`.
+ * Es lo único que la API del contrato no puede producir: `POST /admin/pricing/override` escribe
+ * SIEMPRE con la fecha de hoy (a propósito: el manual se refresca recapturándolo, §4.38m), así que
+ * sin esto el fixture no puede ofrecer una fila **vencida** de forma estable.
+ */
+function daysAgoUtc(days: number): Date {
+  const d = todayUtc();
+  d.setUTCDate(d.getUTCDate() - days);
   return d;
 }
 
@@ -78,6 +95,29 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   const ids = Object.values(userIds);
 
   // 3. Reset del estado TRANSACCIONAL de E2E (para determinismo entre corridas/archivos).
+  //
+  // 3-pre. Pedidos de INVITADO (v1.21/M-25). No cuelgan de `userId` —por definición— así que las
+  // reglas por-usuario de abajo NUNCA los alcanzaban y se ACUMULABAN corrida tras corrida. No es
+  // cosmético: `GET /admin/shipments` pagina con un tope DURO de 100 (el contrato lo capa), y al
+  // pasar de 100 envíos `picking` históricos el envío recién creado dejó de caber en la página y
+  // el caso «el envío de invitado aparece en la cola de M4» empezó a fallar SOLO en las máquinas
+  // con historial — el mismo modo de fallo que BLOQ-A (el arnés se rompe por su propia operación,
+  // y en CI —BD efímera— nunca se ve). Se acota al dominio RESERVADO `@example.com` (RFC 2606), que
+  // es el que usan TODOS los fixtures de invitado de la suite y que ningún cliente real puede tener.
+  // Primero los envíos (FK `orderId` es `Restrict`), luego los pedidos (cascada a OrderItem y a
+  // OrderAccessToken). Los pedidos de invitado ya RECLAMADOS también entran: nacieron invitados
+  // (`guestEmail` es inmutable) y su envío tiene `userId = null`, así que sin esto bloquearían por
+  // Restrict el borrado por-usuario de más abajo.
+  const guestOrders = await prisma.order.findMany({
+    where: { guestEmail: { endsWith: '@example.com' } },
+    select: { id: true },
+  });
+  const guestOrderIds = guestOrders.map((o) => o.id);
+  if (guestOrderIds.length > 0) {
+    await prisma.shipmentRequest.deleteMany({ where: { orderId: { in: guestOrderIds } } });
+    await prisma.order.deleteMany({ where: { id: { in: guestOrderIds } } });
+  }
+
   await prisma.dispute.deleteMany({ where: { userId: { in: ids } } });
   await prisma.shipmentRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a ShipmentItem
   await prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a SellRequestItem
@@ -213,49 +253,100 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: Object.values(cardIds) } } });
 
   // 6. Referencias de precio del día (valor de mercado). `nopref` queda SIN referencia.
+  //
+  // IDEMPOTENCIA ENTRE DÍAS Y ENTRE CORRIDAS (E2E-1 · BLOQ-A de QA). La `@@unique` de
+  // `PriceReference` incluye `capturedDate`, y la versión anterior de este helper buscaba la fila
+  // existente FILTRANDO por `capturedDate: day`: sembrar HOY sobre una BD sembrada AYER no
+  // actualizaba nada — INSERTABA una segunda fila de la misma clave lógica. El fixture del slab
+  // acababa con dos `graded:PSA:10` y el criterio 8 de `graded-estimate.e2e-spec` reventaba en la
+  // SEGUNDA corrida. El mismo agujero dejaba pasar la basura de una corrida FALLIDA (estimados a
+  // medio recapturar, y las filas que el caso `8d` ENVEJECE a 40 días para probar la caducidad):
+  // el arnés dejaba de ser repetible por su propia operación, y en CI —BD efímera— siempre verde.
+  //
+  // Ahora el seed DECLARA el estado completo de esta tabla para las cartas del fixture: borra TODAS
+  // sus referencias (cualquier día, cualquier acabado, cualquier `cardProductId`) y escribe
+  // exactamente las de abajo. Sembrar N veces, el mismo día o en días distintos, sobre una BD
+  // limpia o sobre una sucia, deja SIEMPRE el mismo estado. Va en UNA transacción para que un
+  // stack vivo (`up --seed`) nunca observe la ventana intermedia sin precio, que despublicaría
+  // piezas por PRICE_PENDING.
   const day = todayUtc();
-  const priceRef = async (
+  const priceRefs: Prisma.PriceReferenceCreateManyInput[] = [];
+  const priceRef = (
     cardExt: string,
     productType: 'raw' | 'graded' | 'sealed',
     gradeKey: string,
     priceMxnCents: number,
     finish: 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil' = 'normal',
   ) => {
-    // v1.29 (M-31): la clave gana `cardProductId`; el seed usa el fallback null (findFirst + create).
-    const existing = await prisma.priceReference.findFirst({
-      where: {
-        cardId: cardIds[cardExt],
-        productType,
-        gradeKey,
-        finish,
-        capturedDate: day,
-        cardProductId: null,
-      },
+    // v1.29 (M-31): la clave gana `cardProductId`; el seed usa el fallback null.
+    priceRefs.push({
+      cardId: cardIds[cardExt],
+      productType,
+      gradeKey,
+      finish,
+      source: 'manual',
+      priceMxnCents,
+      capturedDate: day,
+      isManualOverride: true,
+      cardProductId: null,
     });
-    if (existing) {
-      await prisma.priceReference.update({ where: { id: existing.id }, data: { priceMxnCents } });
-    } else {
-      await prisma.priceReference.create({
-        data: {
-          cardId: cardIds[cardExt],
-          productType,
-          gradeKey,
-          finish,
-          source: 'manual',
-          priceMxnCents,
-          capturedDate: day,
-          isManualOverride: true,
-        },
-      });
-    }
   };
-  await priceRef(E2E_CARDS.charizard.externalId, 'raw', 'raw:NM', E2E_CARDS.charizard.refNmCents);
-  await priceRef(E2E_CARDS.common.externalId, 'raw', 'raw:NM', E2E_CARDS.common.refNmCents);
-  await priceRef(E2E_CARDS.reverse.externalId, 'raw', 'raw:NM', E2E_CARDS.reverse.refNmCents);
-  await priceRef(E2E_CARDS.graded.externalId, 'graded', 'graded:PSA:10', E2E_CARDS.graded.refPsa10Cents);
-  await priceRef(E2E_CARDS.highvalue.externalId, 'raw', 'raw:NM', E2E_CARDS.highvalue.refNmCents);
+  priceRef(E2E_CARDS.charizard.externalId, 'raw', 'raw:NM', E2E_CARDS.charizard.refNmCents);
+  priceRef(E2E_CARDS.common.externalId, 'raw', 'raw:NM', E2E_CARDS.common.refNmCents);
+  priceRef(E2E_CARDS.reverse.externalId, 'raw', 'raw:NM', E2E_CARDS.reverse.refNmCents);
+  priceRef(E2E_CARDS.graded.externalId, 'graded', 'graded:PSA:10', E2E_CARDS.graded.refPsa10Cents);
+  priceRef(E2E_CARDS.highvalue.externalId, 'raw', 'raw:NM', E2E_CARDS.highvalue.refNmCents);
   // v2.1.7: mercado ABSURDO para una premium ⇒ la venta aterriza en el PISO (guardarraíl §4.36.5).
-  await priceRef(E2E_CARDS.floorpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.floorpremium.refNmCents!);
+  priceRef(E2E_CARDS.floorpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.floorpremium.refNmCents!);
+  // v1.50.3-d (§4.38i.9) — la carta con raw publicado Y slab PSA 10 publicado. Las DOS filas son de la
+  // MISMA carta y NO significan lo mismo: `raw:NM` es el mercado del single, y `graded:PSA:10` es la
+  // referencia de mercado REAL del slab publicado — **no** un estimado del gancho, aunque sea la misma
+  // clave que usaría un estimado (eso ES INV-D, §4.38l). El `DELETE` de §4.38(q) responde `409` sobre
+  // ella y este seed es lo que lo vuelve verificable de punta a punta.
+  priceRef(E2E_CARDS.slabbed.externalId, 'raw', 'raw:NM', E2E_CARDS.slabbed.refNmCents);
+  priceRef(E2E_CARDS.slabbed.externalId, 'graded', 'graded:PSA:10', E2E_CARDS.slabbed.refPsa10Cents);
+  // v1.50.3-d — la TERCERA carta raw publicada (§4.38i.9).
+  priceRef(E2E_CARDS.thirdraw.externalId, 'raw', 'raw:NM', E2E_CARDS.thirdraw.refNmCents);
+  // v1.50.3-e — la CUARTA raw publicada y LIBRE: SOLO su referencia raw. **Ninguna fila de estimado a
+  // propósito**: nace limpia para que el caso que la use no herede el estado de otro (§4.38i.9).
+  priceRef(E2E_CARDS.fourthraw.externalId, 'raw', 'raw:NM', E2E_CARDS.fourthraw.refNmCents);
+  // v1.50.3-e (petición de QA) — la carta de los estimados que la API NO puede fabricar: su raw, más
+  // las DOS filas `graded:PSA:*` con `capturedDate` VIEJA, una de ellas **automática**
+  // (`isManualOverride: false`, `source` de proveedor). Sin ellas, `?reason=STALE` con origen
+  // automático y el `isManual: false` del diagnóstico solo existían en unitarios con dobles: el
+  // override manual escribe siempre manual y siempre con fecha de hoy.
+  priceRef(E2E_CARDS.staleest.externalId, 'raw', 'raw:NM', E2E_CARDS.staleest.refNmCents);
+  for (const e of E2E_STALE_ESTIMATES) {
+    priceRefs.push({
+      cardId: cardIds[E2E_CARDS.staleest.externalId],
+      productType: 'graded',
+      gradeKey: e.gradeKey,
+      finish: 'normal',
+      // Las DOS señales de origen se siembran COHERENTES entre sí: el resolver considera manual una
+      // fila con `isManualOverride` **o** con `source: 'manual'` (§4.38m), así que una fila «automática»
+      // con `source: 'manual'` sería un dato imposible que volvería verde una prueba por el motivo
+      // equivocado.
+      source: e.isManual ? 'manual' : 'pokemonpricetracker',
+      // v1.50.3-f (M-43, §4.38l.4.2) — **NATURALEZA explícita: son ESTIMADOS del gancho, no dinero.**
+      // Es la única carta del fixture cuyas filas `graded:PSA:*` son estimados: las de `graded` y
+      // `slabbed` son la referencia de MERCADO de sus slabs publicados y se quedan con el default
+      // `market` (sembrarlas como estimado las dejaría **sin precio**, que es exactamente el efecto
+      // que M-43 produce y que el cut-over existe para evitar).
+      refKind: PriceRefKind.graded_estimate,
+      priceMxnCents: e.priceMxnCents,
+      // Sin `priceUsdCents`: el monto es MXN nativo y NINGUNA FX puede reinterpretarlo (`liveMxnCents`
+      // solo recalcula cuando hay USD). El fixture promete un número, no una conversión del día.
+      capturedDate: daysAgoUtc(e.daysAgo),
+      isManualOverride: e.isManual,
+      cardProductId: null,
+    });
+  }
+  // El BORRA-Y-DECLARA atómico. `deleteMany` acotado a las cartas del fixture: el seed sintético no
+  // gobierna —ni toca— referencias de ninguna otra carta que hubiera en la BD.
+  await prisma.$transaction([
+    prisma.priceReference.deleteMany({ where: { cardId: { in: Object.values(cardIds) } } }),
+    prisma.priceReference.createMany({ data: priceRefs }),
+  ]);
 
   // 6-bis. COLA DE PRECIO PENDIENTE (v2.1.7) — la cola de triage de P-48 no tenía NINGÚN dato real:
   // sus `counts` estaban verificados en forma pero no en número. Se siembran las DOS razones, y las
@@ -365,6 +456,93 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       ownerType: 'platform',
       status: 'listed',
       acquisitionType: 'compra',
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+
+  // v1.50.3-d (§4.38i.9) — las DOS piezas de la carta de INV-D, sobre la MISMA carta: el grupo raw
+  // publicado y el slab PSA 10 publicado. Con las dos a la vez, `getPublishedSlabGradesBatch` devuelve
+  // `['10']` para esa carta y por fin se puede ejercitar contra el stack vivo lo que hasta ahora solo
+  // existía en pruebas unitarias: el pre-vuelo del back-office, el `SLAB_PUBLISHED` de la lista de
+  // revisión y el `409` del `DELETE` de §4.38(q).
+  await upsertItem(
+    E2E_FOLIOS.listedSlabRaw,
+    {
+      cardId: cardIds[E2E_CARDS.slabbed.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 20000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+  await upsertItem(
+    E2E_FOLIOS.listedSlab,
+    {
+      cardId: cardIds[E2E_CARDS.slabbed.externalId],
+      productType: 'graded',
+      gradingCompany: 'PSA',
+      gradeValue: '10',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 500000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+  // v1.50.3-d — la TERCERA raw publicada (§4.38i.9): permite cubrir «un solo grado» y «dos grados sin
+  // destacar» a la vez, sin que un caso pise al otro sobre la misma carta.
+  await upsertItem(
+    E2E_FOLIOS.listedThirdRaw,
+    {
+      cardId: cardIds[E2E_CARDS.thirdraw.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 25000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+
+  // v1.50.3-e (§4.38i.9) — la CUARTA raw publicada y LIBRE. Existe para que los escenarios dejen de
+  // reciclarse entre casos: un fixture que obliga a reutilizar la misma carta crea ACOPLAMIENTO entre
+  // pruebas (la segunda hereda el estado de la primera), que es justo lo que un fixture sintético
+  // existe para evitar. No lleva NINGUNA fila de estimado: quien la use la captura y la retira.
+  await upsertItem(
+    E2E_FOLIOS.listedFourthRaw,
+    {
+      cardId: cardIds[E2E_CARDS.fourthraw.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 22000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+  // v1.50.3-e (QA) — la pieza raw de la carta de los estimados RANCIOS. Tiene que estar PUBLICADA:
+  // la lista de revisión (y el `preview`) solo producen filas para cartas con **grupo raw publicado**,
+  // así que sin esta pieza las dos filas de estimado no serían observables por ninguna superficie.
+  await upsertItem(
+    E2E_FOLIOS.listedStaleEst,
+    {
+      cardId: cardIds[E2E_CARDS.staleest.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 15000,
       locationId: platformLoc.id,
     },
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },

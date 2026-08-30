@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, MONEY_REF_WHERE, toPublicPriceInfo } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
@@ -339,6 +339,9 @@ export class SealedCatalogService {
         gradeKey: sealedMarketGradeKey(item.tcgplayerProductId),
         finish: 'normal',
         ...(from ? { capturedDate: { gte: from } } : {}),
+        // v1.50.3-f (M-43, §4.38l.4.4A): la serie de valor del sellado es una ruta de DINERO (es lo que
+        // el cliente lee como «cuánto vale mi caja»). Solo filas de MERCADO.
+        ...MONEY_REF_WHERE,
       },
       orderBy: { capturedDate: 'asc' },
       select: { capturedDate: true, priceMxnCents: true },

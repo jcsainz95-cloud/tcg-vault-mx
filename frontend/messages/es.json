@@ -142,6 +142,11 @@
       "collectingTitle": "Recopilando historial",
       "collectingBody": "La tendencia de este set aparecerá cuando tengamos un par de días de historia.",
       "marketRefNote": "Referencia de mercado de las cartas con precio de este set."
+    },
+    "gradingGems": {
+      "title": "Joyas para gradear",
+      "kicker": "ILUSTRATIVO · NO EVALUAMOS LA PIEZA",
+      "lead": "Cartas sin gradear cuyo valor de mercado ya gradeadas es muy superior."
     }
   },
   "catalog": {
@@ -179,7 +184,32 @@
       }
     },
     "removeFilter": "Quitar filtro {label}",
-    "rarityAria": "Rareza: {rarity}"
+    "rarityAria": "Rareza: {rarity}",
+    "gradingEstimate": {
+      "eyebrow": "VALOR ESTIMADO SI SE GRADEA",
+      "updatedAt": "ESTIMADO · {date}",
+      "ifGradesLabel": "SI SALE",
+      "microNotice": "<b>Cifra ilustrativa</b> de mercado (lo que se ha pagado por esa carta ya gradeada por terceros). <b>No evaluamos el estado de esta carta</b> ni garantizamos ningún grado; el gradeo y su costo corren por tu cuenta.",
+      "hypotheticalGradeAria": "Grado hipotético: {company} {grade}. Esta carta no está gradeada."
+    },
+    "gradingBadge": {
+      "figure": "En {company} {grade} vale <approx>≈</approx> {amount}",
+      "figureShort": "{company} {grade} <approx>≈</approx> {amount}",
+      "microNotice": "<b>Ilustrativo</b>; <b>no evaluamos esta carta</b>.",
+      "approx": "aproximadamente"
+    },
+    "gradingNote": {
+      "callSr": "Ver nota al pie.",
+      "label": "NOTA SOBRE EL VALOR ESTIMADO SI SE GRADEA",
+      "headline": "INFORMACIÓN ILUSTRATIVA. NO ES UNA VALUACIÓN DE ESTA CARTA.",
+      "p1": "<b>Las cifras de PSA 10 / PSA 9 son un dato de referencia de mercado sobre ese modelo de carta ya gradeado por terceros.</b> Se muestran para ilustrar cómo se comporta el mercado, nada más.",
+      "p2": "<b>NO reflejan ni evalúan el estado de la carta que estás comprando.</b> No hemos inspeccionado, medido ni pre-evaluado esta pieza para efectos de gradeo —ni su centrado, ni su superficie, ni sus bordes, ni sus esquinas— y no opinamos sobre qué grado obtendría. Vendemos esta carta como raw (sin gradear) en Near Mint según nuestro propio estándar de condición, que es una cosa distinta de un grado de PSA.",
+      "p3": "<b>NO garantizamos ningún grado.</b> El grado lo determina PSA, de forma independiente y bajo sus propios criterios. El resultado puede ser muy inferior al que aquí se ilustra, y la carta puede incluso no ser elegible para gradeo. Gradear es una apuesta y el riesgo es enteramente tuyo.",
+      "p4": "<b>Esto no es una oferta, ni una garantía de precio, ni un compromiso de recompra</b> por parte de TCG Vault MX. Si mandas la carta a gradear y el resultado no es el que esperabas, no hay reembolso, compensación ni devolución por ese motivo (aplica nuestra política de ventas finales).",
+      "p5": "<b>TCG Vault MX no gradea cartas ni intermedia el servicio de gradeo.</b> La cuota de PSA, el envío internacional, el retorno a México, los seguros y los tiempos de espera corren por tu cuenta.",
+      "p6": "<b>Los precios de mercado cambian todos los días</b> y este estimado puede quedar desactualizado en cualquier momento.",
+      "back": "Volver al valor estimado"
+    }
   },
   "shop": {
     "filtersTitle": "Filtros",
@@ -1466,15 +1496,151 @@
         "example": "Ej.: 15% sobre un mercado de MX$3,000 = MX$3,450.",
         "fallbackLabel": "Spread global",
         "fallbackHint": "Se aplica a las presentaciones sin regla propia.",
-      "fallbackRequired": "El spread global no se puede quitar: es el respaldo de las presentaciones sin regla propia. Para no aplicar markup, escribe 0.",
+        "fallbackRequired": "El spread global no se puede quitar: es el respaldo de las presentaciones sin regla propia. Para no aplicar markup, escribe 0.",
         "subtype": "Presentación",
         "spread": "Spread",
         "spreadFor": "Spread de {subtype}",
-      "usesGlobal": "Usa el global ({pct}%)",
+        "usesGlobal": "Usa el global ({pct}%)",
         "zeroWarning": "Sin margen",
         "zeroBanner": "Un spread de 0% vende al costo de mercado, sin margen. Verifica antes de guardar.",
         "prereqHint": "El spread solo produce precio si el producto está mapeado a TCGCSV y la fuente de precio del sellado está activa.",
         "saved": "Spreads guardados."
+      },
+      "gradedEstimates": {
+        "title": "Valor estimado si se gradea · costos y curaduría",
+        "subtitle": "Decide qué cartas se promocionan con el gancho de grading. Nada de esto se le muestra al cliente: solo cambia qué cartas llevan cifra en las tejas y en la vitrina del home.",
+        "masterSwitch": "Interruptor maestro",
+        "masterSwitchHint": "Se enciende y se apaga en M10 · Config.",
+        "enabledOn": "Encendido",
+        "enabledOff": "Apagado",
+        "offBanner": "La feature está apagada: puedes dejar la tabla lista, pero la tienda no mostrará ninguna cifra hasta encenderla en M10.",
+        "tiers": {
+          "title": "Escalones de costo de gradeo",
+          "hint": "Costo total puerta a puerta para un comprador en México (cuota PSA + envío internacional + retorno asegurado + manejo), según el valor de la carta. Los escalones son contiguos por construcción: el inicio de cada uno es el fin del anterior, y el último queda abierto para que ninguna carta se quede sin escalón.",
+          "from": "Desde",
+          "to": "Hasta",
+          "toFor": "Fin del escalón {index}",
+          "cost": "Costo de gradeo",
+          "costFor": "Costo de gradeo del escalón {index}",
+          "openEnded": "En adelante",
+          "add": "Añadir escalón",
+          "remove": "Quitar el escalón {index}",
+          "errors": {
+            "range": "El fin del escalón debe ser mayor que su inicio.",
+            "cost": "El costo debe ser al menos MX$0.01 y como máximo MX$100,000. Un costo en 0 promocionaría cartas en las que el comprador pierde dinero."
+          }
+        },
+        "minUpside": {
+          "label": "Margen mínimo",
+          "hint": "Lo que le debe quedar al comprador por encima del costo total (carta + gradeo) para que valga la pena promocionarla. Se evalúa siempre sobre el estimado PSA 9, el escenario realista."
+        },
+        "freshness": {
+          "label": "Frescura del dato",
+          "hint": "Días tras los cuales un estimado se considera rancio y deja de mostrarse. Entero entre 1 y 365."
+        },
+        "grades": "Grados que muestra la ficha: {grades}. Grados que pinta el badge de las tejas: {highlight}. El gate siempre se evalúa con PSA 9, aunque el badge muestre PSA 10.",
+        "globalErrors": {
+          "minUpside": "El margen mínimo debe ser un número entre 0 y 1000.",
+          "freshness": "La frescura debe ser un número entero de días entre 1 y 365."
+        },
+        "recalcHint": "Al guardar se recalcula al vuelo qué cartas se promocionan (subir el margen o encarecer un escalón puede vaciar la vitrina). No toca ningún precio de venta, valuación de portafolio ni cotización de buylist. Queda en la bitácora de M10.",
+        "saved": "Configuración del gancho guardada.",
+        "confidenceDials": "Gate de confianza (hoy solo por API): el estimado manual caduca a los {manualFreshness} días · tope del PSA 10 = {maxRawMultiple}× el precio raw · muestra mínima del ingest {minSampleCount} ventas · estadístico publicado «{sourceStat}».",
+        "manualFreshnessNever": "∞ (no caduca)"
+      },
+      "gradedEstimateCapture": {
+        "title": "Capturar estimado a mano",
+        "subtitle": "Publica la cifra ILUSTRATIVA de cuánto valdría una carta si se gradeara. Es la herramienta de curaduría del gancho y el respaldo del ingest automático: corregir un dato malo, empujar una carta gancho o tapar un hueco del proveedor.",
+        "boundaryTitle": "Esto NO fija el precio de ninguna pieza",
+        "boundaryBody": "Aquí se publica una estimación sobre una carta SIN gradear: una cifra ilustrativa, no una oferta. Para ponerle precio a un slab que ya tienes en inventario, ve a Inventario › Gradeadas: ahí se fija el precio de mercado real de esas piezas, que es dinero.",
+        "featureOff": "El gancho está apagado (interruptor maestro en M10): puedes capturar la cifra, pero la tienda no la mostrará hasta encenderlo.",
+        "searchLabel": "Buscar carta",
+        "searchPlaceholder": "Nombre o número de la carta",
+        "searchHint": "Escribe al menos 2 caracteres. Busca en todo el catálogo, no solo en lo publicado.",
+        "searchEmpty": "Ninguna carta coincide con esa búsqueda.",
+        "changeCard": "Cambiar carta",
+        "slabTitle": "Grados bloqueados en esta carta",
+        "slabBody": "Esta carta ya tiene piezas publicadas de grado {grades}. Esa fila es el precio de mercado REAL de esas piezas: capturar un estimado ahí les cambiaría el precio de venta, así que esos grados quedan deshabilitados. Para cambiar ese precio, edita la pieza en Inventario › Gradeadas.",
+        "gradeLabel": "Estimado PSA {grade} (MXN)",
+        "gradeBlocked": "Bloqueado: hay una pieza PSA {grade} publicada de esta carta.",
+        "gradeInvalid": "Importe inválido: debe ser mayor que MX$0. No se guarda nada en este grado.",
+        "save": "Publicar estimados",
+        "saveHint": "Los campos vacíos no se tocan; cada grado se guarda por separado.",
+        "resultOk": "PSA {grade}: estimado guardado.",
+        "resultError": "PSA {grade}: {message}",
+        "diagnosis": {
+          "title": "Diagnóstico de curaduría",
+          "hint": "Solo back-office: ni los umbrales ni el resultado del gate viajan nunca al cliente.",
+          "salePrice": "Precio raw publicado",
+          "none": "sin dato",
+          "captured": "Dato del {date}",
+          "eligible": "Destacada",
+          "notEligible": "No destacada",
+          "noGroups": "Esta carta no tiene ningún grupo raw publicado. Puedes capturar su estimado igualmente —la fila cuelga de la carta, no del inventario—, pero no se destacará en Compra ni en el home hasta que la publiques.",
+          "reason": {
+            "FEATURE_OFF": "El interruptor maestro está apagado (M10).",
+            "NOT_RAW": "No es un grupo raw.",
+            "NOT_PUBLISHED": "La carta no está publicada.",
+            "NO_PSA10": "Falta el estimado PSA 10.",
+            "NO_PSA9": "Falta el estimado PSA 9: sin él no hay promoción, aunque la ficha sí muestre el PSA 10.",
+            "STALE": "El dato es más viejo que la ventana de frescura.",
+            "NO_COST_TIER": "Ningún escalón de costo cubre ese valor: sin escalón no hay destacado.",
+            "BELOW_MIN_UPSIDE": "El margen sobre el PSA 9 no llega al mínimo exigido.",
+            "SLAB_PUBLISHED": "Hay un slab publicado de ese grado: esa fila es dinero real, no un estimado.",
+            "NOT_ABOVE_RAW": "El PSA 10 no supera el precio raw. Suele ser un importe en dólares capturado como pesos.",
+            "ABOVE_MAX_MULTIPLE": "El PSA 10 supera el múltiplo máximo sobre el precio raw. Suele ser un cero de más.",
+            "GRADE_ORDER_INVERTED": "El PSA 9 vale más que el PSA 10: las dos filas parecen cruzadas."
+          }
+        }
+      },
+      "gradedEstimateReview": {
+        "title": "Lista de revisión · cifras que hay que mirar",
+        "subtitle": "Cuando una cifra estimada no es creíble frente al precio de la carta, NO se oculta en la ficha —se informa lo que hay— y a cambio aparece aquí para que alguien la corrija. Sin esta lista publicaríamos el número raro y además perderíamos la señal.",
+        "includeSlabPublished": "Incluir también las cartas con slab publicado de ese grado",
+        "includeSlabPublishedHint": "Fuera del listado por defecto a propósito: no son datos erróneos —son filas que ya son el precio real de una pieza— y mezclarlas ahogaría la señal de las cifras incoherentes.",
+        "includeStale": "Incluir también las cifras caducadas",
+        "includeStaleHint": "Una cifra caducada existió y expiró: dejó de verse en la tienda, pero sigue en la tabla. Es el caso que esta lista existe para poder encontrar. Fuera del default por lo mismo que el slab publicado: no es un dato incoherente y ahogaría la señal.",
+        "colCard": "Carta",
+        "colReason": "Qué le pasa",
+        "colRaw": "Precio raw publicado",
+        "colMaxAllowed": "Tope permitido al PSA 10",
+        "colCaptured": "Dato del",
+        "colAction": "Retirar",
+        "originManual": "manual (la puso el dueño)",
+        "originIngest": "automática (ingest)",
+        "noData": "sin dato",
+        "summary": "{total} cifras marcadas sobre {scanned} cartas con estimado.",
+        "howToFix": "No hay «marcar como revisada» (exigiría guardar estado nuevo y queda fuera de alcance). Se corrige recapturando el estimado arriba, o retirando el dato con «Retirar PSA…» en su fila. Si la cifra es automática y está caducada, el remedio no es esta carta: mira el ingest.",
+        "deleteCta": "Retirar PSA {grade}",
+        "deleteCtaLabel": "Retirar el estimado PSA {grade} de {card}",
+        "deleteBlockedShort": "no se retira: slab publicado",
+        "deleteBlockedTitle": "Hay grados que no se pueden retirar, y no deben poder",
+        "deleteBlockedBody": "Cuando existe un slab publicado de ese grado, esa fila ya no es un estimado: es la referencia de mercado de una pieza física que se está vendiendo. Borrarla la dejaría sin precio (pasaría a precio pendiente y se despublicaría). El remedio no es retirar, es repreciar la pieza en Inventario › Gradeadas con «Fijar valor» (intención «market»).",
+        "deleteConfirmTitle": "Retirar el estimado PSA {grade}",
+        "deleteConfirmBody": "Se va a retirar el estimado PSA {grade} de {card} ({amount}). Deja de mostrarse en la ficha, en la rejilla y en la vitrina.",
+        "deleteConfirmAllRows": "Se borran TODAS las capturas de ese grado para esta carta, no solo la vigente: incluye el historial. Si solo se quitara la última, afloraría la anterior y la cifra reaparecería sola.",
+        "deleteConfirmScope": "No toca precios de venta, no despublica ninguna pieza y no crea precios pendientes: retira una cifra informativa y nada más.",
+        "deleteConfirmAudit": "Solo súper-admin · queda en bitácora con lo que había. Para deshacerlo hay que volver a capturar la cifra a mano.",
+        "deleteConfirmCta": "Retirar PSA {grade}",
+        "cancel": "Cancelar",
+        "deleteFailedTitle": "No se retiró",
+        "deleteSlabPublishedNote": "Esto es la guarda haciendo su trabajo, no una falla: insistir en borrar no es el camino. Reprecia la pieza en Inventario › Gradeadas con «Fijar valor» (intención «market»), que es un acto de dinero deliberado y auditado.",
+        "deleteOk": "Se retiró el estimado PSA {grade} de {card}: {count, plural, one {# captura borrada} other {# capturas borradas}}. La lista ya no la incluye.",
+        "deleteNothingTitle": "No había nada que borrar",
+        "deleteNothingBody": "El estimado PSA {grade} de {card} ya no estaba en la tabla: alguien lo retiró antes o este listado venía rancio. No se borró nada porque no había nada. La lista se acaba de actualizar.",
+        "featureOffBanner": "El gancho está apagado: hay cifras marcadas, pero ahora mismo no se está publicando ninguna. Esta lista funciona igual con la feature apagada, a propósito: así se limpia el dato ANTES de encender.",
+        "truncatedTitle": "Esta lista está incompleta",
+        "truncatedBody": "El barrido se detuvo en {scanned} cartas y hay más sin evaluar. Lo que ves NO es todo lo que hay que revisar: corrige lo listado y vuelve a consultar.",
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "pageInfo": "Página {page} de {totalPages}",
+        "reasonShort": {
+          "NOT_ABOVE_RAW": "No supera el raw",
+          "ABOVE_MAX_MULTIPLE": "Múltiplo excesivo",
+          "GRADE_ORDER_INVERTED": "Grados cruzados",
+          "SLAB_PUBLISHED": "Slab publicado",
+          "STALE": "Caducada"
+        }
       },
       "curve": {
         "title": "Curva de precio",
@@ -1773,7 +1939,8 @@
           "pricingProviderRaw": "Proveedor de referencia por-carta (raw)",
           "pricingProviderGraded": "Proveedor de referencia por-carta (graded)",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
-          "catalogSyncFromDate": "Frontera de sync de catálogo"
+          "catalogSyncFromDate": "Frontera de sync de catálogo",
+          "gradedEstimatesEnabled": "Valor estimado si se gradea (gancho)"
         },
         "units": {
           "cents": "en pesos MXN",
@@ -1781,6 +1948,15 @@
           "fraction": "fracción [0,1)",
           "int": "número entero",
           "text": "texto"
+        },
+        "onOff": {
+          "on": "Encendido",
+          "off": "Apagado"
+        },
+        "gradedEstimates": {
+          "note": "El interruptor maestro del «valor estimado si se gradea» vive aquí; los escalones de costo de gradeo, el margen mínimo, la frescura y los grados se editan en M2 · Catálogo y precios. Apagado, la tienda no muestra ninguna cifra estimada.",
+          "warningTitle": "Enciende una afirmación comercial",
+          "warning": "Con este dial encendido, la tienda publica cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer. Ese texto legal todavía NO tiene el visto bueno del dueño (ni revisión legal). Enciéndelo solo si esa decisión ya se tomó: no cambia ningún precio de venta, valuación ni cotización, pero sí lo que la tienda afirma."
         }
       },
       "ingest": {
@@ -1968,7 +2144,8 @@
         "manualValueTitle": "Valor fijado manualmente",
         "fixValue": "Fijar valor…",
         "fixValueLabel": "Valor de mercado (MXN)",
-        "fixValueHelper": "Fija el valor de mercado de esta carta en este grado (p. ej. lo que se vende una PSA 10). Alimenta la valuación del inventario.",
+        "fixValueHelper": "Fija el PRECIO DE MERCADO REAL de estas piezas (p. ej. lo que se vende una PSA 10). Es dinero: alimenta la valuación del inventario y el precio de venta del slab. El valor ESTIMADO «si se gradea» de una carta SIN gradear no se captura aquí, sino en M2 · Precios › Capturar estimado a mano.",
+        "intentNote": "Lo que se fija aquí es dinero real (precio de mercado del slab), no un estimado.",
         "fixValueSave": "Guardar",
         "fixValueCancel": "Cancelar",
         "valueFixed": "Valor de mercado por grado guardado.",
@@ -2398,7 +2575,15 @@
     "BUY_CURVE_NOT_MONOTONIC": "La curva de compra pagaría menos con más mercado: no se guardó nada.",
     "BUY_ABOVE_SALE": "La compra alcanza a la venta en algún tramo: no se guardó nada.",
     "BIN_ABOVE_FLOOR": "El mínimo de compra alcanza al piso de venta: no se guardó nada.",
-    "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: no se guardó nada."
+    "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: no se guardó nada.",
+    "GRADING_TIERS_EMPTY": "La tabla de escalones no puede quedar vacía: sin escalón no se promociona ninguna carta.",
+    "GRADING_TIERS_NOT_CONTIGUOUS": "Los escalones deben cubrir todo el rango sin huecos ni solapes, empezando en MX$0: revisa el fin de cada escalón.",
+    "GRADING_TIERS_NOT_OPEN_ENDED": "El último escalón debe quedar abierto («en adelante») y ser el único sin fin, para que ninguna carta cara se quede sin escalón.",
+    "GRADED_INTENT_REQUIRED": "Falta declarar qué estás fijando en una carta gradeada: el PRECIO DE MERCADO de un slab publicado (dinero real) o el VALOR ESTIMADO si se gradea (cifra ilustrativa). No se guardó nada.",
+    "GRADED_ESTIMATE_SLAB_PUBLISHED": "Esta carta ya tiene una pieza publicada de ese grado. Ese precio es dinero real, no un estimado; para cambiarlo, edita el precio de la pieza en Inventario › Gradeadas.",
+    "GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS": "Esta carta ya tiene {count, plural, one {una pieza {grade} publicada} other {# piezas {grade} publicadas}}. Ese precio es dinero real, no un estimado; para cambiarlo, edita el precio de la pieza en Inventario › Gradeadas.",
+    "GRADING_SORT_REQUIRES_FILTER": "Ese orden solo existe para la vitrina de cartas destacadas para gradear; sin ese filtro no se puede aplicar.",
+    "GRADED_CONFIG_INVALID": "Un umbral de la configuración del gancho está corrupto, así que no se evalúa nada: una lista de revisión calculada contra un umbral basura es peor que no tenerla. Corrige la configuración de arriba y reintenta."
   },
   "payment": {
     "title": "Pago",

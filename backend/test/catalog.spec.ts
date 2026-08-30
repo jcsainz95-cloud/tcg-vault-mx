@@ -71,6 +71,18 @@ function pricing(): PricingService {
     // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
+    // v1.44-graded-estimate (§4.35): dial maestro APAGADO (seed `off`, fail-closed) ⇒ el backend ni
+    // siquiera evalúa el gate y el batch de estimados NO se llama (0 queries extra). El DTO sale
+    // EXACTAMENTE como antes de v1.44 (los tests de este archivo comprueban justamente eso).
+    loadGradedEstimateConfig: jest.fn(async () => ({
+      enabled: false,
+      grades: [],
+      highlightGrades: [],
+      freshnessDays: 30,
+      minUpsidePct: 30,
+      gradingCostTiers: [],
+    })),
+    getGradedEstimatesBatch: jest.fn(async () => new Map()),
   } as unknown as PricingService;
 }
 

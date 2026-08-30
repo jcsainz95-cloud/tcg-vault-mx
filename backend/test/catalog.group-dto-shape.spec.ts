@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 import { computeSealedSalePrice } from '../src/common/money';
 // D-e (techlead, v2.1.9): las claves se declaran UNA vez y el COMPILADOR las mantiene completas
 // (`Record<keyof DTO, true>`). Antes vivían duplicadas a mano en dos specs y sin vínculo con la
@@ -88,6 +89,12 @@ const MARKET = 100000;
 function pricingMock() {
   return {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
+    // MERGE v1.50.2 — el gancho de grading se compone en `buildGroups`/`getCard`, así que TODO mock de
+    // `PricingService` que pase por ahí debe traer sus tres seams. Dial APAGADO (seed `off`): el gancho
+    // no evalúa nada y el DTO sale EXACTAMENTE como sin la feature, que es lo que estos tests afirman.
+    loadGradedEstimateConfig: jest.fn(async () => DISABLED_GRADED_ESTIMATE_CONFIG),
+    getGradedEstimatesBatch: jest.fn(async () => new Map()),
+    getPublishedSlabGradesBatch: jest.fn(async () => new Map()),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     gradeKeyFor: jest.fn((i: { productType: string; rawCondition?: string }) =>
@@ -138,7 +145,15 @@ function pricingMock() {
  * `helpers/dto-keys.ts` no compila hasta declararlo, y este test lo exige en el cable.
  */
 const withoutGrading = (keys: string[]) =>
-  keys.filter((k) => k !== 'gradingCompany' && k !== 'gradeValue');
+  keys.filter(
+    (k) =>
+      k !== 'gradingCompany' &&
+      k !== 'gradeValue' &&
+      // v1.50.2: `gradingHighlight` es OPCIONAL y su PRESENCIA **es** la elegibilidad. En estos
+      // escenarios el dial del gancho está apagado ⇒ el campo NO existe y la teja se ve EXACTAMENTE
+      // como antes de la feature (criterio 100). Su emisión se prueba en `graded-estimate.*.spec.ts`.
+      k !== 'gradingHighlight',
+  );
 
 /** `GroupedListingDTO` (FICHA) en el escenario raw. */
 const GROUPED_LISTING_KEYS = withoutGrading(ALL_GROUPED_KEYS);

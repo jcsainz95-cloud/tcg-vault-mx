@@ -427,6 +427,50 @@ export interface CardDetailResponse {
 //   * salePriceCents = MÍNIMO del grupo (= el del representante). Money-safe: nunca 0 (una pieza sin
 //     precio no cuenta ni publica). certNumber es POR SLAB (distinto por pieza) ⇒ NO va aquí: se
 //     expone por pieza en `units[]` de la ficha. productType ∈ {raw, graded} — NUNCA sealed (H9).
+// ===== v1.50-graded-estimate (PROJECT §O v2.0): «gancho de grading» =====
+// El estimado de UN grado hipotético de una carta RAW. `estimate` reusa PriceInfo con tres reglas
+// NORMATIVAS del contrato: `status` es SIEMPRE "priced" (un `pending` en un argumento de venta está
+// PROHIBIDO); `referenceMxnCents` y `capturedDate` SIEMPRE presentes; `source` se OMITE SIEMPRE (es la
+// garantía técnica de que la fase manual y la fase de ingest automático son INDISTINGUIBLES para el
+// cliente). `gradeKey` es la clave canónica ("graded:PSA:10" | "graded:PSA:9"): key estable de render.
+//
+// `gradeValue` es un STRING ABIERTO a propósito, para que añadir/quitar un grado NO sea un cambio de
+// contrato ni de cliente. Por eso el front DEBE ITERAR leyendo `gradeValue` y tiene PROHIBIDO asumir
+// `[0] === PSA 10` o una longitud fija. Ver `_shared/grading/estimates.ts`.
+/**
+ * v1.50.2 (INV-D, contrato `POST /admin/pricing/override`) — **la intención declarada** de un
+ * override con `productType:"graded"`. NO es un matiz de UI: el estimado «si se gradea» y la
+ * referencia de mercado real de un slab PSA publicado son **LA MISMA FILA**
+ * (`cardId` + `graded` + `gradeKey` + `finish='normal'`), así que sin declararla, escribir un
+ * «estimado» sobre una carta con slab publicado **cambia el precio de venta de esa pieza**.
+ *
+ *  - `market` — fija el **precio de mercado real** de un slab (dinero). Vía normativa de
+ *    M1 › Gradeadas y de la cola de pendientes de M2.
+ *  - `graded_estimate` — publica una **cifra ilustrativa** del gancho (§O). El backend responde
+ *    `409 GRADED_ESTIMATE_SLAB_PUBLISHED` si esa carta ya tiene un slab publicado de ese grado.
+ *
+ * El backend la exige (`422 GRADED_INTENT_REQUIRED`) y **no** la defaultea: un default a `market`
+ * sería fail-open — quien olvide el campo obtiene en silencio la ruta que mueve dinero.
+ */
+export type PricingOverrideIntent = 'market' | 'graded_estimate';
+
+/** `details` del `409 GRADED_ESTIMATE_SLAB_PUBLISHED` (contrato §M2). Accionable: dice CUÁNTAS
+ *  piezas reales hay detrás de esa fila y cuáles son. */
+export interface GradedEstimateSlabPublishedDetails {
+  cardId: string;
+  gradeKey: string;
+  publishedSlabCount: number;
+  inventoryItemIds: string[];
+}
+
+export interface GradedEstimateDTO {
+  gradingCompany: 'PSA';
+  /** "10" | "9" hoy; STRING abierto en el tipo (dial del servidor, no del cliente). */
+  gradeValue: string;
+  gradeKey: string;
+  estimate: PriceInfo;
+}
+
 export interface GroupedListingDTO {
   representativeInventoryItemId: string;
   card: CardDTO;
@@ -444,6 +488,10 @@ export interface GroupedListingDTO {
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
   currency: 'MXN';
+  // v1.50.2: `gradingHighlight` YA NO VIVE AQUÍ — se movió a `GroupedListingSummaryDTO` (rejilla +
+  // vitrina). Tras D2 este DTO es el de la FICHA, y la ficha lee `gradedEstimates` de la RAÍZ de
+  // `GroupedListingDetailResponse` (más rico: PSA 10 y 9, y SIN gate de ROI). Leer el gancho desde
+  // `listings[i]` queda DEROGADO por contrato v1.50.2.
 }
 
 // ===== v2.1.9 (D2): el DTO de la REJILLA de singles = `GroupedListingDTO` MENOS las dos señales
@@ -465,6 +513,21 @@ export interface GroupedListingSummaryDTO {
   stockCount: number;
   salePriceCents: number;
   currency: 'MXN';
+  // v1.50.2 (ADITIVO): MARCADOR DE CURADURÍA de la TEJA de Compra y de la VITRINA del home. Vive
+  // AQUÍ —y no en `GroupedListingDTO`— porque la unidad de render de las dos superficies de
+  // PROMOCIÓN es la teja de la rejilla: un solo componente, cero drift.
+  //   * Admisión al Summary pese a D2: D2 protege la ECONOMÍA DE ENUMERAR, y ese argumento decae
+  //     cuando existe un enumerador público del propio campo — aquí existe y lo construimos a
+  //     propósito (`?gradingHighlight=true&sort=grading_showcase`), así que publicar la cifra por
+  //     fila NO crea capacidad nueva. Además `GradedEstimateDTO` no tiene `source` ni `priceBasis`.
+  //   * PRESENCIA ⇔ ELEGIBILIDAD: se emite SOLO si el gate de ROI sobre PSA 9 se cumple Y la cifra
+  //     pasa el gate de CONFIANZA (frescura + origen + magnitud, v1.50.2), todo server-side.
+  //     No existe `eligible: boolean` y NUNCA llega vacío (`[]`); ausente ⇒ el front no pinta NADA
+  //     (ni contenedor, ni skeleton, ni «—», ni $0, ni «pendiente»).
+  //   * Contenido = los grados que el BADGE pinta (dial `highlightGrades`; hoy ["10"]). Es un arreglo
+  //     justamente para que añadir PSA 9 al badge sea editar un dial, sin tocar el cliente.
+  //   * Solo en grupos `productType:"raw"`.
+  gradingHighlight?: GradedEstimateDTO[];
 }
 
 export interface GroupedListingListResponse {
@@ -481,6 +544,15 @@ export interface GroupedListingDetailResponse {
   card: CardDTO;
   listings: GroupedListingDTO[];
   units: ListingDTO[];
+  // v1.44 (ADITIVO): estimados por grado de la FICHA, a nivel CARTA (no se cruzan con el acabado).
+  //   * NO va gateado por el ROI (decisión del humano): se emite siempre que haya dato fresco. Una
+  //     carta puede mostrar sus estimados en la ficha y NO estar destacada en Compra ni en el home —
+  //     es el comportamiento buscado (informar ≠ promover), no un bug.
+  //   * Los grados son INDEPENDIENTES entre sí: un grado sin dato o rancio no aparece en el arreglo.
+  //   * Sin ningún grado ⇒ el campo se OMITE (nunca `[]`).
+  //   * v1.50.2: los `listings[i]` YA NO traen `gradingHighlight` (se movió al Summary de la
+  //     rejilla). La ficha se sirve SOLO de este campo.
+  gradedEstimates?: GradedEstimateDTO[];
 }
 
 // ---- Bóveda / portafolio (contrato §3) ----
@@ -2431,6 +2503,219 @@ export interface SettingsDTO {
    */
   priceProvider?: PriceProvider;
   catalogSyncFromDate: string;
+  /**
+   * v1.44-graded-estimate (§M10): **interruptor maestro del «gancho de grading»**
+   * (`graded_estimates_enabled`, enum `on | off`, **seed `off` fail-closed**). Con `off` el backend
+   * ni siquiera evalúa: `GET /catalog/cards*` no emite `gradingHighlight` ni `gradedEstimates`.
+   * Opcional en el tipo porque un backend anterior al v1.44 lo omite (la UI lo trata como `off`).
+   *
+   * **Encenderlo publica una afirmación comercial** cuyo disclaimer (§O.5) todavía espera el visto
+   * bueno del humano: la UI de M10 lo advierte de forma explícita antes de guardar.
+   */
+  gradedEstimatesEnabled?: OnOff;
+}
+
+/** Diales de tipo interruptor del contrato (`on | off`). */
+export type OnOff = 'on' | 'off';
+
+// ---- M2: config del «gancho de grading» (contrato §M2 `GET/PUT /admin/pricing/graded-estimates`) ----
+/**
+ * Un escalón de `gradingCostTiers`: rango **[min, max)** de VALOR DECLARADO de la carta (centavos
+ * MXN) → **costo de gradeo** puerta a puerta (cuota PSA + envío internacional + retorno asegurado +
+ * manejo), NO la cuota pelona (criterio 110(d)).
+ *
+ * `maxValueMxnCents: null` = **escalón final abierto** («de X en adelante»). El contrato exige
+ * `costMxnCents ≥ 1`: **jamás 0** — un costo subestimado es exactamente lo que promocionaría una
+ * carta en la que el comprador pierde dinero (§O.4).
+ */
+export interface GradingCostTierDTO {
+  minValueMxnCents: number;
+  maxValueMxnCents: number | null;
+  costMxnCents: number;
+}
+
+/**
+ * Config completa del gancho. **Nada de esto viaja al cliente**: gobierna qué grados se muestran,
+ * cuándo un dato deja de ser fresco y qué cartas se promocionan (gate de ROI sobre PSA 9).
+ *
+ * `enabled` es **espejo READ-ONLY** del dial M10 `gradedEstimatesEnabled` (se edita en
+ * `PUT /admin/settings`, no aquí; el `PUT` de este recurso lo IGNORA si viene).
+ */
+export interface GradedEstimateConfigDTO {
+  enabled: boolean;
+  /** v1.50.2 — espejo READ-ONLY del SEGUNDO dial M10 (`gradedEstimateIngestEnabled`): gobierna la
+   *  OBTENCIÓN automática, no la exhibición. Se edita en M10, como `enabled`. */
+  ingestEnabled: boolean;
+  grades: string[];
+  highlightGrades: string[];
+  freshnessDays: number;
+  minUpsidePct: number;
+  gradingCostTiers: GradingCostTierDTO[];
+  /**
+   * v1.50.2 — `null` = **el override manual NO decae**. La ventana de frescura protege contra un
+   * *feed* rancio, no contra una decisión del dueño: sin esta regla un manual viejo ganaba la
+   * resolución y luego la frescura lo descartaba, dejando la carta sin estimado pese a haber dato.
+   */
+  manualFreshnessDays: number | null;
+  /** v1.50.2 — cota SUPERIOR de magnitud: `psa10 ≤ salePriceCents × maxRawMultiple` (caza el cero de más). */
+  maxRawMultiple: number;
+  /** v1.50.2 — muestra mínima del proveedor; se aplica en el INGEST (la captura manual no la usa). */
+  minSampleCount: number;
+  /** v1.50.2 — qué número del proveedor ES el precio. */
+  sourceStat: 'median' | 'average' | 'smart';
+  /** v1.50.2 — tope de cuota por corrida del ingest. */
+  ingestMaxCardsPerRun: number;
+}
+
+/** Body del `PUT`: parcial por campo; `gradingCostTiers` se REEMPLAZA COMPLETO cuando viene. */
+export interface GradedEstimateConfigInput {
+  grades?: string[];
+  highlightGrades?: string[];
+  freshnessDays?: number;
+  minUpsidePct?: number;
+  gradingCostTiers?: GradingCostTierDTO[];
+  manualFreshnessDays?: number | null;
+  maxRawMultiple?: number;
+  minSampleCount?: number;
+  sourceStat?: 'median' | 'average' | 'smart';
+  ingestMaxCardsPerRun?: number;
+}
+
+// ---- M2: diagnóstico de CURADURÍA del gancho (GET /admin/pricing/graded-estimates/preview) ----
+/**
+ * Por qué un grupo NO es elegible para la rejilla/vitrina. **`eligible=false` NO es un error**: es el
+ * estado normal de casi todo el catálogo. Los cuatro últimos son del gate de CONFIANZA (v1.50.2) y
+ * **no son redundantes entre sí** — cada uno caza un error distinto (contrato §M2):
+ * `NOT_ABOVE_RAW` caza el **error de unidades USD/MXN** (un PSA 10 de USD 60 guardado como MX$60
+ * queda ~19× BAJO, así que el múltiplo máximo no lo ve), `ABOVE_MAX_MULTIPLE` el **cero de más**,
+ * `GRADE_ORDER_INVERTED` las **dos filas cruzadas** y `SLAB_PUBLISHED` la colisión INV-D (§O.8).
+ */
+export type GradedEstimatePreviewReason =
+  | 'FEATURE_OFF'
+  | 'NOT_RAW'
+  | 'NOT_PUBLISHED'
+  | 'NO_PSA10'
+  | 'NO_PSA9'
+  | 'STALE'
+  | 'NO_COST_TIER'
+  | 'BELOW_MIN_UPSIDE'
+  | 'SLAB_PUBLISHED'
+  | 'NOT_ABOVE_RAW'
+  | 'ABOVE_MAX_MULTIPLE'
+  | 'GRADE_ORDER_INVERTED';
+
+/**
+ * Un grupo raw publicado de la carta, con **los insumos del gate**. Es el ÚNICO sitio donde esos
+ * insumos se exponen — al **admin**, jamás al cliente (SEC-A1). Money-safe: todo monto no resoluble
+ * es `null`, **nunca 0**.
+ */
+export interface GradedEstimatePreviewDTO {
+  representativeInventoryItemId: string;
+  finish: Finish;
+  salePriceCents: number;
+  psa10MxnCents: number | null;
+  psa9MxnCents: number | null;
+  capturedDate: string | null;
+  stale: boolean;
+  gradingCostTier: GradingCostTierDTO | null;
+  gradingCostMxnCents: number | null;
+  thresholdMxnCents: number | null;
+  netUpsidePsa9MxnCents: number | null;
+  /** Cota superior efectiva = `salePriceCents × maxRawMultiple` (contra qué se comparó el PSA 10). */
+  maxAllowedPsa10MxnCents: number | null;
+  /** Grados de esta carta con slab **PUBLICADO** (INV-D): capturar un ESTIMADO de uno de ellos da 409. */
+  publishedSlabGrades: string[];
+  /**
+   * v1.50.3-c — ¿la cifra la puso **una persona** (override manual) o el **ingest**? Describe la
+   * MISMA fila que `capturedDate`. Existe porque los dos remedios de una cifra **caducada** son
+   * OPUESTOS: una manual rancia es la afirmación del dueño que expiró ⇒ **recapturar o retirar**;
+   * una automática rancia es el feed que dejó de cubrir esa carta ⇒ **mirar el ingest, no la
+   * carta**. Se emite el booleano y **no** `source`: contesta «¿esto lo puse yo?» sin publicar la
+   * identidad del proveedor. Admin-only; ningún DTO público cambia (§4.38g intacta).
+   */
+  isManual: boolean;
+  eligible: boolean;
+  reason?: GradedEstimatePreviewReason;
+}
+
+/** `groups: []` = la carta no tiene ningún grupo raw publicado. **No es un error.** */
+export interface GradedEstimatePreviewResponse {
+  cardId: string;
+  enabled: boolean;
+  config: GradedEstimateConfigDTO;
+  groups: GradedEstimatePreviewDTO[];
+}
+
+// ---- M2: LISTA DE REVISIÓN del gancho (GET /admin/pricing/graded-estimates/review, v1.50.3) ----
+/**
+ * Los ÚNICOS `reason` enumerables por esta lista (contrato §M2; cualquier otro ⇒ `400`).
+ *
+ * **Default = los tres de coherencia de magnitud** (criterio 111 b/c/d). `SLAB_PUBLISHED` y
+ * `STALE` son **opt-in**: son accionables, pero **no son datos erróneos** y en el default ahogarían
+ * la señal de coherencia. El resto (`NO_PSA10`, `NO_PSA9`, `BELOW_MIN_UPSIDE`…) ⇒ `400`: no son
+ * incoherencias, sino **ausencia** de dato o el gate comercial funcionando, y una lista que los
+ * incluyera tendría miles de filas normales y cero valor operativo.
+ *
+ * **`STALE` (v1.50.3-c) no es «ausencia de dato»: es un dato que EXISTIÓ y expiró.** Sin él, una
+ * cifra caducada desaparece de las tres superficies en silencio, sigue en la BD y **nadie puede
+ * encontrarla** para refrescarla o retirarla. Es el caso que mejor encaja en el propósito de la
+ * lista, y el que da sentido al `DELETE` de §M2 v1.50.3-d.
+ */
+export type GradedEstimateReviewReason =
+  | 'NOT_ABOVE_RAW'
+  | 'ABOVE_MAX_MULTIPLE'
+  | 'GRADE_ORDER_INVERTED'
+  | 'SLAB_PUBLISHED'
+  | 'STALE';
+
+/** Los tres motivos de COHERENCIA (default del endpoint). `SLAB_PUBLISHED` queda fuera a propósito. */
+export const GRADED_REVIEW_DEFAULT_REASONS: GradedEstimateReviewReason[] = [
+  'NOT_ABOVE_RAW',
+  'ABOVE_MAX_MULTIPLE',
+  'GRADE_ORDER_INVERTED',
+];
+
+/** Mismo contenido que el preview + identidad de la carta, para leer la lista sin un fetch por fila. */
+export interface GradedEstimateReviewItemDTO extends GradedEstimatePreviewDTO {
+  cardId: string;
+  cardName: string;
+  setName: string;
+  number: string;
+}
+
+/**
+ * `enabled:false` **NO vacía la lista**, a propósito: el dial arranca en `off` precisamente para
+ * poder limpiar los datos ANTES de encender la afirmación comercial. El campo viaja para que el
+ * front pueda avisar «hay cifras marcadas, pero ahora mismo no se publica nada».
+ *
+ * `truncated:true` **DEBE pintarse**: una lista de revisión incompleta presentada como completa es
+ * peor que no tenerla — produce la falsa confianza de «no hay nada que revisar».
+ */
+export interface GradedEstimateReviewResponse {
+  data: GradedEstimateReviewItemDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+  enabled: boolean;
+  scannedCards: number;
+  truncated: boolean;
+}
+
+/**
+ * Respuesta de `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` (§M2 v1.50.3-d).
+ *
+ * **`deletedCount` NO es decorativo:** el endpoint borra **todas** las filas de la clave canónica
+ * —cualquiera que sea su `capturedDate`— en una transacción, porque la unique incluye la fecha y
+ * quitar solo la vigente **haría aflorar una más vieja**: la cifra reaparecería sola en la ficha.
+ * El número dice cuántas se llevó por delante, para que el operador no descubra después que había
+ * historial. **`404` cuando no había nada** (nunca un `200` silencioso) y **`409
+ * GRADED_ESTIMATE_SLAB_PUBLISHED`** cuando hay un slab publicado de ese grado: ahí la fila ya no es
+ * un estimado, es la referencia de mercado de una pieza física.
+ */
+export interface GradedEstimateDeleteResponse {
+  cardId: string;
+  gradeValue: string;
+  deletedCount: number;
 }
 
 export interface AuditLogDTO {

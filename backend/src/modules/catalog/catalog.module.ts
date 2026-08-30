@@ -5,6 +5,10 @@ import { SealedCatalogService } from './sealed-catalog.service';
 import { SealedRestockNotifyService } from './sealed-restock-notify.service';
 import { CatalogController } from './catalog.controller';
 import { AdminCatalogController } from './admin-catalog.controller';
+// v1.44-graded-estimate (§M2 / §4.35d): diales del gancho + diagnóstico de curaduría. Vive aquí (y no en
+// PricingController) porque el `/preview` compone los grupos raw publicados vía CatalogService, y
+// CatalogModule ya importa PricingModule (al revés sería un ciclo).
+import { GradedEstimatesController } from './graded-estimates.controller';
 import { CatalogSyncService } from './catalog-sync.service';
 import { PokemonTcgIoClient } from './pokemontcg-io.client';
 import { PricingModule } from '../pricing/pricing.module';
@@ -40,7 +44,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     // con JobsModule, mismo patrón que set-price-sync).
     CatalogPriceSyncJobService,
   ],
-  controllers: [CatalogController, AdminCatalogController],
+  controllers: [CatalogController, AdminCatalogController, GradedEstimatesController],
   exports: [
     CatalogService,
     SetValueService,

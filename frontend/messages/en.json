@@ -142,6 +142,11 @@
       "collectingTitle": "Collecting history",
       "collectingBody": "This set's trend will appear once we have a couple of days of history.",
       "marketRefNote": "Market reference for the priced cards in this set."
+    },
+    "gradingGems": {
+      "title": "Gems worth grading",
+      "kicker": "ILLUSTRATIVE · WE DO NOT ASSESS THE COPY",
+      "lead": "Ungraded cards whose market value, once graded, is far higher."
     }
   },
   "catalog": {
@@ -179,7 +184,32 @@
       }
     },
     "removeFilter": "Remove filter {label}",
-    "rarityAria": "Rarity: {rarity}"
+    "rarityAria": "Rarity: {rarity}",
+    "gradingEstimate": {
+      "eyebrow": "ESTIMATED VALUE IF GRADED",
+      "updatedAt": "ESTIMATE · {date}",
+      "ifGradesLabel": "IF IT GRADES",
+      "microNotice": "<b>Illustrative</b> market figure (what that card has sold for once graded by third parties). <b>We have not assessed this card's condition</b> and guarantee no grade; grading and its cost are on you.",
+      "hypotheticalGradeAria": "Hypothetical grade: {company} {grade}. This card is not graded."
+    },
+    "gradingBadge": {
+      "figure": "At {company} {grade} it is worth <approx>≈</approx> {amount}",
+      "figureShort": "{company} {grade} <approx>≈</approx> {amount}",
+      "microNotice": "<b>Illustrative</b>; <b>we haven't assessed this card</b>.",
+      "approx": "approximately"
+    },
+    "gradingNote": {
+      "callSr": "See footnote.",
+      "label": "NOTE ON THE ESTIMATED VALUE IF GRADED",
+      "headline": "ILLUSTRATIVE INFORMATION ONLY. THIS IS NOT AN APPRAISAL OF THIS CARD.",
+      "p1": "<b>The PSA 10 / PSA 9 figures are market reference data for that card model as graded by third parties.</b> They are shown to illustrate how the market behaves — nothing more.",
+      "p2": "<b>They do NOT reflect or evaluate the condition of the card you are buying.</b> We have not inspected, measured or pre-screened this specific copy for grading purposes — not its centering, not its surface, not its edges, not its corners — and we offer no opinion on what grade it would receive. We sell this card as raw (ungraded) Near Mint under our own condition standard, which is a different thing from a PSA grade.",
+      "p3": "<b>We guarantee no grade whatsoever.</b> The grade is determined by PSA, independently and under its own criteria. The result may be far below what is illustrated here, and the card may not even be eligible for grading. Grading is a gamble and the risk is entirely yours.",
+      "p4": "<b>This is not an offer, not a price guarantee, and not a buy-back commitment</b> by TCG Vault MX. If you send the card in for grading and the result is not what you hoped for, there is no refund, compensation or return on that basis (our final-sale policy applies).",
+      "p5": "<b>TCG Vault MX does not grade cards and does not broker grading services.</b> PSA fees, international shipping, return shipping to Mexico, insurance and turnaround times are entirely on you.",
+      "p6": "<b>Market prices change every day</b> and this estimate may become outdated at any time.",
+      "back": "Back to the estimated value"
+    }
   },
   "shop": {
     "filtersTitle": "Filters",
@@ -1466,15 +1496,151 @@
         "example": "E.g.: 15% over a MX$3,000 market = MX$3,450.",
         "fallbackLabel": "Global spread",
         "fallbackHint": "Applied to formats without their own rule.",
-      "fallbackRequired": "The global spread cannot be removed: it backs every format without its own rule. For no markup, type 0.",
+        "fallbackRequired": "The global spread cannot be removed: it backs every format without its own rule. For no markup, type 0.",
         "subtype": "Format",
         "spread": "Spread",
         "spreadFor": "{subtype} spread",
-      "usesGlobal": "Uses the global ({pct}%)",
+        "usesGlobal": "Uses the global ({pct}%)",
         "zeroWarning": "No margin",
         "zeroBanner": "A 0% spread sells at market cost, with no margin. Double-check before saving.",
         "prereqHint": "The spread only produces a price if the product is mapped to TCGCSV and the sealed price source is on.",
         "saved": "Spreads saved."
+      },
+      "gradedEstimates": {
+        "title": "Estimated value if graded · costs and curation",
+        "subtitle": "Decides which cards the grading hook promotes. None of this is shown to the customer: it only changes which cards carry a figure on the tiles and in the home showcase.",
+        "masterSwitch": "Master switch",
+        "masterSwitchHint": "Turned on and off in M10 · Config.",
+        "enabledOn": "On",
+        "enabledOff": "Off",
+        "offBanner": "The feature is off: you can set the table up, but the storefront will show no figure until you turn it on in M10.",
+        "tiers": {
+          "title": "Grading cost tiers",
+          "hint": "Total door-to-door cost for a buyer in Mexico (PSA fee + international shipping + insured return + handling), by card value. Tiers are contiguous by construction: each one starts where the previous ends, and the last one is open-ended so no card is left without a tier.",
+          "from": "From",
+          "to": "Up to",
+          "toFor": "End of tier {index}",
+          "cost": "Grading cost",
+          "costFor": "Grading cost of tier {index}",
+          "openEnded": "And above",
+          "add": "Add tier",
+          "remove": "Remove tier {index}",
+          "errors": {
+            "range": "The end of the tier must be greater than its start.",
+            "cost": "The cost must be at least MX$0.01 and at most MX$100,000. A cost of 0 would promote cards on which the buyer loses money."
+          }
+        },
+        "minUpside": {
+          "label": "Minimum upside",
+          "hint": "What must be left for the buyer above the total cost (card + grading) for the card to be worth promoting. Always evaluated on the PSA 9 estimate, the realistic scenario."
+        },
+        "freshness": {
+          "label": "Data freshness",
+          "hint": "Days after which an estimate is considered stale and stops being shown. Whole number between 1 and 365."
+        },
+        "grades": "Grades shown on the card page: {grades}. Grades painted by the tile badge: {highlight}. The gate is always evaluated on PSA 9, even if the badge shows PSA 10.",
+        "globalErrors": {
+          "minUpside": "The minimum upside must be a number between 0 and 1000.",
+          "freshness": "Freshness must be a whole number of days between 1 and 365."
+        },
+        "recalcHint": "Saving recomputes on the fly which cards are promoted (raising the upside or making a tier more expensive can empty the showcase). It touches no sale price, portfolio valuation or buylist quote. It is recorded in the M10 audit log.",
+        "saved": "Grading hook configuration saved.",
+        "confidenceDials": "Confidence gate (API-only for now): a manual estimate expires after {manualFreshness} days · PSA 10 cap = {maxRawMultiple}× the raw price · ingest minimum sample {minSampleCount} sales · published statistic «{sourceStat}».",
+        "manualFreshnessNever": "∞ (never expires)"
+      },
+      "gradedEstimateCapture": {
+        "title": "Capture an estimate manually",
+        "subtitle": "Publish the ILLUSTRATIVE figure of what a card would be worth if it were graded. This is the hook's curation tool and the fallback for the automatic ingest: fix a bad figure, push a hero card, or fill a gap left by the provider.",
+        "boundaryTitle": "This does NOT set the price of any piece",
+        "boundaryBody": "Here you publish an estimate about an UNGRADED card: an illustrative figure, not an offer. To price a slab you already hold in inventory, go to Inventory › Graded: that is where the real market price of those pieces is set, and that is money.",
+        "featureOff": "The hook is off (master switch in M10): you can capture the figure, but the storefront will not show it until you turn it on.",
+        "searchLabel": "Search card",
+        "searchPlaceholder": "Card name or number",
+        "searchHint": "Type at least 2 characters. Searches the whole catalog, not only what is published.",
+        "searchEmpty": "No card matches that search.",
+        "changeCard": "Change card",
+        "slabTitle": "Grades blocked on this card",
+        "slabBody": "This card already has published pieces of grade {grades}. That row is the REAL market price of those pieces: capturing an estimate there would change their sale price, so those grades are disabled. To change that price, edit the piece in Inventory › Graded.",
+        "gradeLabel": "PSA {grade} estimate (MXN)",
+        "gradeBlocked": "Blocked: this card has a published PSA {grade} piece.",
+        "gradeInvalid": "Invalid amount: it must be greater than MX$0. Nothing is saved for this grade.",
+        "save": "Publish estimates",
+        "saveHint": "Empty fields are left untouched; each grade is saved separately.",
+        "resultOk": "PSA {grade}: estimate saved.",
+        "resultError": "PSA {grade}: {message}",
+        "diagnosis": {
+          "title": "Curation diagnostics",
+          "hint": "Back-office only: neither the thresholds nor the gate result ever travel to the client.",
+          "salePrice": "Published raw price",
+          "none": "no data",
+          "captured": "Data from {date}",
+          "eligible": "Featured",
+          "notEligible": "Not featured",
+          "noGroups": "This card has no published raw group. You can still capture its estimate —the row hangs off the card, not off inventory— but it will not be featured in Shop or on the home page until you publish it.",
+          "reason": {
+            "FEATURE_OFF": "The master switch is off (M10).",
+            "NOT_RAW": "Not a raw group.",
+            "NOT_PUBLISHED": "The card is not published.",
+            "NO_PSA10": "The PSA 10 estimate is missing.",
+            "NO_PSA9": "The PSA 9 estimate is missing: without it there is no promotion, even though the card page does show the PSA 10.",
+            "STALE": "The figure is older than the freshness window.",
+            "NO_COST_TIER": "No cost tier covers that value: with no tier, no card is featured.",
+            "BELOW_MIN_UPSIDE": "The upside over the PSA 9 does not reach the required minimum.",
+            "SLAB_PUBLISHED": "There is a published slab of that grade: that row is real money, not an estimate.",
+            "NOT_ABOVE_RAW": "The PSA 10 does not exceed the raw price. This is usually a dollar amount captured as pesos.",
+            "ABOVE_MAX_MULTIPLE": "The PSA 10 exceeds the maximum multiple over the raw price. This is usually one zero too many.",
+            "GRADE_ORDER_INVERTED": "The PSA 9 is worth more than the PSA 10: the two rows look swapped."
+          }
+        }
+      },
+      "gradedEstimateReview": {
+        "title": "Review list · figures that need a look",
+        "subtitle": "When an estimated figure is not believable against the card's price, it is NOT hidden on the card page —we report what we have— and in exchange it shows up here so somebody can fix it. Without this list we would publish the odd number and lose the signal as well.",
+        "includeSlabPublished": "Also include cards with a published slab of that grade",
+        "includeSlabPublishedHint": "Left out of the default list on purpose: these are not wrong figures —they are rows that already are the real price of a piece— and mixing them in would drown out the signal of the incoherent ones.",
+        "includeStale": "Also include expired figures",
+        "includeStaleHint": "An expired figure existed and lapsed: it stopped showing in the store, but it is still in the table. That is the case this list exists to surface. Out of the default for the same reason as published slabs: it is not an incoherent figure and it would drown out the signal.",
+        "colCard": "Card",
+        "colReason": "What's wrong",
+        "colRaw": "Published raw price",
+        "colMaxAllowed": "PSA 10 cap",
+        "colCaptured": "Data from",
+        "colAction": "Remove",
+        "originManual": "manual (entered by the owner)",
+        "originIngest": "automatic (ingest)",
+        "noData": "no data",
+        "summary": "{total} flagged figures across {scanned} cards with an estimate.",
+        "howToFix": "There is no «mark as reviewed» (it would require storing new state and is out of scope). Fix it by re-capturing the estimate above, or by removing the figure with «Remove PSA…» in its row. If the figure is automatic and expired, the remedy is not this card: check the ingest.",
+        "deleteCta": "Remove PSA {grade}",
+        "deleteCtaLabel": "Remove the PSA {grade} estimate for {card}",
+        "deleteBlockedShort": "cannot be removed: published slab",
+        "deleteBlockedTitle": "Some grades cannot be removed, and must not be",
+        "deleteBlockedBody": "When a published slab of that grade exists, that row is no longer an estimate: it is the market reference of a physical piece that is on sale. Deleting it would leave that piece with no price (it would fall to price-pending and be unpublished). The remedy is not removing, it is repricing the piece in Inventory › Graded with «Set value» (intent «market»).",
+        "deleteConfirmTitle": "Remove the PSA {grade} estimate",
+        "deleteConfirmBody": "You are about to remove the PSA {grade} estimate for {card} ({amount}). It stops showing on the card page, the grid and the showcase.",
+        "deleteConfirmAllRows": "ALL captures of that grade for this card are deleted, not just the current one: history included. If only the latest were removed, the previous one would surface and the figure would come back on its own.",
+        "deleteConfirmScope": "It does not touch sale prices, does not unpublish any piece and does not create pending prices: it removes an informational figure and nothing else.",
+        "deleteConfirmAudit": "Super-admin only · logged with what was there. Undoing it means capturing the figure again by hand.",
+        "deleteConfirmCta": "Remove PSA {grade}",
+        "cancel": "Cancel",
+        "deleteFailedTitle": "Not removed",
+        "deleteSlabPublishedNote": "This is the guard doing its job, not a failure: insisting on deleting is not the way. Reprice the piece in Inventory › Graded with «Set value» (intent «market»), which is a deliberate, audited money action.",
+        "deleteOk": "Removed the PSA {grade} estimate for {card}: {count, plural, one {# capture deleted} other {# captures deleted}}. The list no longer includes it.",
+        "deleteNothingTitle": "There was nothing to delete",
+        "deleteNothingBody": "The PSA {grade} estimate for {card} was no longer in the table: somebody removed it earlier or this listing was stale. Nothing was deleted because there was nothing. The list has just been refreshed.",
+        "featureOffBanner": "The hook is off: there are flagged figures, but nothing is being published right now. This list works with the feature off on purpose: that is how you clean the data BEFORE turning it on.",
+        "truncatedTitle": "This list is incomplete",
+        "truncatedBody": "The scan stopped at {scanned} cards and there are more left to evaluate. What you see is NOT everything that needs reviewing: fix what is listed and check again.",
+        "prev": "Previous",
+        "next": "Next",
+        "pageInfo": "Page {page} of {totalPages}",
+        "reasonShort": {
+          "NOT_ABOVE_RAW": "Below raw price",
+          "ABOVE_MAX_MULTIPLE": "Excessive multiple",
+          "GRADE_ORDER_INVERTED": "Grades swapped",
+          "SLAB_PUBLISHED": "Published slab",
+          "STALE": "Expired"
+        }
       },
       "curve": {
         "title": "Price curve",
@@ -1773,7 +1939,8 @@
           "pricingProviderRaw": "Per-card reference provider (raw)",
           "pricingProviderGraded": "Per-card reference provider (graded)",
           "pricingProviderSealed": "Per-card reference provider (sealed)",
-          "catalogSyncFromDate": "Catalog sync boundary"
+          "catalogSyncFromDate": "Catalog sync boundary",
+          "gradedEstimatesEnabled": "Estimated value if graded (hook)"
         },
         "units": {
           "cents": "in MXN pesos",
@@ -1781,6 +1948,15 @@
           "fraction": "fraction [0,1)",
           "int": "whole number",
           "text": "text"
+        },
+        "onOff": {
+          "on": "On",
+          "off": "Off"
+        },
+        "gradedEstimates": {
+          "note": "The master switch for «estimated value if graded» lives here; the grading cost tiers, the minimum upside, freshness and grades are edited in M2 · Catalog and pricing. While off, the storefront shows no estimated figure at all.",
+          "warningTitle": "This turns on a commercial claim",
+          "warning": "With this dial on, the storefront publishes estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer. That legal text has NOT been signed off by the owner (nor legally reviewed). Turn it on only if that decision has been made: it changes no sale price, valuation or quote, but it does change what the store claims."
         }
       },
       "ingest": {
@@ -1968,7 +2144,8 @@
         "manualValueTitle": "Value set manually",
         "fixValue": "Set value…",
         "fixValueLabel": "Market value (MXN)",
-        "fixValueHelper": "Set the market value of this card at this grade (e.g. what a PSA 10 sells for). It feeds the inventory valuation.",
+        "fixValueHelper": "Set the REAL MARKET PRICE of these pieces (e.g. what a PSA 10 sells for). This is money: it feeds the inventory valuation and the slab's sale price. The ESTIMATED «if it were graded» value of an UNGRADED card is not captured here, but in M2 · Pricing › Capture an estimate manually.",
+        "intentNote": "What you set here is real money (the slab's market price), not an estimate.",
         "fixValueSave": "Save",
         "fixValueCancel": "Cancel",
         "valueFixed": "Per-grade market value saved.",
@@ -2398,7 +2575,15 @@
     "BUY_CURVE_NOT_MONOTONIC": "The buy curve would pay less as market goes up: nothing was saved.",
     "BUY_ABOVE_SALE": "Buying catches up with selling somewhere: nothing was saved.",
     "BIN_ABOVE_FLOOR": "The buy minimum reaches the sale floor: nothing was saved.",
-    "ROUNDING_LADDER_INVALID": "The rounding ladder is invalid: nothing was saved."
+    "ROUNDING_LADDER_INVALID": "The rounding ladder is invalid: nothing was saved.",
+    "GRADING_TIERS_EMPTY": "The tier table cannot be left empty: with no tier, no card is promoted.",
+    "GRADING_TIERS_NOT_CONTIGUOUS": "Tiers must cover the whole range with no gaps or overlaps, starting at MX$0: check the end of each tier.",
+    "GRADING_TIERS_NOT_OPEN_ENDED": "The last tier must be open-ended («and above») and the only one without an end, so that no expensive card is left without a tier.",
+    "GRADED_INTENT_REQUIRED": "You must declare what you are setting on a graded card: the MARKET PRICE of a published slab (real money) or the ESTIMATED VALUE if it were graded (an illustrative figure). Nothing was saved.",
+    "GRADED_ESTIMATE_SLAB_PUBLISHED": "This card already has a published piece of that grade. That price is real money, not an estimate; to change it, edit the piece price in Inventory › Graded.",
+    "GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS": "This card already has {count, plural, one {one published {grade} piece} other {# published {grade} pieces}}. That price is real money, not an estimate; to change it, edit the piece price in Inventory › Graded.",
+    "GRADING_SORT_REQUIRES_FILTER": "That sort order only exists for the showcase of cards worth grading; without that filter it cannot be applied.",
+    "GRADED_CONFIG_INVALID": "A threshold in the hook configuration is corrupt, so nothing is evaluated: a review list computed against a garbage threshold is worse than no list. Fix the configuration above and retry."
   },
   "payment": {
     "title": "Payment",

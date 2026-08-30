@@ -58,6 +58,10 @@ export const GROUPED_LISTING_SUMMARY_KEYS = keysOf<GroupedListingSummaryDTO>({
   stockCount: true,
   salePriceCents: true,
   currency: true,
+  // v1.50.2: MOVIDO desde `GroupedListingDTO` (la rejilla es la superficie de PROMOCIÓN). Es OPCIONAL
+  // y su PRESENCIA **es** la elegibilidad, así que en un escenario sin gate cumplido —o con el dial
+  // `off`— NO viaja: los tests que asertan el conjunto exacto de claves lo recortan explícitamente.
+  gradingHighlight: true,
 });
 
 /** `SealedGroupDTO` — el DTO de la **FICHA** de sellado (`SealedGroupDetailResponse.group`). */
