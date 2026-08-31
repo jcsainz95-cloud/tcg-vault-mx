@@ -9,6 +9,15 @@ import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { computeCartBreakdown, BreakdownDTO, PriceBasis, sealedPriceBasisOf, hasManualPrice } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
+import {
+  CARD_IMAGE_SELECT,
+  CardImageSource,
+  FrozenCardFacts,
+  OrderItemCardDTO,
+  distinctCardIds,
+  readFrozenCardFacts,
+  resolveOrderItemCard,
+} from './order-item-card';
 
 /**
  * Titularidad a escribir al RESERVAR una pieza (T2). Es el único eje en el que difieren las dos
@@ -50,7 +59,12 @@ interface SaleDecision {
 /** Línea de orden lista para persistir: el snapshot de dinero + su instrumentación. */
 type OrderLineData = {
   inventoryItemId: string;
-  cardSnapshot: object;
+  /**
+   * §5.2.7-b — antes era `object`, y por eso el compilador no podía ver la divergencia entre lo
+   * que el backend persistía/servía y lo que el contrato prometía: ahí cayó `imageSmallUrl`.
+   * Tipado con `FrozenCardFacts`, la clase (F) queda declarada y la próxima grieta no compila.
+   */
+  cardSnapshot: FrozenCardFacts;
   unitPriceCents: number;
   marketMxnCents: number | null;
   priceBasis: PriceBasis;
@@ -292,19 +306,44 @@ export class OrdersService {
    * Session (`createSession`, abajo) NO usa esta ruta: sigue estricta.
    */
   async quote(inventoryItemIds: string[]) {
-    const { subtotalCents, lines, unavailableItems } =
+    const { items, subtotalCents, lines, unavailableItems } =
       await this.priceCartForQuote(inventoryItemIds);
-    const previews = lines.map((l) => ({
-      inventoryItemId: l.inventoryItemId,
-      card: l.cardSnapshot,
-      unitPriceCents: l.unitPriceCents,
-    }));
+    const previews = this.toOrderItemPreviews(items, lines);
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const breakdown: BreakdownDTO =
       lines.length === 0
         ? this.zeroCartBreakdown(ivaPct)
         : computeCartBreakdown(subtotalCents, ivaPct, await this.settings.getStripeFee());
     return { items: previews, breakdown, unavailableItems };
+  }
+
+  /**
+   * §5.2.5 — proyección de LECTURA de las líneas de un QUOTE, cuerpo ÚNICO para las DOS superficies
+   * de cotización (`POST /checkout/quote` y `POST /checkout/guest/quote`, que ya comparten
+   * `priceCartForQuote`). Se unifica aquí precisamente porque el defecto original —la miniatura
+   * ausente— vivía duplicado: dos mapeos idénticos, y arreglar uno solo habría dejado el otro roto.
+   *
+   * **Cero consultas extra:** ambas rutas ya cargan `card` en memoria para preciar
+   * (`include: { card: { include: { set: true } } }`), así que la clase (P) sale del objeto ya
+   * cargado. La consulta batcheada solo hace falta en el histórico (`getOrder`).
+   *
+   * El puente es `InventoryItem.id → item.card`, que en un quote ES la pieza que se está cotizando
+   * (no hay acta de compra todavía). En el HISTÓRICO, en cambio, la unión va por `cardSnapshot.cardId`
+   * y está PROHIBIDO pasar por `inventoryItemId` (§5.2.5).
+   *
+   * Público solo para `GuestCheckoutService` (mismo módulo `orders/`), que ya delega en
+   * `priceCartForQuote`: no es superficie HTTP.
+   */
+  toOrderItemPreviews(
+    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[],
+    lines: OrderLineData[],
+  ): { inventoryItemId: string; card: OrderItemCardDTO; unitPriceCents: number }[] {
+    const cardByItemId = new Map<string, CardImageSource>(items.map((i) => [i.id, i.card]));
+    return lines.map((l) => ({
+      inventoryItemId: l.inventoryItemId,
+      card: resolveOrderItemCard(l.cardSnapshot, cardByItemId.get(l.inventoryItemId)),
+      unitPriceCents: l.unitPriceCents,
+    }));
   }
 
   /**
@@ -323,7 +362,15 @@ export class OrdersService {
     };
   }
 
-  private cardSnapshot(item: InventoryItem & { card: Card & { set?: CardSet | null } }) {
+  /**
+   * §5.2.2 — construye la clase (F): los OCHO hechos de la compra que se CONGELAN. El retorno va
+   * anotado a propósito (§5.2.7-b): con `FrozenCardFacts` explícito, añadir aquí un campo de
+   * presentación —`imageSmallUrl` la primera— es un ERROR DE COMPILACIÓN, no un descuido.
+   * La miniatura NO se persiste: se resuelve en lectura (`resolveOrderItemCard`).
+   */
+  private cardSnapshot(
+    item: InventoryItem & { card: Card & { set?: CardSet | null } },
+  ): FrozenCardFacts {
     return {
       cardId: item.cardId,
       name: item.card.name,
@@ -749,6 +796,29 @@ export class OrdersService {
     return { data, page, pageSize, total };
   }
 
+  /**
+   * §5.2.5 — resolución BATCHEADA de la clase (P) para el histórico: **UNA sola consulta** por los
+   * `cardId` DISTINTOS del pedido, nunca un N+1. Solo se traen `id` e `imageSmallUrl`.
+   *
+   * ⛔ PROHIBIDO resolver vía `OrderItem.inventoryItemId → InventoryItem.card`: la pieza física
+   * cambia de titular, estado y bóveda a lo largo del ciclo, y el acta de compra no puede colgar de
+   * una entidad que sigue mutando. El `cardId` congelado es el único puente estable.
+   *
+   * Que un `cardId` no resuelva (la fila `Card` desapareció) NO es un error: rinde `null` y el
+   * front pinta su placeholder.
+   */
+  private async loadCardsForSnapshots(
+    facts: { cardId?: string }[],
+  ): Promise<Map<string, CardImageSource>> {
+    const ids = distinctCardIds(facts);
+    if (ids.length === 0) return new Map();
+    const cards = await this.prisma.card.findMany({
+      where: { id: { in: ids } },
+      select: CARD_IMAGE_SELECT,
+    });
+    return new Map(cards.map((c) => [c.id, { imageSmallUrl: c.imageSmallUrl }]));
+  }
+
   async getOrder(userId: string, orderId: string, isAdmin = false) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -764,15 +834,22 @@ export class OrdersService {
       totalCents: order.totalCents,
       currency: 'MXN',
     };
+    // §5.2.4/§5.2.5 — ÉSTA es la superficie que lee del HISTÓRICO. Los hechos congelados salen del
+    // JSON tal cual se escribieron al cobrar (NO se re-derivan nunca); `imageSmallUrl` NO se lee de
+    // ahí —ni aunque estuviera— sino que se resuelve uniendo por el `cardId` congelado. Por eso el
+    // MISMO código sirve pedidos viejos y nuevos: los pedidos anteriores a v1.51-b muestran
+    // miniatura SIN migración ni backfill.
+    const facts = order.items.map((i) => readFrozenCardFacts(i.cardSnapshot));
+    const cardsById = await this.loadCardsForSnapshots(facts);
     return {
       id: order.id,
       status: order.status,
       createdAt: order.createdAt,
       settledAt: order.settledAt,
       breakdown,
-      items: order.items.map((i) => ({
+      items: order.items.map((i, idx) => ({
         inventoryItemId: i.inventoryItemId,
-        card: i.cardSnapshot,
+        card: resolveOrderItemCard(facts[idx], cardsById.get(facts[idx].cardId ?? '')),
         unitPriceCents: i.unitPriceCents,
       })),
       cfdiStatus: order.cfdiStatus,

@@ -4,6 +4,97 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.17 — **La miniatura del carrito: resuelta EN LECTURA, no persistida** (2026-08-31, v1.51-b)
+
+> Propiedad: **backend**. Implementa ARCHITECTURE **§5.2** (doctrina del snapshot congelado) y
+> API_CONTRACT **v1.51-b** (`OrderItemCardDTO`). **Cero migraciones, cero backfill, cero cambios de
+> contrato, cero montos tocados.** Si vas a leer una sola cosa: **la miniatura NO se persiste**.
+
+### Qué estaba roto
+`OrdersService.cardSnapshot()` congelaba ocho hechos de la compra y **no** `imageSmallUrl`, así que
+las tres superficies que sirven líneas de compra pintaban un hueco gris: el **carrito**
+(`POST /checkout/quote`), el **checkout de invitado** (`POST /checkout/guest/quote`) y el **detalle de
+pedido** (`GET /orders/:orderId`). La causa raíz no era la línea olvidada: era que el retorno estaba
+tipado como **`object`**, así que el compilador no podía ver la divergencia con lo que el contrato
+promete. Cualquier campo futuro habría caído en la misma grieta.
+
+### La regla, en una frase
+**`imageSmallUrl` no se lee NUNCA del JSON —ni aunque alguien la escribiera ahí— y no se escribe
+NUNCA en él: se resuelve en lectura uniendo por el `cardId` congelado.** Un solo camino.
+
+| | Dónde vive | Quién la sirve |
+|---|---|---|
+| **Hechos congelados (clase F)** — `cardId`, `name`, `setName`, `number`, `productType`, `rawCondition`, `gradingCompany`, `gradeValue` | Persistidos en `OrderItem.cardSnapshot` (**sin cambios**) | Se sirven **tal cual se escribieron**; un re-sync de catálogo no los altera |
+| **`imageSmallUrl` (clase P)** | **No se persiste** | Join sobre `Card.imageSmallUrl` en la proyección de lectura |
+
+### Qué se tocó
+- **`backend/src/modules/orders/order-item-card.ts` (NUEVO).** Declara `FrozenCardFacts` (lo que se
+  persiste), `OrderItemCardDTO` (lo que viaja por el cable) y el cuerpo único de resolución
+  `resolveOrderItemCard()`, más `readFrozenCardFacts()` / `distinctCardIds()` / `CARD_IMAGE_SELECT`.
+  Incluye un **cerrojo de compilación** que rompe el build si la proyección deja de rendir el DTO del
+  contrato.
+- **`orders.service.ts`** — `OrderLineData.cardSnapshot: FrozenCardFacts` (era `object`) y
+  `cardSnapshot(): FrozenCardFacts` con retorno **anotado**: añadir ahí un campo de presentación es
+  ahora un **error de compilación**. Nueva proyección compartida `toOrderItemPreviews()` (los dos
+  quotes) y `loadCardsForSnapshots()` (una sola consulta batcheada para el histórico).
+- **`guest-checkout.service.ts`** — el quote de invitado usa el **mismo** cuerpo de proyección. El
+  defecto vivía duplicado en dos mapeos idénticos; ahora hay uno.
+- **`payments.service.ts`** — el correo de confirmación de invitado leía el blob con un cast ad-hoc y
+  una forma paralela; ahora usa `readFrozenCardFacts()`. Mismo comportamiento, una sola definición de
+  «qué trae el snapshot». **El correo no lleva imagen.**
+
+### Lo que otros roles necesitan saber
+- **`imageSmallUrl` es clave SIEMPRE presente, valor nullable.** `null` es un resultado **legítimo**
+  (la fila `Card` ya no existe, o su columna `String?` está vacía): el front pinta su placeholder, no
+  es un error, no se reintenta, no bloquea el checkout ni el pedido. Nunca se omite la clave.
+- **`OrderItemCardDTO` NO es `CardDTO`.** Son 8 hechos + `imageSmallUrl`. No trae `id`, `externalId`,
+  `imageLargeUrl`, `rarity`, `supertype`, `availableFinishes`… Quien necesite el `CardDTO` completo lo
+  pide por `GET /catalog/cards/:id` con el `cardId`.
+- **`productType` y `rawCondition` viajan DENTRO de `card`**, nunca al nivel del ítem. Cada preview es
+  exactamente `{ inventoryItemId, card, unitPriceCents }` — tres claves, ni una más. Hay test que lo
+  fija en las dos rutas de quote.
+- **Coste:** los dos quotes **no** hacen ninguna consulta extra (la imagen sale del `card` que ya se
+  carga para preciar). `GET /orders/:orderId` hace **+1 consulta batcheada** por los `cardId`
+  distintos del pedido (`select` de dos columnas). **Nunca N+1**, y cero consultas si el pedido no
+  tiene líneas o su blob no trae `cardId`.
+- **Sellado — límite declarado (ARCHITECTURE §5.2.6):** el snapshot ancla `cardId`, no
+  `sealedProductId`, así que en el historial una línea `productType='sealed'` rinde la imagen de la
+  **carta ancla** (la cola de la cascada de §4.34a). Es un límite conocido, **no un bug**, y no se
+  compensa con un join a `InventoryItem`. Mostrar la caja es alcance de producto: pasa por el
+  arquitecto.
+- **devops: nada que hacer.** No hay migración, ni env, ni paso de despliegue.
+
+### La prueba decisiva (para QA)
+`backend/src/modules/orders/img-order-item-card.spec.ts` — **28 tests**. El que separa una
+implementación correcta de una disfrazada:
+
+> ★ *«un pedido creado ANTES del arreglo (JSON sin imagen) DEVUELVE miniatura — sin migración ni
+> backfill»* (bloque IMG-4).
+
+El test construye una fila `OrderItem` con el blob **exacto** que escribía el código anterior (ocho
+claves, sin rastro de `imageSmallUrl`), afirma esa ausencia **antes** de llamar, y comprueba que
+`getOrder` devuelve la URL — y que el blob **sigue** sin la clave después (la resolución es en
+memoria, no un backfill encubierto). Como el histórico y los pedidos nuevos comparten el mismo código
+de lectura, un solo cambio arregló ambos.
+
+Cubierto además: batcheo real (una sola llamada, `cardId` deduplicados) · prohibición del puente por
+`inventoryItemId` (el mock de `InventoryItem` **revienta** si se consulta) · fila `Card` inexistente y
+columna nula ⇒ `null` con 200 · blob viejo sin `cardId` ⇒ `null` y cero consultas · la imagen
+**envenenada** dentro del JSON se ignora y gana el join · los hechos congelados sobreviven a un
+re-sync que renombró la carta · `cardSnapshot()` sigue congelando ocho claves y **ninguna** imagen ·
+money-safe en las tres superficies (montos y desgloses idénticos) · la guardia `FORBIDDEN` intacta.
+
+### Validación
+- `npm run typecheck`: **limpio**. · `npm run lint`: **0 errores** (2 warnings preexistentes, ajenos:
+  `inventory.service.ts`, `sealed-product.service.ts`).
+- `npm test`: **2 661/2 661 en 207 suites** (baseline 2 633 en 206 + 28 nuevos, **0 regresiones**).
+- **Nota de alcance:** el tipado nuevo puso en rojo dos fixtures de
+  `backend/test/guest-checkout.session.spec.ts` cuyo `cardSnapshot` mock no traía `cardId` ni
+  `productType` (justo el tipo de divergencia que el `object` ocultaba). Se completaron los fixtures —
+  cambio mínimo y necesario para dejar `typecheck` verde; ninguna aserción se modificó.
+
+---
+
 ## 0.16 — **El ingest de estimados PSA trae CERO filas: el MAPA DE CAUSAS + los arreglos al diagnóstico** (2026-08-31, v1.51-b/-c)
 
 > Propiedad: **backend**. Nada de esto cambia el contrato (`GradedIngestResult` no viaja por HTTP) ni
