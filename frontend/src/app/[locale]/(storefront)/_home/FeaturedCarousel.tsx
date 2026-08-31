@@ -42,9 +42,16 @@ export const FEATURED_TRACK_ID = 'piezas-destacadas-pista';
  *
  * Fue 7 s mientras el carrusel llevaba conmutador de reproducción: ese valor se eligió para quedar
  * **por encima** del umbral de 5 s de WCAG 2.2.2 y sostener el argumento del control. Retirado el
- * conmutador (decisión del dueño, ver `docs/FRONTEND_NOTES.md` §36), la cadencia deja de estar atada
- * a ese umbral y se fija por ritmo editorial: 5 s. Lo demás del tic NO cambia — una teja por tic,
- * deslizamiento de ~0,5 s, no arranca hasta que cargaron las fotos y hay reposo antes del primero.
+ * conmutador (decisión del dueño, ver `docs/FRONTEND_NOTES.md` **§39** — §36 es el pase que
+ * CONSTRUYÓ el conmutador, no el que lo retiró), la cadencia deja de estar atada a ese umbral y se
+ * fija por ritmo editorial: 5 s. Lo demás del tic NO cambia — una teja por tic, deslizamiento de
+ * ~0,5 s, no arranca hasta que cargaron las fotos y hay reposo antes del primero.
+ *
+ * ⚠️ **ESTE NÚMERO ESTÁ CLAVADO POR TEST, a propósito.** `expect(ROTATION_REST_MS).toBe(5000)` en
+ * `FeaturedCarouselRotation.test.tsx` y su hermano en `e2e/featured-rotation.spec.ts`, que además
+ * comprueba que el E2E no cronometre con otro número. Sin ellos, cambiarlo dejaba la suite entera en
+ * verde (los tests derivan sus tiempos de la constante y se mueven con ella). Es la petición
+ * explícita del dueño: cambiarla es una decisión que se toma con dato delante, no un ajuste.
  */
 export const ROTATION_REST_MS = 5000;
 
@@ -52,6 +59,9 @@ export const ROTATION_REST_MS = 5000;
  * Tope de la precondición 3 de §23.3: si la foto de la teja líder no ha cargado en 3 s desde que la
  * consulta resolvió, la rotación se habilita igual. Sin este tope, una imagen remota lenta dejaría el
  * estante muerto para siempre.
+ *
+ * Clavado por `expect(LEAD_IMAGE_CAP_MS).toBe(3000)`: los tests derivaban sus tiempos de esta misma
+ * constante, así que sin el candado el número podía moverse sin que nada fallara.
  */
 export const LEAD_IMAGE_CAP_MS = 3000;
 
@@ -75,6 +85,12 @@ export const LEAD_IMAGE_CAP_MS = 3000;
  * La regla se conserva **en su intención** (el usuario manda y no se reanuda solo) y se acota a lo
  * que la regla nombra: desplazamientos **del usuario**. Un reajuste del motor de layout no es una
  * intervención, y tratarlo como tal deja la función muerta al primer render.
+ *
+ * **Clavada por tres tests, no por uno:** `expect(USER_INPUT_WINDOW_MS).toBe(1200)` y los dos bordes
+ * de conducta en **milisegundos absolutos** (1199 dentro / 1201 fuera). Antes esos dos bordes se
+ * calculaban con `USER_INPUT_WINDOW_MS ± 1` y por tanto **se movían con la constante**: `= 300`
+ * dejaba la suite entera en verde. Acortarla se lleva por delante la pausa por swipe en táctil
+ * (§23.13 nº9); alargarla vuelve a leer el re-snap del motor como intervención.
  */
 export const USER_INPUT_WINDOW_MS = 1200;
 
@@ -172,8 +188,10 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; lo
  * norma europea que cubre comercio electrónico solo aplicaría vendiendo a Europa). Lo que NO se
  * retiró —y es lo que de verdad protege a alguien— son los **cinco frenos automáticos**: hover,
  * foco de teclado, intervención del usuario (pausa permanente, §23.5a), visibilidad
- * (`IntersectionObserver` + pestaña oculta) y `prefers-reduced-motion`. Ver `docs/FRONTEND_NOTES.md`
- * §36. Las cuatro cosas que no pueden romperse aquí:
+ * (`IntersectionObserver` + pestaña oculta) y `prefers-reduced-motion`. La retirada y su porqué están
+ * en `docs/FRONTEND_NOTES.md` **§39**; §36 documenta el pase que CONSTRUYÓ el conmutador y describe
+ * piezas (`PlaybackToggle`, el slot `titleAdjacent`, «las 10 claves de §23.12») que **ya no existen**.
+ * Las cuatro cosas que no pueden romperse aquí:
  *
  *  - **R1 — rota la ventana, nunca el ROL.** La teja 1 sigue siendo la teja 1, con su `imageLargeUrl`
  *    y su `priority`/LCP. Si la teja 2 «ascendiera» a líder, cada tic remaquetaría dos tejas y
@@ -339,13 +357,24 @@ export function FeaturedCarousel() {
   });
 
   /**
-   * PAUSA PERMANENTE por intervención (§23.5 nivel 2). **Solo desde `playing`**: `paused` y `ended`
-   * son terminales y no hay nada que frenar en ninguno de los dos.
+   * PAUSA PERMANENTE por intervención (§23.5 nivel 2). **Solo desde `playing`**.
    *
-   * Aquí había además una transición `ended` → `paused` (sin anuncio). La pedía §23.6 **por el
-   * conmutador**: retirado el control, esa transición no tiene un solo efecto observable —los dos
-   * modos dejan el temporizador parado y la pista en `aria-live="polite"`— y por eso se retira. Una
-   * rama que no cambia nada es una rama muerta que el próximo lector tiene que descifrar.
+   * ⚠️ **LA GUARDA NO ES UNA VÍA MUERTA — protege el canal de estado, y es lo primero que hay que
+   * saber de ella.** (Aquí se describía como una rama sin efecto observable; eso subestimaba lo que
+   * hace.) Sus llamadores la invocan **incondicionalmente**: `goByArrow` con las dos flechas,
+   * `handleScroll` con cualquier gesto, y el listener de `hashchange` del regreso por ancla de
+   * §22.4a. Sin este `return`, cualquiera de los tres **después** del fin de la pasada emitiría
+   * «Rotación automática pausada.» encima de «Fin de las piezas destacadas.» ⇒ **dos anuncios en la
+   * misma visita**, y §23.9(c) permite **como mucho uno**. Caminos reales, no hipotéticos: la flecha
+   * «anterior» tras el fin, un swipe tras el fin, y el regreso por ancla mid-visit.
+   *
+   * Lo que sí se retiró aquí fue la transición `ended` → `paused` (cambiar de modo, sin anuncio):
+   * la pedía §23.6 **por el conmutador**, y sin control los dos modos dejan el temporizador parado y
+   * la pista en `aria-live="polite"`, así que el cambio de modo no era observable. **El `return`
+   * temprano no se fue con ella** y no puede irse: no es la rama muerta, es lo contrario.
+   *
+   * Fijado por `tras el fin, una intervención NO añade un segundo anuncio` en
+   * `FeaturedCarouselRotation.test.tsx`. Borrar esta línea lo pone rojo.
    */
   const pauseByIntervention = useCallback(() => {
     if (modeRef.current !== 'playing') return;

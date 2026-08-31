@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 
@@ -14,16 +16,53 @@ import { t } from './utils/i18n';
  * obligación legal para esta tienda) y la cadencia bajó de 7 s a 5 s. Con el botón fuera, **la
  * única evidencia de que un freno funciona es que la pista no se mueve**, así que todas las
  * aserciones que leían la etiqueta del control ahora leen `scrollLeft`. Se retiró el caso que
- * medía **exclusivamente** el conmutador (área táctil 44×44 en 390/640/1024, §23.14 f); ninguno de
- * los cinco frenos automáticos perdió cobertura.
+ * medía **exclusivamente** el conmutador (área táctil 44×44 en 390/640/1024, §23.14 f).
+ *
+ * ⚠️ **Matiz que aquí faltaba:** «no se movió» es evidencia suficiente **en navegador**, donde la
+ * geometría es real; en jsdom no lo era, y la reescritura equivalente del archivo unitario **sí**
+ * perdió poder discriminante en §23.4d (corregido allí, ver su cabecera). En este archivo los cinco
+ * frenos siguen cubiertos, pero el de **visibilidad** lo está **solo aquí**: es el único punto de
+ * cobertura del proyecto para ese freno, porque jsdom no tiene `IntersectionObserver`. Si alguna vez
+ * se corre solo la suite unitaria como gate, ese freno queda a ciegas. Anotado en `TECH_DEBT.md`.
  *
  * Corren en modo MOCK (sin `@real`): la rotación es conducta de cliente y no depende del backend.
  */
 
 const SECTION = '#piezas-destacadas';
 const TRACK = '#piezas-destacadas-pista';
-/** §23.3 — reposo entre tics y reposo inicial. Debe seguir a `ROTATION_REST_MS` del componente. */
+
+/**
+ * §23.3 — reposo entre tics y reposo inicial.
+ *
+ * ⚠️ **Aquí decía «debe seguir a `ROTATION_REST_MS` del componente» y NADA lo enforzaba.** Con la
+ * constante duplicada a mano, subirla en el componente a 7000 dejaba estos 9 casos en verde: el
+ * único aserto temporal es `waitForTimeout(REST_MS - 2000)` seguido de un `waitForFunction` con
+ * 15 s de margen, y 7 s reales caben ahí de sobra. O sea que **la cadencia que pidió el dueño era lo
+ * único del pase sin red de regresión**, en los dos archivos a la vez.
+ *
+ * No se importa el componente: es un módulo `'use client'` que arrastra React, `next-intl` y
+ * `@tanstack/react-query` al proceso de Playwright. Se lee **el fuente** y se compara. La igualdad
+ * se afirma en un test propio (abajo), no en un comentario.
+ */
 const REST_MS = 5000;
+
+/**
+ * `__dirname` y no `import.meta.url`: Playwright transpila estos specs a **CJS**, y basta un
+ * `import.meta` en el archivo para que trate el módulo como ESM y reviente el `require` de los demás
+ * imports («require is not defined in ES module scope»). Verificado aquí, no supuesto.
+ */
+const CAROUSEL_SOURCE = resolve(
+  __dirname,
+  '../src/app/[locale]/(storefront)/_home/FeaturedCarousel.tsx',
+);
+
+/** Lee `export const NOMBRE = <número>;` del fuente del componente. */
+function constantInSource(name: string): number {
+  const src = readFileSync(CAROUSEL_SOURCE, 'utf8');
+  const hit = new RegExp(`export const ${name} = (\\d+);`).exec(src);
+  if (!hit) throw new Error(`No se encontró \`export const ${name}\` en ${CAROUSEL_SOURCE}`);
+  return Number(hit[1]);
+}
 
 /** Espera que la pista NO se mueva durante `rests` reposos completos, con holgura. */
 async function expectFrozen(page: Page, rests = 2) {
@@ -67,6 +106,21 @@ async function primeCarousel(page: Page) {
 }
 
 test.describe('Carrusel destacadas · rotación automática (§23)', () => {
+  /**
+   * **EL CANDADO DE LA CADENCIA.** No monta navegador: compara el número que este archivo usa para
+   * cronometrar con el que compila el componente, y además lo fija en 5 s. Cubre los dos fallos
+   * posibles: que alguien mueva la cadencia (rojo aquí) y que alguien la mueva **solo en un sitio**
+   * (rojo aquí también). Su hermano unitario es el `expect(ROTATION_REST_MS).toBe(5000)` de
+   * `FeaturedCarouselRotation.test.tsx`.
+   *
+   * Si esto se pone rojo, la respuesta no es actualizar el literal: es traer la decisión del dueño y
+   * actualizar `DESIGN_SYSTEM.md` §23 y `docs/FRONTEND_NOTES.md` en el mismo commit.
+   */
+  test('§23.3 · la cadencia de este archivo es la MISMA que compila el componente, y son 5 s', async () => {
+    expect(constantInSource('ROTATION_REST_MS')).toBe(REST_MS);
+    expect(REST_MS).toBe(5000);
+  });
+
   /**
    * **EL CASO QUE MÁS IMPORTA QUE SOBREVIVA.** Prueba que el carrusel **no se auto-pausa antes de
    * su primer tic**: el motor de Chromium aplica `scroll-snap` al hidratar y mueve `scrollLeft`
@@ -283,8 +337,10 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
   });
 
   /**
-   * **Una pasada completa, de punta a punta.** Con la cadencia de 7 s tardaba ~39,7 s; a 5 s son
-   * ~28 s (reposo inicial + un tic cada 5 s hasta el tope de la pista, §23.6). Al terminar la
+   * **Una pasada completa, de punta a punta.** **Medida, no estimada: 15,3 s** en el viewport por
+   * defecto de este proyecto (QA midió ~14 s netos). El «~28 s» que decía antes este comentario era
+   * una cuenta de servilleta sobre 390px —donde quedan más tejas fuera de pantalla y hacen falta más
+   * tics—; aquí caben más tejas de golpe, así que la pasada es de 2 o 3 tics. Al terminar la
    * pista queda QUIETA para siempre: ya no hay control que la devuelva a REPETIR, y el fin de la
    * pasada se detecta donde corresponde —la pista tocó su tope y la flecha «siguiente» se apagó—.
    */
@@ -294,8 +350,8 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     test.setTimeout(120_000);
     await primeCarousel(page);
 
-    // El fin de la pasada: la pista llegó a su tope. ~28 s con la cadencia de 5 s; el margen cubre
-    // el arranque y los deslizamientos.
+    // El fin de la pasada: la pista llegó a su tope. Medido: 15,3 s de punta a punta; los 80 s de
+    // margen cubren el arranque, los deslizamientos y un viewport más estrecho.
     await page.waitForFunction(
       (sel) => {
         const el = document.querySelector(sel) as HTMLElement;
