@@ -239,13 +239,30 @@
 > `ARCHITECTURE.md` §4.38(r) (rev v1.51-one-dial) colapsa los dos interruptores en `gradingHookEnabled`
 > (M-46): el mismo dial gobierna **exhibición Y obtención**. Como el dial **ya no significa lo mismo en
 > cada sentido**, el aviso de M10 pasa de **uno** a **dos**: **al encender**, publica una afirmación
-> comercial **y** abre una llave de gasto (proveedor de paga, hasta **1 000 créditos/día** con los topes
-> actuales, y escribe precios) — `Banner warning`, con la consecuencia nueva en una entradilla que se lee
+> comercial **y** abre una llave de gasto (proveedor de paga, con un techo de créditos **que aún nadie ha
+> medido**, y escribe precios) — `Banner warning`, con la consecuencia nueva en una entradilla que se lee
 > aunque nadie lea el párrafo; **al apagar**, deja de publicar **y** deja de actualizar, con la **escalera
 > de remedios** en el texto para que nadie apague la feature entera por una carta mal capturada —
 > `Banner info`, **sin color**, porque el apagado es el botón de pánico y no puede dar miedo. **Ninguna
 > superficie del storefront cambia** (§22.0–§22.12 intactas) y sigue **cero tokens nuevos, cero
 > componentes nuevos y cero cambios de contrato**.
+>
+> **Corregido v2.4 (2026-08-31) — el aviso de encendido deja de afirmar la cifra de créditos como si
+> estuviera medida: §22.13(d) y §22.13(d.1).** La v2.3 escribía *«hasta {credits} créditos al día
+> ({maxCards} × {perCard} × {runs})»* **sin calificador**, y esa aritmética supone que el proveedor cobra
+> **por carta en alcance**. No es lo que hace la petición: manda `fetchAllInSet=true`, o sea pide **el set
+> entero**, y `ingestMaxCardsPerRun` acota las cartas **en alcance**, no las **devueltas**
+> (`ARCHITECTURE.md` §4.38(r.3.1.0), **factor de amplificación `A`**). Si PPT cobra por carta devuelta, el
+> techo real es `1 000 × A` — con 250 cartas en 20 sets de 200, **16 000/día** sobre una cuota de 20 000:
+> la diferencia entre gastar el **5 %** y el **80 %** del plan del dueño. **Nadie lo ha medido**, y por eso
+> el `COSTE MEDIDO` de §4.38(r.3.1.1) es la precondición viva del primer encendido (A-1). El copy pasa a
+> **separar lo que sabemos** (cuántas cartas suyas entran) **de lo que no sabemos** (cómo factura el
+> proveedor), dice que **la primera corrida lo mide**, y deja **previsto** el texto medido (`onMeasured`)
+> para que publicar la cifra real sea **cambiar un selector, no reescribir el aviso**. Además: el máximo de
+> `ingestMaxCardsPerRun` baja de **5 000 a 1 000** (I8, contrato **v1.51-a**) y **GU-9 quedó cerrada** (el
+> dueño aceptó los 60 días de antigüedad del dato automático). Sigue **cero tokens nuevos, cero componentes
+> nuevos y cero cambios de contrato** — con **una petición abierta** al arquitecto para poder encender
+> `onMeasured` (§22.12 nº14).
 
 ---
 
@@ -6091,21 +6108,47 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
     ni por dos componentes; (e) dar un `id` (`gancho-revision`) y su `scroll-mt` a la sección de la **lista
     de revisión** de M2, para que el enlace del aviso de apagado tenga destino real. Sin (e) el aviso
     manda a una página que no lleva a ningún sitio, que es la forma más silenciosa de que la escalera de
-    remedios no se use.
-14. **Arquitecto / product-owner — nada que pedir al contrato, y dos constancias.** §22.13 **no necesita
-    ningún dato ni pantalla que el contrato no cubra**: el dial ya está en `SettingsDTO`
-    (`gradingHookEnabled`) y el tope en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`). Las dos
-    constancias son de otros roles: (i) el **presupuesto en créditos** que `ARCHITECTURE.md` §4.38(r.3.1).1
-    manda publicar en `DEVOPS_NOTES.md` es lo que da veracidad a la cifra del aviso — si ese número cambia,
-    el copy cambia **por interpolación**, no por edición; (ii) el disclaimer de §O.5 **ya está aprobado por
-    el dueño** (2026-08-31, con la marca corregida a **TCG HUNT** en ES y EN), así que el aviso **ya no dice
-    que falte su visto bueno** — decirlo sería publicar en pantalla algo falso. Lo único que el aviso
-    conserva de esa idea es que **no ha habido revisión legal profesional**, y **esa cláusula se retira el
-    día que un abogado revise el texto**: es de PO/legal avisar cuándo.
+    remedios no se use. **Añadido v2.4:** (f) reescribir el valor de `…gradingHook.{on,onNoFigures,note}` y
+    añadir `…gradingHook.onMeasured` en ES **y** EN (§22.13d/j); (g) añadir al **mismo módulo único** de (d)
+    el selector `costBasis`, que hoy devuelve `'estimated'` fijo; (h) **cambiar la aserción del test** que
+    hoy fija `/1[.,\s]?000 créditos al día/` por la frase condicional completa (§22.13k m) — mientras esa
+    aserción exista, el copy corregido **no puede pasar CI sin tocarla**, así que va en el mismo cambio.
+14. **Arquitecto / product-owner — una petición abierta y dos constancias.** Hasta v2.3, §22.13 no necesitaba
+    ningún dato que el contrato no cubriera: el dial está en `SettingsDTO` (`gradingHookEnabled`) y el tope
+    en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`). **La v2.4 abre una petición, y es la única.**
+    - **Petición (no bloqueante para implementar hoy): un canal para el COSTE MEDIDO.** §22.13(d) define
+      `onMeasured`, el texto que publica la cifra **medida** en vez de la nominal. Su fuente —la línea
+      `[VEREDICTO-PSA] COSTE MEDIDO:` de la sonda y su transcripción a `DEVOPS_NOTES.md`
+      (`ARCHITECTURE.md` §4.38r.3.1.1)— **no existe en ningún DTO**, así que la pantalla no puede
+      verificarla y `onMeasured` queda dormido. Si el arquitecto quiere que el aviso llegue a decir la
+      verdad medida, hace falta que `GET /admin/pricing/graded-estimates` (o donde él decida) exponga
+      **coste medido por día + fecha de la medición**. **No lo pide este documento como bloqueante** y
+      **ux-ui no diseña el DTO**: se anota para que la decisión sea suya y no una improvisación del
+      frontend el día del encendido. Mientras tanto, el aviso dice explícitamente que **no está medido**,
+      que es la verdad.
+    - Constancia (i): la **corrección de A-1** (§4.38r.3.1.0/.1) ya está aplicada al copy — el aviso **ya no
+      afirma «1 000 créditos al día» como hecho**. El **presupuesto medido** que §4.38(r.3.1.1) manda
+      publicar en `DEVOPS_NOTES.md` sigue siendo lo que da veracidad a la cifra; cuando exista, el copy
+      cambia **por selector e interpolación**, no por edición (§22.13d.1).
+    - Constancia (ii): el disclaimer de §O.5 **ya está aprobado por el dueño** (2026-08-31, con la marca
+      corregida a **TCG HUNT** en ES y EN), así que el aviso **ya no dice que falte su visto bueno** —
+      decirlo sería publicar en pantalla algo falso. Lo único que el aviso conserva de esa idea es que **no
+      ha habido revisión legal profesional**, y **esa cláusula se retira el día que un abogado revise el
+      texto**: es de PO/legal avisar cuándo. **La v2.4 no la toca.**
+    - Constancia (iii): **GU-9 cerrada** (el dueño aceptó los **60 días** de antigüedad máxima del dato
+      automático, §4.38r.3.1.2 nº3). Se revisó §22.13 completa: **ninguna superficie de M10 presentaba la
+      frescura como decisión pendiente**, así que no hubo nada que retirar. La única mención está en la nota
+      persistente (f), como ajuste editable en M2, y sigue siendo correcta.
 
 ---
 
-### 22.13 El dial único del gancho en M10 — dos avisos, uno por sentido (v2.3, `ARCHITECTURE.md` §4.38r)
+### 22.13 El dial único del gancho en M10 — dos avisos, uno por sentido (v2.4, `ARCHITECTURE.md` §4.38r)
+
+> **Corrección v2.4 (2026-08-31) — A-1, el único bloqueante vivo del primer encendido.** El aviso de
+> encendido **afirmaba una cifra que nadie ha medido**. Se corrige en **(d)**, con la regla de redacción que
+> lo gobierna en **(d.1)**, la prohibición correspondiente en **(h)** y la verificación en **(k)**. El aviso
+> de **apagado (e)**, la nota **(f)**, la etiqueta **(g)**, la matriz **(c)** y el contraste **(i)** no
+> cambian salvo donde se indica. **Este § sigue siendo la única fuente del copy de M10.**
 
 > **Qué cambió.** El gancho pasa de **dos** interruptores a **uno** (`gradingHookEnabled`, M-46): el mismo
 > dial gobierna **exhibición Y obtención**. El dueño tenía razón —el segundo **nunca se dibujó en el
@@ -6141,6 +6184,11 @@ contenedor, **después de la nota persistente** (f) y **antes** del botón «Gua
   línea de bitácora.
 - **Las cifras de créditos van en mono `tabular-nums`** (§20.14, voz del dinero operativo): son una cuenta,
   no una frase. Es el mismo criterio que separa precio de estimado en el storefront, aplicado aquí.
+- **El calificador viaja con la cifra, y con el mismo peso visual.** La condicional que la califica
+  («si cobra por petición…», «medido el {measuredOn}») va en **la misma frase, mismo tamaño, misma tinta**
+  que el número: nunca muted, nunca `text-xs`, nunca entre paréntesis al final del párrafo, nunca en un
+  `title`/tooltip. Una cifra en mono destaca sola; degradar su calificador la deja **leyéndose como un
+  hecho**, que es exactamente el defecto que (d.1) corrige.
 - **Los dos avisos nunca coexisten:** el estado efectivo es uno solo.
 
 #### 22.13(c) Matriz de visibilidad y ARIA
@@ -6163,36 +6211,151 @@ contenedor, **después de la nota persistente** (f) y **antes** del botón «Gua
 - **El aviso de apagado no sube a `alert`.** Interrumpir a quien está tomando la decisión segura es ruido.
 - **El banner no roba el foco:** lo conserva el switch, para poder revertir con la misma tecla.
 
-#### 22.13(d) Copy del ENCENDIDO — publica **y** gasta
+#### 22.13(d) Copy del ENCENDIDO — publica **y** gasta (cuánto, **medido o no**)
+
+**Tres entradillas, tres ideas, y la tercera es la que faltaba:** *publica* → *gasta* → **cuánto**. El cuerpo
+es **un solo texto** con **tres variantes** que se diferencian **únicamente en el tercer bloque** (el de
+«cuánto»); todo lo demás es literal idéntico entre las tres. La variante la elige `costBasis` (d.1).
+
+| Clave | Cuándo se pinta |
+|---|---|
+| `on` | **Por defecto y hoy siempre.** Hay tope de M2, **no hay coste medido** |
+| `onMeasured` | Hay tope de M2 **y** hay coste medido del entorno (§4.38r.3.1.1) — **previsto, dormido hasta que exista la fuente** |
+| `onNoFigures` | **No** hay tope de M2 (cargando, error, sin permiso) |
+
+**Título y línea de bitácora — comunes a las tres variantes** (el título no lleva cifra, así que **sigue
+siendo verdad también cuando el coste esté medido**; no se toca en v2.4):
 
 | Clave | ES | EN |
 |---|---|---|
 | `onTitle` | Encendido: publica cifras **y** consume créditos | On: publishes figures **and** spends credits |
-| `on` | **Publica.** Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. **Y gasta.** El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor **de paga** y a escribir precios estimados: hasta **{credits} créditos al día** ({maxCards} cartas × {perCard} créditos × {runs} corridas). El tope de cartas por corrida se edita en M2 · Catálogo y precios; los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma **y lo que cuesta**. | **It publishes.** With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. **And it spends.** The same dial lets the daily sweep ask a **paid** provider for those figures and write estimated prices: up to **{credits} credits a day** ({maxCards} cards × {perCard} credits × {runs} runs). The per-run card cap is edited in M2 · Catalog and pricing; credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — **and what it costs**. |
-| `onNoFigures` (respaldo, solo cambia la segunda frase) | …**Y gasta.** El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor **de paga** y a escribir precios estimados: consume créditos en cada corrida, hasta el tope de cartas que fijaste en M2 · Catálogo y precios. | …**And it spends.** The same dial lets the daily sweep ask a **paid** provider for those figures and write estimated prices: it consumes credits on every run, up to the per-run card cap you set in M2 · Catalog and pricing. |
 | `audit` | Solo súper-admin · queda en bitácora. | Super-admin only · recorded in the audit log. |
 
-- **Las dos entradillas —«Publica.» / «Y gasta.»— son el mecanismo, no adorno.** Es el mismo recurso de
-  §22.4b (entradilla en tinta 500 dentro del párrafo) y garantiza que **la consecuencia nueva se lea aunque
-  nadie lea el párrafo**. Se marcan con **rich text de next-intl** (`<b>…</b>`), nunca partiendo la frase en
-  dos claves ni concatenando (§9.4).
+**`on` — cuerpo completo (variante sin medir). ES:**
+
+> **Publica.** Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin
+> gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación
+> comercial de la tienda. **Y gasta.** El mismo dial autoriza al barrido diario a pedir esas cifras a un
+> proveedor **de paga** y a escribir precios estimados. **Cuánto gasta, todavía nadie lo ha medido.** Lo que
+> sí sabemos es el alcance: el barrido mira hasta **{maxCards} cartas tuyas** por corrida, **{runs} corridas
+> al día** (ese tope se edita en M2 · Catálogo y precios). Lo que no sabemos es **cómo factura el
+> proveedor**: si cobra por petición, el techo son **{credits} créditos al día** ({maxCards} × {perCard} ×
+> {runs}); si cobra por carta devuelta, cada petición pide el **set entero**, el barrido paga **todas** las
+> cartas de cada set que toque y la factura puede ser **varias veces** esa cifra. **La primera corrida lo
+> mide**; hasta entonces, {credits} es un techo bajo un supuesto, no un presupuesto. Los créditos gastados
+> no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la
+> tienda afirma **y lo que cuesta**.
+
+**`on` — EN:**
+
+> **It publishes.** With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded
+> cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by
+> the store. **And it spends.** The same dial lets the daily sweep ask a **paid** provider for those figures
+> and write estimated prices. **How much it spends has not been measured yet.** What we do know is the
+> scope: the sweep looks at up to **{maxCards} of your cards** per run, **{runs} runs a day** (that cap is
+> edited in M2 · Catalog and pricing). What we do not know is **how the provider bills**: if it charges per
+> request, the ceiling is **{credits} credits a day** ({maxCards} × {perCard} × {runs}); if it charges per
+> returned card, each request asks for the **whole set**, the sweep pays for **every** card in each set it
+> touches, and the bill can be **several times** that figure. **The first run measures it**; until then,
+> {credits} is a ceiling under an assumption, not a budget. Credits spent are not recovered by turning it
+> off. It changes no sale price, valuation or quote: it changes what the store claims — **and what it
+> costs**.
+
+**`onMeasured` — idéntico a `on` salvo el tercer bloque, que pasa de hipótesis a medición:**
+
+| | ES | EN |
+|---|---|---|
+| Bloque «cuánto» | **Cuánto gasta, ya está medido.** El barrido mira hasta **{maxCards} cartas tuyas** por corrida, **{runs} corridas al día**, y la corrida medida el {measuredOn} gastó a razón de **{credits} créditos al día**. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, vuelve a medirse. | **How much it spends has been measured.** The sweep looks at up to **{maxCards} of your cards** per run, **{runs} runs a day**, and the run measured on {measuredOn} spent at a rate of **{credits} credits a day**. That is a measurement, not an assumption: if the cap, the inventory or the provider changes, it gets measured again. |
+
+**`onNoFigures` — idéntico a `on` salvo el tercer bloque, sin ninguna cifra:**
+
+| | ES | EN |
+|---|---|---|
+| Bloque «cuánto» | **Cuánto gasta, todavía nadie lo ha medido.** Consume créditos en cada corrida. El tope que fijaste en M2 · Catálogo y precios acota **cuántas cartas tuyas mira** el barrido, **no cuántas te cobra el proveedor**: cada petición pide el set entero. Cuánto cuesta de verdad lo mide la primera corrida. | **How much it spends has not been measured yet.** It consumes credits on every run. The cap you set in M2 · Catalog and pricing limits **how many of your cards** the sweep looks at, **not how many the provider bills you for**: each request asks for the whole set. What it really costs is measured by the first run. |
+
+- **Las tres entradillas —«Publica.» / «Y gasta.» / «Cuánto gasta…»— son el mecanismo, no adorno.** Es el
+  mismo recurso de §22.4b (entradilla en tinta 500 dentro del párrafo) y garantiza que **las consecuencias
+  se lean aunque nadie lea el párrafo**. Se marcan con **rich text de next-intl** (`<b>…</b>`), nunca
+  partiendo la frase en dos claves ni concatenando (§9.4). La tercera entradilla es nueva en v2.4: sin ella,
+  «cuánto» quedaba dentro de la segunda y **se leía como un dato cerrado**.
 - **Los números se interpolan; no se hardcodean** — convención del sistema («del dial, nunca hardcodeado»,
   §15). `{maxCards}` = `ingestMaxCardsPerRun` (M2, `GET /admin/pricing/graded-estimates`); `{perCard}` y
   `{runs}` son las constantes de coste del proveedor y de cadencia del cron, declaradas por frontend en
-  **un solo módulo**; `{credits}` llega **ya multiplicado** (ICU no multiplica). Con los topes de hoy
-  (250 × 2 × 2) la frase dice **1 000 créditos al día**.
+  **un solo módulo**; `{credits}` llega **ya multiplicado** (ICU no multiplica).
+- **Lo que dan los topes de hoy.** `250 × 2 × 2 = 1 000` créditos/día **bajo el supuesto «por petición»**.
+  El máximo que un solo `PUT` puede autorizar bajó de **5 000 a 1 000** (I8, contrato **v1.51-a**,
+  §4.38r.3.4), así que el peor caso nominal por `PUT` es **4 000**/día y ya no 20 000 — pero **eso es antes
+  del factor de amplificación `A`**, que ningún dial acota. **Estrechar el tope no acota la factura**, y el
+  copy no debe insinuar que sí: por eso `onNoFigures` dice explícitamente qué acota el tope y qué no.
 - **El aviso nunca espera a un número.** Si la config de M2 no está disponible (cargando, error, permiso),
-  se pinta `onNoFigures`, que conserva las dos ideas. Es la doctrina de **R3.4 llevada al back-office**:
-  **cede la cifra, nunca el aviso**.
+  se pinta `onNoFigures`, que conserva **las tres** ideas. Es la doctrina de **R3.4 llevada al back-office**:
+  **cede la cifra, nunca el aviso** — y, desde v2.4, **cede la cifra antes que el calificador**.
 - **`audit` es la última línea del banner**, mono 11px muted. §7.6 ya lo exige a las acciones de dinero
   saliente («Solo súper-admin · queda en bitácora»); aquí aplica porque **encender es** una acción de
   dinero.
-- **Corrección de hecho (2026-08-31).** La versión anterior de este aviso decía que el texto legal *«todavía
-  NO tiene el visto bueno del dueño (ni revisión legal)»*. **El dueño lo aprobó** —en la misma sesión, con
-  la marca corregida a **TCG HUNT**— así que esa frase **se retira**: escribirla hoy sería **publicar en
-  pantalla algo falso**, en la pantalla que precisamente existe para que nadie encienda esto a ciegas. Se
-  conserva lo único que sigue siendo verdad, **«sin revisión legal profesional»**, y esa cláusula **se cae
-  el día que un abogado revise el disclaimer** (§22.12 nº14).
+- **Corrección de hecho (2026-08-31, disclaimer).** La versión anterior de este aviso decía que el texto
+  legal *«todavía NO tiene el visto bueno del dueño (ni revisión legal)»*. **El dueño lo aprobó** —en la
+  misma sesión, con la marca corregida a **TCG HUNT**— así que esa frase **se retira**: escribirla hoy sería
+  **publicar en pantalla algo falso**, en la pantalla que precisamente existe para que nadie encienda esto a
+  ciegas. Se conserva lo único que sigue siendo verdad, **«sin revisión legal profesional»**, y esa cláusula
+  **se cae el día que un abogado revise el disclaimer** (§22.12 nº14). **La v2.4 no la afloja**: las tres
+  variantes la llevan literal.
+- **GU-9 está cerrada y este § nunca la mencionó.** El dueño aceptó los **60 días** de antigüedad del dato
+  automático (§4.38r.3.1.2 nº3). Se revisó §22.13 entera: **no hay ninguna frase que presente la frescura
+  como decisión pendiente** — (f) solo la nombra como un ajuste editable en M2, que sigue siendo cierto. No
+  hay nada que retirar, y queda constancia de que se buscó.
+
+#### 22.13(d.1) La regla de calificación — lo que sabemos, lo que no, y quién lo resuelve
+
+**Norma.** *Mientras el coste no se haya medido en el entorno que se enciende, el aviso **no puede presentar
+ninguna cifra de créditos sin decir, en la misma frase, bajo qué supuesto vale y qué la pondría en duda**.*
+
+Por qué, con los hechos delante (`ARCHITECTURE.md` §4.38r.3.1.0, verificado contra el código que corre):
+
+| | Qué es | Estado |
+|---|---|---|
+| `{maxCards}` cartas por corrida, `{runs}` corridas al día | **Alcance**: cuántas cartas **nuestras** entran. Sale de un dial que el dueño edita | ✅ **Lo sabemos** |
+| `{perCard}` créditos por carta | Tarifa publicada del proveedor | ✅ Lo sabemos |
+| **Qué cuenta el proveedor para cobrar** — cartas *en alcance* o cartas *devueltas* | La petición manda `fetchAllInSet=true`: pide **el set entero**. `ingestMaxCardsPerRun` acota el alcance, **no** lo devuelto. `A = devueltas / en alcance ≥ 1`, y **ningún dial lo acota** | ❌ **NO lo sabemos** |
+| `{credits}` = `{maxCards} × {perCard} × {runs}` | **Solo vale si se cobra por petición.** Si se cobra por carta devuelta, el techo es `{credits} × A` — 250 cartas en 20 sets de 200 dan `A = 16` ⇒ **16 000/día** frente a una cuota de 20 000 | ⚠️ **Hipótesis** |
+
+**El error que esto corrige no es de estilo: es de clase.** Una consecuencia **observable** del
+comportamiento del proveedor estaba escrita como si fuera una **decisión nuestra**. Y la pantalla donde
+estaba escrita es, literalmente, **la que existe para que nadie encienda esto a ciegas**: era el peor sitio
+posible para un número inventado. La diferencia entre los dos regímenes es la diferencia entre gastar el
+**5 %** y el **80 %** de la cuota diaria del dueño — no es un matiz de redacción.
+
+**Cómo se redacta la calificación (y por qué no basta con «aproximadamente»).**
+
+| Recurso | Veredicto |
+|---|---|
+| «aproximadamente **{credits}**», «~{credits}», «hasta unos {credits}» | ❌ **Prohibido.** Sugiere **error de redondeo** sobre un número correcto. El error posible es de **un factor de 16**, no de un decimal, y su causa no es la precisión sino **un supuesto de facturación sin observar** |
+| «puede variar», «estimado», «orientativo» | ❌ Insuficiente por lo mismo: no dice **qué** puede variar ni **quién** lo resuelve |
+| **Nombrar los dos regímenes, decir cuál asume la cuenta y decir que la primera corrida lo dirime** | ✅ **Es la forma exigida.** El dueño no tiene que creerse un número: tiene que poder decidir **con la incertidumbre a la vista y con la salida a la vista** |
+
+**Y la cifra no se borra.** Se consideró quitarla y dejar solo «consume créditos»: **se rechaza**. Un aviso
+de gasto sin orden de magnitud no permite decidir, y el dueño sí sabe cuántas cartas suyas entran — ocultarle
+la mitad que **sí** conocemos sería el error simétrico. Se publica **con su supuesto pegado**.
+
+**Selector `costBasis` — cómo se enciende el texto medido sin reescribir nada.**
+
+```
+costBasis = 'measured'   ⇒ onMeasured   (hay coste medido del entorno + fecha)
+costBasis = 'estimated'  ⇒ on           (hay tope de M2, no hay medición)  ← hoy, siempre
+(sin tope de M2)         ⇒ onNoFigures  (gana sobre las dos anteriores)
+```
+
+- El selector vive en **el mismo módulo único** donde ya viven `{perCard}` y `{runs}` (§22.12 nº13d). Hoy
+  devuelve `'estimated'` **de forma fija**, porque no hay fuente: el `COSTE MEDIDO` de §4.38(r.3.1.1) vive
+  en el log de la sonda y en `DEVOPS_NOTES.md`, **no en ningún DTO**.
+- **Las tres variantes se traducen y se montan ahora**, aunque `onMeasured` no se pinte todavía. Es
+  deliberado: el día que el número medido exista, publicarlo es **cambiar un selector**, no reabrir el copy
+  de una pantalla de consentimiento con prisa. Un aviso reescrito con prisa es cómo se coló el defecto que
+  este § corrige.
+- **Qué falta para encenderlo** — no lo decide ux-ui: hace falta que el coste medido llegue al frontend por
+  un canal del contrato. **Solicitud abierta al arquitecto/PO en §22.12 nº14.** Hasta entonces, `onMeasured`
+  **no se pinta** — y **no** se rellena a mano desde un `.env`, un literal ni una constante «temporal»: eso
+  sería volver a afirmar como medido algo que la pantalla no puede verificar.
 
 #### 22.13(e) Copy del APAGADO — deja de publicar **y** de actualizar
 
@@ -6225,11 +6388,17 @@ decirlo el dueño apagará la feature entera por una carta mal capturada.
 
 | Clave | ES | EN |
 |---|---|---|
-| `note` | Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas **y** el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna **y** tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura, los grados y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. | A single switch governs the hook: on, the storefront publishes the estimated figures **and** the daily sweep fetches them from a paid provider; off, it publishes none **and** updates none. Grading cost tiers, minimum upside, freshness, grades and the per-run card cap are edited in M2 · Catalog and pricing, along with the review list — the tool for a single figure. |
+| `note` | Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas **y** el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna **y** tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura, los grados y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota **cuántas cartas tuyas mira** el barrido, no cuántas te cobra el proveedor. | A single switch governs the hook: on, the storefront publishes the estimated figures **and** the daily sweep fetches them from a paid provider; off, it publishes none **and** updates none. Grading cost tiers, minimum upside, freshness, grades and the per-run card cap are edited in M2 · Catalog and pricing, along with the review list — the tool for a single figure. That cap limits **how many of your cards** the sweep looks at, not how many the provider bills you for. |
 
 La nota carga **la versión de una línea** de las dos ideas, para que estén presentes **también cuando el
 dial está apagado y no hay ningún banner**: es lo que impide que el dueño descubra la escalera solo en el
 momento de apagar.
+
+**Añadido v2.4 — la última frase.** La nota es el sitio donde el dueño lee qué hace el tope de M2 **cuando
+va a editarlo**, que es justo cuando puede creer que está fijando un presupuesto. La frase es **verdad
+permanente** (no caduca cuando se mida el coste) y **no lleva ninguna cifra**, así que no compite con el
+banner ni hay que mantenerla en dos sitios. **No** se le añade nada sobre regímenes de cobro: eso es del
+aviso de encendido, y una nota persistente con la duda entera dentro se convierte en un segundo banner.
 
 #### 22.13(g) Etiqueta del dial
 
@@ -6248,6 +6417,11 @@ solo nombraba la mitad — el mismo defecto de nombre que §4.38(r.1) corrigió 
 | **Cualquier fricción extra en el APAGADO** (modal, «escribe APAGAR», doble confirmación) | El apagado es el **botón de pánico** que el gancho no tenía (§4.38r.2). Poner fricción en la dirección segura se paga en el peor momento posible. |
 | **Pintar el apagado en `warning`/`danger`** (rojo) | Convertiría en «peligroso» el remedio correcto de la duda sistémica. `info` es **tinta muted sin color propio** (§2.3): informa, no alarma. |
 | **Ocultar el aviso de encendido porque falta el número de créditos** | Para eso existe `onNoFigures`. Cede la cifra, nunca el aviso. |
+| **Afirmar una cifra de créditos sin su calificador en la misma frase** | Es el defecto que la v2.4 corrige (d.1). El techo nominal supone que se cobra **por petición**; si se cobra por carta devuelta, la petición pide el **set entero** y el gasto real puede ser **varias veces** mayor. Escribirla desnuda es enseñarle al dueño una hipótesis con cara de medición, **en la pantalla que existe para que no encienda a ciegas**. |
+| **Calificarla solo con «aproximadamente», «~», «estimado» o «puede variar»** | Sugiere imprecisión de redondeo. El rango del error es un **factor**, no un decimal, y la causa es un **supuesto de facturación sin observar** (d.1). |
+| **Degradar el calificador** (muted, `text-xs`, paréntesis final, `title`/tooltip, «ver detalles») | La cifra va en mono y destaca sola; si su condición se lee más floja, el conjunto **se lee como un hecho**. Misma doctrina que R3: un texto que exigió un clic admite la réplica «nunca lo abrí». |
+| **Presentar `ingestMaxCardsPerRun` (ni su máximo de 1 000) como si acotara el gasto** | Acota las cartas **en alcance**, no las **devueltas**. Ningún dial acota el factor de amplificación. Decir «bajamos el tope, ya está acotado» crea una falsa sensación de cobertura — lo advierte §4.38(r.3.4) con esas palabras. |
+| **Pintar `onMeasured` con un número que no venga de una medición del entorno** (literal, `.env`, constante «temporal») | Sería exactamente el defecto original, con la palabra «medido» encima. Sin fuente en el contrato, `onMeasured` **no se pinta** (d.1). |
 | **Repetir aquí el disclaimer completo de §O.5** | El disclaimer es del **storefront** (§22.4). M10 solo dice que encender **lo publica**. |
 | **Decir que el disclaimer no está aprobado** | **Ya lo está** (§22.12 nº14). Una pantalla que afirma lo contrario de lo que el producto hace es exactamente el defecto que este § existe para no cometer. |
 | **Rotular estados que ya no existen** («parcial», «solo ingest», «modo prueba», «traer sin publicar») | Con un dial esos estados **no son expresables** (§4.38r.6.4). Nombrarlos en pantalla reabre el defecto que el dueño pidió cerrar. |
@@ -6277,16 +6451,23 @@ solo nombraba la mitad — el mismo defecto de nombre que §4.38(r.1) corrigió 
 #### 22.13(j) i18n — claves nuevas y retiradas (propiedad de frontend)
 
 - **Nuevas:** `admin.m10.dials.labels.gradingHookEnabled` ·
-  `admin.m10.dials.gradingHook.{note,onTitle,on,onNoFigures,audit,offTitle,off}`.
+  `admin.m10.dials.gradingHook.{note,onTitle,on,onMeasured,onNoFigures,audit,offTitle,off}`.
 - **Retiradas:** `admin.m10.dials.labels.gradedEstimatesEnabled` ·
   `admin.m10.dials.gradedEstimates.{note,warningTitle,warning}`.
+- **Cambia en v2.4 (reescritura de valor, no de nombre):** `…gradingHook.on` y `…gradingHook.onNoFigures`
+  (nuevo bloque «cuánto», (d)) · `…gradingHook.note` (frase final, (f)). **Nueva en v2.4:**
+  `…gradingHook.onMeasured`, con **un placeholder más**, `{measuredOn}` (fecha ya formateada por el
+  frontend; el ICU no formatea aquí para no duplicar la política de fechas de §9.3). Las claves
+  `onTitle`, `audit`, `offTitle`, `off` y la etiqueta del dial **no cambian**.
 - **El grupo se renombra a `gradingHook`** por la misma razón por la que §4.38(r.1) renombró la `SettingKey`:
   **el significado cambió, así que el nombre cambia**. Mantener un nombre viejo sobre semántica nueva es el
   mecanismo exacto por el que esta feature ya acumuló divergencias en silencio.
-- **Longitudes (§9.4):** el cuerpo de encendido mide ~600 caracteres en ES y ~590 en EN; el de apagado
-  ~570/~560. Es el texto más largo del panel de M10: **debe envolver sin tocar tamaños** y el banner **no
-  lleva alto fijo, ni scroll interno, ni truncado**. En 390px ocupa varias pantallas de alto y está bien:
-  es un aviso, no una etiqueta.
+- **Longitudes (§9.4):** el cuerpo de encendido pasa en v2.4 de ~600 a **~980 caracteres en ES** (~960 EN)
+  por el bloque «cuánto»; `onMeasured` mide ~800/~790 y `onNoFigures` ~780/~770; el de apagado sigue en
+  ~570/~560. Es, con diferencia, el texto más largo del panel de M10: **debe envolver sin tocar tamaños** y
+  el banner **no lleva alto fijo, ni scroll interno, ni truncado**. En 390px ocupa varias pantallas de alto
+  y está bien: es un aviso de gasto, no una etiqueta. **Crecer no es el defecto** — el defecto era caber
+  diciendo algo falso.
 - ES es la referencia y **EN es obligatorio** (§9.2): un aviso de gasto que solo existe en un idioma es un
   aviso que alguien no leerá.
 
@@ -6298,9 +6479,27 @@ revertir el switch lo **retira** sin dejar rastro. (c) Con el dial guardado en `
 visible como `status` — **no** desaparece tras guardar. (d) Mover el switch a `off` estando guardado en `on`
 ⇒ aparece el aviso de apagado, **en muted, sin rojo**. (e) Los dos avisos **nunca** se ven a la vez.
 (f) Forzar el fallo de `GET /admin/pricing/graded-estimates` ⇒ el aviso de encendido **sigue apareciendo**
-en su variante `onNoFigures` (si desaparece, es el bloqueante). (g) La cifra de créditos se mueve al cambiar
+en su variante `onNoFigures` (si desaparece, es el bloqueante), **y ese texto no insinúa que el tope acote el
+gasto**. (g) La cifra de créditos se mueve al cambiar
 `ingestMaxCardsPerRun` en M2 — si no se mueve, está hardcodeada. (h) El enlace de la lista de revisión
 **aterriza en la sección**, con su encabezado visible bajo el header sticky. (i) EN completo en los dos
 avisos, la nota y la etiqueta. (j) Lector de pantalla: al encender se **anuncia** el aviso; al apagar se
 anuncia sin interrumpir. (k) **Cero apariciones** de la frase «no tiene el visto bueno del dueño» en
 `messages/`.
+
+**Añadido v2.4 — la verificación de la calificación (es la que faltaba, y la que un test estaba impidiendo):**
+
+(l) **Ninguna cifra de créditos aparece sin su condición en la misma frase.** Se comprueba a ojo en pantalla
+y por búsqueda en `messages/`: cada `{credits}` de `on` va acompañado de «si cobra por petición» / «if it
+charges per request», y el párrafo dice «La primera corrida lo mide» / «The first run measures it».
+(m) **El test del frontend no puede fijar la cifra desnuda.** La aserción vigente
+`/1[.,\s]?000 créditos al día/` de `M10View.test.tsx` **fija la falsedad y la protege**: se sustituye por una
+que exija **la frase condicional completa** (cifra **+** régimen de cobro **+** «la primera corrida lo mide»).
+*Un test que fija un número sin su calificador convierte un error de producto en un invariante de CI* — es el
+mismo mecanismo por el que este defecto sobrevivió a una revisión. (n) **`onMeasured` sin fuente no se
+pinta:** forzar `costBasis = 'measured'` en el módulo de coste **cambia el texto al medido sin editar ni una
+cadena** (si hay que reescribir algo, el previsto no está previsto), y **fuera de esa prueba manual el
+selector devuelve `'estimated'`**. (o) **Búsqueda negativa en `messages/`:** cero apariciones de
+«aproximadamente {credits}», «~{credits}» o «{credits} créditos al día» sin condicional delante.
+(p) El calificador se renderiza con **la misma tinta y el mismo tamaño** que el resto del cuerpo: si se ve
+más claro o más pequeño que la cifra, es un fallo de (b).
