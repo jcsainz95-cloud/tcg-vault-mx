@@ -1,12 +1,26 @@
-# PROJECT.md — TCG Vault MX — Marketplace TCG con Bóveda (Pokémon, México)
+# PROJECT.md — TCG HUNT — Marketplace TCG con Bóveda (Pokémon, México)
 
-> **Nombre comercial / marca:** **TCG Vault MX**. Es el nombre que se usa en la interfaz, la
-> comunicación y los términos. "Marketplace TCG con Bóveda" es solo el título descriptivo del proyecto.
-> **⚠ BANDERA (2026-08-31): la marca real es «TCG HUNT»** (`common.brand.name`; el frontend ya está
-> corrigiendo las cadenas). El **descargo de §O.5 ya dice TCG HUNT**; el **resto de este documento** (este
-> encabezado, el título y la **decisión 11**) **todavía dice «TCG Vault MX»** y espera tu confirmación para
-> renombrarlo de una pasada — ver **pregunta abierta 21** del bloque §O. **No hay decisión tomada aquí**: es
-> una inconsistencia marcada, no un cambio silencioso.
+> **Marca (nombre comercial): TCG HUNT.** Es el nombre que se usa en la **interfaz, la comunicación y los
+> términos**. «Marketplace TCG con Bóveda» es solo el título descriptivo del proyecto, no una marca.
+>
+> **Fuente de verdad verificable — no copies el literal, lee la clave.** La marca vive en la clave i18n
+> **`common.brand.name`** (ES y EN) y el dominio en **`common.brand.domain`** (**`tcghunt.mx`**). Si algún
+> día este documento y esas claves discrepan, **manda la clave** y se corrige este documento — **nunca al
+> revés**. Ningún rol debe cambiar una cadena de marca en el producto citando este párrafo como autoridad:
+> la autoridad es el valor de la clave, y este párrafo solo dice **dónde leerlo**.
+>
+> **Marca ≠ razón social — no son intercambiables.**
+> - **Marca** = `common.brand.name` = **TCG HUNT**. Es lo que el usuario lee: UI, copy, correos, títulos,
+>   metadata de archivos que genera la plataforma.
+> - **Razón social** = `common.footer.legalEntity`, hoy **pendiente de carga** (el pie la omite hasta que
+>   exista). Es la **entidad legal que responde**, y se usará donde haga falta identificarla (deslindes,
+>   términos, facturación). Una marca no es sujeto de obligaciones; la razón social sí.
+>
+> **Nota histórica (2026-08-31):** «TCG Vault MX» fue un **nombre interno de trabajo** que este documento
+> llegó a declarar por error como nombre comercial. **Nunca fue la marca de cara al usuario** y queda
+> **retirado**: no debe aparecer en interfaz, copy, correos, dominios, metadata de archivos generados ni
+> documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
+> corregir**, no una fuente válida.
 >
 > Estado: borrador para aprobación del humano. Las decisiones previas siguen cerradas, PERO el **requisito
 > v1.3 (precio de buylist por rareza)** introduce **preguntas abiertas pendientes de respuesta** (ver la
@@ -217,7 +231,7 @@
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
-**TCG Vault MX** es un marketplace de cartas Pokémon (TCG) en México que vende **cartas individuales** con
+**TCG HUNT** es un marketplace de cartas Pokémon (TCG) en México que vende **cartas individuales** con
 **precio de mercado visible** y una **BÓVEDA/CUSTODIA**: la plataforma guarda físicamente las
 cartas compradas —autenticadas y con condición garantizada— y las envía solo cuando el usuario
 lo pide, para completar colecciones sin envíos innecesarios.
@@ -780,10 +794,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       compra** producto cerrado a clientes por la app. El **cotizador y el pipeline de buylist siguen siendo
       solo para raw (§E)**.
 - [ ] En la **ventana/ficha de sellado** hay un **call-out `mailto`**: *"¿Quieres revender tu sellado a TCG
-      Vault MX? Escríbenos a **contacto@tcgvaultmx.com** con fotos y lo cotizamos."* Es un enlace de correo,
-      **no** un flujo dentro de la app. *(Confirmado por el PO, ago-2026: el call-out de reventa usa
-      `contacto@tcgvaultmx.com` (dominio `tcgvaultmx.com`); las disputas siguen en `soporte@tcgvault.mx`
-      (dominio `tcgvault.mx`). Son propósitos y dominios distintos; ambos son correctos y no se unifican.)*
+      HUNT? Escríbenos a **contacto@tcghunt.mx** con fotos y lo cotizamos."* Es un enlace de correo,
+      **no** un flujo dentro de la app. *(Corregido 2026-08-31: el call-out usa `contacto@tcghunt.mx`. La
+      versión anterior de este documento decía `contacto@tcgvaultmx.com` y afirmaba que las disputas vivían en
+      otro dominio (`tcgvault.mx`) y que **ambos eran correctos y no se unificaban**: eso era falso. **Todos
+      los buzones están en el único dominio `tcghunt.mx`** — ver decisión 36.)*
 
 **Precio de venta derivado (money-safe, server-side)** — ⚠️ **ORIGEN ÚNICO de la fórmula**
 > **La fórmula y la precedencia se definen AQUÍ una sola vez.** El resto del documento nombra la
@@ -1673,12 +1688,11 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > reales pagaron por ese modelo ya gradeado por un tercero**. Esto **no modifica ni una palabra** del
 > disclaimer aprobado abajo —solo lo vuelve más defendible—: seguimos sin evaluar la pieza que vendemos, que
 > es exactamente lo que el texto dice.
-> **Corrección de marca (2026-08-31)**: el texto decía «TCG Vault MX». La **marca real es TCG HUNT**
+> **Corrección de marca (2026-08-31)**: el texto decía «TCG Vault MX». La **marca es TCG HUNT**
 > (`common.brand.name`), así que **el descargo dice TCG HUNT** en ES y EN. **Solo cambia el nombre**: ni una
-> idea del texto se modifica. *(Nota para el humano, fuera de §O: el **resto de este documento** —título,
-> encabezado y decisión 11— **todavía dice «TCG Vault MX»**. Esta actualización **solo tocó §O.5** porque es
-> lo que se pidió; el **renombrado completo de PROJECT.md** está pendiente de tu visto bueno — ver pregunta
-> abierta 21.)*
+> idea del texto se modifica. *(Cerrado el mismo día: el humano confirmó el renombrado y **todo PROJECT.md**
+> —título, encabezado de marca, decisión 11 y direcciones de correo— quedó alineado a TCG HUNT / `tcghunt.mx`.
+> Pregunta abierta 21 **cerrada**.)*
 > **Marca vs. razón social — asunto abierto, con recomendación del PO**: el proyecto distingue **marca**
 > (`common.brand.name` = **TCG HUNT**) de **razón social** (`common.footer.legalEntity`, hoy **pendiente de
 > carga**; el pie la omite hasta que exista). **Hoy el descargo usa la marca**, igual que los términos
@@ -2176,9 +2190,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
   mostrar el aviso** y debe existir una **página de términos/políticas** con el texto completo.
 - **Correo de evidencia / soporte de disputas**: la evidencia de una disputa de condición se envía por
   **correo a un buzón de soporte** (no hay subida de foto en la app). Correo de contacto:
-  **soporte@tcgvault.mx** *(Confirmado por el PO, ago-2026: disputas sigue en `soporte@tcgvault.mx` (dominio
-  `tcgvault.mx`); es un dominio distinto del `contacto@tcgvaultmx.com` del call-out de reventa y ambos son
-  correctos)*. Debe aparecer en términos/FAQ
+  **soporte@tcghunt.mx** *(corregido 2026-08-31: decía `soporte@tcgvault.mx` y afirmaba que convivía con un
+  segundo dominio; **no hay dos dominios** — todos los buzones son de `tcghunt.mx`, ver decisión 36)*. Debe
+  aparecer en términos/FAQ
   y en el flujo de disputa.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
   se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
@@ -2490,7 +2504,7 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     olvido**: el global queda para piezas **sin presentación** o para una regla **retirada a propósito** por el
     dueño.
 61. El **sellado es solo venta**: **no existe** flujo de **buylist de sellado** (ni cotizador ni pipeline);
-    la **ficha/ventana de sellado muestra el call-out `mailto`** para revender (a `contacto@tcgvaultmx.com`),
+    la **ficha/ventana de sellado muestra el call-out `mailto`** para revender (a `contacto@tcghunt.mx`),
     que es un enlace de correo y **no** un flujo dentro de la app.
 62. Un sellado tiene **condición propia** (default **Mint**, opción **"Detalle menor en caja"**) **visible
     al comprador** en ficha y bóveda; cambiar la condición **no cambia el precio**. El sellado **no expone
@@ -2811,13 +2825,21 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     (§O.2.1), así que **lo esperado es que califiquen pocas o ninguna**. El defecto sería lo contrario: una
     **burbuja en una teja que no pasa los gates**, un **hueco/placeholder**, o que el **carrusel desaparezca**.
 114. **NUEVO — El descargo nombra a la MARCA hoy, y se revisa cuando exista la razón social** (§O.5): el texto
-    del descargo (ES y EN) dice **«TCG HUNT»** —la marca real, `common.brand.name`— y **no** «TCG Vault MX»;
+    del descargo (ES y EN) dice **«TCG HUNT»** —la marca, `common.brand.name`— y **no** «TCG Vault MX»;
     verificable en las cuatro superficies y en los dos idiomas. **Disparador de revisión obligatoria**: el día
     en que se cargue la **razón social** (`common.footer.legalEntity`, hoy pendiente), **§O.5 se revisa antes
     de dar por bueno el descargo**, con la recomendación del PO de nombrarla —patrón **«TCG HUNT, marca
     operada por [Razón social]»**— y aplicando **el mismo criterio a los términos** (`legal.intro`), para que
     no digan cosas distintas. **La redacción definitiva la aprueba el humano** (pregunta abierta 20); este
     criterio **no da por cerrada** esa redacción, solo **obliga a no olvidar la revisión**.
+115. **NUEVO — La marca y el dominio son TCG HUNT / `tcghunt.mx` en TODA superficie visible** *(2026-08-31,
+    decisión 58)*: **ninguna** superficie que el usuario vea o reciba contiene la cadena **«TCG Vault MX»** ni
+    los dominios **`tcgvaultmx.com`** / **`tcgvault.mx`**. Cubre, como mínimo: UI y copy (ES y EN), correos
+    transaccionales, términos y FAQ, y la **metadata de los archivos que genera la plataforma** (p. ej. autor
+    de los Excel exportados). **Verificación**: la marca se lee de `common.brand.name` y el dominio de
+    `common.brand.domain`; los buzones documentados (`contacto@`, `soporte@`, `facturacion@`, `buylist@`)
+    resuelven todos a `tcghunt.mx`. **Este criterio se verifica contra el producto, no contra la
+    documentación**: si un documento afirma otra marca, el documento está mal.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -2908,11 +2930,15 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    y la valuación de portafolio siguen usando la **referencia** pura.
 10. **Facturación CFDI** → **manual por correo** en el MVP (sin timbrado con PAC); IVA sigue desglosado en
    checkout y registrado en M7; timbrado automático = fase 2.
-11. **Nombre comercial / marca** → **TCG Vault MX** (nombre usado en UI, comunicación y términos).
-   *(⚠ 2026-08-31: la **marca real es «TCG HUNT»**. El **descargo de §O.5 ya se corrigió**; esta decisión 11 y
-   el encabezado **quedan pendientes de tu confirmación** para renombrarlos —**pregunta abierta 21**—. Mientras
-   tanto, **manda TCG HUNT como marca de producto** y esta línea se lee como **desactualizada**, no como
-   decisión vigente.)*
+11. **Marca (nombre comercial)** → **TCG HUNT**, con **fuente de verdad en `common.brand.name`** y dominio
+   **`tcghunt.mx`** (`common.brand.domain`). Es el nombre usado en UI, comunicación y términos. **Marca ≠
+   razón social**: la razón social vive en `common.footer.legalEntity` (hoy pendiente de carga) y es la
+   entidad que responde — ver el encabezado del documento.
+   *(**Corregida el 2026-08-31, confirmada por el humano.** Esta decisión decía «TCG Vault MX», que era un
+   **nombre interno de trabajo**, nunca la marca de cara al usuario. Ese literal queda **retirado**. Aviso a
+   todos los roles: **no lo reintroduzcan** en producto ni en docs citando versiones viejas de este documento
+   — hubo al menos un caso de una cadena correcta sustituida por la incorrecta usando esta línea como
+   autoridad. La autoridad es la clave i18n, no el literal escrito aquí.)*
 12. **Política de reembolsos** → **VENTAS FINALES** para **todos los tipos de producto** (raw, sellado,
    gradeadas): sin reembolso voluntario tras la compra. **Dos excepciones**: (a) disputa de condición por
    carta dañada/equivocada (ventana de **7 días contados desde la entrega del envío**, **evidencia por correo
@@ -3019,7 +3045,11 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    corrigió el texto del documento rector, que por la regla de conflicto es la versión que gana. La fórmula
    queda con **origen único en §K** y las ~15 citas pasan a nombrar la **precedencia** y apuntar a §K.
 36. **Sellado = solo venta** (plataforma→cliente): **sin buylist de sellado**; call-out `mailto`
-   (`contacto@tcgvaultmx.com`) para revender fuera de la app.
+   (`contacto@tcghunt.mx`) para revender fuera de la app.
+   *(**Corregido el 2026-08-31**: decía `contacto@tcgvaultmx.com`, dominio que **no existe** en el producto.
+   **Todos los buzones viven en el único dominio `tcghunt.mx`**: `contacto@` (reventa de sellado), `soporte@`
+   (disputas y evidencia), `facturacion@` (CFDI) y `buylist@`. Queda **retirada** la afirmación anterior de
+   que convivían dos dominios distintos y «ambos eran correctos»: era falsa.)*
 37. **Condición del sellado**: default **Mint**, opción **"Detalle menor en caja"**; visible al comprador,
    **sin efecto en el precio**; el sellado **no lleva rareza**.
 38. **Destino igual que cartas** (recibir/`direct_ship` o bóveda/`vault`), **pestaña "Sellado"** en bóveda
@@ -3154,7 +3184,7 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    o ninguna**. Eso es el gate **funcionando**, no un fallo — queda escrito en §O.3 y en el criterio **113**
    para que **nadie lo reporte como defecto**. Ver §O.3 (4) y criterio **113**.
 57. **El descargo dice «TCG HUNT» (marca), y se revisa el día que exista la razón social**
-   *(corrección + criterio del PO)*: el texto de §O.5 decía «TCG Vault MX»; la **marca real es TCG HUNT**
+   *(corrección + criterio del PO)*: el texto de §O.5 decía «TCG Vault MX»; la **marca es TCG HUNT**
    (`common.brand.name`) y así queda en ES y EN — **solo cambia el nombre, ninguna idea del texto**.
    **Marca vs. razón social**: hoy el descargo usa la **marca**, igual que los términos, y eso es coherente y
    suficiente para operar. Pero el descargo **deslinda responsabilidad**, y **quién deslinda importa**: una
@@ -3164,6 +3194,17 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    disparador de revisión obligatoria** (criterio **114**); **la redacción definitiva la aprueba el humano**
    (con su abogado si quiere) — **pregunta abierta 20**. *(No bloquea: el descargo entero ya estaba pendiente
    de aprobación y la feature sigue tras el flag apagado.)*
+58. **Renombrado completo a TCG HUNT y dominio único `tcghunt.mx`** *(2026-08-31, confirmado por el humano:
+   «recuerda que somos TCGHUNT.mx cambia eso»)*: **«TCG Vault MX» era un nombre interno de trabajo** que este
+   documento declaraba por error como nombre comercial. Queda **retirado de todo PROJECT.md** (título,
+   encabezado, idea en una frase, decisión 11, criterios) y **todas las direcciones de correo** pasan al
+   **único dominio `tcghunt.mx`** (se retiran los inexistentes `tcgvaultmx.com` y `tcgvault.mx`).
+   **Lección que queda escrita, porque el daño ya salió del documento**: este documento llegó a afirmar algo
+   del producto que el producto contradecía, y un rol **cambió una cadena correcta del producto por la
+   incorrecta citando PROJECT.md como autoridad** (metadata de autor de los Excel generados). Por eso la
+   marca y el dominio ahora se declaran **por su clave i18n verificable** (`common.brand.name`,
+   `common.brand.domain`) y no por el literal: **ante discrepancia manda la clave**, y este documento se
+   corrige contra el producto, nunca al revés. *(La corrección del Excel es del rol backend, no del PO.)*
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
@@ -3408,13 +3449,11 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     la razón social, **§O.5 se revisa**. **La redacción final es tuya** (idealmente con tu abogado, junto con
     la aprobación del descargo completo, pregunta 1). ¿La quieres nombrada, o prefieres quedarte solo con la
     marca?
-21. **Renombrado de marca en el RESTO de PROJECT.md** *(NUEVA, 2026-08-31 — es de higiene documental, no de
-    §O)*: corregí «TCG Vault MX» → **«TCG HUNT»** **solo dentro del descargo (§O.5)**, que es lo que se pidió.
-    El **título del documento**, el encabezado de marca y la **decisión 11** siguen diciendo «TCG Vault MX».
-    ¿Confirmas que **TCG HUNT sustituye a TCG Vault MX en todo el documento** y lo actualizo de una pasada
-    *(incluida la decisión 11, que quedaría marcada como superseded)*? *(Hay además un dato colateral que
-    conviene que mires: la dirección de contacto documentada para reventa de sellado es
-    `contacto@tcgvaultmx.com`, decisión 36 — si el dominio cambia con la marca, esa cadena también cambia.)*
+21. ~~**Renombrado de marca en el RESTO de PROJECT.md**~~ — **CERRADA (2026-08-31)**. El humano confirmó:
+    «recuerda que somos TCGHUNT.mx cambia eso». **TCG HUNT sustituye a TCG Vault MX en todo el documento** y
+    todos los correos pasan a `tcghunt.mx`. Aplicado en el título, el encabezado de marca, la idea en una
+    frase, la **decisión 11**, la **decisión 36** y los criterios; registrado como **decisión 58**. **No
+    requiere más respuesta.**
 22. **«Piezas destacadas» casi siempre sin burbujas: ¿lo aceptas tal cual?** *(NUEVA, 2026-08-31 — es
     expectativa de negocio, no un hueco técnico)*: destacadas ordena por **precio descendente** y el costo de
     gradeo **sube por escalones** (§O.2.1), así que **las cartas más caras son las que menos califican**: es
