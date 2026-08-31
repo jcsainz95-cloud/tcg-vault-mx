@@ -327,9 +327,12 @@ export function orderItemCard(l: ListingDTO): OrderItemCardDTO {
     setName: l.card.setName,
     number: l.card.number,
     productType: l.productType,
-    rawCondition: l.rawCondition,
-    gradingCompany: l.gradingCompany,
-    gradeValue: l.gradeValue,
+    // v1.51-c: los tres viajan como `null` con la CLAVE PRESENTE (el checkout los congela
+    // tal cual salen de columnas nullables de `InventoryItem`), no omitidos. El fixture lo
+    // replica: si sirviera `undefined` volvería a divergir de lo que el backend manda.
+    rawCondition: l.rawCondition ?? null,
+    gradingCompany: l.gradingCompany ?? null,
+    gradeValue: l.gradeValue ?? null,
     // El backend la resuelve por join sobre `cardId`; en el fixture el join siempre acierta.
     // El caso `null` (fila `Card` inexistente o columna nula) lo ejercitan los tests de vista.
     imageSmallUrl: l.card.imageSmallUrl ?? null,
@@ -938,6 +941,11 @@ export const mockFeaturedSetHistoryNull: SetValueHistoryResponse = {
 export const mockOrders: OrderSummaryDTO[] = [
   { id: 'ord-9001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
   { id: 'ord-9002', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
+  // v1.51-c: pedido ANTIGUO cuyo `cardSnapshot` quedó incompleto (ver `mockOrderDetailLegacy`).
+  // Se sirve desde el mock para que el render degradado sea VISIBLE en `dev`/e2e, no solo en un
+  // test: la grieta anterior existió justamente porque el simulador servía datos más completos
+  // que el backend y todo se veía impecable en local.
+  { id: 'ord-9003', status: 'settled', totalCents: 79129, createdAt: '2024-11-02T17:40:00Z', settledAt: '2024-11-02T17:41:00Z' },
 ];
 
 export const mockOrderDetail: OrderDetailDTO = {
@@ -965,6 +973,65 @@ export const mockOrderDetail: OrderDetailDTO = {
   cfdiStatus: 'registrado',
   invoiceRequested: false,
   stripePaymentIntentId: 'pi_mock_123',
+};
+
+/**
+ * MOCK v1.51-c (contrato §4 «Tolerancia del histórico»; ARCHITECTURE §5.2.9) — el acta de un
+ * pedido ANTIGUO cuyo `OrderItem.cardSnapshot` quedó INCOMPLETO. No es un error del backend:
+ * `cardSnapshot` es una columna `Json` que PostgreSQL no valida y el blob lo escribió una
+ * versión anterior de nuestro propio código. `GET /orders/:orderId` responde `200` con
+ * `HistoricalOrderItemCardDTO` (todo hecho congelado opcional) y el front DEGRADA por campo.
+ *
+ * Las tres líneas son los tres casos que importan:
+ *  1. blob COMPLETO (lo que escribe el checkout vigente, invariante de escritura intacto);
+ *  2. blob PARCIAL: sin `setName` ni `productType` ⇒ el subtítulo se compone solo con `#4` y
+ *     no se pinta adorno de condición (no se infiere el tipo desde qué claves llegaron);
+ *  3. blob VACÍO: solo `imageSmallUrl: null` ⇒ etiqueta neutra + pozo de papel, SIN enlace a
+ *     ficha (no hay `cardId`) y sin miniatura (sin `cardId` no hay join que hacer).
+ *
+ * El `breakdown` sale de columnas de `Order` y `unitPriceCents` de columna propia de
+ * `OrderItem`: por eso los importes están INTACTOS aunque el blob no diga nada.
+ */
+export const mockOrderDetailLegacy: OrderDetailDTO = {
+  id: 'ord-9003',
+  status: 'settled',
+  createdAt: '2024-11-02T17:40:00Z',
+  settledAt: '2024-11-02T17:41:00Z',
+  breakdown: {
+    subtotalCents: 65500,
+    ivaCents: 10480,
+    ivaRatePct: 16,
+    processingFeeCents: 3149,
+    totalCents: 79129,
+    currency: 'MXN',
+  },
+  items: [
+    {
+      inventoryItemId: 'inv-legacy-1',
+      card: orderItemCard(mockListings[0]),
+      unitPriceCents: 45000,
+    },
+    {
+      inventoryItemId: 'inv-legacy-2',
+      card: {
+        cardId: 'c-pikachu',
+        name: 'Pikachu',
+        number: '58',
+        // sin `setName`, sin `productType`, sin condición: el acta no los registró.
+        imageSmallUrl: 'https://images.pokemontcg.io/base1/58.png',
+      },
+      unitPriceCents: 12500,
+    },
+    {
+      inventoryItemId: 'inv-legacy-3',
+      // El peor caso del contrato: blob ausente/no-objeto ⇒ `card` SOLO con `imageSmallUrl`.
+      card: { imageSmallUrl: null },
+      unitPriceCents: 8000,
+    },
+  ],
+  cfdiStatus: 'no_aplica',
+  invoiceRequested: false,
+  stripePaymentIntentId: 'pi_mock_legacy',
 };
 
 export const mockSellRequests: SellRequestDTO[] = [

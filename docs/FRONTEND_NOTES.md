@@ -9108,3 +9108,150 @@ numeración intacta · `aria-roledescription`, `aria-live` conmutando, pista con
   mocks). Sin regresiones en `grading-estimate.spec.ts`, `catalog.spec.ts` e `i18n-locale.spec.ts`
   (**30 passed, 3 skipped** — los 3 son los `@real` que necesitan backend).
 - Cero escrituras fuera de `frontend/` y este archivo.
+
+---
+
+## §37 · El acta histórica deja de pintarse MUDA: forma tolerante + render degradado (contrato v1.51-c, ARCHITECTURE §5.2.9) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Encargo del arquitecto (§5.2.9, fila **frontend**, puerta: antes del merge del stream «Órdenes y
+> dinero»), convertido en bloqueante por QA. Los commits anteriores de este stream se escribieron
+> contra **v1.51-b** y eran conformes a él; **v1.51-c** aterrizó después. Es encargo abierto, no
+> regresión.
+
+### 37.1 El defecto: el mismo del `CardDTO` falso, por el otro lado
+
+`GET /orders/:orderId` es la **única** superficie que lee del HISTÓRICO. Su `card` sale de
+`OrderItem.cardSnapshot`, una columna `Json` que PostgreSQL **no valida** y que en un pedido antiguo
+escribió una versión anterior de nuestro propio código. `src/types/contract.ts` la tipaba como
+`OrderItemPreview` — o sea `OrderItemCardDTO` completo, con `name: string` **requerido**.
+
+Servido el blob incompleto que el backend produce de verdad, la línea **no reventaba y el importe salía
+bien**, pero se pintaba muda:
+
+```
+NOMBRE RENDERIZADO => [""]        ← `{it.card.name}` con `name` ausente rinde cadena vacía en React
+IMGS => [{"alt": null, ...}]      ← <img> sin alt (WCAG 1.1.1)
+```
+
+Es el gemelo exacto del `CardDTO` falso de §35: un tipo de cliente **prometiendo** lo que el backend
+puede no enviar. En §35 el tipo prometía de más y escondía el «· NM»; aquí promete de más y deja la
+línea sin voz. La misma grieta, invertida.
+
+### 37.2 Lo que cambió, sitio por sitio
+
+| Archivo:línea | Cambio |
+|---|---|
+| `frontend/src/types/contract.ts:638` | `FrozenCardFacts` (los 8 hechos de clase F) + `ResolvedCardImage` (clase P) como piezas separadas. |
+| `frontend/src/types/contract.ts:652,654,656` | **I3**: `rawCondition`/`gradingCompany`/`gradeValue` pasan de `?: T` (opcional-ausente) a **`T \| null` con la clave SIEMPRE presente**, que es como viajan de verdad (el checkout los congela desde columnas nullables de `InventoryItem`). Sin bug hoy —nadie usaba `in` como discriminante— pero el tipo ya no miente. El discriminante sigue siendo `productType`. |
+| `frontend/src/types/contract.ts:675,699` | `OrderItemCardDTO = FrozenCardFacts & ResolvedCardImage` (los DOS quotes, forma completa) y **`HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & ResolvedCardImage`** (histórico, forma tolerante). |
+| `frontend/src/types/contract.ts:719` | `OrderItemDTO` (línea de `GET /orders/:orderId`) — mismas tres claves que el quote, `card` tolerante. |
+| `frontend/src/types/contract.ts:772` | `OrderDetailDTO.items: OrderItemDTO[]` (era `OrderItemPreview[]`). **El cambio de tipo solo ya puso el `alt` en rojo en `tsc`.** |
+| `frontend/src/lib/historical-card.ts` (nuevo) | `historicalCardName` + `historicalCardMeta`: render degradado por campo, funciones **puras**. No hay dónde colgar una petición aunque alguien quisiera. |
+| `frontend/.../orders/[orderId]/OrderDetailView.tsx:52-109` | Render degradado: etiqueta neutra i18n, `alt` siempre con texto, subtítulo compuesto por fragmentos y omitido entero si no queda ninguno. |
+| `frontend/messages/{es,en}.json` | `orders.item.unknownCard` («Carta sin registro» / «Card not recorded») + `orders.item.unknownCardHint` (el `title` que explica que **el importe no cambia**). No existía en ninguno de los dos idiomas. |
+| `frontend/src/lib/mock/fixtures.ts:333-335` | `orderItemCard()` sirve los tres campos como `null`, no `undefined` (alineado a I3). |
+| `frontend/src/lib/mock/fixtures.ts:995` | `mockOrderDetailLegacy` (`ord-9003`) — acta con blob incompleto, tres líneas: completa / parcial / vacía. |
+| `frontend/src/lib/api.ts:878` | `getOrder('ord-9003')` sirve ese acta en modo mocks. |
+
+### 37.3 La etiqueta neutra tenía que verse deliberada, no como un error
+
+Mono en versalitas `text-muted` (`font-mono text-[11px] uppercase tracking-[0.08em]`): el mismo
+tratamiento que el resto de etiquetas honestas del sistema, y **no** el `accent` de `PendingPriceLabel`
+—esto no es una alerta, es un hecho que el acta no registró—. Tres detalles que no son cosméticos:
+
+1. **Sin `lang="en"`.** El nombre de una carta es dato de catálogo en inglés; la etiqueta neutra es copy
+   de la interfaz. Heredar el `lang="en"` haría que un lector de pantalla leyera «Carta sin registro» con
+   fonética inglesa.
+2. **`title` con el porqué** (`unknownCardHint`), que dice explícitamente que **el importe cobrado no
+   cambia**. Es lo que un cliente mirando su acta necesita saber.
+3. **El `alt` de la miniatura es la misma etiqueta.** `alt=""` (decorativa) sería mentir: la miniatura de
+   una línea de compra es contenido.
+
+El subtítulo (`Base Set · #4 · NM`) se compone con lo registrado y **se omite lo demás**: sin `#`
+huérfano, sin `· ` colgando, sin renglón vacío que reserve espacio y se lea como un fallo de carga. Es
+el mismo renglón mono del checkout, así que el acta y el carrito dicen lo mismo con la misma voz.
+
+### 37.4 Lo que NO se hizo, que es la parte importante
+
+⛔ **No se rellena el hueco.** Ni con `GET /catalog/cards/:cardId` ni con ninguna otra consulta. El
+catálogo dice cómo se llama esa carta **hoy**, no qué decía el pedido cuando se pagó; rellenar convierte
+«el acta no lo registró» en un dato inventado presentado como probatorio, dentro de un registro
+dinero-adyacente (§5.2.2 / §5.2.9). El hueco se ve; el relleno no.
+
+Backend ya tiene su guardián del lado servidor. Del lado del cliente el guardián es un **test**:
+`OrderDetailView.test.tsx` espía `getCardDetail` y `getCatalog` con una línea que trae `cardId` y **no**
+trae `name` —el caso donde el relleno sería posible— y exige que **ninguna** se llame, y que el nombre
+que hoy tiene esa carta en el catálogo **no aparezca** en pantalla. Además, las dos funciones de
+`historical-card.ts` son puras y síncronas: para rellenar habría que reescribir el módulo, no colarse
+en él.
+
+**`null` ≠ ausente en las tres condicionales.** `rawCondition`/`gradingCompany`/`gradeValue` se leen con
+`== null` (cubre los dos casos: la clave presente con `null` del checkout vigente y la clave omitida de
+un blob viejo). Y `productType` ausente **no se infiere**: sin él no se pinta adorno de condición aunque
+`rawCondition` viniera en el blob — inferir el tipo desde qué claves llegaron es el `'rawCondition' in
+card` que el contrato prohíbe.
+
+### 37.5 El simulador vuelve a poder producir lo que el backend produce
+
+`ord-9003` (`mockOrderDetailLegacy`) es un pedido de **2024** con tres líneas: blob completo, blob
+parcial (`name` + `number`, sin `setName` ni `productType`) y **blob vacío** (`{ imageSmallUrl: null }`,
+el peor caso del contrato). Está en `mockOrders`, así que el render degradado es **visible en `dev`**, no
+solo en un test. Es la lección de §34.6 aplicada otra vez: la grieta anterior existió porque el mock
+servía datos más completos que el backend y en local todo se veía impecable.
+
+Importes de ese acta: `unitPriceCents` **intactos** en las tres líneas y `breakdown` coherente, porque el
+dinero **no vive en el blob** (`OrderItem.unitPriceCents` es columna propia; el desglose sale de columnas
+de `Order`). Un snapshot incompleto no puede mover un centavo.
+
+### 37.6 M-1 — el candado que le faltaba al trabajo de rendimiento de `171f24b`
+
+QA revirtió las dos mejoras y la suite siguió verde: una mejora invisible para los tests es una conducta
+que el siguiente refactor deshace sin enterarse. Ahora muerde:
+
+- `FeaturedCarousel.test.tsx` (+3): las tejas **secundarias** piden `imageSmallUrl` (y su `src` no
+  contiene `-large`); la teja **líder** conserva `priority` (`loading="eager"` + `fetchpriority="high"` +
+  sin fade-in); y `priority` es **exclusivo** de la líder (las demás `lazy`, sin `fetchpriority`).
+- `src/app/[locale]/layout.test.tsx` (nuevo, 3): el `<head>` trae `preconnect` **y** `dns-prefetch` a
+  `images.pokemontcg.io`, **sin** `crossorigin` (un `<img>` normal no se pide en modo CORS: el
+  `anonymous` abriría otra piscina de conexiones), y **un solo** dominio preconectado. Se renderiza el
+  layout de verdad con `renderToStaticMarkup` —`next/font/google` y `next-intl/server` se sustituyen,
+  porque lo que se mide es el `<head>`, no la fuente—.
+
+### 37.7 M-3 — el comentario que dejó de ser cierto: se alinea la geometría
+
+`SellCartContents.tsx` omitía **la columna de imagen entera** cuando la línea no traía miniatura,
+justificándolo con «un `CardImage` sin `src` deja el esqueleto pulsando para siempre». Esa razón la
+derogué yo mismo en `6396edb`: hoy el esqueleto pulsa **solo** mientras hay una imagen en vuelo, y sin
+`src` queda el pozo de papel quieto, que **es** el placeholder del sistema (§35.3).
+
+Elijo **alinear la geometría**, no reescribir la excusa: la columna se pinta siempre. Dos filas con
+geometría distinta en el mismo drawer —y distinta de la del checkout— según un dato que el usuario no
+controla era el peor de los dos resultados. El comentario ahora cuenta esa historia.
+
+### 37.8 Peticiones al arquitecto (regla 9 — no toqué el contrato)
+
+Ninguna. El encargo §5.2.9 se implementa tal cual está escrito; no hizo falta ningún campo ni endpoint
+que el contrato no tenga. (La petición sobre §23.8 —resolver la consulta del carrusel en servidor— sigue
+enrutada aparte y no bloquea.)
+
+### 37.9 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **943/943 en 102
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **917/99** (§36.7). Delta **+26 tests, +3 archivos**, ninguna prueba retirada
+  ni debilitada.
+- **Verificación destructiva.** Sirviendo `mockOrderDetailLegacy` (el blob incompleto):
+
+  | | Antes | Ahora |
+  |---|---|---|
+  | Nombre de la línea vacía | `[""]` | `"Carta sin registro"` / `"Card not recorded"` |
+  | `alt` de la miniatura sin nombre | `null` | la etiqueta neutra (no vacía) |
+  | Subtítulo del blob parcial | (no había) | `#58` — sin `· ` colgando ni adorno inferido |
+  | Importes | `MX$450.00 / MX$125.00 / MX$80.00` | **idénticos** |
+
+- **Los candados muerden** (revertido cada cambio, uno por uno): render degradado → **8 tests en rojo** +
+  `tsc` en rojo (`alt`: `string | undefined` no asignable a `string`); teja secundaria a `imageLargeUrl`
+  → **1 en rojo**; `priority` fuera de la líder → **1 en rojo**; `preconnect` borrado → **2 en rojo**.
+  Todo restaurado después.
+- Cero escrituras fuera de `frontend/` y este archivo. `next/image` **no** se adopta, `next.config.mjs`
+  intacto, `backend/` intacto.

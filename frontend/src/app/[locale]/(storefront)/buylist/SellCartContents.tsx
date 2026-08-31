@@ -100,16 +100,18 @@ export function SellCartContents({
                       tenía y no lo pintaba. Mismo patrón que el checkout de compra (CheckoutView):
                       columna fija a la izquierda y contenido en `min-w-0 flex-1` para que el nombre
                       siga truncando en el ancho del drawer (400px).
-                      La columna entera se omite si la línea no trae imagen (`QuoterCardRef.
-                      imageSmallUrl` es OPCIONAL: el binder de Master Set puede no traerla): un
-                      `CardImage` sin `src` deja el esqueleto pulsando para siempre, que se lee como
-                      un «cargando» eterno. */}
+                      La columna se pinta SIEMPRE, también sin miniatura (`QuoterCardRef.
+                      imageSmallUrl` es OPCIONAL: el binder de Master Set puede no traerla). Antes se
+                      omitía entera, y la razón que lo justificaba —«un `CardImage` sin `src` deja el
+                      esqueleto pulsando para siempre»— dejó de ser cierta en `6396edb`: el
+                      esqueleto ya solo pulsa mientras hay una imagen EN VUELO, y sin `src` queda el
+                      pozo de papel quieto, que ES el placeholder del sistema. Omitirla dejaba dos
+                      geometrías de fila distintas en el mismo drawer (y distintas del checkout)
+                      según un dato que el usuario no controla. */}
                   <div className="flex gap-3">
-                    {l.card.imageSmallUrl && (
-                      <div className="w-12 shrink-0">
-                        <CardImage src={l.card.imageSmallUrl} alt={l.card.name} className="p-1" />
-                      </div>
-                    )}
+                    <div className="w-12 shrink-0">
+                      <CardImage src={l.card.imageSmallUrl} alt={l.card.name} className="p-1" />
+                    </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">
                         <p lang="en" className="min-w-0 truncate text-sm text-text">

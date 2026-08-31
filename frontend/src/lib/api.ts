@@ -872,6 +872,10 @@ export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
 
 export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
   if (!config.useMocks) return apiRequest<OrderDetailDTO>(`/orders/${orderId}`);
+  // v1.51-c: `ord-9003` sirve el acta con `cardSnapshot` INCOMPLETO (§5.2.9). El simulador
+  // tiene que poder producir lo que el backend puede producir de verdad; servir siempre el
+  // blob completo es lo que dejó pasar la línea muda hasta que QA la sirvió a mano.
+  if (orderId === fx.mockOrderDetailLegacy.id) return delay(fx.mockOrderDetailLegacy);
   return delay({ ...fx.mockOrderDetail, id: orderId });
 }
 

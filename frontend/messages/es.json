@@ -840,7 +840,11 @@
     "items": "Artículos",
     "requestInvoice": "Solicitar factura",
     "invoiceRequested": "Factura solicitada",
-    "cfdiStatusLabel": "Factura"
+    "cfdiStatusLabel": "Factura",
+    "item": {
+      "unknownCard": "Carta sin registro",
+      "unknownCardHint": "El registro de este pedido no guardó el nombre de esta carta. El importe cobrado no cambia."
+    }
   },
   "legal": {
     "title": "Términos y política",

@@ -840,7 +840,11 @@
     "items": "Items",
     "requestInvoice": "Request invoice",
     "invoiceRequested": "Invoice requested",
-    "cfdiStatusLabel": "Invoice"
+    "cfdiStatusLabel": "Invoice",
+    "item": {
+      "unknownCard": "Card not recorded",
+      "unknownCardHint": "This order's record did not store this card's name. The amount charged is unchanged."
+    }
   },
   "legal": {
     "title": "Terms & policy",
