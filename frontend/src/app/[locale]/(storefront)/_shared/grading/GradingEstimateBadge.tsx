@@ -10,6 +10,41 @@ import { GradingMicroNotice } from './GradingMicroNotice';
 import { useGradingFootnote } from './GradingFootnote';
 
 /**
+ * Las TRES superficies de rejilla que comparten este badge (§22.5, tabla del prop `surface`). Es un
+ * enumerado **cerrado** a propósito: un `surface: string` libre —o un `figureForm` que aceptara
+ * cualquier cosa— reabriría por la puerta de atrás la variante «ligera» sin aviso que R3 prohíbe.
+ */
+export type GradingBadgeSurface = 'grid' | 'featuredLead' | 'featuredRest';
+
+/**
+ * Lo ÚNICO que el prop decide (§22.5). Cada superficie tiene un ancho de teja distinto y **el
+ * breakpoint del viewport no lo predice** en el carrusel (la teja chica mide 160px aunque el
+ * viewport ya sea `sm`), así que el corte entre la forma larga y la corta se declara aquí.
+ *
+ * Lo que este mapa NO puede tocar, y es normativo: el micro-aviso (ni su presencia, ni su copy, ni
+ * su familia, ni su tamaño), la regla superior, la llamada `*` y el piso de 11px (§22.4d).
+ */
+const SURFACE_SPEC: Record<
+  GradingBadgeSurface,
+  {
+    /** Clases del envoltorio de la forma LARGA (`figure`); `null` ⇒ **nunca** se pinta. */
+    long: string | null;
+    /** Clases del envoltorio de la forma CORTA (`figureShort`); `''` ⇒ siempre visible. */
+    short: string;
+    /** Tamaño de la cifra: 11px, 12px a partir del breakpoint de la superficie. */
+    size: string;
+  }
+> = {
+  // Teja de Compra (§22.5) y vitrina (§22.6): el ancho SÍ sigue al viewport. Sin cambio alguno.
+  grid: { long: 'hidden sm:inline', short: 'sm:hidden', size: 'text-[11px] sm:text-[12px]' },
+  // Teja GRANDE del carrusel (§22.6b-a): 236px hasta `lg`, 400px desde `lg`. El corte es `lg`.
+  featuredLead: { long: 'hidden lg:inline', short: 'lg:hidden', size: 'text-[11px] lg:text-[12px]' },
+  // Tejas CHICAS del carrusel (§22.6b-b): 268px en su mejor momento y la forma larga en EN pide
+  // ~274px ⇒ `figureShort` SIEMPRE. Una cifra que desborda es peor que una forma corta.
+  featuredRest: { long: null, short: '', size: 'text-[11px] lg:text-[12px]' },
+};
+
+/**
  * `GradingEstimateBadge` — badge de la TEJA de Compra y de la vitrina del home (§22.5, CORREGIDO
  * tras el bloqueante de QA). **Dos renglones lógicos, no tres**, separados del precio real por una
  * regla de 1px («lo de abajo es otra cosa»). Sin caja, sin icono, sin flecha, sin fecha.
@@ -30,17 +65,24 @@ import { useGradingFootnote } from './GradingFootnote';
  *  - La llamada NO es enlace aquí: la teja entera ya es un enlace y no se anidan anclas (§22.4a).
  *  - Se **itera** el arreglo: hoy el dial `highlightGrades` es `["10"]`, pero añadir PSA 9 al badge
  *    es editar el dial del servidor — este componente no cambia.
+ *  - **`surface` es el ÚNICO eje configurable** (§22.5, añadido por §22.6b): elige cuál de las DOS
+ *    formas de copy YA RATIFICADAS se pinta y a partir de qué breakpoint. Nada más. Ver
+ *    `SURFACE_SPEC`.
  */
 export function GradingEstimateBadge({
   listing,
+  surface = 'grid',
   className,
 }: {
   listing: GroupedListingSummaryDTO;
+  /** §22.5: enumerado CERRADO. Un cuarto valor es una decisión de diseño, no de implementación. */
+  surface?: GradingBadgeSurface;
   className?: string;
 }) {
   const t = useTranslations('catalog.gradingBadge');
   const locale = useLocale() as AppLocale;
   const anchors = useGradingFootnote();
+  const spec = SURFACE_SPEC[surface];
 
   const items = badgeEstimatesOf(listing);
   // R3.(3) + R4: sin nota al pie en esta página, o sin cifra, no se renderiza NADA.
@@ -54,6 +96,11 @@ export function GradingEstimateBadge({
     </>
   );
 
+  // El `nowrap` va en el MONTO, no en el párrafo (§22.6b). Con la clase en el `<p>` entero, un
+  // importe grande en una teja estrecha desbordaba la teja EN SILENCIO —no hay caja que lo delate—
+  // en vez de envolver la prosa que sí puede envolver. Aquí lo indivisible es la cifra y nada más.
+  const nb = (chunks: React.ReactNode) => <span className="whitespace-nowrap">{chunks}</span>;
+
   return (
     <div className={cn('mt-2.5 border-t border-border pt-2.5', className)}>
       {items.map((e) => {
@@ -62,16 +109,17 @@ export function GradingEstimateBadge({
           grade: e.gradeValue,
           amount: formatMoneyCents(e.estimate.referenceMxnCents!, locale),
           approx,
+          nb,
         };
         return (
           <p
             key={e.gradeKey || `${e.gradingCompany}:${e.gradeValue}`}
-            className="tabular whitespace-nowrap font-mono text-[11px] leading-[1.3] text-text sm:text-[12px]"
+            className={cn('tabular font-mono leading-[1.3] text-text', spec.size)}
           >
             {/* Solo UNO de los dos se renderiza a la vez (display:none no llega al lector de
                 pantalla), así que no hay texto duplicado en el árbol de accesibilidad. */}
-            <span className="hidden sm:inline">{t.rich('figure', vars)}</span>
-            <span className="sm:hidden">{t.rich('figureShort', vars)}</span>
+            {spec.long !== null && <span className={spec.long}>{t.rich('figure', vars)}</span>}
+            <span className={spec.short || undefined}>{t.rich('figureShort', vars)}</span>
           </p>
         );
       })}

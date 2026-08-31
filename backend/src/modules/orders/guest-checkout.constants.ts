@@ -48,12 +48,13 @@ export const GUEST_DISPUTE_WINDOW_DAYS = 7;
 /**
  * Canal de evidencia de disputa (criterio 56b). Mismo valor que expone §7 para clientes: lee la
  * MISMA env `DISPUTE_EVIDENCE_CONTACT` que `disputes.constants.ts` (P-21: overridable sin
- * redeploy; default = valor histórico hasta que devops cree el buzón @tcghunt.mx). P-21 cierre:
+ * redeploy). P-21 MIGRACIÓN CERRADA (ago-2026): el default es ya el buzón VIVO
+ * `soporte@tcghunt.mx`; el histórico `@tcgvaultmx.com` está muerto y NO debe volver. P-21 cierre:
  * `envOr` (no `??`) — env definida pero vacía/blanca cae al default.
  */
 export const SUPPORT_EVIDENCE_CONTACT = envOr(
   process.env.DISPUTE_EVIDENCE_CONTACT,
-  'soporte@tcgvaultmx.com',
+  'soporte@tcghunt.mx',
 );
 
 export const DAY_MS = 24 * 60 * 60 * 1000;

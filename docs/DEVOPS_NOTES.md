@@ -218,7 +218,7 @@ antes de usar esas funciones:
 | `S3_*` (endpoint/bucket/keys/force-path-style) | **Object storage SOLO para la INE del buylist (`kyc_ine/`)**, cifrada + presigned PUT/GET. Local=MinIO (ya puesto); prod=R2/S3. v1.2.1: sin `S3_PUBLIC_BASE_URL` (no hay prefijo público) ni fotos de inventario/disputa. Nombres reales que consume el código: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. | Cloudflare R2 o AWS S3 |
 | `KYC_UPLOAD_MAX_BYTES` (opcional) | Tope en bytes del upload presignado de la INE (`kyc_ine`); se fija en la firma (`ContentLength`). Sin valor → backend usa **10 MiB** (10485760). | Sin acción salvo querer otro tope |
 | `GOOGLE_CLIENT_ID` (backend `[RW]`) + `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (Vercel `[VC]`) | Login con Google (v1.2). **Mismo** OAuth 2.0 Client ID en ambas: backend valida `aud` del ID token; frontend lo usa en el botón. Sin `GOOGLE_CLIENT_ID` el backend rechaza el login con Google (email/password sigue OK). | Google Cloud Console > Credentials > OAuth client ID (Web) |
-| `DISPUTE_EVIDENCE_CONTACT` (backend `[RW]`) | Correo que el backend devuelve como `evidenceContact` para que el cliente envíe evidencia de disputa **por email** (v1.2: ya no se sube al bucket). Placeholder, override sin redeploy; default `soporte@tcgvaultmx.com`. | Correo de soporte del negocio |
+| `DISPUTE_EVIDENCE_CONTACT` (backend `[RW]`) | Correo que el backend devuelve como `evidenceContact` para que el cliente envíe evidencia de disputa **por email** (v1.2: ya no se sube al bucket). Placeholder, override sin redeploy; default `soporte@tcghunt.mx` (P-21, §34). | Correo de soporte del negocio |
 | `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` | Endurecimiento PII: cifrado AES-256 en reposo de CLABE/RFC + HMAC del blind index de CLABE (match sin descifrar). **Distintas entre sí**. Vacías OK en local (greenfield); **OBLIGATORIAS en no-local** (backend aborta si faltan). | Generar: `openssl rand -base64 32` (una por cada una); en prod, **KMS/secret manager** |
 | `INE_RETENTION_DAYS` | Días de retención de la INE del KYC (`kyc_ine/`). El backend borra; el bucket expira como capa extra. Igual al dial M10 (fuente de verdad). | Valor **legal/fiscal** — **fijado en 180 días** por decisión de negocio, alineado con el dial M10 del backend |
 | `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN automático (Banxico SIE) + colchón + override manual (M10). El backend lee `BANXICO_SIE_TOKEN` y, si falta, cae a `FX_API_KEY`, y si tampoco, a override manual / último FxRate. | Token SIE de Banxico (gratis en el portal SIE) |
@@ -698,7 +698,7 @@ Validaciones estáticas corridas (reales):
       (**whsec_…**, se rellena en 11.G tras crear el webhook)
 - [ ] `GOOGLE_CLIENT_ID` (login con Google; **mismo** OAuth Client ID que `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
       del front — [VC]. Sin él, el backend rechaza el login con Google)
-- [ ] `DISPUTE_EVIDENCE_CONTACT` (correo de contacto de evidencia de disputa; default `soporte@tcgvaultmx.com`)
+- [ ] `DISPUTE_EVIDENCE_CONTACT` (correo de contacto de evidencia de disputa; default `soporte@tcghunt.mx`, §34)
 - [ ] `POKEMONTCG_IO_API_KEY` (metadata del catálogo + ingest legacy/rollback `PRICE_PROVIDER=pokemontcg_io`);
       `POKEMONPRICETRACKER_API_KEY` (**proveedor de PAGA del ingest masivo WS-A** — requisito operativo cuando el
       dial `PRICE_PROVIDER=pokemonpricetracker`; **ya aprovisionada en Railway**, con cuota del plan de paga;
@@ -2511,7 +2511,19 @@ Diagnóstico **confirmado**:
 
 ## 25. P-21 — Rebrand a `tcghunt.mx`: infra, redirects 301 y runbook del switch (2026-08-21)
 
-> **Contexto:** el humano YA compró `tcghunt.mx` (PENDIENTES P-21). Hoy producción sirve en
+> ⚠️ **PARCIALMENTE SUPERADA POR §34 (2026-08-31). Lee §34 antes de ejecutar nada de aquí.**
+> Dos cosas de esta sección dejaron de ser ciertas:
+> 1. **La fila `MAIL_FROM` de §25.5 («sin fijar») NO es fiable**: se escribió sin evidencia y
+>    contradice a `HANDOFF.md` §3, que la da por fijada. §34.4 documenta la contradicción y cómo
+>    resolverla en 2 minutos.
+> 2. **El supuesto del 301 desde el dominio viejo (§25.2) decayó**: `PROJECT.md` decisión 58
+>    declara los dominios anteriores **retirados/inexistentes**. No hay dominio vivo que sirva un
+>    301, ni origen que allow-listear en CORS.
+>
+> El resto (inventario, DNS, Stripe, R2, OAuth, rollback) sigue siendo referencia válida.
+> Se conserva como registro histórico del plan; **§34 es la fuente de verdad del switch de correo**.
+
+> **Contexto (histórico, ago-2026):** el humano YA compró `tcghunt.mx` (PENDIENTES P-21). Hoy producción sirve en
 > `tcgvaultmx.com` (frontend en **Vercel**, canónico `www.tcgvaultmx.com`; apex redirige a `www`;
 > DNS en **Cloudflare, DNS only/nube gris** — HANDOFF §3). El backend vive en **Railway** con su
 > **propio dominio** `tcg-vault-mx-production.up.railway.app` (§23.2) — el rebrand **no** lo toca.
@@ -4270,6 +4282,17 @@ condiciones están resueltas, despliego, tageo y lo declaro listo. Antes no.
 
 ## 31. Clave de PRUEBA de Stripe: los tres flujos de dinero en navegador antes de prod — 2026-08-24
 
+> **⚠ LEER ANTES QUE ESTA SECCIÓN (añadido 2026-08-30, §33).** Dos afirmaciones de aquí abajo se han
+> quedado cortas o mezcladas:
+> 1. **§31.2 diagnostica el caso LOCAL** (egress a `api.stripe.com` bloqueado). **En CI la causa es
+>    otra**: la clave es de **relleno**. Mismo síntoma —los mismos 3 rojos—, dos causas que se arreglan
+>    con cosas distintas. La tabla que las separa está en **§33.5**.
+> 2. **El preflight de §31.4 comprobaba PRESENCIA, no VALIDEZ**, y podía anunciar en verde un gate de
+>    dinero inexistente. Corregido en **§33.2/§33.3**: ahora clasifica por FORMA y, sin credencial,
+>    **salta** los tres smokes declarándolo (la ruta de promoción sigue siendo rojo inmediato).
+> 3. La tabla «qué es gate y qué no» de §31.4 asume que `deploy.yml` es el camino de deploy. **No lo
+>    es** — ver **§33.4**.
+
 > **Decisión del dueño:** la condición #1 del DoD (§30.6) se resuelve **por la vía de la clave de prueba**,
 > no por aceptación formal. Los tres flujos de dinero —**comprar**, **comprar como invitado**,
 > **retirar**— se verifican **en navegador contra staging** antes de promover a prod. Eso convierte una
@@ -4992,3 +5015,468 @@ roles; el dato ya existe y ya es de solo-lectura.
 | **Contrapartida de cerrarlo del todo** | Un `super_admin` JWT de producción guardado en CI. **Decisión del humano, no de devops.** |
 | **Vía barata propuesta** | Job post-deploy con `railway logs` \| `grep 'config inventory'` — cero secretos nuevos. **Sin cablear** hasta poder probarla contra Railway. |
 | **Mejor solución** | Exponerlo en la UI de M2 (techlead). **Enrutado a frontend/backend.** |
+
+---
+
+## 33. El preflight de Stripe mentía: 13 corridas rojas y un verde que no era verde — 2026-08-30
+
+> **Resumen en una línea:** `e2e-real.yml` —el gate que decide la promoción a producción— llevaba
+> **13 corridas de 13 en rojo desde el día que existe** (2026-08-18), y el paso que debía explicarlo
+> comprobaba que la variable **existiera**, no que **sirviera**. Dos mentiras encadenadas: un rojo
+> diario que nadie miraba y un preflight capaz de decir «clave de prueba presente, los smokes de
+> dinero son gate real» sobre un relleno.
+
+### 33.1 Lo que se creía y lo que dice el registro
+
+Lo que §31 daba por hecho era que el nightly funcionaba y que sólo los tres smokes de dinero salían
+rojos «por falta de proveedor». La primera mitad es falsa. Consultado el historial del workflow
+(API de Actions, no memoria):
+
+| Corridas de `e2e-real.yml` | 13 (nº 1 el 2026-08-18, nº 13 el 2026-08-29) |
+|---|---|
+| Verdes | **0** |
+| Rojas | **13** |
+| Paso donde muere | **siempre** el mismo: `Playwright smoke — flujos críticos (REAL)` |
+
+No son «tres días sin mirar el tablero»: son **doce días y todas las corridas que ha habido**. El
+workflow nunca ha estado verde ni un solo día. Esto importa para el DoD, porque §31.4 lo declaraba
+gate de promoción — un gate que nunca ha pasado no ha bloqueado nada, ha sido decorativo.
+
+Del log de la corrida 13 (`33255299677`, job `99107828594`), el detalle que cierra el diagnóstico:
+
+```
+STRIPE_TEST_SECRET_KEY: sk_test_e2e_dummy
+STRIPE_TEST_PUBLISHABLE_KEY: pk_test_e2e_dummy
+STRIPE_TEST_WEBHOOK_SECRET: whsec_e2e_dummy
+→ 3 failed, 1 passed   (18 × "element(s) not found", 9 × toBeVisible failed)
+```
+
+### 33.2 El defecto real: presencia ≠ validez, y por qué se elige SALTAR
+
+El paso 11 se llamaba **«Preflight — ¿hay clave de PRUEBA de Stripe real?»** y su lógica era un `case`
+sobre el valor con una rama por el literal `sk_test_e2e_dummy`. Todo lo demás que empezara por
+`sk_test_` caía en la rama optimista e imprimía en verde *«Clave de prueba presente; los smokes de
+dinero son gate real»*. Es decir: `sk_test_CHANGE_ME` —**el valor que este mismo repo pone en
+`.env.example`**— habría anunciado un gate de dinero que no existía. **Es el patrón de §32 (el seed que
+no pisa lo existente) y el de §30.1 (el test que fijaba su propia configuración): un detector que se
+cree a sí mismo.**
+
+**Contexto que decide el diseño, y que hay que dejar escrito porque lo cambia todo:** el dueño **no ha
+configurado Stripe A PROPÓSITO** y no lo hará hasta que la plataforma esté al 100%. `sk_test_e2e_dummy`
+no es un olvido ni una credencial vencida: es un **estado deliberado y duradero** del proyecto.
+
+De las dos salidas honestas posibles, **se elige SALTAR** los tres smokes de dinero declarándolos
+saltados, y **no** fallar el preflight. El porqué, sin adornos:
+
+1. **Fallar sería gritar todos los días por una decisión consciente del dueño.** Un rojo que sale
+   siempre no es una alarma: es ruido. Y el ruido diario es *exactamente* el mecanismo por el que
+   nadie miró este tablero durante 12 días. Una alarma que suena siempre ya se apagó, sólo que en la
+   cabeza del equipo en vez de en el YAML.
+2. **Fallar tira la señal de lo que sí funciona.** Hoy el job tarda ~6 minutos en morir por algo que se
+   sabía en el segundo 0, y de paso pierde el resultado de los flujos no monetarios.
+3. **Saltar sólo es honesto si el salto es de primera clase**, y por eso viene con los cuatro
+   requisitos de abajo. Un salto silencioso sería peor que el rojo.
+
+Lo que **no** se negocia y está cableado así:
+
+| Requisito | Cómo se cumple |
+|---|---|
+| Los tres tests **nunca** se borran, ni se marcan `.skip`, ni salen de `SMOKE_SPECS` | El salto lo decide el **entorno en tiempo de corrida** (`scripts/stripe-test-key-preflight.sh` filtra la lista efectiva). `frontend/e2e/` no se toca: es del rol frontend. |
+| Vuelven a ser **obligatorios solos** cuando aparezca la credencial | La detección es **por forma del valor**. No hay bandera `skip_money=true` que alguien tenga que acordarse de quitar — ese es justo el patrón que ya nos mordió dos veces. |
+| El estado se lee **sin abrir logs** | Bloque en el *Summary* del run (primer paso del job) + veredicto final de una línea + anotación `::warning`. |
+| La promoción a prod **no salta nada** | `deploy.yml` llama con `require_real_stripe: true` → el preflight **falla en el segundo 0** con la variable nombrada, el motivo («valor de relleno») y dónde se pone la buena. |
+
+### 33.3 Cómo distingue «clave real» de «relleno» (y el falso positivo que evité)
+
+`scripts/stripe-test-key-preflight.sh` clasifica **por forma, en este orden**:
+
+| Regla | Qué caza | Falsos positivos |
+|---|---|---|
+| Prefijo `sk_live_`/`pk_live_` | clave live en staging → **aborta siempre** | ninguno |
+| Prefijo distinto de `sk_test_`/`rk_test_`/`pk_test_` | formato desconocido → **aborta** | ninguno |
+| **Longitud** del sufijo < 24 | `e2e_dummy` (9), `CHANGE_ME` (9), `xxx` | **imposible**: las claves de Stripe traen 24 (legacy) o ~99 (`sk_test_51…`) |
+| **Alfabeto** ≠ `[A-Za-z0-9]` | cualquier cosa con `_`, guion, espacio o comilla → la escribió una persona, no Stripe | **imposible** |
+| **Vocabulario** (`dummy`, `changeme`, `placeholder`, `example`, `fake`, `invalid`, …) y 4 caracteres idénticos seguidos | relleno largo y alfanumérico (`sk_test_dummydummydummy…`) | ~1e-4 |
+
+**El falso positivo que casi introduzco, porque es la misma clase de error que esta sección corrige.**
+Mi primera versión buscaba también tokens de 3 letras (`xxx`, `foo`, `bar`, `tbd`) como subcadena. Una
+clave **auténtica** es una cadena alfanumérica de ~99 caracteres: la probabilidad de que contenga por
+azar alguno de esos trigramas es **~2%**. Un preflight que declara «relleno» una clave buena una de
+cada cincuenta veces —y bloquea una promoción a prod por ello— es otro detector que miente, sólo que
+en la dirección contraria. Se quitaron: los rellenos cortos ya los cazan las dos reglas **exactas**
+(longitud y alfabeto), que no tienen falsos positivos posibles. **Dos reglas exactas y una heurística
+conservadora, en ese orden.**
+
+**Lo que este preflight promete, literalmente: «esto no es un relleno». Nada más.** No llama a
+`api.stripe.com` — (a) desde la máquina de trabajo el egress a Stripe está bloqueado (§31.2) y un
+preflight dependiente de red sería inestable; (b) una clave con forma real pero **revocada** la caza el
+propio smoke, que es donde debe caerse. Decirlo importa: prometer «clave válida» sería la tercera
+mentira de esta cadena.
+
+**Nunca imprime el valor.** Sólo prefijo (8 caracteres) y longitud total.
+
+### 33.4 `deploy.yml`: la puerta no se está saltando — **nunca estuvo en el camino**
+
+Pregunta del coordinador: si el E2E real no puede estar verde sin Stripe, ¿cómo se promovió la curva v2
+a producción el 28 de agosto? Respuesta, con el registro de Actions delante:
+
+**No se promovió por ahí. `deploy.yml` no corrió el 28 de agosto, ni el 27, ni ningún día desde el 25.**
+
+| Dato verificado | |
+|---|---|
+| Última corrida de `deploy.yml` | nº 52, **2026-08-25**, `workflow_dispatch`, conclusión **success** |
+| Qué hizo esa corrida «verde» | `secrets-gate` → `ready=false` (faltan los 6 secrets de deploy) → **`ci-ok`, `preflight`, `deploy-staging-*`, `e2e-real`, `dast-staging` y los dos `promote-production-*` quedaron TODOS en `skipped`** |
+| Corridas de `deploy.yml` el 26–30 de agosto | **ninguna** |
+| Camino real de los deploys | integraciones **nativas** push-to-deploy de Vercel/Railway (documentado en la cabecera de `deploy.yml`, líneas 34-48) |
+
+Conclusión, y es más grave que el falso verde que vine a arreglar:
+
+- **La puerta no se está esquivando: no existe en el camino que se usa.** El CD por Actions está
+  desactivado por diseño (`workflow_dispatch` only) y, sin los 6 secrets, se auto-salta. Vercel y
+  Railway despliegan al hacer push y **no consultan el resultado de ningún workflow de GitHub**. El
+  gate E2E real, el DAST de staging y la aprobación del *environment* `production` **no intervienen en
+  un solo deploy real**.
+- **Y esa corrida nº 52 es, ella misma, otro miembro de la familia:** un run llamado
+  «Deploy (staging → prod)» que terminó en **verde** habiendo desplegado **nada**. Jobs saltados cuentan
+  como neutrales, así que el check verde es indistinguible de un despliegue correcto.
+- Por tanto **la promoción a producción no está «estructuralmente bloqueada» por la falta de Stripe**.
+  Lo estaría si el camino pasara por `deploy.yml`; hoy no pasa.
+
+**No he tocado `deploy.yml`** (instrucción explícita del coordinador: la decisión de cómo cerrar esa
+puerta es suya con el dueño). Las tres opciones, con su contrapartida, para esa conversación:
+
+| Opción | Qué implica |
+|---|---|
+| Dejarlo como está y **decirlo en `deploy.yml` y en el DoD**: los gates son *advisory*, no bloqueantes | Cuesta cero. Pero el DoD dice «gate de seguridad y harness E2E cableados en CI» y hoy eso es cierto sólo en el papel del workflow, no en el camino real. |
+| **Branch protection** con `e2e-real` / SAST como *required status checks* de la rama que Vercel/Railway despliegan | Es el único punto donde un gate muerde el camino nativo: si no se puede mergear, no hay push que desplegar. No necesita los 6 secrets de deploy. |
+| Activar el CD por Actions (cargar los 6 secrets, quitar el push-to-deploy nativo) | Restaura la puerta entera tal como está escrita, pero cambia el modelo operativo del dueño. |
+
+Nota para la opción 2: con Stripe deliberadamente ausente, `e2e-real` como *required check* sólo tiene
+sentido **con el salto declarado de §33.2**; con el comportamiento anterior habría bloqueado todos los
+merges para siempre.
+
+### 33.5 Local vs CI: el mismo síntoma con dos causas distintas (corrige la lectura de §31)
+
+§31 metía los dos casos bajo la misma etiqueta y eso confunde el diagnóstico. Quedan separados:
+
+| | **Local** (stack nativo / docker en la máquina del equipo) | **CI** (`e2e-real.yml`, runner `ubuntu-latest`) |
+|---|---|---|
+| Causa de los 3 rojos | **Egress bloqueado**: `CONNECT api.stripe.com` → 403 (§31.2) | **Clave de relleno**: `sk_test_e2e_dummy` (fallback del workflow) |
+| ¿Se arregla con la clave? | **NO.** Con clave real seguiría rojo, ahora por timeout de red | **SÍ.** Es lo único que falta |
+| ¿Se arregla con egress? | Sí, más la clave | No aplica: el runner ya tiene salida |
+| Qué hace el preflight | No corre aquí | Lo detecta en el segundo 0 y salta los 3 declarándolo |
+
+Quien pruebe en local y vea los mismos tres rojos **no está viendo el mismo problema**: darle la clave
+al stack local no los pone en verde (§31.2). Es la advertencia que hace perder una tarde.
+
+### 33.6 Qué imprime ahora, en cada rama
+
+Probado con `scripts/stripe-test-key-preflight.sh` a mano (15 casos: fallback, secret ausente,
+`CHANGE_ME`, relleno alfanumérico largo, repeticiones, 23 caracteres, clave con forma real, `rk_test_`
+restringida, secret real + publicable de relleno, clave live, formato desconocido, promoción con y sin
+credencial, lista sólo-dinero, y specs con ruta `e2e/…`).
+
+**Rama A — relleno, nightly (`require_real_stripe: false`) → verde PARCIAL declarado, `exit 0`:**
+
+```
+| STRIPE_TEST_SECRET_KEY      | sk_test_… (17 caracteres en total) | VALOR DE RELLENO (no es una credencial) |
+| STRIPE_TEST_PUBLISHABLE_KEY | pk_test_… (17 caracteres en total) | VALOR DE RELLENO (no es una credencial) |
+
+Gate de dinero: INACTIVO — los smokes de dinero se SALTAN por falta de credencial.
+  Saltados (no ejecutados, NO aprobados): checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts
+  Sí se ejecutan: buylist.spec.ts
+
+::warning title=SIN GATE DE DINERO — 3 smokes SALTADOS::…
+::warning title=Verde PARCIAL — 1 flujo corrido, 3 de dinero SALTADOS::Este run NO probó comprar,
+        comprar-como-invitado ni retirar…  El verde de este workflow NO es un verde de dinero.
+```
+
+**Rama B — clave con forma real → todo corre, gate ACTIVO, `exit 0` (comportamiento intacto):**
+
+```
+| STRIPE_TEST_SECRET_KEY | sk_test_… (58 caracteres en total) | clave con forma de credencial real |
+
+Gate de dinero: ACTIVO. …los tres smokes de dinero corren y son OBLIGATORIOS.
+  Specs que corren: checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts
+  Specs saltados: ninguno
+::notice title=Gate de dinero ACTIVO::…
+> Un rojo en checkout · guest-checkout · shipments a partir de aquí ES UN BUG DE PRODUCTO.
+```
+
+**Rama C — promoción a prod sin credencial (`require_real_stripe: true`) → `exit 1` en el segundo 0:**
+
+```
+::error title=Gate de promocion sin clave de PRUEBA real::STRIPE_TEST_SECRET_KEY: VALOR DE RELLENO
+        (no es una credencial); STRIPE_TEST_PUBLISHABLE_KEY: VALOR DE RELLENO… Pon los secrets
+        STRIPE_TEST_SECRET_KEY (sk_test_...) y STRIPE_TEST_PUBLISHABLE_KEY (pk_test_...) en
+        Settings > Secrets and variables > Actions. Ver DEVOPS_NOTES 31.1. Nunca una clave live.
+```
+
+Otros abortos duros, en cualquier rama: **clave live** (`sk_live_`/`pk_live_`), **formato desconocido**,
+y **«no queda ningún smoke que correr»** (si alguien invoca el workflow con una lista compuesta sólo de
+specs de dinero, saltarlos dejaría el job **vacío** — y un job vacío en verde es este mismo falso verde
+con otra cara).
+
+**Verificación del cambio:** `actionlint 1.7.7` + `shellcheck 0.10.0` sobre `e2e-real.yml` y sobre el
+script: **0 hallazgos**. El paso de veredicto se ejecutó fuera de CI con `GITHUB_STEP_SUMMARY` simulado
+en las tres combinaciones (gate on / gate off / Playwright rojo).
+
+### 33.7 Novedad importante: el **publicable** también es credencial
+
+El preflight exige que **las dos** claves tengan forma real. Sin `pk_test_…` el modal de Stripe **no
+monta en el navegador** aunque el backend cree la sesión: los tres smokes fallarían igual, y con el
+agravante de parecer un bug de producto (el backend responde 200 y la UI no muestra nada). §31.1 ya
+marcaba la publicable como obligatoria en prosa; ahora está **comprobado en el gate**.
+
+### 33.8 Limitación que dejo escrita en vez de esconder
+
+Con el gate de dinero apagado, el smoke por defecto se queda en **un solo spec** (`buylist.spec.ts`):
+3 de los 4 son de dinero. Es señal, y es más que el cero de hoy, pero **es delgada**.
+
+**No amplío la lista por defecto en este pase, y el motivo no es pereza:** los demás specs
+(`catalog`, `auth`, `vault`, `portfolio`, `admin`, …) **nunca han corrido en modo real**. Meterlos de
+golpe en el nightly tiene una probabilidad alta de reintroducir el rojo diario que esta sección viene a
+eliminar — cambiar un ruido por otro. El camino correcto es una corrida manual:
+
+```
+Actions → «E2E real (stack real)» → Run workflow →
+  smoke_specs: "buylist.spec.ts catalog.spec.ts auth.spec.ts vault.spec.ts portfolio.spec.ts"
+```
+
+y ampliar el default **sólo** con los que pasen. Queda como tarea abierta de devops, no como algo
+resuelto.
+
+### 33.9 Qué le queda al humano
+
+| Acción | Efecto | ¿Bloquea algo hoy? |
+|---|---|---|
+| **Nada, si la decisión sigue siendo no configurar Stripe** | El nightly queda **verde parcial declarado**: corre los flujos no monetarios y dice en el resumen que saltó 3 y por qué | No. Es el estado esperado y estable. |
+| Crear los secrets `STRIPE_TEST_SECRET_KEY` (`sk_test_…`) y `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`) en *Settings > Secrets and variables > Actions* (§31.1) | Los tres smokes de dinero **se activan solos** y vuelven a ser obligatorios. Sin tocar código ni quitar banderas. | Es lo único que separa el gate de dinero de existir |
+| **Decidir con el coordinador qué hacer con §33.4** | Hoy ningún deploy real pasa por gate alguno | **Sí — es el hueco grande de este pase**, y no lo cierra devops en solitario |
+
+**Lo que sigue sin ser cierto, y no lo declaro cerrado:** los tres flujos de dinero **siguen sin
+verificarse en navegador** (condición #1 del DoD, §30.6/§31.5). Este pase **no** los verifica: hace que
+el sistema **diga la verdad** sobre que no están verificados, en vez de fingir un gate que no existía.
+Son dos cosas distintas y conviene no confundirlas al leer el tablero.
+
+---
+
+## 34. P-21 — Los buzones `@tcghunt.mx` ya reciben: switch de correo en PRODUCCIÓN (2026-08-31)
+
+> **Disparador cumplido.** El humano confirmó que los buzones `@tcghunt.mx` **ya reciben correo**
+> (Cloudflare Email Routing activo y probado). Ésa era exactamente la precondición que exigía la nota
+> de `.env.example` y el paso §25.6-A.8. Con ella se desbloquea la parte de **buzones que reciben**.
+> **NO desbloquea automáticamente el remitente** — ver §34.1, es la trampa de esta sección.
+>
+> **Autoridad:** `PROJECT.md` decisión 58 (2026-08-31) — el dominio del negocio es **uno**,
+> `tcghunt.mx`; los anteriores quedaron **retirados** (el documento los llama *inexistentes*). Eso
+> **deroga** el supuesto de §25.2 de un 301 servido por un dominio viejo que el negocio conserva:
+> si el dominio ya no existe, no hay 301 que valga y tampoco hay origen que allow-listear.
+
+### 34.0 Lo que cambió en el repo (este pase) y lo que NO cambia nada
+
+| Archivo | Cambio | ¿Surte efecto en prod al mergear? |
+|---|---|---|
+| `.env.example` (bloque `APP_BASE_URL`, `DISPUTE_EVIDENCE_CONTACT`, `SUPPORT_EMAIL`, bloque de correo Resend, índice `[RW]`, nota DAST) | Dominio migrado a `tcghunt.mx`; el bloque `MAIL_FROM` pasa de futuro a presente y separa las dos precondiciones (§34.1) | **NO.** Es una plantilla para devs; producción **no lee este archivo** |
+| `docker-compose.yml`, `docker-compose.staging.yml` | Comentario del default de `DISPUTE_EVIDENCE_CONTACT` | **NO.** Solo comentario; el valor sigue siendo `${DISPUTE_EVIDENCE_CONTACT:-}` |
+
+**Conclusión operativa, y es el punto entero de esta sección:** *ningún* archivo de este repo cambia
+el correo de producción. **El cambio real vive en Railway.** Mergear esta rama sin hacer §34.2 deja
+producción exactamente igual que antes.
+
+### 34.1 La distinción que hay que tener clara antes de tocar nada
+
+Son **dos precondiciones distintas** y confundirlas rompe el correo de toda la plataforma:
+
+| Variable | Qué es | Precondición | ¿Cumplida hoy? |
+|---|---|---|---|
+| `DISPUTE_EVIDENCE_CONTACT`, `SUPPORT_EMAIL` | Buzones que **RECIBEN** (se imprimen en correos y en la respuesta de disputa para que el cliente escriba) | Email Routing de `tcghunt.mx` activo → el buzón recibe | **SÍ** (confirmado por el humano) |
+| `MAIL_FROM` | Remitente que **ENVÍA** (lo pone Resend en el `From:`) | `tcghunt.mx` en estado **Verified** (SPF/DKIM) en el dashboard de **Resend** | **DESCONOCIDO — hay que mirarlo** (§34.2 paso 1) |
+
+Que un dominio **reciba** no implica que pueda **enviar**: son registros DNS distintos (MX/routing vs.
+SPF/DKIM) en productos distintos (Cloudflare vs. Resend). Si se fija `MAIL_FROM` con un dominio que
+Resend no tiene Verified, **Resend rechaza el 100% de los envíos** y el usuario no ve ningún error:
+simplemente nunca le llega la verificación de cuenta, el reset de contraseña ni la confirmación de
+pedido. Por eso `MAIL_FROM` es el **último** paso y tiene su propio gate.
+
+### 34.2 Procedimiento — Railway, paso a paso (lo ejecuta el HUMANO)
+
+**Dónde:** Railway → proyecto → servicio **`backend`** → environment **`production`** → pestaña
+**Variables**. Todas estas variables son **overrides de entorno**: no requieren merge, ni build, ni
+esperar a un despliegue de código. Al guardar, Railway **reinicia el contenedor** con el env nuevo
+(~1–2 min, arranque idempotente §11.F) — es un restart, no un deploy: el arte del contenedor no se
+reconstruye. Esa es la razón por la que esto puede hacerse **hoy**.
+
+> **Antes de empezar**, ten a mano una cuenta de correo tuya para las pruebas (Gmail personal sirve)
+> y **no** uses una cuenta que ya exista en la plataforma: el paso de verificación necesita registrar
+> una cuenta nueva.
+
+**Paso 1 — [GATE de `MAIL_FROM`] Resend: ¿`tcghunt.mx` está Verified?**
+Resend → **Domains**. Busca `tcghunt.mx`:
+- Estado **Verified** (verde) → sigue al paso 2 completo.
+- **No aparece / Pending / Failed** → **NO fijes `MAIL_FROM`**. Haz solo los pasos 2a y 3, y añade el
+  dominio en Resend (*Add Domain* → pega los TXT/CNAME que te dé en la zona de Cloudflare de
+  `tcghunt.mx` → *Verify*). Vuelve al paso 2b cuando esté verde (propagación: minutos a 1 h).
+
+**Paso 2 — Fijar las variables.** En este orden (las de recibir primero; el remitente al final):
+
+| # | Variable | Valor EXACTO a fijar | Gate |
+|---|---|---|---|
+| 2a | `DISPUTE_EVIDENCE_CONTACT` | `soporte@tcghunt.mx` | Buzón recibe — **cumplido** |
+| 2a | `SUPPORT_EMAIL` | `soporte@tcghunt.mx` *(opcional: solo si quieres un buzón distinto al de disputas; si no la fijas, hereda de `DISPUTE_EVIDENCE_CONTACT`)* | Buzón recibe — **cumplido** |
+| 2b | `MAIL_FROM` | `TCG HUNT <no-reply@tcghunt.mx>` *(con el nombre visible; comillas NO — Railway guarda el valor literal)* | **Solo si el paso 1 salió Verified** |
+
+> **`MAIL_FROM` puede existir ya o no** (§34.4): da igual. Si ya existe, **edítala**; si no aparece en
+> la lista, **créala** con *New Variable*. El resultado es el mismo y el procedimiento no cambia.
+
+**Paso 2c — `APP_BASE_URL` (revisar, y corregir si hace falta).** Mira su valor actual. Debe ser:
+
+```
+https://www.tcghunt.mx,https://tcghunt.mx,https://tcg-vault-mx.vercel.app
+```
+
+Dos cosas dependen de esto y conviene entender cuál es cuál:
+- **El PRIMER origen** arma los links de los correos (verificación, reset) y el `return_url` de Stripe.
+  Si el primero no es `https://www.tcghunt.mx`, los correos saldrán con links de otro dominio.
+- **Toda la lista** es la allow-list de CORS. Si `https://www.tcghunt.mx` **no** está en la lista, el
+  frontend servido en ese dominio **no puede hablar con el backend** (todo falla con error de CORS).
+  Si la web funciona hoy, es que ya está; verifícalo igual, cuesta 10 segundos.
+- Los dominios retirados **se quitan** de la lista: un origen que no existe no emite peticiones, así
+  que allow-listearlo no protege de nada y solo confunde el próximo runbook.
+
+**Paso 3 — Guardar y esperar el restart.** Railway muestra el servicio en *Deploying* → *Active*.
+Comprueba que arrancó:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://tcg-vault-mx-production.up.railway.app/api/v1/health
+# esperado: 200
+```
+
+Si no vuelve 200 en ~3 min, ve al rollback (§34.5) y reporta: es un fallo de arranque, no del correo.
+
+### 34.3 Verificación — fijar las variables NO es haber terminado
+
+Fijar una variable no prueba nada. Hay que comprobar las **dos direcciones** del correo por separado,
+porque fallan por causas distintas.
+
+**V1 — ENVÍO: ¿sale un correo real desde el remitente nuevo?** (prueba de extremo a extremo, 2 min)
+
+1. Ve a `https://www.tcghunt.mx` → **Crear cuenta** con una dirección tuya que no esté registrada.
+2. Espera el correo de verificación (< 1 min). **Revisa también SPAM.**
+3. En el correo recibido, abre **"Mostrar original"** (Gmail: menú ⋮ → *Mostrar original*) y confirma:
+   - `From:` → `TCG HUNT <no-reply@tcghunt.mx>` — **el nombre visible y el dominio nuevo**.
+   - `SPF: PASS` y `DKIM: PASS` para `tcghunt.mx`. Si alguno dice `FAIL`/`NEUTRAL`, el dominio no está
+     bien verificado en Resend: **haz rollback de `MAIL_FROM`** (§34.5) y termina la verificación en
+     Resend antes de reintentar. Con SPF/DKIM en rojo el correo acaba en spam aunque "llegue".
+   - El link de verificación apunta a `https://www.tcghunt.mx/...` (eso valida el paso 2c).
+4. Haz clic en el link: la cuenta debe quedar verificada.
+
+**Evidencia del lado servidor (obligatoria si V1 falla, y recomendable siempre):**
+
+- **Resend → Emails / Logs:** cada envío aparece con su estado. Busca el de tu prueba.
+  - `Delivered` → envío correcto.
+  - `Bounced` / `Failed` con mensaje tipo *"The domain is not verified"* o *"from address not allowed"*
+    → **el remitente no está verificado**. Es el fallo silencioso: la app no lo muestra al usuario.
+  - **Ningún registro** → el backend ni siquiera intentó enviar: mira los logs de Railway.
+- **Railway → servicio `backend` → Logs**, filtra por `MailModule`. Al arrancar imprime **el remitente
+  efectivo**, y es la forma más rápida de saber qué está usando de verdad:
+  - `Correo: ResendMailAdapter (from=TCG HUNT <no-reply@tcghunt.mx>).` → `MAIL_FROM` tomó efecto.
+  - Si el `from=` que imprime es otro, la variable no está donde crees (¿environment equivocado?
+    ¿servicio equivocado?).
+  - `RESEND_API_KEY ausente → NoopMailAdapter` → **no se está enviando nada en absoluto**; incidencia
+    aparte y grave (esto no debería poder pasar en prod: `env.validation.ts` lo exige).
+
+**V2 — RECEPCIÓN: ¿una respuesta al buzón nuevo llega a alguien?** (esto es lo que V1 no prueba)
+
+1. Desde tu correo personal, **responde** al correo de verificación que te llegó (va a `no-reply@`) y
+   además manda un correo directo a **`soporte@tcghunt.mx`**.
+2. Confirma que ambos aterrizan en el Gmail destino del Email Routing. `no-reply@` puede rebotar por
+   diseño (es un buzón de solo envío) — **lo que no puede fallar es `soporte@tcghunt.mx`**: ése es el
+   que la plataforma le da al cliente para mandar evidencia de una disputa. Si no llega, hay un cliente
+   con una disputa gritando al vacío.
+3. Comprueba que la API ya **devuelve** el buzón nuevo. `evidenceContact` no se expone en ningún
+   endpoint público sin datos (sale en la respuesta de disputa y en el seguimiento de pedido de
+   invitado, `POST /api/v1/orders/guest/track`, que exige nº de pedido + correo reales). Así que
+   verifícalo por la vía que tengas a mano:
+   - **Con un pedido real de prueba:** entra a *Seguimiento de pedido* en la web y confirma que el
+     correo de contacto que muestra es `soporte@tcghunt.mx`.
+   - **Sin pedido:** Railway → Variables → confirma que `DISPUTE_EVIDENCE_CONTACT` quedó guardada con
+     el valor exacto (sin espacios de más: `envOr` trata blanco como ausente y caería al default).
+
+**Criterio de aceptación del switch:** V1 con `From:` nuevo + SPF/DKIM PASS, **y** V2 con
+`soporte@tcghunt.mx` recibiendo, **y** `/health` en 200. Con eso el cambio surtió efecto de verdad.
+
+### 34.4 `MAIL_FROM` en producción: lo que el repo dice, y por qué no basta
+
+La pregunta —*¿está `MAIL_FROM` fijada hoy en prod?*— **no se puede contestar desde el repo**, y la
+documentación **se contradice**. Se deja escrito para que nadie vuelva a fiarse de ninguna de las dos:
+
+| Fuente | Qué afirma |
+|---|---|
+| `HANDOFF.md` §3 (inventario de variables de Railway) | `MAIL_FROM=no-reply@tcgvaultmx.com` — la lista la da por **FIJADA** |
+| `DEVOPS_NOTES.md` §25.5 (tabla del rebrand) | `MAIL_FROM` → *"sin fijar (default de código)"* — la da por **NO fijada** |
+
+Ninguna de las dos es una consulta en vivo a Railway: son notas escritas a mano en momentos distintos.
+**La §25.5 se escribió sin evidencia que la respaldara y contradice al HANDOFF; queda marcada como no
+fiable.** Esta sección la sustituye.
+
+**Lo que sí se puede afirmar, y es lo que importa:** el **remitente efectivo es el mismo en los dos
+escenarios**. Si `MAIL_FROM` está fijada, vale `no-reply@tcgvaultmx.com` (HANDOFF); si no lo está, el
+backend cae al default de código `DEFAULT_MAIL_FROM = 'no-reply@tcgvaultmx.com'`
+(`backend/src/modules/mail/mail.module.ts:13`). **En ambos casos producción está enviando desde el
+dominio retirado.** Por eso el procedimiento §34.2 no se ramifica: fijes o edites, el destino es el
+mismo valor.
+
+**El riesgo vivo, planteado como hipótesis y no como hecho:** `HANDOFF.md` §3 registra el dominio
+`tcgvaultmx.com` como **Verified** en Resend *en su momento*. Si ese dominio fue retirado y su zona DNS
+ya no publica los TXT/CNAME de SPF/DKIM, **Resend lo marca como no verificado y rechaza todo envío**
+desde él. En ese escenario la plataforma lleva **sin entregar ni un solo correo transaccional**
+—verificación de cuenta (que bloquea comprar/vender/retirar), reset de contraseña, confirmaciones de
+pedido, buylist y disputas— y **el fallo es silencioso**: la API responde 200 y nadie se entera.
+**No lo afirmo:** desde esta sesión no hay egress a producción ni acceso a los dashboards (§23.1,
+§26). Es una hipótesis con causa mecánica plausible, y **se confirma o se descarta en dos minutos**.
+
+**Comprobación del humano — 2 minutos, en este orden (para y arregla en el primer rojo):**
+
+1. **Resend → Domains** (15 s). ¿Qué estado tiene `tcgvaultmx.com`? Si dice **Failed / Pending / no
+   aparece**, la hipótesis está **confirmada**: el correo transaccional está caído ahora mismo → es un
+   **P0** y el arreglo es completar §34.2 (verificar `tcghunt.mx` + fijar `MAIL_FROM`) **hoy**.
+2. **Resend → Emails / Logs**, filtra por los últimos 7 días (45 s). Es la evidencia más directa:
+   - Envíos en `Delivered` → el correo **está saliendo**; no hay incendio, el switch es una mejora de
+     marca y se hace con calma.
+   - Todo en `Bounced`/`Failed`, o **la lista vacía pese a haber habido registros/pedidos** → caído.
+     Abre uno y lee el mensaje de error: ahí dice si es el dominio del remitente.
+3. **Railway → `backend` → Variables** (20 s). Busca `MAIL_FROM` en la lista: o está o no está. Eso
+   resuelve la contradicción del repo — **anota el resultado en `HANDOFF.md` §3** (lo escribe el rol
+   dueño de ese archivo), porque hoy hay dos documentos afirmando cosas opuestas.
+4. **Railway → `backend` → Logs**, filtra `MailModule` (20 s). La línea de arranque
+   `Correo: ResendMailAdapter (from=…)` dice **el remitente que se está usando de verdad**, sin
+   depender de lo que digan los dashboards ni los documentos. Es la fuente de verdad.
+
+Si el paso 2 sale verde (correos entregándose), el switch de §34.2 **no es urgente** pero sigue siendo
+necesario: se está enviando desde un dominio que ya no es del negocio y que puede dejar de verificar
+en cualquier momento, sin aviso.
+
+### 34.5 Rollback
+
+Cada variable es independiente y reversible **sin desplegar código** (mismo restart de ~1–2 min):
+
+| Si falla | Acción | Estado al que vuelve |
+|---|---|---|
+| `MAIL_FROM` (SPF/DKIM en rojo, Resend rechaza) | **Borra la variable** `MAIL_FROM` (no la vacíes… aunque vaciarla también sirve: `envOr` trata `''` y `'   '` como ausente y cae al default) | Remitente = default de código. **OJO:** ese default es el dominio retirado — si *ése* es el que no verifica, el rollback **no** arregla el envío; el único camino hacia adelante es verificar `tcghunt.mx` en Resend |
+| `DISPUTE_EVIDENCE_CONTACT` / `SUPPORT_EMAIL` | Borrar la variable (cae al default de código) o fijar el buzón anterior | Buzón anterior. Solo tiene sentido si el buzón viejo **sigue recibiendo**; si el dominio está retirado, **no lo hagas**: dejarías a los clientes escribiendo a un buzón muerto |
+| `APP_BASE_URL` | Restaurar el valor anterior (cópialo **antes** de editarlo) | Links y CORS previos |
+
+**Regla:** antes de tocar cualquiera de estas variables, **copia su valor actual a un bloc de notas**.
+Railway no ofrece historial de variables por valor y el rollback depende de que lo tengas apuntado.
+
+### 34.6 Lo que esta sección NO cierra (enrutado a sus roles)
+
+- **backend:** `DEFAULT_MAIL_FROM` (`mail.module.ts:13`) y los buzones por defecto de
+  `disputes.constants.ts`, `buylist-mail.templates.ts`, `guest-checkout.constants.ts` siguen con el
+  dominio retirado. Está en curso en paralelo. **Nota importante para no relajarse:** ese arreglo
+  cambia el *default de código*, que solo aplica cuando la env **no** está fijada — **no sustituye a
+  §34.2**. Producción se arregla fijando la variable, no mergeando el default.
+- **frontend:** buzones en `messages/{es,en}.json`, marca/metadata y `vercel.json` (§25.7). Con el
+  dominio viejo retirado, el 301 de §25.2 ya no es realizable: eso lo replantea el arquitecto/PO.
+- **humano:** todo §34.2 y §34.4 — nadie más tiene acceso a Railway ni a Resend.

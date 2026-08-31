@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { Logger } from '@nestjs/common';
 import { envOr } from './mail-env.util';
 
 /**
@@ -35,7 +36,13 @@ describe('P-21 cierre — envOr (env vacía/blanca cae al default)', () => {
 });
 
 describe('P-21 cierre — consumidores import-time de envOr', () => {
-  const HIST = 'soporte@tcgvaultmx.com';
+  /**
+   * VALOR CORRECTO del default de soporte tras la migración P-21 (ago-2026): el buzón
+   * `@tcghunt.mx` ya recibe correo, que era la condición para moverlo. El histórico
+   * `soporte@tcgvaultmx.com` es un buzón MUERTO — si alguien ve fallar este test, la corrección
+   * es alinear el test al dominio vivo, NUNCA devolver el código al dominio viejo.
+   */
+  const DEFAULT_SUPPORT = 'soporte@tcghunt.mx';
   const ENV_KEYS = ['DISPUTE_EVIDENCE_CONTACT', 'SUPPORT_EMAIL'] as const;
   const saved: Record<string, string | undefined> = {};
 
@@ -60,29 +67,29 @@ describe('P-21 cierre — consumidores import-time de envOr', () => {
     return mod;
   }
 
-  it('disputes.constants: env vacía → default histórico; con valor → lo usa', () => {
+  it('disputes.constants: env vacía → default vivo (soporte@tcghunt.mx); con valor → lo usa', () => {
     process.env.DISPUTE_EVIDENCE_CONTACT = '';
     let mod = freshImport<{ DISPUTE_EVIDENCE_CONTACT: string }>('../disputes/disputes.constants');
-    expect(mod.DISPUTE_EVIDENCE_CONTACT).toBe(HIST);
+    expect(mod.DISPUTE_EVIDENCE_CONTACT).toBe(DEFAULT_SUPPORT);
 
     process.env.DISPUTE_EVIDENCE_CONTACT = '  soporte@tcghunt.mx ';
     mod = freshImport<{ DISPUTE_EVIDENCE_CONTACT: string }>('../disputes/disputes.constants');
     expect(mod.DISPUTE_EVIDENCE_CONTACT).toBe('soporte@tcghunt.mx');
   });
 
-  it('guest-checkout.constants: env con espacios → default; con valor → lo usa', () => {
+  it('guest-checkout.constants: env con espacios → default vivo (soporte@tcghunt.mx); con valor → lo usa', () => {
     process.env.DISPUTE_EVIDENCE_CONTACT = '   ';
     let mod = freshImport<{ SUPPORT_EVIDENCE_CONTACT: string }>(
       '../orders/guest-checkout.constants',
     );
-    expect(mod.SUPPORT_EVIDENCE_CONTACT).toBe(HIST);
+    expect(mod.SUPPORT_EVIDENCE_CONTACT).toBe(DEFAULT_SUPPORT);
 
     process.env.DISPUTE_EVIDENCE_CONTACT = 'soporte@tcghunt.mx';
     mod = freshImport<{ SUPPORT_EVIDENCE_CONTACT: string }>('../orders/guest-checkout.constants');
     expect(mod.SUPPORT_EVIDENCE_CONTACT).toBe('soporte@tcghunt.mx');
   });
 
-  it('buylist-mail.templates: cascada SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → histórico, saltando vacíos', () => {
+  it('buylist-mail.templates: cascada SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → default vivo, saltando vacíos', () => {
     type Tpl = {
       sellItemRejectedTemplate: (
         params: {
@@ -108,11 +115,11 @@ describe('P-21 cierre — consumidores import-time de envOr', () => {
       abandonDeadlineAt: null,
     };
 
-    // Ambas vacías → default histórico.
+    // Ambas vacías → default de código = buzón VIVO (P-21 migrado), no el histórico muerto.
     process.env.SUPPORT_EMAIL = '';
     process.env.DISPUTE_EVIDENCE_CONTACT = '';
     let tpl = freshImport<Tpl>('../buylist/buylist-mail.templates');
-    expect(tpl.sellItemRejectedTemplate(params, 'Vendedor', 'es').text).toContain(HIST);
+    expect(tpl.sellItemRejectedTemplate(params, 'Vendedor', 'es').text).toContain(DEFAULT_SUPPORT);
 
     // SUPPORT_EMAIL en blanco pero DISPUTE_EVIDENCE_CONTACT con valor → cae en cascada al segundo.
     process.env.SUPPORT_EMAIL = '   ';
@@ -132,7 +139,15 @@ describe('P-21 cierre — consumidores import-time de envOr', () => {
 });
 
 describe('P-21 cierre — factory de MailModule (MAIL_FROM vacía → default)', () => {
-  const DEFAULT_FROM = 'no-reply@tcgvaultmx.com';
+  /**
+   * VALOR CORRECTO del remitente por defecto tras la migración P-21 (ago-2026). Este default
+   * gobierna el remitente de TODOS los correos transaccionales cuando `MAIL_FROM` no está fijada:
+   * si apuntara al histórico `no-reply@tcgvaultmx.com` (dominio ya no verificado en Resend),
+   * Resend rechazaría cada envío y nadie recibiría verificación de email, reset de contraseña ni
+   * confirmación de pedido. Si este test falla, alinea el test al dominio vivo — NUNCA el código
+   * al dominio muerto.
+   */
+  const DEFAULT_FROM = 'no-reply@tcghunt.mx';
 
   /** Extrae la factory del provider MAIL_PORT de la metadata del módulo (sin levantar Nest). */
   function getMailPortFactory(): (config: {
@@ -177,5 +192,150 @@ describe('P-21 cierre — factory de MailModule (MAIL_FROM vacía → default)',
       stubConfig({ RESEND_API_KEY: 're_test_key', MAIL_FROM: 'TCG HUNT <no-reply@tcghunt.mx>' }),
     ) as { from?: string };
     expect(adapter.from).toBe('TCG HUNT <no-reply@tcghunt.mx>');
+  });
+
+  /**
+   * P-21: con envío REAL y sin `MAIL_FROM`, el remitente lo decide el default de código. Si ese
+   * dominio no estuviera verificado en Resend, TODOS los envíos fallarían y el síntoma llega tarde
+   * (un usuario que nunca recibió su correo). El arranque lo avisa para que sea visible en el log.
+   */
+  it('sin MAIL_FROM avisa en el arranque de que el remitente sale del default de código', () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      const adapter = getMailPortFactory()(
+        stubConfig({ RESEND_API_KEY: 're_test_key' }),
+      ) as { from?: string };
+      expect(adapter.from).toBe(DEFAULT_FROM);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('MAIL_FROM no está fijada'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(DEFAULT_FROM));
+    } finally {
+      warn.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it('con MAIL_FROM fijada NO avisa (el remitente es explícito del entorno)', () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      getMailPortFactory()(
+        stubConfig({ RESEND_API_KEY: 're_test_key', MAIL_FROM: 'TCG HUNT <no-reply@tcghunt.mx>' }),
+      );
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      log.mockRestore();
+    }
+  });
+});
+
+/**
+ * P-21 — RED ANTI-REGRESIÓN del rebrand de dominio (ago-2026).
+ *
+ * Contexto para quien lea esto en el futuro: el proyecto arrastró tres dominios —
+ * `tcgvaultmx.com` y `tcgvault.mx` (AMBOS MUERTOS, del nombre viejo) y `tcghunt.mx` (el VIVO, la
+ * marca real "TCG HUNT"). Los defaults de código de correo apuntaban al muerto porque el buzón
+ * nuevo aún no existía; el humano confirmó que ya recibe correo y la migración se cerró.
+ *
+ * Este bloque falla si CUALQUIER default de correo vuelve a un dominio muerto. Consecuencia real
+ * de esa regresión: Resend rechaza remitentes de dominio no verificado ⇒ ningún correo
+ * transaccional sale, y los canales de soporte publicados al cliente apuntan a buzones que nadie
+ * lee. Si falla: la corrección va SIEMPRE en dirección al dominio vivo `tcghunt.mx`.
+ */
+describe('P-21 — ningún default de correo apunta a un dominio muerto', () => {
+  const DEAD_DOMAINS = ['tcgvaultmx.com', 'tcgvault.mx'];
+  const LIVE_DOMAIN = 'tcghunt.mx';
+
+  const ENV_KEYS = ['MAIL_FROM', 'DISPUTE_EVIDENCE_CONTACT', 'SUPPORT_EMAIL'] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const k of ENV_KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k]; // sin envs: se ejercita el DEFAULT DE CÓDIGO, que es lo que se prueba.
+    }
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  function freshRequire<T>(path: string): T {
+    let mod!: T;
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      mod = require(path) as T;
+    });
+    return mod;
+  }
+
+  function expectLive(value: string) {
+    for (const dead of DEAD_DOMAINS) expect(value).not.toContain(dead);
+    expect(value).toContain(LIVE_DOMAIN);
+  }
+
+  it('remitente por defecto de TODOS los correos (MailModule) usa el dominio vivo', () => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { MailModule } = require('./mail.module') as { MailModule: object };
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { MAIL_PORT } = require('./mail.port') as { MAIL_PORT: unknown };
+    const providers = Reflect.getMetadata('providers', MailModule) as Array<{
+      provide?: unknown;
+      useFactory?: (config: unknown) => unknown;
+    }>;
+    const factory = providers.find((p) => p.provide === MAIL_PORT)!.useFactory! as (config: {
+      get: (key: string) => string | undefined;
+    }) => unknown;
+    // Con RESEND_API_KEY (envío REAL) y SIN MAIL_FROM: el remitente lo pone el default de código.
+    const adapter = factory({
+      get: (key: string) => (key === 'RESEND_API_KEY' ? 're_test_key' : undefined),
+    }) as { from?: string };
+    expectLive(adapter.from!);
+    jest.restoreAllMocks();
+  });
+
+  it('contacto de evidencia de disputa (API §7) usa el dominio vivo', () => {
+    const mod = freshRequire<{ DISPUTE_EVIDENCE_CONTACT: string }>(
+      '../disputes/disputes.constants',
+    );
+    expectLive(mod.DISPUTE_EVIDENCE_CONTACT);
+  });
+
+  it('contacto de soporte del pedido de invitado usa el dominio vivo', () => {
+    const mod = freshRequire<{ SUPPORT_EVIDENCE_CONTACT: string }>(
+      '../orders/guest-checkout.constants',
+    );
+    expectLive(mod.SUPPORT_EVIDENCE_CONTACT);
+  });
+
+  it('correo de soporte de la plantilla de rechazo de buylist usa el dominio vivo', () => {
+    const tpl = freshRequire<{
+      sellItemRejectedTemplate: (
+        params: Record<string, unknown>,
+        name: string,
+        locale?: string | null,
+      ) => { text: string };
+    }>('../buylist/buylist-mail.templates');
+    const { text } = tpl.sellItemRejectedTemplate(
+      {
+        cardName: 'Pikachu',
+        setName: 'Base',
+        cardNumber: '58/102',
+        finish: 'normal',
+        reason: 'dañada',
+        returnDeadlineAt: null,
+        abandonDeadlineAt: null,
+      },
+      'Vendedor',
+      'es',
+    );
+    for (const dead of DEAD_DOMAINS) expect(text).not.toContain(dead);
+    expect(text).toContain(`soporte@${LIVE_DOMAIN}`);
   });
 });

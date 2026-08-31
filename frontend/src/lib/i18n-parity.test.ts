@@ -10,11 +10,31 @@ function keyPaths(obj: unknown, prefix = ''): string[] {
   );
 }
 
+function stringEntries(obj: unknown, prefix = ''): [string, string][] {
+  if (typeof obj === 'string') return [[prefix, obj]];
+  if (typeof obj !== 'object' || obj === null) return [];
+  return Object.entries(obj as Record<string, unknown>).flatMap(([k, v]) =>
+    stringEntries(v, prefix ? `${prefix}.${k}` : k),
+  );
+}
+
 describe('i18n catalogs', () => {
   it('ES and EN have identical key sets (no missing translations)', () => {
     const esKeys = keyPaths(es).sort();
     const enKeys = keyPaths(en).sort();
     expect(esKeys).toEqual(enKeys);
+  });
+
+  // The brand is TCG HUNT (common.brand.name). "TCG Vault MX" is the internal
+  // project/doc name and must never leak into buyer-facing copy.
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s contains no string with the retired "TCG Vault" name', (_locale, catalog) => {
+    const offenders = stringEntries(catalog)
+      .filter(([, value]) => /tcg\s*vault/i.test(value))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
   });
 });
 

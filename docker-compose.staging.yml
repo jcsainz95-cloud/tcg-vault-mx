@@ -173,7 +173,8 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_TEST_WEBHOOK_SECRET:-whsec_staging_dummy}
       # Login con Google (v1.2): mismo OAuth Client ID que el front. Vacío = login Google deshabilitado.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      # Disputas (v1.2): correo de contacto de evidencia; default backend soporte@tcgvaultmx.com.
+      # Disputas (v1.2): correo de contacto de evidencia. Vacío ⇒ el backend cae a su
+      # default de código (P-21: `soporte@tcghunt.mx`, backend/src/modules/disputes).
       DISPUTE_EVIDENCE_CONTACT: ${DISPUTE_EVIDENCE_CONTACT:-}
       POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY:-}
       POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY:-}

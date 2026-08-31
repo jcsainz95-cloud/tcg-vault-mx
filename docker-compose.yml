@@ -180,7 +180,8 @@ services:
       # Login con Google (v1.2): mismo OAuth Client ID que el front (NEXT_PUBLIC_GOOGLE_CLIENT_ID).
       # Si va vacío, el backend rechaza el login con Google (email/password sigue OK).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      # Disputas (v1.2): correo de contacto de evidencia; default backend soporte@tcgvaultmx.com.
+      # Disputas (v1.2): correo de contacto de evidencia. Vacío ⇒ el backend cae a su
+      # default de código (P-21: `soporte@tcghunt.mx`, backend/src/modules/disputes).
       DISPUTE_EVIDENCE_CONTACT: ${DISPUTE_EVIDENCE_CONTACT:-}
       POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY}
       POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY}

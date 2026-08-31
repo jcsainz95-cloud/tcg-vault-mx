@@ -1,7 +1,26 @@
-# PROJECT.md — TCG Vault MX — Marketplace TCG con Bóveda (Pokémon, México)
+# PROJECT.md — TCG HUNT — Marketplace TCG con Bóveda (Pokémon, México)
 
-> **Nombre comercial / marca:** **TCG Vault MX**. Es el nombre que se usa en la interfaz, la
-> comunicación y los términos. "Marketplace TCG con Bóveda" es solo el título descriptivo del proyecto.
+> **Marca (nombre comercial): TCG HUNT.** Es el nombre que se usa en la **interfaz, la comunicación y los
+> términos**. «Marketplace TCG con Bóveda» es solo el título descriptivo del proyecto, no una marca.
+>
+> **Fuente de verdad verificable — no copies el literal, lee la clave.** La marca vive en la clave i18n
+> **`common.brand.name`** (ES y EN) y el dominio en **`common.brand.domain`** (**`tcghunt.mx`**). Si algún
+> día este documento y esas claves discrepan, **manda la clave** y se corrige este documento — **nunca al
+> revés**. Ningún rol debe cambiar una cadena de marca en el producto citando este párrafo como autoridad:
+> la autoridad es el valor de la clave, y este párrafo solo dice **dónde leerlo**.
+>
+> **Marca ≠ razón social — no son intercambiables.**
+> - **Marca** = `common.brand.name` = **TCG HUNT**. Es lo que el usuario lee: UI, copy, correos, títulos,
+>   metadata de archivos que genera la plataforma.
+> - **Razón social** = `common.footer.legalEntity`, hoy **pendiente de carga** (el pie la omite hasta que
+>   exista). Es la **entidad legal que responde**, y se usará donde haga falta identificarla (deslindes,
+>   términos, facturación). Una marca no es sujeto de obligaciones; la razón social sí.
+>
+> **Nota histórica (2026-08-31):** «TCG Vault MX» fue un **nombre interno de trabajo** que este documento
+> llegó a declarar por error como nombre comercial. **Nunca fue la marca de cara al usuario** y queda
+> **retirado**: no debe aparecer en interfaz, copy, correos, dominios, metadata de archivos generados ni
+> documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
+> corregir**, no una fuente válida.
 >
 > Estado: borrador para aprobación del humano. Las decisiones previas siguen cerradas, PERO el **requisito
 > v1.3 (precio de buylist por rareza)** introduce **preguntas abiertas pendientes de respuesta** (ver la
@@ -112,14 +131,17 @@
 > de la carta + cuánto vale estimado en PSA 10 y en PSA 9**. Es un **gancho comercial** (cita del humano: *«si
 > compras esta que no vale mucho sin gradear y la gradeas podría valer tanto más, y que se animen a comprar más
 > mis cartas»*) y es **estrictamente un estimado ilustrativo con disclaimer**: **NUNCA** un precio de venta,
-> una oferta ni una promesa de grado. Decisiones cerradas del humano: **(1) tres superficies** —**ficha**,
-> **badge** en las tejas de Compra y **vitrina «Joyas para gradear»** en el home—, con la **superficie visible
+> una oferta ni una promesa de grado. Decisiones cerradas del humano: **(1) cuatro superficies**
+> *(actualizado 2026-08-31: eran tres)* —**ficha**, **badge** en las tejas de Compra, **vitrina «Joyas para
+> gradear»** en el home y **burbuja en el carrusel «Piezas destacadas del catálogo»** del home; **las dos
+> secciones del home se conservan**, el humano las quiere **ambas**—, con la **superficie visible
 > simplificada** *(actualización 2026-08-23: **fuera** el multiplicador, la ganancia calculada y toda
 > comparativa; cita: «solo bajemos el precio y desplegamos "en PSA 10 vale tanto"», y confirmó que **quiere los
 > dos grados**)*; **(2) gate de ROI sobre PSA 9** (no sobre PSA 10) con la fórmula
 > `estimadoPSA9 >= (precioVentaRaw + gradingCost) × (1 + minUpsidePct)`, que *(actualización 2026-08-23)* pasa
 > a ser **criterio de curaduría interno**: la **ficha** muestra los estimados **siempre que haya dato**, y
-> **teja y vitrina** —donde promocionamos activamente— **solo** llevan cartas que pasan el gate, **ordenadas la
+> las **superficies de promoción** —teja de Compra, vitrina y **destacadas**— **solo** llevan cifra en cartas
+> que pasan el gate, **ordenadas la
 > vitrina por mayor ganancia neta sobre PSA 9**; **el resultado del cálculo nunca se expone al cliente**; y
 > **dos diales configurables** — **`gradingCostTiers`**, una **tabla de escalones** valor de carta → costo de
 > gradeo *(actualización 2026-08-23: sustituye al costo plano de MX$600; PSA cobra por nivel de servicio según
@@ -129,11 +151,15 @@
 > **ya contratado**), que **no valúa nada**: entrega **ventas cerradas reales de eBay agrupadas por grado**
 > (`ebay.salesByGrade`, con **número de ventas de la muestra, mediana, promedio y fecha de la última venta**).
 > El **override manual del admin se conserva** como respaldo y para **curar cartas concretas**, con la
-> **máxima precedencia**; **(4) la cifra SÍ se pinta en la REJILLA de Compra y en la VITRINA del home**
-> *(nuevo 2026-08-28)*, pero **condicionada a un GATE DE CONFIANZA**: el número debe ser **fresco**, de
+> **máxima precedencia**; **(4) la cifra SÍ se pinta en la REJILLA de Compra, en la VITRINA del home y en el
+> carrusel de DESTACADAS** *(nuevo 2026-08-28; destacadas añadido 2026-08-31)*, pero **condicionada a un GATE
+> DE CONFIANZA**: el número debe ser **fresco**, de
 > **origen confiable** (override manual, o dato automático con **muestra suficiente de ventas**) y
 > **coherente en magnitud**. La **ficha no aplica la coherencia de magnitud con la misma dureza** —informa lo
-> que hay—: solo la rejilla y la vitrina, que son **superficie de promoción**, exigen confianza (**§O.7**);
+> que hay—: solo las **superficies de promoción** exigen confianza (**§O.7**). **En destacadas la burbuja se
+> suma sin curar el carrusel** (mismas tejas, mismo orden por precio descendente) y, como ese carrusel lista
+> **las cartas más caras** —las que más costo de gradeo cargan—, es **esperable que muestre pocas cifras o
+> ninguna**: eso **no es un defecto** (§O.3);
 > **(5) GUARDA DE DINERO** *(nuevo 2026-08-28)*: se **bloquea capturar un estimado** de un grado cuando esa
 > carta ya tiene una **pieza real de ese grado publicada** en inventario —comparten la **misma fila de
 > precio**, así que un «estimado» capturado a mano **movería el precio de venta real del slab** (**§O.8**).
@@ -148,8 +174,8 @@
 > pidió que sea **súper enfático en que es información ilustrativa y que NO refleja el estado de nuestras
 > cartas** (no inspeccionamos ni pre-evaluamos la pieza que vendemos); texto ES/EN reescrito en **§O.5**,
 > pendiente de su visto bueno final — y **la feature se entrega detrás de feature-flag APAGADO hasta que ese
-> texto quede aprobado**. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–112**, decisiones
-> **40–55** y las **preguntas abiertas v2.0** al final.
+> texto quede aprobado**. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–114**, decisiones
+> **40–57** y las **preguntas abiertas v2.0** al final.
 > **Requisito v2.0 — PRECIO PURO POR VALOR DE MERCADO (2026-08-24, DECISIONES DEL HUMANO YA TOMADAS —
 > LOCKED, P-48):** el dueño detectó cartas publicadas a **MX$1.31 / MX$3.71** creyendo tener un **piso de
 > MX$15**. La causa raíz fue doble: (a) una regla con `mode: 'fixed'` está **documentada como PISO** —y el
@@ -205,7 +231,7 @@
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
-**TCG Vault MX** es un marketplace de cartas Pokémon (TCG) en México que vende **cartas individuales** con
+**TCG HUNT** es un marketplace de cartas Pokémon (TCG) en México que vende **cartas individuales** con
 **precio de mercado visible** y una **BÓVEDA/CUSTODIA**: la plataforma guarda físicamente las
 cartas compradas —autenticadas y con condición garantizada— y las envía solo cuando el usuario
 lo pide, para completar colecciones sin envíos innecesarios.
@@ -296,12 +322,15 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       mano (el comprador nunca ve "precio pendiente").
 - [ ] **Valor estimado si se gradea — «gancho de grading»** *(NUEVO v2.0, ver §O)*: sobre una carta **raw**
       publicada, la tienda muestra **el precio de la carta + cuánto vale estimado en PSA 10 y en PSA 9**, en
-      **tres superficies**: **ficha**, **badge en las tejas** y **vitrina «Joyas para gradear» en el home**.
+      **cuatro superficies** *(actualizado 2026-08-31)*: **ficha**, **badge en las tejas de Compra**,
+      **vitrina «Joyas para gradear» en el home** y **burbuja en el carrusel «Piezas destacadas del catálogo»
+      del home** (las dos secciones del home **se conservan**: el humano quiere las dos).
       **Solo eso: sin multiplicador, sin ganancia calculada, sin comparativa** *(simplificación 2026-08-23)*.
       Es un **estimado ilustrativo con disclaimer obligatorio** —**nunca** un precio de venta ni una promesa de
       grado—. El **gate de ROI sobre PSA 9** (§O.2) es **criterio de curaduría interno**: la **ficha** muestra
-      lo que haya, y **teja y vitrina** solo llevan cartas que pasan el gate. **La cifra SÍ se pinta en la
-      rejilla y en la vitrina** *(2026-08-28)*, pero solo si además **supera el gate de confianza** (§O.7):
+      lo que haya, y las **superficies de promoción** (teja de Compra, vitrina y destacadas) solo llevan cifra
+      en cartas que pasan el gate. **La cifra SÍ se pinta en la
+      rejilla, en la vitrina y en destacadas** *(2026-08-28 / 2026-08-31)*, pero solo si además **supera el gate de confianza** (§O.7):
       dato **fresco**, de **origen confiable** y **coherente en magnitud**. **Money-safe**: una cifra que no
       existe **no se dibuja** (ni **$0**, ni guion, ni «pendiente»). No aplica a **gradeadas** ni a **sellado**.
 - [ ] Registro/login de usuario **por email/contraseña o con Google** (ver Restricciones técnicas).
@@ -765,10 +794,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       compra** producto cerrado a clientes por la app. El **cotizador y el pipeline de buylist siguen siendo
       solo para raw (§E)**.
 - [ ] En la **ventana/ficha de sellado** hay un **call-out `mailto`**: *"¿Quieres revender tu sellado a TCG
-      Vault MX? Escríbenos a **contacto@tcgvaultmx.com** con fotos y lo cotizamos."* Es un enlace de correo,
-      **no** un flujo dentro de la app. *(Confirmado por el PO, ago-2026: el call-out de reventa usa
-      `contacto@tcgvaultmx.com` (dominio `tcgvaultmx.com`); las disputas siguen en `soporte@tcgvault.mx`
-      (dominio `tcgvault.mx`). Son propósitos y dominios distintos; ambos son correctos y no se unifican.)*
+      HUNT? Escríbenos a **contacto@tcghunt.mx** con fotos y lo cotizamos."* Es un enlace de correo,
+      **no** un flujo dentro de la app. *(Corregido 2026-08-31: el call-out usa `contacto@tcghunt.mx`. La
+      versión anterior de este documento decía `contacto@tcgvaultmx.com` y afirmaba que las disputas vivían en
+      otro dominio (`tcgvault.mx`) y que **ambos eran correctos y no se unificaban**: eso era falso. **Todos
+      los buzones están en el único dominio `tcghunt.mx`** — ver decisión 36.)*
 
 **Precio de venta derivado (money-safe, server-side)** — ⚠️ **ORIGEN ÚNICO de la fórmula**
 > **La fórmula y la precedencia se definen AQUÍ una sola vez.** El resto del documento nombra la
@@ -1356,7 +1386,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > de venta, **no** es una oferta, **no** es una promesa de que la carta obtenga ese grado, **no** es un
 > compromiso de recompra, y **no** se usa para valuar el portafolio, fijar el precio de venta ni cotizar
 > buylist. Ver **§O.5** (disclaimer) y «Fuera de alcance».
-> **Alcance de esta feature**: la **presentación** en el storefront (ficha, tejas de Compra, home) más la
+> **Alcance de esta feature**: la **presentación** en el storefront (ficha, tejas de Compra, y en el home la
+> **vitrina «Joyas para gradear»** y el carrusel **«Piezas destacadas del catálogo»**) más la
 > **derivación server-side** del estimado, de su **confianza** y de su **elegibilidad**. **No** cambia el
 > precio de venta, el buylist, la bóveda, el inventario ni el P&L. El schema, el contrato y el caching los
 > diseña el arquitecto; aquí solo se fija el requisito de producto. *(Nota operativa: la arquitectura va en
@@ -1364,7 +1395,7 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > visual, en `docs/DESIGN_SYSTEM.md` **§22**.)*
 > **Estado de entrega — FEATURE-FLAG APAGADO**: la feature se entrega **cableada pero apagada** por defecto y
 > **solo se enciende cuando el humano apruebe el texto legal del disclaimer** (§O.5). Mientras el flag esté
-> apagado, ninguna de las tres superficies muestra cifra estimada.
+> apagado, ninguna de las cuatro superficies muestra cifra estimada.
 > **Relación con §N (precio puro)**: son bloques distintos y **no se pisan**. §N fija **dinero real** (el
 > precio publicado sale de la curva por valor de mercado); §O es **presentación** y **consume** ese precio
 > publicado como `precioVentaRaw` sin alterarlo nunca.
@@ -1392,12 +1423,15 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > podamos ponerlo en la sección de destacado algo que valga la pena»*. Concretamente:
 > - **Ficha de carta** → los estimados se muestran **siempre que haya dato**, **sin** condicionar al gate. Es
 >   información para quien **ya está viendo esa carta**; no le estamos vendiendo la idea, se la estamos dando.
-> - **Teja de catálogo y vitrina del home** → aparecen **SOLO si el gate se cumple** *(y, desde 2026-08-28,
->   solo si además la cifra **supera el gate de confianza** de §O.7)*. Son las superficies donde
->   **promocionamos activamente**, y ahí solo entra lo que **de verdad vale la pena**.
+> - **Teja de catálogo, vitrina del home y carrusel «Piezas destacadas»** *(destacadas añadido 2026-08-31)* →
+>   la cifra aparece **SOLO si el gate se cumple** *(y, desde 2026-08-28, solo si además **supera el gate de
+>   confianza** de §O.7)*. Son las superficies donde **promocionamos activamente**, y ahí solo entra lo que
+>   **de verdad vale la pena**. *(Matiz de destacadas: el gate decide **qué teja lleva burbuja**, no qué cartas
+>   contiene el carrusel ni en qué orden — ver §O.3 (4).)*
 > **El resultado del cálculo NUNCA se expone al cliente**: ni la ganancia neta, ni el escalón de costo
 > aplicado, ni un multiplicador, ni el margen. El gate vive **entero del lado del servidor** y su única huella
-> visible es **qué cartas aparecen** en teja/vitrina y **en qué orden**. Esto **refuerza SEC-A1**: el cliente
+> visible es **qué cartas aparecen** en teja/vitrina, **en qué orden** y **qué teja de destacadas lleva
+> burbuja**. Esto **refuerza SEC-A1**: el cliente
 > ya ni siquiera recibe los insumos del cálculo, así que no hay nada que manipular.
 
 - [ ] **Fórmula de curaduría** (se evalúa **server-side** y **no se expone**, ver §O.4):
@@ -1476,13 +1510,14 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       carta y el gradeo. Eso **quema la reputación de la tienda** y convierte el gancho en una queja. Con el
       gate sobre **PSA 9**, casi cualquier resultado razonable le deja ganancia, y el PSA 10 es upside extra.
 - [ ] **Sin estimado de PSA 9 no se promociona**: si existe estimado de **PSA 10** pero **no** de **PSA 9**, la
-      carta **no entra** a teja ni a vitrina (no se infiere, no se interpola, no se aproxima el PSA 9 a partir
-      del PSA 10). *(En la **ficha** sí puede mostrarse el PSA 10 que sí existe — ver §O.3.)*
+      carta **no se promociona en ninguna superficie de promoción** —no entra a la teja de la rejilla ni a la
+      vitrina, y **su teja en destacadas no lleva burbuja**— (no se infiere, no se interpola, no se aproxima el
+      PSA 9 a partir del PSA 10). *(En la **ficha** sí puede mostrarse el PSA 10 que sí existe — ver §O.3.)*
 - [ ] *(SUPUESTO: el cálculo usa el **precio de venta raw sin IVA** —el mismo número que ve el comprador en la
       ficha, §B— y **no** incluye el envío de la carta ni el IVA en `precioVentaRaw`. Confirmar con el humano
       si quiere una curaduría aún más conservadora incluyendo esos conceptos; ver preguntas abiertas v2.0.)*
 
-**O.3 — Las tres superficies (SIMPLIFICADAS — ACTUALIZADO 2026-08-28)**
+**O.3 — Las cuatro superficies (SIMPLIFICADAS — ACTUALIZADO 2026-08-31)**
 > **Decisión del humano (cita textual)**: *«no hay que mostrarlo así mejor. Solo pongamos cuánto vale en
 > PSA 10… nos quitamos talacha de calcularlo… solo bajemos el precio y desplegamos "en PSA 10 vale tanto"»*.
 > Preguntado explícitamente por el PSA 9, confirmó que **quiere los dos grados**.
@@ -1497,6 +1532,17 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > superficies llevaban **el número** o solo el enlace. Llevan **el número**, con una condición: en ellas la
 > cifra **tiene que ser confiable** (§O.7). Son **superficie de promoción**; la ficha es **superficie
 > informativa** y por eso su listón es distinto.
+> **Cambio de alcance 2026-08-31 — de TRES superficies a CUATRO: entra «Piezas destacadas del catálogo»**.
+> El humano pidió la burbuja **también en el carrusel de destacadas del home**, **conservando** la vitrina
+> «Joyas para gradear»: **quiere las dos**. No es alcance nuevo inventado ahora — **es lo que había pedido
+> desde el principio** *(cita: «en home ponemos alguna burbuja… sobre las destacadas»)* y que se resolvió
+> entregando una **vitrina aparte** en su lugar. Esta actualización **alinea el producto con lo pedido**: la
+> vitrina **se conserva tal cual** (no se toca su contenido, su orden ni su regla de no renderizarse vacía) y
+> **se suma** la burbuja en las tejas del carrusel de destacadas.
+> **Convención de lectura (importante para todo §O)**: **«superficies de promoción» = rejilla de Compra +
+> vitrina «Joyas para gradear» + carrusel «Piezas destacadas»**. Las tres exigen **el gate de ROI (§O.2) y el
+> gate de confianza (§O.7)**. La **ficha** es la única **superficie informativa**: informa lo que haya. Donde
+> este documento diga «teja y vitrina» refiriéndose a promoción, **se lee incluyendo también destacadas**.
 
 - [ ] **(1) Ficha de carta** *(§A)* — la superficie informativa. Muestra **únicamente**:
       - el **precio de venta de la carta** (el que ya se muestra hoy, sin cambio),
@@ -1524,12 +1570,50 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       *(SUPUESTO: hasta **8** cartas; ver preguntas abiertas v2.0.)*
       **Si ninguna carta pasa, la vitrina completa NO se renderiza** (no aparece vacía, ni con
       placeholder, ni con «próximamente»).
-- [ ] **Regla transversal — el cálculo no se filtra**: en **ninguna** de las tres superficies se muestra (ni se
+- [ ] **(4) Carrusel del home «Piezas destacadas del catálogo»** *(NUEVA 2026-08-31)* — superficie de
+      **promoción**: las tejas del carrusel llevan el **mismo badge con la cifra** que la rejilla de Compra
+      (**estimado PSA 10**), y **solo** en las cartas que pasan **el gate de ROI** (§O.2) **y el gate de
+      confianza** (§O.7). Mismo listón que la rejilla, por la misma razón: es una **superficie donde
+      promocionamos**, no donde informamos.
+      *(Copy: el **mismo** del badge de la rejilla — **«En PSA 10 vale ≈ MX$X»**, en móvil **«PSA 10 ≈ MX$X»**;
+      SUPUESTO de copy pendiente de aprobación, igual que el de la rejilla. No se inventa un texto distinto
+      para esta superficie.)*
+      Lleva su **micro-aviso + llamada al pie** (§O.5); el home ya lleva **una** nota al pie que cubre todas
+      las cifras de la página (vitrina y destacadas incluidas).
+      **Lo que esta superficie NO cambia (crítico)**: el gancho **no cura ni reordena** el carrusel. «Piezas
+      destacadas» **sigue siendo lo que es hoy** —las cartas **más caras** del inventario publicado, ordenadas
+      por **precio descendente**— y **sus tejas siguen siendo las mismas**. El gancho **solo añade la burbuja**
+      a las tejas que califican. Es la **diferencia de fondo con la vitrina**: la vitrina la **construye** el
+      gate (contenido y orden); el carrusel **ya existe** y el gate solo decide **qué teja lleva burbuja**.
+      **Las tejas que no califican se ven exactamente como hoy**: sin badge vacío, tachado, en gris ni
+      placeholder.
+      **Si NINGUNA teja califica, el carrusel se renderiza igual que hoy** —simplemente **sin ninguna
+      burbuja**—. Aquí **no** aplica la regla de «no renderizar» de la vitrina: el carrusel de destacadas
+      **existe con independencia del gancho** y quitarlo rompería el home.
+      **Convive con la vitrina, no la sustituye**: son **dos secciones distintas** del home y **ambas se
+      conservan**. Una misma carta **puede aparecer en las dos** —con su cifra en ambas— y **no se deduplica**:
+      la vitrina responde a «lo que mejor conviene gradear» y el carrusel a «lo más caro del catálogo»; que
+      coincidan es normal y no es un defecto.
+- [ ] **ADVERTENCIA DE EXPECTATIVA — es probable que destacadas muestre POCAS burbujas o NINGUNA**
+      *(NUEVA 2026-08-31; expectativa de negocio, NO es un defecto)*: «Piezas destacadas» ordena por **precio
+      descendente**, así que contiene **las cartas más caras** del inventario. El gate de ROI compara la
+      ganancia contra el **costo de gradeo**, que **sube por escalones de valor** (§O.2.1: de **$50,001 en
+      adelante ⇒ $12,000**). Es decir: **justo las cartas que llenan este carrusel son las que tienen el listón
+      más alto**, y por diseño **son las que menos suelen calificar**. Consecuencia esperada: **este carrusel
+      puede mostrar muy pocas cifras, o ninguna, durante largos periodos** — y eso es el sistema **funcionando
+      como debe**, no un fallo de implementación.
+      **Qué implica para cada rol**: **QA no debe reportar como defecto** un carrusel de destacadas sin
+      burbujas (el defecto sería lo contrario: una burbuja en una teja que **no** pasa los gates, o una teja
+      con hueco/placeholder). Y el **humano debe saber** que si quiere más presencia de la burbuja ahí, las
+      palancas son **de negocio, no de código**: bajar `minUpsidePct`, revisar los **valores por defecto de los
+      escalones** (§O.2.1) o cambiar el criterio con que se arma «destacadas» —esto último **fuera del alcance
+      de §O**, sería un cambio del home y hay que pedirlo aparte.
+- [ ] **Regla transversal — el cálculo no se filtra**: en **ninguna** de las cuatro superficies se muestra (ni se
       envía al cliente en el payload) la **ganancia neta**, el **escalón de costo aplicado**, el
       **multiplicador**, el **margen**, el **flag de elegibilidad**, el **tamaño de la muestra de ventas** ni
-      los **umbrales de confianza**. Lo único observable desde fuera es **qué cartas aparecen** y **en qué
-      orden**.
-- [ ] **Bilingüe (§ i18n, criterio 32)**: todos los textos de las tres superficies —incluidos el micro-aviso y
+      los **umbrales de confianza**. Lo único observable desde fuera es **qué cartas aparecen**, **en qué
+      orden** y **qué teja de destacadas lleva burbuja**.
+- [ ] **Bilingüe (§ i18n, criterio 32)**: todos los textos de las cuatro superficies —incluidos el micro-aviso y
       la nota al pie— existen en **español e inglés**, con default español. Los **datos del catálogo** siguen
       en inglés.
 
@@ -1543,15 +1627,18 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       siquiera está publicada (§A). **Nunca** se muestra **$0**, **nunca** un guion (`—`), **nunca** un rango
       inventado, y —a diferencia de otros módulos— **ni siquiera «precio pendiente»**: el estado «pendiente» es
       un concepto de back-office, no algo que se le enseñe al comprador.
-- [ ] **Regla por superficie** *(actualizada 2026-08-28)*:
+- [ ] **Regla por superficie** *(actualizada 2026-08-31)*:
       **Ficha** → se muestra **lo que haya** (PSA 10 y/o PSA 9), **sin** depender del gate de ROI y con el
       listón de confianza **más bajo** (§O.7).
-      **Rejilla y vitrina** → **solo** si se cumplen **el gate de ROI y el de confianza**; si falla cualquiera,
-      o si falta cualquier insumo (PSA 9, precio, escalón, muestra), **no se renderiza el badge ni la entrada
-      de vitrina** — y **sin dejar rastro visual**.
+      **Rejilla, vitrina y carrusel de destacadas** *(las tres superficies de promoción)* → **solo** si se
+      cumplen **el gate de ROI y el de confianza**; si falla cualquiera, o si falta cualquier insumo (PSA 9,
+      precio, escalón, muestra), **no se renderiza el badge ni la entrada de vitrina** — y **sin dejar rastro
+      visual**. En **destacadas**, «no renderizar» significa **la teja se ve exactamente como hoy, sin
+      burbuja**: la teja **sigue estando** (el carrusel no es curado por el gate).
 - [ ] **Sin escalón, no se promociona**: si el valor de la carta **no cae en ningún escalón** de
-      `gradingCostTiers` (tabla vacía, con huecos o mal editada), la carta **no pasa el gate** y por tanto **no
-      entra a teja ni a vitrina**. **Jamás** se asume costo **$0** ni se cae a un default silencioso — un costo
+      `gradingCostTiers` (tabla vacía, con huecos o mal editada), la carta **no pasa el gate** y por tanto
+      **no se promociona en ninguna superficie de promoción** (sin badge en rejilla, fuera de la vitrina, sin
+      burbuja en destacadas). **Jamás** se asume costo **$0** ni se cae a un default silencioso — un costo
       de gradeo subestimado es exactamente lo que haría que promocionáramos una carta en la que el comprador
       pierde dinero. *(La **ficha** no se ve afectada: ahí el estimado es información, no promoción.)*
 - [ ] **Curaduría y montos derivados server-side (SEC-A1) — REFORZADO**: el backend evalúa ambos gates y ordena
@@ -1601,6 +1688,26 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > reales pagaron por ese modelo ya gradeado por un tercero**. Esto **no modifica ni una palabra** del
 > disclaimer aprobado abajo —solo lo vuelve más defendible—: seguimos sin evaluar la pieza que vendemos, que
 > es exactamente lo que el texto dice.
+> **Corrección de marca (2026-08-31)**: el texto decía «TCG Vault MX». La **marca es TCG HUNT**
+> (`common.brand.name`), así que **el descargo dice TCG HUNT** en ES y EN. **Solo cambia el nombre**: ni una
+> idea del texto se modifica. *(Cerrado el mismo día: el humano confirmó el renombrado y **todo PROJECT.md**
+> —título, encabezado de marca, decisión 11 y direcciones de correo— quedó alineado a TCG HUNT / `tcghunt.mx`.
+> Pregunta abierta 21 **cerrada**.)*
+> **Marca vs. razón social — asunto abierto, con recomendación del PO**: el proyecto distingue **marca**
+> (`common.brand.name` = **TCG HUNT**) de **razón social** (`common.footer.legalEntity`, hoy **pendiente de
+> carga**; el pie la omite hasta que exista). **Hoy el descargo usa la marca**, igual que los términos
+> (`legal.intro`), y eso es **coherente y suficiente para operar**. Pero este texto **deslinda
+> responsabilidad** —no hay recompra, no se garantiza grado, el riesgo es del comprador—, y **quién deslinda
+> es parte del deslinde**: una marca no es sujeto de obligaciones; la razón social sí. **Recomendación del
+> PO** *(recomendación, NO decisión cerrada — tiene peso legal y la toma el humano, idealmente con su
+> abogado)*: **el día que se cargue la razón social, el descargo debe nombrarla**, con el patrón
+> **«TCG HUNT, marca operada por [Razón social]»** —así el comprador sigue leyendo el nombre que reconoce y
+> el deslinde queda atado a la entidad que responde—, y **el mismo criterio se aplica a los términos**, para
+> que no digan cosas distintas. **Lo que sí queda fijado ahora es el disparador de revisión**: cuando se
+> cargue `common.footer.legalEntity`, **§O.5 se revisa obligatoriamente** (criterio 114). **La redacción
+> definitiva la aprueba el humano** — ver pregunta abierta **20**. *(El descargo ya está, de todos modos,
+> pendiente de aprobación humana/legal y la feature sigue tras el flag apagado, así que este punto **no
+> bloquea** nada nuevo.)*
 
 - [ ] **Versión completa (ficha de carta) — ES** *(borrador)*:
       > **INFORMACIÓN ILUSTRATIVA. NO ES UNA VALUACIÓN DE ESTA CARTA.**
@@ -1618,11 +1725,11 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       > propios criterios. El resultado **puede ser muy inferior** al que aquí se ilustra, y la carta **puede
       > incluso no ser elegible** para gradeo. **Gradear es una apuesta y el riesgo es enteramente tuyo.**
       >
-      > **Esto no es una oferta, ni una garantía de precio, ni un compromiso de recompra** por parte de TCG
-      > Vault MX. Si mandas la carta a gradear y el resultado no es el que esperabas, **no hay reembolso,
+      > **Esto no es una oferta, ni una garantía de precio, ni un compromiso de recompra** por parte de
+      > **TCG HUNT**. Si mandas la carta a gradear y el resultado no es el que esperabas, **no hay reembolso,
       > compensación ni devolución por ese motivo** (aplica nuestra política de ventas finales).
       >
-      > **TCG Vault MX no gradea cartas ni intermedia el servicio de gradeo.** La **cuota de PSA, el envío
+      > **TCG HUNT no gradea cartas ni intermedia el servicio de gradeo.** La **cuota de PSA, el envío
       > internacional, el retorno a México, los seguros y los tiempos de espera corren por tu cuenta**.
       >
       > **Los precios de mercado cambian todos los días** y este estimado puede quedar desactualizado en
@@ -1644,11 +1751,11 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       > its own criteria. The result **may be far below** what is illustrated here, and the card **may not
       > even be eligible** for grading. **Grading is a gamble and the risk is entirely yours.**
       >
-      > **This is not an offer, not a price guarantee, and not a buy-back commitment** by TCG Vault MX. If you
+      > **This is not an offer, not a price guarantee, and not a buy-back commitment** by **TCG HUNT**. If you
       > send the card in for grading and the result is not what you hoped for, **there is no refund,
       > compensation or return on that basis** (our final-sale policy applies).
       >
-      > **TCG Vault MX does not grade cards and does not broker grading services.** **PSA fees, international
+      > **TCG HUNT does not grade cards and does not broker grading services.** **PSA fees, international
       > shipping, return shipping to Mexico, insurance and turnaround times are entirely on you.**
       >
       > **Market prices change every day** and this estimate may become outdated at any time.
@@ -1677,9 +1784,11 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       del disclaimer al pie**. La llamada y su nota deben estar **vinculadas** (que se pueda llegar del
       asterisco al texto).
 - [ ] **Ninguna página huérfana**: **ninguna página que muestre una cifra estimada puede carecer de su nota al
-      pie completa**, y **ninguna cifra estimada puede carecer de su llamada**. Aplica a las tres superficies:
-      **home** (vitrina), **listado de Compra** (tejas) y **ficha**. Si una página muestra varias cifras, basta
-      **una** nota al pie que las cubra todas.
+      pie completa**, y **ninguna cifra estimada puede carecer de su llamada**. Aplica a las cuatro
+      superficies: **home** (**vitrina «Joyas para gradear»** y **carrusel «Piezas destacadas»**), **listado de
+      Compra** (tejas) y **ficha**. Si una página muestra varias cifras, basta **una** nota al pie que las
+      cubra todas — el **home** lleva **una sola** nota al pie que cubre **las dos** secciones, y esa nota debe
+      aparecer **aunque la vitrina no se renderice**, si el carrusel de destacadas muestra al menos una cifra.
 - [ ] **DECISIÓN DE PRODUCTO — se conserva un micro-aviso junto a la cifra, ADEMÁS de la llamada**: la llamada
       al pie **no sustituye** a las dos ideas obligatorias. Junto a la cifra (en el badge y en el bloque de la
       ficha) va un **micro-aviso mínimo** que carga **«ilustrativo»** + **«no evaluamos esta carta»**, y el
@@ -1687,7 +1796,8 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       *(SUPUESTO de copy, para aprobación — ES: **«Ilustrativo; no evaluamos esta carta.\***» · EN:
       **«Illustrative; we haven't assessed this card.\***».)*
       **Argumento de la decisión**: una nota al pie **protege menos que un aviso adyacente** si el comprador
-      **nunca baja** — y en la **vitrina del home** y en el **listado de Compra** eso es lo normal: el
+      **nunca baja** — y en el **home** (vitrina **y** carrusel de destacadas) y en el **listado de Compra**
+      eso es lo normal: el
       visitante ve un carrusel o una cuadrícula y hace clic sin llegar jamás al pie de página. Las dos ideas
       que retenemos son **exactamente las que desactivan el reclamo «me prometieron»**: que la cifra es
       ilustrativa y que **no opinamos sobre esta pieza**. Todo lo demás del disclaimer (grado no garantizado,
@@ -1716,7 +1826,8 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > **promedio** y **fecha de la última venta**. Eso es lo que hace que el disclaimer de §O.5 sea **exacto y no
 > una aproximación**: la cifra es, literalmente, **lo que compradores reales pagaron por ese modelo ya
 > gradeado por terceros** — no una valuación nuestra ni del proveedor.
-> **Lo que NO cambia para el usuario**: mismas tres superficies, mismo gate de ROI, mismo disclaimer, mismas
+> **Lo que NO cambia para el usuario**: mismas superficies *(las **cuatro** desde 2026-08-31, §O.3)*, mismo
+> gate de ROI, mismo disclaimer, mismas
 > reglas money-safe, mismo feature-flag apagado hasta la aprobación legal.
 
 - [ ] **Fuente primaria — automática**: los valores **PSA 10 / PSA 9** se alimentan del ingest de
@@ -1775,10 +1886,11 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 | **Superior** *(dial `maxGradedMultiple`, default **100×**, SUPUESTO)* | `estimadoPSA10 ≤ precioVentaRaw × maxGradedMultiple` | El **cero de más** (error de dedo al alza). Un múltiplo de upside enorme existe de verdad en cartas reales, así que la cota va holgada; lo que atrapa es el salto de orden de magnitud. |
 | **Orden de grados** | `estimadoPSA10 ≥ estimadoPSA9` (cuando existen los dos) | Las **filas con el grado intercambiado**. Un PSA 9 que vale más que su PSA 10 es, en la práctica, un cruce de datos. |
 
-- [ ] **Aplicación por superficie — el punto de la decisión**:
-      **Rejilla de Compra y vitrina del home** *(promoción)* → exigen **las tres pruebas** **y** el gate de ROI
-      (§O.2). Si falla cualquiera, la teja se ve **exactamente como hoy** y la carta **no entra** a la vitrina:
-      sin badge vacío, sin $0, sin guion, sin rastro visual.
+- [ ] **Aplicación por superficie — el punto de la decisión** *(actualizada 2026-08-31)*:
+      **Rejilla de Compra, vitrina del home y carrusel «Piezas destacadas»** *(promoción)* → exigen **las tres
+      pruebas** **y** el gate de ROI (§O.2). Si falla cualquiera, la teja —de rejilla o de destacadas— se ve
+      **exactamente como hoy** y la carta **no entra** a la vitrina: sin badge vacío, sin $0, sin guion, sin
+      rastro visual.
       **Ficha** *(información)* → **informa lo que hay**. Aplican **frescura** y **origen confiable**; la
       **coherencia de magnitud NO se aplica con la misma dureza**: una cifra incoherente **no se oculta en la
       ficha**, pero **sí bloquea la promoción**.
@@ -1790,8 +1902,8 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       **`minSalesSample`** (default **5**) y **`maxGradedMultiple`** (default **100×**). La cota inferior
       (`PSA10 > raw`) y el orden de grados **no son diales**: son invariantes de producto.
 - [ ] **Nada de esto se filtra**: ni el **tamaño de la muestra**, ni los **umbrales**, ni el **resultado** del
-      gate viajan al cliente. Lo único observable desde fuera es **qué cartas llevan cifra en la rejilla y
-      cuáles no**.
+      gate viajan al cliente. Lo único observable desde fuera es **qué cartas llevan cifra en la rejilla y en
+      destacadas, cuáles no, y qué cartas arma la vitrina**.
 
 **O.8 — Guarda de dinero: un estimado NUNCA pisa el precio de una pieza real (NUEVA 2026-08-28)**
 > **El invariante**: **un estimado jamás puede determinar el precio de venta de una pieza real.**
@@ -1824,7 +1936,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > 2. La cifra **pasa el gate de confianza** (§O.7: fresca, origen confiable, coherente en magnitud) y los
 >    valores **pasan el gate de ROI** con los diales por defecto (**escalón de costo** que corresponda a esa
 >    carta según §O.2.1 + `minUpsidePct` 30%) → la carta queda **promocionable**.
-> 3. Un visitante entra al **home** y ve la vitrina **«Joyas para gradear»** con esa carta **y su cifra**.
+> 3. Un visitante entra al **home** y ve la vitrina **«Joyas para gradear»** con esa carta **y su cifra**;
+>    si esa misma carta está además entre las **«Piezas destacadas del catálogo»**, su teja del carrusel
+>    **también lleva la burbuja** (aparece en **las dos** secciones, sin deduplicar). El home lleva **una**
+>    nota al pie que cubre ambas.
 > 4. Entra a **Compra** y ve la **teja con el badge y la cifra** (estimado PSA 10 + micro-aviso + llamada), y
 >    la página lleva su **nota al pie completa**.
 > 5. Abre la **ficha** y ve **solo**: el **precio de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
@@ -1833,15 +1948,25 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > 6. Cambia el idioma a **inglés** y todos esos textos —micro-aviso y nota al pie incluidos— salen en inglés.
 >
 > **Flujo crítico — la curaduría protege al comprador:** el admin sube `minUpsidePct` (o el estimado PSA 9
-> baja) de modo que la carta **deja de pasar el gate de ROI** → al recargar, **desaparecen el badge y su
-> entrada en la vitrina** sin dejar rastro visual (ni hueco, ni $0, ni «pendiente»); **la ficha sigue mostrando
-> sus estimados** (ahí no aplica el gate de ROI) y **el precio de venta de la carta no cambió**.
+> baja) de modo que la carta **deja de pasar el gate de ROI** → al recargar, **desaparecen el badge de la
+> rejilla, la burbuja de su teja en destacadas y su entrada en la vitrina** sin dejar rastro visual (ni hueco,
+> ni $0, ni «pendiente»); **la teja de destacadas sigue estando en el carrusel** (solo perdió la burbuja);
+> **la ficha sigue mostrando sus estimados** (ahí no aplica el gate de ROI) y **el precio de venta de la carta
+> no cambió**.
+>
+> **Flujo crítico — destacadas: la burbuja se suma, no cura el carrusel** *(NUEVO 2026-08-31)*: con un
+> carrusel de **«Piezas destacadas»** de 8 cartas donde **solo una** pasa ambos gates → el carrusel muestra
+> **las mismas 8 tejas, en el mismo orden por precio descendente**, y **solo esa una** lleva burbuja. Con
+> **cero** cartas que pasen, el carrusel se ve **exactamente como hoy**: **8 tejas, ninguna burbuja**, y **el
+> carrusel NO desaparece** (a diferencia de la vitrina, que sí deja de renderizarse). *(Ver la advertencia de
+> §O.3: por ordenarse por precio descendente, este escenario «ninguna burbuja» es **el esperado**, no un
+> defecto.)*
 >
 > **Flujo crítico — el gate de confianza filtra basura:** tres cartas con dato automático —una con **muestra
 > por debajo de `minSalesSample`**, otra con **PSA 10 por debajo de su precio raw** (el caso del importe en
 > dólares tratado como pesos) y otra con **PSA 10 por encima de `maxGradedMultiple`** (el cero de más)—
-> **no aparecen en rejilla ni en vitrina**. Las dos últimas **sí siguen informándose en su ficha** y **sí
-> aparecen en la lista de revisión** del back-office.
+> **no llevan cifra en rejilla ni en destacadas, ni entran a la vitrina**. Las dos últimas **sí siguen
+> informándose en su ficha** y **sí aparecen en la lista de revisión** del back-office.
 >
 > **Flujo crítico — el estimado no puede mover dinero real:** una carta con un **PSA 10 real publicado**; el
 > admin intenta capturarle un **estimado PSA 10** → **se rechaza con mensaje explicativo**, el **precio del
@@ -1857,10 +1982,12 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > distinta, la vitrina las lista **de mayor a menor ganancia neta** — verificable **por el orden**, ya que la
 > cifra que ordena **no se muestra ni viaja al cliente**.
 >
-> **Flujos negativos que QA debe cubrir:** carta **sin estimado PSA 9** (aunque tenga PSA 10) → **no entra** a
-> teja ni vitrina, pero **la ficha sí muestra el PSA 10**; carta **sin dato y sin override** → no muestra cifra
+> **Flujos negativos que QA debe cubrir:** carta **sin estimado PSA 9** (aunque tenga PSA 10) → **no se
+> promociona en ninguna superficie de promoción** (sin badge en rejilla, fuera de la vitrina, sin burbuja en
+> destacadas), pero **la ficha sí muestra el PSA 10**; carta **sin dato y sin override** → no muestra cifra
 > en ninguna superficie; carta **gradeada** y **sellado** → nunca muestran cifra estimada; **cero cartas
-> promocionables** → la vitrina del home **no se renderiza**; **tabla de escalones vacía o con hueco** → la
+> promocionables** → la vitrina del home **no se renderiza** **y el carrusel de destacadas sigue
+> renderizándose sin ninguna burbuja** *(esto último **no es defecto** — ver §O.3)*; **tabla de escalones vacía o con hueco** → la
 > carta no se promociona y **nunca** se asume costo $0; **payload inspeccionado desde el cliente** → **no
 > contiene** ganancia neta, escalón de costo, `minUpsidePct`, `minSalesSample`, `maxGradedMultiple`, tamaño de
 > muestra ni flag de elegibilidad (SEC-A1); **DTO manipulado** → no mete cartas a la vitrina, no cambia el
@@ -2063,9 +2190,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
   mostrar el aviso** y debe existir una **página de términos/políticas** con el texto completo.
 - **Correo de evidencia / soporte de disputas**: la evidencia de una disputa de condición se envía por
   **correo a un buzón de soporte** (no hay subida de foto en la app). Correo de contacto:
-  **soporte@tcgvault.mx** *(Confirmado por el PO, ago-2026: disputas sigue en `soporte@tcgvault.mx` (dominio
-  `tcgvault.mx`); es un dominio distinto del `contacto@tcgvaultmx.com` del call-out de reventa y ambos son
-  correctos)*. Debe aparecer en términos/FAQ
+  **soporte@tcghunt.mx** *(corregido 2026-08-31: decía `soporte@tcgvault.mx` y afirmaba que convivía con un
+  segundo dominio; **no hay dos dominios** — todos los buzones son de `tcghunt.mx`, ver decisión 36)*. Debe
+  aparecer en términos/FAQ
   y en el flujo de disputa.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
   se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
@@ -2377,7 +2504,7 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     olvido**: el global queda para piezas **sin presentación** o para una regla **retirada a propósito** por el
     dueño.
 61. El **sellado es solo venta**: **no existe** flujo de **buylist de sellado** (ni cotizador ni pipeline);
-    la **ficha/ventana de sellado muestra el call-out `mailto`** para revender (a `contacto@tcgvaultmx.com`),
+    la **ficha/ventana de sellado muestra el call-out `mailto`** para revender (a `contacto@tcghunt.mx`),
     que es un enlace de correo y **no** un flujo dentro de la app.
 62. Un sellado tiene **condición propia** (default **Mint**, opción **"Detalle menor en caja"**) **visible
     al comprador** en ficha y bóveda; cambiar la condición **no cambia el precio**. El sellado **no expone
@@ -2539,6 +2666,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > **Nota de numeración**: este bloque se numeraba **79–92** en su borrador. Como los criterios **79–96** ya
 > están tomados por **§N (precio puro, LOCKED, en producción)**, se **renumera a 97–112**. El contenido de
 > cada criterio no cambió por la renumeración; lo que cambió por decisión de producto está marcado.
+> *(2026-08-31 se añaden los criterios **113** —burbuja en «Piezas destacadas», la cuarta superficie— y
+> **114** —marca en el descargo y disparador de revisión por razón social—; el bloque va ahora de **97 a
+> 114**.)*
 
 > **Nota de verificación 1 (actualizada 2026-08-28)**: la fuente del estimado es el **ingest automático** de
 > PokemonPriceTracker sobre `ebay.salesByGrade` (§O.6), con **override manual** como respaldo y máxima
@@ -2554,8 +2684,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > humano apruebe el texto legal (§O.5). QA verifica estos criterios **con el flag encendido** en el entorno de
 > prueba, y verifica **además** que con el flag apagado **ninguna** superficie muestra cifra estimada.
 
-97. **El gate decide QUÉ SE PROMOCIONA (curaduría), no qué se ve**: una carta raw publicada entra a **teja y
-    vitrina** **si y solo si** `estimadoPSA9 ≥ (precioVentaRaw + gradingCost) × (1 + minUpsidePct)` —con
+97. **El gate decide QUÉ SE PROMOCIONA (curaduría), no qué se ve** *(actualizado 2026-08-31: las superficies
+    de promoción son **tres** — rejilla, vitrina y destacadas)*: una carta raw publicada lleva cifra en
+    **teja de Compra**, entra a la **vitrina** y lleva **burbuja en su teja de destacadas** **si y solo si**
+    `estimadoPSA9 ≥ (precioVentaRaw + gradingCost) × (1 + minUpsidePct)` —con
     `gradingCost` = **escalón** que corresponde a esa carta (criterio 110) y `minUpsidePct` default **30%**—
     **y además** la cifra supera el **gate de confianza** (criterio 111). Verificable con dos cartas límite:
     una que pasa **por poco** (**aparece** el badge / entra a la vitrina) y otra **justo por debajo** (**no
@@ -2563,7 +2695,8 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     ROI**. El **PSA 10 no interviene**: una carta con PSA 10 altísimo pero PSA 9 que no pasa el gate **no se
     promociona**.
 98. **Sin estimado PSA 9 no se promociona, pero la ficha sí informa**: una carta con estimado **PSA 10** pero
-    **sin** estimado **PSA 9** **no entra** a teja ni a vitrina; **su ficha sí muestra el PSA 10**. El sistema
+    **sin** estimado **PSA 9** **no lleva cifra en ninguna superficie de promoción** (rejilla, vitrina ni
+    destacadas); **su ficha sí muestra el PSA 10**. El sistema
     **no infiere ni interpola** el PSA 9 a partir del PSA 10.
 99. **Ficha: solo precio + los dos estimados (verificación de AUSENCIA)**: la ficha de una carta raw con dato
     muestra **exactamente**: el **precio de venta de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
@@ -2586,12 +2719,14 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     supera el gate de confianza**, la carta **no se promociona**. En **ninguna** superficie aparece **$0**, un
     **guion (`—`)**, un rango inventado ni el texto **«precio pendiente»**. Verificable inspeccionando el HTML
     entregado: **no hay contenedor vacío ni skeleton permanente**.
-103. **Disclaimer — patrón de llamada + nota al pie, con micro-aviso adyacente**: verificable en las **tres**
-    superficies (home, listado de Compra, ficha):
+103. **Disclaimer — patrón de llamada + nota al pie, con micro-aviso adyacente** *(actualizado 2026-08-31)*:
+    verificable en las **cuatro** superficies (home **vitrina**, home **destacadas**, listado de Compra,
+    ficha):
     (a) **toda cifra estimada** lleva una **llamada visible** (asterisco) y un **micro-aviso** junto a ella que
     carga las dos ideas obligatorias — **«ilustrativo»** y **«no evaluamos esta carta»**;
     (b) **toda página que muestre al menos una cifra estimada** contiene el **texto completo del disclaimer al
-    pie**, y la llamada **lleva** a ese texto;
+    pie**, y la llamada **lleva** a ese texto — **incluido el caso en que la única cifra del home venga del
+    carrusel de destacadas y la vitrina no se haya renderizado**;
     (c) el **texto completo es el mismo** en todas las páginas (sin versiones recortadas) y afirma
     explícitamente los **seis** elementos: es **información ilustrativa**, **no evalúa la carta que vendemos**
     (no inspeccionada ni pre-evaluada), **no garantiza ningún grado** (lo determina PSA y puede ser mucho
@@ -2604,8 +2739,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     escalones** (`gradingCostTiers`), `minUpsidePct`, **`minSalesSample`** y **`maxGradedMultiple`**; el cambio
     **surte efecto sin redeploy**, queda **auditado** en la bitácora (M10) y **recalcula qué se promociona**
     (verificable: subir `minUpsidePct` de 30% a un valor alto, encarecer un escalón, o subir `minSalesSample`
-    por encima de la muestra disponible, **vacía la vitrina y quita los badges**, **sin tocar ningún precio de
-    venta** y **sin alterar lo que muestran las fichas**).
+    por encima de la muestra disponible, **vacía la vitrina y quita los badges de la rejilla y las burbujas de
+    destacadas**, **sin tocar ningún precio de venta**, **sin alterar lo que muestran las fichas** y **sin
+    cambiar qué tejas contiene el carrusel de destacadas ni su orden**).
 105. **Solo raw**: una carta **gradeada (PSA/CGC)** y un **producto sellado** **nunca** muestran cifra estimada
     ni badge, y **nunca** entran a la vitrina, en ninguna superficie.
 106. **Fuente automática + override manual** *(REESCRITO 2026-08-28; supersede el criterio de «fase 1
@@ -2627,8 +2763,8 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     de venta** de ninguna carta, el **valor ni la tendencia del portafolio** (§C), la **cotización de buylist**
     (§E/§M), el **costo de inventario** ni el **P&L de M7** — verificable comparando esos valores con la
     feature encendida y apagada.
-109. **Frescura del estimado** *(actualizado 2026-08-28)*: un estimado **rancio deja de mostrarse** en las tres
-    superficies (y la carta deja de promocionarse). La antigüedad se mide contra la **fecha de la última venta
+109. **Frescura del estimado** *(actualizado 2026-08-31)*: un estimado **rancio deja de mostrarse** en las
+    **cuatro** superficies (y la carta deja de promocionarse). La antigüedad se mide contra la **fecha de la última venta
     observada** para el dato automático, y contra la **fecha de captura** para un override manual; el umbral
     es de **30 días** *(umbral y forma de medirlo sujetos a confirmación del humano — ver preguntas abiertas
     v2.0)*.
@@ -2667,6 +2803,43 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     Verificable además: (a) el **ingest automático** tampoco escribe ese valor cuando existe la pieza real;
     (b) el intento bloqueado queda **auditado** (M10); (c) el bloqueo es **por grado** — la misma carta sigue
     pudiendo mostrar y promocionar **el otro grado** si tiene cifra válida.
+113. **NUEVO — Burbuja en «Piezas destacadas del catálogo» (cuarta superficie)** (§O.3 (4)): en el carrusel de
+    destacadas del home, una teja **lleva la burbuja con el estimado PSA 10** (más micro-aviso y llamada)
+    **si y solo si** esa carta pasa **el gate de ROI y el gate de confianza** —el **mismo listón que la
+    rejilla**—. Verificable:
+    (a) **el carrusel no se cura ni se reordena**: con las mismas cartas publicadas, **contiene las mismas
+    tejas, en el mismo orden por precio descendente**, con la feature **encendida y apagada**;
+    (b) una teja que **no** pasa los gates se ve **exactamente como hoy** — **sin** burbuja vacía, tachada, en
+    gris ni placeholder;
+    (c) con **cero** tejas que pasen, **el carrusel se sigue renderizando completo, sin ninguna burbuja**
+    (**no** se aplica la regla de «no renderizar» de la vitrina, criterio 101);
+    (d) **vitrina y destacadas coexisten** y una misma carta **puede llevar cifra en ambas** — **no** se
+    deduplica ni se excluye de una por aparecer en la otra;
+    (e) el **home lleva una sola nota al pie** que cubre las cifras de **ambas** secciones, y **aparece
+    también** cuando la única cifra del home viene de destacadas;
+    (f) el **copy y el micro-aviso son los mismos** que los de la rejilla (ES y EN, criterio 32);
+    (g) **ningún insumo del gate viaja al cliente** en el payload que alimenta el carrusel (SEC-A1,
+    criterio 107).
+    **NOTA DE EXPECTATIVA PARA QA — un carrusel de destacadas SIN burbujas NO es un defecto**: destacadas
+    lista **las cartas más caras**, que son las que caen en los **escalones de costo de gradeo más altos**
+    (§O.2.1), así que **lo esperado es que califiquen pocas o ninguna**. El defecto sería lo contrario: una
+    **burbuja en una teja que no pasa los gates**, un **hueco/placeholder**, o que el **carrusel desaparezca**.
+114. **NUEVO — El descargo nombra a la MARCA hoy, y se revisa cuando exista la razón social** (§O.5): el texto
+    del descargo (ES y EN) dice **«TCG HUNT»** —la marca, `common.brand.name`— y **no** «TCG Vault MX»;
+    verificable en las cuatro superficies y en los dos idiomas. **Disparador de revisión obligatoria**: el día
+    en que se cargue la **razón social** (`common.footer.legalEntity`, hoy pendiente), **§O.5 se revisa antes
+    de dar por bueno el descargo**, con la recomendación del PO de nombrarla —patrón **«TCG HUNT, marca
+    operada por [Razón social]»**— y aplicando **el mismo criterio a los términos** (`legal.intro`), para que
+    no digan cosas distintas. **La redacción definitiva la aprueba el humano** (pregunta abierta 20); este
+    criterio **no da por cerrada** esa redacción, solo **obliga a no olvidar la revisión**.
+115. **NUEVO — La marca y el dominio son TCG HUNT / `tcghunt.mx` en TODA superficie visible** *(2026-08-31,
+    decisión 58)*: **ninguna** superficie que el usuario vea o reciba contiene la cadena **«TCG Vault MX»** ni
+    los dominios **`tcgvaultmx.com`** / **`tcgvault.mx`**. Cubre, como mínimo: UI y copy (ES y EN), correos
+    transaccionales, términos y FAQ, y la **metadata de los archivos que genera la plataforma** (p. ej. autor
+    de los Excel exportados). **Verificación**: la marca se lee de `common.brand.name` y el dominio de
+    `common.brand.domain`; los buzones documentados (`contacto@`, `soporte@`, `facturacion@`, `buylist@`)
+    resuelven todos a `tcghunt.mx`. **Este criterio se verifica contra el producto, no contra la
+    documentación**: si un documento afirma otra marca, el documento está mal.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -2757,7 +2930,15 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    y la valuación de portafolio siguen usando la **referencia** pura.
 10. **Facturación CFDI** → **manual por correo** en el MVP (sin timbrado con PAC); IVA sigue desglosado en
    checkout y registrado en M7; timbrado automático = fase 2.
-11. **Nombre comercial / marca** → **TCG Vault MX** (nombre usado en UI, comunicación y términos).
+11. **Marca (nombre comercial)** → **TCG HUNT**, con **fuente de verdad en `common.brand.name`** y dominio
+   **`tcghunt.mx`** (`common.brand.domain`). Es el nombre usado en UI, comunicación y términos. **Marca ≠
+   razón social**: la razón social vive en `common.footer.legalEntity` (hoy pendiente de carga) y es la
+   entidad que responde — ver el encabezado del documento.
+   *(**Corregida el 2026-08-31, confirmada por el humano.** Esta decisión decía «TCG Vault MX», que era un
+   **nombre interno de trabajo**, nunca la marca de cara al usuario. Ese literal queda **retirado**. Aviso a
+   todos los roles: **no lo reintroduzcan** en producto ni en docs citando versiones viejas de este documento
+   — hubo al menos un caso de una cadena correcta sustituida por la incorrecta usando esta línea como
+   autoridad. La autoridad es la clave i18n, no el literal escrito aquí.)*
 12. **Política de reembolsos** → **VENTAS FINALES** para **todos los tipos de producto** (raw, sellado,
    gradeadas): sin reembolso voluntario tras la compra. **Dos excepciones**: (a) disputa de condición por
    carta dañada/equivocada (ventana de **7 días contados desde la entrega del envío**, **evidencia por correo
@@ -2864,7 +3045,11 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    corrigió el texto del documento rector, que por la regla de conflicto es la versión que gana. La fórmula
    queda con **origen único en §K** y las ~15 citas pasan a nombrar la **precedencia** y apuntar a §K.
 36. **Sellado = solo venta** (plataforma→cliente): **sin buylist de sellado**; call-out `mailto`
-   (`contacto@tcgvaultmx.com`) para revender fuera de la app.
+   (`contacto@tcghunt.mx`) para revender fuera de la app.
+   *(**Corregido el 2026-08-31**: decía `contacto@tcgvaultmx.com`, dominio que **no existe** en el producto.
+   **Todos los buzones viven en el único dominio `tcghunt.mx`**: `contacto@` (reventa de sellado), `soporte@`
+   (disputas y evidencia), `facturacion@` (CFDI) y `buylist@`. Queda **retirada** la afirmación anterior de
+   que convivían dos dominios distintos y «ambos eran correctos»: era falsa.)*
 37. **Condición del sellado**: default **Mint**, opción **"Detalle menor en caja"**; visible al comprador,
    **sin efecto en el precio**; el sellado **no lleva rareza**.
 38. **Destino igual que cartas** (recibir/`direct_ship` o bóveda/`vault`), **pestaña "Sellado"** en bóveda
@@ -2873,11 +3058,13 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    **"avísame cuando vuelva" (restock)**; se encienden después sin nuevo desarrollo.
 
 **Decisiones v2.0 — gancho de grading (2026-08-23, tomadas por el humano):**
-40. **Alcance completo, tres superficies**: **ficha** + **badge en las tejas de Compra** + **vitrina «Joyas
-   para gradear» en el home**. No es una prueba en una sola pantalla. Ver §O.3. *(ACTUALIZADO 2026-08-23 — ver
+40. **Alcance completo, ~~tres~~ CUATRO superficies**: **ficha** + **badge en las tejas de Compra** + **vitrina
+   «Joyas para gradear» en el home** + **burbuja en el carrusel «Piezas destacadas del catálogo» del home**.
+   No es una prueba en una sola pantalla. Ver §O.3. *(ACTUALIZADO 2026-08-23 — ver
    decisión 50: la ficha deja de ser un «bloque comparativo» y pasa a mostrar solo precio + PSA 10 + PSA 9.
    ACTUALIZADO 2026-08-28 — ver decisión 54: en rejilla y vitrina **se pinta la cifra**, condicionada al gate
-   de confianza.)*
+   de confianza. **ACTUALIZADO 2026-08-31 — ver decisión 56**: entra la **cuarta superficie**, destacadas, y
+   **la vitrina se conserva**.)*
 41. **Gate de ROI sobre PSA 9, NO sobre PSA 10** — `estimadoPSA9 ≥ (precioVentaRaw + gradingCost) ×
    (1 + minUpsidePct)`. El **PSA 10 ilusiona pero no decide**. Racional: con el gate en PSA 10, a un cliente
    que saque PSA 9 podría **costarle dinero**, y eso quema la reputación de la tienda. Ver §O.2.
@@ -2918,7 +3105,7 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    preguntó *«¿no tenemos algo automático?»* y **el formato del payload ya se conoce** (`ebay.salesByGrade`),
    así que el bloqueo desaparece. De lo que quedaba vivo, **sigue vigente**: el **override manual** como
    respaldo y máxima precedencia, y que **el comportamiento visible al usuario no depende del origen del
-   dato**. Los criterios de este bloque son ahora los **97–112**.
+   dato**. Los criterios de este bloque son ahora los **97–114**.
 48. **Disclaimer súper enfático — «ilustrativo, no refleja el estado de nuestras cartas»** *(petición textual
    del humano; supersede el borrador anterior de §O.5)*: el texto sube de tono a **inequívoco**, con un
    elemento nuevo que era el más importante y faltaba: el estimado es un dato de mercado **genérico de ese
@@ -2980,6 +3167,44 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    escritura del ingest) del estimado del grado **G** cuando esa carta ya tiene **al menos una pieza real de
    grado G publicada** en inventario, con **mensaje explicativo** y **auditoría** del intento. **La pieza real
    manda siempre.** Ver §O.8 y criterio **112**.
+
+**Decisiones v2.0 — gancho de grading, quinta ronda del humano (2026-08-31):**
+56. **CUARTA SUPERFICIE: la burbuja también va en «Piezas destacadas del catálogo», y la vitrina SE CONSERVA**
+   *(amplía la decisión 40)*: el humano pidió la burbuja **también** en el **carrusel de destacadas del home**
+   **sin quitar** la vitrina «Joyas para gradear» — **quiere las dos**. **No es alcance nuevo**: lo había
+   pedido **desde el principio** *(cita: «en home ponemos alguna burbuja… sobre las destacadas»)* y se entregó
+   una **vitrina aparte** en su lugar; esta decisión **alinea el producto con lo pedido**. **Listón: el
+   completo** —gate de **ROI** (§O.2) **y** gate de **confianza** (§O.7)—, porque destacadas es **superficie
+   de promoción**, igual que la rejilla; la **ficha** sigue siendo la única superficie **informativa**.
+   **Regla que la distingue de la vitrina**: el gate **no cura ni reordena** el carrusel —mismas tejas, mismo
+   orden por **precio descendente**—, solo decide **qué teja lleva burbuja**; y si **ninguna** califica, el
+   carrusel **se sigue renderizando sin burbujas** (la vitrina, en cambio, **no se renderiza**).
+   **Expectativa asumida a ojos abiertos**: destacadas lista **las cartas más caras**, que caen en los
+   **escalones de gradeo más altos** (§O.2.1, >$50k ⇒ $12,000), así que **es probable que muestre pocas cifras
+   o ninguna**. Eso es el gate **funcionando**, no un fallo — queda escrito en §O.3 y en el criterio **113**
+   para que **nadie lo reporte como defecto**. Ver §O.3 (4) y criterio **113**.
+57. **El descargo dice «TCG HUNT» (marca), y se revisa el día que exista la razón social**
+   *(corrección + criterio del PO)*: el texto de §O.5 decía «TCG Vault MX»; la **marca es TCG HUNT**
+   (`common.brand.name`) y así queda en ES y EN — **solo cambia el nombre, ninguna idea del texto**.
+   **Marca vs. razón social**: hoy el descargo usa la **marca**, igual que los términos, y eso es coherente y
+   suficiente para operar. Pero el descargo **deslinda responsabilidad**, y **quién deslinda importa**: una
+   marca no es sujeto de obligaciones. **El PO recomienda** que, **cuando se cargue** la razón social
+   (`common.footer.legalEntity`), el descargo **la nombre** con el patrón **«TCG HUNT, marca operada por
+   [Razón social]»**, aplicando el mismo criterio a los términos. **Lo que queda decidido ahora es el
+   disparador de revisión obligatoria** (criterio **114**); **la redacción definitiva la aprueba el humano**
+   (con su abogado si quiere) — **pregunta abierta 20**. *(No bloquea: el descargo entero ya estaba pendiente
+   de aprobación y la feature sigue tras el flag apagado.)*
+58. **Renombrado completo a TCG HUNT y dominio único `tcghunt.mx`** *(2026-08-31, confirmado por el humano:
+   «recuerda que somos TCGHUNT.mx cambia eso»)*: **«TCG Vault MX» era un nombre interno de trabajo** que este
+   documento declaraba por error como nombre comercial. Queda **retirado de todo PROJECT.md** (título,
+   encabezado, idea en una frase, decisión 11, criterios) y **todas las direcciones de correo** pasan al
+   **único dominio `tcghunt.mx`** (se retiran los inexistentes `tcgvaultmx.com` y `tcgvault.mx`).
+   **Lección que queda escrita, porque el daño ya salió del documento**: este documento llegó a afirmar algo
+   del producto que el producto contradecía, y un rol **cambió una cadena correcta del producto por la
+   incorrecta citando PROJECT.md como autoridad** (metadata de autor de los Excel generados). Por eso la
+   marca y el dominio ahora se declaran **por su clave i18n verificable** (`common.brand.name`,
+   `common.brand.domain`) y no por el literal: **ante discrepancia manda la clave**, y este documento se
+   corrige contra el producto, nunca al revés. *(La corrección del Excel es del rol backend, no del PO.)*
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
@@ -3118,9 +3343,10 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 backend/arquitecto al implementar, sin decisión de producto adicional).
 
 ## Preguntas abiertas — gancho de grading (v2.0, §O)
-> Las **decisiones de fondo están cerradas** (alcance de tres superficies, gate sobre PSA 9, los dos diales y
+> Las **decisiones de fondo están cerradas** (alcance de **cuatro** superficies *(actualizado 2026-08-31)*,
+> gate sobre PSA 9, los dos diales y
 > sus defaults, la fuente automática del dato, el gate de confianza, la guarda de dinero y la regla money-safe;
-> ver decisiones 40–45 y 53–55). Lo que sigue son **el texto del disclaimer** —que necesita aprobación
+> ver decisiones 40–45 y 53–57). Lo que sigue son **el texto del disclaimer** —que necesita aprobación
 > explícita y **mantiene la feature apagada** hasta que llegue— y **huecos menores**, todos con un supuesto ya
 > redactado en §O para **no bloquear** al arquitecto.
 
@@ -3213,6 +3439,31 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     simplemente **no muestra ese grado**. Podría ser mejor negocio **enlazar a la pieza real** («¿la quieres ya
     gradeada? tenemos esta»). Hoy queda **fuera de alcance** por no inventar superficie nueva. ¿Te interesa
     para el MVP o lo dejamos para después?
+20. **¿El descargo debe nombrar la RAZÓN SOCIAL cuando la cargues, o basta la marca?** *(NUEVA, 2026-08-31 —
+    tiene peso legal, por eso te la devuelvo)*: hoy §O.5 dice **«TCG HUNT»** (la marca, `common.brand.name`),
+    igual que los términos. **Mi recomendación como PO**: el día que cargues la **razón social**
+    (`common.footer.legalEntity`), que el descargo pase a decir **«TCG HUNT, marca operada por [Razón
+    social]»** —lees el nombre que el cliente reconoce **y** queda claro **qué entidad** se está deslindando de
+    no garantizar grado y de no recomprar—, con el **mismo criterio en los términos** para que no se
+    contradigan. **Lo que ya dejé fijado es solo el disparador de revisión** (criterio **114**): cuando cargues
+    la razón social, **§O.5 se revisa**. **La redacción final es tuya** (idealmente con tu abogado, junto con
+    la aprobación del descargo completo, pregunta 1). ¿La quieres nombrada, o prefieres quedarte solo con la
+    marca?
+21. ~~**Renombrado de marca en el RESTO de PROJECT.md**~~ — **CERRADA (2026-08-31)**. El humano confirmó:
+    «recuerda que somos TCGHUNT.mx cambia eso». **TCG HUNT sustituye a TCG Vault MX en todo el documento** y
+    todos los correos pasan a `tcghunt.mx`. Aplicado en el título, el encabezado de marca, la idea en una
+    frase, la **decisión 11**, la **decisión 36** y los criterios; registrado como **decisión 58**. **No
+    requiere más respuesta.**
+22. **«Piezas destacadas» casi siempre sin burbujas: ¿lo aceptas tal cual?** *(NUEVA, 2026-08-31 — es
+    expectativa de negocio, no un hueco técnico)*: destacadas ordena por **precio descendente** y el costo de
+    gradeo **sube por escalones** (§O.2.1), así que **las cartas más caras son las que menos califican**: es
+    probable que ese carrusel muestre **pocas cifras o ninguna** buena parte del tiempo. Ya está escrito como
+    comportamiento esperado (§O.3, criterio 113) para que QA no lo reporte como defecto. Si quieres **más
+    presencia** de la burbuja ahí, las palancas son de negocio: **(a)** bajar `minUpsidePct`, **(b)** revisar
+    los **valores por defecto de los escalones** —hoy son un supuesto conservador—, o **(c)** cambiar el
+    criterio con que se arma «destacadas» (p. ej. mezclar precio con potencial de gradeo). **La (c) es un
+    cambio del home, fuera del alcance de §O**: si la quieres, dilo y la aterrizo aparte. ¿Lo dejamos como
+    está (supuesto) o mueves alguna palanca?
 ## Decisiones (v2.0, P-48) — precio puro por valor de mercado (LOCKED)
 > Decisiones del humano **ya tomadas** en conversación (2026-08-24), a partir del hallazgo de cartas
 > publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**. Tras ver la causa raíz, el humano

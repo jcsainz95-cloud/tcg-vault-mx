@@ -17,7 +17,7 @@ import { GoogleTokenVerifier } from '../src/modules/auth/google-token-verifier';
  */
 
 const jwt = { signAsync: jest.fn(async () => 'tok') } as unknown as JwtService;
-const config = new ConfigService({ APP_BASE_URL: 'https://app.tcgvaultmx.com', DEFAULT_LOCALE: 'es' });
+const config = new ConfigService({ APP_BASE_URL: 'https://app.tcghunt.mx', DEFAULT_LOCALE: 'es' });
 const google = {} as unknown as GoogleTokenVerifier;
 
 function make(overrides: {

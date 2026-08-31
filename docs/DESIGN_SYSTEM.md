@@ -219,6 +219,21 @@
 > Se traduce en la regla dura **R6** (§22.0) y en un **estado nuevo** en §22.7 —«hay cifra y pasa el gate
 > de ROI, pero no es confiable» ⇒ **ficha sí, teja y vitrina no**—, **indistinguible en pantalla** del
 > caso «no pasa el gate», y así debe ser (R5). Sigue **cero tokens nuevos**.
+> **Revisión del humano (2026-08-31), incorporada — la burbuja entra también al carrusel «Piezas
+> destacadas del catálogo» → nueva §22.6b.** El gancho pasa de **tres** superficies a **cuatro**: la
+> vitrina «Joyas para gradear» **se conserva tal cual** y el carrusel del home **suma** la cifra. No es un
+> copiar-pegar: `FeaturedCarousel` **no usa `CatalogTile`** —tiene teja propia, con dos anatomías (una
+> grande de 400px y una chica de 268px) y **sin CTA que absorba la altura**—, así que §22.6b define dónde
+> entra la burbuja en cada una, con qué forma de copy y cómo se comporta la retícula en el **caso
+> disparejo**, que aquí es **el normal**: el carrusel ordena por **precio descendente** y el gate de ROI
+> castiga precisamente a las caras, así que lo esperable es **cero o una-dos burbujas entre ocho**.
+> Decisión de fondo: **la numeración mono roja `01 · 02 · 03` (§20.3) y la burbuja no coexisten** — si el
+> carrusel pinta al menos una cifra, la numeración desaparece **de toda la pista** (no tile a tile): junto
+> a un monto, un número de dos dígitos se lee como *ranking de oportunidades*, que es la afirmación que §O
+> prohíbe, y sería un **tercer rojo** en una teja de 160px. **Cero tokens nuevos, cero claves i18n nuevas,
+> cero componentes nuevos**: el badge de §22.5 se reutiliza con un `surface` de tres valores enumerados
+> que solo elige **qué forma de copy ya ratificada** se usa y **en qué breakpoint**, y que **no puede**
+> apagar el micro-aviso (R3 sigue intacta).
 
 ---
 
@@ -3783,8 +3798,16 @@ Encabezado de sección: fila `justify-between` — **H2 serif 29px** («Piezas d
   **numeración mono roja de dos dígitos** (`01`, `02`… mono 10px `--color-accent`) + nombre serif
   16px; sublínea mono 11px muted; precio 17px sans 500 `tabular-nums`; distintivo de stock.
 - La numeración es **decorativa/orientadora** (`aria-hidden`); el orden real lo da el DOM.
+  - ⚠️ **Condicional desde 2026-08-31 (§22.6b-c):** si el carrusel muestra **alguna cifra del gancho de
+    grading**, la numeración **desaparece de toda la pista** (no teja a teja). Junto a un monto, un ordinal
+    se lee como *ranking de oportunidades* —lo que §O prohíbe— y sería un tercer elemento de acento en la
+    teja. Sin cifras en la pista, §20.3 se aplica **tal cual**, numeración incluida.
 - **Contenido:** solo piezas publicadas con precio (regla dura §7.1); la selección «destacadas» es
   curaduría o criterio de negocio, nunca placeholders.
+- **Gancho de grading (§22.6b):** las tejas de este carrusel pueden llevar la **burbuja del estimado**
+  («En PSA 10 vale ≈ MX$…») como **último bloque** de la teja, bajo una regla de 1px, con su **micro-aviso
+  visible** obligatorio. La anatomía por teja (grande y chica), la forma del copy en cada ancho y el
+  comportamiento de la pista cuando solo algunas tejas la llevan están **en §22.6b**, no aquí.
 
 ### 20.4 Sección «Producto sellado» — banda de pozo con tejas horizontales
 
@@ -4827,9 +4850,12 @@ que truncar.
 > **§N → §O de `PROJECT.md`** (el disclaimer es hoy **§O.5**), con el contrato en **v1.50**.
 >
 > **Qué es:** el tratamiento visual del requisito **§O de `PROJECT.md`** — sobre una carta **raw**
-> publicada en Compra, mostrar **cuánto valdría si se gradeara PSA 10 / PSA 9**, en **tres superficies**:
-> **bloque de valores** junto al precio en la **ficha**, **badge** en la teja de Compra y **vitrina «Joyas
-> para gradear»** en el home.
+> publicada en Compra, mostrar **cuánto valdría si se gradeara PSA 10 / PSA 9**, en **cuatro superficies**:
+> **bloque de valores** junto al precio en la **ficha**, **badge** en la teja de Compra, **vitrina «Joyas
+> para gradear»** en el home y —desde la revisión del 2026-08-31— el **carrusel «Piezas destacadas del
+> catálogo»** del home (§22.6b). *(Donde el texto de §22 diga «las tres superficies» por arrastre, léase
+> «las cuatro»: el carrusel es **rejilla** a todos los efectos —ver la nota de vocabulario de §22.0— y no
+> relaja ninguna regla.)*
 >
 > **Revisión del humano (2026-08-23) — dos cambios que reescriben §22.3–§22.5:**
 > 1. **Fuera la aritmética.** *«No hay que mostrarlo así mejor. Solo pongamos cuánto vale en PSA 10… nos
@@ -4850,6 +4876,14 @@ que truncar.
 > **muestra suficiente de ventas**) y **coherente en magnitud**—. La **ficha no aplica la coherencia con la
 > misma dureza**: informa lo que hay. Solo la rejilla —superficie de **promoción**— exige confianza. Se
 > traduce en la regla dura **R6** (§22.0) y en un **estado nuevo** en §22.7.
+>
+> **Revisión del humano (2026-08-31) — cuarta superficie: el carrusel «Piezas destacadas del catálogo».**
+> La burbuja del gancho debe aparecer **también** en el carrusel del home, **conservando** la vitrina
+> «Joyas para gradear»: las dos superficies **conviven**. No hay artboard nuevo; se resuelve en **§22.6b**
+> con las piezas ya ratificadas. Lo que obliga a diseñar (y no a copiar) es que `FeaturedCarousel` tiene
+> **teja propia**, no `CatalogTile`: dos anatomías distintas, sin CTA, sin `mt-auto`, y con la numeración
+> mono roja de §20.3 encima. Las tres decisiones que salen de ahí —**dónde** entra la burbuja en cada
+> teja, **cómo** cabe el micro-aviso en la chica y **qué pasa con la numeración**— viven en §22.6b.
 >
 > **Origen:** **no hay entrega de Claude Design** para esta feature. §22 se construye **desde cero sobre la
 > piel ya aprobada**: no inventa una identidad para el gancho, la **compone** con piezas ya ratificadas
@@ -4880,6 +4914,22 @@ que truncar.
 | **R4** | **Ausencia total ante cualquier hueco** (§O.4): sin dato, dato rancio o —en badge y vitrina— gate no cumplido o **cifra no confiable** (R6) ⇒ **no se renderiza nada**. Ni `$0`, ni `—`, ni «precio pendiente», ni caja vacía, ni encabezado huérfano, ni **skeleton** que reserve el hueco. La teja se ve **exactamente como hoy**. | En un argumento de venta, un hueco es peor que el silencio (precedente: fast-follow de seguridad del «$0 latente»). Nótese que §22 **excluye** aquí el `PendingPriceLabel` de §7.3 a propósito. |
 | **R5** | **El cálculo no se muestra, en ninguna superficie.** Ni el costo de gradeo, ni `minUpsidePct`, ni la ganancia en MXN, ni el multiplicador, ni un porcentaje de rendimiento, ni la palabra «gate». Tampoco **el criterio de confianza** de R6: ni la muestra, ni el origen, ni la cota de magnitud. Todo eso vive **solo server-side**, decidiendo elegibilidad de badge y vitrina. | *Nueva, cambio 1.* Lo que el humano quitó no es solo la talacha de calcularlo: es la **promesa implícita** que carga un número de ganancia. Un estimado se defiende como dato de mercado; una ganancia calculada se lee como oferta. Y un sello de «confianza» sería lo mismo por la puerta de atrás: convertiría la ausencia de sello en una acusación. |
 | **R6** | **La rejilla solo promociona cifras confiables.** En **teja y vitrina** la cifra se pinta solo si el número es **confiable**: **fresco**, de **origen confiable** (**override manual** del dueño, o **dato automático con muestra suficiente de ventas** gradeadas) y **coherente en magnitud** (la cota es **`psa10 > precio raw`**: se descarta si el estimado PSA 10 sale **≤ el raw publicado**; y también si es **absurdamente mayor**, que ya es dato roto). La **ficha informa lo que hay** y **no** aplica la coherencia con la misma dureza. Se evalúa **server-side** y **nunca** se explica en pantalla (R5): una cifra suprimida por confianza es **indistinguible** de una suprimida por el gate de ROI. | La rejilla es **promoción**: ahí un número que no se sostiene es una promesa que no se sostiene, y el comprador la ve sin contexto y sin haber pedido nada. La ficha es **información**: quien la abrió ya está mirando esa carta, y esconderle un dato que existe sería paternalista. Y un PSA 10 **por debajo del raw** no es un gancho débil — es la prueba de que **no hay gancho**: promocionarlo sería anunciar lo contrario de lo que promete la vitrina. La cota mira **hacia abajo** a propósito: el fallo típico —un valor en **dólares escrito como pesos**— aterriza **por debajo**, no por encima. |
+
+**Vocabulario — qué significa «rejilla» en §22 (nota de la revisión 2026-08-31).** R3, R4, R5 y R6 hablan
+de dos categorías, no de tres componentes: **ficha** (superficie de **información**) y **rejilla**
+(superficie de **promoción**). Desde el 2026-08-31 la rejilla tiene **tres** miembros y la regla se lee
+igual en todos:
+
+| Categoría | Superficies | Regla | Sección |
+|---|---|---|---|
+| **Ficha** (informa) | ficha de carta | pinta **lo que haya**; sin gate de ROI y sin la cota de magnitud | §22.3 |
+| **Rejilla** (promociona) | teja de Compra · vitrina «Joyas para gradear» · **carrusel «Piezas destacadas»** | llega **ya filtrada** por el backend: gate de ROI **y** gate de confianza (R6) | §22.5 · §22.6 · **§22.6b** |
+
+Donde el texto anterior de §22 diga «teja y vitrina» o «badge y vitrina», **léase «las tres superficies de
+rejilla»**. El carrusel **no estrena ninguna excepción**: mismo dato (`gradingHighlight` del
+`GroupedListingSummaryDTO`), mismo componente de badge, mismo micro-aviso obligatorio, misma nota al pie de
+página, misma ausencia total ante cualquier hueco. Lo único propio del carrusel es **cómo entra la burbuja
+en una teja con otra anatomía** (§22.6b).
 
 ### 22.1 Las dos voces del dinero aplicadas al gancho (matiz de §20.14)
 
@@ -5078,6 +5128,11 @@ página**.
 3. La nota cierra con un **enlace de regreso**: `↩ Volver al valor estimado`, mono 11px muted, apuntando al
    `id` de la llamada. El viaje es de ida **y de vuelta**; una nota al pie sin regreso deja al usuario
    varado al final de la página.
+   - **En páginas con varias superficies (el home, desde §22.6b), el regreso apunta a la PRIMERA que de
+     verdad pintó cifra**, no a una fija: vitrina «Joyas para gradear» si existe; si no, el carrusel
+     «Piezas destacadas». Un ancla fija a una sección que hoy puede no renderizarse deja el enlace de
+     regreso apuntando a la nada — y ese es exactamente el caso normal del carrusel (§22.6b). La sección
+     de destino lleva su `scroll-mt-[calc(var(--app-header-h,0px)+16px)]` como ya lo lleva la vitrina.
 4. `prefers-reduced-motion`: sin `scroll-behavior: smooth` (§8.2).
 
 **(b) La nota al pie — dónde vive y cómo se compone.**
@@ -5090,7 +5145,7 @@ contenedor de contenido:
 |---|---|---|
 | **Ficha de carta** | después de las pestañas Descripción/Condición | el bloque §22.3 se renderizó |
 | **Compra (catálogo)** | después del paginador (§20.12) | **la página actual** muestra ≥ 1 badge; al paginar se reevalúa |
-| **Home** | después de la última vitrina | la vitrina «Joyas para gradear» se renderizó |
+| **Home** | después de la última vitrina (antes de la banda de tinta del buylist) | el home muestra **≥ 1 cifra**, venga de **la vitrina «Joyas para gradear» o del carrusel «Piezas destacadas»** — la condición es la **unión** de ambas fuentes (§22.6b) |
 
 Composición — banda de ancho completo, `border-top: 1px solid var(--color-border)`, `padding: 28px 0 36px`
 (24/28 en móvil), con el `gutter` del sitio:
@@ -5250,6 +5305,32 @@ repetido.
 - El micro-aviso es **texto real**, no `aria-label`: el `sr-only` desaparece porque **ya no hace falta** —
   lo que se ve es lo que se lee.
 
+**`surface` — el ÚNICO eje configurable del badge (añadido 2026-08-31 por §22.6b).** El mismo
+`GradingEstimateBadge` sirve a las **tres superficies de rejilla**. Como sus tejas tienen anchos fijos
+distintos, la forma larga del copy no cabe en todas al mismo breakpoint, y **el breakpoint de viewport no
+predice el ancho de la teja** en el carrusel (la teja chica mide 160px hasta `lg`, aunque el viewport ya
+sea `sm`). Se resuelve con **un prop enumerado de tres valores**, no con `className` ni con tamaños libres:
+
+| `surface` | Dónde | Forma de la cifra | Tamaño de la cifra |
+|---|---|---|---|
+| `'grid'` *(default)* | teja de Compra (§22.5) y vitrina (§22.6) | `figureShort` `<sm` · **`figure`** `≥sm` | 11px · 12px `sm+` |
+| `'featuredLead'` | teja **grande** del carrusel (§22.6b) | `figureShort` `<lg` · **`figure`** `≥lg` | 11px · 12px `lg+` |
+| `'featuredRest'` | tejas **chicas** del carrusel (§22.6b) | **`figureShort` siempre** | 11px · 12px `lg+` |
+
+- **Qué NO puede hacer este prop, y es normativo:** no apaga el micro-aviso, no lo acorta, no lo cambia de
+  familia ni de tamaño, no cambia la regla superior, no suprime la llamada `*` y no baja ningún piso
+  tipográfico (§22.4d). Lo único que elige es **cuál de las dos formas de copy ya ratificadas** se pinta y
+  **a partir de qué breakpoint** — dos variantes que ya existían para móvil, no copy nuevo (§22.11).
+- **Añadir un cuarto valor es una decisión de diseño, no de implementación.** Si aparece una superficie con
+  otro ancho, se especifica aquí primero. Un `surface` libre —o un `figureForm` que acepte cualquier
+  cosa— reabriría por la puerta de atrás la posibilidad de una variante «ligera» sin aviso, que es
+  exactamente lo que R3 prohíbe.
+- **La cifra no crece con la teja.** `featuredLead` vive en una teja de 400px con un precio de 25px y aun
+  así mantiene **12px**: el tamaño del estimado es función de **su categoría** (dinero operativo, §22.1),
+  no del tamaño del contenedor. Efecto colateral deseable: en la teja grande la distancia con el precio
+  real es **mayor** que en Compra (25 vs 12px ≈ 2.1× frente a 17 vs 12px ≈ 1.4×), así que R2 se cumple con
+  más margen, no con menos.
+
 ### 22.6 Vitrina del home «Joyas para gradear» — `GradingGemsShelf`
 
 Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con las tejas de Compra:
@@ -5277,8 +5358,14 @@ Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con la
   filtro de confianza deciden **qué entra**, y el cliente recibe la lista resuelta sin ver ni un número del
   cálculo (R5). `grid-cols-2` (móvil, **4 visibles**) → `sm:grid-cols-3` → `lg:grid-cols-4` (las 8 en dos
   filas). Cada entrada es la **teja de Compra con su badge** (§22.5), sin variación.
-- **Sin numeración mono roja.** La de §20.3 («Piezas destacadas») es orientadora; aquí implicaría un
-  *ranking de mejores oportunidades*, que es justo la afirmación que §O prohíbe. Y sería un segundo rojo.
+- **Sin numeración mono roja** — y desde 2026-08-31 esto **ya no es una regla local de la vitrina**. La
+  redacción original citaba la numeración de §20.3 («Piezas destacadas») **por contraste**: allá es
+  orientadora, aquí implicaría un *ranking de mejores oportunidades* —la afirmación que §O prohíbe— y sería
+  un segundo rojo. Con la burbuja entrando también al carrusel, el contraste **se cae**: la misma
+  numeración quedaría junto a la misma cifra. Se **generaliza a invariante del sistema** y se traslada a
+  §22.6b: **numeración y cifra estimada no coexisten en ninguna superficie**. Para la vitrina no cambia
+  nada (nunca tuvo números); para el carrusel, la numeración es ahora **condicional a nivel de pista**
+  (§22.6b, «La numeración»).
 - **«Ver todas»:** se omite **mientras el contrato no exponga un filtro/orden de elegibles** — no se enlaza
   a una vista que no filtra lo que promete. Solicitud anotada en §22.12.
 - **Vacío / error:** la sección **no se renderiza** (ni encabezado, ni kicker, ni regla superior) y, si no
@@ -5288,9 +5375,266 @@ Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con la
   salto de layout exacto que R4 quiere evitar. Se prefiere **prefetch/SSR**; si se resuelve en cliente, el
   estado de carga es **nada**. (El resto de vitrinas conserva su skeleton de §18.6 sin cambios.)
 
+### 22.6b Carrusel «Piezas destacadas del catálogo» — la cuarta superficie (revisión 2026-08-31)
+
+> **Qué decidió el humano:** la burbuja del gancho («En PSA 10 vale ≈ MX$…») aparece **también** en el
+> carrusel del home, **conservando** la vitrina «Joyas para gradear» (§22.6). Las dos superficies
+> **conviven** en la misma página; ninguna sustituye a la otra.
+
+**Por qué esto se diseña y no se copia.** `FeaturedCarousel` **no usa `CatalogTile`**: tiene teja propia,
+con **dos anatomías** distintas —la **grande** (primera pieza) y las **chicas** (resto)—, **sin CTA**, sin
+el `mt-auto` que en Compra absorbe las diferencias de altura, con la **numeración mono roja** de §20.3
+encima y con **anchos fijos que no siguen al viewport** (la teja chica mide 160px aunque el viewport ya sea
+`sm`). La rejilla de Compra y la vitrina sí comparten `CatalogTile` —por eso la vitrina heredó el badge sin
+tocar nada—; el carrusel no. Cuatro cosas hay que resolver, y son las cuatro que siguen.
+
+**El contexto que manda sobre todo lo demás: aquí el caso disparejo es el NORMAL.** El carrusel ordena por
+**precio descendente** (las 8 más caras) y el **gate de ROI castiga precisamente a las caras**: cuanto más
+alto el raw, más difícil que el estimado lo justifique (R6 exige además `psa10 > raw`). Lo esperable es
+**cero burbujas**, y cuando las haya, **una o dos entre ocho**. Todo §22.6b está dimensionado para eso: la
+pista tiene que verse **bien** con siete tejas sin cifra y una con cifra, y **igual de bien** con ocho sin
+ninguna. La ausencia **no es un estado degradado** — es el estado por defecto de esta superficie.
+
+**(a) Teja GRANDE (primera pieza, `surface="featuredLead"`).**
+
+**Dónde va:** **debajo de toda la fila de datos**, como último bloque de la teja y **a todo el ancho de la
+teja** (no dentro de la columna derecha del precio). Orden de lectura obligatorio, idéntico al de §22.5:
+**nombre → set/# → acabado → precio real → stock → estimado → micro-aviso**. Separado por la misma **regla
+de 1px `--color-border`** con `mt-2.5 pt-2.5`.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│                  ARTE (400px de ancho)                   │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+Charizard ex                                   MX$ 4,800.00   ← serif 26px  ⟷  precio sans 25px
+OBSIDIAN FLAMES · #223                            QUEDA 1     ← mono 11px muted ⟷ stock (§20.6)
+Holofoil
+──────────────────────────────────────────────────────────    ← border-t 1px --color-border (ancho completo)
+En PSA 10 vale ≈ MX$ 29,000.00                                ← mono 12px tinta, tabular (`figure`, lg+)
+Ilustrativo; no evaluamos esta carta.*                        ← sans 11px muted + llamada accent 13px
+```
+
+- **A todo el ancho y alineado a la izquierda, aunque el precio esté a la derecha.** La columna derecha del
+  precio es estrecha y va `text-right`; meter ahí una cifra `nowrap` de ~275px la reventaría, y el
+  micro-aviso —que es **prosa**— quedaría en bandera derecha a dos renglones, que se lee mal y contradice
+  §22.4c (es prosa, no una etiqueta). Abajo y a la izquierda, bajo una regla que cruza los 400px, el bloque
+  se lee como **pie de foto de la teja**, que es exactamente su rango.
+- **La regla superior hace el trabajo de R2.** Es lo que dice «lo de abajo es otra cosa». Es la misma
+  gramática de §20.8 y la misma que ya usa el badge de Compra: cero cajas, cero fondos, cero color.
+- **Copy:** `figure` («En PSA 10 vale ≈ …») a partir de **`lg`**, donde la teja mide 400px;
+  **`figureShort`** («PSA 10 ≈ …») por debajo, donde mide **236px** y la forma larga en EN («At PSA 10 it
+  is worth ≈ MX$ 999,999.00», ~274px a 12px mono) **no cabe**. Nótese que el corte es **`lg`, no `sm`**:
+  aquí el ancho de la teja no lo fija el viewport sino el carrusel (por eso existe el prop `surface`).
+- **Sin fecha, sin chip punteado, sin eyebrow** — igual que en Compra (§22.5). La fecha vive en la ficha.
+- **La teja grande será rara vez la que lleve burbuja**, porque es **la más cara de las ocho** y es la que
+  peor le va al gate. Se especifica igual y con el mismo cuidado: cuando ocurra, es la superficie más
+  visible del home.
+
+**(b) Tejas CHICAS (resto, `surface="featuredRest"`).**
+
+**Dónde va:** **después del `StockBadge`**, como último elemento de la teja, con la misma regla de 1px y el
+mismo `mt-2.5 pt-2.5`. Aquí el espacio manda, y el orden de las decisiones fue: **primero cabe el aviso,
+después la cifra** (R3.4 al pie de la letra).
+
+```
+┌────────────────────────┐
+│                        │
+│   ARTE (160–268px)     │
+│                        │
+└────────────────────────┘
+03  Umbreon VMAX              ← numeración: ver (c) — DESAPARECE si esta pista pinta cifras
+EVOLVING SKIES · #215
+Reverse Holo
+MX$ 1,950.00
+QUEDA 1
+────────────────────────      ← border-t 1px --color-border
+PSA 10 ≈ MX$ 29,000.00        ← mono 11px (12px lg+), tinta, tabular  (`figureShort`, SIEMPRE)
+Ilustrativo; no evaluamos     ← sans 11px muted; 2 renglones a 160px, 1 a 268px
+esta carta.*                     la llamada (*) cierra la frase, accent 13px
+```
+
+- **`figureShort` en todos los breakpoints, sin excepción.** La teja chica mide 268px en su mejor momento y
+  la forma larga en EN pide ~274px: **no cabe ni a `lg`**, y una cifra `nowrap` que desborda es peor que
+  una forma corta. `figureShort` mide ~152px (11px) / ~166px (12px) incluso con `MX$ 999,999.00`, así que
+  entra con holgura hasta en los 160px del móvil.
+- **La condicionalidad no se pierde por usar la forma corta.** La cargan el glifo `≈` y el **micro-aviso
+  inmediato**, exactamente como ya se ratificó para el móvil de Compra (§22.5). Sigue **prohibido**
+  «PSA 10: MX$ 29,000.00» — dos puntos afirman, `≈` estima.
+- **El micro-aviso cabe, y esta es la cuenta.** Sans 11px, ES 36 car. / EN 43 car. (§22.11): **2 renglones a
+  160px** en ambos idiomas, **1 renglón a 268px** en ES y **1–2 en EN**. Nunca llega a 3. Es decir: en el
+  carrusel **R3.4 no se dispara nunca por espacio**, así que no hay que elegir entre aviso y cifra. Si
+  alguna vez se disparara —copy más largo, idioma nuevo, teja más estrecha— **lo que se quita es la
+  cifra**, jamás el aviso, jamás un renglón del aviso, jamás un `line-clamp`.
+- **Piso de 11px, también aquí** (§22.4d). La teja chica es la superficie más apretada del sistema y aun así
+  el aviso **no baja de 11px** ni a 390px. Encoger el aviso «para que quepa» está prohibido; la salida
+  legítima es quitar la cifra.
+- **Coste en altura (cuantificado y aceptado):**
+
+| Teja | Ancho | Micro-aviso | Alto del bloque |
+|---|---|---|---|
+| Grande, `lg+` | 400px | 1 renglón (ES y EN) | **~46px** |
+| Grande, `<lg` | 236px | 1 renglón ES · 2 EN | ~46–58px |
+| Chica, `lg+` | 268px | 1 renglón ES · 1–2 EN | **~46–58px** |
+| Chica, móvil | 160px | 2 renglones (ES y EN) | **~70px** |
+
+  El coste **solo lo pagan las tejas elegibles**, que aquí son una o dos entre ocho. Y a diferencia de la
+  rejilla de Compra, **no compite con un CTA**: la teja del carrusel termina en el badge.
+
+**(c) La numeración `01 · 02 · 03` — decisión y por qué.**
+
+§22.6 citaba la numeración de §20.3 **por contraste** («allá es orientadora; aquí implicaría un ranking de
+oportunidades»). Ese contraste **deja de existir** en cuanto el carrusel muestra la cifra: quedarían el
+número rojo y el monto **en la misma teja**. Hay que decidir, y la decisión es:
+
+> **La numeración y la cifra estimada NO coexisten. Si el carrusel pinta al menos una cifra, la numeración
+> desaparece de TODA la pista** —de las ocho tejas, no solo de las que llevan burbuja—. Si ninguna teja es
+> elegible (el caso normal), el carrusel es **exactamente §20.3 de hoy**, numeración incluida.
+
+Las cuatro razones, en orden de peso:
+
+1. **`03` junto a un monto se lee como *ranking de oportunidad*.** Es literalmente la afirmación que §O
+   prohíbe y por la que §22.6 dejó la vitrina sin números. Que en §20.3 el número sea decorativo y
+   `aria-hidden` no protege de nada: el lector vidente no ve el `aria-hidden`, ve un ordinal rojo encima de
+   un «vale ≈ MX$29,000». Peor aún aquí, porque la pista **sí está ordenada por dinero** (precio desc), así
+   que la lectura «están rankeadas por valor» es correcta para el precio y **falsa** para el estimado.
+2. **Presupuesto de rojo.** §22.10 nº3 tolera **dos** elementos de acento por teja —`StockBadge` y el
+   asterisco de 6px— y ahí traza la raya. La numeración sería el **tercero**, en una teja de 160px, y el
+   único de los tres sin significado semántico (es decorativo por definición). El acento en este sistema es
+   escaso a propósito (§17.2).
+3. **Quitarla teja por teja rompe la alineación de la pista.** El número vive en la **fila del título**
+   (`flex items-baseline gap-2`) antes del nombre: si desaparece solo en las tejas con burbuja, **el nombre
+   de esas tejas arranca ~20px a la izquierda** que el de las vecinas, en una fila de tejas por lo demás
+   idénticas. Eso sí se lee como error de maquetación. Todo-o-nada por pista mantiene **todos los nombres
+   alineados al borde izquierdo de su teja**, que es como se ve hoy.
+4. **Una secuencia con hueco (`01 02 __ 04`) señala a la teja sin número.** Y como el hueco coincidiría
+   siempre con la burbuja, acabaría **subrayando** la pieza promocionada — el efecto contrario al buscado.
+
+**Cómo se implementa la condicionalidad, sin que se convierta en un parpadeo.** La pista se decide **una
+vez, con los datos ya resueltos**, con el mismo predicado que gobierna todo lo demás
+(`pageHasGradingFigures(featured)`): o hay numeración en las ocho, o no la hay en ninguna. **Nunca** se
+renumera para «tapar» el hueco (`01 02 03` saltándose la teja de la burbuja sería mentir sobre la
+posición), **nunca** se sustituye el número por otro glifo, y **nunca** queda un espacio reservado donde
+estaba. Mientras el carrusel está cargando no se pinta numeración provisional que luego desaparezca: la
+pista aparece resuelta (§8.1 sigue aplicando al **skeleton de la teja**, que no cambia — lo que no existe
+es un skeleton **del badge**, R4).
+
+**Lo que NO se hizo, y por qué:** *no* se repintó la numeración de rojo a muted (sería tocar la piel
+ratificada de §20.3 para todo el sitio por un caso minoritario), *no* se movió el número a otra posición
+(no hay ninguna en la que un ordinal deje de leerse como ordinal), y *no* se quitó la numeración de forma
+permanente del carrusel (cuando no hay burbujas no hay nada que reconciliar, y el elemento es parte del
+makeover aprobado).
+
+**(d) El caso disparejo — la retícula no se descuadra, y hay que saber por qué.**
+
+Con una o dos burbujas entre ocho, la pista tiene tejas de alturas distintas. **No se compensa nada.** Es
+correcto y es invisible, por construcción:
+
+- **El badge es el ÚLTIMO elemento de las dos tejas.** Nada de lo que está encima —arte, nombre, renglón
+  mono, acabado, precio, stock— se mueve un píxel por su presencia. Las **ocho imágenes siguen alineadas
+  por su borde superior**, que es el eje que el ojo usa en una pista horizontal, y todas las líneas de
+  texto siguen cayendo en las mismas alturas de teja a teja.
+- **Lo único que difiere es el borde inferior de la teja, que no está dibujado.** No hay caja, ni fondo, ni
+  regla de cierre (§2.1, §4.3): una teja más larga se lee como **una teja con más contenido**, no como una
+  desalineada. Este sistema puede permitírselo precisamente porque no dibuja cajas.
+- **Prohibido compensar:** nada de `min-height` en la teja, nada de `mt-auto` inventado, nada de espacio
+  reservado, nada de una regla o un guion en las tejas sin cifra «para que igualen», nada de un skeleton
+  del badge. Todo eso es exactamente el hueco que R4 prohíbe, y aquí además convertiría la ausencia —el
+  caso normal— en un elemento de UI.
+- **La pista crece de alto lo que crezca la teja más alta** (~46–70px según breakpoint) y ese aire cae
+  **debajo** de las tejas cortas. Se acepta tal cual. No se recorta el `pb` del scroller para compensarlo,
+  ni se cambia el tamaño de las flechas ni el `snap`.
+- **Prohibido reordenar la pista para agrupar las tejas con burbuja** (ni al principio, ni «las elegibles
+  primero»). El orden del carrusel es **precio descendente** y es un hecho del catálogo; reordenarlo por
+  elegibilidad lo convertiría en una **curaduría de oportunidades** —una segunda vitrina encubierta— y
+  filtraría el criterio del gate por la vía del orden (R5). Si un día se quiere esa lista, ya existe y se
+  llama «Joyas para gradear».
+
+**(e) El encabezado del carrusel NO cambia.** Sigue siendo **«Piezas destacadas del catálogo»** con su link
+«Ver todo el catálogo» y sus flechas (§20.3). **Prohibido** añadirle kicker, subtítulo, o cualquier mención
+al gradeo, al estimado o a la oportunidad. El carrusel **no es** una vitrina de gancho: es la pista de las
+piezas más caras, en la que **algunas** piezas resultan llevar además una cifra estimada. En cuanto el
+encabezado nombrara el gancho, la pista entera pasaría a **afirmar** algo sobre sus ocho piezas —incluidas
+las seis o siete que no califican— y eso sería falso. El kicker de la salvedad («ILUSTRATIVO · NO
+EVALUAMOS LA PIEZA») pertenece a la vitrina (§22.6), donde **todas** las tejas llevan cifra; aquí no
+aplica, y su trabajo lo hace el micro-aviso de cada teja, que es el que §O.5 exige de todos modos.
+
+**(f) Convivencia con la vitrina «Joyas para gradear» — las dos, en la misma página.**
+
+- **La vitrina se conserva íntegra** (§22.6): mismo encabezado, mismo kicker, mismas 8 tejas, misma
+  excepción de skeleton. El carrusel **no la sustituye ni la duplica**: son dos superficies con **dos
+  criterios de orden distintos** —el carrusel ordena por **precio**, la vitrina por **curaduría del
+  servidor** (`sort=grading_showcase`)— y eso es lo que las hace legítimas a la vez.
+- **Una carta puede salir en las dos, con su burbuja en ambas. No se deduplica.** Filtrar en el cliente la
+  pieza que ya salió arriba (o abajo) alteraría lo que el servidor curó, abriría un hueco en una pista
+  ordenada por precio y haría que el contenido de una sección dependiera de la otra. Se deja tal cual: que
+  una pieza cara además califique es un hecho, no un error de maquetación.
+- **Una sola nota al pie para todo el home** (§22.4b), al final del contenido y antes de la banda de tinta
+  del buylist. Dos superficies con cifras **no** son dos notas.
+- **El orden de la página no cambia:** carrusel (arriba, tras el hero) … vitrina (abajo, tras Gradeadas) …
+  nota al pie. La nota sigue estando **después de la última cifra** de la página, que es lo que exige el
+  patrón.
+
+**(g) Acoplamiento con la nota al pie (R3.3) — la trampa de esta entrega.**
+
+Hasta hoy el home hospedaba la nota **si y solo si la vitrina se renderizaba**. Con el carrusel como cuarta
+superficie eso deja de ser suficiente y se vuelve un **fallo silencioso**: en el caso normal —vitrina vacía,
+una burbuja en el carrusel— la página no hospedaría la nota, y como toda cifra es *fail-closed* sin nota
+(R3.3), **el carrusel no pintaría ninguna burbuja y nadie vería un error**. Regla:
+
+> **La condición de la nota al pie del home es la UNIÓN de sus superficies:** se renderiza si **la vitrina o
+> el carrusel** muestran al menos una cifra. El mismo booleano gobierna las dos cosas (nota + contexto que
+> habilita las cifras), y se deriva **del mismo predicado** para ambas fuentes — nunca de una regla copiada
+> ni de «si la vitrina existe».
+
+Corolarios que el frontend debe cumplir:
+
+- **La lista del carrusel se comparte** entre la sección que decide hospedar la nota y el propio carrusel
+  (misma consulta, deduplicada por su `queryKey`), igual que ya se hace con la vitrina. Dos consultas
+  distintas podrían divergir y volver a abrir el fallo silencioso.
+- **El ancla de regreso** de la nota apunta a la **primera superficie que de verdad pintó cifra**: vitrina
+  si existe, si no el carrusel (§22.4a). El carrusel necesita para eso un `id` propio y su
+  `scroll-mt-[calc(var(--app-header-h,0px)+16px)]`, como ya lo tiene la vitrina.
+- **Nada de esto es un caso raro que se pueda dejar para después:** dado el gate, «vitrina vacía + carrusel
+  con una burbuja» es un estado **frecuente**, no un borde.
+
+**(h) Accesibilidad propia del carrusel** (además de §22.9, que no cambia):
+
+- **La teja del carrusel es un `<a>` que envuelve todo**, a diferencia de la de Compra. En consecuencia el
+  badge queda **dentro** del enlace y su texto pasa a formar parte del **nombre accesible** de la teja: el
+  lector anuncia nombre, set, precio, stock, **la cifra y el micro-aviso completo**. Eso es **deseable** y
+  cumple §22.5 («el `aria-label` de la teja incluye el micro-aviso»). Por lo tanto: **prohibido ponerle un
+  `aria-label` al enlace de la teja**, porque sustituiría el contenido y **borraría el aviso** del árbol de
+  accesibilidad — que es justo el defecto bloqueante que §22.4c corrigió.
+- **La llamada `*` aquí NO es enlace** (`variant="plain"`): no se anida un ancla dentro del ancla de la
+  teja. El acceso al texto largo es doble, como en Compra: la nota al pie de esa misma página y la ficha, a
+  un clic de la teja.
+- **El glifo `≈` va `aria-hidden`** con su lectura en prosa, y **la numeración sigue `aria-hidden`** cuando
+  se pinta (§20.3): no forma parte del nombre accesible de la teja, ni antes ni ahora.
+- **Orden de DOM = orden visual = orden de lectura**: precio real → estimado → micro-aviso. El badge no es
+  focuseable.
+
+**(i) Qué NO hacer en esta superficie** (además de §22.10, que aplica entero):
+
+1. **No** mover la burbuja a la columna del precio de la teja grande, ni alinearla a la derecha, ni ponerla
+   sobre el arte, ni antes del precio real.
+2. **No** dejar la numeración roja en una teja que muestra cifra, ni quitarla solo en esas tejas, ni
+   renumerar para tapar el hueco.
+3. **No** cambiar el encabezado del carrusel ni añadirle kicker, subtítulo o mención al gradeo.
+4. **No** reordenar, agrupar ni «subir» las tejas elegibles; el orden es precio descendente.
+5. **No** igualar alturas: sin `min-height`, sin espacio reservado, sin regla ni guion de relleno en las
+   tejas sin cifra, sin skeleton del badge.
+6. **No** deduplicar contra la vitrina, ni condicionar una sección a la otra.
+7. **No** usar la forma larga del copy en la teja chica (desborda), ni encoger la cifra por debajo de 11px,
+   ni truncarla, ni abreviar el monto.
+8. **No** derivar el hospedaje de la nota al pie solo de la vitrina (§22.6b-g).
+9. **No** convertir el carrusel en una segunda vitrina de gancho por acumulación de pequeños cambios: si
+   algún día se quiere eso, se diseña como tal y se decide en `PROJECT.md`, no aquí.
+
 ### 22.7 Estados — qué se renderiza y qué no
 
-**Las tres superficies no se filtran igual — y hay TRES ejes independientes.** Es la consecuencia
+**Las superficies no se filtran igual — y hay TRES ejes independientes.** Es la consecuencia
 estructural del cambio 1 (el cálculo dejó de mostrarse y pasó a **seleccionar**) y de la condición que el
 humano puso al elegir el monto para la rejilla (R6).
 
@@ -5326,7 +5670,14 @@ humano puso al elegir el monto para la rejilla (R6).
   sin `title` que insinúe baja confianza: la cifra se pinta **igual que cualquier otra** o **no se pinta**.
   Un indicador de confianza sería el cálculo contado con palabras (R5).
 
-| Situación (evaluada **server-side**, §O.4) | Ficha | Teja | Vitrina |
+**La columna «Teja» gobierna las TRES superficies de rejilla** (teja de Compra, vitrina y carrusel «Piezas
+destacadas», §22.0/§22.6b): el dato que las tres leen es el mismo (`gradingHighlight` del
+`GroupedListingSummaryDTO`, ya gateado) y el predicado de render es el mismo. La columna «Vitrina» dice si
+la carta **entra en la lista curada** de §22.6, que es una pregunta distinta —de **pertenencia a esa
+sección**— y no aplica al carrusel: al carrusel se entra por **precio**, y una vez dentro, la burbuja se
+pinta o no exactamente con la regla de la columna «Teja».
+
+| Situación (evaluada **server-side**, §O.4) | Ficha | Teja (incl. carrusel) | Vitrina |
 |---|---|---|---|
 | PSA 10 + PSA 9, dato fresco, **gate cumplido**, cifra **confiable** | **Bloque, dos cifras** (§22.3) | **Badge** con PSA 10 (§22.5) | Entra |
 | PSA 10 + PSA 9, dato fresco, **gate NO cumplido** | **Bloque, dos cifras** (la ficha no está gateada) | **Nada** | No entra |
@@ -5374,7 +5725,7 @@ Reglas generales que siguen aplicando:
 - **«Nada» significa nada:** sin encabezado, sin regla superior huérfana, sin `<hr>`, sin celda vacía, sin
   espacio reservado y **sin el `PendingPriceLabel` de §7.3** — que sí es correcto en bóveda y back-office,
   pero está **prohibido** aquí (§O.4: «ni siquiera "pendiente"»).
-- **Verificación visual — cuatro estados que son correctos y suelen reportarse como bugs:**
+- **Verificación visual — siete estados que son correctos y suelen reportarse como bugs:**
   1. Carta no elegible y carta elegible producen tejas **idénticas** salvo el bloque del badge; sin
      diferencia de altura reservada, sin borde extra.
   2. **Ficha con bloque pero carta sin badge** (gate no cumplido): **normal y esperado**.
@@ -5382,6 +5733,15 @@ Reglas generales que siguen aplicando:
      casos sin badge ni entrada de vitrina.
   4. **Ficha con bloque y sin badge, con el gate CUMPLIDO** (la cifra no pasó el filtro de confianza, R6):
      **normal y esperado**, e **indistinguible** del caso 2 en pantalla.
+  5. **Carrusel «Piezas destacadas» con CERO burbujas**: **el caso normal**, no un fallo de datos. Ordena
+     por precio descendente y el gate castiga a las caras (§22.6b). Un carrusel entero sin cifras es la
+     expectativa por defecto.
+  6. **Carrusel con UNA teja con burbuja y siete sin ella, de alturas distintas**: **normal y esperado**.
+     Las ocho imágenes siguen alineadas por arriba; el borde inferior no está dibujado (§22.6b-d). No es un
+     descuadre y **no se compensa**.
+  7. **Carrusel sin numeración `01 · 02 · 03`**: **normal y esperado** siempre que la pista muestre al
+     menos una cifra — es la regla de §22.6b-c, todo-o-nada por pista. Lo que **sí** es un defecto es ver
+     numeración y burbuja **en la misma pista**, o un hueco en la secuencia.
 
 ### 22.8 Móvil 390px
 
@@ -5399,11 +5759,22 @@ props nuevas. Lo que queda por especificar es poco:
 | **Llamada `*`** | 13px accent | **13px accent** — no encoge nunca; es la señal del aviso |
 | **Nota al pie** | banda a ancho completo, cuerpo 13px, medida ~720px | igual, `padding` 24/28px; **cuerpo sigue en 13px** |
 | **Vitrina** | 4 columnas × 2 filas | 2 columnas, **4 tejas visibles** |
+| **Carrusel — teja grande** (§22.6b) | 236px hasta `lg`, **400px** desde `lg`. Copy largo **solo desde `lg`**; entre `sm` y `lg` sigue en `figureShort` 11px | 236px, `figureShort` **11px**, micro-aviso 1 renglón (ES) / 2 (EN); ~46–58px de bloque |
+| **Carrusel — teja chica** (§22.6b) | 160px hasta `lg`, **268px** desde `lg`. **`figureShort` siempre**; 12px desde `lg`, micro-aviso 1 renglón (ES) | 160px, `figureShort` **11px**, micro-aviso **2 renglones** (ES y EN); **~70px** de bloque |
+| **Numeración del carrusel** | presente **solo si la pista no muestra ninguna cifra** (§22.6b-c) | igual — la regla es por pista, no por breakpoint |
 
 Reglas de resistencia a cifras largas: todas las cifras llevan `tabular-nums` + `whitespace-nowrap`; la
 **etiqueta** es la que envuelve, nunca la cifra. Probar con `MX$ 999,999.00` en ES a 390px: la celda debe
 seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, baja un escalón de tamaño —
 **jamás** se trunca un monto ni se abrevia a «2.9k».
+
+**Precisión de la regla en el badge (2026-08-31, derivada de §22.6b).** En el badge la cifra no va sola: va
+dentro de una **frase** («En PSA 10 vale ≈ MX$ 29,000.00»). El `whitespace-nowrap` pertenece **al monto**,
+no a la frase entera: el **monto nunca se parte** —`MX$ 29,` / `000.00` sería un defecto de dinero— pero la
+frase **sí puede envolver** antes de él si el ancho aprieta. Poner el `nowrap` en el párrafo completo
+convierte cualquier estrechez en **desbordamiento fuera de la teja**, que es peor que un segundo renglón y
+además es invisible en revisión hasta que aparece un monto grande. Aplica a las tres superficies de
+rejilla; en el carrusel es lo que garantiza que ni siquiera un `MX$ 999,999.00` se salga de los 160px.
 
 ### 22.9 Accesibilidad y contraste
 
@@ -5440,6 +5811,10 @@ seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, ba
 - **Orden de tabulación y de DOM = orden visual** (precio real → estimado + llamada → CTA). El badge de la
   teja **no es focuseable** (no es interactivo; la teja entera ya es un enlace) — no se anida un control
   dentro del link.
+- **Si la teja entera es un `<a>` que envuelve el badge** (el carrusel, §22.6b-h), el nombre accesible del
+  enlace **incluye la cifra y el micro-aviso**, y así debe ser. Corolario duro: **prohibido `aria-label` en
+  ese enlace** — sustituiría el contenido y borraría el aviso del árbol de accesibilidad, reintroduciendo
+  el bloqueante que §22.4c corrigió.
 - **Sin información solo-hover:** el `title` es siempre redundante del texto visible, nunca su única vía.
 - El estimado **no se anuncia con `aria-live`**: no es un cambio de estado, es contenido estático.
 
@@ -5477,13 +5852,26 @@ seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, ba
     **no** truncarlo; **no** apagarlo por breakpoint, por densidad de retícula ni por prop. `PROJECT.md`
     §O.5: *«una cifra sin llamada/micro-aviso es un defecto bloqueante»*. Si no cabe, **se quita la cifra**.
 14. **No** llevar el estimado a superficies de dinero real: carrito, checkout, correos de confirmación,
-    bóveda, portafolio, cotizador de buylist ni back-office financiero. §22 vive **solo** en ficha, teja de
-    Compra y vitrina del home.
+    bóveda, portafolio, cotizador de buylist ni back-office financiero. §22 vive **solo** en la ficha, la
+    teja de Compra, la vitrina «Joyas para gradear» y el carrusel «Piezas destacadas» del home (§22.6b).
+    La lista es **cerrada**: sumar una quinta superficie es una decisión del humano, no de implementación.
 15. **No** delatar **por qué** una carta no se promociona: ni marca, ni versalita, ni tinta atenuada, ni
     `title`, ni `data-*` que distinga «gate no cumplido» de «cifra no confiable» (R5, R6). Y **no** inventar
     un distintivo sin cifra («Gradeable», «Candidata PSA») como premio de consolación cuando la cifra no es
     confiable: la teja se queda **exactamente como hoy** (R4). Tampoco **rotular el estimado con una
     versalita de `priceBasis`** (§22.3): un estimado no tiene base de precio.
+16. **No** dejar convivir una **numeración ordinal** con una cifra estimada en la misma superficie —ni la
+    `01 · 02 · 03` mono roja de §20.3, ni ninguna otra—, **ni** quitarla solo en las tejas con burbuja,
+    **ni** renumerar para tapar el hueco (§22.6b-c). Junto a un monto, un ordinal es un *ranking de
+    oportunidades*, y sería además el tercer rojo de la teja.
+17. **No** volver «promoción» una superficie que no lo es: **no** reordenar, agrupar ni adelantar las tejas
+    elegibles en el carrusel, **no** nombrar el gancho en su encabezado, kicker o subtítulo, y **no**
+    deduplicarlo contra la vitrina (§22.6b-d/e/f). El carrusel es la pista de las piezas **más caras**; que
+    alguna lleve cifra es un hecho de esa pieza, no una promesa de la sección.
+18. **No** ampliar el prop `surface` del badge (§22.5) con valores no especificados aquí, ni sustituirlo
+    por tamaños libres, `className` de tipografía o un `figureForm` abierto: es el único eje configurable
+    y su lista de valores es **cerrada por diseño**, porque es la puerta por la que volvería a colarse una
+    variante «ligera» sin micro-aviso.
 
 ### 22.11 i18n — claves nuevas (propiedad de frontend)
 
@@ -5508,6 +5896,12 @@ Convención §9.2, ES de referencia y EN obligatorio (§O.3 exige el disclaimer 
   está gradeada.»
 - `home.gradingGems.{title,kicker,lead}` (sin `viewAll` mientras no exista el filtro, §22.6).
 - **No hay clave para la confianza** (R6): no se rotula, no se explica y no se traduce lo que no se pinta.
+- **El carrusel «Piezas destacadas» (§22.6b) NO añade ni una clave.** Reutiliza tal cual
+  `catalog.gradingBadge.{figure,figureShort,microNotice,approx}` y `catalog.gradingNote.*`; lo único que
+  cambia entre superficies es **cuál de las dos formas ya existentes** se pinta y a qué breakpoint
+  (prop `surface`, §22.5). Tampoco se toca `home.featuredTitle` / `featuredTitleShort`: el encabezado del
+  carrusel no menciona el gancho (§22.6b-e). Si alguien propone una clave nueva para esta superficie, es
+  señal de que se está inventando copy que §22 no autoriza.
 - *Retiradas respecto a versiones anteriores de §22*: `rawLabel`, `rawNote`, `gainNote`, `basisLine`,
   `costTierNote`, `caveatMicro`, `srDisclaimer`, `gridNote`, `provenance`, `gradingBadge.eyebrow`.
 
@@ -5622,3 +6016,42 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
    (l) ficha con `priceBasis !== "market"` (sin bloque «Valor de mercado», §21.8) ⇒ el bloque del gancho
    **sigue en su sitio**, después del `referenceExplainer` en su variante «sin mercado», y su retícula no
    hereda ningún divisor de la retícula de precio.
+
+**Notas añadidas por la revisión del 2026-08-31 (carrusel «Piezas destacadas», §22.6b):**
+
+9. **Arquitecto / backend — VERIFICACIÓN, no cambio de contrato (la más importante de esta revisión).**
+   §22.6b **no pide nada nuevo**: el carrusel ya consume `GET /catalog/cards` con `sort=price_desc` y
+   recibe `GroupedListingSummaryDTO`, que es exactamente donde v1.50.2 puso `gradingHighlight`. Pero todo
+   §22.6b depende de un supuesto que **el diseño no puede verificar y no debe asumir**: que
+   `gradingHighlight` se emite en **cualquier** respuesta de `/catalog/cards`, y **no solo** cuando se pasa
+   `?gradingHighlight=true`. La tabla de coste del contrato (+2 queries con el dial `on` en
+   `/catalog/cards`, sin el filtro) sugiere que sí, pero **hay que confirmarlo explícitamente**. Si
+   resultara que el campo solo se computa con el filtro activo, el carrusel **nunca** mostraría una burbuja
+   y —peor— el fallo sería **silencioso** (la teja se vería exactamente como hoy, que es lo que R4 manda
+   cuando no hay dato). No es un cambio de contrato: es una confirmación, o en el peor caso un ajuste de
+   emisión en backend. **Ninguna otra cosa se pide al contrato.**
+10. **Frontend — lo que §22.6b sí exige tocar, y el orden en que conviene hacerlo.** (a) El badge gana el
+    prop **`surface`** de tres valores cerrados (§22.5) — la teja de Compra y la vitrina se quedan en el
+    default `'grid'` y **no cambian**; (b) el `whitespace-nowrap` pasa del párrafo **al monto** (§22.8), lo
+    que también endurece la teja de Compra; (c) las dos tejas del carrusel montan el badge **como último
+    elemento**, la grande a ancho completo bajo la fila de datos y la chica tras el `StockBadge`; (d) la
+    **numeración del carrusel se vuelve condicional a nivel de pista** (§22.6b-c), decidida con el mismo
+    predicado que las cifras; (e) **la condición de la nota al pie del home pasa a ser la unión** vitrina ∪
+    carrusel (§22.6b-g) y la lista del carrusel se **comparte** con quien decide hospedarla — este punto es
+    el que, si se omite, hace que la feature «no funcione» sin que nada falle a la vista; (f) el carrusel
+    gana un `id` y su `scroll-mt` para poder ser destino del enlace de regreso. **Nada de esto abre la
+    puerta a variantes del micro-aviso**: sigue siendo un componente único, no configurable (§22.10 nº13).
+11. **Product-owner — la nota de ceguera de banner (§22.12 nº2) sube un escalón, sin cambiar la regla.**
+    Con la cuarta superficie, el home puede mostrar el mismo micro-aviso en **dos secciones distintas** de
+    la misma página (vitrina y carrusel) además de la nota al pie. **La regla no se toca y el diseño la
+    implementa entera**: `PROJECT.md` §O.5 manda y el aviso va en todas. Se deja constancia, igual que en
+    el nº2, de que la repetición sigue siendo el punto que —si alguna vez se revisa— debe decidir **PO +
+    legal**, nunca una optimización de layout. Mitigantes que ya operan aquí: el carrusel muestra **una o
+    dos** cifras entre ocho por efecto del gate, así que en la práctica el home rara vez pintará más de
+    tres avisos en total. **Nada que ratificar de copy: §22.6b no introduce texto nuevo** (§22.11).
+12. **Product-owner — el carrusel NO se convierte en superficie curada, y conviene que quede escrito.**
+    §22.6b lo trata como lo que es —las 8 piezas más caras, algunas de las cuales resultan llevar cifra— y
+    prohíbe expresamente reordenarlo por elegibilidad o nombrar el gancho en su encabezado (§22.10 nº17).
+    Si en algún momento el negocio quiere que el carrusel del home promocione **oportunidades de gradeo**,
+    eso es un **requisito distinto** (cambia el criterio de una sección existente) y debe entrar por
+    `PROJECT.md`, no por una edición de este documento.

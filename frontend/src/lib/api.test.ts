@@ -585,7 +585,9 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
         status: 'abierta',
         type: 'condition_raw',
         deadlineAt: '2026-08-24T00:00:00Z',
-        evidenceContact: 'soporte@tcgvaultmx.com',
+        // Dato de infraestructura: el cliente lo PROPAGA tal cual (por eso el aserto de abajo
+        // es sobre la forma, no sobre el buzón). API_CONTRACT §0, cláusula 4.
+        evidenceContact: 'evidencias@ejemplo.test',
       }),
     );
     const res = await createDispute({ inventoryItemId: 'inv-1', description: 'edge wear' });
