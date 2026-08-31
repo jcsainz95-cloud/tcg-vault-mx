@@ -2,7 +2,31 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.51-a**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.51-b**).
+>
+> **Changelog v1.51-b — se DECLARA una forma que llevaba viva sin declarar: `OrderItemCardDTO` (2026-08-31,
+> arquitecto; lo implementan BACKEND y FRONTEND. ARCHITECTURE §5.2).**
+> **Cero rutas nuevas, cero códigos de error nuevos, cero montos, cero migraciones.** Base: v1.51-a, intacta.
+> - **El problema que cierra:** el objeto `items[].card` de `POST /checkout/quote`, `POST /checkout/guest/quote` y
+>   `GET /orders/:orderId` **nunca tuvo forma declarada** — este contrato lo escribía como `"card": {}` y nombraba
+>   `OrderItemPreview` sin definir sus campos. Con la forma sin declarar, el backend lo persiste como JSON `object`
+>   y el frontend lo tipó como **`CardDTO` completo**, prometiendo campos (`id`, `externalId`, `imageLargeUrl`,
+>   `availableFinishes`…) que **el backend nunca envió en esa posición**. De ahí el hueco gris de la miniatura: no
+>   fue un olvido de una línea, fue **un blob sin forma en un extremo y un tipo falso en el otro**.
+> - **Se declara `OrderItemCardDTO`** (abajo, §4). Es **la forma que ya se sirve** más **un campo**:
+>   **`imageSmallUrl: string | null`**. **NO es `CardDTO`** y no debe volver a tiparse como tal.
+> - **`imageSmallUrl` es NULLABLE y la clave está SIEMPRE presente** (`null`, nunca omitida — misma norma de shape
+>   estable que `unavailableItems: []`). `null` es resultado legítimo: la columna `Card.imageSmallUrl` es `String?`
+>   y la fila `Card` puede no existir. El front pinta placeholder; **no es error y no rompe ningún flujo**.
+> - **ORIGEN del campo, normativo (ARCHITECTURE §5.2.5): se resuelve EN LECTURA, uniendo por el `cardId` ya
+>   congelado en el snapshot. NO se persiste en `OrderItem.cardSnapshot` y NO se resuelve vía
+>   `inventoryItemId → InventoryItem.card`** (esa pieza sigue mutando de titular y estado; el `cardId` congelado es
+>   el único puente estable). Consecuencia buscada: **los pedidos históricos muestran miniatura sin migración
+>   alguna**, porque histórico y futuro pasan por el mismo código de lectura.
+> - **Lo que este changelog NO cambia:** la estructura **persistida** del snapshot (mismos ocho campos), ningún
+>   importe, ninguna precedencia de precio, ningún estado de orden, y **nada** de `GuestOrderTrackingDTO`
+>   (`GuestTrackingItemDTO.imageSmallUrl` ya existía) ni de `ClientShipmentItemDTO`. Es **display-only**.
+> - **Base previa:** v1.51-a.
 >
 > **Changelog v1.51-a — UN cambio de invariante y UNA nota normativa de lectura (2026-08-31, arquitecto;
 > lo implementa BACKEND, y FRONTEND solo si pinta el rango. ARCHITECTURE §4.38(r.3.1), §4.38(r.3.4), §4.38(m.2.1)).**
@@ -2171,6 +2195,11 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
                  rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl,
                  availableFinishes: Finish[], displayFinishes: Finish[] }
+// v1.51-b — CUIDADO: el objeto `card` de una LÍNEA DE COMPRA (`/checkout/quote`, `/checkout/guest/quote`,
+//   `GET /orders/:orderId`) **NO es un CardDTO**: es `OrderItemCardDTO` (definido en §4), un snapshot congelado de
+//   8 campos + `imageSmallUrl: string | null` resuelta en lectura. Tiparlo como CardDTO es exactamente el defecto
+//   que v1.51-b corrige (prometía `id`/`imageLargeUrl`/`availableFinishes` que el backend nunca envió ahí).
+//   Doctrina de qué se congela y qué se resuelve: ARCHITECTURE §5.2.
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -3593,10 +3622,50 @@ Err `401`.
 
 ## 4. Compra, checkout y órdenes (Stripe)
 
+> **`OrderItemCardDTO` — la forma de `items[].card` (v1.51-b, NORMATIVA; ARCHITECTURE §5.2).**
+> Aplica a las **tres** superficies que sirven líneas de compra: `POST /checkout/quote`,
+> `POST /checkout/guest/quote` (§4-G.1) y `GET /orders/:orderId`. Antes se escribía `"card": {}`; esa forma vacía
+> es lo que dejó caer `imageSmallUrl` en la grieta.
+>
+> ```ts
+> OrderItemCardDTO = {
+>   // ---- HECHOS CONGELADOS (clase F, §5.2.2) — persistidos en `OrderItem.cardSnapshot` al cobrar.
+>   //      Inmutables: un re-sync de catálogo NO los cambia en un pedido ya cobrado.
+>   cardId: string,
+>   name: string,
+>   setName?: string,                  // ausente si la carta no tenía set al congelar
+>   number: string,
+>   productType: ProductType,
+>   rawCondition?: RawCondition,       // solo raw (único valor "NM")
+>   gradingCompany?: GradingCompany,   // solo graded
+>   gradeValue?: string,               // solo graded
+>   // ---- PRESENTACIÓN RESUELTA EN LECTURA (clase P, §5.2.3) — NO se persiste aquí.
+>   //      Se resuelve por join sobre `cardId`. SIEMPRE presente; `null` es legítimo.
+>   imageSmallUrl: string | null
+> }
+> ```
+>
+> - **`OrderItemCardDTO` NO es `CardDTO`.** No trae `id`, `externalId`, `imageLargeUrl`, `rarity`, `supertype`,
+>   `subtypes`, `setId`, `numberSort`, `numberPrefix`, `availableFinishes` ni `displayFinishes`. **Prohibido tiparlo
+>   como `CardDTO`** en el cliente: ese tipo falso es exactamente lo que hizo que el front pintara una imagen que el
+>   backend nunca enviaba. Quien necesite el `CardDTO` completo, lo pide por `GET /catalog/cards/:id` con el `cardId`.
+> - **`imageSmallUrl`: clave SIEMPRE presente, valor nullable.** `null` cuando la fila `Card` ya no existe o su
+>   columna (`String?`) es nula. El cliente **renderiza su placeholder**; no es error, no se reintenta, no bloquea el
+>   checkout ni el pedido. **Prohibido construir la URL por plantilla** o derivarla del `externalId` — solo se sirve
+>   lo que la columna contenga (§5.2.5).
+> - **Sellado (`productType='sealed'`): límite declarado.** El snapshot ancla `cardId`, no `sealedProductId` ⇒ la
+>   imagen resuelta es la de la **carta ancla**, que es la **cola** de la cascada de §4.34a. Mostrar la caja en el
+>   historial exigiría congelar identidad de sellado en la línea (clase F, DDL aditivo) y es **alcance de producto**:
+>   pasa por el arquitecto (regla 9), no se compensa con un join a `InventoryItem`. Ver ARCHITECTURE §5.2.6.
+> - **`OrderItemPreview`** (nombre ya usado por `/checkout/quote`) queda definido como:
+>   `{ inventoryItemId: string, card: OrderItemCardDTO, unitPriceCents: number }`.
+
 ### POST /api/v1/checkout/quote — `customer`  (v1.21.3-quote-prune: resolución POR ÍTEM)
 Calcula el desglose sin cobrar (para mostrar líneas en el checkout).
 Req: `{ inventoryItemIds: string[] }`  *(sin cambios)*
 Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableItems: UnavailableCartItemDTO[] }`
+*(v1.51-b: `items[].card` es **`OrderItemCardDTO`** — ver arriba. Aquí **no hay consulta extra**: la ruta ya carga
+`card` en memoria para preciar, así que la imagen sale del objeto ya cargado.)*
 
 **Poda amable (v1.21.3):** el quote resuelve **por ítem**, nunca revienta por una pieza muerta del carrito
 (`localStorage` puede traer ids de piezas ya vendidas/borradas):
@@ -3672,10 +3741,22 @@ Res `200`:
 ```json
 { "id": "…", "status": "settled", "createdAt": "…", "settledAt": "…",
   "breakdown": { "…": "BreakdownDTO" },
-  "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
+  "items": [{ "inventoryItemId": "…", "card": "OrderItemCardDTO", "unitPriceCents": 12500 }],
   "cfdiStatus": "registrado", "invoiceRequested": false, "stripePaymentIntentId": "pi_…" }
 ```
 Err `403/404`.
+
+> **v1.51-b — `items[].card` es `OrderItemCardDTO`** (definido al inicio de §4; antes decía `"card": {}`, y esa
+> forma vacía es el origen del hueco de la miniatura). **Ésta es la superficie que lee del HISTÓRICO**, y por eso
+> importa cómo se sirve:
+> - Los **hechos congelados** (clase F) salen de `OrderItem.cardSnapshot` tal cual se escribieron al cobrar. **No se
+>   re-derivan nunca**, ni siquiera si el catálogo cambió: el pedido dice lo que decía cuando se pagó.
+> - **`imageSmallUrl` se resuelve en LECTURA**, con **una sola consulta batcheada** por los `cardId` distintos del
+>   pedido (`Card.findMany({ where: { id: { in: […] } }, select: { id, imageSmallUrl } })`). **Prohibido el N+1** y
+>   **prohibido** resolver vía `inventoryItemId → InventoryItem.card`.
+> - **Efecto sobre pedidos anteriores a v1.51-b:** muestran miniatura **sin migración ni backfill**, porque el
+>   histórico y los pedidos nuevos comparten el mismo código de lectura. Si un pedido viejo siguiera sin imagen tras
+>   el cambio, la implementación se desvió de esta norma. Fundamento completo: ARCHITECTURE §5.2.4.
 
 Tras `settled`, los items aparecen en la bóveda con `ownershipStatus=settled`. En `pending` ya están en la bóveda con `ownershipStatus=pending`.
 
@@ -3741,7 +3822,7 @@ constante de servidor, §4-G.10).
 Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**; v1.21.4-dual-breakdown:
 gana `vaultBreakdown`, **siempre presente** — ver abajo):
 ```json
-{ "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
+{ "items": [{ "inventoryItemId": "…", "card": "OrderItemCardDTO", "unitPriceCents": 12500 }],
   "fulfillmentMode": "direct_ship",
   "breakdown": { "subtotalCents": 25000, "shippingFeeCents": 17500, "ivaCents": 6800,
                  "ivaRatePct": 16, "processingFeeCents": 1900, "totalCents": 51200, "currency": "MXN" },
@@ -3754,6 +3835,10 @@ gana `vaultBreakdown`, **siempre presente** — ver abajo):
 > **factura CFDI manual por correo** y el enlace a términos desde su i18n (criterio 48b). El **precio de venta es el
 > mismo** que para un usuario con cuenta (mismas reglas de venta por rareza/acabado; comprar como invitado no cambia
 > condiciones comerciales).
+> **v1.51-b:** `items[].card` es **`OrderItemCardDTO`** (definido al inicio de §4), con `imageSmallUrl` incluida —
+> el checkout de invitado pintaba el hueco gris por la misma causa que el de cuenta. Igual que en `/checkout/quote`,
+> **no hay consulta extra**: la ruta ya carga `card` en memoria para preciar. Sin cambio en `GuestTrackingItemDTO`
+> (§4-G, que ya traía `imageSmallUrl` por join).
 
 **`vaultBreakdown` — desglose reactivo del destino (v1.21.4-dual-breakdown, N-12).** El quote devuelve **DOS
 desgloses en una sola respuesta** para que la UI conmute el resumen **al instante** al alternar el radio de destino
