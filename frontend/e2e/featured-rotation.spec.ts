@@ -7,19 +7,31 @@ import { t } from './utils/i18n';
  * Estos son los casos que **jsdom no puede dar** y que §23.15 nº4 pide expresamente con caso propio:
  * `prefers-reduced-motion` **en caliente** (§23.14 g) y **sin JS** (§23.14 h). Se suman el reposo
  * inicial cronometrado, el aterrizaje en punto de snap (que necesita layout de verdad), la
- * suspensión por puntero, la pausa permanente por rueda y el presupuesto de la fila en las tres
- * anchuras (§23.14 f).
+ * suspensión por puntero y la pausa permanente por rueda.
+ *
+ * ══ SIN CONMUTADOR ════════════════════════════════════════════════════════════════════════════
+ * El par PAUSAR/REANUDAR/REPETIR se retiró (decisión del dueño: WCAG 2.2.2 es estándar del W3C, no
+ * obligación legal para esta tienda) y la cadencia bajó de 7 s a 5 s. Con el botón fuera, **la
+ * única evidencia de que un freno funciona es que la pista no se mueve**, así que todas las
+ * aserciones que leían la etiqueta del control ahora leen `scrollLeft`. Se retiró el caso que
+ * medía **exclusivamente** el conmutador (área táctil 44×44 en 390/640/1024, §23.14 f); ninguno de
+ * los cinco frenos automáticos perdió cobertura.
  *
  * Corren en modo MOCK (sin `@real`): la rotación es conducta de cliente y no depende del backend.
  */
 
 const SECTION = '#piezas-destacadas';
 const TRACK = '#piezas-destacadas-pista';
-const REST_MS = 7000;
+/** §23.3 — reposo entre tics y reposo inicial. Debe seguir a `ROTATION_REST_MS` del componente. */
+const REST_MS = 5000;
 
-const PAUSE_ARIA = t('es', 'home.featured.playback.pauseAria');
-const RESUME_ARIA = t('es', 'home.featured.playback.resumeAria');
-const REPLAY_ARIA = t('es', 'home.featured.playback.replayAria');
+/** Espera que la pista NO se mueva durante `rests` reposos completos, con holgura. */
+async function expectFrozen(page: Page, rests = 2) {
+  const before = (await readTrack(page)).scrollLeft;
+  await page.waitForTimeout(REST_MS * rests + 2000);
+  expect((await readTrack(page)).scrollLeft).toBe(before);
+  return before;
+}
 
 /** Lee la pista sin tocarla: posición y borde izquierdo de cada teja relativo a la pista. */
 async function readTrack(page: Page) {
@@ -55,10 +67,16 @@ async function primeCarousel(page: Page) {
 }
 
 test.describe('Carrusel destacadas · rotación automática (§23)', () => {
-  test('reposo inicial de 7 s, un tic de UNA teja y aterrizaje en punto de snap', async ({ page }) => {
+  /**
+   * **EL CASO QUE MÁS IMPORTA QUE SOBREVIVA.** Prueba que el carrusel **no se auto-pausa antes de
+   * su primer tic**: el motor de Chromium aplica `scroll-snap` al hidratar y mueve `scrollLeft`
+   * por su cuenta, y §23.5a leído al pie de la letra tomaba eso por intervención del usuario y
+   * dejaba la función muerta. Antes se leía en la etiqueta del conmutador («sigue diciendo
+   * PAUSAR»); ahora se lee donde de verdad está la respuesta: **la pista se mueve**.
+   */
+  test('reposo inicial de 5 s sin auto-pausarse, un tic de UNA teja y aterrizaje en punto de snap', async ({ page }) => {
     test.setTimeout(90_000);
     const track = await primeCarousel(page);
-    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toBeVisible();
 
     // OJO: el reposo inicial NO es `scrollLeft: 0`. Chromium aplica `scroll-snap` al hidratar y
     // deja la pista en el `gutter` (32px en `lg`) por su cuenta, sin usuario de por medio — es el
@@ -67,7 +85,7 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     expect(before.scrollLeft).toBeLessThanOrEqual(40);
 
     // §23.14 a — nada se mueve durante los primeros segundos.
-    await page.waitForTimeout(REST_MS - 2500);
+    await page.waitForTimeout(REST_MS - 2000);
     expect((await readTrack(page)).scrollLeft).toBe(before.scrollLeft);
 
     // …y después sí. Se espera por la CONDICIÓN (se movió), no por un tiempo exacto.
@@ -90,13 +108,16 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     );
   });
 
-  test('§23.14 g · movimiento reducido EN CALIENTE: se detiene al momento y el conmutador desaparece', async ({
+  /**
+   * **EL FRENO INNEGOCIABLE**, y el único de los cinco que protege a alguien ANTES de que el
+   * movimiento ocurra (trastorno vestibular, §8.2). Se escucha EN VIVO: activar la preferencia a
+   * media rotación la detiene en ese instante, sin recargar.
+   */
+  test('§23.14 g · movimiento reducido EN CALIENTE: la rotación se detiene al momento', async ({
     page,
   }) => {
     test.setTimeout(90_000);
     await primeCarousel(page);
-    const toggle = page.getByRole('button', { name: PAUSE_ARIA });
-    await expect(toggle).toBeVisible();
 
     await page.waitForFunction(
       (sel) => (document.querySelector(sel) as HTMLElement).scrollLeft > 40,
@@ -108,26 +129,20 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
-    // El freno desaparece: un botón «Pausar» sobre contenido quieto es una afirmación falsa.
-    await expect(toggle).toHaveCount(0);
-    await expect(page.getByRole('button', { name: RESUME_ARIA })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: REPLAY_ARIA })).toHaveCount(0);
-
-    await page.waitForTimeout(REST_MS + 3000);
+    // Cero movimiento a partir de aquí, por más reposos que pasen.
+    await page.waitForTimeout(REST_MS * 2 + 3000);
     expect((await readTrack(page)).scrollLeft).toBe(frozen);
   });
 
-  test('con movimiento reducido desde el inicio no hay conmutador ni rotación, y las flechas SALTAN', async ({
+  test('con movimiento reducido desde el inicio el temporizador NO arranca, y las flechas SALTAN', async ({
     page,
   }) => {
     test.setTimeout(90_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await primeCarousel(page);
 
-    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toHaveCount(0);
-    const rest = (await readTrack(page)).scrollLeft;
-    await page.waitForTimeout(REST_MS + 3000);
-    expect((await readTrack(page)).scrollLeft).toBe(rest);
+    // Ni un tic: se dejan pasar DOS reposos completos desde el montaje.
+    const rest = await expectFrozen(page);
 
     // §23.7: las flechas siguen funcionando (la preferencia quita movimiento, no información).
     await page.getByRole('button', { name: t('es', 'home.carouselNext') }).click();
@@ -152,22 +167,73 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     const box = (await track.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 
-    // Suspensión silenciosa: el conmutador NO cambia de etiqueta (§23.13 nº14).
-    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toBeVisible();
-    const rest = (await readTrack(page)).scrollLeft;
-    await page.waitForTimeout(REST_MS + 3000);
-    expect((await readTrack(page)).scrollLeft).toBe(rest);
+    // Suspensión silenciosa por HOVER: dos reposos completos con el puntero encima y ni un tic.
+    await expectFrozen(page);
 
     // Rueda horizontal sobre la pista = intervención ⇒ PAUSA PERMANENTE (§23.5 nivel 2).
     await page.mouse.wheel(200, 0);
-    await page.waitForTimeout(800);
-    await expect(page.getByRole('button', { name: RESUME_ARIA })).toBeVisible();
+    await page.waitForTimeout(1500);
 
-    // Se retira el puntero y se deja correr MÁS de un reposo completo: no se reactiva solo (R5).
+    // Se retira el puntero —se acaba la suspensión por hover— y se deja correr MÁS de dos reposos
+    // completos. Si la pausa por intervención no fuera permanente, aquí habría un tic. No lo hay.
     await page.mouse.move(0, 0);
-    const parked = (await readTrack(page)).scrollLeft;
-    await page.waitForTimeout(REST_MS * 2 + 2000);
-    expect((await readTrack(page)).scrollLeft).toBe(parked);
+    await expectFrozen(page);
+  });
+
+  /**
+   * **SUSPENSIÓN POR VISIBILIDAD (`IntersectionObserver`, §23.5) — solo se puede probar aquí.**
+   * jsdom no tiene `IntersectionObserver`, así que este freno NO tiene red en los unitarios: una
+   * mutación que borre `inView` de `suspended` los pasa TODOS en verde (verificado). Éste es el
+   * caso que la tapa.
+   *
+   * El apartado se hace con scroll de PÁGINA (`window.scrollTo`), nunca tocando la pista: un gesto
+   * sobre la pista sería intervención del usuario (§23.5 nivel 2) y pausaría para siempre, con lo
+   * que el test pasaría por el motivo equivocado y no probaría nada de la visibilidad.
+   */
+  test('§23.5 · la pista fuera de vista suspende, y al volver NO se acumulan tics', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await primeCarousel(page);
+
+    // Rotando de verdad antes de apartar la vista: sin este tic el test pasaría en verde aunque la
+    // rotación no hubiera arrancado nunca.
+    const rest = (await readTrack(page)).scrollLeft;
+    await page.waitForFunction(
+      ([sel, from]) =>
+        (document.querySelector(sel as string) as HTMLElement).scrollLeft > (from as number) + 40,
+      [TRACK, rest] as const,
+      { timeout: 20_000 },
+    );
+    await page.waitForTimeout(1200);
+    const moved = (await readTrack(page)).scrollLeft;
+
+    // Fuera de vista: se dejan pasar TRES reposos completos.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(REST_MS * 3 + 2000);
+    expect((await readTrack(page)).scrollLeft).toBe(moved);
+
+    // De vuelta a la vista: el reposo empieza DE CERO (§23.3, «ni un solo tic acumulado»), así que
+    // los tres tics que no ocurrieron no se recuperan de golpe.
+    await page.evaluate(
+      (sel) => document.querySelector(sel)!.scrollIntoView({ block: 'center' }),
+      TRACK,
+    );
+    await page.waitForTimeout(REST_MS - 2000);
+    expect((await readTrack(page)).scrollLeft).toBe(moved);
+
+    // …y entonces sí, UN tic: menos de un ancho de pista, nunca tres de golpe.
+    await page.waitForFunction(
+      ([sel, from]) =>
+        (document.querySelector(sel as string) as HTMLElement).scrollLeft > (from as number) + 40,
+      [TRACK, moved] as const,
+      { timeout: 15_000 },
+    );
+    await page.waitForTimeout(1200);
+    const back = await readTrack(page);
+    expect(back.scrollLeft - moved).toBeLessThan(
+      await page.evaluate((sel) => (document.querySelector(sel) as HTMLElement).clientWidth, TRACK),
+    );
   });
 
   /**
@@ -175,8 +241,8 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
    * deslizamiento de nuestro propio tic tiene antecedente de usuario ⇒ **pausa**.
    *
    * Regresión medida en este mismo navegador antes de arreglarla: rueda sobre la pista a **+56 ms**
-   * del arranque de un tic ⇒ el conmutador se quedaba en PAUSAR (el gesto se tragaba) y, al retirar
-   * el puntero, la pista **se movía sola** de `scrollLeft` 460 a 756. Es R5 incumplido y §23.13 nº9
+   * del arranque de un tic ⇒ el gesto se tragaba y, al retirar el puntero, la pista **se movía
+   * sola** de `scrollLeft` 460 a 756. Es R5 incumplido y §23.13 nº9
    * al pie de la letra. La causa era una guarda «este scroll lo originamos nosotros» que hacía ganar
    * a la evidencia débil; se retiró (ver `handleScroll`). Este test es su lápida: solo puede pasar
    * mientras el antecedente del usuario gane.
@@ -189,7 +255,6 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
   }) => {
     test.setTimeout(120_000);
     const track = await primeCarousel(page);
-    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toBeVisible();
     const box = (await track.boundingBox())!;
     const rest = (await readTrack(page)).scrollLeft;
 
@@ -204,10 +269,8 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(300, 0);
 
-    // El gesto NO se traga: pausa permanente, aquí y ahora.
-    await expect(page.getByRole('button', { name: RESUME_ARIA })).toBeVisible();
-
-    // Y al retirar el puntero no se reanuda sola, que es la mitad que de verdad se rompía: la
+    // El gesto NO se traga: pausa permanente, aquí y ahora. Y al retirar el puntero no se reanuda
+    // sola, que es la mitad que de verdad se rompía: la
     // suspensión por hover terminaba y el temporizador volvía a arrancar como si nadie hubiera
     // tocado nada.
     await page.mouse.move(0, 0);
@@ -216,70 +279,45 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     // contra un valor en vuelo mediría el snap, no una reanudación. Esto no tapa nada: lo que el
     // test afirma es que **no hay un tic más**, no que no se mueva ni un píxel tras soltar.
     await page.waitForTimeout(2000);
-    const parked = (await readTrack(page)).scrollLeft;
-    await page.waitForTimeout(REST_MS * 2 + 2000);
-    expect((await readTrack(page)).scrollLeft).toBe(parked);
-    await expect(page.getByRole('button', { name: RESUME_ARIA })).toBeVisible();
+    await expectFrozen(page);
   });
 
-  test('§23.14 f · el conmutador cabe en 390 / 640 / 1024 sin pisar el H2 ni el link', async ({ page }) => {
-    test.setTimeout(90_000);
-    for (const width of [390, 640, 1024]) {
-      await page.setViewportSize({ width, height: 900 });
-      await primeCarousel(page);
-      const toggle = page.getByRole('button', { name: PAUSE_ARIA });
-      await expect(toggle, `sin conmutador a ${width}px`).toBeVisible();
-
-      const metrics = await toggle.evaluate((el) => {
-        const rect = el.getBoundingClientRect();
-        const after = getComputedStyle(el, '::after');
-        const inset = (v: string) => Math.abs(parseFloat(v) || 0);
-        return {
-          left: rect.left - inset(after.left),
-          right: rect.right + inset(after.right),
-          top: rect.top - inset(after.top),
-          bottom: rect.bottom + inset(after.bottom),
-        };
-      });
-      // Área táctil ≥ 44×44 obtenida con el pseudo-elemento, no con padding (§23.4b).
-      expect(metrics.right - metrics.left, `ancho táctil a ${width}px`).toBeGreaterThanOrEqual(44);
-      expect(metrics.bottom - metrics.top, `alto táctil a ${width}px`).toBeGreaterThanOrEqual(44);
-
-      // Y esa expansión no puede solaparse con nada de la fila.
-      const heading = (await page.locator(`${SECTION} h2`).boundingBox())!;
-      expect(metrics.left, `el área táctil pisa el H2 a ${width}px`).toBeGreaterThanOrEqual(
-        heading.x + heading.width - 1,
-      );
-      const link = await page.locator(`${SECTION} a[href$="/catalog"]`).boundingBox();
-      if (link) {
-        expect(metrics.right, `el área táctil pisa el link a ${width}px`).toBeLessThanOrEqual(link.x + 1);
-      }
-    }
-  });
-
-  test('§23.14 i · la pasada TERMINA: se detiene en el extremo, el conmutador dice REPETIR y REPETIR vuelve al inicio', async ({
+  /**
+   * **Una pasada completa, de punta a punta.** Con la cadencia de 7 s tardaba ~39,7 s; a 5 s son
+   * ~28 s (reposo inicial + un tic cada 5 s hasta el tope de la pista, §23.6). Al terminar la
+   * pista queda QUIETA para siempre: ya no hay control que la devuelva a REPETIR, y el fin de la
+   * pasada se detecta donde corresponde —la pista tocó su tope y la flecha «siguiente» se apagó—.
+   */
+  test('§23.14 i · la pasada TERMINA en el extremo y ahí se queda (sin bucle, sin rebobinado)', async ({
     page,
   }) => {
-    // Una pasada completa: reposo inicial + un tic cada 7 s hasta el tope de la pista (§23.6).
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
     await primeCarousel(page);
-    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toBeVisible();
 
-    const replay = page.getByRole('button', { name: REPLAY_ARIA });
-    await expect(replay).toBeVisible({ timeout: 120_000 });
+    // El fin de la pasada: la pista llegó a su tope. ~28 s con la cadencia de 5 s; el margen cubre
+    // el arranque y los deslizamientos.
+    await page.waitForFunction(
+      (sel) => {
+        const el = document.querySelector(sel) as HTMLElement;
+        return Math.abs(el.scrollLeft - (el.scrollWidth - el.clientWidth)) <= 2;
+      },
+      TRACK,
+      { timeout: 80_000 },
+    );
 
     const ended = await readTrack(page);
     expect(Math.abs(ended.scrollLeft - ended.maxScroll)).toBeLessThanOrEqual(2);
     // TERMINADO es el MISMO predicado que apaga la flecha «siguiente»: un solo criterio.
     await expect(page.getByRole('button', { name: t('es', 'home.carouselNext') })).toBeDisabled();
-    // Y no vuelve a moverse: sin bucle, sin rebobinado automático.
-    await page.waitForTimeout(REST_MS + 2000);
-    expect((await readTrack(page)).scrollLeft).toBe(ended.scrollLeft);
+    // Y no vuelve a moverse: sin bucle, sin rebobinado automático, sin control que la relance.
+    await expectFrozen(page);
 
-    await replay.click();
-    await page.waitForTimeout(300);
-    expect((await readTrack(page)).scrollLeft).toBeLessThanOrEqual(40);
-    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toBeVisible();
+    // Las flechas SIGUEN navegando a mano después del fin (§20.3): la pista no queda muerta.
+    await page.getByRole('button', { name: t('es', 'home.carouselPrev') }).click();
+    await page.waitForTimeout(800);
+    expect((await readTrack(page)).scrollLeft).toBeLessThan(ended.scrollLeft);
+    // Y retroceder no relanza la rotación.
+    await expectFrozen(page);
   });
 
   test('§23.9 · la sección se anuncia como carrusel y la pista es un tope de tabulación con nombre', async ({
@@ -300,8 +338,8 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
 /**
  * §23.14 h / §23.8 — SIN JS. Lo que este bloque puede afirmar hoy y lo que NO:
  *
- * **Sí:** no se pinta ni una flecha ni el conmutador, y nada se mueve. Ése es el punto que importa
- * para WCAG 2.2.2 — **no puede existir movimiento sin freno**, porque los tres nacen del mismo JS.
+ * **Sí:** no se pinta ni una flecha, y nada se mueve. Rotación y flechas nacen del mismo JS, así
+ * que sin JS no hay movimiento que frenar.
  *
  * **No:** §23.8 dice además que sin JS se leen «las ocho tejas completas». Eso **no es cierto hoy y
  * no lo introduce §23**: las tejas las trae `GET /catalog/cards` por react-query **en el cliente**,
@@ -313,13 +351,12 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
 test.describe('Carrusel destacadas · sin JavaScript (§23.8)', () => {
   test.use({ javaScriptEnabled: false });
 
-  test('no hay flechas, ni conmutador, ni movimiento', async ({ page }) => {
+  test('no hay flechas, ni ningún otro control, ni movimiento', async ({ page }) => {
     await page.goto('/es');
     await expect(page.locator(SECTION)).toBeVisible();
 
-    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: RESUME_ARIA })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: REPLAY_ARIA })).toHaveCount(0);
+    // El estante no pinta UN SOLO botón sin JS.
+    await expect(page.locator(`${SECTION} button`)).toHaveCount(0);
     await expect(page.getByRole('button', { name: t('es', 'home.carouselPrev') })).toHaveCount(0);
     await expect(page.getByRole('button', { name: t('es', 'home.carouselNext') })).toHaveCount(0);
 

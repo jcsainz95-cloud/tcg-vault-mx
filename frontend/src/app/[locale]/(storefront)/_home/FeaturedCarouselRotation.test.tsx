@@ -14,6 +14,17 @@ import type { CardDTO, GroupedListingSummaryDTO } from '@/types/contract';
 /**
  * ROTACIÓN AUTOMÁTICA DEL CARRUSEL (P-49, DESIGN_SYSTEM §23) — la red de seguridad que no existía.
  *
+ * ══ SIN CONMUTADOR: QUÉ CAMBIÓ EN ESTOS TESTS ═════════════════════════════════════════════════
+ * El conmutador PAUSAR/REANUDAR/REPETIR se retiró (decisión del dueño; WCAG 2.2.2 es estándar del
+ * W3C, no obligación legal para esta tienda) y la cadencia bajó de 7 s a 5 s. Se retiraron los
+ * casos que probaban **exclusivamente el control** (su área táctil, su sitio en el orden de
+ * tabulación, sus estados y sus claves i18n). **No se retiró ni una sola cobertura de conducta
+ * viva**: los cinco frenos automáticos —hover, foco, intervención del usuario, visibilidad y
+ * `prefers-reduced-motion`— siguen probados aquí, con la aserción reescrita para mirar **si la
+ * pista se mueve o no** (`expectFrozen` / `scrollLeft`) en vez de la etiqueta de un botón que ya no
+ * existe. Es una aserción más fuerte, no más débil: el botón decía lo que el componente creía; el
+ * `scrollLeft` dice lo que el componente hizo.
+ *
  * ══ QUÉ SIMULA ESTE ARCHIVO Y QUÉ MIDE DE VERDAD ══════════════════════════════════════════════
  * jsdom **no tiene layout**: `offsetLeft`, `clientWidth` y `scrollWidth` son 0 para todo y
  * `getBoundingClientRect()` devuelve ceros. Así que la geometría de la pista se **inyecta** con
@@ -180,12 +191,20 @@ function getSection() {
   return screen.getByRole('region', { name: 'Piezas destacadas del catálogo' });
 }
 
-function toggle() {
-  return screen.queryByRole('button', { name: /rotación automática|desde el principio/i });
-}
-
 function statusLine() {
   return document.querySelector('[role="status"]') as HTMLElement;
+}
+
+/**
+ * **La aserción central de este archivo desde que no hay conmutador.** Antes, «¿está frenada?» se
+ * leía en la etiqueta del botón (PAUSAR/REANUDAR/REPETIR); retirado el control, la única evidencia
+ * honesta de que un freno funciona es que **la pista no se mueve**. Deja correr varios reposos
+ * completos y exige que `scrollLeft` sea exactamente el mismo.
+ */
+async function expectFrozen(track: HTMLElement, rests = 4) {
+  const before = track.scrollLeft;
+  await settle(ROTATION_REST_MS * rests);
+  expect(track.scrollLeft).toBe(before);
 }
 
 /**
@@ -232,7 +251,7 @@ afterEach(() => {
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
 describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca coexiste con carga', () => {
-  it('los primeros 7 s la pista está QUIETA, y al cumplirse el reposo avanza UNA teja', async () => {
+  it('los primeros 5 s la pista está QUIETA, y al cumplirse el reposo avanza UNA teja', async () => {
     const { track } = await mountCarousel();
     await settle(ROTATION_REST_MS - 1);
     expect(track.scrollLeft).toBe(0);
@@ -242,10 +261,10 @@ describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca co
 
   it('NO arranca mientras la foto de la teja líder no ha cargado', async () => {
     const { track } = await mountCarousel({ loadLeadImage: false });
-    // Sin `load` no hay reposo que contar: el cronómetro de los 7 s ni siquiera está armado.
+    // Sin `load` no hay reposo que contar: el cronómetro de los 5 s ni siquiera está armado.
     await settle(LEAD_IMAGE_CAP_MS - 1);
     expect(track.scrollLeft).toBe(0);
-    // Y a los 7 s —el reposo completo si la foto hubiera cargado— la pista sigue quieta.
+    // Y a los 5 s —el reposo completo si la foto hubiera cargado— la pista sigue quieta.
     await settle(ROTATION_REST_MS - LEAD_IMAGE_CAP_MS + 1);
     expect(track.scrollLeft).toBe(0);
   });
@@ -253,7 +272,7 @@ describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca co
   it('el tope de 3 s desbloquea la rotación si la imagen remota nunca llega', async () => {
     const { track } = await mountCarousel({ loadLeadImage: false });
     // El avance va en dos tramos porque `act` no aplica el `setState` del tope hasta salir del
-    // bloque; en el navegador el reposo de 7 s arranca en el instante mismo del tope.
+    // bloque; en el navegador el reposo de 5 s arranca en el instante mismo del tope.
     await settle(LEAD_IMAGE_CAP_MS);
     await settle(ROTATION_REST_MS - 1);
     expect(track.scrollLeft).toBe(0);
@@ -272,7 +291,7 @@ describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca co
     await act(async () => {
       fireEvent.error(screen.getByAltText(NAMES[0]));
     });
-    // El reposo arranca en el instante del `error`, no en el tope: a los 7 s justos ya hubo tic, y
+    // El reposo arranca en el instante del `error`, no en el tope: a los 5 s justos ya hubo tic, y
     // eso solo es posible si NO se esperaron los 3 s de `LEAD_IMAGE_CAP_MS` por delante.
     await settle(ROTATION_REST_MS - 1);
     expect(track.scrollLeft).toBe(0);
@@ -280,11 +299,10 @@ describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca co
     expect(track.scrollLeft).toBe(SNAPS[1]);
   });
 
-  it('no hay rotación ni conmutador mientras el estante está en skeleton', async () => {
+  it('no hay pista —y por tanto no hay rotación— mientras el estante está en skeleton', async () => {
     mockCatalog(EIGHT);
     renderWithProviders(<FeaturedCarousel />, 'es');
     expect(screen.queryByRole('group')).toBeNull();
-    expect(toggle()).toBeNull();
     await settle(0);
   });
 
@@ -300,29 +318,28 @@ describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca co
 });
 
 describe('§23.7 · prefers-reduced-motion ⇒ movimiento CERO (R4)', () => {
-  it('con la preferencia activa el temporizador NO arranca y el conmutador NO se renderiza', async () => {
+  it('con la preferencia activa el temporizador NO arranca: cero movimiento, ni un píxel', async () => {
     setReducedMotion(true);
     const { track } = await mountCarousel();
-    expect(toggle()).toBeNull();
     await settle(ROTATION_REST_MS * 6);
     expect(track.scrollLeft).toBe(0);
   });
 
   it('se detiene EN VIVO si la preferencia se activa a media rotación (§23.14 g)', async () => {
     const { track } = await mountCarousel();
+    // Rotando de verdad antes de activar la preferencia: sin este tic el test pasaría en verde
+    // aunque la rotación nunca hubiera arrancado.
     await settle(ROTATION_REST_MS);
     expect(track.scrollLeft).toBe(SNAPS[1]);
-    expect(toggle()).not.toBeNull();
 
     setReducedMotion(true);
 
-    // El conmutador desaparece en ese instante: un freno sobre algo quieto es una afirmación falsa.
-    expect(toggle()).toBeNull();
-    await settle(ROTATION_REST_MS * 4);
+    // Y a partir de ese instante, quieta para siempre.
+    await expectFrozen(track);
     expect(track.scrollLeft).toBe(SNAPS[1]);
   });
 
-  it('nunca «más lento»: desactivarla vuelve a rotar con el reposo COMPLETO de 7 s, sin tic de golpe', async () => {
+  it('nunca «más lento»: desactivarla vuelve a rotar con el reposo COMPLETO de 5 s, sin tic de golpe', async () => {
     setReducedMotion(true);
     const { track } = await mountCarousel();
     await settle(ROTATION_REST_MS * 3);
@@ -345,47 +362,49 @@ describe('§23.7 · prefers-reduced-motion ⇒ movimiento CERO (R4)', () => {
   });
 });
 
-describe('§23.4d · el control NO se renderiza cuando no puede funcionar', () => {
-  it('pista que no desborda ⇒ sin conmutador (nada que frenar)', async () => {
-    await mountCarousel({ layout: { clientWidth: 4000, scrollWidth: 4000 } });
-    expect(toggle()).toBeNull();
+/**
+ * `rotationPossible` gobernaba DOS cosas —«¿hay rotación?» y «¿se pinta el conmutador?»— con **un
+ * solo booleano**. Retirado el control, sigue gobernando la primera, y estos casos son los que lo
+ * fijan: antes se leían en la ausencia del botón, ahora en la ausencia de movimiento. Sin ellos,
+ * borrar el predicado «porque ya no hay botón que pintar» pasaría en verde.
+ */
+describe('§23.4d · NO se rota cuando la rotación no puede funcionar (`rotationPossible`)', () => {
+  it('pista que no desborda ⇒ no rota (no hay nada que desplazar)', async () => {
+    const { track } = await mountCarousel({ layout: { clientWidth: 4000, scrollWidth: 4000 } });
+    await expectFrozen(track);
+    expect(track.scrollLeft).toBe(0);
   });
 
-  it('una sola teja ⇒ sin conmutador', async () => {
+  it('una sola teja ⇒ no rota', async () => {
     mockCatalog([EIGHT[0]]);
     renderWithProviders(<FeaturedCarousel />, 'es');
     await settle(0);
-    expect(toggle()).toBeNull();
+    await expectFrozen(getTrack());
+    expect(getTrack().scrollLeft).toBe(0);
   });
 
-  it('estante vacío ⇒ ni pista ni conmutador', async () => {
+  it('estante vacío ⇒ ni pista ni rotación', async () => {
     mockCatalog([]);
     renderWithProviders(<FeaturedCarousel />, 'es');
     await settle(0);
     expect(screen.queryByRole('group')).toBeNull();
-    expect(toggle()).toBeNull();
-  });
-
-  it('nunca `disabled` ni `loading`: cuando existe, está operable (§23.4c)', async () => {
-    await mountCarousel();
-    const button = toggle()!;
-    expect(button).toBeEnabled();
-    expect(button).not.toHaveAttribute('aria-pressed');
   });
 });
 
 describe('§23.5 nivel 1 · suspensión silenciosa (hover, foco, pestaña)', () => {
-  it('el puntero encima detiene el temporizador y NO cambia la etiqueta del conmutador', async () => {
+  it('el puntero encima detiene el temporizador, y lo hace EN SILENCIO', async () => {
     const { track } = await mountCarousel();
     act(() => {
       getSection().dispatchEvent(new Event('pointerenter'));
     });
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
     await settle(ROTATION_REST_MS * 3);
     expect(track.scrollLeft).toBe(0);
+    // Silenciosa (§23.9c): una suspensión reversible sola NO se anuncia. Esto es lo que antes
+    // afirmaba «la etiqueta del conmutador no cambia».
+    expect(statusLine()).toHaveTextContent('');
   });
 
-  it('al retirar el puntero espera los 7 s COMPLETOS: nunca un tic inmediato (§23.14 c)', async () => {
+  it('al retirar el puntero espera los 5 s COMPLETOS: nunca un tic inmediato (§23.14 c)', async () => {
     const { track } = await mountCarousel();
     act(() => {
       getSection().dispatchEvent(new Event('pointerenter'));
@@ -409,7 +428,8 @@ describe('§23.5 nivel 1 · suspensión silenciosa (hover, foco, pestaña)', () 
     expect(track.scrollLeft).toBe(0);
     // Mientras el usuario navega con teclado la pista queda en `polite` (§23.9b).
     expect(track).toHaveAttribute('aria-live', 'polite');
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
+    // Y en silencio: el foco suspende, no pausa (§23.9c).
+    expect(statusLine()).toHaveTextContent('');
 
     await act(async () => {
       fireEvent.focusOut(track, { relatedTarget: document.body });
@@ -445,20 +465,21 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
       track.scrollLeft = 500;
       fireEvent.scroll(track);
     });
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
     expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
     await settle(ROTATION_REST_MS * 6);
     expect(track.scrollLeft).toBe(500);
   });
 
-  it('la rueda/trackpad sobre la pista también pausa', async () => {
+  it('la rueda/trackpad sobre la pista también pausa, y no se reanuda sola', async () => {
     const { track } = await mountCarousel();
     await act(async () => {
       fireEvent.wheel(track);
       track.scrollLeft = 300;
       fireEvent.scroll(track);
     });
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
+    expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
+    await expectFrozen(track);
+    expect(track.scrollLeft).toBe(300);
   });
 
   it('el foco que el navegador persigue hasta una teja fuera de pantalla también pausa (§23.5)', async () => {
@@ -468,7 +489,13 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
       track.scrollLeft = 800;
       fireEvent.scroll(track);
     });
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
+    expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
+    // Y la pausa es PERMANENTE: ni siquiera al soltar el foco vuelve a rotar.
+    await act(async () => {
+      fireEvent.focusOut(track, { relatedTarget: document.body });
+    });
+    await expectFrozen(track);
+    expect(track.scrollLeft).toBe(800);
   });
 
   /**
@@ -483,8 +510,10 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
       track.scrollLeft = 32;
       fireEvent.scroll(track);
     });
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
+    // No se anunció pausa alguna…
     expect(statusLine()).toHaveTextContent('');
+    // …y la prueba de verdad: el tic siguiente OCURRE. Si el re-snap se hubiera leído como
+    // intervención, la pista se quedaría en 32 para siempre y la función saldría muerta.
     await settle(ROTATION_REST_MS);
     expect(track.scrollLeft).toBe(SNAPS[1]);
   });
@@ -499,7 +528,10 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
       track.scrollLeft = 60;
       fireEvent.scroll(track);
     });
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
+    expect(statusLine()).toHaveTextContent('');
+    // Sigue rotando: el tic siguiente llega igual.
+    await settle(ROTATION_REST_MS);
+    expect(track.scrollLeft).toBe(SNAPS[1]);
   });
 
   it('pulsar una flecha pausa para siempre (flechas y rotación no se disputan la pista)', async () => {
@@ -507,7 +539,7 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
     });
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
+    expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
     const after = track.scrollLeft;
     await settle(ROTATION_REST_MS * 6);
     expect(track.scrollLeft).toBe(after);
@@ -532,7 +564,6 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
       fireEvent.scroll(track);
       fireEvent.scroll(track);
     });
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
     expect(statusLine()).toHaveTextContent('');
     // Y la pasada continúa como si nada.
     await settle(ROTATION_REST_MS);
@@ -564,7 +595,6 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
       track.scrollLeft = 620;
       fireEvent.scroll(track);
     });
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
     expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
 
     // Y no se reanuda sola: eso es exactamente lo que el test falso permitía.
@@ -575,7 +605,7 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
   it('llegar por el ancla #piezas-destacadas detiene la rotación, sin rebobinar', async () => {
     window.location.hash = '#piezas-destacadas';
     const { track } = await mountCarousel();
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
+    expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
     await settle(ROTATION_REST_MS * 4);
     expect(track.scrollLeft).toBe(0);
   });
@@ -589,17 +619,15 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
    */
   it('el regreso de la nota al pie MID-VISIT (hashchange, ya montado y rotando) también pausa', async () => {
     const { track } = await mountCarousel();
-    // Rotando de verdad: un tic ya ocurrió y el conmutador dice PAUSAR.
+    // Rotando de verdad: un tic ya ocurrió.
     await settle(ROTATION_REST_MS);
     expect(track.scrollLeft).toBe(SNAPS[1]);
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
 
     await act(async () => {
       window.location.hash = `#${FEATURED_CAROUSEL_ID}`;
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
 
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
     expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
     // «No se rebobina: solo se detiene» (§23.5) — se queda donde estaba, y ahí se queda.
     expect(track.scrollLeft).toBe(SNAPS[1]);
@@ -607,39 +635,14 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
     expect(track.scrollLeft).toBe(SNAPS[1]);
   });
 
-  it('el conmutador NO emite por el canal de estado: el nombre accesible ya lo dice (§23.9c)', async () => {
-    await mountCarousel();
-    await act(async () => {
-      fireEvent.click(toggle()!);
-    });
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
-    expect(statusLine()).toHaveTextContent('');
-  });
-
-  it('PAUSAR ⟷ REANUDAR: reanudar vuelve a rotar con su reposo completo', async () => {
-    const { track } = await mountCarousel();
-    await act(async () => {
-      fireEvent.click(toggle()!);
-    });
-    await settle(ROTATION_REST_MS * 3);
-    expect(track.scrollLeft).toBe(0);
-
-    await act(async () => {
-      fireEvent.click(toggle()!);
-    });
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
-    await settle(ROTATION_REST_MS);
-    expect(track.scrollLeft).toBe(SNAPS[1]);
-  });
 });
 
 describe('§23.6 · una pasada y para (R7)', () => {
-  it('al llegar al extremo se detiene, el conmutador pasa a REPETIR y se anuncia el fin', async () => {
+  it('al llegar al extremo se detiene y se anuncia el fin — y ahí se queda', async () => {
     const { track } = await mountCarousel();
     // 6 tics alcanzables + el 7.º que descubre que no queda pista.
     await settle(ROTATION_REST_MS * 7);
     expect(track.scrollLeft).toBe(MAX_SCROLL);
-    expect(toggle()).toHaveAccessibleName('Repetir desde el principio');
     expect(statusLine()).toHaveTextContent('Fin de las piezas destacadas.');
     // La flecha «siguiente» queda apagada: TERMINADO es el MISMO predicado (§23.6).
     expect(screen.getByRole('button', { name: 'Siguiente' })).toBeDisabled();
@@ -649,26 +652,19 @@ describe('§23.6 · una pasada y para (R7)', () => {
     expect(track.scrollLeft).toBe(MAX_SCROLL);
   });
 
-  it('REPETIR vuelve al inicio de forma INSTANTÁNEA y arranca una pasada nueva', async () => {
-    const { track } = await mountCarousel();
-    await settle(ROTATION_REST_MS * 7);
-    await act(async () => {
-      fireEvent.click(toggle()!);
-    });
-    expect(track.scrollLeft).toBe(0);
-    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
-    await settle(ROTATION_REST_MS);
-    expect(track.scrollLeft).toBe(SNAPS[1]);
-  });
-
-  it('desde TERMINADO, retroceder con la flecha «anterior» deja PAUSADO (no vuelve a rotar solo)', async () => {
+  /**
+   * Terminada la pasada, la flecha «anterior» devuelve pista por delante: `nextScrollTarget` vuelve
+   * a tener a dónde ir. Es el escenario en el que un carrusel mal frenado **se relanza solo**. No
+   * pasa, y ya no hay control que pueda relanzarlo tampoco.
+   */
+  it('desde TERMINADO, retroceder con la flecha «anterior» NO vuelve a rotar solo', async () => {
     const { track } = await mountCarousel();
     await settle(ROTATION_REST_MS * 7);
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Anterior' }));
     });
-    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
     const after = track.scrollLeft;
+    expect(after).toBeLessThan(MAX_SCROLL);
     await settle(ROTATION_REST_MS * 5);
     expect(track.scrollLeft).toBe(after);
   });
@@ -722,8 +718,10 @@ describe('§23.9 · anuncio a lectores de pantalla (patrón APG)', () => {
     const { track } = await mountCarousel();
     expect(track).toHaveAttribute('tabindex', '0');
     expect(track).toHaveAttribute('aria-live', 'off');
+    // Se ata al TEMPORIZADOR, no al modo: basta una suspensión silenciosa (el puntero encima) para
+    // que vuelva a `polite`. Antes esto se provocaba pulsando el conmutador.
     await act(async () => {
-      fireEvent.click(toggle()!);
+      getSection().dispatchEvent(new Event('pointerenter'));
     });
     expect(track).toHaveAttribute('aria-live', 'polite');
   });
@@ -742,49 +740,30 @@ describe('§23.9 · anuncio a lectores de pantalla (patrón APG)', () => {
   });
 });
 
-describe('§23.4 · anatomía y orden de tabulación del conmutador', () => {
-  it('es el PRIMER control del carrusel en orden de DOM: antes de las flechas y de la pista', async () => {
-    await mountCarousel();
-    const button = toggle()!;
-    const next = screen.getByRole('button', { name: 'Siguiente' });
-    expect(button.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(button.compareDocumentPosition(getTrack()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('va pegado al H2, dentro del grupo del título (no en el grupo de las flechas)', async () => {
+/**
+ * Lo que queda de §23.4 tras retirar el conmutador: el encabezado **vuelve a su fila de tres**
+ * (H2 · «Ver todo el catálogo» · flechas), sin ningún control pegado al H2 y sin resto del slot
+ * `titleAdjacent` que el carrusel era el único en usar.
+ */
+describe('§20.3 · el encabezado vuelve a su fila de tres elementos', () => {
+  it('el H2 va SUELTO en la fila, sin envoltorio de agrupación ni control pegado', async () => {
     await mountCarousel();
     const heading = screen.getByRole('heading', { level: 2 });
-    expect(heading.parentElement).toBe(toggle()!.parentElement);
+    const headerRow = heading.parentElement!;
+    // Con conmutador, el H2 vivía dentro de un `<div>` del slot `titleAdjacent`. Sin él vuelve a
+    // colgar directo de la fila del encabezado, que tiene exactamente dos hijos: H2 y grupo derecho.
+    expect(headerRow.firstElementChild).toBe(heading);
+    expect(headerRow.childElementCount).toBe(2);
+    // Y los únicos botones del estante son las dos flechas.
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Anterior', 'Siguiente']);
   });
 
-  it('el nombre accesible EMPIEZA por la palabra visible (WCAG 2.5.3)', async () => {
-    await mountCarousel();
-    const button = toggle()!;
-    expect(button).toHaveTextContent('Pausar');
-    expect(button.getAttribute('aria-label')).toMatch(/^Pausar/);
-  });
-
-  it('área táctil por pseudo-elemento y ancho reservado — la fila no baila al cambiar de estado', async () => {
-    await mountCarousel();
-    const button = toggle()!;
-    // §23.4b: 44×44 con `::after` (inset -16px/-8px), NUNCA con padding, y `min-width: 80px`.
-    expect(button.className).toContain('after:-inset-y-4');
-    expect(button.className).toContain('after:-inset-x-2');
-    expect(button.className).toContain('min-w-[80px]');
-    expect(button.className).not.toMatch(/\bp[xy]?-\d/);
-    // Sin borde, sin fondo, sin radio, sin sombra.
-    expect(button.className).not.toMatch(/\b(border|bg-|rounded|shadow)/);
-    // El glifo va aria-hidden: la palabra es el portador.
-    expect(button.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-  });
-
-  it('la desaparición del conmutador no toca el grupo derecho (link y flechas siguen ahí)', async () => {
+  it('el grupo derecho conserva el link «Ver todo» y las dos flechas', async () => {
     await mountCarousel();
     const rightGroup = screen.getByRole('button', { name: 'Siguiente' }).parentElement!.parentElement!;
-    const before = rightGroup.childElementCount;
-    setReducedMotion(true);
-    expect(toggle()).toBeNull();
-    expect(rightGroup.childElementCount).toBe(before);
+    expect(rightGroup.querySelector('a[href$="/catalog"]')).not.toBeNull();
+    expect(rightGroup.querySelectorAll('button')).toHaveLength(2);
   });
 });
 
@@ -801,7 +780,7 @@ describe('§23.15 nº2 · las flechas navegan por índice', () => {
 });
 
 describe('§23.12 · i18n', () => {
-  it('en EN el conmutador dice Pause y su nombre accesible empieza por la palabra visible', async () => {
+  it('en EN la pista y el rol del carrusel van traducidos (las claves del conmutador ya no existen)', async () => {
     mockCatalog(EIGHT);
     renderWithProviders(<FeaturedCarousel />, 'en');
     await settle(0);
@@ -810,11 +789,13 @@ describe('§23.12 · i18n', () => {
     await act(async () => {
       window.dispatchEvent(new Event('resize'));
     });
-    const button = screen.getByRole('button', { name: 'Pause the automatic rotation' });
-    expect(button).toHaveTextContent('Pause');
     expect(screen.getByRole('region', { name: 'Featured from the catalog' })).toHaveAttribute(
       'aria-roledescription',
       'carousel',
     );
+    // El canal de estado sigue localizado: es lo único que el carrusel dice con palabras.
+    fireEvent.load(screen.getByAltText(NAMES[0]));
+    await settle(ROTATION_REST_MS * 8);
+    expect(statusLine()).toHaveTextContent('End of featured pieces.');
   });
 });

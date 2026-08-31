@@ -109,14 +109,6 @@
     "featured": {
       "roledescription": "carousel",
       "trackAria": "Featured pieces \u2014 scrollable track",
-      "playback": {
-        "pause": "Pause",
-        "resume": "Resume",
-        "replay": "Replay",
-        "pauseAria": "Pause the automatic rotation",
-        "resumeAria": "Resume the automatic rotation",
-        "replayAria": "Replay from the beginning"
-      },
       "status": {
         "paused": "Automatic rotation paused.",
         "ended": "End of featured pieces."

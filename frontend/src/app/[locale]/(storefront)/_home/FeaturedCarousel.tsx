@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Pause, Play, RotateCcw } from 'lucide-react';
 import { getCatalog } from '@/lib/api';
 import type { GroupedListingSummaryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -38,8 +37,16 @@ export const FEATURED_CAROUSEL_ID = 'piezas-destacadas';
 /** `id` de la PISTA (§23.9b). La sección tiene el suyo; la región viva es la pista. */
 export const FEATURED_TRACK_ID = 'piezas-destacadas-pista';
 
-/** Reposo entre tics — y reposo INICIAL (§23.3). 7 s, por encima del umbral de 5 s de WCAG 2.2.2. */
-export const ROTATION_REST_MS = 7000;
+/**
+ * Reposo entre tics — y reposo INICIAL (§23.3).
+ *
+ * Fue 7 s mientras el carrusel llevaba conmutador de reproducción: ese valor se eligió para quedar
+ * **por encima** del umbral de 5 s de WCAG 2.2.2 y sostener el argumento del control. Retirado el
+ * conmutador (decisión del dueño, ver `docs/FRONTEND_NOTES.md` §36), la cadencia deja de estar atada
+ * a ese umbral y se fija por ritmo editorial: 5 s. Lo demás del tic NO cambia — una teja por tic,
+ * deslizamiento de ~0,5 s, no arranca hasta que cargaron las fotos y hay reposo antes del primero.
+ */
+export const ROTATION_REST_MS = 5000;
 
 /**
  * Tope de la precondición 3 de §23.3: si la foto de la teja líder no ha cargado en 3 s desde que la
@@ -71,7 +78,15 @@ export const LEAD_IMAGE_CAP_MS = 3000;
  */
 export const USER_INPUT_WINDOW_MS = 1200;
 
-/** Los tres modos de §23.5. La suspensión (hover/foco/pestaña/fuera de vista) NO es un modo. */
+/**
+ * Los tres modos de §23.5, ahora **enteramente internos**: sin conmutador nadie los conmuta a mano y
+ * solo el propio carrusel los mueve (`playing` → `paused` por intervención, `playing` → `ended` al
+ * acabar la pasada). Se conservan los TRES porque distinguen el anuncio del canal de estado
+ * («pausada» vs «fin de las piezas destacadas», §23.9c); colapsarlos en un booleano
+ * `rotando/no rotando` haría indistinguibles esos dos anuncios.
+ *
+ * `paused` y `ended` son ambos TERMINALES en esta visita: nada los devuelve a `playing`.
+ */
 export type PlaybackMode = 'playing' | 'paused' | 'ended';
 
 /**
@@ -123,53 +138,6 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; lo
 }
 
 /**
- * Conmutador de reproducción del carrusel (§23.4). **No es una tercera flecha**: es un conmutador de
- * texto mono pegado al H2, en el hueco estructural del kicker, a la IZQUIERDA de la fila y el primer
- * control del estante en orden de tabulación (§23.4a) — quien llega con teclado se topa con el freno
- * ANTES que con lo que se mueve, que es lo que pide WCAG 2.2.2.
- *
- * Sin `aria-pressed` a propósito (§23.4c): «presionado» es ambiguo en un par pausa/reproducción; el
- * patrón APG cambia el **nombre**, no un estado de conmutación. Y nunca `disabled` ni `loading`: si
- * no hay rotación posible el control **no se renderiza** (§23.4d), no se apaga.
- */
-function PlaybackToggle({
-  mode,
-  word,
-  ariaLabel,
-  onToggle,
-}: {
-  mode: PlaybackMode;
-  word: string;
-  ariaLabel: string;
-  onToggle: () => void;
-}) {
-  const Icon = mode === 'playing' ? Pause : mode === 'paused' ? Play : RotateCcw;
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={ariaLabel}
-      className={cn(
-        // Sin borde, sin fondo, sin radio, sin sombra (§23.4b). Tinta en reposo y en hover; el
-        // subrayado de hover es el mismo lenguaje que `EditorialLink` (§20.0).
-        'relative inline-flex min-w-[80px] shrink-0 items-center gap-1.5 text-text hover:underline',
-        // Área táctil de 44×44 con PSEUDO-ELEMENTO, no con `padding` (§23.4b): con padding, el
-        // `outline-offset: 2px` del foco global dibujaría un halo de 44px alrededor de un texto de
-        // 12px. Con `::after` el área crece y el anillo sigue ciñendo la etiqueta. 8px por lado
-        // contra el `gap` de 12/16px al H2 ⇒ nunca pisa el título.
-        "after:absolute after:-inset-x-2 after:-inset-y-4 after:content-['']",
-      )}
-    >
-      {/* El glifo acelera; la PALABRA es el portador (§2.4, §23.11). */}
-      <Icon aria-hidden strokeWidth={1.5} className="h-3 w-3 shrink-0 lg:h-3.5 lg:w-3.5" />
-      {/* `.eyebrow` = mono 10px/500/.18em + versalitas por CSS (el texto fuente va en caja normal,
-          §20.15). Se le sobreescribe el color: la clase es muted y §23.4b pide TINTA. */}
-      <span className="eyebrow text-text">{word}</span>
-    </button>
-  );
-}
-
-/**
  * «Piezas destacadas del catálogo» (makeover 1a §4): carrusel horizontal con las piezas
  * más caras del inventario publicado (el backend ordena por salePriceCents server-side).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
@@ -195,12 +163,21 @@ function PlaybackToggle({
  *    llevar además una cifra estimada.
  *
  * ───────────────────────────────────────────────────────────────────────────────────────────────
- * **ROTACIÓN AUTOMÁTICA (P-49, §23).** Un tic cada 7 s mueve la VENTANA exactamente UNA teja, hace
- * UNA sola pasada y se detiene. Las cuatro cosas que no pueden romperse aquí:
+ * **ROTACIÓN AUTOMÁTICA (P-49, §23).** Un tic cada 5 s mueve la VENTANA exactamente UNA teja, hace
+ * UNA sola pasada y se detiene.
+ *
+ * **SIN CONMUTADOR DE REPRODUCCIÓN (decisión del dueño, §23 rev.).** El par PAUSAR/REANUDAR/REPETIR
+ * se retiró: existía para satisfacer WCAG 2.2.2, que es un **estándar del W3C, no una obligación
+ * legal** para esta tienda (en México las obligaciones con dientes son para sitios de gobierno, y la
+ * norma europea que cubre comercio electrónico solo aplicaría vendiendo a Europa). Lo que NO se
+ * retiró —y es lo que de verdad protege a alguien— son los **cinco frenos automáticos**: hover,
+ * foco de teclado, intervención del usuario (pausa permanente, §23.5a), visibilidad
+ * (`IntersectionObserver` + pestaña oculta) y `prefers-reduced-motion`. Ver `docs/FRONTEND_NOTES.md`
+ * §36. Las cuatro cosas que no pueden romperse aquí:
  *
  *  - **R1 — rota la ventana, nunca el ROL.** La teja 1 sigue siendo la teja 1, con su `imageLargeUrl`
  *    y su `priority`/LCP. Si la teja 2 «ascendiera» a líder, cada tic remaquetaría dos tejas y
- *    **dispararía una descarga HD nueva cada 7 s** — justo lo que arregló §34.1 de estas notas.
+ *    **dispararía una descarga HD nueva cada 5 s** — justo lo que arregló §34.1 de estas notas.
  *
  *    **La garantía NO es «el tic no provoca `setState`»** — eso es falso: el tic llama a `measure()`,
  *    que escribe `canPrev`/`canNext`/`overflows`, y hay re-render en el primer tic y en el último. La
@@ -212,13 +189,14 @@ function PlaybackToggle({
  *    «la teja líder conserva identidad, sitio, imagen HD y fetchpriority en TODOS los tics»
  *    (`FeaturedCarouselRotation.test.tsx`): el invariante se sostiene **por** ese test, no sin él.
  *  - **R2 — nunca coexiste con carga.** Cuatro precondiciones (§23.3): hidratado, consulta resuelta
- *    con ≥1 teja, foto de la líder cargada (o 3 s), y 7 s de reposo inicial. Es la condición que
+ *    con ≥1 teja, foto de la líder cargada (o 3 s), y 5 s de reposo inicial. Es la condición que
  *    desactiva el argumento de §17.3 («el movimiento aquí se lee como carga»): no puede confundirse
  *    con carga algo que por construcción nunca ocurre mientras hay carga.
  *  - **R4 — `prefers-reduced-motion` ⇒ movimiento CERO**, y se enforza AQUÍ, no en `globals.css`: la
  *    regla global solo anula duraciones de CSS, y no cubre ni el scroll por JS ni un temporizador
- *    (§8.2). Con la preferencia activa el temporizador **no arranca**, el conmutador **no se
- *    renderiza** y las flechas pasan a `behavior:'auto'`. Se escucha **en vivo**.
+ *    (§8.2). Con la preferencia activa el temporizador **no arranca** y las flechas pasan a
+ *    `behavior:'auto'`. Se escucha **en vivo**. **Éste es innegociable**: es el único freno que
+ *    protege a una persona con trastorno vestibular ANTES de que el movimiento ocurra.
  *  - **R5 — la intervención del usuario gana para siempre** (en esta visita): swipe, rueda, flecha,
  *    ancla o cualquier scroll que no hayamos originado nosotros ⇒ PAUSADO, sin reanudación sola.
  */
@@ -257,9 +235,9 @@ export function FeaturedCarousel() {
   const [overflows, setOverflows] = useState(false);
 
   /**
-   * §23.8 — el estado inicial es la pista de scroll-snap NATIVA, que no rota y no pinta ni flechas
-   * ni conmutador. No es un fallback degradado: los tres nacen del mismo JS, en el mismo momento, y
-   * por eso **no puede existir movimiento sin freno**.
+   * §23.8 — el estado inicial es la pista de scroll-snap NATIVA, que no rota y no pinta flechas. No
+   * es un fallback degradado: rotación y flechas nacen del mismo JS, en el mismo momento, así que
+   * sin JS no hay movimiento que frenar.
    */
   const [hydrated, setHydrated] = useState(false);
   const [leadImageReady, setLeadImageReady] = useState(false);
@@ -275,9 +253,9 @@ export function FeaturedCarousel() {
 
   /**
    * §8.2/§23.7 — se ESCUCHA EN VIVO, no se lee una vez al montar: activar la preferencia en el
-   * sistema operativo detiene la rotación en ese instante y hace desaparecer el conmutador, sin
-   * recargar. `useMediaQuery` devuelve `false` en SSR/primer render, que es correcto: antes de
-   * hidratar no hay rotación de todas formas.
+   * sistema operativo detiene la rotación en ese instante, sin recargar. `useMediaQuery` devuelve
+   * `false` en SSR/primer render, que es correcto: antes de hidratar no hay rotación de todas
+   * formas.
    */
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
 
@@ -361,14 +339,17 @@ export function FeaturedCarousel() {
   });
 
   /**
-   * PAUSA PERMANENTE por intervención (§23.5 nivel 2). Desde TERMINADO también pasa a PAUSADO —lo
-   * pide §23.6— pero **sin anunciar**: el fin de la pasada ya se anunció, y §23.9c reserva el canal
-   * de estado para cambios que el usuario no pidió.
+   * PAUSA PERMANENTE por intervención (§23.5 nivel 2). **Solo desde `playing`**: `paused` y `ended`
+   * son terminales y no hay nada que frenar en ninguno de los dos.
+   *
+   * Aquí había además una transición `ended` → `paused` (sin anuncio). La pedía §23.6 **por el
+   * conmutador**: retirado el control, esa transición no tiene un solo efecto observable —los dos
+   * modos dejan el temporizador parado y la pista en `aria-live="polite"`— y por eso se retira. Una
+   * rama que no cambia nada es una rama muerta que el próximo lector tiene que descifrar.
    */
   const pauseByIntervention = useCallback(() => {
-    const current = modeRef.current;
-    if (current === 'paused') return;
-    if (current === 'playing') setStatusMessage(statusTextRef.current.paused);
+    if (modeRef.current !== 'playing') return;
+    setStatusMessage(statusTextRef.current.paused);
     modeRef.current = 'paused';
     setMode('paused');
   }, []);
@@ -409,7 +390,7 @@ export function FeaturedCarousel() {
    *    y CERO con antecedente de usuario**. La ventana de 1200 ms los descarta los 53.
    *  - **Hacía daño.** El único escenario en que cambiaba el resultado era un gesto REAL dentro de
    *    los ~900 ms posteriores a un tic: ahí las dos evidencias coexistían y ganaba la débil. Medido:
-   *    rueda sobre la pista a **+56 ms** de arrancar un tic ⇒ el conmutador se quedaba en PAUSAR, el
+   *    rueda sobre la pista a **+56 ms** de arrancar un tic ⇒ el modo se quedaba en `playing`, el
    *    gesto se tragaba, y al retirar el puntero **la rotación se reanudaba sola** (`scrollLeft`
    *    460 → 756). Eso es R5 incumplido y §23.13 nº9 exactamente.
    *
@@ -444,9 +425,14 @@ export function FeaturedCarousel() {
   });
 
   /**
-   * Las cuatro precondiciones de §23.3 + los tres apagados de §23.4d. `rotationPossible` es
-   * exactamente el predicado que decide si el CONMUTADOR se pinta: control y movimiento nacen del
-   * mismo booleano, así que no puede haber uno sin el otro (§23.8).
+   * Las cuatro precondiciones de §23.3 + los tres apagados de §23.4d.
+   *
+   * ⚠️ **Este booleano gobernaba DOS cosas y ahora gobierna UNA — la que importa.** Era, a la vez,
+   * «¿hay rotación?» y «¿se pinta el conmutador?». Al retirar el control **no se retira el
+   * predicado**: sigue siendo la única puerta de `timerRunning`, y con ella siguen vivos el apagado
+   * por `prefers-reduced-motion` (R4), el de pista que no desborda, el de una sola teja y el de
+   * consulta en carga o en error. Quitarlo «porque ya no hay botón que pintar» encendería la
+   * rotación en los cuatro casos en que hoy está apagada.
    */
   const rotationPossible =
     hydrated &&
@@ -461,7 +447,7 @@ export function FeaturedCarousel() {
   const timerRunning = rotationPossible && leadImageReady && mode === 'playing' && !suspended;
 
   /**
-   * El temporizador. Cada vez que `timerRunning` vuelve a `true` el reposo de 7 s empieza **de
+   * El temporizador. Cada vez que `timerRunning` vuelve a `true` el reposo de 5 s empieza **de
    * cero**: eso implementa «ni un solo tic acumulado» (§23.3) sin código extra — al retirar el ratón
    * o volver a la pestaña nunca hay un tic inmediato ni una ráfaga de tics perdidos.
    *
@@ -573,61 +559,6 @@ export function FeaturedCarousel() {
     moveTrack(el, target, !reducedMotion);
   }
 
-  const goToMode = (next: PlaybackMode) => {
-    modeRef.current = next;
-    setMode(next);
-  };
-
-  /**
-   * El conmutador. **`switch` exhaustivo con candado `never`, no una cadena de `if` con un caso por
-   * descarte**: resolver `'paused'` como «lo que no era `'playing'` ni `'ended'`» es correcto hoy con
-   * una unión de tres y deja de serlo en silencio en cuanto haya un cuarto modo — caería en REANUDAR
-   * sin que nada avise. Con el candado, un modo nuevo **no compila** hasta que alguien decida qué
-   * hace este botón con él.
-   */
-  function onTogglePlayback() {
-    const el = scrollerRef.current;
-    // §23.9c: el conmutador NO emite por el canal de estado — el cambio de nombre accesible del
-    // botón ya lo dice, y duplicarlo es hablar dos veces. Se limpia para que un anuncio posterior
-    // idéntico vuelva a ser un CAMBIO de texto y se oiga.
-    setStatusMessage('');
-    switch (mode) {
-      case 'playing':
-        goToMode('paused');
-        return;
-      case 'ended':
-        // REPETIR: vuelve al inicio de forma INSTANTÁNEA (§23.6). Animar ~2 000px de rebobinado es
-        // el peor movimiento posible aquí; el salto es correcto porque lo pidió el usuario.
-        if (el) moveTrack(el, 0, false);
-        goToMode('playing');
-        return;
-      case 'paused':
-        // REANUDAR. Si ya no queda pista por delante, el estado honesto es TERMINADO (mismo
-        // predicado que apaga la flecha «siguiente»), no «reproduciendo» sobre algo inmóvil.
-        goToMode(el && nextScrollTarget(readTrackGeometry(el)) === null ? 'ended' : 'playing');
-        return;
-      default: {
-        const unhandled: never = mode;
-        throw new Error(`PlaybackMode sin tratar en el conmutador: ${String(unhandled)}`);
-      }
-    }
-  }
-
-  const playbackWord =
-    mode === 'playing'
-      ? t('featured.playback.pause')
-      : mode === 'paused'
-        ? t('featured.playback.resume')
-        : t('featured.playback.replay');
-  // WCAG 2.5.3: el nombre accesible EMPIEZA por la palabra visible, para que quien dicte por voz
-  // «pausar» active el control (§23.4c).
-  const playbackAria =
-    mode === 'playing'
-      ? t('featured.playback.pauseAria')
-      : mode === 'paused'
-        ? t('featured.playback.resumeAria')
-        : t('featured.playback.replayAria');
-
   const arrowBase = 'inline-flex h-8 w-8 items-center justify-center border lg:h-[38px] lg:w-[38px]';
 
   return (
@@ -647,19 +578,8 @@ export function FeaturedCarousel() {
           <span className="hidden lg:inline">{t('featuredTitle')}</span>
         </>
       }
-      // §23.4a: el conmutador va pegado al H2, a la izquierda de la fila y ANTES en el DOM que las
-      // flechas y que la pista. No es un kicker de contenido (§22.6b-e): nombra el comportamiento
-      // del estante, no afirma nada sobre ninguna pieza.
-      titleAdjacent={
-        rotationPossible ? (
-          <PlaybackToggle
-            mode={mode}
-            word={playbackWord}
-            ariaLabel={playbackAria}
-            onToggle={onTogglePlayback}
-          />
-        ) : undefined
-      }
+      // El encabezado vuelve a su fila de TRES elementos (H2 · «Ver todo el catálogo» · flechas):
+      // sin conmutador ya no hay nada pegado al H2.
       headerClassName="items-end pb-5 pt-10 lg:pt-12"
       viewAllHref="/catalog"
       viewAllLabel={t('viewAllCatalog')}
@@ -691,10 +611,10 @@ export function FeaturedCarousel() {
         ) : undefined
       }
     >
-      {/* §23.9c — el canal de estado REAL. Emite SOLO en dos transiciones no solicitadas: fin de la
-          pasada e intervención que pausa. Nunca `assertive` (§8.2 lo reserva para errores de pago),
-          nunca en suspensiones por hover/foco/visibilidad (sería charlatana) y nunca al pulsar el
-          conmutador (el nombre accesible del botón ya lo dice). */}
+      {/* §23.9c — el canal de estado. Emite SOLO en las dos transiciones no solicitadas que quedan:
+          fin de la pasada e intervención que pausa. Nunca `assertive` (§8.2 lo reserva para errores
+          de pago) y nunca en suspensiones por hover/foco/visibilidad, que son reversibles solas y
+          anunciarlas lo volvería charlatán. */}
       <p role="status" aria-live="polite" className="sr-only">
         {statusMessage}
       </p>
@@ -754,7 +674,7 @@ export function FeaturedCarousel() {
                         con imagen). No se replica en las demás: varias `fetchpriority=high` a la vez se
                         pelean el ancho de banda y retrasan justo a esta.
                         §23.3 precondición 3: su `load` es lo que habilita la rotación. La rotación NO
-                        mueve este rol de teja en teja (R1): eso dispararía una descarga HD cada 7 s. */}
+                        mueve este rol de teja en teja (R1): eso dispararía una descarga HD cada 5 s. */}
                     <CardImage
                       src={l.card.imageLargeUrl ?? l.card.imageSmallUrl}
                       alt={l.card.name}
