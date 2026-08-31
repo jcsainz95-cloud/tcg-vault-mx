@@ -16,10 +16,19 @@ escribió **cero filas**. El obstáculo no era la fuente de datos — era que **
 para decir por qué está roto estaba dando causas falsas**. Primero se arregla el diagnóstico; con él ya
 honesto, la causa real se lee de una corrida.
 
-> **Estado v1.51-c (2026-08-31).** Producción ya escribe (hay estimados PSA reales), pero **muchas
+> **Estado v1.51-d (2026-08-31).** Producción ya escribe (hay estimados PSA reales), pero **muchas
 > cartas siguen sin dato**. §0.16.1 son los arreglos del primer pase (v1.51-b); **§0.16.3** son los
 > residuos que ese pase dejó — incluida la **tercera** instancia del defecto R1, que caía justo en la
 > causa #5 («set sin `pptSetId`»), o sea en la hipótesis principal de esas cartas faltantes.
+> **§0.16.4 es el pase que deja de perseguir instancias y cierra la CLASE**: pone un guardián que
+> comprueba, corrida a corrida, que el veredicto no cita ninguna línea de log que no exista — y con él
+> cierra la cuarta y la quinta instancia. **Si vas a leer una sola: §0.16.4.**
+>
+> ⚠️ **Lectura de `SETS NO PEDIDOS` (importante para el dueño).** Hasta v1.51-c esa línea fundía dos
+> causas y no marcaba parcialidad. Desde v1.51-d hay **dos** líneas (`SETS NO PEDIDOS` = comprobado y
+> sin mapeo; `SETS SIN COMPROBAR` = el catálogo del proveedor no respondió) y una marca explícita
+> (`ALCANCE RECORRIDO: PARCIAL` / `COTA INFERIOR`) cuando el recorrido se cortó. **Un bloque anterior a
+> v1.51-d no distingue esas dos causas ni avisa de parcialidad: vuelve a correr antes de concluir.**
 
 ---
 
@@ -99,11 +108,12 @@ Recorrido completo de `PriceIngestService.ingestGradedEstimates` y del camino gr
 | 2 | **Config del ingest corrupta** | `graded_estimate_min_sample_count`, `graded_estimate_source_stat` o `graded_estimate_ingest_max_cards_per_run` **presente-pero-INVÁLIDA** (p. ej. un `2000` guardado cuando el máximo pasó a 1 000) | `graded-estimate-ingest: el dial … está en 'on', pero la config del INGEST tiene clave(s) PRESENTE(S)-e-INVÁLIDA(S): <clave>` + `graded-estimate config: la clave '<clave>' está PRESENTE pero es INVÁLIDA` | `INDETERMINADO` · `stopReason=ingest_config_invalid` (con la clave **nombrada**) | **SETTING** — corrige **esa** clave con `PUT /admin/pricing/graded-estimates`. **No es el dial.** |
 | 3 | **Alcance vacío** | Cero `InventoryItem` con `ownerType='platform'`, `status='listed'`, `productType='raw'` | `graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada` | `INDETERMINADO` · `stopReason=no_scope` | **DATOS** — publica al menos una pieza RAW. Un inventario en `draft`/`sold` **no cuenta**. |
 | 4 | **Sin llave del proveedor** | `POKEMONPRICETRACKER_API_KEY` ausente o `CHANGE_ME` | `PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta` | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN: falta POKEMONPRICETRACKER_API_KEY»** (v1.51-c, R1-ter: ya **no** comparte titular con #5 ni #9, y **no** manda a la línea «EL REQUEST FALLÓ», que aquí no existe) | **ENV** — `POKEMONPRICETRACKER_API_KEY` en Railway. |
-| 5 | **Set sin `pptSetId`** | El `CardSet` del inventario no está mapeado al id real de PPT (nunca se cae al `externalId`) | `PPT graded: set <sv8> sin pptSetId → no se pide nada` + `PptSetMapper: N/M sets SIN mapeo a PokemonPriceTracker` | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN: N set(s) … NO tienen `pptSetId` (sv8, sv7)»** — con los sets **NOMBRADOS**. ⚠️ Si algún otro set sí se pidió, el veredicto puede ser **`VIABLE`** y aun así el bloque trae la línea **`SETS NO PEDIDOS:`** con estos sets (v1.51-c, R1-ter) | **DATOS** — remapear el set (`PptSetMapper` empata por NOMBRE contra `GET /api/v2/sets`). Si el set publicado no está mapeado, ese set **no se pide jamás**: es la causa más probable de «escribe algunas cartas y otras siguen sin dato». |
+| 5 | **Set sin `pptSetId`** (comprobado) | Se consultó `GET /api/v2/sets` y el `CardSet` del inventario **no empató** (nunca se cae al `externalId`) | `PPT graded: set <sv8> sin pptSetId → no se pide nada` + `PptSetMapper: N/M sets SIN mapeo a PokemonPriceTracker` | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN: N set(s) … NO tienen `pptSetId` (sv8, sv7)»** — con los sets **NOMBRADOS**. ⚠️ Si algún otro set sí se pidió, el veredicto puede ser **`VIABLE`** y aun así el bloque trae la línea **`SETS NO PEDIDOS:`** con estos sets (v1.51-c, R1-ter) | **DATOS** — remapear el set (`PptSetMapper` empata por NOMBRE contra `GET /api/v2/sets`). Si el set publicado no está mapeado, ese set **no se pide jamás**: es la causa más probable de «escribe algunas cartas y otras siguen sin dato». ⚠️ **v1.51-d:** confirma antes que el bloque **no** dice `ALCANCE RECORRIDO: PARCIAL` (si lo dice, el número es un mínimo) y que estos sets salen en `SETS NO PEDIDOS` y **no** en `SETS SIN COMPROBAR` (ésa es la #5-bis). |
+| 5-bis | **Mapeo NO COMPROBADO** (v1.51-d, R1-quater) | `GET /api/v2/sets` **no respondió** (cuota diaria agotada por el barrido RAW, o fallo de red) ⇒ de esos sets **no se sabe** si tienen `pptSetId`. Es la **#8 llegando por otra puerta** | `PptSetMapper: NO SE PUDO CONSULTAR /api/v2/sets — …` + `PPT graded: set <sv8> sin pptSetId → no se pide nada` (consecuencia, no causa) | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN, y NO es que falte mapeo … NO SE PUDO COMPROBAR»** + línea **`SETS SIN COMPROBAR:`** | **Reintentar, NO mapear.** Con cuota: espera a las 00:00 UTC o corre el gancho **antes** del barrido RAW. Con fallo de red: revisa conectividad/llave contra `GET /api/v2/sets`. ⚠️ **Hasta v1.51-c esto se publicaba como la #5** («ve a mapearlos»): causa falsa y acción equivocada. |
 | 6 | **Sonda pedida por env** | `POKEMONPRICETRACKER_GRADED_PROBE=on\|true\|1\|yes` | `PPT graded: SONDA pedida por el operador … NO se escribe absolutamente nada` + bloque `PPT-GRADED-SONDA` | Puede ser `VIABLE` **con 0 escrituras** (`MODO: SONDA de SOLO LECTURA`) | **ENV** — **borra** `POKEMONPRICETRACKER_GRADED_PROBE` de Railway. Es la causa más fácil de pasar por alto: el veredicto dice «funciona» y aun así no escribe. |
 | 7 | **Sin formato de moneda** | Ni `POKEMONPRICETRACKER_GRADED_MARKET_FORMAT` ni `POKEMONPRICETRACKER_MARKET_FORMAT` (candado de dinero) | `PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → SONDA de SOLO LECTURA` | Igual que #6 | **ENV** — `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`. Sin moneda declarada **no se escribe dinero**, por diseño. |
-| 8 | **Cuota diaria agotada** | `429 limitType=daily`. ⚠️ **El barrido de precios RAW corre ANTES y gasta de la MISMA cuota**: si la agota, el gancho PSA nunca llega a pedir | `PPT /api/v2/cards: 429 DAILY (cuota diaria agotada) → PARADA` + `graded-estimate-ingest: 429 DAILY → PARADA` | `INDETERMINADO` («la cuota diaria se agotó antes de obtener una sola respuesta») si pasa en la 1ª petición; si no, `MODO: … ⚠️ topó la CUOTA DIARIA` | **ENV/plan** — cuota del plan de PPT. Se resetea a las 00:00 UTC. Palancas: reducir el alcance del barrido RAW o correr el gancho en otro momento. |
-| 9 | **Credencial rechazada / set inexistente** | `401`/`403` (llave vencida o **plan sin eBay**) o `404` (pptSetId que ya no existe) | `PPT graded: EL REQUEST FALLÓ para el set … → revisa POKEMONPRICETRACKER_API_KEY (ausente, vencida o sin el plan que incluye eBay)` | `INDETERMINADO` · **«Se emitieron peticiones en N set(s) y NINGUNA respondió OK»** — es el ÚNICO caso que manda a leer «EL REQUEST FALLÓ», porque es el único donde esa línea existe | **ENV** — la llave y, sobre todo, **si el plan incluye el bloque de eBay**. Un `403` aquí significa que el plan no da ventas PSA. |
+| 8 | **Cuota diaria agotada** | `429 limitType=daily`. ⚠️ **El barrido de precios RAW corre ANTES y gasta de la MISMA cuota**: si la agota, el gancho PSA nunca llega a pedir | `PPT graded: 429 DAILY en el set <sv8> → PARADA.` + `PPT /api/v2/cards: 429 DAILY (cuota diaria agotada) → PARADA` + `graded-estimate-ingest: 429 DAILY → PARADA`. ⚠️ Si la cuota se agota **antes**, al pedir el catálogo, la línea es la de la **#5-bis** | `INDETERMINADO` («la cuota diaria se agotó antes de obtener una sola respuesta») si pasa en la 1ª petición; si no, `MODO: … ⚠️ topó la CUOTA DIARIA`. **v1.51-d:** el `AHORA:` de esta rama cita `429 DAILY`, **no** «EL REQUEST FALLÓ» | **ENV/plan** — cuota del plan de PPT. Se resetea a las 00:00 UTC. Palancas: reducir el alcance del barrido RAW o correr el gancho en otro momento. |
+| 9 | **Credencial rechazada / set inexistente** | `401`/`403` (llave vencida o **plan sin eBay**) o `404` (pptSetId que ya no existe) | `PPT graded: EL REQUEST FALLÓ para el set … → revisa POKEMONPRICETRACKER_API_KEY (ausente, vencida o sin el plan que incluye eBay)` | `INDETERMINADO` · **«Se emitieron peticiones en N set(s) y NINGUNA respondió OK»** — es el ÚNICO caso que manda a leer «EL REQUEST FALLÓ», porque es el único donde esa línea existe. ⚠️ **v1.51-d (QA):** el **429 diario** (#8) NO cae aquí — tiene su propia línea (`429 DAILY … → PARADA`) y su propio `nextStep`; hasta v1.51-c también mandaba a «EL REQUEST FALLÓ», que en esa rama no se emite | **ENV** — la llave y, sobre todo, **si el plan incluye el bloque de eBay**. Un `403` aquí significa que el plan no da ventas PSA. |
 | 10 | **`includeEbay` + `fetchAllInSet` incompatibles** | El proveedor rechaza la combinación con un 4xx de parámetro | `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO … ebay_not_supported_with_set_sweep` | **`NO_VIABLE`** | **Nada que tocar** — es rediseño de coste y de barrido ⇒ **arquitecto (regla 9)**. No se degrada a «una petición por carta». |
 | 11 | **La respuesta no trae bloque PSA** | Ninguna entrada del set trae `ebay.salesByGrade` ni `gradedPrices` | `graded-estimate-ingest: set <X> devolvió entradas SIN bloque PSA → se SALTA`; si **ningún** set lo vio: `⛔ … no_graded_block_in_response` | `INDETERMINADO` («NINGUNA trae bloque PSA») | **Plan del proveedor / elección de sets** — repite con un set de cartas caras y muy vendidas. Si sigue vacío, el plan no expone ventas PSA ⇒ arquitecto. |
 | 12 | **Shape S2 (número pelado)** | PPT sirve `gradedPrices.psaN` escalar: sin `count` ni fecha de última venta | `graded-estimate-ingest: SHAPE NO PERSISTIBLE (S2, gradedPrices escalar)` (por carta) + `⛔ … shape_not_persistible_s2_dominant` | **`NO_VIABLE`** («ninguna configuración lo arregla») | **Nada que tocar** — decisión de producto/costo ⇒ **arquitecto**. La captura manual sigue funcionando. |
@@ -206,6 +216,135 @@ guarda ahí son los tests de corrida real (dial `on` + clave corrupta, alcance v
 sin API key), que comprueban el bloque emitido por el job entero, no la función pura.
 
 **Tests:** `test/graded-estimate.probe.spec.ts` — 61 (13 nuevos: 7 de R1-ter, 3 de QA-GE2, 3 de TL-GE6).
+
+---
+
+## 0.16.4 — **El GUARDIÁN: el veredicto no puede citar una línea de log que no existe** (v1.51-d)
+
+> Propiedad: **backend**. Sin cambio de contrato ni de esquema. **Ni una ruta de escritura de dinero
+> cambia**; la sonda sigue siendo solo-lectura por construcción y S2 sigue NO PERSISTIBLE.
+
+### El diagnóstico del proceso (por qué este pase NO empieza por las instancias)
+Van **tres** pases sobre el mismo defecto y cada uno cerró instancias dejando otra viva: R1 cerró dos,
+R1-ter la tercera, el techlead encontró la **cuarta** y QA la **quinta**. El invariante que se rompe
+**no** es «el tipo permite un estado imposible» —eso lo cerró `GradedRunOutcome` en §0.16.3— sino:
+
+> **el mensaje cita una evidencia que en ese estado no existe.**
+
+Mientras esa cita fuera **prosa libre verificada a mano**, la instancia número seis estaba garantizada.
+Así que el encargo #1 de este pase es el **guardián**, y las instancias vienen después.
+
+### (TL-GE7) El guardián, en dos piezas
+**1. Una constante por línea, compartida.** `backend/src/modules/pricing/graded-log-lines.ts` declara
+las marcas del camino graded (`missingApiKey`, `setWithoutPptSetId`, `requestFailed`, `dailyStop`,
+`mapperUnmatched`, `mapperUnavailable`, `ingest`). El que **emite** (`PokemonPriceTrackerBulkProvider`,
+`PptSetMapper`) usa `emitirLineaGraded(marca, …valores)` y el que **cita** (`gradedPhase2Verdict`) usa
+`citarLineaViva(marca)` / `citarLineaAusente(marca)`. Nunca dos literales que se parecen. Las partes
+variables de la línea (id de set, contadores) van como `…` en la marca: `emitirLineaGraded` las rellena
+y el guardián las trata como comodín, así que **la cita y la emisión son la misma cadena por
+construcción**.
+
+**2. Citar es afirmar, y se verifica.** `citarLineaViva` produce `«…»` = *«esta línea está en el log de
+ESTA corrida»*; `citarLineaAusente` produce `"…" (NO existe en esta corrida)` = lo contrario. El
+guardián (`test/graded-run.harness.ts` → `verificarCitasDelVeredicto`) toma **todos** los logs de una
+corrida real, saca las citas del bloque `[VEREDICTO-PSA]` y exige que las vivas aparezcan en el pajar y
+las ausentes no. El pajar **excluye el propio bloque**, o el guardián sería un espejo.
+
+**Verificación retroactiva (lo que hace que el guardián valga algo).** Se re-introdujeron las dos
+instancias de este pase en el código y se corrió **solo el invariante**, sin ninguna aserción de
+contenido. Las cazó las dos:
+
+| Instancia re-introducida | Lo que el guardián reportó |
+|---|---|
+| QA (429 daily): `nextStep` incondicional | `vivasHuerfanas: ["PPT graded: EL REQUEST FALLÓ"]` |
+| R1-quater: catálogo caído tratado como «sin mapeo» | `vivasHuerfanas: ["PptSetMapper: … sets SIN mapeo a PokemonPriceTracker"]` |
+
+El techlead predijo que «habría cazado R1-quater». Lo hace, y también la quinta.
+
+### (QA) El `429 DAILY` mandaba a un log inexistente
+La rama «se pidió y falló» tenía titular con variante para `dailyLimited`, pero un `nextStep`
+**incondicional** que mandaba a `PPT graded: EL REQUEST FALLÓ`. `PptDailyLimitError` tiene **su propia
+rama** en el provider (`PPT graded: 429 DAILY en el set … → PARADA.`) y `EL REQUEST FALLÓ` es el
+`else`, así que con la cuota agotada el `grep` del operador no devuelve nada. Es alcanzable en
+producción: el barrido RAW corre en la misma corrida y consume del mismo contador diario.
+
+**Arreglo:** cada titular cita **su** línea. Con `dailyLimited` se cita `dailyStop` y se manda a esperar
+al reinicio (o a correr el ingest antes del barrido RAW). **No** se afirma nada sobre `EL REQUEST
+FALLÓ` en esa rama: con la cuota agotada puede existir (si otro set falló antes por otra causa) o no, y
+el veredicto no tiene cómo saberlo — así que no se afirma ninguna de las dos cosas.
+
+### (R1-quater, techlead §1) `set_without_ppt_set_id` MENTÍA cuando el mapper no pudo correr
+`PptSetMapper.resolveForSets` devolvía `Map<localSetId, string | null>` y ese `null` significaba **dos
+cosas incompatibles**:
+
+| `null` significaba | Causa del mapa | Acción correcta |
+|---|---|---|
+| «se consultó `/api/v2/sets` y este set NO empató» | #5 | **Mapear** el set (revisar el nombre) |
+| «NO se pudo consultar `/api/v2/sets`» (cuota agotada por el barrido RAW, o red) | #8 | **Reintentar** — no hay nada que mapear |
+
+Las dos llegaban aguas abajo como `noRequestReason: 'set_without_ppt_set_id'` y el veredicto publicaba
+*«N sets NO tienen `pptSetId` mapeado … ve a mapearlos»* **también en el segundo caso**: causa falsa,
+acción equivocada y cita a `PptSetMapper: … sets SIN mapeo`, que esa rama **no emite**. Los tres
+defectos de R1 otra vez — y la causa #8 disfrazada de la #5, que es justo la «hipótesis principal de
+las cartas sin dato».
+
+**Arreglo (por TIPO, no por mensaje — la lección del hilo es que los mensajes se desincronizan):**
+- `PptSetMapping` (unión discriminada) sustituye al `string | null`: `{pptSetId}` |
+  `{pptSetId: null, reason: 'unmatched'}` | `{pptSetId: null, reason: 'mapper_unavailable', cause}`.
+- `GradedRequestTally` separa `setsUnmatched` de `mapper: {available:false, cause, sets}` — y el tipo
+  **exige** causa **y al menos un set nombrado** (`readonly [string, ...string[]]`), misma técnica que
+  `invalidConfigKeys` en TL-GE6.
+- El veredicto tiene una rama propia, que **va antes** que la de `setsUnmatched`: no se puede afirmar
+  «no está mapeado» si no se pudo mirar. Titular propio (`NO SE PUDO COMPROBAR`), acción propia
+  (esperar al reinicio de cuota vs. revisar la red) y línea propia (`PptSetMapper: NO SE PUDO CONSULTAR
+  /api/v2/sets`, una sola marca para las dos causas).
+- Bloque: `SETS NO PEDIDOS` (sin mapeo) y `SETS SIN COMPROBAR` (catálogo caído) son **líneas distintas**.
+
+### (techlead §2) La exhaustividad se cierra con un candado, no con un comentario
+`no_scope` se atrapaba con `else if (o.kind === 'stopped')`, o sea **por descarte**: un motivo nuevo
+heredaría en silencio el titular de «inventario RAW vacío» — el defecto (b) de R1 palabra por palabra.
+Hoy las paradas viven en `stoppedVerdict`, que discrimina por `reason` y cierra con `const
+motivoSinRama: never = o`. Para que ese `never` sea real, las paradas simples se distribuyen con un
+mapped type (TypeScript filtra **miembros** de una unión, no reduce la unión de literales dentro de un
+miembro). **Cero cambio de conducta hoy**; lo que cambia es que un motivo nuevo **no compila** hasta que
+alguien le escriba su rama. En tiempo de ejecución no se lanza (un diagnóstico no puede tumbar el job):
+se dice el nombre del motivo y que le falta rama.
+
+### (QA) `SETS NO PEDIDOS: N` era una COTA INFERIOR redactada como total
+Decía «N set(s) **del alcance**», pero el bucle se corta: tope de sonda, `break` por cuota diaria,
+`return` de escalada — y el alcance mismo puede venir recortado por `ingestMaxCardsPerRun`. Una corrida
+SONDA podía imprimir «1 set(s)» habiendo 20 sin mapear, sin marca de parcialidad.
+
+**Arreglo:** `GradedRequestTally.sweepComplete` (= se visitaron todos los sets del alcance **y** el
+alcance no venía recortado). Cuando es `false`, las líneas de sets llevan `⚠️ COTA INFERIOR …` y el
+bloque añade `ALCANCE RECORRIDO: PARCIAL`. La marca sale **aunque no haya sets pendientes**: «cero sets
+sin mapear» sobre un recorrido cortado engaña igual que un total inflado.
+
+### (techlead §7) El docstring de `observed`, corregido — sin tercera variante
+Decía «se llegó a hablar (o al menos a intentar hablar) con el proveedor», y eso es falso para «todos
+los sets sin `pptSetId`», que llega con `kind:'observed'` y `attempted: 0`. Es **exactitud de
+comentario, no defecto de conducta**: se corrige el comentario (hoy dice «la corrida no paró antes de
+tiempo: llegó al bucle de sets») y **no** se monta una tercera variante. Quien quiera saber si se le
+habló al proveedor lo tiene en `requests`, que es el dato explícito.
+
+### Qué cambió, archivo por archivo
+| Archivo | Qué |
+|---|---|
+| `src/modules/pricing/graded-log-lines.ts` | **nuevo** — las marcas compartidas + `emitirLineaGraded` / `citarLineaViva` / `citarLineaAusente` / `citaCoincideConLinea` |
+| `src/modules/pricing/ppt-set-mapper.service.ts` | `PptSetMapping`; `resolveForSets` devuelve el motivo; la rama del catálogo caído emite su marca propia |
+| `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts` | las 4 líneas citables se emiten desde la constante (texto de salida **idéntico**) |
+| `src/modules/pricing/price-ingest.service.ts` | consume `PptSetMapping`; separa `setsUnmatched` de `mapperUnavailable`; cuenta sets visitados ⇒ `sweepComplete` |
+| `src/modules/pricing/graded-phase2-verdict.ts` | tally partido; rama del catálogo caído; cita por causa en `dailyLimited`; `stoppedVerdict` con `never`; líneas `SETS SIN COMPROBAR` / `ALCANCE RECORRIDO` |
+| `test/graded-run.harness.ts` | **nuevo** — cableado de corrida real (mapper REAL opcional, `fetch` enrutado por URL) + el guardián |
+| `test/graded-verdict-guard.spec.ts` | **nuevo** — 19 casos: el guardián sobre corridas reales, el caso MIXTO de producción y la parcialidad |
+
+**Tests:** 2 633 en 206 suites (antes 2 612 / 205). `test/graded-verdict-guard.spec.ts` 19 nuevos;
+`graded-estimate.probe.spec.ts` +1 (candado de exhaustividad de paradas);
+`ppt-set-mapper.service.spec.ts` +1 (fallo NO-diario ⇒ «no se pudo comprobar»).
+
+**Deuda anotada:** `TECH_DEBT.md` → **TL-GE7-D1** (una sola causa por corrida en `SETS SIN COMPROBAR`;
+sin caché negativa de `/api/v2/sets`). **TL-GE4** y **TL-GE5** siguen abiertas; la última frase de
+TL-GE5 se corrigió en este pase (leer `SETS NO PEDIDOS` ya no es «gratis» sin las dos cautelas).
 
 ---
 

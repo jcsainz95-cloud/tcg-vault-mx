@@ -48,7 +48,32 @@
  *    (`GradedRunOutcome`): una corrida o **PARÓ** —y entonces trae su motivo, y si es config inválida
  *    trae al menos UNA clave por tipo— o **OBSERVÓ** —y entonces trae conteos y formato—. Los estados
  *    mixtos ya no son expresables.
+ *
+ * ### v1.51-d — se cierra la CLASE, no la instancia (TL-GE7, R1-quater, QA)
+ * Tres pases cerraron instancias de R1 y cada uno dejó una viva. El invariante que se rompe **no** es
+ * «el tipo permite un estado imposible» (eso ya está cerrado) sino **«el mensaje cita una evidencia
+ * que en ese estado no existe»**, y mientras esa cita fuera prosa libre volvía a aparecer. Por eso
+ * este pase empieza por el GUARDIÁN y solo después toca las instancias:
+ *  · **TL-GE7 (el guardián)** — las líneas del camino graded viven en `graded-log-lines.ts`; el que
+ *    las EMITE y el que las CITA leen la misma constante, y `citarLineaViva()`/`citarLineaAusente()`
+ *    convierten la cita en una **afirmación verificable**. El guardián
+ *    (`test/graded-run.harness.ts`) comprueba, en cada corrida REAL de la suite, que toda línea
+ *    citada entre `«…»` aparece en los logs de ESA corrida (y que las citadas como ausentes no).
+ *  · **QA (429 daily)** — la rama «se pidió y falló» mandaba SIEMPRE a «EL REQUEST FALLÓ», pero con
+ *    cuota diaria agotada el provider emite `429 DAILY … → PARADA` (otra rama, otro literal). Cada
+ *    titular tiene ahora su cita.
+ *  · **R1-quater** — `set_without_ppt_set_id` eran DOS causas fundidas: «se comprobó y no empata» y
+ *    «no se pudo comprobar» (cuota/red al pedir `/api/v2/sets`). La segunda se publicaba como la
+ *    primera ⇒ causa falsa, acción equivocada y cita a una línea inexistente. `GradedRequestTally`
+ *    las separa (`setsUnmatched` vs `mapper.available:false`) y el tipo exige causa + sets.
+ *  · **QA (cota inferior)** — «SETS NO PEDIDOS: N del alcance» se leía como total y era un mínimo (el
+ *    recorrido se corta por tope de sonda, cuota o escalada). `sweepComplete` marca la parcialidad.
+ *  · **techlead §2** — la parada `no_scope` se atrapaba POR DESCARTE. Ahora se discrimina por
+ *    `reason` y el `else` es un `never`: un motivo nuevo deja de compilar en vez de heredar en
+ *    silencio el titular del inventario vacío.
  */
+
+import { GRADED_LOG_LINES, citarLineaAusente, citarLineaViva } from './graded-log-lines';
 
 /** Marca fija del bloque. Va en TODAS sus líneas para que un `grep` devuelva el bloque entero. */
 export const GRADED_VERDICT_TAG = 'VEREDICTO-PSA';
@@ -95,17 +120,51 @@ export type GradedStopReason =
  * casos «sin llave» y «set sin `pptSetId`» **no existe** — el mismo defecto de R1, en las dos causas
  * más probables del cero de producción.
  */
+/**
+ * v1.51-d (R1-quater) — **¿se pudo consultar el catálogo de sets del proveedor en esta corrida?**
+ *
+ * Es la pieza que separa las dos causas que `pptSetId == null` fundía en una. Va como unión
+ * discriminada por la misma razón que `GradedRunOutcome`: «no estuvo disponible» **sin** decir por qué
+ * ni para qué sets es una cadena no accionable, y un default vacío la dejaría degradar en silencio.
+ */
+export type GradedMapperOutcome =
+  /** `GET /api/v2/sets` respondió: lo que no empató, no empató de verdad. */
+  | { available: true }
+  /**
+   * `GET /api/v2/sets` **no** respondió ⇒ de estos sets no sabemos si tienen mapeo o no. Exige la
+   * causa y **al menos un set nombrado**: sin eso el operador no puede hacer nada con el dato.
+   */
+  | {
+      available: false;
+      cause: 'daily_limit' | 'request_failed';
+      sets: readonly [string, ...string[]];
+    };
+
 export interface GradedRequestTally {
   /** Sets en los que se EMITIÓ al menos una petición HTTP (haya respondido OK o no). */
   attempted: number;
   /** `POKEMONPRICETRACKER_API_KEY` ausente ⇒ ningún set llegó a pedirse. */
   missingApiKey: boolean;
   /**
-   * `externalId` de los sets que **ni se pidieron** por no tener `pptSetId` mapeado. Se NOMBRAN porque
-   * es la única forma de que la acción sea directa: «algún set no está mapeado» no se puede arreglar;
-   * «`sv8` no está mapeado» sí.
+   * `externalId` de los sets que **ni se pidieron** porque el catálogo de PPT SÍ se consultó y NO
+   * empataron. Se NOMBRAN porque es la única forma de que la acción sea directa: «algún set no está
+   * mapeado» no se puede arreglar; «`sv8` no está mapeado» sí.
+   *
+   * v1.51-d (R1-quater): esta lista ya NO incluye los sets cuyo mapeo **ni se intentó** (ver `mapper`).
+   * Mezclarlos publicaba la causa #8 (cuota) disfrazada de la #5 (sin mapeo) y mandaba al operador a
+   * mapear a mano sets que probablemente ya empatan.
    */
-  setsWithoutPptSetId: readonly string[];
+  setsUnmatched: readonly string[];
+  /** R1-quater: ¿el catálogo remoto estuvo disponible? Si no, sus sets están SIN COMPROBAR. */
+  mapper: GradedMapperOutcome;
+  /**
+   * QA (v1.51-d) — **¿el recorrido cubrió todo el alcance?** El bucle del ingest se corta por tope de
+   * sonda, por cuota diaria o por escalada, y el alcance mismo puede venir recortado por
+   * `ingestMaxCardsPerRun`. Cuando esto es `false`, `setsUnmatched` y `mapper.sets` son **cotas
+   * inferiores**, y el bloque tiene que decirlo: «1 set(s) del alcance» leído como total, habiendo 20
+   * sin mapear, contesta al revés la única pregunta que el dueño quiere contestar.
+   */
+  sweepComplete: boolean;
 }
 
 /**
@@ -126,15 +185,39 @@ export interface GradedRequestTally {
  *  · `ingest_config_invalid` exige una lista **NO VACÍA** por tipo (`[string, ...string[]]`): la clave
  *    se nombra o no compila.
  */
+/**
+ * v1.51-d (techlead §2) — las paradas SIN carga adicional, **una variante por motivo**.
+ *
+ * Se distribuye con un mapped type en vez de escribir `reason: 'dial_off' | 'no_scope'` en UN miembro
+ * porque eso no es un discriminante: TypeScript filtra MIEMBROS de una unión, no reduce la unión de
+ * literales dentro de un miembro, así que el `never` de cierre de `stoppedVerdict` no compilaba. Con
+ * la distribución cada motivo es su propio miembro ⇒ descartarlos uno a uno llega a `never`, y un
+ * motivo NUEVO en `GradedStopReason` aparece aquí solo y rompe la compilación hasta que tenga rama.
+ */
+type GradedSimpleStop = {
+  [R in Exclude<GradedStopReason, 'ingest_config_invalid'>]: { kind: 'stopped'; reason: R };
+}[Exclude<GradedStopReason, 'ingest_config_invalid'>];
+
 export type GradedRunOutcome =
   /**
    * Paradas SIN carga adicional: `dial_off` (cero peticiones, cero filas, cero créditos) y `no_scope`
    * (dial `on`, config válida, cero cartas con inventario RAW publicado).
    */
-  | { kind: 'stopped'; reason: Exclude<GradedStopReason, 'ingest_config_invalid'> }
+  | GradedSimpleStop
   /** Dial `on` + clave(s) del ingest PRESENTE(S)-e-INVÁLIDA(S). **Al menos una, nombrada.** */
   | { kind: 'stopped'; reason: 'ingest_config_invalid'; invalidConfigKeys: readonly [string, ...string[]] }
-  /** Se llegó a hablar (o al menos a intentar hablar) con el proveedor: aquí sí hay observación. */
+  /**
+   * La corrida **NO paró antes de tiempo**: llegó al bucle de sets, así que hay algo que contar sobre
+   * las peticiones (`requests`) aunque no haya nada que contar sobre el proveedor.
+   *
+   * ⚠️ v1.51-d (techlead §7) — el docstring anterior decía «se llegó a hablar (o al menos a intentar
+   * hablar) con el proveedor», y eso NO es cierto en todos los `observed`: «todos los sets del alcance
+   * sin `pptSetId`» llega aquí con `requests.attempted: 0`, o sea sin ni una petición emitida. La
+   * conducta era correcta —esa rama es justo la que R1-ter abrió— y no se toca: lo que estaba mal era
+   * la descripción. **No se monta una tercera variante** por un comentario impreciso; se arregla el
+   * comentario. Quien quiera saber si de verdad se le habló al proveedor lo tiene en `requests`, que
+   * es el dato explícito.
+   */
   | {
       kind: 'observed';
       /** ¿Alguna respuesta llegó OK? Sin esto no hay observación, solo un fallo de plomería. */
@@ -217,17 +300,47 @@ function nombrarSets(ids: readonly string[]): string {
 
 type Render = (verdict: GradedPhase2Verdict, headline: string, nextStep: string) => GradedPhase2VerdictReport;
 
+/** Cómo se nombra la parcialidad del recorrido allí donde se dan cifras de sets. */
+const COTA_INFERIOR =
+  ' ⚠️ COTA INFERIOR: el recorrido NO cubrió todo el alcance de esta corrida (se cortó por el tope de ' +
+  'sonda, por la cuota diaria, por una escalada, o el alcance ya venía recortado por ' +
+  '`graded_estimate_ingest_max_cards_per_run`), así que puede haber MÁS sets en el mismo estado que ' +
+  'este bloque no llegó a ver. El número es un mínimo, no un total.';
+
+/** Frase estándar del catálogo caído, con su causa y su acción. Una sola definición para las dos ramas. */
+function motivoCatalogoCaido(cause: 'daily_limit' | 'request_failed'): { qué: string; acción: string } {
+  return cause === 'daily_limit'
+    ? {
+        qué: 'la CUOTA DIARIA del proveedor ya estaba agotada al pedir `GET /api/v2/sets` (el barrido de ' +
+          'precios RAW corre en la MISMA corrida y consume del mismo contador)',
+        acción:
+          'Espera al reinicio de la cuota (00:00 UTC) y vuelve a correr — o corre el ingest de estimados ' +
+          'ANTES del barrido RAW. NO vayas a mapear nada a mano todavía: no sabemos que falte mapeo.',
+      }
+    : {
+        qué: 'la petición `GET /api/v2/sets` FALLÓ (red, credencial o plan)',
+        acción:
+          'Revisa la conectividad y `POKEMONPRICETRACKER_API_KEY` contra `GET /api/v2/sets` y vuelve a ' +
+          'correr. NO vayas a mapear nada a mano todavía: el mapeo ni se llegó a comprobar.',
+      };
+}
+
 /**
- * v1.51-c (R1-ter) — **«no respondió OK» son TRES cosas distintas y solo una manda al log del fallo.**
+ * v1.51-c (R1-ter) / v1.51-d (R1-quater, QA) — **«no respondió OK» son CINCO cosas distintas, y solo
+ * una manda al log del fallo.**
  *
- * Las dos primeras (`sin llave`, `set sin pptSetId`) son las causas #4 y #5 del mapa de causas
- * (`BACKEND_NOTES.md` §0.16.2) y en ninguna de las dos existe la línea «PPT graded: EL REQUEST FALLÓ»:
- * el provider devuelve `empty` **antes** de emitir nada. Mandar ahí al operador es el defecto (b) de R1
- * textualmente idéntico — y «set sin `pptSetId`» es hoy la hipótesis principal de las cartas sin dato
- * en producción, así que era el caso más caro de equivocar.
+ * Las tres primeras (`sin llave`, `catálogo caído`, `set sin pptSetId`) son causas del mapa
+ * (`BACKEND_NOTES.md` §0.16.2) en las que la línea «PPT graded: EL REQUEST FALLÓ» **no existe**: el
+ * provider devuelve `empty` *antes* de emitir nada. Mandar ahí al operador es el defecto (b) de R1
+ * textualmente idéntico.
+ *
+ * Y de las dos en las que SÍ hubo petición, la del **429 diario** tampoco emite esa línea: el provider
+ * la atrapa en su propia rama (`429 DAILY … → PARADA`) y `EL REQUEST FALLÓ` es el `else`. Cada titular
+ * cita, por eso, la constante de SU línea — y el guardián lo verifica corrida a corrida.
  */
 function noRequestOkVerdict(req: GradedRequestTally, dailyLimited: boolean, r: Render): GradedPhase2VerdictReport {
-  const sinSet = req.setsWithoutPptSetId;
+  const sinMapeo = req.setsUnmatched;
+  const parcial = req.sweepComplete ? '' : COTA_INFERIOR;
   if (req.attempted === 0) {
     if (req.missingApiKey) {
       return r(
@@ -235,48 +348,147 @@ function noRequestOkVerdict(req: GradedRequestTally, dailyLimited: boolean, r: R
         'NO HUBO NI UNA PETICIÓN: falta `POKEMONPRICETRACKER_API_KEY`, así que ningún set del alcance ' +
           'llegó a pedirse. El proveedor no falló — no se le habló.',
         'Pon POKEMONPRICETRACKER_API_KEY en el entorno del backend (Railway ⇒ redeploy) y vuelve a ' +
-          'correr. La línea que SÍ existe en este log es «PPT graded: falta POKEMONPRICETRACKER_API_KEY»; ' +
-          'la de «EL REQUEST FALLÓ» NO existe en esta corrida: no hubo petición que pudiera fallar.',
+          `correr. La línea que SÍ existe en este log es ${citarLineaViva(GRADED_LOG_LINES.missingApiKey)}; ` +
+          `la de ${citarLineaAusente(GRADED_LOG_LINES.requestFailed)}: no hubo petición que pudiera fallar.`,
       );
     }
-    if (sinSet.length > 0) {
+    // ⚠️ R1-quater — VA ANTES QUE `setsUnmatched` A PROPÓSITO. Si el catálogo no se pudo consultar, la
+    // acción «ve a mapear estos sets» es la equivocada (puede que ya empaten) y la causa publicada
+    // sería falsa. La disponibilidad del catálogo es precondición de poder afirmar «no está mapeado».
+    if (!req.mapper.available) {
+      const { qué, acción } = motivoCatalogoCaido(req.mapper.cause);
+      const sets = req.mapper.sets;
       return r(
         'INDETERMINADO',
-        `NO HUBO NI UNA PETICIÓN: ${sinSet.length} set(s) del alcance NO tienen \`pptSetId\` mapeado ` +
-          `(${nombrarSets(sinSet)}) y sin él no se pide nada (jamás se cae al externalId). Las cartas de ` +
-          'esos sets no se pidieron NUNCA: por eso no tienen dato.',
-        `Mapea el \`pptSetId\` de ${nombrarSets(sinSet)}. Lo resuelve \`PptSetMapper\` por NOMBRE contra ` +
+        `NO HUBO NI UNA PETICIÓN, y NO es que falte mapeo: ${qué}, así que de ${sets.length} set(s) del ` +
+          `alcance (${nombrarSets(sets)}) NO SE PUDO COMPROBAR si tienen \`pptSetId\`. Sin ese id no se ` +
+          'pide nada, pero la causa es la consulta caída, no el mapeo.' +
+          parcial,
+        `${acción} La línea que SÍ existe aquí es ` +
+          `${citarLineaViva(GRADED_LOG_LINES.mapperUnavailable)}, y también ` +
+          `${citarLineaViva(GRADED_LOG_LINES.setWithoutPptSetId)} (consecuencia, no causa). NO están en ` +
+          `este log ni ${citarLineaAusente(GRADED_LOG_LINES.mapperUnmatched)} —el mapeo ni se ` +
+          `intentó— ni ${citarLineaAusente(GRADED_LOG_LINES.requestFailed)}.`,
+      );
+    }
+    if (sinMapeo.length > 0) {
+      return r(
+        'INDETERMINADO',
+        `NO HUBO NI UNA PETICIÓN: ${sinMapeo.length} set(s) del alcance NO tienen \`pptSetId\` mapeado ` +
+          `(${nombrarSets(sinMapeo)}) y sin él no se pide nada (jamás se cae al externalId). Las cartas de ` +
+          'esos sets no se pidieron NUNCA: por eso no tienen dato.' +
+          parcial,
+        `Mapea el \`pptSetId\` de ${nombrarSets(sinMapeo)}. Lo resuelve \`PptSetMapper\` por NOMBRE contra ` +
           '`GET /api/v2/sets` de PPT y solo persiste lo que empata sin ambigüedad ⇒ busca en el log ' +
-          '«PptSetMapper: … sets SIN mapeo a PokemonPriceTracker» para ver cuál no empató y por qué. ' +
-          'La línea que SÍ existe aquí es «PPT graded: set … sin pptSetId → no se pide nada»; la de ' +
-          '«EL REQUEST FALLÓ» NO existe: no hubo petición.',
+          `${citarLineaViva(GRADED_LOG_LINES.mapperUnmatched)} para ver cuál no empató y por qué. ` +
+          `La línea que SÍ existe aquí es ${citarLineaViva(GRADED_LOG_LINES.setWithoutPptSetId)}; la de ` +
+          `${citarLineaAusente(GRADED_LOG_LINES.requestFailed)}: no hubo petición.`,
       );
     }
     return r(
       'INDETERMINADO',
       'NO HUBO NI UNA PETICIÓN al proveedor, y la corrida no registró ninguna de las causas conocidas ' +
-        '(ni falta de llave, ni set sin `pptSetId`).',
-      'No busques «EL REQUEST FALLÓ» en el log: no hubo petición que pudiera fallar. Revisa las líneas ' +
-        '«PPT graded» y «graded-estimate-ingest» de esta corrida; si el alcance no estaba vacío y aun ' +
-        'así ningún set llegó a pedir, es un hueco del propio diagnóstico ⇒ repórtalo (no lo adivines).',
+        '(ni falta de llave, ni catálogo de sets caído, ni set sin `pptSetId`).',
+      `No busques ${citarLineaAusente(GRADED_LOG_LINES.requestFailed)}: no hubo petición que pudiera ` +
+        `fallar. Revisa las líneas ${citarLineaViva(GRADED_LOG_LINES.ingest)} de esta corrida; si el ` +
+        'alcance no estaba vacío y aun así ningún set llegó a pedir, es un hueco del propio ' +
+        'diagnóstico ⇒ repórtalo (no lo adivines).',
     );
   }
-  // Aquí SÍ se emitieron peticiones y ninguna respondió OK: la línea del fallo existe y es donde hay
-  // que mirar. Si además hubo sets que ni se pidieron, se dicen — son cartas sin dato por otra causa.
-  const cola =
-    sinSet.length > 0
-      ? ` ⚠️ Además, ${sinSet.length} set(s) del alcance NI SE PIDIERON por no tener \`pptSetId\` ` +
-        `(${nombrarSets(sinSet)}): esas cartas no tienen dato por una causa DISTINTA, y para ellas no hay ` +
-        'ninguna línea de fallo que buscar.'
-      : '';
+  // Aquí SÍ se emitieron peticiones y ninguna respondió OK. Cuál es «la línea del fallo» depende de si
+  // lo que cortó fue la CUOTA DIARIA (rama propia del provider) o cualquier otro error (el `else`).
+  // Si además hubo sets que ni se pidieron, se dicen — son cartas sin dato por otra causa.
+  const colas: string[] = [];
+  if (sinMapeo.length > 0) {
+    colas.push(
+      ` ⚠️ Además, ${sinMapeo.length} set(s) del alcance NI SE PIDIERON por no tener \`pptSetId\` ` +
+        `(${nombrarSets(sinMapeo)}): esas cartas no tienen dato por una causa DISTINTA, y para ellas no ` +
+        'hay ninguna línea de fallo que buscar.',
+    );
+  }
+  if (!req.mapper.available) {
+    const { acción } = motivoCatalogoCaido(req.mapper.cause);
+    colas.push(
+      ` ⚠️ Además, de ${req.mapper.sets.length} set(s) (${nombrarSets(req.mapper.sets)}) NO SE PUDO ` +
+        `COMPROBAR el mapeo (ver ${citarLineaViva(GRADED_LOG_LINES.mapperUnavailable)}): eso NO es ` +
+        `«sin mapeo». ${acción}`,
+    );
+  }
+  const cola = colas.join('') + parcial;
   return r(
     'INDETERMINADO',
     dailyLimited
       ? 'La cuota diaria del proveedor se agotó antes de obtener una sola respuesta: no hubo observación.'
       : `Se emitieron peticiones en ${req.attempted} set(s) y NINGUNA respondió OK (llave, red o plan): ` +
         'no hubo observación.',
-    'Revisa las líneas «PPT graded: EL REQUEST FALLÓ» del log (traen el status y la pista) y vuelve a ' +
-      `correr.${cola}`,
+    // ⛑️ QA (v1.51-d) — ESTE `nextStep` era INCONDICIONAL mientras el titular sí tenía rama para
+    // `dailyLimited`: con la cuota agotada mandaba a un `grep` que no devuelve nada, porque
+    // `PptDailyLimitError` emite su propia línea y NO cae en «EL REQUEST FALLÓ» (que es el `else`).
+    // No se cita aquí «EL REQUEST FALLÓ»: con la cuota agotada puede existir (si algún set falló antes
+    // por otra causa) o no existir, y el veredicto no tiene cómo saberlo ⇒ no se afirma ninguna de las
+    // dos cosas. Se cita la línea que SIEMPRE está cuando `dailyLimited` es cierto.
+    (dailyLimited
+      ? 'Espera al reinicio de la cuota (00:00 UTC) y vuelve a correr — o corre el ingest de estimados ' +
+        `ANTES del barrido de precios RAW, que consume del mismo contador. La línea que SÍ existe es ` +
+        `${citarLineaViva(GRADED_LOG_LINES.dailyStop)} (trae \`resetsAt\` y el remaining).`
+      : `Revisa las líneas ${citarLineaViva(GRADED_LOG_LINES.requestFailed)} del log (traen el status y ` +
+        'la pista) y vuelve a correr.') + cola,
+  );
+}
+
+/**
+ * v1.51-d (techlead §2) — **las paradas, discriminadas por `reason`, con un `never` de cierre.**
+ *
+ * ### Qué se cierra aquí
+ * `no_scope` se atrapaba con un `else if (o.kind === 'stopped')`, o sea **por descarte**. Documentarlo
+ * fue mejor que prometer una exhaustividad que no había, pero seguía dejando que un motivo NUEVO
+ * cayera en silencio con el titular del *inventario RAW vacío*: causa falsa + acción equivocada, que
+ * es el defecto (b) de R1 textualmente. Con la discriminación explícita más el `never`, añadir un
+ * motivo a `GradedStopReason` **rompe la compilación** hasta que alguien le escriba su rama.
+ *
+ * Conducta HOY: idéntica. `GradedStopReason` es cerrado y las tres ramas cubren sus tres valores.
+ */
+function stoppedVerdict(
+  o: Extract<GradedRunOutcome, { kind: 'stopped' }>,
+  r: Render,
+): GradedPhase2VerdictReport {
+  if (o.reason === 'dial_off') {
+    return r(
+      'INDETERMINADO',
+      'No se preguntó nada: el dial `grading_hook_enabled` está en `off`. Es una decisión, no un fallo.',
+      'Enciende el dial con PUT /admin/settings {"gradingHookEnabled":"on"} —es el ÚNICO del gancho: encenderlo TAMBIÉN publica las cifras y empieza a gastar créditos— y vuelve a disparar POST /admin/jobs/price-ingest con body {}.',
+    );
+  }
+  if (o.reason === 'ingest_config_invalid') {
+    // ⚠️ EL CASO QUE MENTÍA. El dial está ENCENDIDO; lo que para el ingest es una clave corrupta. Se
+    // NOMBRA la clave: «la config es inválida» no es accionable, `graded_estimate_min_sample_count` sí.
+    // TL-GE6: el tipo exige al menos UNA clave, así que aquí ya no existe «no identificada(s)».
+    const keys = o.invalidConfigKeys.join(', ');
+    return r(
+      'INDETERMINADO',
+      `No se preguntó nada, y NO es el dial: \`grading_hook_enabled\` está en \`on\`. Lo que para el ingest es la config, con clave(s) PRESENTE(S)-e-INVÁLIDA(S): ${keys}.`,
+      `Corrige ${keys} con PUT /admin/pricing/graded-estimates (o borra la fila para volver al seed) y vuelve a disparar POST /admin/jobs/price-ingest con body {}. NO toques el dial: apagarlo y encenderlo no cambia nada aquí.`,
+    );
+  }
+  if (o.reason === 'no_scope') {
+    return r(
+      'INDETERMINADO',
+      'No se preguntó nada: el dial está en `on` y la config es válida, pero NINGUNA carta tiene inventario RAW publicado, así que el alcance del ingest quedó VACÍO.',
+      'Publica al menos una pieza RAW (InventoryItem ownerType=platform, status=listed, productType=raw) de una carta con `pptSetId` mapeado y vuelve a correr. No busques nada en el log del proveedor: no hubo ninguna petición.',
+    );
+  }
+  // ⛑️ EL CANDADO. Si alguien añade un motivo a `GradedStopReason` sin darle rama, esta línea deja de
+  // compilar. En tiempo de ejecución NO se lanza (un diagnóstico no puede tumbar el job) ni se hereda
+  // un titular ajeno: se dice exactamente lo que se sabe, que es el nombre del motivo.
+  const motivoSinRama: never = o;
+  const nombre = (motivoSinRama as { reason: string }).reason;
+  return r(
+    'INDETERMINADO',
+    `No se preguntó nada: la corrida PARÓ con el motivo \`${nombre}\`, que NO tiene rama propia en el ` +
+      'veredicto ⇒ no se sabe qué significa y NO se hereda el titular de ninguna otra parada.',
+    `Es un hueco del propio diagnóstico: dale su rama a \`${nombre}\` en \`gradedPhase2Verdict\` ` +
+      '(titular + acción + la línea de log que SÍ existe). No busques nada en el log del proveedor: una ' +
+      'parada ocurre antes de cualquier petición.',
   );
 }
 
@@ -300,33 +512,13 @@ export function gradedPhase2Verdict(i: GradedPhase2VerdictInput): GradedPhase2Ve
   // Van primero y separadas porque comparten un síntoma («cero filas escritas») y NO comparten
   // remedio: encender un dial que ya está encendido, corregir una clave, o publicar inventario. Un
   // titular que confunde una con otra manda al operador a la reparación equivocada.
-  if (o.kind === 'stopped' && o.reason === 'dial_off') {
-    out = r(
-      'INDETERMINADO',
-      'No se preguntó nada: el dial `grading_hook_enabled` está en `off`. Es una decisión, no un fallo.',
-      'Enciende el dial con PUT /admin/settings {"gradingHookEnabled":"on"} —es el ÚNICO del gancho: encenderlo TAMBIÉN publica las cifras y empieza a gastar créditos— y vuelve a disparar POST /admin/jobs/price-ingest con body {}.',
-    );
-  } else if (o.kind === 'stopped' && o.reason === 'ingest_config_invalid') {
-    // ⚠️ EL CASO QUE MENTÍA. El dial está ENCENDIDO; lo que para el ingest es una clave corrupta. Se
-    // NOMBRA la clave: «la config es inválida» no es accionable, `graded_estimate_min_sample_count` sí.
-    // TL-GE6: el tipo exige al menos UNA clave, así que aquí ya no existe «no identificada(s)».
-    const keys = o.invalidConfigKeys.join(', ');
-    out = r(
-      'INDETERMINADO',
-      `No se preguntó nada, y NO es el dial: \`grading_hook_enabled\` está en \`on\`. Lo que para el ingest es la config, con clave(s) PRESENTE(S)-e-INVÁLIDA(S): ${keys}.`,
-      `Corrige ${keys} con PUT /admin/pricing/graded-estimates (o borra la fila para volver al seed) y vuelve a disparar POST /admin/jobs/price-ingest con body {}. NO toques el dial: apagarlo y encenderlo no cambia nada aquí.`,
-    );
-  } else if (o.kind === 'stopped') {
-    // `no_scope` — la última parada, y por eso ésta es la rama «cualquier otra parada». ⚠️ Honestidad
-    // sobre lo que el tipo garantiza y lo que no: `GradedStopReason` es cerrado, así que HOY aquí solo
-    // puede caer `no_scope`; pero si mañana se le añade un motivo, **caerá aquí en silencio** con el
-    // titular del alcance vacío (el compilador no lo impide: la condición es `kind`, no `reason`).
-    // Quien añada un motivo tiene que añadir su rama ANTES de ésta.
-    out = r(
-      'INDETERMINADO',
-      'No se preguntó nada: el dial está en `on` y la config es válida, pero NINGUNA carta tiene inventario RAW publicado, así que el alcance del ingest quedó VACÍO.',
-      'Publica al menos una pieza RAW (InventoryItem ownerType=platform, status=listed, productType=raw) de una carta con `pptSetId` mapeado y vuelve a correr. No busques nada en el log del proveedor: no hubo ninguna petición.',
-    );
+  //
+  // v1.51-d (techlead §2): el reparto entre paradas vive en `stoppedVerdict`, con un `never` al final
+  // (antes `no_scope` se atrapaba POR DESCARTE, así que un motivo nuevo heredaba en silencio su
+  // titular — el defecto (b) de R1 palabra por palabra). Aquí el `if` es sobre `kind`, y eso además
+  // estrecha `o` a `observed` para todo el resto de la cadena.
+  if (o.kind === 'stopped') {
+    out = stoppedVerdict(o, r);
   } else if (i.escalationReason === 'ebay_not_supported_with_set_sweep') {
     out = r(
       'NO_VIABLE',
@@ -432,15 +624,37 @@ function renderLines(
         `(gradedPrices escalar, NO persistible) / ${Math.max(0, i.cardsReturned - observed)} sin bloque PSA, ` +
         `sobre ${i.cardsReturned} carta(s) devueltas por el proveedor en ${i.sets} set(s).`;
 
-  // R1-ter — LOS SETS QUE NI SE PIDIERON. Va como línea propia (no solo en el `AHORA:`) porque es
-  // compatible con un veredicto VIABLE: la corrida puede haber escrito estimados de un set y, a la vez,
-  // no haber pedido NUNCA los otros. Ésa es exactamente la pregunta abierta en producción («escribe,
-  // pero muchas cartas siguen sin dato») y sin esta línea había que deducirla del log del mapper.
+  // R1-ter — LOS SETS QUE NI SE PIDIERON. Van como líneas propias (no solo en el `AHORA:`) porque son
+  // compatibles con un veredicto VIABLE: la corrida puede haber escrito estimados de un set y, a la
+  // vez, no haber pedido NUNCA los otros. Ésa es exactamente la pregunta abierta en producción
+  // («escribe, pero muchas cartas siguen sin dato») y sin esto había que deducirlo del log del mapper.
+  //
+  // v1.51-d — son DOS líneas, no una (R1-quater): «se comprobó y no empata» pide MAPEAR; «no se pudo
+  // comprobar» pide REINTENTAR, y fundirlas publicaba la segunda con la acción de la primera. Y las
+  // dos llevan la marca de COTA INFERIOR cuando el recorrido no cubrió el alcance (QA): un número
+  // parcial leído como total contesta al revés la pregunta que el dueño quiere contestar.
+  const parcial = o.kind === 'observed' && !o.requests.sweepComplete ? COTA_INFERIOR : '';
   const skippedSetsLine =
-    o.kind === 'observed' && o.requests.setsWithoutPptSetId.length > 0
-      ? `SETS NO PEDIDOS: ${o.requests.setsWithoutPptSetId.length} set(s) del alcance NO tienen \`pptSetId\` ` +
-        `mapeado (${nombrarSets(o.requests.setsWithoutPptSetId)}) ⇒ sus cartas NO se pidieron y por eso ` +
-        'no tienen dato. Se mapea por NOMBRE contra `GET /api/v2/sets` (ver «PptSetMapper: … SIN mapeo»).'
+    o.kind === 'observed' && o.requests.setsUnmatched.length > 0
+      ? `SETS NO PEDIDOS: ${o.requests.setsUnmatched.length} set(s) del alcance recorrido NO tienen ` +
+        `\`pptSetId\` mapeado (${nombrarSets(o.requests.setsUnmatched)}) ⇒ sus cartas NO se pidieron y ` +
+        'por eso no tienen dato. Se mapea por NOMBRE contra `GET /api/v2/sets` (ver ' +
+        `${citarLineaViva(GRADED_LOG_LINES.mapperUnmatched)}).${parcial}`
+      : null;
+  const uncheckedSetsLine =
+    o.kind === 'observed' && !o.requests.mapper.available
+      ? `SETS SIN COMPROBAR: de ${o.requests.mapper.sets.length} set(s) ` +
+        `(${nombrarSets(o.requests.mapper.sets)}) NO SE PUDO consultar el catálogo del proveedor ` +
+        `(${o.requests.mapper.cause === 'daily_limit' ? 'cuota diaria agotada' : 'la petición falló'}) ⇒ ` +
+        'NO se sabe si tienen `pptSetId`; sus cartas no se pidieron por eso, no por falta de mapeo. Ver ' +
+        `${citarLineaViva(GRADED_LOG_LINES.mapperUnavailable)}.${parcial}`
+      : null;
+  // La parcialidad se dice AUNQUE no haya sets pendientes: «cero sets sin mapear» sobre un recorrido
+  // que se cortó es igual de engañoso que un total inflado.
+  const sweepLine =
+    o.kind === 'observed' && !o.requests.sweepComplete
+      ? `ALCANCE RECORRIDO: PARCIAL — se miraron ${i.sets} set(s) y el recorrido se cortó antes de ` +
+        'cubrir el alcance completo. Cualquier cifra de sets de este bloque es un MÍNIMO.'
       : null;
 
   const modeLine =
@@ -459,6 +673,8 @@ function renderLines(
     `VEREDICTO: ${out.verdict} — ${out.headline}`,
     arrivedLine,
     ...(skippedSetsLine ? [skippedSetsLine] : []),
+    ...(uncheckedSetsLine ? [uncheckedSetsLine] : []),
+    ...(sweepLine ? [sweepLine] : []),
     modeLine,
     costLine,
     `AHORA: ${out.nextStep}`,

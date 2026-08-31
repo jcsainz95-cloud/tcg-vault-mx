@@ -18,11 +18,12 @@ import { hasManualPrice } from '../../common/money';
 // v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
 import { businessDateCdmx } from '../../common/graded-estimate';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
-import { PptSetMapper } from './ppt-set-mapper.service';
+import { PptSetMapper, PptSetMapping } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
 import { AuditService } from '../audit/audit.service';
 import {
   GradedPhase2Verdict,
+  GradedRequestTally,
   GradedRunOutcome,
   gradedPhase2Verdict,
   shapeCountIsInduced,
@@ -820,8 +821,11 @@ export class PriceIngestService {
       : await this.computeScope(set);
     if (scopeInfo.scope === 'skip') return 'skip';
 
+    // v1.51-d (R1-quater): el mapeo viaja con su MOTIVO. El barrido RAW solo necesita el id (sin él
+    // no pide nada, igual que antes); el que sí distingue los dos motivos es el camino graded, porque
+    // es el que PUBLICA una causa y una acción.
     const map = await this.pptSetMapper.resolveForSets([set]);
-    const providerSetId = map.get(set.id) ?? null;
+    const providerSetId = map.get(set.id)?.pptSetId ?? null;
 
     const fetchInput: BulkFetchInput = {
       set,
@@ -1003,8 +1007,19 @@ export class PriceIngestService {
        * `requestOk:false` mezclaba «se pidió y falló» con «no se pidió», y el veredicto mandaba a leer
        * la línea «EL REQUEST FALLÓ» en las dos causas donde esa línea NO existe (sin llave / set sin
        * `pptSetId`) — el defecto (b) de R1, en las dos sospechas más probables del cero de producción.
+       *
+       * v1.51-d (R1-quater): «sin `pptSetId`» eran a su vez DOS causas —el catálogo se consultó y no
+       * empató, vs. el catálogo NO se pudo consultar— y se publicaban como una sola. Se separan aquí,
+       * en el acumulador, para que el veredicto no tenga que adivinar cuál fue.
        */
-      requests: { attempted: 0, missingApiKey: false, setsWithoutPptSetId: [] as string[] },
+      requests: {
+        attempted: 0,
+        missingApiKey: false,
+        /** Sets comprobados contra el catálogo de PPT que NO empataron ⇒ hay que mapearlos. */
+        setsUnmatched: [] as string[],
+        /** Sets cuyo mapeo NI SE INTENTÓ porque `/api/v2/sets` no respondió (con su causa). */
+        mapperUnavailable: [] as { setExternalId: string; cause: 'daily_limit' | 'request_failed' }[],
+      },
     };
     // Config COMPLETA (no la del storefront). v1.51 (M-46, §4.38r.7): el gate lee **`cfg.enabled` — el
     // DIAL CRUDO—, NUNCA `estimatesEnabled`/`highlightEnabled`**. Esos dos doblan la validez de claves
@@ -1115,6 +1130,47 @@ export class PriceIngestService {
     // `POKEMONPRICETRACKER_GRADED_FORMAT` viaja en el resultado de cada set; basta con que UNA llamada
     // de la corrida haya ido forzada para que el conteo global deje de ser evidencia sobre el proveedor.
     let forcedFormatSeen: GradedFormat = 'auto';
+    // ⚠️ QA (v1.51-d) — **¿el recorrido cubrió TODO el alcance?** El bucle de abajo se puede cortar
+    // antes de mirar todos los sets: tope de sonda, `break` por cuota diaria, `return` de escalada. Y
+    // el alcance mismo puede venir ya recortado por `ingestMaxCardsPerRun`. Sin esta cuenta, la línea
+    // «SETS NO PEDIDOS: N» —que el dueño lee como el total de sets sin mapear— es en realidad una
+    // COTA INFERIOR presentada como total: una corrida SONDA podía imprimir «1 set(s)» habiendo 20 sin
+    // mapear, sin ninguna marca de parcialidad. Se cuenta lo VISITADO y se compara con el alcance.
+    const setsEnAlcance = bySet.size;
+    let setsVisitados = 0;
+    /** ¿`published` traía más cartas de las que `ingestMaxCardsPerRun` dejó entrar al alcance? */
+    const alcanceRecortadoPorTope = published.length > cardIds.length;
+    /**
+     * v1.51-d — el RECUENTO DE PETICIONES tal y como lo lee el veredicto, calculado en el momento de
+     * emitir (hay dos salidas `observed`: la de la escalada, dentro del bucle, y la del cierre).
+     *
+     * Aquí se desarma `mapperUnavailable` para que el tipo del veredicto pueda exigir una lista NO
+     * VACÍA con su causa (misma técnica que `invalidConfigKeys`, TL-GE6): «el catálogo no respondió»
+     * sin decir para qué sets, o sin decir por qué, es otra vez una cadena no accionable.
+     */
+    const recuentoDePeticiones = (): GradedRequestTally => {
+      const [primeroSinComprobar, ...demasSinComprobar] = ev.requests.mapperUnavailable;
+      return {
+        attempted: ev.requests.attempted,
+        missingApiKey: ev.requests.missingApiKey,
+        setsUnmatched: ev.requests.setsUnmatched,
+        mapper:
+          primeroSinComprobar === undefined
+            ? { available: true }
+            : {
+                available: false,
+                cause: primeroSinComprobar.cause,
+                sets: [
+                  primeroSinComprobar.setExternalId,
+                  ...demasSinComprobar.map((x) => x.setExternalId),
+                ],
+              },
+        // El recorrido solo es COMPLETO si se miraron todos los sets del alcance **y** el alcance no
+        // venía ya recortado por `ingestMaxCardsPerRun`. Cualquier otra cosa convierte las listas de
+        // sets en una cota inferior, y el veredicto tiene que decirlo.
+        sweepComplete: setsVisitados === setsEnAlcance && !alcanceRecortadoPorTope,
+      };
+    };
 
     for (const { set, allowed } of bySet.values()) {
       // ── ACOTA EL GASTO DE LA SONDA (§4.38h.5) ────────────────────────────────────────────────────
@@ -1134,6 +1190,10 @@ export class PriceIngestService {
         );
         break;
       }
+      // A partir de aquí ESTE set se mira (se pida o no se pida): cuenta como recorrido. El `break` de
+      // arriba va ANTES a propósito — un set que la sonda ya no llegó a mirar es justo lo que hace que
+      // las listas de sets del veredicto sean una cota inferior.
+      setsVisitados += 1;
       // BE-GE3 (techlead) — índice EN MEMORIA de las cartas de ESTE set que están en alcance. El
       // resolver por fila hacía 1-3 queries DENTRO del bucle del ingest (externalId → (set,number) →
       // variantes de número) sobre un conjunto que ya teníamos materializado: con 250 cartas por
@@ -1142,7 +1202,16 @@ export class PriceIngestService {
       // en `allowed`, así que acotar el índice no cambia ni una decisión.
       const index = this.buildGradedCardIndex(cardsById, allowed);
       const map = await this.pptSetMapper.resolveForSets([set]);
-      const providerSetId = map.get(set.id) ?? null;
+      // v1.51-d (R1-quater): el mapper dice SI hay `pptSetId` y, si no, POR QUÉ. `resolveForSets`
+      // siempre puebla la entrada del set que se le pasa; si alguna vez no lo hiciera, se trata como
+      // «no comprobado» —nunca como «comprobado y sin mapeo»—: inventar la causa cara es justo lo que
+      // este arreglo elimina.
+      const mapping: PptSetMapping = map.get(set.id) ?? {
+        pptSetId: null,
+        reason: 'mapper_unavailable',
+        cause: 'request_failed',
+      };
+      const providerSetId = mapping.pptSetId;
       const res = await this.pptBulk.fetchGradedEstimatesForSet({
         set,
         providerSetId,
@@ -1169,8 +1238,14 @@ export class PriceIngestService {
       // R1-ter: el provider dice si NO llegó a pedir y por qué. `null`/ausente ⇒ sí hubo petición (el
       // caso normal, y también el del rechazo de parámetro, que responde con un 4xx real).
       if (res.noRequestReason === 'missing_api_key') ev.requests.missingApiKey = true;
-      else if (res.noRequestReason === 'set_without_ppt_set_id') ev.requests.setsWithoutPptSetId.push(set.externalId);
-      else ev.requests.attempted += 1;
+      else if (res.noRequestReason === 'set_without_ppt_set_id') {
+        // ⚠️ R1-quater — «no tiene pptSetId» NO es una causa: son DOS, con acciones opuestas. Si el
+        // catálogo de PPT ni se pudo consultar (cuota agotada por el barrido RAW de esta misma
+        // corrida, o red), mandar a «mapear estos sets» es la acción equivocada sobre una causa falsa.
+        if (mapping.pptSetId === null && mapping.reason === 'mapper_unavailable') {
+          ev.requests.mapperUnavailable.push({ setExternalId: set.externalId, cause: mapping.cause });
+        } else ev.requests.setsUnmatched.push(set.externalId);
+      } else ev.requests.attempted += 1;
       ev.cardsReturned += res.fetchedRaw;
       // TL-GE1: se SUMA lo atribuible; un solo set que no pueda aislarlo deja la corrida entera sin
       // cifra. No se completa con el contador diario del cliente: es el dato contaminado que se retiró.
@@ -1236,7 +1311,7 @@ export class PriceIngestService {
         return this.emitGradedVerdict(result, ev, {
           kind: 'observed',
           requestOk: ev.requestOk,
-          requests: ev.requests,
+          requests: recuentoDePeticiones(),
           shapeCounts,
           forcedFormat: forcedFormatSeen,
         });
@@ -1512,7 +1587,7 @@ export class PriceIngestService {
     return this.emitGradedVerdict(result, ev, {
       kind: 'observed',
       requestOk: ev.requestOk,
-      requests: ev.requests,
+      requests: recuentoDePeticiones(),
       shapeCounts,
       forcedFormat: forcedFormatSeen,
     });

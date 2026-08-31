@@ -17,6 +17,9 @@ import { PptApiClient, PptDailyLimitError, PptHttpError, PptResponse } from './p
 // v1.50.3 (§4.38m.2): el gate de EVIDENCIA reusa el MISMO predicado de antigüedad que la lectura. Dos
 // implementaciones de «¿esto es viejo?» serían dos verdades sobre la frescura.
 import { isStaleEstimate } from '../../../common/graded-estimate';
+// v1.51-d (TL-GE7): las líneas de log que el VEREDICTO cita se declaran UNA vez. El emisor (aquí) y
+// el que las cita (`gradedPhase2Verdict`) leen la MISMA constante — nunca dos literales parecidos.
+import { GRADED_LOG_LINES, emitirLineaGraded } from '../graded-log-lines';
 
 /**
  * Formato de precio del proveedor de paga = **moneda + unidad**, FIJADO EXPLÍCITAMENTE por el
@@ -775,12 +778,15 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       forcedFormat: this.gradedFormatOverride(),
     };
     if (!this.client.apiKey()) {
-      this.logger.warn('PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).');
+      this.logger.warn(
+        `${emitirLineaGraded(GRADED_LOG_LINES.missingApiKey)} → no se ingesta (nada se escribe).`,
+      );
       return { ...empty, noRequestReason: 'missing_api_key' };
     }
     if (!input.providerSetId) {
       this.logger.warn(
-        `PPT graded: set ${input.set.externalId} sin pptSetId → no se pide nada (jamás se cae al externalId).`,
+        `${emitirLineaGraded(GRADED_LOG_LINES.setWithoutPptSetId, input.set.externalId)} ` +
+          '(jamás se cae al externalId).',
       );
       return { ...empty, noRequestReason: 'set_without_ppt_set_id' };
     }
@@ -914,7 +920,12 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     } catch (e) {
       if (e instanceof PptDailyLimitError) {
         dailyLimited = true;
-        this.logger.warn(`PPT graded: 429 DAILY en el set ${input.set.externalId} → PARADA. ${e.message}`);
+        // ⚠️ QA (v1.51-d): ESTA es la línea del 429 diario, y NO `requestFailed` (que es el `else` de
+        // abajo). El veredicto tiene que citar ésta cuando `dailyLimited`, o vuelve a mandar al
+        // operador a un `grep` que no devuelve nada.
+        this.logger.warn(
+          `${emitirLineaGraded(GRADED_LOG_LINES.dailyStop, input.set.externalId)} ${e.message}`,
+        );
       } else if (e instanceof PptHttpError && isParamRejection(e.status)) {
         // ⛔ ESCALADA: el proveedor RECHAZA la combinación `includeEbay=true` + `fetchAllInSet=true`.
         // NO se cae a «una petición por carta»: eso cambia el modelo de coste (2 créditos × carta) y
@@ -943,8 +954,8 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
               ? ` → el pptSetId cacheado del set ${input.set.externalId} ya no existe en el proveedor; re-mapéalo.`
               : '';
         this.logger.warn(
-          `PPT graded: EL REQUEST FALLÓ para el set ${input.set.externalId}: ${(e as Error).message} ` +
-            `(no se escribe nada; los estimados previos quedan intactos).${pista}`,
+          `${emitirLineaGraded(GRADED_LOG_LINES.requestFailed)} para el set ${input.set.externalId}: ` +
+            `${(e as Error).message} (no se escribe nada; los estimados previos quedan intactos).${pista}`,
         );
       }
     }

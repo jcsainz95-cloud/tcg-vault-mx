@@ -1,23 +1,26 @@
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { CardSet } from '@prisma/client';
-import { PokemonPriceTrackerBulkProvider } from '../src/modules/pricing/providers/pokemonpricetracker-bulk.provider';
-import { PptApiClient } from '../src/modules/pricing/providers/ppt-api.client';
-import { PriceIngestService, FxSnapshot } from '../src/modules/pricing/price-ingest.service';
-import { PricingService } from '../src/modules/pricing/pricing.service';
-import { PrismaService } from '../src/prisma/prisma.service';
-import { SettingsService } from '../src/modules/settings/settings.service';
-import { FxService } from '../src/modules/pricing/fx.service';
-import { PptSetMapper } from '../src/modules/pricing/ppt-set-mapper.service';
-import { AuditService } from '../src/modules/audit/audit.service';
-import { SettingKey } from '../src/modules/settings/settings.constants';
 import {
   gradedPhase2Verdict,
   shapeCountIsInduced,
   GRADED_VERDICT_TAG,
   GradedRequestTally,
   GradedRunOutcome,
+  GradedStopReason,
 } from '../src/modules/pricing/graded-phase2-verdict';
+import { SettingKey } from '../src/modules/settings/settings.constants';
+import {
+  FX,
+  HOY,
+  ON,
+  SET,
+  call,
+  capturarLogs,
+  cfg,
+  mockPages,
+  pageS1,
+  pageS2,
+  provider,
+  wireJob,
+} from './graded-run.harness';
 
 /**
  * v1.50.3-g (§4.38h.1-quater) — **LA SONDA: preguntar sin escribir, y que el veredicto se lea.**
@@ -39,77 +42,6 @@ import {
  * REPORTA. Aquí no hay escotilla nueva ni se relaja ninguna.
  */
 
-const SET = { id: 'local-sv8', externalId: 'sv8', name: 'Surging Sparks' } as unknown as CardSet;
-const HOY = new Date().toISOString().slice(0, 10); // evidencia FRESCA sea cual sea el día del CI
-
-function cfg(over: Record<string, string | undefined> = {}): ConfigService {
-  const env: Record<string, string | undefined> = {
-    POKEMONPRICETRACKER_API_KEY: 'k',
-    POKEMONPRICETRACKER_MARKET_FORMAT: 'usd_dollars',
-    ...over,
-  };
-  return { get: (k: string) => env[k] } as unknown as ConfigService;
-}
-
-function provider(c: ConfigService): PokemonPriceTrackerBulkProvider {
-  return new PokemonPriceTrackerBulkProvider(c, new PptApiClient(c));
-}
-
-/** `fetch` mockeado. `daily` = valor del header de cuota (para medir el COSTE de la corrida). */
-function mockPages(pages: unknown[], daily: (number | null)[] = []) {
-  let call = 0;
-  const spy = jest.fn(async () => {
-    const body = pages.shift() ?? { data: [], total: 0, count: 0, limit: 200, offset: 0, hasMore: false };
-    const remaining = daily[call++] ?? null;
-    return {
-      ok: true,
-      status: 200,
-      headers: { get: (n: string) => (n.toLowerCase() === 'x-ratelimit-daily-remaining' && remaining != null ? String(remaining) : null) },
-      json: async () => body,
-      text: async () => JSON.stringify(body),
-    };
-  });
-  global.fetch = spy as unknown as typeof fetch;
-  return spy;
-}
-
-/** S1 impecable: en modo NORMAL esta misma entrada SÍ se persiste (lo comprueba un test más abajo). */
-const S1_BUENO = { count: 7, medianPrice: 60, lastSaleDate: HOY };
-const pageS1 = (over: Record<string, unknown> = {}) => ({
-  data: [{ id: 'sv8-104', cardNumber: '104', ebay: { salesByGrade: { psa10: S1_BUENO } }, ...over }],
-  total: 1,
-  count: 1,
-  hasMore: false,
-});
-const pageS2 = () => ({
-  data: [{ id: 'sv8-104', cardNumber: '104', gradedPrices: { psa10: 60 } }],
-  total: 1,
-  count: 1,
-  hasMore: false,
-});
-
-const call = (p: PokemonPriceTrackerBulkProvider) =>
-  p.fetchGradedEstimatesForSet({
-    set: SET,
-    providerSetId: 'sv8',
-    grades: ['10', '9'],
-    minSampleCount: 3,
-    sourceStat: 'median',
-    freshnessDays: 30,
-    today: HOY,
-  });
-
-/** Captura TODO lo que el código loguea, en el orden en que lo loguea. */
-function capturarLogs(): string[] {
-  const out: string[] = [];
-  const push = (m: unknown) => {
-    out.push(String(m));
-  };
-  for (const nivel of ['log', 'warn', 'error'] as const) {
-    jest.spyOn(Logger.prototype, nivel).mockImplementation(push as never);
-  }
-  return out;
-}
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -280,57 +212,6 @@ describe('§4.38h.1-quater — `POKEMONPRICETRACKER_GRADED_PROBE`: observar SIN 
   });
 });
 
-// =================================================================================================
-// CERO ESCRITURAS EN `PriceReference`, comprobado donde de verdad se escribe: el job completo con el
-// provider REAL, `fetch` mockeado y un `prisma` que delata cualquier `create`/`update`.
-// =================================================================================================
-const CARD = {
-  id: 'c1',
-  setId: 's1',
-  externalId: 'sv8-104',
-  number: '104',
-  set: { id: 's1', externalId: 'sv8', name: 'Surging Sparks' },
-};
-const FX: FxSnapshot = { rate: 19, bufferPct: 5 };
-/** v1.51 (M-46, §4.38r): EL dial del gancho — uno solo, exhibición Y obtención. */
-const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
-
-function wireJob(
-  env: Record<string, string | undefined>,
-  config: Record<string, unknown> = ON,
-  /** Alcance del ingest: `[]` reproduce «ninguna carta con inventario RAW publicado» (R1, `no_scope`). */
-  inventario: { cardId: string }[] = [{ cardId: 'c1' }],
-  /** `null` reproduce el set SIN `pptSetId` mapeado (causa #5 del mapa; R1-ter). */
-  pptSetId: string | null = 'sv8',
-) {
-  const store = new Map<string, unknown>(Object.entries(config));
-  const create = jest.fn(async ({ data }: any) => ({ id: 'pr-new', ...data }));
-  const update = jest.fn(async ({ data }: any) => ({ id: 'pr-1', ...data }));
-  const prisma = {
-    configSetting: {
-      findMany: jest.fn(async ({ where }: any) =>
-        (where.key.in as string[]).filter((k) => store.has(k)).map((k) => ({ key: k, valueJson: store.get(k) })),
-      ),
-    },
-    inventoryItem: { findMany: jest.fn(async () => inventario) },
-    card: { findMany: jest.fn(async () => [CARD]) },
-    priceReference: { findFirst: jest.fn(async () => null), create, update },
-  } as unknown as PrismaService;
-  const settings = new SettingsService(prisma);
-  const pricing = new PricingService(prisma, settings, {} as unknown as FxService, {} as never, {} as never, {} as never);
-  jest.spyOn(pricing, 'getPublishedSlabGradesBatch').mockResolvedValue(new Map());
-  const c = cfg(env);
-  const pptBulk = provider(c);
-  const pptSetMapper = {
-    resolveForSets: jest.fn(async () => new Map([['s1', pptSetId]])),
-  } as unknown as PptSetMapper;
-  const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
-  const ingest = new PriceIngestService(
-    prisma, settings, pricing, pptBulk, {} as never, {} as never, pptSetMapper, {} as never, undefined, audit,
-  );
-  return { ingest, create, update };
-}
-
 describe('§4.38h.1-quater — la corrida en modo SONDA no toca `PriceReference`', () => {
   it('el MISMO fixture escribe con formato y NO escribe en sonda (el contraste hace la prueba honesta)', async () => {
     mockPages([pageS1()]);
@@ -399,7 +280,13 @@ describe('§4.38h.1-quater — la corrida en modo SONDA no toca `PriceReference`
  * `observado()` arma el caso «se emitió petición en 1 set» que usan casi todos los tests de abajo.
  */
 type Observado = Extract<GradedRunOutcome, { kind: 'observed' }>;
-const PETICIONES_EMITIDAS: GradedRequestTally = { attempted: 1, missingApiKey: false, setsWithoutPptSetId: [] };
+const PETICIONES_EMITIDAS: GradedRequestTally = {
+  attempted: 1,
+  missingApiKey: false,
+  setsUnmatched: [],
+  mapper: { available: true },
+  sweepComplete: true,
+};
 const observado = (over: Partial<Omit<Observado, 'kind'>> = {}): GradedRunOutcome => ({
   kind: 'observed',
   requestOk: true,
@@ -584,6 +471,32 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
     expect(r.headline).not.toContain('`off`');
   });
 
+  /**
+   * v1.51-d (techlead §2) — **el candado de exhaustividad, del lado del test.**
+   *
+   * `stoppedVerdict` cierra con un `never`, así que un motivo nuevo en `GradedStopReason` no compila
+   * hasta que tenga su rama. Este `Record` es la otra mitad del candado: obliga a que el motivo nuevo
+   * aparezca TAMBIÉN aquí, o sea a que alguien decida qué titular le toca en vez de heredar el del
+   * «inventario RAW vacío» —que es el defecto (b) de R1 palabra por palabra—.
+   */
+  const TODAS_LAS_PARADAS: Record<GradedStopReason, true> = {
+    dial_off: true,
+    ingest_config_invalid: true,
+    no_scope: true,
+  };
+
+  it('CADA motivo de parada tiene SU titular: ninguno hereda el de otro (candado de exhaustividad)', () => {
+    const titulares = Object.keys(TODAS_LAS_PARADAS).map((reason) => {
+      const outcome: GradedRunOutcome =
+        reason === 'ingest_config_invalid'
+          ? { kind: 'stopped', reason, invalidConfigKeys: ['graded_estimate_ingest_max_cards_per_run'] }
+          : ({ kind: 'stopped', reason } as GradedRunOutcome);
+      const r = gradedPhase2Verdict({ ...base, outcome });
+      return `${r.headline}\n${r.nextStep}`;
+    });
+    expect(new Set(titulares).size).toBe(Object.keys(TODAS_LAS_PARADAS).length);
+  });
+
   it('las tres paradas se distinguen entre sí (mismo síntoma, tres remedios distintos)', () => {
     const paradas: GradedRunOutcome[] = [parada('dial_off'), configInvalida('graded_estimate_source_stat'), parada('no_scope')];
     const titulares = paradas.map((outcome) => gradedPhase2Verdict({ ...base, outcome }).headline);
@@ -732,7 +645,7 @@ describe('v1.51-c (R1-ter) — sin petición, el veredicto NO manda a leer la l�
     creditsSpent: 0 as number | null,
   };
   const sinPeticion = (over: Partial<GradedRequestTally>): GradedRunOutcome =>
-    observado({ requestOk: false, requests: { attempted: 0, missingApiKey: false, setsWithoutPptSetId: [], ...over } });
+    observado({ requestOk: false, requests: { ...PETICIONES_EMITIDAS, attempted: 0, ...over } });
 
   it('⛑️ sin API key ⇒ dice que NO HUBO PETICIÓN y manda a la línea que SÍ existe', () => {
     const r = gradedPhase2Verdict({ ...baseSinRespuesta, outcome: sinPeticion({ missingApiKey: true }) });
@@ -747,7 +660,7 @@ describe('v1.51-c (R1-ter) — sin petición, el veredicto NO manda a leer la l�
   it('⛑️ set sin `pptSetId` ⇒ NOMBRA los sets y manda al log del mapper, no al del fallo', () => {
     const r = gradedPhase2Verdict({
       ...baseSinRespuesta,
-      outcome: sinPeticion({ setsWithoutPptSetId: ['sv8', 'sv7'] }),
+      outcome: sinPeticion({ setsUnmatched: ['sv8', 'sv7'] }),
     });
     expect(r.verdict).toBe('INDETERMINADO');
     // Accionable directo: el operador no puede arreglar «algún set»; sí puede arreglar `sv8`.
@@ -760,7 +673,7 @@ describe('v1.51-c (R1-ter) — sin petición, el veredicto NO manda a leer la l�
   it('los dos casos SIN petición se distinguen entre sí y del caso «se pidió y falló»', () => {
     const textos = [
       sinPeticion({ missingApiKey: true }),
-      sinPeticion({ setsWithoutPptSetId: ['sv8'] }),
+      sinPeticion({ setsUnmatched: ['sv8'] }),
       observado({ requestOk: false }), // attempted: 1 ⇒ la petición SÍ salió
     ].map((outcome) => {
       const r = gradedPhase2Verdict({ ...baseSinRespuesta, outcome });
@@ -778,7 +691,7 @@ describe('v1.51-c (R1-ter) — sin petición, el veredicto NO manda a leer la l�
       ...baseSinRespuesta,
       outcome: observado({
         requestOk: false,
-        requests: { attempted: 2, missingApiKey: false, setsWithoutPptSetId: ['sv8'] },
+        requests: { ...PETICIONES_EMITIDAS, attempted: 2, setsUnmatched: ['sv8'] },
       }),
     });
     expect(r.nextStep).toContain('EL REQUEST FALLÓ');
@@ -795,7 +708,7 @@ describe('v1.51-c (R1-ter) — sin petición, el veredicto NO manda a leer la l�
       written: 4,
       outcome: observado({
         shapeCounts: { s1: 6, s2: 0 },
-        requests: { attempted: 1, missingApiKey: false, setsWithoutPptSetId: ['sv7', 'sv6'] },
+        requests: { ...PETICIONES_EMITIDAS, setsUnmatched: ['sv7', 'sv6'] },
       }),
     });
     expect(r.verdict).toBe('VIABLE');
@@ -820,7 +733,10 @@ describe('v1.51-c (R1-ter) — sin petición, el veredicto NO manda a leer la l�
     // ⛑️ LA REGRESIÓN: aquí se leía «Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del log». Hoy la
     // única mención de esa línea es para decir que NO existe (para que nadie la busque).
     expect(bloque).not.toContain('Revisa las líneas «PPT graded: EL REQUEST FALLÓ»');
-    expect(bloque).toContain('«EL REQUEST FALLÓ» NO existe');
+    // v1.51-d (TL-GE7): las citas AUSENTES tienen forma propia y verificable (comillas rectas +
+    // sufijo fijo), justo para que no se confundan con las VIVAS —las de `«…»`, que el guardián exige
+    // encontrar en el log—. Aquí se afirma que esa línea NO está, y el guardián también lo comprueba.
+    expect(bloque).toContain('"PPT graded: EL REQUEST FALLÓ" (NO existe en esta corrida)');
   });
 
   it('⛑️ EN LA CORRIDA: sin `POKEMONPRICETRACKER_API_KEY` ⇒ mismo trato (cero peticiones, causa nombrada)', async () => {
