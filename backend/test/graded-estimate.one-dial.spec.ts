@@ -237,6 +237,89 @@ describe('M-46 — el gate del INGEST lee el DIAL CRUDO, no el `enabled` derivad
 });
 
 // =================================================================================================
+/**
+ * **v1.51-a — I8 estrechado (`ingestMaxCardsPerRun`: `[1, 5000]` → `[1, 1000]`, §4.38r.3.4).**
+ *
+ * ### Qué protege este bloque, y por qué vive AQUÍ
+ * El estrechamiento se decidió «seguro de hacer ahora» por UNA razón concreta y verificable: un valor
+ * ya almacenado que se sale del rango nuevo —un `2000` puesto ayer, perfectamente legal entonces— **no
+ * se queda gastando**: el lector lo marca presente-e-INVÁLIDA ⇒ `ingestConfigInvalid` ⇒
+ * `ingestGradedEstimates` sale **antes de pedir nada**. Es la dirección correcta del fallo (§4.38r.3.4
+ * › «Compatibilidad y dirección del fallo»), y sin ella el cambio habría que hacerlo con una migración
+ * de datos por delante. Este archivo es el que ya tiene el **delator de `fetch` + provider REAL + llave
+ * presente**, o sea el único sitio donde «cero peticiones» significa de verdad cero peticiones.
+ *
+ * ### El candado que se pide explícitamente
+ * `ingestConfigInvalid` se compone hoy en `pricing.service.ts` como
+ * `minSampleRes.invalid || sourceStatRes.invalid || ingestMaxRes.invalid`. **Si mañana alguien la
+ * recompone y deja de incluir `ingestMaxRes.invalid`**, el `2000` dejaría de apagar el ingest y el job
+ * seguiría gastando con un tope que el propio validador acaba de declarar inválido: estos tests se
+ * ponen ROJOS ahí, y esa es su única razón de existir.
+ *
+ * ### ⛔ Lo que NO se está probando
+ * Que el gasto esté acotado. Este dial acota las cartas **en alcance**, no las que el proveedor
+ * devuelve; la amplificación `A` (nº de sets) no la acota ningún dial. Aquí solo se fija que un valor
+ * fuera de rango **apaga**, no que 1 000 sea barato.
+ */
+describe('v1.51-a (I8) — un `ingestMaxCardsPerRun` almacenado FUERA de rango APAGA el ingest, no lo deja gastando', () => {
+  /** Legal bajo el rango VIEJO `[1, 5000]`, inválido bajo el nuevo `[1, 1000]`. El caso real. */
+  const ALMACENADO_VIEJO = { ...ON, [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 2000 };
+
+  it('con `2000` almacenado y el dial `on`: `fetch` NUNCA se llama, `written=0` y cero escrituras', async () => {
+    const fetchSpy = delatorDeFetch();
+    const { ingest, create, update } = wireJob(ALMACENADO_VIEJO);
+
+    const res = await ingest.ingestGradedEstimates(FX);
+
+    // La aserción del dinero. Si esto se pone en rojo, el estrechamiento pasó a fallar ABRIENDO.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(res.written).toBe(0);
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(res.cardsInScope).toBe(0); // ni se llegó a resolver el alcance
+  });
+
+  it('y la RAZÓN es la clave, nombrada: `ingestConfigInvalid` con el dial `on` y un `warn` que la identifica', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn');
+    const { pricing } = wireJob(ALMACENADO_VIEJO);
+
+    const cfg = await pricing.loadGradedEstimateConfigForAdmin();
+
+    expect(cfg.enabled).toBe(true); // el dial NO es el que apaga: está encendido
+    expect(cfg.ingestConfigInvalid).toBe(true); // lo apaga ESTA clave
+    expect(
+      warn.mock.calls.some(
+        (c) =>
+          String(c[0]).includes(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN) &&
+          String(c[0]).includes('[1, 1000]'),
+      ),
+    ).toBe(true);
+  });
+
+  it('CONTRASTE — el MISMO fixture con `1000` (el máximo nuevo) SÍ pide y SÍ escribe', async () => {
+    // Sin este contraste, «cero peticiones» podría venir de un fixture flojo y no del estrechamiento.
+    const fetchSpy = delatorDeFetch();
+    const { ingest, create, pricing } = wireJob({
+      ...ON,
+      [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 1000,
+    });
+
+    expect((await pricing.loadGradedEstimateConfigForAdmin()).ingestConfigInvalid).toBe(false);
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(res.written).toBe(1);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('el seed `250` no se ve afectado por el estrechamiento (ningún entorno sembrado cambia de conducta)', async () => {
+    const fetchSpy = delatorDeFetch();
+    const { ingest } = wireJob({ ...ON, [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 250 });
+    expect((await ingest.ingestGradedEstimates(FX)).written).toBe(1);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+});
+
+// =================================================================================================
 describe('M-46 — UN dial, DOS superficies: encienden y se apagan juntas (§4.38r.1)', () => {
   it('`on` enciende storefront e ingest a la vez; `off` los calla a la vez', async () => {
     const encendido = wireJob(ON);

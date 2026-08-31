@@ -4,6 +4,92 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.15 — **I8 estrechado: `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`** (2026-08-31, v1.51-a)
+
+> Decisión del **arquitecto** (ARCHITECTURE §4.38r.3.4, contrato **v1.51-a**, adenda (r.8) nº 3).
+> **Cero rutas, cero shapes de DTO, cero códigos de error nuevos, cero montos, cero DDL.** El seed
+> **250 NO cambia**.
+
+### Qué cambió, en una línea
+`GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX`: **`5000` → `1000`**. El mensaje del validador interpola la
+constante, así que el `422` pasa solo a decir `must be an integer in [1, 1000] (cards per run)`.
+
+### ⛔ Lo que este cambio NO hace (léase antes que nada)
+**No cierra el problema del gasto.** `ingestMaxCardsPerRun` acota las cartas **EN ALCANCE** (las que el
+job mira), **no** las que el proveedor DEVUELVE: la petición pide el **SET entero**
+(`fetchAllInSet=true`), así que si PPT cobra por carta devuelta el coste es `enAlcance × A`, con `A` =
+devueltas/en-alcance gobernada por **cuántos sets** toca el alcance — y eso **no lo configura ninguna
+clave**. Con `A = 16`, 1 000 siguen siendo **16 000 créditos**. Lo que baja es el **peor caso NOMINAL**
+que un solo `PUT` autoriza: de `5 000 × 2 × 2 = 20 000` (la **cuota diaria completa** del dueño) a
+**4 000**. Quien lea esto como «ya está acotado el gasto» habrá comprado **falsa cobertura**; el gasto
+lo acota la **medición** que §4.38(r.3.1) hace precondición del primer `off → on`, que **sigue abierta**
+(dueño: devops + QA).
+
+### Por qué es seguro hacerlo ahora: falla en la dirección correcta, y está probado
+Un valor **ya almacenado** en `(1 000, 5 000]` —legal ayer, inválido hoy— **no se queda gastando**:
+
+1. el lector lo marca *presente-e-INVÁLIDA* (`pricing.service.ts`, regla `AUSENTE ≠ INVÁLIDA`) ⇒
+2. `ingestConfigInvalid = true` (se compone con `ingestMaxRes.invalid`) ⇒
+3. `ingestGradedEstimates` **sale antes de pedir nada** (`price-ingest.service.ts:1000`).
+
+O sea: el estrechamiento **apaga el ingest**, no lo deja gastando con un tope que el validador acaba de
+rechazar. Por eso **no hace falta migración de datos** — y por eso hay una prueba dedicada que fija ese
+camino (abajo).
+
+### Qué toqué
+| Artefacto | Cambio |
+|---|---|
+| `src/common/graded-estimate.ts` | `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 1000` + docstring con el «qué NO acota» (la advertencia va **junto a la constante**, que es donde se lee) |
+| `src/modules/pricing/price-ingest.service.ts` | Solo **comentario**: el docstring decía «un error de alcance no puede quemar la cuota del día» sin el calificador de `A`. Ahora dice qué acota y qué no. **Cero cambio de comportamiento.** |
+| `test/graded-estimate.admin.spec.ts` | **+5** tests: la PUERTA (`PUT`) — `1000` ⇒ `200`; `1001`/`2000`/`5000` ⇒ `422` con mensaje y `details.field`; `1`/`250`/`999` siguen válidos; el rechazo no arrastra al resto del body |
+| `test/graded-estimate.one-dial.spec.ts` | **+4** tests: el FAIL-CLOSED (valor almacenado fuera de rango ⇒ **cero `fetch`**, `written=0`), con la razón nombrada y **contraste** con `1000` y con el seed `250` |
+| `test/graded-estimate.composition.spec.ts` | **D-3 del techlead**: dos comentarios decían «las 12 claves» tras el pase que las bajó a **11**. Corregidos (ver `pricing.service.ts:99`) |
+
+**Rangos escritos a mano en los tests, no importados de la constante**: importarla haría que el test se
+moviera con ella y dejara de ser un candado. Los números que se afirman son los del **contrato**.
+
+### La prueba que importa, y la evidencia de que DETECTA
+`test/graded-estimate.one-dial.spec.ts` › «un `ingestMaxCardsPerRun` almacenado FUERA de rango APAGA el
+ingest». Corre el **job completo** con provider **REAL**, `fetch` sustituido por un **delator** y la
+**API key presente** (el harness de §0.14), con `grading_hook_enabled = 'on'` y un `2000` almacenado.
+
+Rompí la guarda a propósito (los tres mutantes revertidos; suite completa en cada caso):
+
+| Mutante | Resultado |
+|---|---|
+| `ingestConfigInvalid` recompuesto **sin** `ingestMaxRes.invalid` | **2 en rojo, y son las 2 nuevas**: `fetch` «expected 0, received 1» + `ingestConfigInvalid` `false`. **El resto de la suite (2 580) sigue verde**, o sea que antes de este pase esa recomposición **no la detectaba nadie** |
+| `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX` de vuelta a `5000` | **4 en rojo**: 2 de la puerta (`5000` «resolved instead of rejected») + las 2 del fail-closed |
+| Gate del ingest neutralizado (`if (false)`) | **2 en rojo**: la nueva + una preexistente de `graded-estimate.inv-fx.spec.ts` |
+
+La primera fila es el motivo de existir del test: si mañana alguien recompone `ingestConfigInvalid` y
+deja fuera esa clave, se pone rojo **ahí**, no en la factura.
+
+### Verificación
+- `npm test` — **2 582 en 205 suites, verde** (base 2 573 ⇒ **+9**; cero suites nuevas).
+- `npm run test:integration` — **183 en 15, verde**, sin cambio (`DATABASE_URL` local; `migrate deploy`
+  sin migraciones pendientes: este pase no toca el schema).
+- `npm run typecheck` y `npm run lint` — limpios (2 *warnings* preexistentes, ajenos a este pase).
+- **Estado almacenado en la BD local, leído (no supuesto):** `graded_estimate_ingest_max_cards_per_run
+  = 250` ⇒ **sigue válido**, ningún cambio de conducta en este entorno.
+
+### Para otros roles
+- **devops:** el paso 0 del pase (§4.38r.4, (r.8) nº 5) **sigue siendo tuyo y no lo cubre esto**: hay que
+  leer `ingestMaxCardsPerRun` **por entorno** con `GET /admin/pricing/graded-estimates` **antes** del
+  deploy; cualquier entorno con `> 1000` queda **fail-closed** (no ingesta) hasta un `PUT` válido — no
+  se rompe, pero **deja de traer datos en silencio para quien no lea el `warn`**. Local verificado en
+  250. Y el caso «`5000` → 20 000 créditos/día» de `scripts/check-graded-estimate-dials.sh` ahora es un
+  **`422`**: hay que reescribirlo contra el máximo nuevo ((r.8) nº 6).
+- **QA:** los tres casos del dictamen están cubiertos y son ejecutables: `1000` ⇒ `200`; `1001`/`5000` ⇒
+  `422 VALIDATION_ERROR`; valor almacenado fuera de rango ⇒ **ni una petición al proveedor**.
+- **frontend:** si la UI de M2 pinta o valida el rango, pasa a `[1, 1000]` ((r.8) nº 4). El aviso de
+  coste **no** debe presentar la traducción a créditos como cifra firme (v1.51-a, nota normativa del
+  contrato).
+- **techlead:** B-1 y B-2 quedaron anotadas en `docs/TECH_DEBT.md` (`I8-B1`, `I8-B2`); **D-3 se corrigió
+  en este pase** y no deja residual. `I8-B1` es la que conviene mirar antes del encendido: el gate del
+  ingest **no** cubre `grades` ni `freshnessDays`, y las dos viajan al proveedor.
+
+---
+
 ## 0.14 — **M-46: el gancho de grading pasa de DOS interruptores a UNO** (2026-08-31, v1.51-one-dial)
 
 > Decisión del **dueño**, tomada y reafirmada. ARCHITECTURE §4.38(r), API_CONTRACT rev **v1.51-one-dial**,
@@ -60,7 +146,8 @@ Sin ese rótulo, el día del incidente alguien lee `graded_estimate_ingest_enabl
 ingest está apagado **mientras gasta**.
 
 ### Cómo probé el «cero peticiones con el dial apagado» (§4.38r.4 paso 3)
-`test/graded-estimate.one-dial.spec.ts`, **25 tests**. La prueba que justifica el pase corre el **job
+`test/graded-estimate.one-dial.spec.ts`, **25 tests** *(**29** desde v1.51-a: §0.15 añadió 4 al mismo
+archivo, reusando este mismo delator)*. La prueba que justifica el pase corre el **job
 completo** con el **provider REAL**, `global.fetch` sustituido por un **delator** y un `prisma` que delata
 `create`/`update`, con la **API key PRESENTE** y el formato de moneda fijado — o sea, con todo montado
 para que **sí** se pidiera; lo único que lo impide es el dial. Con `off`: **cero llamadas a `fetch`**,

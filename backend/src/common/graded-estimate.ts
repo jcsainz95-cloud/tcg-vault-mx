@@ -474,10 +474,27 @@ export const GRADED_ESTIMATE_SOURCE_STAT_VALUES: readonly GradedEstimateSourceSt
 ];
 export const DEFAULT_GRADED_ESTIMATE_SOURCE_STAT: GradedEstimateSourceStat = 'median';
 
-/** Tope DURO de cuota por corrida del ingest (§4.38h.3). Un error de alcance no quema el día. */
+/**
+ * Tope DURO de cuota por corrida del ingest (§4.38h.3). Un error de alcance no quema el día.
+ *
+ * ⚠️ **v1.51-a (§4.38r.3.4) — el MÁXIMO baja de `5000` a `1000`. El seed sigue siendo 250.**
+ * `5 000 × 2 créditos × 2 corridas = 20 000 créditos/día` era **la cuota diaria COMPLETA** del plan del
+ * dueño, autorizable con **un solo `PUT` válido**, sin redeploy y sin aprobación adicional: un tope cuyo
+ * máximo admisible coincide con el presupuesto total no es un tope. `1 000` deja **4×** de holgura sobre
+ * el seed y sigue siendo ~140× el inventario RAW publicado medido, así que no estorba a nadie.
+ *
+ * ⛔ **Lo que este número NO acota, y decirlo importa:** acota las cartas **EN ALCANCE** (las que el job
+ * mira), **no** las que el proveedor DEVUELVE — la petición pide el SET entero (`fetchAllInSet=true`).
+ * Si PPT cobra por carta devuelta, el coste real es `ingestMaxCardsPerRun × A`, con `A` = devueltas /
+ * en-alcance gobernado por **cuántos SETS** toca el alcance, que **ningún dial de este archivo acota**
+ * (con `A = 16`, 1 000 siguen siendo 16 000 créditos). Bajar este máximo reduce el **peor caso
+ * NOMINAL**; **no** convierte el dial en un presupuesto ni cierra la amplificación. Quien lea
+ * «bajamos el tope» como «ya está acotado el gasto» habrá comprado falsa cobertura: eso lo cierra la
+ * precondición de medición de §4.38(r.3.1), no esta constante.
+ */
 export const DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN = 250;
 export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MIN = 1;
-export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 5000;
+export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 1000;
 
 /**
  * Config APAGADA e INERTE — el estado del dial `off` (seed) y el que usan los tests de «con `off` el
@@ -541,7 +558,15 @@ export function validateGradedEstimateSourceStat(v: unknown): string | null {
     : `must be one of ${GRADED_ESTIMATE_SOURCE_STAT_VALUES.join('|')}`;
 }
 
-/** I8 — `ingestMaxCardsPerRun`: entero en `[1, 5000]`. */
+/**
+ * I8 — `ingestMaxCardsPerRun`: entero en `[1, 1000]` (**estrechado en v1.51-a; antes `[1, 5000]`**).
+ *
+ * Es la MISMA puerta para las tres vías de escritura/lectura (`PUT /admin/pricing/graded-estimates`,
+ * `PUT /admin/settings` y el lector fail-closed del resolver), así que estrechar aquí estrecha las tres.
+ * Un valor **almacenado** en `(1 000, 5 000]` no queda gastando: el lector lo marca `invalid` ⇒
+ * `ingestConfigInvalid` ⇒ el ingest **sale antes de pedir nada** (fail-closed on-read). Ese camino tiene
+ * prueba propia en `graded-estimate.one-dial.spec.ts`.
+ */
 export function validateGradedEstimateIngestMaxCards(v: unknown): string | null {
   return isInt(v) && v >= GRADED_ESTIMATE_INGEST_MAX_CARDS_MIN && v <= GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX
     ? null

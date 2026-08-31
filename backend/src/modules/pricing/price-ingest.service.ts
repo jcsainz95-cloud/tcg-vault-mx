@@ -920,8 +920,16 @@ export class PriceIngestService {
    * pedir precio de gradeo **solo de lo que efectivamente estamos vendiendo** hace el coste
    * proporcional al inventario real, que es el único conjunto donde el estimado tiene superficie donde
    * mostrarse (una carta sin publicar no tiene teja ni ficha). Encima va el tope DURO
-   * `graded_estimate_ingest_max_cards_per_run` (seed 250): un error de alcance no puede quemar la
-   * cuota del día.
+   * `graded_estimate_ingest_max_cards_per_run` (seed 250, máximo **1 000** desde v1.51-a): acota las
+   * cartas **EN ALCANCE**, así que un error de alcance no puede autorizar de golpe la cuota del día.
+   *
+   * ⛔ **Lo que ese tope NO acota (§4.38r.3.1, ratificado en r.3.4):** las cartas que el proveedor
+   * DEVUELVE. La petición pide el **SET entero** (`fetchAllInSet=true`), así que si PPT cobra por carta
+   * devuelta el coste es `cartasEnAlcance × A`, con `A` = devueltas / en-alcance gobernada por **cuántos
+   * SETS** toca el alcance — y eso **no lo configura ninguna clave**. Bajar el máximo a 1 000 redujo el
+   * peor caso **nominal**; **no** cierra la amplificación ni convierte este dial en un presupuesto. El
+   * gasto real solo queda acotado cuando se MIDE (`[VEREDICTO-PSA] COSTE MEDIDO:`, más abajo), que es
+   * precondición del primer `off → on`.
    *
    * ### Fail-closed en tres puntos, todos deliberados
    *  1. **`grading_hook_enabled` (seed `off`) — EL dial, v1.51 (M-46, §4.38r).** Ya no hay dial propio

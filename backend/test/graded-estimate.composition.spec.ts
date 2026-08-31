@@ -651,7 +651,10 @@ describe('Vitrina «Joyas para gradear» — `GET /catalog/cards` filtrado (§4.
    * settings), no solo las de `productType='graded'`. Se mide como DELTA contra el mismo request con la
    * feature inexistente, que es la cifra que el contrato debe publicar.
    *
-   *   dial `off` ⇒ **+1** (la lectura de config: las 12 claves en UN `findMany`; cero queries de datos)
+   *   dial `off` ⇒ **+1** (la lectura de config: las **11** claves en UN `findMany`; cero queries de datos)
+   *   *(v1.51 las bajó de 12 a 11 al fundir los dos diales M10 en `grading_hook_enabled`; el número se
+   *   escribe porque su VALOR es la garantía, y `pricing.service.ts` avisa de que «un número que miente
+   *   es peor que no tenerlo» — así que aquí tampoco puede mentir.)*
    *   dial `on`  ⇒ **+3** (esa + `getGradedEstimatesBatch` + `getPublishedSlabGradesBatch`)
    *
    * Antes eran **+7** con `on` (1 `findUnique` del dial + 5 `getRaw()` sin caché + el batch), porque
@@ -677,7 +680,7 @@ describe('Vitrina «Joyas para gradear» — `GET /catalog/cards` filtrado (§4.
 
       const configOn = on.filter((k) => k.startsWith('configSetting')).length;
       const configOff = off.queryLog.filter((k) => k.startsWith('configSetting')).length;
-      // La config del gancho es UNA query en ambos estados (las 12 claves en un solo `findMany`).
+      // La config del gancho es UNA query en ambos estados (las **11** claves en un solo `findMany`).
       expect(on.filter((k) => k === 'configSetting.findMany')).toHaveLength(1);
       expect(off.queryLog.filter((k) => k === 'configSetting.findMany')).toHaveLength(1);
       expect(configOn).toBe(configOff);
