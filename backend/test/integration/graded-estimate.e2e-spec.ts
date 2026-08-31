@@ -5,7 +5,7 @@
  * Reproduce el flujo de captura MANUAL tal cual lo hace el humano (§O.6: el override manual es el
  * respaldo de máxima precedencia sobre el ingest automático):
  *   1. el admin fija los estimados con `POST /admin/pricing/override` (endpoint YA existente),
- *   2. enciende el interruptor maestro en M10 (`gradedEstimatesEnabled`, seed `off`),
+ *   2. enciende el DIAL ÚNICO en M10 (`gradingHookEnabled`, seed `off`; v1.51 M-46, §4.38r),
  *   3. la ficha informa, la teja y la vitrina promueven — y solo si el gate de ROI se cumple,
  *   4. sube `minUpsidePct` en M2 y la vitrina se vacía AL VUELO **sin tocar ningún precio de venta**.
  *
@@ -35,7 +35,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
   const EXPECTED_NET_UPSIDE = PSA9_CENTS - (E2E_LIST_OVERRIDE_CENTS + 180_000);
 
   const setDial = (value: 'on' | 'off') =>
-    h.api('PUT', '/admin/settings', { token: adminToken, json: { gradedEstimatesEnabled: value } });
+    h.api('PUT', '/admin/settings', { token: adminToken, json: { gradingHookEnabled: value } });
 
   beforeAll(async () => {
     h = await E2EHarness.create();

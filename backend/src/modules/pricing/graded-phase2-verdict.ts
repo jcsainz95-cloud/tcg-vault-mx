@@ -37,7 +37,7 @@ export type GradedPhase2Verdict =
 export interface GradedPhase2VerdictInput {
   /** ¿La corrida fue SONDA (solo lectura) o INGEST (podía escribir)? Cambia qué significa «0 escritas». */
   probe: boolean;
-  /** Dial `graded_estimate_ingest_enabled`: en `off` no se pidió nada y no hay nada que concluir. */
+  /** Dial `grading_hook_enabled` (v1.51): en `off` no se pidió nada y no hay nada que concluir. */
   enabled: boolean;
   /** ¿Alguna respuesta del proveedor llegó OK? Sin esto no hay observación, solo un fallo de plomería. */
   requestOk: boolean;
@@ -90,8 +90,8 @@ export function gradedPhase2Verdict(i: GradedPhase2VerdictInput): GradedPhase2Ve
   if (!i.enabled) {
     out = r(
       'INDETERMINADO',
-      'No se preguntó nada: el dial `graded_estimate_ingest_enabled` está en `off` (o la config del ingest es inválida).',
-      'Enciende el dial con PUT /admin/pricing/graded-estimates y vuelve a disparar POST /admin/jobs/price-ingest con body {}.',
+      'No se preguntó nada: el dial `grading_hook_enabled` está en `off` (o la config del ingest es inválida).',
+      'Enciende el dial con PUT /admin/settings {"gradingHookEnabled":"on"} —es el ÚNICO del gancho: encenderlo TAMBIÉN publica las cifras y empieza a gastar créditos— y vuelve a disparar POST /admin/jobs/price-ingest con body {}.',
     );
   } else if (i.escalationReason === 'ebay_not_supported_with_set_sweep') {
     out = r(
@@ -125,7 +125,7 @@ export function gradedPhase2Verdict(i: GradedPhase2VerdictInput): GradedPhase2Ve
       `LA FASE 2 FUNCIONA: ${i.shapeCounts.s1} de ${observed} carta(s) con bloque PSA llegaron en S1 (\`ebay.salesByGrade.psaN\`, objeto con count + fecha de última venta), que es el shape PERSISTIBLE.`,
       i.probe
         ? 'Quita POKEMONPRICETRACKER_GRADED_PROBE y vuelve a disparar el job: la misma corrida ya escribirá los estimados.'
-        : `Ya se escribieron ${i.written} referencia(s). Revisa una en la ficha y, cuando convenza, enciende \`graded_estimates_enabled\` (exhibición).`,
+        : `Ya se escribieron ${i.written} referencia(s) — y con el dial ÚNICO (v1.51) YA ESTÁN PUBLICADAS: no queda ningún interruptor por encender. Revísalas en GET /admin/pricing/graded-estimates/review y, si alguna cifra está mal, BÓRRALA (DELETE del estimado); apagar el dial por una fila para además la actualización de todas las demás.`,
     );
   } else if (i.shapeCounts.s1 > 0) {
     out = r(

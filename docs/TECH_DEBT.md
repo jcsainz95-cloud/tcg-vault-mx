@@ -17,15 +17,15 @@
 - **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante**). Residual **declarado por el arquitecto** en ARCHITECTURE §4.38(l.4.9), fuera del alcance de M-43 por decisión del orquestador.
 - **Deuda:** el barrido de reconciliación (`reconcilePublishedPrices`) lleva `productType:'raw'` en su `where` (candado 1 de §4.38l.4.6). Con M-43, un slab cuya única fila de `graded:PSA:N` sea un estimado —o al que se le borre su referencia de mercado— **deja de venderse** (`priceBasis:'pending'`, `fetchSellable` lo descarta, `GET /catalog/listings/:id` ⇒ 404) **pero NO aparece en `PendingPriceEntry`**, así que no entra a la cola de triaje de §M2 y el dueño no tiene dónde verlo.
 - **Impacto:** una pieza puede quedar apagada **en silencio**. **No puede ocurrir durante la migración** si se ejecuta el cut-over de §4.38(l.4.7) en orden (el paso 3 re-afirma cada slab expuesto **antes** de migrar, ver `BACKEND_NOTES.md` §0.11.6). Sí puede ocurrir **después** — por ejemplo si alguien borra una referencia de mercado de un slab. Money-safe en la dirección segura: la pieza no se vende barata, simplemente no se vende.
-- **Disparador:** al **encender el gancho de grading** (`gradedEstimatesEnabled='on'`) o antes de que M2 se use como bandeja única de precios pendientes. El fix es extender el barrido a `productType:'graded'`; toca el módulo `pricing` y la cola, así que **el alcance lo confirma el arquitecto**.
+- **Disparador:** al **encender el gancho de grading** (v1.51: `gradingHookEnabled='on'`, el dial ÚNICO — §4.38r) o antes de que M2 se use como bandeja única de precios pendientes. El fix es extender el barrido a `productType:'graded'`; toca el módulo `pricing` y la cola, así que **el alcance lo confirma el arquitecto**.
 - **⚠️ Actualización v1.50.3-g (ARCHITECTURE §4.38l.4.12, dictamen del arquitecto):** sigue **sin bloquear la fusión** ni el encendido en staging con datos sintéticos, pero pasa a ser **precondición del cut-over de producción**, cabalgando sobre la puerta que ya está cerrada (condición **C3** del blue team). Se satisface por **cualquiera** de dos vías: **(i)** extender `reconcilePublishedPrices` a `graded` —de fondo, **dueño backend**, con el cuidado declarado de no inundar la cola el día del encendido— **o (ii)** un **detector recurrente con alerta** sobre el predicado del **paso 5(−)** del runbook (`BACKEND_NOTES.md` §0.11.6), que es **la misma consulta que ya hay que escribir**, agendada — **dueño devops**. El arquitecto declara **(ii) suficiente para abrir la puerta del cut-over**; **(i) se conserva aquí con su disparador propio** y no bloquea ningún deploy. **Este pase (M-44) NO lo implementa: quedó explícitamente fuera de alcance.**
 
 ### M43-D2 · `PriceReference.evidenceDate` existe pero NO está cableada (criterio 109 sigue con su aproximación) (M-43, 2026-08-29)
 - **Dueño:** backend (el alcance lo decide **arquitecto**; ver nota de gobierno abajo). **Severidad:** Baja (aceptada, **no bloqueante**, **sin regresión**).
 - **Deuda:** la migración `v1.50.3-f-graded-estimate-kind` creó la columna `evidenceDate DateTime? @db.Date` (§4.38m.2, empaquetada con `refKind` para no pagar dos ventanas de migración), pero **este pase no la cableó**: ni el ingest la puebla (el parser YA resuelve la `lastSaleDate` del proveedor y la usa para el gate de escritura, pero no la persiste) ni `stale()` la lee (sigue midiendo contra `capturedDate`). **La columna está en `null` en todas las filas**, así que `evidenceDate ?? capturedDate` sería hoy idéntico a `capturedDate`: **cero cambio de comportamiento, cero regresión**.
-- **Impacto:** el **criterio 109** sigue cumpliéndose por la **aproximación conservadora** vigente —el gate de evidencia en la **escritura** del ingest, con cota honesta `≤ 2 × freshnessDays` (60 d con el seed) en vez de los 30 literales—, que ya está **declarada como desviación en §9** y que cierra el fallo grave («fresco para siempre»). Lo que falta es el cierre **al pie de la letra**. La deuda es de **precisión**, no de seguridad, y el dial del ingest está `off`.
+- **Impacto:** el **criterio 109** sigue cumpliéndose por la **aproximación conservadora** vigente —el gate de evidencia en la **escritura** del ingest, con cota honesta `≤ 2 × freshnessDays` (60 d con el seed) en vez de los 30 literales—, que ya está **declarada como desviación en §9** y que cierra el fallo grave («fresco para siempre»). Lo que falta es el cierre **al pie de la letra**. La deuda es de **precisión**, no de seguridad, y el dial del gancho (v1.51: `grading_hook_enabled`) está `off`.
 - **Nota de gobierno (por qué no se hizo aquí):** §11 describe el cierre exacto junto a la columna, pero **el alcance que el arquitecto asignó a M-43 enumera la columna en el schema y nada más**; cablear `stale()` y el escritor del ingest habría sido cambiar un comportamiento de frescura de dinero-adyacente **sin encargo**. Se declara en vez de decidirlo por cuenta propia (regla 9).
-- **Disparador:** **antes de encender `graded_estimate_ingest_enabled`** (la fase 2), que es cuando la fecha de la evidencia empieza a importar de verdad. El trabajo es: (a) `persistGradedEstimateReference` recibe y persiste la `evidenceDate` que el parser ya trae, y (b) `isStaleByOrigin`/`stale()` miden contra `evidenceDate ?? capturedDate`. Ref: ARCHITECTURE §4.38(m.2), §11 (M-43), `BACKEND_NOTES.md` §0.11.7.
+- **Disparador (⚠️ ADELANTADO en v1.51 por M-46):** **antes del primer `off → on` de `grading_hook_enabled` en producción**. Antes decía «antes de encender `graded_estimate_ingest_enabled` (la fase 2)», y con **dos** diales eso era una fecha lejana; con el **dial ÚNICO** (§4.38r) *encender la fase 2 y encender la feature son el mismo acto*, así que esto pasa a estar **delante del paso 5 del pase** (§4.38r.4) — es la **GU-9** que el arquitecto repositionó a **bloqueante del primer encendido en producción** (§4.38r.6.2, §10). Cierre por **una de dos**: el humano acepta por escrito la cota `≤ 60 días`, **o** se cablea `evidenceDate`. El trabajo es: (a) `persistGradedEstimateReference` recibe y persiste la `evidenceDate` que el parser ya trae, y (b) `isStaleByOrigin`/`stale()` miden contra `evidenceDate ?? capturedDate`. Ref: ARCHITECTURE §4.38(m.2), §11 (M-43), `BACKEND_NOTES.md` §0.11.7.
 
 ### M44-D1 · La validación de entrada del override de precios vive en el handler, no en el DTO (M-44, 2026-08-29)
 - **Dueño:** backend (la decisión de fondo, si se toma, es del **arquitecto**). **Severidad:** Baja (aceptada, **no bloqueante**, sin impacto observable).
@@ -2507,10 +2507,14 @@
 >   con «no automatizar».
 >
 > **Lo que queda abierto de esta entrada** es la **verificación en staging con datos reales** (severidad
-> **Baja**, no bloqueante): el ingest arranca con dial `graded_estimate_ingest_enabled` en **`off`**, así que
-> hasta que un humano lo encienda **no gasta un solo crédito ni escribe una sola fila**. El orden de encendido
-> lo fija §4.38h: rodar el ingest **en observación con la vitrina apagada**, revisar la traza (`AuditLog`
-> `graded_estimate.ingest.*`) y solo entonces encender la exhibición.
+> **Baja**, no bloqueante): el ingest arranca con el dial del gancho —desde v1.51 el ÚNICO,
+> `grading_hook_enabled`— en **`off`**, así que hasta que un humano lo encienda **no gasta un solo crédito ni
+> escribe una sola fila**. ~~El orden de encendido lo fija §4.38h: rodar el ingest **en observación con la
+> vitrina apagada**, revisar la traza (`AuditLog` `graded_estimate.ingest.*`) y solo entonces encender la
+> exhibición.~~ ⛔ **ACTUALIZADO en v1.51 (M-46, §4.38r):** con un solo dial ese orden **ya no es
+> expresable**; el sustituto es rodar con la **SONDA** (`POKEMONPRICETRACKER_GRADED_PROBE=on`, solo-lectura
+> por construcción), revisar la traza y la lista de revisión, y **solo entonces** encender el dial — que
+> desde v1.51 es un **acto de gasto** además de una decisión comercial (§4.38r.3).
 >
 > **Y una escalada que puede reabrir esto como decisión de ARQUITECTURA (regla 9):** si la corrida revela que
 > `includeEbay=true` **no** combina con `fetchAllInSet=true`, el job **PARA** y lo reporta (`escalation`). En
@@ -4543,7 +4547,7 @@
 - **Qué NO se hace al verlo:** ni escotilla, ni dial nuevo, ni `count` inventado. **Vuelve al
   arquitecto** (regla 9). Las opciones —degradar a manual de forma permanente, buscar un segundo
   proveedor, o pagar el plan que exponga `salesByGrade`— son de **producto y de costo**.
-- **Impacto hoy: ninguno** (`graded_estimate_ingest_enabled` seed `off`). **No hay acantilado detrás:**
+- **Impacto hoy: ninguno** (el dial del gancho —v1.51: `grading_hook_enabled`— tiene seed `off`). **No hay acantilado detrás:**
   la degradación a manual ya está diseñada, aceptada y funcionando — es el estado de v1.50. Se pierde la
   **automatización** de la feature, no la feature.
 - **Disparador:** la primera corrida real del ingest.
@@ -4619,7 +4623,7 @@
   porque el defecto opuesto —silenciar un cambio de shape real— es peor, y por debajo del suelo la señal
   **se informa con `warn`** en vez de perderse. Sigue siendo **constante de código, no dial**
   (§4.38h.1-ter: se calibra una vez).
-- **Disparador:** la primera corrida real del ingest con `graded_estimate_ingest_enabled = on`. Si el
+- **Disparador:** la primera corrida real del ingest con `grading_hook_enabled = on` (v1.51: es el mismo acto que encender la feature). Si el
   `warn` de «no se escala por muestra corta» aparece de forma sostenida sobre corridas de alcance normal,
   el número está mal calibrado y ahí sí habrá datos para elegirlo.
 

@@ -189,8 +189,8 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
   return { catalog, pricing, prisma, priceRefFindMany, configStore, queryLog };
 }
 
-/** Dial maestro ENCENDIDO (en producción arranca en `off`, seed fail-closed). */
-const ON = { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' };
+/** Dial ÚNICO del gancho ENCENDIDO (en producción arranca en `off`, seed fail-closed). */
+const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 
 // ---------------------------------------------------------------- Escenarios
 
@@ -438,7 +438,7 @@ describe('INDISTINGUIBILIDAD fase 1 ⇄ fase 2 (§4.38g) — el criterio de éxi
   });
 });
 
-describe('Dial maestro `gradedEstimatesEnabled` (seed `off`, fail-closed) — §M10', () => {
+describe('Dial ÚNICO `gradingHookEnabled` (seed `off`, fail-closed) — §M10, v1.51', () => {
   it('con `off` no se emite NINGUNO de los dos campos y NO se consulta la tabla de estimados', async () => {
     const { catalog, priceRefFindMany } = wire(A_ITEMS, A_REFS); // sin ON: el seed manda (off)
     const ficha: any = await catalog.getCard('ca');
@@ -538,7 +538,6 @@ describe('GU-A8 — una clave corrupta apaga SOLO su superficie (§4.38d)', () =
       'grades',
       'gradingCostTiers',
       'highlightGrades',
-      'ingestEnabled',
       'ingestMaxCardsPerRun',
       'manualFreshnessDays',
       'maxRawMultiple',

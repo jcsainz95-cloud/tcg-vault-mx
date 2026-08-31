@@ -38,7 +38,6 @@ function cfg(over: Partial<GradedEstimateConfig> = {}): GradedEstimateConfig {
     enabled,
     estimatesEnabled: enabled,
     highlightEnabled: enabled,
-    ingestEnabled: false,
     grades: ['10', '9'],
     highlightGrades: ['10'],
     freshnessDays: 30,

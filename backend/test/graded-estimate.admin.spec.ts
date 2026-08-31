@@ -201,7 +201,7 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
   return { ctrl, catalog, pricing, prisma, audit, upsert, configStore };
 }
 
-const ON = { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' };
+const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 const tier = (min: number, max: number | null, cost: number) => ({
   minValueMxnCents: min,
   maxValueMxnCents: max,
@@ -212,8 +212,7 @@ describe('GET /admin/pricing/graded-estimates', () => {
   it('devuelve la config EFECTIVA con el seed y `enabled` como espejo del dial M10', async () => {
     const { ctrl } = wire();
     expect(await ctrl.get()).toEqual({
-      enabled: false, // seed `off`, fail-closed
-      ingestEnabled: false, // v1.50.2: 2º dial M10 (la OBTENCIÓN), también fail-closed
+      enabled: false, // seed `off`, fail-closed (v1.51: dial ÚNICO — exhibición Y obtención)
       grades: ['10', '9'],
       highlightGrades: ['10'],
       freshnessDays: 30,
@@ -419,7 +418,7 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     const { ctrl, configStore } = wire();
     const after = await ctrl.put({ enabled: true, minUpsidePct: 40 }, 'admin');
     expect(after.enabled).toBe(false);
-    expect(configStore.has(SettingKey.GRADED_ESTIMATES_ENABLED)).toBe(false);
+    expect(configStore.has(SettingKey.GRADING_HOOK_ENABLED)).toBe(false);
   });
 
   it('el `PUT` de escalones es TOTAL: reemplaza el array completo', async () => {
@@ -524,7 +523,6 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
       'grades',
       'gradingCostTiers',
       'highlightGrades',
-      'ingestEnabled',
       'ingestMaxCardsPerRun',
       'manualFreshnessDays',
       'maxRawMultiple',

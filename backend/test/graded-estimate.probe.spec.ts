@@ -251,10 +251,8 @@ const CARD = {
   set: { id: 's1', externalId: 'sv8', name: 'Surging Sparks' },
 };
 const FX: FxSnapshot = { rate: 19, bufferPct: 5 };
-const ON = {
-  [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: 'on',
-  [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on',
-};
+/** v1.51 (M-46, §4.38r): EL dial del gancho — uno solo, exhibición Y obtención. */
+const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 
 function wireJob(env: Record<string, string | undefined>, config: Record<string, unknown> = ON) {
   const store = new Map<string, unknown>(Object.entries(config));
@@ -340,7 +338,7 @@ describe('§4.38h.1-quater — la corrida en modo SONDA no toca `PriceReference`
     const res = await ingest.ingestGradedEstimates(FX);
     expect(spy).not.toHaveBeenCalled();
     expect(res.verdict).toBe('INDETERMINADO');
-    expect(logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n')).toContain('graded_estimate_ingest_enabled');
+    expect(logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n')).toContain('grading_hook_enabled');
   });
 });
 

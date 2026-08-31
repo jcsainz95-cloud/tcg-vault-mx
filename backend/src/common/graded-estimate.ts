@@ -45,7 +45,7 @@ export interface GradingCostTier {
  *
  * | Flag | Qué apaga | Se pone en `false` por |
  * |---|---|---|
- * | `enabled` | — (es el **espejo** del dial M10; viaja al DTO de admin) | dial `graded_estimates_enabled != 'on'` |
+ * | `enabled` | — (es el **espejo** del dial M10; viaja al DTO de admin **y lo lee el gate del INGEST**) | dial `grading_hook_enabled != 'on'` |
  * | `estimatesEnabled` | **ficha + teja + vitrina** (implica apagar todo) | dial `off`, o `grades`/`freshnessDays` **presente-e-inválida** |
  * | `highlightEnabled` | **teja + vitrina** (la ficha sigue informando) | lo anterior, o `minUpsidePct`/`highlightGrades` **presente-e-inválida** |
  *
@@ -54,9 +54,18 @@ export interface GradingCostTier {
  */
 export interface GradedEstimateConfig {
   /**
-   * ESPEJO READ-ONLY del dial M10 `graded_estimates_enabled` (fail-closed, seed `off`). Es el `enabled`
-   * del DTO de admin; **no** lo apaga una clave corrupta (eso se refleja en el `reason` del preview y en
-   * el `warn`, §4.38d › Observabilidad), porque el contrato lo define como espejo del dial.
+   * ESPEJO READ-ONLY del **DIAL ÚNICO** M10 `grading_hook_enabled` (fail-closed, seed `off`, v1.51
+   * M-46). Es el `enabled` del DTO de admin; **no** lo apaga una clave corrupta (eso se refleja en el
+   * `reason` del preview y en el `warn`, §4.38d › Observabilidad), porque el contrato lo define como
+   * espejo del dial.
+   *
+   * **v1.51 (§4.38r): gobierna las DOS cosas** — la EXHIBICIÓN (ficha/teja/vitrina) y la OBTENCIÓN
+   * (el ingest de fase 2: créditos y escrituras).
+   *
+   * ⚠️ **El gate del INGEST lee ESTE campo —el dial crudo—, NUNCA `estimatesEnabled`/
+   * `highlightEnabled`** (§4.38h.3 / §4.38r.7). Esos dos doblan la validez de claves de **curaduría**
+   * (`minUpsidePct`, `highlightGrades`, `maxRawMultiple`), y un dedazo en una de ellas **no puede**
+   * congelar la obtención de datos: apagaría la vitrina *y*, sin querer, el feed.
    */
   enabled: boolean;
   /** ¿La FICHA puede informar? Gobierna `selectGradedEstimates`. */
@@ -88,13 +97,11 @@ export interface GradedEstimateConfig {
 
   // ===================== v1.50.2 — gate de confianza (§4.38k) + ingest (§4.38h) =====================
 
-  /**
-   * ESPEJO READ-ONLY del segundo dial M10, `graded_estimate_ingest_enabled` (seed `off`). Gobierna la
-   * **obtención** (¿gastamos créditos y escribimos filas?), NO la **exhibición** (`enabled`). Son dos
-   * diales a propósito: con uno solo, el operador tendría que elegir entre «no puedo probar el ingest
-   * sin publicar» y «no puedo publicar sin encender el gasto» (§4.38d).
-   */
-  ingestEnabled: boolean;
+  // ⛔ v1.51 (M-46, §4.38r): `ingestEnabled` RETIRADO. Había un segundo dial
+  // (`graded_estimate_ingest_enabled`) para la obtención; el dueño decidió **un solo interruptor** y
+  // ahora `enabled` gobierna exhibición Y obtención. El estado «traer y escribir con la tienda
+  // callada» **ya no es expresable** (§4.38r.6.4): su sustituto es la SONDA
+  // (`POKEMONPRICETRACKER_GRADED_PROBE`, observa sin escribir) y la lista de revisión.
   /**
    * Decaimiento del OVERRIDE MANUAL, **seed 30** (= `freshnessDays`), §4.38m / criterio 109. El
    * override manual **SÍ caduca**, y se mide contra su fecha de captura.
@@ -175,7 +182,7 @@ export type GradedEstimateConfigDTO = Omit<
 export function toGradedEstimateConfigDTO(cfg: GradedEstimateConfig): GradedEstimateConfigDTO {
   return {
     enabled: cfg.enabled,
-    ingestEnabled: cfg.ingestEnabled,
+    // v1.51 (M-46): `ingestEnabled` ya no se emite — el DTO del contrato lo perdió con el colapso.
     grades: cfg.grades,
     highlightGrades: cfg.highlightGrades,
     freshnessDays: cfg.freshnessDays,
@@ -483,7 +490,6 @@ export const DISABLED_GRADED_ESTIMATE_CONFIG: GradedEstimateConfig = {
   enabled: false,
   estimatesEnabled: false,
   highlightEnabled: false,
-  ingestEnabled: false,
   grades: [],
   highlightGrades: [],
   freshnessDays: DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
