@@ -234,6 +234,18 @@
 > cero componentes nuevos**: el badge de §22.5 se reutiliza con un `surface` de tres valores enumerados
 > que solo elige **qué forma de copy ya ratificada** se usa y **en qué breakpoint**, y que **no puede**
 > apagar el micro-aviso (R3 sigue intacta).
+>
+> **Añadido v2.3 (2026-08-31) — el gancho pasa a UN SOLO dial: los dos avisos de M10 → ver §22.13.**
+> `ARCHITECTURE.md` §4.38(r) (rev v1.51-one-dial) colapsa los dos interruptores en `gradingHookEnabled`
+> (M-46): el mismo dial gobierna **exhibición Y obtención**. Como el dial **ya no significa lo mismo en
+> cada sentido**, el aviso de M10 pasa de **uno** a **dos**: **al encender**, publica una afirmación
+> comercial **y** abre una llave de gasto (proveedor de paga, hasta **1 000 créditos/día** con los topes
+> actuales, y escribe precios) — `Banner warning`, con la consecuencia nueva en una entradilla que se lee
+> aunque nadie lea el párrafo; **al apagar**, deja de publicar **y** deja de actualizar, con la **escalera
+> de remedios** en el texto para que nadie apague la feature entera por una carta mal capturada —
+> `Banner info`, **sin color**, porque el apagado es el botón de pánico y no puede dar miedo. **Ninguna
+> superficie del storefront cambia** (§22.0–§22.12 intactas) y sigue **cero tokens nuevos, cero
+> componentes nuevos y cero cambios de contrato**.
 
 ---
 
@@ -4885,6 +4897,15 @@ que truncar.
 > mono roja de §20.3 encima. Las tres decisiones que salen de ahí —**dónde** entra la burbuja en cada
 > teja, **cómo** cabe el micro-aviso en la chica y **qué pasa con la numeración**— viven en §22.6b.
 >
+> **Revisión del arquitecto (2026-08-31) — UN SOLO DIAL (`gradingHookEnabled`, M-46; `ARCHITECTURE.md`
+> §4.38(r), rev v1.51-one-dial).** Los dos interruptores del gancho se colapsan en uno: el mismo dial
+> gobierna **exhibición Y obtención**. El dueño tenía razón y la simplificación **no se disculpa** — el
+> segundo interruptor **nunca se dibujó en el panel**, así que no era gobernable; se documenta y se sigue.
+> Lo que sí cambia para el diseño es que **el dial ya no significa lo mismo en cada sentido**, y por eso el
+> aviso de M10 pasa de **uno** a **dos**: **§22.13**. **Cero tokens nuevos, cero componentes nuevos, cero
+> cambios de contrato**, y **ninguna superficie del storefront se toca**: §22.0–§22.12 y las reglas R1–R6
+> quedan intactas. El colapso cambia **cuándo hay dato**, no cómo se pinta.
+>
 > **Origen:** **no hay entrega de Claude Design** para esta feature. §22 se construye **desde cero sobre la
 > piel ya aprobada**: no inventa una identidad para el gancho, la **compone** con piezas ya ratificadas
 > (`Fact` de la ficha, `PriceTag` §7.3, chip de grado sin cert §7.2c/§16.9, `Shelf` §20.5, reglas §4.3,
@@ -5904,6 +5925,9 @@ Convención §9.2, ES de referencia y EN obligatorio (§O.3 exige el disclaimer 
   señal de que se está inventando copy que §22 no autoriza.
 - *Retiradas respecto a versiones anteriores de §22*: `rawLabel`, `rawNote`, `gainNote`, `basisLine`,
   `costTierNote`, `caveatMicro`, `srDisclaimer`, `gridNote`, `provenance`, `gradingBadge.eyebrow`.
+- **Las claves del back-office NO viven aquí.** §22.11 es **storefront**. El copy del dial de M10 —etiqueta,
+  nota persistente y los **dos** avisos del dial único— está en **§22.13(j)**, bajo `admin.m10.dials.*`, y
+  ahí consta también qué claves quedan **retiradas** (`admin.m10.dials.gradedEstimates.*`).
 
 **Textos propuestos para los dos `microNotice` (ES/EN)** — punto de partida tomado del propio §O.5; PO
 ratifica. Las **negritas** marcan las dos ideas obligatorias, que van en tinta 500 (§22.4c):
@@ -6055,3 +6079,228 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
     Si en algún momento el negocio quiere que el carrusel del home promocione **oportunidades de gradeo**,
     eso es un **requisito distinto** (cambia el criterio de una sección existente) y debe entrar por
     `PROJECT.md`, no por una edición de este documento.
+
+**Notas añadidas por la revisión del 2026-08-31 (dial único, §22.13):**
+
+13. **Frontend — lo que §22.13 exige tocar (y nada más).** (a) **Renombrar** el grupo de claves y la
+    etiqueta del dial (§22.13j); (b) montar el **segundo** `Banner` con la matriz de visibilidad de
+    §22.13(c) —hoy solo existe el de encendido—; (c) leer `ingestMaxCardsPerRun` reutilizando
+    `getGradedEstimateConfig` y la query key `['graded-estimates-config']` **que M2 ya usa** — es una query
+    read-only más en M10, **no un cambio de contrato**— y caer a `onNoFigures` si no está disponible;
+    (d) declarar `{perCard}` y `{runs}` como constantes en **un solo módulo**, nunca repartidas por el copy
+    ni por dos componentes; (e) dar un `id` (`gancho-revision`) y su `scroll-mt` a la sección de la **lista
+    de revisión** de M2, para que el enlace del aviso de apagado tenga destino real. Sin (e) el aviso
+    manda a una página que no lleva a ningún sitio, que es la forma más silenciosa de que la escalera de
+    remedios no se use.
+14. **Arquitecto / product-owner — nada que pedir al contrato, y dos constancias.** §22.13 **no necesita
+    ningún dato ni pantalla que el contrato no cubra**: el dial ya está en `SettingsDTO`
+    (`gradingHookEnabled`) y el tope en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`). Las dos
+    constancias son de otros roles: (i) el **presupuesto en créditos** que `ARCHITECTURE.md` §4.38(r.3.1).1
+    manda publicar en `DEVOPS_NOTES.md` es lo que da veracidad a la cifra del aviso — si ese número cambia,
+    el copy cambia **por interpolación**, no por edición; (ii) el disclaimer de §O.5 **ya está aprobado por
+    el dueño** (2026-08-31, con la marca corregida a **TCG HUNT** en ES y EN), así que el aviso **ya no dice
+    que falte su visto bueno** — decirlo sería publicar en pantalla algo falso. Lo único que el aviso
+    conserva de esa idea es que **no ha habido revisión legal profesional**, y **esa cláusula se retira el
+    día que un abogado revise el texto**: es de PO/legal avisar cuándo.
+
+---
+
+### 22.13 El dial único del gancho en M10 — dos avisos, uno por sentido (v2.3, `ARCHITECTURE.md` §4.38r)
+
+> **Qué cambió.** El gancho pasa de **dos** interruptores a **uno** (`gradingHookEnabled`, M-46): el mismo
+> dial gobierna **exhibición Y obtención**. El dueño tenía razón —el segundo **nunca se dibujó en el
+> panel**, así que la única forma de tocarlo era `curl`—, y este § **no se disculpa por la simplificación**:
+> la da por buena y diseña lo único que ahora hace falta, que es **decir la verdad en los dos sentidos**.
+> Todo lo de §22.0–§22.12 (storefront) queda **intacto**: aquí solo se escribe el back-office de M10.
+>
+> **Cero componentes nuevos** (`Banner` §7.5 + `Switch` §6, ya montados en M10) y **cero tokens nuevos**
+> (R1 sigue rigiendo). **Cero cambios de contrato.**
+
+#### 22.13(a) Por qué DOS textos y no uno
+
+El dial dejó de ser simétrico, y esa asimetría —dictaminada en §4.38(r.2)— es la que ordena todo lo demás:
+
+| Sentido | Qué pasa de verdad | Qué tiene que hacer el texto | Variante |
+|---|---|---|---|
+| **Encender** | Publica una afirmación comercial **y** empieza a pedir datos a un proveedor **de paga**: consume créditos y escribe precios. **Una** escritura, dos consecuencias | Que **el gasto sea imposible de pasar por alto** — es la consecuencia nueva, la que nadie espera | **`Banner warning`** |
+| **Apagar** | Deja de publicar **y** deja de actualizar. Una escritura, dos consecuencias, **ninguna peligrosa** | Que el dueño **no apague la feature entera por una carta mal capturada**: enseñarle la escalera de remedios | **`Banner info`** |
+
+**Regla:** *el aviso lo elige el **sentido del cambio**, no el estado del dial.* Un solo texto tendría que
+advertir y tranquilizar a la vez, y no haría ninguna de las dos cosas. El encendido es hoy un **acto de
+dinero** (§4.38r.3) y el apagado es el **botón de pánico** que el gancho no tenía: tratarlos igual sería
+describir mal el producto.
+
+#### 22.13(b) Anatomía y ubicación — se reescribe lo que ya existe
+
+Los dos avisos son **el mismo `Banner` de §7.5** que M10 ya monta bajo la retícula de diales, en su
+contenedor, **después de la nota persistente** (f) y **antes** del botón «Guardar»:
+
+- Icono a la izquierda, **título** semibold, cuerpo. **Sin relleno de color** — icono y texto sobre papel,
+  mismo tratamiento que el aviso de §21.9c.
+- **Cuerpo en tinta**, no muted: es prosa que hay que leer. La muted queda para el icono, la regla y la
+  línea de bitácora.
+- **Las cifras de créditos van en mono `tabular-nums`** (§20.14, voz del dinero operativo): son una cuenta,
+  no una frase. Es el mismo criterio que separa precio de estimado en el storefront, aplicado aquí.
+- **Los dos avisos nunca coexisten:** el estado efectivo es uno solo.
+
+#### 22.13(c) Matriz de visibilidad y ARIA
+
+«Efectivo» = el borrador si el dueño tocó el switch; si no, el valor guardado.
+
+| Guardado | Efectivo | Qué se pinta | `role` |
+|---|---|---|---|
+| `off` | `off` | solo la **nota persistente** (f) | — |
+| `off` | `on` (**lo acaba de encender**) | **Aviso de encendido** (d) | **`alert`** |
+| `on` | `on` | **Aviso de encendido** (d), como recordatorio de estado | `status` |
+| `on` | `off` (**lo acaba de apagar**) | **Aviso de apagado** (e) | `status` |
+
+- **`alert` solo en el flip a `on`:** ese es el momento de leerlo, **no después de guardar**. Es la conducta
+  que M10 ya tiene y se conserva, ahora con más razón: el flip es lo que autoriza el gasto.
+- **El aviso de encendido está redactado en presente de estado** («Con este dial encendido, la tienda
+  muestra… y el barrido pide…») para servir **igual** como advertencia previa y como recordatorio
+  permanente. **Un solo texto, dos usos**: no hay variante por momento, y así no puede desincronizarse una
+  con la otra.
+- **El aviso de apagado no sube a `alert`.** Interrumpir a quien está tomando la decisión segura es ruido.
+- **El banner no roba el foco:** lo conserva el switch, para poder revertir con la misma tecla.
+
+#### 22.13(d) Copy del ENCENDIDO — publica **y** gasta
+
+| Clave | ES | EN |
+|---|---|---|
+| `onTitle` | Encendido: publica cifras **y** consume créditos | On: publishes figures **and** spends credits |
+| `on` | **Publica.** Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. **Y gasta.** El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor **de paga** y a escribir precios estimados: hasta **{credits} créditos al día** ({maxCards} cartas × {perCard} créditos × {runs} corridas). El tope de cartas por corrida se edita en M2 · Catálogo y precios; los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma **y lo que cuesta**. | **It publishes.** With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. **And it spends.** The same dial lets the daily sweep ask a **paid** provider for those figures and write estimated prices: up to **{credits} credits a day** ({maxCards} cards × {perCard} credits × {runs} runs). The per-run card cap is edited in M2 · Catalog and pricing; credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — **and what it costs**. |
+| `onNoFigures` (respaldo, solo cambia la segunda frase) | …**Y gasta.** El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor **de paga** y a escribir precios estimados: consume créditos en cada corrida, hasta el tope de cartas que fijaste en M2 · Catálogo y precios. | …**And it spends.** The same dial lets the daily sweep ask a **paid** provider for those figures and write estimated prices: it consumes credits on every run, up to the per-run card cap you set in M2 · Catalog and pricing. |
+| `audit` | Solo súper-admin · queda en bitácora. | Super-admin only · recorded in the audit log. |
+
+- **Las dos entradillas —«Publica.» / «Y gasta.»— son el mecanismo, no adorno.** Es el mismo recurso de
+  §22.4b (entradilla en tinta 500 dentro del párrafo) y garantiza que **la consecuencia nueva se lea aunque
+  nadie lea el párrafo**. Se marcan con **rich text de next-intl** (`<b>…</b>`), nunca partiendo la frase en
+  dos claves ni concatenando (§9.4).
+- **Los números se interpolan; no se hardcodean** — convención del sistema («del dial, nunca hardcodeado»,
+  §15). `{maxCards}` = `ingestMaxCardsPerRun` (M2, `GET /admin/pricing/graded-estimates`); `{perCard}` y
+  `{runs}` son las constantes de coste del proveedor y de cadencia del cron, declaradas por frontend en
+  **un solo módulo**; `{credits}` llega **ya multiplicado** (ICU no multiplica). Con los topes de hoy
+  (250 × 2 × 2) la frase dice **1 000 créditos al día**.
+- **El aviso nunca espera a un número.** Si la config de M2 no está disponible (cargando, error, permiso),
+  se pinta `onNoFigures`, que conserva las dos ideas. Es la doctrina de **R3.4 llevada al back-office**:
+  **cede la cifra, nunca el aviso**.
+- **`audit` es la última línea del banner**, mono 11px muted. §7.6 ya lo exige a las acciones de dinero
+  saliente («Solo súper-admin · queda en bitácora»); aquí aplica porque **encender es** una acción de
+  dinero.
+- **Corrección de hecho (2026-08-31).** La versión anterior de este aviso decía que el texto legal *«todavía
+  NO tiene el visto bueno del dueño (ni revisión legal)»*. **El dueño lo aprobó** —en la misma sesión, con
+  la marca corregida a **TCG HUNT**— así que esa frase **se retira**: escribirla hoy sería **publicar en
+  pantalla algo falso**, en la pantalla que precisamente existe para que nadie encienda esto a ciegas. Se
+  conserva lo único que sigue siendo verdad, **«sin revisión legal profesional»**, y esa cláusula **se cae
+  el día que un abogado revise el disclaimer** (§22.12 nº14).
+
+#### 22.13(e) Copy del APAGADO — deja de publicar **y** de actualizar
+
+El trabajo de este texto es **la puntería, no el miedo**: el dial es el **último escalón** (§4.38r.5), y sin
+decirlo el dueño apagará la feature entera por una carta mal capturada.
+
+| Clave | ES | EN |
+|---|---|---|
+| `offTitle` | Apagar también deja de actualizar | Turning it off also stops updating |
+| `off` | **Para las dos cosas a la vez.** Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. **Para una cifra concreta, este no es el remedio.** Una cifra rara se borra en la lista de revisión; un grado entero se quita de «grados» en M2; si lo que sobra es la promoción, sube el margen mínimo en M2 y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en M2. | **It stops both at once.** While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. **For one specific figure, this is not the remedy.** A wrong figure is deleted from the review list; a whole grade is removed from “grades” in M2; if what’s excessive is the promotion, raise the minimum upside in M2 and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in M2. |
+
+- **Un solo enlace.** «lista de revisión» / «review list» va envuelta en el chunk `<review>…</review>` de
+  next-intl y se pinta como `<a>` a `/admin/m2#gancho-revision` (§9.4: la frase **no** se parte en dos
+  claves ni se concatena). Los otros dos escalones se nombran **por su control** («grados», «margen
+  mínimo»), que es como se llaman en M2: tres enlaces compitiendo convertirían el aviso en un menú.
+- **La escalera va en prosa, no en tabla ni en viñetas.** Se lee en cinco segundos en el momento exacto de
+  la duda, y una tabla dentro de un `Banner` es un componente nuevo disfrazado. La escalera completa
+  —incluida la sonda, que es de devops— vive en `ARCHITECTURE.md` §4.38(r.5); la pantalla muestra **los tres
+  escalones que el dueño puede accionar solo**.
+- **Cita el label literal del botón que existe** («Actualizar precios ahora» / «Refresh prices now»,
+  `admin.m2.priceIngest.trigger`): un aviso que nombra un botón inexistente es peor que no decir nada.
+- **Sin cifra de horas.** El «≤ 12 h» de §4.38(r.5) es la cadencia del cron, no un dato de pantalla: «la
+  siguiente corrida» es verdad hoy y lo seguirá siendo si el cron cambia.
+- **No promete que apagar arregle nada.** Dice qué detiene y qué no; el rancio al reencender se explica por
+  su remedio (la corrida siguiente), no como advertencia.
+
+#### 22.13(f) La nota persistente — siempre visible, bajo la retícula de diales
+
+`text-xs muted`, sin banner: es contexto, no aviso. Reescribe la nota que ya existe.
+
+| Clave | ES | EN |
+|---|---|---|
+| `note` | Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas **y** el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna **y** tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura, los grados y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. | A single switch governs the hook: on, the storefront publishes the estimated figures **and** the daily sweep fetches them from a paid provider; off, it publishes none **and** updates none. Grading cost tiers, minimum upside, freshness, grades and the per-run card cap are edited in M2 · Catalog and pricing, along with the review list — the tool for a single figure. |
+
+La nota carga **la versión de una línea** de las dos ideas, para que estén presentes **también cuando el
+dial está apagado y no hay ningún banner**: es lo que impide que el dueño descubra la escalera solo en el
+momento de apagar.
+
+#### 22.13(g) Etiqueta del dial
+
+`dials.labels.gradingHookEnabled` — ES **«Gancho de grading — publica y trae datos»** · EN **«Grading hook —
+publishes and fetches data»**.
+
+La etiqueta es lo primero que se lee junto al switch; que cargue **las dos** consecuencias es la advertencia
+más barata del panel. Sustituye a `gradedEstimatesEnabled` («Valor estimado si se gradea (gancho)»), que
+solo nombraba la mitad — el mismo defecto de nombre que §4.38(r.1) corrigió en la `SettingKey`.
+
+#### 22.13(h) Prohibiciones
+
+| Prohibido | Por qué |
+|---|---|
+| **Modal de confirmación para encender** | Se consideró y **se rechaza**. Ya hay dos actos deliberados (el flip, con su aviso `role="alert"` en pantalla, y el guardado explícito), y el banner **sigue ahí mientras decides**, que es más de lo que consigue un modal: el clic reflejo de un modal protege menos que un texto que no se va. Además introduciría un patrón que M10 no usa para ningún otro dial. |
+| **Cualquier fricción extra en el APAGADO** (modal, «escribe APAGAR», doble confirmación) | El apagado es el **botón de pánico** que el gancho no tenía (§4.38r.2). Poner fricción en la dirección segura se paga en el peor momento posible. |
+| **Pintar el apagado en `warning`/`danger`** (rojo) | Convertiría en «peligroso» el remedio correcto de la duda sistémica. `info` es **tinta muted sin color propio** (§2.3): informa, no alarma. |
+| **Ocultar el aviso de encendido porque falta el número de créditos** | Para eso existe `onNoFigures`. Cede la cifra, nunca el aviso. |
+| **Repetir aquí el disclaimer completo de §O.5** | El disclaimer es del **storefront** (§22.4). M10 solo dice que encender **lo publica**. |
+| **Decir que el disclaimer no está aprobado** | **Ya lo está** (§22.12 nº14). Una pantalla que afirma lo contrario de lo que el producto hace es exactamente el defecto que este § existe para no cometer. |
+| **Rotular estados que ya no existen** («parcial», «solo ingest», «modo prueba», «traer sin publicar») | Con un dial esos estados **no son expresables** (§4.38r.6.4). Nombrarlos en pantalla reabre el defecto que el dueño pidió cerrar. |
+| **Que el color sea el único canal** del estado | El switch lleva su texto «Encendido/Apagado» (`dials.onOff`) y el título del banner dice qué pasa (§2.4). |
+| **Ofrecer «apagar» como acción dentro del banner de encendido** | El control es el switch que está justo arriba. Un botón de apagado dentro del aviso duplica la palanca y desalinea el borrador con el guardado. |
+
+#### 22.13(i) Accesibilidad y contraste — todo con pares ya verificados (§10, §17.2/§20.15)
+
+| Elemento | Par | Ratio | Cumple |
+|---|---|---|---|
+| Cuerpo de los dos avisos | tinta `#1A1A18` sobre papel `#F4F1EA` | ~15.5:1 | AA/AAA |
+| Línea `audit` (mono 11px) | muted `#6E695E` sobre papel | ~4.8:1 | AA |
+| Icono/borde del aviso de **encendido** | accent `#B31217` sobre papel (§17.2) | ~6.2:1 | AA |
+| Icono/borde del aviso de **apagado** | `--color-info` = muted `#6E695E`, fondo `transparent` | ~4.8:1 | AA |
+| Enlace `<review>` + anillo de foco | accent sobre papel (§8.2) | ~6.2:1 | AA (≥3:1 UI) |
+
+- **Cero tokens nuevos**: el aviso de apagado no estrena color porque `info` **no tiene color propio**.
+- `role="alert"` **solo** en el flip a `on`; `status` en los demás (§22.13c).
+- El enlace es un `<a>` real con objetivo táctil **≥ 44×44**; su destino lleva
+  `scroll-margin-top: calc(var(--app-header-h,0px) + 16px)` (§4.5), como la nota al pie de §22.4a —
+  aterrizar bajo un header sticky es el fallo clásico de este patrón.
+- Los avisos son **texto renderizado**: nunca `title`, `tooltip` ni `<details>`. Misma doctrina que R3 en el
+  storefront, aplicada al back-office — un aviso que exigió un clic admite la réplica «nunca lo abrí».
+- El cambio de banner al mover el switch **no anima** y **no desplaza** el botón «Guardar» fuera de vista en
+  móvil: el aviso crece hacia abajo, el botón queda debajo del aviso, no encima.
+
+#### 22.13(j) i18n — claves nuevas y retiradas (propiedad de frontend)
+
+- **Nuevas:** `admin.m10.dials.labels.gradingHookEnabled` ·
+  `admin.m10.dials.gradingHook.{note,onTitle,on,onNoFigures,audit,offTitle,off}`.
+- **Retiradas:** `admin.m10.dials.labels.gradedEstimatesEnabled` ·
+  `admin.m10.dials.gradedEstimates.{note,warningTitle,warning}`.
+- **El grupo se renombra a `gradingHook`** por la misma razón por la que §4.38(r.1) renombró la `SettingKey`:
+  **el significado cambió, así que el nombre cambia**. Mantener un nombre viejo sobre semántica nueva es el
+  mecanismo exacto por el que esta feature ya acumuló divergencias en silencio.
+- **Longitudes (§9.4):** el cuerpo de encendido mide ~600 caracteres en ES y ~590 en EN; el de apagado
+  ~570/~560. Es el texto más largo del panel de M10: **debe envolver sin tocar tamaños** y el banner **no
+  lleva alto fijo, ni scroll interno, ni truncado**. En 390px ocupa varias pantallas de alto y está bien:
+  es un aviso, no una etiqueta.
+- ES es la referencia y **EN es obligatorio** (§9.2): un aviso de gasto que solo existe en un idioma es un
+  aviso que alguien no leerá.
+
+#### 22.13(k) QA visual sugerido
+
+(a) Con el dial guardado en `off`, la pantalla muestra **solo la nota**: ningún banner, ningún hueco
+reservado. (b) Mover el switch a `on` **sin guardar** ⇒ aparece el aviso de encendido con `role="alert"`, y
+revertir el switch lo **retira** sin dejar rastro. (c) Con el dial guardado en `on`, el mismo texto sigue
+visible como `status` — **no** desaparece tras guardar. (d) Mover el switch a `off` estando guardado en `on`
+⇒ aparece el aviso de apagado, **en muted, sin rojo**. (e) Los dos avisos **nunca** se ven a la vez.
+(f) Forzar el fallo de `GET /admin/pricing/graded-estimates` ⇒ el aviso de encendido **sigue apareciendo**
+en su variante `onNoFigures` (si desaparece, es el bloqueante). (g) La cifra de créditos se mueve al cambiar
+`ingestMaxCardsPerRun` en M2 — si no se mueve, está hardcodeada. (h) El enlace de la lista de revisión
+**aterriza en la sección**, con su encabezado visible bajo el header sticky. (i) EN completo en los dos
+avisos, la nota y la etiqueta. (j) Lector de pantalla: al encender se **anuncia** el aviso; al apagar se
+anuncia sin interrumpir. (k) **Cero apariciones** de la frase «no tiene el visto bueno del dueño» en
+`messages/`.
