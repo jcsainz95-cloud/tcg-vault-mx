@@ -8967,12 +8967,17 @@ descubiertos **en el navegador** y documentados abajo con su evidencia.
 
 **Las siete reglas duras, una por una:**
 
-- **R1 (rota la ventana, nunca el rol).** Lo único que la rotación escribe es `scrollLeft`. **El tic no
-  provoca ni un `setState`** salvo el que termina la pasada; los únicos re-render de una pasada completa
-  son el apagado de las flechas (`canPrev` una vez al principio, `canNext` una vez al final). Test
-  `FeaturedCarouselRotation.test.tsx` compara la **referencia del nodo** de la teja líder y el orden de
-  `alt` de las ocho tejas en los siete tics, y comprueba que la teja 2 sigue con `imageSmallUrl` y **sin**
-  `fetchpriority`. Es la prueba que protege lo que arregló §34.1.
+- **R1 (rota la ventana, nunca el rol).** ⚠️ **Enunciado CORREGIDO en §38.2 — lo que decía aquí era
+  falso.** Decía: *«lo único que la rotación escribe es `scrollLeft`; el tic no provoca ni un
+  `setState`»*. **No es cierto:** el tic llama a `measure()`, que escribe `canPrev`/`canNext`/`overflows`,
+  y hay re-render en el primer tic y en el último. R1 se cumple igual, pero **por otra razón**: el rol de
+  teja se deriva del **índice del array** sobre una lista que la rotación jamás toca, con `key` estable,
+  así que React reconcilia en sitio (mismo nodo, mismo `src`, mismo `fetchpriority`). Ésa es la garantía
+  dura y la fija el test `FeaturedCarouselRotation.test.tsx` («la teja líder conserva identidad, sitio,
+  imagen HD y fetchpriority en TODOS los tics»), que compara la **referencia del nodo** y el orden de
+  `alt` de las ocho tejas en los siete tics. Es la prueba que protege lo que arregló §34.1 — y el
+  invariante se sostiene **por** ella, no sin ella. Detalle y por qué el argumento viejo era peligroso:
+  §38.2.
 - **R2 (nunca coexiste con carga).** Cuatro precondiciones: hidratado · consulta resuelta con ≥ 2 tejas ·
   `load` de la foto líder **o** tope de 3 s · 7 s de reposo. Con skeleton no hay pista, y sin pista no hay
   ni temporizador ni conmutador.
@@ -9004,13 +9009,16 @@ aplicando `scroll-snap`**, que mueve `scrollLeft` de 0 al valor del `gutter` (32
 scroll hace lo mismo cuando una imagen tardía cambia el layout. En la primera corrida de E2E el
 conmutador ya decía **REANUDAR** antes de que nadie tocara nada.
 
-**Resolución (no re-litiga la decisión, la hace funcionar):** el `scroll` pausa cuando (a) no lo
-originamos nosotros **y** (b) el usuario tocó la pista hace menos de `USER_INPUT_WINDOW_MS` (1200 ms),
-medido con `pointerdown` / `touchstart` / `wheel` / `keydown` / `focus` sobre la pista. La segunda guarda
-es la nueva. Cubre **exactamente** lo que §23.5 enumera —swipe, arrastre, rueda/trackpad y «el scroll que
-provoca el navegador al tabular a una teja fuera de pantalla», que llega por `focus`— y deja fuera lo que
-§23.5 no puede haber querido decir: un reajuste del motor de layout no es una intervención del usuario.
-Los cinco listeners solo escriben un `ref`: cero re-render por mover el ratón (corolario de §23.2).
+**Resolución (no re-litiga la decisión, la hace funcionar):** ⚠️ **CORREGIDA en §38.1 — la guarda (a)
+se retiró.** Este pase dejó **dos** guardas: (a) no lo originamos nosotros **y** (b) el usuario tocó la
+pista hace menos de `USER_INPUT_WINDOW_MS` (1200 ms), medido con `pointerdown` / `touchstart` / `wheel` /
+`keydown` / `focus` sobre la pista. **(a) sobraba y hacía daño**: hoy queda **solo (b)**, que es el
+enunciado literal de §23.5a. Ver §38.1 con la medición.
+
+La guarda que queda cubre **exactamente** lo que §23.5 enumera —swipe, arrastre, rueda/trackpad y «el
+scroll que provoca el navegador al tabular a una teja fuera de pantalla», que llega por `focus`— y deja
+fuera lo que §23.5 no puede haber querido decir: un reajuste del motor de layout no es una intervención
+del usuario. Los cinco listeners solo escriben un `ref`: cero re-render por mover el ratón.
 
 Regresión fijada en `FeaturedCarouselRotation.test.tsx` («un re-snap del NAVEGADOR (scroll sin entrada del
 usuario) NO pausa»).
@@ -9255,3 +9263,161 @@ enrutada aparte y no bloquea.)
   Todo restaurado después.
 - Cero escrituras fuera de `frontend/` y este archivo. `next/image` **no** se adopta, `next.config.mjs`
   intacto, `backend/` intacto.
+
+---
+
+## §38 · Un test verde que certificaba lo contrario de la norma, y dos enunciados falsos que lo sostenían (hallazgos del techlead sobre §36) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Pase corto de cierre. El trabajo de §36 quedó aprobado y se mergea; esto cierra cuatro cosas que el
+> techlead encontró y que **no podían sobrevivir a quien las escribió**: una prueba que afirmaba lo
+> contrario de la norma, el comentario falso que la justificaba, un enunciado de rendimiento que era
+> falso (aunque su conclusión fuera correcta) y tres huecos de cobertura que sí eran cubribles.
+> Nada de esto era urgente por accesibilidad —el conmutador cumple WCAG 2.2.2 y sigue cumpliéndolo—;
+> era urgente porque una afirmación falsa **con forma de prueba** es lo que el próximo mantenedor lee
+> como especificación.
+
+### 38.1 El hallazgo principal: la guarda que solo disparaba contra la persona a la que decía proteger
+
+**Lo que había.** `handleScroll` tenía dos guardas:
+
+```ts
+if (programmaticRef.current > 0) return;   // (a) «este scroll lo originamos NOSOTROS»
+if (userInputRef.current === 0) return;    // (b) «nadie tocó la pista hace poco»
+```
+
+…y encima el comentario *«Dos guardas, y las dos son necesarias»*. Y un test verde en
+`FeaturedCarouselRotation.test.tsx` que hacía `pointerDown(track)` e **inmediatamente después**
+`scroll(track)`, y afirmaba que **NO** pausa.
+
+**Por qué eso es una afirmación falsa.** §23.5a es normativa y es un **si y solo si**: un `scroll` pausa
+*si y solo si* hay `pointerdown`/`touchstart`/`wheel`/`keydown`/`focus` en los **1200 ms** previos. En ese
+test hay un `pointerdown` inmediatamente anterior ⇒ **la norma dice que debe pausar**. El test decía lo
+contrario y pasaba, porque el código hacía ganar a la evidencia débil.
+
+**Decisión: se RETIRA (a). No se invirtió el orden.** Tres razones, en orden de peso:
+
+1. **§23.5a es un bicondicional, y una guarda es el bicondicional.** Con (b) sola, el código *es* la norma
+   leída en voz alta. Con dos guardas hay que explicar cuál gana y en qué orden — y esa explicación es
+   precisamente lo que se había escrito mal.
+2. **Invertir el orden deja (a) viva pero inalcanzable en el único caso donde difería.** Sería código
+   muerto con un comentario diciendo que es necesario: exactamente la misma forma del defecto que este
+   pase viene a cerrar, un escalón más abajo.
+3. **(b) ya domina a (a).** Medido, no razonado — abajo.
+
+**La medición (Chromium, build de producción, modo mocks, home real).** Dos sondas de Playwright,
+temporales, retiradas tras medir:
+
+| Medición | Qué se instrumentó | Resultado |
+|---|---|---|
+| **1-bis** — ¿(b) sola basta contra el motor? | Listener de captura de `scroll` + de las cinco entradas, instalado con `addInitScript` (o sea, **desde antes de hidratar**). Pasada completa, 25 s, sin tocar nada | **53 eventos `scroll`, 0 con antecedente de usuario ≤ 1200 ms.** El primero es el famoso `t ≈ 954 ms, scrollLeft: 32` — **el `scroll-snap` de la hidratación que motivó §23.5a**. (b) lo descarta él solo, y descarta los 53 |
+| **2** — ¿(a) cambia el resultado en algún sitio? | Esperar al arranque de un tic (`polling: 16`) y emitir una **rueda real** sobre la pista dentro del deslizamiento | Gesto a **+56 ms** del tic ⇒ conmutador **se quedó en PAUSAR** (el gesto se tragó) y, al retirar el puntero, `scrollLeft` **460 → 756**: la rotación **se reanudó sola**. R5 incumplido y §23.13 nº9 al pie de la letra |
+| **3** — insumo para la deuda FR-C1 | Rueda **vertical** pura sobre la pista | `dx=0 dy=250` **llega a la pista y arma la ventana** de 1200 ms. §23.5 solo nombra la rueda *horizontal* |
+
+O sea: (a) no aportaba nada en el camino del motor (0 de 53) y su **único** efecto observable era contra
+un gesto real. *La guarda solo disparaba contra la persona a la que decía proteger.*
+
+**Confirmación de que el candado nuevo muerde.** Se volvió a poner (a) a mano y se corrió la suite: **1
+test en rojo, exactamente el nuevo** (`un gesto REAL dentro del deslizamiento del tic PAUSA…`), 45 en
+verde. Es decir: (a) es inerte para todo lo demás que está probado, y lo único que cambia es el caso que
+la norma exige. Restaurado después.
+
+**Lo que se borró con ella:** `PROGRAMMATIC_SETTLE_MS` (la constante de 900 ms), `programmaticRef` y el
+temporizador que lo decrementaba. `scrollProgrammatically` pasa a llamarse **`moveTrack`**: ya no marca
+nada, solo desplaza y mide, y el nombre viejo prometía una marca que ya no existe. El comentario que
+queda **no dice «necesarias»**: trae la doctrina («cuando dos evidencias coexisten, gana el humano») y la
+medición, y pide explícitamente que quien quiera reintroducir una marca de origen traiga el escenario
+concreto en que la persona se equivoca y el motor acierta.
+
+**Los tests, que es lo que no podía quedarse como estaba.** El test falso se sustituye por **dos**, que
+son las dos caras del bicondicional:
+
+- *«el scroll de NUESTRO propio tic no pausa, y lo bloquea el antecedente (no una marca de origen)»* — el
+  propósito legítimo que (a) decía cubrir, ahora fijado sobre la guarda que de verdad lo cubre.
+- *«un gesto REAL dentro del deslizamiento del tic PAUSA: el antecedente del usuario gana (§23.5a)»* — el
+  caso que el test viejo negaba, con su comentario explicando qué decía antes y por qué era falso.
+
+Y el escenario se fija además **en el navegador**, que es donde la ventana de coexistencia existe de
+verdad (jsdom no tiene scroll suave): `e2e/featured-rotation.spec.ts` → *«§23.5a · un gesto REAL dentro
+del tic PAUSA y no se reanuda sola (gana el humano)»*, que reproduce la medición 2 y asserta las dos
+mitades: pausa inmediata **y** ni un tic más tras retirar el puntero.
+
+### 38.2 El enunciado de R1 era falso; la conclusión era correcta por otra razón
+
+**Lo que se declaró en §36.1 (y en el comentario de `FeaturedCarousel.tsx`):** *«lo único que la rotación
+escribe es `scrollLeft`; el tic no provoca ni un `setState`»*. **Es falso.** `moveTrack` y `handleScroll`
+llaman a `measure()`, que escribe `canPrev` / `canNext` / `overflows`. Hay re-render en el primer tic
+(se enciende «anterior») y en el último (se apaga «siguiente»), además del que cierra la pasada.
+
+**R1 se cumple igual, pero por otra razón — y la otra razón es más fuerte.** El rol de teja se deriva del
+**índice del array** (`i === 0` ⇒ teja líder, HD + `priority`) sobre una lista que la rotación **jamás
+toca**, con `key` estable (`representativeInventoryItemId`). React reconcilia en sitio: mismo nodo, mismo
+`src`, mismo `fetchpriority`, **haya los `setState` que haya**.
+
+**Por qué el argumento viejo era peligroso, y no solo inexacto.** Hacía creer dos cosas falsas:
+
+1. Que meter un `setState` en el camino del tic **rompería el LCP**. No lo rompe. Quien tenga que añadir
+   estado ahí mañana se habría autoprohibido algo inocuo, o —peor— habría concluido que el argumento no
+   se sostiene y que R1 tampoco.
+2. Que el invariante **se sostiene sin el test**. Se sostiene **por** el test: `FeaturedCarouselRotation`
+   compara la referencia del nodo líder, el orden de los ocho `alt` y el `src`/`fetchpriority` de la teja
+   2 en los siete tics. Sin él, nada impide que alguien derive el rol de la posición de scroll.
+
+Corregido en los dos sitios: el bloque R1 de la cabecera del componente, el comentario del temporizador
+(`FeaturedCarousel.tsx`) y §36.1 de este archivo, que ahora remite aquí.
+
+### 38.3 Tres huecos que sí eran cubribles (la lista de §36.6 era honesta pero incompleta)
+
+1. **La llegada por ancla MID-VISIT.** El test que había ponía `location.hash` **antes de montar**, así
+   que ejercitaba el `check()` del montaje y **el listener de `hashchange` no se ejecutaba nunca**. Pero
+   el camino real de §22.4a es el otro: el usuario ya está en la home, vuelve de la nota al pie del gancho
+   y el `hash` cambia **con el componente montado y rotando**. *El camino tapado era el secundario; el
+   primario no tenía red.* Cubierto: se deja rotar un tic, se dispara `HashChangeEvent`, y se afirma
+   pausa + anuncio + **que no se rebobina** (§23.5) ni se mueve después.
+2. **La intervención dentro de los ~900 ms.** No es que no estuviera cubierta: estaba cubierta **al
+   revés**. Ver §38.1.
+3. **`onError` de la foto líder como desbloqueo.** `CardImage` llama a `settle()` también en `onError`
+   («un 404 no puede dejar a nadie esperando»), pero que un fallo de la líder habilite la rotación **sin
+   gastar los 3 s de `LEAD_IMAGE_CAP_MS`** no lo afirmaba nadie. Cubierto con un `fireEvent.error`: el
+   reposo de 7 s arranca en el instante del error, no en el tope.
+
+### 38.4 Los dos menores que el techlead señaló sin ficha
+
+- **`onTogglePlayback` resolvía `'paused'` POR DESCARTE**, tras los `if` de `'playing'` y `'ended'`.
+  Correcto hoy con una unión de tres y silenciosamente incorrecto con una de cuatro: un modo nuevo caería
+  en REANUDAR sin que nada avise. Es **el patrón que este proyecto lleva todo el día cerrando**, así que
+  se cierra igual: `switch` exhaustivo con candado `never` (`const unhandled: never = mode`). Un cuarto
+  modo **no compila** hasta que alguien decida qué hace este botón con él.
+- **`statusTextRef.current = {…}` era mutación de ref en FASE DE RENDER.** Idempotente y benigna hoy,
+  pero es el patrón que muerde bajo StrictMode (doble render). Pasa a un `useEffect` sin deps —el mismo
+  patrón que ya usaba `pauseRef`— declarado **antes** que el efecto del ancla, que es el único que puede
+  leer esos textos en el primer commit.
+- **De regalo, en el mismo sitio:** `settleTimersRef` era un `array` al que se hacía `push` en cada
+  entrada del usuario y que solo se vaciaba al desmontar ⇒ crecía sin tope durante toda la visita (una
+  rueda larga son decenas de entradas). Pasa a `Set` y cada temporizador **se borra a sí mismo** al
+  cumplirse. No cambia ninguna conducta.
+
+### 38.5 Deuda anotada, no arreglada
+
+**FR-C1** en `docs/TECH_DEBT.md`: la ventana de 1200 ms de §23.5a se arma con `onWheel` **sin discriminar
+eje** (medido: `dx=0 dy=250` la arma) y con `onFocus`. El riesgo va **en dirección contraria** a la que se
+sospechaba: no es el falso negativo —un swipe emite muchos `scroll` y el primero llega en milisegundos—
+sino el falso **positivo**: si en esos 1200 ms una imagen tardía provoca *scroll anchoring* (el escenario
+que §23.5a describe, y lo que pasa en red lenta), el carrusel se pausa sin que nadie lo pidiera. No se
+toca aquí porque **§23.5a es normativa**: el enunciado y el número viven en `DESIGN_SYSTEM.md` y su dueño
+es ux-ui. Disparador: que QA o soporte vean el conmutador en REANUDAR sin intervención.
+
+### 38.6 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **946/946 en 102
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **943/102** (§37.9). Delta **+3 tests** (`FeaturedCarouselRotation` 43 → 46),
+  sin archivos nuevos. **Una prueba retirada: la falsa**, sustituida por dos que cubren las dos caras del
+  bicondicional de §23.5a — el saldo neto de asertos sube, no baja.
+- **E2E del carrusel, obligatorio porque cambió la conducta de las guardas:**
+  `npx playwright test e2e/featured-rotation.spec.ts` ✔ **9/9** en Chromium (build de producción, modo
+  mocks). Eran 8; el nuevo es la regresión de §23.5a en navegador. Nótese que el nº 1 («reposo inicial de
+  7 s… sin auto-pausarse») **sigue verde sin la guarda (a)**: es la confirmación en vivo de que (b) sola
+  aguanta el `scroll-snap` de la hidratación.
+- **El candado muerde:** con (a) reintroducida a mano, **1 rojo y solo 1** — el test nuevo. Restaurado.
+- Cero cambios de contrato, cero tokens nuevos, cero componentes nuevos. Escrituras: `frontend/`,
+  este archivo y `docs/TECH_DEBT.md`. `backend/` intacto.

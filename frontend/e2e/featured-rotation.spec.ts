@@ -170,6 +170,58 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     expect((await readTrack(page)).scrollLeft).toBe(parked);
   });
 
+  /**
+   * §23.5a es un **SI Y SOLO SI**, y éste es el lado que se rompía: un gesto REAL que cae DENTRO del
+   * deslizamiento de nuestro propio tic tiene antecedente de usuario ⇒ **pausa**.
+   *
+   * Regresión medida en este mismo navegador antes de arreglarla: rueda sobre la pista a **+56 ms**
+   * del arranque de un tic ⇒ el conmutador se quedaba en PAUSAR (el gesto se tragaba) y, al retirar
+   * el puntero, la pista **se movía sola** de `scrollLeft` 460 a 756. Es R5 incumplido y §23.13 nº9
+   * al pie de la letra. La causa era una guarda «este scroll lo originamos nosotros» que hacía ganar
+   * a la evidencia débil; se retiró (ver `handleScroll`). Este test es su lápida: solo puede pasar
+   * mientras el antecedente del usuario gane.
+   *
+   * Es de navegador y no de jsdom a propósito: la ventana de coexistencia (el tic asentándose y el
+   * dedo llegando) la produce el scroll suave nativo, que jsdom no tiene.
+   */
+  test('§23.5a · un gesto REAL dentro del tic PAUSA y no se reanuda sola (gana el humano)', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const track = await primeCarousel(page);
+    await expect(page.getByRole('button', { name: PAUSE_ARIA })).toBeVisible();
+    const box = (await track.boundingBox())!;
+    const rest = (await readTrack(page)).scrollLeft;
+
+    // Se espera al INSTANTE en que arranca el tic; el deslizamiento suave dura ~550 ms, así que el
+    // gesto de las líneas siguientes cae dentro de él.
+    await page.waitForFunction(
+      ([sel, from]) =>
+        (document.querySelector(sel as string) as HTMLElement).scrollLeft > (from as number) + 8,
+      [TRACK, rest] as const,
+      { timeout: 20_000, polling: 16 },
+    );
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(300, 0);
+
+    // El gesto NO se traga: pausa permanente, aquí y ahora.
+    await expect(page.getByRole('button', { name: RESUME_ARIA })).toBeVisible();
+
+    // Y al retirar el puntero no se reanuda sola, que es la mitad que de verdad se rompía: la
+    // suspensión por hover terminaba y el temporizador volvía a arrancar como si nadie hubiera
+    // tocado nada.
+    await page.mouse.move(0, 0);
+    // La posición de reposo se lee DESPUÉS de que asiente el `scroll-snap` del propio gesto: justo
+    // tras la rueda la pista sigue en movimiento (medido: 304 en vuelo → 460 asentado) y comparar
+    // contra un valor en vuelo mediría el snap, no una reanudación. Esto no tapa nada: lo que el
+    // test afirma es que **no hay un tic más**, no que no se mueva ni un píxel tras soltar.
+    await page.waitForTimeout(2000);
+    const parked = (await readTrack(page)).scrollLeft;
+    await page.waitForTimeout(REST_MS * 2 + 2000);
+    expect((await readTrack(page)).scrollLeft).toBe(parked);
+    await expect(page.getByRole('button', { name: RESUME_ARIA })).toBeVisible();
+  });
+
   test('§23.14 f · el conmutador cabe en 390 / 640 / 1024 sin pisar el H2 ni el link', async ({ page }) => {
     test.setTimeout(90_000);
     for (const width of [390, 640, 1024]) {

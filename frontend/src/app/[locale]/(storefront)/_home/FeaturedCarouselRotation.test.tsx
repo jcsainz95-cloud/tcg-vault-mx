@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import {
+  FEATURED_CAROUSEL_ID,
   FeaturedCarousel,
   LEAD_IMAGE_CAP_MS,
-  PROGRAMMATIC_SETTLE_MS,
   ROTATION_REST_MS,
   USER_INPUT_WINDOW_MS,
 } from './FeaturedCarousel';
@@ -32,8 +32,9 @@ import type { CardDTO, GroupedListingSummaryDTO } from '@/types/contract';
  *     caída `scrollLeft = n` de `scrollTrackTo`. El `behavior:'smooth'` vs `'auto'` de §23.7 se
  *     prueba en `carouselGeometry.test.ts` (rama con `scrollTo` inyectado), no aquí.
  *   · **Asignar `scrollLeft` en jsdom no emite `scroll`** ⇒ los eventos de scroll se disparan a
- *     mano. Que el navegador real no confunda nuestro propio tic con un swipe se prueba por su
- *     costura (`PROGRAMMATIC_SETTLE_MS`), no por observación.
+ *     mano, con el antecedente de usuario que cada caso quiera declarar. Que el motor de un navegador
+ *     real no emita `scroll` con antecedente de usuario es **medición de navegador**, no de aquí
+ *     (53 eventos / 0 con antecedente en una pasada completa; ver `handleScroll`).
  *   · **No hay `IntersectionObserver` en jsdom** ⇒ la suspensión por «menos del 50 % visible»
  *     (§23.5) **no está cubierta**. Es E2E de navegador.
  *   · **No hay `prefers-reduced-motion` real** ⇒ se controla con un `matchMedia` propio; lo que se
@@ -254,6 +255,25 @@ describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca co
     // El avance va en dos tramos porque `act` no aplica el `setState` del tope hasta salir del
     // bloque; en el navegador el reposo de 7 s arranca en el instante mismo del tope.
     await settle(LEAD_IMAGE_CAP_MS);
+    await settle(ROTATION_REST_MS - 1);
+    expect(track.scrollLeft).toBe(0);
+    await settle(1);
+    expect(track.scrollLeft).toBe(SNAPS[1]);
+  });
+
+  /**
+   * `CardImage` llama a `settle()` en `onLoad` **y en `onError`** («un 404 no puede dejar a nadie
+   * esperando»). Que un fallo de la foto líder desbloquee la rotación **sin** gastar los 3 s del tope
+   * no lo afirmaba nadie: si mañana alguien quita el `onError` de `CardImage`, el carrusel de una
+   * home con la CDN caída se queda 3 s de más en cada visita y ningún test lo nota.
+   */
+  it('un 404 en la foto líder desbloquea igual, sin esperar el tope de 3 s (`onError` = `settle`)', async () => {
+    const { track } = await mountCarousel({ loadLeadImage: false });
+    await act(async () => {
+      fireEvent.error(screen.getByAltText(NAMES[0]));
+    });
+    // El reposo arranca en el instante del `error`, no en el tope: a los 7 s justos ya hubo tic, y
+    // eso solo es posible si NO se esperaron los 3 s de `LEAD_IMAGE_CAP_MS` por delante.
     await settle(ROTATION_REST_MS - 1);
     expect(track.scrollLeft).toBe(0);
     await settle(1);
@@ -493,23 +513,63 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
     expect(track.scrollLeft).toBe(after);
   });
 
-  it('nuestro PROPIO tic no se confunde con una intervención (la costura de §23.5)', async () => {
+  /**
+   * El `scroll` que emite NUESTRO propio tic no pausa — y lo importante es **POR QUÉ**: no lleva
+   * ninguna marca de origen, lo bloquea el mismo y único discriminante de §23.5a (no hay antecedente
+   * de usuario en los 1200 ms previos). Aquí hubo una segunda guarda («lo originamos nosotros») y se
+   * retiró por redundante y dañina; este test es el que fija que la que queda basta.
+   *
+   * Medición que lo respalda (Chromium, build de producción, listener desde ANTES de hidratar):
+   * **53 eventos `scroll` en una pasada completa sin tocar nada, CERO con antecedente de usuario** —
+   * incluido el `scroll-snap` de la hidratación que motivó §23.5a.
+   */
+  it('el scroll de NUESTRO propio tic no pausa, y lo bloquea el antecedente (no una marca de origen)', async () => {
     const { track } = await mountCarousel();
     await settle(ROTATION_REST_MS);
-    // El navegador emite `scroll` durante el deslizamiento suave del tic. Aunque el usuario esté
-    // tocando la pista en ese momento, el movimiento es NUESTRO y no debe pausar.
+    expect(track.scrollLeft).toBe(SNAPS[1]);
+    // El deslizamiento suave del tic emite `scroll` sin que nadie haya tocado la pista.
     await act(async () => {
-      fireEvent.pointerDown(track);
+      fireEvent.scroll(track);
       fireEvent.scroll(track);
     });
     expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
-    // Pasada la ventana de reposo del scroll suave, el mismo gesto ya es del usuario.
-    await settle(PROGRAMMATIC_SETTLE_MS);
+    expect(statusLine()).toHaveTextContent('');
+    // Y la pasada continúa como si nada.
+    await settle(ROTATION_REST_MS);
+    expect(track.scrollLeft).toBe(SNAPS[2]);
+  });
+
+  /**
+   * ⚠️ **CONTRACARA DEL ANTERIOR, Y LA NORMA ES UN «SI Y SOLO SI».** §23.5a: un `scroll` pausa si y
+   * solo si hay `pointerdown`/`touchstart`/`wheel`/`keydown`/`focus` en los 1200 ms previos. Un
+   * gesto REAL que cae dentro del deslizamiento de un tic **tiene** ese antecedente ⇒ **pausa**.
+   *
+   * Aquí vivía un test que afirmaba lo contrario (que ese mismo gesto NO pausaba) y pasaba en verde,
+   * porque el código tenía una guarda que hacía ganar a la evidencia débil. Es el escenario del
+   * pulgar en táctil: se traga el swipe y la rotación se reanuda 7 s después — §23.13 nº9 lo prohíbe
+   * expresamente. Medido en Chromium antes de arreglarlo: rueda a **+56 ms** de arrancar un tic ⇒
+   * conmutador en PAUSAR y `scrollLeft` 460 → 756 él solo.
+   *
+   * **Doctrina que este test fija: cuando las dos evidencias coexisten, gana el humano.**
+   */
+  it('un gesto REAL dentro del deslizamiento del tic PAUSA: el antecedente del usuario gana (§23.5a)', async () => {
+    const { track } = await mountCarousel();
+    await settle(ROTATION_REST_MS);
+    const afterTick = track.scrollLeft;
+    expect(afterTick).toBe(SNAPS[1]);
+
+    // El dedo llega mientras el tic todavía se está asentando.
     await act(async () => {
       fireEvent.pointerDown(track);
+      track.scrollLeft = 620;
       fireEvent.scroll(track);
     });
     expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
+    expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
+
+    // Y no se reanuda sola: eso es exactamente lo que el test falso permitía.
+    await settle(ROTATION_REST_MS * 6);
+    expect(track.scrollLeft).toBe(620);
   });
 
   it('llegar por el ancla #piezas-destacadas detiene la rotación, sin rebobinar', async () => {
@@ -518,6 +578,33 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
     expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
     await settle(ROTATION_REST_MS * 4);
     expect(track.scrollLeft).toBe(0);
+  });
+
+  /**
+   * **EL CAMINO PRIMARIO DEL ANCLA, que no tenía red.** El test de arriba pone el `hash` ANTES de
+   * montar, así que ejercita el `check()` del montaje y **nunca** el listener de `hashchange`. Pero
+   * el caso real de §22.4a es mid-visit: el usuario ya está en la home leyendo la nota al pie del
+   * gancho y pulsa el regreso ⇒ el `hash` cambia **con el componente montado y rotando**. Ése es el
+   * camino que importa, y era el que estaba descubierto.
+   */
+  it('el regreso de la nota al pie MID-VISIT (hashchange, ya montado y rotando) también pausa', async () => {
+    const { track } = await mountCarousel();
+    // Rotando de verdad: un tic ya ocurrió y el conmutador dice PAUSAR.
+    await settle(ROTATION_REST_MS);
+    expect(track.scrollLeft).toBe(SNAPS[1]);
+    expect(toggle()).toHaveAccessibleName('Pausar la rotación automática');
+
+    await act(async () => {
+      window.location.hash = `#${FEATURED_CAROUSEL_ID}`;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    expect(toggle()).toHaveAccessibleName('Reanudar la rotación automática');
+    expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
+    // «No se rebobina: solo se detiene» (§23.5) — se queda donde estaba, y ahí se queda.
+    expect(track.scrollLeft).toBe(SNAPS[1]);
+    await settle(ROTATION_REST_MS * 4);
+    expect(track.scrollLeft).toBe(SNAPS[1]);
   });
 
   it('el conmutador NO emite por el canal de estado: el nombre accesible ya lo dice (§23.9c)', async () => {

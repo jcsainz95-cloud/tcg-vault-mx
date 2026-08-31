@@ -49,17 +49,13 @@ export const ROTATION_REST_MS = 7000;
 export const LEAD_IMAGE_CAP_MS = 3000;
 
 /**
- * Ventana en la que un evento `scroll` se considera **nuestro** y no del usuario. El deslizamiento
- * del tic dura ≈ 550 ms (§23.3); 900 ms deja margen para el reposo del scroll suave sin tragarse un
- * swipe real. Es la costura que separa la SUSPENSIÓN de la PAUSA PERMANENTE (§23.5): si esto se
- * equivocara por defecto, el carrusel se auto-pausaría en su primer tic.
- */
-export const PROGRAMMATIC_SETTLE_MS = 900;
-
-/**
  * Ventana en la que un `scroll` de la pista se atribuye a una acción del usuario, contada desde su
  * última entrada (puntero, dedo, rueda, tecla o foco). Cubre la inercia del trackpad, que sigue
  * emitiendo `scroll` bastante después del último `wheel`.
+ *
+ * Es la **única** costura entre «lo movió el motor» y «lo movió una persona»: no hay una segunda
+ * marca de origen. Ver `handleScroll` — la que había se retiró porque solo disparaba contra la
+ * persona a la que decía proteger.
  *
  * ⚠️ **POR QUÉ EXISTE ESTA VENTANA — hallazgo de navegador, no una comodidad.** §23.5 enuncia la
  * regla general «cualquier desplazamiento de la pista que el carrusel no haya originado ⇒ PAUSA
@@ -202,10 +198,19 @@ function PlaybackToggle({
  * **ROTACIÓN AUTOMÁTICA (P-49, §23).** Un tic cada 7 s mueve la VENTANA exactamente UNA teja, hace
  * UNA sola pasada y se detiene. Las cuatro cosas que no pueden romperse aquí:
  *
- *  - **R1 — rota la ventana, nunca el ROL.** Lo único que la rotación escribe es `scrollLeft`. El DOM
- *    es inmutable: la teja 1 sigue siendo la teja 1, con su `imageLargeUrl` y su `priority`/LCP. Si
- *    la teja 2 «ascendiera» a líder, cada tic remaquetaría dos tejas y **dispararía una descarga HD
- *    nueva cada 7 s** — justo lo que arregló §34.1 de estas notas.
+ *  - **R1 — rota la ventana, nunca el ROL.** La teja 1 sigue siendo la teja 1, con su `imageLargeUrl`
+ *    y su `priority`/LCP. Si la teja 2 «ascendiera» a líder, cada tic remaquetaría dos tejas y
+ *    **dispararía una descarga HD nueva cada 7 s** — justo lo que arregló §34.1 de estas notas.
+ *
+ *    **La garantía NO es «el tic no provoca `setState`»** — eso es falso: el tic llama a `measure()`,
+ *    que escribe `canPrev`/`canNext`/`overflows`, y hay re-render en el primer tic y en el último. La
+ *    garantía es otra y es más fuerte: **el rol de teja se deriva del ÍNDICE del array** (`i === 0`)
+ *    sobre una lista que la rotación **jamás toca**, con `key` estable
+ *    (`representativeInventoryItemId`) ⇒ React reconcilia en sitio: mismo nodo, mismo `src`, mismo
+ *    `fetchpriority`, pase lo que pase con el estado. Un `setState` nuevo aquí **no rompería el LCP**;
+ *    lo que lo rompería es derivar el rol de algo que la rotación mueve. Quien fije eso es el test
+ *    «la teja líder conserva identidad, sitio, imagen HD y fetchpriority en TODOS los tics»
+ *    (`FeaturedCarouselRotation.test.tsx`): el invariante se sostiene **por** ese test, no sin él.
  *  - **R2 — nunca coexiste con carga.** Cuatro precondiciones (§23.3): hidratado, consulta resuelta
  *    con ≥1 teja, foto de la líder cargada (o 3 s), y 7 s de reposo inicial. Es la condición que
  *    desactiva el argumento de §17.3 («el movimiento aquí se lee como carga»): no puede confundirse
@@ -277,11 +282,12 @@ export function FeaturedCarousel() {
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
 
   const modeRef = useRef<PlaybackMode>(mode);
-  /** Contador de scrolls originados por NOSOTROS. > 0 ⇒ el evento `scroll` no es del usuario. */
-  const programmaticRef = useRef(0);
-  /** > 0 ⇒ el usuario tocó la pista hace poco, así que un `scroll` SÍ es suyo. */
+  /**
+   * > 0 ⇒ el usuario tocó la pista hace menos de `USER_INPUT_WINDOW_MS`, así que un `scroll` SÍ es
+   * suyo. Es el ÚNICO discriminante de §23.5a, a propósito (ver `handleScroll`).
+   */
   const userInputRef = useRef(0);
-  const settleTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const settleTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useEffect(() => {
     modeRef.current = mode;
@@ -320,23 +326,21 @@ export function FeaturedCarousel() {
   useEffect(
     () => () => {
       settleTimersRef.current.forEach(clearTimeout);
-      settleTimersRef.current = [];
+      settleTimersRef.current.clear();
     },
     [],
   );
 
   /**
-   * Desplaza la pista marcando el movimiento como NUESTRO. Sin esta marca, el `scroll` que provoca
-   * nuestro propio tic se leería como intervención del usuario y el carrusel se auto-pausaría en el
-   * primer tic (§23.5).
+   * Desplaza la pista. **No marca el movimiento de ninguna forma**: no hace falta y marcarlo hacía
+   * daño (ver `handleScroll`). Un `scroll` nuestro nunca pausa porque nunca tiene antecedente de
+   * usuario, no porque lleve una etiqueta.
+   *
+   * ⚠️ `measure()` escribe `canPrev`/`canNext`/`overflows` ⇒ **esto SÍ puede re-renderizar**. Lo que
+   * protege el LCP no es la ausencia de `setState` (ver el bloque R1 de la cabecera del componente).
    */
-  const scrollProgrammatically = useCallback(
+  const moveTrack = useCallback(
     (el: HTMLDivElement, left: number, smooth: boolean) => {
-      programmaticRef.current += 1;
-      const id = setTimeout(() => {
-        programmaticRef.current = Math.max(0, programmaticRef.current - 1);
-      }, PROGRAMMATIC_SETTLE_MS);
-      settleTimersRef.current.push(id);
       scrollTrackTo(el, left, smooth ? 'smooth' : 'auto');
       measure();
     },
@@ -344,12 +348,17 @@ export function FeaturedCarousel() {
   );
 
   // Los textos del canal de estado, en un ref para que los listeners nativos (registrados una sola
-  // vez) no queden con la traducción del primer render.
+  // vez) no queden con la traducción del primer render. Se escribe en un EFECTO, no en fase de
+  // render: mutar un ref al renderizar es idempotente aquí, pero bajo StrictMode (doble render) es
+  // el patrón que muerde, y no hay razón para pagarlo. Este efecto va declarado ANTES que el del
+  // ancla (§23.5), que es el único que puede leer estos textos en el primer commit.
   const statusTextRef = useRef({ paused: '', ended: '' });
-  statusTextRef.current = {
-    paused: t('featured.status.paused'),
-    ended: t('featured.status.ended'),
-  };
+  useEffect(() => {
+    statusTextRef.current = {
+      paused: t('featured.status.paused'),
+      ended: t('featured.status.ended'),
+    };
+  });
 
   /**
    * PAUSA PERMANENTE por intervención (§23.5 nivel 2). Desde TERMINADO también pasa a PAUSADO —lo
@@ -378,23 +387,38 @@ export function FeaturedCarousel() {
     userInputRef.current += 1;
     const id = setTimeout(() => {
       userInputRef.current = Math.max(0, userInputRef.current - 1);
+      settleTimersRef.current.delete(id);
     }, USER_INPUT_WINDOW_MS);
-    settleTimersRef.current.push(id);
+    settleTimersRef.current.add(id);
   }, []);
 
   /**
-   * §23.5 — un desplazamiento de la pista **del usuario** pausa para siempre. Cubre swipe, arrastre,
-   * rueda/trackpad horizontal y el scroll que provoca el navegador al tabular a una teja fuera de
-   * pantalla, sin enumerarlos uno por uno.
+   * §23.5a **al pie de la letra, y es un SI Y SOLO SI**: un `scroll` de la pista pausa para siempre
+   * **si y solo si** hay `pointerdown`/`touchstart`/`wheel`/`keydown`/`focus` sobre la sección en la
+   * ventana de `USER_INPUT_WINDOW_MS` anterior. Una guarda, no dos, y la que hay es la que la norma
+   * enuncia. Cubre swipe, arrastre, rueda/trackpad y el scroll que provoca el navegador al tabular a
+   * una teja fuera de pantalla, sin enumerarlos uno por uno.
    *
-   * Dos guardas, y las dos son necesarias: (a) el scroll lo originamos NOSOTROS (un tic o REPETIR) y
-   * (b) nadie tocó la pista — el `scroll-snap` del propio navegador al hidratar, o su anclaje de
-   * scroll cuando una imagen tardía cambia el layout. Sin (b) el carrusel se pausa solo antes del
-   * primer tic; ver `USER_INPUT_WINDOW_MS`.
+   * **Aquí había una segunda guarda («el scroll lo originamos NOSOTROS») y se retiró.** No hacía
+   * falta y hacía daño:
+   *
+   *  - **No hacía falta.** Nuestro propio tic no tiene antecedente de usuario, así que el
+   *    antecedente ya lo bloquea solo. Medido en Chromium sobre la home real (build de producción)
+   *    desde ANTES de hidratar: **53 eventos `scroll` en una pasada completa sin tocar nada —
+   *    incluido el `scroll-snap` de la hidratación (`t≈954 ms`, `scrollLeft: 32`) que motivó §23.5a—
+   *    y CERO con antecedente de usuario**. La ventana de 1200 ms los descarta los 53.
+   *  - **Hacía daño.** El único escenario en que cambiaba el resultado era un gesto REAL dentro de
+   *    los ~900 ms posteriores a un tic: ahí las dos evidencias coexistían y ganaba la débil. Medido:
+   *    rueda sobre la pista a **+56 ms** de arrancar un tic ⇒ el conmutador se quedaba en PAUSAR, el
+   *    gesto se tragaba, y al retirar el puntero **la rotación se reanudaba sola** (`scrollLeft`
+   *    460 → 756). Eso es R5 incumplido y §23.13 nº9 exactamente.
+   *
+   * La doctrina que queda escrita: **el antecedente del usuario es la evidencia más fuerte; cuando
+   * dos evidencias coexisten, gana el humano.** No vuelvas a meter una marca de origen aquí sin
+   * traer el escenario concreto en que la persona se equivoca y el motor acierta.
    */
   const handleScroll = useCallback(() => {
     measure();
-    if (programmaticRef.current > 0) return;
     if (userInputRef.current === 0) return;
     pauseByIntervention();
   }, [measure, pauseByIntervention]);
@@ -410,9 +434,9 @@ export function FeaturedCarousel() {
       setStatusMessage(statusTextRef.current.ended);
       return false;
     }
-    scrollProgrammatically(el, target, true);
+    moveTrack(el, target, true);
     return true;
-  }, [scrollProgrammatically]);
+  }, [moveTrack]);
 
   const tickRef = useRef(tick);
   useEffect(() => {
@@ -441,9 +465,11 @@ export function FeaturedCarousel() {
    * cero**: eso implementa «ni un solo tic acumulado» (§23.3) sin código extra — al retirar el ratón
    * o volver a la pestaña nunca hay un tic inmediato ni una ráfaga de tics perdidos.
    *
-   * El tic NO escribe estado de React salvo al terminar la pasada, así que **no re-renderiza las
-   * tejas** (corolario de §23.2). Los únicos re-render de la pasada son los del apagado de las
-   * flechas: `canPrev` una vez al principio y `canNext` una vez al final.
+   * El tic **sí** escribe estado de React: `measure()` fija `canPrev`/`canNext`/`overflows`, así que
+   * hay re-render en el primer tic (se enciende «anterior»), en el último (se apaga «siguiente») y en
+   * el que termina la pasada. Lo que NO cambia es el DOM de las tejas, y no por ahorro de `setState`
+   * sino porque el rol se deriva del índice de una lista inmutable con `key` estable — ver el bloque
+   * R1 de la cabecera del componente.
    */
   useEffect(() => {
     if (!timerRunning) return;
@@ -544,38 +570,47 @@ export function FeaturedCarousel() {
     pauseByIntervention();
     if (target === null) return;
     // §23.7: con movimiento reducido la flecha sigue funcionando, pero salta — nunca «suave lento».
-    scrollProgrammatically(el, target, !reducedMotion);
+    moveTrack(el, target, !reducedMotion);
   }
 
+  const goToMode = (next: PlaybackMode) => {
+    modeRef.current = next;
+    setMode(next);
+  };
+
+  /**
+   * El conmutador. **`switch` exhaustivo con candado `never`, no una cadena de `if` con un caso por
+   * descarte**: resolver `'paused'` como «lo que no era `'playing'` ni `'ended'`» es correcto hoy con
+   * una unión de tres y deja de serlo en silencio en cuanto haya un cuarto modo — caería en REANUDAR
+   * sin que nada avise. Con el candado, un modo nuevo **no compila** hasta que alguien decida qué
+   * hace este botón con él.
+   */
   function onTogglePlayback() {
     const el = scrollerRef.current;
     // §23.9c: el conmutador NO emite por el canal de estado — el cambio de nombre accesible del
     // botón ya lo dice, y duplicarlo es hablar dos veces. Se limpia para que un anuncio posterior
     // idéntico vuelva a ser un CAMBIO de texto y se oiga.
     setStatusMessage('');
-    if (mode === 'playing') {
-      modeRef.current = 'paused';
-      setMode('paused');
-      return;
+    switch (mode) {
+      case 'playing':
+        goToMode('paused');
+        return;
+      case 'ended':
+        // REPETIR: vuelve al inicio de forma INSTANTÁNEA (§23.6). Animar ~2 000px de rebobinado es
+        // el peor movimiento posible aquí; el salto es correcto porque lo pidió el usuario.
+        if (el) moveTrack(el, 0, false);
+        goToMode('playing');
+        return;
+      case 'paused':
+        // REANUDAR. Si ya no queda pista por delante, el estado honesto es TERMINADO (mismo
+        // predicado que apaga la flecha «siguiente»), no «reproduciendo» sobre algo inmóvil.
+        goToMode(el && nextScrollTarget(readTrackGeometry(el)) === null ? 'ended' : 'playing');
+        return;
+      default: {
+        const unhandled: never = mode;
+        throw new Error(`PlaybackMode sin tratar en el conmutador: ${String(unhandled)}`);
+      }
     }
-    if (mode === 'ended') {
-      // REPETIR: vuelve al inicio de forma INSTANTÁNEA (§23.6). Animar ~2 000px de rebobinado es el
-      // peor movimiento posible en este sistema; aquí el salto es correcto porque lo pidió el usuario.
-      if (el) scrollProgrammatically(el, 0, false);
-      modeRef.current = 'playing';
-      setMode('playing');
-      return;
-    }
-    // REANUDAR desde PAUSADO. Si ya no queda pista por delante, el estado honesto es TERMINADO
-    // (mismo predicado que apaga la flecha «siguiente»), no «reproduciendo» sobre algo que no se
-    // puede mover.
-    if (el && nextScrollTarget(readTrackGeometry(el)) === null) {
-      modeRef.current = 'ended';
-      setMode('ended');
-      return;
-    }
-    modeRef.current = 'playing';
-    setMode('playing');
   }
 
   const playbackWord =
