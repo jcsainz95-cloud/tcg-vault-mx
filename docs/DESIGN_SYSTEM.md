@@ -263,6 +263,20 @@
 > dueño aceptó los 60 días de antigüedad del dato automático). Sigue **cero tokens nuevos, cero componentes
 > nuevos y cero cambios de contrato** — con **una petición abierta** al arquitecto para poder encender
 > `onMeasured` (§22.12 nº14).
+>
+> **Corregido v2.5 (2026-08-31) — dos punteros que apuntaban a la nada: §22.14 (nueva) y §22.13(d)/(e).**
+> El aviso decía que el tope se edita **«en M2 · Catálogo y precios»** y que un grado entero se quita **«de
+> "grados" en M2»**. Verificado contra el código: **M2 no dibuja ninguno de los dos** —
+> `GradedEstimatesSection.tsx` pinta escalones, margen mínimo y frescura, y **read-only** los grados y los
+> diales de confianza; `ingestMaxCardsPerRun` no aparece ni en la UI ni en el payload del `PUT`. Es la
+> **misma familia** que el defecto de la v2.4: aquélla afirmaba un número no medido, ésta manda al dueño a
+> un sitio donde **no puede hacer lo que la pantalla le dice**. Salidas: **el tope gana campo real en M2**
+> (**§22.14**, con su aviso de créditos calificado según (d.1) y rango `[1, 1000]`) porque es **la única
+> palanca que el aviso ofrece frente al gasto**; **el escalón de «grados» se retira** del aviso de apagado,
+> porque no es accionable por el dueño y la propia regla de (e) ya decía que sólo se nombran los que sí lo
+> son. Los otros tres punteros del texto **se verificaron y son ciertos**: `gancho-revision`,
+> «margen mínimo» y «Actualizar precios ahora». Sigue **cero tokens nuevos, cero componentes nuevos y cero
+> cambios de contrato**.
 
 ---
 
@@ -6113,6 +6127,32 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
     el selector `costBasis`, que hoy devuelve `'estimated'` fijo; (h) **cambiar la aserción del test** que
     hoy fija `/1[.,\s]?000 créditos al día/` por la frase condicional completa (§22.13k m) — mientras esa
     aserción exista, el copy corregido **no puede pasar CI sin tocarla**, así que va en el mismo cambio.
+
+**Notas añadidas por la corrección del 2026-08-31 (v2.5 — punteros que apuntaban a la nada):**
+
+15. **Frontend — §22.14 completa, y es lo que hace verdad el aviso.** (a) Pintar `ingestMaxCardsPerRun` en
+    `GradedEstimatesSection`, en **bloque propio** bajo la retícula de margen/frescura (§22.14b);
+    (b) añadirlo al payload del `PUT` —hoy `save()` manda solo tres campos— y validar `[1, 1000]` entero en
+    cliente, money-safe (vacío ≠ 0), con `rangeError`; (c) montar el `Banner` de créditos con
+    `warnTitleUp`/`warnTitleDown`/`warn` (§22.14c), **reutilizando `grading-hook-cost.ts`**, nunca una
+    aritmética propia; (d) claves nuevas `admin.m2.gradedEstimates.ingestCap.*` en ES **y** EN;
+    (e) retirar del aviso de apagado el escalón de «grados» (§22.13e) — **es copy, no código**, pero cae en
+    el mismo `messages/`. **Cero componentes nuevos, cero tokens nuevos, cero cambios de contrato**
+    (`GradedEstimateConfigInput.ingestMaxCardsPerRun` ya es opcional, `contract.ts:2598`).
+    **Orden de envío:** (e) y el copy de §22.13 pueden ir solos; **el puntero «se edita en M2» sólo es
+    verdad con (a)–(c) dentro** — si (a)–(c) se difieren, aplica el **plan B** de §22.13(d).
+16. **QA — el check que decide si esto bloquea.** El defecto no es «falta un campo»: es que **el aviso de
+    consentimiento nombra un remedio que no existe**. Con §22.14 en el mismo stream, el check es
+    §22.14(f)(f): guardar el tope en M2 mueve la cifra del aviso de M10. Sin §22.14, el check es que el
+    aviso **no** diga «se edita en M2» (plan B). **Cualquiera de las dos cierra el hallazgo; la tercera
+    —dejar el texto como está— no.**
+17. **Techlead / product-owner — el editor de «grados» queda fuera, y conviene que conste.** Se encontró en
+    la misma pasada: `grades` y `highlightGrades` son **read-only** en M2 (párrafo `text-xs muted`), igual
+    que `manualFreshnessDays`, `maxRawMultiple`, `minSampleCount` y `sourceStat` — éstos ya con deuda
+    registrada (**F-19**). El aviso de apagado dejó de nombrarlos (§22.13e), así que **ninguna pantalla
+    promete hoy algo que no se pueda hacer**. Darles editor es **una feature nueva** con invariantes propios
+    (`highlightGrades ⊆ grades`) y entra por `PROJECT.md`. Si PO la quiere, §22 le da sitio: sería un bloque
+    hermano del de §22.14 en la misma sección.
 14. **Arquitecto / product-owner — una petición abierta y dos constancias.** Hasta v2.3, §22.13 no necesitaba
     ningún dato que el contrato no cubriera: el dial está en `SettingsDTO` (`gradingHookEnabled`) y el tope
     en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`). **La v2.4 abre una petición, y es la única.**
@@ -6142,7 +6182,18 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
 
 ---
 
-### 22.13 El dial único del gancho en M10 — dos avisos, uno por sentido (v2.4, `ARCHITECTURE.md` §4.38r)
+### 22.13 El dial único del gancho en M10 — dos avisos, uno por sentido (v2.5, `ARCHITECTURE.md` §4.38r)
+
+> **Corrección v2.5 (2026-08-31) — todos los punteros del copy, verificados uno por uno contra el código.**
+> Un aviso que nombra un control **tiene que poder llevarte a él**. Estado tras la revisión:
+>
+> | Puntero del copy | ¿Existe? | Evidencia | Acción |
+> |---|---|---|---|
+> | «lista de revisión» → `/admin/m2#gancho-revision` | ✅ | `GradedEstimateReviewSection.tsx:318` (`id`) + su test | ninguna |
+> | «margen mínimo» en M2 | ✅ | `GradedEstimatesSection.tsx:234` (`Input`) | ninguna |
+> | «Actualizar precios ahora» en M2 | ✅ | `admin.m2.priceIngest.trigger`, botón real | ninguna |
+> | «el tope se edita en M2» | ❌ | no se pinta ni se manda en el `PUT` | **§22.14: M2 gana el campo** |
+> | «un grado entero se quita de "grados" en M2» | ❌ | párrafo read-only, sin editor | **se retira del copy (e)** |
 
 > **Corrección v2.4 (2026-08-31) — A-1, el único bloqueante vivo del primer encendido.** El aviso de
 > encendido **afirmaba una cifra que nadie ha medido**. Se corrige en **(d)**, con la regla de redacción que
@@ -6287,6 +6338,20 @@ siendo verdad también cuando el coste esté medido**; no se toca en v2.4):
   §4.38r.3.4), así que el peor caso nominal por `PUT` es **4 000**/día y ya no 20 000 — pero **eso es antes
   del factor de amplificación `A`**, que ningún dial acota. **Estrechar el tope no acota la factura**, y el
   copy no debe insinuar que sí: por eso `onNoFigures` dice explícitamente qué acota el tope y qué no.
+- **«ese tope se edita en M2 · Catálogo y precios» — el puntero sólo puede viajar con §22.14.** Hoy M2
+  **no dibuja el campo** (verificado: `GradedEstimatesSection.tsx` no lo pinta ni lo manda en el `PUT`), así
+  que esa frase manda al dueño a un sitio donde no puede hacer lo que la pantalla le dice. **La salida
+  elegida es que el sitio exista** (§22.14), no suavizar la frase. Regla de envío, sin ambigüedad:
+  - **Si §22.14 entra en el mismo stream:** el texto de arriba queda **tal cual** y **no se toca nada** — el
+    puntero pasa a ser verdad el día que el campo se pinta. Es la salida preferida.
+  - **Plan B, sólo si QA bloquea el merge y §22.14 se difiere:** la frase entre paréntesis se sustituye por
+    **ES** «(ese tope es un ajuste del servidor y **hoy no se puede cambiar desde el panel**)» · **EN**
+    «(that cap is a server setting and **cannot be changed from the panel today**)», y §22.14 pasa a
+    `TECH_DEBT` como **deuda con fecha**. Es peor producto —le dice al dueño que no tiene palanca— pero es
+    **verdad**, que es el mínimo no negociable. Al entrar §22.14, esa cláusula **se borra** y vuelve el
+    puntero: es una sustitución de una cláusula entre paréntesis, no una reescritura del aviso.
+  - **Lo que NO es salida:** dejar el puntero y anotar la diferencia en un documento. Un aviso que describe
+    una pantalla que no existe es exactamente el defecto que §22.13 entera existe para no cometer.
 - **El aviso nunca espera a un número.** Si la config de M2 no está disponible (cargando, error, permiso),
   se pinta `onNoFigures`, que conserva **las tres** ideas. Es la doctrina de **R3.4 llevada al back-office**:
   **cede la cifra, nunca el aviso** — y, desde v2.4, **cede la cifra antes que el calificador**.
@@ -6365,16 +6430,29 @@ decirlo el dueño apagará la feature entera por una carta mal capturada.
 | Clave | ES | EN |
 |---|---|---|
 | `offTitle` | Apagar también deja de actualizar | Turning it off also stops updating |
-| `off` | **Para las dos cosas a la vez.** Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. **Para una cifra concreta, este no es el remedio.** Una cifra rara se borra en la lista de revisión; un grado entero se quita de «grados» en M2; si lo que sobra es la promoción, sube el margen mínimo en M2 y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en M2. | **It stops both at once.** While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. **For one specific figure, this is not the remedy.** A wrong figure is deleted from the review list; a whole grade is removed from “grades” in M2; if what’s excessive is the promotion, raise the minimum upside in M2 and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in M2. |
+| `off` | **Para las dos cosas a la vez.** Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. **Para una cifra concreta, este no es el remedio.** Una cifra rara se borra en la lista de revisión; si lo que sobra es la promoción, sube el margen mínimo en M2 y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en M2. | **It stops both at once.** While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. **For one specific figure, this is not the remedy.** A wrong figure is deleted from the review list; if what’s excessive is the promotion, raise the minimum upside in M2 and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in M2. |
 
 - **Un solo enlace.** «lista de revisión» / «review list» va envuelta en el chunk `<review>…</review>` de
   next-intl y se pinta como `<a>` a `/admin/m2#gancho-revision` (§9.4: la frase **no** se parte en dos
-  claves ni se concatena). Los otros dos escalones se nombran **por su control** («grados», «margen
-  mínimo»), que es como se llaman en M2: tres enlaces compitiendo convertirían el aviso en un menú.
+  claves ni se concatena). El otro escalón se nombra **por su control** («margen mínimo»), que es como se
+  llama en M2: dos enlaces compitiendo convertirían el aviso en un menú.
+- **Corrección v2.5 — el escalón de «grados» SE RETIRA, porque tampoco existe.** La versión anterior decía
+  *«un grado entero se quita de "grados" en M2»*. **En M2 los grados son un párrafo read-only**, no un
+  control: `GradedEstimatesSection.tsx` los pinta con `server.grades.join(' · ')` dentro de un
+  `<p class="text-xs text-muted">`, y no hay editor en ninguna pantalla (verificado en todo `(admin)/`).
+  Era **el mismo defecto** que el del tope (§22.14), en el escalón de en medio. La regla que el propio (e)
+  ya declaraba —*«la pantalla muestra los tres escalones que el dueño puede accionar solo»*— resuelve el
+  caso sin inventar nada: si no lo puede accionar solo, **no es un escalón**, así que la escalera pasa a
+  **dos**, y los dos están verificados (`gancho-revision` existe con su ancla y su test; `minUpside` es un
+  `Input` real).
+- **Editar los grados NO se pide aquí.** A diferencia del tope, los grados **no son la palanca del gasto**
+  ni nada que el aviso prometa como remedio ya. Ponerles editor es una feature con sus propios invariantes
+  (`highlightGrades ⊆ grades`, gate siempre evaluado en PSA 9) y **entra por `PROJECT.md`**, no por una
+  edición de este documento. Queda anotado para PO/techlead en §22.12 nº15.
 - **La escalera va en prosa, no en tabla ni en viñetas.** Se lee en cinco segundos en el momento exacto de
   la duda, y una tabla dentro de un `Banner` es un componente nuevo disfrazado. La escalera completa
-  —incluida la sonda, que es de devops— vive en `ARCHITECTURE.md` §4.38(r.5); la pantalla muestra **los tres
-  escalones que el dueño puede accionar solo**.
+  —incluida la sonda, que es de devops— vive en `ARCHITECTURE.md` §4.38(r.5); la pantalla muestra **los
+  escalones que el dueño puede accionar solo** — desde v2.5, **dos**, y ni uno más del que no pueda.
 - **Cita el label literal del botón que existe** («Actualizar precios ahora» / «Refresh prices now»,
   `admin.m2.priceIngest.trigger`): un aviso que nombra un botón inexistente es peor que no decir nada.
 - **Sin cifra de horas.** El «≤ 12 h» de §4.38(r.5) es la cadencia del cron, no un dato de pantalla: «la
@@ -6388,11 +6466,16 @@ decirlo el dueño apagará la feature entera por una carta mal capturada.
 
 | Clave | ES | EN |
 |---|---|---|
-| `note` | Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas **y** el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna **y** tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura, los grados y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota **cuántas cartas tuyas mira** el barrido, no cuántas te cobra el proveedor. | A single switch governs the hook: on, the storefront publishes the estimated figures **and** the daily sweep fetches them from a paid provider; off, it publishes none **and** updates none. Grading cost tiers, minimum upside, freshness, grades and the per-run card cap are edited in M2 · Catalog and pricing, along with the review list — the tool for a single figure. That cap limits **how many of your cards** the sweep looks at, not how many the provider bills you for. |
+| `note` | Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas **y** el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna **y** tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota **cuántas cartas tuyas mira** el barrido, no cuántas te cobra el proveedor. | A single switch governs the hook: on, the storefront publishes the estimated figures **and** the daily sweep fetches them from a paid provider; off, it publishes none **and** updates none. Grading cost tiers, minimum upside, freshness and the per-run card cap are edited in M2 · Catalog and pricing, along with the review list — the tool for a single figure. That cap limits **how many of your cards** the sweep looks at, not how many the provider bills you for. |
 
 La nota carga **la versión de una línea** de las dos ideas, para que estén presentes **también cuando el
 dial está apagado y no hay ningún banner**: es lo que impide que el dueño descubra la escalera solo en el
 momento de apagar.
+
+**Corregido v2.5 — «los grados» sale de la lista de lo editable.** La nota los enumeraba junto a los
+escalones y el margen mínimo, y **no son editables en ninguna pantalla** (párrafo read-only en M2,
+§22.13e). El tope **sí se queda** en la lista: §22.14 lo hace verdad. Si §22.14 se difiere (plan B de (d)),
+el tope sale de esta enumeración **también aquí** — la nota y el banner no pueden decir cosas distintas.
 
 **Añadido v2.4 — la última frase.** La nota es el sitio donde el dueño lee qué hace el tope de M2 **cuando
 va a editarlo**, que es justo cuando puede creer que está fijando un presupuesto. La frase es **verdad
@@ -6458,7 +6541,12 @@ solo nombraba la mitad — el mismo defecto de nombre que §4.38(r.1) corrigió 
   (nuevo bloque «cuánto», (d)) · `…gradingHook.note` (frase final, (f)). **Nueva en v2.4:**
   `…gradingHook.onMeasured`, con **un placeholder más**, `{measuredOn}` (fecha ya formateada por el
   frontend; el ICU no formatea aquí para no duplicar la política de fechas de §9.3). Las claves
-  `onTitle`, `audit`, `offTitle`, `off` y la etiqueta del dial **no cambian**.
+  `onTitle`, `audit` y la etiqueta del dial **no cambian**.
+- **Cambia en v2.5:** `…gradingHook.off` (se retira el escalón de «grados», §22.13e) y `…gradingHook.note`
+  (se retira «los grados» de la enumeración, §22.13f). **`onTitle`, `audit` y `offTitle` siguen intactas.**
+  **Claves nuevas fuera de M10:** `admin.m2.gradedEstimates.ingestCap.{label,hint,warnTitleUp,warnTitleDown,warn,rangeError}`
+  (§22.14c) — son de M2, no del grupo `gradingHook`, porque viven en la pantalla que edita, no en la que
+  consiente.
 - **El grupo se renombra a `gradingHook`** por la misma razón por la que §4.38(r.1) renombró la `SettingKey`:
   **el significado cambió, así que el nombre cambia**. Mantener un nombre viejo sobre semántica nueva es el
   mecanismo exacto por el que esta feature ya acumuló divergencias en silencio.
@@ -6503,3 +6591,153 @@ selector devuelve `'estimated'`**. (o) **Búsqueda negativa en `messages/`:** ce
 «aproximadamente {credits}», «~{credits}» o «{credits} créditos al día» sin condicional delante.
 (p) El calificador se renderiza con **la misma tinta y el mismo tamaño** que el resto del cuerpo: si se ve
 más claro o más pequeño que la cifra, es un fallo de (b).
+
+**Añadido v2.5 — cada puntero, contra el producto (no contra un documento):**
+
+(q) **Todo control que el copy nombre se abre y se usa.** Con el aviso delante: el enlace de la lista de
+revisión lleva a la sección, «margen mínimo» existe como campo en M2, «Actualizar precios ahora» es un botón
+real, y —con §22.14— «el tope» es un campo editable. **Si un nombre del copy no se puede seguir hasta un
+control, el copy está mal, no el producto.** (r) **Cero apariciones de «grados» como remedio** en
+`admin.m10.dials.gradingHook.{off,note}` de `messages/`: mientras no exista editor, nombrarlo es prometer
+una palanca inexistente. (s) Guardar el tope en M2 **mueve la cifra del aviso de M10** sin recargar
+(§22.14f f) — es el mismo check por los dos lados, y es el que demuestra que la palanca y el aviso son la
+misma feature.
+
+---
+
+### 22.14 El tope de cartas por corrida en M2 — la palanca que el aviso promete (v2.5, 2026-08-31)
+
+> **Por qué existe este §.** El aviso de §22.13(d) dice que el tope **«se edita en M2 · Catálogo y
+> precios»**. **M2 no dibuja ese campo.** Verificado contra el código que corre, no contra otro documento:
+> `GradedEstimatesSection.tsx` pinta escalones, `minUpsidePct`, `freshnessDays` y **dos párrafos read-only**
+> (`confidenceDials`, `grades`) — `ingestMaxCardsPerRun` **no aparece**, ni en un `Input` ni en el payload
+> del `PUT` (`save()` manda solo `gradingCostTiers`, `minUpsidePct`, `freshnessDays`). En todo el frontend
+> la clave sale **una vez** en un fixture de test y **una vez** en `M10View.tsx:218`, que la **lee**.
+>
+> **La falla es de la misma familia que la que corrigió la v2.4, y en el mismo párrafo.** Aquélla afirmaba
+> un número que nadie había medido; ésta manda al dueño a un sitio **donde no puede hacer lo que la pantalla
+> le acaba de decir que haga**. Y no es un puntero cualquiera: es **la única palanca que el propio aviso le
+> ofrece frente al gasto** — un dueño que lee el techo, quiere bajarlo antes de encender, va a M2 y no
+> encuentra nada.
+
+#### 22.14(a) La decisión: **M2 gana el campo** (opción 1), no se ablanda el copy
+
+Se evaluaron las dos salidas y **se elige que el sitio exista**, no que el texto lo esquive:
+
+| Salida | Coste | Veredicto |
+|---|---|---|
+| **(1) M2 dibuja el campo** | un `Input`, su validación `[1, 1000]`, un campo más en el payload y **un aviso de créditos nuevo** (redactado abajo) | ✅ **Elegida** |
+| (2) Ajustar el copy a que hoy no se puede | casi cero | ❌ Solo como **plan B** de QA (c) |
+
+**Las tres razones, en orden de peso:**
+
+1. **Es el dial del dinero.** `ARCHITECTURE.md` §4.38(r.3) lo declara **«la única cota entre un `PUT` y la
+   factura del proveedor»**. Que la única cota no tenga campo mientras `minUpsidePct` y `freshnessDays`
+   —que no gastan un peso— sí lo tienen, es la asimetría exactamente al revés.
+2. **El dueño ya rechazó este defecto una vez, en esta misma feature.** El gancho tenía dos interruptores y
+   el segundo **nunca se dibujó**: la única forma de tocarlo era `curl`. Eso costó el rediseño a dial único
+   (**M-46**, §4.38r.1). Dejar la palanca de gasto en el mismo estado —editable «por contrato», invisible en
+   el panel— es **enviar el mismo bug otra vez, una pantalla más allá**.
+3. **El aviso ya lo prometió.** Un consentimiento que ofrece un remedio inexistente no es un consentimiento
+   informado: es un formalismo. Corregir el copy hacia abajo lo arreglaría **para el documento** y lo
+   dejaría roto **para el dueño**.
+
+**No hay cambio de contrato:** `GradedEstimateConfigInput.ingestMaxCardsPerRun` ya es opcional
+(`contract.ts:2598`) y el `PUT` acepta campos parciales. **Verificado.**
+
+#### 22.14(b) Dónde vive dentro de la sección del gancho de M2
+
+La sección tiene hoy tres bloques (escalones · `minUpsidePct` + `freshnessDays` en retícula de 2 · párrafos
+read-only). El tope **no entra en la retícula de dos columnas**: entra en un **bloque propio**, separado por
+regla (`border-t border-border pt-4`), **debajo** de esa retícula y **encima** de los párrafos read-only.
+
+**Por qué bloque propio y no una tercera celda.** Los dos vecinos son **gates de publicación**: deciden qué
+se enseña. Éste decide **qué se gasta**. §7.6 ya separa las acciones de dinero saliente del resto del
+formulario, y meterlo como tercera celda lo haría leerse como **un ajuste más de presentación** — que es,
+literalmente, cómo se llegó hasta aquí. Encabezado `h3 text-sm font-semibold`, igual que «Escalones».
+
+| Elemento | Spec |
+|---|---|
+| `Input` | `type="text" inputMode="numeric"`, `className="w-32"`, `label` = `ingestCap.label`. Mismo componente y mismo ancho que `freshnessDays` — **cero componentes nuevos** |
+| Ayuda | `text-xs text-muted` bajo el input (`ingestCap.hint`), como los otros dos |
+| Aviso de créditos | `Banner` §7.5 **dentro del bloque**, inmediatamente bajo la ayuda. Solo cuando el borrador difiere del valor guardado (d) |
+| Estado guardado | **Sin cifra de créditos.** El bloque en reposo enseña el tope y su ayuda, nada más |
+
+**El estado en reposo no lleva créditos a propósito.** El techo permanente ya se le enseña al dueño en el
+aviso de M10, que es **la pantalla del consentimiento y del estado**; M2 es **la pantalla de la edición**, y
+aquí la cifra tiene que aparecer **en el momento en que el número cambia**, que es cuando decide. Es la misma
+doctrina de §22.13(c): *el aviso lo elige el momento del cambio*. Repetir el techo en reposo en las dos
+pantallas crea dos sitios que mantener y ninguno que mande.
+
+#### 22.14(c) Copy — etiqueta, ayuda y el aviso de créditos (I8-B2 del techlead)
+
+| Clave (`admin.m2.gradedEstimates.ingestCap.*`) | ES | EN |
+|---|---|---|
+| `label` | Tope de cartas por corrida | Per-run card cap |
+| `hint` | Cuántas cartas tuyas mira el barrido en cada corrida (1–1 000). Acota **el alcance**, no lo que el proveedor te cobra. | How many of your cards the sweep looks at on each run (1–1,000). It limits **scope**, not what the provider bills you. |
+| `warnTitleUp` | Estás subiendo el techo de gasto | You are raising the spending ceiling |
+| `warnTitleDown` | Estás bajando el techo de gasto | You are lowering the spending ceiling |
+| `warn` | Con **{maxCards} cartas** por corrida y **{runs} corridas al día**, el techo son **{credits} créditos al día** si el proveedor cobra por petición; si cobra por carta devuelta, cada petición pide el **set entero** y la factura puede ser **varias veces** esa cifra. Nadie lo ha medido todavía: la primera corrida lo mide. Guardar no cobra nada — se cobra en la siguiente corrida, y solo si el gancho está **encendido** en M10. | With **{maxCards} cards** per run and **{runs} runs a day**, the ceiling is **{credits} credits a day** if the provider charges per request; if it charges per returned card, each request asks for the **whole set** and the bill can be **several times** that figure. Nobody has measured it yet: the first run measures it. Saving costs nothing — the charge happens on the next run, and only if the hook is **on** in M10. |
+| `rangeError` | Un número entero entre 1 y 1 000. | A whole number between 1 and 1,000. |
+
+- **El aviso hereda la regla de calificación de §22.13(d.1) sin excepción.** Mismos dos regímenes, misma
+  frase «la primera corrida lo mide», mismo `{credits}` calculado por el **mismo módulo único**
+  (`grading-hook-cost.ts`) que ya usa M10. **Una sola aritmética en el producto**: si esta pantalla derivara
+  la suya, en la siguiente revisión dirían cosas distintas.
+- **La última frase —«Guardar no cobra nada»— es la que hace este aviso útil y no alarmista.** Sin ella, un
+  `Banner` de gasto al editar un número sugiere que el clic en «Guardar» mueve dinero, y el efecto es que el
+  dueño **no toca el tope**: justo lo contrario de lo que este § persigue. Y es verdad verificable: el ingest
+  corre por cron y sale antes de pedir nada si el gancho está apagado.
+- **Nombra M10 porque el interruptor está allí**, y M2 ya tiene el espejo read-only del maestro
+  (`masterSwitch` + `masterSwitchHint`) justo arriba: el puntero **existe en pantalla**. Verificado.
+- **`warnTitleUp` / `warnTitleDown`:** el cuerpo es el mismo; cambia el título. **Subir** usa
+  `Banner variant="warning"`, **bajar** usa `variant="info"`. El color **no es el único canal** (§2.4): el
+  título dice la dirección. **Cero tokens nuevos** — `warning` es el rojo de marca vía `--color-accent` y
+  `info` es muted sin color propio (§2.3).
+- **El aviso NO bloquea el guardado.** No es un error: es información en el momento de decidir. Lo único que
+  bloquea es el rango, con `rangeError` en el propio `Input` (patrón ya vigente en la sección).
+- **`role="status"`, nunca `alert`.** El dueño está tecleando en su propio borrador; interrumpir un campo
+  numérico en cada pulsación con una región asertiva es hostil con lector de pantalla. Mismo criterio que el
+  aviso de apagado de §22.13(c).
+
+#### 22.14(d) Estados y validación
+
+| Estado | Qué se pinta |
+|---|---|
+| En reposo (borrador = guardado) | Input + `hint`. **Sin banner** |
+| Borrador > guardado | Banner `warning`, título `warnTitleUp`, cuerpo `warn` con el valor **del borrador** |
+| Borrador < guardado | Banner `info`, título `warnTitleDown`, mismo cuerpo |
+| Fuera de `[1, 1000]` o vacío | `rangeError` en el `Input`, **guardado bloqueado**, y el banner **no muestra cifra** (no se calcula un techo con un número inválido) |
+| Config no disponible | El bloque entero no se pinta — lo cubre el `QueryState` que ya envuelve la sección |
+
+- **Rango `[1, 1000]`** — I8, contrato **v1.51-a**. **Nunca 5 000**: ese valor quedó fuera del contrato y
+  escribirlo en un `placeholder`, en un ejemplo o en un test es reintroducirlo por la puerta de atrás.
+- **Entero.** Se valida en cliente para **prevenir** el 422, no para sustituirlo: la fuente de verdad sigue
+  siendo el servidor, y un 422 se muestra tal cual (patrón ya vigente en la sección).
+- **Money-safe:** campo vacío **no se guarda como 0** ni como el default. Mismo criterio S-P1-1 que el costo
+  de gradeo — aquí un 0 no sería un cobro, sería un ingest que no mira nada, pero la dirección del fallo debe
+  ser explícita, no accidental.
+
+#### 22.14(e) Prohibiciones
+
+| Prohibido | Por qué |
+|---|---|
+| Meterlo como tercera celda de la retícula «margen mínimo / frescura» | Lo iguala visualmente a dos diales que no gastan (b). |
+| Pintar la cifra de créditos en reposo | Duplica el techo en dos pantallas; el estado es de M10, la edición es de M2 (b). |
+| Que el banner bloquee «Guardar» | No es un error. Bloquear la única palanca de contención es el peor resultado posible. |
+| Cifra de créditos **sin su calificador** | §22.13(d.1) aplica **igual** aquí. Es la misma cifra y la misma incertidumbre. |
+| Derivar el cálculo en esta pantalla | Un solo módulo, el de M10. Dos aritméticas divergen. |
+| Mostrar **5 000** en cualquier sitio (placeholder, ayuda, ejemplo, test) | Fuera del contrato desde v1.51-a. |
+| Un `confirm()` o modal al subir el tope | La sección no usa ese patrón para ningún otro dial, y guardar **no cobra**: la fricción iría en el sitio equivocado. |
+
+#### 22.14(f) QA visual
+
+(a) El campo **existe y se ve** en M2, en su bloque propio bajo la retícula. (b) Teclear un valor mayor ⇒
+banner `warning` con el título de subida y la cifra **del borrador**, no la guardada. (c) Teclear uno menor
+⇒ banner `info`, título de bajada. (d) Volver al valor guardado ⇒ el banner **desaparece**. (e) `0`, vacío,
+`1001` o `5000` ⇒ `rangeError` y «Guardar» deshabilitado; **sin cifra de créditos en pantalla**. (f) Guardar
+⇒ el número nuevo aparece en **el aviso de M10** sin recargar (misma `queryKey` `['graded-estimates-config']`
+que la sección ya usa — la invalidación existente lo cubre). **Este es el check que cierra el círculo: la
+palanca que el aviso promete mueve la cifra que el aviso enseña.** (g) EN completo. (h) Lector de pantalla:
+el banner se anuncia **sin** interrumpir la escritura. (i) Búsqueda en `messages/`: cero apariciones de
+`5000`/`5 000` en las claves del gancho.
