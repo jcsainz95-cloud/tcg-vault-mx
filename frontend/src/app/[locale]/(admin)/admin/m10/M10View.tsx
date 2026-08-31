@@ -15,8 +15,10 @@ import type { SettingsDTO, AuditLogDTO, PriceProvider } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { Link } from '@/i18n/navigation';
 import {
+  GRADING_COST_MEASUREMENT,
   GRADING_INGEST_CREDITS_PER_CARD,
   GRADING_INGEST_RUNS_PER_DAY,
+  gradingCostBasis,
   gradingIngestDailyCreditCeiling,
 } from '@/lib/grading-hook-cost';
 import { formatDate } from '@/lib/format';
@@ -216,6 +218,23 @@ export function M10View() {
   const hookMaxCards = gradedCfg.data?.ingestMaxCardsPerRun;
   const hookCredits = gradingIngestDailyCreditCeiling(hookMaxCards);
 
+  /*
+   * ── Qué variante del aviso de encendido se pinta (§22.13d.1) ───────────────────────────────
+   *
+   *   sin tope de M2      → `onNoFigures`  (gana sobre las dos siguientes: cede la cifra, no el aviso)
+   *   costBasis 'measured'→ `onMeasured`   (hay medición del entorno: cifra Y fecha)
+   *   costBasis 'estimated'→ `on`          ← hoy, SIEMPRE
+   *
+   * `on` publica el techo **con su supuesto pegado**: vale solo si el proveedor cobra por petición,
+   * y la petición manda `fetchAllInSet=true`. `onMeasured` está traducido y montado pero **dormido**:
+   * no hay canal en el contrato para el coste medido, y rellenarlo a mano sería afirmar «medido»
+   * sobre algo que la pantalla no puede verificar (§22.13h). El día que exista, encenderlo es
+   * rellenar `GRADING_COST_MEASUREMENT` — ni una cadena que tocar.
+   */
+  const hookMeasurement = gradingCostBasis() === 'measured' ? GRADING_COST_MEASUREMENT : null;
+  const hookVariant: 'on' | 'onMeasured' | 'onNoFigures' =
+    hookCredits === null ? 'onNoFigures' : hookMeasurement ? 'onMeasured' : 'on';
+
   function buildPatch(): Partial<SettingsDTO> {
     const patch: Record<string, number | string> = {};
     for (const key of dirtyKeys) {
@@ -317,16 +336,29 @@ export function M10View() {
                   >
                     <div className="flex flex-col gap-1 text-text">
                       <p>
-                        {hookCredits === null
-                          ? t.rich('dials.gradingHook.onNoFigures', RICH_BOLD)
-                          : t.rich('dials.gradingHook.on', {
-                              ...RICH_BOLD,
-                              ...RICH_FIGURE,
-                              credits: hookCredits,
-                              maxCards: hookMaxCards!,
-                              perCard: GRADING_INGEST_CREDITS_PER_CARD,
-                              runs: GRADING_INGEST_RUNS_PER_DAY,
-                            })}
+                        {hookVariant === 'onNoFigures' &&
+                          t.rich('dials.gradingHook.onNoFigures', RICH_BOLD)}
+                        {hookVariant === 'on' &&
+                          t.rich('dials.gradingHook.on', {
+                            ...RICH_BOLD,
+                            ...RICH_FIGURE,
+                            credits: hookCredits!,
+                            maxCards: hookMaxCards!,
+                            perCard: GRADING_INGEST_CREDITS_PER_CARD,
+                            runs: GRADING_INGEST_RUNS_PER_DAY,
+                          })}
+                        {hookVariant === 'onMeasured' &&
+                          t.rich('dials.gradingHook.onMeasured', {
+                            ...RICH_BOLD,
+                            ...RICH_FIGURE,
+                            // La cifra medida NO es el producto de las constantes: es lo que la
+                            // corrida gastó de verdad. Si viniera del cálculo, «medido» sería falso.
+                            credits: hookMeasurement!.creditsPerDay,
+                            maxCards: hookMaxCards!,
+                            runs: GRADING_INGEST_RUNS_PER_DAY,
+                            // §22.13j: la fecha la formatea el frontend (§9.3), no el ICU.
+                            measuredOn: formatDate(hookMeasurement!.measuredOn, locale),
+                          })}
                       </p>
                       {/* §7.6: toda acción de dinero saliente declara quién puede y dónde queda. */}
                       <p className="font-mono text-[11px] text-muted">{t('dials.gradingHook.audit')}</p>

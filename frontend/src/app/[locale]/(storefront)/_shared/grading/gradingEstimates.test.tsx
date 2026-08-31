@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
+import esMessages from '../../../../../../messages/es.json';
+import enMessages from '../../../../../../messages/en.json';
 import { expectVisibleMicroNotice, sightedText } from '@/test/grading';
 import type {
   GradedEstimateDTO,
@@ -10,7 +12,6 @@ import type {
 import {
   badgeEstimatesOf,
   blockEstimatesOf,
-  oldestCapturedDate,
   pageHasGradingFigures,
   renderableEstimates,
 } from './estimates';
@@ -113,17 +114,19 @@ describe('gancho de grading · predicados (contrato v1.50: presencia ⇔ elegibi
   });
 
   /**
-   * D5 (techlead): un solo rótulo cubre TODAS las cifras del bloque, así que la fecha honesta es la
-   * MÁS ANTIGUA. Con la más reciente, un PSA 10 de hoy junto a un PSA 9 de hace un mes rotularía
-   * ambos como «hoy» — afirmar de más en una superficie con exposición legal.
+   * Criterio 119(b): cero apariciones de la clave en `messages/`, **ES y EN**. Se comprueba sobre
+   * el catálogo y no sobre la pantalla porque una clave viva es una recaída a un `git revert` de
+   * distancia — y porque retirarla en un solo idioma es exactamente lo que el candado de paridad
+   * (`i18n-parity.test.ts`) tendría que cazar.
    */
-  it('la fecha de refresco es la MÁS ANTIGUA (conservadora), iterando (no `list[0]`)', () => {
-    const items = [
-      est('10', 290_000, { estimate: { status: 'priced', referenceMxnCents: 290_000, capturedDate: '2026-08-22' } }),
-      est('9', 145_000, { estimate: { status: 'priced', referenceMxnCents: 145_000, capturedDate: '2026-07-24' } }),
-    ];
-    expect(oldestCapturedDate(items)).toBe('2026-07-24');
-    expect(oldestCapturedDate([est('10', 1, { estimate: { status: 'priced', referenceMxnCents: 1 } })])).toBeUndefined();
+  it.each([
+    ['es', esMessages],
+    ['en', enMessages],
+  ])('criterio 119 · %s ya no define `catalog.gradingEstimate.updatedAt`', (_locale, catalog) => {
+    const gradingEstimate = (catalog as { catalog: { gradingEstimate: Record<string, string> } })
+      .catalog.gradingEstimate;
+    expect(gradingEstimate.eyebrow).toBeTruthy(); // el grupo sigue vivo: no se borró de más
+    expect(Object.keys(gradingEstimate)).not.toContain('updatedAt');
   });
 });
 
@@ -179,7 +182,7 @@ describe('§22.3 · bloque de la ficha', () => {
       locale,
     );
 
-  it('pinta una celda por grado ITERANDO `gradeValue`, con chip hipotético y fecha de refresco', () => {
+  it('pinta una celda por grado ITERANDO `gradeValue`, con chip hipotético (y SIN fecha)', () => {
     renderBlock([est('10', 290_000), est('9', 145_000)]);
 
     expect(screen.getByText('VALOR ESTIMADO SI SE GRADEA')).toBeInTheDocument();
@@ -187,12 +190,44 @@ describe('§22.3 · bloque de la ficha', () => {
     expect(screen.getByText('MX$1,450.00')).toBeInTheDocument();
     expect(screen.getAllByText('SI SALE')).toHaveLength(2);
     expect(screen.getByText('PSA 10')).toBeInTheDocument();
-    // D5: la fecha rotulada es la MÁS ANTIGUA de las dos cifras (aquí ambas son 22 ago).
-    expect(screen.getByText('ESTIMADO · 22 ago 2026')).toBeInTheDocument();
+    // Criterio 119: el eyebrow derecho («ESTIMADO · {date}») se retiró — ninguna fecha aquí.
+    expect(screen.queryByText(/ESTIMADO · /)).not.toBeInTheDocument();
     // El grado se anuncia como HIPOTÉTICO (§22.9), nunca como un slab.
     expect(
       screen.getByText('Grado hipotético: PSA 10. Esta carta no está gradeada.'),
     ).toBeInTheDocument();
+  });
+
+  /**
+   * PROJECT.md decisión 62 / criterio 119 — **VERIFICACIÓN NEGATIVA**. Aquí vivía el test de la
+   * fecha «más antigua» del eyebrow (deuda D5). La decisión no fue afinar cuál fecha se pinta: fue
+   * **no pintar ninguna**. `capturedDate` es cuándo BAJAMOS el dato, no cuándo ocurrió la venta —
+   * `evidenceDate` no se persiste—, así que «ESTIMADO · 22 ago 2026» se podía leer como la fecha de
+   * la venta, que es justo el dato que no tenemos.
+   *
+   * El test se invierte en vez de borrarse: si alguien vuelve a cablear una fecha al bloque, esto
+   * tiene que ponerse rojo. Ojo con el alcance — **no** cubre la frescura interna (criterio 118,
+   * server-side, que sigue usando `capturedDate`) ni la fecha del valor de mercado (criterio 119e).
+   */
+  it('criterio 119 · el bloque NO pinta ninguna fecha, ni siquiera con capturas distintas', () => {
+    const { container } = renderBlock([
+      est('10', 290_000, { estimate: { status: 'priced', referenceMxnCents: 290_000, capturedDate: '2026-08-22' } }),
+      est('9', 145_000, { estimate: { status: 'priced', referenceMxnCents: 145_000, capturedDate: '2026-07-24' } }),
+    ]);
+
+    // Las cifras sí se pintan: lo que se retira es la fecha, no el bloque.
+    expect(screen.getByText('MX$2,900.00')).toBeInTheDocument();
+    // Se mira EL BLOQUE, no la página: la nota al pie (§O.5) sí habla de que los precios de mercado
+    // «pueden quedar desactualizados», y eso es el disclaimer, no una fecha de este dato.
+    const bloque = container.querySelector('section')!;
+    // Ni el rótulo viejo, ni la fecha de ninguna de las dos capturas, ni un «actualizado» suavizado.
+    expect(screen.queryByText(/ESTIMADO · /)).not.toBeInTheDocument();
+    expect(bloque.textContent).not.toMatch(/22 ago 2026|24 jul 2026/);
+    expect(bloque.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(bloque.textContent).not.toMatch(/2026/);
+    expect(bloque.textContent).not.toMatch(/actualizad|refresc/i);
+    // Y tampoco escondida en un atributo: nada de tooltip, `title` ni `datetime`.
+    expect(bloque.querySelector('time, [title], [datetime]')).toBeNull();
   });
 
   it('el número de celdas lo decide el SERVIDOR: un tercer grado se pinta sin tocar el cliente', () => {

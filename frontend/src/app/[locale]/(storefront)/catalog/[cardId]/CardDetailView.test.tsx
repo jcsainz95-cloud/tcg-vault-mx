@@ -203,7 +203,7 @@ const est = (gradeValue: string, cents: number): GradedEstimateDTO => ({
 });
 
 describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
-  it('con `gradedEstimates` pinta el bloque junto al precio, con la fecha de refresco y su llamada', async () => {
+  it('con `gradedEstimates` pinta el bloque junto al precio, SIN fecha y con su llamada', async () => {
     const { listings, units } = twoVariants();
     mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -211,7 +211,10 @@ describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
     expect(await screen.findByText('VALOR ESTIMADO SI SE GRADEA')).toBeInTheDocument();
     expect(screen.getByText('MX$29,000.00')).toBeInTheDocument();
     expect(screen.getByText('MX$14,500.00')).toBeInTheDocument();
-    expect(screen.getByText('ESTIMADO · 22 ago 2026')).toBeInTheDocument();
+    // Criterio 119 (decisión 62): la ficha NO pinta fecha junto a los estimados. La que se pintaba
+    // era la de CAPTURA del dato, no la de la venta que lo respalda, y el rótulo no lo decía.
+    expect(screen.queryByText(/ESTIMADO · /)).not.toBeInTheDocument();
+    expect(screen.queryByText('22 ago 2026')).not.toBeInTheDocument();
     // Chip de grado HIPOTÉTICO (punteado, sin cert) y siempre tras el condicional «SI SALE».
     expect(screen.getAllByText('SI SALE')).toHaveLength(2);
     expect(

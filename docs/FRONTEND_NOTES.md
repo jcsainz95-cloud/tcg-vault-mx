@@ -8374,3 +8374,190 @@ tests no los vuelve verdes ni rojos por accidente.
 **Ninguna.** §22.13 no necesitó ningún dato ni pantalla que el contrato no cubra: el dial ya está en
 `SettingsDTO` (`gradingHookEnabled`) y el tope en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`).
 No se tocó `docs/API_CONTRACT.md`.
+
+---
+
+## §32 · El aviso de encendido deja de afirmar un gasto que nadie midió, y la ficha deja de pintar una fecha que no es la que parece (`DESIGN_SYSTEM.md` §22.13(d)/(d.1)/(h), `PROJECT.md` decisión 62 / criterio 119) — 2026-08-31
+
+Dos correcciones de la misma familia: **una pantalla afirmaba como hecho algo que el producto no
+puede respaldar**. Una era sobre dinero (M10) y otra sobre una fecha (la ficha). Van juntas porque
+en las dos el trabajo real no fue escribir el texto nuevo, sino **quitar el candado que protegía el
+viejo**.
+
+### 1. El defecto de M10: la cifra era una hipótesis vestida de medición
+
+El aviso decía, en el momento del consentimiento, *«hasta **1 000 créditos al día**»*, sin
+calificador. Ese número es `maxCards × perCard × runs` y **solo vale si el proveedor cobra por
+petición**. La petición manda `fetchAllInSet=true` —pide el **set entero**—, así que
+`ingestMaxCardsPerRun` acota las cartas **en alcance**, no las **devueltas**: si se cobra por carta
+devuelta, el gasto real es `techo × A`, con `A = devueltas / en alcance ≥ 1` y **ningún dial que lo
+acote**. Con 250 cartas repartidas en 20 sets de 200, `A = 16` ⇒ **16 000/día** frente a los 1 000
+anunciados. La diferencia entre los dos regímenes es la diferencia entre gastar el **5 %** y el
+**80 %** de la cuota diaria del dueño.
+
+**`onNoFigures` mentía igual, y esa parte casi se pasa por alto.** Decía «consume créditos en cada
+corrida, **hasta el tope de cartas que fijaste en M2**», lo que insinúa que ese tope acota el gasto.
+No lo acota. Ahora dice explícitamente qué acota (*cuántas cartas tuyas mira*) y qué no (*cuántas te
+cobra el proveedor*).
+
+El copy nuevo es literal de §22.13(d): tres entradillas —*Publica* / *Y gasta* / *Cuánto gasta*—,
+con la tercera separando **lo que sabemos** (el alcance) de **lo que no** (el régimen de cobro), y
+cerrando con quién lo dirime: *«La primera corrida lo mide»*. La cifra **no se borra** —un aviso de
+gasto sin orden de magnitud no deja decidir— pero se publica **con su supuesto pegado**, en la misma
+frase y con el mismo peso visual (nada de muted, `text-xs`, paréntesis final ni tooltip: §22.13b).
+
+### 2. ⚠️ El test que protegía la falsedad — es la parte que importa de este cambio
+
+`M10View.test.tsx` afirmaba:
+
+```js
+await waitFor(() => expect(warning.textContent).toMatch(/1[.,\s]?000 créditos al día/));
+```
+
+**Esa aserción fija la cifra desnuda, así que convertía el error de producto en un invariante de
+CI.** Corregir el copy sin tocarla ponía CI en rojo diciendo que devolvieras el texto a la versión
+falsa. No es un detalle de mantenimiento: es el mecanismo por el que este defecto **sobrevivió a una
+revisión**. Un test que fija un número sin su calificador no verifica la verdad del aviso — la
+sustituye.
+
+La aserción nueva exige la **frase condicional completa**, en orden: cifra **+** régimen que la hace
+válida **+** régimen que la invalida (`set entero`, `varias veces`) **+** quién lo dirime
+(`La primera corrida lo mide`). Y encima lleva un **invariante por oración**, que es lo que impide
+mover el candado en vez de quitarlo:
+
+```js
+for (const oracion of oraciones.filter((o) => /créditos al día/.test(o))) {
+  expect(oracion).toMatch(/si cobra por petición|ya está medido|medida el/);
+}
+```
+
+El mismo invariante existe a nivel de **catálogo** en `i18n-parity.test.ts`, sobre `messages/` ES y
+EN: ninguna cadena puede interpolar `{credits}` junto a «créditos al día» / «credits a day» sin el
+régimen de cobro o sin `{measuredOn}`; y «aproximadamente / ~ / unos / about» **no cuentan** como
+calificador (§22.13h: el error posible es un **factor**, no un decimal). Va sobre el catálogo y no
+solo sobre la pantalla a propósito: un candado sobre el texto renderizado se mueve reescribiendo el
+texto; este se mueve solo quitándole el calificador a la cadena, que es justo lo que debe estar
+prohibido.
+
+#### Demostración de que el candado nuevo se pone rojo por la razón correcta
+
+Dos mutaciones aplicadas y revertidas. La primera es la que pidió el encargo: **devolver el copy a
+la versión que afirma la cifra sin calificador**.
+
+| # | Mutación | Candado VIEJO | Candado NUEVO | Mensaje real |
+|---|---|---|---|---|
+| **A** | `…gradingHook.on` vuelve a *«El barrido consume hasta {credits} créditos al día ({maxCards} cartas × {perCard} créditos × {runs} corridas).»* | **VERDE — protege la falsedad** | **ROJO** | `expected 'Encendido: publica cifras y consume c…' to match /si cobra por petición, el techo son\s…/` |
+| **A** (mismo copy, candado de catálogo) | ídem | — | **ROJO** | `admin.m10.dials.gradingHook.on: cifra de créditos sin calificador: expected false to be true` |
+| **B** | *Mover* el candado: se **conserva** la frase condicional entera y además se cuela «En resumen: gasta {credits} créditos al día.» como oración aparte | **VERDE** | **ROJO** | `expected 'En resumen: gasta 1000 créditos al día.' to match /si cobra por petición\|ya está medido\|medida el/` |
+
+La mutación **A** se verificó con una sonda temporal que evaluaba **las dos** expresiones sobre el
+mismo render, para que la comparación no fuera de memoria:
+
+```
+[SONDA] candado VIEJO (cifra desnuda) sobre copy FALSO → VERDE (protege la falsedad)
+[SONDA] candado NUEVO (frase condicional) sobre copy FALSO → ROJO (rechaza la cifra sin supuesto)
+[SONDA] frase con la cifra que pinta la pantalla → El barrido consume hasta 1000 créditos al día (250 cartas × 2 créditos × 2 corridas).
+```
+
+La **B** es la que demuestra que no basta con cambiar un número por otro: el rojo **nombra la oración
+infractora**, no un fallo de formato. La sonda se borró; las mutaciones se revirtieron y la suite
+volvió a verde.
+
+### 3. `costBasis`, y por qué `onMeasured` queda dormido a propósito
+
+`src/lib/grading-hook-cost.ts` (el **módulo único** donde ya vivían `{perCard}` y `{runs}`) suma:
+
+- `GRADING_COST_MEASUREMENT: GradingCostMeasurement | null` — **hoy `null`**, y no es un pendiente
+  del módulo. Su única fuente honesta es la línea `[VEREDICTO-PSA] COSTE MEDIDO:` de la sonda,
+  transcrita a `DEVOPS_NOTES.md` (`ARCHITECTURE.md` §4.38r.3.1.1): **no viaja en ningún DTO**, así
+  que la pantalla no puede verificarla.
+- `gradingCostBasis()` — devuelve `'estimated'` **fijo**, derivado de lo anterior.
+
+Las **tres** variantes están traducidas y montadas (ES y EN), pero `onMeasured` **no se pinta**.
+§22.13(h) prohíbe rellenarlo desde un `.env`, un literal o una constante «temporal»: sería el defecto
+original con la palabra «medido» encima. El tipo es la parte deliberada — **obliga a traer cifra Y
+fecha**, así que nadie puede declarar «medido» sin una medición, y el día que el contrato exponga el
+dato, encenderlo es **rellenar una constante**, no reabrir con prisa el copy de una pantalla de
+consentimiento. Además, cuando se encienda, la cifra que se pinta es `measurement.creditsPerDay`,
+**no** el producto de las constantes: si viniera del cálculo, «medido» sería el mismo cálculo con
+otro nombre. `grading-hook-cost.test.ts` (archivo nuevo) es el candado de esa prohibición.
+
+### 4. El rango de M2 `[1, 5000] → [1, 1000]` (contrato v1.51-a): **no había nada que actualizar**, y lo verifiqué con patrones que sí pueden casar
+
+Lo digo con las búsquedas delante, porque en esta misma sesión yo mismo di por inexistente un campo
+buscando un nombre que no existía:
+
+| Patrón buscado | Resultado |
+|---|---|
+| `ingestMaxCardsPerRun` / `MaxCardsPerRun` / `maxCardsPerRun` | 9 · 9 · 3 apariciones — **todas** en `contract.ts` (tipos), `M10View.tsx` (lectura), `fixtures.ts`, `grading-hook-cost.ts` y tests |
+| `5000` / `5 000` / `5,000` / `5.000` en `messages/` | **0** |
+| `cartas por corrida` / `cards per run` en `messages/` | solo la nota persistente de M10 (sin cifra) |
+
+**La UI de M2 no dibuja ese dial ni su rango**: `GradedEstimatesSection` edita escalones de costo,
+margen mínimo y frescura; `ingestMaxCardsPerRun` solo se **lee** (en M10, para cifrar el techo).
+Bajar el máximo de 5 000 a 1 000 no cambia ni un píxel del frontend. **Petición abierta al arquitecto
+/ ux-ui al final de esta sección**, porque el copy sí afirma que ese tope «se edita en M2».
+
+### 5. La fecha de la ficha: se retira (decisión 62, criterio 119)
+
+`GradingEstimateBlock` pintaba un eyebrow derecho **«ESTIMADO · 22 ago 2026»** alimentado por
+`oldestCapturedDate()` sobre `capturedDate`. Esa fecha es **cuándo bajamos el dato**, no cuándo
+ocurrió la venta que lo respalda — y el rótulo no lo decía, así que un comprador podía leerla como
+la fecha de la **venta**, que es justo el dato que no tenemos: `evidenceDate` **no se persiste**, y
+la captura puede ir hasta 30 días adelantada. Se le ofreció al dueño rotularla con honestidad y
+**eligió quitarla**.
+
+Qué se quitó: el `<span>` del eyebrow, la clave `catalog.gradingEstimate.updatedAt` en **ES y EN**, y
+`oldestCapturedDate()`, que quedó muerta (en su sitio queda un comentario que explica por qué, para
+que no vuelva por inercia).
+
+**Alcance, que es donde esto se tuerce.** No se toca la **frescura interna** —los dos relojes del
+criterio 118 siguen midiendo server-side sobre `capturedDate`, y por eso el campo **sigue viajando
+en el DTO**: retirarlo del contrato es decisión del arquitecto, no mía—. Tampoco se toca la fecha
+del **valor de mercado** (`marketValue.note`, criterio 119e), que es otro dato y otra fila. Se retira
+lo que se **muestra**, no lo que se **mide**. Y no se suaviza a «actualizado» ni a un tooltip: media
+solución aquí es el defecto entero.
+
+Los tests que cubrían el eyebrow **se invierten, no se borran** (`gradingEstimates.test.tsx`,
+`CardDetailView.test.tsx`): si alguien vuelve a cablear una fecha al bloque, esto se pone rojo. La
+verificación negativa mira el `<section>` del bloque y no la página, porque la nota al pie de §O.5 sí
+habla de que los precios «pueden quedar desactualizados» — eso es el disclaimer, no una fecha de este
+dato. Y el criterio 119(b) («cero apariciones de la clave en `messages/` ES y EN») vive además en
+`i18n-parity.test.ts`, junto al candado de paridad que caza el retirar una clave en un solo idioma.
+
+### Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **830/830 en 94 archivos**
+  · `npx next build` ✔.
+- **Base: 818/93.** Delta **+12 tests / +1 archivo**, todo cobertura nueva; **ninguna prueba
+  retirada**, dos invertidas:
+  - `grading-hook-cost.test.ts` **+4** (archivo nuevo: el techo se deriva del tope vivo y cede la
+    cifra cuando no lo hay; `costBasis` fijo en `'estimated'`; `measured` exige cifra y fecha).
+  - `i18n-parity.test.ts` **+6** (ES/EN × tres candados de catálogo: cifra con su régimen de cobro,
+    «aproximadamente» no vale como calificador, `updatedAt` retirada).
+  - `gradingEstimates.test.tsx` **+2 neto** (−1 el test de la fecha «más antigua», +1 la
+    verificación negativa del bloque, +2 la de las claves ES/EN).
+  - `M10View.test.tsx` **±0**: mismo número de tests, aserciones **más fuertes** (la condicional
+    completa, el invariante por oración, y `onNoFigures` obligado a decir qué acota el tope).
+- Cero tokens nuevos, cero componentes nuevos, cero cambios de contrato, cero escrituras fuera de
+  `frontend/` y de este documento.
+
+### Peticiones al arquitecto / ux-ui / PO
+
+1. **(Abierta, no bloqueante — la hereda §22.12 nº14) Un canal para el COSTE MEDIDO.** `onMeasured`
+   está montado y dormido. Para encenderlo hace falta que `GET /admin/pricing/graded-estimates` (o
+   donde el arquitecto decida) exponga **coste medido por día + fecha de la medición**. Hasta
+   entonces el aviso dice explícitamente que **no está medido**, que es la verdad. **No lo relleno
+   por mi cuenta**, y el tipo de `GRADING_COST_MEASUREMENT` está hecho para que nadie pueda.
+2. **(Nueva, y es de la misma familia que el defecto que este pase corrige) El copy afirma que el
+   tope «se edita en M2 · Catálogo y precios», y hoy M2 no lo dibuja.** `ingestMaxCardsPerRun` es
+   editable **por contrato** (`GradedEstimateConfigInput`), pero la sección de M2 no expone el campo:
+   solo se **lee** desde M10. Es la misma clase de afirmación no respaldada —manda al dueño a una
+   pantalla donde no puede hacer lo que el aviso le dice— aunque de gravedad mucho menor, y es
+   hermana de la deuda **F-19** (`manualFreshnessDays` / `maxRawMultiple`, también editables solo por
+   API). **No lo arreglé por mi cuenta** porque hay dos salidas y ninguna es mía: **(a)** ux-ui añade
+   el campo a §22.x de M2 y yo lo implemento, o **(b)** ux-ui ajusta el copy de §22.13(d)/(f). Pido
+   decisión.
+3. **Sin cambios en `docs/API_CONTRACT.md`.** `capturedDate` sigue viajando en `GradedEstimateDTO` y
+   **debe seguir**: la frescura del criterio 118 se evalúa con él. La decisión 62 retira lo que se
+   **muestra**. Si el arquitecto quiere además retirarlo del contrato, es decisión suya, no mía.
