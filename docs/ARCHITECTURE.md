@@ -3,6 +3,51 @@
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
+> **Rev v1.52-set-logos (2026-08-31, arquitecto — petición del DUEÑO: que al seleccionar un set se vea el LOGO de la
+> expansión, no solo su nombre. DISEÑO EN PAPEL; lo implementan BACKEND y FRONTEND. Base: v1.51-c, vigente entera.)**
+> **Cero rutas nuevas, cero códigos de error, cero montos, cero permisos. UNA migración, aditiva pura.**
+> 1. **§4.39 (nueva) — se persisten LAS DOS imágenes de set, no solo el logo.** `CardSet` gana `logoUrl` (el nombre
+>    dibujado → **la teja**, que es lo que el dueño pidió) y `symbolUrl` (el glifo cuadrado impreso en la carta → chips
+>    y filtros donde el logo no cabe). Vienen en **la misma respuesta** que ya vamos a leer: coste marginal **cero**.
+>    Persistir solo el logo ahorraría dos `String?` y **obligaría a otra migración + otro re-sync** el día del primer
+>    chip — peaje que este proyecto ya pagó con M-18. **`symbolUrl` se persiste y NO se expone** todavía.
+> 2. **`M-47` (§11) — ADITIVA PURA y sin ceremonia.** Dos columnas nullable; sin `DROP`, sin `NOT NULL`, sin default,
+>    sin tocar índices, **sin reescribir una fila**. **Money-safe por construcción:** `CardSet` no alimenta precio,
+>    referencia, regla ni curva. **No hay cut-over, ventana ni congelación** — dicho explícitamente para que nadie le
+>    prepare a M-47 la ceremonia que M-43/M-45 sí exigían.
+> 3. **RE-SYNC, no backfill. Cero endpoints nuevos, cero SQL de datos.** `upsertSet()` es el escritor **único** de
+>    metadata de set y ya es idempotente y auditado: en cuanto lea `images`, **cualquier** sync puebla las columnas.
+>    Los sets **nuevos** llegan poblados solos; los ya importados se rellenan con el **botón por set que M2 ya tiene**
+>    (`POST /admin/catalog/sync { setId }`), que es el bisturí. `sync-all { force:true }` es el martillo y **queda como
+>    opción del operador, no como paso obligatorio**. **Regla dura de escritor: NO DEGRADAR** — ausente ⇒ *no-op*,
+>    jamás `null` (si no, la vía «set anidado en carta» borra lo que escribió `GET /v2/sets` y el logo aparece y
+>    desaparece según qué botón se pulsó último). §4.39.4.
+> 4. **El contrato lo decidió un hallazgo de código, no la intuición: la retícula de tejas es UNA sola y compartida.**
+>    `MasterSetIndex` tiene **cuatro** modos que rinden el **mismo** `MasterSetSummaryDTO` (M1, bóveda-admin,
+>    bóveda-cliente, cotizador) y el modo `quoter` **no tiene endpoint propio**: compone sus tejas client-side desde
+>    `GET /buylist/sets`. Por eso `logoUrl` entra en **ese DTO (4 endpoints) + `GET /buylist/sets`**. Poner el campo en
+>    el sitio «obvio» (las facetas de Compra) habría dejado **sin logo justo la teja del cotizador**, y no habría
+>    parecido un bug de contrato. §4.39.1, §4.39.5.
+> 5. **Y NO entra donde no se va a usar (tan normativo como lo anterior):** ni en `GET /catalog/facets` ni en
+>    `GET /catalog/sets` (alimentan **chips y filtros de TEXTO**, no tejas; y la home **ya** carga imágenes de
+>    terceros — en este mismo ciclo se corrigió que pedía de más), ni en `CardDTO`/`setName` (sería multiplicar el
+>    mismo logo por 60 cartas de una rejilla), ni en `remote-sets`, ni en `SetRefDTO`. §4.39.5.
+> 6. **Nullable de verdad, con la doctrina de §5.2.9: clave SIEMPRE presente, ausencia como `null`** — nunca omitida,
+>    nunca `""`, nunca un placeholder del backend. Habrá sets sin logo (promos, sets viejos) **de forma permanente**:
+>    `logoUrl?: string` invita a `s.logoUrl!` y a descubrirlo en producción; `logoUrl: string | null` **obliga al
+>    compilador** a que alguien decida qué se pinta. Es la grieta exacta de `imageSmallUrl` (§5.2.1), cerrada por
+>    adelantado. **La retícula tendrá dos tipos de teja conviviendo para siempre**, y eso es diseño de ux-ui, no un
+>    estado transitorio que un re-sync arregle. §4.39.6.
+> 7. **§5.3 SÍ aplica y la respuesta la doy yo, no frontend: NIVEL B.** `<img>` crudo, sin `next/image`, sin `srcset`.
+>    Lo dicta la regla de coste 4 ya escrita («nada de nivel A dentro de listas o rejillas») + el perfil de cola larga
+>    + que el proveedor sirve **una sola URL** por imagen (no hay tamaño que elegir). **`remotePatterns` NO cambia:
+>    mismo host que ya sirve el arte de las cartas** ⇒ cero acción de devops y cero superficie nueva. §4.39.7.
+> 8. **§5.2 NO aplica, y lo digo para que nadie lo confunda:** esto es **catálogo vivo**, no un acta congelada. El
+>    corolario «no se congelan punteros de terceros en registros probatorios» sigue en pie y **no lo contradice**:
+>    guardar una URL de tercero en catálogo que el sync reescribe mañana es correcto; congelarla en un pedido no lo
+>    es. Lo único que cruza de §5.2 es el **criterio (F)/(P)** y la regla de degradación. **Contrato:
+>    `API_CONTRACT.md` v1.52.** §4.39.7.
+>
 > **Rev v1.51-c (2026-08-31, arquitecto — UNA decisión de precisión sobre §5.2, enrutada por el techlead (regla 9).
 > Base: v1.51-b, vigente entera. Cero migraciones, cero DDL, cero montos, cero rutas, CERO cambios de conducta.)**
 > 1. **§5.2.9 (nueva) — qué pasa cuando un HECHO CONGELADO se perdió.** El contrato v1.51-b prometía `cardId`, `name`,
@@ -11855,6 +11900,254 @@ verificable con inventario**.
 
 ---
 
+### 4.39 IMÁGENES DE SET — logo y símbolo de expansión persistidos en `CardSet` (v1.52-set-logos, M-47, NORMATIVO)
+
+> **Origen.** El dueño pidió que **al seleccionar un set se vean los logos de las expansiones** en vez de solo el
+> nombre en texto (referencia visual: retícula de tejas uniformes, logo centrado, nombre debajo). **Hoy el sistema no
+> guarda ninguna imagen de set.** Esta sección decide **qué dato existe y cómo viaja**. **No decide cómo se ve**: la
+> presentación la define **ux-ui** en `DESIGN_SYSTEM.md`, y esta sección no la condiciona más allá de decir qué campos
+> existen y cuál es su peor caso.
+
+#### 4.39.1 Hechos verificados (clase (B) de §0-B — se citan por su origen, no por autoridad documental)
+
+| # | Hecho | Fuente ejecutable |
+|---|---|---|
+| 1 | `CardSet` tiene `externalId`, `name`, `series`, `releaseDate`, `printedTotal`, `ptcgoCode`, `pptSetId`, `tcgcsvGroupId`. **Ninguna columna de imagen.** | `backend/prisma/schema.prisma` (`model CardSet`) |
+| 2 | El tipo `RemoteCardSet` del cliente **no declara** `images`; por tanto el sync **no lo pide y no lo persiste**. Lo análogo para cartas **sí** existe desde siempre (`RemoteCard.images` → `Card.imageSmallUrl/imageLargeUrl`). | `backend/src/modules/catalog/pokemontcg-io.client.ts`; `catalog-sync.service.ts` (`upsertCards`) |
+| 3 | `upsertSet()` es el **único** escritor de metadata de set, es un `upsert` por `externalId` y lo alimentan **dos** vías: el objeto de `GET /v2/sets` y el objeto `set` **anidado** en cada carta (`first.data[0].set`). | `catalog-sync.service.ts` (`upsertSet`, `importSet`, `importSetByExternalId`) |
+| 4 | pokemontcg.io publica **dos** imágenes por set: `images.symbol` (glifo cuadrado, el impreso en la carta) e `images.logo` (el nombre dibujado, ancho y de **proporción muy variable**). | API del proveedor |
+| 5 | **La retícula de tejas de sets ya existe y es UNA sola, compartida**: `MasterSetIndex` (`grid` de tejas, click → binder), con **cuatro** modos que rinden el **mismo** `MasterSetIndexResponse` / `MasterSetSummaryDTO`. | `frontend/src/components/master-set/MasterSetIndex.tsx` |
+| 6 | Uno de esos cuatro modos (`quoter`) **no tiene endpoint de índice propio**: compone las tejas **client-side** desde `GET /buylist/sets`. | mismo archivo (`fetchQuoterIndex`) |
+| 7 | `images.pokemontcg.io` **ya** es un host admitido por el frontend y ya sirve el arte de todas las cartas. | `frontend/next.config.mjs`; §5.3.4 |
+
+**El hallazgo (5)+(6) es el que decide el contrato, y no era obvio.** «Dónde va el logo» parecía una pregunta de
+storefront; es una pregunta de **un DTO** (`MasterSetSummaryDTO`) que sirven **cuatro** endpoints, más **un quinto**
+del que uno de esos cuatro modos se alimenta a mano. Poner el campo en el sitio «obvio» (las facetas de Compra) habría
+dejado la teja del cotizador —la única que el visitante anónimo toca al vender— **sin logo**, y a nadie le habría
+parecido un bug de contrato.
+
+#### 4.39.2 DECISIÓN 1 — se persisten **LAS DOS** URLs, no solo el logo
+
+**`CardSet` gana dos columnas nullable: `logoUrl` y `symbolUrl`.**
+
+| | `logoUrl` (`images.logo`) | `symbolUrl` (`images.symbol`) |
+|---|---|---|
+| Qué es | El **nombre del set dibujado**. Ancho, de **proporción variable** entre sets | Glifo **cuadrado** pequeño, el mismo impreso en la carta |
+| Uso | **La teja de selección de set** — es exactamente lo que el dueño pidió | Chips, filtros, filas de tabla, encabezados compactos: **donde el logo no cabe** |
+
+**Por qué las dos y no solo el logo — tres razones, y la tercera es la que cierra:**
+1. **El coste marginal de la segunda es cero y el de añadirla después no lo es.** Vienen en el **mismo objeto de la
+   misma respuesta** que ya vamos a leer: cero requests extra, cero latencia, dos `String?` más. Decidir «solo logo»
+   hoy compra nada y **obliga a otra migración + otro re-sync** el día que aparezca el primer sitio donde el logo no
+   quepa. Este proyecto ya pagó ese peaje una vez (M-18, el re-sync de `availableFinishes`).
+2. **No son intercambiables, son complementarias.** El logo tiene **proporción variable** entre sets: sirve para una
+   teja con caja generosa, y es exactamente lo que **no** sirve para un chip de 20 px de alto. El símbolo es cuadrado
+   y estable: sirve para el chip y es pobre para la teja. Persistir solo uno garantiza que la mitad de las superficies
+   quede mal servida.
+3. **El símbolo es el único que también es un HECHO DE IDENTIDAD, no solo decoración.** Es el glifo **impreso en la
+   carta física**: es lo que un operador de bóveda mira para decidir de qué set es una carta que tiene en la mano. Esa
+   es una función de trabajo, no un adorno, y llegará. *(Declarado como uso previsto, no habilitado en este pase: hoy
+   `symbolUrl` **se persiste y no se expone** en ningún DTO — ver §4.39.5.)*
+
+**Lo que NO se hace, y por qué:**
+- **No se copian los bytes.** Se guardan **URLs de un CDN de tercero**, igual que el arte de las cartas.
+  `PROJECT.md` excluye fotos propias y acota el object storage a `kyc_ine`. Consecuencia asumida y declarada: si el CDN
+  del proveedor cae o rota una URL, el logo desaparece y la teja cae a su placeholder. Es el **mismo** riesgo que ya
+  corremos con **todas** las imágenes de carta del sitio; no introduce una clase de fallo nueva.
+- **No se inventan URLs por plantilla.** Prohibido construir `https://images.pokemontcg.io/{externalId}/logo.png` a
+  partir del `externalId`. Misma prohibición que §5.2.5 para las cartas y por la misma razón: sería un puntero **no
+  verificado** a un host de tercero, con apariencia de dato. **Solo se sirve lo que la columna contenga.**
+- **No se añade un tercer campo derivado** (proporción, color dominante, alto sugerido). El backend no mide imágenes;
+  la caja la resuelve ux-ui con CSS.
+
+#### 4.39.3 DECISIÓN 2 — `M-47`, y es **ADITIVA PURA**
+
+**`M-47` — dos columnas nullable en `CardSet`. Sin `DROP`, sin `NOT NULL`, sin default, sin tocar índices ni la
+`@@unique(externalId)`, sin reescribir una sola fila.** Ficha completa en §11.
+
+```prisma
+model CardSet {
+  // …campos vigentes, intactos…
+  logoUrl    String?   // M-47 (§4.39) — images.logo de pokemontcg.io. Presentación (clase P). null = el proveedor no lo publica.
+  symbolUrl  String?   // M-47 (§4.39) — images.symbol. Persistido en este pase; NO expuesto todavía (§4.39.5).
+}
+```
+
+**Confirmación explícita de que es aditiva pura**, en los términos que este proyecto exige (§11):
+- **Segura con la app corriendo.** Añadir columnas nullable no bloquea lecturas ni escrituras; el código vigente las
+  ignora porque no las selecciona.
+- **`money-safe` por construcción.** `CardSet` **no participa en ningún cálculo de dinero**: no hay precio, ni
+  referencia, ni regla, ni curva que lea metadata de set. Estas dos columnas son **display-only**, en la misma
+  categoría que `sealedImageUrl` (§4.34a). **Ningún importe puede moverse por esta migración**, ni siquiera por error
+  de implementación: no hay ruta de código que lo permita.
+- **Reversible sin ceremonia.** Revertir = revertir el código; las columnas pueden quedarse inertes. **No hay
+  procedimiento de cut-over, no hay ventana, no hay congelación.** (Contrastar con M-43/M-45, que sí la exigían
+  porque tocaban la clasificación de una fila de precio. Aquí no hay nada de eso, y lo digo para que nadie prepare
+  una ventana que no existe.)
+- **Sin backfill de datos.** No hay `UPDATE` masivo. Ver §4.39.4.
+
+#### 4.39.4 DECISIÓN 3 — **RE-SYNC, no backfill.** Cero endpoints nuevos, cero SQL de datos
+
+**Se reusa el sync existente. No se crea backfill propio, ni endpoint, ni job, ni script de datos.**
+
+El razonamiento es que el mecanismo correcto **ya existe, ya es idempotente y ya está auditado**: `upsertSet()` es el
+escritor único de metadata de set y corre en **todas** las vías de sync (§4.39.1 hecho 3). En cuanto lea `images`,
+**cualquier** sync puebla las columnas. Un backfill dedicado sería un segundo escritor de la misma columna —
+exactamente el patrón que produce divergencias— para una operación que se corre una vez.
+
+**Orden de ejecución operativa, del más barato al más caro. Se empieza por el primero y se para en cuanto se ve el
+logo donde el dueño lo pidió:**
+
+| Paso | Qué se corre | Alcance | Coste |
+|---|---|---|---|
+| **0** | **Nada.** Los sets **nuevos** llegan poblados desde el primer sync posterior al deploy | Sets futuros | Cero |
+| **1** | `POST /admin/catalog/sync { setId }` **por set**, desde el botón por fila que M2 **ya tiene** | Los sets que la UI **de verdad muestra** | Bajo. La retícula del storefront/cotizador se puebla con un puñado de llamadas |
+| **2** | `POST /admin/catalog/sync-all { force: true }` | **Todo** el catálogo | Alto: re-importa todas las cartas de todos los sets y re-corre el resolver estructural TCGCSV. **Es el martillo, no el bisturí** |
+
+**El paso 1 es el recomendado, y la razón es que el conjunto que importa es pequeño**: la retícula de tejas no lista
+«todos los sets que existen», lista los sets con inventario/cartas relevantes. El paso 2 es legítimo (es el mismo
+procedimiento que se usó para M-18) pero **no es necesario** para esta feature, y arrastra efectos que esta feature no
+pidió. **No se ordena un `sync-all {force:true}` como parte de este pase**; queda como opción del operador.
+
+**Regla dura del escritor — NO DEGRADAR (normativa, y es la parte fácil de equivocar):**
+
+> Cuando el objeto remoto **no trae** `images` (o no trae una de las dos), el `update` del upsert debe dejar la
+> columna **como está** — mapear ausente a *no-op*, **jamás a `null`**. En el `create` (set nuevo), ausente ⇒ `null`.
+
+Sin esta regla, la vía «set anidado en una carta» podría **borrar** valores que la vía `GET /v2/sets` ya había
+escrito, y el logo aparecería y desaparecería según qué botón de M2 se pulsó último. Es la misma clase de invariante
+que M-44 impuso sobre `PriceReference` (un escritor no degrada lo que otro afirmó), aquí en su versión barata:
+**cosmética, no dinero**, pero con el mismo modo de fallo silencioso.
+
+**Verificación que backend debe hacer ANTES de dar el paso por cerrado (§0-B, clase B):** confirmar contra una
+respuesta real que el objeto `set` **anidado en una carta** trae `images` igual que el de `GET /v2/sets`. Si **no** lo
+trae, la regla de no-degradación de arriba lo vuelve inofensivo (la vía por-carta simplemente no aporta el dato) pero
+entonces el paso 1 de la tabla **no basta por sí solo** para un set concreto y hay que decirlo en `BACKEND_NOTES.md`.
+**No lo doy por sabido y no lo escribo aquí como si lo fuera.**
+
+**Guardarraíl de ingesta (obligatorio, barato):** se persiste la URL **solo si** es absoluta y **`https:`**, y su host
+es el mismo que ya sirve el arte de las cartas de este proveedor. Cualquier otra cosa ⇒ **`null` + log**, nunca se
+persiste. Si el proveedor empezara a servir logos desde **otro** host, backend **no amplía nada por su cuenta**: lo
+reporta, y `remotePatterns` del frontend se amplía **detrás**, nunca por delante (§5.3.4). El caso normal es que **no
+haya nada que ampliar**: es el host que el frontend ya admite (hecho 7).
+
+#### 4.39.5 DECISIÓN 4 — dónde viaja: **un DTO, cuatro endpoints, más su fuente client-side**
+
+**Regla que gobierna la elección, para que no se re-litigue con cada superficie nueva:**
+
+> **La imagen de set viaja donde el SET es el objeto que se selecciona. No viaja donde el set es metadata incidental
+> de otra cosa.**
+
+**Entra (NORMATIVO):**
+
+| Superficie | Campo | Por qué |
+|---|---|---|
+| **`MasterSetSummaryDTO`** — servido por `GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` **y** heredado por el modo `platform` de M1 | `logoUrl` | **Es la teja.** Un solo DTO cubre los cuatro modos de la retícula; el contrato ya declara «mismo shape, distinto scope» (§4.20f) y **romper esa simetría sería el error** |
+| **`GET /buylist/sets`** → `data[]` | `logoUrl` | **Obligatorio, no opcional:** el modo `quoter` de la retícula se compone client-side desde aquí (hecho 6). Sin esto, la teja del cotizador es la **única** sin logo |
+
+**NO entra (deliberado, y esto es tan normativo como lo anterior):**
+
+| Superficie | Por qué NO |
+|---|---|
+| **`GET /catalog/facets` → `sets[]`** | Alimenta los **chips de texto** «Sets buscados» de la home y el **filtro de texto** de Compra (`ShopFilters`). Ninguno es una teja. La home **ya carga imágenes de terceros** y en este mismo ciclo se corrigió que pedía de más (§5.3.2, hallazgo 7): **no se le añade carga que nadie va a pintar** |
+| **`GET /catalog/sets`** | Mismo caso: hoy no alimenta ninguna retícula de tejas. Si mañana lo hace, es un aditivo de **una línea** |
+| **`card.setName` / `CardDTO`** | El set aquí es **metadata de una carta**. Meter un logo en cada carta de una rejilla de 60 cartas es multiplicar bytes por 60 para pintar el mismo logo 60 veces |
+| **`GET /admin/catalog/remote-sets`** | Es un espejo **del proveedor**, no una selección de set del producto. Su trabajo es decir qué falta por importar |
+| **`SetRefDTO`** (`value-history`) | Cabecera de una gráfica, no una teja |
+| **`symbolUrl` en cualquier DTO** | **Se persiste, no se expone.** Hoy no hay ninguna superficie que lo use, y §4.39.2 razón 1 solo justifica **guardarlo** barato — no publicarlo por si acaso. Exponerlo cuando exista el chip: aditivo, **sin migración**, sin re-sync |
+
+**Cómo se añade a otra superficie el día que haga falta** (para que no vuelva a pasar por un diseño largo): es un
+**aditivo de proyección** — el dato ya está en la columna. Cambia el DTO en `API_CONTRACT`, sube la rev, y backend lo
+selecciona. **Cero DDL, cero migración, cero re-sync.** Sí pasa por el arquitecto (regla 9), porque la regla de arriba
+—«el set es lo que se selecciona»— es lo que hay que verificar, no la disponibilidad del dato.
+
+#### 4.39.6 DECISIÓN 5 — la forma hace **imposible** asumir que siempre hay imagen
+
+**Habrá sets sin logo.** Promos, colecciones raras, sets viejos y cualquier cosa que el proveedor no haya ilustrado.
+No es un caso de borde: es un caso **normal y permanente**.
+
+**Se aplica la doctrina de §5.2.9 tal cual, clase (P) PRESENTACIÓN: clave SIEMPRE presente, ausencia expresada con
+`null`. Nunca omitida, nunca `""`, nunca una URL de placeholder.**
+
+```
+// Fragmento reusable. La clave está SIEMPRE; el valor puede ser null.
+SetImagesFragment = { logoUrl: string | null }     // + symbolUrl: string | null, cuando se exponga (§4.39.5)
+```
+
+**Por qué `null`-presente y no `logoUrl?`** — es la lección que este equipo ya pagó:
+1. **Un campo opcional se lee como «normalmente está».** Un cliente que ve `logoUrl?: string` escribe
+   `<img src={s.logoUrl!}>` o `s.logoUrl && …` sin pensarlo, y el caso vacío se descubre en producción con un set
+   promo. Un `logoUrl: string | null` **obliga al compilador** a que alguien decida qué se pinta cuando no hay.
+2. **Es exactamente la grieta de `imageSmallUrl`** (§5.2.1): un tipo de cliente prometiendo lo que el backend no
+   garantizaba. `null` explícito **no se puede ignorar**; una clave ausente sí.
+3. **`null` es un resultado ESPERADO, no un error.** No se registra incidente, no se reintenta, no se degrada la
+   respuesta, no bloquea nada. El cliente pinta lo que ux-ui haya definido para «sin logo» y sigue.
+
+**Consecuencia para la teja, dicha para que nadie la descubra tarde:** la retícula tendrá **dos tipos de teja
+conviviendo de forma permanente** — con logo y sin logo. **No es un estado transitorio que un re-sync arregle.** El
+diseño de ux-ui debe resolver el caso «sin logo» como un estado **de primera clase** (la teja mantiene su caja y su
+nombre; no colapsa, no salta, no muestra un icono roto). **Qué se pinta en ese hueco lo decide ux-ui, no yo.**
+
+Y hay un **segundo** estado, distinto y anterior: **set aún no re-sincronizado**. Su valor también es `null` y la
+teja se ve **idéntica** a la del set sin logo. **Es deliberado**: el cliente no tiene por qué distinguirlos y el
+contrato **no** los distingue. Quien necesita distinguirlos es el operador, y lo hace por el otro lado (§4.39.4).
+
+#### 4.39.7 Las dos doctrinas vigentes: cómo aplican aquí
+
+**§5.3 (imágenes en el frontend) — SÍ aplica, y la respuesta es NIVEL B. Lo digo yo para que frontend no lo decida
+por su cuenta:**
+
+> **Los logos de set son NIVEL B (§5.3.3): `<img>` crudo, URL tal cual, SIN `next/image`, SIN `srcset`.**
+
+Tres razones, y la primera es literalmente una regla ya escrita:
+1. **§5.3.3, regla de coste 4, es explícita: «Nada de nivel A dentro de listas o rejillas».** Una retícula de tejas
+   **es** una rejilla. La regla es **la forma de la superficie, no el gusto**. Si el nivel A entrara aquí, entraría
+   por la puerta que esa regla existe para cerrar.
+2. **El perfil de coste es el peor posible para el optimizador**: N logos distintos por pantalla, vistos pocas veces,
+   escalando con la **cobertura del catálogo** y no con el tráfico — la definición exacta de «cola larga» de §5.3.2.
+   Y un logo no gobierna el LCP de ninguna página: no es la imagen de entrada de la home ni la principal de la ficha.
+3. **El proveedor sirve una sola URL por imagen** (a diferencia de la carta, que tiene `small`/`large`): no hay
+   siquiera una elección de tamaño que hacer. La palanca de §5.3.2 —«pedir la URL correcta»— aquí no existe porque
+   solo hay una. `srcset` no tiene candidatos.
+
+**`remotePatterns` NO cambia** (§5.3.4): es el **mismo host** que ya sirve el arte de las cartas. **Cero acción de
+frontend sobre la config, cero acción de devops, cero superficie nueva para seguridad.**
+
+**§5.2 (snapshot congelado) — NO aplica aquí, y lo digo para que nadie lo confunda.** §5.2 gobierna
+`OrderItem.cardSnapshot`: un **acta congelada de una transacción**. `CardSet` es **catálogo vivo**: se re-escribe en
+cada sync **por diseño**, y que un logo mejore o cambie **no altera ningún hecho probatorio**. Aquí no hay nada que
+congelar ni nada que descongelar.
+
+Lo que **sí** cruza de §5.2 es **una** cosa, y es de criterio, no de mecanismo: la clasificación **(F)/(P)** de
+§5.2.2 y la regla de degradación de §5.2.9. Una imagen de set es **(P) presentación pura** —su peor caso es un hueco
+visual, jamás un dato erróneo— y por eso degrada a **`null` con clave presente** (§4.39.6). El **corolario** de
+§5.2.3 («no se congelan punteros a recursos de terceros dentro de registros probatorios») **también sigue en pie y no
+lo contradice esto**: `CardSet.logoUrl` **no es un registro probatorio**, es una fila de catálogo que el sync es
+libre de reescribir mañana. **Guardar una URL de tercero en catálogo vivo es correcto; congelarla en un acta no lo
+es.** Son dos cosas distintas y esta es la primera.
+
+#### 4.39.8 Encargo por rol (D-3)
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: §4.39, ficha **M-47** en §11, y contrato **`API_CONTRACT.md` v1.52** (`logoUrl` en `MasterSetSummaryDTO` y en `GET /buylist/sets`, con la exclusión explícita de facetas/`/catalog/sets`/`CardDTO`). | — |
+| **backend** | (a) **M-47**: dos columnas nullable en `CardSet` (§11). (b) `RemoteCardSet` gana `images?: { symbol?: string; logo?: string }` — hoy el tipo las descarta. (c) `upsertSet()` las persiste con la **regla de no-degradación** y el **guardarraíl `https:` + host** de §4.39.4. (d) Proyectar **`logoUrl`** en `MasterSetSummaryDTO` (los **cuatro** endpoints — es un read model único, §4.20f) y en `GET /buylist/sets`. **`symbolUrl` se persiste y NO se expone.** (e) **Verificar** el hecho pendiente de §4.39.4 (¿el `set` anidado en una carta trae `images`?) y anotarlo en `BACKEND_NOTES.md`. (f) ⛔ **Prohibido**: crear endpoint/job/script de backfill, y construir URLs por plantilla. | Antes del merge del stream «Catálogo y precios» |
+| **frontend** | (a) Consumir `logoUrl: string \| null` en la retícula `MasterSetIndex` — **los cuatro modos**, incluido `quoter` (que lo mapea desde `GET /buylist/sets` en `fetchQuoterIndex`; si no se mapea ahí, el logo **no llega** a esa teja). (b) **Nivel B** (§4.39.7): `<img>` crudo, sin `next/image`, sin `srcset`, con el `eslint-disable` ya documentado. (c) `null` es **caso normal** ⇒ el tratamiento «sin logo» que defina ux-ui, **sin error visible y sin salto de layout**. (d) ⛔ **Prohibido** rellenar el hueco construyendo la URL desde el `setId`. (e) `next.config.mjs` **no se toca**: mismo host. | Con el contrato v1.52 |
+| **ux-ui** | Define el aspecto de la teja **y del caso «sin logo»** como estado de primera clase (§4.39.6). El dato que existe es: **un logo o `null`**; sin proporción garantizada entre sets y **sin segundo tamaño**. `DESIGN_SYSTEM.md` es suyo; yo no entro. | Antes de que frontend pinte |
+| **devops** | Correr `M-47` con `migrate deploy` (aditiva pura, sin ventana, sin congelación, sin rollback especial). **Ninguna variable de entorno nueva, ningún cambio en CI, ninguna cuota que confirmar** — esto **no** es nivel A de §5.3.5. Tras el deploy, el paso 1 de §4.39.4 lo dispara un `super_admin` desde M2; **no requiere script**. | Deploy del stream |
+| **qa** | (a) Un set **con** logo y un set **sin** logo (`null`) en la misma retícula ⇒ `200`, ambas tejas se pintan, ninguna rompe el layout. (b) Regresión de la **no-degradación**: `sync-all` → `sync {setId}` → el `logoUrl` **sigue ahí** (si se borró, el `update` está escribiendo `null` donde debía no-operar). (c) Los **cuatro** modos de la retícula reciben el campo, **incluido el del cotizador** — es el que se cae solo. (d) La petición de red **no** pide logos en la home ni en el filtro de Compra (§4.39.5). | Gate por stream |
+| **seguridad / pentester** | Superficie nueva **mínima y declarada**: dos URLs de un host **ya admitido**, públicas, sin PII, sin dinero. Lo único que vale mirar es el **guardarraíl de ingesta** (§4.39.4): que no se persista una URL no-`https:` ni de host arbitrario venida del proveedor. | Gate por release |
+
+#### 4.39.9 Lo que esta sección NO hace
+
+- **No cambia el dinero.** `CardSet` no entra en ningún cálculo de precio. Cero montos, cero reglas, cero curva.
+- **No cambia ninguna ruta**, ningún código de error, ningún permiso, ningún rol.
+- **No decide la presentación.** Retícula, tamaños, encuadre, fondo y el tratamiento del «sin logo» son de **ux-ui**.
+- **No toca `frontend/`, `docs/DESIGN_SYSTEM.md` ni `docs/TECH_DEBT.md`** — zonas de otros agentes en este momento.
+- **No ordena un re-sync completo del catálogo.** §4.39.4 lo lista como opción del operador, no como paso obligatorio.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -13587,6 +13880,29 @@ propia configuración para ser determinista deja, **por construcción**, de ser 
 > —correctamente— para fijar el dial antes de asertar, **el detector accidental desapareció**, y con él habría
 > desaparecido en silencio la única verificación que yo había previsto. **Una coincidencia no es una garantía**, y el
 > remedio no es preservar la coincidencia: es sustituirla por un detector diseñado para eso. De ahí el punto 5.
+
+### v1.52-set-logos (nueva — **M-47**: imágenes de set en `CardSet` — **DDL ADITIVO PURO**, §4.39)
+
+⚠️ **`backend/prisma/schema.prisma` es ZONA COMPARTIDA:** el orquestador serializa **M-47** frente a cualquier otro
+stream que toque el schema. Es la migración **más barata de este documento**: dos columnas nullable en una tabla que
+**no participa en ningún cálculo de dinero**.
+
+| # | Modelo / artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-47 | `CardSet.logoUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.logo` de pokemontcg.io — el nombre del set dibujado. **La teja de selección de set.** `null` legítimo y permanente (promos, sets viejos). Clase **(P) presentación** (§5.2.2) ⇒ viaja como **`null` con clave presente** (§4.39.6). |
+| M-47 | `CardSet.symbolUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.symbol` — el glifo cuadrado impreso en la carta. **Se persiste y NO se expone** en ningún DTO de este pase (§4.39.5). Se guarda ahora porque viene en la misma respuesta a coste cero y evitarlo obligaría a **otra** migración + otro re-sync (§4.39.2). |
+| M-47 | `RemoteCardSet` (`pokemontcg-io.client.ts`) | Gana `images?: { symbol?: string; logo?: string }` | Código | El tipo hoy **no las declara**, por eso el sync las descarta. Cero requests extra: ya vienen en el JSON que se descarga. |
+| M-47 | `upsertSet()` (`catalog-sync.service.ts`) | Persiste ambas, con **no-degradación** y guardarraíl `https:` + host | Código | **Regla dura:** ausente ⇒ *no-op* en el `update` (nunca `null`), ausente ⇒ `null` en el `create`. Sin esto, la vía «set anidado en carta» **borra** lo que escribió la vía `GET /v2/sets`. §4.39.4. |
+| M-47 | Proyección `MasterSetSummaryDTO` (4 endpoints) + `GET /buylist/sets` | Emiten `logoUrl` | Código (contrato **v1.52**) | Read model único (§4.20f): los cuatro modos de la retícula, **más** `GET /buylist/sets` porque el modo `quoter` compone sus tejas desde ahí client-side. |
+| M-47 | Backfill de datos | **NINGUNO** | Data | **No hay `UPDATE`, no hay script, no hay endpoint nuevo.** Los sets ya importados se pueblan **re-corriendo el sync existente** (idempotente y auditado): `POST /admin/catalog/sync { setId }` por set — el botón de M2 que ya existe. `sync-all { force:true }` es opción del operador, **no un paso obligatorio de este pase**. §4.39.4. |
+
+> **Compat / reversibilidad — ADITIVA PURA, y sin ceremonia.** Sin `DROP`, sin `NOT NULL`, sin default, sin tocar
+> `@@unique(externalId)` ni ningún índice, **sin reescribir una sola fila**. Segura con la app corriendo (el código
+> vigente ignora las columnas porque no las selecciona). **Money-safe por construcción:** `CardSet` no alimenta
+> precio, referencia, regla ni curva — **ninguna ruta de código permite que esta migración mueva un centavo**, ni
+> siquiera por error de implementación. Revertir = revertir el código; las columnas pueden quedarse inertes. **No hay
+> cut-over, no hay ventana, no hay congelación y no hay orden de pasos que respetar** — se dice explícitamente para
+> que nadie prepare para M-47 la ceremonia que M-43/M-45 sí exigían.
 
 ### v1.50-graded-estimate (nueva — M-42: diales del gancho de grading — DATA/seed, SIN DDL, §4.38)
 
