@@ -1235,17 +1235,67 @@ export class PriceIngestService {
         probedSets += 1;
       }
       if (res.requestOk) ev.requestOk = true;
-      // R1-ter: el provider dice si NO llegó a pedir y por qué. `null`/ausente ⇒ sí hubo petición (el
-      // caso normal, y también el del rechazo de parámetro, que responde con un 4xx real).
-      if (res.noRequestReason === 'missing_api_key') ev.requests.missingApiKey = true;
-      else if (res.noRequestReason === 'set_without_ppt_set_id') {
-        // ⚠️ R1-quater — «no tiene pptSetId» NO es una causa: son DOS, con acciones opuestas. Si el
-        // catálogo de PPT ni se pudo consultar (cuota agotada por el barrido RAW de esta misma
-        // corrida, o red), mandar a «mapear estos sets» es la acción equivocada sobre una causa falsa.
-        if (mapping.pptSetId === null && mapping.reason === 'mapper_unavailable') {
-          ev.requests.mapperUnavailable.push({ setExternalId: set.externalId, cause: mapping.cause });
-        } else ev.requests.setsUnmatched.push(set.externalId);
-      } else ev.requests.attempted += 1;
+      // R1-ter: el provider dice si NO llegó a pedir y por qué. `null` ⇒ sí hubo petición (el caso
+      // normal, y también el del rechazo de parámetro, que responde con un 4xx real).
+      //
+      // ⛑️ R-3 (v1.51-e) — **EL `else` QUE AFIRMABA «HUBO PETICIÓN» NO TENÍA CANDADO.** Esto era una
+      // cadena `if/else if/else`: un CUARTO motivo de «no se pidió» (circuit-breaker, skip por scope,
+      // rate-limit local…) caía en el `else`, incrementaba `attempted` y el veredicto mandaba al
+      // operador a «EL REQUEST FALLÓ» **por una petición que nunca se emitió**. Es el defecto (b) de R1
+      // palabra por palabra, en el dato que gobierna la CITA. Con el `switch` + `never`, un motivo nuevo
+      // **no compila** hasta que alguien decida qué significa. Conducta HOY: idéntica.
+      switch (res.noRequestReason) {
+        case 'missing_api_key':
+          ev.requests.missingApiKey = true;
+          break;
+        case 'set_without_ppt_set_id':
+          // ⚠️ R1-quater — «no tiene pptSetId» NO es una causa: son DOS, con acciones opuestas. Si el
+          // catálogo de PPT ni se pudo consultar (cuota agotada por el barrido RAW de esta misma
+          // corrida, o red), mandar a «mapear estos sets» es la acción equivocada sobre una causa falsa.
+          //
+          // ⛑️ R-3 — mismo candado ocho líneas abajo: un TERCER `reason` en `PptSetMapping` (p. ej.
+          // `'ambiguous'`) heredaba en silencio el titular «no está mapeado» por caer en el `else`.
+          if (mapping.pptSetId === null) {
+            switch (mapping.reason) {
+              case 'mapper_unavailable':
+                ev.requests.mapperUnavailable.push({ setExternalId: set.externalId, cause: mapping.cause });
+                break;
+              case 'unmatched':
+                ev.requests.setsUnmatched.push(set.externalId);
+                break;
+              default: {
+                const motivoSinRama: never = mapping;
+                this.logger.warn(
+                  `graded-estimate-ingest: el mapper devolvió un motivo SIN RAMA para ${set.externalId} ` +
+                    `(${JSON.stringify(motivoSinRama)}). NO se clasifica como «sin mapeo» ni como «sin ` +
+                    'comprobar»: heredar un titular ajeno es justo el defecto que R1 vino a cerrar.',
+                );
+                break;
+              }
+            }
+          } else {
+            // Contradicción (hoy inalcanzable): el provider dijo «sin pptSetId» y el mapper SÍ dio uno.
+            // Se conserva la clasificación histórica para no cambiar conducta.
+            ev.requests.setsUnmatched.push(set.externalId);
+          }
+          break;
+        case null:
+          // El ÚNICO caso en el que se puede afirmar «se emitió una petición». Antes era el `else`.
+          ev.requests.attempted += 1;
+          break;
+        default: {
+          const motivoSinRama: never = res.noRequestReason;
+          // Fail-closed: un motivo desconocido NO cuenta como petición emitida. Si contara, el veredicto
+          // citaría «EL REQUEST FALLÓ» sobre una petición que quizá nunca salió. Sin rama, la corrida
+          // cae en el titular honesto («ninguna causa conocida ⇒ repórtalo»), que es el correcto.
+          this.logger.warn(
+            `graded-estimate-ingest: el provider devolvió un \`noRequestReason\` SIN RAMA ` +
+              `(${JSON.stringify(motivoSinRama)}) para ${set.externalId}. NO se cuenta como petición ` +
+              'emitida: afirmar que hubo petición es lo que manda al operador al log equivocado.',
+          );
+          break;
+        }
+      }
       ev.cardsReturned += res.fetchedRaw;
       // TL-GE1: se SUMA lo atribuible; un solo set que no pueda aislarlo deja la corrida entera sin
       // cifra. No se completa con el contador diario del cliente: es el dato contaminado que se retiró.

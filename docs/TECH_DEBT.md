@@ -100,11 +100,65 @@
 ### TL-GE7-D1 · El catálogo de sets caído se reporta con UNA causa y se re-pide una vez POR SET (backend, v1.51-d, 2026-08-31)
 - **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; no toca dinero y no afecta a ninguna decisión de escritura).
 - **Deuda (dos residuos del cierre de R1-quater, los dos de precisión, no de conducta):**
-  1. **Una sola causa por corrida.** `GradedRequestTally.mapper` lleva `cause: 'daily_limit' | 'request_failed'` y el veredicto publica la del **primer** set que quedó sin comprobar. Si en la misma corrida un set falla por cuota y otro por red, el titular nombra solo una de las dos. **No produce ninguna cita falsa** —las dos causas emiten la MISMA marca citable (`PptSetMapper: NO SE PUDO CONSULTAR /api/v2/sets`), así que el guardián sigue verde y el `grep` del operador sigue devolviendo la línea—, pero la acción sugerida («espera a las 00:00 UTC» vs. «revisa la red») podría no ser la de todos los sets.
+  1. **Una sola causa por corrida.** `GradedRequestTally.mapper` lleva `cause: 'daily_limit' | 'request_failed'` y el veredicto publica la del **primer** set que quedó sin comprobar. Si en la misma corrida un set falla por cuota y otro por red, el titular nombra solo una de las dos. Para **esa** combinación (dos causas de *unavailable*) no hay cita falsa: las dos emiten la MISMA marca citable (`PptSetMapper: NO SE PUDO CONSULTAR /api/v2/sets`), así que el guardián sigue verde y el `grep` del operador sigue devolviendo la línea; lo único impreciso es la acción sugerida («espera a las 00:00 UTC» vs. «revisa la red»).
+     - **⛔ Corrección (v1.51-e, hallazgo de QA — la afirmación original se pasaba de fuerte).** La frase anterior decía «**no produce ninguna cita falsa**» a secas, y ese razonamiento **solo cubría** la combinación *unavailable + unavailable*. **NO cubría `unavailable` + `unmatched`**, que sí producía una cita falsa y que era la **instancia #6** del defecto R1: como `loadRemoteSets` cachea **solo el éxito**, un fallo transitorio de `/api/v2/sets` en el set A y un éxito en el set B dan `mapper.available:false` **y** `setsUnmatched:[B]` **a la vez**, y el bloque citaba `PptSetMapper: … sets SIN mapeo` como **viva** (línea `SETS NO PEDIDOS`) y como **AUSENTE** (`AHORA:`) en el mismo bloque, además de afirmar «NO es que falte mapeo» habiéndolo. **Ya está CORREGIDO** en este pase (rama condicionada a `sinMapeo.length === 0` + rama fundida que publica las dos causas con sus dos acciones) y **con test de corrida real** (`test/graded-verdict-guard.spec.ts`, describe «el catálogo caído para UN set y sin mapeo para OTRO»). Lo que queda de deuda aquí es solo lo de arriba: la causa única entre dos *unavailable*.
   2. **Sin caché negativa.** `PptSetMapper.loadRemoteSets` cachea en memoria solo el ÉXITO; si `/api/v2/sets` falla, cada set del alcance vuelve a pedirlo. Con `daily_limit` es inocuo (el candado en memoria de `PptApiClient` corta **sin** pegarle al proveedor), pero con `request_failed` son N peticiones fallidas por corrida en vez de una.
 - **Impacto hoy:** ninguno observable con el dial `off`, y con el dial `on` es ruido de log + N intentos fallidos contra un endpoint que ya se sabe caído. Money-safe intacto: sin catálogo **no se pide nada** y **no se escribe nada**.
 - **Salida propuesta:** llevar la causa por set (`mapper.sets` como pares `{setExternalId, cause}`) si alguna vez se ven las dos causas en la misma corrida, y cachear el fallo de `loadRemoteSets` por corrida (un `remoteSetsError` en memoria, limpiado igual que la caché de éxito).
 - **Disparador:** el primero de (a) una corrida real que reporte `SETS SIN COMPROBAR` con más de un set, o (b) **antes del primer `off → on`** de `grading_hook_enabled`, junto con el resto de la fase 2. Ref: `BACKEND_NOTES.md` §0.16.4.
+
+### Pase v1.51-e (remate del guardián graded + cerrojos del carrito) — deuda del cuarto pase (backend, 2026-08-31, no bloqueante)
+
+> **Lo que NACIÓ Y MURIÓ en este mismo pase, y por eso NO se anota como deuda abierta.** El techlead
+> enumeró tres residuos (R-1, R-2, R-3) que habrían sido TL-GE8-1/2/3: el guardián era **opt-in**, la
+> cita solo estaba vigilada si llevaba `«»`, y el `else` que afirma «hubo petición» no tenía candado.
+> **Los tres quedan cerrados aquí**: `capturarLogs()` suscribe el buffer y un `afterEach` del harness
+> corre el invariante sobre todo test que capture logs (con opt-out **nombrado** y **verificado**,
+> `sinGuardianPorque`); el complemento del invariante (`mencionesSinMarcar`) prohíbe nombrar una marca
+> —o sus prefijos `PPT graded:` / `PptSetMapper:`— fuera de un marcador de cita; y las dos cadenas
+> `if/else` de `price-ingest.service.ts` son `switch` con `const … : never` (verificado con
+> contraejemplo: un cuarto `noRequestReason` y un tercer `reason` de `PptSetMapping` **no compilan**).
+> También se cerró la **instancia #6** que QA reprodujo (ver la corrección dentro de TL-GE7-D1) y se
+> sustituyó el mapped type distributivo de `GradedSimpleStop` por un miembro normal + `never` sobre el
+> discriminante (A7 del techlead, **compilado y verificado** en las dos direcciones). Ninguno de estos
+> cambios toca una ruta de escritura de dinero.
+
+#### TL-GE8-4 · `GradedRequestTally` no lleva `requestFailedCount`: bajo `dailyLimited` el bloque CALLA si además hubo fallos (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; no toca dinero, solo precisión del diagnóstico).
+- **Deuda:** en la rama «se emitieron peticiones y ninguna respondió OK» con `dailyLimited: true`, el `nextStep` cita `«PPT graded: 429 DAILY … → PARADA.»` y **deliberadamente no afirma nada** sobre `EL REQUEST FALLÓ`: con la cuota agotada esa línea **puede** existir (si otro set falló antes por 401/red) o no, y hoy el veredicto **no tiene el dato** para saberlo. Callar es lo correcto frente a mentir, pero es callar algo **decidible**: el provider ya sabe cuándo entró en el `else` del `catch` (el que emite `requestFailed`), así que bastaría un contador `requestFailedCount` en el tally para que el bloque dijera «además hubo N peticiones que fallaron ⇒ busca también esta línea» o «no hubo ninguna ⇒ no la busques».
+- **Impacto:** el operador con cuota agotada **y** un 401 de fondo no ve el segundo problema hasta la corrida siguiente. Cero impacto en dinero: sin respuestas OK no se escribe nada.
+- **Salida propuesta:** `requestFailedCount: number` en `GradedRequestTally`, poblado desde el provider; el `nextStep` de `dailyLimited` añade la cita VIVA solo si `> 0`. El guardián lo verifica solo, sin aserción de contenido.
+- **Disparador:** la próxima vez que se toque el tally, o **antes del primer `off → on`** de `grading_hook_enabled` si la cuota diaria se topa en una corrida real. Ref: `BACKEND_NOTES.md` §0.16.5.
+
+#### TL-GE8-5 · `sweepComplete` ignora las cartas con `set` nulo, y la rama «ninguna causa conocida» no tiene test (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja-Media (aceptada, **no bloqueante**; ninguna de las dos ramas escribe nada).
+- **Deuda (dos cosas, la misma familia — «el bloque afirma más de lo que sabe»):**
+  1. **`sweepComplete` puede salir `true` habiendo cartas que nadie miró.** El alcance se construye con `cardIds` (cartas con inventario RAW publicado), pero el agrupador por set descarta las que vienen sin `set` (`price-ingest.service.ts`, `if (!c.set) continue;`). Esas cartas **están en alcance y no se miran nunca**, y sin embargo `setsVisitados === setsEnAlcance` se cumple ⇒ el bloque **no** marca `ALCANCE RECORRIDO: PARCIAL` ni `COTA INFERIOR`. Con `Card.setId` obligatorio en el schema es hoy inalcanzable por datos, pero es exactamente la clase de afirmación que este hilo lleva cuatro pases cerrando: un total que en realidad es un mínimo.
+  2. **La rama «ninguna causa conocida» es alcanzable en producción, tiene CITA y no tiene test.** Es el `return` final de `noRequestOkVerdict` cuando `attempted === 0` sin llave ausente, sin catálogo caído y sin sets sin mapear (y, desde este pase, también el destino de un `noRequestReason` sin rama, que ahora **no** incrementa `attempted`). Cita `«graded-estimate-ingest»` como viva. Ningún test la ejercita, y **un test de función pura no la cerraría**: el guardián solo verifica contra logs de corridas REALES, así que hace falta construir la corrida.
+- **Impacto:** (1) una cifra de sets presentada como total cuando es un mínimo; (2) una rama de diagnóstico sin red. Ninguna de las dos escribe ni relaja un gate: money-safe intacto.
+- **Salida propuesta:** (1) contar las cartas descartadas por `!c.set` y meterlas en el predicado de `sweepComplete` (o darles su propia línea «N carta(s) del alcance sin set ⇒ no se miraron»); (2) montar la corrida que llega ahí (un `noRequestReason` desconocido inyectado por un doble de provider) y pasarla por el guardián.
+- **Disparador:** la próxima vez que se toque `sweepComplete` o el tally, o **antes del primer `off → on`** en producción. Ref: `BACKEND_NOTES.md` §0.16.5.
+
+#### T-6 · `FrozenCardFacts` compila contra `Prisma.InputJsonValue` **solo por ser un `type` alias** (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; hoy compila y no hay error latente en ejecución).
+- **Deuda:** el blob congelado viaja a Prisma como `Prisma.InputJsonValue`, y esa asignabilidad depende de que `FrozenCardFacts` sea un **`type` alias** y no una `interface`: los alias de objeto tienen índice implícito para el chequeo estructural y las `interface` **no**. Convertirlo a `interface` —un refactor que cualquiera haría por costumbre— **rompe el build**, y lo rompe con un error **críptico y lejano**: no habla de `FrozenCardFacts` sino de `Type 'OrderLineData[]' is not assignable to … OrderItemCreateWithoutOrderInput[]` en `orders.service.ts` y `guest-checkout.service.ts` (verificado en este pase). El bloque de doctrina de `order-item-card.ts` **no advierte de esto**.
+- **Impacto:** media hora perdida por quien lo intente, en un archivo que es la doctrina del snapshot congelado. Ningún impacto en ejecución ni en dinero.
+- **Salida propuesta:** una línea en el docstring de `FrozenCardFacts` («⛔ tiene que seguir siendo `type`, no `interface`: es lo que lo hace asignable a `Prisma.InputJsonValue`») o, mejor, un cerrojo explícito del estilo `const _esJsonPersistible: Prisma.InputJsonValue = {} as FrozenCardFacts;` que falle **en el archivo correcto** y no a dos módulos de distancia.
+- **Disparador:** el próximo cambio en `order-item-card.ts`.
+
+#### T-7 · Dos mocks de `guest-checkout.session.spec.ts` ejercitan en silencio la rama «sin fila `Card` ⇒ `null`» (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**).
+- **Deuda:** `test/guest-checkout.session.spec.ts:94` y `:118` mockean `priceCartForOrder`/`priceCartForQuote` con `items: ids.map((id) => ({ id, folio: … })) as never` — o sea **sin `card`**. `toOrderItemPreviews` resuelve la clase (P) por `cardByItemId.get(inventoryItemId)`, así que en esos tests el mapa devuelve `undefined` y **todas** las líneas salen con `imageSmallUrl: null`. El `as never` tapa que el doble no cumple la forma que el código real recibe: esos tests están ejercitando el camino degradado creyendo ejercitar el bueno.
+- **Impacto:** ninguno hoy (esos tests no afirman nada sobre la miniatura), pero es un doble que MIENTE sobre la forma: si mañana alguien añade ahí una aserción de imagen, la escribirá contra el camino equivocado.
+- **Salida propuesta:** darle `card: { imageSmallUrl: … }` al doble y quitar el `as never`, o dejar el `as never` con un comentario que diga explícitamente qué rama se está ejercitando.
+- **Disparador:** el próximo test que toque la miniatura en el flujo de invitado.
+
+#### T-8 · El detalle **admin** de un pedido resuelve la miniatura solo por lectura de código: no hay test que lo fije (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**).
+- **Deuda:** `getOrder(userId, orderId, isAdmin)` sirve **dos** superficies con el mismo cuerpo: el detalle del cliente y el del admin (`isAdmin = true`, que se salta el guard de propiedad). Que el admin vea la miniatura resuelta es cierto **por construcción** —es literalmente el mismo `return`, y desde este pase la misma proyección anotada `toHistoricItemPreviews`—, pero **ningún test lo fija**: si alguien bifurcara el cuerpo por `isAdmin`, nada se pondría rojo.
+- **Impacto:** ninguno hoy. Es cobertura ausente, no defecto.
+- **Salida propuesta:** un caso en `IMG-4` con `getOrder(otroUsuario, orderId, true)` que afirme el mismo `card.imageSmallUrl` que ve el dueño (4 líneas).
+- **Disparador:** el próximo cambio en `getOrder` o en las superficies de admin de pedidos.
 
 ### M43-D1 · `reconcilePublishedPrices` sigue siendo `raw`-only: un slab sin referencia no entra a la cola (M-43, 2026-08-29)
 - **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante**). Residual **declarado por el arquitecto** en ARCHITECTURE §4.38(l.4.9), fuera del alcance de M-43 por decisión del orquestador.

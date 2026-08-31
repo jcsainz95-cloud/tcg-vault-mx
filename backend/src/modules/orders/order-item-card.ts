@@ -53,6 +53,26 @@ export type PersistedCardFacts = Partial<FrozenCardFacts>;
  */
 export type OrderItemCardDTO = FrozenCardFacts & { imageSmallUrl: string | null };
 
+/**
+ * ⛑️ **T-2 (v1.51-e) — la forma de la TERCERA superficie, `GET /orders/:orderId`, DECLARADA.**
+ *
+ * Las dos cotizaciones cruzan `toOrderItemPreviews(...)`, con retorno anotado. El HISTÓRICO —que es la
+ * superficie con la garantía **más débil**, porque lee de una columna `Json` que escribieron versiones
+ * anteriores del código— era la única que proyectaba EN LÍNEA, dentro de un `return` de ~25 claves y
+ * sin anotación: su tipo real era inferido y no se contrastaba con nada.
+ *
+ * Este alias es esa frontera, dicha con exactitud: **`PersistedCardFacts`** (o sea `Partial`, porque un
+ * blob histórico puede no traer las ocho claves) **+ `imageSmallUrl` siempre presente**, que es lo único
+ * que la lectura sí puede garantizar porque lo resuelve ella misma.
+ *
+ * ⚠️ **No es `OrderItemCardDTO`, y esa diferencia es DELIBERADA, no un descuido**: el contrato describe
+ * las ocho claves como presentes, y para el histórico incompleto eso solo se puede prometer con una
+ * tolerancia que **norma el arquitecto** (T-3, ya enrutado — regla 9). Aquí se declara lo que el código
+ * de verdad produce; no se ensancha el contrato por cuenta propia ni se finge una garantía que la
+ * columna no da.
+ */
+export type HistoricOrderItemCardDTO = PersistedCardFacts & { imageSmallUrl: string | null };
+
 /** Lo MÍNIMO que hace falta de la fila `Card` para resolver la clase (P). Nada más se consulta. */
 export type CardImageSource = { imageSmallUrl: string | null };
 
@@ -79,16 +99,49 @@ export function resolveOrderItemCard<F extends PersistedCardFacts>(
 }
 
 /**
- * Cerrojo de compilación: si la proyección deja de producir el `OrderItemCardDTO` del contrato
- * (p. ej. alguien borra `imageSmallUrl` o cambia su tipo), esto **no compila**. Es el guardián que
- * faltaba cuando el retorno era `object`.
+ * **IGUALDAD de tipos, invariante y en las dos direcciones.** `A extends B ? 1 : 2` comparado consigo
+ * mismo dentro de una función genérica es la forma canónica de preguntar «¿A y B son EL MISMO tipo?»
+ * sin que la asignabilidad (que es unidireccional y tolerante) conteste que sí por la puerta de atrás.
  */
-export type ResolvedIsContractShape = OrderItemCardDTO extends ReturnType<
-  typeof resolveOrderItemCard<FrozenCardFacts>
->
-  ? true
-  : never;
+type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : never;
+
+/**
+ * ⛑️ **T-1 (v1.51-e) — CERROJO DE COMPILACIÓN, ahora de verdad.**
+ *
+ * ### Lo que había, y por qué era peor que nada
+ * La aserción era `OrderItemCardDTO extends ReturnType<…>`: **asignabilidad en UNA sola dirección**.
+ * El comentario juraba que «si alguien borra `imageSmallUrl` o cambia su tipo, esto no compila», y el
+ * techlead enumeró tres formas de romperlo sin que se enterase: **borrar** la clave compila, hacerla
+ * **opcional** compila, y **ensancharla** a `string | null | undefined` compila. Solo cazaba el
+ * estrechamiento y las propiedades extra. Un guardián que no guarda, con un comentario que jura que sí,
+ * es peor que no tenerlo: el siguiente mantenedor confía y no mira.
+ *
+ * ### Lo que hay ahora, dicho exactamente
+ * `Equals<A, B>` es **igualdad de tipos**, no asignabilidad, así que la aserción cubre:
+ *  · que la proyección produzca **todas** las claves de `OrderItemCardDTO` y **ninguna de más**;
+ *  · que `imageSmallUrl` exista, sea **requerida** (no opcional) y tenga **exactamente**
+ *    `string | null` (ni estrechada a `string`, ni ensanchada con `undefined`).
+ *
+ * Las tres roturas del techlead se comprobaron una a una contra este helper: las tres NO compilan.
+ * Lo que este cerrojo **no** cubre —y no se afirma que cubra— es lo que viaja por el cable en tiempo de
+ * ejecución: eso lo fijan los tests de las tres superficies, no el compilador.
+ */
+export type ResolvedIsContractShape = Equals<
+  OrderItemCardDTO,
+  ReturnType<typeof resolveOrderItemCard<FrozenCardFacts>>
+>;
 export const RESOLVED_IS_CONTRACT_SHAPE: ResolvedIsContractShape = true;
+
+/**
+ * T-2 — el MISMO cerrojo para la superficie del histórico: `HistoricOrderItemCardDTO` tiene que ser
+ * EXACTAMENTE lo que `resolveOrderItemCard` produce leyendo un blob `Partial`. Con esto las **tres**
+ * superficies de líneas de compra cruzan una frontera declarada y verificada por el compilador.
+ */
+export type HistoricIsResolvedShape = Equals<
+  HistoricOrderItemCardDTO,
+  ReturnType<typeof resolveOrderItemCard<PersistedCardFacts>>
+>;
+export const HISTORIC_IS_RESOLVED_SHAPE: HistoricIsResolvedShape = true;
 
 /**
  * Lee los hechos congelados de la columna `Json` sin re-derivar nada. Un blob ausente o con forma

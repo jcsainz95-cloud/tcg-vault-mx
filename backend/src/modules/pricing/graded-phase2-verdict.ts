@@ -186,17 +186,24 @@ export interface GradedRequestTally {
  *    se nombra o no compila.
  */
 /**
- * v1.51-d (techlead §2) — las paradas SIN carga adicional, **una variante por motivo**.
+ * v1.51-e (A7, sugerencia del techlead **verificada**) — las paradas SIN carga adicional, en UN miembro.
  *
- * Se distribuye con un mapped type en vez de escribir `reason: 'dial_off' | 'no_scope'` en UN miembro
- * porque eso no es un discriminante: TypeScript filtra MIEMBROS de una unión, no reduce la unión de
- * literales dentro de un miembro, así que el `never` de cierre de `stoppedVerdict` no compilaba. Con
- * la distribución cada motivo es su propio miembro ⇒ descartarlos uno a uno llega a `never`, y un
- * motivo NUEVO en `GradedStopReason` aparece aquí solo y rompe la compilación hasta que tenga rama.
+ * Aquí vivía un mapped type distributivo que convertía cada motivo en su propio miembro de la unión.
+ * La razón declarada era que «TypeScript filtra MIEMBROS de una unión, no reduce la unión de literales
+ * dentro de un miembro», así que el `never` de cierre de `stoppedVerdict` no compilaría. **Eso era
+ * cierto del objeto `o` y falso del discriminante `o.reason`**: TypeScript SÍ estrecha el acceso a
+ * propiedad `o.reason` por flujo de control, así que descartando los tres motivos uno a uno se llega a
+ * `never` sin necesidad de distribuir nada.
+ *
+ * Se comprobó compilando las dos cosas antes de cambiar nada: (a) la versión de abajo con el
+ * `const sinRama: never = o.reason` compila; (b) añadir un motivo a `GradedStopReason` **rompe la
+ * compilación** con `Type '"…"' is not assignable to type 'never'`. Garantía IDÉNTICA, cuatro líneas de
+ * tipos crípticos menos.
  */
 type GradedSimpleStop = {
-  [R in Exclude<GradedStopReason, 'ingest_config_invalid'>]: { kind: 'stopped'; reason: R };
-}[Exclude<GradedStopReason, 'ingest_config_invalid'>];
+  kind: 'stopped';
+  reason: Exclude<GradedStopReason, 'ingest_config_invalid'>;
+};
 
 export type GradedRunOutcome =
   /**
@@ -358,6 +365,30 @@ function noRequestOkVerdict(req: GradedRequestTally, dailyLimited: boolean, r: R
     if (!req.mapper.available) {
       const { qué, acción } = motivoCatalogoCaido(req.mapper.cause);
       const sets = req.mapper.sets;
+      // ⛑️ QA (v1.51-e) — **LA INSTANCIA #6.** Esta rama afirmaba INCONDICIONALMENTE dos cosas que solo
+      // son ciertas si NO hay además sets sin mapear: «NO es que falte mapeo», y que la línea
+      // `PptSetMapper: … sets SIN mapeo` no existe en esta corrida. Los dos estados COEXISTEN sin
+      // esfuerzo —`loadRemoteSets` cachea solo el ÉXITO, así que un fallo transitorio en el set A y un
+      // éxito en el set B dan `mapper.available:false` **y** `setsUnmatched:[B]` a la vez—, y entonces
+      // el bloque citaba la MISMA línea como viva (en `SETS NO PEDIDOS`) y como ausente (en el `AHORA`),
+      // y le daba al operador la acción equivocada para el set que sí necesita mapeo. Las dos
+      // afirmaciones se condicionan; cuando conviven, se publican las DOS causas con sus DOS acciones.
+      if (sinMapeo.length > 0) {
+        return r(
+          'INDETERMINADO',
+          `NO HUBO NI UNA PETICIÓN, y hay DOS causas a la vez: (1) ${qué}, así que de ${sets.length} ` +
+            `set(s) (${nombrarSets(sets)}) NO SE PUDO COMPROBAR si tienen \`pptSetId\`; y (2) otros ` +
+            `${sinMapeo.length} set(s) (${nombrarSets(sinMapeo)}) SÍ se comprobaron y NO tienen ` +
+            '`pptSetId` mapeado. Son causas DISTINTAS y piden acciones DISTINTAS.' +
+            parcial,
+          `${acción} Para los que SÍ se comprobaron, mapea el \`pptSetId\` de ${nombrarSets(sinMapeo)}. ` +
+            `Las líneas que SÍ existen aquí son ${citarLineaViva(GRADED_LOG_LINES.mapperUnavailable)} ` +
+            `(los sin comprobar), ${citarLineaViva(GRADED_LOG_LINES.mapperUnmatched)} (los sin mapeo) y ` +
+            `${citarLineaViva(GRADED_LOG_LINES.setWithoutPptSetId)} (consecuencia de ambas, no causa). ` +
+            `La que NO está es ${citarLineaAusente(GRADED_LOG_LINES.requestFailed)}: no hubo petición ` +
+            'que pudiera fallar.',
+        );
+      }
       return r(
         'INDETERMINADO',
         `NO HUBO NI UNA PETICIÓN, y NO es que falte mapeo: ${qué}, así que de ${sets.length} set(s) del ` +
@@ -480,8 +511,12 @@ function stoppedVerdict(
   // ⛑️ EL CANDADO. Si alguien añade un motivo a `GradedStopReason` sin darle rama, esta línea deja de
   // compilar. En tiempo de ejecución NO se lanza (un diagnóstico no puede tumbar el job) ni se hereda
   // un titular ajeno: se dice exactamente lo que se sabe, que es el nombre del motivo.
-  const motivoSinRama: never = o;
-  const nombre = (motivoSinRama as { reason: string }).reason;
+  //
+  // v1.51-e (A7): el candado va sobre el DISCRIMINANTE (`o.reason`), no sobre el objeto. Es el mismo
+  // `never`, con la misma fuerza, y permite que `GradedSimpleStop` sea un miembro normal en vez de un
+  // mapped type distributivo. Verificado compilando el contraejemplo: un motivo nuevo NO compila.
+  const motivoSinRama: never = o.reason;
+  const nombre = motivoSinRama as string;
   return r(
     'INDETERMINADO',
     `No se preguntó nada: la corrida PARÓ con el motivo \`${nombre}\`, que NO tiene rama propia en el ` +

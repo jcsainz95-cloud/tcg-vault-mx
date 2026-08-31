@@ -13,7 +13,9 @@ import {
   CARD_IMAGE_SELECT,
   CardImageSource,
   FrozenCardFacts,
+  HistoricOrderItemCardDTO,
   OrderItemCardDTO,
+  PersistedCardFacts,
   distinctCardIds,
   readFrozenCardFacts,
   resolveOrderItemCard,
@@ -819,6 +821,34 @@ export class OrdersService {
     return new Map(cards.map((c) => [c.id, { imageSmallUrl: c.imageSmallUrl }]));
   }
 
+  /**
+   * ⛑️ **T-2 (v1.51-e) — la proyección HERMANA del histórico, con su retorno ANOTADO.**
+   *
+   * Las dos cotizaciones ya cruzaban `toOrderItemPreviews`, con tipo declarado. Ésta —la superficie con
+   * la garantía MÁS DÉBIL, porque lee de la columna `Json`— proyectaba en línea dentro de un `return` de
+   * ~25 claves: su tipo era inferido y no se contrastaba con nada, justo donde más falta hace decirlo.
+   * Ahora las **tres** superficies cruzan una frontera declarada.
+   *
+   * Reglas que este cuerpo hace cumplir (§5.2.4/§5.2.5) y que no se pueden relajar aquí:
+   *  · los hechos salen del blob **tal cual se congelaron** — jamás se re-derivan;
+   *  · `imageSmallUrl` **jamás** se lee del JSON: se une por el `cardId` congelado contra el mapa ya
+   *    batcheado (prohibido `inventoryItemId → InventoryItem.card`, §5.2.5);
+   *  · un `cardId` que no resuelve rinde `null`, que es un resultado legítimo, no un error.
+   *
+   * `facts[i]` corresponde a `items[i]`: los dos arrays salen del MISMO `order.items` en el mismo orden.
+   */
+  private toHistoricItemPreviews(
+    items: { inventoryItemId: string; unitPriceCents: number }[],
+    facts: PersistedCardFacts[],
+    cardsById: Map<string, CardImageSource>,
+  ): { inventoryItemId: string; card: HistoricOrderItemCardDTO; unitPriceCents: number }[] {
+    return items.map((i, idx) => ({
+      inventoryItemId: i.inventoryItemId,
+      card: resolveOrderItemCard(facts[idx], cardsById.get(facts[idx].cardId ?? '')),
+      unitPriceCents: i.unitPriceCents,
+    }));
+  }
+
   async getOrder(userId: string, orderId: string, isAdmin = false) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -847,11 +877,7 @@ export class OrdersService {
       createdAt: order.createdAt,
       settledAt: order.settledAt,
       breakdown,
-      items: order.items.map((i, idx) => ({
-        inventoryItemId: i.inventoryItemId,
-        card: resolveOrderItemCard(facts[idx], cardsById.get(facts[idx].cardId ?? '')),
-        unitPriceCents: i.unitPriceCents,
-      })),
+      items: this.toHistoricItemPreviews(order.items, facts, cardsById),
       cfdiStatus: order.cfdiStatus,
       invoiceRequested: order.invoiceRequested,
       stripePaymentIntentId: order.stripePaymentIntentId,

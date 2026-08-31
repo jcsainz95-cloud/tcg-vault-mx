@@ -5,6 +5,7 @@ import {
   citarLineaAusente,
   citarLineaViva,
   emitirLineaGraded,
+  mencionesSinMarcar,
 } from '../src/modules/pricing/graded-log-lines';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import {
@@ -13,6 +14,7 @@ import {
   ON,
   capturarLogs,
   esperarVeredictoCitable,
+  sinGuardianPorque,
   mockPages,
   pageS1,
   resp401,
@@ -323,6 +325,8 @@ describe('QA — la parcialidad del recorrido se MARCA', () => {
     esperarVeredictoCitable(logs, 'alcance recortado por el tope de cartas');
   });
 
+  // ⛑️ R-1 — este caso montaba corrida real y NO llamaba al guardián. Hoy no hace falta: `capturarLogs`
+  // suscribe el buffer y el `afterEach` del harness corre el invariante solo.
   it('el contraste: una corrida que recorre TODO el alcance no lleva marca de parcialidad', async () => {
     const logs = capturarLogs();
     mockPages([pageS1De(CARD.externalId, CARD.number)], [], [CATALOGO_PARCIAL]);
@@ -342,6 +346,9 @@ describe('QA — la parcialidad del recorrido se MARCA', () => {
  * resto del archivo se pone rojo.
  */
 describe('TL-GE7 — emisor y cita leen la MISMA constante', () => {
+  // ⛑️ R-1 — los dos casos de este bloque tampoco llamaban al guardián (montan corrida real y miran
+  // solo el pajar). Siguen sin llamarlo, y aun así están guardados: el `afterEach` del harness pasa el
+  // invariante por todo buffer capturado. Ésa es la diferencia entre un mecanismo y una costumbre.
   it('la línea del 429 diario que emite el provider casa con la marca que cita el veredicto', async () => {
     const logs = capturarLogs();
     mockPages([resp429Daily()], [], [CATALOGO_PARCIAL]);
@@ -362,5 +369,145 @@ describe('TL-GE7 — emisor y cita leen la MISMA constante', () => {
     expect(emitida.some((l) => citaCoincideConLinea(GRADED_LOG_LINES.mapperUnavailable, l))).toBe(true);
     // Y la OTRA marca del mapper NO se emitió: es justo la que R1-quater citaba en falso.
     expect(emitida.some((l) => citaCoincideConLinea(GRADED_LOG_LINES.mapperUnmatched, l))).toBe(false);
+  });
+});
+
+// =================================================================================================
+/**
+ * ⛑️ **QA — LA INSTANCIA #6, VIVA EN EL COMMIT ANTERIOR: `unavailable` y `unmatched` COEXISTEN.**
+ *
+ * La rama «el catálogo no se pudo consultar» afirmaba **incondicionalmente** dos cosas que solo son
+ * ciertas si NO hay además sets sin mapear: que «NO es que falte mapeo», y que
+ * `PptSetMapper: … sets SIN mapeo` **no existe en esta corrida**. Los dos estados coexisten sin
+ * esfuerzo, porque `loadRemoteSets` cachea **solo el éxito**: un fallo transitorio de `/api/v2/sets` en
+ * el primer set y un éxito en el segundo dan `mapper.available:false` **y** `setsUnmatched:[…]` a la
+ * vez. Resultado: la MISMA línea citada como viva (en la cola «Además, N set(s) NI SE PIDIERON»… no,
+ * peor) y como ausente, y la acción equivocada para el set que sí necesita mapeo.
+ *
+ * El guardián lo caza — pero **ningún test construía el estado**. Éste lo construye, con el mapper
+ * REAL y sin tocar el provider.
+ */
+describe('QA — el catálogo caído para UN set y sin mapeo para OTRO, en la MISMA corrida', () => {
+  it('⛑️ no cita «sets SIN mapeo» como ausente cuando SÍ hay sets sin mapear (y lo dice en el titular)', async () => {
+    const logs = capturarLogs();
+    // 1er `/api/v2/sets` → 401 (transitorio) ⇒ `s1` queda SIN COMPROBAR.
+    // 2º  `/api/v2/sets` → catálogo que solo conoce «Surging Sparks» ⇒ `s2` (Stellar Crown) SIN MAPEO.
+    // `loadRemoteSets` cachea solo el ÉXITO, así que el segundo set vuelve a pedir el catálogo.
+    mockPages([], [], [resp401(), CATALOGO_PARCIAL]);
+    const { ingest, create } = wireJob({}, ON, [{ cardId: 'c1' }, { cardId: 'c2' }], null, {
+      mapperReal: true,
+      cartas: [CARD, CARD_B],
+    });
+
+    const res = await ingest.ingestGradedEstimates(FX);
+    const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
+    const pajar = logs.filter((l) => !l.includes(GRADED_VERDICT_TAG)).join('\n');
+
+    expect(res.verdict).toBe('INDETERMINADO');
+    expect(create).not.toHaveBeenCalled(); // money-safe: sin catálogo no se pide ni se escribe nada
+    // El estado que hace falta reproducir: las DOS causas vivas en la misma corrida.
+    expect(pajar).toContain(GRADED_LOG_LINES.mapperUnavailable);
+    expect(pajar).toContain('sets SIN mapeo a PokemonPriceTracker');
+
+    // ⛑️ LA REGRESIÓN (instancia #6): el bloque afirmaba «NO es que falte mapeo» y citaba
+    // `"PptSetMapper: … sets SIN mapeo" (NO existe en esta corrida)` — con la línea EN el log.
+    expect(bloque).not.toContain(citarLineaAusente(GRADED_LOG_LINES.mapperUnmatched));
+    expect(bloque).not.toContain('NO es que falte mapeo');
+    // Y las dos causas se nombran, cada una con su acción (mapear vs. reintentar).
+    expect(bloque).toContain('NO SE PUDO COMPROBAR');
+    expect(bloque).toContain('sv8');
+    expect(bloque).toContain('NO tienen `pptSetId` mapeado');
+    expect(bloque).toContain('sv7');
+    esperarVeredictoCitable(logs, 'catálogo caído para un set + sin mapeo para otro');
+  });
+
+  it('el contraste: con el catálogo caído y NINGÚN set sin mapear, el titular SIGUE diciendo «NO es que falte mapeo»', async () => {
+    const logs = capturarLogs();
+    mockPages([], [], [CATALOGO_CUOTA_AGOTADA]);
+    const { ingest } = wireJob({}, ON, [{ cardId: 'c1' }], null, { mapperReal: true });
+    await ingest.ingestGradedEstimates(FX);
+    const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
+
+    expect(bloque).toContain('NO es que falte mapeo');
+    expect(bloque).toContain(citarLineaAusente(GRADED_LOG_LINES.mapperUnmatched));
+  });
+});
+
+// =================================================================================================
+/**
+ * ⛑️ **R-2 — EL COMPLEMENTO: la cita solo estaba vigilada si llevaba `«»`, y la forma HISTÓRICA del
+ * defecto NO las lleva.**
+ *
+ * `extraerCitasVivas` solo ve comillas angulares. Nada impedía escribir en un `headline`/`nextStep`
+ * `Revisa las líneas "PPT graded: EL REQUEST FALLÓ" del log` —con comillas rectas o tipográficas, sin
+ * marcador— y el guardián era **ciego**. Y no es un caso hipotético: ése es literalmente el texto de R1
+ * original, el que ha vuelto cuatro veces, y que sigue citado en comentarios de este repo.
+ *
+ * El invariante invertido cierra el hueco: en el bloque `VEREDICTO-PSA`, **ninguna** ocurrencia de una
+ * marca (ni de sus prefijos `PPT graded:` / `PptSetMapper:`) puede quedar fuera de un marcador. Con eso,
+ * mencionar una línea OBLIGA a pasar por `citarLineaViva`/`citarLineaAusente` — y entonces el invariante
+ * directo la verifica contra los logs reales.
+ */
+describe('R-2 — mencionar una línea sin marcador de cita es una violación', () => {
+  it('caza la redacción HISTÓRICA de R1 (comillas rectas, sin marcador)', () => {
+    const texto = `[${GRADED_VERDICT_TAG}] AHORA: Revisa las líneas "PPT graded: EL REQUEST FALLÓ" del log.`;
+    expect(mencionesSinMarcar(texto)).toEqual(['PPT graded:']);
+  });
+
+  it('caza también las comillas TIPOGRÁFICAS (que no son ningún marcador reconocido)', () => {
+    const texto = `[${GRADED_VERDICT_TAG}] AHORA: busca \u201cPptSetMapper: 3 sets SIN mapeo\u201d en el log.`;
+    expect(mencionesSinMarcar(texto)).toEqual(['PptSetMapper:']);
+  });
+
+  it('y la marca del orquestador, que no cuelga de ningún prefijo', () => {
+    expect(mencionesSinMarcar(`[${GRADED_VERDICT_TAG}] mira las líneas graded-estimate-ingest.`)).toEqual([
+      'graded-estimate-ingest',
+    ]);
+  });
+
+  it('una cita BIEN MARCADA (viva o ausente) no cuenta como mención suelta', () => {
+    const texto =
+      `[${GRADED_VERDICT_TAG}] AHORA: ${citarLineaViva(GRADED_LOG_LINES.dailyStop)} y ` +
+      `${citarLineaAusente(GRADED_LOG_LINES.requestFailed)} y ` +
+      `${citarLineaViva(GRADED_LOG_LINES.ingest)}.`;
+    expect(mencionesSinMarcar(texto)).toEqual([]);
+  });
+
+  it('nombrar `PptSetMapper` como SERVICIO (sin los dos puntos) no es citar una línea', () => {
+    // El `nextStep` de «sin mapeo» dice «Lo resuelve `PptSetMapper` por NOMBRE contra…». Eso habla del
+    // servicio, no del log: la aguja lleva los dos puntos justamente para no confundir las dos cosas.
+    expect(mencionesSinMarcar('Lo resuelve `PptSetMapper` por NOMBRE contra `GET /api/v2/sets`.')).toEqual([]);
+  });
+
+  it('⛑️ `esperarVeredictoCitable` FALLA con una mención sin marcar (es parte del invariante, no un extra)', () => {
+    expect(() =>
+      esperarVeredictoCitable(
+        [
+          `[${GRADED_VERDICT_TAG}] AHORA: Revisa las líneas "PPT graded: EL REQUEST FALLÓ" del log.`,
+          `${emitirLineaGraded(GRADED_LOG_LINES.requestFailed)} para el set sv8: HTTP 401.`,
+        ],
+        'mención sin marcador',
+      ),
+    ).toThrow(/sinCitar/);
+  });
+});
+
+// =================================================================================================
+/**
+ * ⛑️ **R-1 — EL GUARDIÁN DEJA DE SER OPT-IN.**
+ *
+ * `esperarVeredictoCitable` era una llamada que cada test decidía hacer, y eso es exactamente lo que ha
+ * fallado cuatro veces: el mecanismo que existe para no depender de la disciplina humana dependía de
+ * ella en cada test nuevo. En este mismo archivo había DOS casos de corrida real que no lo llamaban, y
+ * `graded-estimate.probe.spec.ts` capturaba logs sin pasar por él ni una vez.
+ *
+ * Hoy **capturar logs es suscribirse**: el `afterEach` del harness corre el invariante sobre todo
+ * buffer del test que acaba de terminar. Saltárselo exige escribir `sinGuardianPorque(motivo)`, que se
+ * ve en el diff — y que además se verifica: si el test SÍ emitió bloque, la exención falla por sobrante.
+ */
+describe('R-1 — la única puerta de salida hay que escribirla por su nombre', () => {
+  it('`sinGuardianPorque` EXIGE un motivo: una exención sin motivo es un agujero', () => {
+    expect(() => sinGuardianPorque('')).toThrow(/motivo/);
+    expect(() => sinGuardianPorque('   ')).toThrow(/motivo/);
   });
 });

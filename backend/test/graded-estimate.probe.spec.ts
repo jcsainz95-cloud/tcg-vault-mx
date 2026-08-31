@@ -19,6 +19,7 @@ import {
   pageS1,
   pageS2,
   provider,
+  sinGuardianPorque,
   wireJob,
 } from './graded-run.harness';
 
@@ -63,6 +64,7 @@ describe('§4.38h.1-quater — la SONDA sin `MARKET_FORMAT`: SÍ pregunta, SÍ l
   });
 
   it('la MUESTRA CRUDA se loguea (era imposible: el `return` impedía generar el log que él mismo pedía)', async () => {
+    sinGuardianPorque('llama al PROVIDER suelto: no hay corrida ⇒ no hay bloque VEREDICTO-PSA que verificar');
     const logs = capturarLogs();
     mockPages([pageS1()]);
     await call(provider(cfg({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined })));
@@ -99,6 +101,7 @@ describe('§4.38h.1-quater — la SONDA sin `MARKET_FORMAT`: SÍ pregunta, SÍ l
   });
 
   it('deja un reporte por set con marca fija (`PPT-GRADED-SONDA`) y el bloque PSA crudo', async () => {
+    sinGuardianPorque('llama al PROVIDER suelto: no hay corrida ⇒ no hay bloque VEREDICTO-PSA que verificar');
     const logs = capturarLogs();
     mockPages([pageS1()]);
     await call(provider(cfg({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined })));
@@ -186,6 +189,7 @@ describe('§4.38h.1-quater — la SONDA sin `MARKET_FORMAT`: SÍ pregunta, SÍ l
 // =================================================================================================
 describe('§4.38h.1-quater — `POKEMONPRICETRACKER_GRADED_PROBE`: observar SIN apagar los precios raw', () => {
   it('con el formato FIJADO, la env de sonda manda: hay petición, hay muestra y CERO filas', async () => {
+    sinGuardianPorque('llama al PROVIDER suelto: no hay corrida ⇒ no hay bloque VEREDICTO-PSA que verificar');
     const logs = capturarLogs();
     const spy = mockPages([pageS1()]);
     const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_PROBE: 'on' })));
@@ -845,6 +849,7 @@ describe('v1.51-c (TL-GE6) — los estados que producían R1 ya no son expresabl
  */
 describe('v1.51-b (TL-GE3) — `POKEMONPRICETRACKER_GRADED_PROBE` con un valor raro AVISA', () => {
   it('un typo (`onn`) deja de caer en silencio: hay `warn` que dice que la sonda quedó APAGADA', async () => {
+    sinGuardianPorque('llama al PROVIDER suelto: no hay corrida ⇒ no hay bloque VEREDICTO-PSA que verificar');
     const logs = capturarLogs();
     mockPages([pageS1()]);
     const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_PROBE: 'onn' })));
@@ -854,6 +859,7 @@ describe('v1.51-b (TL-GE3) — `POKEMONPRICETRACKER_GRADED_PROBE` con un valor r
   });
 
   it('los valores VÁLIDOS y la ausencia no generan ruido (un aviso que grita siempre no se lee)', async () => {
+    sinGuardianPorque('llama al PROVIDER suelto: no hay corrida ⇒ no hay bloque VEREDICTO-PSA que verificar');
     for (const valor of [undefined, '', 'on', 'true', '1', 'yes', 'off', 'false', '0', 'no']) {
       const logs = capturarLogs();
       mockPages([pageS1()]);

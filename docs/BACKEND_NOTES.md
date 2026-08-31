@@ -111,9 +111,20 @@ honesto, la causa real se lee de una corrida.
 > cartas siguen sin dato**. §0.16.1 son los arreglos del primer pase (v1.51-b); **§0.16.3** son los
 > residuos que ese pase dejó — incluida la **tercera** instancia del defecto R1, que caía justo en la
 > causa #5 («set sin `pptSetId`»), o sea en la hipótesis principal de esas cartas faltantes.
-> **§0.16.4 es el pase que deja de perseguir instancias y cierra la CLASE**: pone un guardián que
-> comprueba, corrida a corrida, que el veredicto no cita ninguna línea de log que no exista — y con él
-> cierra la cuarta y la quinta instancia. **Si vas a leer una sola: §0.16.4.**
+> **§0.16.4 es el pase que deja de perseguir instancias y pone el GUARDIÁN**: comprueba, corrida a
+> corrida, que el veredicto no cita ninguna línea de log que no exista — y con él cerró la cuarta y la
+> quinta instancia. **§0.16.5 es el remate**: hace el guardián automático (era opt-in), le añade el
+> invariante inverso (mencionar una línea obliga a citarla) y cierra la **sexta** instancia, que QA
+> encontró viva. **Si vas a leer una sola: §0.16.5.**
+>
+> ⚠️ **Matiz honesto sobre «cierra la CLASE» (QA, v1.51-e).** §0.16.4 afirmaba que el pase cerraba la
+> CLASE. Lo que cierra es la clase **en las instancias que la suite EJERCITA**: QA midió que **4 de los
+> 10 bloques** que la suite produce (`VIABLE`, `dial_off`, `ingest_config_invalid`, `no_scope`) emiten
+> **CERO citas**, así que ahí el invariante pasa **por vacuidad** — pasar no prueba nada. El guardián no
+> puede verificar una rama que ningún test hace correr; lo que garantiza es que **ninguna rama
+> ejercitada** pueda citar en falso, y —desde §0.16.5— que ninguna pueda **esquivar** la cita
+> nombrando la línea sin marcador. La cobertura de ramas sigue siendo trabajo de tests, no del
+> invariante.
 >
 > ⚠️ **Lectura de `SETS NO PEDIDOS` (importante para el dueño).** Hasta v1.51-c esa línea fundía dos
 > causas y no marcaba parcialidad. Desde v1.51-d hay **dos** líneas (`SETS NO PEDIDOS` = comprobado y
@@ -436,6 +447,142 @@ habló al proveedor lo tiene en `requests`, que es el dato explícito.
 **Deuda anotada:** `TECH_DEBT.md` → **TL-GE7-D1** (una sola causa por corrida en `SETS SIN COMPROBAR`;
 sin caché negativa de `/api/v2/sets`). **TL-GE4** y **TL-GE5** siguen abiertas; la última frase de
 TL-GE5 se corrigió en este pase (leer `SETS NO PEDIDOS` ya no es «gratis» sin las dos cautelas).
+
+---
+
+## 0.16.5 — **El remate: el guardián deja de ser OPT-IN, la cita deja de ser esquivable, y la instancia #6** (v1.51-e)
+
+> Propiedad: **backend**. Sin cambio de contrato ni de esquema. **Ni una ruta de escritura de dinero
+> cambia**: la suite completa sigue verde (2 670 tests / 207 suites) y el caso `VIABLE` sigue
+> escribiendo exactamente una fila.
+
+### El diagnóstico del techlead, y por qué este pase es el que cierra la discusión
+El pase anterior puso el guardián y declaró la clase cerrada. El techlead contestó que **habría una
+sexta instancia y por dónde entraría**, y enumeró tres agujeros (R-1, R-2, R-3). Los tres son la misma
+observación: *el mecanismo que existe para no depender de la disciplina humana seguía dependiendo de
+ella*. Se cierran aquí, y QA además **reprodujo la sexta instancia viva** en el commit anterior.
+
+### (R-1) El guardián era OPT-IN — y eso es lo que había fallado cuatro veces
+`esperarVeredictoCitable` era una llamada que cada test decidía hacer. En el propio
+`graded-verdict-guard.spec.ts` había **dos** casos que montaban corrida real sin llamarla, y
+`graded-estimate.probe.spec.ts` capturaba logs y **nunca** pasaba por el guardián.
+
+**Arreglo — capturar logs ES suscribirse.** `capturarLogs()` apunta su buffer en un registro de módulo
+y `test/graded-run.harness.ts` declara un `afterEach` de nivel superior que corre el invariante sobre
+**todo** buffer capturado en el test que acaba de terminar. Como el `import` se evalúa antes que
+cualquier `afterEach` del `.spec`, el guardián corre **primero** (antes de un `jest.restoreAllMocks()`).
+Escribir «un test de corrida sin guardián» ya no es una opción por omisión: hay que pedirlo por su
+nombre con **`sinGuardianPorque(motivo)`**, que exige motivo no vacío, se ve en el diff y **se
+verifica**: si el test SÍ emitió bloque `VEREDICTO-PSA`, la exención falla por **sobrante**. Hoy hay
+exactamente **5** exenciones, todas del mismo tipo (tests que llaman al PROVIDER suelto, sin corrida).
+
+**Lo primero que cazó al dejar de ser opt-in.** Un test de `probe.spec` que cableaba el mapper con un
+doble: el doble devolvía `reason:'unmatched'` **sin emitir la línea del mapper**, así que el veredicto
+citaba `«PptSetMapper: … sets SIN mapeo»` sobre unos logs donde no existía. No era un defecto de
+producción (el mapper real emite esa línea en la MISMA llamada que devuelve `unmatched`) sino un
+**doble que mentía sobre el estado del mundo**. Se arregló en el DOBLE —`wireJob` emite ahora las dos
+marcas del mapper por la MISMA constante—, no en el guardián ni en el veredicto.
+
+### (R-2) La cita solo estaba vigilada si llevaba `«»`, y la forma histórica del defecto no las lleva
+`extraerCitasVivas` solo ve comillas angulares. Nada impedía escribir
+`Revisa las líneas "PPT graded: EL REQUEST FALLÓ" del log` —con comillas rectas o tipográficas y sin
+marcador— y el guardián era **ciego**. No es hipotético: **ése es el texto literal de R1 original**.
+
+**Arreglo — el invariante INVERSO.** `mencionesSinMarcar()` (en `graded-log-lines.ts`) exige que en el
+texto del bloque **ninguna** ocurrencia de una marca de `GRADED_LOG_LINES` —ni de sus prefijos
+`PPT graded:` / `PptSetMapper:`— quede fuera de un marcador de cita. Se comprueba en el mismo
+`esperarVeredictoCitable`, o sea en toda corrida guardada. Con eso, **mencionar una línea obliga a
+citarla**, y citarla la mete en el invariante directo. La aguja del mapper lleva los dos puntos a
+propósito: hablar del **servicio** `PptSetMapper` (que el `nextStep` hace, legítimamente) no es citar su
+**línea**.
+
+### (R-3) El `else` que afirmaba «hubo petición» no tenía candado
+`price-ingest.service.ts` clasificaba con `if / else if / else`: un **cuarto** motivo de «no se pidió»
+(circuit-breaker, skip por scope, rate-limit local) caería en el `else`, incrementaría
+`requests.attempted` y el veredicto mandaría al operador a **«EL REQUEST FALLÓ» por una petición que
+nunca se emitió**. Es el defecto (b) de R1 palabra por palabra, en el dato que **gobierna la cita**.
+Mismo patrón ocho líneas abajo: un tercer `reason` en `PptSetMapping` (p. ej. `'ambiguous'`) heredaría
+en silencio el titular «no está mapeado».
+
+**Arreglo:** `switch` con `const … : never` sobre **las dos** uniones. **Conducta hoy: idéntica.**
+Verificado con contraejemplo: añadir `'circuit_breaker'` a `noRequestReason` y `'ambiguous'` a
+`PptSetMapping` **rompe la compilación** en las dos líneas del candado. En ejecución no se lanza (un
+diagnóstico no puede tumbar el job) y el motivo desconocido es **fail-closed**: NO cuenta como petición
+emitida, así que el veredicto cae en el titular honesto («ninguna causa conocida ⇒ repórtalo») en vez
+de mandar a un log que quizá no existe.
+
+### (QA) La instancia #6, viva en el commit anterior: `unavailable` y `unmatched` COEXISTEN
+La rama «el catálogo no se pudo consultar» afirmaba **incondicionalmente** dos cosas que solo son
+ciertas si no hay además sets sin mapear: «**NO es que falte mapeo**» y que
+`PptSetMapper: … sets SIN mapeo` **no existe en esta corrida**. Pero los dos estados conviven sin
+esfuerzo, porque `PptSetMapper.loadRemoteSets` **cachea solo el ÉXITO**: un fallo transitorio de
+`/api/v2/sets` en el set A y un éxito en el set B dan `mapper.available:false` **y**
+`setsUnmatched:[B]` a la vez. Resultado medido: el bloque citaba la **misma línea** como VIVA (en
+`SETS NO PEDIDOS`) y como AUSENTE (en el `AHORA:`), y le daba al operador la acción equivocada para el
+set que sí necesita mapeo.
+
+**Arreglo:** las dos afirmaciones se condicionan a `sinMapeo.length === 0`. Cuando conviven, el titular
+publica **las DOS causas numeradas** y el `nextStep` **las DOS acciones** (reintentar los sin comprobar,
+mapear los sin mapeo), citando `mapperUnavailable` **y** `mapperUnmatched` como vivas —porque las dos lo
+están— y solo `requestFailed` como ausente. **Con test de corrida real** (dos sets, `/api/v2/sets` que
+falla la primera vez y responde la segunda) y su contraste, para que el titular «NO es que falte mapeo»
+siga saliendo cuando de verdad no falta.
+
+### (A7, sugerencia del techlead — **probada**, no aceptada a ciegas)
+Proponía sustituir el mapped type distributivo de `GradedSimpleStop` por `const sinRama: never =
+o.reason`, con la reserva de que no había podido compilarlo. **Funciona**: TypeScript estrecha el acceso
+a propiedad `o.reason` por flujo de control aunque no pueda descartar el miembro, así que se llega a
+`never` igual. Se comprobaron las dos direcciones antes de tocar nada —la versión simple compila, y
+añadir un motivo a `GradedStopReason` **rompe la compilación**— y se simplificó. Cuatro líneas de tipos
+crípticos menos, garantía idéntica.
+
+### Precisión de dos afirmaciones que se habían pasado de fuertes
+- **`TECH_DEBT.md` TL-GE7-D1 punto 1** decía «no produce ninguna cita falsa». Ese razonamiento cubría
+  *unavailable + unavailable*, **no** *unavailable + unmatched* — que sí la producía, y era la instancia
+  #6. Corregido allí, con el alcance exacto de lo que sigue siendo deuda.
+- **§0.16.4** decía que el pase «cierra la CLASE». Matizado arriba: cierra la clase en las instancias
+  que la suite **ejercita** (4 de 10 bloques no emiten ninguna cita ⇒ el invariante pasa por vacuidad).
+- **El docstring de `graded-log-lines.ts`** decía que emisor y citador leen la misma constante «incluido
+  `PriceIngestService`». Para la marca `ingest` es **falso** (se emite como literal crudo en ~20 sitios).
+  No hay defecto —el guardián verifica contra logs REALES—, pero la frase ahora dice exactamente hasta
+  dónde llega la promesa.
+
+### Los dos cerrojos del carrito (T-1, T-2)
+- **T-1 — el cerrojo de compilación no hacía lo que su comentario juraba.** `OrderItemCardDTO extends
+  ReturnType<…>` es **asignabilidad en una sola dirección**: borrar `imageSmallUrl` compilaba, hacerla
+  opcional compilaba y ensancharla a `string | null | undefined` compilaba. Hoy es una **igualdad**
+  (`Equals<A,B>` invariante, en las dos direcciones) y **las tres roturas se comprobaron una a una: las
+  tres NO compilan**. El comentario se reescribió para describir lo que la aserción cubre de verdad — y
+  para no prometer nada sobre lo que viaja por el cable en ejecución, que lo fijan los tests.
+- **T-2 — la tercera superficie era la única sin frontera tipada.** Los dos quotes cruzaban
+  `toOrderItemPreviews(...)` con retorno anotado; el **histórico** —el de garantía más débil, porque lee
+  `Json`— proyectaba en línea dentro de un `return` de ~25 claves, con tipo inferido y contrastado con
+  nada. Ahora tiene su proyección hermana **`toHistoricItemPreviews(items, facts, cardsById)`** con
+  retorno declarado (`HistoricOrderItemCardDTO = PersistedCardFacts & { imageSmallUrl: string | null }`)
+  y **su propio cerrojo de igualdad**. Ese tipo **no** es `OrderItemCardDTO`, y la diferencia es
+  deliberada: el contrato describe las ocho claves como presentes y para un blob histórico incompleto
+  eso solo se puede prometer con una tolerancia que **norma el arquitecto** (T-3, enrutado — regla 9).
+  Aquí se declara lo que el código produce; no se ensancha el contrato por cuenta propia.
+
+### Archivos tocados
+| Archivo | Qué cambia |
+|---|---|
+| `src/modules/pricing/graded-log-lines.ts` | `mencionesSinMarcar()` + agujas/prefijos (R-2); docstring con el alcance real de «una sola constante» |
+| `src/modules/pricing/graded-phase2-verdict.ts` | rama fundida `unavailable` + `unmatched` (instancia #6); `GradedSimpleStop` sin mapped type y `never` sobre el discriminante (A7) |
+| `src/modules/pricing/price-ingest.service.ts` | dos `switch` con `never` (R-3), fail-closed en el motivo sin rama |
+| `src/modules/orders/order-item-card.ts` | `Equals<>` + cerrojo de igualdad (T-1); `HistoricOrderItemCardDTO` + su cerrojo (T-2) |
+| `src/modules/orders/orders.service.ts` | `toHistoricItemPreviews(...)` anotada; `getOrder` la usa (T-2) |
+| `test/graded-run.harness.ts` | registro + `afterEach` del guardián automático y `sinGuardianPorque` (R-1); el mapper doble emite las marcas reales; complemento en `verificarCitasDelVeredicto` |
+| `test/graded-verdict-guard.spec.ts` | +9 casos: instancia #6 y su contraste, complemento R-2, exención de R-1 |
+| `test/graded-estimate.probe.spec.ts` | 5 `sinGuardianPorque(...)` nombradas (tests del provider suelto) |
+
+**Tests:** **2 670 en 207 suites** (antes 2 661 / 207), todos verdes. Lint y typecheck limpios.
+
+**Deuda anotada:** `TECH_DEBT.md` → **TL-GE8-4** (`requestFailedCount` ausente ⇒ bajo `dailyLimited` se
+calla algo decidible), **TL-GE8-5** (`sweepComplete` ignora cartas con `set` nulo; la rama «ninguna
+causa conocida» es alcanzable, cita y no tiene test), **T-6** (`FrozenCardFacts` compila contra
+`InputJsonValue` solo por ser `type`), **T-7** (dos dobles de invitado sin `card`), **T-8** (el detalle
+admin sin test). **TL-GE8-1/2/3 no existen**: eran R-1, R-2 y R-3, y nacieron y murieron en este pase.
 
 ---
 
