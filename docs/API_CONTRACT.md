@@ -2,7 +2,46 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.51-c**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.52**).
+>
+> **Changelog v1.52 — la teja de set gana su LOGO (2026-08-31, arquitecto; petición del DUEÑO. Lo implementan
+> BACKEND y FRONTEND. ARCHITECTURE §4.39, migración M-47).**
+> **Cero rutas nuevas, cero códigos de error nuevos, cero montos, cero permisos.** Base: v1.51-c, vigente entera.
+> Es **ADITIVO puro**: todo consumidor existente sigue funcionando sin cambios.
+> - **Qué se añade y DÓNDE — dos superficies, y la segunda es la que se olvida:**
+>   1. **`MasterSetSummaryDTO` gana `logoUrl: string | null`.** Lo sirven **cuatro** endpoints
+>      (`GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` y el
+>      índice M1), porque es **un read model único** (§4.20f). Es **la teja** de selección de set.
+>   2. **`GET /buylist/sets` → `data[]` gana `logoUrl: string | null`.** **No es opcional:** el modo `quoter` de esa
+>      misma retícula **no tiene endpoint de índice propio** y compone sus tejas *client-side* desde aquí. Sin este
+>      campo, la teja del cotizador sería **la única sin logo**.
+> - **Dónde NO se añade, deliberadamente (es tan normativo como lo anterior):** `GET /catalog/facets` → `sets[]` y
+>   `GET /catalog/sets` (alimentan **chips y filtros de TEXTO**, no tejas), `CardDTO`/`card.setName` (el set ahí es
+>   metadata de una carta: sería el mismo logo repetido por cada carta de la rejilla), `GET /admin/catalog/remote-sets`
+>   (espejo del proveedor, no una selección) y `SetRefDTO` (cabecera de gráfica). **Regla:** *la imagen de set viaja
+>   donde el SET es el objeto que se selecciona.* ARCHITECTURE §4.39.5.
+> - **`null` es un valor NORMAL y PERMANENTE, no un error ni un estado transitorio.** Clase **(P) presentación**
+>   (§5.2.2) ⇒ **clave SIEMPRE presente, ausencia como `null`** — nunca omitida, nunca `""`, nunca una URL de
+>   placeholder inventada por el backend. Hay sets que el proveedor **no ilustra** (promos, colecciones raras, sets
+>   viejos) y los seguirá sin ilustrar. Se declara `logoUrl: string | null` **y no `logoUrl?: string`** a propósito:
+>   el opcional se lee como «normalmente está» e invita a `s.logoUrl!`; el `null` explícito **obliga** a decidir qué se
+>   pinta cuando no hay. Es la grieta de `imageSmallUrl` (§5.2.1) cerrada por adelantado.
+> - **Un segundo origen del `null`, indistinguible a propósito:** un set **aún no re-sincronizado** también rinde
+>   `null`. El contrato **no** los distingue y el cliente **no** debe intentarlo: para el front, «sin logo» es un solo
+>   caso. Quien los distingue es el operador, por el lado del sync (ARCHITECTURE §4.39.4).
+> - **Origen del dato y su peor caso:** URL de un **CDN de tercero** (`images.pokemontcg.io`, el **mismo** host que ya
+>   sirve el arte de las cartas). **Sin copia propia.** Si el CDN cae, la teja cae a su placeholder — mismo riesgo que
+>   ya corre toda imagen de carta del sitio, no una clase de fallo nueva. **Prohibido construir la URL por plantilla**
+>   desde el `setId` (misma regla que §5.2.5 para cartas).
+> - **`symbolUrl` (el glifo cuadrado) SE PERSISTE pero NO SE EXPONE en este pase.** No aparece en ningún DTO: hoy no
+>   hay superficie que lo use. Exponerlo el día que exista el chip es **aditivo de proyección, sin migración y sin
+>   re-sync**. ARCHITECTURE §4.39.5.
+> - **Frontend, nivel de imagen decidido por el arquitecto (§5.3, ARCHITECTURE §4.39.7): NIVEL B** — `<img>` crudo,
+>   **sin `next/image`, sin `srcset`**. Una retícula es una rejilla y la regla de coste 4 de §5.3.3 lo prohíbe; además
+>   el proveedor sirve **una sola URL** por imagen. **`remotePatterns` no cambia** (mismo host).
+> - **Migración `M-47`** (ARCHITECTURE §11): dos columnas nullable en `CardSet`, **aditiva pura**, money-safe, sin
+>   ventana ni cut-over. **Sin backfill de datos**: los sets ya importados se pueblan re-corriendo el sync existente.
+> - **Base previa:** v1.51-c.
 >
 > **Changelog v1.51-c — el contrato deja de prometer lo que el histórico puede no traer (2026-08-31, arquitecto;
 > tres correcciones de PRECISIÓN enrutadas por el techlead. ARCHITECTURE §5.2.9).**
@@ -2675,9 +2714,19 @@ BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
 // v1.42 (BLOQ-3): el binder cuenta SOLO SINGLES → todas las agregaciones de este DTO (distinctCardsOwned, totalPieces,
 //   completionPct) EXCLUYEN `productType='sealed'` (alinea con H9; el sellado vive en la pestaña «Sellado», §sealed-sets).
 //   `catalogCardCount` (denominador = catálogo) NO cambia. Mismo filtro en el scope user_vault. Ver ARCHITECTURE §4.20b.
+// v1.52 (M-47, ARCHITECTURE §4.39): `logoUrl` = imagen del LOGO del set (`images.logo` de pokemontcg.io,
+//   persistida en `CardSet.logoUrl`). Es EL campo de la teja de selección de set.
+//   ⚠️ `string | null`, NO `logoUrl?`: la clave va SIEMPRE presente y la ausencia se expresa con `null`
+//   (clase (P) presentación, §5.2.2/§5.2.9). `null` es NORMAL y PERMANENTE — hay sets que el proveedor no
+//   ilustra (promos, colecciones raras, sets viejos) — y también es lo que rinde un set aún no re-sincronizado;
+//   el contrato NO distingue ambos orígenes y el cliente NO debe intentarlo. No es error, no se reintenta, no
+//   se registra incidente: el front pinta su estado «sin logo» (lo define ux-ui). ⛔ PROHIBIDO construir la URL
+//   por plantilla desde el `setId`. Nivel de imagen: **B** (`<img>` crudo, sin next/image, sin srcset — §5.3.3).
+//   NO existe `symbolUrl` en este DTO: se persiste en `CardSet` pero no se expone todavía (§4.39.5).
 MasterSetSummaryDTO = { setId: string, name: string, series?: string, releaseDate?: string, year?: number,
                         printedTotal?: number, catalogCardCount: number, distinctCardsOwned: number,
-                        completionPct: number | null, totalPieces: number }
+                        completionPct: number | null, totalPieces: number,
+                        logoUrl: string | null }                       // v1.52 (M-47)
 MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: number, total: number }
 // Celda del binder (GET /admin/inventory/master-sets/:setId). Una por Card del catálogo del set. `number` es el
 // Card.number crudo (String, p. ej. "4", "SV107", "TG12"); `numberSort` es la CLAVE NUMÉRICA derivada server-side
@@ -3336,6 +3385,12 @@ Res `200`:
 - `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**. **v1.33 (P-27):** igual que `GET /catalog/sets`, un subset de un master combinado se **pliega** en su principal (Celebrations una vez) y la entrada gana `partSetIds?` (aditivo/opcional).
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
+- **⛔ v1.52 — `sets[]` NO lleva `logoUrl`, y es deliberado (ARCHITECTURE §4.39.5).** Esta faceta alimenta los **chips
+  de texto** «Sets buscados» de la home y el **filtro de texto** de Compra: ninguna de las dos es una teja con imagen,
+  y la home **ya** carga imágenes de terceros (en este mismo ciclo se corrigió que pedía de más). El logo vive en
+  `MasterSetSummaryDTO` y en `GET /buylist/sets`, que son las superficies donde **el set es el objeto que se
+  selecciona**. Si alguna de estas dos superficies pasara a ser una retícula de tejas, es un **aditivo de proyección**
+  (el dato ya está en `CardSet.logoUrl`: sin DDL, sin migración, sin re-sync) que **pasa por el arquitecto** (regla 9).
 
 ### GET /api/v1/catalog/cards/:cardId — `public`  (FICHA — aquí aplica la regla de visibilidad v2.0)
 Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }` **(+ v1.50, ADITIVO: `gradedEstimates?: GradedEstimateDTO[]`)**.
@@ -3425,6 +3480,9 @@ Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en ingl�
   **pliega** en su **principal**: Celebrations aparece **una** sola vez (no dos entradas `cel25`/`cel25c`). La entrada
   combinada gana `partSetIds?: string[]` (los set-ids reales que agrupa) para que el front filtre por todas las partes.
   ADITIVO/opcional (los sets normales lo omiten). Solo presentación; el subset sigue siendo un `CardSet` real.
+- **⛔ v1.52 — este endpoint NO lleva `logoUrl`** (misma razón que `GET /catalog/facets`: hoy no alimenta ninguna
+  retícula de tejas). ARCHITECTURE §4.39.5. *(Nota para el master set combinado de P-27: cuando un subset se pliega en
+  su principal, la teja usa el logo **del principal** — el subset no aporta el suyo.)*
 
 ### GET /api/v1/catalog/featured-set/value-history — `public`  (v1.9-set-chart — gráfica del hero)
 Serie temporal del **valor de mercado agregado del set destacado** (estilo acciones), para el hero de la home
@@ -4709,8 +4767,15 @@ abierta 1** (pricing on-demand del cotizador) en ARCHITECTURE §10.
 #### GET /api/v1/buylist/sets — `public`  (v1.3)
 Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotizador). A diferencia de
 `GET /catalog/sets` (solo sets con inventario publicado), aquí aparecen **todos** los sets del catálogo.
-Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de
+Res `200`: `{ data: [{ id, name, series, releaseDate, year, logoUrl }] }` (datos en inglés; `year` derivado de
 `releaseDate`).
+- **`logoUrl: string | null` (v1.52, M-47, ADITIVO — ARCHITECTURE §4.39):** logo de la expansión
+  (`CardSet.logoUrl`). **No es decorativo aquí ni es opcional de implementar:** este endpoint es la **fuente
+  client-side de la retícula de tejas del cotizador** — el modo `quoter` de `MasterSetIndex` **no tiene endpoint de
+  índice propio** y construye sus `MasterSetSummaryDTO` a partir de esta respuesta. Si el campo no se emite (o el
+  front no lo mapea al componer las tejas), la teja del cotizador es **la única sin logo** de todo el producto.
+  **Clave SIEMPRE presente; `null` = el proveedor no publica logo para ese set, o el set aún no se re-sincronizó**
+  (indistinguibles a propósito). Caso **normal y permanente**, no error. Nivel de imagen **B** (§5.3.3).
 - **Ordenamiento NORMATIVO (v1.18-buylist-rejects):** por **`releaseDate` desc** usando la fecha **COMPLETA**
   (no solo el año: dos sets del mismo año quedan por fecha real, el más reciente primero); **desempate** (misma
   `releaseDate`) por **`name` asc**; los sets **sin `releaseDate`** (`null`) van **AL FINAL**, entre ellos por
@@ -5110,6 +5175,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `partSetIds`; el subset **no** aparece como fila propia. La fila combinada trae `partSetIds` (§DTOs). Sigue O(1)
     queries (se agrupan por set-id canónico los resultados de las agregaciones ya existentes). **Money-safe:** solo
     lectura; ninguna escritura consulta el mapa.
+  - **v1.52 (M-47) — `logoUrl: string | null`.** Sale de la **misma** fila `CardSet` de la query (1): **cero queries
+    nuevas, cero N+1**. Aplica a los **cuatro** consumidores de `MasterSetSummaryDTO` (este índice, `GET
+    /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` y el modo cotizador, que lo toma de
+    `GET /buylist/sets`) — es **un read model único** y romper esa simetría sería el error. Con el plegado P-27, la
+    fila combinada emite el logo **del principal**. Definición completa y semántica del `null` en §DTOs.
 - `GET /api/v1/admin/inventory/master-sets/:setId` — **(NUEVO)** binder del set: una celda por carta del catálogo.
   `:setId` = id LOCAL del `CardSet` (no `externalId`). Res `200` (`MasterSetBinderResponse`): `{ set, printedTotal,
   catalogCardCount, cells: MasterSetCardCellDTO[] }`, `cells` en **ORDEN NATURAL por número** (ver nota).
@@ -6492,6 +6562,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
+> **v1.52 (M-47) — el sync ahora persiste también las IMÁGENES DEL SET** (`CardSet.logoUrl` / `symbolUrl`, ARCHITECTURE
+> §4.39). **Sin cambio de forma en ninguna request ni response de esta sección**: es un efecto del `upsert` de metadata.
+> Consecuencias operativas, porque **es el único mecanismo de relleno** (no hay endpoint de backfill y no lo habrá):
+> - Los sets **nuevos** llegan con logo desde el primer sync posterior al deploy. **No hay que hacer nada.**
+> - Los sets **ya importados** tienen `logoUrl = null` hasta que se les re-corra el sync. **Vía recomendada:
+>   `POST /admin/catalog/sync { setId }` por set** — el botón por fila que M2 ya tiene, y basta con los sets que la
+>   retícula muestra. `POST /admin/catalog/sync-all { force: true }` también los puebla, pero re-importa **todo** el
+>   catálogo y re-corre el resolver estructural TCGCSV: es el martillo, **no es un paso obligatorio de v1.52**.
+> - **Invariante del escritor (no-degradación):** si la respuesta remota no trae `images`, el `update` **deja la
+>   columna como está** — no la pone a `null`. Un `sync {setId}` **nunca** puede borrar un logo que un `sync-all` ya
+>   escribió. Es conducta verificable por QA (ARCHITECTURE §4.39.8).
+> - Se persiste solo si la URL es absoluta **`https:`** y de un host admisible; si no, **`null` + log**. El host es el
+>   mismo que ya sirve el arte de las cartas ⇒ **`remotePatterns` del frontend no cambia** (§5.3.4).
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
   Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
 - `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.
