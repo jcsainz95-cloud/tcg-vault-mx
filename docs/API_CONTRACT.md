@@ -2,7 +2,31 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-29 (rev **v1.50.3-g**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.50.4-brand-domain**).
+>
+> **Changelog v1.50.4-brand-domain — el contrato deja de transcribir correos (2026-08-31, arquitecto).**
+> ⚠️ **CERO cambios de shape, de rutas, de códigos de error y de montos. Ningún endpoint cambia. Ninguna
+> implementación existente se vuelve incorrecta.** Lo que cambia es **qué es normativo** en este documento.
+> - **Los dominios `tcgvaultmx.com` / `tcgvault.mx` están MUERTOS.** El dominio canónico es el de
+>   `common.brand.domain` — hoy **`tcghunt.mx`** — y la marca es `common.brand.name` — hoy **«TCG HUNT»**.
+>   Verificado **contra el producto** (`frontend/messages/{es,en}.json`, `backend/src/modules/mail/`), **no contra
+>   otra documentación**: cotejar documentos entre sí es exactamente cómo se propagó el error. Buzones del
+>   producto: **`soporte@` · `contacto@` · `facturacion@` · `buylist@` · `no-reply@`**, todos `@tcghunt.mx`.
+> - **Por qué esto NO era cosmético.** Por la regla de conflicto de `CLAUDE.md`, **este contrato manda sobre el
+>   código**. Mientras dijera `soporte@tcgvaultmx.com`, cualquier backend o frontend que lo obedeciera
+>   reintroducía el dominio muerto **legítimamente — y tendría razón**. Este documento era la autoridad que
+>   sostenía el error, no su víctima.
+> - **NUEVA convención transversal en §0: «Datos de contacto y valores de configuración».** El contrato norma la
+>   **forma, el origen, la obligatoriedad y quién resuelve** un valor de infraestructura; **no transcribe el
+>   valor**. `evidenceContact` pasa de `"soporte@…"` (literal, normativo) a `string` **resuelto server-side desde
+>   configuración**. **Cambiar el valor deja de ser un cambio de contrato.** Criterio generalizable — aplica a
+>   futuros remitentes, teléfonos y URLs de soporte.
+> - **Los correos que quedan en el cuerpo del documento son ILUSTRATIVOS** (marcados `p. ej.`) y **no son
+>   citables como autoridad**. Fundamento y norma de lectura: **ARCHITECTURE §0-B** («Fuentes de verdad
+>   ejecutables»), nueva en este pase.
+> - **Fuera de mi alcance, enrutado:** defaults de buzón en código (backend, P-21) y envs/redirects (devops,
+>   P-21). Los buzones `@tcghunt.mx` **ya reciben** (humano, 2026-08-31), lo que desbloquea ese tramo.
+> - **Base previa:** v1.50.3-g.
 >
 > **Changelog v1.50.3-g — DICTAMEN del gate de seguridad / `M-44` + `M-45` (2026-08-29, arquitecto;
 > lo implementa BACKEND. ARCHITECTURE §4.38(l.4.10)–(l.4.13), §9, §11):**
@@ -1708,7 +1732,8 @@
 > - **Modelo de tokens (`AuthToken`, MIGRACIÓN M-17):** un solo uso, `type` (`email_verification | password_reset`),
 >   **hash** en BD (nunca el claro), expira 24h / 1h. Ver ARCHITECTURE §3.2, §4.11 y §11.
 > - **Reset (self-service o admin) incrementa `User.tokenVersion`** → revoca sesiones (patrón existente).
-> - **Env nuevas:** `RESEND_API_KEY` (secreto, requerida en no-local), `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
+> - **Env nuevas:** `RESEND_API_KEY` (secreto, requerida en no-local), `MAIL_FROM` (remitente; **valor por
+>   entorno**, default en código sobre el dominio canónico `common.brand.domain` — p. ej. `no-reply@tcghunt.mx`).
 >   Los links de los correos apuntan al **frontend** (`${APP_BASE_URL}/<locale>/verify-email|reset-password?token=…`).
 >
 > **Changelog v1.2 / v1.2.1 (2026-08-14):** simplificación aprobada por el humano (PROJECT.md › "Simplificación
@@ -1793,6 +1818,36 @@
 - **Paginación:** query `?page=1&pageSize=20`; respuesta `{ data: [...], page, pageSize, total }`.
 - **Filtros de lista admin (`q`, `from`, `to`, `minCents`, `maxCents`) — CONVENCIÓN TRANSVERSAL (v1.25-buylist-orders-pagination):** nombres y semántica **idénticos** en `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3), y compatibles con los listados que ya los usaban parcialmente. Todos **opcionales**; omitir todos = listado como antes de v1.25. **`q`:** texto libre, `trim`, **case-insensitive**, contains, OR entre los campos definidos por endpoint; vacío/whitespace = ausente; **máx 200 chars**. **`from`/`to`:** ISO-8601 sobre `createdAt`, **`gte`/`lte`** (rango inclusivo por día; sólo `from` = desde, sólo `to` = hasta). **Semántica de borde de día (v1.25.1 — aclaración de semántica de fecha, aditiva):** un valor **date-only** (`YYYY-MM-DD`, sin componente horario — lo que emite un `<input type=date>`) se interpreta en el **borde del día en UTC**: **`from` = inicio de día (`00:00:00.000Z`)** y **`to` = fin de día INCLUSIVO (`23:59:59.999Z`)**. Un valor con **componente horario** (datetime ISO completo, p. ej. `2026-08-20T14:30:00Z`) se usa **tal cual** (`gte`/`lte` exactos, sin ajuste). Así `to=YYYY-MM-DD` **incluye** todo lo cerrado ese mismo día — sin la omisión silenciosa de tratar `to` date-only como medianoche UTC (que excluiría casi todo el día en una cola money-adjacent). El backend materializa este borde en su **helper de parseo** de fechas (mismo helper para ambos endpoints). Un **rango invertido** (`from` > `to`) simplemente devuelve **vacío** — no es error (no se exige validación `from ≤ to`). **`minCents`/`maxCents`:** enteros **≥ 0** sobre el campo de monto que cada endpoint declara (`quotedTotalCents` en buylist, `totalCents` en orders), `gte`/`lte`. **Validación → `400 VALIDATION_ERROR`** (mismo patrón que la paginación): `page`/`pageSize` no numéricos o `pageSize>100`, fecha no parseable, monto no entero o negativo, `maxCents < minCents`, `q` > 200 chars, o un token de `status` (CSV, §M5) que no sea enum válido (`details.invalidStatus`). **Seguridad:** estos filtros **sólo REDUCEN** el conjunto ya autorizado por rol admin — no habilitan IDOR ni enumeración cruzada, no cambian el shape ni la proyección PII por rol, y `q` **nunca** busca sobre CLABE/RFC/INE/datos de pago.
 - **i18n:** el contrato NO devuelve texto traducido. Devuelve **enums** y **`errorCode`**; el frontend traduce (ES/EN). Datos de catálogo en inglés por diseño.
+- **Datos de contacto y valores de configuración — el contrato describe la FORMA y el ORIGEN, no transcribe el
+  VALOR (convención transversal, v1.50.4).** Cuando un campo de respuesta transporta un **dato de infraestructura
+  configurable por entorno** —hoy: correos de contacto (`evidenceContact` y cualquier buzón que la API devuelva);
+  por extensión, cualquier valor que devops pueda cambiar **sin redeploy**— este contrato norma **cinco cosas y
+  ninguna más**:
+  1. **Tipo y forma:** `string`, dirección de correo válida (RFC 5322 `addr-spec`, opcionalmente con display name),
+     **no vacía**, **siempre presente** cuando el campo es requerido por el DTO.
+  2. **Origen:** **resuelto server-side** desde configuración de entorno, con **default en código**. El backend
+     **nunca** omite el campo ni lo devuelve vacío; una env **definida pero vacía o en blanco cae al default**
+     (helper `envOr`, **no** `??` — el `??` no cubre la cadena vacía y dejaría el campo en `""`).
+  3. **Estabilidad:** el **valor** puede cambiar por entorno y en el tiempo (rebrand, cambio de proveedor de
+     correo, buzón nuevo) **sin que este contrato cambie de revisión**. **Cambiar el valor NO es un cambio de
+     contrato** y no requiere pasar por el arquitecto (regla 9 de `CLAUDE.md`). Cambiar su **forma u origen**, sí.
+  4. **Obligación del consumidor (frontend):** **renderiza el valor que recibe**. **Prohibido** hardcodearlo,
+     derivarlo del dominio, o **afirmarlo en un test de contrato** (un test que asserta el literal convierte un
+     dato de infra en un candado de CI, y ese candado se vuelve en contra el día del rebrand). Un literal de
+     **fallback** solo se admite en fixtures/mocks offline y en el modo degradado sin API, y debe construirse
+     sobre el dominio de `common.brand.domain`, nunca sobre un literal copiado de este documento.
+  5. **Los valores que aparecen en este documento son ILUSTRATIVOS**, marcados `p. ej.`, y **no son citables como
+     autoridad**. La fuente ejecutable del dominio de marca es la clave i18n **`common.brand.domain`** (hoy
+     `tcghunt.mx`); la del valor efectivo de un campo es **su env** (`DISPUTE_EVIDENCE_CONTACT` para
+     `evidenceContact`, en cascada con `SUPPORT_EMAIL` donde aplique).
+
+  **Por qué (y el criterio que hay que recordar).** Un literal escrito en el contrato **sobrevive a un rebrand**:
+  como el contrato manda sobre el código, un dominio muerto escrito aquí **autoriza** a backend y frontend a
+  reintroducirlo, y ambos tendrían razón. Además acopla lo **más barato de cambiar** (una env) a lo **más caro**
+  (el contrato). Criterio generalizable, para las próximas: *si un valor puede cambiar por entorno o sin redeploy,
+  el contrato norma su **forma, origen, obligatoriedad y quién lo resuelve** — nunca su contenido.* Aplica ya a
+  correos y, por extensión, a remitentes, teléfonos, URLs de soporte y cualquier identificador de contacto futuro.
+  Fundamento completo y clasificación decisión-vs-descripción: **ARCHITECTURE §0-B**.
 - **Errores (shape estándar):**
 ```json
 { "error": { "code": "PRICE_PENDING", "message": "human-readable EN fallback", "details": {} } }
@@ -3295,8 +3350,9 @@ venir vacía (`points: []`) hasta que se les active la captura diaria.
 > Superficie propia del **producto cerrado** (front: `(storefront)/sellado`). Listado **agregado por producto** (agrupa
 > piezas idénticas → «N disponibles»), ficha con selección de cantidad, y dos endpoints **feature-flagged** (tendencia y
 > restock). El checkout/carrito **no cambia** (§4 / §4-G): se compra por `inventoryItemId` como cualquier pieza. **Solo
-> VENTA** — no hay buylist de sellado (la ventana muestra un call-out mailto a `contacto@tcgvaultmx.com`, es copy del
-> front, no un endpoint). Ver ARCHITECTURE §4.23e/§4.23h.
+> VENTA** — no hay buylist de sellado (la ventana muestra un call-out **mailto al buzón de contacto**; es **copy del
+> front**, vive en i18n sobre `common.brand.domain` —p. ej. `contacto@tcghunt.mx`—, **no es un endpoint** y este
+> contrato no lo norma). Ver ARCHITECTURE §4.23e/§4.23h.
 
 ### GET /api/v1/catalog/sealed — `public`
 Grid agregado del sellado publicado. Agrupa por producto+condición (`tcgplayerProductId` si mapeado, si no
@@ -3789,7 +3845,9 @@ GuestOrderTrackingDTO = {
   shipping: GuestTrackingShippingDTO,
   payment?: GuestTrackingPaymentDTO,      // presente solo tras liquidar
   claim: { available: boolean },          // true si el pedido aún NO está vinculado a una cuenta (oferta de registro)
-  support: { evidenceContact: "soporte@tcgvaultmx.com",
+  support: { evidenceContact: string,       // correo de soporte RESUELTO SERVER-SIDE desde configuración (§0):
+                                            //   forma normada, valor NO normado. Siempre presente y no vacío.
+                                            //   El front lo RENDERIZA; no lo hardcodea ni lo assertá en contrato.
              disputeWindowDays: 7,
              disputeDeadlineAt?: string }, // presente solo si hay entrega (deliveredAt + 7d) — criterio 56b
   tokenExpiresAt: string                  // para que la UI avise "tu enlace caduca el …" y ofrezca reenvío
@@ -4605,11 +4663,19 @@ Responde a un ajuste del admin (aceptar/rechazar el ajuste). Req: `{ decision: "
 
 Disputa de **condición** sobre un item **entregado** (ventana de 7 días desde la entrega). Cubre tanto **raw** como **sellado**; el tipo se conserva (`condition_raw | condition_sealed`, ver ARCHITECTURE §3.6 y §11 M-10). El **graded no** tiene disputa de condición.
 
-> **Evidencia por correo (v1.2):** la disputa **ya no acepta evidencia por archivo** en la app (se elimina el
-> propósito de upload `dispute_claim`). El cliente **envía la evidencia por correo al buzón de soporte**
-> (**soporte@tcgvaultmx.com** — *CONFIRMADO por el humano* 2026-08-16; dominio unificado `tcgvaultmx.com`). Este correo es un **dato
-> de contacto** que el front muestra en el flujo de disputa y en términos/FAQ; **no** es un endpoint. Ya **no
-> existe comparador de fotos de ingreso** en el back-office.
+> **Evidencia por correo (v1.2; norma de valor revisada en v1.50.4):** la disputa **ya no acepta evidencia por
+> archivo** en la app (se elimina el propósito de upload `dispute_claim`). El cliente **envía la evidencia por
+> correo al buzón de soporte**. Ese buzón es un **dato de contacto**, no un endpoint, y el contrato **no fija su
+> valor**: lo **resuelve el backend server-side** desde configuración (`DISPUTE_EVIDENCE_CONTACT`, overridable por
+> entorno **sin redeploy**, con default en código) y lo devuelve en `evidenceContact` para que el front **lo
+> muestre tal cual** en el flujo de disputa y en términos/FAQ. Hoy resuelve a un buzón del dominio canónico
+> `common.brand.domain` (p. ej. `soporte@tcghunt.mx`) — **valor ilustrativo, no normativo**; ver §0 «Datos de
+> contacto y valores de configuración» y ARCHITECTURE §0-B.
+> *(Lo que el humano confirmó el 2026-08-16 fue el **invariante**: un único buzón de soporte, en el mismo dominio
+> canónico que el remitente. La revisión anterior de este documento transcribía además el literal de entonces, y
+> ese literal **sobrevivió al rebrand** — con el contrato mandando sobre el código, autorizaba a reintroducir un
+> dominio muerto. Por eso ahora se norma la forma y el origen, no el valor.)*
+> Ya **no existe comparador de fotos de ingreso** en el back-office.
 
 ### POST /api/v1/disputes — `customer`
 El `type` de la disputa se **deriva server-side** del `productType` del `inventoryItemId` (el cliente **no** lo envía):
@@ -4617,7 +4683,8 @@ El `type` de la disputa se **deriva server-side** del `productType` del `invento
 - `productType=sealed` → `type="condition_sealed"`. Aplica a caja **dañada/equivocada** (sin "condición NM"). Ver ARCHITECTURE §3.6.
 - `productType=graded` → **no aplica**: `422 NOT_RAW`.
 Req: `{ inventoryItemId: string, description: string }`  (**sin** `claimPhotoUploadKeys`; la evidencia va por correo a soporte).
-Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`
+Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: string }`
+ - **`evidenceContact`**: correo de soporte **resuelto server-side desde configuración** (§0). **Siempre presente y no vacío**; el valor **no** lo fija este contrato (p. ej. `soporte@tcghunt.mx`). El front **renderiza lo que recibe**.
 Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW` (item graded; el `code` se conserva por compatibilidad aunque hoy signifique "ni raw ni sellado"), `403`.
 
 **Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). La resolución se apoya en: **gradeadas** → grado + `certNumber` del slab (verificable en la graduadora); **raw NM** → estándar/política de condición propio; la evidencia del cliente llegó **por correo a soporte** (fuera del sistema).
@@ -6923,7 +6990,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   > - **Correo al vendedor (best-effort, POST-commit):** al transicionar a `rechazada` se envía correo al dueño de la
   >   solicitud (`User.email`, idioma por `User.locale` ES/EN) con: **qué carta** (nombre, set, número), **acabado**,
   >   **motivo** (`reason`) y **opciones con plazos**: devolución antes de `returnDeadlineAt` (a costo del usuario,
-  >   coordinada con soporte@tcgvaultmx.com) o abandono en `abandonDeadlineAt`. **PROHIBIDO** en el correo: CLABE (ni
+  >   coordinada con el **buzón de soporte resuelto por configuración** —`SUPPORT_EMAIL`, en cascada a
+  >   `DISPUTE_EVIDENCE_CONTACT`; p. ej. `soporte@tcghunt.mx`, §0) o abandono en `abandonDeadlineAt`. **PROHIBIDO** en el correo: CLABE (ni
   >   enmascarada), montos/estado de OTROS ítems, datos de terceros. **El fallo del envío NO revierte la decisión ni
   >   falla el request** (se loggea; sin reintento en MVP — deuda registrada). Mecanismo: `buylist` inyecta el puerto
   >   global `MAIL_PORT` con plantilla local al módulo (ARCHITECTURE §4.18; el módulo `mail` NO se toca).
@@ -7094,7 +7162,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
 - `GET /api/v1/admin/disputes` — cola `?status=&userId=&page=`
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `Dispute.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
-- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`. **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
+- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: string }` (mismo campo y misma norma que §7: **resuelto server-side desde configuración**, valor no fijado por el contrato). **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
 
 ### M9 — Reportes (`super_admin`)

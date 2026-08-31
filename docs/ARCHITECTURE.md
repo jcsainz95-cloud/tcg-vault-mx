@@ -2,6 +2,25 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
+>
+> **Rev v1.50.4-brand-domain (2026-08-31, arquitecto — CORRECCIÓN DOCUMENTAL + UNA NORMA NUEVA).**
+> Este documento seguía escribiendo los dominios **muertos** `tcgvaultmx.com` / `tcgvault.mx` y la cadena
+> «TCG Vault MX» en 11 puntos. **No era cosmético:** por la regla de conflicto, este documento manda sobre el
+> código, así que un dominio muerto escrito aquí **autorizaba** a backend/frontend a reintroducirlo. Cambios:
+> 1. **Dominio canónico = `tcghunt.mx`; marca = «TCG HUNT».** Verificado **contra el producto**, no contra otra
+>    documentación: `frontend/messages/{es,en}.json` → `common.brand.name = "TCG HUNT"`,
+>    `common.brand.domain = "tcghunt.mx"`; copy con `soporte@`, `contacto@`, `facturacion@` ya en `@tcghunt.mx`.
+>    Buzones del producto: **`soporte@` · `contacto@` · `facturacion@` · `buylist@` · `no-reply@`**, todos
+>    `@tcghunt.mx`. Los buzones `@tcghunt.mx` **ya reciben** (confirmado por el humano 2026-08-31) — lo que
+>    desbloquea el tramo de correo de **P-21**.
+> 2. **NUEVA norma transversal §0-B «Fuentes de verdad ejecutables»:** qué documento puede *afirmar* un valor del
+>    producto y cuál debe **remitir a la fuente ejecutable**. Es la respuesta estructural a un patrón que ya se
+>    repitió cuatro veces (§9 «Desviaciones detectadas»).
+> 3. **`API_CONTRACT.md` deja de transcribir correos literales** (convención nueva en su §0): describe **forma y
+>    origen** del campo (`evidenceContact` = correo resuelto server-side desde configuración), no el valor.
+> **Cero cambios de diseño, de shape, de schema, de endpoints o de montos.** Lo único que cambia en el código es
+> **defaults de buzón** (backend, P-21) y **envs** (devops, P-21) — ninguno de los dos es alcance del arquitecto.
+>
 > Rev **v1.50.3-project-reconciliation** (2026-08-28, rama `claude/psa-graded-card-value-gmhv5u`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND). **Pase de reconciliación con `PROJECT.md` tras el rechazo de
 > QA + techlead.** No añade features: **cierra divergencias en las que el contrato/código se apartó de `PROJECT.md`
@@ -1082,7 +1101,8 @@
 >   verificación y envía el correo. El objeto `user` de `/auth/register|login|google` ahora incluye
 >   `emailVerified` (ya expuesto en `/users/me`). Ver `API_CONTRACT §1`.
 > - **Env nuevas:** `RESEND_API_KEY` (secreto, **requerida en no-local** — staging+prod), `MAIL_FROM`
->   (default `no-reply@tcgvaultmx.com`). En LOCAL_ENVS sin key → `NoopMailAdapter` (degrada con aviso). Ver §8.
+>   (remitente; **valor resuelto por entorno**, con default en código — dominio canónico `common.brand.domain`,
+>   p. ej. `no-reply@tcghunt.mx`). En LOCAL_ENVS sin key → `NoopMailAdapter` (degrada con aviso). Ver §8 y §0-B.
 > - **Migración M-17** (§11). Jobs: `auth-token-sweep` (limpia tokens expirados).
 >
 > **Changelog v1.4-finance (2026-08-16)** — **Costo real de paquetería en el P&L** (PROJECT.md requisito #3,
@@ -1171,6 +1191,92 @@ Puntos donde el diseño deja la puerta abierta a fase 2:
 - `InventoryItem.ownerType` (`platform|customer`) permite introducir `consignor` (C2C) sin migración estructural.
 - `PricingProvider` es una interfaz; subir a plan de pago = una implementación nueva + un dial en M10.
 - El dinero se maneja **por transacción**; NO existe entidad `Wallet`/`Balance`. Introducirla en fase 2 no rompe nada previo.
+
+---
+
+## 0-B. Fuentes de verdad ejecutables (norma transversal, v1.50.4)
+
+> **Norma.** Vinculante para todos los roles. Nace de un patrón reproducido **cuatro veces** en este proyecto
+> (inventario en §9): *una fuente afirma algo del producto, el producto dice otra cosa, y nadie lo coteja.*
+
+### 0-B.1 El problema, dicho con precisión
+
+La jerarquía del proyecto (`PROJECT.md` › `API_CONTRACT.md` › código) es una jerarquía de **autoridad para
+decidir**, y funciona. El error fue tratarla también como jerarquía de **autoridad para describir**. No lo es: un
+documento **decide** lo que aún no existe, pero **no puede saber** lo que ya existe — solo puede repetir lo que
+alguien creyó que existía cuando lo escribió. Cuando un documento *afirma* un valor que el producto ya tiene, esa
+afirmación no es una decisión: es una **copia sin fecha de caducidad**, y la jerarquía la convierte en orden.
+
+Concretamente: `PROJECT.md` afirmó que la marca comercial era «TCG Vault MX» y que ése era «el nombre que se usa en
+la interfaz». Era falso — `common.brand.name` decía «TCG HUNT» desde antes. Pero como `PROJECT.md` manda, el error
+se propagó **hacia abajo y con razón**: se escribió un descargo legal con la marca mala, y otro rol *«corrigió»* la
+metadata de los Excel **quitando la marca real**, citando `PROJECT.md` como autoridad. Ninguno de los dos se
+equivocó de proceso. **El proceso los mandó al error.** Y este mismo documento sostenía dominios muertos por la
+misma vía.
+
+### 0-B.2 Clasificación de afirmaciones
+
+Toda afirmación de un documento del proyecto cae en una de dos clases. **La clase determina quién manda.**
+
+| Clase | Qué es | Fuente de verdad | Qué escribe el documento |
+|---|---|---|---|
+| **(A) Decisión** | Regla, invariante, forma, política, plazo, código de error, precedencia money-safe, shape de DTO, decisión de negocio | **El documento** (por la jerarquía normal). El código la obedece; si diverge, el código está mal. | El texto completo de la regla. |
+| **(B) Descripción de un valor que ya vive en el producto** | Marca, dominio, buzones, defaults de env, textos de i18n, nombres de claves, versiones instaladas, contenido de seeds, rutas reales de archivos | **La fuente ejecutable** (i18n, env, seed, código). Si el documento y la fuente discrepan, **manda la fuente y se corrige el documento — nunca al revés**. | **Dónde leerlo** (la clave/env/archivo) y, opcionalmente, el valor **marcado como ilustrativo** (`p. ej.`). |
+
+**Regla operativa:** *una decisión se escribe; un valor se cita por su origen.* Si al escribir dudas de la clase,
+pregúntate: **«¿esto lo estoy decidiendo yo ahora, o lo estoy copiando de algo que ya corre?»** Si es lo segundo,
+es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un dominio muerto a un rebrand.
+
+### 0-B.3 Reglas
+
+1. **Un documento NO afirma un valor de clase (B) como propio.** Remite a la fuente ejecutable. Formulación
+   canónica: *«la marca es el valor de `common.brand.name` (hoy, p. ej., “TCG HUNT”)»* — **no** *«la marca es
+   “TCG HUNT”»*. El paréntesis es una cortesía de lectura y **no es citable como autoridad**.
+2. **Verificación contra el producto, nunca contra otra documentación.** Un valor de clase (B) se comprueba
+   leyendo el artefacto que corre (`frontend/messages/*.json`, `backend/src/**`, `prisma/schema.prisma`, seeds,
+   `.env.example`). **Citar otro documento como evidencia no es verificación** — es cómo se propagó el error las
+   cuatro veces. Un `*_NOTES.md` **jamás** es fuente de un valor de clase (B): es una bitácora, y las bitácoras
+   envejecen.
+3. **Fuentes ejecutables canónicas de este proyecto** (clase B):
+   | Valor | Fuente ejecutable | Notas |
+   |---|---|---|
+   | Marca visible | `common.brand.name` en `frontend/messages/{es,en}.json` | Hoy `TCG HUNT`. |
+   | Dominio canónico | `common.brand.domain` | Hoy `tcghunt.mx`. |
+   | Razón social | `common.footer.legalEntity` | Hoy **pendiente**; el pie la omite mientras no exista. |
+   | Buzones que la API devuelve | env (`DISPUTE_EVIDENCE_CONTACT`, `SUPPORT_EMAIL`) con default en código | Ver §0-B.4 y `API_CONTRACT §0`. |
+   | Remitente de correo | env `MAIL_FROM` con default en código | Ver §8. |
+   | Buzones que el front muestra como copy | i18n (`frontend/messages/*.json`) | Propiedad de frontend/ux-ui. |
+4. **«TCG Vault MX» es el nombre del repositorio, no una marca.** Puede aparecer en rutas (`tcg-vault-mx/`),
+   nombres de host de infraestructura heredada y notas históricas. **No** puede aparecer en ninguna superficie que
+   el usuario vea o reciba (criterio 115 de `PROJECT.md`).
+5. **Quien detecte una discrepancia entre un documento y la fuente ejecutable NO la «arregla» en el producto.**
+   Reporta al dueño del documento. Un rol que cambia una cadena del producto citando un documento como autoridad
+   está invirtiendo la regla 2 — es literalmente lo que pasó con la metadata de los Excel.
+6. **Los dominios muertos permanecen vivos en un solo sitio: las guardias.** `security/scripts/_guard.sh` debe
+   seguir reconociendo `tcgvaultmx.com` **y** `tcghunt.mx` como producción mientras el redirect 301 exista.
+   Estrechar esa lista es un fallo de seguridad, no una limpieza de rebrand (alcance devops).
+
+### 0-B.4 Consecuencia para `API_CONTRACT.md`: forma y origen, no valor
+
+Un correo de contacto es **dato de infraestructura**: devops lo cambia por entorno sin redeploy. El contrato es
+**lo más caro de cambiar** del proyecto. Clavar el segundo con el primero es un error de acoplamiento, y además
+**el que produjo este incidente**: mientras el contrato dijera `soporte@tcgvaultmx.com`, cualquier implementación
+que lo obedeciera reintroducía el dominio muerto **legítimamente**.
+
+**Decisión (v1.50.4): el contrato describe la FORMA y el ORIGEN del campo, no transcribe el VALOR.** Norma completa
+y criterio generalizable en `API_CONTRACT §0` («Datos de contacto y valores de configuración»). En resumen:
+
+- `evidenceContact: string` — dirección de correo válida, **no vacía**, **resuelta server-side** desde
+  configuración (`DISPUTE_EVIDENCE_CONTACT`, override sin redeploy; default en código). Backend **nunca** la omite
+  ni la deja vacía (env definida pero vacía ⇒ cae al default: helper `envOr`, no `??`).
+- **Cambiar el valor no es un cambio de contrato** y no consume revisión.
+- **Frontend renderiza el valor que recibe.** Prohibido hardcodearlo, derivarlo o afirmarlo en un test de contrato;
+  un literal de fallback solo cabe en fixtures/mocks offline.
+
+**Criterio para las próximas** (esto es lo que hay que recordar, no la lista de correos): *si un valor puede
+cambiar por entorno o sin redeploy, el contrato norma su **forma, origen, obligatoriedad y quién lo resuelve** —
+nunca su contenido.* Aplica ya a correos, y por extensión a remitentes, teléfonos, URLs de soporte y cualquier
+identificador de contacto que se añada después.
 
 ---
 
@@ -2346,7 +2452,8 @@ el momento de cotizar, respetando rate-limit), es una **decisión de alcance** �
 
 Decisiones de producto **cerradas por el humano**: la verificación **bloquea acciones sensibles, no el login**;
 recuperación con **ambos** flujos (self-service por email **+** reset por admin existente). Proveedor de envío:
-**Resend** (`no-reply@tcgvaultmx.com`).
+**Resend**; remitente = env `MAIL_FROM` sobre el dominio canónico `common.brand.domain` (p. ej.
+`no-reply@tcghunt.mx` — valor ilustrativo, la fuente es la env; §0-B).
 
 #### a) Abstracción de correo — módulo `mail`
 Desacopla el dominio de Resend (mockeable en tests, intercambiable de proveedor):
@@ -3265,8 +3372,10 @@ hasta que el stream «Cuentas y acceso» la absorba en `MailService` — backend
   revierte ni falla el request. Sin cola de reintentos en MVP (parte de la misma deuda).
 - **Disparo:** SOLO en la transición a `rechazada` (re-`reject` idempotente ⇒ no re-envía).
 - **Minimización de datos:** el correo lleva carta (nombre/set/número), acabado, `reason` y los dos plazos con el
-  canal de coordinación (soporte@tcgvaultmx.com). **Prohibido:** CLABE (ni enmascarada), montos o estado de OTROS
-  ítems de la solicitud, cualquier dato de terceros.
+  **canal de coordinación** — buzón de soporte **resuelto por configuración**: `SUPPORT_EMAIL`, en cascada a
+  `DISPUTE_EVIDENCE_CONTACT`, con default en código (p. ej. `soporte@tcghunt.mx`; el valor lo fija devops por
+  entorno, §0-B). **Prohibido:** CLABE (ni enmascarada), montos o estado de OTROS ítems de la solicitud,
+  cualquier dato de terceros.
 
 **d) Identidad del vendedor en M5 (PII).** `seller: { id, name, email }` en `GET /admin/buylist`,
 `GET /admin/buylist/:id` y `rejected-items`. El correo del vendedor es **dato de contacto operativo** de un
@@ -4737,9 +4846,13 @@ por pieza física, unit-based).
   piezas disponibles del mismo grupo, más baratas primero) para que el comprador **elija cantidad** (el carrito es
   por-pieza: agrega hasta `availableCount` `inventoryItemId`s). Reusa `ListingDTO` (que para sellado ya lleva
   `referenceValue` = `sealedMarketRef` y `salePriceCents` = derivado/override).
-- **Call-out anti-buylist (mailto, front):** la ventana muestra el texto fijo *«¿Quieres revender tu sellado a TCG
-  Vault MX? Escríbenos a contacto@tcgvaultmx.com con fotos y lo cotizamos.»* — **no** es un endpoint; **no** hay
-  buylist de sellado (fuera de alcance, PROJECT).
+- **Call-out anti-buylist (mailto, front):** la ventana muestra un texto fijo que invita a revender el sellado
+  **fuera de la app**, con un `mailto` al buzón de contacto. **El texto y el buzón son copy del frontend**: viven
+  en i18n (`sealed.buylistCallout.{title,body,cta}` en `frontend/messages/{es,en}.json`) sobre la marca
+  `common.brand.name` y el dominio `common.brand.domain` — hoy, p. ej., *«¿Quieres revender tu sellado a
+  TCG HUNT? Escríbenos a contacto@tcghunt.mx con fotos y lo cotizamos.»* **La redacción exacta la fijan
+  ux-ui/frontend, no este documento** (§0-B: aquí se describe el mecanismo, no se transcribe el valor). **No** es
+  un endpoint; **no** hay buylist de sellado (fuera de alcance, PROJECT).
 
 #### (f) Destino (envío / bóveda) — reuso TOTAL del checkout existente
 
@@ -11196,7 +11309,8 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - **Set destacado del hero (v1.9-set-chart):** `HOME_FEATURED_SET_ID` (**opcional**; id **nativo de pokemontcg.io** del `CardSet` a graficar en la home, ej. `sv8`). Si no se define o no resuelve a un `CardSet` local, aplica el fallback en cascada de §4.12b (mayor valor en el último snapshot → set más reciente por `releaseDate`). **El valor concreto lo fija devops/backend** por entorno; el arquitecto define solo el mecanismo. No es secreto. Reusa `POKEMONTCG_IO_API_KEY` para el `set-price-sync`.
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
-- **Correo (v1.5-auth-email, Resend):** `RESEND_API_KEY` (secreto) y `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
+- **Correo (v1.5-auth-email, Resend):** `RESEND_API_KEY` (secreto) y `MAIL_FROM` (remitente; **valor por entorno**,
+  default en código sobre `common.brand.domain` — p. ej. `TCG HUNT <no-reply@tcghunt.mx>`; §0-B).
   - **Política (sigue el patrón `env.validation.ts` local/no-local):** `RESEND_API_KEY` se añade a la lista
     `required` → **obligatoria en NO-local (staging + prod)**; en LOCAL_ENVS (`development`/`test`/`local` o sin
     `NODE_ENV`) puede faltar y el sistema **degrada** a `NoopMailAdapter` (loguea el correo/link, no envía) para
@@ -11205,9 +11319,20 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
     los usuarios locales nunca podrían verificar → quedarían bloqueados. Por eso en no-local (incl. **staging**,
     que debe probar el flujo real E2E) la key es dura. *(Decisión a confirmar por el humano: exigir key también en
     staging; ver §10.)*
-  - **Dominio remitente:** `tcgvaultmx.com` requiere SPF/DKIM/DMARC verificados en Resend (nota devops). El correo
-    de soporte de disputas es `soporte@tcgvaultmx.com` — **mismo dominio canónico** que el remitente; ver §10 v1.5-2
-    (**CERRADA** 2026-08-16: dominio unificado, ya no hay inconsistencia).
+  - **Dominio remitente — INVARIANTE, no un valor (v1.50.4):** el remitente (`MAIL_FROM`) y el buzón de soporte
+    (`DISPUTE_EVIDENCE_CONTACT`) **deben vivir en el MISMO dominio canónico**, y ese dominio es el de
+    `common.brand.domain` (§0-B). **Hoy: `tcghunt.mx`.** El dominio debe tener **SPF/DKIM/DMARC verificados** en
+    Resend antes de fijar `MAIL_FROM` (alcance devops). Ver §10 v1.5-2 (CERRADA).
+  - **Migración P-21 (correo) — desbloqueada 2026-08-31:** los buzones `@tcghunt.mx` **ya reciben** (confirmado por
+    el humano). Eso levanta la única condición que mantenía los defaults en el dominio viejo. Consecuencias, **cada
+    una en su dueño** (el arquitecto no las ejecuta):
+    - **devops:** fijar `MAIL_FROM` sobre `tcghunt.mx` **solo con el dominio Verified en Resend**, y
+      `DISPUTE_EVIDENCE_CONTACT` al buzón nuevo **solo tras probar recepción real**. Mantener el dominio viejo en
+      `APP_BASE_URL` (CORS) y en las **guardias anti-prod** mientras dure el redirect 301 (§0-B regla 6).
+    - **backend:** actualizar los **defaults de código** (`mail.module.ts`, `disputes.constants.ts`,
+      `buylist-mail.templates.ts`, `guest-checkout.constants.ts`) y sus tests. Deuda `BE-P21-2` (literal duplicado
+      en 3 archivos) sigue abierta y es el momento natural de cerrarla.
+    - **Orden seguro:** env primero (efecto inmediato, reversible), defaults de código después. Nunca al revés.
 - `APP_BASE_URL`, `DEFAULT_LOCALE=es` (`APP_BASE_URL` = base del frontend; también se usa para construir los
   links de verificación/reset del correo, §4.11).
 
@@ -11226,6 +11351,28 @@ Riesgos técnicos:
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
+
+- **⚠️ NUEVA (v1.50.4) — DESVIACIÓN DE PROCESO, no de código: «la fuente afirma, el producto contradice, nadie
+  coteja».** Es la desviación **más cara** registrada aquí, porque no vive en un archivo: vive en cómo el equipo
+  lee. Se ha reproducido **cuatro veces**, cada una en un rol distinto y cada una con el rol obedeciendo
+  correctamente el proceso. Inventario:
+  | # | Incidente | Qué afirmó la fuente | Qué decía el producto |
+  |---|---|---|---|
+  | 1 | **Sembrado** que no pisa lo existente | «el seed es idempotente / no destruye» | pisaba datos ya presentes |
+  | 2 | **Preflight** que aceptaba una clave falsa | «la verificación valida la credencial» | validaba el formato, no la credencial |
+  | 3 | **Despliegue verde sin desplegar** | «el pipeline desplegó» | el paso no corrió; el verde era del paso anterior |
+  | 4 | **Marca** (este pase) | `PROJECT.md`: «la marca comercial es TCG Vault MX» | `common.brand.name = "TCG HUNT"` desde antes |
+  **Denominador común:** en los cuatro, la afirmación era de **clase (B)** (§0-B.2) —descripción de algo que ya
+  existía— pero se leyó con la autoridad de una **clase (A)** (decisión). El daño del #4 es el más ilustrativo
+  porque fue **hacia abajo y con razón**: un rol escribió un descargo legal con la marca mala, y otro *«corrigió»*
+  la metadata de los Excel **quitando la marca real**, citando `PROJECT.md` como autoridad. **Ninguno violó el
+  proceso; el proceso los mandó al error.**
+  - **Dueño:** arquitecto (norma) — **CERRADA en este pase** con §0-B, que separa *decidir* de *describir* y obliga
+    a verificar contra el artefacto ejecutable, nunca contra otra documentación.
+  - **Lo que §0-B NO cierra:** es una norma, no un candado. Un chequeo mecánico (p. ej. CI que falle si `docs/` o el
+    copy contienen `TCG Vault MX` o los dominios muertos fuera de las guardias y las notas históricas) sería el
+    cierre duro. **No lo especifico aquí: es tooling de CI, alcance devops.** Queda enrutado como **sugerencia**,
+    no como requisito de arquitectura.
 
 - **⚠️ NUEVAS (v1.50.3-g) — desviaciones detectadas por el gate de seguridad, enrutadas, ninguna corregida por mí.**
   Dictamen completo en §4.38(l.4.10)-(l.4.13); aquí queda el registro con dueño y puerta:
@@ -12184,10 +12331,13 @@ este documento y con `API_CONTRACT.md`.
 > endpoints y el `EmailVerifiedGuard` con los defaults propuestos. El arquitecto **no asume** reglas de negocio.
 - **v1.5-1 — ¿Exigir `RESEND_API_KEY` en staging (además de prod)?** Default propuesto: **sí** (staging es
   no-local → key dura, para probar el flujo real E2E; degradación Noop solo en LOCAL_ENVS). Confirmar.
-- **v1.5-2 — Dominio remitente vs soporte. (CERRADA 2026-08-16)** El humano confirmó el dominio canónico único
-  `tcgvaultmx.com`: `MAIL_FROM` = `no-reply@**tcgvaultmx.com**` y soporte de disputas = `soporte@**tcgvaultmx.com**`
-  (**mismo dominio**, ya no hay inconsistencia). Pendiente operativo (no de arquitectura): verificar SPF/DKIM/DMARC
-  en Resend para `tcgvaultmx.com` (nota devops).
+- **v1.5-2 — Dominio remitente vs soporte. (CERRADA 2026-08-16; REEXPRESADA 2026-08-31, v1.50.4)** Lo que el humano
+  cerró fue el **invariante**, no un literal: **remitente y soporte comparten un único dominio canónico**, el de
+  `common.brand.domain`. **Hoy ese dominio es `tcghunt.mx`** y los buzones ya reciben (2026-08-31) — la versión
+  anterior de esta entrada escribía el dominio viejo `tcgvaultmx.com` como si fuera la decisión, y por la regla de
+  conflicto eso **autorizaba** a reintroducirlo: era el documento sosteniendo el error, no el código (§0-B).
+  Pendiente operativo (no de arquitectura, alcance devops): SPF/DKIM/DMARC verificados en Resend para el dominio
+  canónico **antes** de fijar `MAIL_FROM`.
 - **v1.5-3 — ¿El reset exitoso marca `emailVerified=true`?** Default propuesto: **sí** (clic en el link de reset
   prueba control del inbox). Si el humano prefiere separar ambos conceptos, se deja `emailVerified` intacto en el
   reset. Confirmar.
