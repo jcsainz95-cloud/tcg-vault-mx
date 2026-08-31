@@ -74,9 +74,13 @@ describe('i18n catalogs', () => {
    * candado sobre el texto renderizado se mueve reescribiendo el texto; este se mueve solo
    * quitándole el calificador a la cadena, que es exactamente lo que debe estar prohibido.
    */
+  // El calificador se busca por su NÚCLEO («cobra por petición» / «charges per request») y no por
+  // la frase entera de M10: §22.14 añadió una segunda superficie que publica la misma cifra —el
+  // aviso de gasto de M2— y allí el sujeto es explícito («si **el proveedor** cobra por petición»).
+  // Un candado que exigiera la variante literal de una pantalla dejaría la otra sin cubrir.
   it.each([
-    ['es', es, /si cobra por petición/],
-    ['en', en, /if it charges per request/],
+    ['es', es, /cobra por petición/],
+    ['en', en, /charges per request/],
   ])(
     '%s no publica un techo de créditos sin el régimen de cobro que lo condiciona',
     (_locale, catalog, condicional) => {
@@ -111,6 +115,59 @@ describe('i18n catalogs', () => {
       .filter(([, value]) =>
         /(aproximadamente|approximately|unos|around|about|~)\s*<?[a-z]*>?\{credits/i.test(value),
       )
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+
+  /*
+   * §22.13(d.1)/(k.o) — el candado de arriba solo mira las cadenas que INTERPOLAN `{credits}`. QA
+   * demostró que la falsedad no necesita el placeholder: basta teclear la cifra a mano
+   * («gasta 1000 créditos al día»), y entonces ni la paridad ni la pantalla la veían. Aquí se
+   * prohíbe la cifra LITERAL en cualquier idioma: el techo se calcula en `grading-hook-cost.ts` y
+   * se interpola, nunca se escribe. Un número escrito a mano en el copy es, por construcción, un
+   * número que nadie recalcula cuando el tope cambia.
+   */
+  it.each([
+    ['es', es, /\d[\d.,\s]*\s*créditos al día/],
+    ['en', en, /\d[\d.,\s]*\s*credits a day/],
+  ])('%s no escribe NINGUNA cifra de créditos a mano (solo se interpola)', (_locale, catalog, literal) => {
+    const offenders = stringEntries(catalog)
+      .filter(([, value]) => literal.test(value))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+
+  /*
+   * §22.13(e)/(f)/(k.r) — **cero apariciones de «grados» como remedio**. En M2 los grados son un
+   * párrafo READ-ONLY (`server.grades.join(' · ')`), no un control: mientras no exista editor,
+   * nombrarlos en el aviso de apagado o en la nota es prometerle al dueño una palanca que no
+   * puede accionar — el mismo defecto que §22.14 corrige con el tope, en el escalón de en medio.
+   * La escalera de remedios pasa a DOS escalones, y los dos existen en pantalla.
+   */
+  it.each([
+    ['es', es, /\bgrados\b/i],
+    ['en', en, /\bgrades\b/i],
+  ])('%s no ofrece «los grados» como remedio en el aviso de apagado ni en la nota del gancho', (_locale, catalog, grados) => {
+    const remedios = stringEntries(catalog).filter(([path]) =>
+      ['admin.m10.dials.gradingHook.off', 'admin.m10.dials.gradingHook.note'].includes(path),
+    );
+    // Si alguien renombra las claves, el candado no puede quedar mirando al vacío y aprobando.
+    expect(remedios).toHaveLength(2);
+    expect(remedios.filter(([, value]) => grados.test(value)).map(([path]) => path)).toEqual([]);
+  });
+
+  /*
+   * §22.14(e)/(f.i) — **5 000 salió del contrato** (I8, v1.51-a: el tope vive en `[1, 1000]`).
+   * Escribirlo en una etiqueta, una ayuda, un ejemplo o un `placeholder` lo reintroduce por la
+   * puerta de atrás, y el sitio donde más daño hace es justo el copy del dial del gasto.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s no menciona el 5 000 retirado en el copy del gancho', (_locale, catalog) => {
+    const offenders = stringEntries(catalog)
+      .filter(([path]) => /admin\.(m2\.gradedEstimates|m10\.dials\.gradingHook)/.test(path))
+      .filter(([, value]) => /\b5[.,\s]?000\b/.test(value))
       .map(([path]) => path);
     expect(offenders).toEqual([]);
   });

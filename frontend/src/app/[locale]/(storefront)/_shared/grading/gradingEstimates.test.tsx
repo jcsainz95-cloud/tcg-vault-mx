@@ -228,6 +228,24 @@ describe('§22.3 · bloque de la ficha', () => {
     expect(bloque.textContent).not.toMatch(/actualizad|refresc/i);
     // Y tampoco escondida en un atributo: nada de tooltip, `title` ni `datetime`.
     expect(bloque.querySelector('time, [title], [datetime]')).toBeNull();
+    // Ni en el TEXTO ACCESIBLE. El candado anterior miraba `textContent` y tres selectores, así que
+    // un `<span aria-label="Capturado el 22 de agosto de 2026" />` pasaba con la suite en verde (lo
+    // demostró QA). Una fecha que solo existe para el lector de pantalla **sigue siendo una fecha
+    // mostrada** — y para quien usa lector de pantalla es LA fecha. Se barre el valor de TODOS los
+    // atributos del subárbol (no solo `aria-*`): un dato que no debe existir no debe existir en
+    // ningún canal, y así el candado no depende de acertar qué atributo elegirá el próximo.
+    const textoAccesible = [
+      bloque.textContent ?? '',
+      ...Array.from(bloque.querySelectorAll('*')).flatMap((el) =>
+        Array.from(el.attributes).map((a) => a.value),
+      ),
+    ].join(' § ');
+    expect(textoAccesible).not.toMatch(/22 ago 2026|24 jul 2026/);
+    expect(textoAccesible).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(textoAccesible).not.toMatch(/2026/);
+    expect(textoAccesible).not.toMatch(
+      /enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre/i,
+    );
   });
 
   it('el número de celdas lo decide el SERVIDOR: un tercer grado se pinta sin tocar el cliente', () => {

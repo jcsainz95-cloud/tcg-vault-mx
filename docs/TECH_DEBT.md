@@ -4695,3 +4695,22 @@
   El único caso que sí se limpia solo es el del smoke de borrado, que retira lo que siembra.
 - **Disparador para cerrarla:** que el arnés pueda marcar sus propias filas (p. ej. una carta de seed
   reservada al E2E cuyo estimado sea siempre desechable). Es alcance nuevo, no un arreglo.
+
+### Última pasada de M-46 (§22.14 + los dos candados burlados) — rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-31 (dueño: **frontend**, no bloqueante)
+
+#### GR-D4 · `M2View.test.tsx:722` es INESTABLE en suite completa (Media→Baja, frontend — **fuera del stream que la anotó**)
+- **Dueño:** frontend. **Severidad:** Baja (test, no producto). **Estado: abierta, ticket propio.**
+- **Qué pasa:** el test `M2 · jerarquía por-fila (§19.4) › I y G son botones directos…` falla de
+  forma intermitente en la **suite completa** —QA lo vio caer **1 de 2 corridas**, en el
+  `findAllByRole` del botón «Refrescar variantes y precios de {set} usando solo TCGCSV»— y **pasa
+  3/3 aislado**. En la corrida de cierre de este pase (842/842) **no se reprodujo**: es intermitente,
+  no determinista, y esto es lo único que se puede afirmar hoy.
+- **Hipótesis (no verificada, y se anota como hipótesis):** `M2View` monta muchas queries a la vez y
+  el `findAllByRole` corre con la ventana por defecto de `waitFor` (1 s). Bajo la carga de la suite
+  completa esa ventana se puede agotar antes del render. Si es eso, el arreglo es del **test**
+  (esperar por un hito estable de la vista, o subir el timeout de ese `find*`), no del componente.
+- **Por qué no se arregla aquí:** **ningún commit de este pase toca `M2View.tsx` ni
+  `M2View.test.tsx`**. Tocar un archivo ajeno al stream para «dejarlo verde» es exactamente cómo un
+  flake se convierte en un cambio sin revisar. Va como ticket propio de frontend.
+- **Disparador para cerrarla:** reproducir el rojo con `--repeat` o `--sequence.shuffle` sobre la
+  suite completa, confirmar (o descartar) la hipótesis del timeout y arreglar el test en su rama.

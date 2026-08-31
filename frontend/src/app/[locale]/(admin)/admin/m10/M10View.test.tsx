@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { expectCreditsFigureQualified } from '@/test/grading';
 import * as api from '@/lib/api';
 import { mockSettings } from '@/lib/mock/fixtures';
 import { M10View } from './M10View';
@@ -124,12 +125,13 @@ describe('M10View · Config y bitácora', () => {
     // (k.l) — INVARIANTE, no una frase suelta: NINGUNA oración que mencione «créditos al día» puede
     // hacerlo sin su calificador en la MISMA oración. Es lo que impide que el candado vuelva a
     // moverse cambiando un número por otro, o colando la cifra desnuda en otro párrafo.
-    const oraciones = warning.textContent!.split(/(?<=\.)\s+/);
-    const conCifra = oraciones.filter((o) => /créditos al día/.test(o));
-    expect(conCifra.length).toBeGreaterThan(0);
-    for (const oracion of conCifra) {
-      expect(oracion).toMatch(/si cobra por petición|ya está medido|medida el/);
-    }
+    //
+    // El corte en oraciones vive en `@/test/grading` y NO se copia aquí: la versión que vivía en
+    // esta línea exigía **espacio** tras el punto, y `textContent` no lo pone entre bloques, así
+    // que una cifra desnuda pegada al punto anterior se fusionaba con la oración calificada y
+    // pasaba (lo demostró QA con la suite en verde). Mismo candado para las dos pantallas que
+    // publican la cifra — M10 aquí, M2 en `GradedEstimatesSection.test.tsx`.
+    expectCreditsFigureQualified(warning.textContent!);
     // §7.6: la acción de dinero declara quién puede y dónde queda.
     expect(warning.textContent).toMatch(/Solo súper-admin · queda en bitácora/);
     expect(warning.textContent).toMatch(/No cambia ningún precio de venta/i);

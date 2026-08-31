@@ -8561,3 +8561,149 @@ dato. Y el criterio 119(b) («cero apariciones de la clave en `messages/` ES y E
 3. **Sin cambios en `docs/API_CONTRACT.md`.** `capturedDate` sigue viajando en `GradedEstimateDTO` y
    **debe seguir**: la frescura del criterio 118 se evalúa con él. La decisión 62 retira lo que se
    **muestra**. Si el arquitecto quiere además retirarlo del contrato, es decisión suya, no mía.
+
+---
+
+## §33 · El candado que se burlaba con un espacio, la fecha que solo oía el lector de pantalla, y el campo que hace verdad el aviso (`DESIGN_SYSTEM.md` §22.14 / §22.13(e)(f), criterio 119) — 2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`
+
+> Tres cosas en un solo toque, las dos primeras porque QA las rompió de punta a punta y la tercera
+> porque es la que convierte en verdad una frase que el aviso de M10 ya publica.
+
+### 33.1 El invariante por oración cazaba la regresión realista — y se burlaba con no poner un espacio
+
+**Lo que había.** `M10View.test.tsx` partía el aviso con `split(/(?<=\.)\s+/)`: **exige whitespace
+tras el punto**. Y `textContent` no pone espacio entre bloques — el propio aviso ya lo demostraba,
+produce `…consume créditosPublica.` al concatenar párrafos.
+
+**La burla de QA, reproducida aquí antes de tocar nada.** Se inyectó la cifra desnuda **pegada** al
+punto de la oración calificada, en `messages/es.json`:
+
+```
+…la factura puede ser varias veces esa cifra.En resumen: gasta 1000 créditos al día. La primera corrida lo mide…
+```
+
+El fragmento inyectado **se fusiona** con la oración anterior, hereda su «si cobra por petición» y
+pasa. Corrida real con la mutación puesta: **`M10View.test.tsx` 14/14 en verde**, y
+`i18n-parity.test.ts` **12/12 en verde** — una afirmación plana de gasto en la pantalla del
+consentimiento del dueño, con los dos candados aplaudiendo.
+
+**El arreglo.** El corte vive ahora en `src/test/grading.ts` (`splitSentences`) y **no se copia en
+ninguna pantalla**, porque desde §22.14 hay **dos** superficies que publican la misma cifra:
+
+```ts
+text.split(/(?<=\.)(?:\s+|(?=[^\s\d]))/)
+```
+
+Corta tras un punto **con o sin** espacio detrás. La única excepción es **punto seguido de dígito**
+(`1.000`), que es separador de millares y no fin de oración — sin esa excepción el candado se
+pondría rojo solo, que es la otra forma de no servir para nada. Es más ancho que el
+`(?<=\.)\s*(?=[A-ZÁÉÍÓÚ¡¿])` que propuso QA: también caza continuaciones en minúscula o abiertas por
+signo, no solo las que empiezan con mayúscula.
+
+**Alcance, dicho sin adornos (y esta es la lección de redacción del pase).** El resumen anterior
+afirmaba que *«mover el candado no basta para burlarlo»*, y eso era **más fuerte de lo que el código
+sostenía**: el candado había mejorado, la frase se pasó de rosca. Lo que este corte sostiene, y nada
+más: **caza toda continuación tras un punto, lleve espacio o no**. No inventa fronteras donde el
+copy no puso ninguna — un título sin punto sigue fundiéndose con la primera oración del cuerpo, y
+un texto sin puntos se juzga como una sola oración.
+
+**Segunda línea de defensa, en el catálogo.** La burla también pasaba la paridad porque aquel
+candado solo mira las cadenas que **interpolan** `{credits}`. Se añade en `i18n-parity.test.ts`
+—ES y EN— que **ninguna cifra de créditos se escriba a mano**: el techo se calcula en
+`grading-hook-cost.ts` y se interpola, nunca se teclea. Un número a mano es, por construcción, un
+número que nadie recalcula cuando el tope cambia. Con la mutación de QA puesta, ese candado señala
+`admin.m10.dials.gradingHook.on` por su nombre.
+
+### 33.2 Criterio 119: una fecha que solo existe para el lector de pantalla **es** la fecha
+
+**Lo que había.** El candado miraba `textContent` y `time, [title], [datetime]`. QA metió
+`<span aria-label="Capturado el 22 de agosto de 2026" />` en el bloque de grading: **19/19 en
+verde** (reproducido aquí).
+
+**El arreglo.** Se barre el valor de **todos** los atributos del subárbol —no solo `aria-label` y
+`aria-description`— y se juzga junto con el texto: fechas ISO, el año, los meses en letra y las dos
+capturas del fixture. Se barren todos los atributos a propósito: un dato que no debe existir no debe
+existir en ningún canal, y así el candado no depende de acertar **qué atributo** elegirá el próximo.
+El selector estructural anterior se queda: dice otra cosa (que no haya `<time>` ni tooltip) y cuesta
+una línea.
+
+### 33.3 §22.14 — el tope de cartas por corrida gana campo en M2
+
+Hasta hoy `ingestMaxCardsPerRun` **no se pintaba ni viajaba en el `PUT`**: la única cota entre un
+`PUT` y la factura del proveedor (`ARCHITECTURE.md` §4.38r.3) solo se movía por `curl`, mientras el
+aviso de M10 le decía al dueño que «ese tope se edita en M2». Era el defecto que costó el rediseño a
+dial único (M-46), una pantalla más allá.
+
+- **Bloque propio**, con su regla `border-t border-border pt-4`, bajo la retícula de margen/frescura
+  y encima de los párrafos read-only. **No** es una tercera celda: aquellos dos son gates de
+  **publicación**, éste **gasta** (§22.14b). El test lo fija de forma verificable —el input de
+  frescura sí tiene un `.grid` por ancestro, el del tope **no**—, no por comentario.
+- **Payload del `PUT`** + validación cliente `[1, 1000]` entera con `rangeError`. Money-safe: campo
+  vacío **no** cae a 0 ni al default, bloquea. **Cero 5 000** en código, copy y tests: salió del
+  contrato en v1.51-a, y un test es tan buen sitio como cualquiera para reintroducir un número
+  muerto — hay candado de catálogo para eso.
+- **`Banner` de créditos solo cuando el borrador difiere de lo guardado**: `warning` al subir,
+  `info` al bajar, **títulos distintos** (el color no es el único canal, §2.4), `role="status"` —el
+  dueño teclea en su borrador; una región asertiva por pulsación es hostil— y **no bloquea guardar**.
+  La cifra es la **del borrador** y sale de `grading-hook-cost.ts`: **una sola aritmética en el
+  producto**, la misma que cifra el aviso de M10.
+- **Hereda §22.13(d.1) sin excepción**: el mismo `expectCreditsFigureQualified` corre sobre el aviso
+  de M2. Quitarle el régimen de cobro a `ingestCap.warn` pone rojo **tres** tests (la pantalla y la
+  paridad ES/EN) — verificado rompiéndolo.
+- **`admin.m10.dials.gradingHook.{off,note}` reescritas: sale «grados».** En M2 son un párrafo
+  read-only, así que la escalera de remedios prometía un escalón inexistente. Pasa a **dos**
+  escalones, ambos reales (lista de revisión con su ancla, margen mínimo con su `Input`), con
+  candado de catálogo ES/EN que lo fija.
+- **El check que cierra el círculo (§22.14f f):** guardar el tope en M2 mueve la cifra del aviso de
+  M10 **sin recargar**. Se montan las dos pantallas juntas bajo el mismo `QueryClient` y el doble del
+  servidor **guarda lo que recibe**: si el `PUT` dejara de llevar el tope, el `GET` de la
+  invalidación devolvería el viejo y el aviso no se movería. Un mock que devolviera el valor nuevo
+  pase lo que pase probaría la invalidación, no el círculo.
+
+**Detalle para ux-ui (no bloqueante):** el encabezado `h3` del bloque y la etiqueta del `Input` usan
+la **misma** clave `ingestCap.label`, porque §22.14 pide las dos cosas y solo define seis claves.
+Se imprime dos veces la misma frase. Si se quiere un título de bloque distinto, hace falta una clave
+más — no la invento.
+
+### 33.4 Las tres mutaciones (evidencia, no promesa)
+
+| Guarda | Mutación | Rojo real |
+|---|---|---|
+| Invariante por oración (M10) | cifra desnuda pegada al punto, en `messages/es.json` | `cifra de créditos SIN calificador en su oración: «En resumen: gasta 1000 créditos al día.»: expected … to match /cobra por petición\|ya está medido\|medida el/` |
+| Criterio 119 (ficha) | `<span aria-label="Capturado el 22 de agosto de 2026" />` en `GradingEstimateBlock` | `expected 'VALOR ESTIMADO SI SE GRADEASI SALEPSA…' not to match /2026/` |
+| §22.14 (tope en M2) | quitar `ingestMaxCardsPerRun` del payload del `PUT` | `expected undefined to be 400` **y** `(f) … expected 'Encendido: publica cifras y consume c…' to match /2000 créditos al día/` |
+
+Antes de cada arreglo se **reprodujo** el verde: 14/14 con la cifra desnuda inyectada, 19/19 con la
+fecha en `aria-label`. Los dos candados nuevos de catálogo también se rompieron a propósito y
+señalan la clave culpable por su nombre.
+
+### 33.5 Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **842/842 en 94 archivos**
+  · `npx next build` ✔.
+- **Base: 830/94.** Delta **+12 tests, 0 archivos nuevos, ninguna prueba retirada**:
+  - `GradedEstimatesSection.test.tsx` **+6** (§22.14: el campo existe y en su bloque propio · subir ·
+    bajar/volver · rango y bloqueo · el tope en el `PUT` con el vacío que no guarda · el círculo con
+    M10).
+  - `i18n-parity.test.ts` **+6** (ES/EN × tres candados: cifra de créditos escrita a mano, «grados»
+    como remedio en `off`/`note`, y el 5 000 retirado en el copy del gancho).
+  - `M10View.test.tsx` y `gradingEstimates.test.tsx` **±0 tests**, aserciones más fuertes.
+- Cero componentes nuevos, cero tokens nuevos, cero cambios de contrato
+  (`GradedEstimateConfigInput.ingestMaxCardsPerRun` ya era opcional), cero escrituras fuera de
+  `frontend/`, `docs/FRONTEND_NOTES.md` y `docs/TECH_DEBT.md`.
+- El candado de paridad busca ahora el calificador por su **núcleo** («cobra por petición» /
+  «charges per request») y no por la frase literal de M10: §22.14 añadió una segunda superficie
+  donde el sujeto es explícito («si **el proveedor** cobra por petición»), y un candado atado a la
+  variante de una pantalla habría dejado la otra sin cubrir.
+
+### 33.6 Peticiones
+
+1. **La petición 2 de §32 queda CERRADA por la vía (a):** ux-ui especificó §22.14 y el campo está
+   implementado. El puntero «ese tope se edita en M2» es verdad verificable, y hay un test que lo
+   comprueba **por los dos lados**.
+2. **Sigue abierta la de §32 nº1** (canal para el **coste medido**): `onMeasured` continúa montado y
+   dormido, y no se rellena a mano.
+3. **Editor de «grados» — no lo pido, lo constato.** `grades`/`highlightGrades` siguen read-only en
+   M2 (hermanos de **F-19**). Desde este pase **ninguna pantalla los ofrece como remedio**, así que
+   no hay nada roto que arreglar: darles editor es feature nueva con invariantes propios
+   (`highlightGrades ⊆ grades`) y entra por `PROJECT.md`, como dice §22.12 nº17.
