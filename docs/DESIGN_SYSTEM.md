@@ -320,6 +320,25 @@
 > re-litiga** la decisión: la registra con su razón, la especifica, y **deja escrito lo que se perdió**
 > (§23.16 — el usuario táctil que solo mira se queda sin forma explícita de detenerla). Sigue **cero tokens
 > nuevos, cero componentes nuevos, cero cambios de contrato**; se **retiran** seis claves i18n (§23.12).
+>
+> **Añadido v2.8 (2026-08-31) — el índice de sets pasa de nombres a LOGOS: la placa de tinta → ver §24.**
+> Pedido **del dueño**, con **referencia visual** (retícula oscura de 3 columnas, logo contenido en teja de
+> tamaño fijo, nombre debajo). Se traslada la **estructura**, no el acabado: **cero morado, cero neón, cero
+> esquinas redondeadas** (§4.2). La decisión de fondo es que **la teja oscura de la referencia no es gusto,
+> es la solución al problema real**: los logos de pokemontcg.io están dibujados para fondos oscuros (filete
+> blanco casi universal) y sobre el papel `#F4F1EA` una parte se vería lavada o invisible — y son cientos,
+> llegan de un tercero y **nadie los va a inspeccionar uno por uno**. Por eso el logo vive sobre una
+> **placa de tinta** `#1A1A18` (§24.2), que **no es un elemento importado de la referencia**: es el
+> **panel de tinta que el sistema ya tiene** (§2.2, hero de auth y sidebar del back-office) haciendo un
+> trabajo. Se añade un **contorno de seguridad** de 1px en papel alrededor del alfa del logo, que es
+> invisible en los logos claros (se funde con su propio filete) y **rescata** los oscuros: así funciona con
+> ambos **sin saber cuál es cuál**. **Superficie elegida: `MasterSetIndex`** —el índice de sets compartido,
+> en sus cuatro modos (cotizador, M1 admin, bóveda propia y de cliente)—; los chips «Sets buscados» de la
+> home (§20.2), el `SetFilter` de Compra (§7.16b) y el combobox de alta del admin (§16.5) **NO cambian**, y
+> §24.1 dice por qué. Sin logo (promos, colecciones, sets viejos) la placa lleva un **monograma serif** —
+> nunca un hueco, nunca un roto y **nunca un pulso** (precedente `CardImage`, §5). **Cero tokens nuevos de
+> color/tipografía, cero claves i18n nuevas, cero cambios de contrato**: sin `logoUrl` la retícula degrada a
+> monogramas y sigue siendo usable. Hay **un requisito de dato abierto** al arquitecto (§24.13 nº1).
 
 ---
 
@@ -7974,3 +7993,378 @@ detiene al primer gesto y **no vuelve**, no arranca sobre contenido en carga, y 
 llegan a las ocho tejas, siempre.
 
 **(d) La forma correcta de citar esto** está en §23.4.0 (d), y **cuándo hay que reabrirlo**, en §23.4.0 (e).
+
+---
+
+## 24. Logos de expansión en el índice de sets — la placa de tinta (v2.8, pedido del dueño)
+
+> **Origen:** pedido del dueño con **referencia visual** (no una entrega de Claude Design): retícula de 3
+> columnas, teja de fondo oscuro con esquinas redondeadas y borde sutil, **logo contenido** con aire
+> alrededor, **nombre debajo** en mono versalitas con tracking amplio, y un elemento destacado más grande
+> arriba con subrayado de acento. La referencia es **oscura, morada y neón**; este sitio es **papel y tinta**
+> (§17). Lo que se traslada es la **estructura** —la que hace que la retícula funcione—, no el acabado.
+> §24 **no cambia el contrato ni la arquitectura**, no introduce tokens de color/tipografía y **no bloquea**:
+> tiene un requisito de dato abierto (§24.13 nº1) y, sin él, la retícula sigue funcionando.
+
+### 24.0 Las cinco reglas duras
+
+Si algo de lo que sigue se contradice con el resto de §24, mandan estas cinco.
+
+| # | Regla |
+|---|---|
+| **R1** | **El logo va contenido en una caja de tamaño fijo, idéntica para todos los sets.** `object-contain`, nunca `cover`, nunca estirado, nunca recortado. Es lo que impide que la retícula se descuadre con logos de proporciones dispares. **Ésta es la idea estructural de la referencia y es innegociable.** |
+| **R2** | **El nombre en texto NO desaparece.** Vive debajo de la placa, siempre, tenga o no tenga logo el set. El logo es un **acelerador de reconocimiento**, nunca el portador del dato (mismo razonamiento que §2.4: el color no porta, el texto sí). |
+| **R3** | **El logo se pinta sobre una placa de tinta**, en el tema claro también (§24.2). No se recolorea, no se invierte, no se mezcla y no se inspecciona logo a logo. |
+| **R4** | **Sin logo no hay hueco ni pulso**: la placa lleva un monograma (§24.5). Precedente literal: `CardImage` deja el pozo **quieto** cuando no hay `src`, porque un `animate-pulse` eterno hace que un dato ausente legítimo parezca una app colgada (§5). |
+| **R5** | **Esta retícula vive en UNA superficie** (§24.1). Ninguna otra pantalla adopta la placa —ni suelta ni en masa— sin pasar por ux-ui. |
+
+### 24.1 Dónde vive esta retícula — y qué pasa con las otras superficies
+
+El dueño dijo «cuando seleccionamos set», y en la app hay cuatro sitios donde eso ocurre. **Se diseña para
+uno**, y los otros tres se quedan como están. La razón de fondo es que solo uno de ellos es un
+**escaparate para elegir** (se entra a mirar y se sale habiendo escogido); los demás son **controles de
+formulario** (se llega sabiendo lo que se busca y se quiere salir en dos teclas).
+
+| Superficie | Qué le pasa | Por qué |
+|---|---|---|
+| **`MasterSetIndex` — el índice de sets compartido** (`components/master-set/MasterSetIndex.tsx`) | **AQUÍ se diseña.** Adopta la retícula de placas en **sus cuatro modos**: `quoter` (cotizador `/buylist`, §18.1 nº3), `platform` (pestaña Master Set de M1, §16.1 nº4), `user_vault_self` y `user_vault_admin`. | Es la única superficie **de elección por exploración**: pantalla completa, una sola selección, ya es una retícula de 3 columnas paginada de 20, y al elegir se **sale** de ella hacia el binder. Es, literalmente, «cuando seleccionamos set». |
+| **Chips «Sets buscados» de la home** (§20.2 nº5) | **No cambia.** Siguen siendo chips de texto 13px con regla inferior. Queda **prohibido** pegar la retícula de placas dentro del hero. | (a) Viven en la **columna izquierda del hero**, compartiendo pliegue con el `h1` de 50px y con el panel Cotizador: cinco bloques de tinta ahí le disputarían la atención al titular y al único CTA de la home. (b) No son un selector de set: son **enlaces a facetas de Compra**. (c) El hero ya tiene su bloque de tinta (el CTA primario) y la regla es un bloque de tinta por composición. Si algún día el dueño quiere logos en la home, la pieza correcta es una **banda propia bajo el pliegue** (al estilo de §20.4), y eso es **un diseño nuevo, no una herencia**. |
+| **`SetFilter` de Compra** (§7.16b) | **No cambia.** Sigue siendo combobox con búsqueda sobre `facets.sets`, `"Surging Sparks (2024)"`, orden por año descendente. | (a) Es una **faceta de selección múltiple** en una columna estrecha: una retícula de imágenes no se teclea ni se marca con checkbox sin inventar un patrón nuevo (checkbox sobre imagen) que no existe en este sistema. (b) Con cientos de sets, **la búsqueda por texto ES la función**; sustituirla por mirar logos es un downgrade medible. (c) Un filtro sirve para **estrechar**, no para explorar. |
+| **Combobox de set del alta admin** (`AddItemModal` / `SealedAddFlow`, §16.5, §16.8a) | **No cambia.** | Es un **control de formulario dentro de un modal**, usado con prisa y a veces con guantes junto a las cajas (§1.4). Una retícula de placas empujaría el resto del formulario bajo el pliegue y cambiaría dos pulsaciones por un scroll. |
+
+**Sobre heredar en admin/bóveda (y por qué no se bifurca).** `MasterSetIndex` es **un solo componente con
+cuatro modos** y ya acumula deuda por ramificación (`SC-D4`). Darle a admin una piel distinta añadiría otra
+rama para empeorar su pantalla: el operador de M1 trabaja **con el producto físico en la mano**, y el logo
+que ve impreso en la caja o en el sobre es exactamente el que la placa le pinta. **Misma geometría, misma
+placa, mismo monograma en los cuatro modos**; lo único que sigue siendo condicional por modo es lo que ya lo
+era: completitud, barra de progreso y piezas **no se pintan en `quoter`** (§24.3), y el orden por
+completitud/piezas tampoco.
+
+**Sobre `images.symbol`.** El arquitecto está decidiendo en paralelo qué URLs se guardan. Para lo que este
+documento diseña, **el dato que carga el peso es el LOGO**; el **símbolo no se usa en ninguna superficie
+hoy**, y el sitio donde alguien lo pediría —un glifo de 20px dentro de las opciones del `SetFilter`— es
+justo donde la placa de tinta **no cabe** y donde el problema de §24.2 **no tiene solución**: un símbolo casi
+blanco a 20px sobre papel es un borrón, y una placa de tinta de 20px al lado de cada opción de un
+desplegable es absurda. **Si se guarda, se guarda para el futuro, no para esta versión**; su uso lo decide
+ux-ui cuando exista una superficie que lo justifique.
+
+### 24.2 La placa de tinta — por qué el fondo oscuro no es gusto
+
+**El problema, dicho en claro.** Los logos de expansión de pokemontcg.io son PNG con transparencia
+**dibujados para ir sobre arte de sobre y de caja**, es decir, sobre fondos de cualquier color y
+normalmente oscuros. Casi todos llevan **filete claro (blanco o casi blanco)** alrededor de las letras, y
+algunos son claros por dentro. Sobre el papel `#F4F1EA` de este sitio, ese filete **desaparece contra el
+fondo** y el logo pierde su contorno; los logos de relleno claro se van directamente a invisibles. **No se
+puede saber cuál es cuál sin mirarlos uno por uno**, y son **cientos**, vienen de un **tercero** y mañana
+puede haber más.
+
+**Lo que se descartó, y por qué:**
+
+| Opción | Por qué no |
+|---|---|
+| Logo suelto sobre papel | Es exactamente el fallo descrito. Además obliga a **verificar cada logo a mano**, para siempre, cada vez que el tercero añade sets. |
+| Placa blanca | Rompe §2.1 de raíz: en este sistema **no hay tarjetas blancas flotando** sobre el papel, y el blanco tampoco resuelve nada (el filete blanco sigue perdiéndose). |
+| Gris neutro medio | Es el peor de los dos mundos —contraste mediocre con logos claros **y** con oscuros— y además introduce un tono que **no existe en la paleta**: ni papel, ni pozo, ni tinta. |
+| Detectar la luminancia de cada logo y elegir fondo | Requiere un dato que **hoy no existe** (§24.13 nº2). Es la solución «correcta» en abstracto y la peor en la práctica: hace depender la legibilidad de un cómputo de ingesta que puede fallar en silencio. |
+| `filter: invert()` / `mix-blend-mode` | Destruye los logos en color (el 90 %) para salvar a unos pocos. **Prohibido** (§24.12). |
+
+**La decisión: placa de tinta, también en el tema claro.** El logo se pinta sobre un rectángulo
+`--color-ink` (`#1A1A18`). Y esto **no es importar el acabado de la referencia**: es el **panel de tinta que
+este sistema ya tiene y ya usa** —hero de auth, sidebar del back-office (§2.2: «bloque oscuro sobre papel
+claro»)— haciendo un trabajo funcional. Con tinta detrás, el filete claro que traen los logos **hace
+justo lo que fue dibujado para hacer**: recortar la silueta. En vocabulario del sistema, la placa es un
+**sello impreso** sobre la página; encaja con la metáfora editorial mejor que cualquier alternativa.
+
+**El seguro para el caso contrario: el contorno de seguridad.** Un logo **oscuro sin filete** (raros, pero
+existen: sets antiguos, logos en negro) se perdería sobre la tinta. Como no podemos saber cuáles son, la
+placa aplica al `<img>` un **contorno de 1px en papel sobre el canal alfa**:
+
+```css
+/* Dispositivo de LEGIBILIDAD, no de elevación (§4.3). Offset 0, sin desenfoque útil, sin color. */
+filter: drop-shadow(0 0 1px var(--color-on-ink)) drop-shadow(0 0 1px var(--color-on-ink));
+```
+
+- En un logo **claro** (el caso común) es **invisible**: el halo de papel queda debajo de su propio filete
+  blanco y se funde con él.
+- En un logo **oscuro** es lo que lo salva: le dibuja el contorno que el autor no le puso.
+- **Funciona sin saber cuál es cuál.** Ése es todo el punto, y por eso este dispositivo es **obligatorio**,
+  no opcional.
+- **No viola §4.3** por la misma razón que el anillo de foco no la viola: no comunica relieve ni jerarquía,
+  garantiza que algo se lea. Offset 0, radio 1px, color siempre `--color-on-ink`, **solo** dentro de la
+  placa. Fuera de la placa, la regla de sombras sigue siendo cero.
+- **Coste conocido y aceptado:** un logo que traiga una sombra oscura *horneada* en el PNG verá esa sombra
+  contorneada en papel. Es raro, es leve, y es infinitamente mejor que un logo invisible.
+- **Si en un móvil de gama baja se midiera jank** con 20 placas en pantalla, la palanca es bajar a **una
+  sola pasada** de `drop-shadow` (no quitarlo, no cambiar la placa).
+
+### 24.3 Anatomía de la teja
+
+Cada elemento de la retícula es **un solo `<button>`** (el que ya existe) que contiene, de arriba a abajo:
+
+```
+┌──────────────────────────────┐
+│                              │   ← PLACA: caja fija, tinta, aspect 3/2, radio 0, SIN borde
+│        [ logo contenido ]    │      padding 16 / 20 / 24 px · object-contain · contorno 1px papel
+│                              │
+└──────────────────────────────┘
+  Surging Sparks                   ← NOMBRE: serif 400, sobre PAPEL, lang="en"
+  SCARLET & VIOLET · 2024          ← META: mono 11px versalitas tracking .14em, muted
+  ─────────────────────────────    ← (solo admin/bóveda) completitud + barra + piezas, sin cambios
+```
+
+**La placa (`SetPlate`).**
+
+| | |
+|---|---|
+| Caja | **`aspect-[3/2]`**, ancho 100 % de la celda. **Idéntica para todos los sets**, sea cual sea la proporción del logo (R1). Se elige 3:2 porque los logos son abrumadoramente apaisados; uno cuadrado o vertical **se contiene igual**, simplemente ocupa menos ancho — eso es correcto, no un defecto. |
+| Fondo | `--color-ink` `#1A1A18`. |
+| Radio | **0** (§4.2). La esquina redondeada de la referencia **no se traslada**. |
+| Borde | **Ninguno.** En la referencia el borde existe porque la teja y la página son ambas oscuras; aquí la placa es tinta sobre papel y **ya está separada por 15,5:1**. Un borde sería un segundo marco sin trabajo. |
+| Aire interior | **16px** base · **20px** ≥`sm` · **24px** ≥`lg`. Regla dura: **el aire nunca baja del 10 % del lado corto** de la placa. |
+| Imagen | `object-contain`, `width/height: 100%`, centrada. **Nunca** `cover`, `fill`, `object-position` distinto del centro, ni escala en hover. |
+| Contorno | El de §24.2, obligatorio. |
+| Reserva | La caja se pinta con su relación de aspecto **antes** de que llegue la imagen ⇒ **cero CLS**. No hace falta que el contrato mande dimensiones. |
+
+**La leyenda (sobre papel, alineada a la izquierda, `margin-top: 12px`).**
+
+- **Nombre:** serif `Zen Old Mincho` 400 — **16px** base / **18px** ≥`sm` / **20px** (`text-h3`) ≥`lg`,
+  `line-height 1.25`, `text-wrap: balance`, `lang="en"`. **Reserva 2 líneas de alto** (para que las filas no
+  bailen) y **puede crecer a 3**; **nunca se trunca**: el nombre es el portador del dato (R2).
+- **Meta:** mono 11px `uppercase`, `tracking 0.14em`, `--color-text-muted`, `lang="en"`:
+  `SERIE · AÑO`. *(Matiz respecto a lo implementado hoy, que es mono `text-xs` en caja alta y baja: aquí es
+  donde **sí** aterriza la voz mono en versalitas de la referencia — en la etiqueta técnica, que es su
+  trabajo en este sistema (§3.1), no en el nombre propio.)*
+- **Badge `COMBINADO`** (master combinado, v1.33/P-27): **sin cambios**, junto al nombre.
+- **Solo `platform` / `user_vault_*`:** el bloque de completitud (`X/Y · N %`), la `ProgressBar` y las
+  piezas se conservan **exactamente como están**, debajo de la meta, con `margin-top: 12px`. En `quoter`
+  **no se pintan** (el cotizador no posee las cartas, solo las cotiza).
+
+**La teja completa ya no lleva ni fondo ni borde propios.** Hoy el botón es una tarjeta con
+`border-border` + `bg-surface` + hover `bg-surface-2`. Con la placa dentro, esa tarjeta sería **una caja
+alrededor de otra caja**; se retira. La teja queda: placa + texto sobre papel, separadas por aire — que es
+cómo este sistema separa cosas (§2.1, §4.3).
+
+### 24.4 Retícula y anchuras
+
+| Anchura | Columnas | Gap | Ancho de placa resultante | Alto de placa |
+|---|---|---|---|---|
+| **390px** (móvil) | **2** | `gap-x-6 gap-y-8` (24/32) | ~167px | ~111px |
+| **640px** (`sm`) | **3** | idem | ~181px | ~121px |
+| **1024px** (`lg`) | **4** | `gap-x-8 gap-y-10` (32/40) | ~216px | ~144px |
+| **1280px+** (`xl`, contenedor `max-w-7xl`) | **4** (tope) | idem | ~280px | ~187px |
+
+- **Sube de 1 a 2 columnas en móvil** (hoy es `grid-cols-1`): con placa, una columna daría tejas de 358px de
+  ancho y **dos sets y medio por pantalla** — 20 sets serían ocho scrolls.
+- **Se topa en 4 columnas.** No hay quinta en `xl` ni sexta en `2xl`. Con 4, la placa se mueve en una banda
+  estrecha y predecible de **167–280px** en todo el rango; con 5 la placa se encoge justo donde hay sitio de
+  sobra, y con 3 en escritorio se va a 400px, que es cartel, no índice. *(Nota: **no** es el mismo criterio
+  que §18.2 —2/3/4/5— porque allí la teja es **arte de carta**, que sí gana con cada píxel; un logo se
+  reconoce mucho antes de eso.)*
+- **Área táctil:** la teja **entera** (placa + leyenda) es el objetivo, y mide como mínimo ~167×180px a
+  390px — muy por encima de 44×44. La leyenda **no** es un objetivo aparte: hay **una** parada de tabulación
+  por set.
+- **Presupuesto de tinta.** Ésta es la única retícula del sistema autorizada a pintar **muchos** bloques de
+  tinta a la vez, y lo está porque la placa es un **soporte funcional** de arte de terceros, no decoración.
+  El tope de 20 tejas por página (§24.7) es también el tope de esa masa oscura. **Ninguna otra superficie
+  copia este patrón sin ux-ui** (R5).
+
+### 24.5 Cuando no hay logo — el monograma
+
+Habrá sets sin logo: promos, colecciones, sets viejos, y sets nuevos antes de que el tercero publique el
+arte. También habrá URLs que **fallen** (404, CDN caído). **La placa nunca queda vacía, nunca se rompe y
+nunca pulsa** (R4).
+
+**El relleno es un monograma serif sobre la tinta:**
+
+- **Contenido:** las **iniciales** de las palabras significativas del nombre del set, en mayúsculas, máximo
+  **3 caracteres** — `Surging Sparks` → `SS`, `Paldean Fates` → `PF`, `Journey Together` → `JT`. Se ignoran
+  `and`, `&`, `of`, `the`. Si el resultado tiene menos de 2 caracteres (nombres numéricos como `151`), se
+  usan los **3 primeros caracteres del nombre** (`151`).
+- **Regla de propiedad:** es una **derivación de presentación del front** (mismo estatuto que el mapa
+  rareza→grupo de §7.16a): no es un dato, no lo manda el backend, no cierra ninguna taxonomía. Que dos sets
+  compartan iniciales **da igual**: el nombre completo está justo debajo.
+- **Forma:** serif `Zen Old Mincho` 400, color `--color-on-ink` `#F4F1EA`, `tracking 0.06em`, centrado en
+  la placa, con tamaño proporcional a la placa (≈ **28px** a 167px de ancho, ≈ **44px** a 280px).
+- **Decorativo:** `aria-hidden="true"` (el nombre real ya está en el nombre accesible de la teja, §24.8).
+
+**Y además el monograma es el estado de carga.** Se pinta **desde el primer frame**, debajo del `<img>`;
+cuando la imagen llega, la imagen lo tapa **sin transición** (nada de `fade`: aquí el cross-fade mostraría
+las dos cosas superpuestas). Consecuencias, todas buenas:
+
+1. La placa **nunca** se ve vacía, ni un instante, ni con la red lenta.
+2. **No hay esqueleto ni pulso** en la placa. Un bloque de tinta latiendo se leería como error, y §17.3a lo
+   clasifica como *movimiento-de-estado*. El monograma no es un esqueleto: es **contenido final legítimo**
+   para un set sin logo y un suplente honesto mientras el logo viaja.
+3. **`onError` = `onLoad` para efectos de espera**: un 404 no deja a nadie esperando (mismo criterio que
+   `CardImage`). Al fallar, el `<img>` se retira y el monograma se queda. **Nunca un icono de imagen rota.**
+
+### 24.6 Estados
+
+| Estado | Tratamiento |
+|---|---|
+| **Reposo** | Placa de tinta + leyenda. Sin borde, sin fondo, sin sombra. |
+| **Hover** | El **nombre** gana subrayado **1px en tinta** (`text-underline-offset: 4px`). **La placa no cambia**: ni se aclara, ni se escala, ni el logo crece (§24.12). El cursor es `pointer`. |
+| **Foco (`:focus-visible`)** | Anillo estándar del sistema sobre **el botón completo**: `outline: 2px solid var(--color-focus-ring); outline-offset: 2px` (§4.3, §8.2). ⚠️ **El anillo va por fuera, sobre papel. Está PROHIBIDO dibujarlo dentro de la placa**: rojo `#B31217` sobre tinta es **2,5:1** (§17.2), un anillo de foco ilegible. |
+| **Seleccionado / actual** | `aria-current="true"` + el nombre con **subrayado 2px `--color-accent`** (el mismo idioma de la nav y las tabs del storefront, §20.1). Se distingue del hover por **grosor y color**, no solo por color. **Solo se pinta cuando el anfitrión sabe de verdad cuál es el set actual** (p. ej. se vuelve del binder con el set en la URL); no se inventa una selección que no existe. |
+| **Activo (`:active`)** | Sin tratamiento propio (no hay `translate` ni `scale` en este sistema). |
+| **Cargando la imagen** | Monograma (§24.5). Sin pulso. |
+| **Imagen fallida / sin logo** | Monograma, permanente. |
+| **Cargando la retícula** | El `QueryState` existente. Sin cambios. |
+| **Retícula vacía** | El `EmptyState` existente (`emptyIndexTitle`/`Body`). Sin cambios. |
+| **Error de la retícula** | `QueryState` con reintento. Sin cambios. |
+| **`disabled`** | **No existe**: un set del índice o se muestra o no se muestra. |
+
+### 24.7 Peso — cómo se cargan y cuántas se pintan
+
+Son imágenes remotas de un CDN de terceros (`images.pokemontcg.io`, el mismo del arte de catálogo, §5) y
+pueden ser muchas a la vez. Reglas:
+
+1. **Mecanismo: el mismo que `CardImage`** — `<img>` nativa, `loading="lazy"`, `decoding="async"`,
+   `object-contain`. No se introduce un mecanismo nuevo de imagen para esto.
+2. **`lazy` en TODAS, sin excepciones.** Esto ya significa «diferida salvo las primeras»: `lazy` **no
+   retrasa** lo que está en el viewport, solo lo que está fuera. La primera fila entra sola.
+3. **Prohibido `priority` / `fetchpriority="high"` aquí.** La regla de uso de `CardImage` es literal: *en
+   rejillas no se usa; varias `high` a la vez se compiten el ancho de banda entre sí*. Este es exactamente
+   ese caso, multiplicado por 20.
+4. **Tope de tejas pintadas a la vez: 20** (el `PAGE_SIZE` que el índice ya tiene) con **paginación
+   numerada**, no scroll infinito. **Queda prohibido** subir el tamaño de página por encima de **24** en
+   esta retícula, y queda prohibido convertirla en scroll infinito: el tope de peso **es** el tope de página.
+5. **Presupuesto medido en bytes:** un logo de pokemontcg.io ronda **60–120 KB**; 20 placas son **~1,2–2,4
+   MB** en el peor caso, y solo la primera fila entra en la carga inicial. **Si al medir se pasara de ~2 MB
+   por página**, la palanca es **bajar el tamaño de página de 20 a 12**, no tocar la placa, no quitar el
+   contorno y no recortar el logo.
+6. **Sin `srcset`.** No conocemos las dimensiones intrínsecas y el CDN sirve un solo tamaño; inventar
+   `srcset` sería adivinar. La caja fija ya evita el reflow.
+7. **El CDN es un tercero:** si está lento o caído, la retícula **sigue siendo completamente usable** —
+   monogramas, nombres, filtros y navegación intactos. Ninguna acción del usuario depende de que el logo
+   cargue.
+
+### 24.8 Accesibilidad
+
+- **Nombre accesible de la teja:** lo dan **el nombre visible + la meta**, que ya están en el DOM dentro del
+  `<button>`. No se añade `aria-label` (duplicaría y desalinearía ES/EN).
+- **El logo es decorativo: `alt=""` + `aria-hidden="true"`.** Es la regla clave que pide el dueño y la que
+  evita el doble anuncio *«logo de Surging Sparks, Surging Sparks»*. El logo **no aporta información que el
+  texto no tenga** (R2), que es la definición de imagen decorativa. El monograma, igual: `aria-hidden`.
+- **Regla derivada, para cualquier uso futuro de la placa:** **la placa NUNCA porta el nombre accesible.**
+  Si un anfitrión no tiene el nombre del set visible al lado, **no puede usar la placa**; usa texto.
+- **Orden de tabulación:** una parada por set, en orden del DOM = orden visual. La leyenda no es focusable.
+- `lang="en"` en nombre y meta (datos de catálogo en inglés, §9.2).
+- **Seleccionado con `aria-current="true"`**, y su canal visual es un **subrayado** (forma), no solo color.
+- **Sin movimiento:** esta retícula no anima nada, así que `prefers-reduced-motion` no tiene nada que
+  desactivar aquí.
+- **Contraste del logo: no es verificable y no hace falta que lo sea.** Es arte de un tercero, es
+  decorativo y el canal accesible es el texto. Lo que sí se verifica es todo lo demás (§24.9).
+
+### 24.9 Contraste (extensión normativa de §10)
+
+| Par | Ratio | Cumple |
+|---|---|---|
+| Monograma / texto de placa papel `#F4F1EA` sobre tinta `#1A1A18` | ~15,5:1 | AA/AAA |
+| Nombre del set tinta `#1A1A18` sobre papel `#F4F1EA` | ~15,5:1 | AA/AAA |
+| Meta `#6E695E` sobre papel | ~4,6:1 | AA (texto normal) |
+| Subrayado de seleccionado `#B31217` sobre papel | ~6,2:1 | AA (≥3:1 componente) |
+| Anillo de foco `#B31217` sobre papel | ~6,2:1 | AA (≥3:1 componente) |
+| `--color-on-ink-muted` `#8A857A` sobre tinta (si alguna vez hiciera falta un segundo renglón en placa) | ~4,7:1 | AA |
+| Placa de tinta contra el papel de la página (separación de superficies) | ~15,5:1 | muy por encima de 3:1 |
+| ⛔ `#B31217` sobre tinta | ~2,5:1 | **PROHIBIDO** — ni anillo de foco, ni subrayado, ni texto **dentro** de la placa |
+
+### 24.10 El destacado de la referencia — no va en el índice, va en el encabezado del binder
+
+La referencia pone arriba un elemento **más grande** con el set actual y su nombre subrayado en acento. **En
+el índice eso no tiene sentido**: el índice es un elegidor, y en cuanto eliges **te vas** — no hay «set
+actual» mientras lo miras. Forzarlo obligaría a inventar una jerarquía falsa y a romper la retícula pareja,
+que es justo lo que R1 protege.
+
+**Traducción correcta: el destacado es la confirmación de lo que elegiste, y vive en el encabezado del
+binder** (donde hoy solo hay texto):
+
+- **`SetPlate` tamaño `sm`:** caja fija **112×64** (`aspect-[7/4]`), padding interior 8px, mismas reglas de
+  §24.2 (tinta, contain, contorno) y mismo monograma de §24.5.
+- Va **a la izquierda del título del set**, `gap 16px`, centrada verticalmente. `alt=""` + `aria-hidden`
+  (el título es el nombre accesible).
+- **Se oculta por debajo de `sm`**: en móvil el título manda y el ancho es oro.
+- El **subrayado de acento** de la referencia ya existe en el sistema para «lo activo» (§20.1) y aquí no
+  hace falta: estar dentro del binder ya es el estado.
+
+Esto es **todo** lo que §24 toca del binder. Nada más de §16/§18 cambia.
+
+### 24.11 Lo que NO se traslada de la referencia (y por qué)
+
+El dueño mandó una referencia, no una orden de copiarla. Esto es lo que se deja fuera **a propósito**:
+
+| De la referencia | Qué pasa |
+|---|---|
+| **Morado, neón, brillos** | Fuera. La paleta es papel/tinta/rojo TCG HUNT (§17.2) y el acento se usa con avaricia. |
+| **Esquinas redondeadas** | Fuera: radios 0 en todo el sistema, decisión de estilo explícita (§4.2). |
+| **Borde sutil en la teja** | Fuera: en la referencia resuelve un problema (teja oscura sobre página oscura) que **aquí no existe**. Ver §24.3. |
+| **Nombre en mono versalitas con tracking amplio** | **Parcialmente.** El nombre va en **serif**: en este sistema mono+versalitas es la voz del **dato técnico** (§3.1), y un set es un **nombre propio de catálogo**; en versalitas además se lee peor en nombres largos y en ES. La voz mono de la referencia **sí** se conserva, en la **meta** (`SCARLET & VIOLET · 2024`), que es donde le toca. |
+| **Elemento destacado grande arriba de la retícula** | Fuera del índice; se traduce al encabezado del binder (§24.10). |
+| **Fondo oscuro de página** | Fuera. **Lo único oscuro es la placa**, y por la razón funcional de §24.2 — no por acabado. |
+| **Retícula de 3 columnas en escritorio** | Se traslada como **estructura** (retícula pareja de caja fija), no como número: aquí son 2/3/4 (§24.4). |
+
+### 24.12 Qué NO hacer
+
+1. **No recolorear el logo de un tercero**: nada de `filter: invert()`, `hue-rotate`, `grayscale`,
+   `mix-blend-mode`, ni «modo oscuro del logo».
+2. **No recortar ni estirar**: `object-fit: cover`, `fill` o un `aspect-ratio` aplicado al `<img>` en vez de
+   a la caja rompen R1 y descuadran la retícula. Ése era el fallo que la referencia resuelve.
+3. **No hacer la placa proporcional al logo.** Todas las placas miden lo mismo, siempre. Un logo estrecho
+   deja aire a los lados: **eso es correcto**.
+4. **No pulsar la placa** (`animate-pulse`) ni animar el logo (`scale` en hover, brillo, foil). §17.3a:
+   movimiento-de-estado, prohibido.
+5. **No poner el anillo de foco ni ningún acento dentro de la placa** (2,5:1, §24.9).
+6. **No usar la placa como enlace sin nombre visible** (§24.8).
+7. **No sustituir el nombre por el logo** en ninguna superficie, ni «cuando el logo se ve muy bien» (R2).
+8. **No llevar la retícula a la home, al `SetFilter` ni al modal de alta** (§24.1, R5).
+9. **No poner la mira de TCG HUNT como relleno de un set sin logo**: haría que cada set sin arte pareciera
+   un producto de la casa o un error (§17.3: la marca no se usa como comodín).
+10. **No subir el tamaño de página ni pasar a scroll infinito** para «ver más logos de un tirón» (§24.7).
+11. **No quitar el contorno de seguridad** porque «en los sets que miré no se nota». Ése es exactamente el
+    punto: no se nota, hasta el set en el que sí.
+
+### 24.13 Datos que hacen falta (peticiones al arquitecto — ninguna bloquea)
+
+1. **`logoUrl` por set en las cargas del índice.** Es el único dato nuevo que este diseño necesita:
+   `string | null`, URL absoluta del CDN, **`null` explícito cuando no hay logo** (nunca `""`, nunca una URL
+   de marcador de posición: un placeholder del tercero rompería §24.5 al pintarse como si fuera un logo). Se
+   necesita **en los dos caminos** que alimentan la misma retícula: el índice del admin/bóveda y la lista
+   pública que el cotizador compone en cliente. **Sin este campo, §24 se implementa igual** y la retícula
+   sale entera en monogramas — fea pero funcional; el logo es una mejora, no una precondición.
+2. **Luminancia del logo (`logoIsLight` o similar): NO se pide.** Se deja escrito para que nadie la
+   construya «por si acaso»: sería el dato necesario **solo** si algún día se quisiera una placa clara, y
+   §24.2 resuelve el problema **sin** él, a propósito, porque un cómputo de ingesta que falla en silencio es
+   peor que una placa que siempre funciona. Si alguna vez existe, vuelve a ux-ui **antes** de usarse.
+3. **`images.symbol`:** este diseño **no lo consume** (§24.1). Guardarlo o no es decisión del arquitecto; si
+   se guarda, queda sin superficie asignada hasta que ux-ui defina una.
+4. **Dimensiones intrínsecas del logo:** no se piden. La caja fija ya evita el reflow (§24.3).
+5. **Nota operativa (devops/arquitecto, informativa):** son imágenes hot-linked al mismo CDN que ya sirve el
+   arte de catálogo, así que no abren un origen nuevo. Cualquier decisión de caché/proxy es suya y **no
+   cambia nada de §24**.
+
+### 24.14 QA visual sugerido
+
+1. **Set con logo claro** (filete blanco): se lee limpio sobre la placa; el contorno de seguridad **no** se
+   percibe como halo.
+2. **Set con logo oscuro** (si se encuentra uno): se lee gracias al contorno. Si no aparece ninguno en el
+   catálogo real, **el seguro se queda igual** — está para el que llegue mañana.
+3. **Logo muy apaisado** (≈3:1) y **logo cuadrado** en la misma fila: **las placas miden exactamente lo
+   mismo** y ninguno se recorta ni se estira.
+4. **Set sin `logoUrl`:** monograma, sin pulso, sin icono roto, nombre completo debajo.
+5. **URL rota (404 forzado):** cae al monograma y **no deja la placa esperando**.
+6. **Red lenta (throttling):** la placa **nunca** se ve vacía; se ve monograma y luego logo.
+7. **390 / 640 / 1024 / 1440:** 2/3/4/4 columnas, placa entre ~167 y ~280px, nombre a 2 líneas sin baile de
+   filas, sin scroll horizontal.
+8. **Teclado:** una parada por teja; el anillo rojo se ve **por fuera** de la placa, nunca dentro.
+9. **Lector de pantalla:** cada teja se anuncia **una sola vez** con nombre + meta; el logo **no** se
+   anuncia.
+10. **Admin M1 / bóveda:** completitud, barra y piezas siguen presentes bajo la leyenda; en `quoter` **no**
+    aparecen.
+11. **Peso:** con la red en cascada, solo la primera fila se descarga al entrar; el resto entra al hacer
+    scroll.
+
+### 24.15 i18n
+
+**Cero claves nuevas.** El nombre, la serie y el año ya se pintan; el `alt` es vacío por diseño (§24.8) y el
+monograma se deriva del nombre, no se traduce. Las claves del índice (`masterSet.*`) siguen tal cual.
+
