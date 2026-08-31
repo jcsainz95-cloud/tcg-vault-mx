@@ -277,6 +277,23 @@
 > son. Los otros tres punteros del texto **se verificaron y son ciertos**: `gancho-revision`,
 > «margen mínimo» y «Actualizar precios ahora». Sigue **cero tokens nuevos, cero componentes nuevos y cero
 > cambios de contrato**.
+>
+> **Añadido v2.6 (2026-08-31) — rotación automática del carrusel de destacadas (P-49) → ver §23.**
+> Decisión **del dueño**, tomada tras oír la recomendación contraria del frontend. §23 no la re-litiga: la
+> diseña, y **resuelve los tres hechos** que el frontend puso sobre la mesa. (1) La doctrina de §17.3
+> —«el movimiento no decorativo se lee como carga»— se **matiza y se hace explícita**: se separan
+> *movimiento-de-estado* (prohibido, sigue igual) de *movimiento-de-presentación* (permitido **solo** bajo
+> las cuatro condiciones de §23.1, la primera de las cuales es que **nunca coexista con un skeleton**).
+> (2) La nota 2 de §20.16 («el carrusel degrada a scroll-snap nativo sin JS») **se corrige**: el JS pasa a
+> ser obligatorio **para rotar**, no para leer — el marcado servido sigue siendo una pista de scroll-snap
+> estática y **ése es el estado inicial**, no un fallback (§23.8). (3) `prefers-reduced-motion` deja de
+> depender de la regla CSS global (que solo anula duraciones y **no cubre** ni el scroll suave por JS ni un
+> temporizador): la regla pasa a ser **no moverse en absoluto** y se verifica en la lógica del componente
+> (§8.2, §23.7). La decisión que bloqueaba el código —**dónde vive el control de pausa**— se resuelve en
+> **§23.4**: no es una tercera flecha, es un **conmutador mono pegado al H2** (el hueco estructural del
+> kicker), en el mismo sitio en las tres anchuras. Regla dura heredada del frontend y **no negociable**:
+> **rota la ventana, nunca el rol de teja líder** (§23.2). **Cero tokens nuevos, cero cambios de contrato,
+> cero datos nuevos.**
 
 ---
 
@@ -1266,6 +1283,20 @@ no del set entero).
   `aria-live="polite"` (o `assertive` para errores de pago).
 - **Movimiento reducido:** `prefers-reduced-motion` desactiva animaciones/transiciones no esenciales
   (implementado en `globals.css`).
+- **Movimiento reducido — el alcance real de la regla global (precisión v2.6).** La regla de `globals.css`
+  **solo anula duraciones y retardos de CSS**. Por construcción **no cubre** tres cosas, y las tres existen
+  en este sistema: (a) el **scroll suave por JS** (`scrollTo/scrollBy({behavior:'smooth'})`, que no es una
+  transición CSS), (b) los **temporizadores** (`setInterval`/`setTimeout` que desplazan algo solos) y
+  (c) las animaciones por `requestAnimationFrame`. Por lo tanto:
+  > **Regla: con `prefers-reduced-motion: reduce` la regla es NO MOVERSE EN ABSOLUTO, nunca «moverse más
+  > lento».** Todo movimiento originado en JS se apaga en la **lógica del componente**, no en la hoja de
+  > estilo: los temporizadores **no arrancan**, y el scroll iniciado por el usuario (flechas, «ir a») pasa a
+  > `behavior: 'auto'` (salto instantáneo, que es movimiento **cero** y no una animación corta).
+  - La preferencia se **escucha en vivo** (`matchMedia(...).addEventListener('change')`), no se lee una sola
+    vez al montar: activarla en el sistema operativo debe detener el movimiento **en ese momento**, sin
+    recargar.
+  - Un control cuyo único trabajo es **detener** un movimiento que ya no ocurre **no se renderiza** (§23.7):
+    un botón «Pausar» sobre contenido quieto es una afirmación falsa, y deshabilitado sería ruido.
 
 ### 8.3 Feedback de acciones de dinero
 - Las acciones de dinero (pagar, cobrar envío, reembolsar, pagar SPEI) usan botón `loading` con label
@@ -3109,6 +3140,40 @@ tinta del sello.
 - El logo **no sustituye texto accesible**: donde el lockup sea el único contenido de un enlace, el
   `aria-label` porta "TCG HUNT" (+ destino). Las versiones decorativas (badge, guiños) van `aria-hidden`.
 
+#### 17.3a Movimiento — las dos categorías (matiz v2.6, obligatorio leer antes de animar nada)
+
+Hasta la v2.5 este documento decía, en la práctica, **«en este sistema el movimiento se lee como carga»**
+(aquí arriba: «no animar la mira como spinner»; §18.4: «feedback al agregar: SIN animación — una mira/pulso
+animado se confunde con carga, §17.3»). Esa doctrina **sigue en pie**, pero estaba enunciada de más: prohíbe
+por igual dos cosas que no son la misma. Se precisa, y la precisión es normativa.
+
+| | **Movimiento-de-estado** (prohibido, sin excepciones) | **Movimiento-de-presentación** (permitido solo donde este documento lo autorice) |
+|---|---|---|
+| Qué comunica | «El sistema está trabajando / algo pasó» | «Aquí hay más contenido del que cabe» |
+| Forma | En el sitio, sin desplazamiento: pulso, giro, brillo, latido, shimmer | **Traslación** de un contenedor a una posición de reposo |
+| Final | **No tiene.** Es indefinido por definición: un spinner nunca resuelve | **Tiene.** Cada tramo termina en una composición quieta y legible |
+| Ciclo de trabajo | Continuo (100 % del tiempo en marcha) | **Casi todo el tiempo quieto** (§23.3: ≈ 7 % en marcha) |
+| Dónde vive | **Dentro** del elemento que carga o que responde (skeleton con la forma de la teja, spinner dentro del botón) | **Sobre el contenedor** ya resuelto; nunca dentro de un elemento que carga |
+| Ejemplos | Mira animada como spinner, pulso al agregar al carrito, latido en un precio | La rotación del carrusel de destacadas (§23) |
+
+**Las cuatro condiciones que hacen legítimo un movimiento-de-presentación.** Solo si se cumplen **las
+cuatro**; si falla una, vuelve a ser movimiento prohibido:
+
+1. **No coexiste jamás con un estado de carga.** No arranca hasta que el contenido está resuelto y las
+   imágenes visibles han cargado (§23.3). Esto elimina de raíz la lectura «la página sigue trabajando»:
+   no puede confundirse con carga algo que, por construcción, **nunca ocurre mientras hay carga**.
+2. **Traslada, no palpita.** Desplazamiento lateral con destino y llegada. Prohibidos el fundido, el
+   `cross-fade`, el zoom, el `scale` y cualquier cosa que no sea mover la ventana.
+3. **Reposo dominante.** El elemento está quieto la inmensa mayoría del tiempo y cada reposo es una
+   composición completa y legible (nada cortado por el borde izquierdo).
+4. **Es interrumpible y el control está a la vista** (§23.4), y **no existe** con `prefers-reduced-motion`
+   (§8.2, §23.7).
+
+**Lo que NO cambia:** §18.4 sigue exactamente igual — el **feedback de una acción** (agregar al carrito,
+guardar, cobrar) **no se anima nunca**. Ahí la pregunta del usuario es «¿funcionó?», y la ambigüedad se paga
+con dinero; el canal sigue siendo el contador, el renglón `role="status"` y el estado del botón. Tampoco
+cambia la prohibición de animar la mira. La marca no se mueve; el contenido, donde §23 lo autoriza, sí.
+
 ### 17.4 Copy de transición — cómo se nombra el sitio
 
 - **Nombre de marca:** **"TCG HUNT"** — siempre en mayúsculas, con espacio, sin guion. Nunca "TcgHunt",
@@ -3826,7 +3891,16 @@ en lugar de cifra (§16.4). El panel **nunca** muestra montos si no hay precios 
 ### 20.3 Carrusel «Piezas destacadas»
 
 Encabezado de sección: fila `justify-between` — **H2 serif 29px** («Piezas destacadas del catálogo»)
-⟷ link muted «Ver todo el catálogo» + **flechas cuadradas**.
+**+ conmutador de reproducción pegado al H2 (§23.4)** ⟷ link muted «Ver todo el catálogo» +
+**flechas cuadradas**.
+
+> ⚠️ **Desde 2026-08-31 (v2.6, P-49) esta pista ROTA SOLA.** La cadencia, el control de pausa, la máquina
+> de estados, el final de pista, `prefers-reduced-motion` y el anuncio a lectores de pantalla están en
+> **§23**, no aquí. Lo que §20.3 define abajo —flechas, pista, anatomía de las dos tejas, numeración— **no
+> cambia ni un píxel**: §23 es aditiva. Las dos únicas costuras con esta sección son (a) el conmutador
+> nuevo, que entra **por la izquierda**, pegado al H2, y **no toca el grupo de la derecha**, y (b) el
+> reparto de responsabilidades del movimiento: **las flechas siguen moviendo una «página»** con su paso y
+> su apagado en los extremos tal cual; **la rotación mueve exactamente una teja** (§23.3).
 
 - **Flechas:** botones cuadrados de **38px** (radio 0), `border: 1px solid`; **habilitada** = borde
   `--color-primary` (tinta) y glifo tinta; **deshabilitada/extremo** = borde `--color-border-strong`
@@ -4097,8 +4171,17 @@ Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los
    en cartas sueltas, el contrato tendría que exponer el conteo real de publicaciones equivalentes
    por variante (§20.6). Hoy el diseño es veraz sin él («Queda 1»/omitir).
 2. **Frontend:** el hero H1 50px y el aspect 4/5 de la pieza grande son valores del artboard
-   (arbitrary values, no tokens); el carrusel debe degradar a scroll-snap nativo; el estado del
-   cotizador de la home se comparte con `/buylist` (§18), no se duplica.
+   (arbitrary values, no tokens); el estado del cotizador de la home se comparte con `/buylist` (§18),
+   no se duplica.
+   - **Corrección v2.6 (P-49) — lo que decía esta nota sobre el carrusel ya no es cierto tal cual.**
+     Decía: *«el carrusel debe degradar a scroll-snap nativo sin JS»*. Con la rotación automática (§23) el
+     JS pasa a ser **obligatorio para rotar**. Lo que ahora es cierto, y sustituye a la frase anterior:
+     > **Sin JS (y antes de hidratar) el carrusel es una pista de scroll-snap nativa que NO rota**, con
+     > sus ocho tejas completas y legibles y su desplazamiento táctil/de rueda intacto. Ese estado **no es
+     > un fallback degradado: es el estado inicial** del componente, del que la rotación solo sale hacia
+     > arriba, y solo tras hidratar. Lo que requiere JS es **rotar, las flechas y el conmutador de pausa**
+     > — y las tres cosas **no se pintan si no funcionan** (§23.8), así que no queda ningún control muerto
+     > ni ningún movimiento sin freno. El **contenido nunca depende del JS.**
 3. **QA visual sugerido:** (a) home sin bounties → la sección §20.7 no existe en el DOM; (b) ningún
    distintivo «N en stock» en singles mientras el contrato no exponga conteos; (c) foco visible
    recorrible por toda la home incluida la banda oscura; (d) móvil 390: sin scroll horizontal
@@ -5578,6 +5661,15 @@ ratificada de §20.3 para todo el sitio por un caso minoritario), *no* se movió
 permanente del carrusel (cuando no hay burbujas no hay nada que reconciliar, y el elemento es parte del
 makeover aprobado).
 
+**La rotación automática (§23) NO afecta a nada de (c).** Es consecuencia directa de la regla dura de §23.2
+(*rota la ventana, nunca el rol*): la rotación **no reordena el DOM**, así que `02` sigue siendo la segunda
+teja del DOM en todo momento, la mire el usuario o no. El predicado sigue siendo `pageHasGradingFigures`,
+**evaluado una sola vez** con los datos ya resueltos, y su resultado **no puede cambiar por desplazarse**.
+En consecuencia queda **prohibido**: renumerar según lo visible («1 = la primera teja a la vista»), usar la
+numeración como **indicador de posición o de progreso** de la rotación, resaltar el número de la teja que
+acaba de entrar, y **añadir puntos, barras o cualquier paginador** al carrusel (§23.13 nº2 — duplicaría el
+trabajo del número, sería un tercer rojo e implicaría «páginas» que en un scroller continuo no existen).
+
 **(d) El caso disparejo — la retícula no se descuadra, y hay que saber por qué.**
 
 Con una o dos burbujas entre ocho, la pista tiene tejas de alturas distintas. **No se compensa nada.** Es
@@ -5611,6 +5703,13 @@ encabezado nombrara el gancho, la pista entera pasaría a **afirmar** algo sobre
 las seis o siete que no califican— y eso sería falso. El kicker de la salvedad («ILUSTRATIVO · NO
 EVALUAMOS LA PIEZA») pertenece a la vitrina (§22.6), donde **todas** las tejas llevan cifra; aquí no
 aplica, y su trabajo lo hace el micro-aviso de cada teja, que es el que §O.5 exige de todos modos.
+
+> **Precisión v2.6 (§23.4a), para que (e) no se lea mal:** lo que (e) prohíbe es **kicker de contenido** —
+> cualquier texto que **afirme algo sobre las piezas** de la pista. Eso sigue prohibido, literalmente y sin
+> excepciones. El **conmutador de reproducción** que §23.4 coloca junto al H2 ocupa ese **hueco
+> estructural**, pero no afirma nada sobre ninguna pieza: nombra el **comportamiento del estante**
+> («PAUSAR» / «REANUDAR» / «REPETIR»). Mismo sitio, otro rol. El encabezado sigue **sin** kicker, **sin**
+> subtítulo y **sin** una sola palabra sobre gradeo, estimados u oportunidad.
 
 **(f) Convivencia con la vitrina «Joyas para gradear» — las dos, en la misma página.**
 
@@ -6741,3 +6840,541 @@ que la sección ya usa — la invalidación existente lo cubre). **Este es el ch
 palanca que el aviso promete mueve la cifra que el aviso enseña.** (g) EN completo. (h) Lector de pantalla:
 el banner se anuncia **sin** interrumpir la escritura. (i) Búsqueda en `messages/`: cero apariciones de
 `5000`/`5 000` en las claves del gancho.
+
+---
+
+## 23. Rotación automática del carrusel de destacadas (v2.6 — P-49)
+
+> **Procedencia:** decisión **del dueño** (P-49), tomada **después** de oír el análisis del frontend, que
+> recomendó no hacerlo. La decisión está tomada y esta sección **no la re-litiga**. Pero los tres argumentos
+> del frontend eran **hechos**, no opiniones, y un hecho no se resuelve ignorándolo: §23.1 reconcilia la
+> doctrina de movimiento de §17.3, §23.8 corrige la nota 2 de §20.16 y §23.7 cierra el hueco real de
+> `prefers-reduced-motion`. Superficie afectada: **una** (`FeaturedCarousel`, el estante «Piezas destacadas
+> del catálogo» de la home, §20.3). **Cero tokens nuevos, cero componentes de dominio nuevos, cero datos
+> nuevos, cero cambios de contrato ni de arquitectura.**
+
+### 23.0 Las siete reglas duras
+
+Si una sola de estas siete se incumple, la entrega está mal aunque «se vea bien»:
+
+| # | Regla | Dónde |
+|---|---|---|
+| R1 | **Rota la VENTANA, nunca el ROL.** El DOM del carrusel es inmutable: la teja líder sigue siendo la teja 1, con su imagen HD, su `priority` y su anatomía propia. Lo que se mueve es el `scrollLeft` de la pista | §23.2 |
+| R2 | **La rotación nunca coexiste con un estado de carga.** No arranca hasta que la consulta resolvió y la imagen de la teja líder cargó. Nada de rotar sobre skeletons | §23.1, §23.3 |
+| R3 | **El control de pausa está SIEMPRE visible** mientras haya rotación posible — nunca oculto tras `hover`, nunca solo en `focus`, nunca dentro de un menú | §23.4 |
+| R4 | **`prefers-reduced-motion` ⇒ movimiento CERO.** No «más lento», no «sin easing»: el temporizador no arranca y el scroll por JS es instantáneo | §23.7, §8.2 |
+| R5 | **La intervención del usuario gana para siempre** (en esa visita). Nada de reanudar solo tras N segundos | §23.5 |
+| R6 | **Un solo paso por tic: una teja**, aterrizando en su punto de `snap`. Ningún reposo deja una teja cortada por el **borde izquierdo** | §23.3 |
+| R7 | **Sin clones, sin bucle infinito, sin rebobinado animado.** La pista hace **una pasada** y se detiene; volver al inicio es una acción **del usuario** | §23.6 |
+
+### 23.1 Reconciliación con §17.3 — por qué este movimiento no es el movimiento prohibido
+
+El argumento del frontend era exacto: **§17.3 establece que en este sistema el movimiento no decorativo se
+lee como estado de carga** (por eso la mira no gira y por eso agregar al carrito no anima nada, §18.4). Un
+carrusel rotando en la primera pantalla, encima de imágenes que están cargando, se leería como «la página
+sigue trabajando». No se ignora: se resuelve en dos movimientos.
+
+**Primero, se precisa la doctrina.** §17.3a (nuevo) separa **movimiento-de-estado** (pulso, giro, brillo: en
+el sitio, indefinido, dentro del elemento que carga — **prohibido, sin excepciones**) de
+**movimiento-de-presentación** (traslación de un contenedor con destino y llegada, sobre contenido ya
+resuelto). La doctrina no se debilita: se enuncia con precisión. §18.4 y la prohibición de animar la mira
+**siguen intactas**.
+
+**Segundo, se paga el precio de la excepción.** Este carrusel cumple las cuatro condiciones de §17.3a, y las
+dos primeras son las que desactivan literalmente el argumento:
+
+1. **Nunca coexiste con carga (R2).** No hay ningún instante en que el usuario vea a la vez un skeleton y un
+   desplazamiento. La confusión que §17.3 teme requiere **simultaneidad**, y aquí es imposible por
+   construcción. Concretamente: mientras `QueryState` pinta el skeleton **no hay rotación**, y la rotación
+   tampoco arranca en el mismo fotograma en que la pista aparece — media un reposo de **7 s** (§23.3) en el
+   que la home está **completamente quieta**. Lo primero que ve cualquiera es una página en reposo.
+2. **Traslada, no palpita.** Un spinner no tiene destino; esto sí, y cada llegada es una composición
+   completa. El ojo lee «el estante pasó de página», no «el sistema está pensando».
+3. **Reposo dominante:** ≈ 0,55 s de movimiento por cada 7,55 s ⇒ **≈ 7 % del tiempo**. Un indicador de
+   carga está en marcha el 100 %. Es una diferencia de categoría, no de grado.
+4. **Es interrumpible, con el freno a la vista** (§23.4), **acotada** (una sola pasada, §23.6) y
+   **inexistente** con movimiento reducido (§23.7).
+
+**Y hay una diferencia que ninguna condición captura pero que sostiene todo lo anterior:** un indicador de
+carga aparece **donde el usuario acaba de pedir algo** (el botón que pulsó, la teja que se está pintando).
+Este movimiento ocurre en un estante **que el usuario no ha tocado**, con contenido ya resuelto delante. El
+contexto desambigua antes que la forma.
+
+> **Consecuencia normativa:** ésta es la **única** excepción de movimiento-de-presentación del sistema y
+> está autorizada **solo aquí**. No es un precedente para animar transiciones de página, aparición de tejas,
+> gráficas, banners ni ningún otro estante (Sellado, Gradeadas, Bounties, «Joyas para gradear» **no rotan**).
+> Cualquier otro caso vuelve a §17.3a y debe pasar por ux-ui.
+
+### 23.2 Qué se mueve y qué NO — la ventana, nunca el rol (R1)
+
+**Restricción dura, heredada del análisis del frontend y no negociable.** La teja líder **no es solo más
+ancha**: usa `imageLargeUrl` (las demás la chica, a propósito), lleva `priority`/`fetchpriority=high` porque
+es **la candidata a LCP de la home**, y tiene otra tipografía (serif 26px vs. 16px), otra disposición
+(nombre y precio en fila `justify-between`, no apilados) y otro `surface` del badge de grading
+(`featuredLead` vs. `featuredRest`, §22.6b).
+
+> **Regla: el contenido NO rota entre tejas. La rotación desplaza la ventana sobre una pista inmutable.**
+
+Lo que esto prohíbe, y por qué cada cosa:
+
+| Prohibido | Qué pasaría |
+|---|---|
+| Que la teja 2 «ascienda» a líder en el tic | Cada tic **remaquetaría dos tejas** (400px⟷268px, serif 26⟷16, fila⟷columna) y **dispararía una descarga HD nueva cada 7 s**. Ocho descargas de ~734×1024 en la primera pantalla, en cascada |
+| Clonar tejas para simular un bucle | Duplica `key`s, duplica el **nombre accesible** de cada teja (que en esta pista incluye la cifra del gancho y el micro-aviso, §22.6b-h) y rompe «orden de DOM = orden de lectura» |
+| Reordenar el array entre tics | Mismo efecto que lo anterior + rompe el orden **precio descendente**, que es un hecho del catálogo (§22.6b-i nº4) |
+| Mover `priority` de teja en teja | Varias `fetchpriority=high` compitiendo: retrasa justo a la que importa |
+
+**Lo que sí ocurre:** la teja líder está en su sitio (primera de la pista) y, según avanza la ventana, sale
+por el borde izquierdo como cualquier otra. Eso **no** es «perder el rol»: sigue siendo la teja 1, con su HD
+ya descargada, y vuelve a entrar intacta si el usuario retrocede o pulsa «Repetir». El LCP se mide en la
+carga, muy antes del primer tic.
+
+**Corolario de implementación (nivel diseño, no código):** el único estado que la rotación escribe es la
+**posición de scroll**. Si un tic obliga a re-renderizar una teja, el diseño se está implementando mal.
+
+### 23.3 Cadencia — 7 s, **una teja**, ≈ 550 ms
+
+**Cuánto dura el reposo: 7 segundos.** No es un número redondo elegido al azar; sale de contar lo que hay
+que leer en la teja que **entra**:
+
+| Qué se lee en una teja | Coste |
+|---|---|
+| Nombre serif (2–3 palabras, en inglés) + renglón mono `SET · #NNN` + acabado + precio + distintivo de stock | ≈ 12 palabras ⇒ **≈ 3,6 s** a ~200 ppm de lectura silenciosa |
+| Adquirir la imagen (el arte es el héroe, §5: la mirada va primero ahí) | **≈ 0,8 s** |
+| Burbuja del gancho cuando la teja la lleva (cifra + micro-aviso, §22.6b) | **≈ 1,2 s** |
+| Margen de seguridad (ES es ~25 % más largo que EN, §9.4) | **≈ 1,4 s** |
+| **Reposo total** | **7 s** |
+
+Dos notas sobre ese 7:
+- **Está deliberadamente por encima del umbral de 5 s de WCAG 2.2.2**, que es lo que hace **obligatorio** el
+  mecanismo de pausa. La alternativa —bajar de 5 s para «librarse» del requisito— sería más rápida que la
+  lectura y peor para todo el mundo. Se elige leer bien y pagar el control (§23.4).
+- **El reposo inicial es también de 7 s**, contados desde que la rotación se vuelve posible (§23.8). Nadie
+  ve moverse nada durante los primeros 7 s de vida del estante.
+
+**Cuánto avanza: exactamente UNA teja (R6).** No una «página».
+
+- Si avanzara una página (≈ 0,8 × ancho de la pista, que es lo que hacen las flechas), en `lg` cambiarían
+  **~3,5 tejas de golpe**: prácticamente todo lo visible. El usuario tendría que **releerlo todo cada 7 s**,
+  y los 7 s están calibrados para **una** teja nueva, no para tres y media. Ése es exactamente el patrón de
+  cartel publicitario que la gente aprende a ignorar.
+- Con una teja por tic el usuario **conserva el contexto**: 3 de 4 tejas visibles siguen ahí, entra una
+  nueva por la derecha, sale una por la izquierda. La pista «respira»; no «cambia de anuncio».
+- **Las flechas no cambian** (§20.3): siguen moviendo una página. Es correcto que difieran — la flecha es una
+  orden explícita («llévame lejos»), el tic es un ofrecimiento («mira, hay más»).
+
+**Cómo avanza:** una sola traslación continua, con salida suave (`ease-out`), de **≈ 550 ms**
+(≈ 296px en `lg` = teja 268 + gap 28; ≈ 176px en móvil = 160 + 16). El `scroll` suave nativo del navegador
+es aceptable y **no** se le superpone ninguna transición CSS. Requisitos visuales del aterrizaje:
+
+- **Aterriza en el punto de `snap` de la teja entrante** (destino calculado desde el `offsetLeft` de la
+  teja, no `scrollBy(ancho × 0,8)`). Un tic que termina a mitad de teja deja **media teja cortada por el
+  borde izquierdo**, y eso no es una composición: es un error de maquetación.
+- Media teja cortada por el **borde derecho** es correcto y deseable — es la señal de «hay más».
+- **Ni un solo tic acumulado.** Si la rotación estuvo suspendida (pestaña oculta, puntero encima, fuera de
+  pantalla), al reanudar **no se recuperan** los tics perdidos: se reinicia el reposo de 7 s. Un carrusel
+  que «se pone al día» de golpe es el peor movimiento posible en este sistema.
+
+**Cuándo puede arrancar (R2) — las cuatro precondiciones, todas:**
+1. El componente está **hidratado** (§23.8).
+2. La consulta **resolvió** y hay ≥ 1 teja (nada de rotar en `isLoading` ni en `isError` ni en vacío).
+3. La **imagen de la teja líder ha cargado** (`load`), o han pasado **3 s** desde que se resolvió el dato —
+   lo que ocurra antes. El tope evita que una imagen remota lenta deje el estante muerto para siempre.
+4. Ha pasado el **reposo inicial de 7 s**.
+
+### 23.4 El control de reproducción — **la decisión que bloqueaba el código**
+
+Es obligatorio: **WCAG 2.2.2 (nivel A)** exige un mecanismo para pausar cualquier movimiento automático que
+dure más de 5 s. La pregunta era **dónde vive**, porque la fila de §20.3 está definida al píxel (H2 29px ⟷
+link «Ver todo el catálogo» ⟷ dos flechas de 38px / 32px) y **por debajo de `sm` esa fila ya sacrifica el
+link por falta de sitio**. Un tercer control no cabe ahí.
+
+#### 23.4a La decisión
+
+> **El control NO es una tercera flecha. Es un conmutador de texto mono, pegado al H2, en el hueco
+> estructural del *kicker* (§20.5) — a la IZQUIERDA de la fila, en las tres anchuras.**
+
+Tres razones, en orden de peso:
+
+1. **No es de la misma familia que las flechas.** Las flechas son **navegación** (mueven la ventana un paso).
+   El conmutador es **el estado del estante entero**. Tres cuadrados idénticos de 32px obligarían a **leer
+   el glifo** para distinguir «atrás / adelante / pausa»; hoy la forma sola basta. Mezclar categorías en un
+   grupo degrada las dos: se pierde la lectura instantánea de las flechas y se disfraza de flecha algo que
+   no lo es.
+2. **El lado izquierdo es el lado libre en las tres anchuras** (medidas abajo), y es el lado donde vive el
+   **nombre** del estante. «Destacadas · PAUSAR» se lee como lo que es: *este estante, este comportamiento*.
+   Junto a las flechas, en cambio, se leería como una tercera dirección.
+3. **Orden de tabulación correcto y gratis.** Al ir pegado al H2 es el **primer control del carrusel** y
+   precede en el DOM tanto a las flechas como a la pista. Quien llega con teclado se topa con el freno
+   **antes** que con lo que se mueve, que es justo lo que pide 2.2.2.
+
+**Es texto, no icono solo.** Un icono de pausa aislado es reconocible pero ambiguo en su efecto («¿pausa qué,
+el vídeo que no hay?»). La palabra lo dice; el glifo lo acelera. Y el sistema ya habla en mono-versalitas:
+no se inventa un lenguaje.
+
+**Conciliación con §22.6b-e (que prohíbe kicker en este encabezado):** esa prohibición es sobre **kicker de
+contenido** — cualquier texto que **afirme algo sobre las piezas** (gradeo, estimados, oportunidad) y que
+convertiría el carrusel en una vitrina de gancho. Sigue vigente **literalmente**. El conmutador no afirma
+nada sobre ninguna pieza: nombra el **comportamiento del estante**. Ocupa el mismo hueco estructural, no el
+mismo rol semántico. **Sigue prohibido** cualquier otro kicker, subtítulo o mención al gradeo en esta fila.
+
+#### 23.4b Anatomía, al mismo nivel de detalle que §20.3
+
+Elemento: `<button type="button">` (nunca un `<div>` con `onClick`, nunca un `<a>`).
+
+| Propiedad | móvil (< 640) | `sm` (640–1023) | `lg` (≥ 1024) |
+|---|---|---|---|
+| Posición | Pegado al H2, **a su derecha**, mismo grupo flex | igual | igual |
+| Separación al H2 (`gap`) | **12px** | **12px** | **16px** |
+| Alineación vertical | `align-items: baseline` con el H2 (idéntico al kicker de §20.5) | igual | igual |
+| Glifo | lucide `Pause`/`Play`/`RotateCcw`, **12px**, `strokeWidth 1.5`, `aria-hidden` | 12px | **14px** |
+| Separación glifo⟷palabra | **6px** | 6px | **6px** |
+| Palabra | mono **10px**, peso 500, `letter-spacing .18em`, `text-transform: uppercase` (clase `.eyebrow`, §20.15: **el texto fuente va en caja normal**, las versalitas las pone el CSS) | igual | igual |
+| Color en reposo | **tinta `--color-text` `#1A1A18`** (glifo y palabra) | igual | igual |
+| Ancho reservado del bloque | **`min-width: 80px`** (cubre la más larga de las tres etiquetas en ES, `REANUDAR` ≈ 62px + glifo + gap). El ancho **no cambia** al cambiar de estado: la fila no baila | igual | igual |
+| Alto visual | ≈ 12px (una línea mono) | igual | ≈ 14px |
+| Área táctil | **44×44px mínimo**, obtenida con un **pseudo-elemento** (`::after`, `inset: -16px -8px`), **no con `padding`** | igual | igual |
+| Borde, fondo, radio, sombra | **ninguno** (§4.2, §4.3) | — | — |
+
+- **Por qué pseudo-elemento y no `padding`:** el `padding` agrandaría la caja visual y, con `outline-offset:
+  2px`, el anillo de foco dibujaría un rectángulo de 44px de alto alrededor de un texto de 12px — un halo
+  desproporcionado en una fila donde el resto de los focos son ajustados. Con `::after` el área táctil crece
+  y **el anillo sigue ciñendo la etiqueta**.
+- **La expansión no puede solaparse con nada:** 8px por lado contra un `gap` de 12/16px al H2 ⇒ nunca pisa
+  el título ni el link. Es un requisito verificable (§23.14 f).
+
+#### 23.4c Estados (todos obligatorios)
+
+| Estado | Glifo | Palabra (ES / EN) | Piel | Nombre accesible |
+|---|---|---|---|---|
+| **Reproduciendo** (rotando) | `Pause` (dos barras) | **PAUSAR** / PAUSE | Tinta, sin subrayado | «Pausar la rotación automática» |
+| **Pausado** (por el usuario) | `Play` (triángulo) | **REANUDAR** / RESUME | Tinta, sin subrayado | «Reanudar la rotación automática» |
+| **Terminado** (pista en el extremo, §23.6) | `RotateCcw` | **REPETIR** / REPLAY | Tinta, sin subrayado | «Repetir desde el principio» |
+| **Hover** | igual al estado actual | igual | **Subrayado de 1px** en tinta (mismo lenguaje que `EditorialLink`, §20.0); `cursor: pointer` | — |
+| **Focus-visible** | igual | igual | **Anillo `--color-focus-ring` 2px, `outline-offset: 2px`** (§8.2), ciñendo la etiqueta | — |
+| **Disabled** | **no existe** | — | — | — |
+| **Loading** | **no existe** | — | — | — |
+| **Suspensión por hover/foco/fuera de pantalla** | **no cambia nada** (silenciosa, §23.5) | — | — | — |
+
+- **Nunca `disabled` y nunca `loading`.** Si no hay rotación posible, el control **no se renderiza**
+  (§23.4d): un freno apagado junto a algo quieto es ruido, y junto a algo que se mueve es un fallo de A.
+- **Regla de nombre en la etiqueta (WCAG 2.5.3):** el nombre accesible **empieza por la palabra visible**
+  («**Pausar** la rotación automática»). Quien dicta por voz «pausar» activa el control. Prohibido un
+  `aria-label` que no contenga la palabra visible.
+- **Cambio de estado = cambio de etiqueta visible y accesible** (patrón APG de carrusel). **No se usa
+  `aria-pressed`**: «presionado» es ambiguo para un par pausa/reproducción (¿presionado significa pausado o
+  sonando?), y APG resuelve este control cambiando el nombre, no el estado de conmutación.
+
+#### 23.4d Cuándo el control NO se renderiza
+
+En los cinco casos, **no hay rotación**, así que no hay nada que frenar y el control desaparece entero (no
+deshabilitado, no invisible: ausente):
+
+1. `prefers-reduced-motion: reduce` (§23.7).
+2. Antes de hidratar / sin JS (§23.8).
+3. La pista **no desborda** (todas las tejas caben: nada que rotar; las dos flechas ya se apagan hoy).
+4. Estados de carga, error o vacío del estante (`QueryState`): no hay pista.
+5. Una sola teja.
+
+Su aparición/desaparición **no mueve nada más de la fila**: entra a la derecha del H2, dentro del grupo
+izquierdo, y el grupo derecho está anclado por `justify-between`. Ni el título ni el link ni las flechas se
+desplazan un píxel.
+
+#### 23.4e Presupuesto de la fila — la cuenta en las tres anchuras
+
+Lo que había que demostrar es que el control **cabe sin tocar el grupo derecho**. Medidas en ES (el idioma
+largo, §9.4), con el H2 corto (`featuredTitleShort` = «Destacadas») por debajo de `lg`, como ya hace §20.11:
+
+| Anchura | Grupo izquierdo | Grupo derecho | Suma + `gap` | Disponible | Holgura |
+|---|---|---|---|---|---|
+| **móvil 390** | «Destacadas» serif 22px ≈ **118** + 12 + **80** = **210** | link **oculto** + flechas 32+8+32 = **72** | ≈ **298** | 390 − 2×20 de `gutter` = **350** | **≈ 52px** |
+| **`sm` 640** | ≈ **210** | «Ver todo el catálogo» ≈ **145** + 16 + **72** = **233** | ≈ **459** | 640 − 2×24 = **592** | **≈ 133px** |
+| **`lg` 1024+** | «Piezas destacadas del catálogo» serif 29px ≈ **400** + 16 + **84** = **500** | ≈ 145 + 22 + 38+8+38 = **251** | ≈ **773** | contenedor ≈ **1200** | **≈ 427px** |
+
+- **La anchura crítica es móvil**, y la holgura es de ~52px. A **360px** siguen sobrando ~22px. Por debajo
+  de 360px la fila **envuelve a dos líneas**, que es exactamente lo que ya hace hoy (`flex-wrap`), y lo hace
+  bien: como el conmutador **pertenece al grupo del título**, al envolver baja el par completo
+  «título + conmutador» arriba y «link + flechas» abajo. **Nunca** queda el conmutador huérfano junto a las
+  flechas, y **nunca** se separa del estante que nombra.
+- **Prohibido resolver la estrechez quitando la palabra** y dejando el glifo solo en móvil: sería, otra vez,
+  un tercer cuadrado ambiguo, y justo en la anchura donde menos contexto hay.
+
+### 23.5 Máquina de estados — suspensión temporal vs. pausa permanente
+
+Dos niveles, y no se mezclan. Ésta es la distinción que evita que el carrusel pelee con el usuario.
+
+**Nivel 1 — SUSPENSIÓN (temporal, silenciosa, reversible sola).** El modo sigue siendo «reproduciendo»; el
+temporizador simplemente no corre. El control **no cambia** de etiqueta, glifo ni piel. Causas:
+
+| Causa | Se reanuda cuando |
+|---|---|
+| **Puntero encima** de la sección (`pointerenter`, incluye encabezado y pista) | El puntero sale |
+| **Foco de teclado dentro** de la sección (conmutador, flechas, pista, cualquier teja) | El foco sale de la sección |
+| **Menos del 50 % de la pista visible** en el viewport | Vuelve a estar visible |
+| **Pestaña oculta** (`visibilityState !== 'visible'`) | La pestaña vuelve al frente |
+
+- **Es silenciosa a propósito.** El puntero está en la pista, a cientos de píxeles del conmutador: cambiar
+  la etiqueta allá arriba sería un parpadeo que nadie ha pedido y que además **mentiría sobre el modo** (no
+  se ha pausado nada; se está esperando). Al reanudar se **reinicia el reposo de 7 s** completo: nunca hay
+  un tic inmediato al retirar el ratón.
+- **La pausa por foco no es solo accesibilidad.** Sin ella, tabular por las tejas mientras la pista rota
+  produce una pelea: el navegador desplaza para traer el foco a la vista y el temporizador desplaza en
+  sentido contrario; el foco se pierde de la pantalla. Es un defecto funcional, no un detalle de A11y.
+- **La pista es un tope de tabulación con nombre.** Si lleva `tabindex="0"` para poder desplazarla con
+  teclado (recomendado), debe llevar además `role="group"` y `aria-label` propio (§23.9): un tope de foco
+  anónimo es peor que no tenerlo.
+
+**Nivel 2 — PAUSA PERMANENTE (para el resto de la visita, hasta que el usuario reanude).** El modo cambia a
+«pausado» y el control pasa a **REANUDAR**. Causas — todas son **actos deliberados** del usuario:
+
+| Causa | Nota |
+|---|---|
+| Pulsar **PAUSAR** | Obvio |
+| **Swipe / arrastre** sobre la pista | — |
+| **Rueda / trackpad** horizontal sobre la pista | — |
+| Pulsar una **flecha** (§20.3) | Así flechas y rotación no se disputan la pista |
+| **Cualquier desplazamiento de la pista que el carrusel no haya originado** — incluido el que provoca el navegador al tabular a una teja fuera de pantalla | Regla general que cubre los casos que nadie enumeró |
+| Llegar a la sección por **ancla** (`#piezas-destacadas`, el regreso de la nota al pie del gancho, §22.4a) | Quien llega por el ancla viene a **inspeccionar algo concreto**. Que la ventana se le mueva bajo los ojos es el peor momento posible. **No se rebobina**: solo se detiene |
+
+> **Decisión: la intervención pausa PARA SIEMPRE, no «durante N segundos» (R5).** Reanudar solo tiene un
+> camino: que el usuario lo pida. Un carrusel que se reactiva a los 5–10 s le arranca al usuario el control
+> que acababa de tomar; es el comportamiento que hace que la gente odie los carruseles, y además convierte
+> el cumplimiento de 2.2.2 en algo formal (existe el botón) en vez de real (el usuario manda). El coste —que
+> alguien pause sin querer y no vuelva a ver rotación— es **barato**: el contenido sigue ahí entero y las
+> flechas siguen funcionando. El coste contrario no lo es.
+
+**Transiciones completas:**
+
+```
+                 ┌──────────── REANUDAR ────────────┐
+                 │                                  │
+   (arranque)    ▼        PAUSAR / intervención     │
+  ─────────► REPRODUCIENDO ───────────────────► PAUSADO
+                 │  ▲                               ▲
+   suspensión ───┘  └─── fin suspensión             │
+   (hover/foco/                                     │ flecha «anterior»
+    fuera de vista/                                 │ o desplazamiento
+    pestaña oculta)                                 │
+                 │                                  │
+                 │ llega al extremo derecho         │
+                 ▼                                  │
+             TERMINADO ──── REPETIR ──► (vuelve al inicio y REPRODUCIENDO)
+                 └──────────────────────────────────┘
+```
+
+### 23.6 Al llegar al final — **una pasada y para** (R7)
+
+> **Decisión: la rotación hace UNA sola pasada. Al llegar al extremo derecho se detiene. No hay bucle
+> automático.** Volver al inicio es una acción del usuario: el conmutador pasa a **REPETIR**.
+
+Cuatro razones:
+
+1. **Coherencia con lo que ya hay.** Hoy las flechas se apagan en los extremos (§20.3) y no hay vuelta. Un
+   bucle automático introduciría un concepto —«la pista da la vuelta»— que **contradice** el apagado de las
+   flechas en el mismo componente: la flecha «siguiente» diría «no hay más» mientras el carrusel demuestra
+   lo contrario cada 7 s.
+2. **El rebobinado es el peor movimiento posible en este sistema.** Volver al inicio son ~2 000px. Animado
+   es un barrido de página entera que se lee como fallo o como carga (justo lo que §17.3 teme). Instantáneo
+   es un salto que se lee como error. No hay tercera forma decente.
+3. **La alternativa habitual —clonar tejas para un bucle infinito— está prohibida por R1** (§23.2):
+   duplicaría nombres accesibles que aquí incluyen la cifra del gancho y su micro-aviso.
+4. **Acota el movimiento total.** Siete tics ⇒ **≈ 49 s** y la home queda **completamente quieta** para
+   siempre. El movimiento perpetuo en la primera pantalla es el verdadero irritante; una pasada única
+   cumple el objetivo (revelar que hay más de lo que cabe) y se retira.
+
+Detalles:
+
+- **`TERMINADO` es el mismo predicado que apaga la flecha «siguiente»** (`canNext === false`). Se alcanza
+  igual si la rotación llegó sola o si el usuario llegó con las flechas: un solo criterio, cero
+  discrepancias.
+- **REPETIR** devuelve la pista a `scrollLeft = 0` **de forma instantánea** (sin animación — es acción
+  explícita del usuario, y aquí sí es la opción correcta por lo dicho en el punto 2), y arranca una pasada
+  nueva con su reposo inicial de 7 s.
+- Si desde `TERMINADO` el usuario pulsa la flecha «anterior» o desplaza hacia atrás, el estado pasa a
+  **PAUSADO** (no vuelve a rotar solo): manda la regla de intervención (§23.5).
+
+### 23.7 `prefers-reduced-motion` — **cero movimiento** (R4)
+
+El frontend verificó que la regla global de `globals.css` **solo neutraliza duraciones de CSS**: no cubre ni
+el scroll suave por JS ni un temporizador. Es cierto, y por eso esto se resuelve en la **lógica del
+componente**. Con la preferencia activa:
+
+| Qué | Comportamiento |
+|---|---|
+| Temporizador de rotación | **No arranca.** No es «arranca y salta»: no existe |
+| Conmutador de reproducción | **No se renderiza** (§23.4d): no hay nada que pausar |
+| Flechas de §20.3 | **Siguen funcionando**, pero con `behavior: 'auto'` — **salto instantáneo**, no desplazamiento suave |
+| Ancla de regreso de la nota al pie | `scroll-behavior` instantáneo, igual criterio |
+| Resto del estante (tejas, imágenes, badges) | Idéntico. **No se degrada contenido**: la preferencia quita movimiento, no información |
+
+- **Prohibido «moverse más lento»**, «moverse sin `easing`», «rotar cada 15 s en vez de cada 7» o cualquier
+  otra media tinta. La preferencia significa *no me muevas la pantalla*, no *muévemela con calma*.
+- **Se escucha en vivo** (§8.2): activar la preferencia en el sistema operativo detiene la rotación en ese
+  momento y hace desaparecer el conmutador, sin recargar. Desactivarla **no** rearranca la rotación de golpe
+  a mitad de visita: se reanuda con su reposo inicial de 7 s.
+- **`prefers-reduced-motion` gana sobre todo lo demás**, incluida una eventual preferencia guardada del
+  usuario. No hay ajuste en la app que la anule.
+
+### 23.8 Sin JS y antes de hidratar — el estado inicial, no un fallback
+
+Esto **corrige** la nota 2 de §20.16, que decía que el carrusel debía degradar a scroll-snap nativo sin JS.
+
+| Momento | Qué hay |
+|---|---|
+| **Marcado servido / sin JS** | Pista de **scroll-snap nativa** con las ocho tejas completas. Se desplaza con el dedo, con la rueda y con la barra. **No rota.** **No se pintan** ni las flechas ni el conmutador |
+| **Hidratado** | Aparecen flechas y conmutador. La rotación aún **no** arranca (faltan las precondiciones de §23.3) |
+| **Precondiciones cumplidas + 7 s de reposo** | Primer tic |
+
+Regla que lo sostiene: **ningún control del carrusel se pinta si no puede funcionar.** Así no queda nunca un
+botón muerto, y —lo importante para 2.2.2— **no puede existir movimiento sin freno**: ambos nacen del mismo
+JS, en el mismo momento. El **contenido nunca depende del JS**; lo que depende del JS es rotar, y rotar es
+un extra que se suma sobre una pista que ya funcionaba.
+
+### 23.9 Anuncio a lectores de pantalla — patrón APG de carrusel
+
+Para que el frontend no improvise, esto es normativo:
+
+**(a) La región.** La `<section>` del estante (la que ya pinta `Shelf`) lleva:
+- `aria-roledescription="carrusel"` / `"carousel"` — **localizado**, clave i18n propia (§23.12). Con su
+  `aria-label` ya existente, el lector anuncia «Piezas destacadas del catálogo, carrusel».
+- Su `aria-label` **no cambia** y **no menciona** la rotación (§22.6b-e sigue vigente).
+
+**(b) La pista.** `id` propio, y **`aria-live` conmutando**:
+- `aria-live="off"` **mientras la rotación está corriendo de verdad**.
+- `aria-live="polite"` **en cuanto no corre**: pausada, terminada, suspendida por foco o por puntero, o con
+  movimiento reducido. Se ata a *«¿está corriendo el temporizador ahora mismo?»*, **no al modo** — así el
+  caso que importa (usuario de teclado navegando por la pista, que la suspende) queda siempre en `polite`.
+- Si la pista es focuseable (`tabindex="0"`), además `role="group"` + `aria-label` propio (§23.5).
+
+> **Honestidad sobre `aria-live` aquí:** esta pista es un **scroller con las ocho tejas presentes en el
+> DOM**; nada se añade ni se quita al rotar. Por lo tanto, en esta implementación **la región viva no tiene
+> nada que anunciar**. Se especifica igualmente porque es el patrón correcto, cuesta cero y protege el día
+> que alguien introduzca contenido dinámico. **Pero no es el canal de estado**: el canal de estado es (c).
+> Quien implemente esto **no debe dar por hecho** que el usuario de lector de pantalla se entera de algo por
+> el `aria-live`.
+
+**(c) El canal de estado real: una línea `role="status"` visualmente oculta**, propiedad del carrusel, vacía
+por defecto. Emite **solo** en dos transiciones, ambas **no solicitadas** por el usuario:
+- La rotación **termina la pasada**: «Fin de las piezas destacadas.»
+- La rotación **se pausa por intervención** (swipe, rueda, flecha, ancla): «Rotación automática pausada.»
+
+**No emite** cuando el usuario pulsa el conmutador (el cambio de nombre accesible del botón ya lo dice, y
+duplicarlo es hablar dos veces), **no emite** en suspensiones por hover/foco/visibilidad (sería charlatana y
+además la suspensión no es un cambio de modo), y **nunca** es `assertive` (§8.2 reserva `assertive` para
+errores de pago).
+
+**(d) Lo que NO cambia de §22.6b-h:** la teja sigue siendo un `<a>` que envuelve todo y **sigue prohibido**
+ponerle `aria-label` (borraría del árbol de accesibilidad la cifra y el micro-aviso). La numeración sigue
+`aria-hidden`. El glifo del conmutador va `aria-hidden` (la palabra es el portador, §2.4).
+
+**(e) Teclado.** El conmutador es el **primer** control del carrusel en orden de tabulación (§23.4a),
+activable con `Enter` y `Espacio` por ser un `<button>` real. No se le asigna atajo global.
+
+### 23.10 La numeración `01 · 02 · 03` — la rotación no la toca
+
+Consecuencia directa de R1: **la rotación no reordena el DOM**, así que `02` sigue siendo la segunda teja del
+DOM la mire quien la mire. La regla «todo o nada por pista» de §20.3 y §22.6b-c sigue **exactamente igual**,
+con el mismo predicado (`pageHasGradingFigures`) evaluado **una sola vez** con los datos resueltos: un
+resultado que **no puede cambiar por desplazarse**. Prohibido renumerar según lo visible, usar el número
+como indicador de progreso de la rotación, o resaltar la teja que acaba de entrar. Detalle completo y
+prohibiciones en §22.6b-c.
+
+### 23.11 Contraste — **cero pares nuevos**
+
+| Par | Ratio | Veredicto |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel `#F4F1EA` (palabra y glifo del conmutador, reposo y hover) | **~15,5:1** (§10) | AA/AAA ✓ (texto pequeño y componente UI) |
+| Anillo de foco rojo `#B31217` sobre papel (foco del conmutador) | **6,2:1** (§17.2, §20.15) | AA ✓ (≥ 3:1 para UI) |
+| Subrayado de hover, tinta 1px sobre papel | ~15,5:1 | ✓ (redundante con el `cursor`, no es el único canal) |
+
+- **El glifo nunca es el único portador**: la palabra (PAUSAR / REANUDAR / REPETIR) está siempre presente
+  (§2.4). Quien no distinga dos barras de un triángulo a 12px lee la palabra.
+- **Cero tokens de color nuevos, cero tamaños tipográficos nuevos** (mono 10px = `.eyebrow`, ya en uso).
+- El conmutador **no usa acento**: el rojo del carrusel está presupuestado (§22.10 nº3) y un control de
+  reproducción no es información de dominio.
+
+### 23.12 i18n — claves nuevas (propiedad de frontend)
+
+Convención `home.featured.*` (§20.16). ES de referencia; EN a cargo de frontend (§9):
+
+| Clave | ES | EN | Nota |
+|---|---|---|---|
+| `home.featured.playback.pause` | `Pausar` | `Pause` | Visible; versalitas por CSS |
+| `home.featured.playback.resume` | `Reanudar` | `Resume` | Visible |
+| `home.featured.playback.replay` | `Repetir` | `Replay` | Visible |
+| `home.featured.playback.pauseAria` | `Pausar la rotación automática` | `Pause the automatic rotation` | **Debe empezar por la palabra visible** (WCAG 2.5.3) |
+| `home.featured.playback.resumeAria` | `Reanudar la rotación automática` | `Resume the automatic rotation` | idem |
+| `home.featured.playback.replayAria` | `Repetir desde el principio` | `Replay from the beginning` | idem |
+| `home.featured.roledescription` | `carrusel` | `carousel` | `aria-roledescription` |
+| `home.featured.trackAria` | `Piezas destacadas — pista desplazable` | `Featured pieces — scrollable track` | Solo si la pista es focuseable |
+| `home.featured.status.paused` | `Rotación automática pausada.` | `Automatic rotation paused.` | `role="status"` |
+| `home.featured.status.ended` | `Fin de las piezas destacadas.` | `End of featured pieces.` | `role="status"` |
+
+Recordatorio §9.4: `REANUDAR` es la etiqueta larga en ES y es la que fija el `min-width: 80px` del bloque
+(§23.4b). Si alguna traducción futura la supera, **se sube el `min-width`**; **nunca** se trunca, se abrevia
+ni se elimina la palabra.
+
+### 23.13 Qué NO hacer
+
+| # | Prohibido | Por qué |
+|---|---|---|
+| 1 | Un **tercer cuadrado** de 32/38px en el grupo de las flechas | Mezcla navegación con estado; obliga a leer glifos donde hoy basta la forma; y es la anchura que no da (§23.4a, §23.4e) |
+| 2 | **Puntos, barras o paginador** bajo la pista | Duplica el trabajo de la numeración, sería un tercer acento e implica «páginas» que en un scroller continuo no existen (§22.6b-c) |
+| 3 | **Clonar tejas** / bucle infinito / reordenar el array | R1: duplica nombres accesibles (que aquí llevan la cifra y el micro-aviso) y rompe orden DOM = orden de lectura (§23.2) |
+| 4 | Que el **contenido rote entre tejas** y la 2 ascienda a líder | Remaqueta dos tejas por tic y dispara descargas HD sucesivas (§23.2) |
+| 5 | Esconder el control de pausa tras `hover`, tras `focus`, o dentro de un menú | R3: 2.2.2 exige un mecanismo **disponible**, y en táctil no hay `hover` |
+| 6 | **Rebobinado animado** al inicio | ~2 000px de barrido: la lectura «cargando/roto» que §17.3 teme (§23.6) |
+| 7 | **Tics acumulados** al reanudar tras una suspensión | Un salto de varias tejas de golpe es indistinguible de un fallo (§23.3) |
+| 8 | Rotar **fuera de pantalla** o con la pestaña oculta | Mueve el contenido a espaldas del usuario y gasta batería sin que nadie mire |
+| 9 | **Reanudar solo** tras N segundos de la intervención del usuario | R5: le arranca el control al usuario justo después de que lo tomó (§23.5) |
+| 10 | Con `prefers-reduced-motion`: rotar más lento, sin `easing`, o «solo un poco» | R4: la preferencia es *no me muevas la pantalla* (§23.7) |
+| 11 | **Fundido, `cross-fade`, zoom o `scale`** entre tejas | Solo traslación (§17.3a, condición 2) |
+| 12 | Arrancar la rotación **sobre skeletons** o antes de que cargue la imagen líder | R2, y es la condición que desactiva el argumento de §17.3 (§23.1) |
+| 13 | Cambiar el paso, el apagado en los extremos o el tamaño de las **flechas** de §20.3 | §23 es aditiva; §20.3 no se toca |
+| 14 | Que la suspensión por hover/foco **cambie la etiqueta** del conmutador | Parpadeo remoto y mentira sobre el modo (§23.5) |
+| 15 | Añadir **kicker, subtítulo o mención al gradeo** al encabezado | §22.6b-e sigue vigente literalmente; el conmutador ocupa el hueco, no el rol |
+| 16 | Extender la rotación a **otros estantes** (Sellado, Gradeadas, Bounties, «Joyas para gradear») | §23.1: la excepción está autorizada **solo aquí** |
+| 17 | Un ajuste en la app que **anule** `prefers-reduced-motion` | La preferencia del sistema gana siempre (§23.7) |
+
+### 23.14 QA visual sugerido
+
+(a) **Reposo inicial:** cargar la home y cronometrar — nada se mueve durante los primeros **7 s**, y no se
+mueve nada **mientras haya skeletons**. (b) **Paso:** un tic mueve **una** teja y ninguna teja queda cortada
+por el **borde izquierdo** en reposo. (c) **Hover:** dejar el puntero sobre la pista ⇒ se detiene; el
+conmutador **no cambia**; al retirarlo pasan **7 s** completos antes del siguiente tic (no un tic inmediato).
+(d) **Foco:** tabular por las tejas ⇒ la pista no se mueve sola y **el foco nunca sale de la pantalla**.
+(e) **Intervención:** un swipe o una flecha ⇒ el conmutador pasa a **REANUDAR** y **no vuelve a rotar solo**
+(esperar ≥ 30 s). (f) **La fila, en 390 / 640 / 1024 y en ES y EN:** el conmutador cabe, no envuelve por
+encima de 360px, no pisa el H2 ni el link, y su área táctil mide ≥ 44×44 sin solaparse con nada.
+(g) **Movimiento reducido:** activar la preferencia del sistema **en caliente** ⇒ la rotación se detiene al
+momento, el conmutador **desaparece**, y las flechas pasan a saltar sin animación. (h) **Sin JS:** las ocho
+tejas se leen y la pista se desplaza; **no hay** flechas ni conmutador ni movimiento. (i) **Final:** dejar
+correr la pasada ⇒ al llegar al extremo se detiene, la flecha «siguiente» queda apagada y el conmutador dice
+**REPETIR**; pulsarlo vuelve al inicio y reanuda. (j) **Lector de pantalla:** la sección se anuncia como
+«carrusel»; el botón anuncia su nombre nuevo al pulsarlo; al terminar la pasada se oye «Fin de las piezas
+destacadas» **una sola vez**. (k) **Numeración:** con la pista rotando, `01·02·03` **no cambia de teja** y no
+se resalta ninguna. (l) **Gancho:** con una teja con burbuja, la rotación no altera ni la burbuja, ni el
+micro-aviso, ni la regla todo-o-nada de la numeración, ni las alturas dispares (§22.6b-d). (m) **Rendimiento:**
+en el panel de red, **cero descargas de imagen nuevas** provocadas por los tics. (n) **Pestaña oculta:**
+cambiar de pestaña 1 min y volver ⇒ la pista está donde se dejó (sin tics acumulados).
+
+### 23.15 Notas a otros roles (ninguna bloquea)
+
+1. **Product-owner:** P-49 no está registrado en `PROJECT.md`. Este documento lo referencia como decisión del
+   dueño; convendría anotarlo con su criterio de aceptación (por ejemplo: *«el carrusel de destacadas rota
+   solo, con control de pausa visible, y no se mueve con `prefers-reduced-motion`»*) para que QA tenga contra
+   qué verificar. **No bloquea el diseño ni la implementación.**
+2. **Arquitecto:** **nada que pedir.** La rotación no necesita ningún dato nuevo, ningún campo nuevo, ningún
+   endpoint y ningún cambio de `API_CONTRACT.md`: se alimenta de la misma consulta compartida que ya usa el
+   carrusel (§22.6b-g). Se deja constancia explícita porque la regla 9 obliga a escalar cualquier necesidad de
+   contrato, y aquí **no la hay**.
+3. **Frontend:** el hueco estructural existe pero hoy `Shelf.kicker` acepta solo `string`; ampliarlo a
+   `ReactNode` (o añadir un slot hermano `titleAdjacent`) es la vía limpia y **no altera ninguna otra
+   pantalla** — el kicker de Gradeadas (§20.5) sigue siendo texto. Segundo apunte: el destino del tic debe
+   calcularse desde el `offsetLeft` de la teja entrante, no con `scrollBy(clientWidth × 0,8)` (que es el paso
+   de las **flechas**), o se incumple R6.
+4. **QA:** los checks (g) y (h) de §23.14 —movimiento reducido en caliente y sin JS— son los dos que un
+   E2E olvida por defecto y son precisamente los dos hechos que el frontend levantó. Merecen caso propio.
+5. **Techlead:** §23.1 crea **una excepción nominal y acotada** a la doctrina de movimiento de §17.3. Está
+   deliberadamente cerrada a una superficie (§23.13 nº16). Si aparece una segunda petición de movimiento en
+   el sistema, **no se resuelve citando §23**: vuelve a ux-ui.
