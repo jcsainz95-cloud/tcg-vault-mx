@@ -344,6 +344,59 @@ test.describe('Gancho de grading · vitrina del home (§22.6) @real', () => {
   });
 });
 
+/**
+ * §22.6b — la CUARTA superficie. Aquí no se puede asertar «hay burbuja»: el carrusel ordena por
+ * precio descendente y el gate de ROI castiga justo a las caras, así que **cero burbujas entre ocho
+ * es el estado NORMAL** y exigir una haría el test verde por casualidad o rojo por diseño. Lo que sí
+ * es determinista son las INVARIANTES de la pista, y son las que se afirman.
+ */
+test.describe('Gancho de grading · carrusel «Piezas destacadas» (§22.6b) @real', () => {
+  test('la pista es anclable, no lleva `aria-label` en sus tejas y numeración y cifra NO coexisten', async ({
+    page,
+  }) => {
+    await scenario();
+    await page.goto('/es');
+
+    // (g) El carrusel necesita `id` propio: el regreso de la nota aterriza aquí cuando la vitrina
+    // no pintó, que es el caso frecuente.
+    const track = page.locator('#piezas-destacadas');
+    await expect(track).toBeVisible();
+    await expect(track).toHaveClass(/scroll-mt-/);
+
+    // (h) La teja es un <a> que envuelve todo ⇒ el badge forma parte del NOMBRE ACCESIBLE. Un
+    // `aria-label` lo sustituiría y borraría el micro-aviso del árbol de accesibilidad: el defecto
+    // bloqueante que §22.4c corrigió.
+    expect(await track.locator('a[aria-label], a[aria-labelledby]').count()).toBe(0);
+
+    await hideScreenReaderOnly(page);
+    const text = await track.innerText();
+    const hasFigure = text.includes('≈');
+    // (c) Todo o nada por pista: si hay cifra, la numeración `01·02·03` desaparece de las OCHO.
+    const numbering = await track.getByText(/^\d{2}$/).count();
+    expect(
+      hasFigure ? numbering === 0 : numbering > 0,
+      hasFigure
+        ? 'la pista pinta cifra y CONSERVA la numeración (§22.6b-c)'
+        : 'la pista no pinta ninguna cifra y perdió la numeración de §20.3',
+    ).toBe(true);
+
+    // R3.1 — si hay cifras, cada una lleva su micro-aviso VISIBLE junto a ella.
+    if (hasFigure) {
+      await expectVisibleMicroNotice(track);
+      await expect(page.locator('#nota-estimado')).toBeVisible();
+    }
+
+    // (g) El regreso de la nota NUNCA apunta a la nada: si la nota existe, su destino también.
+    const back = page.locator('#nota-estimado a[href^="#"]').last();
+    if (await back.count()) {
+      const href = await back.getAttribute('href');
+      await expect(page.locator(href!)).toHaveCount(1);
+    }
+
+    await expectFigureImpliesFootnote(page);
+  });
+});
+
 test.describe('Gancho de grading · BACK-OFFICE: la captura manual de estimados (§O.6 / §O.8)', () => {
   /**
    * El agujero que cierra este bloque: hasta v1.50.2 **ninguna superficie del back-office** podía

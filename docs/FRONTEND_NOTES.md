@@ -7862,3 +7862,179 @@ to deeply equal []`), no con un booleano mudo. Es barato y cierra la puerta a qu
 **Verificación.** `npx tsc --noEmit` limpio · `npx vitest run` **769 pasan / 90 archivos** (eran
 767/90: +2 del `it.each` nuevo, uno por locale). **Ningún test existente citaba la marca vieja**, así
 que no hubo aserciones que actualizar.
+
+## §29 · La cuarta superficie del gancho: la burbuja entra al carrusel «Piezas destacadas» (§22.6b) — 2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`
+
+Implementación de `DESIGN_SYSTEM.md` §22.6b (PROJECT §O.3 superficie 4, criterio 113). **Cero cambios
+de backend y cero cambios de contrato**: verificado antes de empezar que `GET /catalog/cards` emite
+`gradingHighlight` en el summary de todo grupo raw elegible **sin** el filtro `?gradingHighlight=true`
+(`catalog.service.ts:1093` llama `loadGradingContext` de forma incondicional; el `:1104` con
+`gradingHighlight=true` solo **filtra**). El carrusel ya pedía `getCatalog({sort:'price_desc',
+pageSize:8})` y ya recibía el campo en el DTO: solo faltaba pintarlo.
+
+### 1. El punto que mata la feature en silencio: la nota al pie es la UNIÓN, no la vitrina
+
+Hasta hoy `page.tsx` derivaba `GradingFootnoteBoundary active` **solo** de la vitrina «Joyas para
+gradear». Con el carrusel como cuarta superficie eso deja de ser suficiente y se convierte en un
+**fallo silencioso de manual**:
+
+- El carrusel ordena por **precio descendente** y el gate de ROI castiga justo a las caras (R6 exige
+  `psa10 > raw`), así que **«vitrina vacía + una burbuja en el carrusel» es el estado FRECUENTE**.
+- En ese estado la página no hospedaría la nota; y como toda cifra es **fail-closed** sin nota (R3.3),
+  el badge devuelve `null`. El carrusel **no pintaría nada**: ni excepción, ni hueco, ni log. Solo una
+  feature que no aparece.
+
+El arreglo es literal a §22.6b-g: un solo booleano, `gemsHaveFigures || carouselHasFigures`, derivado
+del **mismo** `pageHasGradingFigures` para las dos fuentes. Para que las dos listas no puedan divergir
+de lo que cada sección pinta, la consulta del carrusel se **extrae y se comparte** —`useFeaturedCatalog()`
+/ `featuredOf()` en `FeaturedCarousel.tsx`, exactamente el patrón que ya usaba `useGradingGems()`—:
+mismo `queryKey`, TanStack la dedupe, una sola petición. Dos `useQuery` con opciones distintas habrían
+reabierto el mismo agujero por otra puerta.
+
+El `returnToId` deja de ser fijo: **vitrina si pintó, si no el carrusel** (§22.4a). Un ancla fija a una
+sección que hoy puede no renderizarse es un enlace de regreso apuntando a la nada — y ese es el caso
+normal aquí, no un borde.
+
+### 2. `surface`: un enumerado cerrado, no un `className`
+
+`GradingEstimateBadge` gana **un** prop, `surface: 'grid' | 'featuredLead' | 'featuredRest'`, con
+`'grid'` por defecto — **Compra y la vitrina no cambian ni una clase**. Toda la variación vive en un
+mapa `SURFACE_SPEC` de tres entradas y tres campos: qué envoltorio lleva la forma larga (`null` ⇒ no se
+pinta nunca), cuál la corta, y el tamaño de la cifra.
+
+Existe porque **el breakpoint del viewport no predice el ancho de la teja** en el carrusel: la teja
+chica mide 160px aunque el viewport ya sea `sm`. Por eso el corte de `featuredLead` es **`lg`, no `sm`**
+(236px → 400px) y `featuredRest` usa **`figureShort` siempre** (268px en su mejor momento contra los
+~274px que pide la forma larga en EN).
+
+Lo que el prop **no** puede hacer, y por eso es un enumerado y no un `className` libre: no apaga el
+micro-aviso, no lo acorta, no cambia su familia ni su tamaño, no toca la regla superior, no suprime la
+llamada `*` y no baja el piso de 11px (§22.4d). Un `surface: string` —o un `figureForm` que aceptara
+cualquier cosa— reabriría por la puerta de atrás la variante «ligera» sin aviso que R3 prohíbe. **Un
+cuarto valor es una decisión de diseño, no de implementación.**
+
+### 3. El `whitespace-nowrap` pasa del párrafo al MONTO (y esto endurece también a Compra)
+
+La clase estaba en el `<p>` **entero**. En una teja estrecha, un importe grande no envolvía: **desbordaba
+la teja en silencio** —no hay caja ni fondo que lo delate (§2.1)— en vez de dejar envolver la prosa que
+sí puede envolver. Ahora lo indivisible es la cifra y nada más.
+
+**Coste declarado:** requirió envolver el placeholder en un tag de rich text (`<nb>{amount}</nb>`) en
+`catalog.gradingBadge.figure` y `figureShort`, ES y EN. **No es copy nuevo ni una clave nueva** —§22.11
+dice que esta superficie no añade ninguna—: es el mismo mecanismo de `<approx>` y `<b>` que las claves
+ya usaban, y el texto renderizado es idéntico carácter por carácter. Fue necesario porque
+`RichTranslationValues` de next-intl solo admite `string | number | Date | RichTagsFunction`: no se
+puede pasar un `ReactNode` como valor de `{amount}`.
+
+### 4. La numeración: condicional POR PISTA, todo o nada
+
+`showNumbering = !(anchors !== null && pageHasGradingFigures(featured))`. Dos matices deliberados:
+
+- **El predicado incluye el `fail-closed`.** «Si la pista pinta cifra» significa *pinta*, y sin boundary
+  activa el badge devuelve `null`. Con `anchors` en la condición es **imposible** que la pista pierda
+  los números sin haber ganado la burbuja (hay test).
+- **Todo o nada**, nunca teja por teja: el número vive en la fila del título (`flex items-baseline
+  gap-2`) **antes** del nombre, así que quitarlo solo en las tejas con burbuja arrancaría esos nombres
+  ~20px a la izquierda de sus vecinos y se leería como error de maquetación. No se renumera para tapar
+  el hueco, no se sustituye por otro glifo y no queda espacio reservado: el `<span>` sencillamente no se
+  renderiza y el `gap-2` de un solo hijo no deja rastro (verificado con `row.children` = 1).
+
+### 5. Lo que NO se hizo, porque §22.6b lo prohíbe
+
+Sin `min-height`, sin espacio reservado, sin skeleton del badge, sin regla ni guion de relleno en las
+siete tejas sin cifra, sin reordenar por elegibilidad y **sin deduplicar contra la vitrina** (una carta
+cara que además califica sale en las dos, con su burbuja en ambas). El badge es el **último elemento**
+de las dos anatomías, así que nada de lo que está encima —arte, nombre, set/#, acabado, precio, stock—
+se mueve un píxel: las ocho imágenes siguen alineadas por su borde superior, que es el eje que el ojo
+usa en una pista horizontal. La pista crece lo que crezca la teja más alta y ese aire cae **debajo** de
+las cortas. **La ausencia es el estado por defecto de esta superficie, no un estado degradado.**
+
+En la teja grande la burbuja va **a todo el ancho, bajo toda la fila de datos**, no dentro de la columna
+derecha del precio: esa columna es estrecha y va `text-right`, y ahí una cifra `nowrap` la reventaría y
+el micro-aviso —que es prosa— quedaría en bandera derecha (§22.4c).
+
+### 6. Accesibilidad: **prohibido `aria-label` en el enlace de la teja**
+
+A diferencia de la teja de Compra, aquí el `<a>` envuelve todo, así que el badge queda **dentro** del
+enlace y su texto pasa a formar parte del **nombre accesible**: el lector anuncia nombre, set, precio,
+stock, la cifra y el micro-aviso completo. Eso es lo que §22.5 pide. Un `aria-label` **sustituiría** el
+contenido y borraría el aviso del árbol de accesibilidad — que es exactamente el defecto bloqueante que
+§22.4c corrigió. Hay un test que lo fija (`aria-label` y `aria-labelledby` a cero en todas las tejas), y
+otro que comprueba que la llamada `*` no es un ancla anidada (`variant="plain"`).
+
+`Shelf` gana un prop opcional `id` para que el ancla del carrusel y su
+`scroll-mt-[calc(var(--app-header-h,0px)+16px)]` vivan **en el mismo elemento** (§4.5). Es aditivo: los
+otros cuatro estantes no pasan `id` y no cambian.
+
+### Verificación (números reales)
+
+- `npx tsc --noEmit` limpio · `npx next lint` sin avisos · `npx next build` verde.
+- `npx vitest run` → **786 pasan / 91 archivos** (base 769/90; +17 en el archivo nuevo
+  `_home/FeaturedCarouselGrading.test.tsx`). **Ningún test existente se tocó**: los de Compra
+  (`CatalogTile.test.tsx`), los del badge (`gradingEstimates.test.tsx`) y los de la vitrina
+  (`GradingGemsShelf.test.tsx`) siguen verdes tal cual, que es la prueba de que `surface='grid'` no
+  cambió nada.
+- **El caso del punto 1 está cubierto renderizando el HOME COMPLETO**, no el carrusel aislado: el
+  defecto vive en la página. `getCatalog` se mockea por argumentos —`gradingHighlight:true` ⇒ `[]`
+  (vitrina VACÍA), la del carrusel ⇒ ocho piezas con **una** elegible— y se afirma que (a) «Joyas para
+  gradear» no existe, (b) la burbuja **sí se pinta** con su micro-aviso visible, (c) `#nota-estimado`
+  está en la página con el disclaimer completo y (d) el regreso apunta a `#piezas-destacadas`, que
+  existe y lleva su `scroll-mt`. Dos casos hermanos: con vitrina el regreso apunta a la vitrina y hay
+  **una sola** nota; sin cifras en ninguna de las dos, no hay nota ni aviso huérfano.
+- El micro-aviso se verifica **como lo verificó QA la primera vez**: con `sightedText()`, que retira del
+  árbol todo lo `sr-only` y comprueba que el aviso sigue ahí, en las dos anatomías y en ES y EN.
+- E2E: un bloque nuevo `@real` en `e2e/grading-estimate.spec.ts`. **No aserta «hay burbuja»** —cero
+  entre ocho es el estado normal, así que sería verde por casualidad o rojo por diseño—: aserta las
+  **invariantes** (la pista es anclable y lleva `scroll-mt`; cero `aria-label` en sus tejas; numeración
+  y cifra **no coexisten**, en los dos sentidos; el regreso de la nota nunca apunta a la nada).
+
+### Peticiones al arquitecto
+
+**Ninguna.** No se necesitó ningún endpoint ni campo que no exista, no hay mocks pendientes de contrato
+y no se tocó `docs/API_CONTRACT.md`.
+
+### Observación para ux-ui / PO (no bloquea, no la corregí porque no está en el alcance)
+
+`GradingFootnoteBoundary` renderiza la nota **después** de sus `children`, y en el home los `children`
+son el `<div>` que incluye la banda de tinta del buylist. Resultado: la nota queda **después** de esa
+banda, mientras §22.4b la sitúa *«después de la última vitrina, antes de la banda de tinta del
+buylist»*. Es **pre-existente** a esta entrega (no lo introduce §22.6b) y arreglarlo obliga a partir el
+árbol del home en dos, así que lo dejo anotado en vez de meterlo de contrabando en este pase. Si ux-ui
+lo confirma como defecto, es mío y lo tomo en la siguiente.
+
+### Verificación contra el stack REAL (no solo unitarios)
+
+Se levantó la plataforma con `./scripts/stack-native.sh up --seed --gate` (backend :3099 `db:up/redis:up`,
+frontend :3000 con `next build` + `next start`, `mocks=false`) y se ejercitaron **los dos estados** del
+carrusel, sembrando por la API del contrato (`PUT /admin/settings` + `POST /admin/pricing/override` con
+`intent:"graded_estimate"`), no tocando la BD a mano:
+
+| Estado | Qué se midió en la página servida |
+|---|---|
+| **Dial `off`, cero elegibles** (el estado por defecto) | 7 números en la pista (`01…07`), **cero** `≈`, **cero** nota al pie, la vitrina no existe. El carrusel es **exactamente §20.3 de hoy**. |
+| **Dial `on`, una elegible entre ocho** | la burbuja se pinta **solo** en esa teja, con su micro-aviso visible; la **numeración desaparece de las ocho**; `aria-label` en tejas = **0**; `#nota-estimado` presente; el regreso resuelve a un ancla que existe. |
+
+La elegible del entorno resultó ser la **tercera** pieza (`E2E Charizard`, MX$1,150) — una teja **chica**;
+las dos primeras del seed son `graded` y nunca califican. Es la ilustración perfecta del contexto de
+§22.6b: **la teja grande es la más cara y es a la que peor le va el gate**. A 160px la cifra
+(`figureShort`) entra en **un renglón** y el aviso ocupa **dos**, tal como predice la tabla de §22.6b-b.
+
+Después de las capturas **se restauró el entorno**: `DELETE /admin/pricing/graded-estimates/:cardId/:grade`
+para los dos grados sembrados y el dial de vuelta a `off` (su valor previo). `preview` confirma
+`psa10:null, psa9:null`.
+
+**Lo que NO se pudo demostrar en vivo, y por qué no es una laguna:** el estado «vitrina vacía + burbuja en
+el carrusel» **no es alcanzable con este seed**, porque la vitrina se alimenta del mismo
+`?gradingHighlight=true` y con una sola carta elegible en todo el sitio ésta aparece necesariamente en las
+dos. Es un límite del *dato*, no del código — por eso ese caso se cubre con el unitario que renderiza el
+home completo y mockea `getCatalog` por argumentos.
+
+### Observación pre-existente que la captura a 160px dejó a la vista (no la toqué)
+
+Con el micro-aviso a **dos renglones**, la llamada `*` de `GradingNoteCall variant="plain"`
+(`align-super` + `leading-[0]`, §22.4a) sube casi un renglón completo y queda **encima del primer
+renglón** del aviso en vez de junto al final del segundo. **No lo introduce §22.6b**: se reproduce
+idéntico en la teja de la **vitrina** (`CatalogTile`, código intacto) a 390px, así que ya vivía en Compra
+desde la entrega anterior — la captura del carrusel solo lo hizo evidente. No lo corrijo en este pase
+porque `GradingNoteCall` es compartido por las cuatro superficies y tocarlo cambiaría Compra y la vitrina,
+que este pase tiene mandato explícito de **no** cambiar. Si ux-ui lo confirma como defecto, es mío.

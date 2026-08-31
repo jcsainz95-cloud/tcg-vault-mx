@@ -193,8 +193,8 @@
       "hypotheticalGradeAria": "Grado hipotético: {company} {grade}. Esta carta no está gradeada."
     },
     "gradingBadge": {
-      "figure": "En {company} {grade} vale <approx>≈</approx> {amount}",
-      "figureShort": "{company} {grade} <approx>≈</approx> {amount}",
+      "figure": "En {company} {grade} vale <approx>≈</approx> <nb>{amount}</nb>",
+      "figureShort": "{company} {grade} <approx>≈</approx> <nb>{amount}</nb>",
       "microNotice": "<b>Ilustrativo</b>; <b>no evaluamos esta carta</b>.",
       "approx": "aproximadamente"
     },
