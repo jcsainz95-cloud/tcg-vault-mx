@@ -4,9 +4,23 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Save, ChevronLeft, ChevronRight } from 'lucide-react';
-import { getSettings, updateSettings, getAuditLog, type AuditLogFilters } from '@/lib/api';
+import {
+  getSettings,
+  updateSettings,
+  getAuditLog,
+  getGradedEstimateConfig,
+  type AuditLogFilters,
+} from '@/lib/api';
 import type { SettingsDTO, AuditLogDTO, PriceProvider } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
+import { Link } from '@/i18n/navigation';
+import {
+  GRADING_COST_MEASUREMENT,
+  GRADING_INGEST_CREDITS_PER_CARD,
+  GRADING_INGEST_RUNS_PER_DAY,
+  gradingCostBasis,
+  gradingIngestDailyCreditCeiling,
+} from '@/lib/grading-hook-cost';
 import { formatDate } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -73,16 +87,40 @@ const DIALS: DialSpec[] = [
   { key: 'pricingProviderGraded', kind: 'provider' },
   { key: 'pricingProviderSealed', kind: 'provider' },
   { key: 'catalogSyncFromDate', kind: 'text' },
-  // v1.44-graded-estimate (§M10): interruptor MAESTRO del «gancho de grading». Seed `off`
-  // fail-closed. Sin este dial en la UI, la única forma de encender la feature era `curl` — que es
-  // exactamente lo que el criterio 110(e) («desde el back-office, sin redeploy, auditado») no acepta.
-  { key: 'gradedEstimatesEnabled', kind: 'onOff' },
+  // v1.51-one-dial (§M10, M-46): el DIAL ÚNICO del «gancho de grading». Seed `off` fail-closed, y la
+  // clave es NUEVA ⇒ ningún entorno la trae encendida. Gobierna exhibición Y obtención: sin él en la
+  // UI, la única forma de tocarlo sería `curl` — exactamente lo que el criterio 110(e) («desde el
+  // back-office, sin redeploy, auditado») no acepta. Ese fue el defecto real del segundo dial
+  // retirado (`gradedEstimateIngestEnabled`), que se declaró gobernable y nunca se dibujó.
+  { key: 'gradingHookEnabled', kind: 'onOff' },
 ];
 
-/** El dial que NO es un número más: encenderlo publica una afirmación comercial (ver aviso). */
-const GRADED_ESTIMATES_KEY: keyof SettingsDTO = 'gradedEstimatesEnabled';
+/**
+ * El dial que NO es un número más. Encenderlo es un **acto de dinero** (ARCHITECTURE §4.38r.3):
+ * publica una afirmación comercial **y** autoriza al barrido a pedir datos a un proveedor de paga y
+ * a escribir precios. Por eso tiene dos avisos, uno por sentido (DESIGN_SYSTEM §22.13).
+ */
+const GRADING_HOOK_KEY: keyof SettingsDTO = 'gradingHookEnabled';
 
 const PAGE_SIZE = 20;
+
+/**
+ * Rich text de los avisos del gancho (§22.13b/d). Las entradillas —«Publica.» / «Y gasta.»— van en
+ * `<b>` **dentro de la misma clave**: partir la frase en dos claves o concatenarla está prohibido
+ * (§9.4), y son el mecanismo por el que la consecuencia nueva se lee aunque nadie lea el párrafo.
+ */
+const RICH_BOLD = {
+  b: (chunks: React.ReactNode) => <strong className="font-medium text-text">{chunks}</strong>,
+};
+
+/**
+ * `<n>` envuelve **cada cifra de créditos**: son una cuenta, no una frase, así que van en mono
+ * `tabular-nums` (§20.14, voz del dinero operativo). Va como chunk y no como clase del párrafo
+ * entero porque el resto del aviso es prosa.
+ */
+const RICH_FIGURE = {
+  n: (chunks: React.ReactNode) => <span className="font-mono tabular">{chunks}</span>,
+};
 
 /** Convierte el valor del dial a texto de input (cents → pesos). */
 function toInputValue(kind: DialKind, value: number | string | undefined): string {
@@ -143,12 +181,59 @@ export function M10View() {
 
   const dirtyKeys = Object.keys(draft);
 
-  // Valor EFECTIVO del interruptor del gancho (borrador si se tocó, si no el del servidor).
-  const gradedEstimatesOn =
-    currentText({ key: GRADED_ESTIMATES_KEY, kind: 'onOff' }) === 'on';
-  // Si el dueño acaba de TOCAR el interruptor y queda encendido, el aviso sube a `role="alert"`:
-  // ese es el momento de leerlo, no después de guardar.
-  const gradedEstimatesTurningOn = gradedEstimatesOn && GRADED_ESTIMATES_KEY in draft;
+  /*
+   * ── Los DOS avisos del dial único (DESIGN_SYSTEM §22.13c) ──────────────────────────────────
+   * El dial dejó de ser simétrico, así que **el aviso lo elige el SENTIDO del cambio**, no el
+   * estado. `guardado` = lo que hay en el servidor; `efectivo` = el borrador si se tocó el switch.
+   *
+   *   guardado off + efectivo off → solo la nota persistente
+   *   guardado off + efectivo on  → aviso de ENCENDIDO, `role="alert"` (el momento de leerlo)
+   *   guardado on  + efectivo on  → aviso de ENCENDIDO, `status` (recordatorio de estado)
+   *   guardado on  + efectivo off → aviso de APAGADO, `status` (nunca `alert`: es la vía segura)
+   *
+   * Los dos nunca coexisten: el estado efectivo es uno solo.
+   */
+  const hookSavedOn = toInputValue('onOff', settings.data?.[GRADING_HOOK_KEY] as string | undefined) === 'on';
+  const hookEffectiveOn = currentText({ key: GRADING_HOOK_KEY, kind: 'onOff' }) === 'on';
+  const hookBanner: 'on' | 'off' | null = hookEffectiveOn ? 'on' : hookSavedOn ? 'off' : null;
+  // `alert` SOLO en el flip a `on`: es lo que autoriza el gasto. Interrumpir en la dirección segura
+  // (apagar) sería ruido, así que el aviso de apagado se queda en `status`.
+  const hookTurningOn = hookEffectiveOn && !hookSavedOn;
+
+  /*
+   * El tope de cartas por corrida vive en M2 (`GET /admin/pricing/graded-estimates`) y aquí solo se
+   * LEE, reusando la misma query key que M2 ya usa — es una lectura más, no un cambio de contrato
+   * (DESIGN_SYSTEM §22.12 nº13.c). Sirve para cifrar el gasto máximo diario del aviso de encendido.
+   *
+   * **Cede la cifra, nunca el aviso** (§22.13d): si la config no está disponible —cargando, error,
+   * permiso— el banner se pinta igual en su variante `onNoFigures`. Por eso esta query NO envuelve
+   * al aviso en un `QueryState` ni bloquea nada: su fallo degrada el texto, no lo esconde.
+   */
+  const gradedCfg = useQuery({
+    queryKey: ['graded-estimates-config'],
+    queryFn: getGradedEstimateConfig,
+    // El aviso puede vivir sin este número; reintentar en bucle solo añadiría ruido de red a M10.
+    retry: false,
+  });
+  const hookMaxCards = gradedCfg.data?.ingestMaxCardsPerRun;
+  const hookCredits = gradingIngestDailyCreditCeiling(hookMaxCards);
+
+  /*
+   * ── Qué variante del aviso de encendido se pinta (§22.13d.1) ───────────────────────────────
+   *
+   *   sin tope de M2      → `onNoFigures`  (gana sobre las dos siguientes: cede la cifra, no el aviso)
+   *   costBasis 'measured'→ `onMeasured`   (hay medición del entorno: cifra Y fecha)
+   *   costBasis 'estimated'→ `on`          ← hoy, SIEMPRE
+   *
+   * `on` publica el techo **con su supuesto pegado**: vale solo si el proveedor cobra por petición,
+   * y la petición manda `fetchAllInSet=true`. `onMeasured` está traducido y montado pero **dormido**:
+   * no hay canal en el contrato para el coste medido, y rellenarlo a mano sería afirmar «medido»
+   * sobre algo que la pantalla no puede verificar (§22.13h). El día que exista, encenderlo es
+   * rellenar `GRADING_COST_MEASUREMENT` — ni una cadena que tocar.
+   */
+  const hookMeasurement = gradingCostBasis() === 'measured' ? GRADING_COST_MEASUREMENT : null;
+  const hookVariant: 'on' | 'onMeasured' | 'onNoFigures' =
+    hookCredits === null ? 'onNoFigures' : hookMeasurement ? 'onMeasured' : 'on';
 
   function buildPatch(): Partial<SettingsDTO> {
     const patch: Record<string, number | string> = {};
@@ -235,19 +320,69 @@ export function M10View() {
                 )}
               </div>
 
-              {/* El «gancho de grading» NO es un dial más: encenderlo PUBLICA una afirmación
-                  comercial (§O) cuyo texto legal —el disclaimer de §O.5— todavía espera el visto
-                  bueno del humano. La UI lo dice antes de guardar, no después. El resto de su
-                  config (escalones de costo, margen mínimo, frescura, grados) vive en M2. */}
+              {/* El «gancho de grading» NO es un dial más: con UN solo interruptor (v1.51, M-46)
+                  encenderlo publica una afirmación comercial **y** autoriza el gasto de créditos de
+                  un proveedor de paga. Por eso hay DOS avisos, uno por sentido (§22.13): el de
+                  encender advierte del dinero; el de apagar enseña la escalera de remedios, para que
+                  nadie use el interruptor general para cambiar un foco. El resto de la config
+                  (escalones de costo, margen mínimo, frescura, grados, tope por corrida) vive en M2. */}
               <div className="flex flex-col gap-2">
-                <p className="text-xs text-muted">{t('dials.gradedEstimates.note')}</p>
-                {gradedEstimatesOn && (
+                <p className="text-xs text-muted">{t.rich('dials.gradingHook.note', RICH_BOLD)}</p>
+                {hookBanner === 'on' && (
                   <Banner
                     variant="warning"
-                    role={gradedEstimatesTurningOn ? 'alert' : 'status'}
-                    title={t('dials.gradedEstimates.warningTitle')}
+                    role={hookTurningOn ? 'alert' : 'status'}
+                    title={t('dials.gradingHook.onTitle')}
                   >
-                    {t('dials.gradedEstimates.warning')}
+                    <div className="flex flex-col gap-1 text-text">
+                      <p>
+                        {hookVariant === 'onNoFigures' &&
+                          t.rich('dials.gradingHook.onNoFigures', RICH_BOLD)}
+                        {hookVariant === 'on' &&
+                          t.rich('dials.gradingHook.on', {
+                            ...RICH_BOLD,
+                            ...RICH_FIGURE,
+                            credits: hookCredits!,
+                            maxCards: hookMaxCards!,
+                            perCard: GRADING_INGEST_CREDITS_PER_CARD,
+                            runs: GRADING_INGEST_RUNS_PER_DAY,
+                          })}
+                        {hookVariant === 'onMeasured' &&
+                          t.rich('dials.gradingHook.onMeasured', {
+                            ...RICH_BOLD,
+                            ...RICH_FIGURE,
+                            // La cifra medida NO es el producto de las constantes: es lo que la
+                            // corrida gastó de verdad. Si viniera del cálculo, «medido» sería falso.
+                            credits: hookMeasurement!.creditsPerDay,
+                            maxCards: hookMaxCards!,
+                            runs: GRADING_INGEST_RUNS_PER_DAY,
+                            // §22.13j: la fecha la formatea el frontend (§9.3), no el ICU.
+                            measuredOn: formatDate(hookMeasurement!.measuredOn, locale),
+                          })}
+                      </p>
+                      {/* §7.6: toda acción de dinero saliente declara quién puede y dónde queda. */}
+                      <p className="font-mono text-[11px] text-muted">{t('dials.gradingHook.audit')}</p>
+                    </div>
+                  </Banner>
+                )}
+                {hookBanner === 'off' && (
+                  <Banner variant="info" role="status" title={t('dials.gradingHook.offTitle')}>
+                    <p className="text-text">
+                      {t.rich('dials.gradingHook.off', {
+                        ...RICH_BOLD,
+                        // Un solo enlace, y a un destino REAL: la sección de la lista de revisión de
+                        // M2 lleva `id="gancho-revision"` con su `scroll-mt`. Sin ese ancla la
+                        // escalera de remedios muere en silencio (§22.12 nº13.e).
+                        review: (chunks) => (
+                          <Link
+                            href="/admin/m2#gancho-revision"
+                            className="inline-block border-b border-accent py-2 hover:border-text hover:text-text"
+                          >
+                            {chunks}
+                          </Link>
+                        ),
+                      })}
+                    </p>
                   </Banner>
                 )}
               </div>

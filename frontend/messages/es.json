@@ -187,7 +187,6 @@
     "rarityAria": "Rareza: {rarity}",
     "gradingEstimate": {
       "eyebrow": "VALOR ESTIMADO SI SE GRADEA",
-      "updatedAt": "ESTIMADO · {date}",
       "ifGradesLabel": "SI SALE",
       "microNotice": "<b>Cifra ilustrativa</b> de mercado (lo que se ha pagado por esa carta ya gradeada por terceros). <b>No evaluamos el estado de esta carta</b> ni garantizamos ningún grado; el gradeo y su costo corren por tu cuenta.",
       "hypotheticalGradeAria": "Grado hipotético: {company} {grade}. Esta carta no está gradeada."
@@ -1538,6 +1537,14 @@
           "label": "Frescura del dato",
           "hint": "Días tras los cuales un estimado se considera rancio y deja de mostrarse. Entero entre 1 y 365."
         },
+        "ingestCap": {
+          "label": "Tope de cartas por corrida",
+          "hint": "Cuántas cartas tuyas mira el barrido en cada corrida (1–1 000). Acota <b>el alcance</b>, no lo que el proveedor te cobra.",
+          "warnTitleUp": "Estás subiendo el techo de gasto",
+          "warnTitleDown": "Estás bajando el techo de gasto",
+          "warn": "Con <b><n>{maxCards, number}</n> cartas</b> por corrida y <b><n>{runs}</n> corridas al día</b>, el techo son <b><n>{credits, number}</n> créditos al día</b> si el proveedor cobra por petición; si cobra por carta devuelta, cada petición pide el <b>set entero</b> y la factura puede ser <b>varias veces</b> esa cifra. Nadie lo ha medido todavía: la primera corrida lo mide. Guardar no cobra nada — se cobra en la siguiente corrida, y solo si el gancho está <b>encendido</b> en M10.",
+          "rangeError": "Un número entero entre 1 y 1 000."
+        },
         "grades": "Grados que muestra la ficha: {grades}. Grados que pinta el badge de las tejas: {highlight}. El gate siempre se evalúa con PSA 9, aunque el badge muestre PSA 10.",
         "globalErrors": {
           "minUpside": "El margen mínimo debe ser un número entre 0 y 1000.",
@@ -1940,7 +1947,7 @@
           "pricingProviderGraded": "Proveedor de referencia por-carta (graded)",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
           "catalogSyncFromDate": "Frontera de sync de catálogo",
-          "gradedEstimatesEnabled": "Valor estimado si se gradea (gancho)"
+          "gradingHookEnabled": "Gancho de grading — publica y trae datos"
         },
         "units": {
           "cents": "en pesos MXN",
@@ -1953,10 +1960,15 @@
           "on": "Encendido",
           "off": "Apagado"
         },
-        "gradedEstimates": {
-          "note": "El interruptor maestro del «valor estimado si se gradea» vive aquí; los escalones de costo de gradeo, el margen mínimo, la frescura y los grados se editan en M2 · Catálogo y precios. Apagado, la tienda no muestra ninguna cifra estimada.",
-          "warningTitle": "Enciende una afirmación comercial",
-          "warning": "Con este dial encendido, la tienda publica cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer. Ese texto legal todavía NO tiene el visto bueno del dueño (ni revisión legal). Enciéndelo solo si esa decisión ya se tomó: no cambia ningún precio de venta, valuación ni cotización, pero sí lo que la tienda afirma."
+        "gradingHook": {
+          "note": "Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas <b>y</b> el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna <b>y</b> tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota <b>cuántas cartas tuyas mira</b> el barrido, no cuántas te cobra el proveedor.",
+          "onTitle": "Encendido: publica cifras y consume créditos",
+          "on": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Lo que sí sabemos es el alcance: el barrido mira hasta <b><n>{maxCards, number}</n> cartas tuyas</b> por corrida, <b><n>{runs}</n> corridas al día</b> (ese tope se edita en M2 · Catálogo y precios). Lo que no sabemos es <b>cómo factura el proveedor</b>: si cobra por petición, el techo son <b><n>{credits, number}</n> créditos al día</b> (<n>{maxCards, number}</n> × <n>{perCard}</n> × <n>{runs}</n>); si cobra por carta devuelta, cada petición pide el <b>set entero</b>, el barrido paga <b>todas</b> las cartas de cada set que toque y la factura puede ser <b>varias veces</b> esa cifra. <b>La primera corrida lo mide</b>; hasta entonces, <n>{credits, number}</n> es un techo bajo un supuesto, no un presupuesto. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "onMeasured": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, ya está medido.</b> El barrido mira hasta <b><n>{maxCards, number}</n> cartas tuyas</b> por corrida, <b><n>{runs}</n> corridas al día</b>, y la corrida medida el {measuredOn} gastó a razón de <b><n>{credits, number}</n> créditos al día</b>. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, vuelve a medirse. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "onNoFigures": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Consume créditos en cada corrida. El tope que fijaste en M2 · Catálogo y precios acota <b>cuántas cartas tuyas mira</b> el barrido, <b>no cuántas te cobra el proveedor</b>: cada petición pide el set entero. Cuánto cuesta de verdad lo mide la primera corrida. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "audit": "Solo súper-admin · queda en bitácora.",
+          "offTitle": "Apagar también deja de actualizar",
+          "off": "<b>Para las dos cosas a la vez.</b> Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. <b>Para una cifra concreta, este no es el remedio.</b> Una cifra rara se borra en la <review>lista de revisión</review>; si lo que sobra es la promoción, sube el margen mínimo en M2 y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en M2."
         }
       },
       "ingest": {

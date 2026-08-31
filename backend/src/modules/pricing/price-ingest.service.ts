@@ -124,7 +124,7 @@ function resolveGradedCardId(
 }
 
 export interface GradedIngestResult {
-  /** ¿El dial `graded_estimate_ingest_enabled` estaba `on` **y** la config del ingest era válida? */
+  /** ¿El dial `grading_hook_enabled` estaba `on` **y** la config del ingest era válida? (v1.51, M-46) */
   enabled: boolean;
   sets: number;
   cardsInScope: number;
@@ -920,12 +920,24 @@ export class PriceIngestService {
    * pedir precio de gradeo **solo de lo que efectivamente estamos vendiendo** hace el coste
    * proporcional al inventario real, que es el único conjunto donde el estimado tiene superficie donde
    * mostrarse (una carta sin publicar no tiene teja ni ficha). Encima va el tope DURO
-   * `graded_estimate_ingest_max_cards_per_run` (seed 250): un error de alcance no puede quemar la
-   * cuota del día.
+   * `graded_estimate_ingest_max_cards_per_run` (seed 250, máximo **1 000** desde v1.51-a): acota las
+   * cartas **EN ALCANCE**, así que un error de alcance no puede autorizar de golpe la cuota del día.
+   *
+   * ⛔ **Lo que ese tope NO acota (§4.38r.3.1, ratificado en r.3.4):** las cartas que el proveedor
+   * DEVUELVE. La petición pide el **SET entero** (`fetchAllInSet=true`), así que si PPT cobra por carta
+   * devuelta el coste es `cartasEnAlcance × A`, con `A` = devueltas / en-alcance gobernada por **cuántos
+   * SETS** toca el alcance — y eso **no lo configura ninguna clave**. Bajar el máximo a 1 000 redujo el
+   * peor caso **nominal**; **no** cierra la amplificación ni convierte este dial en un presupuesto. El
+   * gasto real solo queda acotado cuando se MIDE (`[VEREDICTO-PSA] COSTE MEDIDO:`, más abajo), que es
+   * precondición del primer `off → on`.
    *
    * ### Fail-closed en tres puntos, todos deliberados
-   *  1. `graded_estimate_ingest_enabled` (seed `off`) — dial PROPIO, distinto del de exhibición: se
-   *     puede rodar el ingest **en observación con la vitrina apagada** (§4.38d).
+   *  1. **`grading_hook_enabled` (seed `off`) — EL dial, v1.51 (M-46, §4.38r).** Ya no hay dial propio
+   *     del ingest: el mismo interruptor gobierna exhibición y obtención, así que `off` significa
+   *     literalmente **ni una petición al proveedor y ni una fila escrita**. ~~Se puede rodar el ingest
+   *     en observación con la vitrina apagada~~ ⛔ eso dejó de ser expresable (§4.38r.6.4); quien
+   *     quiera observar sin escribir usa la **sonda** (`POKEMONPRICETRACKER_GRADED_PROBE`), que es
+   *     solo-lectura por construcción.
    *  2. `ingestConfigInvalid` — con `minSampleCount`/`sourceStat` corruptos NO sabemos *cuánta* muestra
    *     exigimos ni *qué número* es el precio. Adivinar eso es escribir dinero a ciegas.
    *  3. El parser solo escribe lo que identifica POSITIVAMENTE como monto (§4.38h.1).
@@ -970,12 +982,19 @@ export class PriceIngestService {
       creditsBefore: null as number | null,
       creditsAfter: null as number | null,
     };
-    // Config COMPLETA (no la del storefront): los DOS diales son independientes, así que el ingest
-    // tiene que poder correr con la EXHIBICIÓN apagada — que es la secuencia de encendido que pide
-    // §4.38h («rodar en observación antes de publicar»).
+    // Config COMPLETA (no la del storefront). v1.51 (M-46, §4.38r.7): el gate lee **`cfg.enabled` — el
+    // DIAL CRUDO—, NUNCA `estimatesEnabled`/`highlightEnabled`**. Esos dos doblan la validez de claves
+    // de CURADURÍA (`minUpsidePct`, `highlightGrades`, `maxRawMultiple`), y colgar de ellos la
+    // obtención significaría que **un dedazo en un umbral de vitrina congela la llegada de datos**
+    // (§4.38h.3). La variante `ForAdmin` es justo la que no apaga `enabled` por clave corrupta.
     const cfg = await this.pricing.loadGradedEstimateConfigForAdmin();
-    if (!cfg.ingestEnabled) {
-      this.logger.log('graded-estimate-ingest: dial `graded_estimate_ingest_enabled` = off → no se pide nada.');
+    if (!cfg.enabled) {
+      this.logger.log(
+        'graded-estimate-ingest: dial `grading_hook_enabled` = off → no se pide NADA al proveedor ' +
+          '(cero créditos) y no se escribe NINGUNA fila. Es el dial ÚNICO del gancho (v1.51, §4.38r): ' +
+          'se enciende con PUT /admin/settings { "gradingHookEnabled": "on" }, y encenderlo también ' +
+          'PUBLICA las cifras.',
+      );
       return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
     }
     if (cfg.ingestConfigInvalid) {

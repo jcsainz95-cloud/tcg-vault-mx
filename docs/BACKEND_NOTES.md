@@ -4,6 +4,180 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.15 — **I8 estrechado: `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`** (2026-08-31, v1.51-a)
+
+> Decisión del **arquitecto** (ARCHITECTURE §4.38r.3.4, contrato **v1.51-a**, adenda (r.8) nº 3).
+> **Cero rutas, cero shapes de DTO, cero códigos de error nuevos, cero montos, cero DDL.** El seed
+> **250 NO cambia**.
+
+### Qué cambió, en una línea
+`GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX`: **`5000` → `1000`**. El mensaje del validador interpola la
+constante, así que el `422` pasa solo a decir `must be an integer in [1, 1000] (cards per run)`.
+
+### ⛔ Lo que este cambio NO hace (léase antes que nada)
+**No cierra el problema del gasto.** `ingestMaxCardsPerRun` acota las cartas **EN ALCANCE** (las que el
+job mira), **no** las que el proveedor DEVUELVE: la petición pide el **SET entero**
+(`fetchAllInSet=true`), así que si PPT cobra por carta devuelta el coste es `enAlcance × A`, con `A` =
+devueltas/en-alcance gobernada por **cuántos sets** toca el alcance — y eso **no lo configura ninguna
+clave**. Con `A = 16`, 1 000 siguen siendo **16 000 créditos**. Lo que baja es el **peor caso NOMINAL**
+que un solo `PUT` autoriza: de `5 000 × 2 × 2 = 20 000` (la **cuota diaria completa** del dueño) a
+**4 000**. Quien lea esto como «ya está acotado el gasto» habrá comprado **falsa cobertura**; el gasto
+lo acota la **medición** que §4.38(r.3.1) hace precondición del primer `off → on`, que **sigue abierta**
+(dueño: devops + QA).
+
+### Por qué es seguro hacerlo ahora: falla en la dirección correcta, y está probado
+Un valor **ya almacenado** en `(1 000, 5 000]` —legal ayer, inválido hoy— **no se queda gastando**:
+
+1. el lector lo marca *presente-e-INVÁLIDA* (`pricing.service.ts`, regla `AUSENTE ≠ INVÁLIDA`) ⇒
+2. `ingestConfigInvalid = true` (se compone con `ingestMaxRes.invalid`) ⇒
+3. `ingestGradedEstimates` **sale antes de pedir nada** (`price-ingest.service.ts:1000`).
+
+O sea: el estrechamiento **apaga el ingest**, no lo deja gastando con un tope que el validador acaba de
+rechazar. Por eso **no hace falta migración de datos** — y por eso hay una prueba dedicada que fija ese
+camino (abajo).
+
+### Qué toqué
+| Artefacto | Cambio |
+|---|---|
+| `src/common/graded-estimate.ts` | `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 1000` + docstring con el «qué NO acota» (la advertencia va **junto a la constante**, que es donde se lee) |
+| `src/modules/pricing/price-ingest.service.ts` | Solo **comentario**: el docstring decía «un error de alcance no puede quemar la cuota del día» sin el calificador de `A`. Ahora dice qué acota y qué no. **Cero cambio de comportamiento.** |
+| `test/graded-estimate.admin.spec.ts` | **+5** tests: la PUERTA (`PUT`) — `1000` ⇒ `200`; `1001`/`2000`/`5000` ⇒ `422` con mensaje y `details.field`; `1`/`250`/`999` siguen válidos; el rechazo no arrastra al resto del body |
+| `test/graded-estimate.one-dial.spec.ts` | **+4** tests: el FAIL-CLOSED (valor almacenado fuera de rango ⇒ **cero `fetch`**, `written=0`), con la razón nombrada y **contraste** con `1000` y con el seed `250` |
+| `test/graded-estimate.composition.spec.ts` | **D-3 del techlead**: dos comentarios decían «las 12 claves» tras el pase que las bajó a **11**. Corregidos (ver `pricing.service.ts:99`) |
+
+**Rangos escritos a mano en los tests, no importados de la constante**: importarla haría que el test se
+moviera con ella y dejara de ser un candado. Los números que se afirman son los del **contrato**.
+
+### La prueba que importa, y la evidencia de que DETECTA
+`test/graded-estimate.one-dial.spec.ts` › «un `ingestMaxCardsPerRun` almacenado FUERA de rango APAGA el
+ingest». Corre el **job completo** con provider **REAL**, `fetch` sustituido por un **delator** y la
+**API key presente** (el harness de §0.14), con `grading_hook_enabled = 'on'` y un `2000` almacenado.
+
+Rompí la guarda a propósito (los tres mutantes revertidos; suite completa en cada caso):
+
+| Mutante | Resultado |
+|---|---|
+| `ingestConfigInvalid` recompuesto **sin** `ingestMaxRes.invalid` | **2 en rojo, y son las 2 nuevas**: `fetch` «expected 0, received 1» + `ingestConfigInvalid` `false`. **El resto de la suite (2 580) sigue verde**, o sea que antes de este pase esa recomposición **no la detectaba nadie** |
+| `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX` de vuelta a `5000` | **4 en rojo**: 2 de la puerta (`5000` «resolved instead of rejected») + las 2 del fail-closed |
+| Gate del ingest neutralizado (`if (false)`) | **2 en rojo**: la nueva + una preexistente de `graded-estimate.inv-fx.spec.ts` |
+
+La primera fila es el motivo de existir del test: si mañana alguien recompone `ingestConfigInvalid` y
+deja fuera esa clave, se pone rojo **ahí**, no en la factura.
+
+### Verificación
+- `npm test` — **2 582 en 205 suites, verde** (base 2 573 ⇒ **+9**; cero suites nuevas).
+- `npm run test:integration` — **183 en 15, verde**, sin cambio (`DATABASE_URL` local; `migrate deploy`
+  sin migraciones pendientes: este pase no toca el schema).
+- `npm run typecheck` y `npm run lint` — limpios (2 *warnings* preexistentes, ajenos a este pase).
+- **Estado almacenado en la BD local, leído (no supuesto):** `graded_estimate_ingest_max_cards_per_run
+  = 250` ⇒ **sigue válido**, ningún cambio de conducta en este entorno.
+
+### Para otros roles
+- **devops:** el paso 0 del pase (§4.38r.4, (r.8) nº 5) **sigue siendo tuyo y no lo cubre esto**: hay que
+  leer `ingestMaxCardsPerRun` **por entorno** con `GET /admin/pricing/graded-estimates` **antes** del
+  deploy; cualquier entorno con `> 1000` queda **fail-closed** (no ingesta) hasta un `PUT` válido — no
+  se rompe, pero **deja de traer datos en silencio para quien no lea el `warn`**. Local verificado en
+  250. Y el caso «`5000` → 20 000 créditos/día» de `scripts/check-graded-estimate-dials.sh` ahora es un
+  **`422`**: hay que reescribirlo contra el máximo nuevo ((r.8) nº 6).
+- **QA:** los tres casos del dictamen están cubiertos y son ejecutables: `1000` ⇒ `200`; `1001`/`5000` ⇒
+  `422 VALIDATION_ERROR`; valor almacenado fuera de rango ⇒ **ni una petición al proveedor**.
+- **frontend:** si la UI de M2 pinta o valida el rango, pasa a `[1, 1000]` ((r.8) nº 4). El aviso de
+  coste **no** debe presentar la traducción a créditos como cifra firme (v1.51-a, nota normativa del
+  contrato).
+- **techlead:** B-1 y B-2 quedaron anotadas en `docs/TECH_DEBT.md` (`I8-B1`, `I8-B2`); **D-3 se corrigió
+  en este pase** y no deja residual. `I8-B1` es la que conviene mirar antes del encendido: el gate del
+  ingest **no** cubre `grades` ni `freshnessDays`, y las dos viajan al proveedor.
+
+---
+
+## 0.14 — **M-46: el gancho de grading pasa de DOS interruptores a UNO** (2026-08-31, v1.51-one-dial)
+
+> Decisión del **dueño**, tomada y reafirmada. ARCHITECTURE §4.38(r), API_CONTRACT rev **v1.51-one-dial**,
+> §11 **M-46**. **Sin DDL, sin migración, sin backfill, sin superficie pública tocada, sin montos.**
+
+### Qué cambió, en una línea
+`graded_estimates_enabled` y `graded_estimate_ingest_enabled` quedan **RETIRADAS**; nace
+**`grading_hook_enabled`** (DTO `gradingHookEnabled`, enum `on|off`, **seed `off` fail-closed**), que
+gobierna **exhibición Y obtención**.
+
+### La parte que no es cosmética: por qué la clave es NUEVA
+Reusar `graded_estimates_enabled` era lo barato en código y **lo único inaceptable en dinero**: en
+producción vale `"on"`, así que el colapso habría **ensanchado el significado de un valor ya almacenado**
+(«publica» → «publica **y gasta créditos y escribe precios**») y el **siguiente tick del cron** —2×/día,
+≤12 h, **sin humano**— habría sido la primera factura del dueño. Con clave nueva, **ningún valor guardado
+en ningún entorno puede armar el dial**: todos aterrizan en `off` y existe **exactamente una** forma de
+encenderlo, un `PUT` humano y auditado desde M10. **No se introdujo ninguna migración, backfill ni default
+que resucite el valor viejo** — y hay test que lo fija (ver abajo).
+
+### Qué toqué
+| Sitio | Cambio |
+|---|---|
+| `settings.constants.ts` | Las dos claves fuera de `SettingKey`, `SETTING_DEFAULTS`, `SETTING_VALIDATORS` y `SETTING_DTO_MAP`; entra `GRADING_HOOK_ENABLED` (seed `off`, validador `on\|off`, DTO `gradingHookEnabled`). Nuevo export **`RETIRED_SETTING_KEYS`**. |
+| `settings.service.ts` | El inventario de arranque emite la línea **«claves RETIRADAS presentes (INERTES, NO SE LEEN)»**, *antes* del `return` de «sin divergencias». |
+| `common/graded-estimate.ts` | `GradedEstimateConfig` y el DTO pierden `ingestEnabled`; `DISABLED_GRADED_ESTIMATE_CONFIG` pierde su caso especial. |
+| `pricing.service.ts` | **Un solo resolver** (`gradingHookEnabledFrom`). `GRADED_ESTIMATE_SETTING_KEYS` **12 → 11**, con su comentario actualizado. |
+| `price-ingest.service.ts` | El gate pasa a `if (!cfg.enabled)` — **el dial crudo**. |
+| `graded-phase2-verdict.ts` | Textos: nombra `grading_hook_enabled` y manda al endpoint **correcto**. |
+
+### Dos decisiones de implementación que conviene que otros roles conozcan
+1. **El gate del ingest lee `cfg.enabled` (el dial), NUNCA `estimatesEnabled`/`highlightEnabled`**
+   (§4.38h.3). Esas dos derivadas doblan la validez de claves de **curaduría** (`minUpsidePct`,
+   `highlightGrades`, `maxRawMultiple`): si el ingest colgara de ellas, **un dedazo en un umbral de
+   escaparate congelaría la llegada de datos**. Hay test dedicado, y es el único que lo cubre.
+2. **El `422` no lo escribí yo: sale de la AUSENCIA.** `SettingsService.update()` valida contra la lista
+   blanca `SETTING_DTO_MAP` con `hasOwnProperty`, así que retirar las dos entradas basta para que
+   enviarlas dé `422 VALIDATION_ERROR` («unknown setting key») — mismo precedente que `stripeFeeIvaPct`
+   (v1.40). Se prueba explícitamente **porque no hay código que lo haga**, que es justo cuando una
+   garantía se pierde sin que nadie lo note.
+
+### Las filas viejas sobreviven — y por eso el arranque las ROTULA
+No se borran (ni `DELETE`, ni `UPDATE`, ni script): borrar config en producción para lograr **cero**
+efecto es escribir sin motivo (§11.0 punto 4), y si el deploy se revierte **la fila es lo que mantiene
+fail-closed al código viejo**. El precio es que **mienten a quien lea la tabla a pelo**, y se paga con la
+línea de inventario. Verificado contra la base real:
+
+```
+config inventory: 2 clave(s) RETIRADAS presentes en la base (INERTES, NO SE LEEN) →
+graded_estimate_ingest_enabled="off"; graded_estimates_enabled="off". (§4.38r.1 … NO concluyas de estas
+filas que el ingest está apagado.)
+```
+
+Sin ese rótulo, el día del incidente alguien lee `graded_estimate_ingest_enabled = off` y concluye que el
+ingest está apagado **mientras gasta**.
+
+### Cómo probé el «cero peticiones con el dial apagado» (§4.38r.4 paso 3)
+`test/graded-estimate.one-dial.spec.ts`, **25 tests** *(**29** desde v1.51-a: §0.15 añadió 4 al mismo
+archivo, reusando este mismo delator)*. La prueba que justifica el pase corre el **job
+completo** con el **provider REAL**, `global.fetch` sustituido por un **delator** y un `prisma` que delata
+`create`/`update`, con la **API key PRESENTE** y el formato de moneda fijado — o sea, con todo montado
+para que **sí** se pidiera; lo único que lo impide es el dial. Con `off`: **cero llamadas a `fetch`**,
+`written=0`, cero escrituras. **Con contraste en el mismo archivo**: el mismo fixture con `on` sí pide y
+sí escribe (`written=1`), porque «0 peticiones» sin contraste puede ser un fixture flojo. Y el escenario
+que sostiene la decisión de la clave nueva **no es sintético**: es el **estado real de producción**
+(`graded_estimates_enabled="on"` y `graded_estimate_ingest_enabled="on"` en la tabla, sin
+`grading_hook_enabled`) ⇒ cero peticiones.
+
+**Y verifiqué que la prueba DETECTA**, rompiendo la guarda a propósito (los tres mutantes revertidos):
+
+| Mutante | Resultado |
+|---|---|
+| Gate del ingest neutralizado (`if (false)`) | **4 en rojo**; el principal por `fetch` recibido 1 vez |
+| Gate colgado de la derivada (`!cfg.highlightEnabled`) | **1 en rojo** — solo el test de §4.38h.3, que es exactamente su trabajo |
+| `GRADING_HOOK_ENABLED` reusando `graded_estimates_enabled` | **6 en rojo**; el del estado real de producción empieza a pedir (la factura que M-46 evita) |
+
+### Para otros roles
+- **devops:** no hay nada que migrar (`migrate deploy` sin cambios, verificado). El gancho queda **oscuro
+  por construcción** tras el deploy; el paso 5 del pase (§4.38r.4) —encender— **es del dueño, no de
+  devops**. El rótulo de retiradas debe aparecer también en tu comparador solo-lectura.
+- **QA:** el criterio 108 se verifica **sin credencial del proveedor o con la sonda encendida** (§4.38r.6.3):
+  encender y apagar ya **no es idempotente**, porque gasta.
+- **frontend:** `SettingsDTO.gradedEstimatesEnabled` → **`gradingHookEnabled`**; `GradedEstimateConfigDTO`
+  sin `ingestEnabled`. ⚠️ El arnés E2E hace hoy `PUT /admin/settings { gradedEstimatesEnabled: 'on' }`:
+  tras este pase eso responde **422** y, si se renombra sin más, **enciende el gasto en cada corrida de CI**
+  (§4.38r.6.1).
+
+---
+
 ## 0.13 — **Marca del autor en el `.xlsx` de inventario: `TCG HUNT` (revierte H8)** (2026-08-31)
 
 ### El defecto
@@ -445,13 +619,17 @@ del rollback ya existen filas `refKind='graded_estimate'` escritas por la vía m
 ya cargada y sin caducidad.**
 
 - **(A) URGENCIA (algo va mal y hay que apagarlo YA): la palanca es el DIAL, no el `git revert`.**
+  ⚠️ **RENOMBRADO en v1.51 (M-46, 2026-08-31): el dial de este runbook es hoy `grading_hook_enabled`
+  (DTO `gradingHookEnabled`); `gradedEstimatesEnabled` está RETIRADA y enviarla da `422` (§0.14). El
+  procedimiento no cambia; el nombre de la clave sí.**
   `gradedEstimatesEnabled = off` detiene la exhibición —y, bajo (l.5), la **creación** de estimados—, es
   instantáneo, reversible y **deja M-43/M-44 en pie**, o sea que el predicado de exclusión sigue
   protegiendo el dinero. **Revertir el código en caliente es la peor opción en casi cualquier incidente
   imaginable**, porque quita la protección justo cuando el sistema **ya tiene filas de estimado
   escritas**. Se declara aquí para que en el incidente no haya que decidirlo.
 - **(B) RETIRADA ORDENADA (decisión de producto, con tiempo): precondición de CERO.**
-  1. `gradedEstimatesEnabled = off` (que no entren más mientras se limpia).
+  1. `gradedEstimatesEnabled = off` **(hoy: `grading_hook_enabled = off`, ver el aviso de (A))** — que no
+     entren más mientras se limpia.
   2. Por cada fila `refKind='graded_estimate'`: **sin pieza física** de esa compañía+grado (cualquier
      `status`, cualquier `ownerType`) ⇒ `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`
      (borra **exactamente** esa naturaleza, §4.38l.4.5). **Con pieza física** ⇒
@@ -1038,7 +1216,7 @@ es deliberadamente bajo: no busca significancia estadística, solo evitar que un
 presenten como el shape dominante del proveedor. La escalada lleva ahora su propia procedencia en el
 `detail` y en la bitácora (`forcedFormat`, `shapeObservations`, el suelo efectivo y la vía que disparó).
 
-**No muerde hoy** (el dial `graded_estimate_ingest_enabled` está `off`), pero queda cerrado **antes** de
+**No muerde hoy** (el dial —desde v1.51 `grading_hook_enabled`— está `off`), pero queda cerrado **antes** de
 encenderlo, que era la condición.
 
 ### 0.6.4 Menores del techlead y de QA
@@ -1650,8 +1828,10 @@ confirma el formato **con cero datos malos en la BD**.
 - overrides del operador `POKEMONPRICETRACKER_GRADED_FORMAT` / `_GRADED_FIELD` **mandan sobre la autodetección**: si
   se fijan y la respuesta no casa, **no se escribe nada** (caer al otro shape derrotaría su intención). Escotilla
   `POKEMONPRICETRACKER_GRADED_MIN_COUNT=0` para aceptar `count` desconocido a sabiendas;
-- **dial propio** `graded_estimate_ingest_enabled` (seed `off`), independiente del de exhibición: se puede rodar el
-  ingest **en observación con la vitrina apagada**;
+- ~~**dial propio** `graded_estimate_ingest_enabled` (seed `off`), independiente del de exhibición: se puede rodar el
+  ingest **en observación con la vitrina apagada**~~ ⛔ **DEROGADO en v1.51 (M-46, §4.38r):** el ingest se gatea con el
+  **dial único** `grading_hook_enabled`, y «rodar en observación con la vitrina apagada» **ya no es expresable**; su
+  sustituto es la **sonda** (`POKEMONPRICETRACKER_GRADED_PROBE`, solo-lectura por construcción);
 - **traza obligatoria** (log + `AuditLog`) por carta saltada — sin ella el descarte por muestra baja sería invisible
   (el `preview` lo vería como `NO_PSA10`, porque la fila no existe).
 
@@ -1668,7 +1848,7 @@ confirma el formato **con cero datos malos en la BD**.
 | `GET /catalog/cards/:cardId` (ficha) | **+1** | **+3** |
 | Resto del sistema | 0 | 0 |
 
-`+1` = la config (las **12** claves en UN `findMany`); `+3` = esa + `getGradedEstimatesBatch` +
+`+1` = la config (las **11** claves en UN `findMany`; eran 12 hasta v1.51, §4.38r); `+3` = esa + `getGradedEstimatesBatch` +
 `getPublishedSlabGradesBatch`. **Constante**: no depende del nº de grupos, de cartas ni de acabados. El test cuenta
 **TODAS** las queries del request, no solo las de graded — contar un subconjunto fue exactamente lo que dejó pasar
 el `+7` histórico.
@@ -1693,7 +1873,8 @@ el `+7` histórico.
 | `graded_estimate_min_sample_count` | `3` | M2 (mismo `PUT`) |
 | `graded_estimate_source_stat` | `median` | M2 (mismo `PUT`) |
 | `graded_estimate_ingest_max_cards_per_run` | `250` | M2 (mismo `PUT`) |
-| `graded_estimate_ingest_enabled` | **`off`** (fail-closed) | **M10** `PUT /admin/settings` |
+| ~~`graded_estimate_ingest_enabled`~~ | ⛔ **RETIRADA en v1.51** (M-46) — la absorbió el dial único | — |
+| **`grading_hook_enabled`** *(v1.51, M-46)* | **`off`** (fail-closed) | **M10** `PUT /admin/settings` |
 
 **Para devops:** ninguna env nueva es obligatoria. Las de fase 2 son **opcionales y con default seguro**:
 `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto`), `POKEMONPRICETRACKER_GRADED_FIELD`,
@@ -1765,9 +1946,27 @@ la MISMA fila que alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` de 
 - **Doctrina (b) intacta:** las filas PSA no fijan `listPriceCents`, no publican inventario, no entran en
   `getPricedRawFinishesBatch`/`pricedFinishesSnapshot`/`availableFinishes`, no encolan `PendingPriceEntry`, no valúan
   portafolio/P&L y no tocan el buylist. **No se escribió NINGÚN write nuevo**: la feature es lectura + config.
-- **Dial M10 `gradedEstimatesEnabled` (seed `off`)**: con `off` no se lee ni la config restante ni la tabla de
-  precios (**0 queries extra**), no se emite ninguno de los dos campos y `?gradingHighlight=true` ⇒ `{data:[],total:0}`.
-  **Encenderlo publica una afirmación comercial**: requiere el visto bueno del humano sobre el disclaimer (§O.5).
+- **Dial M10 `gradedEstimatesEnabled` (seed `off`)** ⛔ **CLAVE RETIRADA en v1.51 (M-46, 2026-08-31): hoy el
+  interruptor único es `grading_hook_enabled` (DTO `gradingHookEnabled`), seed `off` — ver §0.14.** El
+  comportamiento de EXHIBICIÓN descrito abajo sigue vigente bajo el dial nuevo; lo que **además** cambió es el
+  alcance: `grading_hook_enabled` gobierna **exhibición Y obtención** (con `off` el ingest de fase 2 no emite ni
+  una petición al proveedor ni escribe una fila). Con `off` no se lee ni la config restante ni la tabla de precios
+  (**0 queries extra**), no se emite ninguno de los dos campos y `?gradingHighlight=true` ⇒ `{data:[],total:0}`.
+  - ~~**Encenderlo publica una afirmación comercial**: requiere el visto bueno del humano sobre el disclaimer
+    (§O.5).~~ ⚠️ **CORREGIDO el 2026-08-31 — texto tachado conservado literal para que el cambio sea legible;
+    NO describe el estado de hoy.** Arrastraba dos cosas falsas: el visto bueno **ya existe** y el dial **ya no es
+    ese**.
+  - **Estado real del disclaimer §O.5 — las dos mitades, siempre juntas y sin suavizar en ninguna dirección:**
+    **aprobado por el dueño** (visto bueno dado en sesión el **2026-08-31**, condicionado a la corrección de marca
+    a **TCG HUNT** que **ya se aplicó**; `PROJECT.md` decisión **59** y criterio **117**) y **sin revisión legal
+    profesional** (ningún abogado ha revisado el texto; es encargo del dueño). Esa mitad pendiente **NO bloquea
+    encender**: ARCHITECTURE **GU-1** quedó **recalificada** el 2026-08-31. `DESIGN_SYSTEM.md` §22.13(h)
+    **prohíbe** afirmar que el disclaimer no está aprobado — esta bitácora incluida.
+  - **Encenderlo sigue SIN ser decisión de devops — pero por GASTO, no por pendiente legal.**
+    `grading_hook_enabled = on` es un **acto de dinero** (`API_CONTRACT` §M10, `PROJECT.md` criterio **116**):
+    publica la afirmación comercial **y** arranca el consumo de créditos de un proveedor de paga **y** empieza a
+    escribir precios. Es del **dueño**, desde M10 y auditado; las precondiciones son las **verificables** de
+    ARCHITECTURE §4.38(r.3.1) (presupuesto de créditos declarado, veredicto de la sonda) más el pase de (r.4).
 
 ### Coste por request (invariante de diseño) — **CIFRA CORREGIDA (IMPORTANTE-2)**
 
@@ -1883,7 +2082,8 @@ over-fetch combinatorio sobre la tabla más caliente. Filtra por `cardProductId:
 | `graded_estimate_freshness_days` | `30` | M2 (mismo `PUT`) |
 | `grading_cost_tiers` | tabla §O.2.1 (6 escalones `[min,max)`) | M2 (mismo `PUT`) |
 | `grading_min_upside_pct` | `30` | M2 (mismo `PUT`) |
-| `graded_estimates_enabled` | **`off`** (fail-closed) | **M10** `PUT /admin/settings` |
+| ~~`graded_estimates_enabled`~~ | ⛔ **RETIRADA en v1.51** (M-46) — la sustituye `grading_hook_enabled` | — |
+| **`grading_hook_enabled`** *(v1.51, M-46)* | **`off`** (fail-closed) | **M10** `PUT /admin/settings` |
 
 Los seis se siembran solos por `SETTING_DEFAULTS` (`npm run seed` los hace `upsert` sin pisar cambios del admin).
 **Para devops: ninguna env nueva en fase 1.** Las tres de fase 2 siguen sin cablear (§4.38h).
@@ -10837,7 +11037,7 @@ Doctrina: P-6 prohíbe **asumir** un esquema, no **observarlo**. Observarlo es e
   retorno **no contiene filas**. Para que la sonda escribiera habría que cambiar el tipo.
 - **S2 sigue NO PERSISTIBLE** (§4.38h.1-bis): la sonda lo **detecta y reporta**. No se añadió ninguna
   escotilla, ni se relajó ningún candado (`GRADED_FORMAT` / `GRADED_FIELD` siguen mandando en el camino
-  que escribe). El dial `graded_estimate_ingest_enabled` sigue en `off` por defecto.
+  que escribe). El dial —desde v1.51 el ÚNICO, `grading_hook_enabled`— sigue en `off` por defecto.
 - **Gasto acotado:** la sonda se queda con la **primera página** de cada set (paginar solo compraría la
   misma respuesta otra vez) y para **en cuanto un set trae bloque PSA**; si ninguno lo trae, insiste
   hasta `GRADED_PROBE_MAX_SETS = 3` y lo dice en el log.
@@ -10861,9 +11061,22 @@ POKEMONPRICETRACKER_GRADED_PROBE=on      # ← SONDA: consulta y loguea, NO escr
 # NO fijes POKEMONPRICETRACKER_GRADED_FORMAT (déjalo sin poner = autodetección).
 # POKEMONPRICETRACKER_MARKET_FORMAT puede quedarse como está (usd_dollars): la sonda manda igual.
 ```
-Y en el admin, enciende **solo** el dial del ingest (la exhibición sigue apagada):
-`PUT /admin/pricing/graded-estimates` con `graded_estimate_ingest_enabled = on`.
-> Con `GRADED_PROBE=on` el ingest **no puede escribir**, así que encender el dial es seguro.
+Y en el admin, enciende el dial del gancho:
+`PUT /admin/settings` con body `{"gradingHookEnabled":"on"}` (**M10**, `super_admin`, auditado).
+
+> ⚠️ **CORRECCIÓN (v1.51).** Esta guía decía «enciende **solo** el dial del ingest (la exhibición sigue
+> apagada): `PUT /admin/pricing/graded-estimates` con `graded_estimate_ingest_enabled = on`». Era **falsa
+> ya antes de este pase por dos motivos**: ese dial **nunca** se editó por el recurso de M2 —siempre fue
+> `PUT /admin/settings`— y hoy, además, **la clave ya no existe** (M-46 la retiró). Quien siguiera la
+> instrucción recibía un `PUT` que **ignoraba el campo en silencio** y concluía que el ingest estaba
+> encendido cuando no lo estaba. Queda escrito para que no se repita: *al documentar un dial se dice
+> **dónde** se edita, y se comprueba contra el código, no contra otro documento.*
+
+> ⚠️ **Y desde v1.51 encender el dial YA NO es neutro:** es el **único** interruptor del gancho, así que
+> `on` **publica las cifras** además de habilitar la obtención (§4.38r). Lo que hace segura la sonda **no
+> es el dial**, es `GRADED_PROBE=on`: en ese modo el ingest **no puede escribir** (solo-lectura por
+> construcción — el bucle ni siquiera llama al código que fabrica filas). Si lo que quieres es sondear
+> **sin publicar nada**, el orden correcto es: sonda encendida primero, dial después.
 
 ### 2. Antes de disparar: anota el crédito
 Abre el panel de PokemonPriceTracker y **apunta el crédito diario disponible**. (Si su API manda el

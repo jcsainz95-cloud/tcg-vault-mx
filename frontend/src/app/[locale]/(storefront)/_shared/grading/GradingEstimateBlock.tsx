@@ -4,10 +4,10 @@ import { useId } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { GroupedListingDetailResponse } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatDate, formatMoneyCents } from '@/lib/format';
+import { formatMoneyCents } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { Fact } from '../Fact';
-import { blockEstimatesOf, oldestCapturedDate } from './estimates';
+import { blockEstimatesOf } from './estimates';
 import { useGradingFootnote } from './GradingFootnote';
 import { GradingMicroNotice } from './GradingMicroNotice';
 import { HypotheticalGradeChip } from './HypotheticalGradeChip';
@@ -48,18 +48,25 @@ export function GradingEstimateBlock({
   // R3.(3) + R4: sin nota que hospede la cifra, o sin cifra, no se renderiza NADA.
   if (!anchors || !items) return null;
 
-  const captured = oldestCapturedDate(items);
-  const capturedLabel = captured ? formatDate(captured, locale) : undefined;
-
   return (
     <section aria-labelledby={eyebrowId} className={cn('border-t border-text', className)}>
-      {/* Eyebrows enfrentados (§20.2.1). La LLAMADA ya NO vive aquí: cierra el micro-aviso de
-          abajo (§22.4a, corrección de QA) — es lo que convierte el aviso en «hay más abajo». */}
+      {/* Eyebrow único. La LLAMADA ya NO vive aquí: cierra el micro-aviso de abajo (§22.4a,
+          corrección de QA) — es lo que convierte el aviso en «hay más abajo».
+
+          NINGUNA FECHA (PROJECT.md decisión 62, criterio 119). Aquí se pintaba «ESTIMADO · {date}»
+          con la captura MÁS ANTIGUA de las cifras del bloque. Se retira, y no se suaviza a
+          «actualizado» ni a un tooltip: esa fecha es **cuándo bajamos el dato**, no cuándo ocurrió
+          la venta que lo respalda, y el rótulo no lo decía — un comprador podía leerla como fecha de
+          venta. La fecha honesta (`evidenceDate`) **no se persiste**, así que no existe al leer y la
+          de captura puede ir hasta 30 días adelantada. Se le ofreció al dueño rotularla con
+          honestidad y eligió quitarla. Esto **no toca la frescura interna**: los dos relojes del
+          criterio 118 se siguen evaluando server-side con la fecha de captura — se retira lo que se
+          MUESTRA, no lo que se MIDE. Tampoco toca la fecha del valor de mercado (`marketValue.note`),
+          que es otro dato y otra fila (criterio 119e). */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pt-4">
         <h2 id={eyebrowId} className="eyebrow">
           {t('eyebrow')}
         </h2>
-        {capturedLabel && <span className="eyebrow">{t('updatedAt', { date: capturedLabel })}</span>}
       </div>
 
       {/* Misma CELDA de la ficha (`Fact`), retícula PROPIA: §22.3 prohíbe reutilizar `FactGrid`

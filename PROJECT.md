@@ -172,10 +172,12 @@
 > (Fuera de alcance) se refiere a **gradear cartas / verificar slabs nosotros**, **NO** a **mostrar estimados
 > de valor por grado**, que **sí** entran al MVP. **PriceCharting sigue fuera.** **Disclaimer:** el humano
 > pidió que sea **súper enfático en que es información ilustrativa y que NO refleja el estado de nuestras
-> cartas** (no inspeccionamos ni pre-evaluamos la pieza que vendemos); texto ES/EN reescrito en **§O.5**,
-> pendiente de su visto bueno final — y **la feature se entrega detrás de feature-flag APAGADO hasta que ese
-> texto quede aprobado**. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–114**, decisiones
-> **40–57** y las **preguntas abiertas v2.0** al final.
+> cartas** (no inspeccionamos ni pre-evaluamos la pieza que vendemos); texto ES/EN reescrito en **§O.5** y
+> **aprobado por el dueño el 2026-08-31, sin revisión legal profesional** *(decisión 59; la revisión por
+> abogado sigue **abierta** — pregunta abierta 1)*. La feature se entrega detrás de **un único interruptor**
+> (`grading_hook_enabled`, semilla **apagado**) que **publica la afirmación comercial y autoriza el gasto en
+> el mismo acto** *(decisión 60)*. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–117**,
+> decisiones **40–60** y las **preguntas abiertas v2.0** al final.
 > **Requisito v2.0 — PRECIO PURO POR VALOR DE MERCADO (2026-08-24, DECISIONES DEL HUMANO YA TOMADAS —
 > LOCKED, P-48):** el dueño detectó cartas publicadas a **MX$1.31 / MX$3.71** creyendo tener un **piso de
 > MX$15**. La causa raíz fue doble: (a) una regla con `mode: 'fixed'` está **documentada como PISO** —y el
@@ -1393,9 +1395,31 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > diseña el arquitecto; aquí solo se fija el requisito de producto. *(Nota operativa: la arquitectura va en
 > `docs/ARCHITECTURE.md` **§4.38**, el contrato de API en **v1.50** y su seed en **M-42**; el tratamiento
 > visual, en `docs/DESIGN_SYSTEM.md` **§22**.)*
-> **Estado de entrega — FEATURE-FLAG APAGADO**: la feature se entrega **cableada pero apagada** por defecto y
-> **solo se enciende cuando el humano apruebe el texto legal del disclaimer** (§O.5). Mientras el flag esté
-> apagado, ninguna de las cuatro superficies muestra cifra estimada.
+> **Estado de entrega — UN SOLO INTERRUPTOR, APAGADO DE FÁBRICA** *(actualizado 2026-08-31, M-46)*: la
+> feature se entrega **cableada pero apagada** por defecto. Mientras esté apagada, ninguna de las cuatro
+> superficies muestra cifra estimada **y el barrido no pide ni escribe ninguna**.
+>
+> **§O nunca normó los on/off, así que esto no cambia ningún requisito: lo deja escrito.** Antes había **dos**
+> interruptores separables (publicar / traer datos); el dueño pidió **dos veces** que fuera **uno solo** y lo
+> reafirmó tras oír la objeción. Hoy es **uno** (`grading_hook_enabled`), y de ahí sale la consecuencia que
+> este documento debe declarar:
+> - **Encender es un acto de gasto.** El **mismo `PUT`** que publica la afirmación comercial **autoriza gasto
+>   contra un proveedor de paga**. Publicar y gastar **dejaron de ser separables**.
+> - **Cuánto.** Con los topes sembrados, hasta **~1 000 créditos/día**. **`ingestMaxCardsPerRun` es lo único
+>   que hay entre el `PUT` y la factura**, y los créditos gastados **no se recuperan al apagar**.
+> - **Qué se pierde.** Deja de existir la posibilidad de **«traer datos automáticos con la tienda callada»**:
+>   ya no es un estado expresable. El modelo pasa de **retener-y-aprobar** a **detectar-y-retirar** — la cifra
+>   se escribe ya filtrada, se inspecciona en la lista de revisión y, si está mal, **se borra**. Es una
+>   **pérdida real** y queda declarada, no disimulada.
+>
+> Ver **decisión 60** y criterios **116–117**. *(El detalle técnico del dial único lo fija el arquitecto en
+> `docs/ARCHITECTURE.md` **§4.38(r)**, contrato **v1.51-one-dial**; el copy de la pantalla, `DESIGN_SYSTEM.md`
+> **§22.13**. Aquí solo se fija el requisito de producto.)*
+>
+> **Estado del disclaimer (§O.5) — la precisión importa**: el texto está **aprobado por el dueño**
+> (2026-08-31, condicionado a la corrección de marca a **TCG HUNT**, ya aplicada). Lo que **NO** existe es
+> **revisión legal profesional**: esa parte sigue **abierta** y está **a nombre del dueño** (con su abogado),
+> ver **pregunta abierta 1**. Encender ya **no** está bloqueado por la aprobación del texto.
 > **Relación con §N (precio puro)**: son bloques distintos y **no se pisan**. §N fija **dinero real** (el
 > precio publicado sale de la curva por valor de mercado); §O es **presentación** y **consume** ese precio
 > publicado como `precioVentaRaw` sin alterarlo nunca.
@@ -1548,8 +1572,25 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       - el **precio de venta de la carta** (el que ya se muestra hoy, sin cambio),
       - el **estimado PSA 10**,
       - el **estimado PSA 9**,
-      - la **fecha del dato** —para el dato automático, la **fecha de la última venta observada**; para un
-        override manual, la fecha en que el admin lo fijó (§O.6),
+      - **NINGUNA FECHA** *(RESUELTO 2026-08-31, **decisión 62**; cierra la pregunta abierta **18**)*.
+        **Esta línea prometía la «fecha de la última venta observada» y esa promesa SE RETIRA, no se
+        implementa.** Nunca se construyó y **no se puede** cumplir hoy: **`evidenceDate` no se persiste**, así
+        que al leer sólo existe la **fecha de captura de la fila**, que puede ir hasta **30 días adelantada**
+        respecto de la venta que respalda la cifra. El dueño eligió la opción **(b): no mostrar fecha** para el
+        dato automático. **La ficha no muestra fecha junto a los estimados.**
+        *(**Ojo — esto SÍ es trabajo pendiente de frontend, no el estado actual**: hoy el bloque de estimados
+        **sí pinta una fecha**, el eyebrow `catalog.gradingEstimate.updatedAt` = **«ESTIMADO · {date}»**,
+        alimentado por `oldestCapturedDate()` sobre el `capturedDate` de `GradedEstimateDTO.estimate`.
+        **Retirarlo es el cambio que esta decisión ordena** — ver criterio **119**.)*
+        *(Reversible: si algún día se cablea `evidenceDate` —deuda viva tras la decisión **61**—, mostrar la
+        **fecha real de la venta** vuelve a estar sobre la mesa. «No mostramos fecha» es la respuesta a **no
+        tener** el dato honesto, **no** una prohibición permanente de diseño.)*
+        *(**Caso override manual — NO resuelto por esta decisión**: esta línea también prometía, para un
+        override, «la fecha en que el admin lo fijó». La pregunta 18 se formuló sólo sobre el **dato
+        automático**, así que **no se extiende** el «no» al override por cuenta propia; pero hoy es
+        **inimplementable tal cual**, porque el cliente **no puede distinguir** un override de un dato
+        automático —`source` se **omite siempre** por contrato— y el bloque pinta **una sola fecha** para
+        todas sus cifras. Ver pregunta abierta **24**.)*
       - la **llamada al disclaimer** (asterisco) y su **nota al pie** (§O.5).
       **Nada calculado**: sin multiplicador, sin diferencia, sin ganancia, sin costo de gradeo, sin
       comparativa. **No está condicionada al gate de ROI**: si hay dato, se muestra.
@@ -1558,7 +1599,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 - [ ] **(2) Rejilla de Compra — badge con la cifra en la teja** *(§A)* — superficie de **promoción**: aparece
       **solo en cartas que pasan el gate de ROI** (§O.2) **y el gate de confianza** (§O.7). Badge compacto que
       **muestra el estimado PSA 10**.
-      *(SUPUESTO de copy, para aprobación: **«En PSA 10 vale ≈ MX$X»**; en móvil, **«PSA 10 ≈ MX$X»**.)*
+      *(SUPUESTO de copy, **aún sin ratificar por el dueño** — **pregunta abierta 4**, abierta:
+      **«En PSA 10 vale ≈ MX$X»**; en móvil, **«PSA 10 ≈ MX$X»**. Distinto del disclaimer de §O.5, que **sí**
+      está aprobado. Ya visible en producción; no bloquea.)*
       Lleva su **micro-aviso + llamada al pie** (§O.5). Las tejas que **no** pasan se ven **exactamente
       como hoy**: **no hay badge vacío, tachado ni en gris**.
 - [ ] **(3) Vitrina en el home: «Joyas para gradear»** — superficie de **campaña**: solo cartas que **pasan
@@ -1576,8 +1619,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       confianza** (§O.7). Mismo listón que la rejilla, por la misma razón: es una **superficie donde
       promocionamos**, no donde informamos.
       *(Copy: el **mismo** del badge de la rejilla — **«En PSA 10 vale ≈ MX$X»**, en móvil **«PSA 10 ≈ MX$X»**;
-      SUPUESTO de copy pendiente de aprobación, igual que el de la rejilla. No se inventa un texto distinto
-      para esta superficie.)*
+      **SUPUESTO de copy que el dueño todavía no ha ratificado**, igual que el de la rejilla — **pregunta
+      abierta 4**, que sigue **abierta**. No se inventa un texto distinto para esta superficie.
+      **Precisión 2026-08-31 (M-46)**: esto **no** es lo mismo que el disclaimer. El **disclaimer de §O.5 sí
+      está aprobado** por el dueño (decisión 59); **el copy del badge no**. Y ya **no es hipotético**: con la
+      exhibición encendida en producción, este texto **ya se está mostrando** sobre un supuesto del PO. No
+      bloquea —es copy, no una afirmación legal nueva: la carga legal la lleva el disclaimer, que sí está
+      aprobado— pero **sube de prioridad**: conviene que el dueño lo ratifique o lo cambie.)*
       Lleva su **micro-aviso + llamada al pie** (§O.5); el home ya lleva **una** nota al pie que cubre todas
       las cifras de la página (vitrina y destacadas incluidas).
       **Lo que esta superficie NO cambia (crítico)**: el gancho **no cura ni reordena** el carrusel. «Piezas
@@ -1663,10 +1711,17 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 - [ ] **Frescura del dato**: un estimado **rancio deja de mostrarse** (mejor callar que presumir un número
       viejo en una promesa comercial). El umbral y cómo se mide están en **§O.7**.
 
-**O.5 — Disclaimer (ES / EN) — BORRADOR PARA APROBACIÓN DEL HUMANO — ACTUALIZADO 2026-08-23**
-> **Este texto es una propuesta del product-owner y requiere aprobación explícita del humano** (idealmente con
-> revisión legal, ver «Riesgos y banderas»). **Hasta que esa aprobación llegue, la feature permanece detrás de
-> un feature-flag APAGADO.**
+**O.5 — Disclaimer (ES / EN) — APROBADO POR EL DUEÑO, SIN REVISIÓN LEGAL PROFESIONAL — ACTUALIZADO 2026-08-31**
+> **Estado (M-46, decisión 59) — las dos mitades, siempre juntas y sin suavizar:**
+> **(1) APROBADO POR EL DUEÑO.** Este texto **dejó de ser un borrador**: el dueño lo aprobó el **2026-08-31**,
+> condicionado a la corrección de marca a **TCG HUNT** (`common.brand.name`), **ya aplicada**. **Ya no
+> mantiene la feature apagada** y **no requiere ninguna aprobación adicional para encenderse**.
+> **(2) SIN REVISIÓN LEGAL PROFESIONAL.** **Ningún abogado lo ha revisado.** Eso sigue **abierto** y es **del
+> dueño** (pregunta abierta 1); **no bloquea el encendido**. El día que un abogado lo revise, esta segunda
+> mitad **se retira** de aquí y de la pantalla.
+> **Prohibido** afirmar, aquí o en cualquier superficie, que este disclaimer **no está aprobado** o que le
+> falta el visto bueno del dueño (criterio **117**; `DESIGN_SYSTEM.md` §22.13(h) con check de QA de **cero
+> apariciones**). Producción ya muestra este texto con la exhibición **encendida**.
 > **Tono pedido por el humano (2026-08-23)**: *«súper enfático que es información ilustrativa, que no refleja
 > el estado de nuestras cartas»*. El objetivo es que **nadie pueda alegar después que se le prometió algo** —
 > pero sin convertirlo en un muro de letra chiquita ilegible: tiene que poder leerlo un comprador normal.
@@ -1705,11 +1760,12 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > el deslinde queda atado a la entidad que responde—, y **el mismo criterio se aplica a los términos**, para
 > que no digan cosas distintas. **Lo que sí queda fijado ahora es el disparador de revisión**: cuando se
 > cargue `common.footer.legalEntity`, **§O.5 se revisa obligatoriamente** (criterio 114). **La redacción
-> definitiva la aprueba el humano** — ver pregunta abierta **20**. *(El descargo ya está, de todos modos,
-> pendiente de aprobación humana/legal y la feature sigue tras el flag apagado, así que este punto **no
-> bloquea** nada nuevo.)*
+> definitiva la aprueba el humano** — ver pregunta abierta **20**. *(Actualizado 2026-08-31: el descargo
+> **ya está aprobado por el dueño**, sin revisión legal profesional; lo que sigue abierto es la **revisión
+> por abogado** —pregunta abierta 1— y **este punto de la razón social no bloquea** nada nuevo: entra en la
+> misma revisión.)*
 
-- [ ] **Versión completa (ficha de carta) — ES** *(borrador)*:
+- [ ] **Versión completa (ficha de carta) — ES** *(aprobada por el dueño, decisión 59)*:
       > **INFORMACIÓN ILUSTRATIVA. NO ES UNA VALUACIÓN DE ESTA CARTA.**
       >
       > Las cifras de **PSA 10 / PSA 9** son un **dato de referencia de mercado** sobre **ese modelo de carta
@@ -1735,7 +1791,7 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       > **Los precios de mercado cambian todos los días** y este estimado puede quedar desactualizado en
       > cualquier momento.
 
-- [ ] **Versión completa (ficha de carta) — EN** *(borrador)*:
+- [ ] **Versión completa (ficha de carta) — EN** *(aprobada por el dueño, decisión 59)*:
       > **ILLUSTRATIVE INFORMATION ONLY. THIS IS NOT AN APPRAISAL OF THIS CARD.**
       >
       > The **PSA 10 / PSA 9** figures are **market reference data** for **that card model as graded by third
@@ -1763,12 +1819,14 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > **Dónde vive este texto completo** *(actualizado 2026-08-23)*: **al pie de la página**, referenciado con una
 > **llamada (asterisco)** junto a cada cifra. Ver «Regla de presentación» abajo.
 
-- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — ES** *(borrador)*:
+- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — ES** *(§O.5 está aprobado;
+      esta cadena corta y su permanencia siguen en **pregunta 12**)*:
       > *Cifra **ilustrativa** de mercado. **No evaluamos el estado de esta carta** ni garantizamos ningún
       > grado; el gradeo y su costo corren por tu cuenta.*
       > *(Variante ultra-corta para el badge, donde no cabe la anterior: **«Ilustrativo; no evaluamos esta
       > carta.\***».)*
-- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — EN** *(borrador)*:
+- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — EN** *(§O.5 está aprobado;
+      esta cadena corta y su permanencia siguen en **pregunta 12**)*:
       > ***Illustrative** market figure. **We have not assessed this card's condition** and guarantee no
       > grade; grading and its cost are on you.*
       > *(Ultra-short variant for the badge: **«Illustrative; we haven't assessed this card.\***».)*
@@ -1795,6 +1853,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       asterisco lleva al texto completo.
       *(SUPUESTO de copy, para aprobación — ES: **«Ilustrativo; no evaluamos esta carta.\***» · EN:
       **«Illustrative; we haven't assessed this card.\***».)*
+      **Precisión de estado (2026-08-31, M-46)**: esto **no contradice** la decisión 59. El **cuerpo del
+      disclaimer de §O.5 SÍ está aprobado** por el dueño; lo que **no** ha sido ratificado por separado es
+      **esta cadena corta** y la decisión estructural de **conservar el micro-aviso o quedarse solo con el
+      asterisco** (**pregunta abierta 12**, abierta). No bloquea el encendido.
       **Argumento de la decisión**: una nota al pie **protege menos que un aviso adyacente** si el comprador
       **nunca baja** — y en el **home** (vitrina **y** carrusel de destacadas) y en el **listado de Compra**
       eso es lo normal: el
@@ -1828,7 +1890,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > gradeado por terceros** — no una valuación nuestra ni del proveedor.
 > **Lo que NO cambia para el usuario**: mismas superficies *(las **cuatro** desde 2026-08-31, §O.3)*, mismo
 > gate de ROI, mismo disclaimer, mismas
-> reglas money-safe, mismo feature-flag apagado hasta la aprobación legal.
+> reglas money-safe. *(Actualizado 2026-08-31, M-46: la coletilla «mismo feature-flag apagado hasta la
+> aprobación legal» **se retira por falsa**. El disclaimer **ya está aprobado por el dueño** (decisión 59) y
+> la **revisión legal profesional**, que sigue abierta, **no bloquea el encendido**. Además ya no hay dos
+> flags: hay **un interruptor único** que al encenderse **publica y gasta** — decisión 60.)*
 
 - [ ] **Fuente primaria — automática**: los valores **PSA 10 / PSA 9** se alimentan del ingest de
       **PokemonPriceTracker** sobre `ebay.salesByGrade` (proveedor **ya contratado**; API key gestionada en el
@@ -1865,11 +1930,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > confianza**. Por eso el listón es distinto en cada superficie y **no** es una inconsistencia.
 > **Todo esto se evalúa server-side y ninguno de sus insumos viaja al cliente** (extiende SEC-A1).
 
-- [ ] **Prueba 1 — FRESCO**: la cifra debe caer dentro de la **ventana de frescura de 30 días** (umbral **sin
-      cambio**). *(SUPUESTO sobre cómo se mide)*: para el **dato automático**, la ventana se mide contra la
-      **fecha de la última venta de la muestra** —esa es la frescura que de verdad importa: la antigüedad de la
-      **evidencia de mercado**, no la fecha en que jalamos el archivo—; para un **override manual**, contra la
-      fecha en que el admin lo fijó. Confirmar con el humano; ver preguntas abiertas v2.0.
+- [ ] **Prueba 1 — FRESCO** *(reescrito 2026-08-31 — **decisión 61**; ya **no es supuesto**, está resuelto)*:
+      el umbral es **`graded_estimate_freshness_days` = 30** y **se aplica en dos momentos**, porque
+      **`evidenceDate` no se persiste**: **al bajar** el dato se exige que la **última venta de la muestra**
+      no pase de 30 días, y **al leerlo** se exige que la **fila** no lleve más de 30 días desde su
+      **captura**. **Son dos relojes que se suman: el peor caso real es 60 días**, y el dueño **lo aceptó**.
+      **El dial se queda en 30 — poner 60 ahí lo llevaría a 120.** Para un **override manual** hay **un solo
+      reloj**: la fecha en que el admin lo fijó.
 - [ ] **Prueba 2 — ORIGEN CONFIABLE**: la cifra debe venir de **una de dos** fuentes:
       (a) un **override manual del admin** —una persona lo puso a propósito—, o
       (b) un **dato automático con muestra suficiente**: al menos **`minSalesSample`** ventas cerradas de ese
@@ -1943,8 +2010,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > 4. Entra a **Compra** y ve la **teja con el badge y la cifra** (estimado PSA 10 + micro-aviso + llamada), y
 >    la página lleva su **nota al pie completa**.
 > 5. Abre la **ficha** y ve **solo**: el **precio de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
->    la **fecha del dato**, el **micro-aviso** y la **llamada al pie**. **No ve** multiplicador, ganancia,
->    costo de gradeo, tamaño de muestra ni comparativa alguna.
+>    el **micro-aviso** y la **llamada al pie**. **No ve** multiplicador, ganancia,
+>    costo de gradeo, tamaño de muestra, comparativa **ni fecha del dato**
+>    *(la fecha se retiró por la **decisión 62**; ver §O.3(1) y criterio **119**)*.
 > 6. Cambia el idioma a **inglés** y todos esos textos —micro-aviso y nota al pie incluidos— salen en inglés.
 >
 > **Flujo crítico — la curaduría protege al comprador:** el admin sube `minUpsidePct` (o el estimado PSA 9
@@ -1991,7 +2059,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > carta no se promociona y **nunca** se asume costo $0; **payload inspeccionado desde el cliente** → **no
 > contiene** ganancia neta, escalón de costo, `minUpsidePct`, `minSalesSample`, `maxGradedMultiple`, tamaño de
 > muestra ni flag de elegibilidad (SEC-A1); **DTO manipulado** → no mete cartas a la vitrina, no cambia el
-> orden ni las cifras; **estimado rancio** (última venta de más de 30 días) → no se muestra; **PSA 9 mayor que
+> orden ni las cifras; **estimado rancio** (fila con más de 30 días **desde su captura**; y muestra cuya última
+> venta pase de 30 días **ni siquiera se ingiere** — dos relojes, peor caso 60 días **aceptado**, decisión 61)
+> → no se muestra; **PSA 9 mayor que
 > el PSA 10** → no se promociona; **feature-flag apagado** → ninguna superficie muestra cifra; **página con
 > cifra estimada pero sin nota al pie**, o **cifra sin llamada/micro-aviso** → defecto **bloqueante**.
 
@@ -2680,9 +2750,14 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > y por **inspección del payload** (que no viajen los insumos del cálculo) — **no** comparando cifras
 > derivadas en pantalla.
 
-> **Nota de verificación 3 (2026-08-28)**: la feature vive tras un **feature-flag apagado** hasta que el
-> humano apruebe el texto legal (§O.5). QA verifica estos criterios **con el flag encendido** en el entorno de
-> prueba, y verifica **además** que con el flag apagado **ninguna** superficie muestra cifra estimada.
+> **Nota de verificación 3** *(2026-08-28; **reescrita 2026-08-31, M-46**)*: la feature vive tras **un solo
+> interruptor**, apagado de fábrica. **Ya no está condicionado a aprobar el texto legal**: el disclaimer está
+> **aprobado por el dueño** (decisión 59) y lo que queda abierto —la **revisión legal profesional**— **no
+> bloquea el encendido**. QA verifica estos criterios **con el interruptor encendido** en el entorno de
+> prueba, y verifica **además** que **apagado** ninguna superficie muestra cifra estimada **y** el barrido no
+> pide ni escribe ninguna (**cero créditos**). **Aviso de dinero para QA** *(decisión 60, `ARCHITECTURE.md`
+> §4.38(r.6.3))*: encender y apagar **gasta créditos reales**, así que el ciclo on/off **no se prueba** contra
+> un entorno con credencial viva del proveedor — se prueba **sin credencial** o **con la sonda encendida**.
 
 97. **El gate decide QUÉ SE PROMOCIONA (curaduría), no qué se ve** *(actualizado 2026-08-31: las superficies
     de promoción son **tres** — rejilla, vitrina y destacadas)*: una carta raw publicada lleva cifra en
@@ -2698,11 +2773,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     **sin** estimado **PSA 9** **no lleva cifra en ninguna superficie de promoción** (rejilla, vitrina ni
     destacadas); **su ficha sí muestra el PSA 10**. El sistema
     **no infiere ni interpola** el PSA 9 a partir del PSA 10.
-99. **Ficha: solo precio + los dos estimados (verificación de AUSENCIA)**: la ficha de una carta raw con dato
-    muestra **exactamente**: el **precio de venta de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
-    la **fecha del dato**, el **micro-aviso** y la **llamada al pie** (criterio 103). Y **NO muestra** —en
+99. **Ficha: solo precio + los dos estimados (verificación de AUSENCIA)** *(actualizado 2026-08-31 por la
+    **decisión 62**: se retira «la fecha del dato» de la lista de lo que la ficha muestra)*: la ficha de una
+    carta raw con dato muestra **exactamente**: el **precio de venta de la carta**, el **estimado PSA 10**, el
+    **estimado PSA 9**, el **micro-aviso** y la **llamada al pie** (criterio 103). Y **NO muestra** —en
     ninguna forma— **multiplicador**, **diferencia/ganancia**, **porcentaje de rendimiento**, **costo de
-    gradeo**, **escalón aplicado**, **tamaño de la muestra de ventas** ni **comparativa**. Verificable buscando
+    gradeo**, **escalón aplicado**, **tamaño de la muestra de ventas**, **comparativa** **ni fecha alguna
+    junto a los estimados** (criterio **119**). Verificable buscando
     en la página renderizada la ausencia de esos elementos.
 100. **La cifra SÍ se pinta en la rejilla de Compra** *(actualizado 2026-08-28)*: una teja de carta que pasa
     **el gate de ROI y el de confianza** muestra el badge **con el estimado PSA 10** (más micro-aviso y
@@ -2763,11 +2840,17 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     de venta** de ninguna carta, el **valor ni la tendencia del portafolio** (§C), la **cotización de buylist**
     (§E/§M), el **costo de inventario** ni el **P&L de M7** — verificable comparando esos valores con la
     feature encendida y apagada.
-109. **Frescura del estimado** *(actualizado 2026-08-31)*: un estimado **rancio deja de mostrarse** en las
-    **cuatro** superficies (y la carta deja de promocionarse). La antigüedad se mide contra la **fecha de la última venta
-    observada** para el dato automático, y contra la **fecha de captura** para un override manual; el umbral
-    es de **30 días** *(umbral y forma de medirlo sujetos a confirmación del humano — ver preguntas abiertas
-    v2.0)*.
+109. **Frescura del estimado** *(reescrito 2026-08-31 por la **decisión 61**; supersede la redacción anterior,
+    que describía un solo reloj contra la fecha de la última venta — eso **no es lo implementado**)*: un
+    estimado **rancio deja de mostrarse** en las **cuatro** superficies (y la carta deja de promocionarse).
+    El umbral vive en **`graded_estimate_freshness_days`, sembrado en `30`**, y **se aplica dos veces**:
+    (a) **al ingerir**, contra la **fecha de la última venta de la muestra** (no se acepta evidencia de más de
+    30 días); (b) **al leer**, contra la **fecha de captura de la fila** (a los 30 días de escrita se considera
+    rancia), porque **`evidenceDate` no se persiste** y el lector no tiene la fecha de la venta.
+    **Consecuencia verificable y ACEPTADA por el dueño: la evidencia detrás de una cifra visible puede tener
+    hasta 60 días** (30 + 30). **El dial se verifica en `30`; el peor caso se verifica en `60`. Un dial en 60
+    es un DEFECTO**, no el cumplimiento de este criterio. Para un **override manual** aplica **un solo reloj**:
+    la **fecha en que el admin lo fijó**.
 110. **Costo de gradeo por ESCALONES (no plano)**: el `gradingCost` del gate se **resuelve por tabla de
     escalones** (`gradingCostTiers`, §O.2.1) según el **valor de la carta**, imitando cómo cobra PSA por nivel
     de servicio. Como el costo **no se muestra**, se verifica por **efecto en la curaduría**:
@@ -2840,6 +2923,46 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     `common.brand.domain`; los buzones documentados (`contacto@`, `soporte@`, `facturacion@`, `buylist@`)
     resuelven todos a `tcghunt.mx`. **Este criterio se verifica contra el producto, no contra la
     documentación**: si un documento afirma otra marca, el documento está mal.
+116. **NUEVO — Un solo interruptor, y la pantalla dice que encenderlo GASTA** *(2026-08-31, decisión 60)*:
+    (a) existe **exactamente un** on/off para el gancho de grading; **no hay** ningún control, etiqueta ni
+    estado que ofrezca «traer sin publicar», «solo ingest», «parcial» ni «modo prueba». (b) El aviso de
+    **encendido** dice, en ES y EN, **las dos cosas**: que **publica** una afirmación comercial **y** que
+    **gasta** créditos contra un proveedor **de paga**, con el **tope diario interpolado** (no hardcodeado) y
+    la nota de que **los créditos no se recuperan al apagar**. (c) El aviso de **apagado** dice que también
+    **deja de actualizar**. (d) Con el interruptor **apagado**: ninguna de las cuatro superficies muestra
+    cifra estimada **y** el barrido **no pide ni escribe** ninguna — **cero créditos consumidos**.
+    *(Nota para QA, del arquitecto §4.38(r.6.3): el **criterio 108** ya **no se verifica** encendiendo y
+    apagando contra un entorno con credencial viva, porque eso **gasta dinero real**; se verifica **sin
+    credencial del proveedor** o **con la sonda encendida**.)*
+117. **NUEVO — El estado del disclaimer se enuncia con las dos mitades, siempre** *(2026-08-31, decisión 59)*:
+    donde se mencione el estado legal del descargo, se lee **«aprobado por el dueño; sin revisión legal
+    profesional»**. **Verificación negativa, y es la que importa**: **cero apariciones**, en `messages/` (ES y
+    EN) y en cualquier superficie visible, de una afirmación de que **el disclaimer no está aprobado** o que
+    **le falta el visto bueno del dueño** — la exhibición está **encendida en producción** con ese texto, así
+    que decirlo sería publicar algo falso. **Este criterio se verifica contra el producto, no contra la
+    documentación**: si un documento afirma que el disclaimer no está aprobado, **el documento está mal** y se
+    corrige por el rol dueño de ese documento.
+118. **NUEVO — El peor caso de 60 días está aceptado, y el dial sigue en 30** *(2026-08-31, decisión 61)*:
+    (a) el seed de **`graded_estimate_freshness_days` es `30`** — si el entorno arranca con **60**, el criterio
+    **falla** (eso sería un peor caso de **120**, el doble de lo aceptado); (b) una muestra cuya **última
+    venta** sea de **más de 30 días** **no se ingiere**; (c) una fila con **más de 30 días desde su captura**
+    **no se muestra** en ninguna de las cuatro superficies ni promociona la carta; (d) en consecuencia, existe
+    un caso legítimo —fila capturada con evidencia de 30 días y leída 30 días después— en el que la cifra
+    visible se apoya en una venta de **60 días atrás**: eso **NO es defecto**, es la decisión 61.
+    **(e) GU-9 no se cuenta como bloqueante del primer `off → on`; A-1 (techo de créditos del banner) SÍ sigue
+    contando** hasta que el arquitecto la cierre.
+119. **NUEVO — Ninguna fecha junto a los estimados de la ficha** *(2026-08-31, decisión 62; **cierra la
+    pregunta abierta 18**)*: en la **ficha** de una carta raw con estimados, **no se pinta fecha alguna**
+    asociada al bloque de valor estimado —ni de la venta, ni de captura, ni «actualizado el …»—.
+    **Verificación negativa, y es la que importa**: (a) el bloque de estimados **no renderiza** el eyebrow de
+    fecha; (b) **cero apariciones** de la clave `catalog.gradingEstimate.updatedAt` en `messages/` **ES y EN**
+    y en la página renderizada. **(c) Ojo, QA: HOY ESTE CRITERIO FALLA A PROPÓSITO** — el producto pinta
+    **«ESTIMADO · {date}»** vía `oldestCapturedDate()`; **retirarlo es trabajo abierto de frontend**, y este
+    criterio es el que lo cierra. **No es un defecto reportable contra otro rol**: es el pendiente que crea la
+    decisión 62. **(d)** Este criterio **no toca** la frescura interna: los **dos relojes** del criterio 118
+    siguen evaluándose **server-side** con la fecha de captura. Se retira lo que se **muestra**, no lo que se
+    **mide**. **(e)** No aplica a la **fecha del precio de venta / valor de mercado** de la ficha (el `note`
+    de `marketValue`, que es otro dato y otra fila): esa **se queda como está**.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -2880,11 +3003,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
   tercero (PSA)**. Riesgo de **publicidad engañosa** ante PROFECO si el comprador entiende el estimado como
   promesa. Mitigaciones ya incorporadas: gate conservador sobre **PSA 9** (§O.2), **gate de confianza** que
   impide promocionar cifras poco sólidas o incoherentes (§O.7), **disclaimer obligatorio en toda superficie**
-  (§O.5), **exclusión explícita de garantía de grado** (Fuera de alcance) y **feature-flag apagado hasta la
-  aprobación del texto**. *(Refuerzo 2026-08-28: con la fuente automática, la cifra son **ventas cerradas
+  (§O.5), **exclusión explícita de garantía de grado** (Fuera de alcance) y **un interruptor único apagado de
+  fábrica**. *(Actualizado 2026-08-31: el texto del disclaimer está **aprobado por el dueño**, **sin revisión
+  legal profesional** — el punto (a) de abajo sigue vivo y es exactamente esa revisión pendiente.)*
+  *(Refuerzo 2026-08-28: con la fuente automática, la cifra son **ventas cerradas
   reales de eBay por grado**, no una valuación nuestra — el disclaimer describe la realidad al pie de la
-  letra, lo que mejora la posición.)* **Validar con abogado**: (a) que el **texto del disclaimer** (borrador
-  en §O.5) sea suficiente y esté también en **términos/políticas**, (b) que el estimado **no cree derecho** a
+  letra, lo que mejora la posición.)* **Validar con abogado**: (a) que el **texto del disclaimer** (§O.5,
+  **aprobado por el dueño, sin revisión legal**) sea suficiente y esté también en **términos/políticas**, (b) que el estimado **no cree derecho** a
   compensación si el grado sale menor, y (c) que el uso de la marca **«PSA»** para nombrar el grado en la UI
   sea un **uso descriptivo/nominativo admisible** y no sugiera afiliación, aval o asociación con PSA.
 - **Comercial — expectativa del cliente y soporte** *(v2.0, §O)*: aunque legalmente esté cubierto, un cliente
@@ -3192,8 +3317,11 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    (`common.footer.legalEntity`), el descargo **la nombre** con el patrón **«TCG HUNT, marca operada por
    [Razón social]»**, aplicando el mismo criterio a los términos. **Lo que queda decidido ahora es el
    disparador de revisión obligatoria** (criterio **114**); **la redacción definitiva la aprueba el humano**
-   (con su abogado si quiere) — **pregunta abierta 20**. *(No bloquea: el descargo entero ya estaba pendiente
-   de aprobación y la feature sigue tras el flag apagado.)*
+   (con su abogado si quiere) — **pregunta abierta 20**. *(Actualizado 2026-08-31, M-46: la justificación
+   original de «no bloquea» —«el descargo entero ya estaba pendiente de aprobación y la feature sigue tras el
+   flag apagado»— **ya no es cierta y se retira**. **Sigue sin bloquear**, pero por otra razón: el descargo
+   **está aprobado por el dueño** (decisión 59) y la mención de la razón social entra en la **misma revisión
+   legal profesional** que sigue abierta, la cual **no bloquea el encendido**.)*
 58. **Renombrado completo a TCG HUNT y dominio único `tcghunt.mx`** *(2026-08-31, confirmado por el humano:
    «recuerda que somos TCGHUNT.mx cambia eso»)*: **«TCG Vault MX» era un nombre interno de trabajo** que este
    documento declaraba por error como nombre comercial. Queda **retirado de todo PROJECT.md** (título,
@@ -3205,6 +3333,103 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    marca y el dominio ahora se declaran **por su clave i18n verificable** (`common.brand.name`,
    `common.brand.domain`) y no por el literal: **ante discrepancia manda la clave**, y este documento se
    corrige contra el producto, nunca al revés. *(La corrección del Excel es del rol backend, no del PO.)*
+59. **El disclaimer de §O.5 está APROBADO POR EL DUEÑO — y NO tiene revisión legal profesional**
+   *(2026-08-31, aprobación dada en sesión)*: el dueño **aprobó el texto** ES/EN de §O.5, condicionado a la
+   **corrección de marca a TCG HUNT** (decisión 58), que **ya se aplicó**. **Las dos mitades se escriben
+   siempre juntas y no se suavizan**: **aprobado por el dueño**, **sin revisión legal profesional**. La
+   segunda mitad **sigue abierta** y es **del dueño** (pregunta abierta 1). **Efecto**: la aprobación del
+   texto **deja de ser el bloqueo para encender** la feature. **Prohibido afirmar que el disclaimer no está
+   aprobado** en cualquier superficie o documento — producción ya muestra ese texto con la exhibición
+   encendida, y `DESIGN_SYSTEM.md` §22.13(h) lo prohíbe en pantalla con un check de QA de **cero
+   apariciones**. La cláusula «sin revisión legal profesional» **se retira el día que un abogado revise el
+   texto**, y avisar de ese día es de **PO/legal**.
+60. **UN SOLO INTERRUPTOR, y encenderlo es un ACTO DE GASTO** *(2026-08-31, M-46; el dueño lo pidió **dos
+   veces** y lo **reafirmó tras oír la objeción**)*: el gancho de §O tenía **dos** interruptores (publicar /
+   traer datos). Queda **uno** (`grading_hook_enabled`, semilla **apagado**). **§O nunca normó los on/off, así
+   que esto no es un cambio de requisito: es dejarlo escrito en el documento que manda sobre el contrato.**
+   Lo que queda normado aquí:
+   - **El mismo `PUT` que publica la afirmación comercial autoriza gasto contra un proveedor de paga.**
+     Publicar y gastar **ya no son actos separables**.
+   - **Techo**: con los topes sembrados, hasta **~1 000 créditos/día**; **`ingestMaxCardsPerRun` es lo único
+     que hay entre el `PUT` y la factura**. Los créditos gastados **no se recuperan al apagar**.
+   - **Pérdida aceptada y declarada**: **se pierde** la posibilidad de **«traer datos automáticos con la
+     tienda callada»** — ese estado **ya no es expresable**. El modelo pasa de **retener-y-aprobar** a
+     **detectar-y-retirar**: la cifra se escribe **ya filtrada**, se **inspecciona** en la lista de revisión
+     y, si está mal, **se borra**. Se acepta **porque las guardas de escritura no se relajan ni un punto**.
+   *(Ejecución técnica: `ARCHITECTURE.md` §4.38(r), contrato v1.51-one-dial; copy: `DESIGN_SYSTEM.md` §22.13.
+   Backend, frontend y ux-ui ya entregaron.)*
+61. **La evidencia de mercado puede tener hasta 60 días en el peor caso — el dueño lo ACEPTA** *(2026-08-31;
+   **cierra GU-9**, que estaba registrada como **bloqueante del primer encendido**)*:
+
+   > ### ⚠️ ESTO NO ES UN CAMBIO DE CONFIGURACIÓN — NO ESCRIBAS 60 EN NINGÚN DIAL
+   > El seed de **`graded_estimate_freshness_days` sigue siendo `30`, y no se toca.**
+   > **`30` es precisamente el valor que produce el peor caso de 60 días.** El 60 es una **consecuencia
+   > medida** de dejar el dial en 30, **no** un valor a capturar. Si alguien lee «aceptamos 60 días» y escribe
+   > `60` en esa clave, **el peor caso se va a 120** — el doble de lo que el dueño aceptó.
+   > **Regla de lectura: dial = 30. Peor caso observable = 60. Nunca al revés.**
+
+   - **Por qué 30 en el dial da 60 en la calle — hay DOS relojes que se suman**, y ambos usan el mismo
+     número `N`:
+     1. **Reloj de bajada**: al ingerir, aceptamos una muestra cuya **última venta** sea de hasta **N días**
+        atrás.
+     2. **Reloj de lectura**: una vez escrita, la fila vive otros **N días** antes de que `stale()` la
+        considere rancia.
+     Con `N = 30`, una cifra puede publicarse apoyada en una venta de hace 30 días y seguir visible 30 días
+     más: **30 + 30 = 60**.
+   - **La causa técnica, en una línea**: **`evidenceDate` no se persiste**. La fecha de la venta se **conoce**
+     al bajar el dato, se **usa para filtrar** y luego **se descarta**; el lector, sin esa fecha, sólo puede
+     medir desde la **fecha de captura**. De ahí que haya dos relojes en vez de uno.
+   - **Cómo se llegó a esta aceptación** *(se registra porque es lo que la hace válida: no fue un «ok»
+     genérico)*: el dueño **pidió primero algo más estricto, «máximo una semana»**. Se le explicó que
+     **poner 7 no da 7, da 14**, por los dos relojes de arriba. Preguntó **por qué el proveedor reporta 7 días
+     después de la venta**, y se le **corrigió el modelo mental**: **no es retraso del proveedor** — es
+     **cuánto lleva la carta sin venderse**. Una carta que se vende a diario tiene su última venta de ayer;
+     una **cara y rara** puede tenerla de hace 6 días. Y eso **golpea justo a las cartas que este gancho
+     destaca, que son las caras**. Se le ofreció además la alternativa de **cablear `evidenceDate`** para
+     tener **un solo reloj** y un **7 real**. **Con todo eso delante, eligió 60.**
+   - **Qué se desbloquea y qué NO**: **GU-9 deja de bloquear el primer `off → on`**. El **otro** bloqueante
+     del encendido, **A-1** —el **techo de créditos que el banner afirma** (los «~1 000 créditos/día» de la
+     decisión 60) **sin haberlo medido**—, **sigue vivo** y lo está cerrando el **arquitecto**. Encender sigue
+     bloqueado por A-1.
+   - **Cablear `evidenceDate` sigue siendo deuda técnica, no desaparece con esta decisión**: la columna **ya
+     existe** (creada en **M-43**), pero el **escritor** y `stale()` **siguen sin cablear**, y así está anotado
+     en `docs/TECH_DEBT.md`. Cablearla es lo que convertiría **dos relojes en uno** y permitiría un umbral
+     real. Lo único que cambia hoy es que **ya no bloquea el encendido**.
+
+62. **La ficha NO muestra fecha junto a los estimados — se retira la promesa, no se implementa**
+   *(2026-08-31; **cierra la pregunta abierta 18**)*:
+
+   - **Qué eligió el dueño**: de las tres opciones que se le presentaron —**(a)** mostrar la **fecha de
+     captura** con etiqueta honesta, **(b)** **no mostrar fecha**, **(c)** **cablear `evidenceDate`** y mostrar
+     la fecha real de la venta— eligió la **(b)**. **Lo eligió sin argumentar, y así se registra**: no se le
+     atribuye aquí ningún razonamiento de UX ni de producto que no haya dado. Lo único que se puede afirmar
+     del porqué es lo de abajo.
+   - **Qué se corrige, y en qué dirección**: §O.3(1) prometía al comprador la **«fecha de la última venta
+     observada»**. Eso **nunca se construyó** y **no es construible** hoy: **`evidenceDate` no se persiste**
+     (causa técnica de los dos relojes de la **decisión 61**), así que esa fecha **no existe al momento de
+     leer**. La resolución es **retirar la promesa del documento**, **no** implementarla. Es el documento el
+     que se alinea con el producto.
+   - **Es reversible y barata**: el día que se cablee `evidenceDate` —**deuda viva** tras la decisión 61,
+     columna ya creada en M-43, escritor y `stale()` sin cablear— mostrar la **fecha real de la venta** vuelve
+     a estar sobre la mesa, y además colapsaría los dos relojes en uno. **«No mostramos fecha» no es una
+     prohibición permanente de diseño**: es la respuesta a no tener hoy un dato honesto que mostrar.
+   - **CORRECCIÓN DE HECHO — esto NO es «lo que ya está construido»** *(se registra porque la decisión se
+     tomó sobre la premisa contraria)*: se afirmó que la (b) no generaba trabajo porque la ficha ya no
+     mostraba fecha y el DTO no exponía ninguna. **Ambas cosas son falsas**, verificado en la rama:
+     1. `GradedEstimateDTO.estimate` es un `PriceInfo` y **lleva `capturedDate`**; el contrato lo declara
+        **«SIEMPRE presente»** para el estimado (`frontend/src/types/contract.ts`).
+     2. El bloque de estimados **pinta esa fecha hoy**: `GradingEstimateBlock.tsx` renderiza el eyebrow
+        `catalog.gradingEstimate.updatedAt`, cuya copy en `frontend/messages/es.json` es
+        **«ESTIMADO · {date}»**, alimentado por `oldestCapturedDate()` (que toma **la más antigua** de las
+        cifras pintadas, por conservadurismo legal).
+     **Consecuencia**: lo construido hoy se parece a la opción **(a)**, pero **sin** su etiqueta honesta —
+     «ESTIMADO · 22 ago 2026» **no dice** que sea la fecha de **captura**, y un comprador puede leerla como la
+     fecha de la **venta**, que es justo lo que no tenemos. Elegir (b) **sí genera trabajo**: **frontend** debe
+     retirar ese eyebrow y su clave i18n (ES/EN). Ver criterio **119**.
+   - **Lo que esta decisión NO resuelve** (y no se asume): si `capturedDate` debe **dejar de viajar** en
+     `GradedEstimateDTO` una vez que nadie lo pinta —es superficie expuesta al cliente sin uso, del tipo que
+     SEC-A1 vigila— es **decisión del arquitecto**, no de producto. Y el **override manual** sigue con su
+     promesa de fecha en el aire: ver pregunta abierta **24**.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
@@ -3344,22 +3569,37 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 
 ## Preguntas abiertas — gancho de grading (v2.0, §O)
 > Las **decisiones de fondo están cerradas** (alcance de **cuatro** superficies *(actualizado 2026-08-31)*,
-> gate sobre PSA 9, los dos diales y
+> gate sobre PSA 9, **el interruptor único** y
 > sus defaults, la fuente automática del dato, el gate de confianza, la guarda de dinero y la regla money-safe;
-> ver decisiones 40–45 y 53–57). Lo que sigue son **el texto del disclaimer** —que necesita aprobación
-> explícita y **mantiene la feature apagada** hasta que llegue— y **huecos menores**, todos con un supuesto ya
-> redactado en §O para **no bloquear** al arquitecto.
+> ver decisiones 40–45, 53–57 y **59–60**). **El texto del disclaimer ya NO está en esta lista: el dueño lo
+> aprobó el 2026-08-31** (decisión 59) y **ya no mantiene la feature apagada**. Lo que sigue abierto de él es
+> **solo la revisión legal profesional** (pregunta 1, reescrita). El resto son **huecos menores**, todos con un
+> supuesto ya redactado en §O para **no bloquear** al arquitecto.
 
-1. **Texto del disclaimer (la más importante — es legal-comercial, y hoy es lo único que bloquea encender la
-   feature)** — *ACTUALIZADA 2026-08-28*: el humano pidió que fuera **«súper enfático que es información
-   ilustrativa, que no refleja el estado de nuestras cartas»**, y §O.5 ya está **reescrita** con ese tono y con
-   los **seis elementos obligatorios** (incluido el nuevo y más importante: **no evaluamos la condición de la
-   pieza que vendemos**). *(Novedad que juega a favor: al pasar a la fuente automática, la cifra son **ventas
-   cerradas reales de eBay por grado**, así que la frase «dato de referencia de mercado sobre ese modelo ya
-   gradeado por terceros» es ahora **literalmente exacta**. El texto **no cambió**; solo es más defendible.)*
-   **Falta tu visto bueno final** sobre el texto ES/EN ya redactado: ¿lo apruebas tal cual, lo ajustas, o lo
-   pasas antes por **revisión legal**? ¿Quieres además que el mismo texto viva en la **página de
-   términos/políticas**? **Mientras no lo apruebes, el feature-flag sigue apagado.**
+1. **Revisión LEGAL PROFESIONAL del disclaimer** — *REESCRITA 2026-08-31 (M-46). El texto **ya está
+   aprobado**; lo que sigue abierto es otra cosa.* **La distinción es obligatoria y no se suaviza:**
+   - **Aprobado por el dueño** — el texto ES/EN de §O.5 **tiene el visto bueno del dueño**, dado en la sesión
+     del **2026-08-31** y condicionado a una **corrección de marca que ya se aplicó**: el descargo dice
+     **TCG HUNT** (`common.brand.name`), no el nombre interno retirado. Ver **decisiones 58 y 59**.
+   - **Sin revisión legal profesional** — **ningún abogado ha revisado ese texto.** Esa parte **sigue
+     abierta** y está **a nombre del dueño** (es quien contrata y decide la revisión, idealmente junto con la
+     pregunta **20**, la razón social). **Es lo único que queda vivo de esta pregunta.**
+
+   **Consecuencia de estado, que es lo que este documento tenía atrasado:** la aprobación del texto **ya no
+   bloquea encender la feature**. Producción tiene la exhibición **encendida** y el texto que se muestra **sí**
+   tiene visto bueno del dueño; afirmar lo contrario sería describir mal el producto.
+
+   **Prohibición explícita, alineada con la pantalla:** ni este documento ni ninguna superficie pueden afirmar
+   que **el disclaimer no está aprobado**. `DESIGN_SYSTEM.md` **§22.13(h)** lo prohíbe en el copy de M10 y
+   `FRONTEND_NOTES.md` fija un **check de QA que exige cero apariciones** de esa frase en `messages/`. La
+   fórmula correcta, y la única, es **«aprobado por el dueño; sin revisión legal profesional»**.
+
+   **Lo que te sigo preguntando** (nada de esto bloquea el encendido): (a) ¿pasas el texto por **abogado**, y
+   cuándo? —el día que lo hagas, la cláusula «sin revisión legal profesional» **se retira** de pantalla y de
+   este documento—; (b) ¿quieres que el **mismo texto** viva también en la **página de términos/políticas**?
+   *(Contexto que juega a favor en esa revisión: con la fuente automática la cifra son **ventas cerradas
+   reales de eBay por grado**, así que «dato de referencia de mercado sobre ese modelo ya gradeado por
+   terceros» es **literalmente exacta**. El texto no cambió; solo es más defendible.)*
 2. **Base de comparación del gate**: el supuesto es comparar contra el **precio de venta raw sin IVA** (el
    número que ya ve el comprador), **sin** sumar IVA ni envío al lado del costo. ¿Confirmas, o prefieres un
    gate **aún más conservador** que incluya IVA y/o el envío de MX$175 en `precioVentaRaw`?
@@ -3379,12 +3619,15 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 6. **Vitrina del home — tamaño**: el **orden ya está decidido** (mayor **ganancia neta sobre PSA 9**, criterio
    101). Lo que queda abierto es el **tamaño**: el supuesto es **hasta 8 cartas**. ¿Te sirve 8, prefieres otro
    número, o quieres además poder **fijar/curar a mano** alguna carta en la vitrina desde el admin?
-7. **Umbral de frescura y CONTRA QUÉ FECHA se mide** — *ACTUALIZADA 2026-08-28*: el umbral sigue siendo
-   **30 días** (sin cambio). Lo que la fuente automática abre es **contra qué fecha** se mide: el supuesto es
-   que para el **dato automático** se mide contra la **fecha de la última venta de la muestra** —la antigüedad
-   de la **evidencia de mercado**, que es la que de verdad importa, no la fecha en que jalamos el archivo— y
-   para un **override manual**, contra la fecha en que lo fijaste. ¿Confirmas? ¿Y 30 días te parece bien, o
-   prefieres 7/14?
+7. ~~**Umbral de frescura y CONTRA QUÉ FECHA se mide**~~ — **RESUELTA (2026-08-31)**: el supuesto de esta
+   pregunta —un **solo** reloj contra la fecha de la última venta— **era incorrecto respecto de lo
+   implementado**. Como **`evidenceDate` no se persiste**, hay **dos** relojes que se suman (bajada + lectura),
+   así que el dial de **30** produce un peor caso de **60 días**. El dueño pidió primero «máximo una semana»,
+   se le explicó que **7 daría 14**, se le corrigió que el rezago **no es del proveedor sino de cuánto lleva la
+   carta sin venderse** (lo que golpea justo a las cartas caras que este gancho destaca), se le ofreció
+   **cablear `evidenceDate`** para tener un reloj único, y **con todo eso enfrente aceptó los 60**.
+   **El dial `graded_estimate_freshness_days` se queda en `30`** — 60 ahí daría 120. Ver **decisión 61** y
+   **criterio 118**. *(Cierra **GU-9** como bloqueante del primer encendido; **A-1 sigue vivo**.)*
 8. **Ubicación de los diales**: se propone **M10 (Config y bitácora)** junto al resto de diales; la alternativa
    es **M2 (Catálogo y precios)** por ser pricing. ¿Cuál prefieres?
 9. ~~**PokemonPriceTracker ya contratado vs. «plan de pago fuera del MVP»**~~ — **RESUELTA (2026-08-23)**:
@@ -3430,7 +3673,19 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     estimado cuando ya hay pieza real publicada de ese grado. El caso simétrico —**publicar** un slab real de
     un grado que ya tenía estimado— tiene el mismo riesgo de dinero. El supuesto es que en ese momento el
     estimado **deja de gobernar ese precio y deja de usarse** para ese grado. ¿Confirmas?
-18. **¿Mostrar el número de ventas de la muestra?** *(NUEVA, 2026-08-28)*: hoy el supuesto es **NO** —el
+18. ~~**¿Qué fecha muestra la ficha para el dato automático?**~~ — **RESUELTA (2026-08-31)**: el dueño eligió
+    la **(b), no mostrar fecha**. §O.3(1) prometía la **fecha de la última venta observada**, algo que **nunca
+    se construyó** y que **no es construible** hoy (**`evidenceDate` no se persiste**), así que la resolución
+    es **retirar la promesa del documento**, no implementarla. **Reversible**: si se cablea `evidenceDate`
+    (deuda viva tras la decisión 61), mostrar la fecha real vuelve a estar sobre la mesa.
+    **Corrección de hecho**: se creyó que la (b) ya estaba construida; **no lo está** — el bloque pinta hoy
+    **«ESTIMADO · {date}»** y `capturedDate` **sí viaja** en el DTO, así que la (b) **genera un cambio de
+    frontend** (retirar ese eyebrow). Ver **decisión 62**, **criterio 119** y §O.3(1). *(Queda vivo el caso
+    del **override manual** → pregunta **24**.)*
+23. **¿Mostrar el número de ventas de la muestra?** *(NUEVA, 2026-08-28; **renumerada 2026-08-31** — estaba
+    duplicada como «18», chocando con la pregunta de la fecha, que es la que conserva el 18 porque §O.3(1) ya
+    la citaba así. Toma el **23** —número libre— y **se queda en su lugar** en la lista; la numeración 19–22
+    **no se toca**, para no romper las referencias existentes)*: hoy el supuesto es **NO** —el
     tamaño de la muestra es un insumo interno del gate y no se pinta ni viaja al cliente, para no ampliar la
     superficie visible que tú mismo mandaste simplificar—. Pero decir *«basado en 12 ventas reales»* sería una
     señal de credibilidad fuerte y coherente con el disclaimer. ¿Lo dejamos fuera (supuesto) o lo quieres?
@@ -3447,7 +3702,8 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     no garantizar grado y de no recomprar—, con el **mismo criterio en los términos** para que no se
     contradigan. **Lo que ya dejé fijado es solo el disparador de revisión** (criterio **114**): cuando cargues
     la razón social, **§O.5 se revisa**. **La redacción final es tuya** (idealmente con tu abogado, junto con
-    la aprobación del descargo completo, pregunta 1). ¿La quieres nombrada, o prefieres quedarte solo con la
+    la **revisión legal profesional** del descargo — pregunta 1. *Ojo: el descargo **ya está aprobado por ti**;
+    lo que queda pendiente es la revisión por abogado, no la aprobación*). ¿La quieres nombrada, o prefieres quedarte solo con la
     marca?
 21. ~~**Renombrado de marca en el RESTO de PROJECT.md**~~ — **CERRADA (2026-08-31)**. El humano confirmó:
     «recuerda que somos TCGHUNT.mx cambia eso». **TCG HUNT sustituye a TCG Vault MX en todo el documento** y
@@ -3464,6 +3720,19 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     criterio con que se arma «destacadas» (p. ej. mezclar precio con potencial de gradeo). **La (c) es un
     cambio del home, fuera del alcance de §O**: si la quieres, dilo y la aterrizo aparte. ¿Lo dejamos como
     está (supuesto) o mueves alguna palanca?
+24. **¿Y la fecha del OVERRIDE MANUAL?** *(NUEVA, 2026-08-31 — es el resto que deja la decisión 62; **no
+    bloquea el encendido**)*: la pregunta 18 se formuló sólo sobre el **dato automático**, y así se respondió,
+    así que **no extiendo el «no mostrar fecha» al override por mi cuenta**. Pero §O.3(1) también prometía,
+    para un override, **«la fecha en que el admin lo fijó»**, y eso **hoy es inimplementable tal como está
+    contratado**: el cliente **no puede distinguir** un override de un dato automático —`source` se **omite
+    siempre**, y es una garantía deliberada del contrato para que la fase manual y la automática sean
+    indistinguibles— y el bloque pinta **una sola fecha** para todas las cifras que muestra. Las opciones:
+    **(a)** **no mostrar fecha tampoco** en el override —el documento queda coherente con la (b) y **no cuesta
+    nada**, porque es lo que resulta de retirar el eyebrow—; **(b)** mostrarla **solo** en overrides, lo que
+    **exige exponer al cliente que esa cifra es manual** (rompe la indistinguibilidad que el contrato protege a
+    propósito, y es un cambio de contrato que pasa por el **arquitecto**). **Mi supuesto por defecto, si no
+    respondes, es la (a)**: es lo coherente con lo que acabas de decidir y lo único que no abre una superficie
+    nueva. ¿Confirmas la (a) o quieres la (b)?
 ## Decisiones (v2.0, P-48) — precio puro por valor de mercado (LOCKED)
 > Decisiones del humano **ya tomadas** en conversación (2026-08-24), a partir del hallazgo de cartas
 > publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**. Tras ver la causa raíz, el humano
