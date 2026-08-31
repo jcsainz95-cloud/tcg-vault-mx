@@ -518,6 +518,32 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
     expect(track.scrollLeft).toBe(SNAPS[1]);
   });
 
+  /**
+   * **LA VENTANA DE 1200 ms, PINNEADA POR AMBOS LADOS.** El caso de abajo cubre el lado de FUERA
+   * (a 1201 ms el antecedente ya caducó); sin este, el de DENTRO quedaba sin red y la ventana se
+   * podía acortar a cero sin que nada fallara — verificado con una mutación
+   * `USER_INPUT_WINDOW_MS = 0`, que pasaba los 38 casos restantes en verde.
+   *
+   * El valor no es una comodidad: es una MEDICIÓN de navegador (la inercia del trackpad sigue
+   * emitiendo `scroll` bastante después del último `wheel`). Acortarla se lleva por delante la
+   * pausa por swipe en táctil, que es §23.13 nº9.
+   */
+  it('la ventana de §23.5a dura de verdad: a 1199 ms el gesto del usuario TODAVÍA cuenta', async () => {
+    const { track } = await mountCarousel();
+    await act(async () => {
+      fireEvent.pointerDown(track);
+    });
+    // Justo dentro de la ventana: el antecedente del usuario sigue vivo.
+    await settle(USER_INPUT_WINDOW_MS - 1);
+    await act(async () => {
+      track.scrollLeft = 700;
+      fireEvent.scroll(track);
+    });
+    expect(statusLine()).toHaveTextContent('Rotación automática pausada.');
+    await expectFrozen(track);
+    expect(track.scrollLeft).toBe(700);
+  });
+
   it('pasada la ventana de la entrada del usuario, un scroll del motor tampoco pausa', async () => {
     const { track } = await mountCarousel();
     await act(async () => {

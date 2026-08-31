@@ -9421,3 +9421,165 @@ es ux-ui. Disparador: que QA o soporte vean el conmutador en REANUDAR sin interv
 - **El candado muerde:** con (a) reintroducida a mano, **1 rojo y solo 1** — el test nuevo. Restaurado.
 - Cero cambios de contrato, cero tokens nuevos, cero componentes nuevos. Escrituras: `frontend/`,
   este archivo y `docs/TECH_DEBT.md`. `backend/` intacto.
+
+## §39 · Se retira el conmutador de reproducción del carrusel y la cadencia baja a 5 s (`DESIGN_SYSTEM.md` §23 rev.) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+Decisión del **dueño**, tomada tras ver P-49 publicado. No se re-discute aquí; se documenta y se
+implementa.
+
+### 39.1 Por qué se retira — la razón, no solo el cambio
+
+El conmutador PAUSAR/REANUDAR/REPETIR se fundó en **WCAG 2.2.2** («Pausar, detener, ocultar»), que
+exige un mecanismo para detener cualquier movimiento automático que dure más de 5 s. Ese fundamento es
+correcto **como estándar** y sigue siéndolo. Lo que no es, es una **obligación legal** para esta tienda:
+
+- **WCAG es una recomendación del W3C**, un consorcio industrial. No es ley en ninguna jurisdicción por
+  sí misma; adquiere fuerza solo cuando una ley la incorpora por referencia.
+- **En México**, las obligaciones de accesibilidad digital con dientes apuntan a **sitios de gobierno**
+  y servicios públicos. Una tienda privada de cartas no cae bajo ellas.
+- **La norma europea** que sí cubre comercio electrónico privado (la de accesibilidad de productos y
+  servicios) solo aplicaría **si vendiéramos a Europa**. No es el caso.
+
+El dueño decidió no adoptarlo. **Lo que se retira es el CONTROL MANUAL, no la protección**: los cinco
+frenos automáticos siguen enteros (§39.3), y el que de verdad protege a una persona —
+`prefers-reduced-motion`— no solo se queda, sino que ahora está probado en navegador real (§39.6).
+
+Que quede escrito para quien lo lea en un año: **esto es una decisión de negocio sobre un estándar
+voluntario, no un descuido ni una regresión de accesibilidad por ignorancia.** Si algún día se vende a
+Europa, o si el criterio del dueño cambia, el control vuelve — y vuelve entero, porque el predicado que
+lo gobernaba sigue vivo (§39.4).
+
+### 39.2 Qué se fue, con archivo
+
+| Qué | Dónde |
+|---|---|
+| Componente `PlaybackToggle` (46 líneas: iconos `Pause`/`Play`/`RotateCcw`, área táctil `::after`, `.eyebrow`) | `FeaturedCarousel.tsx` |
+| `onTogglePlayback` con su `switch` exhaustivo y su candado `never` | `FeaturedCarousel.tsx` |
+| `goToMode`, `playbackWord`, `playbackAria` | `FeaturedCarousel.tsx` |
+| El paso del slot `titleAdjacent` a `Shelf` | `FeaturedCarousel.tsx` |
+| El slot `titleAdjacent` **entero** (prop, tipo y rama de render) | `_shared/Shelf.tsx` |
+| Claves `home.featured.playback.*` (6 por idioma) | `messages/es.json`, `messages/en.json` |
+| Import `lucide-react` de los tres glifos | `FeaturedCarousel.tsx` |
+
+**El slot se pudo borrar porque se verificó primero**: `titleAdjacent` no tenía más consumidor que el
+carrusel (`grep` sobre `src/` y `e2e/`). El encabezado de §20.3 vuelve a su **fila de tres elementos**
+(H2 · «Ver todo el catálogo» · flechas) y el H2 deja de vivir dentro de un `<div>` de agrupación.
+
+### 39.3 Los cinco frenos automáticos: intactos, y ahora probados por movimiento
+
+Ninguno se tocó. Lo que cambió es **cómo se prueban**: con el botón fuera, la única evidencia honesta de
+que un freno funciona es que **la pista no se mueve**. Todas las aserciones que leían la etiqueta del
+control ahora leen `scrollLeft` (helper `expectFrozen`, en los dos archivos de test). Es una aserción
+**más fuerte**, no más débil: *el botón decía lo que el componente creía; el `scrollLeft` dice lo que el
+componente hizo.*
+
+1. **Hover** — `pointerInside`, suspensión silenciosa y reversible.
+2. **Foco de teclado** — `focusInside`, sobre la sección entera.
+3. **Intervención del usuario ⇒ PAUSA PERMANENTE** — §23.5a con su ventana de **1200 ms**, que **no se
+   tocó** (es una medición de navegador, no una comodidad).
+4. **Visibilidad** — `IntersectionObserver` (< 50 % visible) + `visibilitychange` (pestaña oculta).
+5. **`prefers-reduced-motion` ⇒ CERO movimiento**, escuchado **en vivo**, enforzado en JS y no en
+   `globals.css` (§8.2: la regla global solo anula duraciones de CSS, no un `setTimeout`).
+
+### 39.4 El acoplamiento que había que desmontar sin romper — `rotationPossible`
+
+`rotationPossible` era **el mismo booleano** que decidía dos cosas: si había rotación **y** si se pintaba
+el conmutador («control y movimiento nacen del mismo booleano», §23.8). Retirado el control, la trampa
+evidente era borrarlo «porque ya no hay botón que pintar». **No se borró**: sigue siendo la única puerta
+de `timerRunning`, y con él siguen vivos los cuatro apagados que gobierna — movimiento reducido, pista
+que no desborda, una sola teja, y consulta en carga o en error. Está anotado en el propio código con la
+advertencia explícita.
+
+**Ramas muertas retiradas** (el otro encargo del pase):
+
+- **El `never`.** El candado de exhaustividad vivía dentro de `onTogglePlayback`; se fue con él. No
+  quedó ningún `never` discriminando una unión que ya nadie conmuta.
+- **La transición `ended` → `paused`** de `pauseByIntervention`. La pedía §23.6 **por el conmutador**
+  (para que el botón pasara de REPETIR a REANUDAR). Sin control, no tiene **un solo efecto observable**:
+  los dos modos dejan el temporizador parado y la pista en `aria-live="polite"`. La guarda se colapsa a
+  `if (modeRef.current !== 'playing') return;` y `paused`/`ended` quedan **ambos terminales**.
+- **`PlaybackMode` se conserva con sus tres modos**, y no por inercia: distinguen el anuncio del canal de
+  estado («rotación pausada» vs «fin de las piezas destacadas», §23.9c). Colapsarlos a un booleano
+  `rotando/no rotando` haría indistinguibles esos dos anuncios.
+
+### 39.5 Cadencia 7 s → 5 s
+
+`ROTATION_REST_MS` 7000 → **5000**. Los 7 s se eligieron para quedar **por encima** del umbral de 5 s de
+WCAG 2.2.2 y sostener el argumento del control; retirado el control, la cadencia deja de estar atada a
+ese umbral. **Lo demás del tic no cambia**: una teja por tic, deslizamiento de ~0,5 s, no arranca hasta
+que cargaron las fotos, reposo antes del primer movimiento, **una sola pasada y se detiene**. Al terminar
+queda quieta —ya no hay control que ofrezca REPETIR— y las flechas siguen navegando a mano.
+
+### 39.6 Tests: adaptados, no borrados — y el saldo real
+
+**Se retiraron 9 unitarios y 1 E2E**, todos los que probaban **exclusivamente el control**: área táctil
+44×44 por pseudo-elemento, orden de tabulación (primer control del estante), «nunca `disabled` ni
+`loading`», el ciclo PAUSAR ⟷ REANUDAR, REPETIR, «el conmutador no emite por el canal de estado», su
+sitio pegado al H2, su nombre accesible WCAG 2.5.3, y el presupuesto de la fila en 390/640/1024. **Ni uno
+solo cubría conducta que siga viva.**
+
+**Todo lo demás se adaptó.** Los dos que más importaba que sobrevivieran lo hicieron, y con la aserción
+correcta:
+
+- **«Reposo inicial sin auto-pausarse»** (E2E). Prueba que el `scroll-snap` que Chromium aplica al
+  hidratar **no se lee como intervención**. Antes se leía en la etiqueta («sigue diciendo PAUSAR»); ahora
+  se lee donde está la respuesta de verdad: **la pista se mueve**.
+- **La regresión de §23.5a** (unit + E2E). El gesto real que cae dentro del deslizamiento de un tic tiene
+  antecedente de usuario ⇒ pausa, y no se reanuda sola. Aserción reescrita sobre `scrollLeft`.
+
+**Se añadieron 3 casos**, dos de ellos porque el pase destapó agujeros reales:
+
+- `§20.3 · el encabezado vuelve a su fila de tres elementos` (2 unitarios): el H2 va suelto, y los únicos
+  botones del estante son las dos flechas.
+- **`§23.5 · la pista fuera de vista suspende` (E2E, NUEVO).** El freno de `IntersectionObserver`
+  **no tenía ninguna red**: jsdom no lo implementa, así que una mutación que borre `inView` de
+  `suspended` pasaba **los 39 unitarios en verde**. Se aparta la vista con `window.scrollTo` y nunca
+  tocando la pista — un gesto sobre la pista sería intervención (§23.5 nivel 2) y el test pasaría por el
+  motivo equivocado.
+- **`la ventana de §23.5a dura de verdad: a 1199 ms el gesto TODAVÍA cuenta` (unit, NUEVO).** La ventana
+  estaba pinneada solo por el lado de FUERA (a 1201 ms ya caducó); por dentro no, y `USER_INPUT_WINDOW_MS
+  = 0` pasaba en verde. Ahora muerde por los dos lados. El número es una medición de navegador y
+  acortarlo se lleva por delante la pausa por swipe en táctil (§23.13 nº9).
+
+### 39.7 Verificación — se probó, no se asumió
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **940/940 en 102
+  archivos** · `npm run build` ✔.
+- Base antes del pase: **946/102**. Delta **−6** (`FeaturedCarouselRotation` 46 → 40: −9 retirados del
+  conmutador, +3 nuevos). Sin archivos nuevos ni borrados.
+- **E2E del carrusel** (obligatorio: cambia conducta de rotación):
+  `npx playwright test e2e/featured-rotation.spec.ts` ✔ **9/9** en Chromium, build de producción, modo
+  mocks. Eran 9: se retiró el del presupuesto del conmutador y entró el de visibilidad.
+- **Pasada completa medida**: **15,3 s** de punta a punta en el viewport por defecto (menos tejas fuera
+  de pantalla ⇒ menos tics que en 390px). El presupuesto del test bajó de `180 s` a `120 s` y la espera
+  del fin de `120 s` a `80 s`.
+
+**Los cinco frenos, verificados por MUTACIÓN — no por lectura del código.** Se rompió cada uno a mano y
+se comprobó que la suite se pone roja:
+
+| Freno | Mutación | Resultado |
+|---|---|---|
+| 1 · hover | quitar `pointerInside` de `suspended` | **3 unitarios rojos** |
+| 2 · foco | quitar `focusInside` | **1 unitario rojo** |
+| 3 · intervención | anular la llamada a `pauseByIntervention()` en `handleScroll` | **4 unitarios rojos** |
+| 3b · ventana 1200 ms | `USER_INPUT_WINDOW_MS = 0` | **1 unitario rojo** (el nuevo) |
+| 4a · pestaña oculta | quitar `!tabVisible` | **1 unitario rojo** |
+| 4b · fuera de vista | quitar `!inView` | **E2E rojo** — la pista siguió rotando fuera de pantalla (`460 → 960`). En unitarios **no lo detecta nadie** (jsdom no tiene `IntersectionObserver`): por eso existe el caso E2E nuevo |
+| 5 · `prefers-reduced-motion` | quitar `!reducedMotion` de `rotationPossible` | **3 unitarios rojos + 2 E2E rojos** en Chromium con `emulateMedia({ reducedMotion: 'reduce' })` — movimiento real, preferencia real |
+| extra · `rotationPossible` | `= true` | **3 unitarios rojos** |
+
+La fuente quedó **byte a byte idéntica** al commit tras cada mutación (`git diff --stat` vacío).
+
+### 39.8 Nota sobre deuda ya registrada
+
+**FR-C1** (`docs/TECH_DEBT.md`, anotada en §38.5) sigue vigente en su sustancia —la ventana de 1200 ms se
+arma con `onWheel` sin discriminar eje— pero **su disparador quedó obsoleto**: decía «que QA o soporte
+vean el conmutador en REANUDAR sin intervención», y ya no hay conmutador que mirar. El síntoma
+observable ahora es **que la pista deje de rotar sola antes de terminar su pasada**. No se edita
+`TECH_DEBT.md` aquí porque ese archivo se escribe **a petición del techlead**; queda señalado para él.
+
+### 39.9 Alcance
+
+Cero cambios de contrato, cero endpoints nuevos, cero tokens nuevos, cero componentes nuevos.
+Escrituras: `frontend/` y este archivo. `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó**: §23
+es de ux-ui, que documenta esta misma decisión en paralelo.

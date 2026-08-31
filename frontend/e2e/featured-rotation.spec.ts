@@ -316,8 +316,8 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     await page.getByRole('button', { name: t('es', 'home.carouselPrev') }).click();
     await page.waitForTimeout(800);
     expect((await readTrack(page)).scrollLeft).toBeLessThan(ended.scrollLeft);
-    // Y retroceder no relanza la rotación.
-    await expectFrozen(page);
+    // Y retroceder no relanza la rotación (un reposo completo basta: el tic caería dentro).
+    await expectFrozen(page, 1);
   });
 
   test('§23.9 · la sección se anuncia como carrusel y la pista es un tope de tabulación con nombre', async ({
