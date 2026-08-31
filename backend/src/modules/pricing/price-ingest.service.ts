@@ -23,7 +23,7 @@ import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-
 import { AuditService } from '../audit/audit.service';
 import {
   GradedPhase2Verdict,
-  GradedStopReason,
+  GradedRunOutcome,
   gradedPhase2Verdict,
   shapeCountIsInduced,
 } from './graded-phase2-verdict';
@@ -998,6 +998,13 @@ export class PriceIngestService {
        * porque «no se pidió nada» es un coste conocido y exacto, no un desconocido.
        */
       creditsSpent: 0 as number | null,
+      /**
+       * v1.51-c (R1-ter) — cuántas peticiones se EMITIERON y por qué las demás no. Sin esto,
+       * `requestOk:false` mezclaba «se pidió y falló» con «no se pidió», y el veredicto mandaba a leer
+       * la línea «EL REQUEST FALLÓ» en las dos causas donde esa línea NO existe (sin llave / set sin
+       * `pptSetId`) — el defecto (b) de R1, en las dos sospechas más probables del cero de producción.
+       */
+      requests: { attempted: 0, missingApiKey: false, setsWithoutPptSetId: [] as string[] },
     };
     // Config COMPLETA (no la del storefront). v1.51 (M-46, §4.38r.7): el gate lee **`cfg.enabled` — el
     // DIAL CRUDO—, NUNCA `estimatesEnabled`/`highlightEnabled`**. Esos dos doblan la validez de claves
@@ -1012,25 +1019,37 @@ export class PriceIngestService {
           'se enciende con PUT /admin/settings { "gradingHookEnabled": "on" }, y encenderlo también ' +
           'PUBLICA las cifras.',
       );
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto', 'dial_off');
+      return this.emitGradedVerdict(result, ev, { kind: 'stopped', reason: 'dial_off' });
     }
     if (cfg.ingestConfigInvalid) {
       // R1: el dial está ENCENDIDO. El veredicto tiene que decir eso y NOMBRAR la clave: mandar a
       // «encender el dial» aquí es enviar al operador a arreglar lo único que ya estaba bien.
-      const keys = cfg.ingestInvalidKeys.length > 0 ? cfg.ingestInvalidKeys.join(', ') : 'no identificada(s)';
+      // TL-GE6: el veredicto exige una lista NO VACÍA por tipo, y por eso la lista se desarma aquí. El
+      // `if` sigue colgando de `cfg.ingestConfigInvalid` (fail-closed: si el cargador dice «inválida»,
+      // NO se pide nada, pase lo que pase con la lista). El caso «inválida sin clave» es INALCANZABLE
+      // —`ingestConfigInvalid` se DERIVA de `ingestInvalidKeys.length > 0` (`pricing.service.ts`)—, así
+      // que si alguna vez se alcanza lo que hay es una divergencia del cargador: se NOMBRA en vez de
+      // degradar a «no identificada(s)», que es la cadena no accionable que R1 vino a matar.
+      const [primeraClaveInvalida, ...demasClavesInvalidas] = cfg.ingestInvalidKeys;
+      const clavesInvalidas: readonly [string, ...string[]] =
+        primeraClaveInvalida === undefined
+          ? [
+              'NINGUNA (BUG del cargador: marcó la config del ingest como INVÁLIDA sin nombrar ninguna ' +
+                'clave — ingestConfigInvalid y ingestInvalidKeys divergieron; revisa ' +
+                'loadGradedEstimateConfigForAdmin)',
+            ]
+          : [primeraClaveInvalida, ...demasClavesInvalidas];
+      const keys = clavesInvalidas.join(', ');
       this.logger.warn(
         `graded-estimate-ingest: el dial \`grading_hook_enabled\` está en \`on\`, pero la config del ` +
           `INGEST tiene clave(s) PRESENTE(S)-e-INVÁLIDA(S): ${keys} → NO se pide nada (cero créditos) ` +
           'y NO se escribe ninguna fila. Corrige esa(s) clave(s) con PUT /admin/pricing/graded-estimates.',
       );
-      return this.emitGradedVerdict(
-        result,
-        ev,
-        { s1: 0, s2: 0 },
-        'auto',
-        'ingest_config_invalid',
-        cfg.ingestInvalidKeys,
-      );
+      return this.emitGradedVerdict(result, ev, {
+        kind: 'stopped',
+        reason: 'ingest_config_invalid',
+        invalidConfigKeys: clavesInvalidas,
+      });
     }
     // ⚠️ R1 — `result.enabled` describe EL DIAL, y por eso se pone aquí arriba y NO tres líneas más
     // abajo: mientras vivía después de las salidas tempranas, el veredicto recibía `enabled: false`
@@ -1054,7 +1073,7 @@ export class PriceIngestService {
       );
       // R1: `no_scope`, NO «el request falló». Con `requestOk:false` el veredicto mandaba a buscar
       // líneas «PPT graded: EL REQUEST FALLÓ» que no existen — no hubo petición que pudiera fallar.
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto', 'no_scope');
+      return this.emitGradedVerdict(result, ev, { kind: 'stopped', reason: 'no_scope' });
     }
     result.cardsInScope = cardIds.length;
 
@@ -1147,6 +1166,11 @@ export class PriceIngestService {
         probedSets += 1;
       }
       if (res.requestOk) ev.requestOk = true;
+      // R1-ter: el provider dice si NO llegó a pedir y por qué. `null`/ausente ⇒ sí hubo petición (el
+      // caso normal, y también el del rechazo de parámetro, que responde con un 4xx real).
+      if (res.noRequestReason === 'missing_api_key') ev.requests.missingApiKey = true;
+      else if (res.noRequestReason === 'set_without_ppt_set_id') ev.requests.setsWithoutPptSetId.push(set.externalId);
+      else ev.requests.attempted += 1;
       ev.cardsReturned += res.fetchedRaw;
       // TL-GE1: se SUMA lo atribuible; un solo set que no pueda aislarlo deja la corrida entera sin
       // cifra. No se completa con el contador diario del cliente: es el dato contaminado que se retiró.
@@ -1207,9 +1231,15 @@ export class PriceIngestService {
           ...res.escalate,
         });
         // El veredicto se emite TAMBIÉN aquí: ésta es la salida en la que el dueño más necesita leer,
-        // sin bucear, qué pasó y que la decisión es del arquitecto. `stopReason: null` — aquí SÍ se
+        // sin bucear, qué pasó y que la decisión es del arquitecto. Va como `observed` — aquí SÍ se
         // preguntó (el proveedor contestó rechazando), así que la conclusión es sobre el proveedor.
-        return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen, null);
+        return this.emitGradedVerdict(result, ev, {
+          kind: 'observed',
+          requestOk: ev.requestOk,
+          requests: ev.requests,
+          shapeCounts,
+          forcedFormat: forcedFormatSeen,
+        });
       }
 
       // La traza de los DESCARTES del parser es obligatoria: sin ella, el descarte por muestra baja es
@@ -1426,7 +1456,20 @@ export class PriceIngestService {
           // sin abrir el log, POR QUÉ vía se disparó y que el conteo es una observación (formato
           // `auto`), no un eco de un override nuestro. Las dos vías piden lecturas distintas: (A) dice
           // «el campo puede que no exista en este plan»; (B) dice «lo hay, pero domina el malo».
-          `Evidencia: GRADED_FORMAT=auto (autodetección, sin override) y ` +
+          // ⚠️ v1.51-c (TL-GE2-bis) — esta frase decía literalmente «GRADED_FORMAT=auto (autodetección,
+          // sin override)». Era FALSA justo en la rama que TL-GE2 acababa de abrir: con `probe=true` y
+          // el formato FORZADO, la sonda sí escala (su conteo no está inducido) y `forcedFormatSeen`
+          // vale `graded_prices`. O sea, el texto que se le manda al arquitecto para decidir
+          // PRESUPUESTO afirmaba un hecho falso sobre la corrida que lo produjo, mientras el AuditLog
+          // de tres líneas abajo llevaba el valor verdadero. Lo que la frase quiere decir es «el conteo
+          // NO está inducido», así que se DERIVA de eso y no de un literal.
+          `Evidencia: el conteo NO está inducido por un override nuestro (` +
+          (forcedFormatSeen === 'auto'
+            ? 'GRADED_FORMAT=auto, autodetección pura'
+            : `GRADED_FORMAT="${forcedFormatSeen}", pero la corrida fue SONDA y la sonda clasifica con ` +
+              'detectGradedShape, que IGNORA el override ⇒ su conteo sigue siendo observación del ' +
+              'proveedor') +
+          ') y ' +
           (neverSawS1
             ? `CERO observaciones S1 en toda la corrida (regla A, §4.38h.1-ter): no se escala por ` +
               'mayoría sino porque **nunca hemos visto el shape bueno**, lo que sugiere que ' +
@@ -1466,7 +1509,13 @@ export class PriceIngestService {
         `${shapeCounts.s2} S2), ${result.unrecognized} con forma no reconocida, ` +
         `${result.skippedNoGradedBlock} set(s) sin bloque PSA.`,
     );
-    return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen, null);
+    return this.emitGradedVerdict(result, ev, {
+      kind: 'observed',
+      requestOk: ev.requestOk,
+      requests: ev.requests,
+      shapeCounts,
+      forcedFormat: forcedFormatSeen,
+    });
   }
 
   /**
@@ -1485,32 +1534,36 @@ export class PriceIngestService {
    */
   private emitGradedVerdict(
     result: GradedIngestResult,
-    ev: { probe: boolean; requestOk: boolean; cardsReturned: number; creditsSpent: number | null },
-    shapeCounts: { s1: number; s2: number },
-    forcedFormat: GradedFormat,
+    ev: { probe: boolean; cardsReturned: number; creditsSpent: number | null },
     /**
-     * v1.51-b (R1) — por qué se PARÓ antes de preguntar, o `null` si se llegó a hablar con el
-     * proveedor. Es OBLIGATORIO en la firma (no tiene default) a propósito: cada `return` de
-     * `ingestGradedEstimates` tiene que declarar su causa, y añadir una salida nueva sin declararla
-     * ya no compila. Ése fue exactamente el defecto: dos salidas heredaban el titular del dial.
+     * v1.51-c (TL-GE6) — **cómo terminó la corrida**, como unión discriminada: `stopped` (con su
+     * motivo, y con la clave nombrada si es config inválida) u `observed` (con conteos, formato y el
+     * recuento de peticiones).
+     *
+     * ### Por qué cambió respecto a R1 (y qué garantía da AHORA)
+     * R1 dejó `stopReason: GradedStopReason | null` como parámetro obligatorio y lo documentó como «el
+     * candado que impide la reincidencia». El techlead verificó que ese candado era de **ARIDAD**:
+     * obligaba a pasar *un* argumento, no *el correcto*. Un `…, null)` en una salida temprana futura
+     * compilaba y reproducía R1 palabra por palabra, y `invalidConfigKeys` tenía default `[]`, así que
+     * una salida que olvidara las claves degradaba en silencio a «no identificada(s)».
+     *
+     * Con la unión, los dos estados dejan de ser expresables: una parada **no tiene** conteos que
+     * fingir, una observación **no puede** omitir su causa de parada (no paró), y
+     * `ingest_config_invalid` **exige** al menos una clave (`[string, ...string[]]`). Lo que el tipo
+     * sigue SIN garantizar —y por eso se dice aquí en vez de prometer de más— es que el motivo elegido
+     * sea el verdadero: eso lo cubren los tests de `graded-estimate.probe.spec.ts`.
      */
-    stopReason: GradedStopReason | null,
-    /** Claves presente(s)-e-inválida(s) cuando `stopReason === 'ingest_config_invalid'`. */
-    invalidConfigKeys: readonly string[] = [],
+    outcome: GradedRunOutcome,
   ): GradedIngestResult {
     const report = gradedPhase2Verdict({
       probe: ev.probe,
-      stopReason,
-      invalidConfigKeys,
-      requestOk: ev.requestOk,
+      outcome,
       sets: result.sets,
       cardsInScope: result.cardsInScope,
       cardsReturned: ev.cardsReturned,
-      shapeCounts,
       written: result.written,
       dailyLimited: result.dailyLimited,
       escalationReason: result.escalation?.reason ?? null,
-      forcedFormat,
       creditsSpent: ev.creditsSpent,
     });
     result.verdict = report.verdict;

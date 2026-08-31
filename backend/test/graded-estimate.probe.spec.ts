@@ -15,7 +15,8 @@ import {
   gradedPhase2Verdict,
   shapeCountIsInduced,
   GRADED_VERDICT_TAG,
-  GradedStopReason,
+  GradedRequestTally,
+  GradedRunOutcome,
 } from '../src/modules/pricing/graded-phase2-verdict';
 
 /**
@@ -299,6 +300,8 @@ function wireJob(
   config: Record<string, unknown> = ON,
   /** Alcance del ingest: `[]` reproduce «ninguna carta con inventario RAW publicado» (R1, `no_scope`). */
   inventario: { cardId: string }[] = [{ cardId: 'c1' }],
+  /** `null` reproduce el set SIN `pptSetId` mapeado (causa #5 del mapa; R1-ter). */
+  pptSetId: string | null = 'sv8',
 ) {
   const store = new Map<string, unknown>(Object.entries(config));
   const create = jest.fn(async ({ data }: any) => ({ id: 'pr-new', ...data }));
@@ -318,7 +321,9 @@ function wireJob(
   jest.spyOn(pricing, 'getPublishedSlabGradesBatch').mockResolvedValue(new Map());
   const c = cfg(env);
   const pptBulk = provider(c);
-  const pptSetMapper = { resolveForSets: jest.fn(async () => new Map([['s1', 'sv8']])) } as unknown as PptSetMapper;
+  const pptSetMapper = {
+    resolveForSets: jest.fn(async () => new Map([['s1', pptSetId]])),
+  } as unknown as PptSetMapper;
   const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
   const ingest = new PriceIngestService(
     prisma, settings, pricing, pptBulk, {} as never, {} as never, pptSetMapper, {} as never, undefined, audit,
@@ -388,35 +393,49 @@ describe('§4.38h.1-quater — la corrida en modo SONDA no toca `PriceReference`
 });
 
 // =================================================================================================
+/**
+ * v1.51-c (TL-GE6) — la entrada del veredicto es una UNIÓN DISCRIMINADA (`GradedRunOutcome`): o la
+ * corrida PARÓ (y trae su motivo) o OBSERVÓ (y trae conteos, formato y el recuento de peticiones).
+ * `observado()` arma el caso «se emitió petición en 1 set» que usan casi todos los tests de abajo.
+ */
+type Observado = Extract<GradedRunOutcome, { kind: 'observed' }>;
+const PETICIONES_EMITIDAS: GradedRequestTally = { attempted: 1, missingApiKey: false, setsWithoutPptSetId: [] };
+const observado = (over: Partial<Omit<Observado, 'kind'>> = {}): GradedRunOutcome => ({
+  kind: 'observed',
+  requestOk: true,
+  requests: PETICIONES_EMITIDAS,
+  shapeCounts: { s1: 0, s2: 0 },
+  forcedFormat: 'auto',
+  ...over,
+});
+
 describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, misma conclusión)', () => {
   const base = {
     probe: true,
-    stopReason: null as GradedStopReason | null,
-    invalidConfigKeys: [] as readonly string[],
-    requestOk: true,
+    outcome: observado(),
     sets: 1,
     cardsInScope: 1,
     cardsReturned: 10,
-    shapeCounts: { s1: 0, s2: 0 },
     written: 0,
     dailyLimited: false,
     escalationReason: null as string | null,
-    forcedFormat: 'auto' as const,
     creditsSpent: null as number | null,
   };
 
   it('S1 observado ⇒ VIABLE («la fase 2 funciona»)', () => {
-    const r = gradedPhase2Verdict({ ...base, shapeCounts: { s1: 4, s2: 0 } });
+    const r = gradedPhase2Verdict({ ...base, outcome: observado({ shapeCounts: { s1: 4, s2: 0 } }) });
     expect(r.verdict).toBe('VIABLE');
     expect(r.headline).toContain('FUNCIONA');
   });
 
   it('mezcla S1 + S2 ⇒ VIABLE parcial: las S2 se saltan, no hay nada que arreglar', () => {
-    expect(gradedPhase2Verdict({ ...base, shapeCounts: { s1: 2, s2: 9 } }).verdict).toBe('VIABLE');
+    expect(gradedPhase2Verdict({ ...base, outcome: observado({ shapeCounts: { s1: 2, s2: 9 } }) }).verdict).toBe(
+      'VIABLE',
+    );
   });
 
   it('SOLO S2 ⇒ NO_VIABLE, y la frase dice por qué (ni `count` ni fecha ⇒ ninguna config lo arregla)', () => {
-    const r = gradedPhase2Verdict({ ...base, shapeCounts: { s1: 0, s2: 6 } });
+    const r = gradedPhase2Verdict({ ...base, outcome: observado({ shapeCounts: { s1: 0, s2: 6 } }) });
     expect(r.verdict).toBe('NO_VIABLE');
     expect(r.nextStep).toContain('ESCALA AL ARQUITECTO');
   });
@@ -425,8 +444,7 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
     const r = gradedPhase2Verdict({
       ...base,
       probe: false,
-      forcedFormat: 'graded_prices',
-      shapeCounts: { s1: 0, s2: 6 },
+      outcome: observado({ forcedFormat: 'graded_prices', shapeCounts: { s1: 0, s2: 6 } }),
     });
     expect(r.verdict).toBe('INDETERMINADO');
     expect(r.headline).toContain('no lo que sirve');
@@ -439,8 +457,9 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
   });
 
   it('sin respuesta OK ⇒ INDETERMINADO: eso es plomería, no un veredicto sobre el proveedor', () => {
-    expect(gradedPhase2Verdict({ ...base, requestOk: false }).verdict).toBe('INDETERMINADO');
-    expect(gradedPhase2Verdict({ ...base, requestOk: false, dailyLimited: true }).headline).toContain('cuota diaria');
+    const fallo = observado({ requestOk: false });
+    expect(gradedPhase2Verdict({ ...base, outcome: fallo }).verdict).toBe('INDETERMINADO');
+    expect(gradedPhase2Verdict({ ...base, outcome: fallo, dailyLimited: true }).headline).toContain('cuota diaria');
   });
 
   it('el rechazo del parámetro ⇒ NO_VIABLE con la decisión en manos del arquitecto (regla 9)', () => {
@@ -457,7 +476,7 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
   it('COSTE: si el gasto escala con las cartas DEVUELTAS, el bloque lo dice y manda escalarlo', () => {
     const caro = gradedPhase2Verdict({
       ...base,
-      shapeCounts: { s1: 1, s2: 0 },
+      outcome: observado({ shapeCounts: { s1: 1, s2: 0 } }),
       cardsReturned: 200,
       creditsSpent: 400, // 400 créditos por 200 cartas = 2 por carta DEVUELTA
     });
@@ -469,7 +488,7 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
   it('COSTE: 1 crédito por petición ⇒ se dice que el barrido por set NO escala con el tamaño del set', () => {
     const barato = gradedPhase2Verdict({
       ...base,
-      shapeCounts: { s1: 1, s2: 0 },
+      outcome: observado({ shapeCounts: { s1: 1, s2: 0 } }),
       cardsReturned: 200,
       creditsSpent: 1,
     });
@@ -477,7 +496,9 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
   });
 
   it('COSTE: sin cifra ATRIBUIBLE no se estima a ojo — se dice que no se pudo aislar (TL-GE1)', () => {
-    const texto = gradedPhase2Verdict({ ...base, shapeCounts: { s1: 1, s2: 0 } }).lines.join('\n');
+    const texto = gradedPhase2Verdict({ ...base, outcome: observado({ shapeCounts: { s1: 1, s2: 0 } }) }).lines.join(
+      '\n',
+    );
     expect(texto).toContain('NO SE PUDO AISLAR');
     // Y se explica POR QUÉ el contador diario no vale: es el dato que la versión anterior restaba.
     expect(texto).toContain('barrido de precios RAW');
@@ -487,7 +508,7 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
   });
 
   it('todas las líneas llevan la marca: un solo `grep` devuelve el bloque completo', () => {
-    const r = gradedPhase2Verdict({ ...base, shapeCounts: { s1: 1, s2: 0 } });
+    const r = gradedPhase2Verdict({ ...base, outcome: observado({ shapeCounts: { s1: 1, s2: 0 } }) });
     expect(r.lines.every((l) => l.startsWith(`[${GRADED_VERDICT_TAG}]`))).toBe(true);
   });
 });
@@ -516,22 +537,25 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
 describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a arreglar lo que está bien', () => {
   const base = {
     probe: false,
-    stopReason: null as GradedStopReason | null,
-    invalidConfigKeys: [] as readonly string[],
-    requestOk: false,
+    outcome: { kind: 'stopped', reason: 'dial_off' } as GradedRunOutcome,
     sets: 0,
     cardsInScope: 0,
     cardsReturned: 0,
-    shapeCounts: { s1: 0, s2: 0 },
     written: 0,
     dailyLimited: false,
     escalationReason: null as string | null,
-    forcedFormat: 'auto' as const,
     creditsSpent: 0 as number | null,
   };
+  /** Las tres paradas, ya como `outcome` (la config inválida NOMBRA su clave por exigencia del tipo). */
+  const parada = (reason: 'dial_off' | 'no_scope'): GradedRunOutcome => ({ kind: 'stopped', reason });
+  const configInvalida = (...keys: [string, ...string[]]): GradedRunOutcome => ({
+    kind: 'stopped',
+    reason: 'ingest_config_invalid',
+    invalidConfigKeys: keys,
+  });
 
   it('`dial_off` ⇒ dice que el dial está en `off` y manda encenderlo (el ÚNICO caso donde eso aplica)', () => {
-    const r = gradedPhase2Verdict({ ...base, stopReason: 'dial_off' });
+    const r = gradedPhase2Verdict({ ...base, outcome: parada('dial_off') });
     expect(r.verdict).toBe('INDETERMINADO');
     expect(r.headline).toContain('`off`');
     expect(r.nextStep).toContain('gradingHookEnabled');
@@ -540,8 +564,7 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
   it('⛑️ (a) `ingest_config_invalid` ⇒ dice que el dial está en `on` y NOMBRA la clave a corregir', () => {
     const r = gradedPhase2Verdict({
       ...base,
-      stopReason: 'ingest_config_invalid',
-      invalidConfigKeys: ['graded_estimate_ingest_max_cards_per_run'],
+      outcome: configInvalida('graded_estimate_ingest_max_cards_per_run'),
     });
     // La aserción que pone en rojo el bug: el titular ya no puede acusar al dial.
     expect(r.headline).toContain('NO es el dial');
@@ -554,7 +577,7 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
   });
 
   it('⛑️ (b) `no_scope` ⇒ habla de inventario publicado y NO manda a buscar un log que no existe', () => {
-    const r = gradedPhase2Verdict({ ...base, stopReason: 'no_scope' });
+    const r = gradedPhase2Verdict({ ...base, outcome: parada('no_scope') });
     expect(r.headline).toContain('inventario RAW');
     expect(r.nextStep).toContain('status=listed');
     expect(r.nextStep + r.headline).not.toContain('EL REQUEST FALLÓ');
@@ -562,18 +585,15 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
   });
 
   it('las tres paradas se distinguen entre sí (mismo síntoma, tres remedios distintos)', () => {
-    const titulares = (['dial_off', 'ingest_config_invalid', 'no_scope'] as const).map(
-      (stopReason) => gradedPhase2Verdict({ ...base, stopReason }).headline,
-    );
+    const paradas: GradedRunOutcome[] = [parada('dial_off'), configInvalida('graded_estimate_source_stat'), parada('no_scope')];
+    const titulares = paradas.map((outcome) => gradedPhase2Verdict({ ...base, outcome }).headline);
     expect(new Set(titulares).size).toBe(3);
-    const acciones = (['dial_off', 'ingest_config_invalid', 'no_scope'] as const).map(
-      (stopReason) => gradedPhase2Verdict({ ...base, stopReason }).nextStep,
-    );
+    const acciones = paradas.map((outcome) => gradedPhase2Verdict({ ...base, outcome }).nextStep);
     expect(new Set(acciones).size).toBe(3);
   });
 
   it('con parada NO se finge un desglose de shapes ni un coste desconocido: 0 créditos, sin petición', () => {
-    const texto = gradedPhase2Verdict({ ...base, stopReason: 'no_scope' }).lines.join('\n');
+    const texto = gradedPhase2Verdict({ ...base, outcome: parada('no_scope') }).lines.join('\n');
     expect(texto).toContain('no llegó a preguntarle al proveedor');
     expect(texto).toContain('COSTE: 0 créditos');
     expect(texto).not.toContain('NO SE PUDO AISLAR');
@@ -659,6 +679,15 @@ describe('v1.51-b (TL-GE2/R2) — ingest y veredicto usan LA MISMA definición d
     // Las dos superficies dicen lo MISMO: el conteo de la sonda es evidencia, así que se escala.
     expect(res.verdict).toBe('NO_VIABLE');
     expect(res.escalation?.reason).toBe('shape_not_persistible_s2_dominant');
+    // ⛑️ v1.51-c (TL-GE2-bis) — LA AFIRMACIÓN FALSA. El `detail` que se le manda al ARQUITECTO para
+    // decidir presupuesto decía «Evidencia: GRADED_FORMAT=auto (autodetección, sin override)» en la
+    // rama que TL-GE2 acababa de abrir… donde `GRADED_FORMAT` vale `graded_prices`. El AuditLog sí
+    // llevaba el valor verdadero, así que la contradicción vivía dentro del mismo pase. Este `expect`
+    // es el que faltaba (por eso pasó): ahora la frase se DERIVA de «el conteo no está inducido».
+    expect(res.escalation?.detail).not.toContain('GRADED_FORMAT=auto (autodetección, sin override)');
+    expect(res.escalation?.detail).toContain('GRADED_FORMAT="graded_prices"');
+    expect(res.escalation?.detail).toContain('NO está inducido');
+    expect(res.escalation?.detail).toContain('SONDA');
     // ⛑️ La frase contradictoria ya no puede convivir con el veredicto NO_VIABLE del mismo bloque.
     expect(texto).not.toContain('pero NO se escala');
     expect(create).not.toHaveBeenCalled(); // la sonda sigue sin escribir, pase lo que pase
@@ -675,6 +704,215 @@ describe('v1.51-b (TL-GE2/R2) — ingest y veredicto usan LA MISMA definición d
     expect(res.verdict).toBe('INDETERMINADO');
     expect(res.escalation).toBeNull();
     expect(logs.join('\n')).toContain('NO se escala');
+  });
+});
+
+// =================================================================================================
+/**
+ * **v1.51-c (R1-ter) — «no respondió OK» ≠ «no se preguntó», y la diferencia es la línea de log.**
+ *
+ * R1 cerró dos instancias de este defecto (`ingest_config_invalid` y `no_scope`) y dejó viva la
+ * TERCERA: la rama `!requestOk` seguía mandando a *«Revisa las líneas “PPT graded: EL REQUEST FALLÓ”»*
+ * también cuando **no hubo NINGUNA petición**, que es lo que pasa en las causas #4 (sin
+ * `POKEMONPRICETRACKER_API_KEY`) y #5 (**set sin `pptSetId`**) del mapa de causas. En las dos, el
+ * provider hace `return empty` ANTES de llamar, así que esa línea **no existe en el log** — y «set sin
+ * `pptSetId`» es justo la hipótesis principal de las cartas sin dato en producción, o sea el caso más
+ * caro de equivocar.
+ */
+describe('v1.51-c (R1-ter) — sin petición, el veredicto NO manda a leer la línea del fallo', () => {
+  const baseSinRespuesta = {
+    probe: false,
+    outcome: observado({ requestOk: false }),
+    sets: 1,
+    cardsInScope: 3,
+    cardsReturned: 0,
+    written: 0,
+    dailyLimited: false,
+    escalationReason: null as string | null,
+    creditsSpent: 0 as number | null,
+  };
+  const sinPeticion = (over: Partial<GradedRequestTally>): GradedRunOutcome =>
+    observado({ requestOk: false, requests: { attempted: 0, missingApiKey: false, setsWithoutPptSetId: [], ...over } });
+
+  it('⛑️ sin API key ⇒ dice que NO HUBO PETICIÓN y manda a la línea que SÍ existe', () => {
+    const r = gradedPhase2Verdict({ ...baseSinRespuesta, outcome: sinPeticion({ missingApiKey: true }) });
+    expect(r.verdict).toBe('INDETERMINADO');
+    expect(r.headline).toContain('NI UNA PETICIÓN');
+    expect(r.headline).toContain('POKEMONPRICETRACKER_API_KEY');
+    // LA REGRESIÓN: mandaba a buscar un log inexistente. Ahora nombra el que sí está.
+    expect(r.nextStep).toContain('«PPT graded: falta POKEMONPRICETRACKER_API_KEY»');
+    expect(r.nextStep).toContain('NO existe en esta corrida');
+  });
+
+  it('⛑️ set sin `pptSetId` ⇒ NOMBRA los sets y manda al log del mapper, no al del fallo', () => {
+    const r = gradedPhase2Verdict({
+      ...baseSinRespuesta,
+      outcome: sinPeticion({ setsWithoutPptSetId: ['sv8', 'sv7'] }),
+    });
+    expect(r.verdict).toBe('INDETERMINADO');
+    // Accionable directo: el operador no puede arreglar «algún set»; sí puede arreglar `sv8`.
+    expect(r.headline).toContain('sv8, sv7');
+    expect(r.headline).toContain('pptSetId');
+    expect(r.nextStep).toContain('PptSetMapper');
+    expect(r.nextStep).toContain('sv8, sv7');
+  });
+
+  it('los dos casos SIN petición se distinguen entre sí y del caso «se pidió y falló»', () => {
+    const textos = [
+      sinPeticion({ missingApiKey: true }),
+      sinPeticion({ setsWithoutPptSetId: ['sv8'] }),
+      observado({ requestOk: false }), // attempted: 1 ⇒ la petición SÍ salió
+    ].map((outcome) => {
+      const r = gradedPhase2Verdict({ ...baseSinRespuesta, outcome });
+      return `${r.headline}\n${r.nextStep}`;
+    });
+    expect(new Set(textos).size).toBe(3);
+    // Solo el tercero puede mandar a la línea del fallo, porque solo ahí existe.
+    expect(textos[0]).not.toContain('Revisa las líneas «PPT graded: EL REQUEST FALLÓ»');
+    expect(textos[1]).not.toContain('Revisa las líneas «PPT graded: EL REQUEST FALLÓ»');
+    expect(textos[2]).toContain('Revisa las líneas «PPT graded: EL REQUEST FALLÓ»');
+  });
+
+  it('con peticiones emitidas Y sets sin mapear, se dicen las DOS causas (no se tapa una con otra)', () => {
+    const r = gradedPhase2Verdict({
+      ...baseSinRespuesta,
+      outcome: observado({
+        requestOk: false,
+        requests: { attempted: 2, missingApiKey: false, setsWithoutPptSetId: ['sv8'] },
+      }),
+    });
+    expect(r.nextStep).toContain('EL REQUEST FALLÓ');
+    expect(r.nextStep).toContain('NI SE PIDIERON');
+    expect(r.nextStep).toContain('sv8');
+  });
+
+  it('los sets NO PEDIDOS salen en el bloque AUNQUE el veredicto sea VIABLE (el caso de producción)', () => {
+    // Escribe estimados de un set y, a la vez, NUNCA pidió los otros: «funciona» y «faltan cartas»
+    // son ciertas al mismo tiempo, y sin esta línea había que deducirlo del log del mapper.
+    const r = gradedPhase2Verdict({
+      ...baseSinRespuesta,
+      cardsReturned: 10,
+      written: 4,
+      outcome: observado({
+        shapeCounts: { s1: 6, s2: 0 },
+        requests: { attempted: 1, missingApiKey: false, setsWithoutPptSetId: ['sv7', 'sv6'] },
+      }),
+    });
+    expect(r.verdict).toBe('VIABLE');
+    expect(r.lines.join('\n')).toContain('SETS NO PEDIDOS: 2 set(s)');
+    expect(r.lines.join('\n')).toContain('sv7, sv6');
+  });
+
+  // ── El mismo defecto, en la CORRIDA REAL (provider real + fetch delator) ────────────────────────
+  it('⛑️ EN LA CORRIDA: set sin `pptSetId` ⇒ cero peticiones y el bloque nombra el set, no el fallo', async () => {
+    const logs = capturarLogs();
+    const spy = mockPages([pageS1()]);
+    const { ingest, create } = wireJob({}, ON, [{ cardId: 'c1' }], null); // set SIN mapear
+
+    const res = await ingest.ingestGradedEstimates(FX);
+    const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
+
+    expect(spy).not.toHaveBeenCalled(); // no hubo petición: cero créditos
+    expect(create).not.toHaveBeenCalled();
+    expect(res.verdict).toBe('INDETERMINADO');
+    expect(bloque).toContain('sv8'); // el set afectado, por nombre
+    expect(bloque).toContain('pptSetId');
+    // ⛑️ LA REGRESIÓN: aquí se leía «Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del log». Hoy la
+    // única mención de esa línea es para decir que NO existe (para que nadie la busque).
+    expect(bloque).not.toContain('Revisa las líneas «PPT graded: EL REQUEST FALLÓ»');
+    expect(bloque).toContain('«EL REQUEST FALLÓ» NO existe');
+  });
+
+  it('⛑️ EN LA CORRIDA: sin `POKEMONPRICETRACKER_API_KEY` ⇒ mismo trato (cero peticiones, causa nombrada)', async () => {
+    const logs = capturarLogs();
+    const spy = mockPages([pageS1()]);
+    const { ingest } = wireJob({ POKEMONPRICETRACKER_API_KEY: undefined });
+
+    const res = await ingest.ingestGradedEstimates(FX);
+    const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(res.verdict).toBe('INDETERMINADO');
+    expect(bloque).toContain('POKEMONPRICETRACKER_API_KEY');
+    expect(bloque).not.toContain('Revisa las líneas «PPT graded: EL REQUEST FALLÓ»');
+    expect(bloque).toContain('NO existe en esta corrida');
+  });
+});
+
+// =================================================================================================
+/**
+ * **v1.51-c (QA-GE2) — una conclusión sobre el modelo de cobro NO se saca de cero observaciones.**
+ *
+ * Con `creditsSpent: 0` y `cardsReturned: 0` (p. ej. todos los sets sin `pptSetId`) la línea de coste
+ * imprimía *«COSTE MEDIDO: 0 crédito(s) por 0 carta(s) DEVUELTAS … Compatible con “se cobra por
+ * PETICIÓN”»*. No toca dinero (`perCard` era `null`), pero es una conclusión sacada de la nada — la
+ * misma clase de defecto que este bloque existe para erradicar, cometida por el propio bloque.
+ */
+describe('v1.51-c (QA-GE2) — con CERO cartas devueltas, el coste vuelve a «no se puede medir»', () => {
+  const base = {
+    probe: false,
+    outcome: observado({ shapeCounts: { s1: 0, s2: 0 } }),
+    sets: 2,
+    cardsInScope: 5,
+    cardsReturned: 0,
+    written: 0,
+    dailyLimited: false,
+    escalationReason: null as string | null,
+    creditsSpent: 0 as number | null,
+  };
+
+  it('⛑️ 0 créditos / 0 cartas ⇒ NO SE PUEDE MEDIR, y NO se afirma el modelo de cobro', () => {
+    const texto = gradedPhase2Verdict(base).lines.join('\n');
+    expect(texto).toContain('NO SE PUEDE MEDIR');
+    // ⛑️ Las dos frases que la regresión imprimía sobre cero observaciones.
+    expect(texto).not.toContain('COSTE MEDIDO');
+    expect(texto).not.toContain('se cobra por PETICIÓN');
+  });
+
+  it('con créditos gastados y CERO cartas tampoco se concluye (se dice el gasto y se para ahí)', () => {
+    const texto = gradedPhase2Verdict({ ...base, creditsSpent: 3 }).lines.join('\n');
+    expect(texto).toContain('3 crédito(s) atribuible(s)');
+    expect(texto).toContain('NO SE PUEDE MEDIR');
+    expect(texto).not.toContain('se cobra por PETICIÓN');
+  });
+
+  it('el contraste: con cartas devueltas la medición SÍ se hace (no se rompió el caso bueno)', () => {
+    const texto = gradedPhase2Verdict({ ...base, cardsReturned: 4, creditsSpent: 1 }).lines.join('\n');
+    expect(texto).toContain('COSTE MEDIDO: 1 crédito(s) por 4 carta(s) DEVUELTAS');
+    expect(texto).toContain('se cobra por PETICIÓN');
+  });
+});
+
+// =================================================================================================
+/**
+ * **v1.51-c (TL-GE6) — el candado de R1 era de ARIDAD; ahora es de FORMA.**
+ *
+ * `stopReason: GradedStopReason | null` obligaba a pasar *un* argumento, no *el correcto*: un
+ * `emitGradedVerdict(…, null)` en una salida temprana futura compilaba y reproducía R1 palabra por
+ * palabra. Estos `@ts-expect-error` son la prueba: **si alguien vuelve a aplanar la entrada, este
+ * archivo deja de compilar**, que es la única forma de que un candado de tipos se pruebe.
+ */
+describe('v1.51-c (TL-GE6) — los estados que producían R1 ya no son expresables', () => {
+  it('una PARADA no puede fingir conteos del proveedor (no se le habló)', () => {
+    // @ts-expect-error — `shapeCounts` no existe en una parada: no hubo nada que contar.
+    const mezcla: GradedRunOutcome = { kind: 'stopped', reason: 'dial_off', shapeCounts: { s1: 0, s2: 0 } };
+    expect(mezcla).toBeDefined();
+  });
+
+  it('`ingest_config_invalid` EXIGE al menos una clave nombrada (adiós a «no identificada(s)»)', () => {
+    // @ts-expect-error — lista vacía: el tipo pide `[string, ...string[]]`.
+    const sinClave: GradedRunOutcome = { kind: 'stopped', reason: 'ingest_config_invalid', invalidConfigKeys: [] };
+    expect(sinClave).toBeDefined();
+    // Y sin el campo tampoco compila (era el DEFAULT `[]` que degradaba en silencio).
+    // @ts-expect-error — falta `invalidConfigKeys`.
+    const sinCampo: GradedRunOutcome = { kind: 'stopped', reason: 'ingest_config_invalid' };
+    expect(sinCampo).toBeDefined();
+  });
+
+  it('una OBSERVACIÓN no puede omitir el recuento de peticiones (es lo que separa R1-ter)', () => {
+    // @ts-expect-error — falta `requests`.
+    const sinTally: GradedRunOutcome = { kind: 'observed', requestOk: true, shapeCounts: { s1: 1, s2: 0 }, forcedFormat: 'auto' };
+    expect(sinTally).toBeDefined();
   });
 });
 

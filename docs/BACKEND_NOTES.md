@@ -4,7 +4,7 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
-## 0.16 — **El ingest de estimados PSA trae CERO filas: el MAPA DE CAUSAS + tres arreglos al diagnóstico** (2026-08-31, v1.51-b)
+## 0.16 — **El ingest de estimados PSA trae CERO filas: el MAPA DE CAUSAS + los arreglos al diagnóstico** (2026-08-31, v1.51-b/-c)
 
 > Propiedad: **backend**. Nada de esto cambia el contrato (`GradedIngestResult` no viaja por HTTP) ni
 > el esquema de BD. Corrige el **diagnóstico**, no la fuente de datos.
@@ -16,9 +16,14 @@ escribió **cero filas**. El obstáculo no era la fuente de datos — era que **
 para decir por qué está roto estaba dando causas falsas**. Primero se arregla el diagnóstico; con él ya
 honesto, la causa real se lee de una corrida.
 
+> **Estado v1.51-c (2026-08-31).** Producción ya escribe (hay estimados PSA reales), pero **muchas
+> cartas siguen sin dato**. §0.16.1 son los arreglos del primer pase (v1.51-b); **§0.16.3** son los
+> residuos que ese pase dejó — incluida la **tercera** instancia del defecto R1, que caía justo en la
+> causa #5 («set sin `pptSetId`»), o sea en la hipótesis principal de esas cartas faltantes.
+
 ---
 
-## 0.16.1 — Los tres arreglos al diagnóstico
+## 0.16.1 — Los arreglos al diagnóstico del primer pase (v1.51-b)
 
 ### (R1) El veredicto daba DOS diagnósticos FALSOS
 `result.enabled = true` se asignaba **después** de las dos salidas tempranas de `ingestGradedEstimates`,
@@ -29,12 +34,23 @@ y el veredicto usaba ese único booleano como «por qué no pasó nada»:
 | Dial **`on`** + clave del ingest corrupta | *«el dial está en `off`» · «Enciende el dial»* | El operador mira el dial, **lo ve encendido**, y el único artefacto de diagnóstico le miente. La clave corrupta sigue ahí. **Es una causa candidata de las cero filas de hoy, disfrazada por su propio detector.** |
 | Sin inventario RAW en alcance | *«Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del log»* | Esas líneas **no existen**: no hubo ninguna petición que pudiera fallar. Manda a buscar un log inexistente. |
 
-**Arreglo:** `enabled` desaparece como entrada del veredicto y lo sustituye `stopReason`
-(`'dial_off' | 'ingest_config_invalid' | 'no_scope' | null`), evaluado **al principio** de la cadena de
+**Arreglo:** `enabled` desaparece como entrada del veredicto y lo sustituye el **motivo de la parada**
+(`dial_off` / `ingest_config_invalid` / `no_scope`), evaluado **al principio** de la cadena de
 precedencia, cada uno con **su** titular y **su** `nextStep`. En `ingest_config_invalid` se **NOMBRA la
-clave** (nuevo campo interno `GradedEstimateConfig.ingestInvalidKeys`, que **no** viaja al DTO). El
-parámetro es **obligatorio** en `emitGradedVerdict`: una salida nueva que no declare su causa **no
-compila**, que es el candado que impide la reincidencia.
+clave** (nuevo campo interno `GradedEstimateConfig.ingestInvalidKeys`, que **no** viaja al DTO).
+
+> ⚠️ **CORRECCIÓN v1.51-c (TL-GE6) — esta sección prometía una garantía que el tipo NO daba.** Decía:
+> *«el parámetro es obligatorio en `emitGradedVerdict`: una salida nueva que no declare su causa no
+> compila, que es el candado que impide la reincidencia»*. El techlead lo verificó y el candado era de
+> **ARIDAD**, no de corrección: `stopReason: GradedStopReason | null` obliga a pasar *un* argumento, no
+> *el correcto* — un `emitGradedVerdict(…, null)` en una salida temprana futura compilaba y reproducía
+> R1 palabra por palabra. Un docstring que promete de más es la misma clase de defecto que este pase
+> vino a matar, así que la promesa se corrige aquí y el candado se rehace de verdad en **§0.16.3
+> (TL-GE6)**: la entrada es hoy una **unión discriminada** (`GradedRunOutcome`). Lo que el tipo
+> garantiza ahora: una parada **no puede** traer conteos del proveedor, una observación **no puede**
+> omitir su recuento de peticiones, y `ingest_config_invalid` **exige** al menos una clave nombrada
+> (`readonly [string, ...string[]]`). Lo que **sigue sin garantizar** —y por eso se dice en vez de
+> prometerse—: que el motivo elegido sea el verdadero. Eso lo cubren los tests, no el compilador.
 
 ### (TL-GE1) `COSTE MEDIDO` no era atribuible
 Se calculaba como `creditsBefore − creditsAfter` sobre `PptApiClient.lastDailyRemaining`, que es
@@ -82,12 +98,12 @@ Recorrido completo de `PriceIngestService.ingestGradedEstimates` y del camino gr
 | 1 | **Dial apagado** | `grading_hook_enabled` = `off` (seed) | `graded-estimate-ingest: dial 'grading_hook_enabled' = off → no se pide NADA` | `INDETERMINADO` · `stopReason=dial_off` | **SETTING** — `PUT /admin/settings {"gradingHookEnabled":"on"}`. Es el dial ÚNICO: encenderlo también publica las cifras. |
 | 2 | **Config del ingest corrupta** | `graded_estimate_min_sample_count`, `graded_estimate_source_stat` o `graded_estimate_ingest_max_cards_per_run` **presente-pero-INVÁLIDA** (p. ej. un `2000` guardado cuando el máximo pasó a 1 000) | `graded-estimate-ingest: el dial … está en 'on', pero la config del INGEST tiene clave(s) PRESENTE(S)-e-INVÁLIDA(S): <clave>` + `graded-estimate config: la clave '<clave>' está PRESENTE pero es INVÁLIDA` | `INDETERMINADO` · `stopReason=ingest_config_invalid` (con la clave **nombrada**) | **SETTING** — corrige **esa** clave con `PUT /admin/pricing/graded-estimates`. **No es el dial.** |
 | 3 | **Alcance vacío** | Cero `InventoryItem` con `ownerType='platform'`, `status='listed'`, `productType='raw'` | `graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada` | `INDETERMINADO` · `stopReason=no_scope` | **DATOS** — publica al menos una pieza RAW. Un inventario en `draft`/`sold` **no cuenta**. |
-| 4 | **Sin llave del proveedor** | `POKEMONPRICETRACKER_API_KEY` ausente o `CHANGE_ME` | `PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta` | `INDETERMINADO` («Ninguna petición llegó a responder OK») | **ENV** — `POKEMONPRICETRACKER_API_KEY` en Railway. Ojo: **el mismo síntoma** que #5 y #9. |
-| 5 | **Set sin `pptSetId`** | El `CardSet` del inventario no está mapeado al id real de PPT (nunca se cae al `externalId`) | `PPT graded: set <sv8> sin pptSetId → no se pide nada` | `INDETERMINADO` (igual que #4) | **DATOS** — remapear el set (`PptSetMapper` / `GET /api/v2/sets`). Si el set publicado no está mapeado, ese set **no se pide jamás**. |
+| 4 | **Sin llave del proveedor** | `POKEMONPRICETRACKER_API_KEY` ausente o `CHANGE_ME` | `PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta` | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN: falta POKEMONPRICETRACKER_API_KEY»** (v1.51-c, R1-ter: ya **no** comparte titular con #5 ni #9, y **no** manda a la línea «EL REQUEST FALLÓ», que aquí no existe) | **ENV** — `POKEMONPRICETRACKER_API_KEY` en Railway. |
+| 5 | **Set sin `pptSetId`** | El `CardSet` del inventario no está mapeado al id real de PPT (nunca se cae al `externalId`) | `PPT graded: set <sv8> sin pptSetId → no se pide nada` + `PptSetMapper: N/M sets SIN mapeo a PokemonPriceTracker` | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN: N set(s) … NO tienen `pptSetId` (sv8, sv7)»** — con los sets **NOMBRADOS**. ⚠️ Si algún otro set sí se pidió, el veredicto puede ser **`VIABLE`** y aun así el bloque trae la línea **`SETS NO PEDIDOS:`** con estos sets (v1.51-c, R1-ter) | **DATOS** — remapear el set (`PptSetMapper` empata por NOMBRE contra `GET /api/v2/sets`). Si el set publicado no está mapeado, ese set **no se pide jamás**: es la causa más probable de «escribe algunas cartas y otras siguen sin dato». |
 | 6 | **Sonda pedida por env** | `POKEMONPRICETRACKER_GRADED_PROBE=on\|true\|1\|yes` | `PPT graded: SONDA pedida por el operador … NO se escribe absolutamente nada` + bloque `PPT-GRADED-SONDA` | Puede ser `VIABLE` **con 0 escrituras** (`MODO: SONDA de SOLO LECTURA`) | **ENV** — **borra** `POKEMONPRICETRACKER_GRADED_PROBE` de Railway. Es la causa más fácil de pasar por alto: el veredicto dice «funciona» y aun así no escribe. |
 | 7 | **Sin formato de moneda** | Ni `POKEMONPRICETRACKER_GRADED_MARKET_FORMAT` ni `POKEMONPRICETRACKER_MARKET_FORMAT` (candado de dinero) | `PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → SONDA de SOLO LECTURA` | Igual que #6 | **ENV** — `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`. Sin moneda declarada **no se escribe dinero**, por diseño. |
 | 8 | **Cuota diaria agotada** | `429 limitType=daily`. ⚠️ **El barrido de precios RAW corre ANTES y gasta de la MISMA cuota**: si la agota, el gancho PSA nunca llega a pedir | `PPT /api/v2/cards: 429 DAILY (cuota diaria agotada) → PARADA` + `graded-estimate-ingest: 429 DAILY → PARADA` | `INDETERMINADO` («la cuota diaria se agotó antes de obtener una sola respuesta») si pasa en la 1ª petición; si no, `MODO: … ⚠️ topó la CUOTA DIARIA` | **ENV/plan** — cuota del plan de PPT. Se resetea a las 00:00 UTC. Palancas: reducir el alcance del barrido RAW o correr el gancho en otro momento. |
-| 9 | **Credencial rechazada / set inexistente** | `401`/`403` (llave vencida o **plan sin eBay**) o `404` (pptSetId que ya no existe) | `PPT graded: EL REQUEST FALLÓ para el set … → revisa POKEMONPRICETRACKER_API_KEY (ausente, vencida o sin el plan que incluye eBay)` | `INDETERMINADO` (mismo titular que #4) | **ENV** — la llave y, sobre todo, **si el plan incluye el bloque de eBay**. Un `403` aquí significa que el plan no da ventas PSA. |
+| 9 | **Credencial rechazada / set inexistente** | `401`/`403` (llave vencida o **plan sin eBay**) o `404` (pptSetId que ya no existe) | `PPT graded: EL REQUEST FALLÓ para el set … → revisa POKEMONPRICETRACKER_API_KEY (ausente, vencida o sin el plan que incluye eBay)` | `INDETERMINADO` · **«Se emitieron peticiones en N set(s) y NINGUNA respondió OK»** — es el ÚNICO caso que manda a leer «EL REQUEST FALLÓ», porque es el único donde esa línea existe | **ENV** — la llave y, sobre todo, **si el plan incluye el bloque de eBay**. Un `403` aquí significa que el plan no da ventas PSA. |
 | 10 | **`includeEbay` + `fetchAllInSet` incompatibles** | El proveedor rechaza la combinación con un 4xx de parámetro | `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO … ebay_not_supported_with_set_sweep` | **`NO_VIABLE`** | **Nada que tocar** — es rediseño de coste y de barrido ⇒ **arquitecto (regla 9)**. No se degrada a «una petición por carta». |
 | 11 | **La respuesta no trae bloque PSA** | Ninguna entrada del set trae `ebay.salesByGrade` ni `gradedPrices` | `graded-estimate-ingest: set <X> devolvió entradas SIN bloque PSA → se SALTA`; si **ningún** set lo vio: `⛔ … no_graded_block_in_response` | `INDETERMINADO` («NINGUNA trae bloque PSA») | **Plan del proveedor / elección de sets** — repite con un set de cartas caras y muy vendidas. Si sigue vacío, el plan no expone ventas PSA ⇒ arquitecto. |
 | 12 | **Shape S2 (número pelado)** | PPT sirve `gradedPrices.psaN` escalar: sin `count` ni fecha de última venta | `graded-estimate-ingest: SHAPE NO PERSISTIBLE (S2, gradedPrices escalar)` (por carta) + `⛔ … shape_not_persistible_s2_dominant` | **`NO_VIABLE`** («ninguna configuración lo arregla») | **Nada que tocar** — decisión de producto/costo ⇒ **arquitecto**. La captura manual sigue funcionando. |
@@ -111,8 +127,85 @@ escribió**.
 1. Dispara `POST /admin/jobs/price-ingest` con body `{}` (con `setId` **el gancho PSA no corre**).
 2. `grep VEREDICTO-PSA` en el log de Railway. El bloque trae `VEREDICTO`, `QUÉ LLEGÓ`, `MODO`, `COSTE`
    y **`AHORA:`** — esa última línea es la única acción siguiente.
-3. Si `MODO: SONDA`, no hubo escrituras **por diseño**: filas #6 y #7.
-4. Si `VEREDICTO: NO_VIABLE`, la decisión es del **arquitecto** (filas #10 y #12), no de configuración.
+3. Si aparece **`SETS NO PEDIDOS:`**, esos sets no se pidieron NUNCA (fila #5) — sus cartas no tienen
+   dato por eso, no por el proveedor. Es compatible con `VEREDICTO: VIABLE`.
+4. Si `MODO: SONDA`, no hubo escrituras **por diseño**: filas #6 y #7.
+5. Si `VEREDICTO: NO_VIABLE`, la decisión es del **arquitecto** (filas #10 y #12), no de configuración.
+
+---
+
+## 0.16.3 — **Residuos del pase anterior: la TERCERA instancia de R1, y el candado que no cerraba** (v1.51-c)
+
+> Propiedad: **backend**. Sin cambio de contrato ni de esquema. Sigue siendo **diagnóstico**: ni una
+> ruta de escritura de dinero cambia, y la sonda sigue siendo solo-lectura por construcción.
+
+### (R1-ter) El mismo defecto de R1, en las dos causas MÁS PROBABLES del cero de producción
+R1 cerró dos instancias («config inválida» y «alcance vacío») y **dejó viva la tercera**: la rama
+`!requestOk` del veredicto seguía diciendo *«Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del
+log»* **también cuando no hubo NINGUNA petición**. Se llega ahí por dos caminos que el propio mapa de
+causas lista como **#4** y **#5**:
+
+| Camino | Qué hace el provider | Qué línea SÍ existe en el log |
+|---|---|---|
+| Sin `POKEMONPRICETRACKER_API_KEY` | `return empty` **antes** de llamar | `PPT graded: falta POKEMONPRICETRACKER_API_KEY` |
+| **Set sin `pptSetId`** | `return empty` **antes** de llamar | `PPT graded: set <X> sin pptSetId → no se pide nada` |
+
+En ninguno de los dos existe la línea «EL REQUEST FALLÓ» — y **«set sin `pptSetId`» es hoy la hipótesis
+principal de las cartas que en producción siguen sin dato**, así que el mensaje mandaba a buscar
+exactamente donde no hay nada.
+
+**Arreglo:**
+- `GradedEstimateFetchResult` gana **`noRequestReason: 'missing_api_key' | 'set_without_ppt_set_id' |
+  null`**: el provider distingue «no se pidió» de «se pidió y falló». `null` = hubo petición (incluye el
+  rechazo de parámetro, que es un 4xx real).
+- El orquestador lo acumula a escala de corrida en **`GradedRequestTally`** (`attempted`,
+  `missingApiKey`, `setsWithoutPptSetId[]`) y lo pasa dentro del `outcome`.
+- El veredicto tiene **una rama por causa**, cada una apuntando a la línea de log **que sí existe**; y
+  cuando la causa es `pptSetId`, **NOMBRA los sets** (`sv8, sv7`) en el titular y en el `AHORA:`.
+- Nueva línea del bloque **`SETS NO PEDIDOS:`** — se imprime **aunque el veredicto sea `VIABLE`**, que
+  es justo el estado de producción («escribe estimados de un set y a la vez nunca pidió los otros»).
+  Sin ella había que deducirlo del log de `PptSetMapper`.
+
+### (TL-GE2-bis) El cierre de TL-GE2 introdujo una afirmación FALSA en el texto que va al ARQUITECTO
+El `detail` de la escalada `shape_not_persistible_s2_dominant` decía, literal: *«Evidencia:
+GRADED_FORMAT=auto (autodetección, sin override)»*. En la rama que **el propio TL-GE2 acababa de abrir**
+(`probe=true` + formato forzado ⇒ la sonda sí escala, porque su conteo no está inducido)
+`forcedFormatSeen` vale `graded_prices`: el texto que sostiene una decisión de **presupuesto** afirmaba
+un hecho falso sobre la corrida que lo produjo, mientras el `AuditLog` de tres líneas más abajo llevaba
+el valor verdadero. **Arreglo:** la frase se **deriva** de «el conteo NO está inducido» (que es lo que
+quiere decir) en vez de un literal, y nombra la razón real en cada caso (`auto` ⇒ autodetección pura;
+sonda ⇒ `detectGradedShape` ignora el override). El test de la sonda ahora **asierta sobre `detail`**
+(no lo hacía: por eso pasó).
+
+### (QA-GE2) Una conclusión sobre el modelo de cobro sacada de CERO observaciones
+Con `creditsSpent: 0` y `cardsReturned: 0` (p. ej. todos los sets sin `pptSetId`) la línea imprimía
+*«COSTE MEDIDO: 0 crédito(s) por 0 carta(s) DEVUELTAS … Compatible con “se cobra por PETICIÓN”»*. No
+tocaba dinero (`perCard` era `null`), pero era una regresión del propio diagnóstico. **Arreglo:** cuarto
+estado explícito — con cero cartas devueltas se dice **`NO SE PUEDE MEDIR`** y no se afirma nada del
+modelo de cobro.
+
+### (TL-GE6) El candado de R1 era de ARIDAD; hoy es de FORMA
+La entrada del veredicto era plana (`stopReason` + `invalidConfigKeys` + `requestOk` + `shapeCounts` +
+`forcedFormat` como hermanos). Hoy es la unión **`GradedRunOutcome`**:
+
+```ts
+| { kind: 'stopped'; reason: 'dial_off' | 'no_scope' }
+| { kind: 'stopped'; reason: 'ingest_config_invalid'; invalidConfigKeys: readonly [string, ...string[]] }
+| { kind: 'observed'; requestOk; requests: GradedRequestTally; shapeCounts; forcedFormat }
+```
+
+Con esto, **(a)** una parada no puede fingir conteos, **(b)** una observación no puede omitir su causa
+de parada (no paró), **(c)** `ingest_config_invalid` **exige** una clave nombrada — lo que elimina de
+raíz el default `invalidConfigKeys = []` que degradaba en silencio a «no identificada(s)» — y **(d)** el
+bloque ya no imprime `GRADED_FORMAT=auto` cableado en las paradas (nada actuó sobre nada). Los tres
+estados prohibidos están probados con **`@ts-expect-error`**: si alguien vuelve a aplanar la entrada,
+`graded-estimate.probe.spec.ts` **deja de compilar**.
+
+**Lo que el tipo NO garantiza (y no se promete):** que el motivo declarado sea el verdadero. La única
+guarda ahí son los tests de corrida real (dial `on` + clave corrupta, alcance vacío, set sin `pptSetId`,
+sin API key), que comprueban el bloque emitido por el job entero, no la función pura.
+
+**Tests:** `test/graded-estimate.probe.spec.ts` — 61 (13 nuevos: 7 de R1-ter, 3 de QA-GE2, 3 de TL-GE6).
 
 ---
 

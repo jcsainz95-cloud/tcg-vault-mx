@@ -335,6 +335,21 @@ export interface GradedEstimateFetchResult {
    */
   probe: boolean;
   /**
+   * v1.51-c (R1-ter) — **por qué NO se emitió NI UNA petición para este set**, o `null` si sí se
+   * emitió (haya respondido OK o no).
+   *
+   * ### El defecto que cierra
+   * `requestOk: false` significaba dos cosas incompatibles: «se pidió y falló» y «no se pidió». El
+   * veredicto solo podía leer la primera, así que ante los dos `return empty` de abajo —falta de
+   * `POKEMONPRICETRACKER_API_KEY` y set **sin `pptSetId`**, causas #4 y #5 del mapa
+   * (`BACKEND_NOTES.md` §0.16.2)— mandaba al operador a leer las líneas «PPT graded: EL REQUEST
+   * FALLÓ»… que en esos dos casos **no existen**, porque el `return` ocurre ANTES de llamar. Es el
+   * defecto (b) de R1 repetido, y en la causa que hoy más se sospecha de las cartas sin dato.
+   *
+   * El orquestador lo acumula (`GradedRequestTally`) y el veredicto manda a la línea que SÍ existe.
+   */
+  noRequestReason: 'missing_api_key' | 'set_without_ppt_set_id' | null;
+  /**
    * v1.51-b (TL-GE1) — **COSTE ATRIBUIBLE a las llamadas graded de ESTE set**: la suma de
    * `metadata.apiCallsConsumed` de sus respuestas. `null` = alguna respuesta no lo reportó ⇒ el gasto
    * NO es atribuible y **no se reporta ningún número**.
@@ -751,6 +766,9 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       // `probe` describe si ESTA llamada pudo escribir. En `empty` no hubo llamada siquiera (sin key,
       // sin pptSetId): no es una sonda, es un no-op — y decir lo contrario contaminaría el veredicto.
       probe: false,
+      // R1-ter: `empty` se usa TAMBIÉN como base del rechazo de parámetro (donde SÍ hubo petición), así
+      // que el default es `null` = «hubo intento» y cada `return empty` sin llamada declara su motivo.
+      noRequestReason: null,
       escalate: null,
       sawGradedBlock: false,
       shapeCounts: { s1: 0, s2: 0 },
@@ -758,13 +776,13 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     };
     if (!this.client.apiKey()) {
       this.logger.warn('PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).');
-      return empty;
+      return { ...empty, noRequestReason: 'missing_api_key' };
     }
     if (!input.providerSetId) {
       this.logger.warn(
         `PPT graded: set ${input.set.externalId} sin pptSetId → no se pide nada (jamás se cae al externalId).`,
       );
-      return empty;
+      return { ...empty, noRequestReason: 'set_without_ppt_set_id' };
     }
     // ── v1.50.3-g (§4.38h.1-quater) — LA SONDA: sin formato NO se escribe, pero SÍ se PREGUNTA ──────
     //
@@ -983,6 +1001,10 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       dailyRemaining: this.client.dailyRemaining(),
       gradedApiCallsConsumed: gradedCostIsolated ? gradedApiCalls : null,
       probe: writeFormat == null,
+      // R1-ter: se llegó al bucle de fetch ⇒ HUBO petición (respondiera OK o no). Las líneas «EL
+      // REQUEST FALLÓ» existen en el log de esta corrida si algo falló, así que el veredicto puede
+      // mandar a leerlas.
+      noRequestReason: null,
       escalate,
       sawGradedBlock,
       shapeCounts,

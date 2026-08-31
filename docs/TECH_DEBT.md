@@ -51,11 +51,12 @@
 - **Disparador:** el primero de (a) **cualquier cambio en el shape del bloque PSA** del proveedor (nombre de campo, anidamiento) o (b) **antes del primer `off → on`** de `grading_hook_enabled` en producción, junto con el resto de la fase 2. Ref: `BACKEND_NOTES.md` §0.16, ARCHITECTURE §4.38(h.1-bis).
 
 ### TL-GE5 · La fila que NO resuelve a una carta se descarta SIN dejar traza (backend, v1.51-b, 2026-08-31)
-- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; es observabilidad, no dinero — la dirección del fallo es la segura: **no** se escribe una referencia huérfana).
+- **Dueño:** backend. **Severidad:** ⬆️ **Media** (subida desde Baja en v1.51-c: **el disparador YA se cumplió**, ver abajo). Sigue siendo **no bloqueante** y **no toca dinero** — la dirección del fallo es la segura: **no** se escribe una referencia huérfana —, pero hoy es una pregunta abierta del dueño sin instrumento que la conteste.
 - **Deuda:** en `ingestGradedEstimates`, `if (!cardId || !allowed.has(cardId)) continue;` (`price-ingest.service.ts`, bucle de `res.rows`) descarta la fila **en silencio**: no hay `warn`, no hay contador en `GradedIngestResult` y no hay `AuditLog`. El único caso que sí deja traza es la **ambigüedad** («el número X casa con N cartas → se OMITE»). Todos los demás —`externalId` que no empata, número con un formato que `cardNumberVariants` no cubre, carta de otro set— desaparecen.
 - **Por qué importa:** es la **única fila del MAPA DE CAUSAS (`BACKEND_NOTES.md` §0.16.2, #19) sin línea de log**. En una corrida que devuelve S1 impecable y escribe cero filas, el veredicto diría `VIABLE` con `written=0` y **nada** en el log explicaría el hueco: el operador se queda exactamente en el estado que el bloque `[VEREDICTO-PSA]` existe para evitar. Es el mismo defecto de forma que §4.38h.4 ya obligó a cerrar para los descartes del parser («sin traza, el descarte es invisible y el preview solo dice `NO_PSA10`»), aplicado al descarte de resolución.
-- **Salida propuesta:** un contador propio (`skippedUnresolved`) en `GradedIngestResult` —campo INTERNO, **no viaja por HTTP**, sin cambio de contrato— más una línea en el resumen de la corrida y un `warn` acotado (con el `externalId`/`number` del proveedor y un tope de N líneas por set, para no reproducir el ruido de 2 000 líneas que motivó el veredicto).
-- **Disparador:** la primera corrida real con `VEREDICTO: VIABLE` y `written` menor que las cartas S1 observadas — o el trabajo de TL-GE4, lo que ocurra antes. Ref: `BACKEND_NOTES.md` §0.16.2 fila #19.
+- **⚠️ Salida propuesta — CORREGIDA en v1.51-c (techlead): la anterior medía la POBLACIÓN EQUIVOCADA.** Se proponía un contador `skippedUnresolved` sobre las filas del proveedor que caen en `if (!cardId || !allowed.has(cardId)) continue;`. No sirve: con `fetchAllInSet=true` esas filas son **el SET ENTERO**, mientras `allowed` son solo las cartas con **inventario RAW publicado** ⇒ ese `continue` salta **por diseño en toda corrida sana**, y el contador quedaría dominado por el caso normal (un set de 200 cartas con 3 publicadas daría `skippedUnresolved = 197`, todos legítimos). El instrumento correcto es el **COMPLEMENTO**: un `Set<string>` de los `cardId` **resueltos** en el set y reportar **`allowed.size − resueltos.size`** por set —las cartas NUESTRAS que el proveedor no empató, que es la pregunta— más una muestra acotada de los `externalId`/`number` del proveedor que no casaron (tope de N por set, para no reproducir el ruido de 2 000 líneas que motivó el veredicto). Mismo coste, y sí contesta. Sigue siendo un campo **INTERNO** de `GradedIngestResult` (no viaja por HTTP) ⇒ **sin cambio de contrato**.
+- **Nota (código muerto):** en `price-ingest.service.ts` (`if (!cardId || !allowed.has(cardId)) continue;`) la segunda mitad, **`!allowed.has(cardId)`, es inalcanzable**: `buildGradedCardIndex` construye el índice **recorriendo `allowed`**, así que todo `cardId` que el resolver devuelve ya está en `allowed`. Quien implemente esto que la retire o la deje con su comentario, pero que no la cuente como una causa de descarte distinta.
+- **Disparador: ✅ YA SE CUMPLIÓ (v1.51-c, 2026-08-31).** Decía «la primera corrida real con `VEREDICTO: VIABLE` y `written` < cartas S1 observadas»; **producción está exactamente ahí ahora mismo** (el ingest escribe —hay estimados PSA reales— y muchas cartas siguen sin dato, y el dueño quiere saber por qué). El trabajo queda **listo para tomarse**, con una precisión de v1.51-c: la causa #5 del mapa («set sin `pptSetId`») **ya dejó de ser invisible** —el bloque `[VEREDICTO-PSA]` trae la línea `SETS NO PEDIDOS:` con los sets nombrados (`BACKEND_NOTES.md` §0.16.3)—, así que **descartar esa causa antes de implementar esto es gratis**. Ref: `BACKEND_NOTES.md` §0.16.2 fila #19.
 
 > **TL-GE1, TL-GE2/R2, TL-GE3 y R1 — CERRADOS en el pase v1.51-b, sin deuda residual.** Se anotan aquí
 > por el **hallazgo de proceso** que levantó el techlead: los cuatro se detectaron en dos pases de
@@ -69,6 +70,16 @@
 > `shapeCountIsInduced`, exportada y consumida por ingest y veredicto. **TL-GE3** — la bandera
 > `POKEMONPRICETRACKER_GRADED_PROBE` caía en silencio ante un typo ⇒ `warn` explícito (semántica
 > intacta). Detalle y tests en `BACKEND_NOTES.md` §0.16.1.
+>
+> **Residuos del propio pase, CERRADOS en v1.51-c, sin deuda nueva.** El segundo repaso encontró que
+> R1 había dejado viva una **tercera** instancia de su propio defecto (la rama `!requestOk` mandaba a
+> leer «EL REQUEST FALLÓ» también cuando **no hubo petición**: sin API key y **set sin `pptSetId`**), que
+> el cierre de TL-GE2 introdujo una **afirmación falsa** en el `detail` que se le manda al arquitecto
+> («GRADED_FORMAT=auto» en la rama donde vale `graded_prices`), que la línea de coste **concluía el
+> modelo de cobro desde cero observaciones**, y que el candado de R1 era de **aridad**, no de
+> corrección. Los cuatro quedan cerrados en `BACKEND_NOTES.md` §0.16.3 (unión discriminada
+> `GradedRunOutcome` + `noRequestReason` en el provider), con los estados prohibidos probados por
+> `@ts-expect-error`. **Nada de esto cambió una ruta de escritura de dinero.**
 
 ### M43-D1 · `reconcilePublishedPrices` sigue siendo `raw`-only: un slab sin referencia no entra a la cola (M-43, 2026-08-29)
 - **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante**). Residual **declarado por el arquitecto** en ARCHITECTURE §4.38(l.4.9), fuera del alcance de M-43 por decisión del orquestador.
