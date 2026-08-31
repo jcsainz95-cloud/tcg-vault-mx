@@ -18,12 +18,24 @@ import type { CardDTO, GroupedListingSummaryDTO } from '@/types/contract';
  * El conmutador PAUSAR/REANUDAR/REPETIR se retiró (decisión del dueño; WCAG 2.2.2 es estándar del
  * W3C, no obligación legal para esta tienda) y la cadencia bajó de 7 s a 5 s. Se retiraron los
  * casos que probaban **exclusivamente el control** (su área táctil, su sitio en el orden de
- * tabulación, sus estados y sus claves i18n). **No se retiró ni una sola cobertura de conducta
- * viva**: los cinco frenos automáticos —hover, foco, intervención del usuario, visibilidad y
- * `prefers-reduced-motion`— siguen probados aquí, con la aserción reescrita para mirar **si la
- * pista se mueve o no** (`expectFrozen` / `scrollLeft`) en vez de la etiqueta de un botón que ya no
- * existe. Es una aserción más fuerte, no más débil: el botón decía lo que el componente creía; el
- * `scrollLeft` dice lo que el componente hizo.
+ * tabulación, sus estados y sus claves i18n). Los cinco frenos automáticos —hover, foco,
+ * intervención del usuario, visibilidad y `prefers-reduced-motion`— siguen probados aquí, con la
+ * aserción reescrita para mirar **si la pista se mueve o no** (`expectFrozen` / `scrollLeft`) en vez
+ * de la etiqueta de un botón que ya no existe.
+ *
+ * ⚠️ **CORRECCIÓN — aquí decía «no se retiró ni una sola cobertura de conducta viva», y era FALSO.**
+ * QA lo midió a los dos lados del diff y tenía razón: reescribir §23.4d de «no se pinta el botón» a
+ * «la pista no se mueve» **sí** perdió poder discriminante, porque en jsdom la pista tampoco se
+ * mueve cuando el guard no existe (`nextScrollTarget` → `null` con geometría degenerada). Dos
+ * mutantes que daban 2 rojos cada uno en `origin/main` pasaban 40/40 en verde aquí. Se cerró el
+ * hueco añadiendo la aserción que sí discrimina —**el canal de estado mudo**, ver el bloque §23.4d—
+ * y también el caso de la guarda de `pauseByIntervention` tras el fin (§23.6). La frase se deja
+ * escrita con su corrección a propósito: el enunciado original estaba en un documento durable y
+ * afirmaba de más sobre el propio trabajo de quien lo escribió.
+ *
+ * Lo que sí se sostiene, dicho sin exagerar: `scrollLeft` es evidencia de lo que el componente
+ * **hizo**, y la etiqueta lo era de lo que **creía** — pero «no se movió» sola es ambigua en jsdom,
+ * y hace falta emparejarla con «y no dijo nada» para que signifique lo que se quiere que signifique.
  *
  * ══ QUÉ SIMULA ESTE ARCHIVO Y QUÉ MIDE DE VERDAD ══════════════════════════════════════════════
  * jsdom **no tiene layout**: `offsetLeft`, `clientWidth` y `scrollWidth` son 0 para todo y
@@ -250,6 +262,42 @@ afterEach(() => {
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * ⚠️ **EL CANDADO DE LOS NÚMEROS, Y POR QUÉ ES UN `toBe` LITERAL Y NO UN CÁLCULO.**
+ *
+ * Todo el resto de este archivo **importa** las constantes y deriva sus tiempos de ellas, así que
+ * **se mueve con ellas**: cambiar `ROTATION_REST_MS` a 7000 dejaba los 40 casos en verde, y el E2E
+ * también (se re-declaraba el número a mano y el único aserto temporal tenía 15 s de margen). Eso
+ * significaba que **la petición explícita del dueño —5 s— era lo único del pase sin red de
+ * regresión**: cualquiera podía deshacerla y ningún gate se enteraba. Lo mismo valía para la ventana
+ * de 1200 ms y para el tope de 3 s.
+ *
+ * Estos tres asertos son de otra especie que los demás: no describen conducta, **fijan el número**.
+ * Su enunciado es siempre el mismo: *esto es una medición o una decisión del dueño; cambiarlo es una
+ * decisión que se toma con dato delante, no un ajuste que se hace de paso.* Si uno de ellos se pone
+ * rojo, la respuesta correcta **no** es actualizar el literal sin más: es traer la decisión (quién y
+ * por qué) y actualizar `DESIGN_SYSTEM.md` §23 y `docs/FRONTEND_NOTES.md` en el mismo commit.
+ *
+ * El E2E lleva su hermano: `e2e/featured-rotation.spec.ts` afirma que el `REST_MS` que usa es el
+ * mismo `ROTATION_REST_MS` que compila el componente (lo lee del fuente), en vez de confiar en un
+ * comentario.
+ */
+describe('§23 · los números medidos están CLAVADOS (cambiarlos es una decisión, no un ajuste)', () => {
+  it('ROTATION_REST_MS = 5000 — cadencia pedida por el dueño al retirar el conmutador (§39.5)', () => {
+    expect(ROTATION_REST_MS).toBe(5000);
+  });
+
+  it('USER_INPUT_WINDOW_MS = 1200 — medición de inercia de trackpad en Chromium (§23.5a)', () => {
+    // Acortarla se lleva por delante la pausa por swipe en táctil (§23.13 nº9); alargarla convierte
+    // el re-snap del motor en «intervención» y deja la función muerta al primer render.
+    expect(USER_INPUT_WINDOW_MS).toBe(1200);
+  });
+
+  it('LEAD_IMAGE_CAP_MS = 3000 — tope de la precondición 3 de §23.3 (la foto que nunca llega)', () => {
+    expect(LEAD_IMAGE_CAP_MS).toBe(3000);
+  });
+});
+
 describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca coexiste con carga', () => {
   it('los primeros 5 s la pista está QUIETA, y al cumplirse el reposo avanza UNA teja', async () => {
     const { track } = await mountCarousel();
@@ -365,22 +413,57 @@ describe('§23.7 · prefers-reduced-motion ⇒ movimiento CERO (R4)', () => {
 /**
  * `rotationPossible` gobernaba DOS cosas —«¿hay rotación?» y «¿se pinta el conmutador?»— con **un
  * solo booleano**. Retirado el control, sigue gobernando la primera, y estos casos son los que lo
- * fijan: antes se leían en la ausencia del botón, ahora en la ausencia de movimiento. Sin ellos,
- * borrar el predicado «porque ya no hay botón que pintar» pasaría en verde.
+ * fijan: antes se leían en la ausencia del botón, ahora en la ausencia de movimiento.
+ *
+ * ══ POR QUÉ «LA PISTA NO SE MUEVE» NO BASTA AQUÍ, Y QUÉ SE AÑADIÓ ═════════════════════════════
+ * Reescribir estos tres de «no se pinta el botón» a «la pista no se mueve» los dejó **pasando por
+ * el motivo equivocado**: en jsdom, con geometría degenerada, `nextScrollTarget()` devuelve `null` y
+ * la pista no se mueve **aunque el guard no exista**. Verificado por mutación: quitar `overflows` de
+ * `rotationPossible`, o relajar `featured.length > 1` a `> 0`, dejaba los 40 casos en verde (en
+ * `origin/main`, cuando la aserción miraba el botón, los mismos dos mutantes daban 2 rojos cada uno).
+ * O sea: **sí se había perdido cobertura de conducta viva**, y este archivo afirmaba lo contrario.
+ *
+ * El defecto **sí es observable en un navegador de verdad**, y por eso hay una aserción que lo
+ * discrimina: sin `overflows`, una pista que no desborda **entra en `mode='ended'`** en el primer tic
+ * (`nextScrollTarget` → `null`) y **anuncia «Fin de las piezas destacadas.»** por el `role="status"`
+ * sobre algo que nunca se movió. Eso rompe §23.9(c) en el canal que ux-ui subió a obligatorio.
+ *
+ * Por eso cada caso exige **las dos cosas**: la pista quieta **y el canal de estado MUDO**. La
+ * segunda es la que discrimina — es lo único que distingue «el guard apagó el temporizador» de «el
+ * temporizador corrió y descubrió que no había a dónde ir».
  */
 describe('§23.4d · NO se rota cuando la rotación no puede funcionar (`rotationPossible`)', () => {
-  it('pista que no desborda ⇒ no rota (no hay nada que desplazar)', async () => {
+  it('pista que no desborda ⇒ ni se mueve NI anuncia el fin (el temporizador ni arrancó)', async () => {
     const { track } = await mountCarousel({ layout: { clientWidth: 4000, scrollWidth: 4000 } });
     await expectFrozen(track);
     expect(track.scrollLeft).toBe(0);
+    // ⚠️ LA ASERCIÓN QUE DISCRIMINA. Quitar `overflows` de `rotationPossible` deja esto en rojo:
+    // el tic corre, `nextScrollTarget` devuelve `null`, y el carrusel anuncia el fin de una pasada
+    // que nunca ocurrió. Sin esta línea la mutación pasa en verde.
+    expect(statusLine()).toHaveTextContent('');
   });
 
-  it('una sola teja ⇒ no rota', async () => {
-    mockCatalog([EIGHT[0]]);
-    renderWithProviders(<FeaturedCarousel />, 'es');
-    await settle(0);
-    await expectFrozen(getTrack());
-    expect(getTrack().scrollLeft).toBe(0);
+  /**
+   * **Este caso aísla su causa, que es lo que su nombre promete.** Antes no aplicaba layout ni
+   * disparaba `resize`, así que `overflows` era `false` y la pista estaba quieta **por
+   * desbordamiento, no por longitud** — el `describe` decía «estos casos son los que lo fijan» y éste
+   * no fijaba lo que nombraba.
+   *
+   * Aquí se le inyecta a propósito una pista **que SÍ desborda con una sola teja** (una teja más
+   * ancha que el viewport: `clientWidth 200 / scrollWidth 1000`). Es geometría sintética y declarada,
+   * como todo el layout de este archivo, pero deja `overflows === true` ⇒ el único predicado que
+   * puede apagar la rotación es `featured.length > 1`. Con la mutación `> 0` el temporizador arranca,
+   * el tic no encuentra teja siguiente (`offsets === [0]`) y **anuncia el fin**: rojo.
+   */
+  it('una sola teja ⇒ no rota — y es la LONGITUD lo que lo impide, no la falta de desbordamiento', async () => {
+    const { track } = await mountCarousel({
+      data: [EIGHT[0]],
+      layout: { clientWidth: 200, scrollWidth: 1000 },
+    });
+    await expectFrozen(track);
+    expect(track.scrollLeft).toBe(0);
+    // Mudo: si `featured.length > 1` se relaja, aquí suena «Fin de las piezas destacadas.».
+    expect(statusLine()).toHaveTextContent('');
   });
 
   it('estante vacío ⇒ ni pista ni rotación', async () => {
@@ -519,22 +602,26 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
   });
 
   /**
-   * **LA VENTANA DE 1200 ms, PINNEADA POR AMBOS LADOS.** El caso de abajo cubre el lado de FUERA
-   * (a 1201 ms el antecedente ya caducó); sin este, el de DENTRO quedaba sin red y la ventana se
-   * podía acortar a cero sin que nada fallara — verificado con una mutación
-   * `USER_INPUT_WINDOW_MS = 0`, que pasaba los 38 casos restantes en verde.
+   * **LOS DOS BORDES DE LA VENTANA, EN MILISEGUNDOS ABSOLUTOS.** Este caso cubre el lado de DENTRO
+   * (a 1199 ms el antecedente sigue vivo) y el de abajo el de FUERA (a 1201 ms ya caducó).
+   *
+   * ⚠️ Los dos esperan **literales**, no `USER_INPUT_WINDOW_MS ± 1`. Con la constante los tiempos se
+   * movían **con** ella y lo único que quedaba pinneado era la FORMA del predicado, no el número:
+   * `USER_INPUT_WINDOW_MS = 300` dejaba la suite entera en verde. Con 1199/1201 literales, mover la
+   * ventana en cualquier dirección pone en rojo uno de los dos (el candado del número vive además
+   * en el `toBe` de la cabecera de este archivo; esto es el borde de conducta que lo acompaña).
    *
    * El valor no es una comodidad: es una MEDICIÓN de navegador (la inercia del trackpad sigue
    * emitiendo `scroll` bastante después del último `wheel`). Acortarla se lleva por delante la
    * pausa por swipe en táctil, que es §23.13 nº9.
    */
-  it('la ventana de §23.5a dura de verdad: a 1199 ms el gesto del usuario TODAVÍA cuenta', async () => {
+  it('la ventana de §23.5a dura de verdad: a 1199 ms EXACTOS el gesto del usuario TODAVÍA cuenta', async () => {
     const { track } = await mountCarousel();
     await act(async () => {
       fireEvent.pointerDown(track);
     });
-    // Justo dentro de la ventana: el antecedente del usuario sigue vivo.
-    await settle(USER_INPUT_WINDOW_MS - 1);
+    // Justo dentro de la ventana, en absoluto: el antecedente del usuario sigue vivo a 1199 ms.
+    await settle(1199);
     await act(async () => {
       track.scrollLeft = 700;
       fireEvent.scroll(track);
@@ -544,12 +631,13 @@ describe('§23.5 nivel 2 · la intervención del usuario pausa PARA SIEMPRE (R5)
     expect(track.scrollLeft).toBe(700);
   });
 
-  it('pasada la ventana de la entrada del usuario, un scroll del motor tampoco pausa', async () => {
+  it('a 1201 ms EXACTOS el antecedente ya caducó: un scroll del motor tampoco pausa', async () => {
     const { track } = await mountCarousel();
     await act(async () => {
       fireEvent.pointerDown(track);
     });
-    await settle(USER_INPUT_WINDOW_MS + 1);
+    // Literal, no `USER_INPUT_WINDOW_MS + 1`: alargar la ventana tiene que poner esto en rojo.
+    await settle(1201);
     await act(async () => {
       track.scrollLeft = 60;
       fireEvent.scroll(track);
@@ -694,6 +782,43 @@ describe('§23.6 · una pasada y para (R7)', () => {
     await settle(ROTATION_REST_MS * 5);
     expect(track.scrollLeft).toBe(after);
   });
+
+  /**
+   * **§23.9(c): COMO MUCHO UN MENSAJE POR VISITA — y la guarda que lo sostiene no tenía prueba.**
+   *
+   * `pauseByIntervention` arranca con `if (modeRef.current !== 'playing') return;`. Al retirar el
+   * conmutador esa guarda quedó descrita en el código como vía muerta («la transición `ended` →
+   * `paused` no tiene efecto observable»), y eso **subestima lo que hace hoy**: borrarla emite
+   * «Rotación automática pausada.» **DESPUÉS** de «Fin de las piezas destacadas.», o sea **dos**
+   * anuncios en la misma visita, en el canal que ux-ui subió a obligatorio.
+   *
+   * No es hipotético. Tres caminos reales llegan aquí después del fin de la pasada, y los tres
+   * llaman a `pauseByIntervention` **incondicionalmente**: la flecha «anterior» (`goByArrow`), un
+   * swipe sobre la pista, y el regreso por ancla de §22.4a vía `hashchange`. Ninguno de los diez
+   * casos que se retiraron con el conmutador cubría esto, y ningún test interviene tras `ended` y
+   * lee la línea de estado ⇒ **la mutación pasaba en verde**. Éste es el candado.
+   */
+  it('tras el fin, una intervención NO añade un segundo anuncio: el canal dice UNA cosa por visita (§23.9c)', async () => {
+    const { track } = await mountCarousel();
+    await settle(ROTATION_REST_MS * 7);
+    expect(track.scrollLeft).toBe(MAX_SCROLL);
+    expect(statusLine()).toHaveTextContent('Fin de las piezas destacadas.');
+
+    // La flecha «anterior» llama a `pauseByIntervention()` sin mirar el modo: la guarda es lo único
+    // que impide que el lector de pantalla oiga «pausada» encima de «fin».
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Anterior' }));
+    });
+    expect(statusLine()).toHaveTextContent('Fin de las piezas destacadas.');
+
+    // Y por el otro camino real: un gesto del usuario sobre la pista, ya terminada la pasada.
+    await act(async () => {
+      fireEvent.pointerDown(track);
+      track.scrollLeft = 400;
+      fireEvent.scroll(track);
+    });
+    expect(statusLine()).toHaveTextContent('Fin de las piezas destacadas.');
+  });
 });
 
 describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP', () => {
@@ -713,7 +838,7 @@ describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP
       // Misma referencia de nodo: el DOM de la pista es inmutable, no se remonta ni se reordena.
       expect(track.firstElementChild).toBe(leadBefore);
       expect(order()).toEqual(orderBefore);
-      // Ninguna otra teja se convierte en HD (eso dispararía una descarga cada 7 s).
+      // Ninguna otra teja se convierte en HD (eso dispararía una descarga cada 5 s, §34.1).
       expect(screen.getByAltText(NAMES[1])).toHaveAttribute('src', 'https://img.example/c-1-small.png');
       expect(screen.getByAltText(NAMES[1])).not.toHaveAttribute('fetchpriority');
     }
