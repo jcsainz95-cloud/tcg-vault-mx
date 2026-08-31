@@ -314,6 +314,13 @@ test.describe('Gancho de grading · vitrina del home (§22.6) @real', () => {
     const { badgeGrades } = await scenario();
     await page.goto('/es');
 
+    /**
+     * Ancla LEGÍTIMA, y conviene decir por qué no es el agujero del carrusel (§22.6b): esta vitrina
+     * es la **excepción ratificada a §8.1** —no pinta skeleton—, así que su `Shelf` entero se
+     * renderiza *ya resuelto* o no se renderiza. Ver el título implica que las tejas (y sus cifras)
+     * están en el MISMO commit de React. El carrusel es lo contrario: encabezado inmediato y tejas
+     * después, y por eso allí el ancla tiene que ser la teja, no la sección.
+     */
     const shelfTitle = page.getByText(t('es', 'home.gradingGems.title')).first();
     await expect(shelfTitle).toBeVisible();
     // El kicker es refuerzo (§22.6), no la garantía: se comprueba que ADEMÁS esté el aviso por teja.
@@ -341,6 +348,107 @@ test.describe('Gancho de grading · vitrina del home (§22.6) @real', () => {
     await hideScreenReaderOnly(page);
     await expect(page.getByText(/we haven't assessed this card/i).first()).toBeVisible();
     await expect(page.locator('#nota-estimado')).toContainText(plain('en', NOTE_HEADLINE));
+  });
+});
+
+/**
+ * §22.6b — la CUARTA superficie. Aquí no se puede asertar «hay burbuja»: el carrusel ordena por
+ * precio descendente y el gate de ROI castiga justo a las caras, así que **cero burbujas entre ocho
+ * es el estado NORMAL** y exigir una haría el test verde por casualidad o rojo por diseño. Lo que sí
+ * es determinista son las INVARIANTES de la pista, y son las que se afirman.
+ */
+test.describe('Gancho de grading · carrusel «Piezas destacadas» (§22.6b) @real', () => {
+  test('la pista es anclable, no lleva `aria-label` en sus tejas y numeración y cifra NO coexisten', async ({
+    page,
+  }) => {
+    await scenario();
+    await page.goto('/es');
+
+    // (g) El carrusel necesita `id` propio: el regreso de la nota aterriza aquí cuando la vitrina
+    // no pintó, que es el caso frecuente.
+    const track = page.locator('#piezas-destacadas');
+    await expect(track).toBeVisible();
+    await expect(track).toHaveClass(/scroll-mt-/);
+
+    /**
+     * ⚠️ **EL ANCLA — el bloqueante de QA (v1.50.4).** La `<section>` del `Shelf` se pinta **en el
+     * primer frame** con su encabezado; las tejas llegan después por react-query y mientras tanto
+     * la pista son cuatro cajas grises (`QueryState.loading`). Todo lo que sigue mide CONTENIDO,
+     * así que medirlo aquí medía **el esqueleto**: con la pista vacía salían `hasFigure=false` y
+     * `numbering=0`, y la invariante de (c) —«o cifra sin numeración, o numeración sin cifra»— se
+     * cumplía **por vacuidad**. El test nunca llegó a verificar lo que dice verificar.
+     *
+     * Se espera por la **condición que el test necesita** (que la pista TENGA tejas), nunca por
+     * tiempo. El ancla es el `href` de la teja —`/es/catalog/<cardId>`—, y es deliberado que sea
+     * ése y no «el primer `<a>` de la sección»: el encabezado del `Shelf` ya trae el enlace «Ver
+     * todo» (`/es/catalog`, **sin** barra final) desde el primer frame, así que esperar por él no
+     * esperaría nada y reabriría el mismo agujero con otra cara.
+     */
+    const tiles = track.locator('a[href*="/catalog/"]');
+    await expect(
+      tiles.first(),
+      'la pista de destacadas nunca pintó una teja (¿`GET /catalog/cards?sort=price_desc` vacío o en error?)',
+    ).toBeVisible();
+    const tileCount = await tiles.count();
+    /**
+     * Y la contra-vacuidad, explícita: la invariante de (c) solo **dice** algo si hay tejas que
+     * juzgar, y solo **distingue** los dos casos si hay más de una (la teja grande nunca lleva
+     * ordinal, §20.3). Se exige antes de juzgar nada; si la pista no pinta, este es el aserto que
+     * se pone rojo, y lo hace nombrando la causa real en vez de fabricar un verde silencioso.
+     */
+    expect(
+      tileCount,
+      'la pista de destacadas no trajo tejas: sin tejas no hay ninguna invariante que medir',
+    ).toBeGreaterThan(1);
+
+    // (h) La teja es un <a> que envuelve todo ⇒ el badge forma parte del NOMBRE ACCESIBLE. Un
+    // `aria-label` lo sustituiría y borraría el micro-aviso del árbol de accesibilidad: el defecto
+    // bloqueante que §22.4c corrigió.
+    expect(await track.locator('a[aria-label], a[aria-labelledby]').count()).toBe(0);
+
+    await hideScreenReaderOnly(page);
+    const text = await track.innerText();
+    const hasFigure = text.includes('≈');
+    /**
+     * (c) **Todo o nada por pista.** Si hay cifra, la numeración `01·02·03` desaparece de las OCHO
+     * tejas; si no la hay, la llevan **todas menos la primera**. Se afirma el número EXACTO
+     * (`tileCount - 1`) y no un `> 0`: contra una pista a medio pintar, `> 0` es exactamente el
+     * tipo de umbral que se cumple solo, mientras que la igualdad exige que las OCHO tejas hayan
+     * tomado la misma decisión — que es literalmente lo que §22.6b-c promete.
+     */
+    const numbering = await track.getByText(/^\d{2}$/).count();
+    expect(
+      numbering,
+      hasFigure
+        ? `la pista pinta cifra y CONSERVA la numeración (§22.6b-c): ${numbering} ordinales en ${tileCount} tejas`
+        : `la pista no pinta ninguna cifra y perdió la numeración de §20.3: ${numbering} ordinales en ${tileCount} tejas`,
+    ).toBe(hasFigure ? 0 : tileCount - 1);
+
+    // R3.1 — si hay cifras, cada una lleva su micro-aviso VISIBLE junto a ella.
+    if (hasFigure) {
+      await expectVisibleMicroNotice(track);
+      await expect(page.locator('#nota-estimado')).toBeVisible();
+    }
+
+    /**
+     * (g) El regreso de la nota NUNCA apunta a la nada. Aquí **no se puede exigir que la nota
+     * exista** —la hospeda la UNIÓN vitrina ∪ carrusel, y cero burbujas en las dos superficies es
+     * un estado legítimo—, pero sí se puede evitar que la comprobación se salte sola: la rama que
+     * SÍ conocemos (`hasFigure` ⇒ nota, por R3.3) entra **sin condicional**, y el `count()` solo
+     * gobierna la que depende del dato del entorno. Ya no se fotografía a media carga: la pista
+     * está esperada arriba y la vitrina se renderiza **ya resuelta** (§22.6, sin skeleton).
+     */
+    const note = page.locator('#nota-estimado');
+    if (hasFigure || (await note.count()) > 0) {
+      await expect(note).toBeVisible();
+      // La nota trae SIEMPRE su enlace de regreso (§22.4b): si falta, es un fallo, no un caso.
+      const back = note.locator('a[href^="#"]');
+      await expect(back).toHaveCount(1);
+      const href = await back.getAttribute('href');
+      await expect(page.locator(href!)).toHaveCount(1);
+    }
+
+    await expectFigureImpliesFootnote(page);
   });
 });
 
@@ -611,7 +719,14 @@ test.describe('Gancho de grading · BACK-OFFICE: la lista de revisión y el RETI
       t('es', 'admin.m2.gradedEstimateReview.reasonShort.STALE'),
       { exact: true },
     );
-    await expect(section.getByText(t('es', 'admin.m2.gradedEstimateReview.subtitle'))).toBeVisible();
+    /**
+     * MISMO DEFECTO que el bloqueante del carrusel, y por eso se arregla en la misma vuelta: el
+     * `subtitle` de la sección se pinta **fuera** del `QueryState`, así que verlo NO significa que
+     * la lista haya cargado — y una aserción de AUSENCIA contra una lista todavía vacía se cumple
+     * sola. El ancla honesta es `howToFix`, el único texto fijo que vive **dentro** de
+     * `{query.data && …}`: si está, la consulta resolvió y la lista pintada es la del default.
+     */
+    await expect(section.getByText(t('es', 'admin.m2.gradedEstimateReview.howToFix'))).toBeVisible();
     await expect(staleBadge).toHaveCount(0);
 
     await section.getByLabel(t('es', 'admin.m2.gradedEstimateReview.includeStale')).check();

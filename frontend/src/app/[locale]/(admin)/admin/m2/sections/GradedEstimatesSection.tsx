@@ -8,6 +8,10 @@ import { getGradedEstimateConfig, updateGradedEstimateConfig } from '@/lib/api';
 import type { GradedEstimateConfigDTO, GradingCostTierDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
+import {
+  GRADING_INGEST_RUNS_PER_DAY,
+  gradingIngestDailyCreditCeiling,
+} from '@/lib/grading-hook-cost';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Banner } from '@/components/ui/Banner';
@@ -40,6 +44,41 @@ import { pesosToCents, sanitizeDecimalInput } from './shared';
  * **Money-safe:** un campo vacío o mal formado **no se guarda como 0** (mismo criterio S-P1-1 que
  * las reglas de precio); el guardado se bloquea y la fila se marca.
  */
+/**
+ * Rango del tope de cartas por corrida — **I8, contrato v1.51-a** (`[1, 1000]`). El 5 000 de la
+ * versión anterior quedó FUERA del contrato: no se escribe aquí, ni en un `placeholder`, ni en un
+ * ejemplo, ni en un test (§22.14e). La validación de cliente **previene** el 422; la fuente de
+ * verdad sigue siendo el servidor.
+ */
+const INGEST_CAP_MIN = 1;
+const INGEST_CAP_MAX = 1000;
+
+/**
+ * `<b>` y `<n>` del aviso de créditos, **los mismos chunks que M10** (§22.13/§22.14c): la cifra va
+ * en mono `tabular-nums` (§20.14, voz del dinero) y las entradillas en `<b>` dentro de la MISMA
+ * clave — partir la frase en dos claves o concatenarla está prohibido (§9.4).
+ */
+const RICH_BOLD = {
+  b: (chunks: React.ReactNode) => <strong className="font-medium text-text">{chunks}</strong>,
+};
+const RICH_FIGURE = {
+  n: (chunks: React.ReactNode) => <span className="font-mono tabular">{chunks}</span>,
+};
+
+/**
+ * Lee el tope tecleado. Devuelve `null` cuando **no se puede guardar**: vacío, no entero o fuera de
+ * `[1, 1000]`. Money-safe (S-P1-1): un campo vacío **no cae a 0 ni al default** — bloquea. Aquí un
+ * 0 no sería un cobro, sería un ingest que no mira nada, pero la dirección del fallo tiene que ser
+ * explícita, no accidental.
+ */
+function parseIngestCap(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < INGEST_CAP_MIN || n > INGEST_CAP_MAX) return null;
+  return n;
+}
+
 export function GradedEstimatesSection() {
   const t = useTranslations('admin.m2.gradedEstimates');
   const tc = useTranslations('common');
@@ -53,18 +92,24 @@ export function GradedEstimatesSection() {
   const [draft, setDraft] = useState<TierDraft[] | null>(null);
   const [minUpsideDraft, setMinUpsideDraft] = useState<string | null>(null);
   const [freshnessDraft, setFreshnessDraft] = useState<string | null>(null);
+  const [ingestCapDraft, setIngestCapDraft] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: (payload: {
       gradingCostTiers: GradingCostTierDTO[];
       minUpsidePct: number;
       freshnessDays: number;
+      // §22.14a: `ingestMaxCardsPerRun` ya es opcional en `GradedEstimateConfigInput` — el campo
+      // entra en el payload SIN cambio de contrato. Hasta hoy la única cota entre un `PUT` y la
+      // factura del proveedor no se mandaba desde ninguna pantalla.
+      ingestMaxCardsPerRun: number;
     }) => updateGradedEstimateConfig(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['graded-estimates-config'] });
       setDraft(null);
       setMinUpsideDraft(null);
       setFreshnessDraft(null);
+      setIngestCapDraft(null);
     },
   });
 
@@ -73,8 +118,37 @@ export function GradedEstimatesSection() {
   const minUpside = minUpsideDraft ?? (server ? String(server.minUpsidePct) : '');
   const freshness = freshnessDraft ?? (server ? String(server.freshnessDays) : '');
 
+  /*
+   * ── El tope de cartas por corrida (§22.14) ────────────────────────────────────────────────
+   * No es un dial más: es **la única cota entre un `PUT` y la factura del proveedor**
+   * (ARCHITECTURE §4.38r.3). Sus dos vecinos —margen mínimo y frescura— son gates de PUBLICACIÓN;
+   * éste GASTA, y por eso vive en su propio bloque y no como tercera celda de aquella retícula.
+   */
+  const ingestCapText = ingestCapDraft ?? (server ? String(server.ingestMaxCardsPerRun) : '');
+  const ingestCap = parseIngestCap(ingestCapText);
+  const savedIngestCap = server?.ingestMaxCardsPerRun;
+  /*
+   * El aviso de créditos aparece **solo cuando el borrador difiere de lo guardado** (§22.14b/d): el
+   * estado en reposo no repite el techo —eso es de M10, la pantalla del consentimiento— porque el
+   * dueño necesita la cifra en el momento en que el número cambia, que es cuando decide. Con un
+   * valor inválido NO se calcula nada: un techo sobre un número que no se puede guardar sería
+   * peor que ninguno.
+   */
+  const ingestCapDirection: 'Up' | 'Down' | null =
+    ingestCap === null || savedIngestCap == null || ingestCap === savedIngestCap
+      ? null
+      : ingestCap > savedIngestCap
+        ? 'Up'
+        : 'Down';
+  // Una sola aritmética en el producto: el mismo módulo que cifra el aviso de M10 (§22.14c).
+  const ingestCapCredits = gradingIngestDailyCreditCeiling(ingestCap);
+
   const issues = validate(rows, minUpside, freshness);
-  const dirty = draft !== null || minUpsideDraft !== null || freshnessDraft !== null;
+  // El rango del tope SÍ bloquea el guardado (es un 422 seguro); el aviso de créditos NO —no es un
+  // error, y bloquear la única palanca de contención sería el peor resultado posible (§22.14e).
+  const blocking = issues.blocking || ingestCap === null;
+  const dirty =
+    draft !== null || minUpsideDraft !== null || freshnessDraft !== null || ingestCapDraft !== null;
 
   function patchRow(index: number, patch: Partial<TierDraft>) {
     setDraft(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -103,7 +177,7 @@ export function GradedEstimatesSection() {
   }
 
   function save() {
-    if (issues.blocking) return;
+    if (blocking) return;
     mutation.mutate({
       gradingCostTiers: rows.map((r, i) => ({
         minValueMxnCents: minCentsAt(rows, i),
@@ -112,6 +186,7 @@ export function GradedEstimatesSection() {
       })),
       minUpsidePct: Number(minUpside),
       freshnessDays: Math.round(Number(freshness)),
+      ingestMaxCardsPerRun: ingestCap!,
     });
   }
 
@@ -254,6 +329,48 @@ export function GradedEstimatesSection() {
               </div>
             </div>
 
+            {/* --- Tope de cartas por corrida (§22.14) — BLOQUE PROPIO, no una tercera celda ---
+                Los dos campos de arriba deciden **qué se enseña**; éste decide **qué se gasta**.
+                §7.6 ya separa el dinero saliente del resto del formulario, y meterlo en aquella
+                retícula lo haría leerse como un ajuste más de presentación — que es, literalmente,
+                cómo se llegó hasta aquí: el aviso de M10 mandaba al dueño a editar aquí un campo
+                que esta pantalla no dibujaba. */}
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <h3 className="text-sm font-semibold">{t('ingestCap.label')}</h3>
+              <Input
+                label={t('ingestCap.label')}
+                type="text"
+                inputMode="numeric"
+                className="w-32"
+                error={ingestCap === null ? t('ingestCap.rangeError') : undefined}
+                value={ingestCapText}
+                onChange={(e) => setIngestCapDraft(sanitizeDecimalInput(e.target.value))}
+              />
+              <p className="text-xs text-muted">{t.rich('ingestCap.hint', RICH_BOLD)}</p>
+              {ingestCapDirection && ingestCapCredits !== null && (
+                /* `role="status"`, nunca `alert`: el dueño está tecleando en su propio borrador y
+                   una región asertiva por pulsación es hostil con lector de pantalla (§22.14c).
+                   El color NO es el único canal (§2.4): el TÍTULO dice la dirección. */
+                <Banner
+                  variant={ingestCapDirection === 'Up' ? 'warning' : 'info'}
+                  role="status"
+                  title={t(`ingestCap.warnTitle${ingestCapDirection}`)}
+                >
+                  <p className="text-text">
+                    {t.rich('ingestCap.warn', {
+                      ...RICH_BOLD,
+                      ...RICH_FIGURE,
+                      // La cifra es la del BORRADOR, no la guardada: es la decisión que se está
+                      // tomando. Y va con su supuesto pegado (§22.13d.1, sin excepción).
+                      maxCards: ingestCap!,
+                      runs: GRADING_INGEST_RUNS_PER_DAY,
+                      credits: ingestCapCredits,
+                    })}
+                  </p>
+                </Banner>
+              )}
+            </div>
+
             {/* v1.50.3 — los diales del GATE DE CONFIANZA, VISIBLES aunque este panel aún no los
                 edite. Se muestran porque cambian el comportamiento que el operador ve y no tenía
                 dónde consultarlos: `manualFreshnessDays` decide que un estimado capturado a mano
@@ -292,7 +409,7 @@ export function GradedEstimatesSection() {
             <div className="flex gap-2">
               <Button
                 variant="secondary"
-                disabled={!dirty || issues.blocking}
+                disabled={!dirty || blocking}
                 loading={mutation.isPending}
                 onClick={save}
               >
@@ -305,6 +422,7 @@ export function GradedEstimatesSection() {
                     setDraft(null);
                     setMinUpsideDraft(null);
                     setFreshnessDraft(null);
+                    setIngestCapDraft(null);
                   }}
                 >
                   {tc('cancel')}

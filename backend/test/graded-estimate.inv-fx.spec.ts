@@ -230,10 +230,8 @@ function wireIngest(opts: {
   return { ingest, persist, fetchGraded, audit, prisma };
 }
 
-const ON = {
-  [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: 'on',
-  [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on',
-};
+/** v1.51 (M-46): UN solo dial enciende exhibición y obtención. */
+const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 const ROW = {
   externalId: 'sv8-104',
   number: '104',
@@ -245,22 +243,38 @@ const ROW = {
 };
 
 describe('§4.38h — el job del ingest: diales, alcance e INV-D', () => {
-  it('con el dial `graded_estimate_ingest_enabled` en `off` (seed) NO se pide NADA (cero créditos)', async () => {
-    const { ingest, fetchGraded } = wireIngest({ config: { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' } });
+  it('con el dial `grading_hook_enabled` en `off` (seed) NO se pide NADA (cero créditos)', async () => {
+    const { ingest, fetchGraded } = wireIngest({ config: {} });
     const res = await ingest.ingestGradedEstimates(FX);
     expect(res.enabled).toBe(false);
     expect(fetchGraded).not.toHaveBeenCalled();
   });
 
-  it('los DOS diales son independientes: el ingest puede rodar con la EXHIBICIÓN apagada (§4.38d)', async () => {
-    // Es la secuencia de encendido que pide §4.38h: rodar en observación antes de publicar.
+  it('v1.51 (§4.38r): las claves RETIRADAS en `on` NO encienden el ingest — solo el dial nuevo lo hace', async () => {
+    // Deroga el test anterior («los DOS diales son independientes»): ya no hay dos. Este es su INVERSO
+    // y es el que protege la decisión de (r.1) — el estado REAL de producción (las dos filas viejas en
+    // `on`) no puede armar el dial nuevo. Ver también `graded-estimate.one-dial.spec.ts`, que lo
+    // comprueba con el provider real y un delator sobre `fetch`.
     const { ingest, fetchGraded } = wireIngest({
-      config: { [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: 'on' }, // exhibición `off`
+      config: { graded_estimates_enabled: 'on', graded_estimate_ingest_enabled: 'on' } as never,
+      providerRows: [ROW],
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.enabled).toBe(false);
+    expect(fetchGraded).not.toHaveBeenCalled();
+  });
+
+  it('el gate lee el DIAL CRUDO: una clave de CURADURÍA corrupta no congela la obtención (§4.38h.3)', async () => {
+    // `minUpsidePct` basura apaga `highlightEnabled` (la vitrina), y eso es correcto. Lo que NO puede
+    // hacer es dejar de traer datos: un dedazo en un umbral de escaparate no puede parar el feed.
+    const { ingest, fetchGraded, persist } = wireIngest({
+      config: { ...ON, [SettingKey.GRADING_MIN_UPSIDE_PCT]: 'no-es-un-numero' },
       providerRows: [ROW],
     });
     const res = await ingest.ingestGradedEstimates(FX);
     expect(res.enabled).toBe(true);
     expect(fetchGraded).toHaveBeenCalled();
+    expect(persist).toHaveBeenCalled();
   });
 
   it('config del INGEST presente-pero-INVÁLIDA ⇒ NO escribe (no se adivina qué número es el precio)', async () => {

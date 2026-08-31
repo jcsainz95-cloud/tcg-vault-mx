@@ -33,8 +33,8 @@ import {
 } from '../../common/graded-estimate';
 
 /**
- * Las 5 claves de M2 que gobierna este recurso (el dial maestro `graded_estimates_enabled` NO: se edita
- * en `PUT /admin/settings`). Se usa para la foto forense `storedRaw` de la bitácora (D4).
+ * Las 10 claves de M2 que gobierna este recurso (el **dial único** `grading_hook_enabled` NO: se edita
+ * en `PUT /admin/settings`, §M10). Se usa para la foto forense `storedRaw` de la bitácora (D4).
  */
 const GRADED_ESTIMATE_M2_KEYS = [
   SettingKey.GRADED_ESTIMATE_GRADES,
@@ -42,7 +42,7 @@ const GRADED_ESTIMATE_M2_KEYS = [
   SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
   SettingKey.GRADING_MIN_UPSIDE_PCT,
   SettingKey.GRADING_COST_TIERS,
-  // v1.50.2 — las 5 nuevas de M2 (los DOS diales M10 siguen fuera: se editan en PUT /admin/settings).
+  // v1.50.2 — las 5 nuevas de M2 (el dial M10 sigue fuera: se edita en PUT /admin/settings).
   SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
   SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
@@ -69,8 +69,16 @@ class GradedEstimatesPutDto {
   @Allow() minSampleCount?: unknown;
   @Allow() sourceStat?: unknown;
   @Allow() ingestMaxCardsPerRun?: unknown;
-  /** ESPEJOS read-only de los DOS diales M10: si vienen, se IGNORAN (se editan en `PUT /admin/settings`). */
+  /**
+   * ESPEJO read-only del dial M10 `gradingHookEnabled`: si viene, se IGNORA (se edita en
+   * `PUT /admin/settings`).
+   */
   @Allow() enabled?: unknown;
+  /**
+   * ⛔ v1.51 (M-46): `ingestEnabled` quedó RETIRADO del DTO y ya no se emite. Se sigue **aceptando e
+   * ignorando** a propósito —no `422`—: el contrato lo exige explícitamente para no romper un cliente a
+   * medio deploy que aún lo mande. Campo muerto, deliberadamente muerto.
+   */
   @Allow() ingestEnabled?: unknown;
 }
 
@@ -107,7 +115,7 @@ export class GradedEstimatesController {
 
   /**
    * `GET /admin/pricing/graded-estimates` — config EFECTIVA (la misma que usa el resolver, ya saneada
-   * fail-closed). Read-only. `enabled` es el ESPEJO del dial M10 `gradedEstimatesEnabled`.
+   * fail-closed). Read-only. `enabled` es el ESPEJO del dial ÚNICO M10 `gradingHookEnabled` (v1.51).
    *
    * **Se PROYECTA al `GradedEstimateConfigDTO` del contrato** (`toGradedEstimateConfigDTO`): los flags
    * internos de GU-A8 (`estimatesEnabled`/`highlightEnabled`) **no** forman parte del DTO. Devolver el

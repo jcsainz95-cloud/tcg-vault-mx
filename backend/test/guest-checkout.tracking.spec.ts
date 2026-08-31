@@ -275,7 +275,9 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
       okValidation,
     );
     const dto: any = await svc.track('t');
-    expect(dto.support.evidenceContact).toBe('soporte@tcgvaultmx.com');
+    // P-21 (ago-2026): buzón de soporte VIVO. El histórico `soporte@tcgvaultmx.com` está muerto;
+    // si este assert falla, se corrige hacia `@tcghunt.mx`, nunca al revés.
+    expect(dto.support.evidenceContact).toBe('soporte@tcghunt.mx');
     expect(dto.support.disputeWindowDays).toBe(7);
     expect(dto.support.disputeDeadlineAt).toEqual(new Date('2026-08-12T10:00:00.000Z'));
 

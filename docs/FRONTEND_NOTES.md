@@ -115,6 +115,10 @@ M3/M5. No se inventó nada visual.
 `ingestMaxCardsPerRun`. Se alinea el espejo y se corrigen los seeds del mock
 (`manualFreshnessDays: null → 30`, `minSampleCount 5`, `maxRawMultiple 100`).
 
+> **Rótulo (añadido 2026-08-31).** Lo de arriba describe el alineamiento de **v1.50.3**.
+> `ingestEnabled` **ya no forma parte** de `GradedEstimateConfigDTO`: M-46 lo retiró al colapsar el
+> gancho en un solo dial (**§31**).
+
 El panel los **muestra read-only**: cambian lo que el operador ve —con 30 días un estimado capturado
 a mano **caduca**, y `maxRawMultiple` es el tope contra el que la lista marca `ABOVE_MAX_MULTIPLE`— y
 no había dónde consultarlos. **Editarlos** sigue siendo por API: cada uno trae su rango normativo
@@ -370,8 +374,14 @@ esquema de §22.11, ambas para poder copiar el texto aprobado **sin reescribirlo
 ### Textos MARCADOR DE POSICIÓN (pendientes de PO — §22.12 nº2)
 Los dos `microNotice` (`catalog.gradingBadge.microNotice`, `catalog.gradingEstimate.microNotice`) y
 `catalog.gradingNote.callSr` usan **los textos propuestos por ux-ui en §22.11**, tomados a su vez de
-§O.5. Son texto legal-comercial: los fija PO (idealmente con la misma revisión legal del
-disclaimer). Cambiarlos es editar `messages/{es,en}.json`, sin tocar código.
+§O.5. Son texto legal-comercial: los fija PO. Cambiarlos es editar `messages/{es,en}.json`, sin tocar
+código.
+
+> **Precisión de estado (añadida 2026-08-31).** El fondo sigue **vigente**: estas cadenas cortas **no**
+> han sido ratificadas por separado (**pregunta abierta 12**), y eso **no bloquea el encendido**. Lo que
+> se corrige es la redacción anterior —«idealmente con la misma revisión legal del disclaimer»—, que
+> **presuponía una revisión legal que nunca hubo**. El estado real del cuerpo del disclaimer de §O.5 es
+> **aprobado por el dueño; sin revisión legal profesional** (`PROJECT.md`, decisión 59).
 
 ### Un solo grado disponible — RESUELTO (ya no hay discrepancia)
 La versión anterior de estas notas reportaba una discrepancia con §22.7 («falta un grado ⇒ nada» en
@@ -441,10 +451,22 @@ componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
 - **M10 · interruptor maestro:** `gradedEstimatesEnabled` entra en `DIALS` como dial **`onOff`**
   (Select cerrado `off | on`, no texto libre) y viaja por el `PUT` parcial de siempre —**sin
   redeploy y auditado**—. Un dial ausente en la respuesta se lee **`off`** (fail-closed, como el seed).
-- **La UI advierte lo que ese dial hace.** Encenderlo **publica una afirmación comercial** cuyo
-  disclaimer aún espera el visto bueno del humano: al tocarlo y dejarlo encendido aparece un aviso
-  `role="alert"` que lo dice, y que aclara que **no cambia ningún precio de venta, valuación ni
-  cotización** (criterio 108). Hay además una nota permanente que remite a M2 para el resto de la config.
+- **La UI advierte lo que ese dial hace.** Encenderlo **publica una afirmación comercial**: al tocarlo
+  y dejarlo encendido aparece un aviso `role="alert"` que lo dice, y que aclara que **no cambia ningún
+  precio de venta, valuación ni cotización** (criterio 108). Hay además una nota permanente que remite
+  a M2 para el resto de la config.
+
+  > **RÓTULO DE ESTADO (añadido 2026-08-31) — lo de arriba describe el 2026-08-23 y quedó superado en
+  > DOS puntos. Se conserva como historia, no como descripción vigente.**
+  > **(1) La aprobación ya existe.** El copy de este aviso decía entonces que el disclaimer «aún espera
+  > el visto bueno del humano». **Hoy esa frase sería falsa:** el dueño **aprobó el texto del disclaimer
+  > de §O.5 el 2026-08-31** (`PROJECT.md`, decisión 59), **sin revisión legal profesional** — y esa
+  > revisión **no bloquea el encendido**. `DESIGN_SYSTEM §22.13(h)` **prohíbe** afirmar que el disclaimer
+  > no está aprobado, y §22.13(k) exige **cero apariciones** de esa frase en `messages/`.
+  > **(2) El dial que se describe ya no existe.** `gradedEstimatesEnabled` fue **retirado** por M-46, que
+  > colapsó el gancho en `gradingHookEnabled`; su aviso de encendido **ya no habla de aprobación
+  > pendiente sino de GASTO**. La descripción vigente está en **§31** (copy corregido y su candado en
+  > `i18n-parity.test.ts`, §31.2).
 - **M2 · Sección 5c `GradedEstimatesSection`:** editor de los **escalones de costo de gradeo**, el
   **margen mínimo** y la **frescura**, con el `enabled` como **espejo read-only** de M10.
   **Los invariantes I1–I5 se cumplen por CONSTRUCCIÓN, no por regaño:** la tabla no pide `min` y `max`
@@ -7364,6 +7386,11 @@ vivo (`admin` + `pricing-curve`): **13 verdes / 0 rojos** (6 saltados, clasifica
 > grado con slab, la lista de revisión cumple sus cuatro reglas y las traducciones están. Lo que
 > **no** existía era una prueba automatizada que lo dijera contra el stack corriendo.
 
+> **Rótulo de nomenclatura (añadido 2026-08-31).** Esta entrada es de **v1.50.3-e2e** y nombra el dial
+> `gradedEstimatesEnabled`, que era el correcto **en esa fecha**. **M-46 lo renombró a
+> `gradingHookEnabled`** y el arnés dejó de poder encenderlo sin precondición verificada (**§31**). Se
+> conserva el nombre viejo porque describe lo que el arnés hacía entonces, no lo que hace hoy.
+
 ### 1. El bloqueante real: la feature no estaba en el gate (no eran «9 rojos»)
 
 Los 9 specs de `grading-estimate.spec.ts` navegaban a **ids de fixture** (`c-blastoise`,
@@ -7808,6 +7835,10 @@ respetando el resto del estado, y purga por contenido alcanzando los archivos le
 | Solo `grading-estimate.spec.ts` en real | **12/12**, incluido el `@real` del borrado |
 | Huella en el entorno tras la corrida | dial `gradedEstimatesEnabled` = `off`; carta `deletable` sin cifras; `/tmp/tcg-vault-e2e-state` `0700` y **vacío** |
 
+> **Rótulo (añadido 2026-08-31).** Esta tabla es la **medición del 2026-08-29** y se conserva tal cual.
+> El dial que nombra, `gradedEstimatesEnabled`, **ya no existe**: M-46 lo renombró a
+> `gradingHookEnabled` (**§31**).
+
 **Nota para devops (entorno, no código).** Al verificar el build corrí `npx next build` **sin** las
 variables que usa `scripts/stack-native.sh`, y eso horneó `.next` con la URL de API por defecto
 (`:3001`) bajo el `next start` que estaba sirviendo en `:3000` — la primera corrida real dio 25 rojos
@@ -7831,3 +7862,848 @@ vuelven a coincidir. La verificación final de `next build` se hizo contra `NEXT
 2. **Seed — sigue faltando una CUARTA carta raw publicada y libre.** Las tres que hay ya son `curated`,
    `informed` y `deletable`. El test `needsSeed` de «dos grados con dato y sin destacar» pasará tal
    cual el día que exista. No bloquea nada.
+
+---
+
+## §28 · La marca del descargo: «TCG Vault MX» → «TCG HUNT», y el candado que lo fija (2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`)
+
+**El defecto.** El descargo legal del gancho de grading nombraba a la empresa como **«TCG Vault MX»**
+— el nombre interno del proyecto (el título de `CLAUDE.md`), no la marca. La marca es **TCG HUNT**
+(`common.brand.name`, dominio `tcghunt.mx`). Lo introdujimos nosotros al redactar el descargo: de todo
+el texto visible al comprador, el nombre viejo aparecía **solo** en esas dos claves, en los dos idiomas.
+
+**El arreglo (4 cadenas, nada más).** `catalog.gradingNote.p4` y `catalog.gradingNote.p5` en `es.json`
+y `en.json`. Se sustituyó **únicamente el token de la marca**; el resto del descargo está aprobado
+literal por el dueño y no se tocó ni una coma. ES y EN quedan paralelos.
+
+**Por qué la marca y no la razón social.** El proyecto distingue marca (`common.brand.name`) de razón
+social (`common.footer.legalEntity`, hoy `[Razón social pendiente]` / `[Legal entity pending]`, que el
+pie omite con gracia — ver `footerLegalEntity.test.ts`). La razón social **no está cargada todavía**,
+así que no entra aquí. El precedente que manda es `legal.intro`: *«Estos términos aplican a todas las
+compras y a la bóveda de cartas en TCG HUNT»*. El descargo debe hablar igual que los términos.
+
+**El candado.** No se creó archivo nuevo: el barrido de catálogos ya vivía en
+`src/lib/i18n-parity.test.ts` (paridad de claves ES/EN), así que el caso entra ahí, junto a su vecino
+natural. Un helper `stringEntries()` recorre el JSON y devuelve `[ruta, valor]` de **cada** cadena; el
+caso —un `it.each` por locale— exige que ninguna case con `/tcg\s*vault/i`. Falla **listando la ruta
+de la clave culpable** (verificado reinyectando el texto viejo: `expected [ 'catalog.gradingNote.p4' ]
+to deeply equal []`), no con un booleano mudo. Es barato y cierra la puerta a que cualquier copy futuro
+—no solo el descargo— reintroduzca la marca vieja.
+
+**Verificación.** `npx tsc --noEmit` limpio · `npx vitest run` **769 pasan / 90 archivos** (eran
+767/90: +2 del `it.each` nuevo, uno por locale). **Ningún test existente citaba la marca vieja**, así
+que no hubo aserciones que actualizar.
+
+## §29 · La cuarta superficie del gancho: la burbuja entra al carrusel «Piezas destacadas» (§22.6b) — 2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`
+
+Implementación de `DESIGN_SYSTEM.md` §22.6b (PROJECT §O.3 superficie 4, criterio 113). **Cero cambios
+de backend y cero cambios de contrato**: verificado antes de empezar que `GET /catalog/cards` emite
+`gradingHighlight` en el summary de todo grupo raw elegible **sin** el filtro `?gradingHighlight=true`
+(`catalog.service.ts:1093` llama `loadGradingContext` de forma incondicional; el `:1104` con
+`gradingHighlight=true` solo **filtra**). El carrusel ya pedía `getCatalog({sort:'price_desc',
+pageSize:8})` y ya recibía el campo en el DTO: solo faltaba pintarlo.
+
+### 1. El punto que mata la feature en silencio: la nota al pie es la UNIÓN, no la vitrina
+
+Hasta hoy `page.tsx` derivaba `GradingFootnoteBoundary active` **solo** de la vitrina «Joyas para
+gradear». Con el carrusel como cuarta superficie eso deja de ser suficiente y se convierte en un
+**fallo silencioso de manual**:
+
+- El carrusel ordena por **precio descendente** y el gate de ROI castiga justo a las caras (R6 exige
+  `psa10 > raw`), así que **«vitrina vacía + una burbuja en el carrusel» es el estado FRECUENTE**.
+- En ese estado la página no hospedaría la nota; y como toda cifra es **fail-closed** sin nota (R3.3),
+  el badge devuelve `null`. El carrusel **no pintaría nada**: ni excepción, ni hueco, ni log. Solo una
+  feature que no aparece.
+
+El arreglo es literal a §22.6b-g: un solo booleano, `gemsHaveFigures || carouselHasFigures`, derivado
+del **mismo** `pageHasGradingFigures` para las dos fuentes. Para que las dos listas no puedan divergir
+de lo que cada sección pinta, la consulta del carrusel se **extrae y se comparte** —`useFeaturedCatalog()`
+/ `featuredOf()` en `FeaturedCarousel.tsx`, exactamente el patrón que ya usaba `useGradingGems()`—:
+mismo `queryKey`, TanStack la dedupe, una sola petición. Dos `useQuery` con opciones distintas habrían
+reabierto el mismo agujero por otra puerta.
+
+El `returnToId` deja de ser fijo: **vitrina si pintó, si no el carrusel** (§22.4a). Un ancla fija a una
+sección que hoy puede no renderizarse es un enlace de regreso apuntando a la nada — y ese es el caso
+normal aquí, no un borde.
+
+### 2. `surface`: un enumerado cerrado, no un `className`
+
+`GradingEstimateBadge` gana **un** prop, `surface: 'grid' | 'featuredLead' | 'featuredRest'`, con
+`'grid'` por defecto — **Compra y la vitrina no cambian ni una clase**. Toda la variación vive en un
+mapa `SURFACE_SPEC` de tres entradas y tres campos: qué envoltorio lleva la forma larga (`null` ⇒ no se
+pinta nunca), cuál la corta, y el tamaño de la cifra.
+
+Existe porque **el breakpoint del viewport no predice el ancho de la teja** en el carrusel: la teja
+chica mide 160px aunque el viewport ya sea `sm`. Por eso el corte de `featuredLead` es **`lg`, no `sm`**
+(236px → 400px) y `featuredRest` usa **`figureShort` siempre** (268px en su mejor momento contra los
+~274px que pide la forma larga en EN).
+
+Lo que el prop **no** puede hacer, y por eso es un enumerado y no un `className` libre: no apaga el
+micro-aviso, no lo acorta, no cambia su familia ni su tamaño, no toca la regla superior, no suprime la
+llamada `*` y no baja el piso de 11px (§22.4d). Un `surface: string` —o un `figureForm` que aceptara
+cualquier cosa— reabriría por la puerta de atrás la variante «ligera» sin aviso que R3 prohíbe. **Un
+cuarto valor es una decisión de diseño, no de implementación.**
+
+### 3. El `whitespace-nowrap` pasa del párrafo al MONTO (y esto endurece también a Compra)
+
+La clase estaba en el `<p>` **entero**. En una teja estrecha, un importe grande no envolvía: **desbordaba
+la teja en silencio** —no hay caja ni fondo que lo delate (§2.1)— en vez de dejar envolver la prosa que
+sí puede envolver. Ahora lo indivisible es la cifra y nada más.
+
+**Coste declarado:** requirió envolver el placeholder en un tag de rich text (`<nb>{amount}</nb>`) en
+`catalog.gradingBadge.figure` y `figureShort`, ES y EN. **No es copy nuevo ni una clave nueva** —§22.11
+dice que esta superficie no añade ninguna—: es el mismo mecanismo de `<approx>` y `<b>` que las claves
+ya usaban, y el texto renderizado es idéntico carácter por carácter. Fue necesario porque
+`RichTranslationValues` de next-intl solo admite `string | number | Date | RichTagsFunction`: no se
+puede pasar un `ReactNode` como valor de `{amount}`.
+
+### 4. La numeración: condicional POR PISTA, todo o nada
+
+`showNumbering = !(anchors !== null && pageHasGradingFigures(featured))`. Dos matices deliberados:
+
+- **El predicado incluye el `fail-closed`.** «Si la pista pinta cifra» significa *pinta*, y sin boundary
+  activa el badge devuelve `null`. Con `anchors` en la condición es **imposible** que la pista pierda
+  los números sin haber ganado la burbuja (hay test).
+- **Todo o nada**, nunca teja por teja: el número vive en la fila del título (`flex items-baseline
+  gap-2`) **antes** del nombre, así que quitarlo solo en las tejas con burbuja arrancaría esos nombres
+  ~20px a la izquierda de sus vecinos y se leería como error de maquetación. No se renumera para tapar
+  el hueco, no se sustituye por otro glifo y no queda espacio reservado: el `<span>` sencillamente no se
+  renderiza y el `gap-2` de un solo hijo no deja rastro (verificado con `row.children` = 1).
+
+### 5. Lo que NO se hizo, porque §22.6b lo prohíbe
+
+Sin `min-height`, sin espacio reservado, sin skeleton del badge, sin regla ni guion de relleno en las
+siete tejas sin cifra, sin reordenar por elegibilidad y **sin deduplicar contra la vitrina** (una carta
+cara que además califica sale en las dos, con su burbuja en ambas). El badge es el **último elemento**
+de las dos anatomías, así que nada de lo que está encima —arte, nombre, set/#, acabado, precio, stock—
+se mueve un píxel: las ocho imágenes siguen alineadas por su borde superior, que es el eje que el ojo
+usa en una pista horizontal. La pista crece lo que crezca la teja más alta y ese aire cae **debajo** de
+las cortas. **La ausencia es el estado por defecto de esta superficie, no un estado degradado.**
+
+En la teja grande la burbuja va **a todo el ancho, bajo toda la fila de datos**, no dentro de la columna
+derecha del precio: esa columna es estrecha y va `text-right`, y ahí una cifra `nowrap` la reventaría y
+el micro-aviso —que es prosa— quedaría en bandera derecha (§22.4c).
+
+### 6. Accesibilidad: **prohibido `aria-label` en el enlace de la teja**
+
+A diferencia de la teja de Compra, aquí el `<a>` envuelve todo, así que el badge queda **dentro** del
+enlace y su texto pasa a formar parte del **nombre accesible**: el lector anuncia nombre, set, precio,
+stock, la cifra y el micro-aviso completo. Eso es lo que §22.5 pide. Un `aria-label` **sustituiría** el
+contenido y borraría el aviso del árbol de accesibilidad — que es exactamente el defecto bloqueante que
+§22.4c corrigió. Hay un test que lo fija (`aria-label` y `aria-labelledby` a cero en todas las tejas), y
+otro que comprueba que la llamada `*` no es un ancla anidada (`variant="plain"`).
+
+`Shelf` gana un prop opcional `id` para que el ancla del carrusel y su
+`scroll-mt-[calc(var(--app-header-h,0px)+16px)]` vivan **en el mismo elemento** (§4.5). Es aditivo: los
+otros cuatro estantes no pasan `id` y no cambian.
+
+### Verificación (números reales)
+
+- `npx tsc --noEmit` limpio · `npx next lint` sin avisos · `npx next build` verde.
+- `npx vitest run` → **786 pasan / 91 archivos** (base 769/90; +17 en el archivo nuevo
+  `_home/FeaturedCarouselGrading.test.tsx`). **Ningún test existente se tocó**: los de Compra
+  (`CatalogTile.test.tsx`), los del badge (`gradingEstimates.test.tsx`) y los de la vitrina
+  (`GradingGemsShelf.test.tsx`) siguen verdes tal cual, que es la prueba de que `surface='grid'` no
+  cambió nada.
+- **El caso del punto 1 está cubierto renderizando el HOME COMPLETO**, no el carrusel aislado: el
+  defecto vive en la página. `getCatalog` se mockea por argumentos —`gradingHighlight:true` ⇒ `[]`
+  (vitrina VACÍA), la del carrusel ⇒ ocho piezas con **una** elegible— y se afirma que (a) «Joyas para
+  gradear» no existe, (b) la burbuja **sí se pinta** con su micro-aviso visible, (c) `#nota-estimado`
+  está en la página con el disclaimer completo y (d) el regreso apunta a `#piezas-destacadas`, que
+  existe y lleva su `scroll-mt`. Dos casos hermanos: con vitrina el regreso apunta a la vitrina y hay
+  **una sola** nota; sin cifras en ninguna de las dos, no hay nota ni aviso huérfano.
+- El micro-aviso se verifica **como lo verificó QA la primera vez**: con `sightedText()`, que retira del
+  árbol todo lo `sr-only` y comprueba que el aviso sigue ahí, en las dos anatomías y en ES y EN.
+- E2E: un bloque nuevo `@real` en `e2e/grading-estimate.spec.ts`. **No aserta «hay burbuja»** —cero
+  entre ocho es el estado normal, así que sería verde por casualidad o rojo por diseño—: aserta las
+  **invariantes** (la pista es anclable y lleva `scroll-mt`; cero `aria-label` en sus tejas; numeración
+  y cifra **no coexisten**, en los dos sentidos; el regreso de la nota nunca apunta a la nada).
+
+### Peticiones al arquitecto
+
+**Ninguna.** No se necesitó ningún endpoint ni campo que no exista, no hay mocks pendientes de contrato
+y no se tocó `docs/API_CONTRACT.md`.
+
+### Observación para ux-ui / PO (no bloquea, no la corregí porque no está en el alcance)
+
+`GradingFootnoteBoundary` renderiza la nota **después** de sus `children`, y en el home los `children`
+son el `<div>` que incluye la banda de tinta del buylist. Resultado: la nota queda **después** de esa
+banda, mientras §22.4b la sitúa *«después de la última vitrina, antes de la banda de tinta del
+buylist»*. Es **pre-existente** a esta entrega (no lo introduce §22.6b) y arreglarlo obliga a partir el
+árbol del home en dos, así que lo dejo anotado en vez de meterlo de contrabando en este pase. Si ux-ui
+lo confirma como defecto, es mío y lo tomo en la siguiente.
+
+### Verificación contra el stack REAL (no solo unitarios)
+
+Se levantó la plataforma con `./scripts/stack-native.sh up --seed --gate` (backend :3099 `db:up/redis:up`,
+frontend :3000 con `next build` + `next start`, `mocks=false`) y se ejercitaron **los dos estados** del
+carrusel, sembrando por la API del contrato (`PUT /admin/settings` + `POST /admin/pricing/override` con
+`intent:"graded_estimate"`), no tocando la BD a mano:
+
+| Estado | Qué se midió en la página servida |
+|---|---|
+| **Dial `off`, cero elegibles** (el estado por defecto) | 7 números en la pista (`01…07`), **cero** `≈`, **cero** nota al pie, la vitrina no existe. El carrusel es **exactamente §20.3 de hoy**. |
+| **Dial `on`, una elegible entre ocho** | la burbuja se pinta **solo** en esa teja, con su micro-aviso visible; la **numeración desaparece de las ocho**; `aria-label` en tejas = **0**; `#nota-estimado` presente; el regreso resuelve a un ancla que existe. |
+
+La elegible del entorno resultó ser la **tercera** pieza (`E2E Charizard`, MX$1,150) — una teja **chica**;
+las dos primeras del seed son `graded` y nunca califican. Es la ilustración perfecta del contexto de
+§22.6b: **la teja grande es la más cara y es a la que peor le va el gate**. A 160px la cifra
+(`figureShort`) entra en **un renglón** y el aviso ocupa **dos**, tal como predice la tabla de §22.6b-b.
+
+Después de las capturas **se restauró el entorno**: `DELETE /admin/pricing/graded-estimates/:cardId/:grade`
+para los dos grados sembrados y el dial de vuelta a `off` (su valor previo). `preview` confirma
+`psa10:null, psa9:null`.
+
+**Lo que NO se pudo demostrar en vivo, y por qué no es una laguna:** el estado «vitrina vacía + burbuja en
+el carrusel» **no es alcanzable con este seed**, porque la vitrina se alimenta del mismo
+`?gradingHighlight=true` y con una sola carta elegible en todo el sitio ésta aparece necesariamente en las
+dos. Es un límite del *dato*, no del código — por eso ese caso se cubre con el unitario que renderiza el
+home completo y mockea `getCatalog` por argumentos.
+
+### Observación pre-existente que la captura a 160px dejó a la vista (no la toqué)
+
+Con el micro-aviso a **dos renglones**, la llamada `*` de `GradingNoteCall variant="plain"`
+(`align-super` + `leading-[0]`, §22.4a) sube casi un renglón completo y queda **encima del primer
+renglón** del aviso en vez de junto al final del segundo. **No lo introduce §22.6b**: se reproduce
+idéntico en la teja de la **vitrina** (`CatalogTile`, código intacto) a 390px, así que ya vivía en Compra
+desde la entrega anterior — la captura del carrusel solo lo hizo evidente. No lo corrijo en este pase
+porque `GradingNoteCall` es compartido por las cuatro superficies y tocarlo cambiaría Compra y la vitrina,
+que este pase tiene mandato explícito de **no** cambiar. Si ux-ui lo confirma como defecto, es mío.
+
+---
+
+## §30 · El test que decía verificar la cuarta superficie y no verificaba nada — bloqueante de QA sobre el PR #26 (2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`)
+
+**Veredicto que lo abre:** QA rechazó el PR #26 por un bloqueante mío en
+`frontend/e2e/grading-estimate.spec.ts`, el bloque del carrusel «Piezas destacadas» (§22.6b) —
+**la única cobertura E2E de la superficie que acababa de añadir**. Falló 2 de 2 corridas.
+
+### El defecto, dicho sin adornos
+
+El bloque comprobaba que `#piezas-destacadas` era **visible** y acto seguido leía su `innerText` y
+contaba la numeración. Pero la `<section>` la pinta `Shelf`, y `Shelf` **renderiza su encabezado en el
+primer frame**: las tejas llegan después, por react-query, y mientras tanto la pista son cuatro cajas
+grises (`QueryState.loading`). O sea: **el ancla no era el contenido, era el contenedor**, y el
+contenedor existe desde antes de que haya nada que medir.
+
+Con la pista vacía salían `hasFigure=false` y `numbering=0`, y la invariante de §22.6b-c —«o cifra sin
+numeración, o numeración sin cifra»— **no llegaba a decir nada**: se resolvía sobre el esqueleto. El
+test nunca verificó lo que su nombre promete. Es el patrón que llevamos todo el día persiguiendo —algo
+que afirma comprobar X y no comprueba X— y aquí dolía más porque era la **única** red de esa superficie.
+
+### Qué anclé, y por qué NO copié la sugerencia de QA
+
+QA validó en una copia desechable insertar `await expect(track.locator('a').first()).toBeVisible()`.
+**Ese ancla no espera nada** y lo comprobé antes de descartarla: el encabezado del `Shelf` ya trae el
+enlace **«Ver todo»** (`viewAllHref="/catalog"`), que está en el DOM desde el primer frame y es el
+**primer `<a>` de la sección**. La corrida de QA salió verde por el retardo que introduce, no por la
+espera — habría reabierto el mismo agujero con otra cara.
+
+El ancla que puse espera por **la condición que el test necesita** — que la pista tenga **tejas**:
+
+```ts
+const tiles = track.locator('a[href*="/catalog/"]');   // la teja va a /es/catalog/<cardId>…
+await expect(tiles.first(), '…nunca pintó una teja…').toBeVisible();  // …el «Ver todo» va a /es/catalog
+const tileCount = await tiles.count();
+expect(tileCount, 'sin tejas no hay ninguna invariante que medir').toBeGreaterThan(1);
+```
+
+El `href` distingue teja de encabezado sin depender del orden del DOM ni de una clase de layout. Nada
+de `waitForTimeout`.
+
+### Y la parte de fondo: que la invariante no se pueda cumplir por vacuidad
+
+Dos cambios, y el segundo es el que de verdad importa:
+
+1. **Contra-vacuidad explícita.** `tileCount > 1` se exige **antes** de juzgar nada, y con su mensaje:
+   la invariante solo *dice* algo si hay tejas, y solo *distingue* los dos casos si hay más de una (la
+   teja grande nunca lleva ordinal, §20.3). Si la pista no pinta, ahora se pone rojo **el aserto que
+   nombra la causa real**, en vez de fabricarse un verde silencioso.
+2. **La invariante pasa de umbral a igualdad exacta:** `numbering === (hasFigure ? 0 : tileCount - 1)`,
+   en vez de `numbering > 0`. «Todo o nada por pista» (§22.6b-c) es una afirmación sobre **las ocho
+   tejas**, y un `> 0` la deja pasar con una sola.
+
+### Demostración de que el test arreglado detecta el fallo (lo exigió QA, y era la parte útil)
+
+Spec desechable contra el stack real, ejecutando el oráculo **viejo** y el **nuevo** sobre el mismo
+navegador y el mismo estado. Los cuatro casos:
+
+| Caso | Oráculo VIEJO | Oráculo NUEVO |
+|---|---|---|
+| **Pista vacía** (`sort=price_desc` interceptado ⇒ `data: []`) | 🔴 pero con **diagnóstico falso**: «perdió la numeración de §20.3» — acusa al producto de una regresión que no ocurrió | 🔴 **por la causa real**: `waiting for locator('#piezas-destacadas').locator('a[href*="/catalog/"]')` |
+| **Numeración mutilada** (se borran 6 de los 7 ordinales del DOM) | 🟢 **PASA** — `numbering > 0` se cumple con **uno** | 🔴 `Expected: 7 · Received: 1` |
+| Estado normal (stack real) | 🟢 | 🟢 (`tiles=8`, `hasFigure=false`, `numbering=7`) |
+
+La fila del medio es la que justifica el cambio de umbral a igualdad: el oráculo viejo **aceptaba una
+regresión real** de §22.6b-c/§20.3. La primera es el bloqueante de QA, ya cerrado.
+
+### Auditoría del resto del archivo: había UNO más, y está arreglado
+
+Revisé **todos** los bloques que miden contenido asíncrono justo después de comprobar que su contenedor
+es visible. Resultado:
+
+- **`e2e/grading-estimate.spec.ts:696` (lista de revisión, opt-in `STALE`) — MISMO DEFECTO, arreglado.**
+  Afirmaba que el badge `STALE` **no** está en el default (`toHaveCount(0)`) anclándose solo en el
+  `subtitle` de la sección… que `GradedEstimateReviewSection` pinta **fuera** del `QueryState`. Una
+  aserción de **ausencia** contra una lista todavía sin cargar se cumple sola. Ahora el ancla es
+  `howToFix`, el único texto fijo que vive **dentro** de `{query.data && …}`: si está, la consulta
+  resolvió y lo que se mide es la lista del default.
+- **`:442` (el regreso de la nota en el carrusel) — endurecido de paso.** Era
+  `if (await back.count())`: una foto del DOM que, tomada a media carga, se salta el caso **en
+  silencio**. Ahora la rama que **sí** conocemos (`hasFigure` ⇒ hay nota, por R3.3) entra **sin
+  condicional**, y se afirma además que la nota trae su enlace de regreso (`toHaveCount(1)`, §22.4b
+  garantiza exactamente uno). El `count()` solo gobierna la rama que depende del dato del entorno.
+
+**Y los que NO son el mismo defecto, dicho explícitamente para que nadie los "arregle" por parecido:**
+
+- **Vitrina «Joyas para gradear» (`:324`)** — parece el mismo patrón (título del `Shelf` ⇒ contar
+  cifras) y **no lo es**: esa vitrina es la **excepción ratificada a §8.1**, no pinta skeleton, así que
+  su `Shelf` se renderiza *ya resuelto* o no se renderiza. Ver el título implica tejas en el **mismo
+  commit de React**. Lo dejé anotado en el propio spec, porque la diferencia con el carrusel no es
+  obvia leyendo el test.
+- **Retícula de Compra (`:265`, `:285`)** y **ficha (`:162`, `:216`, `:231`)** — anclan en el **dato**
+  (el nombre de la carta, el eyebrow del bloque), no en un contenedor estático; el badge sale del mismo
+  render (`useGradingFootnote` es **contexto**, no una segunda consulta que pueda llegar tarde).
+- **Back-office `:585` y `:628`** — ya anclaban en una fila / en el `summary`, ambos dentro del
+  `QueryState`.
+- **Desapariciones post-borrado (`:778`, `:907`)** — `toHaveCount(0)` con auto-retry tras el banner de
+  éxito; la transición es monótona y la invalidación de react-query no vacía la lista (refetch conserva
+  el dato viejo). No hay ventana de verde prematuro.
+
+### Los dos hallazgos menores de QA (no bloqueantes), en la misma vuelta
+
+**El dominio muerto en los fixtures.** `EVIDENCE_CONTACT` era el literal `soporte@tcgvaultmx.com`, y su
+propio comentario confesaba de dónde salía: copiado del contrato. `API_CONTRACT.md` §0 cláusula 4 admite
+un literal de *fallback* en fixtures **solo si se construye sobre `common.brand.domain`**, «nunca sobre
+un literal copiado de este documento».
+
+Nuevo **`frontend/src/lib/brand.ts`** con `BRAND_DOMAIN` + `brandEmail(mailbox)`, y `fixtures.ts` pasa a
+`brandEmail('soporte')` / `brandEmail('operador')`. **Por qué una constante y no un `import` de
+`messages/es.json`:** `src/lib/api.ts` importa `fixtures.ts` de forma **estática**, así que traer el JSON
+de mensajes ahí lo metería en el bundle de **toda** la app, no solo del modo mock (que es opt-in). Es un
+**espejo fijado por test**: `brand.test.ts` compara `BRAND_DOMAIN` con `common.brand.domain` de **las dos**
+traducciones, así que no puede separarse de la fuente sin que CI lo diga — que es justo lo que faltó
+cuando `tcgvaultmx.com` sobrevivió al rebrand.
+
+**Los cuatro tests que arrastraban el dominio muerto** (`PublicOrderTracking.test.tsx`,
+`ShipmentsView.test.tsx`, `api.test.ts`, `AdminShell.test.tsx`). QA tenía razón en que no eran candados
+invertidos —inyectan el valor y comprueban que se rinde lo inyectado—, pero mantenían vivo el dominio.
+Ahora inyectan **`evidencias@ejemplo.test` / `admin@ejemplo.test`**, deliberadamente **ajenos a la marca**:
+así el test no solo deja de citar un dominio muerto, sino que **prueba mejor lo que dice probar** — si
+algún día la UI derivara o hardcodeara el buzón en vez de rendir el que recibe (lo que §0 cláusula 4
+prohíbe), estos tests lo cazarían en vez de taparlo.
+
+### Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **789/789 en 92 archivos**
+  (base 786/91; +3 son `brand.test.ts`).
+- **E2E contra el stack real** (`./scripts/stack-native.sh down` y `up --gate` **desde este commit** —
+  había un frontend de otra sesión en :3000 desde las 01:15, el mismo estorbo que reportó QA; verificado
+  `BUILD_ID` 01:33 y una sola instancia por puerto): **`grading-estimate.spec.ts` 13/13**.
+- **E2E en modo mock** (`E2E_MOCK_PORT=3010`, build de producción con fixtures, puerto separado para
+  no pisar el stack real de :3000): **suite completa 101 pasan · 3 saltan (`realOnly`) · 0 fallan**.
+  Importante correrla: el arreglo del opt-in `STALE` es **`mockOnly`** —solo se ejercita aquí— y el
+  cambio de `EVIDENCE_CONTACT` solo vive en el modo fixtures.
+- **Fuera de mi alcance, para que no se confunda con una regresión mía:** en la corrida `@real` completa
+  fallan 3 smokes de **dinero** (`checkout`, `guest-checkout`, `shipments`), los tres esperando el modal
+  de pago. Causa en el log del backend: `STRIPE_SECRET_KEY ausente; usando sk_test_dummy`. Es
+  **ambiental** (sin clave de test ni egress), pre-existente y ajeno a este cambio — no toqué esos specs
+  ni nada que ellos usen.
+
+### Peticiones al arquitecto
+
+**Ninguna.** No hizo falta ningún endpoint ni campo nuevo, y no se tocó `docs/API_CONTRACT.md`.
+
+---
+
+## §31 · M-46: el dial único del gancho, y la incapacitación explícita del arnés E2E (contrato v1.51-one-dial, `ARCHITECTURE.md` §4.38r, `DESIGN_SYSTEM.md` §22.13) — 2026-08-31
+
+> Rama `claude/psa-graded-card-value-gmhv5u`, sobre `816a94d`. **Decisión del dueño, tomada y
+> reafirmada; no se re-litiga aquí.** Este § documenta *cómo* se implementó y, sobre todo, la parte
+> que no se ve en la pantalla: por qué la suite E2E dejó de poder gastar dinero **por construcción**.
+
+### 1. El renombrado, que no es un renombrado
+
+`SettingsDTO.gradedEstimatesEnabled` → **`gradingHookEnabled`**, y `GradedEstimateConfigDTO` pierde
+`ingestEnabled`. Es tentador leerlo como cosmética y **no lo es**: la clave es NUEVA a propósito
+(§4.38r.1). Producción tiene `graded_estimates_enabled="on"`, y reusar esa clave habría ensanchado
+el significado de un valor **ya almacenado** («publica» → «publica **y gasta**»), de modo que el
+siguiente tick del cron —≤12 h, sin humano— habría sido la primera factura del proveedor. Con clave
+nueva, ningún valor guardado en ningún entorno puede armar el dial: todos aterrizan en `off`.
+
+En el cliente eso se traduce en una consecuencia concreta y **buscada**: el campo es `?` opcional y
+**la ausencia se lee como `off`** (`toInputValue` ya lo hacía). Entre el deploy y el flip manual del
+dueño la tienda no muestra cifras de grading. **Es el precio declarado y aceptado, no un bug.**
+
+### 2. Los dos avisos: el aviso lo elige el SENTIDO, no el estado
+
+El estado efectivo del switch (borrador si se tocó, guardado si no) cruzado con el guardado da la
+matriz de §22.13(c), implementada literal en `M10View`:
+
+| Guardado | Efectivo | Banner | `role` |
+|---|---|---|---|
+| `off` | `off` | ninguno (solo la nota persistente) | — |
+| `off` | `on` | **encendido** | `alert` |
+| `on` | `on` | **encendido** (recordatorio) | `status` |
+| `on` | `off` | **apagado** | `status` |
+
+`alert` **solo** en el flip a `on` porque ese es el instante que autoriza el gasto; el apagado nunca
+sube a `alert` — poner fricción en la dirección segura se paga en el peor momento posible.
+
+**La cifra de créditos se interpola, no se hornea.** `{maxCards}` es el `ingestMaxCardsPerRun` VIVO
+de M2, leído reusando `getGradedEstimateConfig` con la query key `['graded-estimates-config']` que
+M2 ya usa (una lectura más en M10, **no un cambio de contrato**). `{perCard}` (2 créditos/carta,
+§4.38h.3) y `{runs}` (2 corridas/día) viven en **un solo módulo**, `src/lib/grading-hook-cost.ts`:
+repartirlos por el copy o por dos componentes los desincroniza, y entonces el aviso **miente sobre
+dinero**, que es justo el defecto que §4.38(r) cierra.
+
+**Y el aviso nunca espera a un número.** Si esa query falla —cargando, error, permiso— se pinta
+`onNoFigures`: cede la cifra, **nunca el aviso** (§22.13h). Va con test propio, y la mutación que lo
+esconde se pone en rojo (ver §31.5).
+
+**Corrección de hecho que NO es estilo:** el copy anterior decía que el disclaimer *«todavía NO
+tiene el visto bueno del dueño»*. **El dueño lo aprobó** (§22.12 nº14); escribirlo hoy sería
+publicar en pantalla algo falso, en la pantalla que existe para que nadie encienda una fuente de
+gasto a ciegas. Se conserva lo único cierto, «sin revisión legal profesional». Hay **candado**: un
+test en `i18n-parity.test.ts` exige **cero apariciones** de esa frase en `messages/`, igual que el
+candado de la marca TCG HUNT que ya vivía ahí.
+
+### 3. El ancla que parece un detalle y no lo es
+
+El aviso de apagado enlaza a `/admin/m2#gancho-revision`, y la sección de la lista de revisión de M2
+lleva ahora ese `id` con su `scroll-mt` derivado de `--app-header-h`. Sin el ancla, el enlace lleva a
+una página **y a ningún sitio dentro de ella**, y la escalera de remedios —lo único que evita que el
+dueño apague la feature entera por una carta mal capturada— **muere en silencio**: el peor modo de
+fallo posible para un remedio. Tiene test, y quitar el `id` lo pone en rojo.
+
+### 4. ⚠️ Lo importante: el arnés E2E dejó de poder gastar, y ahora es por construcción
+
+**El riesgo.** `e2e/utils/grading.ts` hacía, en **cada corrida**, `PUT /admin/settings
+{ gradedEstimatesEnabled: 'on' }`. Hasta v1.50 eso encendía solo la **exhibición**. Tras el colapso,
+ese mismo `PUT` enciende también la **obtención** desde un proveedor **de paga**.
+
+**Por qué «en CI no hay llave» no era una respuesta.** Lo medí: ningún workflow de
+`.github/workflows/` define `POKEMONPRICETRACKER_API_KEY`, pero `docker-compose.yml:187` la pasa
+como `${POKEMONPRICETRACKER_API_KEY}` **sin default** — toma la del `.env` de quien levante el
+stack. En CI queda vacía **por accidente, no por diseño**; en la máquina de alguien con la llave real
+una corrida de E2E encendería el gasto. Y la protección que sí existe (el proveedor sale con `warn`
+sin llave) vive **en el backend**, no en el arnés, y depende de que la llave **esté ausente**.
+Depender de que alguien olvide poner una variable no es un diseño.
+
+**El mecanismo elegido: precondición verificada + un solo punto de encendido.** Módulo nuevo
+`e2e/utils/paid-provider-guard.ts`:
+
+1. **Observación donde se puede observar.** Si la API bajo prueba corre en esta máquina (localhost),
+   el arnés **mira las fuentes de entorno que el backend lee de verdad**: `process.env`, el `.env` de
+   la raíz (el que interpola docker-compose) y `backend/.env` (el que carga `ConfigModule.forRoot()`
+   en el stack nativo), más sus `.env.local`. Con una llave viva y la sonda apagada, **se niega a
+   encender el dial** y explica el remedio. Los placeholders (`CHANGE_ME`…) no cuentan como llave: un
+   guardarraíl que siempre grita se acaba desactivando.
+2. **Constancia solo donde no se puede observar.** Contra staging/CI remoto el entorno del backend no
+   es observable desde aquí y **no hay endpoint del contrato que lo exponga** —ni debe haberlo:
+   §4.38(r.3.3) rechaza justamente un interruptor escondido que gobierne el gasto—. Ahí se exige la
+   constancia de devops `E2E_GRADING_PROVIDER_INCAPACITATED=1`, que es suya por reparto. Sin ella el
+   arnés **no enciende**; antes encendía a ciegas.
+3. **La constancia NO gana sobre la observación.** Contra un backend local con llave viva, declarar
+   la variable no desbloquea nada. Si bastara, habríamos cambiado un olvido por una promesa.
+4. **Un solo punto de encendido.** El literal `{ gradingHookEnabled: 'on' }` existe **únicamente**
+   dentro de `enableGradingHookGuarded`, que lleva la precondición pegada. El arnés no puede
+   encender el dial por otra vía, y hay un test que falla si alguien vuelve a escribir el `PUT` a
+   mano en `grading.ts` (que es exactamente como estaba antes).
+5. **La sonda se lee EXACTAMENTE como la lee el backend** (`on|true|1|yes`). Un arnés más laxo que el
+   backend daría por incapacitado un entorno que sí escribe, y esa divergencia se pagaría en
+   créditos, no en un rojo.
+
+**El teardown APAGA; no restaura.** `restoreDialValue()` devuelve `off` **siempre**. Dos razones:
+la clave es nueva, así que «el valor previo» es `undefined` en todas las bases y restaurar solo puede
+significar `off`; y encender es un **acto de dinero** que hace el dueño desde el back-office
+(§4.38r.3), nunca un teardown automático. Si el dial estaba en `on` antes de la suite, se dice en voz
+alta en el log y se deja apagado.
+
+**La huella se declara en la corrida, no solo en un comentario.** Al sembrar, el arnés imprime
+`INCAPACITACIÓN=<mecanismo>: <detalle>`. Si mañana alguien afloja el guardarraíl, el log de la
+corrida dice con qué se autorizó el encendido.
+
+**Lo que este módulo NO es:** un feature flag. Solo puede **negar** la autorización, nunca darla. El
+gate del ingest sigue siendo del backend, que lee el dial.
+
+**Petición a devops (no bloquea este trabajo):** el reparto de §4.38(r.6.1) le asigna «quitar la
+capacidad de escritura automática del entorno E2E/CI». Con esto, un entorno remoto sin
+`E2E_GRADING_PROVIDER_INCAPACITATED=1` **para la suite** en vez de gastar; conviene fijar esa
+variable en el job de `e2e-real` junto con dejar la llave fuera del entorno.
+
+### 5. Demostración de que la incapacitación DETECTA (mutación deliberada)
+
+No basta con escribir el guardarraíl: hay que probar que su prueba se pone roja **por la razón
+correcta**. Cinco mutaciones, aplicadas y revertidas:
+
+| # | Qué rompí | Test que se puso rojo | Mensaje |
+|---|---|---|---|
+| **A** | `assessGradingWriteCapability` deja de detectar la llave viva (devuelve `incapacitated: true`) | `con llave viva NO llega a hacerse el PUT que enciende el gancho` | «REGRESIÓN DE DINERO: el arnés ejecutó el PUT que enciende el gancho con una llave del proveedor DE PAGA viva… **expected "spy" to not be called at all, but actually been called 1 times**» (+5 rojos más del mismo bloque) |
+| **B** | Vuelvo a poner el `PUT` directo en `grading.ts`, saltándome el guardarraíl | `el arnés no contiene ningún PUT que ponga el dial en 'on'` | `expected 'import { IS_REAL, …' not to match /gradingHookEnabled['"]?\s*:\s*['"]on…/` |
+| **C** | El teardown «restaura el valor previo» en vez de apagar | `aterriza en 'off' sea cual sea el valor previo observado` | `expected 'on' to be 'off'` |
+| **D** | El aviso de encendido se oculta cuando falta la cifra de créditos | `si el tope de M2 no está disponible, el aviso de encendido SIGUE saliendo` | `Unable to find role="alert"` |
+| **E** | Quito el `id="gancho-revision"` de la lista de revisión de M2 | `es el DESTINO del enlace del aviso de apagado` | `expected null to be truthy` |
+
+El aserto de A está **ordenado a propósito**: primero se afirma que el `PUT` **no ocurrió** y después
+que hubo error. Así, si el guardarraíl deja de detectar, el rojo dice literalmente *que se autorizó
+el gasto*, en vez de un «esperaba un error» que se puede leer como un problema del test.
+
+Los tests del guardarraíl viven en **vitest** (`src/test/e2e-paid-provider-guard.test.ts`) y no solo
+en Playwright: el gate unitario es el que corre en cada cambio, y un guardarraíl de dinero verificado
+únicamente por la suite que él mismo protege es un guardarraíl que nadie mira. Son deterministas —
+reciben las fuentes de entorno por parámetro, así que un `.env` real en la máquina de quien corra los
+tests no los vuelve verdes ni rojos por accidente.
+
+### Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **818/818 en 93 archivos**
+  · `npx next build` ✔ (62 páginas estáticas).
+- **Base: 789/92.** El delta **+29 tests / +1 archivo** es todo cobertura nueva, ninguna prueba
+  retirada: `e2e-paid-provider-guard.test.ts` **+21** (archivo nuevo) · `M10View.test.tsx` **+5** (dos
+  tests del dial viejo sustituidos por siete: etiqueta, aviso de encendido con cifra, `onNoFigures`,
+  aviso de apagado con su enlace, recordatorio `status`, no-coexistencia, prohibición del «visto
+  bueno») · `i18n-parity.test.ts` **+2** (el candado del disclaimer, ES y EN) ·
+  `GradedEstimateReviewSection.test.tsx` **+1** (el ancla).
+- **Restricciones del dueño respetadas:** cero tokens de color nuevos (el aviso de apagado usa
+  `variant="info"`, que es tinta muted sin color propio; el de encendido, `warning`, que ya usaba
+  `--color-accent`), cero hexes crudos y cero apariciones de la marca retirada.
+
+### Peticiones al arquitecto
+
+**Ninguna.** §22.13 no necesitó ningún dato ni pantalla que el contrato no cubra: el dial ya está en
+`SettingsDTO` (`gradingHookEnabled`) y el tope en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`).
+No se tocó `docs/API_CONTRACT.md`.
+
+---
+
+## §32 · El aviso de encendido deja de afirmar un gasto que nadie midió, y la ficha deja de pintar una fecha que no es la que parece (`DESIGN_SYSTEM.md` §22.13(d)/(d.1)/(h), `PROJECT.md` decisión 62 / criterio 119) — 2026-08-31
+
+Dos correcciones de la misma familia: **una pantalla afirmaba como hecho algo que el producto no
+puede respaldar**. Una era sobre dinero (M10) y otra sobre una fecha (la ficha). Van juntas porque
+en las dos el trabajo real no fue escribir el texto nuevo, sino **quitar el candado que protegía el
+viejo**.
+
+### 1. El defecto de M10: la cifra era una hipótesis vestida de medición
+
+El aviso decía, en el momento del consentimiento, *«hasta **1 000 créditos al día**»*, sin
+calificador. Ese número es `maxCards × perCard × runs` y **solo vale si el proveedor cobra por
+petición**. La petición manda `fetchAllInSet=true` —pide el **set entero**—, así que
+`ingestMaxCardsPerRun` acota las cartas **en alcance**, no las **devueltas**: si se cobra por carta
+devuelta, el gasto real es `techo × A`, con `A = devueltas / en alcance ≥ 1` y **ningún dial que lo
+acote**. Con 250 cartas repartidas en 20 sets de 200, `A = 16` ⇒ **16 000/día** frente a los 1 000
+anunciados. La diferencia entre los dos regímenes es la diferencia entre gastar el **5 %** y el
+**80 %** de la cuota diaria del dueño.
+
+**`onNoFigures` mentía igual, y esa parte casi se pasa por alto.** Decía «consume créditos en cada
+corrida, **hasta el tope de cartas que fijaste en M2**», lo que insinúa que ese tope acota el gasto.
+No lo acota. Ahora dice explícitamente qué acota (*cuántas cartas tuyas mira*) y qué no (*cuántas te
+cobra el proveedor*).
+
+El copy nuevo es literal de §22.13(d): tres entradillas —*Publica* / *Y gasta* / *Cuánto gasta*—,
+con la tercera separando **lo que sabemos** (el alcance) de **lo que no** (el régimen de cobro), y
+cerrando con quién lo dirime: *«La primera corrida lo mide»*. La cifra **no se borra** —un aviso de
+gasto sin orden de magnitud no deja decidir— pero se publica **con su supuesto pegado**, en la misma
+frase y con el mismo peso visual (nada de muted, `text-xs`, paréntesis final ni tooltip: §22.13b).
+
+### 2. ⚠️ El test que protegía la falsedad — es la parte que importa de este cambio
+
+`M10View.test.tsx` afirmaba:
+
+```js
+await waitFor(() => expect(warning.textContent).toMatch(/1[.,\s]?000 créditos al día/));
+```
+
+**Esa aserción fija la cifra desnuda, así que convertía el error de producto en un invariante de
+CI.** Corregir el copy sin tocarla ponía CI en rojo diciendo que devolvieras el texto a la versión
+falsa. No es un detalle de mantenimiento: es el mecanismo por el que este defecto **sobrevivió a una
+revisión**. Un test que fija un número sin su calificador no verifica la verdad del aviso — la
+sustituye.
+
+La aserción nueva exige la **frase condicional completa**, en orden: cifra **+** régimen que la hace
+válida **+** régimen que la invalida (`set entero`, `varias veces`) **+** quién lo dirime
+(`La primera corrida lo mide`). Y encima lleva un **invariante por oración**, que es lo que impide
+mover el candado en vez de quitarlo:
+
+```js
+for (const oracion of oraciones.filter((o) => /créditos al día/.test(o))) {
+  expect(oracion).toMatch(/si cobra por petición|ya está medido|medida el/);
+}
+```
+
+El mismo invariante existe a nivel de **catálogo** en `i18n-parity.test.ts`, sobre `messages/` ES y
+EN: ninguna cadena puede interpolar `{credits}` junto a «créditos al día» / «credits a day» sin el
+régimen de cobro o sin `{measuredOn}`; y «aproximadamente / ~ / unos / about» **no cuentan** como
+calificador (§22.13h: el error posible es un **factor**, no un decimal). Va sobre el catálogo y no
+solo sobre la pantalla a propósito: un candado sobre el texto renderizado se mueve reescribiendo el
+texto; este se mueve solo quitándole el calificador a la cadena, que es justo lo que debe estar
+prohibido.
+
+#### Demostración de que el candado nuevo se pone rojo por la razón correcta
+
+Dos mutaciones aplicadas y revertidas. La primera es la que pidió el encargo: **devolver el copy a
+la versión que afirma la cifra sin calificador**.
+
+| # | Mutación | Candado VIEJO | Candado NUEVO | Mensaje real |
+|---|---|---|---|---|
+| **A** | `…gradingHook.on` vuelve a *«El barrido consume hasta {credits} créditos al día ({maxCards} cartas × {perCard} créditos × {runs} corridas).»* | **VERDE — protege la falsedad** | **ROJO** | `expected 'Encendido: publica cifras y consume c…' to match /si cobra por petición, el techo son\s…/` |
+| **A** (mismo copy, candado de catálogo) | ídem | — | **ROJO** | `admin.m10.dials.gradingHook.on: cifra de créditos sin calificador: expected false to be true` |
+| **B** | *Mover* el candado: se **conserva** la frase condicional entera y además se cuela «En resumen: gasta {credits} créditos al día.» como oración aparte | **VERDE** | **ROJO** | `expected 'En resumen: gasta 1000 créditos al día.' to match /si cobra por petición\|ya está medido\|medida el/` |
+
+La mutación **A** se verificó con una sonda temporal que evaluaba **las dos** expresiones sobre el
+mismo render, para que la comparación no fuera de memoria:
+
+```
+[SONDA] candado VIEJO (cifra desnuda) sobre copy FALSO → VERDE (protege la falsedad)
+[SONDA] candado NUEVO (frase condicional) sobre copy FALSO → ROJO (rechaza la cifra sin supuesto)
+[SONDA] frase con la cifra que pinta la pantalla → El barrido consume hasta 1000 créditos al día (250 cartas × 2 créditos × 2 corridas).
+```
+
+La **B** es la que demuestra que no basta con cambiar un número por otro: el rojo **nombra la oración
+infractora**, no un fallo de formato. La sonda se borró; las mutaciones se revirtieron y la suite
+volvió a verde.
+
+### 3. `costBasis`, y por qué `onMeasured` queda dormido a propósito
+
+`src/lib/grading-hook-cost.ts` (el **módulo único** donde ya vivían `{perCard}` y `{runs}`) suma:
+
+- `GRADING_COST_MEASUREMENT: GradingCostMeasurement | null` — **hoy `null`**, y no es un pendiente
+  del módulo. Su única fuente honesta es la línea `[VEREDICTO-PSA] COSTE MEDIDO:` de la sonda,
+  transcrita a `DEVOPS_NOTES.md` (`ARCHITECTURE.md` §4.38r.3.1.1): **no viaja en ningún DTO**, así
+  que la pantalla no puede verificarla.
+- `gradingCostBasis()` — devuelve `'estimated'` **fijo**, derivado de lo anterior.
+
+Las **tres** variantes están traducidas y montadas (ES y EN), pero `onMeasured` **no se pinta**.
+§22.13(h) prohíbe rellenarlo desde un `.env`, un literal o una constante «temporal»: sería el defecto
+original con la palabra «medido» encima. El tipo es la parte deliberada — **obliga a traer cifra Y
+fecha**, así que nadie puede declarar «medido» sin una medición, y el día que el contrato exponga el
+dato, encenderlo es **rellenar una constante**, no reabrir con prisa el copy de una pantalla de
+consentimiento. Además, cuando se encienda, la cifra que se pinta es `measurement.creditsPerDay`,
+**no** el producto de las constantes: si viniera del cálculo, «medido» sería el mismo cálculo con
+otro nombre. `grading-hook-cost.test.ts` (archivo nuevo) es el candado de esa prohibición.
+
+### 4. El rango de M2 `[1, 5000] → [1, 1000]` (contrato v1.51-a): **no había nada que actualizar**, y lo verifiqué con patrones que sí pueden casar
+
+Lo digo con las búsquedas delante, porque en esta misma sesión yo mismo di por inexistente un campo
+buscando un nombre que no existía:
+
+| Patrón buscado | Resultado |
+|---|---|
+| `ingestMaxCardsPerRun` / `MaxCardsPerRun` / `maxCardsPerRun` | 9 · 9 · 3 apariciones — **todas** en `contract.ts` (tipos), `M10View.tsx` (lectura), `fixtures.ts`, `grading-hook-cost.ts` y tests |
+| `5000` / `5 000` / `5,000` / `5.000` en `messages/` | **0** |
+| `cartas por corrida` / `cards per run` en `messages/` | solo la nota persistente de M10 (sin cifra) |
+
+**La UI de M2 no dibuja ese dial ni su rango**: `GradedEstimatesSection` edita escalones de costo,
+margen mínimo y frescura; `ingestMaxCardsPerRun` solo se **lee** (en M10, para cifrar el techo).
+Bajar el máximo de 5 000 a 1 000 no cambia ni un píxel del frontend. **Petición abierta al arquitecto
+/ ux-ui al final de esta sección**, porque el copy sí afirma que ese tope «se edita en M2».
+
+### 5. La fecha de la ficha: se retira (decisión 62, criterio 119)
+
+`GradingEstimateBlock` pintaba un eyebrow derecho **«ESTIMADO · 22 ago 2026»** alimentado por
+`oldestCapturedDate()` sobre `capturedDate`. Esa fecha es **cuándo bajamos el dato**, no cuándo
+ocurrió la venta que lo respalda — y el rótulo no lo decía, así que un comprador podía leerla como
+la fecha de la **venta**, que es justo el dato que no tenemos: `evidenceDate` **no se persiste**, y
+la captura puede ir hasta 30 días adelantada. Se le ofreció al dueño rotularla con honestidad y
+**eligió quitarla**.
+
+Qué se quitó: el `<span>` del eyebrow, la clave `catalog.gradingEstimate.updatedAt` en **ES y EN**, y
+`oldestCapturedDate()`, que quedó muerta (en su sitio queda un comentario que explica por qué, para
+que no vuelva por inercia).
+
+**Alcance, que es donde esto se tuerce.** No se toca la **frescura interna** —los dos relojes del
+criterio 118 siguen midiendo server-side sobre `capturedDate`, y por eso el campo **sigue viajando
+en el DTO**: retirarlo del contrato es decisión del arquitecto, no mía—. Tampoco se toca la fecha
+del **valor de mercado** (`marketValue.note`, criterio 119e), que es otro dato y otra fila. Se retira
+lo que se **muestra**, no lo que se **mide**. Y no se suaviza a «actualizado» ni a un tooltip: media
+solución aquí es el defecto entero.
+
+Los tests que cubrían el eyebrow **se invierten, no se borran** (`gradingEstimates.test.tsx`,
+`CardDetailView.test.tsx`): si alguien vuelve a cablear una fecha al bloque, esto se pone rojo. La
+verificación negativa mira el `<section>` del bloque y no la página, porque la nota al pie de §O.5 sí
+habla de que los precios «pueden quedar desactualizados» — eso es el disclaimer, no una fecha de este
+dato. Y el criterio 119(b) («cero apariciones de la clave en `messages/` ES y EN») vive además en
+`i18n-parity.test.ts`, junto al candado de paridad que caza el retirar una clave en un solo idioma.
+
+### Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **830/830 en 94 archivos**
+  · `npx next build` ✔.
+- **Base: 818/93.** Delta **+12 tests / +1 archivo**, todo cobertura nueva; **ninguna prueba
+  retirada**, dos invertidas:
+  - `grading-hook-cost.test.ts` **+4** (archivo nuevo: el techo se deriva del tope vivo y cede la
+    cifra cuando no lo hay; `costBasis` fijo en `'estimated'`; `measured` exige cifra y fecha).
+  - `i18n-parity.test.ts` **+6** (ES/EN × tres candados de catálogo: cifra con su régimen de cobro,
+    «aproximadamente» no vale como calificador, `updatedAt` retirada).
+  - `gradingEstimates.test.tsx` **+2 neto** (−1 el test de la fecha «más antigua», +1 la
+    verificación negativa del bloque, +2 la de las claves ES/EN).
+  - `M10View.test.tsx` **±0**: mismo número de tests, aserciones **más fuertes** (la condicional
+    completa, el invariante por oración, y `onNoFigures` obligado a decir qué acota el tope).
+- Cero tokens nuevos, cero componentes nuevos, cero cambios de contrato, cero escrituras fuera de
+  `frontend/` y de este documento.
+
+### Peticiones al arquitecto / ux-ui / PO
+
+1. **(Abierta, no bloqueante — la hereda §22.12 nº14) Un canal para el COSTE MEDIDO.** `onMeasured`
+   está montado y dormido. Para encenderlo hace falta que `GET /admin/pricing/graded-estimates` (o
+   donde el arquitecto decida) exponga **coste medido por día + fecha de la medición**. Hasta
+   entonces el aviso dice explícitamente que **no está medido**, que es la verdad. **No lo relleno
+   por mi cuenta**, y el tipo de `GRADING_COST_MEASUREMENT` está hecho para que nadie pueda.
+2. **(Nueva, y es de la misma familia que el defecto que este pase corrige) El copy afirma que el
+   tope «se edita en M2 · Catálogo y precios», y hoy M2 no lo dibuja.** `ingestMaxCardsPerRun` es
+   editable **por contrato** (`GradedEstimateConfigInput`), pero la sección de M2 no expone el campo:
+   solo se **lee** desde M10. Es la misma clase de afirmación no respaldada —manda al dueño a una
+   pantalla donde no puede hacer lo que el aviso le dice— aunque de gravedad mucho menor, y es
+   hermana de la deuda **F-19** (`manualFreshnessDays` / `maxRawMultiple`, también editables solo por
+   API). **No lo arreglé por mi cuenta** porque hay dos salidas y ninguna es mía: **(a)** ux-ui añade
+   el campo a §22.x de M2 y yo lo implemento, o **(b)** ux-ui ajusta el copy de §22.13(d)/(f). Pido
+   decisión.
+3. **Sin cambios en `docs/API_CONTRACT.md`.** `capturedDate` sigue viajando en `GradedEstimateDTO` y
+   **debe seguir**: la frescura del criterio 118 se evalúa con él. La decisión 62 retira lo que se
+   **muestra**. Si el arquitecto quiere además retirarlo del contrato, es decisión suya, no mía.
+
+---
+
+## §33 · El candado que se burlaba con un espacio, la fecha que solo oía el lector de pantalla, y el campo que hace verdad el aviso (`DESIGN_SYSTEM.md` §22.14 / §22.13(e)(f), criterio 119) — 2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`
+
+> Tres cosas en un solo toque, las dos primeras porque QA las rompió de punta a punta y la tercera
+> porque es la que convierte en verdad una frase que el aviso de M10 ya publica.
+
+### 33.1 El invariante por oración cazaba la regresión realista — y se burlaba con no poner un espacio
+
+**Lo que había.** `M10View.test.tsx` partía el aviso con `split(/(?<=\.)\s+/)`: **exige whitespace
+tras el punto**. Y `textContent` no pone espacio entre bloques — el propio aviso ya lo demostraba,
+produce `…consume créditosPublica.` al concatenar párrafos.
+
+**La burla de QA, reproducida aquí antes de tocar nada.** Se inyectó la cifra desnuda **pegada** al
+punto de la oración calificada, en `messages/es.json`:
+
+```
+…la factura puede ser varias veces esa cifra.En resumen: gasta 1000 créditos al día. La primera corrida lo mide…
+```
+
+El fragmento inyectado **se fusiona** con la oración anterior, hereda su «si cobra por petición» y
+pasa. Corrida real con la mutación puesta: **`M10View.test.tsx` 14/14 en verde**, y
+`i18n-parity.test.ts` **12/12 en verde** — una afirmación plana de gasto en la pantalla del
+consentimiento del dueño, con los dos candados aplaudiendo.
+
+**El arreglo.** El corte vive ahora en `src/test/grading.ts` (`splitSentences`) y **no se copia en
+ninguna pantalla**, porque desde §22.14 hay **dos** superficies que publican la misma cifra:
+
+```ts
+text.split(/(?<=\.)(?:\s+|(?=[^\s\d]))/)
+```
+
+Corta tras un punto **con o sin** espacio detrás. La única excepción es **punto seguido de dígito**
+(`1.000`), que es separador de millares y no fin de oración — sin esa excepción el candado se
+pondría rojo solo, que es la otra forma de no servir para nada. Es más ancho que el
+`(?<=\.)\s*(?=[A-ZÁÉÍÓÚ¡¿])` que propuso QA: también caza continuaciones en minúscula o abiertas por
+signo, no solo las que empiezan con mayúscula.
+
+**Alcance, dicho sin adornos (y esta es la lección de redacción del pase).** El resumen anterior
+afirmaba que *«mover el candado no basta para burlarlo»*, y eso era **más fuerte de lo que el código
+sostenía**: el candado había mejorado, la frase se pasó de rosca. Lo que este corte sostiene, y nada
+más: **caza toda continuación tras un punto, lleve espacio o no**. No inventa fronteras donde el
+copy no puso ninguna — un título sin punto sigue fundiéndose con la primera oración del cuerpo, y
+un texto sin puntos se juzga como una sola oración.
+
+**Segunda línea de defensa, en el catálogo.** La burla también pasaba la paridad porque aquel
+candado solo mira las cadenas que **interpolan** `{credits}`. Se añade en `i18n-parity.test.ts`
+—ES y EN— que **ninguna cifra de créditos se escriba a mano**: el techo se calcula en
+`grading-hook-cost.ts` y se interpola, nunca se teclea. Un número a mano es, por construcción, un
+número que nadie recalcula cuando el tope cambia. Con la mutación de QA puesta, ese candado señala
+`admin.m10.dials.gradingHook.on` por su nombre.
+
+### 33.2 Criterio 119: una fecha que solo existe para el lector de pantalla **es** la fecha
+
+**Lo que había.** El candado miraba `textContent` y `time, [title], [datetime]`. QA metió
+`<span aria-label="Capturado el 22 de agosto de 2026" />` en el bloque de grading: **19/19 en
+verde** (reproducido aquí).
+
+**El arreglo.** Se barre el valor de **todos** los atributos del subárbol —no solo `aria-label` y
+`aria-description`— y se juzga junto con el texto: fechas ISO, el año, los meses en letra y las dos
+capturas del fixture. Se barren todos los atributos a propósito: un dato que no debe existir no debe
+existir en ningún canal, y así el candado no depende de acertar **qué atributo** elegirá el próximo.
+El selector estructural anterior se queda: dice otra cosa (que no haya `<time>` ni tooltip) y cuesta
+una línea.
+
+### 33.3 §22.14 — el tope de cartas por corrida gana campo en M2
+
+Hasta hoy `ingestMaxCardsPerRun` **no se pintaba ni viajaba en el `PUT`**: la única cota entre un
+`PUT` y la factura del proveedor (`ARCHITECTURE.md` §4.38r.3) solo se movía por `curl`, mientras el
+aviso de M10 le decía al dueño que «ese tope se edita en M2». Era el defecto que costó el rediseño a
+dial único (M-46), una pantalla más allá.
+
+- **Bloque propio**, con su regla `border-t border-border pt-4`, bajo la retícula de margen/frescura
+  y encima de los párrafos read-only. **No** es una tercera celda: aquellos dos son gates de
+  **publicación**, éste **gasta** (§22.14b). El test lo fija de forma verificable —el input de
+  frescura sí tiene un `.grid` por ancestro, el del tope **no**—, no por comentario.
+- **Payload del `PUT`** + validación cliente `[1, 1000]` entera con `rangeError`. Money-safe: campo
+  vacío **no** cae a 0 ni al default, bloquea. **Cero 5 000** en código, copy y tests: salió del
+  contrato en v1.51-a, y un test es tan buen sitio como cualquiera para reintroducir un número
+  muerto — hay candado de catálogo para eso.
+- **`Banner` de créditos solo cuando el borrador difiere de lo guardado**: `warning` al subir,
+  `info` al bajar, **títulos distintos** (el color no es el único canal, §2.4), `role="status"` —el
+  dueño teclea en su borrador; una región asertiva por pulsación es hostil— y **no bloquea guardar**.
+  La cifra es la **del borrador** y sale de `grading-hook-cost.ts`: **una sola aritmética en el
+  producto**, la misma que cifra el aviso de M10.
+- **Hereda §22.13(d.1) sin excepción**: el mismo `expectCreditsFigureQualified` corre sobre el aviso
+  de M2. Quitarle el régimen de cobro a `ingestCap.warn` pone rojo **tres** tests (la pantalla y la
+  paridad ES/EN) — verificado rompiéndolo.
+- **`admin.m10.dials.gradingHook.{off,note}` reescritas: sale «grados».** En M2 son un párrafo
+  read-only, así que la escalera de remedios prometía un escalón inexistente. Pasa a **dos**
+  escalones, ambos reales (lista de revisión con su ancla, margen mínimo con su `Input`), con
+  candado de catálogo ES/EN que lo fija.
+- **El check que cierra el círculo (§22.14f f):** guardar el tope en M2 mueve la cifra del aviso de
+  M10 **sin recargar**. Se montan las dos pantallas juntas bajo el mismo `QueryClient` y el doble del
+  servidor **guarda lo que recibe**: si el `PUT` dejara de llevar el tope, el `GET` de la
+  invalidación devolvería el viejo y el aviso no se movería. Un mock que devolviera el valor nuevo
+  pase lo que pase probaría la invalidación, no el círculo.
+
+**Detalle para ux-ui (no bloqueante):** el encabezado `h3` del bloque y la etiqueta del `Input` usan
+la **misma** clave `ingestCap.label`, porque §22.14 pide las dos cosas y solo define seis claves.
+Se imprime dos veces la misma frase. Si se quiere un título de bloque distinto, hace falta una clave
+más — no la invento.
+
+### 33.4 Las tres mutaciones (evidencia, no promesa)
+
+| Guarda | Mutación | Rojo real |
+|---|---|---|
+| Invariante por oración (M10) | cifra desnuda pegada al punto, en `messages/es.json` | `cifra de créditos SIN calificador en su oración: «En resumen: gasta 1000 créditos al día.»: expected … to match /cobra por petición\|ya está medido\|medida el/` |
+| Criterio 119 (ficha) | `<span aria-label="Capturado el 22 de agosto de 2026" />` en `GradingEstimateBlock` | `expected 'VALOR ESTIMADO SI SE GRADEASI SALEPSA…' not to match /2026/` |
+| §22.14 (tope en M2) | quitar `ingestMaxCardsPerRun` del payload del `PUT` | `expected undefined to be 400` **y** `(f) … expected 'Encendido: publica cifras y consume c…' to match /2000 créditos al día/` |
+
+Antes de cada arreglo se **reprodujo** el verde: 14/14 con la cifra desnuda inyectada, 19/19 con la
+fecha en `aria-label`. Los dos candados nuevos de catálogo también se rompieron a propósito y
+señalan la clave culpable por su nombre.
+
+### 33.5 Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **842/842 en 94 archivos**
+  · `npx next build` ✔.
+- **Base: 830/94.** Delta **+12 tests, 0 archivos nuevos, ninguna prueba retirada**:
+  - `GradedEstimatesSection.test.tsx` **+6** (§22.14: el campo existe y en su bloque propio · subir ·
+    bajar/volver · rango y bloqueo · el tope en el `PUT` con el vacío que no guarda · el círculo con
+    M10).
+  - `i18n-parity.test.ts` **+6** (ES/EN × tres candados: cifra de créditos escrita a mano, «grados»
+    como remedio en `off`/`note`, y el 5 000 retirado en el copy del gancho).
+  - `M10View.test.tsx` y `gradingEstimates.test.tsx` **±0 tests**, aserciones más fuertes.
+- Cero componentes nuevos, cero tokens nuevos, cero cambios de contrato
+  (`GradedEstimateConfigInput.ingestMaxCardsPerRun` ya era opcional), cero escrituras fuera de
+  `frontend/`, `docs/FRONTEND_NOTES.md` y `docs/TECH_DEBT.md`.
+- El candado de paridad busca ahora el calificador por su **núcleo** («cobra por petición» /
+  «charges per request») y no por la frase literal de M10: §22.14 añadió una segunda superficie
+  donde el sujeto es explícito («si **el proveedor** cobra por petición»), y un candado atado a la
+  variante de una pantalla habría dejado la otra sin cubrir.
+
+### 33.6 Peticiones
+
+1. **La petición 2 de §32 queda CERRADA por la vía (a):** ux-ui especificó §22.14 y el campo está
+   implementado. El puntero «ese tope se edita en M2» es verdad verificable, y hay un test que lo
+   comprueba **por los dos lados**.
+2. **Sigue abierta la de §32 nº1** (canal para el **coste medido**): `onMeasured` continúa montado y
+   dormido, y no se rellena a mano.
+3. **Editor de «grados» — no lo pido, lo constato.** `grades`/`highlightGrades` siguen read-only en
+   M2 (hermanos de **F-19**). Desde este pase **ninguna pantalla los ofrece como remedio**, así que
+   no hay nada roto que arreglar: darles editor es feature nueva con invariantes propios
+   (`highlightGrades ⊆ grades`) y entra por `PROJECT.md`, como dice §22.12 nº17.

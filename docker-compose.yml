@@ -180,10 +180,30 @@ services:
       # Login con Google (v1.2): mismo OAuth Client ID que el front (NEXT_PUBLIC_GOOGLE_CLIENT_ID).
       # Si va vacío, el backend rechaza el login con Google (email/password sigue OK).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      # Disputas (v1.2): correo de contacto de evidencia; default backend soporte@tcgvaultmx.com.
+      # Disputas (v1.2): correo de contacto de evidencia. Vacío ⇒ el backend cae a su
+      # default de código (P-21: `soporte@tcghunt.mx`, backend/src/modules/disputes).
       DISPUTE_EVIDENCE_CONTACT: ${DISPUTE_EVIDENCE_CONTACT:-}
       POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY}
-      POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY}
+      # ⚠️ CREDENCIAL DEL PROVEEDOR DE PAGA — desde v1.51 (M-46) es lo que separa a
+      # este stack de una factura. Con `grading_hook_enabled = on` (UN solo dial: el
+      # mismo `PUT` publica y AUTORIZA GASTO), cada tick de `price-ingest` pide datos
+      # a PokemonPriceTracker a 2 créditos/carta. Sin llave, el proveedor sale con
+      # `warn` ANTES de la primera petición: cero peticiones, cero escrituras.
+      #
+      # El `:-` NO es cosmético. Antes decía `${POKEMONPRICETRACKER_API_KEY}` SIN
+      # default, y eso significaba: «toma la del `.env` de quien levante el stack, y
+      # si no hay, quédate vacía con un warning de compose». En CI quedaba vacía POR
+      # ACCIDENTE, no por diseño; en la máquina de alguien con la llave real, una
+      # corrida de E2E —que enciende el dial en cada arranque— habría empezado a
+      # gastar. Con `:-` la ausencia es un DEFAULT DECLARADO: vacío salvo que el
+      # operador la exporte a propósito. Ver DEVOPS_NOTES §32.12 y ARCHITECTURE
+      # §4.38(r.6.1).
+      POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY:-}
+      # Sonda de SOLO LECTURA del ingest de graded (§4.38h.1-quater): con la llave
+      # presente, `on` hace que el barrido PREGUNTE al proveedor y NO ESCRIBA nada.
+      # Es la segunda forma admitida de incapacitar un entorno (§4.38r.6.1). NO es un
+      # dial del producto: solo QUITA capacidad de escribir, nunca la da.
+      POKEMONPRICETRACKER_GRADED_PROBE: ${POKEMONPRICETRACKER_GRADED_PROBE:-}
       POKETRACE_API_KEY: ${POKETRACE_API_KEY}
       FX_SOURCE: ${FX_SOURCE:-banxico}
       FX_API_KEY: ${FX_API_KEY:-}

@@ -12,6 +12,9 @@ import { EditorialLink } from './EditorialLink';
  * children (cada estante conserva su retícula propia).
  */
 export interface ShelfProps {
+  /** `id` de la <section>: destino de anclas (p. ej. el regreso de la nota al pie, §22.4a). Va en
+   *  el MISMO elemento que el `scroll-mt` de `className` para que el aterrizaje respete el header. */
+  id?: string;
   title: React.ReactNode;
   /** aria-label de la sección; obligatorio si `title` no es string plano. */
   ariaLabel?: string;
@@ -33,6 +36,7 @@ export interface ShelfProps {
 }
 
 export function Shelf({
+  id,
   title,
   ariaLabel,
   kicker,
@@ -50,7 +54,7 @@ export function Shelf({
     <h2 className="font-serif text-[22px] leading-tight text-text lg:text-[29px]">{title}</h2>
   );
   return (
-    <section className={className} aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}>
+    <section id={id} className={className} aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}>
       <div
         className={cn(
           'gutter flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2',

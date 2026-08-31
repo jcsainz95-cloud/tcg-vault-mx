@@ -18,12 +18,13 @@ import { MailMessage } from '../mail/mail.port';
 type Locale = 'es' | 'en';
 
 // P-21 (rebrand): overridable por env sin redeploy (mismo patrón que `disputes.constants.ts`).
-// Cae en cascada a `DISPUTE_EVIDENCE_CONTACT` (mismo buzón de soporte) y al valor histórico como
-// default para no romper nada mientras devops no cree el buzón @tcghunt.mx. P-21 cierre: `envOr`
-// (no `??`) — env definida pero vacía/blanca sigue la cascada hasta el default.
+// Cae en cascada a `DISPUTE_EVIDENCE_CONTACT` (mismo buzón de soporte) y, al final, al default de
+// código. P-21 MIGRACIÓN CERRADA (ago-2026): ese default es ya el buzón VIVO `soporte@tcghunt.mx`
+// (el histórico `@tcgvaultmx.com` está muerto: el vendedor escribiría a nadie). P-21 cierre:
+// `envOr` (no `??`) — env definida pero vacía/blanca sigue la cascada hasta el default.
 const SUPPORT_EMAIL = envOr(
   process.env.SUPPORT_EMAIL,
-  envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcgvaultmx.com'),
+  envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcghunt.mx'),
 );
 // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
 const BRAND = 'TCG HUNT';

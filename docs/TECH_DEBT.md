@@ -13,19 +13,49 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+### I8-B1 · `ingestConfigInvalid` NO cubre `grades` ni `freshnessDays`, y las dos viajan al proveedor (techlead B-1, v1.51-a, 2026-08-31)
+- **Dueño:** backend (si la salida elegida es ampliar el fail-closed, el alcance lo confirma el **arquitecto**: cambia qué apaga el ingest). **Severidad:** **Media** (aceptada, **no bloqueante hoy** porque `grading_hook_enabled` está `off` y con `off` no se pide ni se escribe nada).
+- **Deuda:** el gate de dinero del ingest sale por `cfg.ingestConfigInvalid` (`price-ingest.service.ts:1000`), que se compone con **tres** claves (`pricing.service.ts:1326`: `minSampleCount`, `sourceStat`, `ingestMaxCardsPerRun`). Pero al proveedor viajan **cinco**: `grades` (`price-ingest.service.ts:1095`) y `freshnessDays` (`:1102`) *(números de línea tras el pase v1.51-a; eran `:1087`/`:1094` en el reporte del techlead)* también se le pasan a `fetchGradedEstimatesForSet`, y **ninguna de las dos** marca `ingestConfigInvalid`. Con `graded_estimate_grades` corrupta, el resolver **apaga ficha y vitrina** (`estimatesEnabled=false`) y, en la misma corrida, el ingest **gasta créditos y ESCRIBE** usando el seed de esa misma clave — un valor que el resolver acaba de declarar no fiable.
+- **Por qué importa más de lo que parece:** invierte la doctrina propia del proyecto («en la dirección del DINERO se falla cerrando»). Además hay una **divergencia documental**: el docstring que justifica que el gate lea el **dial crudo** en vez de `estimatesEnabled` (`price-ingest.service.ts`, bloque «v1.51 (M-46, §4.38r.7)») nombra **tres** claves de *curaduría* (`minUpsidePct`, `highlightGrades`, `maxRawMultiple`) como lo que no debe congelar el feed — pero el código habilita **cinco**: las tres de curaduría **más** `grades` y `freshnessDays`, que no son curaduría (gobiernan qué se pide y qué cuenta como fresco).
+- **Impacto:** ninguno observable con el dial `off`. Con el dial `on`, una edición fuera de banda de `graded_estimate_grades`/`graded_estimate_freshness_days` produce **gasto + escritura con seeds** mientras la superficie de lectura está apagada.
+- **Salidas (excluyentes; lo que NO puede quedarse es la divergencia):** **(a)** ampliar `ingestConfigInvalid` a `gradesRes.invalid || freshRes.invalid` (fail-closed completo; **decide arquitecto**, porque hace que una clave de exhibición corrupta congele también la obtención), **o (b)** reescribir el docstring para que deje de decir «curaduría» y **enumere exactamente** qué claves habilitan el gasto pese a estar corruptas y por qué se aceptó. Con (a) hace falta un test gemelo del de I8 (`graded-estimate.one-dial.spec.ts`): clave corrupta ⇒ cero `fetch`.
+- **Disparador:** **antes del primer `off → on` de `grading_hook_enabled`** (mismo momento que M43-D2). Ref: ARCHITECTURE §4.38(h.3), §4.38(d) «Alcance del apagado», `BACKEND_NOTES.md` §0.15.
+
+### I8-B2 · El dial que multiplica la factura no tiene `warn` al izarse; el de «rancio» sí (techlead B-2, v1.51-a, 2026-08-31)
+- **Dueño:** backend (la **regla** de cuándo avisar —el presupuesto declarado— la fija el **arquitecto**). **Severidad:** Baja (aceptada, **no bloqueante**; es observabilidad, no comportamiento).
+- **Deuda:** asimetría de ceremonia. `manualFreshnessDays: null` —que solo **desactiva un criterio de frescura**— tiene **`warn` obligatorio** al izar la config (**I8-bis**, `pricing.service.ts`, con test propio en `graded-estimate.batch.spec.ts`). `ingestMaxCardsPerRun` —el dial que **multiplica la factura del proveedor**— se iza **en silencio** con cualquier valor de su rango. El dial de dinero tiene **menos** ceremonia que el dial de rancio.
+- **Impacto:** un `1000` puesto por dedazo (4× el seed) no deja ninguna señal en el log del arranque ni de la corrida; el operador se entera por la factura. No cambia ningún importe por sí solo.
+- **Propuesta (del techlead):** emitir `warn` al izar una config cuyo `ingestMaxCardsPerRun` **supere el presupuesto declarado** — no un umbral hardcodeado; el presupuesto vive hoy en `DEVOPS_NOTES.md` §32.12 y el arquitecto tiene que decir **de dónde lo lee el backend** (¿otra clave de config? ¿env?) antes de implementarlo. **⚠️ El aviso debe decir «techo NOMINAL»**, nunca una cifra firme de créditos: el factor de amplificación `A` (§4.38r.3.1) no lo acota este dial (ver nota de I8 abajo).
+- **Disparador:** cuando el arquitecto defina dónde vive el presupuesto declarado, o en el primer `PUT` que suba este dial por encima del seed — lo que ocurra antes. Ref: ARCHITECTURE §4.38(r.3.4), §4.38(m) (I8-bis como precedente de forma).
+
+> **Nota de alcance sobre el estrechamiento de I8 (v1.51-a, `[1, 5000]` → `[1, 1000]`) — NO es deuda, es
+> una advertencia contra la falsa cobertura.** Bajar el máximo reduce el peor caso **NOMINAL** que un
+> solo `PUT` autoriza (de 20 000 a 4 000 créditos/día). **No cierra la amplificación:** `ingestMaxCardsPerRun`
+> acota las cartas **en alcance**, no las que el proveedor devuelve (`fetchAllInSet=true` pide el SET
+> entero), y el factor `A` lo manda el número de **sets** tocados, que **no es configurable**. Con `A=16`,
+> 1 000 siguen siendo 16 000 créditos. Lo que acota el gasto es la **medición** que §4.38(r.3.1) hace
+> precondición del primer `off → on`, y ésa **sigue abierta** (dueño: devops + QA, (r.8) nº 1).
+
+> **D-3 (techlead) — CERRADA en este mismo pase, sin deuda residual.** Los comentarios de
+> `graded-estimate.composition.spec.ts:654` y `:680` seguían diciendo «las 12 claves» después de que
+> v1.51 (M-46) las bajara a **11** al fundir los dos diales M10 en `grading_hook_enabled`. `pricing.service.ts:99`
+> exige que ese número no mienta («un número que miente es peor que no tenerlo») y el test que lo acompaña
+> mentía. Los dos comentarios dicen ahora **11**, con la nota de por qué cambió.
+
 ### M43-D1 · `reconcilePublishedPrices` sigue siendo `raw`-only: un slab sin referencia no entra a la cola (M-43, 2026-08-29)
 - **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante**). Residual **declarado por el arquitecto** en ARCHITECTURE §4.38(l.4.9), fuera del alcance de M-43 por decisión del orquestador.
 - **Deuda:** el barrido de reconciliación (`reconcilePublishedPrices`) lleva `productType:'raw'` en su `where` (candado 1 de §4.38l.4.6). Con M-43, un slab cuya única fila de `graded:PSA:N` sea un estimado —o al que se le borre su referencia de mercado— **deja de venderse** (`priceBasis:'pending'`, `fetchSellable` lo descarta, `GET /catalog/listings/:id` ⇒ 404) **pero NO aparece en `PendingPriceEntry`**, así que no entra a la cola de triaje de §M2 y el dueño no tiene dónde verlo.
 - **Impacto:** una pieza puede quedar apagada **en silencio**. **No puede ocurrir durante la migración** si se ejecuta el cut-over de §4.38(l.4.7) en orden (el paso 3 re-afirma cada slab expuesto **antes** de migrar, ver `BACKEND_NOTES.md` §0.11.6). Sí puede ocurrir **después** — por ejemplo si alguien borra una referencia de mercado de un slab. Money-safe en la dirección segura: la pieza no se vende barata, simplemente no se vende.
-- **Disparador:** al **encender el gancho de grading** (`gradedEstimatesEnabled='on'`) o antes de que M2 se use como bandeja única de precios pendientes. El fix es extender el barrido a `productType:'graded'`; toca el módulo `pricing` y la cola, así que **el alcance lo confirma el arquitecto**.
+- **Disparador:** al **encender el gancho de grading** (v1.51: `gradingHookEnabled='on'`, el dial ÚNICO — §4.38r) o antes de que M2 se use como bandeja única de precios pendientes. El fix es extender el barrido a `productType:'graded'`; toca el módulo `pricing` y la cola, así que **el alcance lo confirma el arquitecto**.
 - **⚠️ Actualización v1.50.3-g (ARCHITECTURE §4.38l.4.12, dictamen del arquitecto):** sigue **sin bloquear la fusión** ni el encendido en staging con datos sintéticos, pero pasa a ser **precondición del cut-over de producción**, cabalgando sobre la puerta que ya está cerrada (condición **C3** del blue team). Se satisface por **cualquiera** de dos vías: **(i)** extender `reconcilePublishedPrices` a `graded` —de fondo, **dueño backend**, con el cuidado declarado de no inundar la cola el día del encendido— **o (ii)** un **detector recurrente con alerta** sobre el predicado del **paso 5(−)** del runbook (`BACKEND_NOTES.md` §0.11.6), que es **la misma consulta que ya hay que escribir**, agendada — **dueño devops**. El arquitecto declara **(ii) suficiente para abrir la puerta del cut-over**; **(i) se conserva aquí con su disparador propio** y no bloquea ningún deploy. **Este pase (M-44) NO lo implementa: quedó explícitamente fuera de alcance.**
 
 ### M43-D2 · `PriceReference.evidenceDate` existe pero NO está cableada (criterio 109 sigue con su aproximación) (M-43, 2026-08-29)
 - **Dueño:** backend (el alcance lo decide **arquitecto**; ver nota de gobierno abajo). **Severidad:** Baja (aceptada, **no bloqueante**, **sin regresión**).
 - **Deuda:** la migración `v1.50.3-f-graded-estimate-kind` creó la columna `evidenceDate DateTime? @db.Date` (§4.38m.2, empaquetada con `refKind` para no pagar dos ventanas de migración), pero **este pase no la cableó**: ni el ingest la puebla (el parser YA resuelve la `lastSaleDate` del proveedor y la usa para el gate de escritura, pero no la persiste) ni `stale()` la lee (sigue midiendo contra `capturedDate`). **La columna está en `null` en todas las filas**, así que `evidenceDate ?? capturedDate` sería hoy idéntico a `capturedDate`: **cero cambio de comportamiento, cero regresión**.
-- **Impacto:** el **criterio 109** sigue cumpliéndose por la **aproximación conservadora** vigente —el gate de evidencia en la **escritura** del ingest, con cota honesta `≤ 2 × freshnessDays` (60 d con el seed) en vez de los 30 literales—, que ya está **declarada como desviación en §9** y que cierra el fallo grave («fresco para siempre»). Lo que falta es el cierre **al pie de la letra**. La deuda es de **precisión**, no de seguridad, y el dial del ingest está `off`.
+- **Impacto:** el **criterio 109** sigue cumpliéndose por la **aproximación conservadora** vigente —el gate de evidencia en la **escritura** del ingest, con cota honesta `≤ 2 × freshnessDays` (60 d con el seed) en vez de los 30 literales—, que ya está **declarada como desviación en §9** y que cierra el fallo grave («fresco para siempre»). Lo que falta es el cierre **al pie de la letra**. La deuda es de **precisión**, no de seguridad, y el dial del gancho (v1.51: `grading_hook_enabled`) está `off`.
 - **Nota de gobierno (por qué no se hizo aquí):** §11 describe el cierre exacto junto a la columna, pero **el alcance que el arquitecto asignó a M-43 enumera la columna en el schema y nada más**; cablear `stale()` y el escritor del ingest habría sido cambiar un comportamiento de frescura de dinero-adyacente **sin encargo**. Se declara en vez de decidirlo por cuenta propia (regla 9).
-- **Disparador:** **antes de encender `graded_estimate_ingest_enabled`** (la fase 2), que es cuando la fecha de la evidencia empieza a importar de verdad. El trabajo es: (a) `persistGradedEstimateReference` recibe y persiste la `evidenceDate` que el parser ya trae, y (b) `isStaleByOrigin`/`stale()` miden contra `evidenceDate ?? capturedDate`. Ref: ARCHITECTURE §4.38(m.2), §11 (M-43), `BACKEND_NOTES.md` §0.11.7.
+- **Disparador (⚠️ ADELANTADO en v1.51 por M-46):** **antes del primer `off → on` de `grading_hook_enabled` en producción**. Antes decía «antes de encender `graded_estimate_ingest_enabled` (la fase 2)», y con **dos** diales eso era una fecha lejana; con el **dial ÚNICO** (§4.38r) *encender la fase 2 y encender la feature son el mismo acto*, así que esto pasa a estar **delante del paso 5 del pase** (§4.38r.4) — es la **GU-9** que el arquitecto repositionó a **bloqueante del primer encendido en producción** (§4.38r.6.2, §10). Cierre por **una de dos**: el humano acepta por escrito la cota `≤ 60 días`, **o** se cablea `evidenceDate`. El trabajo es: (a) `persistGradedEstimateReference` recibe y persiste la `evidenceDate` que el parser ya trae, y (b) `isStaleByOrigin`/`stale()` miden contra `evidenceDate ?? capturedDate`. Ref: ARCHITECTURE §4.38(m.2), §11 (M-43), `BACKEND_NOTES.md` §0.11.7.
+- **✅ Actualización v1.51-a (2026-08-31) — GU-9 CERRADA ⇒ esta deuda DEJA DE BLOQUEAR el encendido.** El dueño **aceptó por escrito la cota de ≤ 60 días** (`PROJECT.md`, decisión 61; ARCHITECTURE §4.38m.2.1), que era **una** de las dos vías de cierre del disparador anterior. Queda por tanto: **severidad BAJA, NO bloqueante**, sin disparador de fecha. Se conserva porque el cierre *al pie de la letra* del criterio 109 sigue pendiente y porque **la columna `evidenceDate` YA EXISTE** en el schema (migración `v1.50.3-f-graded-estimate-kind`): el trabajo restante es (a)+(b) de arriba, **sin DDL y sin ventana de migración**. ⛔ **Lo que este cierre NO autoriza a nadie:** tocar `graded_estimate_freshness_days` — se queda en **30**; escribir 60 daría un peor caso de **120** (§4.38m.2.1). Encargo: (r.8) nº 7.
 
 ### M44-D1 · La validación de entrada del override de precios vive en el handler, no en el DTO (M-44, 2026-08-29)
 - **Dueño:** backend (la decisión de fondo, si se toma, es del **arquitecto**). **Severidad:** Baja (aceptada, **no bloqueante**, sin impacto observable).
@@ -2507,10 +2537,14 @@
 >   con «no automatizar».
 >
 > **Lo que queda abierto de esta entrada** es la **verificación en staging con datos reales** (severidad
-> **Baja**, no bloqueante): el ingest arranca con dial `graded_estimate_ingest_enabled` en **`off`**, así que
-> hasta que un humano lo encienda **no gasta un solo crédito ni escribe una sola fila**. El orden de encendido
-> lo fija §4.38h: rodar el ingest **en observación con la vitrina apagada**, revisar la traza (`AuditLog`
-> `graded_estimate.ingest.*`) y solo entonces encender la exhibición.
+> **Baja**, no bloqueante): el ingest arranca con el dial del gancho —desde v1.51 el ÚNICO,
+> `grading_hook_enabled`— en **`off`**, así que hasta que un humano lo encienda **no gasta un solo crédito ni
+> escribe una sola fila**. ~~El orden de encendido lo fija §4.38h: rodar el ingest **en observación con la
+> vitrina apagada**, revisar la traza (`AuditLog` `graded_estimate.ingest.*`) y solo entonces encender la
+> exhibición.~~ ⛔ **ACTUALIZADO en v1.51 (M-46, §4.38r):** con un solo dial ese orden **ya no es
+> expresable**; el sustituto es rodar con la **SONDA** (`POKEMONPRICETRACKER_GRADED_PROBE=on`, solo-lectura
+> por construcción), revisar la traza y la lista de revisión, y **solo entonces** encender el dial — que
+> desde v1.51 es un **acto de gasto** además de una decisión comercial (§4.38r.3).
 >
 > **Y una escalada que puede reabrir esto como decisión de ARQUITECTURA (regla 9):** si la corrida revela que
 > `includeEbay=true` **no** combina con `fetchAllInSet=true`, el job **PARA** y lo reporta (`escalation`). En
@@ -4543,7 +4577,7 @@
 - **Qué NO se hace al verlo:** ni escotilla, ni dial nuevo, ni `count` inventado. **Vuelve al
   arquitecto** (regla 9). Las opciones —degradar a manual de forma permanente, buscar un segundo
   proveedor, o pagar el plan que exponga `salesByGrade`— son de **producto y de costo**.
-- **Impacto hoy: ninguno** (`graded_estimate_ingest_enabled` seed `off`). **No hay acantilado detrás:**
+- **Impacto hoy: ninguno** (el dial del gancho —v1.51: `grading_hook_enabled`— tiene seed `off`). **No hay acantilado detrás:**
   la degradación a manual ya está diseñada, aceptada y funcionando — es el estado de v1.50. Se pierde la
   **automatización** de la feature, no la feature.
 - **Disparador:** la primera corrida real del ingest.
@@ -4619,7 +4653,7 @@
   porque el defecto opuesto —silenciar un cambio de shape real— es peor, y por debajo del suelo la señal
   **se informa con `warn`** en vez de perderse. Sigue siendo **constante de código, no dial**
   (§4.38h.1-ter: se calibra una vez).
-- **Disparador:** la primera corrida real del ingest con `graded_estimate_ingest_enabled = on`. Si el
+- **Disparador:** la primera corrida real del ingest con `grading_hook_enabled = on` (v1.51: es el mismo acto que encender la feature). Si el
   `warn` de «no se escala por muestra corta» aparece de forma sostenida sobre corridas de alcance normal,
   el número está mal calibrado y ahí sí habrá datos para elegirlo.
 
@@ -4661,3 +4695,22 @@
   El único caso que sí se limpia solo es el del smoke de borrado, que retira lo que siembra.
 - **Disparador para cerrarla:** que el arnés pueda marcar sus propias filas (p. ej. una carta de seed
   reservada al E2E cuyo estimado sea siempre desechable). Es alcance nuevo, no un arreglo.
+
+### Última pasada de M-46 (§22.14 + los dos candados burlados) — rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-31 (dueño: **frontend**, no bloqueante)
+
+#### GR-D4 · `M2View.test.tsx:722` es INESTABLE en suite completa (Media→Baja, frontend — **fuera del stream que la anotó**)
+- **Dueño:** frontend. **Severidad:** Baja (test, no producto). **Estado: abierta, ticket propio.**
+- **Qué pasa:** el test `M2 · jerarquía por-fila (§19.4) › I y G son botones directos…` falla de
+  forma intermitente en la **suite completa** —QA lo vio caer **1 de 2 corridas**, en el
+  `findAllByRole` del botón «Refrescar variantes y precios de {set} usando solo TCGCSV»— y **pasa
+  3/3 aislado**. En la corrida de cierre de este pase (842/842) **no se reprodujo**: es intermitente,
+  no determinista, y esto es lo único que se puede afirmar hoy.
+- **Hipótesis (no verificada, y se anota como hipótesis):** `M2View` monta muchas queries a la vez y
+  el `findAllByRole` corre con la ventana por defecto de `waitFor` (1 s). Bajo la carga de la suite
+  completa esa ventana se puede agotar antes del render. Si es eso, el arreglo es del **test**
+  (esperar por un hito estable de la vista, o subir el timeout de ese `find*`), no del componente.
+- **Por qué no se arregla aquí:** **ningún commit de este pase toca `M2View.tsx` ni
+  `M2View.test.tsx`**. Tocar un archivo ajeno al stream para «dejarlo verde» es exactamente cómo un
+  flake se convierte en un cambio sin revisar. Va como ticket propio de frontend.
+- **Disparador para cerrarla:** reproducir el rojo con `--repeat` o `--sequence.shuffle` sobre la
+  suite completa, confirmar (o descartar) la hipótesis del timeout y arreglar el test en su rama.

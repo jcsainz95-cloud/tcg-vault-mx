@@ -9,9 +9,12 @@ import { restoreGradingDial } from './utils/grading';
  *
  * Hace dos cosas, y el orden importa:
  *
- *  1. **Restaura el dial `gradedEstimatesEnabled`** que el arnés del gancho de grading enciende
- *     para poder probar la feature contra el stack real (ver `e2e/utils/grading.ts`). Sólo aplica
- *     en modo real; en mock no hay nada que deshacer.
+ *  1. **Apaga el dial `gradingHookEnabled`** (v1.51, M-46) que el arnés del gancho de grading
+ *     enciende para poder probar la feature contra el stack real (ver `e2e/utils/grading.ts`). Sólo
+ *     aplica en modo real; en mock no hay nada que deshacer. **Apaga, no restaura**: desde el
+ *     colapso a un solo dial, `on` publica **y** autoriza gasto en un proveedor de paga, así que
+ *     dejarlo encendido «porque así estaba» convertiría el siguiente tick del cron en una factura
+ *     que nadie pidió. Encenderlo es del dueño, desde M10 (ARCHITECTURE §4.38r.3).
  *
  *  2. **Purga del disco los tokens de la corrida** (IMP-A de QA). `e2e/utils/state.ts` cachea el
  *     `TokenPair` COMPLETO —access **y refresh**— de cada rol para no comerse el rate-limit de

@@ -8,6 +8,7 @@
  * portafolio. La vitrina de "Compra" (GET /catalog/cards) SOLO lista inventario
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
+import { brandEmail } from '../brand';
 import type {
   CardDTO,
   CardProductDTO,
@@ -507,7 +508,6 @@ const mockGradingHighlightGrades = ['10'];
  */
 export let mockGradedEstimateConfig: GradedEstimateConfigDTO = {
   enabled: true,
-  ingestEnabled: false,
   grades: ['10', '9'],
   highlightGrades: [...mockGradingHighlightGrades],
   freshnessDays: 30,
@@ -541,7 +541,7 @@ export function setMockGradedEstimateConfig(patch: Partial<GradedEstimateConfigD
   mockGradedEstimateConfig = {
     ...mockGradedEstimateConfig,
     ...rest,
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
   };
 }
 
@@ -2219,9 +2219,12 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9003', userId: 'u-779', status: 'chargeback', totalCents: 231000, createdAt: '2026-08-09T12:00:00Z' },
 ];
 
-// MOCK: evidenceContact viene de la API (contrato §7/§M8). El correo es el placeholder
-// del contrato (soporte@tcgvaultmx.com, por confirmar por el humano); NO se hardcodea en la UI.
-const EVIDENCE_CONTACT = 'soporte@tcgvaultmx.com';
+// MOCK: `evidenceContact` viene de la API (contrato §7/§M8) y la UI **renderiza el que recibe**;
+// esto es solo el fallback offline del modo fixtures. Se compone sobre `common.brand.domain`
+// (API_CONTRACT §0 «Datos de contacto…», cláusula 4) en vez de copiar un literal de la
+// documentación: el literal anterior (`soporte@tcgvaultmx.com`) era el dominio RETIRADO en el
+// rebrand, y llegó aquí precisamente por copiarlo del contrato.
+const EVIDENCE_CONTACT = brandEmail('soporte');
 /** Correo de soporte que devuelve el backend en el 201 de POST /disputes (contrato §7). */
 export const DISPUTE_EVIDENCE_CONTACT = EVIDENCE_CONTACT;
 
@@ -2670,7 +2673,7 @@ export const mockAdminUsers: AdminUserSummaryDTO[] = [
   { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
   { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
   { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
-  { id: 'u-op1', email: 'operador@tcgvaultmx.com', name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
+  { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
 ];
 
 export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
@@ -2776,11 +2779,12 @@ export let mockSettings: SettingsDTO = {
   // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
   priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
-  // v1.44-graded-estimate: interruptor maestro del gancho (contrato §M10; **seed real = `off`**,
-  // fail-closed). MOCK: el fixture lo representa YA ENCENDIDO —como un staging donde el dueño lo
-  // prendió— para poder ejercitar las tres superficies sin backend. El gate y el interruptor son
-  // SERVER-SIDE y no se simulan: apagarlo aquí desde M10 no apaga las cifras del mock.
-  gradedEstimatesEnabled: 'on',
+  // v1.51-one-dial (M-46): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
+  // y la clave es NUEVA ⇒ ningún entorno la tiene). MOCK: el fixture lo representa YA ENCENDIDO
+  // —como un entorno donde el dueño lo prendió a mano— para poder ejercitar las tres superficies
+  // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
+  // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
+  gradingHookEnabled: 'on',
 };
 export function setMockSettings(patch: Partial<SettingsDTO>) {
   mockSettings = { ...mockSettings, ...patch };
@@ -3890,7 +3894,7 @@ export function mockGradedEstimatePreview(
   if (!card) throw new ApiFixtureNotFound('card not found');
   const cfg: GradedEstimateConfigDTO = {
     ...mockGradedEstimateConfig,
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
     gradingCostTiers: mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
   };
   const estimates = mockGradedEstimatesByCardId[cardId] ?? [];
@@ -4167,7 +4171,7 @@ export function mockGradedEstimateReview(filters: {
     pageSize,
     total: filtered.length,
     // La lista evalúa AUNQUE el dial esté apagado (para poder limpiar antes de encender).
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
     scannedCards: new Set(Object.keys(mockGradedEstimatesByCardId).concat(mockReviewRows.map((r) => r.cardId))).size,
     truncated: false,
   };

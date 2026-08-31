@@ -96,8 +96,9 @@ export const SettingKey = {
   // Dial interno (LFPDPPP): NO se expone en el DTO de M10 hasta que el arquitecto lo
   // formalice en el contrato (ver docs/BACKEND_NOTES.md).
   INE_RETENTION_DAYS: 'ine_retention_days',
-  // v1.44-graded-estimate (M-41, §4.38d): «gancho de grading» — SEIS claves, DATA/seed (sin DDL).
-  // Las CINCO primeras se editan en M2 (GET/PUT /admin/pricing/graded-estimates), NO por
+  // v1.44-graded-estimate (M-41, §4.38d) + v1.51 (M-46, §4.38r): «gancho de grading» — ONCE claves,
+  // DATA/seed (sin DDL): **10 de M2** + **1 de M10** (el dial único, abajo).
+  // Las de M2 se editan en M2 (GET/PUT /admin/pricing/graded-estimates), NO por
   // PUT /admin/settings (mismo criterio que los spreads del sellado). `grading_cost_tiers` y
   // `grading_min_upside_pct` gobiernan EXCLUSIVAMENTE la CURADURÍA (teja/vitrina): subir el umbral vacía
   // la vitrina pero la FICHA sigue mostrando sus estimados (partición §4.38-0).
@@ -106,22 +107,33 @@ export const SettingKey = {
   GRADED_ESTIMATE_FRESHNESS_DAYS: 'graded_estimate_freshness_days',
   GRADING_COST_TIERS: 'grading_cost_tiers',
   GRADING_MIN_UPSIDE_PCT: 'grading_min_upside_pct',
-  // Interruptor MAESTRO (M10, seed `off` FAIL-CLOSED): con `off` el backend NI SIQUIERA evalúa el gate.
-  // Expuesto en el DTO de M10 y editable por PUT /admin/settings (patrón sealedValueTrend).
-  GRADED_ESTIMATES_ENABLED: 'graded_estimates_enabled',
-  // ===== v1.50.2 (§4.38k/h) — las 6 claves nuevas: 5 de M2 + el 2º interruptor M10 =====
-  // Las cinco de M2 se editan en `PUT /admin/pricing/graded-estimates` (NO aquí, igual que las otras
-  // cinco de arriba): el recurso dedicado es el único que puede validar invariantes ENTRE filas.
+  // ⛔ v1.51 (M-46, §4.38r): `graded_estimates_enabled` RETIRADA — la sustituye `grading_hook_enabled`.
+  // ===== v1.50.2 (§4.38k/h) — las 5 claves de M2 del gate de confianza y del ingest =====
+  // Se editan en `PUT /admin/pricing/graded-estimates` (NO aquí, igual que las otras cinco de arriba):
+  // el recurso dedicado es el único que puede validar invariantes ENTRE filas.
   GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS: 'graded_estimate_manual_freshness_days',
   GRADED_ESTIMATE_MAX_RAW_MULTIPLE: 'graded_estimate_max_raw_multiple',
   GRADED_ESTIMATE_MIN_SAMPLE_COUNT: 'graded_estimate_min_sample_count',
   GRADED_ESTIMATE_SOURCE_STAT: 'graded_estimate_source_stat',
   GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN: 'graded_estimate_ingest_max_cards_per_run',
-  // Segundo interruptor M10 (seed `off` FAIL-CLOSED) — gobierna la OBTENCIÓN (¿gastamos créditos y
-  // escribimos filas?), no la EXHIBICIÓN. Son dos diales a propósito (§4.38d): con uno solo, el
-  // operador tendría que elegir entre «no puedo probar el ingest sin publicar» y «no puedo publicar
-  // sin encender el gasto». Con dos puede rodar el ingest EN OBSERVACIÓN con la vitrina apagada.
-  GRADED_ESTIMATE_INGEST_ENABLED: 'graded_estimate_ingest_enabled',
+  // ⛔ v1.51 (M-46, §4.38r): `graded_estimate_ingest_enabled` RETIRADA — absorbida por el dial único.
+  //
+  // ===== v1.51 (M-46, §4.38r) — EL DIAL DEL GANCHO, uno solo. DATA/seed, SIN DDL =====
+  // Gobierna las DOS cosas: la EXHIBICIÓN (ficha/teja/vitrina) y la OBTENCIÓN (créditos + escrituras
+  // del ingest de fase 2). Seed `off` FAIL-CLOSED; expuesto en el DTO de M10 y editable por
+  // PUT /admin/settings (patrón `sealedValueTrend`), auditado y sin redeploy.
+  //
+  // ⚠️ Encenderlo es un ACTO DE DINERO, no un ajuste de vitrina (§4.38r.3): publica una afirmación
+  // comercial **y** arranca el consumo de créditos de un proveedor de paga **y** empieza a escribir
+  // precios. Precondiciones del primer `off → on` de un entorno en §4.38(r.3.1).
+  //
+  // ⚠️ Por qué la clave es NUEVA y no se reusó `graded_estimates_enabled` (§4.38r.1 — es LA decisión
+  // de seguridad de M-46): producción tiene esa fila en `"on"`. Reusarla habría ENSANCHADO el
+  // significado de un valor ya almacenado («publica» → «publica y gasta y escribe precios») y el
+  // siguiente tick del cron (2×/día, ≤12 h, sin humano) habría sido la primera factura del dueño. Con
+  // clave nueva, NINGÚN valor guardado en NINGÚN entorno puede armar el dial: todos aterrizan en `off`
+  // y existe exactamente UNA forma de encenderlo — un `PUT` humano desde el back-office.
+  GRADING_HOOK_ENABLED: 'grading_hook_enabled',
   // v1.1 (M-9): frontera por defecto del sync de catálogo (POST /admin/catalog/sync sin setId).
   // Formato pokemontcg.io `yyyy/MM/dd`. ConfigSetting de primera clase: expuesto en el DTO de
   // M10 (`catalogSyncFromDate`), legible y editable por GET/PUT /admin/settings.
@@ -199,15 +211,15 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SEALED_RESTOCK_ALERTS]: 'off',
   // v1.44-graded-estimate (M-41, §4.38d): seed del «gancho de grading». La tabla de escalones y los
   // umbrales viven en `common/graded-estimate.ts` (pura, sin infra) para que seed, validadores y gate
-  // compartan UNA sola fuente. `graded_estimates_enabled` arranca en **off** (fail-closed): el código se
-  // despliega INVISIBLE hasta que el humano dé el visto bueno al disclaimer (§N.5) — encenderlo NO es
-  // decisión de devops.
+  // compartan UNA sola fuente. El DIAL (`grading_hook_enabled`, v1.51) arranca en **off**
+  // (fail-closed): el código se despliega INVISIBLE hasta que el humano dé el visto bueno al
+  // disclaimer (§N.5) — y desde v1.51 encenderlo además GASTA, así que menos que nunca es decisión de
+  // devops (§4.38r.3).
   [SettingKey.GRADED_ESTIMATE_GRADES]: DEFAULT_GRADED_ESTIMATE_GRADES,
   [SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES]: DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
   [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]: DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
   [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS,
   [SettingKey.GRADING_MIN_UPSIDE_PCT]: DEFAULT_GRADING_MIN_UPSIDE_PCT,
-  [SettingKey.GRADED_ESTIMATES_ENABLED]: 'off',
   // v1.50.3 (§4.38m, GU-A16) — `manualFreshnessDays` arranca en **30**, NO en `null`. El seed de
   // v1.50.2 (`null` = «el override manual NUNCA caduca») desactivaba el criterio 109 para la vía
   // manual. `null` sigue siendo EXPRESABLE (es una decisión legítima del dueño) pero ya no es el
@@ -225,8 +237,34 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.GRADED_ESTIMATE_SOURCE_STAT]: DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
   [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]:
     DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
-  [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: 'off',
+  // v1.51 (M-46, §4.38r) — EL dial del gancho, seed `off` FAIL-CLOSED. Clave NUEVA: no existe en
+  // ningún entorno, así que el deploy del colapso deja el gancho OSCURO por construcción y **no puede
+  // empezar a gastar solo**. Encenderlo es un `PUT` humano, auditado, desde M10.
+  [SettingKey.GRADING_HOOK_ENABLED]: 'off',
 };
+
+/**
+ * v1.51 (M-46, §4.38r.1) — **claves RETIRADAS que SIGUEN EN LA TABLA de entornos ya sembrados.**
+ *
+ * No se borran, y es deliberado: (1) borrar filas de `ConfigSetting` en producción sería *escribir en
+ * la configuración* para conseguir **cero** efecto de comportamiento —el código nuevo ya no las lee— y
+ * §11.0 punto 4 lo prohíbe; (2) si el deploy se revierte, **la fila es lo que mantiene fail-closed al
+ * código viejo** (encuentra `off` y no gasta), así que el rollback es seguro y completo.
+ *
+ * El coste de dejarlas es que **mienten a quien lea la tabla a pelo**, y por eso existe esta lista: el
+ * inventario de arranque (§11.0, `SettingsService.logConfigInventory`) las imprime bajo el rótulo
+ * «claves RETIRADAS presentes». Sin ese rótulo son una **trampa de diagnóstico**: el día del incidente
+ * alguien lee `graded_estimate_ingest_enabled = off` y concluye que el ingest está apagado **mientras
+ * gasta**.
+ *
+ * Solo lleva las dos de M-46 a propósito: son las únicas cuyo nombre AFIRMA algo sobre el gasto vivo.
+ * Otras retiradas históricas (`stripe_fee_iva_pct`, `rarity_map`, las cinco de `pricing_curve`) son
+ * inertes y mudas — listarlas cada arranque sería el ruido que este inventario existe para no tener.
+ */
+export const RETIRED_SETTING_KEYS = [
+  'graded_estimates_enabled',
+  'graded_estimate_ingest_enabled',
+] as const;
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
 
@@ -470,9 +508,6 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS]: validateGradedEstimateFreshnessDays,
   [SettingKey.GRADING_COST_TIERS]: (v) => validateGradingCostTiers(v)?.message ?? null,
   [SettingKey.GRADING_MIN_UPSIDE_PCT]: validateGradingMinUpsidePct,
-  // Interruptor maestro (M10): on|off, seed off. Sí editable por PUT /admin/settings.
-  [SettingKey.GRADED_ESTIMATES_ENABLED]: (v) =>
-    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   // v1.50.2 (I8/I9) — MISMOS validadores compartidos que aplica el `PUT` de M2 y la lectura fail-closed
   // del resolver. Una sola verdad por invariante: si divergieran, el `422` y el apagado on-read dirían
   // cosas distintas sobre el mismo valor.
@@ -481,8 +516,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: validateGradedEstimateMinSampleCount,
   [SettingKey.GRADED_ESTIMATE_SOURCE_STAT]: validateGradedEstimateSourceStat,
   [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: validateGradedEstimateIngestMaxCards,
-  // 2º interruptor M10 (seed `off`): on|off, editable por PUT /admin/settings.
-  [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: (v) =>
+  // v1.51 (M-46) — EL dial del gancho (M10, seed `off`): on|off, editable por PUT /admin/settings.
+  // SOLO el string `'on'` enciende en la LECTURA (`gradingHookEnabledFrom`); aquí se rechaza todo lo
+  // que no sea `on|off` para que un `true` o un `'ON'` no queden guardados pareciendo encendidos.
+  [SettingKey.GRADING_HOOK_ENABLED]: (v) =>
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
@@ -517,12 +554,16 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   // exponen aquí ni se editan por PUT /admin/settings: solo por GET/PUT /admin/pricing/sealed-spreads.
   sealedValueTrend: SettingKey.SEALED_VALUE_TREND,
   sealedRestockAlerts: SettingKey.SEALED_RESTOCK_ALERTS,
-  // v1.44-graded-estimate (§M10): interruptor MAESTRO del gancho de grading (seed `off`). El RESTO de
-  // la config del gancho (escalones, minUpsidePct, frescura, grados) NO se expone aquí: vive en los
-  // endpoints M2 dedicados GET/PUT /admin/pricing/graded-estimates (como los spreads del sellado).
-  gradedEstimatesEnabled: SettingKey.GRADED_ESTIMATES_ENABLED,
-  // v1.50.2 (§M10): el SEGUNDO interruptor — el del INGEST (fase 2). Ver §4.38d para por qué son dos.
-  gradedEstimateIngestEnabled: SettingKey.GRADED_ESTIMATE_INGEST_ENABLED,
+  // v1.51 (M-46, §M10, §4.38r): EL dial del gancho de grading — uno solo, gobierna exhibición Y
+  // obtención (seed `off`). El RESTO de la config del gancho (escalones, minUpsidePct, frescura,
+  // grados) NO se expone aquí: vive en los endpoints M2 dedicados GET/PUT
+  // /admin/pricing/graded-estimates (como los spreads del sellado).
+  //
+  // ⛔ `gradedEstimatesEnabled` y `gradedEstimateIngestEnabled` quedan RETIRADAS de este mapa, y con
+  // eso del `GET` y del `PUT`: `update()` valida contra esta lista blanca con `hasOwnProperty`, así
+  // que enviarlas cae en `422 VALIDATION_ERROR` («unknown setting key») — mismo precedente que
+  // `stripeFeeIvaPct` desde v1.40. No hace falta código de rechazo: hace falta NO estar aquí.
+  gradingHookEnabled: SettingKey.GRADING_HOOK_ENABLED,
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,

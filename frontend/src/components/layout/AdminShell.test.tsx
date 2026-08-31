@@ -34,7 +34,7 @@ function RoleProbe() {
 
 const admin: UserDTO = {
   id: 'u-admin',
-  email: 'admin@tcgvaultmx.com',
+  email: 'admin@ejemplo.test',
   name: 'Súper Admin',
   role: 'super_admin',
   locale: 'es',

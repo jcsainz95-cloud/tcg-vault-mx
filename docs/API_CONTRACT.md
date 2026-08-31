@@ -2,7 +2,79 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-29 (rev **v1.50.3-g**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.51-a**).
+>
+> **Changelog v1.51-a — UN cambio de invariante y UNA nota normativa de lectura (2026-08-31, arquitecto;
+> lo implementa BACKEND, y FRONTEND solo si pinta el rango. ARCHITECTURE §4.38(r.3.1), §4.38(r.3.4), §4.38(m.2.1)).**
+> **Cero rutas, cero shapes de DTO, cero códigos de error nuevos, cero montos.** Base: v1.51-one-dial, intacta.
+> - **`ingestMaxCardsPerRun` estrecha su rango: `[1, 5000]` → `[1, 1000]`** (invariante **I8** del `PUT
+>   /admin/pricing/graded-estimates`). Fuera de rango ⇒ **`422 VALIDATION_ERROR`**, el mismo código de siempre.
+>   **Motivo:** `5 000 × 2 créditos × 2 corridas = 20 000 créditos/día` era **la cuota diaria completa del plan del
+>   proveedor**, autorizable con **un solo `PUT` válido**, sin redeploy y sin aprobación adicional. Un tope cuyo máximo
+>   admisible coincide con el presupuesto total no es un tope.
+>   - **Es un ESTRECHAMIENTO, y no rompe nada existente:** el seed **250 no cambia** y todo valor almacenado `≤ 1 000`
+>     sigue siendo válido. Solo `(1 000, 5 000]` pasa a `422`. Quedan **4× de holgura** sobre el seed.
+>   - **Un valor almacenado en `(1 000, 5 000]` no se vuelve peligroso: cae en la regla de `fail-closed on-read`** —
+>     se trata como **presente pero INVÁLIDA** y el ingest **no emite ninguna petición** al proveedor. Falla en la
+>     dirección correcta.
+> - **Nota normativa NUEVA sobre `ingestMaxCardsPerRun` (no cambia su forma):** acota las cartas **en ALCANCE**,
+>   **no** las que el proveedor devuelve ⇒ **cualquier traducción de este número a «créditos/día» es un techo NOMINAL
+>   bajo un supuesto de facturación aún no observado**, y un cliente de admin **no debe presentarlo como cifra firme
+>   sin ese calificador**. Detalle en la sección de `GradedEstimateConfigDTO`.
+> - **Lo que este changelog NO cambia, y conviene decirlo:** las precondiciones de encendido del dial
+>   (`gradingHookEnabled`) viven en `ARCHITECTURE.md`, **no aquí**; el cierre de **GU-9** (el dueño acepta 60 días de
+>   peor caso de frescura) **no toca el contrato en absoluto** — ni un rango, ni un seed, ni un campo:
+>   `freshnessDays` **se queda en 30**.
+> - **Base previa:** v1.51-one-dial.
+>
+> **Changelog v1.51-one-dial — el gancho de grading pasa de DOS interruptores a UNO (2026-08-31, arquitecto;
+> lo implementan BACKEND + FRONTEND. ARCHITECTURE §4.38(r), §9, §10 GU-14, §11 M-46).**
+> ⚠️ **Decisión del DUEÑO, tomada y reafirmada. No se re-litiga.** Cero superficies públicas tocadas, cero DDL, cero
+> montos, cero códigos de error nuevos. **BREAKING chico en `super_admin`** (dos claves de M10 desaparecen y una nace).
+> - **`gradedEstimatesEnabled` y `gradedEstimateIngestEnabled` se RETIRAN de `GET/PUT /api/v1/admin/settings`.**
+>   Enviarlas en el `PUT` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida; mismo precedente que `stripeFeeIvaPct`,
+>   v1.40). Las filas `ConfigSetting` que existan quedan **huérfanas e inertes** — nadie las lee, **no se borran**.
+> - **NACE `gradingHookEnabled`** (`grading_hook_enabled`, enum `on|off`, **seed `off` fail-closed**, **M-46**,
+>   DATA/seed sin DDL): **el dial único** del gancho. Gobierna **exhibición Y obtención**: con `off` no se emite
+>   `gradedEstimates` ni `gradingHighlight`, `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`, **y** el
+>   ingest de fase 2 **no pide nada al proveedor ni escribe ninguna fila**.
+> - **Por qué una clave NUEVA y no reusar la que ya estaba en la UI:** producción tiene `graded_estimates_enabled="on"`
+>   y reusarla **ensancharía el significado de un valor ya almacenado** ⇒ el deploy siguiente empezaría a **gastar
+>   créditos de un proveedor de paga y a escribir precios, solo**. Con clave nueva, **ningún valor almacenado puede
+>   armar el dial**: todos los entornos aterrizan en `off` y existe **exactamente una** forma de encender el gancho —
+>   un `PUT` humano, auditado, desde el back-office. ARCHITECTURE §4.38(r.1)/(r.4).
+> - **`GradedEstimateConfigDTO` pierde `ingestEnabled`** (§M2). `enabled` se conserva como **espejo read-only del dial
+>   único**. El `PUT` de M2 sigue **ignorando** ambos si vienen (no `422`, para no romper un cliente a medio deploy).
+> - **⚠️ Encender es ahora un ACTO DE DINERO** (publica **y** consume créditos **y** escribe precios). La UI **debe**
+>   advertirlo antes de guardar — criterio 110(e) aplicado al dial que sí gasta. Norma: ARCHITECTURE §4.38(r.3).
+> - **El origen del cambio era un defecto real:** `gradedEstimateIngestEnabled` se declaró gobernable en v1.50.2 y
+>   **nunca se expuso en la UI** — solo por `curl`, que es lo que el criterio 110(e) rechaza. Regla nueva de este
+>   contrato: **al declarar un dial, se dice DÓNDE se ve.** ARCHITECTURE §9.
+> - **Base previa:** v1.50.4-brand-domain.
+>
+> **Changelog v1.50.4-brand-domain — el contrato deja de transcribir correos (2026-08-31, arquitecto).**
+> ⚠️ **CERO cambios de shape, de rutas, de códigos de error y de montos. Ningún endpoint cambia. Ninguna
+> implementación existente se vuelve incorrecta.** Lo que cambia es **qué es normativo** en este documento.
+> - **Los dominios `tcgvaultmx.com` / `tcgvault.mx` están MUERTOS.** El dominio canónico es el de
+>   `common.brand.domain` — hoy **`tcghunt.mx`** — y la marca es `common.brand.name` — hoy **«TCG HUNT»**.
+>   Verificado **contra el producto** (`frontend/messages/{es,en}.json`, `backend/src/modules/mail/`), **no contra
+>   otra documentación**: cotejar documentos entre sí es exactamente cómo se propagó el error. Buzones del
+>   producto: **`soporte@` · `contacto@` · `facturacion@` · `buylist@` · `no-reply@`**, todos `@tcghunt.mx`.
+> - **Por qué esto NO era cosmético.** Por la regla de conflicto de `CLAUDE.md`, **este contrato manda sobre el
+>   código**. Mientras dijera `soporte@tcgvaultmx.com`, cualquier backend o frontend que lo obedeciera
+>   reintroducía el dominio muerto **legítimamente — y tendría razón**. Este documento era la autoridad que
+>   sostenía el error, no su víctima.
+> - **NUEVA convención transversal en §0: «Datos de contacto y valores de configuración».** El contrato norma la
+>   **forma, el origen, la obligatoriedad y quién resuelve** un valor de infraestructura; **no transcribe el
+>   valor**. `evidenceContact` pasa de `"soporte@…"` (literal, normativo) a `string` **resuelto server-side desde
+>   configuración**. **Cambiar el valor deja de ser un cambio de contrato.** Criterio generalizable — aplica a
+>   futuros remitentes, teléfonos y URLs de soporte.
+> - **Los correos que quedan en el cuerpo del documento son ILUSTRATIVOS** (marcados `p. ej.`) y **no son
+>   citables como autoridad**. Fundamento y norma de lectura: **ARCHITECTURE §0-B** («Fuentes de verdad
+>   ejecutables»), nueva en este pase.
+> - **Fuera de mi alcance, enrutado:** defaults de buzón en código (backend, P-21) y envs/redirects (devops,
+>   P-21). Los buzones `@tcghunt.mx` **ya reciben** (humano, 2026-08-31), lo que desbloquea ese tramo.
+> - **Base previa:** v1.50.3-g.
 >
 > **Changelog v1.50.3-g — DICTAMEN del gate de seguridad / `M-44` + `M-45` (2026-08-29, arquitecto;
 > lo implementa BACKEND. ARCHITECTURE §4.38(l.4.10)–(l.4.13), §9, §11):**
@@ -59,7 +131,7 @@
 >   cualquier rango. Hacía falta **excluir**, no ordenar. ARCHITECTURE §4.38(l.4.1).
 > - **CONDICIONAL (solo si el humano ejerce la «vía B» de §4.38(l.5), es decir, fusionar antes de que M-43 esté
 >   desplegado): `409 GRADED_ESTIMATE_DISABLED`** en `POST /admin/pricing/override` con `intent:"graded_estimate"`
->   mientras `gradedEstimatesEnabled` esté `off`. **Transitorio**: se retira con M-43. Si M-43 entra en este mismo
+>   mientras el dial del gancho (v1.51: `gradingHookEnabled`) esté `off`. **Transitorio**: se retira con M-43. Si M-43 entra en este mismo
 >   pase, **este código nunca se emite** y desaparece del contrato en la siguiente rev.
 > - **GE-2 (Media, rechazos 401/403 sin fila en `AuditLog`): NO es cambio de contrato.** Dictamen en ARCHITECTURE §9:
 >   es **hardening del plano de observabilidad (devops)**, no requisito de la bitácora de negocio — el `401` no tiene
@@ -249,11 +321,17 @@
 >   que `sealed-spreads`/`tiers` (JSON en `ConfigSetting`, `super_admin`, **auditado**, **sin redeploy**), pero
 >   **recurso propio**: **no** se reusa `GET/PUT /admin/pricing/tiers`, cuya taxonomía es LOCKED de 5 filas nombradas
 >   con un invariante incompatible (ARCHITECTURE §4.38d / GU-A1). *(v1.50.2 añade 5 diales más a este recurso.)*
-> - **Dial M10 nuevo:** `gradedEstimatesEnabled` (`graded_estimates_enabled`, `on|off`, **seed `off` fail-closed**).
->   Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates` ni `gradingHighlight`, y
->   `?gradingHighlight=true` devuelve `data: []`. Encenderlo en producción **requiere el visto bueno del humano** sobre
->   el texto del disclaimer (§O.5, pregunta abierta v2.0 #1). *(v1.50.2 añade un segundo dial M10,
->   `gradedEstimateIngestEnabled`, que gobierna la **obtención** y no la exhibición.)*
+> - **Dial M10 — UNO SOLO (v1.51):** `gradingHookEnabled` (`grading_hook_enabled`, `on|off`, **seed `off`
+>   fail-closed**). Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates` ni `gradingHighlight`,
+>   `?gradingHighlight=true` devuelve `data: []`, **y el ingest no pide ni escribe nada**. Encenderlo **no es decisión
+>   de devops**: es un **acto de gasto** (créditos de un proveedor de paga) que además publica una afirmación
+>   comercial. *(Corrección de hecho 2026-08-31: este renglón decía que encender «requiere el visto bueno del humano
+>   sobre el disclaimer §O.5». **Ya lo tiene** — el disclaimer está **aprobado por el dueño**, **sin revisión legal
+>   profesional**, `PROJECT.md` decisión 59 / criterio 117. Lo que condiciona el encendido es el **gasto** y las
+>   precondiciones de ARCHITECTURE §4.38(r.3.1), no la aprobación del texto.)*
+>   ~~*(v1.50.2 añade un segundo dial M10, `gradedEstimateIngestEnabled`, que gobierna la obtención y no la
+>   exhibición.)*~~ ⛔ **DEROGADO en v1.51:** los dos diales de v1.50/v1.50.2 (`gradedEstimatesEnabled`,
+>   `gradedEstimateIngestEnabled`) quedan **RETIRADOS** — decisión del dueño, ARCHITECTURE §4.38(r).
 > - **Vitrina = `GET /catalog/cards` filtrado**, no endpoint nuevo: `?gradingHighlight=true&sort=grading_showcase`
 >   (orden server-side por **mayor ganancia neta sobre PSA 9**, el escenario realista). `data: []` **es** la señal de
 >   «no renderizar la vitrina completa». `sort=grading_showcase` sin el filtro ⇒ `400 GRADING_SORT_REQUIRES_FILTER`.
@@ -1708,7 +1786,8 @@
 > - **Modelo de tokens (`AuthToken`, MIGRACIÓN M-17):** un solo uso, `type` (`email_verification | password_reset`),
 >   **hash** en BD (nunca el claro), expira 24h / 1h. Ver ARCHITECTURE §3.2, §4.11 y §11.
 > - **Reset (self-service o admin) incrementa `User.tokenVersion`** → revoca sesiones (patrón existente).
-> - **Env nuevas:** `RESEND_API_KEY` (secreto, requerida en no-local), `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
+> - **Env nuevas:** `RESEND_API_KEY` (secreto, requerida en no-local), `MAIL_FROM` (remitente; **valor por
+>   entorno**, default en código sobre el dominio canónico `common.brand.domain` — p. ej. `no-reply@tcghunt.mx`).
 >   Los links de los correos apuntan al **frontend** (`${APP_BASE_URL}/<locale>/verify-email|reset-password?token=…`).
 >
 > **Changelog v1.2 / v1.2.1 (2026-08-14):** simplificación aprobada por el humano (PROJECT.md › "Simplificación
@@ -1793,6 +1872,36 @@
 - **Paginación:** query `?page=1&pageSize=20`; respuesta `{ data: [...], page, pageSize, total }`.
 - **Filtros de lista admin (`q`, `from`, `to`, `minCents`, `maxCents`) — CONVENCIÓN TRANSVERSAL (v1.25-buylist-orders-pagination):** nombres y semántica **idénticos** en `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3), y compatibles con los listados que ya los usaban parcialmente. Todos **opcionales**; omitir todos = listado como antes de v1.25. **`q`:** texto libre, `trim`, **case-insensitive**, contains, OR entre los campos definidos por endpoint; vacío/whitespace = ausente; **máx 200 chars**. **`from`/`to`:** ISO-8601 sobre `createdAt`, **`gte`/`lte`** (rango inclusivo por día; sólo `from` = desde, sólo `to` = hasta). **Semántica de borde de día (v1.25.1 — aclaración de semántica de fecha, aditiva):** un valor **date-only** (`YYYY-MM-DD`, sin componente horario — lo que emite un `<input type=date>`) se interpreta en el **borde del día en UTC**: **`from` = inicio de día (`00:00:00.000Z`)** y **`to` = fin de día INCLUSIVO (`23:59:59.999Z`)**. Un valor con **componente horario** (datetime ISO completo, p. ej. `2026-08-20T14:30:00Z`) se usa **tal cual** (`gte`/`lte` exactos, sin ajuste). Así `to=YYYY-MM-DD` **incluye** todo lo cerrado ese mismo día — sin la omisión silenciosa de tratar `to` date-only como medianoche UTC (que excluiría casi todo el día en una cola money-adjacent). El backend materializa este borde en su **helper de parseo** de fechas (mismo helper para ambos endpoints). Un **rango invertido** (`from` > `to`) simplemente devuelve **vacío** — no es error (no se exige validación `from ≤ to`). **`minCents`/`maxCents`:** enteros **≥ 0** sobre el campo de monto que cada endpoint declara (`quotedTotalCents` en buylist, `totalCents` en orders), `gte`/`lte`. **Validación → `400 VALIDATION_ERROR`** (mismo patrón que la paginación): `page`/`pageSize` no numéricos o `pageSize>100`, fecha no parseable, monto no entero o negativo, `maxCents < minCents`, `q` > 200 chars, o un token de `status` (CSV, §M5) que no sea enum válido (`details.invalidStatus`). **Seguridad:** estos filtros **sólo REDUCEN** el conjunto ya autorizado por rol admin — no habilitan IDOR ni enumeración cruzada, no cambian el shape ni la proyección PII por rol, y `q` **nunca** busca sobre CLABE/RFC/INE/datos de pago.
 - **i18n:** el contrato NO devuelve texto traducido. Devuelve **enums** y **`errorCode`**; el frontend traduce (ES/EN). Datos de catálogo en inglés por diseño.
+- **Datos de contacto y valores de configuración — el contrato describe la FORMA y el ORIGEN, no transcribe el
+  VALOR (convención transversal, v1.50.4).** Cuando un campo de respuesta transporta un **dato de infraestructura
+  configurable por entorno** —hoy: correos de contacto (`evidenceContact` y cualquier buzón que la API devuelva);
+  por extensión, cualquier valor que devops pueda cambiar **sin redeploy**— este contrato norma **cinco cosas y
+  ninguna más**:
+  1. **Tipo y forma:** `string`, dirección de correo válida (RFC 5322 `addr-spec`, opcionalmente con display name),
+     **no vacía**, **siempre presente** cuando el campo es requerido por el DTO.
+  2. **Origen:** **resuelto server-side** desde configuración de entorno, con **default en código**. El backend
+     **nunca** omite el campo ni lo devuelve vacío; una env **definida pero vacía o en blanco cae al default**
+     (helper `envOr`, **no** `??` — el `??` no cubre la cadena vacía y dejaría el campo en `""`).
+  3. **Estabilidad:** el **valor** puede cambiar por entorno y en el tiempo (rebrand, cambio de proveedor de
+     correo, buzón nuevo) **sin que este contrato cambie de revisión**. **Cambiar el valor NO es un cambio de
+     contrato** y no requiere pasar por el arquitecto (regla 9 de `CLAUDE.md`). Cambiar su **forma u origen**, sí.
+  4. **Obligación del consumidor (frontend):** **renderiza el valor que recibe**. **Prohibido** hardcodearlo,
+     derivarlo del dominio, o **afirmarlo en un test de contrato** (un test que asserta el literal convierte un
+     dato de infra en un candado de CI, y ese candado se vuelve en contra el día del rebrand). Un literal de
+     **fallback** solo se admite en fixtures/mocks offline y en el modo degradado sin API, y debe construirse
+     sobre el dominio de `common.brand.domain`, nunca sobre un literal copiado de este documento.
+  5. **Los valores que aparecen en este documento son ILUSTRATIVOS**, marcados `p. ej.`, y **no son citables como
+     autoridad**. La fuente ejecutable del dominio de marca es la clave i18n **`common.brand.domain`** (hoy
+     `tcghunt.mx`); la del valor efectivo de un campo es **su env** (`DISPUTE_EVIDENCE_CONTACT` para
+     `evidenceContact`, en cascada con `SUPPORT_EMAIL` donde aplique).
+
+  **Por qué (y el criterio que hay que recordar).** Un literal escrito en el contrato **sobrevive a un rebrand**:
+  como el contrato manda sobre el código, un dominio muerto escrito aquí **autoriza** a backend y frontend a
+  reintroducirlo, y ambos tendrían razón. Además acopla lo **más barato de cambiar** (una env) a lo **más caro**
+  (el contrato). Criterio generalizable, para las próximas: *si un valor puede cambiar por entorno o sin redeploy,
+  el contrato norma su **forma, origen, obligatoriedad y quién lo resuelve** — nunca su contenido.* Aplica ya a
+  correos y, por extensión, a remitentes, teléfonos, URLs de soporte y cualquier identificador de contacto futuro.
+  Fundamento completo y clasificación decisión-vs-descripción: **ARCHITECTURE §0-B**.
 - **Errores (shape estándar):**
 ```json
 { "error": { "code": "PRICE_PENDING", "message": "human-readable EN fallback", "details": {} } }
@@ -2268,18 +2377,22 @@ GroupedListingDetailResponse += { gradedEstimates?: GradedEstimateDTO[] }
 //   * `costMxnCents` entero >= 1 — JAMÁS 0 (un costo subestimado es exactamente lo que haría perder dinero al
 //     comprador). Semiabierto a propósito: con límites "$2,000 / $2,001" los centavos intermedios quedaban en un HUECO.
 GradingCostTierDTO = { minValueMxnCents: number, maxValueMxnCents: number | null, costMxnCents: number }
-// `enabled` / `ingestEnabled` = ESPEJOS READ-ONLY de los dos diales M10 (se editan en PUT /admin/settings, no aquí; si
-// vienen en el PUT se IGNORAN). `grades` = grados que la FICHA expone; `highlightGrades` ⊆ `grades` = grados que el
+// v1.51 — `enabled` = ESPEJO READ-ONLY del DIAL ÚNICO M10 `gradingHookEnabled` (se edita en PUT /admin/settings, no
+// aquí; si viene en el PUT se IGNORA). Gobierna exhibición Y obtención: `enabled:false` ⇒ nada se publica y el ingest
+// no pide ni escribe. `ingestEnabled` queda RETIRADO del DTO (ya no se emite; si viene en el PUT se IGNORA, no 422).
+// `grades` = grados que la FICHA expone; `highlightGrades` ⊆ `grades` = grados que el
 // BADGE pinta. `minUpsidePct` + `gradingCostTiers` = el gate de CURADURÍA (rejilla/vitrina), nunca la ficha.
 // v1.50.2 añade 5 campos editables: `manualFreshnessDays` (decaimiento del override manual), `maxRawMultiple`
 // (cota superior de magnitud), `minSampleCount` (muestra mínima, se aplica en el INGEST), `sourceStat` (qué número
 // del proveedor es el precio) y `ingestMaxCardsPerRun` (tope de cuota por corrida).
+// ⚠️ v1.51-a — `ingestMaxCardsPerRun`: rango [1, 1000] (antes [1, 5000]); seed 250 SIN cambio. Acota las cartas EN
+// ALCANCE, NO las que el proveedor devuelve ⇒ traducirlo a "créditos/día" da un techo NOMINAL, no un hecho. Ver §M2.
 // ⚠️ v1.50.3 — TRES SEEDS CORREGIDOS (solo el valor; el shape NO cambia), para alinear con PROJECT.md:
 //   manualFreshnessDays null -> 30 (criterio 109: el override manual SÍ caduca, contra su fecha de captura)
 //   minSampleCount        3  -> 5   (criterio 111a = `minSalesSample` de §O.7)
 //   maxRawMultiple       50  -> 100 (criterio 111c = `maxGradedMultiple` de §O.7)
 // Los NOMBRES no se renombran; la equivalencia con el vocabulario de PROJECT §O.7 está tabulada en §M2.
-GradedEstimateConfigDTO = { enabled: boolean, ingestEnabled: boolean, grades: string[] /* ["10","9"] */,
+GradedEstimateConfigDTO = { enabled: boolean, /* v1.51: `ingestEnabled` RETIRADO */ grades: string[] /* ["10","9"] */,
                             highlightGrades: string[] /* ["10"] */, freshnessDays: number,
                             minUpsidePct: number, gradingCostTiers: GradingCostTierDTO[],
                             manualFreshnessDays: number | null, maxRawMultiple: number,
@@ -3104,7 +3217,7 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
   - **Tamaño de la vitrina** = `pageSize` (el front del home pide **8**, §O.3(3) SUPUESTO); el default del endpoint no
     cambia. **Cero cartas elegibles ⇒ `{ data: [], total: 0 }`, y ese `data: []` ES la señal normativa de «no renderizar
     la vitrina completa»** (criterio 101): sin encabezado, sin placeholder, sin «próximamente».
-  - **Dial `gradedEstimatesEnabled=off` (§M10, seed `off`)** ⇒ ningún grupo trae `gradingHighlight` ⇒
+  - **Dial `gradingHookEnabled=off` (§M10, seed `off`; v1.51)** ⇒ ningún grupo trae `gradingHighlight` ⇒
     `?gradingHighlight=true` devuelve `{ data: [], total: 0 }` (no es error: es la feature apagada).
   - **Sin N+1 — coste MEDIDO:** el listado ya materializa, filtra y pagina **en memoria**; el gancho añade un coste
     **constante** de **+1 query con el dial `off`** (la lectura memoizada de config, que corta antes de tocar precios)
@@ -3215,7 +3328,7 @@ Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card:
     el patrón de presentación (nota al pie con llamada junto a la cifra) lo define **ux-ui** en `DESIGN_SYSTEM.md`
     **§22**.
   - **`gradedEstimates` NUNCA aparece** para una carta sin grupos **raw publicados**, para una **gradeada**, para un
-    **sellado** (§2-S), ni con el dial `gradedEstimatesEnabled=off` (§M10).
+    **sellado** (§2-S), ni con el dial `gradingHookEnabled=off` (§M10).
   - **v1.50.2 — el grado con SLAB PUBLICADO se OMITE** (INV-D, ARCHITECTURE §4.38l): si la carta tiene una pieza PSA 10
     publicada, su fila `graded:PSA:10` **es el precio de mercado real de esa pieza**, no un estimado, y esa pieza ya se
     lista con su propio precio. Los demás grados siguen apareciendo con normalidad.
@@ -3295,8 +3408,9 @@ venir vacía (`points: []`) hasta que se les active la captura diaria.
 > Superficie propia del **producto cerrado** (front: `(storefront)/sellado`). Listado **agregado por producto** (agrupa
 > piezas idénticas → «N disponibles»), ficha con selección de cantidad, y dos endpoints **feature-flagged** (tendencia y
 > restock). El checkout/carrito **no cambia** (§4 / §4-G): se compra por `inventoryItemId` como cualquier pieza. **Solo
-> VENTA** — no hay buylist de sellado (la ventana muestra un call-out mailto a `contacto@tcgvaultmx.com`, es copy del
-> front, no un endpoint). Ver ARCHITECTURE §4.23e/§4.23h.
+> VENTA** — no hay buylist de sellado (la ventana muestra un call-out **mailto al buzón de contacto**; es **copy del
+> front**, vive en i18n sobre `common.brand.domain` —p. ej. `contacto@tcghunt.mx`—, **no es un endpoint** y este
+> contrato no lo norma). Ver ARCHITECTURE §4.23e/§4.23h.
 
 ### GET /api/v1/catalog/sealed — `public`
 Grid agregado del sellado publicado. Agrupa por producto+condición (`tcgplayerProductId` si mapeado, si no
@@ -3789,7 +3903,9 @@ GuestOrderTrackingDTO = {
   shipping: GuestTrackingShippingDTO,
   payment?: GuestTrackingPaymentDTO,      // presente solo tras liquidar
   claim: { available: boolean },          // true si el pedido aún NO está vinculado a una cuenta (oferta de registro)
-  support: { evidenceContact: "soporte@tcgvaultmx.com",
+  support: { evidenceContact: string,       // correo de soporte RESUELTO SERVER-SIDE desde configuración (§0):
+                                            //   forma normada, valor NO normado. Siempre presente y no vacío.
+                                            //   El front lo RENDERIZA; no lo hardcodea ni lo assertá en contrato.
              disputeWindowDays: 7,
              disputeDeadlineAt?: string }, // presente solo si hay entrega (deliveredAt + 7d) — criterio 56b
   tokenExpiresAt: string                  // para que la UI avise "tu enlace caduca el …" y ofrezca reenvío
@@ -4605,11 +4721,19 @@ Responde a un ajuste del admin (aceptar/rechazar el ajuste). Req: `{ decision: "
 
 Disputa de **condición** sobre un item **entregado** (ventana de 7 días desde la entrega). Cubre tanto **raw** como **sellado**; el tipo se conserva (`condition_raw | condition_sealed`, ver ARCHITECTURE §3.6 y §11 M-10). El **graded no** tiene disputa de condición.
 
-> **Evidencia por correo (v1.2):** la disputa **ya no acepta evidencia por archivo** en la app (se elimina el
-> propósito de upload `dispute_claim`). El cliente **envía la evidencia por correo al buzón de soporte**
-> (**soporte@tcgvaultmx.com** — *CONFIRMADO por el humano* 2026-08-16; dominio unificado `tcgvaultmx.com`). Este correo es un **dato
-> de contacto** que el front muestra en el flujo de disputa y en términos/FAQ; **no** es un endpoint. Ya **no
-> existe comparador de fotos de ingreso** en el back-office.
+> **Evidencia por correo (v1.2; norma de valor revisada en v1.50.4):** la disputa **ya no acepta evidencia por
+> archivo** en la app (se elimina el propósito de upload `dispute_claim`). El cliente **envía la evidencia por
+> correo al buzón de soporte**. Ese buzón es un **dato de contacto**, no un endpoint, y el contrato **no fija su
+> valor**: lo **resuelve el backend server-side** desde configuración (`DISPUTE_EVIDENCE_CONTACT`, overridable por
+> entorno **sin redeploy**, con default en código) y lo devuelve en `evidenceContact` para que el front **lo
+> muestre tal cual** en el flujo de disputa y en términos/FAQ. Hoy resuelve a un buzón del dominio canónico
+> `common.brand.domain` (p. ej. `soporte@tcghunt.mx`) — **valor ilustrativo, no normativo**; ver §0 «Datos de
+> contacto y valores de configuración» y ARCHITECTURE §0-B.
+> *(Lo que el humano confirmó el 2026-08-16 fue el **invariante**: un único buzón de soporte, en el mismo dominio
+> canónico que el remitente. La revisión anterior de este documento transcribía además el literal de entonces, y
+> ese literal **sobrevivió al rebrand** — con el contrato mandando sobre el código, autorizaba a reintroducir un
+> dominio muerto. Por eso ahora se norma la forma y el origen, no el valor.)*
+> Ya **no existe comparador de fotos de ingreso** en el back-office.
 
 ### POST /api/v1/disputes — `customer`
 El `type` de la disputa se **deriva server-side** del `productType` del `inventoryItemId` (el cliente **no** lo envía):
@@ -4617,7 +4741,8 @@ El `type` de la disputa se **deriva server-side** del `productType` del `invento
 - `productType=sealed` → `type="condition_sealed"`. Aplica a caja **dañada/equivocada** (sin "condición NM"). Ver ARCHITECTURE §3.6.
 - `productType=graded` → **no aplica**: `422 NOT_RAW`.
 Req: `{ inventoryItemId: string, description: string }`  (**sin** `claimPhotoUploadKeys`; la evidencia va por correo a soporte).
-Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`
+Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: string }`
+ - **`evidenceContact`**: correo de soporte **resuelto server-side desde configuración** (§0). **Siempre presente y no vacío**; el valor **no** lo fija este contrato (p. ej. `soporte@tcghunt.mx`). El front **renderiza lo que recibe**.
 Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW` (item graded; el `code` se conserva por compatibilidad aunque hoy signifique "ni raw ni sellado"), `403`.
 
 **Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). La resolución se apoya en: **gradeadas** → grado + `certNumber` del slab (verificable en la graduadora); **raw NM** → estándar/política de condición propio; la evidencia del cliente llegó **por correo a soporte** (fuera del sistema).
@@ -5220,7 +5345,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     2. **Fijar este valor es ahora una AFIRMACIÓN COMERCIAL PÚBLICA**, no una anotación interna: sale en la **ficha**
        en cuanto la carta raw esté publicada y el dato esté fresco, y —si además pasa el **gate de ROI** y el **gate de
        confianza** (v1.50.2)— en la **rejilla de Compra** y la **vitrina del home**. Está gobernada por el disclaimer
-       obligatorio y por el dial `gradedEstimatesEnabled` (§M10, **seed `off`**), que es el interruptor maestro.
+       obligatorio y por el dial `gradingHookEnabled` (§M10, **seed `off`**; v1.51), que es el interruptor único.
     3. **No hace falta pieza física.** La FK de `PriceReference` es a `Card`: se puede fijar el estimado de una carta
        **raw** de la que **no tenemos ningún slab**. Eso es precisamente el caso de uso de la fase 1 (§O.6: el humano
        **cura a mano** sus cartas gancho) — y, por INV-D, es también **el único caso en que la captura del estimado
@@ -5434,10 +5559,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
         suele ser la única candidata de su clave). ARCHITECTURE §4.38(l.4.1).
     - **CONDICIONAL — `409 GRADED_ESTIMATE_DISABLED` (solo bajo la «vía B» de ARCHITECTURE §4.38l.5).** Si el humano
       decide fusionar **antes** de que M-43 esté desplegado, `intent:"graded_estimate"` responde `409` mientras
-      `gradedEstimatesEnabled` esté `off` (el `DELETE` y `/review` **siguen funcionando** con el dial apagado: se
+      `gradingHookEnabled` esté `off` (el `DELETE` y `/review` **siguen funcionando** con el dial apagado: se
       gatea **crear**, nunca limpiar ni diagnosticar). **Transitorio**: se retira al desplegar M-43. Si M-43 entra en
       este pase, este código **no llega a existir**.
-      Mensaje: «El gancho de grading está apagado (`gradedEstimatesEnabled=off`): no se pueden capturar estimados
+      Mensaje: «El gancho de grading está apagado (`gradingHookEnabled=off`): no se pueden capturar estimados
       hasta encenderlo.» `details: { cardId, gradeKey }`.
     - **Mensaje del `422`:** «Para `productType:"graded"` debes declarar `intent`: `"market"` (precio de mercado real
       de un slab publicado) o `"graded_estimate"` (valor estimado si se gradea).»
@@ -5484,7 +5609,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     - **Efecto lateral consciente:** escribir aquí cambia también el `marketReferenceMxnCents` de M1 › Gradeadas (misma
       fila, dos lectores — ver la nota v1.50 en §M1); si la carta **raw** está publicada, **enciende los estimados en
       la ficha**; y si además **pasa el gate de ROI y el de confianza**, la **destaca** en la rejilla de Compra y en la
-      vitrina del home. Es una afirmación comercial: el dial `gradedEstimatesEnabled` (§M10) es el interruptor maestro,
+      vitrina del home. Es una afirmación comercial: el dial `gradingHookEnabled` (§M10) es el interruptor único,
       y `GET /admin/pricing/graded-estimates/preview` dice **por qué** una carta quedó (o no) destacada.
       **v1.50.3:** y `GET /admin/pricing/graded-estimates/review` dice **qué cartas hay que revisar** sin tener que
       preguntarlas una por una (criterio 111(e)).
@@ -6524,7 +6649,6 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Res `200` (`GradedEstimateConfigDTO`):
   ```json
   { "enabled": false,
-    "ingestEnabled": false,
     "grades": ["10", "9"],
     "highlightGrades": ["10"],
     "freshnessDays": 30,
@@ -6543,10 +6667,10 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       { "minValueMxnCents": 5000000, "maxValueMxnCents": null,    "costMxnCents": 1200000 }
     ] }
   ```
-  - **`enabled` / `ingestEnabled`** = **espejos READ-ONLY** de los dos diales M10 (`gradedEstimatesEnabled` /
-    `gradedEstimateIngestEnabled`, ambos seed `off`); se editan en `PUT /admin/settings`, **no aquí**. Están en este
-    DTO para que el editor de M2 muestre si lo que se edita está vivo. *(`enabled` = ¿se **exhibe**? `ingestEnabled` =
-    ¿se **obtiene**? Ver §M10 para por qué son dos.)*
+  - **`enabled`** = **espejo READ-ONLY** del **dial único** M10 `gradingHookEnabled` (`grading_hook_enabled`, seed
+    `off`); se edita en `PUT /admin/settings`, **no aquí**. Está en este DTO para que el editor de M2 muestre si lo que
+    se edita está vivo. **v1.51: gobierna exhibición Y obtención** — con `enabled:false` no se publica nada **y** el
+    ingest de fase 2 no pide ni escribe nada. **`ingestEnabled` queda RETIRADO** del `GET` (ARCHITECTURE §4.38r).
   - **`grades`** = grados que la **FICHA** expone (seed `["10","9"]`, orden desc). **`highlightGrades` ⊆ `grades`** =
     grados que **el badge de rejilla/vitrina** pinta (seed `["10"]`, §O.3(2)). El **gate SIEMPRE se evalúa con PSA 9**
     aunque PSA 9 no se pinte en el badge.
@@ -6567,8 +6691,24 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     | `maxRawMultiple` | **100** | ~~50~~ | `(1, 1000]` | Cota **superior** de magnitud: se descarta si `psa10 > salePriceCents × maxRawMultiple`. Es el `maxGradedMultiple` de §O.7 / **criterio 111(c)** |
     | `minSampleCount` | **5** | ~~3~~ | `[1, 100]` | Muestra mínima del proveedor. Es el `minSalesSample` de §O.7 / **criterio 111(a)**. **Se aplica en el INGEST (escritura)**, no en lectura |
     | `sourceStat` | **`median`** | — | `median\|average\|smart` | Cuál número del proveedor **es** el precio (§4.38h.2) |
-    | `ingestMaxCardsPerRun` | **250** | — | `[1, 5000]` | Tope **duro** de cuota por corrida del ingest |
+    | `ingestMaxCardsPerRun` | **250** | — | **`[1, 1000]`** *(v1.51-a; antes `[1, 5000]`)* | Tope **duro** de cuota por corrida del ingest. ⚠️ Acota las cartas **en ALCANCE**, **no** las que el proveedor devuelve — ver la nota de coste abajo |
 
+    - **⚠️ v1.51-a — `ingestMaxCardsPerRun`: qué acota, qué NO acota, y por qué su máximo baja a 1 000.**
+      Es la clave que más se malinterpreta del DTO, y la malinterpretación cuesta dinero real:
+      - **Acota las cartas EN ALCANCE de una corrida** (las que el job mira). **NO acota lo que el proveedor
+        devuelve**: la petición del ingest de graded pide el **SET entero**, así que las cartas devueltas —y por tanto
+        el coste, **si el proveedor cobra por carta devuelta**— dependen de **cuántos SETS distintos** tocan esas
+        cartas, y eso **no es configurable por ninguna clave de este DTO**.
+      - Por eso **cualquier traducción de este número a «créditos/día» es un techo NOMINAL bajo un supuesto de
+        facturación que aún no se ha observado**. Un cliente de admin **no debe presentarlo al operador como cifra
+        firme** sin ese calificador. La medición y las precondiciones de encendido están en ARCHITECTURE §4.38(r.3.1);
+        **ningún campo, ruta ni código de error de este contrato depende de su resultado**.
+      - **Máximo `1 000` (antes `5 000`).** El máximo viejo permitía que **un solo `PUT` válido** —sin redeploy y sin
+        aprobación adicional— autorizara el equivalente a la **cuota diaria completa** del plan del proveedor. Es un
+        estrechamiento: **todo valor `≤ 1 000` ya almacenado sigue siendo válido** (el seed **250 no cambia**) y solo
+        `(1 000, 5 000]` pasa a `422`. **Un valor almacenado fuera del rango nuevo NO queda gastando: el lector lo trata
+        como config inválida y el ingest no emite ninguna petición** (fail-closed on-read, abajo). Razonamiento
+        completo: ARCHITECTURE §4.38(r.3.4).
     - **⚠️ GLOSARIO NORMATIVO de nombres (v1.50.3) — `PROJECT.md` y el contrato usan vocabularios distintos, y eso
       permitió que los VALORES divergieran en silencio.** Queda tabulado para que la equivalencia deje de ser
       folclore. **Los identificadores del contrato NO se renombran** (renombrar cuesta un breaking de admin + migrar
@@ -6599,7 +6739,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Req: `{ grades?: string[], highlightGrades?: string[], freshnessDays?: number, minUpsidePct?: number,
   gradingCostTiers?: GradingCostTierDTO[], manualFreshnessDays?: number | null, maxRawMultiple?: number,
   minSampleCount?: number, sourceStat?: "median"|"average"|"smart", ingestMaxCardsPerRun?: number }`.
-  **`enabled` y `ingestEnabled` se IGNORAN** si vienen (se editan en M10).
+  **`enabled` se IGNORA** si viene (se edita en M10). **`ingestEnabled` también se IGNORA** — clave retirada en v1.51;
+  **se tolera en silencio a propósito** (no `422`), para que un cliente de admin a medio desplegar no rompa el `PUT`.
   - **Body vacío (`{}`, o sin ninguna clave reconocida) ⇒ `422 VALIDATION_ERROR`.** El body es parcial, pero **debe
     traer al menos un campo**: un `PUT` que no toca ninguna clave es casi siempre un bug del cliente (campo mal
     nombrado, serialización rota), y responder `200` con la config sin cambios le haría creer al operador que
@@ -6615,7 +6756,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     | I5 | **último escalón abierto:** `tiers[n-1].maxValueMxnCents === null` y **ninguna otra** fila `null` | `422 GRADING_TIERS_NOT_OPEN_ENDED` |
     | I6 | `minUpsidePct` número en `[0, 1000]`; `freshnessDays` int en `[1, 365]` | `422 VALIDATION_ERROR` |
     | I7 | `grades` / `highlightGrades` ⊆ `{"10","9"}`, no vacíos, sin duplicados, y **`highlightGrades` ⊆ `grades`** | `422 VALIDATION_ERROR` |
-    | **I8** *(v1.50.2)* | `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en `[1, 5000]` | `422 VALIDATION_ERROR` |
+    | **I8** *(v1.50.2; **`ingestMaxCardsPerRun` ESTRECHADO en v1.51-a**)* | `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en **`[1, 1000]`** *(antes `[1, 5000]`)* | `422 VALIDATION_ERROR` |
     | **I8-bis** *(v1.50.3, NO es validación: es OBSERVABILIDAD)* | `manualFreshnessDays === null` **se acepta** (sigue siendo un valor legal) pero **DEBE emitir `warn`** al izarse la config: desactiva el **criterio 109** para la vía manual, y una afirmación comercial no puede dejar de caducar **en silencio**. Misma doctrina que «la vitrina no puede vaciarse en silencio» | — *(no bloquea; `warn` obligatorio)* |
     | **I9** *(v1.50.2)* | `maxRawMultiple` número **> 1** y ≤ `1000`. **El `> 1` NO es cosmético:** con `≤ 1` la cota superior chocaría con la inferior (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás — vitrina vacía permanente y sin explicación | `422 VALIDATION_ERROR` |
   - **`costMxnCents ≥ 1`, JAMÁS 0** — misma guardia L1 de dinero que ya aplica `OverrideDto` (`@Min(1)`). Un costo de
@@ -6706,7 +6847,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Res `200`:
   ```
   { data: GradedEstimateReviewItemDTO[], page, pageSize, total,
-    enabled: boolean,        // estado del dial M10 graded_estimates_enabled — ver abajo
+    enabled: boolean,        // v1.51: estado del DIAL ÚNICO M10 `gradingHookEnabled` — ver abajo
     scannedCards: number,    // tamaño del conjunto motor efectivamente evaluado
     truncated: boolean }     // true si el conjunto motor superó GRADED_REVIEW_MAX_SCAN
   ```
@@ -6779,7 +6920,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     **M-43** con `refKind`, no este endpoint; el `409` y este corolario **no cambian**.)*
   - **`404 NOT_FOUND` si no había nada que borrar** — **no** un `200` silencioso. Mismo criterio que el `PUT` con body
     vacío ⇒ `422`: responder éxito cuando no pasó nada le haría creer al operador que **limpió algo que no limpió**.
-  - **Funciona con `gradedEstimatesEnabled=off`** (mismo motivo que `/review`: hay que poder limpiar **antes** de
+  - **Funciona con `gradingHookEnabled=off`** (mismo motivo que `/review`: hay que poder limpiar **antes** de
     encender).
   - **NO** borra filas `raw` ni `sealed`, **no** despublica inventario, **no** encola `PendingPriceEntry` (la ausencia
     de estimado no es un «precio pendiente») y **no** toca `listPriceCents`.
@@ -6923,7 +7064,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   > - **Correo al vendedor (best-effort, POST-commit):** al transicionar a `rechazada` se envía correo al dueño de la
   >   solicitud (`User.email`, idioma por `User.locale` ES/EN) con: **qué carta** (nombre, set, número), **acabado**,
   >   **motivo** (`reason`) y **opciones con plazos**: devolución antes de `returnDeadlineAt` (a costo del usuario,
-  >   coordinada con soporte@tcgvaultmx.com) o abandono en `abandonDeadlineAt`. **PROHIBIDO** en el correo: CLABE (ni
+  >   coordinada con el **buzón de soporte resuelto por configuración** —`SUPPORT_EMAIL`, en cascada a
+  >   `DISPUTE_EVIDENCE_CONTACT`; p. ej. `soporte@tcghunt.mx`, §0) o abandono en `abandonDeadlineAt`. **PROHIBIDO** en el correo: CLABE (ni
   >   enmascarada), montos/estado de OTROS ítems, datos de terceros. **El fallo del envío NO revierte la decisión ni
   >   falla el request** (se loggea; sin reintento en MVP — deuda registrada). Mecanismo: `buylist` inyecta el puerto
   >   global `MAIL_PORT` con plantilla local al módulo (ARCHITECTURE §4.18; el módulo `mail` NO se toca).
@@ -7094,7 +7236,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
 - `GET /api/v1/admin/disputes` — cola `?status=&userId=&page=`
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `Dispute.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
-- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`. **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
+- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: string }` (mismo campo y misma norma que §7: **resuelto server-side desde configuración**, valor no fijado por el contrato). **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
 
 ### M9 — Reportes (`super_admin`)
@@ -7117,25 +7259,50 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   es revertir el deploy (§ARCH 4.36.9d). **Los diales de la curva (piso, bin, puntos, escalera) NO se editan por
   `PUT /admin/settings`**: viven en su endpoint dedicado `PUT /admin/pricing/curve` (como los spreads del sellado),
   porque su validación es **cruzada y atómica** (§M2).
-- **v1.50-graded-estimate — un dial nuevo:** `gradedEstimatesEnabled` (`graded_estimates_enabled`, enum `on | off`,
-  **seed `off` fail-closed**) es el **interruptor maestro del «gancho de grading»** (§O, ARCHITECTURE §4.38). Con `off`
+- ⛔ **v1.51-one-dial — LOS DOS DIALES ANTERIORES QUEDAN RETIRADOS Y NACE UNO.** Decisión del **dueño**, tomada y
+  reafirmada (ARCHITECTURE §4.38r). **Lo que rige a partir de aquí:**
+  - **`gradingHookEnabled`** (`grading_hook_enabled`, enum `on | off`, **seed `off` fail-closed**, **M-46**, DATA/seed
+    sin DDL) es **EL** interruptor del «gancho de grading». Se expone en el `GET` y se edita por este `PUT`
+    (patrón `sealedValueTrend`); validado contra el enum (`422 VALIDATION_ERROR`). **Solo el string `'on'` enciende**
+    (`true`, `'ON'`, `null` o basura ⇒ apagado).
+  - **Gobierna las DOS cosas:** la **exhibición** (`GET /catalog/cards*` no emite `gradingHighlight` ni
+    `gradedEstimates`; `?gradingHighlight=true` ⇒ `{ data: [], total: 0 }`) **y la obtención** (el ingest de fase 2 no
+    emite **ni una petición** al proveedor y **no escribe ninguna fila**).
+  - **`gradedEstimatesEnabled` y `gradedEstimateIngestEnabled` se RETIRAN** del `GET` y del `PUT`. Enviarlas ⇒
+    **`422 VALIDATION_ERROR`** (clave desconocida), igual que `stripeFeeIvaPct` desde v1.40. Las filas
+    `ConfigSetting` existentes quedan **huérfanas e inertes**; **no se borran** (precedente `rarity_map`) y **deben
+    aparecer rotuladas como RETIRADAS** en la línea de inventario de config del arranque, para que nadie lea
+    `graded_estimate_ingest_enabled = off` y concluya que el ingest está apagado **mientras gasta**.
+  - **⚠️ Encender `gradingHookEnabled` es un ACTO DE DINERO**, no un ajuste de vitrina: publica una afirmación
+    comercial **y** arranca un consumo de créditos de un proveedor de paga **y** empieza a escribir precios. **La UI de
+    M10 debe advertirlo antes de guardar** (dos textos: el de encender y el de apagar — `DESIGN_SYSTEM.md` §22). Es el
+    **criterio 110(e)** aplicado al dial que sí gasta: si la única forma de saber lo que hace es leer el código, la
+    pantalla no cumple. Precondiciones de encendido: ARCHITECTURE §4.38(r.3).
+  - **Apagarlo también congela la actualización de datos.** Para **una** cifra rara el remedio **no** es este
+    interruptor, sino el `DELETE` del estimado o la lista de revisión (§M2). Escalera completa: §4.38(r.5).
+- ~~**v1.50-graded-estimate — un dial nuevo:** `gradedEstimatesEnabled` (`graded_estimates_enabled`, enum `on | off`,
+  **seed `off` fail-closed**) es el **interruptor maestro del «gancho de grading»**~~ ⛔ **RETIRADO en v1.51; se
+  conserva el texto para que el cambio sea legible** (§O, ARCHITECTURE §4.38). Con `off`
   el backend **ni siquiera evalúa nada**: `GET /catalog/cards*` no emite `gradingHighlight` ni `gradedEstimates`, y
   `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`. Se expone en el `GET` y se edita por este `PUT` (mismo
   patrón que `sealedValueTrend`/`sealedRestockAlerts`); validado contra el enum (`422 VALIDATION_ERROR`).
   **⚠ Encenderlo en producción NO es una decisión de devops:** publica una **afirmación comercial** cuyo **disclaimer
-  (§O.5) todavía espera el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial). El seed `off` permite
+  (§O.5) todavía espera el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial). *(**Texto retirado,
+  conservado literal para que el cambio sea legible — NO describe el estado de hoy.** A 2026-08-31 el disclaimer está
+  **aprobado por el dueño** y **sin revisión legal profesional**: `PROJECT.md` decisión 59 / criterio 117. La norma
+  vigente es la entrada v1.51 de arriba.)* El seed `off` permite
   construir, testear y desplegar sin exponerla, y da a QA el on/off que exige el **criterio 108** (verificar que
   encender/apagar la feature **no cambia ningún precio de venta, valuación de portafolio, cotización de buylist ni
   P&L**). **El resto de la config del gancho —escalones de costo, `minUpsidePct`, frescura, grados— NO se edita aquí:**
   vive en los endpoints M2 dedicados `GET/PUT /admin/pricing/graded-estimates` (como los spreads del sellado).
-- **v1.50.2 — un SEGUNDO dial de M10:** `gradedEstimateIngestEnabled` (`graded_estimate_ingest_enabled`, enum
-  `on | off`, **seed `off` fail-closed**) gobierna la **fase 2** (ingest automático PPT, ARCHITECTURE §4.38h). Mismo
-  patrón y misma validación que el anterior.
-  **Son DOS diales y no uno a propósito:** `gradedEstimatesEnabled` gobierna la **exhibición** (¿el comprador ve la
-  cifra? — decisión **legal/comercial**), `gradedEstimateIngestEnabled` gobierna la **obtención** (¿gastamos créditos
-  del proveedor y escribimos filas? — decisión de **coste** y de calidad de dato). Colapsarlos obligaría a elegir entre
-  «no puedo probar el ingest sin publicar» y «no puedo publicar sin encender el gasto». Con dos, el operador puede
-  **rodar el ingest en observación con la vitrina apagada**, que es la secuencia de encendido que pide §4.38(h).
+- ⛔ ~~**v1.50.2 — un SEGUNDO dial de M10:** `gradedEstimateIngestEnabled` … **Son DOS diales y no uno a propósito** …
+  Con dos, el operador puede **rodar el ingest en observación con la vitrina apagada**.~~
+  **RETIRADO en v1.51.** Dos motivos, en este orden: **(1)** decisión del dueño; **(2)** el argumento ya estaba
+  debilitado por el propio producto — la **sonda** `POKEMONPRICETRACKER_GRADED_PROBE` hace el ingest de solo-lectura
+  **por construcción**, así que «rodar en observación» dejó de depender de tener dos diales. Y este dial **nunca se
+  dibujó en la UI**: era gobernable solo por `curl`. **Lo que sí se pierde y queda declarado:** ya no existe el estado
+  «escribir datos automáticos con la tienda callada»; su sustituto es *detectar-y-retirar* (lista de revisión + `DELETE`
+  del estimado) en vez de *retener-y-aprobar*. ARCHITECTURE §4.38(r.2)/(r.6.4).
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
@@ -7517,8 +7684,11 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
   pendientes y no tocan portafolio/buylist/P&L—, **salvo cuando existe un slab publicado de ese grado: ahí esa fila SÍ
   es dinero** (es la referencia de mercado real de esa pieza), y por eso `POST /admin/pricing/override` exige `intent`
   y devuelve **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`** (INV-D). Diales en M2 (`graded-estimates`, **12 claves**) +
-  **dos** interruptores en M10 (`gradedEstimatesEnabled` para la exhibición y `gradedEstimateIngestEnabled` para la
-  obtención, ambos **seed `off`**; el primero hasta que el humano apruebe el disclaimer §O.5).
+  **UN** interruptor en M10 (**v1.51**: `gradingHookEnabled`, seed `off`, gobierna **exhibición Y obtención** —
+  ~~`gradedEstimatesEnabled` + `gradedEstimateIngestEnabled`, dos diales~~ ⛔ retirados por decisión del dueño,
+  ARCHITECTURE §4.38r). Encenderlo es un **acto de gasto** y **no es decisión de devops**. *(Corrección de hecho
+  2026-08-31: decía «requiere el visto bueno del disclaimer §O.5»; ese visto bueno **ya existe** — **aprobado por el
+  dueño**, **sin revisión legal profesional**, `PROJECT.md` decisión 59.)*
   **v1.50.3:** tres seeds del gate de confianza corregidos para alinear con `PROJECT.md` (`manualFreshnessDays` 30,
   `minSampleCount` 5, `maxRawMultiple` 100) y **un endpoint nuevo de back-office**,
   `GET /admin/pricing/graded-estimates/review` (la **lista de revisión** del criterio 111(e)). **⚠ Para
