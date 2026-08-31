@@ -4,6 +4,104 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.18 — **El invariante «PROHIBIDO rellenar» ya tiene guardián, y el blob deja de salir verbatim** (2026-08-31, v1.51-e)
+
+> Propiedad: **backend**. Cierra los dos hallazgos que QA dejó como *condiciones* sobre `8c6f2ba`.
+> **Cero cambios de contrato** (sigue en **v1.51-c**), **cero migraciones**, **cero montos tocados**.
+> Un solo cambio de conducta, y es de **filtrado de salida**.
+
+### I2 — el invariante más peligroso de romper no tenía quien lo afirmara (SOLO TEST)
+
+**El hallazgo, en seco:** QA mutó `toHistoricItemPreviews` para que **rellenara** `name` ausente desde
+el join —justo la salida que ARCHITECTURE §5.2.9 rechaza, porque *«el caso degradado es precisamente
+donde el dato re-resuelto tiene más probabilidad de ser falso»*— y **pasó la suite entera** (los 28
+del archivo y los 2 670 del proyecto). La conducta era **correcta**; lo que faltaba era el test que la
+afirmara.
+
+El test del re-sync (IMG-4) solo cubre el caso en que el hecho **sí** está en el blob: «el acta dice lo
+de ayer, no lo de hoy». Nadie afirmaba lo simétrico —**blob SIN el hecho ⇒ respuesta SIN el hecho**—, que
+es el caso donde inventar el dato hace el daño de verdad: un registro que respalda una venta afirmando,
+con la misma tipografía que los hechos reales, algo cuyo respaldo es el catálogo de hoy.
+
+**Lo que se escribió:** bloque **`IMG-5`** en `backend/src/modules/orders/img-order-item-card.spec.ts`.
+
+- **Barrido de los OCHO hechos** (`it.each` sobre `FROZEN_CARD_FACT_KEYS`): se borra un hecho del blob y
+  se afirma que la respuesta **no trae esa clave** — ni presente-con-`undefined`, ni con otro valor.
+- **El montaje es el punto:** la fila `Card` de la BD trae la identidad **COMPLETA** (`name`, `number`,
+  `productType`, `setName`) y el blob no. *La carta existe, tiene nombre, y aun así el pedido histórico
+  no lo muestra.* Hay un test extra que verifica que el fixture de `Card` de verdad lo trae, para que los
+  ocho casos no puedan pasar «por no haber de dónde rellenar».
+- **Variantes pedidas:** `{}` solo ⇒ `card` es **exactamente** `{ imageSmallUrl: null }`; `{cardId}` solo
+  ⇒ imagen **sí** (clase P), los otros siete **no** (clase F); blob nulo / no-objeto / array / número.
+- **La asimetría de §5.2.9 en una sola respuesta:** (P) degrada a `null` **con la clave presente**; (F)
+  degrada a **clave omitida**. Ninguna degrada a *otro valor*.
+- **Money-safe:** con blob vacío, `unitPriceCents` y el `breakdown` salen intactos (el dinero no vive en
+  el blob — columnas propias, §5.1).
+
+Las aserciones son sobre **lo que sale por el cable** (`Object.keys` del `card` servido), **no** sobre el
+cuerpo de una función: así el guardián caza el relleno **venga por donde venga** —ensanchando
+`CARD_IMAGE_SELECT`, tocando `loadCardsForSnapshots`, o en el `map` de la proyección—.
+
+**Verificado rompiéndolo, no asumido.** Se reprodujo la mutación de QA en su forma completa (widen de
+`CARD_IMAGE_SELECT` a `name` + `if (card.name == null && row?.name != null) card.name = row.name` en
+`toHistoricItemPreviews`) y el archivo pasó de **50/50 verde** a **4 rojos**, encabezados por
+**★ blob SIN `name` ⇒ la respuesta NO trae ese hecho…**. La mutación quedó revertida; el árbol está limpio.
+
+### I1 — el blob de la columna `Json` ya no sale al cable verbatim (ÚNICO cambio de conducta)
+
+`readFrozenCardFacts` hacía `return value as PersistedCardFacts`: **lo que hubiera en la columna se
+servía tal cual**. QA lo probó sirviendo un `card` con `internalCostCents`, `__note` y una
+`imageSmallUrl` podrida. Hoy no fugaba nada —el write path escribe exactamente ocho claves—, pero era un
+**passthrough sin allowlist desde un registro dinero-adyacente hacia una respuesta HTTP** cuya forma fija
+el contrato §4.
+
+**Ahora proyecta por allowlist explícita** (`FROZEN_CARD_FACT_KEYS`, exportada), con un **cerrojo de
+compilación** (`ALLOWLIST_IS_FROZEN_FACT_KEYS`) que ata la lista a `FrozenCardFacts`: añadir un noveno
+hecho al tipo y olvidar la lista **no compila**.
+
+Tres precisiones que importan:
+
+1. **Un `pick` NO es «rellenar».** §5.2.2 prohíbe **completar lo ausente**; no prohíbe **proyectar lo
+   presente**. Filtrar es compatible con la doctrina y de hecho la refuerza — es el complemento de IMG-5.
+2. **Allowlist, jamás un `omit` de lo conocido.** Un `omit` falla **abierto** ante una clave nueva e
+   imprevista; la allowlist falla **cerrada**. Hay test que fija justo esa diferencia.
+3. **`null` ≠ ausente se conserva intacto.** Se copia la clave **si existe en el blob**, con su valor tal
+   cual: `rawCondition: null` sigue viajando como `null` con la clave presente, y un `setName` que el blob
+   no trae sigue **omitido**. La proyección **no crea claves**.
+
+**Alcance del cambio:** `readFrozenCardFacts` tiene dos lectores — `getOrder` (esta superficie) y
+`payments.service.ts` (el correo de confirmación de invitado, que solo lee `name`/`setName`/`number`).
+Ninguno pierde nada: los ocho hechos pasan intactos, solo se cae el ruido.
+
+### M-2 — divergencia nominal, alineada
+
+El alias interno se llamaba `HistoricOrderItemCardDTO`; el contrato **v1.51-c** lo nombra
+**`HistoricalOrderItemCardDTO`**. §5.2.9 lo marca opcional/sin puerta, así que era cosmético — pero un
+nombre que no existe en el contrato hace que quien lo busque no lo encuentre. Renombrados el alias y su
+cerrojo (`HISTORICAL_IS_RESOLVED_SHAPE`). **Sin cambio de conducta ni de forma.**
+
+### Nit de operador (fuera de orders, una sola cadena de texto)
+
+`src/modules/pricing/graded-phase2-verdict.ts:584`, caso `VIABLE`: la frase que **lee el operador** estaba
+rota —*«apagar el dial por una fila para además la actualización de todas las demás»*, sin verbo—. Ahora
+dice *«apagar el dial por una fila **DETENDRÍA** además la actualización de todas las demás»*. **Solo
+texto: ni una línea de lógica.**
+
+### Lo que otros roles necesitan saber
+- **frontend: nada cambia.** La forma servida es la misma que QA verificó contra el contrato v1.51-c. La
+  tolerancia del histórico (`HistoricalOrderItemCardDTO`, todo hecho opcional) sigue igual, y el render
+  degradado por campo del contrato §4 punto 4 sigue siendo el deber del cliente.
+- **QA:** el archivo pasó de **28 a 50 tests**. Los bloques nuevos son **IMG-5** (no rellenar) e **IMG-6**
+  (allowlist). Los dos se verificaron **en rojo** con su regresión correspondiente.
+- **devops:** sin migración, sin env, sin paso de despliegue.
+
+### Validación
+- `npm run typecheck`: **limpio**. · `npm run lint`: **0 errores** (los 2 warnings preexistentes y ajenos:
+  `inventory.service.ts`, `sealed-product.service.ts`).
+- `npm test`: **2 692/2 692 en 207 suites** (baseline **2 670**, +22 tests nuevos, **0 regresiones**).
+
+---
+
 ## 0.17 — **La miniatura del carrito: resuelta EN LECTURA, no persistida** (2026-08-31, v1.51-b)
 
 > Propiedad: **backend**. Implementa ARCHITECTURE **§5.2** (doctrina del snapshot congelado) y

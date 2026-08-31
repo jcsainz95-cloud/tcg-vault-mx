@@ -581,7 +581,7 @@ export function gradedPhase2Verdict(i: GradedPhase2VerdictInput): GradedPhase2Ve
       `LA FASE 2 FUNCIONA: ${o.shapeCounts.s1} de ${observed} carta(s) con bloque PSA llegaron en S1 (\`ebay.salesByGrade.psaN\`, objeto con count + fecha de última venta), que es el shape PERSISTIBLE.`,
       i.probe
         ? 'Quita POKEMONPRICETRACKER_GRADED_PROBE y vuelve a disparar el job: la misma corrida ya escribirá los estimados.'
-        : `Ya se escribieron ${i.written} referencia(s) — y con el dial ÚNICO (v1.51) YA ESTÁN PUBLICADAS: no queda ningún interruptor por encender. Revísalas en GET /admin/pricing/graded-estimates/review y, si alguna cifra está mal, BÓRRALA (DELETE del estimado); apagar el dial por una fila para además la actualización de todas las demás.`,
+        : `Ya se escribieron ${i.written} referencia(s) — y con el dial ÚNICO (v1.51) YA ESTÁN PUBLICADAS: no queda ningún interruptor por encender. Revísalas en GET /admin/pricing/graded-estimates/review y, si alguna cifra está mal, BÓRRALA (DELETE del estimado); apagar el dial por una fila DETENDRÍA además la actualización de todas las demás.`,
     );
   } else if (o.shapeCounts.s1 > 0) {
     out = r(

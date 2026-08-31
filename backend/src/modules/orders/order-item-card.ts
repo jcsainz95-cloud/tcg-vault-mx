@@ -65,13 +65,17 @@ export type OrderItemCardDTO = FrozenCardFacts & { imageSmallUrl: string | null 
  * blob histórico puede no traer las ocho claves) **+ `imageSmallUrl` siempre presente**, que es lo único
  * que la lectura sí puede garantizar porque lo resuelve ella misma.
  *
+ * **M-2 (QA, v1.51-e):** el alias se llamaba `HistoricOrderItemCardDTO` y el contrato v1.51-c lo nombra
+ * `HistoricalOrderItemCardDTO`. Divergencia puramente nominal (§5.2.9 lo marca opcional/sin puerta), pero
+ * un nombre que no existe en el contrato hace que quien lo busque no lo encuentre. Alineado.
+ *
  * ⚠️ **No es `OrderItemCardDTO`, y esa diferencia es DELIBERADA, no un descuido**: el contrato describe
  * las ocho claves como presentes, y para el histórico incompleto eso solo se puede prometer con una
  * tolerancia que **norma el arquitecto** (T-3, ya enrutado — regla 9). Aquí se declara lo que el código
  * de verdad produce; no se ensancha el contrato por cuenta propia ni se finge una garantía que la
  * columna no da.
  */
-export type HistoricOrderItemCardDTO = PersistedCardFacts & { imageSmallUrl: string | null };
+export type HistoricalOrderItemCardDTO = PersistedCardFacts & { imageSmallUrl: string | null };
 
 /** Lo MÍNIMO que hace falta de la fila `Card` para resolver la clase (P). Nada más se consulta. */
 export type CardImageSource = { imageSmallUrl: string | null };
@@ -133,23 +137,74 @@ export type ResolvedIsContractShape = Equals<
 export const RESOLVED_IS_CONTRACT_SHAPE: ResolvedIsContractShape = true;
 
 /**
- * T-2 — el MISMO cerrojo para la superficie del histórico: `HistoricOrderItemCardDTO` tiene que ser
+ * T-2 — el MISMO cerrojo para la superficie del histórico: `HistoricalOrderItemCardDTO` tiene que ser
  * EXACTAMENTE lo que `resolveOrderItemCard` produce leyendo un blob `Partial`. Con esto las **tres**
  * superficies de líneas de compra cruzan una frontera declarada y verificada por el compilador.
  */
-export type HistoricIsResolvedShape = Equals<
-  HistoricOrderItemCardDTO,
+export type HistoricalIsResolvedShape = Equals<
+  HistoricalOrderItemCardDTO,
   ReturnType<typeof resolveOrderItemCard<PersistedCardFacts>>
 >;
-export const HISTORIC_IS_RESOLVED_SHAPE: HistoricIsResolvedShape = true;
+export const HISTORICAL_IS_RESOLVED_SHAPE: HistoricalIsResolvedShape = true;
+
+/**
+ * ⛑️ **I1 — LA ALLOWLIST de los OCHO hechos, en un solo lugar.**
+ *
+ * Es la lista de claves que `readFrozenCardFacts` deja pasar de la columna `Json` hacia la respuesta.
+ * `as const` + el cerrojo de abajo la atan a `FrozenCardFacts`: si alguien añade un noveno hecho al
+ * tipo y olvida esta lista (o al revés), **no compila**.
+ */
+export const FROZEN_CARD_FACT_KEYS = [
+  'cardId',
+  'name',
+  'setName',
+  'number',
+  'productType',
+  'rawCondition',
+  'gradingCompany',
+  'gradeValue',
+] as const;
+
+/**
+ * Cerrojo de compilación de la allowlist: las claves listadas son **exactamente** las de
+ * `FrozenCardFacts`, ni una de menos (se dejaría de servir un hecho real) ni una de más.
+ */
+export type AllowlistIsFrozenFactKeys = Equals<
+  (typeof FROZEN_CARD_FACT_KEYS)[number],
+  keyof FrozenCardFacts
+>;
+export const ALLOWLIST_IS_FROZEN_FACT_KEYS: AllowlistIsFrozenFactKeys = true;
 
 /**
  * Lee los hechos congelados de la columna `Json` sin re-derivar nada. Un blob ausente o con forma
  * inesperada (no-objeto) rinde `{}`: se sirve lo que haya, jamás un hecho inventado.
+ *
+ * ⛑️ **I1 (QA) — PROYECCIÓN por allowlist, no `passthrough`.** Antes esto era
+ * `return value as PersistedCardFacts`: **lo que hubiera en la columna `Json` salía verbatim por el
+ * cable**. Hoy el write path escribe exactamente ocho claves, así que no había fuga observable — pero
+ * era un passthrough sin filtro desde un registro **dinero-adyacente** hacia una respuesta HTTP cuya
+ * forma fija el contrato (§4). Un blob con `internalCostCents` o `__note` (escrito por un script, una
+ * migración o una versión futura) se habría servido tal cual.
+ *
+ * **Por qué esto NO es «rellenar» (§5.2.2 / §5.2.9):** la doctrina prohíbe **completar lo ausente** —
+ * inventar un hecho que el acta no registró. Aquí no se añade nada: se **proyecta** lo presente sobre
+ * la forma declarada. Filtrar refuerza la doctrina, no la contradice.
+ *
+ * **Allowlist explícita, jamás un `omit` de lo conocido:** un `omit` falla **abierto** (una clave nueva
+ * e imprevista pasaría); una allowlist falla **cerrada**.
+ *
+ * ⚠️ **`null` ≠ ausente se conserva intacto** (§5.2.9 / contrato §4): se copia la clave **si existe en
+ * el blob**, con su valor tal cual — `rawCondition: null` sigue viajando como `null` con la clave
+ * presente, y un `setName` que el blob no trae sigue **omitido**. La proyección no crea claves.
  */
 export function readFrozenCardFacts(value: Prisma.JsonValue | null | undefined): PersistedCardFacts {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) return {};
-  return value as PersistedCardFacts;
+  const blob = value as Record<string, unknown>;
+  const facts: Record<string, unknown> = {};
+  for (const key of FROZEN_CARD_FACT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(blob, key)) facts[key] = blob[key];
+  }
+  return facts as PersistedCardFacts;
 }
 
 /**

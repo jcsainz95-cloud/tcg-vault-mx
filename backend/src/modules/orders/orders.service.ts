@@ -13,7 +13,7 @@ import {
   CARD_IMAGE_SELECT,
   CardImageSource,
   FrozenCardFacts,
-  HistoricOrderItemCardDTO,
+  HistoricalOrderItemCardDTO,
   OrderItemCardDTO,
   PersistedCardFacts,
   distinctCardIds,
@@ -841,7 +841,7 @@ export class OrdersService {
     items: { inventoryItemId: string; unitPriceCents: number }[],
     facts: PersistedCardFacts[],
     cardsById: Map<string, CardImageSource>,
-  ): { inventoryItemId: string; card: HistoricOrderItemCardDTO; unitPriceCents: number }[] {
+  ): { inventoryItemId: string; card: HistoricalOrderItemCardDTO; unitPriceCents: number }[] {
     return items.map((i, idx) => ({
       inventoryItemId: i.inventoryItemId,
       card: resolveOrderItemCard(facts[idx], cardsById.get(facts[idx].cardId ?? '')),

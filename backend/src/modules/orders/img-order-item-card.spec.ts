@@ -3,6 +3,7 @@ import { GuestCheckoutService } from './guest-checkout.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
+  FROZEN_CARD_FACT_KEYS,
   FrozenCardFacts,
   distinctCardIds,
   readFrozenCardFacts,
@@ -309,20 +310,25 @@ describe('IMG-3 — POST /checkout/guest/quote (mismo hueco gris, misma causa)',
   });
 });
 
-describe('IMG-4 — GET /orders/:orderId — PEDIDO HISTÓRICO (la prueba decisiva de QA)', () => {
-  function buildForOrder(items: unknown[], cards: unknown[] = [{ id: 'card-1', imageSmallUrl: IMG }]) {
-    const cardFindMany = jest.fn(async (_args: unknown) => cards);
-    const inventoryFindMany = jest.fn(async () => {
-      throw new Error('PROHIBIDO (§5.2.5): el histórico resolvió la imagen vía InventoryItem');
-    });
-    const { svc, prisma } = buildOrders({
-      order: { findUnique: jest.fn(async () => orderRow(items)) },
-      card: { findMany: cardFindMany },
-      inventoryItem: { findMany: inventoryFindMany, findUnique: inventoryFindMany },
-    });
-    return { svc, prisma, cardFindMany };
-  }
+/**
+ * `getOrder` con la BD de mentira. `cards` es lo que la tabla `Card` contiene HOY: los tests de IMG-5
+ * la llenan a propósito con la identidad completa, porque el punto es que ese dato **existe y aun así
+ * no se sirve**.
+ */
+function buildForOrder(items: unknown[], cards: unknown[] = [{ id: 'card-1', imageSmallUrl: IMG }]) {
+  const cardFindMany = jest.fn(async (_args: unknown) => cards);
+  const inventoryFindMany = jest.fn(async () => {
+    throw new Error('PROHIBIDO (§5.2.5): el histórico resolvió la imagen vía InventoryItem');
+  });
+  const { svc, prisma } = buildOrders({
+    order: { findUnique: jest.fn(async () => orderRow(items)) },
+    card: { findMany: cardFindMany },
+    inventoryItem: { findMany: inventoryFindMany, findUnique: inventoryFindMany },
+  });
+  return { svc, prisma, cardFindMany };
+}
 
+describe('IMG-4 — GET /orders/:orderId — PEDIDO HISTÓRICO (la prueba decisiva de QA)', () => {
   it('★ un pedido creado ANTES del arreglo (JSON sin imagen) DEVUELVE miniatura — sin migración ni backfill', async () => {
     const historico = historicOrderItem();
     expect(historico.cardSnapshot).not.toHaveProperty('imageSmallUrl');
@@ -430,5 +436,244 @@ describe('IMG-4 — GET /orders/:orderId — PEDIDO HISTÓRICO (la prueba decisi
   it('la guardia de propiedad sigue viva: otro usuario ⇒ FORBIDDEN (no se filtra ni la imagen)', async () => {
     const { svc } = buildForOrder([historicOrderItem()]);
     await expect(svc.getOrder('otro-user', 'order-1')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * ⛑️ **IMG-5 (I2) — EL GUARDIÁN DEL INVARIANTE «⛔ PROHIBIDO RELLENAR».**
+ *
+ * ### Por qué existe este bloque
+ * QA mutó `toHistoricItemPreviews` para que **rellenara** `name` ausente desde el join —exactamente la
+ * salida que ARCHITECTURE §5.2.9 **rechaza**, con el argumento de que «el caso degradado es precisamente
+ * donde el dato re-resuelto tiene más probabilidad de ser falso»— y **pasó la suite entera**. La conducta
+ * era correcta; lo que faltaba era **alguien que la afirmara**.
+ *
+ * IMG-4 solo cubre el caso en que el hecho **sí** está en el blob (el test del re-sync: «el acta dice lo
+ * de ayer, no lo de hoy»). Nadie afirmaba lo simétrico: que un blob **sin** el hecho produzca una
+ * respuesta **sin** el hecho.
+ *
+ * ### El montaje, y por qué es el montaje correcto
+ * La fila `Card` de la BD trae la identidad **COMPLETA** (`name`, `number`, `productType`, `setName`) y el
+ * blob NO. Ése es el punto exacto: **la carta existe, tiene nombre, y aun así el pedido histórico no debe
+ * mostrarlo**. Si algún día el hecho ausente aparece en la respuesta, solo pudo salir del catálogo de hoy
+ * — que es un dato **inventado presentado como probatorio** dentro de un registro dinero-adyacente
+ * (contrato §4 «Tolerancia del histórico», punto 2; §5.2.9 motivo 2).
+ *
+ * Las aserciones son sobre **lo que sale por el cable** (`Object.keys` del `card` servido), no sobre el
+ * cuerpo de una función: así el guardián caza el relleno **venga por donde venga** —ensanchando
+ * `CARD_IMAGE_SELECT`, tocando `loadCardsForSnapshots`, o en el `map` de la proyección—.
+ */
+describe('IMG-5 — ⛔ el histórico NO RELLENA un hecho ausente (§5.2.9 / contrato §4, punto 2)', () => {
+  /** La tabla `Card` de HOY, con la identidad entera: todo lo que un relleno tendría a mano. */
+  const CARD_ROW_COMPLETA = {
+    id: 'card-1',
+    imageSmallUrl: IMG,
+    name: 'Charizard',
+    number: '4',
+    productType: 'raw',
+    setName: 'Base Set',
+    set: { name: 'Base Set' },
+  };
+
+  /** Un `OrderItem` histórico al que le FALTA un hecho, con la fila `Card` completa detrás. */
+  function sinHecho(...claves: string[]) {
+    const item = historicOrderItem();
+    for (const k of claves) delete (item.cardSnapshot as Record<string, unknown>)[k];
+    return item;
+  }
+
+  async function cardServido(item: unknown, cards: unknown[] = [CARD_ROW_COMPLETA]) {
+    const { svc } = buildForOrder([item], cards);
+    const res = await svc.getOrder('user-1', 'order-1');
+    return res.items[0].card as Record<string, unknown>;
+  }
+
+  it.each([...FROZEN_CARD_FACT_KEYS])(
+    '★ blob SIN `%s` ⇒ la respuesta NO trae ese hecho, aunque la fila `Card` exista en la BD con él',
+    async (clave: string) => {
+      const item = sinHecho(clave);
+      expect(item.cardSnapshot).not.toHaveProperty(clave);
+
+      const card = await cardServido(item);
+
+      expect(Object.prototype.hasOwnProperty.call(card, clave)).toBe(false);
+      expect(card).not.toHaveProperty(clave);
+      // Y la ausencia NO se disfraza de otro valor (§5.2.9: «ninguna degrada jamás a *otro valor*»).
+      expect(card[clave]).toBeUndefined();
+    },
+  );
+
+  it('el montaje es honesto: la fila `Card` de la BD SÍ trae la identidad que el blob perdió', () => {
+    // Sin esto, los ocho casos de arriba podrían pasar por no haber de dónde rellenar.
+    for (const clave of ['name', 'number', 'productType', 'setName']) {
+      expect(CARD_ROW_COMPLETA).toHaveProperty(clave);
+    }
+  });
+
+  it('★ el hecho ausente NO reaparece ni siquiera cuando el join SÍ resuelve la imagen', async () => {
+    const card = await cardServido(sinHecho('name', 'number', 'productType', 'setName'));
+    // La clase (P) resolvió (hay miniatura) y la clase (F) siguió ausente: son caminos distintos.
+    expect(card.imageSmallUrl).toBe(IMG);
+    expect(Object.keys(card).sort()).toEqual([
+      'cardId',
+      'gradeValue',
+      'gradingCompany',
+      'imageSmallUrl',
+      'rawCondition',
+    ]);
+  });
+
+  it('★ blob `{}` ⇒ `card` es EXACTAMENTE `{ imageSmallUrl: null }`, y responde 200 (contrato §4, punto 1)', async () => {
+    const card = await cardServido(historicOrderItem({ cardSnapshot: {} }));
+    expect(card).toEqual({ imageSmallUrl: null });
+    expect(Object.keys(card)).toEqual(['imageSmallUrl']);
+  });
+
+  it('★ blob `{ cardId }` solo ⇒ imagen SÍ (clase P), los otros siete hechos NO (clase F)', async () => {
+    const card = await cardServido(historicOrderItem({ cardSnapshot: { cardId: 'card-1' } }));
+    // El join encontró la carta —con nombre, número y set— y aun así el acta sigue sin decirlos.
+    expect(card).toEqual({ cardId: 'card-1', imageSmallUrl: IMG });
+    expect(Object.keys(card).sort()).toEqual(['cardId', 'imageSmallUrl']);
+  });
+
+  it('blob nulo o no-objeto ⇒ `card` solo con `imageSmallUrl: null`, nunca hechos inventados', async () => {
+    for (const blob of [null, undefined, 'no soy un objeto', 42, [1, 2]]) {
+      const card = await cardServido(historicOrderItem({ cardSnapshot: blob }));
+      expect(card).toEqual({ imageSmallUrl: null });
+    }
+  });
+
+  it('la ASIMETRÍA de §5.2.9, en una sola respuesta: (P) degrada a `null`; (F) degrada a AUSENTE', async () => {
+    // Sin `name` en el blob y sin fila `Card` en la BD.
+    const card = await cardServido(sinHecho('name'), []);
+    expect(card).toHaveProperty('imageSmallUrl', null); // (P): clave PRESENTE con valor `null`
+    expect(card).not.toHaveProperty('name'); // (F): clave OMITIDA
+  });
+
+  it('MONEY-SAFE: un blob vacío no mueve ni un centavo (el dinero no vive en el JSON, §4 punto 5)', async () => {
+    const { svc } = buildForOrder([historicOrderItem({ cardSnapshot: {} })], [CARD_ROW_COMPLETA]);
+    const res = await svc.getOrder('user-1', 'order-1');
+    expect(res.items[0].unitPriceCents).toBe(25000);
+    expect(res.breakdown).toEqual({
+      subtotalCents: 25000,
+      ivaCents: 4000,
+      ivaRatePct: IVA,
+      processingFeeCents: 1400,
+      totalCents: 30400,
+      currency: 'MXN',
+    });
+  });
+
+  it('a nivel de LECTOR: `readFrozenCardFacts` no crea claves que el blob no traía', () => {
+    expect(readFrozenCardFacts({ cardId: 'card-1' })).toEqual({ cardId: 'card-1' });
+    expect(Object.keys(readFrozenCardFacts({}))).toEqual([]);
+    // `null` explícito se CONSERVA (≠ ausente, §5.2.9 / T-4): no se poda ni se convierte en omisión.
+    expect(readFrozenCardFacts({ rawCondition: null })).toEqual({ rawCondition: null });
+    expect(
+      Object.prototype.hasOwnProperty.call(readFrozenCardFacts({ rawCondition: null }), 'rawCondition'),
+    ).toBe(true);
+  });
+});
+
+/**
+ * ⛑️ **IMG-6 (I1) — el blob de la BD NO sale al cable VERBATIM: allowlist de los OCHO hechos.**
+ *
+ * `readFrozenCardFacts` hacía `return value as PersistedCardFacts`: **lo que hubiera en la columna `Json`
+ * se servía tal cual**. Hoy no fugaba nada porque el write path escribe exactamente ocho claves — pero era
+ * un passthrough sin filtro desde un registro **dinero-adyacente** hacia una respuesta HTTP cuya forma
+ * fija el contrato §4.
+ *
+ * **Un `pick` NO es «rellenar»** (nota doctrinal de QA, y §5.2.2 la respalda): la doctrina prohíbe
+ * **completar lo ausente**, no **proyectar lo presente**. Filtrar refuerza el invariante de IMG-5.
+ *
+ * **Allowlist, jamás `omit`:** un `omit` de lo conocido falla **abierto** ante una clave nueva; la
+ * allowlist falla **cerrada**. El último test de este bloque es justo esa diferencia.
+ */
+describe('IMG-6 — la columna `Json` se PROYECTA por allowlist, no se sirve verbatim', () => {
+  const BLOB_SUCIO = {
+    cardId: 'card-1',
+    name: 'Charizard',
+    setName: 'Base Set',
+    number: '4',
+    productType: 'raw',
+    rawCondition: 'NM',
+    gradingCompany: null,
+    gradeValue: null,
+    // Ruido que el contrato §4 NO declara y que jamás debe cruzar la frontera HTTP:
+    internalCostCents: 999,
+    __note: 'nota interna',
+    imageSmallUrl: 'https://cdn.muerto/404.png',
+    supplierId: 'prov-7',
+  };
+
+  it('la allowlist son EXACTAMENTE los ocho hechos congelados, sin claves de más ni de menos', () => {
+    expect([...FROZEN_CARD_FACT_KEYS].sort()).toEqual([
+      'cardId',
+      'gradeValue',
+      'gradingCompany',
+      'name',
+      'number',
+      'productType',
+      'rawCondition',
+      'setName',
+    ]);
+  });
+
+  it('★ el lector descarta lo que no está en la allowlist (costo interno, notas, proveedor…)', () => {
+    const facts = readFrozenCardFacts(BLOB_SUCIO) as Record<string, unknown>;
+    expect(Object.keys(facts).sort()).toEqual([...FROZEN_CARD_FACT_KEYS].sort());
+    expect(facts).not.toHaveProperty('internalCostCents');
+    expect(facts).not.toHaveProperty('__note');
+    expect(facts).not.toHaveProperty('supplierId');
+  });
+
+  it('★ el `card` SERVIDO por GET /orders/:orderId no filtra el ruido de la columna', async () => {
+    const { svc } = buildForOrder([historicOrderItem({ cardSnapshot: BLOB_SUCIO })]);
+    const { card } = (await svc.getOrder('user-1', 'order-1')).items[0];
+    expect(Object.keys(card).sort()).toEqual([
+      'cardId',
+      'gradeValue',
+      'gradingCompany',
+      'imageSmallUrl',
+      'name',
+      'number',
+      'productType',
+      'rawCondition',
+      'setName',
+    ]);
+    const serializado = JSON.stringify(card);
+    expect(serializado).not.toContain('internalCostCents');
+    expect(serializado).not.toContain('nota interna');
+    expect(serializado).not.toContain('prov-7');
+    // Y la `imageSmallUrl` podrida del blob no gana: la clase (P) siempre sale del join (§5.2.5).
+    expect(card.imageSmallUrl).toBe(IMG);
+  });
+
+  it('la proyección NO altera los valores de los hechos que sí pasan (proyectar ≠ transformar)', () => {
+    const facts = readFrozenCardFacts(BLOB_SUCIO);
+    expect(facts).toEqual({
+      cardId: 'card-1',
+      name: 'Charizard',
+      setName: 'Base Set',
+      number: '4',
+      productType: 'raw',
+      rawCondition: 'NM',
+      gradingCompany: null,
+      gradeValue: null,
+    });
+  });
+
+  it('★ falla CERRADA: una clave NUEVA e imprevista tampoco pasa (lo que un `omit` no daría)', () => {
+    const futuro = { cardId: 'card-1', campoQueNadieHaInventadoAun: 'secreto', pii_email: 'a@b.c' };
+    expect(readFrozenCardFacts(futuro)).toEqual({ cardId: 'card-1' });
+  });
+
+  it('MONEY-SAFE: el filtro no toca importes — no hay importes en el blob, y sigue sin haberlos', async () => {
+    const { svc } = buildForOrder([historicOrderItem({ cardSnapshot: BLOB_SUCIO })]);
+    const res = await svc.getOrder('user-1', 'order-1');
+    expect(res.items[0].unitPriceCents).toBe(25000);
+    expect(res.breakdown.totalCents).toBe(30400);
   });
 });
