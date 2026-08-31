@@ -34,11 +34,11 @@ estaba correcto desde el rebrand P-21: `BRAND = 'TCG HUNT'` en `mail.templates.t
 El `workbook.creator` era **el único** outlier. Deliberadamente **no** se tocaron:
 - `tcgcsv-http.client.ts:43` `User-Agent: 'tcg-vault-mx/1.0 (+https://tcghunt.mx)'` — identificador
   técnico del cliente (nombre interno, permitido por §17.4) y ya apunta al dominio correcto.
-- Defaults de buzón `*@tcgvaultmx.com` (`mail.module.ts`, `disputes.constants.ts`,
-  `guest-checkout.constants.ts`, `buylist-mail.templates.ts`) — son **datos de infra overridables por
-  env** (`MAIL_FROM`, `DISPUTE_EVIDENCE_CONTACT`), propiedad de **devops**, que los fijará a
-  `@tcghunt.mx` cuando exista el buzón/dominio (P-21). No son cadenas de marca y cambiarlos desde
-  backend rompería correo hoy.
+- ~~Defaults de buzón `*@tcgvaultmx.com` (`mail.module.ts`, `disputes.constants.ts`,
+  `guest-checkout.constants.ts`, `buylist-mail.templates.ts`)~~ — **YA NO APLICA (2026-08-31).** Se
+  dejaron entonces porque el buzón `@tcghunt.mx` aún no recibía correo y moverlos habría roto los
+  envíos. El humano confirmó que los buzones ya funcionan y los cuatro defaults **están migrados**
+  al dominio vivo. Ver «P-21 · Cierre de la migración de dominio» al final de este documento.
 
 ### Validación
 - `npx tsc --noEmit`: limpio.
@@ -10692,3 +10692,118 @@ escribir-luego-leer dentro del camino primario:
 Ninguna. La curva NO asumió un shape de entrada que la referencia P-47 no provea: recibe `marketMxnCents`
 escalar y lo lee per-acabado, exactamente lo que `ingestSinglesForSet` produce (§4.36a/c). No hubo
 incompatibilidad que requiriera regla 9.
+
+---
+
+## P-21 · Cierre de la migración de dominio en los defaults de código (rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-31)
+
+> **Disparador:** el humano confirmó (2026-08-31) que los buzones `@tcghunt.mx` **ya reciben correo**.
+> Esa era exactamente la condición que `.env.example` (devops) exigía para mover estos defaults:
+> *«se cambia SOLO cuando el buzón nuevo ya reciba correo»*. Hasta hoy los defaults conservaban el
+> dominio histórico a propósito, para no romper envíos contra un buzón inexistente.
+>
+> Alineado con `API_CONTRACT.md` rev **v1.50.4-brand-domain**, que ya norma estos valores como
+> *«dato de configuración resuelto server-side, con default en código»* y marca los correos del
+> cuerpo del documento como **ilustrativos, no normativos**. No hubo cambio de contrato.
+
+### Los tres dominios del proyecto
+| Dominio | Estado | Uso |
+|---|---|---|
+| `tcgvaultmx.com` | **MUERTO** | nombre viejo; ya no es del negocio |
+| `tcgvault.mx` | **MUERTO** | tercer dominio residual del nombre viejo |
+| `tcghunt.mx` | **VIVO** | dominio canónico de la marca «TCG HUNT» |
+
+### Defaults migrados (4)
+| Archivo | Constante | Antes | Ahora |
+|---|---|---|---|
+| `backend/src/modules/mail/mail.module.ts` | `DEFAULT_MAIL_FROM` | `no-reply@tcgvaultmx.com` | `no-reply@tcghunt.mx` |
+| `backend/src/modules/disputes/disputes.constants.ts` | `DISPUTE_EVIDENCE_CONTACT` | `soporte@tcgvaultmx.com` | `soporte@tcghunt.mx` |
+| `backend/src/modules/orders/guest-checkout.constants.ts` | `SUPPORT_EVIDENCE_CONTACT` | `soporte@tcgvaultmx.com` | `soporte@tcghunt.mx` |
+| `backend/src/modules/buylist/buylist-mail.templates.ts` | `SUPPORT_EMAIL` (final de la cascada) | `soporte@tcgvaultmx.com` | `soporte@tcghunt.mx` |
+
+**El mecanismo NO cambia:** siguen siendo defaults, siguen leyéndose con `envOr` (env definida pero
+vacía/blanca cae al default) y siguen siendo overridables por `MAIL_FROM`, `DISPUTE_EVIDENCE_CONTACT`
+y `SUPPORT_EMAIL` sin redeploy. Lo único que cambia es **a qué dominio cae** cuando la env falta.
+
+**Comentarios actualizados:** los que decían «tras el rebrand devops fijará…» / «hasta que devops cree
+el buzón» ya mentían y se reescribieron a «migración cerrada», con la razón de *por qué no revertir*
+(`mail.module.ts`, `resend-mail.adapter.ts`, `disputes.constants.ts`, `guest-checkout.constants.ts`,
+`buylist-mail.templates.ts`).
+
+### Por qué `mail.module.ts` era el grave
+`DEFAULT_MAIL_FROM` gobierna el remitente de **todos** los correos transaccionales cuando `MAIL_FROM`
+no está fijada: verificación de email (que **gatea dinero** — comprar/vender/retirar), reset de
+contraseña, confirmación de pedido de invitado, rechazo de buylist, avisos de restock. Resend rechaza
+un remitente de **dominio no verificado**, así que un default apuntando al dominio muerto significa
+*ningún correo sale* — con el agravante de que el síntoma llega tarde y desde fuera (un usuario que
+nunca pudo verificar su cuenta), no desde un error de arranque.
+
+**Mitigación añadida (dentro de `mail/`, sin cambiar arranque ni contrato):** cuando se selecciona el
+`ResendMailAdapter` (envío real) **sin** `MAIL_FROM`, el arranque emite un `logger.warn` diciendo que
+el remitente sale del default de código y que ese dominio debe estar verificado en Resend. Antes solo
+se logueaba `from=…` en nivel `log`, indistinguible de una config correcta.
+
+### Escalada al arquitecto (regla 9) — fail-closed del remitente: NO lo implementé
+Se evaluó hacer `MAIL_FROM` **requerida en no-local** (`src/config/env.validation.ts`), como
+`APP_BASE_URL` y `RESEND_API_KEY`. **No se hizo**, y la decisión se escala en vez de tomarla:
+
+- Cambia el **contrato de arranque**: un staging/prod ya desplegado sin `MAIL_FROM` dejaría de
+  bootear en el siguiente deploy. Eso es cambio de arranque + zona compartida (`src/config/`) +
+  impacto en `.env.example` y `docker-compose*` (devops). No es decisión de backend en solitario.
+- `env.validation.ts:31` documenta hoy, explícitamente, que *«`MAIL_FROM` es opcional (default en
+  código)»*. Invertirlo contradice una decisión ya tomada y documentada.
+- El precedente `POKEMONPRICETRACKER_MARKET_FORMAT` **no es el mismo caso**: allí el fail-closed
+  *degrada la operación* (no persiste precios, modo sample-only) — no aborta el arranque. Su análogo
+  aquí sería que el correo degradara a Noop sin `MAIL_FROM`, que es **peor**: correo silenciosamente
+  no enviado en prod. El análogo real de fail-closed para el remitente sí es abortar el boot.
+- **Contra-argumento de fondo:** lo que garantiza la entrega no es que `MAIL_FROM` esté *fijada*, sino
+  que el dominio esté *verificado en Resend*. Con el default apuntando ya al dominio vivo, exigir la
+  env protege contra un caso (olvidar la env) pero no contra el que realmente rompe (dominio no
+  verificado), y a cambio añade un modo de fallo nuevo (prod que no arranca).
+
+**Recomendación al arquitecto**, si decide endurecerlo: añadir `MAIL_FROM` a `required` en no-local en
+`env.validation.ts`, coordinado con devops para que `.env.example` y los `docker-compose*` la traigan
+fijada **antes** del siguiente deploy. Backend lo implementa en cuanto haya decisión.
+
+### Tests
+- **4 tests fijaban activamente el valor muerto** (8 aserciones) y habrían puesto la suite roja
+  empujando al siguiente rol a «arreglar» el código de vuelta al dominio muerto —el mismo patrón que
+  ya ocurrió con `workbook.creator`:
+  1. `src/modules/mail/mail-env.util.spec.ts` — const `HIST = 'soporte@tcgvaultmx.com'` (3 asserts).
+     Renombrada a `DEFAULT_SUPPORT`, con comentario de por qué el valor correcto es `@tcghunt.mx`.
+  2. `src/modules/mail/mail-env.util.spec.ts` — const `DEFAULT_FROM = 'no-reply@tcgvaultmx.com'`
+     (2 asserts). Migrada, con comentario explicando la consecuencia de revertirla.
+  3. `test/guest-checkout.tracking.spec.ts:278` — `evidenceContact` (1 assert).
+  4. `test/integration/guest-checkout.e2e-spec.ts:573` — `evidenceContact` (1 assert).
+  Los nombres de test ahora dicen «default **vivo** (`soporte@tcghunt.mx`)» y cada assert lleva la
+  nota: *si esto falla, se corrige hacia el dominio vivo, nunca al revés*.
+- **5 fixtures** de URL con el dominio muerto (no fijaban defaults, pero confundían) migradas a
+  `app.tcghunt.mx` / `tcghunt.mx`: `test/auth.email-flows.spec.ts`, `test/env.validation.spec.ts`,
+  `test/guest-checkout.guard-sweep-mail.spec.ts`, `test/mail.service.spec.ts` (x4 → 1 fixture + 3).
+- **Nuevos (6):**
+  - `describe('P-21 — ningún default de correo apunta a un dominio muerto')` (4 tests): con las envs
+    **borradas**, ejercita los 4 defaults de código y falla si aparece `tcgvaultmx.com` o
+    `tcgvault.mx`. Es la red que impide que una regresión parcial pase inadvertida.
+  - 2 tests del `logger.warn` de arranque (sin `MAIL_FROM` avisa; con `MAIL_FROM` no avisa).
+
+### Validación
+- `npx tsc --noEmit`: **limpio**.
+- `npm test`: **2 516/2 516 en 203 suites, verde** (baseline 2 510 + 6 tests nuevos; 0 regresiones).
+- `npm run lint`: 0 errores (2 warnings preexistentes en `inventory.service.ts` y
+  `sealed-product.service.ts`, ajenos a este cambio).
+- `grep -rn "tcgvaultmx\.com\|tcgvault\.mx" backend/src backend/test`: solo **referencias históricas
+  comentadas como tales** («NO REVERTIR», «buzón MUERTO») y el array `DEAD_DOMAINS` del test
+  anti-regresión, que necesita nombrarlos para prohibirlos. Ningún valor efectivo.
+  (`backend/dist/` conserva el valor viejo por ser build stale; está gitignorado y se regenera.)
+
+### Discrepancias señaladas (NO resueltas por backend)
+- **`docs/API_CONTRACT.md` (arquitecto, en paralelo):** el encabezado rev v1.50.4 ya declara los
+  correos del cuerpo como ilustrativos, pero quedan literales `soporte@tcgvaultmx.com` **sin marcar
+  como ilustrativos** en los ejemplos de respuesta de §7 (`POST /disputes`, ~L4678), en
+  `GET /admin/disputes/:id` (~L7155) y en el texto de la plantilla de rechazo de buylist (~L6984).
+  Son residuos del pase, no una contradicción normativa: la norma de §0 ya manda. Lo señalo para que
+  el arquitecto los limpie; **no los toco** (contrato manda sobre código, y el archivo es suyo).
+- **`.env.example` / `docker-compose*` (devops, en paralelo):** fuera de mi alcance. Con los defaults
+  ya en el dominio vivo, fijar `MAIL_FROM="TCG HUNT <no-reply@tcghunt.mx>"` y
+  `DISPUTE_EVIDENCE_CONTACT=soporte@tcghunt.mx` sigue siendo lo correcto (remitente visible con la
+  marca), pero **ya no es urgente**: si faltan, el fallback cae al dominio vivo, no al muerto.

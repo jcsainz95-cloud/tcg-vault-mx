@@ -570,7 +570,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const track = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       expect(track.body.status).toBe('entregado');
       expect(track.body.support.disputeWindowDays).toBe(7);
-      expect(track.body.support.evidenceContact).toBe('soporte@tcgvaultmx.com');
+      // P-21 (ago-2026): buzón de soporte VIVO (`@tcghunt.mx`); el histórico `@tcgvaultmx.com`
+      // ya no recibe correo. Corregir siempre hacia el dominio vivo.
+      expect(track.body.support.evidenceContact).toBe('soporte@tcghunt.mx');
       expect(new Date(track.body.support.disputeDeadlineAt).getTime()).toBeGreaterThan(Date.now());
     });
 

@@ -224,7 +224,7 @@ describe('Plantillas de correo del invitado', () => {
     orderNumber: 'TCG-000123',
     items: [{ name: 'Charizard', setName: 'Base Set', number: '4' }],
     totalCents: 51812,
-    trackingUrl: 'https://tcgvaultmx.com/es/pedido?token=SECRET_TOKEN',
+    trackingUrl: 'https://tcghunt.mx/es/pedido?token=SECRET_TOKEN',
   };
 
   it('la confirmación lleva pedido, cartas, total y el enlace — y nada más sensible', () => {
