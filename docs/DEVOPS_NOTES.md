@@ -4830,13 +4830,21 @@ quedarían rojos por timeout de red en vez de por falta de clave. **El gate vive
 
 ### 32.8 Rollback
 
+> ⚠️ **CORREGIDA POR M-46 (v1.51, 2026-08-31). El botón de pánico de esta sección CAMBIÓ DE CLAVE.**
+> Esta sección se escribió para el pase del 2026-08-28, cuando el gancho de grading tenía **dos**
+> diales. M-46 los colapsó en **uno** (`grading_hook_enabled`, DTO `gradingHookEnabled`) y **retiró**
+> `graded_estimates_enabled` y `graded_estimate_ingest_enabled` del código: siguen como filas en la
+> tabla, pero **son inertes y `PUT /admin/settings` las rechaza con 422**. La tercera fila de la tabla
+> de abajo ya viene corregida. **El rollback canónico de M-46 es §32.12.7 — léelo si el incidente es
+> del gancho de grading.**
+
 **El rollback de un dial NO es un rollback de deploy.** Los dos casos, y son distintos:
 
 | Escenario | Acción | Por qué |
 |---|---|---|
 | **El `PUT` de §32.2 se aplicó y hay que revertirlo** | **Otro `PUT`** con el valor anterior (que el comparador te imprimió antes de aplicar — **anótalo**). Efecto inmediato, **sin redeploy**. | Es un cambio de datos por la vía normal: queda **auditado en las dos direcciones** (`before`/`after`) y validado. Nunca un `UPDATE` ni un restore de base: para revertir **un valor** no se toca un backup. |
 | **Se revierte el DEPLOY de v1.50.3** | El código vuelve atrás; **las filas `ConfigSetting` NO vuelven atrás**. | Es el **corolario simétrico de §32.1**: igual que un deploy no cambia un dial, un rollback tampoco lo revierte. Las tres claves quedan **huérfanas e inertes** (precedente `rarity_map`, §M2 v1.32) — el código viejo no las lee. **Sin riesgo de $0 ni ventana ciega**: el flag arranca `off` y el resolver es fail-closed on-read. |
-| **La feature se comporta mal tras aplicar los diales** | **Apagarla con su dial M10**: `PUT /admin/settings { "gradedEstimatesEnabled": "off" }`. No requiere deploy ni tocar los tres diales. | Fail-closed: con `off` no se evalúa nada ni se emite ningún campo. Es el rollback **más barato y más rápido** de esta feature, y el que hay que intentar primero. |
+| **La feature se comporta mal tras aplicar los diales** | **Apagarla con su dial M10** — el **DIAL ÚNICO** desde v1.51: `PUT /admin/settings {"gradingHookEnabled":"off"}`. No requiere deploy ni tocar los tres diales. ⛔ **NO** `gradedEstimatesEnabled`: esa clave está **RETIRADA** y el endpoint la rechaza con **422 `VALIDATION_ERROR` / `"unknown setting key"`, 0 upserts** — el gancho se queda **encendido y facturando**. | Fail-closed: con `off` no se evalúa nada, no se emite ningún campo **y el ingest no pide nada al proveedor de paga** (cero créditos, cero escrituras). Es el rollback **más barato y más rápido** de esta feature, y el que hay que intentar primero. **Ejecutado de verdad**: 200 + dial en `off` + espejo `enabled:false` + ingest sin pedir nada — salida real en §32.8-bis. |
 
 ⚠ **Lo que el rollback de deploy NO deshace:** las filas `PriceReference` con `gradeKey='graded:PSA:*'`
 que el admin haya fijado **sobreviven** y siguen siendo lo que ya eran antes de v1.50 (el valor de
@@ -4848,7 +4856,113 @@ el comparador imprime en el paso 1. Sin ese apunte, el rollback del dial no tien
 
 ---
 
+#### 32.8-bis El botón de pánico, **EJECUTADO** — no «debería funcionar» (2026-08-31)
+
+QA rechazó M-46 porque §32.8 mandaba a una tecla muerta. **La corrección no se declara: se demuestra.**
+Stack nativo real (`stack-native.sh up --infra` + backend NestJS completo por `ts-node` en `:3099`,
+guards y pipes activos), `super_admin` autenticado de verdad. **Salida literal, pegada sin editar:**
+
+**A) El cuerpo que mandaba §32.8 hasta hoy — reproduce el fallo de QA, carácter por carácter:**
+
+```
+$ curl -X PUT :3099/api/v1/admin/settings -d '{ "gradedEstimatesEnabled": "off" }'
+{"error":{"code":"VALIDATION_ERROR","message":"Invalid settings payload",
+ "details":{"errors":{"gradedEstimatesEnabled":"unknown setting key"}}}}
+HTTP 422
+```
+
+**B) El incidente, simulado de verdad:** se **enciende** el gancho (`{"gradingHookEnabled":"on"}` →
+HTTP 200) y se confirma en la base que el gasto queda autorizado:
+
+```
+grading_hook_enabled = on
+```
+
+**C) El cuerpo NUEVO del runbook, contra el endpoint real:**
+
+```
+$ curl -X PUT :3099/api/v1/admin/settings -d '{"gradingHookEnabled":"off"}'
+gradingHookEnabled en la RESPUESTA = "off"
+HTTP 200
+
+$ curl -X GET :3099/api/v1/admin/settings          → gradingHookEnabled = "off"
+$ psql … WHERE key='grading_hook_enabled'          → grading_hook_enabled = off  (updatedBy=fb3567da-…)
+$ curl -X GET :3099/api/v1/admin/pricing/graded-estimates → enabled = false   (el espejo que lee el INGEST)
+```
+
+**D) Y el apagón APAGA el dinero, no solo la vitrina** — verificación positiva de ausencia de gasto:
+con el dial ya en `off` se dispara `POST /admin/jobs/price-ingest {}` (HTTP 202) y el log dice:
+
+```
+[PriceIngestService] graded-estimate-ingest: dial `grading_hook_enabled` = off → no se pide NADA al
+proveedor (cero créditos) y no se escribe NINGUNA fila.
+[PriceIngestService] [VEREDICTO-PSA] VEREDICTO: INDETERMINADO — No se preguntó nada.
+```
+
+**E) El rastro queda en las dos direcciones** (`AuditLog`, `action='settings.update'`), que es lo que
+hace auditable un rollback a posteriori:
+
+```
+2026-08-31 04:55:05 | settings.update | before.gradingHookEnabled=on  -> after.gradingHookEnabled=off
+2026-08-31 04:54:49 | settings.update | before.gradingHookEnabled=off -> after.gradingHookEnabled=on
+```
+
+> **Por qué esto era bloqueante y no cosmético.** El estado `on` de este dial gasta créditos de un
+> proveedor de paga en **cada tick del cron, 2×/día, sin humano delante**. Quien estuviera dentro de un
+> incidente siguiendo §32.8 recibía un 422, **0 upserts**, y se quedaba con el gancho **encendido y
+> facturando** mientras creía haberlo apagado. Un rollback que no ejecuta no es documentación
+> incompleta: es la mitad que falta del control de dinero que M-46 existe para construir.
+>
+> **Y es el mismo defecto que backend ya había cazado en su runbook (`fa2e3eb`).** Yo escribí el
+> runbook correcto —vive en §32.12.7— y aun así metí 447 líneas en este archivo **sin tocar §32.8**,
+> que no llevaba banner y por tanto se leía como vigente. La lección operativa, escrita para el
+> siguiente pase: **cuando se retira una clave de configuración, el trabajo no es documentar la nueva;
+> es barrer TODAS las instrucciones vigentes que nombran la vieja.** El barrido de este pase está en
+> §32.8-ter.
+
+---
+
+#### 32.8-ter Barrido de claves retiradas en este archivo — qué se corrigió y qué se conserva
+
+Patrón corrido sobre `docs/DEVOPS_NOTES.md` (las **cuatro** formas retiradas, no solo las dos que
+señaló QA — `graded_estimates_enabled` es tan tecla muerta como la del ingest):
+
+```bash
+grep -nE "graded_estimates_enabled|gradedEstimatesEnabled|\
+graded_estimate_ingest_enabled|gradedEstimateIngestEnabled" docs/DEVOPS_NOTES.md
+```
+
+**11 aciertos, revisados uno a uno a mano.** El criterio de corte es el que pidió QA: **una
+instrucción operativa vigente se corrige; una descripción histórica fechada se conserva y, si hace
+falta, se rotula.** Borrar las descripciones sería peor que inútil — son justamente lo que enseña la
+trampa de diagnóstico de §4.38(r.1).
+
+*(Las líneas son las del archivo **ANTES** de este arreglo — son las que citó QA. Tras las
+correcciones el archivo creció; la referencia estable es la **sección**.)*
+
+| Línea (pre-fix) | Sección | Qué es | Veredicto |
+|---|---|---|---|
+| 4839 | §32.8 | **INSTRUCCIÓN**: el `PUT` del botón de pánico | 🔴 **CORREGIDA** → `{"gradingHookEnabled":"off"}` + banner en §32.8 |
+| 4860 | §32.9 | **INSTRUCCIÓN**: ítem de checklist «la feature sigue APAGADA por su dial (`graded_estimates_enabled = off`)», para pegar en el ticket del release. **QA no lo señaló** — su patrón no cubría esta clave | 🔴 **CORREGIDA** → `grading_hook_enabled` + banner de supersesión en §32.9 |
+| 56 | índice | Descripción fechada de la **trampa** («leer `graded_estimate_ingest_enabled = off` y concluir …») | 🟢 Se conserva: **advierte** contra la clave muerta, no manda a ella |
+| 5057, 5110 | §32.12 | Por qué las dos claves quedan retiradas y vivas, y por qué la clave es NUEVA | 🟢 Se conserva: es la decisión de seguridad de M-46 |
+| 5204 | §32.12.3 | **Salida real pegada** de la línea de inventario del arranque | 🟢 Se conserva: es evidencia, no instrucción |
+| 5242, 5248, 5249, 5264 | §32.12.4 | Qué detecta el comparador sobre binarios PRE-M-46 y sus roturas demostradas | 🟢 Se conserva: nombrar la clave muerta **es** la función del check |
+| 5405 | §32.12.7 | Efecto de un rollback de **código**: el binario viejo vuelve a leer `graded_estimates_enabled` | 🟢 Se conserva: es correcto y es el motivo de no borrar las filas |
+
+**Fuera de este archivo:** el mismo patrón sobre `scripts/`, `.github/workflows/`, `docker-compose*.yml`
+y `.env.example` da **6 aciertos, todos en `scripts/check-graded-estimate-dials.sh`** (líneas 33, 37,
+152, 161, 215, 221) y **todos correctos**: ese script nombra las claves muertas **para detectarlas y
+gritar**, que es exactamente lo contrario de mandar a ellas. **Ninguno se toca.**
+
+---
+
 ### 32.9 Checklist del pase (§4.38p) — para pegar en el ticket del release
+
+> ⚠️ **CHECKLIST DEL PASE DEL 2026-08-28 (v1.50.3 / M-42). SUPERADA POR §32.12.9 para el pase de M-46.**
+> Se conserva porque los 3 diales de M2 siguen siendo los mismos, pero **el nombre del dial del
+> penúltimo punto cambió con M-46** y ya viene corregido abajo. Si el pase que estás preparando es el
+> de M-46 (v1.51), **la checklist que se pega en el ticket es la de §32.12.9**, no ésta.
 
 - [ ] `migrate deploy` — **nada nuevo por M-42** (es DATA/seed, sin DDL). M-41 (curva) ya está desplegada.
 - [ ] **Staging**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes **antes** de tocar nada.
@@ -4857,8 +4971,11 @@ el comparador imprime en el paso 1. Sin ese apunte, el rollback del dial no tien
 - [ ] **Prod**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes.
 - [ ] **Prod**: aplicar el `PUT` parcial. Divergentes → **preguntar al humano (GU-13)**, no sobrescribir.
 - [ ] **Prod**: re-`GET` (`rc=0`) + línea de inventario del arranque. **E2E 109 NO se corre aquí** (§32.5).
-- [ ] La feature sigue **APAGADA** por su dial (`graded_estimates_enabled = off`) hasta que el humano
-      apruebe el texto legal. **Encenderla no es decisión de devops** y **no es parte de este paso.**
+- [ ] La feature sigue **APAGADA** por su dial (**v1.51: `grading_hook_enabled = off`**, DTO
+      `gradingHookEnabled`; la vieja `graded_estimates_enabled` está **retirada e inerte** — verificarla
+      no prueba nada) hasta que el humano apruebe el texto legal. **Encenderla no es decisión de
+      devops** y **no es parte de este paso**; desde M-46 encenderla es además un **acto de gasto**
+      (§32.12.1).
 - [ ] Solo entonces: anunciar el release.
 
 > **El último punto no es una formalidad.** Los tres diales se alinean **con la feature apagada**. Eso es
@@ -5266,7 +5383,15 @@ corrió el comparador contra él:
 | dial `on` pero espejo `enabled:false` | 🔴 **rc=2** | «INCOHERENCIA: dial `on` pero espejo `enabled`=false… hallazgo para BACKEND/arquitecto» |
 | dial con valor `"ON"` (mayúsculas, presente-e-inválido) | 🔴 **rc=20** | «Dial con valor INESPERADO… el código es fail-closed y ESTRICTO (`v === 'on'`)» |
 | DTO sin `ingestMaxCardsPerRun` | 🔴 **rc=2** | «no se puede calcular el presupuesto… encender el dial es autorizar un gasto de tope DESCONOCIDO» |
-| `ingestMaxCardsPerRun: 5000` (tope máximo válido) | 🟢 rc=0 | «5000 × 2 × 2 = **20000 créditos/día**» — el aviso que hace visible que un número dentro del rango se come la cuota entera |
+| `ingestMaxCardsPerRun: 5000` (**era** el tope máximo válido — ver nota) | 🟢 rc=0 | «5000 × 2 × 2 = **20000 créditos/día**» — el aviso que hace visible que un número dentro del rango se come la cuota entera |
+
+> ⚠️ **Nota de 2026-08-31 (posterior a esta corrida):** el arquitecto cambió **I8** y `ingestMaxCardsPerRun`
+> pasó de `[1, 5000]` a **`[1, 1000]`** (`ARCHITECTURE.md` rev v1.51-a), justamente porque 20 000
+> créditos/día es la cuota diaria entera. **La corrida de arriba se conserva tal cual: es evidencia
+> fechada, no una instrucción.** El comparador **no hay que tocarlo**: no lleva el tope cableado, calcula
+> el presupuesto desde el `ingestMaxCardsPerRun` **vigente en el entorno** (`check-graded-estimate-dials.sh:306`),
+> así que sigue siendo correcto con el rango nuevo. **Quien valide el rango es backend** (validador de M2):
+> si `[1,1000]` no está aplicado en el DTO, el hallazgo es suyo, no de este script.
 | **Regresión** (que lo viejo siga funcionando): seed viejo `null`/`3`/`50` | 🟢 **rc=10** | imprime el `PUT` parcial exacto, igual que antes |
 | Contra el backend **real** en `:3099` | 🟢 **rc=0** | dial `off`, tres diales al día, presupuesto 1 000 créditos/día |
 
@@ -5289,7 +5414,7 @@ una variable**.
 | `docker-compose.yml` | `${POKEMONPRICETRACKER_API_KEY:-}` + `POKEMONPRICETRACKER_GRADED_PROBE` explícita | `docker compose --profile apps config` → `POKEMONPRICETRACKER_API_KEY: ""` **y sin el warning de «variable is not set»** (que sí siguen emitiendo `POKETRACE_API_KEY` y `POKEMONTCG_IO_API_KEY`, sin tocar). Con `POKEMONPRICETRACKER_API_KEY=ppt_live_ABC123` exportada, el `config` la muestra: la llave **sigue llegando** cuando alguien la pone a propósito. |
 | `docker-compose.staging.yml` | comentario normativo + la sonda explícita (ya tenía `:-`) | ídem |
 | `.github/workflows/e2e-real.yml` | `POKEMONPRICETRACKER_API_KEY: ''` **declarada vacía** + `E2E_GRADING_PROVIDER_INCAPACITATED: '1'` en el `env:` del job + paso de guarda **antes** del preflight de Stripe | guarda en verde |
-| `.github/workflows/e2e.yml` | ídem en `frontend-e2e` **y** en `backend-e2e` (este último levanta Nest en proceso y sus specs **encienden el dial**) | guarda en verde |
+| `.github/workflows/e2e.yml` | `POKEMONPRICETRACKER_API_KEY: ''` en `frontend-e2e` **y** en `backend-e2e` (este último levanta Nest en proceso y sus specs **encienden el dial** — `backend/test/graded-estimate.one-dial.spec.ts:117,210`); la **constancia** solo en `frontend-e2e` ⚠ *(corregido 2026-08-31: la redacción anterior decía «ídem» para los dos, y no era exacto — ver §32.12.5-bis, donde se explica por qué esa asimetría es CORRECTA y no un olvido)* | guarda en verde |
 | `.github/workflows/ci.yml` | job **`e2e-provider-guard`** + `ci-ok` lo exige y **falla si queda `skipped`** | ver abajo |
 | `.env.example` | `POKEMONPRICETRACKER_GRADED_PROBE` y `E2E_GRADING_PROVIDER_INCAPACITATED` documentadas | — |
 
@@ -5305,10 +5430,15 @@ la observación**: contra un backend local con llave viva, declararla no desbloq
 `.env.example` la variable se deja **vacía** — una constancia heredada por copiar-pegar no es una
 constancia.
 
-**La guarda nueva: `scripts/check-e2e-provider-incapacitation.sh`.** Estática (lee YAML, sin red).
-Exige, en cada workflow que corre E2E: (1) que `POKEMONPRICETRACKER_API_KEY` **no** venga de
-`secrets.*` ni de un literal no vacío; (2) que esté **declarada vacía**; (3) que la constancia esté
-puesta.
+**La guarda nueva: `scripts/check-e2e-provider-incapacitation.sh`.** Estática (parsea YAML, sin red).
+Exige, en **cada JOB que corre E2E** —descubiertos, no listados a mano—: (1) que
+`POKEMONPRICETRACKER_API_KEY` **no** venga de `secrets.*` ni de un literal no vacío; (2) que esté
+**declarada vacía** en el env efectivo del job; (3) que la constancia esté puesta **en los jobs de
+arnés Playwright**; (4) que se haya descubierto **al menos un** job E2E.
+
+> ⚠️ **Este párrafo describe la v2.** La v1 miraba **dos archivos fijos** con `grep`, y por eso daba
+> verde en dos escenarios en los que no había verificado nada. Qué fallaba exactamente, y las roturas
+> que lo demuestran: **§32.12.5-bis**.
 
 **Dónde vive el enforcement, dicho explícitamente porque es fácil equivocarse aquí:**
 
@@ -5329,13 +5459,84 @@ puesta.
 | **Estado del repo ANTES de tocar nada** (así se descubrió que hacía falta) | 🔴 **rc=1**, los dos workflows | «`POKEMONPRICETRACKER_API_KEY` NO está declarada… Que hoy no esté es una CASUALIDAD, no un diseño» + «Falta `E2E_GRADING_PROVIDER_INCAPACITATED`» |
 | Alguien «conecta» el secret: `POKEMONPRICETRACKER_API_KEY: ${{ secrets.POKEMONPRICETRACKER_API_KEY }}` en `e2e-real.yml` | 🔴 **rc=1** | «con valor NO vacío en la línea 177… Un entorno E2E con credencial viva PAGA CRÉDITOS en cada corrida del gate» |
 | Alguien borra la constancia de `e2e.yml` | 🔴 **rc=1** | «Falta `E2E_GRADING_PROVIDER_INCAPACITATED: '1'`… el guardarraíl del arnés SE NIEGA a encender el dial y el job muere a mitad» |
-| Se renombra un workflow (`WORKFLOWS=…/no-existe.yml`) | 🔴 **rc=1** | «No existe. Si se renombró, actualiza `DEFAULT_WORKFLOWS` de este script» |
+| Se renombra un workflow (`WORKFLOWS=…/no-existe.yml`) | 🔴 **rc=1** | «No existe…» — *en la v2 ya no hay `DEFAULT_WORKFLOWS` que actualizar: un renombrado lo encuentra el descubrimiento solo. Ver §32.12.5-bis.* |
 | Repo ya arreglado | 🟢 **rc=0** | las tres declaraciones presentes en los dos workflows |
+
+> ⚠️ **Esta tabla es la de la v1 (2026-08-31, primera versión) y se conserva como registro.** Las
+> roturas de la **v2** —incluidas las dos que la v1 no detectaba— están en **§32.12.5-bis**.
 
 **Lo que esta guarda NO hace, para no venderla de más:** no mira el `.env` de nadie ni el entorno real
 de staging —eso **no es observable** desde CI, y fingir que sí lo es sería el falso verde que este
 pase viene a quitar—. Verifica **lo que está escrito en el repo**. La mitad viva la pone el arnés de
 frontend en tiempo de ejecución; la mitad de staging la pone quien configure staging.
+
+---
+
+#### 32.12.5-bis La guarda era **MÁS GRUESA QUE SU ENUNCIADO** — reescrita a v2 (2026-08-31)
+
+El techlead señaló dos defectos de la v1 del script. Los dos son de la **misma clase que el bloqueante
+de §32.8-bis**: algo que *decía* verificar y no verificaba. Los dos confirmados a mano antes de tocar
+nada; los dos **arreglados**, no anotados como deuda — son un script de shell en mi ruta, y aceptar
+deuda aquí habría sido aceptar exactamente el defecto del que va este pase.
+
+| # | Defecto de la v1 | Cómo producía VERDE sin verificar |
+|---|---|---|
+| **(a)** | `DEFAULT_WORKFLOWS` era un **literal de dos archivos** (`e2e-real.yml`, `e2e.yml`). | Un **tercer** workflow que corriera E2E no lo abría nadie, y nada avisaba de su existencia. |
+| **(b)** | El `grep` era **por ARCHIVO, no por JOB**. | En `e2e.yml`, `backend-e2e` declara la llave vacía pero **no** la constancia, y `frontend-e2e` declara las dos. El `grep` encontraba la constancia del **segundo** job y daba verde por el **primero**. |
+
+**(a) no era hipotético: el descubrimiento encontró un tercer workflow en la primera corrida.**
+`deploy.yml` tiene un job `e2e-real` que llama a la suite con `uses: ./.github/workflows/e2e-real.yml`
+(+ `secrets: inherit`). La v1 **no abría `deploy.yml` en ningún caso**. La v2 lo abre, resuelve el
+`uses:` local contra el conjunto ya verificado y lo aprueba **explicando por qué** `secrets: inherit`
+es inocuo aquí (heredar secretos no inyecta `env`; el riesgo sería que el llamado usara `secrets.*`, y
+no lo hace). Un `uses:` **remoto** que parezca E2E se reporta **NO VERIFICABLE y falla**, en vez de
+callar.
+
+**Qué hace la v2, y la precisión que la v1 no hacía.** Se parsea el YAML con un parser de verdad
+(PyYAML) y se evalúa el **env efectivo de cada job** (`env` del workflow < `env` del job < `env` del
+step). Y las dos exigencias **dejan de aplicarse en bloque**, porque no aplican a los mismos jobs:
+
+- La **llave vacía** se exige a **todo** job que corra E2E o integración: cualquiera levanta el backend
+  y un backend con credencial viva puede gastar. `backend-e2e` la tiene, y **hace falta** — sus specs
+  encienden el dial.
+- La **constancia** se exige **solo** a los jobs que corren el **arnés Playwright**, que es el único
+  código que la lee (`frontend/e2e/utils/paid-provider-guard.ts:63`) y el único que enciende el dial
+  desde el arnés. Exigírsela a `backend-e2e` sería pedir una firma que **nadie consume**: un rojo
+  falso, que es el otro modo de que un check deje de servir.
+
+Y un cuarto requisito nuevo, que es el que impide que el propio arreglo se degrade en silencio:
+**si el descubrimiento no encuentra NINGÚN job E2E, el resultado es rc=1, no rc=0.** Cero jobs no es
+«todo en orden»: es un check que no verificó nada. Por el mismo motivo, **si falta PyYAML el script
+sale rc=2 y lo dice, en vez de degradarse a `grep`** — que es de donde venía el defecto (b).
+
+**LAS ROTURAS DE LA v2, con su salida real.** Se copió el repo a un árbol de pruebas y se rompió a
+mano; ninguna de estas corridas tocó `.github/` del repo:
+
+| Rotura | v1 | v2 | Mensaje (recortado) |
+|---|---|---|---|
+| **El defecto (b) exacto**: se quita la constancia del job de **arnés** y se deja una en **otro** job del mismo archivo | 🟢 **VERDE (falso)** — `grep` la encuentra 1 vez en el archivo | 🔴 **rc=1** | «job «frontend-e2e» (ARNÉS Playwright) … ✖ Falta `E2E_GRADING_PROVIDER_INCAPACITATED: '1'` en el `env:` de **este job**» |
+| **El defecto (a) exacto**: aparece un `e2e-nightly-nuevo.yml` con `npm run test:e2e` y sin declarar nada | ⚫ **NI LO ABRE** | 🔴 **rc=1** | «job «nightly-e2e» (ARNÉS Playwright) … ✖ `POKEMONPRICETRACKER_API_KEY` NO está declarada en el env efectivo de este job» |
+| Alguien «conecta» el secret: `POKEMONPRICETRACKER_API_KEY: ${{ secrets.PPT_API_KEY }}` | 🔴 rc=1 | 🔴 **rc=1** (dos veces: por job y por la red de seguridad de archivo) | «con valor NO vacío en env del job «e2e-real»… PAGA CRÉDITOS en cada corrida» + «se alimenta de `secrets.*` (línea 177)» |
+| **Cero jobs E2E** en todo el repo (solo `ci.yml`) | 🟢 **VERDE** (no existía el caso) | 🔴 **rc=1** | «NO se descubrió NINGÚN job que corra E2E. Esto NO es un verde: es un check que no verificó nada» |
+| **Regresión** — repo real, intacto | 🟢 rc=0 (mirando 2 archivos) | 🟢 **rc=0** | «Los **3** job(s) E2E descubiertos declaran su incapacitación» — 3 jobs en **3** archivos, uno de ellos (`deploy.yml`) invisible para la v1 |
+
+> **Por qué esto se arregla y no se anota.** El techlead lo emparejó con la deuda ya registrada del
+> **modo `--gate` de `stack-native.sh`, que sirve el build con `next start` cuando producción arranca
+> por `node server.js` desde `.next/standalone`** (§32.10, «Divergencia conocida»). Tiene razón en que
+> son **la misma clase**: un check cuyo alcance real es menor que su enunciado. Pero la **respuesta
+> correcta no es la misma para los dos**, y conviene decir por qué:
+>
+> - La divergencia del `--gate` **está escrita, acotada y tiene un gate que sí cubre lo que falta**
+>   (`e2e-real.yml` corre contra la **imagen**). Cerrarla exigiría copiar `static/`+`public/` dentro de
+>   `.next/standalone` a mano: **más máquina y más formas de equivocarse que fidelidad ganada**. Sigue
+>   siendo deuda aceptada, y su enunciado ya dice lo que no cubre.
+> - El agujero de esta guarda **no tenía a nadie detrás**: era el único artefacto que miraba esos
+>   workflows, y su enunciado prometía «cada workflow que corre E2E» mientras leía dos archivos con
+>   `grep`. Cuando el enunciado promete cobertura que nadie más da, **la deuda no se acepta: se paga**.
+>
+> Leídos juntos, la regla que dejo escrita: **una deuda de alcance es aceptable cuando el enunciado
+> dice la verdad sobre su límite Y otro gate cubre el resto. Si falta cualquiera de las dos cosas, es
+> un falso verde con otro nombre.**
 
 ---
 
