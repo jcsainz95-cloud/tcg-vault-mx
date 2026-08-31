@@ -81,7 +81,7 @@ export class GuestCheckoutService {
    */
   async quote(dto: GuestQuoteDto) {
     if (dto.shippingAddress) this.assertMxAddress(dto.shippingAddress.country);
-    const { lines, subtotalCents, unavailableItems } = await this.orders.priceCartForQuote(
+    const { items, lines, subtotalCents, unavailableItems } = await this.orders.priceCartForQuote(
       dto.inventoryItemIds,
     );
     const { breakdown, vaultBreakdown } = await this.quoteBreakdowns(
@@ -89,11 +89,11 @@ export class GuestCheckoutService {
       lines.length === 0,
     );
     return {
-      items: lines.map((l) => ({
-        inventoryItemId: l.inventoryItemId,
-        card: l.cardSnapshot,
-        unitPriceCents: l.unitPriceCents,
-      })),
+      // §5.2.5 / contrato v1.51-b: `card` es un `OrderItemCardDTO` (8 hechos congelados +
+      // `imageSmallUrl` resuelta en lectura). Se usa el MISMO cuerpo que `POST /checkout/quote`
+      // —el hueco gris del invitado tenía exactamente la misma causa— y sin consulta extra: la
+      // imagen sale del `card` que `priceCartForQuote` ya cargó para preciar.
+      items: this.orders.toOrderItemPreviews(items, lines),
       fulfillmentMode: 'direct_ship' as const,
       breakdown,
       // v1.21.4-dual-breakdown (§4-G.1): segundo desglose "de bóveda" (solo cartas, SIN envío),

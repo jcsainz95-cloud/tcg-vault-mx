@@ -221,7 +221,7 @@ function wireIngest(opts: {
   }));
   const pptBulk = { fetchGradedEstimatesForSet: fetchGraded } as unknown as PokemonPriceTrackerBulkProvider;
   const pptSetMapper = {
-    resolveForSets: jest.fn(async () => new Map([['s1', 'sv8']])),
+    resolveForSets: jest.fn(async () => new Map([['s1', { pptSetId: 'sv8' }]])),
   } as unknown as PptSetMapper;
   const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
   const ingest = new PriceIngestService(

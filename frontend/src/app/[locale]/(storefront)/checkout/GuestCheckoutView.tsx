@@ -260,7 +260,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                         {item.card.name}
                       </p>
                       <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en">
+                        {/* v1.51-b: el invitado ve la MISMA meta que la cuenta. `card` es un
+                            `OrderItemCardDTO` en las dos rutas de quote (§4 y §4-G.1), así que
+                            el sufijo de condición sale del mismo sitio: dentro de `card`. */}
                         {item.card.setName} · #{item.card.number}
+                        {item.card.productType === 'raw' && item.card.rawCondition
+                          ? ` · ${item.card.rawCondition}`
+                          : ''}
                       </p>
                       <button
                         type="button"

@@ -18,14 +18,41 @@ export interface ShelfProps {
   title: React.ReactNode;
   /** aria-label de la sección; obligatorio si `title` no es string plano. */
   ariaLabel?: string;
-  /** Eyebrow mono junto al título (p. ej. «PSA · CGC», §20.5). */
-  kicker?: string;
+  /**
+   * `aria-roledescription` de la <section> — **localizado**, nunca en inglés crudo (§23.9a). Hoy solo
+   * lo usa el carrusel («carrusel» / «carousel»), que con su `aria-label` se anuncia «Piezas
+   * destacadas del catálogo, carrusel».
+   */
+  ariaRoledescription?: string;
+  /**
+   * Ref a la <section>. La usa el carrusel para escuchar `pointerenter`/`pointerleave` y
+   * `focusin`/`focusout` de TODO el estante (encabezado incluido, §23.5) con listeners nativos: un
+   * `onMouseEnter` de React aquí obligaría a re-renderizar el estante entero en cada entrada del
+   * puntero, y §23.2 pide que la rotación no re-renderice tejas.
+   */
+  sectionRef?: React.Ref<HTMLElement>;
+  /**
+   * Eyebrow mono junto al título (p. ej. «PSA · CGC», §20.5).
+   * `ReactNode` desde v2.6 (§23.15 nº3): el tipo se amplía, pero el kicker sigue siendo **texto** en
+   * todas las pantallas que lo usan y conserva su envoltorio `.eyebrow` (mono muted) y su `gap-4`.
+   */
+  kicker?: React.ReactNode;
   /** Apoyo muted bajo el encabezado (§20.5/§20.7). */
   subtitle?: string;
   subtitleClassName?: string;
   viewAllHref?: string;
   viewAllLabel?: string;
   viewAllClassName?: string;
+  /**
+   * Slot HERMANO del H2, dentro del grupo izquierdo y **antes** del grupo derecho en orden de DOM
+   * (§23.4a: el conmutador de reproducción del carrusel es el primer control del estante en orden de
+   * tabulación). Ocupa el hueco estructural del kicker pero **sin** su envoltorio `.eyebrow`: ese
+   * envoltorio impone color muted y `gap-4`, y §23.4b pide tinta y `gap` 12px / 16px en `lg`.
+   *
+   * No es un kicker de contenido: §22.6b-e sigue prohibiendo literalmente cualquier texto que afirme
+   * algo sobre las piezas del estante.
+   */
+  titleAdjacent?: React.ReactNode;
   /** Controles extra a la derecha del link (flechas del carrusel §20.3). */
   actions?: React.ReactNode;
   /** Clases de la <section> (border-t, fondo de pozo…). */
@@ -39,7 +66,10 @@ export function Shelf({
   id,
   title,
   ariaLabel,
+  ariaRoledescription,
+  sectionRef,
   kicker,
+  titleAdjacent,
   subtitle,
   subtitleClassName,
   viewAllHref,
@@ -54,7 +84,13 @@ export function Shelf({
     <h2 className="font-serif text-[22px] leading-tight text-text lg:text-[29px]">{title}</h2>
   );
   return (
-    <section id={id} className={className} aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}>
+    <section
+      id={id}
+      ref={sectionRef}
+      className={className}
+      aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}
+      aria-roledescription={ariaRoledescription}
+    >
       <div
         className={cn(
           'gutter flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2',
@@ -65,6 +101,13 @@ export function Shelf({
           <div className="flex items-baseline gap-4">
             {heading}
             <span className="eyebrow">{kicker}</span>
+          </div>
+        ) : titleAdjacent ? (
+          // §23.4b: 12px de separación al H2, 16px desde `lg`. Alineado por línea base con el
+          // título, igual que el kicker de §20.5.
+          <div className="flex items-baseline gap-3 lg:gap-4">
+            {heading}
+            {titleAdjacent}
           </div>
         ) : (
           heading

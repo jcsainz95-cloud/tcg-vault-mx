@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CardSet } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PptApiClient, PptDailyLimitError } from './providers/ppt-api.client';
+import { GRADED_LOG_LINES, emitirLineaGraded } from './graded-log-lines';
 import { releaseYear } from './ppt-sync-scope';
 
 /**
@@ -23,6 +24,31 @@ import { releaseYear } from './ppt-sync-scope';
  * PERSISTE en BD, así que corridas siguientes no re-piden `/sets` para sets ya mapeados. `refresh`
  * fuerza re-resolver (para sets nuevos o si PPT cambió sus ids).
  */
+
+/**
+ * v1.51-d (R1-quater) — **el `pptSetId` de un set, o POR QUÉ no lo hay.**
+ *
+ * ### El defecto que este tipo cierra
+ * `resolveForSets` devolvía `Map<localSetId, string | null>`, y ese `null` significaba **dos cosas
+ * incompatibles**:
+ *  1. *«se consultó el catálogo de PPT y este set NO empató»* ⇒ hay algo que MAPEAR, y la acción del
+ *     operador es real (revisar el nombre, mapear a mano);
+ *  2. *«NO se pudo consultar el catálogo»* (cuota diaria agotada por el barrido RAW de la misma
+ *     corrida, o fallo de red) ⇒ el mapeo **ni se intentó**, y no hay nada que mapear.
+ *
+ * Aguas abajo las dos llegaban idénticas y el veredicto de la fase 2 publicaba *«N sets NO tienen
+ * pptSetId mapeado … ve a mapearlos»* **también en el caso (2)**: causa falsa, acción equivocada y —el
+ * tercer defecto de R1— una cita a la línea «PptSetMapper: … sets SIN mapeo», que en esa rama **no se
+ * emite**. Es exactamente la misma clase de defecto de forma que `GradedRunOutcome` cerró un nivel más
+ * arriba, así que se cierra igual: con el TIPO, no con el mensaje.
+ */
+export type PptSetMapping =
+  /** Resuelto (de la caché de BD o del catálogo remoto). */
+  | { pptSetId: string }
+  /** El catálogo remoto SÍ respondió y este set no empató sin ambigüedad ⇒ hay que mapearlo. */
+  | { pptSetId: null; reason: 'unmatched' }
+  /** El catálogo remoto NO respondió: el mapeo ni se intentó. **NO significa «sin mapeo».** */
+  | { pptSetId: null; reason: 'mapper_unavailable'; cause: 'daily_limit' | 'request_failed' };
 
 /** Forma mínima de un set de PPT (`GET /api/v2/sets`), tolerante a nombres de campo. */
 export interface PptRemoteSet {
@@ -50,15 +76,19 @@ export class PptSetMapper {
 
   /**
    * Resuelve `pptSetId` para los sets dados que aún no lo tengan. Devuelve un mapa
-   * `localSetId → pptSetId | null`. Persiste los resueltos. Loguea los NO mapeados. NO relanza el
+   * `localSetId → PptSetMapping`. Persiste los resueltos. Loguea los NO mapeados. NO relanza el
    * `PptDailyLimitError` (money-safe): si la cuota diaria está agotada al pedir `/sets`, se devuelve
    * el mapa con lo que ya había en BD y se avisa; el orquestador ya parará el barrido.
+   *
+   * v1.51-d (R1-quater): la ausencia de `pptSetId` viaja **con su motivo**. Ver `PptSetMapping`: el
+   * `null` pelado hacía pasar «no se pudo consultar el catálogo» por «este set no está mapeado», que
+   * son dos causas distintas con dos acciones distintas — y el veredicto publicaba la equivocada.
    */
-  async resolveForSets(sets: CardSet[]): Promise<Map<string, string | null>> {
-    const out = new Map<string, string | null>();
+  async resolveForSets(sets: CardSet[]): Promise<Map<string, PptSetMapping>> {
+    const out = new Map<string, PptSetMapping>();
     const pending: CardSet[] = [];
     for (const s of sets) {
-      if (s.pptSetId) out.set(s.id, s.pptSetId);
+      if (s.pptSetId) out.set(s.id, { pptSetId: s.pptSetId });
       else pending.push(s);
     }
     if (pending.length === 0) return out;
@@ -67,25 +97,30 @@ export class PptSetMapper {
     try {
       remote = await this.loadRemoteSets();
     } catch (e) {
-      if (e instanceof PptDailyLimitError) {
-        this.logger.warn(
-          `PptSetMapper: cuota diaria agotada al pedir ${this.setsPath} → no se mapean ${pending.length} ` +
-            `sets nuevos esta corrida (se usa lo ya cacheado en BD). ${e.message}`,
-        );
-      } else {
-        this.logger.warn(
-          `PptSetMapper: falló ${this.setsPath} (${(e as Error).message}) → no se mapean ${pending.length} ` +
-            `sets nuevos esta corrida (money-safe: no se toca lo ya cacheado).`,
-        );
-      }
-      for (const s of pending) out.set(s.id, s.pptSetId ?? null);
+      // ⚠️ R1-quater — LA RAMA QUE MENTÍA AGUAS ABAJO. Aquí el catálogo remoto NO se pudo consultar,
+      // así que de estos sets no sabemos NADA: ni que están mapeados ni que no. Antes se devolvía
+      // `null` —el mismo valor que «se comprobó y no empata»— y el veredicto mandaba a mapear sets que
+      // quizá ya empatan, mientras la causa real (la cuota, que el barrido RAW de esta misma corrida
+      // agota) quedaba invisible. Ahora el motivo viaja en el tipo, y la línea que lo dice es UNA
+      // sola marca citable (`mapperUnavailable`) para los dos casos.
+      const cause = e instanceof PptDailyLimitError ? 'daily_limit' : 'request_failed';
+      this.logger.warn(
+        `${emitirLineaGraded(GRADED_LOG_LINES.mapperUnavailable)} ` +
+          (cause === 'daily_limit'
+            ? `— CUOTA DIARIA agotada (${(e as Error).message}).`
+            : `— la petición FALLÓ (${(e as Error).message}).`) +
+          ` No se pudo COMPROBAR el mapeo de ${pending.length} set(s) esta corrida (money-safe: no se ` +
+          'toca lo ya cacheado en BD). Esto NO significa que esos sets no tengan mapeo: significa que ' +
+          'no se pudo mirar.',
+      );
+      for (const s of pending) out.set(s.id, { pptSetId: null, reason: 'mapper_unavailable', cause });
       return out;
     }
 
     const unmapped: string[] = [];
     for (const local of pending) {
       const pptSetId = matchSet(local, remote);
-      out.set(local.id, pptSetId);
+      out.set(local.id, pptSetId ? { pptSetId } : { pptSetId: null, reason: 'unmatched' });
       if (pptSetId) {
         await this.prisma.cardSet.update({ where: { id: local.id }, data: { pptSetId } });
       } else {
@@ -94,7 +129,7 @@ export class PptSetMapper {
     }
     if (unmapped.length > 0) {
       this.logger.warn(
-        `PptSetMapper: ${unmapped.length}/${pending.length} sets SIN mapeo a PokemonPriceTracker ` +
+        `${emitirLineaGraded(GRADED_LOG_LINES.mapperUnmatched, `${unmapped.length}/${pending.length}`)} ` +
           `(no se pedirán precios de ellos): ${unmapped.slice(0, 30).join(', ')}` +
           `${unmapped.length > 30 ? ', …' : ''}.`,
       );

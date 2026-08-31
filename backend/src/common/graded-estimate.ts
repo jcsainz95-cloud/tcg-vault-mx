@@ -148,6 +148,18 @@ export interface GradedEstimateConfig {
    */
   ingestConfigInvalid: boolean;
   /**
+   * INTERNO (no viaja al DTO), v1.51-b (R1): **QUÉ clave(s) del ingest están presente(s)-e-inválida(s)**,
+   * por nombre. `ingestConfigInvalid` se deriva de esta lista (`length > 0`), así que las dos no pueden
+   * divergir.
+   *
+   * Existe porque el fail-closed que apaga el ingest tenía que poder NOMBRAR su causa. El veredicto
+   * (`[VEREDICTO-PSA]`) es el único artefacto que el operador mira cuando el ingest escribe cero filas,
+   * y «la config del ingest es inválida» no es accionable: `graded_estimate_ingest_max_cards_per_run`
+   * sí lo es. Misma doctrina que `maxRawMultipleInvalid` con su `409`: la superficie que existe para
+   * que el operador confíe tiene que decirle qué corregir, no que «algo está mal».
+   */
+  ingestInvalidKeys: readonly string[];
+  /**
    * INTERNO (no viaja al DTO), v1.50.3 (§4.38n.3): ¿`graded_estimate_max_raw_multiple` está
    * PRESENTE-pero-INVÁLIDA? Es la ÚNICA clave de la que depende la **coherencia de magnitud** (las
    * cotas inferior y de orden de grados son invariantes de producto, sin dial).
@@ -171,7 +183,7 @@ export type GradedEstimateSourceStat = 'median' | 'average' | 'smart';
 /** El `GradedEstimateConfigDTO` del contrato (§M2). Los flags internos de GU-A8 NO forman parte de él. */
 export type GradedEstimateConfigDTO = Omit<
   GradedEstimateConfig,
-  'estimatesEnabled' | 'highlightEnabled' | 'ingestConfigInvalid' | 'maxRawMultipleInvalid'
+  'estimatesEnabled' | 'highlightEnabled' | 'ingestConfigInvalid' | 'ingestInvalidKeys' | 'maxRawMultipleInvalid'
 >;
 
 /**
@@ -518,6 +530,7 @@ export const DISABLED_GRADED_ESTIMATE_CONFIG: GradedEstimateConfig = {
   sourceStat: DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
   ingestMaxCardsPerRun: DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   ingestConfigInvalid: false,
+  ingestInvalidKeys: [],
   maxRawMultipleInvalid: false,
 };
 

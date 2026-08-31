@@ -611,11 +611,114 @@ export interface HoldingsResponse {
 }
 
 // ---- Checkout / órdenes (contrato §4) ----
+
+/**
+ * v1.51-c (contrato §4, NORMATIVO; ARCHITECTURE §5.2 y §5.2.9) — los HECHOS CONGELADOS
+ * (clase F, §5.2.2) de una línea de compra: se persisten en `OrderItem.cardSnapshot` al
+ * cobrar y un re-sync de catálogo NO los cambia. NO se re-derivan nunca.
+ *
+ * Este tipo no se usa suelto: se usa a través de sus dos formas hermanas de abajo. Cuál
+ * toca depende de DÓNDE nacen los hechos, y esa es toda la doctrina de §5.2.9:
+ *
+ *   - nacen en la misma petición (los dos quotes) ⇒ `OrderItemCardDTO`, completos;
+ *   - se LEEN del JSON persistido (`GET /orders/:orderId`) ⇒ `HistoricalOrderItemCardDTO`,
+ *     donde CUALQUIERA puede faltar, porque `cardSnapshot` es una columna `Json` que
+ *     PostgreSQL no valida y el blob de un pedido antiguo lo escribió una versión anterior
+ *     de nuestro propio código.
+ *
+ * NINGUNA de las dos es un `CardDTO` y está PROHIBIDO tiparlas como tal: no traen `id`,
+ * `externalId`, `imageLargeUrl`, `rarity`, `supertype`, `subtypes`, `setId`, `numberSort`,
+ * `numberPrefix`, `availableFinishes` ni `displayFinishes`. Ese tipo falso —prometer campos
+ * que el backend nunca envió en esa posición— es lo que dejó el hueco gris de la miniatura y
+ * escondió el sufijo de condición durante un release entero. Quien necesite el `CardDTO`
+ * completo lo pide por `GET /catalog/cards/:cardId` — PERO NUNCA para rellenar un hecho
+ * congelado que falta (§5.2.9(c)): eso es re-resolver desde el cliente, la misma violación
+ * de §5.2.2 por la puerta de atrás.
+ */
+export interface FrozenCardFacts {
+  cardId: string;
+  name: string;
+  /** AUSENTE (no `null`) si la carta no tenía set al congelar: sale de `card.set?.name`. */
+  setName?: string;
+  number: string;
+  /** OJO: `productType` y `rawCondition` viajan DENTRO de `card`, NO al nivel del ítem. */
+  productType: ProductType;
+  /**
+   * v1.51-c: clave SIEMPRE presente, valor `null` fuera de raw. El checkout los congela tal
+   * cual salen de columnas NULLABLES de `InventoryItem`, así que viajan como `null`, NO
+   * omitidos. PROHIBIDO usar `'rawCondition' in card` como discriminante de «es sellado»:
+   * el discriminante es `productType`. Único valor "NM"; el label legible vive en i18n.
+   */
+  rawCondition: RawCondition | null;
+  /** v1.51-c: clave SIEMPRE presente; `null` fuera de graded. */
+  gradingCompany: GradingCompany | null;
+  /** v1.51-c: clave SIEMPRE presente; `null` fuera de graded. */
+  gradeValue: string | null;
+}
+
+/**
+ * PRESENTACIÓN RESUELTA EN LECTURA (clase P, §5.2.3): NO se persiste, se resuelve por join
+ * sobre `cardId`. Clave SIEMPRE presente en las TRES superficies, valor NULLABLE. `null` es
+ * legítimo (la fila `Card` puede no existir, su columna ser nula, o el blob histórico no
+ * traer `cardId` con el que unir): el front pinta placeholder, no es error, no se reintenta
+ * y no bloquea el checkout ni el pedido. PROHIBIDO construir la URL por plantilla (§5.2.5).
+ */
+export interface ResolvedCardImage {
+  imageSmallUrl: string | null;
+}
+
+/**
+ * Forma COMPLETA (contrato §4). SOLO los dos quotes: `POST /checkout/quote` y
+ * `POST /checkout/guest/quote`. Ahí los ocho hechos están garantizados porque nacen en la
+ * misma petición desde la pieza viva (columnas `NOT NULL`), no se leen de un blob.
+ */
+export type OrderItemCardDTO = FrozenCardFacts & ResolvedCardImage;
+
+/**
+ * Forma TOLERANTE (contrato §4 «Tolerancia del histórico»; ARCHITECTURE §5.2.9). SOLO
+ * `GET /orders/:orderId`, la única superficie que lee del HISTÓRICO.
+ *
+ * CUALQUIERA de los ocho hechos puede faltar —incluidos `cardId`, `name`, `number` y
+ * `productType`—: un blob ausente, no-objeto o vacío rinde `card` con SOLO `imageSmallUrl:
+ * null`, y sigue siendo `200`. `imageSmallUrl` no puede faltar: se resuelve en lectura.
+ *
+ * Deber del cliente, por campo (contrato §4, punto 4) — implementado en
+ * `src/lib/historical-card.ts` y ejercido por `OrderDetailView`:
+ *   - `name` ausente ⇒ etiqueta neutra de i18n (`orders.item.unknownCard`). NUNCA cadena
+ *     vacía, ni `"undefined"`, ni la línea desaparecida: la línea SE PINTA IGUAL, porque
+ *     tiene importe (y el importe no vive en el blob: es columna propia de `OrderItem`).
+ *   - `number`/`setName` ausentes ⇒ se OMITE ese fragmento (nada de «#» ni «· » huérfanos).
+ *   - `productType` ausente ⇒ no se infiere; se omiten los adornos que dependen de él.
+ *   - `cardId` ausente ⇒ no hay enlace a la ficha, y la imagen es `null` por construcción.
+ *   - `rawCondition`/`gradingCompany`/`gradeValue` ausentes **o `null`** ⇒ se omite el chip.
+ *
+ * ⛔ PROHIBIDO rellenar un hueco con `GET /catalog/cards/:cardId` (ni con ninguna otra
+ * consulta): el catálogo dice cómo se llama esa carta HOY, no qué decía el pedido cuando se
+ * pagó. Un hueco honesto es preferible a un dato inventado dentro de un registro probatorio.
+ */
+export type HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & ResolvedCardImage;
+
+/**
+ * Línea de un QUOTE (contrato §4): `{ inventoryItemId, card: OrderItemCardDTO,
+ * unitPriceCents }` — TRES claves, ni una más. El backend lo fija con
+ * `expect(preview).not.toHaveProperty('productType')`. Forma COMPLETA: los quotes construyen
+ * los hechos en la misma petición.
+ */
 export interface OrderItemPreview {
   inventoryItemId: string;
-  card: CardDTO;
-  productType: ProductType;
-  rawCondition?: RawCondition;
+  card: OrderItemCardDTO;
+  unitPriceCents: number;
+}
+
+/**
+ * Línea de `GET /orders/:orderId` (contrato §4, v1.51-c). MISMAS tres claves que el quote,
+ * pero `card` es la forma TOLERANTE: esta superficie LEE del blob persistido y no puede
+ * prometer lo que el blob quizá no traiga. `unitPriceCents` NO vive en el blob (columna
+ * propia de `OrderItem`), así que un snapshot incompleto no mueve un centavo.
+ */
+export interface OrderItemDTO {
+  inventoryItemId: string;
+  card: HistoricalOrderItemCardDTO;
   unitPriceCents: number;
 }
 
@@ -660,7 +763,13 @@ export interface OrderDetailDTO {
   createdAt: string;
   settledAt?: string;
   breakdown: BreakdownDTO;
-  items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
+  /**
+   * v1.51-c: NO es la forma del quote. `card` es `HistoricalOrderItemCardDTO` (tolerante):
+   * cualquier hecho congelado puede faltar. Tiparlo como `OrderItemPreview` era el mismo
+   * defecto del `CardDTO` falso, por el otro lado — un tipo de cliente prometiendo
+   * `name: string` cuando el backend puede no enviarlo (la línea salía MUDA: `[""]`).
+   */
+  items: OrderItemDTO[];
   cfdiStatus: CfdiStatus;
   invoiceRequested: boolean;
   stripePaymentIntentId?: string;
@@ -711,10 +820,15 @@ export interface ShipmentDTO {
   // WS-F F6: `productType` por ítem alimenta el UI-gate de disputa (graded NO aplica → 422 NOT_RAW).
   // v1.17: `finish` por ítem (acabado de la copia física). Opcional: el listado crudo puede omitir
   // `productType`/`finish`/`folio`/`card`; cuando falta, el backend es la autoridad.
+  // v1.51-b (misma doctrina, otro DTO): `card` de un envío es `ClientShipmentItemDTO.card`
+  // del contrato §5 —CINCO campos— y NO un `CardDTO`. Tiparlo como `CardDTO` prometía
+  // `imageLargeUrl`/`rarity`/`availableFinishes` que esta ruta nunca envía. Las vistas solo
+  // leen `name`/`setName`/`number`/`imageSmallUrl`, así que no había bug visible: se corrige
+  // el tipo para que no lo haya mañana.
   items: {
     inventoryItemId: string;
     folio: string;
-    card: CardDTO;
+    card: { id: string; name: string; setName: string; number: string; imageSmallUrl: string };
     productType?: ProductType;
     finish?: Finish;
   }[];
@@ -2870,7 +2984,8 @@ export interface GuestCheckoutNotices {
 }
 
 export interface GuestCheckoutQuoteResponse {
-  items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
+  /** v1.51-b: MISMA forma que §4; `card` es `OrderItemCardDTO` (no un `CardDTO`). */
+  items: OrderItemPreview[];
   fulfillmentMode: FulfillmentMode;
   breakdown: BreakdownDTO;
   /**

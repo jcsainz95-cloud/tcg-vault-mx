@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
-import { mockListings } from '@/lib/mock/fixtures';
+import { mockListings, orderItemCard } from '@/lib/mock/fixtures';
 import type { GuestCheckoutQuoteResponse } from '@/types/contract';
 
 // Link de i18n → <a> plano para el render de prueba.
@@ -36,9 +36,10 @@ const VAULT_TOTAL_CENTS = 30400;
 function guestQuote(ids: string[]): GuestCheckoutQuoteResponse {
   const listing = mockListings.find((l) => l.inventoryItemId === ids[0]) ?? mockListings[0];
   return {
+    // v1.51-b: `OrderItemCardDTO`, no el `CardDTO` del fixture (§4-G.1 comparte forma con §4).
     items: ids.map((id, i) => ({
       inventoryItemId: id,
-      card: listing.card,
+      card: orderItemCard(listing),
       unitPriceCents: 12500 + i,
     })),
     fulfillmentMode: 'direct_ship',

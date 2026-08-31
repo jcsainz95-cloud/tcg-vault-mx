@@ -95,7 +95,15 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
       inventoryItemId: id,
-      cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
+      // v1.51-b (§5.2): `cardSnapshot` es `FrozenCardFacts` (clase F). `cardId` y `productType`
+      // son obligatorios — el tipo los exige desde que el blob dejó de ser `object`.
+      cardSnapshot: {
+        cardId: `card-${id}`,
+        name: 'E2E Charizard',
+        setName: 'Base',
+        number: '4',
+        productType: 'raw' as const,
+      },
       unitPriceCents: 25000,
       // v2.0 (§N.8): instrumentación de VENTA congelada con el precio.
       marketMxnCents: 20000,
@@ -111,7 +119,15 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
       inventoryItemId: id,
-      cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
+      // v1.51-b (§5.2): `cardSnapshot` es `FrozenCardFacts` (clase F). `cardId` y `productType`
+      // son obligatorios — el tipo los exige desde que el blob dejó de ser `object`.
+      cardSnapshot: {
+        cardId: `card-${id}`,
+        name: 'E2E Charizard',
+        setName: 'Base',
+        number: '4',
+        productType: 'raw' as const,
+      },
       unitPriceCents: 25000,
       // v2.0 (§N.8): instrumentación de VENTA congelada con el precio.
       marketMxnCents: 20000,

@@ -3,6 +3,56 @@
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
+> **Rev v1.51-c (2026-08-31, arquitecto — UNA decisión de precisión sobre §5.2, enrutada por el techlead (regla 9).
+> Base: v1.51-b, vigente entera. Cero migraciones, cero DDL, cero montos, cero rutas, CERO cambios de conducta.)**
+> 1. **§5.2.9 (nueva) — qué pasa cuando un HECHO CONGELADO se perdió.** El contrato v1.51-b prometía `cardId`, `name`,
+>    `number` y `productType` **requeridos**, pero `GET /orders/:orderId` lee una columna `Json` sin esquema escrita
+>    por versiones anteriores del código: **puede no traerlos**. Era **el mismo pecado que §5.2 vino a matar,
+>    invertido**. Se declara la **tolerancia** en el contrato (`HistoricalOrderItemCardDTO`, `Partial` de los hechos)
+>    y se **RECHAZA** que el backend «garantice un mínimo» rellenando desde el join: violaría §5.2.2 y cambiaría un
+>    hueco honesto por un **dato inventado en un registro probatorio**. Regla general: **(P) degrada a `null`, (F)
+>    degrada a AUSENTE; ninguna degrada jamás a otro valor.**
+> 2. **Money-safe explícito:** el dinero de la línea no vive en el blob (`unitPriceCents` es columna, el `breakdown`
+>    sale de `Order`) ⇒ un snapshot incompleto **no mueve un centavo**. Peor caso: cosmético, con honestidad.
+> 3. **`null` vs ausente alineado con la realidad** (`rawCondition`/`gradingCompany`/`gradeValue` viajan **`null` con
+>    clave presente**; solo `setName` se omite). Se corrige el **contrato**, no el código.
+> 4. **`GuestTrackingItemDTO` confirmado en su sitio:** cuarta superficie de imagen, otro DTO, join en vivo correcto,
+>    **no contradice §5.2.5** y **nadie debe uniformizarlo**. Su única deuda viva sigue siendo **D-IMG-2** (identidad),
+>    baja y no bloqueante. **Contrato: `API_CONTRACT.md` v1.51-c.**
+>
+> **Rev v1.51-b (2026-08-31, arquitecto — DOS DECISIONES DE DISEÑO, destapadas por un diagnóstico de imágenes.
+> DISEÑO EN PAPEL; lo implementan BACKEND, FRONTEND y DEVOPS. Base: v1.51-a, vigente entera.)**
+> **Cero migraciones, cero DDL, cero montos, cero rutas nuevas.**
+> 1. **§5.2 — DOCTRINA DEL SNAPSHOT CONGELADO (nueva, transversal).** El defecto visible (la miniatura que falta en
+>    carrito/checkout de invitado/detalle de pedido) ya estaba enrutado; lo que faltaba era la doctrina que explica
+>    **por qué nadie sabía dónde iba el campo**: `OrderItem.cardSnapshot` es un **JSON sin forma declarada**
+>    (`cardSnapshot: object` en backend, `"card": {}` en el contrato) que el frontend tipaba como **`CardDTO`
+>    completo**. Se declara: un snapshot congela **HECHOS DE LA TRANSACCIÓN** (clase F: qué se vendió, en qué
+>    estado, a qué precio) y **NUNCA presentación** (clase P: imagen y demás, que se **resuelve en lectura**).
+>    Criterio de clasificación en una pregunta, en §5.2.2.
+> 2. **Histórico: se elige la opción (ii), resolución en lectura — y se eleva de «fallback» a REGLA.** La imagen se
+>    resuelve **siempre** por join sobre el `cardId` ya congelado; **nunca** se lee del JSON. **Un solo cambio en el
+>    read path arregla los pedidos viejos y los nuevos a la vez.** Se **rechaza el backfill**: reescribir en sitio el
+>    JSON de líneas ya cobradas es una migración **no aditiva sobre filas dinero-adyacentes** cuyo beneficio es una
+>    miniatura y cuyo riesgo es el acta de una venta — y **no compraría nada**, porque congelar una **URL de tercero**
+>    (`images.pokemontcg.io`, CDN de TCGplayer; **sin copia propia**) congela una cadena, no unos bytes: se pudre.
+>    **Corolario general: no se congelan punteros a recursos de terceros dentro de registros probatorios.** §5.2.4.
+> 3. **§5.3 — `next/image`: ADOPCIÓN ACOTADA (nueva).** No es binaria. Se adopta **solo donde la imagen gobierna el
+>    LCP y el conjunto es acotado** (hero/teja líder de home + imagen principal de ficha); la **cola larga** del
+>    catálogo se queda en `<img>` **pidiendo la URL correcta**. Se **rechaza el `srcset` a mano**: con las dos únicas
+>    URLs del catálogo, en DPR≥2 el navegador pediría el `hires` en una caja de 160 px ⇒ **empeoraría los bytes en
+>    móvil**, que es justo lo que se quería arreglar. §5.3.2, §5.3.3.
+> 4. **Se CIERRA el comodín `hostname: '**'` de `remotePatterns`, ahora que es gratis.** Hoy es inerte; con
+>    `next/image` sería un **proxy de imágenes abierto**. La lista correcta **ya existe en el backend**
+>    (`SEALED_IMAGE_HOST_ALLOWLIST`): `remotePatterns` debe ser su **espejo**, nunca ir por delante. §5.3.4.
+> 5. **Precondición de coste (§5.3.5):** el nivel A no va a producción hasta que **devops confirme cuota y precio de
+>    transformaciones del plan de Vercel vigente** y lo deje fechado en `DEVOPS_NOTES.md`. Misma disciplina que
+>    §4.38(r.3): una función que consume recurso facturado no se enciende con una estimación. **No transcribo cifras
+>    de Vercel aquí** (§0-B: clase (B)).
+> 6. **Cinco desviaciones registradas y enrutadas, ninguna corregida por mí** (D-IMG-1..5, §9), incluida una nueva:
+>    el tracking de invitado y `shipments` resuelven **la identidad** por join en vivo en vez de leerla del registro
+>    congelado (baja, no bloqueante). **Contrato: `API_CONTRACT.md` v1.51-b** (declara `OrderItemCardDTO`).
+>
 > **Rev v1.51-a (2026-08-31, arquitecto — CIERRE DE A-1 (condición del techlead sobre M-46), CIERRE DE GU-9
 > (decisión del dueño) y UN CAMBIO DE INVARIANTE (I8). Base: v1.51-one-dial, que sigue vigente entera.)**
 > 1. **A-1 — el `COSTE MEDIDO` pasa a ser PRECONDICIÓN del primer `off → on`**, al mismo nivel que el veredicto de
@@ -11844,6 +11894,391 @@ processingFeeCents = totalCents − baseCents
 
 ---
 
+### 5.2 Doctrina del SNAPSHOT CONGELADO — qué se congela y qué se resuelve (v1.51-b, NORMATIVA, transversal)
+
+> **Origen.** Un diagnóstico encontró que `OrdersService.cardSnapshot()` no copia `imageSmallUrl` mientras
+> `ShipmentsService.toClientShipmentItem()` sí la incluye, y que el carrito, el checkout de invitado y el detalle de
+> pedido pintan un hueco gris. **Ese defecto ya está enrutado a backend como conformidad con el contrato y no se
+> decide aquí.** Lo que se decide aquí es lo que el defecto destapó: **nadie sabía dónde iba el campo, porque el
+> sistema nunca declaró qué significa «snapshot congelado».** Hoy conviven dos lecturas incompatibles y por eso el
+> campo cayó en la grieta. Esta sección cierra la grieta.
+
+#### 5.2.1 El hallazgo de fondo: el snapshot no tiene forma declarada
+
+Tres hechos, verificados contra el código (clase (B) de §0-B — se citan por su origen, no por autoridad documental):
+
+| # | Hecho | Dónde |
+|---|---|---|
+| 1 | El snapshot se persiste como **JSON sin tipo**: la línea de orden lo declara `cardSnapshot: object` | `backend/src/modules/orders/orders.service.ts` (tipo `OrderLineData`) |
+| 2 | El contrato **nunca declaró su forma**: `GET /orders/:orderId` documenta `"card": {}` y `OrderItemPreview` no tiene definición de campos | `API_CONTRACT §4` |
+| 3 | El frontend lo tipa como **`CardDTO` completo** (con `id`, `externalId`, `imageSmallUrl: string`, `imageLargeUrl: string`, `availableFinishes`…), que el backend **jamás** ha devuelto en esa posición | `frontend/src/types/contract.ts` (`OrderItemPreview.card: CardDTO`) |
+
+El hueco gris no es «se olvidó una línea». Es la consecuencia previsible de **un blob sin forma en un extremo y un
+tipo mentiroso en el otro**: el compilador de TypeScript afirmaba que `card.imageSmallUrl` existía y era `string`,
+así que el front lo pintó, y nada en la cadena podía desmentirlo. Cualquier campo futuro caerá en la misma grieta
+mientras el blob siga sin declarar. **Declarar la forma es el arreglo; añadir el campo es solo el síntoma.**
+
+#### 5.2.2 LA DOCTRINA — un snapshot congela HECHOS DE LA TRANSACCIÓN, no PRESENTACIÓN
+
+**Decisión.** En este sistema, `OrderItem.cardSnapshot` es **una foto probatoria del acto de compra**, no una caché
+de conveniencia. Toda información que viaje con una línea de orden cae en **una** de dos clases, y **la clase
+determina dónde vive**:
+
+| Clase | Qué es | Dónde vive | Regla |
+|---|---|---|---|
+| **(F) HECHO CONGELADO** | Qué se vendió y en qué estado: `cardId`, `name`, `setName`, `number`, `productType`, `rawCondition`, `gradingCompany`, `gradeValue`. Y, en columnas propias, el dinero: `unitPriceCents` + el quinteto de instrumentación de §N.8 (`marketMxnCents`, `priceBasis`, `marketBracket`, `finish`) | **Persistido** en `OrderItem` (JSON `cardSnapshot` + columnas) | **Inmutable.** Se escribe una vez, en la transacción del checkout. **Nunca** se re-deriva en lectura, **nunca** se reescribe, y **sobrevive** a que la entidad referida cambie, se renombre por un re-sync de catálogo o desaparezca. |
+| **(P) PRESENTACIÓN RESOLUBLE** | Cómo se dibuja: **imagen**, etiquetas legibles, traducciones, arte, cualquier cosa cuya ausencia produce un hueco visual y **nunca** un dato erróneo | **No se persiste.** Se resuelve **en lectura**, uniendo por el `cardId` que la clase (F) ya congeló | **Siempre fresca.** Su peor caso es `null` ⇒ el front pinta su placeholder. |
+
+**Criterio para clasificar, cuando aparezca el próximo campo dudoso — una sola pregunta:**
+
+> *Si este valor cambiara mañana y el pedido de ayer lo mostrara cambiado, ¿el comprador diría «esto no es lo que
+> compré», o solo «se ve distinto»?*
+
+«Esto no es lo que compré» ⇒ **clase (F)**, se congela. «Se ve distinto» ⇒ **clase (P)**, se resuelve. El nombre de
+la carta es (F): si un re-sync la renombra, el pedido de ayer debe seguir diciendo lo que decía cuando se cobró. La
+miniatura es (P): que la imagen del catálogo mejore no altera qué se compró.
+
+#### 5.2.3 Por qué la imagen es clase (P) — tres razones, y la tercera es la decisiva
+
+1. **No es identidad.** La identidad de lo vendido ya está completa sin ella: `cardId + name + setName + number +
+   productType + condición/grado`. Una miniatura no prueba nada que esos campos no prueben mejor; ninguna disputa
+   de §H se resuelve mirando el thumbnail.
+2. **La imagen ya se resuelve por join en la mayoría del sistema.** No estoy introduciendo un patrón nuevo: lo
+   estoy nombrando. `ShipmentsService.toClientShipmentItem()` y `GuestCheckoutService` (el `GuestOrderTrackingDTO`)
+   **ya** construyen sus ítems uniendo contra `inventoryItem.card` en vivo. La superficie que lee del JSON
+   congelado es **una sola**: `GET /orders/:orderId`. La lectura minoritaria era la del blob.
+3. **Congelar una URL de tercero no congela nada — congela una cadena, no unos bytes.** Este es el punto que
+   decide. Las URLs de imagen apuntan a CDNs que **no controlamos**: `images.pokemontcg.io` para cartas y el CDN de
+   TCGplayer para sellado (los hosts admisibles son los de `SEALED_IMAGE_HOST_ALLOWLIST` en
+   `backend/src/modules/inventory/sealed-image-host.ts`, más el de pokemontcg.io). **No hay copia propia**
+   (restricción explícita de `PROJECT.md`: «sin fotos propias»; el único object storage del MVP es `kyc_ine`).
+   Una URL de tercero congelada en un pedido de hace un año **puede estar muerta**, y entonces el snapshot
+   «inmutable» rinde un `404` en lugar de una imagen — es decir, **rinde peor que el join**, que al menos sigue lo
+   que el catálogo tenga hoy. Congelar un puntero ajeno da la **apariencia** de inmutabilidad con **ninguna** de sus
+   garantías. Un snapshot solo puede congelar lo que posee; de lo que no posee, solo puede congelar la promesa rota.
+
+> **Corolario general, para que no haya que re-litigarlo:** **en este sistema NO se congelan punteros a recursos de
+> terceros dentro de registros probatorios.** Si algún día el negocio exige que la imagen del pedido sea
+> literalmente la de la fecha de compra, eso **no** se consigue guardando la URL: se consigue **copiando los
+> bytes** a almacenamiento propio — lo que hoy `PROJECT.md` excluye del MVP. Mientras no haya copia propia, la
+> pregunta «¿congelamos la imagen?» está mal planteada.
+
+#### 5.2.4 DECISIÓN sobre las órdenes históricas: **opción (ii) — resolución en lectura**. Y no es un «fallback»
+
+**Se elige (ii), y se eleva de excepción a regla:** `imageSmallUrl` **no** se lee nunca del JSON —ni siquiera si
+algún día alguien la escribe ahí—; se resuelve **siempre** uniendo por `cardSnapshot.cardId`. No hay dos caminos, no
+hay «si el snapshot no la trae, entonces…». Hay **uno**.
+
+**La consecuencia que justifica la elección por sí sola:** como el histórico y el futuro pasan por el **mismo**
+código de lectura, **un solo cambio, en el read path, arregla los pedidos viejos y los nuevos a la vez**. No queda
+un histórico degradado que reparar después. Las otras dos opciones parten el problema en dos y dejan una mitad
+pendiente.
+
+**Rechazo de (i) — backfill de la columna JSON.** Cuatro motivos, en orden de peso:
+1. **Consagraría la doctrina equivocada.** Escribir presentación dentro del registro probatorio es exactamente el
+   error que esta sección corrige; hacerlo masivamente lo vuelve irreversible de facto.
+2. **No compra nada que (ii) no dé gratis.** El valor que el backfill escribiría *es* el que el join devuelve —
+   sale de la misma fila `Card`. La única diferencia es que el backfill **deja de actualizarse** y empieza a
+   pudrirse (§5.2.3-3), mientras el join sigue vivo.
+3. **Es una migración de datos NO aditiva sobre filas dinero-adyacentes.** Este proyecto prefiere migraciones
+   aditivas (§11), y aquí se trata de **reescribir en sitio el JSON de líneas de orden ya cobradas**. Un `UPDATE`
+   sobre una columna JSON no tiene rollback natural: si el mapeo se equivoca (una carta con `cardId` reasignado,
+   un blob con forma inesperada de una versión anterior del código), lo que se corrompe es el registro de qué se
+   vendió. **El beneficio es una miniatura; el riesgo es el acta de una venta.** La asimetría no admite discusión.
+4. **Ni siquiera sería suficiente.** Un backfill congela la URL *de hoy*; dentro de un año esas URLs pueden estar
+   muertas y habría que volver a correrlo. Una operación de riesgo que hay que repetir periódicamente para
+   sostener un beneficio cosmético no es una migración: es una deuda con calendario.
+
+**Rechazo de (iii) — aceptarlo como deuda.** No se acepta deuda por un defecto cuyo arreglo cuesta **una consulta
+por lectura de detalle de pedido y cero migraciones**. Aceptar deuda es para lo que es caro o arriesgado arreglar;
+esto no es ninguna de las dos.
+
+#### 5.2.5 Regla de resolución (normativa) — cómo se implementa, en firmas
+
+**Punto de unión: `cardSnapshot.cardId`. PROHIBIDO resolver por `OrderItem.inventoryItemId → InventoryItem.card`.**
+La pieza física cambia de titular, de estado y de bóveda a lo largo del ciclo `pending → settled` (§3.3); usarla
+como puente para pintar un pedido acopla la vista histórica a una entidad que sigue mutando. El `cardId` congelado
+es el **único** puente estable. (Esto no invalida `shipments`, que sí es una vista de piezas en curso, no del acta
+de compra — ver §5.2.7, D-IMG-2.)
+
+```
+// Estructura persistida — NO CAMBIA. Ni un campo nuevo, ni una migración.
+// v1.51-c: los tres últimos se congelan como `null` (columnas nullables de InventoryItem), NO omitidos;
+//          `setName` sí se OMITE cuando la carta no tenía set.
+FrozenCardFacts = { cardId, name, setName?, number, productType,
+                    rawCondition|null, gradingCompany|null, gradeValue|null }
+
+// Lo que se LEE de la columna `Json` de un pedido ya cobrado: NO hay garantía de esquema (§5.2.9).
+PersistedCardFacts = Partial<FrozenCardFacts>
+
+// Proyección de LECTURA (lo que viaja por el cable). Vive solo en memoria.
+// Preserva la completitud de su entrada: hechos completos ⇒ OrderItemCardDTO (quotes);
+// hechos parciales ⇒ HistoricalOrderItemCardDTO (GET /orders/:orderId). NUNCA rellena un hecho ausente.
+resolveOrderItemCard(facts: F, card: Card | null): F & { imageSmallUrl: string | null }
+  = { ...facts, imageSmallUrl: card?.imageSmallUrl ?? null }
+
+// Batched, nunca N+1: una sola consulta por detalle de pedido.
+loadCardsForSnapshots(snapshots) =
+  prisma.card.findMany({ where: { id: { in: distinct(snapshots.map(s => s.cardId)) } },
+                         select: { id: true, imageSmallUrl: true } })
+```
+
+Reglas duras:
+- **La clave `imageSmallUrl` está SIEMPRE presente** en la respuesta; su ausencia se expresa con **`null`**, nunca
+  omitiendo el campo. Shape estable (misma norma que `unavailableItems: []` de v1.21.3).
+- **`null` es un resultado legítimo y esperable**, por dos vías: la fila `Card` ya no existe, o existe con
+  `imageSmallUrl` nulo — **la columna es `String?` en `prisma/schema.prisma`**. El front pinta su placeholder; no es
+  un error, no se registra como incidente, no bloquea nada.
+- **Nunca inventar la URL.** Prohibido construirla por plantilla (`https://images.pokemontcg.io/{set}/{n}.png`) o
+  derivarla del `externalId`: sería reintroducir por la puerta de atrás un puntero no verificado a un host de
+  tercero. Solo se sirve lo que la columna contenga.
+- **En los dos QUOTE no hay consulta extra:** `POST /checkout/quote` y `POST /checkout/guest/quote` ya cargan
+  `card` en memoria (`include: { card: { include: { set: true } } }`); ahí la proyección se llena de ese objeto. La
+  consulta batcheada aplica **solo** a `GET /orders/:orderId`, que lee del histórico.
+- **Money-safe, explícito:** esta sección **no toca** ningún importe, ninguna precedencia de precio, ningún campo
+  del quinteto de instrumentación, ningún estado de orden. Es **display-only**, en la misma categoría que
+  `sealedImageUrl` (§4.34a).
+- **v1.51-c — la proyección NO rellena hechos.** `resolveOrderItemCard` añade la clase (P) y **nada más**: si el blob
+  histórico no trae `name`/`cardId`/`number`/`productType`, la salida tampoco los trae. **Prohibido completarlos
+  desde el join** (violaría §5.2.2). Forma tolerante y render degradado: **§5.2.9**.
+
+#### 5.2.6 Límite declarado: el sellado en el histórico de pedidos
+
+El snapshot congelado ancla **`cardId`**, no `sealedProductId`. Por lo tanto, en las líneas de pedido con
+`productType='sealed'`, la resolución de §5.2.5 rinde la imagen de la **carta ancla**, que es exactamente **la cola**
+de la cascada normada en §4.34a (`SealedProduct.imageUrl` → snapshot `sealedImageUrl` → `Card.imageSmallUrl` →
+`null`). **Los dos primeros peldaños no están disponibles desde el acta de compra.**
+
+Lo declaro en vez de resolverlo a medias: **mostrar la caja del sellado en el historial de pedidos requeriría
+congelar identidad de sellado en la línea de orden (clase (F), DDL aditivo), y eso es alcance de producto, no una
+corrección de lectura.** No lo decido por mi cuenta. Queda **enrutado**: si el dueño lo quiere, entra como petición
+al arquitecto (regla 9) y se diseña como campo (F) —identidad, no imagen—. Mientras tanto, es un límite conocido,
+no un bug, y **no** se compensa con un join oportunista a `InventoryItem` (prohibido por §5.2.5).
+
+#### 5.2.7 Encargo por rol (D-1)
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: doctrina (F)/(P), decisión (ii), y **declaración de la forma** de `items[].card` como **`OrderItemCardDTO`** en `API_CONTRACT §4` (**rev v1.51-b**). El blob deja de no tener forma. | — |
+| **backend** | (a) Implementar §5.2.5 en las **tres** superficies: `POST /checkout/quote`, `POST /checkout/guest/quote` y `GET /orders/:orderId`. (b) **Tipar** `OrderLineData.cardSnapshot` con `FrozenCardFacts` en vez de `object` — sin el tipo, la grieta sigue abierta. (c) **No** añadir `imageSmallUrl` al objeto que se **persiste**: el arreglo va en la proyección de lectura, no en `cardSnapshot()`. (d) **Cero migraciones**: si el diseño exige una, es señal de que se desvió a la opción (i) y debe volver al arquitecto. | Antes del merge del stream «Órdenes y dinero» |
+| **frontend** | (a) Corregir `OrderItemPreview.card: CardDTO` → `OrderItemCardDTO` en `src/types/contract.ts` (hoy es un tipo falso: promete campos que el backend nunca envió). (b) Tratar `imageSmallUrl: null` como caso normal → placeholder de `CardImage`, sin error visible. (c) Alinear fixtures de mocks a la forma real. **⚠️ ACTUALIZADO en v1.51-c:** eso vale para los DOS quotes; **`GET /orders/:orderId` usa la forma TOLERANTE** (`HistoricalOrderItemCardDTO`) — encargo completo en **§5.2.9**. | Con el contrato v1.51-b |
+| **qa** | Un caso E2E que valga: **pedido creado ANTES del arreglo** (fila con JSON sin imagen) ⇒ `GET /orders/:id` devuelve `imageSmallUrl` poblada. Si eso pasa, la decisión (ii) quedó bien implementada; si solo pasan los pedidos nuevos, se implementó (i) disfrazada. | Gate por stream |
+| **devops** | Nada. **Esta decisión no tiene migración, ni env, ni paso de despliegue.** Se registra precisamente para que nadie prepare una ventana de migración que no existe. | — |
+
+#### 5.2.8 Lo que esta sección NO cambia
+
+- **No cambia qué se persiste.** `OrderItem.cardSnapshot` guarda hoy y seguirá guardando los mismos ocho campos.
+- **No cambia el dinero.** `unitPriceCents` y el quinteto de §N.8 siguen congelándose en la transacción de checkout,
+  con la misma inmutabilidad de siempre. La doctrina (F)/(P) **refuerza** esa regla al darle nombre.
+- **No cambia `shipments` ni el `GuestOrderTrackingDTO`** en su comportamiento de imagen (ya resolvían por join,
+  que es lo correcto para la imagen). Sí quedan con una observación por su resolución de **identidad**: §9, D-IMG-2.
+- **No toca `backend/src/modules/pricing/`** — zona de otro agente en este momento.
+
+#### 5.2.9 Qué pasa cuando un HECHO CONGELADO se perdió (v1.51-c, NORMATIVA)
+
+> **Origen.** El techlead detectó, sobre la implementación ya aprobada de §5.2, que el contrato v1.51-b declaraba
+> `cardId`, `name`, `number` y `productType` **requeridos** en las tres superficies, mientras el backend lee el
+> histórico con un `Partial` y **puede servir un `card` sin ellos** (conducta fijada por test, y correcta). Enrutado a
+> mí por regla 9. **Es el mismo defecto que §5.2 vino a matar, invertido:** un tipo de cliente prometiendo lo que el
+> backend puede no enviar — la grieta exacta por la que se cayó `imageSmallUrl`. Aquí se cierra por el otro lado.
+
+**El hecho de fondo.** `OrderItem.cardSnapshot` es una columna `Json`. **PostgreSQL no valida su esquema**, y el blob
+de un pedido antiguo lo escribió una versión anterior de nuestro propio código. Por tanto la forma de un snapshot
+histórico **no es una garantía del sistema: es una observación sobre datos que ya existen**. Cualquier tipo que
+afirme lo contrario es una promesa que la base no respalda.
+
+**Decisión: el contrato declara la TOLERANCIA; el backend NO rellena.** `GET /orders/:orderId` sirve
+`HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & { imageSmallUrl: string | null }` (API_CONTRACT §4). Los dos
+quotes conservan la forma **completa** `OrderItemCardDTO`, porque ahí los hechos **nacen en la misma petición** desde
+la pieza viva (`cardSnapshot(item)` sobre columnas `NOT NULL`) y sí están garantizados.
+
+**Rechazo de la alternativa (que el backend garantice un mínimo rellenando desde el join).** Tres motivos, y el
+primero basta:
+1. **Contradice §5.2.2 de frente.** Los hechos congelados **no se re-resuelven**. Rellenar `name`/`number` desde
+   `Card` es exactamente lo que el test «los hechos congelados sobreviven a un re-sync que renombró la carta»
+   existe para impedir. No se puede prohibir el re-resolver en el caso normal y autorizarlo en el caso degradado:
+   el caso degradado es **precisamente** donde el dato re-resuelto tiene más probabilidad de ser falso.
+2. **Cambia un hueco honesto por un dato inventado, dentro de un registro probatorio.** Un blob incompleto significa
+   «el acta no lo registró». Rellenarlo hace que el pedido **afirme** algo —con la misma tipografía que los hechos
+   reales— cuyo respaldo es el catálogo de hoy, no la venta de entonces. En una disputa (§H), eso es peor que el
+   hueco: el hueco se ve, el relleno no.
+3. **En el peor caso ni siquiera hay de dónde rellenar.** El blob incompleto más probable es el que **no trae
+   `cardId`** — y sin `cardId` no hay join. La «garantía» fallaría justo en el caso que decía cubrir.
+
+**La regla general que esto establece, para el próximo campo dudoso:**
+
+| Clase | Cuando no resuelve | Degrada a | Lo que el cliente dice |
+|---|---|---|---|
+| **(P) Presentación** | La fila `Card` no existe / columna nula / sin `cardId` | **`null`, clave presente** | «no hay imagen» ⇒ placeholder |
+| **(F) Hecho congelado** | El blob histórico no lo trae | **AUSENTE, clave omitida** | «no consta» ⇒ etiqueta neutra |
+
+**Ninguna de las dos degrada jamás a *otro valor*.** Esa es toda la doctrina: la ausencia se representa, no se
+sustituye. Y `null` (clase P) frente a ausente (clase F) **no es un detalle de estilo**: es la señal de cuál de las
+dos cosas pasó.
+
+**Money-safe, y es lo que acota el daño.** El dinero de la línea **no vive en el blob**: `unitPriceCents` es columna
+propia de `OrderItem` y el `breakdown` sale de columnas de `Order` (§5.1). Un snapshot incompleto **no puede mover un
+centavo** ni de lo que se muestra ni de lo que se cobró. El peor caso de T-3 es **cosmético con honestidad**: un
+pedido antiguo que dice menos de lo que hoy diríamos, con su importe intacto.
+
+**La tolerancia es de LECTURA. No relaja la ESCRITURA — invariante vigente:** el checkout persiste siempre los ocho
+hechos, con `cardId`, `name`, `number` y `productType` **no nulos**. Un pedido cobrado por el código vigente **nunca**
+produce un `card` incompleto; si lo produjera, es **defecto de backend**, no tolerancia. Y **no hay backfill**: §5.2.4
+sigue vigente, un blob incompleto no se repara, se muestra.
+
+**T-4 — `null` frente a ausente, alineado con lo que de verdad viaja.** `cardSnapshot()` congela `rawCondition`,
+`gradingCompany` y `gradeValue` **tal cual salen de columnas nullables** de `InventoryItem` ⇒ viajan como **`null` con
+la clave presente**, no omitidos. `setName` sale de `card.set?.name` ⇒ `undefined` ⇒ **omitido**. Se corrige **el
+contrato**, que los declaraba todos opcionales-ausentes. **Se rechaza pedirle al backend que omita los nulos:** sería
+cambio de conducta en el write path, produciría **divergencia entre blobs viejos y nuevos** (los ya persistidos
+seguirían con `null`) y no compra nada — `null` y ausente significan lo mismo aquí («no aplica»), y el discriminante
+real es `productType`.
+
+**Encargo por rol (D-1b, v1.51-c):**
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: §5.2.9 y `API_CONTRACT` **v1.51-c** (dos formas, tolerancia declarada, `null` vs ausente, ejemplos reales, confirmación de alcance de `GuestTrackingItemDTO`). | — |
+| **backend** | **NADA que cambiar en conducta** — el contrato se alineó al código, no al revés. Solo, si quiere el cerrojo de compilación completo: **exportar el alias `HistoricalOrderItemCardDTO`** (= `PersistedCardFacts & { imageSmallUrl: string \| null }`, que es lo que `resolveOrderItemCard` ya devuelve para el histórico) y anotar con él el retorno de las líneas de `getOrder`. **Opcional, sin urgencia.** ⛔ **Prohibido** «garantizar un mínimo» rellenando hechos desde `Card`: violaría §5.2.2. | Sin puerta (no bloquea merge) |
+| **frontend** | (a) Tipar las líneas de **`GET /orders/:orderId`** con la forma **tolerante** (`HistoricalOrderItemCardDTO`: todo hecho congelado opcional), **no** con `OrderItemCardDTO`. Los dos quotes conservan la forma completa. (b) Render degradado por campo según API_CONTRACT §4 «Tolerancia del histórico», punto 4: etiqueta neutra de i18n para `name`, omisión de fragmentos para `number`/`setName`, sin badge si falta `productType`, sin enlace a ficha si falta `cardId`. (c) ⛔ **Prohibido rellenar el hueco** con `GET /catalog/cards/:cardId`: sería re-resolver un hecho congelado desde el cliente — la misma violación de §5.2.2, por la puerta de atrás. (d) `rawCondition`/`gradingCompany`/`gradeValue` llegan **`null`, no ausentes**: no usar `in` como discriminante. | Antes del merge del stream «Órdenes y dinero» |
+| **qa** | Un caso más sobre el existente: **pedido histórico con blob incompleto** (sin `cardId`/`name`) ⇒ `GET /orders/:id` responde **`200`**, la línea se pinta con etiqueta neutra + placeholder, y **`unitPriceCents` y el `breakdown` salen intactos**. Si la UI revienta, o si muestra un `name` que el blob no traía, hay hallazgo. | Gate por stream |
+| **devops / ux-ui** | Nada. Sin migración, sin env, sin cambio de diseño (la etiqueta neutra usa el mismo tratamiento tipográfico ya existente del placeholder). | — |
+
+---
+
+### 5.3 Doctrina de IMÁGENES en el frontend — ¿se adopta `next/image`? (v1.51-b, NORMATIVA)
+
+#### 5.3.1 Hechos verificados (clase (B) de §0-B)
+
+| # | Hecho | Fuente ejecutable |
+|---|---|---|
+| 1 | **Cero** usos de `next/image` en `frontend/src`. El envoltorio único renderiza `<img>` crudo con la regla `@next/next/no-img-element` **silenciada a propósito** | `frontend/src/components/ui/CardImage.tsx` |
+| 2 | Hay `<img>` crudos en **12 archivos** además de ese envoltorio (`PhotoUploader`, `CellDrawer`, `TopBountiesShelf`, `CardDetailModal`, `BountyBoard`, `SealedShelf`, y cinco vistas de `admin/m1` + `GradedTab`) | `rg '<img' frontend/src` |
+| 3 | `images.remotePatterns` declara `images.pokemontcg.io` **y un comodín `hostname: '**'`** | `frontend/next.config.mjs` |
+| 4 | Esa configuración **hoy está muerta**: sin `next/image`, nada pasa por `/_next/image` | consecuencia de (1) |
+| 5 | El frontend corre en **Vercel** (backend + Postgres + Redis en Railway) | `docs/DEVOPS_NOTES.md` §topología, marcada CONFIRMADA |
+| 6 | El catálogo ya publica **dos tamaños por carta**: `imageSmallUrl` e `imageLargeUrl` | `Card` en `prisma/schema.prisma`; `CardDTO` en `API_CONTRACT` |
+| 7 | La teja secundaria del carrusel pide `imageLargeUrl` para una caja de **160–268 px** | `_home/FeaturedCarousel.tsx` |
+
+#### 5.3.2 El eje que decide (y no es «rendimiento sí/no»)
+
+El optimizador de Next **no es gratis y no se paga en CPU de nuestro servidor**: en Vercel se factura por
+**transformación única** `(imagen origen × ancho × calidad × formato)`, cacheada tras la primera petición. De ahí
+sale el único eje que importa:
+
+> **La optimización de imágenes es barata cuando hay POCAS imágenes vistas MUCHAS veces, y cara cuando hay MUCHAS
+> imágenes vistas POCAS veces.**
+
+Este producto es **las dos cosas a la vez, en superficies distintas**, y ahí murió la discusión de «adoptar o no»
+como pregunta binaria:
+
+- **Cabeza (acotada, amortizable):** home/hero, carrusel destacado. Un puñado de imágenes curadas que **todos** los
+  visitantes ven ⇒ el coste de transformación se amortiza a prácticamente cero y el beneficio cae justo sobre el
+  **LCP** de la página de entrada.
+- **Cola larga (no acotada):** rejilla de Compra, binder de master set, tablas de M1, miniaturas de carrito, pedido
+  y bóveda. El catálogo está **preciado completo** (§4.13) y se navega por búsqueda y facetas ⇒ el número de
+  transformaciones distintas escala con **la cobertura del catálogo**, no con el tráfico. Cada miniatura genera su
+  propia transformación, se ve pocas veces, y el ahorro por unidad es de decenas de KB.
+
+**Y hay un contra-argumento que mata la alternativa intermedia.** La opción «`<img>` crudo + `srcset` a mano» suena
+gratis, pero con las dos únicas URLs que da el catálogo produce un `srcset` de dos candidatos: el pequeño
+(~245 px de ancho intrínseco) y el `hires` (~745 px) — *anchos ilustrativos; el frontend DEBE verificar los
+intrínsecos reales antes de escribir un descriptor `w`, porque un `w` mal declarado hace que el navegador elija
+mal*. En una caja de 160 px sobre una pantalla de DPR 2, el navegador pediría **el archivo grande**: hoy esa teja
+descarga la pequeña. Es decir, **añadir `srcset` a las miniaturas EMPEORA los bytes en móvil**, que es justo lo que
+se quería arreglar. Una optimización que aumenta la descarga en el peor dispositivo no es una optimización: es una
+preferencia disfrazada de métrica.
+
+**Lo que sí es gratis y sí funciona es más simple: pedir la URL correcta.** El hallazgo (7) —una caja de 160 px
+descargando el `hires`— **no se arregla con `next/image` ni con `srcset`: se arregla eligiendo `imageSmallUrl`**, y
+esa corrección ya está enrutada a frontend. El bug nunca fue la falta de optimizador; fue pedir el archivo
+equivocado.
+
+#### 5.3.3 DECISIÓN — adopción ACOTADA, en tres niveles
+
+**Se adopta `next/image`, pero SOLO donde la imagen gobierna el LCP.** Tres niveles, exhaustivos y excluyentes:
+
+| Nivel | Superficies | Estrategia | Por qué |
+|---|---|---|---|
+| **A — `next/image`** | (1) Teja **líder** del carrusel de home y cualquier imagen del **hero** de la home. (2) Imagen **principal de la ficha de carta** (y de la ficha de sellado). | `next/image` con `priority` en la líder de home, `sizes` **explícito y estrecho**, sin ladder ancho | Son **el LCP** de las dos páginas más vistas. La cabeza tiene conjunto acotado (amortización total). En la ficha es 1–2 transformaciones por carta visitada, sobre un archivo `hires` que es donde AVIF/WebP rinde de verdad (el origen solo sirve PNG). |
+| **B — `<img>` con la URL CORRECTA** | Rejilla de Compra, binder de master set, `TopBountiesShelf`, `BountyBoard`, `SealedShelf`, `CellDrawer`, `CardDetailModal`, miniaturas de carrito/checkout/pedido/bóveda, y **todas** las vistas de `admin/m1` | `<img>` crudo, **`imageSmallUrl` siempre**, `imageLargeUrl` **solo** si la caja renderizada supera ~300 px CSS. **Sin `srcset`.** | Cola larga: muchas transformaciones, beneficio pequeño por unidad, y el `srcset` de dos pasos **regresa** bytes en DPR≥2 (§5.3.2). La ganancia real ya la da elegir bien la URL, a coste cero. |
+| **C — ni una cosa ni otra** | `PhotoUploader` (previsualización local `blob:`/`data:`) | `<img>` crudo, sin tocar | No es una imagen remota; pasarla por el optimizador es imposible y absurdo. |
+
+**Reglas de coste, obligatorias donde se adopte el nivel A** (esto es lo que separa un coste acotado de una factura
+sorpresa, y casi nadie lo hace):
+1. **`sizes` explícito y estrecho, siempre.** Un `sizes` vago multiplica las transformaciones por carta. Prohibido
+   `sizes="100vw"` sin breakpoints reales.
+2. **Recortar `images.deviceSizes` / `images.imageSizes`** en `next.config.mjs` al conjunto mínimo que el diseño
+   usa de verdad. Es la palanca de mayor efecto sobre el multiplicador; los defaults de Next son generosos.
+3. **Subir `images.minimumCacheTTL`** para que la caché de transformaciones no se enfríe y se re-facture.
+4. **Nada de nivel A dentro de listas o rejillas.** Si una superficie de nivel A empieza a paginar o a mostrar N
+   elementos variables, deja de ser nivel A y baja a B. **La regla es la forma de la superficie, no el gusto.**
+
+**No se adopta un loader externo ni una copia propia de imágenes.** Sería alta de un servicio de infraestructura no
+previsto y chocaría con la restricción de `PROJECT.md` («sin fotos propias»; object storage **acotado a `kyc_ine`**).
+Si algún día el coste del nivel A lo justificara, **es decisión del dueño**, no del frontend.
+
+#### 5.3.4 El comodín `hostname: '**'` — se CIERRA ahora, aunque hoy sea inerte
+
+**Decisión: se retira el comodín y `remotePatterns` queda restringido a los hosts que el backend puede producir.**
+
+Justificación, y por qué es urgente **precisamente porque hoy no hace nada**:
+- Con `next/image`, `/_next/image?url=<host arbitrario>` convierte el optimizador en un **proxy de imágenes
+  abierto**: cualquiera en internet puede hacer que **nuestro** despliegue descargue, transforme y sirva imágenes de
+  **cualquier** host — quemando transformaciones facturables, ancho de banda y reputación de IP, y regalando un
+  laundering de origen para contenido ajeno. Es un patrón de abuso conocido, no una hipótesis.
+- **Hoy el cambio tiene riesgo funcional CERO** (nada pasa por el optimizador ⇒ narrowing inobservable). En cuanto
+  entre la primera línea del nivel A, deja de ser gratis y pasa a ser un cambio que hay que probar. **La ventana
+  barata es ahora.**
+- **La lista correcta ya existe en el backend y no hay que inventarla.** El servidor **ya** valida el host antes de
+  persistir cualquier URL de imagen de sellado, contra `SEALED_IMAGE_HOST_ALLOWLIST`
+  (`backend/src/modules/inventory/sealed-image-host.ts`), con `https:` obligatorio y sin credenciales embebidas.
+  **`remotePatterns` debe ser el ESPEJO de esa lista** más el host de las imágenes de carta. Cualquier host que
+  `remotePatterns` acepte y el backend no pueda producir es superficie regalada.
+  - Norma §0-B: **la lista se cita por su origen, no se transcribe aquí como autoridad.** Hoy son, ilustrativamente,
+    los dominios de TCGplayer y TCGCSV en esa constante, más `images.pokemontcg.io` de `Card.imageSmallUrl`. Si el
+    backend amplía su allowlist, `remotePatterns` se amplía **detrás**, nunca por delante.
+- **Solo `protocol: 'https'`.** Sin `http`, sin comodines de esquema.
+- **Verificación obligatoria antes de mergear:** los fixtures de mocks y el bundle E2E usan
+  `images.pokemontcg.io` (`frontend/src/lib/mock/fixtures.ts`), que queda dentro de la lista. Aun así frontend debe
+  confirmar que **ningún** host usado por fixtures o por Playwright caiga fuera: con `next/image`, un host no listado
+  **falla la petición**, y ese fallo debe verse en desarrollo, no en producción.
+
+#### 5.3.5 Precondición de coste (no la doy por sabida)
+
+**No transcribo aquí cuotas ni precios de Vercel** — son valores de clase (B) que cambian sin avisarnos y que este
+documento convertiría en orden (§0-B.1). Lo que sí es normativo:
+
+> **El nivel A no se despliega a producción hasta que devops confirme, contra la consola del plan vigente, el
+> número de transformaciones de imagen incluidas y el precio del excedente, y deje ese dato en
+> `docs/DEVOPS_NOTES.md` con fecha.**
+
+Es la misma disciplina que §4.38(r.3) exige para encender el gancho de grading: **una función que consume un
+recurso facturado no se enciende con una estimación**. Si al medirlo el nivel A resultara caro, la salida está
+predefinida y es barata: **se degrada la ficha al nivel B** (queda solo la home, que es el conjunto acotado) sin
+tocar nada más. La decisión está diseñada para poder retroceder por mitades.
+
+#### 5.3.6 Encargo por rol (D-2)
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **frontend** | (a) **Cerrar el comodín** de `remotePatterns` (§5.3.4) — **primero, y solo eso, porque hoy es de riesgo cero**. (b) Nivel A en teja líder de home + imagen principal de ficha, con `sizes` estrecho, `deviceSizes`/`imageSizes` recortados y `minimumCacheTTL` subido. (c) Nivel B en el resto: **la regla es la URL correcta, NO añadir `srcset`** (§5.3.2). (d) `CardImage` sigue siendo el envoltorio **único**: la estrategia se elige por prop dentro del componente, **no** duplicando componentes. (e) El `eslint-disable` de `no-img-element` se **conserva** en los niveles B y C — es una excepción **decidida y documentada aquí**, no una regla evadida; anotar en el comentario que su autoridad es §5.3.3. | Antes del cierre del stream de frontend |
+| **devops** | (a) **Confirmar plan y cuota de transformaciones de imagen en Vercel** y anotarlo con fecha en `docs/DEVOPS_NOTES.md` — **precondición del nivel A en producción** (§5.3.5). (b) Alerta/observación de consumo antes de que el excedente sea una sorpresa en la factura. (c) Verificar que el build en Docker (`output: 'standalone'`, usado por el harness E2E) sigue verde tras el nivel A. | Antes de promover el nivel A a prod |
+| **qa** | (a) Con `remotePatterns` cerrado, verificar que **ninguna** imagen legítima se rompe (E2E con mocks y contra el stack real). (b) En las superficies de nivel B, comprobar que la petición de red pide la URL **pequeña** en cajas pequeñas — es el criterio observable del arreglo, y es medible en el panel de red. | Gate por stream |
+| **backend** | Nada. `SEALED_IMAGE_HOST_ALLOWLIST` **no se toca**; es la fuente que el frontend espeja. Si alguna vez se amplía, avisar para mover `remotePatterns` **después**. | — |
+| **ux-ui** | Sin cambio de diseño. El pozo de papel y el placeholder de `CardImage` se conservan; `imageSmallUrl: null` (§5.2.5) sigue cayendo en ese placeholder. | — |
+
+#### 5.3.7 Cuándo se revisita
+
+Esta decisión se reabre —y solo entonces— si ocurre **una** de estas tres:
+1. El catálogo empieza a servir **más de dos tamaños** por carta (desaparece la restricción que hace inútil el
+   `srcset` de dos pasos).
+2. Aparece **copia propia de imágenes** en almacenamiento nuestro (cambia a la vez §5.2.3-3 y el cálculo de coste).
+3. La medición de §5.3.5 muestra que el nivel A es **gratis en el plan vigente** con holgura ⇒ se puede evaluar
+   subir la rejilla de Compra al nivel A. **Con medición, no con intuición.**
+
+---
+
 ## 6. i18n (convención)
 
 - **UI 100% bilingüe ES/EN, default ES**, toggle a EN. Los copys viven en `frontend/src/i18n/messages/{es,en}.json` (propiedad de frontend/ux-ui).
@@ -11954,6 +12389,16 @@ Riesgos técnicos:
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
+
+- **⚠️ NUEVAS (v1.51-b) — imágenes: una omisión, un tipo falso y un comodín cargado.** Ninguna corregida por mí.
+  Doctrina y encargos completos en **§5.2** (snapshot) y **§5.3** (`next/image`).
+  | # | Desviación | Evidencia | Dueño | Puerta |
+  |---|---|---|---|---|
+  | **D-IMG-1** | `OrdersService.cardSnapshot()` no proyecta `imageSmallUrl` aunque `item.card` viene cargado ⇒ hueco gris en carrito, checkout de invitado y detalle de pedido. **Omisión aislada, no criterio**: el mismo mapeo en `ShipmentsService.toClientShipmentItem()` sí la incluye | `orders.service.ts` (`cardSnapshot`) vs. `shipments.service.ts` (`toClientShipmentItem`) | backend | Ya enrutada (conformidad de contrato). Se implementa **en la proyección de lectura**, §5.2.5 |
+  | **D-IMG-2** | `GuestOrderTrackingDTO` y `ClientShipmentItemDTO` resuelven **la IDENTIDAD** (`name`, `setName`, `number`) por join contra `inventoryItem.card` **en vivo**, no desde el registro congelado ⇒ un re-sync de catálogo que renombre una carta **cambia lo que dice un pedido ya cobrado**. Para la **imagen** el join es correcto (§5.2.3); para la identidad está invertido | `guest-checkout.service.ts` (construcción de `items`), `shipments.service.ts` | backend | **Severidad baja, NO bloqueante.** Alinear a §5.2.2 en el próximo trabajo sobre esos módulos; no justifica un pase propio. **RATIFICADA v1.51-c** tras revisión del techlead: `guest-checkout.service.ts:545` (`imageSmallUrl: … ?? undefined`, vía `inventoryItem.card`) **NO es regresión y NO contradice §5.2.5** — es otro DTO, plano, **sin `cardId`** (prohibido por criterio 51, así que la unión de §5.2.5 le es estructuralmente inaccesible) y de una vista de **envío en curso**, no del acta de compra. **Prohibido «uniformizarlo» por iniciativa propia**; declarado en `API_CONTRACT §4-G` |
+  | **D-IMG-3** | `OrderLineData.cardSnapshot` está tipado como **`object`**: un blob probatorio sin forma en el backend | `orders.service.ts` (tipo `OrderLineData`) | backend | Con D-IMG-1. **Es la causa raíz**, no un detalle de estilo |
+  | **D-IMG-4** | `OrderItemPreview.card` se tipa como **`CardDTO` completo**, que el backend nunca devolvió en esa posición: el tipo **prometía** `imageSmallUrl: string` y por eso el front la pintó sin que nada lo desmintiera. Además `CardDTO.imageSmallUrl` es `string` (requerido) mientras la columna es **`String?`** en el schema | `frontend/src/types/contract.ts` vs. `prisma/schema.prisma` | frontend | Con el contrato **v1.51-b** (`OrderItemCardDTO`, imagen **nullable**) |
+  | **D-IMG-5** | `images.remotePatterns` incluye `hostname: '**'`. **Hoy inerte** (cero `next/image`), pero convierte el optimizador en **proxy de imágenes abierto** en cuanto se adopte. Es **más ancho que lo que el backend puede producir**, que ya valida host contra `SEALED_IMAGE_HOST_ALLOWLIST` | `frontend/next.config.mjs` vs. `backend/src/modules/inventory/sealed-image-host.ts` | frontend | **Cerrar YA**, mientras el cambio tiene riesgo funcional cero (§5.3.4) |
 
 - **⚠️ NUEVA (v1.50.4) — DESVIACIÓN DE PROCESO, no de código: «la fuente afirma, el producto contradice, nadie
   coteja».** Es la desviación **más cara** registrada aquí, porque no vive en un archivo: vive en cómo el equipo

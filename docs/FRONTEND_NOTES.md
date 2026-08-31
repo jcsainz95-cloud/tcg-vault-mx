@@ -8707,3 +8707,717 @@ señalan la clave culpable por su nombre.
    M2 (hermanos de **F-19**). Desde este pase **ninguna pantalla los ofrece como remedio**, así que
    no hay nada roto que arreglar: darles editor es feature nueva con invariantes propios
    (`highlightGrades ⊆ grades`) y entra por `PROJECT.md`, como dice §22.12 nº17.
+
+## §34 · Peso de imagen en la home, la candidata a LCP, el preconnect que faltaba, la miniatura del carrito de VENTA y el mock que tapaba un bug de producción — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Seis arreglos acotados de rendimiento de imágenes + una miniatura faltante. Diagnóstico previo
+> verificado; aquí solo se implementa. **Cero cambios de contrato** (uno se ESCALA, ver §34.7).
+> Escrituras: `frontend/` y este archivo. No se tocó `backend/`, `next.config.mjs` ni `next/image`
+> (esa decisión está con el arquitecto).
+
+### 34.1 El carrusel descargaba 7 imágenes HD para pintarlas a 160px
+
+`FeaturedCarousel.tsx` — las tejas **secundarias** pedían `imageLargeUrl ?? imageSmallUrl`
+(~734×1024 en pokemontcg.io) y las pintaban a `w-[160px]` / `lg:w-[268px]`. Son **siete** tejas y es
+el **primer bloque con imágenes de la home**. Pasan a `imageSmallUrl` (245×342).
+
+La teja **líder** (`w-[236px]` / `lg:w-[400px]`) **NO cambia**: ahí P-39 («foto HD en el
+featured/ficha») sigue vigente y con 400px la chica se vería blanda. La asimetría es intencional y
+queda escrita **en las dos tejas** para que nadie la «uniformice» de vuelta en una limpieza.
+
+> Nota honesta: en `lg` la teja secundaria mide 268px y la imagen chica 245px de ancho — un 9 % de
+> upscale en pantallas 1x. Se acepta: el ahorro de bytes es de otro orden de magnitud. Si esas tejas
+> crecen por encima de ~245px reales en móvil/tablet, toca revisar.
+
+**No pude medir los bytes.** El egress a `images.pokemontcg.io` está **bloqueado por política del
+proxy** en este entorno (`CONNECT … 403`, `connect_rejected`), así que no hay cifra real que
+reportar y **no la estimo**. Lo verificable es la geometría: 734×1024 contra 245×342 (**~12.6× el
+área de píxeles**). Queda como tarea de medición para quien tenga red hacia el CDN.
+
+### 34.2 `CardImage` gana `priority` (opt-in) — la imagen del LCP dejaba de ser prioritaria
+
+`CardImage` ponía `loading="lazy"` a **todo**, incluida la teja líder del carrusel, que es la
+**candidata a LCP** de la home. Encima el fade-in `opacity-0 → opacity-100` esperaba al `onLoad`:
+aunque los bytes ya hubieran llegado, el pintado (y con él la métrica) se retrasaba.
+
+Nueva prop `priority` (default `false` ⇒ **conducta previa idéntica en las 14 superficies que ya
+usaban el componente**): `loading="eager"` + `fetchpriority="high"` + sin fade. Se usa **en un solo
+sitio**: la teja líder. En rejillas NO se usa — `lazy` es lo correcto ahí, y varias `high`
+compitiendo por ancho de banda retrasan justo a la que importa. La regla está escrita en el JSDoc de
+la prop.
+
+**Detalle de react-dom 18:** el atributo va en **minúsculas** (`fetchpriority`). Con la grafía
+camelCase que declara `@types/react` (`fetchPriority`), react-dom 18 no lo reconoce y avisa por
+consola («React does not recognize the fetchPriority prop…»), ensuciando la salida de los tests. Se
+emite en minúsculas con un `as` acotado y comentado; al subir a React 19 puede volver a camelCase.
+Hay un test que falla si vuelve el aviso.
+
+### 34.3 `decoding="async"` en `CardImage`
+
+Para todas las imágenes de carta. Barato, sin efecto visual, no bloquea el hilo principal mientras
+el navegador descomprime el JPEG.
+
+### 34.4 `preconnect` a `images.pokemontcg.io`
+
+`grep -rn "preconnect\|dns-prefetch" frontend/src` daba **cero**. **Todas** las imágenes de carta de
+la app vienen de ese tercero, así que el navegador pagaba DNS + TCP + TLS completos **después** de
+descubrir el primer `<img>`. Van `preconnect` + `dns-prefetch` (respaldo) en el `<head>` del layout
+raíz `src/app/[locale]/layout.tsx` — es el único layout que renderiza `<html>`; el layout de
+`(storefront)` no llega al `<head>`.
+
+- **Sin `crossOrigin`**: un `<img>` normal no se pide en modo CORS; un preconnect `anonymous` abriría
+  una conexión de otra piscina que esas imágenes no reutilizarían (trabajo de más, ahorro cero).
+- **`tcgplayer-cdn.tcgplayer.com` queda FUERA, a propósito**: en la home el sellado vive en
+  `SealedShelf`, **por debajo** del carrusel (bajo el pliegue). Preconectar dominios que quizá no se
+  usen desperdicia conexiones. Si algún día el sellado sube sobre el pliegue, ese es el momento.
+
+### 34.5 El carrito de VENTA tenía la imagen y no la pintaba
+
+`SellCartContents.tsx` no pintaba miniatura, pero el dato **ya viajaba** en la línea
+(`useSellCart.CartLine.card.imageSmallUrl`, poblado desde el binder y el picker de `BuylistView`).
+Era el único listado de piezas de la app que lo tenía y no lo usaba. Se pinta con el patrón de
+`CheckoutView`: columna fija `w-12` a la izquierda, contenido en `min-w-0 flex-1` (el nombre sigue
+truncando en el drawer de 400px). **Es el único cambio visual de este pase.**
+
+`QuoterCardRef.imageSmallUrl` es **opcional** (el binder de Master Set puede no traerla), así que la
+columna entera se omite cuando no hay imagen: un `CardImage` sin `src` deja el esqueleto pulsando
+para siempre, que se lee como un «cargando» eterno.
+
+> El carrito de **COMPRA** falla por otra causa (el backend no manda la URL) y **no se tocó**: no es
+> del front. Ver §34.6 y §34.7.
+
+### 34.6 El simulador mentía, y por eso el bug llegó a producción sin que nadie lo viera
+
+`api.ts` · `getCheckoutQuote` (rama mock) devolvía `card: l.card`, el **`CardDTO` completo** del
+fixture. El backend real devuelve otra cosa: `OrdersService.quote()` → `cardSnapshot()`, un snapshot
+plano `{ cardId, name, setName, number, productType, rawCondition, gradingCompany, gradeValue }` —
+**sin `imageSmallUrl`/`imageLargeUrl`, sin `id`**, y con `productType`/`rawCondition` **dentro** de
+`card` en vez de al nivel del ítem. Por eso el carrito se veía impecable en `dev` y en los e2e de
+Playwright, y llegaba roto a producción.
+
+El mock ahora replica el snapshot real (`mockQuoteCardSnapshot`). **El mock queda «peor» a
+propósito**: en desarrollo el checkout de compra ahora se ve como se ve en producción. Un simulador
+feo es mejor que uno que miente.
+
+Para que no se quede desalineado **en la otra dirección**, `api.checkout-quote.test.ts` **pinea las
+llaves exactas** del snapshot (`MOCK_QUOTE_CARD_KEYS`, exportada). Cuando backend añada la imagen a
+este camino, el test falla y obliga a actualizar mock + lista en el mismo commit.
+
+**Efecto colateral revelado (no es regresión, es la verdad saliendo a flote):** `CheckoutView:237`
+lee `item.productType` al nivel del ítem, que el backend **nunca manda ahí** ⇒ el sufijo de condición
+(`· NM`) tampoco se pinta hoy en producción. No lo «arreglo» en el front moviendo la lectura dentro
+de `card`: eso sería adivinar un contrato. Va a §34.7.
+
+**Gemelo conocido, NO tocado:** `getGuestCheckoutQuote` tiene exactamente la misma mentira
+(`guest-checkout.service.ts` usa el mismo `cardSnapshot`). Queda fuera de este pase por alcance;
+mismo dueño y mismo arreglo que §34.7 nº1.
+
+### 34.7 Peticiones al ARQUITECTO (regla 9 — no toqué el contrato)
+
+1. **`OrderItemPreview` no está definido en `API_CONTRACT.md`.** El contrato solo lo nombra en
+   `POST /checkout/quote` («Res 200: `{ items: OrderItemPreview[], … }`») y el ejemplo trae
+   `"card": {}`. `frontend/src/types/contract.ts:158` declara `CardDTO.imageSmallUrl` **obligatorio**
+   y `OrderItemPreview.card: CardDTO`, y el backend **no lo cumple**: manda el `cardSnapshot`. Pido
+   **definir `OrderItemPreview` en el contrato** y decidir el sentido del arreglo:
+   (a) el snapshot gana `imageSmallUrl` (es lo que la UI necesita: el checkout **pinta** miniatura), o
+   (b) el tipo del front deja de prometer un `CardDTO`. **La (a) es la que arregla el carrito de
+   compra**; con la (b) hay que quitar la miniatura del checkout, que es peor producto.
+   Aplica **igual** a `POST /checkout/guest/quote` (§4-G.1) — mismo snapshot, mismo bug.
+   Mientras tanto: mock alineado a la realidad + un `as unknown as` acotado y comentado en el punto
+   exacto de la divergencia (`api.ts`), más el test que la pinea.
+2. **`productType` / `rawCondition` en el preview del quote**: hoy viven dentro de `card` en el
+   backend y al nivel del ítem en el tipo del front. Al cerrar el punto 1, decidir dónde van (no lo
+   asumo).
+
+### 34.8 Verificación
+
+- `npm install` ✔ (exit 0) · `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔
+  (`tsc --noEmit`, sin salida) · `npm run test` ✔ **849/849 en 96 archivos** · `npm run build` ✔.
+- Base antes de este pase: **842/94** (la de §33.5). Delta **+7 tests, +2 archivos**, ninguna prueba
+  retirada ni debilitada:
+  - `CardImage.test.tsx` **+5**: el default sigue en `lazy` y sin `fetchpriority` (candado de
+    no-regresión para las 14 superficies existentes) · `priority` ⇒ `eager` + `fetchpriority=high` ·
+    `decoding="async"` siempre · `priority` pinta sin esperar al `onLoad` y sin `priority` conserva
+    el fade · **cero avisos de React** por props desconocidas.
+  - `api.checkout-quote.test.ts` **+2**: llaves exactas del snapshot y ausencia de imagen.
+- **El `preconnect` se verificó en el HTML servido**, no solo en el JSX: `next build` + `next start`
+  + `curl /es` ⇒ los dos `<link>` salen **dentro de `<head>`** (offset 23 959, `<body` en 24 163).
+  Importaba comprobarlo: con React 18 no hay hoisting de `<link>`, por eso van en el `<head>`
+  explícito del layout raíz y no en un layout de grupo.
+- Cero tokens nuevos, cero componentes nuevos, cero cambios de contrato, cero escrituras fuera de
+  `frontend/` y este archivo. `next/image` sigue sin adoptarse y `next.config.mjs` sin tocar.
+
+---
+
+## §35 · El sufijo «· NM» vuelve, y el tipo falso que lo escondía se retira (contrato v1.51-b) — 2026-08-31
+
+> Rama `claude/tcg-hunt-orchestrator-28p7z1`, sobre `8c6f2ba`. Cierra las dos peticiones al
+> arquitecto de §34.7. El arquitecto declaró **`OrderItemCardDTO`** (contrato §4, rev **v1.51-b**) y
+> backend implementó `imageSmallUrl` (commit `8c6f2ba`). Este pase alinea el cliente.
+
+### 35.1 La causa raíz no era una línea: era un tipo que prometía lo que nadie enviaba
+
+`contract.ts` declaraba `OrderItemPreview.card: CardDTO` y `CardDTO.imageSmallUrl: string`
+(obligatorio). El backend nunca sirvió un `CardDTO` en esa posición: sirve un snapshot congelado.
+Con el tipo mintiendo, `CheckoutView` podía leer `item.productType` **al nivel del ítem** y compilar
+tan feliz — y el sufijo de condición salía **siempre vacío**, en silencio, durante un release entero.
+Un `undefined` en un campo que el tipo jura obligatorio no da error: da una cadena en blanco.
+
+Por eso el arreglo empieza por el tipo y no por la línea. `OrderItemCardDTO`
+(`frontend/src/types/contract.ts`) declara los **ocho campos congelados + `imageSmallUrl:
+string | null`** y **nada más**; `OrderItemPreview` queda en **tres claves**
+(`{ inventoryItemId, card, unitPriceCents }`), espejo exacto del test del backend
+(`expect(preview).not.toHaveProperty('productType')`). Las **tres** superficies que sirven líneas de
+compra apuntan al mismo tipo: `CheckoutQuoteResponse`, `GuestCheckoutQuoteResponse` y
+`OrderDetailDTO`.
+
+Con el tipo honesto, el compilador señaló **solo** los sitios que leían de más — y ninguno más apareció
+en las vistas: el resto del código ya leía `card.name` / `card.setName` / `card.number` /
+`card.imageSmallUrl`, que sí existen. El bug era exactamente el que se había escalado, ni uno más.
+
+### 35.2 Lo que cambió, sitio por sitio
+
+| Archivo | Cambio |
+|---|---|
+| `src/types/contract.ts` | nace `OrderItemCardDTO`; `OrderItemPreview` a 3 claves; `OrderDetailDTO.items` y `GuestCheckoutQuoteResponse.items` pasan a `OrderItemPreview[]` |
+| `CheckoutView.tsx` | `item.productType`/`item.rawCondition` → **`item.card.productType`/`item.card.rawCondition`**. El sufijo «· NM» vuelve a pintarse |
+| `GuestCheckoutView.tsx` | misma meta que la cuenta: el invitado tampoco veía la condición (§4-G.1 comparte forma con §4) |
+| `components/ui/CardImage.tsx` | `src?: string \| null` y el esqueleto pulsa **solo si hay `src`** |
+| `lib/mock/fixtures.ts` | nace `orderItemCard(listing)`; `mockOrderDetail.items[].card` deja de ser un `CardDTO` |
+| `lib/api.ts` | los **dos** mocks de quote sirven `OrderItemCardDTO` con `imageSmallUrl`; muere el `as unknown as` |
+
+### 35.3 `null` no es «cargando»
+
+`imageSmallUrl` es **clave siempre presente, valor nullable**, y `null` es un resultado **legítimo**
+(la columna es nullable y la fila `Card` puede no existir). El defecto de `CardImage` era que sin
+`src` dejaba el `animate-pulse` **eterno**: un dato ausente por diseño se leía como una app colgada.
+
+Se arregló **en el componente**, no en cada llamada. En §34.5 lo resolví en `SellCartContents` con un
+`&&` en el sitio de uso, que es correcto pero no escala: `CardImage` tiene **16 superficies** y varias
+más ya recibían `undefined` (`SealedVaultPanel` con `?? undefined`, `PublicOrderTracking` con la
+`imageSmallUrl?` opcional de `GuestTrackingItemDTO`) — todas pulsando para siempre. Ahora sin `src`
+queda el **pozo de papel quieto**, que es exactamente el «placeholder» que pide el contrato §4.
+Con `src` el esqueleto sigue igual: mientras la imagen viaja, sí hay algo que esperar.
+
+Nota deliberada: en el checkout **no se colapsa la columna** de la miniatura como en el carrito de
+venta. En una línea de compra la columna es parte de la retícula (§20) y hacerla desaparecer
+desalinearía la fila; en el drawer de venta la miniatura era un extra opcional.
+
+### 35.4 El mock ya no miente en ninguna de las dos direcciones
+
+En §34.6 el mock se puso a decir la verdad del backend **de entonces** (ocho campos, sin imagen) y el
+pin de `api.checkout-quote.test.ts` se dejó fallando **a propósito hacia arriba**: en cuanto el
+backend añadiera `imageSmallUrl`, obligaría a mover mock y pin en el mismo commit. Funcionó
+exactamente así — esa es la razón de que el pin exista y no un capricho.
+
+Actualizado contra el contrato nuevo: `MOCK_QUOTE_CARD_KEYS` gana la **novena** llave
+(`imageSmallUrl`) y nace `MOCK_QUOTE_ITEM_KEYS` (`inventoryItemId`, `card`, `unitPriceCents`) — el pin
+de que **nada se cuela al nivel del ítem**, que es la mitad del bug que nadie estaba vigilando. El
+mock de **invitado** (`getGuestCheckoutQuote`), gemelo declarado en §34.6, servía `card: l.card` (el
+`CardDTO` del fixture) y ahora pasa por el mismo `orderItemCard()`; el test lo cubre.
+
+### 35.5 Un tipo falso más, del mismo linaje, corregido de paso
+
+`ShipmentDTO.items[].card` estaba tipado `CardDTO` y el contrato §5 declara `ClientShipmentItemDTO.card`
+con **cinco** campos (`id, name, setName, number, imageSmallUrl`). **No había bug visible** —
+`ShipmentsView` y `ShipmentDetailView` solo leen esos cinco—, pero es la misma clase de defecto que
+acaba de costar un release: un tipo que promete `imageLargeUrl`/`rarity`/`availableFinishes` que esa
+ruta no envía. Se corrigió el tipo; cero cambios de render, cero fallos de `tsc`.
+
+### 35.6 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ (`tsc --noEmit`, sin salida) ·
+  `npm run test` ✔ **857/857 en 97 archivos**.
+- Base antes de este pase: **849/96** (§34.8). Delta **+8 tests, +1 archivo**, ninguna prueba retirada
+  ni debilitada:
+  - `checkout/CheckoutItemLine.test.tsx` **+4** (nuevo): el sufijo «· NM» en el DOM para cuenta y para
+    invitado · una pieza `graded` **no** inventa sufijo · `imageSmallUrl: null` no deja `animate-pulse`.
+    Lee el **DOM**, no el tipo: si alguien vuelve a subir los campos un nivel, el sufijo desaparece y
+    el test cae.
+  - `api.checkout-quote.test.ts` **+3** (2 → 5): las 9 llaves del `card`, las 3 del ítem con el
+    `not.toHaveProperty('productType')` espejo del backend, `imageSmallUrl` siempre presente y
+    nullable, el `card` sin los 5 campos de `CardDTO` que §4 declara ausentes, y la misma forma en el
+    camino de invitado.
+  - `CardImage.test.tsx` **+1**: sin `src` (y con `src={null}`) ni `<img>` ni esqueleto; con `src` el
+    esqueleto vuelve.
+- Cero tokens nuevos, cero componentes nuevos, cero escrituras fuera de `frontend/` y este archivo.
+  `next.config.mjs` sin tocar y `next/image` sin adoptar (§5.3 de ARCHITECTURE tiene decisión propia
+  del arquitecto; **este pase no la implementa**).
+
+---
+
+## §36 · P-49: la rotación automática del carrusel de destacadas (`DESIGN_SYSTEM.md` §23, v2.6) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+**Procedencia.** Este frontend **recomendó no hacerlo**, con tres argumentos. El dueño los oyó y decidió
+hacerlo igualmente, y ux-ui **resolvió los tres** en vez de ignorarlos (§23.1 reconcilia la doctrina de
+movimiento con la nueva §17.3a, §23.8 corrige la nota 2 de §20.16, §23.7 cierra el hueco de
+`prefers-reduced-motion`). Este pase implementa §23 al pie de la letra salvo **dos** puntos, ambos
+descubiertos **en el navegador** y documentados abajo con su evidencia.
+
+### 36.1 Qué se construyó
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| Geometría pura | `frontend/src/app/[locale]/(storefront)/_home/carouselGeometry.ts` | `readTrackGeometry` / `nextScrollTarget` / `prevScrollTarget` / `pageScrollTarget` / `scrollTrackTo`. Todo el cálculo del destino, **sin DOM**, para que R6 quede cubierto por tests de verdad |
+| Rotación + máquina de estados | `_home/FeaturedCarousel.tsx:220-560` | modos `playing`/`paused`/`ended`, suspensión de nivel 1, temporizador, precondiciones, canal de estado |
+| Conmutador | `_home/FeaturedCarousel.tsx:139-181` (`PlaybackToggle`) | mono 10px + glifo lucide 12/14px, tinta, sin caja, área táctil por `::after` |
+| Slot del encabezado | `_shared/Shelf.tsx` (`titleAdjacent`, `sectionRef`, `ariaRoledescription`) | el hueco estructural del kicker, **sin** su envoltorio `.eyebrow` |
+| Aviso de carga de la foto líder | `frontend/src/components/ui/CardImage.tsx` (`onLoaded`) | precondición 3 de §23.3 |
+| i18n | `frontend/messages/{es,en}.json` → `home.featured.*` | las 10 claves de §23.12, con paridad ES/EN |
+
+**Las siete reglas duras, una por una:**
+
+- **R1 (rota la ventana, nunca el rol).** ⚠️ **Enunciado CORREGIDO en §38.2 — lo que decía aquí era
+  falso.** Decía: *«lo único que la rotación escribe es `scrollLeft`; el tic no provoca ni un
+  `setState`»*. **No es cierto:** el tic llama a `measure()`, que escribe `canPrev`/`canNext`/`overflows`,
+  y hay re-render en el primer tic y en el último. R1 se cumple igual, pero **por otra razón**: el rol de
+  teja se deriva del **índice del array** sobre una lista que la rotación jamás toca, con `key` estable,
+  así que React reconcilia en sitio (mismo nodo, mismo `src`, mismo `fetchpriority`). Ésa es la garantía
+  dura y la fija el test `FeaturedCarouselRotation.test.tsx` («la teja líder conserva identidad, sitio,
+  imagen HD y fetchpriority en TODOS los tics»), que compara la **referencia del nodo** y el orden de
+  `alt` de las ocho tejas en los siete tics. Es la prueba que protege lo que arregló §34.1 — y el
+  invariante se sostiene **por** ella, no sin ella. Detalle y por qué el argumento viejo era peligroso:
+  §38.2.
+- **R2 (nunca coexiste con carga).** Cuatro precondiciones: hidratado · consulta resuelta con ≥ 2 tejas ·
+  `load` de la foto líder **o** tope de 3 s · 7 s de reposo. Con skeleton no hay pista, y sin pista no hay
+  ni temporizador ni conmutador.
+- **R3 (freno siempre visible).** El conmutador se renderiza con **el mismo booleano** que habilita el
+  movimiento (`rotationPossible`), así que no puede existir uno sin el otro.
+- **R4 (`prefers-reduced-motion` ⇒ cero).** En la **lógica del componente**, como pide §8.2: el
+  temporizador no arranca, el conmutador no se renderiza, las flechas pasan a `behavior:'auto'`. Se
+  escucha **en vivo** con `useMediaQuery`, que ya suscribía `change`.
+- **R5 (la intervención gana para siempre).** Sin reanudación automática. Ver §36.2 — la regla se conserva
+  en su intención pero **hubo que acotarla**.
+- **R6 (una teja por tic, al punto de snap).** Destino desde `offsetLeft`, nunca `scrollBy(ancho × 0,8)`.
+  Ver §36.3 — hay una excepción geométricamente inevitable.
+- **R7 (una pasada y para).** `ended` usa **el mismo predicado** que apaga la flecha «siguiente». Sin
+  clones, sin bucle, sin rebobinado animado; REPETIR salta a 0 sin animación.
+
+### 36.2 Hallazgo 1 — «cualquier scroll que no hayamos originado» deja la función MUERTA al primer render
+
+§23.5 enuncia: *«cualquier desplazamiento de la pista que el carrusel no haya originado ⇒ PAUSA
+PERMANENTE»*, como regla general para cubrir los casos que nadie enumeró. Implementada literalmente,
+**el carrusel se pausaba solo antes de su primer tic**. Evidencia, con un listener de captura en
+Chromium sobre la home real (build de producción, modo mocks):
+
+```
+{"ev":[{"t":999,"id":"piezas-destacadas-pista","left":32}], "label":"Reanudar la rotación automática"}
+```
+
+Un único evento `scroll`, ~1 s después de hidratar, sin usuario de por medio: es **el propio motor
+aplicando `scroll-snap`**, que mueve `scrollLeft` de 0 al valor del `gutter` (32px en `lg`). El anclaje de
+scroll hace lo mismo cuando una imagen tardía cambia el layout. En la primera corrida de E2E el
+conmutador ya decía **REANUDAR** antes de que nadie tocara nada.
+
+**Resolución (no re-litiga la decisión, la hace funcionar):** ⚠️ **CORREGIDA en §38.1 — la guarda (a)
+se retiró.** Este pase dejó **dos** guardas: (a) no lo originamos nosotros **y** (b) el usuario tocó la
+pista hace menos de `USER_INPUT_WINDOW_MS` (1200 ms), medido con `pointerdown` / `touchstart` / `wheel` /
+`keydown` / `focus` sobre la pista. **(a) sobraba y hacía daño**: hoy queda **solo (b)**, que es el
+enunciado literal de §23.5a. Ver §38.1 con la medición.
+
+La guarda que queda cubre **exactamente** lo que §23.5 enumera —swipe, arrastre, rueda/trackpad y «el
+scroll que provoca el navegador al tabular a una teja fuera de pantalla», que llega por `focus`— y deja
+fuera lo que §23.5 no puede haber querido decir: un reajuste del motor de layout no es una intervención
+del usuario. Los cinco listeners solo escriben un `ref`: cero re-render por mover el ratón.
+
+Regresión fijada en `FeaturedCarouselRotation.test.tsx` («un re-snap del NAVEGADOR (scroll sin entrada del
+usuario) NO pausa»).
+
+### 36.3 Hallazgo 2 — R6 no puede cumplirse en el extremo derecho de la pista
+
+R6 dice: *«ningún reposo deja una teja cortada por el borde izquierdo»*. En el **tope** de la pista
+(`scrollWidth − clientWidth`) eso es geométricamente imposible salvo que el contenido sea múltiplo exacto
+del paso de teja: ahí la última teja queda flush a la **derecha** y la primera visible sale cortada por la
+izquierda. Afecta al **último** tic de la pasada y a la última pulsación de flecha, y no hay alternativa
+mejor —pararse en el snap anterior dejaría la última teja permanentemente inalcanzable, que es peor—.
+Se acepta, se documenta y los asertos de E2E lo contemplan explícitamente (`snap || tope`). No es una
+licencia de implementación: en cualquier otro reposo el aterrizaje **sí** es un punto de snap.
+
+### 36.4 Hallazgo 3 — §23.8 promete ocho tejas sin JS, y hoy eso NO es cierto (y no lo introduce §23)
+
+§23.8 (y la corrección de §20.16 nota 2) afirman que sin JS queda *«una pista de scroll-snap nativa con
+sus ocho tejas completas y legibles»* y que *«el contenido nunca depende del JS»*. **Verificado en
+Chromium con `javaScriptEnabled: false`: el contenido sí depende del JS.** Las tejas las trae
+`GET /catalog/cards` por react-query **en el cliente**, así que sin JS el estante se queda en su estado de
+carga. Es una condición **preexistente** de la home, no algo que §23 haya introducido, y §23 la mejora en
+lo que sí le toca: sin JS **no se pinta ni una flecha ni el conmutador**, así que no queda ningún control
+muerto y —lo que importa para 2.2.2— **no puede haber movimiento sin freno**.
+
+Corregirlo del todo es mover la consulta a servidor (RSC/prefetch/hidratación de la caché), decisión de
+arquitectura fuera de este pase. **Solicitud al arquitecto** anotada en el resumen. El E2E afirma lo
+verificable y declara en su cabecera lo que no puede afirmar, en vez de fingir cobertura.
+
+### 36.5 Decisiones de implementación menores
+
+- **`titleAdjacent` en vez de ampliar `kicker` a `ReactNode`** (§23.15 nº1 ofrecía las dos vías). El
+  camino del kicker envuelve el contenido en `<span class="eyebrow">`, que impone **color muted** y
+  `gap-4` en todas las anchuras; §23.4b pide **tinta** y `gap` 12/16px. El slot hermano evita
+  sobreescribir dos propiedades heredadas por accidente. `kicker` **también** se amplió a `ReactNode`
+  como pedía la nota (cambio de tipo, cero cambios de render): el kicker de Gradeadas sigue siendo texto
+  y ninguna otra pantalla se toca — verificado con `tsc` y con los 917 tests.
+- **Las flechas se arreglaron sin cambiarles el paso.** §23.15 nº2 señalaba el `scrollBy(clientWidth ×
+  0,8)`; §23.13 nº13 prohíbe cambiar el **paso** de las flechas. Se conservan las dos cosas: el paso sigue
+  siendo ~una página, pero el **destino** es ahora el punto de snap de una teja (`pageScrollTarget`), así
+  que la flecha ya no deja media teja cortada por el borde izquierdo. Con `snap-x` en `proximity` (que es
+  lo que hay hoy) el navegador **no** corregía ese reposo por su cuenta.
+- **Las flechas dejaron de pintarse antes de hidratar** (§23.8, §20.16 nota 2 corregida). Su paso, su
+  tamaño y su apagado en los extremos **no cambian** (§23.13 nº13).
+- **REANUDAR desde el extremo va a TERMINADO, no a «reproduciendo».** El diagrama de §23.5 no cubre
+  «pausado + ya no queda pista»; anunciar «reproduciendo» sobre algo que no puede moverse sería falso.
+  Se resuelve con el mismo predicado (`canNext === false`) y el conmutador queda en **REPETIR**.
+- **`aria-live` de la pista atado al temporizador**, no al modo (§23.9b), y línea `role="status"`
+  `sr-only` que emite **solo** en las dos transiciones no solicitadas.
+- **Suspensión por «< 50 % visible»** con `IntersectionObserver` y una escotilla: si la pista es más alta
+  que la mitad del viewport, el ratio nunca llegaría a 0,5 y el carrusel quedaría congelado con la pista
+  llenando la pantalla. Sin `IntersectionObserver` (jsdom, navegadores viejos) se asume visible.
+- **Cero tokens nuevos, cero componentes de dominio nuevos, cero cambios de contrato.** `next/image` **no**
+  se adopta (§5.3 de `ARCHITECTURE.md` es decisión del arquitecto, fuera de este pase) y `next.config.mjs`
+  no se toca.
+
+### 36.6 La red de seguridad: qué quedó cubierto y qué NO
+
+**Cubierto** — `carouselGeometry.test.ts` (**17**, aritmética pura) + `FeaturedCarouselRotation.test.tsx`
+(**43**, temporizadores falsos) + `e2e/featured-rotation.spec.ts` (**8**, Chromium):
+reposo inicial y las cuatro precondiciones · una teja por tic y el aterrizaje en snap · `prefers-reduced-
+motion` inactivo, activo, y **activado en caliente** · el conmutador ausente en los cinco casos de §23.4d
+· suspensión por puntero, foco y pestaña oculta, sin tics acumulados · intervención por swipe, rueda,
+foco perseguido, flecha y ancla, permanente · re-snap del navegador que **no** pausa · fin de pasada,
+REPETIR y el retroceso desde TERMINADO · identidad y `fetchpriority` de la teja líder en los siete tics ·
+numeración intacta · `aria-roledescription`, `aria-live` conmutando, pista con nombre, tejas sin
+`aria-label` · orden de tabulación, WCAG 2.5.3, área táctil ≥ 44×44 **medida en el navegador** en 390 /
+640 / 1024 sin solaparse con el H2 ni el link · paridad ES/EN.
+
+**NO cubierto, y por qué:**
+
+1. **La suspensión por «menos del 50 % de la pista visible»** (§23.5). jsdom no tiene
+   `IntersectionObserver`, y en E2E exigiría dejar la home haciendo scroll durante ≥ 7 s para distinguir
+   la suspensión de un tic tardío. Es el único freno de §23.5 sin test.
+2. **`behavior:'smooth'` vs `'auto'` como comportamiento observable.** `Element.prototype.scrollTo` **no
+   existe en jsdom**; el componente cae a `scrollLeft = n`, que es un salto. Lo que sí está cubierto es
+   *qué* `behavior` se pide (rama con `scrollTo` inyectado en `carouselGeometry.test.ts`) y que con
+   movimiento reducido la flecha llega a su destino sin esperar animación (E2E).
+3. **Los ≈ 550 ms del deslizamiento y el ≈ 7 % de ciclo de trabajo** (§23.1 punto 3). Los fija el scroll
+   suave nativo del navegador; no hay API para medirlo de forma estable en CI.
+4. **El renderizado del servidor sin hidratar** (fila del medio de §23.8). RTL monta y ejecuta efectos: no
+   hay forma de observar el frame previo. El E2E sin JS cubre el extremo (ni flechas ni conmutador).
+5. **Contraste y versalitas.** Son CSS (`.eyebrow` + `text-text`, par ya verificado en §10/§23.11);
+   ningún test los mide.
+6. **El layout de la pista en los tests unitarios está INYECTADO.** jsdom no calcula layout, así que
+   `offsetLeft`/`clientWidth`/`scrollWidth` se sobrescriben a mano. Los unitarios no demuestran que la
+   teja aterrice visualmente flush: eso lo demuestra el E2E, midiendo `getBoundingClientRect()` real.
+
+### 36.7 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **917/917 en 99
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **857/97** (§35.6). Delta **+60 tests, +2 archivos**, ninguna prueba retirada ni
+  debilitada.
+- `npx playwright test e2e/featured-rotation.spec.ts` ✔ **8/8** en Chromium (build de producción, modo
+  mocks). Sin regresiones en `grading-estimate.spec.ts`, `catalog.spec.ts` e `i18n-locale.spec.ts`
+  (**30 passed, 3 skipped** — los 3 son los `@real` que necesitan backend).
+- Cero escrituras fuera de `frontend/` y este archivo.
+
+---
+
+## §37 · El acta histórica deja de pintarse MUDA: forma tolerante + render degradado (contrato v1.51-c, ARCHITECTURE §5.2.9) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Encargo del arquitecto (§5.2.9, fila **frontend**, puerta: antes del merge del stream «Órdenes y
+> dinero»), convertido en bloqueante por QA. Los commits anteriores de este stream se escribieron
+> contra **v1.51-b** y eran conformes a él; **v1.51-c** aterrizó después. Es encargo abierto, no
+> regresión.
+
+### 37.1 El defecto: el mismo del `CardDTO` falso, por el otro lado
+
+`GET /orders/:orderId` es la **única** superficie que lee del HISTÓRICO. Su `card` sale de
+`OrderItem.cardSnapshot`, una columna `Json` que PostgreSQL **no valida** y que en un pedido antiguo
+escribió una versión anterior de nuestro propio código. `src/types/contract.ts` la tipaba como
+`OrderItemPreview` — o sea `OrderItemCardDTO` completo, con `name: string` **requerido**.
+
+Servido el blob incompleto que el backend produce de verdad, la línea **no reventaba y el importe salía
+bien**, pero se pintaba muda:
+
+```
+NOMBRE RENDERIZADO => [""]        ← `{it.card.name}` con `name` ausente rinde cadena vacía en React
+IMGS => [{"alt": null, ...}]      ← <img> sin alt (WCAG 1.1.1)
+```
+
+Es el gemelo exacto del `CardDTO` falso de §35: un tipo de cliente **prometiendo** lo que el backend
+puede no enviar. En §35 el tipo prometía de más y escondía el «· NM»; aquí promete de más y deja la
+línea sin voz. La misma grieta, invertida.
+
+### 37.2 Lo que cambió, sitio por sitio
+
+| Archivo:línea | Cambio |
+|---|---|
+| `frontend/src/types/contract.ts:638` | `FrozenCardFacts` (los 8 hechos de clase F) + `ResolvedCardImage` (clase P) como piezas separadas. |
+| `frontend/src/types/contract.ts:652,654,656` | **I3**: `rawCondition`/`gradingCompany`/`gradeValue` pasan de `?: T` (opcional-ausente) a **`T \| null` con la clave SIEMPRE presente**, que es como viajan de verdad (el checkout los congela desde columnas nullables de `InventoryItem`). Sin bug hoy —nadie usaba `in` como discriminante— pero el tipo ya no miente. El discriminante sigue siendo `productType`. |
+| `frontend/src/types/contract.ts:675,699` | `OrderItemCardDTO = FrozenCardFacts & ResolvedCardImage` (los DOS quotes, forma completa) y **`HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & ResolvedCardImage`** (histórico, forma tolerante). |
+| `frontend/src/types/contract.ts:719` | `OrderItemDTO` (línea de `GET /orders/:orderId`) — mismas tres claves que el quote, `card` tolerante. |
+| `frontend/src/types/contract.ts:772` | `OrderDetailDTO.items: OrderItemDTO[]` (era `OrderItemPreview[]`). **El cambio de tipo solo ya puso el `alt` en rojo en `tsc`.** |
+| `frontend/src/lib/historical-card.ts` (nuevo) | `historicalCardName` + `historicalCardMeta`: render degradado por campo, funciones **puras**. No hay dónde colgar una petición aunque alguien quisiera. |
+| `frontend/.../orders/[orderId]/OrderDetailView.tsx:52-109` | Render degradado: etiqueta neutra i18n, `alt` siempre con texto, subtítulo compuesto por fragmentos y omitido entero si no queda ninguno. |
+| `frontend/messages/{es,en}.json` | `orders.item.unknownCard` («Carta sin registro» / «Card not recorded») + `orders.item.unknownCardHint` (el `title` que explica que **el importe no cambia**). No existía en ninguno de los dos idiomas. |
+| `frontend/src/lib/mock/fixtures.ts:333-335` | `orderItemCard()` sirve los tres campos como `null`, no `undefined` (alineado a I3). |
+| `frontend/src/lib/mock/fixtures.ts:995` | `mockOrderDetailLegacy` (`ord-9003`) — acta con blob incompleto, tres líneas: completa / parcial / vacía. |
+| `frontend/src/lib/api.ts:878` | `getOrder('ord-9003')` sirve ese acta en modo mocks. |
+
+### 37.3 La etiqueta neutra tenía que verse deliberada, no como un error
+
+Mono en versalitas `text-muted` (`font-mono text-[11px] uppercase tracking-[0.08em]`): el mismo
+tratamiento que el resto de etiquetas honestas del sistema, y **no** el `accent` de `PendingPriceLabel`
+—esto no es una alerta, es un hecho que el acta no registró—. Tres detalles que no son cosméticos:
+
+1. **Sin `lang="en"`.** El nombre de una carta es dato de catálogo en inglés; la etiqueta neutra es copy
+   de la interfaz. Heredar el `lang="en"` haría que un lector de pantalla leyera «Carta sin registro» con
+   fonética inglesa.
+2. **`title` con el porqué** (`unknownCardHint`), que dice explícitamente que **el importe cobrado no
+   cambia**. Es lo que un cliente mirando su acta necesita saber.
+3. **El `alt` de la miniatura es la misma etiqueta.** `alt=""` (decorativa) sería mentir: la miniatura de
+   una línea de compra es contenido.
+
+El subtítulo (`Base Set · #4 · NM`) se compone con lo registrado y **se omite lo demás**: sin `#`
+huérfano, sin `· ` colgando, sin renglón vacío que reserve espacio y se lea como un fallo de carga. Es
+el mismo renglón mono del checkout, así que el acta y el carrito dicen lo mismo con la misma voz.
+
+### 37.4 Lo que NO se hizo, que es la parte importante
+
+⛔ **No se rellena el hueco.** Ni con `GET /catalog/cards/:cardId` ni con ninguna otra consulta. El
+catálogo dice cómo se llama esa carta **hoy**, no qué decía el pedido cuando se pagó; rellenar convierte
+«el acta no lo registró» en un dato inventado presentado como probatorio, dentro de un registro
+dinero-adyacente (§5.2.2 / §5.2.9). El hueco se ve; el relleno no.
+
+Backend ya tiene su guardián del lado servidor. Del lado del cliente el guardián es un **test**:
+`OrderDetailView.test.tsx` espía `getCardDetail` y `getCatalog` con una línea que trae `cardId` y **no**
+trae `name` —el caso donde el relleno sería posible— y exige que **ninguna** se llame, y que el nombre
+que hoy tiene esa carta en el catálogo **no aparezca** en pantalla. Además, las dos funciones de
+`historical-card.ts` son puras y síncronas: para rellenar habría que reescribir el módulo, no colarse
+en él.
+
+**`null` ≠ ausente en las tres condicionales.** `rawCondition`/`gradingCompany`/`gradeValue` se leen con
+`== null` (cubre los dos casos: la clave presente con `null` del checkout vigente y la clave omitida de
+un blob viejo). Y `productType` ausente **no se infiere**: sin él no se pinta adorno de condición aunque
+`rawCondition` viniera en el blob — inferir el tipo desde qué claves llegaron es el `'rawCondition' in
+card` que el contrato prohíbe.
+
+### 37.5 El simulador vuelve a poder producir lo que el backend produce
+
+`ord-9003` (`mockOrderDetailLegacy`) es un pedido de **2024** con tres líneas: blob completo, blob
+parcial (`name` + `number`, sin `setName` ni `productType`) y **blob vacío** (`{ imageSmallUrl: null }`,
+el peor caso del contrato). Está en `mockOrders`, así que el render degradado es **visible en `dev`**, no
+solo en un test. Es la lección de §34.6 aplicada otra vez: la grieta anterior existió porque el mock
+servía datos más completos que el backend y en local todo se veía impecable.
+
+Importes de ese acta: `unitPriceCents` **intactos** en las tres líneas y `breakdown` coherente, porque el
+dinero **no vive en el blob** (`OrderItem.unitPriceCents` es columna propia; el desglose sale de columnas
+de `Order`). Un snapshot incompleto no puede mover un centavo.
+
+### 37.6 M-1 — el candado que le faltaba al trabajo de rendimiento de `171f24b`
+
+QA revirtió las dos mejoras y la suite siguió verde: una mejora invisible para los tests es una conducta
+que el siguiente refactor deshace sin enterarse. Ahora muerde:
+
+- `FeaturedCarousel.test.tsx` (+3): las tejas **secundarias** piden `imageSmallUrl` (y su `src` no
+  contiene `-large`); la teja **líder** conserva `priority` (`loading="eager"` + `fetchpriority="high"` +
+  sin fade-in); y `priority` es **exclusivo** de la líder (las demás `lazy`, sin `fetchpriority`).
+- `src/app/[locale]/layout.test.tsx` (nuevo, 3): el `<head>` trae `preconnect` **y** `dns-prefetch` a
+  `images.pokemontcg.io`, **sin** `crossorigin` (un `<img>` normal no se pide en modo CORS: el
+  `anonymous` abriría otra piscina de conexiones), y **un solo** dominio preconectado. Se renderiza el
+  layout de verdad con `renderToStaticMarkup` —`next/font/google` y `next-intl/server` se sustituyen,
+  porque lo que se mide es el `<head>`, no la fuente—.
+
+### 37.7 M-3 — el comentario que dejó de ser cierto: se alinea la geometría
+
+`SellCartContents.tsx` omitía **la columna de imagen entera** cuando la línea no traía miniatura,
+justificándolo con «un `CardImage` sin `src` deja el esqueleto pulsando para siempre». Esa razón la
+derogué yo mismo en `6396edb`: hoy el esqueleto pulsa **solo** mientras hay una imagen en vuelo, y sin
+`src` queda el pozo de papel quieto, que **es** el placeholder del sistema (§35.3).
+
+Elijo **alinear la geometría**, no reescribir la excusa: la columna se pinta siempre. Dos filas con
+geometría distinta en el mismo drawer —y distinta de la del checkout— según un dato que el usuario no
+controla era el peor de los dos resultados. El comentario ahora cuenta esa historia.
+
+### 37.8 Peticiones al arquitecto (regla 9 — no toqué el contrato)
+
+Ninguna. El encargo §5.2.9 se implementa tal cual está escrito; no hizo falta ningún campo ni endpoint
+que el contrato no tenga. (La petición sobre §23.8 —resolver la consulta del carrusel en servidor— sigue
+enrutada aparte y no bloquea.)
+
+### 37.9 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **943/943 en 102
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **917/99** (§36.7). Delta **+26 tests, +3 archivos**, ninguna prueba retirada
+  ni debilitada.
+- **Verificación destructiva.** Sirviendo `mockOrderDetailLegacy` (el blob incompleto):
+
+  | | Antes | Ahora |
+  |---|---|---|
+  | Nombre de la línea vacía | `[""]` | `"Carta sin registro"` / `"Card not recorded"` |
+  | `alt` de la miniatura sin nombre | `null` | la etiqueta neutra (no vacía) |
+  | Subtítulo del blob parcial | (no había) | `#58` — sin `· ` colgando ni adorno inferido |
+  | Importes | `MX$450.00 / MX$125.00 / MX$80.00` | **idénticos** |
+
+- **Los candados muerden** (revertido cada cambio, uno por uno): render degradado → **8 tests en rojo** +
+  `tsc` en rojo (`alt`: `string | undefined` no asignable a `string`); teja secundaria a `imageLargeUrl`
+  → **1 en rojo**; `priority` fuera de la líder → **1 en rojo**; `preconnect` borrado → **2 en rojo**.
+  Todo restaurado después.
+- Cero escrituras fuera de `frontend/` y este archivo. `next/image` **no** se adopta, `next.config.mjs`
+  intacto, `backend/` intacto.
+
+---
+
+## §38 · Un test verde que certificaba lo contrario de la norma, y dos enunciados falsos que lo sostenían (hallazgos del techlead sobre §36) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Pase corto de cierre. El trabajo de §36 quedó aprobado y se mergea; esto cierra cuatro cosas que el
+> techlead encontró y que **no podían sobrevivir a quien las escribió**: una prueba que afirmaba lo
+> contrario de la norma, el comentario falso que la justificaba, un enunciado de rendimiento que era
+> falso (aunque su conclusión fuera correcta) y tres huecos de cobertura que sí eran cubribles.
+> Nada de esto era urgente por accesibilidad —el conmutador cumple WCAG 2.2.2 y sigue cumpliéndolo—;
+> era urgente porque una afirmación falsa **con forma de prueba** es lo que el próximo mantenedor lee
+> como especificación.
+
+### 38.1 El hallazgo principal: la guarda que solo disparaba contra la persona a la que decía proteger
+
+**Lo que había.** `handleScroll` tenía dos guardas:
+
+```ts
+if (programmaticRef.current > 0) return;   // (a) «este scroll lo originamos NOSOTROS»
+if (userInputRef.current === 0) return;    // (b) «nadie tocó la pista hace poco»
+```
+
+…y encima el comentario *«Dos guardas, y las dos son necesarias»*. Y un test verde en
+`FeaturedCarouselRotation.test.tsx` que hacía `pointerDown(track)` e **inmediatamente después**
+`scroll(track)`, y afirmaba que **NO** pausa.
+
+**Por qué eso es una afirmación falsa.** §23.5a es normativa y es un **si y solo si**: un `scroll` pausa
+*si y solo si* hay `pointerdown`/`touchstart`/`wheel`/`keydown`/`focus` en los **1200 ms** previos. En ese
+test hay un `pointerdown` inmediatamente anterior ⇒ **la norma dice que debe pausar**. El test decía lo
+contrario y pasaba, porque el código hacía ganar a la evidencia débil.
+
+**Decisión: se RETIRA (a). No se invirtió el orden.** Tres razones, en orden de peso:
+
+1. **§23.5a es un bicondicional, y una guarda es el bicondicional.** Con (b) sola, el código *es* la norma
+   leída en voz alta. Con dos guardas hay que explicar cuál gana y en qué orden — y esa explicación es
+   precisamente lo que se había escrito mal.
+2. **Invertir el orden deja (a) viva pero inalcanzable en el único caso donde difería.** Sería código
+   muerto con un comentario diciendo que es necesario: exactamente la misma forma del defecto que este
+   pase viene a cerrar, un escalón más abajo.
+3. **(b) ya domina a (a).** Medido, no razonado — abajo.
+
+**La medición (Chromium, build de producción, modo mocks, home real).** Dos sondas de Playwright,
+temporales, retiradas tras medir:
+
+| Medición | Qué se instrumentó | Resultado |
+|---|---|---|
+| **1-bis** — ¿(b) sola basta contra el motor? | Listener de captura de `scroll` + de las cinco entradas, instalado con `addInitScript` (o sea, **desde antes de hidratar**). Pasada completa, 25 s, sin tocar nada | **53 eventos `scroll`, 0 con antecedente de usuario ≤ 1200 ms.** El primero es el famoso `t ≈ 954 ms, scrollLeft: 32` — **el `scroll-snap` de la hidratación que motivó §23.5a**. (b) lo descarta él solo, y descarta los 53 |
+| **2** — ¿(a) cambia el resultado en algún sitio? | Esperar al arranque de un tic (`polling: 16`) y emitir una **rueda real** sobre la pista dentro del deslizamiento | Gesto a **+56 ms** del tic ⇒ conmutador **se quedó en PAUSAR** (el gesto se tragó) y, al retirar el puntero, `scrollLeft` **460 → 756**: la rotación **se reanudó sola**. R5 incumplido y §23.13 nº9 al pie de la letra |
+| **3** — insumo para la deuda FR-C1 | Rueda **vertical** pura sobre la pista | `dx=0 dy=250` **llega a la pista y arma la ventana** de 1200 ms. §23.5 solo nombra la rueda *horizontal* |
+
+O sea: (a) no aportaba nada en el camino del motor (0 de 53) y su **único** efecto observable era contra
+un gesto real. *La guarda solo disparaba contra la persona a la que decía proteger.*
+
+**Confirmación de que el candado nuevo muerde.** Se volvió a poner (a) a mano y se corrió la suite: **1
+test en rojo, exactamente el nuevo** (`un gesto REAL dentro del deslizamiento del tic PAUSA…`), 45 en
+verde. Es decir: (a) es inerte para todo lo demás que está probado, y lo único que cambia es el caso que
+la norma exige. Restaurado después.
+
+**Lo que se borró con ella:** `PROGRAMMATIC_SETTLE_MS` (la constante de 900 ms), `programmaticRef` y el
+temporizador que lo decrementaba. `scrollProgrammatically` pasa a llamarse **`moveTrack`**: ya no marca
+nada, solo desplaza y mide, y el nombre viejo prometía una marca que ya no existe. El comentario que
+queda **no dice «necesarias»**: trae la doctrina («cuando dos evidencias coexisten, gana el humano») y la
+medición, y pide explícitamente que quien quiera reintroducir una marca de origen traiga el escenario
+concreto en que la persona se equivoca y el motor acierta.
+
+**Los tests, que es lo que no podía quedarse como estaba.** El test falso se sustituye por **dos**, que
+son las dos caras del bicondicional:
+
+- *«el scroll de NUESTRO propio tic no pausa, y lo bloquea el antecedente (no una marca de origen)»* — el
+  propósito legítimo que (a) decía cubrir, ahora fijado sobre la guarda que de verdad lo cubre.
+- *«un gesto REAL dentro del deslizamiento del tic PAUSA: el antecedente del usuario gana (§23.5a)»* — el
+  caso que el test viejo negaba, con su comentario explicando qué decía antes y por qué era falso.
+
+Y el escenario se fija además **en el navegador**, que es donde la ventana de coexistencia existe de
+verdad (jsdom no tiene scroll suave): `e2e/featured-rotation.spec.ts` → *«§23.5a · un gesto REAL dentro
+del tic PAUSA y no se reanuda sola (gana el humano)»*, que reproduce la medición 2 y asserta las dos
+mitades: pausa inmediata **y** ni un tic más tras retirar el puntero.
+
+### 38.2 El enunciado de R1 era falso; la conclusión era correcta por otra razón
+
+**Lo que se declaró en §36.1 (y en el comentario de `FeaturedCarousel.tsx`):** *«lo único que la rotación
+escribe es `scrollLeft`; el tic no provoca ni un `setState`»*. **Es falso.** `moveTrack` y `handleScroll`
+llaman a `measure()`, que escribe `canPrev` / `canNext` / `overflows`. Hay re-render en el primer tic
+(se enciende «anterior») y en el último (se apaga «siguiente»), además del que cierra la pasada.
+
+**R1 se cumple igual, pero por otra razón — y la otra razón es más fuerte.** El rol de teja se deriva del
+**índice del array** (`i === 0` ⇒ teja líder, HD + `priority`) sobre una lista que la rotación **jamás
+toca**, con `key` estable (`representativeInventoryItemId`). React reconcilia en sitio: mismo nodo, mismo
+`src`, mismo `fetchpriority`, **haya los `setState` que haya**.
+
+**Por qué el argumento viejo era peligroso, y no solo inexacto.** Hacía creer dos cosas falsas:
+
+1. Que meter un `setState` en el camino del tic **rompería el LCP**. No lo rompe. Quien tenga que añadir
+   estado ahí mañana se habría autoprohibido algo inocuo, o —peor— habría concluido que el argumento no
+   se sostiene y que R1 tampoco.
+2. Que el invariante **se sostiene sin el test**. Se sostiene **por** el test: `FeaturedCarouselRotation`
+   compara la referencia del nodo líder, el orden de los ocho `alt` y el `src`/`fetchpriority` de la teja
+   2 en los siete tics. Sin él, nada impide que alguien derive el rol de la posición de scroll.
+
+Corregido en los dos sitios: el bloque R1 de la cabecera del componente, el comentario del temporizador
+(`FeaturedCarousel.tsx`) y §36.1 de este archivo, que ahora remite aquí.
+
+### 38.3 Tres huecos que sí eran cubribles (la lista de §36.6 era honesta pero incompleta)
+
+1. **La llegada por ancla MID-VISIT.** El test que había ponía `location.hash` **antes de montar**, así
+   que ejercitaba el `check()` del montaje y **el listener de `hashchange` no se ejecutaba nunca**. Pero
+   el camino real de §22.4a es el otro: el usuario ya está en la home, vuelve de la nota al pie del gancho
+   y el `hash` cambia **con el componente montado y rotando**. *El camino tapado era el secundario; el
+   primario no tenía red.* Cubierto: se deja rotar un tic, se dispara `HashChangeEvent`, y se afirma
+   pausa + anuncio + **que no se rebobina** (§23.5) ni se mueve después.
+2. **La intervención dentro de los ~900 ms.** No es que no estuviera cubierta: estaba cubierta **al
+   revés**. Ver §38.1.
+3. **`onError` de la foto líder como desbloqueo.** `CardImage` llama a `settle()` también en `onError`
+   («un 404 no puede dejar a nadie esperando»), pero que un fallo de la líder habilite la rotación **sin
+   gastar los 3 s de `LEAD_IMAGE_CAP_MS`** no lo afirmaba nadie. Cubierto con un `fireEvent.error`: el
+   reposo de 7 s arranca en el instante del error, no en el tope.
+
+### 38.4 Los dos menores que el techlead señaló sin ficha
+
+- **`onTogglePlayback` resolvía `'paused'` POR DESCARTE**, tras los `if` de `'playing'` y `'ended'`.
+  Correcto hoy con una unión de tres y silenciosamente incorrecto con una de cuatro: un modo nuevo caería
+  en REANUDAR sin que nada avise. Es **el patrón que este proyecto lleva todo el día cerrando**, así que
+  se cierra igual: `switch` exhaustivo con candado `never` (`const unhandled: never = mode`). Un cuarto
+  modo **no compila** hasta que alguien decida qué hace este botón con él.
+- **`statusTextRef.current = {…}` era mutación de ref en FASE DE RENDER.** Idempotente y benigna hoy,
+  pero es el patrón que muerde bajo StrictMode (doble render). Pasa a un `useEffect` sin deps —el mismo
+  patrón que ya usaba `pauseRef`— declarado **antes** que el efecto del ancla, que es el único que puede
+  leer esos textos en el primer commit.
+- **De regalo, en el mismo sitio:** `settleTimersRef` era un `array` al que se hacía `push` en cada
+  entrada del usuario y que solo se vaciaba al desmontar ⇒ crecía sin tope durante toda la visita (una
+  rueda larga son decenas de entradas). Pasa a `Set` y cada temporizador **se borra a sí mismo** al
+  cumplirse. No cambia ninguna conducta.
+
+### 38.5 Deuda anotada, no arreglada
+
+**FR-C1** en `docs/TECH_DEBT.md`: la ventana de 1200 ms de §23.5a se arma con `onWheel` **sin discriminar
+eje** (medido: `dx=0 dy=250` la arma) y con `onFocus`. El riesgo va **en dirección contraria** a la que se
+sospechaba: no es el falso negativo —un swipe emite muchos `scroll` y el primero llega en milisegundos—
+sino el falso **positivo**: si en esos 1200 ms una imagen tardía provoca *scroll anchoring* (el escenario
+que §23.5a describe, y lo que pasa en red lenta), el carrusel se pausa sin que nadie lo pidiera. No se
+toca aquí porque **§23.5a es normativa**: el enunciado y el número viven en `DESIGN_SYSTEM.md` y su dueño
+es ux-ui. Disparador: que QA o soporte vean el conmutador en REANUDAR sin intervención.
+
+### 38.6 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **946/946 en 102
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **943/102** (§37.9). Delta **+3 tests** (`FeaturedCarouselRotation` 43 → 46),
+  sin archivos nuevos. **Una prueba retirada: la falsa**, sustituida por dos que cubren las dos caras del
+  bicondicional de §23.5a — el saldo neto de asertos sube, no baja.
+- **E2E del carrusel, obligatorio porque cambió la conducta de las guardas:**
+  `npx playwright test e2e/featured-rotation.spec.ts` ✔ **9/9** en Chromium (build de producción, modo
+  mocks). Eran 8; el nuevo es la regresión de §23.5a en navegador. Nótese que el nº 1 («reposo inicial de
+  7 s… sin auto-pausarse») **sigue verde sin la guarda (a)**: es la confirmación en vivo de que (b) sola
+  aguanta el `scroll-snap` de la hidratación.
+- **El candado muerde:** con (a) reintroducida a mano, **1 rojo y solo 1** — el test nuevo. Restaurado.
+- Cero cambios de contrato, cero tokens nuevos, cero componentes nuevos. Escrituras: `frontend/`,
+  este archivo y `docs/TECH_DEBT.md`. `backend/` intacto.

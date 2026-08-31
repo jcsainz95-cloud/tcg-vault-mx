@@ -106,6 +106,22 @@
     "viewAllCatalog": "Ver todo el catálogo",
     "carouselPrev": "Anterior",
     "carouselNext": "Siguiente",
+    "featured": {
+      "roledescription": "carrusel",
+      "trackAria": "Piezas destacadas \u2014 pista desplazable",
+      "playback": {
+        "pause": "Pausar",
+        "resume": "Reanudar",
+        "replay": "Repetir",
+        "pauseAria": "Pausar la rotaci\u00f3n autom\u00e1tica",
+        "resumeAria": "Reanudar la rotaci\u00f3n autom\u00e1tica",
+        "replayAria": "Repetir desde el principio"
+      },
+      "status": {
+        "paused": "Rotaci\u00f3n autom\u00e1tica pausada.",
+        "ended": "Fin de las piezas destacadas."
+      }
+    },
     "sealed": {
       "title": "Producto sellado",
       "viewAll": "Ver todo el sellado"
@@ -824,7 +840,11 @@
     "items": "Artículos",
     "requestInvoice": "Solicitar factura",
     "invoiceRequested": "Factura solicitada",
-    "cfdiStatusLabel": "Factura"
+    "cfdiStatusLabel": "Factura",
+    "item": {
+      "unknownCard": "Carta sin registro",
+      "unknownCardHint": "El registro de este pedido no guardó el nombre de esta carta. El importe cobrado no cambia."
+    }
   },
   "legal": {
     "title": "Términos y política",

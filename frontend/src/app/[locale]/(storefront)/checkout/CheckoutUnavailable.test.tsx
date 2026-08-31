@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { setStoredUser } from '@/lib/session';
-import { mockListings } from '@/lib/mock/fixtures';
+import { mockListings, orderItemCard } from '@/lib/mock/fixtures';
 import type {
   CheckoutQuoteResponse,
   GuestCheckoutQuoteResponse,
@@ -69,11 +69,11 @@ function customerQuote(ids: string[], dead: Dead): CheckoutQuoteResponse {
   const listings = live.map(listingFor);
   const subtotal = listings.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
   return {
+    // v1.51-b: el preview es `{ inventoryItemId, card, unitPriceCents }` y `card` es un
+    // `OrderItemCardDTO` (§4). `productType`/`rawCondition` van DENTRO de `card`.
     items: listings.map((l) => ({
       inventoryItemId: l.inventoryItemId,
-      card: l.card,
-      productType: l.productType,
-      rawCondition: l.rawCondition,
+      card: orderItemCard(l),
       unitPriceCents: l.salePriceCents ?? 0,
     })),
     breakdown: {
@@ -97,7 +97,7 @@ function guestQuote(ids: string[], dead: Dead): GuestCheckoutQuoteResponse {
   return {
     items: listings.map((l) => ({
       inventoryItemId: l.inventoryItemId,
-      card: l.card,
+      card: orderItemCard(l),
       unitPriceCents: l.salePriceCents ?? 0,
     })),
     fulfillmentMode: 'direct_ship',
