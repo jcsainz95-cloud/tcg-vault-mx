@@ -2504,15 +2504,29 @@ export interface SettingsDTO {
   priceProvider?: PriceProvider;
   catalogSyncFromDate: string;
   /**
-   * v1.44-graded-estimate (§M10): **interruptor maestro del «gancho de grading»**
-   * (`graded_estimates_enabled`, enum `on | off`, **seed `off` fail-closed**). Con `off` el backend
-   * ni siquiera evalúa: `GET /catalog/cards*` no emite `gradingHighlight` ni `gradedEstimates`.
-   * Opcional en el tipo porque un backend anterior al v1.44 lo omite (la UI lo trata como `off`).
+   * v1.51-one-dial (§M10, M-46): **EL** —y único— interruptor del «gancho de grading»
+   * (`grading_hook_enabled`, enum `on | off`, **seed `off` fail-closed**).
    *
-   * **Encenderlo publica una afirmación comercial** cuyo disclaimer (§O.5) todavía espera el visto
-   * bueno del humano: la UI de M10 lo advierte de forma explícita antes de guardar.
+   * **Gobierna las DOS cosas** (ARCHITECTURE §4.38r):
+   *  - **Exhibición**: con `off`, `GET /catalog/cards*` no emite `gradingHighlight` ni
+   *    `gradedEstimates`, y `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`.
+   *  - **Obtención**: con `off`, el ingest de fase 2 **no emite ni una petición** al proveedor de
+   *    paga y **no escribe ninguna fila**.
+   *
+   * Opcional en el tipo porque **ningún entorno tiene todavía la clave** (es nueva y sin migración:
+   * ausente ⇒ `SETTING_DEFAULTS` ⇒ `off`) y porque un backend anterior a v1.51 la omite. La UI trata
+   * la ausencia como `off` — fail-closed, igual que el seed.
+   *
+   * ⚠️ **Encenderlo es un ACTO DE DINERO**, no un ajuste de vitrina: publica una afirmación comercial
+   * **y** arranca consumo de créditos de un proveedor de paga **y** empieza a escribir precios. La UI
+   * de M10 lo advierte antes de guardar, en los dos sentidos (DESIGN_SYSTEM §22.13).
+   *
+   * ⛔ Sustituye a `gradedEstimatesEnabled` y a `gradedEstimateIngestEnabled`, **retirados en v1.51**:
+   * enviarlos en el `PUT` ⇒ `422 VALIDATION_ERROR` (clave desconocida). Es una clave NUEVA a propósito
+   * — reusar la vieja habría ensanchado el significado de un valor ya almacenado (`"on"` en
+   * producción) y el deploy siguiente habría empezado a gastar solo.
    */
-  gradedEstimatesEnabled?: OnOff;
+  gradingHookEnabled?: OnOff;
 }
 
 /** Diales de tipo interruptor del contrato (`on | off`). */
@@ -2538,14 +2552,17 @@ export interface GradingCostTierDTO {
  * Config completa del gancho. **Nada de esto viaja al cliente**: gobierna qué grados se muestran,
  * cuándo un dato deja de ser fresco y qué cartas se promocionan (gate de ROI sobre PSA 9).
  *
- * `enabled` es **espejo READ-ONLY** del dial M10 `gradedEstimatesEnabled` (se edita en
- * `PUT /admin/settings`, no aquí; el `PUT` de este recurso lo IGNORA si viene).
+ * `enabled` es **espejo READ-ONLY** del **dial único** M10 `gradingHookEnabled` (se edita en
+ * `PUT /admin/settings`, no aquí; el `PUT` de este recurso lo IGNORA si viene). **v1.51: gobierna
+ * exhibición Y obtención** — con `enabled:false` no se publica nada **y** el ingest no pide ni
+ * escribe nada.
+ *
+ * ⛔ **v1.51: `ingestEnabled` queda RETIRADO** del DTO (el backend ya no lo emite). El `PUT` de este
+ * recurso lo sigue tolerando **en silencio** si un cliente a medio desplegar lo manda: se ignora, no
+ * es `422`.
  */
 export interface GradedEstimateConfigDTO {
   enabled: boolean;
-  /** v1.50.2 — espejo READ-ONLY del SEGUNDO dial M10 (`gradedEstimateIngestEnabled`): gobierna la
-   *  OBTENCIÓN automática, no la exhibición. Se edita en M10, como `enabled`. */
-  ingestEnabled: boolean;
   grades: string[];
   highlightGrades: string[];
   freshnessDays: number;

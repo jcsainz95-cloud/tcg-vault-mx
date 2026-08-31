@@ -36,6 +36,30 @@ describe('i18n catalogs', () => {
       .map(([path]) => path);
     expect(offenders).toEqual([]);
   });
+
+  /*
+   * DESIGN_SYSTEM §22.13(h)/(k.k) — el disclaimer del gancho **YA está aprobado por el dueño**
+   * (2026-08-31). El copy anterior de M10 decía lo contrario, y decirlo hoy sería **publicar en
+   * pantalla algo falso**, precisamente en la pantalla que existe para que nadie encienda una
+   * fuente de gasto a ciegas. Lo único que sigue siendo verdad —«sin revisión legal profesional»—
+   * se conserva, y se caerá el día que un abogado revise el texto.
+   *
+   * Es el mismo candado que el de la marca de arriba: una afirmación de HECHO que el catálogo no
+   * puede contradecir, verificada sobre `messages/` y no sobre otro documento.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s no afirma que el disclaimer del gancho carezca del visto bueno del dueño', (_locale, catalog) => {
+    const offenders = stringEntries(catalog)
+      .filter(([, value]) =>
+        /(no tiene el visto bueno del dueño|todavía no tiene el visto bueno|not been signed off by the owner)/i.test(
+          value,
+        ),
+      )
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe('status-map ↔ i18n coverage', () => {

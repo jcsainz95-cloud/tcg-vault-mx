@@ -8182,3 +8182,164 @@ prohíbe), estos tests lo cazarían en vez de taparlo.
 ### Peticiones al arquitecto
 
 **Ninguna.** No hizo falta ningún endpoint ni campo nuevo, y no se tocó `docs/API_CONTRACT.md`.
+
+---
+
+## §31 · M-46: el dial único del gancho, y la incapacitación explícita del arnés E2E (contrato v1.51-one-dial, `ARCHITECTURE.md` §4.38r, `DESIGN_SYSTEM.md` §22.13) — 2026-08-31
+
+> Rama `claude/psa-graded-card-value-gmhv5u`, sobre `816a94d`. **Decisión del dueño, tomada y
+> reafirmada; no se re-litiga aquí.** Este § documenta *cómo* se implementó y, sobre todo, la parte
+> que no se ve en la pantalla: por qué la suite E2E dejó de poder gastar dinero **por construcción**.
+
+### 1. El renombrado, que no es un renombrado
+
+`SettingsDTO.gradedEstimatesEnabled` → **`gradingHookEnabled`**, y `GradedEstimateConfigDTO` pierde
+`ingestEnabled`. Es tentador leerlo como cosmética y **no lo es**: la clave es NUEVA a propósito
+(§4.38r.1). Producción tiene `graded_estimates_enabled="on"`, y reusar esa clave habría ensanchado
+el significado de un valor **ya almacenado** («publica» → «publica **y gasta**»), de modo que el
+siguiente tick del cron —≤12 h, sin humano— habría sido la primera factura del proveedor. Con clave
+nueva, ningún valor guardado en ningún entorno puede armar el dial: todos aterrizan en `off`.
+
+En el cliente eso se traduce en una consecuencia concreta y **buscada**: el campo es `?` opcional y
+**la ausencia se lee como `off`** (`toInputValue` ya lo hacía). Entre el deploy y el flip manual del
+dueño la tienda no muestra cifras de grading. **Es el precio declarado y aceptado, no un bug.**
+
+### 2. Los dos avisos: el aviso lo elige el SENTIDO, no el estado
+
+El estado efectivo del switch (borrador si se tocó, guardado si no) cruzado con el guardado da la
+matriz de §22.13(c), implementada literal en `M10View`:
+
+| Guardado | Efectivo | Banner | `role` |
+|---|---|---|---|
+| `off` | `off` | ninguno (solo la nota persistente) | — |
+| `off` | `on` | **encendido** | `alert` |
+| `on` | `on` | **encendido** (recordatorio) | `status` |
+| `on` | `off` | **apagado** | `status` |
+
+`alert` **solo** en el flip a `on` porque ese es el instante que autoriza el gasto; el apagado nunca
+sube a `alert` — poner fricción en la dirección segura se paga en el peor momento posible.
+
+**La cifra de créditos se interpola, no se hornea.** `{maxCards}` es el `ingestMaxCardsPerRun` VIVO
+de M2, leído reusando `getGradedEstimateConfig` con la query key `['graded-estimates-config']` que
+M2 ya usa (una lectura más en M10, **no un cambio de contrato**). `{perCard}` (2 créditos/carta,
+§4.38h.3) y `{runs}` (2 corridas/día) viven en **un solo módulo**, `src/lib/grading-hook-cost.ts`:
+repartirlos por el copy o por dos componentes los desincroniza, y entonces el aviso **miente sobre
+dinero**, que es justo el defecto que §4.38(r) cierra.
+
+**Y el aviso nunca espera a un número.** Si esa query falla —cargando, error, permiso— se pinta
+`onNoFigures`: cede la cifra, **nunca el aviso** (§22.13h). Va con test propio, y la mutación que lo
+esconde se pone en rojo (ver §31.5).
+
+**Corrección de hecho que NO es estilo:** el copy anterior decía que el disclaimer *«todavía NO
+tiene el visto bueno del dueño»*. **El dueño lo aprobó** (§22.12 nº14); escribirlo hoy sería
+publicar en pantalla algo falso, en la pantalla que existe para que nadie encienda una fuente de
+gasto a ciegas. Se conserva lo único cierto, «sin revisión legal profesional». Hay **candado**: un
+test en `i18n-parity.test.ts` exige **cero apariciones** de esa frase en `messages/`, igual que el
+candado de la marca TCG HUNT que ya vivía ahí.
+
+### 3. El ancla que parece un detalle y no lo es
+
+El aviso de apagado enlaza a `/admin/m2#gancho-revision`, y la sección de la lista de revisión de M2
+lleva ahora ese `id` con su `scroll-mt` derivado de `--app-header-h`. Sin el ancla, el enlace lleva a
+una página **y a ningún sitio dentro de ella**, y la escalera de remedios —lo único que evita que el
+dueño apague la feature entera por una carta mal capturada— **muere en silencio**: el peor modo de
+fallo posible para un remedio. Tiene test, y quitar el `id` lo pone en rojo.
+
+### 4. ⚠️ Lo importante: el arnés E2E dejó de poder gastar, y ahora es por construcción
+
+**El riesgo.** `e2e/utils/grading.ts` hacía, en **cada corrida**, `PUT /admin/settings
+{ gradedEstimatesEnabled: 'on' }`. Hasta v1.50 eso encendía solo la **exhibición**. Tras el colapso,
+ese mismo `PUT` enciende también la **obtención** desde un proveedor **de paga**.
+
+**Por qué «en CI no hay llave» no era una respuesta.** Lo medí: ningún workflow de
+`.github/workflows/` define `POKEMONPRICETRACKER_API_KEY`, pero `docker-compose.yml:187` la pasa
+como `${POKEMONPRICETRACKER_API_KEY}` **sin default** — toma la del `.env` de quien levante el
+stack. En CI queda vacía **por accidente, no por diseño**; en la máquina de alguien con la llave real
+una corrida de E2E encendería el gasto. Y la protección que sí existe (el proveedor sale con `warn`
+sin llave) vive **en el backend**, no en el arnés, y depende de que la llave **esté ausente**.
+Depender de que alguien olvide poner una variable no es un diseño.
+
+**El mecanismo elegido: precondición verificada + un solo punto de encendido.** Módulo nuevo
+`e2e/utils/paid-provider-guard.ts`:
+
+1. **Observación donde se puede observar.** Si la API bajo prueba corre en esta máquina (localhost),
+   el arnés **mira las fuentes de entorno que el backend lee de verdad**: `process.env`, el `.env` de
+   la raíz (el que interpola docker-compose) y `backend/.env` (el que carga `ConfigModule.forRoot()`
+   en el stack nativo), más sus `.env.local`. Con una llave viva y la sonda apagada, **se niega a
+   encender el dial** y explica el remedio. Los placeholders (`CHANGE_ME`…) no cuentan como llave: un
+   guardarraíl que siempre grita se acaba desactivando.
+2. **Constancia solo donde no se puede observar.** Contra staging/CI remoto el entorno del backend no
+   es observable desde aquí y **no hay endpoint del contrato que lo exponga** —ni debe haberlo:
+   §4.38(r.3.3) rechaza justamente un interruptor escondido que gobierne el gasto—. Ahí se exige la
+   constancia de devops `E2E_GRADING_PROVIDER_INCAPACITATED=1`, que es suya por reparto. Sin ella el
+   arnés **no enciende**; antes encendía a ciegas.
+3. **La constancia NO gana sobre la observación.** Contra un backend local con llave viva, declarar
+   la variable no desbloquea nada. Si bastara, habríamos cambiado un olvido por una promesa.
+4. **Un solo punto de encendido.** El literal `{ gradingHookEnabled: 'on' }` existe **únicamente**
+   dentro de `enableGradingHookGuarded`, que lleva la precondición pegada. El arnés no puede
+   encender el dial por otra vía, y hay un test que falla si alguien vuelve a escribir el `PUT` a
+   mano en `grading.ts` (que es exactamente como estaba antes).
+5. **La sonda se lee EXACTAMENTE como la lee el backend** (`on|true|1|yes`). Un arnés más laxo que el
+   backend daría por incapacitado un entorno que sí escribe, y esa divergencia se pagaría en
+   créditos, no en un rojo.
+
+**El teardown APAGA; no restaura.** `restoreDialValue()` devuelve `off` **siempre**. Dos razones:
+la clave es nueva, así que «el valor previo» es `undefined` en todas las bases y restaurar solo puede
+significar `off`; y encender es un **acto de dinero** que hace el dueño desde el back-office
+(§4.38r.3), nunca un teardown automático. Si el dial estaba en `on` antes de la suite, se dice en voz
+alta en el log y se deja apagado.
+
+**La huella se declara en la corrida, no solo en un comentario.** Al sembrar, el arnés imprime
+`INCAPACITACIÓN=<mecanismo>: <detalle>`. Si mañana alguien afloja el guardarraíl, el log de la
+corrida dice con qué se autorizó el encendido.
+
+**Lo que este módulo NO es:** un feature flag. Solo puede **negar** la autorización, nunca darla. El
+gate del ingest sigue siendo del backend, que lee el dial.
+
+**Petición a devops (no bloquea este trabajo):** el reparto de §4.38(r.6.1) le asigna «quitar la
+capacidad de escritura automática del entorno E2E/CI». Con esto, un entorno remoto sin
+`E2E_GRADING_PROVIDER_INCAPACITATED=1` **para la suite** en vez de gastar; conviene fijar esa
+variable en el job de `e2e-real` junto con dejar la llave fuera del entorno.
+
+### 5. Demostración de que la incapacitación DETECTA (mutación deliberada)
+
+No basta con escribir el guardarraíl: hay que probar que su prueba se pone roja **por la razón
+correcta**. Cinco mutaciones, aplicadas y revertidas:
+
+| # | Qué rompí | Test que se puso rojo | Mensaje |
+|---|---|---|---|
+| **A** | `assessGradingWriteCapability` deja de detectar la llave viva (devuelve `incapacitated: true`) | `con llave viva NO llega a hacerse el PUT que enciende el gancho` | «REGRESIÓN DE DINERO: el arnés ejecutó el PUT que enciende el gancho con una llave del proveedor DE PAGA viva… **expected "spy" to not be called at all, but actually been called 1 times**» (+5 rojos más del mismo bloque) |
+| **B** | Vuelvo a poner el `PUT` directo en `grading.ts`, saltándome el guardarraíl | `el arnés no contiene ningún PUT que ponga el dial en 'on'` | `expected 'import { IS_REAL, …' not to match /gradingHookEnabled['"]?\s*:\s*['"]on…/` |
+| **C** | El teardown «restaura el valor previo» en vez de apagar | `aterriza en 'off' sea cual sea el valor previo observado` | `expected 'on' to be 'off'` |
+| **D** | El aviso de encendido se oculta cuando falta la cifra de créditos | `si el tope de M2 no está disponible, el aviso de encendido SIGUE saliendo` | `Unable to find role="alert"` |
+| **E** | Quito el `id="gancho-revision"` de la lista de revisión de M2 | `es el DESTINO del enlace del aviso de apagado` | `expected null to be truthy` |
+
+El aserto de A está **ordenado a propósito**: primero se afirma que el `PUT` **no ocurrió** y después
+que hubo error. Así, si el guardarraíl deja de detectar, el rojo dice literalmente *que se autorizó
+el gasto*, en vez de un «esperaba un error» que se puede leer como un problema del test.
+
+Los tests del guardarraíl viven en **vitest** (`src/test/e2e-paid-provider-guard.test.ts`) y no solo
+en Playwright: el gate unitario es el que corre en cada cambio, y un guardarraíl de dinero verificado
+únicamente por la suite que él mismo protege es un guardarraíl que nadie mira. Son deterministas —
+reciben las fuentes de entorno por parámetro, así que un `.env` real en la máquina de quien corra los
+tests no los vuelve verdes ni rojos por accidente.
+
+### Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **818/818 en 93 archivos**
+  · `npx next build` ✔ (62 páginas estáticas).
+- **Base: 789/92.** El delta **+29 tests / +1 archivo** es todo cobertura nueva, ninguna prueba
+  retirada: `e2e-paid-provider-guard.test.ts` **+21** (archivo nuevo) · `M10View.test.tsx` **+5** (dos
+  tests del dial viejo sustituidos por siete: etiqueta, aviso de encendido con cifra, `onNoFigures`,
+  aviso de apagado con su enlace, recordatorio `status`, no-coexistencia, prohibición del «visto
+  bueno») · `i18n-parity.test.ts` **+2** (el candado del disclaimer, ES y EN) ·
+  `GradedEstimateReviewSection.test.tsx` **+1** (el ancla).
+- **Restricciones del dueño respetadas:** cero tokens de color nuevos (el aviso de apagado usa
+  `variant="info"`, que es tinta muted sin color propio; el de encendido, `warning`, que ya usaba
+  `--color-accent`), cero hexes crudos y cero apariciones de la marca retirada.
+
+### Peticiones al arquitecto
+
+**Ninguna.** §22.13 no necesitó ningún dato ni pantalla que el contrato no cubra: el dial ya está en
+`SettingsDTO` (`gradingHookEnabled`) y el tope en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`).
+No se tocó `docs/API_CONTRACT.md`.

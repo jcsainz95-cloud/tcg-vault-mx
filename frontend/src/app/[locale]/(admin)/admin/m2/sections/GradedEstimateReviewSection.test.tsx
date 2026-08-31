@@ -112,6 +112,24 @@ afterEach(() => {
 });
 
 describe('GradedEstimateReviewSection · lista de revisión (§M2 v1.50.3 / criterio 111(e))', () => {
+  /**
+   * DESIGN_SYSTEM §22.13(e)/§22.12 nº13.e — el aviso de APAGADO del dial de M10 enseña la escalera
+   * de remedios y enlaza aquí (`/admin/m2#gancho-revision`). Sin el ancla, ese enlace lleva a una
+   * página y a ningún sitio dentro de ella: la escalera —lo único que evita que el dueño apague la
+   * feature entera por una carta mal capturada— moriría **en silencio**, que es el peor modo de
+   * fallo posible para un remedio. El `scroll-mt` va con ella: aterrizar debajo del header sticky
+   * es no aterrizar (§4.5).
+   */
+  it('es el DESTINO del enlace del aviso de apagado: ancla `gancho-revision` con su scroll-mt', async () => {
+    const { container } = renderWithProviders(<GradedEstimateReviewSection />, 'es');
+    const anchor = container.querySelector('#gancho-revision') as HTMLElement;
+    expect(anchor).toBeTruthy();
+    expect(anchor.tagName).toBe('SECTION');
+    expect(anchor.className).toContain('scroll-mt-[calc(var(--app-header-h,0px)+16px)]');
+    // El encabezado de la sección cuelga del ancla: el aterrizaje enseña de qué va la lista.
+    expect(anchor.querySelector('h2')).toBeTruthy();
+  });
+
   it('pide por defecto SOLO los tres motivos de coherencia: SLAB_PUBLISHED es opt-in', async () => {
     renderWithProviders(<GradedEstimateReviewSection />, 'es');
 

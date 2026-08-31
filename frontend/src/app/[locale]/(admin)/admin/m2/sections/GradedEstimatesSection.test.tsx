@@ -16,7 +16,6 @@ import { GradedEstimatesSection } from './GradedEstimatesSection';
 /** Seed de §O.2.1 en centavos, servido FRESCO en cada test (el mock del módulo es mutable). */
 const seed = (): GradedEstimateConfigDTO => ({
   enabled: true,
-  ingestEnabled: false,
   grades: ['10', '9'],
   highlightGrades: ['10'],
   freshnessDays: 30,

@@ -1940,7 +1940,7 @@
           "pricingProviderGraded": "Per-card reference provider (graded)",
           "pricingProviderSealed": "Per-card reference provider (sealed)",
           "catalogSyncFromDate": "Catalog sync boundary",
-          "gradedEstimatesEnabled": "Estimated value if graded (hook)"
+          "gradingHookEnabled": "Grading hook — publishes and fetches data"
         },
         "units": {
           "cents": "in MXN pesos",
@@ -1953,10 +1953,14 @@
           "on": "On",
           "off": "Off"
         },
-        "gradedEstimates": {
-          "note": "The master switch for «estimated value if graded» lives here; the grading cost tiers, the minimum upside, freshness and grades are edited in M2 · Catalog and pricing. While off, the storefront shows no estimated figure at all.",
-          "warningTitle": "This turns on a commercial claim",
-          "warning": "With this dial on, the storefront publishes estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer. That legal text has NOT been signed off by the owner (nor legally reviewed). Turn it on only if that decision has been made: it changes no sale price, valuation or quote, but it does change what the store claims."
+        "gradingHook": {
+          "note": "A single switch governs the hook: on, the storefront publishes the estimated figures <b>and</b> the daily sweep fetches them from a paid provider; off, it publishes none <b>and</b> updates none. Grading cost tiers, minimum upside, freshness, grades and the per-run card cap are edited in M2 · Catalog and pricing, along with the review list — the tool for a single figure.",
+          "onTitle": "On: publishes figures and spends credits",
+          "on": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices: up to <b><n>{credits, number}</n> credits a day</b> (<n>{maxCards, number}</n> cards × <n>{perCard}</n> credits × <n>{runs}</n> runs). The per-run card cap is edited in M2 · Catalog and pricing; credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
+          "onNoFigures": "<b>It publishes.</b> With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> The same dial lets the daily sweep ask a <b>paid</b> provider for those figures and write estimated prices: it consumes credits on every run, up to the per-run card cap you set in M2 · Catalog and pricing. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.",
+          "audit": "Super-admin only · recorded in the audit log.",
+          "offTitle": "Turning it off also stops updating",
+          "off": "<b>It stops both at once.</b> While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. <b>For one specific figure, this is not the remedy.</b> A wrong figure is deleted from the <review>review list</review>; a whole grade is removed from “grades” in M2; if what’s excessive is the promotion, raise the minimum upside in M2 and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in M2."
         }
       },
       "ingest": {

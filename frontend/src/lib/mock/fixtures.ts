@@ -508,7 +508,6 @@ const mockGradingHighlightGrades = ['10'];
  */
 export let mockGradedEstimateConfig: GradedEstimateConfigDTO = {
   enabled: true,
-  ingestEnabled: false,
   grades: ['10', '9'],
   highlightGrades: [...mockGradingHighlightGrades],
   freshnessDays: 30,
@@ -542,7 +541,7 @@ export function setMockGradedEstimateConfig(patch: Partial<GradedEstimateConfigD
   mockGradedEstimateConfig = {
     ...mockGradedEstimateConfig,
     ...rest,
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
   };
 }
 
@@ -2780,11 +2779,12 @@ export let mockSettings: SettingsDTO = {
   // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
   priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
-  // v1.44-graded-estimate: interruptor maestro del gancho (contrato §M10; **seed real = `off`**,
-  // fail-closed). MOCK: el fixture lo representa YA ENCENDIDO —como un staging donde el dueño lo
-  // prendió— para poder ejercitar las tres superficies sin backend. El gate y el interruptor son
-  // SERVER-SIDE y no se simulan: apagarlo aquí desde M10 no apaga las cifras del mock.
-  gradedEstimatesEnabled: 'on',
+  // v1.51-one-dial (M-46): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
+  // y la clave es NUEVA ⇒ ningún entorno la tiene). MOCK: el fixture lo representa YA ENCENDIDO
+  // —como un entorno donde el dueño lo prendió a mano— para poder ejercitar las tres superficies
+  // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
+  // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
+  gradingHookEnabled: 'on',
 };
 export function setMockSettings(patch: Partial<SettingsDTO>) {
   mockSettings = { ...mockSettings, ...patch };
@@ -3894,7 +3894,7 @@ export function mockGradedEstimatePreview(
   if (!card) throw new ApiFixtureNotFound('card not found');
   const cfg: GradedEstimateConfigDTO = {
     ...mockGradedEstimateConfig,
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
     gradingCostTiers: mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
   };
   const estimates = mockGradedEstimatesByCardId[cardId] ?? [];
@@ -4171,7 +4171,7 @@ export function mockGradedEstimateReview(filters: {
     pageSize,
     total: filtered.length,
     // La lista evalúa AUNQUE el dial esté apagado (para poder limpiar antes de encender).
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
     scannedCards: new Set(Object.keys(mockGradedEstimatesByCardId).concat(mockReviewRows.map((r) => r.cardId))).size,
     truncated: false,
   };

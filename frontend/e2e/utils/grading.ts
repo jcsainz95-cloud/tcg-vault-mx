@@ -1,5 +1,11 @@
 import { IS_REAL, apiAs, apiAsOk, resolveApiBaseUrl } from './env';
 import { readState, sharedOnce, writeState, clearState } from './state';
+import {
+  GRADING_HOOK_DIAL_KEY,
+  enableGradingHookGuarded,
+  restoreDialValue,
+  type CapabilityAssessment,
+} from './paid-provider-guard';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────────────
@@ -17,7 +23,7 @@ import { readState, sharedOnce, writeState, clearState } from './state';
  *   MOCK  → devuelve los ids de `src/lib/mock/fixtures.ts`. Cero I/O.
  *   REAL  → DESCUBRE cartas del catálogo publicado y **siembra el escenario por la API del
  *           contrato** (los mismos endpoints que usa el back-office: `PUT /admin/settings`
- *           para el interruptor maestro y `POST /admin/pricing/override` con
+ *           para el dial único y `POST /admin/pricing/override` con
  *           `intent:"graded_estimate"` para las cifras). Después **verifica con
  *           `GET /admin/pricing/graded-estimates/preview`** que el gate quedó donde el test
  *           necesita. Ningún monto se hornea: se derivan de los diales VIVOS del entorno.
@@ -33,8 +39,17 @@ import { readState, sharedOnce, writeState, clearState } from './state';
  * fila ya puesta probaría menos.
  *
  * HUELLA QUE DEJA EN EL ENTORNO (declarada, no escondida):
- *  - El dial `gradedEstimatesEnabled` se enciende y **se restaura en `globalTeardown`**
- *    (`restoreGradingDial`), leyendo el valor previo de un archivo de estado.
+ *  - ⚠️ **El dial `gradingHookEnabled` (v1.51, M-46) se enciende, y desde el colapso a UN SOLO dial
+ *    ese mismo `PUT` autoriza también la OBTENCIÓN**: el barrido pide cifras a un proveedor **de
+ *    paga** y escribe precios. Por eso el arnés **exige, antes de encenderlo, que el entorno esté
+ *    incapacitado para escribir automático** (§4.38r.6.1) — sin `POKEMONPRICETRACKER_API_KEY`
+ *    (preferido: cero peticiones) o con `POKEMONPRICETRACKER_GRADED_PROBE=on`. La comprobación es
+ *    de `./paid-provider-guard` y **es una precondición, no una nota**: si el entorno puede gastar,
+ *    la suite se para con el remedio escrito en vez de correr y facturar. El mecanismo concreto que
+ *    aplicó en cada corrida se **imprime** al sembrar (`INCAPACITACIÓN=…`).
+ *  - El dial se **apaga en `globalTeardown`** (`restoreGradingDial`). Se apaga, no «se restaura al
+ *    valor previo»: la clave es nueva ⇒ no existe en ninguna base, y encenderla es un acto de dinero
+ *    que corresponde al dueño desde el back-office (§4.38r.3), jamás a un teardown.
  *  - Las `PriceReference` de estimado quedan escritas. La mitigación vigente es que la siembra sea
  *    IDEMPOTENTE (un override posterior supersede al anterior) y que el dial vuelva a `off`: **nada
  *    de lo sembrado se publica**.
@@ -200,11 +215,15 @@ function amountsThatPassTheGate(
  */
 async function stateKeys(): Promise<{ dial: string; scenario: string }> {
   const apiBase = await resolveApiBaseUrl();
-  return { dial: `grading:dial-master-switch:${apiBase}`, scenario: `grading:scenario:${apiBase}` };
+  return { dial: `grading:hook-dial:${apiBase}`, scenario: `grading:scenario:${apiBase}` };
 }
 
 interface DialState {
-  /** Valor que tenía `gradedEstimatesEnabled` ANTES de que la suite lo tocara. */
+  /**
+   * Valor que tenía `gradingHookEnabled` ANTES de que la suite lo tocara. Se registra para poder
+   * **decirlo** en el teardown, no para volver a él: la restauración es siempre `off`
+   * (`restoreDialValue`). Contra una base real será `undefined` ⇒ `'off'`: la clave es nueva.
+   */
   previous: string;
 }
 
@@ -305,15 +324,26 @@ async function seedRealScenario(): Promise<GradingScenario> {
   const curated = rawGroups[0];
   const informed = rawGroups[1];
 
-  // 2. Interruptor maestro M10. Se guarda el valor previo ANTES de tocarlo (solo la primera vez:
-  //    una segunda corrida no debe registrar «on» como si fuese el estado pristino).
+  // 2. DIAL ÚNICO de M10 (v1.51, M-46). Se anota el valor previo ANTES de tocarlo —solo la primera
+  //    vez, para que una segunda corrida no registre «on» como si fuese el estado pristino— y se
+  //    enciende **a través del guardarraíl**: encender es ahora autorizar gasto, así que el arnés
+  //    comprueba primero que el entorno no pueda escribir automático (§4.38r.6.1). Si puede, esto
+  //    lanza y la suite se para **antes** del `PUT`: ni un crédito.
   const keys = await stateKeys();
   const settings = await apiAsOk<Record<string, unknown>>('admin', 'GET', '/admin/settings');
-  const previous = String(settings.gradedEstimatesEnabled ?? 'off');
+  const previous = String(settings[GRADING_HOOK_DIAL_KEY] ?? 'off');
   if (!readState<DialState>(keys.dial)) {
     writeState<DialState>(keys.dial, { previous });
   }
-  await apiAsOk('admin', 'PUT', '/admin/settings', { gradedEstimatesEnabled: 'on' });
+  const incapacitation: CapabilityAssessment = await enableGradingHookGuarded(
+    await resolveApiBaseUrl(),
+    (body) => apiAsOk('admin', 'PUT', '/admin/settings', body),
+  );
+  // La huella se DECLARA en la corrida, no solo en este comentario: si mañana alguien afloja el
+  // guardarraíl, el log de la corrida dice con qué mecanismo se autorizó el encendido.
+  console.log(
+    `[e2e] gancho de grading ON — INCAPACITACIÓN=${incapacitation.mechanism}: ${incapacitation.detail}`,
+  );
 
   // 3. Diales del gancho: de aquí salen los grados a asertar y la matemática de los montos.
   const cfg = await apiAsOk<GradedEstimateConfig>('admin', 'GET', '/admin/pricing/graded-estimates');
@@ -445,29 +475,41 @@ export async function gradingScenario(): Promise<GradingScenario> {
 }
 
 /**
- * Devuelve el interruptor maestro al valor que tenía antes de la suite. Lo llama el
- * `globalTeardown` de `playwright.config.ts`, que corre UNA vez cuando todos los workers
- * terminaron — no un `afterAll` por worker, que apagaría el dial mientras otro worker sigue
- * navegando.
+ * **Apaga** el dial único al terminar la suite. Lo llama el `globalTeardown` de
+ * `playwright.config.ts`, que corre UNA vez cuando todos los workers terminaron — no un `afterAll`
+ * por worker, que apagaría el dial mientras otro worker sigue navegando.
+ *
+ * Aterriza en `off` **siempre** (`restoreDialValue`), nunca en `on`: ver el porqué en el propio
+ * `restoreDialValue`. Si el entorno tenía el dial encendido de antes, se dice en voz alta — dejarlo
+ * apagado es la dirección segura, y volver a encenderlo es del dueño, desde el back-office.
  */
 export async function restoreGradingDial(): Promise<void> {
-  let previous = '(desconocido)';
+  let previous: string | undefined;
   try {
     const keys = await stateKeys();
     const saved = readState<DialState>(keys.dial);
     // Sin archivo de estado, la suite no tocó el dial: no hay nada que deshacer.
     if (!saved) return;
     previous = saved.value.previous;
-    await apiAsOk('admin', 'PUT', '/admin/settings', { gradedEstimatesEnabled: previous });
+    await apiAsOk('admin', 'PUT', '/admin/settings', {
+      [GRADING_HOOK_DIAL_KEY]: restoreDialValue(previous),
+    });
+    if (previous === 'on') {
+      console.warn(
+        `[e2e] El dial ${GRADING_HOOK_DIAL_KEY} estaba en "on" ANTES de la suite y se ha dejado en ` +
+          `"off" a propósito: encenderlo publica y GASTA créditos, y es una decisión del dueño desde ` +
+          `M10 (ARCHITECTURE §4.38r.3), no de un teardown.`,
+      );
+    }
     clearState(keys.dial);
     clearState(keys.scenario);
   } catch (error) {
     // Se AVISA pero no se tumba una corrida ya terminada (p. ej. el stack se cayó a mitad). El
-    // archivo de estado se conserva a propósito: la siguiente corrida encontrará el valor pristino
-    // y volverá a intentar restaurarlo, en vez de grabar «on» como si fuese el original.
+    // archivo de estado se conserva a propósito: la siguiente corrida volverá a intentar apagarlo.
     console.warn(
-      `[e2e] No se pudo restaurar gradedEstimatesEnabled a "${previous}": ${String(error)}. ` +
-        `Revísalo a mano: es una afirmación comercial encendida en el entorno.`,
+      `[e2e] No se pudo APAGAR ${GRADING_HOOK_DIAL_KEY} (previo observado: "${previous ?? '(desconocido)'}"): ` +
+        `${String(error)}. Revísalo a mano: el gancho quedó encendido, y encendido publica una ` +
+        `afirmación comercial Y autoriza gasto en el proveedor de paga.`,
     );
   }
 }
