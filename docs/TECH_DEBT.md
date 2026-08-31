@@ -42,6 +42,34 @@
 > exige que ese número no mienta («un número que miente es peor que no tenerlo») y el test que lo acompaña
 > mentía. Los dos comentarios dicen ahora **11**, con la nota de por qué cambió.
 
+### TL-GE4 · La regla S1/S2 está DUPLICADA entre `detectGradedShape` y `parseGradedEntry` (techlead GE-4, v1.51-b, 2026-08-31)
+- **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante hoy**: las dos copias coinciden y hay tests que fijan la conducta de cada una por separado).
+- **Deuda:** «qué es S1 y qué es S2» se decide en **dos** funciones de `pokemonpricetracker-bulk.provider.ts`: `detectGradedShape` (la SONDA, ~`:143`) y `parseGradedEntry` (el camino que ESCRIBE, ~`:1108`). Las dos repiten literalmente el mismo par de extracciones (`pickObject(pickObject(e['ebay']), 'salesByGrade')` y `pickObject(e, 'gradedPrices')`) y la misma precedencia (`S1 gana si existe`). Divergen **a propósito** en una sola cosa: la sonda ignora `GRADED_FORMAT` y el parser lo obedece.
+- **Por qué importa:** es exactamente la forma del defecto **TL-GE2/R2** que se acaba de cerrar en este pase (dos definiciones de «conteo inducido», una en cada lado, que llegaron a contradecirse en la misma corrida). Aquí el riesgo es peor de leer: si el proveedor cambia el nombre del bloque y solo se actualiza una copia, la **sonda diría «llega S1, la fase 2 funciona»** mientras el ingest clasifica todo como S2 y no escribe **ni una fila** — o al revés. El veredicto y la conducta se separarían sin que ningún test actual lo note, porque cada copia tiene los suyos.
+- **Impacto hoy:** ninguno observable. Las dos copias están sincronizadas y verificadas (`graded-estimate.probe.spec.ts`).
+- **Salida propuesta:** extraer un `extractGradedBlocks(entry) → { salesByGrade, gradedPrices, externalId }` **puro** y que las dos funciones lo consuman, dejando en cada una **solo** su diferencia declarada (la sonda fija `useS1 = salesByGrade != null`; el parser aplica `forcedFormat`). Con un test que afirme que, para el mismo `entry`, `detectGradedShape` y `parseGradedEntry` **con `forcedFormat='auto'`** devuelven el MISMO `shape` — el gemelo del test que cerró TL-GE2/R2.
+- **Disparador:** el primero de (a) **cualquier cambio en el shape del bloque PSA** del proveedor (nombre de campo, anidamiento) o (b) **antes del primer `off → on`** de `grading_hook_enabled` en producción, junto con el resto de la fase 2. Ref: `BACKEND_NOTES.md` §0.16, ARCHITECTURE §4.38(h.1-bis).
+
+### TL-GE5 · La fila que NO resuelve a una carta se descarta SIN dejar traza (backend, v1.51-b, 2026-08-31)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; es observabilidad, no dinero — la dirección del fallo es la segura: **no** se escribe una referencia huérfana).
+- **Deuda:** en `ingestGradedEstimates`, `if (!cardId || !allowed.has(cardId)) continue;` (`price-ingest.service.ts`, bucle de `res.rows`) descarta la fila **en silencio**: no hay `warn`, no hay contador en `GradedIngestResult` y no hay `AuditLog`. El único caso que sí deja traza es la **ambigüedad** («el número X casa con N cartas → se OMITE»). Todos los demás —`externalId` que no empata, número con un formato que `cardNumberVariants` no cubre, carta de otro set— desaparecen.
+- **Por qué importa:** es la **única fila del MAPA DE CAUSAS (`BACKEND_NOTES.md` §0.16.2, #19) sin línea de log**. En una corrida que devuelve S1 impecable y escribe cero filas, el veredicto diría `VIABLE` con `written=0` y **nada** en el log explicaría el hueco: el operador se queda exactamente en el estado que el bloque `[VEREDICTO-PSA]` existe para evitar. Es el mismo defecto de forma que §4.38h.4 ya obligó a cerrar para los descartes del parser («sin traza, el descarte es invisible y el preview solo dice `NO_PSA10`»), aplicado al descarte de resolución.
+- **Salida propuesta:** un contador propio (`skippedUnresolved`) en `GradedIngestResult` —campo INTERNO, **no viaja por HTTP**, sin cambio de contrato— más una línea en el resumen de la corrida y un `warn` acotado (con el `externalId`/`number` del proveedor y un tope de N líneas por set, para no reproducir el ruido de 2 000 líneas que motivó el veredicto).
+- **Disparador:** la primera corrida real con `VEREDICTO: VIABLE` y `written` menor que las cartas S1 observadas — o el trabajo de TL-GE4, lo que ocurra antes. Ref: `BACKEND_NOTES.md` §0.16.2 fila #19.
+
+> **TL-GE1, TL-GE2/R2, TL-GE3 y R1 — CERRADOS en el pase v1.51-b, sin deuda residual.** Se anotan aquí
+> por el **hallazgo de proceso** que levantó el techlead: los cuatro se detectaron en dos pases de
+> revisión independientes y **ninguno llegó a este archivo**, así que el techlead los volvió a encontrar
+> desde cero. Quedaron: **R1** — el veredicto daba dos diagnósticos FALSOS (`enabled` sobrecargado como
+> «por qué no pasó nada» y asignado *después* de dos salidas tempranas) ⇒ hoy hay `stopReason` con
+> titular y acción propios por causa, y la clave inválida se NOMBRA. **TL-GE1** — `COSTE MEDIDO` se
+> calculaba restando el contador diario del **singleton** `PptApiClient`, que el barrido RAW de la misma
+> corrida pisa ⇒ hoy se suma `metadata.apiCallsConsumed` de las llamadas graded y, sin atribución, **no
+> se reporta número**. **TL-GE2/R2** — dos definiciones de «conteo inducido» ⇒ una sola,
+> `shapeCountIsInduced`, exportada y consumida por ingest y veredicto. **TL-GE3** — la bandera
+> `POKEMONPRICETRACKER_GRADED_PROBE` caía en silencio ante un typo ⇒ `warn` explícito (semántica
+> intacta). Detalle y tests en `BACKEND_NOTES.md` §0.16.1.
+
 ### M43-D1 · `reconcilePublishedPrices` sigue siendo `raw`-only: un slab sin referencia no entra a la cola (M-43, 2026-08-29)
 - **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante**). Residual **declarado por el arquitecto** en ARCHITECTURE §4.38(l.4.9), fuera del alcance de M-43 por decisión del orquestador.
 - **Deuda:** el barrido de reconciliación (`reconcilePublishedPrices`) lleva `productType:'raw'` en su `where` (candado 1 de §4.38l.4.6). Con M-43, un slab cuya única fila de `graded:PSA:N` sea un estimado —o al que se le borre su referencia de mercado— **deja de venderse** (`priceBasis:'pending'`, `fetchSellable` lo descarta, `GET /catalog/listings/:id` ⇒ 404) **pero NO aparece en `PendingPriceEntry`**, así que no entra a la cola de triaje de §M2 y el dueño no tiene dónde verlo.

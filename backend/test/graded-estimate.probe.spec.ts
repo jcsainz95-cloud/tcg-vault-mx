@@ -11,7 +11,12 @@ import { FxService } from '../src/modules/pricing/fx.service';
 import { PptSetMapper } from '../src/modules/pricing/ppt-set-mapper.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
-import { gradedPhase2Verdict, GRADED_VERDICT_TAG } from '../src/modules/pricing/graded-phase2-verdict';
+import {
+  gradedPhase2Verdict,
+  shapeCountIsInduced,
+  GRADED_VERDICT_TAG,
+  GradedStopReason,
+} from '../src/modules/pricing/graded-phase2-verdict';
 
 /**
  * v1.50.3-g (§4.38h.1-quater) — **LA SONDA: preguntar sin escribir, y que el veredicto se lea.**
@@ -177,16 +182,51 @@ describe('§4.38h.1-quater — la SONDA sin `MARKET_FORMAT`: SÍ pregunta, SÍ l
     expect(spy).toHaveBeenCalledTimes(1); // la 2ª página sería la misma respuesta pagada dos veces
   });
 
-  it('MIDE el coste con el crédito del proveedor: `dailyRemainingBefore` − `dailyRemaining`', async () => {
-    // Es la única forma honesta de contestar la duda abierta: la petición manda `fetchAllInSet=true`
-    // (el SET entero) mientras el diseño afirma que el coste es «proporcional al inventario real».
+  /**
+   * 💸 **TL-GE1 — EL COSTE TIENE QUE SER ATRIBUIBLE.**
+   *
+   * Antes se medía como `dailyRemainingBefore − dailyRemaining` sobre el contador del **singleton**
+   * `PptApiClient`, que pisa cualquier respuesta de PPT: el barrido de precios RAW corre en la MISMA
+   * corrida y movía ese contador, así que la sonda se apuntaba créditos ajenos. Con el umbral de
+   * `>= 0.5 crédito/carta` eso puede disparar una escalada de presupuesto FALSA, y la cifra es
+   * precondición del primer `off → on` (§4.38r.3.1.1). Ahora se suma `metadata.apiCallsConsumed` de
+   * las respuestas graded, que es lo único que habla de ESTAS llamadas.
+   */
+  it('MIDE el coste con lo que el proveedor cobró POR ESTAS LLAMADAS (`metadata.apiCallsConsumed`)', async () => {
+    mockPages([{ ...pageS1(), metadata: { apiCallsConsumed: 2 } }]);
+    const res = await call(provider(cfg({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined })));
+    expect(res.gradedApiCallsConsumed).toBe(2);
+  });
+
+  it('COSTE: el contador diario COMPARTIDO ya no puede contaminar la cifra (el bug de TL-GE1)', async () => {
+    // El fixture reproduce el escenario real: el contador diario cae 400 (barrido RAW de la misma
+    // corrida) mientras la llamada graded declara haber consumido 2. La resta habría reportado 400.
     const p = provider(cfg({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined }));
-    mockPages([pageS1()], [900]);
-    await call(p); // 1ª llamada: fija el contador en 900
-    mockPages([pageS1()], [898]);
+    mockPages([pageS1()], [1000]);
+    await call(p); // fija el contador del singleton en 1000
+    mockPages([{ ...pageS1(), metadata: { apiCallsConsumed: 2 } }], [600]);
     const res = await call(p);
-    expect(res.dailyRemainingBefore).toBe(900);
-    expect(res.dailyRemaining).toBe(898);
+    expect(res.gradedApiCallsConsumed).toBe(2);
+  });
+
+  it('COSTE: si el proveedor NO reporta `apiCallsConsumed`, se dice `null` — no se inventa un número', async () => {
+    mockPages([pageS1()], [900]);
+    const res = await call(provider(cfg({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined })));
+    expect(res.gradedApiCallsConsumed).toBeNull();
+  });
+
+  it('sin llamada (sin pptSetId) el coste es CERO y ATRIBUIBLE, no «desconocido»', async () => {
+    const p = provider(cfg({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined }));
+    const res = await p.fetchGradedEstimatesForSet({
+      set: SET,
+      providerSetId: null,
+      grades: ['10'],
+      minSampleCount: 3,
+      sourceStat: 'median',
+      freshnessDays: 30,
+      today: HOY,
+    });
+    expect(res.gradedApiCallsConsumed).toBe(0);
   });
 
   it('la sonda clasifica por OBSERVACIÓN: `GRADED_FORMAT` forzado no puede inducir su conteo', async () => {
@@ -254,7 +294,12 @@ const FX: FxSnapshot = { rate: 19, bufferPct: 5 };
 /** v1.51 (M-46, §4.38r): EL dial del gancho — uno solo, exhibición Y obtención. */
 const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 
-function wireJob(env: Record<string, string | undefined>, config: Record<string, unknown> = ON) {
+function wireJob(
+  env: Record<string, string | undefined>,
+  config: Record<string, unknown> = ON,
+  /** Alcance del ingest: `[]` reproduce «ninguna carta con inventario RAW publicado» (R1, `no_scope`). */
+  inventario: { cardId: string }[] = [{ cardId: 'c1' }],
+) {
   const store = new Map<string, unknown>(Object.entries(config));
   const create = jest.fn(async ({ data }: any) => ({ id: 'pr-new', ...data }));
   const update = jest.fn(async ({ data }: any) => ({ id: 'pr-1', ...data }));
@@ -264,7 +309,7 @@ function wireJob(env: Record<string, string | undefined>, config: Record<string,
         (where.key.in as string[]).filter((k) => store.has(k)).map((k) => ({ key: k, valueJson: store.get(k) })),
       ),
     },
-    inventoryItem: { findMany: jest.fn(async () => [{ cardId: 'c1' }]) },
+    inventoryItem: { findMany: jest.fn(async () => inventario) },
     card: { findMany: jest.fn(async () => [CARD]) },
     priceReference: { findFirst: jest.fn(async () => null), create, update },
   } as unknown as PrismaService;
@@ -346,7 +391,8 @@ describe('§4.38h.1-quater — la corrida en modo SONDA no toca `PriceReference`
 describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, misma conclusión)', () => {
   const base = {
     probe: true,
-    enabled: true,
+    stopReason: null as GradedStopReason | null,
+    invalidConfigKeys: [] as readonly string[],
     requestOk: true,
     sets: 1,
     cardsInScope: 1,
@@ -356,8 +402,7 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
     dailyLimited: false,
     escalationReason: null as string | null,
     forcedFormat: 'auto' as const,
-    creditsBefore: null as number | null,
-    creditsAfter: null as number | null,
+    creditsSpent: null as number | null,
   };
 
   it('S1 observado ⇒ VIABLE («la fase 2 funciona»)', () => {
@@ -414,8 +459,7 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
       ...base,
       shapeCounts: { s1: 1, s2: 0 },
       cardsReturned: 200,
-      creditsBefore: 1_000,
-      creditsAfter: 600, // 400 créditos por 200 cartas = 2 por carta DEVUELTA
+      creditsSpent: 400, // 400 créditos por 200 cartas = 2 por carta DEVUELTA
     });
     const texto = caro.lines.join('\n');
     expect(texto).toContain('COSTE MEDIDO: 400 crédito(s) por 200 carta(s) DEVUELTAS');
@@ -427,20 +471,248 @@ describe('§4.38h.1-quater — el veredicto como función PURA (misma entrada, m
       ...base,
       shapeCounts: { s1: 1, s2: 0 },
       cardsReturned: 200,
-      creditsBefore: 1_000,
-      creditsAfter: 999,
+      creditsSpent: 1,
     });
     expect(barato.lines.join('\n')).toContain('se cobra por PETICIÓN');
   });
 
-  it('COSTE: sin contador del proveedor NO se estima a ojo, se dice que no se pudo medir', () => {
-    expect(gradedPhase2Verdict({ ...base, shapeCounts: { s1: 1, s2: 0 } }).lines.join('\n')).toContain(
-      'NO se puede medir',
-    );
+  it('COSTE: sin cifra ATRIBUIBLE no se estima a ojo — se dice que no se pudo aislar (TL-GE1)', () => {
+    const texto = gradedPhase2Verdict({ ...base, shapeCounts: { s1: 1, s2: 0 } }).lines.join('\n');
+    expect(texto).toContain('NO SE PUDO AISLAR');
+    // Y se explica POR QUÉ el contador diario no vale: es el dato que la versión anterior restaba.
+    expect(texto).toContain('barrido de precios RAW');
+    // Money-safe: sin cifra no puede colarse el umbral que dispara la escalada de PRESUPUESTO.
+    expect(texto).not.toContain('COSTE MEDIDO');
+    expect(texto).not.toContain('NO se sostiene');
   });
 
   it('todas las líneas llevan la marca: un solo `grep` devuelve el bloque completo', () => {
     const r = gradedPhase2Verdict({ ...base, shapeCounts: { s1: 1, s2: 0 } });
     expect(r.lines.every((l) => l.startsWith(`[${GRADED_VERDICT_TAG}]`))).toBe(true);
+  });
+});
+
+// =================================================================================================
+/**
+ * **v1.51-b (R1) — EL VEREDICTO DEJA DE DAR DOS DIAGNÓSTICOS FALSOS.**
+ *
+ * ### Lo que estaba roto, y por qué era lo más urgente
+ * `result.enabled = true` se asignaba **después** de las dos salidas tempranas del ingest, y el
+ * veredicto usaba ese único booleano como «por qué no pasó nada». Consecuencias, las dos medibles:
+ *
+ *  **(a)** Dial `grading_hook_enabled` en **`on`** + config del ingest corrupta ⇒ el veredicto recibía
+ *  `enabled: false` y publicaba *«el dial está en `off`»* + *«Enciende el dial»*. El operador mira el
+ *  dial, lo ve encendido, y el ÚNICO artefacto que existe para decirle por qué el ingest escribe cero
+ *  filas le miente sobre la causa — mientras la clave corrupta sigue ahí. Es una de las causas
+ *  candidatas de las cero filas en producción, disfrazada por su propio detector.
+ *
+ *  **(b)** Sin inventario RAW en alcance ⇒ salía con `enabled: true, requestOk: false`, y el veredicto
+ *  mandaba *«Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del log»*: líneas **que no existen**,
+ *  porque no hubo ninguna petición que pudiera fallar. Media hora de búsqueda de un log inexistente.
+ *
+ * La corrección: `stopReason` (`dial_off` / `ingest_config_invalid` / `no_scope`) evaluado al principio
+ * de la cadena de precedencia, cada uno con SU titular y SU acción, y con la clave inválida NOMBRADA.
+ */
+describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a arreglar lo que está bien', () => {
+  const base = {
+    probe: false,
+    stopReason: null as GradedStopReason | null,
+    invalidConfigKeys: [] as readonly string[],
+    requestOk: false,
+    sets: 0,
+    cardsInScope: 0,
+    cardsReturned: 0,
+    shapeCounts: { s1: 0, s2: 0 },
+    written: 0,
+    dailyLimited: false,
+    escalationReason: null as string | null,
+    forcedFormat: 'auto' as const,
+    creditsSpent: 0 as number | null,
+  };
+
+  it('`dial_off` ⇒ dice que el dial está en `off` y manda encenderlo (el ÚNICO caso donde eso aplica)', () => {
+    const r = gradedPhase2Verdict({ ...base, stopReason: 'dial_off' });
+    expect(r.verdict).toBe('INDETERMINADO');
+    expect(r.headline).toContain('`off`');
+    expect(r.nextStep).toContain('gradingHookEnabled');
+  });
+
+  it('⛑️ (a) `ingest_config_invalid` ⇒ dice que el dial está en `on` y NOMBRA la clave a corregir', () => {
+    const r = gradedPhase2Verdict({
+      ...base,
+      stopReason: 'ingest_config_invalid',
+      invalidConfigKeys: ['graded_estimate_ingest_max_cards_per_run'],
+    });
+    // La aserción que pone en rojo el bug: el titular ya no puede acusar al dial.
+    expect(r.headline).toContain('NO es el dial');
+    expect(r.headline).toContain('`on`');
+    expect(r.headline).toContain('graded_estimate_ingest_max_cards_per_run');
+    // Y la acción tiene que ser la reparación REAL, no «enciende el dial».
+    expect(r.nextStep).toContain('graded_estimate_ingest_max_cards_per_run');
+    expect(r.nextStep).toContain('/admin/pricing/graded-estimates');
+    expect(r.nextStep).not.toContain('gradingHookEnabled');
+  });
+
+  it('⛑️ (b) `no_scope` ⇒ habla de inventario publicado y NO manda a buscar un log que no existe', () => {
+    const r = gradedPhase2Verdict({ ...base, stopReason: 'no_scope' });
+    expect(r.headline).toContain('inventario RAW');
+    expect(r.nextStep).toContain('status=listed');
+    expect(r.nextStep + r.headline).not.toContain('EL REQUEST FALLÓ');
+    expect(r.headline).not.toContain('`off`');
+  });
+
+  it('las tres paradas se distinguen entre sí (mismo síntoma, tres remedios distintos)', () => {
+    const titulares = (['dial_off', 'ingest_config_invalid', 'no_scope'] as const).map(
+      (stopReason) => gradedPhase2Verdict({ ...base, stopReason }).headline,
+    );
+    expect(new Set(titulares).size).toBe(3);
+    const acciones = (['dial_off', 'ingest_config_invalid', 'no_scope'] as const).map(
+      (stopReason) => gradedPhase2Verdict({ ...base, stopReason }).nextStep,
+    );
+    expect(new Set(acciones).size).toBe(3);
+  });
+
+  it('con parada NO se finge un desglose de shapes ni un coste desconocido: 0 créditos, sin petición', () => {
+    const texto = gradedPhase2Verdict({ ...base, stopReason: 'no_scope' }).lines.join('\n');
+    expect(texto).toContain('no llegó a preguntarle al proveedor');
+    expect(texto).toContain('COSTE: 0 créditos');
+    expect(texto).not.toContain('NO SE PUDO AISLAR');
+  });
+
+  // ── El mismo defecto, comprobado en la CORRIDA REAL (provider real + fetch delator) ─────────────
+  it('⛑️ (a) EN LA CORRIDA: dial `on` + `ingestMaxCardsPerRun` corrupto ⇒ el bloque NOMBRA la clave', async () => {
+    const logs = capturarLogs();
+    const spy = mockPages([pageS1()]);
+    const { ingest, create } = wireJob({}, {
+      ...ON,
+      [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 2000, // legal ayer, inválido hoy
+    });
+
+    const res = await ingest.ingestGradedEstimates(FX);
+    const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
+
+    expect(spy).not.toHaveBeenCalled(); // fail-closed intacto: cero créditos
+    expect(create).not.toHaveBeenCalled();
+    expect(res.verdict).toBe('INDETERMINADO');
+    expect(bloque).toContain(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN);
+    // ⛑️ LA REGRESIÓN: antes, con el dial ENCENDIDO, aquí se leía «el dial está en off · enciende el dial».
+    expect(bloque).toContain('NO es el dial');
+    expect(bloque).not.toContain('Enciende el dial');
+  });
+
+  it('⛑️ (b) EN LA CORRIDA: sin inventario RAW publicado ⇒ el bloque no manda al log del proveedor', async () => {
+    const logs = capturarLogs();
+    const spy = mockPages([pageS1()]);
+    const { ingest } = wireJob({}, ON, []); // alcance VACÍO
+
+    const res = await ingest.ingestGradedEstimates(FX);
+    const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(res.enabled).toBe(true); // el dial SÍ estaba encendido, y el veredicto ya no lo contradice
+    expect(bloque).toContain('inventario RAW');
+    expect(bloque).not.toContain('EL REQUEST FALLÓ');
+    expect(bloque).not.toContain('está en `off`');
+  });
+
+  it('el dial en `off` sigue diciendo exactamente eso (la corrección no ensordece el caso legítimo)', async () => {
+    const logs = capturarLogs();
+    mockPages([pageS1()]);
+    const { ingest } = wireJob({}, {});
+    await ingest.ingestGradedEstimates(FX);
+    const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
+    expect(bloque).toContain('grading_hook_enabled');
+    expect(bloque).toContain('Enciende el dial');
+  });
+});
+
+// =================================================================================================
+/**
+ * **v1.51-b (TL-GE2/R2) — «conteo inducido» tenía DOS definiciones y podían contradecirse.**
+ *
+ * `graded-phase2-verdict.ts` eximía a la SONDA (correcto: clasifica con `detectGradedShape`, que ignora
+ * `GRADED_FORMAT` a propósito, así que su conteo SÍ es evidencia sobre PPT). `price-ingest.service.ts`
+ * no la eximía. Resultado: la misma corrida —sonda + `GRADED_FORMAT` fijado— podía emitir «S2
+ * mayoritario pero NO se escala» y, tres líneas más abajo, «NO_VIABLE ⇒ ESCALA AL ARQUITECTO».
+ * Dos conclusiones opuestas sobre la misma evidencia, una capaz de disparar una decisión de
+ * arquitectura y presupuesto.
+ */
+describe('v1.51-b (TL-GE2/R2) — ingest y veredicto usan LA MISMA definición de «conteo inducido»', () => {
+  it('la función es una sola y exime a la SONDA (y solo a ella)', () => {
+    expect(shapeCountIsInduced({ probe: true, forcedFormat: 'graded_prices' })).toBe(false);
+    expect(shapeCountIsInduced({ probe: false, forcedFormat: 'graded_prices' })).toBe(true);
+    expect(shapeCountIsInduced({ probe: false, forcedFormat: 'auto' })).toBe(false);
+    expect(shapeCountIsInduced({ probe: true, forcedFormat: 'auto' })).toBe(false);
+  });
+
+  it('⛑️ `probe=true` + `GRADED_FORMAT=graded_prices`: ingest y veredicto COINCIDEN (antes se contradecían)', async () => {
+    const logs = capturarLogs();
+    mockPages([pageS2()]);
+    const { ingest, create } = wireJob({
+      POKEMONPRICETRACKER_MARKET_FORMAT: undefined, // ⇒ SONDA
+      POKEMONPRICETRACKER_GRADED_FORMAT: 'graded_prices', // ⇒ el override que inducía la divergencia
+    });
+
+    const res = await ingest.ingestGradedEstimates(FX);
+    const texto = logs.join('\n');
+
+    // Las dos superficies dicen lo MISMO: el conteo de la sonda es evidencia, así que se escala.
+    expect(res.verdict).toBe('NO_VIABLE');
+    expect(res.escalation?.reason).toBe('shape_not_persistible_s2_dominant');
+    // ⛑️ La frase contradictoria ya no puede convivir con el veredicto NO_VIABLE del mismo bloque.
+    expect(texto).not.toContain('pero NO se escala');
+    expect(create).not.toHaveBeenCalled(); // la sonda sigue sin escribir, pase lo que pase
+  });
+
+  it('en un INGEST (no sonda) el override SÍ induce: ninguna de las dos superficies escala', async () => {
+    // El contraste que hace honesta la prueba anterior: la exención es de la SONDA, no del override.
+    const logs = capturarLogs();
+    mockPages([pageS2()]);
+    const { ingest } = wireJob({ POKEMONPRICETRACKER_GRADED_FORMAT: 'graded_prices' });
+
+    const res = await ingest.ingestGradedEstimates(FX);
+
+    expect(res.verdict).toBe('INDETERMINADO');
+    expect(res.escalation).toBeNull();
+    expect(logs.join('\n')).toContain('NO se escala');
+  });
+});
+
+// =================================================================================================
+/**
+ * **v1.51-b (TL-GE3) — la bandera de la sonda avisa ante un typo.**
+ *
+ * `gradedProbeRequested()` aceptaba `on|true|1|yes` y **cualquier otro valor caía en silencio a
+ * `false`** — o sea, a «no hay sonda» ⇒ la corrida PIDE y ESCRIBE. Su hermana nueve líneas más abajo
+ * (`gradedFormatOverride`) sí avisaba. La asimetría iba en el peor sentido: ésta falla hacia el lado
+ * que gasta créditos y escribe dinero que el operador creía haber impedido con la env.
+ *
+ * La SEMÁNTICA no cambia (eso pasaría por el arquitecto, regla 9): solo se añade el aviso.
+ */
+describe('v1.51-b (TL-GE3) — `POKEMONPRICETRACKER_GRADED_PROBE` con un valor raro AVISA', () => {
+  it('un typo (`onn`) deja de caer en silencio: hay `warn` que dice que la sonda quedó APAGADA', async () => {
+    const logs = capturarLogs();
+    mockPages([pageS1()]);
+    const res = await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_PROBE: 'onn' })));
+    expect(res.probe).toBe(false); // semántica INTACTA: solo `on|true|1|yes` encienden la sonda
+    expect(logs.join('\n')).toContain('POKEMONPRICETRACKER_GRADED_PROBE="onn"');
+    expect(logs.join('\n')).toContain('APAGADA');
+  });
+
+  it('los valores VÁLIDOS y la ausencia no generan ruido (un aviso que grita siempre no se lee)', async () => {
+    for (const valor of [undefined, '', 'on', 'true', '1', 'yes', 'off', 'false', '0', 'no']) {
+      const logs = capturarLogs();
+      mockPages([pageS1()]);
+      await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_PROBE: valor })));
+      expect(logs.join('\n')).not.toContain('no es on|true|1|yes');
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('la semántica NO cambió: `on` sigue encendiendo la sonda y `off` sigue dejándola apagada', async () => {
+    mockPages([pageS1()]);
+    expect((await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_PROBE: 'on' })))).probe).toBe(true);
+    mockPages([pageS1()]);
+    expect((await call(provider(cfg({ POKEMONPRICETRACKER_GRADED_PROBE: 'off' })))).probe).toBe(false);
   });
 });

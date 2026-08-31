@@ -287,6 +287,9 @@ describe('v1.51-a (I8) — un `ingestMaxCardsPerRun` almacenado FUERA de rango A
 
     expect(cfg.enabled).toBe(true); // el dial NO es el que apaga: está encendido
     expect(cfg.ingestConfigInvalid).toBe(true); // lo apaga ESTA clave
+    // v1.51-b (R1): y la clave viaja NOMBRADA, para que el veredicto del ingest pueda decir QUÉ
+    // corregir. «La config del ingest es inválida» no es accionable; el nombre de la clave sí.
+    expect(cfg.ingestInvalidKeys).toEqual([SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]);
     expect(
       warn.mock.calls.some(
         (c) =>

@@ -1304,6 +1304,15 @@ export class PricingService {
       );
     }
 
+    // v1.51-b (R1) — las claves del INGEST que están PRESENTES-e-INVÁLIDAS, por NOMBRE y en orden fijo.
+    // Son las mismas tres de siempre (`minSampleCount`, `sourceStat`, `ingestMaxCardsPerRun`); lo único
+    // nuevo es que el fail-closed deja de ser anónimo: el veredicto del ingest las imprime para que el
+    // operador sepa qué corregir en vez de mirar el dial —que está bien— y creer que ése es el problema.
+    const ingestInvalidKeys: string[] = [];
+    if (minSampleRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT);
+    if (sourceStatRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_SOURCE_STAT);
+    if (ingestMaxRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN);
+
     const estimatesEnabled =
       enabled && !gradesRes.invalid && !freshRes.invalid && !manualFreshRes.invalid;
     const highlightEnabled =
@@ -1323,7 +1332,11 @@ export class PricingService {
       minSampleCount: minSampleRes.value,
       sourceStat: sourceStatRes.value,
       ingestMaxCardsPerRun: ingestMaxRes.value,
-      ingestConfigInvalid: minSampleRes.invalid || sourceStatRes.invalid || ingestMaxRes.invalid,
+      // v1.51-b (R1): la MISMA composición de siempre —las 3 claves del ingest— pero conservando CUÁL
+      // falló. `ingestConfigInvalid` se deriva de la lista para que no puedan divergir: si mañana
+      // alguien recompone una y olvida la otra, la derivación lo impide por construcción.
+      ingestConfigInvalid: ingestInvalidKeys.length > 0,
+      ingestInvalidKeys,
       // v1.50.3 (§4.38n.3): se expone POR SEPARADO de `highlightEnabled` —que ya está apagado por tres
       // claves distintas— porque la LISTA DE REVISIÓN necesita poder NOMBRAR la clave corrupta en su
       // `409`. Un «algo está mal» no sirve en la superficie que existe para que el operador confíe.

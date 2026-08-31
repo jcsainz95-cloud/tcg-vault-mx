@@ -369,6 +369,10 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', ()
       sourceStat: 'median',
       ingestMaxCardsPerRun: 250,
       ingestConfigInvalid: false,
+      // v1.51-b (R1): la lista de claves del ingest presente(s)-e-inválida(s), VACÍA con la config
+      // sana. `ingestConfigInvalid` se deriva de ella, así que este `toEqual` también fija que no
+      // pueden divergir: una lista no vacía con el flag en `false` sería imposible de escribir.
+      ingestInvalidKeys: [],
       // v1.50.3 (§4.38n.3): flag INTERNO —no viaja al DTO— que la LISTA DE REVISIÓN usa para decidir
       // entre evaluar (dial `off` = decisión) y `409` (clave corrupta = intención perdida).
       maxRawMultipleInvalid: false,

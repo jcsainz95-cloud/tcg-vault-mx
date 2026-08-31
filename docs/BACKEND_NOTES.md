@@ -4,6 +4,118 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.16 — **El ingest de estimados PSA trae CERO filas: el MAPA DE CAUSAS + tres arreglos al diagnóstico** (2026-08-31, v1.51-b)
+
+> Propiedad: **backend**. Nada de esto cambia el contrato (`GradedIngestResult` no viaja por HTTP) ni
+> el esquema de BD. Corrige el **diagnóstico**, no la fuente de datos.
+
+### Por qué existe esta sección
+En producción el dial `grading_hook_enabled` está en **`on`**, el barrido completo corrió, y el
+diagnóstico de curaduría de una carta real dice **«PSA 10: sin dato · PSA 9: sin dato»**: el ingest
+escribió **cero filas**. El obstáculo no era la fuente de datos — era que **el artefacto que existe
+para decir por qué está roto estaba dando causas falsas**. Primero se arregla el diagnóstico; con él ya
+honesto, la causa real se lee de una corrida.
+
+---
+
+## 0.16.1 — Los tres arreglos al diagnóstico
+
+### (R1) El veredicto daba DOS diagnósticos FALSOS
+`result.enabled = true` se asignaba **después** de las dos salidas tempranas de `ingestGradedEstimates`,
+y el veredicto usaba ese único booleano como «por qué no pasó nada»:
+
+| Situación real | Lo que el bloque `[VEREDICTO-PSA]` decía | Por qué es grave |
+|---|---|---|
+| Dial **`on`** + clave del ingest corrupta | *«el dial está en `off`» · «Enciende el dial»* | El operador mira el dial, **lo ve encendido**, y el único artefacto de diagnóstico le miente. La clave corrupta sigue ahí. **Es una causa candidata de las cero filas de hoy, disfrazada por su propio detector.** |
+| Sin inventario RAW en alcance | *«Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del log»* | Esas líneas **no existen**: no hubo ninguna petición que pudiera fallar. Manda a buscar un log inexistente. |
+
+**Arreglo:** `enabled` desaparece como entrada del veredicto y lo sustituye `stopReason`
+(`'dial_off' | 'ingest_config_invalid' | 'no_scope' | null`), evaluado **al principio** de la cadena de
+precedencia, cada uno con **su** titular y **su** `nextStep`. En `ingest_config_invalid` se **NOMBRA la
+clave** (nuevo campo interno `GradedEstimateConfig.ingestInvalidKeys`, que **no** viaja al DTO). El
+parámetro es **obligatorio** en `emitGradedVerdict`: una salida nueva que no declare su causa **no
+compila**, que es el candado que impide la reincidencia.
+
+### (TL-GE1) `COSTE MEDIDO` no era atribuible
+Se calculaba como `creditsBefore − creditsAfter` sobre `PptApiClient.lastDailyRemaining`, que es
+**estado del singleton del proceso**: lo pisa cualquier respuesta de PPT — incluido **el barrido de
+precios RAW, que corre justo antes en la misma corrida** (`jobs/price-ingest.service.ts` llama
+`ingestAll()` y después `runGradedEstimates()`). La línea le cobraba a la sonda créditos ajenos, y con
+el umbral duro de `>= 0.5 crédito/carta` podía disparar una **escalada de presupuesto falsa**. Como la
+cifra es precondición del primer `off → on` (§4.38r.3.1.1), tenía que ser real o no estar.
+
+**Arreglo:** se suma `metadata.apiCallsConsumed` **por respuesta graded** (`PptApiClient` ya lo extraía;
+`fetchGradedPage` lo tiraba). Si alguna respuesta no lo trae, **no se reporta ningún número**: el bloque
+dice `COSTE: NO SE PUDO AISLAR …` y explica por qué el contador diario no sirve. Se retiró el helper
+`creditsSpent(before, after)` y el campo `GradedEstimateFetchResult.dailyRemainingBefore`; el sustituto
+es `gradedApiCallsConsumed: number | null`. Con una parada temprana la línea dice `COSTE: 0 créditos`,
+que es exacto y cierra la duda «¿me cobraron por la corrida que no hizo nada?».
+
+### (TL-GE2/R2) «conteo inducido» tenía DOS definiciones
+El veredicto eximía a la SONDA (correcto: clasifica con `detectGradedShape`, que ignora `GRADED_FORMAT`
+a propósito); el ingest no la eximía. La misma corrida podía emitir *«S2 mayoritario pero NO se escala»*
+y, tres líneas abajo, *«NO_VIABLE ⇒ ESCALA AL ARQUITECTO»*.
+**Arreglo:** `shapeCountIsInduced({ probe, forcedFormat })` se exporta desde `graded-phase2-verdict.ts`
+y lo consumen **las dos** superficies.
+
+### (TL-GE3) La bandera de la sonda no avisaba ante un typo
+`gradedProbeRequested()` aceptaba `on|true|1|yes` y cualquier otro valor caía **en silencio** a `false`
+⇒ la corrida pide y **escribe**. Su hermana `gradedFormatOverride()` sí avisaba. **Arreglo (mínimo, sin
+tocar la semántica):** valor no vacío y no reconocido ⇒ `warn` explícito diciendo que la sonda quedó
+**apagada** y que la corrida SÍ escribirá. `off|false|0|no` se reconocen como negativos para no gritar
+por un valor escrito a propósito; el valor de retorno no cambia en ningún caso.
+
+---
+
+## 0.16.2 — **MAPA DE CAUSAS: todas las rutas por las que la corrida termina con CERO filas**
+
+Recorrido completo de `PriceIngestService.ingestGradedEstimates` y del camino graded de
+`PokemonPriceTrackerBulkProvider`. Orden = orden en que se evalúan. Todo se lee con
+`grep VEREDICTO-PSA` (el bloque final) y `grep graded-estimate-ingest` / `grep "PPT graded"` (el detalle).
+
+> **Dónde se corrige cada cosa.** `ENV` = variable de entorno del servicio en el **dashboard de
+> Railway** (requiere redeploy del servicio). `SETTING` = fila en la BD, se corrige **sin deploy** con
+> `PUT /admin/settings` o `PUT /admin/pricing/graded-estimates`. `DATOS` = inventario/catálogo.
+
+| # | Causa (cero filas) | Qué la dispara | Línea de log de hoy | `VEREDICTO-PSA` | Qué revisar (Railway / admin) |
+|---|---|---|---|---|---|
+| 1 | **Dial apagado** | `grading_hook_enabled` = `off` (seed) | `graded-estimate-ingest: dial 'grading_hook_enabled' = off → no se pide NADA` | `INDETERMINADO` · `stopReason=dial_off` | **SETTING** — `PUT /admin/settings {"gradingHookEnabled":"on"}`. Es el dial ÚNICO: encenderlo también publica las cifras. |
+| 2 | **Config del ingest corrupta** | `graded_estimate_min_sample_count`, `graded_estimate_source_stat` o `graded_estimate_ingest_max_cards_per_run` **presente-pero-INVÁLIDA** (p. ej. un `2000` guardado cuando el máximo pasó a 1 000) | `graded-estimate-ingest: el dial … está en 'on', pero la config del INGEST tiene clave(s) PRESENTE(S)-e-INVÁLIDA(S): <clave>` + `graded-estimate config: la clave '<clave>' está PRESENTE pero es INVÁLIDA` | `INDETERMINADO` · `stopReason=ingest_config_invalid` (con la clave **nombrada**) | **SETTING** — corrige **esa** clave con `PUT /admin/pricing/graded-estimates`. **No es el dial.** |
+| 3 | **Alcance vacío** | Cero `InventoryItem` con `ownerType='platform'`, `status='listed'`, `productType='raw'` | `graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada` | `INDETERMINADO` · `stopReason=no_scope` | **DATOS** — publica al menos una pieza RAW. Un inventario en `draft`/`sold` **no cuenta**. |
+| 4 | **Sin llave del proveedor** | `POKEMONPRICETRACKER_API_KEY` ausente o `CHANGE_ME` | `PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta` | `INDETERMINADO` («Ninguna petición llegó a responder OK») | **ENV** — `POKEMONPRICETRACKER_API_KEY` en Railway. Ojo: **el mismo síntoma** que #5 y #9. |
+| 5 | **Set sin `pptSetId`** | El `CardSet` del inventario no está mapeado al id real de PPT (nunca se cae al `externalId`) | `PPT graded: set <sv8> sin pptSetId → no se pide nada` | `INDETERMINADO` (igual que #4) | **DATOS** — remapear el set (`PptSetMapper` / `GET /api/v2/sets`). Si el set publicado no está mapeado, ese set **no se pide jamás**. |
+| 6 | **Sonda pedida por env** | `POKEMONPRICETRACKER_GRADED_PROBE=on\|true\|1\|yes` | `PPT graded: SONDA pedida por el operador … NO se escribe absolutamente nada` + bloque `PPT-GRADED-SONDA` | Puede ser `VIABLE` **con 0 escrituras** (`MODO: SONDA de SOLO LECTURA`) | **ENV** — **borra** `POKEMONPRICETRACKER_GRADED_PROBE` de Railway. Es la causa más fácil de pasar por alto: el veredicto dice «funciona» y aun así no escribe. |
+| 7 | **Sin formato de moneda** | Ni `POKEMONPRICETRACKER_GRADED_MARKET_FORMAT` ni `POKEMONPRICETRACKER_MARKET_FORMAT` (candado de dinero) | `PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → SONDA de SOLO LECTURA` | Igual que #6 | **ENV** — `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`. Sin moneda declarada **no se escribe dinero**, por diseño. |
+| 8 | **Cuota diaria agotada** | `429 limitType=daily`. ⚠️ **El barrido de precios RAW corre ANTES y gasta de la MISMA cuota**: si la agota, el gancho PSA nunca llega a pedir | `PPT /api/v2/cards: 429 DAILY (cuota diaria agotada) → PARADA` + `graded-estimate-ingest: 429 DAILY → PARADA` | `INDETERMINADO` («la cuota diaria se agotó antes de obtener una sola respuesta») si pasa en la 1ª petición; si no, `MODO: … ⚠️ topó la CUOTA DIARIA` | **ENV/plan** — cuota del plan de PPT. Se resetea a las 00:00 UTC. Palancas: reducir el alcance del barrido RAW o correr el gancho en otro momento. |
+| 9 | **Credencial rechazada / set inexistente** | `401`/`403` (llave vencida o **plan sin eBay**) o `404` (pptSetId que ya no existe) | `PPT graded: EL REQUEST FALLÓ para el set … → revisa POKEMONPRICETRACKER_API_KEY (ausente, vencida o sin el plan que incluye eBay)` | `INDETERMINADO` (mismo titular que #4) | **ENV** — la llave y, sobre todo, **si el plan incluye el bloque de eBay**. Un `403` aquí significa que el plan no da ventas PSA. |
+| 10 | **`includeEbay` + `fetchAllInSet` incompatibles** | El proveedor rechaza la combinación con un 4xx de parámetro | `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO … ebay_not_supported_with_set_sweep` | **`NO_VIABLE`** | **Nada que tocar** — es rediseño de coste y de barrido ⇒ **arquitecto (regla 9)**. No se degrada a «una petición por carta». |
+| 11 | **La respuesta no trae bloque PSA** | Ninguna entrada del set trae `ebay.salesByGrade` ni `gradedPrices` | `graded-estimate-ingest: set <X> devolvió entradas SIN bloque PSA → se SALTA`; si **ningún** set lo vio: `⛔ … no_graded_block_in_response` | `INDETERMINADO` («NINGUNA trae bloque PSA») | **Plan del proveedor / elección de sets** — repite con un set de cartas caras y muy vendidas. Si sigue vacío, el plan no expone ventas PSA ⇒ arquitecto. |
+| 12 | **Shape S2 (número pelado)** | PPT sirve `gradedPrices.psaN` escalar: sin `count` ni fecha de última venta | `graded-estimate-ingest: SHAPE NO PERSISTIBLE (S2, gradedPrices escalar)` (por carta) + `⛔ … shape_not_persistible_s2_dominant` | **`NO_VIABLE`** («ninguna configuración lo arregla») | **Nada que tocar** — decisión de producto/costo ⇒ **arquitecto**. La captura manual sigue funcionando. |
+| 13 | **Override de formato mal puesto** | `POKEMONPRICETRACKER_GRADED_FORMAT=graded_prices` fuerza `useS1=false` ⇒ todo se cuenta S2 aunque llegue S1 impecable | `graded-estimate-ingest: S2 mayoritario … pero NO se escala — la corrida fue con POKEMONPRICETRACKER_GRADED_FORMAT="…"` | `INDETERMINADO` («refleja lo que le pedimos mirar, no lo que sirve») | **ENV** — **borra** `POKEMONPRICETRACKER_GRADED_FORMAT` (o ponlo en `auto`). Un valor no reconocido ya emite `warn` y cae a `auto`. |
+| 14 | **Muestra insuficiente** | El objeto S1 trae `count` menor que `graded_estimate_min_sample_count` (seed **5**), o **no trae `count`** (desconocido ≠ suficiente) | `graded-estimate-ingest: DESCARTADA entrada (sample_too_small) … count=<n> muestra=…` | Puede ser `VIABLE` con `written=0` | **SETTING** — `graded_estimate_min_sample_count` vía `PUT /admin/pricing/graded-estimates` (rango `[1,100]`). Bajarlo **admite más ruido**: es dinero, decídelo a propósito. |
+| 15 | **Fecha de última venta ilegible** | El campo de evidencia no existe con ese nombre o no es fecha parseable (`YYYY-MM-DD`, ISO-8601 o epoch ms) | `graded-estimate-ingest: DESCARTADA entrada (evidence_unknown) …` — la muestra incluye `evidenceField` buscado | Puede ser `VIABLE` con `written=0` | **ENV** — `POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD` (default `lastSaleDate`). El nombre real se ve en la muestra cruda del drop. |
+| 16 | **Evidencia vieja** | La última venta es más antigua que `graded_estimate_freshness_days` (seed 30) | `graded-estimate-ingest: DESCARTADA entrada (evidence_too_old) …` | Puede ser `VIABLE` con `written=0` | **SETTING** — `graded_estimate_freshness_days`. Es el mismo dial que usa la lectura: subirlo exhibe datos más viejos. |
+| 17 | **El stat pedido no está** | `graded_estimate_source_stat` = `median` ⇒ se busca `medianPrice` (`average`→`averagePrice`, `smart`→`smartMarketPrice`); si falta o no es número positivo | `graded-estimate-ingest: DESCARTADA entrada (unrecognized_shape \| not_a_positive_amount) …` | Puede ser `VIABLE` con `written=0` | **SETTING** `graded_estimate_source_stat` / **ENV** `POKEMONPRICETRACKER_GRADED_FIELD`. La muestra cruda del drop dice qué campos sí vinieron. |
+| 18 | **El grado no se pide** | `graded_estimate_grades` (seed `["10","9"]`) no incluye el grado que trae la respuesta | *(silencioso: el grado se OMITE sin drop — es un estado normal)* | Puede ser `VIABLE` con `written=0` | **SETTING** — `graded_estimate_grades`. |
+| 19 | **La carta no se resuelve** | La fila del proveedor no casa por `externalId` ni por `number` (ni por variantes) con ninguna carta **en alcance** | *(silencioso salvo ambigüedad: `el número "X" … casa con N cartas del set → se OMITE`)* | Puede ser `VIABLE` con `written=0` | **DATOS** — `Card.externalId` / `Card.number` del catálogo local frente a los del proveedor. ⚠️ **Es la ruta con menos traza de todo el mapa** (ver TECH_DEBT TL-GE5). |
+| 20 | **INV-D: slab publicado** | La carta ya tiene un **slab publicado** de ese grado ⇒ esa fila es el precio REAL de una pieza | `graded-estimate-ingest: SALTADA card=… PSA <n> — hay slab PUBLICADO de ese grado (INV-D)` | `VIABLE`, `written` menor de lo esperado | **Nada que arreglar** — es la guarda de dinero funcionando (misma regla que el `409` del override manual). |
+| 21 | **Override manual / fila de mercado** | Ya existe una fila del día con `isManualOverride=true` (o `refKind='market'`) y el ingest **no la pisa** | *(contador `skippedManual` en la línea de resumen)* | `VIABLE`, `written` menor de lo esperado | **Nada que arreglar** — el ingest jamás degrada dinero real a estimado. Borra el override si quieres que el automático mande. |
+
+### Lo que este mapa **no** cubre
+Que la cifra ya escrita **se exhiba**. Eso es el gate de lectura (frescura por `capturedDate`, cotas de
+magnitud, `graded_estimate_max_raw_multiple`, dial de vitrina) y tiene su propio diagnóstico en el
+preview de curaduría (`reason: FEATURE_OFF` / `NO_COST_TIER` / `STALE`…). Aquí solo está **por qué no se
+escribió**.
+
+### La secuencia mínima para el operador (una corrida, una respuesta)
+1. Dispara `POST /admin/jobs/price-ingest` con body `{}` (con `setId` **el gancho PSA no corre**).
+2. `grep VEREDICTO-PSA` en el log de Railway. El bloque trae `VEREDICTO`, `QUÉ LLEGÓ`, `MODO`, `COSTE`
+   y **`AHORA:`** — esa última línea es la única acción siguiente.
+3. Si `MODO: SONDA`, no hubo escrituras **por diseño**: filas #6 y #7.
+4. Si `VEREDICTO: NO_VIABLE`, la decisión es del **arquitecto** (filas #10 y #12), no de configuración.
+
+---
+
 ## 0.15 — **I8 estrechado: `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`** (2026-08-31, v1.51-a)
 
 > Decisión del **arquitecto** (ARCHITECTURE §4.38r.3.4, contrato **v1.51-a**, adenda (r.8) nº 3).
@@ -11142,7 +11254,10 @@ llave ni salida a la API del proveedor; **no se intentó ninguna corrida real**)
 - **Cero escrituras**, comprobado donde se escribe: job completo con el provider real y un `prisma` que
   delata cualquier `create`/`update` en `PriceReference`. Con el **contraste** en el mismo test (el
   mismo fixture SÍ escribe cuando hay formato), para que «0 escrituras» no sea un fixture flojo.
-- Gasto: la sonda no pagina; mide `dailyRemainingBefore`/`after`; no clasifica según `GRADED_FORMAT`.
+- Gasto: la sonda no pagina; mide el coste; no clasifica según `GRADED_FORMAT`. ⚠️ **Superado por
+  §0.16.1 (TL-GE1):** la medición era `dailyRemainingBefore − dailyRemaining` sobre el contador del
+  singleton, que el barrido RAW contamina; hoy es `metadata.apiCallsConsumed` por llamada graded, y
+  `dailyRemainingBefore` **ya no existe**.
 - El veredicto como función pura: las 8 ramas + las 3 formas de la línea de coste.
 
 ### Validación

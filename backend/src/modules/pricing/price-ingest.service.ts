@@ -21,7 +21,12 @@ import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
 import { AuditService } from '../audit/audit.service';
-import { GradedPhase2Verdict, gradedPhase2Verdict } from './graded-phase2-verdict';
+import {
+  GradedPhase2Verdict,
+  GradedStopReason,
+  gradedPhase2Verdict,
+  shapeCountIsInduced,
+} from './graded-phase2-verdict';
 
 /** InventoryStatus que NO cuentan como "activo" para el scope parcial (regla del PO: no withdrawn/lost). */
 const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
@@ -942,6 +947,14 @@ export class PriceIngestService {
    *     exigimos ni *qué número* es el precio. Adivinar eso es escribir dinero a ciegas.
    *  3. El parser solo escribe lo que identifica POSITIVAMENTE como monto (§4.38h.1).
    *
+   * ### v1.51-b (R1) — cada salida DECLARA su causa (`stopReason`)
+   * Los tres puntos de arriba, más el alcance vacío, comparten síntoma —cero filas escritas— y **no**
+   * comparten remedio. Antes los distinguía un solo booleano (`enabled`) que además se asignaba
+   * DESPUÉS de dos de las salidas, así que el veredicto acusaba al dial en casos donde el dial estaba
+   * encendido, y mandaba a leer líneas de log inexistentes cuando no había habido ninguna petición.
+   * Hoy cada `return` pasa su `stopReason` (`dial_off` / `ingest_config_invalid` / `no_scope` / `null`)
+   * y el parámetro es OBLIGATORIO: una salida nueva que no declare su causa no compila.
+   *
    * ### INV-D (§4.38l): la MISMA guarda que el override manual
    * Si la carta tiene un **slab publicado** de ese grado, esa fila **es el precio real** de esa pieza:
    * el job **la salta** y deja `AuditLog`. Es la misma regla que hace que
@@ -979,8 +992,12 @@ export class PriceIngestService {
       probe: false,
       requestOk: false,
       cardsReturned: 0,
-      creditsBefore: null as number | null,
-      creditsAfter: null as number | null,
+      /**
+       * v1.51-b (TL-GE1) — créditos ATRIBUIBLES a las llamadas graded de esta corrida
+       * (`metadata.apiCallsConsumed`), o `null` en cuanto UN set no pueda aislarlos. Arranca en 0
+       * porque «no se pidió nada» es un coste conocido y exacto, no un desconocido.
+       */
+      creditsSpent: 0 as number | null,
     };
     // Config COMPLETA (no la del storefront). v1.51 (M-46, §4.38r.7): el gate lee **`cfg.enabled` — el
     // DIAL CRUDO—, NUNCA `estimatesEnabled`/`highlightEnabled`**. Esos dos doblan la validez de claves
@@ -995,15 +1012,31 @@ export class PriceIngestService {
           'se enciende con PUT /admin/settings { "gradingHookEnabled": "on" }, y encenderlo también ' +
           'PUBLICA las cifras.',
       );
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
+      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto', 'dial_off');
     }
     if (cfg.ingestConfigInvalid) {
+      // R1: el dial está ENCENDIDO. El veredicto tiene que decir eso y NOMBRAR la clave: mandar a
+      // «encender el dial» aquí es enviar al operador a arreglar lo único que ya estaba bien.
+      const keys = cfg.ingestInvalidKeys.length > 0 ? cfg.ingestInvalidKeys.join(', ') : 'no identificada(s)';
       this.logger.warn(
-        'graded-estimate-ingest: config del INGEST presente-pero-INVÁLIDA (minSampleCount/sourceStat/' +
-          'ingestMaxCardsPerRun) → NO se escribe nada. Corrige con PUT /admin/pricing/graded-estimates.',
+        `graded-estimate-ingest: el dial \`grading_hook_enabled\` está en \`on\`, pero la config del ` +
+          `INGEST tiene clave(s) PRESENTE(S)-e-INVÁLIDA(S): ${keys} → NO se pide nada (cero créditos) ` +
+          'y NO se escribe ninguna fila. Corrige esa(s) clave(s) con PUT /admin/pricing/graded-estimates.',
       );
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
+      return this.emitGradedVerdict(
+        result,
+        ev,
+        { s1: 0, s2: 0 },
+        'auto',
+        'ingest_config_invalid',
+        cfg.ingestInvalidKeys,
+      );
     }
+    // ⚠️ R1 — `result.enabled` describe EL DIAL, y por eso se pone aquí arriba y NO tres líneas más
+    // abajo: mientras vivía después de las salidas tempranas, el veredicto recibía `enabled: false`
+    // con el dial en `on` y publicaba «el dial está en off · enciende el dial». El operador lo veía
+    // encendido y el único artefacto de diagnóstico que tiene le mentía sobre la causa. Hoy el «por
+    // qué no pasó nada» viaja por `stopReason`, que es un dato aparte y explícito.
     result.enabled = true;
 
     // ALCANCE: cartas con inventario RAW publicado. Orden DETERMINISTA (cardId asc) para que el tope
@@ -1019,7 +1052,9 @@ export class PriceIngestService {
       this.logger.log(
         'graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada (cero créditos).',
       );
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
+      // R1: `no_scope`, NO «el request falló». Con `requestOk:false` el veredicto mandaba a buscar
+      // líneas «PPT graded: EL REQUEST FALLÓ» que no existen — no hubo petición que pudiera fallar.
+      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto', 'no_scope');
     }
     result.cardsInScope = cardIds.length;
 
@@ -1113,8 +1148,10 @@ export class PriceIngestService {
       }
       if (res.requestOk) ev.requestOk = true;
       ev.cardsReturned += res.fetchedRaw;
-      if (ev.creditsBefore == null) ev.creditsBefore = res.dailyRemainingBefore;
-      if (res.dailyRemaining != null) ev.creditsAfter = res.dailyRemaining;
+      // TL-GE1: se SUMA lo atribuible; un solo set que no pueda aislarlo deja la corrida entera sin
+      // cifra. No se completa con el contador diario del cliente: es el dato contaminado que se retiró.
+      if (res.gradedApiCallsConsumed == null) ev.creditsSpent = null;
+      else if (ev.creditsSpent != null) ev.creditsSpent += res.gradedApiCallsConsumed;
       result.unrecognized += res.drops.filter((d) => d.reason === 'unrecognized_shape').length;
       result.skippedSample += res.drops.filter((d) => d.reason === 'sample_too_small').length;
       result.skippedEvidence += res.drops.filter(
@@ -1170,8 +1207,9 @@ export class PriceIngestService {
           ...res.escalate,
         });
         // El veredicto se emite TAMBIÉN aquí: ésta es la salida en la que el dueño más necesita leer,
-        // sin bucear, qué pasó y que la decisión es del arquitecto.
-        return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen);
+        // sin bucear, qué pasó y que la decisión es del arquitecto. `stopReason: null` — aquí SÍ se
+        // preguntó (el proveedor contestó rechazando), así que la conclusión es sobre el proveedor.
+        return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen, null);
       }
 
       // La traza de los DESCARTES del parser es obligatoria: sin ella, el descarte por muestra baja es
@@ -1329,7 +1367,14 @@ export class PriceIngestService {
     // nuestro propio override no es evidencia sobre el proveedor, venga por (A) o por (B) — con
     // `GRADED_FORMAT=graded_prices` el «cero S1» es literalmente lo que ordenamos que pasara.
     const shapeObservations = shapeCounts.s1 + shapeCounts.s2;
-    const shapeVerdictInduced = forcedFormatSeen !== 'auto';
+    // ⚠️ v1.51-b (TL-GE2/R2) — **UNA sola definición de «conteo inducido», la del veredicto.**
+    // Aquí había una copia divergente (`forcedFormatSeen !== 'auto'`) que NO eximía a la sonda,
+    // mientras `gradedPhase2Verdict` sí la exime. Con `probe=true` y `GRADED_FORMAT` fijado, la MISMA
+    // corrida emitía «no se escala» (veredicto) y «NO_VIABLE, ESCALA AL ARQUITECTO» (esta rama) a la
+    // vez: dos conclusiones opuestas sobre la misma evidencia, una de ellas capaz de disparar una
+    // decisión de arquitectura y presupuesto. La sonda clasifica por observación pura, así que su
+    // conteo NO es inducido — y ahora las dos superficies lo dicen igual porque leen la misma función.
+    const shapeVerdictInduced = shapeCountIsInduced({ probe: ev.probe, forcedFormat: forcedFormatSeen });
     // ⚠️ SUELO **RELATIVO** (§4.38h.1-ter, GU-A25). El suelo absoluto de 5 que propuse tenía **el mismo
     // bug que acabábamos de arreglar con `STALE`**: un aviso INALCANZABLE. El alcance del ingest es
     // «solo cartas con inventario publicado» (§4.38h.3), así que una tienda con **3 cartas** en las que
@@ -1421,7 +1466,7 @@ export class PriceIngestService {
         `${shapeCounts.s2} S2), ${result.unrecognized} con forma no reconocida, ` +
         `${result.skippedNoGradedBlock} set(s) sin bloque PSA.`,
     );
-    return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen);
+    return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen, null);
   }
 
   /**
@@ -1440,13 +1485,23 @@ export class PriceIngestService {
    */
   private emitGradedVerdict(
     result: GradedIngestResult,
-    ev: { probe: boolean; requestOk: boolean; cardsReturned: number; creditsBefore: number | null; creditsAfter: number | null },
+    ev: { probe: boolean; requestOk: boolean; cardsReturned: number; creditsSpent: number | null },
     shapeCounts: { s1: number; s2: number },
     forcedFormat: GradedFormat,
+    /**
+     * v1.51-b (R1) — por qué se PARÓ antes de preguntar, o `null` si se llegó a hablar con el
+     * proveedor. Es OBLIGATORIO en la firma (no tiene default) a propósito: cada `return` de
+     * `ingestGradedEstimates` tiene que declarar su causa, y añadir una salida nueva sin declararla
+     * ya no compila. Ése fue exactamente el defecto: dos salidas heredaban el titular del dial.
+     */
+    stopReason: GradedStopReason | null,
+    /** Claves presente(s)-e-inválida(s) cuando `stopReason === 'ingest_config_invalid'`. */
+    invalidConfigKeys: readonly string[] = [],
   ): GradedIngestResult {
     const report = gradedPhase2Verdict({
       probe: ev.probe,
-      enabled: result.enabled,
+      stopReason,
+      invalidConfigKeys,
       requestOk: ev.requestOk,
       sets: result.sets,
       cardsInScope: result.cardsInScope,
@@ -1456,8 +1511,7 @@ export class PriceIngestService {
       dailyLimited: result.dailyLimited,
       escalationReason: result.escalation?.reason ?? null,
       forcedFormat,
-      creditsBefore: ev.creditsBefore,
-      creditsAfter: ev.creditsAfter,
+      creditsSpent: ev.creditsSpent,
     });
     result.verdict = report.verdict;
     for (const line of report.lines) {
