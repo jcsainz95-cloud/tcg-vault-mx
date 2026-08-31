@@ -8,6 +8,7 @@
  * portafolio. La vitrina de "Compra" (GET /catalog/cards) SOLO lista inventario
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
+import { brandEmail } from '../brand';
 import type {
   CardDTO,
   CardProductDTO,
@@ -2219,9 +2220,12 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9003', userId: 'u-779', status: 'chargeback', totalCents: 231000, createdAt: '2026-08-09T12:00:00Z' },
 ];
 
-// MOCK: evidenceContact viene de la API (contrato §7/§M8). El correo es el placeholder
-// del contrato (soporte@tcgvaultmx.com, por confirmar por el humano); NO se hardcodea en la UI.
-const EVIDENCE_CONTACT = 'soporte@tcgvaultmx.com';
+// MOCK: `evidenceContact` viene de la API (contrato §7/§M8) y la UI **renderiza el que recibe**;
+// esto es solo el fallback offline del modo fixtures. Se compone sobre `common.brand.domain`
+// (API_CONTRACT §0 «Datos de contacto…», cláusula 4) en vez de copiar un literal de la
+// documentación: el literal anterior (`soporte@tcgvaultmx.com`) era el dominio RETIRADO en el
+// rebrand, y llegó aquí precisamente por copiarlo del contrato.
+const EVIDENCE_CONTACT = brandEmail('soporte');
 /** Correo de soporte que devuelve el backend en el 201 de POST /disputes (contrato §7). */
 export const DISPUTE_EVIDENCE_CONTACT = EVIDENCE_CONTACT;
 
@@ -2670,7 +2674,7 @@ export const mockAdminUsers: AdminUserSummaryDTO[] = [
   { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
   { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
   { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
-  { id: 'u-op1', email: 'operador@tcgvaultmx.com', name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
+  { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
 ];
 
 export function mockAdminUserDetail(id: string): AdminUserDetailDTO {

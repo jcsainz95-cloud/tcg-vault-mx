@@ -8038,3 +8038,147 @@ idéntico en la teja de la **vitrina** (`CatalogTile`, código intacto) a 390px,
 desde la entrega anterior — la captura del carrusel solo lo hizo evidente. No lo corrijo en este pase
 porque `GradingNoteCall` es compartido por las cuatro superficies y tocarlo cambiaría Compra y la vitrina,
 que este pase tiene mandato explícito de **no** cambiar. Si ux-ui lo confirma como defecto, es mío.
+
+---
+
+## §30 · El test que decía verificar la cuarta superficie y no verificaba nada — bloqueante de QA sobre el PR #26 (2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`)
+
+**Veredicto que lo abre:** QA rechazó el PR #26 por un bloqueante mío en
+`frontend/e2e/grading-estimate.spec.ts`, el bloque del carrusel «Piezas destacadas» (§22.6b) —
+**la única cobertura E2E de la superficie que acababa de añadir**. Falló 2 de 2 corridas.
+
+### El defecto, dicho sin adornos
+
+El bloque comprobaba que `#piezas-destacadas` era **visible** y acto seguido leía su `innerText` y
+contaba la numeración. Pero la `<section>` la pinta `Shelf`, y `Shelf` **renderiza su encabezado en el
+primer frame**: las tejas llegan después, por react-query, y mientras tanto la pista son cuatro cajas
+grises (`QueryState.loading`). O sea: **el ancla no era el contenido, era el contenedor**, y el
+contenedor existe desde antes de que haya nada que medir.
+
+Con la pista vacía salían `hasFigure=false` y `numbering=0`, y la invariante de §22.6b-c —«o cifra sin
+numeración, o numeración sin cifra»— **no llegaba a decir nada**: se resolvía sobre el esqueleto. El
+test nunca verificó lo que su nombre promete. Es el patrón que llevamos todo el día persiguiendo —algo
+que afirma comprobar X y no comprueba X— y aquí dolía más porque era la **única** red de esa superficie.
+
+### Qué anclé, y por qué NO copié la sugerencia de QA
+
+QA validó en una copia desechable insertar `await expect(track.locator('a').first()).toBeVisible()`.
+**Ese ancla no espera nada** y lo comprobé antes de descartarla: el encabezado del `Shelf` ya trae el
+enlace **«Ver todo»** (`viewAllHref="/catalog"`), que está en el DOM desde el primer frame y es el
+**primer `<a>` de la sección**. La corrida de QA salió verde por el retardo que introduce, no por la
+espera — habría reabierto el mismo agujero con otra cara.
+
+El ancla que puse espera por **la condición que el test necesita** — que la pista tenga **tejas**:
+
+```ts
+const tiles = track.locator('a[href*="/catalog/"]');   // la teja va a /es/catalog/<cardId>…
+await expect(tiles.first(), '…nunca pintó una teja…').toBeVisible();  // …el «Ver todo» va a /es/catalog
+const tileCount = await tiles.count();
+expect(tileCount, 'sin tejas no hay ninguna invariante que medir').toBeGreaterThan(1);
+```
+
+El `href` distingue teja de encabezado sin depender del orden del DOM ni de una clase de layout. Nada
+de `waitForTimeout`.
+
+### Y la parte de fondo: que la invariante no se pueda cumplir por vacuidad
+
+Dos cambios, y el segundo es el que de verdad importa:
+
+1. **Contra-vacuidad explícita.** `tileCount > 1` se exige **antes** de juzgar nada, y con su mensaje:
+   la invariante solo *dice* algo si hay tejas, y solo *distingue* los dos casos si hay más de una (la
+   teja grande nunca lleva ordinal, §20.3). Si la pista no pinta, ahora se pone rojo **el aserto que
+   nombra la causa real**, en vez de fabricarse un verde silencioso.
+2. **La invariante pasa de umbral a igualdad exacta:** `numbering === (hasFigure ? 0 : tileCount - 1)`,
+   en vez de `numbering > 0`. «Todo o nada por pista» (§22.6b-c) es una afirmación sobre **las ocho
+   tejas**, y un `> 0` la deja pasar con una sola.
+
+### Demostración de que el test arreglado detecta el fallo (lo exigió QA, y era la parte útil)
+
+Spec desechable contra el stack real, ejecutando el oráculo **viejo** y el **nuevo** sobre el mismo
+navegador y el mismo estado. Los cuatro casos:
+
+| Caso | Oráculo VIEJO | Oráculo NUEVO |
+|---|---|---|
+| **Pista vacía** (`sort=price_desc` interceptado ⇒ `data: []`) | 🔴 pero con **diagnóstico falso**: «perdió la numeración de §20.3» — acusa al producto de una regresión que no ocurrió | 🔴 **por la causa real**: `waiting for locator('#piezas-destacadas').locator('a[href*="/catalog/"]')` |
+| **Numeración mutilada** (se borran 6 de los 7 ordinales del DOM) | 🟢 **PASA** — `numbering > 0` se cumple con **uno** | 🔴 `Expected: 7 · Received: 1` |
+| Estado normal (stack real) | 🟢 | 🟢 (`tiles=8`, `hasFigure=false`, `numbering=7`) |
+
+La fila del medio es la que justifica el cambio de umbral a igualdad: el oráculo viejo **aceptaba una
+regresión real** de §22.6b-c/§20.3. La primera es el bloqueante de QA, ya cerrado.
+
+### Auditoría del resto del archivo: había UNO más, y está arreglado
+
+Revisé **todos** los bloques que miden contenido asíncrono justo después de comprobar que su contenedor
+es visible. Resultado:
+
+- **`e2e/grading-estimate.spec.ts:696` (lista de revisión, opt-in `STALE`) — MISMO DEFECTO, arreglado.**
+  Afirmaba que el badge `STALE` **no** está en el default (`toHaveCount(0)`) anclándose solo en el
+  `subtitle` de la sección… que `GradedEstimateReviewSection` pinta **fuera** del `QueryState`. Una
+  aserción de **ausencia** contra una lista todavía sin cargar se cumple sola. Ahora el ancla es
+  `howToFix`, el único texto fijo que vive **dentro** de `{query.data && …}`: si está, la consulta
+  resolvió y lo que se mide es la lista del default.
+- **`:442` (el regreso de la nota en el carrusel) — endurecido de paso.** Era
+  `if (await back.count())`: una foto del DOM que, tomada a media carga, se salta el caso **en
+  silencio**. Ahora la rama que **sí** conocemos (`hasFigure` ⇒ hay nota, por R3.3) entra **sin
+  condicional**, y se afirma además que la nota trae su enlace de regreso (`toHaveCount(1)`, §22.4b
+  garantiza exactamente uno). El `count()` solo gobierna la rama que depende del dato del entorno.
+
+**Y los que NO son el mismo defecto, dicho explícitamente para que nadie los "arregle" por parecido:**
+
+- **Vitrina «Joyas para gradear» (`:324`)** — parece el mismo patrón (título del `Shelf` ⇒ contar
+  cifras) y **no lo es**: esa vitrina es la **excepción ratificada a §8.1**, no pinta skeleton, así que
+  su `Shelf` se renderiza *ya resuelto* o no se renderiza. Ver el título implica tejas en el **mismo
+  commit de React**. Lo dejé anotado en el propio spec, porque la diferencia con el carrusel no es
+  obvia leyendo el test.
+- **Retícula de Compra (`:265`, `:285`)** y **ficha (`:162`, `:216`, `:231`)** — anclan en el **dato**
+  (el nombre de la carta, el eyebrow del bloque), no en un contenedor estático; el badge sale del mismo
+  render (`useGradingFootnote` es **contexto**, no una segunda consulta que pueda llegar tarde).
+- **Back-office `:585` y `:628`** — ya anclaban en una fila / en el `summary`, ambos dentro del
+  `QueryState`.
+- **Desapariciones post-borrado (`:778`, `:907`)** — `toHaveCount(0)` con auto-retry tras el banner de
+  éxito; la transición es monótona y la invalidación de react-query no vacía la lista (refetch conserva
+  el dato viejo). No hay ventana de verde prematuro.
+
+### Los dos hallazgos menores de QA (no bloqueantes), en la misma vuelta
+
+**El dominio muerto en los fixtures.** `EVIDENCE_CONTACT` era el literal `soporte@tcgvaultmx.com`, y su
+propio comentario confesaba de dónde salía: copiado del contrato. `API_CONTRACT.md` §0 cláusula 4 admite
+un literal de *fallback* en fixtures **solo si se construye sobre `common.brand.domain`**, «nunca sobre
+un literal copiado de este documento».
+
+Nuevo **`frontend/src/lib/brand.ts`** con `BRAND_DOMAIN` + `brandEmail(mailbox)`, y `fixtures.ts` pasa a
+`brandEmail('soporte')` / `brandEmail('operador')`. **Por qué una constante y no un `import` de
+`messages/es.json`:** `src/lib/api.ts` importa `fixtures.ts` de forma **estática**, así que traer el JSON
+de mensajes ahí lo metería en el bundle de **toda** la app, no solo del modo mock (que es opt-in). Es un
+**espejo fijado por test**: `brand.test.ts` compara `BRAND_DOMAIN` con `common.brand.domain` de **las dos**
+traducciones, así que no puede separarse de la fuente sin que CI lo diga — que es justo lo que faltó
+cuando `tcgvaultmx.com` sobrevivió al rebrand.
+
+**Los cuatro tests que arrastraban el dominio muerto** (`PublicOrderTracking.test.tsx`,
+`ShipmentsView.test.tsx`, `api.test.ts`, `AdminShell.test.tsx`). QA tenía razón en que no eran candados
+invertidos —inyectan el valor y comprueban que se rinde lo inyectado—, pero mantenían vivo el dominio.
+Ahora inyectan **`evidencias@ejemplo.test` / `admin@ejemplo.test`**, deliberadamente **ajenos a la marca**:
+así el test no solo deja de citar un dominio muerto, sino que **prueba mejor lo que dice probar** — si
+algún día la UI derivara o hardcodeara el buzón en vez de rendir el que recibe (lo que §0 cláusula 4
+prohíbe), estos tests lo cazarían en vez de taparlo.
+
+### Verificación
+
+- `npx tsc --noEmit` ✔ · `npx next lint` ✔ (0 warnings) · `npx vitest run` **789/789 en 92 archivos**
+  (base 786/91; +3 son `brand.test.ts`).
+- **E2E contra el stack real** (`./scripts/stack-native.sh down` y `up --gate` **desde este commit** —
+  había un frontend de otra sesión en :3000 desde las 01:15, el mismo estorbo que reportó QA; verificado
+  `BUILD_ID` 01:33 y una sola instancia por puerto): **`grading-estimate.spec.ts` 13/13**.
+- **E2E en modo mock** (`E2E_MOCK_PORT=3010`, build de producción con fixtures, puerto separado para
+  no pisar el stack real de :3000): **suite completa 101 pasan · 3 saltan (`realOnly`) · 0 fallan**.
+  Importante correrla: el arreglo del opt-in `STALE` es **`mockOnly`** —solo se ejercita aquí— y el
+  cambio de `EVIDENCE_CONTACT` solo vive en el modo fixtures.
+- **Fuera de mi alcance, para que no se confunda con una regresión mía:** en la corrida `@real` completa
+  fallan 3 smokes de **dinero** (`checkout`, `guest-checkout`, `shipments`), los tres esperando el modal
+  de pago. Causa en el log del backend: `STRIPE_SECRET_KEY ausente; usando sk_test_dummy`. Es
+  **ambiental** (sin clave de test ni egress), pre-existente y ajeno a este cambio — no toqué esos specs
+  ni nada que ellos usen.
+
+### Peticiones al arquitecto
+
+**Ninguna.** No hizo falta ningún endpoint ni campo nuevo, y no se tocó `docs/API_CONTRACT.md`.
