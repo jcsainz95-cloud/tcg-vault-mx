@@ -172,10 +172,12 @@
 > (Fuera de alcance) se refiere a **gradear cartas / verificar slabs nosotros**, **NO** a **mostrar estimados
 > de valor por grado**, que **sí** entran al MVP. **PriceCharting sigue fuera.** **Disclaimer:** el humano
 > pidió que sea **súper enfático en que es información ilustrativa y que NO refleja el estado de nuestras
-> cartas** (no inspeccionamos ni pre-evaluamos la pieza que vendemos); texto ES/EN reescrito en **§O.5**,
-> pendiente de su visto bueno final — y **la feature se entrega detrás de feature-flag APAGADO hasta que ese
-> texto quede aprobado**. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–114**, decisiones
-> **40–57** y las **preguntas abiertas v2.0** al final.
+> cartas** (no inspeccionamos ni pre-evaluamos la pieza que vendemos); texto ES/EN reescrito en **§O.5** y
+> **aprobado por el dueño el 2026-08-31, sin revisión legal profesional** *(decisión 59; la revisión por
+> abogado sigue **abierta** — pregunta abierta 1)*. La feature se entrega detrás de **un único interruptor**
+> (`grading_hook_enabled`, semilla **apagado**) que **publica la afirmación comercial y autoriza el gasto en
+> el mismo acto** *(decisión 60)*. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–117**,
+> decisiones **40–60** y las **preguntas abiertas v2.0** al final.
 > **Requisito v2.0 — PRECIO PURO POR VALOR DE MERCADO (2026-08-24, DECISIONES DEL HUMANO YA TOMADAS —
 > LOCKED, P-48):** el dueño detectó cartas publicadas a **MX$1.31 / MX$3.71** creyendo tener un **piso de
 > MX$15**. La causa raíz fue doble: (a) una regla con `mode: 'fixed'` está **documentada como PISO** —y el
@@ -1393,9 +1395,31 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > diseña el arquitecto; aquí solo se fija el requisito de producto. *(Nota operativa: la arquitectura va en
 > `docs/ARCHITECTURE.md` **§4.38**, el contrato de API en **v1.50** y su seed en **M-42**; el tratamiento
 > visual, en `docs/DESIGN_SYSTEM.md` **§22**.)*
-> **Estado de entrega — FEATURE-FLAG APAGADO**: la feature se entrega **cableada pero apagada** por defecto y
-> **solo se enciende cuando el humano apruebe el texto legal del disclaimer** (§O.5). Mientras el flag esté
-> apagado, ninguna de las cuatro superficies muestra cifra estimada.
+> **Estado de entrega — UN SOLO INTERRUPTOR, APAGADO DE FÁBRICA** *(actualizado 2026-08-31, M-46)*: la
+> feature se entrega **cableada pero apagada** por defecto. Mientras esté apagada, ninguna de las cuatro
+> superficies muestra cifra estimada **y el barrido no pide ni escribe ninguna**.
+>
+> **§O nunca normó los on/off, así que esto no cambia ningún requisito: lo deja escrito.** Antes había **dos**
+> interruptores separables (publicar / traer datos); el dueño pidió **dos veces** que fuera **uno solo** y lo
+> reafirmó tras oír la objeción. Hoy es **uno** (`grading_hook_enabled`), y de ahí sale la consecuencia que
+> este documento debe declarar:
+> - **Encender es un acto de gasto.** El **mismo `PUT`** que publica la afirmación comercial **autoriza gasto
+>   contra un proveedor de paga**. Publicar y gastar **dejaron de ser separables**.
+> - **Cuánto.** Con los topes sembrados, hasta **~1 000 créditos/día**. **`ingestMaxCardsPerRun` es lo único
+>   que hay entre el `PUT` y la factura**, y los créditos gastados **no se recuperan al apagar**.
+> - **Qué se pierde.** Deja de existir la posibilidad de **«traer datos automáticos con la tienda callada»**:
+>   ya no es un estado expresable. El modelo pasa de **retener-y-aprobar** a **detectar-y-retirar** — la cifra
+>   se escribe ya filtrada, se inspecciona en la lista de revisión y, si está mal, **se borra**. Es una
+>   **pérdida real** y queda declarada, no disimulada.
+>
+> Ver **decisión 60** y criterios **116–117**. *(El detalle técnico del dial único lo fija el arquitecto en
+> `docs/ARCHITECTURE.md` **§4.38(r)**, contrato **v1.51-one-dial**; el copy de la pantalla, `DESIGN_SYSTEM.md`
+> **§22.13**. Aquí solo se fija el requisito de producto.)*
+>
+> **Estado del disclaimer (§O.5) — la precisión importa**: el texto está **aprobado por el dueño**
+> (2026-08-31, condicionado a la corrección de marca a **TCG HUNT**, ya aplicada). Lo que **NO** existe es
+> **revisión legal profesional**: esa parte sigue **abierta** y está **a nombre del dueño** (con su abogado),
+> ver **pregunta abierta 1**. Encender ya **no** está bloqueado por la aprobación del texto.
 > **Relación con §N (precio puro)**: son bloques distintos y **no se pisan**. §N fija **dinero real** (el
 > precio publicado sale de la curva por valor de mercado); §O es **presentación** y **consume** ese precio
 > publicado como `precioVentaRaw` sin alterarlo nunca.
@@ -1558,7 +1582,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 - [ ] **(2) Rejilla de Compra — badge con la cifra en la teja** *(§A)* — superficie de **promoción**: aparece
       **solo en cartas que pasan el gate de ROI** (§O.2) **y el gate de confianza** (§O.7). Badge compacto que
       **muestra el estimado PSA 10**.
-      *(SUPUESTO de copy, para aprobación: **«En PSA 10 vale ≈ MX$X»**; en móvil, **«PSA 10 ≈ MX$X»**.)*
+      *(SUPUESTO de copy, **aún sin ratificar por el dueño** — **pregunta abierta 4**, abierta:
+      **«En PSA 10 vale ≈ MX$X»**; en móvil, **«PSA 10 ≈ MX$X»**. Distinto del disclaimer de §O.5, que **sí**
+      está aprobado. Ya visible en producción; no bloquea.)*
       Lleva su **micro-aviso + llamada al pie** (§O.5). Las tejas que **no** pasan se ven **exactamente
       como hoy**: **no hay badge vacío, tachado ni en gris**.
 - [ ] **(3) Vitrina en el home: «Joyas para gradear»** — superficie de **campaña**: solo cartas que **pasan
@@ -1576,8 +1602,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       confianza** (§O.7). Mismo listón que la rejilla, por la misma razón: es una **superficie donde
       promocionamos**, no donde informamos.
       *(Copy: el **mismo** del badge de la rejilla — **«En PSA 10 vale ≈ MX$X»**, en móvil **«PSA 10 ≈ MX$X»**;
-      SUPUESTO de copy pendiente de aprobación, igual que el de la rejilla. No se inventa un texto distinto
-      para esta superficie.)*
+      **SUPUESTO de copy que el dueño todavía no ha ratificado**, igual que el de la rejilla — **pregunta
+      abierta 4**, que sigue **abierta**. No se inventa un texto distinto para esta superficie.
+      **Precisión 2026-08-31 (M-46)**: esto **no** es lo mismo que el disclaimer. El **disclaimer de §O.5 sí
+      está aprobado** por el dueño (decisión 59); **el copy del badge no**. Y ya **no es hipotético**: con la
+      exhibición encendida en producción, este texto **ya se está mostrando** sobre un supuesto del PO. No
+      bloquea —es copy, no una afirmación legal nueva: la carga legal la lleva el disclaimer, que sí está
+      aprobado— pero **sube de prioridad**: conviene que el dueño lo ratifique o lo cambie.)*
       Lleva su **micro-aviso + llamada al pie** (§O.5); el home ya lleva **una** nota al pie que cubre todas
       las cifras de la página (vitrina y destacadas incluidas).
       **Lo que esta superficie NO cambia (crítico)**: el gancho **no cura ni reordena** el carrusel. «Piezas
@@ -1663,10 +1694,17 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 - [ ] **Frescura del dato**: un estimado **rancio deja de mostrarse** (mejor callar que presumir un número
       viejo en una promesa comercial). El umbral y cómo se mide están en **§O.7**.
 
-**O.5 — Disclaimer (ES / EN) — BORRADOR PARA APROBACIÓN DEL HUMANO — ACTUALIZADO 2026-08-23**
-> **Este texto es una propuesta del product-owner y requiere aprobación explícita del humano** (idealmente con
-> revisión legal, ver «Riesgos y banderas»). **Hasta que esa aprobación llegue, la feature permanece detrás de
-> un feature-flag APAGADO.**
+**O.5 — Disclaimer (ES / EN) — APROBADO POR EL DUEÑO, SIN REVISIÓN LEGAL PROFESIONAL — ACTUALIZADO 2026-08-31**
+> **Estado (M-46, decisión 59) — las dos mitades, siempre juntas y sin suavizar:**
+> **(1) APROBADO POR EL DUEÑO.** Este texto **dejó de ser un borrador**: el dueño lo aprobó el **2026-08-31**,
+> condicionado a la corrección de marca a **TCG HUNT** (`common.brand.name`), **ya aplicada**. **Ya no
+> mantiene la feature apagada** y **no requiere ninguna aprobación adicional para encenderse**.
+> **(2) SIN REVISIÓN LEGAL PROFESIONAL.** **Ningún abogado lo ha revisado.** Eso sigue **abierto** y es **del
+> dueño** (pregunta abierta 1); **no bloquea el encendido**. El día que un abogado lo revise, esta segunda
+> mitad **se retira** de aquí y de la pantalla.
+> **Prohibido** afirmar, aquí o en cualquier superficie, que este disclaimer **no está aprobado** o que le
+> falta el visto bueno del dueño (criterio **117**; `DESIGN_SYSTEM.md` §22.13(h) con check de QA de **cero
+> apariciones**). Producción ya muestra este texto con la exhibición **encendida**.
 > **Tono pedido por el humano (2026-08-23)**: *«súper enfático que es información ilustrativa, que no refleja
 > el estado de nuestras cartas»*. El objetivo es que **nadie pueda alegar después que se le prometió algo** —
 > pero sin convertirlo en un muro de letra chiquita ilegible: tiene que poder leerlo un comprador normal.
@@ -1705,11 +1743,12 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > el deslinde queda atado a la entidad que responde—, y **el mismo criterio se aplica a los términos**, para
 > que no digan cosas distintas. **Lo que sí queda fijado ahora es el disparador de revisión**: cuando se
 > cargue `common.footer.legalEntity`, **§O.5 se revisa obligatoriamente** (criterio 114). **La redacción
-> definitiva la aprueba el humano** — ver pregunta abierta **20**. *(El descargo ya está, de todos modos,
-> pendiente de aprobación humana/legal y la feature sigue tras el flag apagado, así que este punto **no
-> bloquea** nada nuevo.)*
+> definitiva la aprueba el humano** — ver pregunta abierta **20**. *(Actualizado 2026-08-31: el descargo
+> **ya está aprobado por el dueño**, sin revisión legal profesional; lo que sigue abierto es la **revisión
+> por abogado** —pregunta abierta 1— y **este punto de la razón social no bloquea** nada nuevo: entra en la
+> misma revisión.)*
 
-- [ ] **Versión completa (ficha de carta) — ES** *(borrador)*:
+- [ ] **Versión completa (ficha de carta) — ES** *(aprobada por el dueño, decisión 59)*:
       > **INFORMACIÓN ILUSTRATIVA. NO ES UNA VALUACIÓN DE ESTA CARTA.**
       >
       > Las cifras de **PSA 10 / PSA 9** son un **dato de referencia de mercado** sobre **ese modelo de carta
@@ -1735,7 +1774,7 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       > **Los precios de mercado cambian todos los días** y este estimado puede quedar desactualizado en
       > cualquier momento.
 
-- [ ] **Versión completa (ficha de carta) — EN** *(borrador)*:
+- [ ] **Versión completa (ficha de carta) — EN** *(aprobada por el dueño, decisión 59)*:
       > **ILLUSTRATIVE INFORMATION ONLY. THIS IS NOT AN APPRAISAL OF THIS CARD.**
       >
       > The **PSA 10 / PSA 9** figures are **market reference data** for **that card model as graded by third
@@ -1763,12 +1802,14 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > **Dónde vive este texto completo** *(actualizado 2026-08-23)*: **al pie de la página**, referenciado con una
 > **llamada (asterisco)** junto a cada cifra. Ver «Regla de presentación» abajo.
 
-- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — ES** *(borrador)*:
+- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — ES** *(§O.5 está aprobado;
+      esta cadena corta y su permanencia siguen en **pregunta 12**)*:
       > *Cifra **ilustrativa** de mercado. **No evaluamos el estado de esta carta** ni garantizamos ningún
       > grado; el gradeo y su costo corren por tu cuenta.*
       > *(Variante ultra-corta para el badge, donde no cabe la anterior: **«Ilustrativo; no evaluamos esta
       > carta.\***».)*
-- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — EN** *(borrador)*:
+- [ ] **Versión corta / micro-aviso (junto a la cifra: badge y bloque de ficha) — EN** *(§O.5 está aprobado;
+      esta cadena corta y su permanencia siguen en **pregunta 12**)*:
       > ***Illustrative** market figure. **We have not assessed this card's condition** and guarantee no
       > grade; grading and its cost are on you.*
       > *(Ultra-short variant for the badge: **«Illustrative; we haven't assessed this card.\***».)*
@@ -1795,6 +1836,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       asterisco lleva al texto completo.
       *(SUPUESTO de copy, para aprobación — ES: **«Ilustrativo; no evaluamos esta carta.\***» · EN:
       **«Illustrative; we haven't assessed this card.\***».)*
+      **Precisión de estado (2026-08-31, M-46)**: esto **no contradice** la decisión 59. El **cuerpo del
+      disclaimer de §O.5 SÍ está aprobado** por el dueño; lo que **no** ha sido ratificado por separado es
+      **esta cadena corta** y la decisión estructural de **conservar el micro-aviso o quedarse solo con el
+      asterisco** (**pregunta abierta 12**, abierta). No bloquea el encendido.
       **Argumento de la decisión**: una nota al pie **protege menos que un aviso adyacente** si el comprador
       **nunca baja** — y en el **home** (vitrina **y** carrusel de destacadas) y en el **listado de Compra**
       eso es lo normal: el
@@ -1828,7 +1873,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > gradeado por terceros** — no una valuación nuestra ni del proveedor.
 > **Lo que NO cambia para el usuario**: mismas superficies *(las **cuatro** desde 2026-08-31, §O.3)*, mismo
 > gate de ROI, mismo disclaimer, mismas
-> reglas money-safe, mismo feature-flag apagado hasta la aprobación legal.
+> reglas money-safe. *(Actualizado 2026-08-31, M-46: la coletilla «mismo feature-flag apagado hasta la
+> aprobación legal» **se retira por falsa**. El disclaimer **ya está aprobado por el dueño** (decisión 59) y
+> la **revisión legal profesional**, que sigue abierta, **no bloquea el encendido**. Además ya no hay dos
+> flags: hay **un interruptor único** que al encenderse **publica y gasta** — decisión 60.)*
 
 - [ ] **Fuente primaria — automática**: los valores **PSA 10 / PSA 9** se alimentan del ingest de
       **PokemonPriceTracker** sobre `ebay.salesByGrade` (proveedor **ya contratado**; API key gestionada en el
@@ -2680,9 +2728,14 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > y por **inspección del payload** (que no viajen los insumos del cálculo) — **no** comparando cifras
 > derivadas en pantalla.
 
-> **Nota de verificación 3 (2026-08-28)**: la feature vive tras un **feature-flag apagado** hasta que el
-> humano apruebe el texto legal (§O.5). QA verifica estos criterios **con el flag encendido** en el entorno de
-> prueba, y verifica **además** que con el flag apagado **ninguna** superficie muestra cifra estimada.
+> **Nota de verificación 3** *(2026-08-28; **reescrita 2026-08-31, M-46**)*: la feature vive tras **un solo
+> interruptor**, apagado de fábrica. **Ya no está condicionado a aprobar el texto legal**: el disclaimer está
+> **aprobado por el dueño** (decisión 59) y lo que queda abierto —la **revisión legal profesional**— **no
+> bloquea el encendido**. QA verifica estos criterios **con el interruptor encendido** en el entorno de
+> prueba, y verifica **además** que **apagado** ninguna superficie muestra cifra estimada **y** el barrido no
+> pide ni escribe ninguna (**cero créditos**). **Aviso de dinero para QA** *(decisión 60, `ARCHITECTURE.md`
+> §4.38(r.6.3))*: encender y apagar **gasta créditos reales**, así que el ciclo on/off **no se prueba** contra
+> un entorno con credencial viva del proveedor — se prueba **sin credencial** o **con la sonda encendida**.
 
 97. **El gate decide QUÉ SE PROMOCIONA (curaduría), no qué se ve** *(actualizado 2026-08-31: las superficies
     de promoción son **tres** — rejilla, vitrina y destacadas)*: una carta raw publicada lleva cifra en
@@ -2840,6 +2893,25 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     `common.brand.domain`; los buzones documentados (`contacto@`, `soporte@`, `facturacion@`, `buylist@`)
     resuelven todos a `tcghunt.mx`. **Este criterio se verifica contra el producto, no contra la
     documentación**: si un documento afirma otra marca, el documento está mal.
+116. **NUEVO — Un solo interruptor, y la pantalla dice que encenderlo GASTA** *(2026-08-31, decisión 60)*:
+    (a) existe **exactamente un** on/off para el gancho de grading; **no hay** ningún control, etiqueta ni
+    estado que ofrezca «traer sin publicar», «solo ingest», «parcial» ni «modo prueba». (b) El aviso de
+    **encendido** dice, en ES y EN, **las dos cosas**: que **publica** una afirmación comercial **y** que
+    **gasta** créditos contra un proveedor **de paga**, con el **tope diario interpolado** (no hardcodeado) y
+    la nota de que **los créditos no se recuperan al apagar**. (c) El aviso de **apagado** dice que también
+    **deja de actualizar**. (d) Con el interruptor **apagado**: ninguna de las cuatro superficies muestra
+    cifra estimada **y** el barrido **no pide ni escribe** ninguna — **cero créditos consumidos**.
+    *(Nota para QA, del arquitecto §4.38(r.6.3): el **criterio 108** ya **no se verifica** encendiendo y
+    apagando contra un entorno con credencial viva, porque eso **gasta dinero real**; se verifica **sin
+    credencial del proveedor** o **con la sonda encendida**.)*
+117. **NUEVO — El estado del disclaimer se enuncia con las dos mitades, siempre** *(2026-08-31, decisión 59)*:
+    donde se mencione el estado legal del descargo, se lee **«aprobado por el dueño; sin revisión legal
+    profesional»**. **Verificación negativa, y es la que importa**: **cero apariciones**, en `messages/` (ES y
+    EN) y en cualquier superficie visible, de una afirmación de que **el disclaimer no está aprobado** o que
+    **le falta el visto bueno del dueño** — la exhibición está **encendida en producción** con ese texto, así
+    que decirlo sería publicar algo falso. **Este criterio se verifica contra el producto, no contra la
+    documentación**: si un documento afirma que el disclaimer no está aprobado, **el documento está mal** y se
+    corrige por el rol dueño de ese documento.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -2880,11 +2952,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
   tercero (PSA)**. Riesgo de **publicidad engañosa** ante PROFECO si el comprador entiende el estimado como
   promesa. Mitigaciones ya incorporadas: gate conservador sobre **PSA 9** (§O.2), **gate de confianza** que
   impide promocionar cifras poco sólidas o incoherentes (§O.7), **disclaimer obligatorio en toda superficie**
-  (§O.5), **exclusión explícita de garantía de grado** (Fuera de alcance) y **feature-flag apagado hasta la
-  aprobación del texto**. *(Refuerzo 2026-08-28: con la fuente automática, la cifra son **ventas cerradas
+  (§O.5), **exclusión explícita de garantía de grado** (Fuera de alcance) y **un interruptor único apagado de
+  fábrica**. *(Actualizado 2026-08-31: el texto del disclaimer está **aprobado por el dueño**, **sin revisión
+  legal profesional** — el punto (a) de abajo sigue vivo y es exactamente esa revisión pendiente.)*
+  *(Refuerzo 2026-08-28: con la fuente automática, la cifra son **ventas cerradas
   reales de eBay por grado**, no una valuación nuestra — el disclaimer describe la realidad al pie de la
-  letra, lo que mejora la posición.)* **Validar con abogado**: (a) que el **texto del disclaimer** (borrador
-  en §O.5) sea suficiente y esté también en **términos/políticas**, (b) que el estimado **no cree derecho** a
+  letra, lo que mejora la posición.)* **Validar con abogado**: (a) que el **texto del disclaimer** (§O.5,
+  **aprobado por el dueño, sin revisión legal**) sea suficiente y esté también en **términos/políticas**, (b) que el estimado **no cree derecho** a
   compensación si el grado sale menor, y (c) que el uso de la marca **«PSA»** para nombrar el grado en la UI
   sea un **uso descriptivo/nominativo admisible** y no sugiera afiliación, aval o asociación con PSA.
 - **Comercial — expectativa del cliente y soporte** *(v2.0, §O)*: aunque legalmente esté cubierto, un cliente
@@ -3192,8 +3266,11 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    (`common.footer.legalEntity`), el descargo **la nombre** con el patrón **«TCG HUNT, marca operada por
    [Razón social]»**, aplicando el mismo criterio a los términos. **Lo que queda decidido ahora es el
    disparador de revisión obligatoria** (criterio **114**); **la redacción definitiva la aprueba el humano**
-   (con su abogado si quiere) — **pregunta abierta 20**. *(No bloquea: el descargo entero ya estaba pendiente
-   de aprobación y la feature sigue tras el flag apagado.)*
+   (con su abogado si quiere) — **pregunta abierta 20**. *(Actualizado 2026-08-31, M-46: la justificación
+   original de «no bloquea» —«el descargo entero ya estaba pendiente de aprobación y la feature sigue tras el
+   flag apagado»— **ya no es cierta y se retira**. **Sigue sin bloquear**, pero por otra razón: el descargo
+   **está aprobado por el dueño** (decisión 59) y la mención de la razón social entra en la **misma revisión
+   legal profesional** que sigue abierta, la cual **no bloquea el encendido**.)*
 58. **Renombrado completo a TCG HUNT y dominio único `tcghunt.mx`** *(2026-08-31, confirmado por el humano:
    «recuerda que somos TCGHUNT.mx cambia eso»)*: **«TCG Vault MX» era un nombre interno de trabajo** que este
    documento declaraba por error como nombre comercial. Queda **retirado de todo PROJECT.md** (título,
@@ -3205,6 +3282,31 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    marca y el dominio ahora se declaran **por su clave i18n verificable** (`common.brand.name`,
    `common.brand.domain`) y no por el literal: **ante discrepancia manda la clave**, y este documento se
    corrige contra el producto, nunca al revés. *(La corrección del Excel es del rol backend, no del PO.)*
+59. **El disclaimer de §O.5 está APROBADO POR EL DUEÑO — y NO tiene revisión legal profesional**
+   *(2026-08-31, aprobación dada en sesión)*: el dueño **aprobó el texto** ES/EN de §O.5, condicionado a la
+   **corrección de marca a TCG HUNT** (decisión 58), que **ya se aplicó**. **Las dos mitades se escriben
+   siempre juntas y no se suavizan**: **aprobado por el dueño**, **sin revisión legal profesional**. La
+   segunda mitad **sigue abierta** y es **del dueño** (pregunta abierta 1). **Efecto**: la aprobación del
+   texto **deja de ser el bloqueo para encender** la feature. **Prohibido afirmar que el disclaimer no está
+   aprobado** en cualquier superficie o documento — producción ya muestra ese texto con la exhibición
+   encendida, y `DESIGN_SYSTEM.md` §22.13(h) lo prohíbe en pantalla con un check de QA de **cero
+   apariciones**. La cláusula «sin revisión legal profesional» **se retira el día que un abogado revise el
+   texto**, y avisar de ese día es de **PO/legal**.
+60. **UN SOLO INTERRUPTOR, y encenderlo es un ACTO DE GASTO** *(2026-08-31, M-46; el dueño lo pidió **dos
+   veces** y lo **reafirmó tras oír la objeción**)*: el gancho de §O tenía **dos** interruptores (publicar /
+   traer datos). Queda **uno** (`grading_hook_enabled`, semilla **apagado**). **§O nunca normó los on/off, así
+   que esto no es un cambio de requisito: es dejarlo escrito en el documento que manda sobre el contrato.**
+   Lo que queda normado aquí:
+   - **El mismo `PUT` que publica la afirmación comercial autoriza gasto contra un proveedor de paga.**
+     Publicar y gastar **ya no son actos separables**.
+   - **Techo**: con los topes sembrados, hasta **~1 000 créditos/día**; **`ingestMaxCardsPerRun` es lo único
+     que hay entre el `PUT` y la factura**. Los créditos gastados **no se recuperan al apagar**.
+   - **Pérdida aceptada y declarada**: **se pierde** la posibilidad de **«traer datos automáticos con la
+     tienda callada»** — ese estado **ya no es expresable**. El modelo pasa de **retener-y-aprobar** a
+     **detectar-y-retirar**: la cifra se escribe **ya filtrada**, se **inspecciona** en la lista de revisión
+     y, si está mal, **se borra**. Se acepta **porque las guardas de escritura no se relajan ni un punto**.
+   *(Ejecución técnica: `ARCHITECTURE.md` §4.38(r), contrato v1.51-one-dial; copy: `DESIGN_SYSTEM.md` §22.13.
+   Backend, frontend y ux-ui ya entregaron.)*
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
@@ -3344,22 +3446,37 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 
 ## Preguntas abiertas — gancho de grading (v2.0, §O)
 > Las **decisiones de fondo están cerradas** (alcance de **cuatro** superficies *(actualizado 2026-08-31)*,
-> gate sobre PSA 9, los dos diales y
+> gate sobre PSA 9, **el interruptor único** y
 > sus defaults, la fuente automática del dato, el gate de confianza, la guarda de dinero y la regla money-safe;
-> ver decisiones 40–45 y 53–57). Lo que sigue son **el texto del disclaimer** —que necesita aprobación
-> explícita y **mantiene la feature apagada** hasta que llegue— y **huecos menores**, todos con un supuesto ya
-> redactado en §O para **no bloquear** al arquitecto.
+> ver decisiones 40–45, 53–57 y **59–60**). **El texto del disclaimer ya NO está en esta lista: el dueño lo
+> aprobó el 2026-08-31** (decisión 59) y **ya no mantiene la feature apagada**. Lo que sigue abierto de él es
+> **solo la revisión legal profesional** (pregunta 1, reescrita). El resto son **huecos menores**, todos con un
+> supuesto ya redactado en §O para **no bloquear** al arquitecto.
 
-1. **Texto del disclaimer (la más importante — es legal-comercial, y hoy es lo único que bloquea encender la
-   feature)** — *ACTUALIZADA 2026-08-28*: el humano pidió que fuera **«súper enfático que es información
-   ilustrativa, que no refleja el estado de nuestras cartas»**, y §O.5 ya está **reescrita** con ese tono y con
-   los **seis elementos obligatorios** (incluido el nuevo y más importante: **no evaluamos la condición de la
-   pieza que vendemos**). *(Novedad que juega a favor: al pasar a la fuente automática, la cifra son **ventas
-   cerradas reales de eBay por grado**, así que la frase «dato de referencia de mercado sobre ese modelo ya
-   gradeado por terceros» es ahora **literalmente exacta**. El texto **no cambió**; solo es más defendible.)*
-   **Falta tu visto bueno final** sobre el texto ES/EN ya redactado: ¿lo apruebas tal cual, lo ajustas, o lo
-   pasas antes por **revisión legal**? ¿Quieres además que el mismo texto viva en la **página de
-   términos/políticas**? **Mientras no lo apruebes, el feature-flag sigue apagado.**
+1. **Revisión LEGAL PROFESIONAL del disclaimer** — *REESCRITA 2026-08-31 (M-46). El texto **ya está
+   aprobado**; lo que sigue abierto es otra cosa.* **La distinción es obligatoria y no se suaviza:**
+   - **Aprobado por el dueño** — el texto ES/EN de §O.5 **tiene el visto bueno del dueño**, dado en la sesión
+     del **2026-08-31** y condicionado a una **corrección de marca que ya se aplicó**: el descargo dice
+     **TCG HUNT** (`common.brand.name`), no el nombre interno retirado. Ver **decisiones 58 y 59**.
+   - **Sin revisión legal profesional** — **ningún abogado ha revisado ese texto.** Esa parte **sigue
+     abierta** y está **a nombre del dueño** (es quien contrata y decide la revisión, idealmente junto con la
+     pregunta **20**, la razón social). **Es lo único que queda vivo de esta pregunta.**
+
+   **Consecuencia de estado, que es lo que este documento tenía atrasado:** la aprobación del texto **ya no
+   bloquea encender la feature**. Producción tiene la exhibición **encendida** y el texto que se muestra **sí**
+   tiene visto bueno del dueño; afirmar lo contrario sería describir mal el producto.
+
+   **Prohibición explícita, alineada con la pantalla:** ni este documento ni ninguna superficie pueden afirmar
+   que **el disclaimer no está aprobado**. `DESIGN_SYSTEM.md` **§22.13(h)** lo prohíbe en el copy de M10 y
+   `FRONTEND_NOTES.md` fija un **check de QA que exige cero apariciones** de esa frase en `messages/`. La
+   fórmula correcta, y la única, es **«aprobado por el dueño; sin revisión legal profesional»**.
+
+   **Lo que te sigo preguntando** (nada de esto bloquea el encendido): (a) ¿pasas el texto por **abogado**, y
+   cuándo? —el día que lo hagas, la cláusula «sin revisión legal profesional» **se retira** de pantalla y de
+   este documento—; (b) ¿quieres que el **mismo texto** viva también en la **página de términos/políticas**?
+   *(Contexto que juega a favor en esa revisión: con la fuente automática la cifra son **ventas cerradas
+   reales de eBay por grado**, así que «dato de referencia de mercado sobre ese modelo ya gradeado por
+   terceros» es **literalmente exacta**. El texto no cambió; solo es más defendible.)*
 2. **Base de comparación del gate**: el supuesto es comparar contra el **precio de venta raw sin IVA** (el
    número que ya ve el comprador), **sin** sumar IVA ni envío al lado del costo. ¿Confirmas, o prefieres un
    gate **aún más conservador** que incluya IVA y/o el envío de MX$175 en `precioVentaRaw`?
@@ -3447,7 +3564,8 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     no garantizar grado y de no recomprar—, con el **mismo criterio en los términos** para que no se
     contradigan. **Lo que ya dejé fijado es solo el disparador de revisión** (criterio **114**): cuando cargues
     la razón social, **§O.5 se revisa**. **La redacción final es tuya** (idealmente con tu abogado, junto con
-    la aprobación del descargo completo, pregunta 1). ¿La quieres nombrada, o prefieres quedarte solo con la
+    la **revisión legal profesional** del descargo — pregunta 1. *Ojo: el descargo **ya está aprobado por ti**;
+    lo que queda pendiente es la revisión por abogado, no la aprobación*). ¿La quieres nombrada, o prefieres quedarte solo con la
     marca?
 21. ~~**Renombrado de marca en el RESTO de PROJECT.md**~~ — **CERRADA (2026-08-31)**. El humano confirmó:
     «recuerda que somos TCGHUNT.mx cambia eso». **TCG HUNT sustituye a TCG Vault MX en todo el documento** y
