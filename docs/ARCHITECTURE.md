@@ -3,6 +3,23 @@
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
+> **Rev v1.51-c (2026-08-31, arquitecto — UNA decisión de precisión sobre §5.2, enrutada por el techlead (regla 9).
+> Base: v1.51-b, vigente entera. Cero migraciones, cero DDL, cero montos, cero rutas, CERO cambios de conducta.)**
+> 1. **§5.2.9 (nueva) — qué pasa cuando un HECHO CONGELADO se perdió.** El contrato v1.51-b prometía `cardId`, `name`,
+>    `number` y `productType` **requeridos**, pero `GET /orders/:orderId` lee una columna `Json` sin esquema escrita
+>    por versiones anteriores del código: **puede no traerlos**. Era **el mismo pecado que §5.2 vino a matar,
+>    invertido**. Se declara la **tolerancia** en el contrato (`HistoricalOrderItemCardDTO`, `Partial` de los hechos)
+>    y se **RECHAZA** que el backend «garantice un mínimo» rellenando desde el join: violaría §5.2.2 y cambiaría un
+>    hueco honesto por un **dato inventado en un registro probatorio**. Regla general: **(P) degrada a `null`, (F)
+>    degrada a AUSENTE; ninguna degrada jamás a otro valor.**
+> 2. **Money-safe explícito:** el dinero de la línea no vive en el blob (`unitPriceCents` es columna, el `breakdown`
+>    sale de `Order`) ⇒ un snapshot incompleto **no mueve un centavo**. Peor caso: cosmético, con honestidad.
+> 3. **`null` vs ausente alineado con la realidad** (`rawCondition`/`gradingCompany`/`gradeValue` viajan **`null` con
+>    clave presente**; solo `setName` se omite). Se corrige el **contrato**, no el código.
+> 4. **`GuestTrackingItemDTO` confirmado en su sitio:** cuarta superficie de imagen, otro DTO, join en vivo correcto,
+>    **no contradice §5.2.5** y **nadie debe uniformizarlo**. Su única deuda viva sigue siendo **D-IMG-2** (identidad),
+>    baja y no bloqueante. **Contrato: `API_CONTRACT.md` v1.51-c.**
+>
 > **Rev v1.51-b (2026-08-31, arquitecto — DOS DECISIONES DE DISEÑO, destapadas por un diagnóstico de imágenes.
 > DISEÑO EN PAPEL; lo implementan BACKEND, FRONTEND y DEVOPS. Base: v1.51-a, vigente entera.)**
 > **Cero migraciones, cero DDL, cero montos, cero rutas nuevas.**
@@ -11986,11 +12003,18 @@ de compra — ver §5.2.7, D-IMG-2.)
 
 ```
 // Estructura persistida — NO CAMBIA. Ni un campo nuevo, ni una migración.
+// v1.51-c: los tres últimos se congelan como `null` (columnas nullables de InventoryItem), NO omitidos;
+//          `setName` sí se OMITE cuando la carta no tenía set.
 FrozenCardFacts = { cardId, name, setName?, number, productType,
-                    rawCondition?, gradingCompany?, gradeValue? }
+                    rawCondition|null, gradingCompany|null, gradeValue|null }
+
+// Lo que se LEE de la columna `Json` de un pedido ya cobrado: NO hay garantía de esquema (§5.2.9).
+PersistedCardFacts = Partial<FrozenCardFacts>
 
 // Proyección de LECTURA (lo que viaja por el cable). Vive solo en memoria.
-resolveOrderItemCard(facts: FrozenCardFacts, card: Card | null): OrderItemCardDTO
+// Preserva la completitud de su entrada: hechos completos ⇒ OrderItemCardDTO (quotes);
+// hechos parciales ⇒ HistoricalOrderItemCardDTO (GET /orders/:orderId). NUNCA rellena un hecho ausente.
+resolveOrderItemCard(facts: F, card: Card | null): F & { imageSmallUrl: string | null }
   = { ...facts, imageSmallUrl: card?.imageSmallUrl ?? null }
 
 // Batched, nunca N+1: una sola consulta por detalle de pedido.
@@ -12014,6 +12038,9 @@ Reglas duras:
 - **Money-safe, explícito:** esta sección **no toca** ningún importe, ninguna precedencia de precio, ningún campo
   del quinteto de instrumentación, ningún estado de orden. Es **display-only**, en la misma categoría que
   `sealedImageUrl` (§4.34a).
+- **v1.51-c — la proyección NO rellena hechos.** `resolveOrderItemCard` añade la clase (P) y **nada más**: si el blob
+  histórico no trae `name`/`cardId`/`number`/`productType`, la salida tampoco los trae. **Prohibido completarlos
+  desde el join** (violaría §5.2.2). Forma tolerante y render degradado: **§5.2.9**.
 
 #### 5.2.6 Límite declarado: el sellado en el histórico de pedidos
 
@@ -12034,7 +12061,7 @@ no un bug, y **no** se compensa con un join oportunista a `InventoryItem` (prohi
 |---|---|---|
 | **arquitecto** | ✅ Hecho en este pase: doctrina (F)/(P), decisión (ii), y **declaración de la forma** de `items[].card` como **`OrderItemCardDTO`** en `API_CONTRACT §4` (**rev v1.51-b**). El blob deja de no tener forma. | — |
 | **backend** | (a) Implementar §5.2.5 en las **tres** superficies: `POST /checkout/quote`, `POST /checkout/guest/quote` y `GET /orders/:orderId`. (b) **Tipar** `OrderLineData.cardSnapshot` con `FrozenCardFacts` en vez de `object` — sin el tipo, la grieta sigue abierta. (c) **No** añadir `imageSmallUrl` al objeto que se **persiste**: el arreglo va en la proyección de lectura, no en `cardSnapshot()`. (d) **Cero migraciones**: si el diseño exige una, es señal de que se desvió a la opción (i) y debe volver al arquitecto. | Antes del merge del stream «Órdenes y dinero» |
-| **frontend** | (a) Corregir `OrderItemPreview.card: CardDTO` → `OrderItemCardDTO` en `src/types/contract.ts` (hoy es un tipo falso: promete campos que el backend nunca envió). (b) Tratar `imageSmallUrl: null` como caso normal → placeholder de `CardImage`, sin error visible. (c) Alinear fixtures de mocks a la forma real. | Con el contrato v1.51-b |
+| **frontend** | (a) Corregir `OrderItemPreview.card: CardDTO` → `OrderItemCardDTO` en `src/types/contract.ts` (hoy es un tipo falso: promete campos que el backend nunca envió). (b) Tratar `imageSmallUrl: null` como caso normal → placeholder de `CardImage`, sin error visible. (c) Alinear fixtures de mocks a la forma real. **⚠️ ACTUALIZADO en v1.51-c:** eso vale para los DOS quotes; **`GET /orders/:orderId` usa la forma TOLERANTE** (`HistoricalOrderItemCardDTO`) — encargo completo en **§5.2.9**. | Con el contrato v1.51-b |
 | **qa** | Un caso E2E que valga: **pedido creado ANTES del arreglo** (fila con JSON sin imagen) ⇒ `GET /orders/:id` devuelve `imageSmallUrl` poblada. Si eso pasa, la decisión (ii) quedó bien implementada; si solo pasan los pedidos nuevos, se implementó (i) disfrazada. | Gate por stream |
 | **devops** | Nada. **Esta decisión no tiene migración, ni env, ni paso de despliegue.** Se registra precisamente para que nadie prepare una ventana de migración que no existe. | — |
 
@@ -12046,6 +12073,76 @@ no un bug, y **no** se compensa con un join oportunista a `InventoryItem` (prohi
 - **No cambia `shipments` ni el `GuestOrderTrackingDTO`** en su comportamiento de imagen (ya resolvían por join,
   que es lo correcto para la imagen). Sí quedan con una observación por su resolución de **identidad**: §9, D-IMG-2.
 - **No toca `backend/src/modules/pricing/`** — zona de otro agente en este momento.
+
+#### 5.2.9 Qué pasa cuando un HECHO CONGELADO se perdió (v1.51-c, NORMATIVA)
+
+> **Origen.** El techlead detectó, sobre la implementación ya aprobada de §5.2, que el contrato v1.51-b declaraba
+> `cardId`, `name`, `number` y `productType` **requeridos** en las tres superficies, mientras el backend lee el
+> histórico con un `Partial` y **puede servir un `card` sin ellos** (conducta fijada por test, y correcta). Enrutado a
+> mí por regla 9. **Es el mismo defecto que §5.2 vino a matar, invertido:** un tipo de cliente prometiendo lo que el
+> backend puede no enviar — la grieta exacta por la que se cayó `imageSmallUrl`. Aquí se cierra por el otro lado.
+
+**El hecho de fondo.** `OrderItem.cardSnapshot` es una columna `Json`. **PostgreSQL no valida su esquema**, y el blob
+de un pedido antiguo lo escribió una versión anterior de nuestro propio código. Por tanto la forma de un snapshot
+histórico **no es una garantía del sistema: es una observación sobre datos que ya existen**. Cualquier tipo que
+afirme lo contrario es una promesa que la base no respalda.
+
+**Decisión: el contrato declara la TOLERANCIA; el backend NO rellena.** `GET /orders/:orderId` sirve
+`HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & { imageSmallUrl: string | null }` (API_CONTRACT §4). Los dos
+quotes conservan la forma **completa** `OrderItemCardDTO`, porque ahí los hechos **nacen en la misma petición** desde
+la pieza viva (`cardSnapshot(item)` sobre columnas `NOT NULL`) y sí están garantizados.
+
+**Rechazo de la alternativa (que el backend garantice un mínimo rellenando desde el join).** Tres motivos, y el
+primero basta:
+1. **Contradice §5.2.2 de frente.** Los hechos congelados **no se re-resuelven**. Rellenar `name`/`number` desde
+   `Card` es exactamente lo que el test «los hechos congelados sobreviven a un re-sync que renombró la carta»
+   existe para impedir. No se puede prohibir el re-resolver en el caso normal y autorizarlo en el caso degradado:
+   el caso degradado es **precisamente** donde el dato re-resuelto tiene más probabilidad de ser falso.
+2. **Cambia un hueco honesto por un dato inventado, dentro de un registro probatorio.** Un blob incompleto significa
+   «el acta no lo registró». Rellenarlo hace que el pedido **afirme** algo —con la misma tipografía que los hechos
+   reales— cuyo respaldo es el catálogo de hoy, no la venta de entonces. En una disputa (§H), eso es peor que el
+   hueco: el hueco se ve, el relleno no.
+3. **En el peor caso ni siquiera hay de dónde rellenar.** El blob incompleto más probable es el que **no trae
+   `cardId`** — y sin `cardId` no hay join. La «garantía» fallaría justo en el caso que decía cubrir.
+
+**La regla general que esto establece, para el próximo campo dudoso:**
+
+| Clase | Cuando no resuelve | Degrada a | Lo que el cliente dice |
+|---|---|---|---|
+| **(P) Presentación** | La fila `Card` no existe / columna nula / sin `cardId` | **`null`, clave presente** | «no hay imagen» ⇒ placeholder |
+| **(F) Hecho congelado** | El blob histórico no lo trae | **AUSENTE, clave omitida** | «no consta» ⇒ etiqueta neutra |
+
+**Ninguna de las dos degrada jamás a *otro valor*.** Esa es toda la doctrina: la ausencia se representa, no se
+sustituye. Y `null` (clase P) frente a ausente (clase F) **no es un detalle de estilo**: es la señal de cuál de las
+dos cosas pasó.
+
+**Money-safe, y es lo que acota el daño.** El dinero de la línea **no vive en el blob**: `unitPriceCents` es columna
+propia de `OrderItem` y el `breakdown` sale de columnas de `Order` (§5.1). Un snapshot incompleto **no puede mover un
+centavo** ni de lo que se muestra ni de lo que se cobró. El peor caso de T-3 es **cosmético con honestidad**: un
+pedido antiguo que dice menos de lo que hoy diríamos, con su importe intacto.
+
+**La tolerancia es de LECTURA. No relaja la ESCRITURA — invariante vigente:** el checkout persiste siempre los ocho
+hechos, con `cardId`, `name`, `number` y `productType` **no nulos**. Un pedido cobrado por el código vigente **nunca**
+produce un `card` incompleto; si lo produjera, es **defecto de backend**, no tolerancia. Y **no hay backfill**: §5.2.4
+sigue vigente, un blob incompleto no se repara, se muestra.
+
+**T-4 — `null` frente a ausente, alineado con lo que de verdad viaja.** `cardSnapshot()` congela `rawCondition`,
+`gradingCompany` y `gradeValue` **tal cual salen de columnas nullables** de `InventoryItem` ⇒ viajan como **`null` con
+la clave presente**, no omitidos. `setName` sale de `card.set?.name` ⇒ `undefined` ⇒ **omitido**. Se corrige **el
+contrato**, que los declaraba todos opcionales-ausentes. **Se rechaza pedirle al backend que omita los nulos:** sería
+cambio de conducta en el write path, produciría **divergencia entre blobs viejos y nuevos** (los ya persistidos
+seguirían con `null`) y no compra nada — `null` y ausente significan lo mismo aquí («no aplica»), y el discriminante
+real es `productType`.
+
+**Encargo por rol (D-1b, v1.51-c):**
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: §5.2.9 y `API_CONTRACT` **v1.51-c** (dos formas, tolerancia declarada, `null` vs ausente, ejemplos reales, confirmación de alcance de `GuestTrackingItemDTO`). | — |
+| **backend** | **NADA que cambiar en conducta** — el contrato se alineó al código, no al revés. Solo, si quiere el cerrojo de compilación completo: **exportar el alias `HistoricalOrderItemCardDTO`** (= `PersistedCardFacts & { imageSmallUrl: string \| null }`, que es lo que `resolveOrderItemCard` ya devuelve para el histórico) y anotar con él el retorno de las líneas de `getOrder`. **Opcional, sin urgencia.** ⛔ **Prohibido** «garantizar un mínimo» rellenando hechos desde `Card`: violaría §5.2.2. | Sin puerta (no bloquea merge) |
+| **frontend** | (a) Tipar las líneas de **`GET /orders/:orderId`** con la forma **tolerante** (`HistoricalOrderItemCardDTO`: todo hecho congelado opcional), **no** con `OrderItemCardDTO`. Los dos quotes conservan la forma completa. (b) Render degradado por campo según API_CONTRACT §4 «Tolerancia del histórico», punto 4: etiqueta neutra de i18n para `name`, omisión de fragmentos para `number`/`setName`, sin badge si falta `productType`, sin enlace a ficha si falta `cardId`. (c) ⛔ **Prohibido rellenar el hueco** con `GET /catalog/cards/:cardId`: sería re-resolver un hecho congelado desde el cliente — la misma violación de §5.2.2, por la puerta de atrás. (d) `rawCondition`/`gradingCompany`/`gradeValue` llegan **`null`, no ausentes**: no usar `in` como discriminante. | Antes del merge del stream «Órdenes y dinero» |
+| **qa** | Un caso más sobre el existente: **pedido histórico con blob incompleto** (sin `cardId`/`name`) ⇒ `GET /orders/:id` responde **`200`**, la línea se pinta con etiqueta neutra + placeholder, y **`unitPriceCents` y el `breakdown` salen intactos**. Si la UI revienta, o si muestra un `name` que el blob no traía, hay hallazgo. | Gate por stream |
+| **devops / ux-ui** | Nada. Sin migración, sin env, sin cambio de diseño (la etiqueta neutra usa el mismo tratamiento tipográfico ya existente del placeholder). | — |
 
 ---
 
@@ -12298,7 +12395,7 @@ Riesgos técnicos:
   | # | Desviación | Evidencia | Dueño | Puerta |
   |---|---|---|---|---|
   | **D-IMG-1** | `OrdersService.cardSnapshot()` no proyecta `imageSmallUrl` aunque `item.card` viene cargado ⇒ hueco gris en carrito, checkout de invitado y detalle de pedido. **Omisión aislada, no criterio**: el mismo mapeo en `ShipmentsService.toClientShipmentItem()` sí la incluye | `orders.service.ts` (`cardSnapshot`) vs. `shipments.service.ts` (`toClientShipmentItem`) | backend | Ya enrutada (conformidad de contrato). Se implementa **en la proyección de lectura**, §5.2.5 |
-  | **D-IMG-2** | `GuestOrderTrackingDTO` y `ClientShipmentItemDTO` resuelven **la IDENTIDAD** (`name`, `setName`, `number`) por join contra `inventoryItem.card` **en vivo**, no desde el registro congelado ⇒ un re-sync de catálogo que renombre una carta **cambia lo que dice un pedido ya cobrado**. Para la **imagen** el join es correcto (§5.2.3); para la identidad está invertido | `guest-checkout.service.ts` (construcción de `items`), `shipments.service.ts` | backend | **Severidad baja, NO bloqueante.** Alinear a §5.2.2 en el próximo trabajo sobre esos módulos; no justifica un pase propio |
+  | **D-IMG-2** | `GuestOrderTrackingDTO` y `ClientShipmentItemDTO` resuelven **la IDENTIDAD** (`name`, `setName`, `number`) por join contra `inventoryItem.card` **en vivo**, no desde el registro congelado ⇒ un re-sync de catálogo que renombre una carta **cambia lo que dice un pedido ya cobrado**. Para la **imagen** el join es correcto (§5.2.3); para la identidad está invertido | `guest-checkout.service.ts` (construcción de `items`), `shipments.service.ts` | backend | **Severidad baja, NO bloqueante.** Alinear a §5.2.2 en el próximo trabajo sobre esos módulos; no justifica un pase propio. **RATIFICADA v1.51-c** tras revisión del techlead: `guest-checkout.service.ts:545` (`imageSmallUrl: … ?? undefined`, vía `inventoryItem.card`) **NO es regresión y NO contradice §5.2.5** — es otro DTO, plano, **sin `cardId`** (prohibido por criterio 51, así que la unión de §5.2.5 le es estructuralmente inaccesible) y de una vista de **envío en curso**, no del acta de compra. **Prohibido «uniformizarlo» por iniciativa propia**; declarado en `API_CONTRACT §4-G` |
   | **D-IMG-3** | `OrderLineData.cardSnapshot` está tipado como **`object`**: un blob probatorio sin forma en el backend | `orders.service.ts` (tipo `OrderLineData`) | backend | Con D-IMG-1. **Es la causa raíz**, no un detalle de estilo |
   | **D-IMG-4** | `OrderItemPreview.card` se tipa como **`CardDTO` completo**, que el backend nunca devolvió en esa posición: el tipo **prometía** `imageSmallUrl: string` y por eso el front la pintó sin que nada lo desmintiera. Además `CardDTO.imageSmallUrl` es `string` (requerido) mientras la columna es **`String?`** en el schema | `frontend/src/types/contract.ts` vs. `prisma/schema.prisma` | frontend | Con el contrato **v1.51-b** (`OrderItemCardDTO`, imagen **nullable**) |
   | **D-IMG-5** | `images.remotePatterns` incluye `hostname: '**'`. **Hoy inerte** (cero `next/image`), pero convierte el optimizador en **proxy de imágenes abierto** en cuanto se adopte. Es **más ancho que lo que el backend puede producir**, que ya valida host contra `SEALED_IMAGE_HOST_ALLOWLIST` | `frontend/next.config.mjs` vs. `backend/src/modules/inventory/sealed-image-host.ts` | frontend | **Cerrar YA**, mientras el cambio tiene riesgo funcional cero (§5.3.4) |
