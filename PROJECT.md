@@ -1572,12 +1572,25 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       - el **precio de venta de la carta** (el que ya se muestra hoy, sin cambio),
       - el **estimado PSA 10**,
       - el **estimado PSA 9**,
-      - la **fecha del dato** —para un **override manual**, la fecha en que el admin lo fijó (§O.6). **Para el
-        dato automático esto queda ABIERTO** *(marcado 2026-08-31, **decisión 61**)*: aquí decía «**fecha de la
-        última venta observada**», pero **`evidenceDate` no se persiste**, así que **esa fecha no existe al
-        momento de leer** — lo único disponible es la **fecha de captura de la fila**, que puede ser hasta
-        **30 días posterior** a la venta que respalda la cifra. **No se asume cuál mostrar**: ver pregunta
-        abierta **18**,
+      - **NINGUNA FECHA** *(RESUELTO 2026-08-31, **decisión 62**; cierra la pregunta abierta **18**)*.
+        **Esta línea prometía la «fecha de la última venta observada» y esa promesa SE RETIRA, no se
+        implementa.** Nunca se construyó y **no se puede** cumplir hoy: **`evidenceDate` no se persiste**, así
+        que al leer sólo existe la **fecha de captura de la fila**, que puede ir hasta **30 días adelantada**
+        respecto de la venta que respalda la cifra. El dueño eligió la opción **(b): no mostrar fecha** para el
+        dato automático. **La ficha no muestra fecha junto a los estimados.**
+        *(**Ojo — esto SÍ es trabajo pendiente de frontend, no el estado actual**: hoy el bloque de estimados
+        **sí pinta una fecha**, el eyebrow `catalog.gradingEstimate.updatedAt` = **«ESTIMADO · {date}»**,
+        alimentado por `oldestCapturedDate()` sobre el `capturedDate` de `GradedEstimateDTO.estimate`.
+        **Retirarlo es el cambio que esta decisión ordena** — ver criterio **119**.)*
+        *(Reversible: si algún día se cablea `evidenceDate` —deuda viva tras la decisión **61**—, mostrar la
+        **fecha real de la venta** vuelve a estar sobre la mesa. «No mostramos fecha» es la respuesta a **no
+        tener** el dato honesto, **no** una prohibición permanente de diseño.)*
+        *(**Caso override manual — NO resuelto por esta decisión**: esta línea también prometía, para un
+        override, «la fecha en que el admin lo fijó». La pregunta 18 se formuló sólo sobre el **dato
+        automático**, así que **no se extiende** el «no» al override por cuenta propia; pero hoy es
+        **inimplementable tal cual**, porque el cliente **no puede distinguir** un override de un dato
+        automático —`source` se **omite siempre** por contrato— y el bloque pinta **una sola fecha** para
+        todas sus cifras. Ver pregunta abierta **24**.)*
       - la **llamada al disclaimer** (asterisco) y su **nota al pie** (§O.5).
       **Nada calculado**: sin multiplicador, sin diferencia, sin ganancia, sin costo de gradeo, sin
       comparativa. **No está condicionada al gate de ROI**: si hay dato, se muestra.
@@ -1997,8 +2010,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > 4. Entra a **Compra** y ve la **teja con el badge y la cifra** (estimado PSA 10 + micro-aviso + llamada), y
 >    la página lleva su **nota al pie completa**.
 > 5. Abre la **ficha** y ve **solo**: el **precio de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
->    la **fecha del dato**, el **micro-aviso** y la **llamada al pie**. **No ve** multiplicador, ganancia,
->    costo de gradeo, tamaño de muestra ni comparativa alguna.
+>    el **micro-aviso** y la **llamada al pie**. **No ve** multiplicador, ganancia,
+>    costo de gradeo, tamaño de muestra, comparativa **ni fecha del dato**
+>    *(la fecha se retiró por la **decisión 62**; ver §O.3(1) y criterio **119**)*.
 > 6. Cambia el idioma a **inglés** y todos esos textos —micro-aviso y nota al pie incluidos— salen en inglés.
 >
 > **Flujo crítico — la curaduría protege al comprador:** el admin sube `minUpsidePct` (o el estimado PSA 9
@@ -2759,11 +2773,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     **sin** estimado **PSA 9** **no lleva cifra en ninguna superficie de promoción** (rejilla, vitrina ni
     destacadas); **su ficha sí muestra el PSA 10**. El sistema
     **no infiere ni interpola** el PSA 9 a partir del PSA 10.
-99. **Ficha: solo precio + los dos estimados (verificación de AUSENCIA)**: la ficha de una carta raw con dato
-    muestra **exactamente**: el **precio de venta de la carta**, el **estimado PSA 10**, el **estimado PSA 9**,
-    la **fecha del dato**, el **micro-aviso** y la **llamada al pie** (criterio 103). Y **NO muestra** —en
+99. **Ficha: solo precio + los dos estimados (verificación de AUSENCIA)** *(actualizado 2026-08-31 por la
+    **decisión 62**: se retira «la fecha del dato» de la lista de lo que la ficha muestra)*: la ficha de una
+    carta raw con dato muestra **exactamente**: el **precio de venta de la carta**, el **estimado PSA 10**, el
+    **estimado PSA 9**, el **micro-aviso** y la **llamada al pie** (criterio 103). Y **NO muestra** —en
     ninguna forma— **multiplicador**, **diferencia/ganancia**, **porcentaje de rendimiento**, **costo de
-    gradeo**, **escalón aplicado**, **tamaño de la muestra de ventas** ni **comparativa**. Verificable buscando
+    gradeo**, **escalón aplicado**, **tamaño de la muestra de ventas**, **comparativa** **ni fecha alguna
+    junto a los estimados** (criterio **119**). Verificable buscando
     en la página renderizada la ausencia de esos elementos.
 100. **La cifra SÍ se pinta en la rejilla de Compra** *(actualizado 2026-08-28)*: una teja de carta que pasa
     **el gate de ROI y el de confianza** muestra el badge **con el estimado PSA 10** (más micro-aviso y
@@ -2935,6 +2951,18 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     visible se apoya en una venta de **60 días atrás**: eso **NO es defecto**, es la decisión 61.
     **(e) GU-9 no se cuenta como bloqueante del primer `off → on`; A-1 (techo de créditos del banner) SÍ sigue
     contando** hasta que el arquitecto la cierre.
+119. **NUEVO — Ninguna fecha junto a los estimados de la ficha** *(2026-08-31, decisión 62; **cierra la
+    pregunta abierta 18**)*: en la **ficha** de una carta raw con estimados, **no se pinta fecha alguna**
+    asociada al bloque de valor estimado —ni de la venta, ni de captura, ni «actualizado el …»—.
+    **Verificación negativa, y es la que importa**: (a) el bloque de estimados **no renderiza** el eyebrow de
+    fecha; (b) **cero apariciones** de la clave `catalog.gradingEstimate.updatedAt` en `messages/` **ES y EN**
+    y en la página renderizada. **(c) Ojo, QA: HOY ESTE CRITERIO FALLA A PROPÓSITO** — el producto pinta
+    **«ESTIMADO · {date}»** vía `oldestCapturedDate()`; **retirarlo es trabajo abierto de frontend**, y este
+    criterio es el que lo cierra. **No es un defecto reportable contra otro rol**: es el pendiente que crea la
+    decisión 62. **(d)** Este criterio **no toca** la frescura interna: los **dos relojes** del criterio 118
+    siguen evaluándose **server-side** con la fecha de captura. Se retira lo que se **muestra**, no lo que se
+    **mide**. **(e)** No aplica a la **fecha del precio de venta / valor de mercado** de la ficha (el `note`
+    de `marketValue`, que es otro dato y otra fila): esa **se queda como está**.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -3368,6 +3396,41 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
      en `docs/TECH_DEBT.md`. Cablearla es lo que convertiría **dos relojes en uno** y permitiría un umbral
      real. Lo único que cambia hoy es que **ya no bloquea el encendido**.
 
+62. **La ficha NO muestra fecha junto a los estimados — se retira la promesa, no se implementa**
+   *(2026-08-31; **cierra la pregunta abierta 18**)*:
+
+   - **Qué eligió el dueño**: de las tres opciones que se le presentaron —**(a)** mostrar la **fecha de
+     captura** con etiqueta honesta, **(b)** **no mostrar fecha**, **(c)** **cablear `evidenceDate`** y mostrar
+     la fecha real de la venta— eligió la **(b)**. **Lo eligió sin argumentar, y así se registra**: no se le
+     atribuye aquí ningún razonamiento de UX ni de producto que no haya dado. Lo único que se puede afirmar
+     del porqué es lo de abajo.
+   - **Qué se corrige, y en qué dirección**: §O.3(1) prometía al comprador la **«fecha de la última venta
+     observada»**. Eso **nunca se construyó** y **no es construible** hoy: **`evidenceDate` no se persiste**
+     (causa técnica de los dos relojes de la **decisión 61**), así que esa fecha **no existe al momento de
+     leer**. La resolución es **retirar la promesa del documento**, **no** implementarla. Es el documento el
+     que se alinea con el producto.
+   - **Es reversible y barata**: el día que se cablee `evidenceDate` —**deuda viva** tras la decisión 61,
+     columna ya creada en M-43, escritor y `stale()` sin cablear— mostrar la **fecha real de la venta** vuelve
+     a estar sobre la mesa, y además colapsaría los dos relojes en uno. **«No mostramos fecha» no es una
+     prohibición permanente de diseño**: es la respuesta a no tener hoy un dato honesto que mostrar.
+   - **CORRECCIÓN DE HECHO — esto NO es «lo que ya está construido»** *(se registra porque la decisión se
+     tomó sobre la premisa contraria)*: se afirmó que la (b) no generaba trabajo porque la ficha ya no
+     mostraba fecha y el DTO no exponía ninguna. **Ambas cosas son falsas**, verificado en la rama:
+     1. `GradedEstimateDTO.estimate` es un `PriceInfo` y **lleva `capturedDate`**; el contrato lo declara
+        **«SIEMPRE presente»** para el estimado (`frontend/src/types/contract.ts`).
+     2. El bloque de estimados **pinta esa fecha hoy**: `GradingEstimateBlock.tsx` renderiza el eyebrow
+        `catalog.gradingEstimate.updatedAt`, cuya copy en `frontend/messages/es.json` es
+        **«ESTIMADO · {date}»**, alimentado por `oldestCapturedDate()` (que toma **la más antigua** de las
+        cifras pintadas, por conservadurismo legal).
+     **Consecuencia**: lo construido hoy se parece a la opción **(a)**, pero **sin** su etiqueta honesta —
+     «ESTIMADO · 22 ago 2026» **no dice** que sea la fecha de **captura**, y un comprador puede leerla como la
+     fecha de la **venta**, que es justo lo que no tenemos. Elegir (b) **sí genera trabajo**: **frontend** debe
+     retirar ese eyebrow y su clave i18n (ES/EN). Ver criterio **119**.
+   - **Lo que esta decisión NO resuelve** (y no se asume): si `capturedDate` debe **dejar de viajar** en
+     `GradedEstimateDTO` una vez que nadie lo pinta —es superficie expuesta al cliente sin uso, del tipo que
+     SEC-A1 vigila— es **decisión del arquitecto**, no de producto. Y el **override manual** sigue con su
+     promesa de fecha en el aire: ver pregunta abierta **24**.
+
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
   ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
@@ -3610,17 +3673,19 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     estimado cuando ya hay pieza real publicada de ese grado. El caso simétrico —**publicar** un slab real de
     un grado que ya tenía estimado— tiene el mismo riesgo de dinero. El supuesto es que en ese momento el
     estimado **deja de gobernar ese precio y deja de usarse** para ese grado. ¿Confirmas?
-18. **¿Qué fecha muestra la ficha para el dato automático?** *(NUEVA, 2026-08-31 — sale de la decisión 61; **no
-    bloquea el encendido**, pero sí es texto visible al comprador)*: §O.3(1) prometía la **fecha de la última
-    venta observada**, y eso **no se puede cumplir** hoy: **`evidenceDate` no se persiste**, así que al leer
-    sólo existe la **fecha de captura de la fila**. Las opciones son: **(a)** mostrar la **fecha de captura**,
-    etiquetada honestamente («dato tomado el …») —se puede hacer ya, pero **no** es la antigüedad de la
-    evidencia y puede estar hasta 30 días adelantada respecto de la venta real; **(b)** **no mostrar fecha**
-    para el dato automático hasta que se cablee `evidenceDate`; **(c)** **cablear `evidenceDate`** (deuda ya
-    registrada en `TECH_DEBT.md`) y mostrar la fecha real de la venta, que además colapsaría los dos relojes en
-    uno. ¿Cuál prefieres? *(Mi supuesto por defecto, si no respondes, es **(a)** con etiqueta honesta: informa
-    algo verdadero y no promete lo que no tenemos.)*
-18. **¿Mostrar el número de ventas de la muestra?** *(NUEVA, 2026-08-28)*: hoy el supuesto es **NO** —el
+18. ~~**¿Qué fecha muestra la ficha para el dato automático?**~~ — **RESUELTA (2026-08-31)**: el dueño eligió
+    la **(b), no mostrar fecha**. §O.3(1) prometía la **fecha de la última venta observada**, algo que **nunca
+    se construyó** y que **no es construible** hoy (**`evidenceDate` no se persiste**), así que la resolución
+    es **retirar la promesa del documento**, no implementarla. **Reversible**: si se cablea `evidenceDate`
+    (deuda viva tras la decisión 61), mostrar la fecha real vuelve a estar sobre la mesa.
+    **Corrección de hecho**: se creyó que la (b) ya estaba construida; **no lo está** — el bloque pinta hoy
+    **«ESTIMADO · {date}»** y `capturedDate` **sí viaja** en el DTO, así que la (b) **genera un cambio de
+    frontend** (retirar ese eyebrow). Ver **decisión 62**, **criterio 119** y §O.3(1). *(Queda vivo el caso
+    del **override manual** → pregunta **24**.)*
+23. **¿Mostrar el número de ventas de la muestra?** *(NUEVA, 2026-08-28; **renumerada 2026-08-31** — estaba
+    duplicada como «18», chocando con la pregunta de la fecha, que es la que conserva el 18 porque §O.3(1) ya
+    la citaba así. Toma el **23** —número libre— y **se queda en su lugar** en la lista; la numeración 19–22
+    **no se toca**, para no romper las referencias existentes)*: hoy el supuesto es **NO** —el
     tamaño de la muestra es un insumo interno del gate y no se pinta ni viaja al cliente, para no ampliar la
     superficie visible que tú mismo mandaste simplificar—. Pero decir *«basado en 12 ventas reales»* sería una
     señal de credibilidad fuerte y coherente con el disclaimer. ¿Lo dejamos fuera (supuesto) o lo quieres?
@@ -3655,6 +3720,19 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     criterio con que se arma «destacadas» (p. ej. mezclar precio con potencial de gradeo). **La (c) es un
     cambio del home, fuera del alcance de §O**: si la quieres, dilo y la aterrizo aparte. ¿Lo dejamos como
     está (supuesto) o mueves alguna palanca?
+24. **¿Y la fecha del OVERRIDE MANUAL?** *(NUEVA, 2026-08-31 — es el resto que deja la decisión 62; **no
+    bloquea el encendido**)*: la pregunta 18 se formuló sólo sobre el **dato automático**, y así se respondió,
+    así que **no extiendo el «no mostrar fecha» al override por mi cuenta**. Pero §O.3(1) también prometía,
+    para un override, **«la fecha en que el admin lo fijó»**, y eso **hoy es inimplementable tal como está
+    contratado**: el cliente **no puede distinguir** un override de un dato automático —`source` se **omite
+    siempre**, y es una garantía deliberada del contrato para que la fase manual y la automática sean
+    indistinguibles— y el bloque pinta **una sola fecha** para todas las cifras que muestra. Las opciones:
+    **(a)** **no mostrar fecha tampoco** en el override —el documento queda coherente con la (b) y **no cuesta
+    nada**, porque es lo que resulta de retirar el eyebrow—; **(b)** mostrarla **solo** en overrides, lo que
+    **exige exponer al cliente que esa cifra es manual** (rompe la indistinguibilidad que el contrato protege a
+    propósito, y es un cambio de contrato que pasa por el **arquitecto**). **Mi supuesto por defecto, si no
+    respondes, es la (a)**: es lo coherente con lo que acabas de decidir y lo único que no abre una superficie
+    nueva. ¿Confirmas la (a) o quieres la (b)?
 ## Decisiones (v2.0, P-48) — precio puro por valor de mercado (LOCKED)
 > Decisiones del humano **ya tomadas** en conversación (2026-08-24), a partir del hallazgo de cartas
 > publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**. Tras ver la causa raíz, el humano
