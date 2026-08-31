@@ -532,13 +532,17 @@ del rollback ya existen filas `refKind='graded_estimate'` escritas por la vía m
 ya cargada y sin caducidad.**
 
 - **(A) URGENCIA (algo va mal y hay que apagarlo YA): la palanca es el DIAL, no el `git revert`.**
+  ⚠️ **RENOMBRADO en v1.51 (M-46, 2026-08-31): el dial de este runbook es hoy `grading_hook_enabled`
+  (DTO `gradingHookEnabled`); `gradedEstimatesEnabled` está RETIRADA y enviarla da `422` (§0.14). El
+  procedimiento no cambia; el nombre de la clave sí.**
   `gradedEstimatesEnabled = off` detiene la exhibición —y, bajo (l.5), la **creación** de estimados—, es
   instantáneo, reversible y **deja M-43/M-44 en pie**, o sea que el predicado de exclusión sigue
   protegiendo el dinero. **Revertir el código en caliente es la peor opción en casi cualquier incidente
   imaginable**, porque quita la protección justo cuando el sistema **ya tiene filas de estimado
   escritas**. Se declara aquí para que en el incidente no haya que decidirlo.
 - **(B) RETIRADA ORDENADA (decisión de producto, con tiempo): precondición de CERO.**
-  1. `gradedEstimatesEnabled = off` (que no entren más mientras se limpia).
+  1. `gradedEstimatesEnabled = off` **(hoy: `grading_hook_enabled = off`, ver el aviso de (A))** — que no
+     entren más mientras se limpia.
   2. Por cada fila `refKind='graded_estimate'`: **sin pieza física** de esa compañía+grado (cualquier
      `status`, cualquier `ownerType`) ⇒ `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`
      (borra **exactamente** esa naturaleza, §4.38l.4.5). **Con pieza física** ⇒
@@ -1855,9 +1859,27 @@ la MISMA fila que alimenta `GradedInventoryGroupDTO.marketReferenceMxnCents` de 
 - **Doctrina (b) intacta:** las filas PSA no fijan `listPriceCents`, no publican inventario, no entran en
   `getPricedRawFinishesBatch`/`pricedFinishesSnapshot`/`availableFinishes`, no encolan `PendingPriceEntry`, no valúan
   portafolio/P&L y no tocan el buylist. **No se escribió NINGÚN write nuevo**: la feature es lectura + config.
-- **Dial M10 `gradedEstimatesEnabled` (seed `off`)**: con `off` no se lee ni la config restante ni la tabla de
-  precios (**0 queries extra**), no se emite ninguno de los dos campos y `?gradingHighlight=true` ⇒ `{data:[],total:0}`.
-  **Encenderlo publica una afirmación comercial**: requiere el visto bueno del humano sobre el disclaimer (§O.5).
+- **Dial M10 `gradedEstimatesEnabled` (seed `off`)** ⛔ **CLAVE RETIRADA en v1.51 (M-46, 2026-08-31): hoy el
+  interruptor único es `grading_hook_enabled` (DTO `gradingHookEnabled`), seed `off` — ver §0.14.** El
+  comportamiento de EXHIBICIÓN descrito abajo sigue vigente bajo el dial nuevo; lo que **además** cambió es el
+  alcance: `grading_hook_enabled` gobierna **exhibición Y obtención** (con `off` el ingest de fase 2 no emite ni
+  una petición al proveedor ni escribe una fila). Con `off` no se lee ni la config restante ni la tabla de precios
+  (**0 queries extra**), no se emite ninguno de los dos campos y `?gradingHighlight=true` ⇒ `{data:[],total:0}`.
+  - ~~**Encenderlo publica una afirmación comercial**: requiere el visto bueno del humano sobre el disclaimer
+    (§O.5).~~ ⚠️ **CORREGIDO el 2026-08-31 — texto tachado conservado literal para que el cambio sea legible;
+    NO describe el estado de hoy.** Arrastraba dos cosas falsas: el visto bueno **ya existe** y el dial **ya no es
+    ese**.
+  - **Estado real del disclaimer §O.5 — las dos mitades, siempre juntas y sin suavizar en ninguna dirección:**
+    **aprobado por el dueño** (visto bueno dado en sesión el **2026-08-31**, condicionado a la corrección de marca
+    a **TCG HUNT** que **ya se aplicó**; `PROJECT.md` decisión **59** y criterio **117**) y **sin revisión legal
+    profesional** (ningún abogado ha revisado el texto; es encargo del dueño). Esa mitad pendiente **NO bloquea
+    encender**: ARCHITECTURE **GU-1** quedó **recalificada** el 2026-08-31. `DESIGN_SYSTEM.md` §22.13(h)
+    **prohíbe** afirmar que el disclaimer no está aprobado — esta bitácora incluida.
+  - **Encenderlo sigue SIN ser decisión de devops — pero por GASTO, no por pendiente legal.**
+    `grading_hook_enabled = on` es un **acto de dinero** (`API_CONTRACT` §M10, `PROJECT.md` criterio **116**):
+    publica la afirmación comercial **y** arranca el consumo de créditos de un proveedor de paga **y** empieza a
+    escribir precios. Es del **dueño**, desde M10 y auditado; las precondiciones son las **verificables** de
+    ARCHITECTURE §4.38(r.3.1) (presupuesto de créditos declarado, veredicto de la sonda) más el pase de (r.4).
 
 ### Coste por request (invariante de diseño) — **CIFRA CORREGIDA (IMPORTANTE-2)**
 
