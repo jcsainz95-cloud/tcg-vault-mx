@@ -194,14 +194,16 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
     expect(prisma.__lastFindWhere()).toMatchObject({ card: { setId: 'set-real' } });
   });
 
-  // H8 (deuda saldada, v1.36): metadata del .xlsx con la marca VIGENTE del proyecto.
-  it('H8 · workbook.creator = «TCG Vault MX» (marca vigente, no «TCG HUNT»)', async () => {
+  // Candado de marca: el autor del .xlsx es la marca COMERCIAL 'TCG HUNT' (DESIGN_SYSTEM §17.4),
+  // no el nombre interno del repo ('tcg-vault-mx' / 'TCG Vault MX'). H8 (v1.36) invirtió esta
+  // aserción citando un PROJECT.md que tenía mal la marca; queda fijada en el sentido correcto.
+  it('workbook.creator = «TCG HUNT» (marca comercial, no el nombre interno «TCG Vault MX»)', async () => {
     const prisma = buildPrisma([ITEM()]);
     const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await svc.exportInventoryXlsx({})) as unknown as ExcelJS.Buffer);
-    expect(wb.creator).toBe('TCG Vault MX');
-    expect(wb.creator).not.toBe('TCG HUNT');
+    expect(wb.creator).toBe('TCG HUNT');
+    expect(wb.creator).not.toBe('TCG Vault MX');
   });
 
   it('graded: condición legible = empresa + grado; sellado usa clave de mercado por productId', async () => {

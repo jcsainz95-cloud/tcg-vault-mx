@@ -4,6 +4,49 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.13 — **Marca del autor en el `.xlsx` de inventario: `TCG HUNT` (revierte H8)** (2026-08-31)
+
+### El defecto
+`InventoryService.exportInventoryXlsx` ponía `workbook.creator = 'TCG Vault MX'`, y el comentario de la
+línea afirmaba que esa era «la marca VIGENTE» citando `PROJECT.md`, tratando a `'TCG HUNT'` de marca
+«obsoleta». **Está exactamente al revés.** La marca comercial es **`TCG HUNT`** (DESIGN_SYSTEM §17.4:
+mayúsculas, con espacio; dominio `tcghunt.mx`); `TCG Vault MX` / `tcg-vault-mx` es el **nombre interno**
+del repo, y §17.4 es explícito en que el nombre interno NO cambia con el rebrand. H8 (v1.36) invirtió la
+línea apoyándose en un `PROJECT.md` que tenía mal la marca. El humano lo confirmó (2026-08-31): *«somos
+TCGHUNT.mx»*; `PROJECT.md` lo corrige product-owner en paralelo.
+
+Impacto real: es **salida del sistema**, no un comentario. Es el campo *Autor* de las propiedades del
+`.xlsx` que descarga `GET /admin/inventory/export.xlsx` — visible para cualquiera que abra el archivo.
+
+### El arreglo (1 línea de código + su comentario + 1 test)
+- `backend/src/modules/inventory/inventory.service.ts:2314` → `workbook.creator = 'TCG HUNT'`.
+  El comentario se reescribió: nombra la marca, **de dónde se lee** (DESIGN_SYSTEM §17.4, no el nombre
+  del repo ni PROJECT.md) y **por qué estuvo invertida**, para que el siguiente que pase no la revierta.
+- `backend/test/inventory.export-xlsx.spec.ts` (ex-«H8»): el candado estaba puesto **en el sentido
+  equivocado** (`expect(wb.creator).toBe('TCG Vault MX')` + `.not.toBe('TCG HUNT')`), que es lo que
+  habría bloqueado la corrección. Queda invertido y fija la marca correcta.
+
+### Barrido de otras salidas con la marca vieja: sin hallazgos
+Revisadas todas las salidas del backend (`workbook.creator`/`company`/`lastModifiedBy`, asuntos y
+cuerpos de correo, `Content-Disposition`, cabeceras CSV/PDF, `User-Agent`). El resto del backend ya
+estaba correcto desde el rebrand P-21: `BRAND = 'TCG HUNT'` en `mail.templates.ts`,
+`orders/mail/guest-order.templates.ts`, `buylist-mail.templates.ts` y `sealed-restock-notify.service.ts`.
+El `workbook.creator` era **el único** outlier. Deliberadamente **no** se tocaron:
+- `tcgcsv-http.client.ts:43` `User-Agent: 'tcg-vault-mx/1.0 (+https://tcghunt.mx)'` — identificador
+  técnico del cliente (nombre interno, permitido por §17.4) y ya apunta al dominio correcto.
+- Defaults de buzón `*@tcgvaultmx.com` (`mail.module.ts`, `disputes.constants.ts`,
+  `guest-checkout.constants.ts`, `buylist-mail.templates.ts`) — son **datos de infra overridables por
+  env** (`MAIL_FROM`, `DISPUTE_EVIDENCE_CONTACT`), propiedad de **devops**, que los fijará a
+  `@tcghunt.mx` cuando exista el buzón/dominio (P-21). No son cadenas de marca y cambiarlos desde
+  backend rompería correo hoy.
+
+### Validación
+- `npx tsc --noEmit`: limpio.
+- `npm test`: **2 510/2 510 en 203 suites, verde** — idéntico al baseline (0 regresiones; el único test
+  tocado es el candado de marca, actualizado a propósito).
+
+---
+
 ## 0.12 v1.50.3-g — **M-44 / M-44b: bajar la naturaleza deja de ser una operación** (cierre de SEC-M43-1) (2026-08-29)
 
 > Implementa **ARCHITECTURE §4.38(l.4.10)** (las cinco precisiones) y **§4.38(l.4.13)** (SEC-M43-3/4/5),
