@@ -1572,8 +1572,12 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       - el **precio de venta de la carta** (el que ya se muestra hoy, sin cambio),
       - el **estimado PSA 10**,
       - el **estimado PSA 9**,
-      - la **fecha del dato** —para el dato automático, la **fecha de la última venta observada**; para un
-        override manual, la fecha en que el admin lo fijó (§O.6),
+      - la **fecha del dato** —para un **override manual**, la fecha en que el admin lo fijó (§O.6). **Para el
+        dato automático esto queda ABIERTO** *(marcado 2026-08-31, **decisión 61**)*: aquí decía «**fecha de la
+        última venta observada**», pero **`evidenceDate` no se persiste**, así que **esa fecha no existe al
+        momento de leer** — lo único disponible es la **fecha de captura de la fila**, que puede ser hasta
+        **30 días posterior** a la venta que respalda la cifra. **No se asume cuál mostrar**: ver pregunta
+        abierta **18**,
       - la **llamada al disclaimer** (asterisco) y su **nota al pie** (§O.5).
       **Nada calculado**: sin multiplicador, sin diferencia, sin ganancia, sin costo de gradeo, sin
       comparativa. **No está condicionada al gate de ROI**: si hay dato, se muestra.
@@ -1913,11 +1917,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > confianza**. Por eso el listón es distinto en cada superficie y **no** es una inconsistencia.
 > **Todo esto se evalúa server-side y ninguno de sus insumos viaja al cliente** (extiende SEC-A1).
 
-- [ ] **Prueba 1 — FRESCO**: la cifra debe caer dentro de la **ventana de frescura de 30 días** (umbral **sin
-      cambio**). *(SUPUESTO sobre cómo se mide)*: para el **dato automático**, la ventana se mide contra la
-      **fecha de la última venta de la muestra** —esa es la frescura que de verdad importa: la antigüedad de la
-      **evidencia de mercado**, no la fecha en que jalamos el archivo—; para un **override manual**, contra la
-      fecha en que el admin lo fijó. Confirmar con el humano; ver preguntas abiertas v2.0.
+- [ ] **Prueba 1 — FRESCO** *(reescrito 2026-08-31 — **decisión 61**; ya **no es supuesto**, está resuelto)*:
+      el umbral es **`graded_estimate_freshness_days` = 30** y **se aplica en dos momentos**, porque
+      **`evidenceDate` no se persiste**: **al bajar** el dato se exige que la **última venta de la muestra**
+      no pase de 30 días, y **al leerlo** se exige que la **fila** no lleve más de 30 días desde su
+      **captura**. **Son dos relojes que se suman: el peor caso real es 60 días**, y el dueño **lo aceptó**.
+      **El dial se queda en 30 — poner 60 ahí lo llevaría a 120.** Para un **override manual** hay **un solo
+      reloj**: la fecha en que el admin lo fijó.
 - [ ] **Prueba 2 — ORIGEN CONFIABLE**: la cifra debe venir de **una de dos** fuentes:
       (a) un **override manual del admin** —una persona lo puso a propósito—, o
       (b) un **dato automático con muestra suficiente**: al menos **`minSalesSample`** ventas cerradas de ese
@@ -2039,7 +2045,9 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > carta no se promociona y **nunca** se asume costo $0; **payload inspeccionado desde el cliente** → **no
 > contiene** ganancia neta, escalón de costo, `minUpsidePct`, `minSalesSample`, `maxGradedMultiple`, tamaño de
 > muestra ni flag de elegibilidad (SEC-A1); **DTO manipulado** → no mete cartas a la vitrina, no cambia el
-> orden ni las cifras; **estimado rancio** (última venta de más de 30 días) → no se muestra; **PSA 9 mayor que
+> orden ni las cifras; **estimado rancio** (fila con más de 30 días **desde su captura**; y muestra cuya última
+> venta pase de 30 días **ni siquiera se ingiere** — dos relojes, peor caso 60 días **aceptado**, decisión 61)
+> → no se muestra; **PSA 9 mayor que
 > el PSA 10** → no se promociona; **feature-flag apagado** → ninguna superficie muestra cifra; **página con
 > cifra estimada pero sin nota al pie**, o **cifra sin llamada/micro-aviso** → defecto **bloqueante**.
 
@@ -2816,11 +2824,17 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     de venta** de ninguna carta, el **valor ni la tendencia del portafolio** (§C), la **cotización de buylist**
     (§E/§M), el **costo de inventario** ni el **P&L de M7** — verificable comparando esos valores con la
     feature encendida y apagada.
-109. **Frescura del estimado** *(actualizado 2026-08-31)*: un estimado **rancio deja de mostrarse** en las
-    **cuatro** superficies (y la carta deja de promocionarse). La antigüedad se mide contra la **fecha de la última venta
-    observada** para el dato automático, y contra la **fecha de captura** para un override manual; el umbral
-    es de **30 días** *(umbral y forma de medirlo sujetos a confirmación del humano — ver preguntas abiertas
-    v2.0)*.
+109. **Frescura del estimado** *(reescrito 2026-08-31 por la **decisión 61**; supersede la redacción anterior,
+    que describía un solo reloj contra la fecha de la última venta — eso **no es lo implementado**)*: un
+    estimado **rancio deja de mostrarse** en las **cuatro** superficies (y la carta deja de promocionarse).
+    El umbral vive en **`graded_estimate_freshness_days`, sembrado en `30`**, y **se aplica dos veces**:
+    (a) **al ingerir**, contra la **fecha de la última venta de la muestra** (no se acepta evidencia de más de
+    30 días); (b) **al leer**, contra la **fecha de captura de la fila** (a los 30 días de escrita se considera
+    rancia), porque **`evidenceDate` no se persiste** y el lector no tiene la fecha de la venta.
+    **Consecuencia verificable y ACEPTADA por el dueño: la evidencia detrás de una cifra visible puede tener
+    hasta 60 días** (30 + 30). **El dial se verifica en `30`; el peor caso se verifica en `60`. Un dial en 60
+    es un DEFECTO**, no el cumplimiento de este criterio. Para un **override manual** aplica **un solo reloj**:
+    la **fecha en que el admin lo fijó**.
 110. **Costo de gradeo por ESCALONES (no plano)**: el `gradingCost` del gate se **resuelve por tabla de
     escalones** (`gradingCostTiers`, §O.2.1) según el **valor de la carta**, imitando cómo cobra PSA por nivel
     de servicio. Como el costo **no se muestra**, se verifica por **efecto en la curaduría**:
@@ -2912,6 +2926,15 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     que decirlo sería publicar algo falso. **Este criterio se verifica contra el producto, no contra la
     documentación**: si un documento afirma que el disclaimer no está aprobado, **el documento está mal** y se
     corrige por el rol dueño de ese documento.
+118. **NUEVO — El peor caso de 60 días está aceptado, y el dial sigue en 30** *(2026-08-31, decisión 61)*:
+    (a) el seed de **`graded_estimate_freshness_days` es `30`** — si el entorno arranca con **60**, el criterio
+    **falla** (eso sería un peor caso de **120**, el doble de lo aceptado); (b) una muestra cuya **última
+    venta** sea de **más de 30 días** **no se ingiere**; (c) una fila con **más de 30 días desde su captura**
+    **no se muestra** en ninguna de las cuatro superficies ni promociona la carta; (d) en consecuencia, existe
+    un caso legítimo —fila capturada con evidencia de 30 días y leída 30 días después— en el que la cifra
+    visible se apoya en una venta de **60 días atrás**: eso **NO es defecto**, es la decisión 61.
+    **(e) GU-9 no se cuenta como bloqueante del primer `off → on`; A-1 (techo de créditos del banner) SÍ sigue
+    contando** hasta que el arquitecto la cierre.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -3307,6 +3330,43 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
      y, si está mal, **se borra**. Se acepta **porque las guardas de escritura no se relajan ni un punto**.
    *(Ejecución técnica: `ARCHITECTURE.md` §4.38(r), contrato v1.51-one-dial; copy: `DESIGN_SYSTEM.md` §22.13.
    Backend, frontend y ux-ui ya entregaron.)*
+61. **La evidencia de mercado puede tener hasta 60 días en el peor caso — el dueño lo ACEPTA** *(2026-08-31;
+   **cierra GU-9**, que estaba registrada como **bloqueante del primer encendido**)*:
+
+   > ### ⚠️ ESTO NO ES UN CAMBIO DE CONFIGURACIÓN — NO ESCRIBAS 60 EN NINGÚN DIAL
+   > El seed de **`graded_estimate_freshness_days` sigue siendo `30`, y no se toca.**
+   > **`30` es precisamente el valor que produce el peor caso de 60 días.** El 60 es una **consecuencia
+   > medida** de dejar el dial en 30, **no** un valor a capturar. Si alguien lee «aceptamos 60 días» y escribe
+   > `60` en esa clave, **el peor caso se va a 120** — el doble de lo que el dueño aceptó.
+   > **Regla de lectura: dial = 30. Peor caso observable = 60. Nunca al revés.**
+
+   - **Por qué 30 en el dial da 60 en la calle — hay DOS relojes que se suman**, y ambos usan el mismo
+     número `N`:
+     1. **Reloj de bajada**: al ingerir, aceptamos una muestra cuya **última venta** sea de hasta **N días**
+        atrás.
+     2. **Reloj de lectura**: una vez escrita, la fila vive otros **N días** antes de que `stale()` la
+        considere rancia.
+     Con `N = 30`, una cifra puede publicarse apoyada en una venta de hace 30 días y seguir visible 30 días
+     más: **30 + 30 = 60**.
+   - **La causa técnica, en una línea**: **`evidenceDate` no se persiste**. La fecha de la venta se **conoce**
+     al bajar el dato, se **usa para filtrar** y luego **se descarta**; el lector, sin esa fecha, sólo puede
+     medir desde la **fecha de captura**. De ahí que haya dos relojes en vez de uno.
+   - **Cómo se llegó a esta aceptación** *(se registra porque es lo que la hace válida: no fue un «ok»
+     genérico)*: el dueño **pidió primero algo más estricto, «máximo una semana»**. Se le explicó que
+     **poner 7 no da 7, da 14**, por los dos relojes de arriba. Preguntó **por qué el proveedor reporta 7 días
+     después de la venta**, y se le **corrigió el modelo mental**: **no es retraso del proveedor** — es
+     **cuánto lleva la carta sin venderse**. Una carta que se vende a diario tiene su última venta de ayer;
+     una **cara y rara** puede tenerla de hace 6 días. Y eso **golpea justo a las cartas que este gancho
+     destaca, que son las caras**. Se le ofreció además la alternativa de **cablear `evidenceDate`** para
+     tener **un solo reloj** y un **7 real**. **Con todo eso delante, eligió 60.**
+   - **Qué se desbloquea y qué NO**: **GU-9 deja de bloquear el primer `off → on`**. El **otro** bloqueante
+     del encendido, **A-1** —el **techo de créditos que el banner afirma** (los «~1 000 créditos/día» de la
+     decisión 60) **sin haberlo medido**—, **sigue vivo** y lo está cerrando el **arquitecto**. Encender sigue
+     bloqueado por A-1.
+   - **Cablear `evidenceDate` sigue siendo deuda técnica, no desaparece con esta decisión**: la columna **ya
+     existe** (creada en **M-43**), pero el **escritor** y `stale()` **siguen sin cablear**, y así está anotado
+     en `docs/TECH_DEBT.md`. Cablearla es lo que convertiría **dos relojes en uno** y permitiría un umbral
+     real. Lo único que cambia hoy es que **ya no bloquea el encendido**.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
@@ -3496,12 +3556,15 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 6. **Vitrina del home — tamaño**: el **orden ya está decidido** (mayor **ganancia neta sobre PSA 9**, criterio
    101). Lo que queda abierto es el **tamaño**: el supuesto es **hasta 8 cartas**. ¿Te sirve 8, prefieres otro
    número, o quieres además poder **fijar/curar a mano** alguna carta en la vitrina desde el admin?
-7. **Umbral de frescura y CONTRA QUÉ FECHA se mide** — *ACTUALIZADA 2026-08-28*: el umbral sigue siendo
-   **30 días** (sin cambio). Lo que la fuente automática abre es **contra qué fecha** se mide: el supuesto es
-   que para el **dato automático** se mide contra la **fecha de la última venta de la muestra** —la antigüedad
-   de la **evidencia de mercado**, que es la que de verdad importa, no la fecha en que jalamos el archivo— y
-   para un **override manual**, contra la fecha en que lo fijaste. ¿Confirmas? ¿Y 30 días te parece bien, o
-   prefieres 7/14?
+7. ~~**Umbral de frescura y CONTRA QUÉ FECHA se mide**~~ — **RESUELTA (2026-08-31)**: el supuesto de esta
+   pregunta —un **solo** reloj contra la fecha de la última venta— **era incorrecto respecto de lo
+   implementado**. Como **`evidenceDate` no se persiste**, hay **dos** relojes que se suman (bajada + lectura),
+   así que el dial de **30** produce un peor caso de **60 días**. El dueño pidió primero «máximo una semana»,
+   se le explicó que **7 daría 14**, se le corrigió que el rezago **no es del proveedor sino de cuánto lleva la
+   carta sin venderse** (lo que golpea justo a las cartas caras que este gancho destaca), se le ofreció
+   **cablear `evidenceDate`** para tener un reloj único, y **con todo eso enfrente aceptó los 60**.
+   **El dial `graded_estimate_freshness_days` se queda en `30`** — 60 ahí daría 120. Ver **decisión 61** y
+   **criterio 118**. *(Cierra **GU-9** como bloqueante del primer encendido; **A-1 sigue vivo**.)*
 8. **Ubicación de los diales**: se propone **M10 (Config y bitácora)** junto al resto de diales; la alternativa
    es **M2 (Catálogo y precios)** por ser pricing. ¿Cuál prefieres?
 9. ~~**PokemonPriceTracker ya contratado vs. «plan de pago fuera del MVP»**~~ — **RESUELTA (2026-08-23)**:
@@ -3547,6 +3610,16 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     estimado cuando ya hay pieza real publicada de ese grado. El caso simétrico —**publicar** un slab real de
     un grado que ya tenía estimado— tiene el mismo riesgo de dinero. El supuesto es que en ese momento el
     estimado **deja de gobernar ese precio y deja de usarse** para ese grado. ¿Confirmas?
+18. **¿Qué fecha muestra la ficha para el dato automático?** *(NUEVA, 2026-08-31 — sale de la decisión 61; **no
+    bloquea el encendido**, pero sí es texto visible al comprador)*: §O.3(1) prometía la **fecha de la última
+    venta observada**, y eso **no se puede cumplir** hoy: **`evidenceDate` no se persiste**, así que al leer
+    sólo existe la **fecha de captura de la fila**. Las opciones son: **(a)** mostrar la **fecha de captura**,
+    etiquetada honestamente («dato tomado el …») —se puede hacer ya, pero **no** es la antigüedad de la
+    evidencia y puede estar hasta 30 días adelantada respecto de la venta real; **(b)** **no mostrar fecha**
+    para el dato automático hasta que se cablee `evidenceDate`; **(c)** **cablear `evidenceDate`** (deuda ya
+    registrada en `TECH_DEBT.md`) y mostrar la fecha real de la venta, que además colapsaría los dos relojes en
+    uno. ¿Cuál prefieres? *(Mi supuesto por defecto, si no respondes, es **(a)** con etiqueta honesta: informa
+    algo verdadero y no promete lo que no tenemos.)*
 18. **¿Mostrar el número de ventas de la muestra?** *(NUEVA, 2026-08-28)*: hoy el supuesto es **NO** —el
     tamaño de la muestra es un insumo interno del gate y no se pinta ni viaja al cliente, para no ampliar la
     superficie visible que tú mismo mandaste simplificar—. Pero decir *«basado en 12 ventas reales»* sería una
