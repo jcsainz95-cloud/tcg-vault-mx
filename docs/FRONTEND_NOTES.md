@@ -8846,3 +8846,100 @@ mismo dueño y mismo arreglo que §34.7 nº1.
   explícito del layout raíz y no en un layout de grupo.
 - Cero tokens nuevos, cero componentes nuevos, cero cambios de contrato, cero escrituras fuera de
   `frontend/` y este archivo. `next/image` sigue sin adoptarse y `next.config.mjs` sin tocar.
+
+---
+
+## §35 · El sufijo «· NM» vuelve, y el tipo falso que lo escondía se retira (contrato v1.51-b) — 2026-08-31
+
+> Rama `claude/tcg-hunt-orchestrator-28p7z1`, sobre `8c6f2ba`. Cierra las dos peticiones al
+> arquitecto de §34.7. El arquitecto declaró **`OrderItemCardDTO`** (contrato §4, rev **v1.51-b**) y
+> backend implementó `imageSmallUrl` (commit `8c6f2ba`). Este pase alinea el cliente.
+
+### 35.1 La causa raíz no era una línea: era un tipo que prometía lo que nadie enviaba
+
+`contract.ts` declaraba `OrderItemPreview.card: CardDTO` y `CardDTO.imageSmallUrl: string`
+(obligatorio). El backend nunca sirvió un `CardDTO` en esa posición: sirve un snapshot congelado.
+Con el tipo mintiendo, `CheckoutView` podía leer `item.productType` **al nivel del ítem** y compilar
+tan feliz — y el sufijo de condición salía **siempre vacío**, en silencio, durante un release entero.
+Un `undefined` en un campo que el tipo jura obligatorio no da error: da una cadena en blanco.
+
+Por eso el arreglo empieza por el tipo y no por la línea. `OrderItemCardDTO`
+(`frontend/src/types/contract.ts`) declara los **ocho campos congelados + `imageSmallUrl:
+string | null`** y **nada más**; `OrderItemPreview` queda en **tres claves**
+(`{ inventoryItemId, card, unitPriceCents }`), espejo exacto del test del backend
+(`expect(preview).not.toHaveProperty('productType')`). Las **tres** superficies que sirven líneas de
+compra apuntan al mismo tipo: `CheckoutQuoteResponse`, `GuestCheckoutQuoteResponse` y
+`OrderDetailDTO`.
+
+Con el tipo honesto, el compilador señaló **solo** los sitios que leían de más — y ninguno más apareció
+en las vistas: el resto del código ya leía `card.name` / `card.setName` / `card.number` /
+`card.imageSmallUrl`, que sí existen. El bug era exactamente el que se había escalado, ni uno más.
+
+### 35.2 Lo que cambió, sitio por sitio
+
+| Archivo | Cambio |
+|---|---|
+| `src/types/contract.ts` | nace `OrderItemCardDTO`; `OrderItemPreview` a 3 claves; `OrderDetailDTO.items` y `GuestCheckoutQuoteResponse.items` pasan a `OrderItemPreview[]` |
+| `CheckoutView.tsx` | `item.productType`/`item.rawCondition` → **`item.card.productType`/`item.card.rawCondition`**. El sufijo «· NM» vuelve a pintarse |
+| `GuestCheckoutView.tsx` | misma meta que la cuenta: el invitado tampoco veía la condición (§4-G.1 comparte forma con §4) |
+| `components/ui/CardImage.tsx` | `src?: string \| null` y el esqueleto pulsa **solo si hay `src`** |
+| `lib/mock/fixtures.ts` | nace `orderItemCard(listing)`; `mockOrderDetail.items[].card` deja de ser un `CardDTO` |
+| `lib/api.ts` | los **dos** mocks de quote sirven `OrderItemCardDTO` con `imageSmallUrl`; muere el `as unknown as` |
+
+### 35.3 `null` no es «cargando»
+
+`imageSmallUrl` es **clave siempre presente, valor nullable**, y `null` es un resultado **legítimo**
+(la columna es nullable y la fila `Card` puede no existir). El defecto de `CardImage` era que sin
+`src` dejaba el `animate-pulse` **eterno**: un dato ausente por diseño se leía como una app colgada.
+
+Se arregló **en el componente**, no en cada llamada. En §34.5 lo resolví en `SellCartContents` con un
+`&&` en el sitio de uso, que es correcto pero no escala: `CardImage` tiene **16 superficies** y varias
+más ya recibían `undefined` (`SealedVaultPanel` con `?? undefined`, `PublicOrderTracking` con la
+`imageSmallUrl?` opcional de `GuestTrackingItemDTO`) — todas pulsando para siempre. Ahora sin `src`
+queda el **pozo de papel quieto**, que es exactamente el «placeholder» que pide el contrato §4.
+Con `src` el esqueleto sigue igual: mientras la imagen viaja, sí hay algo que esperar.
+
+Nota deliberada: en el checkout **no se colapsa la columna** de la miniatura como en el carrito de
+venta. En una línea de compra la columna es parte de la retícula (§20) y hacerla desaparecer
+desalinearía la fila; en el drawer de venta la miniatura era un extra opcional.
+
+### 35.4 El mock ya no miente en ninguna de las dos direcciones
+
+En §34.6 el mock se puso a decir la verdad del backend **de entonces** (ocho campos, sin imagen) y el
+pin de `api.checkout-quote.test.ts` se dejó fallando **a propósito hacia arriba**: en cuanto el
+backend añadiera `imageSmallUrl`, obligaría a mover mock y pin en el mismo commit. Funcionó
+exactamente así — esa es la razón de que el pin exista y no un capricho.
+
+Actualizado contra el contrato nuevo: `MOCK_QUOTE_CARD_KEYS` gana la **novena** llave
+(`imageSmallUrl`) y nace `MOCK_QUOTE_ITEM_KEYS` (`inventoryItemId`, `card`, `unitPriceCents`) — el pin
+de que **nada se cuela al nivel del ítem**, que es la mitad del bug que nadie estaba vigilando. El
+mock de **invitado** (`getGuestCheckoutQuote`), gemelo declarado en §34.6, servía `card: l.card` (el
+`CardDTO` del fixture) y ahora pasa por el mismo `orderItemCard()`; el test lo cubre.
+
+### 35.5 Un tipo falso más, del mismo linaje, corregido de paso
+
+`ShipmentDTO.items[].card` estaba tipado `CardDTO` y el contrato §5 declara `ClientShipmentItemDTO.card`
+con **cinco** campos (`id, name, setName, number, imageSmallUrl`). **No había bug visible** —
+`ShipmentsView` y `ShipmentDetailView` solo leen esos cinco—, pero es la misma clase de defecto que
+acaba de costar un release: un tipo que promete `imageLargeUrl`/`rarity`/`availableFinishes` que esa
+ruta no envía. Se corrigió el tipo; cero cambios de render, cero fallos de `tsc`.
+
+### 35.6 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ (`tsc --noEmit`, sin salida) ·
+  `npm run test` ✔ **857/857 en 97 archivos**.
+- Base antes de este pase: **849/96** (§34.8). Delta **+8 tests, +1 archivo**, ninguna prueba retirada
+  ni debilitada:
+  - `checkout/CheckoutItemLine.test.tsx` **+4** (nuevo): el sufijo «· NM» en el DOM para cuenta y para
+    invitado · una pieza `graded` **no** inventa sufijo · `imageSmallUrl: null` no deja `animate-pulse`.
+    Lee el **DOM**, no el tipo: si alguien vuelve a subir los campos un nivel, el sufijo desaparece y
+    el test cae.
+  - `api.checkout-quote.test.ts` **+3** (2 → 5): las 9 llaves del `card`, las 3 del ítem con el
+    `not.toHaveProperty('productType')` espejo del backend, `imageSmallUrl` siempre presente y
+    nullable, el `card` sin los 5 campos de `CardDTO` que §4 declara ausentes, y la misma forma en el
+    camino de invitado.
+  - `CardImage.test.tsx` **+1**: sin `src` (y con `src={null}`) ni `<img>` ni esqueleto; con `src` el
+    esqueleto vuelve.
+- Cero tokens nuevos, cero componentes nuevos, cero escrituras fuera de `frontend/` y este archivo.
+  `next.config.mjs` sin tocar y `next/image` sin adoptar (§5.3 de ARCHITECTURE tiene decisión propia
+  del arquitecto; **este pase no la implementa**).

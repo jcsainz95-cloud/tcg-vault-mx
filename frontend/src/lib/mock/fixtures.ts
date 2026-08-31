@@ -18,6 +18,7 @@ import type {
   HoldingDTO,
   OrderSummaryDTO,
   OrderDetailDTO,
+  OrderItemCardDTO,
   SellRequestDTO,
   DashboardDTO,
   InventoryItemDTO,
@@ -307,6 +308,33 @@ function celebrationsCards(): CardDTO[] {
 }
 
 const cardById = (id: string) => mockCards.find((c) => c.id === id)!;
+
+/**
+ * MOCK v1.51-b — réplica del `card` que las TRES superficies de línea de compra sirven
+ * (`POST /checkout/quote`, `POST /checkout/guest/quote`, `GET /orders/:orderId`):
+ * `OrderItemCardDTO`, NO un `CardDTO`.
+ *
+ * Existe para que el simulador no vuelva a mentir. Antes el mock devolvía el `CardDTO`
+ * completo del fixture y el carrito se veía impecable en `dev` y en los e2e mientras en
+ * producción llegaba sin miniatura y sin sufijo de condición. Aquí se sirve EXACTAMENTE lo
+ * que el backend sirve: los ocho campos congelados + `imageSmallUrl` resuelta en lectura
+ * (clave siempre presente; `null` legítimo — lo modela `c-zapdos`, ver abajo).
+ */
+export function orderItemCard(l: ListingDTO): OrderItemCardDTO {
+  return {
+    cardId: l.card.id,
+    name: l.card.name,
+    setName: l.card.setName,
+    number: l.card.number,
+    productType: l.productType,
+    rawCondition: l.rawCondition,
+    gradingCompany: l.gradingCompany,
+    gradeValue: l.gradeValue,
+    // El backend la resuelve por join sobre `cardId`; en el fixture el join siempre acierta.
+    // El caso `null` (fila `Card` inexistente o columna nula) lo ejercitan los tests de vista.
+    imageSmallUrl: l.card.imageSmallUrl ?? null,
+  };
+}
 
 /**
  * Valor de referencia de mercado por carta (MXN centavos) para el cotizador de
@@ -925,7 +953,15 @@ export const mockOrderDetail: OrderDetailDTO = {
     totalCents: 168520,
     currency: 'MXN',
   },
-  items: [{ inventoryItemId: 'inv-1002', card: cardById('c-blastoise'), unitPriceCents: 140800 }],
+  // v1.51-b: la línea de un pedido NO trae un `CardDTO` — trae el snapshot congelado + la
+  // miniatura resuelta en lectura. El mock lo replica pieza por pieza.
+  items: [
+    {
+      inventoryItemId: 'inv-1002',
+      card: orderItemCard(mockListings.find((l) => l.inventoryItemId === 'inv-1002') ?? mockListings[0]),
+      unitPriceCents: 140800,
+    },
+  ],
   cfdiStatus: 'registrado',
   invoiceRequested: false,
   stripePaymentIntentId: 'pi_mock_123',

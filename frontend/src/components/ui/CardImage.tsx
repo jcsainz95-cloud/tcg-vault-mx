@@ -4,7 +4,12 @@ import { useState } from 'react';
 import { cn } from '@/lib/cn';
 
 export interface CardImageProps {
-  src?: string;
+  /**
+   * `null` es un valor LEGÍTIMO, no un error: `OrderItemCardDTO.imageSmallUrl` es
+   * `string | null` por contrato (v1.51-b §4) y varias rutas la sirven opcional. Se acepta
+   * aquí para que las vistas no tengan que hacer `?? undefined` una por una.
+   */
+  src?: string | null;
   alt: string;
   className?: string;
   /**
@@ -43,7 +48,11 @@ export function CardImage({ src, alt, className, priority = false }: CardImagePr
   const visible = loaded || priority;
   return (
     <div className={cn('relative flex aspect-[5/7] items-center justify-center bg-surface-2 p-3', className)}>
-      {!loaded && <div className="absolute inset-0 animate-pulse bg-surface-2" aria-hidden />}
+      {/* El esqueleto pulsa SOLO mientras hay una imagen en vuelo. Sin `src` no hay nada que
+          esperar: un `animate-pulse` eterno se lee como «cargando» y hace que un dato ausente
+          —legítimo: `imageSmallUrl` es nullable por contrato— parezca una app colgada. Sin
+          `src` queda el pozo de papel quieto, que ES el placeholder que pide el contrato. */}
+      {src && !loaded && <div className="absolute inset-0 animate-pulse bg-surface-2" aria-hidden />}
       {src && (
         // datos de catálogo en inglés → lang="en" para lectores (DESIGN_SYSTEM §9.2)
         // eslint-disable-next-line @next/next/no-img-element

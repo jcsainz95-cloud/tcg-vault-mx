@@ -611,11 +611,53 @@ export interface HoldingsResponse {
 }
 
 // ---- Checkout / órdenes (contrato §4) ----
+
+/**
+ * v1.51-b (contrato §4, NORMATIVO; ARCHITECTURE §5.2) — forma del objeto `card` de una LÍNEA
+ * DE COMPRA. Aplica a las TRES superficies que sirven líneas: `POST /checkout/quote`,
+ * `POST /checkout/guest/quote` (§4-G.1) y `GET /orders/:orderId`.
+ *
+ * NO es un `CardDTO` y está PROHIBIDO tiparlo como tal: no trae `id`, `externalId`,
+ * `imageLargeUrl`, `rarity`, `supertype`, `subtypes`, `setId`, `numberSort`, `numberPrefix`,
+ * `availableFinishes` ni `displayFinishes`. Ese tipo falso —prometer campos que el backend
+ * nunca envió en esa posición— es exactamente lo que dejó el hueco gris de la miniatura y
+ * escondió el sufijo de condición durante un release entero. Quien necesite el `CardDTO`
+ * completo lo pide por `GET /catalog/cards/:cardId`.
+ *
+ * Los ocho primeros campos son HECHOS CONGELADOS (clase F, §5.2.2): se persisten en
+ * `OrderItem.cardSnapshot` al cobrar y un re-sync de catálogo NO los cambia. `imageSmallUrl`
+ * es PRESENTACIÓN RESUELTA EN LECTURA (clase P, §5.2.3): NO se persiste, se resuelve por join
+ * sobre `cardId`.
+ */
+export interface OrderItemCardDTO {
+  cardId: string;
+  name: string;
+  /** Ausente si la carta no tenía set al congelar el snapshot. */
+  setName?: string;
+  number: string;
+  /** OJO: `productType` y `rawCondition` viajan DENTRO de `card`, NO al nivel del ítem. */
+  productType: ProductType;
+  /** Solo `raw` (único valor "NM"). El label legible vive en i18n del front. */
+  rawCondition?: RawCondition;
+  /** Solo `graded`. */
+  gradingCompany?: GradingCompany;
+  /** Solo `graded`. */
+  gradeValue?: string;
+  /**
+   * Clave SIEMPRE presente, valor NULLABLE. `null` es legítimo (la fila `Card` puede no
+   * existir o su columna ser nula): el front pinta placeholder, no es error, no se reintenta
+   * y no bloquea el checkout ni el pedido. PROHIBIDO construir la URL por plantilla.
+   */
+  imageSmallUrl: string | null;
+}
+
+/**
+ * Contrato §4: `{ inventoryItemId, card: OrderItemCardDTO, unitPriceCents }` — TRES claves,
+ * ni una más. El backend lo fija con `expect(preview).not.toHaveProperty('productType')`.
+ */
 export interface OrderItemPreview {
   inventoryItemId: string;
-  card: CardDTO;
-  productType: ProductType;
-  rawCondition?: RawCondition;
+  card: OrderItemCardDTO;
   unitPriceCents: number;
 }
 
@@ -660,7 +702,8 @@ export interface OrderDetailDTO {
   createdAt: string;
   settledAt?: string;
   breakdown: BreakdownDTO;
-  items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
+  /** v1.51-b: MISMA forma que el quote (`OrderItemPreview`); `card` es `OrderItemCardDTO`. */
+  items: OrderItemPreview[];
   cfdiStatus: CfdiStatus;
   invoiceRequested: boolean;
   stripePaymentIntentId?: string;
@@ -711,10 +754,15 @@ export interface ShipmentDTO {
   // WS-F F6: `productType` por ítem alimenta el UI-gate de disputa (graded NO aplica → 422 NOT_RAW).
   // v1.17: `finish` por ítem (acabado de la copia física). Opcional: el listado crudo puede omitir
   // `productType`/`finish`/`folio`/`card`; cuando falta, el backend es la autoridad.
+  // v1.51-b (misma doctrina, otro DTO): `card` de un envío es `ClientShipmentItemDTO.card`
+  // del contrato §5 —CINCO campos— y NO un `CardDTO`. Tiparlo como `CardDTO` prometía
+  // `imageLargeUrl`/`rarity`/`availableFinishes` que esta ruta nunca envía. Las vistas solo
+  // leen `name`/`setName`/`number`/`imageSmallUrl`, así que no había bug visible: se corrige
+  // el tipo para que no lo haya mañana.
   items: {
     inventoryItemId: string;
     folio: string;
-    card: CardDTO;
+    card: { id: string; name: string; setName: string; number: string; imageSmallUrl: string };
     productType?: ProductType;
     finish?: Finish;
   }[];
@@ -2870,7 +2918,8 @@ export interface GuestCheckoutNotices {
 }
 
 export interface GuestCheckoutQuoteResponse {
-  items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
+  /** v1.51-b: MISMA forma que §4; `card` es `OrderItemCardDTO` (no un `CardDTO`). */
+  items: OrderItemPreview[];
   fulfillmentMode: FulfillmentMode;
   breakdown: BreakdownDTO;
   /**

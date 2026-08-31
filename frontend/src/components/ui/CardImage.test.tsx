@@ -41,6 +41,25 @@ describe('CardImage · prioridad de carga', () => {
     expect(screen.getByAltText('Charizard')).toHaveClass('opacity-0');
   });
 
+  /**
+   * REGRESIÓN — `src` ausente NO es «cargando». `OrderItemCardDTO.imageSmallUrl` es
+   * `string | null` por contrato (§4, v1.51-b) y varias rutas la sirven opcional; un
+   * `animate-pulse` eterno convierte un dato ausente legítimo en una app aparentemente colgada.
+   */
+  it('sin `src` deja el pozo quieto: ni <img> ni esqueleto pulsando', () => {
+    const { container, rerender } = render(<CardImage alt="Sin arte" />);
+    expect(screen.queryByAltText('Sin arte')).not.toBeInTheDocument();
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+
+    // `null` (el valor que manda el backend) se trata igual que ausente.
+    rerender(<CardImage src={null} alt="Sin arte" />);
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+
+    // Con `src` el esqueleto SÍ vuelve: mientras la imagen viaja, sigue habiendo qué esperar.
+    rerender(<CardImage src={SRC} alt="Sin arte" />);
+    expect(container.querySelector('.animate-pulse')).not.toBeNull();
+  });
+
   it('no dispara avisos de React por props desconocidas', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<CardImage src={SRC} alt="Charizard" priority />);
