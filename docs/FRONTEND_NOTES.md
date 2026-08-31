@@ -8943,3 +8943,168 @@ ruta no envía. Se corrigió el tipo; cero cambios de render, cero fallos de `ts
 - Cero tokens nuevos, cero componentes nuevos, cero escrituras fuera de `frontend/` y este archivo.
   `next.config.mjs` sin tocar y `next/image` sin adoptar (§5.3 de ARCHITECTURE tiene decisión propia
   del arquitecto; **este pase no la implementa**).
+
+---
+
+## §36 · P-49: la rotación automática del carrusel de destacadas (`DESIGN_SYSTEM.md` §23, v2.6) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+**Procedencia.** Este frontend **recomendó no hacerlo**, con tres argumentos. El dueño los oyó y decidió
+hacerlo igualmente, y ux-ui **resolvió los tres** en vez de ignorarlos (§23.1 reconcilia la doctrina de
+movimiento con la nueva §17.3a, §23.8 corrige la nota 2 de §20.16, §23.7 cierra el hueco de
+`prefers-reduced-motion`). Este pase implementa §23 al pie de la letra salvo **dos** puntos, ambos
+descubiertos **en el navegador** y documentados abajo con su evidencia.
+
+### 36.1 Qué se construyó
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| Geometría pura | `frontend/src/app/[locale]/(storefront)/_home/carouselGeometry.ts` | `readTrackGeometry` / `nextScrollTarget` / `prevScrollTarget` / `pageScrollTarget` / `scrollTrackTo`. Todo el cálculo del destino, **sin DOM**, para que R6 quede cubierto por tests de verdad |
+| Rotación + máquina de estados | `_home/FeaturedCarousel.tsx:220-560` | modos `playing`/`paused`/`ended`, suspensión de nivel 1, temporizador, precondiciones, canal de estado |
+| Conmutador | `_home/FeaturedCarousel.tsx:139-181` (`PlaybackToggle`) | mono 10px + glifo lucide 12/14px, tinta, sin caja, área táctil por `::after` |
+| Slot del encabezado | `_shared/Shelf.tsx` (`titleAdjacent`, `sectionRef`, `ariaRoledescription`) | el hueco estructural del kicker, **sin** su envoltorio `.eyebrow` |
+| Aviso de carga de la foto líder | `frontend/src/components/ui/CardImage.tsx` (`onLoaded`) | precondición 3 de §23.3 |
+| i18n | `frontend/messages/{es,en}.json` → `home.featured.*` | las 10 claves de §23.12, con paridad ES/EN |
+
+**Las siete reglas duras, una por una:**
+
+- **R1 (rota la ventana, nunca el rol).** Lo único que la rotación escribe es `scrollLeft`. **El tic no
+  provoca ni un `setState`** salvo el que termina la pasada; los únicos re-render de una pasada completa
+  son el apagado de las flechas (`canPrev` una vez al principio, `canNext` una vez al final). Test
+  `FeaturedCarouselRotation.test.tsx` compara la **referencia del nodo** de la teja líder y el orden de
+  `alt` de las ocho tejas en los siete tics, y comprueba que la teja 2 sigue con `imageSmallUrl` y **sin**
+  `fetchpriority`. Es la prueba que protege lo que arregló §34.1.
+- **R2 (nunca coexiste con carga).** Cuatro precondiciones: hidratado · consulta resuelta con ≥ 2 tejas ·
+  `load` de la foto líder **o** tope de 3 s · 7 s de reposo. Con skeleton no hay pista, y sin pista no hay
+  ni temporizador ni conmutador.
+- **R3 (freno siempre visible).** El conmutador se renderiza con **el mismo booleano** que habilita el
+  movimiento (`rotationPossible`), así que no puede existir uno sin el otro.
+- **R4 (`prefers-reduced-motion` ⇒ cero).** En la **lógica del componente**, como pide §8.2: el
+  temporizador no arranca, el conmutador no se renderiza, las flechas pasan a `behavior:'auto'`. Se
+  escucha **en vivo** con `useMediaQuery`, que ya suscribía `change`.
+- **R5 (la intervención gana para siempre).** Sin reanudación automática. Ver §36.2 — la regla se conserva
+  en su intención pero **hubo que acotarla**.
+- **R6 (una teja por tic, al punto de snap).** Destino desde `offsetLeft`, nunca `scrollBy(ancho × 0,8)`.
+  Ver §36.3 — hay una excepción geométricamente inevitable.
+- **R7 (una pasada y para).** `ended` usa **el mismo predicado** que apaga la flecha «siguiente». Sin
+  clones, sin bucle, sin rebobinado animado; REPETIR salta a 0 sin animación.
+
+### 36.2 Hallazgo 1 — «cualquier scroll que no hayamos originado» deja la función MUERTA al primer render
+
+§23.5 enuncia: *«cualquier desplazamiento de la pista que el carrusel no haya originado ⇒ PAUSA
+PERMANENTE»*, como regla general para cubrir los casos que nadie enumeró. Implementada literalmente,
+**el carrusel se pausaba solo antes de su primer tic**. Evidencia, con un listener de captura en
+Chromium sobre la home real (build de producción, modo mocks):
+
+```
+{"ev":[{"t":999,"id":"piezas-destacadas-pista","left":32}], "label":"Reanudar la rotación automática"}
+```
+
+Un único evento `scroll`, ~1 s después de hidratar, sin usuario de por medio: es **el propio motor
+aplicando `scroll-snap`**, que mueve `scrollLeft` de 0 al valor del `gutter` (32px en `lg`). El anclaje de
+scroll hace lo mismo cuando una imagen tardía cambia el layout. En la primera corrida de E2E el
+conmutador ya decía **REANUDAR** antes de que nadie tocara nada.
+
+**Resolución (no re-litiga la decisión, la hace funcionar):** el `scroll` pausa cuando (a) no lo
+originamos nosotros **y** (b) el usuario tocó la pista hace menos de `USER_INPUT_WINDOW_MS` (1200 ms),
+medido con `pointerdown` / `touchstart` / `wheel` / `keydown` / `focus` sobre la pista. La segunda guarda
+es la nueva. Cubre **exactamente** lo que §23.5 enumera —swipe, arrastre, rueda/trackpad y «el scroll que
+provoca el navegador al tabular a una teja fuera de pantalla», que llega por `focus`— y deja fuera lo que
+§23.5 no puede haber querido decir: un reajuste del motor de layout no es una intervención del usuario.
+Los cinco listeners solo escriben un `ref`: cero re-render por mover el ratón (corolario de §23.2).
+
+Regresión fijada en `FeaturedCarouselRotation.test.tsx` («un re-snap del NAVEGADOR (scroll sin entrada del
+usuario) NO pausa»).
+
+### 36.3 Hallazgo 2 — R6 no puede cumplirse en el extremo derecho de la pista
+
+R6 dice: *«ningún reposo deja una teja cortada por el borde izquierdo»*. En el **tope** de la pista
+(`scrollWidth − clientWidth`) eso es geométricamente imposible salvo que el contenido sea múltiplo exacto
+del paso de teja: ahí la última teja queda flush a la **derecha** y la primera visible sale cortada por la
+izquierda. Afecta al **último** tic de la pasada y a la última pulsación de flecha, y no hay alternativa
+mejor —pararse en el snap anterior dejaría la última teja permanentemente inalcanzable, que es peor—.
+Se acepta, se documenta y los asertos de E2E lo contemplan explícitamente (`snap || tope`). No es una
+licencia de implementación: en cualquier otro reposo el aterrizaje **sí** es un punto de snap.
+
+### 36.4 Hallazgo 3 — §23.8 promete ocho tejas sin JS, y hoy eso NO es cierto (y no lo introduce §23)
+
+§23.8 (y la corrección de §20.16 nota 2) afirman que sin JS queda *«una pista de scroll-snap nativa con
+sus ocho tejas completas y legibles»* y que *«el contenido nunca depende del JS»*. **Verificado en
+Chromium con `javaScriptEnabled: false`: el contenido sí depende del JS.** Las tejas las trae
+`GET /catalog/cards` por react-query **en el cliente**, así que sin JS el estante se queda en su estado de
+carga. Es una condición **preexistente** de la home, no algo que §23 haya introducido, y §23 la mejora en
+lo que sí le toca: sin JS **no se pinta ni una flecha ni el conmutador**, así que no queda ningún control
+muerto y —lo que importa para 2.2.2— **no puede haber movimiento sin freno**.
+
+Corregirlo del todo es mover la consulta a servidor (RSC/prefetch/hidratación de la caché), decisión de
+arquitectura fuera de este pase. **Solicitud al arquitecto** anotada en el resumen. El E2E afirma lo
+verificable y declara en su cabecera lo que no puede afirmar, en vez de fingir cobertura.
+
+### 36.5 Decisiones de implementación menores
+
+- **`titleAdjacent` en vez de ampliar `kicker` a `ReactNode`** (§23.15 nº1 ofrecía las dos vías). El
+  camino del kicker envuelve el contenido en `<span class="eyebrow">`, que impone **color muted** y
+  `gap-4` en todas las anchuras; §23.4b pide **tinta** y `gap` 12/16px. El slot hermano evita
+  sobreescribir dos propiedades heredadas por accidente. `kicker` **también** se amplió a `ReactNode`
+  como pedía la nota (cambio de tipo, cero cambios de render): el kicker de Gradeadas sigue siendo texto
+  y ninguna otra pantalla se toca — verificado con `tsc` y con los 917 tests.
+- **Las flechas se arreglaron sin cambiarles el paso.** §23.15 nº2 señalaba el `scrollBy(clientWidth ×
+  0,8)`; §23.13 nº13 prohíbe cambiar el **paso** de las flechas. Se conservan las dos cosas: el paso sigue
+  siendo ~una página, pero el **destino** es ahora el punto de snap de una teja (`pageScrollTarget`), así
+  que la flecha ya no deja media teja cortada por el borde izquierdo. Con `snap-x` en `proximity` (que es
+  lo que hay hoy) el navegador **no** corregía ese reposo por su cuenta.
+- **Las flechas dejaron de pintarse antes de hidratar** (§23.8, §20.16 nota 2 corregida). Su paso, su
+  tamaño y su apagado en los extremos **no cambian** (§23.13 nº13).
+- **REANUDAR desde el extremo va a TERMINADO, no a «reproduciendo».** El diagrama de §23.5 no cubre
+  «pausado + ya no queda pista»; anunciar «reproduciendo» sobre algo que no puede moverse sería falso.
+  Se resuelve con el mismo predicado (`canNext === false`) y el conmutador queda en **REPETIR**.
+- **`aria-live` de la pista atado al temporizador**, no al modo (§23.9b), y línea `role="status"`
+  `sr-only` que emite **solo** en las dos transiciones no solicitadas.
+- **Suspensión por «< 50 % visible»** con `IntersectionObserver` y una escotilla: si la pista es más alta
+  que la mitad del viewport, el ratio nunca llegaría a 0,5 y el carrusel quedaría congelado con la pista
+  llenando la pantalla. Sin `IntersectionObserver` (jsdom, navegadores viejos) se asume visible.
+- **Cero tokens nuevos, cero componentes de dominio nuevos, cero cambios de contrato.** `next/image` **no**
+  se adopta (§5.3 de `ARCHITECTURE.md` es decisión del arquitecto, fuera de este pase) y `next.config.mjs`
+  no se toca.
+
+### 36.6 La red de seguridad: qué quedó cubierto y qué NO
+
+**Cubierto** — `carouselGeometry.test.ts` (**17**, aritmética pura) + `FeaturedCarouselRotation.test.tsx`
+(**43**, temporizadores falsos) + `e2e/featured-rotation.spec.ts` (**8**, Chromium):
+reposo inicial y las cuatro precondiciones · una teja por tic y el aterrizaje en snap · `prefers-reduced-
+motion` inactivo, activo, y **activado en caliente** · el conmutador ausente en los cinco casos de §23.4d
+· suspensión por puntero, foco y pestaña oculta, sin tics acumulados · intervención por swipe, rueda,
+foco perseguido, flecha y ancla, permanente · re-snap del navegador que **no** pausa · fin de pasada,
+REPETIR y el retroceso desde TERMINADO · identidad y `fetchpriority` de la teja líder en los siete tics ·
+numeración intacta · `aria-roledescription`, `aria-live` conmutando, pista con nombre, tejas sin
+`aria-label` · orden de tabulación, WCAG 2.5.3, área táctil ≥ 44×44 **medida en el navegador** en 390 /
+640 / 1024 sin solaparse con el H2 ni el link · paridad ES/EN.
+
+**NO cubierto, y por qué:**
+
+1. **La suspensión por «menos del 50 % de la pista visible»** (§23.5). jsdom no tiene
+   `IntersectionObserver`, y en E2E exigiría dejar la home haciendo scroll durante ≥ 7 s para distinguir
+   la suspensión de un tic tardío. Es el único freno de §23.5 sin test.
+2. **`behavior:'smooth'` vs `'auto'` como comportamiento observable.** `Element.prototype.scrollTo` **no
+   existe en jsdom**; el componente cae a `scrollLeft = n`, que es un salto. Lo que sí está cubierto es
+   *qué* `behavior` se pide (rama con `scrollTo` inyectado en `carouselGeometry.test.ts`) y que con
+   movimiento reducido la flecha llega a su destino sin esperar animación (E2E).
+3. **Los ≈ 550 ms del deslizamiento y el ≈ 7 % de ciclo de trabajo** (§23.1 punto 3). Los fija el scroll
+   suave nativo del navegador; no hay API para medirlo de forma estable en CI.
+4. **El renderizado del servidor sin hidratar** (fila del medio de §23.8). RTL monta y ejecuta efectos: no
+   hay forma de observar el frame previo. El E2E sin JS cubre el extremo (ni flechas ni conmutador).
+5. **Contraste y versalitas.** Son CSS (`.eyebrow` + `text-text`, par ya verificado en §10/§23.11);
+   ningún test los mide.
+6. **El layout de la pista en los tests unitarios está INYECTADO.** jsdom no calcula layout, así que
+   `offsetLeft`/`clientWidth`/`scrollWidth` se sobrescriben a mano. Los unitarios no demuestran que la
+   teja aterrice visualmente flush: eso lo demuestra el E2E, midiendo `getBoundingClientRect()` real.
+
+### 36.7 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **917/917 en 99
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **857/97** (§35.6). Delta **+60 tests, +2 archivos**, ninguna prueba retirada ni
+  debilitada.
+- `npx playwright test e2e/featured-rotation.spec.ts` ✔ **8/8** en Chromium (build de producción, modo
+  mocks). Sin regresiones en `grading-estimate.spec.ts`, `catalog.spec.ts` e `i18n-locale.spec.ts`
+  (**30 passed, 3 skipped** — los 3 son los `@real` que necesitan backend).
+- Cero escrituras fuera de `frontend/` y este archivo.

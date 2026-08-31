@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
+import { Pause, Play, RotateCcw } from 'lucide-react';
 import { getCatalog } from '@/lib/api';
 import type { GroupedListingSummaryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -11,6 +12,7 @@ import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { QueryState } from '@/components/ui/QueryState';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Shelf } from '../_shared/Shelf';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
@@ -18,12 +20,63 @@ import { FinishLabel } from '../_shared/FinishLabel';
 import { GradingEstimateBadge } from '../_shared/grading/GradingEstimateBadge';
 import { useGradingFootnote } from '../_shared/grading/GradingFootnote';
 import { pageHasGradingFigures } from '../_shared/grading/estimates';
+import {
+  SCROLL_TOLERANCE,
+  nextScrollTarget,
+  pageScrollTarget,
+  readTrackGeometry,
+  scrollTrackTo,
+  trackOverflows,
+} from './carouselGeometry';
 import { cn } from '@/lib/cn';
 
 const FEATURED = 8;
 
 /** `id` de la sección: destino del regreso de la nota al pie cuando la vitrina no pintó (§22.4a). */
 export const FEATURED_CAROUSEL_ID = 'piezas-destacadas';
+
+/** `id` de la PISTA (§23.9b). La sección tiene el suyo; la región viva es la pista. */
+export const FEATURED_TRACK_ID = 'piezas-destacadas-pista';
+
+/** Reposo entre tics — y reposo INICIAL (§23.3). 7 s, por encima del umbral de 5 s de WCAG 2.2.2. */
+export const ROTATION_REST_MS = 7000;
+
+/**
+ * Tope de la precondición 3 de §23.3: si la foto de la teja líder no ha cargado en 3 s desde que la
+ * consulta resolvió, la rotación se habilita igual. Sin este tope, una imagen remota lenta dejaría el
+ * estante muerto para siempre.
+ */
+export const LEAD_IMAGE_CAP_MS = 3000;
+
+/**
+ * Ventana en la que un evento `scroll` se considera **nuestro** y no del usuario. El deslizamiento
+ * del tic dura ≈ 550 ms (§23.3); 900 ms deja margen para el reposo del scroll suave sin tragarse un
+ * swipe real. Es la costura que separa la SUSPENSIÓN de la PAUSA PERMANENTE (§23.5): si esto se
+ * equivocara por defecto, el carrusel se auto-pausaría en su primer tic.
+ */
+export const PROGRAMMATIC_SETTLE_MS = 900;
+
+/**
+ * Ventana en la que un `scroll` de la pista se atribuye a una acción del usuario, contada desde su
+ * última entrada (puntero, dedo, rueda, tecla o foco). Cubre la inercia del trackpad, que sigue
+ * emitiendo `scroll` bastante después del último `wheel`.
+ *
+ * ⚠️ **POR QUÉ EXISTE ESTA VENTANA — hallazgo de navegador, no una comodidad.** §23.5 enuncia la
+ * regla general «cualquier desplazamiento de la pista que el carrusel no haya originado ⇒ PAUSA
+ * PERMANENTE». Implementada al pie de la letra, **el carrusel se pausa solo antes de su primer
+ * tic**: Chromium aplica `scroll-snap` ~1 s después de hidratar y mueve `scrollLeft` de 0 al valor
+ * del `gutter` (32px en `lg`) por su cuenta. Verificado en Chromium con un listener de captura —
+ * un único evento, `#piezas-destacadas-pista`, `scrollLeft: 32`, sin usuario de por medio. Lo mismo
+ * hace el anclaje de scroll cuando una imagen tardía cambia el layout.
+ *
+ * La regla se conserva **en su intención** (el usuario manda y no se reanuda solo) y se acota a lo
+ * que la regla nombra: desplazamientos **del usuario**. Un reajuste del motor de layout no es una
+ * intervención, y tratarlo como tal deja la función muerta al primer render.
+ */
+export const USER_INPUT_WINDOW_MS = 1200;
+
+/** Los tres modos de §23.5. La suspensión (hover/foco/pestaña/fuera de vista) NO es un modo. */
+export type PlaybackMode = 'playing' | 'paused' | 'ended';
 
 /**
  * Fuente del carrusel, COMPARTIDA con la página del home (§22.6b-g). El home decide si hospeda la
@@ -74,6 +127,53 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; lo
 }
 
 /**
+ * Conmutador de reproducción del carrusel (§23.4). **No es una tercera flecha**: es un conmutador de
+ * texto mono pegado al H2, en el hueco estructural del kicker, a la IZQUIERDA de la fila y el primer
+ * control del estante en orden de tabulación (§23.4a) — quien llega con teclado se topa con el freno
+ * ANTES que con lo que se mueve, que es lo que pide WCAG 2.2.2.
+ *
+ * Sin `aria-pressed` a propósito (§23.4c): «presionado» es ambiguo en un par pausa/reproducción; el
+ * patrón APG cambia el **nombre**, no un estado de conmutación. Y nunca `disabled` ni `loading`: si
+ * no hay rotación posible el control **no se renderiza** (§23.4d), no se apaga.
+ */
+function PlaybackToggle({
+  mode,
+  word,
+  ariaLabel,
+  onToggle,
+}: {
+  mode: PlaybackMode;
+  word: string;
+  ariaLabel: string;
+  onToggle: () => void;
+}) {
+  const Icon = mode === 'playing' ? Pause : mode === 'paused' ? Play : RotateCcw;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={ariaLabel}
+      className={cn(
+        // Sin borde, sin fondo, sin radio, sin sombra (§23.4b). Tinta en reposo y en hover; el
+        // subrayado de hover es el mismo lenguaje que `EditorialLink` (§20.0).
+        'relative inline-flex min-w-[80px] shrink-0 items-center gap-1.5 text-text hover:underline',
+        // Área táctil de 44×44 con PSEUDO-ELEMENTO, no con `padding` (§23.4b): con padding, el
+        // `outline-offset: 2px` del foco global dibujaría un halo de 44px alrededor de un texto de
+        // 12px. Con `::after` el área crece y el anillo sigue ciñendo la etiqueta. 8px por lado
+        // contra el `gap` de 12/16px al H2 ⇒ nunca pisa el título.
+        "after:absolute after:-inset-x-2 after:-inset-y-4 after:content-['']",
+      )}
+    >
+      {/* El glifo acelera; la PALABRA es el portador (§2.4, §23.11). */}
+      <Icon aria-hidden strokeWidth={1.5} className="h-3 w-3 shrink-0 lg:h-3.5 lg:w-3.5" />
+      {/* `.eyebrow` = mono 10px/500/.18em + versalitas por CSS (el texto fuente va en caja normal,
+          §20.15). Se le sobreescribe el color: la clase es muted y §23.4b pide TINTA. */}
+      <span className="eyebrow text-text">{word}</span>
+    </button>
+  );
+}
+
+/**
  * «Piezas destacadas del catálogo» (makeover 1a §4): carrusel horizontal con las piezas
  * más caras del inventario publicado (el backend ordena por salePriceCents server-side).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
@@ -97,6 +197,25 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; lo
  *  - **El encabezado NO cambia** (§22.6b-e): sin kicker, sin subtítulo, sin mención al gradeo. El
  *    carrusel no es una vitrina de gancho; es la pista de las piezas más caras, y algunas resultan
  *    llevar además una cifra estimada.
+ *
+ * ───────────────────────────────────────────────────────────────────────────────────────────────
+ * **ROTACIÓN AUTOMÁTICA (P-49, §23).** Un tic cada 7 s mueve la VENTANA exactamente UNA teja, hace
+ * UNA sola pasada y se detiene. Las cuatro cosas que no pueden romperse aquí:
+ *
+ *  - **R1 — rota la ventana, nunca el ROL.** Lo único que la rotación escribe es `scrollLeft`. El DOM
+ *    es inmutable: la teja 1 sigue siendo la teja 1, con su `imageLargeUrl` y su `priority`/LCP. Si
+ *    la teja 2 «ascendiera» a líder, cada tic remaquetaría dos tejas y **dispararía una descarga HD
+ *    nueva cada 7 s** — justo lo que arregló §34.1 de estas notas.
+ *  - **R2 — nunca coexiste con carga.** Cuatro precondiciones (§23.3): hidratado, consulta resuelta
+ *    con ≥1 teja, foto de la líder cargada (o 3 s), y 7 s de reposo inicial. Es la condición que
+ *    desactiva el argumento de §17.3 («el movimiento aquí se lee como carga»): no puede confundirse
+ *    con carga algo que por construcción nunca ocurre mientras hay carga.
+ *  - **R4 — `prefers-reduced-motion` ⇒ movimiento CERO**, y se enforza AQUÍ, no en `globals.css`: la
+ *    regla global solo anula duraciones de CSS, y no cubre ni el scroll por JS ni un temporizador
+ *    (§8.2). Con la preferencia activa el temporizador **no arranca**, el conmutador **no se
+ *    renderiza** y las flechas pasan a `behavior:'auto'`. Se escucha **en vivo**.
+ *  - **R5 — la intervención del usuario gana para siempre** (en esta visita): swipe, rueda, flecha,
+ *    ancla o cualquier scroll que no hayamos originado nosotros ⇒ PAUSADO, sin reanudación sola.
  */
 export function FeaturedCarousel() {
   const t = useTranslations('home');
@@ -117,75 +236,433 @@ export function FeaturedCarousel() {
    * El predicado es el MISMO que gobierna las cifras — incluido el `fail-closed` de la nota al pie:
    * sin boundary activa el badge devuelve `null`, así que sin `anchors` NO se pinta ninguna cifra y
    * la numeración se queda. Así es imposible que la pista pierda los números sin ganar la burbuja.
+   *
+   * §23.10: la rotación **no lo toca**. Como no reordena el DOM, `02` sigue siendo la segunda teja
+   * del DOM la mire quien la mire, y el predicado se evalúa con los datos resueltos — su resultado
+   * no puede cambiar por desplazarse.
    */
   const trackShowsFigures = anchors !== null && pageHasGradingFigures(featured);
   const showNumbering = !trackShowsFigures;
 
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
+  /** ¿La pista desborda? Si todo cabe no hay nada que rotar NI que frenar (§23.4d nº3). */
+  const [overflows, setOverflows] = useState(false);
 
-  const updateArrows = useCallback(() => {
+  /**
+   * §23.8 — el estado inicial es la pista de scroll-snap NATIVA, que no rota y no pinta ni flechas
+   * ni conmutador. No es un fallback degradado: los tres nacen del mismo JS, en el mismo momento, y
+   * por eso **no puede existir movimiento sin freno**.
+   */
+  const [hydrated, setHydrated] = useState(false);
+  const [leadImageReady, setLeadImageReady] = useState(false);
+  const [mode, setMode] = useState<PlaybackMode>('playing');
+  const [statusMessage, setStatusMessage] = useState('');
+
+  // Suspensiones de nivel 1 (§23.5): temporales, silenciosas y reversibles solas.
+  const [pointerInside, setPointerInside] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  const [tabVisible, setTabVisible] = useState(true);
+  // Sin IntersectionObserver (jsdom, navegadores viejos) se asume visible: el resto de frenos sigue.
+  const [inView, setInView] = useState(true);
+
+  /**
+   * §8.2/§23.7 — se ESCUCHA EN VIVO, no se lee una vez al montar: activar la preferencia en el
+   * sistema operativo detiene la rotación en ese instante y hace desaparecer el conmutador, sin
+   * recargar. `useMediaQuery` devuelve `false` en SSR/primer render, que es correcto: antes de
+   * hidratar no hay rotación de todas formas.
+   */
+  const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+
+  const modeRef = useRef<PlaybackMode>(mode);
+  /** Contador de scrolls originados por NOSOTROS. > 0 ⇒ el evento `scroll` no es del usuario. */
+  const programmaticRef = useRef(0);
+  /** > 0 ⇒ el usuario tocó la pista hace poco, así que un `scroll` SÍ es suyo. */
+  const userInputRef = useRef(0);
+  const settleTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  useEffect(() => setHydrated(true), []);
+
+  const measure = useCallback(() => {
     const el = scrollerRef.current;
-    if (!el) return;
-    setCanPrev(el.scrollLeft > 4);
-    setCanNext(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+    if (!el) {
+      setOverflows(false);
+      setCanPrev(false);
+      setCanNext(false);
+      return;
+    }
+    const g = readTrackGeometry(el);
+    setOverflows(trackOverflows(g));
+    // §23.13 nº13: el apagado de las flechas en los extremos NO cambia — mismo predicado de §20.3.
+    setCanPrev(g.scrollLeft > SCROLL_TOLERANCE);
+    setCanNext(g.scrollLeft < g.maxScroll - SCROLL_TOLERANCE);
   }, []);
 
   useEffect(() => {
-    updateArrows();
-    window.addEventListener('resize', updateArrows);
-    return () => window.removeEventListener('resize', updateArrows);
-  }, [updateArrows, featured.length]);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [measure, featured.length]);
 
-  function scrollByDir(dir: 1 | -1) {
+  /** Precondición 3 de §23.3 con su tope de 3 s, armado en cuanto la consulta resuelve. */
+  useEffect(() => {
+    if (featured.length === 0) return;
+    const id = setTimeout(() => setLeadImageReady(true), LEAD_IMAGE_CAP_MS);
+    return () => clearTimeout(id);
+  }, [featured.length]);
+
+  useEffect(
+    () => () => {
+      settleTimersRef.current.forEach(clearTimeout);
+      settleTimersRef.current = [];
+    },
+    [],
+  );
+
+  /**
+   * Desplaza la pista marcando el movimiento como NUESTRO. Sin esta marca, el `scroll` que provoca
+   * nuestro propio tic se leería como intervención del usuario y el carrusel se auto-pausaría en el
+   * primer tic (§23.5).
+   */
+  const scrollProgrammatically = useCallback(
+    (el: HTMLDivElement, left: number, smooth: boolean) => {
+      programmaticRef.current += 1;
+      const id = setTimeout(() => {
+        programmaticRef.current = Math.max(0, programmaticRef.current - 1);
+      }, PROGRAMMATIC_SETTLE_MS);
+      settleTimersRef.current.push(id);
+      scrollTrackTo(el, left, smooth ? 'smooth' : 'auto');
+      measure();
+    },
+    [measure],
+  );
+
+  // Los textos del canal de estado, en un ref para que los listeners nativos (registrados una sola
+  // vez) no queden con la traducción del primer render.
+  const statusTextRef = useRef({ paused: '', ended: '' });
+  statusTextRef.current = {
+    paused: t('featured.status.paused'),
+    ended: t('featured.status.ended'),
+  };
+
+  /**
+   * PAUSA PERMANENTE por intervención (§23.5 nivel 2). Desde TERMINADO también pasa a PAUSADO —lo
+   * pide §23.6— pero **sin anunciar**: el fin de la pasada ya se anunció, y §23.9c reserva el canal
+   * de estado para cambios que el usuario no pidió.
+   */
+  const pauseByIntervention = useCallback(() => {
+    const current = modeRef.current;
+    if (current === 'paused') return;
+    if (current === 'playing') setStatusMessage(statusTextRef.current.paused);
+    modeRef.current = 'paused';
+    setMode('paused');
+  }, []);
+
+  const pauseRef = useRef(pauseByIntervention);
+  useEffect(() => {
+    pauseRef.current = pauseByIntervention;
+  });
+
+  /**
+   * Marca que el usuario acaba de tocar la pista. Se cuelga de las cinco entradas que pueden
+   * desplazarla: dedo, puntero, rueda/trackpad, teclado y —para el caso que §23.5 nombra
+   * expresamente— el foco que el navegador persigue hasta una teja fuera de pantalla.
+   */
+  const noteUserInput = useCallback(() => {
+    userInputRef.current += 1;
+    const id = setTimeout(() => {
+      userInputRef.current = Math.max(0, userInputRef.current - 1);
+    }, USER_INPUT_WINDOW_MS);
+    settleTimersRef.current.push(id);
+  }, []);
+
+  /**
+   * §23.5 — un desplazamiento de la pista **del usuario** pausa para siempre. Cubre swipe, arrastre,
+   * rueda/trackpad horizontal y el scroll que provoca el navegador al tabular a una teja fuera de
+   * pantalla, sin enumerarlos uno por uno.
+   *
+   * Dos guardas, y las dos son necesarias: (a) el scroll lo originamos NOSOTROS (un tic o REPETIR) y
+   * (b) nadie tocó la pista — el `scroll-snap` del propio navegador al hidratar, o su anclaje de
+   * scroll cuando una imagen tardía cambia el layout. Sin (b) el carrusel se pausa solo antes del
+   * primer tic; ver `USER_INPUT_WINDOW_MS`.
+   */
+  const handleScroll = useCallback(() => {
+    measure();
+    if (programmaticRef.current > 0) return;
+    if (userInputRef.current === 0) return;
+    pauseByIntervention();
+  }, [measure, pauseByIntervention]);
+
+  /** Un tic: UNA teja, al punto de snap de la entrante. `false` ⇒ se acabó la pista (§23.6). */
+  const tick = useCallback((): boolean => {
+    const el = scrollerRef.current;
+    if (!el) return false;
+    const target = nextScrollTarget(readTrackGeometry(el));
+    if (target === null) {
+      modeRef.current = 'ended';
+      setMode('ended');
+      setStatusMessage(statusTextRef.current.ended);
+      return false;
+    }
+    scrollProgrammatically(el, target, true);
+    return true;
+  }, [scrollProgrammatically]);
+
+  const tickRef = useRef(tick);
+  useEffect(() => {
+    tickRef.current = tick;
+  });
+
+  /**
+   * Las cuatro precondiciones de §23.3 + los tres apagados de §23.4d. `rotationPossible` es
+   * exactamente el predicado que decide si el CONMUTADOR se pinta: control y movimiento nacen del
+   * mismo booleano, así que no puede haber uno sin el otro (§23.8).
+   */
+  const rotationPossible =
+    hydrated &&
+    !reducedMotion &&
+    !catalog.isLoading &&
+    !catalog.isError &&
+    featured.length > 1 &&
+    overflows;
+
+  const suspended = pointerInside || focusInside || !tabVisible || !inView;
+  /** ¿Corre el temporizador AHORA MISMO? Es lo que ata el `aria-live` de la pista (§23.9b). */
+  const timerRunning = rotationPossible && leadImageReady && mode === 'playing' && !suspended;
+
+  /**
+   * El temporizador. Cada vez que `timerRunning` vuelve a `true` el reposo de 7 s empieza **de
+   * cero**: eso implementa «ni un solo tic acumulado» (§23.3) sin código extra — al retirar el ratón
+   * o volver a la pestaña nunca hay un tic inmediato ni una ráfaga de tics perdidos.
+   *
+   * El tic NO escribe estado de React salvo al terminar la pasada, así que **no re-renderiza las
+   * tejas** (corolario de §23.2). Los únicos re-render de la pasada son los del apagado de las
+   * flechas: `canPrev` una vez al principio y `canNext` una vez al final.
+   */
+  useEffect(() => {
+    if (!timerRunning) return;
+    let id: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      id = setTimeout(() => {
+        if (tickRef.current()) schedule();
+      }, ROTATION_REST_MS);
+    };
+    schedule();
+    return () => {
+      if (id !== undefined) clearTimeout(id);
+    };
+  }, [timerRunning]);
+
+  /** Suspensión por pestaña oculta (§23.5). */
+  useEffect(() => {
+    const onVisibility = () => setTabVisible(document.visibilityState === 'visible');
+    onVisibility();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  /**
+   * Suspensión por puntero y por FOCO, sobre la sección entera (encabezado + pista, §23.5).
+   * Listeners nativos y no props de React: así entrar con el ratón no re-renderiza el estante.
+   *
+   * La pausa por foco no es solo accesibilidad: sin ella, tabular por las tejas mientras la pista
+   * rota produce una pelea —el navegador desplaza para traer el foco a la vista y el temporizador
+   * desplaza en sentido contrario— y el foco se pierde de la pantalla.
+   */
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const onPointerEnter = () => setPointerInside(true);
+    const onPointerLeave = () => setPointerInside(false);
+    const onFocusIn = () => setFocusInside(true);
+    const onFocusOut = (e: FocusEvent) => {
+      if (!el.contains(e.relatedTarget as Node | null)) setFocusInside(false);
+    };
+    el.addEventListener('pointerenter', onPointerEnter);
+    el.addEventListener('pointerleave', onPointerLeave);
+    el.addEventListener('focusin', onFocusIn);
+    el.addEventListener('focusout', onFocusOut);
+    return () => {
+      el.removeEventListener('pointerenter', onPointerEnter);
+      el.removeEventListener('pointerleave', onPointerLeave);
+      el.removeEventListener('focusin', onFocusIn);
+      el.removeEventListener('focusout', onFocusOut);
+    };
+  }, []);
+
+  /** Suspensión por «menos del 50 % de la pista visible» (§23.5). */
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const viewportH = window.innerHeight || 0;
+          // Escotilla para pistas más altas que el viewport: ahí el ratio nunca llega a 0,5 y el
+          // carrusel quedaría congelado con la pista llenando la pantalla.
+          const fillsViewport = viewportH > 0 && entry.intersectionRect.height >= viewportH * 0.5;
+          setInView(entry.intersectionRatio >= 0.5 || (entry.isIntersecting && fillsViewport));
+        }
+      },
+      { threshold: [0, 0.25, 0.5, 0.75, 1] },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [featured.length]);
+
+  /**
+   * §23.5 — llegar por ancla (`#piezas-destacadas`, el regreso de la nota al pie del gancho, §22.4a)
+   * pausa. Quien llega por el ancla viene a inspeccionar algo concreto: que la ventana se le mueva
+   * bajo los ojos es el peor momento posible. **No se rebobina**: solo se detiene.
+   */
+  useEffect(() => {
+    const check = () => {
+      if (window.location.hash === `#${FEATURED_CAROUSEL_ID}`) pauseRef.current();
+    };
+    check();
+    window.addEventListener('hashchange', check);
+    return () => window.removeEventListener('hashchange', check);
+  }, []);
+
+  /**
+   * Flechas (§20.3). Su paso NO cambia —siguen moviendo ~una página, §23.13 nº13— pero ahora
+   * **aterrizan en el punto de snap de una teja** en vez de en un píxel arbitrario: `0,8 × ancho` no
+   * es múltiplo del paso de teja, así que el reposo dejaba media teja cortada por el borde izquierdo
+   * (§23.15 nº2). Y pulsar una flecha es intervención: PAUSA PERMANENTE, así flechas y rotación no
+   * se disputan la pista.
+   */
+  function goByArrow(dir: 1 | -1) {
     const el = scrollerRef.current;
     if (!el) return;
-    el.scrollBy({ left: dir * Math.round(el.clientWidth * 0.8), behavior: 'smooth' });
+    const target = pageScrollTarget(readTrackGeometry(el), dir);
+    pauseByIntervention();
+    if (target === null) return;
+    // §23.7: con movimiento reducido la flecha sigue funcionando, pero salta — nunca «suave lento».
+    scrollProgrammatically(el, target, !reducedMotion);
   }
+
+  function onTogglePlayback() {
+    const el = scrollerRef.current;
+    // §23.9c: el conmutador NO emite por el canal de estado — el cambio de nombre accesible del
+    // botón ya lo dice, y duplicarlo es hablar dos veces. Se limpia para que un anuncio posterior
+    // idéntico vuelva a ser un CAMBIO de texto y se oiga.
+    setStatusMessage('');
+    if (mode === 'playing') {
+      modeRef.current = 'paused';
+      setMode('paused');
+      return;
+    }
+    if (mode === 'ended') {
+      // REPETIR: vuelve al inicio de forma INSTANTÁNEA (§23.6). Animar ~2 000px de rebobinado es el
+      // peor movimiento posible en este sistema; aquí el salto es correcto porque lo pidió el usuario.
+      if (el) scrollProgrammatically(el, 0, false);
+      modeRef.current = 'playing';
+      setMode('playing');
+      return;
+    }
+    // REANUDAR desde PAUSADO. Si ya no queda pista por delante, el estado honesto es TERMINADO
+    // (mismo predicado que apaga la flecha «siguiente»), no «reproduciendo» sobre algo que no se
+    // puede mover.
+    if (el && nextScrollTarget(readTrackGeometry(el)) === null) {
+      modeRef.current = 'ended';
+      setMode('ended');
+      return;
+    }
+    modeRef.current = 'playing';
+    setMode('playing');
+  }
+
+  const playbackWord =
+    mode === 'playing'
+      ? t('featured.playback.pause')
+      : mode === 'paused'
+        ? t('featured.playback.resume')
+        : t('featured.playback.replay');
+  // WCAG 2.5.3: el nombre accesible EMPIEZA por la palabra visible, para que quien dicte por voz
+  // «pausar» active el control (§23.4c).
+  const playbackAria =
+    mode === 'playing'
+      ? t('featured.playback.pauseAria')
+      : mode === 'paused'
+        ? t('featured.playback.resumeAria')
+        : t('featured.playback.replayAria');
 
   const arrowBase = 'inline-flex h-8 w-8 items-center justify-center border lg:h-[38px] lg:w-[38px]';
 
   return (
     <Shelf
       id={FEATURED_CAROUSEL_ID}
+      sectionRef={sectionRef}
       // §22.6b-g: el regreso de la nota al pie puede aterrizar aquí, así que la sección necesita su
       // propio `scroll-mt` derivado de `--app-header-h` (§4.5) para no quedar tapada por el header.
       className="scroll-mt-[calc(var(--app-header-h,0px)+16px)]"
       ariaLabel={t('featuredTitle')}
+      // §23.9a: con el aria-label ya existente el lector anuncia «Piezas destacadas del catálogo,
+      // carrusel». El aria-label NO cambia y NO menciona la rotación (§22.6b-e sigue vigente).
+      ariaRoledescription={t('featured.roledescription')}
       title={
         <>
           <span className="lg:hidden">{t('featuredTitleShort')}</span>
           <span className="hidden lg:inline">{t('featuredTitle')}</span>
         </>
       }
+      // §23.4a: el conmutador va pegado al H2, a la izquierda de la fila y ANTES en el DOM que las
+      // flechas y que la pista. No es un kicker de contenido (§22.6b-e): nombra el comportamiento
+      // del estante, no afirma nada sobre ninguna pieza.
+      titleAdjacent={
+        rotationPossible ? (
+          <PlaybackToggle
+            mode={mode}
+            word={playbackWord}
+            ariaLabel={playbackAria}
+            onToggle={onTogglePlayback}
+          />
+        ) : undefined
+      }
       headerClassName="items-end pb-5 pt-10 lg:pt-12"
       viewAllHref="/catalog"
       viewAllLabel={t('viewAllCatalog')}
       viewAllClassName="hidden sm:inline"
       actions={
-        <div className="flex gap-2">
-          <button
-            type="button"
-            aria-label={t('carouselPrev')}
-            onClick={() => scrollByDir(-1)}
-            disabled={!canPrev}
-            className={cn(arrowBase, canPrev ? 'border-text text-text' : 'border-border-strong text-muted')}
-          >
-            ←
-          </button>
-          <button
-            type="button"
-            aria-label={t('carouselNext')}
-            onClick={() => scrollByDir(1)}
-            disabled={!canNext}
-            className={cn(arrowBase, canNext ? 'border-text text-text' : 'border-border-strong text-muted')}
-          >
-            →
-          </button>
-        </div>
+        // §23.8 + §20.16 nota 2 (corregida): sin JS / antes de hidratar las flechas NO se pintan.
+        // Ningún control del carrusel se pinta si no puede funcionar.
+        hydrated ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              aria-label={t('carouselPrev')}
+              onClick={() => goByArrow(-1)}
+              disabled={!canPrev}
+              className={cn(arrowBase, canPrev ? 'border-text text-text' : 'border-border-strong text-muted')}
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              aria-label={t('carouselNext')}
+              onClick={() => goByArrow(1)}
+              disabled={!canNext}
+              className={cn(arrowBase, canNext ? 'border-text text-text' : 'border-border-strong text-muted')}
+            >
+              →
+            </button>
+          </div>
+        ) : undefined
       }
     >
+      {/* §23.9c — el canal de estado REAL. Emite SOLO en dos transiciones no solicitadas: fin de la
+          pasada e intervención que pausa. Nunca `assertive` (§8.2 lo reserva para errores de pago),
+          nunca en suspensiones por hover/foco/visibilidad (sería charlatana) y nunca al pulsar el
+          conmutador (el nombre accesible del botón ya lo dice). */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {statusMessage}
+      </p>
       {/* R3: el error usa el QueryState compartido (Banner + Reintentar); el wrapper
           solo aporta el gutter en esa rama para no alterar la pista de scroll. */}
       <div className={catalog.isError ? 'gutter pb-12' : undefined}>
@@ -207,7 +684,25 @@ export function FeaturedCarousel() {
           ) : (
             <div
               ref={scrollerRef}
-              onScroll={updateArrows}
+              id={FEATURED_TRACK_ID}
+              onScroll={handleScroll}
+              // Las cinco entradas que pueden desplazar la pista. Solo escriben un ref: cero
+              // re-render por mover el ratón o girar la rueda (corolario de §23.2).
+              onPointerDown={noteUserInput}
+              onTouchStart={noteUserInput}
+              onWheel={noteUserInput}
+              onKeyDown={noteUserInput}
+              onFocus={noteUserInput}
+              // §23.5/§23.9b: tope de tabulación CON NOMBRE (un tope de foco anónimo es peor que no
+              // tenerlo) para poder desplazar la pista con teclado.
+              role="group"
+              tabIndex={0}
+              aria-label={t('featured.trackAria')}
+              // §23.9b: `off` mientras el temporizador corre DE VERDAD; `polite` en cuanto no corre
+              // —pausada, terminada, suspendida por foco o puntero, o con movimiento reducido—. Se
+              // ata al temporizador, no al modo, para que el caso que importa (usuario de teclado
+              // navegando la pista, que la suspende) quede siempre en `polite`.
+              aria-live={timerRunning ? 'off' : 'polite'}
               className="gutter flex snap-x gap-4 overflow-x-auto pb-10 [scrollbar-width:none] lg:gap-7 lg:pb-14 [&::-webkit-scrollbar]:hidden"
             >
               {featured.map((l, i) =>
@@ -222,8 +717,15 @@ export function FeaturedCarousel() {
                         vería blanda. Las secundarias (abajo) van con la CHICA a propósito — ver su nota.
                         PERF: `priority` porque esta teja es la candidata a LCP de la home (primer bloque
                         con imagen). No se replica en las demás: varias `fetchpriority=high` a la vez se
-                        pelean el ancho de banda y retrasan justo a esta. */}
-                    <CardImage src={l.card.imageLargeUrl ?? l.card.imageSmallUrl} alt={l.card.name} priority />
+                        pelean el ancho de banda y retrasan justo a esta.
+                        §23.3 precondición 3: su `load` es lo que habilita la rotación. La rotación NO
+                        mueve este rol de teja en teja (R1): eso dispararía una descarga HD cada 7 s. */}
+                    <CardImage
+                      src={l.card.imageLargeUrl ?? l.card.imageSmallUrl}
+                      alt={l.card.name}
+                      priority
+                      onLoaded={() => setLeadImageReady(true)}
+                    />
                     <div className="mt-3 flex flex-col gap-2 lg:mt-[18px] lg:flex-row lg:items-end lg:justify-between lg:gap-5">
                       <div className="min-w-0">
                         <p lang="en" className="font-serif text-[17px] leading-[1.25] text-text lg:text-[26px] lg:leading-[1.2]">
@@ -265,7 +767,9 @@ export function FeaturedCarousel() {
                       {/* Numeración decorativa/orientadora (§20.3): el orden real lo da el DOM.
                           §22.6b-c: se apaga en TODA la pista si la pista pinta alguna cifra. Nunca
                           se renumera para tapar el hueco, ni se sustituye por otro glifo, ni queda
-                          espacio reservado donde estaba. */}
+                          espacio reservado donde estaba.
+                          §23.10: la rotación NO la toca — ni renumera según lo visible, ni la usa
+                          como indicador de progreso, ni resalta la teja que acaba de entrar. */}
                       {showNumbering && (
                         <span aria-hidden className="font-mono text-[10px] leading-none text-accent">
                           {String(i).padStart(2, '0')}

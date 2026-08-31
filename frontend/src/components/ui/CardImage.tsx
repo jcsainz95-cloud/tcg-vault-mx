@@ -24,6 +24,16 @@ export interface CardImageProps {
    * sí, que es exactamente lo contrario de lo que se busca.
    */
   priority?: boolean;
+  /**
+   * Se llama UNA vez cuando la imagen deja de estar en vuelo: `load` o `error` (un 404 no puede
+   * dejar a nadie esperando). Sin `src` **no** se llama: no hay nada que esperar y quien la use debe
+   * tratar ese caso como «ya está», no como «cargando».
+   *
+   * Único consumidor hoy: la teja líder del carrusel de la home, que la usa como precondición 3 de
+   * §23.3 — la rotación automática **no arranca hasta que la foto está**, que es la condición que
+   * garantiza que el movimiento nunca coexista con un estado de carga (R2, §23.1).
+   */
+  onLoaded?: () => void;
 }
 
 /**
@@ -41,8 +51,12 @@ const HIGH_FETCH_PRIORITY = { fetchpriority: 'high' } as unknown as { fetchPrior
  * Dirección 5a: el arte se apoya en un pozo de papel más oscuro, sin borde ni
  * esquina redondeada — la carta ya trae su propio marco.
  */
-export function CardImage({ src, alt, className, priority = false }: CardImageProps) {
+export function CardImage({ src, alt, className, priority = false, onLoaded }: CardImageProps) {
   const [loaded, setLoaded] = useState(false);
+  const settle = () => {
+    setLoaded(true);
+    onLoaded?.();
+  };
   // Con `priority` no hay fade: la imagen se pinta en cuanto llega. Un `opacity-0` que
   // espera al `onLoad` retrasa el PINTADO (y por tanto el LCP) aunque los bytes ya estén.
   const visible = loaded || priority;
@@ -65,8 +79,8 @@ export function CardImage({ src, alt, className, priority = false }: CardImagePr
           // Decodificación fuera del hilo principal: no bloquea el pintado del resto de la
           // teja mientras el navegador descomprime el JPEG. Barato y sin efecto visual.
           decoding="async"
-          onLoad={() => setLoaded(true)}
-          onError={() => setLoaded(true)}
+          onLoad={settle}
+          onError={settle}
           className={cn(
             'h-full w-full object-contain transition-opacity',
             visible ? 'opacity-100' : 'opacity-0',
