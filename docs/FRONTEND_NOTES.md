@@ -115,6 +115,10 @@ M3/M5. No se inventó nada visual.
 `ingestMaxCardsPerRun`. Se alinea el espejo y se corrigen los seeds del mock
 (`manualFreshnessDays: null → 30`, `minSampleCount 5`, `maxRawMultiple 100`).
 
+> **Rótulo (añadido 2026-08-31).** Lo de arriba describe el alineamiento de **v1.50.3**.
+> `ingestEnabled` **ya no forma parte** de `GradedEstimateConfigDTO`: M-46 lo retiró al colapsar el
+> gancho en un solo dial (**§31**).
+
 El panel los **muestra read-only**: cambian lo que el operador ve —con 30 días un estimado capturado
 a mano **caduca**, y `maxRawMultiple` es el tope contra el que la lista marca `ABOVE_MAX_MULTIPLE`— y
 no había dónde consultarlos. **Editarlos** sigue siendo por API: cada uno trae su rango normativo
@@ -370,8 +374,14 @@ esquema de §22.11, ambas para poder copiar el texto aprobado **sin reescribirlo
 ### Textos MARCADOR DE POSICIÓN (pendientes de PO — §22.12 nº2)
 Los dos `microNotice` (`catalog.gradingBadge.microNotice`, `catalog.gradingEstimate.microNotice`) y
 `catalog.gradingNote.callSr` usan **los textos propuestos por ux-ui en §22.11**, tomados a su vez de
-§O.5. Son texto legal-comercial: los fija PO (idealmente con la misma revisión legal del
-disclaimer). Cambiarlos es editar `messages/{es,en}.json`, sin tocar código.
+§O.5. Son texto legal-comercial: los fija PO. Cambiarlos es editar `messages/{es,en}.json`, sin tocar
+código.
+
+> **Precisión de estado (añadida 2026-08-31).** El fondo sigue **vigente**: estas cadenas cortas **no**
+> han sido ratificadas por separado (**pregunta abierta 12**), y eso **no bloquea el encendido**. Lo que
+> se corrige es la redacción anterior —«idealmente con la misma revisión legal del disclaimer»—, que
+> **presuponía una revisión legal que nunca hubo**. El estado real del cuerpo del disclaimer de §O.5 es
+> **aprobado por el dueño; sin revisión legal profesional** (`PROJECT.md`, decisión 59).
 
 ### Un solo grado disponible — RESUELTO (ya no hay discrepancia)
 La versión anterior de estas notas reportaba una discrepancia con §22.7 («falta un grado ⇒ nada» en
@@ -441,10 +451,22 @@ componente propio, obligatorio y no configurable**: `GradingMicroNotice`.
 - **M10 · interruptor maestro:** `gradedEstimatesEnabled` entra en `DIALS` como dial **`onOff`**
   (Select cerrado `off | on`, no texto libre) y viaja por el `PUT` parcial de siempre —**sin
   redeploy y auditado**—. Un dial ausente en la respuesta se lee **`off`** (fail-closed, como el seed).
-- **La UI advierte lo que ese dial hace.** Encenderlo **publica una afirmación comercial** cuyo
-  disclaimer aún espera el visto bueno del humano: al tocarlo y dejarlo encendido aparece un aviso
-  `role="alert"` que lo dice, y que aclara que **no cambia ningún precio de venta, valuación ni
-  cotización** (criterio 108). Hay además una nota permanente que remite a M2 para el resto de la config.
+- **La UI advierte lo que ese dial hace.** Encenderlo **publica una afirmación comercial**: al tocarlo
+  y dejarlo encendido aparece un aviso `role="alert"` que lo dice, y que aclara que **no cambia ningún
+  precio de venta, valuación ni cotización** (criterio 108). Hay además una nota permanente que remite
+  a M2 para el resto de la config.
+
+  > **RÓTULO DE ESTADO (añadido 2026-08-31) — lo de arriba describe el 2026-08-23 y quedó superado en
+  > DOS puntos. Se conserva como historia, no como descripción vigente.**
+  > **(1) La aprobación ya existe.** El copy de este aviso decía entonces que el disclaimer «aún espera
+  > el visto bueno del humano». **Hoy esa frase sería falsa:** el dueño **aprobó el texto del disclaimer
+  > de §O.5 el 2026-08-31** (`PROJECT.md`, decisión 59), **sin revisión legal profesional** — y esa
+  > revisión **no bloquea el encendido**. `DESIGN_SYSTEM §22.13(h)` **prohíbe** afirmar que el disclaimer
+  > no está aprobado, y §22.13(k) exige **cero apariciones** de esa frase en `messages/`.
+  > **(2) El dial que se describe ya no existe.** `gradedEstimatesEnabled` fue **retirado** por M-46, que
+  > colapsó el gancho en `gradingHookEnabled`; su aviso de encendido **ya no habla de aprobación
+  > pendiente sino de GASTO**. La descripción vigente está en **§31** (copy corregido y su candado en
+  > `i18n-parity.test.ts`, §31.2).
 - **M2 · Sección 5c `GradedEstimatesSection`:** editor de los **escalones de costo de gradeo**, el
   **margen mínimo** y la **frescura**, con el `enabled` como **espejo read-only** de M10.
   **Los invariantes I1–I5 se cumplen por CONSTRUCCIÓN, no por regaño:** la tabla no pide `min` y `max`
@@ -7364,6 +7386,11 @@ vivo (`admin` + `pricing-curve`): **13 verdes / 0 rojos** (6 saltados, clasifica
 > grado con slab, la lista de revisión cumple sus cuatro reglas y las traducciones están. Lo que
 > **no** existía era una prueba automatizada que lo dijera contra el stack corriendo.
 
+> **Rótulo de nomenclatura (añadido 2026-08-31).** Esta entrada es de **v1.50.3-e2e** y nombra el dial
+> `gradedEstimatesEnabled`, que era el correcto **en esa fecha**. **M-46 lo renombró a
+> `gradingHookEnabled`** y el arnés dejó de poder encenderlo sin precondición verificada (**§31**). Se
+> conserva el nombre viejo porque describe lo que el arnés hacía entonces, no lo que hace hoy.
+
 ### 1. El bloqueante real: la feature no estaba en el gate (no eran «9 rojos»)
 
 Los 9 specs de `grading-estimate.spec.ts` navegaban a **ids de fixture** (`c-blastoise`,
@@ -7807,6 +7834,10 @@ respetando el resto del estado, y purga por contenido alcanzando los archivos le
 | Playwright **real** (`E2E_BASE_URL=http://localhost:3000 E2E_REAL=1`) | **22 pasan, 3 fallan** de 25 — los 3 son el hueco de entorno de Stripe (checkout, guest-checkout, shipments: el modal «Completar pago» no abre). **Cero rojos del gancho** |
 | Solo `grading-estimate.spec.ts` en real | **12/12**, incluido el `@real` del borrado |
 | Huella en el entorno tras la corrida | dial `gradedEstimatesEnabled` = `off`; carta `deletable` sin cifras; `/tmp/tcg-vault-e2e-state` `0700` y **vacío** |
+
+> **Rótulo (añadido 2026-08-31).** Esta tabla es la **medición del 2026-08-29** y se conserva tal cual.
+> El dial que nombra, `gradedEstimatesEnabled`, **ya no existe**: M-46 lo renombró a
+> `gradingHookEnabled` (**§31**).
 
 **Nota para devops (entorno, no código).** Al verificar el build corrí `npx next build` **sin** las
 variables que usa `scripts/stack-native.sh`, y eso horneó `.next` con la URL de API por defecto
