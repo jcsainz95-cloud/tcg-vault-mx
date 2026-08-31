@@ -6949,6 +6949,20 @@ el banner se anuncia **sin** interrumpir la escritura. (i) Búsqueda en `message
 > **Nota de lectura para los recuadros de arriba.** Las notas de v2.6 y v2.6.1 se conservan como historia:
 > son ciertas en todo salvo donde dicen «el conmutador sigue donde está». Desde v2.7 **no hay conmutador**.
 
+> **Corrección v2.7.1 (2026-08-31) — precisión numérica señalada por QA y por techlead. No cambia ninguna
+> decisión de diseño.**
+> La duración de la pasada aparecía con **dos cifras** en el mismo apartado (≈ 39 s en §23.4.0 y §23.16;
+> ≈ 44 s en §23.3 y §23.14 ñ). Se resuelve así, y en **§23.3b** queda la aritmética completa:
+> 1. **Canónica: ≈ 39 s a 390 px**, medida **desde que la rotación se vuelve posible hasta que la pista
+>    queda quieta**, **reposo inicial incluido**. Los **≈ 44 s se retiran: eran un error de suma** (contaban
+>    el reposo inicial dos veces), no una segunda medida legítima.
+> 2. **La pasada dura menos cuanto más ancha es la ventana** — el número de tics no es una constante, es
+>    los que hagan falta para llegar al tope de la pista. Dos cotas: **≈ 39 s a 390 px** (cálculo) y
+>    **≈ 15 s en escritorio** (medido: 15,3 s frontend, ~14 s netos QA). Es la **misma función**, no un
+>    incumplimiento.
+> 3. **Ningún argumento de §23 se cae** con la cota corta: los tres que usan la cifra siguen en pie y en
+>    §23.3b (c) queda comprobado uno por uno, incluido el de WCAG 2.2.2 de §23.4.0 (a).
+
 ### 23.0 Las siete reglas duras
 
 Si una sola de estas siete se incumple, la entrega está mal aunque «se vea bien»:
@@ -7066,13 +7080,15 @@ usuario la detiene** —para siempre— y las flechas siempre están (§23.5).
 - **El reposo inicial es también de 5 s**, contados desde que la rotación se vuelve posible (§23.8). Nadie
   ve moverse nada durante los primeros 5 s de vida del estante.
 - **Bajar a 5 s NO «libra» al carrusel de WCAG 2.2.2, y nadie debe escribir que sí.** El criterio mira
-  **cuánto dura el movimiento automático**, no el hueco entre dos tics: aquí la pasada completa son **7 tics
-  ⇒ ≈ 39 s** de contenido en movimiento automático, muy por encima de los 5 s del criterio. Que la cadencia
-  sea de 5 s es una decisión de **ritmo de lectura**, y punto. La razón por la que este carrusel no lleva
-  mecanismo de pausa **no es el número**: es la decisión razonada de §23.4.
+  **cuánto dura el movimiento automático**, no el hueco entre dos tics: aquí la pasada completa dura
+  **≈ 39 s a 390 px** y **≈ 15 s en escritorio** (§23.3b), y **las dos cotas superan de sobra los 5 s** del
+  criterio. Que la cadencia sea de 5 s es una decisión de **ritmo de lectura**, y punto. La razón por la que
+  este carrusel no lleva mecanismo de pausa **no es el número**: es la decisión razonada de §23.4.
 
-**Duración total de la pasada (v2.7):** 5 s de reposo inicial + 7 tics × (5 s + 0,55 s) ≈ **44 s** desde que
-la pista aparece hasta que la home queda quieta para siempre (eran ≈ 60 s con 7 s).
+**Duración total de la pasada (v2.7.1): `n × 5,55 s`, donde `n` es el número de tics — que depende de la
+anchura.** A 390 px, `n = 7` ⇒ **≈ 39 s** desde que la pista aparece hasta que la home queda quieta para
+siempre. La cuenta completa, la retirada de los ≈ 44 s y la dependencia de la anchura están en **§23.3b**,
+que es el único sitio donde se define esta cifra.
 
 **Cuánto avanza: exactamente UNA teja (R6).** No una «página».
 
@@ -7124,7 +7140,7 @@ cortada por la izquierda**. No es un fallo de cálculo del destino: es aritméti
 |---|---|
 | El **último tic** de la pasada (el que alcanza `TERMINADO`) | Corte por la izquierda **aceptado** |
 | La **última pulsación** de la flecha «siguiente» (mismo tope, §20.3) | Corte por la izquierda **aceptado** — y es el comportamiento que ya existía antes de §23 |
-| Los **siete reposos intermedios** | **R6 se exige literal**: `snap` exacto, cero corte por la izquierda |
+| **Todos los demás reposos** de la pasada (siete a 390 px; **menos en pantallas anchas**, §23.3b) | **R6 se exige literal**: `snap` exacto, cero corte por la izquierda |
 
 **Por qué no se remedia.** La alternativa evaluada por el frontend —detener la pasada en el `snap` anterior,
 para que ningún reposo corte por la izquierda— **es peor**: dejaría la **última teja inalcanzable** por
@@ -7136,6 +7152,90 @@ deliberada de «hay más» (§23.3).
 **Prohibido «arreglarlo»** con padding de cola, tejas fantasma, un espaciador final o reduciendo el ancho de
 la última teja: cualquiera de esos remedios mete geometría inventada en la pista para tapar un hecho del
 contenedor, y los tres chocan con R1 (§23.2) o con la anatomía de teja de §22.6b.
+
+### 23.3b Duración de la pasada — **una sola definición, y depende de la anchura** (v2.7.1)
+
+> **Definición única. Cualquier cifra de duración que aparezca en §23 sale de aquí; ningún otro apartado la
+> vuelve a calcular.**
+>
+> **Pasada = `n × 5,55 s`**, contada **desde que la rotación se vuelve posible** (cumplidas las cuatro
+> precondiciones de §23.3) **hasta que la pista queda quieta en el tope** (`TERMINADO`, §23.6). **Incluye el
+> reposo inicial de 5 s.** `n` = número de tics, y **no es una constante del componente** (ver (b)).
+>
+> **A 390 px, `n = 7` ⇒ ≈ 39 s. Ésa es la cifra canónica** y es la que citan §23.4.0, §23.6 y §23.16.
+
+**(a) La cuenta, y por qué los ≈ 44 s se retiran.**
+
+| Tramo | Cuenta | A 390 px (`n = 7`) |
+|---|---|---|
+| Reposo **antes de cada tic** — el primero de esos reposos **es** el reposo inicial | `n × 5 s` | 35 s |
+| Traslaciones (≈ 0,55 s cada una) | `n × 0,55 s` | ≈ 3,9 s |
+| **Pasada completa** | **`n × 5,55 s`** | **≈ 38,9 s ⇒ ≈ 39 s** |
+
+> **Los ≈ 44 s quedan RETIRADOS, y conviene decir exactamente qué eran: un error de suma, no una segunda
+> medida legítima.** Salían de escribir «5 s de reposo inicial + 7 tics × (5 s + 0,55 s)», que **cuenta el
+> reposo inicial dos veces**: el reposo que precede al primer tic *es* el reposo inicial, no uno anterior a
+> él. No hay «una cifra con reposo inicial y otra sin él» — hay **una** pasada, dura **`n × 5,55 s`** y ya
+> lo lleva dentro. Quien cite ≈ 44 s (o los ≈ 60 s de la nota histórica de v2.6, que salían de la misma
+> suma; con cadencia de 7 s la pasada eran **≈ 53 s**) está citando la resta mal hecha.
+
+Si alguna vez hace falta una magnitud distinta de la pasada, se nombra explícitamente — **nunca se deja
+suelto un número sin decir qué mide**:
+
+| Magnitud | Qué mide | A 390 px |
+|---|---|---|
+| **Pasada** *(la canónica)* | rotación posible → `TERMINADO`, **reposo inicial incluido** | **≈ 39 s** |
+| Ventana de movimiento | arranque del **primer tic** → fin del último, **sin** el reposo inicial | ≈ 34 s |
+| Desplazamiento neto | solo las traslaciones (`n × 0,55 s`) | ≈ 3,9 s |
+
+**(b) La pasada dura MENOS cuanto más ancha es la ventana — y eso no es un defecto.** `n` es **el número de
+tics que hacen falta para alcanzar el tope de la pista** (§23.3a): las ocho tejas son siempre ocho, pero
+cuantas más caben a la vez, menos queda por recorrer. Mismo componente, misma cadencia, **distinta
+duración**:
+
+| Anchura | Tejas visibles | `n` | Pasada | Origen de la cifra |
+|---|---|---|---|---|
+| **390 px** (móvil) | ~2 | **7** | **≈ 39 s** | **Cálculo** con la geometría de §22.6b (teja 160 + gap 16 ⇒ paso 176px) |
+| **Escritorio** (`lg`+, ventana ancha) | 4 o más | **2–4** | **≈ 15 s** | **Medido**: 15,3 s (frontend) y ~14 s netos (QA); compatible con `n = 3` |
+
+> **Regla de lectura, para que la próxima medición no se lea como un incumplimiento:** **≈ 39 s es la cota
+> de móvil y ≈ 15 s la de escritorio. Son la misma función.** Una medición de escritorio que dé ~15 s **no
+> contradice** este documento, y una de 390 px que dé ~39 s tampoco. Lo que **sí** sería un defecto es que
+> el **reposo entre dos tics** no dé ≈ 5 s (§23.14 p) o que la pista **no llegue al tope** sin intervención
+> (§23.14 ñ).
+
+Dos precisiones de medición, para que nadie persiga décimas:
+
+- **El último tic se satura en el tope** (`scrollWidth − clientWidth`, §23.3a): recorre menos que un paso
+  completo, así que lo medido cae **algo por debajo** de `n × 5,55 s`. Tolerancia razonable: **± 1 tic
+  (≈ 5,5 s)**.
+- **Ninguna verificación debe asertar un número fijo de tics.** `n` se **deriva en la anchura en la que se
+  mida**; asertar «7 tics» en un viewport de escritorio es un test mal escrito, no un fallo del componente
+  (§23.14 ñ, corregido en v2.7.1).
+
+**(c) Qué argumentos de §23 dependen de esta cifra — comprobado uno por uno.** La cifra corta (≈ 15 s) es
+**tres veces menor** que la que traían §23.4.0 y §23.16, así que hay que verificar que ninguno de los
+razonamientos se sostuviera en el número grande:
+
+| Dónde | Qué afirma | ¿Sigue en pie con ≈ 15 s? |
+|---|---|---|
+| **§23.4.0 (a)** — WCAG 2.2.2 | el movimiento «dura más de 5 s» ⇒ el criterio **aplica** y la v2.7 **no lo cumple** | **Sí.** Necesita `> 5 s` y la cota **más corta** medida (≈ 15 s) lo triplica. Lo que cambia es el **margen** (era ~8×, ahora ~3× en escritorio), no la conclusión |
+| **§23.6 nº 4** — «acota el movimiento total» | una pasada única, finita, frente al movimiento perpetuo | **Sí, y sale reforzado**: cuanto más corta la pasada, más fuerte el argumento. Aquí **«acotado» significa finito, no breve** |
+| **§23.16 (c)** — «la más contenida posible» | mismo sentido que el anterior | **Sí, reforzado** por la misma razón |
+| **§23.16 (a)** — el costo de esperar | quien no puede parar la rotación «tiene que esperar a que termine sola» | **Sí, y la cifra correcta ahí es la de móvil (≈ 39 s)**: la persona afectada es exactamente la del teléfono táctil. Usar ≈ 15 s ahí **rebajaría el costo** que esa sección existe para no callar |
+
+> **§23.16 usa la duración en las dos direcciones —«es mucho esperar» (a) y «es contenido» (c)— y las dos
+> son ciertas a la vez.** No es una contradicción: (a) habla del **peor caso, en móvil**, y (c) de que el
+> movimiento **termina y no vuelve**, frente a un carrusel en bucle. Cada una cita su cota, y por eso ambas
+> llevan la anchura escrita al lado.
+
+> **Lo que NO se puede hacer con esta aritmética.** Alguien podría observar que el tiempo *literalmente* en
+> movimiento son solo `n × 0,55 s` (≈ 3,9 s a 390 px, ≈ 1,7 s en escritorio) y concluir que 2.2.2 no aplica
+> porque «no llega a 5 s». **Este documento rechaza esa lectura y prohíbe usarla para declarar
+> conformidad.** El criterio mira la **presentación en movimiento** —una secuencia intermitente que se
+> repite durante ≈ 15–39 s—, no la suma de fotogramas animados; y ante la duda, §23 se queda con la lectura
+> **conservadora**, que es la que protege al usuario. La postura de §23.4.0 (a) —**no cumplimos 2.2.2, y se
+> escribe así**— **no cambia**.
 
 ### 23.4 El control de reproducción — **RETIRADO (v2.7, decisión del dueño)**
 
@@ -7171,8 +7271,16 @@ Esto es lo que la v2.6 **no distinguió**, y por eso hay que decirlo con precisi
 **(a) Lo que dice el estándar, y sigue diciendo.** **WCAG 2.2.2 «Pause, Stop, Hide» (nivel A)** pide un
 mecanismo para pausar, detener u ocultar cualquier contenido en movimiento que **arranque solo**, dure más
 de 5 segundos y se presente junto a otro contenido. Este carrusel entra de lleno: arranca solo y su pasada
-dura ≈ 39 s (§23.3). **Medido contra WCAG, la implementación de v2.7 NO cumple 2.2.2.** No se maquilla:
-queda escrito así, en el documento de diseño, con esas palabras.
+dura **≈ 39 s a 390 px y ≈ 15 s en escritorio** —reposo inicial incluido, §23.3b—, de modo que **el criterio
+aplica en cualquier anchura**: hasta la cota más corta triplica los 5 s. **Medido contra WCAG, la
+implementación de v2.7 NO cumple 2.2.2.** No se maquilla: queda escrito así, en el documento de diseño, con
+esas palabras.
+
+*(Precisión de v2.7.1: aquí se citaba «≈ 39 s» a secas y §23.3 decía «≈ 44 s». **La cifra canónica es
+≈ 39 s** —los ≈ 44 s eran un error de suma, §23.3b (a)—, y va **siempre con la anchura al lado**, porque la
+pasada es más corta cuanto más ancha es la ventana. **El argumento no dependía del número grande**: aguanta
+con las dos cotas. Lo que **no** se acepta es la lectura de que solo cuentan los ≈ 4 s de traslación pura
+para declararse conforme — prohibida en §23.3b (c).)*
 
 **(b) Lo que WCAG NO es.** WCAG es una **recomendación técnica del W3C**, un consorcio industrial. **No es
 una ley** y el W3C no tiene potestad para imponerla. Se vuelve exigible solo cuando **una norma jurídica la
@@ -7439,8 +7547,10 @@ Cuatro razones (v2.6, siguen en pie) para que no haya bucle automático:
    es un salto que se lee como error. No hay tercera forma decente.
 3. **La alternativa habitual —clonar tejas para un bucle infinito— está prohibida por R1** (§23.2):
    duplicaría nombres accesibles que aquí incluyen la cifra del gancho y su micro-aviso.
-4. **Acota el movimiento total.** Siete tics ⇒ **≈ 39 s** (v2.7; eran ≈ 49 s) y la home queda
-   **completamente quieta** para siempre. El movimiento perpetuo en la primera pantalla es el verdadero
+4. **Acota el movimiento total.** La pasada dura **≈ 39 s a 390 px** (siete tics) y **≈ 15 s en escritorio**
+   (§23.3b) y luego la home queda **completamente quieta** para siempre. *«Acotado» aquí significa **finito**,
+   no «breve»: el argumento es contra el bucle perpetuo, y por eso se sostiene igual con las dos cotas — la
+   corta solo lo refuerza.* El movimiento perpetuo en la primera pantalla es el verdadero
    irritante; una pasada única cumple el objetivo (revelar que hay más de lo que cabe) y se retira. *(La
    cadencia más rápida **acorta** la ventana de movimiento total: es el único efecto del cambio de v2.7 que
    juega a favor de la doctrina de §17.3.)*
@@ -7697,6 +7807,8 @@ Convención `home.featured.*` (§20.16). ES de referencia; EN a cargo de fronten
 | 25 | **v2.7 —** Bajar la cadencia **por debajo de 5 s**, o «compensar» la falta de control acelerando/añadiendo tics | Por debajo de 5 s el reposo deja de ser dominante y **se incumple la condición 3 de §17.3a**: la excepción de movimiento deja de estar justificada. El 5 s es techo, no punto de partida |
 | 26 | **v2.7 —** Escribir en cualquier documento, ticket, veredicto o copy que el carrusel **«cumple WCAG 2.2.2»**, que **«WCAG no aplica»** o que **«el control no era obligatorio»** a secas | Las tres son falsas o incompletas. La forma correcta de decirlo está fijada literalmente en §23.4.0 (d) y se usa esa |
 | 27 | **v2.7 —** Añadir un ajuste **en la app** de «reducir movimiento» propio, o recordar la pausa en `localStorage` como sustituto del control retirado | Es reintroducir el control por la puerta de atrás y con peor ergonomía. La preferencia que manda es la **del sistema** (nº17, §23.7) |
+| 28 | **v2.7.1 —** **Recalcular la duración de la pasada en otro apartado**, o citarla **sin decir a qué anchura** («la pasada dura X s», a secas) | Así se produjo la divergencia 39/44 que hubo que corregir. La cifra se define **solo** en §23.3b (`n × 5,55 s`; ≈ 39 s a 390 px, ≈ 15 s en escritorio) y todo lo demás la **cita con su anchura**. Un número suelto vuelve a divergir a la primera |
+| 29 | **v2.7.1 —** Usar la cota **corta** (≈ 15 s de escritorio) para **rebajar** el costo de §23.16 (a), o el **desplazamiento neto** (≈ 4 s de traslación pura) para declararse conforme con 2.2.2 | Son las dos formas de maquillar con aritmética una decisión que este documento asume por escrito. El costo se cuenta **en la pantalla de quien lo paga** (móvil) y la conformidad se lee con el criterio **conservador** (§23.3b c, §23.4.0 a) |
 
 ### 23.14 QA visual sugerido — **reescrito en v2.7**
 
@@ -7736,12 +7848,20 @@ check falla (§23.9c).
 todo-o-nada de la numeración, ni las alturas dispares (§22.6b-d). (m) **Rendimiento:** en el panel de red,
 **cero descargas de imagen nuevas** provocadas por los tics. (n) **Pestaña oculta:** cambiar de pestaña 1 min
 y volver ⇒ la pista está donde se dejó (sin tics acumulados).
-**(ñ) Falso positivo de pausa — reescrito (v2.7).** Cargar la home y **no tocar nada**. Antes se leía la
-etiqueta; ahora se mide el movimiento: **el primer tic debe ocurrir a los ~5 s y la pasada debe completar
-sus 7 tics** (≈ 44 s en total). Si la pista da **cero tics**, o se detiene tras el primero sin que nadie haya
-intervenido, el asentamiento de `scroll-snap` del motor se está leyendo como intervención (§23.5a) — es el
-defecto que casi mata la función y **sigue siendo el check más importante de la lista**. Su recíproco, en la
-misma corrida: un swipe real **sí** pausa para siempre (check e).
+**(ñ) Falso positivo de pausa — reescrito (v2.7; cifras corregidas en v2.7.1).** Cargar la home y **no tocar
+nada**. Antes se leía la etiqueta; ahora se mide el movimiento: **el primer tic debe ocurrir a los ~5 s y la
+pista debe seguir ticando, sin intervención, hasta alcanzar el tope** (§23.3a). Si la pista da **cero tics**,
+o se detiene tras el primero sin que nadie haya intervenido, el asentamiento de `scroll-snap` del motor se
+está leyendo como intervención (§23.5a) — es el defecto que casi mata la función y **sigue siendo el check
+más importante de la lista**. Su recíproco, en la misma corrida: un swipe real **sí** pausa para siempre
+(check e).
+> **No asertar «7 tics» ni «≈ 44 s» — los dos números eran incorrectos aquí y por dos motivos distintos**
+> (§23.3b): los ≈ 44 s eran un **error de suma** (la pasada a 390 px es **≈ 39 s**), y **7 tics es la cuenta
+> de 390 px**, no una constante: en escritorio caben más tejas y la pasada se agota en **2–4 tics**
+> (**≈ 15 s** — 15,3 s medidos por frontend, ~14 s netos por QA). **El aserto correcto es «llega al tope sin
+> intervención», y el número de tics se deriva de la anchura en la que se corre el test** (tolerancia ± 1
+> tic). Un test que espere 7 tics en un viewport de escritorio falla por estar mal escrito, no por un
+> defecto del componente.
 **(o) Sin JS, la parte cierta:** con `javaScriptEnabled: false` verificar lo que §23 sí garantiza — **cero
 flechas, cero movimiento** (y cero controles de reproducción, que ya no existen en ningún estado). Que el
 estante quede en carga es un **hecho conocido y preexistente** (§23.8a), **no** un fallo de esta entrega.
@@ -7785,7 +7905,12 @@ elemento que ofrezca pausar, reanudar o repetir — botón, icono, texto, ítem 
    regresión permanente del falso positivo** (§23.5a) **hay que reescribirlos contra el `scrollLeft` de la
    pista y el tiempo**, no borrarlos. Un test que se borra porque «el botón ya no está» deja sin cubrir la
    regla que casi mata la función. Checks nuevos: **(p)** cadencia medida ≈ 5 s y **(q)** ausencia total de
-   control. *(De v2.6.1, siguen vigentes y NO son incumplimientos de frontend: la pausa por desplazamiento
+   control. **De v2.7.1, y afecta directamente a un test existente:** el check **(ñ)** ya **no** debe
+   asertar «7 tics ≈ 44 s». Los ≈ 44 s eran un error de suma (la pasada a 390 px es **≈ 39 s**) y **el
+   número de tics depende de la anchura** — en escritorio son 2–4 y la pasada dura **≈ 15 s**, coherente con
+   lo que midieron frontend (15,3 s) y QA (~14 s netos). El aserto correcto es **«llega al tope sin
+   intervención»**, con `n` derivado del viewport y tolerancia ± 1 tic (§23.3b). *(De v2.6.1, siguen
+   vigentes y NO son incumplimientos de frontend: la pausa por desplazamiento
    es **atribuible al usuario** (§23.5a); el corte de la teja izquierda **en el tope** es límite aceptado
    (§23.3a); sin JS el estante queda **en carga**, hecho **preexistente** (§23.8a).)*
 5. **Techlead (actualizado v2.7):** §23.1 crea **una excepción nominal y acotada** a la doctrina de
@@ -7821,8 +7946,10 @@ sin ratón y sin teclado, y que **no toca la pantalla** mientras lee. Para esa p
 **Resultado, dicho sin rodeos: esa persona no tiene ninguna forma explícita de detener la rotación.** Le
 quedan dos caminos, y los dos son laterales: **tocar la pista y arrastrarla un poco** (lo que la pausa para
 siempre, F3 — funciona, pero **hay que descubrirlo por accidente**, porque nada en pantalla lo sugiere) o
-**esperar ≈ 44 s** a que la pasada termine sola. Un toque **quieto**, sin arrastre, solo suspende mientras el
-dedo esté apoyado: **no** pausa para siempre.
+**esperar ≈ 39 s** a que la pasada termine sola —ésa es la duración **a 390 px**, que es justamente la
+anchura de esta persona (§23.3b); en una ventana ancha la misma pasada se agota en ≈ 15 s, pero **esa no es
+la pantalla de quien se queda sin nada**, así que aquí manda la cota de móvil—. Un toque **quieto**, sin
+arrastre, solo suspende mientras el dedo esté apoyado: **no** pausa para siempre.
 
 > **Precisión que hay que hacer, porque es fácil consolarse con una media verdad:** «tocar la pista la
 > detiene» es cierto **si el toque mueve la pista**. Un dedo apoyado y quieto **no** dispara F3 (§23.5a
@@ -7840,7 +7967,8 @@ dedo esté apoyado: **no** pausa para siempre.
    midiendo `scrollLeft` en el tiempo (§23.14). Los tests son más largos, más lentos y más frágiles.
 
 **(c) Lo que NO se perdió, para que la lista no se lea peor de lo que es.** La rotación **sigue teniendo
-cinco frenos** y sigue siendo la más contenida posible: una teja por tic, **una sola pasada de ≈ 39 s**, se
+cinco frenos** y sigue siendo la más contenida posible: una teja por tic, **una sola pasada** —**≈ 39 s a
+390 px, ≈ 15 s en escritorio** (§23.3b), y lo que importa aquí es que **acaba**—, se
 detiene al primer gesto y **no vuelve**, no arranca sobre contenido en carga, y con `prefers-reduced-motion`
 **no existe**. El contenido está entero y accesible sin rotación alguna: las flechas, el dedo y la rueda
 llegan a las ocho tejas, siempre.
