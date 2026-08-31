@@ -294,6 +294,15 @@
 > kicker), en el mismo sitio en las tres anchuras. Regla dura heredada del frontend y **no negociable**:
 > **rota la ventana, nunca el rol de teja líder** (§23.2). **Cero tokens nuevos, cero cambios de contrato,
 > cero datos nuevos.**
+>
+> **Añadido v2.6.1 (2026-08-31) — §23 corregida en tres puntos sobre evidencia medida en navegador.** La
+> implementación de §23 fue **completa y correcta**; lo que falló fue este documento, escrito sobre lectura de
+> código. Se corrigen: (1) **§23.5a**, la regla de pausa por desplazamiento pasa a **«atribuible a un acto del
+> usuario»** —tal como estaba, literal, el motor de `scroll-snap` autopausaba el carrusel antes del primer
+> tic—; (2) **§23.3a**, R6 no es cumplible en el **tope físico de la pista** y ese corte queda como límite
+> aceptado y acotado; (3) **§23.8a**, sin JS el estante queda **en carga** (react-query resuelve en cliente,
+> hecho **preexistente**), de modo que lo prometido sin JS se reduce a lo que sí es cierto: **cero controles
+> muertos y cero movimiento sin freno**. Ninguna decisión de diseño de §23 cae con estas tres.
 
 ---
 
@@ -4176,12 +4185,18 @@ Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los
    - **Corrección v2.6 (P-49) — lo que decía esta nota sobre el carrusel ya no es cierto tal cual.**
      Decía: *«el carrusel debe degradar a scroll-snap nativo sin JS»*. Con la rotación automática (§23) el
      JS pasa a ser **obligatorio para rotar**. Lo que ahora es cierto, y sustituye a la frase anterior:
-     > **Sin JS (y antes de hidratar) el carrusel es una pista de scroll-snap nativa que NO rota**, con
-     > sus ocho tejas completas y legibles y su desplazamiento táctil/de rueda intacto. Ese estado **no es
-     > un fallback degradado: es el estado inicial** del componente, del que la rotación solo sale hacia
-     > arriba, y solo tras hidratar. Lo que requiere JS es **rotar, las flechas y el conmutador de pausa**
-     > — y las tres cosas **no se pintan si no funcionan** (§23.8), así que no queda ningún control muerto
-     > ni ningún movimiento sin freno. El **contenido nunca depende del JS.**
+     > **Sin JS (y antes de hidratar) el carrusel es una pista de scroll-snap nativa que NO rota**, con su
+     > desplazamiento táctil/de rueda intacto. Ese estado **no es un fallback degradado: es el estado
+     > inicial** del componente, del que la rotación solo sale hacia arriba, y solo tras hidratar. Lo que
+     > requiere JS es **rotar, las flechas y el conmutador de pausa** — y las tres cosas **no se pintan si no
+     > funcionan** (§23.8), así que no queda ningún control muerto ni ningún movimiento sin freno.
+     - **Corrección v2.6.1 (2026-08-31), verificada en navegador:** la frase de arriba decía además que sin
+       JS se leían **«las ocho tejas completas»** y que **«el contenido nunca depende del JS»**. Las dos son
+       **falsas hoy**, y lo eran **antes de §23**: el contenido del estante lo resuelve **react-query en el
+       cliente**, así que sin JS la sección queda en **estado de carga**. Lo que sí se garantiza sin JS es
+       **cero flechas, cero conmutador y cero movimiento**. Ver **§23.8a**; la condición para que la promesa
+       original fuera cierta (resolver la consulta en servidor) es **petición abierta al arquitecto**,
+       §23.15 nº2.
 3. **QA visual sugerido:** (a) home sin bounties → la sección §20.7 no existe en el DOM; (b) ningún
    distintivo «N en stock» en singles mientras el contrato no exponga conteos; (c) foco visible
    recorrible por toda la home incluida la banda oscura; (d) móvil 390: sin scroll horizontal
@@ -6853,6 +6868,23 @@ el banner se anuncia **sin** interrumpir la escritura. (i) Búsqueda en `message
 > del catálogo» de la home, §20.3). **Cero tokens nuevos, cero componentes de dominio nuevos, cero datos
 > nuevos, cero cambios de contrato ni de arquitectura.**
 
+> **Actualización v2.6.1 (2026-08-31) — precisión sobre evidencia medida, no cambio de rumbo.**
+> §23 se escribió leyendo código; el frontend la implementó **completa** (917 tests en verde, 8 pruebas en
+> navegador real, las siete reglas duras, el conmutador en su sitio, `prefers-reduced-motion` enforzado en la
+> lógica y escuchado en vivo) y midió **tres cosas que no se sostienen en el navegador**. Se corrigen aquí, y
+> son correcciones **de este documento**, no incumplimientos de la implementación:
+> 1. **§23.5** — la regla general de pausa pasa de «cualquier desplazamiento que el carrusel no haya
+>    originado» a **«desplazamiento atribuible a un acto del usuario»**. Tal como estaba, implementada
+>    literal, **mataba la función antes del primer tic** (el propio motor de `scroll-snap` emite `scroll`).
+> 2. **§23.3a** — R6 es **geométricamente imposible en el tope de la pista**. Queda como **límite aceptado**,
+>    acotado a dos posiciones, con la razón por la que no se remedia.
+> 3. **§23.8** — la promesa «sin JS se ven las ocho tejas completas» **ya era falsa antes de §23** (el
+>    contenido del estante lo resuelve react-query en el cliente). Se corrige a lo que es cierto hoy y la
+>    condición para que fuera verdad queda como **petición abierta al arquitecto** (§23.15 nº2).
+>
+> Ninguna de las tres invalida una decisión de diseño de §23: las siete reglas duras siguen en pie, el
+> conmutador sigue donde está, la cadencia no cambia y la excepción de movimiento de §23.1 no se amplía.
+
 ### 23.0 Las siete reglas duras
 
 Si una sola de estas siete se incumple, la entrega está mal aunque «se vea bien»:
@@ -6863,8 +6895,8 @@ Si una sola de estas siete se incumple, la entrega está mal aunque «se vea bie
 | R2 | **La rotación nunca coexiste con un estado de carga.** No arranca hasta que la consulta resolvió y la imagen de la teja líder cargó. Nada de rotar sobre skeletons | §23.1, §23.3 |
 | R3 | **El control de pausa está SIEMPRE visible** mientras haya rotación posible — nunca oculto tras `hover`, nunca solo en `focus`, nunca dentro de un menú | §23.4 |
 | R4 | **`prefers-reduced-motion` ⇒ movimiento CERO.** No «más lento», no «sin easing»: el temporizador no arranca y el scroll por JS es instantáneo | §23.7, §8.2 |
-| R5 | **La intervención del usuario gana para siempre** (en esa visita). Nada de reanudar solo tras N segundos | §23.5 |
-| R6 | **Un solo paso por tic: una teja**, aterrizando en su punto de `snap`. Ningún reposo deja una teja cortada por el **borde izquierdo** | §23.3 |
+| R5 | **La intervención del usuario gana para siempre** (en esa visita). Nada de reanudar solo tras N segundos. *«Intervención» = desplazamiento **atribuible a un acto del usuario**; el motor del navegador no es un usuario (§23.5)* | §23.5 |
+| R6 | **Un solo paso por tic: una teja**, aterrizando en su punto de `snap`. Ningún reposo deja una teja cortada por el **borde izquierdo** — **salvo el tope físico de la pista**, límite aceptado y acotado (§23.3a) | §23.3, §23.3a |
 | R7 | **Sin clones, sin bucle infinito, sin rebobinado animado.** La pista hace **una pasada** y se detiene; volver al inicio es una acción **del usuario** | §23.6 |
 
 ### 23.1 Reconciliación con §17.3 — por qué este movimiento no es el movimiento prohibido
@@ -6981,6 +7013,35 @@ es aceptable y **no** se le superpone ninguna transición CSS. Requisitos visual
 3. La **imagen de la teja líder ha cargado** (`load`), o han pasado **3 s** desde que se resolvió el dato —
    lo que ocurra antes. El tope evita que una imagen remota lenta deje el estante muerto para siempre.
 4. Ha pasado el **reposo inicial de 7 s**.
+
+### 23.3a R6 en el tope de la pista — **límite aceptado** (v2.6.1)
+
+> **R6 («ningún reposo deja una teja cortada por el borde izquierdo») es geométricamente imposible de
+> cumplir en la última posición de la pista. Se acepta el corte ahí, y no se remedia.**
+
+El tope físico de scroll es `scrollLeft = scrollWidth − clientWidth`: el navegador no puede ir más allá. En
+esa posición la **última** teja queda a ras del borde derecho y, salvo que el ancho visible resulte múltiplo
+exacto de (teja + gap) —lo que no ocurre en ninguna de las tres anchuras—, **la primera teja visible queda
+cortada por la izquierda**. No es un fallo de cálculo del destino: es aritmética del contenedor.
+
+**Alcance exacto, para que no se lea como una licencia general:**
+
+| Dónde ocurre | Estado |
+|---|---|
+| El **último tic** de la pasada (el que alcanza `TERMINADO`) | Corte por la izquierda **aceptado** |
+| La **última pulsación** de la flecha «siguiente» (mismo tope, §20.3) | Corte por la izquierda **aceptado** — y es el comportamiento que ya existía antes de §23 |
+| Los **siete reposos intermedios** | **R6 se exige literal**: `snap` exacto, cero corte por la izquierda |
+
+**Por qué no se remedia.** La alternativa evaluada por el frontend —detener la pasada en el `snap` anterior,
+para que ningún reposo corte por la izquierda— **es peor**: dejaría la **última teja inalcanzable** por
+rotación *y* por flecha. R6 protege una composición; **nunca a costa de esconder una pieza del catálogo**.
+Entre «la teja de la izquierda se ve cortada» y «la teja de la derecha no se ve nunca», el sistema elige lo
+primero sin dudar — y además el corte por el borde derecho ya es, en el resto de la pasada, la señal
+deliberada de «hay más» (§23.3).
+
+**Prohibido «arreglarlo»** con padding de cola, tejas fantasma, un espaciador final o reduciendo el ancho de
+la última teja: cualquiera de esos remedios mete geometría inventada en la pista para tapar un hecho del
+contenedor, y los tres chocan con R1 (§23.2) o con la anatomía de teja de §22.6b.
 
 ### 23.4 El control de reproducción — **la decisión que bloqueaba el código**
 
@@ -7133,7 +7194,7 @@ temporizador simplemente no corre. El control **no cambia** de etiqueta, glifo n
 | **Swipe / arrastre** sobre la pista | — |
 | **Rueda / trackpad** horizontal sobre la pista | — |
 | Pulsar una **flecha** (§20.3) | Así flechas y rotación no se disputan la pista |
-| **Cualquier desplazamiento de la pista que el carrusel no haya originado** — incluido el que provoca el navegador al tabular a una teja fuera de pantalla | Regla general que cubre los casos que nadie enumeró |
+| **Cualquier desplazamiento de la pista atribuible a un acto del usuario** que el carrusel no haya originado — incluido el que provoca el navegador al tabular a una teja fuera de pantalla | Regla general acotada. **Corregida en v2.6.1**: leer el recuadro de abajo **antes** de implementarla |
 | Llegar a la sección por **ancla** (`#piezas-destacadas`, el regreso de la nota al pie del gancho, §22.4a) | Quien llega por el ancla viene a **inspeccionar algo concreto**. Que la ventana se le mueva bajo los ojos es el peor momento posible. **No se rebobina**: solo se detiene |
 
 > **Decisión: la intervención pausa PARA SIEMPRE, no «durante N segundos» (R5).** Reanudar solo tiene un
@@ -7142,6 +7203,45 @@ temporizador simplemente no corre. El control **no cambia** de etiqueta, glifo n
 > el cumplimiento de 2.2.2 en algo formal (existe el botón) en vez de real (el usuario manda). El coste —que
 > alguien pause sin querer y no vuelva a ver rotación— es **barato**: el contenido sigue ahí entero y las
 > flechas siguen funcionando. El coste contrario no lo es.
+
+#### 23.5a Corrección v2.6.1 — la regla general es **atribuible al usuario**, no «cualquier `scroll`»
+
+Este documento decía: *«cualquier desplazamiento que el carrusel no haya originado ⇒ pausa permanente»*. Es
+la corrección más importante de las tres, porque **implementada al pie de la letra deja la función muerta**:
+el carrusel se pausa solo **antes del primer tic**.
+
+**Evidencia medida (frontend, listener de captura en Chromium sobre la home real):** un único evento `scroll`
+a **t ≈ 999 ms**, en `#piezas-destacadas-pista`, con `scrollLeft: 32` — que es **el propio motor del
+navegador aplicando `scroll-snap`** y llevando la pista al gutter. Nadie tocó nada. En la primera corrida de
+E2E el conmutador ya decía **REANUDAR** con el usuario quieto. El error es mío: escribí la regla asumiendo
+que un `scroll` implica una mano, y en una pista con `scroll-snap` **el motor desplaza por su cuenta** — al
+asentar el snap, al restaurar la posición en una vuelta atrás, y al reajustar tras un reflow o un cambio de
+anchura.
+
+> **Enunciado que sustituye a la regla general.** Un `scroll` sobre la pista provoca **pausa permanente si y
+> solo si es atribuible a un acto del usuario**: existe un `pointerdown`, `touchstart`, `wheel`, `keydown` o
+> `focus` en la sección dentro de una ventana de **1200 ms** anterior al evento. Un `scroll` **sin ese
+> antecedente es del motor** y **no pausa nada**: ni cambia el modo, ni toca la etiqueta del conmutador.
+
+Tres precisiones sobre ese enunciado:
+
+- **No afloja R5 ni ninguna de las causas ya enumeradas.** Todas siguen pausando para siempre, porque todas
+  tienen antecedente atribuible: swipe/arrastre (`pointerdown`/`touchstart`), rueda o trackpad (`wheel`),
+  flecha (`keydown`/`pointerdown`), y **el caso que yo mismo pedí cubrir** —el scroll que provoca el
+  navegador al tabular a una teja fuera de pantalla— entra por `keydown`/`focus`. La regla acotada cubre
+  exactamente lo que la regla amplia pretendía cubrir; lo único que deja fuera es **el reposo del motor**,
+  que nunca fue intervención de nadie.
+- **La ventana de 1200 ms es parte de la norma, no un detalle de implementación.** Tiene que sobrevivir a la
+  animación de asentamiento del snap posterior al gesto (un `scroll` que llega cientos de ms después de
+  soltar el dedo **sí** es del usuario). Si alguna vez se toca ese número, se toca aquí y con medición
+  delante, no en el componente.
+- **Los desplazamientos que el carrusel origina él mismo siguen sin pausar nada**, como siempre: el tic y el
+  `REPETIR`. Y la **llegada por ancla** conserva su propia fila y su propio tratamiento —pausa permanente—
+  porque no se detecta por el `scroll`, sino por **cómo se entró a la sección**; no depende de esta regla.
+
+**Ni un solo falso positivo es aceptable, y un falso negativo tampoco.** Que el motor pause el carrusel lo
+rompe (es lo que se midió); que un swipe real **no** lo pause incumple 2.2.2. Por eso esto merece **test de
+regresión permanente** —frontend ya lo dejó— y check propio de QA (§23.14 ñ).
 
 **Transiciones completas:**
 
@@ -7190,8 +7290,11 @@ Detalles:
 - **REPETIR** devuelve la pista a `scrollLeft = 0` **de forma instantánea** (sin animación — es acción
   explícita del usuario, y aquí sí es la opción correcta por lo dicho en el punto 2), y arranca una pasada
   nueva con su reposo inicial de 7 s.
-- Si desde `TERMINADO` el usuario pulsa la flecha «anterior» o desplaza hacia atrás, el estado pasa a
-  **PAUSADO** (no vuelve a rotar solo): manda la regla de intervención (§23.5).
+- Si desde `TERMINADO` el usuario pulsa la flecha «anterior» o desplaza hacia atrás **con un desplazamiento
+  atribuible a él** (§23.5a), el estado pasa a **PAUSADO** (no vuelve a rotar solo): manda la regla de
+  intervención (§23.5).
+- **Nota de v2.6.1:** `TERMINADO` se alcanza en el tope físico de la pista, donde la teja de la izquierda
+  queda cortada. Eso es el límite aceptado de §23.3a, **no** un tic mal calculado.
 
 ### 23.7 `prefers-reduced-motion` — **cero movimiento** (R4)
 
@@ -7221,14 +7324,32 @@ Esto **corrige** la nota 2 de §20.16, que decía que el carrusel debía degrada
 
 | Momento | Qué hay |
 |---|---|
-| **Marcado servido / sin JS** | Pista de **scroll-snap nativa** con las ocho tejas completas. Se desplaza con el dedo, con la rueda y con la barra. **No rota.** **No se pintan** ni las flechas ni el conmutador |
-| **Hidratado** | Aparecen flechas y conmutador. La rotación aún **no** arranca (faltan las precondiciones de §23.3) |
+| **Marcado servido / sin JS** | La sección existe con su encabezado, pero **el contenido del estante no está**: hoy lo resuelve una consulta de react-query **en el cliente**, así que sin JS el estante se queda en su **estado de carga**. **No rota.** **No se pintan** ni las flechas ni el conmutador |
+| **Hidratado** | Se resuelve la consulta, se pinta la pista de **scroll-snap nativa** con sus ocho tejas y aparecen flechas y conmutador. La rotación aún **no** arranca (faltan las precondiciones de §23.3) |
 | **Precondiciones cumplidas + 7 s de reposo** | Primer tic |
 
-Regla que lo sostiene: **ningún control del carrusel se pinta si no puede funcionar.** Así no queda nunca un
-botón muerto, y —lo importante para 2.2.2— **no puede existir movimiento sin freno**: ambos nacen del mismo
-JS, en el mismo momento. El **contenido nunca depende del JS**; lo que depende del JS es rotar, y rotar es
-un extra que se suma sobre una pista que ya funcionaba.
+#### 23.8a Corrección v2.6.1 — qué es cierto hoy y qué no
+
+Este documento afirmaba que sin JS se veían **«las ocho tejas completas»**. **Es falso**, y el frontend lo
+verificó con `javaScriptEnabled: false`: el contenido del estante lo trae **react-query en el cliente**, de
+modo que sin JS la home queda en estado de carga.
+
+- **Es preexistente. §23 no lo introduce ni lo empeora.** La rotación no cambió de dónde vienen los datos del
+  estante; lo que hizo mi texto fue **afirmar** algo que ya no era cierto cuando lo escribí. La corrección es
+  de este documento, no de la implementación.
+- **Lo que §23 sí aporta, y se cumple, verificado:** sin JS **no se pinta ni una flecha ni el conmutador**, y
+  sin JS tampoco hay rotación. Por tanto **no puede existir movimiento sin freno** ni ningún control muerto:
+  movimiento y freno nacen del mismo JS, en el mismo momento. Ésa es la mitad de la doctrina que importa para
+  **WCAG 2.2.2**, y está intacta.
+
+> **Regla que sigue en pie, sin asteriscos:** *ningún control del carrusel se pinta si no puede funcionar.*
+
+**La frase «el contenido nunca depende del JS» queda condicionada:** hoy **sí depende**, en este estante. Para
+que vuelva a ser cierta hace falta que **la consulta del carrusel se resuelva en servidor** (render o
+prefetch en servidor, hidratación con los datos ya presentes). Eso **no es algo que el frontend deba
+arreglar por decisión propia** ni un requisito de §23: es una **petición abierta al arquitecto**, ya enrutada
+por separado y referenciada en **§23.15 nº2**. Mientras no se resuelva, este documento **no promete** las
+ocho tejas sin JS.
 
 ### 23.9 Anuncio a lectores de pantalla — patrón APG de carrusel
 
@@ -7335,28 +7456,43 @@ ni se elimina la palabra.
 | 15 | Añadir **kicker, subtítulo o mención al gradeo** al encabezado | §22.6b-e sigue vigente literalmente; el conmutador ocupa el hueco, no el rol |
 | 16 | Extender la rotación a **otros estantes** (Sellado, Gradeadas, Bounties, «Joyas para gradear») | §23.1: la excepción está autorizada **solo aquí** |
 | 17 | Un ajuste en la app que **anule** `prefers-reduced-motion` | La preferencia del sistema gana siempre (§23.7) |
+| 18 | **v2.6.1 —** Tratar **cualquier** evento `scroll` de la pista como intervención del usuario | El motor emite `scroll` por su cuenta al asentar `scroll-snap` (medido: t≈999 ms, `scrollLeft: 32`): el carrusel se autopausa antes del primer tic y la función queda muerta (§23.5a) |
+| 19 | **v2.6.1 —** Tapar el corte del **tope de la pista** con padding de cola, teja fantasma, espaciador o última teja más angosta | Geometría inventada para disimular un hecho del contenedor; choca con R1 y con la anatomía de teja. El corte en el tope es límite aceptado (§23.3a) |
+| 20 | **v2.6.1 —** Parar la pasada en el `snap` anterior al tope para «salvar» R6 | Dejaría la **última teja inalcanzable**: esconde contenido para salvar una alineación (§23.3a) |
+| 21 | **v2.6.1 —** Afirmar en producto, copy o docs que el estante **se lee sin JS** | Hoy es falso: la consulta se resuelve en cliente (§23.8a). Lo garantizado sin JS es *cero movimiento y cero controles muertos* |
 
 ### 23.14 QA visual sugerido
 
 (a) **Reposo inicial:** cargar la home y cronometrar — nada se mueve durante los primeros **7 s**, y no se
 mueve nada **mientras haya skeletons**. (b) **Paso:** un tic mueve **una** teja y ninguna teja queda cortada
-por el **borde izquierdo** en reposo. (c) **Hover:** dejar el puntero sobre la pista ⇒ se detiene; el
+por el **borde izquierdo** en reposo — **excepto en el tope de la pista**, donde el corte es el límite
+aceptado de §23.3a y **no** es un defecto. (c) **Hover:** dejar el puntero sobre la pista ⇒ se detiene; el
 conmutador **no cambia**; al retirarlo pasan **7 s** completos antes del siguiente tic (no un tic inmediato).
 (d) **Foco:** tabular por las tejas ⇒ la pista no se mueve sola y **el foco nunca sale de la pantalla**.
 (e) **Intervención:** un swipe o una flecha ⇒ el conmutador pasa a **REANUDAR** y **no vuelve a rotar solo**
 (esperar ≥ 30 s). (f) **La fila, en 390 / 640 / 1024 y en ES y EN:** el conmutador cabe, no envuelve por
 encima de 360px, no pisa el H2 ni el link, y su área táctil mide ≥ 44×44 sin solaparse con nada.
 (g) **Movimiento reducido:** activar la preferencia del sistema **en caliente** ⇒ la rotación se detiene al
-momento, el conmutador **desaparece**, y las flechas pasan a saltar sin animación. (h) **Sin JS:** las ocho
-tejas se leen y la pista se desplaza; **no hay** flechas ni conmutador ni movimiento. (i) **Final:** dejar
+momento, el conmutador **desaparece**, y las flechas pasan a saltar sin animación. (h) **Sin JS:** **no hay**
+flechas, ni conmutador, ni movimiento — *corregido en v2.6.1: **no** se exige aquí que se lean las ocho
+tejas; hoy el estante queda en carga sin JS y eso es preexistente (§23.8a)*. (i) **Final:** dejar
 correr la pasada ⇒ al llegar al extremo se detiene, la flecha «siguiente» queda apagada y el conmutador dice
-**REPETIR**; pulsarlo vuelve al inicio y reanuda. (j) **Lector de pantalla:** la sección se anuncia como
+**REPETIR**; pulsarlo vuelve al inicio y reanuda (y en ese reposo final la teja izquierda **puede** verse
+cortada, §23.3a). (j) **Lector de pantalla:** la sección se anuncia como
 «carrusel»; el botón anuncia su nombre nuevo al pulsarlo; al terminar la pasada se oye «Fin de las piezas
 destacadas» **una sola vez**. (k) **Numeración:** con la pista rotando, `01·02·03` **no cambia de teja** y no
 se resalta ninguna. (l) **Gancho:** con una teja con burbuja, la rotación no altera ni la burbuja, ni el
 micro-aviso, ni la regla todo-o-nada de la numeración, ni las alturas dispares (§22.6b-d). (m) **Rendimiento:**
 en el panel de red, **cero descargas de imagen nuevas** provocadas por los tics. (n) **Pestaña oculta:**
 cambiar de pestaña 1 min y volver ⇒ la pista está donde se dejó (sin tics acumulados).
+**(ñ) Falso positivo de pausa (v2.6.1, el check que casi rompe la feature):** cargar la home y **no tocar
+nada** durante ≥ 20 s ⇒ el conmutador **debe seguir diciendo PAUSAR** y el primer tic debe ocurrir a los 7 s.
+Si dice **REANUDAR** sin que nadie haya intervenido, el asentamiento de `scroll-snap` del motor se está
+leyendo como intervención (§23.5a). Su recíproco, en la misma corrida: un swipe real **sí** pausa para
+siempre.
+**(o) Sin JS, la parte cierta (v2.6.1):** con `javaScriptEnabled: false` verificar lo que §23 sí garantiza —
+**cero flechas, cero conmutador, cero movimiento**. Que el estante quede en carga es un **hecho conocido y
+preexistente** (§23.8a), **no** un fallo de esta entrega ni de frontend.
 
 ### 23.15 Notas a otros roles (ninguna bloquea)
 
@@ -7364,17 +7500,27 @@ cambiar de pestaña 1 min y volver ⇒ la pista está donde se dejó (sin tics a
    dueño; convendría anotarlo con su criterio de aceptación (por ejemplo: *«el carrusel de destacadas rota
    solo, con control de pausa visible, y no se mueve con `prefers-reduced-motion`»*) para que QA tenga contra
    qué verificar. **No bloquea el diseño ni la implementación.**
-2. **Arquitecto:** **nada que pedir.** La rotación no necesita ningún dato nuevo, ningún campo nuevo, ningún
-   endpoint y ningún cambio de `API_CONTRACT.md`: se alimenta de la misma consulta compartida que ya usa el
-   carrusel (§22.6b-g). Se deja constancia explícita porque la regla 9 obliga a escalar cualquier necesidad de
-   contrato, y aquí **no la hay**.
+2. **Arquitecto:** la rotación **sigue sin necesitar** ningún dato nuevo, campo nuevo, endpoint ni cambio de
+   `API_CONTRACT.md`: se alimenta de la misma consulta compartida que ya usa el carrusel (§22.6b-g). Eso no
+   cambia con la v2.6.1. **Lo que sí queda como petición abierta** (ya enrutada por separado, solo referenciada
+   aquí): que la consulta del estante de destacadas **se resuelva en servidor** (render/prefetch en servidor,
+   hidratación con datos ya presentes), para que el **contenido** de la home deje de depender del JS del
+   cliente (§23.8a). **No bloquea §23 ni a frontend**, y frontend **no** debe abordarlo por decisión propia:
+   es una condición de arquitectura, y hasta que exista este documento no promete contenido sin JS.
 3. **Frontend:** el hueco estructural existe pero hoy `Shelf.kicker` acepta solo `string`; ampliarlo a
    `ReactNode` (o añadir un slot hermano `titleAdjacent`) es la vía limpia y **no altera ninguna otra
    pantalla** — el kicker de Gradeadas (§20.5) sigue siendo texto. Segundo apunte: el destino del tic debe
    calcularse desde el `offsetLeft` de la teja entrante, no con `scrollBy(clientWidth × 0,8)` (que es el paso
-   de las **flechas**), o se incumple R6.
+   de las **flechas**), o se incumple R6 — con la salvedad del tope de pista de **§23.3a**, donde el destino
+   se satura en `scrollWidth − clientWidth` y el corte por la izquierda es esperado.
 4. **QA:** los checks (g) y (h) de §23.14 —movimiento reducido en caliente y sin JS— son los dos que un
    E2E olvida por defecto y son precisamente los dos hechos que el frontend levantó. Merecen caso propio.
+   **Añadido v2.6.1 — tres puntos que NO deben leerse como incumplimientos de frontend**, porque son
+   correcciones de este documento sobre evidencia que ellos midieron: (i) la pausa por desplazamiento es
+   **atribuible al usuario**, no «cualquier `scroll`» (§23.5a) — el check nuevo es (ñ); (ii) el corte de la
+   teja izquierda **en el tope de la pista** es límite aceptado (§23.3a), no un tic mal calculado; (iii) sin
+   JS el estante queda **en carga** y eso es **preexistente** (§23.8a) — lo exigible sin JS es solo que no
+   haya flechas, ni conmutador, ni movimiento, check (o).
 5. **Techlead:** §23.1 crea **una excepción nominal y acotada** a la doctrina de movimiento de §17.3. Está
    deliberadamente cerrada a una superficie (§23.13 nº16). Si aparece una segunda petición de movimiento en
    el sistema, **no se resuelve citando §23**: vuelve a ux-ui.
