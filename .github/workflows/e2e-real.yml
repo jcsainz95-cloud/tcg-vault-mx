@@ -148,12 +148,50 @@ jobs:
       # de "tests opcionales": es la lista de tests cuyo resultado depende de que exista
       # credencial. Si aparece un cuarto flujo de dinero, se añade aquí.
       MONEY_SPECS: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts"
+      # ---------------------------------------------------------------------
+      # INCAPACITACIÓN FRENTE AL PROVEEDOR DE PAGA (ARCHITECTURE §4.38r.6.1)
+      #
+      # Desde v1.51 (M-46) hay UN SOLO dial: el `PUT /admin/settings
+      # {"gradingHookEnabled":"on"}` que el arnés E2E hace EN CADA CORRIDA ya no
+      # solo publica cifras — autoriza al barrido a pedir datos a
+      # PokemonPriceTracker (2 créditos/carta) y a escribir precios estimados.
+      # Sin estas dos líneas, este gate sería un consumidor silencioso de la
+      # cuota de un proveedor de paga.
+      #
+      # (1) La credencial va DECLARADA VACÍA, no omitida. Hasta hoy no estaba en
+      #     ningún workflow y eso parecía suficiente: no lo era. `docker-compose`
+      #     la interpola del entorno del runner, así que «no está» dependía de
+      #     que nadie la exportara. Declararla vacía convierte el día que alguien
+      #     quiera meterla en un cambio VISIBLE en el diff de este archivo.
+      #     Con la llave vacía, el proveedor sale con `warn` ANTES de la primera
+      #     petición: cero peticiones, cero escrituras, cero créditos.
+      # (2) La constancia de devops: cuando la API bajo prueba no corre en este
+      #     runner (staging), su entorno NO es observable desde aquí y el
+      #     guardarraíl del arnés (frontend/e2e/utils/paid-provider-guard.ts) se
+      #     NIEGA a encender el dial sin esta firma. La firma devops porque es
+      #     quien conoce ese entorno — y NO gana sobre la observación: contra un
+      #     backend local con llave viva, declararla no desbloquea nada.
+      # Verificado en CI por scripts/check-e2e-provider-incapacitation.sh (primer
+      # paso de este job). DEVOPS_NOTES §32.12.
+      # ---------------------------------------------------------------------
+      POKEMONPRICETRACKER_API_KEY: ''
+      E2E_GRADING_PROVIDER_INCAPACITATED: '1'
       # Stripe SIEMPRE en modo TEST en staging/E2E (nunca claves live).
       STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
       STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || 'whsec_e2e_dummy' }}
     steps:
       - uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # GUARDA DE DINERO Nº0 — antes que el preflight de Stripe, porque este no
+      # necesita ni red: verifica que el YAML declare la incapacitación frente al
+      # proveedor de PAGA (§4.38r.6.1). Es estática a propósito. El guardarraíl
+      # vivo del arnés ya existe (frontend); esto impide que alguien lo deje sin
+      # su mitad de devops con un `env:` mal puesto y lo descubra en la factura.
+      # -----------------------------------------------------------------------
+      - name: Guarda — el entorno E2E no puede escribir contra el proveedor de paga
+        run: ./scripts/check-e2e-provider-incapacitation.sh
 
       # -----------------------------------------------------------------------
       # PREFLIGHT DE STRIPE — EL PRIMER PASO, ANTES DE CONSTRUIR NADA.
