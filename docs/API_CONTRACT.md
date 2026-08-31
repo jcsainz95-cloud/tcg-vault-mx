@@ -2,7 +2,30 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.51-one-dial**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.51-a**).
+>
+> **Changelog v1.51-a — UN cambio de invariante y UNA nota normativa de lectura (2026-08-31, arquitecto;
+> lo implementa BACKEND, y FRONTEND solo si pinta el rango. ARCHITECTURE §4.38(r.3.1), §4.38(r.3.4), §4.38(m.2.1)).**
+> **Cero rutas, cero shapes de DTO, cero códigos de error nuevos, cero montos.** Base: v1.51-one-dial, intacta.
+> - **`ingestMaxCardsPerRun` estrecha su rango: `[1, 5000]` → `[1, 1000]`** (invariante **I8** del `PUT
+>   /admin/pricing/graded-estimates`). Fuera de rango ⇒ **`422 VALIDATION_ERROR`**, el mismo código de siempre.
+>   **Motivo:** `5 000 × 2 créditos × 2 corridas = 20 000 créditos/día` era **la cuota diaria completa del plan del
+>   proveedor**, autorizable con **un solo `PUT` válido**, sin redeploy y sin aprobación adicional. Un tope cuyo máximo
+>   admisible coincide con el presupuesto total no es un tope.
+>   - **Es un ESTRECHAMIENTO, y no rompe nada existente:** el seed **250 no cambia** y todo valor almacenado `≤ 1 000`
+>     sigue siendo válido. Solo `(1 000, 5 000]` pasa a `422`. Quedan **4× de holgura** sobre el seed.
+>   - **Un valor almacenado en `(1 000, 5 000]` no se vuelve peligroso: cae en la regla de `fail-closed on-read`** —
+>     se trata como **presente pero INVÁLIDA** y el ingest **no emite ninguna petición** al proveedor. Falla en la
+>     dirección correcta.
+> - **Nota normativa NUEVA sobre `ingestMaxCardsPerRun` (no cambia su forma):** acota las cartas **en ALCANCE**,
+>   **no** las que el proveedor devuelve ⇒ **cualquier traducción de este número a «créditos/día» es un techo NOMINAL
+>   bajo un supuesto de facturación aún no observado**, y un cliente de admin **no debe presentarlo como cifra firme
+>   sin ese calificador**. Detalle en la sección de `GradedEstimateConfigDTO`.
+> - **Lo que este changelog NO cambia, y conviene decirlo:** las precondiciones de encendido del dial
+>   (`gradingHookEnabled`) viven en `ARCHITECTURE.md`, **no aquí**; el cierre de **GU-9** (el dueño acepta 60 días de
+>   peor caso de frescura) **no toca el contrato en absoluto** — ni un rango, ni un seed, ni un campo:
+>   `freshnessDays` **se queda en 30**.
+> - **Base previa:** v1.51-one-dial.
 >
 > **Changelog v1.51-one-dial — el gancho de grading pasa de DOS interruptores a UNO (2026-08-31, arquitecto;
 > lo implementan BACKEND + FRONTEND. ARCHITECTURE §4.38(r), §9, §10 GU-14, §11 M-46).**
@@ -2362,6 +2385,8 @@ GradingCostTierDTO = { minValueMxnCents: number, maxValueMxnCents: number | null
 // v1.50.2 añade 5 campos editables: `manualFreshnessDays` (decaimiento del override manual), `maxRawMultiple`
 // (cota superior de magnitud), `minSampleCount` (muestra mínima, se aplica en el INGEST), `sourceStat` (qué número
 // del proveedor es el precio) y `ingestMaxCardsPerRun` (tope de cuota por corrida).
+// ⚠️ v1.51-a — `ingestMaxCardsPerRun`: rango [1, 1000] (antes [1, 5000]); seed 250 SIN cambio. Acota las cartas EN
+// ALCANCE, NO las que el proveedor devuelve ⇒ traducirlo a "créditos/día" da un techo NOMINAL, no un hecho. Ver §M2.
 // ⚠️ v1.50.3 — TRES SEEDS CORREGIDOS (solo el valor; el shape NO cambia), para alinear con PROJECT.md:
 //   manualFreshnessDays null -> 30 (criterio 109: el override manual SÍ caduca, contra su fecha de captura)
 //   minSampleCount        3  -> 5   (criterio 111a = `minSalesSample` de §O.7)
@@ -6666,8 +6691,24 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     | `maxRawMultiple` | **100** | ~~50~~ | `(1, 1000]` | Cota **superior** de magnitud: se descarta si `psa10 > salePriceCents × maxRawMultiple`. Es el `maxGradedMultiple` de §O.7 / **criterio 111(c)** |
     | `minSampleCount` | **5** | ~~3~~ | `[1, 100]` | Muestra mínima del proveedor. Es el `minSalesSample` de §O.7 / **criterio 111(a)**. **Se aplica en el INGEST (escritura)**, no en lectura |
     | `sourceStat` | **`median`** | — | `median\|average\|smart` | Cuál número del proveedor **es** el precio (§4.38h.2) |
-    | `ingestMaxCardsPerRun` | **250** | — | `[1, 5000]` | Tope **duro** de cuota por corrida del ingest |
+    | `ingestMaxCardsPerRun` | **250** | — | **`[1, 1000]`** *(v1.51-a; antes `[1, 5000]`)* | Tope **duro** de cuota por corrida del ingest. ⚠️ Acota las cartas **en ALCANCE**, **no** las que el proveedor devuelve — ver la nota de coste abajo |
 
+    - **⚠️ v1.51-a — `ingestMaxCardsPerRun`: qué acota, qué NO acota, y por qué su máximo baja a 1 000.**
+      Es la clave que más se malinterpreta del DTO, y la malinterpretación cuesta dinero real:
+      - **Acota las cartas EN ALCANCE de una corrida** (las que el job mira). **NO acota lo que el proveedor
+        devuelve**: la petición del ingest de graded pide el **SET entero**, así que las cartas devueltas —y por tanto
+        el coste, **si el proveedor cobra por carta devuelta**— dependen de **cuántos SETS distintos** tocan esas
+        cartas, y eso **no es configurable por ninguna clave de este DTO**.
+      - Por eso **cualquier traducción de este número a «créditos/día» es un techo NOMINAL bajo un supuesto de
+        facturación que aún no se ha observado**. Un cliente de admin **no debe presentarlo al operador como cifra
+        firme** sin ese calificador. La medición y las precondiciones de encendido están en ARCHITECTURE §4.38(r.3.1);
+        **ningún campo, ruta ni código de error de este contrato depende de su resultado**.
+      - **Máximo `1 000` (antes `5 000`).** El máximo viejo permitía que **un solo `PUT` válido** —sin redeploy y sin
+        aprobación adicional— autorizara el equivalente a la **cuota diaria completa** del plan del proveedor. Es un
+        estrechamiento: **todo valor `≤ 1 000` ya almacenado sigue siendo válido** (el seed **250 no cambia**) y solo
+        `(1 000, 5 000]` pasa a `422`. **Un valor almacenado fuera del rango nuevo NO queda gastando: el lector lo trata
+        como config inválida y el ingest no emite ninguna petición** (fail-closed on-read, abajo). Razonamiento
+        completo: ARCHITECTURE §4.38(r.3.4).
     - **⚠️ GLOSARIO NORMATIVO de nombres (v1.50.3) — `PROJECT.md` y el contrato usan vocabularios distintos, y eso
       permitió que los VALORES divergieran en silencio.** Queda tabulado para que la equivalencia deje de ser
       folclore. **Los identificadores del contrato NO se renombran** (renombrar cuesta un breaking de admin + migrar
@@ -6715,7 +6756,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     | I5 | **último escalón abierto:** `tiers[n-1].maxValueMxnCents === null` y **ninguna otra** fila `null` | `422 GRADING_TIERS_NOT_OPEN_ENDED` |
     | I6 | `minUpsidePct` número en `[0, 1000]`; `freshnessDays` int en `[1, 365]` | `422 VALIDATION_ERROR` |
     | I7 | `grades` / `highlightGrades` ⊆ `{"10","9"}`, no vacíos, sin duplicados, y **`highlightGrades` ⊆ `grades`** | `422 VALIDATION_ERROR` |
-    | **I8** *(v1.50.2)* | `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en `[1, 5000]` | `422 VALIDATION_ERROR` |
+    | **I8** *(v1.50.2; **`ingestMaxCardsPerRun` ESTRECHADO en v1.51-a**)* | `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en **`[1, 1000]`** *(antes `[1, 5000]`)* | `422 VALIDATION_ERROR` |
     | **I8-bis** *(v1.50.3, NO es validación: es OBSERVABILIDAD)* | `manualFreshnessDays === null` **se acepta** (sigue siendo un valor legal) pero **DEBE emitir `warn`** al izarse la config: desactiva el **criterio 109** para la vía manual, y una afirmación comercial no puede dejar de caducar **en silencio**. Misma doctrina que «la vitrina no puede vaciarse en silencio» | — *(no bloquea; `warn` obligatorio)* |
     | **I9** *(v1.50.2)* | `maxRawMultiple` número **> 1** y ≤ `1000`. **El `> 1` NO es cosmético:** con `≤ 1` la cota superior chocaría con la inferior (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás — vitrina vacía permanente y sin explicación | `422 VALIDATION_ERROR` |
   - **`costMxnCents ≥ 1`, JAMÁS 0** — misma guardia L1 de dinero que ya aplica `OverrideDto` (`@Min(1)`). Un costo de

@@ -3,6 +3,32 @@
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
+> **Rev v1.51-a (2026-08-31, arquitecto — CIERRE DE A-1 (condición del techlead sobre M-46), CIERRE DE GU-9
+> (decisión del dueño) y UN CAMBIO DE INVARIANTE (I8). Base: v1.51-one-dial, que sigue vigente entera.)**
+> 1. **A-1 — el `COSTE MEDIDO` pasa a ser PRECONDICIÓN del primer `off → on`**, al mismo nivel que el veredicto de
+>    viabilidad. El banner de M10 le dice al dueño «hasta **1 000 créditos al día**» **sin calificador**, y esa
+>    aritmética **puede ser falsa hasta por ~16×**: `ingestMaxCardsPerRun` acota las cartas **en alcance**, pero la
+>    petición pide el **SET entero** (`fetchAllInSet=true`) ⇒ si PPT cobra por carta **DEVUELTA**, el techo real es
+>    `1 000 × A` con `A` **no acotado por ningún dial**. La instrumentación que lo mide **ya existe y ya se imprime**
+>    (`[VEREDICTO-PSA] COSTE MEDIDO:`); lo que faltaba era que el **consentimiento dependiera de ella**. §4.38(r.3.1),
+>    con **lista ejecutable** (1a–1e) y **regla de bloqueo**: `créditos/carta devuelta ≥ 0.5` ⇒ **flip BLOQUEADO** y
+>    escalada regla 9. **Es el único bloqueante vivo del encendido.**
+> 2. **I8 CAMBIA — `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`** (decisión del arquitecto, delegada por el
+>    techlead). 5 000 × 2 × 2 = **20 000 créditos/día** = **la cuota diaria completa del dueño**, alcanzable con **un
+>    solo `PUT` válido**, sin redeploy y sin aprobación adicional: eso no es un tope, es un sello de goma. Estrechar es
+>    **fail-closed verificado** (un valor almacenado fuera de rango marca `ingestConfigInvalid` y el ingest **no pide
+>    nada**). El seed **250 no cambia**. §4.38(r.3.4). **Contrato: `API_CONTRACT.md` v1.51-a.**
+> 3. ✅ **GU-9 CERRADA — el dueño acepta los 60 días** (2026-08-31), con el mecanismo de los **dos relojes** explicado
+>    y tras preguntar por un umbral de una semana (7 daría 14). **⛔ NO es «poner 60 en un dial»:**
+>    `graded_estimate_freshness_days` **se queda en 30**; escribir 60 daría un peor caso de **120**. **Cero cambios de
+>    config y de código.** Cablear `evidenceDate` **sigue siendo deuda** (columna ya existe; faltan escritor y
+>    `stale()`), ahora de severidad **baja** y **no bloqueante**. §4.38(m.2.1).
+> 4. **Corrección de un HECHO en §4.38(r.6.1)** (hallazgo de QA): la frase que decía que el arnés E2E hace
+>    `PUT { gradedEstimatesEnabled: 'on' }` es **falsa desde `6418cb2`** — hoy pasa por `enableGradingHookGuarded` con
+>    `gradingHookEnabled`, y **no llega a hacer el `PUT` si detecta credencial viva**. **La norma no cambia** (ya se
+>    cumple y tiene test); envejeció la descripción. Caso de §0-B: clase (B) escrita como (A). Texto viejo conservado
+>    y rotulado como histórico.
+>
 > **Rev v1.51-one-dial (2026-08-31, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND + DEVOPS).**
 > **El gancho de grading pasa de DOS interruptores a UNO. Decisión del DUEÑO, tomada y reafirmada; no se re-litiga.**
 > El segundo dial (`graded_estimate_ingest_enabled`) **nunca se dibujó en la UI** — solo se podía encender por `curl`,
@@ -7682,7 +7708,9 @@ fuerte de las cuatro: encender es un ACTO DE GASTO** contra un proveedor de paga
 >   que ver con el texto legal. **Intacta.**
 > - **(3) fail-closed** es patrón vigente en otras dos features. **Intacta.**
 > - **(4) gasto** es **más fuerte que la razón legal que sustituye**: con el dial único, `on` autoriza hasta
->   ~1 000 créditos/día contra un proveedor de paga y **los créditos gastados no se recuperan al apagar**
+>   ~1 000 créditos/día **nominales — techo bajo un supuesto de facturación aún NO observado; el real puede ser
+>   mayor por el factor de amplificación, §4.38(r.3.1.0)** — contra un proveedor de paga, y **los créditos gastados no
+>   se recuperan al apagar**
 >   (`PROJECT.md` decisión 60, §4.38r.3.1). Un argumento de *«no publiques un texto sin visto bueno»* se resolvía con
 >   una aprobación; éste **no caduca nunca** porque el gasto es estructural.
 > - **Lo que sí se pierde:** el dial **ya no retiene una afirmación comercial no aprobada**, porque no la hay. Quien
@@ -7724,7 +7752,7 @@ fuerte de las cuatro: encender es un ACTO DE GASTO** contra un proveedor de paga
 | I5 | **último escalón abierto:** `tiers[n-1].maxValueMxnCents === null` y **ninguna otra** fila `null` | `422 GRADING_TIERS_NOT_OPEN_ENDED` |
 | I6 | `minUpsidePct` número en `[0, 1000]`; `freshnessDays` int en `[1, 365]` | `422 VALIDATION_ERROR` |
 | I7 | `grades` / `highlightGrades` ⊆ `{"10","9"}`, no vacíos, sin duplicados, y **`highlightGrades` ⊆ `grades`** | `422 VALIDATION_ERROR` |
-| **I8** | *(v1.50.2)* `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en `[1, 5000]` | `422 VALIDATION_ERROR` |
+| **I8** | *(v1.50.2; **`ingestMaxCardsPerRun` ESTRECHADO en v1.51-a**)* `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en **`[1, 1000]`** *(antes `[1, 5000]`; el máximo viejo autorizaba de un solo `PUT` la cuota diaria entera del dueño — §4.38(r.3.4))* | `422 VALIDATION_ERROR` |
 | **I9** | *(v1.50.2)* `maxRawMultiple` número **> 1** y ≤ `1000`. **El `> 1` no es cosmético:** con `≤ 1` la cota superior chocaría con la inferior (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás — una vitrina vacía permanente y sin explicación | `422 VALIDATION_ERROR` |
 
 - **`costMxnCents ≥ 1`, jamás 0** — es la misma regla L1 de dinero que ya aplica `OverrideDto` (`@Min(1)`,
@@ -8106,7 +8134,9 @@ puede ser generoso. *(Si con datos reales el 5 resulta ruidoso o corto, moverlo 
 no merece una clave de `ConfigSetting` una decisión que se toma una vez, al calibrar — mismo criterio que (k.1).)*
 
 **Lo que esta decisión NO cambia:** ni el contrato público, ni un solo DTO, ni el comportamiento de la fase 1 (manual),
-ni ningún monto. **No está vivo** (`graded_estimate_ingest_enabled` seed `off`). **Bloquea encender la fase 2** solo en
+ni ningún monto. ~~**No está vivo** (`graded_estimate_ingest_enabled` seed `off`).~~ *(v1.51-a: la clave está
+**RETIRADA** — §4.38(r.1). Lo que hoy lo mantiene apagado es el **dial único** `grading_hook_enabled`, seed `off`.)*
+**Bloquea encender la fase 2** solo en
 el escenario en que el proveedor resulte servir S2 — y en ese escenario lo que bloquea es correcto que se bloquee.
 - **Override del operador — MANDA sobre la autodetección.** Se conservan
   `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` **default** | `sales_by_grade` | `graded_prices`) y
@@ -9101,8 +9131,10 @@ persistir la fecha de la evidencia sin DDL (`PriceReference` no cambia, (k.1)).
 misma mediana**; cada corrida del ingest reescribe la fila con `capturedDate = hoy` ⇒ **la cifra parece fresca para
 siempre**. Es literalmente el «feed rancio» contra el que el dial existe, disfrazado de fresco por nuestro propio job.
 *(~~No está vivo hoy: `graded_estimate_ingest_enabled` tiene seed `off`.~~ **v1.51:** con el **dial único**
-`grading_hook_enabled`, encender la feature **es** encender el ingest ⇒ esto pasa a ser **bloqueante del primer
-encendido en producción** — §4.38(r.6.2), §9, GU-9.)*
+`grading_hook_enabled`, encender la feature **es** encender el ingest ⇒ ~~esto pasa a ser **bloqueante del primer
+encendido en producción**~~ — §4.38(r.6.2), §9, GU-9. ✅ **v1.51-a: DEJA DE SER BLOQUEANTE.** El dueño aceptó el peor
+caso de 60 días el 2026-08-31, con el mecanismo de los dos relojes explicado. **Sin cambio de config ni de código** —
+(m.2.1).)*
 
 **Dictamen v1.50.3 — GATE DE EVIDENCIA EN LA ESCRITURA (misma técnica que `minSampleCount`, cero DDL).** El ingest
 **NO persiste** una fila cuya `lastSaleDate` de `ebay.salesByGrade` sea más vieja que `freshnessDays`:
@@ -9127,6 +9159,55 @@ Con eso `stale()` mide contra `evidenceDate ?? capturedDate` y el criterio 109 s
 tocar la unique ni requerir backfill. **Se recomienda meterla en la MISMA migración M-43** que ya va a decisión del
 humano por INV-D inverso ((l.3)): las dos son DDL aditivo sobre la misma tabla y no tiene sentido pagar dos ventanas
 de migración.
+
+###### (m.2.1) ✅ GU-9 CERRADA — el dueño acepta los 60 días de peor caso (decisión del DUEÑO, 2026-08-31)
+
+> **Ésta es la redacción canónica del cierre. Todo lo demás del documento la referencia y no la reescribe.**
+
+**Qué se le explicó antes de pedirle la decisión** —consta aquí porque una aceptación sin el mecanismo delante no vale
+como aceptación—: que hay **dos relojes que se SUMAN**, y por qué:
+
+| Reloj | Qué tolera | Dónde vive |
+|---|---|---|
+| **Al BAJAR el dato** | aceptamos una última venta de hasta `freshnessDays` de antigüedad | gate de evidencia del ingest, tabla de arriba |
+| **Al LEER el dato** | la fila vive otros `freshnessDays` desde su `capturedDate` antes de considerarse rancia | `stale()` de (c) |
+
+Se suman **porque `evidenceDate` no se persiste**: el lector no tiene la fecha de la venta, solo la de la captura, así
+que **no puede descontar** el tiempo que el dato ya traía encima. Con el seed vigente de **30**, el peor caso es **60**.
+
+**Qué preguntó y qué se le contestó.** Preguntó por *«máximo una semana»*. Se le dijo la verdad incómoda: **poner 7 no
+da 7, da 14**, y un 7 real exige cablear `evidenceDate` — la columna **ya existe** (M-43, verificado:
+`schema.prisma` `evidenceDate DateTime? @db.Date` y su migración aplicada), pero **el escritor y el `stale()` siguen
+sin cablearse** (el provider ya calcula la fecha y la lleva en su fila, y nadie la persiste), lo cual está anotado en
+`TECH_DEBT.md`. Y se le dijo el matiz que hace esto relevante en vez de teórico: **los 7 días no son retraso del
+proveedor, son cuánto lleva la carta sin venderse**, y eso golpea justo a las **caras y raras** — que son exactamente
+las que el gancho destaca. Un umbral corto no traería datos más frescos: **dejaría de mostrar precisamente las cartas
+del gancho**. **Con todo eso delante, eligió 60.**
+
+**⚠️ LO QUE ESTA DECISIÓN *NO* AUTORIZA — leer antes de tocar nada.** «Aceptar 60 días» **NO es** «poner 60 en un
+dial»:
+
+| | |
+|---|---|
+| **Lo aceptado** | El **peor caso de 60 días** que produce el mecanismo **ya vigente**, con `graded_estimate_freshness_days` en su seed de **30** |
+| **Cambio de configuración** | **NINGUNO.** El seed de **30 se queda tal cual**, en todos los entornos |
+| **Cambio de código** | **NINGUNO.** No hay nada que implementar por esta decisión. Backend no recibe trabajo de aquí |
+| **⛔ El error a evitar** | Escribir `graded_estimate_freshness_days = 60` «para reflejar la decisión». Eso **duplicaría la tolerancia a 120 días**, porque los dos relojes se suman: `60 + 60`. Sería **empeorar** exactamente lo que el dueño acaba de acotar |
+
+**Efecto sobre el calendario.** GU-9 **deja de bloquear** el primer `off → on`. De los dos bloqueantes que (r.6.2) y
+(r.3.1) ponían delante del paso 5 del pase, **queda vivo uno: A-1** (el `COSTE MEDIDO` de (r.3.1.1)).
+
+**Qué NO desaparece: cablear `evidenceDate` sigue siendo deuda.** Es lo que convertiría **dos relojes en uno** y lo que
+haría cumplible al pie de la letra el criterio 109 (y lo que haría posible un umbral corto de verdad, si algún día se
+quiere). **Lo que cambia es su carácter, no su existencia:** deja de ser **bloqueante de encendido** y pasa a ser
+**deuda técnica aceptada, con la aceptación fechada y con el número aceptado escrito** — que es justo la forma que el
+DoD admite. **Severidad: BAJA (antes: bloqueante).** El movimiento es legítimo porque lo que hacía grave a GU-9 no era
+la magnitud de la cota sino que **nadie la había aceptado**; ahora está aceptada con el mecanismo explicado. **La
+anotación en `docs/TECH_DEBT.md` la actualiza el rol dueño del código (backend), no el arquitecto** — y debe recoger
+las dos cosas: la severidad nueva y que la columna ya existe (falta escritor + `stale()`), para que nadie vuelva a
+presupuestar la migración.
+
+**Registro de la decisión en `PROJECT.md`:** lo lleva **product-owner**, no este documento.
 
 #### (n) LISTA DE REVISIÓN del back-office (v1.50.3, NORMATIVO) — la contrapartida que faltaba de (k.3)
 
@@ -9626,13 +9707,96 @@ gasto.** Se le aplica la doctrina de dinero: `super_admin`, **solo por back-offi
 
 ###### (r.3.1) Precondiciones VERIFICABLES antes del primer `off → on` de un entorno
 
-Las cuatro se comprueban **antes** de tocar el dial, y las tres primeras se dejan escritas en el ticket del release:
+> **⚠️ v1.51-a — la precondición 1 se REESCRIBE ENTERA (hallazgo A-1 del techlead sobre M-46; condición de su
+> aprobación, exigible antes del primer `off → on`, no antes del merge).** La redacción anterior decía «presupuesto
+> **declarado**: 250 × 2 × 2 = **1 000 créditos/día**» **sin ningún calificador**, y de ahí bajó, literal y sin
+> calificador, al banner de consentimiento de M10 que el dueño lee **en el momento de firmar**. Esa aritmética
+> **puede ser falsa por un factor de hasta ~16×**, y el propio backend lo tiene escrito en dos sitios desde antes de
+> este pase. Lo que sigue no decide cuál de los dos regímenes de cobro es el real —**eso no lo decide un documento**—:
+> convierte **medirlo** en precondición del flip, al mismo nivel que el veredicto de viabilidad, que es exactamente lo
+> que pidió el techlead. **La instrumentación ya existe y ya imprime el número; lo que faltaba era que el
+> consentimiento dependiera de ella.**
 
-1. **Presupuesto declarado.** `graded_estimate_ingest_max_cards_per_run` (seed **250**) deja de ser un tope de
-   comodidad y pasa a ser **la única cota entre un `PUT` y la factura del proveedor**. Con el coste medido de
-   `includeEbay=true` (**2 créditos/carta**, (h.3)) y el cron **2×/día**, el techo es
-   **250 × 2 × 2 = 1 000 créditos/día**. **Devops publica ese número en `DEVOPS_NOTES.md` antes del primer encendido**,
-   y el dueño lo ve. Un tope que nadie tradujo a créditos no es un presupuesto: es un número.
+**Siguen siendo CUATRO**, y las cuatro se comprueban **antes** de tocar el dial. Estado a 2026-08-31:
+
+| # | Precondición | Estado | ¿Bloquea hoy? |
+|---|---|---|---|
+| **1** | **Presupuesto MEDIDO** (r.3.1.1) — reescrita por **A-1** | ⛔ **PENDIENTE** | ✅ **SÍ — el único** |
+| **2** | Viabilidad ya observada (veredicto de la sonda) | pendiente de correr la sonda en staging; **misma corrida que la 1** | ✅ sí |
+| **3** | GU-9 | ✅ **CUMPLIDA** (el dueño aceptó los 60 días, 2026-08-31; (m.2.1)) | ❌ **ya no** |
+| **4** | Aviso leído | pendiente del copy de ux-ui + su corrección por (r.3.1.1) | ✅ sí |
+
+**(r.3.1.0) Por qué «1 000 créditos/día» es una HIPÓTESIS y no un hecho — una afirmación de clase (B) rotulada como (A)**
+
+La aritmética `250 × 2 × 2` supone que **se cobra por carta EN ALCANCE**. Los dos hechos que la ponen en duda son
+**observables en el código** (§0-B.3 regla 2: verificado contra el artefacto que corre, no contra otro documento):
+
+| Hecho | Dónde se lee | Qué implica |
+|---|---|---|
+| `ingestMaxCardsPerRun` acota las cartas **en alcance** | `price-ingest.service.ts` — `published.map(...).slice(0, cfg.ingestMaxCardsPerRun)`, y `result.cardsInScope` se fija **a partir de ese slice** | El dial **no** acota lo que el proveedor devuelve |
+| La petición pide **el SET entero** | `pokemonpricetracker-bulk.provider.ts` — la query de graded lleva `fetchAllInSet: 'true'`, con hasta `maxPages` páginas **por set** | Las cartas **devueltas** son `Σ (tamaño de cada set tocado)` |
+
+Definimos el **factor de amplificación** `A = cartas DEVUELTAS / cartas EN ALCANCE`. **`A ≥ 1` y NINGÚN dial lo acota**:
+lo que manda es **cuántos SETS distintos** tocan las cartas en alcance, y eso no es configurable. 250 cartas repartidas
+en 20 sets de 200 devuelven **4 000** cartas ⇒ `A = 16`.
+
+De ahí salen **dos regímenes de cobro mutuamente excluyentes**, y **nadie ha observado en cuál está PPT**:
+
+| Régimen | Señal medible | Techo real/día con `ingestMaxCardsPerRun = 250` |
+|---|---|---|
+| **Por PETICIÓN** (el barrido por set no escala con el tamaño del set) | créditos por carta **devuelta** `≈ 0` | **1 000** — la cifra del banner es correcta |
+| **Por carta DEVUELTA** | créditos por carta **devuelta** `≈ 2` | **1 000 × A** — con `A = 16`, **16 000**; y `A` no tiene tope por dial |
+
+Contra la cuota diaria del plan del dueño (**valor de clase (B)**: se lee del panel de PPT, hoy 20 000 según
+`DEVOPS_NOTES.md` §32.12.1), la diferencia entre los dos regímenes es la diferencia entre gastar **el 5 %** y gastar
+**el 80 % o más**. **Ese es el rango del error que el banner de consentimiento oculta hoy.**
+
+> **Y el documento que autorizó ese banner es ÉSTE.** La cifra se escribió aquí como decisión (clase A) cuando es la
+> **consecuencia observable de un comportamiento del proveedor** (clase B). §0-B.3 regla 1 dice qué hacer: *no se
+> afirma el valor, se remite a la fuente ejecutable*. La fuente ejecutable **ya existe y ya lo imprime**: la línea
+> `[VEREDICTO-PSA] COSTE MEDIDO: …` (`graded-phase2-verdict.ts`, `renderLines`) reporta `créditos gastados`,
+> `cartas DEVUELTAS`, `cartas en alcance` y el cociente, y **emite su propio `⚠️` diciendo que la premisa "coste
+> proporcional al inventario real" no se sostiene** cuando el cociente `≥ 0.5`. El defecto no era de instrumentación:
+> era que **la pieza que mide corría después de pagar**.
+
+**(r.3.1.1) Precondición 1 — PRESUPUESTO MEDIDO (ya no «declarado»). EJECUTABLE.**
+
+Se ejecuta **en el entorno que se va a encender**, y produce artefactos que **otro rol puede volver a mirar y decir si
+se cumple o no**. No es una afirmación de intención:
+
+| Paso | Qué se ejecuta / lee | Artefacto | Condición de PASO |
+|---|---|---|---|
+| **1a** | La **misma corrida de sonda** de la precondición 2 (`POKEMONPRICETRACKER_GRADED_PROBE=on` + `POST /admin/jobs/price-ingest`). *Una corrida, dos lecturas: viabilidad y coste.* | Log con marca `grep VEREDICTO-PSA` | Existe una línea que empieza por **`COSTE MEDIDO:`**. Si en su lugar aparece `COSTE: el proveedor no expuso dailyRemaining` ⇒ **1a NO pasa** |
+| **1b** | Leer de esa línea los tres números que ya trae: `spent` (créditos), `D` (cartas **DEVUELTAS**), `S` (cartas **en alcance**), y el cociente `c = spent / D` que la línea calcula sola | La línea, pegada literal en el ticket | Los tres son legibles |
+| **1c** | Aritmética a mano con esos números: `A = D / S`; **`techo/día = ingestMaxCardsPerRun × A × c × 2 corridas`** | El cálculo escrito en el ticket, con los tres factores a la vista | El techo **cabe con margen** en la cuota diaria del plan (leída del panel de PPT **ese día**, no de un documento) |
+| **1d** | `GET /admin/pricing/graded-estimates` **del entorno que se enciende** | Respuesta pegada en el ticket | El `ingestMaxCardsPerRun` usado en 1c es **el de ese entorno**, no el seed de código (§11.0: el seed usa `update: {}`) |
+| **1e** | Publicar el resultado de 1c en `DEVOPS_NOTES.md` **y** comprobar que el número que el banner de M10 le pone delante al dueño **es ése** | Captura del banner + la línea de `DEVOPS_NOTES.md` | **Coinciden.** Un tope que nadie tradujo a créditos no es un presupuesto: es un número — y un presupuesto que no coincide con el que se le enseña al dueño **es peor que ninguno** |
+
+**Regla de bloqueo — sin ambigüedad, y es donde vive la condición del techlead:**
+
+- **`c ≥ 0.5`** (mismo umbral con el que el código emite su `⚠️`) ⇒ **régimen «por carta DEVUELTA» CONFIRMADO** ⇒
+  **el flip queda BLOQUEADO** y es **escalada al arquitecto (regla 9)**, no una decisión de operación ni de devops.
+  Es el mismo tipo de hallazgo que (h.4) ya declara escalable —*«un request por carta invalida el modelo de barrido por
+  set»*—; aquí lo que se invalida es el modelo de **presupuesto**, y el rediseño candidato es el mismo: **ingest curado
+  por lista** (solo las cartas gancho que el admin marque), con su propia curaduría y su propia cuota.
+- **`c < 0.5`** ⇒ régimen «por petición» ⇒ la aritmética del banner **queda confirmada por observación**, y el número
+  que se publica es **el medido**, no el estimado.
+- **1a no pasa (no se pudo medir)** ⇒ **NO se enciende.** *«No medible» no es «barato».* Vía de salida, la que el
+  propio código indica: devops anota el crédito del panel de PPT **antes y después** de la corrida y **esa captura
+  sustituye** a la línea, con los mismos pasos 1b–1e. Lo que **no** es vía de salida es encender para medir: eso es
+  pagar por descubrirlo, que es justo lo que la precondición 2 ya prohíbe para el shape.
+
+> ⚠️ **Obligación de redacción que nace de aquí — dueños: ux-ui (copy) + frontend (cálculo), NO el arquitecto.**
+> Mientras 1c no se haya ejecutado en el entorno, **el aviso de M10 no puede afirmar una cifra de créditos como
+> hecho**. O la dice como **techo nominal bajo un supuesto de facturación aún no observado** (con esas palabras o
+> equivalentes), o no la dice. **Hoy la dice sin calificador** — verificado contra el producto: `grading-hook-cost.ts`
+> deriva `250 × 2 × 2` y el copy de `frontend/messages/es.json` la presenta como cifra firme, y su propio test lo fija
+> (`M10View.test.tsx` afirma `/1[.,\s]?000 créditos al día/`). **Esto NO es cambio de contrato**: ningún DTO, ninguna
+> ruta y ningún código de error cambian — es copy y su fuente de cálculo. Enrutado por el orquestador a **ux-ui** y
+> **frontend**; el arquitecto no escribe el texto.
+
+**(r.3.1.2) Las demás precondiciones**
+
 2. **Viabilidad ya observada.** El entorno debe tener un **`VEREDICTO` de la sonda** registrado
    (`VIABLE` / `NO_VIABLE` / `INDETERMINADO`, (h.1-quater)). **La sonda corre en staging ANTES del primer encendido**,
    nunca «a ver qué pasa» en producción: encender sin haber observado el shape del proveedor es **pagar por
@@ -9641,10 +9805,15 @@ Las cuatro se comprueban **antes** de tocar el dial, y las tres primeras se deja
    (`POKEMONPRICETRACKER_API_KEY`) — sin llave el ingest de graded **no emite una sola petición y no escribe nada**
    (verificado: `pokemonpricetracker-bulk.provider.ts` sale con `warn` antes de la primera llamada). Retirar una
    **credencial** no es un feature flag escondido: quita una **capacidad de despliegue**, no gobierna la feature.
-3. **GU-9 resuelta.** Ver (r.6.2): la divergencia abierta de frescura del dato automático (§4.38m.2) decía «no urge
-   hasta encender la fase 2». **Con un solo dial, encender la fase 2 es encender la feature**, así que GU-9 pasa a
-   estar **delante** del primer encendido en producción. Se cierra con **una de dos**: el humano acepta por escrito la
-   cota conservadora `≤ 2 × freshnessDays` (**60 días** en vez de 30), **o** entra la columna `evidenceDate` de M-43.
+   **Es la MISMA corrida que el paso 1a**: la sonda emite viabilidad y coste en el mismo bloque `VEREDICTO-PSA`. Se
+   ejecuta una vez y se leen las dos cosas; **aprobar la 2 e ignorar la 1 es el fallo que A-1 señala**.
+3. ✅ **GU-9 — CUMPLIDA el 2026-08-31, ya no bloquea.** *(Era: «se cierra con una de dos — el humano acepta por escrito
+   la cota conservadora `≤ 2 × freshnessDays` (**60 días** en vez de 30), o entra la columna `evidenceDate` de M-43».)*
+   **El dueño eligió la primera**, con el mecanismo de los **dos relojes** explicado delante y tras preguntar por un
+   umbral de una semana. **No hay nada que ejecutar en esta precondición y no hay ningún dial que tocar:**
+   `graded_estimate_freshness_days` **se queda en 30** — escribir 60 haría el peor caso **120**. Redacción canónica y
+   consecuencias: **(m.2.1)**. **Verificación de esta precondición:** que `graded_estimate_freshness_days` del entorno
+   siga siendo **30** (o el valor que el dueño haya fijado a propósito), **no 60**.
 4. **Aviso leído.** La pantalla de M10 debe decir, **antes de guardar**, que `on` publica **y** empieza a traer datos
    de un proveedor **de paga**, escribiendo precios. La redacción es de **ux-ui** (`DESIGN_SYSTEM.md` §22); **la
    obligación de que exista es de este documento**, y es la misma exigencia que el criterio 110(e) le puso al primer
@@ -9667,6 +9836,75 @@ dueño está señalando**: un segundo interruptor que él no ve, no gobierna y n
 da»*). **NORMATIVO: la sonda no puede volverse prerrequisito para que el dial funcione.** Un dial que necesita que
 alguien más apruebe en otro sitio no es un dial.
 
+###### (r.3.4) DECISIÓN DEL ARQUITECTO — el máximo de `ingestMaxCardsPerRun` baja de **5 000** a **1 000** (cambio de I8)
+
+> **Es decisión mía, no del techlead** (él la planteó y la delegó explícitamente) y **no es la misma cosa que (r.3.1)**:
+> aquélla ata el **consentimiento** a una medición; ésta acota **cuánto puede autorizar un solo `PUT`**. Se decide
+> ahora, no después del encendido, porque **después del encendido el rango ya está autorizando**.
+
+**El problema, dicho con los números delante.** `PUT /admin/pricing/graded-estimates {"ingestMaxCardsPerRun": 5000}` es
+**hoy** una petición perfectamente válida: pasa I8, no requiere redeploy, no requiere aprobación adicional y no
+distingue un dedazo de una decisión. Su techo nominal es `5 000 × 2 × 2 = **20 000 créditos/día**` — **exactamente la
+cuota diaria completa del plan del dueño** (`DEVOPS_NOTES.md` §32.12.1 ya lo tiene escrito y probado como caso). Y eso
+**antes** de aplicar el factor de amplificación `A` de (r.3.1.0), que puede multiplicarlo otra vez.
+
+**Por qué eso no es un tope.** (r.3) declaró `ingestMaxCardsPerRun` **«la única cota entre un `PUT` y la factura del
+proveedor»**. Una cota cuyo valor máximo admisible **coincide con el presupuesto total** no es una cota: es un sello de
+goma. La doctrina propia de este documento ya lo dice para un caso gemelo — `GRADING_COST_MAX_CENTS` (I2) existe
+**«anti-typo»**, y un límite superior anti-typo se calibra contra **la magnitud plausible del uso real**, no contra el
+máximo representable. Contra el uso real, 5 000 es absurdo: el inventario RAW publicado hoy es de **unidades**
+(`DEVOPS_NOTES.md` mide un gasto real de ~28 créditos/día), y el seed son 250.
+
+**La decisión.**
+
+| | Antes | Después | Efecto |
+|---|---|---|---|
+| `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX` | `5000` | **`1000`** | Techo nominal máximo autorizable por un `PUT`: de **20 000** a **4 000** créditos/día |
+| Rango de I8 para `ingestMaxCardsPerRun` | `[1, 5000]` | **`[1, 1000]`** | Fuera de rango ⇒ `422 VALIDATION_ERROR` (sin código de error nuevo) |
+| Seed | `250` | **`250`** (sin cambio) | Deja **4× de holgura** sobre el seed para crecer sin volver a tocar el contrato |
+
+**Por qué 1 000 y no otro número.** Es el mayor valor que cumple las tres cosas a la vez: (i) deja el techo nominal en
+una **fracción** del presupuesto (~20 %) en vez de en su totalidad, de modo que un dedazo **duele pero no quema el
+día**; (ii) mantiene **4×** de holgura sobre el seed, así que el crecimiento previsible del inventario no obliga a un
+cambio de contrato; (iii) sigue siendo **140×** el inventario real de hoy, o sea no estorba a nadie. **No se elige un
+número «ajustado al inventario actual»** a propósito: un tope que hay que subir cada trimestre se acaba subiendo sin
+pensar, que es el fallo que este § intenta evitar.
+
+**Lo que este cambio NO pretende.** No cierra la amplificación `A`: si PPT cobra por carta **devuelta**, el coste lo
+manda el número de **sets** tocados y **ningún** valor de `ingestMaxCardsPerRun` lo acota. Eso lo cierra (r.3.1) —
+bloqueando el flip— o el rediseño a **ingest curado por lista**. Estrechar I8 reduce el **peor caso nominal**; no
+convierte el dial en un presupuesto. **Decirlo importa**: si alguien lee «bajamos el tope» como «ya está acotado el
+gasto», habremos cambiado un número para crear una falsa sensación de cobertura.
+
+**Compatibilidad y dirección del fallo — verificado, no supuesto.**
+
+- Es un **estrechamiento** de un rango aceptado: todo valor hoy almacenado `≤ 1 000` (incluido el seed **250** de todos
+  los entornos) **sigue siendo válido** y nada cambia de comportamiento. Solo `(1 000, 5 000]` pasa a `422`.
+- **Un valor almacenado dentro de `(1 000, 5 000]` NO se vuelve peligroso: se vuelve fail-closed.** El lector de config
+  marca `ingestConfigInvalid` cuando el validador de esa clave falla (`pricing.service.ts` compone
+  `ingestConfigInvalid` con el resultado de `ingestMaxRes`), y `runGradedEstimates` **sale antes de pedir nada**
+  (`price-ingest.service.ts`, guarda `if (cfg.ingestConfigInvalid)`). Es decir: el estrechamiento **apaga el ingest**
+  en vez de dejarlo gastando. **Es la dirección correcta del fallo**, y es lo que hace seguro hacerlo ahora.
+- **Consecuencia operativa que devops debe comprobar, no suponer** (entra en el paso 0 del pase, (r.4)): si algún
+  entorno tiene un valor almacenado `> 1 000`, tras el deploy ese entorno **no ingesta** hasta que alguien haga un
+  `PUT` válido. Se detecta con `GET /admin/pricing/graded-estimates` **antes** del deploy. *(No se conoce ningún
+  entorno en ese caso: el seed es 250 y el 5 000 aparece en `DEVOPS_NOTES.md` como caso de prueba del script, no como
+  valor almacenado — pero «no se conoce» no es «se verificó», y esta línea existe para que se verifique.)*
+
+**Enrutado (regla 8 — el arquitecto no implementa):**
+
+- **backend** — `common/graded-estimate.ts`: `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 1000`; el mensaje del validador ya
+  interpola la constante, así que se corrige solo. Actualizar los specs que fijen `5000` como válido.
+- **frontend** — si la UI de M2 pinta el rango o valida en cliente, pasa a `[1, 1000]`; el aviso de coste sigue siendo
+  el de (r.3.1).
+- **devops** — `scripts/check-graded-estimate-dials.sh` documenta hoy el caso «5000 → 20000 créditos/día» como *dentro
+  del rango*; tras este cambio ese valor es `422` y el caso debe reescribirse contra el nuevo máximo.
+- **QA** — `ingestMaxCardsPerRun: 1000` ⇒ `200`; `1001` y `5000` ⇒ **`422 VALIDATION_ERROR`**; y con un valor almacenado
+  fuera de rango, el ingest **no emite ni una petición** (la comprobación de fail-closed, que es la que importa).
+
+**Contrato:** sí cambia. `API_CONTRACT.md` I8 y la tabla de rangos de `GradedEstimateConfigDTO` — hecho en la misma
+revisión (`v1.51-a`). **Ningún shape, ninguna ruta y ningún código de error nuevos.**
+
 ##### (r.4) EL PASE — cómo se despliega el colapso sin que nadie empiece a gastar (procedimiento + verificación)
 
 **El riesgo que este procedimiento existe para cerrar:** hoy producción tiene `graded_estimates_enabled = "on"`, y el
@@ -9680,13 +9918,13 @@ base la tiene.
 
 | # | Paso | Quién | Verificación |
 |---|---|---|---|
-| 0 | **Anotar el estado previo** de `graded_estimates_enabled` y `graded_estimate_ingest_enabled` en **cada** entorno, con el comparador solo-lectura (§4.38p paso 1). *No para restaurarlo: para poder responder «¿qué había?» después.* | devops | Los dos valores quedan en el ticket. |
+| 0 | **Anotar el estado previo** de `graded_estimates_enabled` y `graded_estimate_ingest_enabled` en **cada** entorno, con el comparador solo-lectura (§4.38p paso 1). *No para restaurarlo: para poder responder «¿qué había?» después.* **v1.51-a: anotar también `ingestMaxCardsPerRun` de cada entorno** — si alguno está `> 1 000`, tras el deploy ese entorno queda **fail-closed** (no ingesta) hasta un `PUT` válido, por (r.3.4). | devops | Los dos valores quedan en el ticket, **más** el `ingestMaxCardsPerRun` de cada entorno. |
 | 1 | **Deploy del código.** **Nada que migrar** (M-46 es DATA/seed, sin DDL). El seed solo alcanza entornos nuevos (§11.0). | devops | `migrate deploy` sin cambios. |
 | 2 | **El gancho queda OSCURO, por construcción** — no por un paso que alguien podría olvidar. `grading_hook_enabled` ausente ⇒ `off` ⇒ ni se exhibe, ni se pide, ni se escribe. | *(automático)* | `GET /admin/settings` → `gradingHookEnabled: "off"`. **Línea de inventario del arranque** con las dos claves retiradas bajo su rótulo (r.1). |
 | 3 | **Verificación de que NO se gasta** — la que importa. Dejar pasar **un tick del cron** (o dispararlo a mano con `POST /admin/jobs/price-ingest`) y comprobar en el log: `enabled=false`, **cero peticiones al proveedor**, `written=0`, créditos del proveedor **sin moverse**. | devops | Es una verificación **positiva de ausencia de gasto**, no una inspección de config. Sin ella, «no gastó» es una suposición. |
 | 4 | **Verificación de que no se movió dinero** — re-`GET` de `/admin/pricing/graded-estimates`: los **diez** diales de M2 idénticos a antes del deploy; ninguna `PriceReference` nueva con `source='pokemonpricetracker'` y `gradeKey='graded:PSA:*'`. | devops + QA | El colapso **no toca ni un monto**; si toca alguno, se para y vuelve al arquitecto. |
-| 5 | **El dueño enciende** `gradingHookEnabled: "on"` desde M10, con las precondiciones de (r.3.1) cumplidas y el aviso delante. | **el dueño** (no devops) | `AuditLog` `settings.update` con `before: "off"` / `after: "on"`. |
-| 6 | **Medir la primera corrida**: créditos antes/después, `written`, motivos de salto por separado ((h.4)), y **revisar la lista de revisión** antes de dar el release por cerrado. | devops + QA | La factura de la primera corrida **cabe** en el presupuesto declarado en (r.3.1).1. |
+| 5 | **El dueño enciende** `gradingHookEnabled: "on"` desde M10, con las precondiciones de (r.3.1) cumplidas y el aviso delante. **v1.51-a: el `COSTE MEDIDO` de (r.3.1.1) es precondición al mismo nivel que el veredicto de viabilidad** — sin la línea `COSTE MEDIDO` leída y su aritmética hecha, el paso 5 **no se ejecuta**. | **el dueño** (no devops) | `AuditLog` `settings.update` con `before: "off"` / `after: "on"`, **y** en el ticket los artefactos 1a–1e de (r.3.1.1). |
+| 6 | **Medir la primera corrida**: créditos antes/después, `written`, motivos de salto por separado ((h.4)), y **revisar la lista de revisión** antes de dar el release por cerrado. | devops + QA | La factura de la primera corrida **cabe** en el presupuesto **medido** en (r.3.1.1). **Si NO cabe, se apaga el dial y se escala al arquitecto (regla 9)** — es la segunda oportunidad de detectar el régimen de cobro, no una formalidad. |
 
 > ⚠️ **El hueco oscuro es el precio, y es deliberado.** Entre el paso 1 y el paso 5, producción **deja de mostrar** las
 > cifras del gancho. **No hay tercera opción:** o el colapso deja un momento apagado, o el deploy arranca gastando
@@ -9734,7 +9972,20 @@ fecha de captura (`manualFreshnessDays`), no contra el apagón.
 
 ###### (r.6.1) ⚠️ El arnés E2E enciende este dial en CADA corrida
 
-`frontend/e2e/utils/grading.ts` hace `PUT /admin/settings { gradedEstimatesEnabled: 'on' }` al arrancar y lo restaura
+> **⚠️ v1.51-a — corrección de un HECHO, no de la norma (hallazgo de QA).** La frase que abría este § describía el
+> arnés **como era antes de `6418cb2`** (*«hace `PUT /admin/settings { gradedEstimatesEnabled: 'on' }`»*). **Es falsa
+> desde ese commit.** La norma que sigue **era y es correcta** y no se toca; lo que envejeció fue la descripción —
+> caso de manual de §0-B: una afirmación de **clase (B)** (qué hace un archivo que corre) escrita como si fuera
+> propiedad de este documento. **Estado verificado hoy contra el producto** (`frontend/e2e/utils/grading.ts`,
+> `frontend/e2e/utils/paid-provider-guard.ts`, y su test `src/test/e2e-paid-provider-guard.test.ts`): el arnés llama a
+> **`enableGradingHookGuarded`**, que (i) **evalúa primero la incapacidad de escritura** del entorno y **lanza sin
+> llegar a hacer el `PUT`** si detecta credencial viva del proveedor, y (ii) solo entonces emite el `PUT` con **la
+> clave nueva** `{ gradingHookEnabled: 'on' }` (`GRADING_HOOK_DIAL_KEY`). Es decir: **la norma de abajo ya está
+> implementada y tiene test que la fija.** Se conserva el texto original como nota histórica porque explica **por qué**
+> existe la norma.
+
+*(Redacción histórica, v1.51 — describe el estado previo a `6418cb2`:)* `frontend/e2e/utils/grading.ts` hacía
+`PUT /admin/settings { gradedEstimatesEnabled: 'on' }` al arrancar y lo restauraba
 en el `globalTeardown`. **Tras el colapso, ese mismo flip autoriza el ingest**: una suite E2E corriendo contra un
 entorno con credencial del proveedor **empezaría a gastar créditos y a escribir precios automáticos en cada corrida
 del gate de CI**, en silencio y sin que nadie lo pidiera. **NORMATIVO:** el entorno donde corre la suite E2E debe estar
@@ -9743,14 +9994,25 @@ del gate de CI**, en silencio y sin que nadie lo pidiera. **NORMATIVO:** el ento
 huellas que ya declara. **Dueños: frontend** (arnés y declaración) **+ devops** (env de CI/staging). Sin esto, el
 colapso convierte el gate de CI en un consumidor de la cuota de un proveedor de paga.
 
-###### (r.6.2) GU-9 asciende de «no urge» a **bloqueante del primer encendido en producción**
+###### (r.6.2) ~~GU-9 asciende de «no urge» a **bloqueante del primer encendido en producción**~~ ✅ **CERRADA (v1.51-a)**
 
-La desviación abierta de (m.2) —frescura del dato automático medida contra la **fecha de ingesta** y no contra la
-**evidencia**, permisiva— venía marcada como *«no está viva porque el ingest está `off`; debe cerrarse antes de
-encender la fase 2»*. **Con un dial, «encender la fase 2» y «encender la feature» son el mismo acto**, y producción
-quiere la feature encendida. La desviación **no cambia de gravedad; cambia de posición en el calendario**: pasa a
-estar delante del paso 5 de (r.4). Cierre: la cota `≤ 60 días` aceptada por escrito **o** `evidenceDate` (M-43). §9,
-§10 GU-9.
+*(Redacción v1.51, conservada porque explica el camino:)* La desviación abierta de (m.2) —frescura del dato automático
+medida contra la **fecha de ingesta** y no contra la **evidencia**, permisiva— venía marcada como *«no está viva porque
+el ingest está `off`; debe cerrarse antes de encender la fase 2»*. **Con un dial, «encender la fase 2» y «encender la
+feature» son el mismo acto**, y producción quiere la feature encendida. La desviación **no cambia de gravedad; cambia
+de posición en el calendario**: pasa a estar delante del paso 5 de (r.4). Cierre: la cota `≤ 60 días` aceptada por
+escrito **o** `evidenceDate` (M-43). §9, §10 GU-9.
+
+> ✅ **v1.51-a (2026-08-31) — el dueño tomó la PRIMERA de las dos vías: acepta los 60 días.** Con el mecanismo de los
+> **dos relojes** explicado y tras haber preguntado por un umbral de una semana (al que se le contestó que 7 daría 14).
+> **GU-9 sale del camino crítico del paso 5.** **Sin cambio de config ni de código:** `graded_estimate_freshness_days`
+> **se queda en 30**; escribir 60 llevaría el peor caso a **120**. Cablear `evidenceDate` **sigue siendo deuda**
+> (severidad **baja**, ya no bloqueante) — la columna existe, faltan escritor y `stale()`. Redacción canónica y todas
+> las consecuencias: **(m.2.1)**.
+>
+> **Del par de bloqueantes que este § y (r.3.1) ponían delante del primer `off → on`, queda VIVO exactamente uno:
+> A-1 — el `COSTE MEDIDO` de (r.3.1.1).** Se dice aquí explícitamente para que nadie lea «GU-9 cerrada» como «ya se
+> puede encender».
 
 ###### (r.6.3) El criterio 108 sigue cumpliéndose — pero su VERIFICACIÓN ya no es gratis
 
@@ -9802,6 +10064,24 @@ que la hace tolerable es que las cuatro guardas de escritura ya existían y **no
   proveedor y `written=0`; criterio 108 verificado según (r.6.3); smoke de que apagar/encender no mueve ningún precio
   de venta.
 - **product-owner / humano** (enrutado por el orquestador, **no lo escribe el arquitecto**): ver §10 GU-14.
+
+##### (r.8) ADENDA v1.51-a — trabajo NUEVO que sale de A-1, de I8 y del cierre de GU-9
+
+Todo esto es **adicional** a (r.7), que sigue vigente. Nada de aquí cambia un shape de DTO ni una ruta.
+
+| # | Trabajo | Dueño | Bloquea el `off → on`? |
+|---|---|---|---|
+| 1 | **Medir el coste antes de encender**: correr la sonda en staging y ejecutar 1a–1e de (r.3.1.1), dejando los artefactos en el ticket | **devops** (ejecuta) + **QA** (verifica que los artefactos existen y que la aritmética cuadra) | ✅ **SÍ — es el único bloqueante vivo** |
+| 2 | **El aviso de M10 deja de afirmar la cifra de créditos como hecho**: la dice como techo **nominal** bajo un supuesto de facturación no observado, o no la dice | **ux-ui** (copy, `DESIGN_SYSTEM.md` §22) + **frontend** (`grading-hook-cost.ts`, i18n y su test, que hoy **fija** la cifra sin calificador) | ✅ SÍ — es la superficie donde el dueño firma |
+| 3 | **I8: `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX` 5000 → 1000** (+ specs) | **backend** | ❌ No, pero **debe entrar en el mismo release**: después del encendido el rango ya está autorizando |
+| 4 | Rango `[1, 1000]` donde la UI de M2 lo pinte o valide | **frontend** | ❌ No |
+| 5 | Paso 0 del pase: anotar `ingestMaxCardsPerRun` **por entorno** y detectar valores `> 1 000` (quedarían fail-closed) | **devops** | ❌ No, pero antes del deploy |
+| 6 | `scripts/check-graded-estimate-dials.sh`: el caso «5000 → 20000 créditos/día» pasa a ser un `422`; y el presupuesto que publica debe ser el **medido**, no el nominal | **devops** | ❌ No |
+| 7 | Deuda `evidenceDate` (escritor + `stale()`): re-rotular a severidad **baja / no bloqueante**, dejando escrito que la **columna ya existe** | **backend** (en `docs/TECH_DEBT.md`, a petición del techlead) | ❌ No — GU-9 aceptada |
+| 8 | Registrar la decisión «acepto 60 días» del dueño | **product-owner** (en `PROJECT.md`) | ❌ No |
+
+> **Lo que NINGÚN rol debe hacer a raíz del cierre de GU-9:** tocar `graded_estimate_freshness_days`. Se queda en
+> **30**. Ver la tabla de (m.2.1).
 
 ---
 
@@ -11701,7 +11981,7 @@ Riesgos técnicos:
   Dictamen completo en §4.38(l.4.10)-(l.4.13); aquí queda el registro con dueño y puerta:
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
-  | **SEC-M43-1** | El escritor **humano** degrada una fila `market` a `graded_estimate` y le pisa el monto (la guarda `409` solo ve `platform+listed`) ⇒ pieza real apagada en silencio; **valuación de custodia a `pending`** | backend | **Antes de encender `gradedEstimatesEnabled` en un entorno con inventario `graded` real.** Cierre = **`M-44`** (§4.38l.4.10) |
+  | **SEC-M43-1** | El escritor **humano** degrada una fila `market` a `graded_estimate` y le pisa el monto (la guarda `409` solo ve `platform+listed`) ⇒ pieza real apagada en silencio; **valuación de custodia a `pending`** | backend | **Antes de encender ~~`gradedEstimatesEnabled`~~ `gradingHookEnabled` (clave renombrada en v1.51, §4.38r.1) en un entorno con inventario `graded` real.** Cierre = **`M-44`** (§4.38l.4.10) |
   | **SEC-M43-2** | Runbook de cut-over: censo-foto, backfill con el predicado equivocado, rollback que reabre GE-1 | devops (ejecuta) · backend (documento) | **Bloquea el cut-over de producción.** Cierre = **`M-45`** (§4.38l.4.7/l.4.11) |
   | **SEC-M43-3** | (l.4.4)A decía «un lector nuevo hereda el comportamiento seguro»: **falso a nivel de mecanismo** (en Prisma, omitir `refKind` **incluye** las dos naturalezas). Corregido el texto; falta el candado | backend | Próximo cambio en `pricing.service` |
   | **SEC-M43-4** | `OverrideDto`: `productType` libre ⇒ **`500`**; `cardId` inexistente ⇒ **`500`**; `graded:PSA:11` ⇒ `200`. **El contrato ya decía `422`** — desviación del código, no laguna del contrato | backend | Junto a C4 (un `500` espurio contamina la alerta de 401/403) |
@@ -11790,7 +12070,14 @@ Riesgos técnicos:
   gravedad; cambia de posición en el calendario.** **Mitigación normada para backend (sin DDL):** gate de evidencia
   **en la escritura** — el ingest no persiste filas cuya `lastSaleDate` supere `freshnessDays`, y trata «ausente/no
   parseable» como **no fresco**. Deja una cota honesta de **≤ 2 × freshnessDays**, no los 30 exactos. **Cierre exacto:**
-  columna `evidenceDate` en M-43. **Decisión del humano pendiente: GU-9.**
+  columna `evidenceDate` en M-43. ~~**Decisión del humano pendiente: GU-9.**~~
+  ✅ **v1.51-a — DESVIACIÓN ACEPTADA, YA NO BLOQUEANTE.** El dueño **aceptó los 60 días** el 2026-08-31, con el
+  mecanismo de los **dos relojes** explicado (y tras que se le dijera que un umbral de 7 daría 14). **La desviación
+  sigue existiendo** —seguimos midiendo contra la ingesta— pero pasa de *«abierta, pendiente de decisión, bloqueante»*
+  a *«aceptada por el dueño, con el número aceptado escrito, deuda de severidad baja»*. **Sin cambio de config ni de
+  código: `graded_estimate_freshness_days` se queda en 30** (escribir 60 daría un peor caso de 120). El cierre exacto
+  —cablear `evidenceDate`, cuya **columna ya existe**; faltan escritor y `stale()`— **sigue siendo deuda** y lo anota
+  backend en `docs/TECH_DEBT.md`. Redacción canónica: **§4.38(m.2.1)**.
 - **⚠ DESVIACIÓN DETECTADA y CERRADA en el mismo pase — un dial de dinero que la UI nunca dibujó (arquitecto, v1.51,
   §4.38r).** `graded_estimate_ingest_enabled` existía en el contrato y en el código desde v1.50.2, pero **nunca se
   añadió a `M10View.tsx`**: la única forma de encenderlo era `curl`. El comentario del **primer** dial en ese mismo
@@ -12217,14 +12504,27 @@ este documento y con `API_CONTRACT.md`.
      **encender sigue requiriendo M-43**.
   2. **¿`evidenceDate` viaja en la misma migración?** (GU-9). **Sí, recomendado** (dos columnas aditivas, una sola
      ventana). Si solo se aprueba una, **entra `refKind`**: es la que bloquea el encendido de la fase 1.
-- **GU-9 — cierre exacto del criterio 109 para el dato automático** (§4.38m.2). El default aplicado (gate de evidencia
-  en la escritura, sin DDL) acota la antigüedad a **≤ 2 × freshnessDays = 60 días**, no a los **30** que dice el
-  criterio. **Decisión pedida:** ¿basta la cota conservadora, o se aprueba la columna `evidenceDate` (en M-43) para
-  cumplirlo al pie de la letra? ~~**No urge hasta encender la fase 2** (`graded_estimate_ingest_enabled` seed `off`),
-  pero **debe estar resuelto antes** de encenderla.~~ ⚠️ **URGE DESDE v1.51 (§4.38r.6.2).** Con el **dial único**,
-  encender la feature **es** encender la fase 2, y usted quiere la feature encendida en producción ⇒ **esta decisión
-  pasa a estar delante del primer encendido** (paso 5 del pase, §4.38r.4). Bastan **dos palabras**: «acepto 60» o
-  «hagan `evidenceDate`».
+- ✅ **GU-9 — RESPONDIDA Y CERRADA (2026-08-31). Ya no está pendiente; se conserva como registro de la decisión.**
+  *(Era: «cierre exacto del criterio 109 para el dato automático» (§4.38m.2). El default aplicado —gate de evidencia en
+  la escritura, sin DDL— acota la antigüedad a **≤ 2 × freshnessDays = 60 días**, no a los **30** que dice el criterio.
+  **Decisión pedida:** ¿basta la cota conservadora, o se aprueba la columna `evidenceDate` (en M-43)? ~~No urge hasta
+  encender la fase 2~~ ⚠️ **URGÍA desde v1.51 (§4.38r.6.2)**: con el dial único pasó a estar delante del paso 5 del
+  pase.)*
+  **Respuesta del dueño: ACEPTA LOS 60 DÍAS.** No fue un «ok» genérico: se le explicó que hay **dos relojes que se
+  suman** (tolerancia al bajar el dato + tolerancia al leerlo, porque `evidenceDate` no se persiste y el lector mide
+  desde la captura), preguntó por *«máximo una semana»* y se le respondió que **7 no da 7, da 14**, y que un 7 real
+  exige cablear `evidenceDate` (columna ya creada en M-43; escritor y `stale()` sin cablear, en `TECH_DEBT.md`). Se le
+  dijo además que **esos días no son retraso del proveedor sino cuánto lleva la carta sin venderse**, y que por eso el
+  umbral corto golpearía justo a las caras y raras — las que el gancho destaca. **Con eso delante eligió 60.**
+  - ⛔ **Ojo con el error de lectura, que es el único riesgo que deja esta decisión:** aceptar «60 días» **NO** es
+    poner 60 en un dial. `graded_estimate_freshness_days` **se queda en 30**; escribir 60 duplicaría la tolerancia a
+    **120**. **Cero cambios de config y cero de código.**
+  - **GU-9 deja de bloquear** el primer `off → on`. **Sigue vivo A-1** (`COSTE MEDIDO`, §4.38r.3.1.1), que es ahora el
+    único bloqueante del encendido.
+  - **Cablear `evidenceDate` sigue siendo deuda** (severidad **baja**, ya no bloqueante): es lo que convertiría dos
+    relojes en uno. Lo anota **backend** en `docs/TECH_DEBT.md`.
+  - Redacción canónica y consecuencias completas: **§4.38(m.2.1)**. El registro en `PROJECT.md` lo lleva
+    **product-owner**.
 - **GU-10 (opcional, es un dial) — `maxGradedMultiple`: ¿100× o 50×?** Se sembró **100** porque es lo que dice §O.7 /
   criterio 111(c) y PROJECT manda. El arquitecto **preferiría 50** por money-safety en una superficie comercial, pero
   el número lo marcó el PO como **SUPUESTO revisable por el humano** y no es del arquitecto revisarlo. **Cambiarlo es
@@ -12246,9 +12546,14 @@ este documento y con `API_CONTRACT.md`.
 - **GU-14 (NUEVA v1.51 — nace de su decisión de dejar UN solo dial; §4.38r).** Su decisión está **acatada y diseñada**,
   no re-litigada. Lo que necesita saber, en tres puntos, **antes** del pase:
   1. **Encender el gancho pasa a costar dinero.** Con un dial, `on` publica **y** empieza a pedirle datos a un
-     proveedor **de paga**: hasta **1 000 créditos/día** con los topes sembrados (250 cartas/corrida × 2 créditos ×
-     2 corridas). Devops le pondrá el número delante antes del primer encendido. **Si prefiere otro techo, es un dial
-     de M2** (`ingestMaxCardsPerRun`): se cambia sin deploy.
+     proveedor **de paga**. ⚠️ **v1.51-a — corrección importante y es la que le afecta a usted:** la cifra que este
+     documento venía dando —**1 000 créditos/día** (250 cartas/corrida × 2 créditos × 2 corridas)— es un **techo
+     NOMINAL bajo un supuesto de facturación que nadie ha comprobado todavía**. Si el proveedor cobra por carta
+     **devuelta** en vez de por carta nuestra, el número real puede ser **varias veces mayor** (§4.38r.3.1.0). **Por
+     eso ya no basta con que devops le ponga el número delante: hay que MEDIRLO antes de encender**, y sin esa medición
+     el encendido está bloqueado (§4.38r.3.1.1). **Si prefiere otro techo, sigue siendo un dial de M2**
+     (`ingestMaxCardsPerRun`, se cambia sin deploy) — con un cambio: su **máximo admisible baja de 5 000 a 1 000**,
+     porque 5 000 autorizaba de un solo `PUT` su cuota diaria entera (§4.38r.3.4). Su valor actual (**250**) no cambia.
   2. **Habrá un rato con las cifras apagadas.** El dial nuevo nace en `off` en todos los entornos **a propósito**: es
      la única forma de que el deploy no empiece a gastar solo. Entre el deploy y el momento en que **usted** lo
      enciende desde el panel, la tienda **no muestra** los estimados. **No hay tercera opción**: o hay un rato
@@ -12257,7 +12562,9 @@ este documento y con `API_CONTRACT.md`.
      una cifra ahora **también congela la actualización de datos**. La escalera completa está en §4.38(r.5) y la UI se
      lo dirá. *(Al reencender, los datos se reponen en la siguiente corrida —o de inmediato disparando el job—, así
      que el coste está acotado; pero el remedio correcto sigue siendo el de la fila.)*
-  **Decisión pedida:** ratificar el pase de §4.38(r.4) y responder **GU-9** (arriba), que ahora lo bloquea.
+  **Decisión pedida:** ratificar el pase de §4.38(r.4). ~~y responder **GU-9** (arriba), que ahora lo bloquea~~ ✅
+  **GU-9 respondida el 2026-08-31** («acepto 60»): ya no bloquea. **El bloqueante que queda es A-1** — medir el coste
+  real antes de encender (punto 1 de arriba).
 - **GU-12 — `manualFreshnessDays = null` deja de ser el default y pasa a ser decisión suya.** Si el humano decide que
   un override manual **no** debe caducar nunca (que era el comportamiento sembrado por v1.50.2), la vía correcta es
   **poner el dial en `null` explícitamente Y pedir a product-owner que enmiende el criterio 109** — no dejar el
@@ -12867,9 +13174,9 @@ de Prisma** (ni tablas, ni columnas, ni enums, ni `DROP`, ni backfill).
 | **M-42** | `ConfigSetting['graded_estimate_max_raw_multiple']` (NUEVO, v1.50.2) | Seed **100** *(**v1.50.3**; era 50)* | Data/seed | Cota **superior** de magnitud (§4.38k.2) = `maxGradedMultiple` de §O.7. **> 1** obligatorio (I9): con `≤ 1` la vitrina quedaría vacía para siempre. |
 | **M-42** | `ConfigSetting['graded_estimate_min_sample_count']` (NUEVO, v1.50.2) | Seed **5** *(**v1.50.3**; era 3)* | Data/seed | Muestra mínima del proveedor = `minSalesSample` de §O.7. Se aplica **en el ingest (escritura)**, no en lectura (§4.38k.1). Rango `[1, 100]`. |
 | **M-42** | `ConfigSetting['graded_estimate_source_stat']` (NUEVO, v1.50.2) | Seed **`'median'`** | Data/seed | Cuál número del proveedor **es** el precio (§4.38h.2). Enum `median\|average\|smart`. |
-| **M-42** | `ConfigSetting['graded_estimate_ingest_max_cards_per_run']` (NUEVO, v1.50.2) | Seed **250** | Data/seed | Tope **duro** de cuota por corrida (§4.38h.3). Rango `[1, 5000]`. |
+| **M-42** | `ConfigSetting['graded_estimate_ingest_max_cards_per_run']` (NUEVO, v1.50.2) | Seed **250** *(sin cambio)* | Data/seed | Tope **duro** de cuota por corrida (§4.38h.3). Rango ~~`[1, 5000]`~~ ⇒ **`[1, 1000]` desde v1.51-a** (§4.38r.3.4): el máximo viejo autorizaba de un solo `PUT` la cuota diaria entera. **El seed no cambia**, así que ningún entorno sembrado se ve afectado. |
 | **M-42** | ~~`ConfigSetting['graded_estimate_ingest_enabled']`~~ | ~~Seed `'off'`~~ | Data/seed | ⛔ **RETIRADA en v1.51 (M-46, §4.38r).** Fila huérfana e inerte. **Nunca se dibujó en la UI** — la desviación que originó el colapso (§9). |
-| **M-46** | `ConfigSetting['grading_hook_enabled']` (**NUEVO, v1.51**) | Seed **`'off'`** | Data/seed, **sin DDL** | **EL dial del gancho**: exhibición **+** obtención. Editable en **M10** (`PUT /admin/settings`, DTO `gradingHookEnabled`), auditado, sin redeploy. **Clave NUEVA a propósito:** ninguna base la tiene ⇒ el deploy del colapso **no puede empezar a gastar solo** (§4.38r.1). |
+| **M-46** | `ConfigSetting['grading_hook_enabled']` (**NUEVO, v1.51**) | Seed **`'off'`** | Data/seed, **sin DDL** | **EL dial del gancho**: exhibición **+** obtención. Editable en **M10** (`PUT /admin/settings`, DTO `gradingHookEnabled`), auditado, sin redeploy. **Clave NUEVA a propósito:** ninguna base la tiene ⇒ el deploy del colapso **no puede empezar a gastar solo** (§4.38r.1). ⚠️ **v1.51-a: su primer `off → on` tiene precondiciones VERIFICABLES** — la viva es **A-1**, el `COSTE MEDIDO` de §4.38(r.3.1.1). Desplegar M-46 **no** autoriza encenderlo. |
 | M-42 | `settings.constants.ts` | ~~**12**~~ **11** keys *(v1.51: −2 retiradas, +1 nueva)* + validadores (`validateGradingCostTiers` con I1–I5, `validateGradedEstimateGrades` con I7, **I8/I9** de v1.50.2; §4.38d) | Código (común) | Las **10** keys de M2 **NO** se editan por `PUT /admin/settings` (endpoint M2 dedicado); se validan igual, como los spreads del sellado. ~~Las **2** de M10 (`graded_estimates_enabled`, `graded_estimate_ingest_enabled`) sí.~~ **v1.51: la de M10 es UNA** — `grading_hook_enabled`. Las dos viejas salen de `SettingKey`, `SETTING_DEFAULTS`, validadores y `SETTING_DTO_MAP` ⇒ enviarlas en el `PUT` es **clave desconocida ⇒ `422`** (precedente `stripeFeeIvaPct`, §M10 v1.40). |
 
 > **Compat / reversibilidad:** las 12 claves son **nuevas**; ningún consumidor previo las lee. Revertir el deploy deja
@@ -12888,7 +13195,7 @@ aplicación literal del **criterio 55** de `PROJECT.md`.
 |---|---|---|---|---|
 | M-43 | `enum PriceRefKind` (NUEVO) | `market \| graded_estimate` | **DDL aditivo** | Enum nuevo; ningún consumidor previo lo lee. |
 | M-43 | `PriceReference.refKind` (NUEVA columna) | `PriceRefKind @default(market)` | **DDL aditivo** | **NO entra a la `@@unique`** (§4.38l.4.2). Default = toda fila existente conserva su significado ⇒ **la migración no puede mover ningún precio publicado**. |
-| M-43 | `PriceReference.evidenceDate` (NUEVA columna) | `DateTime? @db.Date` | **DDL aditivo** | (m.2): fecha de la **evidencia** (última venta del proveedor); `null` en la vía manual. `stale()` pasa a medir contra `evidenceDate ?? capturedDate`. **Empaquetada aquí por recomendación**; si el humano aprueba solo una columna, entra `refKind`. |
+| M-43 | `PriceReference.evidenceDate` (NUEVA columna) | `DateTime? @db.Date` | **DDL aditivo** | (m.2): fecha de la **evidencia** (última venta del proveedor); `null` en la vía manual. `stale()` pasa a medir contra `evidenceDate ?? capturedDate`. **Empaquetada aquí por recomendación**; si el humano aprueba solo una columna, entra `refKind`. ⚠️ **Estado real v1.51-a — la COLUMNA ya existe** (verificado: `schema.prisma` + la migración `20260829120000_m43_graded_estimate_kind`), pero **el escritor y el `stale()` NO están cableados**: el provider ya calcula la fecha y la lleva en su fila, y nadie la persiste. **Es deuda de backend, severidad BAJA y ya NO bloqueante**, porque el dueño aceptó el peor caso de 60 días (GU-9, §4.38m.2.1). Cablearla es lo que convertiría **dos relojes en uno**. |
 | M-43 | `MONEY_REF_WHERE` (NUEVO, `pricing.service.ts`) | `{ refKind: 'market' }` aplicado vía `AND` en **toda** lectura de dinero | Código (compartido) | Seams en §4.38(l.4.4)A. **Exclusión, no rango**: `isBetterRef`/`sourceRank`/§4.27f-2 **no se tocan**. |
 | M-43 | Escritores (`manualOverride`, `persistGradedEstimateReference`) | Fijan `refKind` **en `create` Y en `update`** | Código | Tabla de escritores en §4.38(l.4.3). El `update` que lo omita deja un `intent:"market"` clasificado como estimado. |
 | M-43 | `getGradedEstimatesBatch` / `preview` / `review` / `DELETE` | Lectura **inclusiva** (ambas naturalezas, menos slab publicado); el `DELETE` borra **solo** `graded_estimate` | Código | §4.38(l.4.4)B y (l.4.5). |
