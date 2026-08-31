@@ -43,16 +43,6 @@ export interface ShelfProps {
   viewAllHref?: string;
   viewAllLabel?: string;
   viewAllClassName?: string;
-  /**
-   * Slot HERMANO del H2, dentro del grupo izquierdo y **antes** del grupo derecho en orden de DOM
-   * (§23.4a: el conmutador de reproducción del carrusel es el primer control del estante en orden de
-   * tabulación). Ocupa el hueco estructural del kicker pero **sin** su envoltorio `.eyebrow`: ese
-   * envoltorio impone color muted y `gap-4`, y §23.4b pide tinta y `gap` 12px / 16px en `lg`.
-   *
-   * No es un kicker de contenido: §22.6b-e sigue prohibiendo literalmente cualquier texto que afirme
-   * algo sobre las piezas del estante.
-   */
-  titleAdjacent?: React.ReactNode;
   /** Controles extra a la derecha del link (flechas del carrusel §20.3). */
   actions?: React.ReactNode;
   /** Clases de la <section> (border-t, fondo de pozo…). */
@@ -69,7 +59,6 @@ export function Shelf({
   ariaRoledescription,
   sectionRef,
   kicker,
-  titleAdjacent,
   subtitle,
   subtitleClassName,
   viewAllHref,
@@ -101,13 +90,6 @@ export function Shelf({
           <div className="flex items-baseline gap-4">
             {heading}
             <span className="eyebrow">{kicker}</span>
-          </div>
-        ) : titleAdjacent ? (
-          // §23.4b: 12px de separación al H2, 16px desde `lg`. Alineado por línea base con el
-          // título, igual que el kicker de §20.5.
-          <div className="flex items-baseline gap-3 lg:gap-4">
-            {heading}
-            {titleAdjacent}
           </div>
         ) : (
           heading
