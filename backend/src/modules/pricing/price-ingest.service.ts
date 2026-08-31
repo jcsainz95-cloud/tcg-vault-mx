@@ -21,6 +21,7 @@ import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
 import { AuditService } from '../audit/audit.service';
+import { GradedPhase2Verdict, gradedPhase2Verdict } from './graded-phase2-verdict';
 
 /** InventoryStatus que NO cuentan como "activo" para el scope parcial (regla del PO: no withdrawn/lost). */
 const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
@@ -52,6 +53,18 @@ const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withd
  * corrida ni apaga el ingest, así que un falso positivo cuesta una conversación.
  */
 const GRADED_SHAPE_ESCALATION_MIN_CARDS = 5;
+
+/**
+ * v1.50.3-g (§4.38h.1-quater) — **tope de sets que la SONDA barre en una corrida.**
+ *
+ * La sonda contesta una pregunta de esquema («¿qué shape sirve PPT?»), no ingesta: la primera respuesta
+ * con bloque PSA ya la contesta. El tope solo gobierna el caso en que NINGÚN set trae bloque, donde sí
+ * conviene insistir un poco (un set sin ventas PSA es un estado normal) pero no barrer el catálogo
+ * publicado entero a 2 créditos por carta. Constante de código y no dial: es un límite de GASTO de un
+ * modo de diagnóstico, se calibra con la primera corrida real y su valor no cambia ninguna decisión de
+ * dinero. Cuando aplica, se LOGUEA (un límite silencioso vuelve inexplicable un resultado parcial).
+ */
+const GRADED_PROBE_MAX_SETS = 3;
 
 /** Scope resuelto de un set para la ingesta de PPT (+ cartas permitidas en el caso parcial). */
 interface SetScopeInfo {
@@ -146,6 +159,15 @@ export interface GradedIngestResult {
    */
   skippedShapeS2: number;
   dailyLimited: boolean;
+  /**
+   * v1.50.3-g (§4.38h.1-quater) — la corrida fue **SONDA de solo lectura** (sin formato de moneda, o
+   * con `POKEMONPRICETRACKER_GRADED_PROBE`): se preguntó al proveedor y se logueó la muestra cruda,
+   * pero `written` es 0 **por construcción**. Sin este campo, «0 escritas» sería ambiguo entre «no
+   * había nada que escribir» y «esta corrida no podía escribir», que es justo lo que hay que distinguir.
+   */
+  probe: boolean;
+  /** v1.50.3-g — el veredicto de la fase 2 que se imprimió (`VIABLE` | `NO_VIABLE` | `INDETERMINADO`). */
+  verdict: GradedPhase2Verdict;
   /** ⛔ Presente ⇒ el job PARÓ y hay que volver al ARQUITECTO (regla 9). */
   escalation: { reason: string; detail: string } | null;
 }
@@ -933,7 +955,20 @@ export class PriceIngestService {
       skippedEvidence: 0,
       skippedShapeS2: 0,
       dailyLimited: false,
+      probe: false,
+      verdict: 'INDETERMINADO',
       escalation: null,
+    };
+    // v1.50.3-g (§4.38h.1-quater) — TODO lo que el veredicto de la fase 2 necesita, acumulado a escala
+    // de CORRIDA. Se declara aquí arriba, junto al resultado, porque el veredicto se emite en TODAS las
+    // salidas —incluidas las tempranas—: «el dial estaba en off» es una respuesta perfectamente válida
+    // a «¿por qué no pasó nada?», y era una de las que hoy había que deducir leyendo el log entero.
+    const ev = {
+      probe: false,
+      requestOk: false,
+      cardsReturned: 0,
+      creditsBefore: null as number | null,
+      creditsAfter: null as number | null,
     };
     // Config COMPLETA (no la del storefront): los DOS diales son independientes, así que el ingest
     // tiene que poder correr con la EXHIBICIÓN apagada — que es la secuencia de encendido que pide
@@ -941,14 +976,14 @@ export class PriceIngestService {
     const cfg = await this.pricing.loadGradedEstimateConfigForAdmin();
     if (!cfg.ingestEnabled) {
       this.logger.log('graded-estimate-ingest: dial `graded_estimate_ingest_enabled` = off → no se pide nada.');
-      return result;
+      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
     }
     if (cfg.ingestConfigInvalid) {
       this.logger.warn(
         'graded-estimate-ingest: config del INGEST presente-pero-INVÁLIDA (minSampleCount/sourceStat/' +
           'ingestMaxCardsPerRun) → NO se escribe nada. Corrige con PUT /admin/pricing/graded-estimates.',
       );
-      return result;
+      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
     }
     result.enabled = true;
 
@@ -961,7 +996,12 @@ export class PriceIngestService {
       orderBy: { cardId: 'asc' },
     });
     const cardIds = published.map((r) => r.cardId).slice(0, cfg.ingestMaxCardsPerRun);
-    if (cardIds.length === 0) return result;
+    if (cardIds.length === 0) {
+      this.logger.log(
+        'graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada (cero créditos).',
+      );
+      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
+    }
     result.cardsInScope = cardIds.length;
 
     const cards = await this.prisma.card.findMany({
@@ -991,6 +1031,8 @@ export class PriceIngestService {
     // includeEbay» solo es indistinguible si NINGÚN set del run vio el bloque.
     let anySetSawGradedBlock = false;
     const setsWithoutGradedBlock: { setExternalId: string; detail: string }[] = [];
+    /** Sets ya barridos EN MODO SONDA (los que costaron créditos sin poder escribir). */
+    let probedSets = 0;
     // ⛔ (§4.38h.1-bis) — insumo de la ESCALADA POR SHAPE, también a escala de CORRIDA. Se cuentan las
     // CARTAS por shape servido, no las filas escritas: la pregunta es «¿qué está sirviendo PPT?», y esa
     // pregunta es independiente de los gates de dinero (una carta S1 descartada por muestra corta NO es
@@ -1002,6 +1044,23 @@ export class PriceIngestService {
     let forcedFormatSeen: GradedFormat = 'auto';
 
     for (const { set, allowed } of bySet.values()) {
+      // ── ACOTA EL GASTO DE LA SONDA (§4.38h.5) ────────────────────────────────────────────────────
+      // Se evalúa ANTES de pedir el siguiente set —o sea antes de gastar— y no después. La sonda no
+      // ingesta: solo contesta «¿qué shape sirve PPT?». En cuanto UN set trae bloque PSA, la pregunta
+      // está contestada y seguir barriendo sets solo compra la misma respuesta con el crédito del dueño.
+      // Si ningún set lo trae, sí conviene insistir un poco (un set sin ventas PSA es normal), pero con
+      // tope: `GRADED_PROBE_MAX_SETS`. El tope se LOGUEA al aplicarse — un límite silencioso sería el
+      // mismo error que el aviso inalcanzable de §4.38h.1-ter.
+      if (ev.probe && (anySetSawGradedBlock || probedSets >= GRADED_PROBE_MAX_SETS)) {
+        this.logger.warn(
+          `graded-estimate-ingest: SONDA — se para tras ${probedSets} set(s) ` +
+            (anySetSawGradedBlock
+              ? 'porque uno ya trajo bloque PSA: la pregunta está contestada y cada set extra cuesta créditos.'
+              : `por el tope de sonda (${GRADED_PROBE_MAX_SETS}): ninguno trajo bloque PSA y no se sigue ` +
+                'quemando cuota. Vuelve a correr con otro inventario publicado si quieres más evidencia.'),
+        );
+        break;
+      }
       // BE-GE3 (techlead) — índice EN MEMORIA de las cartas de ESTE set que están en alcance. El
       // resolver por fila hacía 1-3 queries DENTRO del bucle del ingest (externalId → (set,number) →
       // variantes de número) sobre un conjunto que ya teníamos materializado: con 250 cartas por
@@ -1025,6 +1084,18 @@ export class PriceIngestService {
         today,
       });
       result.sets += 1;
+      // Insumos del VEREDICTO (§4.38h.1-quater). `cardsReturned` es el denominador del coste medido:
+      // lo que el proveedor DEVOLVIÓ, que con `fetchAllInSet=true` puede ser el set entero y no nuestro
+      // inventario — la premisa que hay que verificar con crédito real, no discutir.
+      if (res.probe) {
+        ev.probe = true;
+        result.probe = true;
+        probedSets += 1;
+      }
+      if (res.requestOk) ev.requestOk = true;
+      ev.cardsReturned += res.fetchedRaw;
+      if (ev.creditsBefore == null) ev.creditsBefore = res.dailyRemainingBefore;
+      if (res.dailyRemaining != null) ev.creditsAfter = res.dailyRemaining;
       result.unrecognized += res.drops.filter((d) => d.reason === 'unrecognized_shape').length;
       result.skippedSample += res.drops.filter((d) => d.reason === 'sample_too_small').length;
       result.skippedEvidence += res.drops.filter(
@@ -1079,7 +1150,9 @@ export class PriceIngestService {
           setExternalId: set.externalId,
           ...res.escalate,
         });
-        return result;
+        // El veredicto se emite TAMBIÉN aquí: ésta es la salida en la que el dueño más necesita leer,
+        // sin bucear, qué pasó y que la decisión es del arquitecto.
+        return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen);
       }
 
       // La traza de los DESCARTES del parser es obligatoria: sin ella, el descarte por muestra baja es
@@ -1329,6 +1402,50 @@ export class PriceIngestService {
         `${shapeCounts.s2} S2), ${result.unrecognized} con forma no reconocida, ` +
         `${result.skippedNoGradedBlock} set(s) sin bloque PSA.`,
     );
+    return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen);
+  }
+
+  /**
+   * v1.50.3-g (§4.38h.1-quater) — **imprime EL VEREDICTO de la fase 2 y lo devuelve en el resultado.**
+   *
+   * Por qué existe como paso propio y se llama en TODAS las salidas (incluidas las tempranas): la línea
+   * de resumen ya existía (`shapes vistos: N S1 / M S2`), pero para saber si eso significa «la fase 2
+   * funciona» había que conocer §4.38h.1-bis de memoria y encontrar la línea entre ~2 000 del barrido de
+   * precios. Un dato que hay que interpretar con el diseño delante no es un veredicto. Aquí se emite la
+   * CONCLUSIÓN —qué shape llegó, cuántas cartas, qué significa en una frase y qué hacer— bajo una marca
+   * fija: `grep "VEREDICTO-PSA"` (ver `GRADED_VERDICT_TAG`).
+   *
+   * El NIVEL de log es parte del mensaje: `error` cuando la fase 2 no es viable (hay una decisión humana
+   * pendiente), `warn` cuando no se pudo concluir, `log` cuando funciona. Así el veredicto también se ve
+   * en un dashboard que solo muestre errores.
+   */
+  private emitGradedVerdict(
+    result: GradedIngestResult,
+    ev: { probe: boolean; requestOk: boolean; cardsReturned: number; creditsBefore: number | null; creditsAfter: number | null },
+    shapeCounts: { s1: number; s2: number },
+    forcedFormat: GradedFormat,
+  ): GradedIngestResult {
+    const report = gradedPhase2Verdict({
+      probe: ev.probe,
+      enabled: result.enabled,
+      requestOk: ev.requestOk,
+      sets: result.sets,
+      cardsInScope: result.cardsInScope,
+      cardsReturned: ev.cardsReturned,
+      shapeCounts,
+      written: result.written,
+      dailyLimited: result.dailyLimited,
+      escalationReason: result.escalation?.reason ?? null,
+      forcedFormat,
+      creditsBefore: ev.creditsBefore,
+      creditsAfter: ev.creditsAfter,
+    });
+    result.verdict = report.verdict;
+    for (const line of report.lines) {
+      if (report.verdict === 'NO_VIABLE') this.logger.error(line);
+      else if (report.verdict === 'INDETERMINADO') this.logger.warn(line);
+      else this.logger.log(line);
+    }
     return result;
   }
 
