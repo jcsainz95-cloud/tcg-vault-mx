@@ -109,6 +109,57 @@ type ZeroReason =
  */
 const GRADED_SAMPLE_TRUNCATE = 4000;
 
+/**
+ * v1.50.3-g (§4.38h.1-quater) — **la SONDA**. Marca fija con la que el dueño encuentra el reporte por
+ * set sin bucear en el log: `grep "PPT-GRADED-SONDA"`. Va en `warn` a propósito — no es ruido de
+ * rutina, es la respuesta a la pregunta que bloquea la fase 2.
+ */
+const GRADED_PROBE_TAG = 'PPT-GRADED-SONDA';
+/** Cuántos bloques de grados CRUDOS se logean por set. 3 basta para ver el shape; 200 sería ruido. */
+const GRADED_PROBE_MAX_BLOCK_SAMPLES = 3;
+
+/** Créditos consumidos entre dos lecturas de `dailyRemaining`. `null` si alguna no se conoce. */
+function creditsSpent(before: number | null, after: number | null): number | null {
+  if (before == null || after == null) return null;
+  const delta = before - after;
+  return Number.isFinite(delta) ? delta : null;
+}
+
+/**
+ * SONDA, por entrada: **clasifica y nada más**. Su tipo de retorno NO contiene filas, así que ninguna
+ * ruta que pase por aquí puede persistir — la propiedad money-safe es del TIPO, no de la disciplina de
+ * quien la llame (que era lo frágil del viejo «sample-only»).
+ *
+ * Clasifica por **observación pura** (como si `GRADED_FORMAT=auto`), ignorando el override del
+ * operador: la pregunta de la sonda es *«¿qué sirve el proveedor?»* y un conteo filtrado por lo que
+ * nosotros le pedimos mirar no la contesta. El override sigue mandando —intacto— en el camino que
+ * escribe (`parseGradedEntry`), que es donde expresa una intención sobre el DINERO.
+ */
+function detectGradedShape(entry: unknown): {
+  shape: 's1' | 's2' | null;
+  sawGradedBlock: boolean;
+  externalId: string | null;
+  /** El bloque de grados CRUDO (truncado) — el insumo con el que un humano confirma el esquema. */
+  blockSample: string | null;
+} {
+  const none = { shape: null, sawGradedBlock: false, externalId: null, blockSample: null } as const;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return { ...none };
+  const e = entry as Record<string, unknown>;
+  const externalId = firstString(e, ['id', 'cardId']);
+  const salesByGrade = pickObject(pickObject(e['ebay']), 'salesByGrade');
+  const gradedPrices = pickObject(e, 'gradedPrices');
+  if (salesByGrade == null && gradedPrices == null) return { ...none, externalId };
+  return {
+    shape: salesByGrade != null ? 's1' : 's2',
+    sawGradedBlock: true,
+    externalId,
+    blockSample: truncate(
+      JSON.stringify(salesByGrade != null ? { salesByGrade } : { gradedPrices }),
+      GRADED_SAMPLE_TRUNCATE,
+    ),
+  };
+}
+
 /** Las dos hipótesis de shape que el parser SONDEA, en orden fijo (§4.38h.1). */
 export type GradedFormat = 'auto' | 'sales_by_grade' | 'graded_prices';
 const GRADED_FORMATS: readonly GradedFormat[] = ['auto', 'sales_by_grade', 'graded_prices'];
@@ -263,6 +314,21 @@ export interface GradedEstimateFetchResult {
    * `sawGradedBlock`: el provider solo ve UN set y no puede sostener ese veredicto solo.
    */
   shapeCounts: { s1: number; s2: number };
+  /**
+   * v1.50.3-g (§4.38h.1-quater) — **esta llamada fue una SONDA de solo lectura** (`writeFormat == null`):
+   * se consultó al proveedor, se logueó la muestra cruda y **`rows` es [] por construcción** (la sonda
+   * no ejecuta el parser, así que no existe el objeto que se persistiría). Viaja en el resultado porque
+   * el orquestador tiene que poder decir en el veredicto si la corrida OBSERVÓ o INGESTÓ: «0 escritas»
+   * significa cosas opuestas en cada modo.
+   */
+  probe: boolean;
+  /**
+   * Crédito diario **antes** del primer request de este set (`dailyRemaining` es el de después). La
+   * resta es el COSTE MEDIDO del barrido — el único dato que puede confirmar o refutar la premisa de
+   * diseño «el coste es proporcional al inventario real» frente a un request con `fetchAllInSet=true`.
+   * `null` = el proveedor no expuso el contador en esa respuesta (nunca se estima a ojo).
+   */
+  dailyRemainingBefore: number | null;
   /**
    * v1.50.3-c (techlead) — **qué le PEDIMOS mirar al proveedor en esta llamada**
    * (`POKEMONPRICETRACKER_GRADED_FORMAT`: `auto` | `sales_by_grade` | `graded_prices`).
@@ -660,6 +726,10 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       requestOk: false,
       dailyLimited: false,
       dailyRemaining: this.client.dailyRemaining(),
+      dailyRemainingBefore: this.client.dailyRemaining(),
+      // `probe` describe si ESTA llamada pudo escribir. En `empty` no hubo llamada siquiera (sin key,
+      // sin pptSetId): no es una sonda, es un no-op — y decir lo contrario contaminaría el veredicto.
+      probe: false,
       escalate: null,
       sawGradedBlock: false,
       shapeCounts: { s1: 0, s2: 0 },
@@ -675,15 +745,45 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       );
       return empty;
     }
-    const format =
+    // ── v1.50.3-g (§4.38h.1-quater) — LA SONDA: sin formato NO se escribe, pero SÍ se PREGUNTA ──────
+    //
+    // Aquí vivía un `return empty` **antes** del bucle de fetch: el modo se llamaba «SAMPLE-ONLY» y su
+    // propio warn mandaba «inspecciona el log»… de una petición que ese mismo `return` impedía hacer.
+    // Era un no-op con nombre de diagnóstico: sin llamada, sin muestra, sin log, y por tanto **sin
+    // manera de saber qué sirve el proveedor** — justo el dato que la fase 2 necesita para existir.
+    //
+    // El camino de precios RAW (`fetchSingleSweep`) ya lo hacía bien y es el patrón que se copia:
+    // pide la página, **loguea la muestra cruda** y solo ENTONCES corta sin persistir. Eso es lo que
+    // P-6 pedía —«no construir un parser sobre un esquema no confirmado»—: la doctrina prohíbe
+    // **asumir** el esquema, no **observarlo**; observarlo es literalmente el remedio.
+    //
+    // La sonda es de SOLO LECTURA por CONSTRUCCIÓN, no por disciplina: cuando `writeFormat == null` el
+    // bucle ni siquiera llama a `parseGradedEntry` (el único código capaz de fabricar una
+    // `GradedEstimateSourceRow`), sino a `detectGradedShape`, cuyo tipo de retorno **no contiene filas**.
+    // No hay rama, dial ni env que pueda hacer que la sonda escriba: para escribir habría que cambiar
+    // el tipo. S2 sigue NO PERSISTIBLE (§4.38h.1-bis) y la sonda **tampoco lo relaja**: detecta y reporta.
+    const configuredFormat =
       parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_GRADED_MARKET_FORMAT')) ??
       parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_MARKET_FORMAT'));
-    if (!format) {
+    const probeRequested = this.gradedProbeRequested();
+    // `writeFormat == null` ⇔ SONDA. Dos entradas al mismo modo, y las dos fail-closed:
+    //  (1) NO hay formato de moneda ⇒ no se puede persistir dinero (candado histórico, se conserva);
+    //  (2) el operador PIDE la sonda (`POKEMONPRICETRACKER_GRADED_PROBE=on`) aunque el formato esté
+    //      fijado — es la 1ª corrida contra el proveedor real: se mira ANTES de escribir. Hace falta
+    //      porque el formato del graded se HEREDA de `POKEMONPRICETRACKER_MARKET_FORMAT`, que ya está
+    //      puesto para los precios raw: sin este interruptor, «observar primero» exigiría apagar los
+    //      precios de todo el catálogo.
+    const writeFormat: MarketFormat | null = probeRequested ? null : configuredFormat;
+    if (writeFormat == null) {
       this.logger.warn(
-        'PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → modo ' +
-          'SAMPLE-ONLY: NO se persiste ningún estimado. Fija el formato tras inspeccionar el log.',
+        probeRequested
+          ? 'PPT graded: SONDA pedida por el operador (POKEMONPRICETRACKER_GRADED_PROBE) → se CONSULTA ' +
+            'al proveedor, se LOGUEA la muestra cruda y NO se escribe absolutamente nada (cero filas ' +
+            'en PriceReference). Quita la env para que la corrida vuelva a ingestar.'
+          : 'PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → SONDA de ' +
+            'SOLO LECTURA: se consulta al proveedor y se loguea la muestra cruda, pero NO se persiste ' +
+            'ningún estimado (sin moneda declarada no se escribe dinero). Fija el formato tras leer el log.',
       );
-      return empty;
     }
 
     const forcedFormat = this.gradedFormatOverride();
@@ -698,6 +798,14 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     let sawGradedBlock = false;
     const shapeCounts = { s1: 0, s2: 0 };
     let sample: string | null = null;
+    /** Muestras CRUDAS del bloque de grados que la sonda encontró (las que contestan la pregunta). */
+    const probeBlocks: string[] = [];
+    // COSTE MEDIDO, no supuesto (§4.38h.5): crédito diario ANTES del primer request de este set. El
+    // diseño afirma que el coste es «proporcional al inventario real», pero la petición manda
+    // `fetchAllInSet=true` (= el SET entero). Si PPT cobra por carta DEVUELTA, la premisa es falsa. No
+    // se adivina: se resta el `dailyRemaining` de antes menos el de después y se divide entre las
+    // cartas devueltas. Es la única forma honesta de saberlo sin documentación del proveedor.
+    const dailyRemainingBefore = this.client.dailyRemaining();
 
     try {
       let received = 0;
@@ -720,12 +828,23 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
           );
         }
         for (const entry of entries) {
+          // ── SONDA (solo lectura). `detectGradedShape` NO devuelve filas: no hay nada que persistir.
+          if (writeFormat == null) {
+            const seen = detectGradedShape(entry);
+            if (seen.sawGradedBlock) sawGradedBlock = true;
+            if (seen.shape === 's1') shapeCounts.s1 += 1;
+            else if (seen.shape === 's2') shapeCounts.s2 += 1;
+            if (seen.blockSample && probeBlocks.length < GRADED_PROBE_MAX_BLOCK_SAMPLES) {
+              probeBlocks.push(`${seen.externalId ?? 'n/d'} → ${seen.blockSample}`);
+            }
+            continue;
+          }
           const parsed = this.parseGradedEntry(entry, {
             grades: input.grades,
             stat,
             forcedFormat,
             minSampleCount: input.minSampleCount,
-            format,
+            format: writeFormat,
             evidenceField: this.gradedEvidenceField(),
             freshnessDays: input.freshnessDays,
             today: input.today,
@@ -736,6 +855,10 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
           rows.push(...parsed.rows);
           drops.push(...parsed.drops);
         }
+        // ACOTA EL GASTO (§4.38h.5): la sonda se queda con la PRIMERA página. Su pregunta —«¿qué shape
+        // sirve PPT?»— la contesta la primera respuesta; paginar el set entero solo compraría más
+        // copias de la misma respuesta con el crédito del dueño.
+        if (writeFormat == null) break;
         if (!this.hasMorePages(pagination, received)) break;
         offset = received;
       }
@@ -795,6 +918,22 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
           }
         : null;
 
+    // Reporte de la SONDA, por set: lo que se fue a averiguar, junto y en una línea grepeable. El
+    // veredicto de la CORRIDA lo emite el orquestador (`PriceIngestService`), que ve todos los sets.
+    if (writeFormat == null && requestOk) {
+      const after = this.client.dailyRemaining();
+      this.logger.warn(
+        `${GRADED_PROBE_TAG} set=${input.set.externalId} (pptSetId=${input.providerSetId}): ` +
+          `${fetchedRaw} carta(s) devueltas, ${shapeCounts.s1} con S1 (ebay.salesByGrade, PERSISTIBLE) / ` +
+          `${shapeCounts.s2} con S2 (gradedPrices escalar, NO persistible) / ` +
+          `${fetchedRaw - shapeCounts.s1 - shapeCounts.s2} sin bloque PSA. ` +
+          `Créditos: antes=${dailyRemainingBefore ?? 'n/d'} después=${after ?? 'n/d'} ` +
+          `Δ=${creditsSpent(dailyRemainingBefore, after) ?? 'n/d'}. ` +
+          'ESCRITURAS: 0 (la sonda no puede escribir: no construye filas). ' +
+          `Bloques crudos: ${probeBlocks.length > 0 ? probeBlocks.join(' | ') : `ninguno; entrada cruda: ${sample ?? 'n/d'}`}`,
+      );
+    }
+
     return {
       rows,
       fetchedRaw,
@@ -802,11 +941,30 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       requestOk,
       dailyLimited,
       dailyRemaining: this.client.dailyRemaining(),
+      dailyRemainingBefore,
+      probe: writeFormat == null,
       escalate,
       sawGradedBlock,
       shapeCounts,
       forcedFormat,
     };
+  }
+
+  /**
+   * v1.50.3-g (§4.38h.1-quater) — `POKEMONPRICETRACKER_GRADED_PROBE`: **modo sonda a petición**.
+   *
+   * Existe porque el formato del graded se HEREDA de `POKEMONPRICETRACKER_MARKET_FORMAT`, que ya está
+   * fijado para los precios raw. Sin este interruptor, «mirar antes de escribir» obligaría a apagar el
+   * formato de TODO el catálogo — un remedio peor que la enfermedad, y la clase de fricción que hace
+   * que nadie observe y todos asuman (exactamente lo que P-6 quiere evitar).
+   *
+   * Sentido ÚNICO y fail-closed: solo puede **quitar** capacidad de escritura, nunca darla. No hay
+   * valor de esta env que haga persistir algo que hoy no persiste.
+   */
+  private gradedProbeRequested(): boolean {
+    const raw = this.config.get<string>('POKEMONPRICETRACKER_GRADED_PROBE');
+    const v = raw?.trim().toLowerCase();
+    return v === 'on' || v === 'true' || v === '1' || v === 'yes';
   }
 
   /** `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` default). Valor desconocido ⇒ `auto` + `warn`. */

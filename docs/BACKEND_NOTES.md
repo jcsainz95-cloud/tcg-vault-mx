@@ -10807,3 +10807,144 @@ fijada **antes** del siguiente deploy. Backend lo implementa en cuanto haya deci
   ya en el dominio vivo, fijar `MAIL_FROM="TCG HUNT <no-reply@tcghunt.mx>"` y
   `DISPUTE_EVIDENCE_CONTACT=soporte@tcghunt.mx` sigue siendo lo correcto (remitente visible con la
   marca), pero **ya no es urgente**: si faltan, el fallback cae al dominio vivo, no al muerto.
+
+---
+
+## v1.50.3-g · La SONDA de estimados PSA: preguntarle al proveedor SIN escribir, y un veredicto que se lee (rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-31)
+
+**Qué bloqueaba la fase 2:** falta un solo dato —**qué formato entrega PokemonPriceTracker con el plan
+del dueño**— y el código que debía averiguarlo no lo averiguaba.
+
+### El defecto (§4.38h.1-quater)
+En `backend/src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts`, el camino graded
+resolvía el formato y, si no había `POKEMONPRICETRACKER_MARKET_FORMAT`, hacía `return empty` **antes**
+del bucle de fetch, con este mensaje: *«modo SAMPLE-ONLY … fija el formato tras inspeccionar el log»*.
+No hacía **ninguna petición** y no logueaba **ninguna muestra**: mandaba a inspeccionar un log que él
+mismo impedía generar. Era un no-op con nombre de diagnóstico.
+
+El camino de precios **RAW** del mismo archivo (`fetchSingleSweep`) siempre lo hizo bien: pide la
+página, loguea `Ejemplo crudo:` y **solo entonces** corta con `reason: 'sample-only'`. La corrección
+copia ese patrón, no inventa otro.
+
+Doctrina: P-6 prohíbe **asumir** un esquema, no **observarlo**. Observarlo es el remedio que P-6 pedía.
+
+### Lo que ahora existe
+- **Sonda de solo lectura.** Cuando no hay formato de moneda (candado histórico, intacto) **o** el
+  operador fija `POKEMONPRICETRACKER_GRADED_PROBE=on`, la corrida **consulta al proveedor**, **loguea
+  la muestra cruda + el bloque PSA** y **no escribe absolutamente nada**.
+  Es solo-lectura **por construcción, no por disciplina**: en modo sonda el bucle no llama a
+  `parseGradedEntry` (el único código que fabrica una fila) sino a `detectGradedShape`, cuyo tipo de
+  retorno **no contiene filas**. Para que la sonda escribiera habría que cambiar el tipo.
+- **S2 sigue NO PERSISTIBLE** (§4.38h.1-bis): la sonda lo **detecta y reporta**. No se añadió ninguna
+  escotilla, ni se relajó ningún candado (`GRADED_FORMAT` / `GRADED_FIELD` siguen mandando en el camino
+  que escribe). El dial `graded_estimate_ingest_enabled` sigue en `off` por defecto.
+- **Gasto acotado:** la sonda se queda con la **primera página** de cada set (paginar solo compraría la
+  misma respuesta otra vez) y para **en cuanto un set trae bloque PSA**; si ninguno lo trae, insiste
+  hasta `GRADED_PROBE_MAX_SETS = 3` y lo dice en el log.
+- **Coste MEDIDO, no supuesto:** el provider guarda `dailyRemaining` **antes** y **después** del barrido
+  y el veredicto imprime `COSTE MEDIDO: N crédito(s) por M carta(s) DEVUELTAS ⇒ x por carta`.
+- **Veredicto legible** (`src/modules/pricing/graded-phase2-verdict.ts`, función **pura**): un bloque con
+  marca fija en todas sus líneas, emitido en **todas** las salidas del job (incluidas «el dial estaba en
+  off» y «no había inventario publicado»). Nivel de log según el veredicto: `error` si NO_VIABLE,
+  `warn` si INDETERMINADO, `log` si VIABLE.
+
+---
+
+## 📋 PROCEDIMIENTO PARA EL DUEÑO — la primera corrida con la llave real
+
+*(Escrito para quien no leyó nada de lo anterior. No hace falta entender el código.)*
+
+### 1. Variables de entorno (backend)
+```bash
+POKEMONPRICETRACKER_API_KEY=<tu llave del plan>
+POKEMONPRICETRACKER_GRADED_PROBE=on      # ← SONDA: consulta y loguea, NO escribe nada
+# NO fijes POKEMONPRICETRACKER_GRADED_FORMAT (déjalo sin poner = autodetección).
+# POKEMONPRICETRACKER_MARKET_FORMAT puede quedarse como está (usd_dollars): la sonda manda igual.
+```
+Y en el admin, enciende **solo** el dial del ingest (la exhibición sigue apagada):
+`PUT /admin/pricing/graded-estimates` con `graded_estimate_ingest_enabled = on`.
+> Con `GRADED_PROBE=on` el ingest **no puede escribir**, así que encender el dial es seguro.
+
+### 2. Antes de disparar: anota el crédito
+Abre el panel de PokemonPriceTracker y **apunta el crédito diario disponible**. (Si su API manda el
+header de cuota, el log lo mide solo; si no, este número es la única forma de saber lo que costó.)
+
+### 3. Dispara
+```bash
+curl -X POST https://<tu-backend>/admin/jobs/price-ingest \
+  -H "Authorization: Bearer <token admin>" -H "Content-Type: application/json" -d '{}'
+```
+> **El body tiene que ser `{}` exactamente.** Con `{"setId": "..."}` el gancho de estimados PSA **ni
+> siquiera corre** (esa variante barre un solo set y se salta la fase 2).
+
+### 4. Qué buscar en el log — **una sola línea de comando**
+```bash
+grep "VEREDICTO-PSA" <log de la corrida>
+```
+Eso trae el bloque entero: qué llegó, cuántas cartas de cada tipo, el coste medido y qué hacer ahora.
+Si quieres ver los datos crudos del proveedor: `grep "PPT-GRADED-SONDA" <log>`.
+
+### 5. Cómo interpretarlo — **en una frase**
+| Si el bloque dice… | Significa |
+|---|---|
+| `VEREDICTO: VIABLE` | **La fase 2 funciona**: PPT entrega el shape bueno (`ebay.salesByGrade`, con nº de ventas y fecha). Quita `POKEMONPRICETRACKER_GRADED_PROBE` y vuelve a disparar: esa corrida ya escribe estimados. |
+| `VEREDICTO: NO_VIABLE` | **La fase 2 no es viable con este plan/proveedor**: PPT solo entrega un número pelado (`gradedPrices`), sin nº de ventas ni fecha, y eso no puede publicarse como dinero. **No se arregla configurando nada** → decisión del **arquitecto** (dejar la captura manual, pagar el plan que exponga `salesByGrade`, o cambiar de proveedor). La captura manual sigue funcionando mientras tanto. |
+| `VEREDICTO: INDETERMINADO` | **Todavía no sabemos**: la corrida no llegó a observar nada (dial apagado, sin inventario publicado, la llave falló, o ninguna carta tenía ventas PSA). La línea `AHORA:` del propio bloque dice exactamente qué hacer para volver a intentarlo. |
+
+### 6. El coste (léelo, es lo que se paga)
+La misma línea `COSTE MEDIDO:` del bloque compara los créditos de antes y después:
+- *«Compatible con se cobra por PETICIÓN»* → barato: el barrido no crece con el tamaño del set.
+- *«⚠️ Cobra por carta DEVUELTA»* → **caro**: la petición pide `fetchAllInSet=true` (el **set entero**),
+  así que se paga por todas las cartas del set, **no** solo por tu inventario.
+
+> ### ⚠️ Duda ABIERTA que hay que dejar por escrito (para el arquitecto)
+> El diseño (§4.38h) afirma que el coste es **«proporcional al inventario real»** porque el alcance son
+> las cartas con inventario publicado. Pero la petición manda **`fetchAllInSet=true`**: el proveedor
+> devuelve el **set completo**. **Si PPT cobra por carta devuelta, esa premisa es falsa** y un set de
+> 200 cartas cuesta 200 (o 400) créditos aunque tengamos 3 publicadas.
+> **No se asume la respuesta**: se mide con el crédito real (paso 2 + línea `COSTE MEDIDO`). Si sale
+> caro, la decisión —acotar el barrido, cambiar a petición por carta, o cambiar de plan— es de
+> **arquitectura y presupuesto**, no de implementación.
+
+### 7. Barato de verdad la primera vez
+La sonda ya se autolimita (1 página, para al primer set con bloque PSA, tope de 3 sets). Para gastar el
+**mínimo absoluto**: deja **publicada una sola carta** (`inventoryItem` raw, `status: listed`) de un set
+popular con ventas PSA reales → la corrida barre **un** set y para. Vuelve a publicar el resto después.
+
+---
+
+### Variables de entorno nuevas / relevantes
+| Variable | Efecto | Default |
+|---|---|---|
+| `POKEMONPRICETRACKER_GRADED_PROBE` | `on`/`true`/`1`/`yes` ⇒ **sonda**: consulta, loguea, **cero escrituras**. Solo puede QUITAR capacidad de escribir, nunca darla. | *(sin poner = ingest normal)* |
+| `POKEMONPRICETRACKER_MARKET_FORMAT` | Sin él, el graded entra en sonda igual (candado de dinero, intacto). | *(sin default)* |
+| `POKEMONPRICETRACKER_GRADED_FORMAT` | Override del operador. **Déjalo sin poner** para la sonda: con él fijado, el ingest no puede emitir un veredicto sobre el proveedor (sería un eco de lo que le pedimos mirar). La sonda clasifica por observación pura y lo ignora **a propósito**. | `auto` |
+
+### Tests
+`backend/test/graded-estimate.probe.spec.ts` — **31 tests**, todo con `fetch` mockeado (aquí no hay
+llave ni salida a la API del proveedor; **no se intentó ninguna corrida real**):
+- **Regresión del defecto:** sin `MARKET_FORMAT` ⇒ **hay petición** (con el `return` viejo, 0 llamadas),
+  hay `Ejemplo crudo` + bloque `salesByGrade` en el log, y `rows` vacío. Verificado que **17 de los 31
+  se ponen en rojo** al reintroducir el `return empty` anterior al fetch.
+- **Cero escrituras**, comprobado donde se escribe: job completo con el provider real y un `prisma` que
+  delata cualquier `create`/`update` en `PriceReference`. Con el **contraste** en el mismo test (el
+  mismo fixture SÍ escribe cuando hay formato), para que «0 escrituras» no sea un fixture flojo.
+- Gasto: la sonda no pagina; mide `dailyRemainingBefore`/`after`; no clasifica según `GRADED_FORMAT`.
+- El veredicto como función pura: las 8 ramas + las 3 formas de la línea de coste.
+
+### Validación
+- `npx tsc --noEmit`: limpio · `npx eslint src test`: 0 errores (2 warnings preexistentes, ajenos).
+- `npm test`: **2 547/2 547 en 204 suites** (baseline 2 516 en 203 + 31 nuevos, 0 regresiones).
+- `npm run test:integration`: **183/183 en 15 suites** (baseline intacta).
+
+### Escalado al arquitecto (regla 9) — NO implementado por backend
+1. **Superficie de admin para el veredicto.** Hoy vive en el log (`grep VEREDICTO-PSA`). Exponerlo por
+   `GET /admin/pricing/graded-estimates/probe` (o dentro de la respuesta del job) sería **cambio de
+   contrato**. Lo dejo pedido, no improvisado.
+2. **Disparo acotado propio para la fase 2.** Sigue siendo `POST /admin/jobs/price-ingest` con body
+   `{}`: con `setId` el gancho PSA no corre, así que **no se puede sondear un solo set** sin barrer
+   también todos los precios raw. Un `POST /admin/jobs/graded-estimate-probe {setId}` sería el disparo
+   mínimo y barato que esta fase pide — **contrato, decisión del arquitecto**.
+3. **El modelo de coste de `fetchAllInSet=true`** (la duda abierta del recuadro de arriba): si la
+   medición confirma cobro por carta devuelta, la premisa «coste proporcional al inventario real» de
+   §4.38h cae y hay que rediseñar el alcance del barrido.
