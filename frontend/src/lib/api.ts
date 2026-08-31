@@ -759,6 +759,35 @@ function zeroBreakdown(withShipping = false): BreakdownDTO {
   };
 }
 
+/**
+ * Llaves EXACTAS de `OrderItemCardDTO` (contrato §4, v1.51-b), exportadas para el test que
+ * las pinea (`api.checkout-quote.test.ts`).
+ *
+ * Historia, porque explica por qué este pin sigue vivo: el mock de este endpoint devolvía el
+ * `CardDTO` COMPLETO del fixture, así que el carrito se veía impecable en `dev` y en los e2e
+ * y llegaba a producción sin miniatura. Se corrigió a la forma que el backend servía entonces
+ * (ocho campos, sin imagen) y el test se dejó fallando a propósito «hacia arriba»: cuando el
+ * backend añadiera `imageSmallUrl`, el pin obligaría a mover mock y lista en el mismo commit.
+ * Eso es lo que acaba de pasar (v1.51-b + backend 8c6f2ba): la novena llave ya está aquí.
+ *
+ * `productType` y `rawCondition` están en ESTA lista y NO al nivel del ítem — el preview es
+ * `{ inventoryItemId, card, unitPriceCents }`, tres claves y ni una más.
+ */
+export const MOCK_QUOTE_CARD_KEYS = [
+  'cardId',
+  'name',
+  'setName',
+  'number',
+  'productType',
+  'rawCondition',
+  'gradingCompany',
+  'gradeValue',
+  'imageSmallUrl',
+] as const;
+
+/** Llaves EXACTAS de un `OrderItemPreview` (§4). El pin de que nada se cuela al nivel del ítem. */
+export const MOCK_QUOTE_ITEM_KEYS = ['inventoryItemId', 'card', 'unitPriceCents'] as const;
+
 export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<CheckoutQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<CheckoutQuoteResponse>('/checkout/quote', { method: 'POST', body: { inventoryItemIds } });
@@ -778,11 +807,12 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
   return delay({
+    // v1.51-b: `card` es un `OrderItemCardDTO` (§4) — snapshot congelado + `imageSmallUrl`
+    // resuelta en lectura. Ya NO hace falta ningún `as unknown as`: el tipo del front y lo
+    // que el backend sirve dicen por fin lo mismo.
     items: items.map((l) => ({
       inventoryItemId: l.inventoryItemId,
-      card: l.card,
-      productType: l.productType,
-      rawCondition: l.rawCondition,
+      card: fx.orderItemCard(l),
       unitPriceCents: l.salePriceCents ?? 0,
     })),
     breakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal),
@@ -842,6 +872,10 @@ export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
 
 export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
   if (!config.useMocks) return apiRequest<OrderDetailDTO>(`/orders/${orderId}`);
+  // v1.51-c: `ord-9003` sirve el acta con `cardSnapshot` INCOMPLETO (§5.2.9). El simulador
+  // tiene que poder producir lo que el backend puede producir de verdad; servir siempre el
+  // blob completo es lo que dejó pasar la línea muda hasta que QA la sirvió a mano.
+  if (orderId === fx.mockOrderDetailLegacy.id) return delay(fx.mockOrderDetailLegacy);
   return delay({ ...fx.mockOrderDetail, id: orderId });
 }
 
@@ -3979,9 +4013,11 @@ export async function getGuestCheckoutQuote(
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
   return delay({
+    // v1.51-b: MISMA forma que §4 — `OrderItemCardDTO`, no el `CardDTO` del fixture. El
+    // checkout de invitado pintaba el mismo hueco gris por la misma causa.
     items: items.map((l) => ({
       inventoryItemId: l.inventoryItemId,
-      card: l.card,
+      card: fx.orderItemCard(l),
       unitPriceCents: l.salePriceCents ?? 0,
     })),
     fulfillmentMode: 'direct_ship' as const,

@@ -106,6 +106,22 @@
     "viewAllCatalog": "View the full catalog",
     "carouselPrev": "Previous",
     "carouselNext": "Next",
+    "featured": {
+      "roledescription": "carousel",
+      "trackAria": "Featured pieces \u2014 scrollable track",
+      "playback": {
+        "pause": "Pause",
+        "resume": "Resume",
+        "replay": "Replay",
+        "pauseAria": "Pause the automatic rotation",
+        "resumeAria": "Resume the automatic rotation",
+        "replayAria": "Replay from the beginning"
+      },
+      "status": {
+        "paused": "Automatic rotation paused.",
+        "ended": "End of featured pieces."
+      }
+    },
     "sealed": {
       "title": "Sealed product",
       "viewAll": "View all sealed"
@@ -824,7 +840,11 @@
     "items": "Items",
     "requestInvoice": "Request invoice",
     "invoiceRequested": "Invoice requested",
-    "cfdiStatusLabel": "Invoice"
+    "cfdiStatusLabel": "Invoice",
+    "item": {
+      "unknownCard": "Card not recorded",
+      "unknownCardHint": "This order's record did not store this card's name. The amount charged is unchanged."
+    }
   },
   "legal": {
     "title": "Terms & policy",

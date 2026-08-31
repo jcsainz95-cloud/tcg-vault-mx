@@ -18,10 +18,16 @@ import { hasManualPrice } from '../../common/money';
 // v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
 import { businessDateCdmx } from '../../common/graded-estimate';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
-import { PptSetMapper } from './ppt-set-mapper.service';
+import { PptSetMapper, PptSetMapping } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
 import { AuditService } from '../audit/audit.service';
-import { GradedPhase2Verdict, gradedPhase2Verdict } from './graded-phase2-verdict';
+import {
+  GradedPhase2Verdict,
+  GradedRequestTally,
+  GradedRunOutcome,
+  gradedPhase2Verdict,
+  shapeCountIsInduced,
+} from './graded-phase2-verdict';
 
 /** InventoryStatus que NO cuentan como "activo" para el scope parcial (regla del PO: no withdrawn/lost). */
 const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
@@ -815,8 +821,11 @@ export class PriceIngestService {
       : await this.computeScope(set);
     if (scopeInfo.scope === 'skip') return 'skip';
 
+    // v1.51-d (R1-quater): el mapeo viaja con su MOTIVO. El barrido RAW solo necesita el id (sin él
+    // no pide nada, igual que antes); el que sí distingue los dos motivos es el camino graded, porque
+    // es el que PUBLICA una causa y una acción.
     const map = await this.pptSetMapper.resolveForSets([set]);
-    const providerSetId = map.get(set.id) ?? null;
+    const providerSetId = map.get(set.id)?.pptSetId ?? null;
 
     const fetchInput: BulkFetchInput = {
       set,
@@ -942,6 +951,14 @@ export class PriceIngestService {
    *     exigimos ni *qué número* es el precio. Adivinar eso es escribir dinero a ciegas.
    *  3. El parser solo escribe lo que identifica POSITIVAMENTE como monto (§4.38h.1).
    *
+   * ### v1.51-b (R1) — cada salida DECLARA su causa (`stopReason`)
+   * Los tres puntos de arriba, más el alcance vacío, comparten síntoma —cero filas escritas— y **no**
+   * comparten remedio. Antes los distinguía un solo booleano (`enabled`) que además se asignaba
+   * DESPUÉS de dos de las salidas, así que el veredicto acusaba al dial en casos donde el dial estaba
+   * encendido, y mandaba a leer líneas de log inexistentes cuando no había habido ninguna petición.
+   * Hoy cada `return` pasa su `stopReason` (`dial_off` / `ingest_config_invalid` / `no_scope` / `null`)
+   * y el parámetro es OBLIGATORIO: una salida nueva que no declare su causa no compila.
+   *
    * ### INV-D (§4.38l): la MISMA guarda que el override manual
    * Si la carta tiene un **slab publicado** de ese grado, esa fila **es el precio real** de esa pieza:
    * el job **la salta** y deja `AuditLog`. Es la misma regla que hace que
@@ -979,8 +996,30 @@ export class PriceIngestService {
       probe: false,
       requestOk: false,
       cardsReturned: 0,
-      creditsBefore: null as number | null,
-      creditsAfter: null as number | null,
+      /**
+       * v1.51-b (TL-GE1) — créditos ATRIBUIBLES a las llamadas graded de esta corrida
+       * (`metadata.apiCallsConsumed`), o `null` en cuanto UN set no pueda aislarlos. Arranca en 0
+       * porque «no se pidió nada» es un coste conocido y exacto, no un desconocido.
+       */
+      creditsSpent: 0 as number | null,
+      /**
+       * v1.51-c (R1-ter) — cuántas peticiones se EMITIERON y por qué las demás no. Sin esto,
+       * `requestOk:false` mezclaba «se pidió y falló» con «no se pidió», y el veredicto mandaba a leer
+       * la línea «EL REQUEST FALLÓ» en las dos causas donde esa línea NO existe (sin llave / set sin
+       * `pptSetId`) — el defecto (b) de R1, en las dos sospechas más probables del cero de producción.
+       *
+       * v1.51-d (R1-quater): «sin `pptSetId`» eran a su vez DOS causas —el catálogo se consultó y no
+       * empató, vs. el catálogo NO se pudo consultar— y se publicaban como una sola. Se separan aquí,
+       * en el acumulador, para que el veredicto no tenga que adivinar cuál fue.
+       */
+      requests: {
+        attempted: 0,
+        missingApiKey: false,
+        /** Sets comprobados contra el catálogo de PPT que NO empataron ⇒ hay que mapearlos. */
+        setsUnmatched: [] as string[],
+        /** Sets cuyo mapeo NI SE INTENTÓ porque `/api/v2/sets` no respondió (con su causa). */
+        mapperUnavailable: [] as { setExternalId: string; cause: 'daily_limit' | 'request_failed' }[],
+      },
     };
     // Config COMPLETA (no la del storefront). v1.51 (M-46, §4.38r.7): el gate lee **`cfg.enabled` — el
     // DIAL CRUDO—, NUNCA `estimatesEnabled`/`highlightEnabled`**. Esos dos doblan la validez de claves
@@ -995,15 +1034,43 @@ export class PriceIngestService {
           'se enciende con PUT /admin/settings { "gradingHookEnabled": "on" }, y encenderlo también ' +
           'PUBLICA las cifras.',
       );
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
+      return this.emitGradedVerdict(result, ev, { kind: 'stopped', reason: 'dial_off' });
     }
     if (cfg.ingestConfigInvalid) {
+      // R1: el dial está ENCENDIDO. El veredicto tiene que decir eso y NOMBRAR la clave: mandar a
+      // «encender el dial» aquí es enviar al operador a arreglar lo único que ya estaba bien.
+      // TL-GE6: el veredicto exige una lista NO VACÍA por tipo, y por eso la lista se desarma aquí. El
+      // `if` sigue colgando de `cfg.ingestConfigInvalid` (fail-closed: si el cargador dice «inválida»,
+      // NO se pide nada, pase lo que pase con la lista). El caso «inválida sin clave» es INALCANZABLE
+      // —`ingestConfigInvalid` se DERIVA de `ingestInvalidKeys.length > 0` (`pricing.service.ts`)—, así
+      // que si alguna vez se alcanza lo que hay es una divergencia del cargador: se NOMBRA en vez de
+      // degradar a «no identificada(s)», que es la cadena no accionable que R1 vino a matar.
+      const [primeraClaveInvalida, ...demasClavesInvalidas] = cfg.ingestInvalidKeys;
+      const clavesInvalidas: readonly [string, ...string[]] =
+        primeraClaveInvalida === undefined
+          ? [
+              'NINGUNA (BUG del cargador: marcó la config del ingest como INVÁLIDA sin nombrar ninguna ' +
+                'clave — ingestConfigInvalid y ingestInvalidKeys divergieron; revisa ' +
+                'loadGradedEstimateConfigForAdmin)',
+            ]
+          : [primeraClaveInvalida, ...demasClavesInvalidas];
+      const keys = clavesInvalidas.join(', ');
       this.logger.warn(
-        'graded-estimate-ingest: config del INGEST presente-pero-INVÁLIDA (minSampleCount/sourceStat/' +
-          'ingestMaxCardsPerRun) → NO se escribe nada. Corrige con PUT /admin/pricing/graded-estimates.',
+        `graded-estimate-ingest: el dial \`grading_hook_enabled\` está en \`on\`, pero la config del ` +
+          `INGEST tiene clave(s) PRESENTE(S)-e-INVÁLIDA(S): ${keys} → NO se pide nada (cero créditos) ` +
+          'y NO se escribe ninguna fila. Corrige esa(s) clave(s) con PUT /admin/pricing/graded-estimates.',
       );
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
+      return this.emitGradedVerdict(result, ev, {
+        kind: 'stopped',
+        reason: 'ingest_config_invalid',
+        invalidConfigKeys: clavesInvalidas,
+      });
     }
+    // ⚠️ R1 — `result.enabled` describe EL DIAL, y por eso se pone aquí arriba y NO tres líneas más
+    // abajo: mientras vivía después de las salidas tempranas, el veredicto recibía `enabled: false`
+    // con el dial en `on` y publicaba «el dial está en off · enciende el dial». El operador lo veía
+    // encendido y el único artefacto de diagnóstico que tiene le mentía sobre la causa. Hoy el «por
+    // qué no pasó nada» viaja por `stopReason`, que es un dato aparte y explícito.
     result.enabled = true;
 
     // ALCANCE: cartas con inventario RAW publicado. Orden DETERMINISTA (cardId asc) para que el tope
@@ -1019,7 +1086,9 @@ export class PriceIngestService {
       this.logger.log(
         'graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada (cero créditos).',
       );
-      return this.emitGradedVerdict(result, ev, { s1: 0, s2: 0 }, 'auto');
+      // R1: `no_scope`, NO «el request falló». Con `requestOk:false` el veredicto mandaba a buscar
+      // líneas «PPT graded: EL REQUEST FALLÓ» que no existen — no hubo petición que pudiera fallar.
+      return this.emitGradedVerdict(result, ev, { kind: 'stopped', reason: 'no_scope' });
     }
     result.cardsInScope = cardIds.length;
 
@@ -1061,6 +1130,47 @@ export class PriceIngestService {
     // `POKEMONPRICETRACKER_GRADED_FORMAT` viaja en el resultado de cada set; basta con que UNA llamada
     // de la corrida haya ido forzada para que el conteo global deje de ser evidencia sobre el proveedor.
     let forcedFormatSeen: GradedFormat = 'auto';
+    // ⚠️ QA (v1.51-d) — **¿el recorrido cubrió TODO el alcance?** El bucle de abajo se puede cortar
+    // antes de mirar todos los sets: tope de sonda, `break` por cuota diaria, `return` de escalada. Y
+    // el alcance mismo puede venir ya recortado por `ingestMaxCardsPerRun`. Sin esta cuenta, la línea
+    // «SETS NO PEDIDOS: N» —que el dueño lee como el total de sets sin mapear— es en realidad una
+    // COTA INFERIOR presentada como total: una corrida SONDA podía imprimir «1 set(s)» habiendo 20 sin
+    // mapear, sin ninguna marca de parcialidad. Se cuenta lo VISITADO y se compara con el alcance.
+    const setsEnAlcance = bySet.size;
+    let setsVisitados = 0;
+    /** ¿`published` traía más cartas de las que `ingestMaxCardsPerRun` dejó entrar al alcance? */
+    const alcanceRecortadoPorTope = published.length > cardIds.length;
+    /**
+     * v1.51-d — el RECUENTO DE PETICIONES tal y como lo lee el veredicto, calculado en el momento de
+     * emitir (hay dos salidas `observed`: la de la escalada, dentro del bucle, y la del cierre).
+     *
+     * Aquí se desarma `mapperUnavailable` para que el tipo del veredicto pueda exigir una lista NO
+     * VACÍA con su causa (misma técnica que `invalidConfigKeys`, TL-GE6): «el catálogo no respondió»
+     * sin decir para qué sets, o sin decir por qué, es otra vez una cadena no accionable.
+     */
+    const recuentoDePeticiones = (): GradedRequestTally => {
+      const [primeroSinComprobar, ...demasSinComprobar] = ev.requests.mapperUnavailable;
+      return {
+        attempted: ev.requests.attempted,
+        missingApiKey: ev.requests.missingApiKey,
+        setsUnmatched: ev.requests.setsUnmatched,
+        mapper:
+          primeroSinComprobar === undefined
+            ? { available: true }
+            : {
+                available: false,
+                cause: primeroSinComprobar.cause,
+                sets: [
+                  primeroSinComprobar.setExternalId,
+                  ...demasSinComprobar.map((x) => x.setExternalId),
+                ],
+              },
+        // El recorrido solo es COMPLETO si se miraron todos los sets del alcance **y** el alcance no
+        // venía ya recortado por `ingestMaxCardsPerRun`. Cualquier otra cosa convierte las listas de
+        // sets en una cota inferior, y el veredicto tiene que decirlo.
+        sweepComplete: setsVisitados === setsEnAlcance && !alcanceRecortadoPorTope,
+      };
+    };
 
     for (const { set, allowed } of bySet.values()) {
       // ── ACOTA EL GASTO DE LA SONDA (§4.38h.5) ────────────────────────────────────────────────────
@@ -1080,6 +1190,10 @@ export class PriceIngestService {
         );
         break;
       }
+      // A partir de aquí ESTE set se mira (se pida o no se pida): cuenta como recorrido. El `break` de
+      // arriba va ANTES a propósito — un set que la sonda ya no llegó a mirar es justo lo que hace que
+      // las listas de sets del veredicto sean una cota inferior.
+      setsVisitados += 1;
       // BE-GE3 (techlead) — índice EN MEMORIA de las cartas de ESTE set que están en alcance. El
       // resolver por fila hacía 1-3 queries DENTRO del bucle del ingest (externalId → (set,number) →
       // variantes de número) sobre un conjunto que ya teníamos materializado: con 250 cartas por
@@ -1088,7 +1202,16 @@ export class PriceIngestService {
       // en `allowed`, así que acotar el índice no cambia ni una decisión.
       const index = this.buildGradedCardIndex(cardsById, allowed);
       const map = await this.pptSetMapper.resolveForSets([set]);
-      const providerSetId = map.get(set.id) ?? null;
+      // v1.51-d (R1-quater): el mapper dice SI hay `pptSetId` y, si no, POR QUÉ. `resolveForSets`
+      // siempre puebla la entrada del set que se le pasa; si alguna vez no lo hiciera, se trata como
+      // «no comprobado» —nunca como «comprobado y sin mapeo»—: inventar la causa cara es justo lo que
+      // este arreglo elimina.
+      const mapping: PptSetMapping = map.get(set.id) ?? {
+        pptSetId: null,
+        reason: 'mapper_unavailable',
+        cause: 'request_failed',
+      };
+      const providerSetId = mapping.pptSetId;
       const res = await this.pptBulk.fetchGradedEstimatesForSet({
         set,
         providerSetId,
@@ -1112,9 +1235,72 @@ export class PriceIngestService {
         probedSets += 1;
       }
       if (res.requestOk) ev.requestOk = true;
+      // R1-ter: el provider dice si NO llegó a pedir y por qué. `null` ⇒ sí hubo petición (el caso
+      // normal, y también el del rechazo de parámetro, que responde con un 4xx real).
+      //
+      // ⛑️ R-3 (v1.51-e) — **EL `else` QUE AFIRMABA «HUBO PETICIÓN» NO TENÍA CANDADO.** Esto era una
+      // cadena `if/else if/else`: un CUARTO motivo de «no se pidió» (circuit-breaker, skip por scope,
+      // rate-limit local…) caía en el `else`, incrementaba `attempted` y el veredicto mandaba al
+      // operador a «EL REQUEST FALLÓ» **por una petición que nunca se emitió**. Es el defecto (b) de R1
+      // palabra por palabra, en el dato que gobierna la CITA. Con el `switch` + `never`, un motivo nuevo
+      // **no compila** hasta que alguien decida qué significa. Conducta HOY: idéntica.
+      switch (res.noRequestReason) {
+        case 'missing_api_key':
+          ev.requests.missingApiKey = true;
+          break;
+        case 'set_without_ppt_set_id':
+          // ⚠️ R1-quater — «no tiene pptSetId» NO es una causa: son DOS, con acciones opuestas. Si el
+          // catálogo de PPT ni se pudo consultar (cuota agotada por el barrido RAW de esta misma
+          // corrida, o red), mandar a «mapear estos sets» es la acción equivocada sobre una causa falsa.
+          //
+          // ⛑️ R-3 — mismo candado ocho líneas abajo: un TERCER `reason` en `PptSetMapping` (p. ej.
+          // `'ambiguous'`) heredaba en silencio el titular «no está mapeado» por caer en el `else`.
+          if (mapping.pptSetId === null) {
+            switch (mapping.reason) {
+              case 'mapper_unavailable':
+                ev.requests.mapperUnavailable.push({ setExternalId: set.externalId, cause: mapping.cause });
+                break;
+              case 'unmatched':
+                ev.requests.setsUnmatched.push(set.externalId);
+                break;
+              default: {
+                const motivoSinRama: never = mapping;
+                this.logger.warn(
+                  `graded-estimate-ingest: el mapper devolvió un motivo SIN RAMA para ${set.externalId} ` +
+                    `(${JSON.stringify(motivoSinRama)}). NO se clasifica como «sin mapeo» ni como «sin ` +
+                    'comprobar»: heredar un titular ajeno es justo el defecto que R1 vino a cerrar.',
+                );
+                break;
+              }
+            }
+          } else {
+            // Contradicción (hoy inalcanzable): el provider dijo «sin pptSetId» y el mapper SÍ dio uno.
+            // Se conserva la clasificación histórica para no cambiar conducta.
+            ev.requests.setsUnmatched.push(set.externalId);
+          }
+          break;
+        case null:
+          // El ÚNICO caso en el que se puede afirmar «se emitió una petición». Antes era el `else`.
+          ev.requests.attempted += 1;
+          break;
+        default: {
+          const motivoSinRama: never = res.noRequestReason;
+          // Fail-closed: un motivo desconocido NO cuenta como petición emitida. Si contara, el veredicto
+          // citaría «EL REQUEST FALLÓ» sobre una petición que quizá nunca salió. Sin rama, la corrida
+          // cae en el titular honesto («ninguna causa conocida ⇒ repórtalo»), que es el correcto.
+          this.logger.warn(
+            `graded-estimate-ingest: el provider devolvió un \`noRequestReason\` SIN RAMA ` +
+              `(${JSON.stringify(motivoSinRama)}) para ${set.externalId}. NO se cuenta como petición ` +
+              'emitida: afirmar que hubo petición es lo que manda al operador al log equivocado.',
+          );
+          break;
+        }
+      }
       ev.cardsReturned += res.fetchedRaw;
-      if (ev.creditsBefore == null) ev.creditsBefore = res.dailyRemainingBefore;
-      if (res.dailyRemaining != null) ev.creditsAfter = res.dailyRemaining;
+      // TL-GE1: se SUMA lo atribuible; un solo set que no pueda aislarlo deja la corrida entera sin
+      // cifra. No se completa con el contador diario del cliente: es el dato contaminado que se retiró.
+      if (res.gradedApiCallsConsumed == null) ev.creditsSpent = null;
+      else if (ev.creditsSpent != null) ev.creditsSpent += res.gradedApiCallsConsumed;
       result.unrecognized += res.drops.filter((d) => d.reason === 'unrecognized_shape').length;
       result.skippedSample += res.drops.filter((d) => d.reason === 'sample_too_small').length;
       result.skippedEvidence += res.drops.filter(
@@ -1170,8 +1356,15 @@ export class PriceIngestService {
           ...res.escalate,
         });
         // El veredicto se emite TAMBIÉN aquí: ésta es la salida en la que el dueño más necesita leer,
-        // sin bucear, qué pasó y que la decisión es del arquitecto.
-        return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen);
+        // sin bucear, qué pasó y que la decisión es del arquitecto. Va como `observed` — aquí SÍ se
+        // preguntó (el proveedor contestó rechazando), así que la conclusión es sobre el proveedor.
+        return this.emitGradedVerdict(result, ev, {
+          kind: 'observed',
+          requestOk: ev.requestOk,
+          requests: recuentoDePeticiones(),
+          shapeCounts,
+          forcedFormat: forcedFormatSeen,
+        });
       }
 
       // La traza de los DESCARTES del parser es obligatoria: sin ella, el descarte por muestra baja es
@@ -1329,7 +1522,14 @@ export class PriceIngestService {
     // nuestro propio override no es evidencia sobre el proveedor, venga por (A) o por (B) — con
     // `GRADED_FORMAT=graded_prices` el «cero S1» es literalmente lo que ordenamos que pasara.
     const shapeObservations = shapeCounts.s1 + shapeCounts.s2;
-    const shapeVerdictInduced = forcedFormatSeen !== 'auto';
+    // ⚠️ v1.51-b (TL-GE2/R2) — **UNA sola definición de «conteo inducido», la del veredicto.**
+    // Aquí había una copia divergente (`forcedFormatSeen !== 'auto'`) que NO eximía a la sonda,
+    // mientras `gradedPhase2Verdict` sí la exime. Con `probe=true` y `GRADED_FORMAT` fijado, la MISMA
+    // corrida emitía «no se escala» (veredicto) y «NO_VIABLE, ESCALA AL ARQUITECTO» (esta rama) a la
+    // vez: dos conclusiones opuestas sobre la misma evidencia, una de ellas capaz de disparar una
+    // decisión de arquitectura y presupuesto. La sonda clasifica por observación pura, así que su
+    // conteo NO es inducido — y ahora las dos superficies lo dicen igual porque leen la misma función.
+    const shapeVerdictInduced = shapeCountIsInduced({ probe: ev.probe, forcedFormat: forcedFormatSeen });
     // ⚠️ SUELO **RELATIVO** (§4.38h.1-ter, GU-A25). El suelo absoluto de 5 que propuse tenía **el mismo
     // bug que acabábamos de arreglar con `STALE`**: un aviso INALCANZABLE. El alcance del ingest es
     // «solo cartas con inventario publicado» (§4.38h.3), así que una tienda con **3 cartas** en las que
@@ -1381,7 +1581,20 @@ export class PriceIngestService {
           // sin abrir el log, POR QUÉ vía se disparó y que el conteo es una observación (formato
           // `auto`), no un eco de un override nuestro. Las dos vías piden lecturas distintas: (A) dice
           // «el campo puede que no exista en este plan»; (B) dice «lo hay, pero domina el malo».
-          `Evidencia: GRADED_FORMAT=auto (autodetección, sin override) y ` +
+          // ⚠️ v1.51-c (TL-GE2-bis) — esta frase decía literalmente «GRADED_FORMAT=auto (autodetección,
+          // sin override)». Era FALSA justo en la rama que TL-GE2 acababa de abrir: con `probe=true` y
+          // el formato FORZADO, la sonda sí escala (su conteo no está inducido) y `forcedFormatSeen`
+          // vale `graded_prices`. O sea, el texto que se le manda al arquitecto para decidir
+          // PRESUPUESTO afirmaba un hecho falso sobre la corrida que lo produjo, mientras el AuditLog
+          // de tres líneas abajo llevaba el valor verdadero. Lo que la frase quiere decir es «el conteo
+          // NO está inducido», así que se DERIVA de eso y no de un literal.
+          `Evidencia: el conteo NO está inducido por un override nuestro (` +
+          (forcedFormatSeen === 'auto'
+            ? 'GRADED_FORMAT=auto, autodetección pura'
+            : `GRADED_FORMAT="${forcedFormatSeen}", pero la corrida fue SONDA y la sonda clasifica con ` +
+              'detectGradedShape, que IGNORA el override ⇒ su conteo sigue siendo observación del ' +
+              'proveedor') +
+          ') y ' +
           (neverSawS1
             ? `CERO observaciones S1 en toda la corrida (regla A, §4.38h.1-ter): no se escala por ` +
               'mayoría sino porque **nunca hemos visto el shape bueno**, lo que sugiere que ' +
@@ -1421,7 +1634,13 @@ export class PriceIngestService {
         `${shapeCounts.s2} S2), ${result.unrecognized} con forma no reconocida, ` +
         `${result.skippedNoGradedBlock} set(s) sin bloque PSA.`,
     );
-    return this.emitGradedVerdict(result, ev, shapeCounts, forcedFormatSeen);
+    return this.emitGradedVerdict(result, ev, {
+      kind: 'observed',
+      requestOk: ev.requestOk,
+      requests: recuentoDePeticiones(),
+      shapeCounts,
+      forcedFormat: forcedFormatSeen,
+    });
   }
 
   /**
@@ -1440,24 +1659,37 @@ export class PriceIngestService {
    */
   private emitGradedVerdict(
     result: GradedIngestResult,
-    ev: { probe: boolean; requestOk: boolean; cardsReturned: number; creditsBefore: number | null; creditsAfter: number | null },
-    shapeCounts: { s1: number; s2: number },
-    forcedFormat: GradedFormat,
+    ev: { probe: boolean; cardsReturned: number; creditsSpent: number | null },
+    /**
+     * v1.51-c (TL-GE6) — **cómo terminó la corrida**, como unión discriminada: `stopped` (con su
+     * motivo, y con la clave nombrada si es config inválida) u `observed` (con conteos, formato y el
+     * recuento de peticiones).
+     *
+     * ### Por qué cambió respecto a R1 (y qué garantía da AHORA)
+     * R1 dejó `stopReason: GradedStopReason | null` como parámetro obligatorio y lo documentó como «el
+     * candado que impide la reincidencia». El techlead verificó que ese candado era de **ARIDAD**:
+     * obligaba a pasar *un* argumento, no *el correcto*. Un `…, null)` en una salida temprana futura
+     * compilaba y reproducía R1 palabra por palabra, y `invalidConfigKeys` tenía default `[]`, así que
+     * una salida que olvidara las claves degradaba en silencio a «no identificada(s)».
+     *
+     * Con la unión, los dos estados dejan de ser expresables: una parada **no tiene** conteos que
+     * fingir, una observación **no puede** omitir su causa de parada (no paró), y
+     * `ingest_config_invalid` **exige** al menos una clave (`[string, ...string[]]`). Lo que el tipo
+     * sigue SIN garantizar —y por eso se dice aquí en vez de prometer de más— es que el motivo elegido
+     * sea el verdadero: eso lo cubren los tests de `graded-estimate.probe.spec.ts`.
+     */
+    outcome: GradedRunOutcome,
   ): GradedIngestResult {
     const report = gradedPhase2Verdict({
       probe: ev.probe,
-      enabled: result.enabled,
-      requestOk: ev.requestOk,
+      outcome,
       sets: result.sets,
       cardsInScope: result.cardsInScope,
       cardsReturned: ev.cardsReturned,
-      shapeCounts,
       written: result.written,
       dailyLimited: result.dailyLimited,
       escalationReason: result.escalation?.reason ?? null,
-      forcedFormat,
-      creditsBefore: ev.creditsBefore,
-      creditsAfter: ev.creditsAfter,
+      creditsSpent: ev.creditsSpent,
     });
     result.verdict = report.verdict;
     for (const line of report.lines) {

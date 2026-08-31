@@ -18,6 +18,7 @@ import type {
   HoldingDTO,
   OrderSummaryDTO,
   OrderDetailDTO,
+  OrderItemCardDTO,
   SellRequestDTO,
   DashboardDTO,
   InventoryItemDTO,
@@ -307,6 +308,36 @@ function celebrationsCards(): CardDTO[] {
 }
 
 const cardById = (id: string) => mockCards.find((c) => c.id === id)!;
+
+/**
+ * MOCK v1.51-b — réplica del `card` que las TRES superficies de línea de compra sirven
+ * (`POST /checkout/quote`, `POST /checkout/guest/quote`, `GET /orders/:orderId`):
+ * `OrderItemCardDTO`, NO un `CardDTO`.
+ *
+ * Existe para que el simulador no vuelva a mentir. Antes el mock devolvía el `CardDTO`
+ * completo del fixture y el carrito se veía impecable en `dev` y en los e2e mientras en
+ * producción llegaba sin miniatura y sin sufijo de condición. Aquí se sirve EXACTAMENTE lo
+ * que el backend sirve: los ocho campos congelados + `imageSmallUrl` resuelta en lectura
+ * (clave siempre presente; `null` legítimo — lo modela `c-zapdos`, ver abajo).
+ */
+export function orderItemCard(l: ListingDTO): OrderItemCardDTO {
+  return {
+    cardId: l.card.id,
+    name: l.card.name,
+    setName: l.card.setName,
+    number: l.card.number,
+    productType: l.productType,
+    // v1.51-c: los tres viajan como `null` con la CLAVE PRESENTE (el checkout los congela
+    // tal cual salen de columnas nullables de `InventoryItem`), no omitidos. El fixture lo
+    // replica: si sirviera `undefined` volvería a divergir de lo que el backend manda.
+    rawCondition: l.rawCondition ?? null,
+    gradingCompany: l.gradingCompany ?? null,
+    gradeValue: l.gradeValue ?? null,
+    // El backend la resuelve por join sobre `cardId`; en el fixture el join siempre acierta.
+    // El caso `null` (fila `Card` inexistente o columna nula) lo ejercitan los tests de vista.
+    imageSmallUrl: l.card.imageSmallUrl ?? null,
+  };
+}
 
 /**
  * Valor de referencia de mercado por carta (MXN centavos) para el cotizador de
@@ -910,6 +941,11 @@ export const mockFeaturedSetHistoryNull: SetValueHistoryResponse = {
 export const mockOrders: OrderSummaryDTO[] = [
   { id: 'ord-9001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
   { id: 'ord-9002', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
+  // v1.51-c: pedido ANTIGUO cuyo `cardSnapshot` quedó incompleto (ver `mockOrderDetailLegacy`).
+  // Se sirve desde el mock para que el render degradado sea VISIBLE en `dev`/e2e, no solo en un
+  // test: la grieta anterior existió justamente porque el simulador servía datos más completos
+  // que el backend y todo se veía impecable en local.
+  { id: 'ord-9003', status: 'settled', totalCents: 79129, createdAt: '2024-11-02T17:40:00Z', settledAt: '2024-11-02T17:41:00Z' },
 ];
 
 export const mockOrderDetail: OrderDetailDTO = {
@@ -925,10 +961,77 @@ export const mockOrderDetail: OrderDetailDTO = {
     totalCents: 168520,
     currency: 'MXN',
   },
-  items: [{ inventoryItemId: 'inv-1002', card: cardById('c-blastoise'), unitPriceCents: 140800 }],
+  // v1.51-b: la línea de un pedido NO trae un `CardDTO` — trae el snapshot congelado + la
+  // miniatura resuelta en lectura. El mock lo replica pieza por pieza.
+  items: [
+    {
+      inventoryItemId: 'inv-1002',
+      card: orderItemCard(mockListings.find((l) => l.inventoryItemId === 'inv-1002') ?? mockListings[0]),
+      unitPriceCents: 140800,
+    },
+  ],
   cfdiStatus: 'registrado',
   invoiceRequested: false,
   stripePaymentIntentId: 'pi_mock_123',
+};
+
+/**
+ * MOCK v1.51-c (contrato §4 «Tolerancia del histórico»; ARCHITECTURE §5.2.9) — el acta de un
+ * pedido ANTIGUO cuyo `OrderItem.cardSnapshot` quedó INCOMPLETO. No es un error del backend:
+ * `cardSnapshot` es una columna `Json` que PostgreSQL no valida y el blob lo escribió una
+ * versión anterior de nuestro propio código. `GET /orders/:orderId` responde `200` con
+ * `HistoricalOrderItemCardDTO` (todo hecho congelado opcional) y el front DEGRADA por campo.
+ *
+ * Las tres líneas son los tres casos que importan:
+ *  1. blob COMPLETO (lo que escribe el checkout vigente, invariante de escritura intacto);
+ *  2. blob PARCIAL: sin `setName` ni `productType` ⇒ el subtítulo se compone solo con `#4` y
+ *     no se pinta adorno de condición (no se infiere el tipo desde qué claves llegaron);
+ *  3. blob VACÍO: solo `imageSmallUrl: null` ⇒ etiqueta neutra + pozo de papel, SIN enlace a
+ *     ficha (no hay `cardId`) y sin miniatura (sin `cardId` no hay join que hacer).
+ *
+ * El `breakdown` sale de columnas de `Order` y `unitPriceCents` de columna propia de
+ * `OrderItem`: por eso los importes están INTACTOS aunque el blob no diga nada.
+ */
+export const mockOrderDetailLegacy: OrderDetailDTO = {
+  id: 'ord-9003',
+  status: 'settled',
+  createdAt: '2024-11-02T17:40:00Z',
+  settledAt: '2024-11-02T17:41:00Z',
+  breakdown: {
+    subtotalCents: 65500,
+    ivaCents: 10480,
+    ivaRatePct: 16,
+    processingFeeCents: 3149,
+    totalCents: 79129,
+    currency: 'MXN',
+  },
+  items: [
+    {
+      inventoryItemId: 'inv-legacy-1',
+      card: orderItemCard(mockListings[0]),
+      unitPriceCents: 45000,
+    },
+    {
+      inventoryItemId: 'inv-legacy-2',
+      card: {
+        cardId: 'c-pikachu',
+        name: 'Pikachu',
+        number: '58',
+        // sin `setName`, sin `productType`, sin condición: el acta no los registró.
+        imageSmallUrl: 'https://images.pokemontcg.io/base1/58.png',
+      },
+      unitPriceCents: 12500,
+    },
+    {
+      inventoryItemId: 'inv-legacy-3',
+      // El peor caso del contrato: blob ausente/no-objeto ⇒ `card` SOLO con `imageSmallUrl`.
+      card: { imageSmallUrl: null },
+      unitPriceCents: 8000,
+    },
+  ],
+  cfdiStatus: 'no_aplica',
+  invoiceRequested: false,
+  stripePaymentIntentId: 'pi_mock_legacy',
 };
 
 export const mockSellRequests: SellRequestDTO[] = [
