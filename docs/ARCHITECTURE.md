@@ -245,7 +245,9 @@
 > gate, que solo se exponen al admin en `.../graded-estimates/preview`; **sin escalón de costo no hay destacado**
 > (jamás costo $0 ni default silencioso); `source` **NO** viaja al cliente (garantía de indistinguibilidad **fase 1
 > manual ⇄ fase 2 ingest**). Feature flag `graded_estimates_enabled` **seed `off`** (fail-closed: el disclaimer §O.5 aún
-> espera el visto bueno legal del humano). Contrato en API_CONTRACT (Changelog
+> espera el visto bueno legal del humano). *(**Estado de 2026-08-23, conservado como historia**: el flag quedó retirado
+> en v1.51 y el disclaimer fue **aprobado por el dueño** el 2026-08-31 —**sin revisión legal profesional**—, así que
+> ese motivo ya no sostiene el seed `off`; ver §4.38(r) y GU-1.)* Contrato en API_CONTRACT (Changelog
 > v1.50-graded-estimate). Detalle normativo: §4.38, §10, §11. **Base previa:** v1.49-pricing-two-layers-merge.
 > Rev v1.47-manual-override-perennial-candidate (2026-08-24, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementa BACKEND). **Re-gate seguridad + techlead sobre P47-2.** El re-gate halló que el
@@ -7654,14 +7656,39 @@ confianza (k) + ingest (h)); **v1.51 retira las DOS de M10 y las sustituye por u
 >    solo por `curl`, que es lo que el criterio 110(e) rechaza.
 > **Norma vigente: §4.38(r).**
 
-**El dial único `grading_hook_enabled` (seed `off`) es una decisión deliberada, no un adorno.** Tres razones
-*(escritas para el flag maestro de v1.50 y **vigentes tal cual** para el dial único de v1.51)*:
-(1) el **disclaimer de §O.5 aún NO tiene el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial) — el
+**El dial único `grading_hook_enabled` (seed `off`) es una decisión deliberada, no un adorno.** ~~Tres razones~~
+**Tres razones heredadas + una nueva; de las heredadas, hoy sostienen dos** *(las tres se escribieron para el flag
+maestro de v1.50; ~~**vigentes tal cual** para el dial único de v1.51~~ — **la (1) CADUCÓ el 2026-08-31**, ver el
+recuadro inmediatamente debajo)*:
+(1) ~~el **disclaimer de §O.5 aún NO tiene el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial) — el
 código puede desplegarse antes que el texto se apruebe **sin** que la afirmación comercial salga a producción por
-accidente; (2) da a QA el on/off que el **criterio 108** exige verificar («con la feature encendida y apagada, ningún
-precio de venta cambia»); (3) es el mismo patrón fail-closed ya vigente para `sealedValueTrend`/`sealedRestockAlerts`
-(§4.23h) y `sealedPriceSource` (§4.19e). Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates`
-ni `gradingHighlight`, y `?gradingHighlight=true` devuelve `data: []`.
+accidente~~ ⛔ **CADUCADA (2026-08-31).** El disclaimer de §O.5 está **aprobado por el dueño** —aprobación dada en
+sesión, condicionada a la corrección de marca a **TCG HUNT** (decisión 58) que **ya se aplicó**— y **NO tiene revisión
+legal profesional**. Las dos mitades van siempre juntas y no se suavizan (`PROJECT.md` decisión **59** / criterio
+**117**; pregunta abierta 1 reescrita). Se conserva tachada porque explica por qué el flag **nació** en v1.50, no
+porque siga sosteniéndolo; (2) da a QA el on/off que el **criterio 108** exige verificar («con la feature encendida y
+apagada, ningún precio de venta cambia»); (3) es el mismo patrón fail-closed ya vigente para
+`sealedValueTrend`/`sealedRestockAlerts` (§4.23h) y `sealedPriceSource` (§4.19e); **(4) NUEVA en v1.51 y hoy la más
+fuerte de las cuatro: encender es un ACTO DE GASTO** contra un proveedor de paga, con sus precondiciones verificables
+— **(r.3)**. Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates` ni `gradingHighlight`, y
+`?gradingHighlight=true` devuelve `data: []`.
+
+> **Qué pasa con esta justificación al caer la razón (1) — dicho, no disimulado.** La razón (1) era la que más se
+> citaba y es la que **envejeció**: describía un estado del mundo (*«el texto no está aprobado»*) que **cambió**, no
+> una regla que este documento decida. Es un caso de manual de **§0-B**: afirmación de **clase (B)** —descripción de
+> algo que ya vive en el producto (el copy i18n de §O.5 y su aprobación)— tratada como si fuera de clase (A). El
+> dial **no se debilita en la práctica**, y conviene ser exacto sobre por qué:
+> - **(2) criterio 108** es un criterio de aceptación **ya aprobado**: QA necesita el on/off para verificarlo. Nada
+>   que ver con el texto legal. **Intacta.**
+> - **(3) fail-closed** es patrón vigente en otras dos features. **Intacta.**
+> - **(4) gasto** es **más fuerte que la razón legal que sustituye**: con el dial único, `on` autoriza hasta
+>   ~1 000 créditos/día contra un proveedor de paga y **los créditos gastados no se recuperan al apagar**
+>   (`PROJECT.md` decisión 60, §4.38r.3.1). Un argumento de *«no publiques un texto sin visto bueno»* se resolvía con
+>   una aprobación; éste **no caduca nunca** porque el gasto es estructural.
+> - **Lo que sí se pierde:** el dial **ya no retiene una afirmación comercial no aprobada**, porque no la hay. Quien
+>   busque en §4.38 el argumento «legal» para mantener `off` **no lo va a encontrar**, y está bien: lo que queda
+>   abierto es la **revisión legal profesional**, y ésa **no bloquea el encendido** (decisión 59). Bloquean las
+>   precondiciones de **(r.3.1)** y el pase de **(r.4)** — gasto y datos, no texto.
 
 > **Nota de separación de diales (importante para el operador):** `grading_cost_tiers` y `grading_min_upside_pct`
 > gobiernan **exclusivamente la CURADURÍA** (dónde promovemos). **No afectan a la ficha**: subir `minUpsidePct` vacía la
@@ -12070,10 +12097,14 @@ este documento y con `API_CONTRACT.md`.
 - **GU-A5 — `sort=grading_showcase` exige `gradingHighlight=true`** (`400 GRADING_SORT_REQUIRES_FILTER`), fail-closed
   para que la vitrina no pueda paginar hacia grupos no destacados. El **nombre del sort es neutro a propósito** (no
   nombra el criterio) para que ajustar la política comercial no toque el contrato. §4.38(f).
-- **GU-A6 — feature flag `graded_estimates_enabled` con seed `off`.** No estaba pedido en `PROJECT.md`; se añade porque
-  (1) el disclaimer §O.5 **aún no tiene el visto bueno legal del humano** y el código no debe poder salir a producción
-  con la afirmación comercial encendida por accidente, y (2) el **criterio 108** exige poder verificar el sistema «con la
-  feature encendida y apagada». §4.38(d).
+- **GU-A6 — feature flag `graded_estimates_enabled` con seed `off`.** No estaba pedido en `PROJECT.md`; se añadió porque
+  (1) el disclaimer §O.5 **no tenía entonces —a 2026-08-23— el visto bueno del dueño** y el código no debía poder salir
+  a producción con la afirmación comercial encendida por accidente, y (2) el **criterio 108** exige poder verificar el
+  sistema «con la feature encendida y apagada». §4.38(d).
+  ⛔ **Actualización de hecho (2026-08-31), en dos planos:** el **flag** quedó **RETIRADO en v1.51** (lo sustituye el
+  dial único `grading_hook_enabled`, §4.38r), y el **motivo (1) CADUCÓ**: el disclaimer está **aprobado por el dueño**
+  y **sin revisión legal profesional** (`PROJECT.md` decisión 59 / criterio 117). La entrada se conserva como traza de
+  por qué el flag nació; lo que sostiene hoy al dial es (2), el patrón fail-closed y el **gasto** (§4.38r.3).
 - **GU-A7 — el diagnóstico `.../graded-estimates/preview` es de ADMIN, no público.** Es la contrapartida necesaria de un
   DTO público tan chico: sin él, «fijé el valor y la carta no salió destacada» sería una caja negra para el humano que
   **cura a mano** (§O.6). Reusa los `reason` de la misma función pura, sin duplicar lógica. §4.38(d).
@@ -12107,16 +12138,45 @@ este documento y con `API_CONTRACT.md`.
 
 **Para el humano (con default aplicado; responder cuando pueda):**
 
-- **GU-1 (la importante, legal) — texto del disclaimer §O.5 sin aprobar.** `PROJECT.md` marca la pregunta abierta #1 de
-  v2.0 como pendiente del visto bueno (idealmente con revisión legal). **Mitigación de arquitectura:** el flag
-  del gancho (v1.51: `grading_hook_enabled`) arranca en **`off`**; el equipo puede construir, testear y desplegar sin
-  exponer la afirmación. **Encenderlo en producción requiere el visto bueno del humano** — es una decisión de
-  negocio/legal, no de devops, **y desde v1.51 también de GASTO** (§4.38r.3).
-  **⚠️ Tensión que el orquestador debe enrutar al humano/PO:** producción tiene hoy la exhibición **encendida**
-  mientras esta pregunta abierta sigue registrada como **pendiente**. O el visto bueno ya se dio (y `PROJECT.md` debe
-  recogerlo), o se está publicando una afirmación comercial sin aprobar. **No lo resuelve el arquitecto.** **Nota para ux-ui:** con el patrón de **nota al pie** (asterisco junto a la cifra + texto al final de la
-  página) sigue habiendo **dos** textos —el completo de la ficha y el corto de rejilla/vitrina— y el criterio 103 exige
-  que **ninguna cifra aparezca sin al menos el corto**. Patrón definido en `DESIGN_SYSTEM.md` **§22**.
+- **GU-1 — disclaimer §O.5: APROBADO POR EL DUEÑO; SIN REVISIÓN LEGAL PROFESIONAL.**
+  ⚠️ **RECALIFICADA el 2026-08-31 — deja de ser bloqueante del encendido.** *(Antes decía «texto del disclaimer §O.5
+  sin aprobar» y se apoyaba en `PROJECT.md`, que ya cambió; ver «Por qué esta entrada estaba mal», abajo.)*
+  **La fórmula es obligatoria y no se suaviza en ninguna dirección — las dos mitades van siempre juntas:**
+  - **Aprobado por el dueño.** El texto ES/EN de §O.5 tiene el visto bueno del dueño, dado en sesión el **2026-08-31**
+    y condicionado a la **corrección de marca a TCG HUNT** (decisión 58) que **ya se aplicó**. `PROJECT.md`
+    decisión **59** y criterio **117**; `DESIGN_SYSTEM.md` **§22.13(h)** **prohíbe** afirmar en pantalla que el
+    disclaimer no está aprobado, con un check de QA de **cero apariciones**. **Ningún documento ni superficie de este
+    proyecto puede afirmar lo contrario**, este incluido.
+  - **Sin revisión legal profesional.** **Ningún abogado ha revisado ese texto.** Es lo **único** que sigue vivo de la
+    pregunta abierta 1, es **del dueño** (él contrata la revisión) y va idealmente junto con la **razón social**
+    (`common.footer.legalEntity`, hoy pendiente ⇒ el criterio **114** obliga a revisar §O.5 el día que se cargue).
+  - **Clasificación (esto es lo que cambia):** ⛔ **NO bloquea encender** `grading_hook_enabled`. La aprobación del
+    texto dejó de ser la puerta. Lo que **sí** condiciona el encendido está en otro sitio y **no es legal**: las
+    precondiciones verificables de **(r.3.1)** (presupuesto de créditos declarado, veredicto de la sonda) y el pase de
+    **(r.4)**. Sigue siendo cierto —por **gasto**, no por texto— que **encender no es decisión de devops**: es del
+    dueño, desde M10, auditado (§4.38r.3).
+  - **La mitigación de arquitectura se conserva, con otro motivo.** El dial arranca en **`off`** (fail-closed) y el
+    equipo puede construir, testear y desplegar sin exponer nada; pero hoy eso lo justifican el **criterio 108**, el
+    patrón fail-closed y el **gasto**, ya no la espera de una aprobación. Ver §4.38(r) y el recuadro «Qué pasa con
+    esta justificación al caer la razón (1)».
+  - ~~**⚠️ Tensión que el orquestador debe enrutar al humano/PO:** producción tiene hoy la exhibición **encendida**
+    mientras esta pregunta abierta sigue registrada como **pendiente**…~~ ✅ **DISUELTA, y en la dirección buena:**
+    no se estaba publicando una afirmación sin aprobar — **el visto bueno ya se había dado y la documentación estaba
+    atrasada**. `PROJECT.md` ya lo recogió (decisión 59). **Nada que enrutar.**
+  - **Riesgo residual, declarado y acotado (no se disimula):** una revisión de abogado **posterior** puede exigir
+    cambiar el texto con la feature ya encendida. **Coste del cambio:** el disclaimer es **copy i18n del front** y
+    **NO viaja por la API** (§4.38g) ⇒ se toca `frontend/messages/{es,en}.json` y nada más: **sin cambio de contrato,
+    sin schema, sin migración y sin apagar el dial**. Ése es exactamente el motivo por el que esta pregunta **puede**
+    quedar abierta sin bloquear.
+  - **Por qué esta entrada estaba mal (lección de §0-B, no anécdota):** afirmaba «sin aprobar» **citando otro
+    documento** como fuente. Eso es una afirmación de **clase (B)** —describe algo que ya vive en el producto (el
+    texto que hoy se muestra y su aprobación)— redactada como si fuera clase (A). Cuando la fuente cambió, la copia
+    se quedó atrás y **la jerarquía la convirtió en orden**: es el mismo mecanismo de la decisión 58. **Verificación
+    correcta:** contra el producto y contra `PROJECT.md` §O.5 vigente, nunca contra otro `*_NOTES.md`.
+  - **Nota para ux-ui (se conserva, sin cambios):** con el patrón de **nota al pie** (asterisco junto a la cifra +
+    texto al final de la página) sigue habiendo **dos** textos —el completo de la ficha y el corto de
+    rejilla/vitrina— y el criterio 103 exige que **ninguna cifra aparezca sin al menos el corto**. Patrón definido en
+    `DESIGN_SYSTEM.md` **§22**.
 - **GU-2 — valor usado para buscar el escalón** (§O.2.1, SUPUESTO del PO): se implementa el **estimado PSA 10** (el más
   conservador). Cambiarlo a PSA 9 o al precio raw es **una línea** de la función pura y **cero** cambio de contrato.
 - **GU-3 — base de comparación del gate** (pregunta abierta v2.0 #2): se implementa **precio de venta raw sin IVA y sin

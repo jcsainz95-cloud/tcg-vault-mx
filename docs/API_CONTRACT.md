@@ -300,8 +300,12 @@
 >   con un invariante incompatible (ARCHITECTURE §4.38d / GU-A1). *(v1.50.2 añade 5 diales más a este recurso.)*
 > - **Dial M10 — UNO SOLO (v1.51):** `gradingHookEnabled` (`grading_hook_enabled`, `on|off`, **seed `off`
 >   fail-closed**). Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates` ni `gradingHighlight`,
->   `?gradingHighlight=true` devuelve `data: []`, **y el ingest no pide ni escribe nada**. Encenderlo requiere el visto
->   bueno del humano sobre el disclaimer (§O.5) **y** es un **acto de gasto** (créditos de un proveedor de paga).
+>   `?gradingHighlight=true` devuelve `data: []`, **y el ingest no pide ni escribe nada**. Encenderlo **no es decisión
+>   de devops**: es un **acto de gasto** (créditos de un proveedor de paga) que además publica una afirmación
+>   comercial. *(Corrección de hecho 2026-08-31: este renglón decía que encender «requiere el visto bueno del humano
+>   sobre el disclaimer §O.5». **Ya lo tiene** — el disclaimer está **aprobado por el dueño**, **sin revisión legal
+>   profesional**, `PROJECT.md` decisión 59 / criterio 117. Lo que condiciona el encendido es el **gasto** y las
+>   precondiciones de ARCHITECTURE §4.38(r.3.1), no la aprobación del texto.)*
 >   ~~*(v1.50.2 añade un segundo dial M10, `gradedEstimateIngestEnabled`, que gobierna la obtención y no la
 >   exhibición.)*~~ ⛔ **DEROGADO en v1.51:** los dos diales de v1.50/v1.50.2 (`gradedEstimatesEnabled`,
 >   `gradedEstimateIngestEnabled`) quedan **RETIRADOS** — decisión del dueño, ARCHITECTURE §4.38(r).
@@ -7242,7 +7246,10 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`. Se expone en el `GET` y se edita por este `PUT` (mismo
   patrón que `sealedValueTrend`/`sealedRestockAlerts`); validado contra el enum (`422 VALIDATION_ERROR`).
   **⚠ Encenderlo en producción NO es una decisión de devops:** publica una **afirmación comercial** cuyo **disclaimer
-  (§O.5) todavía espera el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial). El seed `off` permite
+  (§O.5) todavía espera el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial). *(**Texto retirado,
+  conservado literal para que el cambio sea legible — NO describe el estado de hoy.** A 2026-08-31 el disclaimer está
+  **aprobado por el dueño** y **sin revisión legal profesional**: `PROJECT.md` decisión 59 / criterio 117. La norma
+  vigente es la entrada v1.51 de arriba.)* El seed `off` permite
   construir, testear y desplegar sin exponerla, y da a QA el on/off que exige el **criterio 108** (verificar que
   encender/apagar la feature **no cambia ningún precio de venta, valuación de portafolio, cotización de buylist ni
   P&L**). **El resto de la config del gancho —escalones de costo, `minUpsidePct`, frescura, grados— NO se edita aquí:**
@@ -7638,7 +7645,9 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
   y devuelve **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`** (INV-D). Diales en M2 (`graded-estimates`, **12 claves**) +
   **UN** interruptor en M10 (**v1.51**: `gradingHookEnabled`, seed `off`, gobierna **exhibición Y obtención** —
   ~~`gradedEstimatesEnabled` + `gradedEstimateIngestEnabled`, dos diales~~ ⛔ retirados por decisión del dueño,
-  ARCHITECTURE §4.38r). Encenderlo requiere el visto bueno del disclaimer §O.5 **y** es un **acto de gasto**.
+  ARCHITECTURE §4.38r). Encenderlo es un **acto de gasto** y **no es decisión de devops**. *(Corrección de hecho
+  2026-08-31: decía «requiere el visto bueno del disclaimer §O.5»; ese visto bueno **ya existe** — **aprobado por el
+  dueño**, **sin revisión legal profesional**, `PROJECT.md` decisión 59.)*
   **v1.50.3:** tres seeds del gate de confianza corregidos para alinear con `PROJECT.md` (`manualFreshnessDays` 30,
   `minSampleCount` 5, `maxRawMultiple` 100) y **un endpoint nuevo de back-office**,
   `GET /admin/pricing/graded-estimates/review` (la **lista de revisión** del criterio 111(e)). **⚠ Para
