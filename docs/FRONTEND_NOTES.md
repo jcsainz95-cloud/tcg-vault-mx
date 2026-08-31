@@ -7831,3 +7831,34 @@ vuelven a coincidir. La verificación final de `next build` se hizo contra `NEXT
 2. **Seed — sigue faltando una CUARTA carta raw publicada y libre.** Las tres que hay ya son `curated`,
    `informed` y `deletable`. El test `needsSeed` de «dos grados con dato y sin destacar» pasará tal
    cual el día que exista. No bloquea nada.
+
+---
+
+## §28 · La marca del descargo: «TCG Vault MX» → «TCG HUNT», y el candado que lo fija (2026-08-31, rama `claude/psa-graded-card-value-gmhv5u`)
+
+**El defecto.** El descargo legal del gancho de grading nombraba a la empresa como **«TCG Vault MX»**
+— el nombre interno del proyecto (el título de `CLAUDE.md`), no la marca. La marca es **TCG HUNT**
+(`common.brand.name`, dominio `tcghunt.mx`). Lo introdujimos nosotros al redactar el descargo: de todo
+el texto visible al comprador, el nombre viejo aparecía **solo** en esas dos claves, en los dos idiomas.
+
+**El arreglo (4 cadenas, nada más).** `catalog.gradingNote.p4` y `catalog.gradingNote.p5` en `es.json`
+y `en.json`. Se sustituyó **únicamente el token de la marca**; el resto del descargo está aprobado
+literal por el dueño y no se tocó ni una coma. ES y EN quedan paralelos.
+
+**Por qué la marca y no la razón social.** El proyecto distingue marca (`common.brand.name`) de razón
+social (`common.footer.legalEntity`, hoy `[Razón social pendiente]` / `[Legal entity pending]`, que el
+pie omite con gracia — ver `footerLegalEntity.test.ts`). La razón social **no está cargada todavía**,
+así que no entra aquí. El precedente que manda es `legal.intro`: *«Estos términos aplican a todas las
+compras y a la bóveda de cartas en TCG HUNT»*. El descargo debe hablar igual que los términos.
+
+**El candado.** No se creó archivo nuevo: el barrido de catálogos ya vivía en
+`src/lib/i18n-parity.test.ts` (paridad de claves ES/EN), así que el caso entra ahí, junto a su vecino
+natural. Un helper `stringEntries()` recorre el JSON y devuelve `[ruta, valor]` de **cada** cadena; el
+caso —un `it.each` por locale— exige que ninguna case con `/tcg\s*vault/i`. Falla **listando la ruta
+de la clave culpable** (verificado reinyectando el texto viejo: `expected [ 'catalog.gradingNote.p4' ]
+to deeply equal []`), no con un booleano mudo. Es barato y cierra la puerta a que cualquier copy futuro
+—no solo el descargo— reintroduzca la marca vieja.
+
+**Verificación.** `npx tsc --noEmit` limpio · `npx vitest run` **769 pasan / 90 archivos** (eran
+767/90: +2 del `it.each` nuevo, uno por locale). **Ningún test existente citaba la marca vieja**, así
+que no hubo aserciones que actualizar.
