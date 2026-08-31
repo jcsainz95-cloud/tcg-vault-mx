@@ -759,6 +759,63 @@ function zeroBreakdown(withShipping = false): BreakdownDTO {
   };
 }
 
+/**
+ * Forma REAL del campo `card` que hoy devuelve `POST /checkout/quote` (backend
+ * `OrdersService.quote()` → `cardSnapshot()`): un snapshot plano de la pieza, **no** un
+ * `CardDTO`. En concreto NO trae `imageSmallUrl` / `imageLargeUrl` / `id`, y mete
+ * `productType` / `rawCondition` DENTRO de `card` en vez de al nivel del ítem.
+ *
+ * Se declara aquí porque el mock DEBE parecerse a producción: hasta ahora devolvía el
+ * `CardDTO` completo del fixture, así que el carrito se veía impecable en `dev` y en los
+ * e2e y llegaba SIN MINIATURA a producción. Un simulador feo es mejor que uno que miente.
+ *
+ * @see MOCK_QUOTE_CARD_KEYS — el test `api.checkout-quote.test.ts` fija estas llaves para
+ * que la divergencia no se pierda de vista otra vez.
+ */
+export interface CheckoutQuoteCardSnapshot {
+  cardId: string;
+  name: string;
+  setName?: string;
+  number: string;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+}
+
+/**
+ * Llaves EXACTAS del snapshot de arriba, exportadas para el test que las pinea. Si el
+ * backend algún día añade la imagen (`imageSmallUrl`) a este camino —que es lo que la UI
+ * necesita: CheckoutView pinta `item.card.imageSmallUrl`—, hay que ACTUALIZAR el mock y esta
+ * lista en el mismo commit. El test falla a propósito si una de las dos se mueve sola: el
+ * riesgo real no es solo que el mock mienta hacia abajo (hoy), también que se quede
+ * mintiendo hacia arriba cuando el backend ya lo cumpla.
+ */
+export const MOCK_QUOTE_CARD_KEYS = [
+  'cardId',
+  'name',
+  'setName',
+  'number',
+  'productType',
+  'rawCondition',
+  'gradingCompany',
+  'gradeValue',
+] as const;
+
+/** Réplica del `cardSnapshot()` del backend sobre un `ListingDTO` del fixture. */
+function mockQuoteCardSnapshot(l: ListingDTO): CheckoutQuoteCardSnapshot {
+  return {
+    cardId: l.card.id,
+    name: l.card.name,
+    setName: l.card.setName,
+    number: l.card.number,
+    productType: l.productType,
+    rawCondition: l.rawCondition,
+    gradingCompany: l.gradingCompany,
+    gradeValue: l.gradeValue,
+  };
+}
+
 export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<CheckoutQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<CheckoutQuoteResponse>('/checkout/quote', { method: 'POST', body: { inventoryItemIds } });
@@ -778,13 +835,17 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
   return delay({
+    // El `card` del quote es el SNAPSHOT del backend, no un `CardDTO` (ver
+    // CheckoutQuoteCardSnapshot). El `as unknown as` es deliberado y acotado: `contract.ts`
+    // declara `OrderItemPreview.card: CardDTO` con `imageSmallUrl` OBLIGATORIO, cosa que el
+    // backend NO cumple en este camino. Corregir ese tipo es cambiar la lectura del contrato
+    // (`OrderItemPreview` ni siquiera está definido en API_CONTRACT.md) ⇒ es del ARQUITECTO,
+    // no del front. Mientras tanto el mock dice la verdad y el test pinea la forma.
     items: items.map((l) => ({
       inventoryItemId: l.inventoryItemId,
-      card: l.card,
-      productType: l.productType,
-      rawCondition: l.rawCondition,
+      card: mockQuoteCardSnapshot(l),
       unitPriceCents: l.salePriceCents ?? 0,
-    })),
+    })) as unknown as CheckoutQuoteResponse['items'],
     breakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal),
     unavailableItems,
   });

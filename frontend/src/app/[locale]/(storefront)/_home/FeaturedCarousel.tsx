@@ -217,8 +217,13 @@ export function FeaturedCarousel() {
                     href={`/catalog/${l.card.id}`}
                     className="w-[236px] shrink-0 snap-start lg:w-[400px]"
                   >
-                    {/* P-39: teja destacada grande ⇒ imagen de alta resolución (fallback a la chica si null). */}
-                    <CardImage src={l.card.imageLargeUrl ?? l.card.imageSmallUrl} alt={l.card.name} />
+                    {/* P-39: teja destacada grande ⇒ imagen de alta resolución (fallback a la chica si null).
+                        Es la ÚNICA teja de la pista con HD: mide 236/400px, donde la chica (245×342) se
+                        vería blanda. Las secundarias (abajo) van con la CHICA a propósito — ver su nota.
+                        PERF: `priority` porque esta teja es la candidata a LCP de la home (primer bloque
+                        con imagen). No se replica en las demás: varias `fetchpriority=high` a la vez se
+                        pelean el ancho de banda y retrasan justo a esta. */}
+                    <CardImage src={l.card.imageLargeUrl ?? l.card.imageSmallUrl} alt={l.card.name} priority />
                     <div className="mt-3 flex flex-col gap-2 lg:mt-[18px] lg:flex-row lg:items-end lg:justify-between lg:gap-5">
                       <div className="min-w-0">
                         <p lang="en" className="font-serif text-[17px] leading-[1.25] text-text lg:text-[26px] lg:leading-[1.2]">
@@ -248,8 +253,14 @@ export function FeaturedCarousel() {
                     href={`/catalog/${l.card.id}`}
                     className="w-[160px] shrink-0 snap-start lg:w-[268px]"
                   >
-                    {/* P-39: teja destacada (showcase prominente, no grid denso) ⇒ alta resolución con fallback. */}
-                    <CardImage src={l.card.imageLargeUrl ?? l.card.imageSmallUrl} alt={l.card.name} />
+                    {/* PERF — NO uniformizar con la teja líder: aquí va la imagen CHICA A PROPÓSITO.
+                        P-39 («foto HD en el featured/ficha») se cumple en la teja LÍDER (arriba, 236/400px)
+                        y en la ficha de carta; estas secundarias miden 160px (268px en lg), así que la
+                        grande de pokemontcg.io (~734×1024) se descargaba entera para pintarse a menos de
+                        un tercio de su ancho — y son SIETE, en el primer bloque con imágenes de la home.
+                        La chica (245×342) ya cubre 268px con holgura en pantallas 1x. Si algún día estas
+                        tejas crecen por encima de ~245px de ancho real, entonces sí toca revisar. */}
+                    <CardImage src={l.card.imageSmallUrl} alt={l.card.name} />
                     <div className="mt-3 flex items-baseline gap-2 lg:mt-[15px]">
                       {/* Numeración decorativa/orientadora (§20.3): el orden real lo da el DOM.
                           §22.6b-c: se apaga en TODA la pista si la pista pinta alguna cifra. Nunca

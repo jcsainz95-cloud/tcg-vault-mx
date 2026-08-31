@@ -8707,3 +8707,142 @@ señalan la clave culpable por su nombre.
    M2 (hermanos de **F-19**). Desde este pase **ninguna pantalla los ofrece como remedio**, así que
    no hay nada roto que arreglar: darles editor es feature nueva con invariantes propios
    (`highlightGrades ⊆ grades`) y entra por `PROJECT.md`, como dice §22.12 nº17.
+
+## §34 · Peso de imagen en la home, la candidata a LCP, el preconnect que faltaba, la miniatura del carrito de VENTA y el mock que tapaba un bug de producción — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Seis arreglos acotados de rendimiento de imágenes + una miniatura faltante. Diagnóstico previo
+> verificado; aquí solo se implementa. **Cero cambios de contrato** (uno se ESCALA, ver §34.7).
+> Escrituras: `frontend/` y este archivo. No se tocó `backend/`, `next.config.mjs` ni `next/image`
+> (esa decisión está con el arquitecto).
+
+### 34.1 El carrusel descargaba 7 imágenes HD para pintarlas a 160px
+
+`FeaturedCarousel.tsx` — las tejas **secundarias** pedían `imageLargeUrl ?? imageSmallUrl`
+(~734×1024 en pokemontcg.io) y las pintaban a `w-[160px]` / `lg:w-[268px]`. Son **siete** tejas y es
+el **primer bloque con imágenes de la home**. Pasan a `imageSmallUrl` (245×342).
+
+La teja **líder** (`w-[236px]` / `lg:w-[400px]`) **NO cambia**: ahí P-39 («foto HD en el
+featured/ficha») sigue vigente y con 400px la chica se vería blanda. La asimetría es intencional y
+queda escrita **en las dos tejas** para que nadie la «uniformice» de vuelta en una limpieza.
+
+> Nota honesta: en `lg` la teja secundaria mide 268px y la imagen chica 245px de ancho — un 9 % de
+> upscale en pantallas 1x. Se acepta: el ahorro de bytes es de otro orden de magnitud. Si esas tejas
+> crecen por encima de ~245px reales en móvil/tablet, toca revisar.
+
+**No pude medir los bytes.** El egress a `images.pokemontcg.io` está **bloqueado por política del
+proxy** en este entorno (`CONNECT … 403`, `connect_rejected`), así que no hay cifra real que
+reportar y **no la estimo**. Lo verificable es la geometría: 734×1024 contra 245×342 (**~12.6× el
+área de píxeles**). Queda como tarea de medición para quien tenga red hacia el CDN.
+
+### 34.2 `CardImage` gana `priority` (opt-in) — la imagen del LCP dejaba de ser prioritaria
+
+`CardImage` ponía `loading="lazy"` a **todo**, incluida la teja líder del carrusel, que es la
+**candidata a LCP** de la home. Encima el fade-in `opacity-0 → opacity-100` esperaba al `onLoad`:
+aunque los bytes ya hubieran llegado, el pintado (y con él la métrica) se retrasaba.
+
+Nueva prop `priority` (default `false` ⇒ **conducta previa idéntica en las 14 superficies que ya
+usaban el componente**): `loading="eager"` + `fetchpriority="high"` + sin fade. Se usa **en un solo
+sitio**: la teja líder. En rejillas NO se usa — `lazy` es lo correcto ahí, y varias `high`
+compitiendo por ancho de banda retrasan justo a la que importa. La regla está escrita en el JSDoc de
+la prop.
+
+**Detalle de react-dom 18:** el atributo va en **minúsculas** (`fetchpriority`). Con la grafía
+camelCase que declara `@types/react` (`fetchPriority`), react-dom 18 no lo reconoce y avisa por
+consola («React does not recognize the fetchPriority prop…»), ensuciando la salida de los tests. Se
+emite en minúsculas con un `as` acotado y comentado; al subir a React 19 puede volver a camelCase.
+Hay un test que falla si vuelve el aviso.
+
+### 34.3 `decoding="async"` en `CardImage`
+
+Para todas las imágenes de carta. Barato, sin efecto visual, no bloquea el hilo principal mientras
+el navegador descomprime el JPEG.
+
+### 34.4 `preconnect` a `images.pokemontcg.io`
+
+`grep -rn "preconnect\|dns-prefetch" frontend/src` daba **cero**. **Todas** las imágenes de carta de
+la app vienen de ese tercero, así que el navegador pagaba DNS + TCP + TLS completos **después** de
+descubrir el primer `<img>`. Van `preconnect` + `dns-prefetch` (respaldo) en el `<head>` del layout
+raíz `src/app/[locale]/layout.tsx` — es el único layout que renderiza `<html>`; el layout de
+`(storefront)` no llega al `<head>`.
+
+- **Sin `crossOrigin`**: un `<img>` normal no se pide en modo CORS; un preconnect `anonymous` abriría
+  una conexión de otra piscina que esas imágenes no reutilizarían (trabajo de más, ahorro cero).
+- **`tcgplayer-cdn.tcgplayer.com` queda FUERA, a propósito**: en la home el sellado vive en
+  `SealedShelf`, **por debajo** del carrusel (bajo el pliegue). Preconectar dominios que quizá no se
+  usen desperdicia conexiones. Si algún día el sellado sube sobre el pliegue, ese es el momento.
+
+### 34.5 El carrito de VENTA tenía la imagen y no la pintaba
+
+`SellCartContents.tsx` no pintaba miniatura, pero el dato **ya viajaba** en la línea
+(`useSellCart.CartLine.card.imageSmallUrl`, poblado desde el binder y el picker de `BuylistView`).
+Era el único listado de piezas de la app que lo tenía y no lo usaba. Se pinta con el patrón de
+`CheckoutView`: columna fija `w-12` a la izquierda, contenido en `min-w-0 flex-1` (el nombre sigue
+truncando en el drawer de 400px). **Es el único cambio visual de este pase.**
+
+`QuoterCardRef.imageSmallUrl` es **opcional** (el binder de Master Set puede no traerla), así que la
+columna entera se omite cuando no hay imagen: un `CardImage` sin `src` deja el esqueleto pulsando
+para siempre, que se lee como un «cargando» eterno.
+
+> El carrito de **COMPRA** falla por otra causa (el backend no manda la URL) y **no se tocó**: no es
+> del front. Ver §34.6 y §34.7.
+
+### 34.6 El simulador mentía, y por eso el bug llegó a producción sin que nadie lo viera
+
+`api.ts` · `getCheckoutQuote` (rama mock) devolvía `card: l.card`, el **`CardDTO` completo** del
+fixture. El backend real devuelve otra cosa: `OrdersService.quote()` → `cardSnapshot()`, un snapshot
+plano `{ cardId, name, setName, number, productType, rawCondition, gradingCompany, gradeValue }` —
+**sin `imageSmallUrl`/`imageLargeUrl`, sin `id`**, y con `productType`/`rawCondition` **dentro** de
+`card` en vez de al nivel del ítem. Por eso el carrito se veía impecable en `dev` y en los e2e de
+Playwright, y llegaba roto a producción.
+
+El mock ahora replica el snapshot real (`mockQuoteCardSnapshot`). **El mock queda «peor» a
+propósito**: en desarrollo el checkout de compra ahora se ve como se ve en producción. Un simulador
+feo es mejor que uno que miente.
+
+Para que no se quede desalineado **en la otra dirección**, `api.checkout-quote.test.ts` **pinea las
+llaves exactas** del snapshot (`MOCK_QUOTE_CARD_KEYS`, exportada). Cuando backend añada la imagen a
+este camino, el test falla y obliga a actualizar mock + lista en el mismo commit.
+
+**Efecto colateral revelado (no es regresión, es la verdad saliendo a flote):** `CheckoutView:237`
+lee `item.productType` al nivel del ítem, que el backend **nunca manda ahí** ⇒ el sufijo de condición
+(`· NM`) tampoco se pinta hoy en producción. No lo «arreglo» en el front moviendo la lectura dentro
+de `card`: eso sería adivinar un contrato. Va a §34.7.
+
+**Gemelo conocido, NO tocado:** `getGuestCheckoutQuote` tiene exactamente la misma mentira
+(`guest-checkout.service.ts` usa el mismo `cardSnapshot`). Queda fuera de este pase por alcance;
+mismo dueño y mismo arreglo que §34.7 nº1.
+
+### 34.7 Peticiones al ARQUITECTO (regla 9 — no toqué el contrato)
+
+1. **`OrderItemPreview` no está definido en `API_CONTRACT.md`.** El contrato solo lo nombra en
+   `POST /checkout/quote` («Res 200: `{ items: OrderItemPreview[], … }`») y el ejemplo trae
+   `"card": {}`. `frontend/src/types/contract.ts:158` declara `CardDTO.imageSmallUrl` **obligatorio**
+   y `OrderItemPreview.card: CardDTO`, y el backend **no lo cumple**: manda el `cardSnapshot`. Pido
+   **definir `OrderItemPreview` en el contrato** y decidir el sentido del arreglo:
+   (a) el snapshot gana `imageSmallUrl` (es lo que la UI necesita: el checkout **pinta** miniatura), o
+   (b) el tipo del front deja de prometer un `CardDTO`. **La (a) es la que arregla el carrito de
+   compra**; con la (b) hay que quitar la miniatura del checkout, que es peor producto.
+   Aplica **igual** a `POST /checkout/guest/quote` (§4-G.1) — mismo snapshot, mismo bug.
+   Mientras tanto: mock alineado a la realidad + un `as unknown as` acotado y comentado en el punto
+   exacto de la divergencia (`api.ts`), más el test que la pinea.
+2. **`productType` / `rawCondition` en el preview del quote**: hoy viven dentro de `card` en el
+   backend y al nivel del ítem en el tipo del front. Al cerrar el punto 1, decidir dónde van (no lo
+   asumo).
+
+### 34.8 Verificación
+
+- `npm install` ✔ (exit 0) · `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔
+  (`tsc --noEmit`, sin salida) · `npm run test` ✔ **849/849 en 96 archivos** · `npm run build` ✔.
+- Base antes de este pase: **842/94** (la de §33.5). Delta **+7 tests, +2 archivos**, ninguna prueba
+  retirada ni debilitada:
+  - `CardImage.test.tsx` **+5**: el default sigue en `lazy` y sin `fetchpriority` (candado de
+    no-regresión para las 14 superficies existentes) · `priority` ⇒ `eager` + `fetchpriority=high` ·
+    `decoding="async"` siempre · `priority` pinta sin esperar al `onLoad` y sin `priority` conserva
+    el fade · **cero avisos de React** por props desconocidas.
+  - `api.checkout-quote.test.ts` **+2**: llaves exactas del snapshot y ausencia de imagen.
+- **El `preconnect` se verificó en el HTML servido**, no solo en el JSX: `next build` + `next start`
+  + `curl /es` ⇒ los dos `<link>` salen **dentro de `<head>`** (offset 23 959, `<body` en 24 163).
+  Importaba comprobarlo: con React 18 no hay hoisting de `<link>`, por eso van en el `<head>`
+  explícito del layout raíz y no en un layout de grupo.
+- Cero tokens nuevos, cero componentes nuevos, cero cambios de contrato, cero escrituras fuera de
+  `frontend/` y este archivo. `next/image` sigue sin adoptarse y `next.config.mjs` sin tocar.
